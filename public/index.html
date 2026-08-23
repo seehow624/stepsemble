@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en" data-design-theme="ink-ivory">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>Pi Web</title>
+<meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="/manifest.webmanifest?v=1.11.4">
+<link rel="icon" href="/pi-logo.svg?v=1.11.4" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png?v=1.11.4">
+<link rel="stylesheet" href="/style.css?v=1.11.4">
+</head>
+<body>
+
+<svg class="icon-sprite" aria-hidden="true">
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.1h-4v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1-2.8-2.8.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 2.8-2.8.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6V3h4v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1 2.8 2.8-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v4h-.1a1.7 1.7 0 0 0-1.6 1Z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.9-3M4 5v4h4M4 13a8 8 0 0 0 14.9 3M20 19v-4h-4"/></symbol>
+  <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
+  <symbol id="i-ellipsis" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></symbol>
+  <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m8.5 12.5 6.9-6.9a3.2 3.2 0 1 1 4.5 4.5l-8.7 8.7a5 5 0 0 1-7.1-7.1l8.4-8.4"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="m4 4 16 8-16 8 3.5-8zM7.5 12H20"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="m4 20 4.4-1 10-10a2.2 2.2 0 0 0-3.1-3.1l-10 10zM13.8 7.2l3 3"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.5h6l2 2h9v8.75A2.25 2.25 0 0 1 18.25 20h-12A2.25 2.25 0 0 1 4 18.25zM3.5 7.5V5.75A1.75 1.75 0 0 1 5.25 4h4l2 2h7.5A2.25 2.25 0 0 1 21 8.25v1.25"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11a2 2 0 0 1 2 2v15a2 2 0 0 0-2-2H6.5A2.5 2.5 0 0 0 4 20.5zM20 5.5A2.5 2.5 0 0 0 17.5 3H13v15a2 2 0 0 1 2-2h2.5A2.5 2.5 0 0 1 20 18.5z"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M12.5 15H17"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></symbol>
+  <symbol id="i-folder-filled" viewBox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2h6.5A2.5 2.5 0 0 1 21 8.5v8A3.5 3.5 0 0 1 17.5 20h-12A2.5 2.5 0 0 1 3 17.5z"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-7 9 7M5 10v10h14V10M9 20v-6h6v6"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13.5 13.5 10M8 16H6.5a3.5 3.5 0 0 1 0-7H10M14 8h3.5a3.5 3.5 0 0 1 0 7H14"/></symbol>
+</svg>
+
+<!-- Login -->
+<div id="login" class="overlay hidden">
+  <div class="login-card">
+    <div class="login-mark official-mark"><img src="/pi-logo.svg?v=1.11.4" alt="Pi"></div>
+    <h1>Pi Web</h1>
+    <p class="login-machine" id="login-machine"></p>
+    <form id="login-form">
+      <input id="login-token" type="password" inputmode="text" autocomplete="current-password"
+             placeholder="Token" required>
+      <button type="submit" class="btn primary">Sign in</button>
+      <p id="login-error" class="error hidden"></p>
+    </form>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app" class="hidden">
+
+  <!-- ===== View: Sessions list ===== -->
+  <main id="view-list" class="view">
+    <header class="topbar">
+      <div class="machine-switch-wrap">
+        <select id="machine-switch" class="machine-select" title="Switch device" aria-label="Switch device"></select>
+      </div>
+      <button id="btn-open-settings" class="btn ghost icon-btn" title="Settings" aria-label="Settings"><svg class="icon"><use href="#i-settings"></use></svg></button>
+      <!-- Keep the legacy node for backwards-compatible event binding. -->
+      <button id="btn-new" class="btn ghost icon-btn hidden" title="New conversation" aria-label="New conversation" tabindex="-1"><svg class="icon"><use href="#i-plus"></use></svg></button>
+    </header>
+    <button id="btn-new-project" class="new-project-card" type="button">
+      <span class="new-project-icon"><svg class="icon"><use href="#i-plus"></use></svg></span>
+      <span class="new-project-copy"><strong>New project</strong><small>Choose a folder to start a conversation</small></span>
+      <svg class="icon trailing"><use href="#i-chevron-right"></use></svg>
+    </button>
+    <div id="pull-indicator"><span class="pull-arrow">↓</span></div>
+    <div class="session-section-heading">
+      <span class="session-heading-title">Sessions</span>
+      <span class="session-heading-actions">
+        <span id="session-count" class="session-count">0</span>
+        <button id="btn-refresh" class="icon-button-small" title="Refresh" aria-label="Refresh"><svg class="icon"><use href="#i-refresh"></use></svg></button>
+        <button id="btn-layout" class="icon-button-small" title="Toggle project grouping" aria-label="Toggle project grouping"><svg class="icon"><use href="#i-grid"></use></svg></button>
+      </span>
+    </div>
+    <div class="list-toolbar">
+      <input id="search" type="search" placeholder="Search sessions…">
+    </div>
+    <ul id="session-list" class="session-list"></ul>
+    <p id="list-empty" class="empty hidden">No sessions on this device.<br><span class="empty-sub">Choose a folder from New project to begin</span></p>
+    <!-- New project entry stays above the sessions list. -->
+    <button id="fab-new" class="fab hidden" title="New conversation" aria-label="New conversation" tabindex="-1"><svg class="icon"><use href="#i-plus"></use></svg></button>
+  </main>
+
+  <!-- ===== View: Conversation ===== -->
+  <main id="view-chat" class="view overlay-view hidden">
+    <header class="topbar chat-topbar">
+      <button id="btn-back" class="btn ghost icon-btn" title="Back to sessions" aria-label="Back to sessions"><svg class="icon"><use href="#i-arrow-left"></use></svg></button>
+      <div class="chat-head-info" id="chat-head-info">
+        <div id="chat-title" class="chat-title">New conversation</div>
+        <div id="chat-sub" class="chat-sub"></div>
+      </div>
+      <span id="thinking-status" class="thinking-status hidden" aria-live="polite">thinking</span>
+      <span id="stream-dot" class="dot hidden" title="Agent is working"></span>
+      <button id="btn-chat-menu" class="btn ghost icon-btn" title="More" aria-label="More"><svg class="icon"><use href="#i-ellipsis"></use></svg></button>
+    </header>
+    <div id="messages" class="messages">
+      <div id="chat-empty" class="chat-empty">
+        <div class="login-mark official-mark"><img src="/pi-logo.svg?v=1.11.4" alt="Pi"></div>
+        <p>Select a session,<br>or start a new conversation</p>
+      </div>
+    </div>
+    <div id="queue-note" class="queue-note hidden" role="status" aria-live="polite"></div>
+    <footer class="composer">
+      <button id="scroll-bottom-btn" class="scroll-bottom-btn hidden" type="button" title="Jump to latest" aria-label="Jump to latest">
+        <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"></use></svg><span>Latest</span>
+      </button>
+      <div id="img-preview" class="img-preview hidden"></div>
+      <div class="composer-inner">
+        <div class="composer-wrap">
+          <div id="slash-menu" class="slash-menu hidden"></div>
+          <textarea id="input" rows="1" placeholder="Message pi… (/ for commands, paste images directly)"></textarea>
+        </div>
+        <div class="composer-toolbar" aria-label="Conversation tools">
+          <button id="btn-img" class="btn ghost icon-btn composer-icon-btn" title="Add attachment" aria-label="Add attachment"><svg class="icon"><use href="#i-paperclip"></use></svg></button>
+          <button id="btn-model" class="composer-control composer-model-control" type="button" title="Choose model" aria-label="Choose model"><span id="composer-model-label">Server default</span><svg class="icon"><use href="#i-chevron-down"></use></svg></button>
+          <label class="composer-control composer-thinking-control">
+            <select id="composer-thinking" aria-label="Thinking level">
+              <option value="off">off</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option><option value="max">max</option>
+            </select>
+          </label>
+          <button id="btn-abort" class="btn danger composer-send hidden" type="button" title="Stop" aria-label="Stop"><svg class="icon"><use href="#i-stop"></use></svg></button>
+          <button id="btn-send" class="btn primary composer-send" type="button" title="Send" aria-label="Send"><svg class="icon"><use href="#i-send"></use></svg></button>
+        </div>
+      </div>
+      <input id="file-input" type="file" accept="image/*" multiple class="hidden">
+    </footer>
+  </main>
+
+  <!-- ===== View: Settings ===== -->
+  <main id="view-settings" class="view overlay-view hidden">
+    <header class="topbar">
+      <button id="btn-settings-back" class="btn ghost icon-btn" title="Back" aria-label="Back"><svg class="icon"><use href="#i-arrow-left"></use></svg></button>
+      <span class="topbar-title">Settings</span>
+      <span class="topbar-spacer"></span>
+    </header>
+    <div class="settings-scroll">
+
+      <section class="settings-group">
+        <div class="settings-group-heading machine-settings-heading">
+          <h3 class="group-title">Devices</h3>
+          <div class="machine-heading-actions">
+            <button id="machine-pair" class="icon-button-small" type="button" title="Join with pairing code" aria-label="Join with pairing code"><svg class="icon"><use href="#i-link"></use></svg></button>
+            <button id="machine-add" class="icon-button-small" type="button" title="Add device" aria-label="Add device"><svg class="icon"><use href="#i-plus"></use></svg></button>
+          </div>
+        </div>
+        <div id="machine-list" class="machine-list"></div>
+        <p class="settings-note">To add another Pi Agent computer, run Pi Web there and enter its Tailscale or HTTPS address. You can also use a one-time pairing code. Both devices must use the same Web token.</p>
+      </section>
+
+      <section class="settings-group">
+        <h3 class="group-title">Connection</h3>
+        <div class="settings-row">
+          <span><strong>This device</strong><small id="set-machine-name">Loading…</small></span>
+          <span class="settings-value" id="set-machine-host">—</span>
+        </div>
+        <div class="settings-row">
+          <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
+          <span class="settings-value mono" id="set-pi-version">—</span>
+        </div>
+        <div class="settings-row">
+          <span><strong>Total sessions</strong><small>All sessions on this device</small></span>
+          <span class="settings-value" id="set-session-count">—</span>
+        </div>
+        <button id="btn-logout" class="settings-row settings-button-row danger-text" type="button">
+          <span><strong>Sign out</strong><small>Clear this browser's sign-in state</small></span>
+          <span class="row-chevron">→</span>
+        </button>
+      </section>
+
+      <section class="settings-group">
+        <h3 class="group-title">Updates</h3>
+        <label class="settings-row settings-toggle-row">
+          <span><strong>Automatic updates</strong><small id="update-status-copy">Check GitHub and update this device periodically</small></span>
+          <span class="toggle"><input id="set-auto-update" type="checkbox"><span class="toggle-track"></span></span>
+        </label>
+        <button id="update-check" class="settings-row settings-button-row" type="button">
+          <span><strong>Check for updates</strong><small id="update-check-status">Checking updater status…</small></span>
+          <span class="row-chevron">→</span>
+        </button>
+      </section>
+
+      <section class="settings-group">
+        <h3 class="group-title">Interface</h3>
+        <label class="settings-row settings-select-row">
+          <span><strong>Language</strong><small>Choose the language used by Pi Web</small></span>
+          <select id="set-locale" aria-label="Language">
+            <option value="en">English</option>
+            <option value="zh-Hans">Simplified Chinese</option>
+            <option value="zh-Hant">Traditional Chinese</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+            <option value="tr">Turkish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="es">Spanish</option>
+            <option value="pt-BR">Portuguese (Brazil)</option>
+            <option value="it">Italian</option>
+          </select>
+        </label>
+        <label class="settings-row settings-select-row">
+          <span><strong>Appearance</strong><small>Light, dark, or follow system</small></span>
+          <select id="set-theme">
+            <option value="auto">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+        <div class="settings-row settings-theme-row">
+          <span><strong>Design theme</strong><small>Choose a complete colour system</small></span>
+          <div id="theme-choices" class="theme-choices" role="radiogroup" aria-label="Design theme"></div>
+        </div>
+        <label class="settings-row settings-toggle-row">
+          <span><strong>Compact list</strong><small>Show sessions with less spacing</small></span>
+          <span class="toggle"><input id="set-compact" type="checkbox"><span class="toggle-track"></span></span>
+        </label>
+        <label class="settings-row settings-range-row">
+          <span><strong>Desktop sidebar width</strong><small>Desktop only; mobile always uses full width</small></span>
+          <span class="range-control"><input id="set-sidebar-width" type="range" min="280" max="440" step="8"><output id="set-sidebar-width-value">336px</output></span>
+        </label>
+        <label class="settings-row settings-range-row">
+          <span><strong>Text size</strong><small>Adjust interface text for readability</small></span>
+          <span class="range-control"><input id="set-font-scale" type="range" min="90" max="125" step="5"><output id="set-font-scale-value">100%</output></span>
+        </label>
+        <label class="settings-row settings-toggle-row">
+          <span><strong>Group by project</strong><small>Group sessions by working directory</small></span>
+          <span class="toggle"><input id="set-group" type="checkbox"><span class="toggle-track"></span></span>
+        </label>
+        <label class="settings-row settings-toggle-row">
+          <span><strong>Reduce motion</strong><small>Reduce transitions and scrolling animations</small></span>
+          <span class="toggle"><input id="set-reduced-motion" type="checkbox"><span class="toggle-track"></span></span>
+        </label>
+        <label class="settings-row settings-select-row">
+          <span><strong>Thinking blocks</strong><small>Default state for assistant thinking blocks</small></span>
+          <select id="set-thinking">
+            <option value="collapsed">Collapsed</option>
+            <option value="open">Expanded</option>
+          </select>
+        </label>
+        <div class="settings-row settings-select-row">
+          <span><strong>Swipe gesture</strong><small>Swipe from the left edge in a conversation to go back</small></span>
+          <span class="settings-value" style="color:var(--ok)">Enabled</span>
+        </div>
+      </section>
+
+      <section class="settings-group model-settings-entry-group">
+        <button id="model-settings-open" class="settings-navigation-row" type="button">
+          <span><strong>Models &amp; providers</strong><small id="model-settings-summary">Manage visible models and custom providers</small></span>
+          <span class="row-chevron">→</span>
+        </button>
+      </section>
+
+      <section class="settings-group">
+        <h3 class="group-title">About</h3>
+        <div class="settings-row">
+          <span><strong>Pi Web</strong><small>Mobile-first remote workspace for Pi</small></span>
+          <span class="settings-value">v1.11.4</span>
+        </div>
+        <div class="settings-row">
+          <span><strong>Gesture tips</strong><small>Pull down to refresh; swipe from the left edge to go back; long-press a session to rename or delete</small></span>
+          <span></span>
+        </div>
+        <button id="btn-reset-settings" class="settings-row settings-button-row" type="button">
+          <span><strong>Restore interface defaults</strong><small>Clear theme, density, and model visibility preferences</small></span>
+          <span class="row-chevron">↺</span>
+        </button>
+      </section>
+
+      <p class="settings-footer">Pi Web · self-hosted on your tailnet</p>
+    </div>
+  </main>
+
+  <!-- ===== View: Models & providers ===== -->
+  <main id="view-model-settings" class="view overlay-view hidden">
+    <header class="topbar">
+      <button id="btn-model-settings-back" class="btn ghost icon-btn" title="Back to settings" aria-label="Back to settings"><svg class="icon"><use href="#i-arrow-left"></use></svg></button>
+      <span class="topbar-title">Models &amp; providers</span>
+      <span class="topbar-spacer"></span>
+    </header>
+    <div class="settings-scroll model-settings-scroll">
+      <section class="settings-group model-settings-group model-settings-detail">
+        <div class="settings-group-heading">
+          <div>
+            <h3 class="group-title">Models &amp; providers</h3>
+            <p class="settings-note">Manage visible models and custom providers in one list.</p>
+          </div>
+          <div class="settings-heading-actions">
+            <button id="provider-add" class="icon-button-small" type="button" title="Add provider" aria-label="Add provider"><svg class="icon"><use href="#i-plus"></use></svg></button>
+            <button id="model-visibility-refresh" class="icon-button-small" type="button" title="Reload models" aria-label="Reload models"><svg class="icon"><use href="#i-refresh"></use></svg></button>
+          </div>
+        </div>
+        <div class="model-list-toolbar">
+          <input id="model-filter" type="search" autocomplete="off" spellcheck="false" placeholder="Search providers or models…" aria-label="Search providers or models">
+          <span id="model-list-summary" class="model-list-summary">—</span>
+        </div>
+        <div id="model-visibility-list" class="model-visibility-list"><p class="settings-note">Loading model list…</p></div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Add / edit remote device -->
+  <div id="machine-dialog" class="sheet-layer hidden">
+    <div class="sheet machine-dialog">
+      <div class="sheet-handle"></div>
+      <div class="sheet-heading-row">
+        <div><p class="eyebrow">PI AGENT DEVICE</p><h2 id="machine-dialog-title">Add device</h2></div>
+        <button id="machine-cancel" class="btn ghost icon-btn" type="button" title="Close" aria-label="Close"><svg class="icon"><use href="#i-x"></use></svg></button>
+      </div>
+      <p class="settings-note machine-dialog-note">Each device must run Pi Web (default port 3140) with this Web token. Use a Tailscale Serve or HTTPS URL reachable from this device.</p>
+      <div id="machine-standard-fields">
+        <label class="field-label" for="machine-name">Device name</label>
+        <input id="machine-name" type="text" maxlength="80" autocomplete="off" placeholder="e.g. Work computer">
+        <label class="field-label" for="machine-url">Pi Web URL</label>
+        <input id="machine-url" type="url" maxlength="500" autocomplete="url" placeholder="https://host.example or http://…:3140">
+        <label id="machine-port-label" class="field-label hidden" for="machine-port">Local Pi Web port</label>
+        <input id="machine-port" class="hidden" type="number" min="1024" max="65535" step="1" inputmode="numeric" placeholder="3140">
+        <label class="field-label" for="machine-host">Host name (optional)</label>
+        <input id="machine-host" type="text" maxlength="255" autocomplete="off" placeholder="e.g. office-laptop">
+      </div>
+      <p id="machine-status-note" class="settings-note machine-status-note" role="status"></p>
+      <p id="machine-form-error" class="form-error hidden" role="alert"></p>
+      <div id="machine-pair-area" class="machine-pair-area hidden">
+        <p class="settings-note">Generate a pairing code in the other Pi Web device settings and paste it here. Codes expire after 5 minutes and can only be used once.</p>
+        <label class="field-label" for="machine-pair-code">One-time pairing code</label>
+        <textarea id="machine-pair-code" rows="4" spellcheck="false" autocomplete="off" placeholder="PIWEB1.…"></textarea>
+        <button id="machine-pair-join" class="btn primary" type="button">Verify and add</button>
+      </div>
+      <div id="machine-pair-offer-area" class="machine-pair-offer-area hidden">
+        <label class="field-label" for="machine-pair-offer">Pairing code for another device</label>
+        <textarea id="machine-pair-offer" rows="3" readonly spellcheck="false"></textarea>
+        <button id="machine-pair-generate" class="btn ghost" type="button">Generate new pairing code</button>
+      </div>
+      <button id="machine-restart" class="btn ghost machine-restart hidden" type="button">Restart Pi Web</button>
+      <div class="sheet-actions">
+        <button id="machine-delete" class="btn ghost danger-text hidden" type="button">Delete device</button>
+        <span class="sheet-actions-spacer"></span>
+        <button id="machine-cancel-bottom" class="btn ghost" type="button">Cancel</button>
+        <button id="machine-test" class="btn ghost" type="button">Test connection</button>
+        <button id="machine-save" class="btn primary" type="button">Save device</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Provider selection / custom editor -->
+  <div id="provider-dialog" class="sheet-layer hidden">
+    <div class="sheet provider-dialog">
+      <div class="sheet-handle"></div>
+      <div class="sheet-heading-row">
+        <div><p class="eyebrow">MODEL PROVIDER</p><h2 id="provider-dialog-title">Add provider</h2></div>
+        <button id="provider-cancel" class="btn ghost icon-btn" type="button" title="Close" aria-label="Close"><svg class="icon"><use href="#i-x"></use></svg></button>
+      </div>
+      <div id="provider-simple-flow">
+        <p class="settings-note provider-dialog-note">Choose a service, then sign in or provide an API key. Pi handles the technical setup.</p>
+        <input id="provider-filter" class="provider-filter" type="search" autocomplete="off" spellcheck="false" placeholder="Search providers…" aria-label="Search providers">
+        <div id="provider-preset-list" class="provider-preset-list" role="listbox" aria-label="Provider list">
+          <p class="settings-note">Loading provider list…</p>
+        </div>
+        <div id="provider-auth-options" class="provider-auth-options hidden">
+          <div class="provider-selected-copy">
+            <strong id="provider-selected-name">Choose a service</strong>
+            <span id="provider-selected-description"></span>
+          </div>
+          <button id="provider-auth-account" class="settings-navigation-row hidden" type="button">
+            <span><strong>Sign in with an account</strong><small>Open the official sign-in flow; credentials stay on this device</small></span>
+            <span class="row-chevron">→</span>
+          </button>
+          <button id="provider-auth-api" class="settings-navigation-row hidden" type="button">
+            <span><strong>Use an API key</strong><small>Paste a key from this service and Pi will configure it</small></span>
+            <span class="row-chevron">→</span>
+          </button>
+          <div id="provider-api-key-entry" class="provider-api-key-entry hidden">
+            <label class="field-label" for="provider-simple-api-key">API key</label>
+            <input id="provider-simple-api-key" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" placeholder="Paste API key">
+            <p class="settings-note">The key is stored only on this device. Pi will validate it and load available models.</p>
+            <div class="provider-key-actions">
+              <button id="provider-api-key-back" class="btn ghost" type="button">Back</button>
+              <button id="provider-api-key-save" class="btn primary" type="button">Save and check</button>
+            </div>
+          </div>
+          <button id="provider-free-start" class="settings-navigation-row hidden" type="button">
+            <span><strong>Use directly</strong><small>No account or API key required; Pi reads local models</small></span>
+            <span class="row-chevron">→</span>
+          </button>
+          <button id="provider-auth-remove" class="btn ghost danger-text hidden" type="button">Remove sign-in</button>
+          <button id="provider-auth-back" class="btn ghost provider-auth-back" type="button">Back to provider list</button>
+        </div>
+        <p id="provider-simple-status" class="settings-note provider-simple-status" role="status"></p>
+        <button id="provider-switch-device" class="btn ghost provider-switch-device hidden" type="button">Switch device</button>
+        <button id="provider-advanced-toggle" class="provider-advanced-entry" type="button">
+          <span class="provider-advanced-icon"><svg class="icon"><use href="#i-settings"></use></svg></span>
+          <span class="provider-advanced-copy"><strong>Custom provider</strong><small>For self-hosted endpoints or special APIs</small></span>
+          <span class="row-chevron">→</span>
+        </button>
+      </div>
+
+      <div id="provider-advanced-fields" class="hidden">
+        <p class="settings-note provider-dialog-note">Advanced settings are saved in <span class="mono">~/.pi/agent/models.json</span>. For regular services, go back and choose one instead.</p>
+        <label class="field-label" for="provider-id">Provider ID</label>
+        <input id="provider-id" type="text" maxlength="64" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="e.g. ollama-local">
+        <label class="field-label" for="provider-api">API type</label>
+        <select id="provider-api">
+          <option value="openai-completions">OpenAI Completions</option>
+          <option value="openai-responses">OpenAI Responses</option>
+          <option value="anthropic-messages">Anthropic Messages</option>
+          <option value="google-generative-ai">Google Generative AI</option>
+        </select>
+        <label class="field-label" for="provider-base-url">Base URL</label>
+        <input id="provider-base-url" type="url" maxlength="500" autocomplete="url" spellcheck="false" placeholder="https://api.example.com/v1">
+        <label class="field-label" for="provider-api-key">API key (optional)</label>
+        <input id="provider-api-key" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" placeholder="You may use $ENV_VAR or !command">
+        <label class="field-label" for="provider-models">Models (one per line; use <span class="mono">model-id | display name</span>)</label>
+        <textarea id="provider-models" rows="5" spellcheck="false" placeholder="llama3.1:8b | Llama 3.1 8B&#10;llama3.2:3b | Llama 3.2 3B"></textarea>
+      </div>
+      <p id="provider-form-error" class="form-error hidden" role="alert"></p>
+      <div class="sheet-actions">
+        <button id="provider-delete" class="btn ghost danger-text hidden" type="button">Delete provider</button>
+        <span class="sheet-actions-spacer"></span>
+        <button id="provider-cancel-bottom" class="btn ghost" type="button">Cancel</button>
+        <button id="provider-save" class="btn primary hidden" type="button">Save provider</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- New project / location picker -->
+  <div id="new-dialog" class="sheet-layer hidden">
+    <div class="sheet project-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-heading-row">
+        <div><p class="eyebrow">NEW PROJECT</p><h2>Choose a project folder</h2></div>
+        <button id="new-cancel" class="btn ghost icon-btn" type="button" title="Close" aria-label="Close">×</button>
+      </div>
+      <div class="project-location-toolbar">
+        <button id="new-folder-up" class="btn ghost icon-btn" type="button" title="Parent folder" aria-label="Parent folder"><svg class="icon"><use href="#i-arrow-left"></use></svg></button>
+        <button id="new-folder-home" class="btn ghost icon-btn" type="button" title="Home folder" aria-label="Home folder"><svg class="icon"><use href="#i-home"></use></svg></button>
+        <span id="new-folder-path" class="project-folder-path">Loading…</span>
+      </div>
+      <div id="new-folder-list" class="project-folder-list"></div>
+      <label class="field-label">Selected location</label>
+      <input id="new-cwd" type="text" spellcheck="false" readonly placeholder="Choose a folder">
+      <label class="field-label">Session name (optional)</label>
+      <input id="new-name" type="text" placeholder="e.g. Project QA">
+      <div class="sheet-actions">
+        <button id="new-start" class="btn primary" type="button">Start here</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Session actions sheet -->
+  <div id="session-action-sheet" class="sheet-layer hidden">
+    <div class="sheet action-sheet">
+      <h2 id="sa-title" class="sa-title">Session</h2>
+      <button id="sa-model" class="action-row" type="button">⚡ Model &amp; reasoning…</button>
+      <button id="sa-rename" class="action-row" type="button">✏️ Rename</button>
+      <button id="sa-delete" class="action-row danger-text" type="button">🗑 Delete (move to Trash)</button>
+      <button id="sa-cancel" class="action-row cancel" type="button">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Model / reasoning sheet -->
+  <div id="model-sheet" class="sheet-layer hidden">
+    <div class="sheet action-sheet model-dialog">
+      <div class="sheet-heading-row model-heading">
+        <h2 class="sa-title">Model &amp; reasoning</h2>
+        <button id="model-close" class="icon-button-small sheet-close" type="button" title="Close" aria-label="Close model menu"><svg class="icon"><use href="#i-x"></use></svg></button>
+      </div>
+      <div id="model-list"><p style="padding:12px 4px;color:var(--pine-soft);font-size:13.5px">Loading…</p></div>
+      <label class="field-label" for="thinking-select">Thinking level</label>
+      <select id="thinking-select">
+        <option value="off">off</option>
+        <option value="minimal">minimal</option>
+        <option value="low">low</option>
+        <option value="medium">medium</option>
+        <option value="high">high</option>
+        <option value="xhigh">xhigh</option>
+        <option value="max">max</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Pi RPC extension UI request：confirm / select / input / editor -->
+  <div id="extension-ui-sheet" class="sheet-layer hidden">
+    <div class="sheet extension-ui-sheet">
+      <div class="sheet-handle"></div>
+      <p id="extension-ui-kind" class="eyebrow">PI REQUEST</p>
+      <h2 id="extension-ui-title">Your response is needed</h2>
+      <p id="extension-ui-message" class="extension-ui-message"></p>
+      <div id="extension-ui-options" class="extension-ui-options"></div>
+      <input id="extension-ui-input" class="hidden" type="text">
+      <textarea id="extension-ui-editor" class="hidden" rows="6"></textarea>
+      <div class="sheet-actions">
+        <button id="extension-ui-cancel" class="btn ghost" type="button">Cancel</button>
+        <button id="extension-ui-submit" class="btn primary hidden" type="button">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rename dialog -->
+  <div id="rename-dialog" class="sheet-layer hidden">
+    <div class="sheet">
+      <h2>Rename</h2>
+      <input id="rename-input" type="text" maxlength="120" placeholder="New name">
+      <div class="sheet-actions">
+        <button id="rename-cancel" class="btn ghost">Cancel</button>
+        <button id="rename-save" class="btn primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- toast -->
+  <div id="toast-wrap" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Conversation image lightbox -->
+  <div id="image-lightbox" class="image-lightbox hidden" role="dialog" aria-modal="true" aria-label="Image viewer">
+    <button id="image-lightbox-close" class="image-lightbox-close" type="button" title="Close image" aria-label="Close image">
+      <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>
+    </button>
+    <div class="image-lightbox-stage">
+      <img id="image-lightbox-img" class="image-lightbox-img" alt="">
+      <p id="image-lightbox-caption" class="image-lightbox-caption"></p>
+    </div>
+  </div>
+</div>
+
+<script src="/vendor/marked.min.js"></script>
+<script src="/vendor/purify.min.js"></script>
+<script src="/i18n.js?v=1.11.4"></script>
+<script src="/app.js?v=1.11.4"></script>
+</body>
+</html>

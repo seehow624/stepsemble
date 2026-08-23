@@ -1,0 +1,217 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const root = path.resolve(__dirname, "..");
+
+test("server and browser bundles are valid JavaScript", () => {
+  execFileSync(process.execPath, ["--check", path.join(root, "server.js")]);
+  execFileSync(process.execPath, ["--check", path.join(root, "public", "app.js")]);
+});
+
+test("deployment templates do not contain a committed token", () => {
+  const files = [
+    path.join(root, "deploy", "com.piweb.server.plist"),
+    path.join(root, "deploy", "com.piweb.updater.plist"),
+  ];
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf8");
+    assert.doesNotMatch(content, /<key>PI_WEB_TOKEN<\/key>/i);
+  }
+});
+
+test("service worker never intercepts API or relay requests", () => {
+  const sw = fs.readFileSync(path.join(root, "public", "sw.js"), "utf8");
+  assert.ok(sw.includes('url.pathname.startsWith("/api/")'));
+  assert.ok(sw.includes('url.pathname.startsWith("/r/")'));
+});
+
+test("Pi run failures stay visible in live and historical GUI paths", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  assert.match(server, /wire\.errorMessage/);
+  assert.match(app, /case "agent_end"/);
+  assert.match(app, /function isFailureMessage/);
+  assert.match(app, /className = "run-error"/);
+});
+
+test("chat image attachments are wired to a safe preview and lightbox", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  assert.match(server, /function imagePartToWire/);
+  assert.match(server, /wire\.imageAttachments = attachments/);
+  assert.match(app, /function appendImageGallery/);
+  assert.match(app, /function openImageLightbox/);
+  assert.match(html, /id="image-lightbox"/);
+  assert.match(css, /\.image-lightbox-img/);
+});
+
+test("model settings expose a unified provider list without returning secrets", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  assert.match(server, /MODEL_CONFIG_FILE/);
+  assert.match(server, /\/api\/model-providers/);
+  assert.match(server, /hasApiKey/);
+  assert.match(server, /deleteModelProvider/);
+  assert.match(server, /PROVIDER_PRESETS/);
+  assert.match(server, /FREE_PROVIDER_PRESETS/);
+  assert.match(server, /GENERIC_PROVIDER_PRESETS/);
+  assert.match(server, /NOUS_PORTAL_BASE_URL/);
+  assert.match(server, /loginNousProvider/);
+  assert.match(server, /\/api\/provider-auth\/start/);
+  assert.match(server, /\/api\/provider-auth\/delete/);
+  assert.match(server, /\/api\/provider-free\/setup/);
+  assert.match(server, /AuthStorage\.create/);
+  assert.match(app, /function openProviderDialog/);
+  assert.match(app, /providerCatalogReadOnly/);
+  assert.match(app, /older Pi Web/);
+  assert.match(app, /Provider management requires Pi Web 1\.10\.5/);
+  assert.match(app, /function beginProviderAuth/);
+  assert.match(app, /function renderProviderPresets/);
+  assert.match(app, /PROVIDER_CATEGORY_META/);
+  assert.match(app, /providerFilter/);
+  assert.match(app, /找不到/);
+  assert.match(app, /function beginFreeProvider/);
+  assert.match(app, /function renderModelVisibility/);
+  assert.match(app, /function showModelSettings/);
+  assert.match(html, /id="provider-add"/);
+  assert.match(html, /id="model-filter"/);
+  assert.match(html, /id="provider-dialog"/);
+  assert.match(html, /id="provider-preset-list"/);
+  assert.match(html, /id="provider-filter"/);
+  assert.match(html, /id="provider-auth-account"/);
+  assert.match(html, /id="provider-auth-api"/);
+  assert.match(html, /id="provider-free-start"/);
+  assert.match(html, /id="provider-auth-remove"/);
+  assert.match(html, /id="provider-switch-device"/);
+  assert.match(app, /providerSwitchDevice/);
+  assert.match(app, /switchMachine\(selfId, true\)/);
+  assert.match(html, /id="provider-advanced-toggle"/);
+  assert.match(html, /id="view-model-settings"/);
+  assert.match(html, /id="model-settings-open"/);
+});
+
+test("Mini launcher never pkills active pi-web processes", () => {
+  const launcher = fs.readFileSync(path.join(root, "deploy", "pi-web-mini-start.sh"), "utf8");
+  assert.doesNotMatch(launcher, /\bpkill\s+-f\b/);
+  assert.match(launcher, /isStreaming/);
+});
+
+test("device settings support stable aliases, port changes, health checks, and one-time pairing", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const launcher = fs.readFileSync(path.join(root, "deploy", "pi-web-mini-start.sh"), "utf8");
+  assert.match(server, /DEVICE_CONFIG_FILE/);
+  assert.match(server, /\/api\/device-settings/);
+  assert.match(server, /\/api\/device-restart/);
+  assert.match(server, /\/api\/device-pairing\/start/);
+  assert.match(server, /\/api\/machines\/pair/);
+  assert.match(server, /function createPairingOffer/);
+  assert.match(app, /function refreshMachineStatuses/);
+  assert.match(app, /function fetchMachineStatusEndpoint/);
+  assert.match(app, /Older Pi Web instances do not expose \/api\/health/);
+  assert.match(app, /\/api\/machine/);
+  assert.match(app, /function generateMachinePairingOffer/);
+  assert.match(app, /function restartMachineWeb/);
+  assert.match(html, /id="machine-port"/);
+  assert.match(html, /id="machine-test"/);
+  assert.match(html, /id="machine-pair-code"/);
+  assert.match(launcher, /device_config/);
+});
+
+test("project folder browsing can move from a home root to configured volumes", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  assert.match(server, /function browseRootEntries/);
+  assert.match(server, /const isRootPicker = BROWSE_ROOTS\.length > 0/);
+  assert.match(server, /isConfiguredBrowseRoot\(dir\) \? filesystemRoot/);
+  assert.match(server, /browse\s+roots/);
+  assert.match(app, /el\.newFolderUp\.addEventListener\("click"/);
+  assert.match(app, /loadProjectFolder\(projectFolder\.parent\)/);
+});
+
+test("provider catalog keeps MiniMax regions separate and exposes a direct API key form", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  assert.match(server, /id: "minimax".*api\.minimax\.io/);
+  assert.match(server, /id: "minimax-cn".*api\.minimaxi\.com/);
+  assert.match(server, /cleanProviderApiKey/);
+  assert.match(server, /suppliedApiKey/);
+  assert.match(app, /function showProviderApiKeyEntry/);
+  assert.match(app, /function saveProviderApiKey/);
+  assert.match(html, /id="provider-simple-api-key"/);
+  assert.match(html, /provider-advanced-entry/);
+  assert.match(css, /provider-simple-status\.is-readonly/);
+  assert.match(css, /provider-auth-back::before/);
+  assert.match(css, /max-height: 10000px/);
+});
+
+test("localization is English-first with an explicit locale selector and safe fallback", () => {
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  assert.match(html, /<html lang="en"(?:\s|>)/);
+  assert.match(html, /id="set-locale"/);
+  assert.match(html, /value="zh-Hans"/);
+  assert.match(html, /value="zh-Hant"/);
+  assert.match(html, /value="ja"/);
+  assert.match(html, /value="ko"/);
+  assert.match(html, /value="tr"/);
+  assert.match(html, /value="fr"/);
+  assert.match(html, /value="de"/);
+  assert.doesNotMatch(html, /[\u3400-\u9fff]/);
+  assert.match(i18n, /const LOCALES/);
+  assert.match(i18n, /locale = "en"/);
+  assert.match(i18n, /sourceToEnglish/);
+  assert.match(i18n, /safe fallback/);
+  assert.match(i18n, /i18nAriaLabel/);
+  assert.match(i18n, /getAttribute\(attr\) !== translated/);
+  assert.match(i18n, /root\.nodeType !== Node\.ELEMENT_NODE/);
+  assert.match(app, /locale: "en"/);
+  assert.match(app, /designTheme: "ink-ivory"/);
+  assert.match(app, /setLocale/);
+  assert.doesNotMatch(html, /private-brand|internal-only/i);
+});
+
+test("automatic updates use a public GitHub source and launchd without touching Pi data", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const updater = fs.readFileSync(path.join(root, "deploy", "pi-web-update.sh"), "utf8");
+  const plist = fs.readFileSync(path.join(root, "deploy", "com.piweb.updater.plist"), "utf8");
+  assert.match(server, /UPDATE_CONFIG_FILE/);
+  assert.match(server, /\/api\/update\/status/);
+  assert.match(server, /\/api\/update\/settings/);
+  assert.match(server, /\/api\/update\/run/);
+  assert.match(app, /function loadUpdateStatus/);
+  assert.match(app, /Automatic updates/);
+  assert.match(html, /id="set-auto-update"/);
+  assert.match(html, /id="update-check"/);
+  assert.match(updater, /codeload\.github\.com/);
+  assert.match(updater, /kickstart -k/);
+  assert.match(updater, /PI_WEB_UPDATE_FORCE/);
+  assert.doesNotMatch(updater, /PI_WEB_TOKEN|\.pi\/agent/);
+  assert.match(plist, /StartInterval/);
+  assert.match(plist, /__USER__/);
+});
+
+test("public defaults do not disclose private device or user details", () => {
+  const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
+  const license = fs.readFileSync(path.join(root, "LICENSE"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  assert.doesNotMatch(readme, /[\u3400-\u9fff]/);
+  assert.doesNotMatch(readme, /private-device|private-user|internal-only|local-only/i);
+  assert.doesNotMatch(license, /private-user|internal-only/i);
+  assert.doesNotMatch(app, /private-device|private-user|internal-only/i);
+  for (const file of ["README.zh-Hans.md", "README.zh-Hant.md", "README.ja.md", "README.ko.md", "README.tr.md", "README.fr.md", "README.de.md", "README.es.md", "README.pt-BR.md", "README.it.md"]) {
+    assert.ok(fs.existsSync(path.join(root, file)), `${file} should exist`);
+  }
+});

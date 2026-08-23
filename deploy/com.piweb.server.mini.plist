@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- Optional macOS launcher: use an SSH child when launchd cannot spawn Pi
+     reliably. Replace __USER__ and keep the key/start script local. -->
+<dict>
+  <key>Label</key>
+  <string>com.piweb.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/ssh</string>
+    <string>-i</string>
+    <string>/Users/__USER__/.local/share/pi-web-bin/id_ed25519</string>
+    <string>-o</string>
+    <string>BatchMode=yes</string>
+    <string>-o</string>
+    <string>StrictHostKeyChecking=accept-new</string>
+    <string>-o</string>
+    <string>UserKnownHostsFile=/Users/__USER__/.local/share/pi-web-bin/known_hosts</string>
+    <string>-o</string>
+    <string>ExitOnForwardFailure=yes</string>
+    <string>__USER__@localhost</string>
+    <string>/Users/__USER__/.local/share/pi-web-bin/start.sh</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <!-- Give server.js time to drain active Pi RPC runs on a deliberate restart. -->
+  <key>ExitTimeOut</key>
+  <integer>6000</integer>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>/tmp/pi-web.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/pi-web.err.log</string>
+</dict>
+</plist>

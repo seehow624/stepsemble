@@ -1,0 +1,16 @@
+# Local secrets and runtime files
+.env
+.env.*
+*.log
+*.err.log
+.DS_Store
+_MEMORY-CARD.md
+.pi/
+
+# Local deployment copies
+.local/
+pi-web-bin/
+
+# Test/runtime artifacts
+coverage/
+node_modules/
