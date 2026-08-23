@@ -28,7 +28,7 @@ const { spawn, execFileSync } = require("node:child_process");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "1.11.4";
+const APP_VERSION = "1.11.5";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -50,6 +50,7 @@ const UPDATE_STATE_FILE = process.env.PI_WEB_UPDATE_STATE
 const UPDATE_SCRIPT_FILE = process.env.PI_WEB_UPDATE_SCRIPT
   ? path.resolve(expandHome(process.env.PI_WEB_UPDATE_SCRIPT))
   : path.join(APP_HOME, ".local", "share", "pi-web-bin", "pi-web-update.sh");
+const BUNDLED_UPDATE_SCRIPT_FILE = path.join(__dirname, "deploy", "pi-web-update.sh");
 const DEFAULT_UPDATE_REPOSITORY = process.env.PI_WEB_UPDATE_REPO || "seehow624/pi-web";
 const DEFAULT_UPDATE_REF = process.env.PI_WEB_UPDATE_REF || "master";
 const MODEL_APIS = new Set(["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"]);
@@ -93,6 +94,25 @@ const MAX_WIRE_IMAGE_DATA_LENGTH = 8 * 1024 * 1024;
 const SAFE_IMAGE_MIME = /^image\/(?:jpeg|png|webp|gif)$/i;
 const BROWSE_ROOTS = String(process.env.PI_WEB_BROWSE_ROOTS || "")
   .split(",").map((value) => expandHome(value.trim())).filter((value) => value && path.isAbsolute(value));
+
+// Keep the independently installed updater current after an application
+// update. This is limited to devices where automatic updates are already
+// enabled and an updater has already been installed.
+function syncBundledUpdater() {
+  try {
+    const settings = JSON.parse(fs.readFileSync(UPDATE_CONFIG_FILE, "utf8"));
+    if (settings?.enabled !== true || !fs.existsSync(UPDATE_SCRIPT_FILE)) return;
+    const bundled = fs.readFileSync(BUNDLED_UPDATE_SCRIPT_FILE);
+    const installed = fs.readFileSync(UPDATE_SCRIPT_FILE);
+    if (bundled.equals(installed)) return;
+    const temp = `${UPDATE_SCRIPT_FILE}.${process.pid}.tmp`;
+    fs.writeFileSync(temp, bundled, { mode: 0o700 });
+    fs.chmodSync(temp, 0o700);
+    fs.renameSync(temp, UPDATE_SCRIPT_FILE);
+  } catch (error) {
+    if (error?.code !== "ENOENT") console.warn(`[pi-web] could not refresh automatic updater: ${error.message}`);
+  }
+}
 
 function realBrowsePath(value) {
   try { return fs.realpathSync.native(value); } catch { return null; }
@@ -2954,6 +2974,7 @@ function shutdown(signal) {
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
+syncBundledUpdater();
 server.listen(PORT, HOST, () => {
   console.log(`[pi-web] ${MACHINE_NAME} listening on http://${HOST}:${PORT} (pi: ${PI_BIN})`);
   if (HOST !== "127.0.0.1" && HOST !== "::1" && !SECURE_COOKIE) {

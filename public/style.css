@@ -1,4 +1,4 @@
-/* pi-web v1.11.4 — Ink & Ivory / English-first localization */
+/* pi-web v1.11.5 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -2308,7 +2308,7 @@ html[data-design-theme="ink-ivory"][data-theme="light"] {
   white-space: nowrap;
 }
 
-/* v1.11.4 — device management and dense, collapsible settings */
+/* v1.11.5 — device management and dense, collapsible settings */
 .machine-switch-wrap {
   flex: 1 1 auto;
   min-width: 0;

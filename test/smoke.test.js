@@ -191,12 +191,14 @@ test("automatic updates use a public GitHub source and launchd without touching 
   assert.match(server, /\/api\/update\/status/);
   assert.match(server, /\/api\/update\/settings/);
   assert.match(server, /\/api\/update\/run/);
+  assert.match(server, /syncBundledUpdater/);
   assert.match(app, /function loadUpdateStatus/);
   assert.match(app, /Automatic updates/);
   assert.match(html, /id="set-auto-update"/);
   assert.match(html, /id="update-check"/);
   assert.match(updater, /codeload\.github\.com/);
   assert.match(updater, /kickstart -k/);
+  assert.match(updater, /ensure_service_running/);
   assert.match(updater, /PI_WEB_UPDATE_FORCE/);
   assert.doesNotMatch(updater, /PI_WEB_TOKEN|\.pi\/agent/);
   assert.match(plist, /StartInterval/);

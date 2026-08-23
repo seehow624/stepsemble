@@ -37,6 +37,14 @@ FORCE_UPDATE="${PI_WEB_UPDATE_FORCE:-0}"
 
 log() { print -u2 -- "[pi-web-update] $*"; }
 
+ensure_service_running() {
+  [[ -x "$LAUNCHCTL_BIN" && -n "$SERVICE_LABEL" ]] || return 0
+  local target="gui/$(id -u)/$SERVICE_LABEL"
+  if ! "$LAUNCHCTL_BIN" print "$target" 2>/dev/null | /usr/bin/grep -q 'state = running'; then
+    "$LAUNCHCTL_BIN" kickstart "$target" >/dev/null 2>&1 || log "application is current; launchd start was not available"
+  fi
+}
+
 if [[ -z "$NODE_BIN" || ! -x "$NODE_BIN" ]]; then
   log "Node.js is required to read updater settings. Set NODE_BIN or install Node 20+."
   exit 1
@@ -150,6 +158,7 @@ process.stdout.write(JSON.stringify(value));
 NODE
   )"
   write_state "$state_json"
+  ensure_service_running
   exit 0
 fi
 
