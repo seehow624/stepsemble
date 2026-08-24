@@ -1,4 +1,4 @@
-/* pi-web v1.11.13 — English-first localization and provider catalog */
+/* pi-web v1.11.14 — English-first localization and provider catalog */
 "use strict";
 
 // ===========================================================================
@@ -36,6 +36,7 @@ const DEFAULT_SETTINGS = {
   projectPins: [],         // cwd strings pinned to the top of the project list
   projectAliases: {},      // cwd -> user-facing project label
   removedProjects: [],     // cwd strings hidden from the project list
+  sessionPins: [],         // session file paths pinned within a project
 };
 
 let machines = [];        // [{id,name,host,url,managed,self}] 由 GET /api/machines 下發
@@ -92,6 +93,9 @@ function loadSettings() {
       : {};
     out.removedProjects = Array.isArray(out.removedProjects)
       ? [...new Set(out.removedProjects.filter((value) => typeof value === "string" && value.trim()))].slice(0, 200)
+      : [];
+    out.sessionPins = Array.isArray(out.sessionPins)
+      ? [...new Set(out.sessionPins.filter((value) => typeof value === "string" && value.trim()))].slice(0, 500)
       : [];
     // v1 的舊設定可能明確關閉分組；v2 首次啟用時以 Project folders 為預設。
     if (!v2) out.groupByProject = true;
@@ -591,6 +595,21 @@ function projectIconButton(icon, title, aria) {
   return button;
 }
 
+function sessionIsPinned(session) {
+  const file = typeof session === "string" ? session : session?.file;
+  return !!file && Array.isArray(settings.sessionPins) && settings.sessionPins.includes(file);
+}
+
+function sessionIconButton(icon, title) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "session-item-action";
+  button.title = title;
+  button.setAttribute("aria-label", title);
+  button.innerHTML = `<svg class="icon" aria-hidden="true"><use href="#${icon}"></use></svg>`;
+  return button;
+}
+
 function renderSessionList(q) {
   const query = (q || "").trim().toLowerCase();
   const list = sessionsCache.filter(s => !query ||
@@ -617,11 +636,42 @@ function renderSessionList(q) {
       <span class="session-item-copy">
         <span class="s-name"></span>
         <span class="s-meta"></span>
-      </span>`;
+      </span>
+      <span class="session-item-actions"></span>`;
     li.querySelector(".s-name").textContent = name;
     const meta = li.querySelector(".s-meta");
     meta.textContent = usage;
     meta.classList.toggle("hidden", !usage);
+    li.classList.toggle("session-pinned", sessionIsPinned(s));
+    const itemActions = li.querySelector(".session-item-actions");
+    const pinButton = sessionIconButton("i-pin", projectActionText(sessionIsPinned(s) ? "Unpin" : "Pin"));
+    const archiveButton = sessionIconButton("i-archive", projectActionText("Archive chats"));
+    itemActions.append(pinButton, archiveButton);
+    const stopItemAction = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    pinButton.addEventListener("click", (event) => {
+      stopItemAction(event);
+      const pins = new Set(settings.sessionPins || []);
+      if (pins.has(s.file)) pins.delete(s.file);
+      else pins.add(s.file);
+      settings = saveSettings({ sessionPins: [...pins] });
+      renderSessionList(el.search.value);
+    });
+    archiveButton.addEventListener("click", async (event) => {
+      stopItemAction(event);
+      if (!window.confirm(`${projectActionText("Archive chats")}?`)) return;
+      try {
+        await post("/api/session-action", { action: "archive", file: s.file });
+        const isCurrent = currentSessionFile === s.file && !el.viewChat.classList.contains("hidden");
+        toast(projectActionText("Archived chats"));
+        if (isCurrent) showList();
+        else refreshSessions();
+      } catch (error) {
+        toast(error.message || projectActionText("Could not archive chats"), true);
+      }
+    });
     let lpTimer = null, longPressed = false;
     li.addEventListener("touchstart", () => {
       longPressed = false;
@@ -655,11 +705,12 @@ function renderSessionList(q) {
       .sort((a, b) => {
         const pinOrder = Number(projectIsPinned(b[0])) - Number(projectIsPinned(a[0]));
         return pinOrder || newest(b[1]) - newest(a[1]);
-      });
+    });
     for (const [cwd, items] of sorted) {
       const collapsed = collapsedProjects.has(cwd);
       const expanded = expandedProjectSessions.has(cwd);
-      const visibleItems = expanded ? items : items.slice(0, PROJECT_SESSION_PREVIEW_LIMIT);
+      const orderedItems = [...items].sort((a, b) => Number(sessionIsPinned(b)) - Number(sessionIsPinned(a)) || (Number(b.mtimeMs) || 0) - (Number(a.mtimeMs) || 0));
+      const visibleItems = expanded ? orderedItems : orderedItems.slice(0, PROJECT_SESSION_PREVIEW_LIMIT);
       const group = document.createElement("li");
       group.className = "project-group" + (collapsed ? " collapsed" : "");
       const header = document.createElement("div");
@@ -668,7 +719,7 @@ function renderSessionList(q) {
       collapseButton.type = "button";
       collapseButton.className = "project-group-main";
       collapseButton.setAttribute("aria-expanded", String(!collapsed));
-      collapseButton.innerHTML = `<span class="project-folder-icon"><svg class="icon"><use href="#i-folder-filled"></use></svg></span><span class="project-group-copy"><strong></strong></span><span class="project-group-count">${items.length}</span>`;
+      collapseButton.innerHTML = `<span class="project-folder-icon"><svg class="icon"><use href="#i-folder-filled"></use></svg></span><span class="project-group-copy"><strong></strong></span>`;
       collapseButton.querySelector("strong").textContent = projectDisplayName(cwd);
       collapseButton.title = cwd === "(unknown)" ? projectDisplayName(cwd) : cwd;
       const children = document.createElement("ul");
@@ -729,7 +780,13 @@ function renderSessionList(q) {
         event.stopPropagation();
         toggleCollapsed();
       });
-      header.append(collapseButton, actions, arrowButton);
+      const trailing = document.createElement("div");
+      trailing.className = "project-group-trailing";
+      const count = document.createElement("span");
+      count.className = "project-group-count";
+      count.textContent = String(items.length);
+      trailing.append(count, arrowButton);
+      header.append(collapseButton, actions, trailing);
       group.append(header, children);
       el.sessionList.appendChild(group);
     }

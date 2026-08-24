@@ -28,7 +28,7 @@ const { spawn, execFileSync } = require("node:child_process");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "1.11.13";
+const APP_VERSION = "1.11.14";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -793,6 +793,23 @@ function deleteSession(rel) {
   }
   scanCache.delete(rel);
   return true;
+}
+
+function archiveSession(rel) {
+  const source = safeSessionPath(rel);
+  if (!source) return false;
+  const cleanRel = String(rel).replace(/^\/+/, "");
+  const archiveRoot = path.join(SESSIONS_DIR, ".archive", `session-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`);
+  const destination = path.join(archiveRoot, cleanRel);
+  try {
+    fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
+    fs.renameSync(source, destination);
+    scanCache.delete(rel);
+    return true;
+  } catch (error) {
+    console.warn(`[pi-web] could not archive ${rel}: ${error.message}`);
+    return false;
+  }
 }
 
 function projectDirectory(cwd) {
@@ -2582,6 +2599,21 @@ const server = http.createServer(async (req, res) => {
         const body = await readJSON(req);
         const ok = deleteSession(body.file);
         sendJSON(res, ok ? 200 : 400, ok ? {} : { error: "delete failed" });
+        return;
+      }
+
+      if (p === "/api/session-action" && req.method === "POST") {
+        try {
+          const body = await readJSON(req);
+          if (body.action !== "archive" || typeof body.file !== "string") {
+            sendJSON(res, 400, { error: "unknown session action" });
+            return;
+          }
+          const ok = archiveSession(body.file);
+          sendJSON(res, ok ? 200 : 400, ok ? {} : { error: "archive failed" });
+        } catch (error) {
+          sendJSON(res, error.statusCode || 400, { error: error.message || "archive failed" });
+        }
         return;
       }
 

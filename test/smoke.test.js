@@ -182,8 +182,13 @@ test("project groups expose Codex-style actions without nesting buttons", () => 
   assert.match(server, /function revealProject/);
   assert.match(server, /async function archiveProjectSessions/);
   assert.match(server, /function createPermanentWorktree/);
+  assert.match(server, /function archiveSession/);
+  assert.match(server, /\/api\/session-action/);
   assert.match(server, /\/api\/project-action/);
   assert.match(app, /project-group-actions/);
+  assert.match(app, /session-item-actions/);
+  assert.match(app, /sessionPins/);
+  assert.match(app, /i-pin/);
   assert.match(app, /function openProjectActions/);
   assert.match(app, /openNewDialog\(cwd\)/);
   assert.match(app, /projectPins/);
@@ -191,7 +196,10 @@ test("project groups expose Codex-style actions without nesting buttons", () => 
   assert.match(html, /id="project-action-sheet"/);
   assert.match(html, /id="project-rename-dialog"/);
   assert.match(html, /id="pa-worktree"/);
+  assert.match(html, /id="i-pin"/);
   assert.match(css, /\.project-group-action/);
+  assert.match(css, /\.project-group-trailing/);
+  assert.match(css, /\.session-item-actions::before/);
   assert.match(css, /\.project-action-row/);
 });
 

@@ -1,4 +1,4 @@
-/* pi-web v1.11.13 — Ink & Ivory / English-first localization */
+/* pi-web v1.11.14 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -2664,3 +2664,91 @@ html.reduced-motion .machine-row.machine-status-checking .m-dot { animation: non
 }
 
 html.reduced-motion .project-group-actions { transition: none; }
+
+/* Keep the project count attached to its collapse affordance. The action
+   buttons float over the trailing edge so a long folder name can continue
+   underneath them; only the small icon strip receives the backdrop blur. */
+.project-group-header { position: relative; }
+.project-group-main { position: relative; z-index: 1; }
+.project-group-actions {
+  position: absolute;
+  top: 50%;
+  right: 58px;
+  z-index: 2;
+  padding: 2px 3px;
+  border-radius: 10px;
+  isolation: isolate;
+  transform: translateY(-50%);
+}
+.project-group-actions::before,
+.session-item-actions::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--paper) 78%, transparent);
+  -webkit-backdrop-filter: blur(8px) saturate(1.08);
+  backdrop-filter: blur(8px) saturate(1.08);
+}
+.project-group-trailing {
+  min-width: 58px;
+  flex: 0 0 58px;
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+.project-group-trailing .project-group-count { min-width: 20px; }
+
+/* Session-level hover actions mirror the project strip. The copy is never
+   blurred; the translucent backdrop is limited to the two icon buttons. */
+.session-item { position: relative; }
+.session-item-copy { position: relative; z-index: 1; }
+.session-item-actions {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 3px;
+  border-radius: 9px;
+  opacity: 0;
+  pointer-events: none;
+  isolation: isolate;
+  transform: translateY(-50%);
+  transition: opacity .16s ease;
+}
+.session-item:hover .session-item-actions,
+.session-item:focus-within .session-item-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.session-item-action {
+  position: relative;
+  z-index: 1;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--pine-soft);
+  background: transparent;
+  cursor: pointer;
+}
+.session-item-action:hover { color: var(--ink); background: var(--bubble-user); }
+.session-item-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.session-item-action .icon { width: 16px; height: 16px; }
+html.reduced-motion .session-item-actions { transition: none; }
+
+@media (max-width: 979px) {
+  .project-group-actions { right: 62px; }
+  .session-item-action { width: 32px; height: 32px; }
+}
