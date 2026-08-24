@@ -1,4 +1,4 @@
-/* pi-web v1.11.7 — English-first localization and provider catalog */
+/* pi-web v1.11.8 — English-first localization and provider catalog */
 "use strict";
 
 // ===========================================================================

@@ -117,6 +117,15 @@ test("device dialog includes an accessible setup guide", () => {
   assert.match(i18n, /DEVICE_HELP_TRANSLATIONS/);
 });
 
+test("compact list overrides grouped and mobile session geometry", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  assert.match(app, /document\.body\.classList\.toggle\("compact", !!settings\.compact\)/);
+  assert.match(css, /body\.compact #view-list \.project-group-items \.session-item/);
+  assert.match(css, /body\.compact #view-list \.project-group-header/);
+  assert.match(css, /min-height: 44px/);
+});
+
 test("Mini launcher never pkills active pi-web processes", () => {
   const launcher = fs.readFileSync(path.join(root, "deploy", "pi-web-mini-start.sh"), "utf8");
   assert.doesNotMatch(launcher, /\bpkill\s+-f\b/);

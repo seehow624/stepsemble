@@ -1,4 +1,4 @@
-/* pi-web v1.11.7 — Ink & Ivory / English-first localization */
+/* pi-web v1.11.8 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -1691,6 +1691,32 @@ body.image-lightbox-open { overflow: hidden; }
   #view-chat .composer-toolbar { padding-top: 2px; }
 }
 
+/* Compact list is intentionally applied after the desktop/mobile geometry
+   rules above. Grouped sessions have a more specific selector, so the old
+   compact rule could be overridden and appear to do nothing. */
+body.compact #view-list .session-list { gap: 2px; }
+body.compact #view-list .session-list.grouped { gap: 0; }
+body.compact #view-list .session-item,
+body.compact #view-list .project-group-items .session-item {
+  min-height: 44px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+body.compact #view-list .project-group-items { gap: 1px; padding-left: 6px; }
+body.compact #view-list .project-group-header {
+  min-height: 48px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+body.compact #view-list .session-item .s-name { font-size: .76rem; }
+body.compact #view-list .session-item .s-preview {
+  margin-top: 1px;
+  font-size: .61rem;
+  line-height: 1.1;
+  -webkit-line-clamp: 1;
+}
+body.compact #view-list .session-item .s-meta { margin-top: 1px; font-size: .55rem; }
+
 /* ===========================================================================
    v1.9 — Theme choices, compact conversation rhythm, Codex tool output, activity status
    =========================================================================== */
@@ -2383,7 +2409,7 @@ html[data-design-theme="etoile"][data-theme="light"] {
   white-space: nowrap;
 }
 
-/* v1.11.7 — device management and dense, collapsible settings */
+/* v1.11.8 — device management and dense, collapsible settings */
 .machine-switch-wrap {
   flex: 1 1 auto;
   min-width: 0;
