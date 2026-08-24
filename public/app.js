@@ -1,4 +1,4 @@
-/* pi-web v1.11.14 — English-first localization and provider catalog */
+/* pi-web v1.11.15 — English-first localization and provider catalog */
 "use strict";
 
 // ===========================================================================
@@ -227,6 +227,7 @@ let sessionUsage = { tokens: 0, cost: 0 };
 let sessionUsageFooter = null;
 let extensionUiRequest = null;
 let activityWatchdog = null;
+let expandedPinnedSessions = false;
 const ACTIVITY_STALE_MS = 45_000;
 
 // ===========================================================================
@@ -610,13 +611,20 @@ function sessionIconButton(icon, title) {
   return button;
 }
 
+function closeSwipedSessionItems(except = null) {
+  document.querySelectorAll("#view-list .session-item.swiped").forEach((item) => {
+    if (item !== except) item.classList.remove("swiped");
+  });
+}
+
 function renderSessionList(q) {
   const query = (q || "").trim().toLowerCase();
   const list = sessionsCache.filter(s => !query ||
     (s.name || "").toLowerCase().includes(query) ||
     (s.preview || "").toLowerCase().includes(query) ||
     (s.cwd || "").toLowerCase().includes(query));
-  const visibleList = settings.groupByProject ? list : list.slice(0, sessionRenderLimit);
+  const orderedList = [...list].sort((a, b) => Number(sessionIsPinned(b)) - Number(sessionIsPinned(a)) || (Number(b.mtimeMs) || 0) - (Number(a.mtimeMs) || 0));
+  const visibleList = settings.groupByProject ? orderedList : orderedList.slice(0, sessionRenderLimit);
   el.sessionList.classList.toggle("grouped", !!settings.groupByProject);
   el.sessionList.innerHTML = "";
   el.listEmpty.classList.toggle("hidden", list.length > 0);
@@ -633,6 +641,7 @@ function renderSessionList(q) {
       s.cost ? "$" + s.cost.toFixed(2) : "",
     ].filter(Boolean).join(" · ");
     li.innerHTML = `
+      <span class="session-pin-indicator hidden" role="img"></span>
       <span class="session-item-copy">
         <span class="s-name"></span>
         <span class="s-meta"></span>
@@ -642,9 +651,17 @@ function renderSessionList(q) {
     const meta = li.querySelector(".s-meta");
     meta.textContent = usage;
     meta.classList.toggle("hidden", !usage);
-    li.classList.toggle("session-pinned", sessionIsPinned(s));
+    const pinned = sessionIsPinned(s);
+    li.classList.toggle("session-pinned", pinned);
+    const pinIndicator = li.querySelector(".session-pin-indicator");
+    if (pinned) {
+      pinIndicator.classList.remove("hidden");
+      pinIndicator.title = projectActionText("Pinned");
+      pinIndicator.setAttribute("aria-label", projectActionText("Pinned"));
+      pinIndicator.innerHTML = `<svg class="icon" aria-hidden="true"><use href="#i-pin"></use></svg>`;
+    }
     const itemActions = li.querySelector(".session-item-actions");
-    const pinButton = sessionIconButton("i-pin", projectActionText(sessionIsPinned(s) ? "Unpin" : "Pin"));
+    const pinButton = sessionIconButton("i-pin", projectActionText(pinned ? "Unpin" : "Pin"));
     const archiveButton = sessionIconButton("i-archive", projectActionText("Archive chats"));
     itemActions.append(pinButton, archiveButton);
     const stopItemAction = (event) => {
@@ -657,6 +674,7 @@ function renderSessionList(q) {
       if (pins.has(s.file)) pins.delete(s.file);
       else pins.add(s.file);
       settings = saveSettings({ sessionPins: [...pins] });
+      closeSwipedSessionItems();
       renderSessionList(el.search.value);
     });
     archiveButton.addEventListener("click", async (event) => {
@@ -672,16 +690,45 @@ function renderSessionList(q) {
         toast(error.message || projectActionText("Could not archive chats"), true);
       }
     });
-    let lpTimer = null, longPressed = false;
-    li.addEventListener("touchstart", () => {
+    let lpTimer = null, longPressed = false, swipeConsumed = false, touchStartX = 0, touchStartY = 0;
+    li.addEventListener("touchstart", (event) => {
+      const touch = event.changedTouches?.[0];
+      touchStartX = touch?.clientX || 0;
+      touchStartY = touch?.clientY || 0;
+      swipeConsumed = false;
       longPressed = false;
       lpTimer = setTimeout(() => { longPressed = true; openSessionActions(s); }, 550);
     }, { passive: true });
-    li.addEventListener("touchmove", () => clearTimeout(lpTimer), { passive: true });
+    li.addEventListener("touchmove", (event) => {
+      const touch = event.changedTouches?.[0];
+      if (!touch) return;
+      const dx = touchStartX - touch.clientX;
+      const dy = touchStartY - touch.clientY;
+      if (Math.abs(dx) < 18 || Math.abs(dx) <= Math.abs(dy)) return;
+      clearTimeout(lpTimer);
+      swipeConsumed = true;
+      if (dx > 26) {
+        closeSwipedSessionItems(li);
+        li.classList.add("swiped");
+      } else if (dx < -26) {
+        li.classList.remove("swiped");
+      }
+      event.preventDefault();
+    }, { passive: false });
     li.addEventListener("touchend", () => clearTimeout(lpTimer));
     li.addEventListener("touchcancel", () => clearTimeout(lpTimer));
     li.addEventListener("contextmenu", (e) => { e.preventDefault(); openSessionActions(s); });
-    li.addEventListener("click", () => { if (!longPressed) openExisting(s); });
+    li.addEventListener("click", () => {
+      if (swipeConsumed) {
+        swipeConsumed = false;
+        return;
+      }
+      if (li.classList.contains("swiped")) {
+        li.classList.remove("swiped");
+        return;
+      }
+      if (!longPressed) openExisting(s);
+    });
     li.addEventListener("keydown", (event) => {
       if ((event.key === "Enter" || event.key === " ") && !longPressed) {
         event.preventDefault();
@@ -694,10 +741,46 @@ function renderSessionList(q) {
   if (settings.groupByProject) {
     // Project folder → sessions：即使正在搜尋，也保留資料夾階層。
     const groups = new Map();
+    const pinnedItems = visibleList.filter((s) => sessionIsPinned(s));
     for (const s of visibleList) {
+      if (sessionIsPinned(s)) continue;
       const key = s.cwd || "(unknown)";
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(s);
+    }
+    if (pinnedItems.length) {
+      const pinnedGroup = document.createElement("li");
+      pinnedGroup.className = "project-group pinned-session-group";
+      const pinnedHeader = document.createElement("div");
+      pinnedHeader.className = "project-group-header pinned-session-header";
+      const pinnedLabel = document.createElement("div");
+      pinnedLabel.className = "pinned-session-label";
+      pinnedLabel.innerHTML = `<svg class="icon" aria-hidden="true"><use href="#i-pin"></use></svg><strong></strong>`;
+      pinnedLabel.querySelector("strong").textContent = projectActionText("Pinned");
+      const pinnedCount = document.createElement("span");
+      pinnedCount.className = "project-group-count";
+      pinnedCount.textContent = String(pinnedItems.length);
+      pinnedHeader.append(pinnedLabel, pinnedCount);
+      const pinnedChildren = document.createElement("ul");
+      pinnedChildren.className = "project-group-items";
+      const pinnedVisibleItems = expandedPinnedSessions ? pinnedItems : pinnedItems.slice(0, PROJECT_SESSION_PREVIEW_LIMIT);
+      for (const s of pinnedVisibleItems) pinnedChildren.appendChild(makeItem(s));
+      if (pinnedItems.length > PROJECT_SESSION_PREVIEW_LIMIT) {
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "project-session-toggle";
+        toggle.textContent = expandedPinnedSessions
+          ? (window.piI18n?.t("Show less") || "Show less")
+          : `${window.piI18n?.t("Show more") || "Show more"} (${pinnedItems.length - PROJECT_SESSION_PREVIEW_LIMIT})`;
+        toggle.setAttribute("aria-expanded", String(expandedPinnedSessions));
+        toggle.addEventListener("click", () => {
+          expandedPinnedSessions = !expandedPinnedSessions;
+          renderSessionList(el.search.value);
+        });
+        pinnedChildren.appendChild(toggle);
+      }
+      pinnedGroup.append(pinnedHeader, pinnedChildren);
+      el.sessionList.appendChild(pinnedGroup);
     }
     const newest = (items) => Math.max(...items.map(x => Number(x.mtimeMs) || 0));
     const sorted = [...groups.entries()]

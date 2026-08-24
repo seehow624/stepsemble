@@ -187,6 +187,8 @@ test("project groups expose Codex-style actions without nesting buttons", () => 
   assert.match(server, /\/api\/project-action/);
   assert.match(app, /project-group-actions/);
   assert.match(app, /session-item-actions/);
+  assert.match(app, /pinned-session-group/);
+  assert.match(app, /swipeConsumed/);
   assert.match(app, /sessionPins/);
   assert.match(app, /i-pin/);
   assert.match(app, /function openProjectActions/);
@@ -200,6 +202,7 @@ test("project groups expose Codex-style actions without nesting buttons", () => 
   assert.match(css, /\.project-group-action/);
   assert.match(css, /\.project-group-trailing/);
   assert.match(css, /\.session-item-actions::before/);
+  assert.match(css, /@media \(hover: none\)/);
   assert.match(css, /\.project-action-row/);
 });
 

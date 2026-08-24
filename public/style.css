@@ -1,4 +1,4 @@
-/* pi-web v1.11.14 — Ink & Ivory / English-first localization */
+/* pi-web v1.11.15 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -2704,9 +2704,35 @@ html.reduced-motion .project-group-actions { transition: none; }
 }
 .project-group-trailing .project-group-count { min-width: 20px; }
 
+.pinned-session-header {
+  min-height: 46px;
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bubble-user));
+  cursor: default;
+}
+.pinned-session-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--ink);
+}
+.pinned-session-label .icon { width: 17px; height: 17px; color: var(--accent); }
+.pinned-session-label strong { font-size: .78rem; font-weight: 740; }
+.session-pin-indicator {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+}
+.session-pin-indicator .icon { width: 14px; height: 14px; }
+
 /* Session-level hover actions mirror the project strip. The copy is never
    blurred; the translucent backdrop is limited to the two icon buttons. */
-.session-item { position: relative; }
+.session-item { position: relative; touch-action: pan-y; }
 .session-item-copy { position: relative; z-index: 1; }
 .session-item-actions {
   position: absolute;
@@ -2721,13 +2747,19 @@ html.reduced-motion .project-group-actions { transition: none; }
   opacity: 0;
   pointer-events: none;
   isolation: isolate;
-  transform: translateY(-50%);
-  transition: opacity .16s ease;
+  transform: translate(12px, -50%);
+  transition: opacity .16s ease, transform .16s ease;
 }
 .session-item:hover .session-item-actions,
 .session-item:focus-within .session-item-actions {
   opacity: 1;
   pointer-events: auto;
+  transform: translate(0, -50%);
+}
+.session-item.swiped .session-item-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(0, -50%);
 }
 .session-item-action {
   position: relative;
@@ -2747,6 +2779,28 @@ html.reduced-motion .project-group-actions { transition: none; }
 .session-item-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .session-item-action .icon { width: 16px; height: 16px; }
 html.reduced-motion .session-item-actions { transition: none; }
+
+@media (hover: none) {
+  /* Touch devices reveal row actions with a left swipe instead of a sticky
+     hover state. Keep focus support for keyboards and assistive technology. */
+  .session-item:hover .session-item-actions {
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(12px, -50%);
+  }
+  .session-item:focus-within .session-item-actions {
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(12px, -50%);
+  }
+  .session-item:focus-visible .session-item-actions,
+  .session-item:has(.session-item-action:focus-visible) .session-item-actions,
+  .session-item.swiped .session-item-actions {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(0, -50%);
+  }
+}
 
 @media (max-width: 979px) {
   .project-group-actions { right: 62px; }

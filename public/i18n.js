@@ -149,6 +149,11 @@
     it: { "PROJECT": "PROGETTO", "Project": "Progetto", "Pin": "Fissa", "Unpin": "Rimuovi fissaggio", "Edit project": "Modifica progetto", "Project name": "Nome progetto", "Reveal in Finder": "Mostra nel Finder", "Create permanent worktree": "Crea worktree permanente", "Archive chats": "Archivia chat", "Remove project": "Rimuovi progetto", "New session in project": "Nuova sessione in questo progetto", "More project actions": "Altre azioni del progetto", "Project pinned": "Progetto fissato", "Project unpinned": "Fissaggio rimosso", "Project renamed": "Progetto rinominato", "Opened in Finder": "Aperto nel Finder", "Permanent worktree created": "Worktree permanente creato", "Archived chats": "Chat archiviate", "Project removed": "Progetto rimosso", "Could not reveal project": "Impossibile mostrare il progetto nel Finder", "Could not create worktree": "Impossibile creare il worktree", "Could not archive chats": "Impossibile archiviare le chat", "Create a permanent worktree for this project?": "Creare un worktree permanente per questo progetto?", "Archive this project's chats?": "Archiviare le chat di questo progetto?", "Remove this project from the list? Chats remain on disk.": "Rimuovere questo progetto dall’elenco? Le chat resteranno sul disco.", "Project folder is unavailable": "La cartella del progetto non è disponibile" },
   };
   for (const [id, table] of Object.entries(PROJECT_ACTION_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
+  const PINNED_LABELS = {
+    en: "Pinned", "zh-Hant": "已釘選", "zh-Hans": "已置顶", ja: "ピン留め", ko: "고정됨",
+    tr: "Sabitlenenler", fr: "Épinglés", de: "Angeheftet", es: "Fijados", "pt-BR": "Fixados", it: "Fissati",
+  };
+  for (const [id, label] of Object.entries(PINNED_LABELS)) Object.assign(TRANSLATIONS[id], { Pinned: label });
   // The count suffix is emitted as a separate source fragment by the session
   // list renderer; keep it localized for every European locale.
   Object.assign(TRANSLATIONS.tr, { "Show more (": "Daha fazla göster (" });
