@@ -28,7 +28,7 @@ const { spawn, execFileSync } = require("node:child_process");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "1.11.8";
+const APP_VERSION = "1.11.9";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2002,7 +2002,19 @@ async function startProviderAuth(body) {
 
 function respondProviderAuth(body) {
   const run = providerAuthRuns.get(body?.runId);
-  if (!run || run.closed || run.done) throw providerAuthError("Sign-in flow has ended", 409);
+  if (!run) throw providerAuthError("Sign-in flow has ended; start sign-in again", 409);
+  if (run.closed || run.done) {
+    const terminal = [...run.events].reverse().find((packet) =>
+      ["error", "success", "cancelled"].includes(packet?.event?.type)
+    )?.event;
+    if (terminal?.type === "error" && terminal.message) {
+      throw providerAuthError(String(terminal.message).slice(0, 2000), 409);
+    }
+    if (terminal?.type === "success") {
+      throw providerAuthError("Sign-in already completed. Close this prompt and refresh the provider list.", 409);
+    }
+    throw providerAuthError("Sign-in flow has ended; start sign-in again", 409);
+  }
   if (body?.cancelled === true) {
     run.cancelled = true;
     run.controller.abort();

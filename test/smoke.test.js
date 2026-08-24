@@ -102,6 +102,8 @@ test("provider auth retries cancel abandoned native OAuth runs", () => {
   assert.match(server, /function cancelActiveProviderAuth\(providerId\)/);
   assert.match(server, /await cancelActiveProviderAuth\(preset\.id\)/);
   assert.match(server, /EADDRINUSE/);
+  assert.match(server, /terminal\?\.type === "error"/);
+  assert.match(server, /Sign-in already completed/);
   assert.match(app, /providerAuthUrl/);
   assert.match(app, /Open official sign-in page/);
 });
