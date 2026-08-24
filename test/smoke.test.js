@@ -96,6 +96,27 @@ test("model settings expose a unified provider list without returning secrets", 
   assert.match(html, /id="model-settings-open"/);
 });
 
+test("provider auth retries cancel abandoned native OAuth runs", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  assert.match(server, /function cancelActiveProviderAuth\(providerId\)/);
+  assert.match(server, /await cancelActiveProviderAuth\(preset\.id\)/);
+  assert.match(server, /EADDRINUSE/);
+  assert.match(app, /providerAuthUrl/);
+  assert.match(app, /Open official sign-in page/);
+});
+
+test("device dialog includes an accessible setup guide", () => {
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");
+  assert.match(html, /class="machine-help"/);
+  assert.match(html, /How to add a device/);
+  assert.match(html, /one-time pairing code/);
+  assert.match(css, /\.machine-help/);
+  assert.match(i18n, /DEVICE_HELP_TRANSLATIONS/);
+});
+
 test("Mini launcher never pkills active pi-web processes", () => {
   const launcher = fs.readFileSync(path.join(root, "deploy", "pi-web-mini-start.sh"), "utf8");
   assert.doesNotMatch(launcher, /\bpkill\s+-f\b/);

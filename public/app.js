@@ -1,4 +1,4 @@
-/* pi-web v1.11.6 — English-first localization and provider catalog */
+/* pi-web v1.11.7 — English-first localization and provider catalog */
 "use strict";
 
 // ===========================================================================
@@ -194,6 +194,7 @@ let providerAuthRun = null;
 let providerAuthStream = null;
 let providerAuthRequest = null;
 let providerAuthNotice = "";
+let providerAuthUrl = "";
 let viewGeneration = 0; // 防止快速切換 session 時，舊 request／SSE 回寫到新畫面
 let refreshRequest = null;
 let refreshSequence = 0;
@@ -3415,6 +3416,7 @@ function closeProviderAuthClient() {
   providerAuthRequest = null;
   if (extensionUiRequest?.kind === "provider-auth") extensionUiRequest = null;
   providerAuthNotice = "";
+  providerAuthUrl = "";
   el.extensionUiSheet?.classList.add("hidden");
   el.extensionUiInput.value = "";
   el.extensionUiInput.type = "text";
@@ -3433,6 +3435,18 @@ function showProviderAuthPrompt(request, run) {
   el.extensionUiEditor.classList.add("hidden");
   el.extensionUiSubmit.classList.add("hidden");
   el.extensionUiInput.type = request.type === "secret" ? "password" : "text";
+
+  // OAuth flows emit an authorization URL immediately before asking for a
+  // manual code. Keep that URL visible in the prompt so remote/mobile users
+  // can open the official login page without losing it between SSE events.
+  if (providerAuthUrl) {
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = "action-row extension-ui-option";
+    link.textContent = window.piI18n?.t("Open official sign-in page") || "Open official sign-in page";
+    link.addEventListener("click", () => window.open(providerAuthUrl, "_blank", "noopener,noreferrer"));
+    el.extensionUiOptions.appendChild(link);
+  }
 
   if (request.type === "select") {
     for (const option of Array.isArray(request.options) ? request.options : []) {
@@ -3459,6 +3473,7 @@ function showProviderAuthNotify(event, run) {
   if (!event || !run) return;
   const message = event.instructions || event.message || "請依畫面完成登入";
   providerAuthNotice = message;
+  providerAuthUrl = event.url || event.verificationUrl || "";
   el.extensionUiKind.textContent = "PROVIDER LOGIN";
   el.extensionUiTitle.textContent = `登入 ${run.providerName || "Provider"}`;
   el.extensionUiMessage.textContent = message;
@@ -3466,7 +3481,7 @@ function showProviderAuthNotify(event, run) {
   el.extensionUiInput.classList.add("hidden");
   el.extensionUiEditor.classList.add("hidden");
   el.extensionUiSubmit.classList.add("hidden");
-  const verificationUrl = event.url || event.verificationUrl;
+  const verificationUrl = providerAuthUrl;
   if (verificationUrl) {
     const link = document.createElement("button");
     link.type = "button";
@@ -3565,6 +3580,7 @@ function openProviderAuthStream(after = -1) {
 
 function watchProviderAuth(result, provider) {
   providerAuthNotice = "";
+  providerAuthUrl = "";
   providerAuthRun = {
     runId: result.runId,
     providerName: provider.name,

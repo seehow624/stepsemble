@@ -28,7 +28,7 @@ const { spawn, execFileSync } = require("node:child_process");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "1.11.6";
+const APP_VERSION = "1.11.7";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1975,6 +1975,10 @@ async function startProviderAuth(body) {
   if (suppliedApiKey && authType !== "api_key") {
     throw providerAuthError("An API key can only be used with the API key sign-in flow", 400);
   }
+  // Make retrying a provider login deterministic. In particular, an
+  // interrupted Claude subscription login can otherwise keep port 53692
+  // occupied until its ten-minute timeout.
+  await cancelActiveProviderAuth(preset.id);
   if (preset.kind === "generic" || preset.kind === "nous") return startCustomProviderAuth(preset, authType, suppliedApiKey);
   const runtime = await getProviderAuthRuntime();
   const provider = runtime.models.getProvider(id);
@@ -2028,6 +2032,24 @@ function cancelProviderAuth(runId) {
     run.pending = null;
   }
   return { cancelled: true };
+}
+
+// A browser reconnect or a second click can leave a native OAuth flow alive
+// after its UI has gone away. Anthropic and a few other providers use a fixed
+// localhost callback port, so the abandoned flow would make the next login
+// fail with EADDRINUSE. Cancel the previous flow for the same provider and
+// wait briefly for its callback server to close before starting another.
+async function cancelActiveProviderAuth(providerId) {
+  const active = [...providerAuthRuns.values()].filter((run) =>
+    run.providerId === providerId && !run.done && !run.closed
+  );
+  if (!active.length) return;
+  for (const run of active) cancelProviderAuth(run.id);
+  const deadline = Date.now() + 2500;
+  while (Date.now() < deadline) {
+    if (!active.some((run) => !run.done && !run.closed)) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
 }
 
 async function deleteProviderAuth(providerId) {

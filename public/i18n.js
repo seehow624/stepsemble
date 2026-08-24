@@ -175,6 +175,483 @@
   };
   for (const [id, table] of Object.entries(STATIC_UI_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
 
+  // The explanatory copy below is part of the application chrome rather than
+  // session content. Keep it in the same source-key registry as button labels
+  // so the subtitles stay in sync when the user switches locales repeatedly.
+  // These four locales receive complete, natural translations here; provider
+  // and model names remain product names and are intentionally not translated.
+  const EAST_ASIAN_SUBTITLE_TRANSLATIONS = {
+    en: {
+      "To add another Pi Agent computer, run Pi Web there and enter its Tailscale or HTTPS address. You can also use a one-time pairing code. Both devices must use the same Web token.": "To add another Pi Agent computer, run Pi Web there and enter its Tailscale or HTTPS address. You can also use a one-time pairing code. Both devices must use the same Web token.",
+      "Pi coding agent installed on this device": "Pi coding agent installed on this device",
+      "All sessions on this device": "All sessions on this device",
+      "Clear this browser's sign-in state": "Clear this browser's sign-in state",
+      "Check GitHub and update this device periodically": "Check GitHub and update this device periodically",
+      "Checking updater status…": "Checking updater status…",
+      "Choose the language used by Pi Web": "Choose the language used by Pi Web",
+      "Light, dark, or follow system": "Light, dark, or follow system",
+      "Choose a complete colour system": "Choose a complete colour system",
+      "Show sessions with less spacing": "Show sessions with less spacing",
+      "Desktop only; mobile always uses full width": "Desktop only; mobile always uses full width",
+      "Adjust interface text for readability": "Adjust interface text for readability",
+      "Group sessions by working directory": "Group sessions by working directory",
+      "Reduce transitions and scrolling animations": "Reduce transitions and scrolling animations",
+      "Default state for assistant thinking blocks": "Default state for assistant thinking blocks",
+      "Swipe from the left edge in a conversation to go back": "Swipe from the left edge in a conversation to go back",
+      "Mobile-first remote workspace for Pi": "Mobile-first remote workspace for Pi",
+      "Pull down to refresh; swipe from the left edge to go back; long-press a session to rename or delete": "Pull down to refresh; swipe from the left edge to go back; long-press a session to rename or delete",
+      "Clear theme, density, and model visibility preferences": "Clear theme, density, and model visibility preferences",
+      "Manage visible models and custom providers in one list.": "Manage visible models and custom providers in one list.",
+      "Each device must run Pi Web (default port 3140) with this Web token. Use a Tailscale Serve or HTTPS URL reachable from this device.": "Each device must run Pi Web (default port 3140) with this Web token. Use a Tailscale Serve or HTTPS URL reachable from this device.",
+      "Generate a pairing code in the other Pi Web device settings and paste it here. Codes expire after 5 minutes and can only be used once.": "Generate a pairing code in the other Pi Web device settings and paste it here. Codes expire after 5 minutes and can only be used once.",
+      "Choose a service, then sign in or provide an API key. Pi handles the technical setup.": "Choose a service, then sign in or provide an API key. Pi handles the technical setup.",
+      "Open the official sign-in flow; credentials stay on this device": "Open the official sign-in flow; credentials stay on this device",
+      "Paste a key from this service and Pi will configure it": "Paste a key from this service and Pi will configure it",
+      "The key is stored only on this device. Pi will validate it and load available models.": "The key is stored only on this device. Pi will validate it and load available models.",
+      "No account or API key required; Pi reads local models": "No account or API key required; Pi reads local models",
+      "Advanced settings are saved in ": "Advanced settings are saved in ",
+      "For regular services, go back and choose one instead.": "For regular services, go back and choose one instead.",
+      "The device will be added after saving.": "The device will be added after saving.",
+      "PI REQUEST": "PI REQUEST",
+      "NEW PROJECT": "NEW PROJECT",
+      "Session": "Session",
+      "⚡ Model & reasoning…": "⚡ Model & reasoning…",
+      "✏️ Rename": "✏️ Rename",
+      "🗑 Delete (move to Trash)": "🗑 Delete (move to Trash)",
+    },
+    "zh-Hant": {
+      "To add another Pi Agent computer, run Pi Web there and enter its Tailscale or HTTPS address. You can also use a one-time pairing code. Both devices must use the same Web token.": "若要新增其他 Pi Agent 電腦，請先在該電腦執行 Pi Web，然後輸入它的 Tailscale 或 HTTPS 位址。也可以使用一次性配對碼。兩台裝置必須使用相同的 Web token。",
+      "Pi coding agent installed on this device": "這台裝置上的 Pi coding agent",
+      "All sessions on this device": "這台裝置上的所有工作階段",
+      "Clear this browser's sign-in state": "清除這個瀏覽器的登入狀態",
+      "Check GitHub and update this device periodically": "定期檢查 GitHub 並更新這台裝置",
+      "Checking updater status…": "正在檢查更新工具狀態…",
+      "Choose the language used by Pi Web": "選擇 Pi Web 使用的語言",
+      "Light, dark, or follow system": "亮色、暗色或跟隨系統",
+      "Choose a complete colour system": "選擇完整的色彩系統",
+      "Show sessions with less spacing": "用較小的間距顯示工作階段",
+      "Desktop only; mobile always uses full width": "僅適用於桌面；手機版一律使用全寬",
+      "Adjust interface text for readability": "調整介面文字大小以便閱讀",
+      "Group sessions by working directory": "依工作目錄將工作階段分組",
+      "Reduce transitions and scrolling animations": "減少轉場與捲動動畫",
+      "Default state for assistant thinking blocks": "助理思考區塊的預設狀態",
+      "Swipe from the left edge in a conversation to go back": "在對話中從左側邊緣滑動即可返回",
+      "Mobile-first remote workspace for Pi": "以行動裝置優先打造的 Pi 遠端工作區",
+      "Pull down to refresh; swipe from the left edge to go back; long-press a session to rename or delete": "下拉重新整理；從左側邊緣向右滑返回；長按工作階段可重新命名或刪除",
+      "Clear theme, density, and model visibility preferences": "清除主題、密度與模型顯示偏好",
+      "Manage visible models and custom providers in one list.": "在同一份清單中管理可見模型與自訂 Provider。",
+      "Each device must run Pi Web (default port 3140) with this Web token. Use a Tailscale Serve or HTTPS URL reachable from this device.": "每台裝置都必須執行 Pi Web（預設 port 3140）並使用這個 Web token。請使用本裝置可連線的 Tailscale Serve 或 HTTPS 位址。",
+      "Generate a pairing code in the other Pi Web device settings and paste it here. Codes expire after 5 minutes and can only be used once.": "請在另一台 Pi Web 的裝置設定中產生配對碼，貼到這裡。配對碼 5 分鐘後過期，且只能使用一次。",
+      "Choose a service, then sign in or provide an API key. Pi handles the technical setup.": "選擇服務後登入帳號或提供 API key，技術設定會由 Pi 自動處理。",
+      "Open the official sign-in flow; credentials stay on this device": "開啟官方登入流程；憑證會保留在這台裝置上",
+      "Paste a key from this service and Pi will configure it": "貼上這項服務的 key，Pi 會自動完成設定",
+      "The key is stored only on this device. Pi will validate it and load available models.": "key 只會儲存在這台裝置上。Pi 會驗證 key 並載入可用模型。",
+      "No account or API key required; Pi reads local models": "不需要帳號或 API key；Pi 會讀取本機模型",
+      "Advanced settings are saved in ": "進階設定會儲存在 ",
+      "For regular services, go back and choose one instead.": "一般服務請返回上一頁選擇，不需要填寫這些欄位。",
+      "The device will be added after saving.": "儲存後會自動加入裝置清單。",
+      "PI REQUEST": "PI REQUEST",
+      "NEW PROJECT": "新專案",
+      "Session": "工作階段",
+      "⚡ Model & reasoning…": "⚡ 模型與推理…",
+      "✏️ Rename": "✏️ 重新命名",
+      "🗑 Delete (move to Trash)": "🗑 刪除（移到垃圾桶）",
+    },
+    "zh-Hans": {
+      "To add another Pi Agent computer, run Pi Web there and enter its Tailscale or HTTPS address. You can also use a one-time pairing code. Both devices must use the same Web token.": "要添加其他 Pi Agent 电脑，请先在那台电脑运行 Pi Web，然后输入它的 Tailscale 或 HTTPS 地址。也可以使用一次性配对码。两台设备必须使用相同的 Web token。",
+      "Pi coding agent installed on this device": "此设备上安装的 Pi coding agent",
+      "All sessions on this device": "此设备上的所有会话",
+      "Clear this browser's sign-in state": "清除此浏览器的登录状态",
+      "Check GitHub and update this device periodically": "定期检查 GitHub 并更新此设备",
+      "Checking updater status…": "正在检查更新工具状态…",
+      "Choose the language used by Pi Web": "选择 Pi Web 使用的语言",
+      "Light, dark, or follow system": "浅色、深色或跟随系统",
+      "Choose a complete colour system": "选择完整的色彩系统",
+      "Show sessions with less spacing": "以更小的间距显示会话",
+      "Desktop only; mobile always uses full width": "仅适用于桌面端；移动端始终使用全宽",
+      "Adjust interface text for readability": "调整界面文字大小以便阅读",
+      "Group sessions by working directory": "按工作目录将会话分组",
+      "Reduce transitions and scrolling animations": "减少过渡和滚动动画",
+      "Default state for assistant thinking blocks": "助手思考区块的默认状态",
+      "Swipe from the left edge in a conversation to go back": "在对话中从左侧边缘滑动即可返回",
+      "Mobile-first remote workspace for Pi": "以移动端优先打造的 Pi 远程工作区",
+      "Pull down to refresh; swipe from the left edge to go back; long-press a session to rename or delete": "下拉刷新；从左侧边缘向右滑返回；长按会话可重命名或删除",
+      "Clear theme, density, and model visibility preferences": "清除主题、密度和模型显示偏好",
+      "Manage visible models and custom providers in one list.": "在同一列表中管理可见模型和自定义 Provider。",
+      "Each device must run Pi Web (default port 3140) with this Web token. Use a Tailscale Serve or HTTPS URL reachable from this device.": "每台设备都必须运行 Pi Web（默认端口 3140）并使用此 Web token。请使用此设备可以访问的 Tailscale Serve 或 HTTPS 地址。",
+      "Generate a pairing code in the other Pi Web device settings and paste it here. Codes expire after 5 minutes and can only be used once.": "请在另一台 Pi Web 的设备设置中生成配对码并粘贴到这里。配对码 5 分钟后过期，且只能使用一次。",
+      "Choose a service, then sign in or provide an API key. Pi handles the technical setup.": "选择服务后登录账号或提供 API key，技术设置由 Pi 自动处理。",
+      "Open the official sign-in flow; credentials stay on this device": "打开官方登录流程；凭证会保留在此设备上",
+      "Paste a key from this service and Pi will configure it": "粘贴此服务的 key，Pi 会自动完成配置",
+      "The key is stored only on this device. Pi will validate it and load available models.": "key 只会存储在此设备上。Pi 会验证 key 并加载可用模型。",
+      "No account or API key required; Pi reads local models": "无需账号或 API key；Pi 会读取本地模型",
+      "Advanced settings are saved in ": "高级设置保存在 ",
+      "For regular services, go back and choose one instead.": "普通服务请返回上一步选择，无需填写这些字段。",
+      "The device will be added after saving.": "保存后设备会自动加入列表。",
+      "PI REQUEST": "PI REQUEST",
+      "NEW PROJECT": "新建项目",
+      "Session": "会话",
+      "⚡ Model & reasoning…": "⚡ 模型与推理…",
+      "✏️ Rename": "✏️ 重命名",
+      "🗑 Delete (move to Trash)": "🗑 删除（移到废纸篓）",
+    },
+    ja: {
+      "To add another Pi Agent computer, run Pi Web there and enter its Tailscale or HTTPS address. You can also use a one-time pairing code. Both devices must use the same Web token.": "別の Pi Agent コンピューターを追加するには、そのコンピューターで Pi Web を起動し、Tailscale または HTTPS アドレスを入力してください。ワンタイムのペアリングコードも使用できます。両方のデバイスで同じ Web トークンを使う必要があります。",
+      "Pi coding agent installed on this device": "このデバイスにインストールされている Pi coding agent",
+      "All sessions on this device": "このデバイスのすべてのセッション",
+      "Clear this browser's sign-in state": "このブラウザーのサインイン状態を消去",
+      "Check GitHub and update this device periodically": "GitHub を定期的に確認してこのデバイスを更新",
+      "Checking updater status…": "アップデーターの状態を確認中…",
+      "Choose the language used by Pi Web": "Pi Web で使用する言語を選択",
+      "Light, dark, or follow system": "ライト、ダーク、またはシステムに合わせる",
+      "Choose a complete colour system": "カラーパレット全体を選択",
+      "Show sessions with less spacing": "間隔を狭くしてセッションを表示",
+      "Desktop only; mobile always uses full width": "デスクトップのみ。モバイルでは常に全幅を使用",
+      "Adjust interface text for readability": "読みやすいようにインターフェースの文字サイズを調整",
+      "Group sessions by working directory": "作業ディレクトリごとにセッションをグループ化",
+      "Reduce transitions and scrolling animations": "トランジションとスクロールアニメーションを減らす",
+      "Default state for assistant thinking blocks": "アシスタントの思考ブロックの既定状態",
+      "Swipe from the left edge in a conversation to go back": "会話中に左端からスワイプして戻る",
+      "Mobile-first remote workspace for Pi": "Pi のモバイル優先リモートワークスペース",
+      "Pull down to refresh; swipe from the left edge to go back; long-press a session to rename or delete": "下に引いて更新。左端からスワイプして戻る。セッションを長押しすると名前変更または削除できます",
+      "Clear theme, density, and model visibility preferences": "テーマ、密度、モデル表示の設定を消去",
+      "Manage visible models and custom providers in one list.": "表示するモデルとカスタムプロバイダーを 1 つのリストで管理します。",
+      "Each device must run Pi Web (default port 3140) with this Web token. Use a Tailscale Serve or HTTPS URL reachable from this device.": "各デバイスで Pi Web（既定ポート 3140）をこの Web トークンで実行してください。このデバイスから到達できる Tailscale Serve または HTTPS URL を使用します。",
+      "Generate a pairing code in the other Pi Web device settings and paste it here. Codes expire after 5 minutes and can only be used once.": "別の Pi Web デバイス設定でペアリングコードを生成し、ここに貼り付けてください。コードの有効期限は 5 分で、一度しか使えません。",
+      "Choose a service, then sign in or provide an API key. Pi handles the technical setup.": "サービスを選択し、アカウントでサインインするか API キーを入力してください。技術的な設定は Pi が処理します。",
+      "Open the official sign-in flow; credentials stay on this device": "公式サインインフローを開きます。認証情報はこのデバイスに保存されます",
+      "Paste a key from this service and Pi will configure it": "このサービスのキーを貼り付けると、Pi が設定します",
+      "The key is stored only on this device. Pi will validate it and load available models.": "キーはこのデバイスにのみ保存されます。Pi が検証して利用可能なモデルを読み込みます。",
+      "No account or API key required; Pi reads local models": "アカウントも API キーも不要。Pi がローカルモデルを読み込みます",
+      "Advanced settings are saved in ": "詳細設定は ",
+      "For regular services, go back and choose one instead.": "通常のサービスは前の画面に戻って選択してください。",
+      "The device will be added after saving.": "保存するとデバイスが追加されます。",
+      "PI REQUEST": "PI REQUEST",
+      "NEW PROJECT": "新しいプロジェクト",
+      "Session": "セッション",
+      "⚡ Model & reasoning…": "⚡ モデルと推論…",
+      "✏️ Rename": "✏️ 名前を変更",
+      "🗑 Delete (move to Trash)": "🗑 削除（ゴミ箱へ）",
+    },
+    ko: {
+      "To add another Pi Agent computer, run Pi Web there and enter its Tailscale or HTTPS address. You can also use a one-time pairing code. Both devices must use the same Web token.": "다른 Pi Agent 컴퓨터를 추가하려면 해당 컴퓨터에서 Pi Web을 실행하고 Tailscale 또는 HTTPS 주소를 입력하세요. 일회용 페어링 코드도 사용할 수 있습니다. 두 기기 모두 같은 Web 토큰을 사용해야 합니다.",
+      "Pi coding agent installed on this device": "이 기기에 설치된 Pi coding agent",
+      "All sessions on this device": "이 기기의 모든 세션",
+      "Clear this browser's sign-in state": "이 브라우저의 로그인 상태 지우기",
+      "Check GitHub and update this device periodically": "GitHub를 주기적으로 확인하여 이 기기 업데이트",
+      "Checking updater status…": "업데이트 도구 상태 확인 중…",
+      "Choose the language used by Pi Web": "Pi Web에서 사용할 언어 선택",
+      "Light, dark, or follow system": "밝게, 어둡게 또는 시스템 설정 따르기",
+      "Choose a complete colour system": "전체 색상 시스템 선택",
+      "Show sessions with less spacing": "간격을 줄여 세션 표시",
+      "Desktop only; mobile always uses full width": "데스크톱 전용이며 모바일에서는 항상 전체 너비를 사용합니다",
+      "Adjust interface text for readability": "읽기 쉽도록 인터페이스 글자 크기 조정",
+      "Group sessions by working directory": "작업 디렉터리별로 세션 그룹화",
+      "Reduce transitions and scrolling animations": "전환 및 스크롤 애니메이션 줄이기",
+      "Default state for assistant thinking blocks": "어시스턴트 사고 블록의 기본 상태",
+      "Swipe from the left edge in a conversation to go back": "대화 중 왼쪽 가장자리에서 밀어 뒤로 이동",
+      "Mobile-first remote workspace for Pi": "모바일 우선 Pi 원격 작업 공간",
+      "Pull down to refresh; swipe from the left edge to go back; long-press a session to rename or delete": "아래로 당겨 새로 고침하고, 왼쪽 가장자리에서 밀어 뒤로 이동하세요. 세션을 길게 누르면 이름을 바꾸거나 삭제할 수 있습니다",
+      "Clear theme, density, and model visibility preferences": "테마, 밀도 및 모델 표시 설정 지우기",
+      "Manage visible models and custom providers in one list.": "표시할 모델과 사용자 지정 Provider를 한 목록에서 관리합니다.",
+      "Each device must run Pi Web (default port 3140) with this Web token. Use a Tailscale Serve or HTTPS URL reachable from this device.": "각 기기에서 이 Web 토큰으로 Pi Web(기본 포트 3140)을 실행해야 합니다. 이 기기에서 연결할 수 있는 Tailscale Serve 또는 HTTPS URL을 사용하세요.",
+      "Generate a pairing code in the other Pi Web device settings and paste it here. Codes expire after 5 minutes and can only be used once.": "다른 Pi Web의 기기 설정에서 페어링 코드를 생성하여 여기에 붙여넣으세요. 코드는 5분 후 만료되며 한 번만 사용할 수 있습니다.",
+      "Choose a service, then sign in or provide an API key. Pi handles the technical setup.": "서비스를 선택한 다음 계정으로 로그인하거나 API 키를 입력하세요. 기술 설정은 Pi가 처리합니다.",
+      "Open the official sign-in flow; credentials stay on this device": "공식 로그인 절차를 엽니다. 인증 정보는 이 기기에 보관됩니다",
+      "Paste a key from this service and Pi will configure it": "이 서비스의 키를 붙여넣으면 Pi가 설정합니다",
+      "The key is stored only on this device. Pi will validate it and load available models.": "키는 이 기기에만 저장됩니다. Pi가 키를 확인하고 사용 가능한 모델을 불러옵니다.",
+      "No account or API key required; Pi reads local models": "계정이나 API 키가 필요하지 않습니다. Pi가 로컬 모델을 읽습니다",
+      "Advanced settings are saved in ": "고급 설정은 ",
+      "For regular services, go back and choose one instead.": "일반 서비스는 이전 단계로 돌아가 선택하세요.",
+      "The device will be added after saving.": "저장하면 기기가 목록에 추가됩니다.",
+      "PI REQUEST": "PI REQUEST",
+      "NEW PROJECT": "새 프로젝트",
+      "Session": "세션",
+      "⚡ Model & reasoning…": "⚡ 모델 및 추론…",
+      "✏️ Rename": "✏️ 이름 변경",
+      "🗑 Delete (move to Trash)": "🗑 삭제(휴지통으로 이동)",
+    },
+  };
+  for (const [id, table] of Object.entries(EAST_ASIAN_SUBTITLE_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
+
+  // Form labels and helper text are also rendered from static HTML attributes
+  // (placeholder/title/aria-label). Register them explicitly so a locale
+  // switch never leaves an English label beside a translated subtitle.
+  const EAST_ASIAN_FORM_COPY = {
+    en: {
+      "Device name": "Device name", "Pi Web URL": "Pi Web URL", "Host name (optional)": "Host name (optional)", "Save device": "Save device", "Test connection": "Test connection", "Restart Pi Web": "Restart Pi Web", "Delete device": "Delete device", "One-time pairing code": "One-time pairing code", "Pairing code for another device": "Pairing code for another device", "Generate new pairing code": "Generate new pairing code", "Verify and add": "Verify and add", "API key": "API key", "Paste API key": "Paste API key", "Save and check": "Save and check", "Provider ID": "Provider ID", "API type": "API type", "Base URL": "Base URL", "API key (optional)": "API key (optional)", "Models (one per line; use ": "Models (one per line; use ", "Loading provider list…": "Loading provider list…", "PI AGENT DEVICE": "PI AGENT DEVICE", "MODEL PROVIDER": "MODEL PROVIDER",
+    },
+    "zh-Hant": {
+      "Device name": "裝置名稱", "Pi Web URL": "Pi Web 網址", "Host name (optional)": "主機名稱（可選）", "Save device": "儲存裝置", "Test connection": "測試連線", "Restart Pi Web": "重新啟動 Pi Web", "Delete device": "刪除裝置", "One-time pairing code": "一次性配對碼", "Pairing code for another device": "提供給另一台裝置的配對碼", "Generate new pairing code": "產生新的配對碼", "Verify and add": "驗證並加入", "API key": "API key", "Paste API key": "貼上 API key", "Save and check": "儲存並檢查", "Provider ID": "Provider ID", "API type": "API 類型", "Base URL": "Base URL", "API key (optional)": "API key（可選）", "Models (one per line; use ": "模型（每行一個；格式：", "Loading provider list…": "正在載入 Provider 清單…", "PI AGENT DEVICE": "PI AGENT 裝置", "MODEL PROVIDER": "模型 Provider",
+    },
+    "zh-Hans": {
+      "Device name": "设备名称", "Pi Web URL": "Pi Web 地址", "Host name (optional)": "主机名（可选）", "Save device": "保存设备", "Test connection": "测试连接", "Restart Pi Web": "重启 Pi Web", "Delete device": "删除设备", "One-time pairing code": "一次性配对码", "Pairing code for another device": "提供给另一台设备的配对码", "Generate new pairing code": "生成新的配对码", "Verify and add": "验证并添加", "API key": "API key", "Paste API key": "粘贴 API key", "Save and check": "保存并检查", "Provider ID": "Provider ID", "API type": "API 类型", "Base URL": "Base URL", "API key (optional)": "API key（可选）", "Models (one per line; use ": "模型（每行一个；格式：", "Loading provider list…": "正在加载 Provider 列表…", "PI AGENT DEVICE": "PI AGENT 设备", "MODEL PROVIDER": "模型 Provider",
+    },
+    ja: {
+      "Device name": "デバイス名", "Pi Web URL": "Pi Web URL", "Host name (optional)": "ホスト名（任意）", "Save device": "デバイスを保存", "Test connection": "接続をテスト", "Restart Pi Web": "Pi Web を再起動", "Delete device": "デバイスを削除", "One-time pairing code": "ワンタイムペアリングコード", "Pairing code for another device": "別のデバイス用のペアリングコード", "Generate new pairing code": "新しいペアリングコードを生成", "Verify and add": "確認して追加", "API key": "API キー", "Paste API key": "API キーを貼り付け", "Save and check": "保存して確認", "Provider ID": "プロバイダー ID", "API type": "API タイプ", "Base URL": "ベース URL", "API key (optional)": "API キー（任意）", "Models (one per line; use ": "モデル（1 行に 1 つ。形式：", "Loading provider list…": "プロバイダー一覧を読み込み中…", "PI AGENT DEVICE": "PI AGENT デバイス", "MODEL PROVIDER": "モデルプロバイダー",
+    },
+    ko: {
+      "Device name": "기기 이름", "Pi Web URL": "Pi Web URL", "Host name (optional)": "호스트 이름(선택 사항)", "Save device": "기기 저장", "Test connection": "연결 테스트", "Restart Pi Web": "Pi Web 다시 시작", "Delete device": "기기 삭제", "One-time pairing code": "일회용 페어링 코드", "Pairing code for another device": "다른 기기용 페어링 코드", "Generate new pairing code": "새 페어링 코드 생성", "Verify and add": "확인하고 추가", "API key": "API 키", "Paste API key": "API 키 붙여넣기", "Save and check": "저장하고 확인", "Provider ID": "Provider ID", "API type": "API 유형", "Base URL": "기본 URL", "API key (optional)": "API 키(선택 사항)", "Models (one per line; use ": "모델(한 줄에 하나, 형식: ", "Loading provider list…": "Provider 목록 불러오는 중…", "PI AGENT DEVICE": "PI AGENT 기기", "MODEL PROVIDER": "모델 Provider",
+    },
+  };
+  for (const [id, table] of Object.entries(EAST_ASIAN_FORM_COPY)) Object.assign(TRANSLATIONS[id], table);
+
+  // Device setup and OAuth actions are rendered after the initial HTML pass;
+  // keep their helper copy in the same English-first registry so switching
+  // locale also updates the explanatory text and sign-in action.
+  const DEVICE_HELP_TRANSLATIONS = {
+    en: {
+      "How to add a device": "How to add a device",
+      "Install and start Pi Web on the other computer. Keep it running and use the same Web token.": "Install and start Pi Web on the other computer. Keep it running and use the same Web token.",
+      "On that computer, copy its Tailscale Serve or HTTPS Pi Web address, then paste it into ": "On that computer, copy its Tailscale Serve or HTTPS Pi Web address, then paste it into ",
+      "Enter a friendly device name, choose ": "Enter a friendly device name, choose ",
+      "If you cannot copy a URL, use the link button in Devices to create a one-time pairing code. Enter that code here instead; it expires after five minutes.": "If you cannot copy a URL, use the link button in Devices to create a one-time pairing code. Enter that code here instead; it expires after five minutes.",
+      "Open official sign-in page": "Open official sign-in page",
+    },
+    "zh-Hant": {
+      "How to add a device": "如何新增設備",
+      "Install and start Pi Web on the other computer. Keep it running and use the same Web token.": "在另一台電腦安裝並啟動 Pi Web，保持程式運作，並使用相同的 Web token。",
+      "On that computer, copy its Tailscale Serve or HTTPS Pi Web address, then paste it into ": "在那台電腦複製 Tailscale Serve 或 HTTPS 的 Pi Web 網址，貼到",
+      "Enter a friendly device name, choose ": "輸入容易辨識的設備名稱，選擇",
+      "If you cannot copy a URL, use the link button in Devices to create a one-time pairing code. Enter that code here instead; it expires after five minutes.": "如果無法複製網址，請在「設備」按連結按鈕建立一次性配對碼，再把配對碼填在這裡；配對碼五分鐘後失效。",
+      "Open official sign-in page": "開啟官方登入頁面",
+    },
+    "zh-Hans": {
+      "How to add a device": "如何添加设备",
+      "Install and start Pi Web on the other computer. Keep it running and use the same Web token.": "在另一台电脑安装并启动 Pi Web，保持程序运行，并使用相同的 Web token。",
+      "On that computer, copy its Tailscale Serve or HTTPS Pi Web address, then paste it into ": "在那台电脑复制 Tailscale Serve 或 HTTPS 的 Pi Web 地址，然后粘贴到",
+      "Enter a friendly device name, choose ": "输入易于识别的设备名称，选择",
+      "If you cannot copy a URL, use the link button in Devices to create a one-time pairing code. Enter that code here instead; it expires after five minutes.": "如果无法复制地址，请在“设备”中使用链接按钮创建一次性配对码，再将配对码填在这里；配对码五分钟后失效。",
+      "Open official sign-in page": "打开官方登录页面",
+    },
+    ja: {
+      "How to add a device": "デバイスの追加方法",
+      "Install and start Pi Web on the other computer. Keep it running and use the same Web token.": "もう一台のコンピューターに Pi Web をインストールして起動し、同じ Web トークンで実行したままにします。",
+      "On that computer, copy its Tailscale Serve or HTTPS Pi Web address, then paste it into ": "そのコンピューターの Tailscale Serve または HTTPS の Pi Web アドレスをコピーし、",
+      "Enter a friendly device name, choose ": "わかりやすいデバイス名を入力し、",
+      "If you cannot copy a URL, use the link button in Devices to create a one-time pairing code. Enter that code here instead; it expires after five minutes.": "URL をコピーできない場合は、「デバイス」のリンクボタンでワンタイムペアリングコードを作成し、ここに入力してください。コードは 5 分で期限切れになります。",
+      "Open official sign-in page": "公式のサインインページを開く",
+    },
+    ko: {
+      "How to add a device": "기기 추가 방법",
+      "Install and start Pi Web on the other computer. Keep it running and use the same Web token.": "다른 컴퓨터에 Pi Web을 설치하고 실행한 뒤, 같은 Web 토큰으로 계속 실행해 두세요.",
+      "On that computer, copy its Tailscale Serve or HTTPS Pi Web address, then paste it into ": "해당 컴퓨터의 Tailscale Serve 또는 HTTPS Pi Web 주소를 복사해",
+      "Enter a friendly device name, choose ": "알아보기 쉬운 기기 이름을 입력하고",
+      "If you cannot copy a URL, use the link button in Devices to create a one-time pairing code. Enter that code here instead; it expires after five minutes.": "URL을 복사할 수 없다면 ‘기기’의 링크 버튼으로 일회용 페어링 코드를 만든 다음 여기에 입력하세요. 코드는 5분 후 만료됩니다.",
+      "Open official sign-in page": "공식 로그인 페이지 열기",
+    },
+    tr: {
+      "How to add a device": "Cihaz ekleme",
+      "Install and start Pi Web on the other computer. Keep it running and use the same Web token.": "Diğer bilgisayara Pi Web'i yükleyip başlatın. Açık tutun ve aynı Web jetonunu kullanın.",
+      "On that computer, copy its Tailscale Serve or HTTPS Pi Web address, then paste it into ": "O bilgisayardaki Tailscale Serve veya HTTPS Pi Web adresini kopyalayıp",
+      "Enter a friendly device name, choose ": "Anlaşılır bir cihaz adı girin, ardından",
+      "If you cannot copy a URL, use the link button in Devices to create a one-time pairing code. Enter that code here instead; it expires after five minutes.": "URL'yi kopyalayamıyorsanız Cihazlar bölümündeki bağlantı düğmesiyle tek kullanımlık eşleştirme kodu oluşturun ve buraya girin. Kod beş dakika içinde geçersiz olur.",
+      "Open official sign-in page": "Resmî giriş sayfasını aç",
+    },
+    fr: {
+      "How to add a device": "Ajouter un appareil",
+      "Install and start Pi Web on the other computer. Keep it running and use the same Web token.": "Installez et lancez Pi Web sur l’autre ordinateur. Laissez-le ouvert et utilisez le même jeton Web.",
+      "On that computer, copy its Tailscale Serve or HTTPS Pi Web address, then paste it into ": "Sur cet ordinateur, copiez l’adresse Pi Web Tailscale Serve ou HTTPS, puis collez-la dans",
+      "Enter a friendly device name, choose ": "Saisissez un nom facile à reconnaître, puis choisissez",
+      "If you cannot copy a URL, use the link button in Devices to create a one-time pairing code. Enter that code here instead; it expires after five minutes.": "Si vous ne pouvez pas copier une URL, utilisez le bouton de lien dans Appareils pour créer un code d’association à usage unique. Saisissez-le ici ; il expire après cinq minutes.",
+      "Open official sign-in page": "Ouvrir la page de connexion officielle",
+    },
+    de: {
+      "How to add a device": "Gerät hinzufügen",
+      "Install and start Pi Web on the other computer. Keep it running and use the same Web token.": "Installieren und starten Sie Pi Web auf dem anderen Computer. Lassen Sie es geöffnet und verwenden Sie dasselbe Web-Token.",
+      "On that computer, copy its Tailscale Serve or HTTPS Pi Web address, then paste it into ": "Kopieren Sie auf diesem Computer die Tailscale-Serve- oder HTTPS-Adresse von Pi Web und fügen Sie sie in",
+      "Enter a friendly device name, choose ": "Geben Sie einen gut erkennbaren Gerätenamen ein und wählen Sie",
+      "If you cannot copy a URL, use the link button in Devices to create a one-time pairing code. Enter that code here instead; it expires after five minutes.": "Wenn Sie keine URL kopieren können, erstellen Sie über die Verknüpfungsschaltfläche unter Geräte einen einmaligen Kopplungscode. Geben Sie ihn hier ein; er läuft nach fünf Minuten ab.",
+      "Open official sign-in page": "Offizielle Anmeldeseite öffnen",
+    },
+    es: {
+      "How to add a device": "Cómo añadir un dispositivo",
+      "Install and start Pi Web on the other computer. Keep it running and use the same Web token.": "Instala e inicia Pi Web en el otro ordenador. Déjalo en ejecución y usa el mismo token web.",
+      "On that computer, copy its Tailscale Serve or HTTPS Pi Web address, then paste it into ": "En ese ordenador, copia la dirección Pi Web de Tailscale Serve o HTTPS y pégala en",
+      "Enter a friendly device name, choose ": "Escribe un nombre fácil de reconocer y elige",
+      "If you cannot copy a URL, use the link button in Devices to create a one-time pairing code. Enter that code here instead; it expires after five minutes.": "Si no puedes copiar una URL, usa el botón de enlace de Dispositivos para crear un código de emparejamiento de un solo uso. Introdúcelo aquí; caduca en cinco minutos.",
+      "Open official sign-in page": "Abrir la página oficial de inicio de sesión",
+    },
+    "pt-BR": {
+      "How to add a device": "Como adicionar um dispositivo",
+      "Install and start Pi Web on the other computer. Keep it running and use the same Web token.": "Instale e abra o Pi Web no outro computador. Mantenha-o em execução e use o mesmo token Web.",
+      "On that computer, copy its Tailscale Serve or HTTPS Pi Web address, then paste it into ": "Nesse computador, copie o endereço Pi Web do Tailscale Serve ou HTTPS e cole em",
+      "Enter a friendly device name, choose ": "Digite um nome fácil de reconhecer e selecione",
+      "If you cannot copy a URL, use the link button in Devices to create a one-time pairing code. Enter that code here instead; it expires after five minutes.": "Se não conseguir copiar uma URL, use o botão de link em Dispositivos para criar um código de pareamento de uso único. Digite-o aqui; ele expira em cinco minutos.",
+      "Open official sign-in page": "Abrir a página oficial de login",
+    },
+    it: {
+      "How to add a device": "Come aggiungere un dispositivo",
+      "Install and start Pi Web on the other computer. Keep it running and use the same Web token.": "Installa e avvia Pi Web sull’altro computer. Lascialo in esecuzione e usa lo stesso token Web.",
+      "On that computer, copy its Tailscale Serve or HTTPS Pi Web address, then paste it into ": "Su quel computer, copia l’indirizzo Pi Web Tailscale Serve o HTTPS e incollalo in",
+      "Enter a friendly device name, choose ": "Inserisci un nome riconoscibile e scegli",
+      "If you cannot copy a URL, use the link button in Devices to create a one-time pairing code. Enter that code here instead; it expires after five minutes.": "Se non puoi copiare un URL, usa il pulsante di collegamento in Dispositivi per creare un codice di abbinamento monouso. Inseriscilo qui; scade dopo cinque minuti.",
+      "Open official sign-in page": "Apri la pagina ufficiale di accesso",
+    },
+  };
+  for (const [id, table] of Object.entries(DEVICE_HELP_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
+
+  // Natural translations for the longer helper text used by the European
+  // locales.  These strings are deliberately keyed by their English source so
+  // they also work when users switch repeatedly between languages.
+  const EUROPEAN_SUBTITLE_COPY = {
+    "To add another Pi Agent computer, run Pi Web there and enter its Tailscale or HTTPS address. You can also use a one-time pairing code. Both devices must use the same Web token.": {
+      tr: "Başka bir Pi Agent bilgisayarı eklemek için orada Pi Web'i çalıştırın ve Tailscale veya HTTPS adresini girin. Tek kullanımlık eşleştirme kodunu da kullanabilirsiniz. Her iki cihaz da aynı Web token'ını kullanmalıdır.",
+      fr: "Pour ajouter un autre ordinateur Pi Agent, lancez Pi Web dessus et saisissez son adresse Tailscale ou HTTPS. Vous pouvez aussi utiliser un code d’association à usage unique. Les deux appareils doivent utiliser le même jeton Web.",
+      de: "Um einen weiteren Pi-Agent-Computer hinzuzufügen, starten Sie dort Pi Web und geben Sie seine Tailscale- oder HTTPS-Adresse ein. Sie können auch einen einmaligen Kopplungscode verwenden. Beide Geräte müssen dasselbe Web-Token nutzen.",
+      es: "Para añadir otro ordenador con Pi Agent, ejecuta Pi Web allí e introduce su dirección de Tailscale o HTTPS. También puedes usar un código de emparejamiento de un solo uso. Ambos dispositivos deben usar el mismo token web.",
+      "pt-BR": "Para adicionar outro computador com Pi Agent, execute o Pi Web nele e informe o endereço Tailscale ou HTTPS. Você também pode usar um código de pareamento de uso único. Os dois dispositivos devem usar o mesmo token da Web.",
+      it: "Per aggiungere un altro computer Pi Agent, avvia Pi Web su quel computer e inserisci il relativo indirizzo Tailscale o HTTPS. Puoi anche usare un codice di abbinamento monouso. Entrambi i dispositivi devono usare lo stesso token Web.",
+    },
+    "Pi coding agent installed on this device": {
+      tr: "Bu cihaza Pi coding agent yüklendi", fr: "Agent de programmation Pi installé sur cet appareil", de: "Pi-Coding-Agent auf diesem Gerät installiert", es: "Agente de programación de Pi instalado en este dispositivo", "pt-BR": "Agente de programação Pi instalado neste dispositivo", it: "Agente di programmazione Pi installato su questo dispositivo",
+    },
+    "All sessions on this device": {
+      tr: "Bu cihazdaki tüm oturumlar", fr: "Toutes les sessions sur cet appareil", de: "Alle Sitzungen auf diesem Gerät", es: "Todas las sesiones de este dispositivo", "pt-BR": "Todas as sessões neste dispositivo", it: "Tutte le sessioni su questo dispositivo",
+    },
+    "Clear this browser's sign-in state": {
+      tr: "Bu tarayıcının oturum açma durumunu temizle", fr: "Effacer l’état de connexion de ce navigateur", de: "Anmeldestatus dieses Browsers löschen", es: "Borrar el estado de inicio de sesión de este navegador", "pt-BR": "Limpar o estado de login deste navegador", it: "Cancella lo stato di accesso di questo browser",
+    },
+    "Check GitHub and update this device periodically": {
+      tr: "GitHub'u düzenli olarak kontrol edip bu cihazı güncelle", fr: "Vérifier GitHub et mettre régulièrement à jour cet appareil", de: "GitHub regelmäßig prüfen und dieses Gerät aktualisieren", es: "Comprobar GitHub y actualizar este dispositivo periódicamente", "pt-BR": "Verificar o GitHub e atualizar este dispositivo periodicamente", it: "Controlla GitHub e aggiorna periodicamente questo dispositivo",
+    },
+    "Checking updater status…": {
+      tr: "Güncelleyici durumu kontrol ediliyor…", fr: "Vérification de l’état du programme de mise à jour…", de: "Updater-Status wird geprüft…", es: "Comprobando el estado del actualizador…", "pt-BR": "Verificando o status do atualizador…", it: "Verifica dello stato dell’aggiornamento…",
+    },
+    "Choose the language used by Pi Web": {
+      tr: "Pi Web'in kullandığı dili seçin", fr: "Choisissez la langue utilisée par Pi Web", de: "Wählen Sie die von Pi Web verwendete Sprache", es: "Elige el idioma que usa Pi Web", "pt-BR": "Escolha o idioma usado pelo Pi Web", it: "Scegli la lingua usata da Pi Web",
+    },
+    "Light, dark, or follow system": {
+      tr: "Açık, koyu veya sistem ayarını kullan", fr: "Clair, sombre ou selon le système", de: "Hell, dunkel oder nach Systemeinstellung", es: "Claro, oscuro o según el sistema", "pt-BR": "Claro, escuro ou seguir o sistema", it: "Chiaro, scuro o in base al sistema",
+    },
+    "Choose a complete colour system": {
+      tr: "Eksiksiz bir renk sistemi seçin", fr: "Choisissez un système de couleurs complet", de: "Wählen Sie ein vollständiges Farbsystem", es: "Elige un sistema de colores completo", "pt-BR": "Escolha um sistema de cores completo", it: "Scegli un sistema cromatico completo",
+    },
+    "Show sessions with less spacing": {
+      tr: "Oturumları daha az aralıkla göster", fr: "Afficher les sessions avec moins d’espace", de: "Sitzungen mit weniger Abstand anzeigen", es: "Mostrar sesiones con menos espacio", "pt-BR": "Mostrar sessões com menos espaçamento", it: "Mostra le sessioni con meno spazio",
+    },
+    "Desktop only; mobile always uses full width": {
+      tr: "Yalnızca masaüstü; mobilde her zaman tam genişlik kullanılır", fr: "Ordinateur uniquement ; le mobile utilise toujours toute la largeur", de: "Nur Desktop; mobil wird immer die volle Breite verwendet", es: "Solo escritorio; en móviles siempre se usa todo el ancho", "pt-BR": "Somente no desktop; no celular, a largura é sempre total", it: "Solo desktop; sui dispositivi mobili viene sempre usata tutta la larghezza",
+    },
+    "Adjust interface text for readability": {
+      tr: "Arayüz metnini okunabilirlik için ayarlayın", fr: "Ajustez le texte de l’interface pour plus de lisibilité", de: "Passen Sie die Oberfläche für bessere Lesbarkeit an", es: "Ajusta el texto de la interfaz para facilitar la lectura", "pt-BR": "Ajuste o texto da interface para facilitar a leitura", it: "Regola il testo dell’interfaccia per una migliore leggibilità",
+    },
+    "Group sessions by working directory": {
+      tr: "Oturumları çalışma dizinine göre grupla", fr: "Regrouper les sessions par répertoire de travail", de: "Sitzungen nach Arbeitsverzeichnis gruppieren", es: "Agrupar sesiones por directorio de trabajo", "pt-BR": "Agrupar sessões por diretório de trabalho", it: "Raggruppa le sessioni per directory di lavoro",
+    },
+    "Reduce transitions and scrolling animations": {
+      tr: "Geçişleri ve kaydırma animasyonlarını azalt", fr: "Réduire les transitions et les animations de défilement", de: "Übergänge und Scroll-Animationen reduzieren", es: "Reducir las transiciones y animaciones de desplazamiento", "pt-BR": "Reduzir transições e animações de rolagem", it: "Riduci le transizioni e le animazioni di scorrimento",
+    },
+    "Default state for assistant thinking blocks": {
+      tr: "Asistanın düşünme blokları için varsayılan durum", fr: "État par défaut des blocs de réflexion de l’assistant", de: "Standardzustand der Denkblöcke des Assistenten", es: "Estado predeterminado de los bloques de razonamiento del asistente", "pt-BR": "Estado padrão dos blocos de raciocínio do assistente", it: "Stato predefinito dei blocchi di ragionamento dell’assistente",
+    },
+    "Swipe from the left edge in a conversation to go back": {
+      tr: "Geri dönmek için konuşmada sol kenardan kaydırın", fr: "Balayez depuis le bord gauche d’une conversation pour revenir en arrière", de: "Wischen Sie in einer Unterhaltung vom linken Rand, um zurückzugehen", es: "Desliza desde el borde izquierdo de una conversación para volver", "pt-BR": "Deslize a partir da borda esquerda em uma conversa para voltar", it: "Scorri dal bordo sinistro di una conversazione per tornare indietro",
+    },
+    "Manage visible models and custom providers in one list.": {
+      tr: "Görünür modelleri ve özel sağlayıcıları tek listede yönetin.", fr: "Gérez les modèles visibles et les fournisseurs personnalisés dans une seule liste.", de: "Verwalten Sie sichtbare Modelle und benutzerdefinierte Anbieter in einer Liste.", es: "Gestiona los modelos visibles y los proveedores personalizados en una sola lista.", "pt-BR": "Gerencie modelos visíveis e provedores personalizados em uma única lista.", it: "Gestisci i modelli visibili e i provider personalizzati in un unico elenco.",
+    },
+    "Loading model list…": {
+      tr: "Model listesi yükleniyor…", fr: "Chargement de la liste des modèles…", de: "Modellliste wird geladen…", es: "Cargando la lista de modelos…", "pt-BR": "Carregando a lista de modelos…", it: "Caricamento dell’elenco dei modelli…",
+    },
+    "Choose a service, then sign in or provide an API key. Pi handles the technical setup.": {
+      tr: "Bir hizmet seçin, ardından giriş yapın veya API anahtarı sağlayın. Teknik kurulumu Pi halleder.", fr: "Choisissez un service, puis connectez-vous ou fournissez une clé API. Pi s’occupe de la configuration technique.", de: "Wählen Sie einen Dienst und melden Sie sich an oder geben Sie einen API-Schlüssel ein. Pi übernimmt die technische Einrichtung.", es: "Elige un servicio y luego inicia sesión o proporciona una clave API. Pi se encarga de la configuración técnica.", "pt-BR": "Escolha um serviço e depois entre ou informe uma chave de API. O Pi cuida da configuração técnica.", it: "Scegli un servizio, quindi accedi o fornisci una chiave API. Pi gestisce la configurazione tecnica.",
+    },
+    "Open the official sign-in flow; credentials stay on this device": {
+      tr: "Resmî giriş akışını açın; kimlik bilgileri bu cihazda kalır", fr: "Ouvrir la procédure de connexion officielle ; les identifiants restent sur cet appareil", de: "Offiziellen Anmeldevorgang öffnen; Anmeldedaten bleiben auf diesem Gerät", es: "Abrir el inicio de sesión oficial; las credenciales permanecen en este dispositivo", "pt-BR": "Abrir o fluxo oficial de login; as credenciais permanecem neste dispositivo", it: "Apri il flusso di accesso ufficiale; le credenziali restano su questo dispositivo",
+    },
+    "Paste a key from this service and Pi will configure it": {
+      tr: "Bu hizmetten aldığınız anahtarı yapıştırın; Pi yapılandırmayı yapar", fr: "Collez une clé de ce service et Pi la configurera", de: "Fügen Sie einen Schlüssel dieses Dienstes ein; Pi richtet ihn ein", es: "Pega una clave de este servicio y Pi la configurará", "pt-BR": "Cole uma chave deste serviço e o Pi fará a configuração", it: "Incolla una chiave di questo servizio e Pi la configurerà",
+    },
+    "The key is stored only on this device. Pi will validate it and load available models.": {
+      tr: "Anahtar yalnızca bu cihazda saklanır. Pi anahtarı doğrular ve kullanılabilir modelleri yükler.", fr: "La clé est stockée uniquement sur cet appareil. Pi la validera et chargera les modèles disponibles.", de: "Der Schlüssel wird nur auf diesem Gerät gespeichert. Pi prüft ihn und lädt die verfügbaren Modelle.", es: "La clave solo se almacena en este dispositivo. Pi la validará y cargará los modelos disponibles.", "pt-BR": "A chave é armazenada somente neste dispositivo. O Pi vai validá-la e carregar os modelos disponíveis.", it: "La chiave viene memorizzata solo su questo dispositivo. Pi la verificherà e caricherà i modelli disponibili.",
+    },
+    "No account or API key required; Pi reads local models": {
+      tr: "Hesap veya API anahtarı gerekmez; Pi yerel modelleri okur", fr: "Aucun compte ni clé API requis ; Pi lit les modèles locaux", de: "Kein Konto und kein API-Schlüssel erforderlich; Pi liest lokale Modelle", es: "No se necesita cuenta ni clave API; Pi lee los modelos locales", "pt-BR": "Não é necessária conta nem chave de API; o Pi lê os modelos locais", it: "Non servono account né chiavi API; Pi legge i modelli locali",
+    },
+    "For regular services, go back and choose one instead.": {
+      tr: "Normal hizmetler için geri dönüp listeden birini seçin.", fr: "Pour les services courants, revenez en arrière et choisissez-en un dans la liste.", de: "Für reguläre Dienste gehen Sie zurück und wählen Sie stattdessen einen aus.", es: "Para los servicios habituales, vuelve atrás y elige uno de la lista.", "pt-BR": "Para serviços comuns, volte e escolha um deles.", it: "Per i servizi normali, torna indietro e scegline uno.",
+    },
+    "Each device must run Pi Web (default port 3140) with this Web token. Use a Tailscale Serve or HTTPS URL reachable from this device.": {
+      tr: "Her cihaz bu Web token'ıyla Pi Web'i (varsayılan bağlantı noktası 3140) çalıştırmalıdır. Bu cihazdan erişilebilen bir Tailscale Serve veya HTTPS URL'si kullanın.", fr: "Chaque appareil doit exécuter Pi Web (port 3140 par défaut) avec ce jeton Web. Utilisez une URL Tailscale Serve ou HTTPS accessible depuis cet appareil.", de: "Auf jedem Gerät muss Pi Web (Standardport 3140) mit diesem Web-Token laufen. Verwenden Sie eine von diesem Gerät erreichbare Tailscale-Serve- oder HTTPS-URL.", es: "Cada dispositivo debe ejecutar Pi Web (puerto predeterminado 3140) con este token web. Usa una URL de Tailscale Serve o HTTPS accesible desde este dispositivo.", "pt-BR": "Cada dispositivo deve executar o Pi Web (porta padrão 3140) com este token da Web. Use uma URL do Tailscale Serve ou HTTPS acessível a partir deste dispositivo.", it: "Ogni dispositivo deve eseguire Pi Web (porta predefinita 3140) con questo token Web. Usa un URL Tailscale Serve o HTTPS raggiungibile da questo dispositivo.",
+    },
+    "Generate a pairing code in the other Pi Web device settings and paste it here. Codes expire after 5 minutes and can only be used once.": {
+      tr: "Diğer Pi Web cihazının ayarlarında bir eşleştirme kodu oluşturup buraya yapıştırın. Kodların süresi 5 dakika sonra dolar ve yalnızca bir kez kullanılabilir.", fr: "Générez un code d’association dans les réglages de l’autre appareil Pi Web, puis collez-le ici. Les codes expirent après 5 minutes et ne peuvent être utilisés qu’une fois.", de: "Erzeugen Sie in den Einstellungen des anderen Pi-Web-Geräts einen Kopplungscode und fügen Sie ihn hier ein. Codes laufen nach 5 Minuten ab und können nur einmal verwendet werden.", es: "Genera un código de emparejamiento en los ajustes del otro dispositivo Pi Web y pégalo aquí. Los códigos caducan después de 5 minutos y solo se pueden usar una vez.", "pt-BR": "Gere um código de pareamento nas configurações do outro dispositivo Pi Web e cole-o aqui. Os códigos expiram após 5 minutos e só podem ser usados uma vez.", it: "Genera un codice di abbinamento nelle impostazioni dell’altro dispositivo Pi Web e incollalo qui. I codici scadono dopo 5 minuti e possono essere usati una sola volta.",
+    },
+    "Pull down to refresh; swipe from the left edge to go back; long-press a session to rename or delete": {
+      tr: "Yenilemek için aşağı çekin; geri dönmek için sol kenardan kaydırın; bir oturumu yeniden adlandırmak veya silmek için uzun basın", fr: "Tirez vers le bas pour actualiser ; balayez depuis le bord gauche pour revenir ; appuyez longuement sur une session pour la renommer ou la supprimer", de: "Zum Aktualisieren nach unten ziehen; vom linken Rand wischen, um zurückzugehen; eine Sitzung zum Umbenennen oder Löschen gedrückt halten", es: "Desliza hacia abajo para actualizar; desliza desde el borde izquierdo para volver; mantén pulsada una sesión para cambiarle el nombre o eliminarla", "pt-BR": "Puxe para baixo para atualizar; deslize da borda esquerda para voltar; mantenha uma sessão pressionada para renomeá-la ou excluí-la", it: "Trascina verso il basso per aggiornare; scorri dal bordo sinistro per tornare indietro; tieni premuta una sessione per rinominarla o eliminarla",
+    },
+    "Mobile-first remote workspace for Pi": {
+      tr: "Pi için mobil öncelikli uzak çalışma alanı", fr: "Espace de travail distant pensé d’abord pour le mobile, pour Pi", de: "Mobil optimierter Remote-Arbeitsbereich für Pi", es: "Espacio de trabajo remoto para Pi, pensado para móviles", "pt-BR": "Espaço de trabalho remoto para Pi, pensado primeiro para celular", it: "Workspace remoto per Pi, progettato prima di tutto per i dispositivi mobili",
+    },
+    "Clear theme, density, and model visibility preferences": {
+      tr: "Tema, yoğunluk ve model görünürlüğü tercihlerini temizle", fr: "Effacer les préférences de thème, densité et visibilité des modèles", de: "Design-, Dichte- und Sichtbarkeitseinstellungen der Modelle löschen", es: "Borrar las preferencias de tema, densidad y visibilidad de modelos", "pt-BR": "Limpar preferências de tema, densidade e visibilidade dos modelos", it: "Cancella le preferenze di tema, densità e visibilità dei modelli",
+    },
+    "Pi Web · self-hosted on your tailnet": {
+      tr: "Pi Web · tailnet'inizde self-hosted", fr: "Pi Web · auto-hébergé sur votre tailnet", de: "Pi Web · selbst gehostet in Ihrem Tailnet", es: "Pi Web · autoalojado en tu tailnet", "pt-BR": "Pi Web · auto-hospedado no seu tailnet", it: "Pi Web · self-hosted sulla tua tailnet",
+    },
+    "Models (one per line; use ": {
+      tr: "Modeller (her satıra bir tane; şu biçimi kullanın: ", fr: "Modèles (un par ligne ; utilisez ", de: "Modelle (eines pro Zeile; verwenden Sie ", es: "Modelos (uno por línea; usa ", "pt-BR": "Modelos (um por linha; use ", it: "Modelli (uno per riga; usa ",
+    },
+    "Models (one per line; use": {
+      tr: "Modeller (her satıra bir tane; şu biçimi kullanın:", fr: "Modèles (un par ligne ; utilisez", de: "Modelle (eines pro Zeile; verwenden Sie", es: "Modelos (uno por línea; usa", "pt-BR": "Modelos (um por linha; use", it: "Modelli (uno per riga; usa",
+    },
+    "Advanced settings are saved in": {
+      tr: "Gelişmiş ayarlar şuraya kaydedilir", fr: "Les réglages avancés sont enregistrés dans", de: "Erweiterte Einstellungen werden gespeichert in", es: "La configuración avanzada se guarda en", "pt-BR": "As configurações avançadas são salvas em", it: "Le impostazioni avanzate vengono salvate in",
+    },
+    "How to add a device": {
+      tr: "Cihaz ekleme", fr: "Comment ajouter un appareil", de: "Gerät hinzufügen", es: "Cómo añadir un dispositivo", "pt-BR": "Como adicionar um dispositivo", it: "Come aggiungere un dispositivo",
+    },
+    "Install and start Pi Web on the other computer. Keep it running and use the same Web token.": {
+      tr: "Diğer bilgisayara Pi Web'i kurup çalıştırın. Açık tutun ve aynı Web token'ını kullanın.", fr: "Installez et démarrez Pi Web sur l’autre ordinateur. Laissez-le fonctionner et utilisez le même jeton Web.", de: "Installieren und starten Sie Pi Web auf dem anderen Computer. Lassen Sie es laufen und verwenden Sie dasselbe Web-Token.", es: "Instala e inicia Pi Web en el otro ordenador. Déjalo en ejecución y usa el mismo token web.", "pt-BR": "Instale e inicie o Pi Web no outro computador. Mantenha-o em execução e use o mesmo token da Web.", it: "Installa e avvia Pi Web sull’altro computer. Lascialo in esecuzione e usa lo stesso token Web.",
+    },
+    "On that computer, copy its Tailscale Serve or HTTPS Pi Web address, then paste it into": {
+      tr: "O bilgisayarda Tailscale Serve veya HTTPS Pi Web adresini kopyalayıp buraya yapıştırın:", fr: "Sur cet ordinateur, copiez l’adresse Pi Web Tailscale Serve ou HTTPS, puis collez-la dans", de: "Kopieren Sie auf diesem Computer die Tailscale-Serve- oder HTTPS-Adresse von Pi Web und fügen Sie sie ein in", es: "En ese ordenador, copia la dirección de Pi Web de Tailscale Serve o HTTPS y pégala en", "pt-BR": "Nesse computador, copie o endereço Tailscale Serve ou HTTPS do Pi Web e cole-o em", it: "Su quel computer, copia l’indirizzo Pi Web Tailscale Serve o HTTPS e incollalo in",
+    },
+    "Enter a friendly device name, choose": {
+      tr: "Anlaşılır bir cihaz adı girin, ardından", fr: "Saisissez un nom convivial pour l’appareil, choisissez", de: "Geben Sie einen verständlichen Gerätenamen ein, wählen Sie", es: "Introduce un nombre descriptivo para el dispositivo, elige", "pt-BR": "Digite um nome amigável para o dispositivo, escolha", it: "Inserisci un nome descrittivo per il dispositivo, scegli",
+    },
+    "and then select": {
+      tr: "ve ardından seçin", fr: "puis sélectionnez", de: "und wählen Sie anschließend", es: "y después selecciona", "pt-BR": "e depois selecione", it: "e poi seleziona",
+    },
+    "If you cannot copy a URL, use the link button in Devices to create a one-time pairing code. Enter that code here instead; it expires after five minutes.": {
+      tr: "URL'yi kopyalayamıyorsanız, tek kullanımlık eşleştirme kodu oluşturmak için Cihazlar bölümündeki bağlantı düğmesini kullanın. Bunun yerine kodu buraya girin; beş dakika sonra geçerliliğini yitirir.", fr: "Si vous ne pouvez pas copier une URL, utilisez le bouton de lien dans Appareils pour créer un code d’association à usage unique. Saisissez plutôt ce code ici ; il expire après cinq minutes.", de: "Wenn Sie keine URL kopieren können, erstellen Sie über die Verknüpfungsschaltfläche unter Geräte einen einmaligen Kopplungscode. Geben Sie stattdessen diesen Code hier ein; er läuft nach fünf Minuten ab.", es: "Si no puedes copiar una URL, usa el botón de enlace de Dispositivos para crear un código de emparejamiento de un solo uso. Introduce ese código aquí; caduca después de cinco minutos.", "pt-BR": "Se não puder copiar uma URL, use o botão de link em Dispositivos para criar um código de pareamento de uso único. Digite esse código aqui; ele expira após cinco minutos.", it: "Se non puoi copiare un URL, usa il pulsante di collegamento in Dispositivi per creare un codice di abbinamento monouso. Inserisci qui quel codice; scade dopo cinque minuti.",
+    },
+  };
+  for (const [key, values] of Object.entries(EUROPEAN_SUBTITLE_COPY)) {
+    for (const id of ["tr", "fr", "de", "es", "pt-BR", "it"]) {
+      if (values[id]) TRANSLATIONS[id][key] = values[id];
+    }
+  }
+
+  const EUROPEAN_FORM_COPY = {
+    tr: {
+      "Device name": "Cihaz adı", "Pi Web URL": "Pi Web URL'si", "Host name (optional)": "Ana bilgisayar adı (isteğe bağlı)", "Save device": "Cihazı kaydet", "Test connection": "Bağlantıyı test et", "Restart Pi Web": "Pi Web'i yeniden başlat", "Delete device": "Cihazı sil", "One-time pairing code": "Tek kullanımlık eşleştirme kodu", "Pairing code for another device": "Başka bir cihaz için eşleştirme kodu", "Generate new pairing code": "Yeni eşleştirme kodu oluştur", "Verify and add": "Doğrula ve ekle", "API key": "API anahtarı", "Paste API key": "API anahtarını yapıştırın", "Save and check": "Kaydet ve kontrol et", "Provider ID": "Sağlayıcı kimliği", "API type": "API türü", "Base URL": "Temel URL", "API key (optional)": "API anahtarı (isteğe bağlı)", "Loading provider list…": "Sağlayıcı listesi yükleniyor…", "PI AGENT DEVICE": "PI AGENT CİHAZI", "MODEL PROVIDER": "MODEL SAĞLAYICISI",
+      "Local Pi Web port": "Yerel Pi Web bağlantı noktası", "Remove sign-in": "Oturum açmayı kaldır", "Delete provider": "Sağlayıcıyı sil", "Join with pairing code": "Eşleştirme koduyla katıl", "Search providers": "Sağlayıcılarda ara", "Search providers or models": "Sağlayıcı veya model ara", "e.g. Work computer": "ör. İş bilgisayarı", "e.g. office-laptop": "ör. ofis-dizüstü", "e.g. ollama-local": "ör. ollama-local", "e.g. Project QA": "ör. Proje QA", "https://host.example or http://…:3140": "https://host.example veya http://…:3140", "You may use $ENV_VAR or !command": "$ENV_VAR veya !command kullanabilirsiniz", "NEW PROJECT": "YENİ PROJE", "Session": "Oturum", "PI REQUEST": "PI İSTEĞİ", "Token": "Token",
+    },
+    fr: {
+      "Device name": "Nom de l’appareil", "Pi Web URL": "URL de Pi Web", "Host name (optional)": "Nom d’hôte (facultatif)", "Save device": "Enregistrer l’appareil", "Test connection": "Tester la connexion", "Restart Pi Web": "Redémarrer Pi Web", "Delete device": "Supprimer l’appareil", "One-time pairing code": "Code d’association à usage unique", "Pairing code for another device": "Code d’association pour un autre appareil", "Generate new pairing code": "Générer un nouveau code d’association", "Verify and add": "Vérifier et ajouter", "API key": "Clé API", "Paste API key": "Collez la clé API", "Save and check": "Enregistrer et vérifier", "Provider ID": "Identifiant du fournisseur", "API type": "Type d’API", "Base URL": "URL de base", "API key (optional)": "Clé API (facultatif)", "Loading provider list…": "Chargement de la liste des fournisseurs…", "PI AGENT DEVICE": "APPAREIL PI AGENT", "MODEL PROVIDER": "FOURNISSEUR DE MODÈLE",
+      "Local Pi Web port": "Port Pi Web local", "Remove sign-in": "Supprimer la connexion", "Delete provider": "Supprimer le fournisseur", "Join with pairing code": "Rejoindre avec un code d’association", "Search providers": "Rechercher des fournisseurs", "Search providers or models": "Rechercher des fournisseurs ou des modèles", "e.g. Work computer": "ex. ordinateur professionnel", "e.g. office-laptop": "ex. portable-bureau", "e.g. ollama-local": "ex. ollama-local", "e.g. Project QA": "ex. projet QA", "https://host.example or http://…:3140": "https://host.example ou http://…:3140", "You may use $ENV_VAR or !command": "Vous pouvez utiliser $ENV_VAR ou !command", "NEW PROJECT": "NOUVEAU PROJET", "Session": "Session", "PI REQUEST": "DEMANDE PI", "Token": "Jeton",
+    },
+    de: {
+      "Device name": "Gerätename", "Pi Web URL": "Pi-Web-URL", "Host name (optional)": "Hostname (optional)", "Save device": "Gerät speichern", "Test connection": "Verbindung testen", "Restart Pi Web": "Pi Web neu starten", "Delete device": "Gerät löschen", "One-time pairing code": "Einmaliger Kopplungscode", "Pairing code for another device": "Kopplungscode für ein anderes Gerät", "Generate new pairing code": "Neuen Kopplungscode erzeugen", "Verify and add": "Prüfen und hinzufügen", "API key": "API-Schlüssel", "Paste API key": "API-Schlüssel einfügen", "Save and check": "Speichern und prüfen", "Provider ID": "Anbieter-ID", "API type": "API-Typ", "Base URL": "Basis-URL", "API key (optional)": "API-Schlüssel (optional)", "Loading provider list…": "Anbieterliste wird geladen…", "PI AGENT DEVICE": "PI-AGENT-GERÄT", "MODEL PROVIDER": "MODELLANBIETER",
+      "Local Pi Web port": "Lokaler Pi-Web-Port", "Remove sign-in": "Anmeldung entfernen", "Delete provider": "Anbieter löschen", "Join with pairing code": "Mit Kopplungscode beitreten", "Search providers": "Anbieter durchsuchen", "Search providers or models": "Anbieter oder Modelle durchsuchen", "e.g. Work computer": "z. B. Arbeitscomputer", "e.g. office-laptop": "z. B. Büro-Laptop", "e.g. ollama-local": "z. B. ollama-local", "e.g. Project QA": "z. B. Projekt-QA", "https://host.example or http://…:3140": "https://host.example oder http://…:3140", "You may use $ENV_VAR or !command": "$ENV_VAR oder !command kann verwendet werden", "NEW PROJECT": "NEUES PROJEKT", "Session": "Sitzung", "PI REQUEST": "PI-ANFRAGE", "Token": "Token",
+    },
+    es: {
+      "Device name": "Nombre del dispositivo", "Pi Web URL": "URL de Pi Web", "Host name (optional)": "Nombre del host (opcional)", "Save device": "Guardar dispositivo", "Test connection": "Probar conexión", "Restart Pi Web": "Reiniciar Pi Web", "Delete device": "Eliminar dispositivo", "One-time pairing code": "Código de emparejamiento de un solo uso", "Pairing code for another device": "Código de emparejamiento para otro dispositivo", "Generate new pairing code": "Generar un nuevo código de emparejamiento", "Verify and add": "Verificar y añadir", "API key": "Clave API", "Paste API key": "Pega la clave API", "Save and check": "Guardar y comprobar", "Provider ID": "ID del proveedor", "API type": "Tipo de API", "Base URL": "URL base", "API key (optional)": "Clave API (opcional)", "Loading provider list…": "Cargando la lista de proveedores…", "PI AGENT DEVICE": "DISPOSITIVO PI AGENT", "MODEL PROVIDER": "PROVEEDOR DE MODELOS",
+      "Local Pi Web port": "Puerto local de Pi Web", "Remove sign-in": "Eliminar inicio de sesión", "Delete provider": "Eliminar proveedor", "Join with pairing code": "Unirse con código de emparejamiento", "Search providers": "Buscar proveedores", "Search providers or models": "Buscar proveedores o modelos", "e.g. Work computer": "p. ej., ordenador de trabajo", "e.g. office-laptop": "p. ej., portátil-oficina", "e.g. ollama-local": "p. ej., ollama-local", "e.g. Project QA": "p. ej., proyecto QA", "https://host.example or http://…:3140": "https://host.example o http://…:3140", "You may use $ENV_VAR or !command": "Puedes usar $ENV_VAR o !command", "NEW PROJECT": "NUEVO PROYECTO", "Session": "Sesión", "PI REQUEST": "SOLICITUD DE PI", "Token": "Token",
+    },
+    "pt-BR": {
+      "Device name": "Nome do dispositivo", "Pi Web URL": "URL do Pi Web", "Host name (optional)": "Nome do host (opcional)", "Save device": "Salvar dispositivo", "Test connection": "Testar conexão", "Restart Pi Web": "Reiniciar o Pi Web", "Delete device": "Excluir dispositivo", "One-time pairing code": "Código de pareamento de uso único", "Pairing code for another device": "Código de pareamento para outro dispositivo", "Generate new pairing code": "Gerar novo código de pareamento", "Verify and add": "Verificar e adicionar", "API key": "Chave de API", "Paste API key": "Cole a chave de API", "Save and check": "Salvar e verificar", "Provider ID": "ID do provedor", "API type": "Tipo de API", "Base URL": "URL base", "API key (optional)": "Chave de API (opcional)", "Loading provider list…": "Carregando a lista de provedores…", "PI AGENT DEVICE": "DISPOSITIVO PI AGENT", "MODEL PROVIDER": "PROVEDOR DE MODELO",
+      "Local Pi Web port": "Porta local do Pi Web", "Remove sign-in": "Remover login", "Delete provider": "Excluir provedor", "Join with pairing code": "Entrar com código de pareamento", "Search providers": "Pesquisar provedores", "Search providers or models": "Pesquisar provedores ou modelos", "e.g. Work computer": "ex.: computador do trabalho", "e.g. office-laptop": "ex.: laptop-escritório", "e.g. ollama-local": "ex.: ollama-local", "e.g. Project QA": "ex.: projeto QA", "https://host.example or http://…:3140": "https://host.example ou http://…:3140", "You may use $ENV_VAR or !command": "Você pode usar $ENV_VAR ou !command", "NEW PROJECT": "NOVO PROJETO", "Session": "Sessão", "PI REQUEST": "SOLICITAÇÃO DO PI", "Token": "Token",
+    },
+    it: {
+      "Device name": "Nome dispositivo", "Pi Web URL": "URL di Pi Web", "Host name (optional)": "Nome host (facoltativo)", "Save device": "Salva dispositivo", "Test connection": "Testa connessione", "Restart Pi Web": "Riavvia Pi Web", "Delete device": "Elimina dispositivo", "One-time pairing code": "Codice di abbinamento monouso", "Pairing code for another device": "Codice di abbinamento per un altro dispositivo", "Generate new pairing code": "Genera nuovo codice di abbinamento", "Verify and add": "Verifica e aggiungi", "API key": "Chiave API", "Paste API key": "Incolla la chiave API", "Save and check": "Salva e verifica", "Provider ID": "ID provider", "API type": "Tipo di API", "Base URL": "URL di base", "API key (optional)": "Chiave API (facoltativa)", "Loading provider list…": "Caricamento dell’elenco dei provider…", "PI AGENT DEVICE": "DISPOSITIVO PI AGENT", "MODEL PROVIDER": "PROVIDER DEL MODELLO",
+      "Local Pi Web port": "Porta locale di Pi Web", "Remove sign-in": "Rimuovi accesso", "Delete provider": "Elimina provider", "Join with pairing code": "Partecipa con codice di abbinamento", "Search providers": "Cerca provider", "Search providers or models": "Cerca provider o modelli", "e.g. Work computer": "es. computer di lavoro", "e.g. office-laptop": "es. portatile-ufficio", "e.g. ollama-local": "es. ollama-local", "e.g. Project QA": "es. progetto QA", "https://host.example or http://…:3140": "https://host.example o http://…:3140", "You may use $ENV_VAR or !command": "Puoi usare $ENV_VAR o !command", "NEW PROJECT": "NUOVO PROGETTO", "Session": "Sessione", "PI REQUEST": "RICHIESTA PI", "Token": "Token",
+    },
+  };
+  for (const [id, table] of Object.entries(EUROPEAN_FORM_COPY)) Object.assign(TRANSLATIONS[id], table);
+
   const PROVIDER_COPY = {
     minimax: { en: "MiniMax (International)", "zh-Hant": "MiniMax（國際版）", "zh-Hans": "MiniMax（国际版）", ja: "MiniMax（国際版）", ko: "MiniMax (국제)" },
     "minimax-cn": { en: "MiniMax (China)", "zh-Hant": "MiniMax（中國版）", "zh-Hans": "MiniMax（中国版）", ja: "MiniMax（中国）", ko: "MiniMax (중국)" },
