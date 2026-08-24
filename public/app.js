@@ -1,4 +1,4 @@
-/* pi-web v1.11.5 — English-first localization and provider catalog */
+/* pi-web v1.11.6 — English-first localization and provider catalog */
 "use strict";
 
 // ===========================================================================
@@ -14,6 +14,11 @@ const DESIGN_THEMES = Object.freeze([
   { id: "warm-paper", label: "Warm Paper" },
   { id: "graphite", label: "Graphite" },
   { id: "ink-ivory", label: "Ink & Ivory" },
+  { id: "plum-milk", label: "Plum & Milk" },
+  { id: "ocean-ivory", label: "Ocean & Ivory" },
+  { id: "cloud-jet", label: "Cloud & Jet" },
+  { id: "cloud-smog", label: "Cloud & Smog" },
+  { id: "etoile", label: "Our Étoile" },
 ]);
 const DESIGN_THEME_IDS = new Set(DESIGN_THEMES.map((theme) => theme.id));
 const DEFAULT_SETTINGS = {
@@ -157,6 +162,8 @@ const el = {
 let sessionsCache = [];
 let sessionRenderLimit = 120;
 const collapsedProjects = new Set();
+const expandedProjectSessions = new Set();
+const PROJECT_SESSION_PREVIEW_LIMIT = 3;
 let rpc = null;              // {sid, es, streaming, queued}
 let pendingAssistant = null;
 let liveToolCards = new Map();
@@ -512,11 +519,16 @@ function stripMd(t) {
 function fmtTime(ts) {
   if (!ts) return "";
   const d = new Date(ts), now = new Date();
-  const hm = d.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
+  const selectedLocale = window.piI18n?.getLocale?.() || "en";
+  const dateLocale = selectedLocale === "zh-Hant" ? "zh-TW" : selectedLocale === "zh-Hans" ? "zh-CN" : selectedLocale;
+  const hm = d.toLocaleTimeString(dateLocale, { hour: "2-digit", minute: "2-digit" });
   if (d.toDateString() === now.toDateString()) return hm;
   const days = Math.floor((now - d) / 86400000);
-  if (days < 7) return `${days} 天前 ${hm}`;
-  return d.toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" }) + " " + hm;
+  if (days < 7) {
+    const relative = new Intl.RelativeTimeFormat(dateLocale, { numeric: "always" }).format(-days, "day");
+    return `${relative} ${hm}`;
+  }
+  return d.toLocaleDateString(dateLocale, { month: "numeric", day: "numeric" }) + " " + hm;
 }
 function fmtTokens(n) {
   if (!n) return "";
@@ -529,7 +541,7 @@ function renderSessionList(q) {
     (s.name || "").toLowerCase().includes(query) ||
     (s.preview || "").toLowerCase().includes(query) ||
     (s.cwd || "").toLowerCase().includes(query));
-  const visibleList = list.slice(0, sessionRenderLimit);
+  const visibleList = settings.groupByProject ? list : list.slice(0, sessionRenderLimit);
   el.sessionList.classList.toggle("grouped", !!settings.groupByProject);
   el.sessionList.innerHTML = "";
   el.listEmpty.classList.toggle("hidden", list.length > 0);
@@ -540,7 +552,7 @@ function renderSessionList(q) {
     li.tabIndex = 0;
     li.setAttribute("role", "button");
     const rawName = s.name || s.preview?.split("\n")[0] || "";
-    const name = stripMd(rawName).slice(0, 70) || "(未命名)";
+    const name = stripMd(rawName).slice(0, 70) || (window.piI18n?.t("(Untitled)") || "(Untitled)");
     const usage = [
       s.tokens ? `${fmtTokens(s.tokens)} tok` : "",
       s.cost ? "$" + s.cost.toFixed(2) : "",
@@ -585,6 +597,8 @@ function renderSessionList(q) {
     const sorted = [...groups.entries()].sort((a, b) => newest(b[1]) - newest(a[1]));
     for (const [cwd, items] of sorted) {
       const collapsed = collapsedProjects.has(cwd);
+      const expanded = expandedProjectSessions.has(cwd);
+      const visibleItems = expanded ? items : items.slice(0, PROJECT_SESSION_PREVIEW_LIMIT);
       const group = document.createElement("li");
       group.className = "project-group" + (collapsed ? " collapsed" : "");
       const header = document.createElement("button");
@@ -592,15 +606,32 @@ function renderSessionList(q) {
       header.className = "project-group-header";
       header.setAttribute("aria-expanded", String(!collapsed));
       header.innerHTML = `<span class="project-folder-icon"><svg class="icon"><use href="#i-folder-filled"></use></svg></span><span class="project-group-copy"><strong></strong></span><span class="project-group-count">${items.length}</span><span class="project-group-chevron"><svg class="icon"><use href="#i-chevron-down"></use></svg></span>`;
-      const label = cwd === "(unknown)" ? "未指定專案" : (cwd.split("/").filter(Boolean).pop() || cwd);
+      const unassigned = window.piI18n?.t("Unassigned project") || "Unassigned project";
+      const label = cwd === "(unknown)" ? unassigned : (cwd.split("/").filter(Boolean).pop() || cwd);
       header.querySelector("strong").textContent = label;
-      header.title = cwd === "(unknown)" ? "未指定專案" : cwd;
+      header.title = cwd === "(unknown)" ? unassigned : cwd;
       const children = document.createElement("ul");
       children.className = "project-group-items";
       children.id = `project-sessions-${[...groups.keys()].indexOf(cwd)}`;
       children.hidden = collapsed;
       header.setAttribute("aria-controls", children.id);
-      for (const s of items) children.appendChild(makeItem(s));
+      for (const s of visibleItems) children.appendChild(makeItem(s));
+      if (items.length > PROJECT_SESSION_PREVIEW_LIMIT) {
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "project-session-toggle";
+        toggle.textContent = expanded
+          ? (window.piI18n?.t("Show less") || "Show less")
+          : `${window.piI18n?.t("Show more") || "Show more"} (${items.length - PROJECT_SESSION_PREVIEW_LIMIT})`;
+        toggle.setAttribute("aria-expanded", String(expanded));
+        toggle.addEventListener("click", (event) => {
+          event.stopPropagation();
+          if (expandedProjectSessions.has(cwd)) expandedProjectSessions.delete(cwd);
+          else expandedProjectSessions.add(cwd);
+          renderSessionList(el.search.value);
+        });
+        children.appendChild(toggle);
+      }
       header.addEventListener("click", () => {
         if (collapsedProjects.has(cwd)) collapsedProjects.delete(cwd);
         else collapsedProjects.add(cwd);
@@ -612,12 +643,12 @@ function renderSessionList(q) {
   } else {
     for (const s of visibleList) el.sessionList.appendChild(makeItem(s));
   }
-  if (visibleList.length < list.length) {
+  if (!settings.groupByProject && visibleList.length < list.length) {
     const more = document.createElement("button");
     more.type = "button";
     more.className = "history-load-button session-load-more";
-    more.textContent = `顯示更多（${list.length - visibleList.length}）`;
-    more.setAttribute("aria-label", "顯示更多 sessions");
+    more.textContent = `${window.piI18n?.t("Show more") || "Show more"} (${list.length - visibleList.length})`;
+    more.setAttribute("aria-label", window.piI18n?.t("Show more sessions") || "Show more sessions");
     more.addEventListener("click", () => {
       sessionRenderLimit += 120;
       renderSessionList(el.search.value);
@@ -3123,7 +3154,7 @@ function closeProviderDialog() {
 }
 
 function providerAuthTypeLabel(type) {
-  return window.piI18n?.t(type === "oauth" ? "用帳號登入" : "使用 API key") || (type === "oauth" ? "Sign in with an account" : "Use an API key");
+  return window.piI18n?.t(type === "oauth" ? "Sign in with an account" : "Use an API key") || (type === "oauth" ? "Sign in with an account" : "Use an API key");
 }
 
 const PROVIDER_CATEGORY_META = Object.freeze({

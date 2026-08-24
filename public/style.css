@@ -1,4 +1,4 @@
-/* pi-web v1.11.5 — Ink & Ivory / English-first localization */
+/* pi-web v1.11.6 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -1807,6 +1807,21 @@ body.image-lightbox-open { overflow: hidden; }
 .history-load-button:disabled { opacity: .6; cursor: wait; }
 .session-load-more-wrap { display: flex; justify-content: center; padding: 10px 0 18px; }
 .session-load-more { margin: 0 auto; }
+.project-session-toggle {
+  display: block;
+  width: calc(100% - 18px);
+  margin: 2px 9px 8px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--pine-soft);
+  background: transparent;
+  font: 600 .72rem var(--sans);
+  text-align: left;
+  cursor: pointer;
+}
+.project-session-toggle:hover,
+.project-session-toggle:active { color: var(--ink); background: var(--bubble-user); }
 
 @media (max-width: 979px) {
   #view-chat .messages { gap: 9px; }
@@ -1828,7 +1843,7 @@ body.image-lightbox-open { overflow: hidden; }
 }
 .login-mark.official-mark img { width: 100%; height: 100%; object-fit: contain; display: block; }
 
-/* Four optional design themes with readable light and dark variants. */
+/* Nine optional design themes with readable light and dark variants. */
 html[data-design-theme="warm-paper"][data-theme="dark"] {
   --paper: #211F1B; --ink: #EEE8DC; --pine: #C4A570; --pine-soft: #A98C58;
   --milk: #2B2823; --line: rgba(238,232,220,.12); --accent: #C4A570;
@@ -1858,6 +1873,56 @@ html[data-design-theme="ink-ivory"][data-theme="light"] {
   --paper: #FAF7F0; --ink: #1C1C1C; --pine: #1A1A1A; --pine-soft: #66635D;
   --milk: #FFFFFF; --line: rgba(0,0,0,.12); --accent: #1A1A1A;
   --bubble-user: #ECE9E2; --bubble-ai: #F5F2EB; --sheet-bg: rgba(28,28,28,.28); --gold: #333333;
+}
+html[data-design-theme="plum-milk"][data-theme="dark"] {
+  --paper: #381932; --ink: #FFF3E6; --pine: #FFF3E6; --pine-soft: #D9B8C9;
+  --milk: #4A2542; --line: rgba(255,243,230,.14); --accent: #FFF3E6;
+  --bubble-user: #5A304F; --bubble-ai: #41203A; --sheet-bg: rgba(35,14,30,.70); --gold: #F1C8D9;
+}
+html[data-design-theme="plum-milk"][data-theme="light"] {
+  --paper: #FFF3E6; --ink: #381932; --pine: #381932; --pine-soft: #704B67;
+  --milk: #FFF9F2; --line: rgba(56,25,50,.14); --accent: #381932;
+  --bubble-user: #F2DDD4; --bubble-ai: #FFF9F2; --sheet-bg: rgba(56,25,50,.28); --gold: #704B67;
+}
+html[data-design-theme="ocean-ivory"][data-theme="dark"] {
+  --paper: #0B5497; --ink: #FFFEF9; --pine: #FFFEF9; --pine-soft: #B9D4ED;
+  --milk: #1766AA; --line: rgba(255,254,249,.16); --accent: #FFFEF9;
+  --bubble-user: #2878B8; --bubble-ai: #0E5D9F; --sheet-bg: rgba(4,35,68,.70); --gold: #D7E9F8;
+}
+html[data-design-theme="ocean-ivory"][data-theme="light"] {
+  --paper: #FFFEF9; --ink: #0B5497; --pine: #0B5497; --pine-soft: #477EAF;
+  --milk: #FFFFFF; --line: rgba(11,84,151,.15); --accent: #0B5497;
+  --bubble-user: #DCECF8; --bubble-ai: #F5FAFE; --sheet-bg: rgba(11,84,151,.25); --gold: #477EAF;
+}
+html[data-design-theme="cloud-jet"][data-theme="dark"] {
+  --paper: #312F2C; --ink: #FAFAFA; --pine: #FAFAFA; --pine-soft: #C5C2BE;
+  --milk: #403D39; --line: rgba(250,250,250,.14); --accent: #FAFAFA;
+  --bubble-user: #4D4A46; --bubble-ai: #383633; --sheet-bg: rgba(24,23,21,.70); --gold: #E2DDD7;
+}
+html[data-design-theme="cloud-jet"][data-theme="light"] {
+  --paper: #FAFAFA; --ink: #312F2C; --pine: #312F2C; --pine-soft: #6B6863;
+  --milk: #FFFFFF; --line: rgba(49,47,44,.14); --accent: #312F2C;
+  --bubble-user: #E9E8E6; --bubble-ai: #FFFFFF; --sheet-bg: rgba(49,47,44,.24); --gold: #6B6863;
+}
+html[data-design-theme="cloud-smog"][data-theme="dark"] {
+  --paper: #5C636D; --ink: #F4F4F4; --pine: #F4F4F4; --pine-soft: #D0D4D8;
+  --milk: #68717C; --line: rgba(244,244,244,.16); --accent: #F4F4F4;
+  --bubble-user: #747D87; --bubble-ai: #626A74; --sheet-bg: rgba(38,42,47,.68); --gold: #E0E4E7;
+}
+html[data-design-theme="cloud-smog"][data-theme="light"] {
+  --paper: #F4F4F4; --ink: #5C636D; --pine: #5C636D; --pine-soft: #7D858E;
+  --milk: #FFFFFF; --line: rgba(92,99,109,.16); --accent: #5C636D;
+  --bubble-user: #E1E4E7; --bubble-ai: #FFFFFF; --sheet-bg: rgba(92,99,109,.24); --gold: #7D858E;
+}
+html[data-design-theme="etoile"][data-theme="dark"] {
+  --paper: #082052; --ink: #F8F0E5; --pine: #F8F0E5; --pine-soft: #C9C4C0;
+  --milk: #112E68; --line: rgba(248,240,229,.16); --accent: #F8F0E5;
+  --bubble-user: #1E417C; --bubble-ai: #0D285C; --sheet-bg: rgba(3,14,40,.72); --gold: #E8D8C2;
+}
+html[data-design-theme="etoile"][data-theme="light"] {
+  --paper: #F8F0E5; --ink: #082052; --pine: #082052; --pine-soft: #56647E;
+  --milk: #FFFDFC; --line: rgba(8,32,82,.15); --accent: #082052;
+  --bubble-user: #E7E8EF; --bubble-ai: #FFFDFC; --sheet-bg: rgba(8,32,82,.25); --gold: #56647E;
 }
 
 /* Theme settings: theme cards + adjustable desktop rail. */
@@ -1902,6 +1967,16 @@ html[data-design-theme="ink-ivory"][data-theme="light"] {
 .theme-choice[data-theme="graphite"] .theme-swatch.dark { background: #15171A; }
 .theme-choice[data-theme="ink-ivory"] .theme-swatch.light { background: #FAF7F0; }
 .theme-choice[data-theme="ink-ivory"] .theme-swatch.dark { background: #121212; }
+.theme-choice[data-theme="plum-milk"] .theme-swatch.light { background: #FFF3E6; }
+.theme-choice[data-theme="plum-milk"] .theme-swatch.dark { background: #381932; }
+.theme-choice[data-theme="ocean-ivory"] .theme-swatch.light { background: #FFFEF9; }
+.theme-choice[data-theme="ocean-ivory"] .theme-swatch.dark { background: #0B5497; }
+.theme-choice[data-theme="cloud-jet"] .theme-swatch.light { background: #FAFAFA; }
+.theme-choice[data-theme="cloud-jet"] .theme-swatch.dark { background: #312F2C; }
+.theme-choice[data-theme="cloud-smog"] .theme-swatch.light { background: #F4F4F4; }
+.theme-choice[data-theme="cloud-smog"] .theme-swatch.dark { background: #5C636D; }
+.theme-choice[data-theme="etoile"] .theme-swatch.light { background: #F8F0E5; }
+.theme-choice[data-theme="etoile"] .theme-swatch.dark { background: #082052; }
 .range-control { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .range-control input { width: 112px; accent-color: var(--accent); }
 .range-control output { min-width: 42px; color: var(--pine-soft); font: .72rem var(--mono); text-align: right; }
@@ -2308,7 +2383,7 @@ html[data-design-theme="ink-ivory"][data-theme="light"] {
   white-space: nowrap;
 }
 
-/* v1.11.5 — device management and dense, collapsible settings */
+/* v1.11.6 — device management and dense, collapsible settings */
 .machine-switch-wrap {
   flex: 1 1 auto;
   min-width: 0;

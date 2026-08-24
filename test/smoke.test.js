@@ -158,6 +158,7 @@ test("localization is English-first with an explicit locale selector and safe fa
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   assert.match(html, /<html lang="en"(?:\s|>)/);
   assert.match(html, /id="set-locale"/);
   assert.match(html, /value="zh-Hans"/);
@@ -177,6 +178,15 @@ test("localization is English-first with an explicit locale selector and safe fa
   assert.match(i18n, /root\.nodeType !== Node\.ELEMENT_NODE/);
   assert.match(app, /locale: "en"/);
   assert.match(app, /designTheme: "ink-ivory"/);
+  for (const theme of ["plum-milk", "ocean-ivory", "cloud-jet", "cloud-smog", "etoile"]) {
+    assert.match(app, new RegExp(`id: "${theme}"`));
+    assert.match(css, new RegExp(`data-design-theme="${theme}"`));
+  }
+  assert.match(app, /PROJECT_SESSION_PREVIEW_LIMIT = 3/);
+  assert.match(app, /Show more/);
+  assert.match(app, /Show less/);
+  assert.match(i18n, /TRANSLATION_REVERSE_PAIRS/);
+  assert.match(i18n, /target !== "ja"/);
   assert.match(app, /setLocale/);
   assert.doesNotMatch(html, /private-brand|internal-only/i);
 });
