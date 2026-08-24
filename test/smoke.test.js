@@ -173,6 +173,28 @@ test("project folder browsing can move from a home root to configured volumes", 
   assert.match(app, /loadProjectFolder\(projectFolder\.parent\)/);
 });
 
+test("project groups expose Codex-style actions without nesting buttons", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  assert.match(server, /function projectDirectory/);
+  assert.match(server, /function revealProject/);
+  assert.match(server, /async function archiveProjectSessions/);
+  assert.match(server, /function createPermanentWorktree/);
+  assert.match(server, /\/api\/project-action/);
+  assert.match(app, /project-group-actions/);
+  assert.match(app, /function openProjectActions/);
+  assert.match(app, /openNewDialog\(cwd\)/);
+  assert.match(app, /projectPins/);
+  assert.match(app, /projectAliases/);
+  assert.match(html, /id="project-action-sheet"/);
+  assert.match(html, /id="project-rename-dialog"/);
+  assert.match(html, /id="pa-worktree"/);
+  assert.match(css, /\.project-group-action/);
+  assert.match(css, /\.project-action-row/);
+});
+
 test("provider catalog keeps MiniMax regions separate and exposes a direct API key form", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");

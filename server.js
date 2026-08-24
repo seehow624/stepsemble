@@ -28,7 +28,7 @@ const { spawn, execFileSync } = require("node:child_process");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "1.11.11";
+const APP_VERSION = "1.11.12";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -720,7 +720,9 @@ async function listSessions() {
     return results;
   }
   for (const d of dirs) {
-    if (!d.isDirectory()) continue;
+    // Dot-prefixed directories are reserved for Pi Web internals (for
+    // example .archive) and must not appear as projects in the session list.
+    if (!d.isDirectory() || d.name.startsWith(".")) continue;
     const dirAbs = path.join(SESSIONS_DIR, d.name);
     let files;
     try { files = fs.readdirSync(dirAbs); } catch { continue; }
@@ -791,6 +793,77 @@ function deleteSession(rel) {
   }
   scanCache.delete(rel);
   return true;
+}
+
+function projectDirectory(cwd) {
+  if (typeof cwd !== "string" || !cwd.trim() || !path.isAbsolute(cwd)) return null;
+  const real = realBrowsePath(cwd.trim());
+  if (!real) return null;
+  try {
+    if (!fs.statSync(real).isDirectory() || !isBrowseAllowed(real)) return null;
+  } catch { return null; }
+  return real;
+}
+
+function revealProject(cwd) {
+  const real = projectDirectory(cwd);
+  if (!real || process.platform !== "darwin") return false;
+  const child = spawn("/usr/bin/open", ["-R", real], { detached: true, stdio: "ignore" });
+  child.unref();
+  return true;
+}
+
+async function archiveProjectSessions(cwd) {
+  const targetCwd = typeof cwd === "string" ? path.resolve(cwd) : "";
+  if (!targetCwd) return 0;
+  const sessions = await listSessions();
+  const matches = sessions.filter((session) => session.cwd && path.resolve(session.cwd) === targetCwd);
+  if (!matches.length) return 0;
+  const archiveRoot = path.join(SESSIONS_DIR, ".archive", `${Date.now()}-${crypto.randomBytes(3).toString("hex")}`);
+  let moved = 0;
+  for (const session of matches) {
+    const source = safeSessionPath(session.file);
+    if (!source) continue;
+    const relativeDir = path.dirname(session.file);
+    const destinationDir = path.join(archiveRoot, relativeDir);
+    const destination = path.join(destinationDir, path.basename(session.file));
+    try {
+      fs.mkdirSync(destinationDir, { recursive: true, mode: 0o700 });
+      fs.renameSync(source, destination);
+      scanCache.delete(session.file);
+      moved += 1;
+    } catch (error) {
+      console.warn(`[pi-web] could not archive ${session.file}: ${error.message}`);
+    }
+  }
+  return moved;
+}
+
+function createPermanentWorktree(cwd) {
+  const real = projectDirectory(cwd);
+  if (!real) throw new Error("Project folder is unavailable");
+  const git = process.env.PI_WEB_GIT_BIN || "git";
+  let root;
+  try {
+    root = execFileSync(git, ["-C", real, "rev-parse", "--show-toplevel"], { encoding: "utf8", timeout: 10_000 }).trim();
+  } catch (error) {
+    throw new Error(`Could not find a Git repository: ${error.message}`);
+  }
+  if (!root || !path.isAbsolute(root)) throw new Error("Could not resolve the Git repository");
+  const repoName = path.basename(root).replace(/[^a-zA-Z0-9._-]+/g, "-") || "project";
+  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+  const suffix = crypto.randomBytes(2).toString("hex");
+  const branch = `pi-worktree/${repoName}-${stamp}-${suffix}`;
+  const worktreeRoot = path.join(APP_HOME, ".pi", "worktrees", repoName);
+  const target = path.join(worktreeRoot, `${stamp}-${suffix}`);
+  try {
+    fs.mkdirSync(worktreeRoot, { recursive: true, mode: 0o700 });
+    execFileSync(git, ["-C", root, "worktree", "add", "-b", branch, target, "HEAD"], { encoding: "utf8", timeout: 30_000 });
+  } catch (error) {
+    try { if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true }); } catch {}
+    throw new Error(`Could not create worktree: ${error.message}`);
+  }
+  return { path: target, branch, repository: root };
 }
 
 /** 讀取單一 session 的 active path（從最後一條 message entry 沿 parentId 回溯） */
@@ -2509,6 +2582,40 @@ const server = http.createServer(async (req, res) => {
         const body = await readJSON(req);
         const ok = deleteSession(body.file);
         sendJSON(res, ok ? 200 : 400, ok ? {} : { error: "delete failed" });
+        return;
+      }
+
+      if (p === "/api/project-action" && req.method === "POST") {
+        try {
+          const body = await readJSON(req);
+          const action = typeof body.action === "string" ? body.action : "";
+          const cwd = typeof body.cwd === "string" ? body.cwd : "";
+          if (!cwd || !path.isAbsolute(cwd)) {
+            sendJSON(res, 400, { error: "absolute project path required" });
+            return;
+          }
+          if (action === "reveal") {
+            if (!revealProject(cwd)) {
+              sendJSON(res, 400, { error: process.platform === "darwin" ? "project folder is unavailable" : "Finder is only available on macOS" });
+              return;
+            }
+            sendJSON(res, 200, { ok: true });
+            return;
+          }
+          if (action === "archive") {
+            const count = await archiveProjectSessions(cwd);
+            sendJSON(res, 200, { ok: true, count });
+            return;
+          }
+          if (action === "worktree") {
+            const result = createPermanentWorktree(cwd);
+            sendJSON(res, 201, { ok: true, ...result });
+            return;
+          }
+          sendJSON(res, 400, { error: "unknown project action" });
+        } catch (error) {
+          sendJSON(res, error.statusCode || 409, { error: error.message || "project action failed" });
+        }
         return;
       }
 

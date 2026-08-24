@@ -1,4 +1,4 @@
-/* pi-web v1.11.11 — Ink & Ivory / English-first localization */
+/* pi-web v1.11.12 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -2554,3 +2554,95 @@ html[data-design-theme="etoile"][data-theme="light"] {
 html.reduced-motion .model-provider-group .model-visibility-row,
 html.reduced-motion .provider-preset-group { transition: none; }
 html.reduced-motion .machine-row.machine-status-checking .m-dot { animation: none; }
+
+/* Project group controls: the folder row stays clean until it is focused or
+   hovered, while the two Codex-style actions remain easy to reach on touch. */
+.project-group-header {
+  width: 100%;
+  min-width: 0;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--oc-radius);
+  background: linear-gradient(135deg, var(--bubble-user), transparent);
+}
+.project-group-main {
+  min-width: 0;
+  min-height: 44px;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+  border: 0;
+  color: var(--ink);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.project-group-main:hover { color: var(--ink); }
+.project-group-main:active { transform: scale(.99); }
+.project-group-main:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px; }
+.project-group-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity .16s ease;
+}
+.project-group:hover .project-group-actions,
+.project-group:focus-within .project-group-actions { opacity: 1; }
+.project-group-action {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  color: var(--pine-soft);
+  background: transparent;
+  cursor: pointer;
+}
+.project-group-action:hover { color: var(--ink); background: var(--bubble-user); }
+.project-group-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.project-group-action .icon { width: 17px; height: 17px; }
+
+.project-action-sheet { max-width: 520px; }
+.project-action-heading { align-items: center; margin-bottom: 8px; }
+.project-action-heading > div { min-width: 0; flex: 1 1 auto; }
+.project-action-heading .sa-title { margin: 0; padding: 0; border: 0; font-size: 17px; color: var(--ink); }
+.project-action-list { display: grid; gap: 2px; }
+.project-action-row {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  padding: 10px 8px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--ink);
+  background: transparent;
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+}
+.project-action-row:hover { background: var(--bubble-user); }
+.project-action-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.project-action-row .icon { width: 20px; height: 20px; flex: 0 0 20px; color: var(--pine-soft); }
+.project-action-row.danger-text .icon { color: currentColor; }
+.project-action-divider { height: 1px; margin: 4px 8px; background: var(--line); }
+.project-action-sheet > .cancel { margin-top: 8px; }
+.project-rename-dialog { max-width: 520px; }
+
+@media (max-width: 979px) {
+  .project-group-actions { opacity: 1; }
+  .project-group-action { width: 34px; height: 34px; }
+}
+
+html.reduced-motion .project-group-actions { transition: none; }

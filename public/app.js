@@ -1,4 +1,4 @@
-/* pi-web v1.11.11 — English-first localization and provider catalog */
+/* pi-web v1.11.12 — English-first localization and provider catalog */
 "use strict";
 
 // ===========================================================================
@@ -33,6 +33,9 @@ const DEFAULT_SETTINGS = {
   reducedMotion: false,
   thinking: "collapsed",  // collapsed | open
   modelVisibility: {},     // machineId -> hidden model keys[]
+  projectPins: [],         // cwd strings pinned to the top of the project list
+  projectAliases: {},      // cwd -> user-facing project label
+  removedProjects: [],     // cwd strings hidden from the project list
 };
 
 let machines = [];        // [{id,name,host,url,managed,self}] 由 GET /api/machines 下發
@@ -81,6 +84,15 @@ function loadSettings() {
     if (!DESIGN_THEME_IDS.has(out.designTheme)) out.designTheme = DEFAULT_SETTINGS.designTheme;
     out.sidebarWidth = Math.min(440, Math.max(280, Number(out.sidebarWidth) || DEFAULT_SETTINGS.sidebarWidth));
     out.fontScale = Math.min(125, Math.max(90, Number(out.fontScale) || DEFAULT_SETTINGS.fontScale));
+    out.projectPins = Array.isArray(out.projectPins)
+      ? [...new Set(out.projectPins.filter((value) => typeof value === "string" && value.trim()))].slice(0, 200)
+      : [];
+    out.projectAliases = out.projectAliases && typeof out.projectAliases === "object" && !Array.isArray(out.projectAliases)
+      ? Object.fromEntries(Object.entries(out.projectAliases).filter(([key, value]) => typeof key === "string" && typeof value === "string" && value.trim()).slice(0, 200))
+      : {};
+    out.removedProjects = Array.isArray(out.removedProjects)
+      ? [...new Set(out.removedProjects.filter((value) => typeof value === "string" && value.trim()))].slice(0, 200)
+      : [];
     // v1 的舊設定可能明確關閉分組；v2 首次啟用時以 Project folders 為預設。
     if (!v2) out.groupByProject = true;
     return out;
@@ -141,10 +153,17 @@ const el = {
   newFolderHome: $("new-folder-home"), newFolderPath: $("new-folder-path"), newFolderList: $("new-folder-list"),
   saSheet: $("session-action-sheet"), saTitle: $("sa-title"),
   saModel: $("sa-model"), saRename: $("sa-rename"), saDelete: $("sa-delete"), saCancel: $("sa-cancel"),
+  projectActionSheet: $("project-action-sheet"), projectActionTitle: $("pa-title"),
+  projectActionPin: $("pa-pin"), projectActionEdit: $("pa-edit"), projectActionReveal: $("pa-reveal"),
+  projectActionWorktree: $("pa-worktree"), projectActionArchive: $("pa-archive"), projectActionRemove: $("pa-remove"),
+  projectActionCancel: $("pa-cancel"), projectActionClose: $("pa-cancel-close"),
   modelSheet: $("model-sheet"), modelList: $("model-list"),
   thinkingSelect: $("thinking-select"), modelClose: $("model-close"),
   renameDialog: $("rename-dialog"), renameInput: $("rename-input"),
   renameCancel: $("rename-cancel"), renameSave: $("rename-save"),
+  projectRenameDialog: $("project-rename-dialog"), projectRenameTitle: $("project-rename-title"),
+  projectRenameInput: $("project-rename-input"), projectRenameCancel: $("project-rename-cancel"),
+  projectRenameSave: $("project-rename-save"),
   extensionUiSheet: $("extension-ui-sheet"), extensionUiKind: $("extension-ui-kind"),
   extensionUiTitle: $("extension-ui-title"), extensionUiMessage: $("extension-ui-message"),
   extensionUiOptions: $("extension-ui-options"), extensionUiInput: $("extension-ui-input"),
@@ -536,6 +555,42 @@ function fmtTokens(n) {
   return n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k" : String(n);
 }
 
+function projectFolderName(cwd) {
+  const key = String(cwd || "(unknown)");
+  const unassigned = window.piI18n?.t("Unassigned project") || "Unassigned project";
+  return key === "(unknown)" ? unassigned : (key.split("/").filter(Boolean).pop() || key);
+}
+
+function projectDisplayName(cwd) {
+  const key = String(cwd || "(unknown)");
+  const alias = settings.projectAliases?.[key];
+  return typeof alias === "string" && alias.trim() ? alias.trim() : projectFolderName(key);
+}
+
+function projectIsPinned(cwd) {
+  return Array.isArray(settings.projectPins) && settings.projectPins.includes(String(cwd || ""));
+}
+
+function projectIsRemoved(cwd) {
+  return Array.isArray(settings.removedProjects) && settings.removedProjects.includes(String(cwd || ""));
+}
+
+function saveProjectListSettings(patch) {
+  settings = saveSettings(patch);
+  applyAppearance();
+  renderSessionList(el.search?.value || "");
+}
+
+function projectIconButton(icon, title, aria) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "project-group-action";
+  button.title = title;
+  button.setAttribute("aria-label", aria || title);
+  button.innerHTML = `<svg class="icon" aria-hidden="true"><use href="#${icon}"></use></svg>`;
+  return button;
+}
+
 function renderSessionList(q) {
   const query = (q || "").trim().toLowerCase();
   const list = sessionsCache.filter(s => !query ||
@@ -595,27 +650,32 @@ function renderSessionList(q) {
       groups.get(key).push(s);
     }
     const newest = (items) => Math.max(...items.map(x => Number(x.mtimeMs) || 0));
-    const sorted = [...groups.entries()].sort((a, b) => newest(b[1]) - newest(a[1]));
+    const sorted = [...groups.entries()]
+      .filter(([cwd]) => !projectIsRemoved(cwd) || !!query)
+      .sort((a, b) => {
+        const pinOrder = Number(projectIsPinned(b[0])) - Number(projectIsPinned(a[0]));
+        return pinOrder || newest(b[1]) - newest(a[1]);
+      });
     for (const [cwd, items] of sorted) {
       const collapsed = collapsedProjects.has(cwd);
       const expanded = expandedProjectSessions.has(cwd);
       const visibleItems = expanded ? items : items.slice(0, PROJECT_SESSION_PREVIEW_LIMIT);
       const group = document.createElement("li");
       group.className = "project-group" + (collapsed ? " collapsed" : "");
-      const header = document.createElement("button");
-      header.type = "button";
+      const header = document.createElement("div");
       header.className = "project-group-header";
-      header.setAttribute("aria-expanded", String(!collapsed));
-      header.innerHTML = `<span class="project-folder-icon"><svg class="icon"><use href="#i-folder-filled"></use></svg></span><span class="project-group-copy"><strong></strong></span><span class="project-group-count">${items.length}</span><span class="project-group-chevron"><svg class="icon"><use href="#i-chevron-down"></use></svg></span>`;
-      const unassigned = window.piI18n?.t("Unassigned project") || "Unassigned project";
-      const label = cwd === "(unknown)" ? unassigned : (cwd.split("/").filter(Boolean).pop() || cwd);
-      header.querySelector("strong").textContent = label;
-      header.title = cwd === "(unknown)" ? unassigned : cwd;
+      const collapseButton = document.createElement("button");
+      collapseButton.type = "button";
+      collapseButton.className = "project-group-main";
+      collapseButton.setAttribute("aria-expanded", String(!collapsed));
+      collapseButton.innerHTML = `<span class="project-folder-icon"><svg class="icon"><use href="#i-folder-filled"></use></svg></span><span class="project-group-copy"><strong></strong></span><span class="project-group-count">${items.length}</span><span class="project-group-chevron"><svg class="icon"><use href="#i-chevron-down"></use></svg></span>`;
+      collapseButton.querySelector("strong").textContent = projectDisplayName(cwd);
+      collapseButton.title = cwd === "(unknown)" ? projectDisplayName(cwd) : cwd;
       const children = document.createElement("ul");
       children.className = "project-group-items";
       children.id = `project-sessions-${[...groups.keys()].indexOf(cwd)}`;
       children.hidden = collapsed;
-      header.setAttribute("aria-controls", children.id);
+      collapseButton.setAttribute("aria-controls", children.id);
       for (const s of visibleItems) children.appendChild(makeItem(s));
       if (items.length > PROJECT_SESSION_PREVIEW_LIMIT) {
         const toggle = document.createElement("button");
@@ -633,11 +693,29 @@ function renderSessionList(q) {
         });
         children.appendChild(toggle);
       }
-      header.addEventListener("click", () => {
+      collapseButton.addEventListener("click", () => {
         if (collapsedProjects.has(cwd)) collapsedProjects.delete(cwd);
         else collapsedProjects.add(cwd);
         renderSessionList(el.search.value);
       });
+      const actions = document.createElement("div");
+      actions.className = "project-group-actions";
+      if (cwd !== "(unknown)") {
+        const newButton = projectIconButton("i-plus", window.piI18n?.t("New session in project") || "New session in project");
+        newButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          openNewDialog(cwd);
+        });
+        const moreButton = projectIconButton("i-ellipsis", window.piI18n?.t("More project actions") || "More project actions");
+        moreButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          openProjectActions(cwd, projectDisplayName(cwd));
+        });
+        actions.append(newButton, moreButton);
+      }
+      header.append(collapseButton, actions);
       group.append(header, children);
       el.sessionList.appendChild(group);
     }
@@ -742,6 +820,125 @@ async function doRename() {
     refreshSessions();
   } catch (e) { toast("重新命名失敗：" + e.message, true); }
 }
+
+// ---- Project folder actions (Codex-style group menu) ----
+let projectActionTarget = null;
+
+function projectActionText(key) {
+  return window.piI18n?.t(key) || key;
+}
+
+function setProjectActionButton(button, icon, label) {
+  if (!button) return;
+  button.innerHTML = `<svg class="icon" aria-hidden="true"><use href="#${icon}"></use></svg><span></span>`;
+  button.querySelector("span").textContent = label;
+  button.title = label;
+}
+
+function closeProjectActions() {
+  el.projectActionSheet?.classList.add("hidden");
+}
+
+function openProjectActions(cwd, label) {
+  projectActionTarget = { cwd: String(cwd || ""), label: String(label || projectDisplayName(cwd)) };
+  if (!el.projectActionSheet) return;
+  el.projectActionTitle.textContent = projectActionTarget.label;
+  el.projectActionTitle.dataset.i18nIgnore = "true";
+  setProjectActionButton(el.projectActionPin, projectIsPinned(cwd) ? "i-check" : "i-plus", projectActionText(projectIsPinned(cwd) ? "Unpin" : "Pin"));
+  setProjectActionButton(el.projectActionEdit, "i-pencil", projectActionText("Edit project"));
+  setProjectActionButton(el.projectActionReveal, "i-folder", projectActionText("Reveal in Finder"));
+  setProjectActionButton(el.projectActionWorktree, "i-branch", projectActionText("Create permanent worktree"));
+  setProjectActionButton(el.projectActionArchive, "i-archive", projectActionText("Archive chats"));
+  setProjectActionButton(el.projectActionRemove, "i-x", projectActionText("Remove project"));
+  if (el.projectActionCancel) el.projectActionCancel.textContent = projectActionText("Cancel");
+  el.projectActionSheet.classList.remove("hidden");
+}
+
+function projectActionCwd() {
+  return projectActionTarget?.cwd || "";
+}
+
+el.projectActionCancel?.addEventListener("click", closeProjectActions);
+el.projectActionClose?.addEventListener("click", closeProjectActions);
+el.projectActionSheet?.addEventListener("click", (event) => {
+  if (event.target === el.projectActionSheet) closeProjectActions();
+});
+el.projectActionPin?.addEventListener("click", () => {
+  const cwd = projectActionCwd();
+  if (!cwd) return;
+  const pins = new Set(settings.projectPins || []);
+  if (pins.has(cwd)) pins.delete(cwd);
+  else pins.add(cwd);
+  saveProjectListSettings({ projectPins: [...pins] });
+  closeProjectActions();
+  toast(projectActionText(pins.has(cwd) ? "Project pinned" : "Project unpinned"));
+});
+el.projectActionEdit?.addEventListener("click", () => {
+  const cwd = projectActionCwd();
+  if (!cwd || !el.projectRenameDialog) return;
+  closeProjectActions();
+  el.projectRenameTitle.textContent = projectActionText("Edit project");
+  el.projectRenameInput.value = settings.projectAliases?.[cwd] || projectDisplayName(cwd);
+  el.projectRenameDialog.classList.remove("hidden");
+  setTimeout(() => el.projectRenameInput.focus(), 0);
+});
+el.projectRenameCancel?.addEventListener("click", () => el.projectRenameDialog.classList.add("hidden"));
+el.projectRenameInput?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") el.projectRenameSave.click();
+  if (event.key === "Escape") el.projectRenameDialog.classList.add("hidden");
+});
+el.projectRenameSave?.addEventListener("click", () => {
+  const cwd = projectActionCwd();
+  if (!cwd) return;
+  const alias = el.projectRenameInput.value.trim().replace(/[\r\n]+/g, " ").slice(0, 120);
+  const aliases = { ...(settings.projectAliases || {}) };
+  if (alias && alias !== projectFolderName(cwd)) aliases[cwd] = alias;
+  else delete aliases[cwd];
+  el.projectRenameDialog.classList.add("hidden");
+  saveProjectListSettings({ projectAliases: aliases });
+  toast(projectActionText("Project renamed"));
+});
+el.projectRenameDialog?.addEventListener("click", (event) => {
+  if (event.target === el.projectRenameDialog) el.projectRenameDialog.classList.add("hidden");
+});
+el.projectActionReveal?.addEventListener("click", async () => {
+  const cwd = projectActionCwd();
+  closeProjectActions();
+  if (!cwd) return;
+  try {
+    await post("/api/project-action", { action: "reveal", cwd });
+    toast(projectActionText("Opened in Finder"));
+  } catch (error) { toast(error.message || projectActionText("Could not reveal project"), true); }
+});
+el.projectActionWorktree?.addEventListener("click", async () => {
+  const cwd = projectActionCwd();
+  closeProjectActions();
+  if (!cwd || !window.confirm(projectActionText("Create a permanent worktree for this project?"))) return;
+  try {
+    const result = await post("/api/project-action", { action: "worktree", cwd });
+    toast(`${projectActionText("Permanent worktree created")}: ${result.path || ""}`);
+    if (result.path) openNewDialog(result.path);
+  } catch (error) { toast(error.message || projectActionText("Could not create worktree"), true); }
+});
+el.projectActionArchive?.addEventListener("click", async () => {
+  const cwd = projectActionCwd();
+  closeProjectActions();
+  if (!cwd || !window.confirm(projectActionText("Archive this project's chats?"))) return;
+  try {
+    const result = await post("/api/project-action", { action: "archive", cwd });
+    toast(`${projectActionText("Archived chats")}: ${result.count || 0}`);
+    refreshSessions();
+  } catch (error) { toast(error.message || projectActionText("Could not archive chats"), true); }
+});
+el.projectActionRemove?.addEventListener("click", () => {
+  const cwd = projectActionCwd();
+  closeProjectActions();
+  if (!cwd || !window.confirm(projectActionText("Remove this project from the list? Chats remain on disk."))) return;
+  const removed = new Set(settings.removedProjects || []);
+  removed.add(cwd);
+  saveProjectListSettings({ removedProjects: [...removed] });
+  toast(projectActionText("Project removed"));
+});
 
 // ===========================================================================
 // 對話視圖 + RPC
@@ -4281,11 +4478,11 @@ async function loadProjectFolder(path = null) {
   }
 }
 
-function openNewDialog() {
+function openNewDialog(initialCwd = null) {
   el.newCwd.value = "";
   el.newName.value = "";
   el.newDialog.classList.remove("hidden");
-  loadProjectFolder(window._piHome || null);
+  loadProjectFolder(initialCwd || window._piHome || null);
 }
 el.btnNew.addEventListener("click", openNewDialog);
 el.btnNewProject?.addEventListener("click", openNewDialog);
@@ -4299,6 +4496,9 @@ el.newStart.addEventListener("click", async () => {
   const cwd = el.newCwd.value.trim();
   if (!cwd) { toast("請先選擇一個資料夾", true); return; }
   el.newDialog.classList.add("hidden");
+  if (settings.removedProjects?.includes(cwd)) {
+    settings = saveSettings({ removedProjects: settings.removedProjects.filter((value) => value !== cwd) });
+  }
   await startNew(cwd, el.newName.value.trim() || null);
 });
 

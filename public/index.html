@@ -6,10 +6,10 @@
 <title>Pi Web</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=1.11.11">
-<link rel="icon" href="/pi-logo.svg?v=1.11.11" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-180.png?v=1.11.11">
-<link rel="stylesheet" href="/style.css?v=1.11.11">
+<link rel="manifest" href="/manifest.webmanifest?v=1.11.12">
+<link rel="icon" href="/pi-logo.svg?v=1.11.12" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png?v=1.11.12">
+<link rel="stylesheet" href="/style.css?v=1.11.12">
 </head>
 <body>
 
@@ -34,12 +34,14 @@
   <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-7 9 7M5 10v10h14V10M9 20v-6h6v6"/></symbol>
   <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></symbol>
   <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13.5 13.5 10M8 16H6.5a3.5 3.5 0 0 1 0-7H10M14 8h3.5a3.5 3.5 0 0 1 0 7H14"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 6H12a6 6 0 0 1 6 6v3.5M8.5 6H12a6 6 0 0 0 6-6"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><path d="M4 7h16v12.5A1.5 1.5 0 0 1 18.5 21h-13A1.5 1.5 0 0 1 4 19.5zM3 3h18v4H3zM9 12h6"/></symbol>
 </svg>
 
 <!-- Login -->
 <div id="login" class="overlay hidden">
   <div class="login-card">
-    <div class="login-mark official-mark"><img src="/pi-logo.svg?v=1.11.11" alt="Pi"></div>
+    <div class="login-mark official-mark"><img src="/pi-logo.svg?v=1.11.12" alt="Pi"></div>
     <h1>Pi Web</h1>
     <p class="login-machine" id="login-machine"></p>
     <form id="login-form">
@@ -101,7 +103,7 @@
     </header>
     <div id="messages" class="messages">
       <div id="chat-empty" class="chat-empty">
-        <div class="login-mark official-mark"><img src="/pi-logo.svg?v=1.11.11" alt="Pi"></div>
+        <div class="login-mark official-mark"><img src="/pi-logo.svg?v=1.11.12" alt="Pi"></div>
         <p>Select a session,<br>or start a new conversation</p>
       </div>
     </div>
@@ -259,7 +261,7 @@
         <h3 class="group-title">About</h3>
         <div class="settings-row">
           <span><strong>Pi Web</strong><small>Mobile-first remote workspace for Pi</small></span>
-          <span class="settings-value">v1.11.11</span>
+          <span class="settings-value">v1.11.12</span>
         </div>
         <div class="settings-row">
           <span><strong>Gesture tips</strong><small>Pull down to refresh; swipe from the left edge to go back; long-press a session to rename or delete</small></span>
@@ -471,6 +473,28 @@
     </div>
   </div>
 
+  <!-- Project actions sheet (Codex-style project menu) -->
+  <div id="project-action-sheet" class="sheet-layer hidden" role="dialog" aria-modal="true" aria-labelledby="pa-title">
+    <div class="sheet action-sheet project-action-sheet">
+      <div class="sheet-heading-row project-action-heading">
+        <div><p class="eyebrow">PROJECT</p><h2 id="pa-title" class="sa-title">Project</h2></div>
+        <button id="pa-cancel-close" class="btn ghost icon-btn" type="button" title="Close" aria-label="Close"><svg class="icon"><use href="#i-x"></use></svg></button>
+      </div>
+      <div class="project-action-list">
+        <button id="pa-pin" class="project-action-row" type="button"></button>
+        <button id="pa-edit" class="project-action-row" type="button"></button>
+        <div class="project-action-divider"></div>
+        <button id="pa-reveal" class="project-action-row" type="button"></button>
+        <button id="pa-worktree" class="project-action-row" type="button"></button>
+        <div class="project-action-divider"></div>
+        <button id="pa-archive" class="project-action-row" type="button"></button>
+        <div class="project-action-divider"></div>
+        <button id="pa-remove" class="project-action-row danger-text" type="button"></button>
+      </div>
+      <button id="pa-cancel" class="action-row cancel" type="button">Cancel</button>
+    </div>
+  </div>
+
   <!-- Model / reasoning sheet -->
   <div id="model-sheet" class="sheet-layer hidden">
     <div class="sheet action-sheet model-dialog">
@@ -521,6 +545,19 @@
     </div>
   </div>
 
+  <!-- Project display-name dialog -->
+  <div id="project-rename-dialog" class="sheet-layer hidden" role="dialog" aria-modal="true" aria-labelledby="project-rename-title">
+    <div class="sheet project-rename-dialog">
+      <h2 id="project-rename-title">Edit project</h2>
+      <label class="field-label" for="project-rename-input">Project name</label>
+      <input id="project-rename-input" type="text" maxlength="120" autocomplete="off" placeholder="Project name">
+      <div class="sheet-actions">
+        <button id="project-rename-cancel" class="btn ghost" type="button">Cancel</button>
+        <button id="project-rename-save" class="btn primary" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+
   <!-- toast -->
   <div id="toast-wrap" role="status" aria-live="polite" aria-atomic="true"></div>
 
@@ -538,7 +575,7 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=1.11.11"></script>
-<script src="/app.js?v=1.11.11"></script>
+<script src="/i18n.js?v=1.11.12"></script>
+<script src="/app.js?v=1.11.12"></script>
 </body>
 </html>
