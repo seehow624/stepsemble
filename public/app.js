@@ -1,4 +1,4 @@
-/* pi-web v1.11.12 — English-first localization and provider catalog */
+/* pi-web v1.11.13 — English-first localization and provider catalog */
 "use strict";
 
 // ===========================================================================
@@ -668,7 +668,7 @@ function renderSessionList(q) {
       collapseButton.type = "button";
       collapseButton.className = "project-group-main";
       collapseButton.setAttribute("aria-expanded", String(!collapsed));
-      collapseButton.innerHTML = `<span class="project-folder-icon"><svg class="icon"><use href="#i-folder-filled"></use></svg></span><span class="project-group-copy"><strong></strong></span><span class="project-group-count">${items.length}</span><span class="project-group-chevron"><svg class="icon"><use href="#i-chevron-down"></use></svg></span>`;
+      collapseButton.innerHTML = `<span class="project-folder-icon"><svg class="icon"><use href="#i-folder-filled"></use></svg></span><span class="project-group-copy"><strong></strong></span><span class="project-group-count">${items.length}</span>`;
       collapseButton.querySelector("strong").textContent = projectDisplayName(cwd);
       collapseButton.title = cwd === "(unknown)" ? projectDisplayName(cwd) : cwd;
       const children = document.createElement("ul");
@@ -693,11 +693,12 @@ function renderSessionList(q) {
         });
         children.appendChild(toggle);
       }
-      collapseButton.addEventListener("click", () => {
+      const toggleCollapsed = () => {
         if (collapsedProjects.has(cwd)) collapsedProjects.delete(cwd);
         else collapsedProjects.add(cwd);
         renderSessionList(el.search.value);
-      });
+      };
+      collapseButton.addEventListener("click", toggleCollapsed);
       const actions = document.createElement("div");
       actions.className = "project-group-actions";
       if (cwd !== "(unknown)") {
@@ -715,7 +716,20 @@ function renderSessionList(q) {
         });
         actions.append(newButton, moreButton);
       }
-      header.append(collapseButton, actions);
+      const arrowButton = document.createElement("button");
+      arrowButton.type = "button";
+      arrowButton.className = "project-group-chevron-button";
+      arrowButton.setAttribute("aria-expanded", String(!collapsed));
+      arrowButton.setAttribute("aria-controls", children.id);
+      arrowButton.title = collapsed ? (window.piI18n?.t("Expand") || "Expand") : (window.piI18n?.t("Collapse") || "Collapse");
+      arrowButton.setAttribute("aria-label", arrowButton.title);
+      arrowButton.innerHTML = `<span class="project-group-chevron"><svg class="icon"><use href="#i-chevron-down"></use></svg></span>`;
+      arrowButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleCollapsed();
+      });
+      header.append(collapseButton, actions, arrowButton);
       group.append(header, children);
       el.sessionList.appendChild(group);
     }

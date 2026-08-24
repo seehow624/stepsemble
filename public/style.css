@@ -1,4 +1,4 @@
-/* pi-web v1.11.12 — Ink & Ivory / English-first localization */
+/* pi-web v1.11.13 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -2611,6 +2611,23 @@ html.reduced-motion .machine-row.machine-status-checking .m-dot { animation: non
 .project-group-action:hover { color: var(--ink); background: var(--bubble-user); }
 .project-group-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .project-group-action .icon { width: 17px; height: 17px; }
+.project-group-chevron-button {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  color: var(--pine-soft);
+  background: transparent;
+  cursor: pointer;
+}
+.project-group-chevron-button:hover { color: var(--ink); background: var(--bubble-user); }
+.project-group-chevron-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.project-group-chevron-button .project-group-chevron { display: grid; place-items: center; width: 24px; height: 24px; }
+.project-group-chevron-button .icon { width: 16px; height: 16px; }
 
 .project-action-sheet { max-width: 520px; }
 .project-action-heading { align-items: center; margin-bottom: 8px; }
@@ -2643,6 +2660,7 @@ html.reduced-motion .machine-row.machine-status-checking .m-dot { animation: non
 @media (max-width: 979px) {
   .project-group-actions { opacity: 1; }
   .project-group-action { width: 34px; height: 34px; }
+  .project-group-chevron-button { width: 34px; height: 34px; flex-basis: 34px; }
 }
 
 html.reduced-motion .project-group-actions { transition: none; }

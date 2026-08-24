@@ -28,7 +28,7 @@ const { spawn, execFileSync } = require("node:child_process");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "1.11.12";
+const APP_VERSION = "1.11.13";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;

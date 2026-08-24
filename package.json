@@ -1,7 +1,7 @@
 {
   "name": "pi-web",
   "private": true,
-  "version": "1.11.12",
+  "version": "1.11.13",
   "description": "Mobile-first web client for the Pi coding agent",
   "type": "commonjs",
   "engines": {
