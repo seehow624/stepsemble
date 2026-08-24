@@ -28,7 +28,7 @@ const { spawn, execFileSync } = require("node:child_process");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "1.11.10";
+const APP_VERSION = "1.11.11";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1541,6 +1541,12 @@ const MAX_PROVIDER_AUTH_RUNS = 4;
 // the localhost redirect URL. Give the user a generous window before ending
 // the pending provider prompt.
 const PROVIDER_AUTH_TIMEOUT_MS = 30 * 60 * 1000;
+// macOS resolves `localhost` to ::1 first. Pi's native OAuth callback reads
+// this environment variable when it starts its temporary callback server;
+// use the IPv6 loopback by default so same-Mac Safari/Chrome callbacks connect
+// instead of showing "localhost refused to connect". Keep an override for
+// environments that need a different loopback address.
+if (!process.env.PI_OAUTH_CALLBACK_HOST) process.env.PI_OAUTH_CALLBACK_HOST = "::1";
 let providerAuthRuntimePromise = null;
 const NOUS_PORTAL_BASE_URL = "https://portal.nousresearch.com";
 const NOUS_INFERENCE_BASE_URL = "https://inference-api.nousresearch.com/v1";

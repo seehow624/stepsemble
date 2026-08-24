@@ -105,6 +105,7 @@ test("provider auth retries cancel abandoned native OAuth runs", () => {
   assert.match(server, /terminal\?\.type === "error"/);
   assert.match(server, /Sign-in already completed/);
   assert.match(server, /PROVIDER_AUTH_TIMEOUT_MS = 30 \* 60 \* 1000/);
+  assert.match(server, /PI_OAUTH_CALLBACK_HOST = "::1"/);
   assert.match(server, /cancelledReason = "timeout"/);
   assert.match(server, /reason: run\.cancelledReason/);
   assert.match(server, /cancelProviderAuth\(run\.id, "replaced"\)/);
