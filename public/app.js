@@ -1,4 +1,4 @@
-/* pi-web v1.11.9 — English-first localization and provider catalog */
+/* pi-web v1.11.10 — English-first localization and provider catalog */
 "use strict";
 
 // ===========================================================================
@@ -3518,7 +3518,12 @@ function handleProviderAuthEvent(event) {
     toast(message, true);
   } else if (event.type === "cancelled") {
     closeProviderAuthClient();
-    toast("已取消 Provider 登入");
+    const message = event.reason === "timeout"
+      ? "Provider 登入等待逾時，請重新開始並盡快貼上重新導向網址"
+      : event.reason === "replaced"
+        ? "這次 Provider 登入已被另一個登入嘗試取代，請只保留一個登入視窗"
+        : "已取消 Provider 登入";
+    toast(message, event.reason === "timeout" || event.reason === "replaced");
   }
 }
 

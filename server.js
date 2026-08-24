@@ -28,7 +28,7 @@ const { spawn, execFileSync } = require("node:child_process");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "1.11.9";
+const APP_VERSION = "1.11.10";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1537,7 +1537,10 @@ const GENERIC_PROVIDER_PRESETS = Object.freeze([
 const PROVIDER_AUTH_TYPES = new Set(["api_key", "oauth"]);
 const providerAuthRuns = new Map();
 const MAX_PROVIDER_AUTH_RUNS = 4;
-const PROVIDER_AUTH_TIMEOUT_MS = 10 * 60 * 1000;
+// Remote/mobile OAuth can require switching apps, completing MFA, and copying
+// the localhost redirect URL. Give the user a generous window before ending
+// the pending provider prompt.
+const PROVIDER_AUTH_TIMEOUT_MS = 30 * 60 * 1000;
 let providerAuthRuntimePromise = null;
 const NOUS_PORTAL_BASE_URL = "https://portal.nousresearch.com";
 const NOUS_INFERENCE_BASE_URL = "https://inference-api.nousresearch.com/v1";
@@ -1705,13 +1708,14 @@ function createProviderAuthRun(preset, authType) {
   const run = {
     id: crypto.randomUUID(), providerId: preset.id, providerName: preset.name, authType,
     controller: new AbortController(), clients: new Set(), events: [], eventBytes: 0,
-    eventSeq: 0, pending: null, done: false, cancelled: false, closed: false,
+    eventSeq: 0, pending: null, done: false, cancelled: false, cancelledReason: "", closed: false,
     createdAt: Date.now(), timeout: null,
   };
   providerAuthRuns.set(run.id, run);
   run.timeout = setTimeout(() => {
     if (run.done || run.cancelled) return;
     run.cancelled = true;
+    run.cancelledReason = "timeout";
     run.controller.abort();
   }, PROVIDER_AUTH_TIMEOUT_MS);
   providerAuthEmit(run, { type: "started", providerId: preset.id, providerName: preset.name, authType });
@@ -1725,7 +1729,7 @@ function finishProviderAuthRun(run) {
     run.pending.reject(new Error("Sign-in flow has ended"));
     run.pending = null;
   }
-  if (run.cancelled) providerAuthEmit(run, { type: "cancelled" });
+  if (run.cancelled) providerAuthEmit(run, { type: "cancelled", reason: run.cancelledReason || "cancelled" });
   providerAuthFinish(run);
   modelCatalogCache = { at: 0, models: [] };
 }
@@ -2013,10 +2017,17 @@ function respondProviderAuth(body) {
     if (terminal?.type === "success") {
       throw providerAuthError("Sign-in already completed. Close this prompt and refresh the provider list.", 409);
     }
+    if (terminal?.type === "cancelled" && terminal.reason === "timeout") {
+      throw providerAuthError("Sign-in timed out after 30 minutes; start sign-in again and submit the redirect URL promptly.", 409);
+    }
+    if (terminal?.type === "cancelled" && terminal.reason === "replaced") {
+      throw providerAuthError("This sign-in was replaced by another attempt; start sign-in again and use only one login window.", 409);
+    }
     throw providerAuthError("Sign-in flow has ended; start sign-in again", 409);
   }
   if (body?.cancelled === true) {
     run.cancelled = true;
+    run.cancelledReason = "user";
     run.controller.abort();
     if (run.pending) {
       run.pending.reject(new Error("Sign-in canceled"));
@@ -2034,10 +2045,11 @@ function respondProviderAuth(body) {
   return { accepted: true };
 }
 
-function cancelProviderAuth(runId) {
+function cancelProviderAuth(runId, reason = "user") {
   const run = providerAuthRuns.get(runId);
   if (!run || run.done || run.closed) return { cancelled: false };
   run.cancelled = true;
+  run.cancelledReason = reason;
   run.controller.abort();
   if (run.pending) {
     run.pending.reject(new Error("Sign-in canceled"));
@@ -2056,7 +2068,9 @@ async function cancelActiveProviderAuth(providerId) {
     run.providerId === providerId && !run.done && !run.closed
   );
   if (!active.length) return;
-  for (const run of active) cancelProviderAuth(run.id);
+  for (const run of active) {
+    cancelProviderAuth(run.id, "replaced");
+  }
   const deadline = Date.now() + 2500;
   while (Date.now() < deadline) {
     if (!active.some((run) => !run.done && !run.closed)) return;
