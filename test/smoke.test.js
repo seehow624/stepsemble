@@ -137,6 +137,7 @@ test("Mini launcher never pkills active pi-web processes", () => {
   const launcher = fs.readFileSync(path.join(root, "deploy", "pi-web-mini-start.sh"), "utf8");
   assert.doesNotMatch(launcher, /\bpkill\s+-f\b/);
   assert.match(launcher, /isStreaming/);
+  assert.doesNotMatch(launcher, /\.clients\s*\/\/\s*0/);
 });
 
 test("device settings support stable aliases, port changes, health checks, and one-time pairing", () => {

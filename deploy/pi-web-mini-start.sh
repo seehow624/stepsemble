@@ -28,7 +28,8 @@ fi
 
 # Do not pkill an existing server here. launchd/ssh can briefly start a new
 # launcher while the previous process is draining. Only stop an old server
-# after confirming that it has no active RPC run; otherwise wait for it.
+# after confirming that it has no active RPC run; connected idle browsers can
+# reconnect safely and must not block an update forever.
 if /usr/bin/curl -fsS --max-time 1 "http://127.0.0.1:${PI_WEB_PORT}/api/health" >/dev/null 2>&1; then
   cookie_file=$(/usr/bin/mktemp /tmp/pi-web-start.XXXXXX)
   trap '/bin/rm -f "$cookie_file"' EXIT
@@ -36,7 +37,7 @@ if /usr/bin/curl -fsS --max-time 1 "http://127.0.0.1:${PI_WEB_PORT}/api/health" 
   if /usr/bin/printf '%s' '{"token":"'"$token"'"}' | /usr/bin/curl -fsS --max-time 3 -c "$cookie_file" \
     -H 'Content-Type: application/json' --data-binary @- "http://127.0.0.1:${PI_WEB_PORT}/api/login" >/dev/null 2>&1; then
     rpcs=$(/usr/bin/curl -fsS --max-time 3 -b "$cookie_file" "http://127.0.0.1:${PI_WEB_PORT}/api/rpcs" || true)
-    if printf '%s' "$rpcs" | /usr/bin/jq -e 'any(.rpcs[]?; .isStreaming == true or (.clients // 0) > 0)' >/dev/null 2>&1; then
+    if printf '%s' "$rpcs" | /usr/bin/jq -e 'any(.rpcs[]?; .isStreaming == true)' >/dev/null 2>&1; then
       while /usr/bin/curl -fsS --max-time 2 "http://127.0.0.1:${PI_WEB_PORT}/api/health" >/dev/null 2>&1; do
         /bin/sleep 2
       done

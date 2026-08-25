@@ -1,4 +1,4 @@
-/* pi-web v1.11.16 — Ink & Ivory / English-first localization */
+/* pi-web v1.11.17 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -2807,7 +2807,7 @@ html.reduced-motion .session-item-actions { transition: none; }
   .session-item-action { width: 32px; height: 32px; }
 }
 
-/* v1.11.16 — give long Markdown replies a readable rhythm. The assistant
+/* v1.11.17 — give long Markdown replies a readable rhythm. The assistant
    stays bubble-free, but headings and list blocks now form visible sections
    instead of collapsing into one dense text wall. */
 #view-chat .messages { gap: 15px; }

@@ -1,14 +1,14 @@
-const CACHE_NAME = "pi-web-shell-v1.11.16";
+const CACHE_NAME = "pi-web-shell-v1.11.17";
 const SHELL = [
   "/",
   "/index.html",
-  "/style.css?v=1.11.16",
-  "/i18n.js?v=1.11.16",
-  "/app.js?v=1.11.16",
-  "/manifest.webmanifest?v=1.11.16",
-  "/pi-logo.svg?v=1.11.16",
-  "/icon-180.png?v=1.11.16",
-  "/icon-512.png?v=1.11.16",
+  "/style.css?v=1.11.17",
+  "/i18n.js?v=1.11.17",
+  "/app.js?v=1.11.17",
+  "/manifest.webmanifest?v=1.11.17",
+  "/pi-logo.svg?v=1.11.17",
+  "/icon-180.png?v=1.11.17",
+  "/icon-512.png?v=1.11.17",
   "/vendor/marked.min.js",
   "/vendor/purify.min.js",
 ];
