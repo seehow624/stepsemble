@@ -1,4 +1,4 @@
-/* pi-web v1.11.15 — Ink & Ivory / English-first localization */
+/* pi-web v1.11.16 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -2805,4 +2805,56 @@ html.reduced-motion .session-item-actions { transition: none; }
 @media (max-width: 979px) {
   .project-group-actions { right: 62px; }
   .session-item-action { width: 32px; height: 32px; }
+}
+
+/* v1.11.16 — give long Markdown replies a readable rhythm. The assistant
+   stays bubble-free, but headings and list blocks now form visible sections
+   instead of collapsing into one dense text wall. */
+#view-chat .messages { gap: 15px; }
+#view-chat .msg.assistant .md-body {
+  max-width: 76ch;
+  line-height: 1.58;
+  text-wrap: pretty;
+}
+#view-chat .md-body p { margin: .72rem 0; }
+#view-chat .md-body ul,
+#view-chat .md-body ol {
+  margin: .72rem 0 1rem;
+  padding-left: 1.65rem;
+}
+#view-chat .md-body li { margin: .4rem 0; padding-left: .15rem; }
+#view-chat .md-body li > p { margin: .2rem 0; }
+#view-chat .md-body li > ul,
+#view-chat .md-body li > ol { margin: .35rem 0 .55rem; }
+#view-chat .md-body h1,
+#view-chat .md-body h2,
+#view-chat .md-body h3,
+#view-chat .md-body h4 {
+  line-height: 1.28;
+  letter-spacing: -.01em;
+}
+#view-chat .md-body h1,
+#view-chat .md-body h2 {
+  margin-top: 1.55rem;
+  padding-top: .78rem;
+  border-top: 1px solid var(--line);
+}
+#view-chat .md-body h1:first-child,
+#view-chat .md-body h2:first-child { padding-top: 0; border-top: 0; }
+#view-chat .md-body h3,
+#view-chat .md-body h4 { margin-top: 1.15rem; }
+#view-chat .md-body blockquote { margin: 1rem 0; padding: .55rem 1rem; }
+#view-chat .md-body hr { margin: 1.25rem 0; }
+#view-chat .md-body pre,
+#view-chat .md-body .code-block,
+#view-chat .md-body .mermaid-block { margin: 1rem 0; }
+
+@media (max-width: 600px) {
+  #view-chat .msg.assistant .md-body { max-width: none; line-height: 1.52; }
+  #view-chat .md-body p { margin: .62rem 0; }
+  #view-chat .md-body ul,
+  #view-chat .md-body ol { margin: .62rem 0 .86rem; padding-left: 1.4rem; }
+  #view-chat .md-body li { margin: .34rem 0; }
+  #view-chat .md-body h1,
+  #view-chat .md-body h2 { margin-top: 1.3rem; padding-top: .62rem; }
 }

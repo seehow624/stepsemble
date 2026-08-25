@@ -1,4 +1,4 @@
-/* pi-web v1.11.15 — English-first localization and provider catalog */
+/* pi-web v1.11.16 — English-first localization and provider catalog */
 "use strict";
 
 // ===========================================================================
@@ -3303,18 +3303,61 @@ function renderSettings() {
 }
 
 function modelMachineKey() { return selectedId || selfId || "local"; }
+/*
+ * Model visibility is stored per machine, but the machine id is not known at
+ * first paint: /api/machines has to answer first, so modelMachineKey() falls
+ * back to "local" until then. Anything saved during that window lands under a
+ * key the app stops reading once the real id arrives, which reads to a user as
+ * "my checkboxes reset themselves". The same happens the other way when a
+ * device is later renamed or paired, moving it from a synthetic id to a
+ * persisted one.
+ *
+ * Rather than trust one key, resolve visibility against every key that can
+ * legitimately name THIS device, newest-first, and migrate the first match
+ * onto the current key as soon as one exists. Reading stays tolerant, writing
+ * stays single-keyed, and the stale entry is dropped once it has been moved.
+ */
+function modelMachineKeyCandidates() {
+  const keys = [];
+  const push = (value) => {
+    if (typeof value === "string" && value && !keys.includes(value)) keys.push(value);
+  };
+  push(selectedId);
+  push(selfId);
+  push("local");
+  return keys;
+}
+
+/**
+ * The key whose hidden-model list should be treated as authoritative right now:
+ * the current key when it already holds data, otherwise the first fallback that
+ * does. Returns the current key when nothing is stored yet.
+ */
+function resolvedModelVisibilityKey(map, machine = modelMachineKey()) {
+  const source = map && typeof map === "object" ? map : {};
+  if (Array.isArray(source[machine]) && source[machine].length) return machine;
+  for (const key of modelMachineKeyCandidates()) {
+    if (Array.isArray(source[key]) && source[key].length) return key;
+  }
+  return machine;
+}
 function modelVisibilityKey(model) {
   return `${model?.provider || "unknown"}::${model?.id || ""}`;
 }
 function hiddenModelSet(machine = modelMachineKey()) {
   const map = settings.modelVisibility && typeof settings.modelVisibility === "object" ? settings.modelVisibility : {};
-  return new Set(Array.isArray(map[machine]) ? map[machine] : []);
+  const key = resolvedModelVisibilityKey(map, machine);
+  return new Set(Array.isArray(map[key]) ? map[key] : []);
 }
 function isModelVisible(model) { return !hiddenModelSet().has(modelVisibilityKey(model)); }
 function setModelVisible(model, visible) {
   const machine = modelMachineKey();
   const map = settings.modelVisibility && typeof settings.modelVisibility === "object"
     ? { ...settings.modelVisibility } : {};
+  // Writing always targets the current key, so a rename/pair carries the list
+  // forward instead of leaving two half-truths behind.
+  const resolved = resolvedModelVisibilityKey(map, machine);
+  if (resolved !== machine) delete map[resolved];
   const hidden = hiddenModelSet(machine);
   const key = modelVisibilityKey(model);
   if (visible) hidden.delete(key); else hidden.add(key);
