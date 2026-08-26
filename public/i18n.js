@@ -681,6 +681,66 @@
   };
   for (const [id, table] of Object.entries(EUROPEAN_FORM_COPY)) Object.assign(TRANSLATIONS[id], table);
 
+  // Keep the locale tables auditable.  The UI still uses the English source
+  // key as its safe fallback, but every fallback is now explicit and can be
+  // reported in development/tests instead of silently leaking a random
+  // language after a dynamic DOM update.
+  const LOCALE_SOURCE_KEYS = Object.freeze([...new Set([
+    ...Object.values(HAN_TO_EN),
+    ...Object.values(TRANSLATIONS).flatMap((table) => Object.keys(table)),
+  ])].filter((key) => typeof key === "string" && key.length > 0));
+  const LOCALE_PLACEHOLDER_RE = /\{[a-zA-Z0-9_.-]+\}/g;
+  function localePlaceholders(value) {
+    return [...new Set(String(value || "").match(LOCALE_PLACEHOLDER_RE) || [])].sort();
+  }
+  const LOCALE_FALLBACK_KEYS = {};
+  // Materialize the English fallback in every locale table.  This makes a
+  // missing translation an explicit, testable state rather than an accidental
+  // fall-through in the DOM replacement pass.
+  for (const key of LOCALE_SOURCE_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(TRANSLATIONS.en, key)) TRANSLATIONS.en[key] = key;
+  }
+  for (const [id, table] of Object.entries(TRANSLATIONS)) {
+    const fallbackKeys = [];
+    for (const key of LOCALE_SOURCE_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(table, key)) continue;
+      table[key] = TRANSLATIONS.en[key] ?? key;
+      fallbackKeys.push(key);
+    }
+    if (fallbackKeys.length) LOCALE_FALLBACK_KEYS[id] = Object.freeze(fallbackKeys);
+  }
+  function auditLocales() {
+    const missingKeys = {};
+    const placeholderMismatches = {};
+    const hanLeaks = {};
+    for (const [id, table] of Object.entries(TRANSLATIONS)) {
+      const missing = LOCALE_SOURCE_KEYS.filter((key) => !Object.prototype.hasOwnProperty.call(table, key));
+      if (missing.length) missingKeys[id] = missing;
+      const mismatches = [];
+      const leaks = [];
+      for (const key of LOCALE_SOURCE_KEYS) {
+        if (!Object.prototype.hasOwnProperty.call(table, key)) continue;
+        const sourcePlaceholders = localePlaceholders(TRANSLATIONS.en[key] ?? key);
+        const targetPlaceholders = localePlaceholders(table[key]);
+        if (sourcePlaceholders.join("\u0000") !== targetPlaceholders.join("\u0000")) mismatches.push(key);
+        // Japanese and the two Chinese locales legitimately contain Han
+        // characters; other locales should never contain accidental CJK UI.
+        if (!id.startsWith("zh-") && id !== "ja" && /[\u3400-\u9fff]/.test(String(table[key]))) leaks.push(key);
+      }
+      if (mismatches.length) placeholderMismatches[id] = mismatches;
+      if (leaks.length) hanLeaks[id] = leaks;
+    }
+    return {
+      ok: !Object.keys(missingKeys).length && !Object.keys(placeholderMismatches).length && !Object.keys(hanLeaks).length,
+      keyCount: LOCALE_SOURCE_KEYS.length,
+      localeIds: Object.keys(TRANSLATIONS),
+      fallbackKeys: LOCALE_FALLBACK_KEYS,
+      missingKeys,
+      placeholderMismatches,
+      hanLeaks,
+    };
+  }
+
   const PROVIDER_COPY = {
     minimax: { en: "MiniMax (International)", "zh-Hant": "MiniMax（國際版）", "zh-Hans": "MiniMax（国际版）", ja: "MiniMax（国際版）", ko: "MiniMax (국제)" },
     "minimax-cn": { en: "MiniMax (China)", "zh-Hant": "MiniMax（中國版）", "zh-Hans": "MiniMax（中国版）", ja: "MiniMax（中国）", ko: "MiniMax (중국)" },
@@ -841,7 +901,7 @@
     return translate(typeof provider === "string" ? provider : provider?.description || "", locale);
   }
 
-  window.piI18n = Object.freeze({ locales: LOCALES, normalizeLocale, getLocale, setLocale, localize: localizeDom, queue: queueLocalize, t, translate, providerName, providerDescription });
+  window.piI18n = Object.freeze({ locales: LOCALES, normalizeLocale, getLocale, setLocale, localize: localizeDom, queue: queueLocalize, t, translate, providerName, providerDescription, auditLocales });
   try {
     const raw = localStorage.getItem("piweb.settings.v2") || localStorage.getItem("piweb.settings.v1") || "{}";
     locale = normalizeLocale(JSON.parse(raw).locale);

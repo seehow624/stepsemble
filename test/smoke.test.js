@@ -28,6 +28,29 @@ test("service worker never intercepts API or relay requests", () => {
   assert.ok(sw.includes('url.pathname.startsWith("/r/")'));
 });
 
+test("SSE streams subscribe before replay and expose a readiness handshake", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  assert.match(server, /function sseFrame\(/);
+  assert.match(server, /function trySseWrite\(/);
+  assert.match(server, /s\.clients\.add\(res\);[\s\S]*?sseFrame\(\{[\s\S]*?type: "connected"/);
+  assert.match(server, /run\.clients\.add\(res\);[\s\S]*?sseFrame\(\{[\s\S]*?type: "connected"/);
+  assert.match(server, /req\.on\("aborted", cleanup\)/);
+  assert.match(server, /res\.on\("error", cleanup\)/);
+  assert.match(app, /addEventListener\("connected"/);
+  assert.match(app, /ready_timeout/);
+  assert.match(app, /streamReady/);
+});
+
+test("folder browsing is restricted to the Pi home unless roots are explicitly added", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
+  assert.match(server, /const BROWSE_ROOTS_FROM_ENV/);
+  assert.match(server, /BROWSE_ROOTS_FROM_ENV\.length \? BROWSE_ROOTS_FROM_ENV : \[APP_HOME\]/);
+  assert.doesNotMatch(server, /\/api\/browse is unrestricted/);
+  assert.match(readme, /defaults to the Pi home; add `\/Volumes`/);
+});
+
 test("Pi run failures stay visible in live and historical GUI paths", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");

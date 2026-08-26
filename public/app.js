@@ -1,4 +1,4 @@
-/* pi-web v1.11.17 — English-first localization and provider catalog */
+/* pi-web v1.11.18 — English-first localization and provider catalog */
 "use strict";
 
 // ===========================================================================
@@ -1242,27 +1242,77 @@ async function connectRpc(opts, generation = viewGeneration) {
     const replayAfter = Number.isFinite(Number(r.replayAfter)) ? Number(r.replayAfter) : -1;
     rpc = {
       sid, es: null, streaming: !!r.isStreaming, connectionLost: false,
-      streamEnded: false, reconnectTimer: null, reconnectAttempt: 0,
+      streamEnded: false, streamReady: false, readyTimer: null,
+      reconnectTimer: null, reconnectAttempt: 0,
       lastEventId: replayAfter, activityLabel: "thinking", lastEventAt: Date.now(),
     };
     setStreaming(!!r.isStreaming);
     let esFail = 0;
 
+    const scheduleReconnect = (es, reason = "error") => {
+      if (!rpc || rpc.sid !== sid || rpc.streamEnded) return;
+      if (rpc.readyTimer) clearTimeout(rpc.readyTimer);
+      rpc.readyTimer = null;
+      rpc.streamReady = false;
+      try { es?.close(); } catch {}
+      if (rpc.es === es) rpc.es = null;
+      rpc.connectionLost = true;
+      const attempt = ++rpc.reconnectAttempt;
+      const delay = Math.min(30_000, 800 * (2 ** Math.min(attempt - 1, 5)));
+      el.queueNote.dataset.connection = "lost";
+      el.queueNote.textContent = rpc.streaming
+        ? `即時連線中斷，${Math.ceil(delay / 1000)} 秒後自動恢復…`
+        : (reason === "ready_timeout" ? "即時連線沒有回應，正在恢復…" : "正在恢復即時連線…");
+      el.queueNote.classList.remove("hidden");
+      if (rpc.reconnectTimer) return;
+      rpc.reconnectTimer = setTimeout(() => {
+        if (!rpc || rpc.sid !== sid || rpc.streamEnded) return;
+        rpc.reconnectTimer = null;
+        openStream(Math.max(-1, Number(rpc.lastEventId) || -1));
+      }, delay);
+    };
+
     const openStream = (after) => {
       if (!rpc || rpc.sid !== sid || rpc.streamEnded) return;
       const es = new EventSource(baseAtStart + "/api/stream?sid=" + encodeURIComponent(sid) + "&after=" + encodeURIComponent(after));
       rpc.es = es;
-      es.onopen = () => {
-        if (rpc?.sid !== sid) { try { es.close(); } catch {} return; }
+      rpc.streamReady = false;
+      if (rpc.readyTimer) clearTimeout(rpc.readyTimer);
+      rpc.readyTimer = setTimeout(() => {
+        if (rpc?.sid === sid && rpc.es === es && !rpc.streamReady && !rpc.streamEnded) {
+          scheduleReconnect(es, "ready_timeout");
+        }
+      }, 12_000);
+      const markStreamReady = (snapshot = null) => {
+        if (!rpc || rpc.sid !== sid || rpc.streamEnded) return;
+        rpc.streamReady = true;
+        if (rpc.readyTimer) clearTimeout(rpc.readyTimer);
+        rpc.readyTimer = null;
         esFail = 0;
         rpc.connectionLost = false;
         rpc.reconnectAttempt = 0;
+        rpc.lastEventAt = Date.now();
+        if (snapshot && typeof snapshot.isStreaming === "boolean" && snapshot.isStreaming !== rpc.streaming) {
+          setStreaming(snapshot.isStreaming);
+        }
         if (el.queueNote.dataset.connection === "lost") {
           delete el.queueNote.dataset.connection;
           if (!rpc.streaming) el.queueNote.classList.add("hidden");
           else el.queueNote.textContent = "連線已恢復，工作仍在繼續…";
         }
       };
+      es.onopen = () => {
+        if (rpc?.sid !== sid) { try { es.close(); } catch {} return; }
+        // onopen is the transport-level fallback for older Pi Web peers;
+        // current peers also send the named `connected` readiness handshake
+        // below with a state snapshot.
+        markStreamReady();
+      };
+      es.addEventListener("connected", (event) => {
+        let snapshot = null;
+        try { snapshot = JSON.parse(event.data); } catch {}
+        markStreamReady(snapshot);
+      });
       es.onmessage = (event) => {
         if (rpc?.sid !== sid) { try { es.close(); } catch {} return; }
         esFail = 0;
@@ -1279,22 +1329,7 @@ async function connectRpc(opts, generation = viewGeneration) {
         // EventSource will briefly retry by itself. After a few failures we
         // take over so the next request explicitly resumes after lastEventId.
         if (esFail < 3) return;
-        try { es.close(); } catch {}
-        if (rpc.es === es) rpc.es = null;
-        rpc.connectionLost = true;
-        const attempt = ++rpc.reconnectAttempt;
-        const delay = Math.min(30_000, 800 * (2 ** Math.min(attempt - 1, 5)));
-        el.queueNote.dataset.connection = "lost";
-        el.queueNote.textContent = rpc.streaming
-          ? `即時連線中斷，${Math.ceil(delay / 1000)} 秒後自動恢復…`
-          : "正在恢復即時連線…";
-        el.queueNote.classList.remove("hidden");
-        if (rpc.reconnectTimer) return;
-        rpc.reconnectTimer = setTimeout(() => {
-          if (!rpc || rpc.sid !== sid || rpc.streamEnded) return;
-          rpc.reconnectTimer = null;
-          openStream(Math.max(-1, Number(rpc.lastEventId) || -1));
-        }, delay);
+        scheduleReconnect(es);
       };
     };
     openStream(replayAfter);
@@ -1312,7 +1347,9 @@ function closeChat(silent) {
   if (rpc) {
     rpc.streamEnded = true;
     if (rpc.reconnectTimer) clearTimeout(rpc.reconnectTimer);
+    if (rpc.readyTimer) clearTimeout(rpc.readyTimer);
     rpc.reconnectTimer = null;
+    rpc.readyTimer = null;
     try { rpc.es && rpc.es.close(); } catch {}
     if (!silent) post("/api/close", { sid: rpc.sid }).catch(() => {});
     rpc = null;
@@ -2294,7 +2331,9 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       if (rpc?.sid === eventSid) {
         rpc.streamEnded = true;
         if (rpc.reconnectTimer) clearTimeout(rpc.reconnectTimer);
+        if (rpc.readyTimer) clearTimeout(rpc.readyTimer);
         rpc.reconnectTimer = null;
+        rpc.readyTimer = null;
       }
       setStreaming(false);
       finalizePending({ settleTools: true });
@@ -3955,7 +3994,13 @@ function openProviderAuthStream(after = -1) {
   if (!run || run.streamEnded) return;
   const stream = new EventSource(apiBase + "/api/provider-auth/stream?runId=" + encodeURIComponent(run.runId) + "&after=" + encodeURIComponent(after));
   providerAuthStream = stream;
-  stream.onopen = () => { run.reconnectAttempt = 0; };
+  stream.onopen = () => { run.reconnectAttempt = 0; run.streamReady = true; };
+  stream.addEventListener("connected", () => {
+    if (providerAuthRun === run) {
+      run.streamReady = true;
+      run.reconnectAttempt = 0;
+    }
+  });
   stream.onmessage = (event) => {
     if (providerAuthRun !== run) { try { stream.close(); } catch {} return; }
     const eventId = Number(event.lastEventId);
@@ -3986,6 +4031,7 @@ function watchProviderAuth(result, provider) {
     lastEventId: -1,
     reconnectAttempt: 0,
     reconnectTimer: null,
+    streamReady: false,
     streamEnded: false,
   };
   openProviderAuthStream();

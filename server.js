@@ -28,7 +28,7 @@ const { spawn, execFileSync } = require("node:child_process");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "1.11.17";
+const APP_VERSION = "1.11.18";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -92,8 +92,12 @@ const MAX_SESSION_FILE_BYTES = 128 * 1024 * 1024;
 // 歷史訊息只傳常見、可安全內嵌的圖片格式；避免一次讀取 session 時把任意大型附件灌進瀏覽器。
 const MAX_WIRE_IMAGE_DATA_LENGTH = 8 * 1024 * 1024;
 const SAFE_IMAGE_MIME = /^image\/(?:jpeg|png|webp|gif)$/i;
-const BROWSE_ROOTS = String(process.env.PI_WEB_BROWSE_ROOTS || "")
+const BROWSE_ROOTS_FROM_ENV = String(process.env.PI_WEB_BROWSE_ROOTS || "")
   .split(",").map((value) => expandHome(value.trim())).filter((value) => value && path.isAbsolute(value));
+// Folder browsing is deliberately deny-by-default.  A manually started Pi
+// Web may browse the configured Pi home, while launchers can explicitly add
+// shared volumes (for example `/Volumes`) through PI_WEB_BROWSE_ROOTS.
+const BROWSE_ROOTS = BROWSE_ROOTS_FROM_ENV.length ? BROWSE_ROOTS_FROM_ENV : [APP_HOME];
 
 // Keep the independently installed updater current after an application
 // update. This is limited to devices where automatic updates are already
@@ -1028,9 +1032,9 @@ function broadcast(sid, event) {
     if (!removed) break;
     s.eventBytes -= removed.bytes || 0;
   }
-  const payload = `id: ${packet.seq}\ndata: ${data}\n\n`;
+  const payload = sseFrame(event, null, packet.seq);
   for (const res of s.clients) {
-    try { res.write(payload); } catch { /* 忽略斷線 */ }
+    if (!trySseWrite(res, payload)) s.clients.delete(res);
   }
 }
 
@@ -1751,9 +1755,9 @@ function providerAuthEmit(run, event) {
     if (!removed) break;
     run.eventBytes -= removed.bytes || 0;
   }
-  const payload = `id: ${packet.seq}\ndata: ${data}\n\n`;
+  const payload = sseFrame(event, null, packet.seq);
   for (const res of run.clients) {
-    try { res.write(payload); } catch {}
+    if (!trySseWrite(res, payload)) run.clients.delete(res);
   }
 }
 
@@ -2308,16 +2312,53 @@ function providerAuthStream(req, res, url) {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
   });
+  if (typeof res.flushHeaders === "function") res.flushHeaders();
   const parsedAfter = Number(url.searchParams.get("after"));
   const parsedLastId = Number(req.headers["last-event-id"]);
   const after = Math.max(Number.isFinite(parsedAfter) ? parsedAfter : -1, Number.isFinite(parsedLastId) ? parsedLastId : -1);
-  for (const packet of run.events) {
-    if (packet.seq > after) res.write(`id: ${packet.seq}\ndata: ${JSON.stringify(packet.event)}\n\n`);
-  }
-  if (run.closed) { res.end(); return; }
+  let cleaned = false;
+  let ping = null;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    if (ping) clearInterval(ping);
+    run.clients.delete(res);
+  };
+  // Subscribe before replaying the snapshot.  Replaying first creates a small
+  // race where a prompt/progress event can be emitted between the replay and
+  // clients.add(), leaving the browser waiting forever for a response.
   run.clients.add(res);
-  const ping = setInterval(() => { try { res.write(": ping\n\n"); } catch {} }, 15000);
-  req.on("close", () => { clearInterval(ping); run.clients.delete(res); });
+  if (!trySseWrite(res, sseFrame({
+    type: "connected",
+    runId: run.id,
+    eventSeq: run.eventSeq,
+    closed: !!run.closed,
+  }, "connected"))) { cleanup(); try { res.end(); } catch {} return; }
+  for (const packet of run.events) {
+    if (packet.seq > after) trySseWrite(res, sseFrame(packet.event, null, packet.seq));
+  }
+  if (run.closed) { cleanup(); try { res.end(); } catch {} return; }
+  ping = setInterval(() => { trySseWrite(res, ": ping\n\n"); }, 15000);
+  req.on("aborted", cleanup);
+  req.on("close", cleanup);
+  res.on("close", cleanup);
+  res.on("error", cleanup);
+}
+
+// Keep SSE framing in one place so regular RPC streams and provider-auth
+// streams share the same safety checks.  A failed write removes the client in
+// the caller; a false return from res.write is backpressure, not a disconnect.
+function sseFrame(data, eventName = null, id = null) {
+  const lines = [];
+  if (eventName) lines.push(`event: ${String(eventName).replace(/[\r\n]/g, "")}`);
+  if (id !== null && id !== undefined) lines.push(`id: ${String(id).replace(/[\r\n]/g, "")}`);
+  lines.push(`data: ${typeof data === "string" ? data : JSON.stringify(data)}`);
+  return lines.join("\n") + "\n\n";
+}
+
+function trySseWrite(res, payload) {
+  if (!res || res.destroyed || res.writableEnded) return false;
+  try { res.write(payload); return true; } catch { return false; }
 }
 
 const MIME = {
@@ -2479,23 +2520,43 @@ const server = http.createServer(async (req, res) => {
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "no-referrer",
       });
+      if (typeof res.flushHeaders === "function") res.flushHeaders();
       // 只回放指定序號之後的 buffer；重連同一 session 時避免重複渲染已完成回覆。
       const parsedAfter = Number(url.searchParams.get("after"));
       const parsedLastId = Number(req.headers["last-event-id"]);
       const queryAfter = Number.isFinite(parsedAfter) ? parsedAfter : -1;
       const lastId = Number.isFinite(parsedLastId) ? parsedLastId : -1;
       const after = Math.max(queryAfter, lastId);
-      for (const packet of s.events) {
-        if (packet.seq > after) res.write(`id: ${packet.seq}\ndata: ${JSON.stringify(packet.event)}\n\n`);
-      }
-      if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
-      s.clients.add(res);
-      const ping = setInterval(() => { try { res.write(": ping\n\n"); } catch {} }, 15000);
-      req.on("close", () => {
-        clearInterval(ping);
+      let cleaned = false;
+      let ping = null;
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        if (ping) clearInterval(ping);
         s.clients.delete(res);
         scheduleRpcCleanup(sid);
-      });
+      };
+      // Register before replaying the buffered snapshot.  This closes the
+      // reconnect race where a Pi event lands between the replay loop and
+      // clients.add(), which previously made GUI runs appear to stop silently.
+      s.clients.add(res);
+      if (!trySseWrite(res, sseFrame({
+        type: "connected",
+        sid,
+        eventSeq: s.eventSeq,
+        isStreaming: !!s.state.isStreaming,
+        lastActivityAt: s.meta.lastActivityAt,
+      }, "connected"))) { cleanup(); try { res.end(); } catch {} return; }
+      for (const packet of s.events) {
+        if (packet.seq > after) trySseWrite(res, sseFrame(packet.event, null, packet.seq));
+      }
+      if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
+      if (s.exited) { cleanup(); try { res.end(); } catch {} return; }
+      ping = setInterval(() => { trySseWrite(res, ": ping\n\n"); }, 15000);
+      req.on("aborted", cleanup);
+      req.on("close", cleanup);
+      res.on("close", cleanup);
+      res.on("error", cleanup);
       return;
     }
 
@@ -3176,7 +3237,7 @@ server.listen(PORT, HOST, () => {
   if (SECURE_COOKIE && (HOST !== "127.0.0.1" && HOST !== "::1")) {
     console.log("[pi-web] Secure cookies enabled; expose this service through HTTPS only.");
   }
-  if (!BROWSE_ROOTS.length) {
-    console.warn("[pi-web] warning: /api/browse is unrestricted; set PI_WEB_BROWSE_ROOTS to limit project browsing");
+  if (!BROWSE_ROOTS_FROM_ENV.length) {
+    console.log("[pi-web] /api/browse is restricted to the Pi home by default; set PI_WEB_BROWSE_ROOTS to add external volumes");
   }
 });

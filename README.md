@@ -70,7 +70,7 @@ Useful environment variables:
 | `PI_WEB_TOKEN_FILE` | Token file with Unix mode `600` |
 | `PI_HOME` | Pi home directory when it differs from the OS home |
 | `PI_BIN` | Absolute path to the Pi executable |
-| `PI_WEB_BROWSE_ROOTS` | Comma-separated roots allowed in the folder picker |
+| `PI_WEB_BROWSE_ROOTS` | Comma-separated roots allowed in the folder picker (defaults to the Pi home; add `/Volumes` when external drives are needed) |
 
 Pi Web reads sessions and provider settings from the normal Pi directories
 under the configured home. Those directories stay outside this repository.
