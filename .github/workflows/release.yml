@@ -11,12 +11,13 @@ jobs:
   release:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22.19.0
+          package-manager-cache: false
       - name: Validate version and test
         run: |
           test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
@@ -35,4 +36,3 @@ jobs:
           archive="pi-harbor-${GITHUB_REF_NAME}.tar.gz"
           gh release create "$GITHUB_REF_NAME" "$archive" "$archive.sha256" \
             --verify-tag --generate-notes --title "Pi Harbor ${GITHUB_REF_NAME#v}"
-
