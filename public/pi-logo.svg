@@ -1,22 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800">
-  <!-- Official pi.dev favicon: white mark on a near-black badge. -->
-  <rect width="800" height="800" rx="120" fill="#09090b"/>
-  <path fill="#fff" fill-rule="evenodd" d="
-    M165.29 165.29
-    H517.36
-    V400
-    H400
-    V517.36
-    H282.65
-    V634.72
-    H165.29
-    Z
-    M282.65 282.65
-    V400
-    H400
-    V282.65
-    Z
-  "/>
-  <path fill="#fff" d="M517.36 400 H634.72 V634.72 H517.36 Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" role="img" aria-labelledby="title desc">
+  <title id="title">Pi Harbor</title>
+  <desc id="desc">Terminal Dock mark: two harbor piers framing a terminal chevron.</desc>
+  <rect width="800" height="800" rx="168" fill="#1A1A1A"/>
+  <g fill="#FAF7F0">
+    <!-- Left pier and terminal chevron. The triangular counter keeps the mark
+         distinct at favicon sizes while the outer point suggests a gateway. -->
+    <path fill-rule="evenodd" d="
+      M154 154
+      L374 284
+      V354
+      L526 444
+      L374 534
+      V646
+      H154
+      Z
+
+      M260 330
+      L430 444
+      L260 558
+      V500
+      L348 444
+      L260 388
+      Z
+    "/>
+    <!-- Right breakwater: deliberately separate at the top so the center reads
+         as an open harbor rather than a media-play symbol. -->
+    <path d="M646 154 L474 256 V646 H646 Z"/>
+  </g>
 </svg>

@@ -1,4 +1,4 @@
-/* pi-harbor v1.12.0 — Ink & Ivory / English-first localization */
+/* pi-harbor v1.12.1 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -1922,7 +1922,7 @@ body.compact #view-list .session-item .s-meta { margin-top: 1px; font-size: .55r
 /* ===========================================================================
    v1.9 — Theme choices + Codex-style tool rows / activity states
    =========================================================================== */
-.login-mark.official-mark {
+.login-mark.brand-mark {
   display: grid;
   place-items: center;
   padding: 0;
@@ -1930,7 +1930,7 @@ body.compact #view-list .session-item .s-meta { margin-top: 1px; font-size: .55r
   background: #09090b;
   border: 0;
 }
-.login-mark.official-mark img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.login-mark.brand-mark img { width: 100%; height: 100%; object-fit: contain; display: block; }
 
 /* Nine optional design themes with readable light and dark variants. */
 html[data-design-theme="warm-paper"][data-theme="dark"] {

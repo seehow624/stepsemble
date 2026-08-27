@@ -1,16 +1,16 @@
-const CACHE_NAME = "pi-harbor-shell-v1.12.0";
+const CACHE_NAME = "pi-harbor-shell-v1.12.1";
 const SHELL = [
   "/",
   "/index.html",
-  "/style.css?v=1.12.0",
-  "/i18n.js?v=1.12.0",
-  "/modules/app-foundation.js?v=1.12.0",
-  "/modules/session-utils.js?v=1.12.0",
-  "/app.js?v=1.12.0",
-  "/manifest.webmanifest?v=1.12.0",
-  "/pi-logo.svg?v=1.12.0",
-  "/icon-180.png?v=1.12.0",
-  "/icon-512.png?v=1.12.0",
+  "/style.css?v=1.12.1",
+  "/i18n.js?v=1.12.1",
+  "/modules/app-foundation.js?v=1.12.1",
+  "/modules/session-utils.js?v=1.12.1",
+  "/app.js?v=1.12.1",
+  "/manifest.webmanifest?v=1.12.1",
+  "/pi-logo.svg?v=1.12.1",
+  "/icon-180.png?v=1.12.1",
+  "/icon-512.png?v=1.12.1",
   "/vendor/marked.min.js",
   "/vendor/purify.min.js",
 ];

@@ -1,4 +1,4 @@
-/* pi-harbor v1.12.0 — English-first localization and provider catalog */
+/* pi-harbor v1.12.1 — English-first localization and provider catalog */
 "use strict";
 
 // The browser remains buildless, but feature-independent foundations live in

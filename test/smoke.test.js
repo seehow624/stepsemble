@@ -28,6 +28,18 @@ test("service worker never intercepts API or relay requests", () => {
   assert.ok(sw.includes('url.pathname.startsWith("/r/")'));
 });
 
+test("Pi Harbor ships its own Terminal Dock brand mark", () => {
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const logo = fs.readFileSync(path.join(root, "public", "pi-logo.svg"), "utf8");
+  const appIcon = fs.readFileSync(path.join(root, "public", "pi-app-icon.svg"), "utf8");
+  assert.match(html, /class="login-mark brand-mark"/);
+  assert.doesNotMatch(html, /official-mark/);
+  assert.match(logo, /Terminal Dock mark/);
+  assert.match(appIcon, /Terminal Dock mark/);
+  assert.match(logo, /#1A1A1A/);
+  assert.match(logo, /#FAF7F0/);
+});
+
 test("SSE streams subscribe before replay and expose a readiness handshake", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const httpUtils = fs.readFileSync(path.join(root, "server", "http-utils.js"), "utf8");
