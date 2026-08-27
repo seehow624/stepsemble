@@ -1,4 +1,4 @@
-/* pi-web v1.11.19 — English-first localization and provider catalog */
+/* pi-web v1.11.20 — English-first localization and provider catalog */
 "use strict";
 
 // ===========================================================================
@@ -980,20 +980,32 @@ function openSessionActions(s) {
   el.saTitle.textContent = stripMd(s.name || s.preview?.split("\n")[0] || "").slice(0, 60) || "(未命名)";
   el.saSheet.classList.remove("hidden");
 }
-el.saCancel.addEventListener("click", () => el.saSheet.classList.add("hidden"));
-el.saDelete.addEventListener("click", async () => {
+function closeSessionActions() {
   el.saSheet.classList.add("hidden");
-  if (!actionTarget) return;
-  const isCurrent = currentSessionFile === actionTarget.file && !el.viewChat.classList.contains("hidden");
+  actionTarget = null;
+}
+el.saCancel.addEventListener("click", closeSessionActions);
+// Treat a tap/click on the dimmed backdrop as Cancel. This keeps the action
+// sheet quick to dismiss on both touch and desktop without swallowing clicks
+// on the actions inside the sheet.
+el.saSheet.addEventListener("click", (event) => {
+  if (event.target === el.saSheet) closeSessionActions();
+});
+el.saDelete.addEventListener("click", async () => {
+  const target = actionTarget;
+  closeSessionActions();
+  if (!target) return;
+  const isCurrent = currentSessionFile === target.file && !el.viewChat.classList.contains("hidden");
   try {
-    await post("/api/delete", { file: actionTarget.file });
+    await post("/api/delete", { file: target.file });
     if (isCurrent) { toast("已移到垃圾桶"); showList(); }
     else { toast("已移到垃圾桶"); refreshSessions(); }
   } catch (e) { toast("刪除失敗：" + e.message, true); }
 });
 el.saRename.addEventListener("click", () => {
-  el.saSheet.classList.add("hidden");
-  el.renameInput.value = actionTarget?.name || "";
+  const target = actionTarget;
+  closeSessionActions();
+  el.renameInput.value = target?.name || "";
   el.renameDialog.classList.remove("hidden");
 });
 document.getElementById("rename-save").addEventListener("click", doRename);
@@ -2889,7 +2901,7 @@ async function syncComposerState(expectedSid = rpc?.sid) {
   } catch {}
 }
 el.saModel.addEventListener("click", () => {
-  el.saSheet.classList.add("hidden");
+  closeSessionActions();
   openModelSheet();
 });
 

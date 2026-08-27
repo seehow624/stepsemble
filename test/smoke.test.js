@@ -71,6 +71,15 @@ test("Sub Agent temporary sessions are opt-in in the session list", () => {
   assert.match(i18n, /Temporary workspaces are hidden by default/);
 });
 
+test("session action sheets close when the backdrop is clicked", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  assert.match(app, /function closeSessionActions\(\)/);
+  assert.match(app, /event\.target === el\.saSheet/);
+  assert.match(app, /el\.saSheet\.addEventListener\("click"/);
+  assert.match(html, /id="session-action-sheet"[^>]*role="dialog"/);
+});
+
 test("Pi run failures stay visible in live and historical GUI paths", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
