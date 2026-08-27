@@ -1,0 +1,234 @@
+#!/bin/zsh
+# Pi Harbor stable-release updater for macOS launchd.
+#
+# Release archives are downloaded from GitHub Releases and verified against a
+# separately published SHA-256 file. Updates wait while a Pi RPC is streaming.
+set -u
+setopt NO_NOMATCH
+umask 077
+
+NODE_BIN="${NODE_BIN:-$(command -v node 2>/dev/null || true)}"
+for candidate in "$HOME/.local/share/pi-harbor-runtime/current/bin/node" \
+  "$HOME/.local/bin/node" "$HOME/.volta/bin/node" \
+  "/opt/homebrew/bin/node" "/usr/local/bin/node"; do
+  [[ -n "$NODE_BIN" && -x "$NODE_BIN" ]] && break
+  [[ -x "$candidate" ]] && NODE_BIN="$candidate"
+done
+
+readonly CURL_BIN="${CURL_BIN:-/usr/bin/curl}"
+readonly TAR_BIN="${TAR_BIN:-/usr/bin/tar}"
+readonly SHASUM_BIN="${SHASUM_BIN:-/usr/bin/shasum}"
+readonly LAUNCHCTL_BIN="${LAUNCHCTL_BIN:-/bin/launchctl}"
+readonly INSTALL_DIR="${PI_HARBOR_INSTALL_DIR:-$HOME/.local/share/pi-harbor}"
+readonly CONFIG_DIR="${PI_HARBOR_UPDATE_CONFIG_DIR:-$HOME/.config/pi-harbor}"
+readonly CONFIG_FILE="${PI_HARBOR_UPDATE_CONFIG:-$CONFIG_DIR/updater.json}"
+readonly STATE_FILE="${PI_HARBOR_UPDATE_STATE:-$CONFIG_DIR/update-state.json}"
+readonly TOKEN_FILE="${PI_HARBOR_TOKEN_FILE:-$CONFIG_DIR/token}"
+readonly LOCK_DIR="${PI_HARBOR_UPDATE_LOCK:-$HOME/.cache/pi-harbor-update.lock}"
+readonly DEFAULT_REPOSITORY="${PI_HARBOR_UPDATE_REPO:-seehow624/pi-harbor}"
+readonly DEFAULT_REF="${PI_HARBOR_UPDATE_REF:-stable}"
+readonly SERVICE_LABEL="${PI_HARBOR_SERVICE_LABEL:-com.piharbor.server}"
+readonly FORCE_UPDATE="${PI_HARBOR_UPDATE_FORCE:-0}"
+
+log() { print -u2 -r -- "[pi-harbor-update] $*"; }
+die() { log "$*"; exit 1; }
+
+[[ -n "$NODE_BIN" && -x "$NODE_BIN" ]] || die "Node.js 22.19 or newer is required."
+[[ -x "$CURL_BIN" && -x "$TAR_BIN" && -x "$SHASUM_BIN" ]] || die "curl, tar, and shasum are required."
+[[ "$INSTALL_DIR" == "$HOME/.local/share/pi-harbor" ]] || die "refusing unexpected application path"
+
+json_value() {
+  local file="$1" key="$2"
+  [[ -f "$file" ]] || return 0
+  "$NODE_BIN" - "$file" "$key" <<'NODE'
+const fs = require("node:fs");
+try {
+  const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  const result = value?.[process.argv[3]];
+  if (typeof result === "boolean") process.stdout.write(result ? "true" : "false");
+  else if (result !== undefined && result !== null) process.stdout.write(String(result));
+} catch {}
+NODE
+}
+
+write_state() {
+  local error_message="${1:-}" checked_at="${2:-}" latest_version="${3:-}" current_version="${4:-}" updated_at="${5:-}"
+  mkdir -p "$CONFIG_DIR"
+  PH_STATE_FILE="$STATE_FILE" PH_STATE_ENABLED="$enabled" PH_STATE_REPOSITORY="$repository" \
+    PH_STATE_REF="$ref" PH_STATE_ERROR="$error_message" PH_STATE_CHECKED="$checked_at" \
+    PH_STATE_LATEST="$latest_version" PH_STATE_CURRENT="$current_version" PH_STATE_UPDATED="$updated_at" \
+    "$NODE_BIN" - <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+const file = process.env.PH_STATE_FILE;
+const previous = (() => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return {}; } })();
+const value = {
+  enabled: process.env.PH_STATE_ENABLED === "true",
+  repository: process.env.PH_STATE_REPOSITORY,
+  ref: process.env.PH_STATE_REF,
+  currentSha: process.env.PH_STATE_CURRENT || previous.currentSha || "",
+  latestSha: process.env.PH_STATE_LATEST || previous.latestSha || "",
+  latestVersion: (process.env.PH_STATE_LATEST || previous.latestVersion || "").replace(/^v/, ""),
+  lastCheckedAt: process.env.PH_STATE_CHECKED || previous.lastCheckedAt || "",
+};
+if (process.env.PH_STATE_UPDATED || previous.lastUpdatedAt) value.lastUpdatedAt = process.env.PH_STATE_UPDATED || previous.lastUpdatedAt;
+if (process.env.PH_STATE_ERROR) value.error = process.env.PH_STATE_ERROR;
+fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+const temp = `${file}.${process.pid}.tmp`;
+fs.writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+fs.renameSync(temp, file);
+NODE
+}
+
+current_version() {
+  "$NODE_BIN" - "$INSTALL_DIR/package.json" <<'NODE'
+const fs = require("node:fs");
+try { process.stdout.write(`v${JSON.parse(fs.readFileSync(process.argv[2], "utf8")).version}`); } catch {}
+NODE
+}
+
+release_is_newer() {
+  "$NODE_BIN" - "$1" "$2" <<'NODE'
+function parts(value) {
+  const match = String(value || "").match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-.]([A-Za-z0-9.-]+))?$/);
+  return match ? { numbers: match.slice(1, 4).map(Number), pre: match[4] || "" } : null;
+}
+const current = parts(process.argv[2]);
+const latest = parts(process.argv[3]);
+if (!latest) process.exit(1);
+if (!current) process.exit(0);
+for (let i = 0; i < 3; i += 1) {
+  if (latest.numbers[i] > current.numbers[i]) process.exit(0);
+  if (latest.numbers[i] < current.numbers[i]) process.exit(1);
+}
+if (!latest.pre && current.pre) process.exit(0);
+process.exit(1);
+NODE
+}
+
+release_field() {
+  local metadata="$1" field="$2"
+  "$NODE_BIN" - "$metadata" "$field" <<'NODE'
+const fs = require("node:fs");
+const release = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const field = process.argv[3];
+if (field === "tag") process.stdout.write(String(release.tag_name || ""));
+else {
+  const exact = `pi-harbor-${release.tag_name}.tar.gz${field === "checksum" ? ".sha256" : ""}`;
+  const suffix = field === "archive" ? ".tar.gz" : ".sha256";
+  const asset = release.assets?.find((item) => item.name === exact)
+    || release.assets?.find((item) => item.name.endsWith(suffix));
+  if (asset?.browser_download_url) process.stdout.write(asset.browser_download_url);
+}
+NODE
+}
+
+active_rpc_running() {
+  [[ -s "$TOKEN_FILE" ]] || return 1
+  local cookie response token port
+  port="$("$NODE_BIN" - "$HOME/.pi/agent/device.json" <<'NODE'
+const fs = require("node:fs");
+try { const port = JSON.parse(fs.readFileSync(process.argv[2], "utf8")).port; process.stdout.write(Number.isInteger(port) ? String(port) : "3140"); } catch { process.stdout.write("3140"); }
+NODE
+)"
+  cookie="$(mktemp "${TMPDIR:-/tmp}/pi-harbor-updater-cookie.XXXXXX")"
+  token="$(tr -d '\n' < "$TOKEN_FILE")"
+  if ! "$CURL_BIN" -fsS --max-time 3 -c "$cookie" -H 'Content-Type: application/json' \
+    --data-binary "{\"token\":\"$token\"}" "http://127.0.0.1:$port/api/login" >/dev/null 2>&1; then
+    /bin/rm -f -- "$cookie"
+    return 1
+  fi
+  response="$("$CURL_BIN" -fsS --max-time 3 -b "$cookie" "http://127.0.0.1:$port/api/rpcs" 2>/dev/null || true)"
+  /bin/rm -f -- "$cookie"
+  RPC_RESPONSE="$response" "$NODE_BIN" - <<'NODE'
+try { const value = JSON.parse(process.env.RPC_RESPONSE || "{}"); process.exit(value.rpcs?.some((rpc) => rpc.isStreaming === true) ? 0 : 1); } catch { process.exit(1); }
+NODE
+}
+
+enabled="$(json_value "$CONFIG_FILE" enabled)"
+repository="$(json_value "$CONFIG_FILE" repository)"
+ref="$(json_value "$CONFIG_FILE" ref)"
+[[ "$enabled" == "true" ]] || enabled="false"
+[[ -n "$repository" ]] || repository="$DEFAULT_REPOSITORY"
+[[ -n "$ref" ]] || ref="$DEFAULT_REF"
+[[ "$repository" =~ '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' ]] || die "invalid GitHub repository"
+[[ "$ref" == "stable" || "$ref" =~ '^v[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.]+)?$' ]] || die "updates require the stable channel or an exact release tag"
+
+now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+installed_version="$(current_version)"
+if [[ "$enabled" != "true" && "$FORCE_UPDATE" != "1" ]]; then
+  write_state "" "$now" "$installed_version" "$installed_version"
+  exit 0
+fi
+
+if ! mkdir -p "${LOCK_DIR:h}" 2>/dev/null || ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  log "another update check is already running"
+  exit 0
+fi
+work_dir=""
+stage_dir=""
+cleanup_all() {
+  rmdir "$LOCK_DIR" >/dev/null 2>&1 || true
+  [[ -z "$work_dir" || "$work_dir" != "${TMPDIR:-/tmp}/pi-harbor-update."* ]] || /bin/rm -rf -- "$work_dir"
+  [[ -z "$stage_dir" || "$stage_dir" != "$HOME/.local/share/pi-harbor.update."* ]] || /bin/rm -rf -- "$stage_dir"
+}
+trap cleanup_all EXIT
+
+work_dir="$(mktemp -d "${TMPDIR:-/tmp}/pi-harbor-update.XXXXXX")"
+metadata="$work_dir/release.json"
+api_url="https://api.github.com/repos/$repository/releases/latest"
+[[ "$ref" == "stable" ]] || api_url="https://api.github.com/repos/$repository/releases/tags/$ref"
+if ! "$CURL_BIN" -fsSL --max-time 180 -H 'Accept: application/vnd.github+json' "$api_url" -o "$metadata"; then
+  write_state "Could not read the latest GitHub release" "$now" "$installed_version" "$installed_version"
+  die "could not read release metadata"
+fi
+
+latest_version="$(release_field "$metadata" tag)"
+archive_url="$(release_field "$metadata" archive)"
+checksum_url="$(release_field "$metadata" checksum)"
+if [[ ! "$latest_version" =~ '^v[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.]+)?$' || -z "$archive_url" || -z "$checksum_url" ]]; then
+  write_state "The release is missing a verified archive" "$now" "$latest_version" "$installed_version"
+  die "release assets are incomplete"
+fi
+
+if ! release_is_newer "$installed_version" "$latest_version"; then
+  write_state "" "$now" "$installed_version" "$installed_version"
+  exit 0
+fi
+
+if active_rpc_running; then
+  write_state "" "$now" "$latest_version" "$installed_version"
+  log "$latest_version is available; update deferred until the current Pi work finishes"
+  exit 0
+fi
+
+archive="$work_dir/pi-harbor.tar.gz"
+checksum="$work_dir/pi-harbor.tar.gz.sha256"
+"$CURL_BIN" -fsSL --max-time 300 "$archive_url" -o "$archive" || die "release download failed"
+"$CURL_BIN" -fsSL --max-time 180 "$checksum_url" -o "$checksum" || die "checksum download failed"
+expected="$(awk 'NR == 1 { print $1 }' "$checksum")"
+actual="$("$SHASUM_BIN" -a 256 "$archive" | awk '{ print $1 }')"
+[[ "$expected" =~ '^[0-9a-f]{64}$' && "$actual" == "$expected" ]] || die "release checksum verification failed"
+
+extract_dir="$work_dir/source"
+mkdir -p "$extract_dir"
+"$TAR_BIN" -xzf "$archive" -C "$extract_dir" || die "release extraction failed"
+source_dir="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+[[ -n "$source_dir" && -f "$source_dir/server.js" && -f "$source_dir/public/index.html" ]] || die "release archive is incomplete"
+
+stage_dir="$INSTALL_DIR.update.$$"
+backup_dir="$INSTALL_DIR.previous"
+[[ "$stage_dir" == "$HOME/.local/share/pi-harbor.update."* && "$backup_dir" == "$HOME/.local/share/pi-harbor.previous" ]] || die "unsafe update path"
+mkdir -p "$stage_dir"
+cp -a "$source_dir"/. "$stage_dir"/
+[[ ! -e "$backup_dir" ]] || rm -rf -- "$backup_dir"
+[[ ! -e "$INSTALL_DIR" ]] || mv "$INSTALL_DIR" "$backup_dir"
+if ! mv "$stage_dir" "$INSTALL_DIR"; then
+  [[ ! -e "$backup_dir" ]] || mv "$backup_dir" "$INSTALL_DIR"
+  die "could not activate the release"
+fi
+
+updated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+write_state "" "$now" "$latest_version" "$latest_version" "$updated_at"
+"$LAUNCHCTL_BIN" kickstart -k "gui/$(id -u)/$SERVICE_LABEL" >/dev/null 2>&1 || log "release installed; launchd restart was not available"
+log "updated Pi Harbor to $latest_version"

@@ -1,4 +1,4 @@
-/* pi-web locale layer. English is the source language and the safe fallback. */
+/* pi-harbor locale layer. English is the source language and the safe fallback. */
 (() => {
   "use strict";
 
@@ -903,7 +903,7 @@
 
   window.piI18n = Object.freeze({ locales: LOCALES, normalizeLocale, getLocale, setLocale, localize: localizeDom, queue: queueLocalize, t, translate, providerName, providerDescription, auditLocales });
   try {
-    const raw = localStorage.getItem("piweb.settings.v2") || localStorage.getItem("piweb.settings.v1") || "{}";
+    const raw = localStorage.getItem("piharbor.settings.v2") || localStorage.getItem("piweb.settings.v2") || localStorage.getItem("piweb.settings.v1") || localStorage.getItem("piharbor.settings.v1") || "{}";
     locale = normalizeLocale(JSON.parse(raw).locale);
   } catch {}
   new MutationObserver((records) => queueLocalize(records)).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["title", "aria-label", "placeholder"] });

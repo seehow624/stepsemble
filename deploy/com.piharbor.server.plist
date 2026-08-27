@@ -5,28 +5,28 @@
      The token is read from a user-owned file with mode 600. -->
 <dict>
   <key>Label</key>
-  <string>com.piweb.server</string>
+  <string>com.piharbor.server</string>
 
   <key>ProgramArguments</key>
   <array>
     <string>__NODE__</string>
-    <string>/Users/__USER__/.local/share/pi-web/server.js</string>
+    <string>/Users/__USER__/.local/share/pi-harbor/server.js</string>
   </array>
 
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PI_WEB_TOKEN_FILE</key>
-    <string>/Users/__USER__/.config/pi-web/token</string>
-    <key>PI_WEB_PORT</key>
-    <string>3140</string>
+    <key>PI_HARBOR_TOKEN_FILE</key>
+    <string>/Users/__USER__/.config/pi-harbor/token</string>
+    <key>PI_HARBOR_PORT</key>
+    <string>__PORT__</string>
     <!-- Put Tailscale Serve or another HTTPS gateway in front of loopback. -->
-    <key>PI_WEB_HOST</key>
+    <key>PI_HARBOR_HOST</key>
     <string>127.0.0.1</string>
-    <key>PI_WEB_SECURE_COOKIE</key>
+    <key>PI_HARBOR_SECURE_COOKIE</key>
     <string>1</string>
     <key>PI_BIN</key>
     <string>__PIBIN__</string>
-    <key>PI_WEB_BROWSE_ROOTS</key>
+    <key>PI_HARBOR_BROWSE_ROOTS</key>
     <string>/Users/__USER__,/Volumes</string>
     <key>HOME</key>
     <string>/Users/__USER__</string>
@@ -40,8 +40,8 @@
   <integer>6000</integer>
 
   <key>StandardOutPath</key>
-  <string>/tmp/pi-web.log</string>
+  <string>/Users/__USER__/.local/state/pi-harbor/server.log</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/pi-web.err.log</string>
+  <string>/Users/__USER__/.local/state/pi-harbor/server-error.log</string>
 </dict>
 </plist>

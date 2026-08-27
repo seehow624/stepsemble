@@ -1,6 +1,6 @@
 # Pi Harbor (Español)
 
-[English](README.md) · [简体中文](README.zh-Hans.md) · [繁體中文](README.zh-Hant.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Türkçe](README.tr.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · Español · [Português](README.pt-BR.md) · [Italiano](README.it.md)
+[English](README.md) · [Chino simplificado](README.zh-Hans.md) · [Chino tradicional](README.zh-Hant.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Türkçe](README.tr.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · Español · [Português](README.pt-BR.md) · [Italiano](README.it.md)
 
 Pi Harbor es un cliente web de código abierto y orientado a móviles para Pi coding agent. Permite consultar y continuar sesiones, iniciar proyectos, previsualizar imágenes y cambiar entre varios ordenadores Pi Harbor.
 
@@ -11,12 +11,7 @@ El repositorio solo contiene código de la aplicación y plantillas de despliegu
 ## Inicio rápido
 
 ```bash
-git clone https://github.com/seehow624/pi-harbor.git
-cd pi-harbor
-mkdir -p ~/.config/pi-web
-openssl rand -hex 32 > ~/.config/pi-web/token
-chmod 600 ~/.config/pi-web/token
-PI_WEB_TOKEN_FILE="$HOME/.config/pi-web/token" node server.js
+/bin/zsh -c "$(curl -fsSL https://raw.githubusercontent.com/seehow624/pi-harbor/master/install.sh)"
 ```
 
 Ejecuta Pi Harbor en cada ordenador e inicia sesión con su URL HTTPS y token local. No pongas el token en Git, chats, capturas ni registros.

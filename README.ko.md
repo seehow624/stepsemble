@@ -1,6 +1,6 @@
 # Pi Harbor (한국어)
 
-[English](README.md) · [简体中文](README.zh-Hans.md) · [繁體中文](README.zh-Hant.md) · [日本語](README.ja.md) · 한국어 · [Türkçe](README.tr.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Español](README.es.md) · [Português](README.pt-BR.md) · [Italiano](README.it.md)
+[English](README.md) · [중국어 간체](README.zh-Hans.md) · [중국어 번체](README.zh-Hant.md) · [日本語](README.ja.md) · 한국어 · [Türkçe](README.tr.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Español](README.es.md) · [Português](README.pt-BR.md) · [Italiano](README.it.md)
 
 Pi Harbor은 Pi coding agent를 위한 오픈 소스 모바일 우선 웹 클라이언트입니다. 세션 확인과 계속하기, 프로젝트 생성, 이미지 미리보기, 여러 Pi Harbor 컴퓨터 전환을 지원합니다.
 
@@ -11,12 +11,7 @@ Pi Harbor은 Pi coding agent를 위한 오픈 소스 모바일 우선 웹 클라
 ## 빠른 시작
 
 ```bash
-git clone https://github.com/seehow624/pi-harbor.git
-cd pi-harbor
-mkdir -p ~/.config/pi-web
-openssl rand -hex 32 > ~/.config/pi-web/token
-chmod 600 ~/.config/pi-web/token
-PI_WEB_TOKEN_FILE="$HOME/.config/pi-web/token" node server.js
+/bin/zsh -c "$(curl -fsSL https://raw.githubusercontent.com/seehow624/pi-harbor/master/install.sh)"
 ```
 
 각 컴퓨터에서 Pi Harbor을 실행하고 HTTPS 주소와 로컬 토큰으로 로그인합니다. 토큰을 Git, 채팅, 스크린샷 또는 로그에 넣지 마세요.

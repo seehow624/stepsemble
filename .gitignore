@@ -9,7 +9,7 @@ _MEMORY-CARD.md
 
 # Local deployment copies
 .local/
-pi-web-bin/
+pi-harbor-bin/
 
 # Test/runtime artifacts
 coverage/

@@ -1,5 +1,5 @@
-/* pi-web session utilities — pure display helpers shared by list and chat views */
-(function exposePiWebSessionUtils(global) {
+/* pi-harbor session utilities — pure display helpers shared by list and chat views */
+(function exposePiHarborSessionUtils(global) {
   "use strict";
 
   function stripMd(value) {
@@ -38,5 +38,5 @@
     return key === "(unknown)" ? unassigned : (key.split("/").filter(Boolean).pop() || key);
   }
 
-  global.piWebSessionUtils = Object.freeze({ stripMd, fmtTime, fmtTokens, projectFolderName });
+  global.piHarborSessionUtils = Object.freeze({ stripMd, fmtTime, fmtTokens, projectFolderName });
 })(window);

@@ -1,16 +1,16 @@
-const CACHE_NAME = "pi-harbor-shell-v1.12.1";
+const CACHE_NAME = "pi-harbor-shell-v2.0.0";
 const SHELL = [
   "/",
   "/index.html",
-  "/style.css?v=1.12.1",
-  "/i18n.js?v=1.12.1",
-  "/modules/app-foundation.js?v=1.12.1",
-  "/modules/session-utils.js?v=1.12.1",
-  "/app.js?v=1.12.1",
-  "/manifest.webmanifest?v=1.12.1",
-  "/pi-logo.svg?v=1.12.1",
-  "/icon-180.png?v=1.12.1",
-  "/icon-512.png?v=1.12.1",
+  "/style.css?v=2.0.0",
+  "/i18n.js?v=2.0.0",
+  "/modules/app-foundation.js?v=2.0.0",
+  "/modules/session-utils.js?v=2.0.0",
+  "/app.js?v=2.0.0",
+  "/manifest.webmanifest?v=2.0.0",
+  "/pi-logo.svg?v=2.0.0",
+  "/icon-180.png?v=2.0.0",
+  "/icon-512.png?v=2.0.0",
   "/vendor/marked.min.js",
   "/vendor/purify.min.js",
 ];
@@ -25,7 +25,7 @@ self.addEventListener("activate", (event) => {
       .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
       .then(() => self.clients.claim())
       .then(() => self.clients.matchAll({ type: "window", includeUncontrolled: false }))
-      .then((clients) => clients.forEach((client) => client.postMessage({ type: "PI_WEB_UPDATED", version: CACHE_NAME }))),
+      .then((clients) => clients.forEach((client) => client.postMessage({ type: "PI_HARBOR_UPDATED", version: CACHE_NAME }))),
   );
 });
 

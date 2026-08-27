@@ -61,7 +61,7 @@ function createHttpUtils({ secureCookie = false, isTokenValid = () => false } = 
   }
 
   function isAuthed(req) {
-    return isTokenValid(getCookie(req, "pi_web"));
+    return isTokenValid(getCookie(req, "pi_harbor"));
   }
 
   function readBody(req, limit = 16 * 1024 * 1024) {

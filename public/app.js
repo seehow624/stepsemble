@@ -1,15 +1,15 @@
-/* pi-harbor v1.12.1 — English-first localization and provider catalog */
+/* pi-harbor v2.0.0 — English-first localization and provider catalog */
 "use strict";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
 // as the original PWA while preventing storage, device, and display rules from
 // being duplicated across future feature modules.
-const foundation = window.piWebFoundation;
-const sessionUtils = window.piWebSessionUtils;
+const foundation = window.piHarborFoundation;
+const sessionUtils = window.piHarborSessionUtils;
 if (!foundation || !sessionUtils) throw new Error("Pi Harbor foundation modules are missing");
 const {
-  SELECTED_KEY, SETTINGS_KEY, LEGACY_SETTINGS_KEY, SETTINGS_VERSION,
+  SELECTED_KEY, SETTINGS_KEY, LEGACY_SETTINGS_KEY, LEGACY_SETTINGS_KEYS, SETTINGS_VERSION,
   DESIGN_THEMES, DESIGN_THEME_IDS, DEFAULT_SETTINGS,
   loadSelected, saveSelected, loadSettings, saveSettings,
   currentMachine: currentMachineFromList,
@@ -53,7 +53,7 @@ const el = {
   btnOpenSettings: $("btn-open-settings"), btnSettingsBack: $("btn-settings-back"), btnModelSettingsBack: $("btn-model-settings-back"), modelSettingsOpen: $("model-settings-open"), modelSettingsSummary: $("model-settings-summary"),
   machineList: $("machine-list"), machineAdd: $("machine-add"), machinePair: $("machine-pair"), machineDialog: $("machine-dialog"), machineDialogTitle: $("machine-dialog-title"), machineStandardFields: $("machine-standard-fields"), machineName: $("machine-name"), machineUrl: $("machine-url"), machinePort: $("machine-port"), machinePortLabel: $("machine-port-label"), machineHost: $("machine-host"), machineStatusNote: $("machine-status-note"), machineFormError: $("machine-form-error"), machinePairArea: $("machine-pair-area"), machinePairCode: $("machine-pair-code"), machinePairJoin: $("machine-pair-join"), machinePairOfferArea: $("machine-pair-offer-area"), machinePairOffer: $("machine-pair-offer"), machinePairGenerate: $("machine-pair-generate"), machineRestart: $("machine-restart"), machineSave: $("machine-save"), machineDelete: $("machine-delete"), machineTest: $("machine-test"), machineCancel: $("machine-cancel"), machineCancelBottom: $("machine-cancel-bottom"),
   setMachineName: $("set-machine-name"), setMachineHost: $("set-machine-host"), setPiVersion: $("set-pi-version"),
-  setSessionCount: $("set-session-count"), btnLogout: $("btn-logout"), btnResetSettings: $("btn-reset-settings"),
+  setSessionCount: $("set-session-count"), btnLogout: $("btn-logout"), btnResetSettings: $("btn-reset-settings"), btnOpenOnboarding: $("btn-open-onboarding"), setupGuideTitle: $("setup-guide-title"), setupGuideSubtitle: $("setup-guide-subtitle"),
   setAutoUpdate: $("set-auto-update"), updateStatusCopy: $("update-status-copy"), updateCheck: $("update-check"), updateCheckStatus: $("update-check-status"),
   setLocale: $("set-locale"), setTheme: $("set-theme"), setDesignTheme: $("theme-choices"), setSidebarWidth: $("set-sidebar-width"), setSidebarWidthValue: $("set-sidebar-width-value"), setFontScale: $("set-font-scale"), setFontScaleValue: $("set-font-scale-value"), setCompact: $("set-compact"), setGroup: $("set-group"),
   btnImg: $("btn-img"), fileInput: $("file-input"), imgPreview: $("img-preview"),
@@ -94,6 +94,7 @@ const el = {
   extensionUiSubmit: $("extension-ui-submit"),
   imageLightbox: $("image-lightbox"), imageLightboxImg: $("image-lightbox-img"),
   imageLightboxCaption: $("image-lightbox-caption"), imageLightboxClose: $("image-lightbox-close"),
+  onboarding: $("onboarding"), onboardingClose: $("onboarding-close"), onboardingEyebrow: $("onboarding-eyebrow"), onboardingTitle: $("onboarding-title"), onboardingBody: $("onboarding-body"), onboardingPoints: $("onboarding-points"), onboardingProgress: document.querySelectorAll("#onboarding .onboarding-progress span"), onboardingPreferences: $("onboarding-preferences"), onboardingLanguage: $("onboarding-language"), onboardingLanguageLabel: $("onboarding-language-label"), onboardingAppearance: $("onboarding-appearance"), onboardingAppearanceLabel: $("onboarding-appearance-label"), onboardingBack: $("onboarding-back"), onboardingSkip: $("onboarding-skip"), onboardingNext: $("onboarding-next"),
   toastWrap: $("toast-wrap"),
 };
 
@@ -148,6 +149,8 @@ let sessionUsageFooter = null;
 let extensionUiRequest = null;
 let activityWatchdog = null;
 let expandedPinnedSessions = false;
+const ONBOARDING_KEY = "piharbor.onboarding.v1";
+let onboardingStep = 0;
 const ACTIVITY_STALE_MS = 45_000;
 
 // ===========================================================================
@@ -280,7 +283,8 @@ function enterApp() {
     }
     showList();
     loadVersion();
-  }).catch(() => { showList(); refreshSessions(); });
+    setTimeout(() => openOnboarding(false), 350);
+  }).catch(() => { showList(); refreshSessions(); setTimeout(() => openOnboarding(false), 350); });
 }
 
 function loadVersion() {
@@ -3139,6 +3143,188 @@ function maybeDateSeparator(ts) {
 })();
 
 // ===========================================================================
+// 首次啟動導覽
+// ===========================================================================
+
+const ONBOARDING_COPY = {
+  en: {
+    guideTitle: "Setup guide", guideSubtitle: "Review the essentials for this device", language: "Language", appearance: "Appearance", back: "Back", skip: "Skip", next: "Continue", finish: "Start using Pi Harbor",
+    steps: [
+      { eyebrow: "WELCOME", title: "Welcome aboard", body: "Pi Harbor gives your local Pi Agent a calm, focused home on desktop and mobile.", points: ["Choose your language and appearance now; both can be changed later.", "Ink & Ivory is the default Pi Harbor theme."] },
+      { eyebrow: "LOCAL FIRST", title: "Your computer stays in charge", body: "Pi Harbor is an interface for the Pi Agent installed on this computer. Sessions, credentials, and project files remain on the host.", points: ["Pi Harbor listens on this computer and does not move your projects to a hosted cloud.", "Every additional computer needs its own Pi Harbor installation."] },
+      { eyebrow: "MAKE IT YOURS", title: "Models and projects", body: "Add a provider or sign in to an account from Settings, then choose a project folder to start a session.", points: ["Models & providers keeps services and model visibility in one place.", "New project can open your home folder or an allowed external drive."] },
+      { eyebrow: "REMOTE ACCESS", title: "Connect securely", body: "For another computer or phone, keep the Node service on loopback and open Pi Harbor through a private HTTPS address such as Tailscale Serve.", points: ["Use the same Web token when pairing Pi Harbor computers.", "Never expose port 3140 directly to an untrusted network."] },
+    ],
+  },
+  "zh-Hans": {
+    guideTitle: "设置导览", guideSubtitle: "重新查看这台设备的基本设置", language: "语言", appearance: "外观", back: "返回", skip: "跳过", next: "继续", finish: "开始使用 Pi Harbor",
+    steps: [
+      { eyebrow: "欢迎", title: "欢迎登船", body: "Pi Harbor 为本机的 Pi Agent 提供一个简洁、专注，并同时适合电脑与手机的操作界面。", points: ["先选择语言与外观，之后仍可随时更改。", "Pi Harbor 默认使用 Ink & Ivory 主题。"] },
+      { eyebrow: "本机优先", title: "电脑仍是核心", body: "Pi Harbor 是这台电脑上 Pi Agent 的操作界面。工作阶段、凭证与项目文件都会留在主机上。", points: ["Pi Harbor 不会把你的项目搬到托管云端。", "每一台要使用的电脑都需要各自安装 Pi Harbor。"] },
+      { eyebrow: "开始配置", title: "模型与项目", body: "在设置中添加 Provider 或登录账号，然后选择项目文件夹来开始工作阶段。", points: ["“模型与 Provider”会集中管理服务与模型显示。", "“新建项目”可以打开主文件夹或允许访问的外接硬盘。"] },
+      { eyebrow: "远程访问", title: "安全连接", body: "要从其他电脑或手机使用，请让 Node 服务只监听本机，并通过 Tailscale Serve 等私有 HTTPS 地址打开 Pi Harbor。", points: ["配对多台 Pi Harbor 电脑时使用同一个 Web token。", "不要把 3140 端口直接开放到不受信任的网络。"] },
+    ],
+  },
+  "zh-Hant": {
+    guideTitle: "設定導覽", guideSubtitle: "重新查看這台裝置的基本設定", language: "語言", appearance: "外觀", back: "返回", skip: "略過", next: "繼續", finish: "開始使用 Pi Harbor",
+    steps: [
+      { eyebrow: "歡迎", title: "歡迎登船", body: "Pi Harbor 為本機的 Pi Agent 提供一個簡潔、專注，並同時適合電腦與手機的操作介面。", points: ["先選擇語言與外觀，之後仍可隨時更改。", "Pi Harbor 預設使用 Ink & Ivory 主題。"] },
+      { eyebrow: "本機優先", title: "電腦仍是核心", body: "Pi Harbor 是這台電腦上 Pi Agent 的操作介面。工作階段、憑證與專案檔案都會留在主機上。", points: ["Pi Harbor 不會把你的專案搬到託管雲端。", "每一台要使用的電腦都需要各自安裝 Pi Harbor。"] },
+      { eyebrow: "開始設定", title: "模型與專案", body: "在設定中加入 Provider 或登入帳號，然後選擇專案資料夾來開始工作階段。", points: ["「模型與 Provider」會集中管理服務與模型顯示。", "「新增專案」可以開啟家目錄或允許存取的外接硬碟。"] },
+      { eyebrow: "遠端存取", title: "安全連線", body: "要從其他電腦或手機使用，請讓 Node 服務只監聽本機，並透過 Tailscale Serve 等私有 HTTPS 位址開啟 Pi Harbor。", points: ["配對多台 Pi Harbor 電腦時使用同一個 Web token。", "不要把 3140 port 直接開放到不受信任的網路。"] },
+    ],
+  },
+  ja: {
+    guideTitle: "セットアップガイド", guideSubtitle: "このデバイスの基本設定を確認", language: "言語", appearance: "外観", back: "戻る", skip: "スキップ", next: "次へ", finish: "Pi Harbor を使い始める",
+    steps: [
+      { eyebrow: "ようこそ", title: "Pi Harbor へようこそ", body: "Pi Harbor は、このMac上の Pi Agent をデスクトップでもモバイルでも快適に操作できる、落ち着いたインターフェイスです。", points: ["言語と外観は後からいつでも変更できます。", "既定のテーマは Ink & Ivory です。"] },
+      { eyebrow: "ローカル優先", title: "主役はこのコンピュータ", body: "Pi Harbor はこのコンピュータにある Pi Agent の操作画面です。セッション、認証情報、プロジェクトファイルはホストに残ります。", points: ["プロジェクトを外部のホスティング環境へ移動しません。", "利用する各コンピュータに Pi Harbor のインストールが必要です。"] },
+      { eyebrow: "準備", title: "モデルとプロジェクト", body: "設定からプロバイダーを追加するかアカウントにサインインし、プロジェクトフォルダを選んでセッションを始めます。", points: ["モデルとプロバイダーは一つの画面で管理できます。", "新規プロジェクトからホームまたは許可済みの外部ドライブを開けます。"] },
+      { eyebrow: "リモートアクセス", title: "安全に接続", body: "別のコンピュータやスマートフォンから使う場合は、Node サービスをループバックのままにし、Tailscale Serve などのプライベート HTTPS 経由で開きます。", points: ["複数の端末をペアリングするときは同じ Web トークンを使います。", "ポート 3140 を信頼できないネットワークへ直接公開しないでください。"] },
+    ],
+  },
+  ko: {
+    guideTitle: "설정 안내", guideSubtitle: "이 기기의 기본 설정 다시 보기", language: "언어", appearance: "화면 모드", back: "뒤로", skip: "건너뛰기", next: "계속", finish: "Pi Harbor 시작하기",
+    steps: [
+      { eyebrow: "환영합니다", title: "Pi Harbor에 오신 것을 환영합니다", body: "Pi Harbor는 이 컴퓨터의 Pi Agent를 데스크톱과 모바일에서 편안하게 사용할 수 있는 깔끔한 인터페이스입니다.", points: ["언어와 화면 모드는 나중에도 언제든 바꿀 수 있습니다.", "기본 테마는 Ink & Ivory입니다."] },
+      { eyebrow: "로컬 우선", title: "컴퓨터가 중심입니다", body: "Pi Harbor는 이 컴퓨터에 설치된 Pi Agent의 인터페이스입니다. 세션, 자격 증명, 프로젝트 파일은 호스트에 남습니다.", points: ["프로젝트를 외부 호스팅 클라우드로 옮기지 않습니다.", "사용할 컴퓨터마다 Pi Harbor를 설치해야 합니다."] },
+      { eyebrow: "설정", title: "모델과 프로젝트", body: "설정에서 제공자를 추가하거나 계정에 로그인한 뒤 프로젝트 폴더를 선택해 세션을 시작하세요.", points: ["모델 및 제공자 화면에서 서비스와 모델 표시 여부를 함께 관리합니다.", "새 프로젝트에서 홈 폴더 또는 허용된 외장 드라이브를 열 수 있습니다."] },
+      { eyebrow: "원격 접속", title: "안전하게 연결하세요", body: "다른 컴퓨터나 휴대폰에서 사용할 때는 Node 서비스를 로컬에만 두고 Tailscale Serve 같은 비공개 HTTPS 주소로 Pi Harbor를 여세요.", points: ["여러 Pi Harbor 컴퓨터를 연결할 때 같은 Web 토큰을 사용합니다.", "3140 포트를 신뢰할 수 없는 네트워크에 직접 공개하지 마세요."] },
+    ],
+  },
+};
+
+const ONBOARDING_LANGUAGE_LABELS = {
+  en: ["English", "Chinese (Simplified)", "Chinese (Traditional)", "Japanese", "Korean", "Turkish", "French", "German", "Spanish", "Portuguese (Brazil)", "Italian"],
+  "zh-Hans": ["英语", "简体中文", "繁体中文", "日语", "韩语", "土耳其语", "法语", "德语", "西班牙语", "葡萄牙语（巴西）", "意大利语"],
+  "zh-Hant": ["英文", "簡體中文", "繁體中文", "日文", "韓文", "土耳其文", "法文", "德文", "西班牙文", "葡萄牙文（巴西）", "義大利文"],
+  ja: ["英語", "簡体字中国語", "繁体字中国語", "日本語", "韓国語", "トルコ語", "フランス語", "ドイツ語", "スペイン語", "ポルトガル語（ブラジル）", "イタリア語"],
+  ko: ["영어", "중국어 간체", "중국어 번체", "일본어", "한국어", "튀르키예어", "프랑스어", "독일어", "스페인어", "포르투갈어(브라질)", "이탈리아어"],
+};
+
+const ONBOARDING_EUROPEAN = {
+  tr: ["Kurulum rehberi", "Bu cihazın temel ayarlarını yeniden gözden geçirin", "Dil", "Görünüm", "Geri", "Atla", "Devam", "Pi Harbor'ı kullanmaya başla", [
+    ["HOŞ GELDİNİZ", "Pi Harbor'a hoş geldiniz", "Pi Harbor, bu bilgisayardaki Pi Agent için masaüstü ve mobilde sade, odaklı bir arayüz sunar.", "Dil ve görünümü daha sonra değiştirebilirsiniz.", "Varsayılan tema Ink & Ivory'dir."],
+    ["ÖNCE YEREL", "Kontrol bilgisayarınızda", "Pi Harbor bu bilgisayardaki Pi Agent'ın arayüzüdür. Oturumlar, kimlik bilgileri ve proje dosyaları ana bilgisayarda kalır.", "Projeleriniz barındırılan bir buluta taşınmaz.", "Kullanacağınız her bilgisayara Pi Harbor kurulmalıdır."],
+    ["HAZIRLIK", "Modeller ve projeler", "Ayarlar'dan bir sağlayıcı ekleyin veya oturum açın; ardından bir proje klasörü seçerek oturum başlatın.", "Modeller ve sağlayıcılar tek yerde yönetilir.", "Yeni proje, ana klasörü veya izin verilen harici diski açabilir."],
+    ["UZAKTAN ERİŞİM", "Güvenli bağlanın", "Başka bir bilgisayar veya telefondan kullanmak için Node hizmetini yerel döngüde tutun ve Pi Harbor'ı Tailscale Serve gibi özel bir HTTPS adresiyle açın.", "Cihazları eşlerken aynı Web belirtecini kullanın.", "3140 numaralı bağlantı noktasını güvenilmeyen bir ağa doğrudan açmayın."],
+  ]],
+  fr: ["Guide de configuration", "Revoir les réglages essentiels de cet appareil", "Langue", "Apparence", "Retour", "Ignorer", "Continuer", "Commencer avec Pi Harbor", [
+    ["BIENVENUE", "Bienvenue à bord", "Pi Harbor offre à l’agent Pi de cet ordinateur une interface claire et sereine, sur ordinateur comme sur mobile.", "Vous pourrez modifier la langue et l’apparence à tout moment.", "Ink & Ivory est le thème par défaut."],
+    ["LOCAL D’ABORD", "Votre ordinateur garde le contrôle", "Pi Harbor est l’interface de l’agent Pi installé sur cet ordinateur. Les sessions, identifiants et fichiers de projet restent sur l’hôte.", "Vos projets ne sont pas déplacés vers un cloud hébergé.", "Chaque ordinateur utilisé doit avoir sa propre installation de Pi Harbor."],
+    ["CONFIGURATION", "Modèles et projets", "Ajoutez un fournisseur ou connectez un compte dans Réglages, puis choisissez un dossier de projet pour démarrer une session.", "Modèles et fournisseurs sont gérés au même endroit.", "Nouveau projet peut ouvrir votre dossier personnel ou un disque externe autorisé."],
+    ["ACCÈS À DISTANCE", "Connectez-vous en toute sécurité", "Depuis un autre ordinateur ou téléphone, laissez le service Node sur l’interface locale et ouvrez Pi Harbor via une adresse HTTPS privée, telle que Tailscale Serve.", "Utilisez le même jeton Web pour associer plusieurs ordinateurs.", "N’exposez jamais directement le port 3140 à un réseau non fiable."],
+  ]],
+  de: ["Einrichtungsassistent", "Grundeinstellungen dieses Geräts erneut ansehen", "Sprache", "Darstellung", "Zurück", "Überspringen", "Weiter", "Pi Harbor verwenden", [
+    ["WILLKOMMEN", "Willkommen an Bord", "Pi Harbor gibt dem Pi Agent auf diesem Computer eine ruhige, übersichtliche Oberfläche für Desktop und Mobilgeräte.", "Sprache und Darstellung lassen sich später jederzeit ändern.", "Ink & Ivory ist das Standarddesign."],
+    ["LOKAL ZUERST", "Ihr Computer behält die Kontrolle", "Pi Harbor ist die Oberfläche für den Pi Agent auf diesem Computer. Sitzungen, Zugangsdaten und Projektdateien bleiben auf dem Host.", "Ihre Projekte werden nicht in eine gehostete Cloud verschoben.", "Auf jedem verwendeten Computer muss Pi Harbor installiert sein."],
+    ["EINRICHTUNG", "Modelle und Projekte", "Fügen Sie unter Einstellungen einen Anbieter hinzu oder melden Sie sich an. Wählen Sie danach einen Projektordner für die erste Sitzung.", "Modelle und Anbieter werden an einer Stelle verwaltet.", "Neues Projekt kann den Benutzerordner oder ein freigegebenes externes Laufwerk öffnen."],
+    ["FERNZUGRIFF", "Sicher verbinden", "Für den Zugriff von einem anderen Computer oder Smartphone bleibt der Node-Dienst lokal gebunden. Öffnen Sie Pi Harbor über eine private HTTPS-Adresse wie Tailscale Serve.", "Verwenden Sie beim Koppeln denselben Web-Token.", "Geben Sie Port 3140 nie direkt in einem nicht vertrauenswürdigen Netzwerk frei."],
+  ]],
+  es: ["Guía de configuración", "Repasa los ajustes esenciales de este dispositivo", "Idioma", "Apariencia", "Atrás", "Omitir", "Continuar", "Empezar a usar Pi Harbor", [
+    ["BIENVENIDA", "Bienvenido a bordo", "Pi Harbor ofrece al agente Pi de este ordenador una interfaz tranquila y clara tanto en el escritorio como en el móvil.", "Puedes cambiar el idioma y la apariencia en cualquier momento.", "Ink & Ivory es el tema predeterminado."],
+    ["PRIMERO, LOCAL", "Tu ordenador mantiene el control", "Pi Harbor es la interfaz del agente Pi instalado en este ordenador. Las sesiones, credenciales y archivos de proyecto permanecen en el equipo anfitrión.", "Tus proyectos no se trasladan a una nube alojada.", "Cada ordenador que uses necesita su propia instalación de Pi Harbor."],
+    ["CONFIGURACIÓN", "Modelos y proyectos", "Añade un proveedor o inicia sesión desde Ajustes y elige una carpeta de proyecto para comenzar una sesión.", "Los modelos y proveedores se administran en un mismo lugar.", "Nuevo proyecto puede abrir tu carpeta personal o una unidad externa autorizada."],
+    ["ACCESO REMOTO", "Conéctate de forma segura", "Para usar otro ordenador o teléfono, mantén el servicio Node en la interfaz local y abre Pi Harbor mediante una dirección HTTPS privada, como Tailscale Serve.", "Usa el mismo token web al emparejar varios ordenadores.", "No expongas el puerto 3140 directamente a una red que no sea de confianza."],
+  ]],
+  "pt-BR": ["Guia de configuração", "Revise as configurações essenciais deste dispositivo", "Idioma", "Aparência", "Voltar", "Pular", "Continuar", "Começar a usar o Pi Harbor", [
+    ["BOAS-VINDAS", "Bem-vindo a bordo", "O Pi Harbor oferece ao Pi Agent deste computador uma interface limpa e tranquila no desktop e no celular.", "Idioma e aparência podem ser alterados a qualquer momento.", "Ink & Ivory é o tema padrão."],
+    ["LOCAL PRIMEIRO", "Seu computador continua no controle", "O Pi Harbor é a interface do Pi Agent instalado neste computador. Sessões, credenciais e arquivos de projeto permanecem no host.", "Seus projetos não são enviados para uma nuvem hospedada.", "Cada computador usado precisa da própria instalação do Pi Harbor."],
+    ["CONFIGURAÇÃO", "Modelos e projetos", "Adicione um provedor ou entre em uma conta nos Ajustes e escolha uma pasta de projeto para iniciar uma sessão.", "Modelos e provedores ficam reunidos em um só lugar.", "Novo projeto pode abrir sua pasta pessoal ou uma unidade externa permitida."],
+    ["ACESSO REMOTO", "Conecte-se com segurança", "Em outro computador ou celular, mantenha o serviço Node restrito ao endereço local e abra o Pi Harbor por um endereço HTTPS privado, como o Tailscale Serve.", "Use o mesmo token Web ao parear computadores.", "Não exponha a porta 3140 diretamente a uma rede não confiável."],
+  ]],
+  it: ["Guida alla configurazione", "Rivedi le impostazioni essenziali di questo dispositivo", "Lingua", "Aspetto", "Indietro", "Salta", "Continua", "Inizia a usare Pi Harbor", [
+    ["BENVENUTO", "Benvenuto a bordo", "Pi Harbor offre al Pi Agent di questo computer un’interfaccia ordinata e tranquilla, sia su desktop sia su dispositivi mobili.", "Lingua e aspetto possono essere modificati in qualsiasi momento.", "Ink & Ivory è il tema predefinito."],
+    ["PRIMA IL LOCALE", "Il computer mantiene il controllo", "Pi Harbor è l’interfaccia del Pi Agent installato su questo computer. Sessioni, credenziali e file di progetto restano sull’host.", "I progetti non vengono trasferiti in un cloud ospitato.", "Ogni computer utilizzato deve avere la propria installazione di Pi Harbor."],
+    ["CONFIGURAZIONE", "Modelli e progetti", "Aggiungi un provider o accedi a un account dalle Impostazioni, poi scegli una cartella di progetto per avviare una sessione.", "Modelli e provider vengono gestiti in un unico punto.", "Nuovo progetto può aprire la cartella personale o un’unità esterna autorizzata."],
+    ["ACCESSO REMOTO", "Connettiti in sicurezza", "Da un altro computer o telefono, mantieni il servizio Node sull’interfaccia locale e apri Pi Harbor tramite un indirizzo HTTPS privato, come Tailscale Serve.", "Usa lo stesso token Web quando abbini più computer.", "Non esporre direttamente la porta 3140 a una rete non attendibile."],
+  ]],
+};
+
+for (const [locale, values] of Object.entries(ONBOARDING_EUROPEAN)) {
+  const [guideTitle, guideSubtitle, language, appearance, back, skip, next, finish, rawSteps] = values;
+  ONBOARDING_COPY[locale] = { guideTitle, guideSubtitle, language, appearance, back, skip, next, finish, steps: rawSteps.map(([eyebrow, title, body, first, second]) => ({ eyebrow, title, body, points: [first, second] })) };
+}
+
+function onboardingCopy() {
+  return ONBOARDING_COPY[settings.locale] || ONBOARDING_COPY.en;
+}
+
+function renderOnboarding() {
+  if (!el.onboarding) return;
+  const copy = onboardingCopy();
+  const step = copy.steps[onboardingStep] || copy.steps[0];
+  el.onboardingEyebrow.textContent = step.eyebrow;
+  el.onboardingTitle.textContent = step.title;
+  el.onboardingBody.textContent = step.body;
+  el.onboardingPoints.innerHTML = "";
+  for (const point of step.points) {
+    const item = document.createElement("li");
+    item.textContent = point;
+    el.onboardingPoints.appendChild(item);
+  }
+  el.onboardingProgress.forEach((item, index) => item.classList.toggle("active", index <= onboardingStep));
+  el.onboardingPreferences.classList.toggle("hidden", onboardingStep !== 0);
+  el.onboardingBack.classList.toggle("hidden", onboardingStep === 0);
+  el.onboardingBack.textContent = copy.back;
+  el.onboardingSkip.textContent = copy.skip;
+  el.onboardingNext.textContent = onboardingStep === copy.steps.length - 1 ? copy.finish : copy.next;
+  el.onboardingLanguageLabel.textContent = copy.language;
+  el.onboardingAppearanceLabel.textContent = copy.appearance;
+  if (el.setupGuideTitle) el.setupGuideTitle.textContent = copy.guideTitle;
+  if (el.setupGuideSubtitle) el.setupGuideSubtitle.textContent = copy.guideSubtitle;
+  el.onboardingLanguage.value = settings.locale;
+  const languageLabels = ONBOARDING_LANGUAGE_LABELS[settings.locale] || ONBOARDING_LANGUAGE_LABELS.en;
+  [...el.onboardingLanguage.options].forEach((option, index) => { option.textContent = languageLabels[index] || option.textContent; });
+  el.onboardingAppearance.value = settings.theme;
+  for (const option of el.onboardingAppearance.options) option.textContent = window.piI18n?.t(option.value === "auto" ? "System" : option.value === "light" ? "Light" : "Dark") || option.textContent;
+}
+
+function completeOnboarding() {
+  try { localStorage.setItem(ONBOARDING_KEY, "complete"); } catch {}
+  el.onboarding?.classList.add("hidden");
+}
+
+function openOnboarding(force = false) {
+  if (!el.onboarding) return;
+  if (!force) {
+    try { if (localStorage.getItem(ONBOARDING_KEY) === "complete") return; } catch {}
+  }
+  onboardingStep = 0;
+  if (!el.onboardingLanguage.options.length) {
+    for (const locale of window.piI18n?.locales || [{ id: "en", label: "English" }]) {
+      const option = document.createElement("option");
+      option.value = locale.id;
+      option.textContent = locale.label;
+      el.onboardingLanguage.appendChild(option);
+    }
+  }
+  renderOnboarding();
+  el.onboarding.classList.remove("hidden");
+}
+
+el.btnOpenOnboarding?.addEventListener("click", () => openOnboarding(true));
+el.onboardingClose?.addEventListener("click", completeOnboarding);
+el.onboardingSkip?.addEventListener("click", completeOnboarding);
+el.onboardingBack?.addEventListener("click", () => { onboardingStep = Math.max(0, onboardingStep - 1); renderOnboarding(); });
+el.onboardingNext?.addEventListener("click", () => {
+  if (onboardingStep >= onboardingCopy().steps.length - 1) { completeOnboarding(); return; }
+  onboardingStep += 1;
+  renderOnboarding();
+});
+el.onboardingLanguage?.addEventListener("change", () => {
+  settings = saveSettings({ locale: window.piI18n?.normalizeLocale(el.onboardingLanguage.value) || "en" });
+  window.piI18n?.setLocale(settings.locale);
+  renderOnboarding();
+  renderSettings();
+});
+el.onboardingAppearance?.addEventListener("change", () => {
+  settings = saveSettings({ theme: el.onboardingAppearance.value });
+  applyAppearance();
+  renderOnboarding();
+});
+
+// ===========================================================================
 // 設定頁
 // ===========================================================================
 
@@ -3263,6 +3449,9 @@ function renderSettings() {
   el.setGroup.checked = !!settings.groupByProject;
   el.setReducedMotion.checked = !!settings.reducedMotion;
   el.setThinking.value = settings.thinking;
+  const setupCopy = onboardingCopy();
+  if (el.setupGuideTitle) el.setupGuideTitle.textContent = setupCopy.guideTitle;
+  if (el.setupGuideSubtitle) el.setupGuideSubtitle.textContent = setupCopy.guideSubtitle;
   renderMachineList();
   void refreshMachineStatuses();
   renderUpdateStatus();
@@ -4227,6 +4416,7 @@ el.setLocale?.addEventListener("change", () => {
   renderSettings();
   renderSessionList(el.search?.value || "");
   renderTemporarySessionFilter(temporarySessionCount);
+  if (!el.onboarding?.classList.contains("hidden")) renderOnboarding();
   if (!el.viewModelSettings.classList.contains("hidden")) {
     renderModelVisibility();
     renderProviderPresets();
@@ -4255,7 +4445,7 @@ el.btnResetSettings?.addEventListener("click", () => {
   if (!confirm("要恢復介面預設設定嗎？登入狀態與 session 不會受到影響。")) return;
   try {
     localStorage.removeItem(SETTINGS_KEY);
-    localStorage.removeItem(LEGACY_SETTINGS_KEY);
+    for (const key of LEGACY_SETTINGS_KEYS || [LEGACY_SETTINGS_KEY]) localStorage.removeItem(key);
   } catch {}
   settings = { ...DEFAULT_SETTINGS };
   applyAppearance();
@@ -4693,7 +4883,7 @@ el.newStart.addEventListener("click", async () => {
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (event) => {
-    if (event.data?.type !== "PI_WEB_UPDATED" || !navigator.serviceWorker.controller) return;
+    if (event.data?.type !== "PI_HARBOR_UPDATED" || !navigator.serviceWorker.controller) return;
     if (rpc?.streaming) {
       toast("新版已準備好；目前工作完成後可重新整理。", false);
       return;

@@ -20,14 +20,14 @@ function loadBrowserModule(file, { storage = null, piI18n = null } = {}) {
   vm.runInNewContext(fs.readFileSync(path.join(root, "public", "modules", file), "utf8"), context, {
     filename: path.join(root, "public", "modules", file),
   });
-  return { value: window[file === "app-foundation.js" ? "piWebFoundation" : "piWebSessionUtils"], storage };
+  return { value: window[file === "app-foundation.js" ? "piHarborFoundation" : "piHarborSessionUtils"], storage };
 }
 
 test("frontend foundation normalizes preferences and preserves selected device state", () => {
   const storage = {
     values: new Map([
-      ["piweb.selected.v1", "mini"],
-      ["piweb.settings.v2", JSON.stringify({
+      ["piharbor.selected.v1", "mini"],
+      ["piharbor.settings.v2", JSON.stringify({
         settingsVersion: 1,
         designTheme: "pine-milk",
         sidebarWidth: 999,
@@ -51,7 +51,24 @@ test("frontend foundation normalizes preferences and preserves selected device s
   assert.equal(foundation.machineDisplayName({ name: "" }), "Pi Harbor device");
   assert.equal(foundation.currentMachine([{ id: "mini" }, { id: "mbp", self: true }], "missing").id, "mbp");
   foundation.saveSelected("mbp");
-  assert.equal(storage.getItem("piweb.selected.v1"), "mbp");
+  assert.equal(storage.getItem("piharbor.selected.v1"), "mbp");
+});
+
+test("frontend foundation migrates pre-Harbor preferences without renaming user devices", () => {
+  const storage = {
+    values: new Map([
+      ["piweb.selected.v1", "existing-device"],
+      ["piweb.settings.v2", JSON.stringify({ locale: "ja", compact: true, projectPins: ["/existing/project"] })],
+    ]),
+    getItem(key) { return this.values.has(key) ? this.values.get(key) : null; },
+    setItem(key, value) { this.values.set(key, String(value)); },
+  };
+  const piI18n = { normalizeLocale(value) { return value === "ja" ? "ja" : "en"; } };
+  const { value: foundation } = loadBrowserModule("app-foundation.js", { storage, piI18n });
+  assert.equal(foundation.loadSelected(), "existing-device");
+  assert.equal(foundation.loadSettings().locale, "ja");
+  assert.equal(foundation.loadSettings().compact, true);
+  assert.deepEqual(Array.from(foundation.loadSettings().projectPins), ["/existing/project"]);
 });
 
 test("session display helpers remain independent from the controller", () => {
@@ -67,8 +84,8 @@ test("session display helpers remain independent from the controller", () => {
 
 test("HTTP utility module centralizes framing, cookies, and JSON body limits", async () => {
   const http = createHttpUtils({ isTokenValid: (value) => value === "secret" });
-  assert.equal(http.isAuthed({ headers: { cookie: "other=x; pi_web=secret" } }), true);
-  assert.equal(http.isAuthed({ headers: { cookie: "pi_web=wrong" } }), false);
+  assert.equal(http.isAuthed({ headers: { cookie: "other=x; pi_harbor=secret" } }), true);
+  assert.equal(http.isAuthed({ headers: { cookie: "pi_harbor=wrong" } }), false);
   assert.equal(http.sseFrame({ ok: true }, "ready\nignored", "1\n2"), "event: readyignored\nid: 12\ndata: {\"ok\":true}\n\n");
 
   const request = new PassThrough();

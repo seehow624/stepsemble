@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * pi-web — Pi coding agent 的手機優先 web 客戶端（tailnet 內自架）
+ * pi-harbor — Pi coding agent 的手機優先 web 客戶端（tailnet 內自架）
  *
  * 零 npm 依賴：node:http + SSE + child_process spawn `pi --mode rpc`。
  * 每台機器各跑一個 instance，各自服務本機的 ~/.pi/agent/sessions/。
  *
  * 環境變數：
- *   PI_WEB_PORT   — 監聽埠（預設 3140）
- *   PI_WEB_TOKEN  — 登入 token（建議改用 PI_WEB_TOKEN_FILE）
- *   PI_WEB_TOKEN_FILE — 600 權限的 token 檔案
+ *   PI_HARBOR_PORT   — 監聽埠（預設 3140）
+ *   PI_HARBOR_TOKEN  — 登入 token（建議改用 PI_HARBOR_TOKEN_FILE）
+ *   PI_HARBOR_TOKEN_FILE — 600 權限的 token 檔案
  *   PI_BIN        — pi 執行檔絕對路徑；未設則探測常見位置
  *   PI_HOME       — server 與 pi 共用的 HOME（預設 os.homedir()）
  */
@@ -29,7 +29,7 @@ const { createHttpUtils } = require("./server/http-utils");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "1.12.1";
+const APP_VERSION = "2.0.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -42,18 +42,18 @@ const MODEL_CONFIG_FILE = path.join(APP_HOME, ".pi", "agent", "models.json");
 const AUTH_CONFIG_FILE = path.join(APP_HOME, ".pi", "agent", "auth.json");
 const MACHINE_CONFIG_FILE = path.join(APP_HOME, ".pi", "agent", "machines.json");
 const DEVICE_CONFIG_FILE = path.join(APP_HOME, ".pi", "agent", "device.json");
-const UPDATE_CONFIG_FILE = process.env.PI_WEB_UPDATE_CONFIG
-  ? path.resolve(expandHome(process.env.PI_WEB_UPDATE_CONFIG))
-  : path.join(APP_HOME, ".config", "pi-web", "updater.json");
-const UPDATE_STATE_FILE = process.env.PI_WEB_UPDATE_STATE
-  ? path.resolve(expandHome(process.env.PI_WEB_UPDATE_STATE))
-  : path.join(APP_HOME, ".config", "pi-web", "update-state.json");
-const UPDATE_SCRIPT_FILE = process.env.PI_WEB_UPDATE_SCRIPT
-  ? path.resolve(expandHome(process.env.PI_WEB_UPDATE_SCRIPT))
-  : path.join(APP_HOME, ".local", "share", "pi-web-bin", "pi-web-update.sh");
-const BUNDLED_UPDATE_SCRIPT_FILE = path.join(__dirname, "deploy", "pi-web-update.sh");
-const DEFAULT_UPDATE_REPOSITORY = process.env.PI_WEB_UPDATE_REPO || "seehow624/pi-harbor";
-const DEFAULT_UPDATE_REF = process.env.PI_WEB_UPDATE_REF || "master";
+const UPDATE_CONFIG_FILE = process.env.PI_HARBOR_UPDATE_CONFIG
+  ? path.resolve(expandHome(process.env.PI_HARBOR_UPDATE_CONFIG))
+  : path.join(APP_HOME, ".config", "pi-harbor", "updater.json");
+const UPDATE_STATE_FILE = process.env.PI_HARBOR_UPDATE_STATE
+  ? path.resolve(expandHome(process.env.PI_HARBOR_UPDATE_STATE))
+  : path.join(APP_HOME, ".config", "pi-harbor", "update-state.json");
+const UPDATE_SCRIPT_FILE = process.env.PI_HARBOR_UPDATE_SCRIPT
+  ? path.resolve(expandHome(process.env.PI_HARBOR_UPDATE_SCRIPT))
+  : path.join(APP_HOME, ".local", "share", "pi-harbor-bin", "pi-harbor-update.sh");
+const BUNDLED_UPDATE_SCRIPT_FILE = path.join(__dirname, "deploy", "pi-harbor-update.sh");
+const DEFAULT_UPDATE_REPOSITORY = process.env.PI_HARBOR_UPDATE_REPO || "seehow624/pi-harbor";
+const DEFAULT_UPDATE_REF = process.env.PI_HARBOR_UPDATE_REF || "stable";
 const MODEL_APIS = new Set(["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"]);
 const MACHINE_HOST = os.hostname().replace(/\.local$/, "");
 function parsePort(value) {
@@ -77,27 +77,27 @@ let localDeviceConfig = readDeviceConfig();
 let MACHINE_NAME = localDeviceConfig.name || MACHINE_HOST;
 const LOCAL_DEVICE_ID = localDeviceConfig.id || null;
 const configuredPort = parsePort(localDeviceConfig.port);
-const envPort = parsePort(process.env.PI_WEB_PORT);
+const envPort = parsePort(process.env.PI_HARBOR_PORT);
 // A saved device port wins over a launchd template's old 3140 default. An
-// explicit PI_WEB_PORT still works for first boot and development servers.
+// explicit PI_HARBOR_PORT still works for first boot and development servers.
 const PORT = configuredPort || envPort || 3140;
-const HOST = process.env.PI_WEB_HOST || "127.0.0.1";
-const TOKEN_FILE = process.env.PI_WEB_TOKEN_FILE ? path.resolve(expandHome(process.env.PI_WEB_TOKEN_FILE)) : null;
-const SECURE_COOKIE = process.env.PI_WEB_SECURE_COOKIE === "1";
-const MAX_RPC_SESSIONS = Number.isFinite(Number(process.env.PI_WEB_MAX_RPCS))
-  ? Math.max(1, Number(process.env.PI_WEB_MAX_RPCS)) : 16;
-const SHUTDOWN_GRACE_MS = Number.isFinite(Number(process.env.PI_WEB_SHUTDOWN_GRACE_MS))
-  ? Math.max(5_000, Number(process.env.PI_WEB_SHUTDOWN_GRACE_MS)) : 45_000;
+const HOST = process.env.PI_HARBOR_HOST || "127.0.0.1";
+const TOKEN_FILE = process.env.PI_HARBOR_TOKEN_FILE ? path.resolve(expandHome(process.env.PI_HARBOR_TOKEN_FILE)) : null;
+const SECURE_COOKIE = process.env.PI_HARBOR_SECURE_COOKIE === "1";
+const MAX_RPC_SESSIONS = Number.isFinite(Number(process.env.PI_HARBOR_MAX_RPCS))
+  ? Math.max(1, Number(process.env.PI_HARBOR_MAX_RPCS)) : 16;
+const SHUTDOWN_GRACE_MS = Number.isFinite(Number(process.env.PI_HARBOR_SHUTDOWN_GRACE_MS))
+  ? Math.max(5_000, Number(process.env.PI_HARBOR_SHUTDOWN_GRACE_MS)) : 45_000;
 const MAX_BUFFERED_EVENT_BYTES = 8 * 1024 * 1024;
 const MAX_SESSION_FILE_BYTES = 128 * 1024 * 1024;
 // 歷史訊息只傳常見、可安全內嵌的圖片格式；避免一次讀取 session 時把任意大型附件灌進瀏覽器。
 const MAX_WIRE_IMAGE_DATA_LENGTH = 8 * 1024 * 1024;
 const SAFE_IMAGE_MIME = /^image\/(?:jpeg|png|webp|gif)$/i;
-const BROWSE_ROOTS_FROM_ENV = String(process.env.PI_WEB_BROWSE_ROOTS || "")
+const BROWSE_ROOTS_FROM_ENV = String(process.env.PI_HARBOR_BROWSE_ROOTS || "")
   .split(",").map((value) => expandHome(value.trim())).filter((value) => value && path.isAbsolute(value));
 // Folder browsing is deliberately deny-by-default.  A manually started Pi
 // Web may browse the configured Pi home, while launchers can explicitly add
-// shared volumes (for example `/Volumes`) through PI_WEB_BROWSE_ROOTS.
+// shared volumes (for example `/Volumes`) through PI_HARBOR_BROWSE_ROOTS.
 const BROWSE_ROOTS = BROWSE_ROOTS_FROM_ENV.length ? BROWSE_ROOTS_FROM_ENV : [APP_HOME];
 
 // Keep the independently installed updater current after an application
@@ -115,7 +115,7 @@ function syncBundledUpdater() {
     fs.chmodSync(temp, 0o700);
     fs.renameSync(temp, UPDATE_SCRIPT_FILE);
   } catch (error) {
-    if (error?.code !== "ENOENT") console.warn(`[pi-web] could not refresh automatic updater: ${error.message}`);
+    if (error?.code !== "ENOENT") console.warn(`[pi-harbor] could not refresh automatic updater: ${error.message}`);
   }
 }
 
@@ -155,7 +155,7 @@ function isBrowseAllowed(dir) {
 
 // ---- 機器清單（server 端權威來源；供 SPA 反代切換）----
 // Do not ship private LAN/Tailscale addresses in the public source. Add remote
-// devices through the UI (machines.json), or provide PI_WEB_MACHINES as JSON.
+// devices through the UI (machines.json), or provide PI_HARBOR_MACHINES as JSON.
 const DEFAULT_MACHINES = {};
 function normalizeMachine(id, value, managed = false) {
   if (!/^[a-z0-9-]{1,48}$/.test(String(id || "")) || !value || typeof value !== "object") return null;
@@ -183,7 +183,7 @@ function parseMachineMap(value, managed = false) {
 
 let MACHINES = {};
 let envMachines = null;
-try { envMachines = parseMachineMap(JSON.parse(process.env.PI_WEB_MACHINES || "")); } catch {}
+try { envMachines = parseMachineMap(JSON.parse(process.env.PI_HARBOR_MACHINES || "")); } catch {}
 Object.assign(MACHINES, Object.keys(envMachines || {}).length ? envMachines : parseMachineMap(DEFAULT_MACHINES));
 if (!Object.keys(MACHINES).length) Object.assign(MACHINES, parseMachineMap(DEFAULT_MACHINES));
 
@@ -373,17 +373,17 @@ function startUpdateCheck() {
     throw err;
   }
   const updateEnv = { ...process.env };
-  for (const key of ["PI_WEB_TOKEN", "PI_WEB_TOKEN_FILE", "PI_WEB_MACHINES"]) delete updateEnv[key];
+  for (const key of ["PI_HARBOR_TOKEN", "PI_HARBOR_TOKEN_FILE", "PI_HARBOR_MACHINES"]) delete updateEnv[key];
   const child = spawn("/bin/zsh", [UPDATE_SCRIPT_FILE], {
     detached: true,
     stdio: "ignore",
     env: {
       ...updateEnv,
       HOME: APP_HOME,
-      PI_WEB_UPDATE_FORCE: "1",
-      PI_WEB_UPDATE_CONFIG: UPDATE_CONFIG_FILE,
-      PI_WEB_UPDATE_STATE: UPDATE_STATE_FILE,
-      PI_WEB_INSTALL_DIR: process.env.PI_WEB_INSTALL_DIR || __dirname,
+      PI_HARBOR_UPDATE_FORCE: "1",
+      PI_HARBOR_UPDATE_CONFIG: UPDATE_CONFIG_FILE,
+      PI_HARBOR_UPDATE_STATE: UPDATE_STATE_FILE,
+      PI_HARBOR_INSTALL_DIR: process.env.PI_HARBOR_INSTALL_DIR || __dirname,
     },
   });
   updateProcess = child;
@@ -489,8 +489,8 @@ function createPairingOffer() {
 
 function decodePairingOffer(value) {
   const raw = typeof value === "string" ? value.trim() : "";
-  const prefix = ["PIHARBOR1.", "PIWEB1."].find((candidate) => raw.startsWith(candidate));
-  if (!prefix) { const err = new Error("Invalid pairing code format"); err.statusCode = 400; throw err; }
+  const prefix = "PIHARBOR1.";
+  if (!raw.startsWith(prefix)) { const err = new Error("Invalid pairing code format"); err.statusCode = 400; throw err; }
   let decoded;
   try { decoded = JSON.parse(Buffer.from(raw.slice(prefix.length), "base64url").toString("utf8")); } catch {
     const err = new Error("Could not read pairing code"); err.statusCode = 400; throw err;
@@ -531,7 +531,7 @@ function piVersion() {
 }
 
 function loadToken() {
-  const fromEnv = String(process.env.PI_WEB_TOKEN || "").trim();
+  const fromEnv = String(process.env.PI_HARBOR_TOKEN || "").trim();
   if (fromEnv) return fromEnv;
   if (TOKEN_FILE) {
     try {
@@ -543,7 +543,7 @@ function loadToken() {
       if (fromFile) return fromFile;
     } catch (err) {
       if (err.message.includes("token file permissions are too broad")) throw err;
-      console.warn(`[pi-web] unable to read PI_WEB_TOKEN_FILE: ${err.message}`);
+      console.warn(`[pi-harbor] unable to read PI_HARBOR_TOKEN_FILE: ${err.message}`);
     }
   }
   return "";
@@ -556,7 +556,7 @@ if (TOKEN) {
 } else {
   TOKEN = crypto.randomBytes(32).toString("hex");
   TOKEN_HASH = sha256(TOKEN);
-  console.warn("[pi-web] 未設定 token file；已生成不可從 log 取得的一次性 token。請設定 PI_WEB_TOKEN_FILE 後重啟。");
+  console.warn("[pi-harbor] 未設定 token file；已生成不可從 log 取得的一次性 token。請設定 PI_HARBOR_TOKEN_FILE 後重啟。");
 }
 
 function sha256(s) {
@@ -829,7 +829,7 @@ function archiveSession(rel) {
     scanCache.delete(rel);
     return true;
   } catch (error) {
-    console.warn(`[pi-web] could not archive ${rel}: ${error.message}`);
+    console.warn(`[pi-harbor] could not archive ${rel}: ${error.message}`);
     return false;
   }
 }
@@ -872,7 +872,7 @@ async function archiveProjectSessions(cwd) {
       scanCache.delete(session.file);
       moved += 1;
     } catch (error) {
-      console.warn(`[pi-web] could not archive ${session.file}: ${error.message}`);
+      console.warn(`[pi-harbor] could not archive ${session.file}: ${error.message}`);
     }
   }
   return moved;
@@ -881,7 +881,7 @@ async function archiveProjectSessions(cwd) {
 function createPermanentWorktree(cwd) {
   const real = projectDirectory(cwd);
   if (!real) throw new Error("Project folder is unavailable");
-  const git = process.env.PI_WEB_GIT_BIN || "git";
+  const git = process.env.PI_HARBOR_GIT_BIN || "git";
   let root;
   try {
     root = execFileSync(git, ["-C", real, "rev-parse", "--show-toplevel"], { encoding: "utf8", timeout: 10_000 }).trim();
@@ -1082,7 +1082,7 @@ function scheduleRpcCleanup(sid) {
   s.idleTimer = setTimeout(() => {
     const current = rpcSessions.get(sid);
     if (!current || current.exited || current.clients.size || current.state.isStreaming) return;
-    console.log(`[pi-web] closing idle rpc (sid ${sid}, pid ${current.proc.pid})`);
+    console.log(`[pi-harbor] closing idle rpc (sid ${sid}, pid ${current.proc.pid})`);
     killRpcProcess(current.proc);
   }, RPC_IDLE_CLEANUP_MS);
 }
@@ -1205,21 +1205,21 @@ async function openRpc({ file, cwd, name }) {
   proc.stdin.on("error", (err) => {
     sess.stdinError = err.message;
     rejectPendingRpcCommands(sid, err);
-    console.log(`[pi-web] rpc stdin error (sid ${sid}): ${err.message}`);
+    console.log(`[pi-harbor] rpc stdin error (sid ${sid}): ${err.message}`);
   });
   proc.on("error", (err) => {
     // spawn 失敗（如 ENOENT/EACCES）只發 error 不發 exit —— 不監聽就會永遠假活
     sess.exited = true; sess.exitCode = -1;
     rejectPendingRpcCommands(sid, err);
-    console.log(`[pi-web] rpc spawn error (sid ${sid}, pid ${proc.pid}): ${err.message}`);
+    console.log(`[pi-harbor] rpc spawn error (sid ${sid}, pid ${proc.pid}): ${err.message}`);
     trackStreaming(sid, { type: "rpc_exit" });
     broadcast(sid, { type: "rpc_exit", code: -1, error: err.message });
-    console.log(`[pi-web] spawn error (sid ${sid}):`, err.message);
+    console.log(`[pi-harbor] spawn error (sid ${sid}):`, err.message);
   });
   proc.on("exit", (code, signal) => {
     const wasStreaming = !!sess.state.isStreaming;
     sess.exited = true; sess.exitCode = code;
-    console.log(`[pi-web] rpc exit (sid ${sid}, pid ${proc.pid}, code ${code}, signal ${signal || "none"}, streaming ${wasStreaming}) stderr=${sess.stderrTail.slice(-300)}`);
+    console.log(`[pi-harbor] rpc exit (sid ${sid}, pid ${proc.pid}, code ${code}, signal ${signal || "none"}, streaming ${wasStreaming}) stderr=${sess.stderrTail.slice(-300)}`);
     rejectPendingRpcCommands(sid, new Error("process exited"));
     trackStreaming(sid, { type: "rpc_exit" });
     broadcast(sid, {
@@ -2403,7 +2403,7 @@ const server = http.createServer(async (req, res) => {
       const candidate = typeof body.token === "string" && body.token.length <= 512 ? body.token : "";
       if (safeEqual(sha256(candidate), TOKEN_HASH)) {
         loginAttempts.delete(key);
-        send(res, 204, "", { "Set-Cookie": `pi_web=${TOKEN_HASH}${cookieSuffix(60 * 60 * 24 * 30)}` });
+        send(res, 204, "", { "Set-Cookie": `pi_harbor=${TOKEN_HASH}${cookieSuffix(60 * 60 * 24 * 30)}` });
       } else {
         state.failures++;
         sendJSON(res, 401, { error: "Invalid token" });
@@ -2412,7 +2412,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === "/api/logout" && req.method === "POST") {
-      send(res, 204, "", { "Set-Cookie": `pi_web=${cookieSuffix(0)}` });
+      send(res, 204, "", { "Set-Cookie": `pi_harbor=${cookieSuffix(0)}` });
       return;
     }
 
@@ -2508,7 +2508,7 @@ const server = http.createServer(async (req, res) => {
         upstream = new URL(proxyMatch[2] + (url.search || ""), remote.url);
       } catch { sendJSON(res, 400, { error: "bad target" }); return; }
       const headers = {
-        cookie: `pi_web=${TOKEN_HASH}`,
+        cookie: `pi_harbor=${TOKEN_HASH}`,
         accept: req.headers.accept || "*/*",
       };
       if (req.headers["last-event-id"]) headers["last-event-id"] = req.headers["last-event-id"];
@@ -2540,7 +2540,7 @@ const server = http.createServer(async (req, res) => {
           pipeline(body, res, (err) => {
             if (!err) return;
             const expectedAbort = ac.signal.aborted && !timedOut;
-            if (!expectedAbort) console.log(`[pi-web] proxy body ${req.method} ${p} -> ${upstream.href} failed:`, err.message);
+            if (!expectedAbort) console.log(`[pi-harbor] proxy body ${req.method} ${p} -> ${upstream.href} failed:`, err.message);
             if (!res.writableEnded && !res.destroyed) {
               try { res.destroy(); } catch {}
             }
@@ -2548,7 +2548,7 @@ const server = http.createServer(async (req, res) => {
         }
       } catch (e) {
         const expectedAbort = ac.signal.aborted && !timedOut;
-        if (!expectedAbort) console.log(`[pi-web] proxy ${req.method} ${p} -> ${upstream.href} failed:`, e.message);
+        if (!expectedAbort) console.log(`[pi-harbor] proxy ${req.method} ${p} -> ${upstream.href} failed:`, e.message);
         if (!res.headersSent && !res.destroyed && !expectedAbort) {
           sendJSON(res, timedOut ? 504 : 502, { error: timedOut ? "machine timeout" : `machine unreachable: ${e.message}` });
         } else if (!res.writableEnded) try { res.end(); } catch {}
@@ -2561,7 +2561,7 @@ const server = http.createServer(async (req, res) => {
     // ---- 其餘 /api/* 需要 auth ----
     if (p.startsWith("/api/")) {
       if (!isAuthed(req)) {
-        console.log(`[pi-web] 401 for ${req.method} ${p} from ${clientAddress(req)}`);
+        console.log(`[pi-harbor] 401 for ${req.method} ${p} from ${clientAddress(req)}`);
         sendJSON(res, 401, { error: "unauthorized" }); return;
       }
 
@@ -2825,7 +2825,7 @@ const server = http.createServer(async (req, res) => {
           const remoteUrl = new URL("/api/device-pairing/consume", decoded.device.url);
           const remoteResponse = await fetch(remoteUrl, {
             method: "POST",
-            headers: { "content-type": "application/json", cookie: `pi_web=${TOKEN_HASH}` },
+            headers: { "content-type": "application/json", cookie: `pi_harbor=${TOKEN_HASH}` },
             body: JSON.stringify({ nonce: decoded.nonce }),
             redirect: "error",
             signal: AbortSignal.timeout(8000),
@@ -3108,7 +3108,7 @@ function shutdown(signal) {
     closeRequested: false,
     timer: null,
   };
-  console.log(`[pi-web] shutting down on ${signal}; preserving ${active.length} active rpc session(s) for up to ${SHUTDOWN_GRACE_MS}ms`);
+  console.log(`[pi-harbor] shutting down on ${signal}; preserving ${active.length} active rpc session(s) for up to ${SHUTDOWN_GRACE_MS}ms`);
 
   const finish = (code) => {
     if (!shutdownState || shutdownState.finished) return;
@@ -3165,14 +3165,14 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 
 syncBundledUpdater();
 server.listen(PORT, HOST, () => {
-  console.log(`[pi-web] ${MACHINE_NAME} listening on http://${HOST}:${PORT} (pi: ${PI_BIN})`);
+  console.log(`[pi-harbor] ${MACHINE_NAME} listening on http://${HOST}:${PORT} (pi: ${PI_BIN})`);
   if (HOST !== "127.0.0.1" && HOST !== "::1" && !SECURE_COOKIE) {
-    console.warn("[pi-web] warning: listening beyond loopback without Secure cookies; prefer Tailscale Serve/HTTPS or set PI_WEB_HOST=127.0.0.1");
+    console.warn("[pi-harbor] warning: listening beyond loopback without Secure cookies; prefer Tailscale Serve/HTTPS or set PI_HARBOR_HOST=127.0.0.1");
   }
   if (SECURE_COOKIE && (HOST !== "127.0.0.1" && HOST !== "::1")) {
-    console.log("[pi-web] Secure cookies enabled; expose this service through HTTPS only.");
+    console.log("[pi-harbor] Secure cookies enabled; expose this service through HTTPS only.");
   }
   if (!BROWSE_ROOTS_FROM_ENV.length) {
-    console.log("[pi-web] /api/browse is restricted to the Pi home by default; set PI_WEB_BROWSE_ROOTS to add external volumes");
+    console.log("[pi-harbor] /api/browse is restricted to the Pi home by default; set PI_HARBOR_BROWSE_ROOTS to add external volumes");
   }
 });

@@ -1,11 +1,11 @@
 {
   "name": "pi-harbor",
   "private": true,
-  "version": "1.12.1",
+  "version": "2.0.0",
   "description": "Mobile-first web client for the Pi coding agent",
   "type": "commonjs",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19.0"
   },
   "scripts": {
     "check": "node --check server.js && node --check server/http-utils.js && node --check public/i18n.js && node --check public/modules/app-foundation.js && node --check public/modules/session-utils.js && node --check public/app.js",

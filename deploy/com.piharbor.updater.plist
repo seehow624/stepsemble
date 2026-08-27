@@ -4,23 +4,23 @@
 <!-- Replace __USER__ and install this LaunchAgent on each Pi Harbor computer. -->
 <dict>
   <key>Label</key>
-  <string>com.piweb.updater</string>
+  <string>com.piharbor.updater</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/__USER__/.local/share/pi-web-bin/pi-web-update.sh</string>
+    <string>/Users/__USER__/.local/share/pi-harbor-bin/pi-harbor-update.sh</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>
     <string>/Users/__USER__</string>
-    <key>PI_WEB_UPDATE_REPO</key>
+    <key>PI_HARBOR_UPDATE_REPO</key>
     <string>seehow624/pi-harbor</string>
-    <key>PI_WEB_UPDATE_REF</key>
-    <string>master</string>
-    <key>PI_WEB_INSTALL_DIR</key>
-    <string>/Users/__USER__/.local/share/pi-web</string>
-    <key>PI_WEB_SERVICE_LABEL</key>
-    <string>com.piweb.server</string>
+    <key>PI_HARBOR_UPDATE_REF</key>
+    <string>stable</string>
+    <key>PI_HARBOR_INSTALL_DIR</key>
+    <string>/Users/__USER__/.local/share/pi-harbor</string>
+    <key>PI_HARBOR_SERVICE_LABEL</key>
+    <string>com.piharbor.server</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -29,8 +29,8 @@
   <key>ThrottleInterval</key>
   <integer>60</integer>
   <key>StandardOutPath</key>
-  <string>/tmp/pi-web-updater.log</string>
+  <string>/Users/__USER__/.local/state/pi-harbor/updater.log</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/pi-web-updater.err.log</string>
+  <string>/Users/__USER__/.local/state/pi-harbor/updater-error.log</string>
 </dict>
 </plist>

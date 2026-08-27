@@ -13,12 +13,12 @@ test("server and browser bundles are valid JavaScript", () => {
 
 test("deployment templates do not contain a committed token", () => {
   const files = [
-    path.join(root, "deploy", "com.piweb.server.plist"),
-    path.join(root, "deploy", "com.piweb.updater.plist"),
+    path.join(root, "deploy", "com.piharbor.server.plist"),
+    path.join(root, "deploy", "com.piharbor.updater.plist"),
   ];
   for (const file of files) {
     const content = fs.readFileSync(file, "utf8");
-    assert.doesNotMatch(content, /<key>PI_WEB_TOKEN<\/key>/i);
+    assert.doesNotMatch(content, /<key>PI_HARBOR_TOKEN<\/key>/i);
   }
 });
 
@@ -199,18 +199,24 @@ test("compact list overrides grouped and mobile session geometry", () => {
   assert.match(css, /min-height: 44px/);
 });
 
-test("Mini launcher never pkills active pi-web processes", () => {
-  const launcher = fs.readFileSync(path.join(root, "deploy", "pi-web-mini-start.sh"), "utf8");
+test("Mini launcher never pkills active pi-harbor processes", () => {
+  const launcher = fs.readFileSync(path.join(root, "deploy", "pi-harbor-mini-start.sh"), "utf8");
+  const installer = fs.readFileSync(path.join(root, "install.sh"), "utf8");
   assert.doesNotMatch(launcher, /\bpkill\s+-f\b/);
   assert.match(launcher, /isStreaming/);
+  assert.match(launcher, /__NODE__/);
+  assert.match(launcher, /__PIBIN__/);
   assert.doesNotMatch(launcher, /\.clients\s*\/\/\s*0/);
+  assert.match(installer, /USE_SSH_LAUNCHER/);
+  assert.match(installer, /render_shell/);
+  assert.match(installer, /Preserved this Mac's reliable local SSH launch mode/);
 });
 
 test("device settings support stable aliases, port changes, health checks, and one-time pairing", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
-  const launcher = fs.readFileSync(path.join(root, "deploy", "pi-web-mini-start.sh"), "utf8");
+  const launcher = fs.readFileSync(path.join(root, "deploy", "pi-harbor-mini-start.sh"), "utf8");
   assert.match(server, /DEVICE_CONFIG_FILE/);
   assert.match(server, /\/api\/device-settings/);
   assert.match(server, /\/api\/device-restart/);
@@ -329,12 +335,25 @@ test("localization is English-first with an explicit locale selector and safe fa
   assert.doesNotMatch(html, /private-brand|internal-only/i);
 });
 
+test("first-run guide covers localization, local ownership, setup, and secure remote access", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  assert.match(html, /id="onboarding"/);
+  assert.match(html, /id="btn-open-onboarding"/);
+  assert.match(app, /ONBOARDING_KEY/);
+  assert.match(app, /ONBOARDING_COPY/);
+  assert.match(app, /openOnboarding\(false\)/);
+  assert.match(app, /Never expose port 3140|Never expose port/);
+  assert.match(css, /\.onboarding-card/);
+});
+
 test("automatic updates use a public GitHub source and launchd without touching Pi data", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
-  const updater = fs.readFileSync(path.join(root, "deploy", "pi-web-update.sh"), "utf8");
-  const plist = fs.readFileSync(path.join(root, "deploy", "com.piweb.updater.plist"), "utf8");
+  const updater = fs.readFileSync(path.join(root, "deploy", "pi-harbor-update.sh"), "utf8");
+  const plist = fs.readFileSync(path.join(root, "deploy", "com.piharbor.updater.plist"), "utf8");
   assert.match(server, /UPDATE_CONFIG_FILE/);
   assert.match(server, /\/api\/update\/status/);
   assert.match(server, /\/api\/update\/settings/);
@@ -344,11 +363,15 @@ test("automatic updates use a public GitHub source and launchd without touching 
   assert.match(app, /Automatic updates/);
   assert.match(html, /id="set-auto-update"/);
   assert.match(html, /id="update-check"/);
-  assert.match(updater, /codeload\.github\.com/);
+  assert.match(updater, /api\.github\.com\/repos/);
+  assert.match(updater, /releases\/latest/);
+  assert.match(updater, /shasum/);
+  assert.match(updater, /active_rpc_running/);
   assert.match(updater, /kickstart -k/);
-  assert.match(updater, /ensure_service_running/);
-  assert.match(updater, /PI_WEB_UPDATE_FORCE/);
-  assert.doesNotMatch(updater, /PI_WEB_TOKEN|\.pi\/agent/);
+  assert.match(updater, /PI_HARBOR_UPDATE_FORCE/);
+  assert.match(updater, /if ! release_is_newer "\$installed_version" "\$latest_version"/);
+  assert.doesNotMatch(updater, /FORCE_UPDATE[^\n]+release_is_newer/);
+  assert.doesNotMatch(updater, /auth\.json|sessions|models\.json/);
   assert.match(plist, /StartInterval/);
   assert.match(plist, /__USER__/);
 });

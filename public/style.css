@@ -1,4 +1,4 @@
-/* pi-harbor v1.12.1 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.0.0 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -471,6 +471,56 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
   padding: 8px 0 2px;
 }
 .settings-footer { text-align: center; color: var(--pine-soft); font-size: 12px; margin-top: 8px; }
+
+/* Pi Harbor 2.0 first-run guide */
+.onboarding-layer {
+  position: fixed;
+  z-index: 1500;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: color-mix(in srgb, #000 68%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.onboarding-card {
+  position: relative;
+  width: min(620px, 100%);
+  max-height: min(780px, 100%);
+  overflow: auto;
+  padding: 30px;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  color: var(--pine);
+  background: color-mix(in srgb, var(--milk) 96%, transparent);
+  box-shadow: 0 32px 90px rgba(0,0,0,.32);
+}
+.onboarding-close { position: absolute; top: 18px; right: 18px; }
+.onboarding-brand { display: flex; align-items: center; gap: 10px; margin-right: 52px; font-size: .82rem; font-weight: 700; letter-spacing: .02em; }
+.onboarding-brand img { width: 34px; height: 34px; border-radius: 10px; }
+.onboarding-progress { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 26px 0 34px; }
+.onboarding-progress span { height: 3px; border-radius: 999px; background: var(--line); transition: background .2s ease; }
+.onboarding-progress span.active { background: var(--accent); }
+.onboarding-copy .eyebrow { margin: 0 0 10px; color: var(--accent); }
+.onboarding-copy h2 { margin: 0; font-size: clamp(1.8rem, 5vw, 2.55rem); line-height: 1.06; letter-spacing: -.045em; }
+.onboarding-copy > p:last-child { max-width: 52ch; margin: 16px 0 0; color: var(--pine-soft); font-size: 1rem; line-height: 1.58; }
+.onboarding-preferences { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 24px; }
+.onboarding-preferences label { display: grid; gap: 7px; color: var(--pine-soft); font-size: .76rem; font-weight: 650; }
+.onboarding-preferences select { width: 100%; }
+.onboarding-points { display: grid; gap: 10px; margin: 25px 0 0; padding: 0; list-style: none; }
+.onboarding-points li { position: relative; padding-left: 24px; color: var(--pine-soft); line-height: 1.48; }
+.onboarding-points li::before { content: "✓"; position: absolute; left: 0; color: var(--accent); font-weight: 800; }
+.onboarding-actions { display: flex; align-items: center; gap: 8px; margin-top: 34px; }
+.onboarding-actions .btn.primary { min-width: 132px; }
+
+@media (max-width: 620px) {
+  .onboarding-layer { align-items: end; padding: 0; }
+  .onboarding-card { width: 100%; max-height: calc(100dvh - max(18px, env(safe-area-inset-top))); padding: 26px 22px calc(22px + env(safe-area-inset-bottom)); border-radius: 28px 28px 0 0; }
+  .onboarding-preferences { grid-template-columns: 1fr; }
+  .onboarding-actions { position: sticky; bottom: calc(-22px - env(safe-area-inset-bottom)); margin: 30px -22px calc(-22px - env(safe-area-inset-bottom)); padding: 14px 22px calc(14px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: color-mix(in srgb, var(--milk) 96%, transparent); }
+  #onboarding-skip { display: none; }
+}
 .settings-group-heading {
   display: flex;
   align-items: flex-start;

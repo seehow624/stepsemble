@@ -13,13 +13,11 @@ Pi Harbor 是一个开源、移动优先的 Pi coding agent 网页客户端。�
 在每一台需要运行 Pi Harbor 的电脑上执行：
 
 ```bash
-git clone https://github.com/seehow624/pi-harbor.git
-cd pi-harbor
-mkdir -p ~/.config/pi-web
-openssl rand -hex 32 > ~/.config/pi-web/token
-chmod 600 ~/.config/pi-web/token
-PI_WEB_TOKEN_FILE="$HOME/.config/pi-web/token" node server.js
+/bin/zsh -c "$(curl -fsSL https://raw.githubusercontent.com/seehow624/pi-harbor/master/install.sh)"
 ```
+
+安装程序会检查 Pi Agent 与 Node.js、下载并验证最新稳定 Release、创建
+launchd 服务和自动更新。如果没有 Pi Agent，会先询问是否使用 Pi 官方安装程序。
 
 打开 HTTPS 地址，输入本机 token。不要把 token 写入 Git、问题单、聊天、截图或日志。
 
@@ -29,7 +27,15 @@ PI_WEB_TOKEN_FILE="$HOME/.config/pi-web/token" node server.js
 
 ## 自动更新
 
-`deploy/` 中的 launchd 模板可以定时从公开 GitHub 分支或标签下载更新，并安全替换应用后重启服务。更新器不会修改 Pi 会话、项目文件、Provider 凭证或 Web token。
+默认每小时检查 GitHub 的最新稳定 Release，并验证 SHA-256。如果 Pi 正在工作，更新会延后，完成后才替换应用。更新器不会修改 Pi 会话、项目文件、Provider 凭证或 Web token。
+
+## 卸载
+
+```bash
+~/.local/share/pi-harbor-bin/uninstall.sh
+```
+
+可以选择只删除 Pi Harbor，或连同 Pi Agent 可执行文件一起删除；会话、凭证和项目文件夹都会保留。
 
 ## 开发与测试
 

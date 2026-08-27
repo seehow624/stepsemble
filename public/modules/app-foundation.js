@@ -1,10 +1,14 @@
-/* pi-web foundation — browser-safe configuration, preferences, and device helpers */
-(function exposePiWebFoundation(global) {
+/* pi-harbor foundation — browser-safe configuration, preferences, and device helpers */
+(function exposePiHarborFoundation(global) {
   "use strict";
 
-  const SELECTED_KEY = "piweb.selected.v1";
-  const SETTINGS_KEY = "piweb.settings.v2";
-  const LEGACY_SETTINGS_KEY = "piweb.settings.v1";
+  const SELECTED_KEY = "piharbor.selected.v1";
+  const SETTINGS_KEY = "piharbor.settings.v2";
+  // One-time v1 migration. These names must remain readable until everyone
+  // who used the pre-Harbor build has opened v2 at least once.
+  const LEGACY_SELECTED_KEY = "piweb.selected.v1";
+  const LEGACY_SETTINGS_KEYS = Object.freeze(["piweb.settings.v2", "piweb.settings.v1", "piharbor.settings.v1"]);
+  const LEGACY_SETTINGS_KEY = LEGACY_SETTINGS_KEYS[0];
   const SETTINGS_VERSION = 3;
   const DESIGN_THEMES = Object.freeze([
     { id: "pine-milk", label: "Pine Milk" },
@@ -38,7 +42,7 @@
   });
 
   function loadSelected() {
-    try { return global.localStorage.getItem(SELECTED_KEY) || null; } catch { return null; }
+    try { return global.localStorage.getItem(SELECTED_KEY) || global.localStorage.getItem(LEGACY_SELECTED_KEY) || null; } catch { return null; }
   }
 
   function saveSelected(id) {
@@ -48,7 +52,7 @@
   function loadSettings() {
     try {
       const v2 = global.localStorage.getItem(SETTINGS_KEY);
-      const raw = v2 || global.localStorage.getItem(LEGACY_SETTINGS_KEY) || "{}";
+      const raw = v2 || LEGACY_SETTINGS_KEYS.map((key) => global.localStorage.getItem(key)).find(Boolean) || "{}";
       const parsed = JSON.parse(raw);
       const out = { ...DEFAULT_SETTINGS, ...parsed };
       const savedVersion = Number(parsed.settingsVersion) || 0;
@@ -115,10 +119,11 @@
     return machine ? machineDisplayName(machine) : id;
   }
 
-  global.piWebFoundation = Object.freeze({
+  global.piHarborFoundation = Object.freeze({
     SELECTED_KEY,
     SETTINGS_KEY,
     LEGACY_SETTINGS_KEY,
+    LEGACY_SETTINGS_KEYS,
     SETTINGS_VERSION,
     DESIGN_THEMES,
     DESIGN_THEME_IDS,
