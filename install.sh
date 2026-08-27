@@ -145,6 +145,9 @@ legacy_plists=()
 USE_SSH_LAUNCHER=0
 discover_legacy_services() {
   local plist
+  if [[ -f "$SERVER_PLIST" ]] && /usr/bin/grep -Iq -e '/usr/bin/ssh' -e '/pi-harbor-bin/start.sh' "$SERVER_PLIST"; then
+    USE_SSH_LAUNCHER=1
+  fi
   for plist in "$LAUNCH_DIR"/*.plist; do
     [[ -f "$plist" ]] || continue
     if /usr/bin/grep -Iq -e '/pi-web/' -e '/pi-web-bin/' -e 'PI_WEB_' -e 'com.piweb' "$plist"; then
@@ -181,15 +184,15 @@ migrate_legacy_config() {
 }
 
 archive_legacy_installation() {
-  local destination="$STATE_DIR/legacy-v1" path
+  local destination="$STATE_DIR/legacy-v1" legacy_path
   mkdir -p "$destination"
-  for path in "$HOME/.local/share/pi-web" "$HOME/.local/share/pi-web-bin" "$HOME/.config/pi-web"; do
-    [[ -e "$path" || -L "$path" ]] || continue
-    case "$path" in
+  for legacy_path in "$HOME/.local/share/pi-web" "$HOME/.local/share/pi-web-bin" "$HOME/.config/pi-web"; do
+    [[ -e "$legacy_path" || -L "$legacy_path" ]] || continue
+    case "$legacy_path" in
       "$HOME/.local/share/pi-web"|"$HOME/.local/share/pi-web-bin"|"$HOME/.config/pi-web") ;;
       *) die "refusing unexpected legacy path" ;;
     esac
-    [[ -e "$destination/${path:t}" ]] || mv "$path" "$destination/${path:t}"
+    [[ -e "$destination/${legacy_path:t}" ]] || mv "$legacy_path" "$destination/${legacy_path:t}"
   done
 }
 
@@ -321,9 +324,13 @@ NODE
 }
 
 wait_for_health() {
-  local port="$1" attempt
+  local port="$1" attempt listener_pid listener_command
   for attempt in {1..30}; do
-    if curl -fsS --max-time 2 "http://127.0.0.1:$port/api/health" >/dev/null 2>&1; then return 0; fi
+    if curl -fsS --max-time 2 "http://127.0.0.1:$port/api/health" >/dev/null 2>&1; then
+      listener_pid="$(/usr/sbin/lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | /usr/bin/head -n 1 || true)"
+      listener_command="$([[ -n "$listener_pid" ]] && /bin/ps -p "$listener_pid" -o command= 2>/dev/null || true)"
+      [[ "$listener_command" == *"$INSTALL_DIR/server.js"* ]] && return 0
+    fi
     sleep 1
   done
   return 1

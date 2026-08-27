@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.1
+
+- Fixed the final legacy-folder migration step in the macOS installer.
+- Preserved the local SSH launcher across repeated installations and verified
+  that health checks belong to the newly installed release.
+
 ## 2.0.0
 
 - Renamed the complete product, runtime paths, service labels, storage keys,
@@ -12,4 +18,3 @@
 - Added a multilingual first-run guide that can be reopened from Settings.
 - Preserved existing sessions, providers, projects, and Web token during the
   local v1 migration.
-

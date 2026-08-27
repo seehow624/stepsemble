@@ -20,8 +20,8 @@ export PI_HARBOR_TOKEN_FILE
 export PI_HARBOR_BROWSE_ROOTS="${PI_HARBOR_BROWSE_ROOTS:-$HOME,/Volumes}"
 PI_BIN="${PI_BIN:-__PIBIN__}"
 NODE_BIN="${NODE_BIN:-__NODE__}"
-[[ "$PI_BIN" != "__PIBIN__" && -x "$PI_BIN" ]] || PI_BIN="$(command -v pi || true)"
-[[ "$NODE_BIN" != "__NODE__" && -x "$NODE_BIN" ]] || NODE_BIN="$(command -v node || true)"
+[[ -x "$PI_BIN" ]] || PI_BIN="$(command -v pi || true)"
+[[ -x "$NODE_BIN" ]] || NODE_BIN="$(command -v node || true)"
 export PI_BIN
 
 if [[ -z "$NODE_BIN" || -z "$PI_BIN" ]]; then
