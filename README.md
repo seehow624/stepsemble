@@ -26,6 +26,8 @@ usage totals, or computer-specific configuration.
   account sign-in flows.
 - Multiple Pi Web computers with aliases, health checks, port settings, and
   one-time pairing codes.
+- Sub Agent sessions created under OS temporary folders stay hidden by default;
+  the session list provides an opt-in toggle to reveal them.
 - Optional macOS launchd updates from a public GitHub branch or tag.
 - Ink & Ivory as the default design theme.
 

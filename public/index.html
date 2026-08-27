@@ -6,10 +6,10 @@
 <title>Pi Web</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=1.11.18">
-<link rel="icon" href="/pi-logo.svg?v=1.11.18" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-180.png?v=1.11.18">
-<link rel="stylesheet" href="/style.css?v=1.11.18">
+<link rel="manifest" href="/manifest.webmanifest?v=1.11.19">
+<link rel="icon" href="/pi-logo.svg?v=1.11.19" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png?v=1.11.19">
+<link rel="stylesheet" href="/style.css?v=1.11.19">
 </head>
 <body>
 
@@ -42,7 +42,7 @@
 <!-- Login -->
 <div id="login" class="overlay hidden">
   <div class="login-card">
-    <div class="login-mark official-mark"><img src="/pi-logo.svg?v=1.11.18" alt="Pi"></div>
+    <div class="login-mark official-mark"><img src="/pi-logo.svg?v=1.11.19" alt="Pi"></div>
     <h1>Pi Web</h1>
     <p class="login-machine" id="login-machine"></p>
     <form id="login-form">
@@ -84,6 +84,16 @@
     <div class="list-toolbar">
       <input id="search" type="search" placeholder="Search sessions…">
     </div>
+    <div id="temporary-session-filter" class="temporary-session-filter hidden">
+      <label class="temporary-session-filter-control" for="show-temporary-sessions">
+        <span class="temporary-session-filter-copy">
+          <strong id="temporary-session-filter-label">Show Sub Agent sessions</strong>
+          <small>Temporary workspaces are hidden by default</small>
+        </span>
+        <span id="temporary-session-count" class="temporary-session-count" aria-live="polite"></span>
+        <span class="toggle"><input id="show-temporary-sessions" type="checkbox"><span class="toggle-track"></span></span>
+      </label>
+    </div>
     <ul id="session-list" class="session-list"></ul>
     <p id="list-empty" class="empty hidden">No sessions on this device.<br><span class="empty-sub">Choose a folder from New project to begin</span></p>
     <!-- New project entry stays above the sessions list. -->
@@ -104,7 +114,7 @@
     </header>
     <div id="messages" class="messages">
       <div id="chat-empty" class="chat-empty">
-        <div class="login-mark official-mark"><img src="/pi-logo.svg?v=1.11.18" alt="Pi"></div>
+        <div class="login-mark official-mark"><img src="/pi-logo.svg?v=1.11.19" alt="Pi"></div>
         <p>Select a session,<br>or start a new conversation</p>
       </div>
     </div>
@@ -262,7 +272,7 @@
         <h3 class="group-title">About</h3>
         <div class="settings-row">
           <span><strong>Pi Web</strong><small>Mobile-first remote workspace for Pi</small></span>
-          <span class="settings-value">v1.11.18</span>
+          <span class="settings-value">v1.11.19</span>
         </div>
         <div class="settings-row">
           <span><strong>Gesture tips</strong><small>Pull down to refresh; swipe from the left edge to go back; long-press a session to rename or delete</small></span>
@@ -576,7 +586,7 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=1.11.18"></script>
-<script src="/app.js?v=1.11.18"></script>
+<script src="/i18n.js?v=1.11.19"></script>
+<script src="/app.js?v=1.11.19"></script>
 </body>
 </html>

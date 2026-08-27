@@ -28,7 +28,7 @@ const { spawn, execFileSync } = require("node:child_process");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "1.11.18";
+const APP_VERSION = "1.11.19";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -628,6 +628,22 @@ async function* sessionLines(absPath) {
   if (buffer) yield buffer.endsWith("\r") ? buffer.slice(0, -1) : buffer;
 }
 
+// Pi stores Sub Agent work in temporary directories such as `/private/tmp`
+// on macOS and `/tmp` on Linux. Keep this classification path-aware so a
+// normal project named `tmp-project` is not hidden accidentally. The explicit
+// macOS alias covers the common case where `/tmp` resolves to `/private/tmp`.
+const TEMP_SESSION_ROOTS = Object.freeze([...new Set([
+  os.tmpdir(),
+  "/tmp",
+  "/private/tmp",
+].map((value) => path.resolve(value)).filter((value) => path.isAbsolute(value)))]);
+
+function isTemporarySessionCwd(cwd) {
+  if (typeof cwd !== "string" || !cwd.trim() || !path.isAbsolute(cwd)) return false;
+  const candidate = path.resolve(cwd.trim());
+  return TEMP_SESSION_ROOTS.some((root) => candidate === root || candidate.startsWith(root + path.sep));
+}
+
 async function parseSessionFile(absPath) {
   // 回傳 {id, cwd, name, startedAt, lastActivity, messages, toolCalls, tokens, cost, preview, userCount}
   const out = {
@@ -740,13 +756,13 @@ async function listSessions() {
       try { st = fs.statSync(abs); } catch { continue; }
       const cached = scanCache.get(rel);
       if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
-        results.push({ file: rel, mtimeMs: st.mtimeMs, ...cached.info });
+        results.push({ file: rel, mtimeMs: st.mtimeMs, ...cached.info, isTemporary: isTemporarySessionCwd(cached.info.cwd) });
         continue;
       }
       const info = await parseSessionFile(abs);
       if (!info || !info.id) continue;
       scanCache.set(rel, { mtimeMs: st.mtimeMs, size: st.size, info });
-      results.push({ file: rel, mtimeMs: st.mtimeMs, ...info });
+      results.push({ file: rel, mtimeMs: st.mtimeMs, ...info, isTemporary: isTemporarySessionCwd(info.cwd) });
     }
   }
   for (const key of scanCache.keys()) if (!seen.has(key)) scanCache.delete(key);
@@ -2635,7 +2651,11 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (p === "/api/sessions" && req.method === "GET") {
-        sendJSON(res, 200, { machine: MACHINE_NAME, sessions: await listSessions() });
+        const allSessions = await listSessions();
+        const temporarySessionCount = allSessions.filter((session) => session.isTemporary).length;
+        const includeTemporary = ["1", "true", "yes", "on"].includes(String(url.searchParams.get("includeTemporary") || "").toLowerCase());
+        const sessions = includeTemporary ? allSessions : allSessions.filter((session) => !session.isTemporary);
+        sendJSON(res, 200, { machine: MACHINE_NAME, sessions, temporarySessionCount, includeTemporary });
         return;
       }
 

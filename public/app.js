@@ -1,4 +1,4 @@
-/* pi-web v1.11.18 — English-first localization and provider catalog */
+/* pi-web v1.11.19 — English-first localization and provider catalog */
 "use strict";
 
 // ===========================================================================
@@ -37,6 +37,7 @@ const DEFAULT_SETTINGS = {
   projectAliases: {},      // cwd -> user-facing project label
   removedProjects: [],     // cwd strings hidden from the project list
   sessionPins: [],         // session file paths pinned within a project
+  showTemporarySessions: false, // opt-in to Sub Agent sessions created under a temp root
 };
 
 let machines = [];        // [{id,name,host,url,managed,self}] 由 GET /api/machines 下發
@@ -97,6 +98,7 @@ function loadSettings() {
     out.sessionPins = Array.isArray(out.sessionPins)
       ? [...new Set(out.sessionPins.filter((value) => typeof value === "string" && value.trim()))].slice(0, 500)
       : [];
+    out.showTemporarySessions = parsed.showTemporarySessions === true;
     // v1 的舊設定可能明確關閉分組；v2 首次啟用時以 Project folders 為預設。
     if (!v2) out.groupByProject = true;
     return out;
@@ -122,6 +124,8 @@ const el = {
   viewList: $("view-list"), viewChat: $("view-chat"), viewSettings: $("view-settings"), viewModelSettings: $("view-model-settings"),
   search: $("search"), btnRefresh: $("btn-refresh"),
   sessionList: $("session-list"), listEmpty: $("list-empty"),
+  temporarySessionFilter: $("temporary-session-filter"), temporarySessionFilterLabel: $("temporary-session-filter-label"),
+  temporarySessionCount: $("temporary-session-count"), showTemporarySessions: $("show-temporary-sessions"),
   fabNew: $("fab-new"), btnNew: $("btn-new"), btnNewProject: $("btn-new-project"), pullIndicator: $("pull-indicator"),
   machineSwitch: $("machine-switch"),
   btnBack: $("btn-back"), chatTitle: $("chat-title"), chatSub: $("chat-sub"),
@@ -184,6 +188,7 @@ const el = {
 
 let sessionsCache = [];
 let sessionRenderLimit = 120;
+let temporarySessionCount = 0;
 const collapsedProjects = new Set();
 const expandedProjectSessions = new Set();
 const PROJECT_SESSION_PREVIEW_LIMIT = 3;
@@ -413,6 +418,8 @@ function switchMachine(id, silent) {
   modelCatalogLoading = false;
   currentSessionFile = null;
   sessionsCache = [];
+  temporarySessionCount = 0;
+  renderTemporarySessionFilter(0);
   renderMachineSwitch();
   showListSilent();
   void generation;
@@ -520,10 +527,13 @@ async function refreshSessions() {
   if (refreshRequest) refreshRequest.abort();
   refreshRequest = new AbortController();
   try {
-    const data = await api("/api/sessions", { signal: refreshRequest.signal });
+    const includeTemporary = settings.showTemporarySessions ? "1" : "0";
+    const data = await api(`/api/sessions?includeTemporary=${includeTemporary}`, { signal: refreshRequest.signal });
     if (sequence !== refreshSequence || generation !== viewGeneration || baseAtStart !== apiBase) return;
     sessionsCache = data.sessions || [];
+    temporarySessionCount = Math.max(0, Number(data.temporarySessionCount) || 0);
     if (el.sessionCount) el.sessionCount.textContent = String(sessionsCache.length);
+    renderTemporarySessionFilter(temporarySessionCount);
     renderSessionList(el.search.value);
   } catch (e) {
     if (e.name !== "AbortError") { /* unauthorized 已處理 */ }
@@ -584,6 +594,23 @@ function saveProjectListSettings(patch) {
   settings = saveSettings(patch);
   applyAppearance();
   renderSessionList(el.search?.value || "");
+}
+
+function renderTemporarySessionFilter(count = temporarySessionCount) {
+  if (!el.temporarySessionFilter) return;
+  const total = Math.max(0, Number(count) || 0);
+  const available = total > 0 || settings.showTemporarySessions;
+  el.temporarySessionFilter.classList.toggle("hidden", !available);
+  if (!available) return;
+  if (el.showTemporarySessions) el.showTemporarySessions.checked = !!settings.showTemporarySessions;
+  if (el.temporarySessionFilterLabel) {
+    el.temporarySessionFilterLabel.textContent = window.piI18n?.t(settings.showTemporarySessions
+      ? "Hide Sub Agent sessions" : "Show Sub Agent sessions") || (settings.showTemporarySessions
+      ? "Hide Sub Agent sessions" : "Show Sub Agent sessions");
+  }
+  if (el.temporarySessionCount) {
+    el.temporarySessionCount.textContent = window.piI18n?.t("Temporary sessions: {count}", { count: total }) || `Temporary sessions: ${total}`;
+  }
 }
 
 function projectIconButton(icon, title, aria) {
@@ -894,6 +921,14 @@ function renderSessionList(q) {
 }
 el.search.addEventListener("input", () => { sessionRenderLimit = 120; renderSessionList(el.search.value); });
 el.btnRefresh.addEventListener("click", refreshSessions);
+el.showTemporarySessions?.addEventListener("change", () => {
+  settings = saveSettings({ showTemporarySessions: el.showTemporarySessions.checked });
+  if (!settings.showTemporarySessions) sessionsCache = sessionsCache.filter((session) => !session.isTemporary);
+  if (el.sessionCount) el.sessionCount.textContent = String(sessionsCache.length);
+  renderTemporarySessionFilter(temporarySessionCount);
+  renderSessionList(el.search.value);
+  void refreshSessions();
+});
 el.btnLayout?.addEventListener("click", () => {
   settings = saveSettings({ groupByProject: !settings.groupByProject });
   renderSessionList(el.search.value);
@@ -4298,6 +4333,7 @@ el.setLocale?.addEventListener("change", () => {
   window.piI18n?.setLocale(settings.locale);
   renderSettings();
   renderSessionList(el.search?.value || "");
+  renderTemporarySessionFilter(temporarySessionCount);
   if (!el.viewModelSettings.classList.contains("hidden")) {
     renderModelVisibility();
     renderProviderPresets();

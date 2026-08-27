@@ -51,6 +51,26 @@ test("folder browsing is restricted to the Pi home unless roots are explicitly a
   assert.match(readme, /defaults to the Pi home; add `\/Volumes`/);
 });
 
+test("Sub Agent temporary sessions are opt-in in the session list", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");
+  assert.match(server, /const TEMP_SESSION_ROOTS/);
+  assert.match(server, /function isTemporarySessionCwd\(/);
+  assert.match(server, /includeTemporary/);
+  assert.match(server, /temporarySessionCount/);
+  assert.match(app, /showTemporarySessions/);
+  assert.match(app, /temporary-session-filter/);
+  assert.match(app, /includeTemporary=\$\{includeTemporary\}/);
+  assert.match(html, /id="temporary-session-filter"/);
+  assert.match(html, /id="show-temporary-sessions"/);
+  assert.match(css, /\.temporary-session-filter/);
+  assert.match(i18n, /Show Sub Agent sessions/);
+  assert.match(i18n, /Temporary workspaces are hidden by default/);
+});
+
 test("Pi run failures stay visible in live and historical GUI paths", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
