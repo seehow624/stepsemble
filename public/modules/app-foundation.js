@@ -117,6 +117,41 @@
     return machine ? machineDisplayName(machine) : id;
   }
 
+  /**
+   * Resolve the authoritative machine catalog into the three values the
+   * controller needs.  Keeping this pure makes the selection rules testable
+   * without a DOM or a network request and, importantly, does not depend on
+   * apiBase (which may still point at a previously selected remote device).
+   */
+  function resolveMachineCatalogState(data, { selectedId = null, savedSelectedId = null } = {}) {
+    const machines = Array.isArray(data?.machines)
+      ? data.machines.filter((machine) => machine && typeof machine.id === "string" && machine.id)
+      : [];
+    const ids = new Set(machines.map((machine) => machine.id));
+    const hintedSelfId = typeof data?.current === "string" && ids.has(data.current) ? data.current : null;
+    const selfId = hintedSelfId || machines.find((machine) => machine.self)?.id || null;
+    const retainedId = [selectedId, savedSelectedId].find((id) => typeof id === "string" && ids.has(id)) || null;
+    return {
+      machines,
+      selfId,
+      selectedId: retainedId || selfId || machines[0]?.id || null,
+    };
+  }
+
+  async function retryWithBackoff(operation, { delays = [], shouldRetry = () => true, onRetry = () => {} } = {}) {
+    const retryDelays = Array.isArray(delays) ? delays : [];
+    for (let attempt = 0; attempt <= retryDelays.length; attempt += 1) {
+      try { return await operation(); }
+      catch (error) {
+        if (attempt >= retryDelays.length || !shouldRetry(error, attempt)) throw error;
+        const delay = Math.max(0, Number(retryDelays[attempt]) || 0);
+        onRetry(error, attempt + 1);
+        if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+    throw new Error("Retry operation exhausted");
+  }
+
   global.piHarborFoundation = Object.freeze({
     SELECTED_KEY,
     SETTINGS_KEY,
@@ -134,5 +169,7 @@
     machineDisplayName,
     machineDisplayHost,
     machineName,
+    resolveMachineCatalogState,
+    retryWithBackoff,
   });
 })(window);

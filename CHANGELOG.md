@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.4
+
+- Made first sign-in wait for the authoritative device catalog before loading
+  sessions or opening the setup guide, so devices appear immediately without
+  closing and reopening Pi Harbor.
+- Added bounded retries and a visible retry action for temporary device-list
+  failures without retrying expired authentication.
+- Kept the selected local or remote device stable while refreshing the catalog,
+  with an additional safety refresh when the first-run guide is dismissed.
+
 ## 2.0.3
 
 - Gave Pine Milk its own pine-and-cream palette. It previously had no colours

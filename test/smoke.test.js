@@ -275,6 +275,25 @@ test("device settings support stable aliases, port changes, health checks, and o
   assert.match(launcher, /device_config/);
 });
 
+test("first-login device hydration is awaited, bounded, and retryable", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const foundation = fs.readFileSync(path.join(root, "public", "modules", "app-foundation.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  assert.match(foundation, /function resolveMachineCatalogState\(/);
+  assert.match(foundation, /function retryWithBackoff\(/);
+  assert.match(app, /async function hydrateMachineCatalog\(/);
+  assert.match(app, /fetch\("\/api\/machines"/);
+  assert.doesNotMatch(app, /api\("\/api\/machines"\)/);
+  assert.match(app, /await hydrateMachineCatalog\(\)/);
+  assert.match(app, /function shouldRetryMachineCatalog\(error\)/);
+  assert.match(app, /shouldRetry: shouldRetryMachineCatalog/);
+  assert.match(app, /if \(!machines\.length\)/);
+  assert.match(app, /machineCatalogRetry/);
+  assert.match(app, /await enterApp\(\)/);
+  assert.match(html, /id="machine-catalog-status"/);
+  assert.match(html, /id="machine-catalog-retry"/);
+});
+
 test("project folder browsing can move from a home root to configured volumes", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");

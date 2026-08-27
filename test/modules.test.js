@@ -89,6 +89,59 @@ test("frontend foundation migrates pre-Harbor preferences without renaming user 
   assert.deepEqual(Array.from(foundation.loadSettings().projectPins), ["/existing/project"]);
 });
 
+test("machine catalog state recovers from pre-auth emptiness and retains a valid selection", () => {
+  const { value: foundation } = loadBrowserModule("app-foundation.js", {
+    piI18n: { normalizeLocale() { return "en"; } },
+  });
+  const beforeLogin = foundation.resolveMachineCatalogState({ machines: [], current: null }, {
+    selectedId: null,
+    savedSelectedId: "remote",
+  });
+  assert.deepEqual(beforeLogin.machines, []);
+  assert.equal(beforeLogin.selfId, null);
+  assert.equal(beforeLogin.selectedId, null);
+
+  const catalog = {
+    current: "local",
+    machines: [
+      { id: "local", self: true, name: "Local" },
+      { id: "remote", name: "Remote" },
+    ],
+  };
+  const restored = foundation.resolveMachineCatalogState(catalog, {
+    selectedId: null,
+    savedSelectedId: "remote",
+  });
+  assert.equal(restored.selfId, "local");
+  assert.equal(restored.selectedId, "remote");
+  const retained = foundation.resolveMachineCatalogState(catalog, {
+    selectedId: "remote",
+    savedSelectedId: "local",
+  });
+  assert.equal(retained.selectedId, "remote");
+});
+
+test("machine catalog retry is bounded and never retries unauthorized responses", async () => {
+  const { value: foundation } = loadBrowserModule("app-foundation.js", {
+    piI18n: { normalizeLocale() { return "en"; } },
+  });
+  let attempts = 0;
+  const value = await foundation.retryWithBackoff(async () => {
+    attempts += 1;
+    if (attempts === 1) throw Object.assign(new Error("temporary"), { status: 503 });
+    return "catalog";
+  }, { delays: [0] });
+  assert.equal(value, "catalog");
+  assert.equal(attempts, 2);
+
+  let unauthorizedAttempts = 0;
+  await assert.rejects(() => foundation.retryWithBackoff(async () => {
+    unauthorizedAttempts += 1;
+    throw Object.assign(new Error("unauthorized"), { status: 401 });
+  }, { delays: [0, 0], shouldRetry: (error) => error.status !== 401 }), /unauthorized/);
+  assert.equal(unauthorizedAttempts, 1);
+});
+
 test("session display helpers remain independent from the controller", () => {
   const { value: utils } = loadBrowserModule("session-utils.js", {
     piI18n: { t(key) { return key === "Unassigned project" ? "Unassigned" : key; }, getLocale() { return "en"; } },

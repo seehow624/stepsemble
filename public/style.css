@@ -141,6 +141,19 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
   padding: 0 26px 0 12px;
 }
 .topbar .machine-select:focus { outline: none; }
+.machine-catalog-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  color: var(--pine-soft);
+  background: color-mix(in srgb, var(--paper) 80%, var(--milk));
+  border-bottom: 0.5px solid var(--line);
+  font-size: 12px;
+}
+.machine-catalog-status.error { color: var(--err); }
+.machine-catalog-status .btn { min-height: 32px; padding: 0 12px; font-size: 12px; }
 
 /* ---- 視圖堆疊：list 在底，chat/settings 是可滑動的 overlay ---- */
 #app { position: relative; height: 100dvh; overflow: hidden; }

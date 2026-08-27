@@ -1,4 +1,4 @@
-/* pi-harbor v2.0.3 — English-first localization and provider catalog */
+/* pi-harbor v2.0.4 — English-first localization and provider catalog */
 "use strict";
 
 // The browser remains buildless, but feature-independent foundations live in
@@ -14,6 +14,7 @@ const {
   loadSelected, saveSelected, loadSettings, saveSettings,
   currentMachine: currentMachineFromList,
   machineDisplayName, machineDisplayHost, machineName: machineNameFromList,
+  resolveMachineCatalogState,
 } = foundation;
 const { stripMd, fmtTime, fmtTokens, projectFolderName } = sessionUtils;
 
@@ -43,6 +44,7 @@ const el = {
   temporarySessionCount: $("temporary-session-count"), showTemporarySessions: $("show-temporary-sessions"),
   fabNew: $("fab-new"), btnNew: $("btn-new"), btnNewProject: $("btn-new-project"), pullIndicator: $("pull-indicator"),
   machineSwitch: $("machine-switch"),
+  machineCatalogStatus: $("machine-catalog-status"), machineCatalogStatusCopy: $("machine-catalog-status-copy"), machineCatalogRetry: $("machine-catalog-retry"),
   btnBack: $("btn-back"), chatTitle: $("chat-title"), chatSub: $("chat-sub"),
   chatHeadInfo: $("chat-head-info"), streamDot: $("stream-dot"), thinkingStatus: $("thinking-status"), btnChatMenu: $("btn-chat-menu"),
   messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"),
@@ -153,6 +155,13 @@ const ONBOARDING_KEY = "piharbor.onboarding.v1";
 let onboardingStep = 0;
 const ACTIVITY_STALE_MS = 45_000;
 
+// Device discovery is deliberately independent from apiBase.  apiBase may
+// still point at a remote machine while the authoritative catalog always
+// comes from this browser's signed-in Pi Harbor instance.
+const MACHINE_CATALOG_RETRY_DELAYS = Object.freeze([120, 320]);
+let machineCatalogRequest = null;
+let machineCatalogStatus = "idle";
+
 // ===========================================================================
 // Toast
 // ===========================================================================
@@ -226,24 +235,16 @@ function showLogin() {
 
 async function boot() {
   applyAppearance();
-  // 1) 先拿本源機器清單（server 端權威）
+  // Machine discovery is protected, so determine auth state first.  In
+  // particular, do not let a pre-auth 401 leave an empty catalog behind.
   try {
-    const data = await api("/api/machines");
-    machines = data.machines || [];
-    selfId = data.current;
-  } catch {}
-  // 2) 選中：上次選的 → 本機 → 第一台
-  selectedId = loadSelected() && machines.some(m => m.id === loadSelected())
-    ? loadSelected() : (selfId || (machines[0] && machines[0].id));
-  applyApiBase();
-  renderMachineSwitch();
-  try {
-    const m = await api("/api/machine");
-    const loginMachine = machines.find((machine) => machine.self) || machines.find((machine) => machine.name === m.machine);
-    el.loginMachine.textContent = machineDisplayName(loginMachine) || machineDisplayName(m.machine);
+    const response = await fetch("/api/machine", { credentials: "same-origin", cache: "no-store" });
+    if (!response.ok) throw new Error(response.statusText || "Could not read device status");
+    const m = await response.json();
+    el.loginMachine.textContent = machineDisplayName(m.machine);
     currentHost = m.machine;
     window._piHome = m.home || "";
-    if (m.authed) { enterApp(); return; }
+    if (m.authed) { await enterApp(); return; }
   } catch {}
   showLogin();
 }
@@ -262,30 +263,132 @@ el.loginForm.addEventListener("submit", async (e) => {
     if (res.status === 401) throw new Error("unauthorized");
     if (!res.ok && res.status !== 204) throw new Error(res.statusText);
     el.loginToken.value = "";
-    enterApp();
+    await enterApp();
   } catch (err) {
-    el.loginError.textContent = err.message === "unauthorized" ? "Token 不正確" : err.message;
+    el.loginError.textContent = err.message === "unauthorized"
+      ? "Token 不正確"
+      : err.status === 401 ? (window.piI18n?.t("登入已過期") || "Sign-in expired") : err.message;
     el.loginError.classList.remove("hidden");
   }
 });
 
-function enterApp() {
-  el.login.classList.add("hidden");
-  el.app.classList.remove("hidden");
-  // 登入後重新拉機器清單（未登入時 /api/machines 會 401）
-  api("/api/machines").then((data) => {
-    machines = data.machines || [];
-    selfId = data.current;
-    if (!machines.some(m => m.id === selectedId)) {
-      selectedId = selfId || (machines[0] && machines[0].id);
-      applyApiBase();
-      renderMachineSwitch();
+function machineCatalogStatusText(key, fallback) {
+  return window.piI18n?.t(key) || fallback;
+}
+
+function setMachineCatalogStatus(state, message = "") {
+  machineCatalogStatus = state;
+  if (!el.machineCatalogStatus || !el.machineCatalogStatusCopy) return;
+  const retrying = state === "retrying";
+  const failed = state === "error";
+  el.machineCatalogStatus.classList.toggle("hidden", state === "idle" || state === "success");
+  el.machineCatalogStatus.classList.toggle("error", failed);
+  el.machineCatalogStatusCopy.textContent = message || (
+    state === "loading" ? machineCatalogStatusText("讀取中…", "Loading devices…")
+      : retrying ? machineCatalogStatusText("連線暫時失敗，正在重試", "Connection temporarily failed; retrying")
+        : machineCatalogStatusText("目前無法讀取設備清單", "Could not load device list")
+  );
+  if (el.machineCatalogRetry) {
+    el.machineCatalogRetry.classList.toggle("hidden", !failed);
+    el.machineCatalogRetry.textContent = machineCatalogStatusText("重試", "Retry");
+  }
+}
+
+function machineCatalogError(message, status) {
+  const error = new Error(message);
+  if (status != null) error.status = status;
+  return error;
+}
+
+function shouldRetryMachineCatalog(error) {
+  const status = Number(error?.status);
+  return ![401, 403].includes(status)
+    && (!Number.isFinite(status) || [408, 425, 429].includes(status) || status >= 500);
+}
+
+async function fetchAuthoritativeMachineCatalog() {
+  const response = await fetch("/api/machines", {
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  if (response.status === 401) throw machineCatalogError("unauthorized", 401);
+  let data = null;
+  try { data = await response.json(); } catch {}
+  if (!response.ok) throw machineCatalogError(data?.error || response.statusText || "Could not load device list", response.status);
+  if (!Array.isArray(data?.machines)) throw machineCatalogError("Invalid device list", 502);
+  if (!data.machines.length) throw machineCatalogError("Device list is empty", 503);
+  return data || {};
+}
+
+function applyMachineCatalog(data) {
+  const state = resolveMachineCatalogState(data, {
+    selectedId,
+    savedSelectedId: loadSelected(),
+  });
+  machines = state.machines;
+  selfId = state.selfId;
+  selectedId = state.selectedId;
+  if (selectedId) saveSelected(selectedId);
+  applyApiBase();
+  renderMachineSwitch();
+  renderMachineList();
+  if (!el.viewSettings.classList.contains("hidden")) renderSettings();
+  return state;
+}
+
+async function hydrateMachineCatalog({ retry = true } = {}) {
+  if (machineCatalogRequest) return machineCatalogRequest;
+  machineCatalogRequest = (async () => {
+    setMachineCatalogStatus("loading");
+    try {
+      const data = await foundation.retryWithBackoff(fetchAuthoritativeMachineCatalog, {
+        delays: retry ? MACHINE_CATALOG_RETRY_DELAYS : [],
+        shouldRetry: shouldRetryMachineCatalog,
+        onRetry: () => setMachineCatalogStatus("retrying"),
+      });
+      const state = applyMachineCatalog(data);
+      setMachineCatalogStatus("success");
+      return state;
+    } catch (error) {
+      if (error?.status === 401 || error?.message === "unauthorized") {
+        setMachineCatalogStatus("idle");
+        showLogin();
+      } else {
+        setMachineCatalogStatus("error", `${machineCatalogStatusText("目前無法讀取設備清單", "Could not load device list")} · ${machineCatalogStatusText("重試", "Retry")}`);
+      }
+      throw error;
     }
-    showList();
+  })().finally(() => { machineCatalogRequest = null; });
+  return machineCatalogRequest;
+}
+
+let enterAppRequest = null;
+async function enterApp() {
+  if (enterAppRequest) return enterAppRequest;
+  enterAppRequest = (async () => {
+    try {
+      // This must settle before the list, version, or onboarding requests run.
+      await hydrateMachineCatalog();
+    } catch (error) {
+      if (error?.status === 401 || error?.message === "unauthorized") throw error;
+      // Keep the app usable enough to expose the explicit retry path.  Do not
+      // pretend that an empty catalog is a successful first-login state.
+      el.login.classList.add("hidden");
+      el.app.classList.remove("hidden");
+      showListSilent();
+      return false;
+    }
+    el.login.classList.add("hidden");
+    el.app.classList.remove("hidden");
+    await showList();
     loadVersion();
     setTimeout(() => openOnboarding(false), 350);
-  }).catch(() => { showList(); refreshSessions(); setTimeout(() => openOnboarding(false), 350); });
+    return true;
+  })().finally(() => { enterAppRequest = null; });
+  return enterAppRequest;
 }
+
+el.machineCatalogRetry?.addEventListener("click", () => { void enterApp().catch(() => {}); });
 
 function loadVersion() {
   const generation = viewGeneration;
@@ -383,7 +486,7 @@ el.btnLogout.addEventListener("click", logout);
 
 function isDesktop() { return matchMedia("(min-width: 980px)").matches; }
 
-function showList() {
+function showList(options = {}) {
   ++viewGeneration;
   const wasStreaming = !!(rpc && (rpc.streaming || rpc.connectionLost));
   closeChat(wasStreaming); // streaming 中保留進程繼續跑；閒置對話離開時關閉
@@ -393,7 +496,7 @@ function showList() {
   el.viewSettings.classList.add("hidden");
   el.viewModelSettings.classList.add("hidden");
   el.viewList.classList.remove("hidden");
-  refreshSessions();
+  return options?.refresh === false ? Promise.resolve() : refreshSessions();
 }
 el.btnBack.addEventListener("click", showList);
 
@@ -3280,7 +3383,22 @@ function renderOnboarding() {
   for (const option of el.onboardingAppearance.options) option.textContent = window.piI18n?.t(option.value === "auto" ? "System" : option.value === "light" ? "Light" : "Dark") || option.textContent;
 }
 
-function completeOnboarding() {
+async function completeOnboarding() {
+  // A first-login catalog request can still be settling when the user taps
+  // Skip/Close.  Hydrate once more in that case, then refresh the list before
+  // dismissing the guide so the app never lands on an unexplained blank view.
+  if (!machines.length) {
+    try {
+      await hydrateMachineCatalog();
+      if (machines.length) await refreshSessions();
+    } catch (error) {
+      if (error?.status !== 401 && error?.message !== "unauthorized") {
+        toast(machineCatalogStatusText("目前無法讀取設備清單", "Could not load device list"), true);
+      }
+    }
+  }
+  // Keep Settings → Open guide a local action: once the catalog is already
+  // hydrated, closing the guide must not trigger another network load.
   try { localStorage.setItem(ONBOARDING_KEY, "complete"); } catch {}
   el.onboarding?.classList.add("hidden");
 }
@@ -3304,11 +3422,11 @@ function openOnboarding(force = false) {
 }
 
 el.btnOpenOnboarding?.addEventListener("click", () => openOnboarding(true));
-el.onboardingClose?.addEventListener("click", completeOnboarding);
-el.onboardingSkip?.addEventListener("click", completeOnboarding);
+el.onboardingClose?.addEventListener("click", () => { void completeOnboarding(); });
+el.onboardingSkip?.addEventListener("click", () => { void completeOnboarding(); });
 el.onboardingBack?.addEventListener("click", () => { onboardingStep = Math.max(0, onboardingStep - 1); renderOnboarding(); });
 el.onboardingNext?.addEventListener("click", () => {
-  if (onboardingStep >= onboardingCopy().steps.length - 1) { completeOnboarding(); return; }
+  if (onboardingStep >= onboardingCopy().steps.length - 1) { void completeOnboarding(); return; }
   onboardingStep += 1;
   renderOnboarding();
 });
@@ -4667,20 +4785,7 @@ async function joinMachinePairing() {
 }
 
 async function reloadMachineCatalog() {
-  const response = await fetch("/api/machines", { credentials: "same-origin" });
-  if (response.status === 401) { showLogin(); throw new Error("登入已過期"); }
-  const data = await response.json();
-  if (!response.ok) throw new Error(data?.error || response.statusText || "無法讀取設備清單");
-  machines = Array.isArray(data?.machines) ? data.machines : [];
-  selfId = data?.current || null;
-  if (!machines.some((machine) => machine.id === selectedId)) {
-    selectedId = selfId || machines[0]?.id || null;
-    saveSelected(selectedId);
-    applyApiBase();
-  }
-  renderMachineSwitch();
-  renderMachineList();
-  if (!el.viewSettings.classList.contains("hidden")) renderSettings();
+  return hydrateMachineCatalog();
 }
 
 async function testMachineDialogConnection() {
