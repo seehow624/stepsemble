@@ -376,6 +376,18 @@ test("automatic updates use a public GitHub source and launchd without touching 
   assert.match(plist, /__USER__/);
 });
 
+test("an auto-updated v1 service keeps its configured token file and port", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  assert.match(server, /function settingFromEnv\(name\)/);
+  assert.match(server, /PI_WEB_\$\{name\}/);
+  assert.match(server, /settingFromEnv\("TOKEN_FILE"\)/);
+  assert.match(server, /settingFromEnv\("PORT"\)/);
+  assert.match(server, /settingFromEnv\("HOST"\)/);
+  assert.match(server, /settingFromEnv\("BROWSE_ROOTS"\)/);
+  assert.match(server, /"PI_WEB_TOKEN", "PI_WEB_TOKEN_FILE", "PI_WEB_MACHINES"/);
+  assert.doesNotMatch(server, /process\.env\.PI_HARBOR_TOKEN_FILE/);
+});
+
 test("public defaults do not disclose private device or user details", () => {
   const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
   const license = fs.readFileSync(path.join(root, "LICENSE"), "utf8");

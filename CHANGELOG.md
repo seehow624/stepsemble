@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.2
+
+- Kept an automatically updated v1 service on its configured token file, port,
+  host, and browse roots by reading the previous environment variable names as
+  a fallback. Without this, an updated v1 install started with a throwaway
+  token and rejected every sign-in.
+
 ## 2.0.1
 
 - Fixed the final legacy-folder migration step in the macOS installer.

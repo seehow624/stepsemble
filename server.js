@@ -29,11 +29,20 @@ const { createHttpUtils } = require("./server/http-utils");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.0.1";
+const APP_VERSION = "2.0.2";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
   return value === "~" ? os.homedir() : value.startsWith("~/") ? path.join(os.homedir(), value.slice(2)) : value;
+}
+// A v1 launch agent still supplies PI_WEB_* variables. Reading the legacy name
+// as a fallback keeps an auto-updated v1 install pointed at its real token file
+// and port instead of silently starting with a throwaway token.
+function settingFromEnv(name) {
+  const current = process.env[`PI_HARBOR_${name}`];
+  if (typeof current === "string" && current.trim()) return current;
+  const legacy = process.env[`PI_WEB_${name}`];
+  return typeof legacy === "string" && legacy.trim() ? legacy : undefined;
 }
 // server 與 pi 子程序必須使用同一個 HOME，否則 PI_HOME 設定後會讀錯 sessions。
 const APP_HOME = path.resolve(expandHome(process.env.PI_HOME || os.homedir()));
@@ -42,18 +51,18 @@ const MODEL_CONFIG_FILE = path.join(APP_HOME, ".pi", "agent", "models.json");
 const AUTH_CONFIG_FILE = path.join(APP_HOME, ".pi", "agent", "auth.json");
 const MACHINE_CONFIG_FILE = path.join(APP_HOME, ".pi", "agent", "machines.json");
 const DEVICE_CONFIG_FILE = path.join(APP_HOME, ".pi", "agent", "device.json");
-const UPDATE_CONFIG_FILE = process.env.PI_HARBOR_UPDATE_CONFIG
-  ? path.resolve(expandHome(process.env.PI_HARBOR_UPDATE_CONFIG))
+const UPDATE_CONFIG_FILE = settingFromEnv("UPDATE_CONFIG")
+  ? path.resolve(expandHome(settingFromEnv("UPDATE_CONFIG")))
   : path.join(APP_HOME, ".config", "pi-harbor", "updater.json");
-const UPDATE_STATE_FILE = process.env.PI_HARBOR_UPDATE_STATE
-  ? path.resolve(expandHome(process.env.PI_HARBOR_UPDATE_STATE))
+const UPDATE_STATE_FILE = settingFromEnv("UPDATE_STATE")
+  ? path.resolve(expandHome(settingFromEnv("UPDATE_STATE")))
   : path.join(APP_HOME, ".config", "pi-harbor", "update-state.json");
-const UPDATE_SCRIPT_FILE = process.env.PI_HARBOR_UPDATE_SCRIPT
-  ? path.resolve(expandHome(process.env.PI_HARBOR_UPDATE_SCRIPT))
+const UPDATE_SCRIPT_FILE = settingFromEnv("UPDATE_SCRIPT")
+  ? path.resolve(expandHome(settingFromEnv("UPDATE_SCRIPT")))
   : path.join(APP_HOME, ".local", "share", "pi-harbor-bin", "pi-harbor-update.sh");
 const BUNDLED_UPDATE_SCRIPT_FILE = path.join(__dirname, "deploy", "pi-harbor-update.sh");
-const DEFAULT_UPDATE_REPOSITORY = process.env.PI_HARBOR_UPDATE_REPO || "seehow624/pi-harbor";
-const DEFAULT_UPDATE_REF = process.env.PI_HARBOR_UPDATE_REF || "stable";
+const DEFAULT_UPDATE_REPOSITORY = settingFromEnv("UPDATE_REPO") || "seehow624/pi-harbor";
+const DEFAULT_UPDATE_REF = settingFromEnv("UPDATE_REF") || "stable";
 const MODEL_APIS = new Set(["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"]);
 const MACHINE_HOST = os.hostname().replace(/\.local$/, "");
 function parsePort(value) {
@@ -77,23 +86,23 @@ let localDeviceConfig = readDeviceConfig();
 let MACHINE_NAME = localDeviceConfig.name || MACHINE_HOST;
 const LOCAL_DEVICE_ID = localDeviceConfig.id || null;
 const configuredPort = parsePort(localDeviceConfig.port);
-const envPort = parsePort(process.env.PI_HARBOR_PORT);
+const envPort = parsePort(settingFromEnv("PORT"));
 // A saved device port wins over a launchd template's old 3140 default. An
 // explicit PI_HARBOR_PORT still works for first boot and development servers.
 const PORT = configuredPort || envPort || 3140;
-const HOST = process.env.PI_HARBOR_HOST || "127.0.0.1";
-const TOKEN_FILE = process.env.PI_HARBOR_TOKEN_FILE ? path.resolve(expandHome(process.env.PI_HARBOR_TOKEN_FILE)) : null;
-const SECURE_COOKIE = process.env.PI_HARBOR_SECURE_COOKIE === "1";
-const MAX_RPC_SESSIONS = Number.isFinite(Number(process.env.PI_HARBOR_MAX_RPCS))
-  ? Math.max(1, Number(process.env.PI_HARBOR_MAX_RPCS)) : 16;
-const SHUTDOWN_GRACE_MS = Number.isFinite(Number(process.env.PI_HARBOR_SHUTDOWN_GRACE_MS))
-  ? Math.max(5_000, Number(process.env.PI_HARBOR_SHUTDOWN_GRACE_MS)) : 45_000;
+const HOST = settingFromEnv("HOST") || "127.0.0.1";
+const TOKEN_FILE = settingFromEnv("TOKEN_FILE") ? path.resolve(expandHome(settingFromEnv("TOKEN_FILE"))) : null;
+const SECURE_COOKIE = settingFromEnv("SECURE_COOKIE") === "1";
+const MAX_RPC_SESSIONS = Number.isFinite(Number(settingFromEnv("MAX_RPCS")))
+  ? Math.max(1, Number(settingFromEnv("MAX_RPCS"))) : 16;
+const SHUTDOWN_GRACE_MS = Number.isFinite(Number(settingFromEnv("SHUTDOWN_GRACE_MS")))
+  ? Math.max(5_000, Number(settingFromEnv("SHUTDOWN_GRACE_MS"))) : 45_000;
 const MAX_BUFFERED_EVENT_BYTES = 8 * 1024 * 1024;
 const MAX_SESSION_FILE_BYTES = 128 * 1024 * 1024;
 // 歷史訊息只傳常見、可安全內嵌的圖片格式；避免一次讀取 session 時把任意大型附件灌進瀏覽器。
 const MAX_WIRE_IMAGE_DATA_LENGTH = 8 * 1024 * 1024;
 const SAFE_IMAGE_MIME = /^image\/(?:jpeg|png|webp|gif)$/i;
-const BROWSE_ROOTS_FROM_ENV = String(process.env.PI_HARBOR_BROWSE_ROOTS || "")
+const BROWSE_ROOTS_FROM_ENV = String(settingFromEnv("BROWSE_ROOTS") || "")
   .split(",").map((value) => expandHome(value.trim())).filter((value) => value && path.isAbsolute(value));
 // Folder browsing is deliberately deny-by-default.  A manually started Pi
 // Web may browse the configured Pi home, while launchers can explicitly add
@@ -183,7 +192,7 @@ function parseMachineMap(value, managed = false) {
 
 let MACHINES = {};
 let envMachines = null;
-try { envMachines = parseMachineMap(JSON.parse(process.env.PI_HARBOR_MACHINES || "")); } catch {}
+try { envMachines = parseMachineMap(JSON.parse(settingFromEnv("MACHINES") || "")); } catch {}
 Object.assign(MACHINES, Object.keys(envMachines || {}).length ? envMachines : parseMachineMap(DEFAULT_MACHINES));
 if (!Object.keys(MACHINES).length) Object.assign(MACHINES, parseMachineMap(DEFAULT_MACHINES));
 
@@ -373,7 +382,8 @@ function startUpdateCheck() {
     throw err;
   }
   const updateEnv = { ...process.env };
-  for (const key of ["PI_HARBOR_TOKEN", "PI_HARBOR_TOKEN_FILE", "PI_HARBOR_MACHINES"]) delete updateEnv[key];
+  for (const key of ["PI_HARBOR_TOKEN", "PI_HARBOR_TOKEN_FILE", "PI_HARBOR_MACHINES",
+    "PI_WEB_TOKEN", "PI_WEB_TOKEN_FILE", "PI_WEB_MACHINES"]) delete updateEnv[key];
   const child = spawn("/bin/zsh", [UPDATE_SCRIPT_FILE], {
     detached: true,
     stdio: "ignore",
@@ -531,7 +541,7 @@ function piVersion() {
 }
 
 function loadToken() {
-  const fromEnv = String(process.env.PI_HARBOR_TOKEN || "").trim();
+  const fromEnv = String(settingFromEnv("TOKEN") || "").trim();
   if (fromEnv) return fromEnv;
   if (TOKEN_FILE) {
     try {
