@@ -29,7 +29,7 @@ test("frontend foundation normalizes preferences and preserves selected device s
       ["piharbor.selected.v1", "mini"],
       ["piharbor.settings.v2", JSON.stringify({
         settingsVersion: 1,
-        designTheme: "pine-milk",
+        designTheme: "plum-milk",
         sidebarWidth: 999,
         fontScale: 1,
         projectPins: ["/work", "/work", 4],
@@ -43,7 +43,7 @@ test("frontend foundation normalizes preferences and preserves selected device s
   const { value: foundation } = loadBrowserModule("app-foundation.js", { storage, piI18n });
   const settings = foundation.loadSettings();
   assert.equal(foundation.loadSelected(), "mini");
-  assert.equal(settings.designTheme, "ink-ivory");
+  assert.equal(settings.designTheme, "plum-milk");
   assert.equal(settings.sidebarWidth, 440);
   assert.equal(settings.fontScale, 90);
   assert.deepEqual(Array.from(settings.projectPins), ["/work"]);
@@ -52,6 +52,24 @@ test("frontend foundation normalizes preferences and preserves selected device s
   assert.equal(foundation.currentMachine([{ id: "mini" }, { id: "mbp", self: true }], "missing").id, "mbp");
   foundation.saveSelected("mbp");
   assert.equal(storage.getItem("piharbor.selected.v1"), "mbp");
+});
+
+test("a saved Pine Milk choice survives and an unset theme falls back to the default", () => {
+  const withChoice = {
+    values: new Map([["piharbor.settings.v2", JSON.stringify({ designTheme: "pine-milk" })]]),
+    getItem(key) { return this.values.has(key) ? this.values.get(key) : null; },
+    setItem(key, value) { this.values.set(key, String(value)); },
+  };
+  const withoutChoice = {
+    values: new Map([["piharbor.settings.v2", JSON.stringify({ compact: true })]]),
+    getItem(key) { return this.values.has(key) ? this.values.get(key) : null; },
+    setItem(key, value) { this.values.set(key, String(value)); },
+  };
+  const piI18n = { normalizeLocale() { return "en"; } };
+  const kept = loadBrowserModule("app-foundation.js", { storage: withChoice, piI18n });
+  const defaulted = loadBrowserModule("app-foundation.js", { storage: withoutChoice, piI18n });
+  assert.equal(kept.value.loadSettings().designTheme, "pine-milk");
+  assert.equal(defaulted.value.loadSettings().designTheme, "ink-ivory");
 });
 
 test("frontend foundation migrates pre-Harbor preferences without renaming user devices", () => {

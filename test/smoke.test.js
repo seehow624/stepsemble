@@ -40,6 +40,46 @@ test("Pi Harbor ships its own Terminal Dock brand mark", () => {
   assert.match(logo, /#FAF7F0/);
 });
 
+test("the in-app brand mark follows the active theme colour without a plate", () => {
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const glyph = fs.readFileSync(path.join(root, "public", "pi-glyph.svg"), "utf8");
+  const markBlock = css.slice(css.indexOf(".login-mark.brand-mark"), css.indexOf("html[data-design-theme="));
+  assert.match(markBlock, /background-color: var\(--ink\)/);
+  assert.match(markBlock, /-webkit-mask: url\("\/pi-glyph\.svg"\)/);
+  assert.match(markBlock, /\n  mask: url\("\/pi-glyph\.svg"\)/);
+  assert.doesNotMatch(markBlock, /#09090b/i);
+  assert.doesNotMatch(markBlock, /border-radius: 1[0-9]px/);
+  assert.match(markBlock, /forced-colors: active/);
+  // The glyph must carry no background plate of its own.
+  assert.doesNotMatch(glyph, /<rect/);
+  assert.match(html, /class="login-mark brand-mark" role="img" aria-label="Pi Harbor"/);
+  assert.match(html, /class="brand-glyph" role="img" aria-label="Pi Harbor"/);
+});
+
+test("every selectable design theme defines its own light and dark palette", () => {
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  const foundation = fs.readFileSync(path.join(root, "public", "modules", "app-foundation.js"), "utf8");
+  const registry = foundation.slice(foundation.indexOf("const DESIGN_THEMES"), foundation.indexOf("const DESIGN_THEME_IDS"));
+  const ids = Array.from(registry.matchAll(/id: "([a-z-]+)"/g), (match) => match[1]);
+  assert.ok(ids.length >= 9, "theme registry should list every theme");
+  const palettes = new Map();
+  for (const id of ids) {
+    for (const mode of ["dark", "light"]) {
+      const marker = `html[data-design-theme="${id}"][data-theme="${mode}"] {`;
+      const start = css.indexOf(marker);
+      assert.notEqual(start, -1, `${id} is missing its ${mode} palette`);
+      const body = css.slice(start + marker.length, css.indexOf("}", start));
+      const paper = /--paper: (#[0-9A-Fa-f]{6})/.exec(body)?.[1];
+      const accent = /--accent: (#[0-9A-Fa-f]{6})/.exec(body)?.[1];
+      assert.ok(paper && accent, `${id} ${mode} must set --paper and --accent`);
+      const signature = `${mode}:${paper.toUpperCase()}/${accent.toUpperCase()}`;
+      assert.ok(!palettes.has(signature), `${id} duplicates the ${palettes.get(signature)} ${mode} palette`);
+      palettes.set(signature, id);
+    }
+  }
+});
+
 test("SSE streams subscribe before replay and expose a readiness handshake", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const httpUtils = fs.readFileSync(path.join(root, "server", "http-utils.js"), "utf8");
@@ -322,7 +362,7 @@ test("localization is English-first with an explicit locale selector and safe fa
   assert.match(i18n, /root\.nodeType !== Node\.ELEMENT_NODE/);
   assert.match(foundation, /locale: "en"/);
   assert.match(foundation, /designTheme: "ink-ivory"/);
-  for (const theme of ["plum-milk", "ocean-ivory", "cloud-jet", "cloud-smog", "etoile"]) {
+  for (const theme of ["pine-milk", "plum-milk", "ocean-ivory", "cloud-jet", "cloud-smog", "etoile"]) {
     assert.match(foundation, new RegExp(`id: "${theme}"`));
     assert.match(css, new RegExp(`data-design-theme="${theme}"`));
   }

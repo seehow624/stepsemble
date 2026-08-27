@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.3
+
+- Gave Pine Milk its own pine-and-cream palette. It previously had no colours
+  of its own and fell back to the default theme, so it looked identical to
+  Ink & Ivory.
+- Kept a saved Pine Milk selection instead of resetting it to the default.
+- Drew the in-app brand mark from the theme's text colour with no plate behind
+  it, so it reads light on dark themes and dark on light themes.
+
 ## 2.0.2
 
 - Kept an automatically updated v1 service on its configured token file, port,

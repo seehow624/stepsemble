@@ -1,4 +1,4 @@
-/* pi-harbor v2.0.2 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.0.3 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -1972,17 +1972,37 @@ body.compact #view-list .session-item .s-meta { margin-top: 1px; font-size: .55r
 /* ===========================================================================
    v1.9 — Theme choices + Codex-style tool rows / activity states
    =========================================================================== */
-.login-mark.brand-mark {
-  display: grid;
-  place-items: center;
+/* The brand mark is drawn as a mask so it inherits the active theme colour.
+   A dark theme renders it light, a light theme renders it dark, and no
+   container plate is painted behind it. */
+.login-mark.brand-mark,
+.onboarding-brand .brand-glyph {
+  display: block;
   padding: 0;
-  overflow: hidden;
-  background: #09090b;
   border: 0;
+  border-radius: 0;
+  background-color: var(--ink);
+  -webkit-mask: url("/pi-glyph.svg") center / contain no-repeat;
+  mask: url("/pi-glyph.svg") center / contain no-repeat;
 }
-.login-mark.brand-mark img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.login-mark.brand-mark { color: transparent; font-size: 0; line-height: 0; }
+.onboarding-brand .brand-glyph { width: 34px; height: 34px; flex: none; }
+@media (forced-colors: active) {
+  .login-mark.brand-mark,
+  .onboarding-brand .brand-glyph { background-color: CanvasText; }
+}
 
 /* Nine optional design themes with readable light and dark variants. */
+html[data-design-theme="pine-milk"][data-theme="dark"] {
+  --paper: #12211A; --ink: #E9F1EA; --pine: #7FB894; --pine-soft: #9BB5A4;
+  --milk: #1A2E24; --line: rgba(233,241,234,.12); --accent: #7FB894;
+  --bubble-user: #24402F; --bubble-ai: #17271F; --sheet-bg: rgba(7,18,13,.68); --gold: #A7D3B6;
+}
+html[data-design-theme="pine-milk"][data-theme="light"] {
+  --paper: #F3F7F1; --ink: #1E3327; --pine: #2F5D43; --pine-soft: #5F7D6B;
+  --milk: #FCFEFB; --line: rgba(30,51,39,.14); --accent: #2F5D43;
+  --bubble-user: #DFEBE1; --bubble-ai: #F7FBF6; --sheet-bg: rgba(30,51,39,.28); --gold: #4A7D5E;
+}
 html[data-design-theme="warm-paper"][data-theme="dark"] {
   --paper: #211F1B; --ink: #EEE8DC; --pine: #C4A570; --pine-soft: #A98C58;
   --milk: #2B2823; --line: rgba(238,232,220,.12); --accent: #C4A570;

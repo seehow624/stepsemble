@@ -55,12 +55,10 @@
       const raw = v2 || LEGACY_SETTINGS_KEYS.map((key) => global.localStorage.getItem(key)).find(Boolean) || "{}";
       const parsed = JSON.parse(raw);
       const out = { ...DEFAULT_SETTINGS, ...parsed };
-      const savedVersion = Number(parsed.settingsVersion) || 0;
-      // Ink & Ivory is the new default. Migrate the old implicit Pine Milk
-      // default once, while preserving any other theme the user selected.
-      if (savedVersion < SETTINGS_VERSION && (!parsed.designTheme || parsed.designTheme === "pine-milk")) {
-        out.designTheme = DEFAULT_SETTINGS.designTheme;
-      }
+      // Ink & Ivory is the default for anyone who never picked a theme. A saved
+      // choice is always kept, including Pine Milk, which now has its own
+      // palette instead of silently falling back to the default colours.
+      if (!parsed.designTheme) out.designTheme = DEFAULT_SETTINGS.designTheme;
       out.settingsVersion = SETTINGS_VERSION;
       out.locale = global.piI18n?.normalizeLocale(out.locale) || "en";
       if (!DESIGN_THEME_IDS.has(out.designTheme)) out.designTheme = DEFAULT_SETTINGS.designTheme;
