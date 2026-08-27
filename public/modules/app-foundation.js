@@ -102,12 +102,12 @@
     const name = String(typeof machine === "string" ? machine : machine?.name || "").trim();
     // Keep the configured alias. Do not bake a user's computer model into the
     // public client; a generic fallback is safer for newly discovered hosts.
-    return name || "Pi Web device";
+    return name || "Pi Harbor device";
   }
 
   function machineDisplayHost(machine) {
     const host = String(machine?.host || "").trim();
-    return host ? "Pi Web" : "";
+    return host ? "Pi Harbor" : "";
   }
 
   function machineName(machines, id) {

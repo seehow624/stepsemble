@@ -1,8 +1,8 @@
-# Pi Web（繁體中文）
+# Pi Harbor（繁體中文）
 
 [English](README.md) · [简体中文](README.zh-Hans.md) · 繁體中文 · [日本語](README.ja.md) · [한국어](README.ko.md) · [Türkçe](README.tr.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Español](README.es.md) · [Português](README.pt-BR.md) · [Italiano](README.it.md)
 
-Pi Web 是開源、手機優先的 Pi coding agent 網頁客戶端。它支援瀏覽與繼續工作階段、建立專案、預覽圖片，也能從手機或桌面瀏覽器切換多台 Pi Web 電腦。
+Pi Harbor 是開源、手機優先的 Pi coding agent 網頁客戶端。它支援瀏覽與繼續工作階段、建立專案、預覽圖片，也能從手機或桌面瀏覽器切換多台 Pi Harbor 電腦。
 
 ## 隱私與安全
 
@@ -10,7 +10,7 @@ Pi Web 是開源、手機優先的 Pi coding agent 網頁客戶端。它支援�
 
 ## 快速開始
 
-在每一台要執行 Pi Web 的電腦上執行：
+在每一台要執行 Pi Harbor 的電腦上執行：
 
 ```bash
 git clone https://github.com/seehow624/pi-web.git
@@ -25,7 +25,7 @@ PI_WEB_TOKEN_FILE="$HOME/.config/pi-web/token" node server.js
 
 ## 多台電腦
 
-每台電腦都執行自己的 Pi Web 實例。在 **Settings → Devices** 加入顯示名稱與可存取的 HTTPS 位址，也可以使用一次性配對碼。顯示名稱只影響介面，不會修改系統主機名稱。
+每台電腦都執行自己的 Pi Harbor 實例。在 **Settings → Devices** 加入顯示名稱與可存取的 HTTPS 位址，也可以使用一次性配對碼。顯示名稱只影響介面，不會修改系統主機名稱。
 
 ## 自動更新
 

@@ -1,8 +1,8 @@
-# Pi Web（简体中文）
+# Pi Harbor（简体中文）
 
 [English](README.md) · 简体中文 · [繁體中文](README.zh-Hant.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Türkçe](README.tr.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Español](README.es.md) · [Português](README.pt-BR.md) · [Italiano](README.it.md)
 
-Pi Web 是一个开源、移动优先的 Pi coding agent 网页客户端。它支持查看和继续会话、创建项目、预览图片，以及从手机或桌面浏览器切换多台 Pi Web 电脑。
+Pi Harbor 是一个开源、移动优先的 Pi coding agent 网页客户端。它支持查看和继续会话、创建项目、预览图片，以及从手机或桌面浏览器切换多台 Pi Harbor 电脑。
 
 ## 隐私与安全
 
@@ -10,7 +10,7 @@ Pi Web 是一个开源、移动优先的 Pi coding agent 网页客户端。它�
 
 ## 快速开始
 
-在每一台需要运行 Pi Web 的电脑上执行：
+在每一台需要运行 Pi Harbor 的电脑上执行：
 
 ```bash
 git clone https://github.com/seehow624/pi-web.git
@@ -25,7 +25,7 @@ PI_WEB_TOKEN_FILE="$HOME/.config/pi-web/token" node server.js
 
 ## 多台电脑
 
-每台电脑都运行自己的 Pi Web 实例。在 **Settings → Devices** 中添加显示名称和可访问的 HTTPS 地址，也可以用一次性配对码添加。显示名称只影响界面，不会修改系统主机名。
+每台电脑都运行自己的 Pi Harbor 实例。在 **Settings → Devices** 中添加显示名称和可访问的 HTTPS 地址，也可以用一次性配对码添加。显示名称只影响界面，不会修改系统主机名。
 
 ## 自动更新
 

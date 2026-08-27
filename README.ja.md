@@ -1,8 +1,8 @@
-# Pi Web（日本語）
+# Pi Harbor（日本語）
 
 [English](README.md) · [简体中文](README.zh-Hans.md) · [繁體中文](README.zh-Hant.md) · 日本語 · [한국어](README.ko.md) · [Türkçe](README.tr.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Español](README.es.md) · [Português](README.pt-BR.md) · [Italiano](README.it.md)
 
-Pi Web は、Pi coding agent 用のオープンソースなモバイル優先 Web クライアントです。セッションの閲覧と継続、プロジェクト作成、画像プレビュー、複数の Pi Web コンピューターの切り替えに対応します。
+Pi Harbor は、Pi coding agent 用のオープンソースなモバイル優先 Web クライアントです。セッションの閲覧と継続、プロジェクト作成、画像プレビュー、複数の Pi Harbor コンピューターの切り替えに対応します。
 
 ## プライバシーと安全性
 
@@ -19,7 +19,7 @@ chmod 600 ~/.config/pi-web/token
 PI_WEB_TOKEN_FILE="$HOME/.config/pi-web/token" node server.js
 ```
 
-各コンピューターで Pi Web を実行し、HTTPS URL とローカルトークンでログインします。トークンを Git、チャット、スクリーンショット、ログに保存しないでください。
+各コンピューターで Pi Harbor を実行し、HTTPS URL とローカルトークンでログインします。トークンを Git、チャット、スクリーンショット、ログに保存しないでください。
 
 ## 複数コンピューターと更新
 

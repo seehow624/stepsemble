@@ -1,4 +1,4 @@
-/* pi-web v1.11.21 — English-first localization and provider catalog */
+/* pi-harbor v1.12.0 — English-first localization and provider catalog */
 "use strict";
 
 // The browser remains buildless, but feature-independent foundations live in
@@ -7,7 +7,7 @@
 // being duplicated across future feature modules.
 const foundation = window.piWebFoundation;
 const sessionUtils = window.piWebSessionUtils;
-if (!foundation || !sessionUtils) throw new Error("Pi Web foundation modules are missing");
+if (!foundation || !sessionUtils) throw new Error("Pi Harbor foundation modules are missing");
 const {
   SELECTED_KEY, SETTINGS_KEY, LEGACY_SETTINGS_KEY, SETTINGS_VERSION,
   DESIGN_THEMES, DESIGN_THEME_IDS, DEFAULT_SETTINGS,
@@ -1231,7 +1231,7 @@ async function connectRpc(opts, generation = viewGeneration) {
       };
       es.onopen = () => {
         if (rpc?.sid !== sid) { try { es.close(); } catch {} return; }
-        // onopen is the transport-level fallback for older Pi Web peers;
+        // onopen is the transport-level fallback for older Pi Harbor peers;
         // current peers also send the named `connected` readiness handshake
         // below with a state snapshot.
         markStreamReady();
@@ -3175,7 +3175,7 @@ function renderUpdateStatus(data = updateStatusData) {
     el.setAutoUpdate.checked = false;
     el.setAutoUpdate.disabled = true;
     el.updateCheck.disabled = true;
-    el.updateStatusCopy.textContent = "Update status is unavailable on this Pi Web device";
+    el.updateStatusCopy.textContent = "Update status is unavailable on this Pi Harbor device";
     el.updateCheckStatus.textContent = "Updater status unavailable";
     return;
   }
@@ -3184,7 +3184,7 @@ function renderUpdateStatus(data = updateStatusData) {
   el.setAutoUpdate.disabled = !installed;
   el.updateCheck.disabled = !installed;
   if (!installed) {
-    el.updateStatusCopy.textContent = "Install the Pi Web updater service to enable automatic updates";
+    el.updateStatusCopy.textContent = "Install the Pi Harbor updater service to enable automatic updates";
     el.updateCheckStatus.textContent = "Updater service not installed";
     return;
   }
@@ -3195,7 +3195,7 @@ function renderUpdateStatus(data = updateStatusData) {
     el.updateCheckStatus.textContent = `Last check failed: ${updater.error}`;
   } else if (updater.latestSha && updater.currentSha && updater.latestSha !== updater.currentSha) {
     el.updateCheckStatus.textContent = updater.latestVersion
-      ? `Update available: Pi Web ${updater.latestVersion}`
+      ? `Update available: Pi Harbor ${updater.latestVersion}`
       : "Update available from GitHub";
   } else if (updater.lastCheckedAt) {
     el.updateCheckStatus.textContent = `Up to date · checked ${new Date(updater.lastCheckedAt).toLocaleString()}`;
@@ -3215,7 +3215,7 @@ async function loadUpdateStatus() {
     if (request !== updateStatusRequest) return;
     updateStatusData = null;
     renderUpdateStatus(null);
-    if (el.updateCheckStatus) el.updateCheckStatus.textContent = error.status === 404 ? "Update controls require a newer Pi Web" : "Updater status unavailable";
+    if (el.updateCheckStatus) el.updateCheckStatus.textContent = error.status === 404 ? "Update controls require a newer Pi Harbor" : "Updater status unavailable";
   }
 }
 
@@ -3640,7 +3640,7 @@ function selectProviderPreset(provider) {
       el.providerSwitchDevice.textContent = window.piI18n?.t("Switch device") || "Switch device";
     }
     if (el.providerSimpleStatus) {
-      el.providerSimpleStatus.textContent = "Update Pi Web on this device to add or change provider credentials.";
+      el.providerSimpleStatus.textContent = "Update Pi Harbor on this device to add or change provider credentials.";
       el.providerSimpleStatus.classList.add("is-readonly");
     }
     el.providerAuthOptions?.scrollIntoView({ block: "nearest", behavior: settings.reducedMotion ? "auto" : "smooth" });
@@ -3681,7 +3681,7 @@ async function loadProviderCatalog(force = false) {
     el.providerAdvancedToggle?.classList.toggle("hidden", !!providerDialogExisting);
     return providerCatalog;
   } catch (error) {
-    // A remote device running an older Pi Web can still use /api/models, but
+    // A remote device running an older Pi Harbor can still use /api/models, but
     // it does not know the provider catalog/configuration endpoints. The
     // gateway owns the same static catalog, so show it read-only instead of
     // exposing a raw 404 or an empty picker.
@@ -3695,7 +3695,7 @@ async function loadProviderCatalog(force = false) {
           ? fallback.providers.map((provider) => ({ ...provider, configured: false, configuredType: null }))
           : [];
         providerCatalogReadOnly = true;
-        providerCatalogNotice = "This device is running an older Pi Web. The catalog is view-only until it is updated.";
+        providerCatalogNotice = "This device is running an older Pi Harbor. The catalog is view-only until it is updated.";
         providerCatalogMachine = machineAtStart;
         el.providerAdvancedToggle?.classList.add("hidden");
         setProviderFormError();
@@ -4125,7 +4125,7 @@ async function loadModelVisibility(force = false, skipSession = false) {
       const providerError = providersResult.reason;
       if (providerError?.status === 404 && apiBase) {
         modelProviderError = "";
-        modelProviderNotice = "Provider management requires Pi Web 1.10.5 or later on this device.";
+        modelProviderNotice = "Provider management requires Pi Harbor 1.10.5 or later on this device.";
       } else {
         modelProviderError = providerError?.message || "unknown error";
         modelProviderNotice = "";
@@ -4328,7 +4328,7 @@ async function fetchMachineStatusEndpoint(machine, endpoint) {
 async function checkMachineStatus(machine) {
   const health = await fetchMachineStatusEndpoint(machine, "/api/health");
   if (health?.ok) return "online";
-  // Older Pi Web instances do not expose /api/health yet, but /api/machine is
+  // Older Pi Harbor instances do not expose /api/health yet, but /api/machine is
   // available on those builds. Treat that compatibility response as online
   // instead of showing a healthy, actively used device as offline.
   if (!health || ![404, 405].includes(health.status)) return "offline";
@@ -4447,7 +4447,7 @@ async function generateMachinePairingOffer() {
     const result = await post("/api/device-pairing/start", {});
     el.machinePairOffer.value = result.offer || "";
     el.machinePairOfferArea.classList.remove("hidden");
-    if (el.machineStatusNote) el.machineStatusNote.textContent = "配對碼 5 分鐘內有效，複製到另一台 Pi Web 使用。";
+    if (el.machineStatusNote) el.machineStatusNote.textContent = "配對碼 5 分鐘內有效，複製到另一台 Pi Harbor 使用。";
     try { await navigator.clipboard?.writeText(result.offer || ""); toast("配對碼已複製"); }
     catch { toast("配對碼已產生，請手動複製"); }
   } catch (error) {
@@ -4502,7 +4502,7 @@ async function testMachineDialogConnection() {
   machineStatuses.set(machine.id, status);
   renderMachineList();
   if (el.machineStatusNote) el.machineStatusNote.textContent = status === "online"
-    ? "連線成功，Pi Web 正常回應。" : "連線失敗；請確認 Pi Web、port 與 Tailscale／HTTPS 網址。";
+    ? "連線成功，Pi Harbor 正常回應。" : "連線失敗；請確認 Pi Harbor、port 與 Tailscale／HTTPS 網址。";
   el.machineTest.disabled = false;
 }
 
@@ -4513,9 +4513,9 @@ async function saveMachineDialog() {
   const existing = machineDialogExisting;
   const isLocal = !!existing?.local;
   const port = Number(el.machinePort?.value || 0);
-  if (!name || (!isLocal && !url)) { setMachineFormError(isLocal ? "請填寫設備名稱。" : "請填寫設備名稱與 Pi Web 網址。"); return; }
+  if (!name || (!isLocal && !url)) { setMachineFormError(isLocal ? "請填寫設備名稱。" : "請填寫設備名稱與 Pi Harbor 網址。"); return; }
   if (isLocal && (!Number.isInteger(port) || port < 1024 || port > 65535)) {
-    setMachineFormError("Pi Web port 必須是 1024–65535 的整數。"); return;
+    setMachineFormError("Pi Harbor port 必須是 1024–65535 的整數。"); return;
   }
   el.machineSave.disabled = true;
   setMachineFormError();
@@ -4528,7 +4528,7 @@ async function saveMachineDialog() {
       await reloadMachineCatalog();
       if (machineDialogRestartRequired) {
         el.machineRestart?.classList.remove("hidden");
-        if (el.machineStatusNote) el.machineStatusNote.textContent = "設定已保存；新的 port 需要重新啟動 Pi Web 後才會生效。";
+        if (el.machineStatusNote) el.machineStatusNote.textContent = "設定已保存；新的 port 需要重新啟動 Pi Harbor 後才會生效。";
         toast("設備名稱已更新；port 等待重啟後生效");
       } else {
         closeMachineDialog();
@@ -4550,16 +4550,16 @@ async function saveMachineDialog() {
 }
 
 async function restartMachineWeb() {
-  if (!machineDialogExisting?.local || !confirm("重新啟動 Pi Web 會中斷目前的瀏覽連線；正在執行的 Pi 工作會先嘗試安全收尾。要繼續嗎？")) return;
+  if (!machineDialogExisting?.local || !confirm("重新啟動 Pi Harbor 會中斷目前的瀏覽連線；正在執行的 Pi 工作會先嘗試安全收尾。要繼續嗎？")) return;
   el.machineRestart.disabled = true;
-  if (el.machineStatusNote) el.machineStatusNote.textContent = "正在要求 Pi Web 重新啟動…";
+  if (el.machineStatusNote) el.machineStatusNote.textContent = "正在要求 Pi Harbor 重新啟動…";
   try {
     await post("/api/device-restart", {});
-    toast("Pi Web 正在重新啟動");
+    toast("Pi Harbor 正在重新啟動");
     setTimeout(() => location.reload(), 1200);
   } catch (error) {
     el.machineRestart.disabled = false;
-    setMachineFormError(error.message || "無法重新啟動 Pi Web");
+    setMachineFormError(error.message || "無法重新啟動 Pi Harbor");
   }
 }
 
@@ -4698,7 +4698,7 @@ if ("serviceWorker" in navigator) {
       toast("新版已準備好；目前工作完成後可重新整理。", false);
       return;
     }
-    toast("Pi Web 已更新，正在重新載入…", false);
+    toast("Pi Harbor 已更新，正在重新載入…", false);
     setTimeout(() => location.reload(), 900);
   });
   navigator.serviceWorker.register("/sw.js").catch(() => {});

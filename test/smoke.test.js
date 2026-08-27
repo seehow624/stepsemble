@@ -123,8 +123,8 @@ test("model settings expose a unified provider list without returning secrets", 
   assert.match(server, /AuthStorage\.create/);
   assert.match(app, /function openProviderDialog/);
   assert.match(app, /providerCatalogReadOnly/);
-  assert.match(app, /older Pi Web/);
-  assert.match(app, /Provider management requires Pi Web 1\.10\.5/);
+  assert.match(app, /older Pi Harbor/);
+  assert.match(app, /Provider management requires Pi Harbor 1\.10\.5/);
   assert.match(app, /function beginProviderAuth/);
   assert.match(app, /function renderProviderPresets/);
   assert.match(app, /PROVIDER_CATEGORY_META/);
@@ -207,7 +207,7 @@ test("device settings support stable aliases, port changes, health checks, and o
   assert.match(server, /function createPairingOffer/);
   assert.match(app, /function refreshMachineStatuses/);
   assert.match(app, /function fetchMachineStatusEndpoint/);
-  assert.match(app, /Older Pi Web instances do not expose \/api\/health/);
+  assert.match(app, /Older Pi Harbor instances do not expose \/api\/health/);
   assert.match(app, /\/api\/machine/);
   assert.match(app, /function generateMachinePairingOffer/);
   assert.match(app, /function restartMachineWeb/);

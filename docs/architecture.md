@@ -1,6 +1,6 @@
-# Pi Web architecture
+# Pi Harbor architecture
 
-Pi Web intentionally remains a dependency-free Node/PWA application. The
+Pi Harbor intentionally remains a dependency-free Node/PWA application. The
 runtime is local to each Pi Agent computer, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
@@ -41,4 +41,4 @@ explicit input/output boundary before adding more state to the controllers.
 The next low-risk extractions are session rendering, provider management, and
 device management. A React/Vite client can be introduced later if those areas
 need component-level isolation; a full Next.js migration should wait until
-Pi Web becomes a multi-user hosted service.
+Pi Harbor becomes a multi-user hosted service.

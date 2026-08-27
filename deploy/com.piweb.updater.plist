@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<!-- Replace __USER__ and install this LaunchAgent on each Pi Web computer. -->
+<!-- Replace __USER__ and install this LaunchAgent on each Pi Harbor computer. -->
 <dict>
   <key>Label</key>
   <string>com.piweb.updater</string>

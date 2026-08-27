@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Pi Web updater for macOS launchd.
+# Pi Harbor updater for macOS launchd.
 #
 # The updater lives outside the application directory so it can replace the
 # application atomically. It downloads only the public GitHub repository and
@@ -183,7 +183,7 @@ if ! "$TAR_BIN" -xzf "$archive" -C "$extract_dir"; then
 fi
 source_dir="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -print -quit)"
 if [[ -z "$source_dir" || ! -f "$source_dir/server.js" || ! -f "$source_dir/public/index.html" || ! -f "$source_dir/package.json" ]]; then
-  log "downloaded repository does not look like a Pi Web release"
+  log "downloaded repository does not look like a Pi Harbor release"
   exit 1
 fi
 
@@ -217,4 +217,4 @@ write_state "$state_json"
 if [[ -x "$LAUNCHCTL_BIN" && -n "$SERVICE_LABEL" ]]; then
   "$LAUNCHCTL_BIN" kickstart -k "gui/$(id -u)/$SERVICE_LABEL" >/dev/null 2>&1 || log "release installed; launchd restart was not available"
 fi
-log "updated Pi Web to $version ($latest_sha)"
+log "updated Pi Harbor to $version ($latest_sha)"

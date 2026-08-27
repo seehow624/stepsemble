@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Pi Web launcher for a macOS host where launchd must start the server through
+# Pi Harbor launcher for a macOS host where launchd must start the server through
 # an SSH child process. Copy this file to ~/.local/share/pi-web-bin/start.sh.
 set -eu
 
@@ -22,7 +22,7 @@ export PI_WEB_BROWSE_ROOTS="${PI_WEB_BROWSE_ROOTS:-$HOME,/Volumes}"
 NODE_BIN="${NODE_BIN:-$(command -v node || true)}"
 
 if [[ -z "$NODE_BIN" || -z "$PI_BIN" ]]; then
-  print -u2 "Pi Web needs both node and pi on PATH, or set NODE_BIN and PI_BIN."
+  print -u2 "Pi Harbor needs both node and pi on PATH, or set NODE_BIN and PI_BIN."
   exit 1
 fi
 

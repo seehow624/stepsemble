@@ -29,7 +29,7 @@ const { createHttpUtils } = require("./server/http-utils");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "1.11.21";
+const APP_VERSION = "1.12.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -363,7 +363,7 @@ function startUpdateCheck() {
   let stat;
   try { stat = fs.statSync(UPDATE_SCRIPT_FILE); } catch { stat = null; }
   if (!stat?.isFile()) {
-    const err = new Error("The Pi Web updater is not installed on this device");
+    const err = new Error("The Pi Harbor updater is not installed on this device");
     err.statusCode = 409;
     throw err;
   }
@@ -484,14 +484,15 @@ function createPairingOffer() {
   const expiresAt = Date.now() + 5 * 60 * 1000;
   pairingOffers.set(nonce, { nonce, expiresAt });
   const payload = Buffer.from(JSON.stringify({ version: 1, nonce, expiresAt, device: { id: device.id, name: device.name, host: device.host, url: device.publicUrl } })).toString("base64url");
-  return { offer: `PIWEB1.${payload}`, expiresAt, device };
+  return { offer: `PIHARBOR1.${payload}`, expiresAt, device };
 }
 
 function decodePairingOffer(value) {
   const raw = typeof value === "string" ? value.trim() : "";
-  if (!raw.startsWith("PIWEB1.")) { const err = new Error("Invalid pairing code format"); err.statusCode = 400; throw err; }
+  const prefix = ["PIHARBOR1.", "PIWEB1."].find((candidate) => raw.startsWith(candidate));
+  if (!prefix) { const err = new Error("Invalid pairing code format"); err.statusCode = 400; throw err; }
   let decoded;
-  try { decoded = JSON.parse(Buffer.from(raw.slice(7), "base64url").toString("utf8")); } catch {
+  try { decoded = JSON.parse(Buffer.from(raw.slice(prefix.length), "base64url").toString("utf8")); } catch {
     const err = new Error("Could not read pairing code"); err.statusCode = 400; throw err;
   }
   if (!decoded || decoded.version !== 1 || typeof decoded.nonce !== "string" || !decoded.expiresAt || !decoded.device?.url) {
@@ -741,7 +742,7 @@ async function listSessions() {
     return results;
   }
   for (const d of dirs) {
-    // Dot-prefixed directories are reserved for Pi Web internals (for
+    // Dot-prefixed directories are reserved for Pi Harbor internals (for
     // example .archive) and must not appear as projects in the session list.
     if (!d.isDirectory() || d.name.startsWith(".")) continue;
     const dirAbs = path.join(SESSIONS_DIR, d.name);
@@ -2770,7 +2771,7 @@ const server = http.createServer(async (req, res) => {
         try {
           const name = typeof body.name === "string" && body.name.trim() ? body.name.trim().slice(0, 80) : MACHINE_NAME;
           const nextPort = Object.prototype.hasOwnProperty.call(body, "port") ? parsePort(body.port) : PORT;
-          if (!nextPort) { const err = new Error("Pi Web port must be an integer from 1024 to 65535"); err.statusCode = 400; throw err; }
+          if (!nextPort) { const err = new Error("Pi Harbor port must be an integer from 1024 to 65535"); err.statusCode = 400; throw err; }
           const nextPublicUrl = Object.prototype.hasOwnProperty.call(body, "publicUrl")
             ? normalizePublicUrl(body.publicUrl) : (localDeviceConfig.publicUrl || "");
           const id = selfMachineId() || LOCAL_DEVICE_ID || machineId(MACHINE_HOST);
@@ -2792,7 +2793,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (p === "/api/device-restart" && req.method === "POST") {
-          sendJSON(res, 202, { restarting: true, message: "Pi Web will restart after the current work finishes safely." });
+          sendJSON(res, 202, { restarting: true, message: "Pi Harbor will restart after the current work finishes safely." });
         setTimeout(() => { try { process.kill(process.pid, "SIGTERM"); } catch {} }, 250).unref();
         return;
       }

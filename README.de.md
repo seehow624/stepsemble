@@ -1,8 +1,8 @@
-# Pi Web (Deutsch)
+# Pi Harbor (Deutsch)
 
 [English](README.md) · [简体中文](README.zh-Hans.md) · [繁體中文](README.zh-Hant.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Türkçe](README.tr.md) · [Français](README.fr.md) · Deutsch · [Español](README.es.md) · [Português](README.pt-BR.md) · [Italiano](README.it.md)
 
-Pi Web ist ein quelloffener, mobil optimierter Webclient für Pi coding agent. Sitzungen können angezeigt und fortgesetzt, Projekte gestartet, Bilder angesehen und mehrere Pi-Web-Computer gewechselt werden.
+Pi Harbor ist ein quelloffener, mobil optimierter Webclient für Pi coding agent. Sitzungen können angezeigt und fortgesetzt, Projekte gestartet, Bilder angesehen und mehrere Pi Harbor-Computer gewechselt werden.
 
 ## Datenschutz
 
@@ -19,7 +19,7 @@ chmod 600 ~/.config/pi-web/token
 PI_WEB_TOKEN_FILE="$HOME/.config/pi-web/token" node server.js
 ```
 
-Pi Web auf jedem Computer starten und mit HTTPS-Adresse und lokalem Token anmelden. Token niemals in Git, Chats, Screenshots oder Logs ablegen.
+Pi Harbor auf jedem Computer starten und mit HTTPS-Adresse und lokalem Token anmelden. Token niemals in Git, Chats, Screenshots oder Logs ablegen.
 
 Unter **Settings → Devices** lassen sich weitere Computer hinzufügen. Die launchd-Vorlagen in `deploy/` unterstützen automatische Updates.
 

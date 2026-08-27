@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<title>Pi Web</title>
+<title>Pi Harbor</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=1.11.21">
-<link rel="icon" href="/pi-logo.svg?v=1.11.21" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-180.png?v=1.11.21">
-<link rel="stylesheet" href="/style.css?v=1.11.21">
+<link rel="manifest" href="/manifest.webmanifest?v=1.12.0">
+<link rel="icon" href="/pi-logo.svg?v=1.12.0" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png?v=1.12.0">
+<link rel="stylesheet" href="/style.css?v=1.12.0">
 </head>
 <body>
 
@@ -42,8 +42,8 @@
 <!-- Login -->
 <div id="login" class="overlay hidden">
   <div class="login-card">
-    <div class="login-mark official-mark"><img src="/pi-logo.svg?v=1.11.21" alt="Pi"></div>
-    <h1>Pi Web</h1>
+    <div class="login-mark official-mark"><img src="/pi-logo.svg?v=1.12.0" alt="Pi"></div>
+    <h1>Pi Harbor</h1>
     <p class="login-machine" id="login-machine"></p>
     <form id="login-form">
       <input id="login-token" type="password" inputmode="text" autocomplete="current-password"
@@ -114,7 +114,7 @@
     </header>
     <div id="messages" class="messages">
       <div id="chat-empty" class="chat-empty">
-        <div class="login-mark official-mark"><img src="/pi-logo.svg?v=1.11.21" alt="Pi"></div>
+        <div class="login-mark official-mark"><img src="/pi-logo.svg?v=1.12.0" alt="Pi"></div>
         <p>Select a session,<br>or start a new conversation</p>
       </div>
     </div>
@@ -163,7 +163,7 @@
           </div>
         </div>
         <div id="machine-list" class="machine-list"></div>
-        <p class="settings-note">To add another Pi Agent computer, run Pi Web there and enter its Tailscale or HTTPS address. You can also use a one-time pairing code. Both devices must use the same Web token.</p>
+        <p class="settings-note">To add another Pi Agent computer, run Pi Harbor there and enter its Tailscale or HTTPS address. You can also use a one-time pairing code. Both devices must use the same Web token.</p>
       </section>
 
       <section class="settings-group">
@@ -201,7 +201,7 @@
       <section class="settings-group">
         <h3 class="group-title">Interface</h3>
         <label class="settings-row settings-select-row">
-          <span><strong>Language</strong><small>Choose the language used by Pi Web</small></span>
+          <span><strong>Language</strong><small>Choose the language used by Pi Harbor</small></span>
           <select id="set-locale" aria-label="Language">
             <option value="en">English</option>
             <option value="zh-Hans">Simplified Chinese</option>
@@ -271,8 +271,8 @@
       <section class="settings-group">
         <h3 class="group-title">About</h3>
         <div class="settings-row">
-          <span><strong>Pi Web</strong><small>Mobile-first remote workspace for Pi</small></span>
-          <span class="settings-value">v1.11.21</span>
+          <span><strong>Pi Harbor</strong><small>Mobile-first remote workspace for Pi</small></span>
+          <span class="settings-value">v1.12.0</span>
         </div>
         <div class="settings-row">
           <span><strong>Gesture tips</strong><small>Pull down to refresh; swipe from the left edge to go back; long-press a session to rename or delete</small></span>
@@ -284,7 +284,7 @@
         </button>
       </section>
 
-      <p class="settings-footer">Pi Web · self-hosted on your tailnet</p>
+      <p class="settings-footer">Pi Harbor · self-hosted on your tailnet</p>
     </div>
   </main>
 
@@ -324,12 +324,12 @@
         <div><p class="eyebrow">PI AGENT DEVICE</p><h2 id="machine-dialog-title">Add device</h2></div>
         <button id="machine-cancel" class="btn ghost icon-btn" type="button" title="Close" aria-label="Close"><svg class="icon"><use href="#i-x"></use></svg></button>
       </div>
-      <p class="settings-note machine-dialog-note">Each device must run Pi Web (default port 3140) with this Web token. Use a Tailscale Serve or HTTPS URL reachable from this device.</p>
+      <p class="settings-note machine-dialog-note">Each device must run Pi Harbor (default port 3140) with this Web token. Use a Tailscale Serve or HTTPS URL reachable from this device.</p>
       <details class="machine-help">
         <summary>How to add a device</summary>
         <ol>
-          <li>Install and start Pi Web on the other computer. Keep it running and use the same Web token.</li>
-          <li>On that computer, copy its Tailscale Serve or HTTPS Pi Web address, then paste it into <strong>Pi Web URL</strong>.</li>
+          <li>Install and start Pi Harbor on the other computer. Keep it running and use the same Web token.</li>
+          <li>On that computer, copy its Tailscale Serve or HTTPS Pi Harbor address, then paste it into <strong>Pi Harbor URL</strong>.</li>
           <li>Enter a friendly device name, choose <strong>Test connection</strong>, and then select <strong>Save device</strong>.</li>
         </ol>
         <p>If you cannot copy a URL, use the link button in Devices to create a one-time pairing code. Enter that code here instead; it expires after five minutes.</p>
@@ -337,9 +337,9 @@
       <div id="machine-standard-fields">
         <label class="field-label" for="machine-name">Device name</label>
         <input id="machine-name" type="text" maxlength="80" autocomplete="off" placeholder="e.g. Work computer">
-        <label class="field-label" for="machine-url">Pi Web URL</label>
+        <label class="field-label" for="machine-url">Pi Harbor URL</label>
         <input id="machine-url" type="url" maxlength="500" autocomplete="url" placeholder="https://host.example or http://…:3140">
-        <label id="machine-port-label" class="field-label hidden" for="machine-port">Local Pi Web port</label>
+        <label id="machine-port-label" class="field-label hidden" for="machine-port">Local Pi Harbor port</label>
         <input id="machine-port" class="hidden" type="number" min="1024" max="65535" step="1" inputmode="numeric" placeholder="3140">
         <label class="field-label" for="machine-host">Host name (optional)</label>
         <input id="machine-host" type="text" maxlength="255" autocomplete="off" placeholder="e.g. office-laptop">
@@ -347,9 +347,9 @@
       <p id="machine-status-note" class="settings-note machine-status-note" role="status"></p>
       <p id="machine-form-error" class="form-error hidden" role="alert"></p>
       <div id="machine-pair-area" class="machine-pair-area hidden">
-        <p class="settings-note">Generate a pairing code in the other Pi Web device settings and paste it here. Codes expire after 5 minutes and can only be used once.</p>
+        <p class="settings-note">Generate a pairing code in the other Pi Harbor device settings and paste it here. Codes expire after 5 minutes and can only be used once.</p>
         <label class="field-label" for="machine-pair-code">One-time pairing code</label>
-        <textarea id="machine-pair-code" rows="4" spellcheck="false" autocomplete="off" placeholder="PIWEB1.…"></textarea>
+        <textarea id="machine-pair-code" rows="4" spellcheck="false" autocomplete="off" placeholder="PIHARBOR1.…"></textarea>
         <button id="machine-pair-join" class="btn primary" type="button">Verify and add</button>
       </div>
       <div id="machine-pair-offer-area" class="machine-pair-offer-area hidden">
@@ -357,7 +357,7 @@
         <textarea id="machine-pair-offer" rows="3" readonly spellcheck="false"></textarea>
         <button id="machine-pair-generate" class="btn ghost" type="button">Generate new pairing code</button>
       </div>
-      <button id="machine-restart" class="btn ghost machine-restart hidden" type="button">Restart Pi Web</button>
+      <button id="machine-restart" class="btn ghost machine-restart hidden" type="button">Restart Pi Harbor</button>
       <div class="sheet-actions">
         <button id="machine-delete" class="btn ghost danger-text hidden" type="button">Delete device</button>
         <span class="sheet-actions-spacer"></span>
@@ -586,9 +586,9 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=1.11.21"></script>
-<script src="/modules/app-foundation.js?v=1.11.21"></script>
-<script src="/modules/session-utils.js?v=1.11.21"></script>
-<script src="/app.js?v=1.11.21"></script>
+<script src="/i18n.js?v=1.12.0"></script>
+<script src="/modules/app-foundation.js?v=1.12.0"></script>
+<script src="/modules/session-utils.js?v=1.12.0"></script>
+<script src="/app.js?v=1.12.0"></script>
 </body>
 </html>
