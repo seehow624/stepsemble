@@ -30,9 +30,11 @@ test("service worker never intercepts API or relay requests", () => {
 
 test("SSE streams subscribe before replay and expose a readiness handshake", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const httpUtils = fs.readFileSync(path.join(root, "server", "http-utils.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
-  assert.match(server, /function sseFrame\(/);
-  assert.match(server, /function trySseWrite\(/);
+  assert.match(server, /createHttpUtils/);
+  assert.match(httpUtils, /function sseFrame\(/);
+  assert.match(httpUtils, /function trySseWrite\(/);
   assert.match(server, /s\.clients\.add\(res\);[\s\S]*?sseFrame\(\{[\s\S]*?type: "connected"/);
   assert.match(server, /run\.clients\.add\(res\);[\s\S]*?sseFrame\(\{[\s\S]*?type: "connected"/);
   assert.match(server, /req\.on\("aborted", cleanup\)/);
@@ -281,6 +283,7 @@ test("localization is English-first with an explicit locale selector and safe fa
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const foundation = fs.readFileSync(path.join(root, "public", "modules", "app-foundation.js"), "utf8");
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   assert.match(html, /<html lang="en"(?:\s|>)/);
   assert.match(html, /id="set-locale"/);
@@ -299,10 +302,10 @@ test("localization is English-first with an explicit locale selector and safe fa
   assert.match(i18n, /i18nAriaLabel/);
   assert.match(i18n, /getAttribute\(attr\) !== translated/);
   assert.match(i18n, /root\.nodeType !== Node\.ELEMENT_NODE/);
-  assert.match(app, /locale: "en"/);
-  assert.match(app, /designTheme: "ink-ivory"/);
+  assert.match(foundation, /locale: "en"/);
+  assert.match(foundation, /designTheme: "ink-ivory"/);
   for (const theme of ["plum-milk", "ocean-ivory", "cloud-jet", "cloud-smog", "etoile"]) {
-    assert.match(app, new RegExp(`id: "${theme}"`));
+    assert.match(foundation, new RegExp(`id: "${theme}"`));
     assert.match(css, new RegExp(`data-design-theme="${theme}"`));
   }
   assert.match(app, /PROJECT_SESSION_PREVIEW_LIMIT = 3/);

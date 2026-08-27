@@ -23,12 +23,13 @@ const os = require("node:os");
 const crypto = require("node:crypto");
 const { pathToFileURL } = require("node:url");
 const { spawn, execFileSync } = require("node:child_process");
+const { createHttpUtils } = require("./server/http-utils");
 
 // ---------------------------------------------------------------------------
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "1.11.20";
+const APP_VERSION = "1.11.21";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2361,22 +2362,6 @@ function providerAuthStream(req, res, url) {
   res.on("error", cleanup);
 }
 
-// Keep SSE framing in one place so regular RPC streams and provider-auth
-// streams share the same safety checks.  A failed write removes the client in
-// the caller; a false return from res.write is backpressure, not a disconnect.
-function sseFrame(data, eventName = null, id = null) {
-  const lines = [];
-  if (eventName) lines.push(`event: ${String(eventName).replace(/[\r\n]/g, "")}`);
-  if (id !== null && id !== undefined) lines.push(`id: ${String(id).replace(/[\r\n]/g, "")}`);
-  lines.push(`data: ${typeof data === "string" ? data : JSON.stringify(data)}`);
-  return lines.join("\n") + "\n\n";
-}
-
-function trySseWrite(res, payload) {
-  if (!res || res.destroyed || res.writableEnded) return false;
-  try { res.write(payload); return true; } catch { return false; }
-}
-
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -2385,83 +2370,12 @@ const MIME = {
   ".png": "image/png", ".svg": "image/svg+xml", ".ico": "image/x-icon",
 };
 
-function send(res, status, body, headers = {}) {
-  const h = {
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
-    "Referrer-Policy": "no-referrer",
-    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-    "Cross-Origin-Opener-Policy": "same-origin",
-    "Cross-Origin-Resource-Policy": "same-origin",
-    "X-Permitted-Cross-Domain-Policies": "none",
-    ...(SECURE_COOKIE ? { "Strict-Transport-Security": "max-age=31536000; includeSubDomains" } : {}),
-    "Content-Security-Policy": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
-    ...headers,
-  };
-  if (typeof body === "string" || Buffer.isBuffer(body)) {
-    if (!h["Content-Type"]) h["Content-Type"] = "text/plain; charset=utf-8";
-    h["Content-Length"] = Buffer.byteLength(body);
-  }
-  res.writeHead(status, h);
-  res.end(body);
-}
-
-function sendJSON(res, status, obj) {
-  send(res, status, JSON.stringify(obj), { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
-}
-
-function getCookie(req, key) {
-  const raw = req.headers.cookie || "";
-  for (const part of raw.split(";")) {
-    const [k, ...v] = part.trim().split("=");
-    if (k !== key) continue;
-    try { return decodeURIComponent(v.join("=")); } catch { return null; }
-  }
-  return null;
-}
-
-function isAuthed(req) {
-  return safeEqual(getCookie(req, "pi_web"), TOKEN_HASH);
-}
-
-function readBody(req, limit = 16 * 1024 * 1024) {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    let settled = false;
-    const chunks = [];
-    req.on("data", (c) => {
-      if (settled) return;
-      size += c.length;
-      if (size > limit) {
-        settled = true;
-        const err = new Error("body too large");
-        err.statusCode = 413;
-        reject(err);
-        req.resume();
-        return;
-      }
-      chunks.push(c);
-    });
-    req.on("end", () => {
-      if (!settled) { settled = true; resolve(Buffer.concat(chunks).toString("utf8")); }
-    });
-    req.on("error", (err) => { if (!settled) { settled = true; reject(err); } });
-  });
-}
-
-async function readJSON(req) {
-  const raw = await readBody(req);
-  if (!raw) return {};
-  try {
-    const value = JSON.parse(raw);
-    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("JSON object required");
-    return value;
-  } catch (cause) {
-    const err = new Error(cause.message === "JSON object required" ? cause.message : "invalid JSON body");
-    err.statusCode = 400;
-    throw err;
-  }
-}
+// Keep HTTP framing, security headers, cookies, and body parsing in one
+// dependency-free module so route handlers can stay focused on Pi behavior.
+const { sseFrame, trySseWrite, send, sendJSON, getCookie, isAuthed, readBody, readJSON } = createHttpUtils({
+  secureCookie: SECURE_COOKIE,
+  isTokenValid: (candidate) => safeEqual(candidate, TOKEN_HASH),
+});
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);

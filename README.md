@@ -141,6 +141,11 @@ npm run check
 npm test
 ```
 
+The current module boundaries and the gradual path toward a component-based
+client are documented in [docs/architecture.md](docs/architecture.md). The
+browser remains buildless by design, so a React or Next.js migration is not a
+requirement for running the self-hosted server.
+
 Before publishing, verify that no token, private URL, machine name, account,
 session, or usage data has entered the repository. Keep personal overrides in
 untracked files or in the user configuration directory.

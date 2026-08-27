@@ -1,14 +1,14 @@
 {
   "name": "pi-web",
   "private": true,
-  "version": "1.11.20",
+  "version": "1.11.21",
   "description": "Mobile-first web client for the Pi coding agent",
   "type": "commonjs",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "check": "node --check server.js && node --check public/i18n.js && node --check public/app.js",
+    "check": "node --check server.js && node --check server/http-utils.js && node --check public/i18n.js && node --check public/modules/app-foundation.js && node --check public/modules/session-utils.js && node --check public/app.js",
     "test": "node --test",
     "test:i18n": "node --test test/i18n.test.js"
   }
