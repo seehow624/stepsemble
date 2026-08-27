@@ -11,8 +11,8 @@ Il repository contiene solo il codice dell'applicazione e modelli di distribuzio
 ## Avvio rapido
 
 ```bash
-git clone https://github.com/seehow624/pi-web.git
-cd pi-web
+git clone https://github.com/seehow624/pi-harbor.git
+cd pi-harbor
 mkdir -p ~/.config/pi-web
 openssl rand -hex 32 > ~/.config/pi-web/token
 chmod 600 ~/.config/pi-web/token

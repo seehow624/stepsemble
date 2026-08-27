@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * HTTP/SSE primitives shared by Pi Web's route handlers.
+ * HTTP/SSE primitives shared by Pi Harbor's route handlers.
  *
  * Keeping these helpers independent from the route table makes it possible to
  * add route modules without copying security headers, cookie parsing, or body

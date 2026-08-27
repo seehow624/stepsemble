@@ -13,8 +13,8 @@ Pi Harbor 是一个开源、移动优先的 Pi coding agent 网页客户端。�
 在每一台需要运行 Pi Harbor 的电脑上执行：
 
 ```bash
-git clone https://github.com/seehow624/pi-web.git
-cd pi-web
+git clone https://github.com/seehow624/pi-harbor.git
+cd pi-harbor
 mkdir -p ~/.config/pi-web
 openssl rand -hex 32 > ~/.config/pi-web/token
 chmod 600 ~/.config/pi-web/token

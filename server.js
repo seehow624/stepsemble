@@ -52,7 +52,7 @@ const UPDATE_SCRIPT_FILE = process.env.PI_WEB_UPDATE_SCRIPT
   ? path.resolve(expandHome(process.env.PI_WEB_UPDATE_SCRIPT))
   : path.join(APP_HOME, ".local", "share", "pi-web-bin", "pi-web-update.sh");
 const BUNDLED_UPDATE_SCRIPT_FILE = path.join(__dirname, "deploy", "pi-web-update.sh");
-const DEFAULT_UPDATE_REPOSITORY = process.env.PI_WEB_UPDATE_REPO || "seehow624/pi-web";
+const DEFAULT_UPDATE_REPOSITORY = process.env.PI_WEB_UPDATE_REPO || "seehow624/pi-harbor";
 const DEFAULT_UPDATE_REF = process.env.PI_WEB_UPDATE_REF || "master";
 const MODEL_APIS = new Set(["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"]);
 const MACHINE_HOST = os.hostname().replace(/\.local$/, "");

@@ -14,7 +14,7 @@
     <key>HOME</key>
     <string>/Users/__USER__</string>
     <key>PI_WEB_UPDATE_REPO</key>
-    <string>seehow624/pi-web</string>
+    <string>seehow624/pi-harbor</string>
     <key>PI_WEB_UPDATE_REF</key>
     <string>master</string>
     <key>PI_WEB_INSTALL_DIR</key>
