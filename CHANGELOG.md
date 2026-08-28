@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.6
+
+- Added one quiet, collapsed task receipt after a tool-using run settles,
+  showing only its reliable outcome, edited-file count, and tool count.
+- Kept receipts out of ordinary text replies and preserved the existing
+  thinking, tool output, usage, and error details behind disclosure.
+- Distinguished completed, failed, interrupted, and missing-final-response
+  runs without treating intermediate retries or queued continuations as final.
+- Localized task receipts across all 11 supported languages.
+
 ## 2.0.5
 
 - Replaced the inactive desktop composer with one clear New project action

@@ -153,6 +153,53 @@ test("session display helpers remain independent from the controller", () => {
   assert.equal(utils.projectFolderName("(unknown)"), "Unassigned");
 });
 
+test("activity receipts report a successful tool run and distinct edited files", () => {
+  const { value: utils } = loadBrowserModule("session-utils.js", {
+    piI18n: { t(key) { return key; }, getLocale() { return "en"; } },
+  });
+  const stats = utils.activityReceiptStats([
+    { name: "write", args: { path: "/work/index.js" } },
+    { name: "edit", args: { file_path: "/work/index.js" } },
+    { name: "bash", args: { command: "npm test" } },
+  ]);
+  assert.equal(stats.toolCount, 3);
+  assert.equal(stats.editedFileCount, 1);
+  assert.equal(stats.hadToolError, false);
+  const receipt = utils.computeActivityReceipt({ ...stats, finalResponse: true });
+  assert.equal(receipt.status, "completed");
+  assert.equal(receipt.editedFileCount, 1);
+  assert.equal(receipt.toolCount, 3);
+  assert.equal(receipt.noFinalResponse, false);
+});
+
+test("activity receipts retain a failed tool outcome without inventing test counts", () => {
+  const { value: utils } = loadBrowserModule("session-utils.js");
+  const stats = utils.activityReceiptStats([
+    { name: "bash", args: { command: "npm test" }, isError: true },
+    { name: "read", args: { path: "/work/package.json" } },
+  ]);
+  assert.equal(stats.hadToolError, true);
+  const receipt = utils.computeActivityReceipt({ ...stats, outcome: "failed", finalResponse: false });
+  assert.equal(receipt.status, "failed");
+  assert.equal(receipt.toolCount, 2);
+  assert.equal(receipt.editedFileCount, 0);
+  assert.equal(receipt.noFinalResponse, false);
+});
+
+test("activity receipts mark a settled run without final assistant text as interrupted", () => {
+  const { value: utils } = loadBrowserModule("session-utils.js");
+  const receipt = utils.computeActivityReceipt({ toolCount: 1, finalResponse: false, outcome: "completed" });
+  assert.equal(receipt.status, "interrupted");
+  assert.equal(receipt.editedFileCount, 0);
+  assert.equal(receipt.toolCount, 1);
+  assert.equal(receipt.noFinalResponse, true);
+});
+
+test("pure text responses do not produce an activity receipt", () => {
+  const { value: utils } = loadBrowserModule("session-utils.js");
+  assert.equal(utils.computeActivityReceipt({ toolCount: 0, finalResponse: true }), null);
+});
+
 test("HTTP utility module centralizes framing, cookies, and JSON body limits", async () => {
   const http = createHttpUtils({ isTokenValid: (value) => value === "secret" });
   assert.equal(http.isAuthed({ headers: { cookie: "other=x; pi_harbor=secret" } }), true);

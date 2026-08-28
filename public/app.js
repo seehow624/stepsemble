@@ -1,4 +1,4 @@
-/* pi-harbor v2.0.5 — intentional desktop empty state and minimal send control */
+/* pi-harbor v2.0.6 — quiet, progressive task receipts */
 "use strict";
 
 // The browser remains buildless, but feature-independent foundations live in
@@ -16,7 +16,10 @@ const {
   machineDisplayName, machineDisplayHost, machineName: machineNameFromList,
   resolveMachineCatalogState,
 } = foundation;
-const { stripMd, fmtTime, fmtTokens, projectFolderName } = sessionUtils;
+const {
+  stripMd, fmtTime, fmtTokens, projectFolderName,
+  activityReceiptStats, computeActivityReceipt,
+} = sessionUtils;
 
 let machines = [];        // [{id,name,host,url,managed,self}] 由 GET /api/machines 下發
 let selfId = null;
@@ -114,6 +117,7 @@ let rpc = null;              // {sid, es, streaming, queued}
 let pendingAssistant = null;
 let liveToolCards = new Map();
 let liveActivity = null;     // 目前工作輪次的整組 thinking／tool 紀錄
+let activeActivityRun = null; // one logical run; may span retry/compaction agent_start events
 let settings = loadSettings();
 let modelCatalog = [];
 let configuredProviders = [];
@@ -1397,6 +1401,7 @@ function closeChat(silent) {
   pendingAssistant = null;
   liveToolCards = new Map();
   liveActivity = null;
+  activeActivityRun = null;
   historyState = null;
   removeHistoryLoadButton();
   pendingImages = [];
@@ -1634,6 +1639,137 @@ function activityFileTarget(args) {
   const candidate = raw.split(/\s+/).find((part) => /[\\/]/.test(part) || /\.(?:css|html?|js|json|md|py|sh|ts|tsx|yaml|yml)$/i.test(part));
   return candidate || raw.slice(0, 80);
 }
+
+function startActivityRun() {
+  if (activeActivityRun && !activeActivityRun.settled) {
+    // A single session-level run may contain retries or queued continuations.
+    // Completion belongs to the final low-level run, not to an earlier reply
+    // that happened before Pi continued automatically.
+    activeActivityRun.finalResponse = false;
+    activeActivityRun.outcome = null;
+    activeActivityRun.failure = null;
+    return activeActivityRun;
+  }
+  activeActivityRun = {
+    activities: new Set(),
+    tools: new Map(), // stable tool-call key -> {card, name, args, isError}
+    toolSequence: 0,
+    finalResponse: false,
+    outcome: null,
+    failure: null,
+    settled: false,
+  };
+  return activeActivityRun;
+}
+
+function registerRunActivity(activity) {
+  if (!activity || !activeActivityRun || activeActivityRun.settled) return;
+  activeActivityRun.activities.add(activity);
+}
+
+function registerRunTool(card, toolCallId, name, args) {
+  if (!card || !activeActivityRun || activeActivityRun.settled) return;
+  const key = toolCallId ? `id:${toolCallId}` : (card.__receiptKey || `card:${++activeActivityRun.toolSequence}`);
+  card.__receiptKey = key;
+  const existing = activeActivityRun.tools.get(key);
+  if (existing) {
+    existing.card = card;
+    existing.name = name || existing.name;
+    if (args !== undefined) existing.args = args;
+    return;
+  }
+  activeActivityRun.tools.set(key, { card, name, args, isError: false });
+  const activity = card.closest(".activity-group")?.__activity;
+  registerRunActivity(activity);
+}
+
+function updateRunToolError(card, isError) {
+  if (!card || !activeActivityRun || activeActivityRun.settled) return;
+  const record = activeActivityRun.tools.get(card.__receiptKey);
+  if (record && isError) record.isError = true;
+}
+
+function noteRunFinalResponse(message) {
+  if (!activeActivityRun || activeActivityRun.settled) return;
+  if (!message || message.role !== "assistant" || message.toolCalls?.length) return;
+  if (["error", "aborted", "length"].includes(message.stopReason)) return;
+  if (String(message.text || "").trim()) activeActivityRun.finalResponse = true;
+}
+
+function setRunOutcome(outcome, failure = null) {
+  if (!activeActivityRun || activeActivityRun.settled) return;
+  // An agent_end with willRetry is intentionally not passed here. A terminal
+  // outcome is only reliable once Pi has decided that no continuation will run.
+  activeActivityRun.outcome = outcome;
+  activeActivityRun.failure = failure || activeActivityRun.failure;
+}
+
+function runActivityGroups(run) {
+  if (!run) return [];
+  const groups = new Set(run.activities || []);
+  for (const record of run.tools?.values?.() || []) {
+    const card = record?.card;
+    if (!card) continue;
+    const activity = card.closest(".activity-group")?.__activity;
+    if (activity) groups.add(activity);
+  }
+  return [...groups].filter((activity) => activityCards(activity).length);
+}
+
+function settleActivityRun(run, fallbackOutcome = "completed") {
+  if (!run || run.settled) return null;
+  const records = [...(run.tools?.values?.() || [])];
+  const stats = activityReceiptStats(records.map((record) => {
+    const card = record?.card;
+    return { name: record?.name || card?.__tool?.name, args: record?.args ?? card?.__tool?.args, isError: record?.isError || card?.classList.contains("err") };
+  }));
+  const receipt = computeActivityReceipt({
+    ...stats,
+    finalResponse: !!run.finalResponse,
+    outcome: run.outcome || fallbackOutcome,
+  });
+  if (receipt) {
+    // One logical run gets one quiet receipt. In the uncommon case where DOM
+    // grouping could not merge every activity row, place the aggregate on the
+    // last row instead of repeating the same totals several times.
+    const groups = runActivityGroups(run);
+    for (const activity of groups) activity.receipt = null;
+    const receiptActivity = groups[groups.length - 1];
+    if (receiptActivity) {
+      receiptActivity.receipt = receipt;
+      updateActivityGroup(receiptActivity);
+    }
+  }
+  run.settled = true;
+  return receipt;
+}
+
+function activityReceiptText(key, vars = {}) {
+  const translated = window.piI18n?.t?.(key, vars);
+  if (translated) return translated;
+  return String(key).replace(/\{([a-zA-Z0-9_.-]+)\}/g, (_, name) => String(vars[name] ?? `{${name}}`));
+}
+
+function formatActivityReceipt(receipt) {
+  if (!receipt) return "";
+  const statusKey = receipt.status === "failed" ? "Failed"
+    : receipt.status === "interrupted" ? "Interrupted" : "Completed";
+  const parts = [activityReceiptText(statusKey)];
+  if (receipt.noFinalResponse) parts.push(activityReceiptText("No final response"));
+  const files = Math.max(0, Number(receipt.editedFileCount) || 0);
+  const tools = Math.max(0, Number(receipt.toolCount) || 0);
+  parts.push(activityReceiptText(files === 1 ? "Edited {count} file" : "Edited {count} files", { count: files }));
+  parts.push(activityReceiptText(tools === 1 ? "{count} tool" : "{count} tools", { count: tools }));
+  return parts.join(" · ");
+}
+
+function refreshActivityReceipts() {
+  for (const details of el.messages?.querySelectorAll?.(".activity-group") || []) {
+    const activity = details.__activity;
+    if (activity?.receipt) updateActivityGroup(activity);
+  }
+}
+
 function activitySummary(activity) {
   const cards = activityCards(activity);
   const editCalls = cards.filter((card) => isEditTool(card.__tool?.name));
@@ -1686,6 +1822,7 @@ function makeActivityGroup({ running = false, count = 0, latest = "" } = {}) {
     latest: String(latest || ""),
     running: !!running,
     hasError: false,
+    receipt: null,
   };
   details.__activity = activity;
   updateActivityGroup(activity);
@@ -1710,7 +1847,7 @@ function updateActivityGroup(activity, patch = {}) {
   activity.icon.classList.toggle("empty", !iconHref);
   activity.title.textContent = activity.running
     ? (activity.latest || "Working…")
-    : activitySummary(activity);
+    : (activity.receipt ? formatActivityReceipt(activity.receipt) : activitySummary(activity));
   activity.title.title = activity.title.textContent;
   activity.detail.textContent = activity.running
     ? (activity.count ? `${activity.count} ${activity.count === 1 ? "tool" : "tools"}` : "thinking…")
@@ -1769,10 +1906,12 @@ function makeToolCard(name, args, resultText, isError, running) {
 function ensureActivityGroup({ bubble = null, running = true } = {}) {
   if (pendingAssistant?.activity) {
     liveActivity = pendingAssistant.activity;
+    registerRunActivity(liveActivity);
     updateActivityGroup(liveActivity, { running: running || liveActivity.running });
     return liveActivity;
   }
   if (liveActivity && (!bubble || liveActivity.details.parentElement === bubble)) {
+    registerRunActivity(liveActivity);
     updateActivityGroup(liveActivity, { running: running || liveActivity.running });
     return liveActivity;
   }
@@ -1791,6 +1930,7 @@ function ensureActivityGroup({ bubble = null, running = true } = {}) {
   if (pendingAssistant?.textEl?.parentNode === target) target.insertBefore(activity.details, pendingAssistant.textEl);
   else target.appendChild(activity.details);
   liveActivity = activity;
+  registerRunActivity(activity);
   return activity;
 }
 function setToolCardState(card, { running = false, isError = false, text = null } = {}) {
@@ -1813,6 +1953,7 @@ function setToolCardState(card, { running = false, isError = false, text = null 
     status.setAttribute("aria-label", running ? "working" : (isError ? "error" : "success"));
   }
   if (text !== null && output) output.textContent = text || (isError ? "（沒有收到工具輸出）" : "（無輸出）");
+  updateRunToolError(card, !!isError);
   const activity = card.closest(".activity-group")?.__activity;
   if (activity) {
     const cards = [...activity.body.children].filter((child) => child.classList.contains("tool-card"));
@@ -1825,7 +1966,10 @@ function setToolCardState(card, { running = false, isError = false, text = null 
 }
 function appendLiveToolCard(toolCallId, name, args) {
   let card = toolCallId ? liveToolCards.get(toolCallId) : null;
-  if (card) return card;
+  if (card) {
+    registerRunTool(card, toolCallId, name, args);
+    return card;
+  }
   let bubble = pendingAssistant?.bubble;
   if (!bubble) {
     const assistants = el.messages.querySelectorAll(".msg.assistant .bubble");
@@ -1845,6 +1989,7 @@ function appendLiveToolCard(toolCallId, name, args) {
     count: [...activity.body.children].filter((child) => child.classList.contains("tool-card")).length,
     latest: toolTitle(name, args, true),
   });
+  registerRunTool(card, toolCallId, name, args);
   if (toolCallId) liveToolCards.set(toolCallId, card);
   return card;
 }
@@ -1942,6 +2087,9 @@ function mergeAssistantPair(target, source) {
   const sourceActivity = sourceDetails?.__activity || null;
 
   if (sourceActivity) {
+    if (activeActivityRun?.activities?.has(sourceActivity) && targetActivity) {
+      activeActivityRun.activities.add(targetActivity);
+    }
     if (targetActivity) {
       for (const child of [...sourceActivity.body.children]) targetActivity.body.appendChild(child);
       updateActivityGroup(targetActivity, {
@@ -1955,6 +2103,9 @@ function mergeAssistantPair(target, source) {
     } else {
       targetBubble.appendChild(sourceDetails);
       targetDetails && (targetActivity = sourceActivity);
+    }
+    if (activeActivityRun?.activities?.has(sourceActivity)) {
+      activeActivityRun.activities.add(targetActivity || sourceActivity);
     }
   }
 
@@ -2150,6 +2301,7 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
   markRpcActivity();
   switch (ev.type) {
     case "agent_start":
+      startActivityRun();
       runFailureRendered = false;
       lastRunFailure = null;
       setStreaming(true);
@@ -2247,6 +2399,7 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       if (m && m.role === "assistant") {
         const current = pendingAssistant;
         const full = wireFromAgentMessage(m);
+        noteRunFinalResponse(full);
         if (isFailureMessage(full)) {
           lastRunFailure = full;
           renderRunFailure(full, { shell: current || null });
@@ -2295,7 +2448,6 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       const ended = ev.message ? wireFromAgentMessage(ev.message) : null;
       if (isFailureMessage(ended)) {
         lastRunFailure = ended;
-        if (!runFailureRendered) renderRunFailure(ended);
       }
       break;
     }
@@ -2306,12 +2458,15 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       if (!failed) break;
       lastRunFailure = failed;
       if (ev.willRetry) {
+        // agent_end is an intermediate lifecycle boundary when Pi will retry
+        // or compact. Do not settle the receipt here.
         setActivityLabel("retrying");
         const detail = String(failed.errorMessage || "暫時失敗").trim();
         el.queueNote.textContent = `模型暫時失敗，準備重試：${detail.slice(0, 260)}`;
         el.queueNote.classList.remove("hidden");
-      } else if (!runFailureRendered) {
-        renderRunFailure(failed);
+      } else {
+        setRunOutcome(failed.stopReason === "aborted" ? "interrupted" : "failed", failed);
+        if (!runFailureRendered) renderRunFailure(failed);
       }
       break;
     }
@@ -2356,6 +2511,13 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
     }
     case "agent_settled":
       if (lastRunFailure && !runFailureRendered) renderRunFailure(lastRunFailure);
+      if (activeActivityRun) {
+        if (lastRunFailure) setRunOutcome(lastRunFailure.stopReason === "aborted" ? "interrupted" : "failed", lastRunFailure);
+        const receipt = settleActivityRun(activeActivityRun);
+        // Keep a settled run object until the next agent_start so late
+        // message_end/tool events cannot mutate its receipt.
+        if (receipt) refreshActivityReceipts();
+      }
       setStreaming(false);
       finalizePending({ settleTools: true });
       el.queueNote.classList.add("hidden");
@@ -2379,6 +2541,10 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       clearActivityNote();
       {
         const unexpectedExit = ev.error || ev.wasStreaming || (ev.code !== 0 && ev.code !== null && ev.code !== undefined);
+        if (activeActivityRun && !activeActivityRun.settled) {
+          setRunOutcome("interrupted", { errorMessage: ev.error || ev.stderrTail || "" });
+          settleActivityRun(activeActivityRun, "interrupted");
+        }
         if (!runFailureRendered && unexpectedExit) {
           const detail = ev.stderrTail ? String(ev.stderrTail).slice(-2000) : "";
           const title = ev.error ? "Pi 無法啟動" : "Pi 工作程序已中斷";
@@ -2473,12 +2639,18 @@ function assistantShellForError() {
   const bubble = liveActivity?.details?.closest(".bubble");
   const wrap = bubble?.closest(".msg");
   if (wrap && bubble) return { wrap, bubble };
+  const groups = runActivityGroups(activeActivityRun);
+  const activity = groups[groups.length - 1] || null;
+  const runBubble = activity?.details?.closest(".bubble");
+  const runWrap = runBubble?.closest(".msg");
+  if (runWrap && runBubble) return { wrap: runWrap, bubble: runBubble };
   return null;
 }
 
 function renderRunFailure(data = {}, options = {}) {
   const shell = options.shell || assistantShellForError() || makeMsgShell("assistant", "pi");
-  const activity = pendingAssistant?.activity || liveActivity;
+  const groups = runActivityGroups(activeActivityRun);
+  const activity = pendingAssistant?.activity || liveActivity || groups[groups.length - 1] || null;
   if (pendingAssistant?.shimmer) {
     pendingAssistant.shimmer.remove();
     pendingAssistant.shimmer = null;
@@ -4537,6 +4709,7 @@ el.setLocale?.addEventListener("change", () => {
   window.piI18n?.setLocale(settings.locale);
   renderSettings();
   renderSessionList(el.search?.value || "");
+  refreshActivityReceipts();
   renderTemporarySessionFilter(temporarySessionCount);
   if (!el.onboarding?.classList.contains("hidden")) renderOnboarding();
   if (!el.viewModelSettings.classList.contains("hidden")) {

@@ -29,7 +29,7 @@ const { createHttpUtils } = require("./server/http-utils");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.0.5";
+const APP_VERSION = "2.0.6";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;

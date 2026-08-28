@@ -204,6 +204,68 @@
   };
   for (const [id, table] of Object.entries(STATIC_UI_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
 
+  // Activity receipts are rendered inside #messages, which is intentionally
+  // excluded from the generic DOM translator so prompts and model output stay
+  // untouched. Keep every receipt fragment explicit in every supported locale.
+  const ACTIVITY_RECEIPT_TRANSLATIONS = {
+    en: {
+      "Completed": "Completed", "Failed": "Failed", "Interrupted": "Interrupted", "No final response": "No final response",
+      "Edited {count} file": "Edited {count} file", "Edited {count} files": "Edited {count} files",
+      "{count} tool": "{count} tool", "{count} tools": "{count} tools",
+    },
+    "zh-Hant": {
+      "Completed": "已完成", "Failed": "失敗", "Interrupted": "已中斷", "No final response": "沒有最終回覆",
+      "Edited {count} file": "修改 {count} 個檔案", "Edited {count} files": "修改 {count} 個檔案",
+      "{count} tool": "{count} 個工具", "{count} tools": "{count} 個工具",
+    },
+    "zh-Hans": {
+      "Completed": "已完成", "Failed": "失败", "Interrupted": "已中断", "No final response": "没有最终回复",
+      "Edited {count} file": "修改 {count} 个文件", "Edited {count} files": "修改 {count} 个文件",
+      "{count} tool": "{count} 个工具", "{count} tools": "{count} 个工具",
+    },
+    ja: {
+      "Completed": "完了", "Failed": "失敗", "Interrupted": "中断", "No final response": "最終回答なし",
+      "Edited {count} file": "{count} 件のファイルを編集", "Edited {count} files": "{count} 件のファイルを編集",
+      "{count} tool": "{count} 個のツール", "{count} tools": "{count} 個のツール",
+    },
+    ko: {
+      "Completed": "완료", "Failed": "실패", "Interrupted": "중단됨", "No final response": "최종 응답 없음",
+      "Edited {count} file": "{count}개 파일 수정", "Edited {count} files": "{count}개 파일 수정",
+      "{count} tool": "{count}개 도구", "{count} tools": "{count}개 도구",
+    },
+    tr: {
+      "Completed": "Tamamlandı", "Failed": "Başarısız", "Interrupted": "Kesildi", "No final response": "Son yanıt yok",
+      "Edited {count} file": "{count} dosya düzenlendi", "Edited {count} files": "{count} dosya düzenlendi",
+      "{count} tool": "{count} araç", "{count} tools": "{count} araç",
+    },
+    fr: {
+      "Completed": "Terminé", "Failed": "Échec", "Interrupted": "Interrompu", "No final response": "Aucune réponse finale",
+      "Edited {count} file": "{count} fichier modifié", "Edited {count} files": "{count} fichiers modifiés",
+      "{count} tool": "{count} outil", "{count} tools": "{count} outils",
+    },
+    de: {
+      "Completed": "Abgeschlossen", "Failed": "Fehlgeschlagen", "Interrupted": "Unterbrochen", "No final response": "Keine abschließende Antwort",
+      "Edited {count} file": "{count} Datei bearbeitet", "Edited {count} files": "{count} Dateien bearbeitet",
+      "{count} tool": "{count} Tool", "{count} tools": "{count} Tools",
+    },
+    es: {
+      "Completed": "Completado", "Failed": "Error", "Interrupted": "Interrumpido", "No final response": "Sin respuesta final",
+      "Edited {count} file": "{count} archivo editado", "Edited {count} files": "{count} archivos editados",
+      "{count} tool": "{count} herramienta", "{count} tools": "{count} herramientas",
+    },
+    "pt-BR": {
+      "Completed": "Concluído", "Failed": "Falhou", "Interrupted": "Interrompido", "No final response": "Sem resposta final",
+      "Edited {count} file": "{count} arquivo editado", "Edited {count} files": "{count} arquivos editados",
+      "{count} tool": "{count} ferramenta", "{count} tools": "{count} ferramentas",
+    },
+    it: {
+      "Completed": "Completato", "Failed": "Non riuscito", "Interrupted": "Interrotto", "No final response": "Nessuna risposta finale",
+      "Edited {count} file": "{count} file modificato", "Edited {count} files": "{count} file modificati",
+      "{count} tool": "{count} strumento", "{count} tools": "{count} strumenti",
+    },
+  };
+  for (const [id, table] of Object.entries(ACTIVITY_RECEIPT_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
+
   // The explanatory copy below is part of the application chrome rather than
   // session content. Keep it in the same source-key registry as button labels
   // so the subtitles stay in sync when the user switches locales repeatedly.
