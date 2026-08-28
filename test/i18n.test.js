@@ -45,6 +45,29 @@ test("locale registry has complete keys, matching placeholders, and no accidenta
   }
 });
 
+test("update center phrases are translated in every supported locale", () => {
+  const i18n = loadLocaleLayer();
+  const keys = [
+    "Update all devices",
+    "Update pending on {device}; waiting for Agent work to finish",
+    "Current version",
+    "Latest version",
+    "Next automatic check: {time}",
+    "Update all complete: {started} started, {skipped} skipped, {failed} failed.",
+    "Pi Harbor update ready; reload after the current work finishes",
+  ];
+  const values = { device: "MacBook Pro", time: "09:00", started: 1, skipped: 2, failed: 3 };
+  for (const locale of i18n.locales.map((item) => item.id).filter((id) => id !== "en")) {
+    i18n.setLocale(locale);
+    for (const key of keys) {
+      const text = i18n.t(key, values);
+      assert.notEqual(text, key.replace(/\\{(\\w+)\\}/g, (_, name) => values[name]));
+    }
+    assert.doesNotMatch(i18n.t(keys[1], values), /Update pending|waiting for Agent work/);
+    assert.doesNotMatch(i18n.t(keys[0], values), /Update all devices/);
+  }
+});
+
 test("locale switching remains lossless across repeated changes", () => {
   const i18n = loadLocaleLayer();
   assert.equal(i18n.getLocale(), "en");

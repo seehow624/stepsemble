@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.9
+
+- Added a localized multi-device update center with per-device versions, phases,
+  last/next check times, and an Update all devices action.
+- Made deferred updates explicit while Agent work is active and applied them
+  immediately after the final active RPC settles, with a final updater safety gate.
+- Bumped the application and PWA resources to 2.0.9.
+
 ## 2.0.8
 
 - Prevented browsers from caching the service worker for 24 hours, which could

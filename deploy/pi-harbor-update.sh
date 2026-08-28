@@ -23,7 +23,8 @@ readonly INSTALL_DIR="${PI_HARBOR_INSTALL_DIR:-$HOME/.local/share/pi-harbor}"
 readonly CONFIG_DIR="${PI_HARBOR_UPDATE_CONFIG_DIR:-$HOME/.config/pi-harbor}"
 readonly CONFIG_FILE="${PI_HARBOR_UPDATE_CONFIG:-$CONFIG_DIR/updater.json}"
 readonly STATE_FILE="${PI_HARBOR_UPDATE_STATE:-$CONFIG_DIR/update-state.json}"
-readonly TOKEN_FILE="${PI_HARBOR_TOKEN_FILE:-$CONFIG_DIR/token}"
+# The server passes a custom token-file path without passing the token itself.
+readonly TOKEN_FILE="${PI_HARBOR_UPDATE_TOKEN_FILE:-${PI_HARBOR_TOKEN_FILE:-$CONFIG_DIR/token}}"
 readonly LOCK_DIR="${PI_HARBOR_UPDATE_LOCK:-$HOME/.cache/pi-harbor-update.lock}"
 readonly DEFAULT_REPOSITORY="${PI_HARBOR_UPDATE_REPO:-seehow624/pi-harbor}"
 readonly DEFAULT_REF="${PI_HARBOR_UPDATE_REF:-stable}"
@@ -31,7 +32,15 @@ readonly SERVICE_LABEL="${PI_HARBOR_SERVICE_LABEL:-com.piharbor.server}"
 readonly FORCE_UPDATE="${PI_HARBOR_UPDATE_FORCE:-0}"
 
 log() { print -u2 -r -- "[pi-harbor-update] $*"; }
-die() { log "$*"; exit 1; }
+die() {
+  log "$*"
+  # State writes are best-effort: early dependency/configuration failures can
+  # happen before the updater variables exist.
+  if [[ -n "${enabled:-}" && -n "${installed_version:-}" ]] && (( $+functions[write_state] )); then
+    write_state "$*" "${now:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" "" "$installed_version" "" "error" ""
+  fi
+  exit 1
+}
 
 [[ -n "$NODE_BIN" && -x "$NODE_BIN" ]] || die "Node.js 22.19 or newer is required."
 [[ -x "$CURL_BIN" && -x "$TAR_BIN" && -x "$SHASUM_BIN" ]] || die "curl, tar, and shasum are required."
@@ -52,11 +61,12 @@ NODE
 }
 
 write_state() {
-  local error_message="${1:-}" checked_at="${2:-}" latest_version="${3:-}" current_version="${4:-}" updated_at="${5:-}"
+  local error_message="${1:-}" checked_at="${2:-}" latest_version="${3:-}" current_version="${4:-}" updated_at="${5:-}" phase="${6:-}" deferred_reason="${7:-}"
   mkdir -p "$CONFIG_DIR"
   PH_STATE_FILE="$STATE_FILE" PH_STATE_ENABLED="$enabled" PH_STATE_REPOSITORY="$repository" \
     PH_STATE_REF="$ref" PH_STATE_ERROR="$error_message" PH_STATE_CHECKED="$checked_at" \
     PH_STATE_LATEST="$latest_version" PH_STATE_CURRENT="$current_version" PH_STATE_UPDATED="$updated_at" \
+    PH_STATE_PHASE="$phase" PH_STATE_DEFERRED_REASON="$deferred_reason" \
     "$NODE_BIN" - <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
@@ -73,6 +83,9 @@ const value = {
 };
 if (process.env.PH_STATE_UPDATED || previous.lastUpdatedAt) value.lastUpdatedAt = process.env.PH_STATE_UPDATED || previous.lastUpdatedAt;
 if (process.env.PH_STATE_ERROR) value.error = process.env.PH_STATE_ERROR;
+if (process.env.PH_STATE_PHASE) value.phase = process.env.PH_STATE_PHASE;
+if (process.env.PH_STATE_DEFERRED_REASON) value.deferredReason = process.env.PH_STATE_DEFERRED_REASON;
+else delete value.deferredReason;
 fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
 const temp = `${file}.${process.pid}.tmp`;
 fs.writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
@@ -133,8 +146,13 @@ NODE
 )"
   cookie="$(mktemp "${TMPDIR:-/tmp}/pi-harbor-updater-cookie.XXXXXX")"
   token="$(tr -d '\n' < "$TOKEN_FILE")"
+  local token_json
+  token_json="$("$NODE_BIN" - "$token" <<'NODE'
+process.stdout.write(JSON.stringify(process.argv[2]));
+NODE
+)"
   if ! "$CURL_BIN" -fsS --max-time 3 -c "$cookie" -H 'Content-Type: application/json' \
-    --data-binary "{\"token\":\"$token\"}" "http://127.0.0.1:$port/api/login" >/dev/null 2>&1; then
+    --data-binary "{\"token\":$token_json}" "http://127.0.0.1:$port/api/login" >/dev/null 2>&1; then
     /bin/rm -f -- "$cookie"
     return 1
   fi
@@ -157,7 +175,7 @@ ref="$(json_value "$CONFIG_FILE" ref)"
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 installed_version="$(current_version)"
 if [[ "$enabled" != "true" && "$FORCE_UPDATE" != "1" ]]; then
-  write_state "" "$now" "$installed_version" "$installed_version"
+  write_state "" "$now" "$installed_version" "$installed_version" "" "disabled" ""
   exit 0
 fi
 
@@ -165,6 +183,9 @@ if ! mkdir -p "${LOCK_DIR:h}" 2>/dev/null || ! mkdir "$LOCK_DIR" 2>/dev/null; th
   log "another update check is already running"
   exit 0
 fi
+# Mark the check explicitly so the status endpoint never presents a stale
+# deferred phase while GitHub metadata or a verified archive is being fetched.
+write_state "" "$now" "" "$installed_version" "" "checking" ""
 work_dir=""
 stage_dir=""
 cleanup_all() {
@@ -179,7 +200,7 @@ metadata="$work_dir/release.json"
 api_url="https://api.github.com/repos/$repository/releases/latest"
 [[ "$ref" == "stable" ]] || api_url="https://api.github.com/repos/$repository/releases/tags/$ref"
 if ! "$CURL_BIN" -fsSL --max-time 180 -H 'Accept: application/vnd.github+json' "$api_url" -o "$metadata"; then
-  write_state "Could not read the latest GitHub release" "$now" "$installed_version" "$installed_version"
+  write_state "Could not read the latest GitHub release" "$now" "" "$installed_version" "" "error" ""
   die "could not read release metadata"
 fi
 
@@ -187,17 +208,17 @@ latest_version="$(release_field "$metadata" tag)"
 archive_url="$(release_field "$metadata" archive)"
 checksum_url="$(release_field "$metadata" checksum)"
 if [[ ! "$latest_version" =~ '^v[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.]+)?$' || -z "$archive_url" || -z "$checksum_url" ]]; then
-  write_state "The release is missing a verified archive" "$now" "$latest_version" "$installed_version"
+  write_state "The release is missing a verified archive" "$now" "$latest_version" "$installed_version" "" "error" ""
   die "release assets are incomplete"
 fi
 
 if ! release_is_newer "$installed_version" "$latest_version"; then
-  write_state "" "$now" "$installed_version" "$installed_version"
+  write_state "" "$now" "$installed_version" "$installed_version" "" "up_to_date" ""
   exit 0
 fi
 
 if active_rpc_running; then
-  write_state "" "$now" "$latest_version" "$installed_version"
+  write_state "" "$now" "$latest_version" "$installed_version" "" "deferred" "active_rpc_running"
   log "$latest_version is available; update deferred until the current Pi work finishes"
   exit 0
 fi
@@ -221,6 +242,13 @@ backup_dir="$INSTALL_DIR.previous"
 [[ "$stage_dir" == "$HOME/.local/share/pi-harbor.update."* && "$backup_dir" == "$HOME/.local/share/pi-harbor.previous" ]] || die "unsafe update path"
 mkdir -p "$stage_dir"
 cp -a "$source_dir"/. "$stage_dir"/
+# This is the final safety gate immediately before replacing the live install.
+# The server-side hook also schedules this check only after all RPCs settle.
+if active_rpc_running; then
+  write_state "" "$now" "$latest_version" "$installed_version" "" "deferred" "active_rpc_running"
+  log "$latest_version is available; update deferred until the current Pi work finishes"
+  exit 0
+fi
 [[ ! -e "$backup_dir" ]] || rm -rf -- "$backup_dir"
 [[ ! -e "$INSTALL_DIR" ]] || mv "$INSTALL_DIR" "$backup_dir"
 if ! mv "$stage_dir" "$INSTALL_DIR"; then
@@ -229,6 +257,6 @@ if ! mv "$stage_dir" "$INSTALL_DIR"; then
 fi
 
 updated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-write_state "" "$now" "$latest_version" "$latest_version" "$updated_at"
+write_state "" "$now" "$latest_version" "$latest_version" "$updated_at" "updated" ""
 "$LAUNCHCTL_BIN" kickstart -k "gui/$(id -u)/$SERVICE_LABEL" >/dev/null 2>&1 || log "release installed; launchd restart was not available"
 log "updated Pi Harbor to $latest_version"

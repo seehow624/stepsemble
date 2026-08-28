@@ -6,10 +6,10 @@
 <title>Pi Harbor</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=2.0.8">
-<link rel="icon" href="/pi-logo.svg?v=2.0.8" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-180.png?v=2.0.8">
-<link rel="stylesheet" href="/style.css?v=2.0.8">
+<link rel="manifest" href="/manifest.webmanifest?v=2.0.9">
+<link rel="icon" href="/pi-logo.svg?v=2.0.9" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png?v=2.0.9">
+<link rel="stylesheet" href="/style.css?v=2.0.9">
 </head>
 <body>
 
@@ -239,36 +239,42 @@
         </label>
       </section>
 
-      <section class="settings-group settings-advanced-group">
-        <h3 class="group-title">Advanced</h3>
-        <button id="btn-reset-settings" class="settings-row settings-button-row" type="button">
-          <span><strong>Restore interface defaults</strong><small>Clear theme, density, and model visibility preferences</small></span>
-          <span class="row-chevron" aria-hidden="true">↺</span>
-        </button>
-      </section>
-
       <section class="settings-group settings-about-group">
         <h3 class="group-title">About</h3>
         <div class="settings-row">
           <span><strong>Pi Harbor</strong><small>Mobile-first remote workspace for Pi</small></span>
-          <span class="settings-value" id="set-app-version">v2.0.8</span>
+          <span class="settings-value" id="set-app-version">v2.0.9</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
           <span class="settings-value mono" id="set-pi-version">—</span>
         </div>
-        <div class="settings-subheading" role="heading" aria-level="4">Updates</div>
+        <div class="update-center-heading">
+          <div class="settings-subheading" role="heading" aria-level="4">Updates</div>
+          <button id="update-all-devices" class="btn ghost update-all-button" type="button">Update all devices</button>
+        </div>
+        <p class="settings-note update-center-note">Update settings are independent for each configured device.</p>
+        <div id="update-center-summary" class="update-center-summary" role="status" aria-live="polite" aria-atomic="true"></div>
+        <div id="update-device-list" class="update-device-list"></div>
         <label class="settings-row settings-toggle-row">
-          <span><strong>Automatic updates</strong><small id="update-status-copy">Check GitHub and update this device periodically</small></span>
+          <span><strong id="update-auto-label">Automatic updates</strong><small id="update-status-copy">Check GitHub and update this device periodically</small></span>
           <span class="toggle"><input id="set-auto-update" type="checkbox"><span class="toggle-track"></span></span>
         </label>
         <button id="update-check" class="settings-row settings-button-row" type="button">
-          <span><strong>Check for updates</strong><small id="update-check-status">Checking updater status…</small></span>
+          <span><strong id="update-check-label">Check for updates</strong><small id="update-check-status" role="status" aria-live="polite">Checking updater status…</small></span>
           <span class="row-chevron" aria-hidden="true">→</span>
         </button>
         <button id="btn-open-onboarding" class="settings-row settings-button-row" type="button">
           <span><strong id="setup-guide-title">Setup guide</strong><small id="setup-guide-subtitle">Review the essentials for this device</small></span>
           <span class="row-chevron" aria-hidden="true">→</span>
+        </button>
+      </section>
+
+      <section class="settings-group settings-advanced-group">
+        <h3 class="group-title">Advanced</h3>
+        <button id="btn-reset-settings" class="settings-row settings-button-row" type="button">
+          <span><strong>Restore interface defaults</strong><small>Clear theme, density, and model visibility preferences</small></span>
+          <span class="row-chevron" aria-hidden="true">↺</span>
         </button>
       </section>
 
@@ -606,9 +612,9 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=2.0.8"></script>
-<script src="/modules/app-foundation.js?v=2.0.8"></script>
-<script src="/modules/session-utils.js?v=2.0.8"></script>
-<script src="/app.js?v=2.0.8"></script>
+<script src="/i18n.js?v=2.0.9"></script>
+<script src="/modules/app-foundation.js?v=2.0.9"></script>
+<script src="/modules/session-utils.js?v=2.0.9"></script>
+<script src="/app.js?v=2.0.9"></script>
 </body>
 </html>

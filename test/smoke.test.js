@@ -400,13 +400,83 @@ test("PWA updates bypass stale service-worker caches and reconcile client versio
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   assert.match(server, /rel === "sw\.js"[\s\S]*?"no-cache, no-store, must-revalidate"/);
-  assert.match(app, /const CLIENT_APP_VERSION = "2\.0\.8"/);
+  assert.match(app, /const CLIENT_APP_VERSION = "2\.0\.9"/);
   assert.match(app, /function checkForClientUpdate\(\)/);
   assert.match(app, /cache: "no-store"/);
   assert.match(app, /updateViaCache: "none"/);
   assert.match(app, /visibilitychange/);
   assert.match(app, /piharbor\.clientReloadAttempt/);
-  assert.match(html, /id="set-app-version">v2\.0\.8</);
+  assert.match(html, /id="set-app-version">v2\.0\.9</);
+});
+
+test("versioned application resources stay on 2.0.9", () => {
+  const expected = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
+  assert.equal(expected, "2.0.9");
+  const previous = expected.replace(/(\d+)$/, (_, patch) => String(Number(patch) - 1));
+  const previousPattern = new RegExp(previous.replaceAll(".", "\\."));
+  for (const file of ["server.js", "public/app.js", "public/index.html", "public/sw.js", "public/manifest.webmanifest"]) {
+    const content = fs.readFileSync(path.join(root, file), "utf8");
+    assert.match(content, /2\.0\.9/);
+    assert.doesNotMatch(content, previousPattern);
+  }
+  const changelog = fs.readFileSync(path.join(root, "CHANGELOG.md"), "utf8");
+  assert.match(changelog, /^## 2\.0\.9/m);
+});
+
+test("2.0.9 update center covers per-device state, idle apply, and partial update-all results", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");
+  const updater = fs.readFileSync(path.join(root, "deploy", "pi-harbor-update.sh"), "utf8");
+  const about = html.indexOf('<h3 class="group-title">About</h3>');
+  const advanced = html.indexOf('<h3 class="group-title">Advanced</h3>');
+  const signOut = html.indexOf('id="btn-logout"');
+  assert.ok(about >= 0 && about < advanced && advanced < signOut, "Settings order should be About, Advanced, Sign out");
+  assert.match(html, /id="update-device-list"/);
+  assert.match(html, /id="update-all-devices"[^>]*>Update all devices/);
+  assert.match(html, /id="update-center-summary"[^>]*aria-live="polite"/);
+  assert.match(app, /function refreshUpdateCenter\(force = false\)/);
+  assert.match(app, /fetchMachineUpdateStatus\(machine/);
+  assert.match(app, /function runUpdateAll\(\)/);
+  assert.match(app, /requestMachineUpdate\(machine, "\/api\/update\/run"/);
+  assert.match(app, /function scheduleUpdateRefreshes\(machineId = null\)/);
+  assert.match(app, /const refreshAllDevices = machineId === null/);
+  const updateAll = app.slice(app.indexOf("async function runUpdateAll()"), app.indexOf("async function checkForClientUpdate()"));
+  assert.match(updateAll, /scheduleUpdateRefreshes\(\)/);
+  assert.doesNotMatch(updateAll, /scheduleUpdateRefreshes\(machine\.id\)/);
+  assert.match(app, /updateNextCheckAt/);
+  assert.match(app, /row\.dataset\.i18nIgnore = "true"/);
+  assert.match(app, /selectedAtStart !== selectedId/);
+  assert.match(app, /setInterval\([\s\S]*60 \* 1000/);
+  assert.match(app, /Update pending on \{device\}; waiting for Agent work to finish/);
+  assert.match(css, /\.update-device-row/);
+  assert.match(server, /currentVersion: APP_VERSION/);
+  assert.match(server, /nextCheckAt/);
+  assert.match(server, /updateStateIsPending/);
+  assert.match(server, /phase/);
+  assert.match(server, /pending: phase === "deferred" \|\| phase === "available"/);
+  assert.match(server, /function updateProcessIsRunning\(\)/);
+  assert.match(server, /function schedulePendingUpdateApply\(\)/);
+  assert.match(server, /schedulePendingUpdateApply\(\)/);
+  assert.match(server, /setTimeout\(\(\) => \{/);
+  const updaterExit = server.slice(
+    server.indexOf('child.on("exit"'),
+    server.indexOf('child.on("error"')
+  );
+  assert.match(updaterExit, /updateProcess = null;[\s\S]*activeRpcSessions\(\)\.length[\s\S]*updateStateIsPending\(state\)[\s\S]*schedulePendingUpdateApply\(\)/);
+  assert.match(server, /function schedulePendingUpdateApplyAfterRpcIdle\(\)/);
+  const listen = server.slice(server.indexOf("server.listen(PORT, HOST"));
+  assert.match(listen, /schedulePendingUpdateApply\(\)/);
+  assert.match(updater, /"deferred" "active_rpc_running"/);
+  assert.match(updater, /PH_STATE_PHASE/);
+  assert.match(updater, /PI_HARBOR_UPDATE_TOKEN_FILE/);
+  assert.match(updater, /else delete value\.deferredReason/);
+  assert.match(server, /PI_HARBOR_UPDATE_TOKEN_FILE: TOKEN_FILE/);
+  assert.match(updater, /final safety gate immediately before replacing/);
+  assert.match(i18n, /UPDATE_CENTER_TRANSLATIONS/);
+  assert.match(i18n, /UPDATE_CLIENT_TRANSLATIONS/);
 });
 
 test("localization is English-first with an explicit locale selector and safe fallback", () => {

@@ -661,6 +661,104 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
   border-radius: 12px;
   background: color-mix(in srgb, var(--err) 3%, transparent);
 }
+.update-center-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+}
+.update-center-heading .settings-subheading { flex: 1; margin-top: 0; }
+.update-all-button {
+  min-height: 44px;
+  flex: 0 0 auto;
+  padding: 0 12px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.update-center-note { padding-top: 7px; }
+.update-center-summary {
+  margin: 4px 0 8px;
+  padding: 9px 11px;
+  border: .5px solid color-mix(in srgb, var(--accent) 32%, var(--line));
+  border-radius: 10px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.update-device-list {
+  display: grid;
+  gap: 8px;
+  margin: 7px 0 8px;
+}
+.update-device-row {
+  padding: 11px 12px;
+  border: .5px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--paper) 62%, var(--milk));
+}
+.update-device-heading,
+.update-device-metrics,
+.update-device-times {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.update-device-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.update-device-state {
+  flex: 0 0 auto;
+  color: var(--pine-soft);
+  font: 10px var(--mono);
+  text-transform: uppercase;
+}
+.update-device-ready .update-device-state { color: var(--ok); }
+.update-device-error .update-device-state { color: var(--err); }
+.update-device-metrics {
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 18px;
+  margin-top: 9px;
+}
+.update-device-metric { min-width: 0; }
+.update-device-metric span,
+.update-device-times span {
+  display: block;
+  color: var(--pine-soft);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+.update-device-metric strong {
+  display: block;
+  margin-top: 1px;
+  font: 12px var(--mono);
+}
+.update-device-phase {
+  margin-top: 9px;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.update-phase-deferred .update-device-phase { color: var(--warn); font-weight: 650; }
+.update-phase-available .update-device-phase { color: var(--accent); font-weight: 650; }
+.update-phase-error .update-device-phase,
+.update-device-error .update-device-phase { color: var(--err); }
+.update-device-times {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 7px;
+}
+.update-device-times span { font-variant-numeric: tabular-nums; }
+#update-auto-label,
+#update-check-label { min-width: 0; }
 #view-model-settings .settings-scroll { padding-top: 20px; }
 #view-model-settings .model-settings-detail { min-height: 0; }
 .settings-heading-actions { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
@@ -869,6 +967,8 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
   .provider-dialog .sheet-actions-spacer { display: none; }
   .provider-preset { min-height: 54px; padding: 9px 10px; }
   .provider-preset-copy small { font-size: 10px; }
+  .update-center-heading { align-items: flex-start; flex-direction: column; }
+  .update-all-button { align-self: stretch; }
 }
 
 /* ---- v1.1: SPA 機器切換 + 模型選擇 ---- */

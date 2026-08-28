@@ -1,7 +1,7 @@
-/* pi-harbor v2.0.8 — reliable PWA update handoff */
+/* pi-harbor v2.0.9 — multi-device update center */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.0.8";
+const CLIENT_APP_VERSION = "2.0.9";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -61,7 +61,7 @@ const el = {
   machineList: $("machine-list"), machineAdd: $("machine-add"), machinePair: $("machine-pair"), machineDialog: $("machine-dialog"), machineDialogTitle: $("machine-dialog-title"), machineStandardFields: $("machine-standard-fields"), machineName: $("machine-name"), machineUrl: $("machine-url"), machinePort: $("machine-port"), machinePortLabel: $("machine-port-label"), machineHost: $("machine-host"), machineStatusNote: $("machine-status-note"), machineFormError: $("machine-form-error"), machinePairArea: $("machine-pair-area"), machinePairCode: $("machine-pair-code"), machinePairJoin: $("machine-pair-join"), machinePairOfferArea: $("machine-pair-offer-area"), machinePairOffer: $("machine-pair-offer"), machinePairGenerate: $("machine-pair-generate"), machineRestart: $("machine-restart"), machineSave: $("machine-save"), machineDelete: $("machine-delete"), machineTest: $("machine-test"), machineCancel: $("machine-cancel"), machineCancelBottom: $("machine-cancel-bottom"),
   setMachineName: $("set-machine-name"), setMachineHost: $("set-machine-host"), setPiVersion: $("set-pi-version"), setAppVersion: $("set-app-version"),
   btnLogout: $("btn-logout"), btnResetSettings: $("btn-reset-settings"), btnOpenOnboarding: $("btn-open-onboarding"), setupGuideTitle: $("setup-guide-title"), setupGuideSubtitle: $("setup-guide-subtitle"),
-  setAutoUpdate: $("set-auto-update"), updateStatusCopy: $("update-status-copy"), updateCheck: $("update-check"), updateCheckStatus: $("update-check-status"),
+  setAutoUpdate: $("set-auto-update"), updateAutoLabel: $("update-auto-label"), updateStatusCopy: $("update-status-copy"), updateCheck: $("update-check"), updateCheckLabel: $("update-check-label"), updateCheckStatus: $("update-check-status"), updateAllDevices: $("update-all-devices"), updateCenterSummary: $("update-center-summary"), updateDeviceList: $("update-device-list"),
   setLocale: $("set-locale"), setTheme: $("set-theme"), setDesignTheme: $("theme-choices"), setSidebarWidth: $("set-sidebar-width"), setSidebarWidthValue: $("set-sidebar-width-value"), setFontScale: $("set-font-scale"), setFontScaleValue: $("set-font-scale-value"), setCompact: $("set-compact"), setGroup: $("set-group"),
   btnImg: $("btn-img"), fileInput: $("file-input"), imgPreview: $("img-preview"),
   setReducedMotion: $("set-reduced-motion"), setThinking: $("set-thinking"),
@@ -236,6 +236,7 @@ matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", () => {
 // ===========================================================================
 
 function showLogin() {
+  stopUpdateCenterPolling();
   closeChat(true);
   el.app.classList.add("hidden");
   el.login.classList.remove("hidden");
@@ -336,11 +337,21 @@ function applyMachineCatalog(data) {
   machines = state.machines;
   selfId = state.selfId;
   selectedId = state.selectedId;
+  updateDeviceStatuses = new Map([...updateDeviceStatuses].filter(([id]) => machines.some((machine) => machine.id === id)));
+  updateStatusData = updateDeviceStatuses.get(selectedId)?.data || null;
+  cancelUpdateCenterRequest();
+  if (updateAllController) updateAllController.abort();
+  updateAllController = null;
+  updateAllRequest += 1;
+  if (el.updateAllDevices) el.updateAllDevices.disabled = false;
   if (selectedId) saveSelected(selectedId);
   applyApiBase();
   renderMachineSwitch();
   renderMachineList();
-  if (!el.viewSettings.classList.contains("hidden")) renderSettings();
+  if (!el.viewSettings.classList.contains("hidden")) {
+    renderSettings();
+    void refreshUpdateCenter(true);
+  }
   return state;
 }
 
@@ -424,6 +435,7 @@ function applyApiBase() {
 
 function switchMachine(id, silent) {
   if (!machines.some(m => m.id === id)) return;
+  stopUpdateCenterPolling();
   const generation = ++viewGeneration;
   const wasChatOpen = !el.viewChat.classList.contains("hidden");
   const preserveRunning = !!(rpc && (rpc.streaming || rpc.connectionLost));
@@ -434,6 +446,7 @@ function switchMachine(id, silent) {
   el.viewModelSettings.classList.add("hidden");
   selectedId = id;
   saveSelected(id);
+  updateStatusData = updateDeviceStatuses.get(id)?.data || null;
   applyApiBase();
   modelCatalog = [];
   configuredProviders = [];
@@ -516,6 +529,7 @@ el.btnLogout.addEventListener("click", logout);
 function isDesktop() { return matchMedia("(min-width: 980px)").matches; }
 
 function showList(options = {}) {
+  stopUpdateCenterPolling();
   ++viewGeneration;
   const wasStreaming = !!(rpc && (rpc.streaming || rpc.connectionLost));
   closeChat(wasStreaming); // streaming 中保留進程繼續跑；閒置對話離開時關閉
@@ -551,12 +565,15 @@ function showSettings() {
   el.viewSettings.classList.remove("hidden");
   el.viewSettings.classList.add("slide-in");
   setTimeout(() => el.viewSettings.classList.remove("slide-in"), 250);
+  startUpdateCenterPolling();
 }
 el.btnOpenSettings.addEventListener("click", showSettings);
 el.btnSettingsBack.addEventListener("click", () => {
+  stopUpdateCenterPolling();
   el.viewSettings.classList.add("hidden");
 });
 function showModelSettings() {
+  stopUpdateCenterPolling();
   el.viewSettings.classList.add("hidden");
   el.viewModelSettings.classList.remove("hidden");
   el.viewModelSettings.classList.add("slide-in");
@@ -568,6 +585,7 @@ el.btnModelSettingsBack?.addEventListener("click", () => {
   el.viewModelSettings.classList.add("hidden");
   el.viewSettings.classList.remove("hidden");
   renderSettings();
+  startUpdateCenterPolling();
 });
 
 // ===========================================================================
@@ -3741,8 +3759,476 @@ function renderThemeChoices() {
 
 let updateStatusData = null;
 let updateStatusRequest = 0;
+let updateDeviceStatuses = new Map();
+let updateCenterRequest = null;
+let updateCenterAbort = null;
+let updateCenterPollTimer = null;
+let updateAllController = null;
+let updateAllRequest = 0;
+const updateRefreshTimers = new Set();
+let updateCenterSummary = null;
 let serviceWorkerRegistration = null;
 let updateReadyNotified = false;
+
+function updateText(key, vars = {}) {
+  let text = window.piI18n?.t(key, vars) || key;
+  for (const [name, value] of Object.entries(vars)) text = text.replaceAll(`{${name}}`, String(value));
+  return text;
+}
+
+function updateViewIsOpen() {
+  return !!el.viewSettings && !el.viewSettings.classList.contains("hidden");
+}
+
+function cancelUpdateCenterRequest() {
+  updateCenterAbort?.abort();
+  updateCenterAbort = null;
+  updateCenterRequest = null;
+  updateStatusRequest += 1;
+}
+
+function formatUpdateTime(value) {
+  const timestamp = Date.parse(String(value || ""));
+  if (!Number.isFinite(timestamp)) return "";
+  try {
+    return new Intl.DateTimeFormat(window.piI18n?.getLocale?.() || settings.locale || "en", {
+      dateStyle: "medium", timeStyle: "short",
+    }).format(new Date(timestamp));
+  } catch {
+    return new Date(timestamp).toLocaleString();
+  }
+}
+
+function updateVersionText(value) {
+  const version = String(value || "").trim();
+  if (!version) return updateText("Not checked");
+  return /^v/i.test(version) ? version : `v${version}`;
+}
+
+function updateDeviceName(machine = currentMachine()) {
+  const configuredName = String(machine?.name || "").trim();
+  return configuredName || updateText("Pi Harbor device");
+}
+
+function updateRequestError(message, status = 0, reachable = false) {
+  const error = new Error(message || "Update request failed");
+  error.status = status;
+  error.reachable = reachable;
+  return error;
+}
+
+async function requestMachineUpdate(machine, endpoint, body, { signal, timeoutMs = 8000 } = {}) {
+  const base = machine?.local ? "" : `/r/${encodeURIComponent(machine?.id || "")}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const abort = () => controller.abort();
+  signal?.addEventListener?.("abort", abort, { once: true });
+  try {
+    const response = await fetch(`${base}${endpoint}`, {
+      method: body === undefined ? "GET" : "POST",
+      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    let result = null;
+    try { result = await response.json(); } catch {}
+    if (response.status === 401) showLogin();
+    if (!response.ok) {
+      const reachable = response.status !== 502 && response.status !== 504;
+      throw updateRequestError("Update request was not accepted", response.status, reachable);
+    }
+    return { data: result, status: response.status };
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      if (signal?.aborted) throw error;
+      throw updateRequestError("Update request timed out", 504, false);
+    }
+    throw error?.status !== undefined ? error : updateRequestError("Update request failed", 0, false);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener?.("abort", abort);
+  }
+}
+
+async function fetchMachineUpdateStatus(machine, signal) {
+  try {
+    const result = await requestMachineUpdate(machine, "/api/update/status", undefined, { signal, timeoutMs: 7000 });
+    if (!result.data || typeof result.data !== "object") throw updateRequestError("Update status was unavailable", 502, true);
+    return result.data;
+  } catch (error) {
+    // Keep older configured devices visible with their live app version even
+    // before they expose the update status endpoint. Update actions still
+    // report 404 as skipped in Update all.
+    if (![404, 405].includes(Number(error?.status))) throw error;
+    try {
+      const legacy = await requestMachineUpdate(machine, "/api/version", undefined, { signal, timeoutMs: 5000 });
+      return { ...(legacy.data || {}), updateUnsupported: true };
+    } catch {
+      throw error;
+    }
+  }
+}
+
+function updateErrorIsUnsupported(error) {
+  return [404, 405, 409].includes(Number(error?.status));
+}
+
+function updateEntryFor(machine) {
+  return machine ? updateDeviceStatuses.get(machine.id) || null : null;
+}
+
+function updatePhaseText(data, machine, error = null) {
+  const device = updateDeviceName(machine);
+  if (data?.updateUnsupported) return updateText("Update controls require a newer Pi Harbor on {device}", { device });
+  if (error) {
+    if (updateErrorIsUnsupported(error) && [404, 405].includes(Number(error.status))) {
+      return updateText("Update controls require a newer Pi Harbor on {device}", { device });
+    }
+    return updateText("Update status unavailable on {device}", { device });
+  }
+  const updater = data?.updater;
+  if (!updater) return updateText("Update status unavailable on {device}", { device });
+  const hasAvailableUpdate = updater.pending === true
+    || (updater.latestSha && updater.currentSha && updater.latestSha !== updater.currentSha);
+  const phase = updater.phase || (hasAvailableUpdate ? "available" : "idle");
+  if (phase === "checking") return updateText("Checking {device} for updates…", { device });
+  if (phase === "deferred" || phase === "pending") {
+    return updateText("Update pending on {device}; waiting for Agent work to finish", { device });
+  }
+  if (phase === "available") {
+    return updater.latestVersion
+      ? updateText("Update available on {device}: Pi Harbor {version}", { device, version: updateVersionText(updater.latestVersion) })
+      : updateText("Update available on {device}", { device });
+  }
+  if (phase === "error") return updateText("Update check failed on {device}", { device });
+  if (phase === "unavailable") return updateText("Updater service is unavailable on {device}", { device });
+  if (phase === "disabled") return updateText("Automatic updates are off on {device}", { device });
+  if (phase === "up_to_date" || phase === "updated") {
+    return updater.lastCheckedAt
+      ? updateText("Up to date on {device}; checked {time}", { device, time: formatUpdateTime(updater.lastCheckedAt) })
+      : updateText("Up to date on {device}", { device });
+  }
+  return updateText("Ready to check {device} for updates", { device });
+}
+
+function updateDeviceStateText(entry) {
+  if (!entry) return updateText("Checking");
+  if (!entry.error) return updateText("Online");
+  return entry.reachable || updateErrorIsUnsupported(entry.error) ? updateText("Online") : updateText("Unavailable");
+}
+
+function updateNextCheckAt(updater) {
+  if (updater?.nextCheckAt) return updater.nextCheckAt;
+  if (!updater?.enabled || updater.installed === false || !updater?.lastCheckedAt) return null;
+  const interval = Number(updater.intervalMinutes) || 60;
+  const checked = Date.parse(updater.lastCheckedAt);
+  return Number.isFinite(checked) ? new Date(checked + interval * 60 * 1000).toISOString() : null;
+}
+
+function updateMetric(label, value) {
+  const item = document.createElement("div");
+  item.className = "update-device-metric";
+  const name = document.createElement("span");
+  name.textContent = label;
+  const content = document.createElement("strong");
+  content.textContent = value;
+  item.append(name, content);
+  return item;
+}
+
+function renderUpdateDeviceRow(machine) {
+  const entry = updateEntryFor(machine);
+  const data = entry?.data;
+  const updater = data?.updater;
+  const row = document.createElement("article");
+  row.className = "update-device-row";
+  row.dataset.deviceId = machine.id;
+  row.dataset.i18nIgnore = "true";
+  row.classList.add(entry?.error ? "update-device-error" : "update-device-ready");
+  if (updater?.phase) row.classList.add(`update-phase-${updater.phase}`);
+
+  const heading = document.createElement("div");
+  heading.className = "update-device-heading";
+  const name = document.createElement("strong");
+  name.textContent = updateDeviceName(machine);
+  const state = document.createElement("span");
+  state.className = "update-device-state";
+  state.textContent = updateDeviceStateText(entry);
+  heading.append(name, state);
+  row.appendChild(heading);
+
+  const versions = document.createElement("div");
+  versions.className = "update-device-metrics";
+  versions.append(
+    updateMetric(updateText("Current version"), updateVersionText(data?.appVersion || data?.currentVersion || updater?.currentVersion)),
+    updateMetric(updateText("Latest version"), updateVersionText(updater?.latestVersion || data?.latestVersion)),
+  );
+  row.appendChild(versions);
+
+  const phase = document.createElement("p");
+  phase.className = "update-device-phase";
+  phase.setAttribute("role", "status");
+  phase.textContent = updatePhaseText(data, machine, entry?.error || null);
+  row.appendChild(phase);
+
+  const times = document.createElement("div");
+  times.className = "update-device-times";
+  const last = updater?.lastCheckedAt && formatUpdateTime(updater.lastCheckedAt)
+    ? updateText("Last check: {time}", { time: formatUpdateTime(updater.lastCheckedAt) })
+    : updateText("No check yet");
+  let next = updateText("Automatic checks are off");
+  if (updater?.enabled && updater.installed !== false) {
+    const nextCheckAt = updateNextCheckAt(updater);
+    next = nextCheckAt && formatUpdateTime(nextCheckAt)
+      ? updateText("Next automatic check: {time}", { time: formatUpdateTime(nextCheckAt) })
+      : updateText("Next automatic check will appear after the first check");
+  }
+  const lastLine = document.createElement("span");
+  lastLine.textContent = last;
+  const nextLine = document.createElement("span");
+  nextLine.textContent = next;
+  times.append(lastLine, nextLine);
+  row.appendChild(times);
+  return row;
+}
+
+function renderUpdateStatus(data = updateStatusData) {
+  const machine = currentMachine();
+  const device = updateDeviceName(machine);
+  const entry = updateEntryFor(machine);
+  const statusData = entry ? entry.data : data;
+  const error = entry?.error || null;
+  const updater = statusData?.updater;
+  if (el.updateAutoLabel) el.updateAutoLabel.textContent = updateText("Automatic updates for {device}", { device });
+  if (el.updateCheckLabel) el.updateCheckLabel.textContent = updateText("Check {device} for updates", { device });
+  if (!el.setAutoUpdate || !el.updateStatusCopy || !el.updateCheckStatus) return;
+
+  if (!entry && !data) {
+    el.setAutoUpdate.checked = false;
+    el.setAutoUpdate.disabled = true;
+    el.updateCheck.disabled = true;
+    el.updateStatusCopy.textContent = updateText("Checking {device} for updates…", { device });
+    el.updateCheckStatus.textContent = updateText("Checking {device} for updates…", { device });
+    return;
+  }
+  if (error || !updater) {
+    el.setAutoUpdate.checked = false;
+    el.setAutoUpdate.disabled = true;
+    el.updateCheck.disabled = true;
+    el.updateStatusCopy.textContent = updateText("Update status unavailable on {device}", { device });
+    el.updateCheckStatus.textContent = updatePhaseText(statusData, machine, error);
+    return;
+  }
+
+  const installed = updater.installed === true;
+  el.setAutoUpdate.checked = updater.enabled === true;
+  el.setAutoUpdate.disabled = !installed;
+  el.updateCheck.disabled = !installed;
+  if (!installed) {
+    el.updateStatusCopy.textContent = updateText("Install the Pi Harbor updater on {device} to enable automatic updates", { device });
+    el.updateCheckStatus.textContent = updateText("Updater service is not installed on {device}", { device });
+    return;
+  }
+  el.updateStatusCopy.textContent = updater.enabled
+    ? updateText("Checks GitHub every {minutes} minutes on {device}", { minutes: updater.intervalMinutes || 60, device })
+    : updateText("Automatic updates are off on {device}", { device });
+  el.updateCheckStatus.textContent = updatePhaseText(statusData, machine);
+}
+
+function renderUpdateCenter() {
+  renderUpdateStatus();
+  if (el.updateCenterSummary) {
+    el.updateCenterSummary.textContent = updateCenterSummary
+      ? updateText(updateCenterSummary.key, updateCenterSummary.vars)
+      : "";
+    el.updateCenterSummary.classList.toggle("hidden", !updateCenterSummary);
+  }
+  if (!el.updateDeviceList) return;
+  el.updateDeviceList.innerHTML = "";
+  for (const machine of machines) el.updateDeviceList.appendChild(renderUpdateDeviceRow(machine));
+}
+
+function setUpdateCenterSummary(key = "", vars = {}) {
+  updateCenterSummary = key ? { key, vars } : null;
+  if (el.updateCenterSummary) {
+    el.updateCenterSummary.textContent = updateCenterSummary ? updateText(key, vars) : "";
+    el.updateCenterSummary.classList.toggle("hidden", !updateCenterSummary);
+  }
+}
+
+async function refreshUpdateCenter(force = false) {
+  if (!updateViewIsOpen()) return null;
+  if (updateCenterRequest && !force) return updateCenterRequest;
+  updateCenterAbort?.abort();
+  const controller = new AbortController();
+  updateCenterAbort = controller;
+  const request = ++updateStatusRequest;
+  const generation = viewGeneration;
+  const selectedAtStart = selectedId;
+  const list = [...machines];
+  const operation = Promise.all(list.map(async (machine) => {
+    try {
+      const data = await fetchMachineUpdateStatus(machine, controller.signal);
+      return { id: machine.id, data, reachable: true };
+    } catch (error) {
+      return { id: machine.id, error, reachable: !!error?.reachable || updateErrorIsUnsupported(error) };
+    }
+  })).then((results) => {
+    if (controller.signal.aborted || request !== updateStatusRequest || generation !== viewGeneration
+      || selectedAtStart !== selectedId || !updateViewIsOpen()) return null;
+    const next = new Map();
+    for (const result of results) {
+      next.set(result.id, result);
+      if (result.error) machineStatuses.set(result.id, result.reachable ? "online" : "offline");
+      else machineStatuses.set(result.id, "online");
+    }
+    updateDeviceStatuses = next;
+    updateStatusData = next.get(selectedId)?.data || null;
+    renderUpdateCenter();
+    return next;
+  }).finally(() => {
+    if (updateCenterRequest === operation) updateCenterRequest = null;
+    if (updateCenterAbort === controller) updateCenterAbort = null;
+  });
+  updateCenterRequest = operation;
+  return operation;
+}
+
+function startUpdateCenterPolling() {
+  if (!updateViewIsOpen()) return;
+  if (!updateCenterPollTimer) {
+    updateCenterPollTimer = setInterval(() => {
+      if (!updateViewIsOpen()) { stopUpdateCenterPolling(); return; }
+      void refreshUpdateCenter(true);
+    }, 60 * 1000); // status refresh while Settings is open; updater checks remain hourly
+  }
+  void refreshUpdateCenter(true);
+}
+
+function stopUpdateCenterPolling() {
+  if (updateCenterPollTimer) clearInterval(updateCenterPollTimer);
+  updateCenterPollTimer = null;
+  cancelUpdateCenterRequest();
+  if (updateAllController) updateAllController.abort();
+  updateAllController = null;
+  if (el.updateAllDevices) el.updateAllDevices.disabled = false;
+  updateAllRequest += 1;
+  for (const timer of updateRefreshTimers) clearTimeout(timer);
+  updateRefreshTimers.clear();
+  updateCenterSummary = null;
+  if (el.updateCenterSummary) {
+    el.updateCenterSummary.textContent = "";
+    el.updateCenterSummary.classList.add("hidden");
+  }
+}
+
+async function loadUpdateStatus() {
+  return refreshUpdateCenter();
+}
+
+function scheduleUpdateRefreshes(machineId = null) {
+  const refreshAllDevices = machineId === null;
+  for (const delay of [2500, 7000, 14000]) {
+    const timer = setTimeout(() => {
+      updateRefreshTimers.delete(timer);
+      if (!updateViewIsOpen() || (!refreshAllDevices && selectedId !== machineId)) return;
+      // Update All needs every row refreshed; an individual Check may remain
+      // scoped to the device that was selected when it started.
+      void refreshUpdateCenter(true);
+      loadVersion();
+      void checkForClientUpdate();
+    }, delay);
+    updateRefreshTimers.add(timer);
+  }
+}
+
+async function saveAutomaticUpdates(enabled) {
+  const machine = currentMachine();
+  if (!el.setAutoUpdate || !machine) return;
+  const generation = viewGeneration;
+  const selectedAtStart = selectedId;
+  cancelUpdateCenterRequest();
+  el.setAutoUpdate.disabled = true;
+  try {
+    const result = await requestMachineUpdate(machine, "/api/update/settings", { enabled });
+    if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
+    updateDeviceStatuses.set(machine.id, { id: machine.id, data: result.data, reachable: true });
+    updateStatusData = result.data;
+    renderUpdateCenter();
+    toast(updateText(enabled ? "Automatic updates enabled for {device}" : "Automatic updates disabled for {device}", { device: updateDeviceName(machine) }));
+  } catch (error) {
+    if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
+    renderUpdateStatus(updateStatusData);
+    toast(updateText("Could not save update settings on {device}", { device: updateDeviceName(machine) }), true);
+  }
+}
+
+async function runUpdateCheck() {
+  const machine = currentMachine();
+  if (!el.updateCheck || !machine) return;
+  const generation = viewGeneration;
+  const selectedAtStart = selectedId;
+  const device = updateDeviceName(machine);
+  let started = false;
+  cancelUpdateCenterRequest();
+  el.updateCheck.disabled = true;
+  if (el.updateCheckStatus) el.updateCheckStatus.textContent = updateText("Checking {device} for updates…", { device });
+  try {
+    await requestMachineUpdate(machine, "/api/update/run", {});
+    if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
+    started = true;
+    if (el.updateCheckStatus) el.updateCheckStatus.textContent = updateText("Update check started on {device}", { device });
+    toast(updateText("Update check started on {device}", { device }));
+    scheduleUpdateRefreshes(machine.id);
+  } catch (error) {
+    if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
+    renderUpdateStatus(updateStatusData);
+    toast(updateText("Could not start an update check on {device}", { device }), true);
+  } finally {
+    if (generation === viewGeneration && selectedAtStart === selectedId && updateViewIsOpen()) {
+      if (started) el.updateCheck.disabled = false;
+      else renderUpdateStatus(updateStatusData);
+    }
+  }
+}
+
+async function runUpdateAll() {
+  if (!el.updateAllDevices || updateAllController || !machines.length) return;
+  const request = ++updateAllRequest;
+  const generation = viewGeneration;
+  const list = [...machines];
+  const controller = new AbortController();
+  cancelUpdateCenterRequest();
+  updateAllController = controller;
+  el.updateAllDevices.disabled = true;
+  setUpdateCenterSummary("Asking {count} devices to check for updates…", { count: list.length });
+  const counts = { started: 0, skipped: 0, failed: 0 };
+  try {
+    await Promise.all(list.map(async (machine) => {
+      try {
+        const result = await requestMachineUpdate(machine, "/api/update/run", {}, { signal: controller.signal });
+        if (result.data?.started !== false) counts.started += 1;
+        else counts.skipped += 1;
+      } catch (error) {
+        if (updateErrorIsUnsupported(error)) counts.skipped += 1;
+        else counts.failed += 1;
+      }
+    }));
+    if (request !== updateAllRequest || generation !== viewGeneration || !updateViewIsOpen()) return;
+    setUpdateCenterSummary("Update all complete: {started} started, {skipped} skipped, {failed} failed.", counts);
+    // Coalesce the delayed follow-up work into one timer set for the whole
+    // center instead of scheduling the same three timers once per device.
+    scheduleUpdateRefreshes();
+    await refreshUpdateCenter(true);
+  } finally {
+    if (updateAllController === controller) updateAllController = null;
+    if (request === updateAllRequest && generation === viewGeneration && updateViewIsOpen()) {
+      el.updateAllDevices.disabled = false;
+    }
+  }
+}
 
 async function checkForClientUpdate() {
   try {
@@ -3755,7 +4241,7 @@ async function checkForClientUpdate() {
       return;
     }
     if (rpc?.streaming) {
-      if (!updateReadyNotified) toast("Pi Harbor update ready; reload after the current work finishes");
+      if (!updateReadyNotified) toast(updateText("Pi Harbor update ready; reload after the current work finishes"));
       updateReadyNotified = true;
       return;
     }
@@ -3767,90 +4253,6 @@ async function checkForClientUpdate() {
     sessionStorage.setItem("piharbor.clientReloadAttempt", String(Date.now()));
     location.reload();
   } catch {}
-}
-
-function renderUpdateStatus(data = updateStatusData) {
-  const updater = data?.updater;
-  if (!el.setAutoUpdate || !el.updateStatusCopy || !el.updateCheckStatus) return;
-  if (!updater) {
-    el.setAutoUpdate.checked = false;
-    el.setAutoUpdate.disabled = true;
-    el.updateCheck.disabled = true;
-    el.updateStatusCopy.textContent = "Update status is unavailable on this Pi Harbor device";
-    el.updateCheckStatus.textContent = "Updater status unavailable";
-    return;
-  }
-  const installed = updater.installed === true;
-  el.setAutoUpdate.checked = updater.enabled === true;
-  el.setAutoUpdate.disabled = !installed;
-  el.updateCheck.disabled = !installed;
-  if (!installed) {
-    el.updateStatusCopy.textContent = "Install the Pi Harbor updater service to enable automatic updates";
-    el.updateCheckStatus.textContent = "Updater service not installed";
-    return;
-  }
-  el.updateStatusCopy.textContent = updater.enabled
-    ? `Checks GitHub every ${updater.intervalMinutes || 60} minutes`
-    : "Automatic updates are off on this device";
-  if (updater.error) {
-    el.updateCheckStatus.textContent = `Last check failed: ${updater.error}`;
-  } else if (updater.latestSha && updater.currentSha && updater.latestSha !== updater.currentSha) {
-    el.updateCheckStatus.textContent = updater.latestVersion
-      ? `Update available: Pi Harbor ${updater.latestVersion}`
-      : "Update available from GitHub";
-  } else if (updater.lastCheckedAt) {
-    el.updateCheckStatus.textContent = `Up to date · checked ${new Date(updater.lastCheckedAt).toLocaleString()}`;
-  } else {
-    el.updateCheckStatus.textContent = "Ready to check GitHub";
-  }
-}
-
-async function loadUpdateStatus() {
-  const request = ++updateStatusRequest;
-  try {
-    const data = await api("/api/update/status");
-    if (request !== updateStatusRequest) return;
-    updateStatusData = data;
-    renderUpdateStatus(data);
-  } catch (error) {
-    if (request !== updateStatusRequest) return;
-    updateStatusData = null;
-    renderUpdateStatus(null);
-    if (el.updateCheckStatus) el.updateCheckStatus.textContent = error.status === 404 ? "Update controls require a newer Pi Harbor" : "Updater status unavailable";
-  }
-}
-
-async function saveAutomaticUpdates(enabled) {
-  if (!el.setAutoUpdate) return;
-  el.setAutoUpdate.disabled = true;
-  try {
-    updateStatusData = await post("/api/update/settings", { enabled });
-    renderUpdateStatus(updateStatusData);
-    toast(enabled ? "Automatic updates enabled" : "Automatic updates disabled");
-  } catch (error) {
-    renderUpdateStatus(updateStatusData);
-    toast(error.message || "Could not save update settings", true);
-  }
-}
-
-async function runUpdateCheck() {
-  if (!el.updateCheck) return;
-  el.updateCheck.disabled = true;
-  if (el.updateCheckStatus) el.updateCheckStatus.textContent = "Checking GitHub…";
-  try {
-    await post("/api/update/run", {});
-    toast("Update check started");
-    for (const delay of [2500, 6000, 12000]) {
-      setTimeout(() => {
-        void loadUpdateStatus();
-        loadVersion();
-        void checkForClientUpdate();
-      }, delay);
-    }
-  } catch (error) {
-    renderUpdateStatus(updateStatusData);
-    toast(error.message || "Could not start update check", true);
-  }
 }
 
 function renderSettings() {
@@ -3875,8 +4277,7 @@ function renderSettings() {
   if (el.setupGuideSubtitle) el.setupGuideSubtitle.textContent = setupCopy.guideSubtitle;
   renderMachineList();
   void refreshMachineStatuses();
-  renderUpdateStatus();
-  void loadUpdateStatus();
+  renderUpdateCenter();
 }
 
 function modelMachineKey() { return selectedId || selfId || "local"; }
@@ -4250,7 +4651,7 @@ function selectProviderPreset(provider) {
       el.providerSwitchDevice.textContent = window.piI18n?.t("Switch device") || "Switch device";
     }
     if (el.providerSimpleStatus) {
-      el.providerSimpleStatus.textContent = "Update Pi Harbor on this device to add or change provider credentials.";
+      el.providerSimpleStatus.textContent = updateText("Update Pi Harbor on this device to add or change provider credentials.");
       el.providerSimpleStatus.classList.add("is-readonly");
     }
     el.providerAuthOptions?.scrollIntoView({ block: "nearest", behavior: settings.reducedMotion ? "auto" : "smooth" });
@@ -4866,6 +5267,7 @@ el.setReducedMotion.addEventListener("change", () => { settings = saveSettings({
 el.setThinking.addEventListener("change", () => { settings = saveSettings({ thinking: el.setThinking.value }); });
 el.setAutoUpdate?.addEventListener("change", () => { void saveAutomaticUpdates(el.setAutoUpdate.checked); });
 el.updateCheck?.addEventListener("click", () => { void runUpdateCheck(); });
+el.updateAllDevices?.addEventListener("click", () => { void runUpdateAll(); });
 el.btnResetSettings?.addEventListener("click", () => {
   if (!confirm("要恢復介面預設設定嗎？登入狀態與 session 不會受到影響。")) return;
   try {
@@ -5308,10 +5710,10 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (event) => {
     if (event.data?.type !== "PI_HARBOR_UPDATED" || !navigator.serviceWorker.controller) return;
     if (rpc?.streaming) {
-      toast("新版已準備好；目前工作完成後可重新整理。", false);
+      toast(updateText("Pi Harbor update ready; reload after the current work finishes"), false);
       return;
     }
-    toast("Pi Harbor 已更新，正在重新載入…", false);
+    toast(updateText("Pi Harbor updated; reloading…"), false);
     setTimeout(() => location.reload(), 900);
   });
   (async () => {

@@ -29,7 +29,7 @@ const { createHttpUtils } = require("./server/http-utils");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.0.8";
+const APP_VERSION = "2.0.9";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -328,10 +328,38 @@ function readUpdateConfig() {
 
 function readUpdateState() {
   const state = readPrivateJson(UPDATE_STATE_FILE);
-  const keys = ["currentSha", "latestSha", "latestVersion", "lastCheckedAt", "lastUpdatedAt", "error"];
+  const keys = ["currentSha", "latestSha", "latestVersion", "lastCheckedAt", "lastUpdatedAt", "error", "phase", "deferredReason"];
   const out = {};
   for (const key of keys) if (typeof state[key] === "string" && state[key].length <= 256) out[key] = state[key];
   return out;
+}
+
+function safeUpdateVersion(value) {
+  const version = String(value || "").trim().replace(/^v/i, "");
+  return /^\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.-]+)?$/.test(version) ? version : null;
+}
+
+function safeUpdateMarker(value) {
+  const marker = String(value || "").trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(marker) ? marker : null;
+}
+
+function updateStateIsPending(state) {
+  if (!state || state.error || state.phase === "error" || state.phase === "up_to_date" || state.phase === "updated") return false;
+  return state.phase === "deferred" || state.phase === "pending" || state.phase === "available"
+    || state.deferredReason === "active_rpc_running"
+    || (!!state.latestSha && !!state.currentSha && state.latestSha !== state.currentSha);
+}
+
+function updatePhase(config, state, installed) {
+  if (!installed) return "unavailable";
+  if (updateProcessIsRunning()) return "checking";
+  if (state.error || state.phase === "error") return "error";
+  if (state.phase === "deferred" || state.phase === "pending" || state.deferredReason === "active_rpc_running") return "deferred";
+  if (state.phase === "available" || updateStateIsPending(state)) return "available";
+  if (state.phase === "disabled") return config.enabled ? (state.lastCheckedAt ? "up_to_date" : "idle") : "disabled";
+  if (["checking", "updated", "up_to_date", "idle"].includes(state.phase)) return state.phase;
+  return state.lastCheckedAt ? (config.enabled ? "up_to_date" : "disabled") : "idle";
 }
 
 function publicUpdateStatus() {
@@ -339,15 +367,38 @@ function publicUpdateStatus() {
   const state = readUpdateState();
   let installed = false;
   try { installed = fs.statSync(UPDATE_SCRIPT_FILE).isFile(); } catch {}
+  const lastCheckedAt = state.lastCheckedAt && Number.isFinite(Date.parse(state.lastCheckedAt))
+    ? state.lastCheckedAt : null;
+  const nextCheckAt = config.enabled && installed && lastCheckedAt
+    ? new Date(Date.parse(lastCheckedAt) + config.intervalMinutes * 60 * 1000).toISOString()
+    : null;
+  const latestVersion = safeUpdateVersion(state.latestVersion);
+  const currentSha = safeUpdateMarker(state.currentSha);
+  const latestSha = safeUpdateMarker(state.latestSha);
+  const lastUpdatedAt = state.lastUpdatedAt && Number.isFinite(Date.parse(state.lastUpdatedAt))
+    ? state.lastUpdatedAt : null;
+  const phase = updatePhase(config, state, installed);
   return {
     appVersion: APP_VERSION,
+    currentVersion: APP_VERSION,
+    latestVersion,
     updater: {
       installed,
       enabled: config.enabled,
       repository: config.repository,
       ref: config.ref,
       intervalMinutes: config.intervalMinutes,
-      ...state,
+      currentVersion: APP_VERSION,
+      latestVersion,
+      lastCheckedAt,
+      nextCheckAt,
+      phase,
+      pending: phase === "deferred" || phase === "available",
+      ...(currentSha ? { currentSha } : {}),
+      ...(latestSha ? { latestSha } : {}),
+      ...(lastUpdatedAt ? { lastUpdatedAt } : {}),
+      ...(phase === "deferred" && state.deferredReason === "active_rpc_running" ? { deferredReason: state.deferredReason } : {}),
+      ...(state.error ? { error: "update_check_failed" } : {}),
     },
   };
 }
@@ -368,6 +419,22 @@ function saveUpdateConfig(body) {
 }
 
 let updateProcess = null;
+let pendingUpdateApplyTimer = null;
+// Avoid repeatedly spawning a child when launchd already owns the updater lock
+// and exits a redundant server-triggered child without changing the state.
+let pendingUpdateApplyStateKey = null;
+
+function updateProcessIsRunning() {
+  // Keep the reference until the exit handler clears it. Checking exitCode here
+  // would allow a second child in the small window before that handler runs.
+  return !!updateProcess;
+}
+
+function updateStateKey(state) {
+  return ["currentSha", "latestSha", "latestVersion", "lastCheckedAt", "lastUpdatedAt", "error", "phase", "deferredReason"]
+    .map((key) => state?.[key] || "").join("\u0000");
+}
+
 function startUpdateCheck() {
   let stat;
   try { stat = fs.statSync(UPDATE_SCRIPT_FILE); } catch { stat = null; }
@@ -376,7 +443,7 @@ function startUpdateCheck() {
     err.statusCode = 409;
     throw err;
   }
-  if (updateProcess && !updateProcess.exitCode && !updateProcess.signalCode) {
+  if (updateProcessIsRunning()) {
     const err = new Error("An update check is already running");
     err.statusCode = 409;
     throw err;
@@ -393,13 +460,74 @@ function startUpdateCheck() {
       PI_HARBOR_UPDATE_FORCE: "1",
       PI_HARBOR_UPDATE_CONFIG: UPDATE_CONFIG_FILE,
       PI_HARBOR_UPDATE_STATE: UPDATE_STATE_FILE,
+      ...(TOKEN_FILE ? { PI_HARBOR_UPDATE_TOKEN_FILE: TOKEN_FILE } : {}),
       PI_HARBOR_INSTALL_DIR: process.env.PI_HARBOR_INSTALL_DIR || __dirname,
     },
   });
   updateProcess = child;
-  child.on("exit", () => { if (updateProcess === child) updateProcess = null; });
+  child.on("exit", () => {
+    if (updateProcess !== child) return;
+    // Clear the reference before evaluating the state so the apply timer can
+    // start a new child without being rejected as a duplicate.
+    updateProcess = null;
+    const state = readUpdateState();
+    if (!activeRpcSessions().length && updateStateIsPending(state)) schedulePendingUpdateApply();
+  });
+  child.on("error", () => {
+    // A failed spawn has no exit event on every supported Node/macOS path. Do
+    // not retry it here: a persistent pending state will remain visible and
+    // the next launchd check or explicit user action can try again.
+    if (updateProcess === child) updateProcess = null;
+  });
   child.unref();
   return { started: true };
+}
+
+// A deferred shell updater exits after recording its pending state. Once the
+// last Pi run settles, schedule a fresh updater process rather than waiting
+// for launchd's hourly interval. The timer keeps process spawning out of the
+// event broadcast call stack and the updater performs the final RPC check.
+function schedulePendingUpdateApply() {
+  if (shutdownState || pendingUpdateApplyTimer || updateProcessIsRunning()) return;
+  const state = readUpdateState();
+  if (!updateStateIsPending(state)) {
+    pendingUpdateApplyStateKey = null;
+    return;
+  }
+  const stateKey = updateStateKey(state);
+  if (pendingUpdateApplyStateKey === stateKey) return;
+  pendingUpdateApplyStateKey = stateKey;
+  pendingUpdateApplyTimer = setTimeout(() => {
+    pendingUpdateApplyTimer = null;
+    if (shutdownState) {
+      pendingUpdateApplyStateKey = null;
+      return;
+    }
+    if (activeRpcSessions().length || updateProcessIsRunning()) {
+      // Let the next settled transition or child exit make the decision again.
+      pendingUpdateApplyStateKey = null;
+      return;
+    }
+    const latestState = readUpdateState();
+    if (!updateStateIsPending(latestState)) {
+      pendingUpdateApplyStateKey = null;
+      return;
+    }
+    pendingUpdateApplyStateKey = updateStateKey(latestState);
+    try { startUpdateCheck(); }
+    catch (error) {
+      if (error?.statusCode !== 409) console.warn(`[pi-harbor] could not apply deferred update: ${error.message}`);
+    }
+  }, 0);
+  pendingUpdateApplyTimer.unref?.();
+}
+
+function schedulePendingUpdateApplyAfterRpcIdle() {
+  if (activeRpcSessions().length) return;
+  // A settle transition is a new opportunity even if an earlier child left
+  // the same pending state behind (for example after a lock/spawn failure).
+  pendingUpdateApplyStateKey = null;
+  schedulePendingUpdateApply();
 }
 
 loadManagedMachines();
@@ -1108,9 +1236,13 @@ function trackStreaming(sid, event) {
     s.state.isStreaming = false;
     s.currentRunStartSeq = null;
     scheduleRpcCleanup(sid);
+    // Do not spawn from inside broadcast(); only the final transition starts
+    // the deferred timer, and the updater rechecks immediately before activation.
+    schedulePendingUpdateApplyAfterRpcIdle();
   } else if (event.type === "rpc_exit") {
     s.state.isStreaming = false;
     s.currentRunStartSeq = null;
+    schedulePendingUpdateApplyAfterRpcIdle();
   }
 }
 
@@ -2560,7 +2692,9 @@ const server = http.createServer(async (req, res) => {
         const expectedAbort = ac.signal.aborted && !timedOut;
         if (!expectedAbort) console.log(`[pi-harbor] proxy ${req.method} ${p} -> ${upstream.href} failed:`, e.message);
         if (!res.headersSent && !res.destroyed && !expectedAbort) {
-          sendJSON(res, timedOut ? 504 : 502, { error: timedOut ? "machine timeout" : `machine unreachable: ${e.message}` });
+          // Never return the relay's upstream URL or low-level transport
+          // message to the browser; those details belong only in server logs.
+          sendJSON(res, timedOut ? 504 : 502, { error: timedOut ? "machine timeout" : "machine unreachable" });
         } else if (!res.writableEnded) try { res.end(); } catch {}
       } finally {
         if (timeout) clearTimeout(timeout);
@@ -3187,4 +3321,7 @@ server.listen(PORT, HOST, () => {
   if (!BROWSE_ROOTS_FROM_ENV.length) {
     console.log("[pi-harbor] /api/browse is restricted to the Pi home by default; set PI_HARBOR_BROWSE_ROOTS to add external volumes");
   }
+  // A previous updater may have recorded a deferred/available state before a
+  // server restart. Apply it once the fresh server is listening and idle.
+  schedulePendingUpdateApply();
 });
