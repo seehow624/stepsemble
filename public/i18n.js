@@ -743,6 +743,58 @@
   };
   for (const [id, table] of Object.entries(EUROPEAN_FORM_COPY)) Object.assign(TRANSLATIONS[id], table);
 
+  // Pi Harbor's simplified information architecture and single work-status
+  // label use these English source keys in both static HTML and dynamic DOM.
+  // Keep every locale explicit so a language switch never falls back to a
+  // different language for the new settings groups or activity states.
+  const SIMPLIFIED_UI_TRANSLATIONS = {
+    en: {
+      "Behavior": "Behavior", "Advanced": "Advanced", "Online": "Online", "Offline": "Offline", "Checking": "Checking", "Not checked": "Not checked",
+      "Thinking…": "Thinking…", "Working…": "Working…", "Writing…": "Writing…", "Waiting for your response": "Waiting for your response", "Retrying…": "Retrying…", "Compacting…": "Compacting…",
+    },
+    "zh-Hant": {
+      "Behavior": "行為", "Advanced": "進階", "Online": "在線", "Offline": "離線", "Checking": "檢查中", "Not checked": "尚未檢查",
+      "Thinking…": "思考中…", "Working…": "工作中…", "Writing…": "撰寫中…", "Waiting for your response": "等待你的回覆", "Retrying…": "重試中…", "Compacting…": "整理對話中…",
+    },
+    "zh-Hans": {
+      "Behavior": "行为", "Advanced": "高级", "Online": "在线", "Offline": "离线", "Checking": "检查中", "Not checked": "尚未检查",
+      "Thinking…": "思考中…", "Working…": "工作中…", "Writing…": "输出中…", "Waiting for your response": "等待你的回复", "Retrying…": "正在重试…", "Compacting…": "正在整理对话…",
+    },
+    ja: {
+      "Behavior": "動作", "Advanced": "詳細設定", "Online": "オンライン", "Offline": "オフライン", "Checking": "確認中", "Not checked": "未確認",
+      "Thinking…": "思考中…", "Working…": "作業中…", "Writing…": "生成中…", "Waiting for your response": "回答を待っています", "Retrying…": "再試行中…", "Compacting…": "コンテキストを整理中…",
+    },
+    ko: {
+      "Behavior": "동작", "Advanced": "고급", "Online": "온라인", "Offline": "오프라인", "Checking": "확인 중", "Not checked": "확인 안 됨",
+      "Thinking…": "생각 중…", "Working…": "작업 중…", "Writing…": "작성 중…", "Waiting for your response": "응답 대기 중", "Retrying…": "재시도 중…", "Compacting…": "대화 정리 중…",
+    },
+    tr: {
+      "Behavior": "Davranış", "Advanced": "Gelişmiş", "Online": "Çevrimiçi", "Offline": "Çevrimdışı", "Checking": "Denetleniyor", "Not checked": "Denetlenmedi",
+      "Thinking…": "Düşünüyor…", "Working…": "Çalışıyor…", "Writing…": "Yazıyor…", "Waiting for your response": "Yanıtınız bekleniyor", "Retrying…": "Yeniden deneniyor…", "Compacting…": "Bağlam düzenleniyor…",
+    },
+    fr: {
+      "Behavior": "Comportement", "Advanced": "Avancé", "Online": "En ligne", "Offline": "Hors ligne", "Checking": "Vérification…", "Not checked": "Non vérifié",
+      "Thinking…": "Réflexion…", "Working…": "En cours…", "Writing…": "Rédaction…", "Waiting for your response": "En attente de votre réponse", "Retrying…": "Nouvelle tentative…", "Compacting…": "Compactage…",
+    },
+    de: {
+      "Behavior": "Verhalten", "Advanced": "Erweitert", "Online": "Online", "Offline": "Offline", "Checking": "Wird geprüft", "Not checked": "Nicht geprüft",
+      "Thinking…": "Denkt nach…", "Working…": "Wird ausgeführt…", "Writing…": "Schreibt…", "Waiting for your response": "Warte auf Ihre Antwort", "Retrying…": "Wird erneut versucht…", "Compacting…": "Kontext wird gekürzt…",
+    },
+    es: {
+      "Behavior": "Comportamiento", "Advanced": "Avanzado", "Online": "En línea", "Offline": "Sin conexión", "Checking": "Comprobando", "Not checked": "Sin comprobar",
+      "Thinking…": "Pensando…", "Working…": "Trabajando…", "Writing…": "Escribiendo…", "Waiting for your response": "Esperando tu respuesta", "Retrying…": "Reintentando…", "Compacting…": "Compactando…",
+    },
+    "pt-BR": {
+      "Behavior": "Comportamento", "Advanced": "Avançado", "Online": "Online", "Offline": "Offline", "Checking": "Verificando", "Not checked": "Não verificado",
+      "Thinking…": "Pensando…", "Working…": "Trabalhando…", "Writing…": "Escrevendo…", "Waiting for your response": "Aguardando sua resposta", "Retrying…": "Tentando novamente…", "Compacting…": "Compactando…",
+    },
+    it: {
+      "Behavior": "Comportamento", "Advanced": "Avanzate", "Online": "Online", "Offline": "Offline", "Checking": "Verifica in corso", "Not checked": "Non verificato",
+      "Thinking…": "Ragionamento…", "Working…": "Al lavoro…", "Writing…": "Scrittura…", "Waiting for your response": "In attesa della risposta", "Retrying…": "Nuovo tentativo…", "Compacting…": "Compattazione…",
+    },
+  };
+  for (const [id, table] of Object.entries(SIMPLIFIED_UI_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
+
   // Keep the locale tables auditable.  The UI still uses the English source
   // key as its safe fallback, but every fallback is now explicit and can be
   // reported in development/tests instead of silently leaking a random

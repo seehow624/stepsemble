@@ -6,10 +6,10 @@
 <title>Pi Harbor</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=2.0.6">
-<link rel="icon" href="/pi-logo.svg?v=2.0.6" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-180.png?v=2.0.6">
-<link rel="stylesheet" href="/style.css?v=2.0.6">
+<link rel="manifest" href="/manifest.webmanifest?v=2.0.7">
+<link rel="icon" href="/pi-logo.svg?v=2.0.7" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png?v=2.0.7">
+<link rel="stylesheet" href="/style.css?v=2.0.7">
 </head>
 <body>
 
@@ -61,20 +61,20 @@
   <main id="view-list" class="view">
     <header class="topbar">
       <div class="machine-switch-wrap">
+        <span id="machine-switch-status" class="machine-status-dot machine-status-unknown" aria-hidden="true"></span>
         <select id="machine-switch" class="machine-select" title="Switch device" aria-label="Switch device"></select>
       </div>
-      <button id="btn-open-settings" class="btn ghost icon-btn" title="Settings" aria-label="Settings"><svg class="icon"><use href="#i-settings"></use></svg></button>
-      <!-- Keep the legacy node for backwards-compatible event binding. -->
-      <button id="btn-new" class="btn ghost icon-btn hidden" title="New conversation" aria-label="New conversation" tabindex="-1"><svg class="icon"><use href="#i-plus"></use></svg></button>
+      <button id="btn-open-settings" class="btn ghost icon-btn" type="button" title="Settings" aria-label="Settings"><svg class="icon"><use href="#i-settings"></use></svg></button>
+      <button id="btn-new" class="btn ghost icon-btn hidden" type="button" title="New project" aria-label="New project"><svg class="icon"><use href="#i-plus"></use></svg></button>
     </header>
     <div id="machine-catalog-status" class="machine-catalog-status hidden" role="status" aria-live="polite">
       <span id="machine-catalog-status-copy"></span>
       <button id="machine-catalog-retry" class="btn ghost hidden" type="button">Retry</button>
     </div>
-    <button id="btn-new-project" class="new-project-card" type="button">
-      <span class="new-project-icon"><svg class="icon"><use href="#i-plus"></use></svg></span>
+    <button id="btn-new-project" class="new-project-card" type="button" aria-label="New project">
+      <span class="new-project-icon" aria-hidden="true"><svg class="icon"><use href="#i-plus"></use></svg></span>
       <span class="new-project-copy"><strong>New project</strong><small>Choose a folder to start a conversation</small></span>
-      <svg class="icon trailing"><use href="#i-chevron-right"></use></svg>
+      <svg class="icon trailing" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
     </button>
     <div id="pull-indicator"><span class="pull-arrow">↓</span></div>
     <div class="session-section-heading">
@@ -100,8 +100,7 @@
     </div>
     <ul id="session-list" class="session-list"></ul>
     <p id="list-empty" class="empty hidden">No sessions on this device.<br><span class="empty-sub">Choose a folder from New project to begin</span></p>
-    <!-- New project entry stays above the sessions list. -->
-    <button id="fab-new" class="fab hidden" title="New conversation" aria-label="New conversation" tabindex="-1"><svg class="icon"><use href="#i-plus"></use></svg></button>
+    <!-- New project is promoted to the top bar once sessions exist. -->
   </main>
 
   <!-- ===== View: Conversation ===== -->
@@ -112,8 +111,7 @@
         <div id="chat-title" class="chat-title">New conversation</div>
         <div id="chat-sub" class="chat-sub"></div>
       </div>
-      <span id="thinking-status" class="thinking-status hidden" aria-live="polite">thinking</span>
-      <span id="stream-dot" class="dot hidden" title="Agent is working"></span>
+      <span id="thinking-status" class="thinking-status hidden" role="status" aria-live="polite" aria-atomic="true"></span>
       <button id="btn-chat-menu" class="btn ghost icon-btn" title="More" aria-label="More"><svg class="icon"><use href="#i-ellipsis"></use></svg></button>
     </header>
     <div id="messages" class="messages">
@@ -136,12 +134,7 @@
         </div>
         <div class="composer-toolbar" aria-label="Conversation tools">
           <button id="btn-img" class="btn ghost icon-btn composer-icon-btn" title="Add attachment" aria-label="Add attachment"><svg class="icon"><use href="#i-paperclip"></use></svg></button>
-          <button id="btn-model" class="composer-control composer-model-control" type="button" title="Choose model" aria-label="Choose model"><span id="composer-model-label">Server default</span><svg class="icon"><use href="#i-chevron-down"></use></svg></button>
-          <label class="composer-control composer-thinking-control">
-            <select id="composer-thinking" aria-label="Thinking level">
-              <option value="off">off</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option><option value="max">max</option>
-            </select>
-          </label>
+          <button id="btn-model" class="composer-control composer-model-control" type="button" title="Model &amp; reasoning" aria-label="Model &amp; reasoning"><span id="composer-model-label">Server default · off</span><svg class="icon" aria-hidden="true"><use href="#i-chevron-down"></use></svg></button>
           <button id="btn-abort" class="btn danger composer-send hidden" type="button" title="Stop" aria-label="Stop"><svg class="icon"><use href="#i-stop"></use></svg></button>
           <button id="btn-send" class="btn primary composer-send" type="button" title="Send" aria-label="Send"><svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg></button>
         </div>
@@ -177,34 +170,14 @@
           <span><strong>This device</strong><small id="set-machine-name">Loading…</small></span>
           <span class="settings-value" id="set-machine-host">—</span>
         </div>
-        <div class="settings-row">
-          <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
-          <span class="settings-value mono" id="set-pi-version">—</span>
-        </div>
-        <div class="settings-row">
-          <span><strong>Total sessions</strong><small>All sessions on this device</small></span>
-          <span class="settings-value" id="set-session-count">—</span>
-        </div>
-        <button id="btn-logout" class="settings-row settings-button-row danger-text" type="button">
-          <span><strong>Sign out</strong><small>Clear this browser's sign-in state</small></span>
-          <span class="row-chevron">→</span>
+        <button id="model-settings-open" class="settings-navigation-row" type="button">
+          <span><strong>Models &amp; providers</strong><small id="model-settings-summary">Manage visible models and custom providers</small></span>
+          <span class="row-chevron" aria-hidden="true">→</span>
         </button>
       </section>
 
       <section class="settings-group">
-        <h3 class="group-title">Updates</h3>
-        <label class="settings-row settings-toggle-row">
-          <span><strong>Automatic updates</strong><small id="update-status-copy">Check GitHub and update this device periodically</small></span>
-          <span class="toggle"><input id="set-auto-update" type="checkbox"><span class="toggle-track"></span></span>
-        </label>
-        <button id="update-check" class="settings-row settings-button-row" type="button">
-          <span><strong>Check for updates</strong><small id="update-check-status">Checking updater status…</small></span>
-          <span class="row-chevron">→</span>
-        </button>
-      </section>
-
-      <section class="settings-group">
-        <h3 class="group-title">Interface</h3>
+        <h3 class="group-title">Appearance</h3>
         <label class="settings-row settings-select-row">
           <span><strong>Language</strong><small>Choose the language used by Pi Harbor</small></span>
           <select id="set-locale" aria-label="Language">
@@ -233,25 +206,21 @@
           <span><strong>Design theme</strong><small>Choose a complete colour system</small></span>
           <div id="theme-choices" class="theme-choices" role="radiogroup" aria-label="Design theme"></div>
         </div>
-        <label class="settings-row settings-toggle-row">
-          <span><strong>Compact list</strong><small>Show sessions with less spacing</small></span>
-          <span class="toggle"><input id="set-compact" type="checkbox"><span class="toggle-track"></span></span>
-        </label>
-        <label class="settings-row settings-range-row">
-          <span><strong>Desktop sidebar width</strong><small>Desktop only; mobile always uses full width</small></span>
-          <span class="range-control"><input id="set-sidebar-width" type="range" min="280" max="440" step="8"><output id="set-sidebar-width-value">336px</output></span>
-        </label>
         <label class="settings-row settings-range-row">
           <span><strong>Text size</strong><small>Adjust interface text for readability</small></span>
           <span class="range-control"><input id="set-font-scale" type="range" min="90" max="125" step="5"><output id="set-font-scale-value">100%</output></span>
         </label>
+      </section>
+
+      <section class="settings-group">
+        <h3 class="group-title">Behavior</h3>
+        <label class="settings-row settings-toggle-row">
+          <span><strong>Compact list</strong><small>Show sessions with less spacing</small></span>
+          <span class="toggle"><input id="set-compact" type="checkbox"><span class="toggle-track"></span></span>
+        </label>
         <label class="settings-row settings-toggle-row">
           <span><strong>Group by project</strong><small>Group sessions by working directory</small></span>
           <span class="toggle"><input id="set-group" type="checkbox"><span class="toggle-track"></span></span>
-        </label>
-        <label class="settings-row settings-toggle-row">
-          <span><strong>Reduce motion</strong><small>Reduce transitions and scrolling animations</small></span>
-          <span class="toggle"><input id="set-reduced-motion" type="checkbox"><span class="toggle-track"></span></span>
         </label>
         <label class="settings-row settings-select-row">
           <span><strong>Thinking blocks</strong><small>Default state for assistant thinking blocks</small></span>
@@ -260,38 +229,55 @@
             <option value="open">Expanded</option>
           </select>
         </label>
-        <div class="settings-row settings-select-row">
-          <span><strong>Swipe gesture</strong><small>Swipe from the left edge in a conversation to go back</small></span>
-          <span class="settings-value" style="color:var(--ok)">Enabled</span>
-        </div>
+        <label class="settings-row settings-toggle-row">
+          <span><strong>Reduce motion</strong><small>Reduce transitions and scrolling animations</small></span>
+          <span class="toggle"><input id="set-reduced-motion" type="checkbox"><span class="toggle-track"></span></span>
+        </label>
+        <label id="setting-sidebar-width-row" class="settings-row settings-range-row">
+          <span><strong>Desktop sidebar width</strong><small>Desktop only; mobile always uses full width</small></span>
+          <span class="range-control"><input id="set-sidebar-width" type="range" min="280" max="440" step="8"><output id="set-sidebar-width-value">336px</output></span>
+        </label>
       </section>
 
-      <section class="settings-group model-settings-entry-group">
-        <button id="model-settings-open" class="settings-navigation-row" type="button">
-          <span><strong>Models &amp; providers</strong><small id="model-settings-summary">Manage visible models and custom providers</small></span>
-          <span class="row-chevron">→</span>
+      <section class="settings-group settings-advanced-group">
+        <h3 class="group-title">Advanced</h3>
+        <button id="btn-reset-settings" class="settings-row settings-button-row" type="button">
+          <span><strong>Restore interface defaults</strong><small>Clear theme, density, and model visibility preferences</small></span>
+          <span class="row-chevron" aria-hidden="true">↺</span>
         </button>
       </section>
 
-      <section class="settings-group">
+      <section class="settings-group settings-about-group">
         <h3 class="group-title">About</h3>
         <div class="settings-row">
           <span><strong>Pi Harbor</strong><small>Mobile-first remote workspace for Pi</small></span>
-          <span class="settings-value">v2.0.6</span>
+          <span class="settings-value">v2.0.7</span>
         </div>
         <div class="settings-row">
-          <span><strong>Gesture tips</strong><small>Pull down to refresh; swipe from the left edge to go back; long-press a session to rename or delete</small></span>
-          <span></span>
+          <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
+          <span class="settings-value mono" id="set-pi-version">—</span>
         </div>
+        <div class="settings-subheading" role="heading" aria-level="4">Updates</div>
+        <label class="settings-row settings-toggle-row">
+          <span><strong>Automatic updates</strong><small id="update-status-copy">Check GitHub and update this device periodically</small></span>
+          <span class="toggle"><input id="set-auto-update" type="checkbox"><span class="toggle-track"></span></span>
+        </label>
+        <button id="update-check" class="settings-row settings-button-row" type="button">
+          <span><strong>Check for updates</strong><small id="update-check-status">Checking updater status…</small></span>
+          <span class="row-chevron" aria-hidden="true">→</span>
+        </button>
         <button id="btn-open-onboarding" class="settings-row settings-button-row" type="button">
           <span><strong id="setup-guide-title">Setup guide</strong><small id="setup-guide-subtitle">Review the essentials for this device</small></span>
-          <span class="row-chevron">→</span>
-        </button>
-        <button id="btn-reset-settings" class="settings-row settings-button-row" type="button">
-          <span><strong>Restore interface defaults</strong><small>Clear theme, density, and model visibility preferences</small></span>
-          <span class="row-chevron">↺</span>
+          <span class="row-chevron" aria-hidden="true">→</span>
         </button>
       </section>
+
+      <div class="settings-account-action">
+        <button id="btn-logout" class="settings-row settings-button-row danger-text" type="button">
+          <span><strong>Sign out</strong><small>Clear this browser's sign-in state</small></span>
+          <span class="row-chevron" aria-hidden="true">→</span>
+        </button>
+      </div>
 
       <p class="settings-footer">Pi Harbor · self-hosted on your tailnet</p>
     </div>
@@ -559,8 +545,8 @@
       <h2>Rename</h2>
       <input id="rename-input" type="text" maxlength="120" placeholder="New name">
       <div class="sheet-actions">
-        <button id="rename-cancel" class="btn ghost">Cancel</button>
-        <button id="rename-save" class="btn primary">Save</button>
+        <button id="rename-cancel" class="btn ghost" type="button">Cancel</button>
+        <button id="rename-save" class="btn primary" type="button">Save</button>
       </div>
     </div>
   </div>
@@ -620,9 +606,9 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=2.0.6"></script>
-<script src="/modules/app-foundation.js?v=2.0.6"></script>
-<script src="/modules/session-utils.js?v=2.0.6"></script>
-<script src="/app.js?v=2.0.6"></script>
+<script src="/i18n.js?v=2.0.7"></script>
+<script src="/modules/app-foundation.js?v=2.0.7"></script>
+<script src="/modules/session-utils.js?v=2.0.7"></script>
+<script src="/app.js?v=2.0.7"></script>
 </body>
 </html>

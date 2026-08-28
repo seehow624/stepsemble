@@ -140,7 +140,10 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
   font-size: 14px;
   padding: 0 26px 0 12px;
 }
-.topbar .machine-select:focus { outline: none; }
+.topbar .machine-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .machine-catalog-status {
   display: flex;
   align-items: center;
@@ -189,22 +192,6 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .empty { text-align: center; color: var(--pine-soft); padding: 48px 24px; }
 .empty-sub { font-size: 13px; opacity: 0.7; }
 
-/* FAB 新對話 */
-.fab {
-  position: fixed;
-  right: calc(16px + env(safe-area-inset-right));
-  bottom: calc(20px + env(safe-area-inset-bottom));
-  width: 56px; height: 56px;
-  border-radius: 18px;
-  border: none;
-  background: var(--accent);
-  color: var(--paper);
-  font-size: 26px;
-  cursor: pointer;
-  z-index: 15;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.18);
-}
-
 /* 下拉刷新 */
 #pull-indicator {
   height: 0; overflow: hidden;
@@ -221,18 +208,7 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .chat-title { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-sub { color: var(--pine-soft); font-size: 11.5px; font-family: var(--mono);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dot {
-  width: 16px; height: 16px;
-  border: 2px solid var(--line);
-  border-top-color: var(--accent);
-  border-right-color: var(--accent);
-  border-radius: 50%;
-  background: transparent;
-  animation: spin .72s linear infinite;
-  flex-shrink: 0;
-}
 @keyframes spin { to { transform: rotate(360deg); } }
-@keyframes pulse { 50% { opacity: 0.35; } }
 
 .messages { flex: 1; overflow-y: auto; padding: 16px 12px 8px; -webkit-overflow-scrolling: touch; }
 .msg { margin-bottom: 14px; max-width: 92%; }
@@ -621,9 +597,9 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
   margin-bottom: 14px;
   padding: 15px 16px 10px;
   border: 0.5px solid var(--line);
-  border-radius: 18px;
-  background: var(--milk);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .045);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--milk) 76%, var(--paper));
+  box-shadow: none;
 }
 #view-settings .settings-group:last-of-type,
 #view-model-settings .settings-group:last-of-type { margin-bottom: 10px; }
@@ -663,6 +639,28 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
 }
 .settings-navigation-row .row-chevron { flex: 0 0 auto; }
 .settings-navigation-row:active { opacity: .68; transform: scale(.995); }
+.settings-subheading {
+  margin: 13px 0 0;
+  padding: 9px 0 2px;
+  border-top: .5px solid var(--line);
+  color: var(--pine-soft);
+  font-size: .64rem;
+  font-weight: 760;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.settings-account-action {
+  margin: 4px 0 22px;
+  padding: 12px 16px 0;
+  border-top: .5px solid var(--line);
+}
+#view-settings .settings-account-action .settings-button-row {
+  min-height: 56px;
+  padding: 10px 12px;
+  border: .5px solid color-mix(in srgb, var(--err) 30%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--err) 3%, transparent);
+}
 #view-model-settings .settings-scroll { padding-top: 20px; }
 #view-model-settings .model-settings-detail { min-height: 0; }
 .settings-heading-actions { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
@@ -941,8 +939,7 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
   /* 手势在桌面无意义，transform 复位 */
   #view-chat.dragging, #view-chat.slide-out, #view-chat.snap-back { transform: none !important; }
 
-  /* session 栏顶部工具保持；FAB 收进顶栏（＋已有）*/
-  .fab { display: none; }
+  /* Session list actions stay in the top bar on wide layouts. */
   .session-list { padding-bottom: 24px; }
 
   /* 设定页桌面 = 居中面板宽度 */
@@ -1200,9 +1197,9 @@ body.image-lightbox-open { overflow: hidden; }
    =========================================================================== */
 
 /* 全域按壓回饋（OpenCode 標誌性 scale .97） */
-.btn:active, .fab:active, .session-item:active, .action-row:active,
+.btn:active, .session-item:active, .action-row:active,
 .machine-row.clickable:active, .model-row:active { transform: scale(.97); }
-.btn, .fab, .machine-row.clickable, .model-row { transition: transform .12s ease-out, background .15s; }
+.btn, .machine-row.clickable, .model-row { transition: transform .12s ease-out, background .15s; }
 
 /* 消息進入動畫 */
 .msg-in { animation: message-in .24s cubic-bezier(.22,.9,.18,1); }
@@ -1493,21 +1490,14 @@ body.image-lightbox-open { overflow: hidden; }
   text-align: left;
   cursor: pointer;
 }
-.composer-model-control span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composer-model-control .icon { width: 14px; height: 14px; }
-.composer-thinking-control { flex: 0 0 auto; padding: 0; overflow: hidden; }
-.composer-thinking-control select {
-  width: 82px;
+.composer-model-control > span {
   min-width: 0;
-  max-width: none;
-  min-height: 35px;
-  padding: 0 24px 0 9px;
-  border: 0;
-  border-radius: 9px;
-  background-color: transparent;
-  color: inherit;
-  font-size: 12px;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+.composer-model-control .icon { width: 14px; height: 14px; flex: 0 0 auto; }
 .composer-send {
   width: 44px;
   height: 44px;
@@ -1546,15 +1536,10 @@ body.image-lightbox-open { overflow: hidden; }
 #extension-ui-input, #extension-ui-editor { margin-top: 8px; }
 
 @media (max-width: 600px) {
-  .new-project-card { min-height: 84px; margin-top: 10px; border-radius: 18px; }
-  .new-project-icon { width: 42px; height: 42px; border-radius: 13px; }
-  .new-project-copy strong { font-size: 15px; }
-  .new-project-copy small { font-size: 11px; }
   .project-group-items .session-item { padding-left: 24px; }
   .composer { padding-left: 8px; padding-right: 8px; }
   .composer-toolbar { gap: 5px; }
   .composer-model-control { padding-left: 8px; padding-right: 7px; }
-  .composer-thinking-control select { width: 76px; padding-left: 7px; padding-right: 20px; }
 }
 
 /* ===========================================================================
@@ -1574,17 +1559,24 @@ body.image-lightbox-open { overflow: hidden; }
   min-height: calc(70px + env(safe-area-inset-top));
   padding: env(safe-area-inset-top) 14px 0 18px;
 }
-#view-list .topbar .icon-btn { width: 40px; height: 40px; border-radius: 12px; }
+#view-list .topbar .icon-btn {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  border-radius: 12px;
+}
 .new-project-card {
   width: calc(100% - 24px);
-  min-height: 68px;
-  margin: 18px 12px 0;
-  padding: 11px 12px;
-  border-radius: 18px;
+  min-height: 88px;
+  margin: 16px 12px 0;
+  padding: 13px 14px;
+  border-radius: 16px;
   gap: 11px;
   background: var(--milk);
-  box-shadow: inset 0 .5px 0 rgba(255,255,255,.12), 0 12px 28px rgba(0,0,0,.12);
+  box-shadow: none;
 }
+#view-list.has-sessions .session-section-heading { margin-top: 12px; }
 .new-project-icon { width: 36px; height: 36px; border-radius: 12px; }
 .new-project-icon .icon { width: 19px; height: 19px; }
 .new-project-copy strong { font-size: .9rem; }
@@ -1623,7 +1615,7 @@ body.image-lightbox-open { overflow: hidden; }
   padding: 0 12px;
   border-radius: 13px;
   background: var(--milk);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.035), 0 7px 18px rgba(0,0,0,.08);
+  box-shadow: none;
   font-size: .8rem;
 }
 .temporary-session-filter {
@@ -1783,16 +1775,16 @@ body.image-lightbox-open { overflow: hidden; }
   font-size: 1rem; line-height: 1.35;
 }
 #view-chat .composer-wrap textarea:focus { outline: none; box-shadow: none; }
-#view-chat .composer-toolbar { min-height: 38px; gap: 4px; padding: 3px 2px 0; }
+#view-chat .composer-toolbar { min-height: 44px; gap: 4px; padding: 3px 2px 0; }
 #view-chat .composer-toolbar .composer-icon-btn {
-  width: 36px; height: 36px; min-height: 36px;
+  width: 44px; height: 44px; min-height: 44px;
   margin: 0; padding: 0;
   border: 0; border-radius: 11px;
   color: var(--pine-soft); background: transparent;
 }
 #view-chat .composer-toolbar .composer-icon-btn:hover { background: var(--bubble-user); }
-#view-chat .composer-control { min-height: 34px; border-color: transparent; border-radius: 10px; background: rgba(127,127,127,.06); font-size: .72rem; }
-#view-chat .composer-send { width: 40px; height: 40px; min-height: 40px; border-radius: 12px; }
+#view-chat .composer-control { min-height: 44px; border-color: transparent; border-radius: 10px; background: rgba(127,127,127,.06); font-size: .72rem; }
+#view-chat .composer-send { width: 44px; height: 44px; min-height: 44px; border-radius: 12px; }
 #view-chat .composer-send .icon { width: 20px; height: 20px; }
 
 /* OpenCode breakpoint: 980px */
@@ -1812,7 +1804,6 @@ body.image-lightbox-open { overflow: hidden; }
   }
   #view-chat .chat-empty-action:active { transform: scale(.97); }
   #view-chat .chat-empty-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-  #view-list .fab { display: none; }
 }
 @media (max-width: 979px) {
   #view-list .topbar, #view-chat .chat-topbar {
@@ -1858,19 +1849,16 @@ body.compact #view-list .session-item .s-meta { margin-top: 1px; font-size: .55r
    =========================================================================== */
 .thinking-status {
   flex: 0 0 auto;
-  max-width: 92px;
+  max-width: 150px;
   overflow: hidden;
-  color: var(--accent);
-  font: 650 .68rem/1 var(--mono);
-  letter-spacing: .04em;
+  color: var(--pine-soft);
+  font: 600 .72rem/1.25 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+  letter-spacing: normal;
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  animation: none;
   text-overflow: ellipsis;
   white-space: nowrap;
-  background: linear-gradient(105deg, var(--pine-soft) 0%, var(--accent) 42%, var(--gold) 52%, var(--accent) 62%, var(--pine-soft) 100%);
-  background-size: 240% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: thinking-status-shimmer 2.4s ease-in-out infinite;
 }
 @keyframes thinking-status-shimmer {
   0% { background-position: 120% 0; }
@@ -2570,15 +2558,35 @@ html[data-design-theme="etoile"][data-theme="light"] {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
+  align-items: center;
   justify-content: flex-start;
+  gap: 8px;
 }
 .machine-switch-wrap .machine-select {
   flex: 0 1 auto;
   width: auto;
   max-width: min(300px, 70vw);
+  min-height: 44px;
   text-align: left;
   text-align-last: left;
 }
+.machine-status-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--line);
+}
+.machine-status-dot.machine-status-online {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 14%, transparent);
+}
+.machine-status-dot.machine-status-offline { background: var(--err); }
+.machine-status-dot.machine-status-checking {
+  background: var(--warn);
+  animation: devicePulse 1.2s ease-in-out infinite;
+}
+.machine-status-dot.machine-status-unknown { background: var(--line); }
 .machine-row-actions { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
 .machine-row-action { width: 30px; height: 30px; }
 .machine-row-action .icon { width: 14px; height: 14px; }
@@ -2950,6 +2958,7 @@ html.reduced-motion .session-item-actions { transition: none; }
     transform: translate(12px, -50%);
   }
   .session-item:focus-visible .session-item-actions,
+  .session-item:has(.session-item-main:focus-visible) .session-item-actions,
   .session-item:has(.session-item-action:focus-visible) .session-item-actions,
   .session-item.swiped .session-item-actions {
     opacity: 1;
@@ -2968,11 +2977,11 @@ html.reduced-motion .session-item-actions { transition: none; }
    instead of collapsing into one dense text wall. */
 #view-chat .messages { gap: 15px; }
 #view-chat .msg.assistant .md-body {
-  max-width: 76ch;
-  line-height: 1.58;
+  max-width: 70ch;
+  line-height: 1.60;
   text-wrap: pretty;
 }
-#view-chat .md-body p { margin: .72rem 0; }
+#view-chat .md-body p { margin: 9px 0; }
 #view-chat .md-body ul,
 #view-chat .md-body ol {
   margin: .72rem 0 1rem;
@@ -3006,11 +3015,135 @@ html.reduced-motion .session-item-actions { transition: none; }
 #view-chat .md-body .mermaid-block { margin: 1rem 0; }
 
 @media (max-width: 600px) {
-  #view-chat .msg.assistant .md-body { max-width: none; line-height: 1.52; }
-  #view-chat .md-body p { margin: .62rem 0; }
+  #view-chat .msg.assistant .md-body { max-width: none; line-height: 1.58; }
+  #view-chat .md-body p { margin: 8px 0; }
   #view-chat .md-body ul,
-  #view-chat .md-body ol { margin: .62rem 0 .86rem; padding-left: 1.4rem; }
-  #view-chat .md-body li { margin: .34rem 0; }
+  #view-chat .md-body ol { margin: 8px 0 10px; padding-left: 1.4rem; }
+  #view-chat .md-body li { margin: 5px 0; }
   #view-chat .md-body h1,
   #view-chat .md-body h2 { margin-top: 1.3rem; padding-top: .62rem; }
+}
+
+/* UI simplification source of truth: one list action, compact device status,
+   accessible hit areas, and quiet progressive disclosure. */
+#view-list #btn-new {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.session-item-main {
+  min-width: 0;
+  min-height: 44px;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.session-item-main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+.session-item-main .session-item-copy { position: relative; z-index: 1; }
+#setting-sidebar-width-row { display: flex; }
+#view-list .session-item { padding-top: 6px; padding-bottom: 6px; }
+.settings-heading-actions .icon-button-small,
+.machine-heading-actions .icon-button-small,
+.model-provider-actions .icon-button-small,
+.machine-row-action {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+}
+.project-group-action,
+.project-group-chevron-button {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+}
+.session-item-action {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+}
+#view-chat .activity-group > summary,
+#view-chat .activity-summary,
+#view-chat .tool-card > summary,
+#view-chat .tool-head,
+#view-chat .thinking-toggle,
+#view-chat .chat-empty-action,
+.history-load-button,
+.project-session-toggle,
+.code-copy-button {
+  min-height: 44px;
+}
+#view-chat #scroll-bottom-btn {
+  min-height: 44px;
+  height: 44px;
+}
+.model-dialog .sheet-close,
+.image-lightbox-close,
+.project-location-toolbar .icon-btn {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+}
+.img-thumb .img-x {
+  width: 24px;
+  height: 24px;
+  line-height: 24px;
+}
+.img-thumb .img-x::before {
+  content: "";
+  position: absolute;
+  inset: -10px;
+}
+#view-list .list-toolbar input,
+#view-model-settings .model-list-toolbar input,
+.machine-catalog-status .btn,
+.provider-switch-device,
+.provider-auth-back,
+.msg-actions button,
+.msg-image-button {
+  min-height: 44px;
+}
+.machine-help summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+/* CJK headings should use the natural script rhythm rather than Latin
+   tracking or forced uppercase styling. */
+html[lang^="zh-"] #view-settings .group-title,
+html[lang^="zh-"] #view-model-settings .group-title,
+html[lang="ja"] #view-settings .group-title,
+html[lang="ja"] #view-model-settings .group-title,
+html[lang="ko"] #view-settings .group-title,
+html[lang="ko"] #view-model-settings .group-title,
+html[lang^="zh-"] .settings-subheading,
+html[lang="ja"] .settings-subheading,
+html[lang="ko"] .settings-subheading {
+  letter-spacing: normal;
+  text-transform: none;
+}
+@media (max-width: 979px) {
+  #setting-sidebar-width-row { display: none; }
+  #view-chat .thinking-status { max-width: 110px; }
+}
+html.reduced-motion .machine-status-dot.machine-status-checking { animation: none; }
+body.compact #view-list .session-item,
+body.compact #view-list .project-group-items .session-item {
+  padding-top: 0;
+  padding-bottom: 0;
 }

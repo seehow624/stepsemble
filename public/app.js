@@ -1,4 +1,4 @@
-/* pi-harbor v2.0.6 — quiet, progressive task receipts */
+/* pi-harbor v2.0.7 — calmer settings, sessions, and composer */
 "use strict";
 
 // The browser remains buildless, but feature-independent foundations live in
@@ -45,20 +45,20 @@ const el = {
   sessionList: $("session-list"), listEmpty: $("list-empty"),
   temporarySessionFilter: $("temporary-session-filter"), temporarySessionFilterLabel: $("temporary-session-filter-label"),
   temporarySessionCount: $("temporary-session-count"), showTemporarySessions: $("show-temporary-sessions"),
-  fabNew: $("fab-new"), btnNew: $("btn-new"), btnNewProject: $("btn-new-project"), pullIndicator: $("pull-indicator"),
-  machineSwitch: $("machine-switch"),
+  btnNew: $("btn-new"), btnNewProject: $("btn-new-project"), pullIndicator: $("pull-indicator"),
+  machineSwitch: $("machine-switch"), machineSwitchStatus: $("machine-switch-status"),
   machineCatalogStatus: $("machine-catalog-status"), machineCatalogStatusCopy: $("machine-catalog-status-copy"), machineCatalogRetry: $("machine-catalog-retry"),
   btnBack: $("btn-back"), chatTitle: $("chat-title"), chatSub: $("chat-sub"),
-  chatHeadInfo: $("chat-head-info"), streamDot: $("stream-dot"), thinkingStatus: $("thinking-status"), btnChatMenu: $("btn-chat-menu"),
+  chatHeadInfo: $("chat-head-info"), thinkingStatus: $("thinking-status"), btnChatMenu: $("btn-chat-menu"),
   messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"),
   chatEmpty: $("chat-empty"), chatEmptyNewProject: $("chat-empty-new-project"), slashMenu: $("slash-menu"),
   input: $("input"), btnSend: $("btn-send"), btnAbort: $("btn-abort"), btnModel: $("btn-model"),
   sessionCount: $("session-count"), btnLayout: $("btn-layout"),
-  composerModelLabel: $("composer-model-label"), composerThinking: $("composer-thinking"),
+  composerModelLabel: $("composer-model-label"),
   btnOpenSettings: $("btn-open-settings"), btnSettingsBack: $("btn-settings-back"), btnModelSettingsBack: $("btn-model-settings-back"), modelSettingsOpen: $("model-settings-open"), modelSettingsSummary: $("model-settings-summary"),
   machineList: $("machine-list"), machineAdd: $("machine-add"), machinePair: $("machine-pair"), machineDialog: $("machine-dialog"), machineDialogTitle: $("machine-dialog-title"), machineStandardFields: $("machine-standard-fields"), machineName: $("machine-name"), machineUrl: $("machine-url"), machinePort: $("machine-port"), machinePortLabel: $("machine-port-label"), machineHost: $("machine-host"), machineStatusNote: $("machine-status-note"), machineFormError: $("machine-form-error"), machinePairArea: $("machine-pair-area"), machinePairCode: $("machine-pair-code"), machinePairJoin: $("machine-pair-join"), machinePairOfferArea: $("machine-pair-offer-area"), machinePairOffer: $("machine-pair-offer"), machinePairGenerate: $("machine-pair-generate"), machineRestart: $("machine-restart"), machineSave: $("machine-save"), machineDelete: $("machine-delete"), machineTest: $("machine-test"), machineCancel: $("machine-cancel"), machineCancelBottom: $("machine-cancel-bottom"),
   setMachineName: $("set-machine-name"), setMachineHost: $("set-machine-host"), setPiVersion: $("set-pi-version"),
-  setSessionCount: $("set-session-count"), btnLogout: $("btn-logout"), btnResetSettings: $("btn-reset-settings"), btnOpenOnboarding: $("btn-open-onboarding"), setupGuideTitle: $("setup-guide-title"), setupGuideSubtitle: $("setup-guide-subtitle"),
+  btnLogout: $("btn-logout"), btnResetSettings: $("btn-reset-settings"), btnOpenOnboarding: $("btn-open-onboarding"), setupGuideTitle: $("setup-guide-title"), setupGuideSubtitle: $("setup-guide-subtitle"),
   setAutoUpdate: $("set-auto-update"), updateStatusCopy: $("update-status-copy"), updateCheck: $("update-check"), updateCheckStatus: $("update-check-status"),
   setLocale: $("set-locale"), setTheme: $("set-theme"), setDesignTheme: $("theme-choices"), setSidebarWidth: $("set-sidebar-width"), setSidebarWidthValue: $("set-sidebar-width-value"), setFontScale: $("set-font-scale"), setFontScaleValue: $("set-font-scale-value"), setCompact: $("set-compact"), setGroup: $("set-group"),
   btnImg: $("btn-img"), fileInput: $("file-input"), imgPreview: $("img-preview"),
@@ -119,6 +119,8 @@ let liveToolCards = new Map();
 let liveActivity = null;     // 目前工作輪次的整組 thinking／tool 紀錄
 let activeActivityRun = null; // one logical run; may span retry/compaction agent_start events
 let settings = loadSettings();
+let composerModelName = "";
+let composerReasoningLevel = "off";
 let modelCatalog = [];
 let configuredProviders = [];
 let providerCatalog = [];
@@ -385,6 +387,7 @@ async function enterApp() {
     el.login.classList.add("hidden");
     el.app.classList.remove("hidden");
     await showList();
+    void refreshMachineStatuses();
     loadVersion();
     setTimeout(() => openOnboarding(false), 350);
     return true;
@@ -444,12 +447,15 @@ function switchMachine(id, silent) {
   modelCatalogLoading = false;
   currentSessionFile = null;
   sessionsCache = [];
+  resetComposerSummary();
+  updateNewProjectAffordance();
   temporarySessionCount = 0;
   renderTemporarySessionFilter(0);
   renderMachineSwitch();
   showListSilent();
   void generation;
   refreshSessions();
+  void refreshMachineStatuses();
   loadVersion();
   if (!silent) toast(`已切換到 ${machineName(id)}`);
   void wasChatOpen;
@@ -464,6 +470,12 @@ function showListSilent() {
 }
 
 // ---- 頂欄機器切換下拉 ----
+function machineStatusText(status) {
+  const key = status === "online" ? "Online"
+    : status === "offline" ? "Offline"
+      : status === "checking" ? "Checking" : "Not checked";
+  return window.piI18n?.t(key) || key;
+}
 function renderMachineSwitch() {
   if (!el.machineSwitch) return;
   el.machineSwitch.innerHTML = "";
@@ -474,6 +486,15 @@ function renderMachineSwitch() {
     if (m.id === selectedId) opt.selected = true;
     el.machineSwitch.appendChild(opt);
   }
+  const status = machineStatuses.get(selectedId) || "unknown";
+  const statusLabel = machineStatusText(status);
+  if (el.machineSwitchStatus) {
+    el.machineSwitchStatus.className = `machine-status-dot machine-status-${status}`;
+    el.machineSwitchStatus.title = statusLabel;
+    el.machineSwitchStatus.dataset.status = status;
+  }
+  el.machineSwitch.title = `${window.piI18n?.t("Switch device") || "Switch device"} · ${statusLabel}`;
+  el.machineSwitch.setAttribute("aria-label", `${window.piI18n?.t("Switch device") || "Switch device"}: ${statusLabel}`);
 }
 el.machineSwitch?.addEventListener("change", () => {
   switchMachine(el.machineSwitch.value);
@@ -640,7 +661,25 @@ function closeSwipedSessionItems(except = null) {
   });
 }
 
+function updateNewProjectAffordance() {
+  const hasSessions = sessionsCache.length > 0;
+  el.viewList?.classList.toggle("has-sessions", hasSessions);
+  const newProjectLabel = window.piI18n?.t("New project") || "New project";
+  if (el.btnNewProject) {
+    el.btnNewProject.classList.toggle("hidden", hasSessions);
+    el.btnNewProject.setAttribute("aria-label", newProjectLabel);
+  }
+  if (el.btnNew) {
+    el.btnNew.classList.toggle("hidden", !hasSessions);
+    el.btnNew.title = newProjectLabel;
+    el.btnNew.setAttribute("aria-label", newProjectLabel);
+  }
+  // These mutually exclusive states keep the list focused: one large empty
+  // state action or one compact top-bar action once content exists.
+}
+
 function renderSessionList(q) {
+  updateNewProjectAffordance();
   const query = (q || "").trim().toLowerCase();
   const list = sessionsCache.filter(s => !query ||
     (s.name || "").toLowerCase().includes(query) ||
@@ -655,8 +694,6 @@ function renderSessionList(q) {
   const makeItem = (s) => {
     const li = document.createElement("li");
     li.className = "session-item" + (s.file === currentSessionFile ? " selected" : "");
-    li.tabIndex = 0;
-    li.setAttribute("role", "button");
     const rawName = s.name || s.preview?.split("\n")[0] || "";
     const name = stripMd(rawName).slice(0, 70) || (window.piI18n?.t("(Untitled)") || "(Untitled)");
     const usage = [
@@ -664,11 +701,13 @@ function renderSessionList(q) {
       s.cost ? "$" + s.cost.toFixed(2) : "",
     ].filter(Boolean).join(" · ");
     li.innerHTML = `
-      <span class="session-pin-indicator hidden" role="img"></span>
-      <span class="session-item-copy">
-        <span class="s-name"></span>
-        <span class="s-meta"></span>
-      </span>
+      <button class="session-item-main" type="button">
+        <span class="session-pin-indicator hidden" role="img"></span>
+        <span class="session-item-copy">
+          <span class="s-name"></span>
+          <span class="s-meta"></span>
+        </span>
+      </button>
       <span class="session-item-actions"></span>`;
     li.querySelector(".s-name").textContent = name;
     const meta = li.querySelector(".s-meta");
@@ -713,8 +752,10 @@ function renderSessionList(q) {
         toast(error.message || projectActionText("Could not archive chats"), true);
       }
     });
+    const sessionMain = li.querySelector(".session-item-main");
     let lpTimer = null, longPressed = false, swipeConsumed = false, touchStartX = 0, touchStartY = 0;
     li.addEventListener("touchstart", (event) => {
+      if (event.target.closest(".session-item-action")) return;
       const touch = event.changedTouches?.[0];
       touchStartX = touch?.clientX || 0;
       touchStartY = touch?.clientY || 0;
@@ -741,7 +782,7 @@ function renderSessionList(q) {
     li.addEventListener("touchend", () => clearTimeout(lpTimer));
     li.addEventListener("touchcancel", () => clearTimeout(lpTimer));
     li.addEventListener("contextmenu", (e) => { e.preventDefault(); openSessionActions(s); });
-    li.addEventListener("click", () => {
+    sessionMain?.addEventListener("click", () => {
       if (swipeConsumed) {
         swipeConsumed = false;
         return;
@@ -752,7 +793,7 @@ function renderSessionList(q) {
       }
       if (!longPressed) openExisting(s);
     });
-    li.addEventListener("keydown", (event) => {
+    sessionMain?.addEventListener("keydown", (event) => {
       if ((event.key === "Enter" || event.key === " ") && !longPressed) {
         event.preventDefault();
         openExisting(s);
@@ -1150,6 +1191,7 @@ function setChatTitle(title) {
 async function openExisting(s) {
   const generation = ++viewGeneration;
   if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
+  resetComposerSummary();
   currentSessionFile = s.file;
   renderSessionList(el.search.value);
   hideChatEmpty();
@@ -1246,6 +1288,7 @@ async function loadOlderHistory(button) {
 async function startNew(cwd, name) {
   const generation = ++viewGeneration;
   if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
+  resetComposerSummary();
   currentSessionFile = null;
   _lastMsgDate = null;
   lastUserText = "";
@@ -1581,8 +1624,9 @@ function makeThinking(text) {
   const box = document.createElement("div");
   box.className = "thinking-wrap";
   const toggle = document.createElement("button");
+  toggle.type = "button";
   toggle.className = "thinking-toggle";
-  toggle.textContent = "thinking";
+  toggle.textContent = window.piI18n?.t("Thinking blocks") || "Thinking blocks";
   const pre = document.createElement("div");
   // 長思考永遠先收合；即使使用者偏好展開，也要點擊後才佔滿畫面。
   const autoOpen = settings.thinking === "open" && text.length > 0 && text.length < 800;
@@ -1797,6 +1841,9 @@ function activitySummary(activity) {
 function makeActivityGroup({ running = false, count = 0, latest = "" } = {}) {
   const details = document.createElement("details");
   details.className = "activity-group" + (running ? " running" : "");
+  // Work details are progressive disclosure: a run starts as one quiet row,
+  // while the user can open it when they need the thinking or tool output.
+  details.open = false;
   const summary = document.createElement("summary");
   summary.className = "activity-summary";
   const icon = document.createElement("span");
@@ -2272,13 +2319,26 @@ function markRpcActivity() {
   if (rpc) rpc.lastEventAt = Date.now();
   if (el.queueNote.classList.contains("stale")) clearActivityNote();
 }
+const ACTIVITY_STATUS_KEYS = Object.freeze({
+  thinking: "Thinking…",
+  working: "Working…",
+  writing: "Writing…",
+  waiting: "Waiting for your response",
+  retrying: "Retrying…",
+  compacting: "Compacting…",
+});
+function activityStatusText(label) {
+  const key = ACTIVITY_STATUS_KEYS[label] || ACTIVITY_STATUS_KEYS.working;
+  return window.piI18n?.t(key) || key;
+}
 function setActivityLabel(label = "thinking") {
+  const statusText = activityStatusText(label);
   if (el.thinkingStatus) {
-    el.thinkingStatus.textContent = label;
+    el.thinkingStatus.textContent = statusText;
     el.thinkingStatus.classList.toggle("hidden", !rpc?.streaming);
   }
   if (rpc) rpc.activityLabel = label;
-  if (pendingAssistant?.shimmerLabel) pendingAssistant.shimmerLabel.textContent = label;
+  if (pendingAssistant?.shimmerLabel) pendingAssistant.shimmerLabel.textContent = statusText;
 
   // Keep the visible work summary in sync with the RPC status.  Tool cards
   // already carry a `running` class, but the group summary is the only row a
@@ -2761,18 +2821,17 @@ function setStreaming(on) {
   if (on) {
     if (rpc && !rpc.lastEventAt) rpc.lastEventAt = Date.now();
     if (!activityWatchdog) activityWatchdog = setInterval(updateActivityWatchdog, 5000);
+    if (el.thinkingStatus) setActivityLabel(rpc?.activityLabel || "thinking");
   } else if (activityWatchdog) {
     clearInterval(activityWatchdog);
     activityWatchdog = null;
     clearActivityNote();
   }
-  el.streamDot.classList.toggle("hidden", !on);
   el.thinkingStatus?.classList.toggle("hidden", !on);
-  if (on && el.thinkingStatus && !el.thinkingStatus.textContent) el.thinkingStatus.textContent = "thinking";
   el.btnAbort.classList.toggle("hidden", !on);
   el.btnSend.classList.toggle("hidden", on);
-  el.btnSend.title = on ? "" : "送出";
-  el.btnAbort.title = on ? "停止" : "";
+  el.btnSend.title = on ? "" : (window.piI18n?.t("Send") || "Send");
+  el.btnAbort.title = on ? (window.piI18n?.t("Stop") || "Stop") : "";
 }
 
 // ---- 送出 / 中止 ----
@@ -3047,15 +3106,31 @@ function trackCurrentSessionFile(absPath) {
   }).catch(() => {});
 }
 
-// ---- ⋯ 菜單：模型切換入口 ----
+// ---- ⋯ 菜單：模型與推理入口 ----
+function resetComposerSummary() {
+  composerModelName = "";
+  composerReasoningLevel = "off";
+  updateComposerSummary();
+}
+function updateComposerSummary(modelName, thinkingLevel) {
+  if (modelName !== undefined) composerModelName = String(modelName || "");
+  if (thinkingLevel) composerReasoningLevel = String(thinkingLevel);
+  const model = composerModelName || (window.piI18n?.t("Server default") || "Server default");
+  const level = composerReasoningLevel || "off";
+  const summary = `${model} · ${level}`;
+  if (el.composerModelLabel) el.composerModelLabel.textContent = summary;
+  if (el.btnModel) {
+    const label = window.piI18n?.t("Model & reasoning") || "Model & reasoning";
+    el.btnModel.title = label;
+    el.btnModel.setAttribute("aria-label", `${label}: ${summary}`);
+  }
+}
 function applyComposerState(data) {
   const model = data?.model;
-  el.composerModelLabel.textContent = model?.name || model?.id || "伺服器預設";
-  const level = data?.thinkingLevel;
-  if (level) {
-    el.thinkingSelect.value = level;
-    el.composerThinking.value = level;
-  }
+  const modelName = model?.name || model?.id || "";
+  const level = data?.thinkingLevel || "off";
+  el.thinkingSelect.value = level;
+  updateComposerSummary(modelName, level);
 }
 async function syncComposerState(expectedSid = rpc?.sid) {
   if (!expectedSid || !rpc || rpc.sid !== expectedSid) return;
@@ -3091,10 +3166,7 @@ async function openModelSheet() {
       applyComposerState(stateRes.value.data);
     }
     renderModelList(currentId);
-    if (curThinking) {
-      el.thinkingSelect.value = curThinking;
-      el.composerThinking.value = curThinking;
-    }
+    if (curThinking) el.thinkingSelect.value = curThinking;
   } catch (e) {
     el.modelList.innerHTML = "";
     const error = document.createElement("p");
@@ -3107,7 +3179,7 @@ async function openModelSheet() {
 function renderModelList(currentId) {
   const current = availableModels.find(m => m.id === currentId);
   const visibleModels = availableModels.filter(isModelVisible);
-  el.composerModelLabel.textContent = current ? (current.name || current.id) : "伺服器預設";
+  updateComposerSummary(current ? (current.name || current.id) : "", undefined);
   el.modelList.innerHTML = "";
   if (!visibleModels.length) {
     el.modelList.innerHTML = '<p style="padding:12px 4px;color:var(--pine-soft);font-size:13.5px">沒有顯示中的模型，請到設定勾選模型</p>';
@@ -3128,7 +3200,7 @@ function renderModelList(currentId) {
         await rpcCmd(expectedSid, { type: "set_model", provider: m.provider, modelId: m.id });
         if (!rpc || rpc.sid !== expectedSid) return;
         toast("模型：" + (m.name || m.id));
-        el.composerModelLabel.textContent = m.name || m.id;
+        updateComposerSummary(m.name || m.id, undefined);
         renderModelList(m.id);
         // 頂部 sub 同步
         el.chatSub.dataset.base = currentSessionCwd + " · " + (m.name || m.id); updateLiveUsage(null);
@@ -3154,12 +3226,11 @@ async function changeThinkingLevel(level) {
     if (!rpc || rpc.sid !== expectedSid) return;
     if (r && r.success === false) throw new Error(r.error || "RPC rejected");
     el.thinkingSelect.value = level;
-    el.composerThinking.value = level;
+    updateComposerSummary(undefined, level);
     toast("思考等級：" + level);
   } catch (e) { toast("設定失敗：" + e.message, true); }
 }
 el.thinkingSelect.addEventListener("change", () => changeThinkingLevel(el.thinkingSelect.value));
-el.composerThinking.addEventListener("change", () => changeThinkingLevel(el.composerThinking.value));
 
 // ===========================================================================
 // Markdown / Mermaid Rich 渲染
@@ -3525,6 +3596,26 @@ for (const [locale, values] of Object.entries(ONBOARDING_EUROPEAN)) {
   ONBOARDING_COPY[locale] = { guideTitle, guideSubtitle, language, appearance, back, skip, next, finish, steps: rawSteps.map(([eyebrow, title, body, first, second]) => ({ eyebrow, title, body, points: [first, second] })) };
 }
 
+// Gesture guidance belongs in the setup guide, not in a permanent Settings row.
+// Keep it localized here because onboarding copy is intentionally rendered
+// outside the generic DOM translator.
+const ONBOARDING_GESTURE_TIPS = {
+  en: "Pull down to refresh; swipe from the left edge to go back; long-press a session to rename or delete",
+  "zh-Hans": "下拉刷新；在对话中从左边缘滑动返回；长按会话可重命名或删除。",
+  "zh-Hant": "下拉重新整理；從左側邊緣滑動可返回；長按工作階段可重新命名或刪除。",
+  ja: "下に引いて更新、左端からスワイプして戻り、セッションを長押しして名前変更や削除ができます。",
+  ko: "세션 목록을 아래로 당겨 새로 고치고, 대화에서는 왼쪽 가장자리에서 밀어 뒤로 가며, 세션을 길게 눌러 이름을 바꾸거나 삭제할 수 있습니다.",
+  tr: "Yenilemek için aşağı çekin; geri dönmek için sol kenardan kaydırın; bir oturumu yeniden adlandırmak veya silmek için uzun basın.",
+  fr: "Tirez vers le bas pour actualiser ; balayez depuis le bord gauche pour revenir ; appuyez longuement sur une session pour la renommer ou la supprimer.",
+  de: "Zum Aktualisieren nach unten ziehen; vom linken Rand wischen, um zurückzugehen; eine Sitzung zum Umbenennen oder Löschen gedrückt halten.",
+  es: "Desliza hacia abajo para actualizar; desliza desde el borde izquierdo para volver; mantén pulsada una sesión para cambiarle el nombre o eliminarla.",
+  "pt-BR": "Puxe para baixo para atualizar; deslize da borda esquerda para voltar; mantenha uma sessão pressionada para renomeá-la ou excluí-la.",
+  it: "Trascina verso il basso per aggiornare; scorri dal bordo sinistro per tornare indietro; tieni premuta una sessione per rinominarla o eliminarla.",
+};
+for (const [locale, tip] of Object.entries(ONBOARDING_GESTURE_TIPS)) {
+  if (ONBOARDING_COPY[locale]?.steps?.[0]) ONBOARDING_COPY[locale].steps[0].points.push(tip);
+}
+
 function onboardingCopy() {
   return ONBOARDING_COPY[settings.locale] || ONBOARDING_COPY.en;
 }
@@ -3731,7 +3822,6 @@ function renderSettings() {
   el.setMachineName.textContent = machineDisplayName(selectedMachine) || machineDisplayName(currentHost) || "—";
   el.setMachineHost.textContent = machineDisplayHost(selectedMachine) || "—";
   el.setPiVersion.textContent = window._piVersion || "…";
-  el.setSessionCount.textContent = String(sessionsCache.length);
   if (el.setLocale) el.setLocale.value = settings.locale || "en";
   el.setTheme.value = settings.theme;
   renderThemeChoices();
@@ -4709,6 +4799,9 @@ el.setLocale?.addEventListener("change", () => {
   window.piI18n?.setLocale(settings.locale);
   renderSettings();
   renderSessionList(el.search?.value || "");
+  renderMachineSwitch();
+  updateComposerSummary();
+  if (rpc?.streaming) setActivityLabel(rpc.activityLabel || "thinking");
   refreshActivityReceipts();
   renderTemporarySessionFilter(temporarySessionCount);
   if (!el.onboarding?.classList.contains("hidden")) renderOnboarding();
@@ -4751,6 +4844,7 @@ el.btnResetSettings?.addEventListener("click", () => {
 
 function renderMachineList() {
   if (!el.machineList) return;
+  renderMachineSwitch();
   el.machineList.innerHTML = "";
   for (const m of machines) {
     const row = document.createElement("div");
@@ -4764,7 +4858,7 @@ function renderMachineList() {
       <span class="row-chevron">›</span>`;
     const displayName = machineDisplayName(m);
     row.querySelector("strong").textContent = displayName;
-    const statusLabel = status === "online" ? "在線" : status === "offline" ? "離線" : status === "checking" ? "檢查中" : "尚未檢查";
+    const statusLabel = machineStatusText(status);
     row.querySelector(".m-dot").title = statusLabel;
     // Hostnames are implementation details; the row only needs the state.
     row.querySelector("small").textContent = m.id === selectedId
@@ -5131,7 +5225,6 @@ function openNewDialog(initialCwd = null) {
 el.btnNew.addEventListener("click", openNewDialog);
 el.btnNewProject?.addEventListener("click", openNewDialog);
 el.chatEmptyNewProject?.addEventListener("click", openNewDialog);
-el.fabNew.addEventListener("click", openNewDialog);
 el.newCancel.addEventListener("click", () => el.newDialog.classList.add("hidden"));
 el.newFolderUp.addEventListener("click", () => {
   if (projectFolder.parent) loadProjectFolder(projectFolder.parent);
@@ -5159,6 +5252,16 @@ el.newStart.addEventListener("click", async () => {
   vv.addEventListener("resize", apply);
   vv.addEventListener("scroll", apply);
 })();
+
+// Installed mobile apps use the manifest orientation as their default. This
+// runtime request covers browsers that expose Screen Orientation locking; a
+// rejected request is expected in ordinary tabs and on iOS Safari.
+function lockMobilePortrait() {
+  if (!matchMedia("(hover: none) and (pointer: coarse)").matches) return;
+  if (typeof screen.orientation?.lock !== "function") return;
+  screen.orientation.lock("portrait").catch(() => {});
+}
+window.addEventListener("pageshow", lockMobilePortrait);
 
 // ===========================================================================
 // 啟動

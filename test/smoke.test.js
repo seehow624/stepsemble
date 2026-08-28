@@ -372,6 +372,29 @@ test("desktop empty chat hides the composer and offers a New project action", ()
   assert.match(css, /\.chat-empty-action:focus-visible\s*\{[\s\S]*?outline:\s*2px\s+solid\s+var\(--accent\)/);
 });
 
+test("simplified mobile UI keeps one project action, one model control, and portrait intent", () => {
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, "public", "manifest.webmanifest"), "utf8"));
+
+  const connection = html.indexOf('<h3 class="group-title">Connection</h3>');
+  const models = html.indexOf('id="model-settings-open"');
+  const appearance = html.indexOf('<h3 class="group-title">Appearance</h3>');
+  const about = html.indexOf('<h3 class="group-title">About</h3>');
+  const updates = html.indexOf('class="settings-subheading"');
+  assert.ok(connection >= 0 && connection < models && models < appearance);
+  assert.ok(about >= 0 && about < updates);
+  assert.doesNotMatch(html, /id="composer-thinking"|id="stream-dot"|id="fab-new"|id="set-session-count"/);
+  assert.match(html, /id="btn-model"[^>]*title="Model &amp; reasoning"/);
+  assert.match(app, /function updateNewProjectAffordance\(\)/);
+  assert.match(app, /function updateComposerSummary\(modelName, thinkingLevel\)/);
+  assert.match(app, /const ACTIVITY_STATUS_KEYS/);
+  assert.match(app, /screen\.orientation\.lock\("portrait"\)/);
+  assert.match(css, /#setting-sidebar-width-row\s*\{\s*display:\s*none/);
+  assert.equal(manifest.orientation, "portrait");
+});
+
 test("localization is English-first with an explicit locale selector and safe fallback", () => {
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");

@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.0.7
+
+- Reorganized Settings into clearer Connection, Appearance, Behavior, About,
+  and Advanced groups, with updates and version details together under About.
+- Reduced session-list clutter by showing the large New project card only when
+  empty and using one compact top-bar action once sessions exist.
+- Combined model and reasoning selection into one composer control, unified
+  live Agent status, and improved long-response typography and touch targets.
+- Added a compact device health indicator and lighter, more consistent visual
+  treatment across settings cards and controls.
+- Requested portrait orientation for the installed mobile PWA, with a
+  best-effort Screen Orientation API lock on supported touch devices.
+
 ## 2.0.6
 
 - Added one quiet, collapsed task receipt after a tool-using run settles,
