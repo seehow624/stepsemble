@@ -1,5 +1,7 @@
-/* pi-harbor v2.0.7 — calmer settings, sessions, and composer */
+/* pi-harbor v2.0.8 — reliable PWA update handoff */
 "use strict";
+
+const CLIENT_APP_VERSION = "2.0.8";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -57,7 +59,7 @@ const el = {
   composerModelLabel: $("composer-model-label"),
   btnOpenSettings: $("btn-open-settings"), btnSettingsBack: $("btn-settings-back"), btnModelSettingsBack: $("btn-model-settings-back"), modelSettingsOpen: $("model-settings-open"), modelSettingsSummary: $("model-settings-summary"),
   machineList: $("machine-list"), machineAdd: $("machine-add"), machinePair: $("machine-pair"), machineDialog: $("machine-dialog"), machineDialogTitle: $("machine-dialog-title"), machineStandardFields: $("machine-standard-fields"), machineName: $("machine-name"), machineUrl: $("machine-url"), machinePort: $("machine-port"), machinePortLabel: $("machine-port-label"), machineHost: $("machine-host"), machineStatusNote: $("machine-status-note"), machineFormError: $("machine-form-error"), machinePairArea: $("machine-pair-area"), machinePairCode: $("machine-pair-code"), machinePairJoin: $("machine-pair-join"), machinePairOfferArea: $("machine-pair-offer-area"), machinePairOffer: $("machine-pair-offer"), machinePairGenerate: $("machine-pair-generate"), machineRestart: $("machine-restart"), machineSave: $("machine-save"), machineDelete: $("machine-delete"), machineTest: $("machine-test"), machineCancel: $("machine-cancel"), machineCancelBottom: $("machine-cancel-bottom"),
-  setMachineName: $("set-machine-name"), setMachineHost: $("set-machine-host"), setPiVersion: $("set-pi-version"),
+  setMachineName: $("set-machine-name"), setMachineHost: $("set-machine-host"), setPiVersion: $("set-pi-version"), setAppVersion: $("set-app-version"),
   btnLogout: $("btn-logout"), btnResetSettings: $("btn-reset-settings"), btnOpenOnboarding: $("btn-open-onboarding"), setupGuideTitle: $("setup-guide-title"), setupGuideSubtitle: $("setup-guide-subtitle"),
   setAutoUpdate: $("set-auto-update"), updateStatusCopy: $("update-status-copy"), updateCheck: $("update-check"), updateCheckStatus: $("update-check-status"),
   setLocale: $("set-locale"), setTheme: $("set-theme"), setDesignTheme: $("theme-choices"), setSidebarWidth: $("set-sidebar-width"), setSidebarWidthValue: $("set-sidebar-width-value"), setFontScale: $("set-font-scale"), setFontScaleValue: $("set-font-scale-value"), setCompact: $("set-compact"), setGroup: $("set-group"),
@@ -404,6 +406,7 @@ function loadVersion() {
   api("/api/version").then(v => {
     if (generation !== viewGeneration || baseAtStart !== apiBase) return;
     window._piVersion = v.version;
+    window._appVersion = v.appVersion || CLIENT_APP_VERSION;
     if (!el.viewSettings.classList.contains("hidden")) renderSettings();
   }).catch(() => {});
   api("/api/machine").then(m => {
@@ -3738,6 +3741,33 @@ function renderThemeChoices() {
 
 let updateStatusData = null;
 let updateStatusRequest = 0;
+let serviceWorkerRegistration = null;
+let updateReadyNotified = false;
+
+async function checkForClientUpdate() {
+  try {
+    const response = await fetch("/api/version", { credentials: "same-origin", cache: "no-store" });
+    if (!response.ok) return;
+    const data = await response.json();
+    const serverVersion = String(data.appVersion || "").trim();
+    if (!serverVersion || serverVersion === CLIENT_APP_VERSION) {
+      sessionStorage.removeItem("piharbor.clientReloadAttempt");
+      return;
+    }
+    if (rpc?.streaming) {
+      if (!updateReadyNotified) toast("Pi Harbor update ready; reload after the current work finishes");
+      updateReadyNotified = true;
+      return;
+    }
+    updateReadyNotified = false;
+    const registration = serviceWorkerRegistration || await navigator.serviceWorker?.getRegistration?.();
+    await registration?.update?.().catch(() => {});
+    const previousAttempt = Number(sessionStorage.getItem("piharbor.clientReloadAttempt")) || 0;
+    if (Date.now() - previousAttempt < 15_000) return;
+    sessionStorage.setItem("piharbor.clientReloadAttempt", String(Date.now()));
+    location.reload();
+  } catch {}
+}
 
 function renderUpdateStatus(data = updateStatusData) {
   const updater = data?.updater;
@@ -3810,7 +3840,13 @@ async function runUpdateCheck() {
   try {
     await post("/api/update/run", {});
     toast("Update check started");
-    setTimeout(() => void loadUpdateStatus(), 2500);
+    for (const delay of [2500, 6000, 12000]) {
+      setTimeout(() => {
+        void loadUpdateStatus();
+        loadVersion();
+        void checkForClientUpdate();
+      }, delay);
+    }
   } catch (error) {
     renderUpdateStatus(updateStatusData);
     toast(error.message || "Could not start update check", true);
@@ -3822,6 +3858,7 @@ function renderSettings() {
   el.setMachineName.textContent = machineDisplayName(selectedMachine) || machineDisplayName(currentHost) || "—";
   el.setMachineHost.textContent = machineDisplayHost(selectedMachine) || "—";
   el.setPiVersion.textContent = window._piVersion || "…";
+  if (el.setAppVersion) el.setAppVersion.textContent = `v${window._appVersion || CLIENT_APP_VERSION}`;
   if (el.setLocale) el.setLocale.value = settings.locale || "en";
   el.setTheme.value = settings.theme;
   renderThemeChoices();
@@ -5277,6 +5314,18 @@ if ("serviceWorker" in navigator) {
     toast("Pi Harbor 已更新，正在重新載入…", false);
     setTimeout(() => location.reload(), 900);
   });
-  navigator.serviceWorker.register("/sw.js").catch(() => {});
+  (async () => {
+    try {
+      serviceWorkerRegistration = await navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" });
+    } catch {
+      serviceWorkerRegistration = await navigator.serviceWorker.register("/sw.js").catch(() => null);
+    }
+    await serviceWorkerRegistration?.update?.().catch(() => {});
+    void checkForClientUpdate();
+  })();
+  window.addEventListener("pageshow", () => void checkForClientUpdate());
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void checkForClientUpdate();
+  });
 }
 boot();

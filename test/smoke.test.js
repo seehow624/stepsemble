@@ -395,6 +395,20 @@ test("simplified mobile UI keeps one project action, one model control, and port
   assert.equal(manifest.orientation, "portrait");
 });
 
+test("PWA updates bypass stale service-worker caches and reconcile client versions", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  assert.match(server, /rel === "sw\.js"[\s\S]*?"no-cache, no-store, must-revalidate"/);
+  assert.match(app, /const CLIENT_APP_VERSION = "2\.0\.8"/);
+  assert.match(app, /function checkForClientUpdate\(\)/);
+  assert.match(app, /cache: "no-store"/);
+  assert.match(app, /updateViaCache: "none"/);
+  assert.match(app, /visibilitychange/);
+  assert.match(app, /piharbor\.clientReloadAttempt/);
+  assert.match(html, /id="set-app-version">v2\.0\.8</);
+});
+
 test("localization is English-first with an explicit locale selector and safe fallback", () => {
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");

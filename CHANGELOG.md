@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.0.8
+
+- Prevented browsers from caching the service worker for 24 hours, which could
+  leave an installed mobile PWA displaying the previous Pi Harbor release.
+- Rechecked the service worker when the app is opened or returns to the
+  foreground, bypassing the HTTP cache for update checks.
+- Compared the loaded client with the origin server after a manual update and
+  reloaded automatically when a newer application bundle is ready.
+- Displayed the selected device's live Pi Harbor version in About instead of
+  relying only on the version baked into the original HTML.
+
 ## 2.0.7
 
 - Reorganized Settings into clearer Connection, Appearance, Behavior, About,

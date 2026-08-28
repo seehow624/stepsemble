@@ -29,7 +29,7 @@ const { createHttpUtils } = require("./server/http-utils");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.0.7";
+const APP_VERSION = "2.0.8";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -3076,7 +3076,9 @@ const server = http.createServer(async (req, res) => {
       const etag = `W/\"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}\"`;
       const commonHeaders = {
         "Content-Type": MIME[path.extname(abs)] || "application/octet-stream",
-        "Cache-Control": rel === "index.html" ? "no-cache" : "public, max-age=86400",
+        "Cache-Control": rel === "sw.js"
+          ? "no-cache, no-store, must-revalidate"
+          : rel === "index.html" ? "no-cache" : "public, max-age=86400",
         "ETag": etag,
         "Last-Modified": stat.mtime.toUTCString(),
       };
