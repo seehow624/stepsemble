@@ -6,10 +6,10 @@
 <title>Pi Harbor</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=2.0.4">
-<link rel="icon" href="/pi-logo.svg?v=2.0.4" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-180.png?v=2.0.4">
-<link rel="stylesheet" href="/style.css?v=2.0.4">
+<link rel="manifest" href="/manifest.webmanifest?v=2.0.5">
+<link rel="icon" href="/pi-logo.svg?v=2.0.5" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png?v=2.0.5">
+<link rel="stylesheet" href="/style.css?v=2.0.5">
 </head>
 <body>
 
@@ -20,7 +20,7 @@
   <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
   <symbol id="i-ellipsis" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></symbol>
   <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m8.5 12.5 6.9-6.9a3.2 3.2 0 1 1 4.5 4.5l-8.7 8.7a5 5 0 0 1-7.1-7.1l8.4-8.4"/></symbol>
-  <symbol id="i-send" viewBox="0 0 24 24"><path d="m4 4 16 8-16 8 3.5-8zM7.5 12H20"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
   <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></symbol>
   <symbol id="i-pencil" viewBox="0 0 24 24"><path d="m4 20 4.4-1 10-10a2.2 2.2 0 0 0-3.1-3.1l-10 10zM13.8 7.2l3 3"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.5h6l2 2h9v8.75A2.25 2.25 0 0 1 18.25 20h-12A2.25 2.25 0 0 1 4 18.25zM3.5 7.5V5.75A1.75 1.75 0 0 1 5.25 4h4l2 2h7.5A2.25 2.25 0 0 1 21 8.25v1.25"/></symbol>
@@ -105,7 +105,7 @@
   </main>
 
   <!-- ===== View: Conversation ===== -->
-  <main id="view-chat" class="view overlay-view hidden">
+  <main id="view-chat" class="view overlay-view hidden chat-is-empty">
     <header class="topbar chat-topbar">
       <button id="btn-back" class="btn ghost icon-btn" title="Back to sessions" aria-label="Back to sessions"><svg class="icon"><use href="#i-arrow-left"></use></svg></button>
       <div class="chat-head-info" id="chat-head-info">
@@ -120,6 +120,7 @@
       <div id="chat-empty" class="chat-empty">
         <div class="login-mark brand-mark" role="img" aria-label="Pi Harbor"></div>
         <p>Select a session,<br>or start a new conversation</p>
+        <button id="chat-empty-new-project" class="btn primary chat-empty-action" type="button" title="New project" aria-label="New project">New project</button>
       </div>
     </div>
     <div id="queue-note" class="queue-note hidden" role="status" aria-live="polite"></div>
@@ -142,7 +143,7 @@
             </select>
           </label>
           <button id="btn-abort" class="btn danger composer-send hidden" type="button" title="Stop" aria-label="Stop"><svg class="icon"><use href="#i-stop"></use></svg></button>
-          <button id="btn-send" class="btn primary composer-send" type="button" title="Send" aria-label="Send"><svg class="icon"><use href="#i-send"></use></svg></button>
+          <button id="btn-send" class="btn primary composer-send" type="button" title="Send" aria-label="Send"><svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg></button>
         </div>
       </div>
       <input id="file-input" type="file" accept="image/*" multiple class="hidden">
@@ -276,7 +277,7 @@
         <h3 class="group-title">About</h3>
         <div class="settings-row">
           <span><strong>Pi Harbor</strong><small>Mobile-first remote workspace for Pi</small></span>
-          <span class="settings-value">v2.0.4</span>
+          <span class="settings-value">v2.0.5</span>
         </div>
         <div class="settings-row">
           <span><strong>Gesture tips</strong><small>Pull down to refresh; swipe from the left edge to go back; long-press a session to rename or delete</small></span>
@@ -619,9 +620,9 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=2.0.4"></script>
-<script src="/modules/app-foundation.js?v=2.0.4"></script>
-<script src="/modules/session-utils.js?v=2.0.4"></script>
-<script src="/app.js?v=2.0.4"></script>
+<script src="/i18n.js?v=2.0.5"></script>
+<script src="/modules/app-foundation.js?v=2.0.5"></script>
+<script src="/modules/session-utils.js?v=2.0.5"></script>
+<script src="/app.js?v=2.0.5"></script>
 </body>
 </html>

@@ -356,6 +356,22 @@ test("provider catalog keeps MiniMax regions separate and exposes a direct API k
   assert.match(css, /max-height: 10000px/);
 });
 
+test("desktop empty chat hides the composer and offers a New project action", () => {
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  assert.match(app, /function showChatEmpty\(\)\s*\{[\s\S]*?el\.viewChat\.classList\.add\("chat-is-empty"\)/);
+  assert.match(app, /function hideChatEmpty\(\)\s*\{[\s\S]*?el\.viewChat\.classList\.remove\("chat-is-empty"\)/);
+  assert.match(app, /el\.viewChat\.classList\.add\("chat-is-empty"\);\s*if \(!isDesktop\(\)\) el\.viewChat\.classList\.add\("hidden"\);\s*else showChatEmpty\(\)/);
+  assert.match(app, /el\.chatEmptyNewProject\?\.addEventListener\("click", openNewDialog\)/);
+  assert.match(html, /<main id="view-chat" class="[^"]*chat-is-empty[^"]*">/);
+  assert.match(html, /<button id="chat-empty-new-project"[^>]*type="button"[^>]*title="New project"[^>]*aria-label="New project"[^>]*>New project<\/button>/);
+  assert.match(html, /<button id="btn-send"[^>]*title="Send"[^>]*aria-label="Send"[^>]*>[\s\S]*?<svg[^>]*aria-hidden="true"/);
+  assert.match(html, /<symbol id="i-send"[^>]*><path d="M12 19V5M5 12l7-7 7 7"\/><\/symbol>/);
+  assert.match(css, /@media \(min-width: 980px\)[\s\S]*?#view-chat\.chat-is-empty \.composer\s*\{\s*display:\s*none\s*;\s*\}/);
+  assert.match(css, /\.chat-empty-action:focus-visible\s*\{[\s\S]*?outline:\s*2px\s+solid\s+var\(--accent\)/);
+});
+
 test("localization is English-first with an explicit locale selector and safe fallback", () => {
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");

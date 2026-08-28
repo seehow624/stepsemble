@@ -1,4 +1,4 @@
-/* pi-harbor v2.0.4 — English-first localization and provider catalog */
+/* pi-harbor v2.0.5 — intentional desktop empty state and minimal send control */
 "use strict";
 
 // The browser remains buildless, but feature-independent foundations live in
@@ -48,7 +48,7 @@ const el = {
   btnBack: $("btn-back"), chatTitle: $("chat-title"), chatSub: $("chat-sub"),
   chatHeadInfo: $("chat-head-info"), streamDot: $("stream-dot"), thinkingStatus: $("thinking-status"), btnChatMenu: $("btn-chat-menu"),
   messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"),
-  chatEmpty: $("chat-empty"), slashMenu: $("slash-menu"),
+  chatEmpty: $("chat-empty"), chatEmptyNewProject: $("chat-empty-new-project"), slashMenu: $("slash-menu"),
   input: $("input"), btnSend: $("btn-send"), btnAbort: $("btn-abort"), btnModel: $("btn-model"),
   sessionCount: $("session-count"), btnLayout: $("btn-layout"),
   composerModelLabel: $("composer-model-label"), composerThinking: $("composer-thinking"),
@@ -455,6 +455,7 @@ function showListSilent() {
   el.viewList.classList.remove("hidden");
   el.viewSettings.classList.add("hidden");
   el.viewModelSettings.classList.add("hidden");
+  el.viewChat.classList.add("chat-is-empty");
   if (isDesktop()) showChatEmpty();
 }
 
@@ -490,6 +491,7 @@ function showList(options = {}) {
   ++viewGeneration;
   const wasStreaming = !!(rpc && (rpc.streaming || rpc.connectionLost));
   closeChat(wasStreaming); // streaming 中保留進程繼續跑；閒置對話離開時關閉
+  el.viewChat.classList.add("chat-is-empty");
   if (!isDesktop()) el.viewChat.classList.add("hidden");
   else showChatEmpty();
   el.viewChat.style.transform = "";
@@ -501,6 +503,7 @@ function showList(options = {}) {
 el.btnBack.addEventListener("click", showList);
 
 function showChatEmpty() {
+  el.viewChat.classList.add("chat-is-empty");
   el.messages.innerHTML = '';
   resetSessionUsage();
   if (el.chatEmpty) {
@@ -509,6 +512,7 @@ function showChatEmpty() {
   }
 }
 function hideChatEmpty() {
+  el.viewChat.classList.remove("chat-is-empty");
   if (el.chatEmpty && el.chatEmpty.parentElement) el.chatEmpty.remove();
 }
 
@@ -4953,6 +4957,7 @@ function openNewDialog(initialCwd = null) {
 }
 el.btnNew.addEventListener("click", openNewDialog);
 el.btnNewProject?.addEventListener("click", openNewDialog);
+el.chatEmptyNewProject?.addEventListener("click", openNewDialog);
 el.fabNew.addEventListener("click", openNewDialog);
 el.newCancel.addEventListener("click", () => el.newDialog.classList.add("hidden"));
 el.newFolderUp.addEventListener("click", () => {

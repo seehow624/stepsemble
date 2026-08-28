@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.5
+
+- Replaced the inactive desktop composer with one clear New project action
+  until a conversation is opened or created.
+- Changed the send control from a paper plane to a minimal upward arrow while
+  keeping the separate stop state unchanged.
+- Preserved mobile background conversation content when returning to the
+  session list, and prevented the inactive composer from flashing on load.
+
 ## 2.0.4
 
 - Made first sign-in wait for the authoritative device catalog before loading
