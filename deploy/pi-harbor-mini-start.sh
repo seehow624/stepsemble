@@ -1,10 +1,13 @@
 #!/bin/zsh
 # Pi Harbor launcher for a macOS host where launchd must start the server through
-# an SSH child process. Copy this file to ~/.local/share/pi-harbor-bin/start.sh.
+# an SSH child process. Copy this file to ~/.local/share/pi-harbor-bin/start.sh
+# after replacing the __NODE__, __PIBIN__, and __TOKEN_FILE__ placeholders.
 set -eu
 
 PI_HARBOR_HOME="${PI_HARBOR_HOME:-$HOME/.local/share/pi-harbor}"
-PI_HARBOR_TOKEN_FILE="${PI_HARBOR_TOKEN_FILE:-$HOME/.config/pi-harbor/token}"
+PI_HARBOR_TOKEN_FILE_DEFAULT="__TOKEN_FILE__"
+if [[ "$PI_HARBOR_TOKEN_FILE_DEFAULT" == "__TOKEN_"FILE__ ]]; then PI_HARBOR_TOKEN_FILE_DEFAULT="$HOME/.config/pi-harbor/token"; fi
+PI_HARBOR_TOKEN_FILE="${PI_HARBOR_TOKEN_FILE:-$PI_HARBOR_TOKEN_FILE_DEFAULT}"
 device_config="${PI_HARBOR_DEVICE_CONFIG:-$HOME/.pi/agent/device.json}"
 configured_port=""
 if [[ -f "$device_config" ]]; then

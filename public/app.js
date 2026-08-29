@@ -1,7 +1,7 @@
-/* pi-harbor v2.0.9 — multi-device update center */
+/* pi-harbor v2.1.0 — settings gestures, safer project browse, and first-use guidance */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.0.9";
+const CLIENT_APP_VERSION = "2.1.0";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -423,7 +423,10 @@ function loadVersion() {
   api("/api/machine").then(m => {
     if (generation !== viewGeneration || baseAtStart !== apiBase) return;
     currentHost = m.machine || currentHost;
-    window._piHome = m.home || window._piHome || "";
+    // Never keep a previous device's home when this response omits it. The
+    // project picker intentionally uses a no-path browse request until it has
+    // an explicit, validated path, so a stale home can never leak across hosts.
+    window._piHome = typeof m.home === "string" ? m.home : "";
     if (!el.viewSettings.classList.contains("hidden")) renderSettings();
   }).catch(() => {});
 }
@@ -436,16 +439,21 @@ function applyApiBase() {
 function switchMachine(id, silent) {
   if (!machines.some(m => m.id === id)) return;
   stopUpdateCenterPolling();
+  cancelProjectFolderRequest();
   const generation = ++viewGeneration;
   const wasChatOpen = !el.viewChat.classList.contains("hidden");
   const preserveRunning = !!(rpc && (rpc.streaming || rpc.connectionLost));
   closeChat(preserveRunning); // 切機器時不殺正在執行的工作，閒置 RPC 則正常關閉
   el.viewChat.classList.add("hidden");
   el.viewChat.style.transform = "";
+  resetSettingsOverlay();
   el.viewSettings.classList.add("hidden");
   el.viewModelSettings.classList.add("hidden");
   selectedId = id;
   saveSelected(id);
+  // Do not let a previous host's home remain authoritative while the new
+  // /api/machine response is in flight. The picker still starts no-path.
+  window._piHome = "";
   updateStatusData = updateDeviceStatuses.get(id)?.data || null;
   applyApiBase();
   modelCatalog = [];
@@ -458,9 +466,7 @@ function switchMachine(id, silent) {
   providerCatalogRequest = null;
   providerCatalogLoading = false;
   renderModelSettingsSummary();
-  if (modelCatalogRequest) modelCatalogRequest.abort();
-  modelCatalogRequest = null;
-  modelCatalogLoading = false;
+  cancelModelVisibilityRequest();
   currentSessionFile = null;
   sessionsCache = [];
   resetComposerSummary();
@@ -537,6 +543,7 @@ function showList(options = {}) {
   if (!isDesktop()) el.viewChat.classList.add("hidden");
   else showChatEmpty();
   el.viewChat.style.transform = "";
+  resetSettingsOverlay();
   el.viewSettings.classList.add("hidden");
   el.viewModelSettings.classList.add("hidden");
   el.viewList.classList.remove("hidden");
@@ -558,20 +565,56 @@ function hideChatEmpty() {
   if (el.chatEmpty && el.chatEmpty.parentElement) el.chatEmpty.remove();
 }
 
+let settingsSwipeTimer = null;
+let settingsSlideTimer = null;
+let settingsSwipeCancel = null;
+
+function resetSettingsOverlay() {
+  settingsSwipeCancel?.();
+  if (settingsSwipeTimer) clearTimeout(settingsSwipeTimer);
+  if (settingsSlideTimer) clearTimeout(settingsSlideTimer);
+  settingsSwipeTimer = null;
+  settingsSlideTimer = null;
+  el.viewSettings.classList.remove("dragging", "snap-back", "slide-out", "slide-in");
+  el.viewSettings.style.transform = "";
+}
+
+function cancelModelVisibilityRequest() {
+  if (modelCatalogRequest) modelCatalogRequest.abort();
+  modelCatalogRequest = null;
+  modelCatalogLoading = false;
+  if (el.modelVisibilityRefresh) el.modelVisibilityRefresh.disabled = false;
+}
+
+// Every way out of Settings uses this path. Apart from making the toolbar and
+// edge gesture equivalent, it cancels late model/status work before restoring
+// the session list underneath the overlay.
+function hideSettings() {
+  settingsSwipeCancel?.();
+  stopUpdateCenterPolling();
+  cancelModelVisibilityRequest();
+  resetSettingsOverlay();
+  el.viewSettings.classList.add("hidden");
+  el.viewModelSettings.classList.add("hidden");
+  el.viewList.classList.remove("hidden");
+}
+
 function showSettings() {
+  resetSettingsOverlay();
   renderSettings();
   el.viewModelSettings.classList.add("hidden");
+  el.viewList.classList.remove("hidden");
   void loadModelVisibility();
   el.viewSettings.classList.remove("hidden");
   el.viewSettings.classList.add("slide-in");
-  setTimeout(() => el.viewSettings.classList.remove("slide-in"), 250);
+  settingsSlideTimer = setTimeout(() => {
+    settingsSlideTimer = null;
+    el.viewSettings.classList.remove("slide-in");
+  }, 250);
   startUpdateCenterPolling();
 }
 el.btnOpenSettings.addEventListener("click", showSettings);
-el.btnSettingsBack.addEventListener("click", () => {
-  stopUpdateCenterPolling();
-  el.viewSettings.classList.add("hidden");
-});
+el.btnSettingsBack.addEventListener("click", hideSettings);
 function showModelSettings() {
   stopUpdateCenterPolling();
   el.viewSettings.classList.add("hidden");
@@ -3513,6 +3556,98 @@ function maybeDateSeparator(ts) {
   el.viewChat.addEventListener("touchcancel", () => finish(true));
 })();
 
+// Settings is a full-screen overlay on touch layouts. Keep its edge gesture
+// deliberately narrower than ordinary scrolling and form interaction: only a
+// rightward, mostly-horizontal movement that starts at the left edge can take
+// the overlay away.
+(() => {
+  const EDGE = 36;
+  const DIST = 90;
+  const RATIO = 1.6;
+  let gesture = null;
+
+  const reducedMotion = () => document.documentElement.classList.contains("reduced-motion")
+    || matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  el.viewSettings.addEventListener("touchstart", (event) => {
+    if (el.viewSettings.classList.contains("hidden") || event.touches.length !== 1) return;
+    const target = event.target;
+    if (target.closest?.("input, select, textarea, button, a, label, summary, [contenteditable=\"true\"], option")) return;
+    const touch = event.touches[0];
+    if (touch.clientX > EDGE) return;
+    if (settingsSwipeTimer) clearTimeout(settingsSwipeTimer);
+    if (settingsSlideTimer) clearTimeout(settingsSlideTimer);
+    settingsSwipeTimer = null;
+    settingsSlideTimer = null;
+    el.viewSettings.classList.remove("slide-in", "snap-back");
+    gesture = { x0: touch.clientX, y0: touch.clientY, t0: Date.now(), dx: 0, active: false };
+  }, { passive: true });
+
+  el.viewSettings.addEventListener("touchmove", (event) => {
+    if (!gesture) return;
+    if (event.touches.length !== 1) {
+      gesture = null;
+      el.viewSettings.classList.remove("dragging");
+      el.viewSettings.style.transform = "";
+      return;
+    }
+    const touch = event.touches[0];
+    const dx = touch.clientX - gesture.x0;
+    const dy = touch.clientY - gesture.y0;
+    if (!gesture.active) {
+      if (dx > 12 && Math.abs(dx) > Math.abs(dy) * RATIO) {
+        gesture.active = true;
+        el.viewSettings.classList.add("dragging");
+      } else if (Math.abs(dy) > 14) {
+        gesture = null;
+        return;
+      }
+    }
+    if (gesture.active) {
+      event.preventDefault();
+      gesture.dx = Math.max(0, dx);
+      el.viewSettings.style.transform = `translateX(${gesture.dx}px)`;
+    }
+  }, { passive: false });
+
+  function finish(cancelled = false) {
+    if (!gesture) return;
+    const current = gesture;
+    gesture = null;
+    if (!current.active) return;
+    el.viewSettings.classList.remove("dragging");
+    const elapsed = Math.max(1, Date.now() - current.t0);
+    const velocity = current.dx / elapsed;
+    const fast = current.dx > 40 && (elapsed < 260 || velocity >= 0.65);
+    if (!cancelled && (current.dx > DIST || fast)) {
+      if (reducedMotion()) {
+        hideSettings();
+        return;
+      }
+      el.viewSettings.classList.add("slide-out");
+      el.viewSettings.style.transform = "translateX(100%)";
+      settingsSwipeTimer = setTimeout(() => {
+        settingsSwipeTimer = null;
+        hideSettings();
+      }, 230);
+      return;
+    }
+    el.viewSettings.classList.add("snap-back");
+    el.viewSettings.style.transform = "";
+    settingsSwipeTimer = setTimeout(() => {
+      settingsSwipeTimer = null;
+      el.viewSettings.classList.remove("snap-back");
+    }, reducedMotion() ? 0 : 260);
+  }
+
+  settingsSwipeCancel = () => {
+    gesture = null;
+    el.viewSettings.classList.remove("dragging");
+  };
+  el.viewSettings.addEventListener("touchend", () => finish(false));
+  el.viewSettings.addEventListener("touchcancel", () => finish(true));
+})();
+
 // ===========================================================================
 // 首次啟動導覽
 // ===========================================================================
@@ -3571,6 +3706,12 @@ const ONBOARDING_LANGUAGE_LABELS = {
   "zh-Hant": ["英文", "簡體中文", "繁體中文", "日文", "韓文", "土耳其文", "法文", "德文", "西班牙文", "葡萄牙文（巴西）", "義大利文"],
   ja: ["英語", "簡体字中国語", "繁体字中国語", "日本語", "韓国語", "トルコ語", "フランス語", "ドイツ語", "スペイン語", "ポルトガル語（ブラジル）", "イタリア語"],
   ko: ["영어", "중국어 간체", "중국어 번체", "일본어", "한국어", "튀르키예어", "프랑스어", "독일어", "스페인어", "포르투갈어(브라질)", "이탈리아어"],
+  tr: ["İngilizce", "Basitleştirilmiş Çince", "Geleneksel Çince", "Japonca", "Korece", "Türkçe", "Fransızca", "Almanca", "İspanyolca", "Brezilya Portekizcesi", "İtalyanca"],
+  fr: ["Anglais", "Chinois simplifié", "Chinois traditionnel", "Japonais", "Coréen", "Turc", "Français", "Allemand", "Espagnol", "Portugais brésilien", "Italien"],
+  de: ["Englisch", "Vereinfachtes Chinesisch", "Traditionelles Chinesisch", "Japanisch", "Koreanisch", "Türkisch", "Französisch", "Deutsch", "Spanisch", "Brasilianisches Portugiesisch", "Italienisch"],
+  es: ["Inglés", "Chino simplificado", "Chino tradicional", "Japonés", "Coreano", "Turco", "Francés", "Alemán", "Español", "Portugués de Brasil", "Italiano"],
+  "pt-BR": ["Inglês", "Chinês simplificado", "Chinês tradicional", "Japonês", "Coreano", "Turco", "Francês", "Alemão", "Espanhol", "Português do Brasil", "Italiano"],
+  it: ["Inglese", "Cinese semplificato", "Cinese tradizionale", "Giapponese", "Coreano", "Turco", "Francese", "Tedesco", "Spagnolo", "Portoghese brasiliano", "Italiano"],
 };
 
 const ONBOARDING_EUROPEAN = {
@@ -3617,21 +3758,108 @@ for (const [locale, values] of Object.entries(ONBOARDING_EUROPEAN)) {
   ONBOARDING_COPY[locale] = { guideTitle, guideSubtitle, language, appearance, back, skip, next, finish, steps: rawSteps.map(([eyebrow, title, body, first, second]) => ({ eyebrow, title, body, points: [first, second] })) };
 }
 
+// Keep the first-run path actionable rather than assuming that a new user
+// already knows where the token, device controls, or provider settings live.
+// This is rendered directly (not through the DOM translator), so every
+// supported locale has its complete five-step copy here.
+const ONBOARDING_ACTIONABLE_STEPS = {
+  en: [
+    { eyebrow: "WELCOME", title: "Welcome aboard", body: "Pi Harbor keeps the Pi Agent, sessions, credentials, and projects on the selected computer.", points: ["Choose your language and appearance now; both can be changed later."] },
+    { eyebrow: "TOKEN & SIGN-IN", title: "Find your Web token", body: "The installer creates a private Web token on the computer running Pi Harbor. On that computer, open Terminal and run cat ~/.config/pi-harbor/token, then paste it here. From another device, retrieve it securely from that host.", points: ["Never share the token in chat, screenshots, repositories, or logs.", "If PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path."] },
+    { eyebrow: "DEVICES", title: "Connect another computer", body: "Install and run Pi Harbor on each additional computer. Use Tailscale or HTTPS, then open Settings → Devices → Add device, or use a five-minute pairing code.", points: ["Use the same Web token on both computers; device credentials stay with their selected host.", "Never expose public port 3140 to an untrusted network."] },
+    { eyebrow: "MODELS & PROVIDERS", title: "Add an LLM provider", body: "Open Settings → Connection → Models & providers. Choose a catalog service, account/OAuth sign-in, API key, local service, or Custom provider.", points: ["Credentials stay on the selected host.", "Then select the visible models you want to use."] },
+    { eyebrow: "PROJECT", title: "Choose a folder and start", body: "Open New project, choose a folder on this host, optionally name the session, and select Start here.", points: ["The folder picker starts at the host home and only shows allowed browse roots.", "You can return to this guide from Settings → About → Setup guide."] },
+  ],
+  "zh-Hans": [
+    { eyebrow: "欢迎", title: "欢迎使用", body: "Pi Harbor 会将 Pi Agent、会话、凭证和项目保留在选定的电脑上。", points: ["现在选择语言和外观，之后都可以更改。"] },
+    { eyebrow: "TOKEN 与登录", title: "找到 Web token", body: "安装程序会在运行 Pi Harbor 的电脑上创建私密 Web token。在那台电脑打开终端并运行 cat ~/.config/pi-harbor/token，然后将结果粘贴到这里。在其他设备上，请从该主机安全地取得 token。", points: ["绝不要在聊天、截图、代码仓库或日志中分享 token。", "如果配置了 PI_HARBOR_TOKEN_FILE，请使用该文件，而不是默认路径。"] },
+    { eyebrow: "设备", title: "连接另一台电脑", body: "在每台额外的电脑上安装并运行 Pi Harbor。使用 Tailscale 或 HTTPS，然后打开“设置 → 设备 → 添加设备”，也可以使用五分钟有效的一次性配对码。", points: ["两台电脑使用相同的 Web token；设备凭证保留在各自选定的主机上。", "不要将公共 3140 端口暴露给不受信任的网络。"] },
+    { eyebrow: "模型与服务", title: "添加 LLM 服务商", body: "打开“设置 → 连接 → 模型与 Provider”。选择目录服务、账号/OAuth 登录、API key、本地服务或自定义 Provider。", points: ["凭证保留在选定的主机上。", "然后选择要使用的可见模型。"] },
+    { eyebrow: "项目", title: "选择文件夹并开始", body: "打开“新建项目”，选择这台主机上的文件夹，可选填写会话名称，然后选择“从这里开始”。", points: ["文件夹选择器从主机主目录开始，只显示允许访问的目录。", "以后可以从“设置 → 关于 → 设置导览”再次打开本指南。"] },
+  ],
+  "zh-Hant": [
+    { eyebrow: "歡迎", title: "歡迎使用", body: "Pi Harbor 會將 Pi Agent、工作階段、憑證與專案保留在選定的電腦上。", points: ["現在選擇語言與外觀，之後都可以更改。"] },
+    { eyebrow: "TOKEN 與登入", title: "找到 Web token", body: "安裝程式會在執行 Pi Harbor 的電腦上建立私密 Web token。在該電腦開啟終端機並執行 cat ~/.config/pi-harbor/token，然後將結果貼到這裡。在其他裝置上，請從該主機安全地取得 token。", points: ["絕不要在聊天、截圖、程式碼儲存庫或日誌中分享 token。", "如果設定了 PI_HARBOR_TOKEN_FILE，請使用該檔案，不要使用預設路徑。"] },
+    { eyebrow: "裝置", title: "連接另一台電腦", body: "在每台額外的電腦上安裝並執行 Pi Harbor。使用 Tailscale 或 HTTPS，然後開啟「設定 → 設備 → 新增設備」，也可以使用五分鐘有效的一次性配對碼。", points: ["兩台電腦使用相同的 Web token；裝置憑證會留在各自選定的主機上。", "不要將公開的 3140 port 暴露給不受信任的網路。"] },
+    { eyebrow: "模型與服務", title: "加入 LLM 服務商", body: "開啟「設定 → 連線 → 模型與 Provider」。選擇目錄服務、帳號／OAuth 登入、API key、本機服務或自訂 Provider。", points: ["憑證會保留在選定的主機上。", "然後選擇要使用的可見模型。"] },
+    { eyebrow: "專案", title: "選擇資料夾並開始", body: "開啟「新增專案」，選擇這台主機上的資料夾，可選填寫工作階段名稱，然後選擇「在這裡開始」。", points: ["資料夾選擇器會從主機家目錄開始，只顯示允許存取的目錄。", "之後可以從「設定 → 關於 → 設定導覽」再次開啟本指南。"] },
+  ],
+  ja: [
+    { eyebrow: "ようこそ", title: "Pi Harbor へようこそ", body: "Pi Harbor は Pi Agent、セッション、認証情報、プロジェクトを選択したコンピューターに保管します。", points: ["言語と外観は今選択でき、後から変更できます。"] },
+    { eyebrow: "トークンとサインイン", title: "Web トークンを確認", body: "インストーラーは Pi Harbor を実行するコンピューターに非公開の Web トークンを作成します。そのコンピューターでターミナルを開き、cat ~/.config/pi-harbor/token を実行して、結果をここに貼り付けます。別のデバイスでは、そのホストから安全にトークンを取得してください。", points: ["トークンをチャット、スクリーンショット、リポジトリ、ログで共有しないでください。", "カスタムの PI_HARBOR_TOKEN_FILE を設定している場合は、既定のパスではなくそのファイルを使います。"] },
+    { eyebrow: "デバイス", title: "別のコンピューターを接続", body: "追加する各コンピューターに Pi Harbor をインストールして実行します。Tailscale または HTTPS を使い、「設定 → デバイス → デバイスを追加」を開くか、5 分間有効なペアリングコードを使います。", points: ["両方のコンピューターで同じ Web トークンを使います。認証情報は選択したホストに残ります。", "公開ポート 3140 を信頼できないネットワークに公開しないでください。"] },
+    { eyebrow: "モデルとプロバイダー", title: "LLM プロバイダーを追加", body: "「設定 → 接続 → モデルとプロバイダー」を開きます。カタログサービス、アカウント／OAuth サインイン、API キー、ローカルサービス、またはカスタムプロバイダーを選択します。", points: ["認証情報は選択したホストに保管されます。", "次に使用するモデルを表示対象から選択します。"] },
+    { eyebrow: "プロジェクト", title: "フォルダーを選んで開始", body: "「新しいプロジェクト」を開き、このホストのフォルダーを選び、必要ならセッション名を入力して「ここから開始」を選択します。", points: ["フォルダー選択はホストのホームから始まり、許可されたルートだけを表示します。", "後で「設定 → 概要 → セットアップガイド」から再び開けます。"] },
+  ],
+  ko: [
+    { eyebrow: "환영합니다", title: "Pi Harbor에 오신 것을 환영합니다", body: "Pi Harbor는 Pi Agent, 세션, 자격 증명과 프로젝트를 선택한 컴퓨터에 보관합니다.", points: ["지금 언어와 화면 모드를 선택할 수 있으며 나중에 변경할 수 있습니다."] },
+    { eyebrow: "토큰 및 로그인", title: "Web 토큰 찾기", body: "설치 프로그램이 Pi Harbor를 실행하는 컴퓨터에 비공개 Web 토큰을 만듭니다. 해당 컴퓨터에서 터미널을 열고 cat ~/.config/pi-harbor/token을 실행한 뒤 결과를 여기에 붙여넣으세요. 다른 기기에서는 해당 호스트에서 토큰을 안전하게 가져오세요.", points: ["토큰을 채팅, 스크린샷, 저장소 또는 로그에 절대 공유하지 마세요.", "사용자 지정 PI_HARBOR_TOKEN_FILE을 설정했다면 기본 경로 대신 해당 파일을 사용하세요."] },
+    { eyebrow: "기기", title: "다른 컴퓨터 연결", body: "추가할 각 컴퓨터에 Pi Harbor를 설치하고 실행하세요. Tailscale 또는 HTTPS를 사용한 뒤 ‘설정 → 기기 → 기기 추가’를 열거나 5분 동안 유효한 페어링 코드를 사용하세요.", points: ["두 컴퓨터에서 같은 Web 토큰을 사용하며 인증 정보는 선택한 호스트에 남습니다.", "공개 포트 3140을 신뢰할 수 없는 네트워크에 노출하지 마세요."] },
+    { eyebrow: "모델 및 제공자", title: "LLM 제공자 추가", body: "‘설정 → 연결 → 모델 및 제공자’를 여세요. 카탈로그 서비스, 계정/OAuth 로그인, API 키, 로컬 서비스 또는 사용자 지정 제공자를 선택하세요.", points: ["인증 정보는 선택한 호스트에만 저장됩니다.", "그런 다음 사용할 모델을 표시 목록에서 선택하세요."] },
+    { eyebrow: "프로젝트", title: "폴더를 선택하고 시작", body: "‘새 프로젝트’를 열고 이 호스트의 폴더를 선택한 다음 세션 이름을 입력하고 ‘여기서 시작’을 누르세요.", points: ["폴더 선택기는 호스트 홈에서 시작하며 허용된 경로만 보여 줍니다.", "나중에 ‘설정 → 정보 → 설정 안내’에서 이 안내를 다시 열 수 있습니다."] },
+  ],
+  tr: [
+    { eyebrow: "HOŞ GELDİNİZ", title: "Pi Harbor'a hoş geldiniz", body: "Pi Harbor; Pi Agent'ı, oturumları, kimlik bilgilerini ve projeleri seçtiğiniz bilgisayarda tutar.", points: ["Dil ve görünümü şimdi seçebilirsiniz; daha sonra da değiştirebilirsiniz."] },
+    { eyebrow: "TOKEN VE GİRİŞ", title: "Web token'ını bulun", body: "Yükleyici, Pi Harbor'ı çalıştıran bilgisayarda özel bir Web token'ı oluşturur. Bu bilgisayarda Terminal'i açıp cat ~/.config/pi-harbor/token komutunu çalıştırın ve sonucu buraya yapıştırın. Başka bir cihazda token'ı bu ana bilgisayardan güvenli şekilde alın.", points: ["Token'ı sohbetlerde, ekran görüntülerinde, depolarda veya günlüklerde asla paylaşmayın.", "Özel bir PI_HARBOR_TOKEN_FILE yapılandırıldıysa varsayılan yol yerine bu dosyayı kullanın."] },
+    { eyebrow: "CİHAZLAR", title: "Başka bir bilgisayarı bağlayın", body: "Eklediğiniz her bilgisayara Pi Harbor'i yükleyip çalıştırın. Tailscale veya HTTPS kullanın; ardından Ayarlar → Cihazlar → Cihaz ekle yolunu açın ya da beş dakika geçerli bir eşleştirme kodu kullanın.", points: ["İki bilgisayarda aynı Web token'ını kullanın; kimlik bilgileri seçilen ana bilgisayarda kalır.", "3140 numaralı genel bağlantı noktasını güvenilmeyen bir ağa açmayın."] },
+    { eyebrow: "MODELLER VE SAĞLAYICILAR", title: "Bir LLM sağlayıcısı ekleyin", body: "Ayarlar → Bağlantı → Modeller ve sağlayıcılar bölümünü açın. Bir katalog hizmeti, hesap/OAuth girişi, API anahtarı, yerel hizmet veya Özel sağlayıcı seçin.", points: ["Kimlik bilgileri seçilen ana bilgisayarda kalır.", "Ardından kullanmak istediğiniz görünür modelleri seçin."] },
+    { eyebrow: "PROJE", title: "Klasör seçip başlayın", body: "Yeni proje'yi açın, bu ana bilgisayardaki bir klasörü seçin, isteğe bağlı oturum adını yazın ve Buradan başla'yı seçin.", points: ["Klasör seçici ana bilgisayarın ana klasöründe başlar ve yalnızca izin verilen kökleri gösterir.", "Bu rehberi daha sonra Ayarlar → Hakkında → Kurulum rehberi bölümünden açabilirsiniz."] },
+  ],
+  fr: [
+    { eyebrow: "BIENVENUE", title: "Bienvenue sur Pi Harbor", body: "Pi Harbor conserve l’agent Pi, les sessions, les identifiants et les projets sur l’ordinateur sélectionné.", points: ["Choisissez la langue et l’apparence maintenant ; vous pourrez les modifier plus tard."] },
+    { eyebrow: "JETON ET CONNEXION", title: "Trouver votre jeton Web", body: "L’installeur crée un jeton Web privé sur l’ordinateur qui exécute Pi Harbor. Sur cet ordinateur, ouvrez le Terminal et exécutez cat ~/.config/pi-harbor/token, puis collez le résultat ici. Depuis un autre appareil, récupérez le jeton en toute sécurité sur cet hôte.", points: ["Ne partagez jamais le jeton dans un chat, une capture d’écran, un dépôt ou un journal.", "Si un PI_HARBOR_TOKEN_FILE personnalisé est configuré, utilisez ce fichier plutôt que le chemin par défaut."] },
+    { eyebrow: "APPAREILS", title: "Connecter un autre ordinateur", body: "Installez et lancez Pi Harbor sur chaque ordinateur supplémentaire. Utilisez Tailscale ou HTTPS, puis ouvrez Réglages → Appareils → Ajouter un appareil, ou utilisez un code d’association valable cinq minutes.", points: ["Utilisez le même jeton Web sur les deux ordinateurs ; les identifiants restent sur l’hôte sélectionné.", "N’exposez jamais le port public 3140 à un réseau non fiable."] },
+    { eyebrow: "MODÈLES ET FOURNISSEURS", title: "Ajouter un fournisseur LLM", body: "Ouvrez Réglages → Connexion → Modèles et fournisseurs. Choisissez un service du catalogue, une connexion par compte/OAuth, une clé API, un service local ou un fournisseur personnalisé.", points: ["Les identifiants restent sur l’hôte sélectionné.", "Sélectionnez ensuite les modèles visibles que vous souhaitez utiliser."] },
+    { eyebrow: "PROJET", title: "Choisir un dossier et commencer", body: "Ouvrez Nouveau projet, choisissez un dossier sur cet hôte, indiquez éventuellement le nom de la session, puis sélectionnez Commencer ici.", points: ["Le sélecteur commence dans le dossier personnel de l’hôte et n’affiche que les racines autorisées.", "Vous pourrez rouvrir ce guide dans Réglages → À propos → Guide de configuration."] },
+  ],
+  de: [
+    { eyebrow: "WILLKOMMEN", title: "Willkommen bei Pi Harbor", body: "Pi Harbor bewahrt Pi Agent, Sitzungen, Zugangsdaten und Projekte auf dem ausgewählten Computer auf.", points: ["Wählen Sie Sprache und Darstellung jetzt aus; beides lässt sich später ändern."] },
+    { eyebrow: "TOKEN UND ANMELDUNG", title: "Web-Token finden", body: "Das Installationsprogramm erstellt ein privates Web-Token auf dem Computer, auf dem Pi Harbor läuft. Öffnen Sie dort das Terminal und führen Sie cat ~/.config/pi-harbor/token aus. Fügen Sie das Ergebnis hier ein. Rufen Sie das Token auf einem anderen Gerät sicher von diesem Host ab.", points: ["Teilen Sie das Token niemals in Chats, Screenshots, Repositories oder Protokollen.", "Wenn ein eigenes PI_HARBOR_TOKEN_FILE konfiguriert ist, verwenden Sie diese Datei statt des Standardpfads."] },
+    { eyebrow: "GERÄTE", title: "Anderen Computer verbinden", body: "Installieren und starten Sie Pi Harbor auf jedem weiteren Computer. Verwenden Sie Tailscale oder HTTPS und öffnen Sie Einstellungen → Geräte → Gerät hinzufügen oder verwenden Sie einen fünf Minuten gültigen Kopplungscode.", points: ["Verwenden Sie auf beiden Computern dasselbe Web-Token; Zugangsdaten bleiben auf dem ausgewählten Host.", "Geben Sie den öffentlichen Port 3140 nie in einem nicht vertrauenswürdigen Netzwerk frei."] },
+    { eyebrow: "MODELLE UND ANBIETER", title: "LLM-Anbieter hinzufügen", body: "Öffnen Sie Einstellungen → Verbindung → Modelle und Anbieter. Wählen Sie einen Katalogdienst, die Konto-/OAuth-Anmeldung, einen API-Schlüssel, einen lokalen Dienst oder einen benutzerdefinierten Anbieter.", points: ["Zugangsdaten bleiben auf dem ausgewählten Host.", "Wählen Sie danach die sichtbaren Modelle aus, die Sie verwenden möchten."] },
+    { eyebrow: "PROJEKT", title: "Ordner auswählen und starten", body: "Öffnen Sie Neues Projekt, wählen Sie einen Ordner auf diesem Host, geben Sie optional einen Sitzungsnamen ein und wählen Sie Hier starten.", points: ["Die Ordnerauswahl beginnt im Home-Ordner des Hosts und zeigt nur erlaubte Wurzeln.", "Sie können den Assistenten später unter Einstellungen → Über → Einrichtungsassistent erneut öffnen."] },
+  ],
+  es: [
+    { eyebrow: "BIENVENIDA", title: "Bienvenido a Pi Harbor", body: "Pi Harbor conserva el agente Pi, las sesiones, las credenciales y los proyectos en el ordenador seleccionado.", points: ["Elige ahora el idioma y la apariencia; podrás cambiarlos más adelante."] },
+    { eyebrow: "TOKEN E INICIO DE SESIÓN", title: "Encuentra tu token web", body: "El instalador crea un token web privado en el ordenador que ejecuta Pi Harbor. En ese ordenador, abre Terminal y ejecuta cat ~/.config/pi-harbor/token; después pega el resultado aquí. Desde otro dispositivo, recupera el token de forma segura en ese equipo anfitrión.", points: ["Nunca compartas el token en chats, capturas de pantalla, repositorios ni registros.", "Si se ha configurado un PI_HARBOR_TOKEN_FILE personalizado, usa ese archivo en lugar de la ruta predeterminada."] },
+    { eyebrow: "DISPOSITIVOS", title: "Conecta otro ordenador", body: "Instala y ejecuta Pi Harbor en cada ordenador adicional. Usa Tailscale o HTTPS y abre Ajustes → Dispositivos → Añadir dispositivo, o utiliza un código de emparejamiento válido durante cinco minutos.", points: ["Usa el mismo token web en ambos ordenadores; las credenciales permanecen en el equipo anfitrión seleccionado.", "No expongas el puerto público 3140 directamente a una red que no sea de confianza."] },
+    { eyebrow: "MODELOS Y PROVEEDORES", title: "Añade un proveedor LLM", body: "Abre Ajustes → Conexión → Modelos y proveedores. Elige un servicio del catálogo, inicio de sesión con cuenta/OAuth, una clave API, un servicio local o un proveedor personalizado.", points: ["Las credenciales permanecen en el equipo anfitrión seleccionado.", "Después, selecciona los modelos visibles que quieras utilizar."] },
+    { eyebrow: "PROYECTO", title: "Elige una carpeta y empieza", body: "Abre Nuevo proyecto, elige una carpeta en este equipo anfitrión, escribe opcionalmente el nombre de la sesión y selecciona Empezar aquí.", points: ["El selector empieza en la carpeta personal del equipo y solo muestra raíces permitidas.", "Puedes volver a abrir esta guía desde Ajustes → Acerca de → Guía de configuración."] },
+  ],
+  "pt-BR": [
+    { eyebrow: "BOAS-VINDAS", title: "Bem-vindo ao Pi Harbor", body: "O Pi Harbor mantém o Pi Agent, as sessões, as credenciais e os projetos no computador selecionado.", points: ["Escolha o idioma e a aparência agora; ambos podem ser alterados depois."] },
+    { eyebrow: "TOKEN E LOGIN", title: "Encontre seu token Web", body: "O instalador cria um token Web privado no computador que executa o Pi Harbor. Nesse computador, abra o Terminal e execute cat ~/.config/pi-harbor/token; depois cole o resultado aqui. Em outro dispositivo, obtenha o token com segurança nesse host.", points: ["Nunca compartilhe o token em chats, capturas de tela, repositórios ou logs.", "Se um PI_HARBOR_TOKEN_FILE personalizado estiver configurado, use esse arquivo em vez do caminho padrão."] },
+    { eyebrow: "DISPOSITIVOS", title: "Conecte outro computador", body: "Instale e execute o Pi Harbor em cada computador adicional. Use Tailscale ou HTTPS e abra Configurações → Dispositivos → Adicionar dispositivo, ou use um código de pareamento válido por cinco minutos.", points: ["Use o mesmo token Web nos dois computadores; as credenciais permanecem no host selecionado.", "Não exponha a porta pública 3140 diretamente a uma rede não confiável."] },
+    { eyebrow: "MODELOS E PROVEDORES", title: "Adicione um provedor de LLM", body: "Abra Configurações → Conexão → Modelos e provedores. Escolha um serviço do catálogo, login com conta/OAuth, uma chave de API, um serviço local ou um provedor personalizado.", points: ["As credenciais permanecem no host selecionado.", "Depois, selecione os modelos visíveis que deseja usar."] },
+    { eyebrow: "PROJETO", title: "Escolha uma pasta e comece", body: "Abra Novo projeto, escolha uma pasta neste host, informe opcionalmente o nome da sessão e selecione Começar aqui.", points: ["O seletor começa na pasta pessoal do host e mostra apenas raízes permitidas.", "Você pode reabrir este guia em Configurações → Sobre → Guia de configuração."] },
+  ],
+  it: [
+    { eyebrow: "BENVENUTO", title: "Benvenuto in Pi Harbor", body: "Pi Harbor conserva Pi Agent, sessioni, credenziali e progetti sul computer selezionato.", points: ["Scegli ora lingua e aspetto; potrai modificarli in seguito."] },
+    { eyebrow: "TOKEN E ACCESSO", title: "Trova il token Web", body: "Il programma di installazione crea un token Web privato sul computer che esegue Pi Harbor. Su quel computer apri Terminale ed esegui cat ~/.config/pi-harbor/token, quindi incolla il risultato qui. Da un altro dispositivo, recupera il token in modo sicuro da quell’host.", points: ["Non condividere mai il token in chat, schermate, repository o log.", "Se è configurato un PI_HARBOR_TOKEN_FILE personalizzato, usa quel file invece del percorso predefinito."] },
+    { eyebrow: "DISPOSITIVI", title: "Collega un altro computer", body: "Installa e avvia Pi Harbor su ogni computer aggiuntivo. Usa Tailscale o HTTPS, quindi apri Impostazioni → Dispositivi → Aggiungi dispositivo oppure usa un codice di abbinamento valido cinque minuti.", points: ["Usa lo stesso token Web su entrambi i computer; le credenziali restano sull’host selezionato.", "Non esporre la porta pubblica 3140 a una rete non attendibile."] },
+    { eyebrow: "MODELLI E PROVIDER", title: "Aggiungi un provider LLM", body: "Apri Impostazioni → Connessione → Modelli e provider. Scegli un servizio del catalogo, l’accesso con account/OAuth, una chiave API, un servizio locale o un provider personalizzato.", points: ["Le credenziali restano sull’host selezionato.", "Poi seleziona i modelli visibili che vuoi usare."] },
+    { eyebrow: "PROGETTO", title: "Scegli una cartella e inizia", body: "Apri Nuovo progetto, scegli una cartella su questo host, inserisci facoltativamente il nome della sessione e seleziona Inizia qui.", points: ["Il selettore parte dalla cartella home dell’host e mostra solo le radici autorizzate.", "Puoi riaprire questa guida da Impostazioni → Informazioni → Guida alla configurazione."] },
+  ],
+};
+for (const [locale, steps] of Object.entries(ONBOARDING_ACTIONABLE_STEPS)) {
+  if (ONBOARDING_COPY[locale]) ONBOARDING_COPY[locale].steps = steps;
+}
+
 // Gesture guidance belongs in the setup guide, not in a permanent Settings row.
 // Keep it localized here because onboarding copy is intentionally rendered
 // outside the generic DOM translator.
 const ONBOARDING_GESTURE_TIPS = {
-  en: "Pull down to refresh; swipe from the left edge to go back; long-press a session to rename or delete",
-  "zh-Hans": "下拉刷新；在对话中从左边缘滑动返回；长按会话可重命名或删除。",
-  "zh-Hant": "下拉重新整理；從左側邊緣滑動可返回；長按工作階段可重新命名或刪除。",
-  ja: "下に引いて更新、左端からスワイプして戻り、セッションを長押しして名前変更や削除ができます。",
-  ko: "세션 목록을 아래로 당겨 새로 고치고, 대화에서는 왼쪽 가장자리에서 밀어 뒤로 가며, 세션을 길게 눌러 이름을 바꾸거나 삭제할 수 있습니다.",
-  tr: "Yenilemek için aşağı çekin; geri dönmek için sol kenardan kaydırın; bir oturumu yeniden adlandırmak veya silmek için uzun basın.",
-  fr: "Tirez vers le bas pour actualiser ; balayez depuis le bord gauche pour revenir ; appuyez longuement sur une session pour la renommer ou la supprimer.",
-  de: "Zum Aktualisieren nach unten ziehen; vom linken Rand wischen, um zurückzugehen; eine Sitzung zum Umbenennen oder Löschen gedrückt halten.",
-  es: "Desliza hacia abajo para actualizar; desliza desde el borde izquierdo para volver; mantén pulsada una sesión para cambiarle el nombre o eliminarla.",
-  "pt-BR": "Puxe para baixo para atualizar; deslize da borda esquerda para voltar; mantenha uma sessão pressionada para renomeá-la ou excluí-la.",
-  it: "Trascina verso il basso per aggiornare; scorri dal bordo sinistro per tornare indietro; tieni premuta una sessione per rinominarla o eliminarla.",
+  en: "Pull down to refresh; swipe from the left edge in a conversation or Settings to go back; long-press a session to rename or delete",
+  "zh-Hans": "下拉刷新；在对话或设置中从左侧边缘向右滑返回；长按会话可重命名或删除。",
+  "zh-Hant": "下拉重新整理；在對話或設定中從左側邊緣向右滑可返回；長按工作階段可重新命名或刪除。",
+  ja: "下に引いて更新、会話または設定で左端からスワイプして戻り、セッションを長押しして名前変更や削除ができます。",
+  ko: "세션 목록을 아래로 당겨 새로 고치고, 대화나 설정에서는 왼쪽 가장자리에서 밀어 뒤로 가며, 세션을 길게 눌러 이름을 바꾸거나 삭제할 수 있습니다.",
+  tr: "Yenilemek için aşağı çekin; konuşma veya Ayarlar'dan geri dönmek için sol kenardan kaydırın; bir oturumu yeniden adlandırmak veya silmek için uzun basın.",
+  fr: "Tirez vers le bas pour actualiser ; dans une conversation ou les réglages, balayez depuis le bord gauche pour revenir ; appuyez longuement sur une session pour la renommer ou la supprimer.",
+  de: "Zum Aktualisieren nach unten ziehen; in einer Unterhaltung oder den Einstellungen vom linken Rand wischen, um zurückzugehen; eine Sitzung zum Umbenennen oder Löschen gedrückt halten.",
+  es: "Desliza hacia abajo para actualizar; en una conversación o en Ajustes, desliza desde el borde izquierdo para volver; mantén pulsada una sesión para cambiarle el nombre o eliminarla.",
+  "pt-BR": "Puxe para baixo para atualizar; em uma conversa ou nas configurações, deslize da borda esquerda para voltar; mantenha uma sessão pressionada para renomeá-la ou excluí-la.",
+  it: "Trascina verso il basso per aggiornare; in una conversazione o nelle impostazioni, scorri dal bordo sinistro per tornare indietro; tieni premuta una sessione per rinominarla o eliminarla.",
 };
 for (const [locale, tip] of Object.entries(ONBOARDING_GESTURE_TIPS)) {
   if (ONBOARDING_COPY[locale]?.steps?.[0]) ONBOARDING_COPY[locale].steps[0].points.push(tip);
@@ -5603,12 +5831,37 @@ let projectFolder = { path: null, parent: null };
 let projectFolderRequest = null;
 let projectFolderSequence = 0;
 
+function isAbsoluteBrowsePath(value) {
+  const candidate = typeof value === "string" ? value.trim() : "";
+  if (!candidate || candidate === "." || candidate === "..") return false;
+  // The server expands only a home marker, not arbitrary ~-prefixed input.
+  if (candidate === "~" || candidate.startsWith("~/") || candidate.startsWith("~\\")) return true;
+  // Cover POSIX paths, drive-letter paths, and UNC paths without assuming the
+  // browser and the selected Pi Harbor host use the same platform.
+  return candidate.startsWith("/") || /^[A-Za-z]:[\\\\/]/.test(candidate) || candidate.startsWith("\\\\");
+}
+
+function validatedBrowsePath(value) {
+  const candidate = typeof value === "string" ? value.trim() : "";
+  return isAbsoluteBrowsePath(candidate) ? candidate : null;
+}
+
+function cancelProjectFolderRequest() {
+  projectFolderSequence += 1;
+  projectFolderRequest?.abort();
+  projectFolderRequest = null;
+}
+
+function browseText(key) {
+  return window.piI18n?.t(key) || key;
+}
+
 function renderProjectFolderList(entries) {
   el.newFolderList.innerHTML = "";
   if (!entries.length) {
     const empty = document.createElement("p");
     empty.className = "project-folder-empty";
-    empty.textContent = "這裡沒有可進入的子資料夾";
+    empty.textContent = browseText("There are no subfolders to open");
     el.newFolderList.appendChild(empty);
     return;
   }
@@ -5616,6 +5869,7 @@ function renderProjectFolderList(entries) {
     const row = document.createElement("button");
     row.type = "button";
     row.className = "project-folder-row";
+    row.dataset.i18nIgnore = "";
     row.innerHTML = `<svg class="icon"><use href="#i-folder-filled"></use></svg><span class="project-folder-copy"><strong></strong><small></small></span><svg class="icon trailing"><use href="#i-chevron-right"></use></svg>`;
     row.querySelector("strong").textContent = entry.name;
     row.querySelector("small").textContent = entry.path;
@@ -5624,31 +5878,43 @@ function renderProjectFolderList(entries) {
   }
 }
 
-async function loadProjectFolder(path = null) {
+async function loadProjectFolder(requestedPath = null) {
   const sequence = ++projectFolderSequence;
+  const machineAtStart = selectedId;
+  const baseAtStart = apiBase;
+  const generation = viewGeneration;
   if (projectFolderRequest) projectFolderRequest.abort();
   const request = new AbortController();
   projectFolderRequest = request;
-  el.newFolderList.innerHTML = '<p class="project-folder-empty">讀取資料夾中…</p>';
+  el.newFolderPath.textContent = browseText("Loading folders…");
+  el.newFolderList.innerHTML = `<p class="project-folder-empty">${browseText("Loading folders…")}</p>`;
   el.newFolderUp.disabled = true;
   try {
+    // An empty initial home is intentional: /api/browse resolves it to the
+    // selected host's APP_HOME. Never put ".", an empty string, or a stale
+    // previous device home into the query string.
+    const path = validatedBrowsePath(requestedPath);
     const query = path ? "?path=" + encodeURIComponent(path) : "";
     const data = await api("/api/browse" + query, { signal: request.signal });
-    if (sequence !== projectFolderSequence) return;
+    if (sequence !== projectFolderSequence || machineAtStart !== selectedId || baseAtStart !== apiBase || generation !== viewGeneration) return;
     projectFolder = { path: data.path || null, parent: data.parent || null };
     el.newCwd.value = data.path || "";
     el.newFolderPath.textContent = data.path || "—";
     el.newFolderUp.disabled = !data.parent || data.parent === data.path;
     renderProjectFolderList(data.entries || []);
   } catch (e) {
-    if (e.name === "AbortError" || sequence !== projectFolderSequence) return;
+    if (e.name === "AbortError" || sequence !== projectFolderSequence || machineAtStart !== selectedId || baseAtStart !== apiBase || generation !== viewGeneration) return;
     projectFolder = { path: null, parent: null };
     el.newCwd.value = "";
-    el.newFolderPath.textContent = "讀取失敗";
+    el.newFolderPath.textContent = browseText("Load failed");
     el.newFolderList.innerHTML = "";
     const error = document.createElement("p");
     error.className = "project-folder-empty error-text";
-    error.textContent = "無法讀取資料夾：" + e.message;
+    error.append(document.createTextNode(browseText("Could not read folder: ")));
+    const detail = document.createElement("span");
+    detail.dataset.i18nIgnore = "";
+    detail.textContent = e.message || "";
+    error.appendChild(detail);
     el.newFolderList.appendChild(error);
   } finally {
     if (projectFolderRequest === request) projectFolderRequest = null;
@@ -5659,19 +5925,25 @@ function openNewDialog(initialCwd = null) {
   el.newCwd.value = "";
   el.newName.value = "";
   el.newDialog.classList.remove("hidden");
-  loadProjectFolder(initialCwd || window._piHome || null);
+  // No-path is the deterministic boot request. A path supplied by a project
+  // action is used only when it is already absolute (or an accepted ~ path).
+  void loadProjectFolder(validatedBrowsePath(initialCwd));
 }
 el.btnNew.addEventListener("click", openNewDialog);
 el.btnNewProject?.addEventListener("click", openNewDialog);
 el.chatEmptyNewProject?.addEventListener("click", openNewDialog);
-el.newCancel.addEventListener("click", () => el.newDialog.classList.add("hidden"));
+el.newCancel.addEventListener("click", () => {
+  cancelProjectFolderRequest();
+  el.newDialog.classList.add("hidden");
+});
 el.newFolderUp.addEventListener("click", () => {
   if (projectFolder.parent) loadProjectFolder(projectFolder.parent);
 });
-el.newFolderHome.addEventListener("click", () => loadProjectFolder(window._piHome || null));
+el.newFolderHome.addEventListener("click", () => loadProjectFolder(null));
 el.newStart.addEventListener("click", async () => {
   const cwd = el.newCwd.value.trim();
-  if (!cwd) { toast("請先選擇一個資料夾", true); return; }
+  if (!cwd) { toast(browseText("Choose a folder first"), true); return; }
+  cancelProjectFolderRequest();
   el.newDialog.classList.add("hidden");
   if (settings.removedProjects?.includes(cwd)) {
     settings = saveSettings({ removedProjects: settings.removedProjects.filter((value) => value !== cwd) });

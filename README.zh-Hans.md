@@ -19,11 +19,19 @@ Pi Harbor 是一个开源、移动优先的 Pi coding agent 网页客户端。�
 安装程序会检查 Pi Agent 与 Node.js、下载并验证最新稳定 Release、创建
 launchd 服务和自动更新。如果没有 Pi Agent，会先询问是否使用 Pi 官方安装程序。
 
-打开 HTTPS 地址，输入本机 token。不要把 token 写入 Git、问题单、聊天、截图或日志。
+安装完成后，在运行 Pi Harbor 的电脑上打开终端并运行：
+
+```bash
+cat ~/.config/pi-harbor/token
+```
+
+将 token 粘贴到登录页；从其他设备使用时，也请从该主机安全地取得 token。若服务明确配置了 `PI_HARBOR_TOKEN_FILE`，请读取所配置的文件，而不是默认路径。绝不要把 token 写入 Git、问题单、聊天、截图或日志。
 
 ## 多台电脑
 
-每台电脑都运行自己的 Pi Harbor 实例。在 **Settings → Devices** 中添加显示名称和可访问的 HTTPS 地址，也可以用一次性配对码添加。显示名称只影响界面，不会修改系统主机名。
+每台电脑都运行自己的 Pi Harbor 实例。在每台额外电脑上安装并启动 Pi Harbor，使用 Tailscale 或 HTTPS，然后在 **Settings → Devices → Add device** 添加地址，也可以使用五分钟有效的一次性配对码。两台电脑使用相同的 Web token；凭证保留在选定的主机上。不要将公共 3140 端口暴露给不受信任的网络。
+
+添加 LLM 服务商：打开 **Settings → Connection → Models & providers**，选择目录服务、账号/OAuth 登录、API key、本地服务或自定义 Provider，然后选择要显示的模型。
 
 ## 自动更新
 

@@ -14,11 +14,17 @@ Pi Harbor は、Pi coding agent 用のオープンソースなモバイル優先
 /bin/zsh -c "$(curl -fsSL https://raw.githubusercontent.com/seehow624/pi-harbor/master/install.sh)"
 ```
 
-各コンピューターで Pi Harbor を実行し、HTTPS URL とローカルトークンでログインします。トークンを Git、チャット、スクリーンショット、ログに保存しないでください。
+Pi Harbor を実行するコンピューターでターミナルを開き、次を実行してトークンを確認します。
+
+```bash
+cat ~/.config/pi-harbor/token
+```
+
+ログイン画面に貼り付けてください。別のデバイスからは、そのホストから安全に取得します。`PI_HARBOR_TOKEN_FILE` を明示的に設定している場合は、既定のパスではなく設定したファイルを読み取ります。トークンを Git、チャット、スクリーンショット、ログで共有しないでください。
 
 ## 複数コンピューターと更新
 
-**Settings → Devices** で表示名と HTTPS URL を追加できます。`deploy/` の launchd テンプレートで、公開 GitHub のブランチまたはタグから自動更新を設定できます。更新器はセッション、プロジェクト、認証情報を変更しません。
+各コンピューターに Pi Harbor をインストールして起動し、**Settings → Devices → Add device** で Tailscale または HTTPS URL を追加できます。5 分間有効なペアリングコードも使えます。同じ Web トークンを使い、ポート 3140 を公開しないでください。**Settings → Connection → Models & providers** では、カタログサービス、アカウント／OAuth、API キー、ローカルサービス、カスタムプロバイダーを選び、表示するモデルを選択できます。`deploy/` の launchd テンプレートで、公開 GitHub のブランチまたはタグから自動更新を設定できます。更新器はセッション、プロジェクト、認証情報を変更しません。
 
 ```bash
 npm run check

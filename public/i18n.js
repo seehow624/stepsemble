@@ -204,6 +204,138 @@
   };
   for (const [id, table] of Object.entries(STATIC_UI_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
 
+  // First-login guidance is deliberately explicit in every locale. The shell
+  // command itself is marked data-i18n-ignore in index.html; these strings
+  // explain where a user may safely obtain the token without disclosing it.
+  const FIRST_LOGIN_TRANSLATIONS = {
+    en: {
+      "First time?": "First time?",
+      "The installer creates a private Web token on the computer running Pi Harbor.": "The installer creates a private Web token on the computer running Pi Harbor.",
+      "On that computer, open Terminal and run:": "On that computer, open Terminal and run:",
+      "If a custom PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path.": "If a custom PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path.",
+      "From another device, retrieve the token securely from that host and paste it here.": "From another device, retrieve the token securely from that host and paste it here.",
+      "Never share the token in chat, screenshots, repositories, or logs.": "Never share the token in chat, screenshots, repositories, or logs.",
+    },
+    "zh-Hant": {
+      "First time?": "第一次使用嗎？",
+      "The installer creates a private Web token on the computer running Pi Harbor.": "安裝程式會在執行 Pi Harbor 的電腦上建立私密 Web token。",
+      "On that computer, open Terminal and run:": "請在該電腦開啟終端機並執行：",
+      "If a custom PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path.": "如果設定了自訂 PI_HARBOR_TOKEN_FILE，請改用該檔案，不要使用預設路徑。",
+      "From another device, retrieve the token securely from that host and paste it here.": "從其他裝置安全地向該主機取得 token，然後貼到這裡。",
+      "Never share the token in chat, screenshots, repositories, or logs.": "絕不要在聊天、截圖、程式碼儲存庫或日誌中分享 token。",
+    },
+    "zh-Hans": {
+      "First time?": "第一次使用吗？",
+      "The installer creates a private Web token on the computer running Pi Harbor.": "安装程序会在运行 Pi Harbor 的电脑上创建私密 Web token。",
+      "On that computer, open Terminal and run:": "请在那台电脑打开终端并运行：",
+      "If a custom PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path.": "如果配置了自定义 PI_HARBOR_TOKEN_FILE，请改用该文件，而不是默认路径。",
+      "From another device, retrieve the token securely from that host and paste it here.": "从其他设备安全地在该主机上获取 token，然后粘贴到这里。",
+      "Never share the token in chat, screenshots, repositories, or logs.": "绝不要在聊天、截图、代码仓库或日志中分享 token。",
+    },
+    ja: {
+      "First time?": "初めてですか？",
+      "The installer creates a private Web token on the computer running Pi Harbor.": "インストーラーは Pi Harbor を実行するコンピューターに非公開の Web トークンを作成します。",
+      "On that computer, open Terminal and run:": "そのコンピューターでターミナルを開き、次を実行します：",
+      "If a custom PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path.": "カスタムの PI_HARBOR_TOKEN_FILE を設定している場合は、既定のパスではなくそのファイルを使用してください。",
+      "From another device, retrieve the token securely from that host and paste it here.": "別のデバイスから、そのホストでトークンを安全に取得してここに貼り付けます。",
+      "Never share the token in chat, screenshots, repositories, or logs.": "トークンをチャット、スクリーンショット、リポジトリ、ログで共有しないでください。",
+    },
+    ko: {
+      "First time?": "처음 사용하시나요?",
+      "The installer creates a private Web token on the computer running Pi Harbor.": "설치 프로그램이 Pi Harbor를 실행하는 컴퓨터에 비공개 Web 토큰을 만듭니다.",
+      "On that computer, open Terminal and run:": "해당 컴퓨터에서 터미널을 열고 다음을 실행하세요:",
+      "If a custom PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path.": "사용자 지정 PI_HARBOR_TOKEN_FILE을 설정했다면 기본 경로 대신 해당 파일을 사용하세요.",
+      "From another device, retrieve the token securely from that host and paste it here.": "다른 기기에서는 해당 호스트에서 토큰을 안전하게 가져와 여기에 붙여넣으세요.",
+      "Never share the token in chat, screenshots, repositories, or logs.": "토큰을 채팅, 스크린샷, 저장소 또는 로그에 절대 공유하지 마세요.",
+    },
+    tr: {
+      "First time?": "İlk kez mi kullanıyorsunuz?",
+      "The installer creates a private Web token on the computer running Pi Harbor.": "Yükleyici, Pi Harbor'ı çalıştıran bilgisayarda özel bir Web token'ı oluşturur.",
+      "On that computer, open Terminal and run:": "Bu bilgisayarda Terminal'i açın ve şunu çalıştırın:",
+      "If a custom PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path.": "Özel bir PI_HARBOR_TOKEN_FILE yapılandırıldıysa varsayılan yol yerine bu dosyayı kullanın.",
+      "From another device, retrieve the token securely from that host and paste it here.": "Başka bir cihazdan token'ı bu ana bilgisayardan güvenli şekilde alıp buraya yapıştırın.",
+      "Never share the token in chat, screenshots, repositories, or logs.": "Token'ı sohbetlerde, ekran görüntülerinde, depolarda veya günlüklerde asla paylaşmayın.",
+    },
+    fr: {
+      "First time?": "Première utilisation ?",
+      "The installer creates a private Web token on the computer running Pi Harbor.": "L’installeur crée un jeton Web privé sur l’ordinateur qui exécute Pi Harbor.",
+      "On that computer, open Terminal and run:": "Sur cet ordinateur, ouvrez le Terminal et exécutez :",
+      "If a custom PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path.": "Si un PI_HARBOR_TOKEN_FILE personnalisé est configuré, utilisez ce fichier plutôt que le chemin par défaut.",
+      "From another device, retrieve the token securely from that host and paste it here.": "Depuis un autre appareil, récupérez le jeton en toute sécurité sur cet hôte et collez-le ici.",
+      "Never share the token in chat, screenshots, repositories, or logs.": "Ne partagez jamais le jeton dans un chat, une capture d’écran, un dépôt ou un journal.",
+    },
+    de: {
+      "First time?": "Zum ersten Mal?",
+      "The installer creates a private Web token on the computer running Pi Harbor.": "Das Installationsprogramm erstellt ein privates Web-Token auf dem Computer, auf dem Pi Harbor läuft.",
+      "On that computer, open Terminal and run:": "Öffnen Sie auf diesem Computer das Terminal und führen Sie Folgendes aus:",
+      "If a custom PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path.": "Wenn ein eigenes PI_HARBOR_TOKEN_FILE konfiguriert ist, verwenden Sie diese Datei statt des Standardpfads.",
+      "From another device, retrieve the token securely from that host and paste it here.": "Rufen Sie das Token von einem anderen Gerät sicher auf diesem Host ab und fügen Sie es hier ein.",
+      "Never share the token in chat, screenshots, repositories, or logs.": "Teilen Sie das Token niemals in Chats, Screenshots, Repositories oder Protokollen.",
+    },
+    es: {
+      "First time?": "¿Es tu primera vez?",
+      "The installer creates a private Web token on the computer running Pi Harbor.": "El instalador crea un token web privado en el ordenador que ejecuta Pi Harbor.",
+      "On that computer, open Terminal and run:": "En ese ordenador, abre Terminal y ejecuta:",
+      "If a custom PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path.": "Si se ha configurado un PI_HARBOR_TOKEN_FILE personalizado, usa ese archivo en lugar de la ruta predeterminada.",
+      "From another device, retrieve the token securely from that host and paste it here.": "Desde otro dispositivo, recupera el token de forma segura en ese equipo anfitrión y pégalo aquí.",
+      "Never share the token in chat, screenshots, repositories, or logs.": "Nunca compartas el token en chats, capturas de pantalla, repositorios ni registros.",
+    },
+    "pt-BR": {
+      "First time?": "É a primeira vez?",
+      "The installer creates a private Web token on the computer running Pi Harbor.": "O instalador cria um token Web privado no computador que executa o Pi Harbor.",
+      "On that computer, open Terminal and run:": "Nesse computador, abra o Terminal e execute:",
+      "If a custom PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path.": "Se um PI_HARBOR_TOKEN_FILE personalizado estiver configurado, use esse arquivo em vez do caminho padrão.",
+      "From another device, retrieve the token securely from that host and paste it here.": "Em outro dispositivo, obtenha o token com segurança nesse host e cole-o aqui.",
+      "Never share the token in chat, screenshots, repositories, or logs.": "Nunca compartilhe o token em chats, capturas de tela, repositórios ou logs.",
+    },
+    it: {
+      "First time?": "È la prima volta?",
+      "The installer creates a private Web token on the computer running Pi Harbor.": "Il programma di installazione crea un token Web privato sul computer che esegue Pi Harbor.",
+      "On that computer, open Terminal and run:": "Su quel computer, apri Terminale ed esegui:",
+      "If a custom PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path.": "Se è configurato un PI_HARBOR_TOKEN_FILE personalizzato, usa quel file invece del percorso predefinito.",
+      "From another device, retrieve the token securely from that host and paste it here.": "Da un altro dispositivo, recupera il token in modo sicuro da quell’host e incollalo qui.",
+      "Never share the token in chat, screenshots, repositories, or logs.": "Non condividere mai il token in chat, schermate, repository o log.",
+    },
+  };
+  for (const [id, table] of Object.entries(FIRST_LOGIN_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
+
+  const PROJECT_BROWSE_TRANSLATIONS = {
+    en: {
+      "There are no subfolders to open": "There are no subfolders to open", "Loading folders…": "Loading folders…", "Load failed": "Load failed", "Could not read folder: ": "Could not read folder: ", "Choose a folder first": "Choose a folder first",
+    },
+    "zh-Hant": {
+      "There are no subfolders to open": "這裡沒有可進入的子資料夾", "Loading folders…": "正在載入資料夾…", "Load failed": "讀取失敗", "Could not read folder: ": "無法讀取資料夾：", "Choose a folder first": "請先選擇一個資料夾",
+    },
+    "zh-Hans": {
+      "There are no subfolders to open": "这里没有可进入的子文件夹", "Loading folders…": "正在加载文件夹…", "Load failed": "加载失败", "Could not read folder: ": "无法读取文件夹：", "Choose a folder first": "请先选择一个文件夹",
+    },
+    ja: {
+      "There are no subfolders to open": "開けるサブフォルダーはありません", "Loading folders…": "フォルダーを読み込み中…", "Load failed": "読み込みに失敗しました", "Could not read folder: ": "フォルダーを読み込めません：", "Choose a folder first": "先にフォルダーを選択してください",
+    },
+    ko: {
+      "There are no subfolders to open": "열 수 있는 하위 폴더가 없습니다", "Loading folders…": "폴더를 불러오는 중…", "Load failed": "로드 실패", "Could not read folder: ": "폴더를 읽을 수 없습니다: ", "Choose a folder first": "먼저 폴더를 선택하세요",
+    },
+    tr: {
+      "There are no subfolders to open": "Açılacak alt klasör yok", "Loading folders…": "Klasörler yükleniyor…", "Load failed": "Yükleme başarısız", "Could not read folder: ": "Klasör okunamadı: ", "Choose a folder first": "Önce bir klasör seçin",
+    },
+    fr: {
+      "There are no subfolders to open": "Aucun sous-dossier à ouvrir", "Loading folders…": "Chargement des dossiers…", "Load failed": "Échec du chargement", "Could not read folder: ": "Impossible de lire le dossier : ", "Choose a folder first": "Choisissez d’abord un dossier",
+    },
+    de: {
+      "There are no subfolders to open": "Keine Unterordner zum Öffnen vorhanden", "Loading folders…": "Ordner werden geladen…", "Load failed": "Laden fehlgeschlagen", "Could not read folder: ": "Ordner konnte nicht gelesen werden: ", "Choose a folder first": "Wählen Sie zuerst einen Ordner aus",
+    },
+    es: {
+      "There are no subfolders to open": "No hay subcarpetas que abrir", "Loading folders…": "Cargando carpetas…", "Load failed": "Error de carga", "Could not read folder: ": "No se ha podido leer la carpeta: ", "Choose a folder first": "Elige primero una carpeta",
+    },
+    "pt-BR": {
+      "There are no subfolders to open": "Não há subpastas para abrir", "Loading folders…": "Carregando pastas…", "Load failed": "Falha ao carregar", "Could not read folder: ": "Não foi possível ler a pasta: ", "Choose a folder first": "Escolha uma pasta primeiro",
+    },
+    it: {
+      "There are no subfolders to open": "Non ci sono sottocartelle da aprire", "Loading folders…": "Caricamento delle cartelle…", "Load failed": "Caricamento non riuscito", "Could not read folder: ": "Impossibile leggere la cartella: ", "Choose a folder first": "Scegli prima una cartella",
+    },
+  };
+  for (const [id, table] of Object.entries(PROJECT_BROWSE_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
+
   // Activity receipts are rendered inside #messages, which is intentionally
   // excluded from the generic DOM translator so prompts and model output stay
   // untouched. Keep every receipt fragment explicit in every supported locale.
@@ -1025,8 +1157,11 @@
     .sort((a, b) => b[0].length - a[0].length);
 
   const SOURCE_KEYS = Object.keys(HAN_TO_EN).sort((a, b) => b.length - a.length);
+  const SOURCE_PAIRS = SOURCE_KEYS.map((key) => [key, HAN_TO_EN[key]]);
   const EN_KEYS = Object.keys(Object.assign({}, ...Object.values(TRANSLATIONS))).sort((a, b) => b.length - a.length);
   const HAN_RE = /[\u3400-\u9fff]/;
+  const ASCII_WORD_FRAGMENT_RE = /^[A-Za-z0-9_]+$/;
+  const ASCII_WORD_CHAR_RE = /[A-Za-z0-9_]/;
   const NON_CONTENT = ".md-body, .thinking-block, .tool-command, .tool-output, .code-block, .mermaid-block, .msg.user .bubble, .session-item .s-name, .project-group-copy, [data-i18n-ignore]";
   let locale = "en";
   let localizing = false;
@@ -1036,15 +1171,37 @@
   const rawTextNodes = new WeakMap();
 
   function normalizeLocale(value) { return LOCALE_IDS.has(value) ? value : "en"; }
+  // Locale tables contain both complete phrases and short fragments. Short
+  // ASCII fragments must not match inside a longer word (for example Turkish
+  // `Proje` inside English `Project`), while CJK and phrase fragments retain
+  // the existing substring behavior.
+  function replaceLocalizationFragment(value, search, replacement) {
+    const source = String(value);
+    if (!search || search === replacement) return source;
+    if (!ASCII_WORD_FRAGMENT_RE.test(search)) return source.replaceAll(search, replacement);
+    let out = "";
+    let cursor = 0;
+    while (cursor < source.length) {
+      const index = source.indexOf(search, cursor);
+      if (index < 0) { out += source.slice(cursor); break; }
+      const end = index + search.length;
+      out += source.slice(cursor, index);
+      const before = source[index - 1];
+      const after = source[end];
+      if ((!before || !ASCII_WORD_CHAR_RE.test(before)) && (!after || !ASCII_WORD_CHAR_RE.test(after))) out += replacement;
+      else out += source.slice(index, end);
+      cursor = end;
+    }
+    return out;
+  }
   function replacePairs(value, pairs) {
     let out = String(value);
-    for (const key of pairs) out = out.replaceAll(key, pairs === SOURCE_KEYS ? HAN_TO_EN[key] : (TRANSLATIONS[locale]?.[key] || key));
+    for (const [search, replacement] of pairs) out = replaceLocalizationFragment(out, search, replacement);
     return out;
   }
   function sourceToEnglish(value) {
-    let out = String(value);
-    for (const key of SOURCE_KEYS) out = out.replaceAll(key, HAN_TO_EN[key]);
-    for (const [translated, key] of TRANSLATION_REVERSE_PAIRS) out = out.replaceAll(translated, key);
+    let out = replacePairs(value, SOURCE_PAIRS);
+    out = replacePairs(out, TRANSLATION_REVERSE_PAIRS);
     return out;
   }
   function translate(value, target = locale) {
@@ -1054,7 +1211,7 @@
     let out = source;
     for (const key of EN_KEYS) {
       const translated = table[key];
-      if (translated && translated !== key) out = out.replaceAll(key, translated);
+      if (translated && translated !== key) out = replaceLocalizationFragment(out, key, translated);
     }
     // A non-Chinese UI must never expose a legacy Chinese chrome string. User
     // prompts and model output are excluded from the DOM walk below.

@@ -14,9 +14,15 @@ O repositório contém apenas o código do aplicativo e modelos genéricos de im
 /bin/zsh -c "$(curl -fsSL https://raw.githubusercontent.com/seehow624/pi-harbor/master/install.sh)"
 ```
 
-Execute o Pi Harbor em cada computador e entre com a URL HTTPS e o token local. Nunca coloque o token no Git, em chats, capturas de tela ou logs.
+No computador que executa o Pi Harbor, abra o Terminal e execute:
 
-Adicione computadores em **Settings → Devices**. Os modelos launchd em `deploy/` permitem atualizações automáticas.
+```bash
+cat ~/.config/pi-harbor/token
+```
+
+Cole o token na tela de login. Em outro dispositivo, obtenha-o com segurança nesse host. Se `PI_HARBOR_TOKEN_FILE` tiver sido configurado explicitamente, leia o arquivo configurado em vez do caminho padrão. Nunca coloque o token no Git, em chats, capturas de tela ou logs.
+
+Instale e execute o Pi Harbor em cada computador e adicione um endereço Tailscale ou HTTPS em **Settings → Devices → Add device**. Você também pode usar um código de pareamento válido por cinco minutos. Use o mesmo token Web e não exponha a porta 3140. Em **Settings → Connection → Models & providers**, escolha um serviço do catálogo, conta/OAuth, chave de API, serviço local ou provedor personalizado e selecione os modelos visíveis. Os modelos launchd em `deploy/` permitem atualizações automáticas.
 
 ```bash
 npm run check

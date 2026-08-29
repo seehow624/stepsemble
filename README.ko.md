@@ -14,9 +14,15 @@ Pi Harbor은 Pi coding agent를 위한 오픈 소스 모바일 우선 웹 클라
 /bin/zsh -c "$(curl -fsSL https://raw.githubusercontent.com/seehow624/pi-harbor/master/install.sh)"
 ```
 
-각 컴퓨터에서 Pi Harbor을 실행하고 HTTPS 주소와 로컬 토큰으로 로그인합니다. 토큰을 Git, 채팅, 스크린샷 또는 로그에 넣지 마세요.
+Pi Harbor를 실행하는 컴퓨터에서 터미널을 열고 다음 명령으로 토큰을 확인하세요.
 
-**Settings → Devices**에서 표시 이름과 HTTPS URL을 추가할 수 있습니다. `deploy/`의 launchd 템플릿으로 자동 업데이트를 설정할 수 있습니다.
+```bash
+cat ~/.config/pi-harbor/token
+```
+
+로그인 화면에 붙여넣습니다. 다른 기기에서는 해당 호스트에서 토큰을 안전하게 가져오세요. `PI_HARBOR_TOKEN_FILE`을 명시적으로 설정했다면 기본 경로 대신 설정한 파일을 읽으세요. 토큰을 Git, 채팅, 스크린샷 또는 로그에 절대 넣지 마세요.
+
+각 컴퓨터에 Pi Harbor를 설치하고 실행한 뒤 **Settings → Devices → Add device**에서 Tailscale 또는 HTTPS 주소를 추가하세요. 5분 동안 유효한 페어링 코드도 사용할 수 있습니다. 같은 Web 토큰을 사용하고 3140 포트를 공개하지 마세요. **Settings → Connection → Models & providers**에서 카탈로그 서비스, 계정/OAuth, API 키, 로컬 서비스 또는 사용자 지정 제공자를 선택한 다음 표시할 모델을 선택할 수 있습니다. `deploy/`의 launchd 템플릿으로 자동 업데이트를 설정할 수 있습니다.
 
 ```bash
 npm run check

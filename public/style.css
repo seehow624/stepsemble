@@ -1,4 +1,4 @@
-/* pi-harbor v2.0.3 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.1.0 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -99,7 +99,8 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
   background: var(--paper);
   display: flex; align-items: center; justify-content: center;
   z-index: 50;
-  padding: 24px;
+  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  overflow-y: auto;
 }
 .login-card { width: min(360px, 100%); text-align: center; }
 .login-mark {
@@ -114,6 +115,21 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .login-machine { color: var(--pine-soft); font-size: 13px; margin: 4px 0 24px; }
 #login-form input { margin-bottom: 12px; text-align: center; }
 #login-form .btn { width: 100%; }
+.login-help {
+  margin-top: 22px;
+  padding: 14px 15px;
+  border: 0.5px solid var(--line);
+  border-radius: 14px;
+  color: var(--pine-soft);
+  background: color-mix(in srgb, var(--milk) 72%, var(--paper));
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.login-help h2 { color: var(--ink); font-size: 13px; font-weight: 650; margin-bottom: 6px; }
+.login-help p + p { margin-top: 7px; }
+.login-help code { color: var(--ink); font: 11px/1.4 var(--mono); overflow-wrap: anywhere; }
+.login-help-warning { color: var(--err); }
 .error { color: var(--err); font-size: 13px; margin-top: 10px; }
 
 /* ---- 頂欄 ---- */
@@ -166,9 +182,9 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
   background: var(--paper);
   will-change: transform;
 }
-#view-chat.dragging { transition: none !important; }
-#view-chat.snap-back { transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.3, 1); }
-#view-chat.slide-out { transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.3, 1); }
+#view-chat.dragging, #view-settings.dragging { transition: none !important; }
+#view-chat.snap-back, #view-settings.snap-back { transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.3, 1); }
+#view-chat.slide-out, #view-settings.slide-out { transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.3, 1); }
 #view-settings.slide-in { animation: settingsIn 0.22s cubic-bezier(0.2, 0.8, 0.3, 1); }
 @keyframes settingsIn { from { transform: translateX(30%); opacity: 0.4; } to { transform: none; opacity: 1; } }
 
@@ -488,7 +504,7 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .onboarding-close { position: absolute; top: 18px; right: 18px; }
 .onboarding-brand { display: flex; align-items: center; gap: 10px; margin-right: 52px; font-size: .82rem; font-weight: 700; letter-spacing: .02em; }
 .onboarding-brand img { width: 34px; height: 34px; border-radius: 10px; }
-.onboarding-progress { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 26px 0 34px; }
+.onboarding-progress { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 26px 0 34px; }
 .onboarding-progress span { height: 3px; border-radius: 999px; background: var(--line); transition: background .2s ease; }
 .onboarding-progress span.active { background: var(--accent); }
 .onboarding-copy .eyebrow { margin: 0 0 10px; color: var(--accent); }
@@ -1037,7 +1053,8 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
   }
   .chat-empty .login-mark { margin: 0; }
   /* 手势在桌面无意义，transform 复位 */
-  #view-chat.dragging, #view-chat.slide-out, #view-chat.snap-back { transform: none !important; }
+  #view-chat.dragging, #view-chat.slide-out, #view-chat.snap-back,
+  #view-settings.dragging, #view-settings.slide-out, #view-settings.snap-back { transform: none !important; }
 
   /* Session list actions stay in the top bar on wide layouts. */
   .session-list { padding-bottom: 24px; }

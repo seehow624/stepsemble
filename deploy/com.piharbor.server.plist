@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<!-- Replace __USER__, __NODE__, and __PIBIN__ before installing.
+<!-- Replace __USER__, __NODE__, __PIBIN__, and __TOKEN_FILE__ before installing.
      The token is read from a user-owned file with mode 600. -->
 <dict>
   <key>Label</key>
@@ -16,7 +16,7 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>PI_HARBOR_TOKEN_FILE</key>
-    <string>/Users/__USER__/.config/pi-harbor/token</string>
+    <string>__TOKEN_FILE__</string>
     <key>PI_HARBOR_PORT</key>
     <string>__PORT__</string>
     <!-- Put Tailscale Serve or another HTTPS gateway in front of loopback. -->

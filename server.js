@@ -8,7 +8,7 @@
  * 環境變數：
  *   PI_HARBOR_PORT   — 監聽埠（預設 3140）
  *   PI_HARBOR_TOKEN  — 登入 token（建議改用 PI_HARBOR_TOKEN_FILE）
- *   PI_HARBOR_TOKEN_FILE — 600 權限的 token 檔案
+ *   PI_HARBOR_TOKEN_FILE — 600 權限的 token 檔案；未設定時使用 ~/.config/pi-harbor/token
  *   PI_BIN        — pi 執行檔絕對路徑；未設則探測常見位置
  *   PI_HOME       — server 與 pi 共用的 HOME（預設 os.homedir()）
  */
@@ -29,7 +29,7 @@ const { createHttpUtils } = require("./server/http-utils");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.0.9";
+const APP_VERSION = "2.1.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -91,7 +91,11 @@ const envPort = parsePort(settingFromEnv("PORT"));
 // explicit PI_HARBOR_PORT still works for first boot and development servers.
 const PORT = configuredPort || envPort || 3140;
 const HOST = settingFromEnv("HOST") || "127.0.0.1";
-const TOKEN_FILE = settingFromEnv("TOKEN_FILE") ? path.resolve(expandHome(settingFromEnv("TOKEN_FILE"))) : null;
+const CONFIG_DIR = path.join(APP_HOME, ".config", "pi-harbor");
+const DEFAULT_TOKEN_FILE = path.join(CONFIG_DIR, "token");
+const configuredTokenFile = settingFromEnv("TOKEN_FILE");
+const TOKEN_FILE = configuredTokenFile ? path.resolve(expandHome(configuredTokenFile)) : DEFAULT_TOKEN_FILE;
+const TOKEN_FILE_IS_CUSTOM = !!configuredTokenFile && TOKEN_FILE !== DEFAULT_TOKEN_FILE;
 const SECURE_COOKIE = settingFromEnv("SECURE_COOKIE") === "1";
 const MAX_RPC_SESSIONS = Number.isFinite(Number(settingFromEnv("MAX_RPCS")))
   ? Math.max(1, Number(settingFromEnv("MAX_RPCS"))) : 16;
@@ -668,21 +672,38 @@ function piVersion() {
   return _piVersionCache;
 }
 
+function readTokenFile(file) {
+  const stat = fs.statSync(file);
+  if (process.platform !== "win32" && (stat.mode & 0o077)) {
+    throw new Error(`token file permissions are too broad: ${file} (expected 600)`);
+  }
+  return fs.readFileSync(file, "utf8").trim();
+}
+
 function loadToken() {
   const fromEnv = String(settingFromEnv("TOKEN") || "").trim();
   if (fromEnv) return fromEnv;
-  if (TOKEN_FILE) {
-    try {
-      const stat = fs.statSync(TOKEN_FILE);
-      if (process.platform !== "win32" && (stat.mode & 0o077)) {
-        throw new Error(`token file permissions are too broad: ${TOKEN_FILE} (expected 600)`);
+  try {
+    if (!TOKEN_FILE_IS_CUSTOM && !fs.existsSync(TOKEN_FILE)) {
+      fs.mkdirSync(path.dirname(TOKEN_FILE), { recursive: true, mode: 0o700 });
+      const generated = crypto.randomBytes(32).toString("hex");
+      try {
+        const fd = fs.openSync(TOKEN_FILE, "wx", 0o600);
+        try { fs.writeFileSync(fd, `${generated}\n`, "utf8"); }
+        finally { fs.closeSync(fd); }
+        try { fs.chmodSync(TOKEN_FILE, 0o600); } catch {}
+        return generated;
+      } catch (error) {
+        // Another server process may have created the default file between
+        // existsSync and openSync. Read that file rather than replacing it.
+        if (error?.code !== "EEXIST") throw error;
       }
-      const fromFile = fs.readFileSync(TOKEN_FILE, "utf8").trim();
-      if (fromFile) return fromFile;
-    } catch (err) {
-      if (err.message.includes("token file permissions are too broad")) throw err;
-      console.warn(`[pi-harbor] unable to read PI_HARBOR_TOKEN_FILE: ${err.message}`);
     }
+    return readTokenFile(TOKEN_FILE);
+  } catch (err) {
+    if (err.message.includes("token file permissions are too broad")) throw err;
+    const label = TOKEN_FILE_IS_CUSTOM ? "configured token file" : "default token file";
+    console.warn(`[pi-harbor] unable to read ${label}: ${err.message}`);
   }
   return "";
 }
@@ -694,7 +715,9 @@ if (TOKEN) {
 } else {
   TOKEN = crypto.randomBytes(32).toString("hex");
   TOKEN_HASH = sha256(TOKEN);
-  console.warn("[pi-harbor] 未設定 token file；已生成不可從 log 取得的一次性 token。請設定 PI_HARBOR_TOKEN_FILE 後重啟。");
+  console.warn(TOKEN_FILE_IS_CUSTOM
+    ? "[pi-harbor] configured token file could not be read; using an ephemeral token that is not shown in logs"
+    : "[pi-harbor] could not create ~/.config/pi-harbor/token; using an ephemeral token that is not shown in logs");
 }
 
 function sha256(s) {
@@ -3146,9 +3169,13 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (p === "/api/browse" && req.method === "GET") {
-        // 目錄瀏覽（唯讀，供新對話選 cwd；承 opencode web 經驗：不用手打路徑）
-        let dir = url.searchParams.get("path") || APP_HOME;
-        if (dir.startsWith("~")) dir = path.join(APP_HOME, dir.slice(1));
+        // Directory browsing is read-only and defaults to the selected host's
+        // safe application home. Treat missing, empty, and whitespace-only
+        // paths alike so a first mobile render never sends a relative value.
+        const requestedPath = url.searchParams.get("path");
+        let dir = typeof requestedPath === "string" ? requestedPath.trim() : "";
+        if (!dir) dir = APP_HOME;
+        else if (dir === "~" || dir.startsWith("~/") || dir.startsWith("~\\")) dir = path.join(APP_HOME, dir.slice(1));
         if (!path.isAbsolute(dir)) { sendJSON(res, 400, { error: "absolute path required" }); return; }
         try { dir = fs.realpathSync.native(dir); } catch (e) {
           sendJSON(res, 400, { error: e.message });

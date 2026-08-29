@@ -11,6 +11,7 @@ readonly REPOSITORY="${PI_HARBOR_REPOSITORY:-seehow624/pi-harbor}"
 readonly INSTALL_DIR="${PI_HARBOR_INSTALL_DIR:-$HOME/.local/share/pi-harbor}"
 readonly BIN_DIR="${PI_HARBOR_BIN_DIR:-$HOME/.local/share/pi-harbor-bin}"
 readonly CONFIG_DIR="${PI_HARBOR_CONFIG_DIR:-$HOME/.config/pi-harbor}"
+TOKEN_FILE="${PI_HARBOR_TOKEN_FILE:-$CONFIG_DIR/token}"
 readonly STATE_DIR="${PI_HARBOR_STATE_DIR:-$HOME/.local/state/pi-harbor}"
 readonly RUNTIME_DIR="${PI_HARBOR_RUNTIME_DIR:-$HOME/.local/share/pi-harbor-runtime}"
 readonly LAUNCH_DIR="$HOME/Library/LaunchAgents"
@@ -27,6 +28,9 @@ REQUESTED_VERSION="${PI_HARBOR_VERSION:-}"
 say() { print -r -- "$*"; }
 note() { print -r -- "  $*"; }
 die() { print -u2 -r -- "Pi Harbor installer: $*"; exit 1; }
+
+if [[ "$TOKEN_FILE" == "~/"* ]]; then TOKEN_FILE="$HOME/${TOKEN_FILE#\~/}"; fi
+[[ "$TOKEN_FILE" == /* && "$TOKEN_FILE" != *"|"* && "$TOKEN_FILE" != *"&"* && "$TOKEN_FILE" != *"\""* && "$TOKEN_FILE" != *"\\"* && "$TOKEN_FILE" != *"<"* && "$TOKEN_FILE" != *">"* && "$TOKEN_FILE" != *$'\n'* ]] || die "PI_HARBOR_TOKEN_FILE must be an absolute path without shell or XML separators"
 
 usage() {
   cat <<'EOF'
@@ -173,9 +177,10 @@ stop_plist() {
 migrate_legacy_config() {
   local old_config="$HOME/.config/pi-web"
   mkdir -p "$CONFIG_DIR"
-  if [[ ! -f "$CONFIG_DIR/token" && -f "$old_config/token" ]]; then
-    cp -p "$old_config/token" "$CONFIG_DIR/token"
-    chmod 600 "$CONFIG_DIR/token"
+  if [[ ! -f "$TOKEN_FILE" && -f "$old_config/token" ]]; then
+    mkdir -p "${TOKEN_FILE:h}"
+    cp -p "$old_config/token" "$TOKEN_FILE"
+    chmod 600 "$TOKEN_FILE"
     note "Preserved the existing Web token"
   fi
   if [[ ! -f "$CONFIG_DIR/updater.json" && -f "$old_config/updater.json" ]]; then
@@ -197,12 +202,12 @@ archive_legacy_installation() {
 }
 
 create_token() {
-  mkdir -p "$CONFIG_DIR"
-  if [[ ! -s "$CONFIG_DIR/token" ]]; then
-    /usr/bin/openssl rand -hex 32 > "$CONFIG_DIR/token"
-    chmod 600 "$CONFIG_DIR/token"
+  mkdir -p "${TOKEN_FILE:h}"
+  if [[ ! -s "$TOKEN_FILE" ]]; then
+    /usr/bin/openssl rand -hex 32 > "$TOKEN_FILE"
     note "Created a new Web token"
   fi
+  chmod 600 "$TOKEN_FILE"
 }
 
 release_asset_url() {
@@ -257,6 +262,7 @@ render_plist() {
     -e "s|__NODE__|$NODE_BIN|g" \
     -e "s|__PIBIN__|$PI_BIN|g" \
     -e "s|__PORT__|$PORT|g" \
+    -e "s|__TOKEN_FILE__|$TOKEN_FILE|g" \
     "$source" > "$destination"
   /usr/bin/plutil -lint "$destination" >/dev/null || die "generated LaunchAgent is invalid: $destination"
   chmod 600 "$destination"
@@ -269,6 +275,7 @@ render_shell() {
     -e "s|__NODE__|$NODE_BIN|g" \
     -e "s|__PIBIN__|$PI_BIN|g" \
     -e "s|__PORT__|$PORT|g" \
+    -e "s|__TOKEN_FILE__|$TOKEN_FILE|g" \
     "$source" > "$destination"
   /bin/zsh -n "$destination" || die "generated launcher is invalid: $destination"
   chmod 700 "$destination"
@@ -338,9 +345,9 @@ wait_for_health() {
 
 active_rpc_running() {
   local port="$1" cookie response token
-  [[ -s "$CONFIG_DIR/token" ]] || return 1
+  [[ -s "$TOKEN_FILE" ]] || return 1
   cookie="$(mktemp "${TMPDIR:-/tmp}/pi-harbor-install-cookie.XXXXXX")"
-  token="$(tr -d '\n' < "$CONFIG_DIR/token")"
+  token="$(tr -d '\n' < "$TOKEN_FILE")"
   if ! curl -fsS --max-time 3 -c "$cookie" -H 'Content-Type: application/json' \
     --data-binary "{\"token\":\"$token\"}" "http://127.0.0.1:$port/api/login" >/dev/null 2>&1; then
     rm -f -- "$cookie"
@@ -359,7 +366,7 @@ trap cleanup EXIT
 trap 'cleanup; exit 130' INT TERM
 
 say ""
-say "Pi Harbor 2.0 installer"
+say "Pi Harbor 2.1.0 installer"
 say "────────────────────────"
 
 NODE_BIN="$(find_node || true)"
@@ -410,7 +417,13 @@ archive_legacy_installation
 say ""
 say "Pi Harbor is ready."
 note "Local service: http://127.0.0.1:$PORT"
-note "Token file: $CONFIG_DIR/token"
+note "Web token file: $TOKEN_FILE"
+if [[ "$TOKEN_FILE" == "$HOME/.config/pi-harbor/token" ]]; then
+  note "To sign in, open Terminal on this computer and run: cat ~/.config/pi-harbor/token"
+else
+  note "To sign in, open Terminal on this computer and read: $TOKEN_FILE"
+fi
+note "For another device, retrieve the token securely from this computer; never share it in chat, screenshots, repositories, or logs."
 note "Remove later: $BIN_DIR/uninstall.sh"
 if command -v tailscale >/dev/null 2>&1 || [[ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]]; then
   note "Open Pi Harbor through your Tailscale HTTPS address for secure remote access."

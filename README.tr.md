@@ -14,9 +14,15 @@ Depo yalnızca uygulama kodu ve genel dağıtım şablonları içerir. Token, ot
 /bin/zsh -c "$(curl -fsSL https://raw.githubusercontent.com/seehow624/pi-harbor/master/install.sh)"
 ```
 
-Her bilgisayarda Pi Harbor'i çalıştırın ve HTTPS adresi ile yerel token'ı kullanarak giriş yapın. Token'ı Git'e, sohbete, ekran görüntüsüne veya günlüğe koymayın.
+Pi Harbor'ı çalıştıran bilgisayarda Terminal'i açın ve token'ı görmek için şunu çalıştırın:
 
-**Settings → Devices** bölümünden görünen ad ve HTTPS URL ekleyebilirsiniz. `deploy/` içindeki launchd şablonları otomatik güncellemeyi destekler.
+```bash
+cat ~/.config/pi-harbor/token
+```
+
+Token'ı giriş ekranına yapıştırın. Başka bir cihazdan kullanırken token'ı bu ana bilgisayardan güvenli şekilde alın. `PI_HARBOR_TOKEN_FILE` açıkça yapılandırıldıysa varsayılan yol yerine yapılandırılan dosyayı okuyun. Token'ı Git'e, sohbete, ekran görüntüsüne veya günlüğe asla koymayın.
+
+Her bilgisayara Pi Harbor'ı kurup çalıştırın ve **Settings → Devices → Add device** bölümünden Tailscale veya HTTPS adresi ekleyin. Beş dakika geçerli bir eşleştirme kodu da kullanılabilir. Aynı Web token'ını kullanın ve 3140 numaralı bağlantı noktasını açmayın. **Settings → Connection → Models & providers** bölümünde katalog hizmeti, hesap/OAuth, API anahtarı, yerel hizmet veya özel sağlayıcı seçip görünür modelleri belirleyin. `deploy/` içindeki launchd şablonları otomatik güncellemeyi destekler.
 
 ```bash
 npm run check

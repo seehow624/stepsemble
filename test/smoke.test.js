@@ -101,6 +101,9 @@ test("folder browsing is restricted to the Pi home unless roots are explicitly a
   const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
   assert.match(server, /const BROWSE_ROOTS_FROM_ENV/);
   assert.match(server, /BROWSE_ROOTS_FROM_ENV\.length \? BROWSE_ROOTS_FROM_ENV : \[APP_HOME\]/);
+  assert.match(server, /const DEFAULT_TOKEN_FILE/);
+  assert.match(server, /fs\.openSync\(TOKEN_FILE, "wx", 0o600\)/);
+  assert.doesNotMatch(server, /\/api\/token/);
   assert.doesNotMatch(server, /\/api\/browse is unrestricted/);
   assert.match(readme, /defaults to the Pi home; add `\/Volumes`/);
 });
@@ -242,6 +245,11 @@ test("compact list overrides grouped and mobile session geometry", () => {
 test("Mini launcher never pkills active pi-harbor processes", () => {
   const launcher = fs.readFileSync(path.join(root, "deploy", "pi-harbor-mini-start.sh"), "utf8");
   const installer = fs.readFileSync(path.join(root, "install.sh"), "utf8");
+  assert.match(installer, /cat ~\/\.config\/pi-harbor\/token/);
+  assert.match(installer, /PI_HARBOR_TOKEN_FILE/);
+  assert.match(launcher, /\bPI_HARBOR_TOKEN_FILE\b/);
+  assert.match(fs.readFileSync(path.join(root, "deploy", "com.piharbor.server.plist"), "utf8"), /__TOKEN_FILE__/);
+  assert.match(fs.readFileSync(path.join(root, "deploy", "com.piharbor.updater.plist"), "utf8"), /__TOKEN_FILE__/);
   assert.doesNotMatch(launcher, /\bpkill\s+-f\b/);
   assert.match(launcher, /isStreaming/);
   assert.match(launcher, /__NODE__/);
@@ -292,6 +300,50 @@ test("first-login device hydration is awaited, bounded, and retryable", () => {
   assert.match(app, /await enterApp\(\)/);
   assert.match(html, /id="machine-catalog-status"/);
   assert.match(html, /id="machine-catalog-retry"/);
+});
+
+test("Settings has a guarded left-edge back gesture with shared cleanup", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  assert.match(app, /function hideSettings\(\)/);
+  assert.match(app, /el\.btnSettingsBack\.addEventListener\("click", hideSettings\)/);
+  assert.match(app, /settingsSwipeCancel\?\.\(\)/);
+  assert.match(app, /el\.viewSettings\.addEventListener\("touchstart"/);
+  assert.match(app, /input, select, textarea, button, a/);
+  assert.match(app, /el\.viewSettings\.addEventListener\("touchmove"/);
+  assert.match(app, /event\.preventDefault\(\)/);
+  assert.match(app, /const velocity = current\.dx \/ elapsed/);
+  assert.match(app, /el\.viewSettings\.classList\.add\("slide-out"\)/);
+  assert.match(app, /el\.viewSettings\.classList\.add\("snap-back"\)/);
+  assert.match(app, /el\.viewSettings\.style\.transform = ""/);
+  assert.match(app, /cancelModelVisibilityRequest\(\)/);
+  assert.match(css, /#view-settings\.dragging/);
+  assert.match(css, /#view-settings\.snap-back/);
+  assert.match(css, /#view-settings\.slide-out/);
+  assert.match(css, /html\.reduced-motion/);
+});
+
+test("New project browsing starts with a selected-host no-path request", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  assert.match(app, /function isAbsoluteBrowsePath\(value\)/);
+  assert.match(app, /function validatedBrowsePath\(value\)/);
+  assert.match(app, /const path = validatedBrowsePath\(requestedPath\)/);
+  assert.match(app, /const query = path \? "\?path="/);
+  assert.match(app, /void loadProjectFolder\(validatedBrowsePath\(initialCwd\)\)/);
+  assert.match(app, /el\.newFolderHome\.addEventListener\("click", \(\) => loadProjectFolder\(null\)\)/);
+  assert.match(app, /row\.dataset\.i18nIgnore = ""/);
+  assert.match(app, /detail\.dataset\.i18nIgnore = ""/);
+  assert.match(app, /el\.newFolderPath\.textContent = browseText\("Loading folders…"\)/);
+  assert.match(html, /id="new-folder-path"[^>]*data-i18n-ignore/);
+  assert.match(app, /machineAtStart !== selectedId \|\| baseAtStart !== apiBase/);
+  assert.doesNotMatch(app, /loadProjectFolder\(initialCwd \|\| window\._piHome \|\| null\)/);
+  assert.match(server, /const requestedPath = url\.searchParams\.get\("path"\)/);
+  assert.match(server, /typeof requestedPath === "string" \? requestedPath\.trim\(\) : ""/);
+  assert.match(server, /if \(!dir\) dir = APP_HOME/);
+  assert.match(server, /if \(!path\.isAbsolute\(dir\)\)/);
+  assert.match(server, /isBrowseAllowed\(dir\)/);
 });
 
 test("project folder browsing can move from a home root to configured volumes", () => {
@@ -400,30 +452,30 @@ test("PWA updates bypass stale service-worker caches and reconcile client versio
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   assert.match(server, /rel === "sw\.js"[\s\S]*?"no-cache, no-store, must-revalidate"/);
-  assert.match(app, /const CLIENT_APP_VERSION = "2\.0\.9"/);
+  assert.match(app, /const CLIENT_APP_VERSION = "2\.1\.0"/);
   assert.match(app, /function checkForClientUpdate\(\)/);
   assert.match(app, /cache: "no-store"/);
   assert.match(app, /updateViaCache: "none"/);
   assert.match(app, /visibilitychange/);
   assert.match(app, /piharbor\.clientReloadAttempt/);
-  assert.match(html, /id="set-app-version">v2\.0\.9</);
+  assert.match(html, /id="set-app-version">v2\.1\.0</);
 });
 
-test("versioned application resources stay on 2.0.9", () => {
+test("versioned application resources stay on 2.1.0", () => {
   const expected = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
-  assert.equal(expected, "2.0.9");
+  assert.equal(expected, "2.1.0");
   const previous = expected.replace(/(\d+)$/, (_, patch) => String(Number(patch) - 1));
   const previousPattern = new RegExp(previous.replaceAll(".", "\\."));
   for (const file of ["server.js", "public/app.js", "public/index.html", "public/sw.js", "public/manifest.webmanifest"]) {
     const content = fs.readFileSync(path.join(root, file), "utf8");
-    assert.match(content, /2\.0\.9/);
+    assert.match(content, /2\.1\.0/);
     assert.doesNotMatch(content, previousPattern);
   }
   const changelog = fs.readFileSync(path.join(root, "CHANGELOG.md"), "utf8");
-  assert.match(changelog, /^## 2\.0\.9/m);
+  assert.match(changelog, /^## 2\.1\.0/m);
 });
 
-test("2.0.9 update center covers per-device state, idle apply, and partial update-all results", () => {
+test("2.1.0 update center covers per-device state, idle apply, and partial update-all results", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
@@ -517,17 +569,35 @@ test("localization is English-first with an explicit locale selector and safe fa
   assert.doesNotMatch(html, /private-brand|internal-only/i);
 });
 
-test("first-run guide covers localization, local ownership, setup, and secure remote access", () => {
+test("first-use help and setup guide cover token, devices, providers, and progress", () => {
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");
+  assert.match(html, /class="login-help"/);
+  assert.match(html, /id="login-help-title">First time\?</);
+  assert.match(html, /cat ~\/\.config\/pi-harbor\/token/);
+  assert.match(html, /PI_HARBOR_TOKEN_FILE/);
+  assert.match(html, /Never share the token/);
   assert.match(html, /id="onboarding"/);
   assert.match(html, /id="btn-open-onboarding"/);
+  assert.match(html, /class="onboarding-progress"[^>]*><span><\/span><span><\/span><span><\/span><span><\/span><span><\/span>/);
   assert.match(app, /ONBOARDING_KEY/);
-  assert.match(app, /ONBOARDING_COPY/);
+  assert.match(app, /ONBOARDING_ACTIONABLE_STEPS/);
+  assert.match(app, /Settings → Devices → Add device/);
+  assert.match(app, /Settings → Connection → Models & providers/);
+  assert.match(app, /account\/OAuth sign-in/);
+  assert.match(app, /local service, or Custom provider/);
+  assert.match(app, /Credentials stay on the selected host/);
+  assert.match(app, /Then select the visible models/);
   assert.match(app, /openOnboarding\(false\)/);
-  assert.match(app, /Never expose port 3140|Never expose port/);
+  assert.match(app, /Never expose public port 3140/);
   assert.match(css, /\.onboarding-card/);
+  assert.match(css, /repeat\(5, 1fr\)/);
+  assert.match(i18n, /FIRST_LOGIN_TRANSLATIONS/);
+  for (const locale of ["en", "zh-Hans", "zh-Hant", "ja", "ko", "tr", "fr", "de", "es", "pt-BR", "it"]) {
+    assert.match(app, new RegExp(`(?:^|\\n)\\s*(?:"?${locale.replace("-", "[-]")}"?)\\s*:`), `${locale} onboarding copy should exist`);
+  }
 });
 
 test("automatic updates use a public GitHub source and launchd without touching Pi data", () => {

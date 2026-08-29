@@ -45,7 +45,7 @@ The installer:
   missing;
 - installs a private Node.js runtime only when Node 22.19 or newer is missing;
 - downloads the latest GitHub Release and verifies its SHA-256 checksum;
-- creates a local Web token, launchd service, and hourly stable-release updater;
+- creates a local Web token at `~/.config/pi-harbor/token`, a launchd service, and an hourly stable-release updater;
 - migrates a local v1 installation without changing Pi sessions, project
   files, provider credentials, or the existing Web token.
 
@@ -58,7 +58,20 @@ zsh install.sh
 ```
 
 Pi Harbor binds to `127.0.0.1:3140` by default. The first launch opens a short
-guide for language, appearance, models, projects, and remote access.
+setup guide for sign-in, devices, providers, projects, and remote access.
+
+### Find the Web token
+
+On the computer running Pi Harbor, open Terminal and run:
+
+```bash
+cat ~/.config/pi-harbor/token
+```
+
+From another device, retrieve the token securely from that host and paste it into
+the sign-in screen. If the service was deliberately configured with
+`PI_HARBOR_TOKEN_FILE`, read that configured file instead of the default path.
+Never share the token in chat, screenshots, repositories, or logs.
 
 ## Secure remote access
 
@@ -70,16 +83,22 @@ Tailscale example is:
 tailscale serve --bg --https=8443 http://127.0.0.1:3140
 ```
 
-Open the HTTPS address, enter the token stored at
-`~/.config/pi-harbor/token`, and optionally add the site to the home screen.
-Never paste that token into an issue, chat, screenshot, log, or repository.
+Open the HTTPS address and enter the token stored at
+`~/.config/pi-harbor/token` (or the file configured by
+`PI_HARBOR_TOKEN_FILE`). Optionally add the site to the home screen. Never paste
+that token into an issue, chat, screenshot, log, or repository.
 
 ## Multiple computers
 
-Each Pi Agent computer runs its own Pi Harbor instance. Install Pi Harbor on
-every host, then use **Settings → Devices** to add the other private HTTPS
-addresses or exchange a five-minute pairing code. Paired instances must use
-the same Web token.
+Each Pi Agent computer runs its own Pi Harbor instance. Install and run Pi Harbor
+on every host, then use **Settings → Devices → Add device** to add a Tailscale or
+HTTPS address, or exchange a five-minute pairing code. Use the same Web token;
+credentials remain on the selected host. Keep port `3140` private and do not
+expose it to an untrusted network.
+
+To add an LLM provider, open **Settings → Connection → Models & providers**.
+Choose a catalog service, account/OAuth sign-in, API key, local service, or
+Custom provider. Then select the visible models you want to use.
 
 Device aliases only affect the interface. They do not rename the operating
 system computer. Temporary Sub Agent sessions are hidden by default and can be
@@ -122,7 +141,9 @@ credentials, and project folders are preserved in both choices.
 
 Useful server environment variables are `PI_HARBOR_PORT`, `PI_HARBOR_HOST`,
 `PI_HARBOR_TOKEN_FILE`, `PI_HOME`, `PI_BIN`, and
-`PI_HARBOR_BROWSE_ROOTS`. Folder browsing defaults to the Pi home; add `/Volumes`
+`PI_HARBOR_BROWSE_ROOTS`. A custom `PI_HARBOR_TOKEN_FILE` must be a local file
+with mode `600`; it replaces the default token path (the installer also carries
+this setting into the generated services). Folder browsing defaults to the Pi home; add `/Volumes`
 to `PI_HARBOR_BROWSE_ROOTS` when external drives should be available. See the generic templates in [`deploy/`](deploy/)
 for advanced launchd setups.
 

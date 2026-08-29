@@ -6,10 +6,10 @@
 <title>Pi Harbor</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=2.0.9">
-<link rel="icon" href="/pi-logo.svg?v=2.0.9" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-180.png?v=2.0.9">
-<link rel="stylesheet" href="/style.css?v=2.0.9">
+<link rel="manifest" href="/manifest.webmanifest?v=2.1.0">
+<link rel="icon" href="/pi-logo.svg?v=2.1.0" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png?v=2.1.0">
+<link rel="stylesheet" href="/style.css?v=2.1.0">
 </head>
 <body>
 
@@ -51,6 +51,14 @@
       <button type="submit" class="btn primary">Sign in</button>
       <p id="login-error" class="error hidden"></p>
     </form>
+    <section class="login-help" aria-labelledby="login-help-title">
+      <h2 id="login-help-title">First time?</h2>
+      <p>The installer creates a private Web token on the computer running Pi Harbor.</p>
+      <p><span>On that computer, open Terminal and run:</span><br><code data-i18n-ignore>cat ~/.config/pi-harbor/token</code></p>
+      <p>If a custom PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path.</p>
+      <p>From another device, retrieve the token securely from that host and paste it here.</p>
+      <p class="login-help-warning">Never share the token in chat, screenshots, repositories, or logs.</p>
+    </section>
   </div>
 </div>
 
@@ -243,7 +251,7 @@
         <h3 class="group-title">About</h3>
         <div class="settings-row">
           <span><strong>Pi Harbor</strong><small>Mobile-first remote workspace for Pi</small></span>
-          <span class="settings-value" id="set-app-version">v2.0.9</span>
+          <span class="settings-value" id="set-app-version">v2.1.0</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -460,7 +468,7 @@
       <div class="project-location-toolbar">
         <button id="new-folder-up" class="btn ghost icon-btn" type="button" title="Parent folder" aria-label="Parent folder"><svg class="icon"><use href="#i-arrow-left"></use></svg></button>
         <button id="new-folder-home" class="btn ghost icon-btn" type="button" title="Home folder" aria-label="Home folder"><svg class="icon"><use href="#i-home"></use></svg></button>
-        <span id="new-folder-path" class="project-folder-path">Loading…</span>
+        <span id="new-folder-path" class="project-folder-path" data-i18n-ignore>—</span>
       </div>
       <div id="new-folder-list" class="project-folder-list"></div>
       <label class="field-label">Selected location</label>
@@ -575,7 +583,7 @@
     <div class="onboarding-card">
       <button id="onboarding-close" class="btn ghost icon-btn onboarding-close" type="button" aria-label="Close"><svg class="icon"><use href="#i-x"></use></svg></button>
       <div class="onboarding-brand"><span class="brand-glyph" role="img" aria-label="Pi Harbor"></span><span>Pi Harbor</span></div>
-      <div class="onboarding-progress" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+      <div class="onboarding-progress" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
       <div class="onboarding-copy">
         <p id="onboarding-eyebrow" class="eyebrow">WELCOME</p>
         <h2 id="onboarding-title">Welcome aboard</h2>
@@ -612,9 +620,9 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=2.0.9"></script>
-<script src="/modules/app-foundation.js?v=2.0.9"></script>
-<script src="/modules/session-utils.js?v=2.0.9"></script>
-<script src="/app.js?v=2.0.9"></script>
+<script src="/i18n.js?v=2.1.0"></script>
+<script src="/modules/app-foundation.js?v=2.1.0"></script>
+<script src="/modules/session-utils.js?v=2.1.0"></script>
+<script src="/app.js?v=2.1.0"></script>
 </body>
 </html>

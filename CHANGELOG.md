@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.1.0
+
+- Added a touch-safe left-edge swipe back from Settings with shared cleanup and
+  reduced-motion-safe transitions.
+- Fixed the first New project folder load to use the selected host's safe home
+  request and ignore stale or non-absolute paths.
+- Added localized first-login token guidance, expanded the setup guide for
+  devices and LLM providers, and documented token retrieval in every locale.
+- Fixed localization collisions that could corrupt words such as “Project” and
+  kept user-provided folder names and paths unchanged.
+- Bumped the application and PWA resources to 2.1.0.
+
 ## 2.0.9
 
 - Added a localized multi-device update center with per-device versions, phases,

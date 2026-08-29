@@ -14,9 +14,15 @@ Das Repository enthält nur Anwendungscode und allgemeine Bereitstellungsvorlage
 /bin/zsh -c "$(curl -fsSL https://raw.githubusercontent.com/seehow624/pi-harbor/master/install.sh)"
 ```
 
-Pi Harbor auf jedem Computer starten und mit HTTPS-Adresse und lokalem Token anmelden. Token niemals in Git, Chats, Screenshots oder Logs ablegen.
+Öffnen Sie auf dem Computer, auf dem Pi Harbor läuft, das Terminal und führen Sie Folgendes aus:
 
-Unter **Settings → Devices** lassen sich weitere Computer hinzufügen. Die launchd-Vorlagen in `deploy/` unterstützen automatische Updates.
+```bash
+cat ~/.config/pi-harbor/token
+```
+
+Fügen Sie das Token auf der Anmeldeseite ein. Rufen Sie es auf einem anderen Gerät sicher von diesem Host ab. Wenn `PI_HARBOR_TOKEN_FILE` ausdrücklich konfiguriert ist, lesen Sie die konfigurierte Datei statt des Standardpfads. Speichern Sie das Token niemals in Git, Chats, Screenshots oder Protokollen.
+
+Installieren und starten Sie Pi Harbor auf jedem Computer und fügen Sie unter **Settings → Devices → Add device** eine Tailscale- oder HTTPS-Adresse hinzu. Alternativ können Sie einen fünf Minuten gültigen Kopplungscode verwenden. Verwenden Sie dasselbe Web-Token und geben Sie Port 3140 nicht frei. Unter **Settings → Connection → Models & providers** können Sie einen Katalogdienst, Konto/OAuth, einen API-Schlüssel, einen lokalen Dienst oder einen benutzerdefinierten Anbieter wählen und anschließend sichtbare Modelle auswählen. Die launchd-Vorlagen in `deploy/` unterstützen automatische Updates.
 
 ```bash
 npm run check
