@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.1.2
+
+- Hardened the one-time access-key reveal against DNS rebinding and unexpected
+  reverse proxies by requiring both the TCP source and HTTP Host to be loopback.
+- Fixed duplicate onboarding element IDs and CSS collisions so both the access
+  key flow and the reusable setup guide keep their own labels and Skip actions.
+- Replaced unsigned pairing codes with short-lived HMAC-authenticated v2 codes;
+  candidate URLs no longer receive a reusable login cookie before trust is proven.
+- Corrected the Traditional Chinese access-key wording and added live server
+  integration tests for token reveal and credential-safe device pairing.
+- Bumped the application and PWA resources to 2.1.2.
+
 ## 2.1.1
 
 - Added a hardware-wallet-style first-run onboarding that reveals the private

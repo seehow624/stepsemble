@@ -24,7 +24,7 @@ Token'ı giriş ekranına yapıştırın. Başka bir cihazdan kullanırken token
 
 Ana bilgisayardaki bir tarayıcıyla Pi Harbor ilk kez açıldığında, oturum açmadan önce donanım cüzdanı tarzında tek seferlik bir anahtar gösterimi sunulur. Anahtar yalnızca loopback bağlantılarında gösterilir — asla Tailscale Serve, proxy veya uzak bir cihaz üzerinden değil — ve her iki onay kaydedildikten sonra bir daha görünmez. Diğer cihazlar her zaman kaydedilen anahtarı veya token dosyasını kullanır.
 
-Her bilgisayara Pi Harbor'ı kurup çalıştırın ve **Settings → Devices → Add device** bölümünden Tailscale veya HTTPS adresi ekleyin. Beş dakika geçerli bir eşleştirme kodu da kullanılabilir. Aynı Web token'ını kullanın ve 3140 numaralı bağlantı noktasını açmayın. **Settings → Connection → Models & providers** bölümünde katalog hizmeti, hesap/OAuth, API anahtarı, yerel hizmet veya özel sağlayıcı seçip görünür modelleri belirleyin. `deploy/` içindeki launchd şablonları otomatik güncellemeyi destekler.
+Her bilgisayara Pi Harbor'ı kurup çalıştırın ve **Settings → Devices → Add device** bölümünden Tailscale veya HTTPS adresi ekleyin. Beş dakika geçerli bir eşleştirme kodu da kullanılabilir. Aynı Web token'ını kullanın. Eşleştirme kodları HMAC ile doğrulanır; yeni kod oluşturmadan önce iki bilgisayarı da güncelleyin. Paylaşılan Web token'ı doğrulanmamış aday URL'lere gönderilmez. 3140 numaralı bağlantı noktasını açmayın. **Settings → Connection → Models & providers** bölümünde katalog hizmeti, hesap/OAuth, API anahtarı, yerel hizmet veya özel sağlayıcı seçip görünür modelleri belirleyin. `deploy/` içindeki launchd şablonları otomatik güncellemeyi destekler.
 
 ```bash
 npm run check

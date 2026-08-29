@@ -138,7 +138,7 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
   margin: 0 0 12px;
 }
 
-/* ---- 首次啟用密綰導覽（冷錢包式） ---- */
+/* ---- 首次啟用密鑰導覽（冷錢包式） ---- */
 .login-onboarding {
   margin-top: 4px;
   padding: 16px 15px;
@@ -183,9 +183,9 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
   cursor: pointer;
 }
 .onboarding-check input { margin-top: 2px; accent-color: var(--pine); }
-.onboarding-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
-.onboarding-actions .btn { width: 100%; }
-.onboarding-actions .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.login-onboarding-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.login-onboarding-actions .btn { width: 100%; }
+.login-onboarding-actions .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ---- 頂欄 ---- */
 .view { height: calc(100dvh - env(safe-area-inset-top)); display: flex; flex-direction: column; }

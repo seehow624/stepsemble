@@ -24,7 +24,7 @@ Incolla il token nella schermata di accesso. Da un altro dispositivo, recuperalo
 
 Alla prima apertura di Pi Harbor in un browser sul computer host stesso, viene offerta una rivelazione una tantum della chiave privata, in stile hardware wallet, prima dell’accesso. Viene mostrata solo su connessioni loopback — mai tramite Tailscale Serve, un proxy o un dispositivo remoto — e scompare per sempre dopo il salvataggio delle due conferme. Gli altri dispositivi usano sempre la chiave registrata o il file del token.
 
-Installa e avvia Pi Harbor su ogni computer e aggiungi un indirizzo Tailscale o HTTPS in **Settings → Devices → Add device**. Puoi anche usare un codice di abbinamento valido cinque minuti. Usa lo stesso token Web e non esporre la porta 3140. In **Settings → Connection → Models & providers** scegli un servizio del catalogo, account/OAuth, chiave API, servizio locale o provider personalizzato, quindi seleziona i modelli visibili. I modelli launchd in `deploy/` supportano gli aggiornamenti automatici.
+Installa e avvia Pi Harbor su ogni computer e aggiungi un indirizzo Tailscale o HTTPS in **Settings → Devices → Add device**. Puoi anche usare un codice di abbinamento valido cinque minuti. Usa lo stesso token Web. I codici di abbinamento sono autenticati con HMAC; aggiorna entrambi i computer prima di generarne uno nuovo. Il token Web condiviso non viene mai inviato a un URL candidato non verificato. Non esporre la porta 3140. In **Settings → Connection → Models & providers** scegli un servizio del catalogo, account/OAuth, chiave API, servizio locale o provider personalizzato, quindi seleziona i modelli visibili. I modelli launchd in `deploy/` supportano gli aggiornamenti automatici.
 
 ```bash
 npm run check

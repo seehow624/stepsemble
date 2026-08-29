@@ -1,7 +1,7 @@
-/* pi-harbor v2.1.1 — settings gestures, safer project browse, and first-use guidance */
+/* pi-harbor v2.1.2 — settings gestures, safer project browse, and first-use guidance */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.1.1";
+const CLIENT_APP_VERSION = "2.1.2";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -44,7 +44,7 @@ const el = {
   loginOnboarding: $("login-onboarding"), loginOnboardingKey: $("login-onboarding-key"),
   loginOnboardingReveal: $("onboarding-reveal"), loginOnboardingCopy: $("onboarding-copy"),
   loginOnboardingSaved: $("onboarding-saved"), loginOnboardingUnderstood: $("onboarding-understood"),
-  loginOnboardingContinue: $("onboarding-continue"), loginOnboardingSkip: $("onboarding-skip"),
+  loginOnboardingContinue: $("onboarding-continue"), loginOnboardingSkip: $("login-onboarding-skip"),
   loginOnboardedHint: $("login-onboarded-hint"),
   app: $("app"),
   viewList: $("view-list"), viewChat: $("view-chat"), viewSettings: $("view-settings"), viewModelSettings: $("view-model-settings"),
@@ -249,7 +249,7 @@ function showLogin() {
 }
 
 // ===========================================================================
-// 首次啟用存取密綰導覽（冷錢包式：本機一次性顯示，確認後不再出現）
+// 首次啟用存取密鑰導覽（冷錢包式：本機一次性顯示，確認後不再出現）
 // ===========================================================================
 
 let onboardingKey = "";

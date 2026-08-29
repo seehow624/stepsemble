@@ -271,6 +271,14 @@ test("device settings support stable aliases, port changes, health checks, and o
   assert.match(server, /\/api\/device-pairing\/start/);
   assert.match(server, /\/api\/machines\/pair/);
   assert.match(server, /function createPairingOffer/);
+  assert.match(server, /function pairingProof\(payload\)/);
+  assert.match(server, /crypto\.createHmac\("sha256", TOKEN\)/);
+  assert.match(server, /PIHARBOR2\./);
+  assert.match(server, /safeEqual\(pairingProof\(unsigned\), decoded\.proof\)/);
+  const pairRoute = server.slice(server.indexOf('p === "/api/machines/pair"'), server.indexOf('p === "/api/machines" && req.method === "GET"'));
+  assert.doesNotMatch(pairRoute, /cookie:\s*`pi_harbor=/);
+  assert.match(pairRoute, /headers: \{ "content-type": "application\/json" \}/);
+  assert.ok(server.indexOf('p === "/api/device-pairing/consume"') < server.indexOf('p.startsWith("/api/")'));
   assert.match(app, /function refreshMachineStatuses/);
   assert.match(app, /function fetchMachineStatusEndpoint/);
   assert.match(app, /Older Pi Harbor instances do not expose \/api\/health/);
@@ -279,7 +287,7 @@ test("device settings support stable aliases, port changes, health checks, and o
   assert.match(app, /function restartMachineWeb/);
   assert.match(html, /id="machine-port"/);
   assert.match(html, /id="machine-test"/);
-  assert.match(html, /id="machine-pair-code"/);
+  assert.match(html, /id="machine-pair-code"[^>]*placeholder="PIHARBOR2\.…"/);
   assert.match(launcher, /device_config/);
 });
 
@@ -452,27 +460,27 @@ test("PWA updates bypass stale service-worker caches and reconcile client versio
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   assert.match(server, /rel === "sw\.js"[\s\S]*?"no-cache, no-store, must-revalidate"/);
-  assert.match(app, /const CLIENT_APP_VERSION = "2.1.1"/);
+  assert.match(app, /const CLIENT_APP_VERSION = "2.1.2"/);
   assert.match(app, /function checkForClientUpdate\(\)/);
   assert.match(app, /cache: "no-store"/);
   assert.match(app, /updateViaCache: "none"/);
   assert.match(app, /visibilitychange/);
   assert.match(app, /piharbor\.clientReloadAttempt/);
-  assert.match(html, /id="set-app-version">v2\.1\.1</);
+  assert.match(html, /id="set-app-version">v2\.1\.2</);
 });
 
-test("versioned application resources stay on 2.1.1", () => {
+test("versioned application resources stay on 2.1.2", () => {
   const expected = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
-  assert.equal(expected, "2.1.1");
+  assert.equal(expected, "2.1.2");
   const previous = expected.replace(/(\d+)$/, (_, patch) => String(Number(patch) - 1));
   const previousPattern = new RegExp(previous.replaceAll(".", "\\."));
   for (const file of ["server.js", "public/app.js", "public/index.html", "public/sw.js", "public/manifest.webmanifest"]) {
     const content = fs.readFileSync(path.join(root, file), "utf8");
-    assert.match(content, /2\.1\.1/);
+    assert.match(content, /2\.1\.2/);
     assert.doesNotMatch(content, previousPattern);
   }
   const changelog = fs.readFileSync(path.join(root, "CHANGELOG.md"), "utf8");
-  assert.match(changelog, /^## 2\.1\.1/m);
+  assert.match(changelog, /^## 2\.1\.2/m);
 });
 
 test("first-run key reveal is loopback-only, one-time, and gate-checked", () => {
@@ -484,6 +492,9 @@ test("first-run key reveal is loopback-only, one-time, and gate-checked", () => 
   assert.match(server, /const ONBOARDING_FILE = path\.join\(CONFIG_DIR, "onboarding\.json"\)/);
   assert.match(server, /function isLoopbackRemote\(req\)/);
   assert.match(server, /remote === "127\.0\.0\.1" \|\| remote === "::1" \|\| remote === "::ffff:127\.0\.0\.1"/);
+  assert.match(server, /function hasLoopbackHost\(req\)/);
+  assert.match(server, /hostname === "localhost" \|\| hostname === "127\.0\.0\.1" \|\| hostname === "\[::1\]"/);
+  assert.match(server, /!hasLoopbackHost\(req\)/);
   assert.match(server, /function hasForwardingHeaders\(req\)/);
   assert.match(server, /lower\.startsWith\("x-forwarded-"\) \|\| lower\.startsWith\("tailscale-"\)/);
   assert.match(server, /function onboardingKeyEligible\(req\)/);
@@ -499,6 +510,9 @@ test("first-run key reveal is loopback-only, one-time, and gate-checked", () => 
   assert.match(html, /id="onboarding-continue" class="btn primary" type="button" disabled/);
   assert.match(html, /id="onboarding-saved" type="checkbox"/);
   assert.match(html, /id="onboarding-understood" type="checkbox"/);
+  assert.match(html, /id="login-onboarding-skip" class="btn ghost"/);
+  assert.match(html, /class="login-onboarding-actions"/);
+  assert.match(app, /loginOnboardingSkip: \$\("login-onboarding-skip"\)/);
   assert.match(app, /fetch\("\/api\/onboarding\/key", \{ credentials: "same-origin", cache: "no-store" \}\)/);
   assert.match(app, /fetch\("\/api\/onboarding\/confirm", \{ method: "POST", credentials: "same-origin" \}\)/);
   assert.match(app, /el\.loginOnboardingContinue\.disabled = !\(el\.loginOnboardingSaved\?\.checked && el\.loginOnboardingUnderstood\?\.checked\)/);
@@ -506,6 +520,14 @@ test("first-run key reveal is loopback-only, one-time, and gate-checked", () => 
   // The saved token must never be written into the sign-in input.
   assert.doesNotMatch(app, /loginToken\.value = onboardingKey/);
   assert.match(css, /\.onboarding-key\.masked/);
+  assert.match(css, /\.login-onboarding-actions/);
+});
+
+test("the application shell never contains duplicate element IDs", () => {
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);
+  const duplicates = [...new Set(ids.filter((id, index) => ids.indexOf(id) !== index))];
+  assert.deepEqual(duplicates, []);
 });
 
 test("2.1.0 update center covers per-device state, idle apply, and partial update-all results", () => {

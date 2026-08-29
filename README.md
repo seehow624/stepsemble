@@ -100,7 +100,9 @@ that token into an issue, chat, screenshot, log, or repository.
 Each Pi Agent computer runs its own Pi Harbor instance. Install and run Pi Harbor
 on every host, then use **Settings → Devices → Add device** to add a Tailscale or
 HTTPS address, or exchange a five-minute pairing code. Use the same Web token;
-credentials remain on the selected host. Keep port `3140` private and do not
+credentials remain on the selected host. Pairing codes are HMAC-authenticated:
+update both computers before generating a new code. The shared Web token is
+never sent to an unverified candidate URL. Keep port `3140` private and do not
 expose it to an untrusted network.
 
 To add an LLM provider, open **Settings → Connection → Models & providers**.

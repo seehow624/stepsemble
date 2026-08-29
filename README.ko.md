@@ -24,7 +24,7 @@ cat ~/.config/pi-harbor/token
 
 호스트 컴퓨터의 브라우저에서 Pi Harbor를 처음 열면 하드웨어 지갑 방식의 일회성 키 공개가 로그인 전에 제공됩니다. 키는 loopback 연결에서만 표시되며(Tailscale Serve, 프록시, 원격 기기에서는 절대 표시되지 않음) 두 가지 확인을 저장한 후에는 다시 나타나지 않습니다. 다른 기기에서는 기록해 둔 키나 토큰 파일을 사용하세요.
 
-각 컴퓨터에 Pi Harbor를 설치하고 실행한 뒤 **Settings → Devices → Add device**에서 Tailscale 또는 HTTPS 주소를 추가하세요. 5분 동안 유효한 페어링 코드도 사용할 수 있습니다. 같은 Web 토큰을 사용하고 3140 포트를 공개하지 마세요. **Settings → Connection → Models & providers**에서 카탈로그 서비스, 계정/OAuth, API 키, 로컬 서비스 또는 사용자 지정 제공자를 선택한 다음 표시할 모델을 선택할 수 있습니다. `deploy/`의 launchd 템플릿으로 자동 업데이트를 설정할 수 있습니다.
+각 컴퓨터에 Pi Harbor를 설치하고 실행한 뒤 **Settings → Devices → Add device**에서 Tailscale 또는 HTTPS 주소를 추가하세요. 5분 동안 유효한 페어링 코드도 사용할 수 있습니다. 같은 Web 토큰을 사용하세요. 페어링 코드는 HMAC으로 인증되므로 새 코드를 만들기 전에 두 컴퓨터를 모두 업데이트하세요. 공유 Web 토큰은 검증되지 않은 후보 URL로 전송되지 않습니다. 3140 포트를 공개하지 마세요. **Settings → Connection → Models & providers**에서 카탈로그 서비스, 계정/OAuth, API 키, 로컬 서비스 또는 사용자 지정 제공자를 선택한 다음 표시할 모델을 선택할 수 있습니다. `deploy/`의 launchd 템플릿으로 자동 업데이트를 설정할 수 있습니다.
 
 ```bash
 npm run check

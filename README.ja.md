@@ -26,7 +26,7 @@ cat ~/.config/pi-harbor/token
 
 ## 複数コンピューターと更新
 
-各コンピューターに Pi Harbor をインストールして起動し、**Settings → Devices → Add device** で Tailscale または HTTPS URL を追加できます。5 分間有効なペアリングコードも使えます。同じ Web トークンを使い、ポート 3140 を公開しないでください。**Settings → Connection → Models & providers** では、カタログサービス、アカウント／OAuth、API キー、ローカルサービス、カスタムプロバイダーを選び、表示するモデルを選択できます。`deploy/` の launchd テンプレートで、公開 GitHub のブランチまたはタグから自動更新を設定できます。更新器はセッション、プロジェクト、認証情報を変更しません。
+各コンピューターに Pi Harbor をインストールして起動し、**Settings → Devices → Add device** で Tailscale または HTTPS URL を追加できます。5 分間有効なペアリングコードも使えます。同じ Web トークンを使ってください。ペアリングコードは HMAC で認証されるため、新しいコードを生成する前に両方のコンピューターを更新してください。共有 Web トークンが未検証の候補 URL に送信されることはありません。ポート 3140 を公開しないでください。**Settings → Connection → Models & providers** では、カタログサービス、アカウント／OAuth、API キー、ローカルサービス、カスタムプロバイダーを選び、表示するモデルを選択できます。`deploy/` の launchd テンプレートで、公開 GitHub のブランチまたはタグから自動更新を設定できます。更新器はセッション、プロジェクト、認証情報を変更しません。
 
 ```bash
 npm run check

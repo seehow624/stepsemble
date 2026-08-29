@@ -29,7 +29,7 @@ const { createHttpUtils } = require("./server/http-utils");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.1.1";
+const APP_VERSION = "2.1.2";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -625,28 +625,55 @@ function createPairingOffer() {
   const nonce = crypto.randomBytes(18).toString("base64url");
   const expiresAt = Date.now() + 5 * 60 * 1000;
   pairingOffers.set(nonce, { nonce, expiresAt });
-  const payload = Buffer.from(JSON.stringify({ version: 1, nonce, expiresAt, device: { id: device.id, name: device.name, host: device.host, url: device.publicUrl } })).toString("base64url");
-  return { offer: `PIHARBOR1.${payload}`, expiresAt, device };
+  const unsigned = {
+    version: 2,
+    nonce,
+    expiresAt,
+    device: { id: device.id, name: device.name, host: device.host, url: device.publicUrl },
+  };
+  // Both Pi Harbor hosts already share the Web token. Sign the short-lived
+  // offer with it so a pasted code proves its URL came from a trusted host;
+  // unlike the v1 flow, no reusable cookie is sent before this proof passes.
+  const payload = Buffer.from(JSON.stringify({ ...unsigned, proof: pairingProof(unsigned) })).toString("base64url");
+  return { offer: `PIHARBOR2.${payload}`, expiresAt, device };
 }
 
 function decodePairingOffer(value) {
   const raw = typeof value === "string" ? value.trim() : "";
-  const prefix = "PIHARBOR1.";
-  if (!raw.startsWith(prefix)) { const err = new Error("Invalid pairing code format"); err.statusCode = 400; throw err; }
+  const prefix = "PIHARBOR2.";
+  if (!raw.startsWith(prefix)) {
+    const err = new Error(raw.startsWith("PIHARBOR1.")
+      ? "This pairing code uses the old format; update both Pi Harbor devices and generate a new code"
+      : "Invalid pairing code format");
+    err.statusCode = 400;
+    throw err;
+  }
   let decoded;
   try { decoded = JSON.parse(Buffer.from(raw.slice(prefix.length), "base64url").toString("utf8")); } catch {
     const err = new Error("Could not read pairing code"); err.statusCode = 400; throw err;
   }
-  if (!decoded || decoded.version !== 1 || typeof decoded.nonce !== "string" || !decoded.expiresAt || !decoded.device?.url) {
+  const device = decoded?.device;
+  if (!decoded || decoded.version !== 2 || typeof decoded.nonce !== "string" || !Number.isFinite(decoded.expiresAt)
+    || typeof device?.id !== "string" || typeof device?.name !== "string" || typeof device?.host !== "string"
+    || typeof device?.url !== "string" || !/^[0-9a-f]{64}$/.test(String(decoded.proof || ""))) {
     const err = new Error("Pairing code is incomplete"); err.statusCode = 400; throw err;
+  }
+  const unsigned = {
+    version: 2,
+    nonce: decoded.nonce,
+    expiresAt: decoded.expiresAt,
+    device: { id: device.id, name: device.name, host: device.host, url: device.url },
+  };
+  if (!safeEqual(pairingProof(unsigned), decoded.proof)) {
+    const err = new Error("Pairing code proof is invalid; both devices must use the same Web token"); err.statusCode = 403; throw err;
   }
   if (decoded.expiresAt <= Date.now()) { const err = new Error("Pairing code expired; generate a new one"); err.statusCode = 410; throw err; }
   let url;
-  try { url = new URL(decoded.device.url); } catch { url = null; }
+  try { url = new URL(device.url); } catch { url = null; }
   if (!url || !["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
     const err = new Error("Pairing code contains an unsafe device URL"); err.statusCode = 400; throw err;
   }
-  return { ...decoded, device: { ...decoded.device, url: url.toString().replace(/\/$/, "") } };
+  return { ...unsigned, proof: decoded.proof, device: { ...device, url: url.toString().replace(/\/$/, "") } };
 }
 
 function resolvePiBin() {
@@ -720,12 +747,13 @@ if (TOKEN) {
     : "[pi-harbor] could not create ~/.config/pi-harbor/token; using an ephemeral token that is not shown in logs");
 }
 
-// ---- 首次啟用的存取密綰導覽（冷錢包式：只在本機、只顯示一次）----
+// ---- 首次啟用的存取密鑰導覽（冷錢包式：只在本機、只顯示一次）----
 // 信任邊界不變：token 本來就能被本機使用者讀取（token 檔案權限 600）。
 // 這個導覽只是把「去終端機 cat」變成一次有教育意義的流程，且嚴格限制：
-//   1. 請求必須來自 loopback（127.0.0.1 / ::1）；
+//   1. TCP 來源和 HTTP Host 都必須是 loopback（127.0.0.1 / ::1 / localhost）；
+//      Host 限制同時阻斷惡意網域透過 DNS rebinding 讀取本機 token；
 //   2. 不得帶任何代理頭（Tailscale Serve 轉發時 TCP 來源也是 127.0.0.1，
-//      必須靠 X-Forwarded-* / Tailscale-* 頭區隔，否則遠端使用者也能拿到）；
+//      必須靠 Host 與 X-Forwarded-* / Tailscale-* 頭區隔）；
 //   3. 尚未確認過（host 級一次性標志，與 token 雜湊綁定；
 //      token 重新生成後會重新允許顯示一次）；
 //   4. 已登入的瀏覽器不再顯示。
@@ -752,6 +780,14 @@ function isLoopbackRemote(req) {
   const remote = String(req.socket?.remoteAddress || "");
   return remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
 }
+function hasLoopbackHost(req) {
+  const raw = String(req.headers.host || "").trim();
+  if (!raw || raw.includes("/") || raw.includes("@")) return false;
+  try {
+    const hostname = new URL(`http://${raw}`).hostname.toLowerCase();
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+  } catch { return false; }
+}
 function hasForwardingHeaders(req) {
   for (const name of Object.keys(req.headers)) {
     const lower = name.toLowerCase();
@@ -761,13 +797,17 @@ function hasForwardingHeaders(req) {
 }
 function onboardingKeyEligible(req) {
   if (!TOKEN) return false;
-  if (!isLoopbackRemote(req) || hasForwardingHeaders(req)) return false;
+  if (!isLoopbackRemote(req) || !hasLoopbackHost(req) || hasForwardingHeaders(req)) return false;
   if (onboardingState.tokenConfirmedAt && onboardingState.tokenHash === TOKEN_HASH) return false;
   return true;
 }
 
 function sha256(s) {
   return crypto.createHash("sha256").update(String(s)).digest("hex");
+}
+
+function pairingProof(payload) {
+  return crypto.createHmac("sha256", TOKEN).update(JSON.stringify(payload)).digest("hex");
 }
 
 function safeEqual(a, b) {
@@ -2642,7 +2682,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // ---- 公開：首次啟用密綰導覽（必須在 /api/ 通配之前；只在本機顯示一次）----
+    // ---- 公開：首次啟用密鑰導覽（必須在 /api/ 通配之前；只在本機顯示一次）----
     if (p === "/api/onboarding/key" && req.method === "GET") {
       // 已登入的瀏覽器不需要導覽；未符合條件時絕不回傳 token。
       const eligible = onboardingKeyEligible(req) && !isAuthed(req);
@@ -2663,6 +2703,24 @@ const server = http.createServer(async (req, res) => {
       }
       onboardingState = { tokenConfirmedAt: confirmedAt, tokenHash: TOKEN_HASH };
       send(res, 204, "");
+      return;
+    }
+
+    // A v2 pairing code is itself a five-minute, one-use, HMAC-authenticated
+    // capability. Consume its random nonce without sending the reusable login
+    // cookie across the network. Cross-site browser mutations are still blocked
+    // by isCrossSiteMutation() above.
+    if (p === "/api/device-pairing/consume" && req.method === "POST") {
+      const body = await readJSON(req);
+      cleanupPairingOffers();
+      const nonce = typeof body.nonce === "string" ? body.nonce : "";
+      const offer = pairingOffers.get(nonce);
+      if (!offer || offer.expiresAt <= Date.now()) {
+        sendJSON(res, 410, { error: "Pairing code is invalid or expired" });
+      } else {
+        pairingOffers.delete(nonce);
+        sendJSON(res, 200, { device: publicDeviceSettings() });
+      }
       return;
     }
 
@@ -3041,20 +3099,6 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      if (p === "/api/device-pairing/consume" && req.method === "POST") {
-        const body = await readJSON(req);
-        cleanupPairingOffers();
-        const nonce = typeof body.nonce === "string" ? body.nonce : "";
-        const offer = pairingOffers.get(nonce);
-        if (!offer || offer.expiresAt <= Date.now()) {
-          sendJSON(res, 410, { error: "Pairing code is invalid or expired" });
-        } else {
-          pairingOffers.delete(nonce);
-          sendJSON(res, 200, { device: publicDeviceSettings() });
-        }
-        return;
-      }
-
       if (p === "/api/machines/pair" && req.method === "POST") {
         const body = await readJSON(req);
         try {
@@ -3062,7 +3106,7 @@ const server = http.createServer(async (req, res) => {
           const remoteUrl = new URL("/api/device-pairing/consume", decoded.device.url);
           const remoteResponse = await fetch(remoteUrl, {
             method: "POST",
-            headers: { "content-type": "application/json", cookie: `pi_harbor=${TOKEN_HASH}` },
+            headers: { "content-type": "application/json" },
             body: JSON.stringify({ nonce: decoded.nonce }),
             redirect: "error",
             signal: AbortSignal.timeout(8000),
