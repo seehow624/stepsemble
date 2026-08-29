@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.1.1
+
+- Added a hardware-wallet-style first-run onboarding that reveals the private
+  access key once on the host computer before sign-in, gated behind two
+  confirmations and never shown again after they are saved.
+- Restricted the key reveal to loopback requests without forwarding or
+  Tailscale headers, and stored the one-time confirmation beside the token
+  file with owner-only permissions.
+- Bumped the application and PWA resources to 2.1.1.
+
 ## 2.1.0
 
 - Added a touch-safe left-edge swipe back from Settings with shared cleanup and

@@ -29,7 +29,7 @@ const { createHttpUtils } = require("./server/http-utils");
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.1.0";
+const APP_VERSION = "2.1.1";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -718,6 +718,52 @@ if (TOKEN) {
   console.warn(TOKEN_FILE_IS_CUSTOM
     ? "[pi-harbor] configured token file could not be read; using an ephemeral token that is not shown in logs"
     : "[pi-harbor] could not create ~/.config/pi-harbor/token; using an ephemeral token that is not shown in logs");
+}
+
+// ---- 首次啟用的存取密綰導覽（冷錢包式：只在本機、只顯示一次）----
+// 信任邊界不變：token 本來就能被本機使用者讀取（token 檔案權限 600）。
+// 這個導覽只是把「去終端機 cat」變成一次有教育意義的流程，且嚴格限制：
+//   1. 請求必須來自 loopback（127.0.0.1 / ::1）；
+//   2. 不得帶任何代理頭（Tailscale Serve 轉發時 TCP 來源也是 127.0.0.1，
+//      必須靠 X-Forwarded-* / Tailscale-* 頭區隔，否則遠端使用者也能拿到）；
+//   3. 尚未確認過（host 級一次性標志，與 token 雜湊綁定；
+//      token 重新生成後會重新允許顯示一次）；
+//   4. 已登入的瀏覽器不再顯示。
+const ONBOARDING_FILE = path.join(CONFIG_DIR, "onboarding.json");
+let onboardingState = readOnboardingState();
+function readOnboardingState() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(ONBOARDING_FILE, "utf8"));
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const state = {};
+    if (typeof raw.tokenConfirmedAt === "string" && raw.tokenConfirmedAt) state.tokenConfirmedAt = raw.tokenConfirmedAt;
+    if (typeof raw.tokenHash === "string" && raw.tokenHash) state.tokenHash = raw.tokenHash;
+    return state;
+  } catch { return {}; }
+}
+function writeOnboardingState(next) {
+  fs.mkdirSync(path.dirname(ONBOARDING_FILE), { recursive: true, mode: 0o700 });
+  const temp = `${ONBOARDING_FILE}.${process.pid}.tmp`;
+  fs.writeFileSync(temp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temp, ONBOARDING_FILE);
+  try { fs.chmodSync(ONBOARDING_FILE, 0o600); } catch {}
+}
+function isLoopbackRemote(req) {
+  const remote = String(req.socket?.remoteAddress || "");
+  return remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+}
+function hasForwardingHeaders(req) {
+  for (const name of Object.keys(req.headers)) {
+    const lower = name.toLowerCase();
+    if (lower === "forwarded" || lower.startsWith("x-forwarded-") || lower.startsWith("tailscale-")) return true;
+  }
+  return false;
+}
+function onboardingKeyEligible(req) {
+  if (!TOKEN) return false;
+  if (!isLoopbackRemote(req) || hasForwardingHeaders(req)) return false;
+  if (onboardingState.tokenConfirmedAt && onboardingState.tokenHash === TOKEN_HASH) return false;
+  return true;
 }
 
 function sha256(s) {
@@ -2593,6 +2639,30 @@ const server = http.createServer(async (req, res) => {
       const info = { machine: MACHINE_NAME, host: MACHINE_HOST, deviceId: selfMachineId(), port: PORT, authed };
       if (authed) { info.home = APP_HOME; info.piBin = PI_BIN; }
       sendJSON(res, 200, info);
+      return;
+    }
+
+    // ---- 公開：首次啟用密綰導覽（必須在 /api/ 通配之前；只在本機顯示一次）----
+    if (p === "/api/onboarding/key" && req.method === "GET") {
+      // 已登入的瀏覽器不需要導覽；未符合條件時絕不回傳 token。
+      const eligible = onboardingKeyEligible(req) && !isAuthed(req);
+      sendJSON(res, 200, eligible
+        ? { eligible: true, key: TOKEN, confirmedAt: onboardingState.tokenConfirmedAt || null }
+        : { eligible: false, confirmedAt: onboardingState.tokenConfirmedAt || null });
+      return;
+    }
+    if (p === "/api/onboarding/confirm" && req.method === "POST") {
+      if (!onboardingKeyEligible(req) || isAuthed(req)) { sendJSON(res, 403, { error: "not eligible" }); return; }
+      const confirmedAt = new Date().toISOString();
+      try {
+        writeOnboardingState({ tokenConfirmedAt: confirmedAt, tokenHash: TOKEN_HASH });
+      } catch (error) {
+        console.warn(`[pi-harbor] could not save onboarding confirmation: ${error.message}`);
+        sendJSON(res, 500, { error: "could not save confirmation" });
+        return;
+      }
+      onboardingState = { tokenConfirmedAt: confirmedAt, tokenHash: TOKEN_HASH };
+      send(res, 204, "");
       return;
     }
 

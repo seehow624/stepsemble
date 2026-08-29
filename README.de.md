@@ -22,6 +22,8 @@ cat ~/.config/pi-harbor/token
 
 Fügen Sie das Token auf der Anmeldeseite ein. Rufen Sie es auf einem anderen Gerät sicher von diesem Host ab. Wenn `PI_HARBOR_TOKEN_FILE` ausdrücklich konfiguriert ist, lesen Sie die konfigurierte Datei statt des Standardpfads. Speichern Sie das Token niemals in Git, Chats, Screenshots oder Protokollen.
 
+Wenn Pi Harbor zum ersten Mal in einem Browser auf dem Host-Computer selbst geöffnet wird, bietet eine Einmal-Anzeige im Hardware-Wallet-Stil den privaten Zugangsschlüssel vor der Anmeldung an. Er wird nur über Loopback-Verbindungen angezeigt — niemals über Tailscale Serve, einen Proxy oder ein entferntes Gerät — und verschwindet dauerhaft, nachdem beide Bestätigungen gespeichert wurden. Andere Geräte verwenden stets den gesicherten Schlüssel oder die Token-Datei.
+
 Installieren und starten Sie Pi Harbor auf jedem Computer und fügen Sie unter **Settings → Devices → Add device** eine Tailscale- oder HTTPS-Adresse hinzu. Alternativ können Sie einen fünf Minuten gültigen Kopplungscode verwenden. Verwenden Sie dasselbe Web-Token und geben Sie Port 3140 nicht frei. Unter **Settings → Connection → Models & providers** können Sie einen Katalogdienst, Konto/OAuth, einen API-Schlüssel, einen lokalen Dienst oder einen benutzerdefinierten Anbieter wählen und anschließend sichtbare Modelle auswählen. Die launchd-Vorlagen in `deploy/` unterstützen automatische Updates.
 
 ```bash

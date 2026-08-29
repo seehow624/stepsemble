@@ -22,6 +22,8 @@ cat ~/.config/pi-harbor/token
 
 Pega el token en la pantalla de inicio de sesión. Desde otro dispositivo, recupéralo de forma segura en ese equipo anfitrión. Si se ha configurado explícitamente `PI_HARBOR_TOKEN_FILE`, lee el archivo configurado en lugar de la ruta predeterminada. Nunca pongas el token en Git, chats, capturas ni registros.
 
+Cuando se abre Pi Harbor por primera vez en un navegador del propio ordenador anfitrión, se ofrece una revelación única de la clave privada al estilo de una cartera hardware antes de iniciar sesión. Solo se muestra en conexiones loopback — nunca a través de Tailscale Serve, un proxy ni otro dispositivo — y desaparece para siempre tras guardar ambas confirmaciones. Los demás dispositivos usan siempre la clave guardada o el archivo de token.
+
 Instala y ejecuta Pi Harbor en cada ordenador y añade una dirección de Tailscale o HTTPS desde **Settings → Devices → Add device**. También puedes usar un código de emparejamiento válido durante cinco minutos. Usa el mismo token web y no expongas el puerto 3140. En **Settings → Connection → Models & providers**, elige un servicio del catálogo, cuenta/OAuth, clave API, servicio local o proveedor personalizado y selecciona los modelos visibles. Las plantillas launchd de `deploy/` permiten actualizaciones automáticas.
 
 ```bash

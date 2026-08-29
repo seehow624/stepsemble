@@ -89,6 +89,34 @@ test("first-login token help is translated in every supported locale", () => {
   }
 });
 
+test("first-run key onboarding is translated in every supported locale", () => {
+  const i18n = loadLocaleLayer();
+  const keys = [
+    "Save your access key",
+    "Pi Harbor created a private access key on this computer. Record it somewhere safe — like a hardware wallet, it is shown only once.",
+    "Show key",
+    "Hide key",
+    "I saved the key in a safe place",
+    "Anyone with this key can access this computer's Pi Harbor",
+    "Continue to sign in",
+    "Skip for now",
+    "Paste the key you saved to sign in.",
+    "Could not save the confirmation; try again",
+  ];
+  const english = Object.fromEntries(keys.map((key) => [key, i18n.t(key)]));
+  for (const locale of i18n.locales.map((item) => item.id)) {
+    i18n.setLocale(locale);
+    for (const key of keys) {
+      const value = i18n.t(key);
+      assert.equal(typeof value, "string");
+      if (locale !== "en") assert.notEqual(value, english[key], `${locale} should translate ${key}`);
+    }
+  }
+  // The masked key placeholder is marked data-i18n-ignore in the shell.
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  assert.match(html, /id="login-onboarding-key" class="onboarding-key masked" data-i18n-ignore/);
+});
+
 test("project picker status copy is translated in every supported locale", () => {
   const i18n = loadLocaleLayer();
   const keys = ["There are no subfolders to open", "Loading folders…", "Load failed", "Could not read folder: ", "Choose a folder first"];

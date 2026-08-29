@@ -27,6 +27,8 @@ cat ~/.config/pi-harbor/token
 
 将 token 粘贴到登录页；从其他设备使用时，也请从该主机安全地取得 token。若服务明确配置了 `PI_HARBOR_TOKEN_FILE`，请读取所配置的文件，而不是默认路径。绝不要把 token 写入 Git、问题单、聊天、截图或日志。
 
+在主机本机的浏览器首次打开 Pi Harbor 时，会提供类似冷钱包的一次性密钥揭示导览：密钥只在 loopback 连接上显示——绝不会通过 Tailscale Serve、代理或其他设备——并在你完成两项确认后永远不再出现。其他设备一律使用已保存的密钥或 token 文件。
+
 ## 多台电脑
 
 每台电脑都运行自己的 Pi Harbor 实例。在每台额外电脑上安装并启动 Pi Harbor，使用 Tailscale 或 HTTPS，然后在 **Settings → Devices → Add device** 添加地址，也可以使用五分钟有效的一次性配对码。两台电脑使用相同的 Web token；凭证保留在选定的主机上。不要将公共 3140 端口暴露给不受信任的网络。

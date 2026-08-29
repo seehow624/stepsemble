@@ -73,6 +73,13 @@ the sign-in screen. If the service was deliberately configured with
 `PI_HARBOR_TOKEN_FILE`, read that configured file instead of the default path.
 Never share the token in chat, screenshots, repositories, or logs.
 
+When a browser on the host computer itself opens Pi Harbor for the first time,
+a hardware-wallet-style onboarding offers to reveal the private access key
+once before sign-in. It is shown only on loopback connections — never through
+Tailscale Serve, a proxy, or a remote device — and only until both
+acknowledgements are saved. Afterwards the reveal never appears again; other
+devices always use the recorded key or the token file.
+
 ## Secure remote access
 
 Keep the Node port private. Use Tailscale Serve or another authenticated HTTPS

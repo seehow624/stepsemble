@@ -452,27 +452,60 @@ test("PWA updates bypass stale service-worker caches and reconcile client versio
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   assert.match(server, /rel === "sw\.js"[\s\S]*?"no-cache, no-store, must-revalidate"/);
-  assert.match(app, /const CLIENT_APP_VERSION = "2\.1\.0"/);
+  assert.match(app, /const CLIENT_APP_VERSION = "2.1.1"/);
   assert.match(app, /function checkForClientUpdate\(\)/);
   assert.match(app, /cache: "no-store"/);
   assert.match(app, /updateViaCache: "none"/);
   assert.match(app, /visibilitychange/);
   assert.match(app, /piharbor\.clientReloadAttempt/);
-  assert.match(html, /id="set-app-version">v2\.1\.0</);
+  assert.match(html, /id="set-app-version">v2\.1\.1</);
 });
 
-test("versioned application resources stay on 2.1.0", () => {
+test("versioned application resources stay on 2.1.1", () => {
   const expected = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
-  assert.equal(expected, "2.1.0");
+  assert.equal(expected, "2.1.1");
   const previous = expected.replace(/(\d+)$/, (_, patch) => String(Number(patch) - 1));
   const previousPattern = new RegExp(previous.replaceAll(".", "\\."));
   for (const file of ["server.js", "public/app.js", "public/index.html", "public/sw.js", "public/manifest.webmanifest"]) {
     const content = fs.readFileSync(path.join(root, file), "utf8");
-    assert.match(content, /2\.1\.0/);
+    assert.match(content, /2\.1\.1/);
     assert.doesNotMatch(content, previousPattern);
   }
   const changelog = fs.readFileSync(path.join(root, "CHANGELOG.md"), "utf8");
-  assert.match(changelog, /^## 2\.1\.0/m);
+  assert.match(changelog, /^## 2\.1\.1/m);
+});
+
+test("first-run key reveal is loopback-only, one-time, and gate-checked", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  // Server: strict eligibility gates before any token leaves the process.
+  assert.match(server, /const ONBOARDING_FILE = path\.join\(CONFIG_DIR, "onboarding\.json"\)/);
+  assert.match(server, /function isLoopbackRemote\(req\)/);
+  assert.match(server, /remote === "127\.0\.0\.1" \|\| remote === "::1" \|\| remote === "::ffff:127\.0\.0\.1"/);
+  assert.match(server, /function hasForwardingHeaders\(req\)/);
+  assert.match(server, /lower\.startsWith\("x-forwarded-"\) \|\| lower\.startsWith\("tailscale-"\)/);
+  assert.match(server, /function onboardingKeyEligible\(req\)/);
+  assert.match(server, /onboardingState\.tokenConfirmedAt && onboardingState\.tokenHash === TOKEN_HASH/);
+  // The key route must answer before the authed /api/ wildcard.
+  assert.ok(server.indexOf('p === "/api/onboarding/key"') >= 0);
+  assert.ok(server.indexOf('p === "/api/onboarding/key"') < server.indexOf('p.startsWith("/api/")'));
+  assert.match(server, /\{ eligible: false, confirmedAt: onboardingState\.tokenConfirmedAt \|\| null \}/);
+  assert.match(server, /mode: 0o600/);
+  // Client: two-step confirmation, masked by default, and never pre-filled.
+  assert.match(html, /id="login-onboarding" class="login-onboarding hidden"/);
+  assert.match(html, /id="login-onboarding-key" class="onboarding-key masked" data-i18n-ignore/);
+  assert.match(html, /id="onboarding-continue" class="btn primary" type="button" disabled/);
+  assert.match(html, /id="onboarding-saved" type="checkbox"/);
+  assert.match(html, /id="onboarding-understood" type="checkbox"/);
+  assert.match(app, /fetch\("\/api\/onboarding\/key", \{ credentials: "same-origin", cache: "no-store" \}\)/);
+  assert.match(app, /fetch\("\/api\/onboarding\/confirm", \{ method: "POST", credentials: "same-origin" \}\)/);
+  assert.match(app, /el\.loginOnboardingContinue\.disabled = !\(el\.loginOnboardingSaved\?\.checked && el\.loginOnboardingUnderstood\?\.checked\)/);
+  assert.match(app, /chunkOnboardingKey\("•"\.repeat\(onboardingKey\.length\)\)/);
+  // The saved token must never be written into the sign-in input.
+  assert.doesNotMatch(app, /loginToken\.value = onboardingKey/);
+  assert.match(css, /\.onboarding-key\.masked/);
 });
 
 test("2.1.0 update center covers per-device state, idle apply, and partial update-all results", () => {

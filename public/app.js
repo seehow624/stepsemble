@@ -1,7 +1,7 @@
-/* pi-harbor v2.1.0 — settings gestures, safer project browse, and first-use guidance */
+/* pi-harbor v2.1.1 — settings gestures, safer project browse, and first-use guidance */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.1.0";
+const CLIENT_APP_VERSION = "2.1.1";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -41,6 +41,11 @@ const $ = (id) => document.getElementById(id);
 const el = {
   login: $("login"), loginForm: $("login-form"), loginToken: $("login-token"),
   loginError: $("login-error"), loginMachine: $("login-machine"),
+  loginOnboarding: $("login-onboarding"), loginOnboardingKey: $("login-onboarding-key"),
+  loginOnboardingReveal: $("onboarding-reveal"), loginOnboardingCopy: $("onboarding-copy"),
+  loginOnboardingSaved: $("onboarding-saved"), loginOnboardingUnderstood: $("onboarding-understood"),
+  loginOnboardingContinue: $("onboarding-continue"), loginOnboardingSkip: $("onboarding-skip"),
+  loginOnboardedHint: $("login-onboarded-hint"),
   app: $("app"),
   viewList: $("view-list"), viewChat: $("view-chat"), viewSettings: $("view-settings"), viewModelSettings: $("view-model-settings"),
   search: $("search"), btnRefresh: $("btn-refresh"),
@@ -240,7 +245,121 @@ function showLogin() {
   closeChat(true);
   el.app.classList.add("hidden");
   el.login.classList.remove("hidden");
+  void initLoginOnboarding();
 }
+
+// ===========================================================================
+// 首次啟用存取密綰導覽（冷錢包式：本機一次性顯示，確認後不再出現）
+// ===========================================================================
+
+let onboardingKey = "";
+let onboardingKeyRevealed = false;
+let onboardingRequest = 0;
+
+function onboardingLocalized(key) {
+  return window.piI18n?.t(key) || key;
+}
+
+function chunkOnboardingKey(value) {
+  return String(value).replace(/(.{8})/g, "$1 ").trim();
+}
+
+function renderOnboardingKey() {
+  if (!el.loginOnboardingKey) return;
+  el.loginOnboardingKey.textContent = onboardingKeyRevealed
+    ? chunkOnboardingKey(onboardingKey)
+    : chunkOnboardingKey("•".repeat(onboardingKey.length));
+  el.loginOnboardingKey.classList.toggle("masked", !onboardingKeyRevealed);
+  if (el.loginOnboardingReveal) {
+    el.loginOnboardingReveal.textContent = onboardingLocalized(onboardingKeyRevealed ? "Hide key" : "Show key");
+    el.loginOnboardingReveal.setAttribute("aria-pressed", String(onboardingKeyRevealed));
+  }
+}
+
+function setOnboardingPanel(visible) {
+  // The panel replaces the sign-in form until the user records (or skips) the
+  // key, so the form and its help copy stay out of the layout while visible.
+  el.loginOnboarding.classList.toggle("hidden", !visible);
+  el.loginForm.classList.toggle("hidden", visible);
+  const help = document.querySelector(".login-help");
+  if (help) help.classList.toggle("hidden", visible);
+}
+
+async function initLoginOnboarding() {
+  if (!el.loginOnboarding) return;
+  const request = ++onboardingRequest;
+  el.loginOnboardedHint?.classList.add("hidden");
+  setOnboardingPanel(false);
+  onboardingKey = "";
+  onboardingKeyRevealed = false;
+  if (el.loginOnboardingSaved) el.loginOnboardingSaved.checked = false;
+  if (el.loginOnboardingUnderstood) el.loginOnboardingUnderstood.checked = false;
+  if (el.loginOnboardingContinue) el.loginOnboardingContinue.disabled = true;
+  renderOnboardingKey();
+  let data = null;
+  try {
+    const response = await fetch("/api/onboarding/key", { credentials: "same-origin", cache: "no-store" });
+    if (response.ok) data = await response.json();
+  } catch {}
+  if (request !== onboardingRequest) return;
+  const key = data && data.eligible && typeof data.key === "string" ? data.key : "";
+  if (!key) return;
+  onboardingKey = key;
+  setOnboardingPanel(true);
+}
+
+function finishLoginOnboarding(confirmed) {
+  setOnboardingPanel(false);
+  onboardingKey = "";
+  onboardingKeyRevealed = false;
+  if (confirmed) {
+    if (el.loginOnboardedHint) {
+      el.loginOnboardedHint.textContent = onboardingLocalized("Paste the key you saved to sign in.");
+      el.loginOnboardedHint.classList.remove("hidden");
+    }
+    el.loginToken.focus({ preventScroll: true });
+  }
+}
+
+el.loginOnboardingReveal?.addEventListener("click", () => {
+  onboardingKeyRevealed = !onboardingKeyRevealed;
+  renderOnboardingKey();
+});
+
+el.loginOnboardingCopy?.addEventListener("click", async () => {
+  if (!onboardingKey) return;
+  try {
+    await navigator.clipboard.writeText(onboardingKey);
+    toast(onboardingLocalized("Copied"));
+  } catch {
+    toast(onboardingLocalized("Copy failed"));
+  }
+});
+
+function updateOnboardingContinueState() {
+  if (el.loginOnboardingContinue) {
+    el.loginOnboardingContinue.disabled = !(el.loginOnboardingSaved?.checked && el.loginOnboardingUnderstood?.checked);
+  }
+}
+el.loginOnboardingSaved?.addEventListener("change", updateOnboardingContinueState);
+el.loginOnboardingUnderstood?.addEventListener("change", updateOnboardingContinueState);
+
+el.loginOnboardingContinue?.addEventListener("click", async () => {
+  if (!el.loginOnboardingContinue || el.loginOnboardingContinue.disabled) return;
+  el.loginOnboardingContinue.disabled = true;
+  try {
+    // A failed confirmation only means the panel may be offered again; the
+    // sign-in flow itself is never blocked by it.
+    const response = await fetch("/api/onboarding/confirm", { method: "POST", credentials: "same-origin" });
+    if (!response.ok) throw new Error(String(response.status));
+    finishLoginOnboarding(true);
+  } catch {
+    el.loginOnboardingContinue.disabled = false;
+    toast(onboardingLocalized("Could not save the confirmation; try again"));
+  }
+});
+
+el.loginOnboardingSkip?.addEventListener("click", () => finishLoginOnboarding(false));
 
 async function boot() {
   applyAppearance();

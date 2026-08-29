@@ -6,10 +6,10 @@
 <title>Pi Harbor</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=2.1.0">
-<link rel="icon" href="/pi-logo.svg?v=2.1.0" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-180.png?v=2.1.0">
-<link rel="stylesheet" href="/style.css?v=2.1.0">
+<link rel="manifest" href="/manifest.webmanifest?v=2.1.1">
+<link rel="icon" href="/pi-logo.svg?v=2.1.1" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png?v=2.1.1">
+<link rel="stylesheet" href="/style.css?v=2.1.1">
 </head>
 <body>
 
@@ -45,6 +45,24 @@
     <div class="login-mark brand-mark" role="img" aria-label="Pi Harbor"></div>
     <h1>Pi Harbor</h1>
     <p class="login-machine" id="login-machine"></p>
+    <section id="login-onboarding" class="login-onboarding hidden" aria-labelledby="onboarding-title">
+      <h2 id="onboarding-title">Save your access key</h2>
+      <p class="onboarding-intro">Pi Harbor created a private access key on this computer. Record it somewhere safe — like a hardware wallet, it is shown only once.</p>
+      <div class="onboarding-key-row">
+        <code id="login-onboarding-key" class="onboarding-key masked" data-i18n-ignore>•••••••• •••••••• •••••••• •••••••• •••••••• •••••••• •••••••• ••••••••</code>
+        <div class="onboarding-key-actions">
+          <button id="onboarding-reveal" class="btn ghost" type="button" aria-pressed="false">Show key</button>
+          <button id="onboarding-copy" class="btn ghost" type="button">Copy</button>
+        </div>
+      </div>
+      <label class="onboarding-check"><input id="onboarding-saved" type="checkbox"> <span>I saved the key in a safe place</span></label>
+      <label class="onboarding-check"><input id="onboarding-understood" type="checkbox"> <span>Anyone with this key can access this computer's Pi Harbor</span></label>
+      <div class="onboarding-actions">
+        <button id="onboarding-continue" class="btn primary" type="button" disabled>Continue to sign in</button>
+        <button id="onboarding-skip" class="btn ghost" type="button">Skip for now</button>
+      </div>
+    </section>
+    <p id="login-onboarded-hint" class="login-onboarded-hint hidden">Paste the key you saved to sign in.</p>
     <form id="login-form">
       <input id="login-token" type="password" inputmode="text" autocomplete="current-password"
              placeholder="Token" required>
@@ -251,7 +269,7 @@
         <h3 class="group-title">About</h3>
         <div class="settings-row">
           <span><strong>Pi Harbor</strong><small>Mobile-first remote workspace for Pi</small></span>
-          <span class="settings-value" id="set-app-version">v2.1.0</span>
+          <span class="settings-value" id="set-app-version">v2.1.1</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -620,9 +638,9 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=2.1.0"></script>
-<script src="/modules/app-foundation.js?v=2.1.0"></script>
-<script src="/modules/session-utils.js?v=2.1.0"></script>
-<script src="/app.js?v=2.1.0"></script>
+<script src="/i18n.js?v=2.1.1"></script>
+<script src="/modules/app-foundation.js?v=2.1.1"></script>
+<script src="/modules/session-utils.js?v=2.1.1"></script>
+<script src="/app.js?v=2.1.1"></script>
 </body>
 </html>
