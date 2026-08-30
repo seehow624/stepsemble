@@ -111,6 +111,23 @@ test("stats request identity rejects stale session, view, or device responses", 
   assert.equal(context.isContextRequestCurrent(request, { sid: "sid-a", generation: 3, base: "" }), false);
 });
 
+test("image attachment normalization is idempotent so gallery clicks open the lightbox", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const chunk = app.match(/const SAFE_IMAGE_DATA_URL[\s\S]*?function normalizeImageAttachment[\s\S]*?\n}/);
+  assert.ok(chunk, "normalizeImageAttachment source found");
+  const normalize = new Function(`${chunk[0]}; return normalizeImageAttachment;`)();
+  const dataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const first = normalize({ data: dataUrl, mimeType: "image/png" });
+  assert.equal(first && first.src, dataUrl);
+  // The gallery click handler passes the already-normalized item back through
+  // this function; a second pass must not reject it or the lightbox never opens.
+  const second = normalize(first);
+  assert.ok(second, "already-normalized attachment stays valid");
+  assert.equal(second.src, dataUrl);
+  assert.equal(normalize({ src: "javascript:alert(1)" }), null);
+  assert.equal(normalize({ src: "data:text/html;base64,AAAA" }), null);
+});
+
 test("context sync lifecycle and responsive composer wiring are event-driven", () => {
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");

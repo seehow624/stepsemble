@@ -1,4 +1,4 @@
-/* pi-harbor v2.2.4 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.2.5 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -3431,11 +3431,13 @@ body.compact #view-list .project-group-items .session-item {
 }
 #view-chat .composer-model-control .icon { width: 14px; height: 14px; flex: 0 0 auto; }
 
-/* Inline context indicator: a compact circular progress ring beside the
-   usage numbers, so the toolbar stays on a single row. */
+/* Inline context indicator: a compact circular progress ring with the usage
+   numbers, parked hard against the details button on the right so the free
+   toolbar space stays between the model chip and the indicator. */
 #view-chat .context-dashboard {
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
+  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 7px;

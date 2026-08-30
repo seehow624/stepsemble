@@ -1,7 +1,7 @@
-/* pi-harbor v2.2.4 — settings gestures, safer project browse, and first-use guidance */
+/* pi-harbor v2.2.5 — settings gestures, safer project browse, and first-use guidance */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.2.4";
+const CLIENT_APP_VERSION = "2.2.5";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -2004,6 +2004,11 @@ function normalizeImageAttachment(image) {
   const source = image && typeof image === "object" && image.source && typeof image.source === "object" ? image.source : null;
   let raw = typeof image === "string" ? image : image?.data;
   if (!raw && source) raw = source.data;
+  // Already-normalized items ({src, mimeType}) come straight back from the
+  // gallery click handler; without this pass the second normalization saw no
+  // `data` field and silently rejected every image, so the lightbox never
+  // opened. Keep the function idempotent and still validate the URL below.
+  if (!raw && typeof image?.src === "string") raw = image.src;
   let src = String(raw || "").replace(/\s+/g, "");
   if (!src.startsWith("data:")) {
     const mimeType = String(image?.mimeType || image?.mediaType || source?.mimeType || source?.media_type || "image/jpeg").toLowerCase();

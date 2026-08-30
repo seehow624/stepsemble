@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.2.5
+
+- Fixed chat image enlarging: tapping or clicking a chat image never opened
+  the viewer because the gallery handler re-normalized an already-normalized
+  attachment and silently rejected it. Normalization is now idempotent, so
+  sent and received images open full-screen again, with a regression test.
+- The context ring and its numbers now sit directly beside the usage-details
+  button on the right, leaving the free toolbar space between the model chip
+  and the indicator.
+
 ## 2.2.4
 
 - The context progress bar became a compact circular progress ring beside the
