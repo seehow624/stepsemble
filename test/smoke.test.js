@@ -460,23 +460,23 @@ test("PWA updates bypass stale service-worker caches and reconcile client versio
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   assert.match(server, /rel === "sw\.js"[\s\S]*?"no-cache, no-store, must-revalidate"/);
-  assert.match(app, /const CLIENT_APP_VERSION = "2.2.0"/);
+  const currentVersion = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
+  assert.match(app, new RegExp(`const CLIENT_APP_VERSION = "${currentVersion.replaceAll(".", "\\.")}"`));
   assert.match(app, /function checkForClientUpdate\(\)/);
   assert.match(app, /cache: "no-store"/);
   assert.match(app, /updateViaCache: "none"/);
   assert.match(app, /visibilitychange/);
   assert.match(app, /piharbor\.clientReloadAttempt/);
-  assert.match(html, /id="set-app-version">v2\.2\.0</);
+  assert.match(html, new RegExp(`id="set-app-version">v${currentVersion.replaceAll(".", "\\.")}`));
 });
 
-test("versioned application resources stay synchronized at 2.2.0", () => {
+test("versioned application resources stay synchronized with package.json", () => {
   const script = path.join(root, "scripts", "version.mjs");
-  const result = require("node:child_process").spawnSync(process.execPath, [script, "check", "2.2.0"], { encoding: "utf8" });
-  assert.equal(result.status, 0, result.stderr || result.stdout);
   const expected = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
-  assert.equal(expected, "2.2.0");
+  const result = require("node:child_process").spawnSync(process.execPath, [script, "check", expected], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
   const changelog = fs.readFileSync(path.join(root, "CHANGELOG.md"), "utf8");
-  assert.match(changelog, /^## 2\.2\.0/m);
+  assert.match(changelog, new RegExp(`^## ${expected.replaceAll(".", "\\.")}$`, "m"));
 });
 
 test("first-run key reveal is loopback-only, one-time, and gate-checked", () => {
@@ -636,6 +636,9 @@ test("first-use help and setup guide cover token, devices, providers, and progre
   assert.match(app, /ONBOARDING_KEY/);
   assert.match(app, /ONBOARDING_ACTIONABLE_STEPS/);
   assert.match(app, /Settings → Devices → Add device/);
+  assert.match(app, /Prefer one-time pairing for an independent, revocable credential/);
+  assert.match(app, /only manual URL entry requires the same Web token/);
+  assert.doesNotMatch(app, /Use the same Web token on both computers; device credentials stay/);
   assert.match(app, /Settings → Connection → Models & providers/);
   assert.match(app, /account\/OAuth sign-in/);
   assert.match(app, /local service, or Custom provider/);

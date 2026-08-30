@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.1
+
+- Corrected all 11 setup-guide locales to recommend independent `PIHARBOR3`
+  credentials and reserve the shared Web token only for legacy manual URL entry.
+
 ## 2.2.0
 
 - Added one-time `PIHARBOR3` pairing with independent, revocable per-peer
