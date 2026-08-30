@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.2.2
+
+- Added an always-visible conversation context dashboard in the composer: current
+  context used versus model capacity, percentage, cumulative input/output tokens,
+  cache-hit tokens, cache-hit percentage, and cache writes, sourced from Pi's
+  authoritative `get_session_stats` (never from cumulative totals).
+- Unknown context estimates after compaction are shown honestly while retaining
+  known capacity and totals; no polling — stats refresh on open, assistant
+  message completion, compaction, model changes, and run boundaries.
+- The model & reasoning control is now compact and sits beside Send/Stop;
+  the freed toolbar space carries the dashboard (three-column metrics on
+  mobile, single row on desktop) with 320px-safe, reduced-motion, and
+  screen-reader support in all 11 languages.
+- Session/history wire formats now preserve Pi's full usage components
+  (input/output/cacheRead/cacheWrite and nested cost) alongside legacy totals.
+
 ## 2.2.1
 
 - Corrected all 11 setup-guide locales to recommend independent `PIHARBOR3`

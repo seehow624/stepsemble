@@ -20,7 +20,9 @@ function loadBrowserModule(file, { storage = null, piI18n = null } = {}) {
   vm.runInNewContext(fs.readFileSync(path.join(root, "public", "modules", file), "utf8"), context, {
     filename: path.join(root, "public", "modules", file),
   });
-  return { value: window[file === "app-foundation.js" ? "piHarborFoundation" : "piHarborSessionUtils"], storage };
+  const globalName = file === "app-foundation.js" ? "piHarborFoundation"
+    : file === "context-usage.js" ? "piHarborContextUtils" : "piHarborSessionUtils";
+  return { value: window[globalName], storage };
 }
 
 test("frontend foundation normalizes preferences and preserves selected device state", () => {

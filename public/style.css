@@ -1,4 +1,4 @@
-/* pi-harbor v2.2.1 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.2.2 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -3374,3 +3374,200 @@ body.compact #view-list .project-group-items .session-item {
   padding-top: 0;
   padding-bottom: 0;
 }
+
+/* v2.2 — authoritative current-conversation context dashboard */
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+#view-chat { min-width: 0; overflow-x: hidden; }
+#view-chat .composer-inner { display: block; min-width: 0; }
+#view-chat .composer-controls-row {
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+}
+#view-chat .context-dashboard {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  overflow: hidden;
+  color: var(--pine-soft);
+  font-variant-numeric: tabular-nums;
+}
+#view-chat .context-dashboard-main {
+  min-width: 118px;
+  flex: 0 1 168px;
+}
+#view-chat .context-dashboard-head {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 7px;
+}
+#view-chat .context-dashboard-heading {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  overflow: hidden;
+  font-size: .62rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+#view-chat .context-dashboard-heading strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+#view-chat .context-dashboard-context-value {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  color: var(--ink);
+  font: 600 .72rem/1.2 var(--mono);
+  white-space: nowrap;
+}
+#view-chat .context-dashboard-context-value > span:last-child {
+  margin-left: 3px;
+  color: var(--accent);
+}
+#view-chat .context-progress {
+  width: 100%;
+  height: 4px;
+  margin-top: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pine-soft) 16%, transparent);
+}
+#view-chat .context-progress > span {
+  display: block;
+  width: var(--context-progress, 0%);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width .2s ease, background-color .2s ease;
+}
+#view-chat .context-dashboard[data-context-state="warning"] .context-progress > span { background: var(--warn); }
+#view-chat .context-dashboard[data-context-state="critical"] .context-progress > span { background: var(--err); }
+#view-chat .context-dashboard[data-context-state="unknown"] .context-progress > span { background: var(--pine-soft); opacity: .35; }
+#view-chat .context-dashboard-metrics {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+}
+#view-chat .context-metric {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+  overflow: hidden;
+}
+#view-chat .context-metric > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pine-soft);
+  font-size: .58rem;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#view-chat .context-metric > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font: 600 .68rem/1.2 var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#view-chat .context-dashboard-status {
+  flex: 0 0 auto;
+  max-width: 104px;
+  overflow: hidden;
+  margin: 0;
+  color: var(--pine-soft);
+  font-size: .58rem;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#view-chat .composer-toolbar {
+  min-width: 0;
+  flex: 0 0 auto;
+}
+#view-chat .composer-model-control {
+  width: fit-content;
+  min-width: 96px;
+  max-width: min(220px, 28vw);
+  flex: 0 1 auto;
+}
+#view-chat .composer-model-control > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#view-chat .composer-controls-row,
+#view-chat .composer-toolbar,
+#view-chat .composer-model-control { max-width: 100%; }
+html.reduced-motion #view-chat .context-progress > span { transition: none; }
+
+@media (max-width: 979px) {
+  #view-chat .composer-controls-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 5px;
+  }
+  #view-chat .context-dashboard {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+  }
+  #view-chat .context-dashboard-main { width: 100%; }
+  #view-chat .context-dashboard-metrics {
+    width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px 10px;
+  }
+  #view-chat .context-dashboard-status {
+    max-width: none;
+    min-height: 0;
+  }
+  #view-chat .composer-toolbar {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  #view-chat .composer-model-control {
+    max-width: min(180px, calc(100vw - 150px));
+  }
+}
+
+@media (max-width: 360px) {
+  #view-chat .context-dashboard { gap: 4px; }
+  #view-chat .context-dashboard-metrics { gap: 4px 7px; }
+  #view-chat .context-metric > span { font-size: .56rem; }
+  #view-chat .context-metric > strong { font-size: .64rem; }
+  #view-chat .composer-model-control { min-width: 92px; max-width: calc(100vw - 142px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #view-chat .context-progress > span { transition: none; }
+}
+
+/* The composer dashboard is the single authoritative session-usage summary. */
+#view-chat .session-usage { display: none !important; }

@@ -1,7 +1,7 @@
-/* pi-harbor v2.2.1 — settings gestures, safer project browse, and first-use guidance */
+/* pi-harbor v2.2.2 — settings gestures, safer project browse, and first-use guidance */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.2.1";
+const CLIENT_APP_VERSION = "2.2.2";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -9,7 +9,8 @@ const CLIENT_APP_VERSION = "2.2.1";
 // being duplicated across future feature modules.
 const foundation = window.piHarborFoundation;
 const sessionUtils = window.piHarborSessionUtils;
-if (!foundation || !sessionUtils) throw new Error("Pi Harbor foundation modules are missing");
+const contextUtils = window.piHarborContextUtils;
+if (!foundation || !sessionUtils || !contextUtils) throw new Error("Pi Harbor foundation modules are missing");
 const {
   SELECTED_KEY, SETTINGS_KEY, LEGACY_SETTINGS_KEY, LEGACY_SETTINGS_KEYS, SETTINGS_VERSION,
   DESIGN_THEMES, DESIGN_THEME_IDS, DEFAULT_SETTINGS,
@@ -22,6 +23,11 @@ const {
   stripMd, fmtTime, fmtTokens, projectFolderName,
   activityReceiptStats, computeActivityReceipt,
 } = sessionUtils;
+const {
+  finiteNonNegative, positiveFinite, normalizeWireUsage, normalizeSessionStats, mergeContextCapacity,
+  computeCacheHitRate, formatTokenCount, formatPercent, usageTotalTokens, usageCostTotal,
+  isContextRequestCurrent,
+} = contextUtils;
 
 let machines = [];        // [{id,name,host,url,managed,self}] 由 GET /api/machines 下發
 let selfId = null;
@@ -58,6 +64,11 @@ const el = {
   btnBack: $("btn-back"), chatTitle: $("chat-title"), chatSub: $("chat-sub"),
   chatHeadInfo: $("chat-head-info"), thinkingStatus: $("thinking-status"), btnChatMenu: $("btn-chat-menu"),
   messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"),
+  contextDashboard: $("context-dashboard"), contextProgress: $("context-progress"), contextProgressFill: $("context-progress-fill"),
+  contextUsed: $("context-used"), contextCapacity: $("context-capacity"), contextPercent: $("context-percent"),
+  contextInput: $("context-input"), contextOutput: $("context-output"), contextCacheHit: $("context-cache-hit"),
+  contextCacheHitPercent: $("context-cache-hit-percent"), contextCacheWrite: $("context-cache-write"),
+  contextDashboardStatus: $("context-dashboard-status"), contextDashboardSummary: $("context-dashboard-summary"),
   chatEmpty: $("chat-empty"), chatEmptyNewProject: $("chat-empty-new-project"), slashMenu: $("slash-menu"),
   input: $("input"), btnSend: $("btn-send"), btnAbort: $("btn-abort"), btnModel: $("btn-model"),
   sessionCount: $("session-count"), btnLayout: $("btn-layout"),
@@ -170,8 +181,13 @@ let refreshRequest = null;
 let refreshSequence = 0;
 let autoScrollPinned = true;
 let scrollFrame = null;
-let sessionUsage = { tokens: 0, cost: 0 };
+let sessionUsage = { tokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
 let sessionUsageFooter = null;
+let composerModelContextWindow = null;
+let contextStats = null;
+let contextStatsState = "awaiting"; // awaiting | ready | unavailable
+let contextStatsRequest = null;
+let contextStatsRequestSequence = 0;
 let extensionUiRequest = null;
 let activityWatchdog = null;
 let expandedPinnedSessions = false;
@@ -290,6 +306,7 @@ function applyAppearance() {
   document.body.classList.toggle("compact", !!settings.compact);
   html.classList.toggle("reduced-motion", !!settings.reducedMotion);
   window.piI18n?.setLocale(settings.locale || "en");
+  renderContextDashboard();
 }
 
 matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", () => {
@@ -1685,8 +1702,11 @@ async function connectRpc(opts, generation = viewGeneration) {
     showList();
     return;
   }
-  refreshCommands(rpc?.sid);
-  syncComposerState(rpc?.sid);
+  void refreshCommands(rpc?.sid);
+  void syncComposerState(rpc?.sid);
+  // get_session_stats is the authoritative source for current context and
+  // cumulative usage. It is intentionally fetched once on open, not polled.
+  void syncSessionStats(rpc?.sid);
 }
 
 function closeChat(silent) {
@@ -1734,13 +1754,24 @@ function scrollBottom(force = false) {
     updateScrollBottomButton();
   });
 }
+function addUsageToLocalTotal(target, raw) {
+  const usage = normalizeWireUsage(raw);
+  if (!usage) return;
+  for (const key of ["input", "output", "cacheRead", "cacheWrite"]) {
+    const value = finiteNonNegative(usage[key]);
+    if (value !== null) target[key] += value;
+  }
+  const total = usageTotalTokens(usage);
+  if (total !== null) target.tokens += total;
+  const cost = usageCostTotal(usage);
+  if (cost !== null) target.cost += cost;
+}
+
 function resetSessionUsage(seed = null) {
-  const tokens = Number(seed?.tokens);
-  const cost = Number(seed?.cost);
-  sessionUsage = {
-    tokens: Number.isFinite(tokens) && tokens > 0 ? tokens : 0,
-    cost: Number.isFinite(cost) && cost > 0 ? cost : 0,
-  };
+  sessionUsage = { tokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+  const seedUsage = normalizeWireUsage(seed?.usage)
+    || normalizeWireUsage({ tokens: seed?.tokens, cost: seed?.cost });
+  addUsageToLocalTotal(sessionUsage, seedUsage);
   sessionUsageFooter = null;
 }
 function keepSessionUsageAtEnd() {
@@ -1759,7 +1790,7 @@ function ensureSessionUsageFooter() {
   if (!sessionUsageFooter || sessionUsageFooter.parentElement !== el.messages) {
     sessionUsageFooter = document.createElement("div");
     sessionUsageFooter.className = "session-usage hidden";
-    sessionUsageFooter.setAttribute("aria-label", "本次對話用量");
+    sessionUsageFooter.setAttribute("aria-label", "Conversation usage");
     el.messages.appendChild(sessionUsageFooter);
   }
   updateSessionUsageFooter();
@@ -1768,11 +1799,163 @@ function ensureSessionUsageFooter() {
 }
 function addSessionUsage(u) {
   if (!u) return;
-  const tokens = Number(u.tokens);
-  const cost = Number(u.cost);
-  if (Number.isFinite(tokens) && tokens > 0) sessionUsage.tokens += tokens;
-  if (Number.isFinite(cost) && cost > 0) sessionUsage.cost += cost;
+  addUsageToLocalTotal(sessionUsage, u);
   ensureSessionUsageFooter();
+}
+
+function resetContextDashboard() {
+  contextStatsRequestSequence += 1;
+  // The old Promise cannot be cancelled through the RPC relay; dropping its
+  // handle plus the sequence guard prevents it from being coalesced with the
+  // next session's request.
+  contextStatsRequest = null;
+  contextStats = null;
+  contextStatsState = "awaiting";
+  composerModelContextWindow = null;
+  renderContextDashboard();
+}
+
+function markContextStatsAwaiting() {
+  contextStatsState = "awaiting";
+  if (contextStats?.contextUsage) {
+    // Compaction invalidates only the current-context estimate. Keep the last
+    // known cumulative totals and capacity visible until the authoritative
+    // post-compaction stats response arrives.
+    contextStats = {
+      ...contextStats,
+      contextUsage: { ...contextStats.contextUsage, tokens: null, percent: null },
+    };
+  }
+  renderContextDashboard();
+}
+
+function contextDashboardIdentity() {
+  return { sid: rpc?.sid || null, generation: viewGeneration, base: apiBase };
+}
+
+function contextStatsRequestIsCurrent(request) {
+  return isContextRequestCurrent(request, contextDashboardIdentity())
+    && request.sequence === contextStatsRequestSequence;
+}
+
+function renderContextDashboard() {
+  if (!el.contextDashboard) return;
+  const statsForValues = contextStatsState === "unavailable" ? null : contextStats;
+  const usage = statsForValues?.tokens || {};
+  const contextUsage = statsForValues?.contextUsage || null;
+  const used = finiteNonNegative(contextUsage?.tokens);
+  const capacity = contextStatsState === "unavailable"
+    ? positiveFinite(composerModelContextWindow)
+      ?? positiveFinite(contextStats?.contextCapacity)
+    : positiveFinite(contextUsage?.contextWindow)
+      ?? positiveFinite(contextStats?.contextCapacity)
+      ?? positiveFinite(composerModelContextWindow);
+  // Pi's contextUsage.percent is authoritative. Do not derive this from the
+  // cumulative token totals: those totals survive compaction and count work
+  // which is no longer in the current prompt context.
+  const percent = finiteNonNegative(contextUsage?.percent);
+  const cacheHitPercent = computeCacheHitRate(usage);
+  const setValue = (node, value) => { if (node) node.textContent = value; };
+  setValue(el.contextUsed, formatTokenCount(used));
+  setValue(el.contextCapacity, formatTokenCount(capacity));
+  setValue(el.contextPercent, formatPercent(percent));
+  setValue(el.contextInput, formatTokenCount(usage.input));
+  setValue(el.contextOutput, formatTokenCount(usage.output));
+  setValue(el.contextCacheHit, formatTokenCount(usage.cacheRead));
+  setValue(el.contextCacheHitPercent, formatPercent(cacheHitPercent));
+  setValue(el.contextCacheWrite, formatTokenCount(usage.cacheWrite));
+
+  const progressState = percent === null ? "unknown" : percent > 90 ? "critical" : percent > 70 ? "warning" : "normal";
+  el.contextDashboard.dataset.contextState = progressState;
+  if (el.contextProgress) {
+    el.contextProgress.setAttribute("aria-valuetext", formatPercent(percent));
+    if (percent === null) {
+      el.contextProgress.style.setProperty("--context-progress", "0%");
+      el.contextProgress.removeAttribute("aria-valuenow");
+    } else {
+      const progress = Math.min(100, Math.max(0, percent));
+      el.contextProgress.style.setProperty("--context-progress", `${progress}%`);
+      el.contextProgress.setAttribute("aria-valuenow", String(progress));
+    }
+  }
+
+  const summary = tKey("contextDashboard.summary", {
+    used: formatTokenCount(used), capacity: formatTokenCount(capacity), percent: formatPercent(percent),
+    input: formatTokenCount(usage.input), output: formatTokenCount(usage.output),
+    cacheHit: formatTokenCount(usage.cacheRead), cacheHitPercent: formatPercent(cacheHitPercent),
+    cacheWrite: formatTokenCount(usage.cacheWrite),
+  });
+  if (el.contextDashboardSummary) el.contextDashboardSummary.textContent = summary;
+  const contextValue = el.contextDashboard.querySelector?.(".context-dashboard-context-value");
+  if (contextValue) contextValue.setAttribute("aria-label", summary);
+  if (el.contextDashboard) el.contextDashboard.setAttribute("aria-label", tKey("contextDashboard.context"));
+  if (el.contextProgress) el.contextProgress.setAttribute("aria-label", tKey("contextDashboard.context"));
+  if (el.contextDashboardStatus) {
+    const status = contextStatsState === "unavailable"
+      ? tKey("contextDashboard.unavailable")
+      : (!contextStats || contextStatsState === "awaiting" || used === null || percent === null
+        ? tKey("contextDashboard.awaiting") : "");
+    el.contextDashboardStatus.textContent = status;
+    el.contextDashboardStatus.classList.toggle("hidden", !status);
+  }
+}
+
+/** Fetch exact current-context and cumulative session stats, without polling. */
+function syncSessionStats(expectedSid = rpc?.sid) {
+  if (!expectedSid || !rpc || rpc.sid !== expectedSid) return Promise.resolve(null);
+  const identity = { sid: expectedSid, generation: viewGeneration, base: apiBase };
+  const active = contextStatsRequest;
+  if (active && isContextRequestCurrent(active, identity)) {
+    // A response already in flight may predate the event that requested this
+    // refresh. Coalesce it, then perform one follow-up after it settles.
+    active.needsRefresh = true;
+    return active.promise;
+  }
+  const request = {
+    ...identity,
+    sequence: ++contextStatsRequestSequence,
+    needsRefresh: false,
+    promise: null,
+  };
+  const promise = rpcCmd(expectedSid, { type: "get_session_stats" })
+    .then((response) => {
+      if (!contextStatsRequestIsCurrent(request)) return null;
+      // A lifecycle event arrived while this response was in flight. Do not
+      // paint a snapshot that predates that event; the coalesced follow-up
+      // below will become the settled value.
+      if (request.needsRefresh) return null;
+      if (!response?.success) {
+        contextStatsState = "unavailable";
+        renderContextDashboard();
+        return null;
+      }
+      const normalized = normalizeSessionStats(response.data, composerModelContextWindow);
+      contextStats = normalized;
+      contextStatsState = normalized.available ? "ready" : "unavailable";
+      renderContextDashboard();
+      return normalized;
+    })
+    .catch(() => {
+      if (contextStatsRequestIsCurrent(request)) {
+        contextStatsState = "unavailable";
+        renderContextDashboard();
+      }
+      return null;
+    });
+  request.promise = promise;
+  contextStatsRequest = request;
+  promise.then(() => {
+    if (contextStatsRequest !== request) return;
+    contextStatsRequest = null;
+    if (!request.needsRefresh || !contextStatsRequestIsCurrent(request)) return;
+    request.needsRefresh = false;
+    queueMicrotask(() => {
+      if (contextStatsRequestIsCurrent(request)) void syncSessionStats(request.sid);
+    });
+  }, () => {
+    if (contextStatsRequest === request) contextStatsRequest = null;
+  });
+  return promise;
 }
 el.messages.addEventListener("scroll", () => {
   const distance = messageDistanceFromBottom();
@@ -2346,9 +2529,15 @@ function appendHistoryMessage(m, container = el.messages) {
   }
 }
 function usageTag(u) {
+  const usage = normalizeWireUsage(u) || {};
+  const total = usageTotalTokens(usage);
+  const cost = usageCostTotal(usage);
   const d = document.createElement("div");
   d.className = "usage-tag";
-  d.textContent = `${fmtTokens(u.tokens)} tok` + (u.cost != null ? ` · $${Number(u.cost).toFixed(4)}` : "");
+  const parts = [];
+  if (total !== null) parts.push(`${formatTokenCount(total)} tok`);
+  if (cost !== null) parts.push(`$${Number(cost).toFixed(4)}`);
+  d.textContent = parts.join(" · ");
   return d;
 }
 function attachMessageUsage(wrap, usage, activity = null) {
@@ -2664,6 +2853,11 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
     case "compaction_end":
       el.queueNote.classList.add("hidden");
       appendContextDivider("Context compacted");
+      markContextStatsAwaiting();
+      // Pi reports null contextUsage tokens/percent immediately after this
+      // event; fetch now so the dashboard honestly shows the transient unknown
+      // state and is refreshed again after the next settled assistant reply.
+      void syncSessionStats(eventSid);
       break;
     case "summarization_retry_scheduled":
       setActivityLabel("retrying");
@@ -2717,6 +2911,9 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
     case "message_end": {
       const m = ev.message;
       if (m && m.role === "assistant") {
+        // message_end.message is the authoritative assistant snapshot. The
+        // request is coalesced if another lifecycle trigger is already waiting.
+        void syncSessionStats(eventSid);
         const current = pendingAssistant;
         const full = wireFromAgentMessage(m);
         noteRunFinalResponse(full);
@@ -2830,6 +3027,9 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       break;
     }
     case "agent_settled":
+      // This terminal boundary catches runs that ended without a normal
+      // assistant message_end and makes the settled dashboard authoritative.
+      void syncSessionStats(eventSid);
       if (lastRunFailure && !runFailureRendered) renderRunFailure(lastRunFailure);
       if (activeActivityRun) {
         if (lastRunFailure) setRunOutcome(lastRunFailure.stopReason === "aborted" ? "interrupted" : "failed", lastRunFailure);
@@ -2844,11 +3044,20 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       clearActivityNote();
       break;
     case "response":
-      if (ev.command === "get_state" && ev.success && ev.data?.sessionFile) {
-        trackCurrentSessionFile(ev.data.sessionFile);
+      if (ev.command === "get_state" && ev.success) {
+        applyComposerState(ev.data);
+        if (ev.data?.sessionFile) trackCurrentSessionFile(ev.data.sessionFile);
+      }
+      if ((ev.command === "set_model" || ev.command === "cycle_model") && ev.success) {
+        void syncComposerState(eventSid);
+        void syncSessionStats(eventSid);
       }
       break;
     case "rpc_exit":
+      // A process exit is also a terminal run boundary when the peer closes
+      // before agent_settled. The request may fail, but the identity guards
+      // keep a late response from a replaced session out of the dashboard.
+      void syncSessionStats(eventSid);
       if (rpc?.sid === eventSid) {
         rpc.streamEnded = true;
         if (rpc.reconnectTimer) clearTimeout(rpc.reconnectTimer);
@@ -2912,10 +3121,7 @@ function wireFromAgentMessage(m) {
     out.images = parts.length;
     out.imageAttachments = parts.map(normalizeImageAttachment).filter(Boolean);
   }
-  if (m.usage) out.usage = {
-    tokens: (m.usage.input||0)+(m.usage.output||0)+(m.usage.cacheRead||0)+(m.usage.cacheWrite||0),
-    cost: m.usage.cost?.total ?? null,
-  };
+  if (m.usage) out.usage = normalizeWireUsage(m.usage);
   return out;
 }
 
@@ -3370,6 +3576,7 @@ function trackCurrentSessionFile(absPath) {
 function resetComposerSummary() {
   composerModelName = "";
   composerReasoningLevel = "off";
+  resetContextDashboard();
   updateComposerSummary();
 }
 function updateComposerSummary(modelName, thinkingLevel) {
@@ -3389,8 +3596,18 @@ function applyComposerState(data) {
   const model = data?.model;
   const modelName = model?.name || model?.id || "";
   const level = data?.thinkingLevel || "off";
+  if (data && Object.prototype.hasOwnProperty.call(data, "model")) {
+    composerModelContextWindow = positiveFinite(model?.contextWindow);
+    if (contextStats) {
+      contextStats = {
+        ...contextStats,
+        contextCapacity: mergeContextCapacity(contextStats.contextUsage, composerModelContextWindow),
+      };
+    }
+  }
   el.thinkingSelect.value = level;
   updateComposerSummary(modelName, level);
+  renderContextDashboard();
 }
 async function syncComposerState(expectedSid = rpc?.sid) {
   if (!expectedSid || !rpc || rpc.sid !== expectedSid) return;
@@ -3457,8 +3674,13 @@ function renderModelList(currentId) {
       const expectedSid = rpc?.sid;
       if (!expectedSid) return;
       try {
-        await rpcCmd(expectedSid, { type: "set_model", provider: m.provider, modelId: m.id });
+        const result = await rpcCmd(expectedSid, { type: "set_model", provider: m.provider, modelId: m.id });
         if (!rpc || rpc.sid !== expectedSid) return;
+        if (result?.success === false) throw new Error(result.error || "RPC rejected");
+        // Re-read get_state for the selected model's capacity; only that
+        // state response is used as the dashboard's capacity fallback.
+        void syncComposerState(expectedSid);
+        void syncSessionStats(expectedSid);
         toast("模型：" + (m.name || m.id));
         updateComposerSummary(m.name || m.id, undefined);
         renderModelList(m.id);
@@ -4147,6 +4369,7 @@ el.onboardingLanguage?.addEventListener("change", () => {
   window.piI18n?.setLocale(settings.locale);
   renderOnboarding();
   renderSettings();
+  renderContextDashboard();
 });
 el.onboardingAppearance?.addEventListener("change", () => {
   settings = saveSettings({ theme: el.onboardingAppearance.value });
@@ -5672,6 +5895,7 @@ el.setLocale?.addEventListener("change", () => {
   renderSessionList(el.search?.value || "");
   renderMachineSwitch();
   updateComposerSummary();
+  renderContextDashboard();
   if (rpc?.streaming) setActivityLabel(rpc.activityLabel || "thinking");
   refreshActivityReceipts();
   renderTemporarySessionFilter(temporarySessionCount);

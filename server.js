@@ -31,12 +31,20 @@ const {
   pairingCandidate,
   createDeviceTrustStore,
 } = require("./server/device-trust");
+const {
+  normalizeWireUsage,
+  usageTotalTokens,
+  usageCostTotal,
+  createUsageTotals,
+  addUsageTotals,
+  usageTotalsToWire,
+} = require("./public/modules/context-usage");
 
 // ---------------------------------------------------------------------------
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.2.1";
+const APP_VERSION = "2.2.2";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1015,55 +1023,64 @@ function isTemporarySessionCwd(cwd) {
 }
 
 async function parseSessionFile(absPath) {
-  // 回傳 {id, cwd, name, startedAt, lastActivity, messages, toolCalls, tokens, cost, preview, userCount}
+  // Keep the legacy scalar tokens/cost fields for session-list clients, while
+  // carrying every Pi usage component for newer consumers.
   const out = {
     id: null, cwd: "", name: null,
     startedAt: null, lastActivity: null,
-    messages: 0, toolCalls: 0, tokens: 0, cost: 0,
+    messages: 0, toolCalls: 0, tokens: 0, cost: 0, usage: null,
     preview: "", userCount: 0,
   };
+  const usageTotals = createUsageTotals();
   try {
     for await (const line of sessionLines(absPath)) {
-    if (!line) continue;
-    let e;
-    try { e = JSON.parse(line); } catch { continue; }
-    if (e.type === "session") {
-      out.id = e.id || null;
-      out.cwd = e.cwd || "";
-      out.startedAt = e.timestamp || null;
-      continue;
-    }
-    if (e.type === "session_info") {
-      out.name = (e.name && e.name.trim()) || null; // 最新一條為準（含清空）
-      continue;
-    }
-    if (e.type !== "message" || !e.message) continue;
-    const msg = e.message;
-    out.messages++;
-    if (e.timestamp) {
-      if (!out.lastActivity || e.timestamp > out.lastActivity) out.lastActivity = e.timestamp;
-    }
-    if (msg.role === "user") {
-      out.userCount++;
-      const t = textOfContent(msg.content);
-      if (t && !out.preview) out.preview = t.slice(0, 160); // 第一條 user 當 fallback preview
-    } else if (msg.role === "assistant") {
-      if (Array.isArray(msg.content)) {
-        for (const c of msg.content) {
-          if (c && c.type === "toolCall") out.toolCalls++;
+      if (!line) continue;
+      let e;
+      try { e = JSON.parse(line); } catch { continue; }
+      if (e.type === "session") {
+        out.id = e.id || null;
+        out.cwd = e.cwd || "";
+        out.startedAt = e.timestamp || null;
+        continue;
+      }
+      if (e.type === "session_info") {
+        out.name = (e.name && e.name.trim()) || null; // 最新一條為準（含清空）
+        continue;
+      }
+      // Usage for summary generation is stored on the entry rather than its
+      // message. Include it in the same full-session totals as assistant and
+      // nested tool-result usage.
+      if (e.type === "compaction" || e.type === "branch_summary") addUsageTotals(usageTotals, e.usage);
+      if (e.type !== "message" || !e.message) continue;
+      const msg = e.message;
+      out.messages++;
+      if (e.timestamp) {
+        if (!out.lastActivity || e.timestamp > out.lastActivity) out.lastActivity = e.timestamp;
+      }
+      addUsageTotals(usageTotals, msg.usage);
+      if (msg.role === "user") {
+        out.userCount++;
+        const t = textOfContent(msg.content);
+        if (t && !out.preview) out.preview = t.slice(0, 160); // 第一條 user 當 fallback preview
+      } else if (msg.role === "assistant") {
+        if (Array.isArray(msg.content)) {
+          for (const c of msg.content) {
+            if (c && c.type === "toolCall") out.toolCalls++;
+          }
         }
+        const t = textOfContent(msg.content);
+        if (t) out.preview = t.slice(0, 160); // 最後一條 assistant 文本覆蓋
       }
-      const u = msg.usage;
-      if (u) {
-        out.tokens += (u.input || 0) + (u.output || 0) + (u.cacheRead || 0) + (u.cacheWrite || 0);
-        if (u.cost && Number.isFinite(u.cost.total)) out.cost += u.cost.total;
-      }
-      const t = textOfContent(msg.content);
-      if (t) out.preview = t.slice(0, 160); // 最後一條 assistant 文本覆蓋
-    }
     }
   } catch {
     return null;
+  }
+  out.usage = usageTotalsToWire(usageTotals);
+  if (out.usage) {
+    const total = usageTotalTokens(out.usage);
+    const cost = usageCostTotal(out.usage);
+    if (total !== null) out.tokens = total;
+    if (cost !== null) out.cost = cost;
   }
   return out;
 }
@@ -1354,9 +1371,6 @@ function entryToWire(e) {
       else if (c.type === "thinking") wire.thinking += c.thinking || "";
       else if (c.type === "toolCall") wire.toolCalls.push({ id: c.id, name: c.name, args: c.arguments });
     }
-    if (m.usage) {
-      wire.usage = { tokens: (m.usage.input||0)+(m.usage.output||0)+(m.usage.cacheRead||0)+(m.usage.cacheWrite||0), cost: m.usage.cost?.total ?? null };
-    }
     // Pi uses an empty assistant message with stopReason/errorMessage when a
     // provider call is aborted or fails.  Keep these fields in the history
     // wire format; otherwise a reload turns a real failure into a blank
@@ -1378,6 +1392,21 @@ function entryToWire(e) {
     wire.text = textOfContent(m.content).slice(0, 4000);
   } else {
     wire.text = textOfContent(m.content);
+  }
+  if (m.usage) {
+    // Preserve Pi's input/output/cache components and nested cost fields for
+    // assistant and nested tool-result work; normalizeWireUsage also retains
+    // the legacy `tokens` alias.
+    const usage = normalizeWireUsage(m.usage);
+    if (usage) {
+      wire.usage = usage;
+      const total = usageTotalTokens(usage);
+      const cost = usageCostTotal(usage);
+      // These top-level aliases keep older history consumers useful without
+      // making the richer usage object lose precision or detail.
+      if (total !== null) wire.tokens = total;
+      if (cost !== null) wire.cost = cost;
+    }
   }
   return wire;
 }
