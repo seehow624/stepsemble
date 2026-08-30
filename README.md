@@ -99,11 +99,14 @@ that token into an issue, chat, screenshot, log, or repository.
 
 Each Pi Agent computer runs its own Pi Harbor instance. Install and run Pi Harbor
 on every host, then use **Settings → Devices → Add device** to add a Tailscale or
-HTTPS address, or exchange a five-minute pairing code. Use the same Web token;
-credentials remain on the selected host. Pairing codes are HMAC-authenticated:
-update both computers before generating a new code. The shared Web token is
-never sent to an unverified candidate URL. Keep port `3140` private and do not
-expose it to an untrusted network.
+HTTPS address. Manual URL entry remains the legacy shared-Web-token path and
+requires the same Web token on both hosts. Prefer a five-minute `PIHARBOR3`
+one-time pairing code: after you review the candidate details, it provisions an
+independent, revocable peer credential and never sends the shared token to the
+candidate. Authorized peer grants can be listed and revoked in Device settings;
+revocation takes effect immediately. Pi Harbor 2.2 accepts `PIHARBOR2` codes
+from 2.1.2 hosts, while older clients must update before using `PIHARBOR3`.
+Keep port `3140` private and do not expose it to an untrusted network.
 
 To add an LLM provider, open **Settings → Connection → Models & providers**.
 Choose a catalog service, account/OAuth sign-in, API key, local service, or
@@ -124,7 +127,8 @@ revealed from the session list when needed.
 - Searchable provider catalog, account sign-in, API keys, custom endpoints,
   model visibility, and region-specific services.
 - Multiple-device aliases, health checks, port settings, external-drive folder
-  browsing, private HTTPS relay, and one-time pairing.
+  browsing, private HTTPS relay, independent peer credentials with revocation,
+  and one-time pairing.
 - Ink & Ivory as the default theme, plus eight additional colour systems.
 - Checksum-verified stable updates that wait for active Pi work to finish.
 
@@ -144,7 +148,7 @@ credentials, and project folders are preserved in both choices.
 | --- | --- |
 | `~/.local/share/pi-harbor` | Application release |
 | `~/.local/share/pi-harbor-bin` | Updater and uninstaller |
-| `~/.config/pi-harbor` | Web token and update preferences |
+| `~/.config/pi-harbor` | Web token, device-trust grants, and update preferences |
 | `~/.local/state/pi-harbor` | Local service logs and migration state |
 | `~/.pi/agent` | Pi-owned sessions and credentials; not owned by Pi Harbor |
 
@@ -159,7 +163,11 @@ for advanced launchd setups.
 ## Development
 
 Pi Harbor has no runtime npm dependencies. It uses a small Node server and a
-buildless PWA so self-hosted upgrades remain easy to inspect and recover.
+buildless PWA so self-hosted upgrades remain easy to inspect and recover. Peer
+credentials are stored in the owner-only `device-trust.json` file; only hashes
+of incoming credentials are persisted, while outgoing credentials are used
+only by the server relay. Release signing remains future work. The runtime
+Mermaid CDN is a known offline/privacy follow-up.
 
 ```bash
 npm run check

@@ -35,13 +35,40 @@ test("locale registry has complete keys, matching placeholders, and no accidenta
   assert.equal(audit.missingKeys && Object.keys(audit.missingKeys).length, 0);
   assert.equal(audit.placeholderMismatches && Object.keys(audit.placeholderMismatches).length, 0);
   assert.equal(audit.hanLeaks && Object.keys(audit.hanLeaks).length, 0);
+  assert.equal(audit.keyedMissingKeys && Object.keys(audit.keyedMissingKeys).length, 0);
+  assert.equal(audit.keyedPlaceholderMismatches && Object.keys(audit.keyedPlaceholderMismatches).length, 0);
   assert.ok(audit.keyCount >= 300);
+  assert.ok(audit.keyedKeyCount >= 30);
   assert.deepEqual(Array.from(audit.localeIds), [
     "en", "zh-Hant", "zh-Hans", "ja", "ko", "tr", "fr", "de", "es", "pt-BR", "it",
   ]);
   for (const [id, keys] of Object.entries(audit.fallbackKeys || {})) {
     assert.equal(Array.isArray(keys), true, `${id} fallback registry should be an array`);
     assert.equal(new Set(keys).size, keys.length, `${id} fallback registry should not contain duplicates`);
+  }
+});
+
+test("device trust uses complete stable keys across repeated locale switches", () => {
+  const i18n = loadLocaleLayer();
+  const keys = [
+    "deviceTrust.pairingNote",
+    "deviceTrust.authorizedTitle",
+    "deviceTrust.authDedicated",
+    "deviceTrust.revokeConfirm",
+    "deviceTrust.confirmPair",
+    "deviceTrust.remoteAuthorizationError",
+  ];
+  const vars = { device: "Studio Mac" };
+  const english = Object.fromEntries(keys.map((key) => [key, i18n.tKey(key, vars)]));
+  for (const locale of i18n.locales.map((item) => item.id).filter((id) => id !== "en")) {
+    i18n.setLocale(locale);
+    for (const key of keys) {
+      const translated = i18n.tKey(key, vars);
+      assert.notEqual(translated, english[key], `${locale} should translate stable key ${key}`);
+      assert.doesNotMatch(translated, /\{device\}/, `${locale} should interpolate ${key}`);
+    }
+    i18n.setLocale("en");
+    for (const key of keys) assert.equal(i18n.tKey(key, vars), english[key]);
   }
 });
 

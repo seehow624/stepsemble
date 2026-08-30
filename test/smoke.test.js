@@ -287,7 +287,7 @@ test("device settings support stable aliases, port changes, health checks, and o
   assert.match(app, /function restartMachineWeb/);
   assert.match(html, /id="machine-port"/);
   assert.match(html, /id="machine-test"/);
-  assert.match(html, /id="machine-pair-code"[^>]*placeholder="PIHARBOR2\.…"/);
+  assert.match(html, /id="machine-pair-code"[^>]*placeholder="PIHARBOR3\.…"/);
   assert.match(launcher, /device_config/);
 });
 
@@ -460,27 +460,23 @@ test("PWA updates bypass stale service-worker caches and reconcile client versio
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   assert.match(server, /rel === "sw\.js"[\s\S]*?"no-cache, no-store, must-revalidate"/);
-  assert.match(app, /const CLIENT_APP_VERSION = "2.1.2"/);
+  assert.match(app, /const CLIENT_APP_VERSION = "2.2.0"/);
   assert.match(app, /function checkForClientUpdate\(\)/);
   assert.match(app, /cache: "no-store"/);
   assert.match(app, /updateViaCache: "none"/);
   assert.match(app, /visibilitychange/);
   assert.match(app, /piharbor\.clientReloadAttempt/);
-  assert.match(html, /id="set-app-version">v2\.1\.2</);
+  assert.match(html, /id="set-app-version">v2\.2\.0</);
 });
 
-test("versioned application resources stay on 2.1.2", () => {
+test("versioned application resources stay synchronized at 2.2.0", () => {
+  const script = path.join(root, "scripts", "version.mjs");
+  const result = require("node:child_process").spawnSync(process.execPath, [script, "check", "2.2.0"], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
   const expected = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
-  assert.equal(expected, "2.1.2");
-  const previous = expected.replace(/(\d+)$/, (_, patch) => String(Number(patch) - 1));
-  const previousPattern = new RegExp(previous.replaceAll(".", "\\."));
-  for (const file of ["server.js", "public/app.js", "public/index.html", "public/sw.js", "public/manifest.webmanifest"]) {
-    const content = fs.readFileSync(path.join(root, file), "utf8");
-    assert.match(content, /2\.1\.2/);
-    assert.doesNotMatch(content, previousPattern);
-  }
+  assert.equal(expected, "2.2.0");
   const changelog = fs.readFileSync(path.join(root, "CHANGELOG.md"), "utf8");
-  assert.match(changelog, /^## 2\.1\.2/m);
+  assert.match(changelog, /^## 2\.2\.0/m);
 });
 
 test("first-run key reveal is loopback-only, one-time, and gate-checked", () => {

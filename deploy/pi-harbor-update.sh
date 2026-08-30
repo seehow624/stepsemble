@@ -136,6 +136,69 @@ else {
 NODE
 }
 
+# Validate the complete archive before tar is allowed to create a filesystem
+# tree.  macOS /usr/bin/tar and GNU tar both provide the portable -t/-v
+# listings used here; Node only performs bounded, type-aware validation.
+preflight_archive() {
+  local archive="$1" listing verbose temp_dir
+  [[ -n "$archive" && -f "$archive" ]] || return 1
+  temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/pi-harbor-archive-check.XXXXXX")" || return 1
+  listing="$temp_dir/listing"
+  verbose="$temp_dir/verbose"
+  if ! "$TAR_BIN" -tzf "$archive" > "$listing" 2> /dev/null \
+    || ! "$TAR_BIN" -tvzf "$archive" > "$verbose" 2> /dev/null; then
+    /bin/rm -rf -- "$temp_dir"
+    return 1
+  fi
+  if ! "$NODE_BIN" - "$listing" "$verbose" <<'NODE'
+const fs = require("node:fs");
+const names = fs.readFileSync(process.argv[2], "utf8").split(/\r?\n/).filter(Boolean);
+const verbose = fs.readFileSync(process.argv[3], "utf8").split(/\r?\n/).filter(Boolean);
+const fail = (message) => { console.error(`[pi-harbor-update] archive rejected: ${message}`); process.exit(1); };
+if (!names.length || names.length !== verbose.length || names.length > 4096) fail("unexpected entry count");
+let top = null;
+let topDirectory = false;
+const seen = new Set();
+for (let index = 0; index < names.length; index += 1) {
+  const raw = names[index];
+  const type = verbose[index].trim()[0] || "";
+  if (type !== "d" && type !== "-") fail("links and special entries are not allowed");
+  if (!raw || raw.includes("\0") || raw.includes("\\") || raw.startsWith("/") || /^[A-Za-z]:[\\/]/.test(raw)) {
+    fail("absolute or platform-ambiguous entry name");
+  }
+  const parts = raw.split("/");
+  if (parts.some((part) => part === "..")) fail("path traversal entry");
+  const normalizedParts = parts.filter((part) => part && part !== ".");
+  if (!normalizedParts.length) fail("empty entry name");
+  const normalized = normalizedParts.join("/");
+  const entryTop = normalizedParts[0];
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(entryTop)) fail("invalid release directory name");
+  if (!top) top = entryTop;
+  if (entryTop !== top || (normalized !== top && !normalized.startsWith(`${top}/`))) fail("archive must contain one top-level release directory");
+  if (seen.has(normalized)) fail("duplicate archive entry");
+  seen.add(normalized);
+  if (normalized === top) {
+    if (type !== "d") fail("top-level release entry must be a directory");
+    topDirectory = true;
+  }
+}
+if (!top || !topDirectory) fail("top-level release directory is missing");
+NODE
+  then
+    /bin/rm -rf -- "$temp_dir"
+    return 1
+  fi
+  /bin/rm -rf -- "$temp_dir"
+  return 0
+}
+
+# A no-network, no-extraction hook keeps archive validation independently
+# testable and is useful to maintainers reviewing a release artifact.
+if [[ -n "${PI_HARBOR_UPDATE_PREFLIGHT_ARCHIVE:-}" ]]; then
+  preflight_archive "$PI_HARBOR_UPDATE_PREFLIGHT_ARCHIVE" || exit 1
+  exit 0
+fi
+
 active_rpc_running() {
   [[ -s "$TOKEN_FILE" ]] || return 1
   local cookie response token port
@@ -232,6 +295,7 @@ actual="$("$SHASUM_BIN" -a 256 "$archive" | awk '{ print $1 }')"
 [[ "$expected" =~ '^[0-9a-f]{64}$' && "$actual" == "$expected" ]] || die "release checksum verification failed"
 
 extract_dir="$work_dir/source"
+preflight_archive "$archive" || die "release archive failed safety preflight"
 mkdir -p "$extract_dir"
 "$TAR_BIN" -xzf "$archive" -C "$extract_dir" || die "release extraction failed"
 source_dir="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -print -quit)"

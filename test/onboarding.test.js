@@ -7,6 +7,8 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { once } = require("node:events");
+const { hashCredential } = require("../server/device-trust");
+const { isolatedEnvironment } = require("../test-support/env");
 
 const root = path.resolve(__dirname, "..");
 
@@ -70,17 +72,29 @@ async function stopServer(child) {
 test("first-run key endpoint rejects proxy and DNS-rebinding hosts, then confirms once", async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-onboarding-"));
   const port = await freePort();
-  const env = { ...process.env,
+  const peerCredential = "ab".repeat(32);
+  const peerGrantId = "cd".repeat(16);
+  const trustDir = path.join(home, ".config", "pi-harbor");
+  fs.mkdirSync(trustDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(trustDir, "device-trust.json"), `${JSON.stringify({
+    version: 1,
+    incoming: {
+      [peerGrantId]: {
+        device: { id: "peer-test", name: "Peer Test", host: "peer-test", url: "" },
+        credentialHash: hashCredential(peerCredential),
+        createdAt: new Date().toISOString(),
+      },
+    },
+    outgoing: {},
+  })}\n`, { mode: 0o600 });
+  const env = isolatedEnvironment({
+    HOME: home,
     PI_HOME: home,
     PI_BIN: process.execPath,
     PI_HARBOR_PORT: String(port),
     PI_HARBOR_HOST: "127.0.0.1",
     PI_HARBOR_SECURE_COOKIE: "0",
-  };
-  for (const key of [
-    "PI_HARBOR_TOKEN", "PI_HARBOR_TOKEN_FILE", "PI_WEB_TOKEN", "PI_WEB_TOKEN_FILE",
-    "PI_HARBOR_BROWSE_ROOTS", "PI_WEB_BROWSE_ROOTS", "PI_HARBOR_MACHINES", "PI_WEB_MACHINES",
-  ]) delete env[key];
+  });
 
   let logs = "";
   const child = spawn(process.execPath, [path.join(root, "server.js")], {
@@ -102,6 +116,26 @@ test("first-run key endpoint rejects proxy and DNS-rebinding hosts, then confirm
   assert.match(allowed.body?.key || "", /^[0-9a-f]{64}$/);
   const revealedKey = allowed.body.key;
   assert.equal(allowed.headers["cache-control"], "no-store");
+
+  // A valid peer bearer can arrive from a colocated relay and still satisfy
+  // the loopback source/Host gates. It must not receive the Web token or be
+  // allowed to confirm the one-time onboarding state.
+  const peerKey = await request(port, "/api/onboarding/key", {
+    headers: { Authorization: `Bearer ${peerCredential}` },
+  });
+  assert.equal(peerKey.status, 200);
+  assert.deepEqual(peerKey.body, { eligible: false, confirmedAt: null });
+  assert.equal(Object.hasOwn(peerKey.body, "key"), false);
+  assert.equal(peerKey.text.includes(revealedKey), false);
+  assert.equal(peerKey.text.includes(peerCredential), false);
+  const peerConfirm = await request(port, "/api/onboarding/confirm", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${peerCredential}` },
+  });
+  assert.equal(peerConfirm.status, 403);
+  assert.equal(peerConfirm.text.includes(revealedKey), false);
+  assert.equal(peerConfirm.text.includes(peerCredential), false);
+  assert.equal(fs.existsSync(path.join(home, ".config", "pi-harbor", "onboarding.json")), false);
 
   for (const blocked of [
     await request(port, "/api/onboarding/key", { host: "attacker.example" }),
@@ -129,5 +163,40 @@ test("first-run key endpoint rejects proxy and DNS-rebinding hosts, then confirm
   const after = await request(port, "/api/onboarding/key");
   assert.deepEqual(after.body, { eligible: false, confirmedAt: state.tokenConfirmedAt });
   assert.equal(after.text.includes(revealedKey), false);
+  assert.equal((await request(port, "/api/onboarding/confirm", { method: "POST" })).status, 403);
+});
+
+test("corrupt persisted onboarding state fails closed without revealing the token", async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-onboarding-corrupt-"));
+  const port = await freePort();
+  const configDir = path.join(home, ".config", "pi-harbor");
+  fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(configDir, "onboarding.json"), "not-json\n", { mode: 0o600 });
+  const env = isolatedEnvironment({
+    HOME: home,
+    PI_HOME: home,
+    PI_BIN: process.execPath,
+    PI_HARBOR_PORT: String(port),
+    PI_HARBOR_HOST: "127.0.0.1",
+    PI_HARBOR_SECURE_COOKIE: "0",
+  });
+  let logs = "";
+  const child = spawn(process.execPath, [path.join(root, "server.js")], {
+    cwd: root,
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout.on("data", (chunk) => { logs += chunk; });
+  child.stderr.on("data", (chunk) => { logs += chunk; });
+  t.after(async () => {
+    await stopServer(child);
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+  await waitForServer(port, child, () => logs);
+
+  const key = await request(port, "/api/onboarding/key");
+  assert.equal(key.status, 200);
+  assert.deepEqual(key.body, { eligible: false, confirmedAt: null });
+  assert.equal(Object.hasOwn(key.body, "key"), false);
   assert.equal((await request(port, "/api/onboarding/confirm", { method: "POST" })).status, 403);
 });

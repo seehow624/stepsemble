@@ -6,10 +6,10 @@
 <title>Pi Harbor</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=2.1.2">
-<link rel="icon" href="/pi-logo.svg?v=2.1.2" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-180.png?v=2.1.2">
-<link rel="stylesheet" href="/style.css?v=2.1.2">
+<link rel="manifest" href="/manifest.webmanifest?v=2.2.0">
+<link rel="icon" href="/pi-logo.svg?v=2.2.0" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png?v=2.2.0">
+<link rel="stylesheet" href="/style.css?v=2.2.0">
 </head>
 <body>
 
@@ -187,7 +187,12 @@
           </div>
         </div>
         <div id="machine-list" class="machine-list"></div>
-        <p class="settings-note">To add another Pi Agent computer, run Pi Harbor there and enter its Tailscale or HTTPS address. You can also use a one-time pairing code. Both devices must use the same Web token.</p>
+        <p class="settings-note" data-i18n-key="deviceTrust.pairingNote">One-time pairing creates an independent, revocable device credential. Manual URL entry remains the legacy shared Web-token path.</p>
+        <section class="device-trust-panel" aria-labelledby="authorized-devices-title">
+          <h4 id="authorized-devices-title" data-i18n-key="deviceTrust.authorizedTitle">Authorized devices</h4>
+          <p id="authorized-devices-status" class="settings-note" role="status" aria-live="polite"></p>
+          <div id="authorized-device-list" class="authorized-device-list"></div>
+        </section>
       </section>
 
       <section class="settings-group">
@@ -269,7 +274,7 @@
         <h3 class="group-title">About</h3>
         <div class="settings-row">
           <span><strong>Pi Harbor</strong><small>Mobile-first remote workspace for Pi</small></span>
-          <span class="settings-value" id="set-app-version">v2.1.2</span>
+          <span class="settings-value" id="set-app-version">v2.2.0</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -344,22 +349,21 @@
   </main>
 
   <!-- Add / edit remote device -->
-  <div id="machine-dialog" class="sheet-layer hidden">
+  <div id="machine-dialog" class="sheet-layer hidden" role="dialog" aria-modal="true" aria-labelledby="machine-dialog-title">
     <div class="sheet machine-dialog">
       <div class="sheet-handle"></div>
       <div class="sheet-heading-row">
         <div><p class="eyebrow">PI AGENT DEVICE</p><h2 id="machine-dialog-title">Add device</h2></div>
         <button id="machine-cancel" class="btn ghost icon-btn" type="button" title="Close" aria-label="Close"><svg class="icon"><use href="#i-x"></use></svg></button>
       </div>
-      <p class="settings-note machine-dialog-note">Each device must run Pi Harbor (default port 3140) with this Web token. Use a Tailscale Serve or HTTPS URL reachable from this device.</p>
+      <p class="settings-note machine-dialog-note" data-i18n-key="deviceTrust.manualNote">Manual URL entry stays on the legacy shared Web-token path; one-time pairing provisions an independent, revocable credential.</p>
       <details class="machine-help">
-        <summary>How to add a device</summary>
+        <summary data-i18n-key="deviceTrust.helpTitle">How to add a device</summary>
         <ol>
-          <li>Install and start Pi Harbor on the other computer. Keep it running and use the same Web token.</li>
-          <li>On that computer, copy its Tailscale Serve or HTTPS Pi Harbor address, then paste it into <strong>Pi Harbor URL</strong>.</li>
-          <li>Enter a friendly device name, choose <strong>Test connection</strong>, and then select <strong>Save device</strong>.</li>
+          <li data-i18n-key="deviceTrust.helpManual">For a legacy connection, enter the other Pi Harbor URL and save it. Both devices must use the same Web token.</li>
+          <li data-i18n-key="deviceTrust.helpPairStep">For independent access, create a one-time pairing code in the other device's Settings, then paste it here.</li>
+          <li data-i18n-key="deviceTrust.helpConfirmStep">Review the device details, then choose Pair this device. The code is used once and expires after five minutes.</li>
         </ol>
-        <p>If you cannot copy a URL, use the link button in Devices to create a one-time pairing code. Enter that code here instead; it expires after five minutes.</p>
       </details>
       <div id="machine-standard-fields">
         <label class="field-label" for="machine-name">Device name</label>
@@ -374,10 +378,20 @@
       <p id="machine-status-note" class="settings-note machine-status-note" role="status"></p>
       <p id="machine-form-error" class="form-error hidden" role="alert"></p>
       <div id="machine-pair-area" class="machine-pair-area hidden">
-        <p class="settings-note">Generate a pairing code in the other Pi Harbor device settings and paste it here. Codes expire after 5 minutes and can only be used once.</p>
+        <p class="settings-note" data-i18n-key="deviceTrust.pasteCode">Paste a PIHARBOR3 code generated by another Pi Harbor. Review the device details before pairing.</p>
         <label class="field-label" for="machine-pair-code">One-time pairing code</label>
-        <textarea id="machine-pair-code" rows="4" spellcheck="false" autocomplete="off" placeholder="PIHARBOR2.…"></textarea>
-        <button id="machine-pair-join" class="btn primary" type="button">Verify and add</button>
+        <textarea id="machine-pair-code" rows="4" spellcheck="false" autocomplete="off" placeholder="PIHARBOR3.…"></textarea>
+        <div id="machine-pair-preview" class="machine-pair-preview hidden" role="status" aria-live="polite" aria-labelledby="machine-pair-preview-title">
+          <h3 id="machine-pair-preview-title" data-i18n-key="deviceTrust.reviewTitle">Pairing review</h3>
+          <p data-i18n-key="deviceTrust.reviewDescription">Check the device details before connecting.</p>
+          <dl>
+            <div><dt data-i18n-key="deviceTrust.candidate">Device</dt><dd id="machine-pair-preview-name"></dd></div>
+            <div><dt data-i18n-key="deviceTrust.urlLabel">Pi Harbor URL</dt><dd id="machine-pair-preview-url" class="mono"></dd></div>
+            <div><dt data-i18n-key="deviceTrust.expiresLabel">Expires</dt><dd id="machine-pair-preview-expires"></dd></div>
+            <div><dt data-i18n-key="deviceTrust.versionLabel">Pairing version</dt><dd id="machine-pair-preview-version"></dd></div>
+          </dl>
+        </div>
+        <button id="machine-pair-join" class="btn primary" type="button" data-i18n-key="deviceTrust.reviewCode">Review pairing code</button>
       </div>
       <div id="machine-pair-offer-area" class="machine-pair-offer-area hidden">
         <label class="field-label" for="machine-pair-offer">Pairing code for another device</label>
@@ -638,9 +652,9 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=2.1.2"></script>
-<script src="/modules/app-foundation.js?v=2.1.2"></script>
-<script src="/modules/session-utils.js?v=2.1.2"></script>
-<script src="/app.js?v=2.1.2"></script>
+<script src="/i18n.js?v=2.2.0"></script>
+<script src="/modules/app-foundation.js?v=2.2.0"></script>
+<script src="/modules/session-utils.js?v=2.2.0"></script>
+<script src="/app.js?v=2.2.0"></script>
 </body>
 </html>

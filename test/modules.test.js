@@ -201,9 +201,15 @@ test("pure text responses do not produce an activity receipt", () => {
 });
 
 test("HTTP utility module centralizes framing, cookies, and JSON body limits", async () => {
-  const http = createHttpUtils({ isTokenValid: (value) => value === "secret" });
+  const http = createHttpUtils({
+    isTokenValid: (value) => value === "secret",
+    isPeerCredentialValid: (value) => value === "p".repeat(64) ? { grantId: "grant" } : null,
+  });
   assert.equal(http.isAuthed({ headers: { cookie: "other=x; pi_harbor=secret" } }), true);
   assert.equal(http.isAuthed({ headers: { cookie: "pi_harbor=wrong" } }), false);
+  assert.equal(http.getBearerToken({ headers: { authorization: `Bearer ${"p".repeat(64)}` } }), "p".repeat(64));
+  assert.equal(http.authenticate({ headers: { authorization: `Bearer ${"p".repeat(64)}`, cookie: "pi_harbor=secret" } }).mode, "peer");
+  assert.equal(http.authenticate({ headers: { cookie: "pi_harbor=secret" } }).mode, "browser");
   assert.equal(http.sseFrame({ ok: true }, "ready\nignored", "1\n2"), "event: readyignored\nid: 12\ndata: {\"ok\":true}\n\n");
 
   const request = new PassThrough();

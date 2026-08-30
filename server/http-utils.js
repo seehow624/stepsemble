@@ -5,10 +5,12 @@
  *
  * Keeping these helpers independent from the route table makes it possible to
  * add route modules without copying security headers, cookie parsing, or body
- * limits. The factory receives the two pieces of server state that must stay
- * private to the main process: secure-cookie mode and the token comparator.
+ * limits. The factory receives the pieces of server state that must stay
+ * private to the main process: secure-cookie mode, the browser-token
+ * comparator, and an optional peer-credential comparator. Authentication
+ * results identify their mode without returning credential material.
  */
-function createHttpUtils({ secureCookie = false, isTokenValid = () => false } = {}) {
+function createHttpUtils({ secureCookie = false, isTokenValid = () => false, isPeerCredentialValid = () => null } = {}) {
   function sseFrame(data, eventName = null, id = null) {
     const lines = [];
     if (eventName) lines.push(`event: ${String(eventName).replace(/[\r\n]/g, "")}`);
@@ -64,6 +66,24 @@ function createHttpUtils({ secureCookie = false, isTokenValid = () => false } = 
     return isTokenValid(getCookie(req, "pi_harbor"));
   }
 
+  function getBearerToken(req) {
+    const value = req?.headers?.authorization;
+    if (typeof value !== "string" || value.length > 256) return null;
+    const match = value.match(/^Bearer ([A-Za-z0-9_-]{64})$/);
+    return match ? match[1] : null;
+  }
+
+  function authenticate(req) {
+    const bearer = getBearerToken(req);
+    if (bearer) {
+      const peer = isPeerCredentialValid(bearer);
+      if (peer && typeof peer === "object") {
+        return { mode: "peer", grantId: peer.grantId || null, device: peer.device || null };
+      }
+    }
+    return isAuthed(req) ? { mode: "browser", grantId: null, device: null } : null;
+  }
+
   function readBody(req, limit = 16 * 1024 * 1024) {
     return new Promise((resolve, reject) => {
       let size = 0;
@@ -97,8 +117,8 @@ function createHttpUtils({ secureCookie = false, isTokenValid = () => false } = 
     });
   }
 
-  async function readJSON(req) {
-    const raw = await readBody(req);
+  async function readJSON(req, limit) {
+    const raw = await readBody(req, limit);
     if (!raw) return {};
     try {
       const value = JSON.parse(raw);
@@ -111,7 +131,7 @@ function createHttpUtils({ secureCookie = false, isTokenValid = () => false } = 
     }
   }
 
-  return Object.freeze({ sseFrame, trySseWrite, send, sendJSON, getCookie, isAuthed, readBody, readJSON });
+  return Object.freeze({ sseFrame, trySseWrite, send, sendJSON, getCookie, isAuthed, getBearerToken, authenticate, readBody, readJSON });
 }
 
 module.exports = { createHttpUtils };

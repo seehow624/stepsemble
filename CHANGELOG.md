@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.2.0
+
+- Added one-time `PIHARBOR3` pairing with independent, revocable per-peer
+  credentials, dedicated bearer relay authentication, and legacy shared-token
+  fallback for manual and previously saved devices.
+- Added local pairing review, sanitized incoming-grant management, atomic trust
+  storage, installer/updater archive preflight, pinned CI action revisions,
+  keyed device/pairing localization, and synchronized release version tooling.
+- Mermaid remains a runtime CDN dependency; release signing is still future work.
+
 ## 2.1.2
 
 - Hardened the one-time access-key reveal against DNS rebinding and unexpected

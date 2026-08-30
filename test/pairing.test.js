@@ -8,6 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { once } = require("node:events");
+const { isolatedEnvironment } = require("../test-support/env");
 
 const root = path.resolve(__dirname, "..");
 
@@ -95,7 +96,7 @@ test("pairing verifies an HMAC before connecting and never sends the reusable co
         host: "remote-test",
         port: 3140,
         publicUrl: remoteUrl,
-        appVersion: "2.1.2",
+        appVersion: "2.2.0",
       } });
       res.writeHead(200, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) });
       res.end(payload);
@@ -105,18 +106,15 @@ test("pairing verifies an HMAC before connecting and never sends the reusable co
   await once(attacker, "listening");
 
   const token = "integration-test-shared-token";
-  const env = { ...process.env,
+  const env = isolatedEnvironment({
+    HOME: home,
     PI_HOME: home,
     PI_BIN: process.execPath,
     PI_HARBOR_TOKEN: token,
     PI_HARBOR_PORT: String(port),
     PI_HARBOR_HOST: "127.0.0.1",
     PI_HARBOR_SECURE_COOKIE: "0",
-  };
-  for (const key of [
-    "PI_HARBOR_TOKEN_FILE", "PI_WEB_TOKEN", "PI_WEB_TOKEN_FILE",
-    "PI_HARBOR_BROWSE_ROOTS", "PI_WEB_BROWSE_ROOTS", "PI_HARBOR_MACHINES", "PI_WEB_MACHINES",
-  ]) delete env[key];
+  });
 
   let logs = "";
   const child = spawn(process.execPath, [path.join(root, "server.js")], { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });

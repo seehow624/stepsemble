@@ -1,7 +1,7 @@
-/* pi-harbor v2.1.2 — settings gestures, safer project browse, and first-use guidance */
+/* pi-harbor v2.2.0 — settings gestures, safer project browse, and first-use guidance */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.1.2";
+const CLIENT_APP_VERSION = "2.2.0";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -63,7 +63,8 @@ const el = {
   sessionCount: $("session-count"), btnLayout: $("btn-layout"),
   composerModelLabel: $("composer-model-label"),
   btnOpenSettings: $("btn-open-settings"), btnSettingsBack: $("btn-settings-back"), btnModelSettingsBack: $("btn-model-settings-back"), modelSettingsOpen: $("model-settings-open"), modelSettingsSummary: $("model-settings-summary"),
-  machineList: $("machine-list"), machineAdd: $("machine-add"), machinePair: $("machine-pair"), machineDialog: $("machine-dialog"), machineDialogTitle: $("machine-dialog-title"), machineStandardFields: $("machine-standard-fields"), machineName: $("machine-name"), machineUrl: $("machine-url"), machinePort: $("machine-port"), machinePortLabel: $("machine-port-label"), machineHost: $("machine-host"), machineStatusNote: $("machine-status-note"), machineFormError: $("machine-form-error"), machinePairArea: $("machine-pair-area"), machinePairCode: $("machine-pair-code"), machinePairJoin: $("machine-pair-join"), machinePairOfferArea: $("machine-pair-offer-area"), machinePairOffer: $("machine-pair-offer"), machinePairGenerate: $("machine-pair-generate"), machineRestart: $("machine-restart"), machineSave: $("machine-save"), machineDelete: $("machine-delete"), machineTest: $("machine-test"), machineCancel: $("machine-cancel"), machineCancelBottom: $("machine-cancel-bottom"),
+  machineList: $("machine-list"), machineAdd: $("machine-add"), machinePair: $("machine-pair"), machineDialog: $("machine-dialog"), machineDialogTitle: $("machine-dialog-title"), machineStandardFields: $("machine-standard-fields"), machineName: $("machine-name"), machineUrl: $("machine-url"), machinePort: $("machine-port"), machinePortLabel: $("machine-port-label"), machineHost: $("machine-host"), machineStatusNote: $("machine-status-note"), machineFormError: $("machine-form-error"), machinePairArea: $("machine-pair-area"), machinePairCode: $("machine-pair-code"), machinePairJoin: $("machine-pair-join"), machinePairPreview: $("machine-pair-preview"), machinePairPreviewName: $("machine-pair-preview-name"), machinePairPreviewUrl: $("machine-pair-preview-url"), machinePairPreviewExpires: $("machine-pair-preview-expires"), machinePairPreviewVersion: $("machine-pair-preview-version"), machinePairOfferArea: $("machine-pair-offer-area"), machinePairOffer: $("machine-pair-offer"), machinePairGenerate: $("machine-pair-generate"), machineRestart: $("machine-restart"), machineSave: $("machine-save"), machineDelete: $("machine-delete"), machineTest: $("machine-test"), machineCancel: $("machine-cancel"), machineCancelBottom: $("machine-cancel-bottom"),
+  authorizedDevicesStatus: $("authorized-devices-status"), authorizedDeviceList: $("authorized-device-list"),
   setMachineName: $("set-machine-name"), setMachineHost: $("set-machine-host"), setPiVersion: $("set-pi-version"), setAppVersion: $("set-app-version"),
   btnLogout: $("btn-logout"), btnResetSettings: $("btn-reset-settings"), btnOpenOnboarding: $("btn-open-onboarding"), setupGuideTitle: $("setup-guide-title"), setupGuideSubtitle: $("setup-guide-subtitle"),
   setAutoUpdate: $("set-auto-update"), updateAutoLabel: $("update-auto-label"), updateStatusCopy: $("update-status-copy"), updateCheck: $("update-check"), updateCheckLabel: $("update-check-label"), updateCheckStatus: $("update-check-status"), updateAllDevices: $("update-all-devices"), updateCenterSummary: $("update-center-summary"), updateDeviceList: $("update-device-list"),
@@ -149,6 +150,16 @@ let machineStatuses = new Map();
 let machineDialogDeviceSettings = null;
 let machineDialogRestartRequired = false;
 let machineDialogMode = "edit";
+let machinePairPreview = null;
+let machinePairReviewRequest = 0;
+let incomingGrants = null;
+let incomingGrantsError = "";
+let incomingGrantsRemoteError = false;
+let incomingGrantsMachine = null;
+let incomingGrantsRequest = null;
+let incomingGrantsAbort = null;
+let incomingGrantsRefreshAt = 0;
+let incomingGrantsState = "idle";
 let providerAuthRun = null;
 let providerAuthStream = null;
 let providerAuthRequest = null;
@@ -191,15 +202,60 @@ function toast(msg, isError = false) {
 // API（apiBase："" 本機 或 "/r/<id>" 反代遠端）
 // ===========================================================================
 
+const remoteAuthorizationNoticeAt = new Map();
+function remoteMachineIdForBase(base) {
+  return String(base || "").match(/^\/r\/([a-z0-9-]+)$/)?.[1] || null;
+}
+
+function showRemoteAuthorizationState(base) {
+  const machineId = remoteMachineIdForBase(base);
+  const machine = machines.find((item) => item.id === machineId) || null;
+  const device = machineDisplayName(machine || { name: "Pi Harbor device" });
+  const message = tKey("deviceTrust.remoteAuthorizationError", { device });
+  if (machineId) {
+    machineStatuses.set(machineId, "offline");
+    const existing = updateDeviceStatuses.get(machineId);
+    if (existing) updateDeviceStatuses.set(machineId, {
+      ...existing,
+      error: Object.assign(new Error(message), { status: 401, remote: true, remoteKey: "deviceTrust.remoteAuthorizationError" }),
+      reachable: false,
+    });
+    renderMachineSwitch();
+    renderMachineList();
+    if (typeof updateViewIsOpen === "function" && updateViewIsOpen()) renderUpdateCenter();
+  }
+  const now = Date.now();
+  const lastNotice = remoteAuthorizationNoticeAt.get(machineId || base) || 0;
+  if (now - lastNotice > 2500) {
+    remoteAuthorizationNoticeAt.set(machineId || base, now);
+    toast(message, true);
+  }
+  const error = new Error(message);
+  error.status = 401;
+  error.remote = true;
+  error.remoteKey = "deviceTrust.remoteAuthorizationError";
+  error.code = "remote_unauthorized";
+  return error;
+}
+
 async function api(path, opts = {}) {
-  const res = await fetch(apiBase + path, { credentials: "same-origin", ...opts });
-  if (res.status === 401) { showLogin(); throw new Error("unauthorized"); }
+  const baseAtStart = apiBase;
+  const requestPath = baseAtStart + path;
+  const res = await fetch(requestPath, { credentials: "same-origin", ...opts });
+  if (res.status === 401) {
+    if (baseAtStart) throw showRemoteAuthorizationState(baseAtStart);
+    showLogin();
+    const error = new Error("unauthorized");
+    error.status = 401;
+    error.path = requestPath;
+    throw error;
+  }
   if (!res.ok && res.status !== 204) {
     let msg = res.statusText;
     try { msg = (await res.json()).error || msg; } catch {}
     const error = new Error(msg);
     error.status = res.status;
-    error.path = apiBase + path;
+    error.path = requestPath;
     throw error;
   }
   return res.status === 204 ? null : res.json();
@@ -207,6 +263,10 @@ async function api(path, opts = {}) {
 const post = (path, body) => api(path, {
   method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
 });
+
+function tKey(key, vars = {}) {
+  return window.piI18n?.tKey?.(key, vars) || window.piI18n?.t?.(key, vars) || key;
+}
 
 /** 通用 RPC 指令（模型切換 / thinking level / compact 等） */
 function rpcCmd(sid, command) {
@@ -449,6 +509,8 @@ async function fetchAuthoritativeMachineCatalog() {
 }
 
 function applyMachineCatalog(data) {
+  const previousSelectedId = selectedId;
+  const previousSelfId = selfId;
   const state = resolveMachineCatalogState(data, {
     selectedId,
     savedSelectedId: loadSelected(),
@@ -456,6 +518,7 @@ function applyMachineCatalog(data) {
   machines = state.machines;
   selfId = state.selfId;
   selectedId = state.selectedId;
+  if (previousSelectedId !== selectedId || previousSelfId !== selfId) resetIncomingGrants();
   updateDeviceStatuses = new Map([...updateDeviceStatuses].filter(([id]) => machines.some((machine) => machine.id === id)));
   updateStatusData = updateDeviceStatuses.get(selectedId)?.data || null;
   cancelUpdateCenterRequest();
@@ -569,6 +632,7 @@ function switchMachine(id, silent) {
   el.viewSettings.classList.add("hidden");
   el.viewModelSettings.classList.add("hidden");
   selectedId = id;
+  resetIncomingGrants();
   saveSelected(id);
   // Do not let a previous host's home remain authoritative while the new
   // /api/machine response is in flight. The picker still starts no-path.
@@ -612,10 +676,16 @@ function showListSilent() {
 
 // ---- 頂欄機器切換下拉 ----
 function machineStatusText(status) {
-  const key = status === "online" ? "Online"
-    : status === "offline" ? "Offline"
-      : status === "checking" ? "Checking" : "Not checked";
-  return window.piI18n?.t(key) || key;
+  const key = status === "online" ? "deviceTrust.statusOnline"
+    : status === "offline" ? "deviceTrust.statusOffline"
+      : "deviceTrust.statusNotChecked";
+  return tKey(key);
+}
+function machineAuthText(machine) {
+  const key = machine?.authMode === "local" ? "deviceTrust.authLocal"
+    : machine?.authMode === "dedicated" ? "deviceTrust.authDedicated"
+      : machine?.authMode === "unavailable" ? "deviceTrust.authUnavailable" : "deviceTrust.authLegacy";
+  return tKey(key);
 }
 function renderMachineSwitch() {
   if (!el.machineSwitch) return;
@@ -712,6 +782,7 @@ function hideSettings() {
   settingsSwipeCancel?.();
   stopUpdateCenterPolling();
   cancelModelVisibilityRequest();
+  resetIncomingGrants();
   resetSettingsOverlay();
   el.viewSettings.classList.add("hidden");
   el.viewModelSettings.classList.add("hidden");
@@ -720,11 +791,13 @@ function hideSettings() {
 
 function showSettings() {
   resetSettingsOverlay();
-  renderSettings();
   el.viewModelSettings.classList.add("hidden");
   el.viewList.classList.remove("hidden");
-  void loadModelVisibility();
+  // Render after the settings view is visible so remote trust/status loaders
+  // are not discarded by their visibility guard on the first open.
   el.viewSettings.classList.remove("hidden");
+  renderSettings();
+  void loadModelVisibility();
   el.viewSettings.classList.add("slide-in");
   settingsSlideTimer = setTimeout(() => {
     settingsSlideTimer = null;
@@ -1595,6 +1668,10 @@ async function connectRpc(opts, generation = viewGeneration) {
         if (rpc?.sid !== sid) { try { es.close(); } catch {} return; }
         if (rpc.streamEnded) return;
         esFail++;
+        // EventSource does not expose the response status. Once a remote
+        // stream has failed repeatedly, surface the same localized offline /
+        // authorization state without ever hiding the gateway session.
+        if (esFail >= 3 && baseAtStart) showRemoteAuthorizationState(baseAtStart);
         // EventSource will briefly retry by itself. After a few failures we
         // take over so the next request explicitly resumes after lastEventId.
         if (esFail < 3) return;
@@ -4181,7 +4258,11 @@ async function requestMachineUpdate(machine, endpoint, body, { signal, timeoutMs
     });
     let result = null;
     try { result = await response.json(); } catch {}
-    if (response.status === 401) showLogin();
+    if (response.status === 401) {
+      if (base) throw showRemoteAuthorizationState(base);
+      showLogin();
+      throw updateRequestError("Update request was not accepted", 401, false);
+    }
     if (!response.ok) {
       const reachable = response.status !== 502 && response.status !== 504;
       throw updateRequestError("Update request was not accepted", response.status, reachable);
@@ -4228,6 +4309,7 @@ function updateEntryFor(machine) {
 
 function updatePhaseText(data, machine, error = null) {
   const device = updateDeviceName(machine);
+  if (error?.remote) return tKey(error.remoteKey || "deviceTrust.remoteAuthorizationError", { device });
   if (data?.updateUnsupported) return updateText("Update controls require a newer Pi Harbor on {device}", { device });
   if (error) {
     if (updateErrorIsUnsupported(error) && [404, 405].includes(Number(error.status))) {
@@ -4623,7 +4705,9 @@ function renderSettings() {
   if (el.setupGuideTitle) el.setupGuideTitle.textContent = setupCopy.guideTitle;
   if (el.setupGuideSubtitle) el.setupGuideSubtitle.textContent = setupCopy.guideSubtitle;
   renderMachineList();
+  renderIncomingGrants();
   void refreshMachineStatuses();
+  void refreshIncomingGrants();
   renderUpdateCenter();
 }
 
@@ -5278,7 +5362,8 @@ function hideProviderApiKeyEntry() {
 function openProviderAuthStream(after = -1) {
   const run = providerAuthRun;
   if (!run || run.streamEnded) return;
-  const stream = new EventSource(apiBase + "/api/provider-auth/stream?runId=" + encodeURIComponent(run.runId) + "&after=" + encodeURIComponent(after));
+  const baseAtStart = apiBase;
+  const stream = new EventSource(baseAtStart + "/api/provider-auth/stream?runId=" + encodeURIComponent(run.runId) + "&after=" + encodeURIComponent(after));
   providerAuthStream = stream;
   stream.onopen = () => { run.reconnectAttempt = 0; run.streamReady = true; };
   stream.addEventListener("connected", () => {
@@ -5297,6 +5382,7 @@ function openProviderAuthStream(after = -1) {
   };
   stream.onerror = () => {
     if (providerAuthRun !== run || run.streamEnded) return;
+    if (baseAtStart) showRemoteAuthorizationState(baseAtStart);
     try { stream.close(); } catch {}
     if (providerAuthStream === stream) providerAuthStream = null;
     if (run.reconnectTimer) return;
@@ -5648,7 +5734,11 @@ function renderMachineList() {
     row.querySelector(".m-dot").title = statusLabel;
     // Hostnames are implementation details; the row only needs the state.
     row.querySelector("small").textContent = m.id === selectedId
-      ? `使用中 · ${statusLabel}` : statusLabel;
+      ? tKey("deviceTrust.inUse", { status: statusLabel }) : statusLabel;
+    const auth = document.createElement("span");
+    auth.className = "m-auth";
+    auth.textContent = machineAuthText(m);
+    row.querySelector(".m-info").appendChild(auth);
     const actions = row.querySelector(".machine-row-actions");
     const edit = document.createElement("button");
     edit.type = "button"; edit.className = "icon-button-small machine-row-action";
@@ -5674,6 +5764,164 @@ function renderMachineList() {
   }
 }
 
+function resetIncomingGrants() {
+  incomingGrantsAbort?.abort();
+  incomingGrantsAbort = null;
+  incomingGrantsRequest = null;
+  incomingGrants = null;
+  incomingGrantsError = "";
+  incomingGrantsRemoteError = false;
+  incomingGrantsMachine = null;
+  incomingGrantsRefreshAt = 0;
+  incomingGrantsState = "idle";
+  renderIncomingGrants();
+}
+
+function formatGrantDate(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+  try {
+    return new Intl.DateTimeFormat(window.piI18n?.getLocale?.() || settings.locale || "en", {
+      dateStyle: "medium",
+    }).format(date);
+  } catch { return date.toISOString().slice(0, 10); }
+}
+
+function renderIncomingGrants() {
+  if (!el.authorizedDeviceList || !el.authorizedDevicesStatus) return;
+  el.authorizedDeviceList.innerHTML = "";
+  if (incomingGrantsState === "loading" || incomingGrantsState === "idle") {
+    el.authorizedDevicesStatus.textContent = tKey("deviceTrust.authorizedLoading");
+    return;
+  }
+  if (incomingGrantsState === "unavailable" || incomingGrantsState === "error") {
+    el.authorizedDevicesStatus.textContent = incomingGrantsRemoteError
+      ? tKey("deviceTrust.remoteAuthorizationError", { device: machineDisplayName(currentMachine()) })
+      : incomingGrantsError || tKey("deviceTrust.authorizedUnavailable");
+    return;
+  }
+  if (!incomingGrants?.length) {
+    el.authorizedDevicesStatus.textContent = tKey("deviceTrust.authorizedEmpty");
+    return;
+  }
+  el.authorizedDevicesStatus.textContent = "";
+  for (const grant of incomingGrants) {
+    const row = document.createElement("div");
+    row.className = "authorized-device-row";
+    const copy = document.createElement("div");
+    copy.className = "authorized-device-copy";
+    const name = document.createElement("strong");
+    name.textContent = machineDisplayName(grant.device);
+    const details = document.createElement("small");
+    details.textContent = tKey("deviceTrust.authorizedOn", { date: formatGrantDate(grant.createdAt) });
+    copy.append(name, details);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btn ghost authorized-device-revoke";
+    button.textContent = tKey("deviceTrust.revoke");
+    button.addEventListener("click", () => void revokeIncomingGrant(grant, button));
+    row.append(copy, button);
+    el.authorizedDeviceList.appendChild(row);
+  }
+}
+
+async function refreshIncomingGrants(force = false) {
+  const machine = currentMachine();
+  const machineIdAtStart = machine?.id || null;
+  if (!machineIdAtStart || el.viewSettings?.classList.contains("hidden")) return null;
+  const now = Date.now();
+  if (!force && incomingGrantsRequest) return incomingGrantsRequest;
+  if (!force && incomingGrantsMachine === machineIdAtStart && now - incomingGrantsRefreshAt < 10_000) {
+    renderIncomingGrants();
+    return incomingGrants;
+  }
+  incomingGrantsAbort?.abort();
+  const controller = new AbortController();
+  incomingGrantsAbort = controller;
+  incomingGrantsMachine = machineIdAtStart;
+  incomingGrantsRefreshAt = now;
+  incomingGrantsState = "loading";
+  incomingGrantsError = "";
+  incomingGrantsRemoteError = false;
+  renderIncomingGrants();
+  const generation = viewGeneration;
+  const baseAtStart = apiBase;
+  const request = (async () => {
+    try {
+      const response = await fetch(`${baseAtStart}/api/device-trust/grants`, {
+        credentials: "same-origin", cache: "no-store", signal: controller.signal,
+      });
+      let data = null;
+      try { data = await response.json(); } catch {}
+      if (!response.ok) {
+        if (response.status === 401) {
+          if (baseAtStart) throw showRemoteAuthorizationState(baseAtStart);
+          showLogin();
+        }
+        throw new Error(data?.error || response.statusText || "Authorized devices unavailable");
+      }
+      if (!Array.isArray(data?.grants)) throw new Error("Invalid authorized-device response");
+      if (generation !== viewGeneration || machineIdAtStart !== selectedId || baseAtStart !== apiBase) return null;
+      incomingGrants = data.grants;
+      incomingGrantsError = "";
+      incomingGrantsRemoteError = false;
+      incomingGrantsState = "ready";
+      renderIncomingGrants();
+      return incomingGrants;
+    } catch (error) {
+      if (controller.signal.aborted) return null;
+      if (generation === viewGeneration && machineIdAtStart === selectedId && baseAtStart === apiBase) {
+        incomingGrantsState = "unavailable";
+        incomingGrants = [];
+        incomingGrantsError = error?.remote ? error.message : "";
+        incomingGrantsRemoteError = !!error?.remote;
+        renderIncomingGrants();
+      }
+      return null;
+    } finally {
+      if (incomingGrantsRequest === request) incomingGrantsRequest = null;
+      if (incomingGrantsAbort === controller) incomingGrantsAbort = null;
+    }
+  })();
+  incomingGrantsRequest = request;
+  return request;
+}
+
+async function revokeIncomingGrant(grant, button) {
+  const device = machineDisplayName(grant?.device);
+  if (!grant?.grantId || !confirm(tKey("deviceTrust.revokeConfirm", { device }))) return;
+  button.disabled = true;
+  const baseAtStart = apiBase;
+  try {
+    const response = await fetch(`${baseAtStart}/api/device-trust/grants/revoke`, {
+      method: "POST", credentials: "same-origin", cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ grantId: grant.grantId }),
+    });
+    let data = null;
+    try { data = await response.json(); } catch {}
+    if (response.status === 401) {
+      if (baseAtStart) throw showRemoteAuthorizationState(baseAtStart);
+      showLogin();
+      throw new Error("unauthorized");
+    }
+    if (!response.ok) throw new Error(data?.error || response.statusText || "Could not revoke device access");
+    toast(tKey("deviceTrust.revoked"));
+    incomingGrantsRefreshAt = 0;
+    await refreshIncomingGrants(true);
+  } catch (error) {
+    if (error?.remote && baseAtStart === apiBase) {
+      incomingGrantsState = "unavailable";
+      incomingGrants = [];
+      incomingGrantsError = error.message;
+      incomingGrantsRemoteError = true;
+      renderIncomingGrants();
+    }
+    if (!error?.remote) toast(tKey("deviceTrust.revokeFailed"), true);
+    button.disabled = false;
+  }
+}
+
 let machineStatusRefreshAt = 0;
 let machineStatusRequest = null;
 async function fetchMachineStatusEndpoint(machine, endpoint) {
@@ -5682,23 +5930,39 @@ async function fetchMachineStatusEndpoint(machine, endpoint) {
   const timeout = setTimeout(() => controller.abort(), 5000);
   try {
     const response = await fetch(`${base}${endpoint}`, { credentials: "same-origin", signal: controller.signal, cache: "no-store" });
-    const result = { ok: response.ok, status: response.status };
-    // Release the connection before a compatibility probe makes its fallback
-    // request, especially on Safari where the body stream is not eagerly read.
-    try { await response.arrayBuffer(); } catch {}
+    let data = null;
+    try { data = await response.json(); } catch {
+      // Release the connection before a compatibility probe makes its
+      // fallback request, especially on Safari where the body stream is not
+      // eagerly read.
+      try { await response.arrayBuffer(); } catch {}
+    }
+    const result = { ok: response.ok, status: response.status, ...(typeof data?.authed === "boolean" ? { authed: data.authed } : {}) };
+    if (response.status === 401 || (endpoint === "/api/machine" && data?.authed === false)) {
+      if (base) showRemoteAuthorizationState(base);
+      else showLogin();
+    }
     return result;
   } catch { return null; }
   finally { clearTimeout(timeout); }
 }
 async function checkMachineStatus(machine) {
   const health = await fetchMachineStatusEndpoint(machine, "/api/health");
-  if (health?.ok) return "online";
+  // /api/health is intentionally public, so it cannot prove that a revoked
+  // peer grant still authorizes the relay. Follow it with the authenticated
+  // machine probe; this also keeps an in-flight health success from replacing
+  // a remote-authorization offline state.
+  if (health?.ok) {
+    const machineInfo = await fetchMachineStatusEndpoint(machine, "/api/machine");
+    const authorized = machineInfo?.ok && machineInfo.authed !== false;
+    return authorized || [404, 405].includes(machineInfo?.status) ? "online" : "offline";
+  }
   // Older Pi Harbor instances do not expose /api/health yet, but /api/machine is
   // available on those builds. Treat that compatibility response as online
   // instead of showing a healthy, actively used device as offline.
   if (!health || ![404, 405].includes(health.status)) return "offline";
   const machineInfo = await fetchMachineStatusEndpoint(machine, "/api/machine");
-  return machineInfo?.ok ? "online" : "offline";
+  return machineInfo?.ok && machineInfo.authed !== false ? "online" : "offline";
 }
 
 async function refreshMachineStatuses(force = false) {
@@ -5726,11 +5990,37 @@ function setMachineFormError(message = "") {
   el.machineFormError.classList.toggle("hidden", !message);
 }
 
+function resetMachinePairReview({ invalidate = true } = {}) {
+  if (invalidate) machinePairReviewRequest += 1;
+  machinePairPreview = null;
+  el.machinePairJoin && (el.machinePairJoin.disabled = false);
+  el.machinePairPreview?.classList.add("hidden");
+  if (el.machinePairJoin) {
+    el.machinePairJoin.dataset.i18nKey = "deviceTrust.reviewCode";
+    el.machinePairJoin.textContent = tKey("deviceTrust.reviewCode");
+  }
+  if (el.machinePairPreviewName) el.machinePairPreviewName.textContent = "";
+  if (el.machinePairPreviewUrl) el.machinePairPreviewUrl.textContent = "";
+  if (el.machinePairPreviewExpires) el.machinePairPreviewExpires.textContent = "";
+  if (el.machinePairPreviewVersion) el.machinePairPreviewVersion.textContent = "";
+}
+
+function formatPairingExpiry(value) {
+  const date = new Date(Number(value));
+  if (!Number.isFinite(date.getTime())) return "";
+  try {
+    return new Intl.DateTimeFormat(window.piI18n?.getLocale?.() || settings.locale || "en", {
+      dateStyle: "medium", timeStyle: "short",
+    }).format(date);
+  } catch { return date.toISOString(); }
+}
+
 async function openMachineDialog(machine = null, mode = machine ? "edit" : "add") {
   machineDialogExisting = machine;
   machineDialogMode = mode;
   machineDialogDeviceSettings = null;
   machineDialogRestartRequired = false;
+  resetMachinePairReview();
   const isLocal = !!machine?.local;
   const pairing = mode === "pair";
   if (el.machineDialogTitle) el.machineDialogTitle.textContent = pairing ? "使用配對碼加入" : machine ? `編輯 ${machineDisplayName(machine)}` : "新增設備";
@@ -5751,10 +6041,11 @@ async function openMachineDialog(machine = null, mode = machine ? "edit" : "add"
   el.machineSave?.classList.toggle("hidden", pairing);
   el.machinePairCode.value = "";
   el.machinePairOffer.value = "";
+  resetMachinePairReview();
   el.machineRestart?.classList.add("hidden");
   if (el.machineStatusNote) el.machineStatusNote.textContent = machine
-    ? `目前狀態：${machineStatuses.get(machine.id) === "online" ? "在線" : machineStatuses.get(machine.id) === "offline" ? "離線" : "尚未檢查"}`
-    : "儲存後會自動加入設備清單。";
+    ? tKey("deviceTrust.inUse", { status: machineStatusText(machineStatuses.get(machine.id) || "unknown") })
+    : (pairing ? tKey("deviceTrust.codeNotice") : tKey("deviceTrust.manualNote"));
   setMachineFormError();
   el.machineDialog?.classList.remove("hidden");
   if (isLocal && !pairing) {
@@ -5777,6 +6068,7 @@ async function openMachineDialog(machine = null, mode = machine ? "edit" : "add"
 
 function closeMachineDialog() {
   el.machineDialog?.classList.add("hidden");
+  resetMachinePairReview();
   machineDialogExisting = null;
   machineDialogDeviceSettings = null;
   machineDialogRestartRequired = false;
@@ -5801,20 +6093,59 @@ async function machineAdminRequest(body) {
   if (response.status === 401) { showLogin(); throw new Error("登入已過期"); }
   let result = {};
   try { result = await response.json(); } catch {}
-  if (!response.ok) throw new Error(result.error || response.statusText || "設備設定失敗");
+  if (!response.ok) {
+    const message = result.code === "dedicated_url_change"
+      ? tKey("deviceTrust.dedicatedUrlChange")
+      : result.code === "trust_state_unavailable"
+        ? tKey("deviceTrust.trustStateUnavailable")
+        : result.error || response.statusText || "設備設定失敗";
+    const error = new Error(message);
+    error.status = response.status;
+    error.code = result.code;
+    throw error;
+  }
+  return result;
+}
+
+async function localPairingRequest(path, body) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify(body),
+  });
+  if (response.status === 401) { showLogin(); throw new Error("Sign-in expired"); }
+  let result = {};
+  try { result = await response.json(); } catch {}
+  if (!response.ok) {
+    if (result.code === "remote_unauthorized") {
+      const error = showRemoteAuthorizationState("");
+      error.status = response.status;
+      throw error;
+    }
+    const message = result.code === "dedicated_url_change"
+      ? tKey("deviceTrust.dedicatedUrlChange")
+      : result.code === "trust_state_unavailable"
+        ? tKey("deviceTrust.trustStateUnavailable")
+        : result.error || response.statusText || "Pairing request failed";
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
+  }
   return result;
 }
 
 async function generateMachinePairingOffer() {
   el.machinePairGenerate.disabled = true;
   setMachineFormError();
+  resetMachinePairReview();
   try {
-    const result = await post("/api/device-pairing/start", {});
+    const result = await localPairingRequest("/api/device-pairing/start", {});
     el.machinePairOffer.value = result.offer || "";
     el.machinePairOfferArea.classList.remove("hidden");
-    if (el.machineStatusNote) el.machineStatusNote.textContent = "配對碼 5 分鐘內有效，複製到另一台 Pi Harbor 使用。";
+    if (el.machineStatusNote) el.machineStatusNote.textContent = tKey("deviceTrust.codeGenerated");
     try { await navigator.clipboard?.writeText(result.offer || ""); toast("配對碼已複製"); }
-    catch { toast("配對碼已產生，請手動複製"); }
+    catch { toast(tKey("deviceTrust.savedNotice")); }
   } catch (error) {
     setMachineFormError(error.message || "無法產生配對碼");
   } finally {
@@ -5822,23 +6153,61 @@ async function generateMachinePairingOffer() {
   }
 }
 
-async function joinMachinePairing() {
+async function reviewMachinePairing() {
   const offer = String(el.machinePairCode?.value || "").trim();
-  if (!offer) { setMachineFormError("請貼上另一台設備產生的配對碼。"); return; }
+  if (!offer) { setMachineFormError(tKey("deviceTrust.pasteCode")); return; }
+  const reviewRequest = ++machinePairReviewRequest;
   el.machinePairJoin.disabled = true;
   setMachineFormError();
-  if (el.machineStatusNote) el.machineStatusNote.textContent = "正在驗證配對碼並測試遠端連線…";
+  if (el.machineStatusNote) el.machineStatusNote.textContent = tKey("deviceTrust.reviewDescription");
   try {
-    await post("/api/machines/pair", { offer });
+    const result = await localPairingRequest("/api/machines/pair/preview", { offer });
+    if (reviewRequest !== machinePairReviewRequest || String(el.machinePairCode?.value || "").trim() !== offer) return;
+    const candidate = result?.candidate;
+    if (!candidate || typeof candidate.name !== "string" || typeof candidate.url !== "string") throw new Error("Pairing review unavailable");
+    machinePairPreview = { offer, candidate };
+    if (el.machinePairPreviewName) el.machinePairPreviewName.textContent = candidate.name;
+    if (el.machinePairPreviewUrl) el.machinePairPreviewUrl.textContent = candidate.url;
+    if (el.machinePairPreviewExpires) el.machinePairPreviewExpires.textContent = formatPairingExpiry(candidate.expiresAt);
+    if (el.machinePairPreviewVersion) el.machinePairPreviewVersion.textContent = String(candidate.version);
+    el.machinePairPreview?.classList.remove("hidden");
+    el.machinePairJoin.dataset.i18nKey = "deviceTrust.confirmPair";
+    el.machinePairJoin.textContent = tKey("deviceTrust.confirmPair");
+    if (el.machineStatusNote) el.machineStatusNote.textContent = "";
+  } catch (error) {
+    if (reviewRequest !== machinePairReviewRequest || String(el.machinePairCode?.value || "").trim() !== offer) return;
+    resetMachinePairReview({ invalidate: false });
+    setMachineFormError(error.message || "Pairing review unavailable");
+  } finally {
+    if (reviewRequest === machinePairReviewRequest) el.machinePairJoin.disabled = false;
+  }
+}
+
+async function pairReviewedMachine() {
+  const offer = String(el.machinePairCode?.value || "").trim();
+  if (!offer || !machinePairPreview || machinePairPreview.offer !== offer) {
+    resetMachinePairReview();
+    return reviewMachinePairing();
+  }
+  el.machinePairJoin.disabled = true;
+  setMachineFormError();
+  if (el.machineStatusNote) el.machineStatusNote.textContent = "";
+  try {
+    await localPairingRequest("/api/machines/pair", { offer, confirmed: true });
     closeMachineDialog();
     await reloadMachineCatalog();
     toast("設備配對成功");
   } catch (error) {
     setMachineFormError(error.message || "設備配對失敗");
-    if (el.machineStatusNote) el.machineStatusNote.textContent = "配對失敗；請確認配對碼尚未過期，以及兩台設備使用相同 token。";
+    if (el.machineStatusNote) el.machineStatusNote.textContent = tKey("deviceTrust.pairingNote");
   } finally {
     el.machinePairJoin.disabled = false;
   }
+}
+
+function joinMachinePairing() {
+  if (machinePairPreview) return void pairReviewedMachine();
+  void reviewMachinePairing();
 }
 
 async function reloadMachineCatalog() {
@@ -5940,6 +6309,7 @@ el.machineDelete?.addEventListener("click", () => void deleteMachineDialog());
 el.machineTest?.addEventListener("click", () => void testMachineDialogConnection());
 el.machineRestart?.addEventListener("click", () => void restartMachineWeb());
 el.machinePairGenerate?.addEventListener("click", () => void generateMachinePairingOffer());
+el.machinePairCode?.addEventListener("input", resetMachinePairReview);
 el.machinePairJoin?.addEventListener("click", () => void joinMachinePairing());
 
 // ===========================================================================

@@ -10,7 +10,8 @@ simple.
 ```text
 server.js
   ├─ Pi/session/provider/device behavior and route table
-  └─ server/http-utils.js  HTTP headers, cookies, JSON bodies, SSE framing
+  ├─ server/device-trust.js  one-time pairing, peer credentials, and atomic grants
+  └─ server/http-utils.js  HTTP headers, cookies, auth modes, JSON bodies, SSE framing
 
 public/index.html
   ├─ public/i18n.js
@@ -34,7 +35,22 @@ explicit input/output boundary before adding more state to the controllers.
   may use a local temporary output directory, but it must not become a runtime
   requirement for the self-hosted server.
 - Preserve the public API paths so older paired devices can be upgraded
-  independently.
+  independently. Browser cookies remain the compatibility path for manually
+  added and already-saved machines; newly paired machines use a dedicated
+  bearer credential instead.
+- `PIHARBOR3` is a five-minute, one-use, out-of-band pairing capability. The
+  joining host reviews its decoded candidate locally before making a network
+  request. The target stores only the incoming credential hash, while the
+  joining host stores its outgoing credential in `~/.config/pi-harbor/device-trust.json`.
+  Grants are listed and revoked from Device settings, and revocation is
+  enforced on the next request without a remote delete call.
+- `PIHARBOR2` remains accepted when a v2.2 host joins a v2.1.2 offer through
+  the legacy HMAC path; it receives no dedicated credential. An older client
+  cannot silently downgrade a `PIHARBOR3` offer and must update.
+- The updater performs archive-name/type preflight before extraction. Release
+  signing is intentionally documented future work; the current release check
+  remains checksum-based. Mermaid is still loaded from its runtime CDN, a
+  known offline/privacy follow-up.
 
 ## Migration path
 

@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const net = require("node:net");
+const { isolatedEnvironment } = require("../test-support/env");
 
 const root = path.resolve(__dirname, "..");
 
@@ -70,15 +71,14 @@ test("browse defaults blank paths to APP_HOME and rejects relative or outside pa
   await fs.promises.mkdir(path.join(home, "Projects"), { recursive: true });
   await fs.promises.mkdir(outside, { recursive: true });
   const port = await freePort();
-  const env = {
-    ...process.env,
+  const env = isolatedEnvironment({
+    HOME: home,
     PI_HOME: home,
     PI_HARBOR_HOST: "127.0.0.1",
     PI_HARBOR_PORT: String(port),
     PI_HARBOR_BROWSE_ROOTS: home,
     PI_BIN: "/path/that/does/not/exist",
-  };
-  for (const key of ["PI_HARBOR_TOKEN", "PI_HARBOR_TOKEN_FILE", "PI_WEB_TOKEN", "PI_WEB_TOKEN_FILE"]) delete env[key];
+  });
   const child = spawn(process.execPath, [path.join(root, "server.js")], {
     env,
     stdio: ["ignore", "pipe", "pipe"],

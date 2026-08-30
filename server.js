@@ -24,12 +24,19 @@ const crypto = require("node:crypto");
 const { pathToFileURL } = require("node:url");
 const { spawn, execFileSync } = require("node:child_process");
 const { createHttpUtils } = require("./server/http-utils");
+const {
+  PAIRING_TTL_MS,
+  sanitizeDeviceMetadata,
+  decodePairingCode,
+  pairingCandidate,
+  createDeviceTrustStore,
+} = require("./server/device-trust");
 
 // ---------------------------------------------------------------------------
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.1.2";
+const APP_VERSION = "2.2.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -92,6 +99,10 @@ const envPort = parsePort(settingFromEnv("PORT"));
 const PORT = configuredPort || envPort || 3140;
 const HOST = settingFromEnv("HOST") || "127.0.0.1";
 const CONFIG_DIR = path.join(APP_HOME, ".config", "pi-harbor");
+const configuredDeviceTrustFile = settingFromEnv("DEVICE_TRUST_FILE");
+const DEVICE_TRUST_FILE = configuredDeviceTrustFile
+  ? path.resolve(expandHome(configuredDeviceTrustFile))
+  : path.join(CONFIG_DIR, "device-trust.json");
 const DEFAULT_TOKEN_FILE = path.join(CONFIG_DIR, "token");
 const configuredTokenFile = settingFromEnv("TOKEN_FILE");
 const TOKEN_FILE = configuredTokenFile ? path.resolve(expandHome(configuredTokenFile)) : DEFAULT_TOKEN_FILE;
@@ -537,11 +548,36 @@ function schedulePendingUpdateApplyAfterRpcIdle() {
 loadManagedMachines();
 
 function publicMachine(machine, selfId = selfMachineId()) {
-  return { id: machine.id, name: machine.name, host: machine.host, url: machine.url, managed: !!machine.managed, local: machine.id === selfId, self: machine.id === selfId };
+  const local = machine.id === selfId;
+  const authMode = local ? "local"
+    : !deviceTrust.isStateHealthy() ? "unavailable"
+      : deviceTrust.hasOutgoingCredential(machine.id) ? "dedicated" : "legacy";
+  return {
+    id: machine.id,
+    name: machine.name,
+    host: machine.host,
+    url: machine.url,
+    managed: !!machine.managed,
+    local,
+    self: local,
+    authMode,
+  };
 }
 
 function machineId(value) {
   return String(value || "").trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+}
+
+function trustStateUnavailableError() {
+  const error = new Error("Device trust state is unavailable; repair it before changing device URLs or pairing");
+  error.statusCode = 503;
+  error.code = "trust_state_unavailable";
+  return error;
+}
+
+function publicDeviceErrorCode(error) {
+  return ["remote_unauthorized", "dedicated_url_change", "trust_state_unavailable"].includes(error?.code)
+    ? error.code : null;
 }
 
 function validateMachineInput(body, existing = null) {
@@ -565,15 +601,18 @@ function validateMachineInput(body, existing = null) {
 }
 
 function selfMachineId() {
-  if (LOCAL_DEVICE_ID && MACHINES[LOCAL_DEVICE_ID]) return LOCAL_DEVICE_ID;
+  // A configured id remains local even when machines.json only contains
+  // managed remote entries after a restart. Do not infer locality from a
+  // hostname: two temporary or colocated Pi Harbor instances can share it.
+  if (LOCAL_DEVICE_ID) return LOCAL_DEVICE_ID;
   for (const [id, m] of Object.entries(MACHINES)) if (m.host === MACHINE_HOST) return id;
   return null;
 }
 
 function ensureLocalMachineEntry() {
   let id = selfMachineId();
-  if (!id) {
-    id = LOCAL_DEVICE_ID || machineId(MACHINE_HOST) || `device-${crypto.randomUUID().slice(0, 8)}`;
+  if (!id) id = LOCAL_DEVICE_ID || machineId(MACHINE_HOST) || `device-${crypto.randomUUID().slice(0, 8)}`;
+  if (!MACHINES[id]) {
     MACHINES[id] = {
       id,
       name: MACHINE_NAME,
@@ -583,15 +622,24 @@ function ensureLocalMachineEntry() {
     };
   }
   MACHINES[id].name = MACHINE_NAME;
-  MACHINES[id].host = MACHINES[id].host || MACHINE_HOST;
-  if (localDeviceConfig.publicUrl) MACHINES[id].url = localDeviceConfig.publicUrl;
+  MACHINES[id].host = MACHINE_HOST;
+  MACHINES[id].managed = false;
+  MACHINES[id].url = localDeviceConfig.publicUrl || `http://${MACHINE_HOST}:${PORT}`;
   return id;
 }
 
 ensureLocalMachineEntry();
 
+// The trust store is deliberately separate from machines.json: a catalog
+// alias can be edited without changing the independent credential it uses.
+// Invalid on-disk trust state is loaded fail-closed by the module.
+const deviceTrust = createDeviceTrustStore({ filePath: DEVICE_TRUST_FILE });
+
 function isLocalMachine(machine) {
-  return !!machine && (machine.id === selfMachineId() || machine.host === MACHINE_HOST);
+  // Hostnames are not unique when two Pi Harbor instances run on one
+  // computer (and are often hidden behind the same Tailscale name). Stable
+  // device identity, not host text, decides whether a catalog entry is local.
+  return !!machine && machine.id === selfMachineId();
 }
 
 function publicDeviceSettings() {
@@ -608,40 +656,86 @@ function publicDeviceSettings() {
     // Tailscale Serve), so never advertise it as the pairing destination.
     publicUrl: localDeviceConfig.publicUrl || "",
     appVersion: APP_VERSION,
+    authMode: "local",
   };
 }
 
-const pairingOffers = new Map();
-function cleanupPairingOffers() {
+function publicPairingDevice() {
+  const device = publicDeviceSettings();
+  return sanitizeDeviceMetadata({
+    id: device.id,
+    name: device.name,
+    host: device.host,
+    url: device.publicUrl,
+  }, { requireUrl: true });
+}
+
+function publicRequestingDevice() {
+  const device = publicDeviceSettings();
+  return sanitizeDeviceMetadata({
+    id: device.id,
+    name: device.name,
+    host: device.host,
+    url: device.publicUrl || "",
+  }, { requireUrl: false });
+}
+
+const pairingPreviewApprovals = new Map();
+function cleanupPairingPreviewApprovals() {
   const now = Date.now();
-  for (const [nonce, offer] of pairingOffers) if (offer.expiresAt <= now) pairingOffers.delete(nonce);
-  while (pairingOffers.size > 24) pairingOffers.delete(pairingOffers.keys().next().value);
+  for (const [key, approval] of pairingPreviewApprovals) if (!approval || approval.expiresAt <= now) pairingPreviewApprovals.delete(key);
+  while (pairingPreviewApprovals.size > 24) pairingPreviewApprovals.delete(pairingPreviewApprovals.keys().next().value);
+}
+function pairingPreviewKey(offer) { return sha256(typeof offer === "string" ? offer.trim() : ""); }
+
+async function readBoundedJsonResponse(response, maxBytes = 256 * 1024) {
+  if (!response?.body?.getReader) return {};
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      const chunk = Buffer.from(part.value || []);
+      total += chunk.length;
+      if (total > maxBytes) {
+        try { await reader.cancel(); } catch {}
+        const error = new Error("Pairing response is too large");
+        error.statusCode = 502;
+        throw error;
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    try { reader.releaseLock(); } catch {}
+  }
+  try {
+    const value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch { return {}; }
 }
 
 function createPairingOffer() {
-  cleanupPairingOffers();
-  const device = publicDeviceSettings();
-  if (!device.publicUrl) { const err = new Error("Set this device's public URL before generating a pairing code"); err.statusCode = 409; throw err; }
-  const nonce = crypto.randomBytes(18).toString("base64url");
-  const expiresAt = Date.now() + 5 * 60 * 1000;
-  pairingOffers.set(nonce, { nonce, expiresAt });
-  const unsigned = {
-    version: 2,
-    nonce,
-    expiresAt,
-    device: { id: device.id, name: device.name, host: device.host, url: device.publicUrl },
-  };
-  // Both Pi Harbor hosts already share the Web token. Sign the short-lived
-  // offer with it so a pasted code proves its URL came from a trusted host;
-  // unlike the v1 flow, no reusable cookie is sent before this proof passes.
-  const payload = Buffer.from(JSON.stringify({ ...unsigned, proof: pairingProof(unsigned) })).toString("base64url");
-  return { offer: `PIHARBOR2.${payload}`, expiresAt, device };
+  // The manually transferred PIHARBOR3 code is the trust channel.  Only its
+  // secret hash is retained by device-trust; a forged candidate therefore
+  // receives no credential from the joining Pi Harbor.
+  try { return deviceTrust.createOffer(publicPairingDevice()); }
+  catch (error) {
+    if (error?.message === "Pairing device URL is invalid") {
+      const err = new Error("Set this device's public URL before generating a pairing code");
+      err.statusCode = 409;
+      throw err;
+    }
+    throw error;
+  }
 }
 
 function decodePairingOffer(value) {
   const raw = typeof value === "string" ? value.trim() : "";
+  if (raw.startsWith("PIHARBOR3.")) return { kind: "v3", ...decodePairingCode(raw) };
   const prefix = "PIHARBOR2.";
-  if (!raw.startsWith(prefix)) {
+  if (!raw.startsWith(prefix) || raw.length > 4096) {
     const err = new Error(raw.startsWith("PIHARBOR1.")
       ? "This pairing code uses the old format; update both Pi Harbor devices and generate a new code"
       : "Invalid pairing code format");
@@ -653,9 +747,9 @@ function decodePairingOffer(value) {
     const err = new Error("Could not read pairing code"); err.statusCode = 400; throw err;
   }
   const device = decoded?.device;
-  if (!decoded || decoded.version !== 2 || typeof decoded.nonce !== "string" || !Number.isFinite(decoded.expiresAt)
-    || typeof device?.id !== "string" || typeof device?.name !== "string" || typeof device?.host !== "string"
-    || typeof device?.url !== "string" || !/^[0-9a-f]{64}$/.test(String(decoded.proof || ""))) {
+  if (!decoded || decoded.version !== 2 || typeof decoded.nonce !== "string" || !/^[A-Za-z0-9_-]{16,128}$/.test(decoded.nonce)
+    || !Number.isSafeInteger(decoded.expiresAt) || typeof device?.id !== "string" || typeof device?.name !== "string"
+    || typeof device?.host !== "string" || typeof device?.url !== "string" || !/^[0-9a-f]{64}$/.test(String(decoded.proof || ""))) {
     const err = new Error("Pairing code is incomplete"); err.statusCode = 400; throw err;
   }
   const unsigned = {
@@ -668,12 +762,10 @@ function decodePairingOffer(value) {
     const err = new Error("Pairing code proof is invalid; both devices must use the same Web token"); err.statusCode = 403; throw err;
   }
   if (decoded.expiresAt <= Date.now()) { const err = new Error("Pairing code expired; generate a new one"); err.statusCode = 410; throw err; }
-  let url;
-  try { url = new URL(device.url); } catch { url = null; }
-  if (!url || !["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-    const err = new Error("Pairing code contains an unsafe device URL"); err.statusCode = 400; throw err;
-  }
-  return { ...unsigned, proof: decoded.proof, device: { ...device, url: url.toString().replace(/\/$/, "") } };
+  let normalizedDevice;
+  try { normalizedDevice = sanitizeDeviceMetadata(device, { requireUrl: true }); }
+  catch { const err = new Error("Pairing code contains an unsafe device URL"); err.statusCode = 400; throw err; }
+  return { kind: "v2", version: 2, nonce: decoded.nonce, expiresAt: decoded.expiresAt, proof: decoded.proof, device: normalizedDevice };
 }
 
 function resolvePiBin() {
@@ -758,17 +850,46 @@ if (TOKEN) {
 //      token 重新生成後會重新允許顯示一次）；
 //   4. 已登入的瀏覽器不再顯示。
 const ONBOARDING_FILE = path.join(CONFIG_DIR, "onboarding.json");
-let onboardingState = readOnboardingState();
-function readOnboardingState() {
+function readOnboardingStateDetails() {
+  let stat;
+  try { stat = fs.lstatSync(ONBOARDING_FILE); }
+  catch (error) {
+    // A missing onboarding file is the normal first-run state. Existing but
+    // unreadable/corrupt state must deny the reveal rather than resetting the
+    // one-time marker and exposing the Web token again.
+    return error?.code === "ENOENT"
+      ? { state: {}, healthy: true }
+      : { state: {}, healthy: false };
+  }
+  if (!stat.isFile() || stat.size > 64 * 1024
+    || (process.platform !== "win32" && (stat.mode & 0o077))) {
+    return { state: {}, healthy: false };
+  }
   try {
     const raw = JSON.parse(fs.readFileSync(ONBOARDING_FILE, "utf8"));
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { state: {}, healthy: false };
+    const hasConfirmed = Object.prototype.hasOwnProperty.call(raw, "tokenConfirmedAt");
+    const hasHash = Object.prototype.hasOwnProperty.call(raw, "tokenHash");
+    if (hasConfirmed !== hasHash) return { state: {}, healthy: false };
     const state = {};
-    if (typeof raw.tokenConfirmedAt === "string" && raw.tokenConfirmedAt) state.tokenConfirmedAt = raw.tokenConfirmedAt;
-    if (typeof raw.tokenHash === "string" && raw.tokenHash) state.tokenHash = raw.tokenHash;
-    return state;
-  } catch { return {}; }
+    if (hasConfirmed) {
+      if (typeof raw.tokenConfirmedAt !== "string" || !raw.tokenConfirmedAt
+        || !Number.isFinite(Date.parse(raw.tokenConfirmedAt))
+        || typeof raw.tokenHash !== "string" || !/^[0-9a-f]{64}$/.test(raw.tokenHash)) {
+        return { state: {}, healthy: false };
+      }
+      state.tokenConfirmedAt = raw.tokenConfirmedAt;
+      state.tokenHash = raw.tokenHash;
+    }
+    return { state, healthy: true };
+  } catch {
+    return { state: {}, healthy: false };
+  }
 }
+function readOnboardingState() { return readOnboardingStateDetails().state; }
+const onboardingStateRead = readOnboardingStateDetails();
+let onboardingState = onboardingStateRead.state;
+let onboardingStateHealthy = onboardingStateRead.healthy;
 function writeOnboardingState(next) {
   fs.mkdirSync(path.dirname(ONBOARDING_FILE), { recursive: true, mode: 0o700 });
   const temp = `${ONBOARDING_FILE}.${process.pid}.tmp`;
@@ -796,7 +917,7 @@ function hasForwardingHeaders(req) {
   return false;
 }
 function onboardingKeyEligible(req) {
-  if (!TOKEN) return false;
+  if (!TOKEN || !onboardingStateHealthy) return false;
   if (!isLoopbackRemote(req) || !hasLoopbackHost(req) || hasForwardingHeaders(req)) return false;
   if (onboardingState.tokenConfirmedAt && onboardingState.tokenHash === TOKEN_HASH) return false;
   return true;
@@ -2624,9 +2745,13 @@ const MIME = {
 
 // Keep HTTP framing, security headers, cookies, and body parsing in one
 // dependency-free module so route handlers can stay focused on Pi behavior.
-const { sseFrame, trySseWrite, send, sendJSON, getCookie, isAuthed, readBody, readJSON } = createHttpUtils({
+const {
+  sseFrame, trySseWrite, send, sendJSON, getCookie, isAuthed,
+  getBearerToken, authenticate, readBody, readJSON,
+} = createHttpUtils({
   secureCookie: SECURE_COOKIE,
   isTokenValid: (candidate) => safeEqual(candidate, TOKEN_HASH),
+  isPeerCredentialValid: (candidate) => deviceTrust.authenticatePeerCredential(candidate),
 });
 
 const server = http.createServer(async (req, res) => {
@@ -2650,7 +2775,7 @@ const server = http.createServer(async (req, res) => {
         });
         return;
       }
-      const body = await readJSON(req);
+      const body = await readJSON(req, 4 * 1024);
       const candidate = typeof body.token === "string" && body.token.length <= 512 ? body.token : "";
       if (safeEqual(sha256(candidate), TOKEN_HASH)) {
         loginAttempts.delete(key);
@@ -2675,24 +2800,34 @@ const server = http.createServer(async (req, res) => {
 
     // ---- 公開：機器資訊（登入頁只需要機器名；敏感路徑只在登入後回傳）----
     if (p === "/api/machine" && req.method === "GET") {
-      const authed = isAuthed(req);
-      const info = { machine: MACHINE_NAME, host: MACHINE_HOST, deviceId: selfMachineId(), port: PORT, authed };
-      if (authed) { info.home = APP_HOME; info.piBin = PI_BIN; }
+      const auth = authenticate(req);
+      const browserAuthed = auth?.mode === "browser";
+      const info = { machine: MACHINE_NAME, host: MACHINE_HOST, deviceId: selfMachineId(), port: PORT, authed: !!auth };
+      // Peer relays need the display fields but must not receive the local
+      // home or Pi executable path through the browser-facing relay.
+      if (browserAuthed) { info.home = APP_HOME; info.piBin = PI_BIN; }
       sendJSON(res, 200, info);
       return;
     }
 
     // ---- 公開：首次啟用密鑰導覽（必須在 /api/ 通配之前；只在本機顯示一次）----
     if (p === "/api/onboarding/key" && req.method === "GET") {
-      // 已登入的瀏覽器不需要導覽；未符合條件時絕不回傳 token。
-      const eligible = onboardingKeyEligible(req) && !isAuthed(req);
+      // 已登入的瀏覽器不需要導覽；未符合條件時絕不回傳 token。  Use the
+      // complete request authentication result so a valid peer bearer cannot
+      // pass the loopback gates as an anonymous browser.  Reject any bearer
+      // header too: a stale/invalid peer must not become a token-reveal bypass.
+      const auth = authenticate(req);
+      const hasAuthorization = typeof req.headers.authorization === "string" && req.headers.authorization.trim() !== "";
+      const eligible = onboardingKeyEligible(req) && !auth && !hasAuthorization;
       sendJSON(res, 200, eligible
         ? { eligible: true, key: TOKEN, confirmedAt: onboardingState.tokenConfirmedAt || null }
         : { eligible: false, confirmedAt: onboardingState.tokenConfirmedAt || null });
       return;
     }
     if (p === "/api/onboarding/confirm" && req.method === "POST") {
-      if (!onboardingKeyEligible(req) || isAuthed(req)) { sendJSON(res, 403, { error: "not eligible" }); return; }
+      const auth = authenticate(req);
+      const hasAuthorization = typeof req.headers.authorization === "string" && req.headers.authorization.trim() !== "";
+      if (!onboardingKeyEligible(req) || auth || hasAuthorization) { sendJSON(res, 403, { error: "not eligible" }); return; }
       const confirmedAt = new Date().toISOString();
       try {
         writeOnboardingState({ tokenConfirmedAt: confirmedAt, tokenHash: TOKEN_HASH });
@@ -2702,37 +2837,52 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       onboardingState = { tokenConfirmedAt: confirmedAt, tokenHash: TOKEN_HASH };
+      onboardingStateHealthy = true;
       send(res, 204, "");
       return;
     }
 
-    // A v2 pairing code is itself a five-minute, one-use, HMAC-authenticated
-    // capability. Consume its random nonce without sending the reusable login
-    // cookie across the network. Cross-site browser mutations are still blocked
-    // by isCrossSiteMutation() above.
+    // A v3 pairing code is a short-lived out-of-band capability.  It is
+    // consumed without a browser cookie; the capability itself is the trust
+    // channel and the target returns one dedicated credential to the joining
+    // Pi Harbor server only.
     if (p === "/api/device-pairing/consume" && req.method === "POST") {
-      const body = await readJSON(req);
-      cleanupPairingOffers();
-      const nonce = typeof body.nonce === "string" ? body.nonce : "";
-      const offer = pairingOffers.get(nonce);
-      if (!offer || offer.expiresAt <= Date.now()) {
-        sendJSON(res, 410, { error: "Pairing code is invalid or expired" });
+      const body = await readJSON(req, 16 * 1024);
+      if (Object.prototype.hasOwnProperty.call(body, "offerId") || Object.prototype.hasOwnProperty.call(body, "secret")) {
+        try {
+          const consumed = deviceTrust.consumePairingOffer({
+            offerId: body.offerId,
+            secret: body.secret,
+            requestingDevice: body.requestingDevice,
+          });
+          // Do not add this credential to any browser-visible object.  This is
+          // the one server-to-server consume response which must carry the
+          // newly issued capability to the joining Pi Harbor process.
+          sendJSON(res, 200, {
+            device: consumed.device,
+            grant: consumed.grant,
+            requestingDevice: consumed.requestingDevice,
+          });
+        } catch (error) {
+          sendJSON(res, error.statusCode || 403, { error: error.message || "Pairing capability is invalid" });
+        }
       } else {
-        pairingOffers.delete(nonce);
-        sendJSON(res, 200, { device: publicDeviceSettings() });
+        // A v2.1.2 host owns the old nonce map and handles this request.  A
+        // fresh v2.2 host has no v2 offers of its own, so fail closed.
+        sendJSON(res, 410, { error: "Pairing code is invalid or expired" });
       }
       return;
     }
 
     // ---- SSE 流（必須在 /api/ 通配之前）----
     if (p === "/api/provider-auth/stream" && req.method === "GET") {
-      if (!isAuthed(req)) { sendJSON(res, 401, { error: "unauthorized" }); return; }
+      if (!authenticate(req)) { sendJSON(res, 401, { error: "unauthorized" }); return; }
       providerAuthStream(req, res, url);
       return;
     }
 
     if (p === "/api/stream" && req.method === "GET") {
-      if (!isAuthed(req)) { sendJSON(res, 401, { error: "unauthorized" }); return; }
+      if (!authenticate(req)) { sendJSON(res, 401, { error: "unauthorized" }); return; }
       const sid = url.searchParams.get("sid");
       const s = rpcSessions.get(sid);
       if (!s) { sendJSON(res, 404, { error: "no such rpc session" }); return; }
@@ -2800,10 +2950,22 @@ const server = http.createServer(async (req, res) => {
         // pathname + search（原實現只轉 pathname 丟了 ?query，SSE 的 sid 全滅）
         upstream = new URL(proxyMatch[2] + (url.search || ""), remote.url);
       } catch { sendJSON(res, 400, { error: "bad target" }); return; }
-      const headers = {
-        cookie: `pi_harbor=${TOKEN_HASH}`,
-        accept: req.headers.accept || "*/*",
-      };
+      const outgoing = deviceTrust.outgoingCredential(remote.id);
+      if (!outgoing && !deviceTrust.isStateHealthy()) {
+        // An unreadable trust file must never look like a legacy machine: that
+        // would silently put the shared Web token on an unverified URL.
+        sendJSON(res, 503, { error: "device trust state unavailable" });
+        return;
+      }
+      const headers = { accept: req.headers.accept || "*/*" };
+      if (outgoing) {
+        // A newly paired machine gets a revocable capability of its own. Never
+        // combine it with or fall back to the browser's reusable cookie.
+        headers.authorization = `Bearer ${outgoing.credential}`;
+      } else {
+        // URL-added and pre-2.2 saved machines retain the shared-token path.
+        headers.cookie = `pi_harbor=${TOKEN_HASH}`;
+      }
       if (req.headers["last-event-id"]) headers["last-event-id"] = req.headers["last-event-id"];
       if (req.method === "POST") headers["content-type"] = req.headers["content-type"] || "application/json";
       // 用內建 fetch（undici）：http.request 在服務進程環境下有 outbound socket 怪病（socket hang up）。
@@ -2824,7 +2986,14 @@ const server = http.createServer(async (req, res) => {
           duplex: "half",
         });
         const rh = {};
-        ures.headers.forEach((v, k) => { if (!"content-encoding content-length transfer-connection".includes(k)) rh[k] = v; });
+        const blockedResponseHeaders = new Set([
+          "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te",
+          "trailer", "transfer-encoding", "upgrade", "content-encoding", "content-length",
+          // A remote login or auth challenge must never set/reflect a cookie on
+          // the gateway origin, nor expose a remote credential challenge.
+          "set-cookie", "set-cookie2", "www-authenticate",
+        ]);
+        ures.headers.forEach((v, k) => { if (!blockedResponseHeaders.has(k)) rh[k] = v; });
         res.writeHead(ures.status, rh);
         if (!ures.body) {
           res.end();
@@ -2855,7 +3024,8 @@ const server = http.createServer(async (req, res) => {
 
     // ---- 其餘 /api/* 需要 auth ----
     if (p.startsWith("/api/")) {
-      if (!isAuthed(req)) {
+      const auth = authenticate(req);
+      if (!auth) {
         console.log(`[pi-harbor] 401 for ${req.method} ${p} from ${clientAddress(req)}`);
         sendJSON(res, 401, { error: "unauthorized" }); return;
       }
@@ -3070,8 +3240,14 @@ const server = http.createServer(async (req, res) => {
           const nextPublicUrl = Object.prototype.hasOwnProperty.call(body, "publicUrl")
             ? normalizePublicUrl(body.publicUrl) : (localDeviceConfig.publicUrl || "");
           const id = selfMachineId() || LOCAL_DEVICE_ID || machineId(MACHINE_HOST);
+          const previousDeviceConfig = localDeviceConfig;
           localDeviceConfig = { ...localDeviceConfig, id, name, port: nextPort, publicUrl: nextPublicUrl };
-          writeDeviceConfig();
+          try {
+            writeDeviceConfig();
+          } catch (error) {
+            localDeviceConfig = previousDeviceConfig;
+            throw error;
+          }
           MACHINE_NAME = name;
           if (id && MACHINES[id]) {
             MACHINES[id].name = name;
@@ -3094,47 +3270,201 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (p === "/api/device-pairing/start" && req.method === "POST") {
+        if (auth.mode !== "browser") { sendJSON(res, 403, { error: "browser authentication required" }); return; }
         try { sendJSON(res, 200, createPairingOffer()); }
-        catch (e) { sendJSON(res, e.statusCode || 409, { error: e.message || "Could not generate pairing code" }); }
+        catch (e) {
+          sendJSON(res, e.statusCode || 409, {
+            error: e.message || "Could not generate pairing code",
+            ...(publicDeviceErrorCode(e) ? { code: publicDeviceErrorCode(e) } : e.statusCode === 503 ? { code: "trust_state_unavailable" } : {}),
+          });
+        }
+        return;
+      }
+
+      if ((p === "/api/device-trust/grants" || p === "/api/device-grants") && req.method === "GET") {
+        if (!deviceTrust.isStateHealthy()) { sendJSON(res, 503, { error: "device trust state unavailable" }); return; }
+        sendJSON(res, 200, { grants: deviceTrust.listIncomingGrants() });
+        return;
+      }
+
+      if ((p === "/api/device-trust/grants/revoke" || p === "/api/device-grants/revoke") && req.method === "POST") {
+        const body = await readJSON(req);
+        try {
+          const grantId = typeof body.grantId === "string" ? body.grantId : "";
+          if (!/^[0-9a-f]{32}$/.test(grantId)) { const err = new Error("Device grant is invalid"); err.statusCode = 400; throw err; }
+          if (!deviceTrust.revokeIncomingGrant(grantId)) { const err = new Error("Device grant not found"); err.statusCode = 404; throw err; }
+          sendJSON(res, 200, { ok: true, grantId });
+        } catch (error) {
+          sendJSON(res, error.statusCode || 400, { error: error.message || "Could not revoke device grant" });
+        }
+        return;
+      }
+
+      const revokeGrantMatch = p.match(/^\/api\/(?:device-trust\/grants|device-grants)\/([0-9a-f]{32})$/);
+      if (revokeGrantMatch && req.method === "DELETE") {
+        try {
+          const grantId = revokeGrantMatch[1];
+          if (!deviceTrust.revokeIncomingGrant(grantId)) { const err = new Error("Device grant not found"); err.statusCode = 404; throw err; }
+          sendJSON(res, 200, { ok: true, grantId });
+        } catch (error) {
+          sendJSON(res, error.statusCode || 400, { error: error.message || "Could not revoke device grant" });
+        }
+        return;
+      }
+
+      // Preview is intentionally a local authenticated operation. It decodes
+      // the pasted capability and returns only review fields; no candidate
+      // request is made until the separate confirmed action below.
+      if (p === "/api/machines/pair/preview" && req.method === "POST") {
+        if (auth.mode !== "browser") { sendJSON(res, 403, { error: "browser authentication required" }); return; }
+        const body = await readJSON(req);
+        try {
+          const decoded = decodePairingOffer(body.offer);
+          cleanupPairingPreviewApprovals();
+          const rawOffer = typeof body.offer === "string" ? body.offer.trim() : "";
+          pairingPreviewApprovals.set(pairingPreviewKey(rawOffer), { expiresAt: decoded.expiresAt });
+          sendJSON(res, 200, { candidate: pairingCandidate(decoded) });
+        } catch (error) {
+          sendJSON(res, error.statusCode || 400, { error: error.message || "Pairing code is invalid" });
+        }
         return;
       }
 
       if (p === "/api/machines/pair" && req.method === "POST") {
+        if (auth.mode !== "browser") { sendJSON(res, 403, { error: "browser authentication required" }); return; }
         const body = await readJSON(req);
         try {
           const decoded = decodePairingOffer(body.offer);
+          const rawOffer = typeof body.offer === "string" ? body.offer.trim() : "";
+          if (decoded.kind === "v3") {
+            cleanupPairingPreviewApprovals();
+            const approvalKey = pairingPreviewKey(rawOffer);
+            const approval = pairingPreviewApprovals.get(approvalKey);
+            if (body.confirmed !== true || !approval || approval.expiresAt <= Date.now()) {
+              const err = new Error("Review the pairing code before connecting"); err.statusCode = 409; throw err;
+            }
+            pairingPreviewApprovals.delete(approvalKey);
+          }
+          if (!deviceTrust.isStateHealthy()) throw trustStateUnavailableError();
           const remoteUrl = new URL("/api/device-pairing/consume", decoded.device.url);
-          const remoteResponse = await fetch(remoteUrl, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ nonce: decoded.nonce }),
-            redirect: "error",
-            signal: AbortSignal.timeout(8000),
-          });
+          let remoteResponse;
+          if (decoded.kind === "v3") {
+            const requestingDevice = publicRequestingDevice();
+            remoteResponse = await fetch(remoteUrl, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ offerId: decoded.offerId, secret: decoded.secret, requestingDevice }),
+              redirect: "error",
+              signal: AbortSignal.timeout(8000),
+            });
+          } else {
+            // Keep the v2.1.2 path byte-for-byte compatible: an old host
+            // consumes its nonce and cannot issue a dedicated credential.
+            remoteResponse = await fetch(remoteUrl, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ nonce: decoded.nonce }),
+              redirect: "error",
+              signal: AbortSignal.timeout(8000),
+            });
+          }
           let remoteBody = {};
-          try { remoteBody = await remoteResponse.json(); } catch {}
+          try { remoteBody = await readBoundedJsonResponse(remoteResponse); } catch (error) {
+            if (error?.statusCode) throw error;
+          }
           if (!remoteResponse.ok || !remoteBody.device) {
-            const err = new Error(remoteBody.error || `Could not connect to ${decoded.device.url}`);
-            err.statusCode = remoteResponse.status === 401 ? 401 : 502;
+            // Never reflect a candidate's error body: it is outside our trust
+            // boundary and must not become a credential/error exfiltration path.
+            const err = new Error(decoded.kind === "v3" ? "Could not complete device pairing" : `Could not connect to ${decoded.device.url}`);
+            // A 401 here belongs to the candidate, not to the gateway browser
+            // session. Keep it a bad upstream response so the local pairing UI
+            // cannot mistake it for an expired gateway login.
+            err.statusCode = 502;
+            if (remoteResponse.status === 401) err.code = "remote_unauthorized";
             throw err;
           }
-          const remote = remoteBody.device;
+
+          let remote;
+          let outgoingGrant = null;
+          if (!deviceTrust.isStateHealthy()) throw trustStateUnavailableError();
+          if (decoded.kind === "v3") {
+            try { remote = sanitizeDeviceMetadata(remoteBody.device, { requireUrl: true }); }
+            catch { const err = new Error("The remote device returned incomplete information"); err.statusCode = 502; throw err; }
+            if (remote.id !== decoded.device.id) {
+              const err = new Error("The remote device identity does not match the pairing code"); err.statusCode = 502; throw err;
+            }
+            const requester = remoteBody.requestingDevice;
+            let normalizedRequester;
+            try { normalizedRequester = sanitizeDeviceMetadata(requester, { requireUrl: false }); }
+            catch { const err = new Error("The remote device returned incomplete information"); err.statusCode = 502; throw err; }
+            const localRequester = publicRequestingDevice();
+            if (normalizedRequester.id !== localRequester.id) {
+              const err = new Error("The pairing response was intended for another device"); err.statusCode = 502; throw err;
+            }
+            const grant = remoteBody.grant;
+            if (!grant || typeof grant !== "object" || !/^[0-9a-f]{32}$/.test(String(grant.id || ""))
+              || !/^[0-9a-f]{64}$/.test(String(grant.credential || ""))) {
+              const err = new Error("The remote device did not issue a valid peer credential"); err.statusCode = 502; throw err;
+            }
+            outgoingGrant = { id: grant.id, credential: grant.credential };
+          } else {
+            remote = remoteBody.device;
+          }
+
           const id = machineId(remote.id || decoded.device.id || remote.name);
           const localDevice = publicDeviceSettings();
-          if (id === localDevice.id || remote.host === MACHINE_HOST) {
+          if (id === localDevice.id || (remote.host === MACHINE_HOST && decoded.device.url === localDevice.publicUrl)) {
             const err = new Error("This device cannot be paired with itself"); err.statusCode = 409; throw err;
           }
           const existing = MACHINES[id];
+          const existingOutgoing = deviceTrust.outgoingCredential(id);
+          if (existingOutgoing && !existing) {
+            const err = new Error("This device ID already has a peer credential; delete or repair that grant before pairing again");
+            err.statusCode = 409;
+            throw err;
+          }
+          if (existingOutgoing && existing && existing.url !== decoded.device.url) {
+            const err = new Error("Dedicated peer device URLs cannot be changed; delete and pair the device again");
+            err.statusCode = 409;
+            err.code = "dedicated_url_change";
+            throw err;
+          }
           if (existing && existing.host !== remote.host && existing.url !== decoded.device.url) {
             const err = new Error("This device ID is already used by another computer"); err.statusCode = 409; throw err;
           }
           const normalized = normalizeMachine(id, { name: remote.name, host: remote.host, url: decoded.device.url }, true);
           if (!normalized) { const err = new Error("The remote device returned incomplete information"); err.statusCode = 502; throw err; }
-          MACHINES[id] = normalized;
-          writeManagedMachines();
+
+          if (outgoingGrant && existingOutgoing) {
+            const err = new Error("This device ID already has a peer credential; delete it before pairing again");
+            err.statusCode = 409;
+            throw err;
+          }
+          // Persist the dedicated credential before the catalog entry. If the
+          // catalog write fails, removing the new credential can leave only an
+          // orphaned grant; that is safe because add/update below refuse to
+          // reuse an ID which still has a grant.
+          if (outgoingGrant) deviceTrust.setOutgoingCredential(id, outgoingGrant.id, outgoingGrant.credential);
+
+          const previousMachines = MACHINES;
+          MACHINES = { ...MACHINES, [id]: normalized };
+          try {
+            writeManagedMachines();
+          } catch (error) {
+            MACHINES = previousMachines;
+            try { writeManagedMachines(); } catch (rollbackError) {
+              console.warn(`[pi-harbor] could not roll back machines.json after pairing failure: ${rollbackError.message}`);
+            }
+            if (outgoingGrant) {
+              try { deviceTrust.removeOutgoingCredential(id); } catch (rollbackError) {
+                console.warn(`[pi-harbor] could not roll back peer credential after pairing failure: ${rollbackError.message}`);
+              }
+            }
+            throw error;
+          }
           sendJSON(res, 201, { machine: publicMachine(normalized) });
         } catch (e) {
-          sendJSON(res, e.statusCode || 400, { error: e.message || "Device pairing failed" });
+          sendJSON(res, e.statusCode || 400, { error: e.message || "Device pairing failed", ...(publicDeviceErrorCode(e) ? { code: publicDeviceErrorCode(e) } : {}) });
         }
         return;
       }
@@ -3158,8 +3488,34 @@ const server = http.createServer(async (req, res) => {
             if (!existing) { const err = new Error("Device not found"); err.statusCode = 404; throw err; }
             if (!existing.managed) { const err = new Error("Built-in devices cannot be deleted; edit the environment settings instead"); err.statusCode = 409; throw err; }
             if (id === selfMachineId()) { const err = new Error("The device currently in use cannot be deleted"); err.statusCode = 409; throw err; }
-            delete MACHINES[id];
-            writeManagedMachines();
+            const trustStateHealthy = deviceTrust.isStateHealthy();
+            // Commit the catalog removal first while any dedicated credential
+            // still protects the old URL. If trust cleanup fails, restore the
+            // catalog so no failure path silently downgrades this machine to
+            // shared-cookie relay authentication. Deletion remains available
+            // when trust state is corrupt: removing the route is always safe
+            // and gives the user a recovery path without interpreting state.
+            const previousMachines = MACHINES;
+            const nextMachines = { ...MACHINES };
+            delete nextMachines[id];
+            MACHINES = nextMachines;
+            try {
+              writeManagedMachines();
+            } catch (error) {
+              MACHINES = previousMachines;
+              throw error;
+            }
+            if (trustStateHealthy) {
+              try {
+                deviceTrust.removeOutgoingCredential(id);
+              } catch (error) {
+                MACHINES = previousMachines;
+                try { writeManagedMachines(); } catch (rollbackError) {
+                  console.warn(`[pi-harbor] could not roll back machines.json after trust cleanup failure: ${rollbackError.message}`);
+                }
+                throw error;
+              }
+            }
             sendJSON(res, 200, { ok: true, id });
             return;
           }
@@ -3169,24 +3525,77 @@ const server = http.createServer(async (req, res) => {
             const existing = MACHINES[oldId];
             if (!existing) { const err = new Error("Device not found"); err.statusCode = 404; throw err; }
             const next = validateMachineInput({ ...body, id: body.id || oldId }, existing);
+            if (!deviceTrust.isStateHealthy() && (next.id !== oldId || next.url !== existing.url)) throw trustStateUnavailableError();
+            const oldOutgoing = deviceTrust.outgoingCredential(oldId);
+            if (oldOutgoing && next.url !== existing.url) {
+              const err = new Error("Dedicated peer device URLs cannot be changed; delete and pair the device again");
+              err.statusCode = 409;
+              err.code = "dedicated_url_change";
+              throw err;
+            }
             if (next.id !== oldId && MACHINES[next.id]) { const err = new Error("This device ID already exists"); err.statusCode = 409; throw err; }
-            // 內建設備也可以改顯示名稱與連線網址；寫入 managed override，
-            // 但保留穩定 ID，避免既有 session／瀏覽器選擇失效。
+            if (next.id !== oldId && deviceTrust.hasOutgoingCredential(next.id)) {
+              const err = new Error("This device ID already has a peer credential"); err.statusCode = 409; throw err;
+            }
+            // An ID move for a dedicated machine keeps the verified URL and
+            // copies the grant before changing machines.json. This ordering
+            // means a failed catalog write retains the old working grant; the
+            // old ID is removed only after the new catalog entry is durable.
+            if (oldOutgoing && next.id !== oldId) {
+              deviceTrust.setOutgoingCredential(next.id, oldOutgoing.grantId, oldOutgoing.credential, oldOutgoing.createdAt);
+            }
             next.managed = true;
-            delete MACHINES[oldId];
-            MACHINES[next.id] = next;
-            writeManagedMachines();
+            const previousMachines = MACHINES;
+            const nextMachines = { ...MACHINES };
+            delete nextMachines[oldId];
+            nextMachines[next.id] = next;
+            MACHINES = nextMachines;
+            try {
+              writeManagedMachines();
+            } catch (error) {
+              MACHINES = previousMachines;
+              try { writeManagedMachines(); } catch (rollbackError) {
+                console.warn(`[pi-harbor] could not roll back machines.json after update failure: ${rollbackError.message}`);
+              }
+              if (oldOutgoing && next.id !== oldId) {
+                try { deviceTrust.removeOutgoingCredential(next.id); } catch (rollbackError) {
+                  console.warn(`[pi-harbor] could not roll back moved peer credential: ${rollbackError.message}`);
+                }
+              }
+              throw error;
+            }
+            if (oldOutgoing && next.id !== oldId) {
+              try { deviceTrust.removeOutgoingCredential(oldId); } catch (error) {
+                // The new catalog entry already points at the copied grant, so
+                // leaving the old grant as an orphan is safer than rolling the
+                // working move back to a shared-token URL. IDs with grants are
+                // refused by add/update and can be cleaned up on a later retry.
+                console.warn(`[pi-harbor] peer credential cleanup after ID move failed: ${error.message}`);
+              }
+            }
             sendJSON(res, 200, { machine: publicMachine(next) });
             return;
           }
 
           const next = validateMachineInput(body);
+          if (!deviceTrust.isStateHealthy()) throw trustStateUnavailableError();
           if (MACHINES[next.id]) { const err = new Error("This device ID already exists"); err.statusCode = 409; throw err; }
-          MACHINES[next.id] = next;
-          writeManagedMachines();
+          if (deviceTrust.hasOutgoingCredential(next.id)) {
+            const err = new Error("This device ID already has a peer credential; delete or repair that grant before adding it");
+            err.statusCode = 409;
+            throw err;
+          }
+          const previousMachines = MACHINES;
+          MACHINES = { ...MACHINES, [next.id]: next };
+          try {
+            writeManagedMachines();
+          } catch (error) {
+            MACHINES = previousMachines;
+            throw error;
+          }
           sendJSON(res, 201, { machine: publicMachine(next) });
         } catch (e) {
-          sendJSON(res, e.statusCode || 400, { error: e.message || "Device settings failed" });
+          sendJSON(res, e.statusCode || 400, { error: e.message || "Device settings failed", ...(publicDeviceErrorCode(e) ? { code: publicDeviceErrorCode(e) } : {}) });
         }
         return;
       }

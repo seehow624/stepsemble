@@ -31,7 +31,7 @@ cat ~/.config/pi-harbor/token
 
 ## 多台電腦
 
-每台電腦都執行自己的 Pi Harbor 實例。在每台額外電腦上安裝並啟動 Pi Harbor，使用 Tailscale 或 HTTPS，然後在 **Settings → Devices → Add device** 加入網址，也可以使用五分鐘有效的一次性配對碼。兩台電腦使用相同的 Web token；憑證會保留在選定的主機上。配對碼會以 HMAC 驗證；請先更新兩台電腦再產生新碼，共用 Web token 不會傳送給尚未驗證的候選網址。不要將公開的 3140 port 暴露給不受信任的網路。
+每台電腦都執行自己的 Pi Harbor 實例。在每台額外電腦上安裝並啟動 Pi Harbor，然後在 **Settings → Devices → Add device** 加入 Tailscale 或 HTTPS 網址。手動輸入網址仍是舊版共用 Web token 路徑，要求兩台主機使用相同 token。更建議使用五分鐘有效、只能使用一次的 `PIHARBOR3` 配對碼：確認候選裝置資料後，會建立獨立且可撤銷的對等憑證，不會把共用 token 傳給候選網址。可在裝置設定中查看並撤銷已授權裝置，撤銷會立即生效。Pi Harbor 2.2 可接受 2.1.2 主機的 `PIHARBOR2` 配對碼；舊版客戶端必須先更新才能使用 `PIHARBOR3`。不要將公開的 3140 port 暴露給不受信任的網路。
 
 加入 LLM 服務商：開啟 **Settings → Connection → Models & providers**，選擇目錄服務、帳號／OAuth 登入、API key、本機服務或自訂 Provider，然後選擇要顯示的模型。
 

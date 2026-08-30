@@ -222,6 +222,62 @@ if (asset?.browser_download_url) process.stdout.write(asset.browser_download_url
 NODE
 }
 
+# The installer is intentionally standalone, so keep this bounded archive
+# validator here as well as in the independently installed updater. No release
+# entry may touch the filesystem before its name and type pass this preflight.
+preflight_release_archive() {
+  local archive="$1" listing verbose temp_dir
+  [[ -n "$archive" && -f "$archive" ]] || return 1
+  temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/pi-harbor-install-archive-check.XXXXXX")" || return 1
+  listing="$temp_dir/listing"
+  verbose="$temp_dir/verbose"
+  if ! tar -tzf "$archive" > "$listing" 2>/dev/null \
+    || ! tar -tvzf "$archive" > "$verbose" 2>/dev/null; then
+    /bin/rm -rf -- "$temp_dir"
+    return 1
+  fi
+  if ! "$NODE_BIN" - "$listing" "$verbose" <<'NODE'
+const fs = require("node:fs");
+const names = fs.readFileSync(process.argv[2], "utf8").split(/\r?\n/).filter(Boolean);
+const verbose = fs.readFileSync(process.argv[3], "utf8").split(/\r?\n/).filter(Boolean);
+const fail = (message) => { console.error(`Pi Harbor installer: archive rejected: ${message}`); process.exit(1); };
+if (!names.length || names.length !== verbose.length || names.length > 4096) fail("unexpected entry count");
+let top = null;
+let topDirectory = false;
+const seen = new Set();
+for (let index = 0; index < names.length; index += 1) {
+  const raw = names[index];
+  const type = verbose[index].trim()[0] || "";
+  if (type !== "d" && type !== "-") fail("links and special entries are not allowed");
+  if (!raw || raw.includes("\0") || raw.includes("\\") || raw.startsWith("/") || /^[A-Za-z]:[\\/]/.test(raw)) {
+    fail("absolute or platform-ambiguous entry name");
+  }
+  const parts = raw.split("/");
+  if (parts.some((part) => part === "..")) fail("path traversal entry");
+  const normalizedParts = parts.filter((part) => part && part !== ".");
+  if (!normalizedParts.length) fail("empty entry name");
+  const normalized = normalizedParts.join("/");
+  const entryTop = normalizedParts[0];
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(entryTop)) fail("invalid release directory name");
+  if (!top) top = entryTop;
+  if (entryTop !== top || (normalized !== top && !normalized.startsWith(`${top}/`))) fail("archive must contain one top-level release directory");
+  if (seen.has(normalized)) fail("duplicate archive entry");
+  seen.add(normalized);
+  if (normalized === top) {
+    if (type !== "d") fail("top-level release entry must be a directory");
+    topDirectory = true;
+  }
+}
+if (!top || !topDirectory) fail("top-level release directory is missing");
+NODE
+  then
+    /bin/rm -rf -- "$temp_dir"
+    return 1
+  fi
+  /bin/rm -rf -- "$temp_dir"
+  return 0
+}
+
 stage_release() {
   local source_dir="${PI_HARBOR_SOURCE_DIR:-}" metadata asset_url checksum_url archive checksum extract_root
   STAGED_DIR="$WORK_DIR/staged"
@@ -248,6 +304,7 @@ stage_release() {
   curl -fsSL --max-time 180 "$checksum_url" -o "$checksum"
   (cd "$WORK_DIR" && expected="$(awk 'NR==1 {print $1}' pi-harbor.sha256)" && actual="$(shasum -a 256 pi-harbor.tar.gz | awk '{print $1}')" && [[ "$expected" == "$actual" ]]) || die "Pi Harbor release checksum verification failed"
   extract_root="$WORK_DIR/extracted"
+  preflight_release_archive "$archive" || die "Pi Harbor release archive failed safety preflight"
   mkdir -p "$extract_root"
   tar -xzf "$archive" -C "$extract_root"
   source_dir="$(find "$extract_root" -mindepth 1 -maxdepth 1 -type d -print -quit)"
@@ -360,13 +417,22 @@ try { const value = JSON.parse(process.env.RPC_RESPONSE || "{}"); process.exit(v
 NODE
 }
 
+# No-network/no-extraction maintainer hook used by regression tests and release
+# review. It exits before staging, prompts, token creation, or launchd changes.
+if [[ -n "${PI_HARBOR_INSTALL_PREFLIGHT_ARCHIVE:-}" ]]; then
+  NODE_BIN="$(find_node || true)"
+  [[ -n "$NODE_BIN" ]] || die "Node.js 22.19 or newer is required for archive preflight"
+  preflight_release_archive "$PI_HARBOR_INSTALL_PREFLIGHT_ARCHIVE" || exit 1
+  exit 0
+fi
+
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pi-harbor-install.XXXXXX")"
 cleanup() { rm -rf -- "$WORK_DIR"; }
 trap cleanup EXIT
 trap 'cleanup; exit 130' INT TERM
 
 say ""
-say "Pi Harbor 2.1.0 installer"
+say "Pi Harbor 2.2.0 installer"
 say "────────────────────────"
 
 NODE_BIN="$(find_node || true)"
