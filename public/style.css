@@ -1,4 +1,4 @@
-/* pi-harbor v2.2.2 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.2.3 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -3375,7 +3375,9 @@ body.compact #view-list .project-group-items .session-item {
   padding-bottom: 0;
 }
 
-/* v2.2 — authoritative current-conversation context dashboard */
+/* v2.3 — compact composer toolbar: attachment, fixed model chip, context bar,
+   usage-details popover. The dashboard is the single authoritative
+   session-usage summary; the old conversation-bottom total is suppressed. */
 .sr-only {
   position: absolute !important;
   width: 1px !important;
@@ -3388,67 +3390,76 @@ body.compact #view-list .project-group-items .session-item {
   border: 0 !important;
 }
 #view-chat { min-width: 0; overflow-x: hidden; }
-#view-chat .composer-inner { display: block; min-width: 0; }
-#view-chat .composer-controls-row {
+#view-chat .composer-toolbar {
   min-width: 0;
-  width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+#view-chat .composer-toolbar .composer-icon-btn { flex: 0 0 auto; }
+
+/* Fixed-width model chip: the model name truncates with an ellipsis while the
+   trailing thinking level always stays fully visible. */
+#view-chat .composer-model-control {
+  width: var(--composer-model-w, 178px);
+  min-width: 0;
+  flex: 0 0 auto;
+  justify-content: space-between;
+  padding: 0 8px 0 10px;
+}
+#view-chat .composer-model-copy {
+  min-width: 0;
+  flex: 0 1 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
   overflow: hidden;
 }
-#view-chat .context-dashboard {
+#view-chat .composer-model-name {
   min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#view-chat .composer-model-level {
+  flex: 0 0 auto;
+  color: var(--accent);
+  white-space: nowrap;
+}
+#view-chat .composer-model-control .icon { width: 14px; height: 14px; flex: 0 0 auto; }
+
+/* Inline context bar: usage value above a slim progress fill. */
+#view-chat .context-dashboard {
+  min-width: 96px;
   flex: 1 1 auto;
   display: flex;
-  align-items: center;
-  gap: 9px;
+  flex-direction: column;
+  gap: 3px;
   overflow: hidden;
   color: var(--pine-soft);
   font-variant-numeric: tabular-nums;
 }
-#view-chat .context-dashboard-main {
-  min-width: 118px;
-  flex: 0 1 168px;
-}
-#view-chat .context-dashboard-head {
+#view-chat .context-dashboard-value {
   min-width: 0;
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 7px;
-}
-#view-chat .context-dashboard-heading {
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
-  overflow: hidden;
-  font-size: .62rem;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-#view-chat .context-dashboard-heading strong {
-  color: var(--ink);
-  font-weight: 700;
-}
-#view-chat .context-dashboard-context-value {
-  flex: 0 0 auto;
-  display: inline-flex;
   align-items: baseline;
   gap: 3px;
+  overflow: hidden;
   color: var(--ink);
-  font: 600 .72rem/1.2 var(--mono);
+  font: 600 .68rem/1.2 var(--mono);
   white-space: nowrap;
 }
-#view-chat .context-dashboard-context-value > span:last-child {
+#view-chat .context-dashboard-value .context-sep { color: var(--pine-soft); }
+#view-chat .context-dashboard-value > #context-percent {
   margin-left: 3px;
   color: var(--accent);
 }
 #view-chat .context-progress {
   width: 100%;
   height: 4px;
-  margin-top: 5px;
   overflow: hidden;
   border-radius: 999px;
   background: color-mix(in srgb, var(--pine-soft) 16%, transparent);
@@ -3464,105 +3475,77 @@ body.compact #view-list .project-group-items .session-item {
 #view-chat .context-dashboard[data-context-state="warning"] .context-progress > span { background: var(--warn); }
 #view-chat .context-dashboard[data-context-state="critical"] .context-progress > span { background: var(--err); }
 #view-chat .context-dashboard[data-context-state="unknown"] .context-progress > span { background: var(--pine-soft); opacity: .35; }
-#view-chat .context-dashboard-metrics {
-  min-width: 0;
-  flex: 1 1 auto;
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 5px;
+
+/* Usage-details popover anchored to the exclamation button. */
+#view-chat .context-info-wrap {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
 }
-#view-chat .context-metric {
-  min-width: 0;
+#view-chat .context-info-btn { width: 38px; height: 38px; min-height: 38px; border-radius: 10px; }
+#view-chat .context-popover {
+  position: absolute;
+  right: -4px;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  width: 218px;
   display: grid;
-  gap: 1px;
-  overflow: hidden;
+  gap: 7px;
+  padding: 12px 13px 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+  box-shadow: 0 16px 40px rgba(0,0,0,.28);
 }
-#view-chat .context-metric > span {
+#view-chat .context-popover h3 {
+  margin: 0 0 2px;
+  color: var(--pine-soft);
+  font-size: .62rem;
+  font-weight: 760;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+#view-chat .context-popover .context-metric {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+#view-chat .context-popover .context-metric > span {
   min-width: 0;
   overflow: hidden;
   color: var(--pine-soft);
-  font-size: .58rem;
-  line-height: 1.15;
+  font-size: .68rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-#view-chat .context-metric > strong {
-  min-width: 0;
-  overflow: hidden;
+#view-chat .context-popover .context-metric > strong {
+  flex: 0 0 auto;
   color: var(--ink);
-  font: 600 .68rem/1.2 var(--mono);
-  text-overflow: ellipsis;
+  font: 600 .72rem/1.2 var(--mono);
   white-space: nowrap;
 }
-#view-chat .context-dashboard-status {
-  flex: 0 0 auto;
-  max-width: 104px;
-  overflow: hidden;
-  margin: 0;
+#view-chat .context-popover-status {
+  margin: 2px 0 0;
   color: var(--pine-soft);
-  font-size: .58rem;
-  line-height: 1.15;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: .62rem;
 }
-#view-chat .composer-toolbar {
-  min-width: 0;
-  flex: 0 0 auto;
-}
-#view-chat .composer-model-control {
-  width: fit-content;
-  min-width: 96px;
-  max-width: min(220px, 28vw);
-  flex: 0 1 auto;
-}
-#view-chat .composer-model-control > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-#view-chat .composer-controls-row,
-#view-chat .composer-toolbar,
-#view-chat .composer-model-control { max-width: 100%; }
 html.reduced-motion #view-chat .context-progress > span { transition: none; }
 
 @media (max-width: 979px) {
-  #view-chat .composer-controls-row {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 5px;
-  }
-  #view-chat .context-dashboard {
-    width: 100%;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 5px;
-  }
-  #view-chat .context-dashboard-main { width: 100%; }
-  #view-chat .context-dashboard-metrics {
-    width: 100%;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 5px 10px;
-  }
-  #view-chat .context-dashboard-status {
-    max-width: none;
-    min-height: 0;
-  }
-  #view-chat .composer-toolbar {
-    width: 100%;
-    justify-content: flex-end;
-  }
-  #view-chat .composer-model-control {
-    max-width: min(180px, calc(100vw - 150px));
-  }
+  #view-chat .composer-toolbar { gap: 4px; }
+  #view-chat .composer-model-control { width: var(--composer-model-w-narrow, 128px); padding: 0 7px 0 8px; }
+  #view-chat .context-dashboard { min-width: 78px; }
+  #view-chat .context-dashboard-value { font-size: .62rem; }
+  #view-chat .context-info-btn { width: 40px; height: 40px; min-height: 40px; }
 }
 
 @media (max-width: 360px) {
-  #view-chat .context-dashboard { gap: 4px; }
-  #view-chat .context-dashboard-metrics { gap: 4px 7px; }
-  #view-chat .context-metric > span { font-size: .56rem; }
-  #view-chat .context-metric > strong { font-size: .64rem; }
-  #view-chat .composer-model-control { min-width: 92px; max-width: calc(100vw - 142px); }
+  #view-chat .composer-model-control { width: var(--composer-model-w-tight, 108px); }
+  #view-chat .context-dashboard { min-width: 64px; }
+  #view-chat .context-dashboard-value { font-size: .58rem; }
+  #view-chat .context-popover { width: 200px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

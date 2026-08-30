@@ -1,7 +1,7 @@
-/* pi-harbor v2.2.2 — settings gestures, safer project browse, and first-use guidance */
+/* pi-harbor v2.2.3 — settings gestures, safer project browse, and first-use guidance */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.2.2";
+const CLIENT_APP_VERSION = "2.2.3";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -65,6 +65,7 @@ const el = {
   chatHeadInfo: $("chat-head-info"), thinkingStatus: $("thinking-status"), btnChatMenu: $("btn-chat-menu"),
   messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"),
   contextDashboard: $("context-dashboard"), contextProgress: $("context-progress"), contextProgressFill: $("context-progress-fill"),
+  contextInfo: $("context-info"), contextPopover: $("context-popover"),
   contextUsed: $("context-used"), contextCapacity: $("context-capacity"), contextPercent: $("context-percent"),
   contextInput: $("context-input"), contextOutput: $("context-output"), contextCacheHit: $("context-cache-hit"),
   contextCacheHitPercent: $("context-cache-hit-percent"), contextCacheWrite: $("context-cache-write"),
@@ -72,7 +73,7 @@ const el = {
   chatEmpty: $("chat-empty"), chatEmptyNewProject: $("chat-empty-new-project"), slashMenu: $("slash-menu"),
   input: $("input"), btnSend: $("btn-send"), btnAbort: $("btn-abort"), btnModel: $("btn-model"),
   sessionCount: $("session-count"), btnLayout: $("btn-layout"),
-  composerModelLabel: $("composer-model-label"),
+  composerModelNameText: $("composer-model-name"), composerModelLevelText: $("composer-model-level"),
   btnOpenSettings: $("btn-open-settings"), btnSettingsBack: $("btn-settings-back"), btnModelSettingsBack: $("btn-model-settings-back"), modelSettingsOpen: $("model-settings-open"), modelSettingsSummary: $("model-settings-summary"),
   machineList: $("machine-list"), machineAdd: $("machine-add"), machinePair: $("machine-pair"), machineDialog: $("machine-dialog"), machineDialogTitle: $("machine-dialog-title"), machineStandardFields: $("machine-standard-fields"), machineName: $("machine-name"), machineUrl: $("machine-url"), machinePort: $("machine-port"), machinePortLabel: $("machine-port-label"), machineHost: $("machine-host"), machineStatusNote: $("machine-status-note"), machineFormError: $("machine-form-error"), machinePairArea: $("machine-pair-area"), machinePairCode: $("machine-pair-code"), machinePairJoin: $("machine-pair-join"), machinePairPreview: $("machine-pair-preview"), machinePairPreviewName: $("machine-pair-preview-name"), machinePairPreviewUrl: $("machine-pair-preview-url"), machinePairPreviewExpires: $("machine-pair-preview-expires"), machinePairPreviewVersion: $("machine-pair-preview-version"), machinePairOfferArea: $("machine-pair-offer-area"), machinePairOffer: $("machine-pair-offer"), machinePairGenerate: $("machine-pair-generate"), machineRestart: $("machine-restart"), machineSave: $("machine-save"), machineDelete: $("machine-delete"), machineTest: $("machine-test"), machineCancel: $("machine-cancel"), machineCancelBottom: $("machine-cancel-bottom"),
   authorizedDevicesStatus: $("authorized-devices-status"), authorizedDeviceList: $("authorized-device-list"),
@@ -1886,7 +1887,7 @@ function renderContextDashboard() {
     cacheWrite: formatTokenCount(usage.cacheWrite),
   });
   if (el.contextDashboardSummary) el.contextDashboardSummary.textContent = summary;
-  const contextValue = el.contextDashboard.querySelector?.(".context-dashboard-context-value");
+  const contextValue = el.contextDashboard.querySelector?.(".context-dashboard-value");
   if (contextValue) contextValue.setAttribute("aria-label", summary);
   if (el.contextDashboard) el.contextDashboard.setAttribute("aria-label", tKey("contextDashboard.context"));
   if (el.contextProgress) el.contextProgress.setAttribute("aria-label", tKey("contextDashboard.context"));
@@ -3585,7 +3586,13 @@ function updateComposerSummary(modelName, thinkingLevel) {
   const model = composerModelName || (window.piI18n?.t("Server default") || "Server default");
   const level = composerReasoningLevel || "off";
   const summary = `${model} · ${level}`;
-  if (el.composerModelLabel) el.composerModelLabel.textContent = summary;
+  // The chip is fixed-width: the model name truncates with an ellipsis while
+  // the trailing thinking level always stays fully visible.
+  if (el.composerModelNameText) {
+    el.composerModelNameText.textContent = model;
+    el.composerModelNameText.title = model;
+  }
+  if (el.composerModelLevelText) el.composerModelLevelText.textContent = `· ${level}`;
   if (el.btnModel) {
     const label = window.piI18n?.t("Model & reasoning") || "Model & reasoning";
     el.btnModel.title = label;
@@ -3619,6 +3626,26 @@ async function syncComposerState(expectedSid = rpc?.sid) {
 el.saModel.addEventListener("click", () => {
   closeSessionActions();
   openModelSheet();
+});
+
+// ---- Context details popover ----
+function setContextPopover(open) {
+  el.contextPopover?.classList.toggle("hidden", !open);
+  el.contextInfo?.setAttribute("aria-expanded", String(!!open));
+}
+el.contextInfo?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  setContextPopover(!!el.contextPopover?.classList.contains("hidden"));
+});
+document.addEventListener("click", (event) => {
+  if (!el.contextPopover || el.contextPopover.classList.contains("hidden")) return;
+  if (event.target instanceof Element && event.target.closest("#context-popover, #context-info")) return;
+  setContextPopover(false);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !el.contextPopover || el.contextPopover.classList.contains("hidden")) return;
+  setContextPopover(false);
+  el.contextInfo?.focus({ preventScroll: true });
 });
 
 let availableModels = [];

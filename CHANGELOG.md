@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.2.3
+
+- Rebuilt the composer toolbar into one row: attachment button on the left, a
+  fixed-width model chip next to it, the context progress bar beside Send, and
+  an exclamation button that opens a usage-details popover.
+- The model chip keeps a constant size and truncates overlong model names with
+  an ellipsis while always keeping the trailing thinking level (for example
+  "DeepSeek V3 Fla… · max") fully visible.
+- Detailed token figures (input, output, cache hit, hit percentage, cache
+  write) moved into the popover; the bar keeps context used, capacity, and
+  percentage always visible.
+
 ## 2.2.2
 
 - Added an always-visible conversation context dashboard in the composer: current

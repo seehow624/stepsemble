@@ -138,9 +138,16 @@ test("context sync lifecycle and responsive composer wiring are event-driven", (
   const send = html.indexOf('id="btn-send"');
   assert.ok(model > 0 && model < abort && abort < send, "model control must stay beside Send/Stop");
   assert.match(html, /id="context-dashboard"/);
-  assert.match(css, /\.composer-model-control[\s\S]*?flex: 0 1 auto/);
-  assert.match(css, /text-overflow: ellipsis/);
+  assert.match(html, /id="context-info"[^>]*aria-expanded="false"/);
+  assert.match(html, /id="context-popover" class="context-popover hidden"/);
+  // Fixed-width chip: name truncates, the trailing thinking level stays visible.
+  assert.match(html, /id="composer-model-name"/);
+  assert.match(html, /id="composer-model-level"/);
+  assert.match(css, /\.composer-model-control[^}]*width: var\(--composer-model-w/);
+  assert.match(css, /\.composer-model-name[^}]*text-overflow: ellipsis/);
+  assert.match(css, /\.composer-model-level[^}]*flex: 0 0 auto/);
+  assert.match(css, /\.context-popover/);
+  assert.match(css, /\.context-info-wrap[^}]*position: relative/);
   assert.match(css, /@media \(max-width: 979px\)/);
-  assert.match(css, /grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
   assert.match(css, /#view-chat \{ min-width: 0; overflow-x: hidden; \}/);
 });
