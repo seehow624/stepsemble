@@ -1,7 +1,7 @@
-/* pi-harbor v2.2.3 — settings gestures, safer project browse, and first-use guidance */
+/* pi-harbor v2.2.4 — settings gestures, safer project browse, and first-use guidance */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.2.3";
+const CLIENT_APP_VERSION = "2.2.4";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -184,6 +184,8 @@ let autoScrollPinned = true;
 let scrollFrame = null;
 let sessionUsage = { tokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
 let sessionUsageFooter = null;
+const CONTEXT_RING_RADIUS = 15.5;
+const CONTEXT_RING_CIRCUMFERENCE = 2 * Math.PI * CONTEXT_RING_RADIUS;
 let composerModelContextWindow = null;
 let contextStats = null;
 let contextStatsState = "awaiting"; // awaiting | ready | unavailable
@@ -1856,6 +1858,13 @@ function renderContextDashboard() {
   // which is no longer in the current prompt context.
   const percent = finiteNonNegative(contextUsage?.percent);
   const cacheHitPercent = computeCacheHitRate(usage);
+  // Most OpenAI-compatible providers never report cache writes (their caching
+  // is automatic and surfaced only as cache hits). Show an em dash instead of
+  // a bare 0 so an unsupported metric is not mistaken for real usage.
+  const cacheWriteValue = finiteNonNegative(usage.cacheWrite);
+  const cacheWriteDisplay = cacheWriteValue !== null && cacheWriteValue > 0
+    ? formatTokenCount(cacheWriteValue)
+    : "—";
   const setValue = (node, value) => { if (node) node.textContent = value; };
   setValue(el.contextUsed, formatTokenCount(used));
   setValue(el.contextCapacity, formatTokenCount(capacity));
@@ -1864,18 +1873,22 @@ function renderContextDashboard() {
   setValue(el.contextOutput, formatTokenCount(usage.output));
   setValue(el.contextCacheHit, formatTokenCount(usage.cacheRead));
   setValue(el.contextCacheHitPercent, formatPercent(cacheHitPercent));
-  setValue(el.contextCacheWrite, formatTokenCount(usage.cacheWrite));
+  setValue(el.contextCacheWrite, cacheWriteDisplay);
+  if (el.contextCacheWrite) {
+    el.contextCacheWrite.title = cacheWriteValue !== null && cacheWriteValue > 0
+      ? "" : tKey("contextDashboard.cacheWriteNone");
+  }
 
   const progressState = percent === null ? "unknown" : percent > 90 ? "critical" : percent > 70 ? "warning" : "normal";
   el.contextDashboard.dataset.contextState = progressState;
   if (el.contextProgress) {
     el.contextProgress.setAttribute("aria-valuetext", formatPercent(percent));
     if (percent === null) {
-      el.contextProgress.style.setProperty("--context-progress", "0%");
+      el.contextProgress.style.setProperty("--context-ring-offset", CONTEXT_RING_CIRCUMFERENCE.toFixed(2));
       el.contextProgress.removeAttribute("aria-valuenow");
     } else {
       const progress = Math.min(100, Math.max(0, percent));
-      el.contextProgress.style.setProperty("--context-progress", `${progress}%`);
+      el.contextProgress.style.setProperty("--context-ring-offset", (CONTEXT_RING_CIRCUMFERENCE * (1 - progress / 100)).toFixed(2));
       el.contextProgress.setAttribute("aria-valuenow", String(progress));
     }
   }
@@ -1884,7 +1897,7 @@ function renderContextDashboard() {
     used: formatTokenCount(used), capacity: formatTokenCount(capacity), percent: formatPercent(percent),
     input: formatTokenCount(usage.input), output: formatTokenCount(usage.output),
     cacheHit: formatTokenCount(usage.cacheRead), cacheHitPercent: formatPercent(cacheHitPercent),
-    cacheWrite: formatTokenCount(usage.cacheWrite),
+    cacheWrite: cacheWriteDisplay,
   });
   if (el.contextDashboardSummary) el.contextDashboardSummary.textContent = summary;
   const contextValue = el.contextDashboard.querySelector?.(".context-dashboard-value");

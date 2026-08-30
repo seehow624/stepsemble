@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.4
+
+- The context progress bar became a compact circular progress ring beside the
+  usage numbers, keeping the toolbar to a single slim row; warning (>70%)
+  and critical (>90%) colors are unchanged.
+- Cache write now shows an em dash with an explanatory tooltip when a provider
+  reports no cache writes (most OpenAI-compatible providers only report cache
+  hits) instead of a bare 0.
+
 ## 2.2.3
 
 - Rebuilt the composer toolbar into one row: attachment button on the left, a

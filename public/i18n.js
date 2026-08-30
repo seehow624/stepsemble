@@ -1672,6 +1672,7 @@
       "contextDashboard.cacheHitPercent": "Hit %", "contextDashboard.cacheWrite": "Cache write",
       "contextDashboard.unavailable": "Unavailable", "contextDashboard.awaiting": "Awaiting response",
       "contextDashboard.details": "Usage details",
+      "contextDashboard.cacheWriteNone": "No cache writes reported by this provider",
       "contextDashboard.summary": "Context {used} of {capacity}, {percent}; input {input}; output {output}; cache hit {cacheHit} ({cacheHitPercent}); cache write {cacheWrite}",
     },
     "zh-Hant": {
@@ -1679,6 +1680,7 @@
       "contextDashboard.cacheHitPercent": "命中率", "contextDashboard.cacheWrite": "快取寫入",
       "contextDashboard.unavailable": "無法使用", "contextDashboard.awaiting": "等待回應",
       "contextDashboard.details": "用量詳情",
+      "contextDashboard.cacheWriteNone": "此服務商未回報快取寫入",
       "contextDashboard.summary": "上下文使用 {used} / {capacity}，{percent}；輸入 {input}；輸出 {output}；快取命中 {cacheHit}（{cacheHitPercent}）；快取寫入 {cacheWrite}",
     },
     "zh-Hans": {
@@ -1686,6 +1688,7 @@
       "contextDashboard.cacheHitPercent": "命中率", "contextDashboard.cacheWrite": "缓存写入",
       "contextDashboard.unavailable": "无法使用", "contextDashboard.awaiting": "等待响应",
       "contextDashboard.details": "用量详情",
+      "contextDashboard.cacheWriteNone": "此服务商未报告缓存写入",
       "contextDashboard.summary": "上下文使用 {used} / {capacity}，{percent}；输入 {input}；输出 {output}；缓存命中 {cacheHit}（{cacheHitPercent}）；缓存写入 {cacheWrite}",
     },
     ja: {
@@ -1693,6 +1696,7 @@
       "contextDashboard.cacheHitPercent": "ヒット率", "contextDashboard.cacheWrite": "キャッシュ書き込み",
       "contextDashboard.unavailable": "利用不可", "contextDashboard.awaiting": "応答待ち",
       "contextDashboard.details": "使用量の詳細",
+      "contextDashboard.cacheWriteNone": "このプロバイダーはキャッシュ書き込みを報告していません",
       "contextDashboard.summary": "コンテキスト {used} / {capacity}、{percent}；入力 {input}；出力 {output}；キャッシュヒット {cacheHit}（{cacheHitPercent}）；キャッシュ書き込み {cacheWrite}",
     },
     ko: {
@@ -1700,6 +1704,7 @@
       "contextDashboard.cacheHitPercent": "적중률", "contextDashboard.cacheWrite": "캐시 쓰기",
       "contextDashboard.unavailable": "사용할 수 없음", "contextDashboard.awaiting": "응답 대기 중",
       "contextDashboard.details": "사용량 세부 정보",
+      "contextDashboard.cacheWriteNone": "이 공급자는 캐시 쓰기를 보고하지 않습니다",
       "contextDashboard.summary": "컨텍스트 {used} / {capacity}, {percent}; 입력 {input}; 출력 {output}; 캐시 적중 {cacheHit} ({cacheHitPercent}); 캐시 쓰기 {cacheWrite}",
     },
     tr: {
@@ -1707,6 +1712,7 @@
       "contextDashboard.cacheHitPercent": "İsabet %", "contextDashboard.cacheWrite": "Önbellek yazma",
       "contextDashboard.unavailable": "Kullanılamıyor", "contextDashboard.awaiting": "Yanıt bekleniyor",
       "contextDashboard.details": "Kullanım ayrıntıları",
+      "contextDashboard.cacheWriteNone": "Bu sağlayıcı önbellek yazmayı raporlamıyor",
       "contextDashboard.summary": "Bağlam {used} / {capacity}, {percent}; girdi {input}; çıktı {output}; önbellek isabeti {cacheHit} ({cacheHitPercent}); önbellek yazma {cacheWrite}",
     },
     fr: {
@@ -1714,6 +1720,7 @@
       "contextDashboard.cacheHitPercent": "Cache %", "contextDashboard.cacheWrite": "Écriture du cache",
       "contextDashboard.unavailable": "Indisponible", "contextDashboard.awaiting": "En attente de la réponse",
       "contextDashboard.details": "Détails d’utilisation",
+      "contextDashboard.cacheWriteNone": "Ce fournisseur ne signale pas d’écritures de cache",
       "contextDashboard.summary": "Contexte {used} sur {capacity}, {percent} ; entrée {input} ; sortie {output} ; cache {cacheHit} ({cacheHitPercent}) ; écriture du cache {cacheWrite}",
     },
     de: {
@@ -1721,6 +1728,7 @@
       "contextDashboard.cacheHitPercent": "Cache-Treffer %", "contextDashboard.cacheWrite": "Cache-Schreibvorgänge",
       "contextDashboard.unavailable": "Nicht verfügbar", "contextDashboard.awaiting": "Warten auf Antwort",
       "contextDashboard.details": "Nutzungsdetails",
+      "contextDashboard.cacheWriteNone": "Dieser Anbieter meldet keine Cache-Schreibvorgänge",
       "contextDashboard.summary": "Kontext {used} von {capacity}, {percent}; Eingabe {input}; Ausgabe {output}; Cache-Treffer {cacheHit} ({cacheHitPercent}); Cache-Schreibvorgänge {cacheWrite}",
     },
     es: {
@@ -1728,6 +1736,7 @@
       "contextDashboard.cacheHitPercent": "Acierto %", "contextDashboard.cacheWrite": "Escrituras de caché",
       "contextDashboard.unavailable": "No disponible", "contextDashboard.awaiting": "Esperando respuesta",
       "contextDashboard.details": "Detalles de uso",
+      "contextDashboard.cacheWriteNone": "Este proveedor no informa de escrituras de caché",
       "contextDashboard.summary": "Contexto {used} de {capacity}, {percent}; entrada {input}; salida {output}; aciertos de caché {cacheHit} ({cacheHitPercent}); escrituras de caché {cacheWrite}",
     },
     "pt-BR": {
@@ -1735,6 +1744,7 @@
       "contextDashboard.cacheHitPercent": "Acerto %", "contextDashboard.cacheWrite": "Gravações de cache",
       "contextDashboard.unavailable": "Indisponível", "contextDashboard.awaiting": "Aguardando resposta",
       "contextDashboard.details": "Detalhes de uso",
+      "contextDashboard.cacheWriteNone": "Este provedor não informa gravações de cache",
       "contextDashboard.summary": "Contexto {used} de {capacity}, {percent}; entrada {input}; saída {output}; acertos de cache {cacheHit} ({cacheHitPercent}); gravações de cache {cacheWrite}",
     },
     it: {
@@ -1742,6 +1752,7 @@
       "contextDashboard.cacheHitPercent": "Hit %", "contextDashboard.cacheWrite": "Scritture cache",
       "contextDashboard.unavailable": "Non disponibile", "contextDashboard.awaiting": "In attesa della risposta",
       "contextDashboard.details": "Dettagli utilizzo",
+      "contextDashboard.cacheWriteNone": "Questo provider non segnala scritture della cache",
       "contextDashboard.summary": "Contesto {used} su {capacity}, {percent}; input {input}; output {output}; cache hit {cacheHit} ({cacheHitPercent}); scritture cache {cacheWrite}",
     },
   };

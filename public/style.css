@@ -1,4 +1,4 @@
-/* pi-harbor v2.2.3 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.2.4 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -3431,19 +3431,43 @@ body.compact #view-list .project-group-items .session-item {
 }
 #view-chat .composer-model-control .icon { width: 14px; height: 14px; flex: 0 0 auto; }
 
-/* Inline context bar: usage value above a slim progress fill. */
+/* Inline context indicator: a compact circular progress ring beside the
+   usage numbers, so the toolbar stays on a single row. */
 #view-chat .context-dashboard {
-  min-width: 96px;
+  min-width: 0;
   flex: 1 1 auto;
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  align-items: center;
+  gap: 7px;
   overflow: hidden;
   color: var(--pine-soft);
   font-variant-numeric: tabular-nums;
 }
+#view-chat .context-ring {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  transform: rotate(-90deg);
+}
+#view-chat .context-ring-track,
+#view-chat .context-ring-fill {
+  fill: none;
+  stroke-width: 3.5;
+}
+#view-chat .context-ring-track { stroke: color-mix(in srgb, var(--pine-soft) 14%, transparent); }
+#view-chat .context-ring-fill {
+  stroke: var(--accent);
+  stroke-dasharray: 97.39;
+  stroke-dashoffset: var(--context-ring-offset, 97.39);
+  stroke-linecap: round;
+  transition: stroke-dashoffset .25s ease, stroke .25s ease;
+}
+#view-chat .context-dashboard[data-context-state="warning"] .context-ring-fill { stroke: var(--warn); }
+#view-chat .context-dashboard[data-context-state="critical"] .context-ring-fill { stroke: var(--err); }
+#view-chat .context-dashboard[data-context-state="unknown"] .context-ring-fill { stroke: var(--pine-soft); opacity: .35; }
 #view-chat .context-dashboard-value {
   min-width: 0;
+  flex: 0 1 auto;
   display: flex;
   align-items: baseline;
   gap: 3px;
@@ -3531,25 +3555,25 @@ body.compact #view-list .project-group-items .session-item {
   color: var(--pine-soft);
   font-size: .62rem;
 }
-html.reduced-motion #view-chat .context-progress > span { transition: none; }
+html.reduced-motion #view-chat .context-ring-fill { transition: none; }
 
 @media (max-width: 979px) {
   #view-chat .composer-toolbar { gap: 4px; }
   #view-chat .composer-model-control { width: var(--composer-model-w-narrow, 128px); padding: 0 7px 0 8px; }
-  #view-chat .context-dashboard { min-width: 78px; }
+  #view-chat .context-dashboard { gap: 5px; }
   #view-chat .context-dashboard-value { font-size: .62rem; }
   #view-chat .context-info-btn { width: 40px; height: 40px; min-height: 40px; }
 }
 
 @media (max-width: 360px) {
   #view-chat .composer-model-control { width: var(--composer-model-w-tight, 108px); }
-  #view-chat .context-dashboard { min-width: 64px; }
   #view-chat .context-dashboard-value { font-size: .58rem; }
+  #view-chat .context-ring { width: 16px; height: 16px; }
   #view-chat .context-popover { width: 200px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #view-chat .context-progress > span { transition: none; }
+  #view-chat .context-ring-fill { transition: none; }
 }
 
 /* The composer dashboard is the single authoritative session-usage summary. */
