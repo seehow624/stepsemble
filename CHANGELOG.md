@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.4.2
+
+- Settings now scrolls from anywhere on the page. The desktop scroller spans
+  the full window and centres its cards with padding, so the wheel no longer
+  stops working when the pointer sits beside the content column.
+- The language picker lists every language in its own language (English,
+  简体中文, 繁體中文, 日本語, …) instead of English names, and takes its labels
+  from the same locale registry the setup guide already used.
+- Escape now closes overlays everywhere: the setup guide, device and pairing
+  dialogs, provider setup, new-project and rename dialogs, action sheets, the
+  model picker, the image viewer, and inline access-token forms. It closes
+  only the topmost layer, then leaves Model settings and Settings in turn.
+
 ## 2.4.1
 
 - Fixed a localization feedback loop introduced by the new access-token

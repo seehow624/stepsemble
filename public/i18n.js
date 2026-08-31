@@ -2264,7 +2264,15 @@
       }
       localizeAttributes(root.body || root);
       const localeSelect = document.getElementById("set-locale");
-      if (localeSelect) localeSelect.value = locale;
+      if (localeSelect) {
+        // Language names stay in their own language, so the list reads the same
+        // whichever locale the UI is in. LOCALES is the single source of truth.
+        for (const option of localeSelect.options) {
+          const native = LOCALES.find((item) => item.id === option.value)?.label;
+          if (native && option.textContent !== native) option.textContent = native;
+        }
+        localeSelect.value = locale;
+      }
     } finally { localizing = false; }
   }
   function queueLocalize(records = []) {

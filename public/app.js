@@ -1,7 +1,7 @@
-/* pi-harbor v2.4.1 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.4.2 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.4.1";
+const CLIENT_APP_VERSION = "2.4.2";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -1649,7 +1649,6 @@ el.projectActionEdit?.addEventListener("click", () => {
 el.projectRenameCancel?.addEventListener("click", () => el.projectRenameDialog.classList.add("hidden"));
 el.projectRenameInput?.addEventListener("keydown", (event) => {
   if (event.key === "Enter") el.projectRenameSave.click();
-  if (event.key === "Escape") el.projectRenameDialog.classList.add("hidden");
 });
 el.projectRenameSave?.addEventListener("click", () => {
   const cwd = projectActionCwd();
@@ -2109,9 +2108,6 @@ el.changesClose?.addEventListener("click", closeProjectChanges);
 el.changesDetailBack?.addEventListener("click", () => el.changesLayer.classList.remove("show-detail"));
 el.changesLayer?.addEventListener("click", (event) => {
   if (event.target === el.changesLayer) closeProjectChanges();
-});
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && projectChangesOpen()) closeProjectChanges();
 });
 
 function removeHistoryLoadButton() {
@@ -2685,9 +2681,6 @@ function appendImageGallery(target, attachments, expectedCount = 0) {
 el.imageLightboxClose?.addEventListener("click", closeImageLightbox);
 el.imageLightbox?.addEventListener("click", (event) => {
   if (event.target === el.imageLightbox || event.target === el.imageLightbox.querySelector(".image-lightbox-stage")) closeImageLightbox();
-});
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && el.imageLightbox && !el.imageLightbox.classList.contains("hidden")) closeImageLightbox();
 });
 
 function makeThinking(text) {
@@ -4276,11 +4269,6 @@ document.addEventListener("click", (event) => {
   if (event.target instanceof Element && event.target.closest("#context-popover, #context-info")) return;
   setContextPopover(false);
 });
-document.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape" || !el.contextPopover || el.contextPopover.classList.contains("hidden")) return;
-  setContextPopover(false);
-  el.contextInfo?.focus({ preventScroll: true });
-});
 
 let availableModels = [];
 async function openModelSheet() {
@@ -4357,9 +4345,6 @@ function closeModelSheet() { el.modelSheet.classList.add("hidden"); }
 el.modelClose.addEventListener("click", closeModelSheet);
 el.modelSheet.addEventListener("click", (event) => {
   if (event.target === el.modelSheet) closeModelSheet();
-});
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !el.modelSheet.classList.contains("hidden")) closeModelSheet();
 });
 async function changeThinkingLevel(level) {
   const expectedSid = rpc?.sid;
@@ -7330,6 +7315,59 @@ el.chatEmptyNewProject?.addEventListener("click", openNewDialog);
 el.newCancel.addEventListener("click", () => {
   cancelProjectFolderRequest();
   el.newDialog.classList.add("hidden");
+});
+
+// ===========================================================================
+// Escape 關閉：所有覆蓋層共用一條規則
+// ===========================================================================
+
+// Every dismissable layer is registered here, ordered from the topmost visual
+// layer downwards. Escape closes only the top-most open layer, so a dialog
+// opened above Settings never dismisses both at once. Layers that must not be
+// dismissed this way (sign-in, the one-time key reveal) are intentionally
+// absent, and a layer awaiting an answer keeps its own cancel semantics.
+function dismissableLayers() {
+  return [
+    { element: el.imageLightbox, close: closeImageLightbox },
+    { element: el.onboarding, close: () => void completeOnboarding() },
+    { element: el.extensionUiSheet, close: () => { if (extensionUiRequest) finishExtensionUi({ cancelled: true }); } },
+    { element: el.projectRenameDialog, close: () => el.projectRenameDialog.classList.add("hidden") },
+    { element: el.renameDialog, close: () => el.renameDialog.classList.add("hidden") },
+    { element: el.providerDialog, close: closeProviderDialog },
+    { element: el.machineDialog, close: closeMachineDialog },
+    { element: el.newDialog, close: () => { cancelProjectFolderRequest(); el.newDialog.classList.add("hidden"); } },
+    { element: el.modelSheet, close: closeModelSheet },
+    { element: el.projectActionSheet, close: closeProjectActions },
+    { element: el.saSheet, close: closeSessionActions },
+    { element: el.changesLayer, close: closeProjectChanges },
+    // Inline settings disclosures behave like dialogs to the user: Escape must
+    // close the open form before it is allowed to leave Settings entirely.
+    { element: el.tokenNewRow, close: () => setTokenNewRow(false) },
+    { element: el.tokenCreateRow, close: () => { el.tokenCreateRow.classList.add("hidden"); setTokenFormError(); } },
+    { element: el.contextPopover, close: () => { setContextPopover(false); el.contextInfo?.focus({ preventScroll: true }); } },
+  ];
+}
+
+function closeTopmostLayer() {
+  const layer = dismissableLayers().find((item) => item.element && !item.element.classList.contains("hidden"));
+  if (!layer) return false;
+  layer.close();
+  return true;
+}
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || event.defaultPrevented) return;
+  // A composing IME uses Escape to abandon its own candidate window.
+  if (event.isComposing) return;
+  // The slash menu and inline inputs handle Escape closer to the field.
+  if (!el.slashMenu?.classList.contains("hidden")) return;
+  if (closeTopmostLayer()) {
+    event.preventDefault();
+    return;
+  }
+  // With no layer open, Escape leaves Settings the same way the back button does.
+  if (!el.viewModelSettings?.classList.contains("hidden")) { el.btnModelSettingsBack?.click(); event.preventDefault(); return; }
+  if (!el.viewSettings?.classList.contains("hidden")) { hideSettings(); event.preventDefault(); }
 });
 el.newFolderUp.addEventListener("click", () => {
   if (projectFolder.parent) loadProjectFolder(projectFolder.parent);

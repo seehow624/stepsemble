@@ -631,7 +631,15 @@ test("localization is English-first with an explicit locale selector and safe fa
   assert.match(html, /value="tr"/);
   assert.match(html, /value="fr"/);
   assert.match(html, /value="de"/);
-  assert.doesNotMatch(html, /[\u3400-\u9fff]/);
+  // Language names are written in their own language, so the picker reads the
+  // same whichever locale is active. Everything else stays English-first.
+  const localeSelect = html.slice(html.indexOf('<select id="set-locale"'), html.indexOf("</select>", html.indexOf('<select id="set-locale"')));
+  assert.match(localeSelect, /data-i18n-ignore/);
+  for (const [value, label] of [["zh-Hans", "简体中文"], ["zh-Hant", "繁體中文"], ["ja", "日本語"], ["ko", "한국어"], ["tr", "Türkçe"], ["pt-BR", "Português (Brasil)"]]) {
+    assert.ok(localeSelect.includes(`<option value="${value}">${label}</option>`), `${value} should be labelled ${label}`);
+  }
+  assert.doesNotMatch(html.replace(localeSelect, ""), /[\u3400-\u9fff]/);
+  assert.match(i18n, /LOCALES\.find\(\(item\) => item\.id === option\.value\)/);
   assert.match(i18n, /const LOCALES/);
   assert.match(i18n, /locale = "en"/);
   assert.match(i18n, /sourceToEnglish/);
@@ -739,6 +747,34 @@ test("an auto-updated v1 service keeps its configured token file and port", () =
   assert.match(server, /settingFromEnv\("BROWSE_ROOTS"\)/);
   assert.match(server, /"PI_WEB_TOKEN", "PI_WEB_TOKEN_FILE", "PI_WEB_MACHINES"/);
   assert.doesNotMatch(server, /process\.env\.PI_HARBOR_TOKEN_FILE/);
+});
+
+test("desktop Settings scrolls from anywhere while its content stays centered", () => {
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  // The scroller must span the full width; centering is done with padding so
+  // the wheel still works over the empty margins beside the cards.
+  assert.match(css, /#view-settings \.settings-scroll,\s*\n\s*#view-model-settings \.settings-scroll \{\s*\n\s*max-width: none;/);
+  assert.match(css, /padding-left: max\(14px, calc\(\(100% - 640px\) \/ 2\)\)/);
+  assert.match(css, /padding-right: max\(14px, calc\(\(100% - 640px\) \/ 2\)\)/);
+  assert.match(css, /padding-left: max\(14px, calc\(\(100% - 880px\) \/ 2\)\)/);
+  assert.doesNotMatch(css, /#view-model-settings \.settings-scroll \{ max-width: 880px; \}/);
+});
+
+test("Escape closes only the topmost overlay and then leaves Settings", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  assert.match(app, /function dismissableLayers\(\)/);
+  assert.match(app, /function closeTopmostLayer\(\)/);
+  // Ordered topmost-first so a dialog above Settings never closes both at once.
+  const order = app.slice(app.indexOf("function dismissableLayers()"), app.indexOf("function closeTopmostLayer()"));
+  for (const layer of ["imageLightbox", "onboarding", "extensionUiSheet", "providerDialog", "machineDialog", "newDialog", "modelSheet", "projectActionSheet", "saSheet", "changesLayer", "contextPopover"]) {
+    assert.ok(order.includes(`el.${layer}`), `Escape should dismiss el.${layer}`);
+  }
+  assert.ok(order.indexOf("el.imageLightbox") < order.indexOf("el.changesLayer"));
+  assert.match(app, /if \(event\.isComposing\) return;/);
+  assert.match(app, /if \(closeTopmostLayer\(\)\) \{/);
+  assert.match(app, /el\.btnModelSettingsBack\?\.click\(\)/);
+  // One dispatcher only: the old per-layer Escape listeners are gone.
+  assert.equal((app.match(/document\.addEventListener\("keydown"/g) || []).length, 1);
 });
 
 test("public defaults do not disclose private device or user details", () => {

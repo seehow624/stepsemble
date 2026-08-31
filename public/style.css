@@ -1,4 +1,4 @@
-/* pi-harbor v2.4.1 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.4.2 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -1126,8 +1126,16 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
     background: var(--paper);
     display: flex; flex-direction: column;
   }
+  /* The scroller spans the full width so the wheel works anywhere on the page,
+     including the margins beside the cards; only the content stays centered. */
   #view-settings .settings-scroll,
-  #view-model-settings .settings-scroll { max-width: 640px; margin: 0 auto; width: 100%; }
+  #view-model-settings .settings-scroll {
+    max-width: none;
+    margin: 0;
+    width: 100%;
+    padding-left: max(14px, calc((100% - 640px) / 2));
+    padding-right: max(14px, calc((100% - 640px) / 2));
+  }
 
   /* 对话区内容限宽居中，阅读舒适 */
   .messages {
@@ -2944,7 +2952,10 @@ html[data-design-theme="etoile"][data-theme="light"] {
 
 @media (min-width: 1024px) {
   #view-settings .settings-scroll,
-  #view-model-settings .settings-scroll { max-width: 880px; }
+  #view-model-settings .settings-scroll {
+    padding-left: max(14px, calc((100% - 880px) / 2));
+    padding-right: max(14px, calc((100% - 880px) / 2));
+  }
 }
 
 html.reduced-motion .model-provider-group .model-visibility-row,
