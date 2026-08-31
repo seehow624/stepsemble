@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.2.9
+
+- Provider quotas now cover subscription account logins, not just API keys:
+  the snapshot merges models.json with Pi's credential store, so every
+  configured provider appears in the popover.
+- OpenAI Codex (ChatGPT) shows the 5-hour and weekly usage windows from the
+  same backend endpoint the Codex CLI and pi-usage extension consume, using
+  the stored OAuth token and its embedded account id.
+- OpenCode Go quotas are read from the quota response headers of a minimal
+  probe request against the cheapest documented Go model (one probe per
+  cache window), mirroring the community approach.
+- Subscription providers without any queryable endpoint are labelled
+  honestly instead of being omitted.
+
 ## 2.2.8
 
 - Extended provider quotas to subscription coding plans, following the same

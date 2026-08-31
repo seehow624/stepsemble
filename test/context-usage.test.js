@@ -183,6 +183,12 @@ test("context sync lifecycle and responsive composer wiring are event-driven", (
   assert.match(server, /api\\.deepseek\\.com|openrouter\\.ai|siliconflow/);
   assert.match(server, /PROVIDER_QUOTA_CACHE_MS/);
   assert.match(server, /key\.startsWith\("\$"\) \|\| key\.startsWith\("!"\)/);
+  // Subscription logins: credential-store merge, Codex usage endpoint, and
+  // the OpenCode Go quota-header probe.
+  assert.match(server, /readAuthCredentials/);
+  assert.match(server, /wham\/usage/);
+  assert.match(server, /zen\/go\/v1\/chat\/completions/);
+  assert.match(server, /status: "subscription"/);
   const quotaBlock = server.slice(server.indexOf("Provider account quota lookup"), server.indexOf("async function providerQuotaSnapshot"));
   assert.ok(quotaBlock.length > 100, "quota implementation present");
   assert.doesNotMatch(quotaBlock, /sendJSON/);

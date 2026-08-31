@@ -1,7 +1,7 @@
-/* pi-harbor v2.2.8 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.2.9 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.2.8";
+const CLIENT_APP_VERSION = "2.2.9";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -4149,6 +4149,7 @@ function planResetTitle(resetAt) {
 function providerQuotaEntries(row) {
   if (row.status !== "ok" || !row.quota) {
     const status = row.status === "unauthorized" ? tKey("contextDashboard.quotaUnauthorized")
+      : row.status === "subscription" ? tKey("contextDashboard.quotaSubscription")
       : row.status === "error" ? tKey("contextDashboard.quotaError")
       : tKey("contextDashboard.quotaUnsupported");
     return [{ label: "", value: status, title: "" }];
@@ -4159,7 +4160,10 @@ function providerQuotaEntries(row) {
     const prefix = level ? `${level} · ` : "";
     const entries = [];
     for (const [index, limit] of (quota.tokenLimits || []).entries()) {
-      const label = prefix + tKey(index === 0 ? "contextDashboard.plan5h" : "contextDashboard.planWeekly");
+      const minutes = Number(limit.minutes);
+      const label = prefix + tKey(Number.isFinite(minutes) && minutes > 0
+        ? (minutes <= 1440 ? "contextDashboard.plan5h" : minutes <= 10080 ? "contextDashboard.planWeekly" : "contextDashboard.planMonthly")
+        : (index === 0 ? "contextDashboard.plan5h" : "contextDashboard.planWeekly"));
       if (Number.isFinite(Number(limit.percent))) {
         entries.push({
           label,

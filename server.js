@@ -45,7 +45,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.2.8";
+const APP_VERSION = "2.2.9";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1847,7 +1847,91 @@ function parseMiniMaxPlanLimits(data) {
   );
 }
 
+// OpenAI Codex (ChatGPT subscription) usage from the wham endpoint that the
+// Codex CLI and the pi-usage extension both consume.
+function parseCodexUsage(data) {
+  const windows = [];
+  const rateLimit = data?.rate_limit || {};
+  for (const [key, fallbackMinutes] of [["primary_window", 300], ["secondary_window", 10080]]) {
+    const window = rateLimit[key];
+    if (!window) continue;
+    const percent = Number(window.used_percent);
+    if (!Number.isFinite(percent)) continue;
+    const seconds = Number(window.limit_window_seconds);
+    const minutes = Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds / 60) : fallbackMinutes;
+    const resetAt = Number(window.reset_at);
+    windows.push({
+      percent: Math.max(0, Math.min(100, percent)),
+      minutes,
+      resetAt: Number.isFinite(resetAt) && resetAt > 0 ? new Date(resetAt * 1000).toISOString() : null,
+    });
+  }
+  if (!windows.length) return null;
+  return normalizePlanLimits(String(data?.plan_type || ""), windows, null);
+}
+
+// Read-only view of Pi's credential store. Only credential metadata and
+// provider ids leave this function; tokens and keys never do.
+function readAuthCredentials() {
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(AUTH_CONFIG_FILE, "utf8")); } catch { return []; }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  const entries = [];
+  for (const [id, credential] of Object.entries(raw)) {
+    if (!credential || typeof credential !== "object") continue;
+    if (credential.type === "oauth"
+      && typeof credential.access === "string" && credential.access
+      && typeof credential.refresh === "string"
+      && Number.isFinite(Number(credential.expires))) {
+      entries.push({ id, type: "oauth", access: credential.access, expires: Number(credential.expires), accountId: typeof credential.accountId === "string" ? credential.accountId : "" });
+    } else if (credential.type === "api_key" && typeof credential.key === "string" && credential.key
+      && !credential.key.startsWith("!") && !credential.key.startsWith("$")) {
+      entries.push({ id, type: "api_key", key: credential.key });
+    }
+  }
+  return entries;
+}
+
+function jwtAccountId(token) {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return "";
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+    const id = payload?.["https://api.openai.com/auth"]?.chatgpt_account_id;
+    return typeof id === "string" ? id : "";
+  } catch { return ""; }
+}
+
+// Display metadata for credential-store providers that are not in models.json.
+const KNOWN_OAUTH_PROVIDERS = {
+  "openai-codex": { name: "OpenAI Codex (ChatGPT)" },
+  "opencode-go": { name: "OpenCode Go" },
+  anthropic: { name: "Anthropic Claude" },
+  openai: { name: "OpenAI" },
+  google: { name: "Google Gemini" },
+  "github-copilot": { name: "GitHub Copilot" },
+  "kimi-coding": { name: "Kimi Coding" },
+};
+
+// Known base URLs let credential-store API keys reuse the metered rules.
+const KNOWN_AUTH_BASE_URLS = {
+  deepseek: "https://api.deepseek.com",
+  minimax: "https://www.minimaxi.com/v1",
+  zai: "https://api.z.ai/api/coding/paas/v4",
+};
+
 const PROVIDER_QUOTA_RULES = [
+  // Subscription providers matched by Pi provider id. These run before the
+  // host-based metered rules so credential-store logins resolve correctly.
+  {
+    idPattern: /^openai-codex$/,
+    strategy: "codex",
+  },
+  {
+    idPattern: /^opencode-go$/,
+    strategy: "go-probe",
+    authStyle: "bearer",
+  },
   {
     hostPattern: /(^|\.)api\.deepseek\.com$/,
     authStyle: "bearer",
@@ -1912,16 +1996,99 @@ const PROVIDER_QUOTA_RULES = [
   },
 ];
 
-function providerQuotaRuleFor(baseUrl) {
+function providerQuotaRuleFor(id, baseUrl) {
+  if (typeof id === "string" && id) {
+    const byId = PROVIDER_QUOTA_RULES.find((rule) => rule.idPattern?.test(id));
+    if (byId) return byId;
+  }
   let host;
-  try { host = new URL(baseUrl).host; } catch { return null; }
-  return PROVIDER_QUOTA_RULES.find((rule) => rule.hostPattern.test(host)) || null;
+  try { host = new URL(baseUrl || "").host; } catch { return null; }
+  if (!host) return null;
+  return PROVIDER_QUOTA_RULES.find((rule) => rule.hostPattern?.test(host)) || null;
+}
+
+// OpenCode Go has no GET quota endpoint; pi-usage and cc-switch both send a
+// minimal chat completion with the cheapest documented model and read the
+// x-opencode-go-quota-* response headers. One probe per cache window.
+async function probeOpenCodeGoQuota(key) {
+  let response;
+  try {
+    response = await fetch("https://opencode.ai/zen/go/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+        "User-Agent": "pi-harbor-provider-quota",
+      },
+      body: JSON.stringify({ model: "qwen3.5-plus", messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
+      signal: AbortSignal.timeout(PROVIDER_QUOTA_TIMEOUT_MS),
+    });
+  } catch {
+    return { status: "error" };
+  }
+  const headerNumber = (...names) => {
+    for (const name of names) {
+      const value = Number(response.headers.get(name));
+      if (Number.isFinite(value)) return value;
+    }
+    return null;
+  };
+  const windows = [];
+  const collect = (key2, minutes) => {
+    const used = headerNumber(`x-opencode-go-quota-${key2}-used-percent`, `x-opencode-${key2}-used-percent`);
+    const remaining = headerNumber(`x-opencode-go-quota-${key2}-remaining-percent`, `x-opencode-${key2}-remaining-percent`);
+    const percent = used !== null ? used : (remaining !== null ? 100 - remaining : null);
+    const resetAfter = headerNumber(`x-opencode-go-quota-${key2}-reset-after-seconds`, `x-opencode-${key2}-reset-after-seconds`);
+    if (percent === null) return;
+    windows.push({
+      percent: Math.max(0, Math.min(100, percent)),
+      minutes,
+      resetAt: resetAfter !== null && resetAfter > 0 ? new Date(Date.now() + resetAfter * 1000).toISOString() : null,
+    });
+  };
+  collect("rolling", 300);
+  collect("weekly", 10080);
+  collect("monthly", 43200);
+  if (!response.ok || !windows.length) {
+    if (response.status === 401 || response.status === 403) return { status: "unauthorized" };
+    return windows.length ? { status: "ok", quota: normalizePlanLimits("OpenCode Go", windows, null) } : { status: "error" };
+  }
+  return { status: "ok", quota: normalizePlanLimits("OpenCode Go", windows, null) };
+}
+
+// ChatGPT/Codex subscription usage. Requires the OAuth access token plus the
+// account id embedded in its JWT; a pure GET, so it costs nothing.
+async function fetchCodexUsage(oauth) {
+  if (!oauth?.access) return { status: "unauthorized" };
+  if (Number.isFinite(oauth.expires) && oauth.expires <= Date.now()) return { status: "unauthorized" };
+  const accountId = oauth.accountId || jwtAccountId(oauth.access);
+  try {
+    const response = await fetch("https://chatgpt.com/backend-api/wham/usage", {
+      headers: {
+        Authorization: `Bearer ${oauth.access}`,
+        ...(accountId ? { "ChatGPT-Account-Id": accountId } : {}),
+        "User-Agent": "pi-harbor-provider-quota",
+      },
+      signal: AbortSignal.timeout(PROVIDER_QUOTA_TIMEOUT_MS),
+    });
+    if (response.status === 401 || response.status === 403) return { status: "unauthorized" };
+    if (!response.ok) return { status: "error" };
+    const data = await response.json().catch(() => null);
+    const quota = data ? parseCodexUsage(data) : null;
+    return quota ? { status: "ok", quota } : { status: "unsupported" };
+  } catch {
+    return { status: "error" };
+  }
 }
 
 async function fetchProviderQuota(id, provider) {
-  const rule = providerQuotaRuleFor(provider?.baseUrl);
-  if (!rule) return { status: "unsupported" };
-  const key = typeof provider?.apiKey === "string" ? provider.apiKey.trim() : "";
+  const rule = providerQuotaRuleFor(id, provider?.baseUrl);
+  if (rule?.strategy === "codex") return fetchCodexUsage(provider?.oauth);
+  if (rule?.strategy === "go-probe") {
+    return provider?.key ? probeOpenCodeGoQuota(provider.key) : { status: "unauthorized" };
+  }
+  if (!rule) return provider?.oauth ? { status: "subscription" } : { status: "unsupported" };
+  const key = typeof provider?.key === "string" ? provider.key.trim() : "";
   // Indirect keys ($ENV / !command) are not resolved here; they may shell out
   // and must stay a TUI-only feature.
   if (!key || key.startsWith("$") || key.startsWith("!")) return { status: "unsupported" };
@@ -1954,14 +2121,56 @@ async function fetchProviderQuota(id, provider) {
 }
 
 async function providerQuotaSnapshot() {
+  // Every configured provider counts, whether it was set up with an API key
+  // (models.json) or a subscription account login (auth.json).
+  const merged = new Map();
   let config;
   try { config = readModelConfig(); } catch { config = { providers: {} }; }
-  const entries = Object.entries(config.providers || {}).filter(([, p]) => p && typeof p === "object");
-  const providers = await Promise.all(entries.map(async ([id, provider]) => {
-    const quota = await fetchProviderQuota(id, provider);
-    return {
+  for (const [id, provider] of Object.entries(config.providers || {})) {
+    if (!provider || typeof provider !== "object") continue;
+    merged.set(String(id), {
       id: String(id),
       name: String(provider.name || id),
+      baseUrl: typeof provider.baseUrl === "string" ? provider.baseUrl : "",
+      key: typeof provider.apiKey === "string" ? provider.apiKey : "",
+      oauth: null,
+    });
+  }
+  for (const credential of readAuthCredentials()) {
+    const existing = merged.get(credential.id);
+    if (credential.type === "oauth") {
+      const oauth = {
+        access: credential.access,
+        expires: credential.expires,
+        accountId: credential.accountId || jwtAccountId(credential.access),
+      };
+      if (existing) existing.oauth = oauth;
+      else merged.set(credential.id, {
+        id: credential.id,
+        name: KNOWN_OAUTH_PROVIDERS[credential.id]?.name || credential.id,
+        baseUrl: "",
+        key: "",
+        oauth,
+      });
+    } else if (credential.type === "api_key") {
+      if (existing) {
+        if (!existing.key) existing.key = credential.key;
+      } else {
+        merged.set(credential.id, {
+          id: credential.id,
+          name: KNOWN_OAUTH_PROVIDERS[credential.id]?.name || credential.id,
+          baseUrl: KNOWN_AUTH_BASE_URLS[credential.id] || "",
+          key: credential.key,
+          oauth: null,
+        });
+      }
+    }
+  }
+  const providers = await Promise.all([...merged.values()].map(async (provider) => {
+    const quota = await fetchProviderQuota(provider.id, provider);
+    return {
+      id: provider.id,
+      name: provider.name,
       status: quota.status,
       quota: quota.quota || null,
     };
@@ -3465,7 +3674,7 @@ const server = http.createServer(async (req, res) => {
 
       if (p === "/api/provider-quota" && req.method === "GET") {
         try { sendJSON(res, 200, await providerQuotaSnapshot()); }
-        catch { sendJSON(res, 500, { error: "provider quota lookup failed" }); }
+        catch (e) { console.warn("[pi-harbor] provider-quota error:", e && e.stack || e); sendJSON(res, 500, { error: "provider quota lookup failed" }); }
         return;
       }
 
