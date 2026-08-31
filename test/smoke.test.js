@@ -685,7 +685,7 @@ test("composer drafts are session-scoped and narrow screens keep send visible", 
   assert.match(app, /beginDraftScope\(\{ cwd, name \}\)/);
   assert.match(app, /el\.input\.addEventListener\("input", \(\) => \{[\s\S]*?saveActiveDraft\(\)/);
   assert.match(app, /removeDraftForKey\(sendDraftKey\)/);
-  assert.match(css, /@media \(max-width: 360px\) \{[\s\S]*?#view-chat \.context-dashboard-value \{ display: none; \}/);
+  assert.match(css, /@media \(max-width: 360px\) \{[\s\S]*?#view-chat \.context-ring \{ width: 20px; height: 20px; \}/);
 });
 
 test("automatic updates use a public GitHub source and launchd without touching Pi data", () => {

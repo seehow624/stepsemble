@@ -1,4 +1,4 @@
-/* pi-harbor v2.2.6 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.2.7 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -3531,9 +3531,9 @@ body.compact #view-list .project-group-items .session-item {
   padding-bottom: 0;
 }
 
-/* v2.3 — compact composer toolbar: attachment, fixed model chip, context bar,
-   usage-details popover. The dashboard is the single authoritative
-   session-usage summary; the old conversation-bottom total is suppressed. */
+/* Composer toolbar:: attachment, fixed model chip, circular
+   context gauge, usage-details popover with provider quotas. The gauge is
+   itself the popover trigger; numbers stay out of the bar until opened. */
 .sr-only {
   position: absolute !important;
   width: 1px !important;
@@ -3587,23 +3587,44 @@ body.compact #view-list .project-group-items .session-item {
 }
 #view-chat .composer-model-control .icon { width: 14px; height: 14px; flex: 0 0 auto; }
 
-/* Inline context indicator: a compact circular progress ring with the usage
-   numbers, parked hard against the details button on the right so the free
-   toolbar space stays between the model chip and the indicator. */
+/* Inline context gauge: a compact circular progress indicator parked hard
+   against the details button. It is the popover trigger, so the toolbar shows
+   only the gauge until the user opens it. No overflow clipping here: the
+   popover is a child of this section and must stay visible above the bar. */
 #view-chat .context-dashboard {
   min-width: 0;
   flex: 0 0 auto;
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 7px;
-  overflow: hidden;
+  gap: 5px;
   color: var(--pine-soft);
   font-variant-numeric: tabular-nums;
 }
+#view-chat .context-info-wrap {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+}
+#view-chat .context-ring-btn {
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  color: var(--pine-soft);
+  background: transparent;
+  cursor: pointer;
+}
+#view-chat .context-ring-btn:hover,
+#view-chat .context-ring-btn[aria-expanded="true"] { background: var(--bubble-user); }
+#view-chat .context-ring-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #view-chat .context-ring {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   flex: 0 0 auto;
   transform: rotate(-90deg);
 }
@@ -3612,7 +3633,7 @@ body.compact #view-list .project-group-items .session-item {
   fill: none;
   stroke-width: 3.5;
 }
-#view-chat .context-ring-track { stroke: color-mix(in srgb, var(--pine-soft) 14%, transparent); }
+#view-chat .context-ring-track { stroke: color-mix(in srgb, var(--pine-soft) 16%, transparent); }
 #view-chat .context-ring-fill {
   stroke: var(--accent);
   stroke-dasharray: 97.39;
@@ -3623,55 +3644,16 @@ body.compact #view-list .project-group-items .session-item {
 #view-chat .context-dashboard[data-context-state="warning"] .context-ring-fill { stroke: var(--warn); }
 #view-chat .context-dashboard[data-context-state="critical"] .context-ring-fill { stroke: var(--err); }
 #view-chat .context-dashboard[data-context-state="unknown"] .context-ring-fill { stroke: var(--pine-soft); opacity: .35; }
-#view-chat .context-dashboard-value {
-  min-width: 0;
-  flex: 0 1 auto;
-  display: flex;
-  align-items: baseline;
-  gap: 3px;
-  overflow: hidden;
-  color: var(--ink);
-  font: 600 .68rem/1.2 var(--mono);
-  white-space: nowrap;
-}
-#view-chat .context-dashboard-value .context-sep { color: var(--pine-soft); }
-#view-chat .context-dashboard-value > #context-percent {
-  margin-left: 3px;
-  color: var(--accent);
-}
-#view-chat .context-progress {
-  width: 100%;
-  height: 4px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--pine-soft) 16%, transparent);
-}
-#view-chat .context-progress > span {
-  display: block;
-  width: var(--context-progress, 0%);
-  height: 100%;
-  border-radius: inherit;
-  background: var(--accent);
-  transition: width .2s ease, background-color .2s ease;
-}
-#view-chat .context-dashboard[data-context-state="warning"] .context-progress > span { background: var(--warn); }
-#view-chat .context-dashboard[data-context-state="critical"] .context-progress > span { background: var(--err); }
-#view-chat .context-dashboard[data-context-state="unknown"] .context-progress > span { background: var(--pine-soft); opacity: .35; }
 
-/* Usage-details popover anchored to the exclamation button. */
-#view-chat .context-info-wrap {
-  position: relative;
-  flex: 0 0 auto;
-  display: inline-flex;
-}
-#view-chat .context-info-btn { width: 38px; height: 38px; min-height: 38px; border-radius: 10px; }
+/* Usage-details popover: full token figures plus per-provider account quotas. */
 #view-chat .context-popover {
   position: absolute;
   right: -4px;
   bottom: calc(100% + 10px);
   z-index: 30;
-  width: 218px;
+  width: 232px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 7px;
   padding: 12px 13px 10px;
   border: 1px solid var(--line);
@@ -3708,26 +3690,69 @@ body.compact #view-list .project-group-items .session-item {
   font: 600 .72rem/1.2 var(--mono);
   white-space: nowrap;
 }
+#view-chat .context-value-strong {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+}
+#view-chat .context-value-strong .context-sep { color: var(--pine-soft); }
+#view-chat .context-value-strong > #context-percent { margin-left: 2px; color: var(--accent); }
 #view-chat .context-popover-status {
   margin: 2px 0 0;
   color: var(--pine-soft);
   font-size: .62rem;
+}
+#view-chat .context-quotas {
+  margin-top: 2px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+#view-chat .context-quotas h4 {
+  margin: 0 0 6px;
+  color: var(--pine-soft);
+  font-size: .62rem;
+  font-weight: 760;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+#view-chat .provider-quota-row {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+#view-chat .provider-quota-row > span {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: .68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#view-chat .provider-quota-row > strong {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  color: var(--pine-soft);
+  font: 600 .68rem/1.2 var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 html.reduced-motion #view-chat .context-ring-fill { transition: none; }
 
 @media (max-width: 979px) {
   #view-chat .composer-toolbar { gap: 4px; }
   #view-chat .composer-model-control { width: var(--composer-model-w-narrow, 128px); padding: 0 7px 0 8px; }
-  #view-chat .context-dashboard { gap: 5px; }
-  #view-chat .context-dashboard-value { font-size: .62rem; }
-  #view-chat .context-info-btn { width: 40px; height: 40px; min-height: 40px; }
+  #view-chat .context-dashboard { gap: 3px; }
+  #view-chat .context-ring-btn { width: 44px; height: 44px; min-height: 44px; }
 }
 
 @media (max-width: 360px) {
   #view-chat .composer-model-control { width: var(--composer-model-w-tight, 108px); }
-  #view-chat .context-dashboard-value { display: none; }
-  #view-chat .context-ring { width: 16px; height: 16px; }
-  #view-chat .context-popover { width: 200px; }
+  #view-chat .context-ring { width: 20px; height: 20px; }
+  #view-chat .context-popover { width: 204px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

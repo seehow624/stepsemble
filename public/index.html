@@ -6,10 +6,10 @@
 <title>Pi Harbor</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=2.2.6">
-<link rel="icon" href="/pi-logo.svg?v=2.2.6" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-180.png?v=2.2.6">
-<link rel="stylesheet" href="/style.css?v=2.2.6">
+<link rel="manifest" href="/manifest.webmanifest?v=2.2.7">
+<link rel="icon" href="/pi-logo.svg?v=2.2.7" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png?v=2.2.7">
+<link rel="stylesheet" href="/style.css?v=2.2.7">
 </head>
 <body>
 
@@ -168,28 +168,30 @@
           <button id="btn-model" class="composer-control composer-model-control" type="button" title="Model &amp; reasoning" aria-label="Model &amp; reasoning"><span class="composer-model-copy"><span id="composer-model-name" class="composer-model-name" data-i18n-ignore>Server default</span><span id="composer-model-level" class="composer-model-level" data-i18n-ignore>· off</span></span><svg class="icon" aria-hidden="true"><use href="#i-chevron-down"></use></svg></button>
           <section id="context-dashboard" class="context-dashboard" role="group" aria-labelledby="context-dashboard-title">
             <strong id="context-dashboard-title" class="sr-only" data-i18n-key="contextDashboard.context">Context</strong>
-            <svg id="context-progress" class="context-ring" viewBox="0 0 36 36" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-labelledby="context-dashboard-title" aria-describedby="context-dashboard-summary">
-              <circle class="context-ring-track" cx="18" cy="18" r="15.5"/>
-              <circle id="context-progress-fill" class="context-ring-fill" cx="18" cy="18" r="15.5"/>
-            </svg>
-            <div class="context-dashboard-value" data-i18n-ignore aria-describedby="context-dashboard-summary">
-              <span id="context-used" data-i18n-ignore>—</span><span class="context-sep" aria-hidden="true">/</span><span id="context-capacity" data-i18n-ignore>—</span>
-              <span id="context-percent" data-i18n-ignore>—</span>
-            </div>
+            <span class="context-info-wrap">
+              <button id="context-info" class="context-ring-btn" type="button" aria-expanded="false" aria-haspopup="true" title="Usage details" aria-label="Usage details" aria-describedby="context-dashboard-summary">
+                <svg id="context-progress" class="context-ring" viewBox="0 0 36 36" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-labelledby="context-dashboard-title">
+                  <circle class="context-ring-track" cx="18" cy="18" r="15.5"/>
+                  <circle id="context-progress-fill" class="context-ring-fill" cx="18" cy="18" r="15.5"/>
+                </svg>
+              </button>
+              <div id="context-popover" class="context-popover hidden" role="group" aria-labelledby="context-popover-title">
+                <h3 id="context-popover-title" data-i18n-key="contextDashboard.details">Usage details</h3>
+                <div class="context-metric"><span data-i18n-key="contextDashboard.context">Context</span><strong class="context-value-strong"><span id="context-used" data-i18n-ignore>—</span><span class="context-sep" aria-hidden="true">/</span><span id="context-capacity" data-i18n-ignore>—</span><span id="context-percent" data-i18n-ignore>—</span></strong></div>
+                <div class="context-metric"><span data-i18n-key="contextDashboard.input">Input</span><strong id="context-input" data-i18n-ignore>—</strong></div>
+                <div class="context-metric"><span data-i18n-key="contextDashboard.output">Output</span><strong id="context-output" data-i18n-ignore>—</strong></div>
+                <div class="context-metric"><span data-i18n-key="contextDashboard.cacheHit">Cache hit</span><strong id="context-cache-hit" data-i18n-ignore>—</strong></div>
+                <div class="context-metric"><span data-i18n-key="contextDashboard.cacheHitPercent">Hit %</span><strong id="context-cache-hit-percent" data-i18n-ignore>—</strong></div>
+                <div class="context-metric"><span data-i18n-key="contextDashboard.cacheWrite">Cache write</span><strong id="context-cache-write" data-i18n-ignore>—</strong></div>
+                <p id="context-dashboard-status" class="context-popover-status" data-i18n-key="contextDashboard.awaiting" data-i18n-ignore>Awaiting response</p>
+                <div class="context-quotas">
+                  <h4 data-i18n-key="contextDashboard.quotasTitle">Provider accounts</h4>
+                  <div id="provider-quota-list" class="provider-quota-list"></div>
+                </div>
+              </div>
+            </span>
             <p id="context-dashboard-summary" class="sr-only" data-i18n-ignore></p>
           </section>
-          <span class="context-info-wrap">
-            <button id="context-info" class="btn ghost icon-btn composer-icon-btn context-info-btn" type="button" aria-expanded="false" aria-haspopup="true" title="Usage details" aria-label="Usage details"><svg class="icon" aria-hidden="true"><use href="#i-alert"></use></svg></button>
-            <div id="context-popover" class="context-popover hidden" role="group" aria-labelledby="context-popover-title">
-              <h3 id="context-popover-title" data-i18n-key="contextDashboard.details">Usage details</h3>
-              <div class="context-metric"><span data-i18n-key="contextDashboard.input">Input</span><strong id="context-input" data-i18n-ignore>—</strong></div>
-              <div class="context-metric"><span data-i18n-key="contextDashboard.output">Output</span><strong id="context-output" data-i18n-ignore>—</strong></div>
-              <div class="context-metric"><span data-i18n-key="contextDashboard.cacheHit">Cache hit</span><strong id="context-cache-hit" data-i18n-ignore>—</strong></div>
-              <div class="context-metric"><span data-i18n-key="contextDashboard.cacheHitPercent">Hit %</span><strong id="context-cache-hit-percent" data-i18n-ignore>—</strong></div>
-              <div class="context-metric"><span data-i18n-key="contextDashboard.cacheWrite">Cache write</span><strong id="context-cache-write" data-i18n-ignore>—</strong></div>
-              <p id="context-dashboard-status" class="context-popover-status" data-i18n-key="contextDashboard.awaiting" data-i18n-ignore>Awaiting response</p>
-            </div>
-          </span>
           <button id="btn-abort" class="btn danger composer-send hidden" type="button" title="Stop" aria-label="Stop"><svg class="icon"><use href="#i-stop"></use></svg></button>
           <button id="btn-send" class="btn primary composer-send" type="button" title="Send" aria-label="Send"><svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg></button>
         </div>
@@ -303,7 +305,7 @@
         <h3 class="group-title">About</h3>
         <div class="settings-row">
           <span><strong>Pi Harbor</strong><small>Mobile-first remote workspace for Pi</small></span>
-          <span class="settings-value" id="set-app-version">v2.2.6</span>
+          <span class="settings-value" id="set-app-version">v2.2.7</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -716,10 +718,10 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=2.2.6"></script>
-<script src="/modules/app-foundation.js?v=2.2.6"></script>
-<script src="/modules/session-utils.js?v=2.2.6"></script>
-<script src="/modules/context-usage.js?v=2.2.6"></script>
-<script src="/app.js?v=2.2.6"></script>
+<script src="/i18n.js?v=2.2.7"></script>
+<script src="/modules/app-foundation.js?v=2.2.7"></script>
+<script src="/modules/session-utils.js?v=2.2.7"></script>
+<script src="/modules/context-usage.js?v=2.2.7"></script>
+<script src="/app.js?v=2.2.7"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
-/* pi-harbor v2.2.6 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.2.7 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.2.6";
+const CLIENT_APP_VERSION = "2.2.7";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -71,7 +71,7 @@ const el = {
   changesDiffTitle: $("changes-diff-title"), changesDiffEmpty: $("changes-diff-empty"), changesDiff: $("changes-diff"),
   messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"),
   contextDashboard: $("context-dashboard"), contextProgress: $("context-progress"), contextProgressFill: $("context-progress-fill"),
-  contextInfo: $("context-info"), contextPopover: $("context-popover"),
+  contextInfo: $("context-info"), contextPopover: $("context-popover"), providerQuotaList: $("provider-quota-list"),
   contextUsed: $("context-used"), contextCapacity: $("context-capacity"), contextPercent: $("context-percent"),
   contextInput: $("context-input"), contextOutput: $("context-output"), contextCacheHit: $("context-cache-hit"),
   contextCacheHitPercent: $("context-cache-hit-percent"), contextCacheWrite: $("context-cache-write"),
@@ -2338,7 +2338,7 @@ function renderContextDashboard() {
     cacheWrite: cacheWriteDisplay,
   });
   if (el.contextDashboardSummary) el.contextDashboardSummary.textContent = summary;
-  const contextValue = el.contextDashboard.querySelector?.(".context-dashboard-value");
+  const contextValue = el.contextDashboard.querySelector?.(".context-value-strong");
   if (contextValue) contextValue.setAttribute("aria-label", summary);
   if (el.contextDashboard) el.contextDashboard.setAttribute("aria-label", tKey("contextDashboard.context"));
   if (el.contextProgress) el.contextProgress.setAttribute("aria-label", tKey("contextDashboard.context"));
@@ -4095,6 +4095,75 @@ el.saModel.addEventListener("click", () => {
 function setContextPopover(open) {
   el.contextPopover?.classList.toggle("hidden", !open);
   el.contextInfo?.setAttribute("aria-expanded", String(!!open));
+  if (open) void loadProviderQuotas();
+}
+
+// ---- Provider account quotas (lazy, 10-minute cache both sides) ----
+const PROVIDER_QUOTA_TTL_MS = 10 * 60 * 1000;
+let providerQuotaState = { at: 0, loading: false, rows: null, error: false };
+function resetProviderQuotas() {
+  providerQuotaState = { at: 0, loading: false, rows: null, error: false };
+  renderProviderQuotas();
+}
+async function loadProviderQuotas(force = false) {
+  if (!el.providerQuotaList) return;
+  const now = Date.now();
+  if (!force && (providerQuotaState.loading || (providerQuotaState.rows !== null && now - providerQuotaState.at < PROVIDER_QUOTA_TTL_MS))) {
+    renderProviderQuotas();
+    return;
+  }
+  providerQuotaState.loading = true;
+  renderProviderQuotas();
+  try {
+    const data = await api("/api/provider-quota");
+    providerQuotaState = { at: Date.now(), loading: false, rows: Array.isArray(data?.providers) ? data.providers : [], error: false };
+  } catch {
+    providerQuotaState = { at: Date.now(), loading: false, rows: null, error: true };
+  }
+  renderProviderQuotas();
+}
+function providerQuotaAmountText(quota) {
+  if (!quota) return "";
+  const total = Number(quota.total);
+  if (!Number.isFinite(total)) return "";
+  const symbol = quota.currency === "USD" ? "$" : quota.currency === "CNY" ? "¥" : `${quota.currency} `;
+  const fmt = (value) => value.toFixed(2);
+  if (quota.kind === "credits" && Number.isFinite(Number(quota.used))) {
+    return tKey("contextDashboard.quotaRemaining", { amount: symbol + fmt(Math.max(0, total - Number(quota.used))) });
+  }
+  return symbol + fmt(total);
+}
+function providerQuotaStatusText(row) {
+  if (row.status === "ok") return providerQuotaAmountText(row.quota) || tKey("contextDashboard.quotaError");
+  if (row.status === "unauthorized") return tKey("contextDashboard.quotaUnauthorized");
+  if (row.status === "error") return tKey("contextDashboard.quotaError");
+  return tKey("contextDashboard.quotaUnsupported");
+}
+function renderProviderQuotas() {
+  const list = el.providerQuotaList;
+  if (!list) return;
+  list.innerHTML = "";
+  const addNote = (text) => {
+    const note = document.createElement("p");
+    note.className = "context-popover-status";
+    note.textContent = text;
+    list.appendChild(note);
+  };
+  if (providerQuotaState.loading) { addNote(tKey("contextDashboard.quotaLoading")); return; }
+  if (providerQuotaState.error || providerQuotaState.rows === null) { addNote(tKey("contextDashboard.quotaError")); return; }
+  if (!providerQuotaState.rows.length) { addNote(tKey("contextDashboard.quotaNone")); return; }
+  for (const row of providerQuotaState.rows) {
+    const line = document.createElement("div");
+    line.className = "provider-quota-row";
+    const name = document.createElement("span");
+    name.textContent = String(row.name || row.id || "Provider");
+    name.title = name.textContent;
+    const value = document.createElement("strong");
+    value.textContent = providerQuotaStatusText(row);
+    if (row.status === "ok") value.dataset.i18nIgnore = "";
+    line.append(name, value);
+    list.appendChild(line);
+  }
 }
 el.contextInfo?.addEventListener("click", (event) => {
   event.stopPropagation();

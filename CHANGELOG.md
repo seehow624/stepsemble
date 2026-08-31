@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.2.7
+
+- The context gauge is now the only composer indicator: the ring (still
+  state-colored) opens the usage popover on tap, and all token figures live
+  inside it, replacing the separate exclamation button.
+- Added a provider-accounts section to that popover: for configured paid
+  providers with a known quota API (DeepSeek, OpenRouter, SiliconFlow) it
+  shows the remaining balance; providers without one are marked honestly.
+  Queries run host-side against allowlisted endpoints, cache for ten minutes,
+  and never return credentials or raw provider payloads.
+
 ## 2.2.6
 
 - Added a read-only project Changes inspector with a changed-file badge,

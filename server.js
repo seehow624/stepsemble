@@ -45,7 +45,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.2.6";
+const APP_VERSION = "2.2.7";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1781,6 +1781,104 @@ function getAvailableModels(sid) {
 }
 
 // ---------------------------------------------------------------------------
+// Provider account quota lookup
+//
+// Only fixed, host-allowlisted balance endpoints are called with the stored
+// key, and only whitelisted quota fields are returned to the browser. API
+// keys, base URLs, and raw provider payloads never cross the wire.
+// ---------------------------------------------------------------------------
+
+const PROVIDER_QUOTA_TIMEOUT_MS = 6000;
+const PROVIDER_QUOTA_CACHE_MS = 10 * 60 * 1000;
+const providerQuotaCache = new Map(); // provider id -> {at, payload}
+
+const PROVIDER_QUOTA_RULES = [
+  {
+    hostPattern: /(^|\.)api\.deepseek\.com$/,
+    endpoint: (baseUrl) => new URL("/user/balance", baseUrl),
+    parse: (data) => {
+      const info = Array.isArray(data?.balance_infos) ? data.balance_infos[0] : null;
+      const total = Number(info?.total_balance);
+      if (!info || !Number.isFinite(total)) return null;
+      return { kind: "balance", currency: String(info.currency || "CNY"), total };
+    },
+  },
+  {
+    hostPattern: /(^|\.)openrouter\.ai$/,
+    endpoint: () => new URL("https://openrouter.ai/api/v1/credits"),
+    parse: (data) => {
+      const total = Number(data?.data?.total_credits);
+      const used = Number(data?.data?.total_usage);
+      if (!Number.isFinite(total)) return null;
+      return { kind: "credits", currency: "USD", total, used: Number.isFinite(used) ? used : null };
+    },
+  },
+  {
+    hostPattern: /(^|\.)siliconflow\.(cn|com)$/,
+    endpoint: (baseUrl) => new URL("/v1/user/info", baseUrl),
+    parse: (data) => {
+      const info = data?.data;
+      const total = Number(info?.totalBalance ?? info?.balance);
+      if (!info || !Number.isFinite(total)) return null;
+      return { kind: "balance", currency: "CNY", total };
+    },
+  },
+];
+
+function providerQuotaRuleFor(baseUrl) {
+  let host;
+  try { host = new URL(baseUrl).host; } catch { return null; }
+  return PROVIDER_QUOTA_RULES.find((rule) => rule.hostPattern.test(host)) || null;
+}
+
+async function fetchProviderQuota(id, provider) {
+  const rule = providerQuotaRuleFor(provider?.baseUrl);
+  if (!rule) return { status: "unsupported" };
+  const key = typeof provider?.apiKey === "string" ? provider.apiKey.trim() : "";
+  // Indirect keys ($ENV / !command) are not resolved here; they may shell out
+  // and must stay a TUI-only feature.
+  if (!key || key.startsWith("$") || key.startsWith("!")) return { status: "unsupported" };
+  const cached = providerQuotaCache.get(id);
+  const now = Date.now();
+  if (cached && now - cached.at < PROVIDER_QUOTA_CACHE_MS) return cached.payload;
+  let payload;
+  try {
+    const response = await fetch(rule.endpoint(provider.baseUrl), {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(PROVIDER_QUOTA_TIMEOUT_MS),
+    });
+    if (response.status === 401 || response.status === 403) payload = { status: "unauthorized" };
+    else if (!response.ok) payload = { status: "error" };
+    else {
+      const data = await response.json().catch(() => null);
+      const quota = data ? rule.parse(data) : null;
+      payload = quota ? { status: "ok", quota } : { status: "unsupported" };
+    }
+  } catch {
+    payload = { status: "error" };
+  }
+  providerQuotaCache.set(id, { at: now, payload });
+  return payload;
+}
+
+async function providerQuotaSnapshot() {
+  let config;
+  try { config = readModelConfig(); } catch { config = { providers: {} }; }
+  const entries = Object.entries(config.providers || {}).filter(([, p]) => p && typeof p === "object");
+  const providers = await Promise.all(entries.map(async ([id, provider]) => {
+    const quota = await fetchProviderQuota(id, provider);
+    return {
+      id: String(id),
+      name: String(provider.name || id),
+      status: quota.status,
+      quota: quota.quota || null,
+    };
+  }));
+  providers.sort((a, b) => a.name.localeCompare(b.name));
+  return { providers, checkedAt: new Date().toISOString() };
+}
+
+// ---------------------------------------------------------------------------
 // 自訂 Provider 設定（~/.pi/agent/models.json）
 // ---------------------------------------------------------------------------
 
@@ -3270,6 +3368,12 @@ const server = http.createServer(async (req, res) => {
         } catch (e) {
           sendJSON(res, e.statusCode || 409, { error: e.message });
         }
+        return;
+      }
+
+      if (p === "/api/provider-quota" && req.method === "GET") {
+        try { sendJSON(res, 200, await providerQuotaSnapshot()); }
+        catch { sendJSON(res, 500, { error: "provider quota lookup failed" }); }
         return;
       }
 
