@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.3.1
+
+- Simplified provider-account rows: usage windows are labelled just
+  "5-hour quota", "Weekly quota", "Monthly quota" under the provider name
+  instead of repeating the provider prefix.
+- Fixed credential-store region mapping for MiniMax: preset id `minimax` is
+  the international endpoint (api.minimax.io) and `minimax-cn` the Chinese
+  one, so auth-stored MiniMax keys no longer query the wrong region.
+- Added bounded parse-failure diagnostics for provider quota lookups and raw
+  OpenCode Go quota header values in the server log to make remote
+  troubleshooting possible without exposing credentials.
+
 ## 2.3.0
 
 - MiniMax quota lookups now distinguish an invalid or non-coding-plan key

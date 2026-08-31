@@ -1,7 +1,7 @@
-/* pi-harbor v2.3.0 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.3.1 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.3.0";
+const CLIENT_APP_VERSION = "2.3.1";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -4156,12 +4156,12 @@ function providerQuotaEntries(row) {
   }
   const quota = row.quota;
   if (quota.kind === "plans") {
-    const level = typeof quota.level === "string" ? quota.level.trim().toUpperCase() : "";
-    const prefix = level ? `${level} · ` : "";
+    // The provider name is already the row header; labels stay short so the
+    // popover never truncates ("5-hour quota", "Weekly quota", ...).
     const entries = [];
     for (const [index, limit] of (quota.tokenLimits || []).entries()) {
       const minutes = Number(limit.minutes);
-      const label = prefix + tKey(Number.isFinite(minutes) && minutes > 0
+      const label = tKey(Number.isFinite(minutes) && minutes > 0
         ? (minutes <= 1440 ? "contextDashboard.plan5h" : minutes <= 10080 ? "contextDashboard.planWeekly" : "contextDashboard.planMonthly")
         : (index === 0 ? "contextDashboard.plan5h" : "contextDashboard.planWeekly"));
       if (Number.isFinite(Number(limit.percent))) {
@@ -4180,7 +4180,7 @@ function providerQuotaEntries(row) {
     }
     if (quota.mcp) {
       entries.push({
-        label: prefix + tKey("contextDashboard.planMcp"),
+        label: tKey("contextDashboard.planMcp"),
         value: tKey("contextDashboard.planUsage", { used: quota.mcp.used, total: quota.mcp.total }),
         title: "",
       });

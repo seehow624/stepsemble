@@ -45,7 +45,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.3.0";
+const APP_VERSION = "2.3.1";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1907,20 +1907,26 @@ function jwtAccountId(token) {
 }
 
 // Display metadata for credential-store providers that are not in models.json.
-const KNOWN_OAUTH_PROVIDERS = {
-  "openai-codex": { name: "OpenAI Codex (ChatGPT)" },
-  "opencode-go": { name: "OpenCode Go" },
-  anthropic: { name: "Anthropic Claude" },
-  openai: { name: "OpenAI" },
-  google: { name: "Google Gemini" },
-  "github-copilot": { name: "GitHub Copilot" },
-  "kimi-coding": { name: "Kimi Coding" },
+const KNOWN_PROVIDER_NAMES = {
+  "openai-codex": "OpenAI Codex (ChatGPT)",
+  "opencode-go": "OpenCode Go",
+  anthropic: "Anthropic Claude",
+  openai: "OpenAI",
+  google: "Google Gemini",
+  "github-copilot": "GitHub Copilot",
+  "kimi-coding": "Kimi Coding",
+  minimax: "MiniMax",
+  "minimax-cn": "MiniMax (China)",
+  deepseek: "DeepSeek",
+  zai: "Z.ai GLM",
 };
 
 // Known base URLs let credential-store API keys reuse the metered rules.
+// Pi Harbor's preset ids fix the region: minimax=international, minimax-cn=China.
 const KNOWN_AUTH_BASE_URLS = {
+  minimax: "https://api.minimax.io/v1",
+  "minimax-cn": "https://www.minimaxi.com/v1",
   deepseek: "https://api.deepseek.com",
-  minimax: "https://www.minimaxi.com/v1",
   zai: "https://api.z.ai/api/coding/paas/v4",
 };
 
@@ -2065,7 +2071,10 @@ async function probeOpenCodeGoQuota(key) {
     collect("rolling", 300);
     collect("weekly", 10080);
     collect("monthly", 43200);
-    if (windows.length) return { status: "ok", quota: normalizePlanLimits("OpenCode Go", windows, null) };
+    if (windows.length) {
+      console.warn(`[pi-harbor] opencode-go quota headers via ${model}: ${windows.map((w) => `${w.minutes}m=${w.percent}% used`).join(", ")}`);
+      return { status: "ok", quota: normalizePlanLimits("OpenCode Go", windows, null) };
+    }
     statuses.push(`${model}:${response.status}`);
     try { await response.arrayBuffer(); } catch {}
   }
@@ -2126,6 +2135,10 @@ async function fetchProviderQuota(id, provider) {
     else {
       const data = await response.json().catch(() => null);
       let quota = data ? rule.parse(data) : null;
+      if (quota === null && data) {
+        const base = data.base_resp && typeof data.base_resp === "object" ? ` base_resp=${JSON.stringify(data.base_resp)}` : "";
+        console.warn(`[pi-harbor] provider-quota parse failed for ${id}: keys=${Object.keys(data).join(",")}${base}`);
+      }
       // A key can be valid in the provider's other region; retry there once
       // before reporting a sign-in problem.
       if ((quota === null || quota.unauthorized) && rule.sibling) {
@@ -2179,7 +2192,7 @@ async function providerQuotaSnapshot() {
       if (existing) existing.oauth = oauth;
       else merged.set(credential.id, {
         id: credential.id,
-        name: KNOWN_OAUTH_PROVIDERS[credential.id]?.name || credential.id,
+        name: KNOWN_PROVIDER_NAMES[credential.id] || credential.id,
         baseUrl: "",
         key: "",
         oauth,
@@ -2190,7 +2203,7 @@ async function providerQuotaSnapshot() {
       } else {
         merged.set(credential.id, {
           id: credential.id,
-          name: KNOWN_OAUTH_PROVIDERS[credential.id]?.name || credential.id,
+          name: KNOWN_PROVIDER_NAMES[credential.id] || credential.id,
           baseUrl: KNOWN_AUTH_BASE_URLS[credential.id] || "",
           key: credential.key,
           oauth: null,
