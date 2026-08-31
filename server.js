@@ -45,7 +45,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.3.1";
+const APP_VERSION = "2.3.2";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1906,6 +1906,23 @@ function jwtAccountId(token) {
   } catch { return ""; }
 }
 
+// Optional per-provider web-session cookies for quota endpoints that do not
+// accept API keys (MiniMax's coding-plan endpoint answers "cookie is missing"
+// to Bearer auth). Stored 0600 next to the Harbor token; values are only ever
+// sent back to the provider they belong to and are never logged or relayed.
+const PROVIDER_COOKIE_FILE = path.join(CONFIG_DIR, "provider-cookies.json");
+function readProviderCookies() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(PROVIDER_COOKIE_FILE, "utf8"));
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const out = {};
+    for (const [id, value] of Object.entries(raw)) {
+      if (typeof id === "string" && typeof value === "string" && value.trim()) out[id] = value.trim();
+    }
+    return out;
+  } catch { return {}; }
+}
+
 // Display metadata for credential-store providers that are not in models.json.
 const KNOWN_PROVIDER_NAMES = {
   "openai-codex": "OpenAI Codex (ChatGPT)",
@@ -1996,16 +2013,16 @@ const PROVIDER_QUOTA_RULES = [
   // used by cc-switch).
   {
     hostPattern: /(^|\.)minimaxi\.com$/,
-    authStyle: "bearer",
+    strategy: "cookie",
+    cookieId: "minimax-cn",
     endpoint: () => new URL("https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains"),
-    sibling: () => new URL("https://www.minimax.io/v1/api/openplatform/coding_plan/remains"),
     parse: parseMiniMaxPlanLimits,
   },
   {
     hostPattern: /(^|\.)minimax\.io$/,
-    authStyle: "bearer",
+    strategy: "cookie",
+    cookieId: "minimax",
     endpoint: () => new URL("https://www.minimax.io/v1/api/openplatform/coding_plan/remains"),
-    sibling: () => new URL("https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains"),
     parse: parseMiniMaxPlanLimits,
   },
 ];
@@ -2024,11 +2041,14 @@ function providerQuotaRuleFor(id, baseUrl) {
 // OpenCode Go has no GET quota endpoint; pi-usage and cc-switch both send a
 // minimal chat completion with the cheapest documented model and read the
 // x-opencode-go-quota-* response headers. One probe per cache window.
-async function probeOpenCodeGoQuota(key) {
+async function probeOpenCodeGoQuota(key, userModels) {
   // Quota headers ride on normal chat responses, so the probe walks the
   // cost-ranked documented model list until one returns them (same approach
   // as pi-usage). Headers, not the reply body, carry the quota data.
-  const probeModels = ["qwen3.5-plus", "minimax-m2.5", "minimax-m2.7", "qwen3.6-plus", "kimi-k2.5"];
+  // Quota headers are scoped to the calling model's bucket, so probe the
+  // models this provider is actually configured with before the cheap
+  // documented defaults.
+  const probeModels = [...new Set([...(userModels || []).slice(0, 3), "qwen3.5-plus", "minimax-m2.5", "kimi-k2.5"])];
   const statuses = [];
   for (const model of probeModels) {
     let response;
@@ -2111,7 +2131,12 @@ async function fetchProviderQuota(id, provider) {
   const rule = providerQuotaRuleFor(id, provider?.baseUrl);
   if (rule?.strategy === "codex") return fetchCodexUsage(provider?.oauth);
   if (rule?.strategy === "go-probe") {
-    return provider?.key ? probeOpenCodeGoQuota(provider.key) : { status: "unauthorized" };
+    return provider?.key ? probeOpenCodeGoQuota(provider.key, provider.models) : { status: "unauthorized" };
+  }
+  if (rule?.strategy === "cookie") {
+    const cookie = readProviderCookies()[rule.cookieId || id];
+    if (!cookie) return { status: "needs-cookie" };
+    return fetchPlanQuota(id, rule, cookie, { Cookie: cookie });
   }
   if (!rule) return provider?.oauth ? { status: "subscription" } : { status: "unsupported" };
   const key = typeof provider?.key === "string" ? provider.key.trim() : "";
@@ -2119,14 +2144,17 @@ async function fetchProviderQuota(id, provider) {
   // and must stay a TUI-only feature.
   if (!key || key.startsWith("$") || key.startsWith("!")) return { status: "unsupported" };
   const cached = providerQuotaCache.get(id);
+  if (cached && Date.now() - cached.at < PROVIDER_QUOTA_CACHE_MS) return cached.payload;
+  return fetchPlanQuota(id, rule, key, rule.authStyle === "raw"
+    ? { Authorization: key }
+    : { Authorization: `Bearer ${key}` }, provider.baseUrl);
+}
+
+async function fetchPlanQuota(id, rule, key, headers, baseUrl) {
   const now = Date.now();
-  if (cached && now - cached.at < PROVIDER_QUOTA_CACHE_MS) return cached.payload;
   let payload;
   try {
-    const headers = rule.authStyle === "raw"
-      ? { Authorization: key }
-      : { Authorization: `Bearer ${key}` };
-    const response = await fetch(rule.endpoint(provider.baseUrl), {
+    const response = await fetch(rule.endpoint(baseUrl), {
       headers,
       signal: AbortSignal.timeout(PROVIDER_QUOTA_TIMEOUT_MS),
     });
@@ -2178,6 +2206,7 @@ async function providerQuotaSnapshot() {
       name: String(provider.name || id),
       baseUrl: typeof provider.baseUrl === "string" ? provider.baseUrl : "",
       key: typeof provider.apiKey === "string" ? provider.apiKey : "",
+      models: Array.isArray(provider.models) ? provider.models.map((m) => m && typeof m === "object" ? String(m.id || "") : String(m || "")).filter(Boolean) : [],
       oauth: null,
     });
   }

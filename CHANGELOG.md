@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.3.2
+
+- MiniMax coding-plan quota requires web-session authentication: the endpoint
+  answers "cookie is missing" to API-key auth. The popover now reports this
+  state honestly, and a session cookie can be provided per provider in
+  `~/.config/pi-harbor/provider-cookies.json` (mode 0600); cookies are sent
+  only back to their own provider and never logged.
+- The OpenCode Go probe now tries the models actually configured for that
+  provider before the documented defaults, because quota headers are scoped
+  to the calling model's bucket.
+
 ## 2.3.1
 
 - Simplified provider-account rows: usage windows are labelled just

@@ -1,7 +1,7 @@
-/* pi-harbor v2.3.1 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.3.2 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.3.1";
+const CLIENT_APP_VERSION = "2.3.2";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -4150,6 +4150,7 @@ function providerQuotaEntries(row) {
   if (row.status !== "ok" || !row.quota) {
     const status = row.status === "unauthorized" ? tKey("contextDashboard.quotaUnauthorized")
       : row.status === "subscription" ? tKey("contextDashboard.quotaSubscription")
+      : row.status === "needs-cookie" ? tKey("contextDashboard.quotaNeedsCookie")
       : row.status === "error" ? tKey("contextDashboard.quotaError")
       : tKey("contextDashboard.quotaUnsupported");
     return [{ label: "", value: status, title: "" }];
