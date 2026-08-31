@@ -162,8 +162,7 @@ test("context sync lifecycle and responsive composer wiring are event-driven", (
   assert.match(html, /id="context-popover" class="context-popover hidden"/);
   const popoverAt = html.indexOf('id="context-popover"');
   const usedAt = html.indexOf('id="context-used"');
-  const quotaAt = html.indexOf('id="provider-quota-list"');
-  assert.ok(popoverAt > -1 && usedAt > popoverAt && quotaAt > popoverAt, "figures and quotas live inside the popover");
+  assert.ok(popoverAt > -1 && usedAt > popoverAt, "figures live inside the popover");
   // Fixed-width chip: name truncates, the trailing thinking level stays visible.
   assert.match(html, /id="composer-model-name"/);
   assert.match(html, /id="composer-model-level"/);
@@ -173,23 +172,6 @@ test("context sync lifecycle and responsive composer wiring are event-driven", (
   assert.match(css, /\.context-popover/);
   assert.match(css, /\.context-ring-btn[^}]*cursor: pointer/);
   assert.match(css, /\.context-info-wrap[^}]*position: relative/);
-  assert.match(css, /\.provider-quota-row/);
   assert.match(css, /@media \(max-width: 979px\)/);
   assert.match(css, /#view-chat \{ min-width: 0; overflow-x: hidden; \}/);
-  // Provider quota lookup: allowlisted endpoints only, no credentials in the
-  // response, and responses are cached instead of hammering provider APIs.
-  assert.match(server, /\/api\/provider-quota/);
-  assert.match(server, /PROVIDER_QUOTA_RULES/);
-  assert.match(server, /api\\.deepseek\\.com|openrouter\\.ai|siliconflow/);
-  assert.match(server, /PROVIDER_QUOTA_CACHE_MS/);
-  assert.match(server, /key\.startsWith\("\$"\) \|\| key\.startsWith\("!"\)/);
-  // Subscription logins: credential-store merge, Codex usage endpoint, and
-  // the OpenCode Go quota-header probe.
-  assert.match(server, /readAuthCredentials/);
-  assert.match(server, /wham\/usage/);
-  assert.match(server, /zen\/go\/v1\/chat\/completions/);
-  assert.match(server, /status: "subscription"/);
-  const quotaBlock = server.slice(server.indexOf("Provider account quota lookup"), server.indexOf("async function providerQuotaSnapshot"));
-  assert.ok(quotaBlock.length > 100, "quota implementation present");
-  assert.doesNotMatch(quotaBlock, /sendJSON/);
 });

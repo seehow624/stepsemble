@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.4
+
+- Removed the provider-account quota feature entirely (per feedback): the
+  popover again focuses on the conversation's own usage — context, input,
+  output, cache hit percentage, and cache write — with the ring trigger and
+  all 2.3.x layout refinements kept. Third-party balance APIs varied too
+  much in reliability and semantics to be worth the maintenance.
+
 ## 2.3.3
 
 - OpenCode Go quota headers are scoped to the calling model's bucket, so the

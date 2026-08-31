@@ -1,7 +1,7 @@
-/* pi-harbor v2.3.3 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.3.4 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.3.3";
+const CLIENT_APP_VERSION = "2.3.4";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -71,7 +71,7 @@ const el = {
   changesDiffTitle: $("changes-diff-title"), changesDiffEmpty: $("changes-diff-empty"), changesDiff: $("changes-diff"),
   messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"),
   contextDashboard: $("context-dashboard"), contextProgress: $("context-progress"), contextProgressFill: $("context-progress-fill"),
-  contextInfo: $("context-info"), contextPopover: $("context-popover"), providerQuotaList: $("provider-quota-list"),
+  contextInfo: $("context-info"), contextPopover: $("context-popover"),
   contextUsed: $("context-used"), contextCapacity: $("context-capacity"), contextPercent: $("context-percent"),
   contextInput: $("context-input"), contextOutput: $("context-output"), contextCacheHit: $("context-cache-hit"),
   contextCacheHitPercent: $("context-cache-hit-percent"), contextCacheWrite: $("context-cache-write"),
@@ -4095,137 +4095,8 @@ el.saModel.addEventListener("click", () => {
 function setContextPopover(open) {
   el.contextPopover?.classList.toggle("hidden", !open);
   el.contextInfo?.setAttribute("aria-expanded", String(!!open));
-  if (open) void loadProviderQuotas();
 }
 
-// ---- Provider account quotas (lazy, 10-minute cache both sides) ----
-const PROVIDER_QUOTA_TTL_MS = 10 * 60 * 1000;
-let providerQuotaState = { at: 0, loading: false, rows: null, error: false };
-function resetProviderQuotas() {
-  providerQuotaState = { at: 0, loading: false, rows: null, error: false };
-  renderProviderQuotas();
-}
-async function loadProviderQuotas(force = false) {
-  if (!el.providerQuotaList) return;
-  const now = Date.now();
-  if (!force && (providerQuotaState.loading || (providerQuotaState.rows !== null && now - providerQuotaState.at < PROVIDER_QUOTA_TTL_MS))) {
-    renderProviderQuotas();
-    return;
-  }
-  providerQuotaState.loading = true;
-  renderProviderQuotas();
-  try {
-    const data = await api("/api/provider-quota");
-    providerQuotaState = { at: Date.now(), loading: false, rows: Array.isArray(data?.providers) ? data.providers : [], error: false };
-  } catch {
-    providerQuotaState = { at: Date.now(), loading: false, rows: null, error: true };
-  }
-  renderProviderQuotas();
-}
-function providerQuotaAmountText(quota) {
-  if (!quota) return "";
-  const total = Number(quota.total);
-  if (!Number.isFinite(total)) return "";
-  const symbol = quota.currency === "USD" ? "$" : quota.currency === "CNY" ? "¥" : `${quota.currency} `;
-  const fmt = (value) => value.toFixed(2);
-  if (quota.kind === "credits" && Number.isFinite(Number(quota.used))) {
-    return tKey("contextDashboard.quotaRemaining", { amount: symbol + fmt(Math.max(0, total - Number(quota.used))) });
-  }
-  return symbol + fmt(total);
-}
-function planResetTitle(resetAt) {
-  if (!resetAt) return "";
-  const date = new Date(resetAt);
-  if (!Number.isFinite(date.getTime())) return "";
-  try {
-    return tKey("contextDashboard.planReset", {
-      time: new Intl.DateTimeFormat(window.piI18n?.getLocale?.() || settings.locale || "en", {
-        month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-      }).format(date),
-    });
-  } catch { return tKey("contextDashboard.planReset", { time: resetAt }); }
-}
-/** One provider becomes one or more popover rows (subscription plans have several). */
-function providerQuotaEntries(row) {
-  if (row.status !== "ok" || !row.quota) {
-    const status = row.status === "unauthorized" ? tKey("contextDashboard.quotaUnauthorized")
-      : row.status === "subscription" ? tKey("contextDashboard.quotaSubscription")
-      : row.status === "needs-cookie" ? tKey("contextDashboard.quotaNeedsCookie")
-      : row.status === "error" ? tKey("contextDashboard.quotaError")
-      : tKey("contextDashboard.quotaUnsupported");
-    return [{ label: "", value: status, title: "" }];
-  }
-  const quota = row.quota;
-  if (quota.kind === "plans") {
-    // The provider name is already the row header; labels stay short so the
-    // popover never truncates ("5-hour quota", "Weekly quota", ...).
-    const entries = [];
-    for (const [index, limit] of (quota.tokenLimits || []).entries()) {
-      const minutes = Number(limit.minutes);
-      const label = tKey(Number.isFinite(minutes) && minutes > 0
-        ? (minutes <= 1440 ? "contextDashboard.plan5h" : minutes <= 10080 ? "contextDashboard.planWeekly" : "contextDashboard.planMonthly")
-        : (index === 0 ? "contextDashboard.plan5h" : "contextDashboard.planWeekly"));
-      if (Number.isFinite(Number(limit.percent))) {
-        entries.push({
-          label,
-          value: tKey("contextDashboard.planRemainingPercent", { percent: Math.max(0, 100 - Number(limit.percent)) }),
-          title: planResetTitle(limit.resetAt),
-        });
-      } else if (Number.isFinite(Number(limit.usedCount)) && Number.isFinite(Number(limit.totalCount)) && limit.totalCount > 0) {
-        entries.push({
-          label,
-          value: tKey("contextDashboard.planUsage", { used: limit.usedCount, total: limit.totalCount }),
-          title: planResetTitle(limit.resetAt),
-        });
-      }
-    }
-    if (quota.mcp) {
-      entries.push({
-        label: tKey("contextDashboard.planMcp"),
-        value: tKey("contextDashboard.planUsage", { used: quota.mcp.used, total: quota.mcp.total }),
-        title: "",
-      });
-    }
-    return entries.length ? entries : [{ label: "", value: tKey("contextDashboard.quotaUnsupported"), title: "" }];
-  }
-  return [{ label: "", value: providerQuotaAmountText(quota) || tKey("contextDashboard.quotaError"), title: "" }];
-}
-function renderProviderQuotas() {
-  const list = el.providerQuotaList;
-  if (!list) return;
-  list.innerHTML = "";
-  const addNote = (text) => {
-    const note = document.createElement("p");
-    note.className = "context-popover-status";
-    note.textContent = text;
-    list.appendChild(note);
-  };
-  if (providerQuotaState.loading) { addNote(tKey("contextDashboard.quotaLoading")); return; }
-  if (providerQuotaState.error || providerQuotaState.rows === null) { addNote(tKey("contextDashboard.quotaError")); return; }
-  if (!providerQuotaState.rows.length) { addNote(tKey("contextDashboard.quotaNone")); return; }
-  for (const row of providerQuotaState.rows) {
-    const nameRow = document.createElement("div");
-    nameRow.className = "provider-quota-row provider-quota-name";
-    const name = document.createElement("span");
-    name.textContent = String(row.name || row.id || "Provider");
-    name.title = name.textContent;
-    nameRow.appendChild(name);
-    list.appendChild(nameRow);
-    for (const entry of providerQuotaEntries(row)) {
-      const line = document.createElement("div");
-      line.className = "provider-quota-row provider-quota-detail";
-      const label = document.createElement("span");
-      label.textContent = entry.label;
-      if (entry.label) label.title = entry.label;
-      const value = document.createElement("strong");
-      value.textContent = entry.value;
-      if (entry.title) value.title = entry.title;
-      if (row.status === "ok") value.dataset.i18nIgnore = "";
-      line.append(label, value);
-      list.appendChild(line);
-    }
-  }
-}
 el.contextInfo?.addEventListener("click", (event) => {
   event.stopPropagation();
   setContextPopover(!!el.contextPopover?.classList.contains("hidden"));

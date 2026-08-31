@@ -1,4 +1,4 @@
-/* pi-harbor v2.3.3 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.3.4 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -3702,48 +3702,6 @@ body.compact #view-list .project-group-items .session-item {
   color: var(--pine-soft);
   font-size: .62rem;
 }
-#view-chat .context-quotas {
-  margin-top: 2px;
-  padding-top: 9px;
-  border-top: 1px solid var(--line);
-}
-#view-chat .context-quotas h4 {
-  margin: 0 0 6px;
-  color: var(--pine-soft);
-  font-size: .62rem;
-  font-weight: 760;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-}
-#view-chat .provider-quota-row {
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-}
-#view-chat .provider-quota-row > span {
-  min-width: 0;
-  flex: 0 1 auto;
-  overflow: hidden;
-  color: var(--ink);
-  font-size: .68rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-#view-chat .provider-quota-row > strong {
-  min-width: 0;
-  flex: 0 1 auto;
-  overflow: hidden;
-  color: var(--pine-soft);
-  font: 600 .68rem/1.2 var(--mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-#view-chat .provider-quota-name { margin-top: 1px; }
-#view-chat .provider-quota-name > span { color: var(--ink); font-weight: 600; }
-#view-chat .provider-quota-detail { padding-left: 8px; }
-#view-chat .provider-quota-detail > span { color: var(--pine-soft); }
 html.reduced-motion #view-chat .context-ring-fill { transition: none; }
 
 @media (max-width: 979px) {
