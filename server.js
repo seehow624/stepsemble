@@ -45,7 +45,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.3.2";
+const APP_VERSION = "2.3.3";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2046,10 +2046,18 @@ async function probeOpenCodeGoQuota(key, userModels) {
   // cost-ranked documented model list until one returns them (same approach
   // as pi-usage). Headers, not the reply body, carry the quota data.
   // Quota headers are scoped to the calling model's bucket, so probe the
-  // models this provider is actually configured with before the cheap
-  // documented defaults.
-  const probeModels = [...new Set([...(userModels || []).slice(0, 3), "qwen3.5-plus", "minimax-m2.5", "kimi-k2.5"])];
+  // models this provider is actually configured with, then the GLM family
+  // (OpenCode Go's flagship), then the remaining documented defaults. The
+  // first model whose headers show non-zero usage wins; an all-zero result is
+  // only returned when every probed model reports an untouched bucket.
+  const probeModels = [...new Set([
+    ...(userModels || []).slice(0, 3),
+    "glm-5.3", "glm-5.2", "glm-5.1",
+    "qwen3.5-plus", "minimax-m2.5", "kimi-k2.6",
+  ])].slice(0, 6);
   const statuses = [];
+  let firstWindows = null;
+  const allZero = [];
   for (const model of probeModels) {
     let response;
     try {
@@ -2092,11 +2100,19 @@ async function probeOpenCodeGoQuota(key, userModels) {
     collect("weekly", 10080);
     collect("monthly", 43200);
     if (windows.length) {
+      const used = windows.map((w) => w.percent);
       console.warn(`[pi-harbor] opencode-go quota headers via ${model}: ${windows.map((w) => `${w.minutes}m=${w.percent}% used`).join(", ")}`);
-      return { status: "ok", quota: normalizePlanLimits("OpenCode Go", windows, null) };
+      if (used.some((value) => value > 0)) return { status: "ok", quota: normalizePlanLimits("OpenCode Go", windows, null) };
+      if (!firstWindows) firstWindows = { status: "ok", quota: normalizePlanLimits("OpenCode Go", windows, null) };
+      allZero.push(`${model}:${windows.map((w) => `${w.minutes}m=${w.percent}%`).join("/")}`);
+      continue;
     }
     statuses.push(`${model}:${response.status}`);
     try { await response.arrayBuffer(); } catch {}
+  }
+  if (firstWindows) {
+    console.warn(`[pi-harbor] opencode-go quota all-zero on [${allZero.join(", ")}]; using first bucket`);
+    return firstWindows;
   }
   console.warn(`[pi-harbor] opencode-go quota probe failed (${statuses.join(", ")})`);
   return { status: "error" };

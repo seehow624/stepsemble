@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.3.3
+
+- OpenCode Go quota headers are scoped to the calling model's bucket, so the
+  probe previously reported an unused model's empty bucket (0% used) instead
+  of the subscriber's real usage. The probe now walks the GLM family first
+  (glm-5.3, glm-5.2, glm-5.1) followed by configured and documented models,
+  preferring the first bucket with non-zero usage and logging every raw
+  bucket for diagnosis.
+
 ## 2.3.2
 
 - MiniMax coding-plan quota requires web-session authentication: the endpoint
