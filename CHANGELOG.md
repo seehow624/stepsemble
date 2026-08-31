@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.3.0
+
+- MiniMax quota lookups now distinguish an invalid or non-coding-plan key
+  ("sign in again") from a missing API, and automatically retry the
+  provider's other region (China/global) before giving up; Zhipu GLM quota
+  lookups gained the same region fallback.
+- The OpenCode Go quota probe walks the cost-ranked documented model list
+  until quota response headers appear instead of relying on a single model
+  name, and logs one bounded diagnostic line when every probe fails.
+
 ## 2.2.9
 
 - Provider quotas now cover subscription account logins, not just API keys:

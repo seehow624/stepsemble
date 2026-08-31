@@ -45,7 +45,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.2.9";
+const APP_VERSION = "2.3.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1822,7 +1822,11 @@ function parseZhipuPlanLimits(data) {
 // used by cc-switch). current_interval_usage_count carries the remaining
 // count despite its name.
 function parseMiniMaxPlanLimits(data) {
-  if (!data || !data.base_resp || data.base_resp.status_code !== 0) return null;
+  // MiniMax reports errors via base_resp.status_code; a non-zero code with a
+  // configured key means the key is not valid for the coding plan, which the
+  // UI surfaces as a re-sign-in hint rather than "no quota API".
+  if (!data || !data.base_resp) return null;
+  if (Number(data.base_resp.status_code) !== 0) return { unauthorized: true, msg: String(data.base_resp.status_msg || "") };
   const models = Array.isArray(data.model_remains) ? data.model_remains : [];
   const target = models.find((m) => typeof m.model_name === "string" && m.model_name.includes("MiniMax-M")) || models[0];
   if (!target) return null;
@@ -1972,12 +1976,14 @@ const PROVIDER_QUOTA_RULES = [
     hostPattern: /(^|\.)bigmodel\.cn$/,
     authStyle: "raw",
     endpoint: () => new URL("https://open.bigmodel.cn/api/monitor/usage/quota/limit"),
+    sibling: () => new URL("https://api.z.ai/api/monitor/usage/quota/limit"),
     parse: parseZhipuPlanLimits,
   },
   {
     hostPattern: /(^|\.)z\.ai$/,
     authStyle: "raw",
     endpoint: () => new URL("https://api.z.ai/api/monitor/usage/quota/limit"),
+    sibling: () => new URL("https://open.bigmodel.cn/api/monitor/usage/quota/limit"),
     parse: parseZhipuPlanLimits,
   },
   // MiniMax coding-plan remaining call counts (community-documented endpoint;
@@ -1986,12 +1992,14 @@ const PROVIDER_QUOTA_RULES = [
     hostPattern: /(^|\.)minimaxi\.com$/,
     authStyle: "bearer",
     endpoint: () => new URL("https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains"),
+    sibling: () => new URL("https://www.minimax.io/v1/api/openplatform/coding_plan/remains"),
     parse: parseMiniMaxPlanLimits,
   },
   {
     hostPattern: /(^|\.)minimax\.io$/,
     authStyle: "bearer",
     endpoint: () => new URL("https://www.minimax.io/v1/api/openplatform/coding_plan/remains"),
+    sibling: () => new URL("https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains"),
     parse: parseMiniMaxPlanLimits,
   },
 ];
@@ -2011,49 +2019,58 @@ function providerQuotaRuleFor(id, baseUrl) {
 // minimal chat completion with the cheapest documented model and read the
 // x-opencode-go-quota-* response headers. One probe per cache window.
 async function probeOpenCodeGoQuota(key) {
-  let response;
-  try {
-    response = await fetch("https://opencode.ai/zen/go/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-        "User-Agent": "pi-harbor-provider-quota",
-      },
-      body: JSON.stringify({ model: "qwen3.5-plus", messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
-      signal: AbortSignal.timeout(PROVIDER_QUOTA_TIMEOUT_MS),
-    });
-  } catch {
-    return { status: "error" };
-  }
-  const headerNumber = (...names) => {
-    for (const name of names) {
-      const value = Number(response.headers.get(name));
-      if (Number.isFinite(value)) return value;
+  // Quota headers ride on normal chat responses, so the probe walks the
+  // cost-ranked documented model list until one returns them (same approach
+  // as pi-usage). Headers, not the reply body, carry the quota data.
+  const probeModels = ["qwen3.5-plus", "minimax-m2.5", "minimax-m2.7", "qwen3.6-plus", "kimi-k2.5"];
+  const statuses = [];
+  for (const model of probeModels) {
+    let response;
+    try {
+      response = await fetch("https://opencode.ai/zen/go/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json",
+          "User-Agent": "pi-harbor-provider-quota",
+        },
+        body: JSON.stringify({ model, messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
+        signal: AbortSignal.timeout(PROVIDER_QUOTA_TIMEOUT_MS),
+      });
+    } catch {
+      statuses.push(`${model}:network`);
+      continue;
     }
-    return null;
-  };
-  const windows = [];
-  const collect = (key2, minutes) => {
-    const used = headerNumber(`x-opencode-go-quota-${key2}-used-percent`, `x-opencode-${key2}-used-percent`);
-    const remaining = headerNumber(`x-opencode-go-quota-${key2}-remaining-percent`, `x-opencode-${key2}-remaining-percent`);
-    const percent = used !== null ? used : (remaining !== null ? 100 - remaining : null);
-    const resetAfter = headerNumber(`x-opencode-go-quota-${key2}-reset-after-seconds`, `x-opencode-${key2}-reset-after-seconds`);
-    if (percent === null) return;
-    windows.push({
-      percent: Math.max(0, Math.min(100, percent)),
-      minutes,
-      resetAt: resetAfter !== null && resetAfter > 0 ? new Date(Date.now() + resetAfter * 1000).toISOString() : null,
-    });
-  };
-  collect("rolling", 300);
-  collect("weekly", 10080);
-  collect("monthly", 43200);
-  if (!response.ok || !windows.length) {
     if (response.status === 401 || response.status === 403) return { status: "unauthorized" };
-    return windows.length ? { status: "ok", quota: normalizePlanLimits("OpenCode Go", windows, null) } : { status: "error" };
+    const headerNumber = (...names) => {
+      for (const name of names) {
+        const value = Number(response.headers.get(name));
+        if (Number.isFinite(value)) return value;
+      }
+      return null;
+    };
+    const windows = [];
+    const collect = (key2, minutes) => {
+      const used = headerNumber(`x-opencode-go-quota-${key2}-used-percent`, `x-opencode-${key2}-used-percent`);
+      const remaining = headerNumber(`x-opencode-go-quota-${key2}-remaining-percent`, `x-opencode-${key2}-remaining-percent`);
+      const percent = used !== null ? used : (remaining !== null ? 100 - remaining : null);
+      const resetAfter = headerNumber(`x-opencode-go-quota-${key2}-reset-after-seconds`, `x-opencode-${key2}-reset-after-seconds`);
+      if (percent === null) return;
+      windows.push({
+        percent: Math.max(0, Math.min(100, percent)),
+        minutes,
+        resetAt: resetAfter !== null && resetAfter > 0 ? new Date(Date.now() + resetAfter * 1000).toISOString() : null,
+      });
+    };
+    collect("rolling", 300);
+    collect("weekly", 10080);
+    collect("monthly", 43200);
+    if (windows.length) return { status: "ok", quota: normalizePlanLimits("OpenCode Go", windows, null) };
+    statuses.push(`${model}:${response.status}`);
+    try { await response.arrayBuffer(); } catch {}
   }
-  return { status: "ok", quota: normalizePlanLimits("OpenCode Go", windows, null) };
+  console.warn(`[pi-harbor] opencode-go quota probe failed (${statuses.join(", ")})`);
+  return { status: "error" };
 }
 
 // ChatGPT/Codex subscription usage. Requires the OAuth access token plus the
@@ -2108,7 +2125,22 @@ async function fetchProviderQuota(id, provider) {
     else if (!response.ok) payload = { status: "error" };
     else {
       const data = await response.json().catch(() => null);
-      const quota = data ? rule.parse(data) : null;
+      let quota = data ? rule.parse(data) : null;
+      // A key can be valid in the provider's other region; retry there once
+      // before reporting a sign-in problem.
+      if ((quota === null || quota.unauthorized) && rule.sibling) {
+        try {
+          const alt = await fetch(rule.sibling(), {
+            headers: rule.authStyle === "raw" ? { Authorization: key } : { Authorization: `Bearer ${key}` },
+            signal: AbortSignal.timeout(PROVIDER_QUOTA_TIMEOUT_MS),
+          });
+          if (alt.ok) {
+            const altData = await alt.json().catch(() => null);
+            const altQuota = altData ? rule.parse(altData) : null;
+            if (altQuota && !altQuota.unauthorized) quota = altQuota;
+          }
+        } catch {}
+      }
       if (quota === null) payload = { status: "unsupported" };
       else if (quota.unauthorized) payload = { status: "unauthorized" };
       else payload = { status: "ok", quota };
