@@ -45,7 +45,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.2.7";
+const APP_VERSION = "2.2.8";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1792,9 +1792,65 @@ const PROVIDER_QUOTA_TIMEOUT_MS = 6000;
 const PROVIDER_QUOTA_CACHE_MS = 10 * 60 * 1000;
 const providerQuotaCache = new Map(); // provider id -> {at, payload}
 
+function normalizePlanLimits(level, tokenLimits, mcp) {
+  return {
+    kind: "plans",
+    level,
+    tokenLimits,
+    mcp: (mcp && Number.isFinite(mcp.used) && Number.isFinite(mcp.total)) ? mcp : null,
+  };
+}
+
+// Token-window quota parsing shared by the Zhipu GLM coding endpoints.
+function parseZhipuPlanLimits(data) {
+  if (data?.success === false) return { unauthorized: true };
+  const limits = Array.isArray(data?.data?.limits) ? data.data.limits : [];
+  const tokenLimits = limits.filter((l) => l.type === "TOKENS_LIMIT").slice(0, 2).map((l) => ({
+    percent: Number.isFinite(Number(l.percentage)) ? Number(l.percentage) : null,
+    resetAt: typeof l.nextResetTime === "string" ? l.nextResetTime : null,
+  }));
+  if (!tokenLimits.length) return null;
+  const mcpLimit = limits.find((l) => l.type === "TIME_LIMIT");
+  return normalizePlanLimits(
+    String(data?.data?.level || ""),
+    tokenLimits,
+    mcpLimit ? { used: Number(mcpLimit.currentValue), total: Number(mcpLimit.usage) } : null,
+  );
+}
+
+// MiniMax coding-plan remaining call counts (community-documented endpoint;
+// used by cc-switch). current_interval_usage_count carries the remaining
+// count despite its name.
+function parseMiniMaxPlanLimits(data) {
+  if (!data || !data.base_resp || data.base_resp.status_code !== 0) return null;
+  const models = Array.isArray(data.model_remains) ? data.model_remains : [];
+  const target = models.find((m) => typeof m.model_name === "string" && m.model_name.includes("MiniMax-M")) || models[0];
+  if (!target) return null;
+  const intervalTotal = Number(target.current_interval_total_count || 0);
+  const intervalRemaining = Number(target.current_interval_usage_count || 0);
+  const weeklyTotal = Number(target.current_weekly_total_count || 0);
+  const weeklyRemaining = Number(target.current_weekly_usage_count || 0);
+  const tokenLimits = [{
+    usedCount: Math.max(0, intervalTotal - intervalRemaining),
+    totalCount: intervalTotal,
+    resetAt: Number(target.remains_time || 0) > 0 ? new Date(Date.now() + Number(target.remains_time)).toISOString() : null,
+  }];
+  if (weeklyTotal > 0) tokenLimits.push({
+    usedCount: Math.max(0, weeklyTotal - weeklyRemaining),
+    totalCount: weeklyTotal,
+    resetAt: null,
+  });
+  return normalizePlanLimits(
+    typeof target.model_name === "string" ? target.model_name : "",
+    tokenLimits,
+    null,
+  );
+}
+
 const PROVIDER_QUOTA_RULES = [
   {
     hostPattern: /(^|\.)api\.deepseek\.com$/,
+    authStyle: "bearer",
     endpoint: (baseUrl) => new URL("/user/balance", baseUrl),
     parse: (data) => {
       const info = Array.isArray(data?.balance_infos) ? data.balance_infos[0] : null;
@@ -1805,16 +1861,18 @@ const PROVIDER_QUOTA_RULES = [
   },
   {
     hostPattern: /(^|\.)openrouter\.ai$/,
+    authStyle: "bearer",
     endpoint: () => new URL("https://openrouter.ai/api/v1/credits"),
     parse: (data) => {
       const total = Number(data?.data?.total_credits);
       const used = Number(data?.data?.total_usage);
       if (!Number.isFinite(total)) return null;
-      return { kind: "credits", currency: "USD", total, used: Number.isFinite(used) ? used : null };
+      return { kind: "balance", currency: "USD", total, used: Number.isFinite(used) ? used : null };
     },
   },
   {
     hostPattern: /(^|\.)siliconflow\.(cn|com)$/,
+    authStyle: "bearer",
     endpoint: (baseUrl) => new URL("/v1/user/info", baseUrl),
     parse: (data) => {
       const info = data?.data;
@@ -1822,6 +1880,35 @@ const PROVIDER_QUOTA_RULES = [
       if (!info || !Number.isFinite(total)) return null;
       return { kind: "balance", currency: "CNY", total };
     },
+  },
+  // Zhipu GLM Coding Plan usage (community-documented monitor endpoint; used
+  // by cc-switch and GLM Monitor). The 5-hour and weekly token windows come
+  // back as TOKENS_LIMIT entries with a used percentage and reset time.
+  {
+    hostPattern: /(^|\.)bigmodel\.cn$/,
+    authStyle: "raw",
+    endpoint: () => new URL("https://open.bigmodel.cn/api/monitor/usage/quota/limit"),
+    parse: parseZhipuPlanLimits,
+  },
+  {
+    hostPattern: /(^|\.)z\.ai$/,
+    authStyle: "raw",
+    endpoint: () => new URL("https://api.z.ai/api/monitor/usage/quota/limit"),
+    parse: parseZhipuPlanLimits,
+  },
+  // MiniMax coding-plan remaining call counts (community-documented endpoint;
+  // used by cc-switch).
+  {
+    hostPattern: /(^|\.)minimaxi\.com$/,
+    authStyle: "bearer",
+    endpoint: () => new URL("https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains"),
+    parse: parseMiniMaxPlanLimits,
+  },
+  {
+    hostPattern: /(^|\.)minimax\.io$/,
+    authStyle: "bearer",
+    endpoint: () => new URL("https://www.minimax.io/v1/api/openplatform/coding_plan/remains"),
+    parse: parseMiniMaxPlanLimits,
   },
 ];
 
@@ -1843,8 +1930,11 @@ async function fetchProviderQuota(id, provider) {
   if (cached && now - cached.at < PROVIDER_QUOTA_CACHE_MS) return cached.payload;
   let payload;
   try {
+    const headers = rule.authStyle === "raw"
+      ? { Authorization: key }
+      : { Authorization: `Bearer ${key}` };
     const response = await fetch(rule.endpoint(provider.baseUrl), {
-      headers: { Authorization: `Bearer ${key}` },
+      headers,
       signal: AbortSignal.timeout(PROVIDER_QUOTA_TIMEOUT_MS),
     });
     if (response.status === 401 || response.status === 403) payload = { status: "unauthorized" };
@@ -1852,7 +1942,9 @@ async function fetchProviderQuota(id, provider) {
     else {
       const data = await response.json().catch(() => null);
       const quota = data ? rule.parse(data) : null;
-      payload = quota ? { status: "ok", quota } : { status: "unsupported" };
+      if (quota === null) payload = { status: "unsupported" };
+      else if (quota.unauthorized) payload = { status: "unauthorized" };
+      else payload = { status: "ok", quota };
     }
   } catch {
     payload = { status: "error" };

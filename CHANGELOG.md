@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.2.8
+
+- Extended provider quotas to subscription coding plans, following the same
+  community endpoints used by cc-switch and GLM Monitor: Zhipu GLM Coding
+  Plan (open.bigmodel.cn / api.z.ai `usage/quota/limit`) shows the 5-hour and
+  weekly token windows with reset times plus MCP monthly calls, and MiniMax
+  (`coding_plan/remains`) shows remaining call counts. Plan auth follows each
+  provider's convention (raw key for Zhipu, Bearer for MiniMax).
+- Quota responses now distinguish an invalid key ("sign in again") from a
+  provider without any quota API.
+
 ## 2.2.7
 
 - The context gauge is now the only composer indicator: the ring (still

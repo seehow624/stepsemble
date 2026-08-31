@@ -432,7 +432,7 @@ trap cleanup EXIT
 trap 'cleanup; exit 130' INT TERM
 
 say ""
-say "Pi Harbor 2.2.7 installer"
+say "Pi Harbor 2.2.8 installer"
 say "────────────────────────"
 
 NODE_BIN="$(find_node || true)"

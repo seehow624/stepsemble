@@ -1,4 +1,4 @@
-/* pi-harbor v2.2.7 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.2.8 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -3740,6 +3740,10 @@ body.compact #view-list .project-group-items .session-item {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+#view-chat .provider-quota-name { margin-top: 1px; }
+#view-chat .provider-quota-name > span { color: var(--ink); font-weight: 600; }
+#view-chat .provider-quota-detail { padding-left: 8px; }
+#view-chat .provider-quota-detail > span { color: var(--pine-soft); }
 html.reduced-motion #view-chat .context-ring-fill { transition: none; }
 
 @media (max-width: 979px) {

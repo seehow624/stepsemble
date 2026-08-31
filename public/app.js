@@ -1,7 +1,7 @@
-/* pi-harbor v2.2.7 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.2.8 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.2.7";
+const CLIENT_APP_VERSION = "2.2.8";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -4133,11 +4133,57 @@ function providerQuotaAmountText(quota) {
   }
   return symbol + fmt(total);
 }
-function providerQuotaStatusText(row) {
-  if (row.status === "ok") return providerQuotaAmountText(row.quota) || tKey("contextDashboard.quotaError");
-  if (row.status === "unauthorized") return tKey("contextDashboard.quotaUnauthorized");
-  if (row.status === "error") return tKey("contextDashboard.quotaError");
-  return tKey("contextDashboard.quotaUnsupported");
+function planResetTitle(resetAt) {
+  if (!resetAt) return "";
+  const date = new Date(resetAt);
+  if (!Number.isFinite(date.getTime())) return "";
+  try {
+    return tKey("contextDashboard.planReset", {
+      time: new Intl.DateTimeFormat(window.piI18n?.getLocale?.() || settings.locale || "en", {
+        month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+      }).format(date),
+    });
+  } catch { return tKey("contextDashboard.planReset", { time: resetAt }); }
+}
+/** One provider becomes one or more popover rows (subscription plans have several). */
+function providerQuotaEntries(row) {
+  if (row.status !== "ok" || !row.quota) {
+    const status = row.status === "unauthorized" ? tKey("contextDashboard.quotaUnauthorized")
+      : row.status === "error" ? tKey("contextDashboard.quotaError")
+      : tKey("contextDashboard.quotaUnsupported");
+    return [{ label: "", value: status, title: "" }];
+  }
+  const quota = row.quota;
+  if (quota.kind === "plans") {
+    const level = typeof quota.level === "string" ? quota.level.trim().toUpperCase() : "";
+    const prefix = level ? `${level} · ` : "";
+    const entries = [];
+    for (const [index, limit] of (quota.tokenLimits || []).entries()) {
+      const label = prefix + tKey(index === 0 ? "contextDashboard.plan5h" : "contextDashboard.planWeekly");
+      if (Number.isFinite(Number(limit.percent))) {
+        entries.push({
+          label,
+          value: tKey("contextDashboard.planRemainingPercent", { percent: Math.max(0, 100 - Number(limit.percent)) }),
+          title: planResetTitle(limit.resetAt),
+        });
+      } else if (Number.isFinite(Number(limit.usedCount)) && Number.isFinite(Number(limit.totalCount)) && limit.totalCount > 0) {
+        entries.push({
+          label,
+          value: tKey("contextDashboard.planUsage", { used: limit.usedCount, total: limit.totalCount }),
+          title: planResetTitle(limit.resetAt),
+        });
+      }
+    }
+    if (quota.mcp) {
+      entries.push({
+        label: prefix + tKey("contextDashboard.planMcp"),
+        value: tKey("contextDashboard.planUsage", { used: quota.mcp.used, total: quota.mcp.total }),
+        title: "",
+      });
+    }
+    return entries.length ? entries : [{ label: "", value: tKey("contextDashboard.quotaUnsupported"), title: "" }];
+  }
+  return [{ label: "", value: providerQuotaAmountText(quota) || tKey("contextDashboard.quotaError"), title: "" }];
 }
 function renderProviderQuotas() {
   const list = el.providerQuotaList;
@@ -4153,16 +4199,26 @@ function renderProviderQuotas() {
   if (providerQuotaState.error || providerQuotaState.rows === null) { addNote(tKey("contextDashboard.quotaError")); return; }
   if (!providerQuotaState.rows.length) { addNote(tKey("contextDashboard.quotaNone")); return; }
   for (const row of providerQuotaState.rows) {
-    const line = document.createElement("div");
-    line.className = "provider-quota-row";
+    const nameRow = document.createElement("div");
+    nameRow.className = "provider-quota-row provider-quota-name";
     const name = document.createElement("span");
     name.textContent = String(row.name || row.id || "Provider");
     name.title = name.textContent;
-    const value = document.createElement("strong");
-    value.textContent = providerQuotaStatusText(row);
-    if (row.status === "ok") value.dataset.i18nIgnore = "";
-    line.append(name, value);
-    list.appendChild(line);
+    nameRow.appendChild(name);
+    list.appendChild(nameRow);
+    for (const entry of providerQuotaEntries(row)) {
+      const line = document.createElement("div");
+      line.className = "provider-quota-row provider-quota-detail";
+      const label = document.createElement("span");
+      label.textContent = entry.label;
+      if (entry.label) label.title = entry.label;
+      const value = document.createElement("strong");
+      value.textContent = entry.value;
+      if (entry.title) value.title = entry.title;
+      if (row.status === "ok") value.dataset.i18nIgnore = "";
+      line.append(label, value);
+      list.appendChild(line);
+    }
   }
 }
 el.contextInfo?.addEventListener("click", (event) => {
