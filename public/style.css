@@ -1,4 +1,4 @@
-/* pi-harbor v2.4.2 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.4.3 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -130,6 +130,40 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .login-help p + p { margin-top: 7px; }
 .login-help code { color: var(--ink); font: 11px/1.4 var(--mono); overflow-wrap: anywhere; }
 .login-help-warning { color: var(--err); }
+
+/* Per-OS token instructions: the host platform is preselected, and the other
+   tabs stay one tap away for a user reading this on a different device. */
+.login-help-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 9px 0 8px;
+}
+.login-help-tab {
+  flex: 1 1 0;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0.5px solid var(--line);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--pine-soft);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.login-help-tab[aria-selected="true"] {
+  border-color: transparent;
+  background: var(--ink);
+  color: var(--paper);
+}
+.login-help-panel code {
+  display: block;
+  margin-top: 4px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+.login-help-step { margin-top: 7px; }
+.login-help-panel .login-help-step:first-child { margin-top: 0; }
 .error { color: var(--err); font-size: 13px; margin-top: 10px; }
 .login-onboarded-hint {
   color: var(--pine);

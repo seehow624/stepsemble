@@ -6,10 +6,10 @@
 <title>Pi Harbor</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=2.4.2">
-<link rel="icon" href="/pi-logo.svg?v=2.4.2" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-180.png?v=2.4.2">
-<link rel="stylesheet" href="/style.css?v=2.4.2">
+<link rel="manifest" href="/manifest.webmanifest?v=2.4.3">
+<link rel="icon" href="/pi-logo.svg?v=2.4.3" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png?v=2.4.3">
+<link rel="stylesheet" href="/style.css?v=2.4.3">
 </head>
 <body>
 
@@ -73,7 +73,26 @@
     <section class="login-help" aria-labelledby="login-help-title">
       <h2 id="login-help-title">First time?</h2>
       <p>The installer creates a private Web token on the computer running Pi Harbor.</p>
-      <p><span>On that computer, open Terminal and run:</span><br><code data-i18n-ignore>cat ~/.config/pi-harbor/token</code></p>
+      <p>On that computer, open a terminal and run the command for its operating system:</p>
+      <div class="login-help-tabs" role="tablist" aria-label="Operating system">
+        <button id="token-os-macos" class="login-help-tab" type="button" role="tab" aria-selected="true" aria-controls="token-os-panel-macos" data-token-os="macos" data-i18n-ignore>macOS</button>
+        <button id="token-os-linux" class="login-help-tab" type="button" role="tab" aria-selected="false" aria-controls="token-os-panel-linux" data-token-os="linux" data-i18n-ignore>Linux</button>
+        <button id="token-os-windows" class="login-help-tab" type="button" role="tab" aria-selected="false" aria-controls="token-os-panel-windows" data-token-os="windows" data-i18n-ignore>Windows</button>
+      </div>
+      <div id="token-os-panel-macos" class="login-help-panel" role="tabpanel" aria-labelledby="token-os-macos" data-token-os-panel="macos">
+        <p class="login-help-step">Open Terminal from Applications → Utilities, then run:</p>
+        <code data-i18n-ignore>cat ~/.config/pi-harbor/token</code>
+      </div>
+      <div id="token-os-panel-linux" class="login-help-panel hidden" role="tabpanel" aria-labelledby="token-os-linux" data-token-os-panel="linux">
+        <p class="login-help-step">Open your terminal emulator, then run:</p>
+        <code data-i18n-ignore>cat ~/.config/pi-harbor/token</code>
+      </div>
+      <div id="token-os-panel-windows" class="login-help-panel hidden" role="tabpanel" aria-labelledby="token-os-windows" data-token-os-panel="windows">
+        <p class="login-help-step">Open PowerShell from the Start menu, then run:</p>
+        <code data-i18n-ignore>Get-Content $HOME\.config\pi-harbor\token</code>
+        <p class="login-help-step">In Command Prompt, run this instead:</p>
+        <code data-i18n-ignore>type %USERPROFILE%\.config\pi-harbor\token</code>
+      </div>
       <p>If a custom PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path.</p>
       <p>From another device, retrieve the token securely from that host and paste it here.</p>
       <p class="login-help-warning">Never share the token in chat, screenshots, repositories, or logs.</p>
@@ -324,7 +343,7 @@
         <h3 class="group-title">About</h3>
         <div class="settings-row">
           <span><strong>Pi Harbor</strong><small>Mobile-first remote workspace for Pi</small></span>
-          <span class="settings-value" id="set-app-version">v2.4.2</span>
+          <span class="settings-value" id="set-app-version">v2.4.3</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -737,10 +756,10 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=2.4.2"></script>
-<script src="/modules/app-foundation.js?v=2.4.2"></script>
-<script src="/modules/session-utils.js?v=2.4.2"></script>
-<script src="/modules/context-usage.js?v=2.4.2"></script>
-<script src="/app.js?v=2.4.2"></script>
+<script src="/i18n.js?v=2.4.3"></script>
+<script src="/modules/app-foundation.js?v=2.4.3"></script>
+<script src="/modules/session-utils.js?v=2.4.3"></script>
+<script src="/modules/context-usage.js?v=2.4.3"></script>
+<script src="/app.js?v=2.4.3"></script>
 </body>
 </html>

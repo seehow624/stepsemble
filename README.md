@@ -62,10 +62,25 @@ setup guide for sign-in, devices, providers, projects, and remote access.
 
 ### Find the Web token
 
-On the computer running Pi Harbor, open Terminal and run:
+On the computer running Pi Harbor, open a terminal and run the command for its
+operating system.
+
+macOS (Terminal) and Linux:
 
 ```bash
 cat ~/.config/pi-harbor/token
+```
+
+Windows (PowerShell):
+
+```powershell
+Get-Content $HOME\.config\pi-harbor\token
+```
+
+Windows (Command Prompt):
+
+```bat
+type %USERPROFILE%\.config\pi-harbor\token
 ```
 
 From another device, retrieve the token securely from that host and paste it into

@@ -45,7 +45,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.4.2";
+const APP_VERSION = "2.4.3";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2889,7 +2889,10 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/machine" && req.method === "GET") {
       const auth = authenticate(req);
       const browserAuthed = auth?.mode === "browser";
-      const info = { machine: MACHINE_NAME, host: MACHINE_HOST, deviceId: selfMachineId(), port: PORT, authed: !!auth };
+      // The platform is published unauthenticated so the sign-in help can open
+      // the right operating-system tab. It reveals no more than the existing
+      // machine name and is required before a token is available.
+      const info = { machine: MACHINE_NAME, host: MACHINE_HOST, deviceId: selfMachineId(), port: PORT, authed: !!auth, platform: process.platform };
       // Peer relays need the display fields but must not receive the local
       // home or Pi executable path through the browser-facing relay.
       if (browserAuthed) { info.home = APP_HOME; info.piBin = PI_BIN; }

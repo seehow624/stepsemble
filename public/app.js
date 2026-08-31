@@ -1,7 +1,7 @@
-/* pi-harbor v2.4.2 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.4.3 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.4.2";
+const CLIENT_APP_VERSION = "2.4.3";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -519,6 +519,30 @@ el.loginOnboardingContinue?.addEventListener("click", async () => {
 
 el.loginOnboardingSkip?.addEventListener("click", () => finishLoginOnboarding(false));
 
+// ---- Token help: per-OS instructions on the sign-in card ----
+// The token lives on the computer running Pi Harbor, so the host's own
+// platform is preselected. The other tabs stay available because this page is
+// often read on a phone while the token sits on a desktop.
+function tokenHelpOsFromPlatform(platform) {
+  if (platform === "win32") return "windows";
+  if (platform === "darwin") return "macos";
+  if (typeof platform === "string" && platform) return "linux";
+  return null;
+}
+
+function selectTokenHelpOs(os) {
+  if (!os) return;
+  const tabs = document.querySelectorAll("[data-token-os]");
+  const panels = document.querySelectorAll("[data-token-os-panel]");
+  if (!tabs.length || !panels.length) return;
+  for (const tab of tabs) tab.setAttribute("aria-selected", String(tab.dataset.tokenOs === os));
+  for (const panel of panels) panel.classList.toggle("hidden", panel.dataset.tokenOsPanel !== os);
+}
+
+document.querySelectorAll("[data-token-os]").forEach((tab) => {
+  tab.addEventListener("click", () => selectTokenHelpOs(tab.dataset.tokenOs));
+});
+
 async function boot() {
   applyAppearance();
   // Machine discovery is protected, so determine auth state first.  In
@@ -530,6 +554,7 @@ async function boot() {
     el.loginMachine.textContent = machineDisplayName(m.machine);
     currentHost = m.machine;
     window._piHome = m.home || "";
+    selectTokenHelpOs(tokenHelpOsFromPlatform(m.platform));
     if (m.authed) { await enterApp(); return; }
   } catch {}
   showLogin();

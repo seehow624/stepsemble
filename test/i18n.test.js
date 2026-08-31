@@ -175,7 +175,11 @@ test("first-login token help is translated in every supported locale", () => {
   const keys = [
     "First time?",
     "The installer creates a private Web token on the computer running Pi Harbor.",
-    "On that computer, open Terminal and run:",
+    "On that computer, open a terminal and run the command for its operating system:",
+    "Open Terminal from Applications → Utilities, then run:",
+    "Open your terminal emulator, then run:",
+    "Open PowerShell from the Start menu, then run:",
+    "In Command Prompt, run this instead:",
     "If a custom PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path.",
     "From another device, retrieve the token securely from that host and paste it here.",
     "Never share the token in chat, screenshots, repositories, or logs.",

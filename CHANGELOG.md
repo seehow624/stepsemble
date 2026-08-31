@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.4.3
+
+- The sign-in screen now explains how to read the Web token on macOS, Linux,
+  and Windows. The host's own platform is preselected, PowerShell and Command
+  Prompt each get their correct syntax, and the commands are never rewritten by
+  the locale layer. The README carries the same per-OS commands.
+
 ## 2.4.2
 
 - Settings now scrolls from anywhere on the page. The desktop scroller spans

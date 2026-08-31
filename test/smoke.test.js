@@ -749,6 +749,31 @@ test("an auto-updated v1 service keeps its configured token file and port", () =
   assert.doesNotMatch(server, /process\.env\.PI_HARBOR_TOKEN_FILE/);
 });
 
+test("sign-in help explains how to read the token on macOS, Linux, and Windows", () => {
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  for (const os of ["macos", "linux", "windows"]) {
+    assert.match(html, new RegExp(`data-token-os="${os}"`));
+    assert.match(html, new RegExp(`data-token-os-panel="${os}"`));
+  }
+  // POSIX shells read the same path; Windows needs its own shell syntax.
+  assert.match(html, /cat ~\/\.config\/pi-harbor\/token/);
+  assert.match(html, /Get-Content \$HOME\\\.config\\pi-harbor\\token/);
+  assert.match(html, /type %USERPROFILE%\\\.config\\pi-harbor\\token/);
+  // Commands must never be rewritten by the locale layer.
+  const help = html.slice(html.indexOf('class="login-help"'), html.indexOf("</section>", html.indexOf('class="login-help"')));
+  for (const line of help.split("\n").filter((row) => row.includes("<code"))) {
+    assert.match(line, /data-i18n-ignore/);
+  }
+  // The host platform preselects its own tab; /api/machine is readable before sign-in.
+  assert.match(server, /platform: process\.platform/);
+  assert.match(app, /function tokenHelpOsFromPlatform\(platform\)/);
+  assert.match(app, /if \(platform === "win32"\) return "windows";/);
+  assert.match(app, /if \(platform === "darwin"\) return "macos";/);
+  assert.match(app, /selectTokenHelpOs\(tokenHelpOsFromPlatform\(m\.platform\)\)/);
+});
+
 test("desktop Settings scrolls from anywhere while its content stays centered", () => {
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   // The scroller must span the full width; centering is done with padding so
