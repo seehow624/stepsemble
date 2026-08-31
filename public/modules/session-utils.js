@@ -38,6 +38,54 @@
     return key === "(unknown)" ? unassigned : (key.split("/").filter(Boolean).pop() || key);
   }
 
+  // Composer drafts are deliberately plain data so the controller can keep
+  // each device/session isolated while tests exercise retention and pruning
+  // without needing a DOM or a browser storage implementation.
+  const DRAFT_ENTRY_LIMIT = 50;
+  const DRAFT_TEXT_LIMIT = 40000;
+
+  function draftScopeKey(machineId, { file = "", cwd = "", name = "" } = {}) {
+    const machine = String(machineId || "local").trim() || "local";
+    const sessionFile = String(file || "").trim();
+    return JSON.stringify(sessionFile
+      ? [machine, "session", sessionFile]
+      : [machine, "new", String(cwd || "").trim(), String(name || "").trim()]);
+  }
+
+  function normalizeDraftEntries(value) {
+    let rows = value;
+    if (typeof rows === "string") {
+      try { rows = JSON.parse(rows); } catch { rows = []; }
+    }
+    if (!Array.isArray(rows) && Array.isArray(rows?.entries)) rows = rows.entries;
+    if (!Array.isArray(rows)) rows = [];
+
+    const newestByKey = new Map();
+    for (const row of rows) {
+      const key = typeof row?.key === "string" ? row.key : "";
+      const text = typeof row?.text === "string" ? row.text.slice(0, DRAFT_TEXT_LIMIT) : "";
+      const updatedAt = Number(row?.updatedAt);
+      if (!key || !text.trim() || !Number.isFinite(updatedAt)) continue;
+      const previous = newestByKey.get(key);
+      if (!previous || updatedAt > previous.updatedAt) newestByKey.set(key, { key, text, updatedAt });
+    }
+    return [...newestByKey.values()]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, DRAFT_ENTRY_LIMIT);
+  }
+
+  function updateDraftEntries(value, key, text, updatedAt = Date.now()) {
+    const draftKey = String(key || "");
+    const rows = normalizeDraftEntries(value).filter((row) => row.key !== draftKey);
+    const draftText = String(text ?? "").slice(0, DRAFT_TEXT_LIMIT);
+    if (draftKey && draftText.trim()) rows.unshift({ key: draftKey, text: draftText, updatedAt: Number(updatedAt) || Date.now() });
+    return normalizeDraftEntries(rows);
+  }
+
+  function draftTextForKey(value, key) {
+    return normalizeDraftEntries(value).find((row) => row.key === key)?.text || "";
+  }
+
   // Tool metadata is deliberately kept as a plain-data helper.  The browser
   // controller can pass its DOM cards here while node:test can exercise the
   // receipt rules without a DOM implementation.
@@ -112,6 +160,7 @@
 
   global.piHarborSessionUtils = Object.freeze({
     stripMd, fmtTime, fmtTokens, projectFolderName,
+    DRAFT_ENTRY_LIMIT, DRAFT_TEXT_LIMIT, draftScopeKey, normalizeDraftEntries, updateDraftEntries, draftTextForKey,
     activityReceiptStats, computeActivityReceipt,
   });
 })(window);

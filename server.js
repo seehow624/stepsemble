@@ -24,6 +24,7 @@ const crypto = require("node:crypto");
 const { pathToFileURL } = require("node:url");
 const { spawn, execFileSync } = require("node:child_process");
 const { createHttpUtils } = require("./server/http-utils");
+const { createGitChangesService } = require("./server/git-changes");
 const {
   PAIRING_TTL_MS,
   sanitizeDeviceMetadata,
@@ -44,7 +45,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.2.5";
+const APP_VERSION = "2.2.6";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1228,6 +1229,8 @@ function projectDirectory(cwd) {
   } catch { return null; }
   return real;
 }
+
+const gitChanges = createGitChangesService({ validateRepository: projectDirectory });
 
 function revealProject(cwd) {
   const real = projectDirectory(cwd);
@@ -3137,6 +3140,28 @@ const server = http.createServer(async (req, res) => {
           sendJSON(res, 400, { error: "unknown project action" });
         } catch (error) {
           sendJSON(res, error.statusCode || 409, { error: error.message || "project action failed" });
+        }
+        return;
+      }
+
+      if (p === "/api/project-changes" && req.method === "GET") {
+        try {
+          const cwd = projectDirectory(url.searchParams.get("cwd") || "");
+          if (!cwd) { sendJSON(res, 400, { error: "project folder is unavailable" }); return; }
+          sendJSON(res, 200, await gitChanges.overview(cwd));
+        } catch (error) {
+          sendJSON(res, error.statusCode || 409, { error: error.message || "could not inspect project changes" });
+        }
+        return;
+      }
+
+      if (p === "/api/project-diff" && req.method === "GET") {
+        try {
+          const cwd = projectDirectory(url.searchParams.get("cwd") || "");
+          if (!cwd) { sendJSON(res, 400, { error: "project folder is unavailable" }); return; }
+          sendJSON(res, 200, await gitChanges.diff(cwd, url.searchParams.get("path") || ""));
+        } catch (error) {
+          sendJSON(res, error.statusCode || 409, { error: error.message || "could not read project diff" });
         }
         return;
       }

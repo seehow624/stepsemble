@@ -1757,6 +1757,141 @@
     },
   };
   for (const [id, table] of Object.entries(CONTEXT_DASHBOARD_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], table);
+  const CHANGES_TRANSLATIONS = {
+    en: {
+      "changes.title": "Changes", "changes.open": "View project changes", "changes.openCount": "View {count} project changes",
+      "changes.refresh": "Refresh changes", "changes.close": "Close changes", "changes.project": "PROJECT", "changes.changedFiles": "Changed files",
+      "changes.fileCount": "{count} changed files", "changes.branch": "Branch {branch}", "changes.staged": "Staged", "changes.worktree": "Working tree",
+      "changes.loading": "Reading changes…", "changes.unavailable": "Could not read changes", "changes.unavailableDetail": "Git changes are unavailable right now.",
+      "changes.notRepository": "Not a Git repository", "changes.notRepositoryDetail": "This project folder is not inside a Git repository.",
+      "changes.clean": "No local changes", "changes.cleanDetail": "The working tree matches the latest commit.",
+      "changes.selectFile": "Select a file to inspect its diff.", "changes.diffLoading": "Loading diff…", "changes.noDiff": "This file has no text diff to display.",
+      "changes.binary": "Binary files do not have a text diff.", "changes.oversized": "This file is too large to display safely.", "changes.truncated": "This diff is long, so only its beginning is shown.",
+      "changes.modified": "Modified", "changes.added": "Added", "changes.deleted": "Deleted", "changes.renamed": "Renamed",
+      "changes.copied": "Copied", "changes.untracked": "Untracked", "changes.conflicted": "Conflicted",
+    },
+    "zh-Hant": {
+      "changes.title": "變更", "changes.open": "查看專案變更", "changes.openCount": "查看 {count} 個專案變更",
+      "changes.refresh": "重新整理變更", "changes.close": "關閉變更", "changes.project": "專案", "changes.changedFiles": "已變更檔案",
+      "changes.fileCount": "{count} 個變更檔案", "changes.branch": "分支 {branch}", "changes.staged": "已暫存", "changes.worktree": "工作目錄",
+      "changes.loading": "正在讀取變更…", "changes.unavailable": "無法讀取變更", "changes.unavailableDetail": "目前無法取得 Git 變更。",
+      "changes.notRepository": "不是 Git 儲存庫", "changes.notRepositoryDetail": "此專案資料夾不在 Git 儲存庫中。",
+      "changes.clean": "沒有本機變更", "changes.cleanDetail": "工作目錄與最新提交一致。",
+      "changes.selectFile": "選一個檔案查看差異。", "changes.diffLoading": "正在載入差異…", "changes.noDiff": "此檔案沒有可顯示的文字差異。",
+      "changes.binary": "二進位檔案無法顯示文字差異。", "changes.oversized": "檔案太大，無法安全顯示差異。", "changes.truncated": "差異過長，僅顯示前段內容。",
+      "changes.modified": "修改", "changes.added": "新增", "changes.deleted": "刪除", "changes.renamed": "重新命名",
+      "changes.copied": "複製", "changes.untracked": "未追蹤", "changes.conflicted": "衝突",
+    },
+    "zh-Hans": {
+      "changes.title": "更改", "changes.open": "查看项目更改", "changes.openCount": "查看 {count} 个项目更改",
+      "changes.refresh": "刷新更改", "changes.close": "关闭更改", "changes.project": "项目", "changes.changedFiles": "已更改文件",
+      "changes.fileCount": "{count} 个更改文件", "changes.branch": "分支 {branch}", "changes.staged": "已暂存", "changes.worktree": "工作目录",
+      "changes.loading": "正在读取更改…", "changes.unavailable": "无法读取更改", "changes.unavailableDetail": "目前无法获取 Git 更改。",
+      "changes.notRepository": "不是 Git 仓库", "changes.notRepositoryDetail": "此项目文件夹不在 Git 仓库中。",
+      "changes.clean": "没有本地更改", "changes.cleanDetail": "工作目录与最新提交一致。",
+      "changes.selectFile": "选择一个文件查看差异。", "changes.diffLoading": "正在加载差异…", "changes.noDiff": "此文件没有可显示的文本差异。",
+      "changes.binary": "二进制文件无法显示文本差异。", "changes.oversized": "文件太大，无法安全显示差异。", "changes.truncated": "差异过长，仅显示开头部分。",
+      "changes.modified": "已修改", "changes.added": "已添加", "changes.deleted": "已删除", "changes.renamed": "已重命名",
+      "changes.copied": "已复制", "changes.untracked": "未跟踪", "changes.conflicted": "有冲突",
+    },
+    ja: {
+      "changes.title": "変更", "changes.open": "プロジェクトの変更を表示", "changes.openCount": "プロジェクトの変更 {count} 件を表示",
+      "changes.refresh": "変更を更新", "changes.close": "変更を閉じる", "changes.project": "プロジェクト", "changes.changedFiles": "変更されたファイル",
+      "changes.fileCount": "変更 {count} 件", "changes.branch": "ブランチ {branch}", "changes.staged": "ステージ済み", "changes.worktree": "作業ツリー",
+      "changes.loading": "変更を読み込み中…", "changes.unavailable": "変更を読み込めません", "changes.unavailableDetail": "現在 Git の変更を取得できません。",
+      "changes.notRepository": "Git リポジトリではありません", "changes.notRepositoryDetail": "このプロジェクトフォルダは Git リポジトリ内にありません。",
+      "changes.clean": "ローカルの変更はありません", "changes.cleanDetail": "作業ツリーは最新のコミットと一致しています。",
+      "changes.selectFile": "差分を確認するファイルを選択してください。", "changes.diffLoading": "差分を読み込み中…", "changes.noDiff": "表示できるテキスト差分はありません。",
+      "changes.binary": "バイナリファイルのテキスト差分は表示できません。", "changes.oversized": "ファイルが大きすぎるため安全に表示できません。", "changes.truncated": "差分が長いため、先頭部分のみ表示しています。",
+      "changes.modified": "変更", "changes.added": "追加", "changes.deleted": "削除", "changes.renamed": "名前変更",
+      "changes.copied": "コピー", "changes.untracked": "未追跡", "changes.conflicted": "競合",
+    },
+    ko: {
+      "changes.title": "변경 사항", "changes.open": "프로젝트 변경 사항 보기", "changes.openCount": "프로젝트 변경 사항 {count}개 보기",
+      "changes.refresh": "변경 사항 새로고침", "changes.close": "변경 사항 닫기", "changes.project": "프로젝트", "changes.changedFiles": "변경된 파일",
+      "changes.fileCount": "변경된 파일 {count}개", "changes.branch": "브랜치 {branch}", "changes.staged": "스테이징됨", "changes.worktree": "작업 트리",
+      "changes.loading": "변경 사항을 읽는 중…", "changes.unavailable": "변경 사항을 읽을 수 없음", "changes.unavailableDetail": "현재 Git 변경 사항을 가져올 수 없습니다.",
+      "changes.notRepository": "Git 저장소가 아님", "changes.notRepositoryDetail": "이 프로젝트 폴더는 Git 저장소 안에 있지 않습니다.",
+      "changes.clean": "로컬 변경 사항 없음", "changes.cleanDetail": "작업 트리가 최신 커밋과 일치합니다.",
+      "changes.selectFile": "diff를 확인할 파일을 선택하세요.", "changes.diffLoading": "diff 불러오는 중…", "changes.noDiff": "표시할 텍스트 diff가 없습니다.",
+      "changes.binary": "바이너리 파일은 텍스트 diff를 표시할 수 없습니다.", "changes.oversized": "파일이 너무 커서 안전하게 표시할 수 없습니다.", "changes.truncated": "diff가 길어 앞부분만 표시합니다.",
+      "changes.modified": "수정됨", "changes.added": "추가됨", "changes.deleted": "삭제됨", "changes.renamed": "이름 변경됨",
+      "changes.copied": "복사됨", "changes.untracked": "추적되지 않음", "changes.conflicted": "충돌",
+    },
+    tr: {
+      "changes.title": "Değişiklikler", "changes.open": "Proje değişikliklerini görüntüle", "changes.openCount": "{count} proje değişikliğini görüntüle",
+      "changes.refresh": "Değişiklikleri yenile", "changes.close": "Değişiklikleri kapat", "changes.project": "PROJE", "changes.changedFiles": "Değişen dosyalar",
+      "changes.fileCount": "{count} değişen dosya", "changes.branch": "Dal {branch}", "changes.staged": "Hazırlanmış", "changes.worktree": "Çalışma ağacı",
+      "changes.loading": "Değişiklikler okunuyor…", "changes.unavailable": "Değişiklikler okunamadı", "changes.unavailableDetail": "Git değişiklikleri şu anda kullanılamıyor.",
+      "changes.notRepository": "Git deposu değil", "changes.notRepositoryDetail": "Bu proje klasörü bir Git deposunun içinde değil.",
+      "changes.clean": "Yerel değişiklik yok", "changes.cleanDetail": "Çalışma ağacı son işlemeyle eşleşiyor.",
+      "changes.selectFile": "Farkını incelemek için bir dosya seçin.", "changes.diffLoading": "Fark yükleniyor…", "changes.noDiff": "Bu dosya için gösterilecek metin farkı yok.",
+      "changes.binary": "İkili dosyaların metin farkı gösterilemez.", "changes.oversized": "Bu dosya güvenle görüntülenemeyecek kadar büyük.", "changes.truncated": "Fark uzun olduğu için yalnızca başlangıcı gösteriliyor.",
+      "changes.modified": "Değiştirildi", "changes.added": "Eklendi", "changes.deleted": "Silindi", "changes.renamed": "Yeniden adlandırıldı",
+      "changes.copied": "Kopyalandı", "changes.untracked": "İzlenmiyor", "changes.conflicted": "Çakışma",
+    },
+    fr: {
+      "changes.title": "Modifications", "changes.open": "Voir les modifications du projet", "changes.openCount": "Voir {count} modifications du projet",
+      "changes.refresh": "Actualiser les modifications", "changes.close": "Fermer les modifications", "changes.project": "PROJET", "changes.changedFiles": "Fichiers modifiés",
+      "changes.fileCount": "{count} fichiers modifiés", "changes.branch": "Branche {branch}", "changes.staged": "Indexé", "changes.worktree": "Arbre de travail",
+      "changes.loading": "Lecture des modifications…", "changes.unavailable": "Impossible de lire les modifications", "changes.unavailableDetail": "Les modifications Git sont indisponibles pour le moment.",
+      "changes.notRepository": "Pas de dépôt Git", "changes.notRepositoryDetail": "Ce dossier de projet ne se trouve pas dans un dépôt Git.",
+      "changes.clean": "Aucune modification locale", "changes.cleanDetail": "L’arbre de travail correspond au dernier commit.",
+      "changes.selectFile": "Sélectionnez un fichier pour examiner son diff.", "changes.diffLoading": "Chargement du diff…", "changes.noDiff": "Ce fichier n’a aucun diff texte à afficher.",
+      "changes.binary": "Les fichiers binaires n’ont pas de diff texte.", "changes.oversized": "Ce fichier est trop volumineux pour être affiché en toute sécurité.", "changes.truncated": "Ce diff est long ; seul son début est affiché.",
+      "changes.modified": "Modifié", "changes.added": "Ajouté", "changes.deleted": "Supprimé", "changes.renamed": "Renommé",
+      "changes.copied": "Copié", "changes.untracked": "Non suivi", "changes.conflicted": "En conflit",
+    },
+    de: {
+      "changes.title": "Änderungen", "changes.open": "Projektänderungen anzeigen", "changes.openCount": "{count} Projektänderungen anzeigen",
+      "changes.refresh": "Änderungen aktualisieren", "changes.close": "Änderungen schließen", "changes.project": "PROJEKT", "changes.changedFiles": "Geänderte Dateien",
+      "changes.fileCount": "{count} geänderte Dateien", "changes.branch": "Branch {branch}", "changes.staged": "Vorgemerkt", "changes.worktree": "Arbeitsverzeichnis",
+      "changes.loading": "Änderungen werden gelesen…", "changes.unavailable": "Änderungen konnten nicht gelesen werden", "changes.unavailableDetail": "Git-Änderungen sind derzeit nicht verfügbar.",
+      "changes.notRepository": "Kein Git-Repository", "changes.notRepositoryDetail": "Dieser Projektordner befindet sich nicht in einem Git-Repository.",
+      "changes.clean": "Keine lokalen Änderungen", "changes.cleanDetail": "Das Arbeitsverzeichnis entspricht dem letzten Commit.",
+      "changes.selectFile": "Wählen Sie eine Datei aus, um den Diff anzusehen.", "changes.diffLoading": "Diff wird geladen…", "changes.noDiff": "Für diese Datei gibt es keinen anzeigbaren Text-Diff.",
+      "changes.binary": "Binärdateien haben keinen Text-Diff.", "changes.oversized": "Diese Datei ist zu groß für eine sichere Anzeige.", "changes.truncated": "Dieser Diff ist lang; nur der Anfang wird angezeigt.",
+      "changes.modified": "Geändert", "changes.added": "Hinzugefügt", "changes.deleted": "Gelöscht", "changes.renamed": "Umbenannt",
+      "changes.copied": "Kopiert", "changes.untracked": "Nicht verfolgt", "changes.conflicted": "Konflikt",
+    },
+    es: {
+      "changes.title": "Cambios", "changes.open": "Ver cambios del proyecto", "changes.openCount": "Ver {count} cambios del proyecto",
+      "changes.refresh": "Actualizar cambios", "changes.close": "Cerrar cambios", "changes.project": "PROYECTO", "changes.changedFiles": "Archivos modificados",
+      "changes.fileCount": "{count} archivos modificados", "changes.branch": "Rama {branch}", "changes.staged": "Preparado", "changes.worktree": "Árbol de trabajo",
+      "changes.loading": "Leyendo cambios…", "changes.unavailable": "No se pudieron leer los cambios", "changes.unavailableDetail": "Los cambios de Git no están disponibles ahora mismo.",
+      "changes.notRepository": "No es un repositorio Git", "changes.notRepositoryDetail": "Esta carpeta de proyecto no está dentro de un repositorio Git.",
+      "changes.clean": "No hay cambios locales", "changes.cleanDetail": "El árbol de trabajo coincide con el último commit.",
+      "changes.selectFile": "Selecciona un archivo para revisar su diff.", "changes.diffLoading": "Cargando diff…", "changes.noDiff": "Este archivo no tiene un diff de texto que mostrar.",
+      "changes.binary": "Los archivos binarios no tienen diff de texto.", "changes.oversized": "Este archivo es demasiado grande para mostrarlo con seguridad.", "changes.truncated": "El diff es largo; solo se muestra el principio.",
+      "changes.modified": "Modificado", "changes.added": "Añadido", "changes.deleted": "Eliminado", "changes.renamed": "Renombrado",
+      "changes.copied": "Copiado", "changes.untracked": "Sin seguimiento", "changes.conflicted": "En conflicto",
+    },
+    "pt-BR": {
+      "changes.title": "Alterações", "changes.open": "Ver alterações do projeto", "changes.openCount": "Ver {count} alterações do projeto",
+      "changes.refresh": "Atualizar alterações", "changes.close": "Fechar alterações", "changes.project": "PROJETO", "changes.changedFiles": "Arquivos alterados",
+      "changes.fileCount": "{count} arquivos alterados", "changes.branch": "Branch {branch}", "changes.staged": "Preparado", "changes.worktree": "Árvore de trabalho",
+      "changes.loading": "Lendo alterações…", "changes.unavailable": "Não foi possível ler as alterações", "changes.unavailableDetail": "As alterações do Git não estão disponíveis no momento.",
+      "changes.notRepository": "Não é um repositório Git", "changes.notRepositoryDetail": "Esta pasta de projeto não está dentro de um repositório Git.",
+      "changes.clean": "Nenhuma alteração local", "changes.cleanDetail": "A árvore de trabalho corresponde ao commit mais recente.",
+      "changes.selectFile": "Selecione um arquivo para examinar o diff.", "changes.diffLoading": "Carregando diff…", "changes.noDiff": "Este arquivo não tem um diff de texto para exibir.",
+      "changes.binary": "Arquivos binários não têm diff de texto.", "changes.oversized": "Este arquivo é grande demais para ser exibido com segurança.", "changes.truncated": "O diff é longo; apenas o início é exibido.",
+      "changes.modified": "Alterado", "changes.added": "Adicionado", "changes.deleted": "Excluído", "changes.renamed": "Renomeado",
+      "changes.copied": "Copiado", "changes.untracked": "Não rastreado", "changes.conflicted": "Em conflito",
+    },
+    it: {
+      "changes.title": "Modifiche", "changes.open": "Visualizza le modifiche del progetto", "changes.openCount": "Visualizza {count} modifiche del progetto",
+      "changes.refresh": "Aggiorna modifiche", "changes.close": "Chiudi modifiche", "changes.project": "PROGETTO", "changes.changedFiles": "File modificati",
+      "changes.fileCount": "{count} file modificati", "changes.branch": "Branch {branch}", "changes.staged": "In staging", "changes.worktree": "Albero di lavoro",
+      "changes.loading": "Lettura delle modifiche…", "changes.unavailable": "Impossibile leggere le modifiche", "changes.unavailableDetail": "Le modifiche Git non sono disponibili al momento.",
+      "changes.notRepository": "Non è un repository Git", "changes.notRepositoryDetail": "Questa cartella di progetto non si trova in un repository Git.",
+      "changes.clean": "Nessuna modifica locale", "changes.cleanDetail": "L’albero di lavoro corrisponde all’ultimo commit.",
+      "changes.selectFile": "Seleziona un file per esaminarne il diff.", "changes.diffLoading": "Caricamento diff…", "changes.noDiff": "Questo file non ha un diff di testo da mostrare.",
+      "changes.binary": "I file binari non hanno un diff di testo.", "changes.oversized": "Questo file è troppo grande per essere visualizzato in sicurezza.", "changes.truncated": "Il diff è lungo; viene mostrato solo l’inizio.",
+      "changes.modified": "Modificato", "changes.added": "Aggiunto", "changes.deleted": "Eliminato", "changes.renamed": "Rinominato",
+      "changes.copied": "Copiato", "changes.untracked": "Non tracciato", "changes.conflicted": "In conflitto",
+    },
+  };
+  for (const [id, table] of Object.entries(CHANGES_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], table);
   const KEYED_SOURCE_KEYS = Object.freeze(Object.keys(KEYED_TRANSLATIONS.en));
   const KEYED_FALLBACK_KEYS = {};
   for (const [id, table] of Object.entries(KEYED_TRANSLATIONS)) {
@@ -1902,12 +2037,19 @@
     return out;
   }
   function sourceToEnglish(value) {
-    let out = replacePairs(value, SOURCE_PAIRS);
-    out = replacePairs(out, TRANSLATION_REVERSE_PAIRS);
+    // Prefer complete, previously rendered translations before legacy aliases.
+    // Otherwise a value such as `工作階段` is split at `工作` and can no longer
+    // be recognized as the translated form of `Session`.
+    let out = replacePairs(value, TRANSLATION_REVERSE_PAIRS);
+    out = replacePairs(out, SOURCE_PAIRS);
     return out;
   }
   function translate(value, target = locale) {
     if (value == null || typeof value !== "string" || !value) return value;
+    // Legacy application chrome is authored in Traditional Chinese, so Han
+    // text is already in the target language. Re-processing it through the
+    // legacy alias table corrupts valid phrases (`五分鐘` -> `五min`, etc.).
+    if (target === "zh-Hant" && HAN_RE.test(value)) return value;
     const source = sourceToEnglish(value);
     const table = TRANSLATIONS[target] || {};
     let out = source;
@@ -1967,6 +2109,7 @@
     if (root?.nodeType === Node.ELEMENT_NODE && root.matches?.("[title], [aria-label], [placeholder]")) elements.push(root);
     if (root?.querySelectorAll) elements.push(...root.querySelectorAll("[title], [aria-label], [placeholder]"));
     for (const item of elements) {
+      if (shouldSkip(item)) continue;
       for (const attr of ["title", "aria-label", "placeholder"]) {
         if (item.hasAttribute(attr)) {
           // DOMStringMap keys cannot contain hyphens (e.g. `i18nAria-label`).

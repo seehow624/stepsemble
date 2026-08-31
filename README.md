@@ -121,6 +121,8 @@ revealed from the session list when needed.
 - Responsive PWA with English as the default and ten additional locales.
 - Project grouping, pinned sessions, archives, search, and three-session
   previews with Show more / Show less controls.
+- Read-only project changes with changed-file counts and staged or working-tree
+  diffs, optimized for both split-screen desktops and small phones.
 - Resilient same-origin SSE streaming and visible failure states.
 - Collapsed tool summaries with per-tool details, token use, and cost.
 - Image paste/upload, inline preview, and lightbox viewing.

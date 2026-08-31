@@ -155,6 +155,35 @@ test("session display helpers remain independent from the controller", () => {
   assert.equal(utils.projectFolderName("(unknown)"), "Unassigned");
 });
 
+test("composer drafts stay isolated by device and session and remain bounded", () => {
+  const { value: utils } = loadBrowserModule("session-utils.js");
+  const sessionA = utils.draftScopeKey("mini", { file: "sessions/a.jsonl" });
+  const sessionB = utils.draftScopeKey("mini", { file: "sessions/b.jsonl" });
+  const remoteA = utils.draftScopeKey("mbp", { file: "sessions/a.jsonl" });
+  const newProject = utils.draftScopeKey("mini", { cwd: "/work/pi-web", name: "Review" });
+  assert.notEqual(sessionA, sessionB);
+  assert.notEqual(sessionA, remoteA);
+  assert.notEqual(sessionA, newProject);
+
+  let drafts = utils.updateDraftEntries([], sessionA, "draft for A", 100);
+  drafts = utils.updateDraftEntries(drafts, sessionB, "draft for B", 200);
+  assert.equal(utils.draftTextForKey(drafts, sessionA), "draft for A");
+  assert.equal(utils.draftTextForKey(drafts, sessionB), "draft for B");
+  assert.equal(utils.draftTextForKey(drafts, remoteA), "");
+
+  drafts = utils.updateDraftEntries(drafts, sessionA, "", 300);
+  assert.equal(utils.draftTextForKey(drafts, sessionA), "");
+  assert.equal(utils.draftTextForKey(drafts, sessionB), "draft for B");
+  for (let index = 0; index < utils.DRAFT_ENTRY_LIMIT + 5; index++) {
+    drafts = utils.updateDraftEntries(drafts, `scope-${index}`, `draft-${index}`, 1000 + index);
+  }
+  assert.equal(drafts.length, utils.DRAFT_ENTRY_LIMIT);
+  assert.equal(utils.draftTextForKey(drafts, "scope-0"), "");
+  assert.equal(utils.draftTextForKey("not-json", sessionA), "");
+  const long = "x".repeat(utils.DRAFT_TEXT_LIMIT + 50);
+  assert.equal(utils.updateDraftEntries([], sessionA, long, 400)[0].text.length, utils.DRAFT_TEXT_LIMIT);
+});
+
 test("activity receipts report a successful tool run and distinct edited files", () => {
   const { value: utils } = loadBrowserModule("session-utils.js", {
     piI18n: { t(key) { return key; }, getLocale() { return "en"; } },

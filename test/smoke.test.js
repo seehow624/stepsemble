@@ -128,6 +128,27 @@ test("Sub Agent temporary sessions are opt-in in the session list", () => {
   assert.match(i18n, /Temporary workspaces are hidden by default/);
 });
 
+test("project changes inspector is read-only, scoped, and wired across the shell", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const service = fs.readFileSync(path.join(root, "server", "git-changes.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  assert.match(server, /\/api\/project-changes/);
+  assert.match(server, /\/api\/project-diff/);
+  assert.match(server, /createGitChangesService\(\{ validateRepository: projectDirectory \}\)/);
+  assert.match(service, /GIT_OPTIONAL_LOCKS: "0"/);
+  assert.match(service, /safeRelativePath/);
+  assert.doesNotMatch(service, /\b(?:add|commit|checkout|restore|reset)\b/);
+  assert.match(app, /function refreshProjectChanges/);
+  assert.match(app, /function loadProjectDiff/);
+  assert.match(app, /MAX_RENDERED_DIFF_LINES/);
+  assert.match(html, /id="btn-changes"/);
+  assert.match(html, /id="changes-layer"[^>]*role="dialog"/);
+  assert.match(css, /\.changes-layer/);
+  assert.match(css, /\.changes-layer\.show-detail/);
+});
+
 test("session action sheets close when the backdrop is clicked", () => {
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
@@ -630,8 +651,9 @@ test("first-use help and setup guide cover token, devices, providers, and progre
   assert.match(html, /cat ~\/\.config\/pi-harbor\/token/);
   assert.match(html, /PI_HARBOR_TOKEN_FILE/);
   assert.match(html, /Never share the token/);
-  assert.match(html, /id="onboarding"/);
+  assert.match(html, /id="onboarding"[^>]*data-i18n-ignore/);
   assert.match(html, /id="btn-open-onboarding"/);
+  assert.match(html, /class="onboarding-scroll"/);
   assert.match(html, /class="onboarding-progress"[^>]*><span><\/span><span><\/span><span><\/span><span><\/span><span><\/span>/);
   assert.match(app, /ONBOARDING_KEY/);
   assert.match(app, /ONBOARDING_ACTIONABLE_STEPS/);
@@ -647,11 +669,23 @@ test("first-use help and setup guide cover token, devices, providers, and progre
   assert.match(app, /openOnboarding\(false\)/);
   assert.match(app, /Never expose public port 3140/);
   assert.match(css, /\.onboarding-card/);
+  assert.match(css, /\.onboarding-scroll \{[^}]*overflow-y: auto/s);
+  assert.match(css, /@media \(max-width: 620px\)[\s\S]*?\.onboarding-actions \{ margin: 0;/);
   assert.match(css, /repeat\(5, 1fr\)/);
   assert.match(i18n, /FIRST_LOGIN_TRANSLATIONS/);
   for (const locale of ["en", "zh-Hans", "zh-Hant", "ja", "ko", "tr", "fr", "de", "es", "pt-BR", "it"]) {
     assert.match(app, new RegExp(`(?:^|\\n)\\s*(?:"?${locale.replace("-", "[-]")}"?)\\s*:`), `${locale} onboarding copy should exist`);
   }
+});
+
+test("composer drafts are session-scoped and narrow screens keep send visible", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  assert.match(app, /beginDraftScope\(\{ file: s\.file, cwd: s\.cwd, name: s\.name \}\)/);
+  assert.match(app, /beginDraftScope\(\{ cwd, name \}\)/);
+  assert.match(app, /el\.input\.addEventListener\("input", \(\) => \{[\s\S]*?saveActiveDraft\(\)/);
+  assert.match(app, /removeDraftForKey\(sendDraftKey\)/);
+  assert.match(css, /@media \(max-width: 360px\) \{[\s\S]*?#view-chat \.context-dashboard-value \{ display: none; \}/);
 });
 
 test("automatic updates use a public GitHub source and launchd without touching Pi data", () => {

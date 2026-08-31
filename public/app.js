@@ -1,7 +1,7 @@
-/* pi-harbor v2.2.5 — settings gestures, safer project browse, and first-use guidance */
+/* pi-harbor v2.2.6 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.2.5";
+const CLIENT_APP_VERSION = "2.2.6";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -21,6 +21,7 @@ const {
 } = foundation;
 const {
   stripMd, fmtTime, fmtTokens, projectFolderName,
+  draftScopeKey, normalizeDraftEntries, updateDraftEntries, draftTextForKey,
   activityReceiptStats, computeActivityReceipt,
 } = sessionUtils;
 const {
@@ -63,6 +64,11 @@ const el = {
   machineCatalogStatus: $("machine-catalog-status"), machineCatalogStatusCopy: $("machine-catalog-status-copy"), machineCatalogRetry: $("machine-catalog-retry"),
   btnBack: $("btn-back"), chatTitle: $("chat-title"), chatSub: $("chat-sub"),
   chatHeadInfo: $("chat-head-info"), thinkingStatus: $("thinking-status"), btnChatMenu: $("btn-chat-menu"),
+  btnChanges: $("btn-changes"), changesBadge: $("changes-badge"), changesLayer: $("changes-layer"),
+  changesTitle: $("changes-title"), changesRepository: $("changes-repository"), changesRefresh: $("changes-refresh"), changesClose: $("changes-close"),
+  changesSummary: $("changes-summary"), changesFilesPane: $("changes-files-pane"), changesState: $("changes-state"), changesList: $("changes-list"),
+  changesDiffPane: $("changes-diff-pane"), changesDetailBack: $("changes-detail-back"), changesDiffKind: $("changes-diff-kind"),
+  changesDiffTitle: $("changes-diff-title"), changesDiffEmpty: $("changes-diff-empty"), changesDiff: $("changes-diff"),
   messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"),
   contextDashboard: $("context-dashboard"), contextProgress: $("context-progress"), contextProgressFill: $("context-progress-fill"),
   contextInfo: $("context-info"), contextPopover: $("context-popover"),
@@ -139,6 +145,8 @@ let liveToolCards = new Map();
 let liveActivity = null;     // 目前工作輪次的整組 thinking／tool 紀錄
 let activeActivityRun = null; // one logical run; may span retry/compaction agent_start events
 let settings = loadSettings();
+const DRAFT_STORAGE_KEY = "piharbor.composer-drafts.v1";
+let activeDraftKey = "";
 let composerModelName = "";
 let composerReasoningLevel = "off";
 let modelCatalog = [];
@@ -148,6 +156,67 @@ let providerCatalogLoading = false;
 let providerCatalogRequest = null;
 let providerCatalogReadOnly = false;
 let providerCatalogNotice = "";
+
+function readDraftEntries() {
+  try { return normalizeDraftEntries(localStorage.getItem(DRAFT_STORAGE_KEY)); }
+  catch { return []; }
+}
+
+function writeDraftEntries(entries) {
+  try {
+    const normalized = normalizeDraftEntries(entries);
+    if (normalized.length) localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(normalized));
+    else localStorage.removeItem(DRAFT_STORAGE_KEY);
+  } catch {}
+}
+
+function saveDraftForKey(key, text) {
+  if (!key) return;
+  writeDraftEntries(updateDraftEntries(readDraftEntries(), key, text));
+}
+
+function removeDraftForKey(key) {
+  if (!key) return;
+  writeDraftEntries(updateDraftEntries(readDraftEntries(), key, ""));
+}
+
+function saveActiveDraft() {
+  if (activeDraftKey) saveDraftForKey(activeDraftKey, el.input.value);
+}
+
+function resizeComposerInput() {
+  el.input.style.height = "auto";
+  if (el.input.value) el.input.style.height = Math.min(el.input.scrollHeight, 120) + "px";
+}
+
+function beginDraftScope(scope) {
+  saveActiveDraft();
+  activeDraftKey = draftScopeKey(selectedId || selfId || "local", scope);
+  el.input.value = draftTextForKey(readDraftEntries(), activeDraftKey);
+  resizeComposerInput();
+  // Commands are session-specific; never show the previous session's menu
+  // while the replacement RPC is still connecting.
+  el.slashMenu.classList.add("hidden");
+  slashState = null;
+}
+
+function clearDraftScopeForDeviceSwitch() {
+  saveActiveDraft();
+  activeDraftKey = "";
+  el.input.value = "";
+  resizeComposerInput();
+}
+
+function promoteDraftScope(file) {
+  if (!activeDraftKey || !file) return;
+  const nextKey = draftScopeKey(selectedId || selfId || "local", { file });
+  if (nextKey === activeDraftKey) return;
+  const previousKey = activeDraftKey;
+  const text = el.input.value;
+  activeDraftKey = nextKey;
+  removeDraftForKey(previousKey);
+  if (text.trim()) saveDraftForKey(nextKey, text);
+}
 let providerCatalogMachine = null;
 let modelCatalogMachine = null;
 let modelCatalogLoading = false;
@@ -197,6 +266,11 @@ let expandedPinnedSessions = false;
 const ONBOARDING_KEY = "piharbor.onboarding.v1";
 let onboardingStep = 0;
 const ACTIVITY_STALE_MS = 45_000;
+let projectChangesState = null;
+let projectChangesRequest = null;
+let projectDiffRequest = null;
+let selectedChangePath = "";
+let projectChangesShouldResetScroll = true;
 
 // Device discovery is deliberately independent from apiBase.  apiBase may
 // still point at a remote machine while the authoritative catalog always
@@ -640,6 +714,8 @@ function applyApiBase() {
 
 function switchMachine(id, silent) {
   if (!machines.some(m => m.id === id)) return;
+  clearDraftScopeForDeviceSwitch();
+  resetProjectChanges();
   stopUpdateCenterPolling();
   cancelProjectFolderRequest();
   const generation = ++viewGeneration;
@@ -671,6 +747,7 @@ function switchMachine(id, silent) {
   renderModelSettingsSummary();
   cancelModelVisibilityRequest();
   currentSessionFile = null;
+  currentSessionCwd = null;
   sessionsCache = [];
   resetComposerSummary();
   updateNewProjectAffordance();
@@ -744,6 +821,9 @@ el.btnLogout.addEventListener("click", logout);
 function isDesktop() { return matchMedia("(min-width: 980px)").matches; }
 
 function showList(options = {}) {
+  saveActiveDraft();
+  resetProjectChanges();
+  currentSessionCwd = null;
   stopUpdateCenterPolling();
   ++viewGeneration;
   const wasStreaming = !!(rpc && (rpc.streaming || rpc.connectionLost));
@@ -1465,10 +1545,13 @@ function setChatTitle(title) {
 }
 
 async function openExisting(s) {
+  beginDraftScope({ file: s.file, cwd: s.cwd, name: s.name });
   const generation = ++viewGeneration;
   if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
+  resetProjectChanges();
   resetComposerSummary();
   currentSessionFile = s.file;
+  currentSessionCwd = s.cwd;
   renderSessionList(el.search.value);
   hideChatEmpty();
   setChatTitle(stripMd(s.name || s.preview?.split("\n")[0] || "") || "(未命名)");
@@ -1490,6 +1573,7 @@ async function openExisting(s) {
     const detail = await api("/api/session?file=" + encodeURIComponent(s.file) + "&limit=300");
     if (generation !== viewGeneration) return;
     currentSessionCwd = detail.cwd;
+    void refreshProjectChanges({ background: true });
     _lastMsgDate = null; lastUserText = "";
     for (const m of detail.messages || []) {
       maybeDateSeparator(m.ts || m.timestamp);
@@ -1501,13 +1585,364 @@ async function openExisting(s) {
     historyState.hasMore = !!detail.hasMore;
     showHistoryLoadButton();
     scrollBottom(true);
-  } catch (e) { console.warn("歷史讀取失敗", e); }
+  } catch (e) {
+    console.warn("歷史讀取失敗", e);
+    void refreshProjectChanges({ background: true });
+  }
   await connectRpc({ file: s.file }, generation);
 }
 
 let currentSessionCwd = null;
 let historyState = null;
 let historyLoadButton = null;
+
+// ---------------------------------------------------------------------------
+// Read-only Git changes inspector
+// ---------------------------------------------------------------------------
+
+const CHANGE_STATUS_LETTERS = Object.freeze({
+  modified: "M", added: "A", deleted: "D", renamed: "R",
+  copied: "C", untracked: "?", conflicted: "!",
+});
+const MAX_RENDERED_DIFF_LINES = 5000;
+
+function changesText(key, vars = {}) {
+  return tKey(`changes.${key}`, vars);
+}
+
+function projectChangesOpen() {
+  return !!el.changesLayer && !el.changesLayer.classList.contains("hidden");
+}
+
+function changeKindText(kind) {
+  return changesText(CHANGE_STATUS_LETTERS[kind] ? kind : "modified");
+}
+
+function renderProjectChangesChrome() {
+  if (!el.btnChanges) return;
+  const openLabel = changesText("open");
+  const refreshLabel = changesText("refresh");
+  const closeLabel = changesText("close");
+  el.btnChanges.title = openLabel;
+  el.btnChanges.setAttribute("aria-label", openLabel);
+  el.changesTitle.textContent = changesText("title");
+  const eyebrow = el.changesTitle.previousElementSibling;
+  if (eyebrow) eyebrow.textContent = changesText("project");
+  el.changesRefresh.title = refreshLabel;
+  el.changesRefresh.setAttribute("aria-label", refreshLabel);
+  el.changesClose.title = closeLabel;
+  el.changesClose.setAttribute("aria-label", closeLabel);
+  el.changesFilesPane.setAttribute("aria-label", changesText("changedFiles"));
+  const backCopy = el.changesDetailBack?.querySelector("span");
+  if (backCopy) backCopy.textContent = changesText("changedFiles");
+}
+
+function setChangesState(title, detail = "") {
+  el.changesState.replaceChildren();
+  const strong = document.createElement("strong");
+  strong.textContent = title;
+  el.changesState.appendChild(strong);
+  if (detail) el.changesState.appendChild(document.createTextNode(detail));
+  el.changesState.classList.remove("hidden");
+}
+
+function renderChangesSummary(data) {
+  el.changesSummary.replaceChildren();
+  if (!data?.repository) {
+    el.changesSummary.classList.add("hidden");
+    return;
+  }
+  const summary = data.summary || {};
+  const items = [
+    ["", changesText("fileCount", { count: Math.max(0, Number(summary.files) || 0) })],
+    ["changes-additions", `+${Math.max(0, Number(summary.additions) || 0)}`],
+    ["changes-deletions", `−${Math.max(0, Number(summary.deletions) || 0)}`],
+  ];
+  if (data.branch) items.unshift(["", changesText("branch", { branch: data.branch })]);
+  for (const [className, copy] of items) {
+    const span = document.createElement("span");
+    if (className) span.className = className;
+    span.textContent = copy;
+    el.changesSummary.appendChild(span);
+  }
+  el.changesSummary.classList.remove("hidden");
+}
+
+function renderChangesBadge(data = projectChangesState?.data) {
+  if (!el.changesBadge) return;
+  const count = data?.repository ? Math.max(0, Number(data.summary?.files) || 0) : 0;
+  el.changesBadge.textContent = count > 99 ? "99+" : String(count);
+  el.changesBadge.classList.toggle("hidden", count === 0);
+  const label = count ? changesText("openCount", { count }) : changesText("open");
+  el.btnChanges?.setAttribute("aria-label", label);
+}
+
+function changePathParts(file) {
+  const filePath = String(file?.path || "");
+  const slash = filePath.lastIndexOf("/");
+  const name = slash >= 0 ? filePath.slice(slash + 1) : filePath;
+  let context = slash >= 0 ? filePath.slice(0, slash) : "";
+  if (file?.oldPath) context = `${file.oldPath} → ${context ? `${context}/` : ""}${name}`;
+  if (file?.staged) context = context ? `${context} · ${changesText("staged")}` : changesText("staged");
+  return { filePath, name, context };
+}
+
+function renderChangesList(files) {
+  el.changesList.replaceChildren();
+  const available = new Set(files.map((file) => file.path));
+  if (selectedChangePath && !available.has(selectedChangePath)) selectedChangePath = "";
+  for (const file of files) {
+    const { filePath, name, context } = changePathParts(file);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "changes-file-row" + (filePath === selectedChangePath ? " selected" : "");
+    button.dataset.path = filePath;
+    button.setAttribute("aria-label", `${changeKindText(file.kind)}: ${filePath}`);
+    button.title = filePath;
+
+    const status = document.createElement("span");
+    status.className = "changes-file-status";
+    status.dataset.kind = file.kind;
+    status.textContent = CHANGE_STATUS_LETTERS[file.kind] || "M";
+
+    const copy = document.createElement("span");
+    copy.className = "changes-file-copy";
+    const strong = document.createElement("strong");
+    strong.textContent = name;
+    copy.appendChild(strong);
+    if (context) {
+      const small = document.createElement("small");
+      small.textContent = context;
+      copy.appendChild(small);
+    }
+
+    const numbers = document.createElement("span");
+    numbers.className = "changes-file-numbers";
+    if (Number.isFinite(file.additions) && file.additions > 0) {
+      const add = document.createElement("span");
+      add.className = "add";
+      add.textContent = `+${file.additions}`;
+      numbers.appendChild(add);
+    }
+    if (Number.isFinite(file.deletions) && file.deletions > 0) {
+      const del = document.createElement("span");
+      del.className = "del";
+      del.textContent = `−${file.deletions}`;
+      numbers.appendChild(del);
+    }
+    button.append(status, copy, numbers);
+    button.addEventListener("click", () => void loadProjectDiff(filePath));
+    el.changesList.appendChild(button);
+  }
+}
+
+function resetRenderedDiff(message = changesText("selectFile")) {
+  el.changesDiffKind.textContent = "";
+  el.changesDiffTitle.textContent = "";
+  el.changesDiff.replaceChildren();
+  el.changesDiff.classList.add("hidden");
+  el.changesDiffEmpty.textContent = message;
+  el.changesDiffEmpty.classList.remove("hidden");
+}
+
+function renderProjectChanges() {
+  if (!el.changesLayer) return;
+  renderProjectChangesChrome();
+  const state = projectChangesState;
+  const data = state?.data || null;
+  el.changesRepository.textContent = data?.root || currentSessionCwd || "";
+  el.changesRefresh.disabled = state?.status === "loading" || state?.status === "refreshing";
+  renderChangesSummary(data);
+  renderChangesBadge(data);
+  el.changesList.replaceChildren();
+
+  if (!state || state.status === "loading") {
+    setChangesState(changesText("loading"));
+    resetRenderedDiff();
+    return;
+  }
+  if (state.status === "error") {
+    setChangesState(changesText("unavailable"), changesText("unavailableDetail"));
+    resetRenderedDiff(changesText("unavailableDetail"));
+    return;
+  }
+  if (!data?.repository) {
+    setChangesState(changesText("notRepository"), changesText("notRepositoryDetail"));
+    resetRenderedDiff(changesText("notRepositoryDetail"));
+    return;
+  }
+  const files = Array.isArray(data.files) ? data.files : [];
+  if (!files.length) {
+    setChangesState(changesText("clean"), changesText("cleanDetail"));
+    resetRenderedDiff();
+    return;
+  }
+  el.changesState.classList.add("hidden");
+  renderChangesList(files);
+  if (projectChangesShouldResetScroll && projectChangesOpen()) {
+    el.changesList.scrollTop = 0;
+    // Run once more after layout so browser scroll anchoring cannot restore a
+    // previous project's position when the new rows are inserted.
+    requestAnimationFrame(() => {
+      if (!selectedChangePath) el.changesList.scrollTop = 0;
+      projectChangesShouldResetScroll = false;
+    });
+  }
+  if (!selectedChangePath) resetRenderedDiff();
+}
+
+function diffLineClass(line) {
+  if (line.startsWith("@@")) return "hunk";
+  if (line.startsWith("diff ") || line.startsWith("index ") || line.startsWith("---") || line.startsWith("+++") || line.startsWith("\\ No newline")) return "meta";
+  if (line.startsWith("+")) return "add";
+  if (line.startsWith("-")) return "del";
+  return "";
+}
+
+function appendChangesNotice(copy) {
+  const notice = document.createElement("div");
+  notice.className = "changes-diff-notice";
+  notice.textContent = copy;
+  el.changesDiff.appendChild(notice);
+}
+
+function renderProjectDiff(data) {
+  const file = data?.file || {};
+  el.changesDiffKind.textContent = changeKindText(file.kind);
+  el.changesDiffTitle.textContent = file.path || selectedChangePath;
+  el.changesDiff.replaceChildren();
+  el.changesDiffEmpty.classList.add("hidden");
+  el.changesDiff.classList.remove("hidden");
+
+  if (data?.binary) appendChangesNotice(changesText("binary"));
+  if (data?.oversized) appendChangesNotice(changesText("oversized"));
+  let renderedLines = 0;
+  for (const item of data?.sections || []) {
+    if (!item?.diff || renderedLines >= MAX_RENDERED_DIFF_LINES) continue;
+    const section = document.createElement("section");
+    section.className = "changes-diff-section";
+    const label = document.createElement("div");
+    label.className = "changes-diff-section-label";
+    label.textContent = changesText(item.kind === "staged" ? "staged" : item.kind === "untracked" ? "untracked" : "worktree");
+    const pre = document.createElement("pre");
+    const lines = String(item.diff).split("\n");
+    for (const line of lines.slice(0, MAX_RENDERED_DIFF_LINES - renderedLines)) {
+      const span = document.createElement("span");
+      const tone = diffLineClass(line);
+      span.className = `changes-diff-line${tone ? ` ${tone}` : ""}`;
+      span.textContent = line || " ";
+      pre.appendChild(span);
+      renderedLines += 1;
+    }
+    section.append(label, pre);
+    el.changesDiff.appendChild(section);
+  }
+  if (!renderedLines && !data?.binary && !data?.oversized) appendChangesNotice(changesText("noDiff"));
+  if (data?.truncated || renderedLines >= MAX_RENDERED_DIFF_LINES) appendChangesNotice(changesText("truncated"));
+}
+
+async function refreshProjectChanges({ background = false } = {}) {
+  const cwd = currentSessionCwd;
+  if (!cwd) return;
+  if (projectChangesRequest) projectChangesRequest.controller.abort();
+  const request = { controller: new AbortController(), cwd, generation: viewGeneration, base: apiBase };
+  projectChangesRequest = request;
+  const existing = projectChangesState?.cwd === cwd ? projectChangesState.data : null;
+  projectChangesState = { status: background && existing ? "refreshing" : "loading", cwd, data: existing };
+  renderProjectChanges();
+  try {
+    const data = await api(`/api/project-changes?cwd=${encodeURIComponent(cwd)}`, { signal: request.controller.signal });
+    if (projectChangesRequest !== request || request.cwd !== currentSessionCwd || request.generation !== viewGeneration || request.base !== apiBase) return;
+    projectChangesState = { status: "ready", cwd, data };
+    renderProjectChanges();
+    if (selectedChangePath && data.files?.some((file) => file.path === selectedChangePath) && projectChangesOpen()) {
+      void loadProjectDiff(selectedChangePath);
+    }
+  } catch (error) {
+    if (error?.name === "AbortError" || projectChangesRequest !== request) return;
+    projectChangesState = { status: "error", cwd, data: null, error };
+    renderProjectChanges();
+  } finally {
+    if (projectChangesRequest === request) projectChangesRequest = null;
+  }
+}
+
+async function loadProjectDiff(filePath) {
+  const cwd = currentSessionCwd;
+  if (!cwd || !filePath) return;
+  const pathChanged = selectedChangePath !== filePath;
+  selectedChangePath = filePath;
+  if (pathChanged && el.changesDiff) {
+    el.changesDiff.scrollTop = 0;
+    el.changesDiff.scrollLeft = 0;
+  }
+  el.changesLayer.classList.add("show-detail");
+  renderChangesList(projectChangesState?.data?.files || []);
+  el.changesDiffKind.textContent = "";
+  el.changesDiffTitle.textContent = filePath;
+  resetRenderedDiff(changesText("diffLoading"));
+  el.changesDiffTitle.textContent = filePath;
+  if (projectDiffRequest) projectDiffRequest.controller.abort();
+  const request = { controller: new AbortController(), cwd, filePath, generation: viewGeneration, base: apiBase };
+  projectDiffRequest = request;
+  try {
+    const data = await api(`/api/project-diff?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(filePath)}`, { signal: request.controller.signal });
+    if (projectDiffRequest !== request || selectedChangePath !== filePath || request.cwd !== currentSessionCwd || request.generation !== viewGeneration || request.base !== apiBase) return;
+    renderProjectDiff(data);
+  } catch (error) {
+    if (error?.name === "AbortError" || projectDiffRequest !== request) return;
+    resetRenderedDiff(changesText("unavailableDetail"));
+    el.changesDiffTitle.textContent = filePath;
+    if (error?.status === 404) void refreshProjectChanges({ background: true });
+  } finally {
+    if (projectDiffRequest === request) projectDiffRequest = null;
+  }
+}
+
+function openProjectChanges() {
+  if (!currentSessionCwd || !el.changesLayer) return;
+  el.changesLayer.classList.remove("hidden");
+  el.changesLayer.classList.remove("show-detail");
+  renderProjectChanges();
+  void refreshProjectChanges({ background: true });
+  requestAnimationFrame(() => el.changesClose?.focus());
+}
+
+function closeProjectChanges() {
+  if (!el.changesLayer) return;
+  el.changesLayer.classList.add("hidden");
+  el.changesLayer.classList.remove("show-detail");
+  if (projectDiffRequest) projectDiffRequest.controller.abort();
+  projectDiffRequest = null;
+}
+
+function resetProjectChanges() {
+  if (projectChangesRequest) projectChangesRequest.controller.abort();
+  if (projectDiffRequest) projectDiffRequest.controller.abort();
+  projectChangesRequest = null;
+  projectDiffRequest = null;
+  projectChangesState = null;
+  selectedChangePath = "";
+  projectChangesShouldResetScroll = true;
+  if (el.changesList) el.changesList.scrollTop = 0;
+  if (el.changesDiff) {
+    el.changesDiff.scrollTop = 0;
+    el.changesDiff.scrollLeft = 0;
+  }
+  closeProjectChanges();
+  renderChangesBadge(null);
+}
+
+el.btnChanges?.addEventListener("click", openProjectChanges);
+el.changesRefresh?.addEventListener("click", () => void refreshProjectChanges());
+el.changesClose?.addEventListener("click", closeProjectChanges);
+el.changesDetailBack?.addEventListener("click", () => el.changesLayer.classList.remove("show-detail"));
+el.changesLayer?.addEventListener("click", (event) => {
+  if (event.target === el.changesLayer) closeProjectChanges();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && projectChangesOpen()) closeProjectChanges();
+});
 
 function removeHistoryLoadButton() {
   if (historyLoadButton) historyLoadButton.remove();
@@ -1562,8 +1997,10 @@ async function loadOlderHistory(button) {
 }
 
 async function startNew(cwd, name) {
+  beginDraftScope({ cwd, name });
   const generation = ++viewGeneration;
   if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
+  resetProjectChanges();
   resetComposerSummary();
   currentSessionFile = null;
   _lastMsgDate = null;
@@ -1584,6 +2021,7 @@ async function startNew(cwd, name) {
   } else {
     el.viewChat.classList.remove("hidden");
   }
+  void refreshProjectChanges({ background: true });
   await connectRpc({ cwd, name }, generation);
 }
 
@@ -2247,6 +2685,7 @@ function settleActivityRun(run, fallbackOutcome = "completed") {
     }
   }
   run.settled = true;
+  if (currentSessionCwd) void refreshProjectChanges({ background: true });
   return receipt;
 }
 
@@ -3343,8 +3782,8 @@ el.input.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing && isDesktop) { e.preventDefault(); sendCurrent(); }
 });
 el.input.addEventListener("input", () => {
-  el.input.style.height = "auto";
-  el.input.style.height = Math.min(el.input.scrollHeight, 120) + "px";
+  resizeComposerInput();
+  saveActiveDraft();
   updateSlashMenu();
 });
 
@@ -3515,6 +3954,7 @@ function renderImgPreview() {
 async function sendCurrent() {
   let text = el.input.value.trim();
   if ((!text && !pendingImages.length) || !rpc) return;
+  const sendDraftKey = activeDraftKey;
   el.input.value = "";
   el.input.style.height = "auto";
   el.slashMenu.classList.add("hidden");
@@ -3524,8 +3964,8 @@ async function sendCurrent() {
   const bm = text.match(/^\/(compact|clear)\s*$/i);
   if (bm) {
     const cmd = bm[1].toLowerCase();
-    if (cmd === "compact") { await BUILTIN_SLASH.compact(); return; }
-    if (cmd === "clear") { showList(); return; }
+    if (cmd === "compact") { await BUILTIN_SLASH.compact(); removeDraftForKey(sendDraftKey); return; }
+    if (cmd === "clear") { removeDraftForKey(sendDraftKey); showList(); return; }
   }
 
   maybeDateSeparator(Date.now());
@@ -3540,6 +3980,7 @@ async function sendCurrent() {
   renderImgPreview();
   try {
     const result = await post("/api/send", { sid: sendSid, message: text, images }); // /skill:xxx 等直接透傳，pi 原生處理
+    removeDraftForKey(sendDraftKey);
     if (result?.queued && rpc?.sid === sendSid) {
       el.queueNote.dataset.persistent = "queue";
       el.queueNote.textContent = "訊息已排隊，等目前工作完成後會繼續處理。";
@@ -3548,6 +3989,8 @@ async function sendCurrent() {
   } catch (e) {
     if (rpc?.sid === sendSid) {
       el.input.value = text;
+      resizeComposerInput();
+      saveDraftForKey(sendDraftKey, text);
       pendingImages = images.concat(pendingImages).slice(0, 4);
       renderImgPreview();
       toast("訊息沒送出去，已保留草稿", true);
@@ -3575,9 +4018,10 @@ function trackCurrentSessionFile(absPath) {
       const relative = String(s.file || "").replaceAll("\\", "/").replace(/^\/+/, "");
       return normalized.endsWith("/" + relative) || normalized === relative;
     });
-    if (hit) { currentSessionFile = hit.file; return; }
+    if (hit) { currentSessionFile = hit.file; promoteDraftScope(hit.file); return; }
   }
   currentSessionFile = absPath;
+  promoteDraftScope(absPath);
   // 新對話首次寫檔時列表尚未有它，重新掃描後再把絕對路徑解析成相對 session file。
   refreshSessions().then(() => {
     const hit = sessionsCache.find((s) => {
@@ -3586,6 +4030,7 @@ function trackCurrentSessionFile(absPath) {
     });
     if (hit) {
       currentSessionFile = hit.file;
+      promoteDraftScope(hit.file);
       renderSessionList(el.search.value);
     }
   }).catch(() => {});
@@ -3886,6 +4331,7 @@ function pickSlash(c) {
   el.input.value = "/" + c.name + " ";
   el.slashMenu.classList.add("hidden");
   slashState = null;
+  el.input.dispatchEvent(new Event("input", { bubbles: true }));
   el.input.focus();
 }
 
@@ -4351,6 +4797,7 @@ function renderOnboarding() {
   el.onboardingBack.textContent = copy.back;
   el.onboardingSkip.textContent = copy.skip;
   el.onboardingNext.textContent = onboardingStep === copy.steps.length - 1 ? copy.finish : copy.next;
+  el.onboardingClose.setAttribute("aria-label", window.piI18n?.t("Close") || "Close");
   el.onboardingLanguageLabel.textContent = copy.language;
   el.onboardingAppearanceLabel.textContent = copy.appearance;
   if (el.setupGuideTitle) el.setupGuideTitle.textContent = copy.guideTitle;
@@ -5941,6 +6388,9 @@ el.setLocale?.addEventListener("change", () => {
   renderMachineSwitch();
   updateComposerSummary();
   renderContextDashboard();
+  renderProjectChangesChrome();
+  renderChangesBadge();
+  if (projectChangesOpen()) renderProjectChanges();
   if (rpc?.streaming) setActivityLabel(rpc.activityLabel || "thinking");
   refreshActivityReceipts();
   renderTemporarySessionFilter(temporarySessionCount);

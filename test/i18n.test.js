@@ -72,6 +72,25 @@ test("device trust uses complete stable keys across repeated locale switches", (
   }
 });
 
+test("project changes inspector is translated in every supported locale", () => {
+  const i18n = loadLocaleLayer();
+  const keys = [
+    "changes.title", "changes.openCount", "changes.changedFiles", "changes.fileCount",
+    "changes.notRepository", "changes.clean", "changes.selectFile", "changes.binary",
+    "changes.modified", "changes.untracked", "changes.conflicted",
+  ];
+  const vars = { count: 3, branch: "master" };
+  const english = Object.fromEntries(keys.map((key) => [key, i18n.tKey(key, vars)]));
+  for (const locale of i18n.locales.map((item) => item.id).filter((id) => id !== "en")) {
+    i18n.setLocale(locale);
+    for (const key of keys) {
+      const translated = i18n.tKey(key, vars);
+      assert.notEqual(translated, english[key], `${locale} should translate stable key ${key}`);
+      assert.doesNotMatch(translated, /\{count\}|\{branch\}/, `${locale} should interpolate ${key}`);
+    }
+  }
+});
+
 test("update center phrases are translated in every supported locale", () => {
   const i18n = loadLocaleLayer();
   const keys = [
@@ -197,4 +216,27 @@ test("locale switching remains lossless across repeated changes", () => {
   assert.doesNotMatch(i18n.t("Sign in"), /[\u3400-\u9fff]/);
   i18n.setLocale("en");
   assert.equal(i18n.t("Sign in"), "Sign in");
+});
+
+test("already localized Traditional Chinese chrome is idempotent", () => {
+  const i18n = loadLocaleLayer();
+  i18n.setLocale("zh-Hant");
+  const samples = [
+    "工作階段",
+    "五分鐘",
+    "模型與服務",
+    "可見模型",
+    "刪除",
+    "長按工作階段可重新命名或刪除。",
+    "先花五分鐘確認模型與服務，再開始工作階段。",
+    i18n.t("More project actions"),
+    i18n.t("Temporary sessions: {count}", { count: 16 }),
+  ];
+  for (const sample of samples) assert.equal(i18n.translate(sample), sample);
+
+  // A later switch still recognizes complete Traditional Chinese phrases;
+  // it must never leave the mixed-language corruption seen in the UI.
+  i18n.setLocale("en");
+  assert.doesNotMatch(i18n.translate("工作階段"), /work階段/i);
+  assert.equal(i18n.translate("更多專案操作"), "More project actions");
 });

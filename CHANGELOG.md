@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.2.6
+
+- Added a read-only project Changes inspector with a changed-file badge,
+  staged and working-tree diffs, Git-safe path scoping, desktop split view,
+  mobile file-to-detail navigation, and complete copy in all 11 locales.
+- Prevented the generic locale pass from re-translating Traditional Chinese
+  chrome, eliminating mixed strings such as `work階段`, `五min`, and
+  `MorePROJECT操作`; the fully localized setup guide is now isolated from the
+  generic DOM translator.
+- Added bounded, automatically saved composer drafts scoped by device and
+  session, so switching conversations restores each draft independently instead
+  of carrying one prompt into another chat.
+- Split the mobile setup guide into an independently scrolling content area and
+  a fixed action area, keeping every instruction visible above Continue.
+- Kept the 320px composer inside the viewport by collapsing its inline context
+  numbers to the existing progress ring while retaining full details in the
+  accessible usage popover.
+
 ## 2.2.5
 
 - Fixed chat image enlarging: tapping or clicking a chat image never opened
