@@ -22,10 +22,23 @@ test("deployment templates do not contain a committed token", () => {
   }
 });
 
-test("service worker never intercepts API or relay requests", () => {
+test("service worker keeps local Mermaid offline and never intercepts API or relay requests", () => {
   const sw = fs.readFileSync(path.join(root, "public", "sw.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const httpUtils = fs.readFileSync(path.join(root, "server", "http-utils.js"), "utf8");
+  const release = fs.readFileSync(path.join(root, ".github", "workflows", "release.yml"), "utf8");
+  const mermaid = fs.statSync(path.join(root, "public", "vendor", "mermaid.min.js"));
   assert.ok(sw.includes('url.pathname.startsWith("/api/")'));
   assert.ok(sw.includes('url.pathname.startsWith("/r/")'));
+  assert.match(sw, /\/vendor\/mermaid\.min\.js/);
+  assert.match(app, /script\.src = "\/vendor\/mermaid\.min\.js"/);
+  assert.ok(mermaid.size > 1_000_000, "the Mermaid bundle is vendored");
+  assert.doesNotMatch(app, /jsdelivr/);
+  assert.doesNotMatch(httpUtils, /jsdelivr/);
+  assert.match(release, /id-token: write/);
+  assert.match(release, /attestations: write/);
+  assert.match(release, /actions\/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be/);
+  assert.match(release, /subject-path:/);
 });
 
 test("Pi Harbor ships its own Terminal Dock brand mark", () => {

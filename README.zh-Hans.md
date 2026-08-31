@@ -29,6 +29,10 @@ cat ~/.config/pi-harbor/token
 
 在主机本机的浏览器首次打开 Pi Harbor 时，会提供类似冷钱包的一次性密钥揭示导览：密钥只在 loopback 连接上显示——绝不会通过 Tailscale Serve、代理或其他设备——并在你完成两项确认后永远不再出现。其他设备一律使用已保存的密钥或 token 文件。
 
+## 独立访问令牌
+
+如果一台电脑由多人或多台设备使用，可在 **Settings → Access tokens** 中使用安装主令牌创建带标签的独立令牌。令牌只显示一次，可以单独撤销，服务器只在 `~/.config/pi-harbor/tokens.json` 中保存 SHA-256 哈希（权限 `600`）。它们仍是主机级凭据，不会创建独立的 Pi 账号或项目权限。
+
 ## 多台电脑
 
 每台电脑都运行自己的 Pi Harbor 实例。在每台额外电脑上安装并启动 Pi Harbor，然后在 **Settings → Devices → Add device** 添加 Tailscale 或 HTTPS 地址。手动输入网址仍是旧版共享 Web token 路径，要求两台主机使用相同 token。更推荐使用五分钟有效、只能使用一次的 `PIHARBOR3` 配对码：确认候选设备资料后，会创建独立且可撤销的对等凭证，不会把共享 token 发给候选地址。可在设备设置中查看并撤销已授权设备，撤销会立即生效。Pi Harbor 2.2 可接受 2.1.2 主机的 `PIHARBOR2` 配对码；旧客户端必须先更新才能使用 `PIHARBOR3`。不要将公共 3140 端口暴露给不受信任的网络。

@@ -1,7 +1,7 @@
-/* pi-harbor v2.3.4 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.4.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.3.4";
+const CLIENT_APP_VERSION = "2.4.0";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -72,6 +72,10 @@ const el = {
   messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"),
   contextDashboard: $("context-dashboard"), contextProgress: $("context-progress"), contextProgressFill: $("context-progress-fill"),
   contextInfo: $("context-info"), contextPopover: $("context-popover"),
+  tokenAdd: $("token-add"), tokenCreateRow: $("token-create-row"), tokenLabel: $("token-label"),
+  tokenCreate: $("token-create"), tokenCreateCancel: $("token-create-cancel"), tokenList: $("token-list"),
+  tokenFormError: $("token-form-error"), tokenNewRow: $("token-new-row"), tokenNewValueText: $("token-new-value-text"),
+  tokenNewCopy: $("token-new-copy"), tokenNewDone: $("token-new-done"),
   contextUsed: $("context-used"), contextCapacity: $("context-capacity"), contextPercent: $("context-percent"),
   contextInput: $("context-input"), contextOutput: $("context-output"), contextCacheHit: $("context-cache-hit"),
   contextCacheHitPercent: $("context-cache-hit-percent"), contextCacheWrite: $("context-cache-write"),
@@ -749,6 +753,10 @@ function switchMachine(id, silent) {
   currentSessionFile = null;
   currentSessionCwd = null;
   sessionsCache = [];
+  tokenLoadSequence += 1;
+  tokenRows = null;
+  tokenRowsLoading = false;
+  renderTokenList();
   resetComposerSummary();
   updateNewProjectAffordance();
   temporarySessionCount = 0;
@@ -813,6 +821,167 @@ async function logout() {
   location.reload();
 }
 el.btnLogout.addEventListener("click", logout);
+
+// ===========================================================================
+// Access tokens（每設備獨立令牌）
+// ===========================================================================
+
+let tokenRows = null;
+let tokenRowsLoading = false;
+let tokenLoadSequence = 0;
+let tokenNewValue = "";
+
+function setTokenFormError(message = "") {
+  if (!el.tokenFormError) return;
+  el.tokenFormError.textContent = message;
+  el.tokenFormError.classList.toggle("hidden", !message);
+}
+
+function setTokenNewRow(visible) {
+  el.tokenNewRow?.classList.toggle("hidden", !visible);
+  if (!visible) {
+    tokenNewValue = "";
+    if (el.tokenNewValueText) el.tokenNewValueText.textContent = "";
+  }
+}
+
+function tokenDateText(value) {
+  if (!value) return tKey("tokens.neverUsed");
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+  try {
+    return new Intl.DateTimeFormat(window.piI18n?.getLocale?.() || settings.locale || "en", {
+      dateStyle: "medium", timeStyle: "short",
+    }).format(date);
+  } catch { return value; }
+}
+
+function renderTokenList() {
+  const list = el.tokenList;
+  if (!list) return;
+  list.innerHTML = "";
+  if (tokenRowsLoading) {
+    const note = document.createElement("p");
+    note.className = "settings-note";
+    note.textContent = tKey("tokens.loading");
+    list.appendChild(note);
+    return;
+  }
+  if (!tokenRows) {
+    const note = document.createElement("p");
+    note.className = "settings-note error-text";
+    note.textContent = tKey("tokens.error");
+    list.appendChild(note);
+    return;
+  }
+  if (!tokenRows.length) {
+    const note = document.createElement("p");
+    note.className = "settings-note";
+    note.textContent = tKey("tokens.empty");
+    list.appendChild(note);
+    return;
+  }
+  for (const row of tokenRows) {
+    const line = document.createElement("div");
+    line.className = "token-row";
+    const copy = document.createElement("div");
+    copy.className = "token-row-copy";
+    const name = document.createElement("strong");
+    name.textContent = row.label;
+    const detail = document.createElement("small");
+    const created = tKey("tokens.created", { date: tokenDateText(row.createdAt) });
+    const lastUsed = row.lastUsedAt
+      ? tKey("tokens.lastUsed", { date: tokenDateText(row.lastUsedAt) })
+      : tKey("tokens.neverUsed");
+    detail.textContent = `${created} · ${lastUsed}`;
+    copy.append(name, detail);
+    const revoke = document.createElement("button");
+    revoke.type = "button";
+    revoke.className = "btn ghost danger-text";
+    revoke.textContent = tKey("tokens.revoke");
+    revoke.addEventListener("click", () => void revokeToken(row, revoke));
+    line.append(copy, revoke);
+    list.appendChild(line);
+  }
+}
+
+async function loadTokens(force = false) {
+  if (!el.tokenList) return;
+  if (tokenRowsLoading || (tokenRows && !force)) { renderTokenList(); return; }
+  const request = ++tokenLoadSequence;
+  const baseAtStart = apiBase;
+  const selectedAtStart = selectedId;
+  tokenRowsLoading = true;
+  renderTokenList();
+  try {
+    const data = await api("/api/access-tokens");
+    if (request !== tokenLoadSequence || baseAtStart !== apiBase || selectedAtStart !== selectedId) return;
+    tokenRows = Array.isArray(data?.tokens) ? data.tokens : [];
+  } catch {
+    if (request !== tokenLoadSequence || baseAtStart !== apiBase || selectedAtStart !== selectedId) return;
+    tokenRows = null;
+  }
+  if (request !== tokenLoadSequence) return;
+  tokenRowsLoading = false;
+  renderTokenList();
+}
+
+async function createToken() {
+  if (!el.tokenCreate) return;
+  const label = String(el.tokenLabel?.value || "").trim();
+  if (!label) { setTokenFormError(tKey("tokens.labelRequired")); return; }
+  el.tokenCreate.disabled = true;
+  setTokenFormError();
+  try {
+    const result = await post("/api/access-tokens/create", { label });
+    tokenNewValue = String(result?.token || "");
+    if (el.tokenNewValueText) el.tokenNewValueText.textContent = tokenNewValue;
+    if (el.tokenLabel) el.tokenLabel.value = "";
+    el.tokenCreateRow?.classList.add("hidden");
+    setTokenNewRow(true);
+    await loadTokens(true);
+  } catch (error) {
+    setTokenFormError(error.status === 409 ? tKey("tokens.limit") : (error.message || tKey("tokens.error")));
+  } finally {
+    el.tokenCreate.disabled = false;
+  }
+}
+
+async function revokeToken(row, button) {
+  if (!row?.id) return;
+  if (!window.confirm(tKey("tokens.revokeConfirm", { label: row.label }))) return;
+  button.disabled = true;
+  try {
+    await post("/api/access-tokens/revoke", { id: row.id });
+    toast(tKey("tokens.revoked"));
+    await loadTokens(true);
+  } catch (error) {
+    button.disabled = false;
+    setTokenFormError(error.message || tKey("tokens.error"));
+  }
+}
+
+el.tokenAdd?.addEventListener("click", () => {
+  setTokenNewRow(false);
+  el.tokenCreateRow?.classList.toggle("hidden");
+  if (!el.tokenCreateRow?.classList.contains("hidden")) el.tokenLabel?.focus();
+});
+el.tokenCreateCancel?.addEventListener("click", () => {
+  el.tokenCreateRow?.classList.add("hidden");
+  setTokenFormError();
+});
+el.tokenCreate?.addEventListener("click", () => void createToken());
+el.tokenLabel?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); void createToken(); }
+});
+el.tokenNewCopy?.addEventListener("click", async () => {
+  try { await copyText(tokenNewValue); toast(tKey("tokens.copied")); }
+  catch { toast(tKey("tokens.copyFailed"), true); }
+});
+el.tokenNewDone?.addEventListener("click", () => {
+  tokenNewValue = "";
+  setTokenNewRow(false);
+});
 
 // ===========================================================================
 // 視圖切換
@@ -890,6 +1059,7 @@ function hideSettings() {
 }
 
 function showSettings() {
+  void loadTokens(true);
   resetSettingsOverlay();
   el.viewModelSettings.classList.add("hidden");
   el.viewList.classList.remove("hidden");
@@ -4211,13 +4381,28 @@ el.thinkingSelect.addEventListener("change", () => changeThinkingLevel(el.thinki
 
 const HAS_MD = typeof marked !== "undefined" && typeof DOMPurify !== "undefined";
 let mermaidReady = false, mermaidLoading = null;
+// Mermaid ships inside the app (public/vendor/mermaid.min.js): diagram sources
+// never leave the machine and rendering works fully offline. The UMD build is
+// injected lazily on first diagram so the initial page load stays light.
 function ensureMermaid() {
   if (mermaidReady || mermaidLoading) return mermaidLoading;
-  mermaidLoading = import("https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs")
-    .then((mod) => {
-      mod.default.initialize({ securityLevel: "strict", startOnLoad: false, theme: document.documentElement.dataset.theme === "dark" || (settings.theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "neutral", fontFamily: "-apple-system, sans-serif" });
+  mermaidLoading = new Promise((resolve) => {
+    const existing = window.mermaid;
+    if (existing) { resolve(existing); return; }
+    const script = document.createElement("script");
+    // Keep the request identical to the service-worker pre-cache entry; the
+    // release-specific cache name already provides asset versioning.
+    script.src = "/vendor/mermaid.min.js";
+    script.async = true;
+    script.onload = () => resolve(window.mermaid || null);
+    script.onerror = () => resolve(null);
+    document.head.appendChild(script);
+  })
+    .then((mermaid) => {
+      if (!mermaid) { mermaidLoading = null; return null; }
+      mermaid.initialize({ securityLevel: "strict", startOnLoad: false, theme: document.documentElement.dataset.theme === "dark" || (settings.theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "neutral", fontFamily: "-apple-system, sans-serif" });
       mermaidReady = true;
-      return mod.default;
+      return mermaid;
     })
     .catch(() => { mermaidLoading = null; return null; });
   return mermaidLoading;
@@ -6387,6 +6572,7 @@ el.setLocale?.addEventListener("change", () => {
   renderSettings();
   renderSessionList(el.search?.value || "");
   renderMachineSwitch();
+  renderTokenList();
   updateComposerSummary();
   renderContextDashboard();
   renderProjectChangesChrome();

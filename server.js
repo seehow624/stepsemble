@@ -45,7 +45,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.3.4";
+const APP_VERSION = "2.4.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -840,6 +840,7 @@ let TOKEN = loadToken();
 let TOKEN_HASH = "";
 if (TOKEN) {
   TOKEN_HASH = sha256(TOKEN);
+
 } else {
   TOKEN = crypto.randomBytes(32).toString("hex");
   TOKEN_HASH = sha256(TOKEN);
@@ -848,6 +849,54 @@ if (TOKEN) {
     : "[pi-harbor] could not create ~/.config/pi-harbor/token; using an ephemeral token that is not shown in logs");
 }
 
+// ---------------------------------------------------------------------------
+// Per-device API tokens: additional independent credentials that can be
+// issued and revoked without touching the installer's master token. The
+// master token always remains valid; stored entries keep only SHA-256 hashes.
+// ---------------------------------------------------------------------------
+
+const API_TOKENS_FILE = path.join(CONFIG_DIR, "tokens.json");
+const API_TOKENS_MAX = 20;
+
+function loadApiTokens() {
+  try {
+    const stat = fs.lstatSync(API_TOKENS_FILE);
+    if (!stat.isFile() || (process.platform !== "win32" && (stat.mode & 0o077))) return [];
+    const parsed = JSON.parse(fs.readFileSync(API_TOKENS_FILE, "utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+    const rows = Array.isArray(parsed.tokens) ? parsed.tokens : [];
+    return rows
+      .filter((row) => row && typeof row === "object"
+        && typeof row.id === "string" && /^[0-9a-f]{8,32}$/.test(row.id)
+        && typeof row.hash === "string" && /^[0-9a-f]{64}$/.test(row.hash)
+        && typeof row.label === "string" && row.label.length <= 40)
+      .slice(0, API_TOKENS_MAX)
+      .map((row) => ({
+        id: row.id,
+        hash: row.hash,
+        label: row.label,
+        createdAt: typeof row.createdAt === "string" ? row.createdAt : null,
+        lastUsedAt: typeof row.lastUsedAt === "string" ? row.lastUsedAt : null,
+      }));
+  } catch { return []; }
+}
+
+let apiTokens = loadApiTokens();
+
+function saveApiTokens() {
+  try { fs.chmodSync(CONFIG_DIR, 0o700); } catch {}
+  writePrivateJson(API_TOKENS_FILE, { tokens: apiTokens }, "access tokens");
+}
+
+function isAuthorizedTokenHash(candidate) {
+  if (!candidate) return false;
+  if (safeEqual(candidate, TOKEN_HASH)) return true;
+  return apiTokens.some((row) => safeEqual(candidate, row.hash));
+}
+
+function requestUsesMasterToken(req) {
+  return safeEqual(getCookie(req, "pi_harbor") || "", TOKEN_HASH);
+}
 // ---- 首次啟用的存取密鑰導覽（冷錢包式：只在本機、只顯示一次）----
 // 信任邊界不變：token 本來就能被本機使用者讀取（token 檔案權限 600）。
 // 這個導覽只是把「去終端機 cat」變成一次有教育意義的流程，且嚴格限制：
@@ -2782,7 +2831,7 @@ const {
   getBearerToken, authenticate, readBody, readJSON,
 } = createHttpUtils({
   secureCookie: SECURE_COOKIE,
-  isTokenValid: (candidate) => safeEqual(candidate, TOKEN_HASH),
+  isTokenValid: (candidate) => isAuthorizedTokenHash(candidate),
   isPeerCredentialValid: (candidate) => deviceTrust.authenticatePeerCredential(candidate),
 });
 
@@ -2809,9 +2858,15 @@ const server = http.createServer(async (req, res) => {
       }
       const body = await readJSON(req, 4 * 1024);
       const candidate = typeof body.token === "string" && body.token.length <= 512 ? body.token : "";
-      if (safeEqual(sha256(candidate), TOKEN_HASH)) {
+      const candidateHash = sha256(candidate);
+      if (isAuthorizedTokenHash(candidateHash)) {
         loginAttempts.delete(key);
-        send(res, 204, "", { "Set-Cookie": `pi_harbor=${TOKEN_HASH}${cookieSuffix(60 * 60 * 24 * 30)}` });
+        const issued = apiTokens.find((row) => safeEqual(candidateHash, row.hash));
+        if (issued) {
+          issued.lastUsedAt = new Date().toISOString();
+          try { saveApiTokens(); } catch { console.warn("[pi-harbor] could not update token last-used time"); }
+        }
+        send(res, 204, "", { "Set-Cookie": `pi_harbor=${candidateHash}${cookieSuffix(60 * 60 * 24 * 30)}` });
       } else {
         state.failures++;
         sendJSON(res, 401, { error: "Invalid token" });
@@ -3163,6 +3218,55 @@ const server = http.createServer(async (req, res) => {
         } catch (error) {
           sendJSON(res, error.statusCode || 409, { error: error.message || "could not read project diff" });
         }
+        return;
+      }
+
+      if (p === "/api/access-tokens" || p === "/api/access-tokens/create" || p === "/api/access-tokens/revoke") {
+        if (auth.mode !== "browser" || !requestUsesMasterToken(req)) {
+          sendJSON(res, 403, { error: "installer token required" });
+          return;
+        }
+      }
+
+      if (p === "/api/access-tokens" && req.method === "GET") {
+        sendJSON(res, 200, { tokens: apiTokens.map(({ id, label, createdAt, lastUsedAt }) => ({ id, label, createdAt, lastUsedAt })) });
+        return;
+      }
+
+      if (p === "/api/access-tokens/create" && req.method === "POST") {
+        const body = await readJSON(req, 2 * 1024);
+        const label = typeof body.label === "string" ? body.label.trim().slice(0, 40) : "";
+        if (!label) { sendJSON(res, 400, { error: "label required" }); return; }
+        if (apiTokens.length >= API_TOKENS_MAX) { sendJSON(res, 409, { error: "token limit reached" }); return; }
+        let token;
+        let hash;
+        do {
+          token = crypto.randomBytes(32).toString("hex");
+          hash = sha256(token);
+        } while (apiTokens.some((entry) => entry.id === hash.slice(0, 12) || entry.hash === hash));
+        const row = { id: hash.slice(0, 12), hash, label, createdAt: new Date().toISOString(), lastUsedAt: null };
+        apiTokens.push(row);
+        try { saveApiTokens(); } catch (e) {
+          apiTokens = apiTokens.filter((entry) => entry !== row);
+          sendJSON(res, 500, { error: "could not store token" });
+          return;
+        }
+        sendJSON(res, 201, { id: row.id, label: row.label, createdAt: row.createdAt, token });
+        return;
+      }
+
+      if (p === "/api/access-tokens/revoke" && req.method === "POST") {
+        const body = await readJSON(req, 2 * 1024);
+        const id = typeof body.id === "string" ? body.id : "";
+        const previous = apiTokens;
+        apiTokens = apiTokens.filter((row) => row.id !== id);
+        if (apiTokens.length === previous.length) { sendJSON(res, 404, { error: "token not found" }); return; }
+        try { saveApiTokens(); } catch (e) {
+          apiTokens = previous;
+          sendJSON(res, 500, { error: "could not store tokens" });
+          return;
+        }
+        send(res, 204, "");
         return;
       }
 

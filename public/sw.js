@@ -1,20 +1,21 @@
-const CACHE_NAME = "pi-harbor-shell-v2.3.4";
+const CACHE_NAME = "pi-harbor-shell-v2.4.0";
 const SHELL = [
   "/",
   "/index.html",
-  "/style.css?v=2.3.4",
-  "/i18n.js?v=2.3.4",
-  "/modules/app-foundation.js?v=2.3.4",
-  "/modules/session-utils.js?v=2.3.4",
-  "/modules/context-usage.js?v=2.3.4",
-  "/app.js?v=2.3.4",
-  "/manifest.webmanifest?v=2.3.4",
-  "/pi-logo.svg?v=2.3.4",
+  "/style.css?v=2.4.0",
+  "/i18n.js?v=2.4.0",
+  "/modules/app-foundation.js?v=2.4.0",
+  "/modules/session-utils.js?v=2.4.0",
+  "/modules/context-usage.js?v=2.4.0",
+  "/app.js?v=2.4.0",
+  "/manifest.webmanifest?v=2.4.0",
+  "/pi-logo.svg?v=2.4.0",
   "/pi-glyph.svg",
-  "/icon-180.png?v=2.3.4",
-  "/icon-512.png?v=2.3.4",
+  "/icon-180.png?v=2.4.0",
+  "/icon-512.png?v=2.4.0",
   "/vendor/marked.min.js",
   "/vendor/purify.min.js",
+  "/vendor/mermaid.min.js",
 ];
 
 self.addEventListener("install", (event) => {

@@ -80,6 +80,15 @@ Tailscale Serve, a proxy, or a remote device — and only until both
 acknowledgements are saved. Afterwards the reveal never appears again; other
 devices always use the recorded key or the token file.
 
+### Additional access tokens
+
+For a host shared by multiple people or devices, open **Settings → Access tokens**
+with the installer/master token to issue a labelled token. Each token is shown
+only once, can be revoked independently, and is stored only as a SHA-256 hash in
+`~/.config/pi-harbor/tokens.json` (mode `600`). These are still host-level
+credentials with the same access as the master token; they do not create
+separate Pi accounts or project permissions.
+
 ## Secure remote access
 
 Keep the Node port private. Use Tailscale Serve or another authenticated HTTPS
@@ -127,7 +136,7 @@ revealed from the session list when needed.
 - Collapsed tool summaries with per-tool details, token use, and cost.
 - Image paste/upload, inline preview, and lightbox viewing.
 - Searchable provider catalog, account sign-in, API keys, custom endpoints,
-  model visibility, and region-specific services.
+  model visibility, region-specific services, and optional independent access tokens.
 - Multiple-device aliases, health checks, port settings, external-drive folder
   browsing, private HTTPS relay, independent peer credentials with revocation,
   and one-time pairing.
@@ -150,7 +159,8 @@ credentials, and project folders are preserved in both choices.
 | --- | --- |
 | `~/.local/share/pi-harbor` | Application release |
 | `~/.local/share/pi-harbor-bin` | Updater and uninstaller |
-| `~/.config/pi-harbor` | Web token, device-trust grants, and update preferences |
+| `~/.config/pi-harbor` | Web token, hash-only access tokens, device-trust grants, and update preferences |
+| `~/.config/pi-harbor/tokens.json` | Additional access-token hashes; mode `600` |
 | `~/.local/state/pi-harbor` | Local service logs and migration state |
 | `~/.pi/agent` | Pi-owned sessions and credentials; not owned by Pi Harbor |
 
@@ -168,8 +178,10 @@ Pi Harbor has no runtime npm dependencies. It uses a small Node server and a
 buildless PWA so self-hosted upgrades remain easy to inspect and recover. Peer
 credentials are stored in the owner-only `device-trust.json` file; only hashes
 of incoming credentials are persisted, while outgoing credentials are used
-only by the server relay. Release signing remains future work. The runtime
-Mermaid CDN is a known offline/privacy follow-up.
+only by the server relay. Optional browser access tokens are hash-only in
+`tokens.json` and can be revoked by the installer token. Mermaid is bundled
+locally and loaded lazily. Releases include a SHA-256 checksum and a GitHub
+OIDC artifact attestation; verify the latter with `gh attestation verify`.
 
 ```bash
 npm run check

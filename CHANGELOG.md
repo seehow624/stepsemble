@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.4.0
+
+- Vendored Mermaid 11.12.1 and load it lazily from the Pi Harbor host, so
+  diagram sources stay private and Mermaid rendering works offline. The CSP
+  no longer permits jsdelivr; upstream license notices are included beside
+  the bundle.
+- Added optional independent browser access tokens in Settings → Access
+  tokens. The installer/master token can issue labelled tokens, each is shown
+  only once and can be revoked independently, and the server stores only
+  SHA-256 hashes in a 0600 token store. Issued tokens retain the existing
+  single-user host access model; they are not separate Pi accounts.
+- Release workflows now publish GitHub OIDC artifact attestations for the
+  archive and checksum in addition to the existing SHA-256 verification;
+  no long-lived signing private key is stored in the repository.
+
 ## 2.3.4
 
 - Removed the provider-account quota feature entirely (per feedback): the

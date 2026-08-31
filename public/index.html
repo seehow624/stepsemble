@@ -6,10 +6,10 @@
 <title>Pi Harbor</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=2.3.4">
-<link rel="icon" href="/pi-logo.svg?v=2.3.4" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-180.png?v=2.3.4">
-<link rel="stylesheet" href="/style.css?v=2.3.4">
+<link rel="manifest" href="/manifest.webmanifest?v=2.4.0">
+<link rel="icon" href="/pi-logo.svg?v=2.4.0" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png?v=2.4.0">
+<link rel="stylesheet" href="/style.css?v=2.4.0">
 </head>
 <body>
 
@@ -223,6 +223,29 @@
       </section>
 
       <section class="settings-group">
+        <div class="settings-group-heading">
+          <h3 class="group-title" data-i18n-key="tokens.title">Access tokens</h3>
+          <button id="token-add" class="icon-button-small" type="button" data-i18n-title-key="tokens.create" data-i18n-aria-key="tokens.create" title="Create token" aria-label="Create token"><svg class="icon"><use href="#i-plus"></use></svg></button>
+        </div>
+        <p class="settings-note" data-i18n-key="tokens.note">Issue one token per device or person. Revoking a token ends its access immediately; the installer token always keeps working.</p>
+        <div id="token-create-row" class="token-create-row hidden">
+          <input id="token-label" type="text" maxlength="40" autocomplete="off" data-i18n-placeholder-key="tokens.labelPlaceholder" placeholder="e.g. MacBook">
+          <button id="token-create" class="btn primary" type="button" data-i18n-key="tokens.create">Create</button>
+          <button id="token-create-cancel" class="btn ghost" type="button" data-i18n-key="tokens.cancel">Cancel</button>
+        </div>
+        <p id="token-form-error" class="form-error hidden" role="alert"></p>
+        <div id="token-new-row" class="token-new-row hidden">
+          <p class="settings-note" data-i18n-key="tokens.showOnce">Copy this token now — it will not be shown again.</p>
+          <div class="token-new-value">
+            <code id="token-new-value-text" class="mono" data-i18n-ignore></code>
+            <button id="token-new-copy" class="btn ghost" type="button" data-i18n-key="tokens.copy">Copy</button>
+            <button id="token-new-done" class="btn primary" type="button" data-i18n-key="tokens.done">Done</button>
+          </div>
+        </div>
+        <div id="token-list" class="token-list"></div>
+      </section>
+
+      <section class="settings-group">
         <h3 class="group-title">Connection</h3>
         <div class="settings-row">
           <span><strong>This device</strong><small id="set-machine-name">Loading…</small></span>
@@ -301,7 +324,7 @@
         <h3 class="group-title">About</h3>
         <div class="settings-row">
           <span><strong>Pi Harbor</strong><small>Mobile-first remote workspace for Pi</small></span>
-          <span class="settings-value" id="set-app-version">v2.3.4</span>
+          <span class="settings-value" id="set-app-version">v2.4.0</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -714,10 +737,10 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=2.3.4"></script>
-<script src="/modules/app-foundation.js?v=2.3.4"></script>
-<script src="/modules/session-utils.js?v=2.3.4"></script>
-<script src="/modules/context-usage.js?v=2.3.4"></script>
-<script src="/app.js?v=2.3.4"></script>
+<script src="/i18n.js?v=2.4.0"></script>
+<script src="/modules/app-foundation.js?v=2.4.0"></script>
+<script src="/modules/session-utils.js?v=2.4.0"></script>
+<script src="/modules/context-usage.js?v=2.4.0"></script>
+<script src="/app.js?v=2.4.0"></script>
 </body>
 </html>

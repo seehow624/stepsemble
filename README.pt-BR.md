@@ -24,6 +24,10 @@ Cole o token na tela de login. Em outro dispositivo, obtenha-o com segurança ne
 
 Ao abrir o Pi Harbor pela primeira vez em um navegador no próprio computador anfitrião, é oferecida uma revelação única da chave privada, no estilo de uma carteira de hardware, antes do login. Ela é exibida apenas em conexões loopback — nunca via Tailscale Serve, proxy ou outro dispositivo — e some para sempre após as duas confirmações serem salvas. Outros dispositivos sempre usam a chave registrada ou o arquivo de token.
 
+### Tokens de acesso adicionais
+
+Se um host for compartilhado por várias pessoas ou dispositivos, abra **Settings → Access tokens** usando o token mestre da instalação para emitir tokens com rótulo. Cada token é mostrado apenas uma vez, pode ser revogado separadamente e somente seu hash SHA-256 é salvo em `~/.config/pi-harbor/tokens.json` (modo `600`). Isso não cria contas Pi nem permissões de projeto separadas.
+
 Instale e execute o Pi Harbor em cada computador e adicione um endereço Tailscale ou HTTPS em **Settings → Devices → Add device**. A entrada manual de URL continua no caminho legado com token Web compartilhado e exige o mesmo token nos dois hosts. Um código `PIHARBOR3` de uso único, válido por cinco minutos, cria após a revisão do candidato uma credencial de par independente e revogável; o token compartilhado não é enviado à URL candidata. Veja e revogue dispositivos autorizados nas configurações, com efeito imediato. O Pi Harbor 2.2 aceita códigos `PIHARBOR2` de hosts 2.1.2; clientes antigos precisam atualizar antes de usar `PIHARBOR3`. Não exponha a porta 3140. Em **Settings → Connection → Models & providers**, escolha um serviço do catálogo, conta/OAuth, chave API, serviço local ou provedor personalizado e selecione os modelos visíveis. Os modelos launchd em `deploy/` permitem atualizações automáticas.
 
 ```bash

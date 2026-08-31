@@ -34,7 +34,7 @@ function createHttpUtils({ secureCookie = false, isTokenValid = () => false, isP
       "Cross-Origin-Resource-Policy": "same-origin",
       "X-Permitted-Cross-Domain-Policies": "none",
       ...(secureCookie ? { "Strict-Transport-Security": "max-age=31536000; includeSubDomains" } : {}),
-      "Content-Security-Policy": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+      "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
       ...headers,
     };
     if (typeof body === "string" || Buffer.isBuffer(body)) {

@@ -1,4 +1,4 @@
-/* pi-harbor v2.3.4 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.4.0 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -3723,3 +3723,70 @@ html.reduced-motion #view-chat .context-ring-fill { transition: none; }
 
 /* The composer dashboard is the single authoritative session-usage summary. */
 #view-chat .session-usage { display: none !important; }
+
+/* v2.4 — per-device access tokens (Settings) */
+#view-settings .token-create-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 2px;
+}
+#view-settings .token-create-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 0.5px solid var(--line);
+  border-radius: 10px;
+  background: var(--milk);
+  color: var(--ink);
+}
+#view-settings .token-new-row {
+  margin: 10px 0 4px;
+  padding: 11px 12px;
+  border: 1px solid var(--warn);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+}
+#view-settings .token-new-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+#view-settings .token-new-value code {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: .72rem;
+}
+#view-settings .token-list { margin-top: 4px; }
+#view-settings .token-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 6px 2px;
+  border-bottom: 0.5px solid var(--line);
+}
+#view-settings .token-row:last-child { border-bottom: 0; }
+#view-settings .token-row-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+#view-settings .token-row-copy strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: .82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#view-settings .token-row-copy small {
+  color: var(--pine-soft);
+  font-size: .68rem;
+}

@@ -24,6 +24,10 @@ Fügen Sie das Token auf der Anmeldeseite ein. Rufen Sie es auf einem anderen Ge
 
 Wenn Pi Harbor zum ersten Mal in einem Browser auf dem Host-Computer selbst geöffnet wird, bietet eine Einmal-Anzeige im Hardware-Wallet-Stil den privaten Zugangsschlüssel vor der Anmeldung an. Er wird nur über Loopback-Verbindungen angezeigt — niemals über Tailscale Serve, einen Proxy oder ein entferntes Gerät — und verschwindet dauerhaft, nachdem beide Bestätigungen gespeichert wurden. Andere Geräte verwenden stets den gesicherten Schlüssel oder die Token-Datei.
 
+### Zusätzliche Zugriffstoken
+
+Wenn ein Host von mehreren Personen oder Geräten verwendet wird, öffnen Sie mit dem Installations-/Master-Token **Settings → Access tokens**, um beschriftete Token auszustellen. Ein Token wird nur einmal angezeigt, kann einzeln widerrufen werden und wird nur als SHA-256-Hash in `~/.config/pi-harbor/tokens.json` (Modus `600`) gespeichert. Dadurch entstehen keine separaten Pi-Konten oder Projektberechtigungen.
+
 Installieren und starten Sie Pi Harbor auf jedem Computer und fügen Sie unter **Settings → Devices → Add device** eine Tailscale- oder HTTPS-Adresse hinzu. Die manuelle URL-Eingabe bleibt der alte Weg mit gemeinsamem Web-Token und erfordert dasselbe Token auf beiden Hosts. Ein fünf Minuten gültiger, einmaliger `PIHARBOR3`-Kopplungscode erstellt nach der Prüfung des Ziels eine unabhängige, widerrufbare Peer-Anmeldung; das gemeinsame Token wird nicht an die Ziel-URL gesendet. Autorisierte Geräte lassen sich in den Geräteeinstellungen anzeigen und sofort widerrufen. Pi Harbor 2.2 akzeptiert `PIHARBOR2`-Codes von 2.1.2-Hosts; ältere Clients müssen vor `PIHARBOR3` aktualisiert werden. Geben Sie Port 3140 nicht frei. Unter **Settings → Connection → Models & providers** können Sie einen Katalogdienst, Konto/OAuth, einen API-Schlüssel, einen lokalen Dienst oder einen benutzerdefinierten Anbieter wählen und anschließend sichtbare Modelle auswählen. Die launchd-Vorlagen in `deploy/` unterstützen automatische Updates.
 
 ```bash

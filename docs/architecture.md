@@ -11,7 +11,8 @@ simple.
 server.js
   ├─ Pi/session/provider/device behavior and route table
   ├─ server/device-trust.js  one-time pairing, peer credentials, and atomic grants
-  └─ server/http-utils.js  HTTP headers, cookies, auth modes, JSON bodies, SSE framing
+  ├─ server/http-utils.js  HTTP headers, cookies, auth modes, JSON bodies, SSE framing
+  └─ access-token store     optional per-device/person browser tokens (hash-only)
 
 public/index.html
   ├─ public/i18n.js
@@ -47,10 +48,16 @@ explicit input/output boundary before adding more state to the controllers.
 - `PIHARBOR2` remains accepted when a v2.2 host joins a v2.1.2 offer through
   the legacy HMAC path; it receives no dedicated credential. An older client
   cannot silently downgrade a `PIHARBOR3` offer and must update.
-- The updater performs archive-name/type preflight before extraction. Release
-  signing is intentionally documented future work; the current release check
-  remains checksum-based. Mermaid is still loaded from its runtime CDN, a
-  known offline/privacy follow-up.
+- Optional access tokens are managed only by the installer/master token from
+  Settings. The server stores only hashes in `~/.config/pi-harbor/tokens.json`
+  with mode `0600`; revocation invalidates existing browser cookies at the
+  next authenticated request. They are host credentials, not multi-user Pi
+  accounts or per-project ACLs.
+- The updater performs archive-name/type preflight before extraction. Releases
+  publish a SHA-256 checksum plus a GitHub OIDC artifact attestation; the local
+  updater still requires only the checksum. Mermaid is bundled in
+  `public/vendor/mermaid.min.js` and loaded lazily, so diagram sources stay
+  local and offline rendering does not depend on a CDN.
 
 ## Migration path
 

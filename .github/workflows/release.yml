@@ -6,6 +6,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -25,10 +27,19 @@ jobs:
           npm run check
           npm test
       - name: Build verified source archive
+        id: archive
         run: |
           archive="pi-harbor-${GITHUB_REF_NAME}.tar.gz"
           git archive --format=tar --prefix="pi-harbor-${GITHUB_REF_NAME}/" "$GITHUB_REF_NAME" | gzip -9 > "$archive"
           shasum -a 256 "$archive" > "$archive.sha256"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "checksum=$archive.sha256" >> "$GITHUB_OUTPUT"
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: |
+            ${{ steps.archive.outputs.archive }}
+            ${{ steps.archive.outputs.checksum }}
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
