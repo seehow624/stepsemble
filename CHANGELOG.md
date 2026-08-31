@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.4.1
+
+- Fixed a localization feedback loop introduced by the new access-token
+  controls. Keyed `title`, `aria-label`, and `placeholder` attributes are now
+  rewritten only when their translated value changes, so opening Pi Harbor no
+  longer pins the browser renderer at 100% CPU.
+
 ## 2.4.0
 
 - Vendored Mermaid 11.12.1 and load it lazily from the Pi Harbor host, so

@@ -28,6 +28,62 @@ function loadLocaleLayer() {
   return context.window.piI18n;
 }
 
+function loadLocaleLayerWithKeyedAttribute() {
+  const attributes = new Map([
+    ["title", "Create token"],
+    ["aria-label", "Create token"],
+  ]);
+  let attributeWrites = 0;
+  const keyedElement = {
+    nodeType: 1,
+    dataset: { i18nTitleKey: "tokens.create", i18nAriaKey: "tokens.create" },
+    children: [],
+    childNodes: [],
+    parentElement: null,
+    closest() { return null; },
+    matches() { return false; },
+    getAttribute(name) { return attributes.get(name) ?? null; },
+    hasAttribute(name) { return attributes.has(name); },
+    setAttribute(name, value) { attributeWrites += 1; attributes.set(name, value); },
+  };
+  const body = {
+    nodeType: 1,
+    matches() { return false; },
+    querySelectorAll() { return [keyedElement]; },
+  };
+  const document = {
+    documentElement: {},
+    body,
+    getElementById() { return null; },
+    createTreeWalker() { return { nextNode() { return null; } }; },
+  };
+  const context = {
+    window: {},
+    document,
+    Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
+    NodeFilter: { SHOW_TEXT: 4 },
+    MutationObserver: class { observe() {} },
+    localStorage: { getItem() { return null; } },
+  };
+  vm.runInNewContext(fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8"), context, {
+    filename: path.join(root, "public", "i18n.js"),
+  });
+  return {
+    i18n: context.window.piI18n,
+    body,
+    get attributeWrites() { return attributeWrites; },
+  };
+}
+
+test("keyed accessibility attributes are idempotent under mutation observation", () => {
+  const layer = loadLocaleLayerWithKeyedAttribute();
+  const writesAfterInitialTranslation = layer.attributeWrites;
+  assert.equal(writesAfterInitialTranslation, 2);
+  layer.i18n.localize(layer.body);
+  layer.i18n.localize(layer.body);
+  assert.equal(layer.attributeWrites, writesAfterInitialTranslation);
+});
+
 test("locale registry has complete keys, matching placeholders, and no accidental CJK leakage", () => {
   const i18n = loadLocaleLayer();
   const audit = i18n.auditLocales();

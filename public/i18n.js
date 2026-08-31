@@ -2199,7 +2199,11 @@
       }
       for (const [attribute, dataName] of [["aria-label", "i18nAriaKey"], ["title", "i18nTitleKey"], ["placeholder", "i18nPlaceholderKey"]]) {
         const attributeKey = item.dataset[dataName];
-        if (attributeKey) item.setAttribute(attribute, tKey(attributeKey));
+        if (!attributeKey) continue;
+        const translated = tKey(attributeKey);
+        // These attributes are observed below. Rewriting an unchanged value
+        // would enqueue the same element forever and pin the renderer at 100%.
+        if (item.getAttribute(attribute) !== translated) item.setAttribute(attribute, translated);
       }
     }
   }
