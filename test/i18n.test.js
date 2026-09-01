@@ -170,6 +170,43 @@ test("update center phrases are translated in every supported locale", () => {
   }
 });
 
+test("resource sync phrases are translated in every supported locale", () => {
+  const i18n = loadLocaleLayer();
+  const keys = [
+    "Resource sync",
+    "Compare resources",
+    "Comparing resources…",
+    "Only on {device}",
+    "Different on each device",
+    "{count} difference(s) found",
+    "{a} on {nameA} · {b} on {nameB}",
+    "Resource comparison needs a newer Pi Harbor on {device}",
+  ];
+  const values = { device: "MacBook Pro", count: 3, a: 2, nameA: "Mac mini", b: 5, nameB: "MacBook Pro" };
+  for (const locale of i18n.locales.map((item) => item.id).filter((id) => id !== "en")) {
+    i18n.setLocale(locale);
+    for (const key of keys) {
+      const text = i18n.t(key, values);
+      assert.notEqual(text, key.replace(/\{(\w+)\}/g, (_, name) => values[name]));
+    }
+    assert.doesNotMatch(i18n.t(keys[0], values), /Resource sync/);
+    assert.doesNotMatch(i18n.t(keys[4], values), /difference/);
+    assert.doesNotMatch(i18n.t(keys[5], values), /Only on /);
+  }
+});
+
+test("thinking-level phrases are translated in every supported locale", () => {
+  const i18n = loadLocaleLayer();
+  const key = "{model} does not support {level} thinking; using {actual}";
+  const values = { model: "GLM", level: "max", actual: "off" };
+  for (const locale of i18n.locales.map((item) => item.id).filter((id) => id !== "en")) {
+    i18n.setLocale(locale);
+    const text = i18n.t(key, values);
+    assert.notEqual(text, key.replace(/\{(\w+)\}/g, (_, name) => values[name]));
+    assert.doesNotMatch(text, /does not support/);
+  }
+});
+
 test("first-login token help is translated in every supported locale", () => {
   const i18n = loadLocaleLayer();
   const keys = [

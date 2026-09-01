@@ -155,6 +155,8 @@ revealed from the session list when needed.
 - Multiple-device aliases, health checks, port settings, external-drive folder
   browsing, private HTTPS relay, independent peer credentials with revocation,
   and one-time pairing.
+- Read-only resource sync: compare the global Pi extensions, skills, and
+  installed packages of any two devices before mirroring them yourself.
 - Ink & Ivory as the default theme, plus eight additional colour systems.
 - Checksum-verified stable updates that wait for active Pi work to finish.
 

@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.5.0
+
+- The session sidebar now keeps itself up to date. A brand-new session
+  appears as soon as its first message is persisted, and settled runs refresh
+  the list, so sub agent sessions and previews no longer wait for a manual
+  reload.
+- The Sub Agent filter row in the sidebar was reworked: a short constant
+  label with a state note ("Hidden by default" / "Showing") and a bare count
+  replace the long bilingual strings, and the card now shares the session
+  rows' inset, radius, and height so it lines up with the project cards.
+- Fixed thinking levels silently resetting to off. Pi clamps the thinking
+  level to what the selected model supports, and models added through the
+  provider editor were saved without the reasoning flag — so every level was
+  clamped to off. The provider form now carries a thinking marker per model
+  and preserves model fields across edits, the composer re-reads the clamped
+  level instead of trusting the request, remembers your last choice, and
+  restores it when a session or model switch drops it. Existing ollama-cloud
+  GLM/Kimi/MiniMax entries on hosts upgraded from earlier releases keep the
+  reasoning flag the editor used to drop.
+- Added read-only resource sync in Settings. Pick any two devices to compare
+  the global Pi extensions, skills, and installed packages on each host, with
+  identical entries collapsed and differences highlighted. The inventory is
+  scan-only (no secrets, no symlink escapes) and installs nothing.
+
 ## 2.4.5
 
 - The model picker now matches the selected model on provider + id instead of

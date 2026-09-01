@@ -1,7 +1,7 @@
-/* pi-harbor v2.4.5 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.5.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.4.5";
+const CLIENT_APP_VERSION = "2.5.0";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -58,7 +58,7 @@ const el = {
   viewList: $("view-list"), viewChat: $("view-chat"), viewSettings: $("view-settings"), viewModelSettings: $("view-model-settings"),
   search: $("search"), btnRefresh: $("btn-refresh"),
   sessionList: $("session-list"), listEmpty: $("list-empty"),
-  temporarySessionFilter: $("temporary-session-filter"), temporarySessionFilterLabel: $("temporary-session-filter-label"),
+  temporarySessionFilter: $("temporary-session-filter"), temporarySessionFilterLabel: $("temporary-session-filter-label"), temporarySessionFilterNote: $("temporary-session-filter-note"),
   temporarySessionCount: $("temporary-session-count"), showTemporarySessions: $("show-temporary-sessions"),
   btnNew: $("btn-new"), btnNewProject: $("btn-new-project"), pullIndicator: $("pull-indicator"),
   machineSwitch: $("machine-switch"), machineSwitchStatus: $("machine-switch-status"),
@@ -95,6 +95,7 @@ const el = {
   setMachineName: $("set-machine-name"), setMachineHost: $("set-machine-host"), setPiVersion: $("set-pi-version"), setAppVersion: $("set-app-version"),
   btnLogout: $("btn-logout"), btnResetSettings: $("btn-reset-settings"), btnOpenOnboarding: $("btn-open-onboarding"), setupGuideTitle: $("setup-guide-title"), setupGuideSubtitle: $("setup-guide-subtitle"),
   setAutoUpdate: $("set-auto-update"), updateAutoLabel: $("update-auto-label"), updateStatusCopy: $("update-status-copy"), updateCheck: $("update-check"), updateCheckLabel: $("update-check-label"), updateCheckStatus: $("update-check-status"), updateAllDevices: $("update-all-devices"), updateCenterSummary: $("update-center-summary"), updateDeviceList: $("update-device-list"),
+  syncBaseDevice: $("sync-base-device"), syncCompareDevice: $("sync-compare-device"), syncCompare: $("sync-compare"), syncCompareStatus: $("sync-compare-status"), syncResult: $("sync-result"),
   setLocale: $("set-locale"), setTheme: $("set-theme"), setDesignTheme: $("theme-choices"), setSidebarWidth: $("set-sidebar-width"), setSidebarWidthValue: $("set-sidebar-width-value"), setFontScale: $("set-font-scale"), setFontScaleValue: $("set-font-scale-value"), setCompact: $("set-compact"), setGroup: $("set-group"),
   btnImg: $("btn-img"), fileInput: $("file-input"), imgPreview: $("img-preview"),
   setReducedMotion: $("set-reduced-motion"), setThinking: $("set-thinking"),
@@ -1386,6 +1387,7 @@ function hideSettings() {
   stopUpdateCenterPolling();
   cancelModelVisibilityRequest();
   resetIncomingGrants();
+  resetResourceSync();
   resetSettingsOverlay();
   el.viewSettings.classList.add("hidden");
   el.viewModelSettings.classList.add("hidden");
@@ -1411,6 +1413,7 @@ function showSettings() {
 }
 el.btnOpenSettings.addEventListener("click", showSettings);
 el.btnSettingsBack.addEventListener("click", hideSettings);
+el.syncCompare?.addEventListener("click", () => { void compareResources(); });
 function showModelSettings() {
   stopUpdateCenterPolling();
   el.viewSettings.classList.add("hidden");
@@ -1453,6 +1456,20 @@ async function refreshSessions() {
   }
 }
 
+// The session list used to lag behind the chat: a brand-new session only
+// appeared after a manual reload because nothing re-fetched the list once pi
+// wrote the file. Runs and user messages are the natural boundaries, so
+// schedule a coalesced refresh on both (sub agent sessions also surface when
+// the parent run settles).
+let sessionListRefreshTimer = null;
+function scheduleSessionListRefresh(delayMs = 1200) {
+  if (sessionListRefreshTimer) clearTimeout(sessionListRefreshTimer);
+  sessionListRefreshTimer = setTimeout(() => {
+    sessionListRefreshTimer = null;
+    void refreshSessions();
+  }, delayMs);
+}
+
 function projectDisplayName(cwd) {
   const key = String(cwd || "(unknown)");
   const alias = settings.projectAliases?.[key];
@@ -1481,12 +1498,17 @@ function renderTemporarySessionFilter(count = temporarySessionCount) {
   if (!available) return;
   if (el.showTemporarySessions) el.showTemporarySessions.checked = !!settings.showTemporarySessions;
   if (el.temporarySessionFilterLabel) {
-    el.temporarySessionFilterLabel.textContent = window.piI18n?.t(settings.showTemporarySessions
-      ? "Hide Sub Agent sessions" : "Show Sub Agent sessions") || (settings.showTemporarySessions
-      ? "Hide Sub Agent sessions" : "Show Sub Agent sessions");
+    // A short constant label keeps the row readable in every locale, even in
+    // the narrowest desktop sidebar; the toggle and note carry the state.
+    el.temporarySessionFilterLabel.textContent = window.piI18n?.t("Sub Agent sessions") || "Sub Agent sessions";
+  }
+  const note = el.temporarySessionFilterNote;
+  if (note) {
+    note.textContent = window.piI18n?.t(settings.showTemporarySessions ? "Showing" : "Hidden by default")
+      || (settings.showTemporarySessions ? "Showing" : "Hidden by default");
   }
   if (el.temporarySessionCount) {
-    el.temporarySessionCount.textContent = window.piI18n?.t("Temporary sessions: {count}", { count: total }) || `Temporary sessions: ${total}`;
+    el.temporarySessionCount.textContent = String(total);
   }
 }
 
@@ -3792,7 +3814,14 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       el.queueNote.classList.add("hidden");
       break;
     case "message_start":
-      if (ev.message?.role === "assistant") ensurePendingAssistant();
+      if (ev.message?.role === "user") {
+        // The user message is persisted before this event fires, so a session
+        // created for a brand-new chat now exists on disk; the sidebar can
+        // pick it up without a manual reload.
+        scheduleSessionListRefresh();
+      } else if (ev.message?.role === "assistant") {
+        ensurePendingAssistant();
+      }
       break;
     case "extension_ui_request":
       // setStatus/setWidget/setTitle are fire-and-forget display updates, not
@@ -4009,6 +4038,7 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       // This terminal boundary catches runs that ended without a normal
       // assistant message_end and makes the settled dashboard authoritative.
       void syncSessionStats(eventSid);
+      scheduleSessionListRefresh();
       if (lastRunFailure && !runFailureRendered) renderRunFailure(lastRunFailure);
       if (activeActivityRun) {
         if (lastRunFailure) setRunOutcome(lastRunFailure.stopReason === "aborted" ? "interrupted" : "failed", lastRunFailure);
@@ -4603,6 +4633,68 @@ function applyComposerState(data) {
   el.thinkingSelect.value = level;
   updateComposerSummary(modelName, level);
   renderContextDashboard();
+  void syncThinkingLevelSupport(model, level);
+}
+
+// Thinking levels are clamped per model in Pi: a model without the reasoning
+// flag only ever reports "off", and set_thinking_level silently clamps to it.
+// Track what each model supports, grey out unsupported options, and restore
+// the user's last chosen level when a session or model switch drops it.
+const THINKING_PREFERENCE_KEY = "piHarbor.thinkingLevel";
+let composerModelKey = "";
+let thinkingLevelsForModel = new Map(); // provider/id → available levels
+let thinkingRestoreInFlight = false;
+
+function thinkingPreference() {
+  try { return localStorage.getItem(THINKING_PREFERENCE_KEY) || ""; } catch { return ""; }
+}
+
+function rememberThinkingPreference(level) {
+  try { localStorage.setItem(THINKING_PREFERENCE_KEY, String(level)); } catch {}
+}
+
+function updateThinkingSelectOptions() {
+  if (!el.thinkingSelect) return;
+  const levels = thinkingLevelsForModel.get(composerModelKey) || null;
+  for (const option of el.thinkingSelect.options) {
+    option.disabled = !!levels && !levels.includes(option.value);
+  }
+}
+
+async function syncThinkingLevelSupport(model, reportedLevel) {
+  const key = model ? `${model.provider || ""}/${model.id || ""}` : "";
+  composerModelKey = key;
+  if (!key) return;
+  if (!thinkingLevelsForModel.has(key)) {
+    const expectedSid = rpc?.sid;
+    try {
+      const r = await rpcCmd(expectedSid, { type: "get_available_thinking_levels" });
+      if (rpc?.sid !== expectedSid || !r?.success) return;
+      const levels = Array.isArray(r.data?.levels) ? r.data.levels.map(String) : null;
+      if (levels) thinkingLevelsForModel.set(key, levels);
+    } catch { return; }
+  }
+  if (el.thinkingSelect) {
+    updateThinkingSelectOptions();
+    if (reportedLevel) el.thinkingSelect.value = reportedLevel;
+  }
+  // Pi drops the level whenever the session restarts on a model that does not
+  // advertise the stored level (new session, model switch, RPC respawn). Re-
+  // apply the user's last deliberate choice when the model still supports it.
+  const stored = thinkingPreference();
+  if (!stored || thinkingRestoreInFlight || reportedLevel === stored) return;
+  const levels = thinkingLevelsForModel.get(key);
+  if (!levels || !levels.includes(stored)) return;
+  const expectedSid = rpc?.sid;
+  thinkingRestoreInFlight = true;
+  try {
+    const r = await rpcCmd(expectedSid, { type: "set_thinking_level", level: stored });
+    if (rpc?.sid === expectedSid && r?.success !== false) {
+      el.thinkingSelect.value = stored;
+      updateComposerSummary(undefined, stored);
+    }
+  } catch {}
+  finally { thinkingRestoreInFlight = false; }
 }
 async function syncComposerState(expectedSid = rpc?.sid) {
   if (!expectedSid || !rpc || rpc.sid !== expectedSid) return;
@@ -4723,9 +4815,24 @@ async function changeThinkingLevel(level) {
     const r = await rpcCmd(expectedSid, { type: "set_thinking_level", level });
     if (!rpc || rpc.sid !== expectedSid) return;
     if (r && r.success === false) throw new Error(r.error || "RPC rejected");
-    el.thinkingSelect.value = level;
-    updateComposerSummary(undefined, level);
-    toast("思考等級：" + level);
+    rememberThinkingPreference(level);
+    // Pi clamps the level to the model's capabilities, so re-read the state
+    // instead of trusting the requested value in the UI.
+    const state = await rpcCmd(expectedSid, { type: "get_state" });
+    if (rpc?.sid !== expectedSid) return;
+    const actual = state?.success ? state.data?.thinkingLevel || "off" : level;
+    el.thinkingSelect.value = actual;
+    updateComposerSummary(undefined, actual);
+    if (actual !== level) {
+      const model = state?.success ? state.data?.model : null;
+      toast(window.piI18n?.t("{model} does not support {level} thinking; using {actual}", {
+        model: model?.name || model?.id || "",
+        level,
+        actual,
+      }) || `${level} → ${actual}`, true);
+    } else {
+      toast("思考等級：" + level);
+    }
   } catch (e) { toast("設定失敗：" + e.message, true); }
 }
 el.thinkingSelect.addEventListener("change", () => changeThinkingLevel(el.thinkingSelect.value));
@@ -5813,6 +5920,275 @@ async function loadUpdateStatus() {
   return refreshUpdateCenter();
 }
 
+// ===========================================================================
+// Resource sync (Settings): read-only inventory comparison of global Pi
+// extensions, skills, and packages between two devices. Nothing is ever
+// installed here; a later phase may offer explicit install actions.
+// ===========================================================================
+
+const RESOURCE_SYNC_GROUPS = [["extensions", "Extensions"], ["skills", "Skills"], ["packages", "Packages"]];
+let resourceSyncRequest = 0;
+let resourceSyncController = null;
+let resourceSyncState = null; // { diff, nameA, nameB } for re-render while Settings stays open
+
+function resourceSyncEntryKey(group, entry) {
+  if (group === "packages") return `${entry?.type || "path"}:${entry?.name || entry?.source || ""}`;
+  return String(entry?.name || entry?.path || "");
+}
+
+function resourceSyncEntriesEqual(group, a, b) {
+  if (!a || !b) return false;
+  if (group === "packages") return String(a.source) === String(b.source);
+  return !!a.hash && !!b.hash && a.hash === b.hash;
+}
+
+function resourceSyncStatusOrder(status) {
+  return { diff: 0, "only-a": 1, "only-b": 2, same: 3 }[status] ?? 4;
+}
+
+function diffResourceInventories(inventoryA, inventoryB) {
+  const groups = {};
+  let differences = 0;
+  for (const [group] of RESOURCE_SYNC_GROUPS) {
+    const listA = Array.isArray(inventoryA?.groups?.[group]) ? inventoryA.groups[group] : [];
+    const listB = Array.isArray(inventoryB?.groups?.[group]) ? inventoryB.groups[group] : [];
+    const mapA = new Map(listA.map((entry) => [resourceSyncEntryKey(group, entry), entry]));
+    const mapB = new Map(listB.map((entry) => [resourceSyncEntryKey(group, entry), entry]));
+    const rows = [];
+    for (const key of new Set([...mapA.keys(), ...mapB.keys()])) {
+      const a = mapA.get(key) || null;
+      const b = mapB.get(key) || null;
+      const status = a && b ? (resourceSyncEntriesEqual(group, a, b) ? "same" : "diff") : (a ? "only-a" : "only-b");
+      if (status !== "same") differences += 1;
+      rows.push({ key, status, a, b });
+    }
+    rows.sort((x, y) => (resourceSyncStatusOrder(x.status) - resourceSyncStatusOrder(y.status))
+      || x.key.localeCompare(y.key));
+    groups[group] = { rows, counts: { a: listA.length, b: listB.length } };
+  }
+  return { groups, differences };
+}
+
+async function fetchMachineJSON(machine, endpoint, { signal, timeoutMs = 15000 } = {}) {
+  const base = machine?.local ? "" : `/r/${encodeURIComponent(machine?.id || "")}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const abort = () => controller.abort();
+  signal?.addEventListener?.("abort", abort, { once: true });
+  try {
+    const response = await fetch(`${base}${endpoint}`, {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (response.status === 401) {
+      if (base) throw showRemoteAuthorizationState(base);
+      showLogin();
+      const unauthorized = new Error("unauthorized");
+      unauthorized.status = 401;
+      throw unauthorized;
+    }
+    if (!response.ok) {
+      const failure = new Error("resource request failed");
+      failure.status = response.status;
+      throw failure;
+    }
+    return await response.json();
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      if (signal?.aborted) throw error;
+      const timeout = new Error("resource request timed out");
+      timeout.status = 504;
+      throw timeout;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener?.("abort", abort);
+  }
+}
+
+function resourceSyncErrorText(error, machineA, machineB, nameA, nameB) {
+  if ([404, 405].includes(Number(error?.status))) {
+    // A remote host without the endpoint is simply an older Pi Harbor.
+    const remoteName = !machineA?.local ? nameA : (!machineB?.local ? nameB : null);
+    if (remoteName) return updateText("Resource comparison needs a newer Pi Harbor on {device}", { device: remoteName });
+  }
+  if ([502, 504].includes(Number(error?.status)) || error?.name === "TypeError") {
+    const offlineName = !machineA?.local ? nameA : (!machineB?.local ? nameB : null) || nameA;
+    return updateText("Could not reach {device}", { device: offlineName });
+  }
+  return updateText("Resource comparison failed");
+}
+
+function renderResourceSyncControls() {
+  if (!el.syncBaseDevice || !el.syncCompareDevice) return;
+  const previousBase = el.syncBaseDevice.value;
+  const previousCompare = el.syncCompareDevice.value;
+  const fill = (select, preferredId) => {
+    select.innerHTML = "";
+    for (const machine of machines) {
+      const option = document.createElement("option");
+      option.value = machine.id;
+      option.textContent = machineDisplayName(machine) || machineDisplayHost(machine) || machine.id;
+      select.appendChild(option);
+    }
+    if (preferredId && machines.some((machine) => machine.id === preferredId)) select.value = preferredId;
+  };
+  fill(el.syncBaseDevice, previousBase || selfId);
+  fill(el.syncCompareDevice, previousCompare || machines.find((machine) => !machine.local)?.id || "");
+  const singleDevice = machines.length < 2;
+  el.syncBaseDevice.disabled = singleDevice;
+  el.syncCompareDevice.disabled = singleDevice;
+  if (el.syncCompare) el.syncCompare.disabled = singleDevice;
+  if (singleDevice && el.syncCompareStatus) el.syncCompareStatus.textContent = updateText("Add another device to compare resources");
+}
+
+function renderResourceSyncResult() {
+  if (!el.syncResult) return;
+  el.syncResult.innerHTML = "";
+  const state = resourceSyncState;
+  if (!state) return;
+  const { diff, nameA, nameB } = state;
+
+  const summary = document.createElement("p");
+  summary.className = "sync-summary";
+  summary.textContent = diff.differences
+    ? updateText("{count} difference(s) found", { count: diff.differences })
+    : updateText("No differences: both devices match");
+  el.syncResult.appendChild(summary);
+
+  const statusText = { "only-a": "Only on {device}", "only-b": "Only on {device}", diff: "Different on each device" };
+  for (const [group, label] of RESOURCE_SYNC_GROUPS) {
+    const data = diff.groups[group];
+    if (!data) continue;
+    const sameRows = data.rows.filter((row) => row.status === "same");
+    const diffRows = data.rows.filter((row) => row.status !== "same");
+    if (!sameRows.length && !diffRows.length) continue;
+    const section = document.createElement("section");
+    section.className = "sync-group";
+    const heading = document.createElement("h4");
+    heading.className = "sync-group-title";
+    heading.textContent = label;
+    const counts = document.createElement("span");
+    counts.className = "sync-group-counts";
+    counts.textContent = updateText("{a} on {nameA} · {b} on {nameB}", { a: data.counts.a, nameA, b: data.counts.b, nameB });
+    heading.appendChild(counts);
+    section.appendChild(heading);
+
+    if (diffRows.length) {
+      const list = document.createElement("ul");
+      list.className = "sync-rows";
+      for (const row of diffRows) {
+        const item = document.createElement("li");
+        item.className = `sync-row sync-status-${row.status}`;
+        const chip = document.createElement("span");
+        chip.className = "sync-chip";
+        chip.textContent = row.status === "diff"
+          ? updateText("Different on each device")
+          : updateText("Only on {device}", { device: row.status === "only-a" ? nameA : nameB });
+        item.appendChild(chip);
+        const name = document.createElement("span");
+        name.className = "sync-name";
+        name.textContent = row.a?.name || row.b?.name || row.key;
+        item.appendChild(name);
+        const paths = [...new Set([row.a?.source || row.a?.path, row.b?.source || row.b?.path].filter(Boolean))];
+        if (paths.length) {
+          const pathLine = document.createElement("span");
+          pathLine.className = "sync-path";
+          pathLine.textContent = paths.join("  vs  ");
+          pathLine.title = paths.join("\n");
+          item.appendChild(pathLine);
+        }
+        const descriptions = [...new Set([row.a?.description, row.b?.description].filter(Boolean))];
+        if (descriptions.length) {
+          const desc = document.createElement("span");
+          desc.className = "sync-desc";
+          desc.textContent = descriptions.join("  vs  ");
+          item.appendChild(desc);
+        }
+        list.appendChild(item);
+      }
+      section.appendChild(list);
+    }
+
+    if (sameRows.length) {
+      const details = document.createElement("details");
+      details.className = "sync-same";
+      const summaryRow = document.createElement("summary");
+      summaryRow.textContent = updateText("{count} identical", { count: sameRows.length });
+      details.appendChild(summaryRow);
+      const list = document.createElement("ul");
+      list.className = "sync-rows";
+      for (const row of sameRows) {
+        const item = document.createElement("li");
+        item.className = "sync-row sync-status-same";
+        const name = document.createElement("span");
+        name.className = "sync-name";
+        name.textContent = row.a?.name || row.b?.name || row.key;
+        item.appendChild(name);
+        const path = row.a?.path || row.b?.path || row.a?.source || row.b?.source;
+        if (path) {
+          const pathLine = document.createElement("span");
+          pathLine.className = "sync-path";
+          pathLine.textContent = path;
+          item.appendChild(pathLine);
+        }
+        list.appendChild(item);
+      }
+      details.appendChild(list);
+      section.appendChild(details);
+    }
+    el.syncResult.appendChild(section);
+  }
+}
+
+async function compareResources() {
+  if (!el.syncBaseDevice || !el.syncCompareDevice || !el.syncResult) return;
+  const baseId = el.syncBaseDevice.value;
+  const compareId = el.syncCompareDevice.value;
+  if (!baseId || !compareId) return;
+  if (baseId === compareId) {
+    if (el.syncCompareStatus) el.syncCompareStatus.textContent = updateText("Pick two different devices to compare");
+    return;
+  }
+  const machineA = machines.find((machine) => machine.id === baseId);
+  const machineB = machines.find((machine) => machine.id === compareId);
+  if (!machineA || !machineB) return;
+  const nameA = machineDisplayName(machineA) || machineA.id;
+  const nameB = machineDisplayName(machineB) || machineB.id;
+  const request = ++resourceSyncRequest;
+  resourceSyncController?.abort();
+  const controller = new AbortController();
+  resourceSyncController = controller;
+  el.syncCompare.disabled = true;
+  if (el.syncCompareStatus) el.syncCompareStatus.textContent = updateText("Comparing resources…");
+  try {
+    const [inventoryA, inventoryB] = await Promise.all([
+      fetchMachineJSON(machineA, "/api/pi-resources", { signal: controller.signal }),
+      fetchMachineJSON(machineB, "/api/pi-resources", { signal: controller.signal }),
+    ]);
+    if (request !== resourceSyncRequest) return;
+    resourceSyncState = { diff: diffResourceInventories(inventoryA, inventoryB), nameA, nameB };
+    renderResourceSyncResult();
+    if (el.syncCompareStatus) el.syncCompareStatus.textContent = "";
+  } catch (error) {
+    if (request !== resourceSyncRequest) return;
+    if (el.syncCompareStatus) el.syncCompareStatus.textContent = resourceSyncErrorText(error, machineA, machineB, nameA, nameB);
+  } finally {
+    if (request === resourceSyncRequest && el.syncCompare) el.syncCompare.disabled = machines.length < 2;
+  }
+}
+
+function resetResourceSync() {
+  resourceSyncRequest += 1;
+  resourceSyncController?.abort();
+  resourceSyncController = null;
+  resourceSyncState = null;
+  if (el.syncResult) el.syncResult.innerHTML = "";
+  if (el.syncCompareStatus) el.syncCompareStatus.textContent = "";
+}
+
 function scheduleUpdateRefreshes(machineId = null) {
   const refreshAllDevices = machineId === null;
   for (const delay of [2500, 7000, 14000]) {
@@ -5962,6 +6338,7 @@ function renderSettings() {
   if (el.setupGuideSubtitle) el.setupGuideSubtitle.textContent = setupCopy.guideSubtitle;
   renderMachineList();
   renderIncomingGrants();
+  renderResourceSyncControls();
   void refreshMachineStatuses();
   void refreshIncomingGrants();
   renderUpdateCenter();
@@ -6054,7 +6431,15 @@ function renderModelSettingsSummary() {
 
 function providerModelLines(provider) {
   return Array.isArray(provider?.models)
-    ? provider.models.map((model) => `${model.id}${model.name && model.name !== model.id ? ` | ${model.name}` : ""}`).join("\n")
+    ? provider.models.map((model) => {
+      const parts = [model.id];
+      if (model.name && model.name !== model.id) parts.push(model.name);
+      if (model.reasoning) {
+        if (parts.length < 2) parts.push(""); // keep the thinking marker in the third slot
+        parts.push("thinking");
+      }
+      return parts.join(" | ");
+    }).join("\n")
     : "";
 }
 
@@ -6188,10 +6573,13 @@ function renderModelVisibility() {
 function parseProviderModels(value) {
   const lines = String(value || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   return lines.map((line) => {
-    const divider = line.indexOf("|");
-    const id = (divider === -1 ? line : line.slice(0, divider)).trim();
-    const name = (divider === -1 ? "" : line.slice(divider + 1)).trim();
-    return { id, ...(name ? { name } : {}) };
+    const parts = line.split("|").map((part) => part.trim());
+    const id = parts[0] || "";
+    const name = parts[1] || "";
+    // Optional third field marks a reasoning model so Pi keeps thinking
+    // levels (off stays the only level for models without the marker).
+    const thinking = /^(thinking|reasoning|思考)$/i.test(parts[2] || "");
+    return { id, ...(name ? { name } : {}), ...(thinking ? { reasoning: true } : {}) };
   });
 }
 

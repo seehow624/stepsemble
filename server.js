@@ -25,6 +25,7 @@ const { pathToFileURL } = require("node:url");
 const { spawn, execFileSync } = require("node:child_process");
 const { createHttpUtils } = require("./server/http-utils");
 const { createGitChangesService } = require("./server/git-changes");
+const { createPiResourcesService } = require("./server/pi-resources");
 const {
   PAIRING_TTL_MS,
   sanitizeDeviceMetadata,
@@ -45,7 +46,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.4.5";
+const APP_VERSION = "2.5.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1280,6 +1281,7 @@ function projectDirectory(cwd) {
 }
 
 const gitChanges = createGitChangesService({ validateRepository: projectDirectory });
+const piResources = createPiResourcesService({ home: APP_HOME });
 
 function revealProject(cwd) {
   const real = projectDirectory(cwd);
@@ -1924,10 +1926,18 @@ function providerId(value) {
   return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value) ? value : null;
 }
 
-function cleanProviderModels(models) {
+function cleanProviderModels(models, previousModels) {
   if (!Array.isArray(models) || models.length < 1 || models.length > 100) {
     throw modelConfigError("Add at least one model and no more than 100 models", 400);
   }
+  // The editor form only expresses id, display name, and a thinking marker.
+  // Carry the rest (contextWindow, cost, …) over from the previous entry for
+  // the same model id so saving a provider never silently degrades it.
+  const previousById = new Map(
+    (Array.isArray(previousModels) ? previousModels : [])
+      .filter((model) => model && typeof model === "object" && typeof model.id === "string")
+      .map((model) => [model.id, model]),
+  );
   const seen = new Set();
   return models.map((model) => {
     if (!model || typeof model !== "object") throw modelConfigError("Invalid model configuration", 400);
@@ -1937,7 +1947,19 @@ function cleanProviderModels(models) {
     if (name.length > 160 || /[\r\n]/.test(name)) throw modelConfigError("Invalid model name", 400);
     if (seen.has(id)) throw modelConfigError(`Duplicate model: ${id}`, 400);
     seen.add(id);
-    return { id, ...(name ? { name } : {}) };
+    const previous = previousById.get(id) || null;
+    const carried = previous ? { ...previous } : {};
+    // The form is authoritative for id, display name, and the thinking flag;
+    // everything else (contextWindow, cost, …) is carried over unchanged.
+    delete carried.id;
+    delete carried.name;
+    delete carried.reasoning;
+    return {
+      ...carried,
+      id,
+      ...(name ? { name } : {}),
+      ...(model.reasoning ? { reasoning: true } : {}),
+    };
   });
 }
 
@@ -1956,7 +1978,7 @@ function validateProviderBody(body, existing) {
   } catch {
     throw modelConfigError("Base URL must be an http or https URL without credentials", 400);
   }
-  const models = cleanProviderModels(body.models);
+  const models = cleanProviderModels(body.models, existing?.models);
   const next = { ...(existing && typeof existing === "object" ? existing : {}), api, baseUrl, models };
   if (body.clearApiKey === true) {
     delete next.apiKey;
@@ -3152,6 +3174,18 @@ const server = http.createServer(async (req, res) => {
         const includeTemporary = ["1", "true", "yes", "on"].includes(String(url.searchParams.get("includeTemporary") || "").toLowerCase());
         const sessions = includeTemporary ? allSessions : allSessions.filter((session) => !session.isTemporary);
         sendJSON(res, 200, { machine: MACHINE_NAME, sessions, temporarySessionCount, includeTemporary });
+        return;
+      }
+
+      if (p === "/api/pi-resources" && req.method === "GET") {
+        // Read-only inventory of global Pi extensions, skills, and packages
+        // for the resource-sync comparison in Settings.
+        try {
+          sendJSON(res, 200, { machine: MACHINE_NAME, platform: process.platform, generatedAt: Date.now(), ...piResources.inventory() });
+        } catch (error) {
+          console.log("[pi-harbor] pi-resources inventory failed:", error?.message || error);
+          sendJSON(res, 500, { error: "resource inventory failed" });
+        }
         return;
       }
 

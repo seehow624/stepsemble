@@ -1,4 +1,4 @@
-/* pi-harbor v2.4.5 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.5.0 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -858,6 +858,85 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
 }
 .update-phase-deferred .update-device-phase { color: var(--warn); font-weight: 650; }
 .update-phase-available .update-device-phase { color: var(--accent); font-weight: 650; }
+
+/* Resource sync (Settings): read-only inventory comparison between devices. */
+.resource-sync-result { margin-top: 10px; }
+.resource-sync-result:empty { display: none; }
+.sync-summary {
+  margin: 0 0 4px;
+  font-size: 12.5px;
+  font-weight: 650;
+}
+.sync-group {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: .5px solid var(--line);
+}
+.sync-group-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--pine-soft);
+}
+.sync-group-counts {
+  font: 10.5px var(--mono);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.sync-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.sync-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+.sync-chip {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: .5px solid var(--line);
+  border-radius: 999px;
+  font: 10px var(--mono);
+  color: var(--pine-soft);
+  white-space: nowrap;
+}
+.sync-status-diff .sync-chip { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.sync-status-only-a .sync-chip,
+.sync-status-only-b .sync-chip { color: var(--accent); border-style: dashed; }
+.sync-name {
+  min-width: 0;
+  font-weight: 650;
+  font-size: 12.5px;
+  word-break: break-word;
+}
+.sync-path,
+.sync-desc {
+  flex-basis: 100%;
+  color: var(--pine-soft);
+  font-size: 11px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+.sync-same { margin-top: 8px; }
+.sync-same > summary {
+  cursor: pointer;
+  color: var(--pine-soft);
+  font-size: 11.5px;
+}
+.sync-same > summary::marker { color: var(--pine-soft); }
+.sync-same[open] > summary { margin-bottom: 2px; }
+.sync-status-same .sync-name { font-weight: 400; color: var(--pine-soft); }
 .update-phase-error .update-device-phase,
 .update-device-error .update-device-phase { color: var(--err); }
 .update-device-times {
@@ -1827,28 +1906,30 @@ body.image-lightbox-open { overflow: hidden; }
 .icon-button-small:hover { color: var(--ink); background: var(--bubble-user); }
 .icon-button-small:active { transform: scale(.94); }
 .icon-button-small .icon { width: 16px; height: 16px; }
-.list-toolbar { padding: 0 14px 10px; gap: 0; }
+.list-toolbar { padding: 0 12px 10px; gap: 0; }
 .list-toolbar input {
   height: 43px; min-height: 43px;
-  margin: 0 2px;
+  margin: 0;
   padding: 0 12px;
-  border-radius: 13px;
+  border-radius: var(--oc-radius);
   background: var(--milk);
   box-shadow: none;
   font-size: .8rem;
 }
 .temporary-session-filter {
-  padding: 0 14px 10px;
+  /* Same horizontal inset as the session rows (12px) so the card edges line
+     up with the project group cards below it. */
+  padding: 0 12px 10px;
 }
 .temporary-session-filter-control {
   min-width: 0;
-  min-height: 48px;
+  min-height: 58px;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 11px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: 13px;
+  border-radius: var(--oc-radius);
   color: var(--ink);
   background: color-mix(in srgb, var(--milk) 86%, var(--paper));
   cursor: pointer;

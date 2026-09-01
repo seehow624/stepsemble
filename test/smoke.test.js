@@ -139,6 +139,16 @@ test("Sub Agent temporary sessions are opt-in in the session list", () => {
   assert.match(css, /\.temporary-session-filter/);
   assert.match(i18n, /Show Sub Agent sessions/);
   assert.match(i18n, /Temporary workspaces are hidden by default/);
+  // Short label + state note keep the row readable in the narrowest sidebar.
+  assert.match(app, /t\("Sub Agent sessions"\)/);
+  assert.match(app, /temporarySessionFilterNote/);
+  assert.match(html, /id="temporary-session-filter-note"/);
+  assert.match(css, /\.temporary-session-filter-control \{[\s\S]*?border-radius: var\(--oc-radius\)/);
+  // New sessions surface in the sidebar without a manual reload: user message
+  // starts and settled runs schedule a coalesced list refresh.
+  assert.match(app, /function scheduleSessionListRefresh/);
+  assert.match(app, /scheduleSessionListRefresh\(\);/);
+  assert.match(app, /case "agent_settled":[\s\S]{0,200}?scheduleSessionListRefresh\(\)/);
 });
 
 test("project changes inspector is read-only, scoped, and wired across the shell", () => {
@@ -191,6 +201,55 @@ test("chat image attachments are wired to a safe preview and lightbox", () => {
   assert.match(app, /function openImageLightbox/);
   assert.match(html, /id="image-lightbox"/);
   assert.match(css, /\.image-lightbox-img/);
+});
+
+test("thinking level survives model and session switches", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");
+  // The server keeps per-model fields (reasoning, contextWindow, …) when the
+  // provider editor saves; dropping them would clamp thinking back to off.
+  assert.match(server, /function cleanProviderModels\(models, previousModels\)/);
+  assert.match(server, /previousById\.get\(id\)/);
+  assert.match(server, /delete carried\.reasoning/);
+  // The provider form can express and round-trip the thinking marker.
+  assert.match(app, /\/\^\(thinking\|reasoning\|思考\)\$\/i/);
+  assert.match(app, /parts\.push\("thinking"\)/);
+  assert.match(html, /for reasoning models/);
+  // The composer re-reads the clamped level, remembers the user's choice, and
+  // restores it when a session or model switch drops it.
+  assert.match(app, /get_available_thinking_levels/);
+  assert.match(app, /function rememberThinkingPreference/);
+  assert.match(app, /function syncThinkingLevelSupport/);
+  assert.match(app, /\{model\} does not support \{level\} thinking; using \{actual\}/);
+  assert.match(i18n, /\"\{model\} does not support \{level\} thinking; using \{actual\}\"/);
+});
+
+test("resource sync compares device inventories read-only", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  const module = fs.readFileSync(path.join(root, "server", "pi-resources.js"), "utf8");
+  assert.match(server, /require\("\.\/server\/pi-resources"\)/);
+  assert.match(server, /"\/api\/pi-resources" && req\.method === "GET"/);
+  assert.match(server, /piResources\.inventory\(\)/);
+  // The inventory module is read-only and credential-safe by construction.
+  assert.match(module, /readFileSync/);
+  assert.doesNotMatch(module, /writeFile|appendFile|mkdirSync\(path\.dirname\(TOKEN/);
+  assert.match(module, /isSymbolicLink\(\)\) continue/);
+  assert.match(app, /async function compareResources/);
+  assert.match(app, /function diffResourceInventories/);
+  assert.match(app, /function renderResourceSyncControls/);
+  assert.match(app, /\/api\/pi-resources/);
+  assert.match(app, /resetResourceSync\(\)/);
+  assert.match(html, /id="sync-base-device"/);
+  assert.match(html, /id="sync-compare-device"/);
+  assert.match(html, /id="sync-compare"/);
+  assert.match(html, /id="sync-result"/);
+  assert.match(css, /\.resource-sync-result/);
+  assert.match(css, /\.sync-status-diff \.sync-chip/);
 });
 
 test("task progress mirrors Pi widgets and plan markers with a reconnect-safe snapshot", () => {
