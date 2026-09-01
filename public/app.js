@@ -1,7 +1,7 @@
-/* pi-harbor v2.5.0 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.5.1 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.5.0";
+const CLIENT_APP_VERSION = "2.5.1";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -6579,7 +6579,10 @@ function parseProviderModels(value) {
     // Optional third field marks a reasoning model so Pi keeps thinking
     // levels (off stays the only level for models without the marker).
     const thinking = /^(thinking|reasoning|思考)$/i.test(parts[2] || "");
-    return { id, ...(name ? { name } : {}), ...(thinking ? { reasoning: true } : {}) };
+    // Send an explicit false as well: removing the marker in the editor must
+    // clear a previously stored thinkingLevelMap instead of leaving stale
+    // provider capabilities in models.json.
+    return { id, ...(name ? { name } : {}), reasoning: thinking };
   });
 }
 

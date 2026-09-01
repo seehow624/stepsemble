@@ -224,6 +224,13 @@ test("thinking level survives model and session switches", () => {
   assert.match(app, /function syncThinkingLevelSupport/);
   assert.match(app, /\{model\} does not support \{level\} thinking; using \{actual\}/);
   assert.match(i18n, /\"\{model\} does not support \{level\} thinking; using \{actual\}\"/);
+  // Ollama exposes thinking through /api/show, not the /api/tags model list;
+  // preserve the provider-specific map so Ollama's max level is registered.
+  assert.match(server, /function enrichOllamaModels\(models, preset, apiKey = \"\"\)/);
+  assert.match(server, /new URL\("\/api\/show", preset\.modelsUrl \|\| preset\.baseUrl\)/);
+  assert.match(server, /capabilities\.includes\("thinking"\)/);
+  assert.match(server, /thinkingLevelMap/);
+  assert.match(server, /max: \"max\"/);
 });
 
 test("resource sync compares device inventories read-only", () => {

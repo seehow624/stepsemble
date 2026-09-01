@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.5.1
+
+- Fixed Ollama model thinking metadata. Ollama's `/api/tags` list does not
+  include thinking capability; provider setup now checks `/api/show` and
+  records the model's `reasoning` flag and supported thinking levels. Ollama
+  models that support it now expose `max`, while GPT-OSS correctly exposes
+  only `low`, `medium`, and `high` because Ollama cannot fully disable or
+  raise its thinking level beyond those values.
+
 ## 2.5.0
 
 - The session sidebar now keeps itself up to date. A brand-new session

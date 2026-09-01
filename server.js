@@ -46,7 +46,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.5.0";
+const APP_VERSION = "2.5.1";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1769,6 +1769,7 @@ function publicModels(models) {
       name: String(m.name || m.id),
       contextWindow: Number.isFinite(m.contextWindow) ? m.contextWindow : null,
       reasoning: !!m.reasoning,
+      thinkingLevelMap: sanitizeThinkingLevelMap(m.thinkingLevelMap) || undefined,
     };
   }).filter(Boolean);
 }
@@ -1908,6 +1909,7 @@ function publicConfiguredProvider(id, provider) {
       input: Array.isArray(m.input) ? m.input.map(String).slice(0, 8) : undefined,
       contextWindow: Number.isFinite(m.contextWindow) ? m.contextWindow : null,
       maxTokens: Number.isFinite(m.maxTokens) ? m.maxTokens : null,
+      thinkingLevelMap: sanitizeThinkingLevelMap(m.thinkingLevelMap) || undefined,
     })),
   };
 }
@@ -1951,14 +1953,19 @@ function cleanProviderModels(models, previousModels) {
     const carried = previous ? { ...previous } : {};
     // The form is authoritative for id, display name, and the thinking flag;
     // everything else (contextWindow, cost, …) is carried over unchanged.
+    // Provider refreshes may also supply a validated thinkingLevelMap; retain
+    // it so Pi can expose provider-specific levels such as Ollama's `max`.
     delete carried.id;
     delete carried.name;
     delete carried.reasoning;
+    if (!model.reasoning) delete carried.thinkingLevelMap;
+    const thinkingLevelMap = sanitizeThinkingLevelMap(model.thinkingLevelMap);
     return {
       ...carried,
       id,
       ...(name ? { name } : {}),
       ...(model.reasoning ? { reasoning: true } : {}),
+      ...(thinkingLevelMap ? { thinkingLevelMap } : {}),
     };
   });
 }
@@ -2349,15 +2356,148 @@ function finishProviderAuthRun(run) {
   modelCatalogCache = { at: 0, models: [] };
 }
 
+const THINKING_LEVEL_KEYS = Object.freeze(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+const OLLAMA_THINKING_LEVEL_MAP = Object.freeze({
+  off: "none",
+  minimal: null,
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: null,
+  max: "max",
+});
+const OLLAMA_GPT_OSS_THINKING_LEVEL_MAP = Object.freeze({
+  off: null,
+  minimal: null,
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: null,
+  max: null,
+});
+
+function sanitizeThinkingLevelMap(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const map = {};
+  for (const key of THINKING_LEVEL_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+    const mapped = value[key];
+    if (mapped === null) map[key] = null;
+    else if (typeof mapped === "string" && mapped.length <= 80 && !/[\r\n\u0000]/.test(mapped)) map[key] = mapped;
+  }
+  return Object.keys(map).length ? map : null;
+}
+
+function isOllamaPreset(preset) {
+  return preset?.id === "ollama-cloud" || preset?.configId === "ollama-local";
+}
+
+function ollamaThinkingLevelMap(modelId) {
+  return /^gpt-oss(?::|$)/i.test(String(modelId || ""))
+    ? OLLAMA_GPT_OSS_THINKING_LEVEL_MAP
+    : OLLAMA_THINKING_LEVEL_MAP;
+}
+
+function providerModelFromRow(row) {
+  const object = row && typeof row === "object" && !Array.isArray(row) ? row : null;
+  const id = typeof row === "string"
+    ? row.trim()
+    : String(object?.id || object?.name || object?.model || "").trim();
+  if (!id) return null;
+  const name = object ? String(object.name || object.id || object.model || "").trim() : id;
+  const capabilities = Array.isArray(object?.capabilities) ? object.capabilities.map(String) : null;
+  const reasoning = typeof object?.reasoning === "boolean"
+    ? object.reasoning
+    : typeof object?.thinking === "boolean"
+      ? object.thinking
+      : capabilities ? capabilities.includes("thinking") : undefined;
+  const thinkingLevelMap = sanitizeThinkingLevelMap(object?.thinkingLevelMap);
+  return {
+    id,
+    ...(name && name !== id ? { name } : {}),
+    ...(reasoning !== undefined ? { reasoning } : {}),
+    ...(thinkingLevelMap ? { thinkingLevelMap } : {}),
+  };
+}
+
 function parseProviderModels(payload, fallback = []) {
   const rows = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [];
-  const models = rows.map((row) => {
-    const id = typeof row === "string" ? row.trim() : String(row?.id || row?.name || "").trim();
-    const name = typeof row === "object" && row ? String(row.name || row.id || "").trim() : id;
-    return id ? { id, ...(name && name !== id ? { name } : {}) } : null;
-  }).filter(Boolean);
-  const source = models.length ? models : (Array.isArray(fallback) ? fallback : []).map((id) => ({ id: String(id) }));
+  const models = rows.map(providerModelFromRow).filter(Boolean);
+  const source = models.length
+    ? models
+    : (Array.isArray(fallback) ? fallback : []).map(providerModelFromRow).filter(Boolean);
   return source.filter((row, index, all) => row && all.findIndex((other) => other?.id === row.id) === index).slice(0, 100);
+}
+
+async function enrichOllamaModels(models, preset, apiKey = "") {
+  if (!isOllamaPreset(preset) || !models.length) return models;
+  let endpoint;
+  try { endpoint = new URL("/api/show", preset.modelsUrl || preset.baseUrl).href; }
+  catch { return models; }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 7000);
+  const enriched = models.map((model) => ({ ...model }));
+  let cursor = 0;
+  async function worker() {
+    while (!controller.signal.aborted) {
+      const index = cursor++;
+      if (index >= enriched.length) return;
+      const model = enriched[index];
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+          },
+          body: JSON.stringify({ name: model.id }),
+        });
+        if (!response.ok) continue;
+        const text = await response.text();
+        if (text.length > 512 * 1024) continue;
+        let details;
+        try { details = JSON.parse(text); } catch { continue; }
+        if (!Array.isArray(details?.capabilities)) continue;
+        const capabilities = details.capabilities.map(String);
+        const reasoning = capabilities.includes("thinking");
+        const next = { ...model, reasoning };
+        if (reasoning) next.thinkingLevelMap = ollamaThinkingLevelMap(model.id);
+        else delete next.thinkingLevelMap;
+        enriched[index] = next;
+      } catch {
+        // Metadata is best-effort. The model list remains usable if /api/show
+        // is unavailable, and setup preserves metadata from the prior config.
+      }
+    }
+  }
+  try {
+    await Promise.all(Array.from({ length: Math.min(6, enriched.length) }, () => worker()));
+  } finally {
+    clearTimeout(timer);
+  }
+  return enriched;
+}
+
+function mergeExistingProviderModelMetadata(providerId, models) {
+  const previous = readModelConfig().providers[providerId];
+  const previousById = new Map(
+    (Array.isArray(previous?.models) ? previous.models : [])
+      .filter((model) => model && typeof model === "object" && typeof model.id === "string")
+      .map((model) => [model.id, model]),
+  );
+  return models.map((model) => {
+    const old = previousById.get(model.id);
+    if (!old) return model;
+    const next = { ...model };
+    if (next.reasoning === undefined && typeof old.reasoning === "boolean") next.reasoning = old.reasoning;
+    if (next.reasoning !== false && next.thinkingLevelMap === undefined) {
+      const map = sanitizeThinkingLevelMap(old.thinkingLevelMap);
+      if (map) next.thinkingLevelMap = map;
+    }
+    return next;
+  });
 }
 
 async function fetchProviderModels(preset, apiKey) {
@@ -2389,8 +2529,9 @@ async function fetchProviderModels(preset, apiKey) {
     if (Array.isArray(preset.models) && preset.models.length) return parseProviderModels({}, preset.models);
     throw providerAuthError(`${preset.name} returned an invalid model list`, 409);
   }
-  const models = parseProviderModels(payload, preset.models);
+  let models = parseProviderModels(payload, preset.models);
   if (!models.length) throw providerAuthError(`${preset.name} has no available models`, 409);
+  if (isOllamaPreset(preset)) models = await enrichOllamaModels(models, preset, apiKey);
   return models;
 }
 
@@ -2404,7 +2545,7 @@ function cleanProviderApiKey(value) {
 
 async function setupGenericProvider(preset, apiKey) {
   const key = cleanProviderApiKey(apiKey);
-  const models = await fetchProviderModels(preset, key);
+  const models = mergeExistingProviderModelMetadata(preset.configId, await fetchProviderModels(preset, key));
   const provider = upsertModelProvider({
     id: preset.configId,
     api: preset.api || "openai-completions",
@@ -2745,13 +2886,10 @@ async function setupFreeProvider(providerId) {
   if (body.length > 2 * 1024 * 1024) throw providerAuthError(`${preset.name} returned an oversized model list`, 409);
   let parsed;
   try { parsed = JSON.parse(body); } catch { throw providerAuthError(`${preset.name} returned an invalid model list`, 409); }
-  const rows = Array.isArray(parsed?.data) ? parsed.data : Array.isArray(parsed?.models) ? parsed.models : [];
-  const models = rows.map((row) => {
-    const id = typeof row === "string" ? row.trim() : String(row?.id || row?.name || "").trim();
-    const name = typeof row === "object" && row ? String(row.name || row.id || "").trim() : id;
-    return id ? { id, ...(name && name !== id ? { name } : {}) } : null;
-  }).filter((row, index, all) => row && all.findIndex((other) => other?.id === row.id) === index).slice(0, 100);
+  let models = parseProviderModels(parsed);
   if (!models.length) throw providerAuthError(`${preset.name} has no available models`, 409);
+  if (isOllamaPreset(preset)) models = await enrichOllamaModels(models, preset);
+  models = mergeExistingProviderModelMetadata(preset.configId, models);
   const provider = upsertModelProvider({
     id: preset.configId,
     api: preset.api,
