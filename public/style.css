@@ -1,4 +1,4 @@
-/* pi-harbor v2.5.2 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.5.3 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -1996,7 +1996,7 @@ body.image-lightbox-open { overflow: hidden; }
   scrollbar-width: none;
 }
 #view-list .session-list::-webkit-scrollbar { display: none; }
-#view-list .session-list.grouped { gap: 0; }
+#view-list .session-list.grouped { gap: 6px; }
 /* Session card geometry: OpenCode row = 64px desktop, 68px mobile. */
 .session-item {
   min-width: 0;
@@ -2128,7 +2128,7 @@ body.image-lightbox-open { overflow: hidden; }
    rules above. Grouped sessions have a more specific selector, so the old
    compact rule could be overridden and appear to do nothing. */
 body.compact #view-list .session-list { gap: 2px; }
-body.compact #view-list .session-list.grouped { gap: 0; }
+body.compact #view-list .session-list.grouped { gap: 4px; }
 body.compact #view-list .session-item,
 body.compact #view-list .project-group-items .session-item {
   min-height: 44px;
@@ -3126,19 +3126,23 @@ html.reduced-motion .machine-row.machine-status-checking .m-dot { animation: non
 .project-group:focus-within .project-group-actions { opacity: 1; }
 .project-group-action {
   width: 32px;
+  min-width: 32px;
   height: 32px;
+  min-height: 32px;
   display: grid;
   place-items: center;
   padding: 0;
   border: 0;
-  border-radius: 9px;
+  border-radius: 8px;
   color: var(--pine-soft);
   background: transparent;
   cursor: pointer;
+  transition: transform .12s ease-out, background .15s, color .15s;
 }
 .project-group-action:hover { color: var(--ink); background: var(--bubble-user); }
+.project-group-action:active { color: var(--ink); background: var(--bubble-user); transform: scale(.92); }
 .project-group-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.project-group-action .icon { width: 17px; height: 17px; }
+.project-group-action .icon { width: 15px; height: 15px; }
 .project-group-chevron-button {
   width: 32px;
   height: 32px;
@@ -3186,9 +3190,8 @@ html.reduced-motion .machine-row.machine-status-checking .m-dot { animation: non
 .project-rename-dialog { max-width: 520px; }
 
 @media (max-width: 979px) {
+  /* Touch has no hover: the compact capsule stays visible on every row. */
   .project-group-actions { opacity: 1; }
-  .project-group-action { width: 34px; height: 34px; }
-  .project-group-chevron-button { width: 34px; height: 34px; flex-basis: 34px; }
 }
 
 html.reduced-motion .project-group-actions { transition: none; }
@@ -3346,7 +3349,7 @@ html.reduced-motion .changes-panel { animation: none; }
 
 /* Keep the project count attached to its collapse affordance. The action
    buttons float over the trailing edge so a long folder name can continue
-   underneath them; only the small icon strip receives the backdrop blur. */
+   underneath them; the small icon strip shares the mobile capsule look. */
 .project-group-header { position: relative; }
 .project-group-main { position: relative; z-index: 1; }
 .project-group-actions {
@@ -3354,8 +3357,9 @@ html.reduced-motion .changes-panel { animation: none; }
   top: 50%;
   right: 58px;
   z-index: 2;
-  padding: 2px 3px;
-  border-radius: 10px;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 11px;
   isolation: isolate;
   transform: translateY(-50%);
 }
@@ -3367,13 +3371,14 @@ html.reduced-motion .changes-panel { animation: none; }
   z-index: -1;
   border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
   border-radius: inherit;
-  background: color-mix(in srgb, var(--paper) 78%, transparent);
+  background: color-mix(in srgb, var(--paper) 92%, transparent);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 7%, transparent);
   -webkit-backdrop-filter: blur(8px) saturate(1.08);
   backdrop-filter: blur(8px) saturate(1.08);
 }
 .project-group-trailing {
-  min-width: 58px;
-  flex: 0 0 58px;
+  min-width: 0;
+  flex: 0 0 auto;
   position: relative;
   z-index: 3;
   display: flex;
@@ -3483,7 +3488,6 @@ html.reduced-motion .session-item-actions { transition: none; }
 }
 
 @media (max-width: 979px) {
-  .project-group-actions { right: 62px; }
   .session-item-action { width: 32px; height: 32px; }
 }
 
@@ -3572,13 +3576,6 @@ html.reduced-motion .session-item-actions { transition: none; }
 .machine-heading-actions .icon-button-small,
 .model-provider-actions .icon-button-small,
 .machine-row-action {
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
-  min-height: 44px;
-}
-.project-group-action,
-.project-group-chevron-button {
   width: 44px;
   min-width: 44px;
   height: 44px;
@@ -4143,45 +4140,4 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
   }
   #view-chat .task-progress-step-marker.running,
   #view-chat .task-progress-indicator.running { animation: none; }
-}
-
-/* Mobile project row: the hover-era floating pill still has no hover on
-   touch, so it must stand on its own. Shrink it into a compact segmented
-   capsule and match the collapse chevron, so the folder row ends in one tidy
-   trailing cluster instead of oversized ghost icons floating over the name. */
-@media (max-width: 979px) {
-  .project-group-actions {
-    right: 58px;
-    gap: 2px;
-    padding: 3px;
-    border-radius: 11px;
-  }
-  .project-group-actions::before {
-    background: color-mix(in srgb, var(--paper) 92%, transparent);
-    box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 7%, transparent);
-  }
-  .project-group-action,
-  .project-group-chevron-button {
-    width: 32px;
-    min-width: 32px;
-    height: 32px;
-    min-height: 32px;
-    flex-basis: 32px;
-  }
-  .project-group-action {
-    border-radius: 8px;
-    color: var(--pine-soft);
-  }
-  .project-group-action:active {
-    color: var(--ink);
-    background: var(--bubble-user);
-    transform: scale(.92);
-  }
-  .project-group-action .icon { width: 15px; height: 15px; }
-  .project-group-trailing {
-    min-width: 0;
-    flex: 0 0 auto;
-    gap: 2px;
-  }
-  .project-group-chevron .icon { width: 15px; height: 15px; }
 }

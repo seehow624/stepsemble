@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.5.3
+
+- Desktop project rows now reveal the same compact segmented capsule as
+  mobile: 32px buttons with 15px icons in a solid hairline capsule with a
+  matching collapse chevron, replacing the oversized ghost icons that
+  appeared on hover.
+- Collapsed project and pinned groups keep a small gap (6px, 4px in compact
+  mode) between cards so fully collapsed lists no longer read as overlapping
+  borders.
+
 ## 2.5.2
 
 - Sidebar geometry: project cards inside the session list now keep the exact
