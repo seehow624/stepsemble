@@ -132,6 +132,109 @@
     };
   }
 
+  // Pi extensions send widget text with terminal colour escape sequences when
+  // they reuse the TUI theme helpers. The web client must treat that text as
+  // data, not markup, and should never expose the escape bytes in a browser.
+  const ANSI_ESCAPE_RE = /(?:\u001B\][^\u0007]*(?:\u0007|\u001B\\)|\u001B\[[0-?]*[ -/]*[@-~]|\u009B[0-?]*[ -/]*[@-~])/g;
+
+  function stripAnsi(value) {
+    return String(value ?? "").replace(ANSI_ESCAPE_RE, "").replace(/\u0000/g, "");
+  }
+
+  function cleanTaskProgressText(value) {
+    return stripAnsi(value)
+      .replace(/^\s*~~([\s\S]*?)~~\s*$/, "$1")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/__([^_]+)__/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 500);
+  }
+
+  function taskMarkerState(value) {
+    const match = String(value || "").match(/^(?:\[(x|X|✓|✔|✅| )\]|(☑|☒|☐|□|▣|✓|✔|✅|○|◯|●|◉))\s*/u);
+    if (!match) return null;
+    const marker = match[1] || match[2] || "";
+    return {
+      completed: ![" ", "☐", "□", "○", "◯"].includes(marker),
+      text: String(value).slice(match[0].length),
+    };
+  }
+
+  /**
+   * Parse the small, plain-text task widgets emitted by Pi extensions. It
+   * accepts both the plan-mode format (`☑ step`) and ordinary numbered or
+   * Markdown checklist rows so custom extensions can use the same web UI.
+   */
+  function parseTaskProgressLines(lines, { allowPlain = false, maxItems = 50 } = {}) {
+    const items = [];
+    const notes = [];
+    const source = Array.isArray(lines) ? lines : [];
+    for (const raw of source.slice(0, 100)) {
+      let value = stripAnsi(raw).replace(/[\r\n]+/g, " ").trim();
+      if (!value || /^(?:[-=_]){3,}$/.test(value)) continue;
+
+      // A leading bullet is only presentation; the checkbox/number below
+      // carries the semantic state. Keep track of plain bullets for custom
+      // task widgets that do not use a checkbox marker.
+      const hadBullet = /^[-*•]\s+/.test(value);
+      if (hadBullet) value = value.replace(/^[-*•]\s+/, "");
+
+      let step = null;
+      let marker = null;
+      let changed = true;
+      while (changed) {
+        changed = false;
+        if (marker === null) {
+          const nextMarker = taskMarkerState(value);
+          if (nextMarker) {
+            marker = nextMarker;
+            value = nextMarker.text.trim();
+            changed = true;
+          }
+        }
+        if (step === null) {
+          const nextNumber = value.match(/^(\d{1,3})[.)]\s+/);
+          if (nextNumber) {
+            const parsedStep = Number(nextNumber[1]);
+            if (Number.isSafeInteger(parsedStep) && parsedStep > 0) step = parsedStep;
+            value = value.slice(nextNumber[0].length).trim();
+            changed = true;
+          }
+        }
+      }
+
+      const structured = step !== null || marker !== null || (allowPlain && hadBullet);
+      const text = cleanTaskProgressText(value);
+      if (!structured || !text) {
+        if (text && notes.length < 10) notes.push(text);
+        continue;
+      }
+      if (items.length >= Math.max(1, Number(maxItems) || 50)) continue;
+      items.push({
+        step: step || items.length + 1,
+        text,
+        completed: marker ? marker.completed : false,
+      });
+    }
+    return { items, notes };
+  }
+
+  function extractTaskPlan(text) {
+    const source = stripAnsi(text);
+    const header = /(?:^|\n)\s*(?:#{1,6}\s*)?(?:[*_]{0,3}\s*)?Plan(?:\s+Steps?)?(?:\s*\(\d{1,3}\))?\s*(?:[*_]{0,3}\s*)?:?\s*(?:[*_]{0,3}\s*)?(?:\n|$)/i.exec(source);
+    if (!header) return [];
+    const start = header.index + header[0].length;
+    const section = [];
+    for (const line of source.slice(start).split(/\r?\n/)) {
+      if (section.length && /^\s*#{1,6}\s+/.test(line)) break;
+      if (section.length && /^\s*(?:Progress|Implementation|Notes?|Summary|Next steps?)\s*:\s*$/i.test(line)) break;
+      section.push(line);
+      if (section.length >= 100) break;
+    }
+    return parseTaskProgressLines(section).items;
+  }
+
   /**
    * Decide whether a run deserves a receipt and which reliable outcome it has.
    * `outcome` is supplied only by lifecycle events (settled, failure, exit);
@@ -162,5 +265,6 @@
     stripMd, fmtTime, fmtTokens, projectFolderName,
     DRAFT_ENTRY_LIMIT, DRAFT_TEXT_LIMIT, draftScopeKey, normalizeDraftEntries, updateDraftEntries, draftTextForKey,
     activityReceiptStats, computeActivityReceipt,
+    stripAnsi, parseTaskProgressLines, extractTaskPlan,
   });
 })(window);

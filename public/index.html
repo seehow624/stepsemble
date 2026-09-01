@@ -6,10 +6,10 @@
 <title>Pi Harbor</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=2.4.3">
-<link rel="icon" href="/pi-logo.svg?v=2.4.3" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-180.png?v=2.4.3">
-<link rel="stylesheet" href="/style.css?v=2.4.3">
+<link rel="manifest" href="/manifest.webmanifest?v=2.4.4">
+<link rel="icon" href="/pi-logo.svg?v=2.4.4" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png?v=2.4.4">
+<link rel="stylesheet" href="/style.css?v=2.4.4">
 </head>
 <body>
 
@@ -172,6 +172,22 @@
       </div>
     </div>
     <div id="queue-note" class="queue-note hidden" role="status" aria-live="polite"></div>
+    <section id="task-progress" class="task-progress hidden" role="region" aria-label="Task progress" data-i18n-ignore>
+      <div id="task-progress-panel" class="task-progress-panel hidden">
+        <div class="task-progress-heading">
+          <strong id="task-progress-heading">Task progress</strong>
+          <span id="task-progress-state"></span>
+        </div>
+        <ol id="task-progress-list" class="task-progress-list"></ol>
+        <p id="task-progress-detail" class="task-progress-detail hidden"></p>
+        <div id="task-progress-notes" class="task-progress-notes"></div>
+      </div>
+      <button id="task-progress-toggle" class="task-progress-toggle" type="button" aria-expanded="false" aria-controls="task-progress-panel">
+        <span id="task-progress-indicator" class="task-progress-indicator" aria-hidden="true"></span>
+        <span id="task-progress-count">Task progress</span>
+        <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"></use></svg>
+      </button>
+    </section>
     <footer class="composer">
       <button id="scroll-bottom-btn" class="scroll-bottom-btn hidden" type="button" title="Jump to latest" aria-label="Jump to latest">
         <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"></use></svg><span>Latest</span>
@@ -343,7 +359,7 @@
         <h3 class="group-title">About</h3>
         <div class="settings-row">
           <span><strong>Pi Harbor</strong><small>Mobile-first remote workspace for Pi</small></span>
-          <span class="settings-value" id="set-app-version">v2.4.3</span>
+          <span class="settings-value" id="set-app-version">v2.4.4</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -756,10 +772,10 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=2.4.3"></script>
-<script src="/modules/app-foundation.js?v=2.4.3"></script>
-<script src="/modules/session-utils.js?v=2.4.3"></script>
-<script src="/modules/context-usage.js?v=2.4.3"></script>
-<script src="/app.js?v=2.4.3"></script>
+<script src="/i18n.js?v=2.4.4"></script>
+<script src="/modules/app-foundation.js?v=2.4.4"></script>
+<script src="/modules/session-utils.js?v=2.4.4"></script>
+<script src="/modules/context-usage.js?v=2.4.4"></script>
+<script src="/app.js?v=2.4.4"></script>
 </body>
 </html>

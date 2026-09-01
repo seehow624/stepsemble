@@ -193,6 +193,27 @@ test("chat image attachments are wired to a safe preview and lightbox", () => {
   assert.match(css, /\.image-lightbox-img/);
 });
 
+test("task progress mirrors Pi widgets and plan markers with a reconnect-safe snapshot", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const module = fs.readFileSync(path.join(root, "public", "modules", "session-utils.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  assert.match(server, /widgets: new Map\(\)/);
+  assert.match(server, /event\.method === "setWidget"/);
+  assert.match(server, /for \(const widget of s\.widgets\.values\(\)\)/);
+  assert.match(app, /function setTaskProgressWidget/);
+  assert.match(app, /function selectTaskProgressStep/);
+  assert.match(app, /method === "setWidget"/);
+  assert.match(app, /extractTaskPlan/);
+  assert.match(module, /function stripAnsi/);
+  assert.match(module, /function parseTaskProgressLines/);
+  assert.match(html, /id="task-progress"/);
+  assert.match(html, /id="task-progress-toggle"/);
+  assert.match(css, /task-progress-shimmer/);
+  assert.match(css, /task-progress-step\.active/);
+});
+
 test("model settings expose a unified provider list without returning secrets", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");

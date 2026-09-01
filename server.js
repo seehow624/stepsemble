@@ -45,7 +45,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.4.3";
+const APP_VERSION = "2.4.4";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1488,6 +1488,28 @@ function rpcWrite(sid, obj) {
 function broadcast(sid, event) {
   const s = rpcSessions.get(sid);
   if (!s) return;
+  // Keep the latest extension widget in memory so a browser that reconnects to
+  // an idle, already-open RPC can restore the task checklist even though the
+  // original setWidget event is older than its replay cursor. Values are
+  // bounded and remain behind the authenticated SSE stream.
+  if (event?.type === "extension_ui_request" && event.method === "setWidget") {
+    const widgetKey = typeof event.widgetKey === "string" ? event.widgetKey.trim().slice(0, 128) : "";
+    if (widgetKey) {
+      if (Array.isArray(event.widgetLines)) {
+        s.widgets.set(widgetKey, {
+          type: "extension_ui_request",
+          id: typeof event.id === "string" ? event.id : "",
+          method: "setWidget",
+          widgetKey,
+          widgetLines: event.widgetLines.slice(0, 50).map((line) => String(line ?? "").slice(0, 2000)),
+          ...(event.widgetPlacement ? { widgetPlacement: String(event.widgetPlacement).slice(0, 32) } : {}),
+        });
+        while (s.widgets.size > 32) s.widgets.delete(s.widgets.keys().next().value);
+      } else {
+        s.widgets.delete(widgetKey);
+      }
+    }
+  }
   trackStreaming(sid, event);
   s.meta.lastActivityAt = Date.now();
   const data = JSON.stringify(event);
@@ -1622,7 +1644,7 @@ async function openRpc({ file, cwd, name }) {
   });
 
   const sess = {
-    proc, clients: new Set(), events: [], eventBytes: 0, eventSeq: 0, currentRunStartSeq: null,
+    proc, clients: new Set(), events: [], widgets: new Map(), eventBytes: 0, eventSeq: 0, currentRunStartSeq: null,
     state: { isStreaming: false },
     meta: { file: file || null, cwd: spawnCwd, openedAt: Date.now(), lastActivityAt: Date.now() },
     stderrTail: "", exited: false, exitCode: null,
@@ -3014,6 +3036,10 @@ const server = http.createServer(async (req, res) => {
       for (const packet of s.events) {
         if (packet.seq > after) trySseWrite(res, sseFrame(packet.event, null, packet.seq));
       }
+      // Widgets are state snapshots rather than conversation events. Sending
+      // the latest copy after replay makes reconnects deterministic without
+      // advancing Last-Event-ID or causing old message events to replay.
+      for (const widget of s.widgets.values()) trySseWrite(res, sseFrame(widget, null, null));
       if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
       if (s.exited) { cleanup(); try { res.end(); } catch {} return; }
       ping = setInterval(() => { trySseWrite(res, ": ping\n\n"); }, 15000);

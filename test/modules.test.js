@@ -231,6 +231,33 @@ test("pure text responses do not produce an activity receipt", () => {
   assert.equal(utils.computeActivityReceipt({ toolCount: 0, finalResponse: true }), null);
 });
 
+test("task progress widgets parse ANSI checkboxes, numbers, and completion state", () => {
+  const { value: utils } = loadBrowserModule("session-utils.js");
+  const parsed = utils.parseTaskProgressLines([
+    "\u001b[32m☑\u001b[0m Inspect the connection",
+    "☐ Update the worker rules",
+    "3. [x] Run the regression tests",
+    "- [ ] Deploy staging",
+  ], { allowPlain: true });
+  assert.equal(JSON.stringify(parsed.items.map((item) => ({ step: item.step, text: item.text, completed: item.completed }))), JSON.stringify([
+    { step: 1, text: "Inspect the connection", completed: true },
+    { step: 2, text: "Update the worker rules", completed: false },
+    { step: 3, text: "Run the regression tests", completed: true },
+    { step: 4, text: "Deploy staging", completed: false },
+  ]));
+});
+
+test("task progress plans can be recovered from assistant text", () => {
+  const { value: utils } = loadBrowserModule("session-utils.js");
+  const items = utils.extractTaskPlan("**Plan:**\n1. Inspect the project\n2. Apply the fix\n\nProgress:\n- done");
+  assert.equal(JSON.stringify(items.map((item) => item.text)), JSON.stringify(["Inspect the project", "Apply the fix"]));
+  const formatted = utils.extractTaskPlan("**Plan Steps (2):**\n\n1. ☐ Inspect the project\n2. ☑ Apply the fix");
+  assert.equal(JSON.stringify(formatted.map((item) => ({ text: item.text, completed: item.completed }))), JSON.stringify([
+    { text: "Inspect the project", completed: false },
+    { text: "Apply the fix", completed: true },
+  ]));
+});
+
 test("HTTP utility module centralizes framing, cookies, and JSON body limits", async () => {
   const http = createHttpUtils({
     isTokenValid: (value) => value === "secret",

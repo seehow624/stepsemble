@@ -2039,6 +2039,64 @@
     },
   };
   for (const [id, table] of Object.entries(CHANGES_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], table);
+  const TASK_PROGRESS_TRANSLATIONS = {
+    en: {
+      "taskProgress.title": "Task progress", "taskProgress.count": "{done} of {total}", "taskProgress.details": "Task details",
+      "taskProgress.running": "Running", "taskProgress.completed": "Completed", "taskProgress.current": "Currently working",
+      "taskProgress.upNext": "Up next", "taskProgress.expand": "Show task progress", "taskProgress.collapse": "Hide task progress",
+    },
+    "zh-Hant": {
+      "taskProgress.title": "任務進度", "taskProgress.count": "{done} / {total}", "taskProgress.details": "任務詳細資料",
+      "taskProgress.running": "執行中", "taskProgress.completed": "已完成", "taskProgress.current": "目前執行",
+      "taskProgress.upNext": "下一步", "taskProgress.expand": "顯示任務進度", "taskProgress.collapse": "收起任務進度",
+    },
+    "zh-Hans": {
+      "taskProgress.title": "任务进度", "taskProgress.count": "{done} / {total}", "taskProgress.details": "任务详细信息",
+      "taskProgress.running": "执行中", "taskProgress.completed": "已完成", "taskProgress.current": "当前执行",
+      "taskProgress.upNext": "下一步", "taskProgress.expand": "显示任务进度", "taskProgress.collapse": "收起任务进度",
+    },
+    ja: {
+      "taskProgress.title": "タスクの進捗", "taskProgress.count": "{done} / {total}", "taskProgress.details": "タスクの詳細",
+      "taskProgress.running": "実行中", "taskProgress.completed": "完了", "taskProgress.current": "現在実行中",
+      "taskProgress.upNext": "次のタスク", "taskProgress.expand": "タスクの進捗を表示", "taskProgress.collapse": "タスクの進捗を隠す",
+    },
+    ko: {
+      "taskProgress.title": "작업 진행률", "taskProgress.count": "{done} / {total}", "taskProgress.details": "작업 세부 정보",
+      "taskProgress.running": "실행 중", "taskProgress.completed": "완료", "taskProgress.current": "현재 작업",
+      "taskProgress.upNext": "다음 작업", "taskProgress.expand": "작업 진행률 표시", "taskProgress.collapse": "작업 진행률 숨기기",
+    },
+    tr: {
+      "taskProgress.title": "Görev ilerlemesi", "taskProgress.count": "{done} / {total}", "taskProgress.details": "Görev ayrıntıları",
+      "taskProgress.running": "Çalışıyor", "taskProgress.completed": "Tamamlandı", "taskProgress.current": "Şu anda çalışıyor",
+      "taskProgress.upNext": "Sıradaki", "taskProgress.expand": "Görev ilerlemesini göster", "taskProgress.collapse": "Görev ilerlemesini gizle",
+    },
+    fr: {
+      "taskProgress.title": "Progression de la tâche", "taskProgress.count": "{done} sur {total}", "taskProgress.details": "Détails de la tâche",
+      "taskProgress.running": "En cours", "taskProgress.completed": "Terminé", "taskProgress.current": "Travail en cours",
+      "taskProgress.upNext": "À suivre", "taskProgress.expand": "Afficher la progression", "taskProgress.collapse": "Masquer la progression",
+    },
+    de: {
+      "taskProgress.title": "Aufgabenfortschritt", "taskProgress.count": "{done} von {total}", "taskProgress.details": "Aufgabendetails",
+      "taskProgress.running": "Wird ausgeführt", "taskProgress.completed": "Abgeschlossen", "taskProgress.current": "Aktuell in Arbeit",
+      "taskProgress.upNext": "Als Nächstes", "taskProgress.expand": "Aufgabenfortschritt anzeigen", "taskProgress.collapse": "Aufgabenfortschritt ausblenden",
+    },
+    es: {
+      "taskProgress.title": "Progreso de la tarea", "taskProgress.count": "{done} de {total}", "taskProgress.details": "Detalles de la tarea",
+      "taskProgress.running": "En curso", "taskProgress.completed": "Completado", "taskProgress.current": "Trabajando ahora",
+      "taskProgress.upNext": "A continuación", "taskProgress.expand": "Mostrar progreso de la tarea", "taskProgress.collapse": "Ocultar progreso de la tarea",
+    },
+    "pt-BR": {
+      "taskProgress.title": "Progresso da tarefa", "taskProgress.count": "{done} de {total}", "taskProgress.details": "Detalhes da tarefa",
+      "taskProgress.running": "Em execução", "taskProgress.completed": "Concluído", "taskProgress.current": "Trabalhando agora",
+      "taskProgress.upNext": "Próximo", "taskProgress.expand": "Mostrar progresso da tarefa", "taskProgress.collapse": "Ocultar progresso da tarefa",
+    },
+    it: {
+      "taskProgress.title": "Avanzamento attività", "taskProgress.count": "{done} di {total}", "taskProgress.details": "Dettagli attività",
+      "taskProgress.running": "In esecuzione", "taskProgress.completed": "Completato", "taskProgress.current": "In lavorazione",
+      "taskProgress.upNext": "Prossimo", "taskProgress.expand": "Mostra avanzamento attività", "taskProgress.collapse": "Nascondi avanzamento attività",
+    },
+  };
+  for (const [id, table] of Object.entries(TASK_PROGRESS_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], table);
   const KEYED_SOURCE_KEYS = Object.freeze(Object.keys(KEYED_TRANSLATIONS.en));
   const KEYED_FALLBACK_KEYS = {};
   for (const [id, table] of Object.entries(KEYED_TRANSLATIONS)) {

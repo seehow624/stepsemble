@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.4.4
+
+- Added a live task-progress panel above the composer. Pi plan/todo widgets and
+  plan text now appear as a compact Running indicator with an expandable,
+  clickable checklist; completed steps remain visible in session history.
+
 ## 2.4.3
 
 - The sign-in screen now explains how to read the Web token on macOS, Linux,

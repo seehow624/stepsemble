@@ -1,7 +1,7 @@
-/* pi-harbor v2.4.3 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.4.4 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.4.3";
+const CLIENT_APP_VERSION = "2.4.4";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -23,6 +23,7 @@ const {
   stripMd, fmtTime, fmtTokens, projectFolderName,
   draftScopeKey, normalizeDraftEntries, updateDraftEntries, draftTextForKey,
   activityReceiptStats, computeActivityReceipt,
+  stripAnsi, parseTaskProgressLines, extractTaskPlan,
 } = sessionUtils;
 const {
   finiteNonNegative, positiveFinite, normalizeWireUsage, normalizeSessionStats, mergeContextCapacity,
@@ -70,6 +71,10 @@ const el = {
   changesDiffPane: $("changes-diff-pane"), changesDetailBack: $("changes-detail-back"), changesDiffKind: $("changes-diff-kind"),
   changesDiffTitle: $("changes-diff-title"), changesDiffEmpty: $("changes-diff-empty"), changesDiff: $("changes-diff"),
   messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"),
+  taskProgress: $("task-progress"), taskProgressPanel: $("task-progress-panel"), taskProgressHeading: $("task-progress-heading"),
+  taskProgressState: $("task-progress-state"), taskProgressList: $("task-progress-list"), taskProgressDetail: $("task-progress-detail"),
+  taskProgressNotes: $("task-progress-notes"), taskProgressToggle: $("task-progress-toggle"), taskProgressIndicator: $("task-progress-indicator"),
+  taskProgressCount: $("task-progress-count"),
   contextDashboard: $("context-dashboard"), contextProgress: $("context-progress"), contextProgressFill: $("context-progress-fill"),
   contextInfo: $("context-info"), contextPopover: $("context-popover"),
   tokenAdd: $("token-add"), tokenCreateRow: $("token-create-row"), tokenLabel: $("token-label"),
@@ -148,6 +153,9 @@ let pendingAssistant = null;
 let liveToolCards = new Map();
 let liveActivity = null;     // 目前工作輪次的整組 thinking／tool 紀錄
 let activeActivityRun = null; // one logical run; may span retry/compaction agent_start events
+let taskProgress = null;     // latest extension/plan task widget shown above the composer
+const extensionStatuses = new Map();
+const TASK_WIDGET_KEY_RE = /(?:plan|todo|task|progress|step)/i;
 let settings = loadSettings();
 const DRAFT_STORAGE_KEY = "piharbor.composer-drafts.v1";
 let activeDraftKey = "";
@@ -294,6 +302,307 @@ function toast(msg, isError = false) {
   el.toastWrap.appendChild(t);
   setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 350); }, 2400);
 }
+
+// ===========================================================================
+// 任務進度（Pi extension widget / Plan 文字的 web 呈現）
+// ===========================================================================
+
+function taskProgressText(key, vars = {}) {
+  return tKey(`taskProgress.${key}`, vars);
+}
+
+function taskProgressCountFromStatus(value) {
+  const match = String(value || "").match(/(\d{1,4})\s*(?:\/|of)\s*(\d{1,4})/i);
+  if (!match) return null;
+  const completed = Math.max(0, Number(match[1]) || 0);
+  const total = Math.max(completed, Number(match[2]) || 0);
+  return total > 0 ? { completed: Math.min(completed, total), total } : null;
+}
+
+function taskProgressStats(state) {
+  const items = Array.isArray(state?.items) ? state.items : [];
+  const statusCount = taskProgressCountFromStatus(state?.statusText);
+  const total = items.length || statusCount?.total || Math.max(0, Number(state?.statusTotal) || 0);
+  const completed = items.length
+    ? items.filter((item) => item?.completed).length
+    : Math.min(total, statusCount?.completed ?? Math.max(0, Number(state?.statusCompleted) || 0));
+  return { items, completed: Math.min(completed, total), total };
+}
+
+function taskProgressActiveIndex(state) {
+  const { items } = taskProgressStats(state);
+  return items.findIndex((item) => !item?.completed);
+}
+
+function taskProgressIsRunning(state) {
+  const { items, completed, total } = taskProgressStats(state);
+  return !!state?.running && (!total || completed < total || !items.length);
+}
+
+function taskProgressActivityLabel() {
+  const runningCard = [...liveToolCards.values()].find((card) => card.classList.contains("running"));
+  if (runningCard) return toolTitle(runningCard.__tool?.name, runningCard.__tool?.args, true);
+  if (liveActivity?.running && liveActivity.latest) return liveActivity.latest;
+  return activityStatusText(rpc?.activityLabel || "working");
+}
+
+function taskProgressFocusActivity(index) {
+  const groups = [...(el.messages?.querySelectorAll?.(".activity-group") || [])];
+  if (!groups.length) return;
+  const activeIndex = taskProgressActiveIndex(taskProgress);
+  let target = index === activeIndex
+    ? groups.find((group) => group.classList.contains("running")) || groups[groups.length - 1]
+    : groups[index] || null;
+  if (!target) return;
+  target.open = true;
+  try {
+    target.scrollIntoView({ behavior: settings.reducedMotion ? "auto" : "smooth", block: "nearest" });
+  } catch {}
+}
+
+function selectTaskProgressStep(index) {
+  if (!taskProgress || !Number.isInteger(index) || !taskProgress.items?.[index]) return;
+  taskProgress.selectedIndex = index;
+  taskProgress.expanded = true;
+  renderTaskProgress();
+  taskProgressFocusActivity(index);
+}
+
+function renderTaskProgress() {
+  const root = el.taskProgress;
+  if (!root) return;
+  const state = taskProgress;
+  const { items, completed, total } = taskProgressStats(state);
+  const notes = Array.isArray(state?.notes) ? state.notes : [];
+  const visible = !!state && (items.length > 0 || notes.length > 0 || total > 0);
+  root.classList.toggle("hidden", !visible);
+  if (!visible) {
+    el.taskProgressPanel?.classList.add("hidden");
+    return;
+  }
+
+  const running = taskProgressIsRunning(state);
+  const complete = total > 0 && completed >= total;
+  root.dataset.state = running ? "running" : complete ? "complete" : "idle";
+  root.classList.toggle("running", running);
+  if (el.taskProgressHeading) el.taskProgressHeading.textContent = taskProgressText("title");
+  if (el.taskProgressState) el.taskProgressState.textContent = running
+    ? taskProgressText("running")
+    : complete ? taskProgressText("completed") : "";
+  if (el.taskProgressCount) {
+    el.taskProgressCount.textContent = total
+      ? taskProgressText("count", { done: completed, total })
+      : taskProgressText("details");
+  }
+  if (el.taskProgressIndicator) {
+    el.taskProgressIndicator.className = "task-progress-indicator"
+      + (running ? " running" : complete ? " done" : "");
+    el.taskProgressIndicator.replaceChildren();
+    if (complete && !running) {
+      el.taskProgressIndicator.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>';
+    }
+  }
+  if (el.taskProgressToggle) {
+    const expanded = !!state.expanded;
+    el.taskProgressToggle.setAttribute("aria-expanded", String(expanded));
+    const action = expanded ? taskProgressText("collapse") : taskProgressText("expand");
+    el.taskProgressToggle.title = action;
+    el.taskProgressToggle.setAttribute("aria-label", `${action}: ${el.taskProgressCount?.textContent || taskProgressText("details")}`);
+  }
+  el.taskProgressPanel?.classList.toggle("hidden", !state.expanded);
+  if (el.taskProgressList) {
+    el.taskProgressList.replaceChildren();
+    const activeIndex = taskProgressActiveIndex(state);
+    const selectedIndex = Number.isInteger(state.selectedIndex) && state.selectedIndex >= 0 && state.selectedIndex < items.length
+      ? state.selectedIndex : (activeIndex >= 0 ? activeIndex : items.length - 1);
+    if (Number.isInteger(state.selectedIndex) && state.selectedIndex !== selectedIndex) state.selectedIndex = selectedIndex;
+    items.forEach((item, index) => {
+      const done = !!item.completed;
+      const active = !done && running && index === activeIndex;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "task-progress-step" + (done ? " done" : active ? " active" : " pending")
+        + (index === selectedIndex ? " selected" : "");
+      button.setAttribute("aria-current", active ? "step" : "false");
+      button.setAttribute("aria-label", `${index + 1}. ${item.text}`);
+      const marker = document.createElement("span");
+      marker.className = "task-progress-step-marker" + (done ? " done" : active ? " running" : " pending");
+      marker.setAttribute("aria-hidden", "true");
+      if (done) marker.innerHTML = '<svg class="icon"><use href="#i-check"></use></svg>';
+      const number = document.createElement("span");
+      number.className = "task-progress-step-number";
+      number.textContent = `${index + 1}.`;
+      const copy = document.createElement("span");
+      copy.className = "task-progress-step-copy";
+      copy.textContent = item.text;
+      button.append(marker, number, copy);
+      button.addEventListener("click", () => selectTaskProgressStep(index));
+      el.taskProgressList.appendChild(button);
+    });
+  }
+  if (el.taskProgressDetail) {
+    const activeIndex = taskProgressActiveIndex(state);
+    const selectedIndex = Number.isInteger(state.selectedIndex) && state.selectedIndex >= 0 && state.selectedIndex < items.length
+      ? state.selectedIndex : (activeIndex >= 0 ? activeIndex : items.length - 1);
+    const item = items[selectedIndex];
+    if (!item) {
+      el.taskProgressDetail.textContent = "";
+      el.taskProgressDetail.classList.add("hidden");
+    } else {
+      const status = item.completed
+        ? taskProgressText("completed")
+        : selectedIndex === activeIndex && running
+          ? `${taskProgressText("current")}: ${taskProgressActivityLabel()}`
+          : taskProgressText("upNext");
+      el.taskProgressDetail.textContent = `${status} · ${item.text}`;
+      el.taskProgressDetail.classList.remove("hidden");
+    }
+  }
+  if (el.taskProgressNotes) {
+    el.taskProgressNotes.replaceChildren();
+    for (const note of notes) {
+      const copy = document.createElement("p");
+      copy.textContent = note;
+      el.taskProgressNotes.appendChild(copy);
+    }
+  }
+  root.setAttribute("aria-label", `${taskProgressText("title")}${total ? ` · ${completed}/${total}` : ""}`);
+}
+
+function resetTaskProgress() {
+  taskProgress = null;
+  extensionStatuses.clear();
+  renderTaskProgress();
+}
+
+function setTaskProgressRunState(running) {
+  if (!taskProgress) return;
+  taskProgress.running = !!running;
+  if (running) {
+    taskProgress.settled = false;
+    // A widget is normally restored during session_start, before the next
+    // agent_start flips the RPC into its running state. Open it automatically
+    // for that first live run; a user can still collapse it afterwards.
+    if (taskProgress.items?.length) taskProgress.expanded = true;
+  }
+  renderTaskProgress();
+}
+
+function settleTaskProgress() {
+  if (!taskProgress) return;
+  taskProgress.running = false;
+  taskProgress.settled = true;
+  const { completed, total } = taskProgressStats(taskProgress);
+  if (total > 0 && completed >= total) taskProgress.expanded = false;
+  renderTaskProgress();
+}
+
+function taskProgressStatusTextFor(key) {
+  const exact = extensionStatuses.get(key);
+  if (exact) return exact;
+  for (const [statusKey, statusText] of extensionStatuses) {
+    if (TASK_WIDGET_KEY_RE.test(statusKey) && statusText) return statusText;
+  }
+  return "";
+}
+
+function setTaskProgressWidget(key, lines) {
+  const widgetKey = String(key || "").trim();
+  if (!widgetKey) return;
+  if (lines === undefined || lines === null) {
+    if (taskProgress?.key !== widgetKey) return;
+    if (taskProgress.items?.length) {
+      taskProgress.running = false;
+      taskProgress.settled = true;
+      const { completed, total } = taskProgressStats(taskProgress);
+      if (total > 0 && completed >= total) taskProgress.expanded = false;
+      renderTaskProgress();
+    } else {
+      resetTaskProgress();
+    }
+    return;
+  }
+  if (!Array.isArray(lines)) return;
+  const parsed = parseTaskProgressLines(lines, { allowPlain: TASK_WIDGET_KEY_RE.test(widgetKey) });
+  if (!TASK_WIDGET_KEY_RE.test(widgetKey) && !parsed.items.length) return;
+  const previous = taskProgress;
+  const sameWidget = previous?.key === widgetKey && previous?.source === "widget";
+  const statusText = taskProgressStatusTextFor(widgetKey);
+  const statusCount = taskProgressCountFromStatus(statusText);
+  taskProgress = {
+    key: widgetKey,
+    source: "widget",
+    items: parsed.items,
+    notes: parsed.notes,
+    statusText,
+    statusCompleted: statusCount?.completed ?? null,
+    statusTotal: statusCount?.total ?? null,
+    expanded: sameWidget ? !!previous.expanded : !!(rpc?.streaming && parsed.items.length),
+    selectedIndex: sameWidget ? previous.selectedIndex : null,
+    running: !!rpc?.streaming,
+    settled: false,
+  };
+  renderTaskProgress();
+}
+
+function setTaskProgressStatus(key, value) {
+  const statusKey = String(key || "").trim();
+  if (!statusKey) return;
+  const statusText = stripAnsi(value).replace(/\s+/g, " ").trim().slice(0, 500);
+  if (statusText) extensionStatuses.set(statusKey, statusText);
+  else extensionStatuses.delete(statusKey);
+  if (!taskProgress || (taskProgress.key !== statusKey && !TASK_WIDGET_KEY_RE.test(statusKey))) return;
+  taskProgress.statusText = taskProgressStatusTextFor(taskProgress.key || statusKey);
+  const statusCount = taskProgressCountFromStatus(taskProgress.statusText);
+  taskProgress.statusCompleted = statusCount?.completed ?? null;
+  taskProgress.statusTotal = statusCount?.total ?? null;
+  renderTaskProgress();
+}
+
+function markTaskProgressDone(text) {
+  if (!taskProgress?.items?.length) return false;
+  let changed = false;
+  for (const match of String(text || "").matchAll(/\[DONE:(\d+)\]/gi)) {
+    const step = Number(match[1]);
+    const item = taskProgress.items.find((candidate, index) => candidate.step === step || index + 1 === step);
+    if (item && !item.completed) {
+      item.completed = true;
+      changed = true;
+    }
+  }
+  if (changed) renderTaskProgress();
+  return changed;
+}
+
+function updateTaskProgressFromAssistant(text, { running = false } = {}) {
+  const value = String(text || "");
+  if (!value.trim()) return;
+  const plan = extractTaskPlan(value);
+  if (plan.length && taskProgress?.source !== "widget") {
+    const previous = taskProgress?.source === "history" ? taskProgress : null;
+    taskProgress = {
+      key: "history-plan",
+      source: "history",
+      items: plan.map((item) => ({ ...item })),
+      notes: [],
+      statusText: "",
+      statusCompleted: null,
+      statusTotal: null,
+      expanded: previous ? !!previous.expanded : false,
+      selectedIndex: previous ? previous.selectedIndex : null,
+      running: !!running,
+      settled: false,
+    };
+  }
+  const marked = markTaskProgressDone(value);
+  if (plan.length || marked) renderTaskProgress();
+}
+
+el.taskProgressToggle?.addEventListener("click", () => {
+  if (!taskProgress) return;
+  taskProgress.expanded = !taskProgress.expanded;
+  renderTaskProgress();
+});
 
 // ===========================================================================
 // API（apiBase："" 本機 或 "/r/<id>" 反代遠端）
@@ -1742,6 +2051,7 @@ async function openExisting(s) {
   beginDraftScope({ file: s.file, cwd: s.cwd, name: s.name });
   const generation = ++viewGeneration;
   if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
+  resetTaskProgress();
   resetProjectChanges();
   resetComposerSummary();
   currentSessionFile = s.file;
@@ -2191,6 +2501,7 @@ async function startNew(cwd, name) {
   beginDraftScope({ cwd, name });
   const generation = ++viewGeneration;
   if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
+  resetTaskProgress();
   resetProjectChanges();
   resetComposerSummary();
   currentSessionFile = null;
@@ -2357,6 +2668,7 @@ function closeChat(silent) {
   liveToolCards = new Map();
   liveActivity = null;
   activeActivityRun = null;
+  resetTaskProgress();
   historyState = null;
   removeHistoryLoadButton();
   pendingImages = [];
@@ -3146,6 +3458,10 @@ function appendHistoryMessage(m, container = el.messages) {
       bubble.appendChild(note);
     }
   } else if (m.role === "assistant") {
+    // Older-history pages are prepended after the latest plan has already
+    // been rendered. Do not let an obsolete plan replace the current one;
+    // still recover one when the first page did not contain any plan text.
+    if (container === el.messages || !taskProgress) updateTaskProgressFromAssistant(m.text, { running: false });
     const { wrap, bubble } = makeMsgShell("assistant", m.model ? `pi · ${m.model}` : "pi", container);
     const calls = Array.isArray(m.toolCalls) ? m.toolCalls : [];
     let activity = null;
@@ -3329,13 +3645,22 @@ function showExtensionUi(ev, sid) {
     return;
   }
   if (method === "setStatus") {
-    el.queueNote.textContent = ev.statusText || "";
-    el.queueNote.classList.toggle("hidden", !ev.statusText);
+    const statusText = stripAnsi(ev.statusText || "").replace(/\s+/g, " ").trim();
+    setTaskProgressStatus(ev.statusKey, statusText);
+    // Plan/todo status belongs to the compact progress control rather than a
+    // transient queue banner. Other extension statuses keep the old banner
+    // behavior so existing extensions remain visible in the web client.
+    if (TASK_WIDGET_KEY_RE.test(String(ev.statusKey || ""))) return;
+    el.queueNote.textContent = statusText;
+    el.queueNote.classList.toggle("hidden", !statusText);
     return;
   }
   if (method === "setWidget") {
-    const lines = Array.isArray(ev.widgetLines) ? ev.widgetLines.join("\n") : "";
-    if (lines) toast(lines.slice(0, 220));
+    setTaskProgressWidget(ev.widgetKey, ev.widgetLines);
+    return;
+  }
+  if (method === "setTitle") {
+    if (ev.title) setChatTitle(ev.title);
     return;
   }
   if (!["select", "confirm", "input", "editor"].includes(method)) {
@@ -3431,6 +3756,7 @@ function setActivityLabel(label = "thinking") {
   if (el.thinkingStatus) {
     el.thinkingStatus.textContent = statusText;
     el.thinkingStatus.classList.toggle("hidden", !rpc?.streaming);
+    el.thinkingStatus.classList.toggle("running", !!rpc?.streaming && label !== "waiting");
   }
   if (rpc) rpc.activityLabel = label;
   if (pendingAssistant?.shimmerLabel) pendingAssistant.shimmerLabel.textContent = statusText;
@@ -3449,6 +3775,7 @@ function setActivityLabel(label = "thinking") {
       : ({ thinking: "Thinking…", working: "Working…", retrying: "Retrying…", compacting: "Compacting…" }[label] || "Working…");
     updateActivityGroup(activeActivity, { running: true, latest: statusText });
   }
+  renderTaskProgress();
 }
 
 function handleRpcEvent(ev, eventSid = rpc?.sid) {
@@ -3468,7 +3795,10 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       if (ev.message?.role === "assistant") ensurePendingAssistant();
       break;
     case "extension_ui_request":
-      setActivityLabel("waiting");
+      // setStatus/setWidget/setTitle are fire-and-forget display updates, not
+      // a request for user input. Keep the Running indicator animated for
+      // those events; only interactive extension UI should pause it.
+      if (!["setStatus", "setWidget", "setTitle"].includes(ev.method)) setActivityLabel("waiting");
       showExtensionUi(ev, eventSid);
       break;
     case "auto_retry_start":
@@ -3562,6 +3892,7 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
         void syncSessionStats(eventSid);
         const current = pendingAssistant;
         const full = wireFromAgentMessage(m);
+        updateTaskProgressFromAssistant(full.text, { running: !!rpc?.streaming || full.toolCalls.length > 0 });
         noteRunFinalResponse(full);
         if (isFailureMessage(full)) {
           lastRunFailure = full;
@@ -3609,15 +3940,17 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
     }
     case "turn_end": {
       const ended = ev.message ? wireFromAgentMessage(ev.message) : null;
+      if (ended) updateTaskProgressFromAssistant(ended.text, { running: !!rpc?.streaming });
       if (isFailureMessage(ended)) {
         lastRunFailure = ended;
       }
       break;
     }
     case "agent_end": {
-      const failed = (Array.isArray(ev.messages) ? ev.messages : [])
-        .map(wireFromAgentMessage)
-        .find(isFailureMessage);
+      const endedMessages = (Array.isArray(ev.messages) ? ev.messages : [])
+        .map(wireFromAgentMessage);
+      for (const message of endedMessages) updateTaskProgressFromAssistant(message.text, { running: !!ev.willRetry });
+      const failed = endedMessages.find(isFailureMessage);
       if (!failed) break;
       lastRunFailure = failed;
       if (ev.willRetry) {
@@ -3684,6 +4017,7 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
         // message_end/tool events cannot mutate its receipt.
         if (receipt) refreshActivityReceipts();
       }
+      settleTaskProgress();
       setStreaming(false);
       finalizePending({ settleTools: true });
       el.queueNote.classList.add("hidden");
@@ -3720,6 +4054,7 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
           setRunOutcome("interrupted", { errorMessage: ev.error || ev.stderrTail || "" });
           settleActivityRun(activeActivityRun, "interrupted");
         }
+        settleTaskProgress();
         if (!runFailureRendered && unexpectedExit) {
           const detail = ev.stderrTail ? String(ev.stderrTail).slice(-2000) : "";
           const title = ev.error ? "Pi 無法啟動" : "Pi 工作程序已中斷";
@@ -3930,6 +4265,7 @@ function updateLiveUsage(u) {
 }
 function setStreaming(on) {
   if (rpc) rpc.streaming = on;
+  setTaskProgressRunState(!!on);
   if (on) {
     if (rpc && !rpc.lastEventAt) rpc.lastEventAt = Date.now();
     if (!activityWatchdog) activityWatchdog = setInterval(updateActivityWatchdog, 5000);
@@ -3940,6 +4276,7 @@ function setStreaming(on) {
     clearActivityNote();
   }
   el.thinkingStatus?.classList.toggle("hidden", !on);
+  el.thinkingStatus?.classList.toggle("running", !!on && rpc?.activityLabel !== "waiting");
   el.btnAbort.classList.toggle("hidden", !on);
   el.btnSend.classList.toggle("hidden", on);
   el.btnSend.title = on ? "" : (window.piI18n?.t("Send") || "Send");
@@ -6584,6 +6921,7 @@ el.setLocale?.addEventListener("change", () => {
   renderMachineSwitch();
   renderTokenList();
   updateComposerSummary();
+  renderTaskProgress();
   renderContextDashboard();
   renderProjectChangesChrome();
   renderChangesBadge();
