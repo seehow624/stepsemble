@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.4.5
+
+- The model picker now matches the selected model on provider + id instead of
+  id alone. The same model id can be offered by several providers (e.g.
+  glm-5.3-flash on both Ollama Cloud and OpenCode Go, or GPT 5.6 Luna on both
+  OpenAI Codex and OpenCode Go); picking it used to tick every provider's row
+  at once. The checkmark and highlight now land only on the provider that was
+  actually selected, with a safe id-only fallback when provider info is
+  missing.
+
 ## 2.4.4
 
 - Added a live task-progress panel above the composer. Pi plan/todo widgets and

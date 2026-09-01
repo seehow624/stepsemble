@@ -1,4 +1,4 @@
-/* pi-harbor v2.4.4 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.4.5 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -3836,7 +3836,7 @@ html.reduced-motion #view-chat .context-ring-fill { transition: none; }
   font-size: .68rem;
 }
 
-/* v2.4.4 — live task progress from Pi widgets and plan markers. The compact
+/* v2.4.5 — live task progress from Pi widgets and plan markers. The compact
    pill keeps the composer reachable; tapping it reveals the full checklist. */
 #view-chat .task-progress {
   flex: 0 0 auto;

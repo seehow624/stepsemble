@@ -1,7 +1,7 @@
-/* pi-harbor v2.4.4 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.4.5 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.4.4";
+const CLIENT_APP_VERSION = "2.4.5";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -4647,13 +4647,14 @@ async function openModelSheet() {
     if (modelsRes.status === "fulfilled" && modelsRes.value && modelsRes.value.success) {
       availableModels = (modelsRes.value.data && modelsRes.value.data.models) || [];
     }
-    let currentId = null, curThinking = null;
+    let currentId = null, currentProvider = null, curThinking = null;
     if (stateRes.status === "fulfilled" && stateRes.value && stateRes.value.success) {
       currentId = (stateRes.value.data && stateRes.value.data.model && stateRes.value.data.model.id) || null;
+      currentProvider = (stateRes.value.data && stateRes.value.data.model && stateRes.value.data.model.provider) || null;
       curThinking = stateRes.value.data ? stateRes.value.data.thinkingLevel : null;
       applyComposerState(stateRes.value.data);
     }
-    renderModelList(currentId);
+    renderModelList(currentId, currentProvider);
     if (curThinking) el.thinkingSelect.value = curThinking;
   } catch (e) {
     el.modelList.innerHTML = "";
@@ -4664,8 +4665,15 @@ async function openModelSheet() {
   }
 }
 
-function renderModelList(currentId) {
-  const current = availableModels.find(m => m.id === currentId);
+function renderModelList(currentId, currentProvider = null) {
+  // Selection must match on provider+id: the same model id can be offered by
+  // several providers (e.g. glm-5.3-flash on both ollama-cloud and
+  // opencode-go), and id-only matching ticks every duplicate row at once.
+  // When provider info is missing on either side, fall back to id-only
+  // matching so the previous behaviour survives degraded payloads.
+  const matchesCurrent = (m) => m.id === currentId
+    && (currentProvider == null || m.provider == null || m.provider === currentProvider);
+  const current = availableModels.find(matchesCurrent);
   const visibleModels = availableModels.filter(isModelVisible);
   updateComposerSummary(current ? (current.name || current.id) : "", undefined);
   el.modelList.innerHTML = "";
@@ -4675,10 +4683,10 @@ function renderModelList(currentId) {
   }
   for (const m of visibleModels) {
     const row = document.createElement("button");
-    row.className = "action-row model-row" + (m.id === currentId ? " active" : "");
+    row.className = "action-row model-row" + (matchesCurrent(m) ? " active" : "");
     row.type = "button";
     row.innerHTML = '<span class="model-check"></span><span class="model-info"><strong></strong><small></small></span>';
-    row.querySelector(".model-check").textContent = m.id === currentId ? "✓" : "";
+    row.querySelector(".model-check").textContent = matchesCurrent(m) ? "✓" : "";
     row.querySelector("strong").textContent = m.name || m.id;
     row.querySelector("small").textContent = (m.provider || "?") + (m.contextWindow ? " · " + Math.round(m.contextWindow/1000) + "k ctx" : "");
     row.addEventListener("click", async () => {
@@ -4694,7 +4702,7 @@ function renderModelList(currentId) {
         void syncSessionStats(expectedSid);
         toast("模型：" + (m.name || m.id));
         updateComposerSummary(m.name || m.id, undefined);
-        renderModelList(m.id);
+        renderModelList(m.id, m.provider);
         // 頂部 sub 同步
         el.chatSub.dataset.base = currentSessionCwd + " · " + (m.name || m.id); updateLiveUsage(null);
       } catch (e) { toast("切換失敗：" + e.message, true); }
