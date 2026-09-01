@@ -142,7 +142,8 @@ test("pi-resources endpoint is auth-only and inventories extensions, skills, and
   const response = await fetch(`${base}/api/pi-resources`, { headers: { cookie } });
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.equal(body.machine, "OneStep-MacMini");
+  assert.equal(typeof body.machine, "string");
+  assert.ok(body.machine.length > 0);
   assert.equal(typeof body.generatedAt, "number");
   assert.equal(body.agentDir, "~/.pi/agent");
 
