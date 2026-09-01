@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.5.5
+
+- The mobile model chip is wider still (200px, 140px on very narrow screens)
+  and may shrink gracefully when space runs out, so long model names stay
+  readable without pushing the send button off the toolbar.
+
 ## 2.5.4
 
 - The composer's model chip is wider on every screen size (240px desktop,

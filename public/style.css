@@ -1,4 +1,4 @@
-/* pi-harbor v2.5.4 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.5.5 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -3836,13 +3836,15 @@ html.reduced-motion #view-chat .context-ring-fill { transition: none; }
 
 @media (max-width: 979px) {
   #view-chat .composer-toolbar { gap: 4px; }
-  #view-chat .composer-model-control { width: var(--composer-model-w-narrow, 150px); padding: 0 7px 0 8px; }
+  /* Wide chip, but shrinkable: on narrow phones it yields gracefully via the
+     name's ellipsis instead of pushing the send button out of the bar. */
+  #view-chat .composer-model-control { flex: 0 1 auto; width: var(--composer-model-w-narrow, 200px); padding: 0 7px 0 8px; }
   #view-chat .context-dashboard { gap: 3px; }
   #view-chat .context-ring-btn { width: 44px; height: 44px; min-height: 44px; }
 }
 
 @media (max-width: 360px) {
-  #view-chat .composer-model-control { width: var(--composer-model-w-tight, 124px); }
+  #view-chat .composer-model-control { width: var(--composer-model-w-tight, 140px); }
   #view-chat .context-ring { width: 20px; height: 20px; }
   #view-chat .context-popover { width: 204px; }
 }
