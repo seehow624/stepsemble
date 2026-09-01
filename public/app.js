@@ -1,7 +1,7 @@
-/* pi-harbor v2.5.3 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.5.4 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.5.3";
+const CLIENT_APP_VERSION = "2.5.4";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple

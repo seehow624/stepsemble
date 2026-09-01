@@ -1,7 +1,7 @@
 {
   "name": "pi-harbor",
   "private": true,
-  "version": "2.5.3",
+  "version": "2.5.4",
   "description": "Mobile-first web client for the Pi coding agent",
   "type": "commonjs",
   "engines": {

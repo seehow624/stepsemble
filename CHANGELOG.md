@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.5.4
+
+- The composer's model chip is wider on every screen size (240px desktop,
+  150px mobile, 124px on very narrow screens), so long entries such as
+  "GLM-5.3-Flash (2x usage) · max" stay readable instead of truncating early.
+
 ## 2.5.3
 
 - Desktop project rows now reveal the same compact segmented capsule as
