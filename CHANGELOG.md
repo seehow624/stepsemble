@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.5.2
+
+- Sidebar geometry: project cards inside the session list now keep the exact
+  width of the search box and the Sub Agent filter above them. The list
+  reserved a scrollbar gutter (and classic scrollbars narrowed it further),
+  which made every project card visibly shorter than the fixed rows on
+  desktop while mobile was unaffected. The sidebar scrollbar is now hidden;
+  touch and wheel scrolling are unchanged.
+- The mobile project row's "+" and "…" actions were redesigned into a
+  compact segmented capsule with a matching 32px collapse chevron, replacing
+  the oversized floating ghost icons.
+
 ## 2.5.1
 
 - Fixed Ollama model thinking metadata. Ollama's `/api/tags` list does not

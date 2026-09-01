@@ -517,6 +517,15 @@ test("project groups expose Codex-style actions without nesting buttons", () => 
   assert.match(css, /\.session-item-actions::before/);
   assert.match(css, /@media \(hover: none\)/);
   assert.match(css, /\.project-action-row/);
+  // Touch shows a compact segmented capsule instead of oversized ghost icons,
+  // and the collapse chevron matches the smaller action buttons.
+  assert.match(css, /@media \(max-width: 979px\) \{[\s\S]*?\.project-group-actions \{[\s\S]*?right: 58px/);
+  assert.match(css, /@media \(max-width: 979px\) \{[\s\S]*?\.project-group-action,[\s\S]*?\.project-group-chevron-button \{[\s\S]*?width: 32px/);
+  // The session list hides its scrollbar so its cards keep the exact width of
+  // the search box and Sub Agent filter above it in every scrollbar mode.
+  assert.match(css, /#view-list \.session-list \{[\s\S]*?scrollbar-width: none/);
+  assert.match(css, /#view-list \.session-list::-webkit-scrollbar \{ display: none; \}/);
+  assert.doesNotMatch(css, /#view-list \.session-list \{[\s\S]*?scrollbar-gutter: stable/);
 });
 
 test("provider catalog keeps MiniMax regions separate and exposes a direct API key form", () => {

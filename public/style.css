@@ -1,4 +1,4 @@
-/* pi-harbor v2.5.1 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.5.2 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -1988,8 +1988,14 @@ body.image-lightbox-open { overflow: hidden; }
   grid-auto-rows: max-content;
   gap: 4px;
   padding: 0 12px 24px;
-  scrollbar-gutter: stable;
+  /* The search box and Sub Agent filter sit outside this scroll container,
+     so a reserved scrollbar gutter (or a classic scrollbar) made every card
+     in the list narrower than the rows above it. Hide the scrollbar: touch
+     and wheel scrolling are unchanged, and every card keeps the exact same
+     width as the fixed rows in every browser. */
+  scrollbar-width: none;
 }
+#view-list .session-list::-webkit-scrollbar { display: none; }
 #view-list .session-list.grouped { gap: 0; }
 /* Session card geometry: OpenCode row = 64px desktop, 68px mobile. */
 .session-item {
@@ -4137,4 +4143,45 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
   }
   #view-chat .task-progress-step-marker.running,
   #view-chat .task-progress-indicator.running { animation: none; }
+}
+
+/* Mobile project row: the hover-era floating pill still has no hover on
+   touch, so it must stand on its own. Shrink it into a compact segmented
+   capsule and match the collapse chevron, so the folder row ends in one tidy
+   trailing cluster instead of oversized ghost icons floating over the name. */
+@media (max-width: 979px) {
+  .project-group-actions {
+    right: 58px;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 11px;
+  }
+  .project-group-actions::before {
+    background: color-mix(in srgb, var(--paper) 92%, transparent);
+    box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 7%, transparent);
+  }
+  .project-group-action,
+  .project-group-chevron-button {
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    min-height: 32px;
+    flex-basis: 32px;
+  }
+  .project-group-action {
+    border-radius: 8px;
+    color: var(--pine-soft);
+  }
+  .project-group-action:active {
+    color: var(--ink);
+    background: var(--bubble-user);
+    transform: scale(.92);
+  }
+  .project-group-action .icon { width: 15px; height: 15px; }
+  .project-group-trailing {
+    min-width: 0;
+    flex: 0 0 auto;
+    gap: 2px;
+  }
+  .project-group-chevron .icon { width: 15px; height: 15px; }
 }
