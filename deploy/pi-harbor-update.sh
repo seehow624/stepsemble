@@ -222,7 +222,7 @@ NODE
   response="$("$CURL_BIN" -fsS --max-time 3 -b "$cookie" "http://127.0.0.1:$port/api/rpcs" 2>/dev/null || true)"
   /bin/rm -f -- "$cookie"
   RPC_RESPONSE="$response" "$NODE_BIN" - <<'NODE'
-try { const value = JSON.parse(process.env.RPC_RESPONSE || "{}"); process.exit(value.rpcs?.some((rpc) => rpc.isStreaming === true) ? 0 : 1); } catch { process.exit(1); }
+try { const value = JSON.parse(process.env.RPC_RESPONSE || "{}"); process.exit(value.rpcs?.some((rpc) => rpc.isStreaming === true && rpc.stuck !== true) ? 0 : 1); } catch { process.exit(1); }
 NODE
 }
 

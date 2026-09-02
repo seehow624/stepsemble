@@ -46,7 +46,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.5.5";
+const APP_VERSION = "2.6.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -496,7 +496,7 @@ function startUpdateCheck() {
     // start a new child without being rejected as a duplicate.
     updateProcess = null;
     const state = readUpdateState();
-    if (!activeRpcSessions().length && updateStateIsPending(state)) schedulePendingUpdateApply();
+    if (!activeRpcSessionsForUpdate().length && updateStateIsPending(state)) schedulePendingUpdateApply();
   });
   child.on("error", () => {
     // A failed spawn has no exit event on every supported Node/macOS path. Do
@@ -528,7 +528,7 @@ function schedulePendingUpdateApply() {
       pendingUpdateApplyStateKey = null;
       return;
     }
-    if (activeRpcSessions().length || updateProcessIsRunning()) {
+    if (activeRpcSessionsForUpdate().length || updateProcessIsRunning()) {
       // Let the next settled transition or child exit make the decision again.
       pendingUpdateApplyStateKey = null;
       return;
@@ -548,7 +548,7 @@ function schedulePendingUpdateApply() {
 }
 
 function schedulePendingUpdateApplyAfterRpcIdle() {
-  if (activeRpcSessions().length) return;
+  if (activeRpcSessionsForUpdate().length) return;
   // A settle transition is a new opportunity even if an earlier child left
   // the same pending state behind (for example after a lock/spawn failure).
   pendingUpdateApplyStateKey = null;
@@ -1546,6 +1546,25 @@ function killRpcProcess(proc, signal = "SIGTERM") {
 
 function activeRpcSessions() {
   return [...rpcSessions.values()].filter((session) => !session.exited && session.state.isStreaming);
+}
+
+// A wedged pi process can keep isStreaming true forever (seen in the wild:
+// abort went unanswered while every browser had disconnected), which would
+// otherwise block auto-updates indefinitely. A run counts as stuck when no
+// client is attached and nothing has streamed for a while, and the updater
+// may treat it as idle. The flag never affects normal session handling.
+const STUCK_RPC_MS = Number.isFinite(Number(settingFromEnv("STUCK_RPC_MS")))
+  ? Math.max(60_000, Number(settingFromEnv("STUCK_RPC_MS"))) : 15 * 60 * 1000;
+
+function rpcStuck(session) {
+  if (!session || session.exited || !session.state.isStreaming) return false;
+  if (session.clients.size > 0) return false;
+  const last = Number(session.meta.lastActivityAt) || Number(session.meta.openedAt) || 0;
+  return Date.now() - last > STUCK_RPC_MS;
+}
+
+function activeRpcSessionsForUpdate() {
+  return activeRpcSessions().filter((session) => !rpcStuck(session));
 }
 
 function scheduleRpcCleanup(sid) {
@@ -4097,6 +4116,7 @@ const server = http.createServer(async (req, res) => {
           list.push({
             sid, pid: s.proc.pid, cwd: s.meta.cwd, file: s.meta.file, openedAt: s.meta.openedAt,
             isStreaming: !!s.state.isStreaming, exited: s.exited,
+            stuck: rpcStuck(s),
             sessionFile: s.state.sessionFile || null, clients: s.clients.size,
             eventSeq: s.eventSeq, stderrTail: s.stderrTail.slice(-500),
           });

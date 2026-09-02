@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.6.0
+
+- Wedged pi runs no longer block auto-updates forever. A run streaming with
+  no browser attached and no events for 15 minutes is treated as stuck: the
+  updater may apply pending releases while it exists, and the sidebar shows
+  a quiet amber banner with a one-tap Force stop.
+- The model picker gained a search field and a per-row thinking badge
+  (max / xhigh / high) computed from the model's own capability map, so it
+  is obvious which models keep `max` before switching.
+- Added a command palette (Cmd/Ctrl+K on desktop): jump to recent sessions,
+  switch model or device, start a new session, toggle Sub Agent sessions, or
+  open Settings without leaving the keyboard. Arrow keys and Enter navigate,
+  and Escape closes it like any other dialog.
+
 ## 2.5.5
 
 - The mobile model chip is wider still (200px, 140px on very narrow screens)

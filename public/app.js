@@ -1,7 +1,7 @@
-/* pi-harbor v2.5.5 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.6.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.5.5";
+const CLIENT_APP_VERSION = "2.6.0";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -58,7 +58,7 @@ const el = {
   viewList: $("view-list"), viewChat: $("view-chat"), viewSettings: $("view-settings"), viewModelSettings: $("view-model-settings"),
   search: $("search"), btnRefresh: $("btn-refresh"),
   sessionList: $("session-list"), listEmpty: $("list-empty"),
-  temporarySessionFilter: $("temporary-session-filter"), temporarySessionFilterLabel: $("temporary-session-filter-label"), temporarySessionFilterNote: $("temporary-session-filter-note"),
+  temporarySessionFilter: $("temporary-session-filter"), temporarySessionFilterLabel: $("temporary-session-filter-label"), temporarySessionFilterNote: $("temporary-session-filter-note"), stuckSessions: $("stuck-sessions"), temporarySessionFilterNote: $("temporary-session-filter-note"),
   temporarySessionCount: $("temporary-session-count"), showTemporarySessions: $("show-temporary-sessions"),
   btnNew: $("btn-new"), btnNewProject: $("btn-new-project"), pullIndicator: $("pull-indicator"),
   machineSwitch: $("machine-switch"), machineSwitchStatus: $("machine-switch-status"),
@@ -121,7 +121,8 @@ const el = {
   projectActionPin: $("pa-pin"), projectActionEdit: $("pa-edit"), projectActionReveal: $("pa-reveal"),
   projectActionWorktree: $("pa-worktree"), projectActionArchive: $("pa-archive"), projectActionRemove: $("pa-remove"),
   projectActionCancel: $("pa-cancel"), projectActionClose: $("pa-cancel-close"),
-  modelSheet: $("model-sheet"), modelList: $("model-list"),
+  modelSheet: $("model-sheet"), modelList: $("model-list"), modelSearch: $("model-search"),
+  commandPalette: $("command-palette"), commandInput: $("command-input"), commandResults: $("command-results"),
   thinkingSelect: $("thinking-select"), modelClose: $("model-close"),
   renameDialog: $("rename-dialog"), renameInput: $("rename-input"),
   renameCancel: $("rename-cancel"), renameSave: $("rename-save"),
@@ -1434,6 +1435,49 @@ el.btnModelSettingsBack?.addEventListener("click", () => {
 // Session 列表 + 下拉刷新 + 長按動作
 // ===========================================================================
 
+// A wedged pi process keeps its streaming flag up with no browser attached;
+// surface those runs in the sidebar with a one-tap force stop so users never
+// need raw API calls to unblock auto-updates.
+async function refreshStuckSessions() {
+  if (!el.stuckSessions) return;
+  try {
+    const data = await api("/api/rpcs");
+    const stuck = (Array.isArray(data?.rpcs) ? data.rpcs : []).filter((rpc) => rpc.stuck);
+    el.stuckSessions.classList.toggle("hidden", !stuck.length);
+    el.stuckSessions.innerHTML = "";
+    for (const rpc of stuck) {
+      const row = document.createElement("div");
+      row.className = "stuck-session-row";
+      const copy = document.createElement("span");
+      copy.className = "stuck-session-copy";
+      const label = document.createElement("strong");
+      label.textContent = window.piI18n?.t("Stuck sessions") || "Stuck sessions";
+      const detail = document.createElement("small");
+      detail.textContent = rpc.cwd || (rpc.sessionFile || "").split("/").pop() || rpc.sid.slice(0, 8);
+      copy.append(label, detail);
+      const stop = document.createElement("button");
+      stop.type = "button";
+      stop.className = "stuck-session-stop";
+      stop.textContent = window.piI18n?.t("Force stop") || "Force stop";
+      stop.addEventListener("click", async () => {
+        stop.disabled = true;
+        try {
+          await post("/api/close", { sid: rpc.sid });
+          toast(window.piI18n?.t("Stuck run closed") || "Stuck run closed");
+          refreshStuckSessions();
+        } catch (error) {
+          toast(error.message || "Could not stop", true);
+          stop.disabled = false;
+        }
+      });
+      row.append(copy, stop);
+      el.stuckSessions.appendChild(row);
+    }
+  } catch {
+    el.stuckSessions.classList.add("hidden");
+  }
+}
+
 async function refreshSessions() {
   const generation = viewGeneration;
   const baseAtStart = apiBase;
@@ -1449,6 +1493,7 @@ async function refreshSessions() {
     if (el.sessionCount) el.sessionCount.textContent = String(sessionsCache.length);
     renderTemporarySessionFilter(temporarySessionCount);
     renderSessionList(el.search.value);
+    void refreshStuckSessions();
   } catch (e) {
     if (e.name !== "AbortError") { /* unauthorized 已處理 */ }
   } finally {
@@ -4725,10 +4770,23 @@ document.addEventListener("click", (event) => {
 });
 
 let availableModels = [];
+let modelSheetCurrentId = null;
+let modelSheetCurrentProvider = null;
+// Mirrors pi's getSupportedThinkingLevels: standard levels through "high" are
+// available on every reasoning model; "xhigh"/"max" require a non-null map
+// entry. The badge answers "how deep can this model think" before picking it.
+function modelThinkingBadge(model) {
+  if (!model?.reasoning) return "";
+  const map = model.thinkingLevelMap && typeof model.thinkingLevelMap === "object" ? model.thinkingLevelMap : null;
+  if (map?.max) return "max";
+  if (map?.xhigh) return "xhigh";
+  return "high";
+}
 async function openModelSheet() {
   const expectedSid = rpc?.sid;
   if (!expectedSid) { toast("對話未開啟"); return; }
   el.modelSheet.classList.remove("hidden");
+  if (el.modelSearch) { el.modelSearch.value = ""; }
   el.modelList.innerHTML = '<p style="padding:12px 4px;color:var(--pine-soft);font-size:13.5px">讀取中…</p>';
   try {
     const [modelsRes, stateRes] = await Promise.allSettled([
@@ -4758,6 +4816,8 @@ async function openModelSheet() {
 }
 
 function renderModelList(currentId, currentProvider = null) {
+  modelSheetCurrentId = currentId;
+  modelSheetCurrentProvider = currentProvider;
   // Selection must match on provider+id: the same model id can be offered by
   // several providers (e.g. glm-5.3-flash on both ollama-cloud and
   // opencode-go), and id-only matching ticks every duplicate row at once.
@@ -4766,21 +4826,26 @@ function renderModelList(currentId, currentProvider = null) {
   const matchesCurrent = (m) => m.id === currentId
     && (currentProvider == null || m.provider == null || m.provider === currentProvider);
   const current = availableModels.find(matchesCurrent);
-  const visibleModels = availableModels.filter(isModelVisible);
+  const query = String(el.modelSearch?.value || "").trim().toLocaleLowerCase();
+  const visibleModels = availableModels.filter(isModelVisible).filter((m) => !query
+    || `${m.name || ""} ${m.id || ""} ${m.provider || ""}`.toLocaleLowerCase().includes(query));
   updateComposerSummary(current ? (current.name || current.id) : "", undefined);
   el.modelList.innerHTML = "";
   if (!visibleModels.length) {
-    el.modelList.innerHTML = '<p style="padding:12px 4px;color:var(--pine-soft);font-size:13.5px">沒有顯示中的模型，請到設定勾選模型</p>';
+    el.modelList.innerHTML = query
+      ? '<p style="padding:12px 4px;color:var(--pine-soft);font-size:13.5px">找不到符合的模型。</p>'
+      : '<p style="padding:12px 4px;color:var(--pine-soft);font-size:13.5px">沒有顯示中的模型，請到設定勾選模型</p>';
     return;
   }
   for (const m of visibleModels) {
     const row = document.createElement("button");
     row.className = "action-row model-row" + (matchesCurrent(m) ? " active" : "");
     row.type = "button";
-    row.innerHTML = '<span class="model-check"></span><span class="model-info"><strong></strong><small></small></span>';
+    row.innerHTML = '<span class="model-check"></span><span class="model-info"><strong></strong><small></small></span><span class="model-thinking-badge"></span>';
     row.querySelector(".model-check").textContent = matchesCurrent(m) ? "✓" : "";
     row.querySelector("strong").textContent = m.name || m.id;
     row.querySelector("small").textContent = (m.provider || "?") + (m.contextWindow ? " · " + Math.round(m.contextWindow/1000) + "k ctx" : "");
+    row.querySelector(".model-thinking-badge").textContent = modelThinkingBadge(m);
     row.addEventListener("click", async () => {
       const expectedSid = rpc?.sid;
       if (!expectedSid) return;
@@ -4803,8 +4868,143 @@ function renderModelList(currentId, currentProvider = null) {
   }
 }
 
+// ---- Command palette (Cmd/Ctrl+K): jump to sessions, models, machines ----
+let commandItems = [];
+let commandIndex = 0;
+
+function commandKindLabel(kind) {
+  return kind === "session" ? "Session" : kind === "model" ? "Model" : kind === "machine" ? "Device" : "";
+}
+
+function renderCommandResults() {
+  if (!el.commandResults) return;
+  const query = String(el.commandInput?.value || "").trim().toLocaleLowerCase();
+  const matches = commandItems.filter((item) => !query || item.label.toLocaleLowerCase().includes(query));
+  commandIndex = Math.max(0, Math.min(commandIndex, matches.length - 1));
+  el.commandResults.innerHTML = "";
+  if (!matches.length) {
+    const empty = document.createElement("p");
+    empty.className = "command-empty";
+    empty.textContent = "找不到符合項目";
+    el.commandResults.appendChild(empty);
+    return;
+  }
+  matches.slice(0, 40).forEach((item, index) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "command-row" + (index === commandIndex ? " active" : "");
+    row.setAttribute("role", "option");
+    row.setAttribute("aria-selected", String(index === commandIndex));
+    const tag = document.createElement("span");
+    tag.className = "command-tag";
+    tag.textContent = item.tag || commandKindLabel(item.kind) || "·";
+    const label = document.createElement("span");
+    label.className = "command-label";
+    label.textContent = item.label;
+    row.append(tag, label);
+    row.addEventListener("click", () => runCommandItem(item));
+    el.commandResults.appendChild(row);
+  });
+  el.commandResults.querySelector(".command-row.active")?.scrollIntoView({ block: "nearest" });
+}
+
+function runCommandItem(item) {
+  closeCommandPalette();
+  try { item.run(); } catch (error) { toast(error.message || "Action failed", true); }
+}
+
+function moveCommandSelection(delta) {
+  const query = String(el.commandInput?.value || "").trim().toLocaleLowerCase();
+  const matches = commandItems.filter((item) => !query || item.label.toLocaleLowerCase().includes(query));
+  if (!matches.length) return;
+  commandIndex = (commandIndex + delta + matches.length) % matches.length;
+  renderCommandResults();
+}
+
+function buildCommandItems() {
+  const items = [];
+  items.push({ kind: "action", tag: "⌘", label: window.piI18n?.t("New session") || "New session", run: () => { if (!el.newDialog.classList.contains("hidden")) return; if (sessionsCache.length) el.btnNew?.click(); else el.btnNewProject?.click(); } });
+  items.push({ kind: "action", tag: "⌘", label: window.piI18n?.t("Open Settings") || "Open Settings", run: () => showSettings() });
+  items.push({ kind: "action", tag: "⌘", label: settings.showTemporarySessions
+    ? (window.piI18n?.t("Hide Sub Agent sessions") || "Hide Sub Agent sessions")
+    : (window.piI18n?.t("Show Sub Agent sessions") || "Show Sub Agent sessions"),
+    run: () => { settings = saveSettings({ showTemporarySessions: !settings.showTemporarySessions }); renderTemporarySessionFilter(temporarySessionCount); refreshSessions(); } });
+  const sessions = [...sessionsCache]
+    .sort((a, b) => (Number(b.mtimeMs) || 0) - (Number(a.mtimeMs) || 0))
+    .slice(0, 30);
+  for (const s of sessions) {
+    const name = stripMd(s.name || s.preview?.split("\n")[0] || "").slice(0, 70) || "(Untitled)";
+    items.push({ kind: "session", label: name, run: () => openExisting(s) });
+  }
+  for (const m of machines) {
+    items.push({ kind: "machine", tag: "⇄", label: m.name || m.id || m.host || String(m.id || ""), run: () => switchMachine(m.id) });
+  }
+  return items;
+}
+
+async function openCommandPalette() {
+  if (!el.commandPalette) return;
+  commandIndex = 0;
+  if (el.commandInput) el.commandInput.value = "";
+  commandItems = buildCommandItems();
+  renderCommandResults();
+  el.commandPalette.classList.remove("hidden");
+  el.commandInput?.focus({ preventScroll: true });
+  // Models come from the live RPC; append them once the catalog answers so
+  // opening the palette stays instant.
+  if (rpc?.sid) {
+    const expectedSid = rpc.sid;
+    try {
+      const r = await rpcCmd(expectedSid, { type: "get_available_models" });
+      if (rpc?.sid === expectedSid && r?.success && el.commandPalette && !el.commandPalette.classList.contains("hidden")) {
+        const models = (r.data?.models || []).filter((m) => isModelVisible(m)).slice(0, 60);
+        const modelItems = models.map((m) => ({
+          kind: "model",
+          label: `${m.name || m.id} · ${m.provider || "?"}`,
+          run: () => {
+            const expected = rpc?.sid;
+            if (!expected) return;
+            rpcCmd(expected, { type: "set_model", provider: m.provider, modelId: m.id })
+              .then(() => { toast("模型：" + (m.name || m.id)); void syncComposerState(expected); })
+              .catch((error) => toast("切換失敗：" + (error.message || ""), true));
+          },
+        }));
+        commandItems = [...commandItems.slice(0, 3), ...modelItems, ...commandItems.slice(3)];
+        renderCommandResults();
+      }
+    } catch {}
+  }
+}
+
+function closeCommandPalette() {
+  el.commandPalette?.classList.add("hidden");
+  if (el.commandInput) el.commandInput.value = "";
+}
+
+function toggleCommandPalette() {
+  if (!el.commandPalette) return;
+  if (el.commandPalette.classList.contains("hidden")) void openCommandPalette();
+  else closeCommandPalette();
+}
+
+el.commandInput?.addEventListener("keydown", (event) => {
+  if (event.key === "ArrowDown") { event.preventDefault(); moveCommandSelection(1); }
+  else if (event.key === "ArrowUp") { event.preventDefault(); moveCommandSelection(-1); }
+  else if (event.key === "Enter") {
+    event.preventDefault();
+    const query = String(el.commandInput?.value || "").trim().toLocaleLowerCase();
+    const matches = commandItems.filter((item) => !query || item.label.toLocaleLowerCase().includes(query));
+    const item = matches[commandIndex];
+    if (item) runCommandItem(item);
+  }
+});
+el.commandResults?.addEventListener("click", (event) => {
+  if (event.target === el.commandResults) closeCommandPalette();
+});
+
 function closeModelSheet() { el.modelSheet.classList.add("hidden"); }
 el.modelClose.addEventListener("click", closeModelSheet);
+el.modelSearch?.addEventListener("input", () => renderModelList(modelSheetCurrentId, modelSheetCurrentProvider));
 el.modelSheet.addEventListener("click", (event) => {
   if (event.target === el.modelSheet) closeModelSheet();
 });
@@ -8091,6 +8291,7 @@ el.newCancel.addEventListener("click", () => {
 function dismissableLayers() {
   return [
     { element: el.imageLightbox, close: closeImageLightbox },
+    { element: el.commandPalette, close: closeCommandPalette },
     { element: el.onboarding, close: () => void completeOnboarding() },
     { element: el.extensionUiSheet, close: () => { if (extensionUiRequest) finishExtensionUi({ cancelled: true }); } },
     { element: el.projectRenameDialog, close: () => el.projectRenameDialog.classList.add("hidden") },
@@ -8118,6 +8319,14 @@ function closeTopmostLayer() {
 }
 
 document.addEventListener("keydown", (event) => {
+  // Command palette toggle: Cmd/Ctrl+K from anywhere except text fields that
+  // need the OS undo chord — the palette input itself never re-triggers it.
+  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey
+    && String(event.key).toLowerCase() === "k" && event.target !== el.commandInput) {
+    event.preventDefault();
+    toggleCommandPalette();
+    return;
+  }
   if (event.key !== "Escape" || event.defaultPrevented) return;
   // A composing IME uses Escape to abandon its own candidate window.
   if (event.isComposing) return;

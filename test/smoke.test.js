@@ -661,6 +661,23 @@ test("the application shell never contains duplicate element IDs", () => {
   assert.deepEqual(duplicates, []);
 });
 
+// Wedged runs surface in the sidebar with a one-tap force stop.
+test("stuck pi runs are surfaced and force-stoppable without blocking updates", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");
+  assert.match(app, /function refreshStuckSessions/);
+  assert.match(app, /"\/api\/close", \{ sid: rpc\.sid \}/);
+  assert.match(app, /void refreshStuckSessions\(\)/);
+  assert.match(html, /id="stuck-sessions"/);
+  assert.match(css, /\.stuck-session-row/);
+  assert.match(css, /\.stuck-session-stop/);
+  assert.match(i18n, /"Stuck sessions"/);
+  assert.match(i18n, /"Force stop"/);
+});
+
 test("2.1.0 update center covers per-device state, idle apply, and partial update-all results", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
@@ -703,8 +720,16 @@ test("2.1.0 update center covers per-device state, idle apply, and partial updat
     server.indexOf('child.on("exit"'),
     server.indexOf('child.on("error"')
   );
-  assert.match(updaterExit, /updateProcess = null;[\s\S]*activeRpcSessions\(\)\.length[\s\S]*updateStateIsPending\(state\)[\s\S]*schedulePendingUpdateApply\(\)/);
+  assert.match(updaterExit, /updateProcess = null;[\s\S]*activeRpcSessionsForUpdate\(\)\.length[\s\S]*updateStateIsPending\(state\)[\s\S]*schedulePendingUpdateApply\(\)/);
   assert.match(server, /function schedulePendingUpdateApplyAfterRpcIdle\(\)/);
+  // Wedged pi processes (streaming flag stuck with no client and no events)
+  // must not block auto-updates forever: both the server and the shell
+  // updater treat them as idle, and the sidebar offers a force stop.
+  assert.match(server, /const STUCK_RPC_MS/);
+  assert.match(server, /function rpcStuck\(session\)/);
+  assert.match(server, /function activeRpcSessionsForUpdate\(\)/);
+  assert.match(server, /stuck: rpcStuck\(s\)/);
+  assert.match(updater, /rpc\.stuck !== true/);
   const listen = server.slice(server.indexOf("server.listen(PORT, HOST"));
   assert.match(listen, /schedulePendingUpdateApply\(\)/);
   assert.match(updater, /"deferred" "active_rpc_running"/);

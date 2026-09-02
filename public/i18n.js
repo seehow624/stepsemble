@@ -1515,6 +1515,22 @@
   };
   for (const [id, table] of Object.entries(SUB_AGENT_FILTER_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
 
+  // Stuck-run banner: one short title, one action button, one confirmation.
+  const STUCK_SESSION_TRANSLATIONS = {
+    en: { "Stuck sessions": "Stuck sessions", "Force stop": "Force stop", "Stuck run closed": "Stuck run closed" },
+    "zh-Hant": { "Stuck sessions": "卡住的工作", "Force stop": "強制關閉", "Stuck run closed": "已關閉卡住的工作" },
+    "zh-Hans": { "Stuck sessions": "卡住的任务", "Force stop": "强制关闭", "Stuck run closed": "已关闭卡住的任务" },
+    ja: { "Stuck sessions": "停止中のタスク", "Force stop": "強制停止", "Stuck run closed": "停止中のタスクを終了しました" },
+    ko: { "Stuck sessions": "멈춘 작업", "Force stop": "강제 중지", "Stuck run closed": "멈춘 작업을 종료했습니다" },
+    tr: { "Stuck sessions": "Takılı kalan işler", "Force stop": "Zorla durdur", "Stuck run closed": "Takılı iş kapatıldı" },
+    fr: { "Stuck sessions": "Exécutions bloquées", "Force stop": "Forcer l'arrêt", "Stuck run closed": "Exécution bloquée fermée" },
+    de: { "Stuck sessions": "Hängende Läufe", "Force stop": "Erzwungen beenden", "Stuck run closed": "Hängender Lauf beendet" },
+    es: { "Stuck sessions": "Ejecuciones atascadas", "Force stop": "Forzar detención", "Stuck run closed": "Ejecución atascada cerrada" },
+    "pt-BR": { "Stuck sessions": "Execuções travadas", "Force stop": "Forçar parada", "Stuck run closed": "Execução travada encerrada" },
+    it: { "Stuck sessions": "Esecuzioni bloccate", "Force stop": "Forza interruzione", "Stuck run closed": "Esecuzione bloccata chiusa" },
+  };
+  for (const [id, table] of Object.entries(STUCK_SESSION_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
+
   const UPDATE_CLIENT_TRANSLATIONS = {
     en: {
       "Pi Harbor update ready; reload after the current work finishes": "Pi Harbor update ready; reload after the current work finishes",

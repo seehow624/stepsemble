@@ -1,4 +1,4 @@
-/* pi-harbor v2.5.5 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.6.0 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -4144,3 +4144,144 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
   #view-chat .task-progress-step-marker.running,
   #view-chat .task-progress-indicator.running { animation: none; }
 }
+
+/* Stuck-run banner: a quiet amber strip between the sidebar filters and the
+   session list. It only appears when a wedged pi process has been streaming
+   with no browser attached, and offers the one-tap force stop. */
+.stuck-sessions {
+  display: grid;
+  gap: 4px;
+  padding: 0 12px 8px;
+}
+.stuck-sessions.hidden { display: none; }
+.stuck-session-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 8px 6px 10px;
+  border: 1px solid color-mix(in srgb, #d97706 45%, var(--line));
+  border-radius: var(--oc-radius);
+  background: color-mix(in srgb, #d97706 7%, var(--paper));
+}
+.stuck-session-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: grid;
+  gap: 1px;
+}
+.stuck-session-copy strong {
+  overflow: hidden;
+  color: #b45309;
+  font-size: .72rem;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stuck-session-copy small {
+  overflow: hidden;
+  color: var(--pine-soft);
+  font-size: .62rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stuck-session-stop {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, #d97706 40%, var(--line));
+  border-radius: 9px;
+  color: #b45309;
+  background: var(--paper);
+  font-size: .68rem;
+  font-weight: 680;
+  cursor: pointer;
+}
+.stuck-session-stop:active { transform: scale(.95); }
+.stuck-session-stop:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Model picker: search field + per-row thinking badge ("max"/"xhigh"/"high"). */
+.model-search {
+  margin: 0 2px 6px;
+  min-height: 38px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  background: var(--milk);
+  font-size: .8rem;
+}
+.model-search:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+.model-row .model-thinking-badge {
+  flex: 0 0 auto;
+  min-width: 34px;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line));
+  border-radius: 999px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font: 640 .62rem/1.5 var(--mono);
+  text-align: center;
+}
+.model-row:not(.active) .model-thinking-badge { color: var(--pine-soft); border-color: var(--line); background: transparent; }
+
+/* Command palette (Cmd/Ctrl+K): a compact jump-to list for sessions, models,
+   devices, and quick actions. Rows mirror the action-row language. */
+.command-palette-sheet {
+  max-height: min(70dvh, 560px);
+  display: flex;
+  flex-direction: column;
+}
+#command-input {
+  flex: 0 0 auto;
+  margin: 0 2px 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--oc-radius);
+  color: var(--ink);
+  background: var(--milk);
+  font-size: .84rem;
+}
+#command-input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+#command-results {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  gap: 2px;
+  align-content: start;
+  scrollbar-width: thin;
+}
+.command-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--ink);
+  background: transparent;
+  text-align: left;
+  font-size: .8rem;
+  cursor: pointer;
+}
+.command-row:hover { background: var(--bubble-user); }
+.command-row.active { background: var(--bubble-user); }
+.command-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.command-tag {
+  flex: 0 0 52px;
+  color: var(--pine-soft);
+  font: 600 .6rem/1.6 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.command-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-empty { padding: 14px 4px; color: var(--pine-soft); font-size: .8rem; }
