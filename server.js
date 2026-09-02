@@ -46,7 +46,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.7.0";
+const APP_VERSION = "2.7.1";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -4713,6 +4713,23 @@ function shutdown(signal) {
 }
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
+
+// A supervised child must not outlive the parent that spawned it.  A test
+// harness or wrapper script that throws before its cleanup leaves this
+// process holding a port and an open stdio pipe, which in turn keeps the
+// caller's own event loop alive: both sides then wait for each other
+// forever.  Watching for re-parenting (PPID 1) breaks that deadlock without
+// affecting launchd, which starts this service as PID 1's child by design.
+if (process.env.PI_HARBOR_ORPHAN_EXIT !== "0" && process.ppid > 1) {
+  const parentPid = process.ppid;
+  const orphanWatch = setInterval(() => {
+    if (process.ppid === parentPid) return;
+    clearInterval(orphanWatch);
+    console.log("[pi-harbor] parent process exited; shutting down to avoid an orphaned server");
+    shutdown("orphaned");
+  }, 2000);
+  orphanWatch.unref();
+}
 
 syncBundledUpdater();
 server.listen(PORT, HOST, () => {

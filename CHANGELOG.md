@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.7.1
+
+- A supervised server no longer outlives the process that started it. A script
+  that spawned Pi Harbor and then failed before its own cleanup left the server
+  holding a port and an open stdio pipe, which kept the caller's event loop
+  alive: both sides waited for each other and the calling Agent run appeared
+  frozen with no output for hours. The server now notices that it has been
+  re-parented and stops through the normal drain path, so the caller fails fast
+  instead of hanging. Set `PI_HARBOR_ORPHAN_EXIT=0` to opt out; launchd and the
+  SSH launcher are unaffected.
+
 ## 2.7.0
 
 - Provider config portability: export the whole models.json provider list to
