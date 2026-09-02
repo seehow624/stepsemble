@@ -46,7 +46,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.6.0";
+const APP_VERSION = "2.7.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1208,6 +1208,335 @@ async function listSessions() {
   return results;
 }
 
+// ---- 跨 session 全文搜尋（bounded）：只掃最近修改的檔案、每檔上限 8MB、
+// 總預算 2.5 秒。比對 user/assistant 的純文字內容，回傳片段供側欄跳轉。
+const SESSION_SEARCH_MAX_FILES = 400;
+const SESSION_SEARCH_MAX_FILE_BYTES = 8 * 1024 * 1024;
+const SESSION_SEARCH_BUDGET_MS = 2500;
+const SESSION_SEARCH_MAX_RESULTS = 20;
+
+function sessionTextOfEntry(entry) {
+  if (!entry || entry.type !== "message" || !entry.message) return "";
+  const role = entry.message.role;
+  if (role !== "user" && role !== "assistant") return "";
+  const content = entry.message.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.filter((block) => block && block.type === "text" && typeof block.text === "string")
+    .map((block) => block.text).join("\n");
+}
+
+async function searchSessions(rawQuery) {
+  const query = String(rawQuery || "").trim().slice(0, 200);
+  if (query.length < 2) return { results: [] };
+  const needle = query.toLowerCase();
+  const candidates = [];
+  let dirs;
+  try { dirs = fs.readdirSync(SESSIONS_DIR, { withFileTypes: true }); } catch { return { results: [] }; }
+  for (const d of dirs) {
+    if (!d.isDirectory() || d.name.startsWith(".")) continue;
+    let files;
+    try { files = fs.readdirSync(path.join(SESSIONS_DIR, d.name)); } catch { continue; }
+    for (const f of files) {
+      if (!f.endsWith(".jsonl")) continue;
+      const rel = d.name + "/" + f;
+      const abs = safeSessionPath(rel);
+      if (!abs) continue;
+      try {
+        const st = fs.statSync(abs);
+        candidates.push({ rel, abs, mtimeMs: st.mtimeMs, size: st.size });
+      } catch { continue; }
+    }
+  }
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  const results = [];
+  const startedAt = Date.now();
+  for (const candidate of candidates) {
+    if (results.length >= SESSION_SEARCH_MAX_RESULTS || Date.now() - startedAt > SESSION_SEARCH_BUDGET_MS) break;
+    if (candidate.size > SESSION_SEARCH_MAX_FILE_BYTES) continue;
+    let content;
+    try { content = await fs.promises.readFile(candidate.abs, "utf8"); } catch { continue; }
+    const lines = content.split("\n");
+    let hits = 0;
+    let snippet = "";
+    let name = "";
+    let cwd = "";
+    for (const rawLine of lines) {
+      const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+      if (!line) continue;
+      let entry;
+      try { entry = JSON.parse(line); } catch { continue; }
+      if (entry?.type === "session_info" && typeof entry.name === "string") name = entry.name;
+      if (entry?.type === "session_info" && typeof entry.cwd === "string") cwd = entry.cwd;
+      const text = sessionTextOfEntry(entry);
+      if (!text) continue;
+      const lower = text.toLowerCase();
+      const at = lower.indexOf(needle);
+      if (at === -1) continue;
+      hits += 1;
+      if (!snippet) {
+        const start = Math.max(0, at - 60);
+        const raw = text.slice(start, Math.min(text.length, at + needle.length + 120))
+          .replace(/[\r\n\t]+/g, " ").trim();
+        snippet = (start > 0 ? "…" : "") + raw + (at + needle.length + 120 < text.length ? "…" : "");
+      }
+    }
+    if (hits > 0) {
+      results.push({
+        file: candidate.rel,
+        name: name || candidate.rel.split("/").pop().replace(/\.jsonl$/, ""),
+        cwd,
+        snippet: snippet || query,
+        mtimeMs: candidate.mtimeMs,
+        hits,
+      });
+    }
+  }
+  return { results };
+}
+
+// ---- 本機用量統計：彙整最近 N 天的 assistant usage（純本機 session 檔案，
+// 不接任何第三方 API）。bounded：只掃最近天數內修改的檔案、每檔 8MB、
+// 總預算 3 秒。
+const USAGE_MAX_FILES = 300;
+const USAGE_MAX_FILE_BYTES = 8 * 1024 * 1024;
+const USAGE_BUDGET_MS = 3000;
+
+function emptyUsageDay(date) {
+  return { date, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, tokens: 0, cost: 0, runs: 0 };
+}
+
+function addUsageToDay(day, usage) {
+  const input = Math.max(0, Number(usage.input) || 0);
+  const output = Math.max(0, Number(usage.output) || 0);
+  const cacheRead = Math.max(0, Number(usage.cacheRead) || 0);
+  const cacheWrite = Math.max(0, Number(usage.cacheWrite) || 0);
+  day.input += input;
+  day.output += output;
+  day.cacheRead += cacheRead;
+  day.cacheWrite += cacheWrite;
+  day.tokens += input + output + cacheRead + cacheWrite;
+  day.cost += Math.max(0, Number(usage.cost?.total) || 0);
+  day.runs += 1;
+}
+
+async function usageSummary(daysParam) {
+  const days = Math.min(30, Math.max(1, Number(daysParam) || 7));
+  const sinceMs = Date.now() - days * 86_400_000;
+  const byDay = new Map();
+  for (let i = days - 1; i >= 0; i--) {
+    const date = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
+    byDay.set(date, emptyUsageDay(date));
+  }
+  const candidates = [];
+  let dirs;
+  try { dirs = fs.readdirSync(SESSIONS_DIR, { withFileTypes: true }); } catch { return { days: [...byDay.values()], generatedAt: Date.now() }; }
+  for (const d of dirs) {
+    if (!d.isDirectory() || d.name.startsWith(".")) continue;
+    let files;
+    try { files = fs.readdirSync(path.join(SESSIONS_DIR, d.name)); } catch { continue; }
+    for (const f of files) {
+      if (!f.endsWith(".jsonl")) continue;
+      const abs = safeSessionPath(d.name + "/" + f);
+      if (!abs) continue;
+      try {
+        const st = fs.statSync(abs);
+        if (Date.now() - st.mtimeMs <= days * 86_400_000) candidates.push({ abs, mtimeMs: st.mtimeMs });
+      } catch { continue; }
+    }
+  }
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  const startedAt = Date.now();
+  let scanned = 0;
+  for (const candidate of candidates.slice(0, USAGE_MAX_FILES)) {
+    if (Date.now() - startedAt > USAGE_BUDGET_MS) break;
+    let content;
+    try { content = await fs.promises.readFile(candidate.abs, "utf8"); } catch { continue; }
+    scanned++;
+    for (const rawLine of content.split("\n")) {
+      const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+      if (!line) continue;
+      let entry;
+      try { entry = JSON.parse(line); } catch { continue; }
+      if (entry?.type !== "message" || entry.message?.role !== "assistant" || !entry.message.usage) continue;
+      const timestamp = Date.parse(entry.timestamp || "") || candidate.mtimeMs;
+      const date = new Date(timestamp).toISOString().slice(0, 10);
+      const day = byDay.get(date);
+      if (!day) continue;
+      addUsageToDay(day, entry.message.usage);
+    }
+  }
+  return { days: [...byDay.values()], generatedAt: Date.now(), scanned };
+}
+
+// ---------------------------------------------------------------------------
+// Web Push（零依賴）：PWA 完成通知。VAPID 金鑰存在
+// ~/.config/pi-harbor/push.json（0600），訂閱存 push-subscriptions.json
+// （0600，只存 endpoint 與公鑰材料）。只在 session 沒有瀏覽器連著時發送，
+// 發送失敗永不影響主流程；410/404 自動清掉失效訂閱。
+// ---------------------------------------------------------------------------
+const PUSH_CONFIG_FILE = path.join(CONFIG_DIR, "push.json");
+const PUSH_SUBSCRIPTIONS_FILE = path.join(CONFIG_DIR, "push-subscriptions.json");
+const PUSH_SUBJECT = "mailto:pi-harbor@localhost";
+
+function b64url(buffer) {
+  return Buffer.from(buffer).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function b64urlDecode(value) {
+  const normalized = String(value).replace(/-/g, "+").replace(/_/g, "/");
+  return Buffer.from(normalized + "=".repeat((4 - (normalized.length % 4)) % 4), "base64");
+}
+
+let pushKeyPairCache = null;
+function pushKeyPair() {
+  if (pushKeyPairCache) return pushKeyPairCache;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(PUSH_CONFIG_FILE, "utf8"));
+    if (parsed?.publicKey && parsed?.privateKey) {
+      pushKeyPairCache = parsed;
+      return parsed;
+    }
+  } catch {}
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const jwk = (keyObject, isPrivate) => keyObject.export({ format: "jwk", ...(isPrivate ? {} : { publicEncoding: null }) });
+  // crypto.generateKeyPairSync returns KeyObject; export both as JWK directly.
+  const publicJwk = publicKey.export({ format: "jwk" });
+  const privateJwk = privateKey.export({ format: "jwk" });
+  const payload = {
+    publicKey: { kty: publicJwk.kty, crv: publicJwk.crv, x: publicJwk.x, y: publicJwk.y },
+    privateKey: { kty: privateJwk.kty, crv: privateJwk.crv, x: privateJwk.x, y: privateJwk.y, d: privateJwk.d },
+  };
+  writePrivateJson(PUSH_CONFIG_FILE, payload, "push config");
+  pushKeyPairCache = payload;
+  return payload;
+}
+
+function pushPrivateKeyObject() {
+  const jwk = pushKeyPair().privateKey;
+  return crypto.createPrivateKey({ key: jwk, format: "jwk" });
+}
+
+function pushServerPublicKeyBytes() {
+  const jwk = pushKeyPair().publicKey;
+  return Buffer.concat([Buffer.from([0x04]), b64urlDecode(jwk.x), b64urlDecode(jwk.y)]);
+}
+
+function vapidAuthorization(endpoint) {
+  const origin = new URL(endpoint).origin;
+  const header = b64url(JSON.stringify({ typ: "JWT", alg: "ES256" }));
+  const payload = b64url(JSON.stringify({ aud: origin, exp: Math.floor(Date.now() / 1000) + 12 * 3600, sub: PUSH_SUBJECT }));
+  const input = `${header}.${payload}`;
+  const signature = crypto.sign(null, Buffer.from(input), { key: pushPrivateKeyObject(), dsaEncoding: "ieee-p1363" });
+  return `vapid t=${input}.${b64url(signature)}, k=${b64url(pushServerPublicKeyBytes())}`;
+}
+
+function hkdfSha256(salt, ikm, info, length) {
+  return crypto.hkdfSync("sha256", ikm, salt, info, length);
+}
+
+function encryptPushPayload(subscription, plaintext) {
+  const clientPublicKey = b64urlDecode(subscription.keys.p256dh);
+  const authSecret = b64urlDecode(subscription.keys.auth);
+  if (clientPublicKey.length !== 65 || clientPublicKey[0] !== 0x04 || authSecret.length < 16) {
+    throw new Error("invalid subscription keys");
+  }
+  const serverPublicKeyBytes = pushServerPublicKeyBytes();
+  const { privateKey: ephemeralPrivate } = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const clientKeyObject = crypto.createPublicKey({ key: { kty: "EC", crv: "P-256", x: b64url(clientPublicKey.subarray(1, 33)), y: b64urlDecode(clientPublicKey.subarray(65)), ext: true }, format: "jwk" });
+  const sharedSecret = Buffer.from(crypto.diffieHellman({ privateKey: ephemeralPrivate, publicKey: clientKeyObject }));
+  const ephemeralPublicBytes = pushEphemeralPublicBytes(ephemeralPrivate);
+  const ikm = Buffer.from(hkdfSha256(authSecret, sharedSecret, Buffer.concat([Buffer.from("WebPush: info\u0000", "utf8"), clientPublicKey, serverPublicKeyBytes]), 32));
+  const salt = crypto.randomBytes(16);
+  const cek = Buffer.from(hkdfSha256(salt, ikm, Buffer.from("Content-Encoding: aes128gcm\u0000", "utf8"), 16));
+  const nonce = Buffer.from(hkdfSha256(salt, ikm, Buffer.from("Content-Encoding: nonce\u0000", "utf8"), 12));
+  const record = Buffer.concat([Buffer.from(plaintext, "utf8"), Buffer.from([0x02])]);
+  const cipher = crypto.createCipheriv("aes-128-gcm", cek, nonce);
+  const ciphertext = Buffer.concat([cipher.update(record), cipher.final(), cipher.getAuthTag()]);
+  const header = Buffer.concat([salt, Buffer.from([0x00, 0x00, 0x10, 0x00]), Buffer.from([65]), ephemeralPublicBytes]);
+  return Buffer.concat([header, ciphertext]);
+}
+
+function pushEphemeralPublicBytes(ephemeralPrivate) {
+  const jwk = ephemeralPrivate.export({ format: "jwk" });
+  return Buffer.concat([Buffer.from([0x04]), b64urlDecode(jwk.x), b64urlDecode(jwk.y)]);
+}
+
+function readPushSubscriptions() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(PUSH_SUBSCRIPTIONS_FILE, "utf8"));
+    return Array.isArray(parsed?.subscriptions) ? parsed.subscriptions : [];
+  } catch { return []; }
+}
+
+function writePushSubscriptions(subscriptions) {
+  writePrivateJson(PUSH_SUBSCRIPTIONS_FILE, { subscriptions }, "push subscriptions");
+}
+
+function savePushSubscription(subscription) {
+  const clean = {
+    endpoint: String(subscription?.endpoint || "").slice(0, 2048),
+    keys: {
+      p256dh: String(subscription?.keys?.p256dh || "").slice(0, 256),
+      auth: String(subscription?.keys?.auth || "").slice(0, 128),
+    },
+    savedAt: new Date().toISOString(),
+  };
+  if (!/^https:\/\//.test(clean.endpoint) || !clean.keys.p256dh || !clean.keys.auth) {
+    throw modelConfigError("Invalid push subscription");
+  }
+  const subscriptions = readPushSubscriptions().filter((item) => item.endpoint !== clean.endpoint);
+  subscriptions.push(clean);
+  writePushSubscriptions(subscriptions);
+  return { saved: true, count: subscriptions.length };
+}
+
+function removePushSubscription(endpoint) {
+  const clean = String(endpoint || "").slice(0, 2048);
+  const remaining = readPushSubscriptions().filter((item) => item.endpoint !== clean);
+  writePushSubscriptions(remaining);
+  return { removed: true, count: remaining.length };
+}
+
+const pushDeliveryInFlight = new Set();
+
+async function deliverPushNotification(session, title, body) {
+  const subscriptions = readPushSubscriptions();
+  if (!subscriptions.length) return;
+  const payload = JSON.stringify({ title, body, file: session?.meta?.file || null, sessionId: session?.state?.sessionId || null, ts: Date.now() });
+  for (const subscription of subscriptions) {
+    if (pushDeliveryInFlight.has(subscription.endpoint)) continue;
+    pushDeliveryInFlight.add(subscription.endpoint);
+    void (async () => {
+      try {
+        const response = await fetch(subscription.endpoint, {
+          method: "POST",
+          headers: {
+            Authorization: vapidAuthorization(subscription.endpoint),
+            "Content-Type": "application/octet-stream",
+            TTL: "86400",
+            Urgency: "normal",
+          },
+          body: encryptPushPayload(subscription, payload),
+        });
+        if (response.status === 404 || response.status === 410) {
+          writePushSubscriptions(readPushSubscriptions().filter((item) => item.endpoint !== subscription.endpoint));
+        }
+      } catch {}
+      finally { pushDeliveryInFlight.delete(subscription.endpoint); }
+    })();
+  }
+}
+
+// Push is only useful when nobody is watching the session in a browser.
+function maybeNotifyRunSettled(session, summaryText) {
+  try {
+    if (!session || session.clients.size > 0 || !readPushSubscriptions().length) return;
+    const name = session.meta?.file ? String(session.meta.file).split("/").pop().replace(/\.jsonl$/, "") : "Pi run";
+    deliverPushNotification(session, "Pi run finished", summaryText || name);
+  } catch {}
+}
+
 /** 重命名 session：append 一條 session_info entry（取最新一條為準是 pi 的原生語義） */
 function renameSession(rel, name) {
   const abs = safeSessionPath(rel);
@@ -1413,6 +1742,44 @@ function safeSessionPath(rel) {
 }
 
 /** 把 message entry 轉成給前端的精簡格式 */
+/** 匯出 session 成 Markdown：user/assistant 對話、thinking 摺疊、工具呼叫摘要。 */
+async function sessionToMarkdown(rel) {
+  const abs = safeSessionPath(rel);
+  if (!abs) throw modelConfigError("Session not found", 404);
+  let st;
+  try { st = await fs.promises.stat(abs); } catch { throw modelConfigError("Session not found", 404); }
+  if (st.size > MAX_SESSION_FILE_BYTES) throw modelConfigError("Session is too large to export");
+  const content = await fs.promises.readFile(abs, "utf8");
+  const lines = [];
+  let name = "";
+  for (const rawLine of content.split("\n")) {
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+    if (!line) continue;
+    let entry;
+    try { entry = JSON.parse(line); } catch { continue; }
+    if (entry?.type === "session_info" && typeof entry.name === "string" && entry.name.trim()) name = entry.name.trim();
+    const wire = entryToWire(entry);
+    if (!wire?.role || (wire.role !== "user" && wire.role !== "assistant")) continue;
+    const text = String(wire.text || "");
+    if (wire.role === "user") {
+      lines.push(`## 👤 User\n\n${text || "(empty)"}\n`);
+    } else {
+      const parts = [`## 🤖 Assistant`];
+      if (wire.thinking) {
+        parts.push(`<details><summary>Thinking</summary>\n\n${wire.thinking}\n\n</details>`);
+      }
+      if (text) parts.push(text);
+      for (const call of Array.isArray(wire.toolCalls) ? wire.toolCalls : []) {
+        parts.push(`**Tool call · ${call.name}**\n\n\`\`\`json\n${JSON.stringify(call.args || {}, null, 2).slice(0, 4000)}\n\`\`\``);
+      }
+      if (wire.errorMessage) parts.push(`> ⚠️ ${wire.errorMessage.slice(0, 2000)}`);
+      lines.push(parts.join("\n\n") + "\n");
+    }
+  }
+  const header = `# ${name || rel.split("/").pop().replace(/\.jsonl$/, "")}\n\n> Exported from Pi Harbor · ${new Date().toISOString()}\n\n---\n\n`;
+  return header + lines.join("\n");
+}
+
 function entryToWire(e) {
   const m = e.message || {};
   const wire = { id: e.id, role: m.role, ts: e.timestamp };
@@ -1593,6 +1960,9 @@ function trackStreaming(sid, event) {
     // Do not spawn from inside broadcast(); only the final transition starts
     // the deferred timer, and the updater rechecks immediately before activation.
     schedulePendingUpdateApplyAfterRpcIdle();
+    // PWA push: only when every browser walked away from the session, so an
+    // open page never doubles up with the in-app toasts.
+    maybeNotifyRunSettled(s, typeof event.summary === "string" ? event.summary : "");
   } else if (event.type === "rpc_exit") {
     s.state.isStreaming = false;
     s.currentRunStartSeq = null;
@@ -2041,6 +2411,36 @@ function upsertModelProvider(body) {
   writeModelConfig(config);
   modelCatalogCache = { at: 0, models: [] };
   return publicConfiguredProvider(next.id, next.provider);
+}
+
+// Import a pi-harbor provider export (or a raw models.json fragment). Every
+// provider goes through validateProviderBody, so imported files can never
+// smuggle in invalid IDs, unsafe base URLs, oversized model lists, or secret
+// shapes the editor would not write itself. Existing providers with the same
+// id are replaced (the import is explicit); unknown ids are added.
+function importModelConfig(body) {
+  const providers = body?.providers && typeof body.providers === "object" && !Array.isArray(body.providers)
+    ? body.providers
+    : body?.config?.providers && typeof body.config.providers === "object"
+      ? body.config.providers
+      : null;
+  if (!providers || !Object.keys(providers).length) {
+    throw modelConfigError("No providers found in the imported file");
+  }
+  const config = readModelConfig();
+  const imported = [];
+  for (const [id, provider] of Object.entries(providers)) {
+    if (!provider || typeof provider !== "object" || Array.isArray(provider)) {
+      throw modelConfigError(`Invalid provider entry: ${id}`);
+    }
+    const existing = config.providers[id] || null;
+    const next = validateProviderBody({ ...provider, id }, existing);
+    config.providers[next.id] = next.provider;
+    imported.push(next.id);
+  }
+  writeModelConfig(config);
+  modelCatalogCache = { at: 0, models: [] };
+  return { imported, providers: imported.map((id) => publicConfiguredProvider(id, config.providers[id])) };
 }
 
 function deleteModelProvider(idValue) {
@@ -3325,6 +3725,50 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, 401, { error: "unauthorized" }); return;
       }
 
+      if (p === "/api/session-export" && req.method === "GET") {
+        const rel = url.searchParams.get("file") || "";
+        sessionToMarkdown(rel)
+          .then((markdown) => sendJSON(res, 200, { markdown, name: (rel.split("/").pop() || "session").replace(/\.jsonl$/, "") }))
+          .catch((e) => sendJSON(res, e.statusCode || 500, { error: e.message }));
+        return;
+      }
+
+      if (p === "/api/session-search" && req.method === "GET") {
+        searchSessions(url.searchParams.get("q") || "")
+          .then((payload) => sendJSON(res, 200, payload))
+          .catch(() => sendJSON(res, 500, { error: "session search failed" }));
+        return;
+      }
+
+      if (p === "/api/usage-summary" && req.method === "GET") {
+        usageSummary(url.searchParams.get("days"))
+          .then((payload) => sendJSON(res, 200, payload))
+          .catch(() => sendJSON(res, 500, { error: "usage summary failed" }));
+        return;
+      }
+
+      if (p === "/api/push/config" && req.method === "GET") {
+        try { sendJSON(res, 200, { publicKey: b64url(pushServerPublicKeyBytes()) }); }
+        catch (e) { sendJSON(res, 500, { error: e.message }); }
+        return;
+      }
+
+      if (p === "/api/push/subscribe" && req.method === "POST") {
+        const body = await readJSON(req);
+        try {
+          sendJSON(res, 200, savePushSubscription(body));
+        } catch (e) {
+          sendJSON(res, e.statusCode || 400, { error: e.message });
+        }
+        return;
+      }
+
+      if (p === "/api/push/unsubscribe" && req.method === "POST") {
+        const body = await readJSON(req);
+        sendJSON(res, 200, removePushSubscription(body?.endpoint));
+        return;
+      }
+
       if (p === "/api/sessions" && req.method === "GET") {
         const allSessions = await listSessions();
         const temporarySessionCount = allSessions.filter((session) => session.isTemporary).length;
@@ -3580,6 +4024,38 @@ const server = http.createServer(async (req, res) => {
 
       if (p === "/api/model-providers" && req.method === "GET") {
         sendJSON(res, 200, listModelProviders());
+        return;
+      }
+
+      // Provider config portability: export writes a models.json-shaped file
+      // for the user's own devices. Secrets are opt-in and clearly labelled;
+      // import always validates every provider through the same rules as the
+      // editor before anything touches ~/.pi/agent/models.json.
+      if (p === "/api/model-config/export" && req.method === "GET") {
+        try {
+          const includeSecrets = url.searchParams.get("secrets") === "1";
+          const config = readModelConfig();
+          const providers = {};
+          for (const [id, provider] of Object.entries(config.providers || {})) {
+            if (!provider || typeof provider !== "object") continue;
+            const copy = JSON.parse(JSON.stringify(provider));
+            if (!includeSecrets) { delete copy.apiKey; delete copy.oauth; }
+            providers[id] = copy;
+          }
+          sendJSON(res, 200, { format: "pi-harbor-providers", version: 1, exportedAt: new Date().toISOString(), providers });
+        } catch (e) {
+          sendJSON(res, e.statusCode || 500, { error: e.message });
+        }
+        return;
+      }
+
+      if (p === "/api/model-config/import" && req.method === "POST") {
+        const body = await readJSON(req);
+        try {
+          sendJSON(res, 200, importModelConfig(body));
+        } catch (e) {
+          sendJSON(res, e.statusCode || 409, { error: e.message });
+        }
         return;
       }
 

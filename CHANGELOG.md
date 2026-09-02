@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.7.0
+
+- Provider config portability: export the whole models.json provider list to
+  a JSON file (secrets strictly opt-in with a plain warning) and import it on
+  another device; every imported provider passes the same validation as the
+  editor, and same-id providers are replaced explicitly.
+- Full-text session search: sidebar queries of two or more characters now
+  also search inside recent session transcripts (bounded scan, snippets),
+  with results that jump straight into the matching conversation.
+- Local usage summary: Settings → About shows the last seven days of tokens
+  and cost aggregated from local session files only — no third-party APIs.
+- PWA push notifications: opt in from Settings → About; the host sends a
+  signed Web Push (VAPID + aes128gcm, implemented with node:crypto only)
+  when a run settles with no browser attached, and tapping it opens the app.
+- Session action sheet gained "Export as Markdown": user/assistant turns,
+  collapsed thinking blocks, tool-call summaries, and provider errors.
+
 ## 2.6.0
 
 - Wedged pi runs no longer block auto-updates forever. A run streaming with

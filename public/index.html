@@ -6,16 +6,18 @@
 <title>Pi Harbor</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=2.6.0">
-<link rel="icon" href="/pi-logo.svg?v=2.6.0" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-180.png?v=2.6.0">
-<link rel="stylesheet" href="/style.css?v=2.6.0">
+<link rel="manifest" href="/manifest.webmanifest?v=2.7.0">
+<link rel="icon" href="/pi-logo.svg?v=2.7.0" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png?v=2.7.0">
+<link rel="stylesheet" href="/style.css?v=2.7.0">
 </head>
 <body>
 
 <svg class="icon-sprite" aria-hidden="true">
   <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.1h-4v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1-2.8-2.8.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 2.8-2.8.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6V3h4v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1 2.8 2.8-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v4h-.1a1.7 1.7 0 0 0-1.6 1Z"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4m-5 5 5-5 5 5M4 20h16"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12m-5-5 5 5 5-5M4 20h16"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.9-3M4 5v4h4M4 13a8 8 0 0 0 14.9 3M20 19v-4h-4"/></symbol>
   <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
   <symbol id="i-ellipsis" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></symbol>
@@ -376,9 +378,23 @@
 
       <section class="settings-group settings-about-group">
         <h3 class="group-title">About</h3>
+        <div id="usage-summary-card" class="usage-summary hidden">
+          <div class="usage-summary-heading">
+            <strong data-i18n-key="usage.title">Usage · last 7 days</strong>
+            <span id="usage-summary-note" class="usage-summary-note"></span>
+          </div>
+          <div id="usage-summary-rows"></div>
+        </div>
+        <div class="settings-row" id="push-notifications-row">
+          <span>
+            <strong>Notifications</strong>
+            <small>Ping this device when a run finishes without a browser attached</small>
+          </span>
+          <button id="push-toggle" class="settings-action-btn" type="button">Enable</button>
+        </div>
         <div class="settings-row">
           <span><strong>Pi Harbor</strong><small>Mobile-first remote workspace for Pi</small></span>
-          <span class="settings-value" id="set-app-version">v2.6.0</span>
+          <span class="settings-value" id="set-app-version">v2.7.0</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -439,6 +455,8 @@
             <p class="settings-note">Manage visible models and custom providers in one list.</p>
           </div>
           <div class="settings-heading-actions">
+            <button id="provider-config-import" class="icon-button-small" type="button" title="Import provider config" aria-label="Import provider config"><svg class="icon"><use href="#i-download"></use></svg></button>
+            <button id="provider-config-export" class="icon-button-small" type="button" title="Export provider config" aria-label="Export provider config"><svg class="icon"><use href="#i-upload"></use></svg></button>
             <button id="provider-add" class="icon-button-small" type="button" title="Add provider" aria-label="Add provider"><svg class="icon"><use href="#i-plus"></use></svg></button>
             <button id="model-visibility-refresh" class="icon-button-small" type="button" title="Reload models" aria-label="Reload models"><svg class="icon"><use href="#i-refresh"></use></svg></button>
           </div>
@@ -624,6 +642,7 @@
       <h2 id="sa-title" class="sa-title">Session</h2>
       <button id="sa-model" class="action-row" type="button">⚡ Model &amp; reasoning…</button>
       <button id="sa-rename" class="action-row" type="button">✏️ Rename</button>
+      <button id="sa-export" class="action-row" type="button">⬇️ Export as Markdown</button>
       <button id="sa-delete" class="action-row danger-text" type="button">🗑 Delete (move to Trash)</button>
       <button id="sa-cancel" class="action-row cancel" type="button">Cancel</button>
     </div>
@@ -800,10 +819,10 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=2.6.0"></script>
-<script src="/modules/app-foundation.js?v=2.6.0"></script>
-<script src="/modules/session-utils.js?v=2.6.0"></script>
-<script src="/modules/context-usage.js?v=2.6.0"></script>
-<script src="/app.js?v=2.6.0"></script>
+<script src="/i18n.js?v=2.7.0"></script>
+<script src="/modules/app-foundation.js?v=2.7.0"></script>
+<script src="/modules/session-utils.js?v=2.7.0"></script>
+<script src="/modules/context-usage.js?v=2.7.0"></script>
+<script src="/app.js?v=2.7.0"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
-/* pi-harbor v2.6.0 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.7.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.6.0";
+const CLIENT_APP_VERSION = "2.7.0";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -100,6 +100,9 @@ const el = {
   btnImg: $("btn-img"), fileInput: $("file-input"), imgPreview: $("img-preview"),
   setReducedMotion: $("set-reduced-motion"), setThinking: $("set-thinking"),
   modelVisibilityList: $("model-visibility-list"), modelVisibilityRefresh: $("model-visibility-refresh"),
+  providerConfigExport: $("provider-config-export"), providerConfigImport: $("provider-config-import"),
+  pushToggle: $("push-toggle"),
+  usageSummaryCard: $("usage-summary-card"), usageSummaryRows: $("usage-summary-rows"), usageSummaryNote: $("usage-summary-note"),
   modelFilter: $("model-filter"), modelListSummary: $("model-list-summary"), providerAdd: $("provider-add"),
   providerDialog: $("provider-dialog"), providerDialogTitle: $("provider-dialog-title"), providerId: $("provider-id"),
   providerApi: $("provider-api"), providerBaseUrl: $("provider-base-url"), providerApiKey: $("provider-api-key"),
@@ -116,7 +119,7 @@ const el = {
   newCancel: $("new-cancel"), newStart: $("new-start"), newFolderUp: $("new-folder-up"),
   newFolderHome: $("new-folder-home"), newFolderPath: $("new-folder-path"), newFolderList: $("new-folder-list"),
   saSheet: $("session-action-sheet"), saTitle: $("sa-title"),
-  saModel: $("sa-model"), saRename: $("sa-rename"), saDelete: $("sa-delete"), saCancel: $("sa-cancel"),
+  saModel: $("sa-model"), saRename: $("sa-rename"), saDelete: $("sa-delete"), saExport: $("sa-export"), saCancel: $("sa-cancel"),
   projectActionSheet: $("project-action-sheet"), projectActionTitle: $("pa-title"),
   projectActionPin: $("pa-pin"), projectActionEdit: $("pa-edit"), projectActionReveal: $("pa-reveal"),
   projectActionWorktree: $("pa-worktree"), projectActionArchive: $("pa-archive"), projectActionRemove: $("pa-remove"),
@@ -1395,6 +1398,52 @@ function hideSettings() {
   el.viewList.classList.remove("hidden");
 }
 
+// ---- 本機用量統計（Settings → About）：最近 7 天的 token／成本條列。
+function fmtCompactTokens(value) {
+  const n = Number(value) || 0;
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
+  return String(n);
+}
+
+async function renderUsageSummary() {
+  if (!el.usageSummaryCard || !el.usageSummaryRows) return;
+  try {
+    const data = await api("/api/usage-summary?days=7");
+    const days = Array.isArray(data?.days) ? data.days : [];
+    const maxTokens = Math.max(1, ...days.map((d) => Number(d.tokens) || 0));
+    el.usageSummaryRows.innerHTML = "";
+    let visible = 0;
+    for (const day of days) {
+      const tokens = Number(day.tokens) || 0;
+      if (tokens > 0) visible++;
+      const row = document.createElement("div");
+      row.className = "usage-summary-row" + (tokens ? "" : " empty");
+      const label = document.createElement("span");
+      label.className = "usage-day";
+      label.textContent = day.date.slice(5);
+      const bar = document.createElement("span");
+      bar.className = "usage-bar";
+      const fill = document.createElement("span");
+      fill.className = "usage-bar-fill";
+      fill.style.width = (tokens ? Math.max(3, Math.round((tokens / maxTokens) * 100)) : 0) + "%";
+      bar.appendChild(fill);
+      const value = document.createElement("span");
+      value.className = "usage-value";
+      const cost = Number(day.cost) || 0;
+      value.textContent = tokens ? `${fmtCompactTokens(tokens)} tok${cost ? " · $" + cost.toFixed(2) : ""}` : "—";
+      row.append(label, bar, value);
+      el.usageSummaryRows.appendChild(row);
+    }
+    el.usageSummaryCard.classList.toggle("hidden", visible === 0);
+    if (el.usageSummaryNote) {
+      el.usageSummaryNote.textContent = visible ? "" : window.piI18n?.t("No usage in the last 7 days") || "No usage in the last 7 days";
+    }
+  } catch {
+    el.usageSummaryCard?.classList.add("hidden");
+  }
+}
+
 function showSettings() {
   void loadTokens(true);
   resetSettingsOverlay();
@@ -1405,6 +1454,7 @@ function showSettings() {
   el.viewSettings.classList.remove("hidden");
   renderSettings();
   void loadModelVisibility();
+  void renderUsageSummary();
   el.viewSettings.classList.add("slide-in");
   settingsSlideTimer = setTimeout(() => {
     settingsSlideTimer = null;
@@ -1882,6 +1932,53 @@ function renderSessionList(q) {
     moreWrap.appendChild(more);
     el.sessionList.appendChild(moreWrap);
   }
+  scheduleFullTextSearch(query);
+}
+
+// ---- 跨 session 全文搜尋：側欄搜尋框輸入 ≥2 字時，在列表下方追加
+// 「全文結果」；伺服器端 bounded 掃描，前端 300ms debounce。
+let fullTextSearchTimer = null;
+let fullTextSearchQuery = "";
+function scheduleFullTextSearch(query) {
+  if (fullTextSearchTimer) clearTimeout(fullTextSearchTimer);
+  fullTextSearchQuery = query;
+  if (query.length < 2) return;
+  fullTextSearchTimer = setTimeout(() => {
+    fullTextSearchTimer = null;
+    void runFullTextSearch(fullTextSearchQuery);
+  }, 300);
+}
+
+async function runFullTextSearch(query) {
+  if (query.length < 2 || query !== (el.search?.value || "").trim().toLowerCase()) return;
+  const generation = viewGeneration;
+  try {
+    const data = await api("/api/session-search?q=" + encodeURIComponent(query));
+    if (generation !== viewGeneration || query !== (el.search?.value || "").trim().toLowerCase()) return;
+    const results = Array.isArray(data?.results) ? data.results : [];
+    // 清掉上一輪的結果（用標記辨識，避免影響一般 session 項目）。
+    el.sessionList.querySelectorAll(".session-fulltext-block").forEach((node) => node.remove());
+    if (!results.length) return;
+    const block = document.createElement("li");
+    block.className = "session-fulltext-block";
+    const heading = document.createElement("p");
+    heading.className = "session-fulltext-heading";
+    heading.textContent = window.piI18n?.t("Full-text results") || "Full-text results";
+    block.appendChild(heading);
+    for (const hit of results.slice(0, 10)) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "session-fulltext-row";
+      const name = document.createElement("strong");
+      name.textContent = stripMd(hit.name || hit.file.split("/").pop()).slice(0, 70);
+      const snippet = document.createElement("small");
+      snippet.textContent = hit.snippet || "";
+      row.append(name, snippet);
+      row.addEventListener("click", () => openExisting({ file: hit.file, cwd: hit.cwd, name: hit.name, preview: hit.snippet }));
+      block.appendChild(row);
+    }
+    el.sessionList.appendChild(block);
+  } catch {}
 }
 el.search.addEventListener("input", () => { sessionRenderLimit = 120; renderSessionList(el.search.value); });
 el.btnRefresh.addEventListener("click", refreshSessions);
@@ -1954,6 +2051,26 @@ el.saCancel.addEventListener("click", closeSessionActions);
 // on the actions inside the sheet.
 el.saSheet.addEventListener("click", (event) => {
   if (event.target === el.saSheet) closeSessionActions();
+});
+el.saExport?.addEventListener("click", async () => {
+  const s = actionTarget;
+  closeSessionActions();
+  if (!s?.file) return;
+  try {
+    const data = await api("/api/session-export?file=" + encodeURIComponent(s.file));
+    const blob = new Blob([data.markdown || ""], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${(data.name || "session").replace(/[\\/:*?"<>|]/g, "_")}.md`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    toast(window.piI18n?.t("Session exported") || "Session exported");
+  } catch (error) {
+    toast(error.message || "Export failed", true);
+  }
 });
 el.saDelete.addEventListener("click", async () => {
   const target = actionTarget;
@@ -7443,6 +7560,149 @@ async function loadModelVisibility(force = false, skipSession = false) {
 }
 
 el.modelVisibilityRefresh?.addEventListener("click", () => loadModelVisibility(true));
+
+// ---- Provider config portability ----
+function downloadProviderConfig(includeSecrets) {
+  const suffix = includeSecrets ? "?secrets=1" : "";
+  api("/api/model-config/export" + suffix).then((payload) => {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `pi-harbor-providers-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    toast(includeSecrets
+      ? window.piI18n?.t("Provider config exported with API keys") || "Provider config exported with API keys"
+      : window.piI18n?.t("Provider config exported") || "Provider config exported");
+  }).catch((error) => toast(error.message || "Export failed", true));
+}
+
+async function importProviderConfig(file) {
+  let payload;
+  try { payload = JSON.parse(await file.text()); }
+  catch { toast(window.piI18n?.t("Invalid JSON file") || "Invalid JSON file", true); return; }
+  const providerIds = Object.keys(payload?.providers || {});
+  if (!providerIds.length) { toast(window.piI18n?.t("No providers found in the imported file") || "No providers found in the imported file", true); return; }
+  const summary = providerIds.map((id) => {
+    const provider = payload.providers[id];
+    const models = Array.isArray(provider?.models) ? provider.models.length : 0;
+    return `${id} · ${models} models${hasSecrets(provider) ? " · key" : ""}`;
+  });
+  if (!window.confirm(`${window.piI18n?.t("Import these providers?") || "Import these providers?"}\n\n${summary.join("\n")}\n\n${window.piI18n?.t("Providers with the same ID will be replaced.") || "Providers with the same id are replaced."}`)) return;
+  try {
+    const result = await post("/api/model-config/import", { providers: payload.providers });
+    toast(window.piI18n?.t("Imported {count} providers", { count: result.imported.length }) || `Imported ${result.imported.length} providers`);
+    await loadModelVisibility(true, true);
+  } catch (error) {
+    toast(error.message || "Import failed", true);
+  }
+}
+
+function hasSecrets(provider) { return !!(provider?.apiKey || provider?.oauth); }
+
+el.providerConfigExport?.addEventListener("click", () => {
+  const includeSecrets = window.confirm(window.piI18n?.t("Include API keys in the export file?") || "Include API keys in the export file?\n\nCancel = export without secrets (keys stay on this device).\nOK = include keys in plain text; keep the file safe.");
+  downloadProviderConfig(includeSecrets);
+});
+el.providerConfigImport?.addEventListener("click", () => {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "application/json,.json";
+  input.addEventListener("change", () => {
+    const file = input.files?.[0];
+    if (file) void importProviderConfig(file);
+  });
+  input.click();
+});
+
+// ---- PWA 完成通知：訂閱 Web Push（iOS 需已安裝 PWA 且 https）。
+function urlBase64ToUint8Array(value) {
+  const normalized = String(value).replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(normalized + "=".repeat((4 - (normalized.length % 4)) % 4));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function currentPushSubscription(registration) {
+  try { return await registration.pushManager.getSubscription(); } catch { return null; }
+}
+
+function setPushToggleState(state) {
+  if (!el.pushToggle) return;
+  const labels = {
+    unsupported: window.piI18n?.t("Not available") || "Not available",
+    enable: window.piI18n?.t("Enable") || "Enable",
+    on: window.piI18n?.t("Notifications on") || "Notifications on",
+    denied: window.piI18n?.t("Blocked in browser settings") || "Blocked in browser settings",
+    busy: "…",
+  };
+  el.pushToggle.textContent = labels[state] || labels.enable;
+  el.pushToggle.dataset.pushState = state;
+  el.pushToggle.disabled = state === "unsupported" || state === "denied";
+}
+
+async function refreshPushToggleState() {
+  if (!el.pushToggle) return;
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+    setPushToggleState("unsupported");
+    return;
+  }
+  if (typeof Notification !== "undefined" && Notification.permission === "denied") {
+    setPushToggleState("denied");
+    return;
+  }
+  const registration = await navigator.serviceWorker.getRegistration();
+  const subscription = registration ? await currentPushSubscription(registration) : null;
+  if (subscription) setPushToggleState("on");
+  else setPushToggleState("enable");
+}
+
+async function disablePushNotifications() {
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    const subscription = registration ? await currentPushSubscription(registration) : null;
+    if (subscription) {
+      await post("/api/push/unsubscribe", { endpoint: subscription.endpoint });
+      await subscription.unsubscribe();
+    }
+    toast(window.piI18n?.t("Notifications off") || "Notifications off");
+  } catch {}
+  void refreshPushToggleState();
+}
+
+async function enablePushNotifications() {
+  try {
+    if (typeof Notification !== "undefined" && Notification.permission !== "granted") {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") { void refreshPushToggleState(); return; }
+    }
+    const registration = serviceWorkerRegistration || await navigator.serviceWorker.ready;
+    const existing = await currentPushSubscription(registration);
+    if (existing) { await post("/api/push/subscribe", existing.toJSON()); setPushToggleState("on"); return; }
+    const config = await api("/api/push/config");
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(config.publicKey),
+    });
+    await post("/api/push/subscribe", subscription.toJSON());
+    setPushToggleState("on");
+    toast(window.piI18n?.t("Notifications on") || "Notifications on");
+  } catch (error) {
+    toast(error.message || "Could not enable notifications", true);
+    void refreshPushToggleState();
+  }
+}
+
+el.pushToggle?.addEventListener("click", () => {
+  const state = el.pushToggle.dataset.pushState || "enable";
+  if (state === "on") void disablePushNotifications();
+  else if (state === "enable") void enablePushNotifications();
+});
+void refreshPushToggleState();
 el.modelFilter?.addEventListener("input", () => renderModelVisibility());
 el.providerFilter?.addEventListener("input", () => renderProviderPresets());
 el.providerAdd?.addEventListener("click", () => openProviderDialog());
@@ -8384,6 +8644,11 @@ window.addEventListener("pageshow", lockMobilePortrait);
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (event) => {
+    if (event.data?.type === "PI_HARBOR_OPEN_SESSION" && typeof event.data.file === "string") {
+      const hit = sessionsCache.find((s) => s.file === event.data.file);
+      if (hit) { void openExisting(hit); }
+      return;
+    }
     if (event.data?.type !== "PI_HARBOR_UPDATED" || !navigator.serviceWorker.controller) return;
     if (rpc?.streaming) {
       toast(updateText("Pi Harbor update ready; reload after the current work finishes"), false);

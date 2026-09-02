@@ -1,18 +1,18 @@
-const CACHE_NAME = "pi-harbor-shell-v2.6.0";
+const CACHE_NAME = "pi-harbor-shell-v2.7.0";
 const SHELL = [
   "/",
   "/index.html",
-  "/style.css?v=2.6.0",
-  "/i18n.js?v=2.6.0",
-  "/modules/app-foundation.js?v=2.6.0",
-  "/modules/session-utils.js?v=2.6.0",
-  "/modules/context-usage.js?v=2.6.0",
-  "/app.js?v=2.6.0",
-  "/manifest.webmanifest?v=2.6.0",
-  "/pi-logo.svg?v=2.6.0",
+  "/style.css?v=2.7.0",
+  "/i18n.js?v=2.7.0",
+  "/modules/app-foundation.js?v=2.7.0",
+  "/modules/session-utils.js?v=2.7.0",
+  "/modules/context-usage.js?v=2.7.0",
+  "/app.js?v=2.7.0",
+  "/manifest.webmanifest?v=2.7.0",
+  "/pi-logo.svg?v=2.7.0",
   "/pi-glyph.svg",
-  "/icon-180.png?v=2.6.0",
-  "/icon-512.png?v=2.6.0",
+  "/icon-180.png?v=2.7.0",
+  "/icon-512.png?v=2.7.0",
   "/vendor/marked.min.js",
   "/vendor/purify.min.js",
   "/vendor/mermaid.min.js",
@@ -30,6 +30,36 @@ self.addEventListener("activate", (event) => {
       .then(() => self.clients.matchAll({ type: "window", includeUncontrolled: false }))
       .then((clients) => clients.forEach((client) => client.postMessage({ type: "PI_HARBOR_UPDATED", version: CACHE_NAME }))),
   );
+});
+
+// Run-finished push (sent by the host only when no browser is attached to the
+// session). Clicking the notification focuses an open client; the app scrolls
+// to the session from the message payload.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch {}
+  const title = typeof data.title === "string" && data.title ? data.title : "Pi Harbor";
+  const body = typeof data.body === "string" ? data.body : "";
+  event.waitUntil(self.registration.showNotification(title, {
+    body,
+    icon: "/icon-180.png",
+    badge: "/pi-glyph.svg",
+    tag: "pi-harbor-run",
+    data: { file: data.file || null },
+  }));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const file = event.notification.data?.file || null;
+  event.waitUntil((async () => {
+    const windowClients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const client of windowClients) {
+      if (file) client.postMessage({ type: "PI_HARBOR_OPEN_SESSION", file });
+      return client.focus();
+    }
+    return self.clients.openWindow("/");
+  })());
 });
 
 self.addEventListener("fetch", (event) => {
