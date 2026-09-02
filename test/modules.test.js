@@ -155,6 +155,26 @@ test("session display helpers remain independent from the controller", () => {
   assert.equal(utils.projectFolderName("(unknown)"), "Unassigned");
 });
 
+test("run elapsed time reads as a clock and never goes negative", () => {
+  const { value: utils } = loadBrowserModule("session-utils.js");
+  // Under a minute stays in seconds so short turns are easy to scan.
+  assert.equal(utils.runElapsedText(0), "0s");
+  assert.equal(utils.runElapsedText(999), "0s");
+  assert.equal(utils.runElapsedText(1000), "1s");
+  assert.equal(utils.runElapsedText(59_000), "59s");
+  // A minute switches to m:ss, and the seconds field keeps two digits.
+  assert.equal(utils.runElapsedText(60_000), "1:00");
+  assert.equal(utils.runElapsedText(65_000), "1:05");
+  assert.equal(utils.runElapsedText(599_000), "9:59");
+  assert.equal(utils.runElapsedText(3_599_000), "59:59");
+  // Long runs roll over into h:mm:ss.
+  assert.equal(utils.runElapsedText(3_600_000), "1:00:00");
+  assert.equal(utils.runElapsedText(10_545_000), "2:55:45");
+  // A clock skew must not render "-1s".
+  assert.equal(utils.runElapsedText(-5000), "0s");
+  assert.equal(utils.runElapsedText(undefined), "0s");
+});
+
 test("composer drafts stay isolated by device and session and remain bounded", () => {
   const { value: utils } = loadBrowserModule("session-utils.js");
   const sessionA = utils.draftScopeKey("mini", { file: "sessions/a.jsonl" });

@@ -261,10 +261,23 @@
     });
   }
 
+  // Elapsed time for a running turn. Seconds under a minute, m:ss below an
+  // hour, then h:mm:ss, so a glance answers "how long has this been going?"
+  function runElapsedText(ms) {
+    const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+    if (total < 60) return `${total}s`;
+    const seconds = total % 60;
+    const minutes = Math.floor(total / 60) % 60;
+    const hours = Math.floor(total / 3600);
+    const pad = (value) => String(value).padStart(2, "0");
+    return hours ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`;
+  }
+
   global.piHarborSessionUtils = Object.freeze({
     stripMd, fmtTime, fmtTokens, projectFolderName,
     DRAFT_ENTRY_LIMIT, DRAFT_TEXT_LIMIT, draftScopeKey, normalizeDraftEntries, updateDraftEntries, draftTextForKey,
     activityReceiptStats, computeActivityReceipt,
     stripAnsi, parseTaskProgressLines, extractTaskPlan,
+    runElapsedText,
   });
 })(window);

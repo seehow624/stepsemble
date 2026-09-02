@@ -1,4 +1,4 @@
-/* pi-harbor v2.7.1 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.8.0 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -2170,6 +2170,18 @@ body.compact #view-list .session-item .s-meta { margin-top: 1px; font-size: .55r
   0% { background-position: 120% 0; }
   100% { background-position: -20% 0; }
 }
+
+/* Elapsed time for the current turn. Tabular digits keep the width steady so
+   the header does not shift on every tick. */
+.run-timer {
+  flex: 0 0 auto;
+  color: var(--pine-soft);
+  font: 600 .68rem/1.25 var(--mono);
+  font-variant-numeric: tabular-nums;
+  opacity: .75;
+  white-space: nowrap;
+}
+.run-timer.running { opacity: 1; }
 .thinking-shimmer {
   display: inline-flex;
   align-items: baseline;
@@ -3651,7 +3663,8 @@ html[lang="ko"] .settings-subheading {
 }
 @media (max-width: 979px) {
   #setting-sidebar-width-row { display: none; }
-  #view-chat .thinking-status { max-width: 110px; }
+  /* The timer sits beside the status, so the label gives up a little width. */
+  #view-chat .thinking-status { max-width: 84px; }
 }
 html.reduced-motion .machine-status-dot.machine-status-checking { animation: none; }
 body.compact #view-list .session-item,

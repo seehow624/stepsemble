@@ -900,6 +900,31 @@ test("sign-in help explains how to read the token on macOS, Linux, and Windows",
   assert.match(app, /selectTokenHelpOs\(tokenHelpOsFromPlatform\(m\.platform\)\)/);
 });
 
+test("the run timer survives a reload and restarts on each new turn", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  assert.match(html, /id="run-timer"[^>]*data-i18n-ignore/);
+  // The server owns the run's start time, so a reload or a second device
+  // shows the real elapsed time instead of restarting the clock at zero.
+  assert.match(server, /s\.state\.runStartedAt = Date\.now\(\)/);
+  assert.match(server, /runStartedAt: existing\.state\.isStreaming \? \(existing\.state\.runStartedAt \|\| null\) : null/);
+  assert.match(app, /if \(r\.isStreaming\) rpc\.runStartedAt = Number\(r\.runStartedAt\) \|\| Date\.now\(\)/);
+  // A new turn restarts the clock, but a reconnect replays agent_start for a
+  // run already in flight: there the server's start time must win, otherwise
+  // the timer resets to zero on every reload.
+  assert.match(app, /if \(rpc && !\(rpc\.streaming && rpc\.runStartedAt\)\) \{/);
+  // The final duration stays readable after the run settles.
+  assert.match(app, /function stopRunTimer\(\)/);
+  assert.match(app, /if \(rpc\?\.runStartedAt && !rpc\.runEndedAt\) rpc\.runEndedAt = Date\.now\(\)/);
+  assert.match(app, /runTimerInterval = setInterval\(renderRunTimer, 1000\)/);
+  // Leaving the conversation clears the timer instead of leaving a stale value.
+  assert.match(app, /if \(runTimerInterval\) \{ clearInterval\(runTimerInterval\); runTimerInterval = null; \}/);
+  // Steady width: the header must not shift on every tick.
+  assert.match(css, /\.run-timer \{[\s\S]*?font-variant-numeric: tabular-nums;/);
+});
+
 test("desktop Settings scrolls from anywhere while its content stays centered", () => {
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   // The scroller must span the full width; centering is done with padding so

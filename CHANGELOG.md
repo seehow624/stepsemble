@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.8.0
+
+- The chat header now shows how long the current turn has been working, next
+  to the Thinking/Working status. It ticks every second while the run is live
+  and keeps the final duration once the answer arrives, so a long run is
+  visibly progressing instead of looking frozen. Format is seconds, then m:ss,
+  then h:mm:ss, in tabular digits so the header does not shift on each tick.
+- The elapsed time belongs to the run, not the browser tab: the server records
+  when the turn started and hands it back on reconnect, so reloading the page
+  or opening the session on another device continues the same clock instead of
+  restarting at zero.
+
 ## 2.7.1
 
 - A supervised server no longer outlives the process that started it. A script

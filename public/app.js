@@ -1,7 +1,7 @@
-/* pi-harbor v2.7.1 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.8.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.7.1";
+const CLIENT_APP_VERSION = "2.8.0";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -65,6 +65,7 @@ const el = {
   machineCatalogStatus: $("machine-catalog-status"), machineCatalogStatusCopy: $("machine-catalog-status-copy"), machineCatalogRetry: $("machine-catalog-retry"),
   btnBack: $("btn-back"), chatTitle: $("chat-title"), chatSub: $("chat-sub"),
   chatHeadInfo: $("chat-head-info"), thinkingStatus: $("thinking-status"), btnChatMenu: $("btn-chat-menu"),
+  runTimer: $("run-timer"),
   btnChanges: $("btn-changes"), changesBadge: $("changes-badge"), changesLayer: $("changes-layer"),
   changesTitle: $("changes-title"), changesRepository: $("changes-repository"), changesRefresh: $("changes-refresh"), changesClose: $("changes-close"),
   changesSummary: $("changes-summary"), changesFilesPane: $("changes-files-pane"), changesState: $("changes-state"), changesList: $("changes-list"),
@@ -279,6 +280,7 @@ let contextStatsRequest = null;
 let contextStatsRequestSequence = 0;
 let extensionUiRequest = null;
 let activityWatchdog = null;
+let runTimerInterval = null;
 let expandedPinnedSessions = false;
 const ONBOARDING_KEY = "piharbor.onboarding.v1";
 let onboardingStep = 0;
@@ -2732,6 +2734,9 @@ async function connectRpc(opts, generation = viewGeneration) {
       reconnectTimer: null, reconnectAttempt: 0,
       lastEventId: replayAfter, activityLabel: "thinking", lastEventAt: Date.now(),
     };
+    // Reusing a live RPC hands back the run's real start time, so the timer
+    // continues from the actual elapsed time rather than this page load.
+    if (r.isStreaming) rpc.runStartedAt = Number(r.runStartedAt) || Date.now();
     setStreaming(!!r.isStreaming);
     let esFail = 0;
 
@@ -2847,6 +2852,9 @@ function closeChat(silent) {
     if (!silent) post("/api/close", { sid: rpc.sid }).catch(() => {});
     rpc = null;
   }
+  // Leaving the conversation clears its timer; the next session starts fresh.
+  if (runTimerInterval) { clearInterval(runTimerInterval); runTimerInterval = null; }
+  if (el.runTimer) { el.runTimer.classList.add("hidden"); el.runTimer.textContent = ""; }
   delete el.queueNote.dataset.connection;
   pendingAssistant = null;
   liveToolCards = new Map();
@@ -3923,6 +3931,50 @@ function markRpcActivity() {
   if (rpc) rpc.lastEventAt = Date.now();
   if (el.queueNote.classList.contains("stale")) clearActivityNote();
 }
+
+// ---------------------------------------------------------------------------
+// Run timer: how long the current turn has been working
+// ---------------------------------------------------------------------------
+
+// Formatting lives in session-utils so it can be unit tested. Digits are
+// monospaced in CSS so the header does not twitch on every tick.
+const runElapsedText = (ms) => window.piHarborSessionUtils.runElapsedText(ms);
+
+function renderRunTimer() {
+  if (!el.runTimer) return;
+  const startedAt = rpc?.runStartedAt;
+  if (!startedAt) {
+    el.runTimer.classList.add("hidden");
+    el.runTimer.textContent = "";
+    return;
+  }
+  const endedAt = rpc?.streaming ? Date.now() : (rpc?.runEndedAt || Date.now());
+  el.runTimer.textContent = runElapsedText(endedAt - startedAt);
+  el.runTimer.classList.remove("hidden");
+  el.runTimer.classList.toggle("running", !!rpc?.streaming);
+}
+
+function startRunTimer(startedAt = Date.now()) {
+  if (!rpc) return;
+  // A reconnect reports the real start time, so an in-flight run keeps its
+  // own elapsed time instead of restarting from zero.
+  rpc.runStartedAt = Number.isFinite(Number(startedAt)) ? Number(startedAt) : Date.now();
+  rpc.runEndedAt = null;
+  renderRunTimer();
+  if (runTimerInterval) return;
+  runTimerInterval = setInterval(renderRunTimer, 1000);
+}
+
+function stopRunTimer() {
+  if (runTimerInterval) {
+    clearInterval(runTimerInterval);
+    runTimerInterval = null;
+  }
+  // The final duration stays visible: it answers "how long did that take?"
+  // once the answer has already arrived.
+  if (rpc?.runStartedAt && !rpc.runEndedAt) rpc.runEndedAt = Date.now();
+  renderRunTimer();
+}
 const ACTIVITY_STATUS_KEYS = Object.freeze({
   thinking: "Thinking…",
   working: "Working…",
@@ -3970,6 +4022,13 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       startActivityRun();
       runFailureRendered = false;
       lastRunFailure = null;
+      // A fresh turn restarts the clock. A reconnect replays this same event
+      // for a run already in flight, and there the server-provided start time
+      // must win: otherwise the timer would restart at zero on every reload.
+      if (rpc && !(rpc.streaming && rpc.runStartedAt)) {
+        rpc.runStartedAt = Date.now();
+        rpc.runEndedAt = null;
+      }
       setStreaming(true);
       setActivityLabel("thinking");
       clearActivityNote();
@@ -4462,11 +4521,13 @@ function setStreaming(on) {
     if (rpc && !rpc.lastEventAt) rpc.lastEventAt = Date.now();
     if (!activityWatchdog) activityWatchdog = setInterval(updateActivityWatchdog, 5000);
     if (el.thinkingStatus) setActivityLabel(rpc?.activityLabel || "thinking");
+    startRunTimer(rpc?.runStartedAt || Date.now());
   } else if (activityWatchdog) {
     clearInterval(activityWatchdog);
     activityWatchdog = null;
     clearActivityNote();
   }
+  if (!on) stopRunTimer();
   el.thinkingStatus?.classList.toggle("hidden", !on);
   el.thinkingStatus?.classList.toggle("running", !!on && rpc?.activityLabel !== "waiting");
   el.btnAbort.classList.toggle("hidden", !on);

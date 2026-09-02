@@ -46,7 +46,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.7.1";
+const APP_VERSION = "2.8.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1953,9 +1953,14 @@ function trackStreaming(sid, event) {
   if (event.type === "agent_start") {
     s.state.isStreaming = true;
     s.currentRunStartSeq = (s.eventSeq || 0) + 1;
+    // The run's own start time lives on the server so a browser that reloads,
+    // reconnects, or joins from another device shows the elapsed time of the
+    // actual run instead of restarting the clock at zero.
+    s.state.runStartedAt = Date.now();
   } else if (event.type === "agent_settled") {
     s.state.isStreaming = false;
     s.currentRunStartSeq = null;
+    s.state.runEndedAt = Date.now();
     scheduleRpcCleanup(sid);
     // Do not spawn from inside broadcast(); only the final transition starts
     // the deferred timer, and the updater rechecks immediately before activation.
@@ -1966,6 +1971,7 @@ function trackStreaming(sid, event) {
   } else if (event.type === "rpc_exit") {
     s.state.isStreaming = false;
     s.currentRunStartSeq = null;
+    s.state.runEndedAt = Date.now();
     schedulePendingUpdateApplyAfterRpcIdle();
   }
 }
@@ -1988,6 +1994,7 @@ async function openRpc({ file, cwd, name }) {
         cwd: existing.meta.cwd,
         reused: true,
         isStreaming: !!existing.state.isStreaming,
+        runStartedAt: existing.state.isStreaming ? (existing.state.runStartedAt || null) : null,
         replayAfter,
       };
     }
