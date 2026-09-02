@@ -1,4 +1,4 @@
-/* pi-harbor v2.10.0 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.11.0 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -491,6 +491,18 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
   max-width: 86vw;
   text-align: center;
 }
+.toast { display: inline-flex; align-items: center; gap: 12px; }
+.toast-action {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 12px;
+  background: color-mix(in srgb, var(--paper) 22%, transparent);
+  color: inherit;
+  font: 650 13px/1 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+  cursor: pointer;
+}
+.toast-action:active { transform: scale(0.96); }
 .toast.err { background: var(--err); color: #fff; }
 @keyframes toastIn { from { transform: translateY(12px); opacity: 0; } }
 .toast.out { transition: opacity 0.3s; opacity: 0; }

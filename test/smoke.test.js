@@ -1035,3 +1035,61 @@ test("public defaults do not disclose private device or user details", () => {
     assert.ok(fs.existsSync(path.join(root, file)), `${file} should exist`);
   }
 });
+test("archiving becomes a reversible toast instead of a blocking confirm", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  // Server: archive returns a validated id, and unarchive moves the snapshot
+  // back. Ids are strictly scoped so the endpoint cannot move arbitrary dirs.
+  assert.match(server, /function unarchiveSessions\(archiveId\)/);
+  assert.match(server, /\^\(\?:session-\)\?\\d\+-\[0-9a-f\]\+\$/);
+  assert.match(server, /const archiveId = archiveSession\(body\.file\)/);
+  // The snapshot is only deleted when every captured file made it back; a
+  // partial restore keeps the archive so nothing is silently lost.
+  assert.match(server, /if \(restored && restored === captured\) \{/);
+  assert.match(server, /safeSessionPath\(rel, true\)/);
+  const projResult = server.slice(server.indexOf('if (action === "archive")'), server.indexOf('if (action === "worktree")'));
+  assert.match(projResult, /archiveId: result\?\.archiveId \|\| null/);
+  // Client: no confirm before archiving; the toast carries the undo action.
+  const sessionArchive = app.slice(app.indexOf("archiveButton.addEventListener"), app.indexOf("const sessionMain = li.querySelector"));
+  assert.doesNotMatch(sessionArchive, /window\.confirm/);
+  assert.match(sessionArchive, /action: "unarchive", archiveId: result\?\.archiveId/);
+  const projectArchive = app.slice(app.indexOf("el.projectActionArchive?.addEventListener"), app.indexOf("el.projectActionRemove?.addEventListener"));
+  assert.doesNotMatch(projectArchive, /window\.confirm/);
+  assert.match(projectArchive, /action: "unarchive", archiveId: result\.archiveId/);
+  const projectRemove = app.slice(app.indexOf("el.projectActionRemove?.addEventListener"), app.indexOf("// 對話視圖 + RPC"));
+  assert.doesNotMatch(projectRemove, /window\.confirm/);
+  assert.match(projectRemove, /kept\.delete\(cwd\)/);
+  // Still-confirmed flows stay untouched: credentials and irreversible steps.
+  assert.match(app, /window\.confirm\(tKey\("tokens\.revokeConfirm"/);
+  assert.match(app, /window\.confirm\(tKey\("provider\.deleteConfirm"/);
+  assert.match(app, /confirm\(tKey\("device\.restartConfirm"\)\)/);
+  // The toast itself can host the action.
+  assert.match(app, /function toast\(msg, isError = false, action = null\)/);
+  assert.match(app, /btn\.className = "toast-action"/);
+  assert.match(css, /\.toast-action \{/);
+});
+
+test("single-key shortcuts stay out of text fields and dialogs", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  assert.match(app, /event\.key === "\/" \|\| event\.key === "n" \|\| event\.key === "ArrowDown" \|\| event\.key === "ArrowUp"/);
+  assert.match(app, /el\.search\?\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(app, /openNewDialog\(\);\n        return;/);
+  assert.match(app, /rows\.indexOf\(document\.activeElement\.closest\("\.session-item-main"\)\)/);
+  // Guards: no firing while typing, in the palette, guide, or any dialog.
+  assert.match(app, /event\.target\.closest\("input, textarea, select, \[contenteditable\]"\)/);
+  assert.match(app, /const paletteOpen = el\.commandPalette && !el\.commandPalette\.classList\.contains\("hidden"\)/);
+  assert.match(app, /!!document\.querySelector\("\.sheet-layer:not\(\.hidden\)"\)/);
+  assert.match(app, /\(el\.onboarding && !el\.onboarding\.classList\.contains\("hidden"\)\)/);
+});
+
+test("the command palette jumps into long Settings pages", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  assert.match(app, /function openSettingsSection\(target\)/);
+  for (const target of ["devices", "tokens", "connection", "appearance", "about"]) {
+    assert.match(html, new RegExp('data-settings-target="' + target + '"'));
+  }
+  assert.match(app, /\["Devices", "devices"\], \["Access tokens", "tokens"\], \["Connection", "connection"\], \["Appearance", "appearance"\], \["About", "about"\]/);
+  assert.match(app, /run: \(\) => openSettingsSection\(target\)/);
+});

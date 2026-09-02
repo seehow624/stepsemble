@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.11.0
+
+- Archiving is now reversible. Session archive, project archive, and project
+  removal skip the blocking confirm and show a toast with a 7-second Undo
+  button; the server gained a validated unarchive action that moves the
+  snapshot back to its original location. Flows touching credentials or
+  irreversible steps keep their confirms.
+- Fixed during development of this release (never shipped): the unarchive
+  path initially required the destination file to exist and then deleted the
+  snapshot regardless, which would have destroyed the archived session. It now
+  validates destinations without requiring existence and only removes the
+  snapshot when every captured file returned home.
+- Keyboard shortcuts on the list: / focuses search, n opens the new-project
+  dialog, arrow keys walk the rows. All are suppressed while typing, while the
+  palette, setup guide, or any dialog is open.
+- The command palette gains "Settings → Devices / Access tokens / Connection /
+  Appearance / About" jump targets and live filtering while typing (it only
+  re-rendered on open and Enter before), and session/device names no longer
+  run through the phrase translator, which was mangling them.
+
 ## 2.10.0
 
 - Reloading Pi Harbor now returns to the conversation the user had open

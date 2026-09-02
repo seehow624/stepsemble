@@ -46,7 +46,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.10.0";
+const APP_VERSION = "2.11.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1586,13 +1586,14 @@ function archiveSession(rel) {
   const source = safeSessionPath(rel);
   if (!source) return false;
   const cleanRel = String(rel).replace(/^\/+/, "");
-  const archiveRoot = path.join(SESSIONS_DIR, ".archive", `session-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`);
+  const archiveId = `session-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`;
+  const archiveRoot = path.join(SESSIONS_DIR, ".archive", archiveId);
   const destination = path.join(archiveRoot, cleanRel);
   try {
     fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
     fs.renameSync(source, destination);
     scanCache.delete(rel);
-    return true;
+    return archiveId;
   } catch (error) {
     console.warn(`[pi-harbor] could not archive ${rel}: ${error.message}`);
     return false;
@@ -1620,12 +1621,54 @@ function revealProject(cwd) {
   return true;
 }
 
+
+// Undo for both archive paths: the client sends back the archive id it
+// received, and every .jsonl captured in that snapshot returns to its
+// original location. Ids are strictly validated so this endpoint cannot move
+// arbitrary directories around.
+function unarchiveSessions(archiveId) {
+  if (!/^(?:session-)?\d+-[0-9a-f]+$/.test(String(archiveId || ""))) return 0;
+  const archiveRoot = path.join(SESSIONS_DIR, ".archive", archiveId);
+  if (!fs.existsSync(archiveRoot)) return 0;
+  let restored = 0;
+  let captured = 0;
+  const stack = [archiveRoot];
+  // Count first: the snapshot is only cleaned up when EVERY file made it
+  // back. A partial restore keeps the archive so nothing is silently lost.
+  while (stack.length) {
+    const dir = stack.pop();
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      const abs = path.join(dir, entry.name);
+      if (entry.isDirectory()) { stack.push(abs); continue; }
+      if (!entry.name.endsWith(".jsonl")) continue;
+      captured += 1;
+      const rel = path.relative(archiveRoot, abs).replaceAll("\\", "/");
+      const dest = safeSessionPath(rel, true);
+      if (!dest || fs.existsSync(dest)) continue;
+      try {
+        fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
+        fs.renameSync(abs, dest);
+        scanCache.delete(rel);
+        restored += 1;
+      } catch (error) {
+        console.warn(`[pi-harbor] could not unarchive ${rel}: ${error.message}`);
+      }
+    }
+  }
+  // Only when every captured file returned home is the snapshot disposable.
+  if (restored && restored === captured) {
+    try { fs.rmSync(archiveRoot, { recursive: true, force: true }); } catch {}
+  }
+  return restored;
+}
 async function archiveProjectSessions(cwd) {
   const targetCwd = typeof cwd === "string" ? path.resolve(cwd) : "";
-  if (!targetCwd) return 0;
+  if (!targetCwd) return null;
   const sessions = await listSessions();
   const matches = sessions.filter((session) => session.cwd && path.resolve(session.cwd) === targetCwd);
-  if (!matches.length) return 0;
+  if (!matches.length) return null;
   const archiveRoot = path.join(SESSIONS_DIR, ".archive", `${Date.now()}-${crypto.randomBytes(3).toString("hex")}`);
   let moved = 0;
   for (const session of matches) {
@@ -1643,7 +1686,7 @@ async function archiveProjectSessions(cwd) {
       console.warn(`[pi-harbor] could not archive ${session.file}: ${error.message}`);
     }
   }
-  return moved;
+  return { count: moved, archiveId: moved ? path.basename(archiveRoot) : null };
 }
 
 function createPermanentWorktree(cwd) {
@@ -1725,10 +1768,13 @@ async function readSessionActivePath(rel, options = {}) {
   };
 }
 
-function safeSessionPath(rel) {
+function safeSessionPath(rel, allowMissing = false) {
   if (typeof rel !== "string" || rel.includes("..") || rel.startsWith("/")) return null;
   const abs = path.resolve(SESSIONS_DIR, rel);
   if (!abs.startsWith(path.resolve(SESSIONS_DIR) + path.sep) || !abs.endsWith(".jsonl")) return null;
+  // unarchive() restores files whose destination does not exist yet; it needs
+  // the containment checks without the existence check.
+  if (allowMissing) return abs;
   try {
     const stat = fs.statSync(abs);
     if (!stat.isFile() || stat.size > MAX_SESSION_FILE_BYTES) return null;
@@ -3844,12 +3890,17 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/session-action" && req.method === "POST") {
         try {
           const body = await readJSON(req);
+          if (body.action === "unarchive" && typeof body.archiveId === "string") {
+            const restored = unarchiveSessions(body.archiveId);
+            sendJSON(res, restored ? 200 : 400, restored ? { restored } : { error: "unarchive failed" });
+            return;
+          }
           if (body.action !== "archive" || typeof body.file !== "string") {
             sendJSON(res, 400, { error: "unknown session action" });
             return;
           }
-          const ok = archiveSession(body.file);
-          sendJSON(res, ok ? 200 : 400, ok ? {} : { error: "archive failed" });
+          const archiveId = archiveSession(body.file);
+          sendJSON(res, archiveId ? 200 : 400, archiveId ? { archiveId } : { error: "archive failed" });
         } catch (error) {
           sendJSON(res, error.statusCode || 400, { error: error.message || "archive failed" });
         }
@@ -3874,8 +3925,8 @@ const server = http.createServer(async (req, res) => {
             return;
           }
           if (action === "archive") {
-            const count = await archiveProjectSessions(cwd);
-            sendJSON(res, 200, { ok: true, count });
+            const result = await archiveProjectSessions(cwd);
+            sendJSON(res, 200, { ok: true, count: result?.count || 0, archiveId: result?.archiveId || null });
             return;
           }
           if (action === "worktree") {

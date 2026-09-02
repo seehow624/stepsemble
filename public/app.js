@@ -1,7 +1,7 @@
-/* pi-harbor v2.10.0 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.11.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.10.0";
+const CLIENT_APP_VERSION = "2.11.0";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -302,12 +302,22 @@ let machineCatalogStatus = "idle";
 // Toast
 // ===========================================================================
 
-function toast(msg, isError = false) {
+function toast(msg, isError = false, action = null) {
   const t = document.createElement("div");
   t.className = "toast" + (isError ? " err" : "");
   t.textContent = msg;
+  if (action?.label && typeof action.run === "function") {
+    // Undo-style toasts live longer and carry their own action button, so a
+    // reversible step replaces a blocking confirm().
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "toast-action";
+    btn.textContent = action.label;
+    btn.addEventListener("click", () => { t.remove(); action.run(); });
+    t.appendChild(btn);
+  }
   el.toastWrap.appendChild(t);
-  setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 350); }, 2400);
+  setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 350); }, action ? 7000 : 2400);
 }
 
 // ===========================================================================
@@ -1863,11 +1873,19 @@ function renderSessionList(q) {
     });
     archiveButton.addEventListener("click", async (event) => {
       stopItemAction(event);
-      if (!window.confirm(`${projectActionText("Archive chats")}?`)) return;
       try {
-        await post("/api/session-action", { action: "archive", file: s.file });
+        const result = await post("/api/session-action", { action: "archive", file: s.file });
         const isCurrent = currentSessionFile === s.file && !el.viewChat.classList.contains("hidden");
-        toast(projectActionText("Archived chats"));
+        toast(projectActionText("Archived chats"), false, {
+          label: tKey("common.undo"),
+          run: async () => {
+            try {
+              await post("/api/session-action", { action: "unarchive", archiveId: result?.archiveId });
+              toast(projectActionText("Restored"));
+              refreshSessions();
+            } catch (error) { toast(error.message || projectActionText("Could not archive chats"), true); }
+          },
+        });
         if (isCurrent) showList();
         else refreshSessions();
       } catch (error) {
@@ -2356,21 +2374,38 @@ el.projectActionWorktree?.addEventListener("click", async () => {
 el.projectActionArchive?.addEventListener("click", async () => {
   const cwd = projectActionCwd();
   closeProjectActions();
-  if (!cwd || !window.confirm(projectActionText("Archive this project's chats?"))) return;
+  if (!cwd) return;
   try {
     const result = await post("/api/project-action", { action: "archive", cwd });
-    toast(`${projectActionText("Archived chats")}: ${result.count || 0}`);
+    toast(projectActionText("Archived chats") + ": " + (result.count || 0), false, {
+      label: tKey("common.undo"),
+      run: async () => {
+        try {
+          await post("/api/session-action", { action: "unarchive", archiveId: result.archiveId });
+          toast(projectActionText("Restored"));
+          refreshSessions();
+        } catch (error) { toast(error.message || projectActionText("Could not archive chats"), true); }
+      },
+    });
     refreshSessions();
   } catch (error) { toast(error.message || projectActionText("Could not archive chats"), true); }
 });
 el.projectActionRemove?.addEventListener("click", () => {
   const cwd = projectActionCwd();
   closeProjectActions();
-  if (!cwd || !window.confirm(projectActionText("Remove this project from the list? Chats remain on disk."))) return;
+  if (!cwd) return;
   const removed = new Set(settings.removedProjects || []);
   removed.add(cwd);
   saveProjectListSettings({ removedProjects: [...removed] });
-  toast(projectActionText("Project removed"));
+  toast(projectActionText("Project removed"), false, {
+    label: tKey("common.undo"),
+    run: () => {
+      const kept = new Set(settings.removedProjects || []);
+      kept.delete(cwd);
+      settings = saveSettings({ removedProjects: [...kept] });
+      refreshSessions();
+    },
+  });
 });
 
 // ===========================================================================
@@ -5232,10 +5267,14 @@ function renderCommandResults() {
     const tag = document.createElement("span");
     tag.className = "command-tag";
     tag.textContent = item.tag || commandKindLabel(item.kind) || "·";
-    const label = document.createElement("span");
-    label.className = "command-label";
-    label.textContent = item.label;
-    row.append(tag, label);
+  const label = document.createElement("span");
+  label.className = "command-label";
+  label.textContent = item.label;
+  // Session and machine names are user content: phrase-substitution would
+  // mangle them (seen as "——， ollama-cloud ，："). Actions and models keep
+  // translating; names do not.
+  if (item.kind === "session" || item.kind === "machine") label.dataset.i18nIgnore = "";
+  row.append(tag, label);
     row.addEventListener("click", () => runCommandItem(item));
     el.commandResults.appendChild(row);
   });
@@ -5272,6 +5311,15 @@ function buildCommandItems() {
   }
   for (const m of machines) {
     items.push({ kind: "machine", tag: "⇄", label: m.name || m.id || m.host || String(m.id || ""), run: () => switchMachine(m.id) });
+  }
+  // Long-page jump targets: Settings has 12 groups, so a phone user should not
+  // scroll through all of them to reach Providers.
+  for (const [label, target] of [["Devices", "devices"], ["Access tokens", "tokens"], ["Connection", "connection"], ["Appearance", "appearance"], ["About", "about"]]) {
+    items.push({
+      kind: "action", tag: "→",
+      label: (window.piI18n?.t("Settings") || "Settings") + " → " + label,
+      run: () => openSettingsSection(target),
+    });
   }
   return items;
 }
@@ -5321,6 +5369,16 @@ function toggleCommandPalette() {
   else closeCommandPalette();
 }
 
+// Settings is one long page on purpose; the palette gives it jump targets so
+// a phone user can reach Providers without scrolling through Devices.
+function openSettingsSection(target) {
+  showSettings();
+  setTimeout(() => {
+    document.querySelector('[data-settings-target="' + String(target).replace(/"/g, "") + '"]')
+      ?.scrollIntoView({ behavior: settings.reducedMotion ? "auto" : "smooth", block: "start" });
+  }, 300);
+}
+
 el.commandInput?.addEventListener("keydown", (event) => {
   if (event.key === "ArrowDown") { event.preventDefault(); moveCommandSelection(1); }
   else if (event.key === "ArrowUp") { event.preventDefault(); moveCommandSelection(-1); }
@@ -5332,6 +5390,9 @@ el.commandInput?.addEventListener("keydown", (event) => {
     if (item) runCommandItem(item);
   }
 });
+// Live filtering: the palette only re-rendered on open and Enter before, so
+// typing appeared to do nothing until the query was submitted.
+el.commandInput?.addEventListener("input", () => { commandIndex = 0; renderCommandResults(); });
 el.commandResults?.addEventListener("click", (event) => {
   if (event.target === el.commandResults) closeCommandPalette();
 });
@@ -8796,6 +8857,42 @@ function closeTopmostLayer() {
 }
 
 document.addEventListener("keydown", (event) => {
+  // Single-key shortcuts, Gmail-style: they only fire from the list view with
+  // no text field, palette, guide, or dialog in front.
+  if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.isComposing) {
+    const editable = event.target instanceof Element
+      && (event.target.closest("input, textarea, select, [contenteditable]") || event.target.isContentEditable);
+    const paletteOpen = el.commandPalette && !el.commandPalette.classList.contains("hidden");
+    const listVisible = el.viewList && !el.viewList.classList.contains("hidden");
+    const blocked = editable || paletteOpen || !listVisible
+      || (el.onboarding && !el.onboarding.classList.contains("hidden"))
+      || !!document.querySelector(".sheet-layer:not(.hidden)");
+    if (!blocked && (event.key === "/" || event.key === "n" || event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      if (event.key === "/") {
+        event.preventDefault();
+        el.search?.focus({ preventScroll: true });
+        return;
+      }
+      if (event.key === "n") {
+        event.preventDefault();
+        openNewDialog();
+        return;
+      }
+      // Arrow keys walk the row buttons in DOM order; Enter opens natively.
+      const rows = [...(el.sessionList?.querySelectorAll?.(".session-item-main") || [])];
+      if (rows.length) {
+        event.preventDefault();
+        const active = document.activeElement instanceof Element
+          ? rows.indexOf(document.activeElement.closest(".session-item-main"))
+          : -1;
+        const next = event.key === "ArrowDown"
+          ? Math.min(rows.length - 1, active + 1)
+          : (active < 0 ? rows.length - 1 : Math.max(0, active - 1));
+        rows[next]?.focus({ preventScroll: false });
+      }
+      return;
+    }
+  }
   // Command palette toggle: Cmd/Ctrl+K from anywhere except text fields that
   // need the OS undo chord — the palette input itself never re-triggers it.
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey
