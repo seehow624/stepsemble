@@ -3032,6 +3032,9 @@
       "device.nameUpdated": "Device name updated; the port applies after a restart",
       "device.restartConfirm": "Restarting Pi Harbor drops the current browser connection; a running Pi task is given a chance to finish safely. Continue?",
       "device.deleteConfirm": "Delete “{name}”?",
+      "sessions.running": "Running",
+      "sessions.runningFor": "Running for {elapsed}",
+      "sessions.runStuck": "Stuck",
     },
     "zh-Hant": {
       "provider.readFailed": "Provider 設定讀取失敗：{detail}",
@@ -3059,6 +3062,9 @@
       "device.nameUpdated": "設備名稱已更新；port 等待重啟後生效",
       "device.restartConfirm": "重新啟動 Pi Harbor 會中斷目前的瀏覽連線；正在執行的 Pi 工作會先嘗試安全收尾。要繼續嗎？",
       "device.deleteConfirm": "確定要刪除「{name}」嗎？",
+      "sessions.running": "執行中",
+      "sessions.runningFor": "已執行 {elapsed}",
+      "sessions.runStuck": "卡住了",
     },
     "zh-Hans": {
       "provider.readFailed": "Provider 设置读取失败：{detail}",
@@ -3086,6 +3092,9 @@
       "device.nameUpdated": "设备名称已更新；端口等待重启后生效",
       "device.restartConfirm": "重新启动 Pi Harbor 会中断当前的浏览连接；正在执行的 Pi 工作会先尝试安全收尾。要继续吗？",
       "device.deleteConfirm": "确定要删除“{name}”吗？",
+      "sessions.running": "运行中",
+      "sessions.runningFor": "已运行 {elapsed}",
+      "sessions.runStuck": "卡住了",
     },
     ja: {
       "provider.readFailed": "プロバイダー設定を読み込めませんでした：{detail}",
@@ -3113,6 +3122,9 @@
       "device.nameUpdated": "デバイス名を更新しました。ポートは再起動後に適用されます",
       "device.restartConfirm": "Pi Harbor を再起動すると現在のブラウザ接続が切れます。実行中の Pi の処理は安全に終了を試みます。続けますか？",
       "device.deleteConfirm": "「{name}」を削除しますか？",
+      "sessions.running": "実行中",
+      "sessions.runningFor": "実行時間 {elapsed}",
+      "sessions.runStuck": "停止中",
     },
     ko: {
       "provider.readFailed": "제공자 설정을 읽지 못했습니다: {detail}",
@@ -3140,6 +3152,9 @@
       "device.nameUpdated": "기기 이름을 변경했습니다. 포트는 재시작 후 적용됩니다",
       "device.restartConfirm": "Pi Harbor를 재시작하면 현재 브라우저 연결이 끊깁니다. 실행 중인 Pi 작업은 안전하게 마무리를 시도합니다. 계속할까요?",
       "device.deleteConfirm": "“{name}”을(를) 삭제할까요?",
+      "sessions.running": "실행 중",
+      "sessions.runningFor": "{elapsed} 실행 중",
+      "sessions.runStuck": "멈춤",
     },
     tr: {
       "provider.readFailed": "Sağlayıcı ayarları okunamadı: {detail}",
@@ -3167,6 +3182,9 @@
       "device.nameUpdated": "Cihaz adı güncellendi; bağlantı noktası yeniden başlatmadan sonra geçerli olur",
       "device.restartConfirm": "Pi Harbor u yeniden başlatmak mevcut tarayıcı bağlantısını keser; çalışan Pi işi güvenle bitmeye çalışır. Devam edilsin mi?",
       "device.deleteConfirm": "“{name}” silinsin mi?",
+      "sessions.running": "Çalışıyor",
+      "sessions.runningFor": "{elapsed} çalışıyor",
+      "sessions.runStuck": "Takıldı",
     },
     fr: {
       "provider.readFailed": "Impossible de lire les réglages du fournisseur : {detail}",
@@ -3194,6 +3212,9 @@
       "device.nameUpdated": "Nom de l appareil mis à jour ; le port s applique après un redémarrage",
       "device.restartConfirm": "Redémarrer Pi Harbor coupe la connexion actuelle du navigateur ; une tâche Pi en cours tente de se terminer proprement. Continuer ?",
       "device.deleteConfirm": "Supprimer « {name} » ?",
+      "sessions.running": "En cours",
+      "sessions.runningFor": "En cours depuis {elapsed}",
+      "sessions.runStuck": "Bloqué",
     },
     de: {
       "provider.readFailed": "Anbietereinstellungen konnten nicht gelesen werden: {detail}",
@@ -3221,6 +3242,9 @@
       "device.nameUpdated": "Gerätename aktualisiert; der Port gilt nach einem Neustart",
       "device.restartConfirm": "Ein Neustart von Pi Harbor trennt die aktuelle Browserverbindung; eine laufende Pi-Aufgabe versucht, sicher zu enden. Fortfahren?",
       "device.deleteConfirm": "„{name}“ löschen?",
+      "sessions.running": "Läuft",
+      "sessions.runningFor": "Läuft seit {elapsed}",
+      "sessions.runStuck": "Hängt",
     },
     es: {
       "provider.readFailed": "No se pudo leer la configuración del proveedor: {detail}",
@@ -3248,6 +3272,9 @@
       "device.nameUpdated": "Nombre del dispositivo actualizado; el puerto se aplica tras reiniciar",
       "device.restartConfirm": "Reiniciar Pi Harbor corta la conexión actual del navegador; una tarea de Pi en curso intentará terminar de forma segura. ¿Continuar?",
       "device.deleteConfirm": "¿Eliminar «{name}»?",
+      "sessions.running": "En ejecución",
+      "sessions.runningFor": "En ejecución {elapsed}",
+      "sessions.runStuck": "Atascado",
     },
     "pt-BR": {
       "provider.readFailed": "Não foi possível ler as configurações do provedor: {detail}",
@@ -3275,6 +3302,9 @@
       "device.nameUpdated": "Nome do dispositivo atualizado; a porta se aplica após reiniciar",
       "device.restartConfirm": "Reiniciar o Pi Harbor derruba a conexão atual do navegador; uma tarefa do Pi em execução tentará terminar com segurança. Continuar?",
       "device.deleteConfirm": "Excluir “{name}”?",
+      "sessions.running": "Em execução",
+      "sessions.runningFor": "Em execução há {elapsed}",
+      "sessions.runStuck": "Travado",
     },
     it: {
       "provider.readFailed": "Impossibile leggere le impostazioni del provider: {detail}",
@@ -3302,6 +3332,9 @@
       "device.nameUpdated": "Nome dispositivo aggiornato; la porta si applica dopo un riavvio",
       "device.restartConfirm": "Riavviare Pi Harbor interrompe la connessione attuale del browser; un lavoro Pi in corso proverà a chiudersi in sicurezza. Continuare?",
       "device.deleteConfirm": "Eliminare “{name}”?",
+      "sessions.running": "In esecuzione",
+      "sessions.runningFor": "In esecuzione da {elapsed}",
+      "sessions.runStuck": "Bloccato",
     },
   };
   for (const [id, table] of Object.entries(PROVIDER_DEVICE_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], table);

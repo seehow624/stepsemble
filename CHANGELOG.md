@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.9.0
+
+- Closing and reopening Pi Harbor mid-run now shows what is still working. The
+  session list marks a running conversation with a pulsing dot and its elapsed
+  time ("Running for 27s"), so the first screen after reopening answers whether
+  the host is still busy instead of looking idle.
+- The elapsed time comes from the run on the server, so it is the real duration
+  after a reload or from another device, and it keeps ticking while the list is
+  open. The badge clears itself when the run settles.
+- The list refreshes every five seconds only while it is visible and something
+  is actually running; an idle app makes no extra requests.
+
 ## 2.8.1
 
 - Fixed broken English (and every other non-Chinese locale) in runtime

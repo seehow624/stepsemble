@@ -1,4 +1,4 @@
-/* pi-harbor v2.8.1 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.9.0 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -2182,6 +2182,28 @@ body.compact #view-list .session-item .s-meta { margin-top: 1px; font-size: .55r
   white-space: nowrap;
 }
 .run-timer.running { opacity: 1; }
+
+/* A session that is still working: a soft pulsing dot plus its elapsed time,
+   so reopening the app mid-run shows at a glance what is still going. */
+.session-running-dot {
+  position: absolute;
+  left: -11px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: session-running-pulse 1.8s ease-in-out infinite;
+}
+.session-item .session-item-copy { position: relative; }
+.session-item.session-running .s-name { font-weight: 650; }
+.s-meta.session-running-meta { color: var(--accent); font-variant-numeric: tabular-nums; }
+@keyframes session-running-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .45; transform: scale(.8); }
+}
+html.reduced-motion .session-running-dot { animation: none; }
 .thinking-shimmer {
   display: inline-flex;
   align-items: baseline;

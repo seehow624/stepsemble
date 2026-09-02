@@ -1,7 +1,7 @@
-/* pi-harbor v2.8.1 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.9.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.8.1";
+const CLIENT_APP_VERSION = "2.9.0";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -1545,6 +1545,7 @@ async function refreshSessions() {
     if (el.sessionCount) el.sessionCount.textContent = String(sessionsCache.length);
     renderTemporarySessionFilter(temporarySessionCount);
     renderSessionList(el.search.value);
+    syncSessionListPolling();
     void refreshStuckSessions();
   } catch (e) {
     if (e.name !== "AbortError") { /* unauthorized 已處理 */ }
@@ -1565,6 +1566,24 @@ function scheduleSessionListRefresh(delayMs = 1200) {
     sessionListRefreshTimer = null;
     void refreshSessions();
   }, delayMs);
+}
+
+// While a run is active, refresh the list periodically so its state stays
+// truthful after a reload: a finished run drops its badge on its own. The
+// poll only exists while the list is visible and something is running, so an
+// idle app makes no extra requests.
+let sessionListPollTimer = null;
+function syncSessionListPolling() {
+  const listVisible = el.viewList && !el.viewList.classList.contains("hidden");
+  const hasRunning = sessionsCache.some((session) => session.isRunning);
+  if (listVisible && hasRunning) {
+    if (!sessionListPollTimer) sessionListPollTimer = setInterval(() => void refreshSessions(), 5000);
+    return;
+  }
+  if (sessionListPollTimer) {
+    clearInterval(sessionListPollTimer);
+    sessionListPollTimer = null;
+  }
 }
 
 function projectDisplayName(cwd) {
@@ -1657,6 +1676,30 @@ function updateNewProjectAffordance() {
   // state action or one compact top-bar action once content exists.
 }
 
+// A running session shows how long it has been working, so reopening the app
+// mid-run answers "is it still going?" without opening the conversation.
+let sessionRunTicker = null;
+
+function renderSessionRunMeta(meta, usage) {
+  const startedAt = Number(meta.dataset.runStartedAt) || 0;
+  const stuck = meta.dataset.runStuck === "1";
+  const elapsed = startedAt ? window.piHarborSessionUtils.runElapsedText(Date.now() - startedAt) : "";
+  const label = stuck
+    ? tKey("sessions.runStuck")
+    : (elapsed ? tKey("sessions.runningFor", { elapsed }) : tKey("sessions.running"));
+  meta.textContent = usage ? label + " · " + usage : label;
+  meta.classList.remove("hidden");
+}
+
+function updateSessionRunTicker() {
+  const metas = el.sessionList?.querySelectorAll?.(".session-running-meta") || [];
+  for (const meta of metas) renderSessionRunMeta(meta, meta.dataset.usage || "");
+  if (!metas.length && sessionRunTicker) {
+    clearInterval(sessionRunTicker);
+    sessionRunTicker = null;
+  }
+}
+
 function renderSessionList(q) {
   updateNewProjectAffordance();
   const query = (q || "").trim().toLowerCase();
@@ -1690,8 +1733,23 @@ function renderSessionList(q) {
       <span class="session-item-actions"></span>`;
     li.querySelector(".s-name").textContent = name;
     const meta = li.querySelector(".s-meta");
-    meta.textContent = usage;
-    meta.classList.toggle("hidden", !usage);
+    // A session that is still working outranks its token/cost summary: after
+    // a reload this row is the only place that says the host is busy.
+    if (s.isRunning) {
+      li.classList.add("session-running");
+      const dot = document.createElement("span");
+      dot.className = "session-running-dot";
+      dot.setAttribute("aria-hidden", "true");
+      li.querySelector(".session-item-copy").prepend(dot);
+      meta.classList.add("session-running-meta");
+      meta.dataset.runStartedAt = s.runStartedAt ? String(s.runStartedAt) : "";
+      meta.dataset.runStuck = s.runStuck ? "1" : "";
+      meta.dataset.usage = usage;
+      renderSessionRunMeta(meta, usage);
+    } else {
+      meta.textContent = usage;
+      meta.classList.toggle("hidden", !usage);
+    }
     const pinned = sessionIsPinned(s);
     li.classList.toggle("session-pinned", pinned);
     const pinIndicator = li.querySelector(".session-pin-indicator");
@@ -1933,6 +1991,13 @@ function renderSessionList(q) {
     moreWrap.className = "session-load-more-wrap";
     moreWrap.appendChild(more);
     el.sessionList.appendChild(moreWrap);
+  }
+  // Keep the elapsed time on running rows ticking while the list is open.
+  if (el.sessionList?.querySelector?.(".session-running-meta")) {
+    if (!sessionRunTicker) sessionRunTicker = setInterval(updateSessionRunTicker, 1000);
+  } else if (sessionRunTicker) {
+    clearInterval(sessionRunTicker);
+    sessionRunTicker = null;
   }
   scheduleFullTextSearch(query);
 }
@@ -2253,7 +2318,7 @@ async function openExisting(s) {
   resetSessionUsage(s);
   ensureSessionUsageFooter();
   if (!isDesktop()) {
-    el.viewList.classList.add("hidden");
+    el.viewList.classList.add("hidden"); syncSessionListPolling();
     el.viewChat.classList.remove("hidden");
   } else {
     el.viewChat.classList.remove("hidden");
@@ -2704,7 +2769,7 @@ async function startNew(cwd, name) {
   resetSessionUsage();
   ensureSessionUsageFooter();
   if (!isDesktop()) {
-    el.viewList.classList.add("hidden");
+    el.viewList.classList.add("hidden"); syncSessionListPolling();
     el.viewChat.classList.remove("hidden");
   } else {
     el.viewChat.classList.remove("hidden");

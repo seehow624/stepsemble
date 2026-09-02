@@ -900,6 +900,32 @@ test("sign-in help explains how to read the token on macOS, Linux, and Windows",
   assert.match(app, /selectTokenHelpOs\(tokenHelpOsFromPlatform\(m\.platform\)\)/);
 });
 
+test("a running session stays visible in the sidebar after a reload", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  // The session list is the only surface a returning user sees first, so the
+  // server must tell it which sessions are mid-run.
+  const sessions = server.slice(server.indexOf('p === "/api/sessions"'), server.indexOf("temporarySessionCount ="));
+  assert.match(sessions, /session\.isRunning = true/);
+  assert.match(sessions, /session\.runStartedAt = live\.runStartedAt/);
+  assert.match(sessions, /session\.runStuck = live\.stuck/);
+  // Elapsed time comes from the run itself, so it survives a reload.
+  assert.match(app, /function renderSessionRunMeta\(meta, usage\)/);
+  assert.match(app, /runElapsedText\(Date\.now\(\) - startedAt\)/);
+  assert.match(app, /tKey\("sessions\.runningFor", \{ elapsed \}\)/);
+  // The row is marked visually, not just textually.
+  assert.match(app, /li\.classList\.add\("session-running"\)/);
+  assert.match(css, /\.session-running-dot \{/);
+  assert.match(css, /@keyframes session-running-pulse/);
+  assert.match(css, /html\.reduced-motion \.session-running-dot \{ animation: none; \}/);
+  // Polling exists only while the list is open and something is running.
+  assert.match(app, /function syncSessionListPolling\(\)/);
+  assert.match(app, /const hasRunning = sessionsCache\.some\(\(session\) => session\.isRunning\)/);
+  assert.match(app, /if \(listVisible && hasRunning\)/);
+  assert.match(app, /clearInterval\(sessionListPollTimer\)/);
+});
+
 test("the run timer survives a reload and restarts on each new turn", () => {
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");

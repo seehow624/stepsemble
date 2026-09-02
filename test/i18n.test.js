@@ -91,11 +91,16 @@ test("user-facing strings never fall back to phrase substitution", () => {
   const i18n = loadLocaleLayer();
   i18n.setLocale("en");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8").split("\n");
+  // The onboarding guide stores per-locale copy as data, so its Chinese text is
+  // correct by design. Track those tables by content, not line numbers, so the
+  // check keeps working as the file grows.
+  let inGuideData = false;
   const offenders = [];
   app.forEach((line, index) => {
     const lineNumber = index + 1;
-    // The onboarding guide legitimately stores per-locale copy as data.
-    if (lineNumber > 5590 && lineNumber < 5800) return;
+    if (/^const ONBOARDING_\w+ = \{/.test(line)) inGuideData = true;
+    else if (inGuideData && /^\};/.test(line)) { inGuideData = false; return; }
+    if (inGuideData) return;
     // Comments are developer-facing and never rendered.
     const code = line.replace(/\/\/.*$/, "");
     const literals = code.match(/["'\u0060]([^"'\u0060]*[\u4e00-\u9fff][^"'\u0060]*)["'\u0060]/g);

@@ -46,7 +46,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.8.1";
+const APP_VERSION = "2.9.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -3778,6 +3778,26 @@ const server = http.createServer(async (req, res) => {
 
       if (p === "/api/sessions" && req.method === "GET") {
         const allSessions = await listSessions();
+        // Attach live run state so the sidebar can mark a session that is
+        // still working. Without this a reload looks idle even though the
+        // host is mid-run, which is the whole point of a remote GUI.
+        const running = new Map();
+        for (const session of rpcSessions.values()) {
+          if (session.exited || !session.state.isStreaming) continue;
+          const file = session.meta.file || session.state.sessionFile;
+          if (!file) continue;
+          running.set(file, {
+            runStartedAt: session.state.runStartedAt || null,
+            stuck: rpcStuck(session),
+          });
+        }
+        for (const session of allSessions) {
+          const live = running.get(session.file);
+          if (!live) continue;
+          session.isRunning = true;
+          session.runStartedAt = live.runStartedAt;
+          session.runStuck = live.stuck;
+        }
         const temporarySessionCount = allSessions.filter((session) => session.isTemporary).length;
         const includeTemporary = ["1", "true", "yes", "on"].includes(String(url.searchParams.get("includeTemporary") || "").toLowerCase());
         const sessions = includeTemporary ? allSessions : allSessions.filter((session) => !session.isTemporary);
