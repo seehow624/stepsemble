@@ -46,7 +46,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.11.0";
+const APP_VERSION = "2.11.1";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -82,6 +82,28 @@ const DEFAULT_UPDATE_REPOSITORY = settingFromEnv("UPDATE_REPO") || "seehow624/pi
 const DEFAULT_UPDATE_REF = settingFromEnv("UPDATE_REF") || "stable";
 const MODEL_APIS = new Set(["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"]);
 const MACHINE_HOST = os.hostname().replace(/\.local$/, "");
+
+// macOS keeps the friendly computer name (the one shown in System Settings)
+// separate from the network hostname.  The latter is often supplied by a
+// router or local DNS and can be something like `Mac.lan`, which is useful as
+// a connection address but is a poor device label.  Prefer ComputerName only
+// when the user has not explicitly saved a Pi Harbor alias.  Other platforms
+// simply fall back to the hostname as before.
+function readMacComputerName() {
+  if (process.platform !== "darwin") return "";
+  try {
+    const value = execFileSync("/usr/sbin/scutil", ["--get", "ComputerName"], {
+      encoding: "utf8",
+      timeout: 1500,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).replace(/\s+/g, " ").trim();
+    return value.slice(0, 80);
+  } catch {
+    return "";
+  }
+}
+
+const MAC_COMPUTER_NAME = readMacComputerName();
 function parsePort(value) {
   const port = Number(value);
   return Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : null;
@@ -100,7 +122,7 @@ function readDeviceConfig() {
   } catch { return {}; }
 }
 let localDeviceConfig = readDeviceConfig();
-let MACHINE_NAME = localDeviceConfig.name || MACHINE_HOST;
+let MACHINE_NAME = localDeviceConfig.name || MAC_COMPUTER_NAME || MACHINE_HOST;
 const LOCAL_DEVICE_ID = localDeviceConfig.id || null;
 const configuredPort = parsePort(localDeviceConfig.port);
 const envPort = parsePort(settingFromEnv("PORT"));

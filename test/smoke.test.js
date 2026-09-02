@@ -11,6 +11,17 @@ test("server and browser bundles are valid JavaScript", () => {
   execFileSync(process.execPath, ["--check", path.join(root, "public", "app.js")]);
 });
 
+test("macOS device labels prefer ComputerName over a network hostname", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  assert.match(server, /function readMacComputerName\(\)/);
+  assert.match(server, /execFileSync\("\/usr\/sbin\/scutil", \["--get", "ComputerName"\]/);
+  assert.match(server, /const MAC_COMPUTER_NAME = readMacComputerName\(\)/);
+  assert.match(server, /localDeviceConfig\.name \|\| MAC_COMPUTER_NAME \|\| MACHINE_HOST/);
+  // Keep the technical hostname for URLs and relay routing; only the label
+  // should use macOS's friendly computer name.
+  assert.match(server, /const MACHINE_HOST = os\.hostname\(\)/);
+});
+
 test("deployment templates do not contain a committed token", () => {
   const files = [
     path.join(root, "deploy", "com.piharbor.server.plist"),

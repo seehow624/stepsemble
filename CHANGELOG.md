@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.11.1
+
+- macOS devices now use the system ComputerName as the default Pi Harbor
+  label, while retaining the network hostname for connectivity. A hostname
+  such as `Mac.lan` no longer replaces a friendly device name in the UI.
+
 ## 2.11.0
 
 - Archiving is now reversible. Session archive, project archive, and project
