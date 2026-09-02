@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.10.0
+
+- Reloading Pi Harbor now returns to the conversation the user had open
+  instead of the session list, including a run that is still in flight: the
+  chat reattaches to the live process and the elapsed timer continues. The
+  last chat is remembered per device.
+- Sidebar rows lead with a compact recency stamp (Just now / 5m / 2h / 3d), so
+  scanning for recent work no longer relies on sort order.
+- The running-state poll no longer rebuilds the whole sidebar every five
+  seconds. It now polls the cheap /api/rpcs endpoint and redraws only when the
+  visible running set actually changes (a run started, settled, or flipped its
+  stuck flag); elapsed-time text keeps ticking via the existing 1s updater.
+
 ## 2.9.0
 
 - Closing and reopening Pi Harbor mid-run now shows what is still working. The

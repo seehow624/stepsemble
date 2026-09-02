@@ -273,11 +273,26 @@
     return hours ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`;
   }
 
+  // Compact recency for sidebar rows: null means "within the last minute"
+  // (the caller renders a localized "just now"), otherwise Xm / Xh / Xd.
+  // Unit-less abbreviations stay readable in every locale.
+  function compactRelativeTime(timestampMs, nowMs = Date.now()) {
+    const then = Number(timestampMs);
+    if (!Number.isFinite(then) || then <= 0) return null;
+    const diff = Math.floor((Number(nowMs) - then) / 1000);
+    if (diff < 60) return null;
+    const minutes = Math.floor(diff / 60);
+    if (minutes < 60) return minutes + "m";
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return hours + "h";
+    return Math.floor(hours / 24) + "d";
+  }
+
   global.piHarborSessionUtils = Object.freeze({
     stripMd, fmtTime, fmtTokens, projectFolderName,
     DRAFT_ENTRY_LIMIT, DRAFT_TEXT_LIMIT, draftScopeKey, normalizeDraftEntries, updateDraftEntries, draftTextForKey,
     activityReceiptStats, computeActivityReceipt,
     stripAnsi, parseTaskProgressLines, extractTaskPlan,
-    runElapsedText,
+    runElapsedText, compactRelativeTime,
   });
 })(window);

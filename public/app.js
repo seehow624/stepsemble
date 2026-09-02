@@ -1,7 +1,7 @@
-/* pi-harbor v2.9.0 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.10.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.9.0";
+const CLIENT_APP_VERSION = "2.10.0";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -1021,6 +1021,9 @@ async function enterApp() {
     el.login.classList.add("hidden");
     el.app.classList.remove("hidden");
     await showList();
+    // A reload lands on the list by default; bring the user straight back into
+    // the conversation they had open, including a run that is still going.
+    void restoreLastChat();
     void refreshMachineStatuses();
     loadVersion();
     setTimeout(() => openOnboarding(false), 350);
@@ -1573,17 +1576,95 @@ function scheduleSessionListRefresh(delayMs = 1200) {
 // poll only exists while the list is visible and something is running, so an
 // idle app makes no extra requests.
 let sessionListPollTimer = null;
+
+// While a run is active this polls the cheap /api/rpcs endpoint and only
+// redraws the list when the visible set actually changes (a run started or
+// settled, or its stuck flag flipped). Elapsed-time text stays fresh via the
+// 1s ticker without touching DOM structure, so a full innerHTML rebuild every
+// five seconds — with its scroll and focus churn — never happens.
+let lastRunningSignature = "";
+async function refreshRunningState() {
+  if (el.viewList.classList.contains("hidden")) { syncSessionListPolling(); return; }
+  try {
+    const data = await api("/api/rpcs");
+    const live = new Map();
+    for (const rpc of (Array.isArray(data?.rpcs) ? data.rpcs : [])) {
+      if (rpc.exited || !rpc.isStreaming) continue;
+      const file = rpc.file || rpc.sessionFile;
+      if (file) live.set(file, rpc);
+    }
+    let changed = false;
+    for (const session of sessionsCache) {
+      const was = !!session.isRunning;
+      const entry = live.get(session.file) || null;
+      const now = !!entry;
+      session.isRunning = now;
+      session.runStartedAt = entry?.runStartedAt || (now ? session.runStartedAt : null);
+      const stuck = now ? !!entry.stuck : false;
+      if (was !== now || session.runStuck !== stuck) changed = true;
+      session.runStuck = stuck;
+    }
+    const signature = sessionsCache
+      .filter((session) => session.isRunning)
+      .map((session) => session.file + ":" + (session.runStuck ? "s" : "r"))
+      .sort()
+      .join("|");
+    if (signature !== lastRunningSignature) changed = true;
+    lastRunningSignature = signature;
+    if (changed) renderSessionList(el.search.value);
+  } catch { /* transient network errors: the next tick retries */ }
+}
 function syncSessionListPolling() {
   const listVisible = el.viewList && !el.viewList.classList.contains("hidden");
   const hasRunning = sessionsCache.some((session) => session.isRunning);
   if (listVisible && hasRunning) {
-    if (!sessionListPollTimer) sessionListPollTimer = setInterval(() => void refreshSessions(), 5000);
+    if (!sessionListPollTimer) sessionListPollTimer = setInterval(() => void refreshRunningState(), 5000);
     return;
   }
   if (sessionListPollTimer) {
     clearInterval(sessionListPollTimer);
     sessionListPollTimer = null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Reopen the conversation the user had open before a reload
+// ---------------------------------------------------------------------------
+
+const LAST_CHAT_KEY = "piharbor.last-chat.v1";
+let lastChatRestoreAttempted = false;
+
+function lastChatMachineKey() {
+  return selectedId || selfId || "local";
+}
+
+function rememberLastChat(file) {
+  if (!file) return;
+  try {
+    const raw = JSON.parse(localStorage.getItem(LAST_CHAT_KEY) || "{}");
+    raw[lastChatMachineKey()] = String(file);
+    localStorage.setItem(LAST_CHAT_KEY, JSON.stringify(raw));
+  } catch {}
+}
+
+function readLastChat() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LAST_CHAT_KEY) || "{}");
+    const file = raw[lastChatMachineKey()];
+    return typeof file === "string" && file ? file : null;
+  } catch { return null; }
+}
+
+async function restoreLastChat() {
+  if (lastChatRestoreAttempted) return;
+  lastChatRestoreAttempted = true;
+  const file = readLastChat();
+  if (!file || currentSessionFile === file) return;
+  // The setup guide must not end up underneath an opened chat.
+  if (el.onboarding && !el.onboarding.classList.contains("hidden")) return;
+  const session = sessionsCache.find((s) => s.file === file);
+  if (!session) return;
+  await openExisting(session);
 }
 
 function projectDisplayName(cwd) {
@@ -1718,7 +1799,11 @@ function renderSessionList(q) {
     li.className = "session-item" + (s.file === currentSessionFile ? " selected" : "");
     const rawName = s.name || s.preview?.split("\n")[0] || "";
     const name = stripMd(rawName).slice(0, 70) || (window.piI18n?.t("(Untitled)") || "(Untitled)");
+    // Recency first: scanning for "what did I just do" beats tok/$.
+    const relative = window.piHarborSessionUtils.compactRelativeTime(s.mtimeMs);
+    const when = relative || (s.mtimeMs ? tKey("sessions.justNow") : "");
     const usage = [
+      when,
       s.tokens ? `${fmtTokens(s.tokens)} tok` : "",
       s.cost ? "$" + s.cost.toFixed(2) : "",
     ].filter(Boolean).join(" · ");
@@ -2307,6 +2392,7 @@ async function openExisting(s) {
   resetComposerSummary();
   currentSessionFile = s.file;
   currentSessionCwd = s.cwd;
+  rememberLastChat(s.file);
   renderSessionList(el.search.value);
   hideChatEmpty();
   setChatTitle(stripMd(s.name || s.preview?.split("\n")[0] || "") || "(未命名)");
@@ -4861,10 +4947,11 @@ function trackCurrentSessionFile(absPath) {
       const relative = String(s.file || "").replaceAll("\\", "/").replace(/^\/+/, "");
       return normalized.endsWith("/" + relative) || normalized === relative;
     });
-    if (hit) { currentSessionFile = hit.file; promoteDraftScope(hit.file); return; }
+    if (hit) { currentSessionFile = hit.file; promoteDraftScope(hit.file); rememberLastChat(hit.file); return; }
   }
   currentSessionFile = absPath;
   promoteDraftScope(absPath);
+  rememberLastChat(absPath);
   // 新對話首次寫檔時列表尚未有它，重新掃描後再把絕對路徑解析成相對 session file。
   refreshSessions().then(() => {
     const hit = sessionsCache.find((s) => {
@@ -4874,6 +4961,7 @@ function trackCurrentSessionFile(absPath) {
     if (hit) {
       currentSessionFile = hit.file;
       promoteDraftScope(hit.file);
+      rememberLastChat(hit.file);
       renderSessionList(el.search.value);
     }
   }).catch(() => {});

@@ -175,6 +175,25 @@ test("run elapsed time reads as a clock and never goes negative", () => {
   assert.equal(utils.runElapsedText(undefined), "0s");
 });
 
+test("sidebar recency is compact, unit-less, and clock-skew safe", () => {
+  const { value: utils } = loadBrowserModule("session-utils.js");
+  const now = 1_800_000_000_000;
+  const min = 60_000, hour = 3_600_000, day = 86_400_000;
+  // Under a minute is "just now" — the caller supplies the localized label.
+  assert.equal(utils.compactRelativeTime(now - 30_000, now), null);
+  assert.equal(utils.compactRelativeTime(now, now), null);
+  assert.equal(utils.compactRelativeTime(now + 5000, now), null);
+  assert.equal(utils.compactRelativeTime(now - min, now), "1m");
+  assert.equal(utils.compactRelativeTime(now - 59 * min, now), "59m");
+  assert.equal(utils.compactRelativeTime(now - hour, now), "1h");
+  assert.equal(utils.compactRelativeTime(now - 23 * hour, now), "23h");
+  assert.equal(utils.compactRelativeTime(now - day, now), "1d");
+  assert.equal(utils.compactRelativeTime(now - 40 * day, now), "40d");
+  // Missing or garbage timestamps render nothing at all.
+  assert.equal(utils.compactRelativeTime(undefined, now), null);
+  assert.equal(utils.compactRelativeTime(0, now), null);
+});
+
 test("composer drafts stay isolated by device and session and remain bounded", () => {
   const { value: utils } = loadBrowserModule("session-utils.js");
   const sessionA = utils.draftScopeKey("mini", { file: "sessions/a.jsonl" });

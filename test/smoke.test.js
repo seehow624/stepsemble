@@ -900,6 +900,50 @@ test("sign-in help explains how to read the token on macOS, Linux, and Windows",
   assert.match(app, /selectTokenHelpOs\(tokenHelpOsFromPlatform\(m\.platform\)\)/);
 });
 
+test("reopening the app returns to the conversation the user had open", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  // The last chat is remembered per device at every point the file becomes
+  // known: opening an existing session and a new chat's first persisted file.
+  assert.match(app, /const LAST_CHAT_KEY = "piharbor\.last-chat\.v1"/);
+  assert.match(app, /function rememberLastChat\(file\)/);
+  assert.match(app, /function restoreLastChat\(\)/);
+  assert.match(app, /await openExisting\(session\)/);
+  const openHits = (app.match(/rememberLastChat\(s\.file\)/g) || []).length;
+  const trackHits = (app.match(/rememberLastChat\(hit\.file\)/g) || []).length;
+  assert.ok(openHits >= 1, "openExisting should remember the chat");
+  assert.ok(trackHits >= 2, "trackCurrentSessionFile should remember after rescan");
+  assert.match(app, /rememberLastChat\(absPath\)/);
+  // Restore runs once per page load, only after the list is ready, and never
+  // underneath the setup guide.
+  assert.match(app, /void restoreLastChat\(\)/);
+  assert.match(app, /if \(lastChatRestoreAttempted\) return;/);
+  assert.match(app, /if \(el\.onboarding && !el\.onboarding\.classList\.contains\("hidden"\)\) return;/);
+  // Machine-scoped: the same browser can point at two different devices.
+  assert.match(app, /raw\[lastChatMachineKey\(\)\] = String\(file\)/);
+});
+
+test("running-state polling redraws only when something actually changed", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  assert.match(app, /async function refreshRunningState\(\)/);
+  // The poll hits the cheap endpoint, never the full session rescan.
+  const poll = app.slice(app.indexOf("async function refreshRunningState()"));
+  assert.match(poll, /api\("\/api\/rpcs"\)/);
+  assert.doesNotMatch(poll, /\/api\/sessions/);
+  // Same running set → no render; a run started/settled or stuck flip → redraw.
+  assert.match(poll, /const signature = sessionsCache/);
+  assert.match(poll, /if \(signature !== lastRunningSignature\) changed = true;/);
+  assert.match(poll, /if \(changed\) renderSessionList\(el\.search\.value\);/);
+  assert.match(app, /sessionListPollTimer = setInterval\(\(\) => void refreshRunningState\(\), 5000\)/);
+});
+
+test("sidebar rows lead with compact recency", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  assert.match(app, /compactRelativeTime\(s\.mtimeMs\)/);
+  assert.match(app, /tKey\("sessions\.justNow"\)/);
+  const row = app.slice(app.indexOf("const when = relative"), app.indexOf("].filter(Boolean).join"));
+  assert.ok(row.indexOf("when") < row.indexOf("s.tokens"), "recency should come before tok/$");
+});
+
 test("a running session stays visible in the sidebar after a reload", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
