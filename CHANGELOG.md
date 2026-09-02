@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.8.1
+
+- Fixed broken English (and every other non-Chinese locale) in runtime
+  messages. Around 65 user-facing strings were authored as Chinese sentences
+  and translated by phrase substitution, which produced output such as
+  "Connection，workStill …" for a restored connection and "Enabled：" when a
+  conversation failed to open. They are stable translation keys now, so
+  connection, retry, compaction, provider setup, and device management all
+  read as real sentences in all 11 locales. A test fails the build if a new
+  hardcoded sentence appears.
+
 ## 2.8.0
 
 - The chat header now shows how long the current turn has been working, next

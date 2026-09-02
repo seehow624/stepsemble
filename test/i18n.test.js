@@ -84,6 +84,60 @@ test("keyed accessibility attributes are idempotent under mutation observation",
   assert.equal(layer.attributeWrites, writesAfterInitialTranslation);
 });
 
+// Runtime copy used to be authored as Chinese sentences and translated by
+// phrase substitution, which produced broken English such as
+// "Connection，workStill …". Stable keys fixed that; this guards the regression.
+test("user-facing strings never fall back to phrase substitution", () => {
+  const i18n = loadLocaleLayer();
+  i18n.setLocale("en");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8").split("\n");
+  const offenders = [];
+  app.forEach((line, index) => {
+    const lineNumber = index + 1;
+    // The onboarding guide legitimately stores per-locale copy as data.
+    if (lineNumber > 5590 && lineNumber < 5800) return;
+    // Comments are developer-facing and never rendered.
+    const code = line.replace(/\/\/.*$/, "");
+    const literals = code.match(/["'\u0060]([^"'\u0060]*[\u4e00-\u9fff][^"'\u0060]*)["'\u0060]/g);
+    if (!literals) return;
+    for (const raw of literals) {
+      const source = raw.slice(1, -1);
+      if (!/[\u4e00-\u9fff]/.test(source)) continue;
+      const translated = i18n.translate(source);
+      // Either Chinese survived into English, or full-width punctuation did:
+      // both mean the sentence was never translated properly.
+      if (/[\u4e00-\u9fff]/.test(translated) || /[，：（）、。；？！]/.test(translated)) {
+        offenders.push(`${lineNumber}: ${source} -> ${translated}`);
+      }
+    }
+  });
+  assert.deepEqual(offenders, [], `use tKey() for these strings:\n${offenders.join("\n")}`);
+});
+
+test("runtime, provider, and device keys are translated in every locale", () => {
+  const i18n = loadLocaleLayer();
+  const keys = [
+    "runtime.streamRestored", "runtime.retryFailed", "runtime.compactFailed",
+    "runtime.messageQueued", "runtime.openChatFailed", "runtime.runStopped",
+    "provider.chooseMethod", "provider.apiKeyRequired", "provider.authTimeout",
+    "device.testOk", "device.nameRequired", "device.restartConfirm",
+    "settings.resetConfirm",
+  ];
+  const vars = { detail: "boom", name: "Studio Mac", id: "groq", code: "1234", attempt: 1, total: 3, seconds: 5, activity: "working", age: "2 minutes", level: "high" };
+  i18n.setLocale("en");
+  const english = Object.fromEntries(keys.map((key) => [key, i18n.tKey(key, vars)]));
+  for (const key of keys) assert.doesNotMatch(english[key], /[一-鿿]/, `${key} must not leak Chinese into English`);
+  for (const locale of i18n.locales.map((item) => item.id).filter((id) => id !== "en")) {
+    i18n.setLocale(locale);
+    for (const key of keys) {
+      const translated = i18n.tKey(key, vars);
+      assert.notEqual(translated, english[key], `${locale} should translate ${key}`);
+      assert.doesNotMatch(translated, /{w+}/, `${locale} should interpolate ${key}`);
+    }
+  }
+  i18n.setLocale("en");
+});
+
 test("locale registry has complete keys, matching placeholders, and no accidental CJK leakage", () => {
   const i18n = loadLocaleLayer();
   const audit = i18n.auditLocales();

@@ -1,7 +1,7 @@
-/* pi-harbor v2.8.0 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.8.1 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.8.0";
+const CLIENT_APP_VERSION = "2.8.1";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -912,7 +912,7 @@ function setMachineCatalogStatus(state, message = "") {
   el.machineCatalogStatus.classList.toggle("error", failed);
   el.machineCatalogStatusCopy.textContent = message || (
     state === "loading" ? machineCatalogStatusText("讀取中…", "Loading devices…")
-      : retrying ? machineCatalogStatusText("連線暫時失敗，正在重試", "Connection temporarily failed; retrying")
+      : retrying ? tKey("runtime.connectionRetrying")
         : machineCatalogStatusText("目前無法讀取設備清單", "Could not load device list")
   );
   if (el.machineCatalogRetry) {
@@ -2083,7 +2083,7 @@ el.saDelete.addEventListener("click", async () => {
     await post("/api/delete", { file: target.file });
     if (isCurrent) { toast("已移到垃圾桶"); showList(); }
     else { toast("已移到垃圾桶"); refreshSessions(); }
-  } catch (e) { toast("刪除失敗：" + e.message, true); }
+  } catch (e) { toast(tKey("runtime.deleteFailed", { detail: e.message }), true); }
 });
 el.saRename.addEventListener("click", () => {
   const target = actionTarget;
@@ -2102,7 +2102,7 @@ async function doRename() {
     await post("/api/rename", { file: actionTarget.file, name });
     toast("已重新命名");
     refreshSessions();
-  } catch (e) { toast("重新命名失敗：" + e.message, true); }
+  } catch (e) { toast(tKey("runtime.renameFailed", { detail: e.message }), true); }
 }
 
 // ---- Project folder actions (Codex-style group menu) ----
@@ -2677,7 +2677,7 @@ async function loadOlderHistory(button) {
   } catch (error) {
     button.disabled = false;
     button.textContent = "載入更早的訊息";
-    toast("載入歷史失敗：" + error.message, true);
+    toast(tKey("runtime.historyFailed", { detail: error.message }), true);
   } finally {
     if (historyState === state) state.loading = false;
   }
@@ -2752,8 +2752,8 @@ async function connectRpc(opts, generation = viewGeneration) {
       const delay = Math.min(30_000, 800 * (2 ** Math.min(attempt - 1, 5)));
       el.queueNote.dataset.connection = "lost";
       el.queueNote.textContent = rpc.streaming
-        ? `即時連線中斷，${Math.ceil(delay / 1000)} 秒後自動恢復…`
-        : (reason === "ready_timeout" ? "即時連線沒有回應，正在恢復…" : "正在恢復即時連線…");
+        ? tKey("runtime.streamRetry", { seconds: Math.ceil(delay / 1000) })
+        : tKey("runtime.streamRecovering");
       el.queueNote.classList.remove("hidden");
       if (rpc.reconnectTimer) return;
       rpc.reconnectTimer = setTimeout(() => {
@@ -2789,7 +2789,7 @@ async function connectRpc(opts, generation = viewGeneration) {
         if (el.queueNote.dataset.connection === "lost") {
           delete el.queueNote.dataset.connection;
           if (!rpc.streaming) el.queueNote.classList.add("hidden");
-          else el.queueNote.textContent = "連線已恢復，工作仍在繼續…";
+          else el.queueNote.textContent = tKey("runtime.streamRestored");
         }
       };
       es.onopen = () => {
@@ -2830,7 +2830,7 @@ async function connectRpc(opts, generation = viewGeneration) {
     openStream(replayAfter);
   } catch (e) {
     if (generation !== viewGeneration) return;
-    toast("無法開啟對話：" + e.message, true);
+    toast(tKey("runtime.openChatFailed", { detail: e.message }), true);
     showList();
     return;
   }
@@ -3823,11 +3823,11 @@ function finishExtensionUi(response) {
     providerAuthRequest = null;
     el.extensionUiInput.value = "";
     post("/api/provider-auth/respond", { runId: request.runId, requestId: request.id, ...response })
-      .catch((e) => toast("回覆 Provider 登入失敗：" + e.message, true));
+      .catch((e) => toast(tKey("runtime.providerReplyFailed", { detail: e.message }), true));
     return;
   }
   post("/api/rpc-ui", { sid: request.sid, id: request.id, ...response })
-    .catch((e) => toast("回覆 Pi 失敗：" + e.message, true));
+    .catch((e) => toast(tKey("runtime.piReplyFailed", { detail: e.message }), true));
 }
 
 function showExtensionUi(ev, sid) {
@@ -3923,7 +3923,7 @@ function updateActivityWatchdog() {
   const idle = Date.now() - rpc.lastEventAt;
   if (idle < ACTIVITY_STALE_MS) return;
   el.queueNote.dataset.persistent = "stale";
-  el.queueNote.textContent = `仍在${rpc.activityLabel || "工作"}…最後更新於 ${activityAgeText(idle)}前；若沒有繼續，可按停止後重試。`;
+  el.queueNote.textContent = tKey("runtime.stillWorking", { activity: activityStatusText(rpc.activityLabel || "working").replace(/[…\u2026]$/, ""), age: activityAgeText(idle) });
   el.queueNote.classList.add("stale");
   el.queueNote.classList.remove("hidden");
 }
@@ -4054,7 +4054,7 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
     case "auto_retry_start":
       setStreaming(true);
       setActivityLabel("retrying");
-      el.queueNote.textContent = `↻ 連線暫時失敗，正在重試（${ev.attempt || 1}/${ev.maxAttempts || "…"}）`;
+      el.queueNote.textContent = tKey("runtime.retryAttempt", { attempt: ev.attempt || 1, total: ev.maxAttempts || "…" });
       el.queueNote.classList.remove("hidden");
       break;
     case "auto_retry_end":
@@ -4062,10 +4062,10 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
         if (!runFailureRendered) {
           renderRunFailure(lastRunFailure || {
             stopReason: "error",
-            errorMessage: ev.finalError || "重試失敗，請檢查模型或連線",
+            errorMessage: ev.finalError || tKey("runtime.retryFailed"),
           });
         }
-        el.queueNote.textContent = "重試失敗，請檢查模型或連線；可按重試重新執行。";
+        el.queueNote.textContent = tKey("runtime.retryFailedHint");
         el.queueNote.classList.remove("hidden");
       } else {
         el.queueNote.classList.add("hidden");
@@ -4087,24 +4087,24 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       break;
     case "summarization_retry_scheduled":
       setActivityLabel("retrying");
-      el.queueNote.textContent = "上下文整理暫時失敗，準備重試…";
+      el.queueNote.textContent = tKey("runtime.compactRetrying");
       el.queueNote.classList.remove("hidden");
       break;
     case "summarization_retry_attempt_start":
       setActivityLabel("retrying");
-      el.queueNote.textContent = `正在重試整理上下文（第 ${ev.attempt || 1} 次）…`;
+      el.queueNote.textContent = tKey("runtime.compactAttempt", { attempt: ev.attempt || 1 });
       el.queueNote.classList.remove("hidden");
       break;
     case "summarization_retry_finished":
       if (ev.success === false || ev.willRetry === false) {
         el.queueNote.textContent = ev.success === false
-          ? "上下文整理失敗，請按停止後重試；若持續發生，請換模型或縮短對話。"
-          : "上下文整理完成，正在恢復工作…";
+          ? tKey("runtime.compactFailed")
+          : tKey("runtime.compactDone");
         el.queueNote.classList.remove("hidden");
       }
       break;
     case "extension_error":
-      el.queueNote.textContent = `擴充功能錯誤：${ev.message || ev.error || "未知錯誤"}`;
+      el.queueNote.textContent = tKey("runtime.extensionError", { detail: ev.message || ev.error || tKey("runtime.unknownError") });
       el.queueNote.classList.remove("hidden");
       break;
     case "message_update": {
@@ -4207,8 +4207,8 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
         // agent_end is an intermediate lifecycle boundary when Pi will retry
         // or compact. Do not settle the receipt here.
         setActivityLabel("retrying");
-        const detail = String(failed.errorMessage || "暫時失敗").trim();
-        el.queueNote.textContent = `模型暫時失敗，準備重試：${detail.slice(0, 260)}`;
+        const detail = String(failed.errorMessage || tKey("runtime.temporaryFailure")).trim();
+        el.queueNote.textContent = tKey("runtime.modelRetrying", { detail: detail.slice(0, 260) });
         el.queueNote.classList.remove("hidden");
       } else {
         setRunOutcome(failed.stopReason === "aborted" ? "interrupted" : "failed", failed);
@@ -4381,8 +4381,8 @@ function appendRunError(bubble, data = {}, options = {}) {
   box.appendChild(title);
   const message = String(options.message || data.errorMessage || "").trim() || (
     data.stopReason === "aborted"
-      ? "這次工作被停止，沒有產生完整回覆。"
-      : "Pi 沒有提供錯誤原因，請檢查連線或按重試。"
+      ? tKey("runtime.runStopped")
+      : tKey("runtime.noErrorReason")
   );
   const detail = document.createElement("div");
   detail.className = "run-error-message";
@@ -4475,7 +4475,7 @@ function settleLiveToolCards() {
     setToolCardState(card, {
       running: false,
       isError: incomplete,
-      text: incomplete ? "工作在完成事件前停止；請檢查連線或重試。" : output,
+      text: incomplete ? tKey("runtime.runStoppedEarly") : output,
     });
   }
   liveToolCards = new Map();
@@ -4761,7 +4761,7 @@ async function sendCurrent() {
     removeDraftForKey(sendDraftKey);
     if (result?.queued && rpc?.sid === sendSid) {
       el.queueNote.dataset.persistent = "queue";
-      el.queueNote.textContent = "訊息已排隊，等目前工作完成後會繼續處理。";
+      el.queueNote.textContent = tKey("runtime.messageQueued");
       el.queueNote.classList.remove("hidden");
     }
   } catch (e) {
@@ -4771,7 +4771,7 @@ async function sendCurrent() {
       saveDraftForKey(sendDraftKey, text);
       pendingImages = images.concat(pendingImages).slice(0, 4);
       renderImgPreview();
-      toast("訊息沒送出去，已保留草稿", true);
+      toast(tKey("runtime.messageNotSent"), true);
     }
   }
 }
@@ -4782,7 +4782,7 @@ el.btnAbort.addEventListener("click", () => {
 // ---- chat ⋯ menu：重命名目前 session / 返回列表 ----
 el.btnChatMenu.addEventListener("click", () => {
   if (currentSessionFile) { openSessionActions({ ...actionStubFrom(currentSessionFile) }); }
-  else toast("新對話還沒存檔，先講一句話吧");
+  else toast(tKey("runtime.newChatNeedsMessage"));
 });
 let currentSessionFile = null;
 function actionStubFrom(file) {
@@ -4988,7 +4988,7 @@ async function openModelSheet() {
     el.modelList.innerHTML = "";
     const error = document.createElement("p");
     error.className = "model-load-error";
-    error.textContent = "讀取失敗：" + (e.message || "unknown error");
+    error.textContent = tKey("runtime.loadFailed", { detail: e.message || "unknown error" });
     el.modelList.appendChild(error);
   }
 }
@@ -5010,9 +5010,12 @@ function renderModelList(currentId, currentProvider = null) {
   updateComposerSummary(current ? (current.name || current.id) : "", undefined);
   el.modelList.innerHTML = "";
   if (!visibleModels.length) {
-    el.modelList.innerHTML = query
-      ? '<p style="padding:12px 4px;color:var(--pine-soft);font-size:13.5px">找不到符合的模型。</p>'
-      : '<p style="padding:12px 4px;color:var(--pine-soft);font-size:13.5px">沒有顯示中的模型，請到設定勾選模型</p>';
+    // Build the node instead of interpolating: the copy is translated at
+    // runtime and must never be parsed as markup.
+    const empty = document.createElement("p");
+    empty.style.cssText = "padding:12px 4px;color:var(--pine-soft);font-size:13.5px";
+    empty.textContent = tKey(query ? "runtime.noMatchingModels" : "runtime.noVisibleModels");
+    el.modelList.appendChild(empty);
     return;
   }
   for (const m of visibleModels) {
@@ -5040,7 +5043,7 @@ function renderModelList(currentId, currentProvider = null) {
         renderModelList(m.id, m.provider);
         // 頂部 sub 同步
         el.chatSub.dataset.base = currentSessionCwd + " · " + (m.name || m.id); updateLiveUsage(null);
-      } catch (e) { toast("切換失敗：" + e.message, true); }
+      } catch (e) { toast(tKey("runtime.switchFailed", { detail: e.message }), true); }
     });
     el.modelList.appendChild(row);
   }
@@ -5144,7 +5147,7 @@ async function openCommandPalette() {
             if (!expected) return;
             rpcCmd(expected, { type: "set_model", provider: m.provider, modelId: m.id })
               .then(() => { toast("模型：" + (m.name || m.id)); void syncComposerState(expected); })
-              .catch((error) => toast("切換失敗：" + (error.message || ""), true));
+              .catch((error) => toast(tKey("runtime.switchFailed", { detail: error.message || "" }), true));
           },
         }));
         commandItems = [...commandItems.slice(0, 3), ...modelItems, ...commandItems.slice(3)];
@@ -5209,9 +5212,9 @@ async function changeThinkingLevel(level) {
         actual,
       }) || `${level} → ${actual}`, true);
     } else {
-      toast("思考等級：" + level);
+      toast(tKey("runtime.thinkingLevel", { level }));
     }
-  } catch (e) { toast("設定失敗：" + e.message, true); }
+  } catch (e) { toast(tKey("runtime.saveFailed", { detail: e.message }), true); }
 }
 el.thinkingSelect.addEventListener("change", () => changeThinkingLevel(el.thinkingSelect.value));
 
@@ -5369,8 +5372,8 @@ const BUILTIN_SLASH = {
     try {
       const r = await rpcCmd(rpc.sid, { type: "compact" });
       if (r.success) toast(`已壓縮：${fmtTokens(r.data?.tokensBefore)} → ${fmtTokens(r.data?.estimatedTokensAfter)} tok`);
-      else toast("壓縮失敗：" + (r.error || "unknown"), true);
-    } catch (e) { toast("壓縮失敗：" + e.message, true); }
+      else toast(tKey("runtime.compactCommandFailed", { detail: r.error || "unknown" }), true);
+    } catch (e) { toast(tKey("runtime.compactCommandFailed", { detail: e.message }), true); }
     setStreaming(false);
     return true;
   },
@@ -6851,7 +6854,7 @@ function renderModelVisibility() {
   if (modelProviderError) {
     const warning = document.createElement("p");
     warning.className = "settings-note model-provider-warning error-text";
-    warning.textContent = `Provider 設定讀取失敗：${modelProviderError}`;
+    warning.textContent = tKey("provider.readFailed", { detail: modelProviderError });
     el.modelVisibilityList.appendChild(warning);
   }
 
@@ -6987,9 +6990,9 @@ function providerAuthTypeLabel(type) {
 }
 
 const PROVIDER_CATEGORY_META = Object.freeze({
-  free: { label: "免費／免帳戶", note: "本機服務直接使用，不需要帳號或 API key。" },
-  paid: { label: "API key／付費服務", note: "貼上服務提供的 API key，費用與額度由服務商管理。" },
-  account: { label: "帳戶登入", note: "使用官方帳號或訂閱登入，Pi 會自動保存並更新憑證。" },
+  free: { label: "免費／免帳戶", note: tKey("provider.localService") },
+  paid: { label: "API key／付費服務", note: tKey("provider.apiKeyNote") },
+  account: { label: "帳戶登入", note: tKey("provider.accountNote") },
 });
 
 function renderProviderPresets() {
@@ -7121,8 +7124,8 @@ function selectProviderPreset(provider) {
   el.providerSimpleStatus?.classList.remove("is-readonly");
   if (el.providerAuthRemove) el.providerAuthRemove.textContent = isFree ? "移除這個 Provider" : "移除這個登入設定";
   el.providerSimpleStatus.textContent = isFree
-    ? (provider.configured ? `${provider.name} 已加入；重新掃描可以更新模型清單。` : "按一下直接掃描這台 Mac 的本機模型。")
-    : (provider.configured ? `${provider.name} 已有登入設定；重新選擇登入方式即可更新。` : "選一種登入方式開始。");
+    ? (provider.configured ? tKey("provider.added", { name: provider.name }) : "Scan this computer for local models.")
+    : (provider.configured ? tKey("provider.alreadySignedIn", { name: provider.name }) : tKey("provider.chooseMethod"));
   el.providerAuthOptions?.scrollIntoView({ block: "nearest", behavior: settings.reducedMotion ? "auto" : "smooth" });
 }
 
@@ -7321,7 +7324,7 @@ function showProviderAuthNotify(event, run) {
   if (event.type === "device_code" && event.userCode) {
     const code = document.createElement("p");
     code.className = "settings-note provider-auth-code";
-    code.textContent = `驗證碼：${event.userCode}`;
+    code.textContent = tKey("provider.verificationCode", { code: event.userCode });
     el.extensionUiOptions.appendChild(code);
   }
   el.extensionUiSheet.classList.remove("hidden");
@@ -7347,9 +7350,9 @@ function handleProviderAuthEvent(event) {
   } else if (event.type === "cancelled") {
     closeProviderAuthClient();
     const message = event.reason === "timeout"
-      ? "Provider 登入等待逾時，請重新開始並盡快貼上重新導向網址"
+      ? tKey("provider.authTimeout")
       : event.reason === "replaced"
-        ? "這次 Provider 登入已被另一個登入嘗試取代，請只保留一個登入視窗"
+        ? tKey("provider.authSuperseded")
         : "已取消 Provider 登入";
     toast(message, event.reason === "timeout" || event.reason === "replaced");
   }
@@ -7363,7 +7366,7 @@ function showProviderApiKeyEntry() {
   el.providerFreeStart?.classList.add("hidden");
   el.providerAuthRemove?.classList.add("hidden");
   el.providerAuthBack?.classList.add("hidden");
-  if (el.providerSimpleStatus) el.providerSimpleStatus.textContent = `${providerDialogPreset.name} 的 API key 只會儲存在這台電腦。`;
+  if (el.providerSimpleStatus) el.providerSimpleStatus.textContent = tKey("provider.apiKeyLocal", { name: providerDialogPreset.name });
   el.providerApiKeyEntry.scrollIntoView({ block: "nearest", behavior: settings.reducedMotion ? "auto" : "smooth" });
   setTimeout(() => el.providerSimpleApiKey?.focus(), 0);
 }
@@ -7380,8 +7383,8 @@ function hideProviderApiKeyEntry() {
   el.providerAuthRemove?.classList.toggle("hidden", !providerDialogPreset.configured);
   el.providerAuthBack?.classList.remove("hidden");
   if (el.providerSimpleStatus) el.providerSimpleStatus.textContent = isFree
-    ? (providerDialogPreset.configured ? `${providerDialogPreset.name} 已加入；重新掃描可以更新模型清單。` : "按一下直接掃描這台 Mac 的本機模型。")
-    : (providerDialogPreset.configured ? `${providerDialogPreset.name} 已有登入設定；重新選擇登入方式即可更新。` : "選一種登入方式開始。");
+    ? (providerDialogPreset.configured ? tKey("provider.added", { name: providerDialogPreset.name }) : "Scan this computer for local models.")
+    : (providerDialogPreset.configured ? tKey("provider.alreadySignedIn", { name: providerDialogPreset.name }) : tKey("provider.chooseMethod"));
 }
 
 function openProviderAuthStream(after = -1) {
@@ -7454,7 +7457,7 @@ async function saveProviderApiKey() {
   const apiKey = String(el.providerSimpleApiKey?.value || "").trim();
   if (!provider) { setProviderFormError("請先選擇一個 Provider。"); return; }
   if (!apiKey) {
-    setProviderFormError("請貼上 API key。");
+    setProviderFormError(tKey("provider.apiKeyRequired"));
     el.providerSimpleApiKey?.focus();
     return;
   }
@@ -7467,7 +7470,7 @@ async function saveProviderApiKey() {
     watchProviderAuth(result, provider);
   } catch (error) {
     setProviderFormError(error.message || "API key 設定失敗");
-    if (el.providerSimpleStatus) el.providerSimpleStatus.textContent = "API key 尚未儲存，請確認區域與 key 是否相符。";
+    if (el.providerSimpleStatus) el.providerSimpleStatus.textContent = tKey("provider.apiKeyRejected");
   } finally {
     if (el.providerApiKeySave) el.providerApiKeySave.disabled = false;
   }
@@ -7482,7 +7485,7 @@ async function beginFreeProvider() {
     closeProviderDialog();
     await loadProviderCatalog(true);
     await loadModelVisibility(true, true);
-    toast(`${provider.name} 已加入，模型清單已更新`);
+    toast(tKey("provider.addedWithModels", { name: provider.name }));
   } catch (error) {
     setProviderFormError(error.message || "免費 Provider 設定失敗");
   } finally {
@@ -7503,7 +7506,7 @@ async function removeProviderAuth() {
   const isFree = provider.kind === "free";
   const confirmText = isFree
     ? `確定移除「${provider.name}」？\n之後仍可從免費清單重新加入。`
-    : `確定移除「${provider.name}」的登入設定？\n只會移除本機憑證，不會刪除 Provider。`;
+    : tKey("provider.removeAuthConfirm", { name: provider.name });
   if (!window.confirm(confirmText)) return;
   if (el.providerAuthRemove) el.providerAuthRemove.disabled = true;
   try {
@@ -7546,7 +7549,7 @@ async function saveProvider() {
 }
 
 async function deleteProvider(provider) {
-  if (!provider?.id || !window.confirm(`確定從 models.json 移除「${provider.id}」？\n不會刪除 auth.json 的登入憑證。`)) return;
+  if (!provider?.id || !window.confirm(tKey("provider.deleteConfirm", { id: provider.id }))) return;
   try {
     await post("/api/model-providers", { action: "delete", id: provider.id });
     closeProviderDialog();
@@ -7608,7 +7611,7 @@ async function loadModelVisibility(force = false, skipSession = false) {
       el.modelVisibilityList.innerHTML = "";
       const error = document.createElement("p");
       error.className = "settings-note model-visibility-empty error-text";
-      error.textContent = "讀取失敗：" + (e.message || "unknown error");
+      error.textContent = tKey("runtime.loadFailed", { detail: e.message || "unknown error" });
       el.modelVisibilityList.appendChild(error);
     }
   } finally {
@@ -7876,7 +7879,7 @@ el.setAutoUpdate?.addEventListener("change", () => { void saveAutomaticUpdates(e
 el.updateCheck?.addEventListener("click", () => { void runUpdateCheck(); });
 el.updateAllDevices?.addEventListener("click", () => { void runUpdateAll(); });
 el.btnResetSettings?.addEventListener("click", () => {
-  if (!confirm("要恢復介面預設設定嗎？登入狀態與 session 不會受到影響。")) return;
+  if (!confirm(tKey("settings.resetConfirm"))) return;
   try {
     localStorage.removeItem(SETTINGS_KEY);
     for (const key of LEGACY_SETTINGS_KEYS || [LEGACY_SETTINGS_KEY]) localStorage.removeItem(key);
@@ -8397,7 +8400,7 @@ async function testMachineDialogConnection() {
   machineStatuses.set(machine.id, status);
   renderMachineList();
   if (el.machineStatusNote) el.machineStatusNote.textContent = status === "online"
-    ? "連線成功，Pi Harbor 正常回應。" : "連線失敗；請確認 Pi Harbor、port 與 Tailscale／HTTPS 網址。";
+    ? tKey("device.testOk") : tKey("device.testFailed");
   el.machineTest.disabled = false;
 }
 
@@ -8408,7 +8411,7 @@ async function saveMachineDialog() {
   const existing = machineDialogExisting;
   const isLocal = !!existing?.local;
   const port = Number(el.machinePort?.value || 0);
-  if (!name || (!isLocal && !url)) { setMachineFormError(isLocal ? "請填寫設備名稱。" : "請填寫設備名稱與 Pi Harbor 網址。"); return; }
+  if (!name || (!isLocal && !url)) { setMachineFormError(tKey(isLocal ? "device.nameRequired" : "device.nameAndUrlRequired")); return; }
   if (isLocal && (!Number.isInteger(port) || port < 1024 || port > 65535)) {
     setMachineFormError("Pi Harbor port 必須是 1024–65535 的整數。"); return;
   }
@@ -8423,8 +8426,8 @@ async function saveMachineDialog() {
       await reloadMachineCatalog();
       if (machineDialogRestartRequired) {
         el.machineRestart?.classList.remove("hidden");
-        if (el.machineStatusNote) el.machineStatusNote.textContent = "設定已保存；新的 port 需要重新啟動 Pi Harbor 後才會生效。";
-        toast("設備名稱已更新；port 等待重啟後生效");
+        if (el.machineStatusNote) el.machineStatusNote.textContent = tKey("device.portRestartNote");
+        toast(tKey("device.nameUpdated"));
       } else {
         closeMachineDialog();
         toast("本機設備設定已更新");
@@ -8445,7 +8448,7 @@ async function saveMachineDialog() {
 }
 
 async function restartMachineWeb() {
-  if (!machineDialogExisting?.local || !confirm("重新啟動 Pi Harbor 會中斷目前的瀏覽連線；正在執行的 Pi 工作會先嘗試安全收尾。要繼續嗎？")) return;
+  if (!machineDialogExisting?.local || !confirm(tKey("device.restartConfirm"))) return;
   el.machineRestart.disabled = true;
   if (el.machineStatusNote) el.machineStatusNote.textContent = "正在要求 Pi Harbor 重新啟動…";
   try {
@@ -8459,7 +8462,7 @@ async function restartMachineWeb() {
 }
 
 async function deleteMachineDialog() {
-  if (!machineDialogExisting || !confirm(`確定要刪除「${machineDialogExisting.name}」嗎？`)) return;
+  if (!machineDialogExisting || !confirm(tKey("device.deleteConfirm", { name: machineDialogExisting.name }))) return;
   el.machineDelete.disabled = true;
   setMachineFormError();
   try {
