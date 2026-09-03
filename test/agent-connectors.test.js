@@ -6,7 +6,7 @@ const path = require("node:path");
 const { discoverConnectors, safeConnectorId, createAgentTaskService, resolvePtyRuntime } = require("../server/agent-connectors");
 
 test("Agent Hub exposes only the allow-listed connector ids", () => {
-  const catalog = discoverConnectors({ piBin: process.execPath, env: { PATH: "" } });
+  const catalog = discoverConnectors({ piBin: process.execPath, env: { PATH: "" }, includeKnownPaths: false });
   assert.deepEqual(catalog.map((item) => item.id), ["pi", "claude-code", "codex", "grok-build", "opencode"]);
   assert.equal(catalog[0].installed, true);
   assert.equal(catalog.slice(1).every((item) => item.installed === false), true);

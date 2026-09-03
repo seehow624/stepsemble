@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.12.1
+
+- Agent discovery now checks the common Homebrew, user-bin, npm, Volta,
+  asdf, Bun, and Hermes paths in addition to launchd's PATH. Installed Codex,
+  Claude Code, and OpenCode CLIs therefore remain selectable when Pi Harbor is
+  started as a background service.
+
 ## 2.12.0
 
 - Added Agent Hub connectors for the native Pi Agent plus installed Claude

@@ -105,7 +105,37 @@ function resolveFromPath(command, env = process.env) {
   return null;
 }
 
-function resolveCommand(definition, { piBin = "", env = process.env } = {}) {
+function knownCommandDirectories(env = process.env) {
+  const home = String(env?.HOME || env?.USERPROFILE || process.env.HOME || "").trim();
+  const dirs = [];
+  if (process.platform === "darwin") {
+    dirs.push("/opt/homebrew/bin", "/usr/local/bin");
+  } else if (process.platform !== "win32") {
+    dirs.push("/usr/local/bin", "/usr/bin");
+  } else {
+    const appData = String(env?.APPDATA || "").trim();
+    const programFiles = String(env?.ProgramFiles || "").trim();
+    if (appData) dirs.push(path.join(appData, "npm"));
+    if (programFiles) dirs.push(path.join(programFiles, "nodejs"));
+  }
+  if (home) dirs.push(
+    path.join(home, ".local", "bin"),
+    path.join(home, ".hermes", "node", "bin"),
+    path.join(home, ".volta", "bin"),
+    path.join(home, ".asdf", "shims"),
+    path.join(home, ".bun", "bin"),
+    path.join(home, ".npm-global", "bin"),
+  );
+  return [...new Set(dirs.filter(Boolean))];
+}
+
+function resolveKnownPath(command, env = process.env) {
+  const directories = knownCommandDirectories(env);
+  if (!directories.length) return null;
+  return resolveFromPath(command, { ...env, PATH: directories.join(path.delimiter) });
+}
+
+function resolveCommand(definition, { piBin = "", env = process.env, includeKnownPaths = true } = {}) {
   if (!definition) return null;
   if (definition.id === "pi") {
     const candidate = String(piBin || "").trim();
@@ -114,7 +144,7 @@ function resolveCommand(definition, { piBin = "", env = process.env } = {}) {
   for (const candidate of commandCandidates(definition)) {
     const command = safeCommandName(candidate);
     if (!command) continue;
-    const resolved = resolveFromPath(command, env);
+    const resolved = resolveFromPath(command, env) || (includeKnownPaths ? resolveKnownPath(command, env) : null);
     if (resolved) return resolved;
   }
   return null;
@@ -166,10 +196,10 @@ function publicDefinition(definition, options = {}) {
   };
 }
 
-function discoverConnectors({ piBin = "", env = process.env } = {}) {
+function discoverConnectors({ piBin = "", env = process.env, includeKnownPaths = true } = {}) {
   const ptyRuntime = resolvePtyRuntime({ env });
   return CONNECTOR_DEFINITIONS.map((definition) => {
-    const command = resolveCommand(definition, { piBin, env });
+    const command = resolveCommand(definition, { piBin, env, includeKnownPaths });
     return publicDefinition(definition, { command, transport: definition.kind === "native" ? "rpc" : (ptyRuntime ? "pty" : "pipe") });
   });
 }
