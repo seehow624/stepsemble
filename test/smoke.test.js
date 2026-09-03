@@ -851,6 +851,7 @@ test("automatic updates use a public GitHub source and launchd without touching 
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const updater = fs.readFileSync(path.join(root, "deploy", "pi-harbor-update.sh"), "utf8");
+  const installer = fs.readFileSync(path.join(root, "install.sh"), "utf8");
   const plist = fs.readFileSync(path.join(root, "deploy", "com.piharbor.updater.plist"), "utf8");
   assert.match(server, /UPDATE_CONFIG_FILE/);
   assert.match(server, /\/api\/update\/status/);
@@ -863,6 +864,8 @@ test("automatic updates use a public GitHub source and launchd without touching 
   assert.match(html, /id="update-check"/);
   assert.match(updater, /api\.github\.com\/repos/);
   assert.match(updater, /releases\/latest/);
+  assert.match(updater, /fetch_release_metadata\(\)/);
+  assert.match(updater, /write_page_release_metadata/);
   assert.match(updater, /shasum/);
   assert.match(updater, /active_rpc_running/);
   assert.match(updater, /kickstart -k/);
@@ -872,6 +875,8 @@ test("automatic updates use a public GitHub source and launchd without touching 
   assert.doesNotMatch(updater, /auth\.json|sessions|models\.json/);
   assert.match(plist, /StartInterval/);
   assert.match(plist, /__USER__/);
+  assert.match(installer, /fetch_release_metadata\(\)/);
+  assert.match(installer, /write_page_release_metadata/);
 });
 
 test("an auto-updated v1 service keeps its configured token file and port", () => {

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.11.2
+
+- Automatic updates and fresh installs now fall back to the public GitHub
+  release page when the unauthenticated GitHub API rate limit is exhausted.
+  The archive and SHA-256 checksum are still downloaded and verified before
+  activation.
+
 ## 2.11.1
 
 - macOS devices now use the system ComputerName as the default Pi Harbor

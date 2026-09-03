@@ -136,6 +136,43 @@ else {
 NODE
 }
 
+# GitHub's unauthenticated REST API is limited per public IP.  A shared home
+# network can exhaust that quota even when the release itself is available.
+# Fall back to the public release page, which redirects to the selected tag,
+# then construct the two predictable, checksum-verified asset URLs.
+write_page_release_metadata() {
+  local metadata="$1" tag="$2"
+  "$NODE_BIN" - "$metadata" "$tag" "$repository" <<'NODE'
+const fs = require("node:fs");
+const [file, tag, repository] = process.argv.slice(2);
+const archive = `pi-harbor-${tag}.tar.gz`;
+const base = `https://github.com/${repository}/releases/download/${tag}`;
+fs.writeFileSync(file, JSON.stringify({
+  tag_name: tag,
+  assets: [
+    { name: archive, browser_download_url: `${base}/${archive}` },
+    { name: `${archive}.sha256`, browser_download_url: `${base}/${archive}.sha256` },
+  ],
+}));
+NODE
+}
+
+fetch_release_metadata() {
+  local metadata="$1" api_url page_url final_url tag
+  api_url="https://api.github.com/repos/$repository/releases/latest"
+  [[ "$ref" == "stable" ]] || api_url="https://api.github.com/repos/$repository/releases/tags/$ref"
+  if "$CURL_BIN" -fsSL --max-time 180 -H 'Accept: application/vnd.github+json' "$api_url" -o "$metadata"; then
+    return 0
+  fi
+  page_url="https://github.com/$repository/releases/latest"
+  [[ "$ref" == "stable" ]] || page_url="https://github.com/$repository/releases/tag/$ref"
+  final_url="$($CURL_BIN -fsSL --max-time 60 -o /dev/null -w '%{url_effective}' "$page_url" 2>/dev/null)" || return 1
+  final_url="${final_url%%\?*}"
+  tag="${final_url##*/}"
+  [[ "$tag" =~ '^v[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.]+)?$' ]] || return 1
+  write_page_release_metadata "$metadata" "$tag"
+}
+
 # Validate the complete archive before tar is allowed to create a filesystem
 # tree.  macOS /usr/bin/tar and GNU tar both provide the portable -t/-v
 # listings used here; Node only performs bounded, type-aware validation.
@@ -260,9 +297,7 @@ trap cleanup_all EXIT
 
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/pi-harbor-update.XXXXXX")"
 metadata="$work_dir/release.json"
-api_url="https://api.github.com/repos/$repository/releases/latest"
-[[ "$ref" == "stable" ]] || api_url="https://api.github.com/repos/$repository/releases/tags/$ref"
-if ! "$CURL_BIN" -fsSL --max-time 180 -H 'Accept: application/vnd.github+json' "$api_url" -o "$metadata"; then
+if ! fetch_release_metadata "$metadata"; then
   write_state "Could not read the latest GitHub release" "$now" "" "$installed_version" "" "error" ""
   die "could not read release metadata"
 fi

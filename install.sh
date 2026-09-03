@@ -222,6 +222,45 @@ if (asset?.browser_download_url) process.stdout.write(asset.browser_download_url
 NODE
 }
 
+# GitHub's unauthenticated REST API is limited per public IP.  If that quota
+# is exhausted, the public release page still redirects to the selected tag;
+# use that tag to build the predictable archive and checksum URLs.
+write_page_release_metadata() {
+  local metadata="$1" tag="$2"
+  "$NODE_BIN" - "$metadata" "$tag" "$REPOSITORY" <<'NODE'
+const fs = require("node:fs");
+const [file, tag, repository] = process.argv.slice(2);
+const archive = `pi-harbor-${tag}.tar.gz`;
+const base = `https://github.com/${repository}/releases/download/${tag}`;
+fs.writeFileSync(file, JSON.stringify({
+  tag_name: tag,
+  assets: [
+    { name: archive, browser_download_url: `${base}/${archive}` },
+    { name: `${archive}.sha256`, browser_download_url: `${base}/${archive}.sha256` },
+  ],
+}));
+NODE
+}
+
+fetch_release_metadata() {
+  local metadata="$1" page_url final_url tag api_url
+  if [[ -n "$REQUESTED_VERSION" ]]; then
+    api_url="https://api.github.com/repos/$REPOSITORY/releases/tags/$REQUESTED_VERSION"
+  else
+    api_url="https://api.github.com/repos/$REPOSITORY/releases/latest"
+  fi
+  if curl -fsSL --max-time 180 "$api_url" -o "$metadata"; then
+    return 0
+  fi
+  page_url="https://github.com/$REPOSITORY/releases/latest"
+  [[ -n "$REQUESTED_VERSION" ]] && page_url="https://github.com/$REPOSITORY/releases/tag/$REQUESTED_VERSION"
+  final_url="$(curl -fsSL --max-time 60 -o /dev/null -w '%{url_effective}' "$page_url" 2>/dev/null)" || return 1
+  final_url="${final_url%%\?*}"
+  tag="${final_url##*/}"
+  [[ "$tag" =~ '^v[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.]+)?$' ]] || return 1
+  write_page_release_metadata "$metadata" "$tag"
+}
+
 # The installer is intentionally standalone, so keep this bounded archive
 # validator here as well as in the independently installed updater. No release
 # entry may touch the filesystem before its name and type pass this preflight.
@@ -290,11 +329,7 @@ stage_release() {
   fi
 
   metadata="$WORK_DIR/release.json"
-  if [[ -n "$REQUESTED_VERSION" ]]; then
-    curl -fsSL --max-time 180 "https://api.github.com/repos/$REPOSITORY/releases/tags/$REQUESTED_VERSION" -o "$metadata"
-  else
-    curl -fsSL --max-time 180 "https://api.github.com/repos/$REPOSITORY/releases/latest" -o "$metadata"
-  fi
+  fetch_release_metadata "$metadata" || die "could not read release metadata"
   asset_url="$(release_asset_url "$metadata" archive)"
   checksum_url="$(release_asset_url "$metadata" checksum)"
   [[ -n "$asset_url" && -n "$checksum_url" ]] || die "the selected release does not contain a verified installer archive"
@@ -432,7 +467,7 @@ trap cleanup EXIT
 trap 'cleanup; exit 130' INT TERM
 
 say ""
-say "Pi Harbor 2.11.1 installer"
+say "Pi Harbor 2.11.2 installer"
 say "────────────────────────"
 
 NODE_BIN="$(find_node || true)"
