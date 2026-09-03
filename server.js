@@ -26,6 +26,7 @@ const { spawn, execFileSync } = require("node:child_process");
 const { createHttpUtils } = require("./server/http-utils");
 const { createGitChangesService } = require("./server/git-changes");
 const { createPiResourcesService } = require("./server/pi-resources");
+const { createAgentTaskService } = require("./server/agent-connectors");
 const {
   PAIRING_TTL_MS,
   sanitizeDeviceMetadata,
@@ -46,7 +47,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.11.2";
+const APP_VERSION = "2.12.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1634,6 +1635,17 @@ function projectDirectory(cwd) {
 
 const gitChanges = createGitChangesService({ validateRepository: projectDirectory });
 const piResources = createPiResourcesService({ home: APP_HOME });
+// A connector task is deliberately separate from Pi's JSON-RPC session map:
+// Pi retains its rich session/history protocol, while well-known local CLI
+// agents use a bounded stdin/stdout journal with the same authenticated SSE
+// reconnect surface.  Both are exposed through the Agent Hub task inbox.
+const agentTasks = createAgentTaskService({
+  appHome: APP_HOME,
+  configDir: CONFIG_DIR,
+  validateCwd: projectDirectory,
+  piBin: PI_BIN,
+  env: process.env,
+});
 
 function revealProject(cwd) {
   const real = projectDirectory(cwd);
@@ -2002,6 +2014,43 @@ function activeRpcSessionsForUpdate() {
   return activeRpcSessions().filter((session) => !rpcStuck(session));
 }
 
+// The inbox uses one task shape for native Pi RPC and external CLI
+// connectors.  Keep this view read-only and omit stderr/output by default;
+// conversation content remains behind the session/SSE endpoints.
+function publicPiAgentTask(sid, session) {
+  if (!session) return null;
+  const running = !session.exited && !!session.state.isStreaming;
+  const status = session.exited
+    ? (session.exitCode === 0 ? "completed" : "failed")
+    : running ? "running" : "waiting";
+  return {
+    id: `pi:${sid}`,
+    taskId: `pi:${sid}`,
+    agentId: "pi",
+    agent: "pi",
+    connector: "pi",
+    name: session.meta.name || session.state.sessionName || session.meta.file?.split("/").pop()?.replace(/\.jsonl$/, "") || "Pi Agent",
+    cwd: session.meta.cwd || "",
+    file: session.meta.file || session.state.sessionFile || null,
+    sessionFile: session.state.sessionFile || session.meta.file || null,
+    pid: session.proc?.pid || null,
+    status,
+    isRunning: running,
+    startedAt: session.state.runStartedAt || session.meta.openedAt || null,
+    endedAt: session.state.runEndedAt || null,
+    lastActivityAt: session.meta.lastActivityAt || null,
+    stuck: rpcStuck(session),
+    clients: session.clients?.size || 0,
+  };
+}
+
+function listAgentTasks() {
+  const native = [];
+  for (const [sid, session] of rpcSessions) native.push(publicPiAgentTask(sid, session));
+  return [...native.filter(Boolean), ...agentTasks.list()]
+    .sort((a, b) => (Number(b.lastActivityAt || b.startedAt) || 0) - (Number(a.lastActivityAt || a.startedAt) || 0));
+}
+
 function scheduleRpcCleanup(sid) {
   const s = rpcSessions.get(sid);
   if (shutdownState || !s || s.exited || s.clients.size || s.state.isStreaming) return;
@@ -2112,7 +2161,7 @@ async function openRpc({ file, cwd, name }) {
   const sess = {
     proc, clients: new Set(), events: [], widgets: new Map(), eventBytes: 0, eventSeq: 0, currentRunStartSeq: null,
     state: { isStreaming: false },
-    meta: { file: file || null, cwd: spawnCwd, openedAt: Date.now(), lastActivityAt: Date.now() },
+    meta: { file: file || null, cwd: spawnCwd, name: name ? String(name).slice(0, 120) : null, openedAt: Date.now(), lastActivityAt: Date.now() },
     stderrTail: "", exited: false, exitCode: null,
   };
   rpcSessions.set(sid, sess);
@@ -3704,6 +3753,18 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (p === "/api/agent/stream" && req.method === "GET") {
+      if (!authenticate(req)) { sendJSON(res, 401, { error: "unauthorized" }); return; }
+      const taskId = url.searchParams.get("taskId") || "";
+      const parsedAfter = Number(url.searchParams.get("after"));
+      const parsedLastId = Number(req.headers["last-event-id"]);
+      const after = Math.max(Number.isFinite(parsedAfter) ? parsedAfter : -1, Number.isFinite(parsedLastId) ? parsedLastId : -1);
+      if (!agentTasks.stream(req, res, taskId, after, sseFrame, trySseWrite)) {
+        sendJSON(res, 404, { error: "no such agent task" });
+      }
+      return;
+    }
+
     // ---- 反代：/r/<machineId>/api/* → 遠端機器的同名 API（SPA 機器切換的基礎）----
     const proxyMatch = p.match(/^\/r\/([a-z0-9-]+)(\/api\/.+)$/);
     if (proxyMatch) {
@@ -3819,6 +3880,31 @@ const server = http.createServer(async (req, res) => {
         usageSummary(url.searchParams.get("days"))
           .then((payload) => sendJSON(res, 200, payload))
           .catch(() => sendJSON(res, 500, { error: "usage summary failed" }));
+        return;
+      }
+
+      // Agent Hub inventory and task inbox.  The catalog contains only
+      // allow-listed connector ids and executable availability; it never
+      // exposes API keys, environment values, or arbitrary shell commands.
+      if (p === "/api/agents" && req.method === "GET") {
+        sendJSON(res, 200, {
+          machine: MACHINE_NAME,
+          platform: process.platform,
+          generatedAt: Date.now(),
+          connectors: agentTasks.catalog(),
+        });
+        return;
+      }
+
+      if (p === "/api/agent-tasks" && req.method === "GET") {
+        sendJSON(res, 200, { machine: MACHINE_NAME, generatedAt: Date.now(), tasks: listAgentTasks() });
+        return;
+      }
+
+      if (p === "/api/agent-task" && req.method === "GET") {
+        const task = agentTasks.get(url.searchParams.get("taskId") || "");
+        if (!task) { sendJSON(res, 404, { error: "no such agent task" }); return; }
+        sendJSON(res, 200, { task: agentTasks.publicTask(task, true) });
         return;
       }
 
@@ -4577,6 +4663,53 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      // Unified Agent Hub launch path.  Pi requests remain byte-compatible
+      // with /api/open; this route adds the connector id and optional isolated
+      // worktree for native Pi and external CLI agents.
+      if (p === "/api/agent/open" && req.method === "POST") {
+        const body = await readJSON(req, 64 * 1024);
+        try {
+          const agentId = String(body?.agentId || "pi").trim().toLowerCase();
+          let cwd = typeof body?.cwd === "string" ? body.cwd : "";
+          let worktree = null;
+          if (body?.worktree === true) {
+            worktree = createPermanentWorktree(cwd);
+            cwd = worktree.path;
+          }
+          if (agentId === "pi") {
+            const result = await openRpc({ file: body?.file, cwd, name: body?.name });
+            sendJSON(res, 200, { ...result, kind: "pi", agentId: "pi", worktree });
+          } else {
+            const result = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
+            sendJSON(res, 201, { ...result, kind: "cli", agentId });
+          }
+        } catch (error) {
+          sendJSON(res, error.statusCode || 409, { error: error.message || "Could not start agent task" });
+        }
+        return;
+      }
+
+      if (p === "/api/agent/send" && req.method === "POST") {
+        const body = await readJSON(req, 1_100_000);
+        try { sendJSON(res, 200, agentTasks.send(body?.taskId, body?.message)); }
+        catch (error) { sendJSON(res, error.statusCode || 409, { error: error.message || "Could not send to agent" }); }
+        return;
+      }
+
+      if (p === "/api/agent/abort" && req.method === "POST") {
+        const body = await readJSON(req);
+        const ok = agentTasks.stop(body?.taskId);
+        sendJSON(res, ok ? 200 : 404, ok ? { stopped: true } : { error: "no such agent task" });
+        return;
+      }
+
+      if (p === "/api/agent/close" && req.method === "POST") {
+        const body = await readJSON(req);
+        const ok = agentTasks.stop(body?.taskId);
+        sendJSON(res, ok ? 200 : 404, ok ? { closed: true } : { error: "no such agent task" });
+        return;
+      }
+
       if (p === "/api/open" && req.method === "POST") {
         const body = await readJSON(req);
         try {
@@ -4697,7 +4830,9 @@ const server = http.createServer(async (req, res) => {
             eventSeq: s.eventSeq, stderrTail: s.stderrTail.slice(-500),
           });
         }
-        sendJSON(res, 200, { rpcs: list });
+        // Keep the legacy `rpcs` field for existing clients while exposing the
+        // generic connector view to newer task-inbox clients.
+        sendJSON(res, 200, { rpcs: list, agentTasks: agentTasks.list() });
         return;
       }
 
@@ -4787,6 +4922,10 @@ function shutdown(signal) {
     // HTTP server.  Killing it here was the source of silent GUI-only stops.
     if (!s.state.isStreaming) killRpcProcess(s.proc);
   }
+  // Generic CLI connectors do not have a portable reattach protocol. Stop
+  // them explicitly on a supervised restart and leave a journaled task record
+  // so the inbox can explain what happened after the server comes back.
+  try { agentTasks.shutdown(); } catch (error) { console.warn(`[pi-harbor] agent task shutdown failed: ${error.message}`); }
 
   closeHttp();
   if (!active.length) {

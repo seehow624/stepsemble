@@ -120,6 +120,34 @@ test("SSE streams subscribe before replay and expose a readiness handshake", () 
   assert.match(app, /streamReady/);
 });
 
+test("Agent Hub has an allow-listed connector inventory and reconnectable task stream", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  const connector = fs.readFileSync(path.join(root, "server", "agent-connectors.js"), "utf8");
+  const ptyBridge = fs.readFileSync(path.join(root, "server", "pty-bridge.py"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  assert.match(connector, /claude-code/);
+  assert.match(connector, /grok-build/);
+  assert.match(connector, /resolveFromPath/);
+  assert.match(connector, /resolvePtyRuntime/);
+  assert.match(ptyBridge, /pty\.fork\(\)/);
+  assert.match(ptyBridge, /os\.execv/);
+  assert.doesNotMatch(connector, /exec\s*\(.*command/);
+  assert.match(server, /\/api\/agents/);
+  assert.match(server, /\/api\/agent-tasks/);
+  assert.match(server, /\/api\/agent\/stream/);
+  assert.match(server, /agentTasks\.shutdown\(\)/);
+  assert.match(app, /function connectAgentTask\(/);
+  assert.match(app, /function handleAgentTaskEvent\(/);
+  assert.match(app, /agent-terminal-output/);
+  assert.match(app, /task remains in the inbox|task keeps running/i);
+  assert.match(html, /id="agent-hub-card"/);
+  assert.match(html, /id="new-agent"/);
+  assert.match(html, /id="new-worktree"/);
+  assert.match(css, /\.agent-terminal-output/);
+});
+
 test("folder browsing is restricted to the Pi home unless roots are explicitly added", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");

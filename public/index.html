@@ -6,10 +6,10 @@
 <title>Pi Harbor</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=2.11.2">
-<link rel="icon" href="/pi-logo.svg?v=2.11.2" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-180.png?v=2.11.2">
-<link rel="stylesheet" href="/style.css?v=2.11.2">
+<link rel="manifest" href="/manifest.webmanifest?v=2.12.0">
+<link rel="icon" href="/pi-logo.svg?v=2.12.0" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png?v=2.12.0">
+<link rel="stylesheet" href="/style.css?v=2.12.0">
 </head>
 <body>
 
@@ -124,6 +124,14 @@
       <span class="new-project-copy"><strong>New project</strong><small>Choose a folder to start a conversation</small></span>
       <svg class="icon trailing" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
     </button>
+    <section id="agent-hub-card" class="agent-hub-card" aria-labelledby="agent-hub-title">
+      <header class="agent-hub-heading">
+        <div><strong id="agent-hub-title" data-i18n-key="agentHub.title">Agent Hub</strong><small id="agent-hub-summary">Discovering local agents…</small></div>
+        <button id="agent-hub-refresh" class="icon-button-small" type="button" data-i18n-title-key="agentHub.refresh" data-i18n-aria-key="agentHub.refresh" title="Refresh agents" aria-label="Refresh agents"><svg class="icon"><use href="#i-refresh"></use></svg></button>
+      </header>
+      <div id="agent-hub-connectors" class="agent-hub-connectors" aria-label="Available agents"></div>
+      <div id="agent-task-list" class="agent-task-list" aria-live="polite"></div>
+    </section>
     <div id="pull-indicator"><span class="pull-arrow">↓</span></div>
     <div class="session-section-heading">
       <span class="session-heading-title">Sessions</span>
@@ -395,7 +403,7 @@
         </div>
         <div class="settings-row">
           <span><strong>Pi Harbor</strong><small>Mobile-first remote workspace for Pi</small></span>
-          <span class="settings-value" id="set-app-version">v2.11.2</span>
+          <span class="settings-value" id="set-app-version">v2.12.0</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -630,6 +638,13 @@
       <input id="new-cwd" type="text" spellcheck="false" readonly placeholder="Choose a folder">
       <label class="field-label">Session name (optional)</label>
       <input id="new-name" type="text" placeholder="e.g. Project QA">
+      <label class="field-label" for="new-agent" data-i18n-key="agentHub.agent">Agent</label>
+      <select id="new-agent" class="new-agent-select" data-i18n-ignore aria-describedby="new-agent-note"></select>
+      <label class="new-worktree-toggle" for="new-worktree">
+        <span><strong data-i18n-key="agentHub.isolated">Isolated worktree</strong><small data-i18n-key="agentHub.worktreeDescription">Give this task its own Git branch and folder</small></span>
+        <span class="toggle"><input id="new-worktree" type="checkbox"><span class="toggle-track"></span></span>
+      </label>
+      <p id="new-agent-note" class="settings-note new-agent-note">Pi Agent keeps full session history. CLI agents stream their terminal output here.</p>
       <div class="sheet-actions">
         <button id="new-start" class="btn primary" type="button">Start here</button>
       </div>
@@ -820,10 +835,10 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=2.11.2"></script>
-<script src="/modules/app-foundation.js?v=2.11.2"></script>
-<script src="/modules/session-utils.js?v=2.11.2"></script>
-<script src="/modules/context-usage.js?v=2.11.2"></script>
-<script src="/app.js?v=2.11.2"></script>
+<script src="/i18n.js?v=2.12.0"></script>
+<script src="/modules/app-foundation.js?v=2.12.0"></script>
+<script src="/modules/session-utils.js?v=2.12.0"></script>
+<script src="/modules/context-usage.js?v=2.12.0"></script>
+<script src="/app.js?v=2.12.0"></script>
 </body>
 </html>

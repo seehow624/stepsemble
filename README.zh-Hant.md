@@ -39,6 +39,20 @@ cat ~/.config/pi-harbor/token
 
 加入 LLM 服務商：開啟 **Settings → Connection → Models & providers**，選擇目錄服務、帳號／OAuth 登入、API key、本機服務或自訂 Provider，然後選擇要顯示的模型。
 
+## Agent Hub 連接器
+
+首頁的 **Agent Hub** 會探索本機 Pi Agent，以及已安裝的 Claude Code、Codex
+CLI、Grok Build、OpenCode。建立 **New project** 時可選擇 Agent，也可以開啟隔離
+Git worktree。CLI 的 stdout／stderr 會串流到對話；macOS/Linux 會透過內附的
+`server/pty-bridge.py` 提供真正的互動式終端，Windows 或沒有 Python 的主機則安全地使用 pipe。計時器會在你瀏覽其他頁面時繼續，
+關閉瀏覽器後工作仍會留在收件匣；重新點選即可回放有限長度的輸出記錄。未安裝的
+連接器會顯示為不可選取，必須先在該主機安裝對應 CLI。
+
+Pi 工作會保留原生完整工作階段歷史。通用 CLI 工作由 Pi Harbor 監督，記錄保存在
+`~/.config/pi-harbor/agent-tasks.json`（權限 `600`）。由於任意 CLI 沒有可攜式的
+stdin 重新連接協定，Pi Harbor 被監督式重啟時會停止這些子程序並如實標記狀態，不會
+假裝工作仍在執行。
+
 ## 自動更新
 
 預設每小時檢查 GitHub 的最新穩定 Release，並驗證 SHA-256。若 Pi 正在工作，更新會延後，完成後才替換應用程式。更新器不會修改 Pi 工作階段、專案檔案、Provider 憑證或 Web token。

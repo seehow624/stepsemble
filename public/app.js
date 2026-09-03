@@ -1,7 +1,7 @@
-/* pi-harbor v2.11.2 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.12.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.11.2";
+const CLIENT_APP_VERSION = "2.12.0";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -61,6 +61,7 @@ const el = {
   temporarySessionFilter: $("temporary-session-filter"), temporarySessionFilterLabel: $("temporary-session-filter-label"), temporarySessionFilterNote: $("temporary-session-filter-note"), stuckSessions: $("stuck-sessions"), temporarySessionFilterNote: $("temporary-session-filter-note"),
   temporarySessionCount: $("temporary-session-count"), showTemporarySessions: $("show-temporary-sessions"),
   btnNew: $("btn-new"), btnNewProject: $("btn-new-project"), pullIndicator: $("pull-indicator"),
+  agentHubCard: $("agent-hub-card"), agentHubTitle: $("agent-hub-title"), agentHubSummary: $("agent-hub-summary"), agentHubRefresh: $("agent-hub-refresh"), agentHubConnectors: $("agent-hub-connectors"), agentTaskList: $("agent-task-list"),
   machineSwitch: $("machine-switch"), machineSwitchStatus: $("machine-switch-status"),
   machineCatalogStatus: $("machine-catalog-status"), machineCatalogStatusCopy: $("machine-catalog-status-copy"), machineCatalogRetry: $("machine-catalog-retry"),
   btnBack: $("btn-back"), chatTitle: $("chat-title"), chatSub: $("chat-sub"),
@@ -116,7 +117,7 @@ const el = {
   providerAuthApi: $("provider-auth-api"), providerApiKeyEntry: $("provider-api-key-entry"), providerSimpleApiKey: $("provider-simple-api-key"), providerApiKeyBack: $("provider-api-key-back"), providerApiKeySave: $("provider-api-key-save"), providerFreeStart: $("provider-free-start"), providerAuthRemove: $("provider-auth-remove"), providerAuthBack: $("provider-auth-back"),
   providerSimpleStatus: $("provider-simple-status"), providerSwitchDevice: $("provider-switch-device"), providerAdvancedToggle: $("provider-advanced-toggle"),
   providerAdvancedFields: $("provider-advanced-fields"),
-  newDialog: $("new-dialog"), newCwd: $("new-cwd"), newName: $("new-name"),
+  newDialog: $("new-dialog"), newCwd: $("new-cwd"), newName: $("new-name"), newAgent: $("new-agent"), newWorktree: $("new-worktree"), newAgentNote: $("new-agent-note"),
   newCancel: $("new-cancel"), newStart: $("new-start"), newFolderUp: $("new-folder-up"),
   newFolderHome: $("new-folder-home"), newFolderPath: $("new-folder-path"), newFolderList: $("new-folder-list"),
   saSheet: $("session-action-sheet"), saTitle: $("sa-title"),
@@ -151,6 +152,12 @@ const el = {
 let sessionsCache = [];
 let sessionRenderLimit = 120;
 let temporarySessionCount = 0;
+let agentCatalog = [];
+let agentTasks = [];
+let agentTaskPollTimer = null;
+let agentHubTicker = null;
+let agentCatalogRequest = null;
+let currentAgentTaskId = null;
 const collapsedProjects = new Set();
 const expandedProjectSessions = new Set();
 const PROJECT_SESSION_PREVIEW_LIMIT = 3;
@@ -1031,6 +1038,10 @@ async function enterApp() {
     el.login.classList.add("hidden");
     el.app.classList.remove("hidden");
     await showList();
+    // Discover connector availability once the authenticated machine catalog
+    // is ready. The list card and New Project selector then share one snapshot.
+    void loadAgentCatalog();
+    void refreshAgentTasks();
     // A reload lands on the list by default; bring the user straight back into
     // the conversation they had open, including a run that is still going.
     void restoreLastChat();
@@ -1119,6 +1130,7 @@ function switchMachine(id, silent) {
   showListSilent();
   void generation;
   refreshSessions();
+  void loadAgentCatalog();
   void refreshMachineStatuses();
   loadVersion();
   if (!silent) toast(`已切換到 ${machineName(id)}`);
@@ -1543,6 +1555,247 @@ async function refreshStuckSessions() {
   }
 }
 
+// ===========================================================================
+// Agent Hub — connector inventory + cross-agent task inbox
+// ===========================================================================
+
+const AGENT_STATUS_LABELS = Object.freeze({
+  starting: "Starting",
+  running: "Working",
+  waiting: "Waiting",
+  completed: "Done",
+  failed: "Failed",
+  stopped: "Stopped",
+  detached: "Detached",
+  orphaned: "Interrupted",
+});
+
+function agentHubText(key, vars = {}) {
+  const translated = tKey(`agentHub.${key}`, vars);
+  if (translated !== `agentHub.${key}`) return translated;
+  const fallback = {
+    title: "Agent Hub",
+    discovering: "Discovering local agents…",
+    refresh: "Refresh agents",
+    activeSummary: "{active} active · {ready} ready",
+    readySummary: "{ready} agents ready",
+    noTasks: "No active tasks — choose an Agent when you start a project.",
+    notInstalled: "not installed",
+    isolated: "Isolated worktree",
+    piNote: "Pi Agent keeps full session history. CLI agents stream terminal output here.",
+    cliNote: "This CLI streams terminal output here; the task keeps running when you leave the chat.",
+    cliTextOnly: "CLI agents currently accept text input only.",
+    agentTask: "Agent task",
+    signal: "signal {value}",
+    exitCode: "code {value}",
+    working: "Working",
+    waiting: "Waiting",
+    done: "Done",
+    failed: "Failed",
+    stopped: "Stopped",
+    detached: "Detached",
+    interrupted: "Interrupted",
+    starting: "Starting",
+  }[key] || key;
+  return String(fallback).replace(/\{(\w+)\}/g, (_, name) => vars[name] ?? `{${name}}`);
+}
+
+function agentStatusText(status) {
+  const key = String(status || "").toLowerCase();
+  return agentHubText(key in AGENT_STATUS_LABELS ? key : "waiting");
+}
+
+function agentTaskIsRunning(task) {
+  return ["starting", "running"].includes(String(task?.status || ""));
+}
+
+function agentTaskElapsed(task) {
+  const start = Number(task?.startedAt);
+  if (!Number.isFinite(start) || start <= 0) return "";
+  const end = agentTaskIsRunning(task) ? Date.now() : Number(task?.endedAt) || Date.now();
+  return runElapsedText(Math.max(0, end - start));
+}
+
+function renderAgentHub() {
+  if (!el.agentHubCard) return;
+  const connectors = Array.isArray(agentCatalog) ? agentCatalog : [];
+  const ready = connectors.filter((item) => item.installed).length;
+  const active = agentTasks.filter(agentTaskIsRunning).length;
+  if (el.agentHubTitle) el.agentHubTitle.textContent = agentHubText("title");
+  if (el.agentHubSummary) {
+    el.agentHubSummary.textContent = connectors.length
+      ? (active ? agentHubText("activeSummary", { active, ready }) : agentHubText("readySummary", { ready }))
+      : agentHubText("discovering");
+  }
+  if (el.agentHubRefresh) {
+    el.agentHubRefresh.title = agentHubText("refresh");
+    el.agentHubRefresh.setAttribute("aria-label", agentHubText("refresh"));
+  }
+  if (el.agentHubConnectors) {
+    el.agentHubConnectors.replaceChildren();
+    for (const connector of connectors) {
+      const chip = document.createElement("span");
+      chip.className = "agent-connector-chip" + (connector.installed ? " installed" : "");
+      chip.title = connector.installed ? (connector.description || connector.label) : `${connector.label} · ${agentHubText("notInstalled")}`;
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.setAttribute("aria-hidden", "true");
+      const label = document.createElement("span");
+      label.textContent = connector.label || connector.id;
+      label.dataset.i18nIgnore = "";
+      chip.append(dot, label);
+      el.agentHubConnectors.appendChild(chip);
+    }
+  }
+  if (!el.agentTaskList) return;
+  el.agentTaskList.replaceChildren();
+  const visible = [...agentTasks].sort((a, b) => {
+    const activeOrder = Number(agentTaskIsRunning(b)) - Number(agentTaskIsRunning(a));
+    return activeOrder || (Number(b.lastActivityAt || b.startedAt) || 0) - (Number(a.lastActivityAt || a.startedAt) || 0);
+  }).slice(0, 5);
+  if (!visible.length) {
+    const empty = document.createElement("p");
+    empty.className = "agent-hub-empty";
+    empty.textContent = agentHubText("noTasks");
+    el.agentTaskList.appendChild(empty);
+    return;
+  }
+  for (const task of visible) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `agent-task-row ${agentTaskIsRunning(task) ? "running" : String(task.status || "")}`;
+    row.dataset.taskId = task.id || task.taskId || "";
+    const dot = document.createElement("span");
+    dot.className = "agent-task-dot";
+    dot.setAttribute("aria-hidden", "true");
+    const copy = document.createElement("span");
+    copy.className = "agent-task-copy";
+    const name = document.createElement("strong");
+    name.textContent = task.name || task.agent || agentHubText("agentTask");
+    name.dataset.i18nIgnore = "";
+    const detail = document.createElement("small");
+    detail.textContent = `${task.agentId === "pi" ? "Pi Agent" : (connectors.find((item) => item.id === task.agentId)?.label || task.agentId || "Agent")} · ${task.cwd || ""}`;
+    detail.dataset.i18nIgnore = "";
+    copy.append(name, detail);
+    const state = document.createElement("span");
+    state.className = "agent-task-state";
+    state.textContent = agentTaskElapsed(task) ? `${agentStatusText(task.status)} · ${agentTaskElapsed(task)}` : agentStatusText(task.status);
+    row.append(dot, copy, state);
+    row.addEventListener("click", () => openAgentTaskFromHub(task));
+    el.agentTaskList.appendChild(row);
+  }
+}
+
+// The task list is polled for truth, but elapsed labels should feel like a
+// local clock. Update only the state text so a focused row, scroll position,
+// and any active pointer gesture are never disturbed by a full re-render.
+function updateAgentHubClock() {
+  if (!el.agentTaskList) return;
+  const byId = new Map(agentTasks.map((task) => [String(task.id || task.taskId || ""), task]));
+  for (const row of el.agentTaskList.querySelectorAll(".agent-task-row")) {
+    const task = byId.get(String(row.dataset.taskId || ""));
+    const state = row.querySelector(".agent-task-state");
+    if (!task || !state) continue;
+    const elapsed = agentTaskElapsed(task);
+    state.textContent = elapsed ? `${agentStatusText(task.status)} · ${elapsed}` : agentStatusText(task.status);
+  }
+}
+
+function renderNewAgentOptions() {
+  if (!el.newAgent) return;
+  const previous = el.newAgent.value || "pi";
+  el.newAgent.replaceChildren();
+  const connectors = agentCatalog.length ? agentCatalog : [{ id: "pi", label: "Pi Agent", installed: true, kind: "native" }];
+  for (const connector of connectors) {
+    const option = document.createElement("option");
+    option.value = connector.id;
+    option.textContent = connector.installed ? connector.label : `${connector.label} · ${agentHubText("notInstalled")}`;
+    option.disabled = connector.installed !== true;
+    option.dataset.i18nIgnore = "";
+    el.newAgent.appendChild(option);
+  }
+  const selected = [...el.newAgent.options].find((option) => option.value === previous && !option.disabled)
+    || [...el.newAgent.options].find((option) => option.value === "pi")
+    || el.newAgent.options[0];
+  if (selected) el.newAgent.value = selected.value;
+  updateNewAgentNote();
+}
+
+function updateNewAgentNote() {
+  const id = el.newAgent?.value || "pi";
+  const connector = agentCatalog.find((item) => item.id === id);
+  if (el.newAgentNote) el.newAgentNote.textContent = id === "pi" ? agentHubText("piNote") : (connector?.description || agentHubText("cliNote"));
+  if (el.newWorktree) el.newWorktree.disabled = connector?.capabilities?.includes("worktree") === false;
+}
+
+async function loadAgentCatalog() {
+  if (agentCatalogRequest) agentCatalogRequest.abort();
+  agentCatalogRequest = new AbortController();
+  try {
+    const data = await api("/api/agents", { signal: agentCatalogRequest.signal });
+    agentCatalog = Array.isArray(data?.connectors) ? data.connectors : [];
+    renderNewAgentOptions();
+    renderAgentHub();
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      agentCatalog = [{ id: "pi", label: "Pi Agent", installed: true, kind: "native", capabilities: ["rpc", "worktree"] }];
+      renderNewAgentOptions();
+      renderAgentHub();
+    }
+  } finally {
+    agentCatalogRequest = null;
+  }
+}
+
+let agentTaskRefreshRequest = null;
+async function refreshAgentTasks() {
+  if (agentTaskRefreshRequest) agentTaskRefreshRequest.abort();
+  agentTaskRefreshRequest = new AbortController();
+  try {
+    const data = await api("/api/agent-tasks", { signal: agentTaskRefreshRequest.signal });
+    agentTasks = Array.isArray(data?.tasks) ? data.tasks : [];
+    renderAgentHub();
+    syncAgentTaskPolling();
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      agentTasks = [];
+      renderAgentHub();
+    }
+  } finally {
+    agentTaskRefreshRequest = null;
+  }
+}
+
+function syncAgentTaskPolling() {
+  const listVisible = el.viewList && !el.viewList.classList.contains("hidden");
+  const hasRunning = agentTasks.some(agentTaskIsRunning);
+  if (listVisible && hasRunning) {
+    if (!agentTaskPollTimer) agentTaskPollTimer = setInterval(() => void refreshAgentTasks(), 5000);
+    if (!agentHubTicker) agentHubTicker = setInterval(updateAgentHubClock, 1000);
+    return;
+  }
+  if (agentTaskPollTimer) {
+    clearInterval(agentTaskPollTimer);
+    agentTaskPollTimer = null;
+  }
+  if (agentHubTicker) {
+    clearInterval(agentHubTicker);
+    agentHubTicker = null;
+  }
+}
+
+function openAgentTaskFromHub(task) {
+  if (!task) return;
+  if (task.agentId === "pi" && (task.file || task.sessionFile)) {
+    openExisting({ file: task.file || task.sessionFile, cwd: task.cwd || "", name: task.name || "Pi Agent", preview: "" });
+    return;
+  }
+  openGenericTask(task);
+}
+
+el.agentHubRefresh?.addEventListener("click", () => { void loadAgentCatalog(); void refreshAgentTasks(); });
+el.newAgent?.addEventListener("change", updateNewAgentNote);
+
 async function refreshSessions() {
   const generation = viewGeneration;
   const baseAtStart = apiBase;
@@ -1560,6 +1813,7 @@ async function refreshSessions() {
     renderSessionList(el.search.value);
     syncSessionListPolling();
     void refreshStuckSessions();
+    void refreshAgentTasks();
   } catch (e) {
     if (e.name !== "AbortError") { /* unauthorized 已處理 */ }
   } finally {
@@ -2869,7 +3123,7 @@ async function loadOlderHistory(button) {
   }
 }
 
-async function startNew(cwd, name) {
+async function startNew(cwd, name, agentId = "pi", worktree = false) {
   beginDraftScope({ cwd, name });
   const generation = ++viewGeneration;
   if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
@@ -2896,7 +3150,11 @@ async function startNew(cwd, name) {
     el.viewChat.classList.remove("hidden");
   }
   void refreshProjectChanges({ background: true });
-  await connectRpc({ cwd, name }, generation);
+  if (String(agentId || "pi") === "pi" && !worktree) {
+    await connectRpc({ cwd, name }, generation);
+  } else {
+    await connectAgentTask({ agentId: String(agentId || "pi"), cwd, name, worktree: !!worktree }, generation);
+  }
 }
 
 async function connectRpc(opts, generation = viewGeneration) {
@@ -3027,17 +3285,295 @@ async function connectRpc(opts, generation = viewGeneration) {
   void syncSessionStats(rpc?.sid);
 }
 
+// ---------------------------------------------------------------------------
+// Generic Agent Hub tasks
+// ---------------------------------------------------------------------------
+
+function agentConnectorLabel(agentId) {
+  const id = String(agentId || "");
+  if (id === "pi") return "Pi Agent";
+  return agentCatalog.find((item) => item.id === id)?.label || id || "Agent";
+}
+
+function genericTaskTerminal(status) {
+  return ["completed", "failed", "stopped", "orphaned", "detached"].includes(String(status || ""));
+}
+
+function updateAgentTaskCache(task) {
+  if (!task) return;
+  const id = String(task.id || task.taskId || "");
+  if (!id || id.startsWith("pi:")) return;
+  const normalized = { ...task, id, taskId: id };
+  const index = agentTasks.findIndex((item) => String(item.id || item.taskId || "") === id);
+  if (index < 0) agentTasks.unshift(normalized);
+  else agentTasks[index] = { ...agentTasks[index], ...normalized };
+  renderAgentHub();
+  syncAgentTaskPolling();
+}
+
+function appendGenericOutput(text, stream = "stdout") {
+  if (!rpc?.generic) return;
+  const clean = stripAnsi(String(text ?? ""));
+  if (!clean) return;
+  if (!rpc.genericOutputNode || rpc.genericOutputNode.dataset.stream !== stream) {
+    const shell = makeMsgShell("assistant", rpc.agentLabel || "Agent");
+    const pre = document.createElement("pre");
+    pre.className = `agent-terminal-output ${stream === "stderr" ? "stderr" : "stdout"}`;
+    pre.dataset.stream = stream;
+    shell.bubble.appendChild(pre);
+    rpc.genericOutputNode = pre;
+  }
+  rpc.genericOutputNode.textContent += clean;
+  scrollBottom();
+}
+
+function appendGenericTerminalNotice(status, event = {}) {
+  if (!rpc?.generic || rpc.genericTerminalNotice) return;
+  const terminal = String(status || "completed");
+  rpc.genericTerminalNotice = terminal;
+  const shell = makeMsgShell("assistant", rpc.agentLabel || "Agent");
+  const box = document.createElement("div");
+  box.className = terminal === "failed" ? "run-error" : "agent-terminal-status";
+  const title = document.createElement("div");
+  title.className = terminal === "failed" ? "run-error-title" : "agent-terminal-status-title";
+  title.textContent = `${rpc.agentLabel || "Agent"} · ${agentStatusText(terminal)}`;
+  box.appendChild(title);
+  const details = [];
+  if (event.error) details.push(String(event.error).slice(-4000));
+  if (event.signal) details.push(agentHubText("signal", { value: event.signal }));
+  if (event.code !== undefined && event.code !== null && Number(event.code) !== 0) details.push(agentHubText("exitCode", { value: event.code }));
+  if (details.length) {
+    const detail = document.createElement("div");
+    detail.className = terminal === "failed" ? "run-error-message" : "agent-terminal-status-detail";
+    detail.textContent = details.join(" · ");
+    box.appendChild(detail);
+  }
+  shell.bubble.appendChild(box);
+  scrollBottom();
+}
+
+function applyGenericTaskSnapshot(snapshot = {}) {
+  if (!rpc?.generic) return;
+  const status = String(snapshot.status || rpc.taskStatus || "running");
+  rpc.taskStatus = status;
+  if (snapshot.agentId) rpc.agentId = String(snapshot.agentId);
+  if (snapshot.agentId) rpc.agentLabel = agentConnectorLabel(snapshot.agentId);
+  if (Number.isFinite(Number(snapshot.startedAt)) && Number(snapshot.startedAt) > 0) rpc.runStartedAt = Number(snapshot.startedAt);
+  if (Number.isFinite(Number(snapshot.endedAt)) && Number(snapshot.endedAt) > 0) rpc.runEndedAt = Number(snapshot.endedAt);
+  rpc.activityLabel = status === "waiting" ? "waiting" : "working";
+  updateAgentTaskCache({ ...snapshot, id: snapshot.id || snapshot.taskId || rpc.sid, agentId: rpc.agentId, name: rpc.name, cwd: rpc.cwd });
+  setStreaming(agentTaskIsRunning({ status }));
+  if (genericTaskTerminal(status)) appendGenericTerminalNotice(status, snapshot);
+}
+
+function handleAgentTaskEvent(ev, eventSid = rpc?.sid) {
+  if (!rpc?.generic || (eventSid && rpc.sid !== eventSid)) return;
+  markRpcActivity();
+  if (!ev || typeof ev !== "object") return;
+  if (ev.type === "connected") {
+    applyGenericTaskSnapshot(ev);
+    return;
+  }
+  if (ev.type === "task_started" || ev.type === "status") {
+    applyGenericTaskSnapshot(ev);
+    return;
+  }
+  if (ev.type === "output") {
+    appendGenericOutput(ev.text, ev.stream);
+    return;
+  }
+  if (ev.type === "task_exit") {
+    applyGenericTaskSnapshot({ ...ev, status: ev.status || rpc.taskStatus });
+    if (genericTaskTerminal(ev.status || rpc.taskStatus)) rpc.streamEnded = true;
+    setStreaming(false);
+  }
+}
+
+async function openGenericTask(task) {
+  if (!task) return;
+  const cwd = task.cwd || task.worktree?.path || "";
+  const name = task.name || agentConnectorLabel(task.agentId);
+  beginDraftScope({ cwd, name });
+  const generation = ++viewGeneration;
+  if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
+  resetTaskProgress();
+  resetProjectChanges();
+  resetComposerSummary();
+  currentSessionFile = null;
+  currentAgentTaskId = String(task.id || task.taskId || "");
+  _lastMsgDate = null;
+  lastUserText = "";
+  currentSessionCwd = cwd;
+  historyState = null;
+  removeHistoryLoadButton();
+  autoScrollPinned = true;
+  hideChatEmpty();
+  setChatTitle(name);
+  el.chatSub.dataset.base = cwd;
+  el.chatSub.textContent = cwd;
+  resetLiveUsage();
+  el.messages.innerHTML = "";
+  resetSessionUsage();
+  ensureSessionUsageFooter();
+  if (!isDesktop()) {
+    el.viewList.classList.add("hidden");
+    syncSessionListPolling();
+    el.viewChat.classList.remove("hidden");
+  } else {
+    el.viewChat.classList.remove("hidden");
+  }
+  void refreshProjectChanges({ background: true });
+  await connectAgentTask({ taskId: currentAgentTaskId }, generation);
+}
+
+async function connectAgentTask(options = {}, generation = viewGeneration) {
+  const baseAtStart = apiBase;
+  setStreaming(false);
+  try {
+    let result;
+    if (options.taskId) {
+      const detail = await api(`/api/agent-task?taskId=${encodeURIComponent(options.taskId)}`);
+      result = detail?.task;
+    } else {
+      result = await post("/api/agent/open", {
+        agentId: String(options.agentId || "pi"),
+        cwd: options.cwd,
+        name: options.name,
+        worktree: !!options.worktree,
+      });
+    }
+    if (generation !== viewGeneration || baseAtStart !== apiBase) return;
+    const taskId = String(result?.id || result?.taskId || "");
+    if (!taskId) throw new Error("Agent task did not return an id");
+    const status = String(result.status || (result.isRunning ? "running" : "waiting"));
+    rpc = {
+      sid: taskId,
+      generic: true,
+      genericOutputNode: null,
+      genericTerminalNotice: null,
+      es: null,
+      streaming: agentTaskIsRunning({ status }),
+      connectionLost: false,
+      streamEnded: false,
+      streamReady: false,
+      readyTimer: null,
+      reconnectTimer: null,
+      reconnectAttempt: 0,
+      lastEventId: -1,
+      lastActivityAt: Date.now(),
+      lastEventAt: Date.now(),
+      activityLabel: status === "waiting" ? "waiting" : "working",
+      taskStatus: status,
+      agentId: String(result.agentId || options.agentId || "agent"),
+      agentLabel: agentConnectorLabel(result.agentId || options.agentId),
+      name: result.name || options.name || "Agent task",
+      cwd: result.cwd || options.cwd || currentSessionCwd || "",
+      runStartedAt: Number(result.startedAt) || null,
+      runEndedAt: Number(result.endedAt) || null,
+    };
+    currentAgentTaskId = taskId;
+    updateAgentTaskCache({ ...result, id: taskId });
+    setStreaming(rpc.streaming);
+    let esFail = 0;
+
+    const scheduleReconnect = (es) => {
+      if (!rpc || rpc.sid !== taskId || rpc.streamEnded) return;
+      if (rpc.readyTimer) clearTimeout(rpc.readyTimer);
+      rpc.readyTimer = null;
+      rpc.streamReady = false;
+      try { es?.close(); } catch {}
+      if (rpc.es === es) rpc.es = null;
+      rpc.connectionLost = true;
+      const attempt = ++rpc.reconnectAttempt;
+      const delay = Math.min(30_000, 800 * (2 ** Math.min(attempt - 1, 5)));
+      el.queueNote.dataset.connection = "lost";
+      el.queueNote.textContent = rpc.streaming
+        ? tKey("runtime.streamRetry", { seconds: Math.ceil(delay / 1000) })
+        : tKey("runtime.streamRecovering");
+      el.queueNote.classList.remove("hidden");
+      if (rpc.reconnectTimer) return;
+      rpc.reconnectTimer = setTimeout(() => {
+        if (!rpc || rpc.sid !== taskId || rpc.streamEnded) return;
+        rpc.reconnectTimer = null;
+        openStream(Math.max(-1, Number(rpc.lastEventId) || -1));
+      }, delay);
+    };
+
+    const openStream = (after) => {
+      if (!rpc || rpc.sid !== taskId || rpc.streamEnded) return;
+      const es = new EventSource(baseAtStart + "/api/agent/stream?taskId=" + encodeURIComponent(taskId) + "&after=" + encodeURIComponent(after));
+      rpc.es = es;
+      rpc.streamReady = false;
+      if (rpc.readyTimer) clearTimeout(rpc.readyTimer);
+      rpc.readyTimer = setTimeout(() => {
+        if (rpc?.sid === taskId && rpc.es === es && !rpc.streamReady && !rpc.streamEnded) scheduleReconnect(es);
+      }, 12_000);
+      const markStreamReady = (snapshot = null) => {
+        if (!rpc || rpc.sid !== taskId || rpc.streamEnded) return;
+        rpc.streamReady = true;
+        if (rpc.readyTimer) clearTimeout(rpc.readyTimer);
+        rpc.readyTimer = null;
+        esFail = 0;
+        rpc.connectionLost = false;
+        rpc.reconnectAttempt = 0;
+        rpc.lastEventAt = Date.now();
+        applyGenericTaskSnapshot(snapshot || { status: rpc.taskStatus, id: taskId });
+        if (genericTaskTerminal(rpc.taskStatus)) rpc.streamEnded = true;
+        if (el.queueNote.dataset.connection === "lost") {
+          delete el.queueNote.dataset.connection;
+          if (!rpc.streaming) el.queueNote.classList.add("hidden");
+          else el.queueNote.textContent = tKey("runtime.streamRestored");
+        }
+      };
+      es.onopen = () => {
+        if (rpc?.sid !== taskId) { try { es.close(); } catch {} return; }
+        markStreamReady();
+      };
+      es.addEventListener("connected", (event) => {
+        let snapshot = null;
+        try { snapshot = JSON.parse(event.data); } catch {}
+        markStreamReady(snapshot);
+      });
+      es.onmessage = (event) => {
+        if (rpc?.sid !== taskId) { try { es.close(); } catch {} return; }
+        const eventId = Number(event.lastEventId);
+        if (Number.isFinite(eventId)) rpc.lastEventId = Math.max(rpc.lastEventId, eventId);
+        let data;
+        try { data = JSON.parse(event.data); } catch { return; }
+        handleAgentTaskEvent(data, taskId);
+      };
+      es.onerror = () => {
+        if (rpc?.sid !== taskId) { try { es.close(); } catch {} return; }
+        if (rpc.streamEnded) return;
+        esFail++;
+        if (esFail >= 3 && baseAtStart) showRemoteAuthorizationState(baseAtStart);
+        if (esFail >= 3) scheduleReconnect(es);
+      };
+    };
+    openStream(-1);
+  } catch (error) {
+    if (generation !== viewGeneration) return;
+    toast(tKey("runtime.openChatFailed", { detail: error.message }), true);
+    showList();
+  }
+}
+
 function closeChat(silent) {
   if (rpc) {
+    const generic = !!rpc.generic;
     rpc.streamEnded = true;
     if (rpc.reconnectTimer) clearTimeout(rpc.reconnectTimer);
     if (rpc.readyTimer) clearTimeout(rpc.readyTimer);
     rpc.reconnectTimer = null;
     rpc.readyTimer = null;
     try { rpc.es && rpc.es.close(); } catch {}
-    if (!silent) post("/api/close", { sid: rpc.sid }).catch(() => {});
+    // Generic CLI tasks are supervised by the Agent Hub and intentionally keep
+    // running when the user leaves the conversation. Native Pi keeps its
+    // historical close-vs-preserve semantics.
+    if (!generic && !silent) post("/api/close", { sid: rpc.sid }).catch(() => {});
     rpc = null;
   }
+  currentAgentTaskId = null;
   // Leaving the conversation clears its timer; the next session starts fresh.
   if (runTimerInterval) { clearInterval(runTimerInterval); runTimerInterval = null; }
   if (el.runTimer) { el.runTimer.classList.add("hidden"); el.runTimer.textContent = ""; }
@@ -4702,6 +5238,7 @@ function updateLiveUsage(u) {
 }
 function setStreaming(on) {
   if (rpc) rpc.streaming = on;
+  const generic = !!rpc?.generic;
   setTaskProgressRunState(!!on);
   if (on) {
     if (rpc && !rpc.lastEventAt) rpc.lastEventAt = Date.now();
@@ -4717,7 +5254,12 @@ function setStreaming(on) {
   el.thinkingStatus?.classList.toggle("hidden", !on);
   el.thinkingStatus?.classList.toggle("running", !!on && rpc?.activityLabel !== "waiting");
   el.btnAbort.classList.toggle("hidden", !on);
-  el.btnSend.classList.toggle("hidden", on);
+  // Interactive CLI agents accept follow-up input while they are alive, so
+  // keep Send available for them. Pi's native RPC retains its queue/abort UX.
+  el.btnSend.classList.toggle("hidden", on && !generic);
+  el.btnModel?.classList.toggle("hidden", generic);
+  el.btnImg?.classList.toggle("hidden", generic);
+  el.contextDashboard?.classList.toggle("hidden", generic);
   el.btnSend.title = on ? "" : (window.piI18n?.t("Send") || "Send");
   el.btnAbort.title = on ? (window.piI18n?.t("Stop") || "Stop") : "";
 }
@@ -4918,6 +5460,11 @@ function renderImgPreview() {
 async function sendCurrent() {
   let text = el.input.value.trim();
   if ((!text && !pendingImages.length) || !rpc) return;
+  const generic = !!rpc.generic;
+  if (generic && pendingImages.length) {
+    toast(agentHubText("cliTextOnly"), true);
+    return;
+  }
   const sendDraftKey = activeDraftKey;
   el.input.value = "";
   el.input.style.height = "auto";
@@ -4925,7 +5472,7 @@ async function sendCurrent() {
   slashState = null;
 
   // 內建 TUI 指令映射（/compact 等 RPC 專屬）
-  const bm = text.match(/^\/(compact|clear)\s*$/i);
+  const bm = !generic && text.match(/^\/(compact|clear)\s*$/i);
   if (bm) {
     const cmd = bm[1].toLowerCase();
     if (cmd === "compact") { await BUILTIN_SLASH.compact(); removeDraftForKey(sendDraftKey); return; }
@@ -4943,7 +5490,9 @@ async function sendCurrent() {
   pendingImages = [];
   renderImgPreview();
   try {
-    const result = await post("/api/send", { sid: sendSid, message: text, images }); // /skill:xxx 等直接透傳，pi 原生處理
+    const result = generic
+      ? await post("/api/agent/send", { taskId: sendSid, message: text })
+      : await post("/api/send", { sid: sendSid, message: text, images }); // /skill:xxx 等直接透傳，pi 原生處理
     removeDraftForKey(sendDraftKey);
     if (result?.queued && rpc?.sid === sendSid) {
       el.queueNote.dataset.persistent = "queue";
@@ -4962,7 +5511,9 @@ async function sendCurrent() {
   }
 }
 el.btnAbort.addEventListener("click", () => {
-  if (rpc) post("/api/abort", { sid: rpc.sid }).catch(() => {});
+  if (!rpc) return;
+  if (rpc.generic) post("/api/agent/abort", { taskId: rpc.sid }).catch(() => {});
+  else post("/api/abort", { sid: rpc.sid }).catch(() => {});
 });
 
 // ---- chat ⋯ menu：重命名目前 session / 返回列表 ----
@@ -8804,6 +9355,12 @@ async function loadProjectFolder(requestedPath = null) {
 function openNewDialog(initialCwd = null) {
   el.newCwd.value = "";
   el.newName.value = "";
+  if (el.newAgent) {
+    renderNewAgentOptions();
+    if ([...el.newAgent.options].some((option) => option.value === "pi" && !option.disabled)) el.newAgent.value = "pi";
+  }
+  if (el.newWorktree) el.newWorktree.checked = false;
+  updateNewAgentNote();
   el.newDialog.classList.remove("hidden");
   // No-path is the deterministic boot request. A path supplied by a project
   // action is used only when it is already absolute (or an accepted ~ path).
@@ -8926,7 +9483,7 @@ el.newStart.addEventListener("click", async () => {
   if (settings.removedProjects?.includes(cwd)) {
     settings = saveSettings({ removedProjects: settings.removedProjects.filter((value) => value !== cwd) });
   }
-  await startNew(cwd, el.newName.value.trim() || null);
+  await startNew(cwd, el.newName.value.trim() || null, el.newAgent?.value || "pi", !!el.newWorktree?.checked);
 });
 
 // ---- iOS 鍵盤適配：visualViewport 高度變化時收緊 composer ----

@@ -10,6 +10,8 @@ simple.
 ```text
 server.js
   ├─ Pi/session/provider/device behavior and route table
+  ├─ server/agent-connectors.js  allow-listed local Agent connectors and task journal
+  ├─ server/pty-bridge.py        dependency-free Unix PTY bridge for interactive CLIs
   ├─ server/device-trust.js  one-time pairing, peer credentials, and atomic grants
   ├─ server/http-utils.js  HTTP headers, cookies, auth modes, JSON bodies, SSE framing
   └─ access-token store     optional per-device/person browser tokens (hash-only)
@@ -30,6 +32,24 @@ explicit input/output boundary before adding more state to the controllers.
 ## Runtime rules
 
 - Keep API and relay requests out of the service-worker cache.
+- Agent Hub uses one connector contract for Pi and local CLI agents. Pi keeps
+  its native JSON-RPC/session history; Claude Code, Codex CLI, Grok Build, and
+  OpenCode are discovered from an explicit allow-list and run only from their
+  resolved executable path. The browser can submit an Agent id and text, never
+  an arbitrary command or shell fragment.
+- Generic CLI tasks have a bounded, private journal at
+  `~/.config/pi-harbor/agent-tasks.json` (mode `0600`). Their stdout/stderr is
+  streamed over authenticated SSE and retained as a short output tail so a
+  browser can leave and later reopen the task. On macOS/Linux, the bundled
+  stdlib-only `server/pty-bridge.py` gives interactive CLIs a real terminal;
+  Windows and hosts without Python use the safe pipe transport instead. A
+  supervised Pi Harbor restart
+  stops generic CLI children (there is no portable stdin reattachment protocol)
+  and records them as `stopped`, `detached`, or `orphaned`; Pi JSON-RPC runs keep
+  the existing graceful-restart behavior.
+- Worktree selection is server-side validated and uses the existing permanent
+  Git worktree helper. A task's working directory and branch are exposed to the
+  browser, while credentials and environment values stay on the host.
 - Keep secrets in the server process or local Pi configuration; never expose
   them through public client modules.
 - Keep generated build output out of the project volume. A future React build

@@ -136,6 +136,25 @@ To add an LLM provider, open **Settings → Connection → Models & providers**.
 Choose a catalog service, account/OAuth sign-in, API key, local service, or
 Custom provider. Then select the visible models you want to use.
 
+### Agent Hub connectors
+
+The **Agent Hub** card discovers the local Pi Agent and any installed
+allow-listed CLI connectors: Claude Code, Codex CLI, Grok Build, and OpenCode.
+Choose an Agent in **New project**, optionally enable an isolated Git worktree,
+and start the task. CLI stdout/stderr is streamed into the conversation. On
+macOS/Linux the bundled `server/pty-bridge.py` gives interactive CLIs a real
+terminal; Windows and hosts without Python use the safe pipe transport. The
+elapsed timer continues while you browse elsewhere, and the task remains in the
+inbox after the browser is closed. Select it again to replay the bounded output
+journal. CLI connectors must already be installed on the selected host; an
+uninstalled connector is shown but cannot be selected.
+
+Pi tasks retain the full native session history. Generic CLI tasks are supervised
+by Pi Harbor and stored as a private journal in
+`~/.config/pi-harbor/agent-tasks.json`. Because arbitrary CLIs do not expose a
+portable reattach protocol, a supervised Pi Harbor restart stops those children
+and marks the journal honestly instead of claiming that they are still running.
+
 Device aliases only affect the interface. They do not rename the operating
 system computer. Temporary Sub Agent sessions are hidden by default and can be
 revealed from the session list when needed.

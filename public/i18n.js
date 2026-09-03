@@ -3372,6 +3372,112 @@
   };
   for (const [id, table] of Object.entries(PROVIDER_DEVICE_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], table);
 
+  // Agent Hub inventory, task states, and the generic CLI launch flow. Keep
+  // these keyed so a locale switch never has to translate terminal output or
+  // user-authored task names.
+  const AGENT_HUB_TRANSLATIONS = {
+    en: {
+      "agentHub.title": "Agent Hub", "agentHub.agent": "Agent", "agentHub.discovering": "Discovering local agents…", "agentHub.refresh": "Refresh agents",
+      "agentHub.activeSummary": "{active} active · {ready} ready", "agentHub.readySummary": "{ready} agents ready",
+      "agentHub.noTasks": "No active tasks — choose an Agent when you start a project.", "agentHub.notInstalled": "not installed",
+      "agentHub.isolated": "Isolated worktree", "agentHub.worktreeDescription": "Give this task its own Git branch and folder", "agentHub.piNote": "Pi Agent keeps full session history. CLI agents stream terminal output here.",
+      "agentHub.cliNote": "This CLI streams terminal output here; the task keeps running when you leave the chat.", "agentHub.cliTextOnly": "CLI agents currently accept text input only.", "agentHub.agentTask": "Agent task", "agentHub.signal": "signal {value}", "agentHub.exitCode": "code {value}",
+      "agentHub.starting": "Starting", "agentHub.running": "Working", "agentHub.waiting": "Waiting", "agentHub.completed": "Done",
+      "agentHub.failed": "Failed", "agentHub.stopped": "Stopped", "agentHub.detached": "Detached", "agentHub.orphaned": "Interrupted",
+    },
+    "zh-Hant": {
+      "agentHub.title": "Agent Hub", "agentHub.agent": "Agent", "agentHub.discovering": "正在探索本機 Agent…", "agentHub.refresh": "重新探索 Agent",
+      "agentHub.activeSummary": "{active} 個執行中 · {ready} 個可用", "agentHub.readySummary": "{ready} 個 Agent 可用",
+      "agentHub.noTasks": "目前沒有工作；建立專案時選擇要使用的 Agent。", "agentHub.notInstalled": "尚未安裝",
+      "agentHub.isolated": "隔離 Worktree", "agentHub.worktreeDescription": "為這個工作建立獨立的 Git 分支與資料夾", "agentHub.piNote": "Pi Agent 會保留完整工作階段記錄；CLI Agent 會在這裡串流終端輸出。",
+      "agentHub.cliNote": "CLI 輸出會串流到這裡；離開對話後工作仍會繼續。", "agentHub.cliTextOnly": "CLI Agent 目前只接受文字輸入。", "agentHub.agentTask": "Agent 工作", "agentHub.signal": "訊號 {value}", "agentHub.exitCode": "代碼 {value}", "agentHub.starting": "啟動中",
+      "agentHub.running": "工作中", "agentHub.waiting": "等待中", "agentHub.completed": "完成", "agentHub.failed": "失敗",
+      "agentHub.stopped": "已停止", "agentHub.detached": "已脫離", "agentHub.orphaned": "已中斷",
+    },
+    "zh-Hans": {
+      "agentHub.title": "Agent Hub", "agentHub.agent": "Agent", "agentHub.discovering": "正在探索本机 Agent…", "agentHub.refresh": "重新探索 Agent",
+      "agentHub.activeSummary": "{active} 个运行中 · {ready} 个可用", "agentHub.readySummary": "{ready} 个 Agent 可用",
+      "agentHub.noTasks": "目前没有任务；创建项目时选择要使用的 Agent。", "agentHub.notInstalled": "尚未安装",
+      "agentHub.isolated": "隔离 Worktree", "agentHub.worktreeDescription": "为此任务建立独立的 Git 分支和文件夹", "agentHub.piNote": "Pi Agent 会保留完整会话记录；CLI Agent 会在这里串流终端输出。",
+      "agentHub.cliNote": "CLI 输出会串流到这里；离开对话后任务仍会继续。", "agentHub.cliTextOnly": "CLI Agent 目前只接受文字输入。", "agentHub.agentTask": "Agent 任务", "agentHub.signal": "信号 {value}", "agentHub.exitCode": "代码 {value}", "agentHub.starting": "启动中",
+      "agentHub.running": "工作中", "agentHub.waiting": "等待中", "agentHub.completed": "完成", "agentHub.failed": "失败",
+      "agentHub.stopped": "已停止", "agentHub.detached": "已脱离", "agentHub.orphaned": "已中断",
+    },
+    ja: {
+      "agentHub.title": "Agent Hub", "agentHub.discovering": "ローカル Agent を検出中…", "agentHub.refresh": "Agent を更新",
+      "agentHub.activeSummary": "{active} 件実行中 · {ready} 件利用可能", "agentHub.readySummary": "{ready} 件の Agent が利用可能",
+      "agentHub.noTasks": "実行中のタスクはありません。プロジェクト開始時に Agent を選択してください。", "agentHub.notInstalled": "未インストール",
+      "agentHub.isolated": "隔離 Worktree", "agentHub.piNote": "Pi Agent は完全なセッション履歴を保持します。CLI Agent の出力はここに表示されます。",
+      "agentHub.cliNote": "CLI の出力をここに表示します。チャットを離れてもタスクは実行を続けます。", "agentHub.starting": "起動中",
+      "agentHub.running": "作業中", "agentHub.waiting": "待機中", "agentHub.completed": "完了", "agentHub.failed": "失敗",
+      "agentHub.stopped": "停止", "agentHub.detached": "分離済み", "agentHub.orphaned": "中断",
+    },
+    ko: {
+      "agentHub.title": "Agent Hub", "agentHub.discovering": "로컬 Agent 검색 중…", "agentHub.refresh": "Agent 새로 고침",
+      "agentHub.activeSummary": "{active}개 실행 중 · {ready}개 사용 가능", "agentHub.readySummary": "{ready}개 Agent 사용 가능",
+      "agentHub.noTasks": "실행 중인 작업이 없습니다. 프로젝트를 시작할 때 Agent를 선택하세요.", "agentHub.notInstalled": "설치되지 않음",
+      "agentHub.isolated": "격리된 Worktree", "agentHub.piNote": "Pi Agent는 전체 세션 기록을 보존합니다. CLI Agent 출력은 여기에 표시됩니다.",
+      "agentHub.cliNote": "CLI 출력이 여기에 표시되며 채팅을 나가도 작업은 계속됩니다.", "agentHub.starting": "시작 중",
+      "agentHub.running": "작업 중", "agentHub.waiting": "대기 중", "agentHub.completed": "완료", "agentHub.failed": "실패",
+      "agentHub.stopped": "중지됨", "agentHub.detached": "분리됨", "agentHub.orphaned": "중단됨",
+    },
+    tr: {
+      "agentHub.title": "Agent Hub", "agentHub.discovering": "Yerel Agent'lar aranıyor…", "agentHub.refresh": "Agent'ları yenile",
+      "agentHub.activeSummary": "{active} etkin · {ready} hazır", "agentHub.readySummary": "{ready} Agent hazır",
+      "agentHub.noTasks": "Etkin görev yok — proje başlatırken bir Agent seçin.", "agentHub.notInstalled": "yüklü değil",
+      "agentHub.isolated": "Yalıtılmış Worktree", "agentHub.piNote": "Pi Agent tam oturum geçmişini korur. CLI Agent çıktısı burada akar.",
+      "agentHub.cliNote": "CLI çıktısı burada akar; sohbetten ayrılsanız da görev çalışmayı sürdürür.", "agentHub.starting": "Başlatılıyor",
+      "agentHub.running": "Çalışıyor", "agentHub.waiting": "Bekliyor", "agentHub.completed": "Tamamlandı", "agentHub.failed": "Başarısız",
+      "agentHub.stopped": "Durduruldu", "agentHub.detached": "Ayrıldı", "agentHub.orphaned": "Kesildi",
+    },
+    fr: {
+      "agentHub.title": "Agent Hub", "agentHub.discovering": "Détection des agents locaux…", "agentHub.refresh": "Actualiser les agents",
+      "agentHub.activeSummary": "{active} actif(s) · {ready} disponible(s)", "agentHub.readySummary": "{ready} agent(s) disponible(s)",
+      "agentHub.noTasks": "Aucune tâche active — choisissez un agent au démarrage d’un projet.", "agentHub.notInstalled": "non installé",
+      "agentHub.isolated": "Worktree isolé", "agentHub.piNote": "Pi Agent conserve l’historique complet. La sortie des agents CLI s’affiche ici.",
+      "agentHub.cliNote": "La sortie CLI s’affiche ici ; la tâche continue même après avoir quitté la conversation.", "agentHub.starting": "Démarrage",
+      "agentHub.running": "En cours", "agentHub.waiting": "En attente", "agentHub.completed": "Terminé", "agentHub.failed": "Échec",
+      "agentHub.stopped": "Arrêté", "agentHub.detached": "Détaché", "agentHub.orphaned": "Interrompu",
+    },
+    de: {
+      "agentHub.title": "Agent Hub", "agentHub.discovering": "Lokale Agents werden gesucht…", "agentHub.refresh": "Agents aktualisieren",
+      "agentHub.activeSummary": "{active} aktiv · {ready} bereit", "agentHub.readySummary": "{ready} Agents bereit",
+      "agentHub.noTasks": "Keine aktiven Aufgaben — wähle beim Start eines Projekts einen Agent.", "agentHub.notInstalled": "nicht installiert",
+      "agentHub.isolated": "Isolierter Worktree", "agentHub.piNote": "Pi Agent bewahrt den vollständigen Sitzungsverlauf. CLI-Ausgaben werden hier angezeigt.",
+      "agentHub.cliNote": "CLI-Ausgaben werden hier angezeigt; die Aufgabe läuft weiter, wenn du den Chat verlässt.", "agentHub.starting": "Wird gestartet",
+      "agentHub.running": "In Arbeit", "agentHub.waiting": "Wartet", "agentHub.completed": "Fertig", "agentHub.failed": "Fehlgeschlagen",
+      "agentHub.stopped": "Angehalten", "agentHub.detached": "Getrennt", "agentHub.orphaned": "Unterbrochen",
+    },
+    es: {
+      "agentHub.title": "Agent Hub", "agentHub.discovering": "Buscando agentes locales…", "agentHub.refresh": "Actualizar agentes",
+      "agentHub.activeSummary": "{active} activos · {ready} disponibles", "agentHub.readySummary": "{ready} agentes disponibles",
+      "agentHub.noTasks": "No hay tareas activas; elige un agente al iniciar un proyecto.", "agentHub.notInstalled": "no instalado",
+      "agentHub.isolated": "Worktree aislado", "agentHub.piNote": "Pi Agent conserva todo el historial. La salida de los agentes CLI aparece aquí.",
+      "agentHub.cliNote": "La salida CLI aparece aquí; la tarea continúa aunque salgas del chat.", "agentHub.starting": "Iniciando",
+      "agentHub.running": "Trabajando", "agentHub.waiting": "Esperando", "agentHub.completed": "Listo", "agentHub.failed": "Fallido",
+      "agentHub.stopped": "Detenido", "agentHub.detached": "Desconectado", "agentHub.orphaned": "Interrumpido",
+    },
+    "pt-BR": {
+      "agentHub.title": "Agent Hub", "agentHub.discovering": "Detectando agentes locais…", "agentHub.refresh": "Atualizar agentes",
+      "agentHub.activeSummary": "{active} ativos · {ready} disponíveis", "agentHub.readySummary": "{ready} agentes disponíveis",
+      "agentHub.noTasks": "Nenhuma tarefa ativa — escolha um agente ao iniciar um projeto.", "agentHub.notInstalled": "não instalado",
+      "agentHub.isolated": "Worktree isolado", "agentHub.piNote": "O Pi Agent mantém o histórico completo. A saída dos agentes CLI aparece aqui.",
+      "agentHub.cliNote": "A saída CLI aparece aqui; a tarefa continua mesmo quando você sai do chat.", "agentHub.starting": "Iniciando",
+      "agentHub.running": "Trabalhando", "agentHub.waiting": "Aguardando", "agentHub.completed": "Concluído", "agentHub.failed": "Falhou",
+      "agentHub.stopped": "Parado", "agentHub.detached": "Desanexado", "agentHub.orphaned": "Interrompido",
+    },
+    it: {
+      "agentHub.title": "Agent Hub", "agentHub.discovering": "Rilevamento degli agent locali…", "agentHub.refresh": "Aggiorna agent",
+      "agentHub.activeSummary": "{active} attivi · {ready} disponibili", "agentHub.readySummary": "{ready} agent disponibili",
+      "agentHub.noTasks": "Nessuna attività attiva — scegli un agent quando avvii un progetto.", "agentHub.notInstalled": "non installato",
+      "agentHub.isolated": "Worktree isolato", "agentHub.piNote": "Pi Agent conserva tutta la cronologia. L’output degli agent CLI appare qui.",
+      "agentHub.cliNote": "L’output CLI appare qui; l’attività continua anche quando lasci la chat.", "agentHub.starting": "Avvio",
+      "agentHub.running": "In esecuzione", "agentHub.waiting": "In attesa", "agentHub.completed": "Completato", "agentHub.failed": "Non riuscito",
+      "agentHub.stopped": "Arrestato", "agentHub.detached": "Separato", "agentHub.orphaned": "Interrotto",
+    },
+  };
+  for (const id of Object.keys(KEYED_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], AGENT_HUB_TRANSLATIONS.en, AGENT_HUB_TRANSLATIONS[id] || {});
+
   const KEYED_SOURCE_KEYS = Object.freeze(Object.keys(KEYED_TRANSLATIONS.en));
   const KEYED_FALLBACK_KEYS = {};
   for (const [id, table] of Object.entries(KEYED_TRANSLATIONS)) {

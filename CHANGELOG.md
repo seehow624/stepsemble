@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.12.0
+
+- Added Agent Hub connectors for the native Pi Agent plus installed Claude
+  Code, Codex CLI, Grok Build, and OpenCode executables. Connector ids are
+  allow-listed, project paths are validated server-side, and arbitrary shell
+  commands are never accepted from the browser.
+- Added a streamed task inbox with per-task elapsed time, reconnectable SSE,
+  bounded private output journals, isolated Git worktrees, and background
+  execution after leaving or closing the browser.
+- Added a dependency-free Unix PTY bridge for interactive CLIs (with a safe
+  pipe fallback on Windows or hosts without Python), plus truthful detached /
+  orphaned states after a supervised restart.
+- Added localized Agent Hub labels and a one-second local clock that updates
+  without rebuilding the task list, preserving scroll position and focus.
+
 ## 2.11.2
 
 - Automatic updates and fresh installs now fall back to the public GitHub
