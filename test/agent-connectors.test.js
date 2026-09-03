@@ -39,8 +39,14 @@ test("generic connector tasks stream bounded output and stop without shell injec
   assert.equal(opened.agentId, "claude-code");
   assert.equal(opened.status, "running");
   assert.equal(opened.isRunning, true);
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-  const internal = service.get(opened.id);
+  // Python startup on shared macOS runners can be slower than local runs.
+  // Wait for the first output with a bounded timeout instead of making the
+  // PTY smoke test depend on a single scheduling slice.
+  let internal = service.get(opened.id);
+  for (let attempt = 0; attempt < 40 && !internal.outputTail; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    internal = service.get(opened.id);
+  }
   assert.match(internal.outputTail, /hello from cli/);
   assert.match(internal.outputTail, new RegExp(process.platform === "win32" ? "stdin=pipe" : "stdin=tty"));
   await assert.rejects(() => service.open({ agentId: "claude;touch /tmp/pwned", cwd: project }), /not installed|Use the native Pi connector/);
