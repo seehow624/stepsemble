@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.13.1
+
+- Fixed the Settings → About usage card leaking the `usage.title` key and
+  stretching empty days into large gaps on narrow screens.
+- Usage rows now use intrinsic compact tracks, and the renderer repairs the
+  heading/list semantics when an older PWA shell reconnects.
+- Service-worker shell installs and navigations now bypass HTTP-cached HTML so
+  releases cannot reopen with stale layout or localization resources.
+
 ## 2.13.0
 
 - Generic Agent Hub tasks now run under an independent per-task supervisor,

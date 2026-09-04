@@ -1,4 +1,4 @@
-/* pi-harbor v2.13.0 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.13.1 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -4533,14 +4533,22 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
 .usage-summary-heading strong { font-size: .76rem; font-weight: 720; color: var(--ink); }
 .usage-summary-note { color: var(--pine-soft); font-size: .64rem; }
 #usage-summary-rows,
-.usage-summary-rows { display: grid; gap: 6px; align-content: start; }
+.usage-summary-rows {
+  display: grid;
+  grid-auto-rows: max-content;
+  gap: 6px;
+  align-content: start;
+  min-height: 0;
+}
 .usage-summary-row {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr) auto;
   align-items: center;
+  align-self: start;
   gap: 8px;
   min-height: 24px;
   min-width: 0;
+  height: max-content;
 }
 .usage-summary-row.empty { opacity: .55; }
 .usage-summary-row.empty .usage-value { color: var(--pine-soft); }

@@ -1,25 +1,37 @@
-const CACHE_NAME = "pi-harbor-shell-v2.13.0";
+const CACHE_NAME = "pi-harbor-shell-v2.13.1";
 const SHELL = [
   "/",
   "/index.html",
-  "/style.css?v=2.13.0",
-  "/i18n.js?v=2.13.0",
-  "/modules/app-foundation.js?v=2.13.0",
-  "/modules/session-utils.js?v=2.13.0",
-  "/modules/context-usage.js?v=2.13.0",
-  "/app.js?v=2.13.0",
-  "/manifest.webmanifest?v=2.13.0",
-  "/pi-logo.svg?v=2.13.0",
+  "/style.css?v=2.13.1",
+  "/i18n.js?v=2.13.1",
+  "/modules/app-foundation.js?v=2.13.1",
+  "/modules/session-utils.js?v=2.13.1",
+  "/modules/context-usage.js?v=2.13.1",
+  "/app.js?v=2.13.1",
+  "/manifest.webmanifest?v=2.13.1",
+  "/pi-logo.svg?v=2.13.1",
   "/pi-glyph.svg",
-  "/icon-180.png?v=2.13.0",
-  "/icon-512.png?v=2.13.0",
+  "/icon-180.png?v=2.13.1",
+  "/icon-512.png?v=2.13.1",
   "/vendor/marked.min.js",
   "/vendor/purify.min.js",
   "/vendor/mermaid.min.js",
 ];
 
+async function cacheShell(cache) {
+  // `cache.addAll()` may reuse an HTTP-cached response for an unversioned
+  // navigation entry. Fetch each shell URL with reload semantics so a newly
+  // activated worker can never seed itself with the previous app shell.
+  await Promise.all(SHELL.map(async (url) => {
+    const request = new Request(url, { cache: "reload" });
+    const response = await fetch(request);
+    if (!response.ok) throw new Error(`Pi Harbor shell request failed: ${url}`);
+    await cache.put(url, response);
+  }));
+}
+
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE_NAME).then(cacheShell).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (event) => {
@@ -70,7 +82,9 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/") || url.pathname.startsWith("/r/")) return;
 
   if (request.mode === "navigate") {
-    event.respondWith(fetch(request).catch(() => caches.match("/index.html")));
+    // Reload the document on every navigation/reload. This is the important
+    // path for users who left an old PWA tab open while a release went out.
+    event.respondWith(fetch(new Request(request, { cache: "reload" })).catch(() => caches.match("/index.html")));
     return;
   }
 

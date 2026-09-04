@@ -1,7 +1,7 @@
-/* pi-harbor v2.13.0 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.13.1 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.13.0";
+const CLIENT_APP_VERSION = "2.13.1";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -1431,10 +1431,36 @@ function fmtCompactTokens(value) {
   return String(n);
 }
 
+// The usage card is also a useful canary for a stale PWA shell: older clients
+// can keep the old keyed heading or an unstyled rows container after a deploy.
+// Normalize the small bit of DOM we own before every render so a reconnect or
+// a late locale change cannot leave the card with a raw `usage.title` key or
+// stretched rows.
+function usageSummaryTitleText() {
+  const keyed = tKey("usage.title");
+  if (keyed && keyed !== "usage.title") return keyed;
+  return window.piI18n?.t?.("Usage · last 7 days") || "Usage · last 7 days";
+}
+
+function normalizeUsageSummaryDom() {
+  if (!el.usageSummaryCard || !el.usageSummaryRows) return;
+  const title = el.usageSummaryCard.querySelector(
+    "#usage-summary-title, [data-i18n-key=\"usage.title\"], .usage-summary-heading strong",
+  );
+  if (title) {
+    title.textContent = usageSummaryTitleText();
+    title.dataset.i18nKeyRendered = title.textContent;
+  }
+  el.usageSummaryRows.classList.add("usage-summary-rows");
+  el.usageSummaryRows.setAttribute("role", "list");
+}
+
 async function renderUsageSummary() {
   if (!el.usageSummaryCard || !el.usageSummaryRows) return;
+  normalizeUsageSummaryDom();
   try {
     const data = await api("/api/usage-summary?days=7");
+    normalizeUsageSummaryDom();
     const days = Array.isArray(data?.days) ? data.days : [];
     const maxTokens = Math.max(1, ...days.map((d) => Number(d.tokens) || 0));
     el.usageSummaryRows.innerHTML = "";

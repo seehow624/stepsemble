@@ -41,6 +41,9 @@ test("service worker keeps local Mermaid offline and never intercepts API or rel
   const mermaid = fs.statSync(path.join(root, "public", "vendor", "mermaid.min.js"));
   assert.ok(sw.includes('url.pathname.startsWith("/api/")'));
   assert.ok(sw.includes('url.pathname.startsWith("/r/")'));
+  assert.match(sw, /new Request\(url, \{ cache: "reload" \}\)/);
+  assert.match(sw, /function cacheShell\(cache\)/);
+  assert.match(sw, /new Request\(request, \{ cache: "reload" \}\)/);
   assert.match(sw, /\/vendor\/mermaid\.min\.js/);
   assert.match(app, /script\.src = "\/vendor\/mermaid\.min\.js"/);
   assert.ok(mermaid.size > 1_000_000, "the Mermaid bundle is vendored");
@@ -1080,9 +1083,14 @@ test("About usage summary keeps translated copy and quiet empty days", () => {
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");
   assert.match(html, /data-i18n-key="usage\.title"/);
+  assert.match(html, /id="usage-summary-title"/);
   assert.match(html, /id="usage-summary-rows" class="usage-summary-rows" role="list"/);
+  assert.match(app, /function normalizeUsageSummaryDom\(\)/);
+  assert.match(app, /title\.textContent = usageSummaryTitleText\(\)/);
+  assert.match(app, /el\.usageSummaryRows\.classList\.add\("usage-summary-rows"\)/);
   assert.match(app, /row\.setAttribute\("role", "listitem"\)/);
-  assert.match(css, /#usage-summary-rows,[\s\S]{0,180}align-content: start/);
+  assert.match(css, /#usage-summary-rows,[\s\S]{0,260}grid-auto-rows: max-content/);
+  assert.match(css, /align-self: start/);
   assert.match(css, /\.usage-summary-row\.empty \{ opacity: \.55; \}/);
   assert.match(css, /\.usage-summary-row\.empty \.usage-bar \{ height: 2px/);
   assert.match(i18n, /"usage\.title": "Usage · last 7 days"/);
