@@ -19,8 +19,8 @@
       <feDropShadow dx="0" dy="12" stdDeviation="15" flood-color="#000000" flood-opacity="0.28"/>
     </filter>
     <g id="agent-module">
-      <!-- The equal violet inset belongs to Stepsemble's coordination layer, not a provider. -->
-      <path fill="url(#protocol)" d="M399 296c-34 16-55 39-61 67h18c6-21 23-38 49-50 22-11 38-26 47-44-14 11-32 19-53 27Z"/>
+      <!-- The protocol shape deliberately overlaps beneath the ivory shape: it is an attached inset, never a floating piece. -->
+      <path data-role="coordination-inset" data-attachment="overlap" fill="url(#protocol)" d="M390 287c-38 18-61 44-68 76h34c6-21 23-38 49-50 22-11 38-26 47-44-16 9-36 15-62 18Z"/>
       <path fill="url(#ivory)" d="M282 100h105c42 0 73 31 73 73v35c0 41-22 69-61 88l-8 4c-31 16-49 37-53 63h-31c-62 0-105-43-105-105v-78c0-49 31-80 80-80Z"/>
     </g>
   </defs>

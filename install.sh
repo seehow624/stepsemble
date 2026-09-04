@@ -40,7 +40,7 @@ usage() {
 Usage: ./install.sh [options]
 
   --yes             Accept recommended choices when possible
-  --version TAG     Install a specific release tag, for example v3.0.1
+  --version TAG     Install a specific release tag, for example v3.0.2
   --no-pi           Do not offer to install Pi when it is missing
   --no-updates      Do not install the automatic updater
   --help            Show this help
@@ -607,7 +607,7 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 
 say ""
-say "Stepsemble 3.0.1 installer"
+say "Stepsemble 3.0.2 installer"
 say "────────────────────────"
 
 NODE_BIN="$(find_node || true)"

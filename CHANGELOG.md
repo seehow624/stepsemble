@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.2
+
+- Corrected the Step Mosaic vector construction so every violet coordination
+  inset overlaps and remains visibly attached to its ivory agent module,
+  including at small icon sizes.
+
 ## 3.0.1
 
 - Replaced the literal cat-paw-and-terminal mark with a vendor-neutral Step

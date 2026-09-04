@@ -68,6 +68,8 @@ test("Stepsemble ships its own equal-participation Step Mosaic", () => {
   assert.match(logo, /coordination layer/);
   assert.match(logo, /#8588FF/);
   assert.match(logo, /#FFFDF8/);
+  assert.match(logo, /data-role="coordination-inset" data-attachment="overlap"/);
+  assert.match(appIcon, /data-role="coordination-inset" data-attachment="overlap"/);
   assert.equal((logo.match(/href="#agent-module"/g) || []).length, 4);
   assert.equal((appIcon.match(/href="#agent-module"/g) || []).length, 4);
   assert.doesNotMatch(logo, /cat paw|terminal prompt|#FF6B5F/i);
