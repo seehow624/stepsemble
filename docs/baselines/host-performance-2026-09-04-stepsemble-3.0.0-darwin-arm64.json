@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "recordedAt": "2026-09-04T11:08:52.229Z",
+  "recordedAt": "2026-09-04T12:24:03.627Z",
   "appVersion": "3.0.0",
-  "sourceCommit": "5ef248e20a7f49c274555cab91045542b0150def",
-  "sourceWorktreeDirty": true,
+  "sourceCommit": "39e671d1b95f3f72ca76178c44216fbe15ed1cc5",
+  "sourceWorktreeDirty": false,
   "sourceSha256": {
     "server": "4132e50a3dfd3a200214cdd31f206d7fe43d5c601849c5172ac324a44926662a",
     "benchmark": "b9016cd37d3e1771f0b11dfb83075b87edf38238893f60d9a1a65b15283f0907"
@@ -26,102 +26,102 @@
     "genericConcurrentTasks": 8
   },
   "fixture": {
-    "creationMs": 81.533,
+    "creationMs": 81.207,
     "totalSessionFiles": 301
   },
   "metrics": {
-    "startupMs": 32.825,
+    "startupMs": 34.257,
     "healthWarm": {
       "latencyMs": {
         "samples": 100,
-        "min": 0.126,
-        "p50": 0.172,
-        "p95": 0.608,
-        "p99": 1.023,
-        "max": 1.279,
-        "mean": 0.235
+        "min": 0.153,
+        "p50": 0.197,
+        "p95": 0.604,
+        "p99": 1.049,
+        "max": 1.234,
+        "mean": 0.256
       },
       "responseBytes": 138
     },
     "sessionsCold": {
-      "latencyMs": 94.312,
-      "responseBytes": 211722
+      "latencyMs": 92.812,
+      "responseBytes": 211709
     },
     "sessionsWarm": {
       "latencyMs": {
         "samples": 20,
-        "min": 8.99,
-        "p50": 9.302,
-        "p95": 10.19,
-        "p99": 10.47,
-        "max": 10.47,
-        "mean": 9.489
+        "min": 9.099,
+        "p50": 9.43,
+        "p95": 10.091,
+        "p99": 10.461,
+        "max": 10.461,
+        "mean": 9.512
       },
-      "responseBytes": 211722
+      "responseBytes": 211709
     },
     "longSession": {
       "latencyMs": {
         "samples": 8,
-        "min": 9.687,
-        "p50": 10.782,
-        "p95": 14.797,
-        "p99": 14.797,
-        "max": 14.797,
-        "mean": 11.745
+        "min": 9.311,
+        "p50": 9.977,
+        "p95": 13.821,
+        "p99": 13.821,
+        "max": 13.821,
+        "mean": 10.993
       },
       "responseBytes": 361030
     },
     "coldScanResponsiveness": {
-      "scanLatencyMs": 107.83,
-      "wallMs": 107.916,
+      "scanLatencyMs": 102.371,
+      "wallMs": 102.463,
       "healthDuringScanMs": {
-        "samples": 409,
-        "min": 0.111,
-        "p50": 0.272,
-        "p95": 0.371,
-        "p99": 0.596,
-        "max": 1.172,
-        "mean": 0.262
+        "samples": 375,
+        "min": 0.109,
+        "p50": 0.27,
+        "p95": 0.358,
+        "p99": 0.645,
+        "max": 1.758,
+        "mean": 0.268
       }
     },
-    "genericAgentOpenMs": 85.276,
+    "genericAgentOpenMs": 85.595,
     "genericAgentSseConnected": {
-      "latencyMs": 0.751,
-      "responseBytesAtReady": 2920
+      "latencyMs": 0.801,
+      "responseBytesAtReady": 2915
     },
     "genericConcurrentTasks": {
       "count": 8,
-      "openWallMs": 94.544,
+      "openWallMs": 92.743,
       "openPerTaskMs": {
         "samples": 8,
-        "min": 87.415,
-        "p50": 92.408,
-        "p95": 93.915,
-        "p99": 93.915,
-        "max": 93.915,
-        "mean": 91.594
+        "min": 85.589,
+        "p50": 88.742,
+        "p95": 92.089,
+        "p99": 92.089,
+        "max": 92.089,
+        "mean": 89.027
       },
       "sseConnectedMs": {
         "samples": 8,
-        "min": 1.33,
-        "p50": 1.782,
-        "p95": 2.424,
-        "p99": 2.424,
-        "max": 2.424,
-        "mean": 1.894
+        "min": 0.494,
+        "p50": 0.985,
+        "p95": 1.663,
+        "p99": 1.663,
+        "max": 1.663,
+        "mean": 1.068
       }
     },
     "eventLoopDelayMs": {
-      "mean": 11.29,
-      "p50": 10.158,
-      "p95": 18.498,
-      "p99": 19.284,
-      "max": 19.644
+      "mean": 11.652,
+      "p50": 10.084,
+      "p95": 18.76,
+      "p99": 19.087,
+      "max": 20.12
     },
-    "eventLoopUtilization": 0.730789,
+    "eventLoopUtilization": 0.724938,
     "rssMiB": {
-      "idle": 53.656,
-      "afterWorkload": 130.344
+      "idle": 53.844,
+      "afterWorkload": 132.781
     }
   },
   "limitations": [

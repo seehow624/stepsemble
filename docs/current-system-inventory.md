@@ -3,7 +3,7 @@
 > 狀態：Phase 0 基線（Baseline）
 > 盤點版本：1.2
 > 盤點日期：2026-09-04
-> 對應原始碼：Pi Harbor 2.13.2 commit `5ef248e20a7f49c274555cab91045542b0150def` ＋目前 Stepsemble 3.0.0 遷移工作樹；正式 release 後補不可變 commit
+> 對應原始碼：Pi Harbor 2.13.2 commit `5ef248e20a7f49c274555cab91045542b0150def` → Stepsemble 3.0.0 source commit `39e671d1b95f3f72ca76178c44216fbe15ed1cc5`
 > Runtime 基線：Node.js 22.19+、CommonJS、無 runtime npm dependency、buildless PWA
 > Live 驗證：2026-09-04 Mac Mini 已由 2.13.2 原地升級並運行 Stepsemble 3.0.0；canonical repository 為 `seehow624/stepsemble`
 

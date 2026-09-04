@@ -1,7 +1,7 @@
 # Stepsemble Host performance baselines
 
 > Baseline A：Pi Harbor 2.13.2（改名前）
-> Baseline B：Stepsemble 3.0.0（相容遷移並完成本機部署後）
+> Baseline B：Stepsemble 3.0.0（相容遷移、本機部署與 clean source commit 後）
 > Date：2026-09-04
 > Host：Darwin 25.6.0、arm64、10 logical CPUs、Node.js v22.22.3
 > Raw results：[`2.13.2`](baselines/host-performance-2026-09-04-darwin-arm64.json)；[`3.0.0`](baselines/host-performance-2026-09-04-stepsemble-3.0.0-darwin-arm64.json)
@@ -18,7 +18,7 @@ npm run benchmark:host
 
 每次比較必須保留完整 JSON、app commit、worktree dirty 狀態、`server.js`／benchmark SHA-256、OS/arch、Node 版本與 workload。不同硬體的絕對值不能直接混成同一趨勢；若 `sourceWorktreeDirty=true`，只能把 file hash 相同的結果視為同一實作。
 
-前兩次量測執行當下的計畫與 benchmark 尚未提交，因此 raw result 如實記為 `sourceWorktreeDirty=true`；被測的 `server.js` 與 benchmark script 均另存 SHA-256。3.0.0 結果是在本機服務成功由 2.13.2 遷移至 Stepsemble 後，以相同 source tree 和隔離 fixture 重跑。首個 release commit 形成後會再建立一份 `sourceWorktreeDirty=false` 的不可變比較點。
+2.13.2 量測執行當下的計畫與 benchmark 尚未提交，因此第一份 raw result 如實記為 `sourceWorktreeDirty=true`。3.0.0 結果是在本機服務成功遷移後、首個 Stepsemble source commit `39e671d1b95f3f72ca76178c44216fbe15ed1cc5` 的乾淨 worktree 上重跑，記為 `sourceWorktreeDirty=false`。兩份結果都保存被測 `server.js` 與 benchmark script 的 SHA-256；3.0.0 已是可只靠 commit 重現的比較點。
 
 ## Workload
 
@@ -58,21 +58,21 @@ npm run benchmark:host
 
 | Metric | Result |
 | --- | ---: |
-| Server startup | 32.825 ms |
-| `/api/health` p50 / p95 / p99 | 0.172 / 0.608 / 1.023 ms |
-| Session list cold | 94.312 ms |
-| Session list warm p50 / p95 | 9.302 / 10.190 ms |
-| Long session p50 / p95 | 10.782 / 14.797 ms |
-| Invalidated scan | 107.830 ms |
-| Health max during invalidated scan | 1.172 ms |
-| Generic Agent open | 85.276 ms |
-| Generic Agent SSE `connected` | 0.751 ms |
-| 8 generic tasks open wall time | 94.544 ms |
-| 8-task SSE `connected` p50 / p95 | 1.782 / 2.424 ms |
-| Event-loop delay p50 / p95 / max | 10.158 / 18.498 / 19.644 ms |
-| RSS idle / after workload | 53.656 / 130.344 MiB |
+| Server startup | 34.257 ms |
+| `/api/health` p50 / p95 / p99 | 0.197 / 0.604 / 1.049 ms |
+| Session list cold | 92.812 ms |
+| Session list warm p50 / p95 | 9.430 / 10.091 ms |
+| Long session p50 / p95 | 9.977 / 13.821 ms |
+| Invalidated scan | 102.371 ms |
+| Health max during invalidated scan | 1.758 ms |
+| Generic Agent open | 85.595 ms |
+| Generic Agent SSE `connected` | 0.801 ms |
+| 8 generic tasks open wall time | 92.743 ms |
+| 8-task SSE `connected` p50 / p95 | 0.985 / 1.663 ms |
+| Event-loop delay p50 / p95 / max | 10.084 / 18.760 / 20.120 ms |
+| RSS idle / after workload | 53.844 / 132.781 MiB |
 
-改名前後沒有看到具實務意義的 Host regression：health p95、warm session p95、generic open 與 8-task open 都持平或略快；startup 增加 1.553 ms，cold scan 增加 4.472 ms，仍屬同級波動。8-task SSE p95 從 1.375 ms 到 2.424 ms，絕對差約 1 ms，仍遠低於 control API 的 100 ms 初始門檻；需要多輪/soak 才能判定趨勢。
+改名前後沒有看到具實務意義的 Host regression：health p95、cold/warm session、long session、generic open、8-task open 與 invalidated scan 都持平或略快；startup 增加 2.985 ms。8-task SSE p95 從 1.375 ms 到 1.663 ms，絕對差 0.288 ms；scan 期間 health max 增加 0.727 ms，仍遠低於 control API 的 100 ms 初始門檻。After-workload RSS 增加約 4.8 MiB，需以多輪/soak 才能判定是否為趨勢。
 
 ## Reading the result correctly
 

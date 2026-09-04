@@ -37,7 +37,7 @@
 | 現行系統盤點 | 已完成 | HTTP/SSE/RPC、資料、狀態、approval、event、安裝與 rollback 已落於 `current-system-inventory.md` |
 | 本機品牌遷移 | 已部署 | Mac Mini 已由 2.13.2 原地升級至 3.0.0；session/token/SSH launcher/CUA driver 均完成前後核對 |
 | 跨平台 installer smoke | 部分完成 | macOS live migration、Linux clean-container install、Windows PowerShell AST 通過；Linux systemd/Windows Scheduled Task real runner 待補 |
-| Host 效能基線 | 已完成 | 2.13.2 與 3.0.0 都以 301 synthetic sessions、41,000 messages、8 generic tasks 實測；結果見 `performance-baseline.md` |
+| Host 效能基線 | 已完成 | 2.13.2 與 clean source commit `39e671d` 的 3.0.0 都以 301 synthetic sessions、41,000 messages、8 generic tasks 實測；結果見 `performance-baseline.md` |
 | Browser 效能基線 | 待工具 | 缺 `chrome-devtools` MCP，尚不能取得可信 LCP/INP/CLS/TBT 與 accessibility trace |
 | 階段 0：計畫與基線 | 進行中 | 除 Browser trace 外已完成；不得以 Host 數據代替 Web 順滑度驗收 |
 | 階段 1：Stepsemble Protocol v1 | 未開始 | 必須先通過階段 0 gate |
