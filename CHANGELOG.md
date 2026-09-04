@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.13.0
+
+- Generic Agent Hub tasks now run under an independent per-task supervisor,
+  reconnect after a Pi Harbor service restart, preserve elapsed time/output,
+  and are marked interrupted when the supervisor is truly gone.
+- Added a searchable Agent Hub task center with status filters, replay, native
+  Pi stop controls, automatic reopen of the last generic task, and push
+  notifications for unattended Agent completions.
+- Added a versioned connector manifest/event contract, Linux systemd and
+  Windows Scheduled Task installers, cross-platform CI, and updater health
+  checks with automatic macOS rollback when a release fails to start.
+- Settings wheel gestures now forward from the fixed toolbar/overlay edges,
+  while language choices keep their local names (English, 简体中文, 繁體中文,
+  and more).
+
 ## 2.12.1
 
 - Agent discovery now checks the common Homebrew, user-bin, npm, Volta,

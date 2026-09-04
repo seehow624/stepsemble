@@ -6,10 +6,10 @@
 <title>Pi Harbor</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=2.12.1">
-<link rel="icon" href="/pi-logo.svg?v=2.12.1" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-180.png?v=2.12.1">
-<link rel="stylesheet" href="/style.css?v=2.12.1">
+<link rel="manifest" href="/manifest.webmanifest?v=2.13.0">
+<link rel="icon" href="/pi-logo.svg?v=2.13.0" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png?v=2.13.0">
+<link rel="stylesheet" href="/style.css?v=2.13.0">
 </head>
 <body>
 
@@ -127,7 +127,10 @@
     <section id="agent-hub-card" class="agent-hub-card" aria-labelledby="agent-hub-title">
       <header class="agent-hub-heading">
         <div><strong id="agent-hub-title" data-i18n-key="agentHub.title">Agent Hub</strong><small id="agent-hub-summary">Discovering local agents…</small></div>
-        <button id="agent-hub-refresh" class="icon-button-small" type="button" data-i18n-title-key="agentHub.refresh" data-i18n-aria-key="agentHub.refresh" title="Refresh agents" aria-label="Refresh agents"><svg class="icon"><use href="#i-refresh"></use></svg></button>
+        <div class="agent-hub-heading-actions">
+          <button id="agent-hub-open-center" class="agent-hub-view-all" type="button" data-i18n-key="agentHub.viewAll">View all</button>
+          <button id="agent-hub-refresh" class="icon-button-small" type="button" data-i18n-title-key="agentHub.refresh" data-i18n-aria-key="agentHub.refresh" title="Refresh agents" aria-label="Refresh agents"><svg class="icon"><use href="#i-refresh"></use></svg></button>
+        </div>
       </header>
       <div id="agent-hub-connectors" class="agent-hub-connectors" aria-label="Available agents"></div>
       <div id="agent-task-list" class="agent-task-list" aria-live="polite"></div>
@@ -392,7 +395,7 @@
             <strong data-i18n-key="usage.title">Usage · last 7 days</strong>
             <span id="usage-summary-note" class="usage-summary-note"></span>
           </div>
-          <div id="usage-summary-rows"></div>
+          <div id="usage-summary-rows" class="usage-summary-rows" role="list"></div>
         </div>
         <div class="settings-row" id="push-notifications-row">
           <span>
@@ -403,7 +406,7 @@
         </div>
         <div class="settings-row">
           <span><strong>Pi Harbor</strong><small>Mobile-first remote workspace for Pi</small></span>
-          <span class="settings-value" id="set-app-version">v2.12.1</span>
+          <span class="settings-value" id="set-app-version">v2.13.0</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -478,6 +481,34 @@
       </section>
     </div>
   </main>
+
+  <!-- Full task inbox for cross-agent work. The compact Agent Hub card stays
+       intentionally small; this view gives long-running work a searchable,
+       Codex-like activity center without hiding the session list. -->
+  <div id="agent-task-center" class="sheet-layer center hidden" role="dialog" aria-modal="true" aria-labelledby="agent-task-center-title">
+    <section class="sheet agent-task-center-sheet">
+      <div class="sheet-heading-row agent-task-center-heading">
+        <div>
+          <p class="eyebrow" data-i18n-key="agentHub.title">AGENT HUB</p>
+          <h2 id="agent-task-center-title" data-i18n-key="agentHub.taskCenterTitle">Task center</h2>
+          <p id="agent-task-center-summary" class="agent-task-center-summary" role="status" aria-live="polite"></p>
+        </div>
+        <button id="agent-task-center-close" class="btn ghost icon-btn" type="button" data-i18n-title-key="agentHub.close" data-i18n-aria-key="agentHub.close" title="Close" aria-label="Close"><svg class="icon"><use href="#i-x"></use></svg></button>
+      </div>
+      <div class="agent-task-center-toolbar">
+        <input id="agent-task-center-search" type="search" autocomplete="off" data-i18n-placeholder-key="agentHub.taskSearch" placeholder="Search tasks…" aria-label="Search tasks">
+        <select id="agent-task-center-filter" data-i18n-aria-key="agentHub.taskFilter" aria-label="Filter tasks">
+          <option value="all" data-i18n-key="agentHub.filterAll">All</option>
+          <option value="active" data-i18n-key="agentHub.filterActive">Active</option>
+          <option value="completed" data-i18n-key="agentHub.completed">Done</option>
+          <option value="failed" data-i18n-key="agentHub.failed">Failed</option>
+          <option value="stopped" data-i18n-key="agentHub.stopped">Stopped</option>
+        </select>
+      </div>
+      <div id="agent-task-center-list" class="agent-task-center-list" role="list" aria-live="polite"></div>
+      <p id="agent-task-center-empty" class="agent-task-center-empty hidden" data-i18n-key="agentHub.taskCenterEmpty">No tasks match this view.</p>
+    </section>
+  </div>
 
   <!-- Add / edit remote device -->
   <div id="machine-dialog" class="sheet-layer hidden" role="dialog" aria-modal="true" aria-labelledby="machine-dialog-title">
@@ -835,10 +866,10 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=2.12.1"></script>
-<script src="/modules/app-foundation.js?v=2.12.1"></script>
-<script src="/modules/session-utils.js?v=2.12.1"></script>
-<script src="/modules/context-usage.js?v=2.12.1"></script>
-<script src="/app.js?v=2.12.1"></script>
+<script src="/i18n.js?v=2.13.0"></script>
+<script src="/modules/app-foundation.js?v=2.13.0"></script>
+<script src="/modules/session-utils.js?v=2.13.0"></script>
+<script src="/modules/context-usage.js?v=2.13.0"></script>
+<script src="/app.js?v=2.13.0"></script>
 </body>
 </html>

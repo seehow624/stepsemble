@@ -19,10 +19,37 @@ Pi Harbor 是一个开源、移动优先的 Pi coding agent 网页客户端。�
 安装程序会检查 Pi Agent 与 Node.js、下载并验证最新稳定 Release、创建
 launchd 服务和自动更新。如果没有 Pi Agent，会先询问是否使用 Pi 官方安装程序。
 
+Linux 可改用 `install-linux.sh`，会创建用户级 systemd 服务和每小时更新计时器：
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/seehow624/pi-harbor/master/install-linux.sh)"
+```
+
+Windows 可下载 `install-windows.ps1`，会创建用户级计划任务（不需要管理员权限）：
+
+```powershell
+irm https://raw.githubusercontent.com/seehow624/pi-harbor/master/install-windows.ps1 -OutFile install-windows.ps1
+powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
+```
+
+Linux 和 Windows 都需要 Node.js 22.19 以上；服务默认只监听本机回环地址。
+
 安装完成后，在运行 Pi Harbor 的电脑上打开终端并运行：
 
 ```bash
 cat ~/.config/pi-harbor/token
+```
+
+Windows PowerShell：
+
+```powershell
+Get-Content $HOME\.config\pi-harbor\token
+```
+
+Windows 命令提示符：
+
+```bat
+type %USERPROFILE%\.config\pi-harbor\token
 ```
 
 将 token 粘贴到登录页；从其他设备使用时，也请从该主机安全地取得 token。若服务明确配置了 `PI_HARBOR_TOKEN_FILE`，请读取所配置的文件，而不是默认路径。绝不要把 token 写入 Git、问题单、聊天、截图或日志。
@@ -38,6 +65,18 @@ cat ~/.config/pi-harbor/token
 每台电脑都运行自己的 Pi Harbor 实例。在每台额外电脑上安装并启动 Pi Harbor，然后在 **Settings → Devices → Add device** 添加 Tailscale 或 HTTPS 地址。手动输入网址仍是旧版共享 Web token 路径，要求两台主机使用相同 token。更推荐使用五分钟有效、只能使用一次的 `PIHARBOR3` 配对码：确认候选设备资料后，会创建独立且可撤销的对等凭证，不会把共享 token 发给候选地址。可在设备设置中查看并撤销已授权设备，撤销会立即生效。Pi Harbor 2.2 可接受 2.1.2 主机的 `PIHARBOR2` 配对码；旧客户端必须先更新才能使用 `PIHARBOR3`。不要将公共 3140 端口暴露给不受信任的网络。
 
 添加 LLM 服务商：打开 **Settings → Connection → Models & providers**，选择目录服务、账号/OAuth 登录、API key、本地服务或自定义 Provider，然后选择要显示的模型。
+
+## Agent Hub 连接器
+
+首页的 **Agent Hub** 会发现本机 Pi Agent，以及已安装的 Claude Code、Codex
+CLI、Grok Build、OpenCode。创建 **New project** 时可以选择 Agent，并可选启用隔离
+Git worktree。CLI 的 stdout/stderr 会流式显示在对话中；macOS/Linux 使用内置
+`server/pty-bridge.py` 提供交互式终端，Windows 或没有 Python 的主机则使用安全 pipe。
+计时器会在离开页面或关闭浏览器后继续；从任务中心重新打开即可回放有限长度的输出。
+
+通用 CLI 任务由独立的每任务监督器管理，保存在 `~/.config/pi-harbor/agent-tasks.json`。
+重启 Pi Harbor 网页服务后会重新接管监督器，任务计时和输出继续；如果主机或监督器本身被终止，
+任务会如实标记为已中断。Agent Hub 的“查看全部”支持搜索、状态筛选、回放和一键停止。
 
 ## 自动更新
 

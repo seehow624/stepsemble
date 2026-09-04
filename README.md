@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-1A1A1A"></a>
-  <img alt="macOS" src="https://img.shields.io/badge/platform-macOS-1A1A1A">
+  <img alt="macOS Linux Windows" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-1A1A1A">
   <img alt="Node.js 22.19+" src="https://img.shields.io/badge/Node.js-22.19%2B-1A1A1A">
 </p>
 
@@ -56,6 +56,28 @@ curl -fsSLO https://raw.githubusercontent.com/seehow624/pi-harbor/master/install
 less install.sh
 zsh install.sh
 ```
+
+### Install on Linux or Windows
+
+Linux uses a per-user systemd service and an optional hourly update timer. It
+requires Node.js 22.19 or newer:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/seehow624/pi-harbor/master/install-linux.sh)"
+```
+
+Windows uses a per-user Scheduled Task (no administrator prompt) and requires
+Node.js 22.19 or newer plus the built-in `tar.exe`:
+
+```powershell
+irm https://raw.githubusercontent.com/seehow624/pi-harbor/master/install-windows.ps1 -OutFile install-windows.ps1
+powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
+```
+
+The scripts keep the same token location (`~/.config/pi-harbor/token`, or
+`$HOME\.config\pi-harbor\token` on Windows) and bind the server to loopback.
+Put Tailscale Serve or another authenticated HTTPS gateway in front of it for
+remote access.
 
 Pi Harbor binds to `127.0.0.1:3140` by default. The first launch opens a short
 setup guide for sign-in, devices, providers, projects, and remote access.
@@ -150,10 +172,12 @@ journal. CLI connectors must already be installed on the selected host; an
 uninstalled connector is shown but cannot be selected.
 
 Pi tasks retain the full native session history. Generic CLI tasks are supervised
-by Pi Harbor and stored as a private journal in
-`~/.config/pi-harbor/agent-tasks.json`. Because arbitrary CLIs do not expose a
-portable reattach protocol, a supervised Pi Harbor restart stops those children
-and marks the journal honestly instead of claiming that they are still running.
+by an independent per-task process and stored as a private journal in
+`~/.config/pi-harbor/agent-tasks.json`. Restarting the Pi Harbor web service
+reattaches to the supervisor and keeps the task timer/output alive; if the host
+or supervisor itself is killed, the journal marks the task as interrupted rather
+than claiming that it is still running. The Agent Hub **View all** task center
+provides search, status filters, replay, and one-tap stop controls.
 
 Device aliases only affect the interface. They do not rename the operating
 system computer. Temporary Sub Agent sessions are hidden by default and can be

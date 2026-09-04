@@ -7,8 +7,11 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const crypto = require("node:crypto");
+const net = require("node:net");
 const { spawn } = require("node:child_process");
+const { CONNECTOR_PROTOCOL_VERSION, CONNECTOR_EVENT_TYPES, normalizeConnectorDefinition } = require("./connector-protocol");
 
 const MAX_TASKS = 100;
 const MAX_EVENTS = 1200;
@@ -17,6 +20,10 @@ const MAX_OUTPUT_TAIL = 64 * 1024;
 const MAX_NAME = 120;
 const MAX_MESSAGE = 1_000_000;
 const PTY_BRIDGE_FILE = path.join(__dirname, "pty-bridge.py");
+const SUPERVISOR_FILE = path.join(__dirname, "agent-task-supervisor.js");
+const SUPERVISOR_DIR_NAME = "agent-tasks";
+const COMPACT_SUPERVISOR_SOCKET_DIR = process.platform === "win32" ? "" : path.join("/tmp", "pi-harbor-sockets");
+const SUPERVISOR_RECONNECT_DELAYS = Object.freeze([100, 250, 500, 1000, 2000, 5000, 10000, 30000]);
 
 // Keep this list intentionally small and explicit.  “Grok Build” has shipped
 // under both `grok` and `grok-build` command names, so both are accepted while
@@ -139,7 +146,13 @@ function resolveCommand(definition, { piBin = "", env = process.env, includeKnow
   if (!definition) return null;
   if (definition.id === "pi") {
     const candidate = String(piBin || "").trim();
-    return candidate && path.isAbsolute(candidate) ? candidate : null;
+    if (candidate && path.isAbsolute(candidate)) return candidate;
+    // Linux distributions and Windows package managers commonly expose `pi`
+    // through PATH rather than a fixed /usr/local location. Resolve it to an
+    // absolute executable just like the external CLI connectors.
+    return candidate
+      ? (resolveFromPath(candidate, env) || (includeKnownPaths ? resolveKnownPath(candidate, env) : null))
+      : null;
   }
   for (const candidate of commandCandidates(definition)) {
     const command = safeCommandName(candidate);
@@ -181,14 +194,59 @@ function resolvePtyRuntime({ env = process.env } = {}) {
   return resolveFromPath("python3", env);
 }
 
+function supervisorSocketPath(configDir, taskId) {
+  const safe = String(taskId || "").replace(/[^a-zA-Z0-9-]/g, "").slice(0, 80);
+  if (!safe) return "";
+  // Unix domain sockets live in the owner-only task directory. Windows named
+  // pipes avoid filesystem cleanup races and remain local to this machine.
+  if (process.platform === "win32") return `\\\\.\\pipe\\pi-harbor-${safe}`;
+  const candidate = path.join(configDir, SUPERVISOR_DIR_NAME, `${safe}.sock`);
+  // macOS (and many Unix implementations) cap AF_UNIX paths at roughly 104
+  // bytes. A long temporary/config path would otherwise be silently truncated
+  // by the kernel, making unrelated tasks collide and reconnect with ENOTSOCK.
+  // Keep the normal path next to the journal, but use a deterministic, private
+  // compact path when it would approach that limit. The hash includes the
+  // config directory so two Pi Harbor profiles cannot share a socket.
+  if (candidate.length <= 90) return candidate;
+  const digest = crypto.createHash("sha256").update(`${path.resolve(configDir)}\0${safe}`).digest("hex").slice(0, 32);
+  return path.join(COMPACT_SUPERVISOR_SOCKET_DIR, `${digest}.sock`);
+}
+
+function supervisorMetadataPath(configDir, taskId) {
+  const safe = String(taskId || "").replace(/[^a-zA-Z0-9-]/g, "").slice(0, 80);
+  return safe ? path.join(configDir, SUPERVISOR_DIR_NAME, `${safe}.json`) : "";
+}
+
+function readPrivateJson(file) {
+  try {
+    const value = JSON.parse(fs.readFileSync(file, "utf8"));
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  } catch { return null; }
+}
+
+function supervisorLooksAlive(task) {
+  if (!task) return false;
+  if (process.platform !== "win32" && task.supervisorSocket) {
+    try { if (fs.existsSync(task.supervisorSocket)) return true; } catch {}
+  }
+  return processIsAlive(task.supervisorPid);
+}
+
 function publicDefinition(definition, options = {}) {
   const command = options.command || null;
+  const contract = normalizeConnectorDefinition(definition) || {
+    protocolVersion: CONNECTOR_PROTOCOL_VERSION,
+    capabilities: [],
+    events: [...CONNECTOR_EVENT_TYPES],
+  };
   return {
     id: definition.id,
     label: definition.label,
     kind: definition.kind,
     description: definition.description,
-    capabilities: [...definition.capabilities],
+    protocolVersion: contract.protocolVersion,
+    capabilities: [...contract.capabilities],
+    events: [...contract.events],
     installed: !!command,
     command: command ? path.basename(command) : null,
     transport: command ? (options.transport || (definition.kind === "native" ? "rpc" : "pipe")) : null,
@@ -234,6 +292,10 @@ function readPersistedTasks(file) {
           repository: typeof task.worktree.repository === "string" ? task.worktree.repository.slice(0, 1000) : "",
         } : null,
         pid: Number.isInteger(task.pid) ? task.pid : null,
+        supervisorPid: Number.isInteger(task.supervisorPid) ? task.supervisorPid : null,
+        supervisorSocket: typeof task.supervisorSocket === "string" ? task.supervisorSocket.slice(0, 1000) : "",
+        supervisorMeta: typeof task.supervisorMeta === "string" ? task.supervisorMeta.slice(0, 1000) : "",
+        supervisorEventSeq: Number.isFinite(Number(task.supervisorEventSeq)) ? Number(task.supervisorEventSeq) : 0,
         status: typeof task.status === "string" ? task.status.slice(0, 24) : "orphaned",
         startedAt: Number.isFinite(Number(task.startedAt)) ? Number(task.startedAt) : null,
         endedAt: Number.isFinite(Number(task.endedAt)) ? Number(task.endedAt) : null,
@@ -244,6 +306,7 @@ function readPersistedTasks(file) {
         signal: typeof task.signal === "string" ? task.signal.slice(0, 32) : null,
         transport: task.transport === "pty" ? "pty" : "pipe",
         error: typeof task.error === "string" ? task.error.slice(-2000) : "",
+        settledNotified: task.settledNotified === true,
       }));
   } catch { return []; }
 }
@@ -253,27 +316,67 @@ function processIsAlive(pid) {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
+function terminalTaskStatus(status) {
+  return ["completed", "failed", "stopped", "orphaned", "detached"].includes(String(status || ""));
+}
+
 function createAgentTaskService({
   appHome,
   configDir,
   validateCwd,
   piBin = "",
   env = process.env,
+  onSettled = null,
 } = {}) {
-  const tasksFile = path.join(configDir || appHome || process.cwd(), "agent-tasks.json");
+  const taskConfigDir = path.resolve(configDir || appHome || process.cwd());
+  const tasksFile = path.join(taskConfigDir, "agent-tasks.json");
   const ptyRuntime = resolvePtyRuntime({ env });
   const tasks = new Map();
+  let serviceClosing = false;
   const persisted = readPersistedTasks(tasksFile);
   for (const task of persisted) {
-    // The server cannot safely reattach an arbitrary CLI's stdin after a
-    // restart.  Keep its journal and mark the process honestly instead of
-    // displaying a false “running” badge.
-    if (["starting", "running", "waiting"].includes(task.status)) {
-      task.status = processIsAlive(task.pid) ? "detached" : "orphaned";
-      task.endedAt = task.endedAt || Date.now();
+    task.supervisorSocket = task.supervisorSocket || supervisorSocketPath(taskConfigDir, task.id);
+    task.supervisorMeta = task.supervisorMeta || supervisorMetadataPath(taskConfigDir, task.id);
+    // A task supervisor owns the child independently from server.js. Read its
+    // last private snapshot first so a completed task is not mistaken for an
+    // orphan when the web service happened to be offline at exit time.
+    const supervisor = readPrivateJson(task.supervisorMeta);
+    if (supervisor && supervisor.id === task.id) {
+      for (const key of ["status", "cwd", "startedAt", "endedAt", "lastActivityAt", "lastInputAt", "exitCode", "signal", "transport", "error", "pid", "supervisorPid"]) {
+        if (supervisor[key] !== undefined && supervisor[key] !== null) task[key] = supervisor[key];
+      }
+      if (typeof supervisor.outputTail === "string") task.outputTail = supervisor.outputTail.slice(-MAX_OUTPUT_TAIL);
     }
-    tasks.set(task.id, { ...task, proc: null, clients: new Set(), events: [], eventBytes: 0, eventSeq: 0 });
+    // During a service restart an alive supervisor is reconnecting, not dead.
+    // The UI treats this as active and keeps the original timer running.
+    if (["starting", "running", "waiting"].includes(task.status)) {
+      task.status = supervisorLooksAlive(task) ? "reconnecting" : "orphaned";
+      if (task.status === "orphaned") task.endedAt = task.endedAt || Date.now();
+    }
+    tasks.set(task.id, {
+      ...task,
+      control: null,
+      clients: new Set(),
+      events: [],
+      eventBytes: 0,
+      eventSeq: 0,
+      supervisorEventSeq: Number(supervisor?.eventSeq) || 0,
+      reconnectAttempt: 0,
+      reconnectTimer: null,
+      persistTimer: null,
+      settledNotified: task.settledNotified === true,
+    });
   }
+
+  // Reattach in the next turn so server startup remains synchronous for the
+  // HTTP listener while a short-lived reconnect races the supervisor socket.
+  setImmediate(() => {
+    for (const task of tasks.values()) {
+      if (terminalTaskStatus(task.status) && !task.settledNotified) notifySettled(task);
+      if (!taskIsActive(task)) continue;
+      void connectSupervisor(task).catch(() => scheduleSupervisorReconnect(task));
+    }
+  });
 
   function definitionFor(agentId) {
     const id = safeConnectorId(agentId);
@@ -285,6 +388,7 @@ function createAgentTaskService({
     return {
       id: task.id,
       taskId: task.id,
+      protocolVersion: CONNECTOR_PROTOCOL_VERSION,
       agentId: task.agentId,
       agent: task.agentId,
       connector: task.agentId,
@@ -293,7 +397,7 @@ function createAgentTaskService({
       worktree: task.worktree || null,
       pid: task.pid || null,
       status: task.status,
-      isRunning: ["starting", "running"].includes(task.status),
+      isRunning: ["starting", "running", "reconnecting"].includes(task.status),
       startedAt: task.startedAt || null,
       endedAt: task.endedAt || null,
       lastActivityAt: task.lastActivityAt || null,
@@ -312,6 +416,13 @@ function createAgentTaskService({
     delete value.agent;
     delete value.connector;
     delete value.isRunning;
+    // These private paths and process ids are needed to reconnect after a
+    // server restart, but never belong in the browser-facing API response.
+    value.supervisorPid = Number.isInteger(task.supervisorPid) ? task.supervisorPid : null;
+    value.supervisorSocket = task.supervisorSocket || "";
+    value.supervisorMeta = task.supervisorMeta || "";
+    value.supervisorEventSeq = Number.isFinite(Number(task.supervisorEventSeq)) ? Number(task.supervisorEventSeq) : 0;
+    value.settledNotified = task.settledNotified === true;
     return value;
   }
 
@@ -322,6 +433,10 @@ function createAgentTaskService({
     } catch (error) {
       console.warn(`[pi-harbor] could not persist agent tasks: ${error.message}`);
     }
+  }
+
+  function taskIsActive(task) {
+    return ["starting", "running", "waiting", "reconnecting"].includes(String(task?.status || ""));
   }
 
   function pushEvent(task, event) {
@@ -343,6 +458,17 @@ function createAgentTaskService({
     }
   }
 
+  function notifySettled(task) {
+    if (!task || !terminalTaskStatus(task.status) || task.settledNotified) return;
+    task.settledNotified = true;
+    persist();
+    if (typeof onSettled !== "function") return;
+    try {
+      const result = onSettled(publicTask(task, true), { hasClients: (task.clients?.size || 0) > 0 });
+      if (result && typeof result.catch === "function") result.catch(() => {});
+    } catch {}
+  }
+
   function setStatus(task, status, extra = {}) {
     if (!task) return;
     task.status = status;
@@ -353,6 +479,7 @@ function createAgentTaskService({
     if (["completed", "failed", "stopped", "orphaned", "detached"].includes(status)) task.endedAt = task.endedAt || Date.now();
     pushEvent(task, { type: "status", taskId: task.id, status, ...publicTask(task) });
     persist();
+    if (terminalTaskStatus(status)) notifySettled(task);
   }
 
   function appendOutput(task, stream, chunk) {
@@ -379,6 +506,157 @@ function createAgentTaskService({
       task.persistTimer = setTimeout(() => { task.persistTimer = null; persist(); }, 500);
       task.persistTimer.unref?.();
     }
+  }
+
+  function writeControl(task, message) {
+    const control = task?.control;
+    if (!control || control.destroyed || !control.writable) return false;
+    try {
+      control.write(`${JSON.stringify(message)}\n`);
+      return true;
+    } catch { return false; }
+  }
+
+  function applySupervisorSnapshot(task, snapshot) {
+    if (!task || !snapshot || typeof snapshot !== "object") return;
+    const previousStatus = task.status;
+    for (const key of ["pid", "supervisorPid", "startedAt", "endedAt", "lastActivityAt", "lastInputAt", "exitCode", "signal", "transport", "error"]) {
+      if (snapshot[key] !== undefined && snapshot[key] !== null) task[key] = snapshot[key];
+    }
+    if (typeof snapshot.outputTail === "string") task.outputTail = snapshot.outputTail.slice(-MAX_OUTPUT_TAIL);
+    if (typeof snapshot.status === "string") task.status = snapshot.status.slice(0, 24);
+    if (typeof snapshot.eventSeq === "number") task.supervisorLatestSeq = Math.max(Number(task.supervisorLatestSeq) || 0, snapshot.eventSeq);
+    if (["completed", "failed", "stopped"].includes(task.status)) task.endedAt = task.endedAt || Date.now();
+    // A reconnect should be visible but must not reset the task's true start
+    // time. setStatus only changes the activity timestamp and emits a small
+    // status event for an already-open browser.
+    if (previousStatus === "reconnecting" && task.status !== "reconnecting") {
+      setStatus(task, task.status, { error: task.error, exitCode: task.exitCode, signal: task.signal });
+    } else {
+      persist();
+    }
+  }
+
+  function handleSupervisorEvent(task, packet) {
+    if (!task || !packet || typeof packet !== "object") return;
+    const sequence = Number(packet.seq);
+    if (Number.isFinite(sequence)) {
+      if (sequence <= (Number(task.supervisorEventSeq) || 0)) return;
+      task.supervisorEventSeq = sequence;
+      task.supervisorLatestSeq = Math.max(Number(task.supervisorLatestSeq) || 0, sequence);
+    }
+    const event = packet.event && typeof packet.event === "object" ? packet.event : packet;
+    if (event.type === "output") {
+      appendOutput(task, event.stream, event.text);
+      return;
+    }
+    if (event.type === "status") {
+      setStatus(task, event.status, { error: event.error, exitCode: event.exitCode, signal: event.signal });
+      return;
+    }
+    if (event.type === "task_started") {
+      applySupervisorSnapshot(task, event);
+      pushEvent(task, event);
+      return;
+    }
+    if (event.type === "task_exit") {
+      if (event.status && task.status !== event.status) setStatus(task, event.status, { error: event.error, exitCode: event.code, signal: event.signal });
+      else persist();
+      pushEvent(task, event);
+      if (["completed", "failed", "stopped"].includes(String(event.status || task.status))) {
+        task.control = null;
+        if (task.reconnectTimer) { clearTimeout(task.reconnectTimer); task.reconnectTimer = null; }
+        notifySettled(task);
+      }
+      return;
+    }
+    if (event.type === "input") {
+      task.lastInputAt = Number(event.at) || Date.now();
+      pushEvent(task, event);
+      persist();
+      return;
+    }
+    pushEvent(task, event);
+  }
+
+  function scheduleSupervisorReconnect(task) {
+    if (!task || !taskIsActive(task) || task.reconnectTimer) return;
+    const attempt = Number(task.reconnectAttempt) || 0;
+    if (attempt >= SUPERVISOR_RECONNECT_DELAYS.length && task.supervisorPid && !processIsAlive(task.supervisorPid)) {
+      // A reboot or a killed supervisor can leave a stale Unix socket behind.
+      // Stop retrying after a bounded backoff and tell the user the truth.
+      setStatus(task, "orphaned", { error: "Agent task supervisor is no longer running" });
+      return;
+    }
+    const delay = SUPERVISOR_RECONNECT_DELAYS[Math.min(attempt, SUPERVISOR_RECONNECT_DELAYS.length - 1)];
+    task.reconnectAttempt = attempt + 1;
+    task.reconnectTimer = setTimeout(() => {
+      task.reconnectTimer = null;
+      void connectSupervisor(task).catch(() => scheduleSupervisorReconnect(task));
+    }, delay);
+    task.reconnectTimer.unref?.();
+  }
+
+  function connectSupervisor(task) {
+    if (!task?.supervisorSocket) return Promise.reject(new Error("Agent task supervisor is unavailable"));
+    if (task.control && !task.control.destroyed) return Promise.resolve(true);
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let buffer = "";
+      const control = net.createConnection(task.supervisorSocket);
+      task.control = control;
+      control.setEncoding("utf8");
+      const fail = (error) => {
+        if (!settled) { settled = true; reject(error instanceof Error ? error : new Error("supervisor unavailable")); }
+      };
+      control.on("connect", () => {
+        writeControl(task, { op: "attach", after: Number(task.supervisorEventSeq) || 0 });
+      });
+      control.on("data", (chunk) => {
+        buffer += chunk;
+        while (true) {
+          const newline = buffer.indexOf("\n");
+          if (newline < 0) break;
+          const line = buffer.slice(0, newline).trim();
+          buffer = buffer.slice(newline + 1);
+          if (!line || line.length > MAX_MESSAGE + 4096) continue;
+          let message;
+          try { message = JSON.parse(line); } catch { continue; }
+          if (message.type === "snapshot") {
+            applySupervisorSnapshot(task, message.task || message);
+            task.reconnectAttempt = 0;
+            if (!settled) { settled = true; resolve(true); }
+          } else if (message.type === "event") {
+            handleSupervisorEvent(task, message);
+          } else if (message.type === "error") {
+            if (!settled) fail(new Error(String(message.error || "supervisor rejected request")));
+          }
+        }
+      });
+      control.on("error", (error) => fail(error));
+      control.on("close", () => {
+        if (task.control === control) task.control = null;
+        if (taskIsActive(task) && !serviceClosing) {
+          if (task.status !== "reconnecting") setStatus(task, "reconnecting");
+          scheduleSupervisorReconnect(task);
+        }
+      });
+    });
+  }
+
+  async function waitForSupervisor(task, timeoutMs = 5000) {
+    const deadline = Date.now() + timeoutMs;
+    let lastError = null;
+    while (Date.now() < deadline) {
+      try {
+        await connectSupervisor(task);
+        return true;
+      } catch (error) {
+        lastError = error;
+        await new Promise((resolve) => setTimeout(resolve, 80));
+      }
+    }
+    throw lastError || new Error("Agent task supervisor did not start");
   }
 
   async function open({ agentId, cwd, name, worktree = null } = {}) {
@@ -423,62 +701,68 @@ function createAgentTaskService({
       signal: null,
       transport: ptyRuntime ? "pty" : "pipe",
       error: "",
-      proc: null,
+      supervisorPid: null,
+      supervisorSocket: supervisorSocketPath(taskConfigDir, id),
+      supervisorMeta: supervisorMetadataPath(taskConfigDir, id),
+      supervisorEventSeq: 0,
+      supervisorLatestSeq: 0,
+      control: null,
       clients: new Set(),
       events: [],
       eventBytes: 0,
       eventSeq: 0,
+      reconnectAttempt: 0,
+      reconnectTimer: null,
       persistTimer: null,
+      settledNotified: false,
     };
     const spawnCwd = task.worktree?.path || realCwd;
-    const launch = ptyRuntime
-      ? { command: ptyRuntime, args: [PTY_BRIDGE_FILE, command] }
-      : { command, args: [] };
-    let proc;
+    const supervisorArgs = [
+      SUPERVISOR_FILE,
+      "--id", id,
+      "--agent-id", definition.id,
+      "--name", task.name,
+      "--cwd", spawnCwd,
+      "--app-home", appHome || env.HOME || process.env.HOME || os.homedir(),
+      "--meta", task.supervisorMeta,
+      "--socket", task.supervisorSocket,
+      "--command", command,
+      "--transport", task.transport,
+      "--started", String(now),
+    ];
+    if (ptyRuntime) supervisorArgs.push("--pty-python", ptyRuntime, "--pty-bridge", PTY_BRIDGE_FILE);
+    tasks.set(id, task);
+    persist();
     try {
-      proc = spawn(launch.command, launch.args, {
-        cwd: spawnCwd,
+      const supervisor = spawn(process.execPath, supervisorArgs, {
+        cwd: __dirname,
         env: {
           ...env,
           HOME: appHome || env.HOME,
           TERM: env.TERM || "xterm-256color",
           PI_HARBOR_AGENT_ID: definition.id,
           PI_HARBOR_TASK_ID: id,
+          PI_HARBOR_SUPERVISOR: "1",
         },
-        stdio: ["pipe", "pipe", "pipe"],
+        stdio: "ignore",
         detached: true,
+        windowsHide: true,
       });
+      task.supervisorPid = supervisor.pid || null;
+      supervisor.unref();
     } catch (error) {
       task.error = error.message;
-      task.status = "failed";
-      task.endedAt = Date.now();
-      tasks.set(id, task);
       setStatus(task, "failed", { error: error.message });
       throw error;
     }
-    task.proc = proc;
-    task.pid = proc.pid || null;
-    tasks.set(id, task);
-    proc.stdout?.on("data", (chunk) => appendOutput(task, "stdout", chunk));
-    proc.stderr?.on("data", (chunk) => appendOutput(task, "stderr", chunk));
-    proc.stdin?.on("error", (error) => { task.error = error.message; });
-    proc.on("error", (error) => {
-      if (task.status === "completed" || task.status === "stopped") return;
+    try {
+      await waitForSupervisor(task);
+    } catch (error) {
+      task.error = error.message;
       setStatus(task, "failed", { error: error.message, exitCode: -1 });
-      pushEvent(task, { type: "task_exit", taskId: task.id, code: -1, signal: null, status: task.status, error: error.message });
-    });
-    proc.on("exit", (code, signal) => {
-      if (["stopped", "completed", "failed"].includes(task.status) && task.endedAt) return;
-      const stopped = task.status === "stopped";
-      const status = stopped ? "stopped" : code === 0 ? "completed" : "failed";
-      setStatus(task, status, { exitCode: code, signal, error: status === "failed" ? task.error : "" });
-      pushEvent(task, { type: "task_exit", taskId: task.id, code, signal: signal || null, status, error: task.error || "" });
-      task.proc = null;
-      persist();
-    });
-    setStatus(task, "running");
-    pushEvent(task, { type: "task_started", taskId: task.id, ...publicTask(task) });
-    persist();
+      try { if (task.supervisorPid) process.kill(task.supervisorPid, "SIGTERM"); } catch {}
+      throw error;
+    }
     return { ...publicTask(task), command: path.basename(command) };
   }
 
@@ -495,37 +779,36 @@ function createAgentTaskService({
     if (!task) { const error = new Error("No such agent task"); error.statusCode = 404; throw error; }
     const text = String(message ?? "");
     if (text.length > MAX_MESSAGE) { const error = new Error("Message is too large"); error.statusCode = 413; throw error; }
-    if (!task.proc || task.proc.exitCode !== null || task.status === "completed" || task.status === "failed" || task.status === "stopped") {
+    if (["completed", "failed", "stopped", "orphaned", "detached"].includes(task.status)) {
       const error = new Error("Agent task is no longer running"); error.statusCode = 409; throw error;
     }
-    try { task.proc.stdin.write(text.replace(/\r?\n/g, "\n") + "\n"); }
-    catch { const error = new Error("Agent task input is unavailable"); error.statusCode = 409; throw error; }
+    if (!writeControl(task, { op: "send", message: text })) {
+      const error = new Error(task.status === "reconnecting" ? "Agent task is reconnecting" : "Agent task input is unavailable");
+      error.statusCode = 409;
+      throw error;
+    }
     task.lastInputAt = Date.now();
     if (task.status === "waiting") setStatus(task, "running");
     else { task.lastActivityAt = Date.now(); persist(); }
-    pushEvent(task, { type: "input", taskId: task.id, at: task.lastInputAt });
     return { sent: true, taskId: task.id };
   }
 
   function stop(id) {
     const task = get(id);
     if (!task) return false;
-    if (!task.proc || task.proc.exitCode !== null) {
-      if (["starting", "running", "waiting"].includes(task.status)) setStatus(task, "stopped");
-      return false;
+    if (["completed", "failed", "stopped", "orphaned"].includes(task.status)) return false;
+    if (writeControl(task, { op: "stop" })) {
+      // The supervisor will emit the authoritative exit event. Emit an
+      // immediate status only when the browser needs instant button feedback.
+      if (task.status !== "stopped") setStatus(task, "stopped");
+      return true;
     }
-    task.status = "stopped";
-    task.endedAt = Date.now();
-    try { if (task.proc.pid) process.kill(-task.proc.pid, "SIGTERM"); } catch {}
-    try { task.proc.kill("SIGTERM"); } catch {}
-    setTimeout(() => {
-      if (task.proc && task.proc.exitCode === null) {
-        try { if (task.proc.pid) process.kill(-task.proc.pid, "SIGKILL"); } catch {}
-        try { task.proc.kill("SIGKILL"); } catch {}
-      }
-    }, 1500).unref();
-    setStatus(task, "stopped");
-    return true;
+    // A supervisor can be between restarts; mark the journal stopped and send
+    // a best-effort signal to its process group so a user action never leaves
+    // an unowned child behind.
+    try { if (task.supervisorPid) process.kill(task.supervisorPid, "SIGTERM"); } catch {}
+    if (task.status !== "stopped") setStatus(task, "stopped");
+    return false;
   }
 
   function stream(req, res, id, after = -1, sseFrame, trySseWrite) {
@@ -557,7 +840,13 @@ function createAgentTaskService({
       cleanup(); try { res.end(); } catch {} return true;
     }
     for (const packet of task.events) if (packet.seq > after) write(packet.event, null, packet.seq);
-    if (task.outputTail && task.events.length === 0) write({ type: "output", taskId: task.id, stream: "stdout", text: task.outputTail, replay: true }, null, null);
+    // The HTTP service's in-memory event ids reset on a restart, while the
+    // detached supervisor keeps the durable output tail. If a browser sends a
+    // pre-restart Last-Event-ID that is ahead of our fresh journal, replay the
+    // tail as a recovery snapshot instead of showing an apparently blank chat.
+    if (task.outputTail && (task.events.length === 0 || after >= task.eventSeq)) {
+      write({ type: "output", taskId: task.id, stream: "stdout", text: task.outputTail, replay: true }, null, null);
+    }
     if (["completed", "failed", "stopped", "orphaned", "detached"].includes(task.status)) {
       cleanup(); try { res.end(); } catch {} return true;
     }
@@ -566,9 +855,18 @@ function createAgentTaskService({
     return true;
   }
 
-  function shutdown() {
+  function shutdown({ preserve = false } = {}) {
+    serviceClosing = true;
     for (const task of tasks.values()) {
-      if (task.proc && task.proc.exitCode === null) stop(task.id);
+      if (task.reconnectTimer) { clearTimeout(task.reconnectTimer); task.reconnectTimer = null; }
+      if (preserve) {
+        if (task.control) {
+          try { task.control.destroy(); } catch {}
+          task.control = null;
+        }
+        continue;
+      }
+      if (taskIsActive(task)) stop(task.id);
     }
     persist();
   }

@@ -1,7 +1,7 @@
-/* pi-harbor v2.12.1 — project changes, resilient drafts, and mobile polish */
+/* pi-harbor v2.13.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.12.1";
+const CLIENT_APP_VERSION = "2.13.0";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -61,7 +61,8 @@ const el = {
   temporarySessionFilter: $("temporary-session-filter"), temporarySessionFilterLabel: $("temporary-session-filter-label"), temporarySessionFilterNote: $("temporary-session-filter-note"), stuckSessions: $("stuck-sessions"), temporarySessionFilterNote: $("temporary-session-filter-note"),
   temporarySessionCount: $("temporary-session-count"), showTemporarySessions: $("show-temporary-sessions"),
   btnNew: $("btn-new"), btnNewProject: $("btn-new-project"), pullIndicator: $("pull-indicator"),
-  agentHubCard: $("agent-hub-card"), agentHubTitle: $("agent-hub-title"), agentHubSummary: $("agent-hub-summary"), agentHubRefresh: $("agent-hub-refresh"), agentHubConnectors: $("agent-hub-connectors"), agentTaskList: $("agent-task-list"),
+  agentHubCard: $("agent-hub-card"), agentHubTitle: $("agent-hub-title"), agentHubSummary: $("agent-hub-summary"), agentHubRefresh: $("agent-hub-refresh"), agentHubOpenCenter: $("agent-hub-open-center"), agentHubConnectors: $("agent-hub-connectors"), agentTaskList: $("agent-task-list"),
+  agentTaskCenter: $("agent-task-center"), agentTaskCenterClose: $("agent-task-center-close"), agentTaskCenterTitle: $("agent-task-center-title"), agentTaskCenterSummary: $("agent-task-center-summary"), agentTaskCenterSearch: $("agent-task-center-search"), agentTaskCenterFilter: $("agent-task-center-filter"), agentTaskCenterList: $("agent-task-center-list"), agentTaskCenterEmpty: $("agent-task-center-empty"),
   machineSwitch: $("machine-switch"), machineSwitchStatus: $("machine-switch-status"),
   machineCatalogStatus: $("machine-catalog-status"), machineCatalogStatusCopy: $("machine-catalog-status-copy"), machineCatalogRetry: $("machine-catalog-retry"),
   btnBack: $("btn-back"), chatTitle: $("chat-title"), chatSub: $("chat-sub"),
@@ -1042,9 +1043,6 @@ async function enterApp() {
     // is ready. The list card and New Project selector then share one snapshot.
     void loadAgentCatalog();
     void refreshAgentTasks();
-    // A reload lands on the list by default; bring the user straight back into
-    // the conversation they had open, including a run that is still going.
-    void restoreLastChat();
     void refreshMachineStatuses();
     loadVersion();
     setTimeout(() => openOnboarding(false), 350);
@@ -1446,6 +1444,7 @@ async function renderUsageSummary() {
       if (tokens > 0) visible++;
       const row = document.createElement("div");
       row.className = "usage-summary-row" + (tokens ? "" : " empty");
+      row.setAttribute("role", "listitem");
       const label = document.createElement("span");
       label.className = "usage-day";
       label.textContent = day.date.slice(5);
@@ -1492,6 +1491,22 @@ function showSettings() {
 el.btnOpenSettings.addEventListener("click", showSettings);
 el.btnSettingsBack.addEventListener("click", hideSettings);
 el.syncCompare?.addEventListener("click", () => { void compareResources(); });
+
+// The settings content owns the scroll position, but the fixed top bar is
+// intentionally outside that scroller. Forward desktop wheel gestures that
+// start on the bar or an empty overlay edge so the page never feels stuck;
+// native form controls keep their own wheel behaviour.
+function forwardSettingsWheel(event) {
+  const scroll = event.currentTarget?.querySelector?.(".settings-scroll");
+  if (!scroll || event.target?.closest?.("select, input, textarea, button")) return;
+  if (event.target?.closest?.(".settings-scroll")) return;
+  const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaMode === 2 ? event.deltaY * window.innerHeight : event.deltaY;
+  if (!Number.isFinite(delta) || delta === 0 || scroll.scrollHeight <= scroll.clientHeight) return;
+  scroll.scrollTop += delta;
+  event.preventDefault();
+}
+el.viewSettings?.addEventListener("wheel", forwardSettingsWheel, { passive: false });
+el.viewModelSettings?.addEventListener("wheel", forwardSettingsWheel, { passive: false });
 function showModelSettings() {
   stopUpdateCenterPolling();
   el.viewSettings.classList.add("hidden");
@@ -1562,6 +1577,7 @@ async function refreshStuckSessions() {
 const AGENT_STATUS_LABELS = Object.freeze({
   starting: "Starting",
   running: "Working",
+  reconnecting: "Reconnecting",
   waiting: "Waiting",
   completed: "Done",
   failed: "Failed",
@@ -1577,6 +1593,23 @@ function agentHubText(key, vars = {}) {
     title: "Agent Hub",
     discovering: "Discovering local agents…",
     refresh: "Refresh agents",
+    viewAll: "View all",
+    close: "Close",
+    taskCenterTitle: "Task center",
+    taskSearch: "Search tasks…",
+    taskFilter: "Filter tasks",
+    filterAll: "All",
+    filterActive: "Active",
+    taskCenterEmpty: "No tasks match this view.",
+    taskCenterCount: "{visible} of {total} tasks",
+    taskOpen: "Open",
+    taskStop: "Stop",
+    taskStopping: "Stopping…",
+    taskStoppedToast: "Agent task stopped",
+    taskStopFailed: "Could not stop agent task",
+    taskNoOutput: "No output yet",
+    taskLastActivity: "Updated {value}",
+    reconnectingNote: "Reconnecting to the supervisor…",
     activeSummary: "{active} active · {ready} ready",
     readySummary: "{ready} agents ready",
     noTasks: "No active tasks — choose an Agent when you start a project.",
@@ -1606,7 +1639,7 @@ function agentStatusText(status) {
 }
 
 function agentTaskIsRunning(task) {
-  return ["starting", "running"].includes(String(task?.status || ""));
+  return ["starting", "running", "reconnecting"].includes(String(task?.status || ""));
 }
 
 function agentTaskElapsed(task) {
@@ -1663,7 +1696,8 @@ function renderAgentHub() {
   for (const task of visible) {
     const row = document.createElement("button");
     row.type = "button";
-    row.className = `agent-task-row ${agentTaskIsRunning(task) ? "running" : String(task.status || "")}`;
+    const taskStatus = String(task.status || "").replace(/[^a-z0-9_-]/gi, "");
+    row.className = `agent-task-row ${agentTaskIsRunning(task) ? "running" : ""} ${taskStatus}`.trim();
     row.dataset.taskId = task.id || task.taskId || "";
     const dot = document.createElement("span");
     dot.className = "agent-task-dot";
@@ -1686,6 +1720,146 @@ function renderAgentHub() {
   }
 }
 
+function agentTaskCenterFilterMatches(task, filter) {
+  const status = String(task?.status || "");
+  if (filter === "active") return agentTaskIsRunning(task) || status === "waiting";
+  if (filter === "all" || !filter) return true;
+  return status === filter;
+}
+
+function agentTaskCenterSort(a, b) {
+  const activeOrder = Number(agentTaskIsRunning(b)) - Number(agentTaskIsRunning(a));
+  return activeOrder || (Number(b.lastActivityAt || b.startedAt) || 0) - (Number(a.lastActivityAt || a.startedAt) || 0);
+}
+
+function agentTaskCenterRows() {
+  const query = String(el.agentTaskCenterSearch?.value || "").trim().toLocaleLowerCase();
+  const filter = String(el.agentTaskCenterFilter?.value || "all");
+  return [...agentTasks]
+    .filter((task) => agentTaskCenterFilterMatches(task, filter))
+    .filter((task) => {
+      if (!query) return true;
+      return [task.name, task.agentId, task.agent, task.cwd, task.worktree?.branch]
+        .filter(Boolean).some((value) => String(value).toLocaleLowerCase().includes(query));
+    })
+    .sort(agentTaskCenterSort);
+}
+
+function renderAgentTaskCenter() {
+  if (!el.agentTaskCenterList) return;
+  const rows = agentTaskCenterRows();
+  const total = agentTasks.length;
+  if (el.agentTaskCenterSummary) {
+    el.agentTaskCenterSummary.textContent = agentHubText("taskCenterCount", { visible: rows.length, total });
+  }
+  el.agentTaskCenterList.replaceChildren();
+  el.agentTaskCenterEmpty?.classList.toggle("hidden", rows.length > 0);
+  for (const task of rows) {
+    const id = String(task.id || task.taskId || "");
+    const status = String(task.status || "waiting").replace(/[^a-z0-9_-]/gi, "");
+    const row = document.createElement("article");
+    row.className = `agent-task-center-row ${agentTaskIsRunning(task) ? "running" : ""} ${status}`.trim();
+    row.dataset.taskId = id;
+    row.setAttribute("role", "listitem");
+
+    const dot = document.createElement("span");
+    dot.className = "agent-task-dot";
+    dot.setAttribute("aria-hidden", "true");
+
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "agent-task-center-open";
+    open.addEventListener("click", () => {
+      closeAgentTaskCenter();
+      openAgentTaskFromHub(task);
+    });
+    const copy = document.createElement("span");
+    copy.className = "agent-task-center-copy";
+    const name = document.createElement("strong");
+    name.textContent = task.name || agentConnectorLabel(task.agentId);
+    name.dataset.i18nIgnore = "";
+    const meta = document.createElement("span");
+    meta.className = "agent-task-center-meta";
+    const elapsed = agentTaskElapsed(task);
+    meta.textContent = `${agentConnectorLabel(task.agentId)} · ${agentStatusText(task.status)}${elapsed ? ` · ${elapsed}` : ""}`;
+    meta.dataset.i18nIgnore = "";
+    const pathLabel = document.createElement("small");
+    pathLabel.className = "agent-task-center-path";
+    pathLabel.textContent = task.cwd || task.worktree?.path || agentHubText("taskNoOutput");
+    pathLabel.dataset.i18nIgnore = "";
+    const preview = document.createElement("small");
+    preview.className = "agent-task-center-preview";
+    const outputLine = stripAnsi(String(task.outputTail || "")).trim().split(/\r?\n/).filter(Boolean).pop();
+    preview.textContent = outputLine || agentHubText("taskNoOutput");
+    if (outputLine) preview.dataset.i18nIgnore = "";
+    copy.append(name, meta, pathLabel, preview);
+    open.appendChild(copy);
+
+    const actions = document.createElement("span");
+    actions.className = "agent-task-center-actions";
+    const activity = document.createElement("small");
+    activity.className = "agent-task-center-activity";
+    activity.dataset.role = "activity";
+    activity.textContent = task.lastActivityAt ? agentHubText("taskLastActivity", { value: fmtTime(task.lastActivityAt) }) : "";
+    actions.appendChild(activity);
+    if (agentTaskIsRunning(task) || task.status === "waiting") {
+      const stop = document.createElement("button");
+      stop.type = "button";
+      stop.className = "agent-task-center-stop btn ghost";
+      stop.textContent = agentHubText("taskStop");
+      stop.addEventListener("click", (event) => {
+        event.stopPropagation();
+        void stopAgentTaskFromCenter(task, stop);
+      });
+      actions.appendChild(stop);
+    }
+    row.append(dot, open, actions);
+    el.agentTaskCenterList.appendChild(row);
+  }
+}
+
+function updateAgentTaskCenterClock() {
+  if (!el.agentTaskCenterList || el.agentTaskCenter?.classList.contains("hidden")) return;
+  const byId = new Map(agentTasks.map((task) => [String(task.id || task.taskId || ""), task]));
+  for (const row of el.agentTaskCenterList.querySelectorAll(".agent-task-center-row")) {
+    const task = byId.get(String(row.dataset.taskId || ""));
+    if (!task) continue;
+    const meta = row.querySelector(".agent-task-center-meta");
+    if (meta) {
+      const elapsed = agentTaskElapsed(task);
+      meta.textContent = `${agentConnectorLabel(task.agentId)} · ${agentStatusText(task.status)}${elapsed ? ` · ${elapsed}` : ""}`;
+    }
+  }
+}
+
+async function stopAgentTaskFromCenter(task, button) {
+  const id = String(task?.id || task?.taskId || "");
+  if (!id || !button) return;
+  button.disabled = true;
+  button.textContent = agentHubText("taskStopping");
+  try {
+    await post("/api/agent/abort", { taskId: id });
+    toast(agentHubText("taskStoppedToast"));
+    await refreshAgentTasks();
+  } catch (error) {
+    toast(error.message || agentHubText("taskStopFailed"), true);
+    button.disabled = false;
+    button.textContent = agentHubText("taskStop");
+  }
+}
+
+function openAgentTaskCenter() {
+  if (!el.agentTaskCenter) return;
+  renderAgentTaskCenter();
+  el.agentTaskCenter.classList.remove("hidden");
+  el.agentTaskCenterSearch?.focus({ preventScroll: true });
+  void refreshAgentTasks();
+}
+
+function closeAgentTaskCenter() {
+  el.agentTaskCenter?.classList.add("hidden");
+}
+
 // The task list is polled for truth, but elapsed labels should feel like a
 // local clock. Update only the state text so a focused row, scroll position,
 // and any active pointer gesture are never disturbed by a full re-render.
@@ -1699,6 +1873,7 @@ function updateAgentHubClock() {
     const elapsed = agentTaskElapsed(task);
     state.textContent = elapsed ? `${agentStatusText(task.status)} · ${elapsed}` : agentStatusText(task.status);
   }
+  updateAgentTaskCenterClock();
 }
 
 function renderNewAgentOptions() {
@@ -1755,11 +1930,19 @@ async function refreshAgentTasks() {
     const data = await api("/api/agent-tasks", { signal: agentTaskRefreshRequest.signal });
     agentTasks = Array.isArray(data?.tasks) ? data.tasks : [];
     renderAgentHub();
+    renderAgentTaskCenter();
     syncAgentTaskPolling();
+    // Restore only after a successful task snapshot; doing this before the
+    // first fetch would race the durable generic-task list and fall back to a
+    // stale native session.
+    void restoreLastChat();
   } catch (error) {
     if (error?.name !== "AbortError") {
-      agentTasks = [];
+      // Keep the last truthful snapshot during a transient network hiccup.
+      // Clearing it makes a long-running task disappear even though its
+      // supervisor is still alive and the next poll can recover it.
       renderAgentHub();
+      renderAgentTaskCenter();
     }
   } finally {
     agentTaskRefreshRequest = null;
@@ -1784,16 +1967,20 @@ function syncAgentTaskPolling() {
   }
 }
 
-function openAgentTaskFromHub(task) {
+async function openAgentTaskFromHub(task) {
   if (!task) return;
   if (task.agentId === "pi" && (task.file || task.sessionFile)) {
-    openExisting({ file: task.file || task.sessionFile, cwd: task.cwd || "", name: task.name || "Pi Agent", preview: "" });
-    return;
+    return openExisting({ file: task.file || task.sessionFile, cwd: task.cwd || "", name: task.name || "Pi Agent", preview: "" });
   }
-  openGenericTask(task);
+  return openGenericTask(task);
 }
 
 el.agentHubRefresh?.addEventListener("click", () => { void loadAgentCatalog(); void refreshAgentTasks(); });
+el.agentHubOpenCenter?.addEventListener("click", openAgentTaskCenter);
+el.agentTaskCenterClose?.addEventListener("click", closeAgentTaskCenter);
+el.agentTaskCenter?.addEventListener("click", (event) => { if (event.target === el.agentTaskCenter) closeAgentTaskCenter(); });
+el.agentTaskCenterSearch?.addEventListener("input", renderAgentTaskCenter);
+el.agentTaskCenterFilter?.addEventListener("change", renderAgentTaskCenter);
 el.newAgent?.addEventListener("change", updateNewAgentNote);
 
 async function refreshSessions() {
@@ -1896,6 +2083,7 @@ function syncSessionListPolling() {
 // ---------------------------------------------------------------------------
 
 const LAST_CHAT_KEY = "piharbor.last-chat.v1";
+const LAST_AGENT_TASK_KEY = "piharbor.last-agent-task.v1";
 let lastChatRestoreAttempted = false;
 
 function lastChatMachineKey() {
@@ -1919,9 +2107,46 @@ function readLastChat() {
   } catch { return null; }
 }
 
+function rememberLastAgentTask(taskId) {
+  const id = String(taskId || "").trim();
+  if (!id || id.startsWith("pi:")) return;
+  try {
+    const raw = JSON.parse(localStorage.getItem(LAST_AGENT_TASK_KEY) || "{}");
+    raw[lastChatMachineKey()] = id;
+    localStorage.setItem(LAST_AGENT_TASK_KEY, JSON.stringify(raw));
+  } catch {}
+}
+
+function clearLastAgentTask() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LAST_AGENT_TASK_KEY) || "{}");
+    delete raw[lastChatMachineKey()];
+    localStorage.setItem(LAST_AGENT_TASK_KEY, JSON.stringify(raw));
+  } catch {}
+}
+
+function readLastAgentTask() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LAST_AGENT_TASK_KEY) || "{}");
+    const id = raw[lastChatMachineKey()];
+    return typeof id === "string" && id && !id.startsWith("pi:") ? id : null;
+  } catch { return null; }
+}
+
 async function restoreLastChat() {
   if (lastChatRestoreAttempted) return;
   lastChatRestoreAttempted = true;
+  const taskId = readLastAgentTask();
+  if (taskId) {
+    const task = agentTasks.find((item) => String(item.id || item.taskId || "") === taskId);
+    if (task) {
+      // The Agent Hub list is durable, so a browser reload can return to a
+      // generic task even when its HTTP/SSE connection was gone in between.
+      await openAgentTaskFromHub(task);
+      return;
+    }
+    clearLastAgentTask();
+  }
   const file = readLastChat();
   if (!file || currentSessionFile === file) return;
   // The setup guide must not end up underneath an opened chat.
@@ -2681,6 +2906,7 @@ async function openExisting(s) {
   resetComposerSummary();
   currentSessionFile = s.file;
   currentSessionCwd = s.cwd;
+  clearLastAgentTask();
   rememberLastChat(s.file);
   renderSessionList(el.search.value);
   hideChatEmpty();
@@ -3393,6 +3619,7 @@ async function openGenericTask(task) {
   if (!task) return;
   const cwd = task.cwd || task.worktree?.path || "";
   const name = task.name || agentConnectorLabel(task.agentId);
+  rememberLastAgentTask(task.id || task.taskId);
   beginDraftScope({ cwd, name });
   const generation = ++viewGeneration;
   if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
@@ -9386,6 +9613,7 @@ el.newCancel.addEventListener("click", () => {
 function dismissableLayers() {
   return [
     { element: el.imageLightbox, close: closeImageLightbox },
+    { element: el.agentTaskCenter, close: closeAgentTaskCenter },
     { element: el.commandPalette, close: closeCommandPalette },
     { element: el.onboarding, close: () => void completeOnboarding() },
     { element: el.extensionUiSheet, close: () => { if (extensionUiRequest) finishExtensionUi({ cancelled: true }); } },
@@ -9515,6 +9743,12 @@ window.addEventListener("pageshow", lockMobilePortrait);
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (event) => {
+    if (event.data?.type === "PI_HARBOR_OPEN_AGENT_TASK" && typeof event.data.taskId === "string") {
+      const hit = agentTasks.find((task) => String(task.id || task.taskId || "") === event.data.taskId);
+      if (hit) { void openAgentTaskFromHub(hit); }
+      else { void refreshAgentTasks().then(() => { const task = agentTasks.find((item) => String(item.id || item.taskId || "") === event.data.taskId); if (task) void openAgentTaskFromHub(task); }); }
+      return;
+    }
     if (event.data?.type === "PI_HARBOR_OPEN_SESSION" && typeof event.data.file === "string") {
       const hit = sessionsCache.find((s) => s.file === event.data.file);
       if (hit) { void openExisting(hit); }

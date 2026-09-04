@@ -11,6 +11,8 @@ simple.
 server.js
   ├─ Pi/session/provider/device behavior and route table
   ├─ server/agent-connectors.js  allow-listed local Agent connectors and task journal
+  ├─ server/connector-protocol.js versioned connector manifest/event contract
+  ├─ server/agent-task-supervisor.js one detached supervisor per generic task
   ├─ server/pty-bridge.py        dependency-free Unix PTY bridge for interactive CLIs
   ├─ server/device-trust.js  one-time pairing, peer credentials, and atomic grants
   ├─ server/http-utils.js  HTTP headers, cookies, auth modes, JSON bodies, SSE framing
@@ -32,7 +34,10 @@ explicit input/output boundary before adding more state to the controllers.
 ## Runtime rules
 
 - Keep API and relay requests out of the service-worker cache.
-- Agent Hub uses one connector contract for Pi and local CLI agents. Pi keeps
+- Agent Hub uses one versioned connector contract for Pi and local CLI agents.
+  The public catalog includes `protocolVersion`, capabilities, and lifecycle
+  event types so future adapters can be added without changing the browser API.
+  Pi keeps
   its native JSON-RPC/session history; Claude Code, Codex CLI, Grok Build, and
   OpenCode are discovered from an explicit allow-list and run only from their
   resolved executable path. The browser can submit an Agent id and text, never
@@ -43,10 +48,13 @@ explicit input/output boundary before adding more state to the controllers.
   browser can leave and later reopen the task. On macOS/Linux, the bundled
   stdlib-only `server/pty-bridge.py` gives interactive CLIs a real terminal;
   Windows and hosts without Python use the safe pipe transport instead. A
-  supervised Pi Harbor restart
-  stops generic CLI children (there is no portable stdin reattachment protocol)
-  and records them as `stopped`, `detached`, or `orphaned`; Pi JSON-RPC runs keep
-  the existing graceful-restart behavior.
+  Each generic task is owned by a detached `agent-task-supervisor.js` process.
+  Its owner-only Unix socket (or local Windows named pipe), bounded event
+  journal, and private snapshot live independently from `server.js`. A graceful
+  Pi Harbor restart drops HTTP/SSE clients, then the next process reattaches to
+  the supervisor and resumes the timer/output. If the host or supervisor is
+  killed, the journal records `orphaned` rather than claiming that work is still
+  running; Pi JSON-RPC runs keep the existing graceful-restart behavior.
 - Worktree selection is server-side validated and uses the existing permanent
   Git worktree helper. A task's working directory and branch are exposed to the
   browser, while credentials and environment values stay on the host.
@@ -73,7 +81,10 @@ explicit input/output boundary before adding more state to the controllers.
   with mode `0600`; revocation invalidates existing browser cookies at the
   next authenticated request. They are host credentials, not multi-user Pi
   accounts or per-project ACLs.
-- The updater performs archive-name/type preflight before extraction. Releases
+- The updater performs archive-name/type preflight before extraction and probes
+  `/api/health` after launchd activation. If the new process does not report the
+  expected release version, it restores the previous verified directory and
+  records a rollback state. Releases
   publish a SHA-256 checksum plus a GitHub OIDC artifact attestation; the local
   updater still requires only the checksum. Mermaid is bundled in
   `public/vendor/mermaid.min.js` and loaded lazily, so diagram sources stay

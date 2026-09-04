@@ -47,7 +47,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.12.1";
+const APP_VERSION = "2.13.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1526,7 +1526,14 @@ const pushDeliveryInFlight = new Set();
 async function deliverPushNotification(session, title, body) {
   const subscriptions = readPushSubscriptions();
   if (!subscriptions.length) return;
-  const payload = JSON.stringify({ title, body, file: session?.meta?.file || null, sessionId: session?.state?.sessionId || null, ts: Date.now() });
+  const payload = JSON.stringify({
+    title,
+    body,
+    file: session?.meta?.file || session?.file || null,
+    sessionId: session?.state?.sessionId || session?.id || session?.taskId || null,
+    taskId: session?.taskId || session?.id || null,
+    ts: Date.now(),
+  });
   for (const subscription of subscriptions) {
     if (pushDeliveryInFlight.has(subscription.endpoint)) continue;
     pushDeliveryInFlight.add(subscription.endpoint);
@@ -1623,6 +1630,20 @@ function archiveSession(rel) {
   }
 }
 
+// Generic Agent Hub tasks use the same PWA channel as native Pi runs. The
+// connector service calls this only after a terminal event and tells us whether
+// an authenticated SSE client was attached; active browser views do not need a
+// duplicate system notification.
+function maybeNotifyAgentTaskSettled(task, context = {}) {
+  try {
+    if (!task || context.hasClients || !readPushSubscriptions().length) return;
+    const status = String(task.status || "completed");
+    const label = String(task.name || task.agentId || "Agent task").slice(0, 120);
+    const outcome = status === "failed" ? "failed" : status === "stopped" ? "stopped" : "finished";
+    deliverPushNotification(task, `${task.agentId || "Agent"} task ${outcome}`, label);
+  } catch {}
+}
+
 function projectDirectory(cwd) {
   if (typeof cwd !== "string" || !cwd.trim() || !path.isAbsolute(cwd)) return null;
   const real = realBrowsePath(cwd.trim());
@@ -1645,6 +1666,7 @@ const agentTasks = createAgentTaskService({
   validateCwd: projectDirectory,
   piBin: PI_BIN,
   env: process.env,
+  onSettled: maybeNotifyAgentTaskSettled,
 });
 
 function revealProject(cwd) {
@@ -4698,7 +4720,17 @@ const server = http.createServer(async (req, res) => {
 
       if (p === "/api/agent/abort" && req.method === "POST") {
         const body = await readJSON(req);
-        const ok = agentTasks.stop(body?.taskId);
+        const taskId = String(body?.taskId || "");
+        // Native Pi sessions share the task center's `pi:<sid>` identity, but
+        // keep their richer JSON-RPC lifecycle. Route their stop action to the
+        // native abort command instead of treating them as an external CLI.
+        let ok;
+        if (taskId.startsWith("pi:")) {
+          const sid = taskId.slice(3);
+          ok = !!sid && rpcWrite(sid, { type: "abort" });
+        } else {
+          ok = agentTasks.stop(taskId);
+        }
         sendJSON(res, ok ? 200 : 404, ok ? { stopped: true } : { error: "no such agent task" });
         return;
       }
@@ -4922,10 +4954,10 @@ function shutdown(signal) {
     // HTTP server.  Killing it here was the source of silent GUI-only stops.
     if (!s.state.isStreaming) killRpcProcess(s.proc);
   }
-  // Generic CLI connectors do not have a portable reattach protocol. Stop
-  // them explicitly on a supervised restart and leave a journaled task record
-  // so the inbox can explain what happened after the server comes back.
-  try { agentTasks.shutdown(); } catch (error) { console.warn(`[pi-harbor] agent task shutdown failed: ${error.message}`); }
+  // Generic CLI work belongs to an independent supervisor. Dropping the HTTP
+  // process must not terminate a user's long-running task; the next server
+  // instance reconnects to the local supervisor socket and resumes the stream.
+  try { agentTasks.shutdown({ preserve: true }); } catch (error) { console.warn(`[pi-harbor] agent task shutdown failed: ${error.message}`); }
 
   closeHttp();
   if (!active.length) {

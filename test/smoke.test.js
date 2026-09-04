@@ -137,9 +137,11 @@ test("Agent Hub has an allow-listed connector inventory and reconnectable task s
   assert.match(server, /\/api\/agents/);
   assert.match(server, /\/api\/agent-tasks/);
   assert.match(server, /\/api\/agent\/stream/);
-  assert.match(server, /agentTasks\.shutdown\(\)/);
+  assert.match(server, /taskId\.startsWith\("pi:"\)/);
+  assert.match(server, /agentTasks\.shutdown\(\{\s*preserve:\s*true\s*\}\)/);
   assert.match(app, /function connectAgentTask\(/);
   assert.match(app, /function handleAgentTaskEvent\(/);
+  assert.match(app, /function renderAgentTaskCenter\(/);
   assert.match(app, /agent-terminal-output/);
   assert.match(app, /task remains in the inbox|task keeps running/i);
   assert.match(html, /id="agent-hub-card"/);
@@ -512,6 +514,21 @@ test("New project browsing starts with a selected-host no-path request", () => {
   assert.match(server, /if \(!dir\) dir = APP_HOME/);
   assert.match(server, /if \(!path\.isAbsolute\(dir\)\)/);
   assert.match(server, /isBrowseAllowed\(dir\)/);
+});
+
+test("New project picker keeps the whole sheet scrollable", () => {
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  const projectSheet = css.slice(css.indexOf(".project-sheet {"), css.indexOf(".sheet-handle", css.indexOf(".project-sheet {")));
+  const folderList = css.slice(css.indexOf(".project-folder-list {"), css.indexOf(".project-folder-row", css.indexOf(".project-folder-list {")));
+  assert.match(projectSheet, /overflow-y: auto/);
+  assert.match(projectSheet, /overscroll-behavior: contain/);
+  assert.match(projectSheet, /-webkit-overflow-scrolling: touch/);
+  assert.match(projectSheet, /touch-action: pan-y/);
+  assert.match(projectSheet, /scrollbar-width: thin/);
+  // Avoid a nested scroll trap: folder rows and the agent/worktree controls
+  // belong to the same scroll surface.
+  assert.doesNotMatch(folderList, /overflow-y:/);
+  assert.doesNotMatch(folderList, /max-height:/);
 });
 
 test("project folder browsing can move from a home root to configured volumes", () => {
@@ -949,8 +966,12 @@ test("reopening the app returns to the conversation the user had open", () => {
   // The last chat is remembered per device at every point the file becomes
   // known: opening an existing session and a new chat's first persisted file.
   assert.match(app, /const LAST_CHAT_KEY = "piharbor\.last-chat\.v1"/);
+  assert.match(app, /const LAST_AGENT_TASK_KEY = "piharbor\.last-agent-task\.v1"/);
   assert.match(app, /function rememberLastChat\(file\)/);
+  assert.match(app, /function rememberLastAgentTask\(taskId\)/);
+  assert.match(app, /function readLastAgentTask\(\)/);
   assert.match(app, /function restoreLastChat\(\)/);
+  assert.match(app, /await openAgentTaskFromHub\(task\)/);
   assert.match(app, /await openExisting\(session\)/);
   const openHits = (app.match(/rememberLastChat\(s\.file\)/g) || []).length;
   const trackHits = (app.match(/rememberLastChat\(hit\.file\)/g) || []).length;
@@ -1041,6 +1062,7 @@ test("the run timer survives a reload and restarts on each new turn", () => {
 
 test("desktop Settings scrolls from anywhere while its content stays centered", () => {
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   // The scroller must span the full width; centering is done with padding so
   // the wheel still works over the empty margins beside the cards.
   assert.match(css, /#view-settings \.settings-scroll,\s*\n\s*#view-model-settings \.settings-scroll \{\s*\n\s*max-width: none;/);
@@ -1048,6 +1070,23 @@ test("desktop Settings scrolls from anywhere while its content stays centered", 
   assert.match(css, /padding-right: max\(14px, calc\(\(100% - 640px\) \/ 2\)\)/);
   assert.match(css, /padding-left: max\(14px, calc\(\(100% - 880px\) \/ 2\)\)/);
   assert.doesNotMatch(css, /#view-model-settings \.settings-scroll \{ max-width: 880px; \}/);
+  assert.match(app, /function forwardSettingsWheel\(event\)/);
+  assert.match(app, /addEventListener\("wheel", forwardSettingsWheel, \{ passive: false \}\)/);
+});
+
+test("About usage summary keeps translated copy and quiet empty days", () => {
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");
+  assert.match(html, /data-i18n-key="usage\.title"/);
+  assert.match(html, /id="usage-summary-rows" class="usage-summary-rows" role="list"/);
+  assert.match(app, /row\.setAttribute\("role", "listitem"\)/);
+  assert.match(css, /#usage-summary-rows,[\s\S]{0,180}align-content: start/);
+  assert.match(css, /\.usage-summary-row\.empty \{ opacity: \.55; \}/);
+  assert.match(css, /\.usage-summary-row\.empty \.usage-bar \{ height: 2px/);
+  assert.match(i18n, /"usage\.title": "Usage · last 7 days"/);
+  assert.match(i18n, /"usage\.title": "用量 · 最近 7 天"/);
 });
 
 test("Escape closes only the topmost overlay and then leaves Settings", () => {

@@ -1,0 +1,6 @@
+[Unit]
+Description=Pi Harbor release update check
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/share/pi-harbor-bin/install-linux.sh --yes

@@ -19,6 +19,21 @@ Pi Harbor 是開源、手機優先的 Pi coding agent 網頁客戶端。它支�
 安裝程式會檢查 Pi Agent 與 Node.js、下載並驗證最新穩定 Release、建立
 launchd 服務與自動更新。若沒有 Pi Agent，會先詢問是否透過 Pi 官方安裝程式加入。
 
+Linux 可改用 `install-linux.sh`，會建立使用者層級的 systemd 服務與每小時更新計時器：
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/seehow624/pi-harbor/master/install-linux.sh)"
+```
+
+Windows 可下載 `install-windows.ps1`，會建立使用者層級的工作排程（不需要系統管理員權限）：
+
+```powershell
+irm https://raw.githubusercontent.com/seehow624/pi-harbor/master/install-windows.ps1 -OutFile install-windows.ps1
+powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
+```
+
+Linux 與 Windows 都需要 Node.js 22.19 以上；服務預設只監聽本機回環位址。
+
 安裝完成後，請在執行 Pi Harbor 的電腦開啟終端機並執行：
 
 ```bash
@@ -48,10 +63,10 @@ Git worktree。CLI 的 stdout／stderr 會串流到對話；macOS/Linux 會透�
 關閉瀏覽器後工作仍會留在收件匣；重新點選即可回放有限長度的輸出記錄。未安裝的
 連接器會顯示為不可選取，必須先在該主機安裝對應 CLI。
 
-Pi 工作會保留原生完整工作階段歷史。通用 CLI 工作由 Pi Harbor 監督，記錄保存在
-`~/.config/pi-harbor/agent-tasks.json`（權限 `600`）。由於任意 CLI 沒有可攜式的
-stdin 重新連接協定，Pi Harbor 被監督式重啟時會停止這些子程序並如實標記狀態，不會
-假裝工作仍在執行。
+Pi 工作會保留原生完整工作階段歷史。通用 CLI 工作由獨立的每工作監督器管理，記錄保存在
+`~/.config/pi-harbor/agent-tasks.json`（權限 `600`）。重新啟動 Pi Harbor 網頁服務時會重新
+接管監督器，計時器與輸出都會繼續；如果主機或監督器本身被終止，收件匣會如實標記為已中斷。
+首頁 Agent Hub 的「查看全部」工作中心提供搜尋、狀態篩選、回放與一鍵停止。
 
 ## 自動更新
 

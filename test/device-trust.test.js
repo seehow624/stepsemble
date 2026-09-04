@@ -545,7 +545,7 @@ function makeArchive(entries) {
   return zlib.gzipSync(Buffer.concat(chunks));
 }
 
-test("installer and updater preflight reject traversal and symlink entries without extracting", async (t) => {
+test("installer and updater preflight reject traversal and symlink entries without extracting", { skip: process.platform !== "darwin" }, async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-archive-test-"));
   const outside = path.join(home, "outside-marker");
   const good = path.join(home, "good.tar.gz");

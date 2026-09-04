@@ -143,6 +143,20 @@ test("runtime, provider, and device keys are translated in every locale", () => 
   i18n.setLocale("en");
 });
 
+test("usage summary title is translated in every locale", () => {
+  const i18n = loadLocaleLayer();
+  i18n.setLocale("en");
+  const english = i18n.tKey("usage.title");
+  assert.equal(english, "Usage · last 7 days");
+  for (const locale of i18n.locales.map((item) => item.id).filter((id) => id !== "en")) {
+    i18n.setLocale(locale);
+    const translated = i18n.tKey("usage.title");
+    assert.notEqual(translated, english, `${locale} should translate usage.title`);
+    assert.notEqual(translated, "usage.title", `${locale} should not leak the key`);
+  }
+  i18n.setLocale("en");
+});
+
 test("locale registry has complete keys, matching placeholders, and no accidental CJK leakage", () => {
   const i18n = loadLocaleLayer();
   const audit = i18n.auditLocales();

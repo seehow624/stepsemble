@@ -1,18 +1,18 @@
-const CACHE_NAME = "pi-harbor-shell-v2.12.1";
+const CACHE_NAME = "pi-harbor-shell-v2.13.0";
 const SHELL = [
   "/",
   "/index.html",
-  "/style.css?v=2.12.1",
-  "/i18n.js?v=2.12.1",
-  "/modules/app-foundation.js?v=2.12.1",
-  "/modules/session-utils.js?v=2.12.1",
-  "/modules/context-usage.js?v=2.12.1",
-  "/app.js?v=2.12.1",
-  "/manifest.webmanifest?v=2.12.1",
-  "/pi-logo.svg?v=2.12.1",
+  "/style.css?v=2.13.0",
+  "/i18n.js?v=2.13.0",
+  "/modules/app-foundation.js?v=2.13.0",
+  "/modules/session-utils.js?v=2.13.0",
+  "/modules/context-usage.js?v=2.13.0",
+  "/app.js?v=2.13.0",
+  "/manifest.webmanifest?v=2.13.0",
+  "/pi-logo.svg?v=2.13.0",
   "/pi-glyph.svg",
-  "/icon-180.png?v=2.12.1",
-  "/icon-512.png?v=2.12.1",
+  "/icon-180.png?v=2.13.0",
+  "/icon-512.png?v=2.13.0",
   "/vendor/marked.min.js",
   "/vendor/purify.min.js",
   "/vendor/mermaid.min.js",
@@ -45,17 +45,19 @@ self.addEventListener("push", (event) => {
     icon: "/icon-180.png",
     badge: "/pi-glyph.svg",
     tag: "pi-harbor-run",
-    data: { file: data.file || null },
+    data: { file: data.file || null, taskId: data.taskId || null },
   }));
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const file = event.notification.data?.file || null;
+  const taskId = event.notification.data?.taskId || null;
   event.waitUntil((async () => {
     const windowClients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     for (const client of windowClients) {
-      if (file) client.postMessage({ type: "PI_HARBOR_OPEN_SESSION", file });
+      if (taskId) client.postMessage({ type: "PI_HARBOR_OPEN_AGENT_TASK", taskId });
+      else if (file) client.postMessage({ type: "PI_HARBOR_OPEN_SESSION", file });
       return client.focus();
     }
     return self.clients.openWindow("/");

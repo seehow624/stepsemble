@@ -2187,17 +2187,17 @@
     },
   };
   const KEYED_LABEL_TRANSLATIONS = {
-    en: { "deviceTrust.urlLabel": "Pi Harbor URL", "deviceTrust.expiresLabel": "Expires", "deviceTrust.versionLabel": "Pairing version" },
-    "zh-Hant": { "deviceTrust.urlLabel": "Pi Harbor 網址", "deviceTrust.expiresLabel": "到期時間", "deviceTrust.versionLabel": "配對版本" },
-    "zh-Hans": { "deviceTrust.urlLabel": "Pi Harbor 地址", "deviceTrust.expiresLabel": "到期时间", "deviceTrust.versionLabel": "配对版本" },
-    ja: { "deviceTrust.urlLabel": "Pi Harbor URL", "deviceTrust.expiresLabel": "有効期限", "deviceTrust.versionLabel": "ペアリングバージョン" },
-    ko: { "deviceTrust.urlLabel": "Pi Harbor URL", "deviceTrust.expiresLabel": "만료", "deviceTrust.versionLabel": "페어링 버전" },
-    tr: { "deviceTrust.urlLabel": "Pi Harbor URL'si", "deviceTrust.expiresLabel": "Son kullanma", "deviceTrust.versionLabel": "Eşleştirme sürümü" },
-    fr: { "deviceTrust.urlLabel": "URL de Pi Harbor", "deviceTrust.expiresLabel": "Expiration", "deviceTrust.versionLabel": "Version de l’association" },
-    de: { "deviceTrust.urlLabel": "Pi-Harbor-URL", "deviceTrust.expiresLabel": "Läuft ab", "deviceTrust.versionLabel": "Kopplungsversion" },
-    es: { "deviceTrust.urlLabel": "URL de Pi Harbor", "deviceTrust.expiresLabel": "Caduca", "deviceTrust.versionLabel": "Versión del emparejamiento" },
-    "pt-BR": { "deviceTrust.urlLabel": "URL do Pi Harbor", "deviceTrust.expiresLabel": "Expira", "deviceTrust.versionLabel": "Versão do pareamento" },
-    it: { "deviceTrust.urlLabel": "URL di Pi Harbor", "deviceTrust.expiresLabel": "Scadenza", "deviceTrust.versionLabel": "Versione abbinamento" },
+    en: { "deviceTrust.urlLabel": "Pi Harbor URL", "deviceTrust.expiresLabel": "Expires", "deviceTrust.versionLabel": "Pairing version", "usage.title": "Usage · last 7 days" },
+    "zh-Hant": { "deviceTrust.urlLabel": "Pi Harbor 網址", "deviceTrust.expiresLabel": "到期時間", "deviceTrust.versionLabel": "配對版本", "usage.title": "用量 · 最近 7 天" },
+    "zh-Hans": { "deviceTrust.urlLabel": "Pi Harbor 地址", "deviceTrust.expiresLabel": "到期时间", "deviceTrust.versionLabel": "配对版本", "usage.title": "用量 · 最近 7 天" },
+    ja: { "deviceTrust.urlLabel": "Pi Harbor URL", "deviceTrust.expiresLabel": "有効期限", "deviceTrust.versionLabel": "ペアリングバージョン", "usage.title": "使用量 · 過去7日間" },
+    ko: { "deviceTrust.urlLabel": "Pi Harbor URL", "deviceTrust.expiresLabel": "만료", "deviceTrust.versionLabel": "페어링 버전", "usage.title": "사용량 · 최근 7일" },
+    tr: { "deviceTrust.urlLabel": "Pi Harbor URL'si", "deviceTrust.expiresLabel": "Son kullanma", "deviceTrust.versionLabel": "Eşleştirme sürümü", "usage.title": "Kullanım · son 7 gün" },
+    fr: { "deviceTrust.urlLabel": "URL de Pi Harbor", "deviceTrust.expiresLabel": "Expiration", "deviceTrust.versionLabel": "Version de l’association", "usage.title": "Utilisation · 7 derniers jours" },
+    de: { "deviceTrust.urlLabel": "Pi-Harbor-URL", "deviceTrust.expiresLabel": "Läuft ab", "deviceTrust.versionLabel": "Kopplungsversion", "usage.title": "Verbrauch · letzte 7 Tage" },
+    es: { "deviceTrust.urlLabel": "URL de Pi Harbor", "deviceTrust.expiresLabel": "Caduca", "deviceTrust.versionLabel": "Versión del emparejamiento", "usage.title": "Uso · últimos 7 días" },
+    "pt-BR": { "deviceTrust.urlLabel": "URL do Pi Harbor", "deviceTrust.expiresLabel": "Expira", "deviceTrust.versionLabel": "Versão do pareamento", "usage.title": "Uso · últimos 7 dias" },
+    it: { "deviceTrust.urlLabel": "URL di Pi Harbor", "deviceTrust.expiresLabel": "Scadenza", "deviceTrust.versionLabel": "Versione abbinamento", "usage.title": "Utilizzo · ultimi 7 giorni" },
   };
   for (const [id, table] of Object.entries(KEYED_LABEL_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], table);
   const CONTEXT_DASHBOARD_TRANSLATIONS = {
@@ -3382,7 +3382,7 @@
       "agentHub.noTasks": "No active tasks — choose an Agent when you start a project.", "agentHub.notInstalled": "not installed",
       "agentHub.isolated": "Isolated worktree", "agentHub.worktreeDescription": "Give this task its own Git branch and folder", "agentHub.piNote": "Pi Agent keeps full session history. CLI agents stream terminal output here.",
       "agentHub.cliNote": "This CLI streams terminal output here; the task keeps running when you leave the chat.", "agentHub.cliTextOnly": "CLI agents currently accept text input only.", "agentHub.agentTask": "Agent task", "agentHub.signal": "signal {value}", "agentHub.exitCode": "code {value}",
-      "agentHub.starting": "Starting", "agentHub.running": "Working", "agentHub.waiting": "Waiting", "agentHub.completed": "Done",
+      "agentHub.starting": "Starting", "agentHub.running": "Working", "agentHub.reconnecting": "Reconnecting", "agentHub.waiting": "Waiting", "agentHub.completed": "Done",
       "agentHub.failed": "Failed", "agentHub.stopped": "Stopped", "agentHub.detached": "Detached", "agentHub.orphaned": "Interrupted",
     },
     "zh-Hant": {
@@ -3391,7 +3391,7 @@
       "agentHub.noTasks": "目前沒有工作；建立專案時選擇要使用的 Agent。", "agentHub.notInstalled": "尚未安裝",
       "agentHub.isolated": "隔離 Worktree", "agentHub.worktreeDescription": "為這個工作建立獨立的 Git 分支與資料夾", "agentHub.piNote": "Pi Agent 會保留完整工作階段記錄；CLI Agent 會在這裡串流終端輸出。",
       "agentHub.cliNote": "CLI 輸出會串流到這裡；離開對話後工作仍會繼續。", "agentHub.cliTextOnly": "CLI Agent 目前只接受文字輸入。", "agentHub.agentTask": "Agent 工作", "agentHub.signal": "訊號 {value}", "agentHub.exitCode": "代碼 {value}", "agentHub.starting": "啟動中",
-      "agentHub.running": "工作中", "agentHub.waiting": "等待中", "agentHub.completed": "完成", "agentHub.failed": "失敗",
+      "agentHub.running": "工作中", "agentHub.reconnecting": "重新連線中", "agentHub.waiting": "等待中", "agentHub.completed": "完成", "agentHub.failed": "失敗",
       "agentHub.stopped": "已停止", "agentHub.detached": "已脫離", "agentHub.orphaned": "已中斷",
     },
     "zh-Hans": {
@@ -3400,16 +3400,16 @@
       "agentHub.noTasks": "目前没有任务；创建项目时选择要使用的 Agent。", "agentHub.notInstalled": "尚未安装",
       "agentHub.isolated": "隔离 Worktree", "agentHub.worktreeDescription": "为此任务建立独立的 Git 分支和文件夹", "agentHub.piNote": "Pi Agent 会保留完整会话记录；CLI Agent 会在这里串流终端输出。",
       "agentHub.cliNote": "CLI 输出会串流到这里；离开对话后任务仍会继续。", "agentHub.cliTextOnly": "CLI Agent 目前只接受文字输入。", "agentHub.agentTask": "Agent 任务", "agentHub.signal": "信号 {value}", "agentHub.exitCode": "代码 {value}", "agentHub.starting": "启动中",
-      "agentHub.running": "工作中", "agentHub.waiting": "等待中", "agentHub.completed": "完成", "agentHub.failed": "失败",
+      "agentHub.running": "工作中", "agentHub.reconnecting": "重新连接中", "agentHub.waiting": "等待中", "agentHub.completed": "完成", "agentHub.failed": "失败",
       "agentHub.stopped": "已停止", "agentHub.detached": "已脱离", "agentHub.orphaned": "已中断",
     },
     ja: {
-      "agentHub.title": "Agent Hub", "agentHub.discovering": "ローカル Agent を検出中…", "agentHub.refresh": "Agent を更新",
+      "agentHub.title": "Agent Hub", "agentHub.agent": "Agent", "agentHub.discovering": "ローカル Agent を検出中…", "agentHub.refresh": "Agent を更新",
       "agentHub.activeSummary": "{active} 件実行中 · {ready} 件利用可能", "agentHub.readySummary": "{ready} 件の Agent が利用可能",
       "agentHub.noTasks": "実行中のタスクはありません。プロジェクト開始時に Agent を選択してください。", "agentHub.notInstalled": "未インストール",
       "agentHub.isolated": "隔離 Worktree", "agentHub.piNote": "Pi Agent は完全なセッション履歴を保持します。CLI Agent の出力はここに表示されます。",
       "agentHub.cliNote": "CLI の出力をここに表示します。チャットを離れてもタスクは実行を続けます。", "agentHub.starting": "起動中",
-      "agentHub.running": "作業中", "agentHub.waiting": "待機中", "agentHub.completed": "完了", "agentHub.failed": "失敗",
+      "agentHub.running": "作業中", "agentHub.reconnecting": "再接続中", "agentHub.waiting": "待機中", "agentHub.completed": "完了", "agentHub.failed": "失敗",
       "agentHub.stopped": "停止", "agentHub.detached": "分離済み", "agentHub.orphaned": "中断",
     },
     ko: {
@@ -3418,7 +3418,7 @@
       "agentHub.noTasks": "실행 중인 작업이 없습니다. 프로젝트를 시작할 때 Agent를 선택하세요.", "agentHub.notInstalled": "설치되지 않음",
       "agentHub.isolated": "격리된 Worktree", "agentHub.piNote": "Pi Agent는 전체 세션 기록을 보존합니다. CLI Agent 출력은 여기에 표시됩니다.",
       "agentHub.cliNote": "CLI 출력이 여기에 표시되며 채팅을 나가도 작업은 계속됩니다.", "agentHub.starting": "시작 중",
-      "agentHub.running": "작업 중", "agentHub.waiting": "대기 중", "agentHub.completed": "완료", "agentHub.failed": "실패",
+      "agentHub.running": "작업 중", "agentHub.reconnecting": "재연결 중", "agentHub.waiting": "대기 중", "agentHub.completed": "완료", "agentHub.failed": "실패",
       "agentHub.stopped": "중지됨", "agentHub.detached": "분리됨", "agentHub.orphaned": "중단됨",
     },
     tr: {
@@ -3427,7 +3427,7 @@
       "agentHub.noTasks": "Etkin görev yok — proje başlatırken bir Agent seçin.", "agentHub.notInstalled": "yüklü değil",
       "agentHub.isolated": "Yalıtılmış Worktree", "agentHub.piNote": "Pi Agent tam oturum geçmişini korur. CLI Agent çıktısı burada akar.",
       "agentHub.cliNote": "CLI çıktısı burada akar; sohbetten ayrılsanız da görev çalışmayı sürdürür.", "agentHub.starting": "Başlatılıyor",
-      "agentHub.running": "Çalışıyor", "agentHub.waiting": "Bekliyor", "agentHub.completed": "Tamamlandı", "agentHub.failed": "Başarısız",
+      "agentHub.running": "Çalışıyor", "agentHub.reconnecting": "Yeniden bağlanıyor", "agentHub.waiting": "Bekliyor", "agentHub.completed": "Tamamlandı", "agentHub.failed": "Başarısız",
       "agentHub.stopped": "Durduruldu", "agentHub.detached": "Ayrıldı", "agentHub.orphaned": "Kesildi",
     },
     fr: {
@@ -3436,7 +3436,7 @@
       "agentHub.noTasks": "Aucune tâche active — choisissez un agent au démarrage d’un projet.", "agentHub.notInstalled": "non installé",
       "agentHub.isolated": "Worktree isolé", "agentHub.piNote": "Pi Agent conserve l’historique complet. La sortie des agents CLI s’affiche ici.",
       "agentHub.cliNote": "La sortie CLI s’affiche ici ; la tâche continue même après avoir quitté la conversation.", "agentHub.starting": "Démarrage",
-      "agentHub.running": "En cours", "agentHub.waiting": "En attente", "agentHub.completed": "Terminé", "agentHub.failed": "Échec",
+      "agentHub.running": "En cours", "agentHub.reconnecting": "Reconnexion", "agentHub.waiting": "En attente", "agentHub.completed": "Terminé", "agentHub.failed": "Échec",
       "agentHub.stopped": "Arrêté", "agentHub.detached": "Détaché", "agentHub.orphaned": "Interrompu",
     },
     de: {
@@ -3445,7 +3445,7 @@
       "agentHub.noTasks": "Keine aktiven Aufgaben — wähle beim Start eines Projekts einen Agent.", "agentHub.notInstalled": "nicht installiert",
       "agentHub.isolated": "Isolierter Worktree", "agentHub.piNote": "Pi Agent bewahrt den vollständigen Sitzungsverlauf. CLI-Ausgaben werden hier angezeigt.",
       "agentHub.cliNote": "CLI-Ausgaben werden hier angezeigt; die Aufgabe läuft weiter, wenn du den Chat verlässt.", "agentHub.starting": "Wird gestartet",
-      "agentHub.running": "In Arbeit", "agentHub.waiting": "Wartet", "agentHub.completed": "Fertig", "agentHub.failed": "Fehlgeschlagen",
+      "agentHub.running": "In Arbeit", "agentHub.reconnecting": "Verbindung wird hergestellt", "agentHub.waiting": "Wartet", "agentHub.completed": "Fertig", "agentHub.failed": "Fehlgeschlagen",
       "agentHub.stopped": "Angehalten", "agentHub.detached": "Getrennt", "agentHub.orphaned": "Unterbrochen",
     },
     es: {
@@ -3454,7 +3454,7 @@
       "agentHub.noTasks": "No hay tareas activas; elige un agente al iniciar un proyecto.", "agentHub.notInstalled": "no instalado",
       "agentHub.isolated": "Worktree aislado", "agentHub.piNote": "Pi Agent conserva todo el historial. La salida de los agentes CLI aparece aquí.",
       "agentHub.cliNote": "La salida CLI aparece aquí; la tarea continúa aunque salgas del chat.", "agentHub.starting": "Iniciando",
-      "agentHub.running": "Trabajando", "agentHub.waiting": "Esperando", "agentHub.completed": "Listo", "agentHub.failed": "Fallido",
+      "agentHub.running": "Trabajando", "agentHub.reconnecting": "Reconectando", "agentHub.waiting": "Esperando", "agentHub.completed": "Listo", "agentHub.failed": "Fallido",
       "agentHub.stopped": "Detenido", "agentHub.detached": "Desconectado", "agentHub.orphaned": "Interrumpido",
     },
     "pt-BR": {
@@ -3463,7 +3463,7 @@
       "agentHub.noTasks": "Nenhuma tarefa ativa — escolha um agente ao iniciar um projeto.", "agentHub.notInstalled": "não instalado",
       "agentHub.isolated": "Worktree isolado", "agentHub.piNote": "O Pi Agent mantém o histórico completo. A saída dos agentes CLI aparece aqui.",
       "agentHub.cliNote": "A saída CLI aparece aqui; a tarefa continua mesmo quando você sai do chat.", "agentHub.starting": "Iniciando",
-      "agentHub.running": "Trabalhando", "agentHub.waiting": "Aguardando", "agentHub.completed": "Concluído", "agentHub.failed": "Falhou",
+      "agentHub.running": "Trabalhando", "agentHub.reconnecting": "Reconectando", "agentHub.waiting": "Aguardando", "agentHub.completed": "Concluído", "agentHub.failed": "Falhou",
       "agentHub.stopped": "Parado", "agentHub.detached": "Desanexado", "agentHub.orphaned": "Interrompido",
     },
     it: {
@@ -3472,10 +3472,53 @@
       "agentHub.noTasks": "Nessuna attività attiva — scegli un agent quando avvii un progetto.", "agentHub.notInstalled": "non installato",
       "agentHub.isolated": "Worktree isolato", "agentHub.piNote": "Pi Agent conserva tutta la cronologia. L’output degli agent CLI appare qui.",
       "agentHub.cliNote": "L’output CLI appare qui; l’attività continua anche quando lasci la chat.", "agentHub.starting": "Avvio",
-      "agentHub.running": "In esecuzione", "agentHub.waiting": "In attesa", "agentHub.completed": "Completato", "agentHub.failed": "Non riuscito",
+      "agentHub.running": "In esecuzione", "agentHub.reconnecting": "Riconnessione", "agentHub.waiting": "In attesa", "agentHub.completed": "Completato", "agentHub.failed": "Non riuscito",
       "agentHub.stopped": "Arrestato", "agentHub.detached": "Separato", "agentHub.orphaned": "Interrotto",
     },
   };
+  const AGENT_HUB_TASK_CENTER_TRANSLATIONS = {
+    en: {
+      "agentHub.viewAll": "View all", "agentHub.close": "Close", "agentHub.taskCenterTitle": "Task center",
+      "agentHub.taskSearch": "Search tasks…", "agentHub.taskFilter": "Filter tasks", "agentHub.filterAll": "All",
+      "agentHub.filterActive": "Active", "agentHub.taskCenterEmpty": "No tasks match this view.",
+      "agentHub.taskCenterCount": "{visible} of {total} tasks", "agentHub.taskOpen": "Open", "agentHub.taskStop": "Stop",
+      "agentHub.taskStopping": "Stopping…", "agentHub.taskStoppedToast": "Agent task stopped", "agentHub.taskStopFailed": "Could not stop agent task",
+      "agentHub.taskNoOutput": "No output yet", "agentHub.taskLastActivity": "Updated {value}", "agentHub.reconnectingNote": "Reconnecting to the supervisor…",
+    },
+    "zh-Hant": {
+      "agentHub.viewAll": "查看全部", "agentHub.close": "關閉", "agentHub.taskCenterTitle": "工作中心", "agentHub.taskSearch": "搜尋工作…", "agentHub.taskFilter": "篩選工作", "agentHub.filterAll": "全部", "agentHub.filterActive": "執行中", "agentHub.taskCenterEmpty": "沒有符合的工作。", "agentHub.taskCenterCount": "顯示 {visible}／{total} 個工作", "agentHub.taskOpen": "開啟", "agentHub.taskStop": "停止", "agentHub.taskStopping": "停止中…", "agentHub.taskStoppedToast": "Agent 工作已停止", "agentHub.taskStopFailed": "無法停止 Agent 工作", "agentHub.taskNoOutput": "尚無輸出", "agentHub.taskLastActivity": "更新於 {value}", "agentHub.reconnectingNote": "正在重新連線至監督器…",
+    },
+    "zh-Hans": {
+      "agentHub.viewAll": "查看全部", "agentHub.close": "关闭", "agentHub.taskCenterTitle": "任务中心", "agentHub.taskSearch": "搜索任务…", "agentHub.taskFilter": "筛选任务", "agentHub.filterAll": "全部", "agentHub.filterActive": "运行中", "agentHub.taskCenterEmpty": "没有符合的任务。", "agentHub.taskCenterCount": "显示 {visible}／{total} 个任务", "agentHub.taskOpen": "打开", "agentHub.taskStop": "停止", "agentHub.taskStopping": "停止中…", "agentHub.taskStoppedToast": "Agent 任务已停止", "agentHub.taskStopFailed": "无法停止 Agent 任务", "agentHub.taskNoOutput": "暂无输出", "agentHub.taskLastActivity": "更新于 {value}", "agentHub.reconnectingNote": "正在重新连接到监督器…",
+    },
+    ja: {
+      "agentHub.viewAll": "すべて表示", "agentHub.close": "閉じる", "agentHub.taskCenterTitle": "タスクセンター", "agentHub.taskSearch": "タスクを検索…", "agentHub.taskFilter": "タスクを絞り込む", "agentHub.filterAll": "すべて", "agentHub.filterActive": "実行中", "agentHub.taskCenterEmpty": "一致するタスクはありません。", "agentHub.taskCenterCount": "{total} 件中 {visible} 件", "agentHub.taskOpen": "開く", "agentHub.taskStop": "停止", "agentHub.taskStopping": "停止中…", "agentHub.taskStoppedToast": "Agent タスクを停止しました", "agentHub.taskStopFailed": "Agent タスクを停止できません", "agentHub.taskNoOutput": "出力はまだありません", "agentHub.taskLastActivity": "更新 {value}", "agentHub.reconnectingNote": "スーパーバイザーに再接続中…",
+    },
+    ko: {
+      "agentHub.viewAll": "모두 보기", "agentHub.close": "닫기", "agentHub.taskCenterTitle": "작업 센터", "agentHub.taskSearch": "작업 검색…", "agentHub.taskFilter": "작업 필터", "agentHub.filterAll": "모두", "agentHub.filterActive": "활성", "agentHub.taskCenterEmpty": "일치하는 작업이 없습니다.", "agentHub.taskCenterCount": "전체 {total}개 중 {visible}개", "agentHub.taskOpen": "열기", "agentHub.taskStop": "중지", "agentHub.taskStopping": "중지 중…", "agentHub.taskStoppedToast": "Agent 작업을 중지했습니다", "agentHub.taskStopFailed": "Agent 작업을 중지할 수 없습니다", "agentHub.taskNoOutput": "아직 출력 없음", "agentHub.taskLastActivity": "업데이트 {value}", "agentHub.reconnectingNote": "슈퍼바이저에 다시 연결 중…",
+    },
+    tr: {
+      "agentHub.viewAll": "Tümünü gör", "agentHub.close": "Kapat", "agentHub.taskCenterTitle": "Görev merkezi", "agentHub.taskSearch": "Görevlerde ara…", "agentHub.taskFilter": "Görevleri filtrele", "agentHub.filterAll": "Tümü", "agentHub.filterActive": "Etkin", "agentHub.taskCenterEmpty": "Bu görünüme uyan görev yok.", "agentHub.taskCenterCount": "{total} görevden {visible} tanesi", "agentHub.taskOpen": "Aç", "agentHub.taskStop": "Durdur", "agentHub.taskStopping": "Durduruluyor…", "agentHub.taskStoppedToast": "Agent görevi durduruldu", "agentHub.taskStopFailed": "Agent görevi durdurulamadı", "agentHub.taskNoOutput": "Henüz çıktı yok", "agentHub.taskLastActivity": "Güncelleme {value}", "agentHub.reconnectingNote": "Süpervizöre yeniden bağlanılıyor…",
+    },
+    fr: {
+      "agentHub.viewAll": "Tout afficher", "agentHub.close": "Fermer", "agentHub.taskCenterTitle": "Centre des tâches", "agentHub.taskSearch": "Rechercher des tâches…", "agentHub.taskFilter": "Filtrer les tâches", "agentHub.filterAll": "Toutes", "agentHub.filterActive": "Actives", "agentHub.taskCenterEmpty": "Aucune tâche ne correspond.", "agentHub.taskCenterCount": "{visible} sur {total} tâches", "agentHub.taskOpen": "Ouvrir", "agentHub.taskStop": "Arrêter", "agentHub.taskStopping": "Arrêt…", "agentHub.taskStoppedToast": "Tâche de l’agent arrêtée", "agentHub.taskStopFailed": "Impossible d’arrêter la tâche", "agentHub.taskNoOutput": "Aucune sortie", "agentHub.taskLastActivity": "Mis à jour {value}", "agentHub.reconnectingNote": "Reconnexion au superviseur…",
+    },
+    de: {
+      "agentHub.viewAll": "Alle anzeigen", "agentHub.close": "Schließen", "agentHub.taskCenterTitle": "Aufgabenzentrale", "agentHub.taskSearch": "Aufgaben suchen…", "agentHub.taskFilter": "Aufgaben filtern", "agentHub.filterAll": "Alle", "agentHub.filterActive": "Aktiv", "agentHub.taskCenterEmpty": "Keine passenden Aufgaben.", "agentHub.taskCenterCount": "{visible} von {total} Aufgaben", "agentHub.taskOpen": "Öffnen", "agentHub.taskStop": "Stoppen", "agentHub.taskStopping": "Wird gestoppt…", "agentHub.taskStoppedToast": "Agent-Aufgabe gestoppt", "agentHub.taskStopFailed": "Agent-Aufgabe konnte nicht gestoppt werden", "agentHub.taskNoOutput": "Noch keine Ausgabe", "agentHub.taskLastActivity": "Aktualisiert {value}", "agentHub.reconnectingNote": "Verbindung zum Supervisor wird hergestellt…",
+    },
+    es: {
+      "agentHub.viewAll": "Ver todo", "agentHub.close": "Cerrar", "agentHub.taskCenterTitle": "Centro de tareas", "agentHub.taskSearch": "Buscar tareas…", "agentHub.taskFilter": "Filtrar tareas", "agentHub.filterAll": "Todas", "agentHub.filterActive": "Activas", "agentHub.taskCenterEmpty": "No hay tareas que coincidan.", "agentHub.taskCenterCount": "{visible} de {total} tareas", "agentHub.taskOpen": "Abrir", "agentHub.taskStop": "Detener", "agentHub.taskStopping": "Deteniendo…", "agentHub.taskStoppedToast": "Tarea del agente detenida", "agentHub.taskStopFailed": "No se pudo detener la tarea", "agentHub.taskNoOutput": "Aún no hay salida", "agentHub.taskLastActivity": "Actualizado {value}", "agentHub.reconnectingNote": "Reconectando con el supervisor…",
+    },
+    "pt-BR": {
+      "agentHub.viewAll": "Ver tudo", "agentHub.close": "Fechar", "agentHub.taskCenterTitle": "Central de tarefas", "agentHub.taskSearch": "Pesquisar tarefas…", "agentHub.taskFilter": "Filtrar tarefas", "agentHub.filterAll": "Todas", "agentHub.filterActive": "Ativas", "agentHub.taskCenterEmpty": "Nenhuma tarefa corresponde.", "agentHub.taskCenterCount": "{visible} de {total} tarefas", "agentHub.taskOpen": "Abrir", "agentHub.taskStop": "Parar", "agentHub.taskStopping": "Parando…", "agentHub.taskStoppedToast": "Tarefa do agente parada", "agentHub.taskStopFailed": "Não foi possível parar a tarefa", "agentHub.taskNoOutput": "Ainda sem saída", "agentHub.taskLastActivity": "Atualizado {value}", "agentHub.reconnectingNote": "Reconectando ao supervisor…",
+    },
+    it: {
+      "agentHub.viewAll": "Mostra tutto", "agentHub.close": "Chiudi", "agentHub.taskCenterTitle": "Centro attività", "agentHub.taskSearch": "Cerca attività…", "agentHub.taskFilter": "Filtra attività", "agentHub.filterAll": "Tutte", "agentHub.filterActive": "Attive", "agentHub.taskCenterEmpty": "Nessuna attività corrisponde.", "agentHub.taskCenterCount": "{visible} di {total} attività", "agentHub.taskOpen": "Apri", "agentHub.taskStop": "Arresta", "agentHub.taskStopping": "Arresto…", "agentHub.taskStoppedToast": "Attività dell’agent arrestata", "agentHub.taskStopFailed": "Impossibile arrestare l’attività", "agentHub.taskNoOutput": "Nessun output", "agentHub.taskLastActivity": "Aggiornato {value}", "agentHub.reconnectingNote": "Riconnessione al supervisore…",
+    },
+  };
+  for (const [id, table] of Object.entries(AGENT_HUB_TASK_CENTER_TRANSLATIONS)) {
+    if (AGENT_HUB_TRANSLATIONS[id]) Object.assign(AGENT_HUB_TRANSLATIONS[id], table);
+  }
   for (const id of Object.keys(KEYED_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], AGENT_HUB_TRANSLATIONS.en, AGENT_HUB_TRANSLATIONS[id] || {});
 
   const KEYED_SOURCE_KEYS = Object.freeze(Object.keys(KEYED_TRANSLATIONS.en));

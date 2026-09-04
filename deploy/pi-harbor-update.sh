@@ -263,6 +263,29 @@ try { const value = JSON.parse(process.env.RPC_RESPONSE || "{}"); process.exit(v
 NODE
 }
 
+# Probe the public health endpoint after launchd has activated a release. This
+# is intentionally independent of the authenticated API so a broken app can be
+# detected even when the token path changed during an update.
+release_health_ok() {
+  local expected="$1" response
+  response="$($CURL_BIN -fsS --max-time 3 "http://127.0.0.1:$UPDATE_PORT/api/health" 2>/dev/null || true)"
+  EXPECTED_VERSION="${expected#v}" HEALTH_RESPONSE="$response" "$NODE_BIN" - <<'NODE'
+try {
+  const value = JSON.parse(process.env.HEALTH_RESPONSE || "{}");
+  process.exit(value.ok === true && String(value.appVersion || "").replace(/^v/, "") === process.env.EXPECTED_VERSION ? 0 : 1);
+} catch { process.exit(1); }
+NODE
+}
+
+wait_for_release_health() {
+  local expected="$1" attempt
+  for attempt in {1..30}; do
+    release_health_ok "$expected" && return 0
+    /bin/sleep 1
+  done
+  return 1
+}
+
 enabled="$(json_value "$CONFIG_FILE" enabled)"
 repository="$(json_value "$CONFIG_FILE" repository)"
 ref="$(json_value "$CONFIG_FILE" ref)"
@@ -271,6 +294,14 @@ ref="$(json_value "$CONFIG_FILE" ref)"
 [[ -n "$ref" ]] || ref="$DEFAULT_REF"
 [[ "$repository" =~ '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' ]] || die "invalid GitHub repository"
 [[ "$ref" == "stable" || "$ref" =~ '^v[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.]+)?$' ]] || die "updates require the stable channel or an exact release tag"
+
+UPDATE_PORT="$("$NODE_BIN" - "$HOME/.pi/agent/device.json" <<'NODE'
+const fs = require("node:fs");
+try { const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8")); process.stdout.write(Number.isInteger(value.port) ? String(value.port) : "3140"); }
+catch { process.stdout.write("3140"); }
+NODE
+)"
+[[ "$UPDATE_PORT" =~ '^[0-9]{2,5}$' ]] || UPDATE_PORT=3140
 
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 installed_version="$(current_version)"
@@ -358,4 +389,14 @@ fi
 updated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 write_state "" "$now" "$latest_version" "$latest_version" "$updated_at" "updated" ""
 "$LAUNCHCTL_BIN" kickstart -k "gui/$(id -u)/$SERVICE_LABEL" >/dev/null 2>&1 || log "release installed; launchd restart was not available"
+write_state "" "$now" "$latest_version" "$latest_version" "$updated_at" "health_check" ""
+if ! wait_for_release_health "$latest_version"; then
+  log "the new release did not pass its health check; rolling back"
+  write_state "The new release did not become healthy and was rolled back" "$now" "$latest_version" "$installed_version" "$updated_at" "rollback" "health_check_failed"
+  if [[ -e "$INSTALL_DIR" ]]; then rm -rf -- "$INSTALL_DIR"; fi
+  if [[ -e "$backup_dir" ]]; then mv "$backup_dir" "$INSTALL_DIR"; else die "rollback was requested but the previous release is missing"; fi
+  "$LAUNCHCTL_BIN" kickstart -k "gui/$(id -u)/$SERVICE_LABEL" >/dev/null 2>&1 || true
+  wait_for_release_health "$installed_version" || log "rollback installed but the previous release is not healthy yet"
+  die "release health check failed; previous release restored"
+fi
 log "updated Pi Harbor to $latest_version"

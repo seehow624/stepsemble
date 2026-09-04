@@ -10,15 +10,27 @@ permissions:
 
 jobs:
   test:
-    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22.19.0
           package-manager-cache: false
-      - name: Validate shell scripts
+      - name: Validate macOS shell scripts
+        if: runner.os == 'macOS'
         run: zsh -n install.sh uninstall.sh deploy/*.sh
+      - name: Validate Linux installer
+        if: runner.os == 'Linux'
+        run: bash -n install-linux.sh
+      - name: Validate Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '$null = [scriptblock]::Create((Get-Content -Raw ./install-windows.ps1))'
       - name: Check JavaScript
         run: npm run check
       - name: Run tests

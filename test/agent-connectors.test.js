@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { discoverConnectors, safeConnectorId, createAgentTaskService, resolvePtyRuntime } = require("../server/agent-connectors");
+const { discoverConnectors, safeConnectorId, createAgentTaskService, resolvePtyRuntime, resolveCommand, CONNECTOR_DEFINITIONS } = require("../server/agent-connectors");
 
 test("Agent Hub exposes only the allow-listed connector ids", () => {
   const catalog = discoverConnectors({ piBin: process.execPath, env: { PATH: "" }, includeKnownPaths: false });
@@ -18,6 +18,12 @@ test("Agent Hub exposes only the allow-listed connector ids", () => {
   assert.equal(safeConnectorId("../codex"), "");
 });
 
+test("Pi resolves from PATH on non-macOS installs", () => {
+  const pi = CONNECTOR_DEFINITIONS.find((item) => item.id === "pi");
+  const resolved = resolveCommand(pi, { piBin: "node", env: { PATH: path.dirname(process.execPath) }, includeKnownPaths: false });
+  assert.equal(resolved, process.execPath);
+});
+
 test("generic connector tasks stream bounded output and stop without shell injection", async (t) => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-agent-"));
   const bin = path.join(temp, "bin");
@@ -25,7 +31,13 @@ test("generic connector tasks stream bounded output and stop without shell injec
   const config = path.join(temp, "config");
   fs.mkdirSync(bin);
   fs.mkdirSync(project);
-  fs.writeFileSync(path.join(bin, "claude"), "#!/bin/sh\nprintf 'hello from cli\\n'\nif test -t 0; then printf 'stdin=tty\\n'; else printf 'stdin=pipe\\n'; fi\nexec /bin/sleep 30\n", { mode: 0o755 });
+  const fakeAgent = path.join(bin, "fake-agent.cjs");
+  fs.writeFileSync(fakeAgent, "process.stdout.write('hello from cli\\n'); process.stdout.write(`stdin=${process.stdin.isTTY ? 'tty' : 'pipe'}\\n`); setInterval(() => {}, 1000);\n");
+  if (process.platform === "win32") {
+    fs.writeFileSync(path.join(bin, "claude.cmd"), `@echo off\r\n\"${process.execPath}\" \"${fakeAgent}\"\r\n`);
+  } else {
+    fs.writeFileSync(path.join(bin, "claude"), `#!/bin/sh\nexec \"${process.execPath}\" \"${fakeAgent}\"\n`, { mode: 0o755 });
+  }
   const service = createAgentTaskService({
     appHome: temp,
     configDir: config,
@@ -53,4 +65,54 @@ test("generic connector tasks stream bounded output and stop without shell injec
   assert.equal(service.stop(opened.id), true);
   await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(service.get(opened.id).status, "stopped");
+});
+
+test("generic task supervisor survives a web-service restart and reattaches", async (t) => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-agent-restart-"));
+  const bin = path.join(temp, "bin");
+  const project = path.join(temp, "project");
+  const config = path.join(temp, "config");
+  fs.mkdirSync(bin);
+  fs.mkdirSync(project);
+  const fakeAgent = path.join(bin, "fake-agent.cjs");
+  fs.writeFileSync(fakeAgent, "process.stdout.write('restart-safe\\n'); setInterval(() => {}, 1000);\n");
+  if (process.platform === "win32") {
+    fs.writeFileSync(path.join(bin, "claude.cmd"), `@echo off\r\n\"${process.execPath}\" \"${fakeAgent}\"\r\n`);
+  } else {
+    fs.writeFileSync(path.join(bin, "claude"), `#!/bin/sh\nexec \"${process.execPath}\" \"${fakeAgent}\"\n`, { mode: 0o755 });
+  }
+  const options = {
+    appHome: temp,
+    configDir: config,
+    piBin: "/usr/local/bin/pi",
+    env: { PATH: `${bin}:/usr/bin:/bin`, HOME: temp },
+    validateCwd(value) { return value === project ? project : null; },
+  };
+  const first = createAgentTaskService(options);
+  const opened = await first.open({ agentId: "claude-code", cwd: project, name: "Restart-safe task" });
+  for (let attempt = 0; attempt < 40 && !first.get(opened.id).outputTail; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.match(first.get(opened.id).outputTail, /restart-safe/);
+  first.shutdown({ preserve: true });
+
+  const second = createAgentTaskService(options);
+  t.after(async () => {
+    second.shutdown();
+    // The detached supervisor writes its final snapshot before closing its
+    // socket. Give that bounded cleanup a turn before removing the fixture.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    fs.rmSync(temp, { recursive: true, force: true });
+  });
+  let reattached = second.get(opened.id);
+  for (let attempt = 0; attempt < 30 && reattached.status === "reconnecting"; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    reattached = second.get(opened.id);
+  }
+  assert.equal(reattached.status, "running");
+  assert.equal(second.publicTask(reattached).isRunning, true);
+  assert.match(reattached.outputTail, /restart-safe/);
+  assert.equal(second.stop(opened.id), true);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(second.get(opened.id).status, "stopped");
 });
