@@ -1,18 +1,17 @@
-const CACHE_NAME = "stepsemble-shell-v3.0.2";
+const CACHE_NAME = "stepsemble-shell-v3.0.3";
 const SHELL = [
   "/",
   "/index.html",
-  "/style.css?v=3.0.2",
-  "/i18n.js?v=3.0.2",
-  "/modules/app-foundation.js?v=3.0.2",
-  "/modules/session-utils.js?v=3.0.2",
-  "/modules/context-usage.js?v=3.0.2",
-  "/app.js?v=3.0.2",
-  "/manifest.webmanifest?v=3.0.2",
-  "/stepsemble-logo.svg?v=3.0.2",
-  "/stepsemble-glyph.svg",
-  "/icon-180.png?v=3.0.2",
-  "/icon-512.png?v=3.0.2",
+  "/style.css?v=3.0.3",
+  "/i18n.js?v=3.0.3",
+  "/modules/app-foundation.js?v=3.0.3",
+  "/modules/session-utils.js?v=3.0.3",
+  "/modules/context-usage.js?v=3.0.3",
+  "/app.js?v=3.0.3",
+  "/manifest.webmanifest?v=3.0.3",
+  "/stepsemble-glyph.png",
+  "/icon-180.png?v=3.0.3",
+  "/icon-512.png?v=3.0.3",
   "/vendor/marked.min.js",
   "/vendor/purify.min.js",
   "/vendor/mermaid.min.js",
@@ -57,7 +56,7 @@ self.addEventListener("push", (event) => {
   event.waitUntil(self.registration.showNotification(title, {
     body,
     icon: "/icon-180.png",
-    badge: "/stepsemble-glyph.svg",
+    badge: "/stepsemble-glyph.png",
     tag: "stepsemble-run",
     data: { file: data.file || null, taskId: data.taskId || null },
   }));

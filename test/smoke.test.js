@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { execFileSync } = require("node:child_process");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -57,22 +58,24 @@ test("service worker keeps local Mermaid offline and never intercepts API or rel
 
 test("Stepsemble ships its own equal-participation Step Mosaic", () => {
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
-  const logo = fs.readFileSync(path.join(root, "public", "stepsemble-logo.svg"), "utf8");
-  const appIcon = fs.readFileSync(path.join(root, "public", "stepsemble-app-icon.svg"), "utf8");
+  const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
+  const mark = fs.readFileSync(path.join(root, "public", "stepsemble-mark.png"));
   const icon180 = fs.readFileSync(path.join(root, "public", "icon-180.png"));
   const icon512 = fs.readFileSync(path.join(root, "public", "icon-512.png"));
   assert.match(html, /class="login-mark brand-mark"/);
   assert.doesNotMatch(html, /official-mark/);
-  assert.match(logo, /Four equal agent modules/);
-  assert.match(appIcon, /Four equal agent modules/);
-  assert.match(logo, /coordination layer/);
-  assert.match(logo, /#8588FF/);
-  assert.match(logo, /#FFFDF8/);
-  assert.match(logo, /data-role="coordination-inset" data-attachment="overlap"/);
-  assert.match(appIcon, /data-role="coordination-inset" data-attachment="overlap"/);
-  assert.equal((logo.match(/href="#agent-module"/g) || []).length, 4);
-  assert.equal((appIcon.match(/href="#agent-module"/g) || []).length, 4);
-  assert.doesNotMatch(logo, /cat paw|terminal prompt|#FF6B5F/i);
+  assert.match(html, /rel="icon" href="\/icon-512\.png\?v=[^"]+" type="image\/png"/);
+  assert.match(readme, /public\/stepsemble-mark\.png/);
+  assert.doesNotMatch(`${html}\n${readme}`, /stepsemble-(?:logo|app-icon)\.svg/);
+  assert.equal(
+    crypto.createHash("sha256").update(mark).digest("hex"),
+    "cc1b089b74d7ed6b38ad40498b43fcd68957cce5692a84689f2b3b9fdf23f511",
+    "the canonical mark must remain the exact user-approved source artwork",
+  );
+  assert.deepEqual([mark.readUInt32BE(16), mark.readUInt32BE(20)], [1254, 1254]);
+  assert.equal(mark[25], 2, "canonical artwork should be opaque RGB");
+  assert.equal(crypto.createHash("sha256").update(icon512).digest("hex"), "2d24fdd14cdf46a043f83783a178448901cc1510a5f290f76e3226e0b586c892");
+  assert.equal(crypto.createHash("sha256").update(icon180).digest("hex"), "57ef7c5afe598cceb5e1e93c6fdcb98ab75f42f5e94e3dc7e40141ba787250b9");
   assert.deepEqual([icon180.readUInt32BE(16), icon180.readUInt32BE(20)], [180, 180]);
   assert.deepEqual([icon512.readUInt32BE(16), icon512.readUInt32BE(20)], [512, 512]);
   assert.equal(icon180[25], 2, "Apple touch artwork should be opaque RGB");
@@ -82,16 +85,17 @@ test("Stepsemble ships its own equal-participation Step Mosaic", () => {
 test("the in-app brand mark follows the active theme colour without a plate", () => {
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
-  const glyph = fs.readFileSync(path.join(root, "public", "stepsemble-glyph.svg"), "utf8");
+  const glyph = fs.readFileSync(path.join(root, "public", "stepsemble-glyph.png"));
   const markBlock = css.slice(css.indexOf(".login-mark.brand-mark"), css.indexOf("html[data-design-theme="));
   assert.match(markBlock, /background-color: var\(--ink\)/);
-  assert.match(markBlock, /-webkit-mask: url\("\/stepsemble-glyph\.svg"\)/);
-  assert.match(markBlock, /\n  mask: url\("\/stepsemble-glyph\.svg"\)/);
+  assert.match(markBlock, /-webkit-mask: url\("\/stepsemble-glyph\.png"\)/);
+  assert.match(markBlock, /\n  mask: url\("\/stepsemble-glyph\.png"\)/);
   assert.doesNotMatch(markBlock, /#09090b/i);
   assert.doesNotMatch(markBlock, /border-radius: 1[0-9]px/);
   assert.match(markBlock, /forced-colors: active/);
-  // The glyph must carry no background plate of its own.
-  assert.doesNotMatch(glyph, /<rect/);
+  assert.deepEqual([glyph.readUInt32BE(16), glyph.readUInt32BE(20)], [512, 512]);
+  assert.equal(glyph[25], 6, "the theme-colour mask must retain transparency");
+  assert.equal(crypto.createHash("sha256").update(glyph).digest("hex"), "c9447433cd2caaddac1928f221d013bb75257005c612ff1ccc703cac1e45a217");
   assert.match(html, /class="login-mark brand-mark" role="img" aria-label="Stepsemble"/);
   assert.match(html, /class="brand-glyph" role="img" aria-label="Stepsemble"/);
 });

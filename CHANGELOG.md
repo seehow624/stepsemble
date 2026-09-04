@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.3
+
+- Made the exact user-approved 1254 px Step Mosaic artwork the canonical brand
+  source instead of continuing with an approximate hand-redrawn SVG.
+- Regenerated the Apple touch and PWA icons directly from that source, and
+  derived the monochrome interface mask from the same silhouette.
+- Removed the inaccurate coloured SVG redraws from active use and locked the
+  canonical source checksum in the brand regression test.
+
 ## 3.0.2
 
 - Corrected the Step Mosaic vector construction so every violet coordination
