@@ -1,4 +1,4 @@
-/* pi-harbor v2.13.1 — Ink & Ivory / English-first localization */
+/* pi-harbor v2.13.2 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -4550,7 +4550,12 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
   min-width: 0;
   height: max-content;
 }
-.usage-summary-row.empty { opacity: .55; }
+.usage-summary-row.empty {
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  opacity: .55;
+}
 .usage-summary-row.empty .usage-value { color: var(--pine-soft); }
 .usage-day { color: var(--pine-soft); font: .64rem var(--mono); }
 .usage-bar {

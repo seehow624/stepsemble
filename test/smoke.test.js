@@ -1091,7 +1091,7 @@ test("About usage summary keeps translated copy and quiet empty days", () => {
   assert.match(app, /row\.setAttribute\("role", "listitem"\)/);
   assert.match(css, /#usage-summary-rows,[\s\S]{0,260}grid-auto-rows: max-content/);
   assert.match(css, /align-self: start/);
-  assert.match(css, /\.usage-summary-row\.empty \{ opacity: \.55; \}/);
+  assert.match(css, /\.usage-summary-row\.empty \{[\s\S]{0,140}padding: 0;[\s\S]{0,140}text-align: left;[\s\S]{0,80}opacity: \.55;/);
   assert.match(css, /\.usage-summary-row\.empty \.usage-bar \{ height: 2px/);
   assert.match(i18n, /"usage\.title": "Usage · last 7 days"/);
   assert.match(i18n, /"usage\.title": "用量 · 最近 7 天"/);

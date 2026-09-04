@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.13.2
+
+- Fixed empty usage dates inheriting the global empty-state padding, which
+  stretched the About card into large gaps on mobile.
+
 ## 2.13.1
 
 - Fixed the Settings → About usage card leaking the `usage.title` key and
