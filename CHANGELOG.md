@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.1
+
+- Replaced the literal cat-paw-and-terminal mark with a vendor-neutral Step
+  Mosaic: four equal agent modules move in one rhythm, and each reveals the
+  same violet Stepsemble coordination layer.
+- Added matched full-colour app, rounded logo, monochrome mask, Apple touch,
+  and maskable PWA artwork without assigning any provider a privileged brand
+  colour.
+
 ## 3.0.0
 
 - Renamed Pi Harbor to Stepsemble, with a new cat-paw-and-terminal identity

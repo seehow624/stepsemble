@@ -55,17 +55,26 @@ test("service worker keeps local Mermaid offline and never intercepts API or rel
   assert.match(release, /subject-path:/);
 });
 
-test("Stepsemble ships its own cat-paw agent mark", () => {
+test("Stepsemble ships its own equal-participation Step Mosaic", () => {
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const logo = fs.readFileSync(path.join(root, "public", "stepsemble-logo.svg"), "utf8");
   const appIcon = fs.readFileSync(path.join(root, "public", "stepsemble-app-icon.svg"), "utf8");
+  const icon180 = fs.readFileSync(path.join(root, "public", "icon-180.png"));
+  const icon512 = fs.readFileSync(path.join(root, "public", "icon-512.png"));
   assert.match(html, /class="login-mark brand-mark"/);
   assert.doesNotMatch(html, /official-mark/);
-  assert.match(logo, /four-node cat paw/);
-  assert.match(appIcon, /four-node cat paw/);
-  assert.match(logo, /terminal prompt/);
-  assert.match(logo, /#1A1A1A/);
-  assert.match(logo, /#FAF7F0/);
+  assert.match(logo, /Four equal agent modules/);
+  assert.match(appIcon, /Four equal agent modules/);
+  assert.match(logo, /coordination layer/);
+  assert.match(logo, /#8588FF/);
+  assert.match(logo, /#FFFDF8/);
+  assert.equal((logo.match(/href="#agent-module"/g) || []).length, 4);
+  assert.equal((appIcon.match(/href="#agent-module"/g) || []).length, 4);
+  assert.doesNotMatch(logo, /cat paw|terminal prompt|#FF6B5F/i);
+  assert.deepEqual([icon180.readUInt32BE(16), icon180.readUInt32BE(20)], [180, 180]);
+  assert.deepEqual([icon512.readUInt32BE(16), icon512.readUInt32BE(20)], [512, 512]);
+  assert.equal(icon180[25], 2, "Apple touch artwork should be opaque RGB");
+  assert.equal(icon512[25], 2, "maskable PWA artwork should be opaque RGB");
 });
 
 test("the in-app brand mark follows the active theme colour without a plate", () => {

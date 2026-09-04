@@ -1,9 +1,9 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.3
+> 計畫版本：1.4
 > 最後更新：2026-09-04
-> 當前產品基線：Stepsemble 3.0.0（由 Pi Harbor 2.13.2 相容遷移）
+> 當前產品基線：Stepsemble 3.0.1（由 Pi Harbor 2.13.2 相容遷移）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
@@ -30,10 +30,10 @@
 | --- | --- | --- |
 | 長期語言邊界 | 已定案 | Rust Host Core；TypeScript UI/Client；Swift/Kotlin 僅處理平台專屬能力 |
 | Web 產品定位 | 已定案 | Web/PWA 永久保留，不是過渡版 |
-| 產品名稱與識別 | 已定案 | Stepsemble；step + ensemble；四趾貓掌代表多 agent，掌心 terminal prompt 代表 coding workspace |
+| 產品名稱與識別 | 已定案 | Stepsemble；step + ensemble；四個等權模組代表 agents，藍紫內緣代表每個 agent 共用的 Stepsemble coordination layer |
 | Host/Client 邊界 | 已定案 | Desktop 可為 Host + Client；iOS/Android 初期只為 Client |
 | App Shell | 目標已定，待驗證 | Tauri 2 為預設方案；必須先通過 Apple 實機 PoC 驗收門檻 |
-| 當前回歸基線 | 已通過 | 2026-09-04 Stepsemble 3.0.0 執行 `npm test`：127/127 通過，約 11.3 秒 |
+| 當前回歸基線 | 已通過 | 2026-09-04 Stepsemble 3.0.1 執行 `npm test`：127/127 通過，約 11.4 秒 |
 | 現行系統盤點 | 已完成 | HTTP/SSE/RPC、資料、狀態、approval、event、安裝與 rollback 已落於 `current-system-inventory.md` |
 | 本機品牌遷移 | 已部署 | Mac Mini 已由 2.13.2 原地升級至 3.0.0；session/token/SSH launcher/CUA driver 均完成前後核對 |
 | 跨平台 installer smoke | 部分完成 | macOS live migration、Linux clean-container install、Windows PowerShell AST 通過；Linux systemd/Windows Scheduled Task real runner 待補 |
@@ -110,7 +110,8 @@ Tauri App 不得繞過公開 Host API 直接呼叫私有商業邏輯。原生 IP
 
 - 公開產品名、套件名、服務名、設定路徑、環境變數與 protocol 新前綴統一使用 Stepsemble／`stepsemble`／`STEPSEMBLE_*`。
 - 名稱來自 **step + ensemble**：不同 coding agent 以一致步伐協作，不綁定單一 harness 或 model。
-- 四個貓掌趾墊代表 agent nodes，中央掌墊的 `>_` 代表 coding workspace；品牌不再使用港口功能隱喻。
+- Step Mosaic 由四個等權模組組成：錯落旋轉代表 step-by-step handoff，四個相同藍紫內緣代表每個 agent 都接入同一個 Stepsemble coordination layer，中央負空間代表共同 workspace。
+- 核心品牌禁止使用 provider logo 或把 Claude、Codex 等供應商代表色固定分配給任一模組；provider identity 只在有文字標籤的產品 UI 中出現。
 - v3 保留 Pi Harbor／Pi Web 的設定路徑、cookie、環境變數、配對碼與 Release asset 讀取相容；舊來源只複製、不刪除，健康檢查成功前不封存舊程式。
 - 2026-09-04 的初步 exact-name 網路、常見 package registry、GitHub、App Store 與主要網域檢查未發現明顯同名產品；這不是正式商標法律意見，公開商業發佈前仍需做目標市場商標檢索。
 
@@ -919,9 +920,14 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-007 | 2026-09-04 | Accepted | 官方登入/訂閱不複製，實際 auth/billing source 必須明示，無靜默 fallback |
 | D-008 | 2026-09-04 | Accepted | OpenCodex/CC Switch 屬 Model Source/Profile 層，不是 Coding Agent |
 | D-009 | 2026-09-04 | Accepted | Web 與原生 App 使用同一個版本化 Stepsemble Protocol |
-| D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；step + ensemble 與貓掌 terminal 識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
+| D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-04 — Plan 1.4
+
+- 品牌圖示由直白貓掌與 `>_` 改為 Step Mosaic，避免與既有 coding agent／terminal identity 混淆。
+- 四個模組與四個藍紫內緣保持完全等權；品牌色表示 Stepsemble coordination layer，不表示 Claude、Codex 或任何單一 provider。
 
 ### 2026-09-04 — Plan 1.3
 

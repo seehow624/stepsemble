@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/stepsemble-logo.svg" width="112" height="112" alt="Stepsemble paw logo">
+  <img src="public/stepsemble-logo.svg" width="112" height="112" alt="Stepsemble four-module logo">
 </p>
 
 <h1 align="center">Stepsemble</h1>
