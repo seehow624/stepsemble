@@ -65,7 +65,7 @@ async function stopServer(child) {
 }
 
 test("browse defaults blank paths to APP_HOME and rejects relative or outside paths", async (t) => {
-  const temp = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pi-harbor-browse-"));
+  const temp = await fs.promises.mkdtemp(path.join(os.tmpdir(), "stepsemble-browse-"));
   const home = path.join(temp, "home");
   const outside = path.join(temp, "outside");
   await fs.promises.mkdir(path.join(home, "Projects"), { recursive: true });
@@ -74,9 +74,9 @@ test("browse defaults blank paths to APP_HOME and rejects relative or outside pa
   const env = isolatedEnvironment({
     HOME: home,
     PI_HOME: home,
-    PI_HARBOR_HOST: "127.0.0.1",
-    PI_HARBOR_PORT: String(port),
-    PI_HARBOR_BROWSE_ROOTS: home,
+    STEPSEMBLE_HOST: "127.0.0.1",
+    STEPSEMBLE_PORT: String(port),
+    STEPSEMBLE_BROWSE_ROOTS: home,
     PI_BIN: "/path/that/does/not/exist",
   });
   const child = spawn(process.execPath, [path.join(root, "server.js")], {
@@ -89,7 +89,7 @@ test("browse defaults blank paths to APP_HOME and rejects relative or outside pa
   });
   await waitForServer(child);
   const base = `http://127.0.0.1:${port}`;
-  const tokenFile = path.join(home, ".config", "pi-harbor", "token");
+  const tokenFile = path.join(home, ".config", "stepsemble", "token");
   const token = (await fs.promises.readFile(tokenFile, "utf8")).trim();
   assert.match(token, /^[a-f0-9]{64}$/);
   const tokenStat = await fs.promises.stat(tokenFile);
@@ -108,7 +108,7 @@ test("browse defaults blank paths to APP_HOME and rejects relative or outside pa
   });
   assert.equal(login.status, 204);
   const cookie = (login.headers.get("set-cookie") || "").split(";", 1)[0];
-  assert.match(cookie, /^pi_harbor=/);
+  assert.match(cookie, /^stepsemble=/);
 
   const browse = (query) => fetch(`${base}/api/browse${query}`, { headers: { cookie } });
   const noPath = await browse("");

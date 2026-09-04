@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<title>Pi Harbor</title>
+<title>Stepsemble</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=2.13.2">
-<link rel="icon" href="/pi-logo.svg?v=2.13.2" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-180.png?v=2.13.2">
-<link rel="stylesheet" href="/style.css?v=2.13.2">
+<link rel="manifest" href="/manifest.webmanifest?v=3.0.0">
+<link rel="icon" href="/stepsemble-logo.svg?v=3.0.0" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png?v=3.0.0">
+<link rel="stylesheet" href="/style.css?v=3.0.0">
 </head>
 <body>
 
@@ -45,12 +45,12 @@
 <!-- Login -->
 <div id="login" class="overlay hidden">
   <div class="login-card">
-    <div class="login-mark brand-mark" role="img" aria-label="Pi Harbor"></div>
-    <h1>Pi Harbor</h1>
+    <div class="login-mark brand-mark" role="img" aria-label="Stepsemble"></div>
+    <h1>Stepsemble</h1>
     <p class="login-machine" id="login-machine"></p>
     <section id="login-onboarding" class="login-onboarding hidden" aria-labelledby="login-onboarding-title">
       <h2 id="login-onboarding-title">Save your access key</h2>
-      <p class="onboarding-intro">Pi Harbor created a private access key on this computer. Record it somewhere safe — like a hardware wallet, it is shown only once.</p>
+      <p class="onboarding-intro">Stepsemble created a private access key on this computer. Record it somewhere safe — like a hardware wallet, it is shown only once.</p>
       <div class="onboarding-key-row">
         <code id="login-onboarding-key" class="onboarding-key masked" data-i18n-ignore>•••••••• •••••••• •••••••• •••••••• •••••••• •••••••• •••••••• ••••••••</code>
         <div class="onboarding-key-actions">
@@ -59,7 +59,7 @@
         </div>
       </div>
       <label class="onboarding-check"><input id="onboarding-saved" type="checkbox"> <span>I saved the key in a safe place</span></label>
-      <label class="onboarding-check"><input id="onboarding-understood" type="checkbox"> <span>Anyone with this key can access this computer's Pi Harbor</span></label>
+      <label class="onboarding-check"><input id="onboarding-understood" type="checkbox"> <span>Anyone with this key can access this computer's Stepsemble</span></label>
       <div class="login-onboarding-actions">
         <button id="onboarding-continue" class="btn primary" type="button" disabled>Continue to sign in</button>
         <button id="login-onboarding-skip" class="btn ghost" type="button">Skip for now</button>
@@ -74,7 +74,7 @@
     </form>
     <section class="login-help" aria-labelledby="login-help-title">
       <h2 id="login-help-title">First time?</h2>
-      <p>The installer creates a private Web token on the computer running Pi Harbor.</p>
+      <p>The installer creates a private Web token on the computer running Stepsemble.</p>
       <p>On that computer, open a terminal and run the command for its operating system:</p>
       <div class="login-help-tabs" role="tablist" aria-label="Operating system">
         <button id="token-os-macos" class="login-help-tab" type="button" role="tab" aria-selected="true" aria-controls="token-os-panel-macos" data-token-os="macos" data-i18n-ignore>macOS</button>
@@ -83,19 +83,19 @@
       </div>
       <div id="token-os-panel-macos" class="login-help-panel" role="tabpanel" aria-labelledby="token-os-macos" data-token-os-panel="macos">
         <p class="login-help-step">Open Terminal from Applications → Utilities, then run:</p>
-        <code data-i18n-ignore>cat ~/.config/pi-harbor/token</code>
+        <code data-i18n-ignore>cat ~/.config/stepsemble/token</code>
       </div>
       <div id="token-os-panel-linux" class="login-help-panel hidden" role="tabpanel" aria-labelledby="token-os-linux" data-token-os-panel="linux">
         <p class="login-help-step">Open your terminal emulator, then run:</p>
-        <code data-i18n-ignore>cat ~/.config/pi-harbor/token</code>
+        <code data-i18n-ignore>cat ~/.config/stepsemble/token</code>
       </div>
       <div id="token-os-panel-windows" class="login-help-panel hidden" role="tabpanel" aria-labelledby="token-os-windows" data-token-os-panel="windows">
         <p class="login-help-step">Open PowerShell from the Start menu, then run:</p>
-        <code data-i18n-ignore>Get-Content $HOME\.config\pi-harbor\token</code>
+        <code data-i18n-ignore>Get-Content $HOME\.config\stepsemble\token</code>
         <p class="login-help-step">In Command Prompt, run this instead:</p>
-        <code data-i18n-ignore>type %USERPROFILE%\.config\pi-harbor\token</code>
+        <code data-i18n-ignore>type %USERPROFILE%\.config\stepsemble\token</code>
       </div>
-      <p>If a custom PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path.</p>
+      <p>If a custom STEPSEMBLE_TOKEN_FILE is configured, use that file instead of the default path.</p>
       <p>From another device, retrieve the token securely from that host and paste it here.</p>
       <p class="login-help-warning">Never share the token in chat, screenshots, repositories, or logs.</p>
     </section>
@@ -181,7 +181,7 @@
     </header>
     <div id="messages" class="messages">
       <div id="chat-empty" class="chat-empty">
-        <div class="login-mark brand-mark" role="img" aria-label="Pi Harbor"></div>
+        <div class="login-mark brand-mark" role="img" aria-label="Stepsemble"></div>
         <p>Select a session,<br>or start a new conversation</p>
         <button id="chat-empty-new-project" class="btn primary chat-empty-action" type="button" title="New project" aria-label="New project">New project</button>
       </div>
@@ -328,7 +328,7 @@
       <section class="settings-group" data-settings-target="appearance">
         <h3 class="group-title">Appearance</h3>
         <label class="settings-row settings-select-row">
-          <span><strong>Language</strong><small>Choose the language used by Pi Harbor</small></span>
+          <span><strong>Language</strong><small>Choose the language used by Stepsemble</small></span>
           <select id="set-locale" aria-label="Language" data-i18n-ignore>
             <option value="en">English</option>
             <option value="zh-Hans">简体中文</option>
@@ -405,8 +405,8 @@
           <button id="push-toggle" class="settings-action-btn" type="button">Enable</button>
         </div>
         <div class="settings-row">
-          <span><strong>Pi Harbor</strong><small>Mobile-first remote workspace for Pi</small></span>
-          <span class="settings-value" id="set-app-version">v2.13.2</span>
+          <span><strong>Stepsemble</strong><small>Mobile-first remote workspace for Pi</small></span>
+          <span class="settings-value" id="set-app-version">v3.0.0</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -448,7 +448,7 @@
         </button>
       </div>
 
-      <p class="settings-footer">Pi Harbor · self-hosted on your tailnet</p>
+      <p class="settings-footer">Stepsemble · self-hosted on your tailnet</p>
     </div>
   </main>
 
@@ -522,7 +522,7 @@
       <details class="machine-help">
         <summary data-i18n-key="deviceTrust.helpTitle">How to add a device</summary>
         <ol>
-          <li data-i18n-key="deviceTrust.helpManual">For a legacy connection, enter the other Pi Harbor URL and save it. Both devices must use the same Web token.</li>
+          <li data-i18n-key="deviceTrust.helpManual">For a legacy connection, enter the other Stepsemble URL and save it. Both devices must use the same Web token.</li>
           <li data-i18n-key="deviceTrust.helpPairStep">For independent access, create a one-time pairing code in the other device's Settings, then paste it here.</li>
           <li data-i18n-key="deviceTrust.helpConfirmStep">Review the device details, then choose Pair this device. The code is used once and expires after five minutes.</li>
         </ol>
@@ -530,9 +530,9 @@
       <div id="machine-standard-fields">
         <label class="field-label" for="machine-name">Device name</label>
         <input id="machine-name" type="text" maxlength="80" autocomplete="off" placeholder="e.g. Work computer">
-        <label class="field-label" for="machine-url">Pi Harbor URL</label>
+        <label class="field-label" for="machine-url">Stepsemble URL</label>
         <input id="machine-url" type="url" maxlength="500" autocomplete="url" placeholder="https://host.example or http://…:3140">
-        <label id="machine-port-label" class="field-label hidden" for="machine-port">Local Pi Harbor port</label>
+        <label id="machine-port-label" class="field-label hidden" for="machine-port">Local Stepsemble port</label>
         <input id="machine-port" class="hidden" type="number" min="1024" max="65535" step="1" inputmode="numeric" placeholder="3140">
         <label class="field-label" for="machine-host">Host name (optional)</label>
         <input id="machine-host" type="text" maxlength="255" autocomplete="off" placeholder="e.g. office-laptop">
@@ -540,15 +540,15 @@
       <p id="machine-status-note" class="settings-note machine-status-note" role="status"></p>
       <p id="machine-form-error" class="form-error hidden" role="alert"></p>
       <div id="machine-pair-area" class="machine-pair-area hidden">
-        <p class="settings-note" data-i18n-key="deviceTrust.pasteCode">Paste a PIHARBOR3 code generated by another Pi Harbor. Review the device details before pairing.</p>
+        <p class="settings-note" data-i18n-key="deviceTrust.pasteCode">Paste a STEPSEMBLE3 code generated by another Stepsemble. Review the device details before pairing.</p>
         <label class="field-label" for="machine-pair-code">One-time pairing code</label>
-        <textarea id="machine-pair-code" rows="4" spellcheck="false" autocomplete="off" placeholder="PIHARBOR3.…"></textarea>
+        <textarea id="machine-pair-code" rows="4" spellcheck="false" autocomplete="off" placeholder="STEPSEMBLE3.…"></textarea>
         <div id="machine-pair-preview" class="machine-pair-preview hidden" role="status" aria-live="polite" aria-labelledby="machine-pair-preview-title">
           <h3 id="machine-pair-preview-title" data-i18n-key="deviceTrust.reviewTitle">Pairing review</h3>
           <p data-i18n-key="deviceTrust.reviewDescription">Check the device details before connecting.</p>
           <dl>
             <div><dt data-i18n-key="deviceTrust.candidate">Device</dt><dd id="machine-pair-preview-name"></dd></div>
-            <div><dt data-i18n-key="deviceTrust.urlLabel">Pi Harbor URL</dt><dd id="machine-pair-preview-url" class="mono"></dd></div>
+            <div><dt data-i18n-key="deviceTrust.urlLabel">Stepsemble URL</dt><dd id="machine-pair-preview-url" class="mono"></dd></div>
             <div><dt data-i18n-key="deviceTrust.expiresLabel">Expires</dt><dd id="machine-pair-preview-expires"></dd></div>
             <div><dt data-i18n-key="deviceTrust.versionLabel">Pairing version</dt><dd id="machine-pair-preview-version"></dd></div>
           </dl>
@@ -560,7 +560,7 @@
         <textarea id="machine-pair-offer" rows="3" readonly spellcheck="false"></textarea>
         <button id="machine-pair-generate" class="btn ghost" type="button">Generate new pairing code</button>
       </div>
-      <button id="machine-restart" class="btn ghost machine-restart hidden" type="button">Restart Pi Harbor</button>
+      <button id="machine-restart" class="btn ghost machine-restart hidden" type="button">Restart Stepsemble</button>
       <div class="sheet-actions">
         <button id="machine-delete" class="btn ghost danger-text hidden" type="button">Delete device</button>
         <span class="sheet-actions-spacer"></span>
@@ -827,7 +827,7 @@
     <div class="onboarding-card">
       <button id="onboarding-close" class="btn ghost icon-btn onboarding-close" type="button" aria-label="Close"><svg class="icon"><use href="#i-x"></use></svg></button>
       <div class="onboarding-scroll">
-        <div class="onboarding-brand"><span class="brand-glyph" role="img" aria-label="Pi Harbor"></span><span>Pi Harbor</span></div>
+        <div class="onboarding-brand"><span class="brand-glyph" role="img" aria-label="Stepsemble"></span><span>Stepsemble</span></div>
         <div class="onboarding-progress" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
         <div class="onboarding-copy">
           <p id="onboarding-eyebrow" class="eyebrow">WELCOME</p>
@@ -866,10 +866,10 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=2.13.2"></script>
-<script src="/modules/app-foundation.js?v=2.13.2"></script>
-<script src="/modules/session-utils.js?v=2.13.2"></script>
-<script src="/modules/context-usage.js?v=2.13.2"></script>
-<script src="/app.js?v=2.13.2"></script>
+<script src="/i18n.js?v=3.0.0"></script>
+<script src="/modules/app-foundation.js?v=3.0.0"></script>
+<script src="/modules/session-utils.js?v=3.0.0"></script>
+<script src="/modules/context-usage.js?v=3.0.0"></script>
+<script src="/app.js?v=3.0.0"></script>
 </body>
 </html>

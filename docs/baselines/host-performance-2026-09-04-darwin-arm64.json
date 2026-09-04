@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-04T07:02:11.266Z",
+  "appVersion": "2.13.2",
+  "sourceCommit": "5ef248e20a7f49c274555cab91045542b0150def",
+  "sourceWorktreeDirty": true,
+  "sourceSha256": {
+    "server": "1115e2459e1b5b8a568ce14b78d00cb95e26c923c38c974eaf75ec441dd6d546",
+    "benchmark": "207eb49d2e5e2ae507f6a8c0a1915a46657388417e7405e0c2cf98784b47c5a7"
+  },
+  "environment": {
+    "platform": "darwin",
+    "release": "25.6.0",
+    "arch": "arm64",
+    "node": "v22.22.3",
+    "cpuLogicalCount": 10
+  },
+  "workload": {
+    "projectDirectories": 12,
+    "regularSessionFiles": 300,
+    "messagesPerRegularSession": 120,
+    "longSessionMessages": 5000,
+    "healthSamples": 100,
+    "warmSessionSamples": 20,
+    "longSessionSamples": 8,
+    "genericConcurrentTasks": 8
+  },
+  "fixture": {
+    "creationMs": 82.848,
+    "totalSessionFiles": 301
+  },
+  "metrics": {
+    "startupMs": 31.272,
+    "healthWarm": {
+      "latencyMs": {
+        "samples": 100,
+        "min": 0.165,
+        "p50": 0.193,
+        "p95": 0.613,
+        "p99": 1.061,
+        "max": 1.293,
+        "mean": 0.258
+      },
+      "responseBytes": 139
+    },
+    "sessionsCold": {
+      "latencyMs": 93.384,
+      "responseBytes": 211422
+    },
+    "sessionsWarm": {
+      "latencyMs": {
+        "samples": 20,
+        "min": 9.257,
+        "p50": 9.588,
+        "p95": 10.582,
+        "p99": 10.81,
+        "max": 10.81,
+        "mean": 9.677
+      },
+      "responseBytes": 211422
+    },
+    "longSession": {
+      "latencyMs": {
+        "samples": 8,
+        "min": 9.581,
+        "p50": 11.318,
+        "p95": 13.913,
+        "p99": 13.913,
+        "max": 13.913,
+        "mean": 11.317
+      },
+      "responseBytes": 361029
+    },
+    "coldScanResponsiveness": {
+      "scanLatencyMs": 103.358,
+      "wallMs": 103.46,
+      "healthDuringScanMs": {
+          "samples": 370,
+          "min": 0.099,
+          "p50": 0.275,
+          "p95": 0.405,
+          "p99": 0.661,
+          "max": 1.031,
+          "mean": 0.275
+      }
+    },
+    "genericAgentOpenMs": 86.773,
+    "genericAgentSseConnected": {
+      "latencyMs": 0.685,
+      "responseBytesAtReady": 2915
+    },
+    "genericConcurrentTasks": {
+      "count": 8,
+      "openWallMs": 95.462,
+      "openPerTaskMs": {
+        "samples": 8,
+        "min": 86.429,
+        "p50": 90.475,
+        "p95": 94.824,
+        "p99": 94.824,
+        "max": 94.824,
+        "mean": 89.894
+      },
+      "sseConnectedMs": {
+        "samples": 8,
+        "min": 0.524,
+        "p50": 0.973,
+        "p95": 1.375,
+        "p99": 1.375,
+        "max": 1.375,
+        "mean": 0.979
+      }
+    },
+    "eventLoopDelayMs": {
+      "mean": 11.45,
+      "p50": 10.232,
+      "p95": 18.924,
+      "p99": 19.038,
+      "max": 19.087
+    },
+    "eventLoopUtilization": 0.726089,
+    "rssMiB": {
+      "idle": 53.906,
+      "afterWorkload": 127.938
+    }
+  },
+  "limitations": [
+    "Synthetic local data; results are comparative, not a production SLA.",
+    "No real Pi/provider/account credentials are loaded.",
+    "Generic SSE uses a synthetic allow-listed Claude CLI executable.",
+    "Browser rendering and Core Web Vitals require a separate Chrome DevTools trace."
+  ]
+}

@@ -1,7 +1,15 @@
-# Pi Harbor architecture
+# Stepsemble architecture
 
-Pi Harbor intentionally remains a dependency-free Node/PWA application. The
-runtime is local to each Pi Agent computer, so the app must continue to work
+> This document describes the currently shipped Node/PWA architecture. The
+> accepted target architecture, language boundaries, migration gates, and
+> cross-platform roadmap live in [`platform-plan.md`](platform-plan.md). The
+> frozen implementation inventory and measured Host baseline live in
+> [`current-system-inventory.md`](current-system-inventory.md) and
+> [`performance-baseline.md`](performance-baseline.md). Read all four before
+> making substantial architecture changes.
+
+Stepsemble 3 intentionally remains a dependency-free Node/PWA application. The
+runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
@@ -43,18 +51,20 @@ explicit input/output boundary before adding more state to the controllers.
   resolved executable path. The browser can submit an Agent id and text, never
   an arbitrary command or shell fragment.
 - Generic CLI tasks have a bounded, private journal at
-  `~/.config/pi-harbor/agent-tasks.json` (mode `0600`). Their stdout/stderr is
+  `~/.config/stepsemble/agent-tasks.json` (mode `0600`). Their stdout/stderr is
   streamed over authenticated SSE and retained as a short output tail so a
   browser can leave and later reopen the task. On macOS/Linux, the bundled
   stdlib-only `server/pty-bridge.py` gives interactive CLIs a real terminal;
-  Windows and hosts without Python use the safe pipe transport instead. A
+  Windows and hosts without Python use the safe pipe transport instead.
   Each generic task is owned by a detached `agent-task-supervisor.js` process.
-  Its owner-only Unix socket (or local Windows named pipe), bounded event
-  journal, and private snapshot live independently from `server.js`. A graceful
-  Pi Harbor restart drops HTTP/SSE clients, then the next process reattaches to
-  the supervisor and resumes the timer/output. If the host or supervisor is
-  killed, the journal records `orphaned` rather than claiming that work is still
-  running; Pi JSON-RPC runs keep the existing graceful-restart behavior.
+  Its owner-only Unix socket (or local Windows named pipe) and private snapshot
+  live independently from `server.js`; bounded event replay remains in the
+  supervisor's memory, while only the short output tail is persisted. A
+  graceful Stepsemble restart drops HTTP/SSE clients, then the next process
+  reattaches to the supervisor and resumes the timer/output. If the host or
+  supervisor is killed, the snapshot records `orphaned` rather than claiming
+  that work is still running; Pi JSON-RPC runs keep the existing
+  graceful-restart behavior.
 - Worktree selection is server-side validated and uses the existing permanent
   Git worktree helper. A task's working directory and branch are exposed to the
   browser, while credentials and environment values stay on the host.
@@ -67,17 +77,24 @@ explicit input/output boundary before adding more state to the controllers.
   independently. Browser cookies remain the compatibility path for manually
   added and already-saved machines; newly paired machines use a dedicated
   bearer credential instead.
-- `PIHARBOR3` is a five-minute, one-use, out-of-band pairing capability. The
+- `STEPSEMBLE3` is a five-minute, one-use, out-of-band pairing capability. The
   joining host reviews its decoded candidate locally before making a network
   request. The target stores only the incoming credential hash, while the
-  joining host stores its outgoing credential in `~/.config/pi-harbor/device-trust.json`.
+  joining host stores its outgoing credential in `~/.config/stepsemble/device-trust.json`.
   Grants are listed and revoked from Device settings, and revocation is
   enforced on the next request without a remote delete call.
-- `PIHARBOR2` remains accepted when a v2.2 host joins a v2.1.2 offer through
+- `PIHARBOR3` remains accepted as the former name of the v3 pairing envelope.
+  `PIHARBOR2` remains accepted when a current host joins a v2.1.2 offer through
   the legacy HMAC path; it receives no dedicated credential. An older client
-  cannot silently downgrade a `PIHARBOR3` offer and must update.
+  cannot silently downgrade a `STEPSEMBLE3` offer and must update.
+- Product-state migration is additive. New writes use `~/.config/stepsemble`,
+  the `stepsemble` cookie, `STEPSEMBLE_*` variables, and Stepsemble service
+  labels. Reads also accept the former Pi Harbor/Pi Web paths, cookies,
+  variables, and pairing prefixes for a bounded compatibility window. The
+  installer archives former application/service files only after a matching
+  v3 health check; native agent state and projects are never moved.
 - Optional access tokens are managed only by the installer/master token from
-  Settings. The server stores only hashes in `~/.config/pi-harbor/tokens.json`
+  Settings. The server stores only hashes in `~/.config/stepsemble/tokens.json`
   with mode `0600`; revocation invalidates existing browser cookies at the
   next authenticated request. They are host credentials, not multi-user Pi
   accounts or per-project ACLs.
@@ -95,4 +112,4 @@ explicit input/output boundary before adding more state to the controllers.
 The next low-risk extractions are session rendering, provider management, and
 device management. A React/Vite client can be introduced later if those areas
 need component-level isolation; a full Next.js migration should wait until
-Pi Harbor becomes a multi-user hosted service.
+Stepsemble becomes a multi-user hosted service.

@@ -1,35 +1,35 @@
 #!/bin/zsh
-# Pi Harbor uninstaller. Pi sessions, credentials, and project files are kept
-# unless the user separately removes them outside this script.
+# Stepsemble uninstaller. Agent sessions, credentials, and project files are
+# kept unless the user separately removes them outside this script.
 set -eu
 setopt NO_NOMATCH
 umask 077
 
-readonly INSTALL_DIR="${PI_HARBOR_INSTALL_DIR:-$HOME/.local/share/pi-harbor}"
-readonly BIN_DIR="${PI_HARBOR_BIN_DIR:-$HOME/.local/share/pi-harbor-bin}"
-readonly CONFIG_DIR="${PI_HARBOR_CONFIG_DIR:-$HOME/.config/pi-harbor}"
-readonly STATE_DIR="${PI_HARBOR_STATE_DIR:-$HOME/.local/state/pi-harbor}"
-readonly RUNTIME_DIR="${PI_HARBOR_RUNTIME_DIR:-$HOME/.local/share/pi-harbor-runtime}"
+readonly INSTALL_DIR="${STEPSEMBLE_INSTALL_DIR:-$HOME/.local/share/stepsemble}"
+readonly BIN_DIR="${STEPSEMBLE_BIN_DIR:-$HOME/.local/share/stepsemble-bin}"
+readonly CONFIG_DIR="${STEPSEMBLE_CONFIG_DIR:-$HOME/.config/stepsemble}"
+readonly STATE_DIR="${STEPSEMBLE_STATE_DIR:-$HOME/.local/state/stepsemble}"
+readonly RUNTIME_DIR="${STEPSEMBLE_RUNTIME_DIR:-$HOME/.local/share/stepsemble-runtime}"
 readonly LAUNCH_DIR="$HOME/Library/LaunchAgents"
-readonly SERVER_PLIST="$LAUNCH_DIR/com.piharbor.server.plist"
-readonly UPDATER_PLIST="$LAUNCH_DIR/com.piharbor.updater.plist"
+readonly SERVER_PLIST="$LAUNCH_DIR/com.stepsemble.server.plist"
+readonly UPDATER_PLIST="$LAUNCH_DIR/com.stepsemble.updater.plist"
 
 YES=0
 REMOVE_PI=""
 
 say() { print -r -- "$*"; }
-die() { print -u2 -r -- "Pi Harbor uninstaller: $*"; exit 1; }
+die() { print -u2 -r -- "Stepsemble uninstaller: $*"; exit 1; }
 
 usage() {
   cat <<'EOF'
 Usage: ./uninstall.sh [options]
 
-  --keep-pi       Remove Pi Harbor and keep Pi Agent
-  --with-pi       Remove Pi Harbor and the Pi executable
+  --keep-pi       Remove Stepsemble and keep Pi Agent
+  --with-pi       Remove Stepsemble and the Pi executable
   --yes           Skip the final confirmation
   --help          Show this help
 
-Pi sessions, provider credentials, and project folders are never deleted.
+Agent sessions, provider credentials, and project folders are never deleted.
 EOF
 }
 
@@ -52,15 +52,15 @@ if [[ -z "$REMOVE_PI" ]]; then
     REMOVE_PI=0
   else
     say "Remove:"
-    say "  1. Pi Harbor only (keep Pi Agent)"
-    say "  2. Pi Harbor and Pi Agent"
+    say "  1. Stepsemble only (keep Pi Agent)"
+    say "  2. Stepsemble and Pi Agent"
     read "choice?Choose 1 or 2 [1]: " || choice="1"
     case "${choice:-1}" in 2) REMOVE_PI=1 ;; *) REMOVE_PI=0 ;; esac
   fi
 fi
 
 if (( ! YES )) && [[ -t 0 ]]; then
-  read "answer?Move Pi Harbor to the Trash? [y/N] " || answer=""
+  read "answer?Move Stepsemble to the Trash? [y/N] " || answer=""
   [[ "$answer" == [yY]* ]] || { say "Canceled."; exit 0; }
 fi
 
@@ -72,19 +72,19 @@ stop_plist() {
   [[ -z "$label" ]] || /bin/launchctl bootout "gui/$UID/$label" >/dev/null 2>&1 || true
 }
 
-safe_pi_harbor_path() {
+safe_stepsemble_path() {
   case "$1" in
-    "$HOME/.local/share/pi-harbor"|"$HOME/.local/share/pi-harbor-bin"|"$HOME/.config/pi-harbor"|"$HOME/.local/state/pi-harbor"|"$HOME/.local/share/pi-harbor-runtime") return 0 ;;
+    "$HOME/.local/share/stepsemble"|"$HOME/.local/share/stepsemble-bin"|"$HOME/.config/stepsemble"|"$HOME/.local/state/stepsemble"|"$HOME/.local/share/stepsemble-runtime") return 0 ;;
     *) return 1 ;;
   esac
 }
 
 trash_path() {
-  local path="$1" trash_root="$2"
-  [[ -e "$path" || -L "$path" ]] || return 0
-  safe_pi_harbor_path "$path" || die "refusing unexpected path: $path"
+  local target_path="$1" trash_root="$2"
+  [[ -e "$target_path" || -L "$target_path" ]] || return 0
+  safe_stepsemble_path "$target_path" || die "refusing unexpected path: $target_path"
   mkdir -p "$trash_root"
-  mv "$path" "$trash_root/${path:t}"
+  mv "$target_path" "$trash_root/${target_path:t}"
 }
 
 remove_managed_pi() {
@@ -133,7 +133,7 @@ stop_plist "$UPDATER_PLIST"
 rm -f -- "$SERVER_PLIST" "$UPDATER_PLIST"
 
 timestamp="$(date +%Y%m%d-%H%M%S)"
-trash_root="$HOME/.Trash/Pi Harbor $timestamp"
+trash_root="$HOME/.Trash/Stepsemble $timestamp"
 trash_path "$INSTALL_DIR" "$trash_root"
 trash_path "$BIN_DIR" "$trash_root"
 trash_path "$CONFIG_DIR" "$trash_root"
@@ -141,13 +141,13 @@ trash_path "$STATE_DIR" "$trash_root"
 
 if (( REMOVE_PI )); then
   if ! remove_managed_pi && ! remove_npm_pi; then
-    say "Pi Harbor was removed, but the Pi installation method was not recognized. Pi was left in place."
+    say "Stepsemble was removed, but the Pi installation method was not recognized. Pi was left in place."
   else
     say "Pi Agent executable removed."
   fi
 fi
 
-if [[ -f "$RUNTIME_DIR/installed-by-pi-harbor" ]]; then trash_path "$RUNTIME_DIR" "$trash_root"; fi
+if [[ -f "$RUNTIME_DIR/installed-by-stepsemble" ]]; then trash_path "$RUNTIME_DIR" "$trash_root"; fi
 
-say "Pi Harbor was moved to: $trash_root"
-say "Pi sessions, provider credentials, and project folders were preserved."
+say "Stepsemble was moved to: $trash_root"
+say "Agent sessions, provider credentials, and project folders were preserved."

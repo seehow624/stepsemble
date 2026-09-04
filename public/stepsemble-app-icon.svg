@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" role="img" aria-labelledby="title desc">
+  <title id="title">Stepsemble app icon</title>
+  <desc id="desc">A four-node cat paw with a terminal prompt in its central pad.</desc>
+  <!-- Full bleed: the operating system supplies the final platform mask. -->
+  <rect width="800" height="800" fill="#1A1A1A"/>
+  <g fill="#FAF7F0">
+    <ellipse cx="224" cy="267" rx="69" ry="91" transform="rotate(-28 224 267)"/>
+    <ellipse cx="342" cy="191" rx="68" ry="92" transform="rotate(-9 342 191)"/>
+    <ellipse cx="458" cy="191" rx="68" ry="92" transform="rotate(9 458 191)"/>
+    <ellipse cx="576" cy="267" rx="69" ry="91" transform="rotate(28 576 267)"/>
+    <path d="M400 326c-87 0-163 61-186 146-25 93 36 178 126 161 37-7 49-30 60-30s23 23 60 30c90 17 151-68 126-161-23-85-99-146-186-146Z"/>
+  </g>
+  <!-- The terminal prompt keeps the paw tied to a coding workspace. -->
+  <g fill="none" stroke="#1A1A1A" stroke-linecap="round" stroke-linejoin="round" stroke-width="28">
+    <path d="m319 431 64 53-64 53"/>
+    <path d="M416 536h76"/>
+  </g>
+</svg>

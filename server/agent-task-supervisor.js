@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Pi Harbor Agent task supervisor.
+ * Stepsemble Agent task supervisor.
  *
  * This process owns one allow-listed CLI and its PTY/pipe.  It is deliberately
  * independent from server.js: a launchd/systemd/service restart can therefore
@@ -92,7 +92,7 @@ const ptyBridge = args["pty-bridge"] ? requiredAbsolute(args["pty-bridge"], "pty
 const taskId = id || "";
 
 if (!taskId || !agentId || !socketPath) {
-  console.error("pi-harbor task supervisor: id, agent-id, and socket are required");
+  console.error("stepsemble task supervisor: id, agent-id, and socket are required");
   process.exit(64);
 }
 
@@ -151,7 +151,7 @@ function snapshot() {
 
 function persistNow() {
   try { writePrivateJson(metadataFile, snapshot()); }
-  catch (persistError) { console.error(`[pi-harbor] task ${taskId} metadata: ${persistError.message}`); }
+  catch (persistError) { console.error(`[stepsemble] task ${taskId} metadata: ${persistError.message}`); }
 }
 
 function persistSoon() {
@@ -242,9 +242,10 @@ function finishProcess(code, signal) {
 
 function scheduleExit(delayMs = 250) {
   if (terminalTimer) clearTimeout(terminalTimer);
-  // The persisted metadata and the web server's bounded event journal are the
-  // durable history. Release the local socket promptly once the child exits;
-  // a later browser open reads the snapshot without needing this process.
+  // Persisted metadata and the bounded output tail are the recovery snapshot;
+  // both the supervisor and web-server event journals are memory-only. Release
+  // the local socket promptly once the child exits so a later browser open can
+  // read the snapshot without needing this process.
   terminalTimer = setTimeout(() => closeAndExit(0), Math.max(25, delayMs));
   terminalTimer.unref?.();
 }
@@ -275,6 +276,8 @@ function startChild() {
         ...process.env,
         HOME: appHome,
         TERM: process.env.TERM || "xterm-256color",
+        STEPSEMBLE_AGENT_ID: agentId,
+        STEPSEMBLE_TASK_ID: taskId,
         PI_HARBOR_AGENT_ID: agentId,
         PI_HARBOR_TASK_ID: taskId,
       },
@@ -386,7 +389,7 @@ function startServer() {
   }
   socketServer = net.createServer(accept);
   socketServer.on("error", (serverError) => {
-    console.error(`[pi-harbor] task ${taskId} supervisor socket: ${serverError.message}`);
+    console.error(`[stepsemble] task ${taskId} supervisor socket: ${serverError.message}`);
     closeAndExit(1);
   });
   socketServer.listen(socketPath, () => {

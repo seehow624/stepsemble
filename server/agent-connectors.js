@@ -22,7 +22,7 @@ const MAX_MESSAGE = 1_000_000;
 const PTY_BRIDGE_FILE = path.join(__dirname, "pty-bridge.py");
 const SUPERVISOR_FILE = path.join(__dirname, "agent-task-supervisor.js");
 const SUPERVISOR_DIR_NAME = "agent-tasks";
-const COMPACT_SUPERVISOR_SOCKET_DIR = process.platform === "win32" ? "" : path.join("/tmp", "pi-harbor-sockets");
+const COMPACT_SUPERVISOR_SOCKET_DIR = process.platform === "win32" ? "" : path.join("/tmp", "stepsemble-sockets");
 const SUPERVISOR_RECONNECT_DELAYS = Object.freeze([100, 250, 500, 1000, 2000, 5000, 10000, 30000]);
 
 // Keep this list intentionally small and explicit.  “Grok Build” has shipped
@@ -172,7 +172,7 @@ function resolvePtyRuntime({ env = process.env } = {}) {
     const stat = fs.statSync(PTY_BRIDGE_FILE);
     if (!stat.isFile()) return null;
   } catch { return null; }
-  const explicit = String(env?.PI_HARBOR_PTY_PYTHON || "").trim();
+  const explicit = String(env?.STEPSEMBLE_PTY_PYTHON || env?.PI_HARBOR_PTY_PYTHON || env?.PI_WEB_PTY_PYTHON || "").trim();
   if (explicit && path.isAbsolute(explicit)) {
     try {
       const stat = fs.statSync(explicit);
@@ -199,14 +199,14 @@ function supervisorSocketPath(configDir, taskId) {
   if (!safe) return "";
   // Unix domain sockets live in the owner-only task directory. Windows named
   // pipes avoid filesystem cleanup races and remain local to this machine.
-  if (process.platform === "win32") return `\\\\.\\pipe\\pi-harbor-${safe}`;
+  if (process.platform === "win32") return `\\\\.\\pipe\\stepsemble-${safe}`;
   const candidate = path.join(configDir, SUPERVISOR_DIR_NAME, `${safe}.sock`);
   // macOS (and many Unix implementations) cap AF_UNIX paths at roughly 104
   // bytes. A long temporary/config path would otherwise be silently truncated
   // by the kernel, making unrelated tasks collide and reconnect with ENOTSOCK.
   // Keep the normal path next to the journal, but use a deterministic, private
   // compact path when it would approach that limit. The hash includes the
-  // config directory so two Pi Harbor profiles cannot share a socket.
+  // config directory so two Stepsemble profiles cannot share a socket.
   if (candidate.length <= 90) return candidate;
   const digest = crypto.createHash("sha256").update(`${path.resolve(configDir)}\0${safe}`).digest("hex").slice(0, 32);
   return path.join(COMPACT_SUPERVISOR_SOCKET_DIR, `${digest}.sock`);
@@ -431,7 +431,7 @@ function createAgentTaskService({
       const rows = [...tasks.values()].slice(-MAX_TASKS).map(persistedTask);
       writePrivateJson(tasksFile, { version: 1, tasks: rows });
     } catch (error) {
-      console.warn(`[pi-harbor] could not persist agent tasks: ${error.message}`);
+      console.warn(`[stepsemble] could not persist agent tasks: ${error.message}`);
     }
   }
 
@@ -740,6 +740,10 @@ function createAgentTaskService({
           ...env,
           HOME: appHome || env.HOME,
           TERM: env.TERM || "xterm-256color",
+          STEPSEMBLE_AGENT_ID: definition.id,
+          STEPSEMBLE_TASK_ID: id,
+          STEPSEMBLE_SUPERVISOR: "1",
+          // One compatibility cycle for local wrappers written against v2.
           PI_HARBOR_AGENT_ID: definition.id,
           PI_HARBOR_TASK_ID: id,
           PI_HARBOR_SUPERVISOR: "1",

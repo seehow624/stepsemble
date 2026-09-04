@@ -51,15 +51,15 @@ function processAlive(pid) {
 // server running forever: it held the port open and kept the caller's event
 // loop alive, so parent and child waited for each other indefinitely.
 test("an orphaned server exits instead of waiting for a parent that is gone", async (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-orphan-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-orphan-"));
   const port = await freePort();
   const env = isolatedEnvironment({
     HOME: home,
     PI_HOME: home,
     PI_BIN: process.execPath,
-    PI_HARBOR_PORT: String(port),
-    PI_HARBOR_HOST: "127.0.0.1",
-    PI_HARBOR_SECURE_COOKIE: "0",
+    STEPSEMBLE_PORT: String(port),
+    STEPSEMBLE_HOST: "127.0.0.1",
+    STEPSEMBLE_SECURE_COOKIE: "0",
   });
 
   // An intermediate parent that starts the server and then exits abruptly,
@@ -98,15 +98,15 @@ test("an orphaned server exits instead of waiting for a parent that is gone", as
 // launchd starts the service as a child of PID 1, and the SSH launcher keeps a
 // long-lived parent. Neither may be mistaken for an orphan.
 test("a server with a live parent keeps running", async (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-parented-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-parented-"));
   const port = await freePort();
   const env = isolatedEnvironment({
     HOME: home,
     PI_HOME: home,
     PI_BIN: process.execPath,
-    PI_HARBOR_PORT: String(port),
-    PI_HARBOR_HOST: "127.0.0.1",
-    PI_HARBOR_SECURE_COOKIE: "0",
+    STEPSEMBLE_PORT: String(port),
+    STEPSEMBLE_HOST: "127.0.0.1",
+    STEPSEMBLE_SECURE_COOKIE: "0",
   });
   let logs = "";
   const child = spawn(process.execPath, [path.join(root, "server.js")], { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });

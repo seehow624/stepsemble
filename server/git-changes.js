@@ -116,7 +116,10 @@ function truncateDiff(value) {
   return { text: shortened, truncated: true };
 }
 
-function createGitChangesService({ gitBin = process.env.PI_HARBOR_GIT_BIN || "git", validateRepository = (value) => value } = {}) {
+function createGitChangesService({
+  gitBin = process.env.STEPSEMBLE_GIT_BIN || process.env.PI_HARBOR_GIT_BIN || process.env.PI_WEB_GIT_BIN || "git",
+  validateRepository = (value) => value,
+} = {}) {
   async function repositoryFor(cwd) {
     let result;
     try {

@@ -1,9 +1,12 @@
-/* pi-harbor context and usage helpers — shared by the browser and server adapters */
-(function exposePiHarborContextUtils(root, factory) {
+/* stepsemble context and usage helpers — shared by the browser and server adapters */
+(function exposeStepsembleContextUtils(root, factory) {
   "use strict";
   const api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
-  if (root) root.piHarborContextUtils = Object.freeze(api);
+  if (root) {
+    root.stepsembleContextUtils = Object.freeze(api);
+    root.piHarborContextUtils = root.stepsembleContextUtils;
+  }
 })(typeof window !== "undefined" ? window : null, () => {
   "use strict";
 

@@ -1,5 +1,5 @@
-/* pi-harbor session utilities — pure display helpers shared by list and chat views */
-(function exposePiHarborSessionUtils(global) {
+/* stepsemble session utilities — pure display helpers shared by list and chat views */
+(function exposeStepsembleSessionUtils(global) {
   "use strict";
 
   function stripMd(value) {
@@ -14,7 +14,7 @@
     if (!timestamp) return "";
     const date = new Date(timestamp);
     const now = new Date();
-    const selectedLocale = global.piI18n?.getLocale?.() || "en";
+    const selectedLocale = global.stepsembleI18n?.getLocale?.() || "en";
     const dateLocale = selectedLocale === "zh-Hant" ? "zh-TW"
       : selectedLocale === "zh-Hans" ? "zh-CN" : selectedLocale;
     const hm = date.toLocaleTimeString(dateLocale, { hour: "2-digit", minute: "2-digit" });
@@ -34,7 +34,7 @@
 
   function projectFolderName(cwd) {
     const key = String(cwd || "(unknown)");
-    const unassigned = global.piI18n?.t("Unassigned project") || "Unassigned project";
+    const unassigned = global.stepsembleI18n?.t("Unassigned project") || "Unassigned project";
     return key === "(unknown)" ? unassigned : (key.split("/").filter(Boolean).pop() || key);
   }
 
@@ -288,11 +288,12 @@
     return Math.floor(hours / 24) + "d";
   }
 
-  global.piHarborSessionUtils = Object.freeze({
+  global.stepsembleSessionUtils = Object.freeze({
     stripMd, fmtTime, fmtTokens, projectFolderName,
     DRAFT_ENTRY_LIMIT, DRAFT_TEXT_LIMIT, draftScopeKey, normalizeDraftEntries, updateDraftEntries, draftTextForKey,
     activityReceiptStats, computeActivityReceipt,
     stripAnsi, parseTaskProgressLines, extractTaskPlan,
     runElapsedText, compactRelativeTime,
   });
+  global.piHarborSessionUtils = global.stepsembleSessionUtils;
 })(window);

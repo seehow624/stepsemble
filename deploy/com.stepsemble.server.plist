@@ -1,32 +1,32 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<!-- Replace __USER__, __NODE__, __PIBIN__, and __TOKEN_FILE__ before installing.
-     The token is read from a user-owned file with mode 600. -->
+<!-- Replace __USER__, __NODE__, optional __PIBIN__, and __TOKEN_FILE__ before
+     installing. The token is read from a user-owned file with mode 600. -->
 <dict>
   <key>Label</key>
-  <string>com.piharbor.server</string>
+  <string>com.stepsemble.server</string>
 
   <key>ProgramArguments</key>
   <array>
     <string>__NODE__</string>
-    <string>/Users/__USER__/.local/share/pi-harbor/server.js</string>
+    <string>/Users/__USER__/.local/share/stepsemble/server.js</string>
   </array>
 
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PI_HARBOR_TOKEN_FILE</key>
+    <key>STEPSEMBLE_TOKEN_FILE</key>
     <string>__TOKEN_FILE__</string>
-    <key>PI_HARBOR_PORT</key>
+    <key>STEPSEMBLE_PORT</key>
     <string>__PORT__</string>
     <!-- Put Tailscale Serve or another HTTPS gateway in front of loopback. -->
-    <key>PI_HARBOR_HOST</key>
+    <key>STEPSEMBLE_HOST</key>
     <string>127.0.0.1</string>
-    <key>PI_HARBOR_SECURE_COOKIE</key>
+    <key>STEPSEMBLE_SECURE_COOKIE</key>
     <string>1</string>
     <key>PI_BIN</key>
     <string>__PIBIN__</string>
-    <key>PI_HARBOR_BROWSE_ROOTS</key>
+    <key>STEPSEMBLE_BROWSE_ROOTS</key>
     <string>/Users/__USER__,/Volumes</string>
     <key>HOME</key>
     <string>/Users/__USER__</string>
@@ -40,8 +40,8 @@
   <integer>6000</integer>
 
   <key>StandardOutPath</key>
-  <string>/Users/__USER__/.local/state/pi-harbor/server.log</string>
+  <string>/Users/__USER__/.local/state/stepsemble/server.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/__USER__/.local/state/pi-harbor/server-error.log</string>
+  <string>/Users/__USER__/.local/state/stepsemble/server-error.log</string>
 </dict>
 </plist>

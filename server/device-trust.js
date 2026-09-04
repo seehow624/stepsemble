@@ -6,7 +6,7 @@
  * This module deliberately has no knowledge of the HTTP server.  Pairing-code
  * validation, credential comparison, bounded state loading, and atomic state
  * updates all have explicit inputs and outputs so they can be tested without
- * starting Pi Harbor.  The only raw credential returned by this module is the
+ * starting Stepsemble.  The only raw credential returned by this module is the
  * one-time result of consumePairingOffer(); the server must never put that
  * result in a browser/catalog response.
  */
@@ -14,9 +14,12 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const {
+  PAIRING_CODE_PREFIX,
+  LEGACY_PAIRING_CODE_PREFIXES,
+} = require("./brand");
 
 const TRUST_STATE_VERSION = 1;
-const PAIRING_CODE_PREFIX = "PIHARBOR3.";
 const PAIRING_TTL_MS = 5 * 60 * 1000;
 const MAX_PAIRING_OFFERS = 24;
 const MAX_INCOMING_GRANTS = 128;
@@ -175,8 +178,10 @@ function createPairingCode({ device, now = Date.now(), ttlMs = PAIRING_TTL_MS, r
 
 function decodePairingCode(value, now = Date.now()) {
   const raw = typeof value === "string" ? value.trim() : "";
-  if (!raw.startsWith(PAIRING_CODE_PREFIX) || raw.length > 4096) throw trustError("Invalid pairing code format");
-  const encoded = raw.slice(PAIRING_CODE_PREFIX.length);
+  const prefix = [PAIRING_CODE_PREFIX, ...LEGACY_PAIRING_CODE_PREFIXES]
+    .find((candidate) => raw.startsWith(candidate));
+  if (!prefix || raw.length > 4096) throw trustError("Invalid pairing code format");
+  const encoded = raw.slice(prefix.length);
   if (!encoded || !isCanonicalBase64Url(encoded)) throw trustError("Could not read pairing code");
   let decoded;
   try { decoded = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")); } catch { throw trustError("Could not read pairing code"); }

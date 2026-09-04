@@ -24,12 +24,12 @@ test("macOS device labels prefer ComputerName over a network hostname", () => {
 
 test("deployment templates do not contain a committed token", () => {
   const files = [
-    path.join(root, "deploy", "com.piharbor.server.plist"),
-    path.join(root, "deploy", "com.piharbor.updater.plist"),
+    path.join(root, "deploy", "com.stepsemble.server.plist"),
+    path.join(root, "deploy", "com.stepsemble.updater.plist"),
   ];
   for (const file of files) {
     const content = fs.readFileSync(file, "utf8");
-    assert.doesNotMatch(content, /<key>PI_HARBOR_TOKEN<\/key>/i);
+    assert.doesNotMatch(content, /<key>STEPSEMBLE_TOKEN<\/key>/i);
   }
 });
 
@@ -55,14 +55,15 @@ test("service worker keeps local Mermaid offline and never intercepts API or rel
   assert.match(release, /subject-path:/);
 });
 
-test("Pi Harbor ships its own Terminal Dock brand mark", () => {
+test("Stepsemble ships its own cat-paw agent mark", () => {
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
-  const logo = fs.readFileSync(path.join(root, "public", "pi-logo.svg"), "utf8");
-  const appIcon = fs.readFileSync(path.join(root, "public", "pi-app-icon.svg"), "utf8");
+  const logo = fs.readFileSync(path.join(root, "public", "stepsemble-logo.svg"), "utf8");
+  const appIcon = fs.readFileSync(path.join(root, "public", "stepsemble-app-icon.svg"), "utf8");
   assert.match(html, /class="login-mark brand-mark"/);
   assert.doesNotMatch(html, /official-mark/);
-  assert.match(logo, /Terminal Dock mark/);
-  assert.match(appIcon, /Terminal Dock mark/);
+  assert.match(logo, /four-node cat paw/);
+  assert.match(appIcon, /four-node cat paw/);
+  assert.match(logo, /terminal prompt/);
   assert.match(logo, /#1A1A1A/);
   assert.match(logo, /#FAF7F0/);
 });
@@ -70,18 +71,18 @@ test("Pi Harbor ships its own Terminal Dock brand mark", () => {
 test("the in-app brand mark follows the active theme colour without a plate", () => {
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
-  const glyph = fs.readFileSync(path.join(root, "public", "pi-glyph.svg"), "utf8");
+  const glyph = fs.readFileSync(path.join(root, "public", "stepsemble-glyph.svg"), "utf8");
   const markBlock = css.slice(css.indexOf(".login-mark.brand-mark"), css.indexOf("html[data-design-theme="));
   assert.match(markBlock, /background-color: var\(--ink\)/);
-  assert.match(markBlock, /-webkit-mask: url\("\/pi-glyph\.svg"\)/);
-  assert.match(markBlock, /\n  mask: url\("\/pi-glyph\.svg"\)/);
+  assert.match(markBlock, /-webkit-mask: url\("\/stepsemble-glyph\.svg"\)/);
+  assert.match(markBlock, /\n  mask: url\("\/stepsemble-glyph\.svg"\)/);
   assert.doesNotMatch(markBlock, /#09090b/i);
   assert.doesNotMatch(markBlock, /border-radius: 1[0-9]px/);
   assert.match(markBlock, /forced-colors: active/);
   // The glyph must carry no background plate of its own.
   assert.doesNotMatch(glyph, /<rect/);
-  assert.match(html, /class="login-mark brand-mark" role="img" aria-label="Pi Harbor"/);
-  assert.match(html, /class="brand-glyph" role="img" aria-label="Pi Harbor"/);
+  assert.match(html, /class="login-mark brand-mark" role="img" aria-label="Stepsemble"/);
+  assert.match(html, /class="brand-glyph" role="img" aria-label="Stepsemble"/);
 });
 
 test("every selectable design theme defines its own light and dark palette", () => {
@@ -153,7 +154,7 @@ test("Agent Hub has an allow-listed connector inventory and reconnectable task s
   assert.match(css, /\.agent-terminal-output/);
 });
 
-test("folder browsing is restricted to the Pi home unless roots are explicitly added", () => {
+test("folder browsing is restricted to the user home unless roots are explicitly added", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
   assert.match(server, /const BROWSE_ROOTS_FROM_ENV/);
@@ -162,7 +163,7 @@ test("folder browsing is restricted to the Pi home unless roots are explicitly a
   assert.match(server, /fs\.openSync\(TOKEN_FILE, "wx", 0o600\)/);
   assert.doesNotMatch(server, /\/api\/token/);
   assert.doesNotMatch(server, /\/api\/browse is unrestricted/);
-  assert.match(readme, /defaults to the Pi home; add `\/Volumes`/);
+  assert.match(readme, /defaults to the user home; add `\/Volumes`/);
 });
 
 test("Sub Agent temporary sessions are opt-in in the session list", () => {
@@ -343,8 +344,8 @@ test("model settings expose a unified provider list without returning secrets", 
   assert.match(server, /AuthStorage\.create/);
   assert.match(app, /function openProviderDialog/);
   assert.match(app, /providerCatalogReadOnly/);
-  assert.match(app, /older Pi Harbor/);
-  assert.match(app, /Provider management requires Pi Harbor 1\.10\.5/);
+  assert.match(app, /older Stepsemble/);
+  assert.match(app, /Provider management requires Stepsemble 1\.10\.5/);
   assert.match(app, /function beginProviderAuth/);
   assert.match(app, /function renderProviderPresets/);
   assert.match(app, /PROVIDER_CATEGORY_META/);
@@ -407,29 +408,37 @@ test("compact list overrides grouped and mobile session geometry", () => {
   assert.match(css, /min-height: 44px/);
 });
 
-test("Mini launcher never pkills active pi-harbor processes", () => {
-  const launcher = fs.readFileSync(path.join(root, "deploy", "pi-harbor-mini-start.sh"), "utf8");
+test("Mini launcher never pkills active stepsemble processes", () => {
+  const launcher = fs.readFileSync(path.join(root, "deploy", "stepsemble-mini-start.sh"), "utf8");
   const installer = fs.readFileSync(path.join(root, "install.sh"), "utf8");
-  assert.match(installer, /cat ~\/\.config\/pi-harbor\/token/);
-  assert.match(installer, /PI_HARBOR_TOKEN_FILE/);
-  assert.match(launcher, /\bPI_HARBOR_TOKEN_FILE\b/);
-  assert.match(fs.readFileSync(path.join(root, "deploy", "com.piharbor.server.plist"), "utf8"), /__TOKEN_FILE__/);
-  assert.match(fs.readFileSync(path.join(root, "deploy", "com.piharbor.updater.plist"), "utf8"), /__TOKEN_FILE__/);
+  const uninstaller = fs.readFileSync(path.join(root, "uninstall.sh"), "utf8");
+  assert.match(installer, /cat ~\/\.config\/stepsemble\/token/);
+  assert.match(installer, /STEPSEMBLE_TOKEN_FILE/);
+  assert.match(launcher, /\bSTEPSEMBLE_TOKEN_FILE\b/);
+  assert.match(fs.readFileSync(path.join(root, "deploy", "com.stepsemble.server.plist"), "utf8"), /__TOKEN_FILE__/);
+  assert.match(fs.readFileSync(path.join(root, "deploy", "com.stepsemble.updater.plist"), "utf8"), /__TOKEN_FILE__/);
   assert.doesNotMatch(launcher, /\bpkill\s+-f\b/);
   assert.match(launcher, /isStreaming/);
+  assert.match(launcher, /\/api\/agent-tasks/);
+  assert.match(launcher, /"starting" or \.status == "running" or \.status == "waiting" or \.status == "reconnecting"/);
+  assert.match(launcher, /if \(\( ! inspection_ok \|\| agent_active \)\)/);
+  assert.match(launcher, /jq -nc --arg token/);
   assert.match(launcher, /__NODE__/);
   assert.match(launcher, /__PIBIN__/);
   assert.doesNotMatch(launcher, /\.clients\s*\/\/\s*0/);
   assert.match(installer, /USE_SSH_LAUNCHER/);
   assert.match(installer, /render_shell/);
   assert.match(installer, /Preserved this Mac's reliable local SSH launch mode/);
+  assert.match(installer, /other installed agent connectors remain available/);
+  assert.doesNotMatch(launcher, /needs both node and pi/);
+  assert.doesNotMatch(uninstaller, /local path=/, "zsh's special path parameter must never be shadowed");
 });
 
 test("device settings support stable aliases, port changes, health checks, and one-time pairing", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
-  const launcher = fs.readFileSync(path.join(root, "deploy", "pi-harbor-mini-start.sh"), "utf8");
+  const launcher = fs.readFileSync(path.join(root, "deploy", "stepsemble-mini-start.sh"), "utf8");
   assert.match(server, /DEVICE_CONFIG_FILE/);
   assert.match(server, /\/api\/device-settings/);
   assert.match(server, /\/api\/device-restart/);
@@ -441,18 +450,18 @@ test("device settings support stable aliases, port changes, health checks, and o
   assert.match(server, /PIHARBOR2\./);
   assert.match(server, /safeEqual\(pairingProof\(unsigned\), decoded\.proof\)/);
   const pairRoute = server.slice(server.indexOf('p === "/api/machines/pair"'), server.indexOf('p === "/api/machines" && req.method === "GET"'));
-  assert.doesNotMatch(pairRoute, /cookie:\s*`pi_harbor=/);
+  assert.doesNotMatch(pairRoute, /cookie:\s*`stepsemble=/);
   assert.match(pairRoute, /headers: \{ "content-type": "application\/json" \}/);
   assert.ok(server.indexOf('p === "/api/device-pairing/consume"') < server.indexOf('p.startsWith("/api/")'));
   assert.match(app, /function refreshMachineStatuses/);
   assert.match(app, /function fetchMachineStatusEndpoint/);
-  assert.match(app, /Older Pi Harbor instances do not expose \/api\/health/);
+  assert.match(app, /Older Stepsemble instances do not expose \/api\/health/);
   assert.match(app, /\/api\/machine/);
   assert.match(app, /function generateMachinePairingOffer/);
   assert.match(app, /function restartMachineWeb/);
   assert.match(html, /id="machine-port"/);
   assert.match(html, /id="machine-test"/);
-  assert.match(html, /id="machine-pair-code"[^>]*placeholder="PIHARBOR3\.…"/);
+  assert.match(html, /id="machine-pair-code"[^>]*placeholder="STEPSEMBLE3\.…"/);
   assert.match(launcher, /device_config/);
 });
 
@@ -653,6 +662,7 @@ test("PWA updates bypass stale service-worker caches and reconcile client versio
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const worker = fs.readFileSync(path.join(root, "public", "sw.js"), "utf8");
   assert.match(server, /rel === "sw\.js"[\s\S]*?"no-cache, no-store, must-revalidate"/);
   const currentVersion = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
   assert.match(app, new RegExp(`const CLIENT_APP_VERSION = "${currentVersion.replaceAll(".", "\\.")}"`));
@@ -660,7 +670,10 @@ test("PWA updates bypass stale service-worker caches and reconcile client versio
   assert.match(app, /cache: "no-store"/);
   assert.match(app, /updateViaCache: "none"/);
   assert.match(app, /visibilitychange/);
-  assert.match(app, /piharbor\.clientReloadAttempt/);
+  assert.match(app, /stepsemble\.clientReloadAttempt/);
+  assert.match(app, /PI_HARBOR_UPDATED/);
+  assert.match(worker, /PI_HARBOR_UPDATED/);
+  assert.match(worker, /product: "stepsemble"/);
   assert.match(html, new RegExp(`id="set-app-version">v${currentVersion.replaceAll(".", "\\.")}`));
 });
 
@@ -743,7 +756,7 @@ test("2.1.0 update center covers per-device state, idle apply, and partial updat
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");
-  const updater = fs.readFileSync(path.join(root, "deploy", "pi-harbor-update.sh"), "utf8");
+  const updater = fs.readFileSync(path.join(root, "deploy", "stepsemble-update.sh"), "utf8");
   const about = html.indexOf('<h3 class="group-title">About</h3>');
   const advanced = html.indexOf('<h3 class="group-title">Advanced</h3>');
   const signOut = html.indexOf('id="btn-logout"');
@@ -788,14 +801,14 @@ test("2.1.0 update center covers per-device state, idle apply, and partial updat
   assert.match(server, /function rpcStuck\(session\)/);
   assert.match(server, /function activeRpcSessionsForUpdate\(\)/);
   assert.match(server, /stuck: rpcStuck\(s\)/);
-  assert.match(updater, /rpc\.stuck !== true/);
+  assert.match(updater, /rpc\?\.stuck !== true/);
   const listen = server.slice(server.indexOf("server.listen(PORT, HOST"));
   assert.match(listen, /schedulePendingUpdateApply\(\)/);
   assert.match(updater, /"deferred" "active_rpc_running"/);
   assert.match(updater, /PH_STATE_PHASE/);
-  assert.match(updater, /PI_HARBOR_UPDATE_TOKEN_FILE/);
+  assert.match(updater, /STEPSEMBLE_UPDATE_TOKEN_FILE/);
   assert.match(updater, /else delete value\.deferredReason/);
-  assert.match(server, /PI_HARBOR_UPDATE_TOKEN_FILE: TOKEN_FILE/);
+  assert.match(server, /STEPSEMBLE_UPDATE_TOKEN_FILE: TOKEN_FILE/);
   assert.match(updater, /final safety gate immediately before replacing/);
   assert.match(i18n, /UPDATE_CENTER_TRANSLATIONS/);
   assert.match(i18n, /UPDATE_CLIENT_TRANSLATIONS/);
@@ -854,8 +867,8 @@ test("first-use help and setup guide cover token, devices, providers, and progre
   const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");
   assert.match(html, /class="login-help"/);
   assert.match(html, /id="login-help-title">First time\?</);
-  assert.match(html, /cat ~\/\.config\/pi-harbor\/token/);
-  assert.match(html, /PI_HARBOR_TOKEN_FILE/);
+  assert.match(html, /cat ~\/\.config\/stepsemble\/token/);
+  assert.match(html, /STEPSEMBLE_TOKEN_FILE/);
   assert.match(html, /Never share the token/);
   assert.match(html, /id="onboarding"[^>]*data-i18n-ignore/);
   assert.match(html, /id="btn-open-onboarding"/);
@@ -898,9 +911,9 @@ test("automatic updates use a public GitHub source and launchd without touching 
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
-  const updater = fs.readFileSync(path.join(root, "deploy", "pi-harbor-update.sh"), "utf8");
+  const updater = fs.readFileSync(path.join(root, "deploy", "stepsemble-update.sh"), "utf8");
   const installer = fs.readFileSync(path.join(root, "install.sh"), "utf8");
-  const plist = fs.readFileSync(path.join(root, "deploy", "com.piharbor.updater.plist"), "utf8");
+  const plist = fs.readFileSync(path.join(root, "deploy", "com.stepsemble.updater.plist"), "utf8");
   assert.match(server, /UPDATE_CONFIG_FILE/);
   assert.match(server, /\/api\/update\/status/);
   assert.match(server, /\/api\/update\/settings/);
@@ -913,11 +926,15 @@ test("automatic updates use a public GitHub source and launchd without touching 
   assert.match(updater, /api\.github\.com\/repos/);
   assert.match(updater, /releases\/latest/);
   assert.match(updater, /fetch_release_metadata\(\)/);
+  assert.match(updater, /fetch_release_metadata_from/);
+  assert.match(updater, /former stable feed without downgrading/);
   assert.match(updater, /write_page_release_metadata/);
   assert.match(updater, /shasum/);
   assert.match(updater, /active_rpc_running/);
+  assert.match(updater, /\/api\/agent-tasks/);
+  assert.match(server, /function activeAgentTasksForUpdate\(\)/);
   assert.match(updater, /kickstart -k/);
-  assert.match(updater, /PI_HARBOR_UPDATE_FORCE/);
+  assert.match(updater, /STEPSEMBLE_UPDATE_FORCE/);
   assert.match(updater, /if ! release_is_newer "\$installed_version" "\$latest_version"/);
   assert.doesNotMatch(updater, /FORCE_UPDATE[^\n]+release_is_newer/);
   assert.doesNotMatch(updater, /auth\.json|sessions|models\.json/);
@@ -929,14 +946,16 @@ test("automatic updates use a public GitHub source and launchd without touching 
 
 test("an auto-updated v1 service keeps its configured token file and port", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
-  assert.match(server, /function settingFromEnv\(name\)/);
-  assert.match(server, /PI_WEB_\$\{name\}/);
+  const brand = fs.readFileSync(path.join(root, "server", "brand.js"), "utf8");
+  assert.match(brand, /function settingFromEnv\(name/);
+  assert.match(brand, /"PI_HARBOR_", "PI_WEB_"/);
+  assert.match(brand, /const current = nonEmptyEnv/);
   assert.match(server, /settingFromEnv\("TOKEN_FILE"\)/);
   assert.match(server, /settingFromEnv\("PORT"\)/);
   assert.match(server, /settingFromEnv\("HOST"\)/);
   assert.match(server, /settingFromEnv\("BROWSE_ROOTS"\)/);
   assert.match(server, /"PI_WEB_TOKEN", "PI_WEB_TOKEN_FILE", "PI_WEB_MACHINES"/);
-  assert.doesNotMatch(server, /process\.env\.PI_HARBOR_TOKEN_FILE/);
+  assert.doesNotMatch(server, /process\.env\.STEPSEMBLE_TOKEN_FILE/);
 });
 
 test("sign-in help explains how to read the token on macOS, Linux, and Windows", () => {
@@ -948,9 +967,9 @@ test("sign-in help explains how to read the token on macOS, Linux, and Windows",
     assert.match(html, new RegExp(`data-token-os-panel="${os}"`));
   }
   // POSIX shells read the same path; Windows needs its own shell syntax.
-  assert.match(html, /cat ~\/\.config\/pi-harbor\/token/);
-  assert.match(html, /Get-Content \$HOME\\\.config\\pi-harbor\\token/);
-  assert.match(html, /type %USERPROFILE%\\\.config\\pi-harbor\\token/);
+  assert.match(html, /cat ~\/\.config\/stepsemble\/token/);
+  assert.match(html, /Get-Content \$HOME\\\.config\\stepsemble\\token/);
+  assert.match(html, /type %USERPROFILE%\\\.config\\stepsemble\\token/);
   // Commands must never be rewritten by the locale layer.
   const help = html.slice(html.indexOf('class="login-help"'), html.indexOf("</section>", html.indexOf('class="login-help"')));
   for (const line of help.split("\n").filter((row) => row.includes("<code"))) {
@@ -968,8 +987,8 @@ test("reopening the app returns to the conversation the user had open", () => {
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   // The last chat is remembered per device at every point the file becomes
   // known: opening an existing session and a new chat's first persisted file.
-  assert.match(app, /const LAST_CHAT_KEY = "piharbor\.last-chat\.v1"/);
-  assert.match(app, /const LAST_AGENT_TASK_KEY = "piharbor\.last-agent-task\.v1"/);
+  assert.match(app, /const LAST_CHAT_KEY = "stepsemble\.last-chat\.v1"/);
+  assert.match(app, /const LAST_AGENT_TASK_KEY = "stepsemble\.last-agent-task\.v1"/);
   assert.match(app, /function rememberLastChat\(file\)/);
   assert.match(app, /function rememberLastAgentTask\(taskId\)/);
   assert.match(app, /function readLastAgentTask\(\)/);

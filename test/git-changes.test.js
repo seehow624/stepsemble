@@ -28,7 +28,7 @@ test("Git porcelain parsers retain rename paths and binary numstats", () => {
 });
 
 test("Git changes service lists scoped files and returns staged, worktree, and untracked diffs", async (t) => {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-changes-"));
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-changes-"));
   const repo = path.join(temp, "repo");
   const nonRepo = path.join(temp, "plain");
   fs.mkdirSync(repo);
@@ -38,7 +38,7 @@ test("Git changes service lists scoped files and returns staged, worktree, and u
 
   git(repo, "init", "-q");
   git(repo, "config", "user.email", "test@example.invalid");
-  git(repo, "config", "user.name", "Pi Harbor Test");
+  git(repo, "config", "user.name", "Stepsemble Test");
   fs.writeFileSync(path.join(repo, "tracked.txt"), "before\n");
   git(repo, "add", "tracked.txt");
   git(repo, "commit", "-qm", "initial");

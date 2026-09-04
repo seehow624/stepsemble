@@ -25,7 +25,8 @@ function loadLocaleLayer() {
   vm.runInNewContext(fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8"), context, {
     filename: path.join(root, "public", "i18n.js"),
   });
-  return context.window.piI18n;
+  assert.equal(context.window.stepsembleI18n, context.window.piI18n, "the rolling legacy alias must share the frozen Stepsemble API");
+  return context.window.stepsembleI18n;
 }
 
 function loadLocaleLayerWithKeyedAttribute() {
@@ -69,7 +70,7 @@ function loadLocaleLayerWithKeyedAttribute() {
     filename: path.join(root, "public", "i18n.js"),
   });
   return {
-    i18n: context.window.piI18n,
+    i18n: context.window.stepsembleI18n,
     body,
     get attributeWrites() { return attributeWrites; },
   };
@@ -229,7 +230,7 @@ test("update center phrases are translated in every supported locale", () => {
     "Latest version",
     "Next automatic check: {time}",
     "Update all complete: {started} started, {skipped} skipped, {failed} failed.",
-    "Pi Harbor update ready; reload after the current work finishes",
+    "Stepsemble update ready; reload after the current work finishes",
   ];
   const values = { device: "MacBook Pro", time: "09:00", started: 1, skipped: 2, failed: 3 };
   for (const locale of i18n.locales.map((item) => item.id).filter((id) => id !== "en")) {
@@ -253,7 +254,7 @@ test("resource sync phrases are translated in every supported locale", () => {
     "Different on each device",
     "{count} difference(s) found",
     "{a} on {nameA} · {b} on {nameB}",
-    "Resource comparison needs a newer Pi Harbor on {device}",
+    "Resource comparison needs a newer Stepsemble on {device}",
   ];
   const values = { device: "MacBook Pro", count: 3, a: 2, nameA: "Mac mini", b: 5, nameB: "MacBook Pro" };
   for (const locale of i18n.locales.map((item) => item.id).filter((id) => id !== "en")) {
@@ -284,13 +285,13 @@ test("first-login token help is translated in every supported locale", () => {
   const i18n = loadLocaleLayer();
   const keys = [
     "First time?",
-    "The installer creates a private Web token on the computer running Pi Harbor.",
+    "The installer creates a private Web token on the computer running Stepsemble.",
     "On that computer, open a terminal and run the command for its operating system:",
     "Open Terminal from Applications → Utilities, then run:",
     "Open your terminal emulator, then run:",
     "Open PowerShell from the Start menu, then run:",
     "In Command Prompt, run this instead:",
-    "If a custom PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path.",
+    "If a custom STEPSEMBLE_TOKEN_FILE is configured, use that file instead of the default path.",
     "From another device, retrieve the token securely from that host and paste it here.",
     "Never share the token in chat, screenshots, repositories, or logs.",
   ];
@@ -309,11 +310,11 @@ test("first-run key onboarding is translated in every supported locale", () => {
   const i18n = loadLocaleLayer();
   const keys = [
     "Save your access key",
-    "Pi Harbor created a private access key on this computer. Record it somewhere safe — like a hardware wallet, it is shown only once.",
+    "Stepsemble created a private access key on this computer. Record it somewhere safe — like a hardware wallet, it is shown only once.",
     "Show key",
     "Hide key",
     "I saved the key in a safe place",
-    "Anyone with this key can access this computer's Pi Harbor",
+    "Anyone with this key can access this computer's Stepsemble",
     "Continue to sign in",
     "Skip for now",
     "Paste the key you saved to sign in.",

@@ -70,11 +70,11 @@ async function stopServer(child) {
 }
 
 test("first-run key endpoint rejects proxy and DNS-rebinding hosts, then confirms once", async (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-onboarding-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-onboarding-"));
   const port = await freePort();
   const peerCredential = "ab".repeat(32);
   const peerGrantId = "cd".repeat(16);
-  const trustDir = path.join(home, ".config", "pi-harbor");
+  const trustDir = path.join(home, ".config", "stepsemble");
   fs.mkdirSync(trustDir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(trustDir, "device-trust.json"), `${JSON.stringify({
     version: 1,
@@ -91,9 +91,9 @@ test("first-run key endpoint rejects proxy and DNS-rebinding hosts, then confirm
     HOME: home,
     PI_HOME: home,
     PI_BIN: process.execPath,
-    PI_HARBOR_PORT: String(port),
-    PI_HARBOR_HOST: "127.0.0.1",
-    PI_HARBOR_SECURE_COOKIE: "0",
+    STEPSEMBLE_PORT: String(port),
+    STEPSEMBLE_HOST: "127.0.0.1",
+    STEPSEMBLE_SECURE_COOKIE: "0",
   });
 
   let logs = "";
@@ -135,7 +135,7 @@ test("first-run key endpoint rejects proxy and DNS-rebinding hosts, then confirm
   assert.equal(peerConfirm.status, 403);
   assert.equal(peerConfirm.text.includes(revealedKey), false);
   assert.equal(peerConfirm.text.includes(peerCredential), false);
-  assert.equal(fs.existsSync(path.join(home, ".config", "pi-harbor", "onboarding.json")), false);
+  assert.equal(fs.existsSync(path.join(home, ".config", "stepsemble", "onboarding.json")), false);
 
   for (const blocked of [
     await request(port, "/api/onboarding/key", { host: "attacker.example" }),
@@ -149,11 +149,11 @@ test("first-run key endpoint rejects proxy and DNS-rebinding hosts, then confirm
 
   const blockedConfirm = await request(port, "/api/onboarding/confirm", { method: "POST", host: "attacker.example" });
   assert.equal(blockedConfirm.status, 403);
-  assert.equal(fs.existsSync(path.join(home, ".config", "pi-harbor", "onboarding.json")), false);
+  assert.equal(fs.existsSync(path.join(home, ".config", "stepsemble", "onboarding.json")), false);
 
   const confirmed = await request(port, "/api/onboarding/confirm", { method: "POST" });
   assert.equal(confirmed.status, 204);
-  const stateFile = path.join(home, ".config", "pi-harbor", "onboarding.json");
+  const stateFile = path.join(home, ".config", "stepsemble", "onboarding.json");
   const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
   assert.match(state.tokenConfirmedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.match(state.tokenHash, /^[0-9a-f]{64}$/);
@@ -167,18 +167,18 @@ test("first-run key endpoint rejects proxy and DNS-rebinding hosts, then confirm
 });
 
 test("corrupt persisted onboarding state fails closed without revealing the token", async (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-onboarding-corrupt-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-onboarding-corrupt-"));
   const port = await freePort();
-  const configDir = path.join(home, ".config", "pi-harbor");
+  const configDir = path.join(home, ".config", "stepsemble");
   fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(configDir, "onboarding.json"), "not-json\n", { mode: 0o600 });
   const env = isolatedEnvironment({
     HOME: home,
     PI_HOME: home,
     PI_BIN: process.execPath,
-    PI_HARBOR_PORT: String(port),
-    PI_HARBOR_HOST: "127.0.0.1",
-    PI_HARBOR_SECURE_COOKIE: "0",
+    STEPSEMBLE_PORT: String(port),
+    STEPSEMBLE_HOST: "127.0.0.1",
+    STEPSEMBLE_SECURE_COOKIE: "0",
   });
   let logs = "";
   const child = spawn(process.execPath, [path.join(root, "server.js")], {

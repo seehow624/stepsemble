@@ -15,21 +15,21 @@ function loadBrowserModule(file, { storage = null, piI18n = null } = {}) {
     setItem(key, value) { this.values.set(key, String(value)); },
     removeItem(key) { this.values.delete(key); },
   };
-  const window = { localStorage, piI18n };
+  const window = { localStorage, stepsembleI18n: piI18n, piI18n };
   const context = { window, localStorage, Intl, Date, Set, Map, Object, String, Number, JSON, Math };
   vm.runInNewContext(fs.readFileSync(path.join(root, "public", "modules", file), "utf8"), context, {
     filename: path.join(root, "public", "modules", file),
   });
-  const globalName = file === "app-foundation.js" ? "piHarborFoundation"
-    : file === "context-usage.js" ? "piHarborContextUtils" : "piHarborSessionUtils";
-  return { value: window[globalName], storage };
+  const globalName = file === "app-foundation.js" ? "stepsembleFoundation"
+    : file === "context-usage.js" ? "stepsembleContextUtils" : "stepsembleSessionUtils";
+  return { value: window[globalName], storage: localStorage, window };
 }
 
 test("frontend foundation normalizes preferences and preserves selected device state", () => {
   const storage = {
     values: new Map([
-      ["piharbor.selected.v1", "mini"],
-      ["piharbor.settings.v2", JSON.stringify({
+      ["stepsemble.selected.v1", "mini"],
+      ["stepsemble.settings.v2", JSON.stringify({
         settingsVersion: 1,
         designTheme: "plum-milk",
         sidebarWidth: 999,
@@ -50,20 +50,20 @@ test("frontend foundation normalizes preferences and preserves selected device s
   assert.equal(settings.fontScale, 90);
   assert.deepEqual(Array.from(settings.projectPins), ["/work"]);
   assert.equal(settings.showTemporarySessions, true);
-  assert.equal(foundation.machineDisplayName({ name: "" }), "Pi Harbor device");
+  assert.equal(foundation.machineDisplayName({ name: "" }), "Stepsemble device");
   assert.equal(foundation.currentMachine([{ id: "mini" }, { id: "mbp", self: true }], "missing").id, "mbp");
   foundation.saveSelected("mbp");
-  assert.equal(storage.getItem("piharbor.selected.v1"), "mbp");
+  assert.equal(storage.getItem("stepsemble.selected.v1"), "mbp");
 });
 
 test("a saved Pine Milk choice survives and an unset theme falls back to the default", () => {
   const withChoice = {
-    values: new Map([["piharbor.settings.v2", JSON.stringify({ designTheme: "pine-milk" })]]),
+    values: new Map([["stepsemble.settings.v2", JSON.stringify({ designTheme: "pine-milk" })]]),
     getItem(key) { return this.values.has(key) ? this.values.get(key) : null; },
     setItem(key, value) { this.values.set(key, String(value)); },
   };
   const withoutChoice = {
-    values: new Map([["piharbor.settings.v2", JSON.stringify({ compact: true })]]),
+    values: new Map([["stepsemble.settings.v2", JSON.stringify({ compact: true })]]),
     getItem(key) { return this.values.has(key) ? this.values.get(key) : null; },
     setItem(key, value) { this.values.set(key, String(value)); },
   };
@@ -89,6 +89,25 @@ test("frontend foundation migrates pre-Harbor preferences without renaming user 
   assert.equal(foundation.loadSettings().locale, "ja");
   assert.equal(foundation.loadSettings().compact, true);
   assert.deepEqual(Array.from(foundation.loadSettings().projectPins), ["/existing/project"]);
+});
+
+test("frontend foundation migrates Pi Harbor preferences and keeps a rolling global alias", () => {
+  const storage = {
+    values: new Map([
+      ["piharbor.selected.v1", "harbor-device"],
+      ["piharbor.settings.v2", JSON.stringify({ locale: "ja", designTheme: "ocean-ivory" })],
+    ]),
+    getItem(key) { return this.values.has(key) ? this.values.get(key) : null; },
+    setItem(key, value) { this.values.set(key, String(value)); },
+  };
+  const piI18n = { normalizeLocale(value) { return value === "ja" ? "ja" : "en"; } };
+  const { value: foundation, window } = loadBrowserModule("app-foundation.js", { storage, piI18n });
+  assert.equal(foundation.loadSelected(), "harbor-device");
+  assert.equal(foundation.loadSettings().designTheme, "ocean-ivory");
+  assert.equal(storage.getItem("stepsemble.selected.v1"), "harbor-device");
+  assert.equal(JSON.parse(storage.getItem("stepsemble.settings.v2")).designTheme, "ocean-ivory");
+  assert.equal(window.piHarborFoundation, foundation);
+  assert.equal(storage.getItem("piharbor.selected.v1"), "harbor-device", "rollback source stays in place");
 });
 
 test("machine catalog state recovers from pre-auth emptiness and retains a valid selection", () => {
@@ -302,11 +321,13 @@ test("HTTP utility module centralizes framing, cookies, and JSON body limits", a
     isTokenValid: (value) => value === "secret",
     isPeerCredentialValid: (value) => value === "p".repeat(64) ? { grantId: "grant" } : null,
   });
-  assert.equal(http.isAuthed({ headers: { cookie: "other=x; pi_harbor=secret" } }), true);
-  assert.equal(http.isAuthed({ headers: { cookie: "pi_harbor=wrong" } }), false);
+  assert.equal(http.isAuthed({ headers: { cookie: "other=x; stepsemble=secret" } }), true);
+  assert.equal(http.isAuthed({ headers: { cookie: "pi_harbor=secret" } }), true);
+  assert.equal(http.isAuthed({ headers: { cookie: "pi_web=secret" } }), true);
+  assert.equal(http.isAuthed({ headers: { cookie: "stepsemble=wrong" } }), false);
   assert.equal(http.getBearerToken({ headers: { authorization: `Bearer ${"p".repeat(64)}` } }), "p".repeat(64));
-  assert.equal(http.authenticate({ headers: { authorization: `Bearer ${"p".repeat(64)}`, cookie: "pi_harbor=secret" } }).mode, "peer");
-  assert.equal(http.authenticate({ headers: { cookie: "pi_harbor=secret" } }).mode, "browser");
+  assert.equal(http.authenticate({ headers: { authorization: `Bearer ${"p".repeat(64)}`, cookie: "stepsemble=secret" } }).mode, "peer");
+  assert.equal(http.authenticate({ headers: { cookie: "stepsemble=secret" } }).mode, "browser");
   assert.equal(http.sseFrame({ ok: true }, "ready\nignored", "1\n2"), "event: readyignored\nid: 12\ndata: {\"ok\":true}\n\n");
 
   const request = new PassThrough();

@@ -1,14 +1,15 @@
 #!/bin/zsh
-# Pi Harbor stable-release updater for macOS launchd.
+# Stepsemble stable-release updater for macOS launchd.
 #
 # Release archives are downloaded from GitHub Releases and verified against a
-# separately published SHA-256 file. Updates wait while a Pi RPC is streaming.
+# separately published SHA-256 file. Updates wait while any agent is active.
 set -u
 setopt NO_NOMATCH
 umask 077
 
 NODE_BIN="${NODE_BIN:-$(command -v node 2>/dev/null || true)}"
-for candidate in "$HOME/.local/share/pi-harbor-runtime/current/bin/node" \
+for candidate in "$HOME/.local/share/stepsemble-runtime/current/bin/node" \
+  "$HOME/.local/share/pi-harbor-runtime/current/bin/node" \
   "$HOME/.local/bin/node" "$HOME/.volta/bin/node" \
   "/opt/homebrew/bin/node" "/usr/local/bin/node"; do
   [[ -n "$NODE_BIN" && -x "$NODE_BIN" ]] && break
@@ -19,19 +20,24 @@ readonly CURL_BIN="${CURL_BIN:-/usr/bin/curl}"
 readonly TAR_BIN="${TAR_BIN:-/usr/bin/tar}"
 readonly SHASUM_BIN="${SHASUM_BIN:-/usr/bin/shasum}"
 readonly LAUNCHCTL_BIN="${LAUNCHCTL_BIN:-/bin/launchctl}"
-readonly INSTALL_DIR="${PI_HARBOR_INSTALL_DIR:-$HOME/.local/share/pi-harbor}"
-readonly CONFIG_DIR="${PI_HARBOR_UPDATE_CONFIG_DIR:-$HOME/.config/pi-harbor}"
-readonly CONFIG_FILE="${PI_HARBOR_UPDATE_CONFIG:-$CONFIG_DIR/updater.json}"
-readonly STATE_FILE="${PI_HARBOR_UPDATE_STATE:-$CONFIG_DIR/update-state.json}"
+readonly INSTALL_DIR="${STEPSEMBLE_INSTALL_DIR:-$HOME/.local/share/stepsemble}"
+readonly CONFIG_DIR="${STEPSEMBLE_UPDATE_CONFIG_DIR:-$HOME/.config/stepsemble}"
+readonly CONFIG_FILE="${STEPSEMBLE_UPDATE_CONFIG:-$CONFIG_DIR/updater.json}"
+readonly STATE_FILE="${STEPSEMBLE_UPDATE_STATE:-$CONFIG_DIR/update-state.json}"
 # The server passes a custom token-file path without passing the token itself.
-readonly TOKEN_FILE="${PI_HARBOR_UPDATE_TOKEN_FILE:-${PI_HARBOR_TOKEN_FILE:-$CONFIG_DIR/token}}"
-readonly LOCK_DIR="${PI_HARBOR_UPDATE_LOCK:-$HOME/.cache/pi-harbor-update.lock}"
-readonly DEFAULT_REPOSITORY="${PI_HARBOR_UPDATE_REPO:-seehow624/pi-harbor}"
-readonly DEFAULT_REF="${PI_HARBOR_UPDATE_REF:-stable}"
-readonly SERVICE_LABEL="${PI_HARBOR_SERVICE_LABEL:-com.piharbor.server}"
-readonly FORCE_UPDATE="${PI_HARBOR_UPDATE_FORCE:-0}"
+readonly TOKEN_FILE="${STEPSEMBLE_UPDATE_TOKEN_FILE:-${STEPSEMBLE_TOKEN_FILE:-${PI_HARBOR_UPDATE_TOKEN_FILE:-${PI_HARBOR_TOKEN_FILE:-${PI_WEB_UPDATE_TOKEN_FILE:-${PI_WEB_TOKEN_FILE:-$CONFIG_DIR/token}}}}}}"
+readonly LOCK_DIR="${STEPSEMBLE_UPDATE_LOCK:-$HOME/.cache/stepsemble-update.lock}"
+readonly DEFAULT_REPOSITORY="${STEPSEMBLE_UPDATE_REPO:-${PI_HARBOR_UPDATE_REPO:-${PI_WEB_UPDATE_REPO:-seehow624/stepsemble}}}"
+readonly DEFAULT_REF="${STEPSEMBLE_UPDATE_REF:-${PI_HARBOR_UPDATE_REF:-${PI_WEB_UPDATE_REF:-stable}}}"
+DEFAULT_SERVICE_LABEL="com.stepsemble.server"
+case "$INSTALL_DIR" in
+  "$HOME/.local/share/pi-harbor") DEFAULT_SERVICE_LABEL="com.piharbor.server" ;;
+  "$HOME/.local/share/pi-web") DEFAULT_SERVICE_LABEL="com.jerome.pi-web" ;;
+esac
+readonly SERVICE_LABEL="${STEPSEMBLE_SERVICE_LABEL:-${PI_HARBOR_SERVICE_LABEL:-${PI_WEB_SERVICE_LABEL:-$DEFAULT_SERVICE_LABEL}}}"
+readonly FORCE_UPDATE="${STEPSEMBLE_UPDATE_FORCE:-${PI_HARBOR_UPDATE_FORCE:-${PI_WEB_UPDATE_FORCE:-0}}}"
 
-log() { print -u2 -r -- "[pi-harbor-update] $*"; }
+log() { print -u2 -r -- "[stepsemble-update] $*"; }
 die() {
   log "$*"
   # State writes are best-effort: early dependency/configuration failures can
@@ -44,7 +50,10 @@ die() {
 
 [[ -n "$NODE_BIN" && -x "$NODE_BIN" ]] || die "Node.js 22.19 or newer is required."
 [[ -x "$CURL_BIN" && -x "$TAR_BIN" && -x "$SHASUM_BIN" ]] || die "curl, tar, and shasum are required."
-[[ "$INSTALL_DIR" == "$HOME/.local/share/pi-harbor" ]] || die "refusing unexpected application path"
+case "$INSTALL_DIR" in
+  "$HOME/.local/share/stepsemble"|"$HOME/.local/share/pi-harbor"|"$HOME/.local/share/pi-web") ;;
+  *) die "refusing unexpected application path" ;;
+esac
 
 json_value() {
   local file="$1" key="$2"
@@ -127,7 +136,7 @@ const release = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const field = process.argv[3];
 if (field === "tag") process.stdout.write(String(release.tag_name || ""));
 else {
-  const exact = `pi-harbor-${release.tag_name}.tar.gz${field === "checksum" ? ".sha256" : ""}`;
+  const exact = `stepsemble-${release.tag_name}.tar.gz${field === "checksum" ? ".sha256" : ""}`;
   const suffix = field === "archive" ? ".tar.gz" : ".sha256";
   const asset = release.assets?.find((item) => item.name === exact)
     || release.assets?.find((item) => item.name.endsWith(suffix));
@@ -141,11 +150,11 @@ NODE
 # Fall back to the public release page, which redirects to the selected tag,
 # then construct the two predictable, checksum-verified asset URLs.
 write_page_release_metadata() {
-  local metadata="$1" tag="$2"
-  "$NODE_BIN" - "$metadata" "$tag" "$repository" <<'NODE'
+  local metadata="$1" tag="$2" source_repository="${3:-$repository}"
+  "$NODE_BIN" - "$metadata" "$tag" "$source_repository" <<'NODE'
 const fs = require("node:fs");
 const [file, tag, repository] = process.argv.slice(2);
-const archive = `pi-harbor-${tag}.tar.gz`;
+const archive = `stepsemble-${tag}.tar.gz`;
 const base = `https://github.com/${repository}/releases/download/${tag}`;
 fs.writeFileSync(file, JSON.stringify({
   tag_name: tag,
@@ -157,20 +166,35 @@ fs.writeFileSync(file, JSON.stringify({
 NODE
 }
 
-fetch_release_metadata() {
-  local metadata="$1" api_url page_url final_url tag
-  api_url="https://api.github.com/repos/$repository/releases/latest"
-  [[ "$ref" == "stable" ]] || api_url="https://api.github.com/repos/$repository/releases/tags/$ref"
-  if "$CURL_BIN" -fsSL --max-time 180 -H 'Accept: application/vnd.github+json' "$api_url" -o "$metadata"; then
+fetch_release_metadata_from() {
+  local metadata="$1" source_repository="$2" api_url page_url final_url tag
+  api_url="https://api.github.com/repos/$source_repository/releases/latest"
+  [[ "$ref" == "stable" ]] || api_url="https://api.github.com/repos/$source_repository/releases/tags/$ref"
+  if "$CURL_BIN" -fsSL --max-time 180 -H 'Accept: application/vnd.github+json' "$api_url" -o "$metadata" 2>/dev/null; then
     return 0
   fi
-  page_url="https://github.com/$repository/releases/latest"
-  [[ "$ref" == "stable" ]] || page_url="https://github.com/$repository/releases/tag/$ref"
+  page_url="https://github.com/$source_repository/releases/latest"
+  [[ "$ref" == "stable" ]] || page_url="https://github.com/$source_repository/releases/tag/$ref"
   final_url="$($CURL_BIN -fsSL --max-time 60 -o /dev/null -w '%{url_effective}' "$page_url" 2>/dev/null)" || return 1
   final_url="${final_url%%\?*}"
   tag="${final_url##*/}"
   [[ "$tag" =~ '^v[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.]+)?$' ]] || return 1
-  write_page_release_metadata "$metadata" "$tag"
+  write_page_release_metadata "$metadata" "$tag" "$source_repository"
+}
+
+fetch_release_metadata() {
+  local metadata="$1"
+  fetch_release_metadata_from "$metadata" "$repository" && return 0
+  # During the repository rename, an already-installed Stepsemble 3 host may
+  # briefly check before the new GitHub location exists. Reading the former
+  # stable release is safe because semantic-version comparison below forbids a
+  # downgrade; this fallback is never used for custom repositories or tags.
+  if [[ "$repository" == "seehow624/stepsemble" && "$ref" == "stable" ]] \
+    && fetch_release_metadata_from "$metadata" "seehow624/pi-harbor"; then
+    log "canonical repository is not published yet; checked the former stable feed without downgrading"
+    return 0
+  fi
+  return 1
 }
 
 # Validate the complete archive before tar is allowed to create a filesystem
@@ -179,7 +203,7 @@ fetch_release_metadata() {
 preflight_archive() {
   local archive="$1" listing verbose temp_dir
   [[ -n "$archive" && -f "$archive" ]] || return 1
-  temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/pi-harbor-archive-check.XXXXXX")" || return 1
+  temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/stepsemble-archive-check.XXXXXX")" || return 1
   listing="$temp_dir/listing"
   verbose="$temp_dir/verbose"
   if ! "$TAR_BIN" -tzf "$archive" > "$listing" 2> /dev/null \
@@ -191,7 +215,7 @@ preflight_archive() {
 const fs = require("node:fs");
 const names = fs.readFileSync(process.argv[2], "utf8").split(/\r?\n/).filter(Boolean);
 const verbose = fs.readFileSync(process.argv[3], "utf8").split(/\r?\n/).filter(Boolean);
-const fail = (message) => { console.error(`[pi-harbor-update] archive rejected: ${message}`); process.exit(1); };
+const fail = (message) => { console.error(`[stepsemble-update] archive rejected: ${message}`); process.exit(1); };
 if (!names.length || names.length !== verbose.length || names.length > 4096) fail("unexpected entry count");
 let top = null;
 let topDirectory = false;
@@ -231,36 +255,69 @@ NODE
 
 # A no-network, no-extraction hook keeps archive validation independently
 # testable and is useful to maintainers reviewing a release artifact.
-if [[ -n "${PI_HARBOR_UPDATE_PREFLIGHT_ARCHIVE:-}" ]]; then
-  preflight_archive "$PI_HARBOR_UPDATE_PREFLIGHT_ARCHIVE" || exit 1
+if [[ -n "${STEPSEMBLE_UPDATE_PREFLIGHT_ARCHIVE:-}" ]]; then
+  preflight_archive "$STEPSEMBLE_UPDATE_PREFLIGHT_ARCHIVE" || exit 1
   exit 0
 fi
 
 active_rpc_running() {
-  [[ -s "$TOKEN_FILE" ]] || return 1
-  local cookie response token port
+  # Keep the historical function/state name for rolling-client compatibility;
+  # the gate now covers native RPCs and every reconnectable CLI task.
+  [[ -s "$TOKEN_FILE" ]] || return 0
+  local cookie login_payload rpcs_file tasks_file task_status port result
   port="$("$NODE_BIN" - "$HOME/.pi/agent/device.json" <<'NODE'
 const fs = require("node:fs");
-try { const port = JSON.parse(fs.readFileSync(process.argv[2], "utf8")).port; process.stdout.write(Number.isInteger(port) ? String(port) : "3140"); } catch { process.stdout.write("3140"); }
+try { const port = JSON.parse(fs.readFileSync(process.argv[2], "utf8")).port; process.stdout.write(Number.isInteger(port) && port >= 1024 && port <= 65535 ? String(port) : "3140"); } catch { process.stdout.write("3140"); }
 NODE
-)"
-  cookie="$(mktemp "${TMPDIR:-/tmp}/pi-harbor-updater-cookie.XXXXXX")"
-  token="$(tr -d '\n' < "$TOKEN_FILE")"
-  local token_json
-  token_json="$("$NODE_BIN" - "$token" <<'NODE'
-process.stdout.write(JSON.stringify(process.argv[2]));
+  )"
+  cookie="$(mktemp "${TMPDIR:-/tmp}/stepsemble-updater-cookie.XXXXXX")"
+  login_payload="$(mktemp "${TMPDIR:-/tmp}/stepsemble-updater-login.XXXXXX")"
+  rpcs_file="$(mktemp "${TMPDIR:-/tmp}/stepsemble-updater-rpcs.XXXXXX")"
+  tasks_file="$(mktemp "${TMPDIR:-/tmp}/stepsemble-updater-tasks.XXXXXX")"
+  if ! "$NODE_BIN" - "$TOKEN_FILE" "$login_payload" <<'NODE'
+const fs = require("node:fs");
+const token = fs.readFileSync(process.argv[2], "utf8").trim();
+if (!token) process.exit(1);
+fs.writeFileSync(process.argv[3], JSON.stringify({ token }), { mode: 0o600 });
 NODE
-)"
-  if ! "$CURL_BIN" -fsS --max-time 3 -c "$cookie" -H 'Content-Type: application/json' \
-    --data-binary "{\"token\":$token_json}" "http://127.0.0.1:$port/api/login" >/dev/null 2>&1; then
-    /bin/rm -f -- "$cookie"
-    return 1
+  then
+    /bin/rm -f -- "$cookie" "$login_payload" "$rpcs_file" "$tasks_file"
+    return 0
   fi
-  response="$("$CURL_BIN" -fsS --max-time 3 -b "$cookie" "http://127.0.0.1:$port/api/rpcs" 2>/dev/null || true)"
-  /bin/rm -f -- "$cookie"
-  RPC_RESPONSE="$response" "$NODE_BIN" - <<'NODE'
-try { const value = JSON.parse(process.env.RPC_RESPONSE || "{}"); process.exit(value.rpcs?.some((rpc) => rpc.isStreaming === true && rpc.stuck !== true) ? 0 : 1); } catch { process.exit(1); }
+  if ! "$CURL_BIN" -fsS --max-time 3 -c "$cookie" -H 'Content-Type: application/json' \
+    --data-binary "@$login_payload" "http://127.0.0.1:$port/api/login" >/dev/null 2>&1; then
+    /bin/rm -f -- "$cookie" "$login_payload" "$rpcs_file" "$tasks_file"
+    return 0
+  fi
+  if ! "$CURL_BIN" -fsS --max-time 3 -b "$cookie" "http://127.0.0.1:$port/api/rpcs" -o "$rpcs_file" 2>/dev/null; then
+    /bin/rm -f -- "$cookie" "$login_payload" "$rpcs_file" "$tasks_file"
+    return 0
+  fi
+  task_status="$("$CURL_BIN" -sS --max-time 3 -b "$cookie" "http://127.0.0.1:$port/api/agent-tasks" -o "$tasks_file" -w '%{http_code}' 2>/dev/null || true)"
+  case "$task_status" in
+    200) ;;
+    404) print -r -- '{}' > "$tasks_file" ;;
+    *) /bin/rm -f -- "$cookie" "$login_payload" "$rpcs_file" "$tasks_file"; return 0 ;;
+  esac
+  if "$NODE_BIN" - "$rpcs_file" "$tasks_file" <<'NODE'
+const fs = require("node:fs");
+try {
+  const rpcs = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  const tasks = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+  if (!Array.isArray(rpcs.rpcs)) process.exit(0);
+  const rpcActive = rpcs.rpcs.some((rpc) => rpc?.isStreaming === true && rpc?.stuck !== true);
+  const taskActive = Array.isArray(tasks.tasks) && tasks.tasks.some((task) =>
+    ["starting", "running", "waiting", "reconnecting"].includes(String(task?.status || "")));
+  process.exit(rpcActive || taskActive ? 0 : 1);
+} catch { process.exit(0); }
 NODE
+  then
+    result=0
+  else
+    result=$?
+  fi
+  /bin/rm -f -- "$cookie" "$login_payload" "$rpcs_file" "$tasks_file"
+  return "$result"
 }
 
 # Probe the public health endpoint after launchd has activated a release. This
@@ -292,12 +349,13 @@ ref="$(json_value "$CONFIG_FILE" ref)"
 [[ "$enabled" == "true" ]] || enabled="false"
 [[ -n "$repository" ]] || repository="$DEFAULT_REPOSITORY"
 [[ -n "$ref" ]] || ref="$DEFAULT_REF"
+[[ "$repository" != "seehow624/pi-harbor" ]] || repository="seehow624/stepsemble"
 [[ "$repository" =~ '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' ]] || die "invalid GitHub repository"
 [[ "$ref" == "stable" || "$ref" =~ '^v[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.]+)?$' ]] || die "updates require the stable channel or an exact release tag"
 
 UPDATE_PORT="$("$NODE_BIN" - "$HOME/.pi/agent/device.json" <<'NODE'
 const fs = require("node:fs");
-try { const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8")); process.stdout.write(Number.isInteger(value.port) ? String(value.port) : "3140"); }
+try { const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8")); process.stdout.write(Number.isInteger(value.port) && value.port >= 1024 && value.port <= 65535 ? String(value.port) : "3140"); }
 catch { process.stdout.write("3140"); }
 NODE
 )"
@@ -321,12 +379,14 @@ work_dir=""
 stage_dir=""
 cleanup_all() {
   rmdir "$LOCK_DIR" >/dev/null 2>&1 || true
-  [[ -z "$work_dir" || "$work_dir" != "${TMPDIR:-/tmp}/pi-harbor-update."* ]] || /bin/rm -rf -- "$work_dir"
-  [[ -z "$stage_dir" || "$stage_dir" != "$HOME/.local/share/pi-harbor.update."* ]] || /bin/rm -rf -- "$stage_dir"
+  [[ -z "$work_dir" || "$work_dir" != "${TMPDIR:-/tmp}/stepsemble-update."* ]] || /bin/rm -rf -- "$work_dir"
+  case "$stage_dir" in
+    "$HOME/.local/share/stepsemble.update."*|"$HOME/.local/share/pi-harbor.update."*|"$HOME/.local/share/pi-web.update."*) /bin/rm -rf -- "$stage_dir" ;;
+  esac
 }
 trap cleanup_all EXIT
 
-work_dir="$(mktemp -d "${TMPDIR:-/tmp}/pi-harbor-update.XXXXXX")"
+work_dir="$(mktemp -d "${TMPDIR:-/tmp}/stepsemble-update.XXXXXX")"
 metadata="$work_dir/release.json"
 if ! fetch_release_metadata "$metadata"; then
   write_state "Could not read the latest GitHub release" "$now" "" "$installed_version" "" "error" ""
@@ -348,12 +408,12 @@ fi
 
 if active_rpc_running; then
   write_state "" "$now" "$latest_version" "$installed_version" "" "deferred" "active_rpc_running"
-  log "$latest_version is available; update deferred until the current Pi work finishes"
+  log "$latest_version is available; update deferred until the current agent work finishes"
   exit 0
 fi
 
-archive="$work_dir/pi-harbor.tar.gz"
-checksum="$work_dir/pi-harbor.tar.gz.sha256"
+archive="$work_dir/stepsemble.tar.gz"
+checksum="$work_dir/stepsemble.tar.gz.sha256"
 "$CURL_BIN" -fsSL --max-time 300 "$archive_url" -o "$archive" || die "release download failed"
 "$CURL_BIN" -fsSL --max-time 180 "$checksum_url" -o "$checksum" || die "checksum download failed"
 expected="$(awk 'NR == 1 { print $1 }' "$checksum")"
@@ -369,18 +429,26 @@ source_dir="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -print -quit)"
 
 stage_dir="$INSTALL_DIR.update.$$"
 backup_dir="$INSTALL_DIR.previous"
-[[ "$stage_dir" == "$HOME/.local/share/pi-harbor.update."* && "$backup_dir" == "$HOME/.local/share/pi-harbor.previous" ]] || die "unsafe update path"
-mkdir -p "$stage_dir"
-cp -a "$source_dir"/. "$stage_dir"/
+case "$INSTALL_DIR" in
+  "$HOME/.local/share/stepsemble")
+    [[ "$stage_dir" == "$HOME/.local/share/stepsemble.update."* && "$backup_dir" == "$HOME/.local/share/stepsemble.previous" ]] || die "unsafe update path" ;;
+  "$HOME/.local/share/pi-harbor")
+    [[ "$stage_dir" == "$HOME/.local/share/pi-harbor.update."* && "$backup_dir" == "$HOME/.local/share/pi-harbor.previous" ]] || die "unsafe update path" ;;
+  "$HOME/.local/share/pi-web")
+    [[ "$stage_dir" == "$HOME/.local/share/pi-web.update."* && "$backup_dir" == "$HOME/.local/share/pi-web.previous" ]] || die "unsafe update path" ;;
+  *) die "unsafe update path" ;;
+esac
+mkdir -p "$stage_dir" || die "could not create the release staging directory"
+cp -a "$source_dir"/. "$stage_dir"/ || die "could not stage the verified release"
 # This is the final safety gate immediately before replacing the live install.
 # The server-side hook also schedules this check only after all RPCs settle.
 if active_rpc_running; then
   write_state "" "$now" "$latest_version" "$installed_version" "" "deferred" "active_rpc_running"
-  log "$latest_version is available; update deferred until the current Pi work finishes"
+  log "$latest_version is available; update deferred until the current agent work finishes"
   exit 0
 fi
-[[ ! -e "$backup_dir" ]] || rm -rf -- "$backup_dir"
-[[ ! -e "$INSTALL_DIR" ]] || mv "$INSTALL_DIR" "$backup_dir"
+[[ ! -e "$backup_dir" ]] || rm -rf -- "$backup_dir" || die "could not clear the previous rollback directory"
+[[ ! -e "$INSTALL_DIR" ]] || mv "$INSTALL_DIR" "$backup_dir" || die "could not preserve the current release"
 if ! mv "$stage_dir" "$INSTALL_DIR"; then
   [[ ! -e "$backup_dir" ]] || mv "$backup_dir" "$INSTALL_DIR"
   die "could not activate the release"
@@ -399,4 +467,4 @@ if ! wait_for_release_health "$latest_version"; then
   wait_for_release_health "$installed_version" || log "rollback installed but the previous release is not healthy yet"
   die "release health check failed; previous release restored"
 fi
-log "updated Pi Harbor to $latest_version"
+log "updated Stepsemble to $latest_version"

@@ -1,18 +1,18 @@
-const CACHE_NAME = "pi-harbor-shell-v2.13.2";
+const CACHE_NAME = "stepsemble-shell-v3.0.0";
 const SHELL = [
   "/",
   "/index.html",
-  "/style.css?v=2.13.2",
-  "/i18n.js?v=2.13.2",
-  "/modules/app-foundation.js?v=2.13.2",
-  "/modules/session-utils.js?v=2.13.2",
-  "/modules/context-usage.js?v=2.13.2",
-  "/app.js?v=2.13.2",
-  "/manifest.webmanifest?v=2.13.2",
-  "/pi-logo.svg?v=2.13.2",
-  "/pi-glyph.svg",
-  "/icon-180.png?v=2.13.2",
-  "/icon-512.png?v=2.13.2",
+  "/style.css?v=3.0.0",
+  "/i18n.js?v=3.0.0",
+  "/modules/app-foundation.js?v=3.0.0",
+  "/modules/session-utils.js?v=3.0.0",
+  "/modules/context-usage.js?v=3.0.0",
+  "/app.js?v=3.0.0",
+  "/manifest.webmanifest?v=3.0.0",
+  "/stepsemble-logo.svg?v=3.0.0",
+  "/stepsemble-glyph.svg",
+  "/icon-180.png?v=3.0.0",
+  "/icon-512.png?v=3.0.0",
   "/vendor/marked.min.js",
   "/vendor/purify.min.js",
   "/vendor/mermaid.min.js",
@@ -25,7 +25,7 @@ async function cacheShell(cache) {
   await Promise.all(SHELL.map(async (url) => {
     const request = new Request(url, { cache: "reload" });
     const response = await fetch(request);
-    if (!response.ok) throw new Error(`Pi Harbor shell request failed: ${url}`);
+    if (!response.ok) throw new Error(`Stepsemble shell request failed: ${url}`);
     await cache.put(url, response);
   }));
 }
@@ -40,7 +40,9 @@ self.addEventListener("activate", (event) => {
       .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
       .then(() => self.clients.claim())
       .then(() => self.clients.matchAll({ type: "window", includeUncontrolled: false }))
-      .then((clients) => clients.forEach((client) => client.postMessage({ type: "PI_HARBOR_UPDATED", version: CACHE_NAME }))),
+      // Use the former wire name for this one-way notification throughout v3:
+      // both controllers understand it, including an already-open v2 page.
+      .then((clients) => clients.forEach((client) => client.postMessage({ type: "PI_HARBOR_UPDATED", product: "stepsemble", version: CACHE_NAME }))),
   );
 });
 
@@ -50,13 +52,13 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("push", (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch {}
-  const title = typeof data.title === "string" && data.title ? data.title : "Pi Harbor";
+  const title = typeof data.title === "string" && data.title ? data.title : "Stepsemble";
   const body = typeof data.body === "string" ? data.body : "";
   event.waitUntil(self.registration.showNotification(title, {
     body,
     icon: "/icon-180.png",
-    badge: "/pi-glyph.svg",
-    tag: "pi-harbor-run",
+    badge: "/stepsemble-glyph.svg",
+    tag: "stepsemble-run",
     data: { file: data.file || null, taskId: data.taskId || null },
   }));
 });
@@ -68,8 +70,8 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil((async () => {
     const windowClients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     for (const client of windowClients) {
-      if (taskId) client.postMessage({ type: "PI_HARBOR_OPEN_AGENT_TASK", taskId });
-      else if (file) client.postMessage({ type: "PI_HARBOR_OPEN_SESSION", file });
+      if (taskId) client.postMessage({ type: "PI_HARBOR_OPEN_AGENT_TASK", product: "stepsemble", taskId });
+      else if (file) client.postMessage({ type: "PI_HARBOR_OPEN_SESSION", product: "stepsemble", file });
       return client.focus();
     }
     return self.clients.openWindow("/");

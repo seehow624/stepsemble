@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * HTTP/SSE primitives shared by Pi Harbor's route handlers.
+ * HTTP/SSE primitives shared by Stepsemble's route handlers.
  *
  * Keeping these helpers independent from the route table makes it possible to
  * add route modules without copying security headers, cookie parsing, or body
@@ -10,7 +10,12 @@
  * comparator, and an optional peer-credential comparator. Authentication
  * results identify their mode without returning credential material.
  */
-function createHttpUtils({ secureCookie = false, isTokenValid = () => false, isPeerCredentialValid = () => null } = {}) {
+function createHttpUtils({
+  secureCookie = false,
+  browserCookieNames = ["stepsemble", "pi_harbor", "pi_web"],
+  isTokenValid = () => false,
+  isPeerCredentialValid = () => null,
+} = {}) {
   function sseFrame(data, eventName = null, id = null) {
     const lines = [];
     if (eventName) lines.push(`event: ${String(eventName).replace(/[\r\n]/g, "")}`);
@@ -63,7 +68,7 @@ function createHttpUtils({ secureCookie = false, isTokenValid = () => false, isP
   }
 
   function isAuthed(req) {
-    return isTokenValid(getCookie(req, "pi_harbor"));
+    return browserCookieNames.some((name) => isTokenValid(getCookie(req, name)));
   }
 
   function getBearerToken(req) {

@@ -1,5 +1,5 @@
 [Unit]
-Description=Check Pi Harbor for stable releases hourly
+Description=Check Stepsemble for stable releases hourly
 
 [Timer]
 OnBootSec=15min

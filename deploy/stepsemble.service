@@ -1,0 +1,19 @@
+[Unit]
+Description=Stepsemble web workspace
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/stepsemble
+ExecStart=__NODE__ %h/.local/share/stepsemble/server.js
+Environment=HOME=%h
+Environment=STEPSEMBLE_HOST=127.0.0.1
+Environment=STEPSEMBLE_TOKEN_FILE=%h/.config/stepsemble/token
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=6000
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

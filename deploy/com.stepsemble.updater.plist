@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- Replace __USER__ and __TOKEN_FILE__, then install this LaunchAgent on each Stepsemble computer. -->
+<dict>
+  <key>Label</key>
+  <string>com.stepsemble.updater</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/__USER__/.local/share/stepsemble-bin/stepsemble-update.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/__USER__</string>
+    <key>STEPSEMBLE_UPDATE_REPO</key>
+    <string>seehow624/stepsemble</string>
+    <key>STEPSEMBLE_UPDATE_TOKEN_FILE</key>
+    <string>__TOKEN_FILE__</string>
+    <key>STEPSEMBLE_UPDATE_REF</key>
+    <string>stable</string>
+    <key>STEPSEMBLE_INSTALL_DIR</key>
+    <string>/Users/__USER__/.local/share/stepsemble</string>
+    <key>STEPSEMBLE_SERVICE_LABEL</key>
+    <string>com.stepsemble.server</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>3600</integer>
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/__USER__/.local/state/stepsemble/updater.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/__USER__/.local/state/stepsemble/updater-error.log</string>
+</dict>
+</plist>

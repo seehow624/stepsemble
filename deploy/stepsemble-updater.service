@@ -1,0 +1,6 @@
+[Unit]
+Description=Stepsemble release update check
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/share/stepsemble-bin/install-linux.sh --yes

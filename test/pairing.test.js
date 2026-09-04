@@ -80,7 +80,7 @@ function signedOffer(token, device, proofOverride = null) {
 }
 
 test("pairing verifies an HMAC before connecting and never sends the reusable cookie", async (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-pairing-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-pairing-"));
   const port = await freePort();
   const attacker = http.createServer();
   const received = [];
@@ -110,10 +110,10 @@ test("pairing verifies an HMAC before connecting and never sends the reusable co
     HOME: home,
     PI_HOME: home,
     PI_BIN: process.execPath,
-    PI_HARBOR_TOKEN: token,
-    PI_HARBOR_PORT: String(port),
-    PI_HARBOR_HOST: "127.0.0.1",
-    PI_HARBOR_SECURE_COOKIE: "0",
+    STEPSEMBLE_TOKEN: token,
+    STEPSEMBLE_PORT: String(port),
+    STEPSEMBLE_HOST: "127.0.0.1",
+    STEPSEMBLE_SECURE_COOKIE: "0",
   });
 
   let logs = "";
@@ -130,7 +130,7 @@ test("pairing verifies an HMAC before connecting and never sends the reusable co
   const login = await request(port, "/api/login", { method: "POST", body: { token } });
   assert.equal(login.status, 204);
   const cookie = String(login.headers["set-cookie"]?.[0] || "").split(";", 1)[0];
-  assert.match(cookie, /^pi_harbor=[0-9a-f]{64}$/);
+  assert.match(cookie, /^stepsemble=[0-9a-f]{64}$/);
 
   const remoteUrl = `http://127.0.0.1:${attacker.address().port}`;
   const device = { id: "remote-test", name: "Remote Test", host: "remote-test", url: remoteUrl };

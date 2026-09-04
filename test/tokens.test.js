@@ -34,7 +34,7 @@ function request(port, pathname, { method = "GET", cookie = "", body } = {}) {
 }
 
 test("per-device access tokens: issue, sign in, revoke, and master stays valid", async (t) => {
-  const temp = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pi-harbor-tokens-"));
+  const temp = await fs.promises.mkdtemp(path.join(os.tmpdir(), "stepsemble-tokens-"));
   const home = path.join(temp, "home");
   await fs.promises.mkdir(home, { recursive: true });
   const port = 3231 + Math.floor(Math.random() * 200);
@@ -42,10 +42,10 @@ test("per-device access tokens: issue, sign in, revoke, and master stays valid",
     cwd: root,
     env: {
       HOME: home, PI_HOME: home, PI_BIN: process.execPath,
-      PI_HARBOR_TOKEN: "master-token-live-test",
-      PI_HARBOR_PORT: String(port),
-      PI_HARBOR_HOST: "127.0.0.1",
-      PI_HARBOR_SECURE_COOKIE: "0",
+      STEPSEMBLE_TOKEN: "master-token-live-test",
+      STEPSEMBLE_PORT: String(port),
+      STEPSEMBLE_HOST: "127.0.0.1",
+      STEPSEMBLE_SECURE_COOKIE: "0",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -66,6 +66,10 @@ test("per-device access tokens: issue, sign in, revoke, and master stays valid",
   const masterLogin = await request(port, "/api/login", { method: "POST", body: { token: "master-token-live-test" } });
   assert.equal(masterLogin.status, 204);
   const masterCookie = masterLogin.headers["set-cookie"][0].split(";", 1)[0];
+  assert.match(masterCookie, /^stepsemble=/, "new sign-ins only issue the Stepsemble cookie");
+  const masterCookieValue = masterCookie.slice(masterCookie.indexOf("=") + 1);
+  assert.equal((await request(port, "/api/access-tokens", { cookie: `pi_harbor=${masterCookieValue}` })).status, 200);
+  assert.equal((await request(port, "/api/access-tokens", { cookie: `pi_web=${masterCookieValue}` })).status, 200);
 
   const empty = await request(port, "/api/access-tokens", { cookie: masterCookie });
   assert.equal(empty.status, 200);
@@ -94,7 +98,7 @@ test("per-device access tokens: issue, sign in, revoke, and master stays valid",
   const tokenAdmin = await request(port, "/api/access-tokens", { cookie: tokenCookie });
   assert.equal(tokenAdmin.status, 403, "an issued token cannot mint or revoke other credentials");
 
-  const bad = await request(port, "/api/access-tokens", { cookie: "pi_harbor=" + "0".repeat(64) });
+  const bad = await request(port, "/api/access-tokens", { cookie: "stepsemble=" + "0".repeat(64) });
   assert.equal(bad.status, 401, "unknown session hashes are rejected");
 
   const revoked = await request(port, "/api/access-tokens/revoke", { method: "POST", cookie: masterCookie, body: { id: created.body.id } });
@@ -106,7 +110,7 @@ test("per-device access tokens: issue, sign in, revoke, and master stays valid",
   const masterStill = await request(port, "/api/access-tokens", { cookie: masterCookie });
   assert.equal(masterStill.status, 200, "the master token keeps working");
 
-  const storePath = path.join(home, ".config", "pi-harbor", "tokens.json");
+  const storePath = path.join(home, ".config", "stepsemble", "tokens.json");
   const storeStat = fs.statSync(storePath);
   if (process.platform !== "win32") assert.equal(storeStat.mode & 0o077, 0, "token store is 0600");
   const store = JSON.parse(fs.readFileSync(storePath, "utf8"));

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Small dependency-free PTY bridge for local Agent CLIs.
 
-Pi Harbor starts this helper only for an allow-listed executable.  The helper
+Stepsemble starts this helper only for an allow-listed executable.  The helper
 gives that executable a real Unix terminal while keeping its master side on
 stdin/stdout, so the Node supervisor can stream output over SSE and forward
 messages from the browser.  Windows does not use this file; the Node service
@@ -22,8 +22,8 @@ import termios
 def set_window_size(fd: int) -> None:
     """Give interactive TUIs a sensible initial viewport."""
     try:
-        columns = max(40, int(os.environ.get("PI_HARBOR_PTY_COLS", "120")))
-        rows = max(10, int(os.environ.get("PI_HARBOR_PTY_ROWS", "40")))
+        columns = max(40, int(os.environ.get("STEPSEMBLE_PTY_COLS", os.environ.get("PI_HARBOR_PTY_COLS", "120"))))
+        rows = max(10, int(os.environ.get("STEPSEMBLE_PTY_ROWS", os.environ.get("PI_HARBOR_PTY_ROWS", "40"))))
         winsize = struct.pack("HHHH", rows, columns, 0, 0)
         fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
     except (AttributeError, OSError, ValueError):
@@ -47,7 +47,7 @@ def write_all(fd: int, data: bytes) -> bool:
 
 def main() -> int:
     if len(sys.argv) < 2 or not sys.argv[1]:
-        print("pi-harbor PTY bridge: executable path required", file=sys.stderr)
+        print("stepsemble PTY bridge: executable path required", file=sys.stderr)
         return 64
 
     executable = sys.argv[1]
@@ -59,7 +59,7 @@ def main() -> int:
         try:
             os.execv(executable, argv)
         except OSError as error:
-            print(f"pi-harbor PTY bridge: could not start agent: {error}", file=sys.stderr)
+            print(f"stepsemble PTY bridge: could not start agent: {error}", file=sys.stderr)
             os._exit(127)
 
     set_window_size(master_fd)

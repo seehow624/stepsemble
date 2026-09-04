@@ -103,7 +103,7 @@ function seedHome(home) {
 }
 
 test("pi-resources endpoint is auth-only and inventories extensions, skills, and packages read-only", async (t) => {
-  const temp = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pi-harbor-resources-"));
+  const temp = await fs.promises.mkdtemp(path.join(os.tmpdir(), "stepsemble-resources-"));
   const home = path.join(temp, "home");
   seedHome(home);
   // A symlink pointing outside the Pi home must never be followed.
@@ -112,8 +112,8 @@ test("pi-resources endpoint is auth-only and inventories extensions, skills, and
   const env = isolatedEnvironment({
     HOME: home,
     PI_HOME: home,
-    PI_HARBOR_HOST: "127.0.0.1",
-    PI_HARBOR_PORT: String(port),
+    STEPSEMBLE_HOST: "127.0.0.1",
+    STEPSEMBLE_PORT: String(port),
     PI_BIN: "/path/that/does/not/exist",
   });
   const child = spawn(process.execPath, [path.join(root, "server.js")], {
@@ -126,7 +126,7 @@ test("pi-resources endpoint is auth-only and inventories extensions, skills, and
   });
   await waitForServer(child);
   const base = `http://127.0.0.1:${port}`;
-  const token = (await fs.promises.readFile(path.join(home, ".config", "pi-harbor", "token"), "utf8")).trim();
+  const token = (await fs.promises.readFile(path.join(home, ".config", "stepsemble", "token"), "utf8")).trim();
 
   const unauthorized = await fetch(`${base}/api/pi-resources`);
   assert.equal(unauthorized.status, 401);
@@ -169,7 +169,7 @@ test("pi-resources endpoint is auth-only and inventories extensions, skills, and
 });
 
 test("pi-resources hashing is deterministic and detects content drift", () => {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-resources-unit-"));
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-resources-unit-"));
   try {
     const homeA = path.join(temp, "a");
     const homeB = path.join(temp, "b");

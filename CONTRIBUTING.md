@@ -1,6 +1,6 @@
-# Contributing to Pi Harbor
+# Contributing to Stepsemble
 
-Thanks for helping improve Pi Harbor.
+Thanks for helping improve Stepsemble.
 
 1. Open an issue for substantial behavior or protocol changes.
 2. Keep English as the source language and update every locale when adding UI

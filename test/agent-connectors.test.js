@@ -25,7 +25,7 @@ test("Pi resolves from PATH on non-macOS installs", () => {
 });
 
 test("generic connector tasks stream bounded output and stop without shell injection", async (t) => {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-agent-"));
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-agent-"));
   const bin = path.join(temp, "bin");
   const project = path.join(temp, "project");
   const config = path.join(temp, "config");
@@ -68,7 +68,7 @@ test("generic connector tasks stream bounded output and stop without shell injec
 });
 
 test("generic task supervisor survives a web-service restart and reattaches", async (t) => {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-agent-restart-"));
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-agent-restart-"));
   const bin = path.join(temp, "bin");
   const project = path.join(temp, "project");
   const config = path.join(temp, "config");

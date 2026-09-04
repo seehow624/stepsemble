@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.0.0
+
+- Renamed Pi Harbor to Stepsemble, with a new cat-paw-and-terminal identity
+  for a workspace that coordinates multiple coding agents.
+- Preserved existing Pi Harbor and Pi Web state through an additive migration:
+  private configuration, tokens, device trust, task journals, browser
+  preferences, cookies, environment variables, and pairing codes remain
+  readable while all new writes use Stepsemble names.
+- Added upgrade-aware macOS, Linux, and Windows installation paths so the
+  public rename does not move Pi sessions, provider credentials, approvals,
+  or project files.
+- Bumped the pairing protocol emitted by new hosts to `STEPSEMBLE3` while
+  accepting `PIHARBOR3` and the token-authenticated `PIHARBOR2` transition
+  format.
+
 ## 2.13.2
 
 - Fixed empty usage dates inheriting the global empty-state padding, which

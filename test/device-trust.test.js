@@ -89,37 +89,39 @@ function serverEnv(home, port, token) {
     HOME: home,
     PI_HOME: home,
     PI_BIN: process.execPath,
-    PI_HARBOR_TOKEN: token,
-    PI_HARBOR_PORT: String(port),
-    PI_HARBOR_HOST: "127.0.0.1",
-    PI_HARBOR_SECURE_COOKIE: "0",
+    STEPSEMBLE_TOKEN: token,
+    STEPSEMBLE_PORT: String(port),
+    STEPSEMBLE_HOST: "127.0.0.1",
+    STEPSEMBLE_SECURE_COOKIE: "0",
   });
 }
 
 function bearerState(home, id) {
-  const state = JSON.parse(fs.readFileSync(path.join(home, ".config", "pi-harbor", "device-trust.json"), "utf8"));
+  const state = JSON.parse(fs.readFileSync(path.join(home, ".config", "stepsemble", "device-trust.json"), "utf8"));
   return { state, credential: state.outgoing[id].credential, grantId: state.outgoing[id].grantId };
 }
 
-test("PIHARBOR3 validation and the trust store are bounded, one-use, and secret-safe", () => {
+test("STEPSEMBLE3 validation and the trust store are bounded, one-use, and secret-safe", () => {
   const now = 1_700_000_000_000;
   const remote = device("remote-one", 3140, "Remote One");
   const code = trust.createPairingCode({ device: remote, now });
-  assert.match(code.code, /^PIHARBOR3\./);
+  assert.match(code.code, /^STEPSEMBLE3\./);
   assert.equal(Buffer.from(code.secretHash, "hex").length, 32);
   const decoded = trust.decodePairingCode(code.code, now + 1);
   assert.deepEqual(trust.pairingCandidate(decoded), {
     name: "Remote One", url: remote.url, expiresAt: now + 300000, version: 3,
   });
+  const legacyCode = code.code.replace(/^STEPSEMBLE3\./, "PIHARBOR3.");
+  assert.deepEqual(trust.decodePairingCode(legacyCode, now + 1), decoded);
 
-  const encoded = code.code.slice("PIHARBOR3.".length);
+  const encoded = code.code.slice("STEPSEMBLE3.".length);
   const tampered = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
   tampered.device.url = "http://127.0.0.1:9999/changed";
-  const tamperedCode = `PIHARBOR3.${Buffer.from(JSON.stringify(tampered)).toString("base64url")}`;
+  const tamperedCode = `STEPSEMBLE3.${Buffer.from(JSON.stringify(tampered)).toString("base64url")}`;
   assert.throws(() => trust.decodePairingCode(tamperedCode, now + 1), (error) => error.statusCode === 403);
   assert.throws(() => trust.decodePairingCode(code.code, now + 300001), (error) => error.statusCode === 410);
 
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-trust-unit-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-trust-unit-"));
   const file = path.join(home, "config", "device-trust.json");
   let clock = now;
   const store = trust.createDeviceTrustStore({ filePath: file, now: () => clock });
@@ -167,7 +169,7 @@ test("PIHARBOR3 validation and the trust store are bounded, one-use, and secret-
 });
 
 test("malformed persisted trust state disables credentials instead of enabling legacy fallback", () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-trust-invalid-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-trust-invalid-"));
   const file = path.join(home, "config", "device-trust.json");
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   fs.writeFileSync(file, `${JSON.stringify({ version: 1, incoming: {}, outgoing: "corrupt" })}\n`, { mode: 0o600 });
@@ -180,7 +182,7 @@ test("malformed persisted trust state disables credentials instead of enabling l
 });
 
 test("invalid persisted trust state blocks legacy relay fallback", async (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-trust-invalid-live-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-trust-invalid-live-"));
   const candidate = http.createServer();
   const candidateRequests = [];
   candidate.on("request", (req, res) => {
@@ -196,7 +198,7 @@ test("invalid persisted trust state blocks legacy relay fallback", async (t) => 
   fs.writeFileSync(path.join(home, ".pi", "agent", "machines.json"), JSON.stringify({
     "legacy-invalid": { name: "Legacy Invalid", host: "legacy-invalid", url: `http://127.0.0.1:${candidatePort}`, managed: true },
   }));
-  const trustDir = path.join(home, ".config", "pi-harbor");
+  const trustDir = path.join(home, ".config", "stepsemble");
   fs.mkdirSync(trustDir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(trustDir, "device-trust.json"), "{\"version\":1,\"incoming\":{},\"outgoing\":null}\n", { mode: 0o600 });
   let logs = "";
@@ -230,9 +232,9 @@ test("invalid persisted trust state blocks legacy relay fallback", async (t) => 
   assert.equal(candidateRequests.length, 0);
 });
 
-test("PIHARBOR3 live pairing previews without network, relays with a bearer only, survives restart, and revokes", async (t) => {
-  const homeA = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-trust-a-"));
-  const homeB = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-trust-b-"));
+test("STEPSEMBLE3 live pairing previews without network, relays with a bearer only, survives restart, and revokes", async (t) => {
+  const homeA = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-trust-a-"));
+  const homeB = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-trust-b-"));
   const portA = await freePort();
   const portB = await freePort();
   const proxy = http.createServer();
@@ -259,7 +261,7 @@ test("PIHARBOR3 live pairing previews without network, relays with a bearer only
         // never set a cookie or auth challenge on the gateway origin.
         outgoing.writeHead(response.statusCode, {
           ...response.headers,
-          "set-cookie": "pi_harbor=remote-secret; Path=/",
+          "set-cookie": "stepsemble=remote-secret; Path=/",
           "www-authenticate": "Bearer realm=remote",
         });
         response.pipe(outgoing);
@@ -315,7 +317,7 @@ test("PIHARBOR3 live pairing previews without network, relays with a bearer only
   const offer = await request(portA, "/api/device-pairing/start", { method: "POST", cookie: cookieA, body: {} });
   assert.equal(offer.status, 200, offer.text);
   const code = offer.body.offer;
-  const payload = JSON.parse(Buffer.from(code.slice("PIHARBOR3.".length), "base64url").toString("utf8"));
+  const payload = JSON.parse(Buffer.from(code.slice("STEPSEMBLE3.".length), "base64url").toString("utf8"));
   const requester = device("trust-b", portB, "Trust B");
 
   const preview = await request(portB, "/api/machines/pair/preview", { method: "POST", cookie: cookieB, body: { offer: code } });
@@ -328,7 +330,7 @@ test("PIHARBOR3 live pairing previews without network, relays with a bearer only
   assert.equal(proxyRequests.length, 0, "confirmation is required before candidate access");
 
   const tamperedPayload = { ...payload, device: { ...payload.device, url: `http://127.0.0.1:${proxyPort}/tampered` } };
-  const tamperedCode = `PIHARBOR3.${Buffer.from(JSON.stringify(tamperedPayload)).toString("base64url")}`;
+  const tamperedCode = `STEPSEMBLE3.${Buffer.from(JSON.stringify(tamperedPayload)).toString("base64url")}`;
   const tamperedPreview = await request(portB, "/api/machines/pair/preview", { method: "POST", cookie: cookieB, body: { offer: tamperedCode } });
   assert.equal(tamperedPreview.status, 403);
   assert.equal(proxyRequests.length, 0, "tampered URL must be rejected before network access");
@@ -351,7 +353,7 @@ test("PIHARBOR3 live pairing previews without network, relays with a bearer only
   const catalogText = JSON.stringify((await request(portB, "/api/machines", { cookie: cookieB })).body);
   assert.doesNotMatch(catalogText, new RegExp(stateB.credential));
   assert.doesNotMatch(catalogText, /credentialHash|secretHash|device-trust\.json/);
-  const stateA = JSON.parse(fs.readFileSync(path.join(homeA, ".config", "pi-harbor", "device-trust.json"), "utf8"));
+  const stateA = JSON.parse(fs.readFileSync(path.join(homeA, ".config", "stepsemble", "device-trust.json"), "utf8"));
   const grant = stateA.incoming[stateB.grantId];
   assert.equal(grant.credential, undefined);
   assert.equal(grant.credentialHash, trust.hashCredential(stateB.credential));
@@ -402,7 +404,7 @@ test("PIHARBOR3 live pairing previews without network, relays with a bearer only
 });
 
 test("a dedicated machine cannot change URL while retaining its outgoing credential", async (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-dedicated-edit-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-dedicated-edit-"));
   const candidate = http.createServer();
   const candidateRequests = [];
   candidate.on("request", (req, res) => {
@@ -425,7 +427,7 @@ test("a dedicated machine cannot change URL while retaining its outgoing credent
   fs.writeFileSync(path.join(home, ".pi", "agent", "machines.json"), JSON.stringify({
     [dedicatedId]: { name: "Dedicated Test", host: "trusted-peer", url: originalUrl, managed: true },
   }));
-  const trustDir = path.join(home, ".config", "pi-harbor");
+  const trustDir = path.join(home, ".config", "stepsemble");
   fs.mkdirSync(trustDir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(trustDir, "device-trust.json"), `${JSON.stringify({
     version: 1,
@@ -471,8 +473,8 @@ test("a dedicated machine cannot change URL while retaining its outgoing credent
 });
 
 test("legacy configured machines still use the shared-token relay without exposing credential state", async (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-legacy-home-"));
-  const remoteHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-legacy-remote-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-legacy-home-"));
+  const remoteHome = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-legacy-remote-"));
   const port = await freePort();
   const remotePort = await freePort();
   fs.mkdirSync(path.join(home, ".pi", "agent"), { recursive: true });
@@ -489,7 +491,7 @@ test("legacy configured machines still use the shared-token relay without exposi
   let logs = "";
   const local = spawn(process.execPath, [path.join(root, "server.js")], {
     cwd: root,
-    env: { ...serverEnv(home, port, "legacy-token"), PI_HARBOR_MACHINES: "" },
+    env: { ...serverEnv(home, port, "legacy-token"), STEPSEMBLE_MACHINES: "" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   local.stdout.on("data", (chunk) => { logs += chunk.toString(); });
@@ -509,7 +511,7 @@ test("legacy configured machines still use the shared-token relay without exposi
   assert.doesNotMatch(catalog.text, /credential|secretHash|device-trust\.json/i);
   const relayed = await request(port, "/r/legacy/api/sessions", { cookie });
   assert.equal(relayed.status, 200, relayed.text);
-  const trustFile = path.join(home, ".config", "pi-harbor", "device-trust.json");
+  const trustFile = path.join(home, ".config", "stepsemble", "device-trust.json");
   assert.equal(fs.existsSync(trustFile), false, "legacy relay must not create a peer grant store");
 });
 
@@ -546,12 +548,12 @@ function makeArchive(entries) {
 }
 
 test("installer and updater preflight reject traversal and symlink entries without extracting", { skip: process.platform !== "darwin" }, async (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-harbor-archive-test-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-archive-test-"));
   const outside = path.join(home, "outside-marker");
   const good = path.join(home, "good.tar.gz");
   const traversal = path.join(home, "traversal.tar.gz");
   const symlink = path.join(home, "symlink.tar.gz");
-  const rootEntry = "pi-harbor-v2.2.0/";
+  const rootEntry = "stepsemble-v2.2.0/";
   fs.writeFileSync(good, makeArchive([
     { name: rootEntry, type: "5" },
     { name: `${rootEntry}server.js`, data: "ok" },
@@ -564,19 +566,27 @@ test("installer and updater preflight reject traversal and symlink entries witho
     { name: rootEntry, type: "5" },
     { name: `${rootEntry}link`, type: "2", linkname: outside },
   ]));
-  const run = (script, variable, archive) => require("node:child_process").spawnSync("zsh", [path.join(root, script)], {
+  const run = (script, variable, archive, extraEnvironment = {}) => require("node:child_process").spawnSync("zsh", [path.join(root, script)], {
     cwd: root,
     env: isolatedEnvironment({
       HOME: path.join(home, "home"),
       NODE_BIN: process.execPath,
       [variable]: archive,
+      ...extraEnvironment,
     }),
     encoding: "utf8",
   });
-  const runUpdater = (archive) => run("deploy/pi-harbor-update.sh", "PI_HARBOR_UPDATE_PREFLIGHT_ARCHIVE", archive);
-  const runInstaller = (archive) => run("install.sh", "PI_HARBOR_INSTALL_PREFLIGHT_ARCHIVE", archive);
+  const runUpdater = (archive, installDir = "") => run(
+    "deploy/stepsemble-update.sh",
+    "STEPSEMBLE_UPDATE_PREFLIGHT_ARCHIVE",
+    archive,
+    installDir ? { STEPSEMBLE_INSTALL_DIR: installDir } : {},
+  );
+  const runInstaller = (archive) => run("install.sh", "STEPSEMBLE_INSTALL_PREFLIGHT_ARCHIVE", archive);
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   assert.equal(runUpdater(good).status, 0);
+  assert.equal(runUpdater(good, path.join(home, "home/.local/share/pi-harbor")).status, 0);
+  assert.equal(runUpdater(good, path.join(home, "home/.local/share/pi-web")).status, 0);
   assert.notEqual(runUpdater(traversal).status, 0);
   assert.notEqual(runUpdater(symlink).status, 0);
   assert.equal(runInstaller(good).status, 0);

@@ -44,14 +44,14 @@ function currentVersionValues(version) {
   };
   addMatches("server.js", /const APP_VERSION\s*=\s*["']([^"']+)["']/g, "APP_VERSION");
   addMatches("public/app.js", /const CLIENT_APP_VERSION\s*=\s*["']([^"']+)["']/g, "CLIENT_APP_VERSION");
-  addMatches("public/app.js", /\/\* pi-harbor v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/g, "client release comment");
+  addMatches("public/app.js", /\/\* stepsemble v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/g, "client release comment");
   addMatches("public/index.html", /[?&]v=(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/g, "HTML asset query");
   addMatches("public/index.html", /id="set-app-version">v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)</g, "HTML app version");
   addMatches("public/manifest.webmanifest", /[?&]v=(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/g, "manifest asset query");
   addMatches("public/sw.js", /const CACHE_NAME\s*=\s*["'][^"']*-v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)["']/g, "service-worker cache");
   addMatches("public/sw.js", /[?&]v=(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/g, "service-worker asset query");
-  addMatches("public/style.css", /\/\* pi-harbor v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/g, "stylesheet release comment");
-  addMatches("install.sh", /Pi Harbor (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?) installer/g, "installer release label");
+  addMatches("public/style.css", /\/\* stepsemble v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/g, "stylesheet release comment");
+  addMatches("install.sh", /Stepsemble (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?) installer/g, "installer release label");
   return checks.filter((entry) => entry.value !== version);
 }
 
@@ -70,7 +70,7 @@ function replaceTextVersions(file, version) {
   if (file === "server.js") text = text.replace(/(const APP_VERSION\s*=\s*["'])[^"']+(["'])/, `$1${version}$2`);
   if (file === "public/app.js") {
     text = text.replace(/(const CLIENT_APP_VERSION\s*=\s*["'])[^"']+(["'])/, `$1${version}$2`);
-    text = text.replace(/(\/\* pi-harbor v)\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/, `$1${version}`);
+    text = text.replace(/(\/\* stepsemble v)\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/, `$1${version}`);
   }
   if (file === "public/index.html") {
     text = text.replace(/([?&]v=)\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/g, `$1${version}`);
@@ -81,8 +81,8 @@ function replaceTextVersions(file, version) {
     text = text.replace(/(const CACHE_NAME\s*=\s*["'][^"']*-v)\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/, `$1${version}`);
     text = text.replace(/([?&]v=)\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/g, `$1${version}`);
   }
-  if (file === "public/style.css") text = text.replace(/(\/\* pi-harbor v)\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/, `$1${version}`);
-  if (file === "install.sh") text = text.replace(/(Pi Harbor )\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?( installer)/, `$1${version}$2`);
+  if (file === "public/style.css") text = text.replace(/(\/\* stepsemble v)\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/, `$1${version}`);
+  if (file === "install.sh") text = text.replace(/(Stepsemble )\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?( installer)/, `$1${version}$2`);
   writeText(file, text);
 }
 
@@ -106,12 +106,12 @@ try {
   if (command === "check") {
     const result = check(argument || packageVersion());
     if (!result.ok) { console.error(result.errors.join("\n")); process.exitCode = 1; }
-    else console.log(`Pi Harbor version sources are synchronized at ${result.version}`);
+    else console.log(`Stepsemble version sources are synchronized at ${result.version}`);
   } else if (command === "set") {
     if (!argument) throw new Error("set requires one explicit semver argument");
-    console.log(`Updated Pi Harbor version sources to ${setVersion(argument).version}`);
+    console.log(`Updated Stepsemble version sources to ${setVersion(argument).version}`);
   } else if (command && VERSION_RE.test(command.replace(/^v/, "")) && !argument) {
-    console.log(`Updated Pi Harbor version sources to ${setVersion(command).version}`);
+    console.log(`Updated Stepsemble version sources to ${setVersion(command).version}`);
   } else {
     usage(); process.exitCode = 2;
   }

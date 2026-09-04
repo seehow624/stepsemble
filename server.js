@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 /**
- * pi-harbor — Pi coding agent 的手機優先 web 客戶端（tailnet 內自架）
+ * Stepsemble — 本機 coding agents 的手機優先自架工作區
  *
- * 零 npm 依賴：node:http + SSE + child_process spawn `pi --mode rpc`。
- * 每台機器各跑一個 instance，各自服務本機的 ~/.pi/agent/sessions/。
+ * 零 npm 依賴：node:http + SSE + native Pi RPC + allow-listed CLI connectors。
+ * 每台機器各跑一個 instance，原生 session 與憑證仍由各 agent 自己持有。
  *
  * 環境變數：
- *   PI_HARBOR_PORT   — 監聽埠（預設 3140）
- *   PI_HARBOR_TOKEN  — 登入 token（建議改用 PI_HARBOR_TOKEN_FILE）
- *   PI_HARBOR_TOKEN_FILE — 600 權限的 token 檔案；未設定時使用 ~/.config/pi-harbor/token
- *   PI_BIN        — pi 執行檔絕對路徑；未設則探測常見位置
- *   PI_HOME       — server 與 pi 共用的 HOME（預設 os.homedir()）
+ *   STEPSEMBLE_PORT   — 監聽埠（預設 3140）
+ *   STEPSEMBLE_TOKEN  — 登入 token（建議改用 STEPSEMBLE_TOKEN_FILE）
+ *   STEPSEMBLE_TOKEN_FILE — 600 權限的 token 檔案；未設定時使用 ~/.config/stepsemble/token
+ *   PI_BIN        — 選用的 pi 執行檔絕對路徑；未設則探測常見位置
+ *   PI_HOME       — server 與本機 agents 共用的 HOME（預設 os.homedir()）
  */
 
 "use strict";
@@ -27,6 +27,15 @@ const { createHttpUtils } = require("./server/http-utils");
 const { createGitChangesService } = require("./server/git-changes");
 const { createPiResourcesService } = require("./server/pi-resources");
 const { createAgentTaskService } = require("./server/agent-connectors");
+const {
+  BROWSER_COOKIE,
+  LEGACY_BROWSER_COOKIES,
+  LEGACY_CONFIG_DIRECTORY_NAMES,
+  PAIRING_CODE_PREFIX,
+  LEGACY_PAIRING_CODE_PREFIXES,
+  settingFromEnv,
+  migrateLegacyConfig,
+} = require("./server/brand");
 const {
   PAIRING_TTL_MS,
   sanitizeDeviceMetadata,
@@ -47,23 +56,19 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "2.13.2";
+const APP_VERSION = "3.0.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
   return value === "~" ? os.homedir() : value.startsWith("~/") ? path.join(os.homedir(), value.slice(2)) : value;
 }
-// A v1 launch agent still supplies PI_WEB_* variables. Reading the legacy name
-// as a fallback keeps an auto-updated v1 install pointed at its real token file
-// and port instead of silently starting with a throwaway token.
-function settingFromEnv(name) {
-  const current = process.env[`PI_HARBOR_${name}`];
-  if (typeof current === "string" && current.trim()) return current;
-  const legacy = process.env[`PI_WEB_${name}`];
-  return typeof legacy === "string" && legacy.trim() ? legacy : undefined;
-}
 // server 與 pi 子程序必須使用同一個 HOME，否則 PI_HOME 設定後會讀錯 sessions。
 const APP_HOME = path.resolve(expandHome(process.env.PI_HOME || os.homedir()));
+// A direct v3 launch can happen before the installer replaces a v2 service.
+// Copy known private files forward without deleting the rollback source.
+const { configDir: CONFIG_DIR } = migrateLegacyConfig(APP_HOME, {
+  onMigrate: (entries) => console.log(`[stepsemble] preserved ${entries.length} legacy config item${entries.length === 1 ? "" : "s"}`),
+});
 const SESSIONS_DIR = path.join(APP_HOME, ".pi", "agent", "sessions");
 const MODEL_CONFIG_FILE = path.join(APP_HOME, ".pi", "agent", "models.json");
 const AUTH_CONFIG_FILE = path.join(APP_HOME, ".pi", "agent", "auth.json");
@@ -71,15 +76,17 @@ const MACHINE_CONFIG_FILE = path.join(APP_HOME, ".pi", "agent", "machines.json")
 const DEVICE_CONFIG_FILE = path.join(APP_HOME, ".pi", "agent", "device.json");
 const UPDATE_CONFIG_FILE = settingFromEnv("UPDATE_CONFIG")
   ? path.resolve(expandHome(settingFromEnv("UPDATE_CONFIG")))
-  : path.join(APP_HOME, ".config", "pi-harbor", "updater.json");
+  : path.join(APP_HOME, ".config", "stepsemble", "updater.json");
 const UPDATE_STATE_FILE = settingFromEnv("UPDATE_STATE")
   ? path.resolve(expandHome(settingFromEnv("UPDATE_STATE")))
-  : path.join(APP_HOME, ".config", "pi-harbor", "update-state.json");
+  : path.join(APP_HOME, ".config", "stepsemble", "update-state.json");
 const UPDATE_SCRIPT_FILE = settingFromEnv("UPDATE_SCRIPT")
   ? path.resolve(expandHome(settingFromEnv("UPDATE_SCRIPT")))
-  : path.join(APP_HOME, ".local", "share", "pi-harbor-bin", "pi-harbor-update.sh");
-const BUNDLED_UPDATE_SCRIPT_FILE = path.join(__dirname, "deploy", "pi-harbor-update.sh");
-const DEFAULT_UPDATE_REPOSITORY = settingFromEnv("UPDATE_REPO") || "seehow624/pi-harbor";
+  : path.join(APP_HOME, ".local", "share", "stepsemble-bin", "stepsemble-update.sh");
+const BUNDLED_UPDATE_SCRIPT_FILE = path.join(__dirname, "deploy", "stepsemble-update.sh");
+const CONFIGURED_UPDATE_REPOSITORY = settingFromEnv("UPDATE_REPO") || "seehow624/stepsemble";
+const DEFAULT_UPDATE_REPOSITORY = CONFIGURED_UPDATE_REPOSITORY === "seehow624/pi-harbor"
+  ? "seehow624/stepsemble" : CONFIGURED_UPDATE_REPOSITORY;
 const DEFAULT_UPDATE_REF = settingFromEnv("UPDATE_REF") || "stable";
 const MODEL_APIS = new Set(["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"]);
 const MACHINE_HOST = os.hostname().replace(/\.local$/, "");
@@ -88,7 +95,7 @@ const MACHINE_HOST = os.hostname().replace(/\.local$/, "");
 // separate from the network hostname.  The latter is often supplied by a
 // router or local DNS and can be something like `Mac.lan`, which is useful as
 // a connection address but is a poor device label.  Prefer ComputerName only
-// when the user has not explicitly saved a Pi Harbor alias.  Other platforms
+// when the user has not explicitly saved a Stepsemble alias.  Other platforms
 // simply fall back to the hostname as before.
 function readMacComputerName() {
   if (process.platform !== "darwin") return "";
@@ -128,10 +135,9 @@ const LOCAL_DEVICE_ID = localDeviceConfig.id || null;
 const configuredPort = parsePort(localDeviceConfig.port);
 const envPort = parsePort(settingFromEnv("PORT"));
 // A saved device port wins over a launchd template's old 3140 default. An
-// explicit PI_HARBOR_PORT still works for first boot and development servers.
+// explicit STEPSEMBLE_PORT still works for first boot and development servers.
 const PORT = configuredPort || envPort || 3140;
 const HOST = settingFromEnv("HOST") || "127.0.0.1";
-const CONFIG_DIR = path.join(APP_HOME, ".config", "pi-harbor");
 const configuredDeviceTrustFile = settingFromEnv("DEVICE_TRUST_FILE");
 const DEVICE_TRUST_FILE = configuredDeviceTrustFile
   ? path.resolve(expandHome(configuredDeviceTrustFile))
@@ -139,7 +145,10 @@ const DEVICE_TRUST_FILE = configuredDeviceTrustFile
 const DEFAULT_TOKEN_FILE = path.join(CONFIG_DIR, "token");
 const configuredTokenFile = settingFromEnv("TOKEN_FILE");
 const TOKEN_FILE = configuredTokenFile ? path.resolve(expandHome(configuredTokenFile)) : DEFAULT_TOKEN_FILE;
-const TOKEN_FILE_IS_CUSTOM = !!configuredTokenFile && TOKEN_FILE !== DEFAULT_TOKEN_FILE;
+const LEGACY_DEFAULT_TOKEN_FILES = LEGACY_CONFIG_DIRECTORY_NAMES
+  .map((directoryName) => path.join(APP_HOME, ".config", directoryName, "token"));
+const TOKEN_FILE_IS_CUSTOM = !!configuredTokenFile
+  && ![DEFAULT_TOKEN_FILE, ...LEGACY_DEFAULT_TOKEN_FILES].includes(TOKEN_FILE);
 const SECURE_COOKIE = settingFromEnv("SECURE_COOKIE") === "1";
 const MAX_RPC_SESSIONS = Number.isFinite(Number(settingFromEnv("MAX_RPCS")))
   ? Math.max(1, Number(settingFromEnv("MAX_RPCS"))) : 16;
@@ -153,8 +162,8 @@ const SAFE_IMAGE_MIME = /^image\/(?:jpeg|png|webp|gif)$/i;
 const BROWSE_ROOTS_FROM_ENV = String(settingFromEnv("BROWSE_ROOTS") || "")
   .split(",").map((value) => expandHome(value.trim())).filter((value) => value && path.isAbsolute(value));
 // Folder browsing is deliberately deny-by-default.  A manually started Pi
-// Web may browse the configured Pi home, while launchers can explicitly add
-// shared volumes (for example `/Volumes`) through PI_HARBOR_BROWSE_ROOTS.
+// Web may browse the configured user home, while launchers can explicitly add
+// shared volumes (for example `/Volumes`) through STEPSEMBLE_BROWSE_ROOTS.
 const BROWSE_ROOTS = BROWSE_ROOTS_FROM_ENV.length ? BROWSE_ROOTS_FROM_ENV : [APP_HOME];
 
 // Keep the independently installed updater current after an application
@@ -172,7 +181,7 @@ function syncBundledUpdater() {
     fs.chmodSync(temp, 0o700);
     fs.renameSync(temp, UPDATE_SCRIPT_FILE);
   } catch (error) {
-    if (error?.code !== "ENOENT") console.warn(`[pi-harbor] could not refresh automatic updater: ${error.message}`);
+    if (error?.code !== "ENOENT") console.warn(`[stepsemble] could not refresh automatic updater: ${error.message}`);
   }
 }
 
@@ -212,7 +221,7 @@ function isBrowseAllowed(dir) {
 
 // ---- 機器清單（server 端權威來源；供 SPA 反代切換）----
 // Do not ship private LAN/Tailscale addresses in the public source. Add remote
-// devices through the UI (machines.json), or provide PI_HARBOR_MACHINES as JSON.
+// devices through the UI (machines.json), or provide STEPSEMBLE_MACHINES as JSON.
 const DEFAULT_MACHINES = {};
 function normalizeMachine(id, value, managed = false) {
   if (!/^[a-z0-9-]{1,48}$/.test(String(id || "")) || !value || typeof value !== "object") return null;
@@ -363,6 +372,9 @@ function readUpdateConfig() {
   let repository = DEFAULT_UPDATE_REPOSITORY;
   let ref = DEFAULT_UPDATE_REF;
   try { repository = normalizeUpdateRepository(stored.repository || repository); } catch {}
+  // GitHub keeps redirects after a repository rename, but normalize the
+  // former official location so release checks and UI use the canonical URL.
+  if (repository === "seehow624/pi-harbor") repository = DEFAULT_UPDATE_REPOSITORY;
   try { ref = normalizeUpdateRef(stored.ref || ref); } catch {}
   let intervalMinutes = 60;
   try { intervalMinutes = normalizeUpdateInterval(stored.intervalMinutes ?? intervalMinutes); } catch {}
@@ -487,7 +499,7 @@ function startUpdateCheck() {
   let stat;
   try { stat = fs.statSync(UPDATE_SCRIPT_FILE); } catch { stat = null; }
   if (!stat?.isFile()) {
-    const err = new Error("The Pi Harbor updater is not installed on this device");
+    const err = new Error("The Stepsemble updater is not installed on this device");
     err.statusCode = 409;
     throw err;
   }
@@ -497,7 +509,8 @@ function startUpdateCheck() {
     throw err;
   }
   const updateEnv = { ...process.env };
-  for (const key of ["PI_HARBOR_TOKEN", "PI_HARBOR_TOKEN_FILE", "PI_HARBOR_MACHINES",
+  for (const key of ["STEPSEMBLE_TOKEN", "STEPSEMBLE_TOKEN_FILE", "STEPSEMBLE_MACHINES",
+    "PI_HARBOR_TOKEN", "PI_HARBOR_TOKEN_FILE", "PI_HARBOR_MACHINES",
     "PI_WEB_TOKEN", "PI_WEB_TOKEN_FILE", "PI_WEB_MACHINES"]) delete updateEnv[key];
   const child = spawn("/bin/zsh", [UPDATE_SCRIPT_FILE], {
     detached: true,
@@ -505,11 +518,11 @@ function startUpdateCheck() {
     env: {
       ...updateEnv,
       HOME: APP_HOME,
-      PI_HARBOR_UPDATE_FORCE: "1",
-      PI_HARBOR_UPDATE_CONFIG: UPDATE_CONFIG_FILE,
-      PI_HARBOR_UPDATE_STATE: UPDATE_STATE_FILE,
-      ...(TOKEN_FILE ? { PI_HARBOR_UPDATE_TOKEN_FILE: TOKEN_FILE } : {}),
-      PI_HARBOR_INSTALL_DIR: process.env.PI_HARBOR_INSTALL_DIR || __dirname,
+      STEPSEMBLE_UPDATE_FORCE: "1",
+      STEPSEMBLE_UPDATE_CONFIG: UPDATE_CONFIG_FILE,
+      STEPSEMBLE_UPDATE_STATE: UPDATE_STATE_FILE,
+      ...(TOKEN_FILE ? { STEPSEMBLE_UPDATE_TOKEN_FILE: TOKEN_FILE } : {}),
+      STEPSEMBLE_INSTALL_DIR: process.env.STEPSEMBLE_INSTALL_DIR || __dirname,
     },
   });
   updateProcess = child;
@@ -519,7 +532,7 @@ function startUpdateCheck() {
     // start a new child without being rejected as a duplicate.
     updateProcess = null;
     const state = readUpdateState();
-    if (!activeRpcSessionsForUpdate().length && updateStateIsPending(state)) schedulePendingUpdateApply();
+    if (!activeRpcSessionsForUpdate().length && !activeAgentTasksForUpdate().length && updateStateIsPending(state)) schedulePendingUpdateApply();
   });
   child.on("error", () => {
     // A failed spawn has no exit event on every supported Node/macOS path. Do
@@ -532,7 +545,7 @@ function startUpdateCheck() {
 }
 
 // A deferred shell updater exits after recording its pending state. Once the
-// last Pi run settles, schedule a fresh updater process rather than waiting
+// last agent run settles, schedule a fresh updater process rather than waiting
 // for launchd's hourly interval. The timer keeps process spawning out of the
 // event broadcast call stack and the updater performs the final RPC check.
 function schedulePendingUpdateApply() {
@@ -551,7 +564,7 @@ function schedulePendingUpdateApply() {
       pendingUpdateApplyStateKey = null;
       return;
     }
-    if (activeRpcSessionsForUpdate().length || updateProcessIsRunning()) {
+    if (activeRpcSessionsForUpdate().length || activeAgentTasksForUpdate().length || updateProcessIsRunning()) {
       // Let the next settled transition or child exit make the decision again.
       pendingUpdateApplyStateKey = null;
       return;
@@ -564,14 +577,14 @@ function schedulePendingUpdateApply() {
     pendingUpdateApplyStateKey = updateStateKey(latestState);
     try { startUpdateCheck(); }
     catch (error) {
-      if (error?.statusCode !== 409) console.warn(`[pi-harbor] could not apply deferred update: ${error.message}`);
+      if (error?.statusCode !== 409) console.warn(`[stepsemble] could not apply deferred update: ${error.message}`);
     }
   }, 0);
   pendingUpdateApplyTimer.unref?.();
 }
 
 function schedulePendingUpdateApplyAfterRpcIdle() {
-  if (activeRpcSessionsForUpdate().length) return;
+  if (activeRpcSessionsForUpdate().length || activeAgentTasksForUpdate().length) return;
   // A settle transition is a new opportunity even if an earlier child left
   // the same pending state behind (for example after a lock/spawn failure).
   pendingUpdateApplyStateKey = null;
@@ -636,7 +649,7 @@ function validateMachineInput(body, existing = null) {
 function selfMachineId() {
   // A configured id remains local even when machines.json only contains
   // managed remote entries after a restart. Do not infer locality from a
-  // hostname: two temporary or colocated Pi Harbor instances can share it.
+  // hostname: two temporary or colocated Stepsemble instances can share it.
   if (LOCAL_DEVICE_ID) return LOCAL_DEVICE_ID;
   for (const [id, m] of Object.entries(MACHINES)) if (m.host === MACHINE_HOST) return id;
   return null;
@@ -669,7 +682,7 @@ ensureLocalMachineEntry();
 const deviceTrust = createDeviceTrustStore({ filePath: DEVICE_TRUST_FILE });
 
 function isLocalMachine(machine) {
-  // Hostnames are not unique when two Pi Harbor instances run on one
+  // Hostnames are not unique when two Stepsemble instances run on one
   // computer (and are often hidden behind the same Tailscale name). Stable
   // device identity, not host text, decides whether a catalog entry is local.
   return !!machine && machine.id === selfMachineId();
@@ -750,9 +763,9 @@ async function readBoundedJsonResponse(response, maxBytes = 256 * 1024) {
 }
 
 function createPairingOffer() {
-  // The manually transferred PIHARBOR3 code is the trust channel.  Only its
+  // The manually transferred STEPSEMBLE3 code is the trust channel.  Only its
   // secret hash is retained by device-trust; a forged candidate therefore
-  // receives no credential from the joining Pi Harbor.
+  // receives no credential from the joining Stepsemble.
   try { return deviceTrust.createOffer(publicPairingDevice()); }
   catch (error) {
     if (error?.message === "Pairing device URL is invalid") {
@@ -766,11 +779,13 @@ function createPairingOffer() {
 
 function decodePairingOffer(value) {
   const raw = typeof value === "string" ? value.trim() : "";
-  if (raw.startsWith("PIHARBOR3.")) return { kind: "v3", ...decodePairingCode(raw) };
+  if ([PAIRING_CODE_PREFIX, ...LEGACY_PAIRING_CODE_PREFIXES].some((prefix) => raw.startsWith(prefix))) {
+    return { kind: "v3", ...decodePairingCode(raw) };
+  }
   const prefix = "PIHARBOR2.";
   if (!raw.startsWith(prefix) || raw.length > 4096) {
     const err = new Error(raw.startsWith("PIHARBOR1.")
-      ? "This pairing code uses the old format; update both Pi Harbor devices and generate a new code"
+      ? "This pairing code uses the old format; update both Stepsemble devices and generate a new code"
       : "Invalid pairing code format");
     err.statusCode = 400;
     throw err;
@@ -855,7 +870,7 @@ function loadToken() {
   } catch (err) {
     if (err.message.includes("token file permissions are too broad")) throw err;
     const label = TOKEN_FILE_IS_CUSTOM ? "configured token file" : "default token file";
-    console.warn(`[pi-harbor] unable to read ${label}: ${err.message}`);
+    console.warn(`[stepsemble] unable to read ${label}: ${err.message}`);
   }
   return "";
 }
@@ -869,8 +884,8 @@ if (TOKEN) {
   TOKEN = crypto.randomBytes(32).toString("hex");
   TOKEN_HASH = sha256(TOKEN);
   console.warn(TOKEN_FILE_IS_CUSTOM
-    ? "[pi-harbor] configured token file could not be read; using an ephemeral token that is not shown in logs"
-    : "[pi-harbor] could not create ~/.config/pi-harbor/token; using an ephemeral token that is not shown in logs");
+    ? "[stepsemble] configured token file could not be read; using an ephemeral token that is not shown in logs"
+    : "[stepsemble] could not create ~/.config/stepsemble/token; using an ephemeral token that is not shown in logs");
 }
 
 // ---------------------------------------------------------------------------
@@ -919,7 +934,8 @@ function isAuthorizedTokenHash(candidate) {
 }
 
 function requestUsesMasterToken(req) {
-  return safeEqual(getCookie(req, "pi_harbor") || "", TOKEN_HASH);
+  return [BROWSER_COOKIE, ...LEGACY_BROWSER_COOKIES]
+    .some((name) => safeEqual(getCookie(req, name), TOKEN_HASH));
 }
 // ---- 首次啟用的存取密鑰導覽（冷錢包式：只在本機、只顯示一次）----
 // 信任邊界不變：token 本來就能被本機使用者讀取（token 檔案權限 600）。
@@ -1201,7 +1217,7 @@ async function listSessions() {
     return results;
   }
   for (const d of dirs) {
-    // Dot-prefixed directories are reserved for Pi Harbor internals (for
+    // Dot-prefixed directories are reserved for Stepsemble internals (for
     // example .archive) and must not appear as projects in the session list.
     if (!d.isDirectory() || d.name.startsWith(".")) continue;
     const dirAbs = path.join(SESSIONS_DIR, d.name);
@@ -1394,13 +1410,13 @@ async function usageSummary(daysParam) {
 
 // ---------------------------------------------------------------------------
 // Web Push（零依賴）：PWA 完成通知。VAPID 金鑰存在
-// ~/.config/pi-harbor/push.json（0600），訂閱存 push-subscriptions.json
+// ~/.config/stepsemble/push.json（0600），訂閱存 push-subscriptions.json
 // （0600，只存 endpoint 與公鑰材料）。只在 session 沒有瀏覽器連著時發送，
 // 發送失敗永不影響主流程；410/404 自動清掉失效訂閱。
 // ---------------------------------------------------------------------------
 const PUSH_CONFIG_FILE = path.join(CONFIG_DIR, "push.json");
 const PUSH_SUBSCRIPTIONS_FILE = path.join(CONFIG_DIR, "push-subscriptions.json");
-const PUSH_SUBJECT = "mailto:pi-harbor@localhost";
+const PUSH_SUBJECT = "mailto:stepsemble@localhost";
 
 function b64url(buffer) {
   return Buffer.from(buffer).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
@@ -1625,7 +1641,7 @@ function archiveSession(rel) {
     scanCache.delete(rel);
     return archiveId;
   } catch (error) {
-    console.warn(`[pi-harbor] could not archive ${rel}: ${error.message}`);
+    console.warn(`[stepsemble] could not archive ${rel}: ${error.message}`);
     return false;
   }
 }
@@ -1635,6 +1651,9 @@ function archiveSession(rel) {
 // an authenticated SSE client was attached; active browser views do not need a
 // duplicate system notification.
 function maybeNotifyAgentTaskSettled(task, context = {}) {
+  // Generic connector supervisors survive a server restart, but a release is
+  // still deferred until every agent is idle so protocol upgrades are atomic.
+  schedulePendingUpdateApplyAfterRpcIdle();
   try {
     if (!task || context.hasClients || !readPushSubscriptions().length) return;
     const status = String(task.status || "completed");
@@ -1709,7 +1728,7 @@ function unarchiveSessions(archiveId) {
         scanCache.delete(rel);
         restored += 1;
       } catch (error) {
-        console.warn(`[pi-harbor] could not unarchive ${rel}: ${error.message}`);
+        console.warn(`[stepsemble] could not unarchive ${rel}: ${error.message}`);
       }
     }
   }
@@ -1739,7 +1758,7 @@ async function archiveProjectSessions(cwd) {
       scanCache.delete(session.file);
       moved += 1;
     } catch (error) {
-      console.warn(`[pi-harbor] could not archive ${session.file}: ${error.message}`);
+      console.warn(`[stepsemble] could not archive ${session.file}: ${error.message}`);
     }
   }
   return { count: moved, archiveId: moved ? path.basename(archiveRoot) : null };
@@ -1748,7 +1767,7 @@ async function archiveProjectSessions(cwd) {
 function createPermanentWorktree(cwd) {
   const real = projectDirectory(cwd);
   if (!real) throw new Error("Project folder is unavailable");
-  const git = process.env.PI_HARBOR_GIT_BIN || "git";
+  const git = settingFromEnv("GIT_BIN") || "git";
   let root;
   try {
     root = execFileSync(git, ["-C", real, "rev-parse", "--show-toplevel"], { encoding: "utf8", timeout: 10_000 }).trim();
@@ -1878,7 +1897,7 @@ async function sessionToMarkdown(rel) {
       lines.push(parts.join("\n\n") + "\n");
     }
   }
-  const header = `# ${name || rel.split("/").pop().replace(/\.jsonl$/, "")}\n\n> Exported from Pi Harbor · ${new Date().toISOString()}\n\n---\n\n`;
+  const header = `# ${name || rel.split("/").pop().replace(/\.jsonl$/, "")}\n\n> Exported from Stepsemble · ${new Date().toISOString()}\n\n---\n\n`;
   return header + lines.join("\n");
 }
 
@@ -2036,6 +2055,17 @@ function activeRpcSessionsForUpdate() {
   return activeRpcSessions().filter((session) => !rpcStuck(session));
 }
 
+function activeAgentTasksForUpdate() {
+  try {
+    return agentTasks.list().filter((task) =>
+      ["starting", "running", "waiting", "reconnecting"].includes(String(task?.status || "")));
+  } catch {
+    // Fail closed if connector state cannot be inspected. Callbacks normally
+    // run only after construction, so reaching this path means state is unsafe.
+    return [{ id: "unavailable", status: "unknown" }];
+  }
+}
+
 // The inbox uses one task shape for native Pi RPC and external CLI
 // connectors.  Keep this view read-only and omit stderr/output by default;
 // conversation content remains behind the session/SSE endpoints.
@@ -2080,7 +2110,7 @@ function scheduleRpcCleanup(sid) {
   s.idleTimer = setTimeout(() => {
     const current = rpcSessions.get(sid);
     if (!current || current.exited || current.clients.size || current.state.isStreaming) return;
-    console.log(`[pi-harbor] closing idle rpc (sid ${sid}, pid ${current.proc.pid})`);
+    console.log(`[stepsemble] closing idle rpc (sid ${sid}, pid ${current.proc.pid})`);
     killRpcProcess(current.proc);
   }, RPC_IDLE_CLEANUP_MS);
 }
@@ -2217,21 +2247,21 @@ async function openRpc({ file, cwd, name }) {
   proc.stdin.on("error", (err) => {
     sess.stdinError = err.message;
     rejectPendingRpcCommands(sid, err);
-    console.log(`[pi-harbor] rpc stdin error (sid ${sid}): ${err.message}`);
+    console.log(`[stepsemble] rpc stdin error (sid ${sid}): ${err.message}`);
   });
   proc.on("error", (err) => {
     // spawn 失敗（如 ENOENT/EACCES）只發 error 不發 exit —— 不監聽就會永遠假活
     sess.exited = true; sess.exitCode = -1;
     rejectPendingRpcCommands(sid, err);
-    console.log(`[pi-harbor] rpc spawn error (sid ${sid}, pid ${proc.pid}): ${err.message}`);
+    console.log(`[stepsemble] rpc spawn error (sid ${sid}, pid ${proc.pid}): ${err.message}`);
     trackStreaming(sid, { type: "rpc_exit" });
     broadcast(sid, { type: "rpc_exit", code: -1, error: err.message });
-    console.log(`[pi-harbor] spawn error (sid ${sid}):`, err.message);
+    console.log(`[stepsemble] spawn error (sid ${sid}):`, err.message);
   });
   proc.on("exit", (code, signal) => {
     const wasStreaming = !!sess.state.isStreaming;
     sess.exited = true; sess.exitCode = code;
-    console.log(`[pi-harbor] rpc exit (sid ${sid}, pid ${proc.pid}, code ${code}, signal ${signal || "none"}, streaming ${wasStreaming}) stderr=${sess.stderrTail.slice(-300)}`);
+    console.log(`[stepsemble] rpc exit (sid ${sid}, pid ${proc.pid}, code ${code}, signal ${signal || "none"}, streaming ${wasStreaming}) stderr=${sess.stderrTail.slice(-300)}`);
     rejectPendingRpcCommands(sid, new Error("process exited"));
     trackStreaming(sid, { type: "rpc_exit" });
     broadcast(sid, {
@@ -2559,7 +2589,7 @@ function upsertModelProvider(body) {
   return publicConfiguredProvider(next.id, next.provider);
 }
 
-// Import a pi-harbor provider export (or a raw models.json fragment). Every
+// Import a stepsemble provider export (or a raw models.json fragment). Every
 // provider goes through validateProviderBody, so imported files can never
 // smuggle in invalid IDs, unsafe base URLs, oversized model lists, or secret
 // shapes the editor would not write itself. Existing providers with the same
@@ -3572,12 +3602,13 @@ const MIME = {
 };
 
 // Keep HTTP framing, security headers, cookies, and body parsing in one
-// dependency-free module so route handlers can stay focused on Pi behavior.
+// dependency-free module so route handlers can stay focused on agent behavior.
 const {
   sseFrame, trySseWrite, send, sendJSON, getCookie, isAuthed,
   getBearerToken, authenticate, readBody, readJSON,
 } = createHttpUtils({
   secureCookie: SECURE_COOKIE,
+  browserCookieNames: [BROWSER_COOKIE, ...LEGACY_BROWSER_COOKIES],
   isTokenValid: (candidate) => isAuthorizedTokenHash(candidate),
   isPeerCredentialValid: (candidate) => deviceTrust.authenticatePeerCredential(candidate),
 });
@@ -3611,9 +3642,9 @@ const server = http.createServer(async (req, res) => {
         const issued = apiTokens.find((row) => safeEqual(candidateHash, row.hash));
         if (issued) {
           issued.lastUsedAt = new Date().toISOString();
-          try { saveApiTokens(); } catch { console.warn("[pi-harbor] could not update token last-used time"); }
+          try { saveApiTokens(); } catch { console.warn("[stepsemble] could not update token last-used time"); }
         }
-        send(res, 204, "", { "Set-Cookie": `pi_harbor=${candidateHash}${cookieSuffix(60 * 60 * 24 * 30)}` });
+        send(res, 204, "", { "Set-Cookie": `${BROWSER_COOKIE}=${candidateHash}${cookieSuffix(60 * 60 * 24 * 30)}` });
       } else {
         state.failures++;
         sendJSON(res, 401, { error: "Invalid token" });
@@ -3622,7 +3653,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === "/api/logout" && req.method === "POST") {
-      send(res, 204, "", { "Set-Cookie": `pi_harbor=${cookieSuffix(0)}` });
+      send(res, 204, "", {
+        "Set-Cookie": [BROWSER_COOKIE, ...LEGACY_BROWSER_COOKIES]
+          .map((name) => `${name}=${cookieSuffix(0)}`),
+      });
       return;
     }
 
@@ -3669,7 +3703,7 @@ const server = http.createServer(async (req, res) => {
       try {
         writeOnboardingState({ tokenConfirmedAt: confirmedAt, tokenHash: TOKEN_HASH });
       } catch (error) {
-        console.warn(`[pi-harbor] could not save onboarding confirmation: ${error.message}`);
+        console.warn(`[stepsemble] could not save onboarding confirmation: ${error.message}`);
         sendJSON(res, 500, { error: "could not save confirmation" });
         return;
       }
@@ -3682,7 +3716,7 @@ const server = http.createServer(async (req, res) => {
     // A v3 pairing code is a short-lived out-of-band capability.  It is
     // consumed without a browser cookie; the capability itself is the trust
     // channel and the target returns one dedicated credential to the joining
-    // Pi Harbor server only.
+    // Stepsemble server only.
     if (p === "/api/device-pairing/consume" && req.method === "POST") {
       const body = await readJSON(req, 16 * 1024);
       if (Object.prototype.hasOwnProperty.call(body, "offerId") || Object.prototype.hasOwnProperty.call(body, "secret")) {
@@ -3694,7 +3728,7 @@ const server = http.createServer(async (req, res) => {
           });
           // Do not add this credential to any browser-visible object.  This is
           // the one server-to-server consume response which must carry the
-          // newly issued capability to the joining Pi Harbor process.
+          // newly issued capability to the joining Stepsemble process.
           sendJSON(res, 200, {
             device: consumed.device,
             grant: consumed.grant,
@@ -3817,7 +3851,10 @@ const server = http.createServer(async (req, res) => {
         headers.authorization = `Bearer ${outgoing.credential}`;
       } else {
         // URL-added and pre-2.2 saved machines retain the shared-token path.
-        headers.cookie = `pi_harbor=${TOKEN_HASH}`;
+        // Send current and both former cookie names during the rolling migration;
+        // the credential value is the same non-reversible token hash.
+        headers.cookie = [BROWSER_COOKIE, ...LEGACY_BROWSER_COOKIES]
+          .map((name) => `${name}=${TOKEN_HASH}`).join("; ");
       }
       if (req.headers["last-event-id"]) headers["last-event-id"] = req.headers["last-event-id"];
       if (req.method === "POST") headers["content-type"] = req.headers["content-type"] || "application/json";
@@ -3855,7 +3892,7 @@ const server = http.createServer(async (req, res) => {
           pipeline(body, res, (err) => {
             if (!err) return;
             const expectedAbort = ac.signal.aborted && !timedOut;
-            if (!expectedAbort) console.log(`[pi-harbor] proxy body ${req.method} ${p} -> ${upstream.href} failed:`, err.message);
+            if (!expectedAbort) console.log(`[stepsemble] proxy body ${req.method} ${p} -> ${upstream.href} failed:`, err.message);
             if (!res.writableEnded && !res.destroyed) {
               try { res.destroy(); } catch {}
             }
@@ -3863,7 +3900,7 @@ const server = http.createServer(async (req, res) => {
         }
       } catch (e) {
         const expectedAbort = ac.signal.aborted && !timedOut;
-        if (!expectedAbort) console.log(`[pi-harbor] proxy ${req.method} ${p} -> ${upstream.href} failed:`, e.message);
+        if (!expectedAbort) console.log(`[stepsemble] proxy ${req.method} ${p} -> ${upstream.href} failed:`, e.message);
         if (!res.headersSent && !res.destroyed && !expectedAbort) {
           // Never return the relay's upstream URL or low-level transport
           // message to the browser; those details belong only in server logs.
@@ -3879,7 +3916,7 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith("/api/")) {
       const auth = authenticate(req);
       if (!auth) {
-        console.log(`[pi-harbor] 401 for ${req.method} ${p} from ${clientAddress(req)}`);
+        console.log(`[stepsemble] 401 for ${req.method} ${p} from ${clientAddress(req)}`);
         sendJSON(res, 401, { error: "unauthorized" }); return;
       }
 
@@ -3987,7 +4024,7 @@ const server = http.createServer(async (req, res) => {
         try {
           sendJSON(res, 200, { machine: MACHINE_NAME, platform: process.platform, generatedAt: Date.now(), ...piResources.inventory() });
         } catch (error) {
-          console.log("[pi-harbor] pi-resources inventory failed:", error?.message || error);
+          console.log("[stepsemble] pi-resources inventory failed:", error?.message || error);
           sendJSON(res, 500, { error: "resource inventory failed" });
         }
         return;
@@ -4250,7 +4287,7 @@ const server = http.createServer(async (req, res) => {
             if (!includeSecrets) { delete copy.apiKey; delete copy.oauth; }
             providers[id] = copy;
           }
-          sendJSON(res, 200, { format: "pi-harbor-providers", version: 1, exportedAt: new Date().toISOString(), providers });
+          sendJSON(res, 200, { format: "stepsemble-providers", version: 1, exportedAt: new Date().toISOString(), providers });
         } catch (e) {
           sendJSON(res, e.statusCode || 500, { error: e.message });
         }
@@ -4298,7 +4335,7 @@ const server = http.createServer(async (req, res) => {
         try {
           const name = typeof body.name === "string" && body.name.trim() ? body.name.trim().slice(0, 80) : MACHINE_NAME;
           const nextPort = Object.prototype.hasOwnProperty.call(body, "port") ? parsePort(body.port) : PORT;
-          if (!nextPort) { const err = new Error("Pi Harbor port must be an integer from 1024 to 65535"); err.statusCode = 400; throw err; }
+          if (!nextPort) { const err = new Error("Stepsemble port must be an integer from 1024 to 65535"); err.statusCode = 400; throw err; }
           const nextPublicUrl = Object.prototype.hasOwnProperty.call(body, "publicUrl")
             ? normalizePublicUrl(body.publicUrl) : (localDeviceConfig.publicUrl || "");
           const id = selfMachineId() || LOCAL_DEVICE_ID || machineId(MACHINE_HOST);
@@ -4326,7 +4363,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (p === "/api/device-restart" && req.method === "POST") {
-          sendJSON(res, 202, { restarting: true, message: "Pi Harbor will restart after the current work finishes safely." });
+          sendJSON(res, 202, { restarting: true, message: "Stepsemble will restart after the current work finishes safely." });
         setTimeout(() => { try { process.kill(process.pid, "SIGTERM"); } catch {} }, 250).unref();
         return;
       }
@@ -4515,11 +4552,11 @@ const server = http.createServer(async (req, res) => {
           } catch (error) {
             MACHINES = previousMachines;
             try { writeManagedMachines(); } catch (rollbackError) {
-              console.warn(`[pi-harbor] could not roll back machines.json after pairing failure: ${rollbackError.message}`);
+              console.warn(`[stepsemble] could not roll back machines.json after pairing failure: ${rollbackError.message}`);
             }
             if (outgoingGrant) {
               try { deviceTrust.removeOutgoingCredential(id); } catch (rollbackError) {
-                console.warn(`[pi-harbor] could not roll back peer credential after pairing failure: ${rollbackError.message}`);
+                console.warn(`[stepsemble] could not roll back peer credential after pairing failure: ${rollbackError.message}`);
               }
             }
             throw error;
@@ -4573,7 +4610,7 @@ const server = http.createServer(async (req, res) => {
               } catch (error) {
                 MACHINES = previousMachines;
                 try { writeManagedMachines(); } catch (rollbackError) {
-                  console.warn(`[pi-harbor] could not roll back machines.json after trust cleanup failure: ${rollbackError.message}`);
+                  console.warn(`[stepsemble] could not roll back machines.json after trust cleanup failure: ${rollbackError.message}`);
                 }
                 throw error;
               }
@@ -4617,11 +4654,11 @@ const server = http.createServer(async (req, res) => {
             } catch (error) {
               MACHINES = previousMachines;
               try { writeManagedMachines(); } catch (rollbackError) {
-                console.warn(`[pi-harbor] could not roll back machines.json after update failure: ${rollbackError.message}`);
+                console.warn(`[stepsemble] could not roll back machines.json after update failure: ${rollbackError.message}`);
               }
               if (oldOutgoing && next.id !== oldId) {
                 try { deviceTrust.removeOutgoingCredential(next.id); } catch (rollbackError) {
-                  console.warn(`[pi-harbor] could not roll back moved peer credential: ${rollbackError.message}`);
+                  console.warn(`[stepsemble] could not roll back moved peer credential: ${rollbackError.message}`);
                 }
               }
               throw error;
@@ -4632,7 +4669,7 @@ const server = http.createServer(async (req, res) => {
                 // leaving the old grant as an orphan is safer than rolling the
                 // working move back to a shared-token URL. IDs with grants are
                 // refused by add/update and can be cleaned up on a later retry.
-                console.warn(`[pi-harbor] peer credential cleanup after ID move failed: ${error.message}`);
+                console.warn(`[stepsemble] peer credential cleanup after ID move failed: ${error.message}`);
               }
             }
             sendJSON(res, 200, { machine: publicMachine(next) });
@@ -4926,7 +4963,7 @@ function shutdown(signal) {
     closeRequested: false,
     timer: null,
   };
-  console.log(`[pi-harbor] shutting down on ${signal}; preserving ${active.length} active rpc session(s) for up to ${SHUTDOWN_GRACE_MS}ms`);
+  console.log(`[stepsemble] shutting down on ${signal}; preserving ${active.length} active rpc session(s) for up to ${SHUTDOWN_GRACE_MS}ms`);
 
   const finish = (code) => {
     if (!shutdownState || shutdownState.finished) return;
@@ -4957,7 +4994,7 @@ function shutdown(signal) {
   // Generic CLI work belongs to an independent supervisor. Dropping the HTTP
   // process must not terminate a user's long-running task; the next server
   // instance reconnects to the local supervisor socket and resumes the stream.
-  try { agentTasks.shutdown({ preserve: true }); } catch (error) { console.warn(`[pi-harbor] agent task shutdown failed: ${error.message}`); }
+  try { agentTasks.shutdown({ preserve: true }); } catch (error) { console.warn(`[stepsemble] agent task shutdown failed: ${error.message}`); }
 
   closeHttp();
   if (!active.length) {
@@ -4991,12 +5028,12 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 // caller's own event loop alive: both sides then wait for each other
 // forever.  Watching for re-parenting (PPID 1) breaks that deadlock without
 // affecting launchd, which starts this service as PID 1's child by design.
-if (process.env.PI_HARBOR_ORPHAN_EXIT !== "0" && process.ppid > 1) {
+if (settingFromEnv("ORPHAN_EXIT") !== "0" && process.ppid > 1) {
   const parentPid = process.ppid;
   const orphanWatch = setInterval(() => {
     if (process.ppid === parentPid) return;
     clearInterval(orphanWatch);
-    console.log("[pi-harbor] parent process exited; shutting down to avoid an orphaned server");
+    console.log("[stepsemble] parent process exited; shutting down to avoid an orphaned server");
     shutdown("orphaned");
   }, 2000);
   orphanWatch.unref();
@@ -5004,15 +5041,15 @@ if (process.env.PI_HARBOR_ORPHAN_EXIT !== "0" && process.ppid > 1) {
 
 syncBundledUpdater();
 server.listen(PORT, HOST, () => {
-  console.log(`[pi-harbor] ${MACHINE_NAME} listening on http://${HOST}:${PORT} (pi: ${PI_BIN})`);
+  console.log(`[stepsemble] ${MACHINE_NAME} listening on http://${HOST}:${PORT} (pi: ${PI_BIN})`);
   if (HOST !== "127.0.0.1" && HOST !== "::1" && !SECURE_COOKIE) {
-    console.warn("[pi-harbor] warning: listening beyond loopback without Secure cookies; prefer Tailscale Serve/HTTPS or set PI_HARBOR_HOST=127.0.0.1");
+    console.warn("[stepsemble] warning: listening beyond loopback without Secure cookies; prefer Tailscale Serve/HTTPS or set STEPSEMBLE_HOST=127.0.0.1");
   }
   if (SECURE_COOKIE && (HOST !== "127.0.0.1" && HOST !== "::1")) {
-    console.log("[pi-harbor] Secure cookies enabled; expose this service through HTTPS only.");
+    console.log("[stepsemble] Secure cookies enabled; expose this service through HTTPS only.");
   }
   if (!BROWSE_ROOTS_FROM_ENV.length) {
-    console.log("[pi-harbor] /api/browse is restricted to the Pi home by default; set PI_HARBOR_BROWSE_ROOTS to add external volumes");
+    console.log("[stepsemble] /api/browse is restricted to the user home by default; set STEPSEMBLE_BROWSE_ROOTS to add external volumes");
   }
   // A previous updater may have recorded a deferred/available state before a
   // server restart. Apply it once the fresh server is listening and idle.

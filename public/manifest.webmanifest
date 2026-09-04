@@ -1,14 +1,14 @@
 {
-  "name": "Pi Harbor",
-  "short_name": "Pi Harbor",
-  "description": "A self-hosted remote workspace for Pi coding agent",
+  "name": "Stepsemble",
+  "short_name": "Stepsemble",
+  "description": "A self-hosted workspace for local coding agents",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#FAF7F0",
   "theme_color": "#1A1A1A",
   "icons": [
-    { "src": "/icon-180.png?v=2.13.2", "sizes": "180x180", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-512.png?v=2.13.2", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "/icon-180.png?v=3.0.0", "sizes": "180x180", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png?v=3.0.0", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }

@@ -1,14 +1,15 @@
 {
-  "name": "pi-harbor",
+  "name": "stepsemble",
   "private": true,
-  "version": "2.13.2",
-  "description": "Mobile-first web client for the Pi coding agent",
+  "version": "3.0.0",
+  "description": "A calm, cross-platform workspace for local coding agents",
   "type": "commonjs",
   "engines": {
     "node": ">=22.19.0"
   },
   "scripts": {
-    "check": "node --check server.js && node --check server/agent-connectors.js && node --check server/agent-task-supervisor.js && node --check server/connector-protocol.js && node --check server/device-trust.js && node --check server/git-changes.js && node --check server/http-utils.js && node --check scripts/version.mjs && node --check public/i18n.js && node --check public/modules/app-foundation.js && node --check public/modules/session-utils.js && node --check public/modules/context-usage.js && node --check public/app.js",
+    "check": "node --check server.js && node --check server/agent-connectors.js && node --check server/agent-task-supervisor.js && node --check server/brand.js && node --check server/connector-protocol.js && node --check server/device-trust.js && node --check server/git-changes.js && node --check server/http-utils.js && node --check scripts/version.mjs && node --check scripts/host-performance-baseline.mjs && node --check public/i18n.js && node --check public/modules/app-foundation.js && node --check public/modules/session-utils.js && node --check public/modules/context-usage.js && node --check public/app.js",
+    "benchmark:host": "node scripts/host-performance-baseline.mjs",
     "test": "node --test",
     "test:i18n": "node --test test/i18n.test.js",
     "version:check": "node scripts/version.mjs check",

@@ -1,0 +1,973 @@
+# Stepsemble 跨平台完整體架構與執行計畫
+
+> 狀態：已接受（Accepted）
+> 計畫版本：1.3
+> 最後更新：2026-09-04
+> 當前產品基線：Stepsemble 3.0.0（由 Pi Harbor 2.13.2 相容遷移）
+> 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
+> 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
+
+## 文件用途與回復方法
+
+這份文件是 Stepsemble 從 Web App 發展為跨平台 Coding Agent 工作區的長期計畫與決策來源。它的目的是讓後續對話即使經過 session 壓縮、開啟新 session，或換由其他 agent 執行，仍可恢復已確認的方向，不需要重新推導。
+
+未來開始任何架構、跨平台、session、approval、agent adapter、model routing 或 Rust 遷移工作前，依序：
+
+1. 完整讀取本文件。
+2. 完整讀取 [`docs/current-system-inventory.md`](current-system-inventory.md)，確認相容性基線與已知缺口。
+3. 讀取 [`docs/architecture.md`](architecture.md)，確認目前已上線的架構。
+4. 涉及效能時讀取 [`docs/performance-baseline.md`](performance-baseline.md) 與其 raw JSON。
+5. 檢查 `git status --short`、`package.json` 版本與現有測試。
+6. 從本文件的「當前執行狀態」找到下一個未完成項目。
+7. 只在前一階段驗收條件通過後，才進入下一階段。
+8. 每次實質進展都要同步更新「當前執行狀態」與「變更記錄」。
+
+[`docs/architecture.md`](architecture.md) 描述「當前已上線的真實狀態」；本文件描述「已確認的目標架構與遷移順序」。兩者不得混為一談。
+
+## 當前執行狀態
+
+| 項目 | 狀態 | 說明 |
+| --- | --- | --- |
+| 長期語言邊界 | 已定案 | Rust Host Core；TypeScript UI/Client；Swift/Kotlin 僅處理平台專屬能力 |
+| Web 產品定位 | 已定案 | Web/PWA 永久保留，不是過渡版 |
+| 產品名稱與識別 | 已定案 | Stepsemble；step + ensemble；四趾貓掌代表多 agent，掌心 terminal prompt 代表 coding workspace |
+| Host/Client 邊界 | 已定案 | Desktop 可為 Host + Client；iOS/Android 初期只為 Client |
+| App Shell | 目標已定，待驗證 | Tauri 2 為預設方案；必須先通過 Apple 實機 PoC 驗收門檻 |
+| 當前回歸基線 | 已通過 | 2026-09-04 Stepsemble 3.0.0 執行 `npm test`：127/127 通過，約 11.3 秒 |
+| 現行系統盤點 | 已完成 | HTTP/SSE/RPC、資料、狀態、approval、event、安裝與 rollback 已落於 `current-system-inventory.md` |
+| 本機品牌遷移 | 已部署 | Mac Mini 已由 2.13.2 原地升級至 3.0.0；session/token/SSH launcher/CUA driver 均完成前後核對 |
+| 跨平台 installer smoke | 部分完成 | macOS live migration、Linux clean-container install、Windows PowerShell AST 通過；Linux systemd/Windows Scheduled Task real runner 待補 |
+| Host 效能基線 | 已完成 | 2.13.2 與 3.0.0 都以 301 synthetic sessions、41,000 messages、8 generic tasks 實測；結果見 `performance-baseline.md` |
+| Browser 效能基線 | 待工具 | 缺 `chrome-devtools` MCP，尚不能取得可信 LCP/INP/CLS/TBT 與 accessibility trace |
+| 階段 0：計畫與基線 | 進行中 | 除 Browser trace 外已完成；不得以 Host 數據代替 Web 順滑度驗收 |
+| 階段 1：Stepsemble Protocol v1 | 未開始 | 必須先通過階段 0 gate |
+
+### 下一個可執行任務
+
+由使用者在 Codex 配置 `chrome-devtools` MCP；目前工具清單已確認沒有 `navigate_page`／`performance_start_trace`，依 `web-perf` 規範不能用其他瀏覽器自動化冒充。在配置後，於隔離 synthetic Host 完成 cold/warm page trace、長 session render、持續 streaming、network 與 accessibility 基線，將結果存入 `docs/baselines/`。通過後才進入 Phase 1，把現況盤點轉成不含秘密的 protocol fixtures、canonical schemas 與 Node contract tests。
+
+## 一、不可退讓的核心決策
+
+### D-001：Web/PWA 永久是第一等 Client
+
+Web App 不會在原生 App 出現後被取代。它長期承擔：
+
+- 零安裝存取。
+- 新平台尚未提供 App 時的完整界面。
+- 原生 App 故障時的救援入口。
+- 自架 Host 的管理界面。
+- 產品行為的參考 Client。
+
+### D-002：Host 與 Client 從架構上分離
+
+- **Host** 擁有 agent 子程序、PTY、workspace、session 來源、approval、provider 登入與秘密。
+- **Client** 顯示與控制 Host，不擁有 agent 帳號與工作區真實資料。
+- macOS、Windows、Linux 可提供 Host + Client。
+- iOS、Android 在可預見的階段只提供 Client。
+- 關閉任何 Client 不得終止正在執行的 Host task。
+
+### D-003：固定語言邊界，不追求單一語言
+
+- TypeScript：Web UI、共用 Client SDK、前端 state reducer、界面與原生橋接的呼叫端。
+- Rust：Host Core、daemon、process/PTY、事件持久化、伺服器、裝置信任與安全邊界。
+- Swift：Apple 平台 Keychain、Face ID/Touch ID、APNs、Bonjour、Share Sheet 等必要橋接。
+- Kotlin：Android Keystore、FCM、Intent、Share Sheet 等必要橋接。
+- C#：僅在 Rust/Windows API 無法穩定完成的 Windows 專屬邊界使用。
+- 平台橋接不得重新實作 session、approval、model routing 或 agent 狀態機。
+
+### D-004：Rust 是長期 Host Core，但不作 Big Bang Rewrite
+
+新的 Host 核心能力以 Rust 目標架構設計。現有 Node 服務作為可用的行為基線與回滾路徑，按端點與能力逐步遷移，禁止一次性翻譯整個 `server.js` 後直接替換。
+
+### D-005：Tauri 2 為預設 App Shell，但要有退出機制
+
+Tauri 2 的 HTML/TypeScript UI ＋ Rust Core ＋ Swift/Kotlin plugin 模式與本計畫相符。正式承諾前必須完成 Apple 實機 PoC。若特定平台無法通過穩定性、效能、無障礙或商店審核門檻，可在不改變 Stepsemble Protocol 與 UI 資料模型的前提下替換單一平台 shell。
+
+### D-006：原生 agent session 是來源，Stepsemble 事件是可回放投影
+
+- 有原生 session/history API 的 agent，其原生資料是主要來源。
+- Stepsemble 保存正規化、可排序、可斷線續傳的 append-only event journal。
+- Stepsemble 不得為了統一 UI 而破壞、改寫或偽造原生 session。
+- 沒有原生 session API 的 harness，才以 Stepsemble journal 作為權威記錄。
+
+### D-007：官方登入與訂閱必須保持原生邊界
+
+- Claude Code、Codex 等官方登入保存在各自客戶端的原生位置。
+- Stepsemble 不複製、匯出、同步或上傳這些 OAuth/token。
+- Stepsemble 只保存「使用哪個登入來源」的不含秘密參照。
+- 官方訂閱與外部 API/provider 計費路徑必須在 UI 明確顯示。
+- 禁止在官方訂閱、API key、外部 router 之間靜默 fallback。
+
+### D-008：第三方模型工具是 Model Source，不是 Agent
+
+OpenCodex、CC Switch 與未來的 gateway/router 放在 Model Source/Launch Profile 層。能使用 harness 原生 provider 時優先使用原生方式；需要跨協議轉譯、集中模型目錄或多帳號路由時才啟用外部工具。
+
+### D-009：所有客戶端都使用同一套 Stepsemble Protocol
+
+Tauri App 不得繞過公開 Host API 直接呼叫私有商業邏輯。原生 IPC 只用於 Keychain、通知、視窗、檔案選擇與其他平台能力。Web、App 與遠端裝置應觀察到一致的 session 行為。
+
+### D-010：產品名稱定案為 Stepsemble
+
+- 公開產品名、套件名、服務名、設定路徑、環境變數與 protocol 新前綴統一使用 Stepsemble／`stepsemble`／`STEPSEMBLE_*`。
+- 名稱來自 **step + ensemble**：不同 coding agent 以一致步伐協作，不綁定單一 harness 或 model。
+- 四個貓掌趾墊代表 agent nodes，中央掌墊的 `>_` 代表 coding workspace；品牌不再使用港口功能隱喻。
+- v3 保留 Pi Harbor／Pi Web 的設定路徑、cookie、環境變數、配對碼與 Release asset 讀取相容；舊來源只複製、不刪除，健康檢查成功前不封存舊程式。
+- 2026-09-04 的初步 exact-name 網路、常見 package registry、GitHub、App Store 與主要網域檢查未發現明顯同名產品；這不是正式商標法律意見，公開商業發佈前仍需做目標市場商標檢索。
+
+## 二、產品目標與非目標
+
+### 目標
+
+- 在一個工作區中穩定使用 Pi Agent、Claude Code、Codex、Grok Build、OpenCode 與未來 harness。
+- 對每個支援的 harness 提供可恢復 session、完整歷史、即時事件、取消與 approval。
+- 感受上接近各家官方客戶端：輸入不卡頓、事件不丟失、不重複、可斷線恢復。
+- Web/PWA 始終可用，並與原生 Client 共用 Host 與 session。
+- 按 Web → macOS/iOS → Windows/Linux → Android 順序擴展。
+- 不影響使用者直接使用官方 Claude Code、Codex 或其他客戶端。
+- 對舊版 Client/Host 提供明確的相容與升級策略。
+- 重啟 Web UI、App Shell 或 Host API 時，正在運行的 task 仍能繼續。
+- 本機優先、隱私優先，不將 workspace、prompt、session 或 provider 秘密預設上傳雲端。
+
+### 非目標
+
+- 初期不建立多租戶雲端 coding agent 執行平台。
+- 不在 iOS/Android 本機啟動桌面 coding agent CLI。
+- 不要求所有平台、UI 與 runtime 共用同一種語言。
+- 初期不為每個平台重寫完整原生 UI。
+- 不替代官方 provider 的帳號、訂閱、用量與計費系統。
+- 不因為架構遷移而變更或刪除使用者原生 session、workspace 與憑證。
+- 不在沒有效能證據時將 Web UI 改寫為 Rust/WASM。
+
+## 三、共同詞彙
+
+| 名稱 | 定義 |
+| --- | --- |
+| Coding Harness | 實際管理 prompt、tool call、context 與 agent loop 的程式，例如 Claude Code 或 Codex |
+| Provider | 實際提供模型推理與計費的服務來源 |
+| Model | 實際執行推理的 model ID |
+| Model Source | 可提供 provider/model 目錄與路由的來源，包含原生設定或外部 router |
+| Launch Profile | 一次 session 啟動時鎖定的 harness、route、provider、model、auth reference 與能力快照 |
+| Host | 可存取 workspace、執行 harness 與保存 session 的電腦 |
+| Client | Web/PWA 或原生 App，用於觀看與控制 Host |
+| Session | 可持續、可恢復的對話與工作單位 |
+| Turn | 一次使用者輸入到 agent 結束或中斷的執行 |
+| Run | Host 上一次實際執行，可能包含多個 tool/approval 事件 |
+| Event Journal | Stepsemble 對一個 session/run 保存的有序 append-only 事件記錄 |
+| Approval | 執行高風險動作前，需由已授權使用者明確回應的持久狀態 |
+| Projection | 由事件日誌重建的 UI/session 顯示狀態，可丟棄後重新生成 |
+
+UI 必須清楚分開：
+
+```text
+Harness：Claude Code
+Connection：OpenCodex
+Provider：MiniMax
+Model：MiniMax M3
+Billing/Auth：MiniMax API key
+```
+
+「使用 Claude Code harness」不等於「正在使用 Claude model」，也不等於「消耗 Claude 訂閱」。
+
+## 四、目標系統架構
+
+```mermaid
+flowchart TB
+  subgraph Clients[Stepsemble Clients]
+    Web[Web / PWA]
+    IOS[iOS App]
+    Mac[macOS App]
+    Android[Android App]
+    Windows[Windows App]
+    Linux[Linux App]
+  end
+
+  SDK[TypeScript Stepsemble Client SDK]
+  Protocol[Stepsemble Protocol v1\nREST + SSE + Schemas]
+
+  subgraph Host[Desktop Stepsemble Host]
+    Server[Rust Stepsemble Server]
+    Core[Rust Session / Approval / Event Core]
+    Runtime[Rust Process / PTY Runtime]
+    Resolver[Model Source Resolver]
+    Adapters[Agent Adapters]
+    Store[(SQLite metadata + event journal)]
+  end
+
+  Native[Native agent sessions / configs]
+  Agents[Pi / Claude Code / Codex / Grok / OpenCode]
+  Routers[Native provider / OpenCodex / future routers]
+
+  Web --> SDK
+  IOS --> SDK
+  Mac --> SDK
+  Android --> SDK
+  Windows --> SDK
+  Linux --> SDK
+  SDK --> Protocol
+  Protocol --> Server
+  Server --> Core
+  Core --> Store
+  Core --> Runtime
+  Core --> Resolver
+  Runtime --> Adapters
+  Adapters --> Agents
+  Adapters --> Native
+  Resolver --> Routers
+```
+
+### 實際程序邊界
+
+```text
+stepsemble-daemon
+  ├─ 獨立於 App 視窗生命週期
+  ├─ 服務 Web/PWA 與原生 Client
+  ├─ 管理 task/session/approval
+  ├─ 與各 agent harness 通訊
+  └─ 在 UI 關閉後依使用者授權繼續運行
+
+stepsemble-shell
+  ├─ Tauri 視窗、menu bar/tray、deep link
+  ├─ 啟動/探測本機 daemon
+  ├─ 連接本機或遠端 Host
+  └─ 原生平台橋接
+```
+
+App 視窗崩潰或關閉時，daemon 不應被強制終止。daemon 崩潰時，App 必須清楚告知狀態，並由持久資料判定 task 是可重接、中斷或已完成，不得伪裝仍在執行。
+
+## 五、平台責任矩陣
+
+| 平台 | Web UI | 原生 Client | Host Runtime | 本機 Agent | 原生專屬能力 |
+| --- | --- | --- | --- | --- | --- |
+| Browser/PWA | 是 | 否 | 否 | 否 | Service Worker、Web Push |
+| iOS/iPadOS | 共用打包 UI | 是 | 否 | 否 | Keychain、Face ID、APNs、Bonjour、Share Sheet |
+| macOS | 共用打包 UI | 是 | 是 | 是 | Keychain、menu bar、notification、launch agent |
+| Android | 共用打包 UI | 是 | 否 | 否 | Keystore、FCM、Intent、Share Sheet |
+| Windows | 共用打包 UI | 是 | 是 | 是 | Credential Locker/DPAPI、tray、notification、service/task |
+| Linux | 共用打包 UI | 是 | 是 | 是 | Secret Service、tray、notification、systemd user service |
+
+行動平台不啟動桌面 CLI；它們只會對使用者擁有或已授權的 Host 發出指令。
+
+## 六、長期程式語言與專案結構
+
+### TypeScript 規則
+
+- 新的 Client SDK 與 UI domain code 使用 strict TypeScript。
+- 現有 JavaScript 先以 `checkJs`/JSDoc 建立型別基線，再逐檔轉換，禁止一次重寫前端。
+- 前端不得直接組裝不受控的 agent command；所有呼叫通過 typed Client SDK。
+- 外部 event/payload 即使通過 TypeScript 編譯，仍必須做 runtime validation。
+- UI framework 不在這個階段強制替換。優先拆分純函式與 state reducer；只有組件隔離、效能或可測試性證明必要時，才另立 ADR 評估 React/Svelte 等框架。
+- 線上 App 不依賴用戶電腦安裝 npm 套件；編譯產物在 release 時生成與驗證。
+
+### Rust 規則
+
+- 使用可重現的 Rust toolchain 與 lockfile。
+- async I/O 預設使用 Tokio；HTTP/SSE 預設評估 Axum；serialization 預設 Serde；structured logging 預設 `tracing`。套件最終選擇在對應 ADR 與 PoC 通過後鎖定。
+- async runtime thread 禁止未受控的 blocking filesystem/process call。
+- 預設禁止 `unsafe`；不得已時必須將邊界、不變條件、測試與替代方案寫進 ADR。
+- parser、event envelope、approval 與 path validation 不使用 `unwrap()` 處理不可信輸入。
+- panic 不得輸出 token、prompt、provider response 或 workspace 內容。
+- daemon 與 App Shell 以程序邊界隔離；初期不用 N-API/FFI 將長時間 runtime 嵌入 Node 程序。
+- Cargo、DerivedData、node_modules 等派生產物必須位於本機磁碟的專用 build/cache 路徑，不得寫入 SMB 掛載的 devkit 工作目錄。Cargo 使用明確的 `CARGO_TARGET_DIR` 或 `--target-dir`。
+
+### 目標 repo layout
+
+```text
+stepsemble/
+├─ apps/
+│  ├─ web/                  # TypeScript Web/PWA
+│  └─ shell/                # Tauri desktop/mobile shell
+├─ packages/
+│  ├─ client/               # typed Stepsemble Client SDK
+│  ├─ ui/                   # shared UI/domain modules
+│  └─ protocol-generated/   # generated TypeScript bindings
+├─ crates/
+│  ├─ stepsemble-protocol/      # envelopes, ids, capabilities
+│  ├─ stepsemble-core/          # session, run, approval, projection
+│  ├─ stepsemble-store/         # SQLite, migration, backup
+│  ├─ stepsemble-host/          # process, PTY, filesystem, Git
+│  ├─ stepsemble-adapters/      # structured harness adapters
+│  ├─ stepsemble-server/        # HTTP/SSE, auth, pairing
+│  └─ stepsemble-daemon/        # standalone desktop host binary
+├─ native/
+│  ├─ apple/                # thin Swift bridge
+│  ├─ android/              # thin Kotlin bridge
+│  └─ windows/              # only if a native bridge is required
+├─ schemas/                      # canonical protocol/schema source
+└─ tests/                        # contract, fixtures, integration, chaos
+```
+
+這是目標結構，不在階段 0 進行無意義的大規模搬檔。每個目錄在有第一個實際模組時才建立。
+
+## 七、Stepsemble Protocol v1
+
+### 傳輸決策
+
+- Control command：HTTPS JSON request。
+- Host → Client 即時事件：SSE，延續目前已驗證的 POST + SSE 模式。
+- 雙向高頻資料只在證據證明 SSE 不足時評估 WebSocket，不先行引入第二套狀態邏輯。
+- 圖片、檔案與大型 binary 使用獨立 HTTP upload/download，不內嵌在 SSE event。
+- 本機 shell 與 daemon 可使用 owner-only Unix socket/Windows named pipe，但上層語意與網路 API 一致。
+
+### 版本協商
+
+每個 Client 連線時提供：
+
+- `clientVersion`
+- `protocolMin`
+- `protocolMax`
+- `platform`
+- `capabilities`
+- `deviceId`
+
+Host 回傳：
+
+- 實際選定的 `protocolVersion`
+- Host 版本與 schema version
+- 可用 agent/model/source capabilities
+- 強制升級或降級模式
+- 已停用能力清單
+
+目標是至少維持當前主版 Host 與前兩個已發佈 Client 版本的兼容路徑，因為 App Store 客戶端不可能與自架 Host 同步更新。
+
+### 事件 envelope
+
+```json
+{
+  "protocolVersion": 1,
+  "eventId": "uuid",
+  "sessionId": "stable-session-id",
+  "runId": "stable-run-id",
+  "sequence": 42,
+  "type": "approval.requested",
+  "createdAt": "2026-09-04T12:00:00.000Z",
+  "payload": {}
+}
+```
+
+不變條件：
+
+- `sequence` 在同一 session 內單調增加。
+- Host 對持久化成功的 event 提供至少一次交付。
+- Client 以 `eventId`/`sequence` 排序與去重，重連不重複顯示。
+- Client 透過 `Last-Event-ID` 或 `after` 繼續上次 cursor。
+- 超出保留範圍時，Host 回傳完整 snapshot ＋新 cursor，不靜默丟事件。
+- 所有可重試 command 支援 `idempotencyKey`。
+- event 內不放 provider secret、官方 OAuth token 或未編輯的環境變數。
+
+### 核心事件家族
+
+- `session.created`, `session.updated`, `session.archived`
+- `run.starting`, `run.started`, `run.completed`, `run.failed`, `run.interrupted`
+- `message.delta`, `message.completed`
+- `tool.requested`, `tool.started`, `tool.progress`, `tool.completed`, `tool.failed`
+- `approval.requested`, `approval.resolved`, `approval.expired`, `approval.cancelled`
+- `usage.updated`
+- `context.updated`, `context.compacted`
+- `model.changed`, `launch_profile.locked`
+- `transport.connected`, `transport.degraded`, `transport.recovered`
+- `host.restarting`, `host.ready`
+
+新 adapter 不得發明只有特定 UI 才看得懂的事件；先映射到共用 event，無法無損表達的能力再使用有版本的 agent-specific extension payload。
+
+## 八、資料、Session 與持久化
+
+### 資料分層
+
+1. **Native source**：各 harness 的原生 session/history/config，Stepsemble 不擁有也不改寫。
+2. **Stepsemble durable state**：session identity、run、approval、device grant、launch profile snapshot、event journal。
+3. **Projection/cache**：對話列表、搜尋 index、usage 匯總、UI snapshot，可由 1/2 重建。
+4. **Client-local state**：草稿、顯示偏好、最後開啟位置與有限離線快取。
+
+### 長期儲存決策
+
+- Stepsemble-owned 結構化持久資料目標使用 SQLite。
+- 事件表只 append，修改顯示狀態透過新 event 與 projection 完成。
+- 大型 stdout/raw transcript 必須 bounded，或放在獨立檔案後以 hash/reference 連結，避免單一 DB 無限膨脹。
+- SQLite 只儲存 credential reference/hash/encrypted payload，不收編官方 provider 的原始憑證。
+- schema migration 在 transaction 內完成；遷移前建立可驗證備份，失敗必須回滾到舊程式與舊資料。
+- 未驗證新 DB 前不刪除現有 JSON/JSONL 檔案。
+- 所有 owner-only state 維持最小權限；對外匯出診斷時預設脫敏。
+
+### Session identity
+
+Stepsemble session 保存：
+
+- Stepsemble stable session ID
+- harness ID 與 adapter version
+- native session ID/path/reference
+- workspace 的 canonical identity
+- 建立時的 Launch Profile snapshot
+- 能力快照
+- 最後成功對齊的 native cursor
+- Stepsemble event cursor
+- 狀態與中斷原因
+
+絕不只以 model name、顯示名稱或一個易變檔案路徑識別 session。
+
+### Session/run 狀態機
+
+```text
+idle
+  → starting
+  → running
+  ↔ awaiting_approval
+  → stopping
+  → completed | failed | interrupted | orphaned
+```
+
+規則：
+
+- 一個 session 預設只有一個 active writer/run，但可有多個同時觀看的 Client。
+- 所有狀態轉移必須有事件，禁止只改記憶體物件。
+- Host 重啟後由 supervisor/native harness/last durable event 三方對齊。
+- 無法證明仍在執行時標記 `interrupted`/`orphaned`，不伪報 `running`。
+- 客戶端斷線不等於 run 中斷。
+- 同一 session 同時寫入衝突要以可解釋的 conflict 回應，不靜默覆蓋。
+
+### Model 切換規則
+
+- pending approval、tool 執行中或輸出中禁止更換 Launch Profile。
+- 同 harness、同協議且原生支援時，可在 turn boundary 更換 model，並寫入 `model.changed`。
+- 跨 provider、跨 router 或跨協議預設建立 fork，不在原 session 中偷換。
+- 每個 run 保存實際使用的 profile snapshot，而不是只參照會變動的全局設定。
+
+## 九、Approval 完整性
+
+每個 approval 必須持久保存：
+
+- approval ID
+- session/run/tool identity
+- 來自哪個 harness 與 native request ID
+- 結構化的動作摘要、目標與風險等級
+- 不可重複使用的 nonce
+- 建立、到期、解決時間
+- 解決結果
+- 解決它的 device/user credential ID
+- 對應的 native acknowledgement
+
+安全規則：
+
+- 預設不自動批准。
+- 多 Client 同時回應時只有第一個合法、未過期的 nonce 生效，其餘取得已解決回應。
+- 通知內不放完整 prompt、command 或私密檔案內容。
+- 初期不在鎖定畫面通知上提供直接「批准」；使用者開啟 App、重新取得最新狀態，必要時通過生物辨識後回應。
+- Client 重連後必須恢復 pending approval，不只依賴當時的 SSE event。
+- approval 到期、Host 取消與 native harness 自行結束都要有明確 terminal event。
+
+## 十、Agent Adapter 架構
+
+### 對接層級
+
+1. **Structured Native**：官方 app server、SDK、ACP、JSON-RPC 或受支援的 machine-readable protocol。
+2. **Structured CLI**：官方 headless/JSON/streaming CLI，有可靠的 ID 與狀態。
+3. **PTY Compatibility**：以互動式 CLI 終端兼容，只在前兩者不存在時使用。
+
+同一 agent 可同時有 structured 與 PTY fallback，但 UI 必須告知當前使用的 integration tier 與能力差異。
+
+### Adapter contract
+
+每個 adapter 至少實作：
+
+- discover executable/service/version
+- report capabilities
+- list/resume/create/fork session（若原生支援）
+- start turn
+- normalize stream events
+- submit/cancel approval
+- send follow-up/input
+- stop/cancel run
+- report terminal outcome
+- map usage/context/model information
+- recover after Stepsemble restart
+- redact secrets and unsafe environment values
+
+### 預設整合方向
+
+| Harness | 優先方式 | 權威 session | Fallback |
+| --- | --- | --- | --- |
+| Pi Agent | 現有 JSON-RPC/native session | Pi native history | 無結構化協議時停用，不伪造 |
+| Claude Code | 官方 structured/headless 介面，必要時評估 Agent SDK | Claude native session | PTY compatibility |
+| Codex | Codex App Server/machine-readable protocol | Codex native session | 受限 CLI fallback |
+| OpenCode | OpenCode service/structured events | OpenCode native session | PTY compatibility |
+| Grok Build | ACP 或官方 structured protocol | Grok native session（若可用） | PTY compatibility |
+
+表中的「優先方式」是實作前必須以當時官方文件與安裝版本再驗證的方向，不是在尚未通過 contract suite 前的兼容性宣稱。
+
+### Capability 不得以 agent 名稱硬編碼
+
+例如：
+
+```json
+{
+  "sessions": { "list": true, "resume": true, "fork": false },
+  "streaming": { "text": true, "toolEvents": true, "usage": true },
+  "approvals": { "structured": true, "cancel": true },
+  "models": { "list": true, "switchAtTurnBoundary": true },
+  "input": { "images": true, "files": false },
+  "recovery": { "reattach": true }
+}
+```
+
+UI 依 capability 顯示功能，不因 agent label 做猜測。
+
+## 十一、Model Source、Launch Profile 與第三方工具
+
+### Resolver 流程
+
+```text
+Harness Adapter
+  → Native model/provider discovery
+  → User-defined native provider
+  → External Model Source adapters
+  → Capability/compatibility filter
+  → User-visible Launch Profile
+  → Immutable session/run snapshot
+```
+
+### Model Source 類型
+
+- `native-official`：官方登入、官方 API 或 harness 原生 provider。
+- `native-custom`：harness 官方允許的 custom endpoint/provider。
+- `external-router`：OpenCodex 或其他跨協議 router。
+- `profile-manager`：CC Switch 等主要管理外部設定的工具。
+- `local-model`：Ollama、LM Studio、vLLM 等本機服務。
+
+### 整合政策
+
+- 原生直連優先，可減少故障層與帳號風險。
+- OpenCodex 作為正式 Model Source adapter，透過可版本化、machine-readable 介面讀取目錄與路由狀態。
+- CC Switch 初期只做 observer/import；在沒有穩定 API、lock 與 transaction 語意前，Stepsemble 不直接改寫它的資料庫或設定檔。
+- 不自動啟用 account pool、輪詢多帳號或未授權 fallback。
+- router 異常時 fail closed；不偷偷切換成另一家會產生費用的 provider。
+- session 保存不含秘密的 route snapshot，包含 router ID/version、provider ID、model ID、protocol、auth reference 與 billing source label。
+
+### 相容性等級
+
+- **Native Verified**：官方/原生路徑並通過完整 contract suite。
+- **Routed Verified**：經外部 router 並通過 streaming、tool、approval、context 與 recovery 測試。
+- **Experimental**：基本文字與部分 tool 可用，能力差異清楚列出。
+- **Unsupported**：隱藏或阻擋啟動，不讓使用者進入可預見的壞狀態。
+
+「可選擇 model」不等於「可靠支援 coding harness」。必須分別測試 tool calling、streaming、reasoning、context、image/file input、approval 與 resume。
+
+## 十二、安全、帳號與隱私
+
+### Trust boundaries
+
+- 瀏覽器/WebView 是低權限 Client。
+- Tauri/Native bridge 只暴露最小、有範圍的 command。
+- Host daemon 執行所有檔案系統、Git、PTY 與 agent 動作。
+- Agent harness/provider/router 的輸出都是不可信資料，必須限制大小與驗證格式。
+- 任何 Client 都不能送入任意 shell command；只能送 agent ID、已驗證參數與 prompt/input。
+
+### Device identity
+
+長期將目前 bearer/pairing 設計擴展為裝置專屬憑證：
+
+- 每個 Client 有獨立 device ID 與可撤銷 credential。
+- 原生 Client 將私密放在 Keychain/Keystore/Credential Locker/Secret Service。
+- 新裝置使用短時間、單次配對能力，使用者檢視 Host/device 指紋後確認。
+- 撤銷在 Host 下一個 request 即生效。
+- 不以共用長期 token 作為新設備的預設配對路徑。
+- 敏感 approval 可要求 Client 本機生物辨識，但 Host 仍會驗證 nonce、scope 與 device grant。
+
+### Network
+
+- Host 預設只監聽 loopback。
+- 遠端使用 Tailscale/HTTPS 或受支援的安全 gateway，不將原始 Host port 暴露給不可信網路。
+- iOS 區域網路探測必須提供清楚的權限說明，禁止用全局 ATS 寬鬆設定取代精確例外。
+- 原生 App 中打包 UI，不導航到 Host 下載一整套可變動前端程式碼。
+- 所有 relay 都不得反射 cookie、auth challenge、provider header 或私密路徑。
+
+### Logging and diagnostics
+
+- 使用 structured log，每個 run/request 有 trace ID。
+- 預設不記錄 prompt、response 全文、token、authorization header 與 workspace 私密內容。
+- 診斷包在本機產生、預設脫敏，匯出前顯示會包含的資料。
+- crash reporting/telemetry 預設關閉，未來若引入必須 opt-in 並另立 privacy ADR。
+
+## 十三、順滑度與穩定性預算
+
+以下是初始工程目標，階段 0 取得真實基線後可透過計畫變更調整，但不得靜默降低：
+
+| 指標 | 初始目標 |
+| --- | --- |
+| 本機普通 control API | p95 < 100 ms，不含外部 model/CLI 等待 |
+| Host 收到 event 到前景 Client 可見 | LAN p95 < 100 ms |
+| Client 輸入反應 | 持續串流時不出現 >100 ms 可感知卡頓 |
+| 斷線恢復 | 傳輸回復後 p95 < 3 s，不丟 event |
+| Host API 重啟後重接 runtime | p95 < 5 s |
+| Event correctness | 測試中 0 丟失；重複交付被去重 |
+| 長歷史 | 10,000 個正規化 event 可在 2 s 內顯示可操作初始畫面 |
+| Soak | 72 小時、8 個同時 task、多 Client 反覆斷線，無不明 task 丟失 |
+
+### 後端規則
+
+- 所有資料結構有明確數量與 byte 上限。
+- SSE 每個 Client 有 bounded queue 與 backpressure 策略；慢 Client 不得拖垮 Host。
+- stdout/stderr 以有上限的 chunk 傳送，不讓單次巨大輸出壟斷其他 task。
+- session 搜尋、usage 匯總、Git 操作、hash 與大檔讀取不在主 async runtime 上做未切片 blocking work。
+- timeout、cancellation、child process tree 終止與 shutdown drain 都要有測試。
+
+### 前端規則
+
+- 流式 token/event 在 animation frame 或短批次中更新，不為每個 token 全畫面重繪。
+- 長對話與 session 清單使用 virtualization/windowing。
+- Markdown/Mermaid 在完成或受控節流後渲染，不在每個 delta 重新 parse 整篇內容。
+- 視圖切換使用 generation/request identity，過期 response 不得寫回新畫面。
+- 不以高頻 polling 代替已有事件；polling 只用於可容錯狀態與受限 fallback。
+- 減少動態、鍵盤操作、VoiceOver/TalkBack 與高對比是正式驗收項目。
+
+## 十四、測試策略
+
+### 測試金字塔
+
+1. **Unit**：parser、state reducer、path validation、redaction、migration。
+2. **Protocol contract**：所有 request/response/event 的 schema、golden fixture、向前/向後相容。
+3. **Adapter contract**：對各 harness 版本測試啟動、stream、approval、stop、resume 與錯誤。
+4. **Integration**：daemon + fake harness + SQLite + SSE + Client SDK。
+5. **End-to-end**：真實瀏覽器、Tauri 視窗、iOS/Android 實機。
+6. **Chaos**：殺死 Web server、daemon、supervisor、agent child；斷網；休眠/喚醒；磁碟滿；檔案損壞。
+7. **Performance**：大歷史、高頻輸出、1/4/8/16 task、慢 Client、多 Client。
+8. **Security**：路徑穿越、shell injection、SSRF、DNS rebinding、token 洩漏、replay、越權 approval。
+9. **Installer/update**：macOS/Windows/Linux 簽名、升級、回滾、舊資料保留。
+
+### 真實 agent 驗證規則
+
+- 發現 executable 不等於已驗證。
+- 登入流程可抵達不等於 token exchange 與真實 model call 已通過。
+- 文字回覆成功不等於 tool/approval/session resume 已通過。
+- 測試報告要列出 harness version、OS、integration tier、route/provider/model 與未驗證能力。
+- 不在 CI 或 log 輸出使用者的官方訂閱 token。
+
+## 十五、發佈、更新與回滾
+
+- Host、Web Client、App Client、Protocol、DB schema 分開版本化。
+- 新 Host 在啟用不相容 schema 前先備份，健康檢查失敗自動恢復舊版。
+- 破壞性 protocol 變更先做雙讀/雙寫或轉換層，等支援中的 Client 升級後才移除。
+- App Store 與 Play Store 客戶端不得被 Host 當日更新強制破壞。
+- 採用功能旗標與分階段啟用：開發機 → 內部測試 → 手動 opt-in → 新安裝預設 → 全體。
+- 新 Rust 能力在移除 Node fallback 前必須完成至少一個穩定版週期與 soak test。
+- release 持續使用 checksum、artifact attestation、簽名與可驗證來源。
+
+## 十六、平台發展順序
+
+### 階段 A：Web-first（現在）
+
+- Web/PWA 繼續作為唯一對外產品界面。
+- 完成多 agent 的結構化 session、history、approval 與 model source。
+- 建立 Stepsemble Protocol 與 Client SDK，避免 UI 綁定目前 Node route。
+- 改善長對話、流式更新、重連與多裝置一致性。
+- 進行 Rust daemon 漸進遷移，但 Web 用戶無需更換使用方式。
+
+### 階段 B：Apple（macOS → iOS/iPadOS）
+
+macOS：
+
+- Host + Client。
+- 可連接本機 daemon 或遠端 Host。
+- 提供明確的「UI 關閉後任務是否繼續」同意與狀態。
+- 完整 Host 版優先提供簽名/notarized 的官網安裝包；Mac App Store 若因 sandbox 限制，可只提供 Client-only 版本。
+
+iOS/iPadOS：
+
+- Client-only，不執行 agent CLI 或下載可變動執行碼。
+- UI 資源包含在 App bundle，只透過 API 取得資料。
+- 前景使用 SSE；背景狀態使用 APNs 或受支援的最小通知 relay。
+- 提供內建 Demo Workspace/recorded session，讓 App Review 與未連 Host 的使用者也能看到核心價值。
+- 不只是開啟 Host 網頁的 WebView wrapper。
+
+### 階段 C：Windows 與 Linux
+
+- 共用 TypeScript UI、Tauri shell、Rust daemon 與 Stepsemble Protocol。
+- Windows 完成 ConPTY/process tree、簽名安裝、tray/notification 與自啟權限。
+- Linux 完成 PTY、systemd user service、Secret Service、Wayland/X11 與主要發行版打包。
+- 原生 App 未完成前，這些平台仍使用完整 Web/PWA。
+
+### 階段 D：Android
+
+- Client-only，與 iOS 共用主要 UI 與 Client SDK。
+- 原生差異僅在 Keystore、FCM、Intent、Share Sheet、權限與生命週期橋接。
+- 在不同廠商 WebView、省電策略與背景限制下做真實裝置測試。
+
+### 階段 E：選擇性原生化
+
+只有真實效能、無障礙、系統整合或商店規定證明共用 Web UI 無法達標時，才將單一高價值畫面以 SwiftUI、Jetpack Compose 或 WinUI 替換。這是 Client 實作選擇，不得分叉 Host Core 與產品語意。
+
+## 十七、分階段工程計畫與驗收門檻
+
+### Phase 0：計畫、基線與資產盤點
+
+- [x] 將長期架構、語言邊界與平台順序落檔。
+- [x] 記錄目前 Node/PWA 架構與 Stepsemble 3.0.0 的 127/127 測試基線。
+- [x] 列出所有 HTTP/SSE/RPC 端點、呼叫者、auth scope、timeout 與資料大小上限。
+- [x] 列出所有持久檔案、擁有者、權限、備份與回滾語意。
+- [x] 盤點現有 session/run/approval/task 狀態與所有 event。
+- [x] 建立 Host 效能基線：API latency、event-loop delay、SSE latency、RSS、長 session API、多 task。
+- [ ] 建立 Browser 效能基線：LCP/FCP/CLS/INP/TBT、長 session render、持續 streaming、network、accessibility。
+- [x] 記錄當前 macOS/Windows/Linux 安裝、啟動、更新與回滾行為。
+- [x] 在 Mac Mini 完成 2.13.2 → 3.0.0 transactional live migration，並核對 session/token/CUA/launchd。
+- [x] 在 clean Linux container 實跑 source install，並以 PowerShell AST parser 驗證 Windows installer。
+
+驗收門檻：盤點可由新 agent 獨立讀懂，每個外部行為都有對應的測試或明確標記為未覆蓋。
+
+### Phase 1：Stepsemble Protocol v1 與 Contract Suite
+
+- [ ] 建立 canonical schema 目錄與 protocol version policy。
+- [ ] 定義 ID、event envelope、error envelope、pagination、cursor、idempotency。
+- [ ] 定義 session/run/approval/launch profile/capability schemas。
+- [ ] 由現有線上行為建立脫敏 golden fixtures。
+- [ ] 建立 Node 實作的 contract tests，保證後續 Rust 不改變語意。
+- [ ] 建立 Host/Client version negotiation 與 capability negotiation。
+- [ ] 建立 typed TypeScript Client SDK，先在現有 Web UI 內替換直接 API 呼叫。
+
+驗收門檻：舊 UI 行為不變；同一 fixture 可用於 Node 與未來 Rust；過期與未知 event 有明確處理。
+
+### Phase 2：TypeScript 前端邊界與順滑度
+
+- [ ] 啟用 `checkJs`/strictness 基線，不一次要求全數據零錯誤。
+- [ ] 拆分 session reducer、event reducer、approval store、model/profile store。
+- [ ] 將前端網路重試、cursor 與去重收斂到 Client SDK。
+- [ ] 長對話/session list virtualization。
+- [ ] 串流 event 批次渲染、markdown 完成後渲染。
+- [ ] 將現有前端模組逐步轉成 TypeScript，保留可部署 JS artifact。
+
+驗收門檻：長 session、持續串流、快速切換 Host/session 通過效能與 race tests；Web/PWA 部署與離線 app shell 不回歸。
+
+### Phase 3：現有 Node Host 去阻塞與可觀測性
+
+- [ ] 將 request path 的同步 session 目錄掃描改為 async/indexed 路徑。
+- [ ] 將 `execFileSync` Git/worktree 操作改為 cancellable async child process。
+- [ ] 將高頻同步寫入改為受控事件佇列與原子落盤。
+- [ ] 加入 event-loop delay、SSE queue、task lifecycle、重連與子程序延遲指標。
+- [ ] 建立可脫敏診斷包。
+
+驗收門檻：現有 Node 版在同一壓測工作負載下有可重現基準，不再有已知會凍結整個 HTTP server 的長時間同步操作。
+
+### Phase 4：Rust Workspace 與只讀 Shadow Daemon
+
+- [ ] 建立 Rust workspace、toolchain、lint、test、dependency audit 與 CI matrix。
+- [ ] 實作 protocol types、error model、config loader 與 structured tracing。
+- [ ] 實作 `/health`、capability handshake 與靜態資源服務。
+- [ ] 只讀掃描現有 session/config，與 Node 輸出做 shadow comparison。
+- [ ] 不寫入使用者資料，不接管真實 task。
+
+驗收門檻：Rust 與 Node 對所有 golden fixture 產生等價結果；只讀 shadow 模式可隨時關閉，不影響線上服務。
+
+### Phase 5：Rust Durable Core 與資料遷移
+
+- [ ] 實作 SQLite schema、migration、backup、integrity check 與 rollback。
+- [ ] 實作 append-only journal、snapshot、cursor、idempotency 與 projection rebuild。
+- [ ] 實作 session/run/approval state machine。
+- [ ] 從現有 Stepsemble JSON 資料雙讀，初期不刪舊檔。
+- [ ] 提供對等回滾與資料匯出。
+
+驗收門檻：斷電/崩潰/升級模擬下 DB 無不可恢復損壞；舊版 Node 仍可回滾啟動；原生 agent session 檔案未被改寫。
+
+### Phase 6：Rust Runtime、PTY 與 Agent Adapter Parity
+
+- [ ] 實作跨平台 child process tree、signal/stop、timeout、shutdown drain。
+- [ ] 實作 macOS/Linux PTY 與 Windows ConPTY 邊界。
+- [ ] 將目前 detached supervisor 語意移植到獨立 Rust runtime。
+- [ ] 依 structured-first 順序實作 Pi、Claude Code、Codex、OpenCode、Grok adapter。
+- [ ] 建立每個受支援 harness version 的 contract suite 與兼容矩陣。
+- [ ] 保留 Node supervisor/adapter fallback 至少一個穩定版週期。
+
+驗收門檻：新 runtime 通過 72 小時 soak、關閉 Client、重啟 API、殺死 child、反覆 approval、快速 stop/restart 與多 Client 測試。
+
+### Phase 7：Model Source 與第三方路由
+
+- [ ] 實作 Launch Profile schema 與 Resolver。
+- [ ] 實作 harness-native model discovery，並標記 auth/billing source。
+- [ ] 實作 OpenCodex adapter，只使用可靠、可版本化的介面。
+- [ ] 實作 CC Switch observer/import，不直接改寫未文件化內部格式。
+- [ ] 建立 Native/Routed/Experimental/Unsupported 兼容測試與 UI。
+- [ ] 實作 fork-first 的跨 provider/protocol 切換。
+
+驗收門檻：任何實際 route、provider、model、billing source 在啟動前都可被使用者看懂；router 故障不會偷換帳號或產生意外費用。
+
+### Phase 8：Tauri Apple PoC 與正式客戶端
+
+- [ ] 建立只包含共用 UI 與 Client SDK 的 Tauri shell。
+- [ ] macOS 實作 Host + Client、daemon lifecycle、menu bar、通知、簽名與 notarization。
+- [ ] iOS/iPadOS 實作 Client-only、Keychain、Face ID、APNs、Bonjour/QR pairing、Share Sheet。
+- [ ] 完成長對話、鍵盤、safe area、旋轉、休眠/喚醒、背景回前景實機測試。
+- [ ] 建立 App Review demo mode、privacy labels、review notes 與 support URL。
+
+驗收門檻：Tauri PoC 通過順滑度、穩定性、原生能力、商店規則與維護成本評估。若未通過，以同一 Client SDK/UI 評估 Capacitor（mobile）或 Electron（desktop），不改寫 Host Core。
+
+### Phase 9：Windows/Linux Desktop
+
+- [ ] 建立 Windows/Linux Rust daemon 與 Tauri build matrix。
+- [ ] 完成安裝、升級、回滾、簽名/驗證與 user-level background service。
+- [ ] 驗證各 harness 在不同 shell/PATH/config 環境的實際發現與啟動。
+- [ ] 完成檔案系統、PTY、通知、tray、權限與睡眠恢復測試。
+
+驗收門檻：各平台在全新一般使用者帳號、不需管理員/root 的預設流程完成安裝、配對、執行、重啟、升級與回滾。
+
+### Phase 10：Android 與完整體
+
+- [ ] 建立 Android Tauri Client-only build。
+- [ ] 實作 Keystore、FCM、Intent、Share Sheet、區域網路與 app lifecycle。
+- [ ] 在主要裝置、WebView 版本與電池策略下驗證。
+- [ ] 完成所有平台的功能、安全、無障礙與相容性矩陣。
+- [ ] 評估哪些畫面需要選擇性原生化，不做全平台先行重寫。
+
+驗收門檻：Web、iOS、macOS、Android、Windows、Linux 都能連接受支援 Host；原生 App 不存在的環境仍可使用 Web/PWA 完成核心工作。
+
+## 十八、CI 與平台測試矩陣
+
+### 每個 PR
+
+- Node legacy syntax/tests（遷移期間）。
+- TypeScript typecheck、lint、unit tests。
+- Rust fmt、clippy（warnings as errors）、unit/integration tests。
+- Protocol schema compatibility check。
+- 無秘密、無私人 host/path/device data 掃描。
+- 安裝與更新檔案 preflight。
+
+### 每個候選版
+
+- macOS arm64，必要時 x64。
+- Windows x64，之後 arm64。
+- Linux x64，之後 arm64。
+- iOS 最低支援版、當前版與至少兩種實機尺寸。
+- Android 最低支援版、當前版與不同 WebView/廠商。
+- Safari、Chrome、Edge、Firefox 的 Web/PWA 核心流程。
+- 當前 Host 搭配支援範圍內舊 Client，與當前 Client 搭配支援範圍內舊 Host。
+
+## 十九、主要風險與緩解
+
+| 風險 | 緩解 |
+| --- | --- |
+| Rust 遷移引入新邏輯錯誤 | Contract fixtures、shadow mode、逐端點切換、Node fallback |
+| 同時遷移 UI 與 Host 難以定位問題 | Protocol 先凍結；同一里程碑不同時替換兩個主邊界 |
+| Tauri 不同系統 WebView 行為差異 | 實機矩陣、feature detection、shell fallback，不將商業邏輯鎖在 Tauri IPC |
+| iOS App 被視為只是網站 wrapper | 打包 UI、原生 Keychain/Face ID/APNs/Share、demo mode、完整 App UX |
+| App Store 更新慢於 Host | Protocol negotiation、前兩個 Client 版本兼容、破壞性變更延遲清理 |
+| Agent CLI/SDK 快速變動 | Adapter version matrix、capability discovery、structured-first + bounded fallback |
+| 第三方 router 改寫設定或閃退 | 原生優先、只讀觀察起步、不直接改未文件化資料庫、fail closed |
+| 訂閱帳號被外部 route 混用 | Auth/billing source 明示、不匯出 OAuth、無靜默 fallback |
+| SQLite/schema 遷移破壞使用者資料 | Transaction、backup、integrity check、雙讀過渡、舊檔保留 |
+| 手機背景中斷 SSE | 前景 SSE；背景採 push；回前景以 cursor/snapshot 對齊 |
+| 背景 daemon 讓使用者不知情 | 首次明確同意、tray/menu 狀態、可隨時停止、卸載可恢復 |
+| 單體前端繼續膨脹 | TypeScript domain modules、Client SDK、state reducer、每階段行數/複雜度盤點 |
+| 多平台功能漂移 | 共用 capability/schema/E2E scenarios，原生 bridge 不包含商業邏輯 |
+
+## 二十、架構變更規則
+
+下列變更必須新增 ADR，不只改程式碼：
+
+- 更換 Rust、TypeScript 或 Tauri 的責任邊界。
+- 從 SSE 轉成 WebSocket 或增加第二套事件傳輸。
+- 變更 native session 與 Stepsemble journal 的主從關係。
+- 改變 provider credential 的儲存位置。
+- 增加 cloud relay、telemetry、crash reporting 或 hosted execution。
+- 變更行動端 Client-only 的邊界。
+- 引入全面原生 UI 或替換共用前端框架。
+- 直接寫入第三方 router/profile manager 的私有設定格式。
+- 改變支援的 Client/Host 版本視窗。
+
+ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安全影響、回滾路徑、測試證據與狀態。
+
+更改本計畫時：
+
+1. 不覆蓋過去決策沒有發生過的事實。
+2. 在「決策紀錄」將舊決策標記 superseded，連結新 ADR。
+3. 更新對應 phase、驗收門檻與風險。
+4. 在「變更記錄」說明為何變動。
+5. 若已有使用者資料或 Client 依賴，必須先寫相容/回滾計畫。
+
+## 二十一、待後續 ADR/PoC 確認的問題
+
+以下不影響語言與主架構，但必須在對應階段決定：
+
+- Rust HTTP framework 與 SSE/backpressure 實作的最終套件。
+- SQLite driver/migration library、journal payload 大小與 retention policy。
+- TypeScript 打包工具與是否需要 component framework。
+- Tauri iOS 在真實長對話、鍵盤、APNs、Bonjour 與 App Review 下的結果。
+- macOS 完整 Host 是否只官網發佈，Mac App Store 是否另提供 Client-only。
+- APNs/FCM 是否需要只保存 opaque task ID 的最小通知 relay。
+- 本機 LAN HTTPS 證書、Host fingerprint 與 Tailscale 的預設用戶流程。
+- OpenCodex 與 CC Switch 對外介面的長期穩定性與授權邊界。
+
+## 二十二、完整體完成定義
+
+只有同時達成以下條件，才可宣告「跨平台完整體」：
+
+- Web/PWA 仍可完整使用核心功能。
+- macOS、Windows、Linux 有可安裝的 Host + Client。
+- iOS/iPadOS、Android 有可安裝的 Client。
+- 所有 Client 使用同一個 Stepsemble Protocol 與 Host session source of truth。
+- 已支援 agent 的 session、history、streaming、approval、stop、resume 等級被明確標記並通過對應 contract tests。
+- 多 Client 同時連線不造成事件丟失、重複動作或 approval 越權。
+- 官方訂閱、外部 API、router 與計費來源清楚隔離。
+- 安裝、更新、資料遷移與回滾在支援平台都通過。
+- 長時間、崩潰、斷網、休眠與多任務測試通過。
+- 使用者不需理解 harness/provider/router 內部實作也能安全使用預設路徑。
+
+## 決策紀錄
+
+| ID | 日期 | 狀態 | 決策 |
+| --- | --- | --- | --- |
+| D-001 | 2026-09-04 | Accepted | Web/PWA 永久保留為第一等 Client |
+| D-002 | 2026-09-04 | Accepted | Host 與 Client 分離；mobile 初期 Client-only |
+| D-003 | 2026-09-04 | Accepted | TypeScript 負責 Client/UI，Rust 負責長期 Host Core，Swift/Kotlin 僅作平台橋接 |
+| D-004 | 2026-09-04 | Accepted | Rust 遷移現在開始規劃，但以 contract-first 漸進切換，不 Big Bang Rewrite |
+| D-005 | 2026-09-04 | Accepted with gate | Tauri 2 是預設 App Shell，正式承諾前必須通過 Apple 實機 PoC |
+| D-006 | 2026-09-04 | Accepted | Native agent session 優先為來源，Stepsemble journal 為持久、可回放投影 |
+| D-007 | 2026-09-04 | Accepted | 官方登入/訂閱不複製，實際 auth/billing source 必須明示，無靜默 fallback |
+| D-008 | 2026-09-04 | Accepted | OpenCodex/CC Switch 屬 Model Source/Profile 層，不是 Coding Agent |
+| D-009 | 2026-09-04 | Accepted | Web 與原生 App 使用同一個版本化 Stepsemble Protocol |
+| D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；step + ensemble 與貓掌 terminal 識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
+
+## 變更記錄
+
+### 2026-09-04 — Plan 1.3
+
+- Mac Mini 已由 Pi Harbor 2.13.2 原地部署為 Stepsemble 3.0.0；保留 SSH localhost 啟動模式，舊 app/plist 可回復封存，舊 config/bin 保留。
+- 升級前後可見 session 8、原生 session 25 files／58,696,776 bytes、Web token hash 完全一致；`com.piharbor.cua-driver` PID 636 未受影響。
+- Updater 增加 canonical repo 發佈空窗的 read-only legacy stable fallback，semantic version gate 實測不會由 3.0.0 降回 2.13.2。
+- Mini launcher 的 restart gate 擴大到 generic agent task；檢查失敗採 fail-closed，token JSON 由 `jq` 正確編碼。
+- Linux source installer 在 clean Debian/Node 22 container 完成；Windows installer通過 PowerShell AST parse。
+- 重跑 Stepsemble 3.0.0 Host benchmark 並保留第二份 raw JSON；未見實務上的 rename regression。Browser trace 仍因缺 Chrome DevTools MCP 而 blocked。
+
+### 2026-09-04 — Plan 1.2
+
+- 產品名正式定案為 Stepsemble，補上語意、視覺識別、初步名稱碰撞檢查與正式商標檢索門檻。
+- 將產品版本提升為 3.0.0；新增 `STEPSEMBLE_*`、新路徑、cookie、service label、PWA cache 與 `STEPSEMBLE3` pairing identity。
+- 建立 Pi Harbor/Pi Web additive migration：private config、task snapshot、瀏覽器偏好、舊 cookie、環境變數與配對碼雙讀；新寫只用 Stepsemble；舊來源不刪除。
+- macOS、Linux、Windows 安裝器加入舊服務辨識、active-work gate、健康驗證與可回復切換；v3 Release 保留舊 asset alias 供 v2 updater 跨版。
+- 新增品牌／遷移回歸測試，當前完整測試為 127/127。
+
+### 2026-09-04 — Plan 1.1
+
+- 新增 `current-system-inventory.md`，盤點現行 60+ route、三種 event transport、auth scope、持久資料、狀態機、approval 缺口與各平台安裝/回滾行為。
+- 新增可重跑、完全隔離的 Host benchmark 與 raw baseline；不載入任何真實 session、provider credential 或官方訂閱。
+- 實測 301 個 session、41,000 則 message 與 8 個並行 generic task；將結果與限制寫入 `performance-baseline.md`。
+- 明確記錄 Claude Code/Codex/Grok/OpenCode 目前只有 terminal integration，尚未具備與 Pi 等價的完整 session/history/approval。
+- Browser performance trace 因缺少 `chrome-devtools` MCP 保持未完成；不以 server 數據冒充 Web 順滑度。
+
+### 2026-09-04 — Plan 1.0
+
+- 首次落檔完整跨平台計畫。
+- 定案 Web 永久保留、Apple 優先、之後 Windows/Linux/Android 的產品順序。
+- 定案 TypeScript Client/UI ＋ Rust Host Core ＋ Tauri 2 target shell ＋ thin Swift/Kotlin bridge。
+- 將 session、approval、native auth/subscription、model source、第三方 router、效能、測試、發佈與回滾納入同一計畫。
+- 將當前 Node/PWA 實作定義為過渡基線，禁止未受控的一次性重寫。
+
+## 官方參考
+
+- [Tauri 2 跨平台架構](https://v2.tauri.app/concept/architecture/)
+- [Tauri 2 Process Model](https://v2.tauri.app/concept/process-model/)
+- [Tauri WebView 版本與平台差異](https://v2.tauri.app/reference/webview-versions/)
+- [Apple SwiftUI](https://developer.apple.com/swiftui/)
+- [Apple App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/)
+- [Apple Local Network Privacy](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy)
+- [Apple Keychain Services](https://developer.apple.com/documentation/security/keychain-services/)
+- [Android Jetpack Compose](https://developer.android.com/develop/ui/compose/first)
+- [Microsoft WinUI 3](https://learn.microsoft.com/windows/apps/winui/winui3/)
+- [Node.js child processes](https://nodejs.org/api/child_process.html)
+- [Node.js TypeScript support](https://nodejs.org/api/typescript.html)
+- [Rust concurrency](https://doc.rust-lang.org/book/ch16-00-concurrency.html)
+- [Tokio](https://tokio.rs/tokio/tutorial)

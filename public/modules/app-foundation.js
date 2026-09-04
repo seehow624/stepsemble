@@ -1,13 +1,20 @@
-/* pi-harbor foundation — browser-safe configuration, preferences, and device helpers */
-(function exposePiHarborFoundation(global) {
+/* stepsemble foundation — browser-safe configuration, preferences, and device helpers */
+(function exposeStepsembleFoundation(global) {
   "use strict";
 
-  const SELECTED_KEY = "piharbor.selected.v1";
-  const SETTINGS_KEY = "piharbor.settings.v2";
-  // One-time v1 migration. These names must remain readable until everyone
-  // who used the pre-Harbor build has opened v2 at least once.
-  const LEGACY_SELECTED_KEY = "piweb.selected.v1";
-  const LEGACY_SETTINGS_KEYS = Object.freeze(["piweb.settings.v2", "piweb.settings.v1", "piharbor.settings.v1"]);
+  const SELECTED_KEY = "stepsemble.selected.v1";
+  const SETTINGS_KEY = "stepsemble.settings.v2";
+  // Read both former product generations, then write the value under the
+  // Stepsemble key. Legacy entries remain untouched for safe v2 rollback.
+  const LEGACY_SELECTED_KEYS = Object.freeze(["piharbor.selected.v1", "piweb.selected.v1"]);
+  const LEGACY_SELECTED_KEY = LEGACY_SELECTED_KEYS[0];
+  const LEGACY_SETTINGS_KEYS = Object.freeze([
+    "piharbor.settings.v2",
+    "piharbor.settings.v1",
+    "piweb.settings.v2",
+    "piweb.settings.v1",
+    "stepsemble.settings.v1",
+  ]);
   const LEGACY_SETTINGS_KEY = LEGACY_SETTINGS_KEYS[0];
   const SETTINGS_VERSION = 3;
   const DESIGN_THEMES = Object.freeze([
@@ -42,7 +49,13 @@
   });
 
   function loadSelected() {
-    try { return global.localStorage.getItem(SELECTED_KEY) || global.localStorage.getItem(LEGACY_SELECTED_KEY) || null; } catch { return null; }
+    try {
+      const current = global.localStorage.getItem(SELECTED_KEY);
+      if (current) return current;
+      const legacy = LEGACY_SELECTED_KEYS.map((key) => global.localStorage.getItem(key)).find(Boolean) || null;
+      if (legacy) global.localStorage.setItem(SELECTED_KEY, legacy);
+      return legacy;
+    } catch { return null; }
   }
 
   function saveSelected(id) {
@@ -60,7 +73,7 @@
       // palette instead of silently falling back to the default colours.
       if (!parsed.designTheme) out.designTheme = DEFAULT_SETTINGS.designTheme;
       out.settingsVersion = SETTINGS_VERSION;
-      out.locale = global.piI18n?.normalizeLocale(out.locale) || "en";
+      out.locale = global.stepsembleI18n?.normalizeLocale(out.locale) || "en";
       if (!DESIGN_THEME_IDS.has(out.designTheme)) out.designTheme = DEFAULT_SETTINGS.designTheme;
       out.sidebarWidth = Math.min(440, Math.max(280, Number(out.sidebarWidth) || DEFAULT_SETTINGS.sidebarWidth));
       out.fontScale = Math.min(125, Math.max(90, Number(out.fontScale) || DEFAULT_SETTINGS.fontScale));
@@ -81,6 +94,7 @@
       out.showTemporarySessions = parsed.showTemporarySessions === true;
       // v1 的舊設定可能明確關閉分組；v2 首次啟用時以 Project folders 為預設。
       if (!v2) out.groupByProject = true;
+      if (!v2 && raw !== "{}") global.localStorage.setItem(SETTINGS_KEY, JSON.stringify(out));
       return out;
     } catch { return { ...DEFAULT_SETTINGS }; }
   }
@@ -104,12 +118,12 @@
     const name = String(typeof machine === "string" ? machine : machine?.name || "").trim();
     // Keep the configured alias. Do not bake a user's computer model into the
     // public client; a generic fallback is safer for newly discovered hosts.
-    return name || "Pi Harbor device";
+    return name || "Stepsemble device";
   }
 
   function machineDisplayHost(machine) {
     const host = String(machine?.host || "").trim();
-    return host ? "Pi Harbor" : "";
+    return host ? "Stepsemble" : "";
   }
 
   function machineName(machines, id) {
@@ -152,11 +166,12 @@
     throw new Error("Retry operation exhausted");
   }
 
-  global.piHarborFoundation = Object.freeze({
+  global.stepsembleFoundation = Object.freeze({
     SELECTED_KEY,
     SETTINGS_KEY,
     LEGACY_SETTINGS_KEY,
     LEGACY_SETTINGS_KEYS,
+    LEGACY_SELECTED_KEYS,
     SETTINGS_VERSION,
     DESIGN_THEMES,
     DESIGN_THEME_IDS,
@@ -172,4 +187,8 @@
     resolveMachineCatalogState,
     retryWithBackoff,
   });
+  // A cached v2 controller can briefly execute beside a freshly updated
+  // foundation module. Keep the old global as a read-only alias for that one
+  // rolling-update window.
+  global.piHarborFoundation = global.stepsembleFoundation;
 })(window);

@@ -1,16 +1,16 @@
-/* pi-harbor v2.13.2 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "2.13.2";
+const CLIENT_APP_VERSION = "3.0.0";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
 // as the original PWA while preventing storage, device, and display rules from
 // being duplicated across future feature modules.
-const foundation = window.piHarborFoundation;
-const sessionUtils = window.piHarborSessionUtils;
-const contextUtils = window.piHarborContextUtils;
-if (!foundation || !sessionUtils || !contextUtils) throw new Error("Pi Harbor foundation modules are missing");
+const foundation = window.stepsembleFoundation;
+const sessionUtils = window.stepsembleSessionUtils;
+const contextUtils = window.stepsembleContextUtils;
+if (!foundation || !sessionUtils || !contextUtils) throw new Error("Stepsemble foundation modules are missing");
 const {
   SELECTED_KEY, SETTINGS_KEY, LEGACY_SETTINGS_KEY, LEGACY_SETTINGS_KEYS, SETTINGS_VERSION,
   DESIGN_THEMES, DESIGN_THEME_IDS, DEFAULT_SETTINGS,
@@ -30,6 +30,20 @@ const {
   computeCacheHitRate, formatTokenCount, formatPercent, usageTotalTokens, usageCostTotal,
   isContextRequestCurrent,
 } = contextUtils;
+
+function migratedStorageValue(storage, key, legacyKeys = []) {
+  try {
+    const current = storage.getItem(key);
+    if (current !== null) return current;
+    for (const legacyKey of legacyKeys) {
+      const legacy = storage.getItem(legacyKey);
+      if (legacy === null) continue;
+      storage.setItem(key, legacy);
+      return legacy;
+    }
+  } catch {}
+  return null;
+}
 
 let machines = [];        // [{id,name,host,url,managed,self}] 由 GET /api/machines 下發
 let selfId = null;
@@ -171,7 +185,8 @@ let taskProgress = null;     // latest extension/plan task widget shown above th
 const extensionStatuses = new Map();
 const TASK_WIDGET_KEY_RE = /(?:plan|todo|task|progress|step)/i;
 let settings = loadSettings();
-const DRAFT_STORAGE_KEY = "piharbor.composer-drafts.v1";
+const DRAFT_STORAGE_KEY = "stepsemble.composer-drafts.v1";
+const LEGACY_DRAFT_STORAGE_KEYS = Object.freeze(["piharbor.composer-drafts.v1", "piweb.composer-drafts.v1"]);
 let activeDraftKey = "";
 let composerModelName = "";
 let composerReasoningLevel = "off";
@@ -184,7 +199,7 @@ let providerCatalogReadOnly = false;
 let providerCatalogNotice = "";
 
 function readDraftEntries() {
-  try { return normalizeDraftEntries(localStorage.getItem(DRAFT_STORAGE_KEY)); }
+  try { return normalizeDraftEntries(migratedStorageValue(localStorage, DRAFT_STORAGE_KEY, LEGACY_DRAFT_STORAGE_KEYS)); }
   catch { return []; }
 }
 
@@ -290,7 +305,8 @@ let extensionUiRequest = null;
 let activityWatchdog = null;
 let runTimerInterval = null;
 let expandedPinnedSessions = false;
-const ONBOARDING_KEY = "piharbor.onboarding.v1";
+const ONBOARDING_KEY = "stepsemble.onboarding.v1";
+const LEGACY_ONBOARDING_KEYS = Object.freeze(["piharbor.onboarding.v1", "piweb.onboarding.v1"]);
 let onboardingStep = 0;
 const ACTIVITY_STALE_MS = 45_000;
 let projectChangesState = null;
@@ -301,7 +317,7 @@ let projectChangesShouldResetScroll = true;
 
 // Device discovery is deliberately independent from apiBase.  apiBase may
 // still point at a remote machine while the authoritative catalog always
-// comes from this browser's signed-in Pi Harbor instance.
+// comes from this browser's signed-in Stepsemble instance.
 const MACHINE_CATALOG_RETRY_DELAYS = Object.freeze([120, 320]);
 let machineCatalogRequest = null;
 let machineCatalogStatus = "idle";
@@ -641,7 +657,7 @@ function remoteMachineIdForBase(base) {
 function showRemoteAuthorizationState(base) {
   const machineId = remoteMachineIdForBase(base);
   const machine = machines.find((item) => item.id === machineId) || null;
-  const device = machineDisplayName(machine || { name: "Pi Harbor device" });
+  const device = machineDisplayName(machine || { name: "Stepsemble device" });
   const message = tKey("deviceTrust.remoteAuthorizationError", { device });
   if (machineId) {
     machineStatuses.set(machineId, "offline");
@@ -696,7 +712,7 @@ const post = (path, body) => api(path, {
 });
 
 function tKey(key, vars = {}) {
-  return window.piI18n?.tKey?.(key, vars) || window.piI18n?.t?.(key, vars) || key;
+  return window.stepsembleI18n?.tKey?.(key, vars) || window.stepsembleI18n?.t?.(key, vars) || key;
 }
 
 /** 通用 RPC 指令（模型切換 / thinking level / compact 等） */
@@ -720,7 +736,7 @@ function applyAppearance() {
   html.style.fontSize = `${settings.fontScale}%`;
   document.body.classList.toggle("compact", !!settings.compact);
   html.classList.toggle("reduced-motion", !!settings.reducedMotion);
-  window.piI18n?.setLocale(settings.locale || "en");
+  window.stepsembleI18n?.setLocale(settings.locale || "en");
   renderContextDashboard();
 }
 
@@ -749,7 +765,7 @@ let onboardingKeyRevealed = false;
 let onboardingRequest = 0;
 
 function onboardingLocalized(key) {
-  return window.piI18n?.t(key) || key;
+  return window.stepsembleI18n?.t(key) || key;
 }
 
 function chunkOnboardingKey(value) {
@@ -854,7 +870,7 @@ el.loginOnboardingContinue?.addEventListener("click", async () => {
 el.loginOnboardingSkip?.addEventListener("click", () => finishLoginOnboarding(false));
 
 // ---- Token help: per-OS instructions on the sign-in card ----
-// The token lives on the computer running Pi Harbor, so the host's own
+// The token lives on the computer running Stepsemble, so the host's own
 // platform is preselected. The other tabs stay available because this page is
 // often read on a phone while the token sits on a desktop.
 function tokenHelpOsFromPlatform(platform) {
@@ -912,13 +928,13 @@ el.loginForm.addEventListener("submit", async (e) => {
   } catch (err) {
     el.loginError.textContent = err.message === "unauthorized"
       ? "Token 不正確"
-      : err.status === 401 ? (window.piI18n?.t("登入已過期") || "Sign-in expired") : err.message;
+      : err.status === 401 ? (window.stepsembleI18n?.t("登入已過期") || "Sign-in expired") : err.message;
     el.loginError.classList.remove("hidden");
   }
 });
 
 function machineCatalogStatusText(key, fallback) {
-  return window.piI18n?.t(key) || fallback;
+  return window.stepsembleI18n?.t(key) || fallback;
 }
 
 function setMachineCatalogStatus(state, message = "") {
@@ -1173,8 +1189,8 @@ function renderMachineSwitch() {
     el.machineSwitchStatus.title = statusLabel;
     el.machineSwitchStatus.dataset.status = status;
   }
-  el.machineSwitch.title = `${window.piI18n?.t("Switch device") || "Switch device"} · ${statusLabel}`;
-  el.machineSwitch.setAttribute("aria-label", `${window.piI18n?.t("Switch device") || "Switch device"}: ${statusLabel}`);
+  el.machineSwitch.title = `${window.stepsembleI18n?.t("Switch device") || "Switch device"} · ${statusLabel}`;
+  el.machineSwitch.setAttribute("aria-label", `${window.stepsembleI18n?.t("Switch device") || "Switch device"}: ${statusLabel}`);
 }
 el.machineSwitch?.addEventListener("change", () => {
   switchMachine(el.machineSwitch.value);
@@ -1214,7 +1230,7 @@ function tokenDateText(value) {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "—";
   try {
-    return new Intl.DateTimeFormat(window.piI18n?.getLocale?.() || settings.locale || "en", {
+    return new Intl.DateTimeFormat(window.stepsembleI18n?.getLocale?.() || settings.locale || "en", {
       dateStyle: "medium", timeStyle: "short",
     }).format(date);
   } catch { return value; }
@@ -1439,7 +1455,7 @@ function fmtCompactTokens(value) {
 function usageSummaryTitleText() {
   const keyed = tKey("usage.title");
   if (keyed && keyed !== "usage.title") return keyed;
-  return window.piI18n?.t?.("Usage · last 7 days") || "Usage · last 7 days";
+  return window.stepsembleI18n?.t?.("Usage · last 7 days") || "Usage · last 7 days";
 }
 
 function normalizeUsageSummaryDom() {
@@ -1489,7 +1505,7 @@ async function renderUsageSummary() {
     }
     el.usageSummaryCard.classList.toggle("hidden", visible === 0);
     if (el.usageSummaryNote) {
-      el.usageSummaryNote.textContent = visible ? "" : window.piI18n?.t("No usage in the last 7 days") || "No usage in the last 7 days";
+      el.usageSummaryNote.textContent = visible ? "" : window.stepsembleI18n?.t("No usage in the last 7 days") || "No usage in the last 7 days";
     }
   } catch {
     el.usageSummaryCard?.classList.add("hidden");
@@ -1569,19 +1585,19 @@ async function refreshStuckSessions() {
       const copy = document.createElement("span");
       copy.className = "stuck-session-copy";
       const label = document.createElement("strong");
-      label.textContent = window.piI18n?.t("Stuck sessions") || "Stuck sessions";
+      label.textContent = window.stepsembleI18n?.t("Stuck sessions") || "Stuck sessions";
       const detail = document.createElement("small");
       detail.textContent = rpc.cwd || (rpc.sessionFile || "").split("/").pop() || rpc.sid.slice(0, 8);
       copy.append(label, detail);
       const stop = document.createElement("button");
       stop.type = "button";
       stop.className = "stuck-session-stop";
-      stop.textContent = window.piI18n?.t("Force stop") || "Force stop";
+      stop.textContent = window.stepsembleI18n?.t("Force stop") || "Force stop";
       stop.addEventListener("click", async () => {
         stop.disabled = true;
         try {
           await post("/api/close", { sid: rpc.sid });
-          toast(window.piI18n?.t("Stuck run closed") || "Stuck run closed");
+          toast(window.stepsembleI18n?.t("Stuck run closed") || "Stuck run closed");
           refreshStuckSessions();
         } catch (error) {
           toast(error.message || "Could not stop", true);
@@ -2108,8 +2124,10 @@ function syncSessionListPolling() {
 // Reopen the conversation the user had open before a reload
 // ---------------------------------------------------------------------------
 
-const LAST_CHAT_KEY = "piharbor.last-chat.v1";
-const LAST_AGENT_TASK_KEY = "piharbor.last-agent-task.v1";
+const LAST_CHAT_KEY = "stepsemble.last-chat.v1";
+const LAST_AGENT_TASK_KEY = "stepsemble.last-agent-task.v1";
+const LEGACY_LAST_CHAT_KEYS = Object.freeze(["piharbor.last-chat.v1", "piweb.last-chat.v1"]);
+const LEGACY_LAST_AGENT_TASK_KEYS = Object.freeze(["piharbor.last-agent-task.v1", "piweb.last-agent-task.v1"]);
 let lastChatRestoreAttempted = false;
 
 function lastChatMachineKey() {
@@ -2119,7 +2137,7 @@ function lastChatMachineKey() {
 function rememberLastChat(file) {
   if (!file) return;
   try {
-    const raw = JSON.parse(localStorage.getItem(LAST_CHAT_KEY) || "{}");
+    const raw = JSON.parse(migratedStorageValue(localStorage, LAST_CHAT_KEY, LEGACY_LAST_CHAT_KEYS) || "{}");
     raw[lastChatMachineKey()] = String(file);
     localStorage.setItem(LAST_CHAT_KEY, JSON.stringify(raw));
   } catch {}
@@ -2127,7 +2145,7 @@ function rememberLastChat(file) {
 
 function readLastChat() {
   try {
-    const raw = JSON.parse(localStorage.getItem(LAST_CHAT_KEY) || "{}");
+    const raw = JSON.parse(migratedStorageValue(localStorage, LAST_CHAT_KEY, LEGACY_LAST_CHAT_KEYS) || "{}");
     const file = raw[lastChatMachineKey()];
     return typeof file === "string" && file ? file : null;
   } catch { return null; }
@@ -2137,7 +2155,7 @@ function rememberLastAgentTask(taskId) {
   const id = String(taskId || "").trim();
   if (!id || id.startsWith("pi:")) return;
   try {
-    const raw = JSON.parse(localStorage.getItem(LAST_AGENT_TASK_KEY) || "{}");
+    const raw = JSON.parse(migratedStorageValue(localStorage, LAST_AGENT_TASK_KEY, LEGACY_LAST_AGENT_TASK_KEYS) || "{}");
     raw[lastChatMachineKey()] = id;
     localStorage.setItem(LAST_AGENT_TASK_KEY, JSON.stringify(raw));
   } catch {}
@@ -2145,7 +2163,7 @@ function rememberLastAgentTask(taskId) {
 
 function clearLastAgentTask() {
   try {
-    const raw = JSON.parse(localStorage.getItem(LAST_AGENT_TASK_KEY) || "{}");
+    const raw = JSON.parse(migratedStorageValue(localStorage, LAST_AGENT_TASK_KEY, LEGACY_LAST_AGENT_TASK_KEYS) || "{}");
     delete raw[lastChatMachineKey()];
     localStorage.setItem(LAST_AGENT_TASK_KEY, JSON.stringify(raw));
   } catch {}
@@ -2153,7 +2171,7 @@ function clearLastAgentTask() {
 
 function readLastAgentTask() {
   try {
-    const raw = JSON.parse(localStorage.getItem(LAST_AGENT_TASK_KEY) || "{}");
+    const raw = JSON.parse(migratedStorageValue(localStorage, LAST_AGENT_TASK_KEY, LEGACY_LAST_AGENT_TASK_KEYS) || "{}");
     const id = raw[lastChatMachineKey()];
     return typeof id === "string" && id && !id.startsWith("pi:") ? id : null;
   } catch { return null; }
@@ -2212,11 +2230,11 @@ function renderTemporarySessionFilter(count = temporarySessionCount) {
   if (el.temporarySessionFilterLabel) {
     // A short constant label keeps the row readable in every locale, even in
     // the narrowest desktop sidebar; the toggle and note carry the state.
-    el.temporarySessionFilterLabel.textContent = window.piI18n?.t("Sub Agent sessions") || "Sub Agent sessions";
+    el.temporarySessionFilterLabel.textContent = window.stepsembleI18n?.t("Sub Agent sessions") || "Sub Agent sessions";
   }
   const note = el.temporarySessionFilterNote;
   if (note) {
-    note.textContent = window.piI18n?.t(settings.showTemporarySessions ? "Showing" : "Hidden by default")
+    note.textContent = window.stepsembleI18n?.t(settings.showTemporarySessions ? "Showing" : "Hidden by default")
       || (settings.showTemporarySessions ? "Showing" : "Hidden by default");
   }
   if (el.temporarySessionCount) {
@@ -2258,7 +2276,7 @@ function closeSwipedSessionItems(except = null) {
 function updateNewProjectAffordance() {
   const hasSessions = sessionsCache.length > 0;
   el.viewList?.classList.toggle("has-sessions", hasSessions);
-  const newProjectLabel = window.piI18n?.t("New project") || "New project";
+  const newProjectLabel = window.stepsembleI18n?.t("New project") || "New project";
   if (el.btnNewProject) {
     el.btnNewProject.classList.toggle("hidden", hasSessions);
     el.btnNewProject.setAttribute("aria-label", newProjectLabel);
@@ -2279,7 +2297,7 @@ let sessionRunTicker = null;
 function renderSessionRunMeta(meta, usage) {
   const startedAt = Number(meta.dataset.runStartedAt) || 0;
   const stuck = meta.dataset.runStuck === "1";
-  const elapsed = startedAt ? window.piHarborSessionUtils.runElapsedText(Date.now() - startedAt) : "";
+  const elapsed = startedAt ? window.stepsembleSessionUtils.runElapsedText(Date.now() - startedAt) : "";
   const label = stuck
     ? tKey("sessions.runStuck")
     : (elapsed ? tKey("sessions.runningFor", { elapsed }) : tKey("sessions.running"));
@@ -2313,9 +2331,9 @@ function renderSessionList(q) {
     const li = document.createElement("li");
     li.className = "session-item" + (s.file === currentSessionFile ? " selected" : "");
     const rawName = s.name || s.preview?.split("\n")[0] || "";
-    const name = stripMd(rawName).slice(0, 70) || (window.piI18n?.t("(Untitled)") || "(Untitled)");
+    const name = stripMd(rawName).slice(0, 70) || (window.stepsembleI18n?.t("(Untitled)") || "(Untitled)");
     // Recency first: scanning for "what did I just do" beats tok/$.
-    const relative = window.piHarborSessionUtils.compactRelativeTime(s.mtimeMs);
+    const relative = window.stepsembleSessionUtils.compactRelativeTime(s.mtimeMs);
     const when = relative || (s.mtimeMs ? tKey("sessions.justNow") : "");
     const usage = [
       when,
@@ -2479,8 +2497,8 @@ function renderSessionList(q) {
         toggle.type = "button";
         toggle.className = "project-session-toggle";
         toggle.textContent = expandedPinnedSessions
-          ? (window.piI18n?.t("Show less") || "Show less")
-          : `${window.piI18n?.t("Show more") || "Show more"} (${pinnedItems.length - PROJECT_SESSION_PREVIEW_LIMIT})`;
+          ? (window.stepsembleI18n?.t("Show less") || "Show less")
+          : `${window.stepsembleI18n?.t("Show more") || "Show more"} (${pinnedItems.length - PROJECT_SESSION_PREVIEW_LIMIT})`;
         toggle.setAttribute("aria-expanded", String(expandedPinnedSessions));
         toggle.addEventListener("click", () => {
           expandedPinnedSessions = !expandedPinnedSessions;
@@ -2525,8 +2543,8 @@ function renderSessionList(q) {
         toggle.type = "button";
         toggle.className = "project-session-toggle";
         toggle.textContent = expanded
-          ? (window.piI18n?.t("Show less") || "Show less")
-          : `${window.piI18n?.t("Show more") || "Show more"} (${items.length - PROJECT_SESSION_PREVIEW_LIMIT})`;
+          ? (window.stepsembleI18n?.t("Show less") || "Show less")
+          : `${window.stepsembleI18n?.t("Show more") || "Show more"} (${items.length - PROJECT_SESSION_PREVIEW_LIMIT})`;
         toggle.setAttribute("aria-expanded", String(expanded));
         toggle.addEventListener("click", (event) => {
           event.stopPropagation();
@@ -2545,13 +2563,13 @@ function renderSessionList(q) {
       const actions = document.createElement("div");
       actions.className = "project-group-actions";
       if (cwd !== "(unknown)") {
-        const newButton = projectIconButton("i-plus", window.piI18n?.t("New session in project") || "New session in project");
+        const newButton = projectIconButton("i-plus", window.stepsembleI18n?.t("New session in project") || "New session in project");
         newButton.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
           openNewDialog(cwd);
         });
-        const moreButton = projectIconButton("i-ellipsis", window.piI18n?.t("More project actions") || "More project actions");
+        const moreButton = projectIconButton("i-ellipsis", window.stepsembleI18n?.t("More project actions") || "More project actions");
         moreButton.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -2564,7 +2582,7 @@ function renderSessionList(q) {
       arrowButton.className = "project-group-chevron-button";
       arrowButton.setAttribute("aria-expanded", String(!collapsed));
       arrowButton.setAttribute("aria-controls", children.id);
-      arrowButton.title = collapsed ? (window.piI18n?.t("Expand") || "Expand") : (window.piI18n?.t("Collapse") || "Collapse");
+      arrowButton.title = collapsed ? (window.stepsembleI18n?.t("Expand") || "Expand") : (window.stepsembleI18n?.t("Collapse") || "Collapse");
       arrowButton.setAttribute("aria-label", arrowButton.title);
       arrowButton.innerHTML = `<span class="project-group-chevron"><svg class="icon"><use href="#i-chevron-down"></use></svg></span>`;
       arrowButton.addEventListener("click", (event) => {
@@ -2589,8 +2607,8 @@ function renderSessionList(q) {
     const more = document.createElement("button");
     more.type = "button";
     more.className = "history-load-button session-load-more";
-    more.textContent = `${window.piI18n?.t("Show more") || "Show more"} (${list.length - visibleList.length})`;
-    more.setAttribute("aria-label", window.piI18n?.t("Show more sessions") || "Show more sessions");
+    more.textContent = `${window.stepsembleI18n?.t("Show more") || "Show more"} (${list.length - visibleList.length})`;
+    more.setAttribute("aria-label", window.stepsembleI18n?.t("Show more sessions") || "Show more sessions");
     more.addEventListener("click", () => {
       sessionRenderLimit += 120;
       renderSessionList(el.search.value);
@@ -2638,7 +2656,7 @@ async function runFullTextSearch(query) {
     block.className = "session-fulltext-block";
     const heading = document.createElement("p");
     heading.className = "session-fulltext-heading";
-    heading.textContent = window.piI18n?.t("Full-text results") || "Full-text results";
+    heading.textContent = window.stepsembleI18n?.t("Full-text results") || "Full-text results";
     block.appendChild(heading);
     for (const hit of results.slice(0, 10)) {
       const row = document.createElement("button");
@@ -2742,7 +2760,7 @@ el.saExport?.addEventListener("click", async () => {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
-    toast(window.piI18n?.t("Session exported") || "Session exported");
+    toast(window.stepsembleI18n?.t("Session exported") || "Session exported");
   } catch (error) {
     toast(error.message || "Export failed", true);
   }
@@ -2782,7 +2800,7 @@ async function doRename() {
 let projectActionTarget = null;
 
 function projectActionText(key) {
-  return window.piI18n?.t(key) || key;
+  return window.stepsembleI18n?.t(key) || key;
 }
 
 function setProjectActionButton(button, icon, label) {
@@ -2919,7 +2937,7 @@ el.projectActionRemove?.addEventListener("click", () => {
 
 function setChatTitle(title) {
   const value = String(title || "").trim();
-  el.chatTitle.textContent = value || (window.piI18n?.t("New conversation") || "New conversation");
+  el.chatTitle.textContent = value || (window.stepsembleI18n?.t("New conversation") || "New conversation");
   el.chatTitle.toggleAttribute("data-i18n-ignore", !!value);
 }
 
@@ -3490,7 +3508,7 @@ async function connectRpc(opts, generation = viewGeneration) {
       };
       es.onopen = () => {
         if (rpc?.sid !== sid) { try { es.close(); } catch {} return; }
-        // onopen is the transport-level fallback for older Pi Harbor peers;
+        // onopen is the transport-level fallback for older Stepsemble peers;
         // current peers also send the named `connected` readiness handshake
         // below with a state snapshot.
         markStreamReady();
@@ -4193,7 +4211,7 @@ function makeThinking(text) {
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "thinking-toggle";
-  toggle.textContent = window.piI18n?.t("Thinking blocks") || "Thinking blocks";
+  toggle.textContent = window.stepsembleI18n?.t("Thinking blocks") || "Thinking blocks";
   const pre = document.createElement("div");
   // 長思考永遠先收合；即使使用者偏好展開，也要點擊後才佔滿畫面。
   const autoOpen = settings.thinking === "open" && text.length > 0 && text.length < 800;
@@ -4357,7 +4375,7 @@ function settleActivityRun(run, fallbackOutcome = "completed") {
 }
 
 function activityReceiptText(key, vars = {}) {
-  const translated = window.piI18n?.t?.(key, vars);
+  const translated = window.stepsembleI18n?.t?.(key, vars);
   if (translated) return translated;
   return String(key).replace(/\{([a-zA-Z0-9_.-]+)\}/g, (_, name) => String(vars[name] ?? `{${name}}`));
 }
@@ -4913,7 +4931,7 @@ function markRpcActivity() {
 
 // Formatting lives in session-utils so it can be unit tested. Digits are
 // monospaced in CSS so the header does not twitch on every tick.
-const runElapsedText = (ms) => window.piHarborSessionUtils.runElapsedText(ms);
+const runElapsedText = (ms) => window.stepsembleSessionUtils.runElapsedText(ms);
 
 function renderRunTimer() {
   if (!el.runTimer) return;
@@ -4960,7 +4978,7 @@ const ACTIVITY_STATUS_KEYS = Object.freeze({
 });
 function activityStatusText(label) {
   const key = ACTIVITY_STATUS_KEYS[label] || ACTIVITY_STATUS_KEYS.working;
-  return window.piI18n?.t(key) || key;
+  return window.stepsembleI18n?.t(key) || key;
 }
 function setActivityLabel(label = "thinking") {
   const statusText = activityStatusText(label);
@@ -5513,8 +5531,8 @@ function setStreaming(on) {
   el.btnModel?.classList.toggle("hidden", generic);
   el.btnImg?.classList.toggle("hidden", generic);
   el.contextDashboard?.classList.toggle("hidden", generic);
-  el.btnSend.title = on ? "" : (window.piI18n?.t("Send") || "Send");
-  el.btnAbort.title = on ? (window.piI18n?.t("Stop") || "Stop") : "";
+  el.btnSend.title = on ? "" : (window.stepsembleI18n?.t("Send") || "Send");
+  el.btnAbort.title = on ? (window.stepsembleI18n?.t("Stop") || "Stop") : "";
 }
 
 // ---- 送出 / 中止 ----
@@ -5816,7 +5834,7 @@ function resetComposerSummary() {
 function updateComposerSummary(modelName, thinkingLevel) {
   if (modelName !== undefined) composerModelName = String(modelName || "");
   if (thinkingLevel) composerReasoningLevel = String(thinkingLevel);
-  const model = composerModelName || (window.piI18n?.t("Server default") || "Server default");
+  const model = composerModelName || (window.stepsembleI18n?.t("Server default") || "Server default");
   const level = composerReasoningLevel || "off";
   const summary = `${model} · ${level}`;
   // The chip is fixed-width: the model name truncates with an ellipsis while
@@ -5827,7 +5845,7 @@ function updateComposerSummary(modelName, thinkingLevel) {
   }
   if (el.composerModelLevelText) el.composerModelLevelText.textContent = `· ${level}`;
   if (el.btnModel) {
-    const label = window.piI18n?.t("Model & reasoning") || "Model & reasoning";
+    const label = window.stepsembleI18n?.t("Model & reasoning") || "Model & reasoning";
     el.btnModel.title = label;
     el.btnModel.setAttribute("aria-label", `${label}: ${summary}`);
   }
@@ -5855,13 +5873,14 @@ function applyComposerState(data) {
 // flag only ever reports "off", and set_thinking_level silently clamps to it.
 // Track what each model supports, grey out unsupported options, and restore
 // the user's last chosen level when a session or model switch drops it.
-const THINKING_PREFERENCE_KEY = "piHarbor.thinkingLevel";
+const THINKING_PREFERENCE_KEY = "stepsemble.thinkingLevel";
+const LEGACY_THINKING_PREFERENCE_KEYS = Object.freeze(["piHarbor.thinkingLevel", "piWeb.thinkingLevel"]);
 let composerModelKey = "";
 let thinkingLevelsForModel = new Map(); // provider/id → available levels
 let thinkingRestoreInFlight = false;
 
 function thinkingPreference() {
-  try { return localStorage.getItem(THINKING_PREFERENCE_KEY) || ""; } catch { return ""; }
+  try { return migratedStorageValue(localStorage, THINKING_PREFERENCE_KEY, LEGACY_THINKING_PREFERENCE_KEYS) || ""; } catch { return ""; }
 }
 
 function rememberThinkingPreference(level) {
@@ -6100,11 +6119,11 @@ function moveCommandSelection(delta) {
 
 function buildCommandItems() {
   const items = [];
-  items.push({ kind: "action", tag: "⌘", label: window.piI18n?.t("New session") || "New session", run: () => { if (!el.newDialog.classList.contains("hidden")) return; if (sessionsCache.length) el.btnNew?.click(); else el.btnNewProject?.click(); } });
-  items.push({ kind: "action", tag: "⌘", label: window.piI18n?.t("Open Settings") || "Open Settings", run: () => showSettings() });
+  items.push({ kind: "action", tag: "⌘", label: window.stepsembleI18n?.t("New session") || "New session", run: () => { if (!el.newDialog.classList.contains("hidden")) return; if (sessionsCache.length) el.btnNew?.click(); else el.btnNewProject?.click(); } });
+  items.push({ kind: "action", tag: "⌘", label: window.stepsembleI18n?.t("Open Settings") || "Open Settings", run: () => showSettings() });
   items.push({ kind: "action", tag: "⌘", label: settings.showTemporarySessions
-    ? (window.piI18n?.t("Hide Sub Agent sessions") || "Hide Sub Agent sessions")
-    : (window.piI18n?.t("Show Sub Agent sessions") || "Show Sub Agent sessions"),
+    ? (window.stepsembleI18n?.t("Hide Sub Agent sessions") || "Hide Sub Agent sessions")
+    : (window.stepsembleI18n?.t("Show Sub Agent sessions") || "Show Sub Agent sessions"),
     run: () => { settings = saveSettings({ showTemporarySessions: !settings.showTemporarySessions }); renderTemporarySessionFilter(temporarySessionCount); refreshSessions(); } });
   const sessions = [...sessionsCache]
     .sort((a, b) => (Number(b.mtimeMs) || 0) - (Number(a.mtimeMs) || 0))
@@ -6121,7 +6140,7 @@ function buildCommandItems() {
   for (const [label, target] of [["Devices", "devices"], ["Access tokens", "tokens"], ["Connection", "connection"], ["Appearance", "appearance"], ["About", "about"]]) {
     items.push({
       kind: "action", tag: "→",
-      label: (window.piI18n?.t("Settings") || "Settings") + " → " + label,
+      label: (window.stepsembleI18n?.t("Settings") || "Settings") + " → " + label,
       run: () => openSettingsSection(target),
     });
   }
@@ -6224,7 +6243,7 @@ async function changeThinkingLevel(level) {
     updateComposerSummary(undefined, actual);
     if (actual !== level) {
       const model = state?.success ? state.data?.model : null;
-      toast(window.piI18n?.t("{model} does not support {level} thinking; using {actual}", {
+      toast(window.stepsembleI18n?.t("{model} does not support {level} thinking; using {actual}", {
         model: model?.name || model?.id || "",
         level,
         actual,
@@ -6610,48 +6629,48 @@ function maybeDateSeparator(ts) {
 
 const ONBOARDING_COPY = {
   en: {
-    guideTitle: "Setup guide", guideSubtitle: "Review the essentials for this device", language: "Language", appearance: "Appearance", back: "Back", skip: "Skip", next: "Continue", finish: "Start using Pi Harbor",
+    guideTitle: "Setup guide", guideSubtitle: "Review the essentials for this device", language: "Language", appearance: "Appearance", back: "Back", skip: "Skip", next: "Continue", finish: "Start using Stepsemble",
     steps: [
-      { eyebrow: "WELCOME", title: "Welcome aboard", body: "Pi Harbor gives your local Pi Agent a calm, focused home on desktop and mobile.", points: ["Choose your language and appearance now; both can be changed later.", "Ink & Ivory is the default Pi Harbor theme."] },
-      { eyebrow: "LOCAL FIRST", title: "Your computer stays in charge", body: "Pi Harbor is an interface for the Pi Agent installed on this computer. Sessions, credentials, and project files remain on the host.", points: ["Pi Harbor listens on this computer and does not move your projects to a hosted cloud.", "Every additional computer needs its own Pi Harbor installation."] },
+      { eyebrow: "WELCOME", title: "Welcome aboard", body: "Stepsemble gives your local Pi Agent a calm, focused home on desktop and mobile.", points: ["Choose your language and appearance now; both can be changed later.", "Ink & Ivory is the default Stepsemble theme."] },
+      { eyebrow: "LOCAL FIRST", title: "Your computer stays in charge", body: "Stepsemble is an interface for the Pi Agent installed on this computer. Sessions, credentials, and project files remain on the host.", points: ["Stepsemble listens on this computer and does not move your projects to a hosted cloud.", "Every additional computer needs its own Stepsemble installation."] },
       { eyebrow: "MAKE IT YOURS", title: "Models and projects", body: "Add a provider or sign in to an account from Settings, then choose a project folder to start a session.", points: ["Models & providers keeps services and model visibility in one place.", "New project can open your home folder or an allowed external drive."] },
-      { eyebrow: "REMOTE ACCESS", title: "Connect securely", body: "For another computer or phone, keep the Node service on loopback and open Pi Harbor through a private HTTPS address such as Tailscale Serve.", points: ["Use one-time pairing for an independent, revocable device credential; manual URL entry requires the same Web token.", "Never expose port 3140 directly to an untrusted network."] },
+      { eyebrow: "REMOTE ACCESS", title: "Connect securely", body: "For another computer or phone, keep the Node service on loopback and open Stepsemble through a private HTTPS address such as Tailscale Serve.", points: ["Use one-time pairing for an independent, revocable device credential; manual URL entry requires the same Web token.", "Never expose port 3140 directly to an untrusted network."] },
     ],
   },
   "zh-Hans": {
-    guideTitle: "设置导览", guideSubtitle: "重新查看这台设备的基本设置", language: "语言", appearance: "外观", back: "返回", skip: "跳过", next: "继续", finish: "开始使用 Pi Harbor",
+    guideTitle: "设置导览", guideSubtitle: "重新查看这台设备的基本设置", language: "语言", appearance: "外观", back: "返回", skip: "跳过", next: "继续", finish: "开始使用 Stepsemble",
     steps: [
-      { eyebrow: "欢迎", title: "欢迎登船", body: "Pi Harbor 为本机的 Pi Agent 提供一个简洁、专注，并同时适合电脑与手机的操作界面。", points: ["先选择语言与外观，之后仍可随时更改。", "Pi Harbor 默认使用 Ink & Ivory 主题。"] },
-      { eyebrow: "本机优先", title: "电脑仍是核心", body: "Pi Harbor 是这台电脑上 Pi Agent 的操作界面。工作阶段、凭证与项目文件都会留在主机上。", points: ["Pi Harbor 不会把你的项目搬到托管云端。", "每一台要使用的电脑都需要各自安装 Pi Harbor。"] },
+      { eyebrow: "欢迎", title: "欢迎登船", body: "Stepsemble 为本机的 Pi Agent 提供一个简洁、专注，并同时适合电脑与手机的操作界面。", points: ["先选择语言与外观，之后仍可随时更改。", "Stepsemble 默认使用 Ink & Ivory 主题。"] },
+      { eyebrow: "本机优先", title: "电脑仍是核心", body: "Stepsemble 是这台电脑上 Pi Agent 的操作界面。工作阶段、凭证与项目文件都会留在主机上。", points: ["Stepsemble 不会把你的项目搬到托管云端。", "每一台要使用的电脑都需要各自安装 Stepsemble。"] },
       { eyebrow: "开始配置", title: "模型与项目", body: "在设置中添加 Provider 或登录账号，然后选择项目文件夹来开始工作阶段。", points: ["“模型与 Provider”会集中管理服务与模型显示。", "“新建项目”可以打开主文件夹或允许访问的外接硬盘。"] },
-      { eyebrow: "远程访问", title: "安全连接", body: "要从其他电脑或手机使用，请让 Node 服务只监听本机，并通过 Tailscale Serve 等私有 HTTPS 地址打开 Pi Harbor。", points: ["使用一次性配对可取得独立且可撤销的设备凭证；手动输入网址仍要求两台电脑使用相同的 Web token。", "不要把 3140 端口直接开放到不受信任的网络。"] },
+      { eyebrow: "远程访问", title: "安全连接", body: "要从其他电脑或手机使用，请让 Node 服务只监听本机，并通过 Tailscale Serve 等私有 HTTPS 地址打开 Stepsemble。", points: ["使用一次性配对可取得独立且可撤销的设备凭证；手动输入网址仍要求两台电脑使用相同的 Web token。", "不要把 3140 端口直接开放到不受信任的网络。"] },
     ],
   },
   "zh-Hant": {
-    guideTitle: "設定導覽", guideSubtitle: "重新查看這台裝置的基本設定", language: "語言", appearance: "外觀", back: "返回", skip: "略過", next: "繼續", finish: "開始使用 Pi Harbor",
+    guideTitle: "設定導覽", guideSubtitle: "重新查看這台裝置的基本設定", language: "語言", appearance: "外觀", back: "返回", skip: "略過", next: "繼續", finish: "開始使用 Stepsemble",
     steps: [
-      { eyebrow: "歡迎", title: "歡迎登船", body: "Pi Harbor 為本機的 Pi Agent 提供一個簡潔、專注，並同時適合電腦與手機的操作介面。", points: ["先選擇語言與外觀，之後仍可隨時更改。", "Pi Harbor 預設使用 Ink & Ivory 主題。"] },
-      { eyebrow: "本機優先", title: "電腦仍是核心", body: "Pi Harbor 是這台電腦上 Pi Agent 的操作介面。工作階段、憑證與專案檔案都會留在主機上。", points: ["Pi Harbor 不會把你的專案搬到託管雲端。", "每一台要使用的電腦都需要各自安裝 Pi Harbor。"] },
+      { eyebrow: "歡迎", title: "歡迎登船", body: "Stepsemble 為本機的 Pi Agent 提供一個簡潔、專注，並同時適合電腦與手機的操作介面。", points: ["先選擇語言與外觀，之後仍可隨時更改。", "Stepsemble 預設使用 Ink & Ivory 主題。"] },
+      { eyebrow: "本機優先", title: "電腦仍是核心", body: "Stepsemble 是這台電腦上 Pi Agent 的操作介面。工作階段、憑證與專案檔案都會留在主機上。", points: ["Stepsemble 不會把你的專案搬到託管雲端。", "每一台要使用的電腦都需要各自安裝 Stepsemble。"] },
       { eyebrow: "開始設定", title: "模型與專案", body: "在設定中加入 Provider 或登入帳號，然後選擇專案資料夾來開始工作階段。", points: ["「模型與 Provider」會集中管理服務與模型顯示。", "「新增專案」可以開啟家目錄或允許存取的外接硬碟。"] },
-      { eyebrow: "遠端存取", title: "安全連線", body: "要從其他電腦或手機使用，請讓 Node 服務只監聽本機，並透過 Tailscale Serve 等私有 HTTPS 位址開啟 Pi Harbor。", points: ["使用一次性配對可取得獨立且可撤銷的裝置憑證；手動輸入網址仍要求兩台電腦使用相同的 Web token。", "不要把 3140 port 直接開放到不受信任的網路。"] },
+      { eyebrow: "遠端存取", title: "安全連線", body: "要從其他電腦或手機使用，請讓 Node 服務只監聽本機，並透過 Tailscale Serve 等私有 HTTPS 位址開啟 Stepsemble。", points: ["使用一次性配對可取得獨立且可撤銷的裝置憑證；手動輸入網址仍要求兩台電腦使用相同的 Web token。", "不要把 3140 port 直接開放到不受信任的網路。"] },
     ],
   },
   ja: {
-    guideTitle: "セットアップガイド", guideSubtitle: "このデバイスの基本設定を確認", language: "言語", appearance: "外観", back: "戻る", skip: "スキップ", next: "次へ", finish: "Pi Harbor を使い始める",
+    guideTitle: "セットアップガイド", guideSubtitle: "このデバイスの基本設定を確認", language: "言語", appearance: "外観", back: "戻る", skip: "スキップ", next: "次へ", finish: "Stepsemble を使い始める",
     steps: [
-      { eyebrow: "ようこそ", title: "Pi Harbor へようこそ", body: "Pi Harbor は、このMac上の Pi Agent をデスクトップでもモバイルでも快適に操作できる、落ち着いたインターフェイスです。", points: ["言語と外観は後からいつでも変更できます。", "既定のテーマは Ink & Ivory です。"] },
-      { eyebrow: "ローカル優先", title: "主役はこのコンピュータ", body: "Pi Harbor はこのコンピュータにある Pi Agent の操作画面です。セッション、認証情報、プロジェクトファイルはホストに残ります。", points: ["プロジェクトを外部のホスティング環境へ移動しません。", "利用する各コンピュータに Pi Harbor のインストールが必要です。"] },
+      { eyebrow: "ようこそ", title: "Stepsemble へようこそ", body: "Stepsemble は、このMac上の Pi Agent をデスクトップでもモバイルでも快適に操作できる、落ち着いたインターフェイスです。", points: ["言語と外観は後からいつでも変更できます。", "既定のテーマは Ink & Ivory です。"] },
+      { eyebrow: "ローカル優先", title: "主役はこのコンピュータ", body: "Stepsemble はこのコンピュータにある Pi Agent の操作画面です。セッション、認証情報、プロジェクトファイルはホストに残ります。", points: ["プロジェクトを外部のホスティング環境へ移動しません。", "利用する各コンピュータに Stepsemble のインストールが必要です。"] },
       { eyebrow: "準備", title: "モデルとプロジェクト", body: "設定からプロバイダーを追加するかアカウントにサインインし、プロジェクトフォルダを選んでセッションを始めます。", points: ["モデルとプロバイダーは一つの画面で管理できます。", "新規プロジェクトからホームまたは許可済みの外部ドライブを開けます。"] },
       { eyebrow: "リモートアクセス", title: "安全に接続", body: "別のコンピュータやスマートフォンから使う場合は、Node サービスをループバックのままにし、Tailscale Serve などのプライベート HTTPS 経由で開きます。", points: ["ワンタイムペアリングでは独立して取り消せる認証情報が作成され、同じ Web トークンが必要なのは URL を手動入力する場合だけです。", "ポート 3140 を信頼できないネットワークへ直接公開しないでください。"] },
     ],
   },
   ko: {
-    guideTitle: "설정 안내", guideSubtitle: "이 기기의 기본 설정 다시 보기", language: "언어", appearance: "화면 모드", back: "뒤로", skip: "건너뛰기", next: "계속", finish: "Pi Harbor 시작하기",
+    guideTitle: "설정 안내", guideSubtitle: "이 기기의 기본 설정 다시 보기", language: "언어", appearance: "화면 모드", back: "뒤로", skip: "건너뛰기", next: "계속", finish: "Stepsemble 시작하기",
     steps: [
-      { eyebrow: "환영합니다", title: "Pi Harbor에 오신 것을 환영합니다", body: "Pi Harbor는 이 컴퓨터의 Pi Agent를 데스크톱과 모바일에서 편안하게 사용할 수 있는 깔끔한 인터페이스입니다.", points: ["언어와 화면 모드는 나중에도 언제든 바꿀 수 있습니다.", "기본 테마는 Ink & Ivory입니다."] },
-      { eyebrow: "로컬 우선", title: "컴퓨터가 중심입니다", body: "Pi Harbor는 이 컴퓨터에 설치된 Pi Agent의 인터페이스입니다. 세션, 자격 증명, 프로젝트 파일은 호스트에 남습니다.", points: ["프로젝트를 외부 호스팅 클라우드로 옮기지 않습니다.", "사용할 컴퓨터마다 Pi Harbor를 설치해야 합니다."] },
+      { eyebrow: "환영합니다", title: "Stepsemble에 오신 것을 환영합니다", body: "Stepsemble는 이 컴퓨터의 Pi Agent를 데스크톱과 모바일에서 편안하게 사용할 수 있는 깔끔한 인터페이스입니다.", points: ["언어와 화면 모드는 나중에도 언제든 바꿀 수 있습니다.", "기본 테마는 Ink & Ivory입니다."] },
+      { eyebrow: "로컬 우선", title: "컴퓨터가 중심입니다", body: "Stepsemble는 이 컴퓨터에 설치된 Pi Agent의 인터페이스입니다. 세션, 자격 증명, 프로젝트 파일은 호스트에 남습니다.", points: ["프로젝트를 외부 호스팅 클라우드로 옮기지 않습니다.", "사용할 컴퓨터마다 Stepsemble를 설치해야 합니다."] },
       { eyebrow: "설정", title: "모델과 프로젝트", body: "설정에서 제공자를 추가하거나 계정에 로그인한 뒤 프로젝트 폴더를 선택해 세션을 시작하세요.", points: ["모델 및 제공자 화면에서 서비스와 모델 표시 여부를 함께 관리합니다.", "새 프로젝트에서 홈 폴더 또는 허용된 외장 드라이브를 열 수 있습니다."] },
-      { eyebrow: "원격 접속", title: "안전하게 연결하세요", body: "다른 컴퓨터나 휴대폰에서 사용할 때는 Node 서비스를 로컬에만 두고 Tailscale Serve 같은 비공개 HTTPS 주소로 Pi Harbor를 여세요.", points: ["일회용 페어링은 독립적으로 취소할 수 있는 인증 정보를 만들며, 같은 Web 토큰은 URL을 수동으로 입력할 때만 필요합니다.", "3140 포트를 신뢰할 수 없는 네트워크에 직접 공개하지 마세요."] },
+      { eyebrow: "원격 접속", title: "안전하게 연결하세요", body: "다른 컴퓨터나 휴대폰에서 사용할 때는 Node 서비스를 로컬에만 두고 Tailscale Serve 같은 비공개 HTTPS 주소로 Stepsemble를 여세요.", points: ["일회용 페어링은 독립적으로 취소할 수 있는 인증 정보를 만들며, 같은 Web 토큰은 URL을 수동으로 입력할 때만 필요합니다.", "3140 포트를 신뢰할 수 없는 네트워크에 직접 공개하지 마세요."] },
     ],
   },
 };
@@ -6671,41 +6690,41 @@ const ONBOARDING_LANGUAGE_LABELS = {
 };
 
 const ONBOARDING_EUROPEAN = {
-  tr: ["Kurulum rehberi", "Bu cihazın temel ayarlarını yeniden gözden geçirin", "Dil", "Görünüm", "Geri", "Atla", "Devam", "Pi Harbor'ı kullanmaya başla", [
-    ["HOŞ GELDİNİZ", "Pi Harbor'a hoş geldiniz", "Pi Harbor, bu bilgisayardaki Pi Agent için masaüstü ve mobilde sade, odaklı bir arayüz sunar.", "Dil ve görünümü daha sonra değiştirebilirsiniz.", "Varsayılan tema Ink & Ivory'dir."],
-    ["ÖNCE YEREL", "Kontrol bilgisayarınızda", "Pi Harbor bu bilgisayardaki Pi Agent'ın arayüzüdür. Oturumlar, kimlik bilgileri ve proje dosyaları ana bilgisayarda kalır.", "Projeleriniz barındırılan bir buluta taşınmaz.", "Kullanacağınız her bilgisayara Pi Harbor kurulmalıdır."],
+  tr: ["Kurulum rehberi", "Bu cihazın temel ayarlarını yeniden gözden geçirin", "Dil", "Görünüm", "Geri", "Atla", "Devam", "Stepsemble'ı kullanmaya başla", [
+    ["HOŞ GELDİNİZ", "Stepsemble'a hoş geldiniz", "Stepsemble, bu bilgisayardaki Pi Agent için masaüstü ve mobilde sade, odaklı bir arayüz sunar.", "Dil ve görünümü daha sonra değiştirebilirsiniz.", "Varsayılan tema Ink & Ivory'dir."],
+    ["ÖNCE YEREL", "Kontrol bilgisayarınızda", "Stepsemble bu bilgisayardaki Pi Agent'ın arayüzüdür. Oturumlar, kimlik bilgileri ve proje dosyaları ana bilgisayarda kalır.", "Projeleriniz barındırılan bir buluta taşınmaz.", "Kullanacağınız her bilgisayara Stepsemble kurulmalıdır."],
     ["HAZIRLIK", "Modeller ve projeler", "Ayarlar'dan bir sağlayıcı ekleyin veya oturum açın; ardından bir proje klasörü seçerek oturum başlatın.", "Modeller ve sağlayıcılar tek yerde yönetilir.", "Yeni proje, ana klasörü veya izin verilen harici diski açabilir."],
-    ["UZAKTAN ERİŞİM", "Güvenli bağlanın", "Başka bir bilgisayar veya telefondan kullanmak için Node hizmetini yerel döngüde tutun ve Pi Harbor'ı Tailscale Serve gibi özel bir HTTPS adresiyle açın.", "Tek kullanımlık eşleştirme bağımsız ve iptal edilebilir bir kimlik bilgisi oluşturur; aynı Web token'ı yalnızca URL elle girildiğinde gerekir.", "3140 numaralı bağlantı noktasını güvenilmeyen bir ağa doğrudan açmayın."],
+    ["UZAKTAN ERİŞİM", "Güvenli bağlanın", "Başka bir bilgisayar veya telefondan kullanmak için Node hizmetini yerel döngüde tutun ve Stepsemble'ı Tailscale Serve gibi özel bir HTTPS adresiyle açın.", "Tek kullanımlık eşleştirme bağımsız ve iptal edilebilir bir kimlik bilgisi oluşturur; aynı Web token'ı yalnızca URL elle girildiğinde gerekir.", "3140 numaralı bağlantı noktasını güvenilmeyen bir ağa doğrudan açmayın."],
   ]],
-  fr: ["Guide de configuration", "Revoir les réglages essentiels de cet appareil", "Langue", "Apparence", "Retour", "Ignorer", "Continuer", "Commencer avec Pi Harbor", [
-    ["BIENVENUE", "Bienvenue à bord", "Pi Harbor offre à l’agent Pi de cet ordinateur une interface claire et sereine, sur ordinateur comme sur mobile.", "Vous pourrez modifier la langue et l’apparence à tout moment.", "Ink & Ivory est le thème par défaut."],
-    ["LOCAL D’ABORD", "Votre ordinateur garde le contrôle", "Pi Harbor est l’interface de l’agent Pi installé sur cet ordinateur. Les sessions, identifiants et fichiers de projet restent sur l’hôte.", "Vos projets ne sont pas déplacés vers un cloud hébergé.", "Chaque ordinateur utilisé doit avoir sa propre installation de Pi Harbor."],
+  fr: ["Guide de configuration", "Revoir les réglages essentiels de cet appareil", "Langue", "Apparence", "Retour", "Ignorer", "Continuer", "Commencer avec Stepsemble", [
+    ["BIENVENUE", "Bienvenue à bord", "Stepsemble offre à l’agent Pi de cet ordinateur une interface claire et sereine, sur ordinateur comme sur mobile.", "Vous pourrez modifier la langue et l’apparence à tout moment.", "Ink & Ivory est le thème par défaut."],
+    ["LOCAL D’ABORD", "Votre ordinateur garde le contrôle", "Stepsemble est l’interface de l’agent Pi installé sur cet ordinateur. Les sessions, identifiants et fichiers de projet restent sur l’hôte.", "Vos projets ne sont pas déplacés vers un cloud hébergé.", "Chaque ordinateur utilisé doit avoir sa propre installation de Stepsemble."],
     ["CONFIGURATION", "Modèles et projets", "Ajoutez un fournisseur ou connectez un compte dans Réglages, puis choisissez un dossier de projet pour démarrer une session.", "Modèles et fournisseurs sont gérés au même endroit.", "Nouveau projet peut ouvrir votre dossier personnel ou un disque externe autorisé."],
-    ["ACCÈS À DISTANCE", "Connectez-vous en toute sécurité", "Depuis un autre ordinateur ou téléphone, laissez le service Node sur l’interface locale et ouvrez Pi Harbor via une adresse HTTPS privée, telle que Tailscale Serve.", "L’association à usage unique crée un identifiant indépendant et révocable ; le même jeton Web n’est requis que pour la saisie manuelle d’une URL.", "N’exposez jamais directement le port 3140 à un réseau non fiable."],
+    ["ACCÈS À DISTANCE", "Connectez-vous en toute sécurité", "Depuis un autre ordinateur ou téléphone, laissez le service Node sur l’interface locale et ouvrez Stepsemble via une adresse HTTPS privée, telle que Tailscale Serve.", "L’association à usage unique crée un identifiant indépendant et révocable ; le même jeton Web n’est requis que pour la saisie manuelle d’une URL.", "N’exposez jamais directement le port 3140 à un réseau non fiable."],
   ]],
-  de: ["Einrichtungsassistent", "Grundeinstellungen dieses Geräts erneut ansehen", "Sprache", "Darstellung", "Zurück", "Überspringen", "Weiter", "Pi Harbor verwenden", [
-    ["WILLKOMMEN", "Willkommen an Bord", "Pi Harbor gibt dem Pi Agent auf diesem Computer eine ruhige, übersichtliche Oberfläche für Desktop und Mobilgeräte.", "Sprache und Darstellung lassen sich später jederzeit ändern.", "Ink & Ivory ist das Standarddesign."],
-    ["LOKAL ZUERST", "Ihr Computer behält die Kontrolle", "Pi Harbor ist die Oberfläche für den Pi Agent auf diesem Computer. Sitzungen, Zugangsdaten und Projektdateien bleiben auf dem Host.", "Ihre Projekte werden nicht in eine gehostete Cloud verschoben.", "Auf jedem verwendeten Computer muss Pi Harbor installiert sein."],
+  de: ["Einrichtungsassistent", "Grundeinstellungen dieses Geräts erneut ansehen", "Sprache", "Darstellung", "Zurück", "Überspringen", "Weiter", "Stepsemble verwenden", [
+    ["WILLKOMMEN", "Willkommen an Bord", "Stepsemble gibt dem Pi Agent auf diesem Computer eine ruhige, übersichtliche Oberfläche für Desktop und Mobilgeräte.", "Sprache und Darstellung lassen sich später jederzeit ändern.", "Ink & Ivory ist das Standarddesign."],
+    ["LOKAL ZUERST", "Ihr Computer behält die Kontrolle", "Stepsemble ist die Oberfläche für den Pi Agent auf diesem Computer. Sitzungen, Zugangsdaten und Projektdateien bleiben auf dem Host.", "Ihre Projekte werden nicht in eine gehostete Cloud verschoben.", "Auf jedem verwendeten Computer muss Stepsemble installiert sein."],
     ["EINRICHTUNG", "Modelle und Projekte", "Fügen Sie unter Einstellungen einen Anbieter hinzu oder melden Sie sich an. Wählen Sie danach einen Projektordner für die erste Sitzung.", "Modelle und Anbieter werden an einer Stelle verwaltet.", "Neues Projekt kann den Benutzerordner oder ein freigegebenes externes Laufwerk öffnen."],
-    ["FERNZUGRIFF", "Sicher verbinden", "Für den Zugriff von einem anderen Computer oder Smartphone bleibt der Node-Dienst lokal gebunden. Öffnen Sie Pi Harbor über eine private HTTPS-Adresse wie Tailscale Serve.", "Die einmalige Kopplung erstellt eine unabhängige, widerrufbare Anmeldung; dasselbe Web-Token ist nur bei manueller URL-Eingabe erforderlich.", "Geben Sie Port 3140 nie direkt in einem nicht vertrauenswürdigen Netzwerk frei."],
+    ["FERNZUGRIFF", "Sicher verbinden", "Für den Zugriff von einem anderen Computer oder Smartphone bleibt der Node-Dienst lokal gebunden. Öffnen Sie Stepsemble über eine private HTTPS-Adresse wie Tailscale Serve.", "Die einmalige Kopplung erstellt eine unabhängige, widerrufbare Anmeldung; dasselbe Web-Token ist nur bei manueller URL-Eingabe erforderlich.", "Geben Sie Port 3140 nie direkt in einem nicht vertrauenswürdigen Netzwerk frei."],
   ]],
-  es: ["Guía de configuración", "Repasa los ajustes esenciales de este dispositivo", "Idioma", "Apariencia", "Atrás", "Omitir", "Continuar", "Empezar a usar Pi Harbor", [
-    ["BIENVENIDA", "Bienvenido a bordo", "Pi Harbor ofrece al agente Pi de este ordenador una interfaz tranquila y clara tanto en el escritorio como en el móvil.", "Puedes cambiar el idioma y la apariencia en cualquier momento.", "Ink & Ivory es el tema predeterminado."],
-    ["PRIMERO, LOCAL", "Tu ordenador mantiene el control", "Pi Harbor es la interfaz del agente Pi instalado en este ordenador. Las sesiones, credenciales y archivos de proyecto permanecen en el equipo anfitrión.", "Tus proyectos no se trasladan a una nube alojada.", "Cada ordenador que uses necesita su propia instalación de Pi Harbor."],
+  es: ["Guía de configuración", "Repasa los ajustes esenciales de este dispositivo", "Idioma", "Apariencia", "Atrás", "Omitir", "Continuar", "Empezar a usar Stepsemble", [
+    ["BIENVENIDA", "Bienvenido a bordo", "Stepsemble ofrece al agente Pi de este ordenador una interfaz tranquila y clara tanto en el escritorio como en el móvil.", "Puedes cambiar el idioma y la apariencia en cualquier momento.", "Ink & Ivory es el tema predeterminado."],
+    ["PRIMERO, LOCAL", "Tu ordenador mantiene el control", "Stepsemble es la interfaz del agente Pi instalado en este ordenador. Las sesiones, credenciales y archivos de proyecto permanecen en el equipo anfitrión.", "Tus proyectos no se trasladan a una nube alojada.", "Cada ordenador que uses necesita su propia instalación de Stepsemble."],
     ["CONFIGURACIÓN", "Modelos y proyectos", "Añade un proveedor o inicia sesión desde Ajustes y elige una carpeta de proyecto para comenzar una sesión.", "Los modelos y proveedores se administran en un mismo lugar.", "Nuevo proyecto puede abrir tu carpeta personal o una unidad externa autorizada."],
-    ["ACCESO REMOTO", "Conéctate de forma segura", "Para usar otro ordenador o teléfono, mantén el servicio Node en la interfaz local y abre Pi Harbor mediante una dirección HTTPS privada, como Tailscale Serve.", "El emparejamiento de un solo uso crea una credencial independiente y revocable; el mismo token web solo es necesario al introducir la URL manualmente.", "No expongas el puerto 3140 directamente a una red que no sea de confianza."],
+    ["ACCESO REMOTO", "Conéctate de forma segura", "Para usar otro ordenador o teléfono, mantén el servicio Node en la interfaz local y abre Stepsemble mediante una dirección HTTPS privada, como Tailscale Serve.", "El emparejamiento de un solo uso crea una credencial independiente y revocable; el mismo token web solo es necesario al introducir la URL manualmente.", "No expongas el puerto 3140 directamente a una red que no sea de confianza."],
   ]],
-  "pt-BR": ["Guia de configuração", "Revise as configurações essenciais deste dispositivo", "Idioma", "Aparência", "Voltar", "Pular", "Continuar", "Começar a usar o Pi Harbor", [
-    ["BOAS-VINDAS", "Bem-vindo a bordo", "O Pi Harbor oferece ao Pi Agent deste computador uma interface limpa e tranquila no desktop e no celular.", "Idioma e aparência podem ser alterados a qualquer momento.", "Ink & Ivory é o tema padrão."],
-    ["LOCAL PRIMEIRO", "Seu computador continua no controle", "O Pi Harbor é a interface do Pi Agent instalado neste computador. Sessões, credenciais e arquivos de projeto permanecem no host.", "Seus projetos não são enviados para uma nuvem hospedada.", "Cada computador usado precisa da própria instalação do Pi Harbor."],
+  "pt-BR": ["Guia de configuração", "Revise as configurações essenciais deste dispositivo", "Idioma", "Aparência", "Voltar", "Pular", "Continuar", "Começar a usar o Stepsemble", [
+    ["BOAS-VINDAS", "Bem-vindo a bordo", "O Stepsemble oferece ao Pi Agent deste computador uma interface limpa e tranquila no desktop e no celular.", "Idioma e aparência podem ser alterados a qualquer momento.", "Ink & Ivory é o tema padrão."],
+    ["LOCAL PRIMEIRO", "Seu computador continua no controle", "O Stepsemble é a interface do Pi Agent instalado neste computador. Sessões, credenciais e arquivos de projeto permanecem no host.", "Seus projetos não são enviados para uma nuvem hospedada.", "Cada computador usado precisa da própria instalação do Stepsemble."],
     ["CONFIGURAÇÃO", "Modelos e projetos", "Adicione um provedor ou entre em uma conta nos Ajustes e escolha uma pasta de projeto para iniciar uma sessão.", "Modelos e provedores ficam reunidos em um só lugar.", "Novo projeto pode abrir sua pasta pessoal ou uma unidade externa permitida."],
-    ["ACESSO REMOTO", "Conecte-se com segurança", "Em outro computador ou celular, mantenha o serviço Node restrito ao endereço local e abra o Pi Harbor por um endereço HTTPS privado, como o Tailscale Serve.", "O pareamento de uso único cria uma credencial independente e revogável; o mesmo token Web só é necessário ao informar a URL manualmente.", "Não exponha a porta 3140 diretamente a uma rede não confiável."],
+    ["ACESSO REMOTO", "Conecte-se com segurança", "Em outro computador ou celular, mantenha o serviço Node restrito ao endereço local e abra o Stepsemble por um endereço HTTPS privado, como o Tailscale Serve.", "O pareamento de uso único cria uma credencial independente e revogável; o mesmo token Web só é necessário ao informar a URL manualmente.", "Não exponha a porta 3140 diretamente a uma rede não confiável."],
   ]],
-  it: ["Guida alla configurazione", "Rivedi le impostazioni essenziali di questo dispositivo", "Lingua", "Aspetto", "Indietro", "Salta", "Continua", "Inizia a usare Pi Harbor", [
-    ["BENVENUTO", "Benvenuto a bordo", "Pi Harbor offre al Pi Agent di questo computer un’interfaccia ordinata e tranquilla, sia su desktop sia su dispositivi mobili.", "Lingua e aspetto possono essere modificati in qualsiasi momento.", "Ink & Ivory è il tema predefinito."],
-    ["PRIMA IL LOCALE", "Il computer mantiene il controllo", "Pi Harbor è l’interfaccia del Pi Agent installato su questo computer. Sessioni, credenziali e file di progetto restano sull’host.", "I progetti non vengono trasferiti in un cloud ospitato.", "Ogni computer utilizzato deve avere la propria installazione di Pi Harbor."],
+  it: ["Guida alla configurazione", "Rivedi le impostazioni essenziali di questo dispositivo", "Lingua", "Aspetto", "Indietro", "Salta", "Continua", "Inizia a usare Stepsemble", [
+    ["BENVENUTO", "Benvenuto a bordo", "Stepsemble offre al Pi Agent di questo computer un’interfaccia ordinata e tranquilla, sia su desktop sia su dispositivi mobili.", "Lingua e aspetto possono essere modificati in qualsiasi momento.", "Ink & Ivory è il tema predefinito."],
+    ["PRIMA IL LOCALE", "Il computer mantiene il controllo", "Stepsemble è l’interfaccia del Pi Agent installato su questo computer. Sessioni, credenziali e file di progetto restano sull’host.", "I progetti non vengono trasferiti in un cloud ospitato.", "Ogni computer utilizzato deve avere la propria installazione di Stepsemble."],
     ["CONFIGURAZIONE", "Modelli e progetti", "Aggiungi un provider o accedi a un account dalle Impostazioni, poi scegli una cartella di progetto per avviare una sessione.", "Modelli e provider vengono gestiti in un unico punto.", "Nuovo progetto può aprire la cartella personale o un’unità esterna autorizzata."],
-    ["ACCESSO REMOTO", "Connettiti in sicurezza", "Da un altro computer o telefono, mantieni il servizio Node sull’interfaccia locale e apri Pi Harbor tramite un indirizzo HTTPS privato, come Tailscale Serve.", "L’abbinamento una tantum crea una credenziale indipendente e revocabile; lo stesso token Web serve solo quando inserisci manualmente l’URL.", "Non esporre direttamente la porta 3140 a una rete non attendibile."],
+    ["ACCESSO REMOTO", "Connettiti in sicurezza", "Da un altro computer o telefono, mantieni il servizio Node sull’interfaccia locale e apri Stepsemble tramite un indirizzo HTTPS privato, come Tailscale Serve.", "L’abbinamento una tantum crea una credenziale indipendente e revocabile; lo stesso token Web serve solo quando inserisci manualmente l’URL.", "Non esporre direttamente la porta 3140 a una rete non attendibile."],
   ]],
 };
 
@@ -6720,79 +6739,79 @@ for (const [locale, values] of Object.entries(ONBOARDING_EUROPEAN)) {
 // supported locale has its complete five-step copy here.
 const ONBOARDING_ACTIONABLE_STEPS = {
   en: [
-    { eyebrow: "WELCOME", title: "Welcome aboard", body: "Pi Harbor keeps the Pi Agent, sessions, credentials, and projects on the selected computer.", points: ["Choose your language and appearance now; both can be changed later."] },
-    { eyebrow: "TOKEN & SIGN-IN", title: "Find your Web token", body: "The installer creates a private Web token on the computer running Pi Harbor. On that computer, open Terminal and run cat ~/.config/pi-harbor/token, then paste it here. From another device, retrieve it securely from that host.", points: ["Never share the token in chat, screenshots, repositories, or logs.", "If PI_HARBOR_TOKEN_FILE is configured, use that file instead of the default path."] },
-    { eyebrow: "DEVICES", title: "Connect another computer", body: "Install and run Pi Harbor on each additional computer. Use Tailscale or HTTPS, then open Settings → Devices → Add device, or use a five-minute pairing code.", points: ["Prefer one-time pairing for an independent, revocable credential; only manual URL entry requires the same Web token.", "Never expose public port 3140 to an untrusted network."] },
+    { eyebrow: "WELCOME", title: "Welcome aboard", body: "Stepsemble keeps the Pi Agent, sessions, credentials, and projects on the selected computer.", points: ["Choose your language and appearance now; both can be changed later."] },
+    { eyebrow: "TOKEN & SIGN-IN", title: "Find your Web token", body: "The installer creates a private Web token on the computer running Stepsemble. On that computer, open Terminal and run cat ~/.config/stepsemble/token, then paste it here. From another device, retrieve it securely from that host.", points: ["Never share the token in chat, screenshots, repositories, or logs.", "If STEPSEMBLE_TOKEN_FILE is configured, use that file instead of the default path."] },
+    { eyebrow: "DEVICES", title: "Connect another computer", body: "Install and run Stepsemble on each additional computer. Use Tailscale or HTTPS, then open Settings → Devices → Add device, or use a five-minute pairing code.", points: ["Prefer one-time pairing for an independent, revocable credential; only manual URL entry requires the same Web token.", "Never expose public port 3140 to an untrusted network."] },
     { eyebrow: "MODELS & PROVIDERS", title: "Add an LLM provider", body: "Open Settings → Connection → Models & providers. Choose a catalog service, account/OAuth sign-in, API key, local service, or Custom provider.", points: ["Credentials stay on the selected host.", "Then select the visible models you want to use."] },
     { eyebrow: "PROJECT", title: "Choose a folder and start", body: "Open New project, choose a folder on this host, optionally name the session, and select Start here.", points: ["The folder picker starts at the host home and only shows allowed browse roots.", "You can return to this guide from Settings → About → Setup guide."] },
   ],
   "zh-Hans": [
-    { eyebrow: "欢迎", title: "欢迎使用", body: "Pi Harbor 会将 Pi Agent、会话、凭证和项目保留在选定的电脑上。", points: ["现在选择语言和外观，之后都可以更改。"] },
-    { eyebrow: "TOKEN 与登录", title: "找到 Web token", body: "安装程序会在运行 Pi Harbor 的电脑上创建私密 Web token。在那台电脑打开终端并运行 cat ~/.config/pi-harbor/token，然后将结果粘贴到这里。在其他设备上，请从该主机安全地取得 token。", points: ["绝不要在聊天、截图、代码仓库或日志中分享 token。", "如果配置了 PI_HARBOR_TOKEN_FILE，请使用该文件，而不是默认路径。"] },
-    { eyebrow: "设备", title: "连接另一台电脑", body: "在每台额外的电脑上安装并运行 Pi Harbor。使用 Tailscale 或 HTTPS，然后打开“设置 → 设备 → 添加设备”，也可以使用五分钟有效的一次性配对码。", points: ["优先使用一次性配对来取得独立且可撤销的凭证；只有手动输入网址时才需要相同的 Web token。", "不要将公共 3140 端口暴露给不受信任的网络。"] },
+    { eyebrow: "欢迎", title: "欢迎使用", body: "Stepsemble 会将 Pi Agent、会话、凭证和项目保留在选定的电脑上。", points: ["现在选择语言和外观，之后都可以更改。"] },
+    { eyebrow: "TOKEN 与登录", title: "找到 Web token", body: "安装程序会在运行 Stepsemble 的电脑上创建私密 Web token。在那台电脑打开终端并运行 cat ~/.config/stepsemble/token，然后将结果粘贴到这里。在其他设备上，请从该主机安全地取得 token。", points: ["绝不要在聊天、截图、代码仓库或日志中分享 token。", "如果配置了 STEPSEMBLE_TOKEN_FILE，请使用该文件，而不是默认路径。"] },
+    { eyebrow: "设备", title: "连接另一台电脑", body: "在每台额外的电脑上安装并运行 Stepsemble。使用 Tailscale 或 HTTPS，然后打开“设置 → 设备 → 添加设备”，也可以使用五分钟有效的一次性配对码。", points: ["优先使用一次性配对来取得独立且可撤销的凭证；只有手动输入网址时才需要相同的 Web token。", "不要将公共 3140 端口暴露给不受信任的网络。"] },
     { eyebrow: "模型与服务", title: "添加 LLM 服务商", body: "打开“设置 → 连接 → 模型与 Provider”。选择目录服务、账号/OAuth 登录、API key、本地服务或自定义 Provider。", points: ["凭证保留在选定的主机上。", "然后选择要使用的可见模型。"] },
     { eyebrow: "项目", title: "选择文件夹并开始", body: "打开“新建项目”，选择这台主机上的文件夹，可选填写会话名称，然后选择“从这里开始”。", points: ["文件夹选择器从主机主目录开始，只显示允许访问的目录。", "以后可以从“设置 → 关于 → 设置导览”再次打开本指南。"] },
   ],
   "zh-Hant": [
-    { eyebrow: "歡迎", title: "歡迎使用", body: "Pi Harbor 會將 Pi Agent、工作階段、憑證與專案保留在選定的電腦上。", points: ["現在選擇語言與外觀，之後都可以更改。"] },
-    { eyebrow: "TOKEN 與登入", title: "找到 Web token", body: "安裝程式會在執行 Pi Harbor 的電腦上建立私密 Web token。在該電腦開啟終端機並執行 cat ~/.config/pi-harbor/token，然後將結果貼到這裡。在其他裝置上，請從該主機安全地取得 token。", points: ["絕不要在聊天、截圖、程式碼儲存庫或日誌中分享 token。", "如果設定了 PI_HARBOR_TOKEN_FILE，請使用該檔案，不要使用預設路徑。"] },
-    { eyebrow: "裝置", title: "連接另一台電腦", body: "在每台額外的電腦上安裝並執行 Pi Harbor。使用 Tailscale 或 HTTPS，然後開啟「設定 → 設備 → 新增設備」，也可以使用五分鐘有效的一次性配對碼。", points: ["優先使用一次性配對來取得獨立且可撤銷的憑證；只有手動輸入網址時才需要相同的 Web token。", "不要將公開的 3140 port 暴露給不受信任的網路。"] },
+    { eyebrow: "歡迎", title: "歡迎使用", body: "Stepsemble 會將 Pi Agent、工作階段、憑證與專案保留在選定的電腦上。", points: ["現在選擇語言與外觀，之後都可以更改。"] },
+    { eyebrow: "TOKEN 與登入", title: "找到 Web token", body: "安裝程式會在執行 Stepsemble 的電腦上建立私密 Web token。在該電腦開啟終端機並執行 cat ~/.config/stepsemble/token，然後將結果貼到這裡。在其他裝置上，請從該主機安全地取得 token。", points: ["絕不要在聊天、截圖、程式碼儲存庫或日誌中分享 token。", "如果設定了 STEPSEMBLE_TOKEN_FILE，請使用該檔案，不要使用預設路徑。"] },
+    { eyebrow: "裝置", title: "連接另一台電腦", body: "在每台額外的電腦上安裝並執行 Stepsemble。使用 Tailscale 或 HTTPS，然後開啟「設定 → 設備 → 新增設備」，也可以使用五分鐘有效的一次性配對碼。", points: ["優先使用一次性配對來取得獨立且可撤銷的憑證；只有手動輸入網址時才需要相同的 Web token。", "不要將公開的 3140 port 暴露給不受信任的網路。"] },
     { eyebrow: "模型與服務", title: "加入 LLM 服務商", body: "開啟「設定 → 連線 → 模型與 Provider」。選擇目錄服務、帳號／OAuth 登入、API key、本機服務或自訂 Provider。", points: ["憑證會保留在選定的主機上。", "然後選擇要使用的可見模型。"] },
     { eyebrow: "專案", title: "選擇資料夾並開始", body: "開啟「新增專案」，選擇這台主機上的資料夾，可選填寫工作階段名稱，然後選擇「在這裡開始」。", points: ["資料夾選擇器會從主機家目錄開始，只顯示允許存取的目錄。", "之後可以從「設定 → 關於 → 設定導覽」再次開啟本指南。"] },
   ],
   ja: [
-    { eyebrow: "ようこそ", title: "Pi Harbor へようこそ", body: "Pi Harbor は Pi Agent、セッション、認証情報、プロジェクトを選択したコンピューターに保管します。", points: ["言語と外観は今選択でき、後から変更できます。"] },
-    { eyebrow: "トークンとサインイン", title: "Web トークンを確認", body: "インストーラーは Pi Harbor を実行するコンピューターに非公開の Web トークンを作成します。そのコンピューターでターミナルを開き、cat ~/.config/pi-harbor/token を実行して、結果をここに貼り付けます。別のデバイスでは、そのホストから安全にトークンを取得してください。", points: ["トークンをチャット、スクリーンショット、リポジトリ、ログで共有しないでください。", "カスタムの PI_HARBOR_TOKEN_FILE を設定している場合は、既定のパスではなくそのファイルを使います。"] },
-    { eyebrow: "デバイス", title: "別のコンピューターを接続", body: "追加する各コンピューターに Pi Harbor をインストールして実行します。Tailscale または HTTPS を使い、「設定 → デバイス → デバイスを追加」を開くか、5 分間有効なペアリングコードを使います。", points: ["独立して取り消せる認証情報にはワンタイムペアリングを使います。同じ Web トークンが必要なのは URL を手動入力する場合だけです。", "公開ポート 3140 を信頼できないネットワークに公開しないでください。"] },
+    { eyebrow: "ようこそ", title: "Stepsemble へようこそ", body: "Stepsemble は Pi Agent、セッション、認証情報、プロジェクトを選択したコンピューターに保管します。", points: ["言語と外観は今選択でき、後から変更できます。"] },
+    { eyebrow: "トークンとサインイン", title: "Web トークンを確認", body: "インストーラーは Stepsemble を実行するコンピューターに非公開の Web トークンを作成します。そのコンピューターでターミナルを開き、cat ~/.config/stepsemble/token を実行して、結果をここに貼り付けます。別のデバイスでは、そのホストから安全にトークンを取得してください。", points: ["トークンをチャット、スクリーンショット、リポジトリ、ログで共有しないでください。", "カスタムの STEPSEMBLE_TOKEN_FILE を設定している場合は、既定のパスではなくそのファイルを使います。"] },
+    { eyebrow: "デバイス", title: "別のコンピューターを接続", body: "追加する各コンピューターに Stepsemble をインストールして実行します。Tailscale または HTTPS を使い、「設定 → デバイス → デバイスを追加」を開くか、5 分間有効なペアリングコードを使います。", points: ["独立して取り消せる認証情報にはワンタイムペアリングを使います。同じ Web トークンが必要なのは URL を手動入力する場合だけです。", "公開ポート 3140 を信頼できないネットワークに公開しないでください。"] },
     { eyebrow: "モデルとプロバイダー", title: "LLM プロバイダーを追加", body: "「設定 → 接続 → モデルとプロバイダー」を開きます。カタログサービス、アカウント／OAuth サインイン、API キー、ローカルサービス、またはカスタムプロバイダーを選択します。", points: ["認証情報は選択したホストに保管されます。", "次に使用するモデルを表示対象から選択します。"] },
     { eyebrow: "プロジェクト", title: "フォルダーを選んで開始", body: "「新しいプロジェクト」を開き、このホストのフォルダーを選び、必要ならセッション名を入力して「ここから開始」を選択します。", points: ["フォルダー選択はホストのホームから始まり、許可されたルートだけを表示します。", "後で「設定 → 概要 → セットアップガイド」から再び開けます。"] },
   ],
   ko: [
-    { eyebrow: "환영합니다", title: "Pi Harbor에 오신 것을 환영합니다", body: "Pi Harbor는 Pi Agent, 세션, 자격 증명과 프로젝트를 선택한 컴퓨터에 보관합니다.", points: ["지금 언어와 화면 모드를 선택할 수 있으며 나중에 변경할 수 있습니다."] },
-    { eyebrow: "토큰 및 로그인", title: "Web 토큰 찾기", body: "설치 프로그램이 Pi Harbor를 실행하는 컴퓨터에 비공개 Web 토큰을 만듭니다. 해당 컴퓨터에서 터미널을 열고 cat ~/.config/pi-harbor/token을 실행한 뒤 결과를 여기에 붙여넣으세요. 다른 기기에서는 해당 호스트에서 토큰을 안전하게 가져오세요.", points: ["토큰을 채팅, 스크린샷, 저장소 또는 로그에 절대 공유하지 마세요.", "사용자 지정 PI_HARBOR_TOKEN_FILE을 설정했다면 기본 경로 대신 해당 파일을 사용하세요."] },
-    { eyebrow: "기기", title: "다른 컴퓨터 연결", body: "추가할 각 컴퓨터에 Pi Harbor를 설치하고 실행하세요. Tailscale 또는 HTTPS를 사용한 뒤 ‘설정 → 기기 → 기기 추가’를 열거나 5분 동안 유효한 페어링 코드를 사용하세요.", points: ["독립적으로 취소할 수 있는 인증 정보에는 일회용 페어링을 사용하세요. 같은 Web 토큰은 URL을 수동으로 입력할 때만 필요합니다.", "공개 포트 3140을 신뢰할 수 없는 네트워크에 노출하지 마세요."] },
+    { eyebrow: "환영합니다", title: "Stepsemble에 오신 것을 환영합니다", body: "Stepsemble는 Pi Agent, 세션, 자격 증명과 프로젝트를 선택한 컴퓨터에 보관합니다.", points: ["지금 언어와 화면 모드를 선택할 수 있으며 나중에 변경할 수 있습니다."] },
+    { eyebrow: "토큰 및 로그인", title: "Web 토큰 찾기", body: "설치 프로그램이 Stepsemble를 실행하는 컴퓨터에 비공개 Web 토큰을 만듭니다. 해당 컴퓨터에서 터미널을 열고 cat ~/.config/stepsemble/token을 실행한 뒤 결과를 여기에 붙여넣으세요. 다른 기기에서는 해당 호스트에서 토큰을 안전하게 가져오세요.", points: ["토큰을 채팅, 스크린샷, 저장소 또는 로그에 절대 공유하지 마세요.", "사용자 지정 STEPSEMBLE_TOKEN_FILE을 설정했다면 기본 경로 대신 해당 파일을 사용하세요."] },
+    { eyebrow: "기기", title: "다른 컴퓨터 연결", body: "추가할 각 컴퓨터에 Stepsemble를 설치하고 실행하세요. Tailscale 또는 HTTPS를 사용한 뒤 ‘설정 → 기기 → 기기 추가’를 열거나 5분 동안 유효한 페어링 코드를 사용하세요.", points: ["독립적으로 취소할 수 있는 인증 정보에는 일회용 페어링을 사용하세요. 같은 Web 토큰은 URL을 수동으로 입력할 때만 필요합니다.", "공개 포트 3140을 신뢰할 수 없는 네트워크에 노출하지 마세요."] },
     { eyebrow: "모델 및 제공자", title: "LLM 제공자 추가", body: "‘설정 → 연결 → 모델 및 제공자’를 여세요. 카탈로그 서비스, 계정/OAuth 로그인, API 키, 로컬 서비스 또는 사용자 지정 제공자를 선택하세요.", points: ["인증 정보는 선택한 호스트에만 저장됩니다.", "그런 다음 사용할 모델을 표시 목록에서 선택하세요."] },
     { eyebrow: "프로젝트", title: "폴더를 선택하고 시작", body: "‘새 프로젝트’를 열고 이 호스트의 폴더를 선택한 다음 세션 이름을 입력하고 ‘여기서 시작’을 누르세요.", points: ["폴더 선택기는 호스트 홈에서 시작하며 허용된 경로만 보여 줍니다.", "나중에 ‘설정 → 정보 → 설정 안내’에서 이 안내를 다시 열 수 있습니다."] },
   ],
   tr: [
-    { eyebrow: "HOŞ GELDİNİZ", title: "Pi Harbor'a hoş geldiniz", body: "Pi Harbor; Pi Agent'ı, oturumları, kimlik bilgilerini ve projeleri seçtiğiniz bilgisayarda tutar.", points: ["Dil ve görünümü şimdi seçebilirsiniz; daha sonra da değiştirebilirsiniz."] },
-    { eyebrow: "TOKEN VE GİRİŞ", title: "Web token'ını bulun", body: "Yükleyici, Pi Harbor'ı çalıştıran bilgisayarda özel bir Web token'ı oluşturur. Bu bilgisayarda Terminal'i açıp cat ~/.config/pi-harbor/token komutunu çalıştırın ve sonucu buraya yapıştırın. Başka bir cihazda token'ı bu ana bilgisayardan güvenli şekilde alın.", points: ["Token'ı sohbetlerde, ekran görüntülerinde, depolarda veya günlüklerde asla paylaşmayın.", "Özel bir PI_HARBOR_TOKEN_FILE yapılandırıldıysa varsayılan yol yerine bu dosyayı kullanın."] },
-    { eyebrow: "CİHAZLAR", title: "Başka bir bilgisayarı bağlayın", body: "Eklediğiniz her bilgisayara Pi Harbor'i yükleyip çalıştırın. Tailscale veya HTTPS kullanın; ardından Ayarlar → Cihazlar → Cihaz ekle yolunu açın ya da beş dakika geçerli bir eşleştirme kodu kullanın.", points: ["Bağımsız ve iptal edilebilir kimlik bilgisi için tek kullanımlık eşleştirmeyi tercih edin; aynı Web token'ı yalnızca URL elle girildiğinde gerekir.", "3140 numaralı genel bağlantı noktasını güvenilmeyen bir ağa açmayın."] },
+    { eyebrow: "HOŞ GELDİNİZ", title: "Stepsemble'a hoş geldiniz", body: "Stepsemble; Pi Agent'ı, oturumları, kimlik bilgilerini ve projeleri seçtiğiniz bilgisayarda tutar.", points: ["Dil ve görünümü şimdi seçebilirsiniz; daha sonra da değiştirebilirsiniz."] },
+    { eyebrow: "TOKEN VE GİRİŞ", title: "Web token'ını bulun", body: "Yükleyici, Stepsemble'ı çalıştıran bilgisayarda özel bir Web token'ı oluşturur. Bu bilgisayarda Terminal'i açıp cat ~/.config/stepsemble/token komutunu çalıştırın ve sonucu buraya yapıştırın. Başka bir cihazda token'ı bu ana bilgisayardan güvenli şekilde alın.", points: ["Token'ı sohbetlerde, ekran görüntülerinde, depolarda veya günlüklerde asla paylaşmayın.", "Özel bir STEPSEMBLE_TOKEN_FILE yapılandırıldıysa varsayılan yol yerine bu dosyayı kullanın."] },
+    { eyebrow: "CİHAZLAR", title: "Başka bir bilgisayarı bağlayın", body: "Eklediğiniz her bilgisayara Stepsemble'i yükleyip çalıştırın. Tailscale veya HTTPS kullanın; ardından Ayarlar → Cihazlar → Cihaz ekle yolunu açın ya da beş dakika geçerli bir eşleştirme kodu kullanın.", points: ["Bağımsız ve iptal edilebilir kimlik bilgisi için tek kullanımlık eşleştirmeyi tercih edin; aynı Web token'ı yalnızca URL elle girildiğinde gerekir.", "3140 numaralı genel bağlantı noktasını güvenilmeyen bir ağa açmayın."] },
     { eyebrow: "MODELLER VE SAĞLAYICILAR", title: "Bir LLM sağlayıcısı ekleyin", body: "Ayarlar → Bağlantı → Modeller ve sağlayıcılar bölümünü açın. Bir katalog hizmeti, hesap/OAuth girişi, API anahtarı, yerel hizmet veya Özel sağlayıcı seçin.", points: ["Kimlik bilgileri seçilen ana bilgisayarda kalır.", "Ardından kullanmak istediğiniz görünür modelleri seçin."] },
     { eyebrow: "PROJE", title: "Klasör seçip başlayın", body: "Yeni proje'yi açın, bu ana bilgisayardaki bir klasörü seçin, isteğe bağlı oturum adını yazın ve Buradan başla'yı seçin.", points: ["Klasör seçici ana bilgisayarın ana klasöründe başlar ve yalnızca izin verilen kökleri gösterir.", "Bu rehberi daha sonra Ayarlar → Hakkında → Kurulum rehberi bölümünden açabilirsiniz."] },
   ],
   fr: [
-    { eyebrow: "BIENVENUE", title: "Bienvenue sur Pi Harbor", body: "Pi Harbor conserve l’agent Pi, les sessions, les identifiants et les projets sur l’ordinateur sélectionné.", points: ["Choisissez la langue et l’apparence maintenant ; vous pourrez les modifier plus tard."] },
-    { eyebrow: "JETON ET CONNEXION", title: "Trouver votre jeton Web", body: "L’installeur crée un jeton Web privé sur l’ordinateur qui exécute Pi Harbor. Sur cet ordinateur, ouvrez le Terminal et exécutez cat ~/.config/pi-harbor/token, puis collez le résultat ici. Depuis un autre appareil, récupérez le jeton en toute sécurité sur cet hôte.", points: ["Ne partagez jamais le jeton dans un chat, une capture d’écran, un dépôt ou un journal.", "Si un PI_HARBOR_TOKEN_FILE personnalisé est configuré, utilisez ce fichier plutôt que le chemin par défaut."] },
-    { eyebrow: "APPAREILS", title: "Connecter un autre ordinateur", body: "Installez et lancez Pi Harbor sur chaque ordinateur supplémentaire. Utilisez Tailscale ou HTTPS, puis ouvrez Réglages → Appareils → Ajouter un appareil, ou utilisez un code d’association valable cinq minutes.", points: ["Préférez l’association à usage unique pour un identifiant indépendant et révocable ; le même jeton Web n’est requis que pour la saisie manuelle d’une URL.", "N’exposez jamais le port public 3140 à un réseau non fiable."] },
+    { eyebrow: "BIENVENUE", title: "Bienvenue sur Stepsemble", body: "Stepsemble conserve l’agent Pi, les sessions, les identifiants et les projets sur l’ordinateur sélectionné.", points: ["Choisissez la langue et l’apparence maintenant ; vous pourrez les modifier plus tard."] },
+    { eyebrow: "JETON ET CONNEXION", title: "Trouver votre jeton Web", body: "L’installeur crée un jeton Web privé sur l’ordinateur qui exécute Stepsemble. Sur cet ordinateur, ouvrez le Terminal et exécutez cat ~/.config/stepsemble/token, puis collez le résultat ici. Depuis un autre appareil, récupérez le jeton en toute sécurité sur cet hôte.", points: ["Ne partagez jamais le jeton dans un chat, une capture d’écran, un dépôt ou un journal.", "Si un STEPSEMBLE_TOKEN_FILE personnalisé est configuré, utilisez ce fichier plutôt que le chemin par défaut."] },
+    { eyebrow: "APPAREILS", title: "Connecter un autre ordinateur", body: "Installez et lancez Stepsemble sur chaque ordinateur supplémentaire. Utilisez Tailscale ou HTTPS, puis ouvrez Réglages → Appareils → Ajouter un appareil, ou utilisez un code d’association valable cinq minutes.", points: ["Préférez l’association à usage unique pour un identifiant indépendant et révocable ; le même jeton Web n’est requis que pour la saisie manuelle d’une URL.", "N’exposez jamais le port public 3140 à un réseau non fiable."] },
     { eyebrow: "MODÈLES ET FOURNISSEURS", title: "Ajouter un fournisseur LLM", body: "Ouvrez Réglages → Connexion → Modèles et fournisseurs. Choisissez un service du catalogue, une connexion par compte/OAuth, une clé API, un service local ou un fournisseur personnalisé.", points: ["Les identifiants restent sur l’hôte sélectionné.", "Sélectionnez ensuite les modèles visibles que vous souhaitez utiliser."] },
     { eyebrow: "PROJET", title: "Choisir un dossier et commencer", body: "Ouvrez Nouveau projet, choisissez un dossier sur cet hôte, indiquez éventuellement le nom de la session, puis sélectionnez Commencer ici.", points: ["Le sélecteur commence dans le dossier personnel de l’hôte et n’affiche que les racines autorisées.", "Vous pourrez rouvrir ce guide dans Réglages → À propos → Guide de configuration."] },
   ],
   de: [
-    { eyebrow: "WILLKOMMEN", title: "Willkommen bei Pi Harbor", body: "Pi Harbor bewahrt Pi Agent, Sitzungen, Zugangsdaten und Projekte auf dem ausgewählten Computer auf.", points: ["Wählen Sie Sprache und Darstellung jetzt aus; beides lässt sich später ändern."] },
-    { eyebrow: "TOKEN UND ANMELDUNG", title: "Web-Token finden", body: "Das Installationsprogramm erstellt ein privates Web-Token auf dem Computer, auf dem Pi Harbor läuft. Öffnen Sie dort das Terminal und führen Sie cat ~/.config/pi-harbor/token aus. Fügen Sie das Ergebnis hier ein. Rufen Sie das Token auf einem anderen Gerät sicher von diesem Host ab.", points: ["Teilen Sie das Token niemals in Chats, Screenshots, Repositories oder Protokollen.", "Wenn ein eigenes PI_HARBOR_TOKEN_FILE konfiguriert ist, verwenden Sie diese Datei statt des Standardpfads."] },
-    { eyebrow: "GERÄTE", title: "Anderen Computer verbinden", body: "Installieren und starten Sie Pi Harbor auf jedem weiteren Computer. Verwenden Sie Tailscale oder HTTPS und öffnen Sie Einstellungen → Geräte → Gerät hinzufügen oder verwenden Sie einen fünf Minuten gültigen Kopplungscode.", points: ["Bevorzugen Sie die einmalige Kopplung für eine unabhängige, widerrufbare Anmeldung; dasselbe Web-Token ist nur bei manueller URL-Eingabe erforderlich.", "Geben Sie den öffentlichen Port 3140 nie in einem nicht vertrauenswürdigen Netzwerk frei."] },
+    { eyebrow: "WILLKOMMEN", title: "Willkommen bei Stepsemble", body: "Stepsemble bewahrt Pi Agent, Sitzungen, Zugangsdaten und Projekte auf dem ausgewählten Computer auf.", points: ["Wählen Sie Sprache und Darstellung jetzt aus; beides lässt sich später ändern."] },
+    { eyebrow: "TOKEN UND ANMELDUNG", title: "Web-Token finden", body: "Das Installationsprogramm erstellt ein privates Web-Token auf dem Computer, auf dem Stepsemble läuft. Öffnen Sie dort das Terminal und führen Sie cat ~/.config/stepsemble/token aus. Fügen Sie das Ergebnis hier ein. Rufen Sie das Token auf einem anderen Gerät sicher von diesem Host ab.", points: ["Teilen Sie das Token niemals in Chats, Screenshots, Repositories oder Protokollen.", "Wenn ein eigenes STEPSEMBLE_TOKEN_FILE konfiguriert ist, verwenden Sie diese Datei statt des Standardpfads."] },
+    { eyebrow: "GERÄTE", title: "Anderen Computer verbinden", body: "Installieren und starten Sie Stepsemble auf jedem weiteren Computer. Verwenden Sie Tailscale oder HTTPS und öffnen Sie Einstellungen → Geräte → Gerät hinzufügen oder verwenden Sie einen fünf Minuten gültigen Kopplungscode.", points: ["Bevorzugen Sie die einmalige Kopplung für eine unabhängige, widerrufbare Anmeldung; dasselbe Web-Token ist nur bei manueller URL-Eingabe erforderlich.", "Geben Sie den öffentlichen Port 3140 nie in einem nicht vertrauenswürdigen Netzwerk frei."] },
     { eyebrow: "MODELLE UND ANBIETER", title: "LLM-Anbieter hinzufügen", body: "Öffnen Sie Einstellungen → Verbindung → Modelle und Anbieter. Wählen Sie einen Katalogdienst, die Konto-/OAuth-Anmeldung, einen API-Schlüssel, einen lokalen Dienst oder einen benutzerdefinierten Anbieter.", points: ["Zugangsdaten bleiben auf dem ausgewählten Host.", "Wählen Sie danach die sichtbaren Modelle aus, die Sie verwenden möchten."] },
     { eyebrow: "PROJEKT", title: "Ordner auswählen und starten", body: "Öffnen Sie Neues Projekt, wählen Sie einen Ordner auf diesem Host, geben Sie optional einen Sitzungsnamen ein und wählen Sie Hier starten.", points: ["Die Ordnerauswahl beginnt im Home-Ordner des Hosts und zeigt nur erlaubte Wurzeln.", "Sie können den Assistenten später unter Einstellungen → Über → Einrichtungsassistent erneut öffnen."] },
   ],
   es: [
-    { eyebrow: "BIENVENIDA", title: "Bienvenido a Pi Harbor", body: "Pi Harbor conserva el agente Pi, las sesiones, las credenciales y los proyectos en el ordenador seleccionado.", points: ["Elige ahora el idioma y la apariencia; podrás cambiarlos más adelante."] },
-    { eyebrow: "TOKEN E INICIO DE SESIÓN", title: "Encuentra tu token web", body: "El instalador crea un token web privado en el ordenador que ejecuta Pi Harbor. En ese ordenador, abre Terminal y ejecuta cat ~/.config/pi-harbor/token; después pega el resultado aquí. Desde otro dispositivo, recupera el token de forma segura en ese equipo anfitrión.", points: ["Nunca compartas el token en chats, capturas de pantalla, repositorios ni registros.", "Si se ha configurado un PI_HARBOR_TOKEN_FILE personalizado, usa ese archivo en lugar de la ruta predeterminada."] },
-    { eyebrow: "DISPOSITIVOS", title: "Conecta otro ordenador", body: "Instala y ejecuta Pi Harbor en cada ordenador adicional. Usa Tailscale o HTTPS y abre Ajustes → Dispositivos → Añadir dispositivo, o utiliza un código de emparejamiento válido durante cinco minutos.", points: ["Prefiere el emparejamiento de un solo uso para obtener una credencial independiente y revocable; el mismo token web solo se necesita al introducir la URL manualmente.", "No expongas el puerto público 3140 directamente a una red que no sea de confianza."] },
+    { eyebrow: "BIENVENIDA", title: "Bienvenido a Stepsemble", body: "Stepsemble conserva el agente Pi, las sesiones, las credenciales y los proyectos en el ordenador seleccionado.", points: ["Elige ahora el idioma y la apariencia; podrás cambiarlos más adelante."] },
+    { eyebrow: "TOKEN E INICIO DE SESIÓN", title: "Encuentra tu token web", body: "El instalador crea un token web privado en el ordenador que ejecuta Stepsemble. En ese ordenador, abre Terminal y ejecuta cat ~/.config/stepsemble/token; después pega el resultado aquí. Desde otro dispositivo, recupera el token de forma segura en ese equipo anfitrión.", points: ["Nunca compartas el token en chats, capturas de pantalla, repositorios ni registros.", "Si se ha configurado un STEPSEMBLE_TOKEN_FILE personalizado, usa ese archivo en lugar de la ruta predeterminada."] },
+    { eyebrow: "DISPOSITIVOS", title: "Conecta otro ordenador", body: "Instala y ejecuta Stepsemble en cada ordenador adicional. Usa Tailscale o HTTPS y abre Ajustes → Dispositivos → Añadir dispositivo, o utiliza un código de emparejamiento válido durante cinco minutos.", points: ["Prefiere el emparejamiento de un solo uso para obtener una credencial independiente y revocable; el mismo token web solo se necesita al introducir la URL manualmente.", "No expongas el puerto público 3140 directamente a una red que no sea de confianza."] },
     { eyebrow: "MODELOS Y PROVEEDORES", title: "Añade un proveedor LLM", body: "Abre Ajustes → Conexión → Modelos y proveedores. Elige un servicio del catálogo, inicio de sesión con cuenta/OAuth, una clave API, un servicio local o un proveedor personalizado.", points: ["Las credenciales permanecen en el equipo anfitrión seleccionado.", "Después, selecciona los modelos visibles que quieras utilizar."] },
     { eyebrow: "PROYECTO", title: "Elige una carpeta y empieza", body: "Abre Nuevo proyecto, elige una carpeta en este equipo anfitrión, escribe opcionalmente el nombre de la sesión y selecciona Empezar aquí.", points: ["El selector empieza en la carpeta personal del equipo y solo muestra raíces permitidas.", "Puedes volver a abrir esta guía desde Ajustes → Acerca de → Guía de configuración."] },
   ],
   "pt-BR": [
-    { eyebrow: "BOAS-VINDAS", title: "Bem-vindo ao Pi Harbor", body: "O Pi Harbor mantém o Pi Agent, as sessões, as credenciais e os projetos no computador selecionado.", points: ["Escolha o idioma e a aparência agora; ambos podem ser alterados depois."] },
-    { eyebrow: "TOKEN E LOGIN", title: "Encontre seu token Web", body: "O instalador cria um token Web privado no computador que executa o Pi Harbor. Nesse computador, abra o Terminal e execute cat ~/.config/pi-harbor/token; depois cole o resultado aqui. Em outro dispositivo, obtenha o token com segurança nesse host.", points: ["Nunca compartilhe o token em chats, capturas de tela, repositórios ou logs.", "Se um PI_HARBOR_TOKEN_FILE personalizado estiver configurado, use esse arquivo em vez do caminho padrão."] },
-    { eyebrow: "DISPOSITIVOS", title: "Conecte outro computador", body: "Instale e execute o Pi Harbor em cada computador adicional. Use Tailscale ou HTTPS e abra Configurações → Dispositivos → Adicionar dispositivo, ou use um código de pareamento válido por cinco minutos.", points: ["Prefira o pareamento de uso único para obter uma credencial independente e revogável; o mesmo token Web só é necessário ao informar a URL manualmente.", "Não exponha a porta pública 3140 diretamente a uma rede não confiável."] },
+    { eyebrow: "BOAS-VINDAS", title: "Bem-vindo ao Stepsemble", body: "O Stepsemble mantém o Pi Agent, as sessões, as credenciais e os projetos no computador selecionado.", points: ["Escolha o idioma e a aparência agora; ambos podem ser alterados depois."] },
+    { eyebrow: "TOKEN E LOGIN", title: "Encontre seu token Web", body: "O instalador cria um token Web privado no computador que executa o Stepsemble. Nesse computador, abra o Terminal e execute cat ~/.config/stepsemble/token; depois cole o resultado aqui. Em outro dispositivo, obtenha o token com segurança nesse host.", points: ["Nunca compartilhe o token em chats, capturas de tela, repositórios ou logs.", "Se um STEPSEMBLE_TOKEN_FILE personalizado estiver configurado, use esse arquivo em vez do caminho padrão."] },
+    { eyebrow: "DISPOSITIVOS", title: "Conecte outro computador", body: "Instale e execute o Stepsemble em cada computador adicional. Use Tailscale ou HTTPS e abra Configurações → Dispositivos → Adicionar dispositivo, ou use um código de pareamento válido por cinco minutos.", points: ["Prefira o pareamento de uso único para obter uma credencial independente e revogável; o mesmo token Web só é necessário ao informar a URL manualmente.", "Não exponha a porta pública 3140 diretamente a uma rede não confiável."] },
     { eyebrow: "MODELOS E PROVEDORES", title: "Adicione um provedor de LLM", body: "Abra Configurações → Conexão → Modelos e provedores. Escolha um serviço do catálogo, login com conta/OAuth, uma chave de API, um serviço local ou um provedor personalizado.", points: ["As credenciais permanecem no host selecionado.", "Depois, selecione os modelos visíveis que deseja usar."] },
     { eyebrow: "PROJETO", title: "Escolha uma pasta e comece", body: "Abra Novo projeto, escolha uma pasta neste host, informe opcionalmente o nome da sessão e selecione Começar aqui.", points: ["O seletor começa na pasta pessoal do host e mostra apenas raízes permitidas.", "Você pode reabrir este guia em Configurações → Sobre → Guia de configuração."] },
   ],
   it: [
-    { eyebrow: "BENVENUTO", title: "Benvenuto in Pi Harbor", body: "Pi Harbor conserva Pi Agent, sessioni, credenziali e progetti sul computer selezionato.", points: ["Scegli ora lingua e aspetto; potrai modificarli in seguito."] },
-    { eyebrow: "TOKEN E ACCESSO", title: "Trova il token Web", body: "Il programma di installazione crea un token Web privato sul computer che esegue Pi Harbor. Su quel computer apri Terminale ed esegui cat ~/.config/pi-harbor/token, quindi incolla il risultato qui. Da un altro dispositivo, recupera il token in modo sicuro da quell’host.", points: ["Non condividere mai il token in chat, schermate, repository o log.", "Se è configurato un PI_HARBOR_TOKEN_FILE personalizzato, usa quel file invece del percorso predefinito."] },
-    { eyebrow: "DISPOSITIVI", title: "Collega un altro computer", body: "Installa e avvia Pi Harbor su ogni computer aggiuntivo. Usa Tailscale o HTTPS, quindi apri Impostazioni → Dispositivi → Aggiungi dispositivo oppure usa un codice di abbinamento valido cinque minuti.", points: ["Preferisci l’abbinamento una tantum per una credenziale indipendente e revocabile; lo stesso token Web serve solo quando inserisci manualmente l’URL.", "Non esporre la porta pubblica 3140 a una rete non attendibile."] },
+    { eyebrow: "BENVENUTO", title: "Benvenuto in Stepsemble", body: "Stepsemble conserva Pi Agent, sessioni, credenziali e progetti sul computer selezionato.", points: ["Scegli ora lingua e aspetto; potrai modificarli in seguito."] },
+    { eyebrow: "TOKEN E ACCESSO", title: "Trova il token Web", body: "Il programma di installazione crea un token Web privato sul computer che esegue Stepsemble. Su quel computer apri Terminale ed esegui cat ~/.config/stepsemble/token, quindi incolla il risultato qui. Da un altro dispositivo, recupera il token in modo sicuro da quell’host.", points: ["Non condividere mai il token in chat, schermate, repository o log.", "Se è configurato un STEPSEMBLE_TOKEN_FILE personalizzato, usa quel file invece del percorso predefinito."] },
+    { eyebrow: "DISPOSITIVI", title: "Collega un altro computer", body: "Installa e avvia Stepsemble su ogni computer aggiuntivo. Usa Tailscale o HTTPS, quindi apri Impostazioni → Dispositivi → Aggiungi dispositivo oppure usa un codice di abbinamento valido cinque minuti.", points: ["Preferisci l’abbinamento una tantum per una credenziale indipendente e revocabile; lo stesso token Web serve solo quando inserisci manualmente l’URL.", "Non esporre la porta pubblica 3140 a una rete non attendibile."] },
     { eyebrow: "MODELLI E PROVIDER", title: "Aggiungi un provider LLM", body: "Apri Impostazioni → Connessione → Modelli e provider. Scegli un servizio del catalogo, l’accesso con account/OAuth, una chiave API, un servizio locale o un provider personalizzato.", points: ["Le credenziali restano sull’host selezionato.", "Poi seleziona i modelli visibili che vuoi usare."] },
     { eyebrow: "PROGETTO", title: "Scegli una cartella e inizia", body: "Apri Nuovo progetto, scegli una cartella su questo host, inserisci facoltativamente il nome della sessione e seleziona Inizia qui.", points: ["Il selettore parte dalla cartella home dell’host e mostra solo le radici autorizzate.", "Puoi riaprire questa guida da Impostazioni → Informazioni → Guida alla configurazione."] },
   ],
@@ -6844,7 +6863,7 @@ function renderOnboarding() {
   el.onboardingBack.textContent = copy.back;
   el.onboardingSkip.textContent = copy.skip;
   el.onboardingNext.textContent = onboardingStep === copy.steps.length - 1 ? copy.finish : copy.next;
-  el.onboardingClose.setAttribute("aria-label", window.piI18n?.t("Close") || "Close");
+  el.onboardingClose.setAttribute("aria-label", window.stepsembleI18n?.t("Close") || "Close");
   el.onboardingLanguageLabel.textContent = copy.language;
   el.onboardingAppearanceLabel.textContent = copy.appearance;
   if (el.setupGuideTitle) el.setupGuideTitle.textContent = copy.guideTitle;
@@ -6853,7 +6872,7 @@ function renderOnboarding() {
   const languageLabels = ONBOARDING_LANGUAGE_LABELS[settings.locale] || ONBOARDING_LANGUAGE_LABELS.en;
   [...el.onboardingLanguage.options].forEach((option, index) => { option.textContent = languageLabels[index] || option.textContent; });
   el.onboardingAppearance.value = settings.theme;
-  for (const option of el.onboardingAppearance.options) option.textContent = window.piI18n?.t(option.value === "auto" ? "System" : option.value === "light" ? "Light" : "Dark") || option.textContent;
+  for (const option of el.onboardingAppearance.options) option.textContent = window.stepsembleI18n?.t(option.value === "auto" ? "System" : option.value === "light" ? "Light" : "Dark") || option.textContent;
 }
 
 async function completeOnboarding() {
@@ -6879,11 +6898,13 @@ async function completeOnboarding() {
 function openOnboarding(force = false) {
   if (!el.onboarding) return;
   if (!force) {
-    try { if (localStorage.getItem(ONBOARDING_KEY) === "complete") return; } catch {}
+    try {
+      if (migratedStorageValue(localStorage, ONBOARDING_KEY, LEGACY_ONBOARDING_KEYS) === "complete") return;
+    } catch {}
   }
   onboardingStep = 0;
   if (!el.onboardingLanguage.options.length) {
-    for (const locale of window.piI18n?.locales || [{ id: "en", label: "English" }]) {
+    for (const locale of window.stepsembleI18n?.locales || [{ id: "en", label: "English" }]) {
       const option = document.createElement("option");
       option.value = locale.id;
       option.textContent = locale.label;
@@ -6904,8 +6925,8 @@ el.onboardingNext?.addEventListener("click", () => {
   renderOnboarding();
 });
 el.onboardingLanguage?.addEventListener("change", () => {
-  settings = saveSettings({ locale: window.piI18n?.normalizeLocale(el.onboardingLanguage.value) || "en" });
-  window.piI18n?.setLocale(settings.locale);
+  settings = saveSettings({ locale: window.stepsembleI18n?.normalizeLocale(el.onboardingLanguage.value) || "en" });
+  window.stepsembleI18n?.setLocale(settings.locale);
   renderOnboarding();
   renderSettings();
   renderContextDashboard();
@@ -6957,7 +6978,7 @@ let serviceWorkerRegistration = null;
 let updateReadyNotified = false;
 
 function updateText(key, vars = {}) {
-  let text = window.piI18n?.t(key, vars) || key;
+  let text = window.stepsembleI18n?.t(key, vars) || key;
   for (const [name, value] of Object.entries(vars)) text = text.replaceAll(`{${name}}`, String(value));
   return text;
 }
@@ -6977,7 +6998,7 @@ function formatUpdateTime(value) {
   const timestamp = Date.parse(String(value || ""));
   if (!Number.isFinite(timestamp)) return "";
   try {
-    return new Intl.DateTimeFormat(window.piI18n?.getLocale?.() || settings.locale || "en", {
+    return new Intl.DateTimeFormat(window.stepsembleI18n?.getLocale?.() || settings.locale || "en", {
       dateStyle: "medium", timeStyle: "short",
     }).format(new Date(timestamp));
   } catch {
@@ -6993,7 +7014,7 @@ function updateVersionText(value) {
 
 function updateDeviceName(machine = currentMachine()) {
   const configuredName = String(machine?.name || "").trim();
-  return configuredName || updateText("Pi Harbor device");
+  return configuredName || updateText("Stepsemble device");
 }
 
 function updateRequestError(message, status = 0, reachable = false) {
@@ -7072,10 +7093,10 @@ function updateEntryFor(machine) {
 function updatePhaseText(data, machine, error = null) {
   const device = updateDeviceName(machine);
   if (error?.remote) return tKey(error.remoteKey || "deviceTrust.remoteAuthorizationError", { device });
-  if (data?.updateUnsupported) return updateText("Update controls require a newer Pi Harbor on {device}", { device });
+  if (data?.updateUnsupported) return updateText("Update controls require a newer Stepsemble on {device}", { device });
   if (error) {
     if (updateErrorIsUnsupported(error) && [404, 405].includes(Number(error.status))) {
-      return updateText("Update controls require a newer Pi Harbor on {device}", { device });
+      return updateText("Update controls require a newer Stepsemble on {device}", { device });
     }
     return updateText("Update status unavailable on {device}", { device });
   }
@@ -7090,7 +7111,7 @@ function updatePhaseText(data, machine, error = null) {
   }
   if (phase === "available") {
     return updater.latestVersion
-      ? updateText("Update available on {device}: Pi Harbor {version}", { device, version: updateVersionText(updater.latestVersion) })
+      ? updateText("Update available on {device}: Stepsemble {version}", { device, version: updateVersionText(updater.latestVersion) })
       : updateText("Update available on {device}", { device });
   }
   if (phase === "error") return updateText("Update check failed on {device}", { device });
@@ -7218,7 +7239,7 @@ function renderUpdateStatus(data = updateStatusData) {
   el.setAutoUpdate.disabled = !installed;
   el.updateCheck.disabled = !installed;
   if (!installed) {
-    el.updateStatusCopy.textContent = updateText("Install the Pi Harbor updater on {device} to enable automatic updates", { device });
+    el.updateStatusCopy.textContent = updateText("Install the Stepsemble updater on {device} to enable automatic updates", { device });
     el.updateCheckStatus.textContent = updateText("Updater service is not installed on {device}", { device });
     return;
   }
@@ -7409,9 +7430,9 @@ async function fetchMachineJSON(machine, endpoint, { signal, timeoutMs = 15000 }
 
 function resourceSyncErrorText(error, machineA, machineB, nameA, nameB) {
   if ([404, 405].includes(Number(error?.status))) {
-    // A remote host without the endpoint is simply an older Pi Harbor.
+    // A remote host without the endpoint is simply an older Stepsemble.
     const remoteName = !machineA?.local ? nameA : (!machineB?.local ? nameB : null);
-    if (remoteName) return updateText("Resource comparison needs a newer Pi Harbor on {device}", { device: remoteName });
+    if (remoteName) return updateText("Resource comparison needs a newer Stepsemble on {device}", { device: remoteName });
   }
   if ([502, 504].includes(Number(error?.status)) || error?.name === "TypeError") {
     const offlineName = !machineA?.local ? nameA : (!machineB?.local ? nameB : null) || nameA;
@@ -7691,26 +7712,29 @@ async function runUpdateAll() {
 }
 
 async function checkForClientUpdate() {
+  const reloadAttemptKey = "stepsemble.clientReloadAttempt";
+  const legacyReloadAttemptKeys = ["piharbor.clientReloadAttempt", "piweb.clientReloadAttempt"];
   try {
     const response = await fetch("/api/version", { credentials: "same-origin", cache: "no-store" });
     if (!response.ok) return;
     const data = await response.json();
     const serverVersion = String(data.appVersion || "").trim();
     if (!serverVersion || serverVersion === CLIENT_APP_VERSION) {
-      sessionStorage.removeItem("piharbor.clientReloadAttempt");
+      sessionStorage.removeItem(reloadAttemptKey);
+      for (const key of legacyReloadAttemptKeys) sessionStorage.removeItem(key);
       return;
     }
     if (rpc?.streaming) {
-      if (!updateReadyNotified) toast(updateText("Pi Harbor update ready; reload after the current work finishes"));
+      if (!updateReadyNotified) toast(updateText("Stepsemble update ready; reload after the current work finishes"));
       updateReadyNotified = true;
       return;
     }
     updateReadyNotified = false;
     const registration = serviceWorkerRegistration || await navigator.serviceWorker?.getRegistration?.();
     await registration?.update?.().catch(() => {});
-    const previousAttempt = Number(sessionStorage.getItem("piharbor.clientReloadAttempt")) || 0;
+    const previousAttempt = Number(migratedStorageValue(sessionStorage, reloadAttemptKey, legacyReloadAttemptKeys)) || 0;
     if (Date.now() - previousAttempt < 15_000) return;
-    sessionStorage.setItem("piharbor.clientReloadAttempt", String(Date.now()));
+    sessionStorage.setItem(reloadAttemptKey, String(Date.now()));
     location.reload();
   } catch {}
 }
@@ -8004,7 +8028,7 @@ function closeProviderDialog() {
 }
 
 function providerAuthTypeLabel(type) {
-  return window.piI18n?.t(type === "oauth" ? "Sign in with an account" : "Use an API key") || (type === "oauth" ? "Sign in with an account" : "Use an API key");
+  return window.stepsembleI18n?.t(type === "oauth" ? "Sign in with an account" : "Use an API key") || (type === "oauth" ? "Sign in with an account" : "Use an API key");
 }
 
 const PROVIDER_CATEGORY_META = Object.freeze({
@@ -8062,9 +8086,9 @@ function renderProviderPresets() {
     heading.dataset.providerCategory = category;
     heading.setAttribute("aria-expanded", String(!collapsed));
     const title = document.createElement("strong");
-    title.textContent = window.piI18n?.t(meta.label) || meta.label;
+    title.textContent = window.stepsembleI18n?.t(meta.label) || meta.label;
     const note = document.createElement("small");
-    note.textContent = `${providers.length}${window.piI18n?.t("個服務") || " service(s)"} · ${window.piI18n?.t(meta.note) || meta.note}`;
+    note.textContent = `${providers.length}${window.stepsembleI18n?.t("個服務") || " service(s)"} · ${window.stepsembleI18n?.t(meta.note) || meta.note}`;
     const chevron = document.createElement("span");
     chevron.className = "provider-preset-chevron";
     chevron.textContent = "⌄";
@@ -8081,13 +8105,13 @@ function renderProviderPresets() {
       const copy = document.createElement("span");
       copy.className = "provider-preset-copy";
       const name = document.createElement("strong");
-      name.textContent = window.piI18n?.providerName(provider) || provider.name;
+      name.textContent = window.stepsembleI18n?.providerName(provider) || provider.name;
       const description = document.createElement("small");
-      description.textContent = window.piI18n?.providerDescription(provider) || provider.description;
+      description.textContent = window.stepsembleI18n?.providerDescription(provider) || provider.description;
       copy.append(name, description);
       const status = document.createElement("span");
       status.className = "provider-preset-status";
-      status.textContent = provider.configured ? (window.piI18n?.t("已設定") || "Configured") : "";
+      status.textContent = provider.configured ? (window.stepsembleI18n?.t("已設定") || "Configured") : "";
       const chevron = document.createElement("span");
       chevron.className = "row-chevron";
       chevron.textContent = "→";
@@ -8109,8 +8133,8 @@ function selectProviderPreset(provider) {
   providerDialogPreset = provider;
   collapsedProviderCategories.delete(provider.category || "paid");
   renderProviderPresets();
-  if (el.providerSelectedName) el.providerSelectedName.textContent = window.piI18n?.providerName(provider) || provider.name;
-  if (el.providerSelectedDescription) el.providerSelectedDescription.textContent = window.piI18n?.providerDescription(provider) || provider.description || "";
+  if (el.providerSelectedName) el.providerSelectedName.textContent = window.stepsembleI18n?.providerName(provider) || provider.name;
+  if (el.providerSelectedDescription) el.providerSelectedDescription.textContent = window.stepsembleI18n?.providerDescription(provider) || provider.description || "";
   const isFree = provider.kind === "free";
   const authTypes = new Set(provider.authTypes || []);
   el.providerAuthOptions?.classList.remove("hidden");
@@ -8125,10 +8149,10 @@ function selectProviderPreset(provider) {
     const canSwitchDevice = !!selfId && selectedId !== selfId && machines.length > 1;
     el.providerSwitchDevice?.classList.toggle("hidden", !canSwitchDevice);
     if (canSwitchDevice && el.providerSwitchDevice) {
-      el.providerSwitchDevice.textContent = window.piI18n?.t("Switch device") || "Switch device";
+      el.providerSwitchDevice.textContent = window.stepsembleI18n?.t("Switch device") || "Switch device";
     }
     if (el.providerSimpleStatus) {
-      el.providerSimpleStatus.textContent = updateText("Update Pi Harbor on this device to add or change provider credentials.");
+      el.providerSimpleStatus.textContent = updateText("Update Stepsemble on this device to add or change provider credentials.");
       el.providerSimpleStatus.classList.add("is-readonly");
     }
     el.providerAuthOptions?.scrollIntoView({ block: "nearest", behavior: settings.reducedMotion ? "auto" : "smooth" });
@@ -8169,7 +8193,7 @@ async function loadProviderCatalog(force = false) {
     el.providerAdvancedToggle?.classList.toggle("hidden", !!providerDialogExisting);
     return providerCatalog;
   } catch (error) {
-    // A remote device running an older Pi Harbor can still use /api/models, but
+    // A remote device running an older Stepsemble can still use /api/models, but
     // it does not know the provider catalog/configuration endpoints. The
     // gateway owns the same static catalog, so show it read-only instead of
     // exposing a raw 404 or an empty picker.
@@ -8183,7 +8207,7 @@ async function loadProviderCatalog(force = false) {
           ? fallback.providers.map((provider) => ({ ...provider, configured: false, configuredType: null }))
           : [];
         providerCatalogReadOnly = true;
-        providerCatalogNotice = "This device is running an older Pi Harbor. The catalog is view-only until it is updated.";
+        providerCatalogNotice = "This device is running an older Stepsemble. The catalog is view-only until it is updated.";
         providerCatalogMachine = machineAtStart;
         el.providerAdvancedToggle?.classList.add("hidden");
         setProviderFormError();
@@ -8292,7 +8316,7 @@ function showProviderAuthPrompt(request, run) {
     const link = document.createElement("button");
     link.type = "button";
     link.className = "action-row extension-ui-option";
-    link.textContent = window.piI18n?.t("Open official sign-in page") || "Open official sign-in page";
+    link.textContent = window.stepsembleI18n?.t("Open official sign-in page") || "Open official sign-in page";
     link.addEventListener("click", () => window.open(providerAuthUrl, "_blank", "noopener,noreferrer"));
     el.extensionUiOptions.appendChild(link);
   }
@@ -8615,7 +8639,7 @@ async function loadModelVisibility(force = false, skipSession = false) {
       const providerError = providersResult.reason;
       if (providerError?.status === 404 && apiBase) {
         modelProviderError = "";
-        modelProviderNotice = "Provider management requires Pi Harbor 1.10.5 or later on this device.";
+        modelProviderNotice = "Provider management requires Stepsemble 1.10.5 or later on this device.";
       } else {
         modelProviderError = providerError?.message || "unknown error";
         modelProviderNotice = "";
@@ -8651,32 +8675,32 @@ function downloadProviderConfig(includeSecrets) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `pi-harbor-providers-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `stepsemble-providers-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(link);
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
     toast(includeSecrets
-      ? window.piI18n?.t("Provider config exported with API keys") || "Provider config exported with API keys"
-      : window.piI18n?.t("Provider config exported") || "Provider config exported");
+      ? window.stepsembleI18n?.t("Provider config exported with API keys") || "Provider config exported with API keys"
+      : window.stepsembleI18n?.t("Provider config exported") || "Provider config exported");
   }).catch((error) => toast(error.message || "Export failed", true));
 }
 
 async function importProviderConfig(file) {
   let payload;
   try { payload = JSON.parse(await file.text()); }
-  catch { toast(window.piI18n?.t("Invalid JSON file") || "Invalid JSON file", true); return; }
+  catch { toast(window.stepsembleI18n?.t("Invalid JSON file") || "Invalid JSON file", true); return; }
   const providerIds = Object.keys(payload?.providers || {});
-  if (!providerIds.length) { toast(window.piI18n?.t("No providers found in the imported file") || "No providers found in the imported file", true); return; }
+  if (!providerIds.length) { toast(window.stepsembleI18n?.t("No providers found in the imported file") || "No providers found in the imported file", true); return; }
   const summary = providerIds.map((id) => {
     const provider = payload.providers[id];
     const models = Array.isArray(provider?.models) ? provider.models.length : 0;
     return `${id} · ${models} models${hasSecrets(provider) ? " · key" : ""}`;
   });
-  if (!window.confirm(`${window.piI18n?.t("Import these providers?") || "Import these providers?"}\n\n${summary.join("\n")}\n\n${window.piI18n?.t("Providers with the same ID will be replaced.") || "Providers with the same id are replaced."}`)) return;
+  if (!window.confirm(`${window.stepsembleI18n?.t("Import these providers?") || "Import these providers?"}\n\n${summary.join("\n")}\n\n${window.stepsembleI18n?.t("Providers with the same ID will be replaced.") || "Providers with the same id are replaced."}`)) return;
   try {
     const result = await post("/api/model-config/import", { providers: payload.providers });
-    toast(window.piI18n?.t("Imported {count} providers", { count: result.imported.length }) || `Imported ${result.imported.length} providers`);
+    toast(window.stepsembleI18n?.t("Imported {count} providers", { count: result.imported.length }) || `Imported ${result.imported.length} providers`);
     await loadModelVisibility(true, true);
   } catch (error) {
     toast(error.message || "Import failed", true);
@@ -8686,7 +8710,7 @@ async function importProviderConfig(file) {
 function hasSecrets(provider) { return !!(provider?.apiKey || provider?.oauth); }
 
 el.providerConfigExport?.addEventListener("click", () => {
-  const includeSecrets = window.confirm(window.piI18n?.t("Include API keys in the export file?") || "Include API keys in the export file?\n\nCancel = export without secrets (keys stay on this device).\nOK = include keys in plain text; keep the file safe.");
+  const includeSecrets = window.confirm(window.stepsembleI18n?.t("Include API keys in the export file?") || "Include API keys in the export file?\n\nCancel = export without secrets (keys stay on this device).\nOK = include keys in plain text; keep the file safe.");
   downloadProviderConfig(includeSecrets);
 });
 el.providerConfigImport?.addEventListener("click", () => {
@@ -8716,10 +8740,10 @@ async function currentPushSubscription(registration) {
 function setPushToggleState(state) {
   if (!el.pushToggle) return;
   const labels = {
-    unsupported: window.piI18n?.t("Not available") || "Not available",
-    enable: window.piI18n?.t("Enable") || "Enable",
-    on: window.piI18n?.t("Notifications on") || "Notifications on",
-    denied: window.piI18n?.t("Blocked in browser settings") || "Blocked in browser settings",
+    unsupported: window.stepsembleI18n?.t("Not available") || "Not available",
+    enable: window.stepsembleI18n?.t("Enable") || "Enable",
+    on: window.stepsembleI18n?.t("Notifications on") || "Notifications on",
+    denied: window.stepsembleI18n?.t("Blocked in browser settings") || "Blocked in browser settings",
     busy: "…",
   };
   el.pushToggle.textContent = labels[state] || labels.enable;
@@ -8751,7 +8775,7 @@ async function disablePushNotifications() {
       await post("/api/push/unsubscribe", { endpoint: subscription.endpoint });
       await subscription.unsubscribe();
     }
-    toast(window.piI18n?.t("Notifications off") || "Notifications off");
+    toast(window.stepsembleI18n?.t("Notifications off") || "Notifications off");
   } catch {}
   void refreshPushToggleState();
 }
@@ -8772,7 +8796,7 @@ async function enablePushNotifications() {
     });
     await post("/api/push/subscribe", subscription.toJSON());
     setPushToggleState("on");
-    toast(window.piI18n?.t("Notifications on") || "Notifications on");
+    toast(window.stepsembleI18n?.t("Notifications on") || "Notifications on");
   } catch (error) {
     toast(error.message || "Could not enable notifications", true);
     void refreshPushToggleState();
@@ -8855,8 +8879,8 @@ el.setDesignTheme?.addEventListener("click", (event) => {
   renderThemeChoices();
 });
 el.setLocale?.addEventListener("change", () => {
-  settings = saveSettings({ locale: window.piI18n?.normalizeLocale(el.setLocale.value) || "en" });
-  window.piI18n?.setLocale(settings.locale);
+  settings = saveSettings({ locale: window.stepsembleI18n?.normalizeLocale(el.setLocale.value) || "en" });
+  window.stepsembleI18n?.setLocale(settings.locale);
   renderSettings();
   renderSessionList(el.search?.value || "");
   renderMachineSwitch();
@@ -8976,7 +9000,7 @@ function formatGrantDate(value) {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "—";
   try {
-    return new Intl.DateTimeFormat(window.piI18n?.getLocale?.() || settings.locale || "en", {
+    return new Intl.DateTimeFormat(window.stepsembleI18n?.getLocale?.() || settings.locale || "en", {
       dateStyle: "medium",
     }).format(date);
   } catch { return date.toISOString().slice(0, 10); }
@@ -9152,7 +9176,7 @@ async function checkMachineStatus(machine) {
     const authorized = machineInfo?.ok && machineInfo.authed !== false;
     return authorized || [404, 405].includes(machineInfo?.status) ? "online" : "offline";
   }
-  // Older Pi Harbor instances do not expose /api/health yet, but /api/machine is
+  // Older Stepsemble instances do not expose /api/health yet, but /api/machine is
   // available on those builds. Treat that compatibility response as online
   // instead of showing a healthy, actively used device as offline.
   if (!health || ![404, 405].includes(health.status)) return "offline";
@@ -9204,7 +9228,7 @@ function formatPairingExpiry(value) {
   const date = new Date(Number(value));
   if (!Number.isFinite(date.getTime())) return "";
   try {
-    return new Intl.DateTimeFormat(window.piI18n?.getLocale?.() || settings.locale || "en", {
+    return new Intl.DateTimeFormat(window.stepsembleI18n?.getLocale?.() || settings.locale || "en", {
       dateStyle: "medium", timeStyle: "short",
     }).format(date);
   } catch { return date.toISOString(); }
@@ -9431,7 +9455,7 @@ async function saveMachineDialog() {
   const port = Number(el.machinePort?.value || 0);
   if (!name || (!isLocal && !url)) { setMachineFormError(tKey(isLocal ? "device.nameRequired" : "device.nameAndUrlRequired")); return; }
   if (isLocal && (!Number.isInteger(port) || port < 1024 || port > 65535)) {
-    setMachineFormError("Pi Harbor port 必須是 1024–65535 的整數。"); return;
+    setMachineFormError("Stepsemble port 必須是 1024–65535 的整數。"); return;
   }
   el.machineSave.disabled = true;
   setMachineFormError();
@@ -9468,14 +9492,14 @@ async function saveMachineDialog() {
 async function restartMachineWeb() {
   if (!machineDialogExisting?.local || !confirm(tKey("device.restartConfirm"))) return;
   el.machineRestart.disabled = true;
-  if (el.machineStatusNote) el.machineStatusNote.textContent = "正在要求 Pi Harbor 重新啟動…";
+  if (el.machineStatusNote) el.machineStatusNote.textContent = "正在要求 Stepsemble 重新啟動…";
   try {
     await post("/api/device-restart", {});
-    toast("Pi Harbor 正在重新啟動");
+    toast("Stepsemble 正在重新啟動");
     setTimeout(() => location.reload(), 1200);
   } catch (error) {
     el.machineRestart.disabled = false;
-    setMachineFormError(error.message || "無法重新啟動 Pi Harbor");
+    setMachineFormError(error.message || "無法重新啟動 Stepsemble");
   }
 }
 
@@ -9521,7 +9545,7 @@ function isAbsoluteBrowsePath(value) {
   // The server expands only a home marker, not arbitrary ~-prefixed input.
   if (candidate === "~" || candidate.startsWith("~/") || candidate.startsWith("~\\")) return true;
   // Cover POSIX paths, drive-letter paths, and UNC paths without assuming the
-  // browser and the selected Pi Harbor host use the same platform.
+  // browser and the selected Stepsemble host use the same platform.
   return candidate.startsWith("/") || /^[A-Za-z]:[\\\\/]/.test(candidate) || candidate.startsWith("\\\\");
 }
 
@@ -9537,7 +9561,7 @@ function cancelProjectFolderRequest() {
 }
 
 function browseText(key) {
-  return window.piI18n?.t(key) || key;
+  return window.stepsembleI18n?.t(key) || key;
 }
 
 function renderProjectFolderList(entries) {
@@ -9769,23 +9793,26 @@ window.addEventListener("pageshow", lockMobilePortrait);
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (event) => {
-    if (event.data?.type === "PI_HARBOR_OPEN_AGENT_TASK" && typeof event.data.taskId === "string") {
+    const messageType = event.data?.type;
+    if (["STEPSEMBLE_OPEN_AGENT_TASK", "PI_HARBOR_OPEN_AGENT_TASK"].includes(messageType)
+      && typeof event.data.taskId === "string") {
       const hit = agentTasks.find((task) => String(task.id || task.taskId || "") === event.data.taskId);
       if (hit) { void openAgentTaskFromHub(hit); }
       else { void refreshAgentTasks().then(() => { const task = agentTasks.find((item) => String(item.id || item.taskId || "") === event.data.taskId); if (task) void openAgentTaskFromHub(task); }); }
       return;
     }
-    if (event.data?.type === "PI_HARBOR_OPEN_SESSION" && typeof event.data.file === "string") {
+    if (["STEPSEMBLE_OPEN_SESSION", "PI_HARBOR_OPEN_SESSION"].includes(messageType)
+      && typeof event.data.file === "string") {
       const hit = sessionsCache.find((s) => s.file === event.data.file);
       if (hit) { void openExisting(hit); }
       return;
     }
-    if (event.data?.type !== "PI_HARBOR_UPDATED" || !navigator.serviceWorker.controller) return;
+    if (!["STEPSEMBLE_UPDATED", "PI_HARBOR_UPDATED"].includes(messageType) || !navigator.serviceWorker.controller) return;
     if (rpc?.streaming) {
-      toast(updateText("Pi Harbor update ready; reload after the current work finishes"), false);
+      toast(updateText("Stepsemble update ready; reload after the current work finishes"), false);
       return;
     }
-    toast(updateText("Pi Harbor updated; reloading…"), false);
+    toast(updateText("Stepsemble updated; reloading…"), false);
     setTimeout(() => location.reload(), 900);
   });
   (async () => {

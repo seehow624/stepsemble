@@ -1,39 +1,39 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<!-- Optional macOS launcher: use an SSH child when launchd cannot spawn Pi
-     reliably. Replace __USER__ and keep the key/start script local. -->
+<!-- Optional macOS launcher: use an SSH child when launchd cannot spawn local
+     coding agents reliably. Replace __USER__ and keep the key/start script local. -->
 <dict>
   <key>Label</key>
-  <string>com.piharbor.server</string>
+  <string>com.stepsemble.server</string>
   <key>ProgramArguments</key>
   <array>
     <string>/usr/bin/ssh</string>
     <string>-i</string>
-    <string>/Users/__USER__/.local/share/pi-harbor-bin/id_ed25519</string>
+    <string>/Users/__USER__/.local/share/stepsemble-bin/id_ed25519</string>
     <string>-o</string>
     <string>BatchMode=yes</string>
     <string>-o</string>
     <string>StrictHostKeyChecking=accept-new</string>
     <string>-o</string>
-    <string>UserKnownHostsFile=/Users/__USER__/.local/share/pi-harbor-bin/known_hosts</string>
+    <string>UserKnownHostsFile=/Users/__USER__/.local/share/stepsemble-bin/known_hosts</string>
     <string>-o</string>
     <string>ExitOnForwardFailure=yes</string>
     <string>__USER__@localhost</string>
-    <string>/Users/__USER__/.local/share/pi-harbor-bin/start.sh</string>
+    <string>/Users/__USER__/.local/share/stepsemble-bin/start.sh</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
-  <!-- Give server.js time to drain active Pi RPC runs on a deliberate restart. -->
+  <!-- Give server.js time to drain active native RPC runs on a deliberate restart. -->
   <key>ExitTimeOut</key>
   <integer>6000</integer>
   <key>ThrottleInterval</key>
   <integer>10</integer>
   <key>StandardOutPath</key>
-  <string>/Users/__USER__/.local/state/pi-harbor/server.log</string>
+  <string>/Users/__USER__/.local/state/stepsemble/server.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/__USER__/.local/state/pi-harbor/server-error.log</string>
+  <string>/Users/__USER__/.local/state/stepsemble/server-error.log</string>
 </dict>
 </plist>
