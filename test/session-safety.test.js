@@ -8,7 +8,7 @@ const { spawn } = require("node:child_process");
 const vm = require("node:vm");
 
 test("even idle open agents own their session until the process closes", async () => {
-  const source = await fs.readFile(path.resolve("server.js"), "utf8");
+  const source = (await fs.readFile(path.resolve("server.js"), "utf8")).replace(/\r\n/g, "\n");
   const start = source.indexOf("function assertSessionNotOpen(");
   const end = source.indexOf("\n}\n", start) + 2;
   const session = { exited: false, meta: { file: "project/session.jsonl" }, state: { isStreaming: false } };
