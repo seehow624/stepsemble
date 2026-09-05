@@ -3389,6 +3389,73 @@
   };
   for (const [id, table] of Object.entries(PROVIDER_DEVICE_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], table);
 
+  const CLAUDE_AUTH_TRANSLATIONS = {
+    en: {
+      title: "Claude Code sign-in", start: "Open official sign-in", refresh: "Check status", cancel: "Cancel this sign-in",
+      note: "Official sign-in opens in the browser on {machine}, not necessarily this device. Credentials stay with Claude Code. No model request is sent.",
+      fallback: "If the host browser does not open or asks for a code, cancel this attempt first, then use the command below in the official terminal on that host. Do not paste codes into Stepsemble.",
+      confirm: "Open the installed Claude Code's official sign-in on {machine}? Its browser will open on that host. This can update credentials shared with other Claude clients; use a break between tasks.\n\nStepsemble does not receive passwords, authorization codes or tokens, and will not resend work.",
+      unchecked: "Sign-in status has not been checked.", detected: "Subscription sign-in detected; model connectivity has not been verified.", signed_out: "Claude Code reports that it is not signed in.",
+      unknown: "Sign-in status is unknown, not necessarily signed out.", other_auth: "Claude Code is using another authentication method. Stepsemble will not switch it to a subscription automatically.",
+      not_installed: "Claude Code was not found on this host.", unsupported: "This installed CLI does not expose the required official sign-in interface. Use its terminal instead.",
+      unsupported_host: "This host does not provide the sign-in feature yet. Update the host or use its official terminal.",
+      active_tasks: "A Claude task is still open in Stepsemble. Finish or close it before updating shared sign-in; no task will be stopped automatically.",
+      login_prepared: "Sign-in is prepared. If it does not continue, cancel this attempt before starting again.", login_starting: "Checking the official CLI before opening sign-in…",
+      login_waiting: "Waiting for official sign-in on the host. Complete it in that host's browser.", login_verifying: "The official process ended; checking its sign-in status…",
+      login_completed: "The official CLI completed sign-in. No model request was used to verify connectivity.", login_unconfirmed: "The official process ended, but subscription sign-in could not be confirmed. Check status before trying again.",
+      login_failed: "Official sign-in did not complete. No automatic retry; check the host's official terminal.", login_blocked: "Sign-in stopped during preflight. Check status and the host's active tasks.",
+      login_cancelling: "Stopping this sign-in process…", login_cancelled: "Stopped waiting. This does not log out or revoke authorization already completed with Claude.",
+      login_timed_out: "Official sign-in timed out. No automatic retry. Check the host before starting again.", login_expired: "The unused sign-in request expired. Start again when ready.",
+      login_interrupted: "The sign-in helper stopped. Check the official client's status before trying again.",
+      login_unavailable: "Official sign-in cannot be started in the current state. Check status or use the host terminal.", stale_intent: "This sign-in request is no longer current. Check status; it was not relaunched.",
+      service_closed: "This host is shutting down. Check again after it returns.", request_uncertain: "The request outcome is unknown. Check status before another attempt; sign-in will not restart automatically.",
+      status_unavailable: "Cannot confirm status right now. Check again; this does not mean you were signed out.",
+    },
+    "zh-Hant": {
+      title: "Claude Code 登入", start: "開啟官方登入", refresh: "檢查狀態", cancel: "取消這次登入",
+      note: "官方登入頁會在 {machine} 的瀏覽器開啟，不一定是你目前的裝置。憑證由 Claude Code 保管，不會發送模型請求。",
+      fallback: "若主機瀏覽器未開啟或要求貼上驗證碼，請先取消這次登入，再到那台主機的官方終端機執行下方命令；不要把驗證碼貼進 Stepsemble。",
+      confirm: "要在 {machine} 啟動已安裝的 Claude Code 官方登入嗎？頁面會開在那台主機的瀏覽器。這可能更新其他 Claude 客戶端共用的登入憑證，請在工作空檔操作。\n\nStepsemble 不接收密碼、授權碼或 token，也不會自動重送工作。",
+      unchecked: "尚未檢查登入狀態。", detected: "偵測到訂閱登入；尚未驗證模型連線。", signed_out: "Claude Code 回報目前尚未登入。",
+      unknown: "登入狀態不明，不代表已被登出。", other_auth: "Claude Code 目前使用其他驗證方式；Stepsemble 不會自動改成訂閱登入。",
+      not_installed: "這台主機找不到 Claude Code。", unsupported: "此 CLI 未提供需要的官方登入介面，請使用它的終端機。",
+      unsupported_host: "此主機版本尚未提供登入功能；請更新主機或使用官方終端機。",
+      active_tasks: "Stepsemble 還有 Claude 工作開著；請先讓它完成或關閉，再更新共用登入。不會自動停止工作。",
+      login_prepared: "已準備登入；若沒有繼續，請取消這次請求後重開。", login_starting: "正在檢查官方 CLI，再開啟登入…",
+      login_waiting: "等待主機上的官方登入，請在該主機的瀏覽器完成。", login_verifying: "官方程序已結束，正在核對登入狀態…",
+      login_completed: "官方 CLI 已完成登入；尚未使用模型請求驗證連線。", login_unconfirmed: "官方程序已結束，但未能確認訂閱登入；請先檢查狀態，不要連續重試。",
+      login_failed: "官方登入未完成；沒有自動重試，請檢查主機的官方終端機。", login_blocked: "前置檢查停止了登入；請檢查狀態與主機上的工作。",
+      login_cancelling: "正在停止這次登入程序…", login_cancelled: "已停止等待；不會登出或撤銷已在 Claude 完成的授權。",
+      login_timed_out: "官方登入等待逾時，沒有自動重試；請先檢查主機，再重新開始。", login_expired: "尚未使用的登入請求已過期；準備好後可重新開始。",
+      login_interrupted: "登入助手已停止；請先核對官方客戶端的狀態再重試。",
+      login_unavailable: "目前無法啟動官方登入；請檢查狀態或使用主機終端機。", stale_intent: "此登入請求已不是最新的；請檢查狀態，沒有重新啟動登入。",
+      service_closed: "主機正在關閉，請待它恢復後再檢查。", request_uncertain: "請求結果不明，請先檢查狀態；不會自動重開登入。",
+      status_unavailable: "目前無法確認狀態，請稍後再檢查；這不代表已被登出。",
+    },
+    "zh-Hans": {
+      title: "Claude Code 登录", start: "打开官方登录", refresh: "检查状态", cancel: "取消本次登录",
+      note: "官方登录页会在 {machine} 的浏览器打开，不一定是你当前的设备。凭证由 Claude Code 保管，不会发送模型请求。",
+      fallback: "若主机浏览器未打开或要求粘贴验证码，请先取消本次登录，再到那台主机的官方终端执行下方命令；不要将验证码粘贴到 Stepsemble。",
+      confirm: "要在 {machine} 启动已安装的 Claude Code 官方登录吗？页面会在那台主机的浏览器打开。这可能更新其他 Claude 客户端共享的登录凭证，请在工作间隙操作。\n\nStepsemble 不接收密码、授权码或 token，也不会自动重发任务。",
+      unchecked: "尚未检查登录状态。", detected: "检测到订阅登录；尚未验证模型连接。", signed_out: "Claude Code 报告当前尚未登录。",
+      unknown: "登录状态未知，不代表已被登出。", other_auth: "Claude Code 当前使用其他验证方式；Stepsemble 不会自动切换为订阅登录。",
+      not_installed: "这台主机找不到 Claude Code。", unsupported: "此 CLI 未提供所需的官方登录接口，请使用它的终端。",
+      unsupported_host: "此主机版本尚未提供登录功能；请更新主机或使用官方终端。",
+      active_tasks: "Stepsemble 还有 Claude 任务开着；请先让它完成或关闭，再更新共享登录。不会自动停止任务。",
+      login_prepared: "已准备登录；若未继续，请取消本次请求后重新打开。", login_starting: "正在检查官方 CLI，再打开登录…",
+      login_waiting: "等待主机上的官方登录，请在该主机的浏览器完成。", login_verifying: "官方进程已结束，正在核对登录状态…",
+      login_completed: "官方 CLI 已完成登录；尚未使用模型请求验证连接。", login_unconfirmed: "官方进程已结束，但未能确认订阅登录；请先检查状态，不要连续重试。",
+      login_failed: "官方登录未完成；没有自动重试，请检查主机的官方终端。", login_blocked: "前置检查停止了登录；请检查状态与主机任务。",
+      login_cancelling: "正在停止本次登录进程…", login_cancelled: "已停止等待；不会登出或撤销已在 Claude 完成的授权。",
+      login_timed_out: "官方登录等待超时，没有自动重试；请先检查主机，再重新开始。", login_expired: "未使用的登录请求已过期，准备好后可重新开始。",
+      login_interrupted: "登录助手已停止；请先核对官方客户端状态再重试。",
+      login_unavailable: "当前无法启动官方登录；请检查状态或使用主机终端。", stale_intent: "此登录请求已不是最新的；请检查状态，没有重新启动登录。",
+      service_closed: "主机正在关闭，请待它恢复后再检查。", request_uncertain: "请求结果未知，请先检查状态；不会自动重开登录。",
+      status_unavailable: "当前无法确认状态，请稍后检查；这不代表已被登出。",
+    },
+  };
+  for (const id of Object.keys(KEYED_TRANSLATIONS)) for (const [key, value] of Object.entries(CLAUDE_AUTH_TRANSLATIONS[id] || CLAUDE_AUTH_TRANSLATIONS.en)) KEYED_TRANSLATIONS[id][`claudeAuth.${key}`] = value;
+
   // Agent Hub inventory, task states, and the generic CLI launch flow. Keep
   // these keyed so a locale switch never has to translate terminal output or
   // user-authored task names.

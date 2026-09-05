@@ -14,7 +14,7 @@
     "build:client": "node scripts/build-client.mjs",
     "check:client": "node scripts/build-client.mjs --check",
     "benchmark:browser": "node scripts/browser-performance-host.mjs",
-    "check": "node --check server.js && node --check server/agent-connectors.js && node --check server/agent-task-supervisor.js && node --check server/brand.js && node --check server/connector-protocol.js && node --check server/device-trust.js && node --check server/git-changes.js && node --check server/http-utils.js && node --check scripts/version.mjs && node --check scripts/host-performance-baseline.mjs && node --check public/i18n.js && node --check public/modules/app-foundation.js && node --check public/modules/session-utils.js && node --check public/modules/context-usage.js && node --check public/app.js",
+    "check": "node --check server.js && node --check server/agent-connectors.js && node --check server/agent-task-supervisor.js && node --check server/brand.js && node --check server/claude-auth.js && node --check server/connector-protocol.js && node --check server/device-trust.js && node --check server/git-changes.js && node --check server/http-utils.js && node --check scripts/version.mjs && node --check scripts/host-performance-baseline.mjs && node --check scripts/claude-auth-browser-cases.mjs && node --check public/i18n.js && node --check public/modules/app-foundation.js && node --check public/modules/session-utils.js && node --check public/modules/context-usage.js && node --check public/modules/claude-auth.js && node --check public/app.js",
     "benchmark:host": "node scripts/host-performance-baseline.mjs",
     "test": "node --test --test-timeout=60000",
     "test:i18n": "node --test test/i18n.test.js",

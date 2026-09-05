@@ -64,8 +64,10 @@ node scripts/probe-native-subscriptions.mjs claude /absolute/prepared-run /absol
 
 ## 後續需要人工處理
 
-Claude 需由 Jerome 在官方 CLI 重新登入。已核對這個版本提供 `claude auth login`；
-本次沒有執行。登入後要重新確認額度授權，不能沿用已消耗的那一次 attempt 自動重試。
+2026-09-06 Jerome 已表示在官方 CLI 重新登入，唯讀 metadata 亦已偵測到 claude.ai。
+沒有再次模型呼叫，前次失敗仍保留；重測要重新確認額度授權，不能沿用已消耗的
+那一次 attempt。新增 App 登入入口的開發進度見 [`claude-sign-in.md`](claude-sign-in.md)，
+不等於原生 smoke 或完整 adapter 成功。
 
 Codex 要先決定原生訂閱與既有第三方路由的隔離方式，以及全域指令是否可納入
 最小測試。此次沒有得到修改設定／憑證／指令的授權，故維持未送 turn；未使用的

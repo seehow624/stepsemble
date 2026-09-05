@@ -1,8 +1,8 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.23
-> 最後更新：2026-09-05
+> 計畫版本：1.24
+> 最後更新：2026-09-06
 > 當前產品基線：Stepsemble 3.0.3（由 Pi Harbor 2.13.2 相容遷移）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
@@ -46,12 +46,13 @@
 | 已發佈 Web rolling 相容 | Legacy smoke 已驗 | 真實v3.0.3/v3.0.2 pinned source與development雙向搭配，Chromium桌面/手機尺寸8cases，macOS/Linux各跑一次共16cases／CI33970245044過。SW/PWA cache、Safari/Firefox/Windows/實機、future journal transport不包含，見`protocol/rolling-compatibility.md` |
 | Codex 官方介面基線 | 離線 metadata 已驗 | 0.153.3官方CLI輸出18個schema hash與99/10/81方法catalog；隔離HOME且不啟app-server/模型/登入，不改OpenCodex wrapper；不是原生runtime/session/approval驗收 |
 | Claude／Codex 真實訂閱 smoke | 已授權，成功 gate 未通過 | 各1次最小測試已獲同意；Claude唯一一次因OAuth過期／更新失敗，native記錄usage四項0，不重試；Codex preflight檢出既有本機API代理與全域指令，未送turn/start、不改設定。詳見`native-subscription-smoke.md`；不是adapter/parity通過 |
+| Claude 官方登入入口 | 已實作，未部署 | Agent Hub 啟動 Host 上的官方 CLI／瀏覽器；不收集 OAuth、沒有模型驗證或 SDK 登入。19項合成回歸與桌面／手機 viewport UI 通過；手機內 OAuth、實際官方登入成功與 crash recovery 未驗收。詳見 `claude-sign-in.md` |
 | 優先可靠性修復 | 已實作，未部署 | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
 | Web 卡頓修復 | 部分完成 | 歷史離屏分批建立、相鄰訊息線性合併、局部翻譯、聊天可及性；仍需 virtualization、實機／多輪效能門檻驗收 |
 
 ### 下一個可執行任務
 
-先閱讀 `reliability-followup.md`、`protocol/v1/README.md`、`command-state.md`、`lifecycle.md`、`projection.md`、`transactions.md`、`protocol/native/pi/README.md`、`protocol/native/codex/README.md`、`protocol/rolling-compatibility.md` 與 `native-subscription-smoke.md`，再繼續 Phase 1。Pi三OS真實離線、pending-set/FIFO/reconnect、receipt/entity/projection/snapshot、8commands/observations多列proposal與30-step golden已做；前兩已發布版本的legacy browser雙向8cases在macOS/Linux皆過；Codex0.153.3離線schema metadata已驗，不要重做。Jerome已同意Claude/Codex各1次最小測試；Claude唯一attempt因OAuth過期失敗，記錄用量0但不得自動重試，需本人官方重新登入與新的重測同意。Codex沒有送turn：有效設定仍有本機API代理與全域指令，需要先決定隔離方式，不可自行改設定／搬憑證／移除私人指令。Native ownership/evidence、模型/tool／訂閱與authenticated transport仍需接入，之後按階段接durable store/crash/restore，純函式不是DB證據。Projection未接live UI，paging/worker/效能、SW/cache/Safari/Firefox/實機/futurejournalrolling、72h等仍待；Rust/App完整體未完成，正式服務不重啟。
+先閱讀 `reliability-followup.md`、`protocol/v1/README.md`、`command-state.md`、`lifecycle.md`、`projection.md`、`transactions.md`、`protocol/native/pi/README.md`、`protocol/native/codex/README.md`、`protocol/rolling-compatibility.md` 、`native-subscription-smoke.md` 與 `claude-sign-in.md`，再繼續 Phase 1。Pi三OS真實離線、pending-set/FIFO/reconnect、receipt/entity/projection/snapshot、8commands/observations多列proposal與30-step golden已做；前兩已發布版本的legacy browser雙向8cases在macOS/Linux皆過；Codex0.153.3離線schema metadata已驗，不要重做。Jerome已同意Claude/Codex各1次最小測試；Claude唯一attempt因OAuth過期失敗，記錄用量0但不得自動重試，Jerome已於09-06自行重新登入，模型重測仍需新的同意。Codex沒有送turn：有效設定仍有本機API代理與全域指令，需要先決定隔離方式，不可自行改設定／搬憑證／移除私人指令。Native ownership/evidence、模型/tool／訂閱與authenticated transport仍需接入，之後按階段接durable store/crash/restore，純函式不是DB證據。Projection未接live UI，paging/worker/效能、SW/cache/Safari/Firefox/實機/futurejournalrolling、72h等仍待；Rust/App完整體未完成，正式服務不重啟。
 
 ## 一、不可退讓的核心決策
 
@@ -937,6 +938,13 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-06 — Plan 1.24
+
+- Jerome已自行重新登入Claude，要求Stepsemble提供登入入口。唯讀官方2.1.259 metadata已偵測到claude.ai；沒有再次官方login、模型呼叫、改路由、重跑前次attempt，也不將09-05失敗改成成功。
+- 新增官方Host登入handoff：固定CLI參數、metadata能力檢查、auth URL/code/token不轉送、single-flight/快取/上限、單一intent防重送、task launch互斥、cancel/timeout/shutdown僅清理owned child、Windows shim tree清理。不是自有OAuth／Agent SDK；也不是durable auth recovery。
+- Agent Hub中英登入面板、Host名稱與共用憑證確認、未知≠登出、metadata≠模型連通、操作歷史與目前credential分開、切主機/頁面reload不重送、44px按鈕；手機連Mini仍須Mini瀏覽器。法律與認證資料查證影響設計邊界，詳見`claude-sign-in.md`。
+- 本機301tests/299pass/2skip/0fail；8組既有rolling＋2組新auth UI案例通過，完全synthetic/isolated。新commit跨OS結果需核對CI；正式服務3.0.3未部署／重啟，原生adapter/approval/history parity、Rust/Apps與長期gate仍未完成。
 
 ### 2026-09-05 — Plan 1.23
 

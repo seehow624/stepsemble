@@ -169,6 +169,7 @@ let sessionsCache = [];
 let sessionRenderLimit = 120;
 let temporarySessionCount = 0;
 let agentCatalog = [];
+let claudeAuthClient = null;
 let agentTasks = [];
 let agentTaskPollTimer = null;
 let agentHubTicker = null;
@@ -740,6 +741,7 @@ function applyAppearance() {
   document.body.classList.toggle("compact", !!settings.compact);
   html.classList.toggle("reduced-motion", !!settings.reducedMotion);
   window.stepsembleI18n?.setLocale(settings.locale || "en");
+  if (claudeAuthClient) renderClaudeAuth(claudeAuthClient.snapshot());
   renderContextDashboard();
 }
 
@@ -752,6 +754,7 @@ matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", () => {
 // ===========================================================================
 
 function showLogin() {
+  claudeAuthClient?.reset();
   protocolConnections.reset();
   stopUpdateCenterPolling();
   closeChat(true);
@@ -1102,6 +1105,8 @@ function applyApiBase() {
 
 function switchMachine(id, silent) {
   if (!machines.some(m => m.id === id)) return;
+  claudeAuthClient?.reset();
+  if ($("claude-auth")) $("claude-auth").open = false;
   clearDraftScopeForDeviceSwitch();
   resetProjectChanges();
   stopUpdateCenterPolling();
@@ -2025,6 +2030,39 @@ async function openAgentTaskFromHub(task) {
 
 el.agentHubRefresh?.addEventListener("click", () => { void loadAgentCatalog(); void refreshAgentTasks(); });
 el.agentHubOpenCenter?.addEventListener("click", openAgentTaskCenter);
+
+function renderClaudeAuth({ data, error, pending }) {
+  const status = $("claude-auth-status"), start = $("claude-auth-start"), cancel = $("claude-auth-cancel"), refresh = $("claude-auth-refresh");
+  if (!status || !start || !cancel || !refresh) return;
+  const key = error || data?.blockedReason || (data?.login ? `login_${data.login.state}` : data?.credential?.state) || "unchecked";
+  status.dataset.i18nKey = `claudeAuth.${key}`;
+  status.textContent = tKey(`claudeAuth.${key}`);
+  $("claude-auth-note").textContent = tKey("claudeAuth.note", { machine: machineName(selectedId) });
+  start.disabled = pending || !!error || data?.canStart !== true;
+  refresh.disabled = pending;
+  const active = ["prepared", "starting", "waiting", "verifying", "cancelling"].includes(data?.login?.state);
+  // A previous completed/cancelled attempt must not hide a later sign-out.
+  const credential = $("claude-auth-credential");
+  credential.classList.toggle("hidden", !data?.login || active);
+  credential.dataset.i18nKey = `claudeAuth.${data?.credential?.state || "unchecked"}`;
+  credential.textContent = tKey(credential.dataset.i18nKey);
+  cancel.classList.toggle("hidden", !active);
+  cancel.disabled = pending || data?.login?.state === "cancelling";
+}
+claudeAuthClient = window.stepsembleClaudeAuth?.createController({ request: api, render: renderClaudeAuth,
+  scope: () => apiBase, isVisible: () => !!$("claude-auth")?.open && !document.hidden });
+$("claude-auth")?.addEventListener("toggle", () => {
+  if ($("claude-auth").open) void claudeAuthClient?.refresh(); else claudeAuthClient?.pause();
+});
+$("claude-auth-refresh")?.addEventListener("click", () => void claudeAuthClient?.refresh());
+$("claude-auth-start")?.addEventListener("click", () => {
+  if (window.confirm(tKey("claudeAuth.confirm", { machine: machineName(selectedId) }))) void claudeAuthClient?.start();
+});
+$("claude-auth-cancel")?.addEventListener("click", () => void claudeAuthClient?.cancel());
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) claudeAuthClient?.pause();
+  else if ($("claude-auth")?.open) void claudeAuthClient?.refresh();
+});
 el.agentTaskCenterClose?.addEventListener("click", closeAgentTaskCenter);
 el.agentTaskCenter?.addEventListener("click", (event) => { if (event.target === el.agentTaskCenter) closeAgentTaskCenter(); });
 el.agentTaskCenterSearch?.addEventListener("input", renderAgentTaskCenter);
@@ -7067,6 +7105,7 @@ el.onboardingNext?.addEventListener("click", () => {
 el.onboardingLanguage?.addEventListener("change", () => {
   settings = saveSettings({ locale: window.stepsembleI18n?.normalizeLocale(el.onboardingLanguage.value) || "en" });
   window.stepsembleI18n?.setLocale(settings.locale);
+  if (claudeAuthClient) renderClaudeAuth(claudeAuthClient.snapshot());
   renderOnboarding();
   renderSettings();
   renderContextDashboard();
@@ -9043,6 +9082,7 @@ el.setDesignTheme?.addEventListener("click", (event) => {
 el.setLocale?.addEventListener("change", () => {
   settings = saveSettings({ locale: window.stepsembleI18n?.normalizeLocale(el.setLocale.value) || "en" });
   window.stepsembleI18n?.setLocale(settings.locale);
+  if (claudeAuthClient) renderClaudeAuth(claudeAuthClient.snapshot());
   renderSettings();
   renderSessionList(el.search?.value || "");
   renderMachineSwitch();

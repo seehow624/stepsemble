@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { freePort, waitForServer, stopServer } from "./host-performance-baseline.mjs";
 import { cleanEnvironment } from "./check-rolling-clients.mjs";
+import { runClaudeAuthBrowserCases } from "./claude-auth-browser-cases.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url), exec = promisify(execFile);
 const pins = require("../protocol/rolling-releases.json").releases;
@@ -147,4 +148,5 @@ try {
     }
   }
   console.log("Rolling browser compatibility: 8 real-source pair/viewport cases passed; synthetic Pi only, no service-worker or physical-device claim.");
+  await runClaudeAuthBrowserCases(browser);
 } finally { await cleanup(); }

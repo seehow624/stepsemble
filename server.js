@@ -32,6 +32,7 @@ const { negotiate, protocolError } = require("./server/platform-protocol");
 const { createGitChangesService } = require("./server/git-changes");
 const { createPiResourcesService } = require("./server/pi-resources");
 const { createAgentTaskService, resolveCommand } = require("./server/agent-connectors");
+const { createClaudeAuthService, handleClaudeAuthRequest } = require("./server/claude-auth");
 const {
   BROWSER_COOKIE,
   LEGACY_BROWSER_COOKIES,
@@ -1686,6 +1687,9 @@ const agentTasks = createAgentTaskService({
   env: process.env,
   onSettled: maybeNotifyAgentTaskSettled,
 });
+let claudeLaunchReservations = 0;
+const claudeAuth = createClaudeAuthService({ home: APP_HOME, env: process.env,
+  hasActiveTasks: () => claudeLaunchReservations > 0 || agentTasks.list().some(task => task.agentId === "claude-code" && ["starting", "running", "reconnecting", "waiting"].includes(task.status)) });
 
 function revealProject(cwd) {
   const real = projectDirectory(cwd);
@@ -4001,6 +4005,11 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      if (p.startsWith("/api/claude-auth/")) {
+        await handleClaudeAuthRequest({ req, res, pathname: p, auth, service: claudeAuth, machine: MACHINE_NAME, readJSON, sendJSON });
+        return;
+      }
+
       if (p === "/api/session-export" && req.method === "GET") {
         const rel = url.searchParams.get("file") || "";
         sessionToMarkdown(rel)
@@ -4805,8 +4814,13 @@ const server = http.createServer(async (req, res) => {
       // worktree for native Pi and external CLI agents.
       if (p === "/api/agent/open" && req.method === "POST") {
         const body = await readJSON(req, 64 * 1024);
+        let reservedClaude = false;
         try {
           const agentId = String(body?.agentId || "pi").trim().toLowerCase();
+          if (agentId === "claude-code" && claudeAuth.isBusy()) {
+            sendJSON(res, 409, { error: "Claude official sign-in is active; wait for it to finish", code: "claude_login_active" }); return;
+          }
+          if (agentId === "claude-code") { claudeLaunchReservations++; reservedClaude = true; }
           let cwd = typeof body?.cwd === "string" ? body.cwd : "";
           let worktree = null;
           if (body?.worktree === true) {
@@ -4824,7 +4838,7 @@ const server = http.createServer(async (req, res) => {
           }
         } catch (error) {
           sendJSON(res, error.statusCode || 409, { error: error.message || "Could not start agent task" });
-        }
+        } finally { if (reservedClaude) claudeLaunchReservations--; }
         return;
       }
 
@@ -5026,6 +5040,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 function shutdown(signal) {
+  claudeAuth.close(); // Only its dedicated auth children, never normal agent tasks.
   if (shutdownState) {
     // A second signal means the caller is no longer willing to wait.  Kill
     // the remaining RPC groups and let the normal drain timer finish.

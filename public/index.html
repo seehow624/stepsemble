@@ -133,6 +133,19 @@
         </div>
       </header>
       <div id="agent-hub-connectors" class="agent-hub-connectors" aria-label="Available agents"></div>
+      <details id="claude-auth" class="claude-auth">
+        <summary data-i18n-key="claudeAuth.title">Claude Code sign-in</summary>
+        <p id="claude-auth-status" role="status" aria-live="polite" data-i18n-key="claudeAuth.unchecked">Sign-in status has not been checked.</p>
+        <p id="claude-auth-credential" class="hidden"></p>
+        <p id="claude-auth-note" class="settings-note" data-i18n-ignore></p>
+        <div class="claude-auth-actions">
+          <button id="claude-auth-start" type="button" class="btn primary" data-i18n-key="claudeAuth.start" disabled>Open official sign-in</button>
+          <button id="claude-auth-refresh" type="button" class="btn ghost" data-i18n-key="claudeAuth.refresh">Check status</button>
+          <button id="claude-auth-cancel" type="button" class="btn ghost hidden" data-i18n-key="claudeAuth.cancel">Cancel this sign-in</button>
+        </div>
+        <p class="settings-note" data-i18n-key="claudeAuth.fallback">If the host browser does not open or asks for a code, cancel this attempt first, then use the command below in the official terminal on that host. Do not paste codes into Stepsemble.</p>
+        <code class="claude-auth-command" data-i18n-ignore>claude auth login --claudeai</code>
+      </details>
       <div id="agent-task-list" class="agent-task-list" aria-live="polite"></div>
     </section>
     <div id="pull-indicator"><span class="pull-arrow">↓</span></div>
@@ -871,6 +884,7 @@
 <script src="/modules/app-foundation.js?v=3.0.3"></script>
 <script src="/modules/session-utils.js?v=3.0.3"></script>
 <script src="/modules/context-usage.js?v=3.0.3"></script>
+<script src="/modules/claude-auth.js?v=3.0.3"></script>
 <script src="/modules/protocol-contracts.js?v=3.0.3"></script>
 <script src="/modules/client-sdk.js?v=3.0.3"></script>
 <script src="/modules/native-dialogs.js?v=3.0.3"></script>

@@ -1798,6 +1798,14 @@ body.image-lightbox-open { overflow: hidden; }
 @keyframes agent-reconnect-pulse { 50% { opacity: .35; transform: scale(.72); } }
 html.reduced-motion .agent-task-row.running.reconnecting .agent-task-dot { animation: none; }
 
+.claude-auth { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
+.claude-auth summary { cursor: pointer; font-size: 13px; font-weight: 600; padding: 6px 0; }
+.claude-auth p { font-size: 12px; line-height: 1.55; margin: 8px 0; overflow-wrap: anywhere; }
+.claude-auth-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.claude-auth-actions .btn { min-height: 44px; font-size: 12px; }
+.claude-auth-command { display: block; font-size: 11px; overflow-wrap: anywhere; user-select: all; }
+.claude-auth summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+
 /* ---- Agent Hub task center ---- */
 .agent-task-center-sheet {
   width: min(720px, calc(100vw - 24px));

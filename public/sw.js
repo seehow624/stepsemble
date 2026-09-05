@@ -7,6 +7,7 @@ const SHELL = [
   "/modules/app-foundation.js?v=3.0.3",
   "/modules/session-utils.js?v=3.0.3",
   "/modules/context-usage.js?v=3.0.3",
+  "/modules/claude-auth.js?v=3.0.3",
   "/modules/protocol-contracts.js?v=3.0.3",
   "/modules/client-sdk.js?v=3.0.3",
   "/modules/native-dialogs.js?v=3.0.3",
