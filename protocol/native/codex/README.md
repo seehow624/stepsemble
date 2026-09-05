@@ -48,3 +48,9 @@ No subscription amount, native turn, multi-version compatibility or full adapter
 parity has been verified here. Model/tool tests require explicit usage permission;
 metadata checks are not a substitute. Account credentials stay native and must
 never appear in fixtures, debug exports or journal envelopes.
+
+The subsequently authorized 2026-09-05 manual subscription probe stopped during
+preflight: a non-default loopback API endpoint and a global instruction source
+were detected. No Codex `turn/start` was sent. See the exact scope and Claude's
+authentication failure in [the manual probe report](../../../docs/native-subscription-smoke.md).
+This does not upgrade this boundary to a successful runtime adapter.
