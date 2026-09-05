@@ -9,6 +9,13 @@ full commit IDs, then Git archives are extracted into disposable local folders.
 Nothing is checked out over the worktree. Update the pins explicitly at release
 time; do not float tags or substitute current sources for a historical Client.
 
+Verified clean commit `43379f474e0bd17c5983542683b71060a76749e1` passed all eight
+cases on each of macOS and Linux (16 total), Chromium 153.0.8010.12, in
+[run 33970245044](https://github.com/seehow624/stepsemble/actions/runs/33970245044).
+Its separate three-OS, 267-test general suite completed with zero failures in
+[run 33970245094](https://github.com/seehow624/stepsemble/actions/runs/33970245094).
+Later source changes require their own passing run; this evidence is not floating.
+
 ## What is exercised
 
 There are eight cases: two release versions × two directions × desktop
