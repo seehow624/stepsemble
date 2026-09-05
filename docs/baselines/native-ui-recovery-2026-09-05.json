@@ -1,0 +1,28 @@
+{
+  "date": "2026-09-05",
+  "kind": "functional-synthetic-browser-smoke",
+  "productionChanged": false,
+  "nativeAccountsUsed": false,
+  "viewport": { "width": 390, "height": 844, "dpr": 3 },
+  "peer": "test-support/pi-contract-peer.cjs",
+  "transportFault": "Explicitly close the current EventSource and dispatch its error; CDP Offline blocks subsequent reconnect requests, then network is restored.",
+  "partialRecovery": {
+    "before": { "pendingCount": 2, "cursor": 8117 },
+    "disconnected": { "pendingCount": 2, "cursor": 8117, "draftRetained": true, "replyControlsDisabled": true },
+    "otherClient": { "answered": "batch-confirm", "decision": false, "rolloverEvents": 8100 },
+    "recovered": { "pendingCount": 1, "request": "batch-input", "cursor": 16221, "draftRetained": true, "replyControlsEnabled": true, "streamReady": true }
+  },
+  "emptyRecovery": {
+    "otherClient": { "answered": "batch-input", "rolloverEvents": 8100 },
+    "recovered": { "pendingCount": 0, "request": null, "inputCleared": true, "sheetHidden": true, "streamReady": true }
+  },
+  "console": { "unexpectedErrorsOrWarnings": 0, "expectedOfflineErrors": 3 },
+  "caveats": [
+    "Initial emulation without retaining viewport reset the document; discarded as a draft-recovery experiment.",
+    "CDP Offline alone left the existing SSE alive and delivered events; those steps are not counted as disconnected recovery.",
+    "Controlled EventSource close/error plus blocked reconnects is fault injection, not a physical network or mobile lifecycle test.",
+    "One preparatory other-client confirm reply preceded the two measured recovery replies; peer counter ended at 3, with no automatic UI replies.",
+    "Replayed non-UI events advance the legacy cursor; the connected snapshot itself has no SSE id and does not advance it.",
+    "No performance percentiles, durable recovery, native model/tool parity or real provider authentication are claimed."
+  ]
+}

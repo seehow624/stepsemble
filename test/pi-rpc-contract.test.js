@@ -157,8 +157,8 @@ test("isolated HTTP native boundary preserves responses, reconnect replay, and a
   }
   const state = await (await rpc(a.sid, { type: "get_state", id: "client-controlled" })).json();
   assert.equal(state.success, true); assert.notEqual(state.id, "client-controlled");
-  async function stream(after, lastId) {
-    const response = await fetch(base + `/api/stream?sid=${a.sid}&after=${after}`, { headers: { cookie, ...(lastId ? { "last-event-id": String(lastId) } : {}) }, signal: AbortSignal.timeout(10000) });
+  async function stream(after, lastId, uiSnapshot = false) {
+    const response = await fetch(base + `/api/stream?sid=${a.sid}&after=${after}${uiSnapshot ? "&uiSnapshot=1" : ""}`, { headers: { cookie, ...(lastId ? { "last-event-id": String(lastId) } : {}) }, signal: AbortSignal.timeout(10000) });
     assert.equal(response.status, 200);
     const value = { reader: response.body.getReader(), buffer: "", decoder: new TextDecoder() }; streams.push(value); return value;
   }
@@ -175,7 +175,7 @@ test("isolated HTTP native boundary preserves responses, reconnect replay, and a
       const read = await stream.reader.read(); assert.equal(read.done, false); stream.buffer += stream.decoder.decode(read.value, { stream: true });
     }
   }
-  const first = await stream(0); await next(first, value => value.type === "connected");
+  const first = await stream(0); assert.equal((await next(first, value => value.type === "connected")).value.nativeUiSnapshot, undefined, "legacy clients keep the original replay path");
   await rpc(a.sid, { type: "prompt", message: "/stepsemble-probe record" });
   const ended = await next(first, value => value.type === "message_end");
   assert.equal(ended.value.message.content, "貓掌🐾\u2028line\u2029end");
@@ -204,6 +204,43 @@ test("isolated HTTP native boundary preserves responses, reconnect replay, and a
   const beforeClosed = [];
   await next(fourth, value => { beforeClosed.push(value); return value.type === "extension_ui_closed"; });
   assert.equal(beforeClosed.some(value => value.method === "confirm"), false, "answered historical dialogs must not reopen");
+  await fourth.reader.cancel();
+  await rpc(a.sid, { type: "fixture_dialogs" });
+  const full = await stream(0, null, true);
+  const boundary = await next(full, value => value.type === "connected");
+  assert.equal(Number.isNaN(boundary.id), true, "full snapshot cannot advance SSE cursor");
+  assert.equal(boundary.value.nativeUiSnapshot.version, 1); assert.equal(boundary.value.nativeUiSnapshot.sid, a.sid);
+  assert.deepEqual(boundary.value.nativeUiSnapshot.requests.map(item => item.id), ["batch-input", "batch-confirm"]);
+  const marker = await (await rpc(a.sid, { type: "fixture_counts" })).json();
+  const replay = [];
+  await next(full, value => { replay.push(value); return value.id === marker.id; });
+  assert.equal(replay.some(value => value.type === "extension_ui_closed" || ["confirm", "input", "editor", "select"].includes(value.method)), false, "historical lifecycle events cannot undo the full snapshot");
+  await full.reader.cancel();
+  // This client misses the answer and then the entire replay range. Only the
+  // still-pending confirm belongs in its next full snapshot.
+  assert.equal((await post("/api/rpc-ui", { sid: a.sid, id: "batch-input", value: "accepted elsewhere" })).status, 200);
+  assert.equal((await rpc(a.sid, { type: "fixture_rollover" })).status, 200);
+  const recovered = await stream(boundary.value.eventSeq, null, true);
+  const recoveredBoundary = await next(recovered, value => value.type === "connected");
+  assert.deepEqual(recoveredBoundary.value.nativeUiSnapshot.requests.map(item => item.id), ["batch-confirm"]);
+  const earliest = await next(recovered, () => true);
+  assert.equal(earliest.value.type, "fixture_noise"); assert.ok(earliest.id > boundary.value.eventSeq + 1, "the old close really fell out of the ring");
+  // New live closes still arrive after the boundary (only historical UI is skipped).
+  assert.equal((await post("/api/rpc-ui", { sid: a.sid, id: "batch-confirm", confirmed: false })).status, 200);
+  assert.equal((await next(recovered, value => value.type === "extension_ui_closed")).value.id, "batch-confirm");
+  await recovered.reader.cancel();
+  const empty = await stream(Number.MAX_SAFE_INTEGER, null, true);
+  assert.deepEqual((await next(empty, value => value.type === "connected")).value.nativeUiSnapshot.requests, [], "empty state is explicit even past the newest cursor");
+  await empty.reader.cancel();
+  // A reused native ID must not be removed by its earlier historical close.
+  await rpc(a.sid, { type: "fixture_dialogs" });
+  const reused = await stream(0, null, true);
+  assert.deepEqual((await next(reused, value => value.type === "connected")).value.nativeUiSnapshot.requests.map(item => item.id), ["batch-input", "batch-confirm"]);
+  const reusedMarker = await (await rpc(a.sid, { type: "fixture_counts" })).json(), reusedReplay = [];
+  await next(reused, value => { reusedReplay.push(value); return value.id === reusedMarker.id; });
+  assert.equal(reusedReplay.some(value => value.type === "extension_ui_closed"), false);
+  for (const id of ["batch-input", "batch-confirm"]) assert.equal((await post("/api/rpc-ui", { sid: a.sid, id, cancelled: true })).status, 200);
+  await reused.reader.cancel();
   const held = rpc(a.sid, { type: "fixture_hold" });
   const counts = await (await rpc(a.sid, { type: "fixture_counts" })).json();
   await rpc(b.sid, { type: "fixture_spoof", spoofId: counts.data.heldId });

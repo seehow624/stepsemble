@@ -3815,6 +3815,7 @@ const server = http.createServer(async (req, res) => {
       const s = rpcSessions.get(sid);
       if (!s) { sendJSON(res, 404, { error: "no such rpc session" }); return; }
       const pendingUi = s.ui.snapshot();
+      const fullUiSnapshot = url.searchParams.get("uiSnapshot") === "1";
       res.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-store",
@@ -3849,9 +3850,14 @@ const server = http.createServer(async (req, res) => {
         eventSeq: s.eventSeq,
         isStreaming: !!s.state.isStreaming,
         lastActivityAt: s.meta.lastActivityAt,
+        ...(fullUiSnapshot ? { nativeUiSnapshot: { type: "native_ui_snapshot", version: 1, sid, requests: pendingUi } } : {}),
       }, "connected"))) { cleanup(); try { res.end(); } catch {} return; }
       const replayedUi = new Set();
       for (const packet of s.events) {
+        // Opt-in clients applied the authoritative set in connected, at this
+        // stream's boundary. Historical closes/ID reuse must not undo it.
+        if (fullUiSnapshot && (packet.event.type === "extension_ui_closed" ||
+          packet.event.type === "extension_ui_request" && PI_UI_METHODS.has(packet.event.method))) continue;
         if (packet.event.type === "extension_ui_request" && PI_UI_METHODS.has(packet.event.method)) {
           if (!s.ui.has(packet.event.id)) continue;
           if (packet.seq > after) replayedUi.add(packet.event.id);
@@ -3860,7 +3866,7 @@ const server = http.createServer(async (req, res) => {
       }
       // Pending dialogs are state, not cursor advancement. New clients must see
       // them even when /api/open reused an idle RPC with replayAfter=eventSeq.
-      for (const request of pendingUi) if (!replayedUi.has(request.id)) trySseWrite(res, sseFrame(request, null, null));
+      if (!fullUiSnapshot) for (const request of pendingUi) if (!replayedUi.has(request.id)) trySseWrite(res, sseFrame(request, null, null));
       // Widgets are state snapshots rather than conversation events. Sending
       // the latest copy after replay makes reconnects deterministic without
       // advancing Last-Event-ID or causing old message events to replay.

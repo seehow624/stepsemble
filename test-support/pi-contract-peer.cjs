@@ -36,6 +36,12 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
     }
   } else if (command.type === "fixture_counts") respond(command, { uiReplies, heldId: held?.id ?? null });
   else if (command.type === "fixture_args") respond(command, { args: process.argv.slice(2), cwd: process.cwd(), pid: process.pid });
+  else if (command.type === "fixture_rollover") {
+    // Bounded synthetic burst evicts the complete 8,000-event Host ring. This
+    // intentionally avoids byte-by-byte writes; fragmentation is tested above.
+    process.stdout.write(Array.from({ length: 8100 }, (_, index) => JSON.stringify({ type: "fixture_noise", index }) + "\n").join(""));
+    respond(command, {});
+  }
   else if (command.type === "fixture_dialogs") {
     for (const [id, method] of [["batch-input", "input"], ["batch-confirm", "confirm"]]) {
       const request = structuredClone(outbound.find(item => item.message.type === "extension_ui_request" && item.message.method === method).message);

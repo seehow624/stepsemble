@@ -3486,6 +3486,8 @@ async function connectRpc(opts, generation = viewGeneration) {
       reconnectTimer: null, reconnectAttempt: 0,
       lastEventId: replayAfter, activityLabel: "thinking", lastEventAt: Date.now(),
     };
+    const connection = rpc;
+    const isCurrent = () => rpc === connection && generation === viewGeneration && baseAtStart === apiBase && !connection.streamEnded;
     // Reusing a live RPC hands back the run's real start time, so the timer
     // continues from the actual elapsed time rather than this page load.
     if (r.isStreaming) rpc.runStartedAt = Number(r.runStartedAt) || Date.now();
@@ -3493,13 +3495,15 @@ async function connectRpc(opts, generation = viewGeneration) {
     let esFail = 0;
 
     const scheduleReconnect = (es, reason = "error") => {
-      if (!rpc || rpc.sid !== sid || rpc.streamEnded) return;
+      if (!isCurrent() || rpc.es !== es) return;
       if (rpc.readyTimer) clearTimeout(rpc.readyTimer);
       rpc.readyTimer = null;
       rpc.streamReady = false;
       try { es?.close(); } catch {}
       if (rpc.es === es) rpc.es = null;
       rpc.connectionLost = true;
+      rpc.nativeUiSyncing = !!rpc.nativeUiSnapshots;
+      refreshNativeDialogControls();
       const attempt = ++rpc.reconnectAttempt;
       const delay = Math.min(30_000, 800 * (2 ** Math.min(attempt - 1, 5)));
       el.queueNote.dataset.connection = "lost";
@@ -3509,25 +3513,26 @@ async function connectRpc(opts, generation = viewGeneration) {
       el.queueNote.classList.remove("hidden");
       if (rpc.reconnectTimer) return;
       rpc.reconnectTimer = setTimeout(() => {
-        if (!rpc || rpc.sid !== sid || rpc.streamEnded) return;
+        if (!isCurrent()) return;
         rpc.reconnectTimer = null;
         openStream(Math.max(-1, Number(rpc.lastEventId) || -1));
       }, delay);
     };
 
     const openStream = (after) => {
-      if (!rpc || rpc.sid !== sid || rpc.streamEnded) return;
-      const es = new EventSource(baseAtStart + "/api/stream?sid=" + encodeURIComponent(sid) + "&after=" + encodeURIComponent(after));
+      if (!isCurrent()) return;
+      const es = new EventSource(baseAtStart + "/api/stream?sid=" + encodeURIComponent(sid) + "&after=" + encodeURIComponent(after) + "&uiSnapshot=1");
+      const isCurrentStream = () => isCurrent() && rpc.es === es;
       rpc.es = es;
       rpc.streamReady = false;
       if (rpc.readyTimer) clearTimeout(rpc.readyTimer);
       rpc.readyTimer = setTimeout(() => {
-        if (rpc?.sid === sid && rpc.es === es && !rpc.streamReady && !rpc.streamEnded) {
+        if (isCurrentStream() && !rpc.streamReady) {
           scheduleReconnect(es, "ready_timeout");
         }
       }, 12_000);
       const markStreamReady = (snapshot = null) => {
-        if (!rpc || rpc.sid !== sid || rpc.streamEnded) return;
+        if (!isCurrentStream()) return;
         rpc.streamReady = true;
         if (rpc.readyTimer) clearTimeout(rpc.readyTimer);
         rpc.readyTimer = null;
@@ -3545,19 +3550,32 @@ async function connectRpc(opts, generation = viewGeneration) {
         }
       };
       es.onopen = () => {
-        if (rpc?.sid !== sid) { try { es.close(); } catch {} return; }
+        if (!isCurrentStream()) { try { es.close(); } catch {} return; }
         // onopen is the transport-level fallback for older Stepsemble peers;
         // current peers also send the named `connected` readiness handshake
         // below with a state snapshot.
-        markStreamReady();
+        if (!rpc.nativeUiSnapshots) markStreamReady();
       };
       es.addEventListener("connected", (event) => {
+        if (!isCurrentStream()) return;
         let snapshot = null;
         try { snapshot = JSON.parse(event.data); } catch {}
+        if (!snapshot || snapshot.type !== "connected" || snapshot.sid !== sid) {
+          scheduleReconnect(es, "invalid_connected"); return;
+        }
+        if (Object.hasOwn(snapshot, "nativeUiSnapshot")) {
+          rpc.nativeUiSnapshots = true;
+          rpc.nativeUiSyncing = true;
+          if (!reconcileNativeDialogs(snapshot.nativeUiSnapshot, sid)) {
+            scheduleReconnect(es, "invalid_ui_snapshot"); return;
+          }
+        } else rpc.nativeUiSnapshots = false; // Older Hosts retain additive replay.
+        rpc.nativeUiSyncing = false;
         markStreamReady(snapshot);
+        refreshNativeDialogControls();
       });
       es.onmessage = (event) => {
-        if (rpc?.sid !== sid) { try { es.close(); } catch {} return; }
+        if (!isCurrentStream()) { try { es.close(); } catch {} return; }
         esFail = 0;
         const eventId = Number(event.lastEventId);
         if (Number.isFinite(eventId)) rpc.lastEventId = Math.max(rpc.lastEventId, eventId);
@@ -3566,13 +3584,16 @@ async function connectRpc(opts, generation = viewGeneration) {
         handleRpcEvent(data, sid);
       };
       es.onerror = () => {
-        if (rpc?.sid !== sid) { try { es.close(); } catch {} return; }
+        if (!isCurrentStream()) { try { es.close(); } catch {} return; }
         if (rpc.streamEnded) return;
         esFail++;
         // EventSource does not expose the response status. Once a remote
         // stream has failed repeatedly, surface the same localized offline /
         // authorization state without ever hiding the gateway session.
         if (esFail >= 3 && baseAtStart) showRemoteAuthorizationState(baseAtStart);
+        // Once full snapshots are negotiated, disable replies immediately and
+        // reconnect under our bounded backoff; transport-open alone isn't ready.
+        if (rpc.nativeUiSnapshots) { scheduleReconnect(es); return; }
         // EventSource will briefly retry by itself. After a few failures we
         // take over so the next request explicitly resumes after lastEventId.
         if (esFail < 3) return;
@@ -4869,9 +4890,19 @@ function suspendNativeDialog() {
 function refreshNativeDialogControls() {
   const request = extensionUiRequest;
   if (!request || request.kind) return;
-  for (const control of [el.extensionUiSubmit, el.extensionUiCancel, el.extensionUiInput, el.extensionUiEditor, ...el.extensionUiOptions.querySelectorAll("button")]) control.disabled = request.sending;
-  el.extensionUiStatus.textContent = request.sending ? tKey("dialog.sending")
+  const syncing = !!rpc?.nativeUiSyncing;
+  for (const control of [el.extensionUiSubmit, el.extensionUiCancel, el.extensionUiInput, el.extensionUiEditor, ...el.extensionUiOptions.querySelectorAll("button")]) control.disabled = request.sending || syncing;
+  el.extensionUiStatus.textContent = syncing ? tKey("runtime.streamRecovering") : request.sending ? tKey("dialog.sending")
     : request.failed ? tKey("dialog.retry") : tKey("dialog.queued", { count: nativeDialogs.count(request.hostBase, request.sid) });
+}
+function reconcileNativeDialogs(snapshot, sid) {
+  if (rpc?.sid !== sid || rpc.generic) return false;
+  try { nativeDialogs.reconcile(apiBase, sid, snapshot); }
+  catch { toast(tKey("dialog.invalid"), true); return false; }
+  if (extensionUiRequest && !extensionUiRequest.kind && !nativeDialogs.contains(extensionUiRequest)) dismissNativeDialog(extensionUiRequest);
+  if (extensionUiRequest && !extensionUiRequest.kind && nativeDialogs.next(apiBase, sid) !== extensionUiRequest) suspendNativeDialog();
+  renderNextNativeDialog();
+  return true;
 }
 function renderNextNativeDialog() {
   if (providerAuthRun || !rpc?.sid || rpc.generic) return;
@@ -4897,6 +4928,7 @@ async function finishExtensionUi(response, expected = extensionUiRequest) {
   if (request.hostBase !== apiBase || request.sid !== rpc?.sid) {
     nativeDialogs.complete(request); dismissNativeDialog(request); return;
   }
+  if (rpc.nativeUiSyncing) return;
   if (!nativeDialogs.begin(request)) return;
   refreshNativeDialogControls();
   try {

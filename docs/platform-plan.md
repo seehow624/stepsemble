@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.11
+> 計畫版本：1.12
 > 最後更新：2026-09-05
 > 當前產品基線：Stepsemble 3.0.3（由 Pi Harbor 2.13.2 相容遷移）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
@@ -42,13 +42,13 @@
 | Browser 效能基線 | 已量測，保留缺口 | Chrome DevTools 已連線；cold/warm、長 session、30 秒串流、mobile 4× CPU、network/accessibility 見 `browser-performance-baseline.md`；標準 TBT 與完整 trace export 待補 |
 | 階段 0：計畫與基線 | 基線可供後續比較 | 已記錄長對話 INP 537 ms、mobile restore LCP 4859 ms、串流收尾長任務；這不是順滑度驗收通過 |
 | 階段 1：Stepsemble Protocol v1 | 進行中 | handshake／strict TS SDK／29 events＋8 commands schema／pure domain checks／generation-aware replay preflight、802-case Ajv conformance 已實作；Pi 0.84.2 離線 native 57 frames／dialog／persisted resume 已驗；stateful/idempotency、durable snapshot／rolling gate 仍未通過 |
-| Pi 原生 RPC 邊界 | 已實作，未部署 | 嚴格 frame／UI reply、跨程序 correlation、有界 pending dialog、TypeScript FIFO／失敗保留手動重試、更新／idle／離開聊天保護；Windows core launch／PATH／owned tree 已實作且接上真實 runner fixture；不等於原生 Pi 全版本／provider／模型串流驗收 |
+| Pi 原生 RPC 邊界 | 已實作，未部署 | 嚴格 frame／UI reply、跨程序 correlation、有界 pending dialog、TypeScript FIFO／失敗手動重試、完整 pending-set 重連對齊／舊 stream fencing、更新／idle／離開聊天保護；Windows core launch／PATH／owned tree 已接上 runner fixture；仍非 durable approval 或原生全版本／provider／模型串流驗收 |
 | 優先可靠性修復 | 已實作，未部署 | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
 | Web 卡頓修復 | 部分完成 | 歷史離屏分批建立、相鄰訊息線性合併、局部翻譯、聊天可及性；仍需 virtualization、實機／多輪效能門檻驗收 |
 
 ### 下一個可執行任務
 
-先閱讀 `reliability-followup.md`、`protocol/v1/README.md` 及 `protocol/native/pi/README.md`，再繼續 Phase 1 stateful／idempotency 契約、durable snapshot/cursor recovery 與 rolling compatibility。Pi 0.84.2 的 57-frame 離線 fixture、response correlation、pending dialog 重連、typed FIFO／failed-send 恢復、Windows core launch／PATH／owned tree 已加入，不要重做。下一個 recovery 缺口是 legacy SSE replay 超界後完整 pending-set 對齊，以及持久化之前的狀態轉移／idempotency 契約；Windows native provider/resource discovery、真正 Pi 全平台／版本／模型與 tool stream 仍未驗收。Pure check 與 process/page-lifetime map 都不是 durable journal、原子 winner 或 native ACK。virtualization、標準 TBT、raw trace export、實機／多輪與長時間測試仍未完成。
+先閱讀 `reliability-followup.md`、`protocol/v1/README.md` 及 `protocol/native/pi/README.md`，再繼續 Phase 1 stateful／idempotency 契約、durable snapshot/cursor recovery 與 rolling compatibility。Pi 0.84.2 的 57-frame 離線 fixture、response correlation、typed FIFO／failed-send 恢復、Windows core launch／PATH／owned tree、legacy replay 超界後完整 pending-set 對齊與 stream identity fencing 已加入，不要重做。下一步是持久化前的狀態轉移／idempotency 契約，接著定義完整 projection＋generation/cursor snapshot；本批只同步 pending UI，不能補回所有已流失的 message/tool event。Windows native provider/resource discovery、真正 Pi 全平台／版本／模型與 tool stream 仍未驗收。Pure check 與 process/page-lifetime map 都不是 durable journal、原子 winner 或 native ACK。virtualization、標準 TBT、raw trace export、實機／多輪與長時間測試仍未完成。
 
 ## 一、不可退讓的核心決策
 
@@ -929,6 +929,15 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-05 — Plan 1.12
+
+- 新 Web 在 Pi SSE 明確請求 `uiSnapshot=1`；Host 的 named `connected` 包含有版本／sid 的完整 pending 清單（包括空清單），不附 SSE id、不改 conversation cursor。Opt-in replay 略過歷史互動 UI／close，避免舊 ID 的 close 撤銷目前 snapshot；live lifecycle 照常傳。舊 Client 不帶參數時保留原路徑，新 Client 連舊 Host 也可用既有 connected／onopen fallback。
+- Strict TS queue 整份驗證、count/byte bounds 與 duplicate ID 檢查後才原子替換 scope；保留未變 request 的 draft／in-flight identity，移除失效或已變更 request；其他 Host／session 與 provider 登入秘密不受影響。
+- Native SSE callback／timer 加入 connection object＋view generation＋Host＋EventSource identity 防護。已協商 full snapshot 的連線失敗時停用回覆，驗證完整 snapshot 後再恢復，不因 transport-open 就重新啟用；仍無自動 side-effect retry。
+- 隔離 HTTP 用8,100筆合成事件真正擠出8,000-event ring，驗证完整／部分／空 pending-set、cursor neutrality、live close 與 native ID reuse；controller 覆蓋壞 snapshot 不部分套用、draft／provider保留、in-flight late result 與舊 stream。完整本機187 tests＝185 pass／2 Windows-only skip；strict TS／artifact／syntax／版本與802-case Ajv通過，跨OS需看此批CI。
+- Chrome390×844雙頁面驗證：受控 SSE 關閉／error 注入＋Offline 阻擋重連，另一頁回答並rollover，恢復後只保留有效input草稿，下一次完整空清單關閉失效sheet／清掉草稿；沒有自動送出。CDP Offline 本身不會可靠中斷已建立SSE，故不把網路切換單獨當斷線證據；測試是synthetic fault injection，不是實機／效能驗收。證據 `docs/baselines/native-ui-recovery-2026-09-05.json`。
+- 正式3.0.3未部署／重啟，native帳號、訂閱與品牌不動。這只修復同一Host process內pending UI投影；Host restart／upstream未回報取消、durable approval／full journal、stateful idempotency、rolling matrix、Rust／Apps仍未完成。
 
 ### 2026-09-05 — Plan 1.11
 

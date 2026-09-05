@@ -21,6 +21,12 @@ namespace StepsembleDialogs {
     draft?: string;
     failed: boolean;
   }
+  export interface Snapshot {
+    type: "native_ui_snapshot";
+    version: 1;
+    sid: string;
+    requests: Event[];
+  }
   const key = (host: string, sid: string, id: string) => JSON.stringify([host, sid, id]);
   const validId = (value: unknown): value is string => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\s\S])/.test(value);
   export class Queue {
@@ -42,6 +48,32 @@ namespace StepsembleDialogs {
       const request: Request = { hostBase, sid, id: event.id, method: event.method, event: JSON.parse(json) as Event, sending: false, failed: false };
       this.entries.set(id, { request, json, bytes }); this.bytes += bytes;
       return request;
+    }
+    reconcile(hostBase: string, sid: string, value: unknown): void {
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid native dialog snapshot");
+      const snapshot = value as Snapshot;
+      if (snapshot.type !== "native_ui_snapshot" || snapshot.version !== 1 || snapshot.sid !== sid || !validId(sid)
+        || !Array.isArray(snapshot.requests) || snapshot.requests.length > this.maxCount
+        || typeof hostBase !== "string" || hostBase.length > 512) throw new Error("Invalid native dialog snapshot");
+      // Stage the complete replacement, including other scopes, before changing
+      // any state or draft. Malformed/oversized snapshots are never partial.
+      const staged = new Queue(this.maxCount, this.maxBytes);
+      for (const item of this.entries.values()) {
+        if (item.request.hostBase !== hostBase || item.request.sid !== sid) staged.enqueue(item.request.hostBase, item.request.sid, item.request.event);
+      }
+      const seen = new Set<string>();
+      for (const event of snapshot.requests) {
+        const request = staged.enqueue(hostBase, sid, event);
+        if (seen.has(request.id)) throw new Error("Duplicate native dialog snapshot ID");
+        seen.add(request.id);
+      }
+      for (const [id, item] of staged.entries) {
+        const old = this.entries.get(id);
+        if (old?.json === item.json) staged.entries.set(id, old);
+      }
+      for (const [id, item] of this.entries) if (staged.entries.get(id) !== item) item.request.draft = undefined;
+      this.entries = staged.entries;
+      this.bytes = staged.bytes;
     }
     next(hostBase: string, sid: string): Request | undefined {
       return [...this.entries.values()].find(item => item.request.hostBase === hostBase && item.request.sid === sid)?.request;

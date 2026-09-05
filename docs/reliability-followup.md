@@ -138,3 +138,27 @@ See the [native contract](../protocol/native/pi/README.md) for exact constraints
 Full pending-set reconciliation after replay expiry, durable/idempotent state,
 rolling compatibility, provider-auth recovery and Windows native package/resource
 discovery still remain open. Production and native accounts remain untouched.
+
+## Full native pending-set recovery — Plan 1.12 (unreleased)
+
+- Opt-in SSE `connected` carries the complete versioned pending set, including
+  empty state, without advancing the event cursor. Historical interactive/close
+  replay is suppressed for opt-in peers; live events and older clients retain
+  their existing paths.
+- Strict TypeScript staging rejects malformed/oversized/duplicate snapshots
+  before any mutation. Retained drafts and in-flight identity survive; missing
+  or changed requests are removed without touching provider secrets.
+- Old stream callbacks cannot mutate a replacement connection/view/Host. After
+  a negotiated stream failure, native replies wait for a valid snapshot rather
+  than just a transport-open event; there is no automatic side-effect retry.
+- Tests cover actual 8,000-event ring eviction, cursor-neutral snapshots, ID
+  reuse, empty recovery, legacy fallback, stale callbacks and late HTTP results.
+  Local suite: **187 tests, 185 pass, 2 Windows-only skips**; strict TS/artifacts,
+  syntax/version and 802-case Ajv conformance pass. OS results are verified in CI.
+- Two-page Chrome mobile-emulation fault injection recovered one pending input
+  with its draft, then an empty set cleared the stale sheet. Only expected
+  Offline network errors were observed; see the checked-in browser evidence.
+
+This closes the pending-set item from Plan 1.11 only. Full journal/projection
+recovery, stateful/idempotency contracts, provider-auth durability, native parity,
+rolling shipped-client compatibility and the later Rust/App gates remain open.

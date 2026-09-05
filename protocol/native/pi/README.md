@@ -136,6 +136,50 @@ another package behind a wrapper, bypasses its routing configuration, or edits
 native login files. Windows native package/resource/auth discovery beyond these
 core launch paths remains unverified.
 
+## Authoritative pending-set recovery — Plan 1.12
+
+The new Web client requests `/api/stream?sid=...&after=...&uiSnapshot=1`.
+The named `connected` frame adds `nativeUiSnapshot`:
+
+```json
+{"type":"native_ui_snapshot","version":1,"sid":"synthetic-session","requests":[]}
+```
+
+`requests` is the complete ordered set from this Host process, including an
+explicit empty set. It contains native request shapes, bounded by the same
+32-request / 64 KiB each / 256 KiB aggregate limits. The frame has no SSE id and
+must not advance the conversation cursor. It is not a Protocol v1 journal
+snapshot, persisted record, approval nonce or upstream acknowledgement.
+
+The Host collects this set and registers/replays synchronously without an await
+between them. Opt-in replay omits historical interactive requests and closes:
+they cannot overwrite this newer state or close a newly reused native ID.
+Subsequent live request/close events still follow in the same SSE order. Legacy
+clients without the query keep the existing additive path; a new client with an
+old Host uses its existing connected/onopen fallback. This focused compatibility
+coverage is not the two-shipped-release rolling matrix.
+
+The strict TypeScript queue validates and stages the entire replacement before
+mutating any request/draft. Bad version/sid, duplicate IDs, malformed requests
+or count/byte overflow leave prior data untouched. Unchanged requests preserve
+their object identity, draft and in-flight state. Missing or changed requests
+are removed; stale HTTP completions cannot alter their replacements. Provider
+sign-in UI and unrelated Host/session scopes are not cleared by reconciliation.
+
+Callbacks/timers are fenced by connection object, view generation, Host and
+EventSource identity. On a stream failure after negotiating snapshots, native
+replies are disabled until a valid full snapshot arrives. Transport-open alone
+does not enable them. Invalid snapshots use bounded reconnect backoff without
+advancing the cursor, clearing drafts or retrying side effects.
+
+The isolated HTTP test emits 8,100 events to evict the entire 8,000-event ring,
+then checks partial/empty sets, ID reuse, live closes and cursor neutrality.
+[Browser evidence](../../../docs/baselines/native-ui-recovery-2026-09-05.json)
+uses two synthetic pages and an explicitly injected SSE close/error while
+Offline prevents new requests. CDP Offline alone left an established SSE alive;
+it must not be described as proof of an actual transport disconnect. No native
+provider login/model calls, real accounts or physical devices are involved.
+
 ## Deliberately incomplete boundaries
 
 - `{sent:true}` means the Host accepted a reply into the pipe queue. Native Pi
@@ -147,9 +191,11 @@ core launch paths remains unverified.
   execution across Host restarts. Upstream AbortSignal cancellation may not emit
   a close frame; the Host cannot infer every upstream cancellation.
 - The queue covers the currently attached native session, not a durable
-  cross-session approval inbox. If both a terminal event and its entire replay
-  range are lost, legacy SSE still lacks an authoritative full-dialog snapshot
-  reconciliation boundary; a stale reply is refused by the Host.
+  cross-session approval inbox. Full pending-set recovery requires both the new
+  Host and opt-in Client; old peers keep their earlier limitations. This repairs
+  only UI state: missing message/tool events still require native-history or
+  future durable projection recovery, and the legacy numeric cursor has no
+  journal generation. Identical reused native IDs have no incarnation nonce.
 - Provider sign-in retry/durability and its underlying native flows remain
   separate from this native Pi dialog queue. No real sign-in was exercised.
 - Model/tool streaming, interruption during a real turn, auth/subscription

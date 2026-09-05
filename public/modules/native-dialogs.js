@@ -41,6 +41,39 @@ var StepsembleDialogs;
             this.bytes += bytes;
             return request;
         }
+        reconcile(hostBase, sid, value) {
+            if (!value || typeof value !== "object" || Array.isArray(value))
+                throw new Error("Invalid native dialog snapshot");
+            const snapshot = value;
+            if (snapshot.type !== "native_ui_snapshot" || snapshot.version !== 1 || snapshot.sid !== sid || !validId(sid)
+                || !Array.isArray(snapshot.requests) || snapshot.requests.length > this.maxCount
+                || typeof hostBase !== "string" || hostBase.length > 512)
+                throw new Error("Invalid native dialog snapshot");
+            // Stage the complete replacement, including other scopes, before changing
+            // any state or draft. Malformed/oversized snapshots are never partial.
+            const staged = new Queue(this.maxCount, this.maxBytes);
+            for (const item of this.entries.values()) {
+                if (item.request.hostBase !== hostBase || item.request.sid !== sid)
+                    staged.enqueue(item.request.hostBase, item.request.sid, item.request.event);
+            }
+            const seen = new Set();
+            for (const event of snapshot.requests) {
+                const request = staged.enqueue(hostBase, sid, event);
+                if (seen.has(request.id))
+                    throw new Error("Duplicate native dialog snapshot ID");
+                seen.add(request.id);
+            }
+            for (const [id, item] of staged.entries) {
+                const old = this.entries.get(id);
+                if (old?.json === item.json)
+                    staged.entries.set(id, old);
+            }
+            for (const [id, item] of this.entries)
+                if (staged.entries.get(id) !== item)
+                    item.request.draft = undefined;
+            this.entries = staged.entries;
+            this.bytes = staged.bytes;
+        }
         next(hostBase, sid) {
             return [...this.entries.values()].find(item => item.request.hostBase === hostBase && item.request.sid === sid)?.request;
         }
