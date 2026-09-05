@@ -1654,7 +1654,7 @@ body.image-lightbox-open { overflow: hidden; }
 .msg-actions {
   display: flex; align-items: center; gap: 3px;
   margin-top: 7px; padding: 0 3px;
-  opacity: .62;
+  opacity: 1;
 }
 .msg-actions button {
   min-height: 28px;

@@ -11,6 +11,7 @@ const os = require("node:os");
 const crypto = require("node:crypto");
 const net = require("node:net");
 const { spawn } = require("node:child_process");
+const { createLineDecoder, writeBounded } = require("./stream-safety");
 const { CONNECTOR_PROTOCOL_VERSION, CONNECTOR_EVENT_TYPES, normalizeConnectorDefinition } = require("./connector-protocol");
 
 const MAX_TASKS = 100;
@@ -453,7 +454,7 @@ function createAgentTaskService({
     const frame = `id: ${packet.seq}\ndata: ${data}\n\n`;
     for (const res of task.clients) {
       try {
-        if (res.destroyed || res.writableEnded || !res.write(frame)) task.clients.delete(res);
+        if (!writeBounded(res, frame)) task.clients.delete(res);
       } catch { task.clients.delete(res); }
     }
   }
@@ -523,7 +524,16 @@ function createAgentTaskService({
     for (const key of ["pid", "supervisorPid", "startedAt", "endedAt", "lastActivityAt", "lastInputAt", "exitCode", "signal", "transport", "error"]) {
       if (snapshot[key] !== undefined && snapshot[key] !== null) task[key] = snapshot[key];
     }
-    if (typeof snapshot.outputTail === "string") task.outputTail = snapshot.outputTail.slice(-MAX_OUTPUT_TAIL);
+    const snapshotSeq = Number(snapshot.eventSeq);
+    if (typeof snapshot.outputTail === "string" && Number.isSafeInteger(snapshotSeq)
+      && snapshotSeq >= (Number(task.supervisorEventSeq) || 0)) {
+      const changed = task.outputTail !== snapshot.outputTail;
+      task.outputTail = snapshot.outputTail.slice(-MAX_OUTPUT_TAIL);
+      // This tail already includes every event through snapshotSeq. Never
+      // append those events a second time when attach replays the old cursor.
+      task.supervisorEventSeq = snapshotSeq;
+      if (changed) pushEvent(task, { type: "output", taskId: task.id, stream: "stdout", text: task.outputTail, replay: true, replace: true });
+    }
     if (typeof snapshot.status === "string") task.status = snapshot.status.slice(0, 24);
     if (typeof snapshot.eventSeq === "number") task.supervisorLatestSeq = Math.max(Number(task.supervisorLatestSeq) || 0, snapshot.eventSeq);
     if (["completed", "failed", "stopped"].includes(task.status)) task.endedAt = task.endedAt || Date.now();
@@ -602,7 +612,6 @@ function createAgentTaskService({
     if (task.control && !task.control.destroyed) return Promise.resolve(true);
     return new Promise((resolve, reject) => {
       let settled = false;
-      let buffer = "";
       const control = net.createConnection(task.supervisorSocket);
       task.control = control;
       control.setEncoding("utf8");
@@ -612,16 +621,12 @@ function createAgentTaskService({
       control.on("connect", () => {
         writeControl(task, { op: "attach", after: Number(task.supervisorEventSeq) || 0 });
       });
-      control.on("data", (chunk) => {
-        buffer += chunk;
-        while (true) {
-          const newline = buffer.indexOf("\n");
-          if (newline < 0) break;
-          const line = buffer.slice(0, newline).trim();
-          buffer = buffer.slice(newline + 1);
-          if (!line || line.length > MAX_MESSAGE + 4096) continue;
+      const decoder = createLineDecoder({
+        maxBytes: 8 * 1024 * 1024,
+        onError(error) { fail(error); control.destroy(); },
+        onLine(line) {
           let message;
-          try { message = JSON.parse(line); } catch { continue; }
+          try { message = JSON.parse(line); } catch { return; }
           if (message.type === "snapshot") {
             applySupervisorSnapshot(task, message.task || message);
             task.reconnectAttempt = 0;
@@ -631,8 +636,9 @@ function createAgentTaskService({
           } else if (message.type === "error") {
             if (!settled) fail(new Error(String(message.error || "supervisor rejected request")));
           }
-        }
+        },
       });
+      control.on("data", chunk => decoder.push(chunk));
       control.on("error", (error) => fail(error));
       control.on("close", () => {
         if (task.control === control) task.control = null;
@@ -849,12 +855,12 @@ function createAgentTaskService({
     // pre-restart Last-Event-ID that is ahead of our fresh journal, replay the
     // tail as a recovery snapshot instead of showing an apparently blank chat.
     if (task.outputTail && (task.events.length === 0 || after >= task.eventSeq)) {
-      write({ type: "output", taskId: task.id, stream: "stdout", text: task.outputTail, replay: true }, null, null);
+      write({ type: "output", taskId: task.id, stream: "stdout", text: task.outputTail, replay: true, replace: true }, null, task.eventSeq);
     }
     if (["completed", "failed", "stopped", "orphaned", "detached"].includes(task.status)) {
       cleanup(); try { res.end(); } catch {} return true;
     }
-    ping = setInterval(() => { try { res.write(": ping\n\n"); } catch { cleanup(); } }, 15_000);
+    ping = setInterval(() => { if (!writeBounded(res, ": ping\n\n")) cleanup(); }, 15_000);
     req.on("aborted", cleanup); req.on("close", cleanup); res.on("close", cleanup); res.on("error", cleanup);
     return true;
   }

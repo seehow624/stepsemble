@@ -1,4 +1,5 @@
 "use strict";
+const { writeBounded } = require("./stream-safety");
 
 /**
  * HTTP/SSE primitives shared by Stepsemble's route handlers.
@@ -25,8 +26,7 @@ function createHttpUtils({
   }
 
   function trySseWrite(res, payload) {
-    if (!res || res.destroyed || res.writableEnded) return false;
-    try { res.write(payload); return true; } catch { return false; }
+    return writeBounded(res, payload);
   }
 
   function send(res, status, body, headers = {}) {

@@ -3804,7 +3804,10 @@
   function queueLocalize(records = []) {
     for (const record of records || []) {
       const target = record.target;
-      if (target && target.id !== "messages" && !shouldSkip(target)) pendingRoots.add(target);
+      // Element insertions only need their new subtrees translated. Adding
+      // the parent (often body) rescanned every historical message per delta.
+      const textChanged = [...(record.addedNodes || [])].some(node => node.nodeType === Node.TEXT_NODE && node.nodeValue?.trim());
+      if ((record.type === "attributes" || textChanged) && target && target.id !== "messages" && !shouldSkip(target)) pendingRoots.add(target);
       for (const node of record.addedNodes || []) {
         if (node.nodeType === Node.ELEMENT_NODE && !shouldSkip(node)) pendingRoots.add(node);
       }
@@ -3815,8 +3818,13 @@
       localizationQueued = false;
       const roots = [...pendingRoots];
       pendingRoots.clear();
-      if (roots.length > 16) localizeDom();
-      else for (const root of roots) localizeDom(root);
+      const selected = new Set(roots);
+      for (const root of roots) {
+        if (root.isConnected === false) continue;
+        let parent = root.parentElement;
+        while (parent && !selected.has(parent)) parent = parent.parentElement;
+        if (!parent) localizeDom(root);
+      }
     });
   }
   function setLocale(value) {

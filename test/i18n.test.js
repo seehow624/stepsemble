@@ -85,6 +85,31 @@ test("keyed accessibility attributes are idempotent under mutation observation",
   assert.equal(layer.attributeWrites, writesAfterInitialTranslation);
 });
 
+test("batched DOM localization stays within added roots and deduplicates descendants", () => {
+  let mutationCallback;
+  const microtasks = [], visited = [];
+  const makeElement = parent => ({ nodeType: 1, parentElement: parent, isConnected: true,
+    closest() { return null; }, matches() { return false; }, querySelectorAll() { return []; } });
+  const body = makeElement(null);
+  const document = { body, documentElement: {}, getElementById() { return null; },
+    createTreeWalker(root) { visited.push(root); return { nextNode() { return null; } }; } };
+  const context = { window: {}, document, Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 }, NodeFilter: { SHOW_TEXT: 4 },
+    queueMicrotask: callback => microtasks.push(callback),
+    MutationObserver: class { constructor(callback) { mutationCallback = callback; } observe() {} },
+    localStorage: { getItem() { return null; } } };
+  vm.runInNewContext(fs.readFileSync(path.join(root, "public/i18n.js"), "utf8"), context);
+  visited.length = 0;
+  const nodes = Array.from({ length: 30 }, () => makeElement(body));
+  mutationCallback([{ type: "childList", target: body, addedNodes: nodes }]);
+  microtasks.shift()();
+  assert.deepEqual(visited, nodes);
+  visited.length = 0;
+  mutationCallback([{ type: "attributes", target: nodes[0], addedNodes: [] },
+    { type: "childList", target: nodes[0], addedNodes: [makeElement(nodes[0])] }]);
+  microtasks.shift()();
+  assert.deepEqual(visited, [nodes[0]]);
+});
+
 // Runtime copy used to be authored as Chinese sentences and translated by
 // phrase substitution, which produced broken English such as
 // "Connection，workStill …". Stable keys fixed that; this guards the regression.

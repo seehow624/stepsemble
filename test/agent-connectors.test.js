@@ -79,6 +79,10 @@ test("generic connector tasks stream bounded output and stop without shell injec
     internal = service.get(opened.id);
   }
   assert.match(internal.outputTail, /hello from cli/, JSON.stringify({ task: service.publicTask(internal), snapshot: fs.readFileSync(internal.supervisorMeta, "utf8") }));
+  assert.equal(internal.outputTail.split("hello from cli").length - 1, 1);
+  internal.control.destroy();
+  await new Promise(resolve => setTimeout(resolve, 800));
+  assert.equal(service.get(opened.id).outputTail.split("hello from cli").length - 1, 1);
   assert.match(internal.outputTail, new RegExp(process.platform === "win32" ? "stdin=pipe" : "stdin=tty"));
   await assert.rejects(() => service.open({ agentId: "claude;touch /tmp/pwned", cwd: project }), /not installed|Use the native Pi connector/);
   assert.equal(service.stop(opened.id), true);
@@ -132,6 +136,7 @@ test("generic task supervisor survives a web-service restart and reattaches", as
   assert.equal(reattached.status, "running");
   assert.equal(second.publicTask(reattached).isRunning, true);
   assert.match(reattached.outputTail, /restart-safe/);
+  assert.equal(reattached.outputTail.split("restart-safe").length - 1, 1);
   assert.equal(second.stop(opened.id), true);
   await new Promise((resolve) => setTimeout(resolve, 150));
   assert.equal(second.get(opened.id).status, "stopped");

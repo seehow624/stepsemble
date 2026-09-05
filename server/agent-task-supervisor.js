@@ -21,6 +21,7 @@ const net = require("node:net");
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { windowsLaunch } = require("./windows-launch");
+const { createLineDecoder, writeBounded } = require("./stream-safety");
 
 const MAX_OUTPUT_TAIL = 64 * 1024;
 const MAX_EVENTS = 1200;
@@ -164,7 +165,7 @@ function persistSoon() {
 
 function writeLine(socket, value) {
   try {
-    if (!socket.destroyed && socket.writable) socket.write(`${JSON.stringify(value)}\n`);
+    if (!socket.destroyed && socket.writable) writeBounded(socket, `${JSON.stringify(value)}\n`);
   } catch {}
 }
 
@@ -308,6 +309,8 @@ function startChild() {
     return;
   }
   childPid = child.pid || null;
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
   child.stdout?.on("data", (chunk) => appendOutput("stdout", chunk));
   child.stderr?.on("data", (chunk) => appendOutput("stderr", chunk));
   child.stdin?.on("error", (stdinError) => { errorMessage = safeText(stdinError.message, 2000); persistSoon(); });
@@ -372,20 +375,16 @@ function handleCommand(socket, message) {
 function accept(socket) {
   socket.setEncoding("utf8");
   clients.add(socket);
-  let buffer = "";
   // Send a snapshot immediately so a reconnect does not wait for a command.
   writeLine(socket, { type: "snapshot", task: snapshot() });
-  socket.on("data", (chunk) => {
-    buffer += chunk;
-    while (true) {
-      const newline = buffer.indexOf("\n");
-      if (newline < 0) break;
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
-      if (!line || line.length > MAX_MESSAGE + 2048) continue;
+  const decoder = createLineDecoder({
+    maxBytes: 8 * 1024 * 1024,
+    onError() { socket.destroy(); },
+    onLine(line) {
       try { handleCommand(socket, JSON.parse(line)); } catch {}
-    }
+    },
   });
+  socket.on("data", chunk => decoder.push(chunk));
   const remove = () => clients.delete(socket);
   socket.on("close", remove);
   socket.on("error", remove);

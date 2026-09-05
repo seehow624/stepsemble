@@ -22,8 +22,9 @@ const path = require("node:path");
 const os = require("node:os");
 const crypto = require("node:crypto");
 const { pathToFileURL } = require("node:url");
-const { spawn, execFileSync } = require("node:child_process");
+const { spawn, execFile, execFileSync } = require("node:child_process");
 const { createHttpUtils } = require("./server/http-utils");
+const { createLineDecoder, activePathIds } = require("./server/stream-safety");
 const { negotiate, protocolError } = require("./server/platform-protocol");
 const { createGitChangesService } = require("./server/git-changes");
 const { createPiResourcesService } = require("./server/pi-resources");
@@ -1082,19 +1083,24 @@ function isCrossSiteMutation(req) {
 const scanCache = new Map();
 
 async function* sessionLines(absPath) {
-  const stream = fs.createReadStream(absPath, { encoding: "utf8" });
-  let buffer = "";
+  const stream = fs.createReadStream(absPath);
+  let lines = [], failure = null;
+  const decoder = createLineDecoder({
+    onLine: line => lines.push(line),
+    onError() {
+      failure = new Error("Session history contains an oversized record; the original file was preserved");
+      failure.statusCode = 422; failure.code = "session_corrupt";
+    },
+  });
   for await (const chunk of stream) {
-    buffer += chunk;
-    let index;
-    while ((index = buffer.indexOf("\n")) !== -1) {
-      let line = buffer.slice(0, index);
-      buffer = buffer.slice(index + 1);
-      if (line.endsWith("\r")) line = line.slice(0, -1);
-      if (line) yield line;
-    }
+    decoder.push(chunk);
+    if (failure) throw failure;
+    for (const line of lines) yield line;
+    lines = [];
   }
-  if (buffer) yield buffer.endsWith("\r") ? buffer.slice(0, -1) : buffer;
+  // Existing JSONL files may end with a complete record without a newline.
+  decoder.end({ allowPartial: true });
+  for (const line of lines) yield line;
 }
 
 // Pi stores Sub Agent work in temporary directories such as `/private/tmp`
@@ -1612,31 +1618,21 @@ function renameSession(rel, name) {
   return true;
 }
 
-/** 删除 session：移到 ~/.Trash（同盤 mv，失敗才真删） */
+/** Deletion is recoverable on every OS; never fall back to unlink. */
 function deleteSession(rel) {
-  const abs = safeSessionPath(rel);
-  if (!abs) return false;
-  const trashDir = path.join(APP_HOME, ".Trash");
-  const base = path.basename(abs);
-  let target = path.join(trashDir, base);
-  if (fs.existsSync(target)) target = path.join(trashDir, Date.now() + "_" + base);
-  try {
-    fs.renameSync(abs, target);
-  } catch {
-    try { fs.unlinkSync(abs); } catch { return false; }
-  }
-  scanCache.delete(rel);
-  return true;
+  return archiveSession(rel);
 }
 
 function archiveSession(rel) {
   const source = safeSessionPath(rel);
   if (!source) return false;
+  assertSessionNotOpen(source);
   const cleanRel = String(rel).replace(/^\/+/, "");
   const archiveId = `session-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`;
   const archiveRoot = path.join(SESSIONS_DIR, ".archive", archiveId);
   const destination = path.join(archiveRoot, cleanRel);
   try {
+    if (!containedMissingPath(SESSIONS_DIR, destination)) return false;
     fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
     fs.renameSync(source, destination);
     scanCache.delete(rel);
@@ -1705,6 +1701,7 @@ function revealProject(cwd) {
 function unarchiveSessions(archiveId) {
   if (!/^(?:session-)?\d+-[0-9a-f]+$/.test(String(archiveId || ""))) return 0;
   const archiveRoot = path.join(SESSIONS_DIR, ".archive", archiveId);
+  if (!containedMissingPath(SESSIONS_DIR, archiveRoot)) return 0;
   if (!fs.existsSync(archiveRoot)) return 0;
   let restored = 0;
   let captured = 0;
@@ -1718,7 +1715,7 @@ function unarchiveSessions(archiveId) {
     for (const entry of entries) {
       const abs = path.join(dir, entry.name);
       if (entry.isDirectory()) { stack.push(abs); continue; }
-      if (!entry.name.endsWith(".jsonl")) continue;
+      if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
       captured += 1;
       const rel = path.relative(archiveRoot, abs).replaceAll("\\", "/");
       const dest = safeSessionPath(rel, true);
@@ -1745,6 +1742,12 @@ async function archiveProjectSessions(cwd) {
   const sessions = await listSessions();
   const matches = sessions.filter((session) => session.cwd && path.resolve(session.cwd) === targetCwd);
   if (!matches.length) return null;
+  // Preflight the entire batch before moving anything. An idle but open Pi
+  // process can append later, so streaming=false alone is not sufficient.
+  for (const session of matches) {
+    const source = safeSessionPath(session.file);
+    if (source) assertSessionNotOpen(source);
+  }
   const archiveRoot = path.join(SESSIONS_DIR, ".archive", `${Date.now()}-${crypto.randomBytes(3).toString("hex")}`);
   let moved = 0;
   for (const session of matches) {
@@ -1754,6 +1757,7 @@ async function archiveProjectSessions(cwd) {
     const destinationDir = path.join(archiveRoot, relativeDir);
     const destination = path.join(destinationDir, path.basename(session.file));
     try {
+      if (!containedMissingPath(SESSIONS_DIR, destination)) continue;
       fs.mkdirSync(destinationDir, { recursive: true, mode: 0o700 });
       fs.renameSync(source, destination);
       scanCache.delete(session.file);
@@ -1765,31 +1769,43 @@ async function archiveProjectSessions(cwd) {
   return { count: moved, archiveId: moved ? path.basename(archiveRoot) : null };
 }
 
-function createPermanentWorktree(cwd) {
-  const real = projectDirectory(cwd);
-  if (!real) throw new Error("Project folder is unavailable");
-  const git = settingFromEnv("GIT_BIN") || "git";
-  let root;
+function runWorktreeGit(git, args, timeout, signal) {
+  return new Promise((resolve, reject) => {
+    execFile(git, args, { encoding: "utf8", timeout, signal, maxBuffer: 1024 * 1024, windowsHide: true },
+      (error, stdout) => error ? reject(error) : resolve(stdout));
+  });
+}
+let worktreeCreates = 0;
+async function createPermanentWorktree(cwd, signal) {
+  if (worktreeCreates >= 2) { const error = new Error("Worktree creation is busy; retry when the current operation finishes"); error.statusCode = 429; throw error; }
+  worktreeCreates++;
   try {
-    root = execFileSync(git, ["-C", real, "rev-parse", "--show-toplevel"], { encoding: "utf8", timeout: 10_000 }).trim();
-  } catch (error) {
-    throw new Error(`Could not find a Git repository: ${error.message}`);
-  }
-  if (!root || !path.isAbsolute(root)) throw new Error("Could not resolve the Git repository");
-  const repoName = path.basename(root).replace(/[^a-zA-Z0-9._-]+/g, "-") || "project";
-  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
-  const suffix = crypto.randomBytes(2).toString("hex");
-  const branch = `pi-worktree/${repoName}-${stamp}-${suffix}`;
-  const worktreeRoot = path.join(APP_HOME, ".pi", "worktrees", repoName);
-  const target = path.join(worktreeRoot, `${stamp}-${suffix}`);
-  try {
-    fs.mkdirSync(worktreeRoot, { recursive: true, mode: 0o700 });
-    execFileSync(git, ["-C", root, "worktree", "add", "-b", branch, target, "HEAD"], { encoding: "utf8", timeout: 30_000 });
-  } catch (error) {
-    try { if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true }); } catch {}
-    throw new Error(`Could not create worktree: ${error.message}`);
-  }
-  return { path: target, branch, repository: root };
+    const real = projectDirectory(cwd);
+    if (!real) throw new Error("Project folder is unavailable");
+    const git = settingFromEnv("GIT_BIN") || "git";
+    let root;
+    try {
+      root = (await runWorktreeGit(git, ["-C", real, "rev-parse", "--show-toplevel"], 10_000, signal)).trim();
+    } catch (error) {
+      throw new Error(`Could not find a Git repository: ${error.message}`);
+    }
+    if (!root || !path.isAbsolute(root)) throw new Error("Could not resolve the Git repository");
+    const repoName = path.basename(root).replace(/[^a-zA-Z0-9._-]+/g, "-") || "project";
+    const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+    const suffix = crypto.randomBytes(2).toString("hex");
+    const branch = `pi-worktree/${repoName}-${stamp}-${suffix}`;
+    const worktreeRoot = path.join(APP_HOME, ".pi", "worktrees", repoName);
+    const target = path.join(worktreeRoot, `${stamp}-${suffix}`);
+    try {
+      await fs.promises.mkdir(worktreeRoot, { recursive: true, mode: 0o700 });
+      await runWorktreeGit(git, ["-C", root, "worktree", "add", "-b", branch, target, "HEAD"], 30_000, signal);
+    } catch (error) {
+      // Git may have partially registered the worktree. Preserve its contents
+      // on timeout/cancel; never recursively erase a potentially useful tree.
+      throw new Error(`Could not create worktree: ${error.message}`);
+    }
+    return { path: target, branch, repository: root };
+  } finally { worktreeCreates--; }
 }
 
 /** 讀取單一 session 的 active path（從最後一條 message entry 沿 parentId 回溯） */
@@ -1809,17 +1825,13 @@ async function readSessionActivePath(rel, options = {}) {
     byId.set(e.id, e);
     if (e.type === "message") { order.push(e); lastMsgEntry = e; }
   }
-  } catch {
+  } catch (error) {
+    if (error.statusCode === 422) throw error;
     return null;
   }
   if (!header) return null;
   // active path
-  const activeIds = new Set();
-  let cur = lastMsgEntry;
-  while (cur) {
-    activeIds.add(cur.id);
-    cur = cur.parentId ? byId.get(cur.parentId) : null;
-  }
+  const activeIds = activePathIds(byId, lastMsgEntry);
   const messages = [];
   let name = null;
   for (const e of order) {
@@ -1850,7 +1862,7 @@ function safeSessionPath(rel, allowMissing = false) {
   if (!abs.startsWith(path.resolve(SESSIONS_DIR) + path.sep) || !abs.endsWith(".jsonl")) return null;
   // unarchive() restores files whose destination does not exist yet; it needs
   // the containment checks without the existence check.
-  if (allowMissing) return abs;
+  if (allowMissing) return containedMissingPath(SESSIONS_DIR, abs) ? abs : null;
   try {
     const stat = fs.statSync(abs);
     if (!stat.isFile() || stat.size > MAX_SESSION_FILE_BYTES) return null;
@@ -1860,6 +1872,34 @@ function safeSessionPath(rel, allowMissing = false) {
     return real;
   } catch {
     return null;
+  }
+}
+
+// Reject symlinked descendants even when a restore destination is missing.
+// Never follow an archive symlink outside the session store.
+function containedMissingPath(root, target) {
+  const relative = path.relative(root, target);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return false;
+  let current = root;
+  for (const part of relative.split(path.sep)) {
+    current = path.join(current, part);
+    try { if (fs.lstatSync(current).isSymbolicLink()) return false; }
+    catch (error) { if (error.code !== "ENOENT") return false; }
+  }
+  return true;
+}
+
+function assertSessionNotOpen(source) {
+  for (const session of rpcSessions.values()) {
+    if (session.exited) continue;
+    const file = session.meta.file || session.state.sessionFile;
+    if (!file) continue;
+    const candidate = path.isAbsolute(file) ? file : path.resolve(SESSIONS_DIR, file);
+    let real;
+    try { real = fs.realpathSync.native(candidate); } catch { continue; }
+    if (real !== source) continue;
+    const error = new Error("Session is open in an agent; close it before archiving");
+    error.statusCode = 409; throw error;
   }
 }
 
@@ -2220,18 +2260,11 @@ async function openRpc({ file, cwd, name }) {
   rpcSessions.set(sid, sess);
 
   // 嚴格 JSONL 分幀：只按 \n 切、去尾部 \r（文件明確說 readline 不合規）
-  let buf = "";
-  proc.stdout.on("data", (chunk) => {
-    buf += chunk.toString("utf8");
-    for (;;) {
-      const i = buf.indexOf("\n");
-      if (i === -1) break;
-      let line = buf.slice(0, i);
-      buf = buf.slice(i + 1);
-      if (line.endsWith("\r")) line = line.slice(0, -1);
-      if (!line) continue;
+  const rpcDecoder = createLineDecoder({
+    onError(error) { sess.stderrTail = error.message; killRpcProcess(proc); },
+    onLine(line) {
       let ev;
-      try { ev = JSON.parse(line); } catch { continue; }
+      try { ev = JSON.parse(line); } catch { return; }
       if (ev.type === "response" && ev.id && pendingRpcCmds.has(ev.id)) {
         try { pendingRpcCmds.get(ev.id).resolve(ev); } catch {}
         pendingRpcCmds.delete(ev.id);
@@ -2240,8 +2273,11 @@ async function openRpc({ file, cwd, name }) {
         sess.state = { ...sess.state, ...ev.data };
       }
       broadcast(sid, ev);
-    }
+    },
   });
+  proc.stdout.on("data", chunk => rpcDecoder.push(chunk));
+  proc.stdout.on("end", () => rpcDecoder.end());
+  proc.stderr.setEncoding("utf8");
   proc.stderr.on("data", (chunk) => {
     sess.stderrTail = (sess.stderrTail + chunk.toString("utf8")).slice(-2000);
   });
@@ -2348,7 +2384,6 @@ function queryAvailableModels() {
   modelCatalogPromise = new Promise((resolve, reject) => {
     let proc;
     let done = false;
-    let buf = "";
     const requestId = "models-" + crypto.randomUUID();
     const finish = (err, models) => {
       if (done) return;
@@ -2374,25 +2409,21 @@ function queryAvailableModels() {
         stdio: ["pipe", "pipe", "pipe"],
         detached: true,
       });
-      proc.stdout.on("data", (chunk) => {
-        buf += chunk.toString("utf8");
-        for (;;) {
-          const i = buf.indexOf("\n");
-          if (i === -1) break;
-          let line = buf.slice(0, i);
-          buf = buf.slice(i + 1);
-          if (line.endsWith("\r")) line = line.slice(0, -1);
-          if (!line) continue;
+      const catalogDecoder = createLineDecoder({
+        onError: finish,
+        onLine(line) {
           let event;
-          try { event = JSON.parse(line); } catch { continue; }
-          if (event.id !== requestId || event.type !== "response") continue;
+          try { event = JSON.parse(line); } catch { return; }
+          if (event.id !== requestId || event.type !== "response") return;
           if (!event.success) {
             finish(new Error(event.error || "failed to read model catalog"));
           } else {
             finish(null, publicModels(event.data?.models));
           }
-        }
+        },
       });
+      proc.stdout.on("data", chunk => catalogDecoder.push(chunk));
+      proc.stdout.on("end", () => catalogDecoder.end());
       proc.stderr.on("data", () => {});
       proc.stdin.on("error", () => {});
       proc.on("error", (err) => finish(err));
@@ -4059,8 +4090,8 @@ const server = http.createServer(async (req, res) => {
 
       if (p === "/api/delete" && req.method === "POST") {
         const body = await readJSON(req);
-        const ok = deleteSession(body.file);
-        sendJSON(res, ok ? 200 : 400, ok ? {} : { error: "delete failed" });
+        const archiveId = deleteSession(body.file);
+        sendJSON(res, archiveId ? 200 : 400, archiveId ? { archiveId, recoverable: true } : { error: "Could not archive session; original file was preserved" });
         return;
       }
 
@@ -4107,7 +4138,9 @@ const server = http.createServer(async (req, res) => {
             return;
           }
           if (action === "worktree") {
-            const result = createPermanentWorktree(cwd);
+            const controller = new AbortController();
+            res.once("close", () => controller.abort());
+            const result = await createPermanentWorktree(cwd, controller.signal);
             sendJSON(res, 201, { ok: true, ...result });
             return;
           }
@@ -4742,7 +4775,9 @@ const server = http.createServer(async (req, res) => {
           let cwd = typeof body?.cwd === "string" ? body.cwd : "";
           let worktree = null;
           if (body?.worktree === true) {
-            worktree = createPermanentWorktree(cwd);
+            const controller = new AbortController();
+            res.once("close", () => controller.abort());
+            worktree = await createPermanentWorktree(cwd, controller.signal);
             cwd = worktree.path;
           }
           if (agentId === "pi") {

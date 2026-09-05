@@ -13,6 +13,13 @@ runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
+Unreleased reliability changes (2026-09-05) are documented separately in
+[`reliability-followup.md`](reliability-followup.md): recoverable session archive,
+bounded stream framing/writes, supervisor snapshot replacement, asynchronous
+worktrees, and scoped history/localization rendering. They have not replaced
+the running 3.0.3 installation. Do not interpret them as durable full history,
+approval parity, or the Rust migration being complete.
+
 ## Boundaries
 
 ```text

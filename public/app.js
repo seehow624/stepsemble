@@ -2762,9 +2762,18 @@ el.saDelete.addEventListener("click", async () => {
   if (!target) return;
   const isCurrent = currentSessionFile === target.file && !el.viewChat.classList.contains("hidden");
   try {
-    await post("/api/delete", { file: target.file });
-    if (isCurrent) { toast("已移到垃圾桶"); showList(); }
-    else { toast("已移到垃圾桶"); refreshSessions(); }
+    const result = await post("/api/delete", { file: target.file });
+    toast(projectActionText("Archived chats"), false, result?.archiveId ? {
+      label: tKey("common.undo"),
+      run: async () => {
+        try {
+          await post("/api/session-action", { action: "unarchive", archiveId: result.archiveId });
+          toast(projectActionText("Restored")); refreshSessions();
+        } catch (error) { toast(error.message, true); }
+      },
+    } : undefined);
+    if (isCurrent) showList();
+    else refreshSessions();
   } catch (e) { toast(tKey("runtime.deleteFailed", { detail: e.message }), true); }
 });
 el.saRename.addEventListener("click", () => {
@@ -2966,18 +2975,33 @@ async function openExisting(s) {
     currentSessionCwd = detail.cwd;
     void refreshProjectChanges({ background: true });
     _lastMsgDate = null; lastUserText = "";
+    // Build offscreen: yielding with partially mounted history would force
+    // another full conversation layout/scroll on every slice.
+    const staging = document.createElement("div");
+    let sliceStarted = performance.now();
     for (const m of detail.messages || []) {
-      maybeDateSeparator(m.ts || m.timestamp);
-      appendHistoryMessage(m);
+      if (performance.now() - sliceStarted > 8) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+        if (generation !== viewGeneration) return;
+        sliceStarted = performance.now();
+      }
+      maybeDateSeparator(m.ts || m.timestamp, staging);
+      appendHistoryMessage(m, staging, { latest: true });
       if (m.role === "user") lastUserText = m.text || "";
     }
-    mergeAdjacentWorkMessages();
+    mergeAdjacentWorkMessages(staging);
+    const fragment = document.createDocumentFragment();
+    while (staging.firstChild) fragment.appendChild(staging.firstChild);
+    el.messages.appendChild(fragment);
+    keepSessionUsageAtEnd();
     historyState.before = detail.nextBefore;
     historyState.hasMore = !!detail.hasMore;
     showHistoryLoadButton();
     scrollBottom(true);
   } catch (e) {
     console.warn("歷史讀取失敗", e);
+    if (generation !== viewGeneration) return;
+    if (e.status === 422) { toast(e.message, true); return; }
     void refreshProjectChanges({ background: true });
   }
   await connectRpc({ file: s.file }, generation);
@@ -3363,7 +3387,15 @@ async function loadOlderHistory(button) {
     const detail = await api("/api/session" + query);
     if (generation !== viewGeneration || historyState !== state) return;
     const staging = document.createElement("div");
-    for (const message of detail.messages || []) appendHistoryMessage(message, staging);
+    let sliceStarted = performance.now();
+    for (const message of detail.messages || []) {
+      if (performance.now() - sliceStarted > 8) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+        if (generation !== viewGeneration || historyState !== state) return;
+        sliceStarted = performance.now();
+      }
+      appendHistoryMessage(message, staging);
+    }
     const fragment = document.createDocumentFragment();
     while (staging.firstChild) fragment.appendChild(staging.firstChild);
     button.remove();
@@ -3640,6 +3672,10 @@ function handleAgentTaskEvent(ev, eventSid = rpc?.sid) {
     return;
   }
   if (ev.type === "output") {
+    if (ev.replace === true) {
+      el.messages.querySelectorAll(".agent-terminal-output").forEach(node => node.closest(".msg")?.remove());
+      rpc.genericOutputNode = null;
+    }
     appendGenericOutput(ev.text, ev.stream);
     return;
   }
@@ -3794,6 +3830,7 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
       es.addEventListener("connected", (event) => {
         let snapshot = null;
         try { snapshot = JSON.parse(event.data); } catch {}
+        if (Number.isSafeInteger(snapshot?.eventSeq) && snapshot.eventSeq < rpc.lastEventId) rpc.lastEventId = -1;
         markStreamReady(snapshot);
       });
       es.onmessage = (event) => {
@@ -4622,7 +4659,7 @@ function summarizeArgs(args) {
   return args.command || args.path || args.file_path || args.pattern || args.query ||
          Object.values(args).find(v => typeof v === "string")?.slice(0, 120) || "";
 }
-function appendHistoryMessage(m, container = el.messages) {
+function appendHistoryMessage(m, container = el.messages, options = {}) {
   if (m.role === "user") {
     const { bubble } = makeMsgShell("user", "你", container);
     if (m.text) bubble.appendChild(renderMarkdown(m.text));
@@ -4637,7 +4674,7 @@ function appendHistoryMessage(m, container = el.messages) {
     // Older-history pages are prepended after the latest plan has already
     // been rendered. Do not let an obsolete plan replace the current one;
     // still recover one when the first page did not contain any plan text.
-    if (container === el.messages || !taskProgress) updateTaskProgressFromAssistant(m.text, { running: false });
+    if (options.latest || container === el.messages || !taskProgress) updateTaskProgressFromAssistant(m.text, { running: false });
     const { wrap, bubble } = makeMsgShell("assistant", m.model ? `pi · ${m.model}` : "pi", container);
     const calls = Array.isArray(m.toolCalls) ? m.toolCalls : [];
     let activity = null;
@@ -4771,19 +4808,14 @@ function mergeAssistantPair(target, source) {
 }
 function mergeAdjacentWorkMessages(container = el.messages) {
   if (!container) return;
-  let changed = true;
-  while (changed) {
-    changed = false;
-    const children = [...container.children];
-    for (let i = 1; i < children.length; i++) {
-      const target = children[i - 1];
-      const source = children[i];
-      if (!target.classList.contains("msg") || !source.classList.contains("msg") ||
-          !target.classList.contains("assistant") || !source.classList.contains("assistant")) continue;
-      if (!mergeAssistantPair(target, source)) continue;
-      changed = true;
-      break;
-    }
+  let target = container.firstElementChild;
+  while (target) {
+    const source = target.nextElementSibling;
+    if (!source) break;
+    if (target.classList.contains("msg") && source.classList.contains("msg") &&
+        target.classList.contains("assistant") && source.classList.contains("assistant") &&
+        mergeAssistantPair(target, source)) continue;
+    target = source;
   }
 }
 function attachToolResult(toolName, isError, text, container = el.messages) {
@@ -6454,7 +6486,7 @@ function msgActionsRow(role, getText) {
 let _lastMsgDate = null; let lastUserText = "";
 let runFailureRendered = false;
 let lastRunFailure = null;
-function maybeDateSeparator(ts) {
+function maybeDateSeparator(ts, container = el.messages) {
   if (!ts) return;
   const d = new Date(ts);
   const key = d.getFullYear() + "/" + (d.getMonth() + 1) + "/" + d.getDate();
@@ -6463,8 +6495,8 @@ function maybeDateSeparator(ts) {
   const div = document.createElement("div");
   div.className = "date-sep";
   div.textContent = `${d.getMonth() + 1}/${d.getDate()}`;
-  el.messages.appendChild(div);
-  keepSessionUsageAtEnd();
+  container.appendChild(div);
+  if (container === el.messages) keepSessionUsageAtEnd();
 }
 
 (() => {

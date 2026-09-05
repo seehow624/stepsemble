@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.6
+> 計畫版本：1.7
 > 最後更新：2026-09-05
 > 當前產品基線：Stepsemble 3.0.3（由 Pi Harbor 2.13.2 相容遷移）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
@@ -42,10 +42,12 @@
 | Browser 效能基線 | 已量測，保留缺口 | Chrome DevTools 已連線；cold/warm、長 session、30 秒串流、mobile 4× CPU、network/accessibility 見 `browser-performance-baseline.md`；標準 TBT 與完整 trace export 待補 |
 | 階段 0：計畫與基線 | 基線可供後續比較 | 已記錄長對話 INP 537 ms、mobile restore LCP 4859 ms、串流收尾長任務；這不是順滑度驗收通過 |
 | 階段 1：Stepsemble Protocol v1 | 進行中 | 已有 schema 起點、authenticated handshake、golden negotiation fixtures、strict TypeScript SDK 接管 Web JSON requests；完整 domain/replay/rolling compatibility gate 尚未通過 |
+| 優先可靠性修復 | 已實作，未部署 | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
+| Web 卡頓修復 | 部分完成 | 歷史離屏分批建立、相鄰訊息線性合併、局部翻譯、聊天可及性；仍需 virtualization、實機／多輪效能門檻驗收 |
 
 ### 下一個可執行任務
 
-進入 Phase 1，把現況盤點轉成不含秘密的 protocol fixtures、canonical schemas 與 Node contract tests。Chrome DevTools 的比較基線已保存於 `docs/baselines/browser-performance-2026-09-05.json`；Phase 2 優先處理長 session render、串流收尾、mobile layout shift 與 chat accessibility。標準 TBT、完整 raw trace export、實機與多輪量測仍需補齊；不得以完成基線宣稱已通過產品效能驗收。
+先閱讀 `reliability-followup.md` 核對本批已修項目及尚未解決的邊界，再繼續 Phase 1 domain payload validation、native RPC golden transcripts、UI handshake、cursor/replay 與 rolling compatibility。不得把本次安全熱修補等同 durable journal／approval 已完成。效能以原基線與 follow-up 證據比較；virtualization、標準 TBT、raw trace export、實機／多輪與長時間測試仍未完成。
 
 ## 一、不可退讓的核心決策
 
@@ -924,6 +926,15 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-05 — Plan 1.7
+
+- 使用者授權處理整體檢視發現及既有待辦。本批先修復可重現的資料安全、重播、串流與 event-loop 問題，未重新設定語言／平台決策。
+- 刪除不再於 Trash 失敗後 unlink；統一封存及 Undo，拒絕開啟中的 Pi session 與 symlink 導出。循環 parent chain、單筆超過 16 MiB 的歷史回覆 422，保留原檔且不再自動開啟該損壞 session。
+- Pi stdout 按 bytes 分幀再解碼 UTF-8；IPC 有上限；SSE 使用 Node 有界寫入佇列，慢連線不再被靜默丟棄；supervisor snapshot cursor 與 replace 語意防止重複輸出。
+- Git worktree 改 async execFile，最多 2 個並行、timeout／HTTP 取消可中止；失敗不再遞迴刪除部分 worktree。
+- 長歷史離屏分批渲染、訊息合併單次掃描；翻譯 observer 只掃新增範圍並去除重疊祖先；修正聊天按鈕對比度與模型 accessible name。實測與限制存 `reliability-followup.md`。
+- 本批不操作真實 provider/OAuth，不重啟 v3.0.3 正式服務，不改品牌母圖。完整 Protocol、native agent parity、Rust Host、Tauri／各平台 client 與上架都仍未完成。
 
 ### 2026-09-05 — Plan 1.6
 

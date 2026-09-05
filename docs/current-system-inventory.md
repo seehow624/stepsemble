@@ -26,6 +26,8 @@
 - 本盤點不是 Stepsemble Protocol v1；Phase 1 會把它轉成 canonical schema、fixture 與可執行 contract。
 - 路由若未特別標示，JSON request body 上限沿用 `readJSON()` 預設的 16 MiB。
 
+2026-09-05 開發增量另見 [`reliability-followup.md`](reliability-followup.md)。本文件保留歷史基線，不把尚未部署的封存、stream、worktree、前端修復改寫成既有正式版行為。
+
 ### 1.1 v3 品牌遷移增量
 
 - 新 identity：`Stepsemble`、`stepsemble`、`STEPSEMBLE_*`、`com.stepsemble.*`、`STEPSEMBLE3`。
