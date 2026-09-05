@@ -98,6 +98,21 @@ performance or DB/crash evidence. Real transactional receipt/entity/outbox, dura
 store, authenticated snapshot transport, worker/paging and live rollout remain
 open; the production service, accounts and brand assets are unchanged.
 
+## Multi-row transaction follow-up — Plan 1.16 (unreleased)
+
+The [transaction planners](../protocol/v1/transactions.md) now compose start and
+approval admission, writer/winner/profile lock, receipt/private outbox and journal
+projection into one detached proposal with a full store revision/cursor fence.
+Dispatch markers bind one attempt/incarnation; pipe acceptance is not success.
+Correlated approval ACK settles receipt and approval together without resuming a
+run. Recovery preserves orphaned writers/uncertain effects and quarantines backups.
+
+Local suite: 240 tests, 238 passed, 2 Windows-only skips. Thirteen new tests cover
+two-device races, bad late events, mismatched outbox/proof and async input mutation.
+The prior `646793d` projection batch passed all three OSes in CI 33964682613.
+This is not DB or power-loss evidence; remaining command/effect builders, proof
+storage, native adapters, actual durable transactions and rollout are still open.
+
 ## Native Pi follow-up — Plan 1.10 (unreleased)
 
 The [native contract](../protocol/native/pi/README.md) now includes a real offline

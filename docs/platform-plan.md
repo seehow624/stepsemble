@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.15
+> 計畫版本：1.16
 > 最後更新：2026-09-05
 > 當前產品基線：Stepsemble 3.0.3（由 Pi Harbor 2.13.2 相容遷移）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
@@ -34,21 +34,21 @@
 | Host/Client 邊界 | 已定案 | Desktop 可為 Host + Client；iOS/Android 初期只為 Client |
 | App Shell | 目標已定，待驗證 | Tauri 2 為預設方案；必須先通過 Apple 實機 PoC 驗收門檻 |
 | 當前回歸基線 | 已通過 | 2026-09-04 Stepsemble 3.0.3 執行 `npm test`：127/127 通過，約 11.4 秒 |
-| 開發分支跨平台回歸 | 已通過，逐批驗證 | 2026-09-05 `aff7449`：macOS／Windows／Linux CI 全綠，213 tests；Plan 1.15 本機為 227 tests／225 pass／2 Windows-only skip，新增批次跨 OS 結果須看對應 commit 的 CI；不等於原生 agent parity 或正式 release |
+| 開發分支跨平台回歸 | 已通過，逐批驗證 | 2026-09-05 `646793d`：macOS／Windows／Linux CI 全綠，227 tests；Plan 1.16 本機為 240 tests／238 pass／2 Windows-only skip，新增批次跨 OS 結果須看對應 commit 的 CI；不等於原生 agent parity 或正式 release |
 | 現行系統盤點 | 已完成 | HTTP/SSE/RPC、資料、狀態、approval、event、安裝與 rollback 已落於 `current-system-inventory.md` |
 | 本機品牌遷移 | 已部署 | Mac Mini 已由 2.13.2 原地升級至 3.0.0；session/token/SSH launcher/CUA driver 均完成前後核對 |
 | 跨平台 installer smoke | 部分完成 | macOS live migration、Linux clean-container install、Windows PowerShell AST 通過；Linux systemd/Windows Scheduled Task real runner 待補 |
 | Host 效能基線 | 已完成 | 2.13.2 與 clean source commit `39e671d` 的 3.0.0 都以 301 synthetic sessions、41,000 messages、8 generic tasks 實測；結果見 `performance-baseline.md` |
 | Browser 效能基線 | 已量測，保留缺口 | Chrome DevTools 已連線；cold/warm、長 session、30 秒串流、mobile 4× CPU、network/accessibility 見 `browser-performance-baseline.md`；標準 TBT 與完整 trace export 待補 |
 | 階段 0：計畫與基線 | 基線可供後續比較 | 已記錄長對話 INP 537 ms、mobile restore LCP 4859 ms、串流收尾長任務；這不是順滑度驗收通過 |
-| 階段 1：Stepsemble Protocol v1 | 進行中 | handshake／strict TS SDK／35 events＋8 commands schema／pure domain checks、receipt／idempotency、entity lifecycle、完整 bounded history projection／全批原子 proposal／checksum snapshot／client revision fence 與 1,251-case Ajv conformance 已實作；Pi 0.84.2 離線 native 57 frames／dialog／persisted resume 已驗；receipt/entity 交易整合／durable ledger／實際 snapshot transport／rolling gate 仍未通過 |
+| 階段 1：Stepsemble Protocol v1 | 進行中 | handshake／strict TS SDK／35 events＋8 commands schema／pure domain checks、receipt／idempotency、entity lifecycle、bounded history／snapshot／client revision fence、start／approval 交易 proposal 與 1,251-case Ajv conformance 已實作；Pi 0.84.2 離線 native 57 frames／dialog／persisted resume 已驗；其餘交易 builders／durable ledger／實際 snapshot transport／rolling gate 仍未通過 |
 | Pi 原生 RPC 邊界 | 已實作，未部署 | 嚴格 frame／UI reply、跨程序 correlation、有界 pending dialog、TypeScript FIFO／失敗手動重試、完整 pending-set 重連對齊／舊 stream fencing、更新／idle／離開聊天保護；Windows core launch／PATH／owned tree 已接上 runner fixture；仍非 durable approval 或原生全版本／provider／模型串流驗收 |
 | 優先可靠性修復 | 已實作，未部署 | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
 | Web 卡頓修復 | 部分完成 | 歷史離屏分批建立、相鄰訊息線性合併、局部翻譯、聊天可及性；仍需 virtualization、實機／多輪效能門檻驗收 |
 
 ### 下一個可執行任務
 
-先閱讀 `reliability-followup.md`、`protocol/v1/README.md`、`protocol/v1/command-state.md`、`protocol/v1/lifecycle.md`、`protocol/v1/projection.md` 及 `protocol/native/pi/README.md`，再繼續 Phase 1。Pi 離線 fixture、correlation、FIFO／failed-send、Windows core launch、pending-set recovery、receipt／idempotency、entity lifecycle 與完整 bounded history／snapshot／revision fence 已加入，不要重做。下一步接上 receipt 與 entity 的多列交易 proposal／不變條件，再進後續 durable store 的原子 admission／winner／event／outbox、CAS 與 crash/restore 驗收；純函式和記憶體競爭模擬不是 DB 證據。`orphaned` 保留 writer；approval decision／native ACK／run resume 必須分開。新 projection 尚未接管 live UI，超過容量須明確拒絕；paged snapshot、worker／效能驗收和 authenticated transport 仍待補。Windows native discovery、真正 Pi 全平台／版本／model/tool、rolling compatibility、virtualization、標準 TBT、raw trace、實機／多輪／長時間測試仍未完成。
+先閱讀 `reliability-followup.md`、`protocol/v1/README.md`、`protocol/v1/command-state.md`、`protocol/v1/lifecycle.md`、`protocol/v1/projection.md`、`protocol/v1/transactions.md` 及 `protocol/native/pi/README.md`，再繼續 Phase 1。Pi 離線／correlation／FIFO／Windows core launch／pending-set recovery、receipt／entity／完整 bounded history／snapshot／revision fence 與 start／approval 多列 proposal 已加入，不要重做。下一步完成其餘 6 commands 的交易 builders、run-start 確認／失敗、pre-dispatch rejection／entity cleanup、terminal/cancellation 與 maintenance reservation，再按後續階段驗 durable store 的原子 admission／winner／event／outbox、CAS 與 crash/restore；純函式和記憶體競爭模擬不是 DB 證據。`orphaned` 保留 writer；decision／native ACK／run resume 必須分開。Projection 尚未接管 live UI，超容量須明確拒絕；paged snapshot、worker／效能驗收和 authenticated transport 待補。Native 多版本／多 OS／model/tool、rolling compatibility、virtualization、標準 TBT、raw trace、實機／長時間 gate 仍未完成。
 
 ## 一、不可退讓的核心決策
 
@@ -731,7 +731,7 @@ iOS/iPadOS：
 - [x] 建立 Host/Client version negotiation 與 capability negotiation。
 - [x] 建立 typed TypeScript Client SDK，先替換 Web JSON `api()`；其餘 SSE/bootstrap caller 待後續收斂。
 
-已實作但不等於整個 Phase 1 通過：35 events／8 commands 閉合 payload union、schema 共源 TS declarations、pure domain／replay checks、receipt／idempotency、strict TS entity lifecycle 與完整 bounded history／snapshot proposals、1,251 cases 獨立 JSON Schema conformance；另有 Pi 0.84.2 真實離線 57-frame fixture 與 persisted-file resume。Native 模型／tool／版本／平台覆蓋、receipt/entity 多列原子交易整合、durable admission／winner／journal／snapshot transport 與 rolling gate 仍保留未勾選。
+已實作但不等於整個 Phase 1 通過：35 events／8 commands 閉合 payload union、schema 共源 TS declarations、pure domain／replay checks、receipt／entity lifecycle、完整 bounded history／snapshot 與 start／approval 多列 proposals、1,251 cases 獨立 JSON Schema conformance；另有 Pi 0.84.2 真實離線 57-frame fixture 與 persisted-file resume。Native 模型／tool／版本／平台覆蓋、其餘 effect builders、durable admission／winner／journal／snapshot transport 與 rolling gate 仍保留未勾選。
 
 驗收門檻：舊 UI 行為不變；同一 fixture 可用於 Node 與未來 Rust；過期與未知 event 有明確處理。
 
@@ -934,6 +934,13 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-05 — Plan 1.16
+
+- 新增 Host-only `protocol/transaction-state.js`：將 start／approval winner、profile lock、receipt、exact private outbox、journal events 和 cursor 組成一份 detached proposal。完整 store ID／generation／revision／cursor read set；不能用 proposal 直接 native IO。
+- Dispatch attempt／native incarnation fence、pipe acceptance、correlated approval ACK 與 receipt 一起提交；late terminal ACK 不復活 run、不自動 resume。Current-store recovery 把 in-flight 設 uncertain 並保留 orphaned writer；backup／unknown 連 accepted 都 quarantine，無自動解禁。
+- 13 項新測試：雙裝置不同 key 的 writer／approval 勝者、全套 row/outbox 關聯、late invalid rollback、dispatch race、ACK proof／nonce／incarnation、async input mutation、backup 隔離。全套本機 240 tests／238 pass／2 skip；上一批 `646793d` 227 tests 三 OS CI 已全綠。
+- 此批是 reference transaction planners，不是 durable store／native proof service；其餘 6 commands、start confirmation／failure／predispatch rejection／cleanup／terminal／maintenance builders 仍待補。正式 3.0.3、訂閱與品牌未動。詳見 `protocol/v1/transactions.md`。
 
 ### 2026-09-05 — Plan 1.15
 

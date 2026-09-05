@@ -90,7 +90,9 @@ specified below; entity lifecycle reducers are also implemented as pure proposal
 Full bounded history projection, atomic batch proposals, checksum snapshots and
 an in-memory revision-fenced replica are specified in [projection.md](projection.md).
 They are reserved, not live snapshot transport or native history replacement.
-Real multi-row transactions and durable crash recovery remain unimplemented.
+Initial start/approval multi-row planners now compose receipts, outbox and
+projection proposals; see [transactions.md](transactions.md). Real durable
+transactions and crash recovery remain unimplemented.
 External exactly-once effects cannot
 be promised when a provider lacks a deduplication/reconciliation primitive.
 

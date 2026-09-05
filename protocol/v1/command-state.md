@@ -110,6 +110,9 @@ operations missing entirely from that backup; this row helper cannot find them.
 
 ## Required future transactional implementation
 
+The initial start/approval composition is executable as detached Host proposals
+in [transactions.md](transactions.md). It does not satisfy the durable gates below.
+
 The storage/worker layer must enforce all of these before this contract is live:
 
 1. One authoritative store identity/generation and current session/device grants.
