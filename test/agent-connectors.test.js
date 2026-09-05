@@ -21,7 +21,8 @@ test("Agent Hub exposes only the allow-listed connector ids", () => {
 test("Pi resolves from PATH on non-macOS installs", () => {
   const pi = CONNECTOR_DEFINITIONS.find((item) => item.id === "pi");
   const resolved = resolveCommand(pi, { piBin: "node", env: { PATH: path.dirname(process.execPath) }, includeKnownPaths: false });
-  assert.equal(resolved, process.execPath);
+  assert.equal(process.platform === "win32" ? resolved?.toLowerCase() : resolved,
+    process.platform === "win32" ? process.execPath.toLowerCase() : process.execPath);
 });
 
 test("generic connector tasks stream bounded output and stop without shell injection", async (t) => {
@@ -42,7 +43,7 @@ test("generic connector tasks stream bounded output and stop without shell injec
     appHome: temp,
     configDir: config,
     piBin: "/usr/local/bin/pi",
-    env: { PATH: `${bin}:/usr/bin:/bin`, HOME: temp },
+    env: { PATH: [bin, path.dirname(process.execPath), process.env.PATH || ""].join(path.delimiter), HOME: temp },
     validateCwd(value) { return value === project ? project : null; },
   });
   t.after(() => { service.shutdown(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -85,7 +86,7 @@ test("generic task supervisor survives a web-service restart and reattaches", as
     appHome: temp,
     configDir: config,
     piBin: "/usr/local/bin/pi",
-    env: { PATH: `${bin}:/usr/bin:/bin`, HOME: temp },
+    env: { PATH: [bin, path.dirname(process.execPath), process.env.PATH || ""].join(path.delimiter), HOME: temp },
     validateCwd(value) { return value === project ? project : null; },
   };
   const first = createAgentTaskService(options);
