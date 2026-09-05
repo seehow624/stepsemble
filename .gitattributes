@@ -1,0 +1,2 @@
+# Compare the generated SDK byte-for-byte on every OS, including Windows.
+public/modules/client-sdk.js text eol=lf
