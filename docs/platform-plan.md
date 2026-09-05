@@ -931,6 +931,9 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 - Phase 1 第一批：新增 `protocol/v1` schema/policy、negotiation golden fixtures、authenticated `/api/protocol/handshake`；僅宣告現有能力，不宣告尚未實作的 durable approval/journal。
 - 新增 strict TypeScript SDK 與 checked-in JS，既有 Web `api()` 改由 SDK 處理；保留 auth UX、AbortSignal、204、legacy error 與 no-side-effect-retry。CI/Release 檢查編譯產物一致性。
 - 本機 `npm test` 132/132、TypeScript strict/artifact check、語法與版本檢查通過；瀏覽器成功載入 120 列與最新 300 則長對話，無 console error。此為開發中的第一批，Phase 1 與完整產品路線尚未完成，未發佈新 release。
+- CI 揭露此前 Windows run 已多次卡住到 6 小時取消。新增 test/file 60 秒、CI job 10 分鐘上限；修正測試的 PATH delimiter、大小寫／canonical path、CRLF comment parsing、signal-only exit 清理等待。
+- Windows npm `.cmd/.bat` shim 改為受限 cmd.exe 啟動：只接受 resolved absolute path，拒絕 expansion/metacharacters；prompt 永遠走 stdin；停止使用 taskkill 結束該 child tree。此修正仍不代表 ConPTY／完整原生 agent parity 已完成。
+- 新增 Windows launch contract tests；本機全套134/134通過，三平台 CI 正在驗證。未變更線上 v3.0.3 或正式 release。
 
 ### 2026-09-04 — Plan 1.4
 

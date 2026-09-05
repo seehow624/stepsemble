@@ -109,6 +109,15 @@ explicit input/output boundary before adding more state to the controllers.
 
 ## Migration path
 
+Development follow-up (2026-09-05, not released as 3.0.3): JSON requests now pass
+through the strict TypeScript client in `client/client.ts`, emitted as a normal
+browser script in `public/modules/client-sdk.js`. The additive authenticated
+protocol handshake reports existing capabilities only; the full Phase 1 gate
+remains open. Windows batch CLI shims use `server/windows-launch.js` with fixed
+cmd.exe switches and a validated absolute filename, while all prompts go over
+stdin. Windows stop terminates the owned process tree, including shim children.
+Native executables and Unix PTYs retain their direct launch paths.
+
 The next low-risk extractions are session rendering, provider management, and
 device management. A React/Vite client can be introduced later if those areas
 need component-level isolation; a full Next.js migration should wait until
