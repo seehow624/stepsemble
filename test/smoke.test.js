@@ -183,7 +183,7 @@ test("folder browsing is restricted to the user home unless roots are explicitly
 
 test("Sub Agent temporary sessions are opt-in in the session list", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
-  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8").replace(/\r\n/g, "\n");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");
@@ -1199,7 +1199,7 @@ test("single-key shortcuts stay out of text fields and dialogs", () => {
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   assert.match(app, /event\.key === "\/" \|\| event\.key === "n" \|\| event\.key === "ArrowDown" \|\| event\.key === "ArrowUp"/);
   assert.match(app, /el\.search\?\.focus\(\{ preventScroll: true \}\)/);
-  assert.match(app, /openNewDialog\(\);\n        return;/);
+  assert.match(app, /openNewDialog\(\);\r?\n        return;/);
   assert.match(app, /rows\.indexOf\(document\.activeElement\.closest\("\.session-item-main"\)\)/);
   // Guards: no firing while typing, in the palette, guide, or any dialog.
   assert.match(app, /event\.target\.closest\("input, textarea, select, \[contenteditable\]"\)/);

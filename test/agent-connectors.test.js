@@ -60,7 +60,7 @@ test("generic connector tasks stream bounded output and stop without shell injec
     await new Promise((resolve) => setTimeout(resolve, 100));
     internal = service.get(opened.id);
   }
-  assert.match(internal.outputTail, /hello from cli/);
+  assert.match(internal.outputTail, /hello from cli/, JSON.stringify({ task: service.publicTask(internal), snapshot: fs.readFileSync(internal.supervisorMeta, "utf8") }));
   assert.match(internal.outputTail, new RegExp(process.platform === "win32" ? "stdin=pipe" : "stdin=tty"));
   await assert.rejects(() => service.open({ agentId: "claude;touch /tmp/pwned", cwd: project }), /not installed|Use the native Pi connector/);
   assert.equal(service.stop(opened.id), true);
@@ -90,21 +90,21 @@ test("generic task supervisor survives a web-service restart and reattaches", as
     validateCwd(value) { return value === project ? project : null; },
   };
   const first = createAgentTaskService(options);
+  let second;
+  t.after(async () => {
+    first.shutdown();
+    second?.shutdown();
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    fs.rmSync(temp, { recursive: true, force: true });
+  });
   const opened = await first.open({ agentId: "claude-code", cwd: project, name: "Restart-safe task" });
   for (let attempt = 0; attempt < 40 && !first.get(opened.id).outputTail; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  assert.match(first.get(opened.id).outputTail, /restart-safe/);
+  assert.match(first.get(opened.id).outputTail, /restart-safe/, JSON.stringify({ task: first.publicTask(first.get(opened.id)), snapshot: fs.readFileSync(first.get(opened.id).supervisorMeta, "utf8") }));
   first.shutdown({ preserve: true });
 
-  const second = createAgentTaskService(options);
-  t.after(async () => {
-    second.shutdown();
-    // The detached supervisor writes its final snapshot before closing its
-    // socket. Give that bounded cleanup a turn before removing the fixture.
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    fs.rmSync(temp, { recursive: true, force: true });
-  });
+  second = createAgentTaskService(options);
   let reattached = second.get(opened.id);
   for (let attempt = 0; attempt < 30 && reattached.status === "reconnecting"; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 100));
