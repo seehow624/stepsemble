@@ -9,7 +9,8 @@
  * task snapshot on disk for reattachment.
  *
  * The parent process is responsible for resolving the executable and passing
- * an absolute path.  No shell is ever involved here.
+ * an absolute path. Windows batch shims use a restricted cmd.exe launcher;
+ * user messages are never interpolated into command strings.
  */
 
 "use strict";
@@ -19,6 +20,7 @@ const path = require("node:path");
 const net = require("node:net");
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
+const { windowsLaunch } = require("./windows-launch");
 
 const MAX_OUTPUT_TAIL = 64 * 1024;
 const MAX_EVENTS = 1200;
@@ -221,6 +223,14 @@ function setStatus(next, extra = {}) {
 function killChild(signal) {
   if (!child || child.exitCode !== null) return;
   try {
+    if (process.platform === "win32" && child.pid) {
+      // Terminate the owned tree, including node.exe behind an npm .cmd shim.
+      const killer = spawn(path.join(process.env.SystemRoot || "C:\\Windows", "System32", "taskkill.exe"),
+        ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+      killer.on("error", () => { try { child?.kill(signal); } catch {} });
+      killer.unref();
+      return;
+    }
     if (child.pid) process.kill(process.platform === "win32" ? child.pid : -child.pid, signal);
   } catch {}
   try { child.kill(signal); } catch {}
@@ -266,10 +276,11 @@ function closeAndExit(code = 0) {
 }
 
 function startChild() {
-  const launch = transport === "pty" && ptyPython && ptyBridge
-    ? { file: ptyPython, args: [ptyBridge, command] }
-    : { file: command, args: [] };
   try {
+    const launch = transport === "pty" && ptyPython && ptyBridge
+      ? { file: ptyPython, args: [ptyBridge, command] }
+      : process.platform === "win32" ? windowsLaunch(command, process.env.SystemRoot)
+        : { file: command, args: [] };
     child = spawn(launch.file, launch.args, {
       cwd,
       env: {
@@ -284,6 +295,7 @@ function startChild() {
       stdio: ["pipe", "pipe", "pipe"],
       detached: true,
       windowsHide: true,
+      windowsVerbatimArguments: launch.windowsVerbatimArguments || false,
     });
   } catch (spawnError) {
     errorMessage = spawnError.message;
