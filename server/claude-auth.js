@@ -82,6 +82,12 @@ function createClaudeAuthService({ home, env = process.env, hasActiveTasks = () 
   }
 
   async function inspect() {
+    // On the observed macOS SSH host, desktop auth was not reliably visible.
+    // The same native CLI can report signed out here while desktop auth is
+    // present. Do not invite another login (or a different credential store).
+    if (platform === "darwin" && (env.SSH_CONNECTION || env.SSH_CLIENT || env.SSH_TTY)) {
+      return { state: "desktop_required", canLogin: false };
+    }
     const candidate = resolveExecutable();
     if (!candidate || !path.isAbsolute(candidate)) return { state: "not_installed", canLogin: false };
     const binary = await fs.realpath(candidate);

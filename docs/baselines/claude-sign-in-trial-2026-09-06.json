@@ -1,0 +1,45 @@
+{
+  "date": "2026-09-06",
+  "platform": "macOS arm64",
+  "scope": "owner-authorized local Host trial; no stable release or other-device rollout",
+  "trialCommit": "0dc884e2cc7c47eb3a235c15a6d4e1c808b1f34f",
+  "versions": { "before": "3.0.3", "trial": "3.0.4-rc.1", "restored": "3.0.3" },
+  "ci": { "regular": 33979722911, "rolling": 33979722927, "result": "success" },
+  "nativeStatus": {
+    "cliVersion": "2.1.259",
+    "desktopManager": "Aqua",
+    "sshManager": "Background",
+    "desktopCredential": "detected",
+    "sshCredential": "signed_out",
+    "sshCredentialAfterRemovingSshFlags": "signed_out",
+    "sameUserAndHome": true,
+    "sameKeychainSearchAndDefaultPaths": true,
+    "modelConnectivityVerified": false
+  },
+  "safety": {
+    "openRpcsAtInstallAndRollback": 0,
+    "agentTasksAtInstallAndRollback": 0,
+    "authOperationsAtRollback": 0,
+    "actualLoginAttempts": 0,
+    "logoutAttempts": 0,
+    "modelRequests": 0,
+    "credentialExtractionOrCopy": false,
+    "keychainUnlockOrAclChanges": false,
+    "sessionFiles": 25,
+    "sessionInventoryUnchanged": true,
+    "modelAndClaudeSettingsUnchanged": true,
+    "webTokenAndSshLauncherUnchanged": true,
+    "brandUnchanged": true,
+    "trialAndPreviousCodeRetained": true
+  },
+  "browser": {
+    "engine": "Chromium",
+    "isolatedProfile": true,
+    "liveHostUiLoaded": true,
+    "cacheUpgradeObserved": true,
+    "cacheRollbackObserved": true,
+    "physicalDeviceVerified": false
+  },
+  "outcome": "authentication-context gate failed; rolled back",
+  "nextGate": "desktop-context native Claude runner for both authentication and tasks; no credential relay"
+}

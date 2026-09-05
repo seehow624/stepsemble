@@ -1,7 +1,7 @@
 {
   "name": "stepsemble",
   "private": true,
-  "version": "3.0.4-rc.1",
+  "version": "3.0.4-rc.2",
   "description": "A calm, cross-platform workspace for local coding agents",
   "type": "commonjs",
   "engines": {

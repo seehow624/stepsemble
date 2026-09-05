@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.24
+> 計畫版本：1.25
 > 最後更新：2026-09-06
 > 當前產品基線：Stepsemble 3.0.3（由 Pi Harbor 2.13.2 相容遷移）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
@@ -46,7 +46,7 @@
 | 已發佈 Web rolling 相容 | Legacy smoke 已驗 | 真實v3.0.3/v3.0.2 pinned source與development雙向搭配，Chromium桌面/手機尺寸8cases，macOS/Linux各跑一次共16cases／CI33970245044過。SW/PWA cache、Safari/Firefox/Windows/實機、future journal transport不包含，見`protocol/rolling-compatibility.md` |
 | Codex 官方介面基線 | 離線 metadata 已驗 | 0.153.3官方CLI輸出18個schema hash與99/10/81方法catalog；隔離HOME且不啟app-server/模型/登入，不改OpenCodex wrapper；不是原生runtime/session/approval驗收 |
 | Claude／Codex 真實訂閱 smoke | 已授權，成功 gate 未通過 | 各1次最小測試已獲同意；Claude唯一一次因OAuth過期／更新失敗，native記錄usage四項0，不重試；Codex preflight檢出既有本機API代理與全域指令，未送turn/start、不改設定。詳見`native-subscription-smoke.md`；不是adapter/parity通過 |
-| Claude 官方登入入口 | 已實作，未部署 | Agent Hub 啟動 Host 上的官方 CLI／瀏覽器；不收集 OAuth、沒有模型驗證或 SDK 登入。19項合成回歸與桌面／手機 viewport UI 通過；手機內 OAuth、實際官方登入成功與 crash recovery 未驗收。詳見 `claude-sign-in.md` |
+| Claude 官方登入入口 | 試裝未過人工 gate，已還原 | 09-06 rc.1 在 Mini 成功啟動，但同一 Claude 桌面 detected／SSH signed_out；正式還原3.0.3。rc.2新增desktop_required保護、尚未部署。下一步需受限桌面runner讓登入與Claude工作共用環境；不收集OAuth、不搬憑證，詳見 `claude-sign-in.md` |
 | 優先可靠性修復 | 已實作，未部署 | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
 | Web 卡頓修復 | 部分完成 | 歷史離屏分批建立、相鄰訊息線性合併、局部翻譯、聊天可及性；仍需 virtualization、實機／多輪效能門檻驗收 |
 
@@ -938,6 +938,13 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-06 — Plan 1.25
+
+- Jerome同意安全更新試用；建立rc.1獨立version/cache，commit0dc884e，regular33979722911三OS與rolling33979722927兩OS皆綠。僅Mini本機installer；保留SSHlauncher、舊backup與CUAservice，無GitHub release／其他主機rollout。
+- 真實人工gate發現同user/HOME/native2.1.259，在Aqua桌面metadata detected，在Background SSH卻signed_out；去掉SSH旗標仍相同，Keychain default/search paths亦相同。未呼叫model、login/logout、讀出OAuth秘密、改ACL／unlock／搬token。這是執行環境差異證據，不把CLI false當使用者再次登出，也不宣稱完整Keychain根因已證明。
+- 已安全還原正式3.0.3；25個session檔案inventory、Web token、模型／Claude／Codex設定、SSH key/launcher/plist、品牌SHA一致。Chrome隔離頁觀察SW/cache先升rc.1再回3.0.3；rc.1程式保留供檢查，非部署成功gate。
+- rc.2新增known macOS SSH的desktop_required fail-closed及測試，不自動改認證儲存路徑。下一步需另行同意受限desktop runner/helper，涵蓋登入和真正Claude工作程序，不可只修status讓SSH工作仍看不到原生登入；主Web服務SSH保留。完整紀錄claude-sign-in.md與trial baseline。
 
 ### 2026-09-06 — Plan 1.24
 

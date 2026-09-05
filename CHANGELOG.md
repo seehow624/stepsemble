@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.0.4-rc.2
+
+- Prevented known macOS SSH hosts from treating desktop Claude authentication
+  as signed out or launching another login. These hosts require a desktop
+  execution helper; the main SSH service remains unchanged.
+- The local rc.1 trial was rolled back to 3.0.3 after the real authentication
+  context check failed. This candidate is not deployed or a stable release.
+
 ## 3.0.4-rc.1
 
 - Added the guarded Claude Code sign-in entry in Agent Hub. The installed

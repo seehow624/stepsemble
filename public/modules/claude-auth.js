@@ -7,7 +7,7 @@
   "use strict";
   const ACTIVE = new Set(["prepared", "starting", "waiting", "verifying", "cancelling"]);
   const STATES = new Set([...ACTIVE, "completed", "unconfirmed", "failed", "blocked", "cancelled", "timed_out", "expired", "interrupted"]);
-  const CREDENTIALS = new Set(["detected", "signed_out", "unknown", "other_auth", "not_installed", "unsupported"]);
+  const CREDENTIALS = new Set(["detected", "signed_out", "unknown", "other_auth", "not_installed", "unsupported", "desktop_required"]);
   function normalize(value) {
     if (!value || !CREDENTIALS.has(value.credential?.state) || value.credential.liveVerified !== false || typeof value.canStart !== "boolean") throw new Error("unsupported");
     if (value.login && (!STATES.has(value.login.state) || !/^[a-f0-9-]{36}$/.test(value.login.id || ""))) throw new Error("unsupported");

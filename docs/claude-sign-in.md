@@ -1,7 +1,27 @@
 # Claude Code 官方登入入口
 
-2026-09-06 開發版已實作，**尚未部署到正式 Host**。這不是 Claude Agent SDK
+2026-09-06 曾在 Mac Mini 試裝 3.0.4-rc.1，**真實登入環境驗收未通過，已還原正式 3.0.3**。
+3.0.4-rc.2 新增已知 macOS SSH 環境的 fail-closed 保護，尚未部署。這不是 Claude Agent SDK
 登入，也不是 Stepsemble 自建 OAuth client，更不是 Claude 結構化 adapter 完成。
+
+## Mac Mini 實測發現與下一步
+
+- 同一個使用者、HOME、官方 Claude Code 2.1.259，在桌面環境 metadata 為 `detected`，
+  SSH 後台卻為 `signed_out`；移除 SSH 環境旗標重查仍相同。`launchctl managername`
+  分別為 `Aqua`／`Background`。因此不能直接判定使用者又被登出。
+- 登入設定與模型路由 SHA-256 前後相同，沒有真實 login/logout 或模型呼叫。
+  Keychain search-list／default path 也一致；**沒有為診斷取出 Keychain 內的憑證、
+  解鎖 Keychain、調整 ACL 或搬移 token**。觀察定位在執行環境差異，非完整 Keychain 根因證明。
+- 試裝前與還原前皆確認 RPC／generic task／登入 operation 為零。25 個 session
+  檔案的 path/size/mtime inventory 相同；保留舊程式、既有 SSH 啟動器與 CUA service。
+  Chromium 實測 cache 3.0.3 → 3.0.4-rc.1 → 3.0.3；不是 iPhone/Safari 實機證據。
+- 下一步需設計並取得同意，加入受限的 **macOS 桌面 Claude runner/helper**，讓官方登入
+  **與實際 Claude 工作程序**共用正確執行環境；只修登入 metadata 而仍把工作放在 SSH
+  不能當問題已解決。主 Web Host 的既有 SSH 啟動方式保留，不能貿然改成已知有 IO 問題的直跑。
+- 在此之前，rc.2 對已知 macOS SSH 環境回 `desktop_required`、禁用登入；不再誤報
+  `signed_out`，也不偷偷切換憑證儲存方式。這個 guard 不是一般性 audit-session 判定器。
+
+去識別驗收紀錄：[`baselines/claude-sign-in-trial-2026-09-06.json`](baselines/claude-sign-in-trial-2026-09-06.json)。
 
 ## 使用方式與範圍
 
@@ -73,10 +93,10 @@ metadata/output 上限、切主機／reload、不洩漏 CLI 敏感輸出。
 `npm run test:rolling` 另加入 1440／390px 的真實 Web UI start/cancel/retry/reload、
 中英文切換、44px 按鈕與無水平溢位檢查；不是實體手機／Safari／官方 OAuth 成功證據。
 
-本機回歸 301 tests：299 pass、2 Windows-only skip、0 fail；原 8 組 rolling cases
-與新增 2 組 auth UI cases 通過。跨 OS 結果以新 commit CI 為準。
-開發版仍使用 3.0.3 cache/version 基線，**正式發布前須依既有 release 流程升版本與 cache**，
-不能直接混裝同版本資產。本次沒有 release、部署或重啟正式服務。
+rc.1 的 301 tests、原 8 組 rolling 與新增 2 組 auth UI cases 均通過跨 OS CI，
+但沒有涵蓋真實桌面／SSH 認證差異，不能取代上面的人工 gate。rc.2 加入 SSH guard 回歸，
+結果以新 commit CI 為準。版本工具已同步候選版資源與 cache；没有發布 GitHub release
+或更新其他裝置。Mac Mini 的試裝與還原已獲本次使用者同意，正式服務現在仍為 3.0.3。
 
 ## 官方依據
 

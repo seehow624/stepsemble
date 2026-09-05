@@ -47,6 +47,14 @@ test("auth status is lazy, single-flight, cached, sanitized and does not start l
   await f.service.status(); assert.equal(f.calls.length, 4);
   assert.ok(f.calls.every(c => c.config.shell === false && c.config.stdio[0] === "ignore" && !c.args.includes("-p")));
 });
+test("known macOS SSH context cannot misreport a desktop account as signed out or launch another login", async t => {
+  const f = fixture(t, { platform: "darwin", env: { HOME: os.tmpdir(), SSH_CONNECTION: "synthetic" } });
+  const status = await f.service.status();
+  assert.equal(status.credential.state, "desktop_required"); assert.equal(status.canStart, false);
+  await assert.rejects(f.service.prepare(), /login_unavailable/); assert.equal(f.calls.length, 0);
+  const linux = fixture(t, { platform: "linux", env: { HOME: os.tmpdir(), SSH_CONNECTION: "synthetic" } });
+  assert.equal((await linux.service.status()).credential.state, "signed_out");
+});
 test("one current intent starts at most one official login and duplicate completed starts never relaunch", async t => {
   const f = fixture(t);
   const prepared = await Promise.all([f.service.prepare(), f.service.prepare()]);
