@@ -128,6 +128,16 @@ test("bounded metadata rejects oversized responses and shutdown stops an active 
   assert.equal(active.service.snapshot().login.state, "interrupted");
   assert.deepEqual(active.logins[0].signals, ["SIGTERM"]);
 });
+test("metadata deadline does not depend on a stuck child closing and does not spawn a duplicate", async t => {
+  let calls = 0;
+  const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+  child.exitCode = null; child.signalCode = null; child.kill = () => true;
+  const service = createClaudeAuthService({ home: os.tmpdir(), env: {}, resolveExecutable: () => process.execPath,
+    spawnImpl: () => { calls++; return child; }, commandTimeoutMs: 15, killDelayMs: 5, statusTtlMs: 0 });
+  t.after(() => { child.signalCode = "SIGKILL"; child.emit("close", null); service.close(); });
+  assert.equal((await service.status()).credential.state, "unknown");
+  assert.equal((await service.status()).canStart, false); assert.equal(calls, 1);
+});
 test("auth routes reject codes, URLs, tokens, unknown fields and missing browser origin", async t => {
   const f = fixture(t), responses = [];
   const invoke = (action, body, origin = "http://localhost") => handleClaudeAuthRequest({ req: { method: "POST", headers: origin ? { origin } : {} }, res: {}, pathname: `/api/claude-auth/${action}`,

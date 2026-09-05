@@ -33,6 +33,7 @@ const { createGitChangesService } = require("./server/git-changes");
 const { createPiResourcesService } = require("./server/pi-resources");
 const { createAgentTaskService, resolveCommand } = require("./server/agent-connectors");
 const { createClaudeAuthService, handleClaudeAuthRequest } = require("./server/claude-auth");
+const { createDesktopClaudeClient } = require("./server/claude-desktop-client");
 const {
   BROWSER_COOKIE,
   LEGACY_BROWSER_COOKIES,
@@ -62,7 +63,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.4-rc.2";
+const APP_VERSION = "3.0.4-rc.3";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1679,6 +1680,11 @@ const piResources = createPiResourcesService({ home: APP_HOME });
 // Pi retains its rich session/history protocol, while well-known local CLI
 // agents use a bounded stdin/stdout journal with the same authenticated SSE
 // reconnect surface.  Both are exposed through the Agent Hub task inbox.
+let claudeLaunchReservations = 0;
+const hasClaudeTasks = () => claudeLaunchReservations > 0 || agentTasks.list().some(task => task.agentId === "claude-code" && ["starting", "running", "reconnecting", "waiting"].includes(task.status));
+const desktopClaude = process.platform === "darwin" && (process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY
+  || fs.existsSync(path.join(CONFIG_DIR, "claude-desktop", "config.json")))
+  ? createDesktopClaudeClient({ configDir: CONFIG_DIR, hasActiveTasks: hasClaudeTasks }) : null;
 const agentTasks = createAgentTaskService({
   appHome: APP_HOME,
   configDir: CONFIG_DIR,
@@ -1686,10 +1692,9 @@ const agentTasks = createAgentTaskService({
   piBin: PI_BIN,
   env: process.env,
   onSettled: maybeNotifyAgentTaskSettled,
+  desktopClaude,
 });
-let claudeLaunchReservations = 0;
-const claudeAuth = createClaudeAuthService({ home: APP_HOME, env: process.env,
-  hasActiveTasks: () => claudeLaunchReservations > 0 || agentTasks.list().some(task => task.agentId === "claude-code" && ["starting", "running", "reconnecting", "waiting"].includes(task.status)) });
+const claudeAuth = desktopClaude || createClaudeAuthService({ home: APP_HOME, env: process.env, hasActiveTasks: hasClaudeTasks });
 
 function revealProject(cwd) {
   const real = projectDirectory(cwd);

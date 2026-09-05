@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-06",
+  "candidateVersion": "3.0.4-rc.3",
+  "platform": "darwin",
+  "arch": "arm64",
+  "nodeVersion": "22.22.3",
+  "nativeClaudeVersion": "2.1.259",
+  "syntheticGuiGate": {
+    "firstAttempt": "metadata and task ran in Aqua; restart command timed out at 5 seconds",
+    "correction": "respect the existing 30-second launchd crash throttle with a bounded 45-second restart wait",
+    "outcome": "passed",
+    "helperContext": "Aqua",
+    "metadataContext": "Aqua",
+    "taskContext": "Aqua",
+    "taskLaunches": 1,
+    "webHostRestartReattached": true,
+    "helperRestartReattached": true,
+    "nativeAccountCalls": 0,
+    "loginCalls": 0,
+    "modelCalls": 0,
+    "ownedProcessesExited": true
+  },
+  "nativeMetadataGate": {
+    "helperInstalled": true,
+    "clientContext": "Background",
+    "executionContext": "Aqua",
+    "credential": "detected",
+    "liveVerified": false,
+    "loginActive": false,
+    "loginCalls": 0,
+    "logoutCalls": 0,
+    "modelCalls": 0,
+    "credentialStorageChanged": false,
+    "webHostChanged": false,
+    "webHostVersion": "3.0.3"
+  },
+  "limits": [
+    "Synthetic GUI task is not a native Claude model, session or approval parity test",
+    "Metadata detected is not proof that an OAuth token refresh or model request succeeds",
+    "Desktop logout, machine restart, power loss, backup restore and 72-hour soak not tested",
+    "No public stable release or other-device rollout",
+    "Web activation requires a separate safe update"
+  ]
+}

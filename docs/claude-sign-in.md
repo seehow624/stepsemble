@@ -1,5 +1,10 @@
 # Claude Code 官方登入入口
 
+2026-09-06 後續：Jerome已同意桌面元件，3.0.4-rc.3實作登入與Claude任務共用Aqua助手，
+Mini已獨立安裝並通過真正SSH→助手→官方CLI唯讀metadata檢查。主Web仍3.0.3，尚未更新；
+沒有重新登入或模型呼叫。細節與限制見[`claude-desktop-runner.md`](claude-desktop-runner.md)。
+下列rc.1失敗與還原紀錄維持不變，不能改寫成當次成功。
+
 2026-09-06 曾在 Mac Mini 試裝 3.0.4-rc.1，**真實登入環境驗收未通過，已還原正式 3.0.3**。
 3.0.4-rc.2 新增已知 macOS SSH 環境的 fail-closed 保護，尚未部署。這不是 Claude Agent SDK
 登入，也不是 Stepsemble 自建 OAuth client，更不是 Claude 結構化 adapter 完成。
@@ -15,7 +20,7 @@
 - 試裝前與還原前皆確認 RPC／generic task／登入 operation 為零。25 個 session
   檔案的 path/size/mtime inventory 相同；保留舊程式、既有 SSH 啟動器與 CUA service。
   Chromium 實測 cache 3.0.3 → 3.0.4-rc.1 → 3.0.3；不是 iPhone/Safari 實機證據。
-- 下一步需設計並取得同意，加入受限的 **macOS 桌面 Claude runner/helper**，讓官方登入
+- 當次下一步（rc.3已取得同意並實作，見上方）：加入受限的 **macOS 桌面 Claude runner/helper**，讓官方登入
   **與實際 Claude 工作程序**共用正確執行環境；只修登入 metadata 而仍把工作放在 SSH
   不能當問題已解決。主 Web Host 的既有 SSH 啟動方式保留，不能貿然改成已知有 IO 問題的直跑。
 - 在此之前，rc.2 對已知 macOS SSH 環境回 `desktop_required`、禁用登入；不再誤報

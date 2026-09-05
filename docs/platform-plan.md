@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.25
+> 計畫版本：1.26
 > 最後更新：2026-09-06
 > 當前產品基線：Stepsemble 3.0.3（由 Pi Harbor 2.13.2 相容遷移）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
@@ -47,6 +47,7 @@
 | Codex 官方介面基線 | 離線 metadata 已驗 | 0.153.3官方CLI輸出18個schema hash與99/10/81方法catalog；隔離HOME且不啟app-server/模型/登入，不改OpenCodex wrapper；不是原生runtime/session/approval驗收 |
 | Claude／Codex 真實訂閱 smoke | 已授權，成功 gate 未通過 | 各1次最小測試已獲同意；Claude唯一一次因OAuth過期／更新失敗，native記錄usage四項0，不重試；Codex preflight檢出既有本機API代理與全域指令，未送turn/start、不改設定。詳見`native-subscription-smoke.md`；不是adapter/parity通過 |
 | Claude 官方登入入口 | 試裝未過人工 gate，已還原 | 09-06 rc.1 在 Mini 成功啟動，但同一 Claude 桌面 detected／SSH signed_out；正式還原3.0.3。rc.2新增desktop_required保護、尚未部署。下一步需受限桌面runner讓登入與Claude工作共用環境；不收集OAuth、不搬憑證，詳見 `claude-sign-in.md` |
+| Claude macOS 桌面執行元件 | 已實作、Mini 助手已安裝 | Jerome同意後，rc.3加入Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。主Web仍3.0.3，等待獨立安全更新同意；不是原生全能力驗收，見`claude-desktop-runner.md` |
 | 優先可靠性修復 | 已實作，未部署 | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
 | Web 卡頓修復 | 部分完成 | 歷史離屏分批建立、相鄰訊息線性合併、局部翻譯、聊天可及性；仍需 virtualization、實機／多輪效能門檻驗收 |
 
@@ -938,6 +939,15 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-06 — Plan 1.26
+
+- Jerome同意實作桌面Claude元件，保留SSH主Web。採owner-only Unix socket＋獨立本機IPC key、固定command/env/roots、Aqua LaunchAgent。Apple TN2083與本機launchctl/man核對，不設定SessionCreate、不以刪SSH旗標假裝GUI。Node過渡launcher重用既有supervisor，不改長期Rust／TS邊界。
+- 登入與task啟動同一助手仲裁；prepare票60秒／單次／instance綁定，啟動前fsync不確定性標記，丟回覆只重接不重開；無法核對的launch/auth標記fail closed。任務既有socket／64KiB tail不變，不冒稱完整session/history/approval或durable journal已完成。
+- Synthetic測試涵蓋私有IPC、權限／Origin／大小／字段／workspace、互斥／過期／重啟／丟回覆／無fallback，並補native metadata child不退出時的有界deadline與不重複spawn。修正取消狀態在最後一次status中完成、但shutdown未flush而誤報recovery的race。
+- Mac真GUI離線probe初次因launchctl kickstart的5秒deadline撞30秒節流失敗；核對owned processes退出後改45秒上限，新一次驗證metadata與task均Aqua，Web/helper restart reattach且僅1次launch。只用假CLI，沒有native帳號／模型。
+- 獨立helper首次安裝成功；真實SSH client manager=Background，helper context=Aqua，官方Claude既有metadata detected／liveVerified=false。没有真實login/logout/model、憑證搬移、ACL或Keychain unlock；主Web服務3.0.3未重啟，沒有跨裝置rollout／stable release。
+- 新增同一task兩张prepare票的effect-boundary防重複回歸，並同步剛安裝的助手。本機313tests／311pass2skip／0fail，syntax／strict TS／artifact／version／Ajv1251通過；新commit跨OS與rolling需查各自CI。完整安全／安裝／回滾／限制見`claude-desktop-runner.md`。已另詢問Web安全更新，不將助手安裝等同正式UI更新；新的模型用量尚未授權。
 
 ### 2026-09-06 — Plan 1.25
 

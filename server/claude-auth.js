@@ -65,10 +65,10 @@ function createClaudeAuthService({ home, env = process.env, hasActiveTasks = () 
       let child;
       try { child = launch(binary, args); } catch { reject(problem("status_unavailable")); return; }
       let output = "", size = 0, failed = false;
-      const timeout = setTimeout(() => { failed = true; stop(child); }, commandTimeoutMs);
+      const timeout = setTimeout(() => { failed = true; output = ""; stop(child); reject(problem("status_unavailable")); }, commandTimeoutMs);
       const consume = (data, capture) => {
         size += Buffer.byteLength(data);
-        if (size > 32768) { failed = true; output = ""; stop(child); return; }
+        if (size > 32768) { failed = true; output = ""; stop(child); reject(problem("status_unavailable")); return; }
         if (capture) output += data;
       };
       child.stdout.setEncoding("utf8"); child.stdout.on("data", chunk => consume(chunk, true));
@@ -82,6 +82,9 @@ function createClaudeAuthService({ home, env = process.env, hasActiveTasks = () 
   }
 
   async function inspect() {
+    // An unresponsive native process may not close even after a kill request.
+    // Keep the metadata deadline bounded without spawning another alongside it.
+    if (children.size) return { state: "unknown", canLogin: false };
     // On the observed macOS SSH host, desktop auth was not reliably visible.
     // The same native CLI can report signed out here while desktop auth is
     // present. Do not invite another login (or a different credential store).
@@ -207,10 +210,10 @@ async function handleClaudeAuthRequest({ req, res, pathname, auth, service, mach
   try {
     const body = await readJSON(req, 1024), keys = Object.keys(body);
     if (action === "prepare" ? keys.length !== 1 || body.confirm !== true : keys.length !== 1 || typeof body.id !== "string") throw problem("invalid_request", 400);
-    const result = action === "prepare" ? await service.prepare() : service[action](body.id);
+    const result = action === "prepare" ? await service.prepare() : await service[action](body.id);
     sendJSON(res, action === "start" ? 202 : 200, { machine, ...result });
   } catch (error) {
-    const code = ["invalid_request", "active_tasks", "other_auth", "login_unavailable", "stale_intent", "service_closed"].includes(error.code) ? error.code : "invalid_request";
+    const code = ["invalid_request", "active_tasks", "other_auth", "login_unavailable", "stale_intent", "service_closed", "desktop_required", "desktop_recovery_required"].includes(error.code) ? error.code : "invalid_request";
     sendJSON(res, error.statusCode === 413 ? 413 : [400, 409, 503].includes(error.statusCode) ? error.statusCode : 400, { error: code, code });
   }
 }

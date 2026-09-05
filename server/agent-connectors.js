@@ -10,7 +10,7 @@ const path = require("node:path");
 const os = require("node:os");
 const crypto = require("node:crypto");
 const net = require("node:net");
-const { spawn } = require("node:child_process");
+const { launchAgentSupervisor } = require("./agent-supervisor-launch");
 const { createLineDecoder, writeBounded } = require("./stream-safety");
 const { CONNECTOR_PROTOCOL_VERSION, CONNECTOR_EVENT_TYPES, normalizeConnectorDefinition } = require("./connector-protocol");
 
@@ -21,7 +21,6 @@ const MAX_OUTPUT_TAIL = 64 * 1024;
 const MAX_NAME = 120;
 const MAX_MESSAGE = 1_000_000;
 const PTY_BRIDGE_FILE = path.join(__dirname, "pty-bridge.py");
-const SUPERVISOR_FILE = path.join(__dirname, "agent-task-supervisor.js");
 const SUPERVISOR_DIR_NAME = "agent-tasks";
 const COMPACT_SUPERVISOR_SOCKET_DIR = process.platform === "win32" ? "" : path.join("/tmp", "stepsemble-sockets");
 const SUPERVISOR_RECONNECT_DELAYS = Object.freeze([100, 250, 500, 1000, 2000, 5000, 10000, 30000]);
@@ -329,6 +328,7 @@ function createAgentTaskService({
   piBin = "",
   env = process.env,
   onSettled = null,
+  desktopClaude = null,
 } = {}) {
   const taskConfigDir = path.resolve(configDir || appHome || process.cwd());
   const tasksFile = path.join(taskConfigDir, "agent-tasks.json");
@@ -593,7 +593,7 @@ function createAgentTaskService({
   function scheduleSupervisorReconnect(task) {
     if (!task || !taskIsActive(task) || task.reconnectTimer) return;
     const attempt = Number(task.reconnectAttempt) || 0;
-    if (attempt >= SUPERVISOR_RECONNECT_DELAYS.length && task.supervisorPid && !processIsAlive(task.supervisorPid)) {
+    if (attempt >= SUPERVISOR_RECONNECT_DELAYS.length && (!task.supervisorPid || !processIsAlive(task.supervisorPid))) {
       // A reboot or a killed supervisor can leave a stale Unix socket behind.
       // Stop retrying after a bounded backoff and tell the user the truth.
       setStatus(task, "orphaned", { error: "Agent task supervisor is no longer running" });
@@ -614,6 +614,10 @@ function createAgentTaskService({
     return new Promise((resolve, reject) => {
       let settled = false;
       const control = net.createConnection(task.supervisorSocket);
+      const readiness = setTimeout(() => {
+        fail(new Error("Agent task supervisor readiness timed out")); control.destroy();
+      }, 3000);
+      readiness.unref?.();
       task.control = control;
       control.setEncoding("utf8");
       const fail = (error) => {
@@ -629,6 +633,9 @@ function createAgentTaskService({
           let message;
           try { message = JSON.parse(line); } catch { return; }
           if (message.type === "snapshot") {
+            const snapshot = message.task || message;
+            if (snapshot.id !== task.id || snapshot.agentId !== task.agentId) { fail(new Error("Agent task supervisor identity mismatch")); control.destroy(); return; }
+            clearTimeout(readiness);
             applySupervisorSnapshot(task, message.task || message);
             task.reconnectAttempt = 0;
             if (!settled) { settled = true; resolve(true); }
@@ -642,6 +649,8 @@ function createAgentTaskService({
       control.on("data", chunk => decoder.push(chunk));
       control.on("error", (error) => fail(error));
       control.on("close", () => {
+        clearTimeout(readiness);
+        fail(new Error("Agent task supervisor connection closed"));
         if (task.control === control) task.control = null;
         if (taskIsActive(task) && !serviceClosing) {
           if (task.status !== "reconnecting") setStatus(task, "reconnecting");
@@ -724,51 +733,35 @@ function createAgentTaskService({
       settledNotified: false,
     };
     const spawnCwd = task.worktree?.path || realCwd;
-    const supervisorArgs = [
-      SUPERVISOR_FILE,
-      "--id", id,
-      "--agent-id", definition.id,
-      "--name", task.name,
-      "--cwd", spawnCwd,
-      "--app-home", appHome || env.HOME || process.env.HOME || os.homedir(),
-      "--meta", task.supervisorMeta,
-      "--socket", task.supervisorSocket,
-      "--command", command,
-      "--transport", task.transport,
-      "--started", String(now),
-    ];
-    if (ptyRuntime) supervisorArgs.push("--pty-python", ptyRuntime, "--pty-bridge", PTY_BRIDGE_FILE);
+    const useDesktop = definition.id === "claude-code" && desktopClaude;
     tasks.set(id, task);
     persist();
     try {
-      const supervisor = spawn(process.execPath, supervisorArgs, {
-        cwd: __dirname,
-        env: {
-          ...env,
-          HOME: appHome || env.HOME,
-          TERM: env.TERM || "xterm-256color",
-          STEPSEMBLE_AGENT_ID: definition.id,
-          STEPSEMBLE_TASK_ID: id,
-          STEPSEMBLE_SUPERVISOR: "1",
-          // One compatibility cycle for local wrappers written against v2.
-          PI_HARBOR_AGENT_ID: definition.id,
-          PI_HARBOR_TASK_ID: id,
-          PI_HARBOR_SUPERVISOR: "1",
-        },
-        stdio: "ignore",
-        detached: true,
-        windowsHide: true,
-      });
-      task.supervisorPid = supervisor.pid || null;
-      supervisor.unref();
+      const launched = useDesktop
+        ? await desktopClaude.launchTask({ id, name: task.name, cwd: spawnCwd, startedAt: now })
+        : await launchAgentSupervisor({ task, appHome: appHome || env.HOME || os.homedir(), command, ptyRuntime, env });
+      task.supervisorPid = launched.pid || null;
+      task.transport = launched.transport;
+      persist();
     } catch (error) {
-      task.error = error.message;
+      // A lost desktop response cannot prove that nothing started. Keep the
+      // identity and attach to its fixed socket; never dispatch a second CLI.
+      if (useDesktop && error.uncertain) {
+        setStatus(task, "reconnecting", { error: "Desktop launch outcome is not yet known" });
+        scheduleSupervisorReconnect(task);
+        return { ...publicTask(task), command: path.basename(command) };
+      }
       setStatus(task, "failed", { error: error.message });
       throw error;
     }
     try {
       await waitForSupervisor(task);
     } catch (error) {
+      if (useDesktop) {
+        setStatus(task, "reconnecting", { error: "Desktop task is reconnecting; launch will not be repeated" });
+        scheduleSupervisorReconnect(task);
+        return { ...publicTask(task), command: path.basename(command) };
+      }
       task.error = error.message;
       setStatus(task, "failed", { error: error.message, exitCode: -1 });
       try { if (task.supervisorPid) process.kill(task.supervisorPid, "SIGTERM"); } catch {}
@@ -903,4 +896,6 @@ module.exports = {
   resolveCommand,
   resolvePtyRuntime,
   safeConnectorId,
+  supervisorSocketPath,
+  supervisorMetadataPath,
 };

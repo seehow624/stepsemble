@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.0.4-rc.3
+
+- Added an opt-in macOS Aqua desktop Claude broker for both official sign-in
+  and task supervisor launch. The SSH Web Host is preserved; no credential
+  copying, shell/env injection or fallback to SSH when the helper is absent.
+- Added owner-only IPC, single-use launch tickets, bounded admission and
+  persistent uncertain-operation guards. Existing terminal tasks can reconnect
+  after Web/helper restarts without repeating their launch.
+- Added a real macOS GUI-context offline fixture and explicit helper installer.
+  Native metadata was detected through SSH-to-desktop IPC on the trial host;
+  this is not a successful model/login or complete native history/approval test.
+
 ## 3.0.4-rc.2
 
 - Prevented known macOS SSH hosts from treating desktop Claude authentication
