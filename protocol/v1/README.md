@@ -156,8 +156,10 @@ durability. The artifact is not wired into the legacy Host or UI.
   Disjoint ranges return 426; reversed/fractional/unsafe ranges return 400.
 - Schema patch/minor revisions may add optional fields or event types. Removing
   fields or changing semantics requires a new protocol major. Supporting the
-  previous two shipped Client releases remains a release-matrix requirement;
-  it has not yet been demonstrated by this initial contract.
+  previous two shipped Client releases remains a release-matrix requirement.
+  The real-source legacy Web smoke matrix is documented in
+  [`../rolling-compatibility.md`](../rolling-compatibility.md); it does not
+  demonstrate the reserved journal API or all platform/cache combinations.
 - Reserved, unadvertised domains may still be tightened before first release.
   This slice is such a tightening, not a compatible change to an already-shipped
   journal API; the live handshake schema version stays 1.0.0.
@@ -195,6 +197,7 @@ Still required for the full Phase 1 gate: remaining native Pi coverage,
 receipt/entity multi-row durable transaction integration, authenticated runtime
 evidence ingestion, durable admission/idempotency storage and transport
 snapshot/cursor recovery, and the rolling
-Client compatibility matrix. Do not mark Phase 1 complete from this slice.
+Client release matrix beyond the implemented legacy Web smoke cases. Do not
+mark Phase 1 complete from this slice.
 The bounded projection and synthetic 30-step transaction golden reference already
 exist; they do not establish those runtime or persistence gates.

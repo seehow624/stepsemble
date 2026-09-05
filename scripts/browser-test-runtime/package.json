@@ -1,0 +1,7 @@
+{
+  "name": "stepsemble-isolated-browser-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pinned test-only browser runner; installed in disposable local storage",
+  "dependencies": { "playwright": "1.63.0" }
+}

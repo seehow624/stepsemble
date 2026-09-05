@@ -1,0 +1,7 @@
+{
+  "purpose": "Latest two shipped releases preceding this unreleased development Host; advance explicitly at the next release",
+  "releases": [
+    { "tag": "v3.0.3", "commit": "dc9b693517deaba315dc629ef76fdcfd129e08ec", "version": "3.0.3" },
+    { "tag": "v3.0.2", "commit": "6791f20c0582b90eacb9f7d8f6e1763543dd128a", "version": "3.0.2" }
+  ]
+}

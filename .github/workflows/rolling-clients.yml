@@ -1,0 +1,57 @@
+name: Rolling browser compatibility
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/rolling-clients.yml'
+      - 'server.js'
+      - 'server/**'
+      - 'public/**'
+      - 'protocol/rolling-releases.json'
+      - 'scripts/check-rolling-clients.mjs'
+      - 'scripts/rolling-browser-worker.mjs'
+      - 'scripts/browser-test-runtime/**'
+      - 'scripts/host-performance-baseline.mjs'
+      - 'test-support/rolling-pi.cjs'
+      - 'package.json'
+  pull_request:
+    paths:
+      - '.github/workflows/rolling-clients.yml'
+      - 'server.js'
+      - 'server/**'
+      - 'public/**'
+      - 'protocol/rolling-releases.json'
+      - 'scripts/check-rolling-clients.mjs'
+      - 'scripts/rolling-browser-worker.mjs'
+      - 'scripts/browser-test-runtime/**'
+      - 'scripts/host-performance-baseline.mjs'
+      - 'test-support/rolling-pi.cjs'
+      - 'package.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      # Historical Hosts use Unix native launch; Windows is not silently skipped
+      # or claimed by these results. The regular and native Pi matrices cover it.
+      matrix:
+        os: [macos-14, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0 # Actual pinned release objects, not hand-written old mocks
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.19.0
+          package-manager-cache: false
+      - name: Check isolated browser runtime policy
+        run: node --test test/rolling-runtime.test.js
+      - name: Test both directions against two shipped releases
+        run: npm run test:rolling

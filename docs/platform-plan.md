@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.20
+> 計畫版本：1.21
 > 最後更新：2026-09-05
 > 當前產品基線：Stepsemble 3.0.3（由 Pi Harbor 2.13.2 相容遷移）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
@@ -34,7 +34,7 @@
 | Host/Client 邊界 | 已定案 | Desktop 可為 Host + Client；iOS/Android 初期只為 Client |
 | App Shell | 目標已定，待驗證 | Tauri 2 為預設方案；必須先通過 Apple 實機 PoC 驗收門檻 |
 | 當前回歸基線 | 已通過 | 2026-09-04 Stepsemble 3.0.3 執行 `npm test`：127/127 通過，約 11.4 秒 |
-| 開發分支跨平台回歸 | 已通過，逐批驗證 | 2026-09-05 `e83f545`／CI33967509737三OS全綠，260tests；Native Pi offline contract33967509738三OS實跑0.84.2各57frames、Linux audit零已知漏洞；不等於model/provider parity或release |
+| 開發分支跨平台回歸 | 已通過，逐批驗證 | 2026-09-05 `1938a5d`／CI33969459063三OS全綠，264tests；本批267tests及8組真實released-source browser cases本機過，待新CI。Native Pi offline contract33967509738三OS實跑0.84.2各57frames；不等於model/provider parity或release |
 | 現行系統盤點 | 已完成 | HTTP/SSE/RPC、資料、狀態、approval、event、安裝與 rollback 已落於 `current-system-inventory.md` |
 | 本機品牌遷移 | 已部署 | Mac Mini 已由 2.13.2 原地升級至 3.0.0；session/token/SSH launcher/CUA driver 均完成前後核對 |
 | 跨平台 installer smoke | 部分完成 | macOS live migration、Linux clean-container install、Windows PowerShell AST 通過；Linux systemd/Windows Scheduled Task real runner 待補 |
@@ -43,12 +43,13 @@
 | 階段 0：計畫與基線 | 基線可供後續比較 | 已記錄長對話 INP 537 ms、mobile restore LCP 4859 ms、串流收尾長任務；這不是順滑度驗收通過 |
 | 階段 1：Stepsemble Protocol v1 | 進行中 | handshake／strict TS SDK／35 events＋8 commands、receipt／entity／bounded history／snapshot、多列proposal／observed-fact邊界、30-step synthetic transaction golden與1,251-case Ajv conformance已實作；Pi0.84.2三OS真實離線57frames已驗；實際native ownership/evidence驗證／durable ledger／snapshot transport／rolling gate仍未通過 |
 | Pi 原生 RPC 邊界 | 已實作，未部署 | 嚴格 frame／UI reply、跨程序 correlation、有界 pending dialog、TypeScript FIFO／失敗手動重試、完整 pending-set 重連對齊／舊 stream fencing、更新／idle／離開聊天保護；Windows core launch／PATH／owned tree 已接上 runner fixture；仍非 durable approval 或原生全版本／provider／模型串流驗收 |
+| 已發佈 Web rolling 相容 | Legacy smoke 部分驗收 | 真實v3.0.3/v3.0.2 pinned source與development雙向搭配，Chromium桌面/手機尺寸8cases本機過；macOS/Linux workflow逐批核對。SW/PWA cache、Safari/Firefox/Windows/實機、future journal transport不包含，見`protocol/rolling-compatibility.md` |
 | 優先可靠性修復 | 已實作，未部署 | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
 | Web 卡頓修復 | 部分完成 | 歷史離屏分批建立、相鄰訊息線性合併、局部翻譯、聊天可及性；仍需 virtualization、實機／多輪效能門檻驗收 |
 
 ### 下一個可執行任務
 
-先閱讀 `reliability-followup.md`、`protocol/v1/README.md`、`command-state.md`、`lifecycle.md`、`projection.md`、`transactions.md` 及 `protocol/native/pi/README.md`，再繼續 Phase 1。Pi三OS真實離線／correlation／FIFO／pending-set recovery、receipt／entity／bounded history／snapshot／revision fence、全8commands多列proposal／observed-fact邊界與30-step synthetic golden已加入，不要重做。下一步驗證前兩已發佈Client rolling兼容；實際native ownership/evidence與authenticated transport仍需接入，之後按階段接真實durable store及crash/restore，純函式／in-memory CAS不是DB證據。`orphaned`保留writer；decision／ACK／resume分開，未知startup的late ACK須真實reconciliation。Projection未接live UI；paging、worker／效能仍待。Native多版本／model/tool／訂閱、virtualization／標準TBT／raw trace／實機／長時間gate仍未完成。
+先閱讀 `reliability-followup.md`、`protocol/v1/README.md`、`command-state.md`、`lifecycle.md`、`projection.md`、`transactions.md`、`protocol/native/pi/README.md` 與 `protocol/rolling-compatibility.md`，再繼續 Phase 1。Pi三OS真實離線、pending-set/FIFO/reconnect、receipt/entity/projection/snapshot、8commands/observations多列proposal與30-step golden已做；前兩已發布版本的legacy browser雙向8cases本機過，先核對新macOS/Linux workflow，不要重做。Native ownership/evidence、模型/tool／訂閱與authenticated transport仍需接入，之後按階段接durable store/crash/restore，純函式不是DB證據。下一個涉及真實Claude/Codex用量的驗收須等Jerome確認，不改登入/路由、不重啟正式服務。Projection未接live UI，paging/worker/效能、SW/cache/Safari/Firefox/實機/futurejournalrolling、72h等仍待。
 
 ## 一、不可退讓的核心決策
 
@@ -731,7 +732,7 @@ iOS/iPadOS：
 - [x] 建立 Host/Client version negotiation 與 capability negotiation。
 - [x] 建立 typed TypeScript Client SDK，先替換 Web JSON `api()`；其餘 SSE/bootstrap caller 待後續收斂。
 
-已實作但不等於整個Phase1通過：35events／8commands schema、pure checks、receipt／entity／bounded history／snapshot、全8commands＋maintenance／terminal／observation多列proposals、30-step synthetic transaction golden、1,251cases Ajv conformance；另有Pi0.84.2三OS真實離線57frames。實際native ownership/evidence、多版本／模型tool、durable store／authenticated snapshot transport／rolling gate仍保留未勾選。
+已實作但不等於整個Phase1通過：35events／8commands schema、pure checks、receipt／entity／bounded history／snapshot、全8commands＋maintenance／terminal／observation多列proposals、30-step synthetic golden、1,251cases Ajv conformance；Pi0.84.2三OS真實離線57frames；legacy released Web雙向rolling8cases本機過。實際native ownership/evidence、多版本／模型tool、durable store／authenticated snapshot transport／完整release rolling gate仍保留未勾選。
 
 驗收門檻：舊 UI 行為不變；同一 fixture 可用於 Node 與未來 Rust；過期與未知 event 有明確處理。
 
@@ -934,6 +935,13 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-05 — Plan 1.21
+
+- 新增`test:rolling`實際Chromium test：固定已發佈v3.0.3/dc9b693、v3.0.2/6791f20 fullcommit並核對tag，不把當前模組假裝舊Client。Git archive與全套Client assets/真實Host在localtemp；2版本×雙方向×1440/390 viewport＝8cases，登入表單、Unicode history、stream/stop、手動deny、reload自動restore全部本機過。
+- 每case新HOME/PI_HOME/isolated Chromium profile，synthetic Pi必須精確2prompts/1stop/1reply，無外部browser HTTP/JS runtime errors；currentClient到舊Host確實404 handshake fallback，舊Client不發handshake。SDK既有401/426/timeout不得downgrade另有回歸。
+- Playwright1.63.0/test-only SHA-512 npm lock，disabledscripts/emptyconfigs，browser/deps都localtemp；不接真實帳號、不動正式Host。新增macOS14/Ubuntu24.04 workflow；歷史Host Unix launch、不宣稱Windows。SW阻擋避免替換frozen assets，故不含PWA offline/cache/實機/效能/未發布journal能力。
+- 本機267tests/265pass/2skip、strictTS/artifact/syntax/version、Ajv1251cases過。前批1938a5d／CI33969459063三OS全綠264tests/0fail；本批需看新的regular/rolling workflow，不沿用舊綠燈。
 
 ### 2026-09-05 — Plan 1.20
 
