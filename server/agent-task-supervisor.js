@@ -293,7 +293,10 @@ function startChild() {
         PI_HARBOR_TASK_ID: taskId,
       },
       stdio: ["pipe", "pipe", "pipe"],
-      detached: true,
+      // The supervisor is already detached from the web service. Windows
+      // children stay in its console context and are stopped via taskkill /T;
+      // Unix children need their own group for negative-PID signals.
+      detached: process.platform !== "win32",
       windowsHide: true,
       windowsVerbatimArguments: launch.windowsVerbatimArguments || false,
     });

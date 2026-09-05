@@ -5,7 +5,7 @@ const { windowsLaunch } = require("../server/windows-launch");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
+const { spawn, execFileSync } = require("node:child_process");
 test("Windows npm shim path is quoted and user input never becomes an argument", () => {
   const launch = windowsLaunch("C:\\Users\\Test User\\bin\\claude.cmd");
   assert.equal(launch.file, "C:\\Windows\\System32\\cmd.exe");
@@ -30,10 +30,15 @@ test("Windows shim executes a CLI through pipes with a spaced path", { skip: pro
   const launch = windowsLaunch(shim, process.env.SystemRoot);
   const child = spawn(launch.file, launch.args, {
     cwd: directory, env: { PATH: process.env.PATH, HOME: directory },
-    stdio: "pipe", detached: true, windowsHide: true,
+    stdio: "pipe", detached: false, windowsHide: true,
     windowsVerbatimArguments: launch.windowsVerbatimArguments,
   });
-  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill(); });
+  t.after(() => {
+    if (child.pid) {
+      try { execFileSync(path.join(process.env.SystemRoot, "System32", "taskkill.exe"), ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", timeout: 3000 }); } catch {}
+    }
+    child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy();
+  });
   let output = "";
   let error = "";
   child.stdout.on("data", chunk => { output += chunk; });
