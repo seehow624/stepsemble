@@ -6,6 +6,7 @@
 function createValidator(schema) {
   const keywords = new Set(["$schema", "$id", "$defs", "$ref", "title", "description", "type", "properties", "required", "additionalProperties", "items", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "const", "enum", "anyOf"]);
   const patterns = new WeakMap();
+  const discriminators = new WeakMap();
   function check(node) {
     for (const key of Object.keys(node)) if (!keywords.has(key)) throw new Error(`Unsupported schema keyword: ${key}`);
     if (node.pattern) patterns.set(node, new RegExp(node.pattern, "u"));
@@ -14,6 +15,11 @@ function createValidator(schema) {
     for (const child of Object.values(node.properties || {})) check(child);
     for (const child of Object.values(node.$defs || {})) check(child);
     for (const child of node.anyOf || []) check(child);
+    // Closed wire unions dispatch once, keeping 500-event replay validation linear.
+    if (node.anyOf?.length && node.anyOf.every(child => typeof child.properties?.type?.const === "string" && child.required?.includes("type"))) {
+      const choices = new Map(node.anyOf.map(child => [child.properties.type.const, child]));
+      if (choices.size === node.anyOf.length) discriminators.set(node, choices);
+    }
     if (node.items) check(node.items);
   }
   check(schema);
@@ -44,9 +50,13 @@ function createValidator(schema) {
     if (!Object.hasOwn(schema.$defs, definition)) return { valid: false, code: "unknown_contract" };
     let visited = 0;
     function matches(node, current, depth = 0) {
-      if (++visited > 10000 || depth > 64) return false;
-      if (node.$ref) return matches(schema.$defs[node.$ref.slice(8)], current, depth + 1);
-      if (node.anyOf && !node.anyOf.some(option => matches(option, current, depth + 1))) return false;
+      if (++visited > 100000 || depth > 64) return false;
+      // Draft 2020-12 applies sibling constraints alongside $ref.
+      if (node.$ref && !matches(schema.$defs[node.$ref.slice(8)], current, depth + 1)) return false;
+      if (discriminators.has(node)) {
+        const choice = current && discriminators.get(node).get(current.type);
+        if (!choice || !matches(choice, current, depth + 1)) return false;
+      } else if (node.anyOf && !node.anyOf.some(option => matches(option, current, depth + 1))) return false;
       if (node.type && !(Array.isArray(node.type) ? node.type : [node.type]).some(type => typeMatches(type, current))) return false;
       if (Object.hasOwn(node, "const") && !equal(node.const, current)) return false;
       if (node.enum && !node.enum.some(item => equal(item, current))) return false;

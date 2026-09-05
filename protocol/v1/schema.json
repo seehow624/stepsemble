@@ -6,14 +6,14 @@
   "$defs": {
     "id": {
       "type": "string",
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
     },
     "handshake": {
       "type": "object",
       "properties": {
         "clientVersion": {
           "type": "string",
-          "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[A-Za-z0-9.-]+)?$"
+          "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[A-Za-z0-9.-]+)?(?![\\s\\S])"
         },
         "protocolMin": {
           "type": "integer",
@@ -34,11 +34,12 @@
             "windows",
             "android",
             "linux"
-          ]
+          ],
+          "maxLength": 4096
         },
         "deviceId": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
         },
         "capabilities": {
           "type": "array",
@@ -46,7 +47,7 @@
           "uniqueItems": true,
           "items": {
             "type": "string",
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
           }
         }
       },
@@ -68,7 +69,7 @@
         },
         "schemaVersion": {
           "type": "string",
-          "pattern": "^1\\.\\d+\\.\\d+(?:-[A-Za-z0-9.-]+)?$"
+          "pattern": "^1\\.\\d+\\.\\d+(?:-[A-Za-z0-9.-]+)?(?![\\s\\S])"
         },
         "hostVersion": {
           "type": "string",
@@ -84,7 +85,7 @@
           "uniqueItems": true,
           "items": {
             "type": "string",
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
           }
         },
         "disabledCapabilities": {
@@ -93,7 +94,7 @@
           "uniqueItems": true,
           "items": {
             "type": "string",
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
           }
         },
         "limits": {
@@ -131,7 +132,7 @@
           "properties": {
             "code": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
             },
             "message": {
               "type": "string",
@@ -161,7 +162,7 @@
       "properties": {
         "harnessId": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
         },
         "adapterVersion": {
           "type": "string",
@@ -172,13 +173,15 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "maxLength": 4096
         },
         "reference": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "maxLength": 4096
         }
       },
       "required": [
@@ -194,20 +197,20 @@
       "properties": {
         "sessionId": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
         },
         "native": {
           "$ref": "#/$defs/nativeReference"
         },
         "workspaceId": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
         },
         "launchProfileId": {
           "anyOf": [
             {
               "type": "string",
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
             },
             {
               "type": "null"
@@ -216,14 +219,16 @@
         },
         "createdAt": {
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:[0-5]\\d(?:\\.\\d+)?(?:[Zz]|[+-]\\d{2}:\\d{2})(?![\\s\\S])"
         },
         "status": {
           "type": "string",
           "enum": [
             "active",
             "archived"
-          ]
+          ],
+          "maxLength": 4096
         }
       },
       "required": [
@@ -241,11 +246,11 @@
       "properties": {
         "runId": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
         },
         "sessionId": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
         },
         "state": {
           "type": "string",
@@ -256,11 +261,13 @@
             "completed",
             "failed",
             "interrupted"
-          ]
+          ],
+          "maxLength": 4096
         },
         "createdAt": {
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:[0-5]\\d(?:\\.\\d+)?(?:[Zz]|[+-]\\d{2}:\\d{2})(?![\\s\\S])"
         }
       },
       "required": [
@@ -276,15 +283,15 @@
       "properties": {
         "approvalId": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
         },
         "sessionId": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
         },
         "runId": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
         },
         "status": {
           "type": "string",
@@ -294,7 +301,8 @@
             "denied",
             "expired",
             "cancelled"
-          ]
+          ],
+          "maxLength": 4096
         },
         "scope": {
           "type": "string",
@@ -302,11 +310,13 @@
             "once",
             "run",
             "session"
-          ]
+          ],
+          "maxLength": 4096
         },
         "expiresAt": {
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:[0-5]\\d(?:\\.\\d+)?(?:[Zz]|[+-]\\d{2}:\\d{2})(?![\\s\\S])"
         },
         "request": {
           "type": "object",
@@ -321,6 +331,27 @@
             "summary"
           ],
           "additionalProperties": true
+        },
+        "createdAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "nonce": {
+          "$ref": "#/$defs/id"
+        },
+        "toolId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nativeRequestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
         }
       },
       "required": [
@@ -330,7 +361,11 @@
         "status",
         "scope",
         "expiresAt",
-        "request"
+        "request",
+        "createdAt",
+        "nonce",
+        "toolId",
+        "nativeRequestId"
       ],
       "additionalProperties": true
     },
@@ -339,23 +374,25 @@
       "properties": {
         "launchProfileId": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
         },
         "harnessId": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
         },
         "modelId": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "maxLength": 4096
         },
         "sourceId": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "maxLength": 4096
         },
         "authMode": {
           "type": "string",
@@ -364,7 +401,8 @@
             "api_key",
             "local",
             "unknown"
-          ]
+          ],
+          "maxLength": 4096
         },
         "billingMode": {
           "type": "string",
@@ -373,13 +411,15 @@
             "metered",
             "local",
             "unknown"
-          ]
+          ],
+          "maxLength": 4096
         },
         "credentialReference": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "maxLength": 4096
         }
       },
       "required": [
@@ -401,17 +441,17 @@
         },
         "eventId": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
         },
         "sessionId": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
         },
         "runId": {
           "anyOf": [
             {
               "type": "string",
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
             },
             {
               "type": "null"
@@ -425,15 +465,19 @@
         },
         "type": {
           "type": "string",
-          "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_.]*$",
+          "minLength": 1,
           "maxLength": 128
         },
         "createdAt": {
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:[0-5]\\d(?:\\.\\d+)?(?:[Zz]|[+-]\\d{2}:\\d{2})(?![\\s\\S])"
         },
         "payload": {
           "type": "object"
+        },
+        "generation": {
+          "$ref": "#/$defs/id"
         }
       },
       "required": [
@@ -444,16 +488,1017 @@
         "sequence",
         "type",
         "createdAt",
-        "payload"
+        "payload",
+        "generation"
       ],
-      "additionalProperties": true
+      "additionalProperties": true,
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "session.created"
+            },
+            "runId": {
+              "type": "null"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "session": {
+                  "$ref": "#/$defs/session"
+                }
+              },
+              "required": [
+                "session"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "session.updated"
+            },
+            "runId": {
+              "type": "null"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "required": [
+                "title"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "session.archived"
+            },
+            "runId": {
+              "type": "null"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "archiveId": {
+                  "$ref": "#/$defs/id"
+                }
+              },
+              "required": [
+                "archiveId"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "run.starting"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "run": {
+                  "$ref": "#/$defs/run"
+                }
+              },
+              "required": [
+                "run"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "run.started"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "nativeRunId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 512
+                }
+              },
+              "required": [
+                "nativeRunId"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "run.completed"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "finishReason": {
+                  "type": "string",
+                  "enum": [
+                    "complete",
+                    "limit"
+                  ],
+                  "maxLength": 4096
+                }
+              },
+              "required": [
+                "finishReason"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "run.failed"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "$ref": "#/$defs/failure"
+                }
+              },
+              "required": [
+                "error"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "run.interrupted"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "user",
+                    "host_shutdown",
+                    "native_exit",
+                    "unknown"
+                  ],
+                  "maxLength": 4096
+                }
+              },
+              "required": [
+                "reason"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "message.delta"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "messageId": {
+                  "$ref": "#/$defs/id"
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "text",
+                    "thinking"
+                  ],
+                  "maxLength": 4096
+                },
+                "delta": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 65536
+                }
+              },
+              "required": [
+                "messageId",
+                "channel",
+                "delta"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "message.completed"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "messageId": {
+                  "$ref": "#/$defs/id"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "user",
+                    "assistant"
+                  ],
+                  "maxLength": 4096
+                },
+                "content": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 262144
+                }
+              },
+              "required": [
+                "messageId",
+                "role",
+                "content"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "tool.requested"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "toolId": {
+                  "$ref": "#/$defs/id"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "summary": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                }
+              },
+              "required": [
+                "toolId",
+                "name",
+                "summary"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "tool.started"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "toolId": {
+                  "$ref": "#/$defs/id"
+                }
+              },
+              "required": [
+                "toolId"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "tool.progress"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "toolId": {
+                  "$ref": "#/$defs/id"
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 65536
+                }
+              },
+              "required": [
+                "toolId",
+                "text"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "tool.completed"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "toolId": {
+                  "$ref": "#/$defs/id"
+                },
+                "output": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 262144
+                }
+              },
+              "required": [
+                "toolId",
+                "output"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "tool.failed"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "toolId": {
+                  "$ref": "#/$defs/id"
+                },
+                "error": {
+                  "$ref": "#/$defs/failure"
+                }
+              },
+              "required": [
+                "toolId",
+                "error"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "approval.requested"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "approval": {
+                  "$ref": "#/$defs/approval"
+                }
+              },
+              "required": [
+                "approval"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "approval.resolved"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "approvalId": {
+                  "$ref": "#/$defs/id"
+                },
+                "nonce": {
+                  "$ref": "#/$defs/id"
+                },
+                "decision": {
+                  "type": "string",
+                  "enum": [
+                    "approved",
+                    "denied"
+                  ],
+                  "maxLength": 4096
+                },
+                "deviceId": {
+                  "$ref": "#/$defs/id"
+                },
+                "nativeAcknowledged": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "approvalId",
+                "nonce",
+                "decision",
+                "deviceId",
+                "nativeAcknowledged"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "approval.expired"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "approvalId": {
+                  "$ref": "#/$defs/id"
+                }
+              },
+              "required": [
+                "approvalId"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "approval.cancelled"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "approvalId": {
+                  "$ref": "#/$defs/id"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                }
+              },
+              "required": [
+                "approvalId",
+                "reason"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "usage.updated"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "inputTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "outputTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "cachedTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "inputTokens",
+                "outputTokens",
+                "cachedTokens"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "context.updated"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "usedTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "limitTokens": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "usedTokens",
+                "limitTokens"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "context.compacted"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "beforeTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "afterTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "beforeTokens",
+                "afterTokens"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "model.changed"
+            },
+            "runId": {
+              "type": "null"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "launchProfile": {
+                  "$ref": "#/$defs/launchProfile"
+                }
+              },
+              "required": [
+                "launchProfile"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "launch_profile.locked"
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "launchProfile": {
+                  "$ref": "#/$defs/launchProfile"
+                }
+              },
+              "required": [
+                "launchProfile"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "transport.connected"
+            },
+            "runId": {
+              "type": "null"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "connectionId": {
+                  "$ref": "#/$defs/id"
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 512
+                }
+              },
+              "required": [
+                "connectionId",
+                "reason"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "transport.degraded"
+            },
+            "runId": {
+              "type": "null"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "connectionId": {
+                  "$ref": "#/$defs/id"
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 512
+                }
+              },
+              "required": [
+                "connectionId",
+                "reason"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "transport.recovered"
+            },
+            "runId": {
+              "type": "null"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "connectionId": {
+                  "$ref": "#/$defs/id"
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 512
+                }
+              },
+              "required": [
+                "connectionId",
+                "reason"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "host.restarting"
+            },
+            "runId": {
+              "type": "null"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "hostId": {
+                  "$ref": "#/$defs/id"
+                }
+              },
+              "required": [
+                "hostId"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "host.ready"
+            },
+            "runId": {
+              "type": "null"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "hostId": {
+                  "$ref": "#/$defs/id"
+                }
+              },
+              "required": [
+                "hostId"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "type",
+            "runId",
+            "payload"
+          ],
+          "additionalProperties": true
+        }
+      ]
     },
     "cursor": {
       "type": "object",
       "properties": {
         "sessionId": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
         },
         "sequence": {
           "type": "integer",
@@ -462,7 +1507,7 @@
         },
         "generation": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
         }
       },
       "required": [
@@ -502,22 +1547,29 @@
       "properties": {
         "commandId": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
         },
         "sessionId": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
         },
         "idempotencyKey": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
         },
         "type": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          "minLength": 1,
+          "maxLength": 128
         },
         "payload": {
           "type": "object"
+        },
+        "protocolVersion": {
+          "const": 1
+        },
+        "deviceId": {
+          "$ref": "#/$defs/id"
         }
       },
       "required": [
@@ -525,7 +1577,293 @@
         "sessionId",
         "idempotencyKey",
         "type",
-        "payload"
+        "payload",
+        "protocolVersion",
+        "deviceId"
+      ],
+      "additionalProperties": true,
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "run.start"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "runId": {
+                  "$ref": "#/$defs/id"
+                },
+                "launchProfileId": {
+                  "$ref": "#/$defs/id"
+                },
+                "prompt": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 262144
+                }
+              },
+              "required": [
+                "runId",
+                "launchProfileId",
+                "prompt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "run.interrupt"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "runId": {
+                  "$ref": "#/$defs/id"
+                }
+              },
+              "required": [
+                "runId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "approval.resolve"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "runId": {
+                  "$ref": "#/$defs/id"
+                },
+                "approvalId": {
+                  "$ref": "#/$defs/id"
+                },
+                "nonce": {
+                  "$ref": "#/$defs/id"
+                },
+                "decision": {
+                  "type": "string",
+                  "enum": [
+                    "approved",
+                    "denied"
+                  ],
+                  "maxLength": 4096
+                },
+                "scope": {
+                  "type": "string",
+                  "enum": [
+                    "once",
+                    "run",
+                    "session"
+                  ],
+                  "maxLength": 4096
+                }
+              },
+              "required": [
+                "runId",
+                "approvalId",
+                "nonce",
+                "decision",
+                "scope"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "session.rename"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "required": [
+                "title"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "session.archive"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "session.restore"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "archiveId": {
+                  "$ref": "#/$defs/id"
+                }
+              },
+              "required": [
+                "archiveId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "model.change"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "launchProfileId": {
+                  "$ref": "#/$defs/id"
+                }
+              },
+              "required": [
+                "launchProfileId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "payload"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "context.compact"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "payload"
+          ],
+          "additionalProperties": true
+        }
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:[0-5]\\d(?:\\.\\d+)?(?:[Zz]|[+-]\\d{2}:\\d{2})(?![\\s\\S])"
+    },
+    "failure": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/id"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "additionalProperties": true
+    },
+    "replayBatch": {
+      "type": "object",
+      "properties": {
+        "afterCursor": {
+          "$ref": "#/$defs/cursor"
+        },
+        "cursor": {
+          "$ref": "#/$defs/cursor"
+        },
+        "events": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "$ref": "#/$defs/event"
+          }
+        },
+        "hasMore": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "afterCursor",
+        "cursor",
+        "events",
+        "hasMore"
       ],
       "additionalProperties": true
     }

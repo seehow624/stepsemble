@@ -1,11 +1,12 @@
 [
-  { "contract": "nativeReference", "value": { "harnessId": "synthetic", "adapterVersion": "1.0.0", "nativeSessionId": null, "reference": null } },
-  { "contract": "session", "value": { "sessionId": "session-1", "native": { "harnessId": "synthetic", "adapterVersion": "1.0.0", "nativeSessionId": "native-1", "reference": null }, "workspaceId": "workspace-1", "launchProfileId": null, "createdAt": "2026-09-05T00:00:00Z", "status": "active" } },
-  { "contract": "run", "value": { "runId": "run-1", "sessionId": "session-1", "state": "running", "createdAt": "2026-09-05T08:00:00+08:00" } },
-  { "contract": "approval", "value": { "approvalId": "approval-1", "sessionId": "session-1", "runId": "run-1", "status": "pending", "scope": "once", "expiresAt": "2026-09-05T00:10:00Z", "request": { "summary": "Synthetic tool execution request" } } },
-  { "contract": "launchProfile", "value": { "launchProfileId": "profile-1", "harnessId": "synthetic", "modelId": null, "sourceId": null, "authMode": "native_subscription", "billingMode": "subscription", "credentialReference": null } },
-  { "contract": "event", "value": { "protocolVersion": 1, "eventId": "event-1", "sessionId": "session-1", "runId": "run-1", "sequence": 1, "type": "run.started", "createdAt": "2026-09-05T00:00:00Z", "payload": {} } },
-  { "contract": "cursor", "value": { "sessionId": "session-1", "sequence": 0, "generation": "journal-1" } },
-  { "contract": "command", "value": { "commandId": "command-1", "sessionId": "session-1", "idempotencyKey": "once-1", "type": "run.start", "payload": {} } },
-  { "contract": "page", "value": { "items": [], "nextCursor": null, "hasMore": false } }
+  {"contract":"nativeReference","value":{"harnessId":"synthetic","adapterVersion":"1.0.0","nativeSessionId":null,"reference":null}},
+  {"contract":"session","value":{"sessionId":"session-1","native":{"harnessId":"synthetic","adapterVersion":"1.0.0","nativeSessionId":"native-1","reference":null},"workspaceId":"workspace-1","launchProfileId":null,"createdAt":"2026-09-05T00:00:00Z","status":"active"}},
+  {"contract":"run","value":{"runId":"run-1","sessionId":"session-1","state":"running","createdAt":"2026-09-05T08:00:00+08:00"}},
+  {"contract":"approval","value":{"approvalId":"approval-1","sessionId":"session-1","runId":"run-1","status":"pending","scope":"once","expiresAt":"2026-09-05T00:10:00Z","request":{"summary":"Synthetic tool execution request"},"createdAt":"2026-09-05T00:00:00Z","nonce":"nonce-1","toolId":"tool-1","nativeRequestId":"native-request-1"}},
+  {"contract":"launchProfile","value":{"launchProfileId":"profile-1","harnessId":"synthetic","modelId":null,"sourceId":null,"authMode":"native_subscription","billingMode":"subscription","credentialReference":null}},
+  {"contract":"event","value":{"protocolVersion":1,"eventId":"event-1","sessionId":"session-1","runId":"run-1","sequence":1,"type":"run.started","createdAt":"2026-09-05T00:00:00Z","payload":{"nativeRunId":null},"generation":"journal-1"}},
+  {"contract":"cursor","value":{"sessionId":"session-1","sequence":0,"generation":"journal-1"}},
+  {"contract":"command","value":{"commandId":"command-1","sessionId":"session-1","idempotencyKey":"once-1","type":"run.start","payload":{"runId":"run-1","launchProfileId":"profile-1","prompt":"Synthetic prompt"},"protocolVersion":1,"deviceId":"device-1"}},
+  {"contract":"page","value":{"items":[],"nextCursor":null,"hasMore":false}},
+  {"contract":"replayBatch","value":{"afterCursor":{"sessionId":"session-1","sequence":0,"generation":"journal-1"},"cursor":{"sessionId":"session-1","sequence":1,"generation":"journal-1"},"events":[{"protocolVersion":1,"eventId":"event-1","sessionId":"session-1","runId":"run-1","sequence":1,"type":"run.started","createdAt":"2026-09-05T00:00:00Z","payload":{"nativeRunId":null},"generation":"journal-1"}],"hasMore":false}}
 ]

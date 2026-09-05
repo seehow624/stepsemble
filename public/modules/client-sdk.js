@@ -1,12 +1,22 @@
 "use strict";
+/// <reference path="./protocol-types.d.ts" />
 var StepsembleClient;
 (function (StepsembleClient) {
     function parse(domain, value) {
-        if (!StepsembleProtocol.validate(domain, value).valid)
-            throw new HttpError("Invalid protocol payload", 502, "", "invalid_payload");
+        const result = domain === "event" ? StepsembleProtocol.checkEvent(value)
+            : domain === "launchProfile" ? StepsembleProtocol.checkProfile(value)
+                : domain === "replayBatch" ? StepsembleProtocol.checkReplayBatch(value)
+                    : StepsembleProtocol.validate(domain, value);
+        if (!result.valid)
+            throw new HttpError("Invalid protocol payload", 502, "", result.code || "invalid_payload");
         return value;
     }
     StepsembleClient.parse = parse;
+    function inspectReplay(cursor, batch) { return StepsembleProtocol.inspectReplay(cursor, batch); }
+    StepsembleClient.inspectReplay = inspectReplay;
+    /** Preflight only. Durable authorization/idempotency still belong to the Host transaction. */
+    function checkCommand(command, context) { return StepsembleProtocol.checkCommandContext(command, context); }
+    StepsembleClient.checkCommand = checkCommand;
     class HttpError extends Error {
         status;
         path;

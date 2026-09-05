@@ -19,6 +19,13 @@ try {
   ], { cwd: temp, stdio: "inherit", timeout: 120000 });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`TypeScript compilation failed: ${result.status}`);
+  const types = spawnSync(npmCli ? process.execPath : "npm", [
+    ...(npmCli ? [npmCli] : []), "exec", "--yes", "--package=typescript@7.0.2", "--", "tsc",
+    "--strict", "--target", "es2022", "--lib", "es2022,dom", "--module", "es2022", "--moduleDetection", "legacy",
+    "--noEmit", path.join(root, "client/contract-type-tests.ts"),
+  ], { cwd: temp, stdio: "inherit", timeout: 120000 });
+  if (types.error) throw types.error;
+  if (types.status !== 0) throw new Error(`Protocol type assertions failed: ${types.status}`);
   const built = await fs.readFile(output, "utf8");
   const artifact = path.join(root, "public/modules/client-sdk.js");
   if (process.argv.includes("--check")) {

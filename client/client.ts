@@ -1,39 +1,30 @@
+/// <reference path="./protocol-types.d.ts" />
 /** Dependency-free SDK. Compile with scripts/build-client.mjs; generated JS ships with the PWA. */
-declare const StepsembleProtocol: { validate(definition: string, value: unknown): { valid: boolean; code?: string } };
+declare const StepsembleProtocol: {
+  validate(definition: string, value: unknown): { valid: boolean; code?: string };
+  checkEvent(value: unknown): { valid: boolean; code?: string };
+  checkProfile(value: unknown): { valid: boolean; code?: string };
+  checkReplayBatch(value: unknown): { valid: boolean; code?: string };
+  checkCommandContext(command: unknown, context: unknown): { valid: boolean; code?: string };
+  inspectReplay(cursor: unknown, batch: unknown): StepsembleClient.ReplayResult;
+};
 namespace StepsembleClient {
-  export interface Handshake {
-    clientVersion: string;
-    protocolMin: number;
-    protocolMax: number;
-    platform: "web" | "macos" | "ios" | "windows" | "android" | "linux";
-    deviceId: string;
-    capabilities: string[];
-  }
-  export interface Negotiated {
-    protocolVersion: 1;
-    schemaVersion: string;
-    hostVersion: string;
-    mode: "legacy-compatible";
-    capabilities: string[];
-    disabledCapabilities: string[];
-    limits: { handshakeBytes: number };
-  }
   // Reserved domain shapes. Parsing is not a declaration that the Host has
   // durable sessions, approvals or journal endpoints enabled yet.
-  export interface NativeReference { harnessId: string; adapterVersion: string; nativeSessionId: string | null; reference: string | null; }
-  export interface Session { sessionId: string; native: NativeReference; workspaceId: string; launchProfileId: string | null; createdAt: string; status: "active" | "archived"; }
-  export interface Run { runId: string; sessionId: string; state: "starting" | "running" | "waiting_approval" | "completed" | "failed" | "interrupted"; createdAt: string; }
-  export interface Approval { approvalId: string; sessionId: string; runId: string; status: "pending" | "approved" | "denied" | "expired" | "cancelled"; scope: "once" | "run" | "session"; expiresAt: string; request: { summary: string }; }
-  export interface LaunchProfile { launchProfileId: string; harnessId: string; modelId: string | null; sourceId: string | null; authMode: "native_subscription" | "api_key" | "local" | "unknown"; billingMode: "subscription" | "metered" | "local" | "unknown"; credentialReference: string | null; }
-  export interface WireEvent { protocolVersion: 1; eventId: string; sessionId: string; runId: string | null; sequence: number; type: string; createdAt: string; payload: Record<string, unknown>; }
-  export interface Cursor { sessionId: string; sequence: number; generation: string; }
-  export interface Command { commandId: string; sessionId: string; idempotencyKey: string; type: string; payload: Record<string, unknown>; }
-  export interface Page { items: unknown[]; nextCursor: string | null; hasMore: boolean; }
-  export interface Domains { nativeReference: NativeReference; session: Session; run: Run; approval: Approval; launchProfile: LaunchProfile; event: WireEvent; cursor: Cursor; command: Command; page: Page; }
+  export interface Domains { nativeReference: NativeReference; session: Session; run: Run; approval: Approval; launchProfile: LaunchProfile; event: WireEvent; cursor: Cursor; command: Command; page: Page; replayBatch: ReplayBatch; }
   export function parse<D extends keyof Domains>(domain: D, value: unknown): Domains[D] {
-    if (!StepsembleProtocol.validate(domain, value).valid) throw new HttpError("Invalid protocol payload", 502, "", "invalid_payload");
+    const result = domain === "event" ? StepsembleProtocol.checkEvent(value)
+      : domain === "launchProfile" ? StepsembleProtocol.checkProfile(value)
+      : domain === "replayBatch" ? StepsembleProtocol.checkReplayBatch(value)
+      : StepsembleProtocol.validate(domain, value);
+    if (!result.valid) throw new HttpError("Invalid protocol payload", 502, "", result.code || "invalid_payload");
     return value as Domains[D];
   }
+  export type ReplayResult = { kind: "apply"; events: WireEvent[]; cursor: Cursor } | { kind: "duplicate" } | { kind: "snapshot_required"; reason: string };
+  export function inspectReplay(cursor: Cursor, batch: unknown): ReplayResult { return StepsembleProtocol.inspectReplay(cursor, batch); }
+  export interface CommandContext { session: Session; run: Run | null; authenticatedDeviceId: string; launchProfile?: LaunchProfile; approval?: Approval; now?: number; }
+  /** Preflight only. Durable authorization/idempotency still belong to the Host transaction. */
+  export function checkCommand(command: Command, context: CommandContext): { valid: boolean; code?: string } { return StepsembleProtocol.checkCommandContext(command, context); }
   export class HttpError extends Error {
     constructor(message: string, public status: number, public path: string, public code?: string) { super(message); }
   }

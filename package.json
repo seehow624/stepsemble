@@ -10,6 +10,7 @@
   "scripts": {
     "build:protocol": "node scripts/build-protocol.mjs",
     "check:protocol": "node scripts/build-protocol.mjs --check",
+    "check:protocol:conformance": "node scripts/check-protocol-conformance.mjs",
     "build:client": "node scripts/build-client.mjs",
     "check:client": "node scripts/build-client.mjs --check",
     "benchmark:browser": "node scripts/browser-performance-host.mjs",

@@ -27,6 +27,7 @@ jobs:
           npm run check
           npm run check:client
           npm run check:protocol
+          npm run check:protocol:conformance
           npm test
       - name: Build verified source archive
         id: archive

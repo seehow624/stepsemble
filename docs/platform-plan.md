@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.8
+> 計畫版本：1.9
 > 最後更新：2026-09-05
 > 當前產品基線：Stepsemble 3.0.3（由 Pi Harbor 2.13.2 相容遷移）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
@@ -41,13 +41,13 @@
 | Host 效能基線 | 已完成 | 2.13.2 與 clean source commit `39e671d` 的 3.0.0 都以 301 synthetic sessions、41,000 messages、8 generic tasks 實測；結果見 `performance-baseline.md` |
 | Browser 效能基線 | 已量測，保留缺口 | Chrome DevTools 已連線；cold/warm、長 session、30 秒串流、mobile 4× CPU、network/accessibility 見 `browser-performance-baseline.md`；標準 TBT 與完整 trace export 待補 |
 | 階段 0：計畫與基線 | 基線可供後續比較 | 已記錄長對話 INP 537 ms、mobile restore LCP 4859 ms、串流收尾長任務；這不是順滑度驗收通過 |
-| 階段 1：Stepsemble Protocol v1 | 進行中 | authenticated handshake、strict TS SDK、Node/browser 共用 entity/envelope shape validator、負向 fixtures、Web connection-time negotiation 已實作；discriminated payload／語意／replay／rolling gate 尚未通過 |
+| 階段 1：Stepsemble Protocol v1 | 進行中 | handshake／strict TS SDK／29 events＋8 commands schema／pure domain checks／generation-aware replay preflight 已實作；802 cases 獨立 Ajv conformance；native transcripts、stateful/idempotency、snapshot recovery／rolling gate 尚未通過 |
 | 優先可靠性修復 | 已實作，未部署 | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
 | Web 卡頓修復 | 部分完成 | 歷史離屏分批建立、相鄰訊息線性合併、局部翻譯、聊天可及性；仍需 virtualization、實機／多輪效能門檻驗收 |
 
 ### 下一個可執行任務
 
-先閱讀 `reliability-followup.md` 及 `protocol/v1/README.md` 核對目前邊界，再繼續 Phase 1 discriminated event/command payload、跨實體語意驗證、獨立 schema conformance、native RPC golden transcripts、cursor/replay 與 rolling compatibility。UI handshake 已加入，不要重做；shared validator 只驗資料形狀，不能當 durable journal／approval 已完成。virtualization、標準 TBT、raw trace export、實機／多輪與長時間測試仍未完成。
+先閱讀 `reliability-followup.md` 及 `protocol/v1/README.md`，再繼續 Phase 1 native RPC golden transcripts、stateful／idempotency 契約、transport snapshot/cursor recovery 與 rolling compatibility。UI handshake、discriminated schema、pure ownership／approval preflight 與 replay batch 檢查已加入，不要重做。Pure check 不代表已持久化、原子化或已接上 legacy SSE；durable journal／approval 仍未完成。virtualization、標準 TBT、raw trace export、實機／多輪與長時間測試仍未完成。
 
 ## 一、不可退讓的核心決策
 
@@ -717,13 +717,15 @@ iOS/iPadOS：
 
 ### Phase 1：Stepsemble Protocol v1 與 Contract Suite
 
-- [ ] 建立 canonical schema 目錄與 protocol version policy。
+- [x] 建立 canonical schema 目錄與 protocol version policy（reserved 與 shipped contracts 分開）。
 - [ ] 定義 ID、event envelope、error envelope、pagination、cursor、idempotency。
 - [ ] 定義 session/run/approval/launch profile/capability schemas。
 - [ ] 由現有線上行為建立脫敏 golden fixtures。
 - [ ] 建立 Node 實作的 contract tests，保證後續 Rust 不改變語意。
-- [ ] 建立 Host/Client version negotiation 與 capability negotiation。
-- [ ] 建立 typed TypeScript Client SDK，先在現有 Web UI 內替換直接 API 呼叫。
+- [x] 建立 Host/Client version negotiation 與 capability negotiation。
+- [x] 建立 typed TypeScript Client SDK，先替換 Web JSON `api()`；其餘 SSE/bootstrap caller 待後續收斂。
+
+已實作但不等於整個 Phase 1 通過：29 events／8 commands 閉合 payload union、schema 產生的 TS declarations、pure ownership／approval expiry／writer conflict／generation replay checks、802 cases 獨立 JSON Schema conformance。完整 stateful schema／native transcripts／idempotency／snapshot 與 rolling gate 仍保留未勾選。
 
 驗收門檻：舊 UI 行為不變；同一 fixture 可用於 Node 與未來 Rust；過期與未知 event 有明確處理。
 
@@ -926,6 +928,15 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-05 — Plan 1.9
+
+- 補齊 29 event／8 command discriminated payload 與 synthetic fixtures；event generation、command device／protocol version、approval nonce／createdAt／native request reference 納入 reserved schema。
+- JSON Schema 與 TypeScript declarations 共源產生，加入 type narrowing 正負向 compile assertions；修正 `$ref` sibling constraint 與尾端換行可繞過 ID pattern 的問題。
+- 新增 Node/browser pure domain checks：跨實體 ID、approval Host time／nonce／scope、active writer／model lock、profile auth/billing 與 generation-aware replay batch。整批通過才回傳可套用事件；缺號／未知類型要求 snapshot，不靜默前進 cursor。
+- 獨立 Ajv 8.20.0 Draft2020-12 conformance 802 cases 通過；pinned lock、禁止 install scripts、local temp install，CI/release 增加 gate，不增加 Host runtime dependencies。最初 8.17.1 經 audit 發現 `$data` ReDoS advisory，未使用該功能也仍改至 8.20.0；目前 lock audit 零已知漏洞。
+- 尚無 durable storage／原子 approval winner／native ACK delivery／真實 SSE journal endpoint；不得把純函式 preflight 說成已解決 crash／多裝置競態。官方帳號與正式服務維持不動。
+- 本機 161 項回歸（160 pass／1 Windows-only skip）、strict TS＋型別正負向 assertions、generated artifacts、802-case conformance、syntax／版本檢查通過。正式 health v3.0.3／uptime57912，未重啟。
 
 ### 2026-09-05 — Plan 1.8
 

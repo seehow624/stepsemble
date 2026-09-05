@@ -38,5 +38,7 @@ jobs:
         run: npm run check:client
       - name: Check canonical protocol artifact
         run: npm run check:protocol
+      - name: Independent protocol schema conformance
+        run: npm run check:protocol:conformance
       - name: Run tests
         run: npm test

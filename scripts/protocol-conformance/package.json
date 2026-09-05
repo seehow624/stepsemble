@@ -1,0 +1,10 @@
+{
+  "name": "stepsemble-protocol-conformance",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Build-time independent schema checker; never installed by the deployed Host",
+  "dependencies": {
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1"
+  }
+}

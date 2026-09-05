@@ -7,7 +7,7 @@ be reused by a future Rust server. No fixture contains native account data.
 
 Currently implemented: authenticated `POST /api/protocol/handshake`, protocol
 range and capability negotiation, typed client request/error handling, shared
-schema shape validation, and UI connection-time negotiation. The host advertises only
+schema and pure domain validation, and UI connection-time negotiation. The host advertises only
 `legacy.http`, `pi.native-rpc`, and `agent.terminal-v1`. Domain definitions for
 session/run/approval/profile/event/cursor/commands are **reserved**, not live
 endpoints or promises of durable behavior. Legacy HTTP/RPC wire formats remain
@@ -27,23 +27,71 @@ explicit-offset RFC3339 profile, rejects impossible calendar dates and leap
 seconds; integers must be JavaScript-safe. Reversed negotiation ranges and
 inconsistent negotiated capability sets are additional semantic checks.
 
-`npm run build:protocol` generates `public/modules/protocol-contracts.js` from
-the same validator and canonical JSON schema; `check:protocol` gates CI and
+`npm run build:protocol` generates `public/modules/protocol-contracts.js` and
+`client/protocol-types.d.ts` from the canonical schema. The former includes
+the shared validator and pure domain checks; `check:protocol` gates CI and
 release artifacts. Node and browser run the same sanitized fixtures in
 `fixtures/domains.json`, including mutations for missing required fields,
 invalid scopes/states, timestamps and unsafe sequences. Typed `parse()` covers
-nativeReference/session/run/approval/launchProfile/event/cursor/command/page.
+nativeReference/session/run/approval/launchProfile/event/cursor/command/page/replayBatch.
 
-These are envelope/entity **shape** contracts. Event/command payload schemas,
-cross-entity ownership, approval expiry enforcement, credential-reference policy,
-billing compatibility, cursor continuity and durable state transitions still
-require their own validators and tests before domain endpoints are enabled.
-Independent validation-engine conformance remains a gate; same-code Node/browser
-parity must not be represented as two independent implementations agreeing.
+The closed unions define **29 event variants and 8 command variants**.
+`fixtures/wire.json` supplies explicit synthetic examples for every variant;
+`fixtures/corpus.cjs` adds negative/boundary cases. Unknown variants fail closed.
+Events require a journal generation. Commands require a protocol version and
+device ID; payloads reject unrecognized intent fields. Every event has a session
+scope: transport/host notices describe that session's view, not a global journal.
+Deltas allow 65,536 Unicode code points, completed text 262,144, and replay batches
+500 events. Byte bounds are an additional future transport responsibility.
+
+`npm run check:protocol:conformance` compares the corpus independently with
+Ajv 8.20.0 (Draft 2020-12, full date-time formats). CI runs this on all three
+desktop OSes and before release. Its pinned dependency lock is under
+`scripts/protocol-conformance`; installation happens in a disposable local
+temporary directory, with install scripts disabled. The deployed app still
+needs no npm dependencies. This validates our declared vocabulary/corpus, not
+every possible JSON Schema document or application invariant.
+
+## Pure semantic and replay checks
+
+`protocol/domain.js` exports a shared factory for Node and browsers:
+
+- `checkEvent`: verifies nested session/run ownership, expected initial state,
+  approval request timestamps and profile consistency.
+- `checkProfile`: makes auth/billing combinations explicit. This initial profile
+  requires native subscriptions to leave credentialReference null; native auth
+  remains harness-owned. It neither imports credentials nor discovers models.
+- `checkCommandContext`: requires an explicit active/terminal run or `null`,
+  authenticating device identity supplied by the Host (never trusted from the
+  command alone), and relevant profile/approval records. It rejects active-writer
+  replacement, mid-run model changes, stale/non-pending approval, changed nonce
+  or scope, foreign entities, and expiry at or before the supplied Host time.
+- `checkReplayBatch` and `inspectReplay`: require one session/generation and
+  contiguous sequences. Full/partial duplicate delivery is filtered against a
+  committed cursor; gaps, generation changes, unknown events and conflicting IDs
+  inside a batch require a snapshot. The whole batch is checked before returning
+  any events. Empty batches cannot claim `hasMore`, preventing retry loops.
+
+These functions **do not persist, authorize, dispatch or approve anything**.
+Approval checks must run inside the future durable Host transaction with the
+winner/nonce/idempotency record. Native acknowledgement is separate from accepting
+a decision (`nativeAcknowledged: false` is not native success). Replay results
+must be committed with the projection before advancing the cursor. Across-batch
+event ID uniqueness, payload integrity and prior-run ID uniqueness belong to the
+journal store. Snapshot/restore must establish generation explicitly; never
+force a stale cursor to zero silently. Lifecycle transitions, competing requests,
+crash recovery and durable exactly-once effects remain unimplemented.
+
+Generated TypeScript unions narrow payloads by `event.type` or `command.type`;
+compile-only assertions in `client/contract-type-tests.ts` exercise this. SDK
+`parse()` uses semantic checks for events, profiles and replay batches. None of
+these reserved domains have replaced the legacy UI transport.
 
 ## Compatibility policy
 
-- Clients ignore additive object fields. Missing required fields or incompatible
+- Clients ignore additive informational object fields; command intent payloads
+  are closed and require a capability/versioned change to expand safely.
+  Missing required fields or incompatible
   versions fail explicitly. A missing handshake endpoint (404) identifies an old
   host; 401, transport failures and 426 must never silently downgrade.
 - v1 selects the highest mutually implemented version (currently only 1).
@@ -52,6 +100,9 @@ parity must not be represented as two independent implementations agreeing.
   fields or changing semantics requires a new protocol major. Supporting the
   previous two shipped Client releases remains a release-matrix requirement;
   it has not yet been demonstrated by this initial contract.
+- Reserved, unadvertised domains may still be tightened before first release.
+  This slice is such a tightening, not a compatible change to an already-shipped
+  journal API; the live handshake schema version stays 1.0.0.
 - IDs are opaque, case-sensitive ASCII identifiers up to 128 characters, scoped
   by their entity. Do not derive identity from display names or expose local
   paths as stable IDs. Native references remain Host-local when sensitive.
@@ -63,8 +114,9 @@ parity must not be represented as two independent implementations agreeing.
   device + session + command type. Reuse with a different payload is a conflict.
   The SDK currently performs no automatic retry of any side-effect request.
 - Unknown event types must not produce a fabricated message or approval result.
-  Consumers can preserve unknown informational events, but unknown state-changing
-  semantics require resynchronization. Event sequencing/replay is a later slice.
+  This consumer requires resynchronization on unknown events; it does not skip
+  them and advance the cursor. Forward-compatible informational events need an
+  explicit negotiated policy before shipping.
 - Approval scope and expiry are mandatory. No default approval is implied by a
   missing/unknown capability. Native credentials must never enter an envelope.
 
@@ -74,7 +126,7 @@ identity. The compiler is pinned to TypeScript 7.0.2; npm cache and intermediate
 output are local temporary files. The deployed PWA needs neither npm install
 nor a compiler. Runtime request cancellation and existing auth UI are preserved.
 
-Still required for the full Phase 1 gate: discriminated domain payload contracts
-and semantic invariants, independent schema conformance, native Pi golden transcripts,
-sequencing/cursor recovery, and the rolling
+Still required for the full Phase 1 gate: native Pi golden transcripts, remaining
+stateful/command-idempotency semantics, real transport snapshot/cursor recovery
+contracts, and the rolling
 Client compatibility matrix. Do not mark Phase 1 complete from this slice.
