@@ -3,7 +3,7 @@
 Unreleased development changes after `2f33f17`, not a deployment or completion
 of the cross-platform roadmap. Production 3.0.3, native credentials, provider
 profiles and brand assets are untouched. Tests use temporary homes and synthetic
-agents only.
+agents only, except the explicit isolated/offline native Pi probe described below.
 
 ## Implemented and regression-tested
 
@@ -77,6 +77,38 @@ and `protocol/v1/README.md`, not retroactively claimed as part of this hotfix.
 7. Remaining installer real-runner checks, Rust Host migration, Apple Tauri PoC,
    native clients and store distribution, per the accepted phase gates.
 
-Next entry point: [Plan 1.7](platform-plan.md), then Protocol v1's remaining
+Next entry point: [current plan](platform-plan.md), then Protocol v1's remaining
 contracts. Do not change the decided language/platform boundaries or relabel
 terminal integrations as native parity.
+
+## Native Pi follow-up — Plan 1.10 (unreleased)
+
+The [native contract](../protocol/native/pi/README.md) now includes a real offline
+Pi 0.84.2 transcript: 57 sanitized frames, native dialogs/timeout and persisted
+session resume, without model calls or account credentials. This updates the
+native-fixture item above only partially; durable/rolling gates are still open.
+
+- Host-generated command IDs cannot be overridden by callers; response promises
+  belong to the originating RPC session and command type. Malformed native JSON
+  fails that owned child/pending commands without crashing the HTTP Host.
+- Native UI replies are strictly typed; `confirmed:"false"` is rejected, never
+  cast to approval. Only a matching pending method/option can be answered once
+  in this Host process; generic RPC cannot bypass the dedicated reply endpoint.
+- Pending dialog state is bounded, independent of the SSE event ring/cursor,
+  restored on reconnect and excluded from idle cleanup/stuck-update heuristics.
+  Answered/expired dialogs stop replaying, and other live clients receive close
+  events. Browser duplicates do not wipe drafts; old-host replies are not sent
+  to a newly selected device. Signal-exited children are not killed again by the
+  delayed termination callback.
+- Local suite: **170 tests, 169 pass, 1 Windows-only skip**; strict TS, generated
+  artifacts, syntax/version checks, 802 Ajv cases and repeat native probe pass.
+  Chrome isolated replay verifies dialog/cursor/false/close/draft handling; this
+  is functional smoke, not another performance measurement.
+
+`sent:true` is pipe-queue acceptance, not a native or durable ACK. Pending state
+does not survive Host restart; upstream cancellation is not fully observable.
+The single Web sheet still needs a multiple-dialog queue and reply-failure
+recovery. Windows native Pi launch/arguments/version/model probing remains to be
+fixed and exercised independently of the generic-agent Windows launcher. Real
+model/tool streaming, native version/OS coverage and all original durable gates
+remain open. Production **3.0.3 has not been restarted or deployed**.

@@ -25,6 +25,8 @@ const { pathToFileURL } = require("node:url");
 const { spawn, execFile, execFileSync } = require("node:child_process");
 const { createHttpUtils } = require("./server/http-utils");
 const { createLineDecoder, activePathIds } = require("./server/stream-safety");
+const { parsePiEvent, validPiCommand, resolvePiResponse, parsePiUiReply } = require("./server/pi-rpc-contract");
+const { createPiUiState, METHODS: PI_UI_METHODS } = require("./server/pi-ui-state");
 const { negotiate, protocolError } = require("./server/platform-protocol");
 const { createGitChangesService } = require("./server/git-changes");
 const { createPiResourcesService } = require("./server/pi-resources");
@@ -2006,7 +2008,7 @@ let shutdownState = null;
 
 function rpcWrite(sid, obj) {
   const s = rpcSessions.get(sid);
-  if (!s || s.exited || !s.proc.stdin || s.proc.stdin.destroyed || s.proc.stdin.writableEnded) return false;
+  if (!s || s.exited || s.protocolFailed || !s.proc.stdin || s.proc.stdin.destroyed || s.proc.stdin.writableEnded) return false;
   try {
     // write() 回傳 false 代表背壓，不代表失敗；資料仍已接受，不能把它誤報成 process gone。
     s.proc.stdin.write(JSON.stringify(obj) + "\n");
@@ -2059,14 +2061,14 @@ function broadcast(sid, event) {
 }
 
 function killRpcProcess(proc, signal = "SIGTERM") {
-  if (!proc || proc.exitCode !== null) return;
+  if (!proc || proc.exitCode != null || proc.signalCode != null) return;
   // detached 子程序是自己的 process group；只 kill child 會留下 shell/tool 孫進程。
   try { if (proc.pid) process.kill(-proc.pid, signal); } catch {}
   try { proc.kill(signal); } catch {}
   if (signal === "SIGTERM") {
     const pid = proc.pid;
     setTimeout(() => {
-      if (proc.exitCode !== null) return;
+      if (proc.exitCode != null || proc.signalCode != null) return;
       try { if (pid) process.kill(-pid, "SIGKILL"); } catch {}
       try { proc.kill("SIGKILL"); } catch {}
     }, 1500).unref();
@@ -2074,7 +2076,7 @@ function killRpcProcess(proc, signal = "SIGTERM") {
 }
 
 function activeRpcSessions() {
-  return [...rpcSessions.values()].filter((session) => !session.exited && session.state.isStreaming);
+  return [...rpcSessions.values()].filter((session) => !session.exited && (session.state.isStreaming || session.ui?.size > 0));
 }
 
 // A wedged pi process can keep isStreaming true forever (seen in the wild:
@@ -2087,6 +2089,7 @@ const STUCK_RPC_MS = Number.isFinite(Number(settingFromEnv("STUCK_RPC_MS")))
 
 function rpcStuck(session) {
   if (!session || session.exited || !session.state.isStreaming) return false;
+  if (session.ui?.size > 0) return false;
   if (session.clients.size > 0) return false;
   const last = Number(session.meta.lastActivityAt) || Number(session.meta.openedAt) || 0;
   return Date.now() - last > STUCK_RPC_MS;
@@ -2146,11 +2149,11 @@ function listAgentTasks() {
 
 function scheduleRpcCleanup(sid) {
   const s = rpcSessions.get(sid);
-  if (shutdownState || !s || s.exited || s.clients.size || s.state.isStreaming) return;
+  if (shutdownState || !s || s.exited || s.clients.size || s.state.isStreaming || s.ui?.size > 0) return;
   if (s.idleTimer) clearTimeout(s.idleTimer);
   s.idleTimer = setTimeout(() => {
     const current = rpcSessions.get(sid);
-    if (!current || current.exited || current.clients.size || current.state.isStreaming) return;
+    if (!current || current.exited || current.clients.size || current.state.isStreaming || current.ui?.size > 0) return;
     console.log(`[stepsemble] closing idle rpc (sid ${sid}, pid ${current.proc.pid})`);
     killRpcProcess(current.proc);
   }, RPC_IDLE_CLEANUP_MS);
@@ -2258,17 +2261,30 @@ async function openRpc({ file, cwd, name }) {
     stderrTail: "", exited: false, exitCode: null,
   };
   rpcSessions.set(sid, sess);
+  sess.ui = createPiUiState({ onClose(event, cancelNative) {
+    if (cancelNative) rpcWrite(sid, { type: "extension_ui_response", id: event.id, cancelled: true });
+    broadcast(sid, event);
+    scheduleRpcCleanup(sid);
+    schedulePendingUpdateApplyAfterRpcIdle();
+  } });
 
   // 嚴格 JSONL 分幀：只按 \n 切、去尾部 \r（文件明確說 readline 不合規）
+  const failRpcProtocol = error => {
+    if (sess.protocolFailed) return;
+    sess.protocolFailed = true;
+    error.statusCode = 502;
+    sess.stderrTail = error.message;
+    rejectPendingRpcCommands(sid, error);
+    killRpcProcess(proc);
+  };
   const rpcDecoder = createLineDecoder({
-    onError(error) { sess.stderrTail = error.message; killRpcProcess(proc); },
+    onError: failRpcProtocol,
     onLine(line) {
+      if (sess.protocolFailed) return;
       let ev;
-      try { ev = JSON.parse(line); } catch { return; }
-      if (ev.type === "response" && ev.id && pendingRpcCmds.has(ev.id)) {
-        try { pendingRpcCmds.get(ev.id).resolve(ev); } catch {}
-        pendingRpcCmds.delete(ev.id);
-      }
+      try { ev = parsePiEvent(line); } catch (error) { failRpcProtocol(error); return; }
+      try { sess.ui.observe(ev); } catch (error) { failRpcProtocol(error); return; }
+      resolvePiResponse(pendingRpcCmds, sid, ev);
       if (ev.type === "response" && ev.command === "get_state" && ev.success) {
         sess.state = { ...sess.state, ...ev.data };
       }
@@ -2289,6 +2305,7 @@ async function openRpc({ file, cwd, name }) {
   proc.on("error", (err) => {
     // spawn 失敗（如 ENOENT/EACCES）只發 error 不發 exit —— 不監聽就會永遠假活
     sess.exited = true; sess.exitCode = -1;
+    sess.ui.clear();
     rejectPendingRpcCommands(sid, err);
     console.log(`[stepsemble] rpc spawn error (sid ${sid}, pid ${proc.pid}): ${err.message}`);
     trackStreaming(sid, { type: "rpc_exit" });
@@ -2298,6 +2315,7 @@ async function openRpc({ file, cwd, name }) {
   proc.on("exit", (code, signal) => {
     const wasStreaming = !!sess.state.isStreaming;
     sess.exited = true; sess.exitCode = code;
+    sess.ui.clear();
     console.log(`[stepsemble] rpc exit (sid ${sid}, pid ${proc.pid}, code ${code}, signal ${signal || "none"}, streaming ${wasStreaming}) stderr=${sess.stderrTail.slice(-300)}`);
     rejectPendingRpcCommands(sid, new Error("process exited"));
     trackStreaming(sid, { type: "rpc_exit" });
@@ -2331,11 +2349,14 @@ function rejectPendingRpcCommands(sid, error) {
 }
 
 function rpcCommand(sid, cmd) {
-  if (typeof sid !== "string" || !cmd || typeof cmd !== "object" || Array.isArray(cmd) || typeof cmd.type !== "string") {
+  if (typeof sid !== "string" || !validPiCommand(cmd)) {
     return Promise.reject(new Error("invalid rpc command"));
   }
   const s = rpcSessions.get(sid);
   if (!s) return Promise.reject(new Error("no such rpc session"));
+  if ([...pendingRpcCmds.values()].filter(pending => pending.sid === sid).length >= 64) {
+    return Promise.reject(new Error("too many pending rpc commands"));
+  }
   return new Promise((resolve, reject) => {
     const rid = "cmd-" + (++rpcReqSeq);
     const timer = setTimeout(() => {
@@ -2343,11 +2364,11 @@ function rpcCommand(sid, cmd) {
       reject(new Error("rpc command timeout"));
     }, 20000);
     pendingRpcCmds.set(rid, {
-      sid,
+      sid, command: cmd.type,
       resolve: (v) => { clearTimeout(timer); resolve(v); },
       reject: (e) => { clearTimeout(timer); reject(e); },
     });
-    const ok = rpcWrite(sid, { id: rid, ...cmd });
+    const ok = rpcWrite(sid, { ...cmd, id: rid });
     if (!ok) {
       pendingRpcCmds.delete(rid); clearTimeout(timer);
       reject(new Error("process gone"));
@@ -2412,9 +2433,11 @@ function queryAvailableModels() {
       const catalogDecoder = createLineDecoder({
         onError: finish,
         onLine(line) {
+          if (done) return;
           let event;
-          try { event = JSON.parse(line); } catch { return; }
+          try { event = parsePiEvent(line); } catch (error) { finish(error); return; }
           if (event.id !== requestId || event.type !== "response") return;
+          if (event.command !== "get_available_models") { const error = new Error("Invalid model catalog response"); error.statusCode = 502; finish(error); return; }
           if (!event.success) {
             finish(new Error(event.error || "failed to read model catalog"));
           } else {
@@ -3789,6 +3812,7 @@ const server = http.createServer(async (req, res) => {
       const sid = url.searchParams.get("sid");
       const s = rpcSessions.get(sid);
       if (!s) { sendJSON(res, 404, { error: "no such rpc session" }); return; }
+      const pendingUi = s.ui.snapshot();
       res.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-store",
@@ -3824,9 +3848,17 @@ const server = http.createServer(async (req, res) => {
         isStreaming: !!s.state.isStreaming,
         lastActivityAt: s.meta.lastActivityAt,
       }, "connected"))) { cleanup(); try { res.end(); } catch {} return; }
+      const replayedUi = new Set();
       for (const packet of s.events) {
+        if (packet.event.type === "extension_ui_request" && PI_UI_METHODS.has(packet.event.method)) {
+          if (!s.ui.has(packet.event.id)) continue;
+          if (packet.seq > after) replayedUi.add(packet.event.id);
+        }
         if (packet.seq > after) trySseWrite(res, sseFrame(packet.event, null, packet.seq));
       }
+      // Pending dialogs are state, not cursor advancement. New clients must see
+      // them even when /api/open reused an idle RPC with replayAfter=eventSeq.
+      for (const request of pendingUi) if (!replayedUi.has(request.id)) trySseWrite(res, sseFrame(request, null, null));
       // Widgets are state snapshots rather than conversation events. Sending
       // the latest copy after replay makes reconnects deterministic without
       // advancing Last-Event-ID or causing old message events to replay.
@@ -4364,7 +4396,7 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/models" && req.method === "GET") {
         getAvailableModels(url.searchParams.get("sid") || null)
           .then((models) => sendJSON(res, 200, { models }))
-          .catch((e) => sendJSON(res, e.message.includes("timeout") ? 504 : 409, { error: e.message }));
+          .catch((e) => sendJSON(res, e.statusCode || (e.message.includes("timeout") ? 504 : 409), { error: e.message }));
         return;
       }
 
@@ -4746,22 +4778,17 @@ const server = http.createServer(async (req, res) => {
         const body = await readJSON(req);
         rpcCommand(body.sid, body.command)
           .then((r) => sendJSON(res, 200, r))
-          .catch((e) => sendJSON(res, e.message.includes("timeout") ? 504 : 409, { error: e.message }));
+          .catch((e) => sendJSON(res, e.statusCode || (e.message.includes("timeout") ? 504 : 409), { error: e.message }));
         return;
       }
 
       if (p === "/api/rpc-ui" && req.method === "POST") {
-        const body = await readJSON(req);
-        if (typeof body.sid !== "string" || typeof body.id !== "string") {
-          sendJSON(res, 400, { error: "sid and id required" });
-          return;
-        }
-        const response = { type: "extension_ui_response", id: body.id };
-        if (Object.prototype.hasOwnProperty.call(body, "value")) response.value = body.value;
-        if (Object.prototype.hasOwnProperty.call(body, "confirmed")) response.confirmed = !!body.confirmed;
-        if (Object.prototype.hasOwnProperty.call(body, "cancelled")) response.cancelled = !!body.cancelled;
-        const ok = rpcWrite(body.sid, response);
-        sendJSON(res, ok ? 200 : 409, ok ? { sent: true } : { error: "process gone" });
+        const body = await readJSON(req, 2 * 1024 * 1024);
+        const response = parsePiUiReply(body);
+        const session = rpcSessions.get(body.sid);
+        if (!session || session.exited || session.protocolFailed) { sendJSON(res, 409, { error: "process gone" }); return; }
+        session.ui.submit(response, reply => rpcWrite(body.sid, reply));
+        sendJSON(res, 200, { sent: true });
         return;
       }
 
@@ -5034,7 +5061,7 @@ function shutdown(signal) {
     s.clients.clear();
     // An active Pi run owns its own session file and can finish without the
     // HTTP server.  Killing it here was the source of silent GUI-only stops.
-    if (!s.state.isStreaming) killRpcProcess(s.proc);
+    if (!s.state.isStreaming && !s.ui?.size) killRpcProcess(s.proc);
   }
   // Generic CLI work belongs to an independent supervisor. Dropping the HTTP
   // process must not terminate a user's long-running task; the next server

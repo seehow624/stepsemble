@@ -11,7 +11,10 @@ schema and pure domain validation, and UI connection-time negotiation. The host 
 `legacy.http`, `pi.native-rpc`, and `agent.terminal-v1`. Domain definitions for
 session/run/approval/profile/event/cursor/commands are **reserved**, not live
 endpoints or promises of durable behavior. Legacy HTTP/RPC wire formats remain
-unchanged. Existing peers need not implement the new handshake. The UI coalesces
+compatible in shape; native Pi malformed frames and UI replies now fail
+explicitly rather than being coerced or silently ignored. See the separate
+[native Pi contract](../native/pi/README.md). Existing peers need not implement
+the new handshake. The UI coalesces
 negotiation per host, caches successful results for 60 seconds, times out after
 10 seconds, invalidates on authentication failure/sign-in view, and isolates
 one caller's cancellation from other callers. Only 404 permits legacy fallback;
@@ -126,7 +129,12 @@ identity. The compiler is pinned to TypeScript 7.0.2; npm cache and intermediate
 output are local temporary files. The deployed PWA needs neither npm install
 nor a compiler. Runtime request cancellation and existing auth UI are preserved.
 
-Still required for the full Phase 1 gate: native Pi golden transcripts, remaining
-stateful/command-idempotency semantics, real transport snapshot/cursor recovery
+An initial native Pi 0.84.2 offline transcript now captures 57 frames, dialogs
+and persisted-session resume; native streaming/tools/version/OS coverage remains
+partial. The live legacy Host's pending-dialog reconnect snapshot is in-memory,
+not the reserved generation-aware journal transport above.
+
+Still required for the full Phase 1 gate: remaining native Pi coverage,
+stateful/command-idempotency semantics, durable transport snapshot/cursor recovery
 contracts, and the rolling
 Client compatibility matrix. Do not mark Phase 1 complete from this slice.

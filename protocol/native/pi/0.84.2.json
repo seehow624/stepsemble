@@ -1,0 +1,706 @@
+{
+  "harness": "@earendil-works/pi-coding-agent",
+  "version": "0.84.2",
+  "source": "offline native CLI with explicit synthetic extension; no model calls",
+  "frames": [
+    {
+      "phase": "initial",
+      "direction": "in",
+      "message": {
+        "type": "get_state",
+        "id": "state-initial"
+      }
+    },
+    {
+      "phase": "initial",
+      "direction": "out",
+      "message": {
+        "id": "state-initial",
+        "type": "response",
+        "command": "get_state",
+        "success": true,
+        "data": {
+          "model": {
+            "id": "unknown",
+            "name": "unknown",
+            "api": "unknown",
+            "provider": "unknown",
+            "baseUrl": "",
+            "reasoning": false,
+            "input": [],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 0,
+            "maxTokens": 0
+          },
+          "thinkingLevel": "off",
+          "isStreaming": false,
+          "isCompacting": false,
+          "steeringMode": "one-at-a-time",
+          "followUpMode": "one-at-a-time",
+          "sessionFile": "<session-file>",
+          "sessionId": "native-session-1",
+          "sessionName": "Synthetic contract",
+          "autoCompactionEnabled": true,
+          "messageCount": 0,
+          "pendingMessageCount": 0
+        }
+      }
+    },
+    {
+      "phase": "initial",
+      "direction": "in",
+      "message": {
+        "type": "get_available_models",
+        "id": "models"
+      }
+    },
+    {
+      "phase": "initial",
+      "direction": "out",
+      "message": {
+        "id": "models",
+        "type": "response",
+        "command": "get_available_models",
+        "success": true,
+        "data": {
+          "models": []
+        }
+      }
+    },
+    {
+      "phase": "initial",
+      "direction": "in",
+      "message": {
+        "type": "prompt",
+        "id": "record",
+        "message": "/stepsemble-probe record"
+      }
+    },
+    {
+      "phase": "initial",
+      "direction": "out",
+      "message": {
+        "type": "message_start",
+        "message": {
+          "role": "custom",
+          "customType": "stepsemble-probe",
+          "content": "貓掌🐾 line end",
+          "display": true,
+          "timestamp": 0
+        }
+      }
+    },
+    {
+      "phase": "initial",
+      "direction": "out",
+      "message": {
+        "type": "message_end",
+        "message": {
+          "role": "custom",
+          "customType": "stepsemble-probe",
+          "content": "貓掌🐾 line end",
+          "display": true,
+          "timestamp": 0
+        }
+      }
+    },
+    {
+      "phase": "initial",
+      "direction": "out",
+      "message": {
+        "id": "record",
+        "type": "response",
+        "command": "prompt",
+        "success": true
+      }
+    },
+    {
+      "phase": "allow",
+      "direction": "in",
+      "message": {
+        "type": "prompt",
+        "id": "prompt-allow",
+        "message": "/stepsemble-probe confirm"
+      }
+    },
+    {
+      "phase": "allow",
+      "direction": "out",
+      "message": {
+        "type": "extension_ui_request",
+        "id": "native-id-1",
+        "method": "confirm",
+        "title": "Synthetic confirmation",
+        "message": "No action will be executed",
+        "timeout": 10000
+      }
+    },
+    {
+      "phase": "allow",
+      "direction": "in",
+      "message": {
+        "type": "extension_ui_response",
+        "id": "unknown-native-id",
+        "confirmed": true
+      }
+    },
+    {
+      "phase": "allow",
+      "direction": "in",
+      "message": {
+        "type": "get_state",
+        "id": "pending-state"
+      }
+    },
+    {
+      "phase": "allow",
+      "direction": "out",
+      "message": {
+        "id": "pending-state",
+        "type": "response",
+        "command": "get_state",
+        "success": true,
+        "data": {
+          "model": {
+            "id": "unknown",
+            "name": "unknown",
+            "api": "unknown",
+            "provider": "unknown",
+            "baseUrl": "",
+            "reasoning": false,
+            "input": [],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 0,
+            "maxTokens": 0
+          },
+          "thinkingLevel": "off",
+          "isStreaming": false,
+          "isCompacting": false,
+          "steeringMode": "one-at-a-time",
+          "followUpMode": "one-at-a-time",
+          "sessionFile": "<session-file>",
+          "sessionId": "native-session-1",
+          "sessionName": "Synthetic contract",
+          "autoCompactionEnabled": true,
+          "messageCount": 1,
+          "pendingMessageCount": 0
+        }
+      }
+    },
+    {
+      "phase": "allow",
+      "direction": "in",
+      "message": {
+        "type": "extension_ui_response",
+        "id": "native-id-1",
+        "confirmed": true
+      }
+    },
+    {
+      "phase": "allow",
+      "direction": "out",
+      "message": {
+        "type": "extension_ui_request",
+        "id": "native-id-2",
+        "method": "notify",
+        "message": "{\"method\":\"confirm\",\"result\":true}",
+        "notifyType": "info"
+      }
+    },
+    {
+      "phase": "allow",
+      "direction": "out",
+      "message": {
+        "id": "prompt-allow",
+        "type": "response",
+        "command": "prompt",
+        "success": true
+      }
+    },
+    {
+      "phase": "deny",
+      "direction": "in",
+      "message": {
+        "type": "prompt",
+        "id": "prompt-deny",
+        "message": "/stepsemble-probe confirm"
+      }
+    },
+    {
+      "phase": "deny",
+      "direction": "out",
+      "message": {
+        "type": "extension_ui_request",
+        "id": "native-id-3",
+        "method": "confirm",
+        "title": "Synthetic confirmation",
+        "message": "No action will be executed",
+        "timeout": 10000
+      }
+    },
+    {
+      "phase": "deny",
+      "direction": "in",
+      "message": {
+        "type": "extension_ui_response",
+        "id": "native-id-3",
+        "confirmed": false
+      }
+    },
+    {
+      "phase": "deny",
+      "direction": "out",
+      "message": {
+        "type": "extension_ui_request",
+        "id": "native-id-4",
+        "method": "notify",
+        "message": "{\"method\":\"confirm\",\"result\":false}",
+        "notifyType": "info"
+      }
+    },
+    {
+      "phase": "deny",
+      "direction": "out",
+      "message": {
+        "id": "prompt-deny",
+        "type": "response",
+        "command": "prompt",
+        "success": true
+      }
+    },
+    {
+      "phase": "cancel",
+      "direction": "in",
+      "message": {
+        "type": "prompt",
+        "id": "prompt-cancel",
+        "message": "/stepsemble-probe confirm"
+      }
+    },
+    {
+      "phase": "cancel",
+      "direction": "out",
+      "message": {
+        "type": "extension_ui_request",
+        "id": "native-id-5",
+        "method": "confirm",
+        "title": "Synthetic confirmation",
+        "message": "No action will be executed",
+        "timeout": 10000
+      }
+    },
+    {
+      "phase": "cancel",
+      "direction": "in",
+      "message": {
+        "type": "extension_ui_response",
+        "id": "native-id-5",
+        "cancelled": true
+      }
+    },
+    {
+      "phase": "cancel",
+      "direction": "out",
+      "message": {
+        "type": "extension_ui_request",
+        "id": "native-id-6",
+        "method": "notify",
+        "message": "{\"method\":\"confirm\",\"result\":false}",
+        "notifyType": "info"
+      }
+    },
+    {
+      "phase": "cancel",
+      "direction": "out",
+      "message": {
+        "id": "prompt-cancel",
+        "type": "response",
+        "command": "prompt",
+        "success": true
+      }
+    },
+    {
+      "phase": "select",
+      "direction": "in",
+      "message": {
+        "type": "prompt",
+        "id": "prompt-select",
+        "message": "/stepsemble-probe select"
+      }
+    },
+    {
+      "phase": "select",
+      "direction": "out",
+      "message": {
+        "type": "extension_ui_request",
+        "id": "native-id-7",
+        "method": "select",
+        "title": "Synthetic selection",
+        "options": [
+          "貓掌🐾",
+          "other"
+        ]
+      }
+    },
+    {
+      "phase": "select",
+      "direction": "in",
+      "message": {
+        "type": "extension_ui_response",
+        "id": "native-id-7",
+        "value": "貓掌🐾"
+      }
+    },
+    {
+      "phase": "select",
+      "direction": "out",
+      "message": {
+        "type": "extension_ui_request",
+        "id": "native-id-8",
+        "method": "notify",
+        "message": "{\"method\":\"select\",\"result\":\"貓掌🐾\"}",
+        "notifyType": "info"
+      }
+    },
+    {
+      "phase": "select",
+      "direction": "out",
+      "message": {
+        "id": "prompt-select",
+        "type": "response",
+        "command": "prompt",
+        "success": true
+      }
+    },
+    {
+      "phase": "input",
+      "direction": "in",
+      "message": {
+        "type": "prompt",
+        "id": "prompt-input",
+        "message": "/stepsemble-probe input"
+      }
+    },
+    {
+      "phase": "input",
+      "direction": "out",
+      "message": {
+        "type": "extension_ui_request",
+        "id": "native-id-9",
+        "method": "input",
+        "title": "Synthetic input",
+        "placeholder": "type here"
+      }
+    },
+    {
+      "phase": "input",
+      "direction": "in",
+      "message": {
+        "type": "extension_ui_response",
+        "id": "native-id-9",
+        "value": "line two"
+      }
+    },
+    {
+      "phase": "input",
+      "direction": "out",
+      "message": {
+        "type": "extension_ui_request",
+        "id": "native-id-10",
+        "method": "notify",
+        "message": "{\"method\":\"input\",\"result\":\"line two\"}",
+        "notifyType": "info"
+      }
+    },
+    {
+      "phase": "input",
+      "direction": "out",
+      "message": {
+        "id": "prompt-input",
+        "type": "response",
+        "command": "prompt",
+        "success": true
+      }
+    },
+    {
+      "phase": "editor",
+      "direction": "in",
+      "message": {
+        "type": "prompt",
+        "id": "prompt-editor",
+        "message": "/stepsemble-probe editor"
+      }
+    },
+    {
+      "phase": "editor",
+      "direction": "out",
+      "message": {
+        "type": "extension_ui_request",
+        "id": "native-id-11",
+        "method": "editor",
+        "title": "Synthetic editor",
+        "prefill": "prefill"
+      }
+    },
+    {
+      "phase": "editor",
+      "direction": "in",
+      "message": {
+        "type": "extension_ui_response",
+        "id": "native-id-11",
+        "value": "one\ntwo"
+      }
+    },
+    {
+      "phase": "editor",
+      "direction": "out",
+      "message": {
+        "type": "extension_ui_request",
+        "id": "native-id-12",
+        "method": "notify",
+        "message": "{\"method\":\"editor\",\"result\":\"one\\ntwo\"}",
+        "notifyType": "info"
+      }
+    },
+    {
+      "phase": "editor",
+      "direction": "out",
+      "message": {
+        "id": "prompt-editor",
+        "type": "response",
+        "command": "prompt",
+        "success": true
+      }
+    },
+    {
+      "phase": "timeout",
+      "direction": "in",
+      "message": {
+        "type": "prompt",
+        "id": "prompt-timeout",
+        "message": "/stepsemble-probe timeout"
+      }
+    },
+    {
+      "phase": "timeout",
+      "direction": "out",
+      "message": {
+        "type": "extension_ui_request",
+        "id": "native-id-13",
+        "method": "confirm",
+        "title": "Synthetic confirmation",
+        "message": "No action will be executed",
+        "timeout": 100
+      }
+    },
+    {
+      "phase": "timeout",
+      "direction": "out",
+      "message": {
+        "type": "extension_ui_request",
+        "id": "native-id-14",
+        "method": "notify",
+        "message": "{\"method\":\"timeout\",\"result\":false}",
+        "notifyType": "info"
+      }
+    },
+    {
+      "phase": "timeout",
+      "direction": "out",
+      "message": {
+        "id": "prompt-timeout",
+        "type": "response",
+        "command": "prompt",
+        "success": true
+      }
+    },
+    {
+      "phase": "final",
+      "direction": "in",
+      "message": {
+        "type": "stepsemble_unknown",
+        "id": "unsupported"
+      }
+    },
+    {
+      "phase": "final",
+      "direction": "out",
+      "message": {
+        "id": "unsupported",
+        "type": "response",
+        "command": "stepsemble_unknown",
+        "success": false,
+        "error": "Unknown command: stepsemble_unknown"
+      }
+    },
+    {
+      "phase": "final",
+      "direction": "in",
+      "message": {
+        "type": "abort",
+        "id": "abort-idle"
+      }
+    },
+    {
+      "phase": "final",
+      "direction": "out",
+      "message": {
+        "id": "abort-idle",
+        "type": "response",
+        "command": "abort",
+        "success": true
+      }
+    },
+    {
+      "phase": "final",
+      "direction": "in",
+      "message": {
+        "type": "get_session_stats",
+        "id": "stats"
+      }
+    },
+    {
+      "phase": "final",
+      "direction": "out",
+      "message": {
+        "id": "stats",
+        "type": "response",
+        "command": "get_session_stats",
+        "success": true,
+        "data": {
+          "sessionFile": "<session-file>",
+          "sessionId": "native-session-1",
+          "userMessages": 0,
+          "assistantMessages": 0,
+          "toolCalls": 0,
+          "toolResults": 0,
+          "totalMessages": 0,
+          "tokens": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          },
+          "cost": 0
+        }
+      }
+    },
+    {
+      "phase": "final",
+      "direction": "in",
+      "message": {
+        "type": "get_messages",
+        "id": "messages-before"
+      }
+    },
+    {
+      "phase": "final",
+      "direction": "out",
+      "message": {
+        "id": "messages-before",
+        "type": "response",
+        "command": "get_messages",
+        "success": true,
+        "data": {
+          "messages": [
+            {
+              "role": "custom",
+              "customType": "stepsemble-probe",
+              "content": "貓掌🐾 line end",
+              "display": true,
+              "timestamp": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "phase": "resume",
+      "direction": "in",
+      "message": {
+        "type": "get_state",
+        "id": "state-resumed"
+      }
+    },
+    {
+      "phase": "resume",
+      "direction": "out",
+      "message": {
+        "id": "state-resumed",
+        "type": "response",
+        "command": "get_state",
+        "success": true,
+        "data": {
+          "model": {
+            "id": "unknown",
+            "name": "unknown",
+            "api": "unknown",
+            "provider": "unknown",
+            "baseUrl": "",
+            "reasoning": false,
+            "input": [],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 0,
+            "maxTokens": 0
+          },
+          "thinkingLevel": "off",
+          "isStreaming": false,
+          "isCompacting": false,
+          "steeringMode": "one-at-a-time",
+          "followUpMode": "one-at-a-time",
+          "sessionFile": "<session-file>",
+          "sessionId": "native-session-1",
+          "sessionName": "Synthetic contract",
+          "autoCompactionEnabled": true,
+          "messageCount": 1,
+          "pendingMessageCount": 0
+        }
+      }
+    },
+    {
+      "phase": "resume",
+      "direction": "in",
+      "message": {
+        "type": "get_messages",
+        "id": "messages-after"
+      }
+    },
+    {
+      "phase": "resume",
+      "direction": "out",
+      "message": {
+        "id": "messages-after",
+        "type": "response",
+        "command": "get_messages",
+        "success": true,
+        "data": {
+          "messages": [
+            {
+              "role": "custom",
+              "customType": "stepsemble-probe",
+              "content": "貓掌🐾 line end",
+              "display": true,
+              "timestamp": 0
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

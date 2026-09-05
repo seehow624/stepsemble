@@ -4853,6 +4853,9 @@ function finishExtensionUi(response) {
       .catch((e) => toast(tKey("runtime.providerReplyFailed", { detail: e.message }), true));
     return;
   }
+  // A dialog belongs to the host that emitted it. A later host switch must
+  // never retarget an old approval to whichever device is selected now.
+  if (request.hostBase !== apiBase) return;
   post("/api/rpc-ui", { sid: request.sid, id: request.id, ...response })
     .catch((e) => toast(tKey("runtime.piReplyFailed", { detail: e.message }), true));
 }
@@ -4887,7 +4890,8 @@ function showExtensionUi(ev, sid) {
     return;
   }
 
-  extensionUiRequest = { sid, id: ev.id, method };
+  if (extensionUiRequest?.sid === sid && extensionUiRequest.id === ev.id && extensionUiRequest.hostBase === apiBase) return;
+  extensionUiRequest = { sid, id: ev.id, method, hostBase: apiBase };
   el.extensionUiKind.textContent = method.toUpperCase();
   el.extensionUiTitle.textContent = ev.title || "需要你的回覆";
   el.extensionUiMessage.textContent = ev.message || "";
@@ -5077,6 +5081,14 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       // those events; only interactive extension UI should pause it.
       if (!["setStatus", "setWidget", "setTitle"].includes(ev.method)) setActivityLabel("waiting");
       showExtensionUi(ev, eventSid);
+      break;
+    case "extension_ui_closed":
+      if (extensionUiRequest?.sid === eventSid && extensionUiRequest.id === ev.id && extensionUiRequest.hostBase === apiBase) {
+        extensionUiRequest = null;
+        el.extensionUiSheet.classList.add("hidden");
+        el.extensionUiInput.value = "";
+        el.extensionUiEditor.value = "";
+      }
       break;
     case "auto_retry_start":
       setStreaming(true);

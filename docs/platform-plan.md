@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.9
+> 計畫版本：1.10
 > 最後更新：2026-09-05
 > 當前產品基線：Stepsemble 3.0.3（由 Pi Harbor 2.13.2 相容遷移）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
@@ -41,13 +41,14 @@
 | Host 效能基線 | 已完成 | 2.13.2 與 clean source commit `39e671d` 的 3.0.0 都以 301 synthetic sessions、41,000 messages、8 generic tasks 實測；結果見 `performance-baseline.md` |
 | Browser 效能基線 | 已量測，保留缺口 | Chrome DevTools 已連線；cold/warm、長 session、30 秒串流、mobile 4× CPU、network/accessibility 見 `browser-performance-baseline.md`；標準 TBT 與完整 trace export 待補 |
 | 階段 0：計畫與基線 | 基線可供後續比較 | 已記錄長對話 INP 537 ms、mobile restore LCP 4859 ms、串流收尾長任務；這不是順滑度驗收通過 |
-| 階段 1：Stepsemble Protocol v1 | 進行中 | handshake／strict TS SDK／29 events＋8 commands schema／pure domain checks／generation-aware replay preflight 已實作；802 cases 獨立 Ajv conformance；native transcripts、stateful/idempotency、snapshot recovery／rolling gate 尚未通過 |
+| 階段 1：Stepsemble Protocol v1 | 進行中 | handshake／strict TS SDK／29 events＋8 commands schema／pure domain checks／generation-aware replay preflight、802-case Ajv conformance 已實作；Pi 0.84.2 離線 native 57 frames／dialog／persisted resume 已驗；stateful/idempotency、durable snapshot／rolling gate 仍未通過 |
+| Pi 原生 RPC 邊界 | 已實作，未部署 | 嚴格 frame／UI reply、跨程序 response correlation、有界 pending dialog／重連 snapshot、更新／idle 保護；macOS 真實離線 probe 與隔離 HTTP／browser replay 通過；Windows 原生 Pi 啟動與全版本／模型串流未驗收 |
 | 優先可靠性修復 | 已實作，未部署 | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
 | Web 卡頓修復 | 部分完成 | 歷史離屏分批建立、相鄰訊息線性合併、局部翻譯、聊天可及性；仍需 virtualization、實機／多輪效能門檻驗收 |
 
 ### 下一個可執行任務
 
-先閱讀 `reliability-followup.md` 及 `protocol/v1/README.md`，再繼續 Phase 1 native RPC golden transcripts、stateful／idempotency 契約、transport snapshot/cursor recovery 與 rolling compatibility。UI handshake、discriminated schema、pure ownership／approval preflight 與 replay batch 檢查已加入，不要重做。Pure check 不代表已持久化、原子化或已接上 legacy SSE；durable journal／approval 仍未完成。virtualization、標準 TBT、raw trace export、實機／多輪與長時間測試仍未完成。
+先閱讀 `reliability-followup.md`、`protocol/v1/README.md` 及 `protocol/native/pi/README.md`，再繼續 Phase 1 stateful／idempotency 契約、durable snapshot/cursor recovery 與 rolling compatibility。Pi 0.84.2 的 57-frame 離線 native fixture、process-scoped response correlation、pending dialog 重連已加入，不要重做；下一批也需處理 Web 多對話框佇列／失敗送出恢復、Pi Windows `.cmd` 啟動路徑與原生 runner 驗收。UI handshake、discriminated schema、pure ownership／approval preflight 與 replay batch 檢查已加入。Pure check 與 process-lifetime dialog map 都不代表 durable journal、原子 winner 或 native ACK。模型／tool stream、native 跨版本、virtualization、標準 TBT、raw trace export、實機／多輪與長時間測試仍未完成。
 
 ## 一、不可退讓的核心決策
 
@@ -725,7 +726,7 @@ iOS/iPadOS：
 - [x] 建立 Host/Client version negotiation 與 capability negotiation。
 - [x] 建立 typed TypeScript Client SDK，先替換 Web JSON `api()`；其餘 SSE/bootstrap caller 待後續收斂。
 
-已實作但不等於整個 Phase 1 通過：29 events／8 commands 閉合 payload union、schema 產生的 TS declarations、pure ownership／approval expiry／writer conflict／generation replay checks、802 cases 獨立 JSON Schema conformance。完整 stateful schema／native transcripts／idempotency／snapshot 與 rolling gate 仍保留未勾選。
+已實作但不等於整個 Phase 1 通過：29 events／8 commands 閉合 payload union、schema 產生的 TS declarations、pure ownership／approval expiry／writer conflict／generation replay checks、802 cases 獨立 JSON Schema conformance；另有 Pi 0.84.2 真實離線 57-frame fixture 與 persisted-file resume。Native 模型／tool stream／版本／平台覆盖、完整 stateful schema／idempotency／durable snapshot 與 rolling gate 仍保留未勾選。
 
 驗收門檻：舊 UI 行為不變；同一 fixture 可用於 Node 與未來 Rust；過期與未知 event 有明確處理。
 
@@ -928,6 +929,15 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-05 — Plan 1.10
+
+- 用已安裝 Pi 0.84.2、隔離 agent dir／cwd／明確空 session 檔、offline／no resources 與 synthetic extension，取得 57 個脫敏 native 封包；確認／拒絕／取消、select／input／editor、timeout、unknown ID／command、已落盤 session 重讀通過，不呼叫模型或讀訂閱憑證。
+- 明確記錄上游 lazy session 尚未落盤不能當成持久化，以及 custom-message timestamp 重建差異。真實 probe 只在 macOS arm64 跑過；跨平台 byte replay 不等於原生平台驗收。
+- 修復 caller ID 蓋掉 RPC correlation、其他 session 回覆可誤解 pending promise、`confirmed:"false"` 被轉為 true、畸形 native JSON 影響 Host；pending command 限 64／session，錯誤回覆 bounded／不反射原文。
+- 新增 process-lifetime pending UI map、嚴格 method／選項／timeout、第一個有效回答勝出、重連 snapshot 不推進 cursor、已回答 dialog 不再重播、`extension_ui_closed`、跨 host 舊回答阻擋、draft 去重保留。Pending dialog 不再被 idle／stuck update gate 當空閒；signal-only exit 不再觸發延遲重複 kill。
+- 本機 170 tests＝169 pass／1 Windows-only skip；strict TS／artifact／syntax／version、802-case Ajv 及真實 native probe 通過。Chrome synthetic replay 驗證重連／另一 client 回覆 false／關閉／draft 保留與清除；不宣稱效能基準或真實訂閱 parity。
+- 未部署／未重啟正式 v3.0.3，不動品牌母檔與 native auth。Durable journal／approval、Web 多 dialog 佇列與失敗送出恢復、Pi Windows 原生 launch、rolling matrix、Rust／Apps 仍未完成。
 
 ### 2026-09-05 — Plan 1.9
 
