@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.0.4-rc.1
+
+- Added the guarded Claude Code sign-in entry in Agent Hub. The installed
+  official CLI opens the Host browser; Stepsemble does not relay OAuth material.
+- Includes the unreleased reliability, protocol, native Pi dialog and browser
+  recovery work documented in `docs/platform-plan.md` 1.24. Reference protocol
+  planners are not a completed durable store or full native-agent parity.
+- Assigned separate asset queries and a service-worker cache for the trial.
+  No stable GitHub release or automatic rollout to other devices is implied.
+
 ## 3.0.3
 
 - Made the exact user-approved 1254 px Step Mosaic artwork the canonical brand
