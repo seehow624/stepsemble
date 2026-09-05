@@ -24,3 +24,12 @@ function assertWireNarrowing(event: StepsembleClient.WireEvent, command: Stepsem
   }
   new StepsembleClient.Client({ onUnauthorized: () => new Error("Unauthorized") });
 }
+function assertReceiptTypes(value: unknown): void {
+  const receipt = StepsembleClient.parse("commandReceipt", value);
+  const version: "sha256-tuple-v1" = receipt.fingerprintVersion;
+  // @ts-expect-error A delivery receipt is not a queued automatic retry.
+  const state: "auto_retry" = receipt.state;
+  // @ts-expect-error The receipt contains only an opaque result reference, never a prompt.
+  const prompt: string = receipt.prompt;
+  void version; void state; void prompt;
+}

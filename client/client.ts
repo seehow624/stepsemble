@@ -4,6 +4,7 @@ declare const StepsembleProtocol: {
   validate(definition: string, value: unknown): { valid: boolean; code?: string };
   checkEvent(value: unknown): { valid: boolean; code?: string };
   checkProfile(value: unknown): { valid: boolean; code?: string };
+  checkReceipt(value: unknown): { valid: boolean; code?: string };
   checkReplayBatch(value: unknown): { valid: boolean; code?: string };
   checkCommandContext(command: unknown, context: unknown): { valid: boolean; code?: string };
   inspectReplay(cursor: unknown, batch: unknown): StepsembleClient.ReplayResult;
@@ -11,10 +12,11 @@ declare const StepsembleProtocol: {
 namespace StepsembleClient {
   // Reserved domain shapes. Parsing is not a declaration that the Host has
   // durable sessions, approvals or journal endpoints enabled yet.
-  export interface Domains { nativeReference: NativeReference; session: Session; run: Run; approval: Approval; launchProfile: LaunchProfile; event: WireEvent; cursor: Cursor; command: Command; page: Page; replayBatch: ReplayBatch; }
+  export interface Domains { nativeReference: NativeReference; session: Session; run: Run; approval: Approval; launchProfile: LaunchProfile; event: WireEvent; cursor: Cursor; command: Command; commandReceipt: CommandReceipt; page: Page; replayBatch: ReplayBatch; }
   export function parse<D extends keyof Domains>(domain: D, value: unknown): Domains[D] {
     const result = domain === "event" ? StepsembleProtocol.checkEvent(value)
       : domain === "launchProfile" ? StepsembleProtocol.checkProfile(value)
+      : domain === "commandReceipt" ? StepsembleProtocol.checkReceipt(value)
       : domain === "replayBatch" ? StepsembleProtocol.checkReplayBatch(value)
       : StepsembleProtocol.validate(domain, value);
     if (!result.valid) throw new HttpError("Invalid protocol payload", 502, "", result.code || "invalid_payload");

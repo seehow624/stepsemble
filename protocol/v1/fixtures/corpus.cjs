@@ -14,7 +14,7 @@ for (const fixture of [...domains, ...wire]) {
     add(`${label} missing ${field}`, contract, missing, false);
   }
   for (const value of [null, [], "secret-not-in-errors", 5]) add(`${label} wrong root`, contract, value, false);
-  add(`${label} additive field`, contract, { ...value, future: true }, contract !== "cursor");
+  add(`${label} additive field`, contract, { ...value, future: true }, !["cursor", "commandReceipt"].includes(contract));
   if (!value.payload) continue;
   for (const field of Object.keys(value.payload)) {
     const missing = structuredClone(value); delete missing.payload[field];
@@ -40,4 +40,5 @@ add("oversized delta", "event", { ...delta, payload: { ...delta.payload, delta: 
 const fullBatch = { ...seed.replayBatch, cursor: { ...seed.cursor, sequence: 500 }, events: Array.from({ length: 500 }, (_, i) => ({ ...seed.event, eventId: `event-${i + 1}`, sequence: i + 1 })) };
 add("full replay batch", "replayBatch", fullBatch, true);
 add("oversized replay batch", "replayBatch", { ...fullBatch, events: [...fullBatch.events, seed.event] }, false);
+for (const item of require("./receipts.cjs").cases) add(`receipt ${item.name}`, "commandReceipt", item.value, item.shape);
 module.exports = { cases, seed, wire, fullBatch };

@@ -30,6 +30,19 @@ function createDomain(contracts) {
     if (profile.billingMode !== expected[profile.authMode] || profile.authMode === "native_subscription" && profile.credentialReference !== null) return invalid("profile_mismatch");
     return valid;
   }
+  function checkReceipt(receipt) {
+    if (!contracts.validate("commandReceipt", receipt).valid) return invalid("invalid_payload");
+    if (Date.parse(receipt.updatedAt) < Date.parse(receipt.createdAt)) return invalid("receipt_time_conflict");
+    const { state, outcome, attemptId, revision } = receipt;
+    if (state === "accepted") return revision === 0 && attemptId === null && outcome === null ? valid : invalid("receipt_state_conflict");
+    if (revision === 0) return invalid("receipt_state_conflict");
+    if (["dispatching", "awaiting_confirmation", "uncertain"].includes(state)) return attemptId !== null && outcome === null ? valid : invalid("receipt_state_conflict");
+    if (!outcome || outcome.status !== state) return invalid("receipt_state_conflict");
+    // A pre-dispatch rejection has no effect/evidence. Once dispatch began,
+    // terminal outcomes require a verified-evidence reference, never pipe ACK.
+    if (attemptId === null) return state === "failed" && outcome.evidence === null && outcome.resultReference === null ? valid : invalid("receipt_state_conflict");
+    return outcome.evidence !== null ? valid : invalid("receipt_state_conflict");
+  }
   function checkCommandContext(command, context) {
     if (!contracts.validate("command", command).valid || !context || !contracts.validate("session", context.session).valid
       || !Object.hasOwn(context, "run") || context.run === undefined
@@ -88,7 +101,7 @@ function createDomain(contracts) {
     // Never advance it just because a transport frame was received.
     return { kind: "apply", events: batch.events.filter(event => event.sequence > cursor.sequence), cursor: { ...batch.cursor } };
   }
-  return Object.freeze({ checkEvent, checkProfile, checkCommandContext, checkReplayBatch, inspectReplay });
+  return Object.freeze({ checkEvent, checkProfile, checkReceipt, checkCommandContext, checkReplayBatch, inspectReplay });
 }
 
 module.exports = { createDomain };

@@ -162,3 +162,32 @@ discovery still remain open. Production and native accounts remain untouched.
 This closes the pending-set item from Plan 1.11 only. Full journal/projection
 recovery, stateful/idempotency contracts, provider-auth durability, native parity,
 rolling shipped-client compatibility and the later Rust/App gates remain open.
+
+## Reserved command receipts and idempotency — Plan 1.13 (unreleased)
+
+- Closed receipt schema and shared Node/browser/strict TS semantic parsing reject
+  invalid revision, attempt, timestamp and outcome/evidence combinations. Stored
+  metadata contains no prompts, native credentials or local paths; digests are
+  still private data, not an anonymization guarantee.
+- Pure Host reference helpers freeze eight UTF-8 command fingerprints and propose
+  admission, replay, state transitions and recovery. Fresh authorization and two
+  explicit consistent index reads are required even for a replay; changed intent
+  under the same key fails rather than being silently delivered again.
+- Six receipt states by five actions are covered exhaustively. CAS proposals,
+  attempt matching, immutable terminal results and uncertain-state quarantine
+  prevent the reference dispatcher contract from treating pipe acceptance as
+  success or uncertainty as permission to retry.
+- Restored backups may predate an already-executed dispatch marker. All receipts
+  from restored/unknown origins require reconciliation, including `accepted`;
+  only a verified current crash-consistent store follows ordinary recovery rules.
+- Local suite: **199 tests, 197 pass, 2 Windows-only skips**; strict TS, generated
+  artifacts, syntax/version and **853-case** independent Ajv conformance pass.
+  The new 12 tests include simulated restart and competing proposals. They are
+  not a database concurrency or durability test; OS results require CI evidence.
+
+See the [command-state contract](../protocol/v1/command-state.md) for exact hash,
+admission and transition semantics and the future transactional-store gates.
+No live endpoint/capability, native dispatch, account change or production
+restart is introduced. Full entity reducers, atomic approval winners, verified
+native evidence, durable receipt/event/outbox storage, projection snapshot and
+rolling compatibility remain open. A pure proposal never authorizes an effect.

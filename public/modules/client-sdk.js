@@ -5,8 +5,9 @@ var StepsembleClient;
     function parse(domain, value) {
         const result = domain === "event" ? StepsembleProtocol.checkEvent(value)
             : domain === "launchProfile" ? StepsembleProtocol.checkProfile(value)
-                : domain === "replayBatch" ? StepsembleProtocol.checkReplayBatch(value)
-                    : StepsembleProtocol.validate(domain, value);
+                : domain === "commandReceipt" ? StepsembleProtocol.checkReceipt(value)
+                    : domain === "replayBatch" ? StepsembleProtocol.checkReplayBatch(value)
+                        : StepsembleProtocol.validate(domain, value);
         if (!result.valid)
             throw new HttpError("Invalid protocol payload", 502, "", result.code || "invalid_payload");
         return value;

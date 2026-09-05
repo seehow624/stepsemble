@@ -1,0 +1,14 @@
+{
+  "version": "sha256-tuple-v1",
+  "source": "Explicit synthetic commands in wire.json, never real prompts or account data.",
+  "digests": {
+    "run.start": "1d9753128c228b9df801fa15b6e0f20706bd0d36c3599f17f6c8a85bc9293432",
+    "run.interrupt": "80764452914e3d610ea147cb392e9f5dbf09b4a8a123f1925b402a5f84d45278",
+    "approval.resolve": "1a62a5ede8ae54a4cb3bd2951aab3c32bfd23514c3eb09d53b4b778cabfc7e1f",
+    "session.rename": "e69989d3d630f95f23a84bf8b6a4bbf6877f1e5f576db87eeaa850b655a34e63",
+    "session.archive": "94edf0f2e31af67402cd3d1c32b25cdf35b659f1d3b2cefba6d2a11c96327276",
+    "session.restore": "0d614bcc51d0262dac1f7e525964758f253eba83b27aa6d1fbdae256c3c8f4f3",
+    "model.change": "f107d0d6a61ce5bd80f233752b545f3c3ae127ac47188f363f836288c662524a",
+    "context.compact": "d04dfa93dbc01a1bb7ec6cae57a7f4b5702505798f24ba3325d3a46a6f8a23ef"
+  }
+}

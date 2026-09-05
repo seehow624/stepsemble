@@ -9,7 +9,7 @@ Currently implemented: authenticated `POST /api/protocol/handshake`, protocol
 range and capability negotiation, typed client request/error handling, shared
 schema and pure domain validation, and UI connection-time negotiation. The host advertises only
 `legacy.http`, `pi.native-rpc`, and `agent.terminal-v1`. Domain definitions for
-session/run/approval/profile/event/cursor/commands are **reserved**, not live
+session/run/approval/profile/event/cursor/commands/command receipts are **reserved**, not live
 endpoints or promises of durable behavior. Legacy HTTP/RPC wire formats remain
 compatible in shape; native Pi malformed frames and UI replies now fail
 explicitly rather than being coerced or silently ignored. See the separate
@@ -36,7 +36,7 @@ the shared validator and pure domain checks; `check:protocol` gates CI and
 release artifacts. Node and browser run the same sanitized fixtures in
 `fixtures/domains.json`, including mutations for missing required fields,
 invalid scopes/states, timestamps and unsafe sequences. Typed `parse()` covers
-nativeReference/session/run/approval/launchProfile/event/cursor/command/page/replayBatch.
+nativeReference/session/run/approval/launchProfile/event/cursor/command/commandReceipt/page/replayBatch.
 
 The closed unions define **29 event variants and 8 command variants**.
 `fixtures/wire.json` supplies explicit synthetic examples for every variant;
@@ -48,7 +48,7 @@ Deltas allow 65,536 Unicode code points, completed text 262,144, and replay batc
 500 events. Byte bounds are an additional future transport responsibility.
 
 `npm run check:protocol:conformance` compares the corpus independently with
-Ajv 8.20.0 (Draft 2020-12, full date-time formats). CI runs this on all three
+Ajv 8.20.0 (Draft 2020-12, full date-time formats), currently 853 cases. CI runs this on all three
 desktop OSes and before release. Its pinned dependency lock is under
 `scripts/protocol-conformance`; installation happens in a disposable local
 temporary directory, with install scripts disabled. The deployed app still
@@ -69,6 +69,9 @@ every possible JSON Schema document or application invariant.
   command alone), and relevant profile/approval records. It rejects active-writer
   replacement, mid-run model changes, stale/non-pending approval, changed nonce
   or scope, foreign entities, and expiry at or before the supplied Host time.
+- `checkReceipt`: checks closed receipt shape, timestamp ordering, revision,
+  attempt and terminal outcome/evidence consistency. It validates an evidence
+  reference, not the truth of the referenced acknowledgement or readback.
 - `checkReplayBatch` and `inspectReplay`: require one session/generation and
   contiguous sequences. Full/partial duplicate delivery is filtered against a
   committed cursor; gaps, generation changes, unknown events and conflicting IDs
@@ -82,13 +85,33 @@ a decision (`nativeAcknowledged: false` is not native success). Replay results
 must be committed with the projection before advancing the cursor. Across-batch
 event ID uniqueness, payload integrity and prior-run ID uniqueness belong to the
 journal store. Snapshot/restore must establish generation explicitly; never
-force a stale cursor to zero silently. Lifecycle transitions, competing requests,
-crash recovery and durable exactly-once effects remain unimplemented.
+force a stale cursor to zero silently. Receipt transition/recovery proposals are
+specified below; full session/run/approval reducers, real transaction races and
+durable crash recovery remain unimplemented. External exactly-once effects cannot
+be promised when a provider lacks a deduplication/reconciliation primitive.
 
 Generated TypeScript unions narrow payloads by `event.type` or `command.type`;
 compile-only assertions in `client/contract-type-tests.ts` exercise this. SDK
-`parse()` uses semantic checks for events, profiles and replay batches. None of
+`parse()` uses semantic checks for events, profiles, receipts and replay batches. None of
 these reserved domains have replaced the legacy UI transport.
+
+## Reserved command receipt reference
+
+[`command-state.md`](command-state.md) specifies the Host-only pure helpers in
+`protocol/command-state.js`: deterministic command binding, admission/replay,
+revision-checked transitions and recovery proposals. All eight command digests
+have frozen fixtures; six states and five actions have a complete 30-case matrix.
+Replays require fresh trusted authorization and explicit consistent indexed
+reads, but do not rerun mutation preflight against already-consumed approvals.
+
+This is **not a durable ledger or dispatcher**. A returned proposal cannot grant
+permission to perform an effect. Future atomic admission must bind the domain
+mutation, approval winner, receipt, event and outbox; dispatch needs a committed
+CAS plus rechecked grants. Pipe acceptance is not native acknowledgement.
+Uncertain attempts never automatically redispatch, and restored/unknown store
+origins require reconciliation even if a receipt still says `accepted`. The
+in-memory competing-proposal tests are not storage or crash-durability proof.
+No live endpoint, advertised capability or automatic SDK retry is added.
 
 ## Compatibility policy
 
@@ -135,6 +158,6 @@ partial. The live legacy Host's pending-dialog reconnect snapshot is in-memory,
 not the reserved generation-aware journal transport above.
 
 Still required for the full Phase 1 gate: remaining native Pi coverage,
-stateful/command-idempotency semantics, durable transport snapshot/cursor recovery
-contracts, and the rolling
+full session/run/approval reducers and transaction invariants, durable admission/
+idempotency storage and transport snapshot/cursor recovery contracts, and the rolling
 Client compatibility matrix. Do not mark Phase 1 complete from this slice.
