@@ -4,6 +4,7 @@
 > 計畫版本：1.26
 > 最後更新：2026-09-06
 > 當前產品基線：Stepsemble 3.0.3（由 Pi Harbor 2.13.2 相容遷移）
+> Mini 當前啟用版本：3.0.4-rc.3／source `f5455e1`（2026-09-06 owner-authorized local activation；未公開 stable release）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
@@ -42,13 +43,13 @@
 | Browser 效能基線 | 已量測，保留缺口 | Chrome DevTools 已連線；cold/warm、長 session、30 秒串流、mobile 4× CPU、network/accessibility 見 `browser-performance-baseline.md`；標準 TBT 與完整 trace export 待補 |
 | 階段 0：計畫與基線 | 基線可供後續比較 | 已記錄長對話 INP 537 ms、mobile restore LCP 4859 ms、串流收尾長任務；這不是順滑度驗收通過 |
 | 階段 1：Stepsemble Protocol v1 | 進行中 | handshake／strict TS SDK／35 events＋8 commands、receipt／entity／bounded history／snapshot、多列proposal／observed-fact邊界、30-step synthetic transaction golden與1,251-case Ajv conformance已實作；Pi0.84.2三OS真實離線57frames已驗；實際native ownership/evidence驗證／durable ledger／snapshot transport／rolling gate仍未通過 |
-| Pi 原生 RPC 邊界 | 已實作，未部署 | 嚴格 frame／UI reply、跨程序 correlation、有界 pending dialog、TypeScript FIFO／失敗手動重試、完整 pending-set 重連對齊／舊 stream fencing、更新／idle／離開聊天保護；Windows core launch／PATH／owned tree 已接上 runner fixture；仍非 durable approval 或原生全版本／provider／模型串流驗收 |
+| Pi 原生 RPC 邊界 | 已實作，隨rc.3啟用於Mini | 嚴格 frame／UI reply、跨程序 correlation、有界 pending dialog、TypeScript FIFO／失敗手動重試、完整 pending-set 重連對齊／舊 stream fencing、更新／idle／離開聊天保護；Windows core launch／PATH／owned tree 已接上 runner fixture；仍非 durable approval 或原生全版本／provider／模型串流驗收 |
 | 已發佈 Web rolling 相容 | Legacy smoke 已驗 | 真實v3.0.3/v3.0.2 pinned source與development雙向搭配，Chromium桌面/手機尺寸8cases，macOS/Linux各跑一次共16cases／CI33970245044過。SW/PWA cache、Safari/Firefox/Windows/實機、future journal transport不包含，見`protocol/rolling-compatibility.md` |
 | Codex 官方介面基線 | 離線 metadata 已驗 | 0.153.3官方CLI輸出18個schema hash與99/10/81方法catalog；隔離HOME且不啟app-server/模型/登入，不改OpenCodex wrapper；不是原生runtime/session/approval驗收 |
 | Claude／Codex 真實訂閱 smoke | 已授權，成功 gate 未通過 | 各1次最小測試已獲同意；Claude唯一一次因OAuth過期／更新失敗，native記錄usage四項0，不重試；Codex preflight檢出既有本機API代理與全域指令，未送turn/start、不改設定。詳見`native-subscription-smoke.md`；不是adapter/parity通過 |
-| Claude 官方登入入口 | 試裝未過人工 gate，已還原 | 09-06 rc.1 在 Mini 成功啟動，但同一 Claude 桌面 detected／SSH signed_out；正式還原3.0.3。rc.2新增desktop_required保護、尚未部署。下一步需受限桌面runner讓登入與Claude工作共用環境；不收集OAuth、不搬憑證，詳見 `claude-sign-in.md` |
-| Claude macOS 桌面執行元件 | 已實作、Mini 助手已安裝 | Jerome同意後，rc.3加入Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。主Web仍3.0.3，等待獨立安全更新同意；不是原生全能力驗收，見`claude-desktop-runner.md` |
-| 優先可靠性修復 | 已實作，未部署 | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
+| Claude 官方登入入口 | rc.3已在Mini啟用，metadata/UI gate通過 | rc.1因SSH／桌面metadata落差曾還原；rc.3用桌面助手解決此執行環境落差，正式API/UI detected／liveVerified=false，Chrome cache升級與reload驗收過。未觸發真實登入或模型，不改寫rc.1失敗紀錄；詳見 `claude-sign-in.md` |
+| Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
+| 優先可靠性修復 | 已實作，隨rc.3啟用於Mini | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
 | Web 卡頓修復 | 部分完成 | 歷史離屏分批建立、相鄰訊息線性合併、局部翻譯、聊天可及性；仍需 virtualization、實機／多輪效能門檻驗收 |
 
 ### 下一個可執行任務
@@ -942,6 +943,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 
 ### 2026-09-06 — Plan 1.26
 
+- 同日後續Web啟用：Jerome回「好啊」批准無任務可回滾更新。Exact `f5455e1` 的CI33983687302三OS全綠、Rolling33983687313兩OS各8+2cases通過後，Mini正式Web由3.0.3升3.0.4-rc.3；保留SSH、helper/CUA未重啟。實際HTTP與Chrome UI detected/liveVerified=false，cache升級、1440/390px、reload/manual refresh不觸發auth，25份session inventory及12份保護設定/品牌SHA一致，3.0.3與更舊備份保留。未做真實login/logout/model／其他裝置rollout／stable release；細節`baselines/claude-web-activation-2026-09-06.json`。以下為先前實作/安裝時的歷史。
 - Jerome同意實作桌面Claude元件，保留SSH主Web。採owner-only Unix socket＋獨立本機IPC key、固定command/env/roots、Aqua LaunchAgent。Apple TN2083與本機launchctl/man核對，不設定SessionCreate、不以刪SSH旗標假裝GUI。Node過渡launcher重用既有supervisor，不改長期Rust／TS邊界。
 - 登入與task啟動同一助手仲裁；prepare票60秒／單次／instance綁定，啟動前fsync不確定性標記，丟回覆只重接不重開；無法核對的launch/auth標記fail closed。任務既有socket／64KiB tail不變，不冒稱完整session/history/approval或durable journal已完成。
 - Synthetic測試涵蓋私有IPC、權限／Origin／大小／字段／workspace、互斥／過期／重啟／丟回覆／無fallback，並補native metadata child不退出時的有界deadline與不重複spawn。修正取消狀態在最後一次status中完成、但shutdown未flush而誤報recovery的race。

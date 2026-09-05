@@ -1,6 +1,6 @@
 # macOS Claude 桌面執行元件
 
-> 2026-09-06，rc.3 已實作、Mini 助手已獨立安裝；正式 Web Host 仍為 3.0.3。不是 Claude 原生 session／approval adapter 已完成。
+> 2026-09-06，Mini 桌面助手與 Web Host 3.0.4-rc.3 已啟用，正式 UI 已偵測既有登入。不是 Claude 原生 session／approval adapter 已完成。
 
 ## 決策與範圍
 
@@ -95,7 +95,7 @@ node scripts/install-claude-desktop.mjs --check
 
 ### 本機觀察
 
-- 全套本機313tests／311pass2skip／零fail；新commit跨OS／rolling另行確認。
+- 全套本機313tests／311pass2skip／零fail；部署source `f5455e1` 的CI33983687302三OS全綠（Mac311/2、Linux310/3、Windows303/10 pass/skip，均313tests零fail）；Rolling33983687313 macOS/Linux各8組相容＋2組synthetic auth UI全綠。
 - 真GUI probe第一次metadata/task已Aqua，但5秒kickstart timeout撞30秒launchd節流，
   該次失敗保留，owned service與tasks已退出。改45秒bounded wait後整個probe通過，
   同一task跨Host/helper重啟仍只launch一次；未減少正式LaunchAgent節流。
@@ -103,3 +103,12 @@ node scripts/install-claude-desktop.mjs --check
 - 真正SSH client為Background；經私有IPC到助手Aqua查詢同一原生CLI，metadata detected。
   這處理了rc.1觀察到的執行環境落差，但不是OAuth交換／模型請求已成功的證據。
 - 去識別觀察紀錄：[`baselines/claude-desktop-context-2026-09-06.json`](baselines/claude-desktop-context-2026-09-06.json)。
+
+### Web 啟用驗收（同日後續）
+
+- Jerome另回覆「好啊」同意無任務時可回滾更新；核對open RPC／generic task皆0、助手canStart=true後，以既有installer啟用可信任source `f5455e16c3c5914c7239c8c92c28d92232403e24`。
+- 正式HTTP `/api/health` 為3.0.4-rc.3，`/api/claude-auth/status` 經既有SSH Web回Aqua／detected／liveVerified=false／無登入操作。沒有真實login/logout/model，也沒有重新啟動桌面助手或CUA。
+- 隔離Chrome profile實測cache 3.0.3→3.0.4-rc.3；1440px與390px登入面板正常，44px按鈕、無水平溢位、page error 0。手動檢查及reload仍detected、auth mutation 0；不是實體手機／Safari或官方OAuth完整流程。
+- 25份Pi session的path/size/mtime inventory相同；Web token、model stores、Claude/Codex設定、SSHkey/known_hosts/start/plist、helper/CUA plist與品牌共12份檔案SHA一致。Installer曾把Node路徑渲染成相同realpath的另一名稱，已恢復原launcher字串；實際binary相同，不需再重啟。
+- 3.0.3留在`~/.local/share/stepsemble.previous`，3.0.2另保存在`~/.local/share/stepsemble.backup-3.0.2-20260906-rc3`，rc.1試裝程式也保留。回退仍需先檢查active work；沒有公開stable release或更新其他主機。
+- 詳細去識別證據：[`baselines/claude-web-activation-2026-09-06.json`](baselines/claude-web-activation-2026-09-06.json)。舊rc.1失敗紀錄不改寫。

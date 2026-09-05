@@ -1,7 +1,8 @@
 # Claude Code 官方登入入口
 
 2026-09-06 後續：Jerome已同意桌面元件，3.0.4-rc.3實作登入與Claude任務共用Aqua助手，
-Mini已獨立安裝並通過真正SSH→助手→官方CLI唯讀metadata檢查。主Web仍3.0.3，尚未更新；
+Mini已獨立安裝並通過真正SSH→助手→官方CLI唯讀metadata檢查。Jerome另同意安全更新後，
+主Web已啟用3.0.4-rc.3，正式UI及API均偵測既有登入，3.0.3保留可回退；
 沒有重新登入或模型呼叫。細節與限制見[`claude-desktop-runner.md`](claude-desktop-runner.md)。
 下列rc.1失敗與還原紀錄維持不變，不能改寫成當次成功。
 
@@ -101,7 +102,7 @@ metadata/output 上限、切主機／reload、不洩漏 CLI 敏感輸出。
 rc.1 的 301 tests、原 8 組 rolling 與新增 2 組 auth UI cases 均通過跨 OS CI，
 但沒有涵蓋真實桌面／SSH 認證差異，不能取代上面的人工 gate。rc.2 加入 SSH guard 回歸，
 結果以新 commit CI 為準。版本工具已同步候選版資源與 cache；没有發布 GitHub release
-或更新其他裝置。Mac Mini 的試裝與還原已獲本次使用者同意，正式服務現在仍為 3.0.3。
+或更新其他裝置。上述為rc.1/rc.2歷史；最新rc.3啟用與正式UI驗收見本文開頭及桌面元件文件，仍非真實OAuth完整流程。
 
 ## 官方依據
 

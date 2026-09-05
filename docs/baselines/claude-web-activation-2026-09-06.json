@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-06",
+  "scope": "Owner-authorized local Mac Mini Web update; no public release or other-device rollout",
+  "sourceCommit": "f5455e16c3c5914c7239c8c92c28d92232403e24",
+  "versions": { "before": "3.0.3", "after": "3.0.4-rc.3", "rollbackRetained": "3.0.3", "olderBackupRetained": "3.0.2" },
+  "ci": { "regular": 33983687302, "regularPlatforms": 3, "rolling": 33983687313, "rollingPlatforms": 2, "rollingCasesPerPlatform": 10, "result": "success" },
+  "preflight": { "openRpcs": 0, "agentTasks": 0, "helperCanStart": true },
+  "liveStatus": { "health": "ok", "executionContext": "Aqua", "credential": "detected", "liveVerified": false, "canStart": true, "loginActive": false },
+  "browser": {
+    "engine": "Google Chrome",
+    "isolatedProfile": true,
+    "widths": [1440, 390],
+    "cacheBefore": ["stepsemble-shell-v3.0.3"],
+    "cacheAfter": ["stepsemble-shell-v3.0.4-rc.3"],
+    "deployedAuthUiDetected": true,
+    "reloadAndManualRefreshDetected": true,
+    "minimumVisibleButtonHeight": 44,
+    "horizontalOverflow": false,
+    "authMutationRequests": 0,
+    "pageErrors": 0,
+    "ownedBrowserClosed": true,
+    "physicalDeviceOrSafariTest": false
+  },
+  "preservation": {
+    "sessionFiles": 25,
+    "sessionPathSizeMtimeInventoryUnchanged": true,
+    "protectedFileHashesCompared": 12,
+    "allProtectedFilesUnchanged": true,
+    "sshLauncherPreserved": true,
+    "desktopHelperRestarted": false,
+    "cuaServiceRestarted": false,
+    "installerNodePathAliasRestored": true,
+    "nodeAliasSameRealExecutable": true,
+    "oldCodeAndServiceBackupRetained": true
+  },
+  "nativeActions": { "login": 0, "logout": 0, "modelRequests": 0, "credentialCopyOrExtraction": false, "keychainAclOrUnlock": false, "providerRouteChanges": false },
+  "outcome": "Local Web activation and read-only metadata/UI gates passed; native OAuth/model and full session/approval parity are not claimed"
+}

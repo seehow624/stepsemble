@@ -13,12 +13,20 @@ runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
-Unreleased reliability changes (2026-09-05) are documented separately in
+Reliability changes (2026-09-05) are documented separately in
 [`reliability-followup.md`](reliability-followup.md): recoverable session archive,
 bounded stream framing/writes, supervisor snapshot replacement, asynchronous
-worktrees, and scoped history/localization rendering. They have not replaced
-the running 3.0.3 installation. Do not interpret them as durable full history,
+worktrees, and scoped history/localization rendering. They are included in the
+owner-authorized Mini activation of 3.0.4-rc.3 on 2026-09-06; the public stable
+baseline remains 3.0.3. Do not interpret them as durable full history,
 approval parity, or the Rust migration being complete.
+
+The Mini also uses the opt-in macOS Claude desktop helper described in
+[`claude-desktop-runner.md`](claude-desktop-runner.md). The existing SSH Web Host
+retains HTTP/SSE ownership; a private Unix IPC boundary starts official Claude
+login and task supervisors in the Aqua desktop context. Other connectors are
+not moved. Metadata and deployed UI checks pass, but actual OAuth/model and
+native session/approval parity remain separate gates.
 
 ## Boundaries
 
