@@ -226,3 +226,134 @@ test("corrupt or stale final failure proposals cannot partially release a writer
   const started = clone(current); started.projection = await append(started.projection, ["run.started"]);
   assert.equal((await tx.planNativeFailure(started, "receipt-1", ackContext(started, { runId: "run-1", effect: "not_applied", code: "model_error", eventIds: ["failed-1"] }))).code, "reconciliation_required");
 });
+function dispatchReceipt(s, receiptId) {
+  const receipt = s.receipts.find(row => row.receiptId === receiptId);
+  return tx.planDispatch(s, receiptId, context(s, { receiptRevision: receipt.revision, attemptId: `attempt-${receiptId}`, incarnationId: "native-incarnation-1" }));
+}
+function operationContext(s, receiptId, more = {}) {
+  const receipt = s.receipts.find(row => row.receiptId === receiptId);
+  return context(s, { receiptRevision: receipt.revision, attemptId: `attempt-${receiptId}`, incarnationId: "native-incarnation-1", evidenceVerified: true,
+    evidence: { kind: "authoritative_readback", reference: `proof-${receiptId}` }, eventIds: [`effect-${receiptId}`], ...more });
+}
+async function admitOperation(s, type, more = {}) { return tx.planAdmission(s, command(type), context(s, { eventIds: [], ...more })); }
+test("rename is confirmed metadata, not an optimistic mutation or two unordered pending names", async () => {
+  let s = await view(true), result = await admitOperation(s, "session.rename"); s = transaction(result);
+  assert.equal(s.projection.session.title, null); assert.equal(result.append.length, 0);
+  const other = command("session.rename"); other.commandId = "rename-2"; other.idempotencyKey = "rename-key-2"; other.payload.title = "Other title";
+  assert.equal((await tx.planAdmission(s, other, context(s, { eventIds: [], receiptId: "receipt-2" }))).code, "maintenance_conflict");
+  s = transaction(dispatchReceipt(s, "receipt-1"));
+  assert.equal((await tx.planOperationAcknowledgement(s, "receipt-1", operationContext(s, "receipt-1", { title: "wrong" }))).code, "evidence_mismatch");
+  s = transaction(await tx.planOperationAcknowledgement(s, "receipt-1", operationContext(s, "receipt-1", { title: "Updated title" })));
+  assert.equal(s.projection.session.title, "Updated title"); assert.equal(s.projection.runs[0].run.state, "waiting_approval");
+});
+test("model reservation freezes exact profile and blocks a concurrent start until confirmed", async () => {
+  const initial = await view(), profile = { ...initial.projection.session.launchProfile, modelId: "another-model" };
+  const changed = command("model.change"); changed.payload.launchProfileId = "profile-2"; profile.launchProfileId = "profile-2";
+  let s = transaction(await tx.planAdmission(initial, changed, context(initial, { eventIds: [], launchProfile: profile })));
+  assert.equal(s.projection.session.launchProfile.modelId, null); assert.equal(s.outbox[0].operation.launchProfile.modelId, "another-model");
+  profile.modelId = "caller-mutated"; assert.equal(s.outbox[0].operation.launchProfile.modelId, "another-model");
+  assert.equal((await tx.planAdmission(s, command("run.start"), context(s, { receiptId: "receipt-2" }))).code, "maintenance_conflict");
+  s = transaction(dispatchReceipt(s, "receipt-1")); const selected = clone(s.outbox[0].operation.launchProfile);
+  s = transaction(await tx.planOperationAcknowledgement(s, "receipt-1", operationContext(s, "receipt-1", { launchProfile: selected })));
+  assert.equal(s.projection.session.launchProfile.modelId, "another-model");
+  assert.equal((await tx.planAdmission(s, changed, context(s, { eventIds: [] }))).kind, "replay", "replay must not need the profile catalog again");
+  const routed = { ...selected, launchProfileId: "profile-3", authMode: "api_key", billingMode: "metered", credentialReference: "key-ref" };
+  const routeCommand = { ...changed, commandId: "model-3", idempotencyKey: "key-3", payload: { launchProfileId: "profile-3" } };
+  assert.equal((await tx.planAdmission(s, routeCommand, context(s, { eventIds: [], receiptId: "receipt-3", launchProfile: routed }))).code, "fork_required");
+});
+test("archive and restore reserve exact identities and update only after confirmed effects", async () => {
+  let s = await view(); s = transaction(await admitOperation(s, "session.archive", { archiveId: "archive-1" }));
+  assert.equal(s.projection.session.session.status, "active");
+  assert.equal((await tx.planAdmission(s, command("run.start"), context(s, { receiptId: "receipt-2" }))).code, "maintenance_conflict");
+  s = transaction(dispatchReceipt(s, "receipt-1"));
+  assert.equal((await tx.planOperationAcknowledgement(s, "receipt-1", operationContext(s, "receipt-1", { archiveId: "foreign" }))).code, "evidence_mismatch");
+  s = transaction(await tx.planOperationAcknowledgement(s, "receipt-1", operationContext(s, "receipt-1", { archiveId: "archive-1" })));
+  assert.equal(s.projection.session.session.status, "archived");
+  s = transaction(await admitOperation(s, "session.restore", { receiptId: "receipt-2" })); assert.equal(s.projection.session.session.status, "archived");
+  s = transaction(dispatchReceipt(s, "receipt-2"));
+  s = transaction(await tx.planOperationAcknowledgement(s, "receipt-2", operationContext(s, "receipt-2", { archiveId: "archive-1" })));
+  assert.equal(s.projection.session.session.status, "active"); assert.equal(s.projection.session.archiveId, null);
+  const archive = command("session.archive"); archive.idempotencyKey = "archive-key-2"; archive.commandId = "archive-2";
+  assert.equal((await tx.planAdmission(s, archive, context(s, { receiptId: "receipt-3", eventIds: [], archiveId: "archive-1" }))).code, "archive_conflict");
+});
+test("compact requires an explicit known context owner and an exclusive receipt, preserving unknown limit", async () => {
+  const idle = await view(); assert.equal((await admitOperation(idle, "context.compact")).code, "context_unavailable");
+  const current = await view(); current.projection = await append(current.projection, ["run.starting", "launch_profile.locked", "run.started", "run.completed"]);
+  assert.equal((await admitOperation(current, "context.compact")).code, "context_unavailable", "never guess a context owner from array order");
+  let s = transaction(await admitOperation(current, "context.compact", { targetRunId: "run-1" }));
+  assert.equal(s.projection.contexts.length, 0); s = transaction(dispatchReceipt(s, "receipt-1"));
+  assert.equal((await tx.planOperationAcknowledgement(s, "receipt-1", operationContext(s, "receipt-1", { runId: "foreign", beforeTokens: 100, afterTokens: 20 }))).code, "evidence_mismatch");
+  s = transaction(await tx.planOperationAcknowledgement(s, "receipt-1", operationContext(s, "receipt-1", { runId: "run-1", beforeTokens: 100, afterTokens: 20 })));
+  assert.equal(s.projection.contexts[0].usedTokens, 20); assert.equal(s.projection.contexts[0].limitTokens, null);
+  assert.equal(s.projection.runs[0].run.state, "completed");
+});
+test("interrupt intent, delivery acknowledgement and terminal run remain separate; manual new retry has a new key", async () => {
+  let s = await view(true); s = transaction(await admitOperation(s, "run.interrupt", { eventIds: ["stop-1"] }));
+  assert.equal(s.projection.runs[0].run.state, "stopping"); assert.equal(s.projection.approvals[0].approval.status, "pending");
+  s = transaction(await tx.planRejectBeforeDispatch(s, "receipt-1", context(s, { source: "current_store", receiptRevision: 0, code: "not_sent", eventIds: [] })));
+  assert.equal(s.projection.runs[0].run.state, "stopping");
+  const again = command("run.interrupt"); again.commandId = "stop-cmd-2"; again.idempotencyKey = "stop-key-2";
+  const admitted = await tx.planAdmission(s, again, context(s, { receiptId: "receipt-2", eventIds: [] })); s = transaction(admitted); assert.equal(admitted.append.length, 0);
+  s = transaction(dispatchReceipt(s, "receipt-2"));
+  const result = await tx.planOperationAcknowledgement(s, "receipt-2", operationContext(s, "receipt-2", { runId: "run-1", eventIds: [] })); s = transaction(result);
+  assert.equal(s.projection.runs[0].run.state, "stopping"); assert.equal(s.receipts[1].state, "succeeded"); assert.equal(result.append.length, 0);
+});
+test("uncertain maintenance retains exclusion and even valid local effects require correlated evidence", async () => {
+  let s = await view(); s = transaction(await admitOperation(s, "session.archive", { archiveId: "archive-1" })); s = transaction(dispatchReceipt(s, "receipt-1"));
+  s = transaction(await tx.planDeliveryUncertain(s, "receipt-1", operationContext(s, "receipt-1", { eventIds: [] })));
+  assert.equal(s.receipts[0].state, "uncertain"); assert.equal(s.projection.session.session.status, "active");
+  assert.equal((await tx.planAdmission(s, command("run.start"), context(s, { receiptId: "receipt-2" }))).code, "maintenance_conflict");
+  for (const more of [{ evidenceVerified: false }, { incarnationId: "wrong" }, { attemptId: "wrong" }, { evidence: { kind: "pipe_accepted", reference: "p" } }, { eventIds: ["native-1"] }]) {
+    assert.equal((await tx.planOperationAcknowledgement(s, "receipt-1", operationContext(s, "receipt-1", { archiveId: "archive-1", ...more }))).kind, "reject");
+  }
+  const confirmed = transaction(await tx.planOperationAcknowledgement(s, "receipt-1", operationContext(s, "receipt-1", { archiveId: "archive-1", evidence: { kind: "host_commit", reference: "archive-proof" } })));
+  assert.equal(confirmed.projection.session.session.status, "archived");
+});
+test("simultaneous start and exclusive maintenance share the same revision fence", async () => {
+  const initial = await view(), start = await tx.planAdmission(initial, command("run.start"), context(initial));
+  const archive = await admitOperation(initial, "session.archive", { archiveId: "archive-1" }); transaction(start); transaction(archive);
+  const started = commit(initial, start); assert.equal(commit(started, archive), null);
+  const archived = commit(initial, archive); assert.equal(commit(archived, start), null);
+  const unknownOp = clone(archived); unknownOp.outbox[0].operation.autoApprove = true; assert.equal(tx.checkView(unknownOp).kind, "reject");
+});
+function terminalContext(s, type, more = {}) {
+  return context(s, { source: "current_store", runtimeVerified: true, evidenceVerified: true, sessionId: "session-1", runId: "run-1",
+    nativeRunId: s.projection.runs[0].nativeRunId, incarnationId: "native-incarnation-1", evidence: { kind: "authoritative_readback", reference: "terminal-proof" },
+    type, payload: fact(type).payload, eventIds: ["cancel-1", "terminal-1"], ...more });
+}
+test("verified terminal fact cancels pending approvals and preserves partial tool history in one transaction", async () => {
+  for (const type of ["run.completed", "run.failed", "run.interrupted"]) {
+    const s = await view(true), saved = JSON.stringify(s);
+    const result = await tx.planRunTerminal(s, "run-1", terminalContext(s, type)), next = transaction(result);
+    assert.equal(JSON.stringify(s), saved); assert.deepEqual(result.append.map(row => row.type), ["approval.cancelled", type]);
+    assert.equal(next.projection.approvals[0].approval.status, "cancelled"); assert.equal(next.projection.tools[0].status, "incomplete");
+    assert.equal(next.projection.runs[0].run.state, type.slice(4)); assert.equal(result.proof.evidence.reference, "terminal-proof");
+    assert.equal((await tx.planRunTerminal(next, "run-1", terminalContext(next, type))).code, "run_conflict");
+  }
+  const expired = await view(true), done = transaction(await tx.planRunTerminal(expired, "run-1", terminalContext(expired, "run.interrupted", { now: now + 600000 })));
+  assert.equal(done.projection.approvals[0].approval.status, "expired");
+});
+test("terminal cleanup rejects only unsent commands and leaves attempted delivery uncertain, never assumes stop caused completion", async () => {
+  for (const attempted of [false, true]) {
+    let s = await decided(); if (attempted) s = transaction(dispatch(s));
+    const next = transaction(await tx.planRunTerminal(s, "run-1", terminalContext(s, "run.completed", { eventIds: ["terminal-1"] })));
+    assert.equal(next.receipts[0].state, attempted ? "uncertain" : "failed");
+    assert.equal(next.projection.approvals[0].approval.status, "approved"); assert.equal(next.projection.approvals[0].nativeAcknowledgement, null);
+    assert.equal(next.projection.runs[0].run.state, "completed");
+  }
+  let s = await view(true); s = transaction(await admitOperation(s, "run.interrupt", { eventIds: ["stop-1"] })); s = transaction(dispatchReceipt(s, "receipt-1"));
+  const next = transaction(await tx.planRunTerminal(s, "run-1", terminalContext(s, "run.completed")));
+  assert.equal(next.receipts[0].state, "uncertain", "natural completion is not proof the interrupt command took effect");
+});
+test("a terminal cleanup from an old backup keeps accepted ambiguity quarantined", async () => {
+  let s = await decided(); s = transaction(await tx.planRecovery(s, context(s, { source: "restored_backup" })));
+  const next = transaction(await tx.planRunTerminal(s, "run-1", terminalContext(s, "run.interrupted", { source: "restored_backup", eventIds: ["terminal-1"] })));
+  assert.equal(next.quarantined, true); assert.equal(next.receipts[0].state, "accepted"); assert.equal(next.projection.runs[0].run.state, "interrupted");
+});
+test("bad runtime proof or final event rolls back cancellations, receipt cleanup and terminal history together", async () => {
+  const s = await view(true), saved = JSON.stringify(s);
+  for (const more of [{ runtimeVerified: false }, { evidenceVerified: false }, { sessionId: "foreign" }, { nativeRunId: "foreign" },
+    { source: "unknown" }, { payload: { reason: "invalid" } }, { eventIds: ["cancel-1", "native-1"] }, { expectedRevision: 99 }]) {
+    assert.equal((await tx.planRunTerminal(s, "run-1", terminalContext(s, "run.interrupted", more))).kind, "reject"); assert.equal(JSON.stringify(s), saved);
+  }
+});

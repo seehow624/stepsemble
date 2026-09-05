@@ -191,9 +191,9 @@ additional semantic invariants. A competing in-memory transaction model commits
 one decision/receipt/event or none; it is **not database concurrency evidence**.
 
 Full bounded history/snapshot proposals are now in [projection.md](projection.md).
-Initial start/approval receipt/entity/outbox transaction planners are in
+All eight command plus maintenance/terminal receipt/entity/outbox planners are in
 [transactions.md](transactions.md); they remain detached proposals, not storage.
-Remaining: the other command/effect transaction builders, real storage/CAS,
+Remaining: native/evidence ingestion, transaction golden fixtures, real storage/CAS,
 durable journal/outbox, native proof verification, authenticated snapshot transport,
 real crash/power-loss tests, native adapter parity and rolling shipped-client compatibility. Do not
 mark Phase 1 or durable session/approval support complete from these reducers.

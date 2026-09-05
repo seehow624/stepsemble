@@ -126,6 +126,21 @@ Local full suite: 246 tests, 244 passed, 2 Windows-only skips; strict TypeScript
 generated artifacts and version consistency passed. `d7ac60a`'s 240-test batch is
 verified green on macOS, Windows and Linux in CI 33965309286.
 
+## Eight commands and terminal composition — Plan 1.18 (unreleased)
+
+All eight command admissions now have transaction/effect planners. Exclusive
+model/archive/restore/compact receipts retain their reservation through uncertain
+delivery, so a new run cannot race them. Exact profile/archive/context ownership
+is frozen; metadata changes only after correlated verified effect. Interrupt ACK
+is not terminal completion. Terminal composition cancels/expires pending
+approvals, preserves partial history and updates related receipt ambiguity
+together, including quarantine rules for old backups.
+
+Eleven new tests; full local suite 257 tests, 255 passed, 2 Windows-only skips.
+The prior 246-test `5de5c81` batch passed all three OSes in CI33965895866. These
+are still reference proposals; actual proof/storage/native integration, rolling
+compatibility and live rollout remain open, without production/account changes.
+
 ## Native Pi follow-up — Plan 1.10 (unreleased)
 
 The [native contract](../protocol/native/pi/README.md) now includes a real offline

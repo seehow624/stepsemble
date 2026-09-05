@@ -7,7 +7,8 @@ const { createValidator } = require("./validator"), { createDomain } = require("
 const commands = require("./command-state");
 const projectionModule = require("../public/modules/projection");
 const contracts = createValidator(require("./v1/schema.json")), domain = createDomain(contracts);
-const projection = projectionModule.create({ ...contracts, ...domain }, require("../public/modules/lifecycle").create({ ...contracts, ...domain }));
+const lifecycle = require("../public/modules/lifecycle").create({ ...contracts, ...domain });
+const projection = projectionModule.create({ ...contracts, ...domain }, lifecycle);
 const clone = value => structuredClone(value), reject = code => ({ kind: "reject", code });
 const id = value => contracts.validate("id", value).valid;
 const terminal = state => ["completed", "failed", "interrupted"].includes(state);
@@ -15,6 +16,11 @@ const scopeKey = row => JSON.stringify([row.deviceId, row.sessionId, row.command
 const commandKey = row => JSON.stringify([row.deviceId, row.sessionId, row.commandId]);
 const exact = (value, keys) => value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
 const commandFields = ["protocolVersion", "commandId", "deviceId", "sessionId", "type", "idempotencyKey", "payload"];
+const exclusiveTypes = new Set(["model.change", "session.archive", "session.restore", "context.compact"]);
+const pendingReceipt = receipt => !["succeeded", "failed"].includes(receipt.state);
+const evidenceShape = (value, host = false) => exact(value, ["kind", "reference"]) && id(value.reference)
+  && ["native_ack", "authoritative_readback", ...(host ? ["host_commit"] : [])].includes(value.kind);
+const boundRunId = row => row.command.payload.runId ?? row.operation?.runId ?? null;
 function checkView(value) {
   if (projectionModule.canonicalJSON(value, 64 * 1024 * 1024) === null
     || !exact(value, ["storeId", "storeGeneration", "revision", "quarantined", "projection", "receipts", "outbox"])
@@ -24,12 +30,23 @@ function checkView(value) {
   const receiptIds = new Set(), scopes = new Set(), commandIds = new Set(), attempts = new Set();
   const outbox = new Map(), runs = new Map(value.projection.runs.map(row => [row.run.runId, row]));
   const approvals = new Map(value.projection.approvals.map(row => [row.approval.approvalId, row]));
-  const targets = new Set();
+  const targets = new Set(), pendingTargets = new Set(), archiveIds = new Set(); let exclusive = 0, rename = 0;
   for (const row of value.outbox) {
-    if (!exact(row, ["receiptId", "command", "dispatch"]) || !id(row.receiptId) || outbox.has(row.receiptId)
-      || !exact(row.command, commandFields) || !["run.start", "approval.resolve"].includes(row.command.type)
+    if (!exact(row, ["receiptId", "command", "dispatch", "operation"]) || !id(row.receiptId) || outbox.has(row.receiptId)
+      || !exact(row.command, commandFields)
       || commands.describeCommand(row.command).kind !== "binding"
       || row.dispatch !== null && (!exact(row.dispatch, ["attemptId", "incarnationId"]) || !id(row.dispatch.attemptId) || !id(row.dispatch.incarnationId))) return reject("invalid_outbox");
+    const cmd = row.command, op = row.operation;
+    if (cmd.type === "model.change") {
+      if (!exact(op, ["launchProfile"]) || projectionModule.canonicalJSON(op.launchProfile, 65536) === null
+        || !domain.checkProfile(op.launchProfile).valid || op.launchProfile.launchProfileId !== cmd.payload.launchProfileId
+        || op.launchProfile.harnessId !== value.projection.session.session.native.harnessId) return reject("profile_mismatch");
+    } else if (cmd.type === "session.archive") {
+      if (!exact(op, ["archiveId"]) || !id(op.archiveId) || archiveIds.has(op.archiveId)) return reject("invalid_outbox");
+      archiveIds.add(op.archiveId);
+    } else if (cmd.type === "context.compact") {
+      if (!exact(op, ["runId"]) || !runs.has(op.runId)) return reject("invalid_outbox");
+    } else if (op !== null) return reject("invalid_outbox");
     outbox.set(row.receiptId, row);
   }
   for (const receipt of value.receipts) {
@@ -38,16 +55,28 @@ function checkView(value) {
     if (!row || receiptIds.has(receipt.receiptId) || scopes.has(scope) || commandIds.has(commandId)
       || receipt.sessionId !== value.projection.cursor.sessionId || receipt.attemptId !== (row.dispatch?.attemptId ?? null)
       || receipt.attemptId !== null && attempts.has(receipt.attemptId)) return reject("receipt_conflict");
-    const cmd = row.command, binding = commands.describeCommand(cmd), run = runs.get(cmd.payload.runId);
+    const cmd = row.command, binding = commands.describeCommand(cmd), run = runs.get(boundRunId(row));
     if (binding.fingerprint !== receipt.fingerprint || binding.fingerprintVersion !== receipt.fingerprintVersion
       || scope !== scopeKey({ ...cmd, commandType: cmd.type }) || commandId !== commandKey(cmd)
-      || !run || Date.parse(receipt.createdAt) < Date.parse(value.projection.session.session.createdAt)) return reject("outbox_mismatch");
-    const target = JSON.stringify([cmd.type, cmd.type === "run.start" ? cmd.payload.runId : cmd.payload.approvalId]);
-    if (targets.has(target)) return reject("winner_conflict"); targets.add(target);
+      || ["run.start", "run.interrupt", "approval.resolve", "context.compact"].includes(cmd.type) && !run
+      || Date.parse(receipt.createdAt) < Date.parse(value.projection.session.session.createdAt)) return reject("outbox_mismatch");
+    if (["run.start", "approval.resolve"].includes(cmd.type)) {
+      const target = JSON.stringify([cmd.type, cmd.type === "run.start" ? cmd.payload.runId : cmd.payload.approvalId]);
+      if (targets.has(target)) return reject("winner_conflict"); targets.add(target);
+    }
+    if (pendingReceipt(receipt)) {
+      if (exclusiveTypes.has(cmd.type)) exclusive++;
+      if (cmd.type === "session.rename") rename++;
+      if (cmd.type === "run.interrupt") {
+        if (pendingTargets.has(cmd.payload.runId)) return reject("winner_conflict"); pendingTargets.add(cmd.payload.runId);
+      }
+      if (cmd.type === "session.restore" && (value.projection.session.session.status !== "archived" || value.projection.session.archiveId !== cmd.payload.archiveId)
+        || ["model.change", "session.archive", "context.compact"].includes(cmd.type) && value.projection.session.session.status !== "active") return reject("session_conflict");
+    }
     if (cmd.type === "run.start") {
       if (!run.profileLocked || run.launchProfile.launchProfileId !== cmd.payload.launchProfileId) return reject("profile_mismatch");
       if (receipt.attemptId === null && run.startedAt !== null || receipt.state === "succeeded" && run.startedAt === null) return reject("acknowledgement_conflict");
-    } else {
+    } else if (cmd.type === "approval.resolve") {
       const a = approvals.get(cmd.payload.approvalId);
       if (!a || a.resolutionReceiptId !== receipt.receiptId || a.resolvedByDeviceId !== cmd.deviceId
         || a.approval.status !== cmd.payload.decision || a.approval.nonce !== cmd.payload.nonce || a.approval.scope !== cmd.payload.scope || a.approval.runId !== cmd.payload.runId) return reject("approval_conflict");
@@ -57,6 +86,7 @@ function checkView(value) {
     }
     receiptIds.add(receipt.receiptId); scopes.add(scope); commandIds.add(commandId); if (receipt.attemptId !== null) attempts.add(receipt.attemptId);
   }
+  if (exclusive > 1 || rename > 1 || exclusive && (rename || value.projection.runs.some(row => !terminal(row.run.state)))) return reject("maintenance_conflict");
   for (const row of approvals.values()) if (row.resolutionReceiptId !== null && !receiptIds.has(row.resolutionReceiptId)) return reject("receipt_conflict");
   return { kind: "valid" };
 }
@@ -106,26 +136,57 @@ async function planAdmission(input, command, context) {
   const byId = next.receipts.find(row => commandKey(row) === commandKey(cmd)) ?? null;
   const writer = next.projection.runs.find(row => !terminal(row.run.state)) ?? null;
   const approval = cmd.type === "approval.resolve" ? next.projection.approvals.find(row => row.approval.approvalId === cmd.payload.approvalId) : null;
+  const selectedProfile = cmd.type === "model.change" ? context.launchProfile : next.projection.session.launchProfile;
+  if (cmd.type === "model.change" && !existing && (projectionModule.canonicalJSON(selectedProfile, 65536) === null || !domain.checkProfile(selectedProfile).valid)) return reject("profile_mismatch");
   const result = commands.inspectCommand(cmd, { ...c, session: next.projection.session.session, run: writer?.run ?? null, approval: approval?.approval,
-    launchProfile: next.projection.session.launchProfile, receiptId: context.receiptId, existingReceipt: existing, commandIdReceipt: byId });
+    launchProfile: selectedProfile, receiptId: context.receiptId, existingReceipt: existing, commandIdReceipt: byId });
   if (result.kind === "reject" || result.kind === "replay") return result;
   if (next.quarantined) return reject("store_recovery_required");
   if (next.revision === Number.MAX_SAFE_INTEGER) return reject("revision_overflow");
-  if (!["run.start", "approval.resolve"].includes(cmd.type)) return reject("unsupported_transaction");
   if (next.receipts.length >= 5000) return reject("store_capacity");
   if (next.receipts.some(row => row.receiptId === result.receipt.receiptId)) return reject("receipt_conflict");
-  let facts;
+  const pending = next.receipts.filter(pendingReceipt);
+  if (pending.some(row => exclusiveTypes.has(row.commandType))
+    || exclusiveTypes.has(cmd.type) && pending.some(row => row.commandType === "session.rename")
+    || cmd.type === "session.rename" && pending.some(row => row.commandType === cmd.type)) return reject("maintenance_conflict");
+  if (cmd.type === "run.interrupt" && pending.some(receipt => receipt.commandType === cmd.type
+    && next.outbox.find(row => row.receiptId === receipt.receiptId).command.payload.runId === cmd.payload.runId)) return reject("winner_conflict");
+  let facts = [], operation = null;
   if (cmd.type === "run.start") {
     if (next.projection.runs.some(row => row.run.runId === cmd.payload.runId)) return reject("run_conflict");
     if (next.projection.session.launchProfile?.launchProfileId !== cmd.payload.launchProfileId) return reject("profile_mismatch");
     facts = [{ type: "run.starting", runId: cmd.payload.runId, payload: { run: { runId: cmd.payload.runId, sessionId: cmd.sessionId, state: "starting", createdAt: new Date(c.now).toISOString() } } },
       { type: "launch_profile.locked", runId: cmd.payload.runId, payload: { launchProfile: clone(next.projection.session.launchProfile) } }];
-  } else facts = [{ type: "approval.resolved", runId: cmd.payload.runId, payload: { approvalId: cmd.payload.approvalId, nonce: cmd.payload.nonce,
+  } else if (cmd.type === "approval.resolve") facts = [{ type: "approval.resolved", runId: cmd.payload.runId, payload: { approvalId: cmd.payload.approvalId, nonce: cmd.payload.nonce,
     decision: cmd.payload.decision, deviceId: cmd.deviceId, nativeAcknowledged: false, receiptId: result.receipt.receiptId } }];
+  else if (cmd.type === "run.interrupt") {
+    if (writer.run.state === "orphaned") return reject("reconciliation_required");
+    if (writer.run.state !== "stopping") facts = [{ type: "run.stopping", runId: cmd.payload.runId, payload: { reason: "user" } }];
+  } else if (cmd.type === "model.change") {
+    const preview = lifecycle.reduceSession(next.projection.session, { protocolVersion: 1, eventId: result.receipt.receiptId, sessionId: cmd.sessionId, generation: next.projection.cursor.generation,
+      sequence: next.projection.cursor.sequence + 1, createdAt: new Date(c.now).toISOString(), type: "model.changed", runId: null, payload: { launchProfile: clone(selectedProfile) } },
+    { expectedRevision: next.projection.session.revision, writer: null });
+    if (preview.kind !== "transition") return preview;
+    operation = { launchProfile: clone(selectedProfile) };
+  } else if (cmd.type === "session.archive") {
+    if (!id(context.archiveId) || next.outbox.some(row => row.command.type === "session.archive" && row.operation.archiveId === context.archiveId)) return reject("archive_conflict");
+    operation = { archiveId: context.archiveId };
+  } else if (cmd.type === "session.restore") {
+    if (cmd.payload.archiveId !== next.projection.session.archiveId) return reject("archive_conflict");
+  } else if (cmd.type === "context.compact") {
+    // A store/native lookup must bind the actual context owner; array order is
+    // not proof of which historical run owns the current native context.
+    const run = next.projection.runs.find(row => row.run.runId === context.targetRunId);
+    if (!run || run.startedAt === null || !terminal(run.run.state)) return reject("context_unavailable");
+    operation = { runId: run.run.runId };
+  }
   // `project` detaches event IDs/payloads synchronously before its first await.
-  const projected = await project(next, facts, context.eventIds, c.now); if (projected.kind !== "projected") return projected;
-  next.receipts.push(result.receipt); next.outbox.push({ receiptId: result.receipt.receiptId, command: cmd, dispatch: null });
-  return finish(read.expected, next, projected.events, result.receipt.receiptId);
+  let events = [];
+  if (facts.length) {
+    const projected = await project(next, facts, context.eventIds, c.now); if (projected.kind !== "projected") return projected; events = projected.events;
+  } else if (!Array.isArray(context.eventIds) || context.eventIds.length) return reject("invalid_event_ids");
+  next.receipts.push(result.receipt); next.outbox.push({ receiptId: result.receipt.receiptId, command: cmd, dispatch: null, operation });
+  return finish(read.expected, next, events, result.receipt.receiptId);
 }
 function planDispatch(input, receiptId, context) {
   const read = preflight(input, context, { authorization: true }); if (read.kind !== "view") return read;
@@ -133,10 +194,14 @@ function planDispatch(input, receiptId, context) {
   if (next.quarantined) return reject("store_recovery_required");
   const index = next.receipts.findIndex(row => row.receiptId === receiptId), row = next.outbox.find(row => row.receiptId === receiptId);
   if (index < 0 || !row) return reject("receipt_conflict");
-  const receipt = next.receipts[index], cmd = row.command, run = next.projection.runs.find(row => row.run.runId === cmd.payload.runId);
+  const receipt = next.receipts[index], cmd = row.command, run = next.projection.runs.find(run => run.run.runId === boundRunId(row));
   if (receipt.deviceId !== context.authenticatedDeviceId) return reject("device_mismatch");
+  if (cmd.type === "session.restore" ? next.projection.session.session.status !== "archived" || next.projection.session.archiveId !== cmd.payload.archiveId
+    : next.projection.session.session.status !== "active") return reject("session_conflict");
   if (!id(context.incarnationId) || !id(context.attemptId) || next.receipts.some(row => row.attemptId === context.attemptId)) return reject("attempt_mismatch");
   if (cmd.type === "run.start" && run.run.state !== "starting" || cmd.type === "approval.resolve" && run.run.state !== "waiting_approval") return reject("run_conflict");
+  if (cmd.type === "run.interrupt" && run.run.state !== "stopping") return reject("run_conflict");
+  if (exclusiveTypes.has(cmd.type) && next.projection.runs.some(run => !terminal(run.run.state))) return reject("maintenance_conflict");
   if (cmd.type === "approval.resolve") {
     const a = next.projection.approvals.find(row => row.approval.approvalId === cmd.payload.approvalId);
     if (context.now >= Date.parse(a.approval.expiresAt)) return reject("approval_expired");
@@ -197,7 +262,7 @@ function effectRead(input, receiptId, context) {
   if (context.evidenceVerified !== true || !contracts.validate("nativeEvidence", context.evidence).valid
     || row.dispatch?.incarnationId !== context.incarnationId || row.dispatch?.attemptId !== context.attemptId) return reject("evidence_mismatch");
   return { ...read, index, row, evidence: clone(context.evidence),
-    run: read.state.projection.runs.find(run => run.run.runId === row.command.payload.runId) };
+    run: read.state.projection.runs.find(run => run.run.runId === boundRunId(row)) };
 }
 async function planRunStartAcknowledgement(input, receiptId, context) {
   const read = effectRead(input, receiptId, context); if (read.kind !== "view") return read;
@@ -245,7 +310,7 @@ async function planNativeFailure(input, receiptId, context) {
   if (row.command.type === "approval.resolve") {
     const a = next.projection.approvals.find(a => a.approval.approvalId === row.command.payload.approvalId);
     if (context.nonce !== a.approval.nonce || context.nativeRequestId !== a.approval.nativeRequestId) return reject("evidence_mismatch");
-  } else if (context.runId !== run.run.runId || run.startedAt !== null) return reject("reconciliation_required");
+  } else if (row.command.type === "run.start" && (context.runId !== run.run.runId || run.startedAt !== null)) return reject("reconciliation_required");
   const result = commands.transitionReceipt(next.receipts[index], { type: "settle", attemptId: context.attemptId,
     outcome: { status: "failed", code: context.code, resultReference: null, evidence: read.evidence } }, { expectedRevision: context.receiptRevision, now: context.now });
   if (result.kind !== "transition") return result;
@@ -263,12 +328,80 @@ async function planDeliveryUncertain(input, receiptId, context) {
   if (index < 0 || !row || row.dispatch?.incarnationId !== context.incarnationId || row.dispatch?.attemptId !== context.attemptId) return reject("attempt_mismatch");
   const result = commands.transitionReceipt(next.receipts[index], { type: "uncertain" }, { expectedRevision: context.receiptRevision, now: context.now });
   if (result.kind !== "transition") return result;
-  const run = next.projection.runs.find(run => run.run.runId === row.command.payload.runId); let events = [];
-  if (!terminal(run.run.state) && run.run.state !== "orphaned") {
+  const run = next.projection.runs.find(run => run.run.runId === boundRunId(row)); let events = [];
+  if (run && !terminal(run.run.state) && run.run.state !== "orphaned") {
     const projected = await project(next, [{ type: "run.orphaned", runId: run.run.runId, payload: { reason: "transport_lost" } }], context.eventIds, context.now);
     if (projected.kind !== "projected") return projected; events = projected.events;
   }
   next.receipts[index] = result.receipt; return finish(read.expected, next, events, receiptId);
 }
+async function planOperationAcknowledgement(input, receiptId, context) {
+  const read = preflight(input, context); if (read.kind !== "view") return read;
+  const next = read.state, index = next.receipts.findIndex(row => row.receiptId === receiptId), row = next.outbox.find(row => row.receiptId === receiptId);
+  if (index < 0 || !row || ["run.start", "approval.resolve"].includes(row.command.type)) return reject("receipt_conflict");
+  const cmd = row.command;
+  if (context.evidenceVerified !== true || !evidenceShape(context.evidence, ["session.rename", "session.archive", "session.restore", "model.change"].includes(cmd.type))
+    || row.dispatch?.incarnationId !== context.incarnationId || row.dispatch?.attemptId !== context.attemptId) return reject("evidence_mismatch");
+  let facts = [], reference = null;
+  if (cmd.type === "run.interrupt") {
+    if (context.runId !== cmd.payload.runId) return reject("evidence_mismatch"); reference = cmd.payload.runId;
+  } else if (cmd.type === "session.rename") {
+    if (context.title !== cmd.payload.title) return reject("evidence_mismatch");
+    facts = [{ type: "session.updated", runId: null, payload: { title: cmd.payload.title } }];
+  } else if (cmd.type === "model.change") {
+    if (!isDeepStrictEqual(context.launchProfile, row.operation.launchProfile)) return reject("evidence_mismatch");
+    facts = [{ type: "model.changed", runId: null, payload: { launchProfile: clone(row.operation.launchProfile) } }]; reference = cmd.payload.launchProfileId;
+  } else if (cmd.type === "session.archive" || cmd.type === "session.restore") {
+    reference = cmd.type === "session.archive" ? row.operation.archiveId : cmd.payload.archiveId;
+    if (context.archiveId !== reference) return reject("evidence_mismatch");
+    facts = [{ type: cmd.type === "session.archive" ? "session.archived" : "session.restored", runId: null, payload: { archiveId: reference } }];
+  } else if (cmd.type === "context.compact") {
+    if (context.runId !== row.operation.runId) return reject("evidence_mismatch"); reference = row.operation.runId;
+    facts = [{ type: "context.compacted", runId: reference, payload: { beforeTokens: context.beforeTokens, afterTokens: context.afterTokens } }];
+  }
+  const result = commands.transitionReceipt(next.receipts[index], { type: "settle", attemptId: context.attemptId,
+    outcome: { status: "succeeded", code: "effect_confirmed", resultReference: reference, evidence: clone(context.evidence) } }, { expectedRevision: context.receiptRevision, now: context.now });
+  if (result.kind !== "transition") return result;
+  let events = [];
+  if (facts.length) {
+    const projected = await project(next, facts, context.eventIds, context.now); if (projected.kind !== "projected") return projected; events = projected.events;
+  } else if (!Array.isArray(context.eventIds) || context.eventIds.length) return reject("invalid_event_ids");
+  next.receipts[index] = result.receipt; return finish(read.expected, next, events, receiptId);
+}
+async function planRunTerminal(input, runId, context) {
+  const read = preflight(input, context); if (read.kind !== "view") return read;
+  const next = read.state, run = next.projection.runs.find(row => row.run.runId === runId);
+  if (!run || terminal(run.run.state)) return reject("run_conflict");
+  if (!["current_store", "restored_backup", "unknown"].includes(context.source)) return reject("missing_recovery_context");
+  if (context.source !== "current_store" && !next.quarantined) return reject("store_recovery_required");
+  // The actual adapter/store must verify the owned source and persist proof.
+  // These are explicit trusted assertions, never fields trusted from a Client.
+  if (context.runtimeVerified !== true || context.evidenceVerified !== true || !evidenceShape(context.evidence)
+    || !id(context.incarnationId) || context.sessionId !== next.projection.cursor.sessionId || context.runId !== runId
+    || context.nativeRunId !== run.nativeRunId) return reject("evidence_mismatch");
+  if (!["run.completed", "run.failed", "run.interrupted"].includes(context.type)
+    || projectionModule.canonicalJSON(context.payload, 65536) === null) return reject("invalid_payload");
+  const facts = next.projection.approvals.filter(row => row.approval.runId === runId && row.approval.status === "pending").map(row =>
+    context.now >= Date.parse(row.approval.expiresAt) ? { type: "approval.expired", runId, payload: { approvalId: row.approval.approvalId } }
+      : { type: "approval.cancelled", runId, payload: { approvalId: row.approval.approvalId, reason: "Run ended before a decision" } });
+  facts.push({ type: context.type, runId, payload: clone(context.payload) });
+  const proof = { runId, sessionId: context.sessionId, incarnationId: context.incarnationId, nativeRunId: context.nativeRunId, evidence: clone(context.evidence) };
+  const canRejectUnsent = context.source === "current_store" && !next.quarantined, now = context.now;
+  const projected = await project(next, facts, context.eventIds, now); if (projected.kind !== "projected") return projected;
+  const outbox = new Map(next.outbox.map(row => [row.receiptId, row]));
+  for (let i = 0; i < next.receipts.length; i++) {
+    const receipt = next.receipts[i], row = outbox.get(receipt.receiptId);
+    if (boundRunId(row) !== runId || !["run.start", "approval.resolve", "run.interrupt"].includes(row.command.type)) continue;
+    let action = null;
+    if (receipt.state === "accepted" && canRejectUnsent) action = { type: "reject", code: "run_ended_before_dispatch" };
+    else if (["dispatching", "awaiting_confirmation"].includes(receipt.state)) action = { type: "uncertain" };
+    if (action) {
+      const moved = commands.transitionReceipt(receipt, action, { now, expectedRevision: receipt.revision });
+      if (moved.kind !== "transition") return moved; next.receipts[i] = moved.receipt;
+    }
+  }
+  const result = finish(read.expected, next, projected.events);
+  return result.kind === "transaction" ? { ...result, proof } : result;
+}
 module.exports = { checkView, initialView, planAdmission, planDispatch, planPipeAccepted, planApprovalAcknowledgement, planRecovery,
-  planRunStartAcknowledgement, planRejectBeforeDispatch, planNativeFailure, planDeliveryUncertain };
+  planRunStartAcknowledgement, planRejectBeforeDispatch, planNativeFailure, planDeliveryUncertain, planOperationAcknowledgement, planRunTerminal };

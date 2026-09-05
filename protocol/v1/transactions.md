@@ -1,20 +1,19 @@
 # Receipt/entity/outbox transaction proposals
 
-Plan 1.17. `protocol/transaction-state.js` is a Host-only **reference transaction
+Plan 1.18. `protocol/transaction-state.js` is a Host-only **reference transaction
 planner**, not a database or native dispatcher. It composes existing receipt
 contracts and the complete projection reducer over one detached, consistent
 session view. None of its results imply an operation was persisted or sent.
 
 ## Implemented scope
 
-The first native-effect integration covers `run.start` and `approval.resolve`,
-dispatch-marker/pipe-acceptance transitions, correlated approval acknowledgement,
-current-store versus backup recovery, normal run-start confirmation, verified
-non-application failure, pre-dispatch rejection/starting-writer cleanup, and
-uncertain-delivery/orphan proposals. Other six command transaction builders,
-terminal/cancellation and maintenance reservations are **not implemented here
-yet**. Unsupported builders reject explicitly; no live endpoint uses this
-module and no new protocol capability is advertised.
+Admission now covers **all eight declared commands**, with dispatch/confirmation,
+current-store versus backup recovery, normal startup, verified non-application,
+pre-dispatch cleanup, uncertainty, exclusive maintenance reservations and
+terminal/cancellation composition. These remain reference proposals. Native
+adapter/evidence ingestion, actual durable storage/proof material, authenticated
+transport and live rollout are **not implemented here**. No live endpoint uses
+this module and no new protocol capability is advertised.
 
 `initialView` accepts an already validated, nonempty session projection plus
 opaque store identity/generation. The view includes a store revision, explicit
@@ -32,6 +31,9 @@ unacknowledged success, mismatched evidence/attempt and invalid private rows.
 The view is bounded at 64 MiB and 5,000 receipts/outbox rows; it never evicts active
 or uncertain work to admit another command. The projection has its own stricter
 bounds. Prompts belong only in the private outbox, not receipts or diagnostics.
+Outbox entries now also carry `operation`: a frozen target profile for model
+change, reserved archive ID for archive, explicit context-owning run ID for
+compaction, or `null`. It is not arbitrary provider/credential configuration.
 
 ## Atomic proposed operations
 
@@ -39,6 +41,9 @@ bounds. Prompts belong only in the private outbox, not receipts or diagnostics.
 | --- | --- |
 | `planAdmission(run.start)` | Fresh authorization/preflight, unused run ID, capture and lock existing session profile, reserve starting writer, two journal events, accepted receipt and exact bounded private outbox |
 | `planAdmission(approval.resolve)` | Fresh authorization, pending run/approval/nonce/scope/expiry checks, one decision winner, one journal event, accepted receipt and private outbox; no native ACK or automatic resume |
+| `planAdmission(run.interrupt)` | Record stopping intent once, retain pending approvals, accepted receipt/outbox; a later explicit retry with a new key after failed delivery does not rewrite the stop intent |
+| `planAdmission(session.rename)` | Reserve one pending title change; no optimistic title mutation; old receipt replay stays read-only |
+| `planAdmission(model.change/archive/restore/context.compact)` | Reserve one exclusive maintenance effect and freeze its exact target; no run may start while accepted, dispatched or uncertain maintenance remains |
 | `planDispatch` | Recheck grants/device, quarantine, run state and approval expiry; CAS receipt revision into a unique attempt bound to an explicit native incarnation; no IO |
 | `planPipeAccepted` | Same attempt/incarnation, receipt to awaiting confirmation; no approval/run mutation |
 | `planApprovalAcknowledgement` | Trusted verified evidence for exact native request/nonce/attempt/incarnation; succeeded receipt plus approval ACK row plus one event; no automatic run resume |
@@ -46,6 +51,8 @@ bounds. Prompts belong only in the private outbox, not receipts or diagnostics.
 | `planRejectBeforeDispatch` | Current, non-quarantined store's accepted receipt becomes failed; an unsent starting/orphaned writer becomes failed atomically; retain receipt/outbox for idempotent replay |
 | `planNativeFailure` | Verified exact attempt was not applied; failed receipt plus failed unstarted run where appropriate; no guessed outcome after a transport failure |
 | `planDeliveryUncertain` | Same attempt/incarnation goes uncertain; retain orphaned writer and private command; no resend |
+| `planOperationAcknowledgement` | Confirm exact title/profile/archive/context owner and original attempt/incarnation; atomically settle receipt and apply the corresponding fact; interrupt ACK alone has no terminal fact |
+| `planRunTerminal` | Verified runtime/terminal fact, cancel or expire every pending approval first, preserve partial history, release terminal writer and reject provably unsent commands or mark attempted deliveries uncertain together |
 | `planRecovery(current_store)` | In-flight receipts become uncertain and nonterminal writer becomes orphaned; retain writer and partial history; no redispatch |
 | `planRecovery(restored_backup/unknown)` | Quarantine entire view even if all old receipts say accepted; no implicit unquarantine or new native effect |
 
@@ -117,6 +124,44 @@ instead retain an uncertain receipt and orphaned writer. Approval delivery
 failure does not reverse the recorded user decision, fabricate native ACK or
 automatically resume; the failed delivery remains visible through its receipt.
 
+## Maintenance and terminal safety
+
+Pending receipt state is the reservation: accepted, dispatching,
+awaiting-confirmation and uncertain all retain it. The real DB needs a partial
+unique index/lock on this shared session constraint, not only per-command keys.
+Model/archive/restore/compact exclude any active or orphaned writer and each other.
+They also exclude pending rename to prevent filesystem/metadata reordering. One
+rename may coexist with a coding run, but a second unconfirmed rename is refused.
+Native/local effect serialization and supported capabilities remain adapter gates.
+
+Confirmation, not admission, changes title/profile/archive/context projection.
+Model admission uses lifecycle preview to reject fork-required route/auth changes;
+the outbox freezes the exact selected profile. Same-key replay does not require
+reloading that profile from a catalog. Archive IDs are never reused from an older
+receipt; restore requires the currently archived ID. Compaction requires an
+explicit trusted `targetRunId` lookup of a known started terminal run: array order
+is not proof of context ownership. Unknown limit remains `null`.
+
+Host-local metadata/filesystem confirmations may use `host_commit` evidence;
+native effects use native ACK/readback. This kind is not permission to assume a
+file rename succeeded: the actual Host must verify and persist the exact effect
+before proposing confirmation. SQLite cannot roll back a filesystem action.
+Unknown maintenance retains exclusion until verified reconciliation, without
+automatic retry. A failed explicit interrupt can be requested again under a new
+key while stopping; no automatic retry or invented terminal result follows.
+
+`planRunTerminal` requires explicit verified runtime identity and native evidence,
+matching session/run/native run ID, plus an explicit store source. Its returned
+`proof` is an opaque evidence binding, **not the actual proof material or a proof
+service**; the real adapter/store must establish native incarnation ownership and
+persist the verified record. It first expires overdue pending approvals or
+cancels remaining pending approvals, then applies the terminal fact. In a verified
+current non-quarantined store, related accepted commands become failed as unsent;
+attempted deliveries become uncertain, not assumed successful. Natural run
+completion does not prove a stop command caused it. A quarantined backup retains
+accepted ambiguity even after a verified terminal observation. Bad final events
+roll back cancellations, receipt updates, partial history and cursor together.
+
 ## Evidence and remaining work
 
 `test/transaction-state.test.js` covers detached start admission, two-device
@@ -129,7 +174,12 @@ failed-key replay, verified non-application versus uncertainty and rollback of
 stale/malformed cleanup. The commit model checks the full expected view token;
 it is deliberately **not SQL concurrency, fsync, power-loss or native evidence**.
 
-Next: complete the remaining command/effect builders and fixtures, then integrate
+The suite also covers all eight command admissions/effects, frozen profiles and
+fork protection, exact archive/restore, explicit context ownership, interrupted
+delivery/manual new intent, start-versus-maintenance CAS, all three terminal kinds,
+expiry, backup ambiguity and late terminal rollback.
+
+Next: native/evidence ingestion and durable transaction fixtures, then integrate
 an actual durable store according to the accepted phase gates, including bounded
 outbox retention/tombstones, journal uniqueness beyond the Client window, proof
 storage, rebuild, crash/backup drills and live adapter/transport compatibility.

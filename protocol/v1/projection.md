@@ -131,8 +131,8 @@ These are deterministic synthetic tests, **not browser smoothness measurements**
 Full-state validation/clone work is not yet off the UI thread; integration needs
 worker/paging/performance gates before it can replace the current live UI.
 
-Initial start/approval receipt/entity/outbox transaction proposals are now in
-[transactions.md](transactions.md). Still required: remaining effect builders,
+All eight command/maintenance/terminal receipt/entity/outbox proposals are now in
+[transactions.md](transactions.md). Still required: native/evidence ingestion,
 real durable admission/CAS/rollback/crash/rebuild tests; native adapters that provide these
 facts; authenticated snapshot transport; rolling shipped-client compatibility.
 Production 3.0.3 and its legacy HTTP/SSE behavior are unchanged.
