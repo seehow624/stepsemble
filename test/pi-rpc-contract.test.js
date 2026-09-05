@@ -117,26 +117,44 @@ test("RPC correlation binds process, generated request ID and command type", asy
   await assert.rejects(context.rpcCommand("a", { type: "get_state" }), /too many pending/);
 });
 
-test("isolated HTTP native boundary preserves responses, reconnect replay, and approval false", { skip: process.platform === "win32" }, async t => {
-  // Windows frame/correlation tests above run normally; this Unix shebang peer
-  // is not a claim of native Windows Pi CLI verification.
+test("isolated HTTP native boundary preserves responses, reconnect replay, and approval false", async t => {
+  // Windows exercises an actual batch shim and child pipes, not a native
+  // provider/model call. The frozen peer is synthetic on every platform.
   const { freePort, waitForServer, stopServer } = await import("../scripts/host-performance-baseline.mjs");
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-pi-contract-"));
-  const peer = path.join(home, "pi");
-  await fs.copyFile(path.join(root, "test-support/pi-contract-peer.cjs"), peer); await fs.chmod(peer, 0o700);
+  const script = path.join(home, process.platform === "win32" ? "pi-peer.cjs" : "pi");
+  const peer = process.platform === "win32" ? path.join(home, "pi.cmd") : script;
+  await fs.copyFile(path.join(root, "test-support/pi-contract-peer.cjs"), script); await fs.chmod(script, 0o700);
+  if (process.platform === "win32") await fs.writeFile(peer, `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`);
   const port = await freePort();
-  const child = spawn(process.execPath, [path.join(root, "server.js")], { cwd: home, env: { PATH: path.dirname(process.execPath), PI_HOME: home, PI_BIN: peer, STEPSEMBLE_HOST: "127.0.0.1", STEPSEMBLE_PORT: String(port), STEPSEMBLE_ORPHAN_EXIT: "0", STEPSEMBLE_TEST_PI_FIXTURE: path.join(root, "protocol/native/pi/0.84.2.json") }, stdio: ["ignore", "pipe", "pipe"] });
-  const streams = [];
-  t.after(async () => { for (const stream of streams) await stream.reader.cancel().catch(() => {}); await stopServer(child); await fs.rm(home, { recursive: true, force: true }); });
+  const child = spawn(process.execPath, [path.join(root, "server.js")], { cwd: home, env: { PATH: path.dirname(process.execPath), ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}), PI_HOME: home, PI_BIN: peer, STEPSEMBLE_HOST: "127.0.0.1", STEPSEMBLE_PORT: String(port), STEPSEMBLE_ORPHAN_EXIT: "0", STEPSEMBLE_TEST_PI_FIXTURE: path.join(root, "protocol/native/pi/0.84.2.json") }, stdio: ["ignore", "pipe", "pipe"] });
+  const streams = [], owned = [];
+  let post;
+  t.after(async () => {
+    for (const stream of streams) await stream.reader.cancel().catch(() => {});
+    for (const item of owned) await post?.("/api/close", { sid: item.sid }).catch(() => {});
+    for (let i = 0; i < 60 && owned.some(item => { try { process.kill(item.pid, 0); return true; } catch { return false; } }); i++) await new Promise(resolve => setTimeout(resolve, 50));
+    await stopServer(child);
+    for (const item of owned) assert.throws(() => process.kill(item.pid, 0), "owned Pi peer must exit before temporary files are removed");
+    await fs.rm(home, { recursive: true, force: true });
+  });
   await waitForServer(child); child.stdout.resume(); child.stderr.resume();
   const base = `http://127.0.0.1:${port}`;
   const token = (await fs.readFile(path.join(home, ".config/stepsemble/token"), "utf8")).trim();
   const login = await fetch(base + "/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) });
   const cookie = login.headers.get("set-cookie").split(";", 1)[0];
-  const post = (url, body) => fetch(base + url, { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(5000) });
-  const a = await (await post("/api/open", { cwd: home })).json();
+  post = (url, body) => fetch(base + url, { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(5000) });
+  assert.equal((await (await fetch(base + "/api/version", { headers: { cookie } })).json()).version, "synthetic-pi-contract-0.84.2");
+  assert.deepEqual((await (await fetch(base + "/api/models", { headers: { cookie } })).json()).models, []);
+  const a = await (await post("/api/open", { cwd: home, name: "Synthetic name with spaces" })).json();
   const b = await (await post("/api/open", { cwd: home })).json();
   const rpc = (sid, command) => post("/api/rpc-cmd", { sid, command });
+  for (const item of [a, b]) {
+    const launched = await (await rpc(item.sid, { type: "fixture_args" })).json();
+    owned.push({ sid: item.sid, pid: launched.data.pid });
+    assert.ok(launched.data.args.includes("--mode"));
+    if (item === a) assert.deepEqual(launched.data.args, ["--mode", "rpc", "--name", "Synthetic name with spaces"]);
+  }
   const state = await (await rpc(a.sid, { type: "get_state", id: "client-controlled" })).json();
   assert.equal(state.success, true); assert.notEqual(state.id, "client-controlled");
   async function stream(after, lastId) {
@@ -168,6 +186,7 @@ test("isolated HTTP native boundary preserves responses, reconnect replay, and a
   const waiting = rpc(a.sid, { type: "prompt", message: "/stepsemble-probe confirm" });
   const dialog = await next(second, value => value.type === "extension_ui_request" && value.method === "confirm");
   await second.reader.cancel();
+  assert.equal((await (await post("/api/close", { sid: a.sid })).json()).closed, false, "leaving a view cannot kill a pending native dialog");
   const third = await stream(dialog.id); await next(third, value => value.type === "connected");
   const restored = await next(third, value => value.method === "confirm");
   assert.equal(restored.value.id, dialog.value.id); assert.equal(Number.isNaN(restored.id), true, "snapshot must not advance event cursor");
@@ -194,12 +213,4 @@ test("isolated HTTP native boundary preserves responses, reconnect replay, and a
   assert.equal((await rpc(a.sid, { type: "fixture_malformed" })).status, 502);
   assert.equal((await fetch(base + "/api/health")).status, 200);
   assert.equal((await rpc(b.sid, { type: "get_state" })).status, 200);
-});
-test("an old-host native UI reply is dismissed without retargeting the current device", async () => {
-  const source = (await fs.readFile(path.join(root, "public/app.js"), "utf8")).replace(/\r\n/g, "\n");
-  const start = source.indexOf("function finishExtensionUi("), end = source.indexOf("\n}\n", start) + 2;
-  const sent = [];
-  const context = vm.createContext({ extensionUiRequest: { sid: "a", id: "req", hostBase: "/r/old" }, apiBase: "/r/new", el: { extensionUiSheet: { classList: { add() {} } }, extensionUiInput: {} }, post: (...args) => { sent.push(args); return Promise.resolve(); } });
-  vm.runInContext(source.slice(start, end), context);
-  context.finishExtensionUi({ confirmed: true }); assert.equal(sent.length, 0); assert.equal(context.extensionUiRequest, null);
 });

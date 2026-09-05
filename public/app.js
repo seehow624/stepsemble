@@ -154,6 +154,7 @@ const el = {
   extensionUiOptions: $("extension-ui-options"), extensionUiInput: $("extension-ui-input"),
   extensionUiEditor: $("extension-ui-editor"), extensionUiCancel: $("extension-ui-cancel"),
   extensionUiSubmit: $("extension-ui-submit"),
+  extensionUiStatus: $("extension-ui-status"),
   imageLightbox: $("image-lightbox"), imageLightboxImg: $("image-lightbox-img"),
   imageLightboxCaption: $("image-lightbox-caption"), imageLightboxClose: $("image-lightbox-close"),
   onboarding: $("onboarding"), onboardingClose: $("onboarding-close"), onboardingEyebrow: $("onboarding-eyebrow"), onboardingTitle: $("onboarding-title"), onboardingBody: $("onboarding-body"), onboardingPoints: $("onboarding-points"), onboardingProgress: document.querySelectorAll("#onboarding .onboarding-progress span"), onboardingPreferences: $("onboarding-preferences"), onboardingLanguage: $("onboarding-language"), onboardingLanguageLabel: $("onboarding-language-label"), onboardingAppearance: $("onboarding-appearance"), onboardingAppearanceLabel: $("onboarding-appearance-label"), onboardingBack: $("onboarding-back"), onboardingSkip: $("onboarding-skip"), onboardingNext: $("onboarding-next"),
@@ -302,6 +303,7 @@ let contextStatsState = "awaiting"; // awaiting | ready | unavailable
 let contextStatsRequest = null;
 let contextStatsRequestSequence = 0;
 let extensionUiRequest = null;
+const nativeDialogs = new StepsembleDialogs.Queue();
 let activityWatchdog = null;
 let runTimerInterval = null;
 let expandedPinnedSessions = false;
@@ -753,6 +755,7 @@ function showLogin() {
   protocolConnections.reset();
   stopUpdateCenterPolling();
   closeChat(true);
+  closeProviderAuthClient();
   el.app.classList.add("hidden");
   el.login.classList.remove("hidden");
   void initLoginOnboarding();
@@ -1107,6 +1110,7 @@ function switchMachine(id, silent) {
   const wasChatOpen = !el.viewChat.classList.contains("hidden");
   const preserveRunning = !!(rpc && (rpc.streaming || rpc.connectionLost));
   closeChat(preserveRunning); // 切機器時不殺正在執行的工作，閒置 RPC 則正常關閉
+  closeProviderAuthClient(); // Detach locally; never retarget the old Host's login.
   el.viewChat.classList.add("hidden");
   el.viewChat.style.transform = "";
   resetSettingsOverlay();
@@ -3869,6 +3873,8 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
 }
 
 function closeChat(silent) {
+  const awaitingNative = rpc && !rpc.generic && nativeDialogs.count(apiBase, rpc.sid) > 0;
+  resetNativeDialogs();
   if (rpc) {
     const generic = !!rpc.generic;
     rpc.streamEnded = true;
@@ -3880,7 +3886,7 @@ function closeChat(silent) {
     // Generic CLI tasks are supervised by the Agent Hub and intentionally keep
     // running when the user leaves the conversation. Native Pi keeps its
     // historical close-vs-preserve semantics.
-    if (!generic && !silent) post("/api/close", { sid: rpc.sid }).catch(() => {});
+    if (!generic && !silent && !awaitingNative) post("/api/close", { sid: rpc.sid }).catch(() => {});
     rpc = null;
   }
   currentAgentTaskId = null;
@@ -4840,24 +4846,72 @@ function attachToolResult(toolName, isError, text, container = el.messages) {
   }
 }
 
-function finishExtensionUi(response) {
-  const request = extensionUiRequest;
-  if (!request) return;
+function dismissNativeDialog(request) {
+  if (extensionUiRequest !== request) return;
   extensionUiRequest = null;
   el.extensionUiSheet.classList.add("hidden");
+  el.extensionUiInput.value = "";
+  el.extensionUiEditor.value = "";
   el.extensionUiInput.type = "text";
+  el.extensionUiStatus.textContent = "";
+}
+function resetNativeDialogs() {
+  nativeDialogs.clear();
+  if (extensionUiRequest && !extensionUiRequest.kind) dismissNativeDialog(extensionUiRequest);
+}
+function suspendNativeDialog() {
+  const request = extensionUiRequest;
+  if (!request || request.kind) return;
+  if (request.method === "input") request.draft = el.extensionUiInput.value;
+  if (request.method === "editor") request.draft = el.extensionUiEditor.value;
+  dismissNativeDialog(request);
+}
+function refreshNativeDialogControls() {
+  const request = extensionUiRequest;
+  if (!request || request.kind) return;
+  for (const control of [el.extensionUiSubmit, el.extensionUiCancel, el.extensionUiInput, el.extensionUiEditor, ...el.extensionUiOptions.querySelectorAll("button")]) control.disabled = request.sending;
+  el.extensionUiStatus.textContent = request.sending ? tKey("dialog.sending")
+    : request.failed ? tKey("dialog.retry") : tKey("dialog.queued", { count: nativeDialogs.count(request.hostBase, request.sid) });
+}
+function renderNextNativeDialog() {
+  if (providerAuthRun || !rpc?.sid || rpc.generic) return;
+  if (extensionUiRequest) { refreshNativeDialogControls(); return; }
+  const next = nativeDialogs.next(apiBase, rpc.sid);
+  if (next) renderNativeDialog(next);
+}
+async function finishExtensionUi(response, expected = extensionUiRequest) {
+  const request = extensionUiRequest;
+  if (!request || request !== expected) return;
+  if (request.kind === "provider-notice") { if (response.cancelled) await cancelProviderAuth(); return; }
   if (request.kind === "provider-auth") {
+    if (request.hostBase !== apiBase || providerAuthRun?.runId !== request.runId) return;
+    extensionUiRequest = null;
+    el.extensionUiSheet.classList.add("hidden");
+    el.extensionUiInput.type = "text";
     providerAuthRequest = null;
     el.extensionUiInput.value = "";
-    post("/api/provider-auth/respond", { runId: request.runId, requestId: request.id, ...response })
+    await post("/api/provider-auth/respond", { runId: request.runId, requestId: request.id, ...response })
       .catch((e) => toast(tKey("runtime.providerReplyFailed", { detail: e.message }), true));
     return;
   }
-  // A dialog belongs to the host that emitted it. A later host switch must
-  // never retarget an old approval to whichever device is selected now.
-  if (request.hostBase !== apiBase) return;
-  post("/api/rpc-ui", { sid: request.sid, id: request.id, ...response })
-    .catch((e) => toast(tKey("runtime.piReplyFailed", { detail: e.message }), true));
+  if (request.hostBase !== apiBase || request.sid !== rpc?.sid) {
+    nativeDialogs.complete(request); dismissNativeDialog(request); return;
+  }
+  if (!nativeDialogs.begin(request)) return;
+  refreshNativeDialogControls();
+  try {
+    // No automatic side-effect retry. A timeout can mean an accepted reply
+    // whose response was lost; the Host's pending-ID guard decides any retry.
+    const result = await api("/api/rpc-ui", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sid: request.sid, id: request.id, ...response }), signal: AbortSignal.timeout(12000) });
+    if (result?.sent !== true) throw new Error("Native reply delivery was not confirmed");
+    if (nativeDialogs.complete(request)) { dismissNativeDialog(request); renderNextNativeDialog(); }
+  } catch (error) {
+    if (!nativeDialogs.contains(request) || request.hostBase !== apiBase || request.sid !== rpc?.sid) return;
+    if (error.status === 409 || error.status === 404) {
+      nativeDialogs.complete(request); dismissNativeDialog(request); renderNextNativeDialog();
+    } else { nativeDialogs.failed(request); refreshNativeDialogControls(); }
+    toast(tKey("runtime.piReplyFailed", { detail: error.message }), true);
+  }
 }
 
 function showExtensionUi(ev, sid) {
@@ -4890,8 +4944,14 @@ function showExtensionUi(ev, sid) {
     return;
   }
 
-  if (extensionUiRequest?.sid === sid && extensionUiRequest.id === ev.id && extensionUiRequest.hostBase === apiBase) return;
-  extensionUiRequest = { sid, id: ev.id, method, hostBase: apiBase };
+  try { nativeDialogs.enqueue(apiBase, sid, ev); }
+  catch { toast(tKey("dialog.invalid"), true); return; }
+  renderNextNativeDialog();
+}
+
+function renderNativeDialog(request) {
+  const { event: ev, method } = request;
+  extensionUiRequest = request;
   el.extensionUiKind.textContent = method.toUpperCase();
   el.extensionUiTitle.textContent = ev.title || "需要你的回覆";
   el.extensionUiMessage.textContent = ev.message || "";
@@ -4909,32 +4969,34 @@ function showExtensionUi(ev, sid) {
       button.type = "button";
       button.className = "action-row extension-ui-option";
       button.textContent = label;
-      button.addEventListener("click", () => finishExtensionUi({ value }));
+      button.addEventListener("click", event => { if (event.detail < 2) void finishExtensionUi({ value }, request); });
       el.extensionUiOptions.appendChild(button);
     }
   } else if (method === "confirm") {
     el.extensionUiSubmit.textContent = "確認";
     el.extensionUiSubmit.classList.remove("hidden");
-    el.extensionUiSubmit.onclick = () => finishExtensionUi({ confirmed: true });
+    el.extensionUiSubmit.onclick = event => { if (event.detail < 2) void finishExtensionUi({ confirmed: true }, request); };
   } else if (method === "input") {
     el.extensionUiInput.placeholder = ev.placeholder || "輸入內容";
-    el.extensionUiInput.value = ev.prefill || "";
+    el.extensionUiInput.value = request.draft ?? ev.prefill ?? "";
     el.extensionUiInput.classList.remove("hidden");
     el.extensionUiSubmit.textContent = "送出";
     el.extensionUiSubmit.classList.remove("hidden");
-    el.extensionUiSubmit.onclick = () => finishExtensionUi({ value: el.extensionUiInput.value });
+    el.extensionUiSubmit.onclick = event => { if (event.detail < 2) void finishExtensionUi({ value: el.extensionUiInput.value }, request); };
   } else if (method === "editor") {
-    el.extensionUiEditor.value = ev.prefill || "";
+    el.extensionUiEditor.value = request.draft ?? ev.prefill ?? "";
     el.extensionUiEditor.classList.remove("hidden");
     el.extensionUiSubmit.textContent = "完成";
     el.extensionUiSubmit.classList.remove("hidden");
-    el.extensionUiSubmit.onclick = () => finishExtensionUi({ value: el.extensionUiEditor.value });
+    el.extensionUiSubmit.onclick = event => { if (event.detail < 2) void finishExtensionUi({ value: el.extensionUiEditor.value }, request); };
   }
   el.extensionUiSheet.classList.remove("hidden");
+  refreshNativeDialogControls();
   if (method === "input") el.extensionUiInput.focus();
   if (method === "editor") el.extensionUiEditor.focus();
 }
-el.extensionUiCancel.addEventListener("click", () => {
+el.extensionUiCancel.addEventListener("click", event => {
+  if (event.detail >= 2) return;
   if (extensionUiRequest) finishExtensionUi({ cancelled: true });
   else if (providerAuthRun) void cancelProviderAuth();
 });
@@ -5083,12 +5145,11 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       showExtensionUi(ev, eventSid);
       break;
     case "extension_ui_closed":
+      nativeDialogs.remove(apiBase, eventSid, ev.id);
       if (extensionUiRequest?.sid === eventSid && extensionUiRequest.id === ev.id && extensionUiRequest.hostBase === apiBase) {
-        extensionUiRequest = null;
-        el.extensionUiSheet.classList.add("hidden");
-        el.extensionUiInput.value = "";
-        el.extensionUiEditor.value = "";
+        dismissNativeDialog(extensionUiRequest);
       }
+      renderNextNativeDialog();
       break;
     case "auto_retry_start":
       setStreaming(true);
@@ -5324,6 +5385,7 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       }
       break;
     case "rpc_exit":
+      resetNativeDialogs();
       // A process exit is also a terminal run boundary when the peer closes
       // before agent_settled. The request may fail, but the identity guards
       // keep a late response from a replaced session out of the dashboard.
@@ -8333,19 +8395,34 @@ function closeProviderAuthClient() {
   try { providerAuthStream?.close(); } catch {}
   providerAuthStream = null;
   providerAuthRequest = null;
-  if (extensionUiRequest?.kind === "provider-auth") extensionUiRequest = null;
+  const hadProviderSheet = !!extensionUiRequest?.kind;
+  if (hadProviderSheet) extensionUiRequest = null;
   providerAuthNotice = "";
   providerAuthUrl = "";
-  el.extensionUiSheet?.classList.add("hidden");
-  el.extensionUiInput.value = "";
-  el.extensionUiInput.type = "text";
+  if (hadProviderSheet) {
+    el.extensionUiSheet?.classList.add("hidden");
+    el.extensionUiInput.value = "";
+    el.extensionUiEditor.value = "";
+    el.extensionUiInput.type = "text";
+    el.extensionUiStatus.textContent = "";
+  }
+  renderNextNativeDialog();
+}
+
+function resetProviderDialogControls() {
+  for (const control of [el.extensionUiSubmit, el.extensionUiCancel, el.extensionUiInput, el.extensionUiEditor]) control.disabled = false;
+  el.extensionUiStatus.textContent = "";
 }
 
 function showProviderAuthPrompt(request, run) {
-  if (!request || !run) return;
+  if (!request || !run || run.hostBase !== apiBase) return;
+  if (extensionUiRequest?.kind === "provider-auth" && extensionUiRequest.runId === run.runId && extensionUiRequest.id === request.id) return;
+  suspendNativeDialog();
   providerAuthNotice = providerAuthNotice || "";
   providerAuthRequest = request;
-  extensionUiRequest = { kind: "provider-auth", runId: run.runId, id: request.id, method: request.type };
+  extensionUiRequest = { kind: "provider-auth", runId: run.runId, id: request.id, method: request.type, hostBase: run.hostBase };
+  const renderedRequest = extensionUiRequest;
+  resetProviderDialogControls();
   el.extensionUiKind.textContent = "PROVIDER LOGIN";
   el.extensionUiTitle.textContent = `登入 ${run.providerName || "Provider"}`;
   el.extensionUiMessage.textContent = [providerAuthNotice, request.message].filter(Boolean).join("\n\n");
@@ -8373,7 +8450,7 @@ function showProviderAuthPrompt(request, run) {
       button.type = "button";
       button.className = "action-row extension-ui-option";
       button.textContent = option.description ? `${option.label} · ${option.description}` : option.label;
-      button.addEventListener("click", () => finishExtensionUi({ value: option.id }));
+      button.addEventListener("click", event => { if (event.detail < 2) void finishExtensionUi({ value: option.id }, renderedRequest); });
       el.extensionUiOptions.appendChild(button);
     }
   } else {
@@ -8382,14 +8459,17 @@ function showProviderAuthPrompt(request, run) {
     el.extensionUiInput.classList.remove("hidden");
     el.extensionUiSubmit.textContent = "送出";
     el.extensionUiSubmit.classList.remove("hidden");
-    el.extensionUiSubmit.onclick = () => finishExtensionUi({ value: el.extensionUiInput.value });
+    el.extensionUiSubmit.onclick = event => { if (event.detail < 2) void finishExtensionUi({ value: el.extensionUiInput.value }, renderedRequest); };
   }
   el.extensionUiSheet.classList.remove("hidden");
   if (request.type !== "select") el.extensionUiInput.focus();
 }
 
 function showProviderAuthNotify(event, run) {
-  if (!event || !run) return;
+  if (!event || !run || run.hostBase !== apiBase) return;
+  suspendNativeDialog();
+  extensionUiRequest = { kind: "provider-notice", runId: run.runId, hostBase: run.hostBase };
+  resetProviderDialogControls();
   const message = event.instructions || event.message || "請依畫面完成登入";
   providerAuthNotice = message;
   providerAuthUrl = event.url || event.verificationUrl || "";
@@ -8477,8 +8557,8 @@ function hideProviderApiKeyEntry() {
 
 function openProviderAuthStream(after = -1) {
   const run = providerAuthRun;
-  if (!run || run.streamEnded) return;
-  const baseAtStart = apiBase;
+  if (!run || run.streamEnded || run.hostBase !== apiBase) return;
+  const baseAtStart = run.hostBase;
   const stream = new EventSource(baseAtStart + "/api/provider-auth/stream?runId=" + encodeURIComponent(run.runId) + "&after=" + encodeURIComponent(after));
   providerAuthStream = stream;
   stream.onopen = () => { run.reconnectAttempt = 0; run.streamReady = true; };
@@ -8514,6 +8594,7 @@ function watchProviderAuth(result, provider) {
   providerAuthNotice = "";
   providerAuthUrl = "";
   providerAuthRun = {
+    hostBase: apiBase,
     runId: result.runId,
     providerName: provider.name,
     lastEventId: -1,
@@ -8531,8 +8612,10 @@ async function beginProviderAuth(authType) {
     setProviderFormError("請先選擇一個 Provider。");
     return;
   }
+  const baseAtStart = apiBase;
   try {
     const result = await post("/api/provider-auth/start", { providerId: provider.id, authType });
+    if (baseAtStart !== apiBase) return;
     closeProviderDialog();
     watchProviderAuth(result, provider);
   } catch (error) {
@@ -8585,6 +8668,7 @@ async function cancelProviderAuth() {
   const run = providerAuthRun;
   if (!run) return;
   closeProviderAuthClient();
+  if (run.hostBase !== apiBase) return;
   try { await post("/api/provider-auth/cancel", { runId: run.runId }); } catch {}
 }
 

@@ -27,10 +27,11 @@ const { createHttpUtils } = require("./server/http-utils");
 const { createLineDecoder, activePathIds } = require("./server/stream-safety");
 const { parsePiEvent, validPiCommand, resolvePiResponse, parsePiUiReply } = require("./server/pi-rpc-contract");
 const { createPiUiState, METHODS: PI_UI_METHODS } = require("./server/pi-ui-state");
+const { piLaunch } = require("./server/pi-launch");
 const { negotiate, protocolError } = require("./server/platform-protocol");
 const { createGitChangesService } = require("./server/git-changes");
 const { createPiResourcesService } = require("./server/pi-resources");
-const { createAgentTaskService } = require("./server/agent-connectors");
+const { createAgentTaskService, resolveCommand } = require("./server/agent-connectors");
 const {
   BROWSER_COOKIE,
   LEGACY_BROWSER_COOKIES,
@@ -821,14 +822,14 @@ function decodePairingOffer(value) {
 }
 
 function resolvePiBin() {
-  if (process.env.PI_BIN && fs.existsSync(process.env.PI_BIN)) return process.env.PI_BIN;
-  const candidates = [
+  if (process.env.PI_BIN && fs.existsSync(process.env.PI_BIN)) return path.resolve(process.env.PI_BIN);
+  const candidates = process.platform === "win32" ? [] : [
     path.join(APP_HOME, ".local/bin/pi"),
     "/opt/homebrew/bin/pi",
     "/usr/local/bin/pi",
   ];
   for (const c of candidates) if (fs.existsSync(c)) return c;
-  return "pi"; // fallback：賭 PATH 裡有
+  return resolveCommand({ id: "pi" }, { piBin: "pi" }) || "pi";
 }
 const PI_BIN = resolvePiBin();
 
@@ -836,9 +837,8 @@ let _piVersionCache = null;
 function piVersion() {
   if (_piVersionCache) return _piVersionCache;
   try {
-    _piVersionCache = execFileSync(PI_BIN, ["--version"], { timeout: 8000,
-      env: { ...process.env, HOME: APP_HOME,
-        PATH: path.dirname(PI_BIN) + ":" + (process.env.PATH || "/usr/bin:/bin:/usr/sbin:/sbin") } }).toString().trim().split("\n")[0];
+    const launch = piLaunch(PI_BIN, ["--version"], { env: { ...process.env, HOME: APP_HOME } });
+    _piVersionCache = execFileSync(launch.file, launch.args, { ...launch, detached: false, timeout: 8000 }).toString().trim().split(/\r?\n/)[0];
   } catch { _piVersionCache = "unknown"; }
   return _piVersionCache;
 }
@@ -2062,6 +2062,18 @@ function broadcast(sid, event) {
 
 function killRpcProcess(proc, signal = "SIGTERM") {
   if (!proc || proc.exitCode != null || proc.signalCode != null) return;
+  if (process.platform === "win32" && proc.pid) {
+    // Windows has no Unix process groups. Stop only this owned CLI tree,
+    // including the node.exe child behind a resolved npm shim.
+    const fallback = () => { if (proc.exitCode == null && proc.signalCode == null) { try { proc.kill(signal); } catch {} } };
+    try {
+      const killer = spawn(path.join(process.env.SystemRoot || "C:\\Windows", "System32", "taskkill.exe"), ["/PID", String(proc.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true, timeout: 3000 });
+      killer.once("error", fallback);
+      killer.once("exit", code => { if (code !== 0) fallback(); });
+      killer.unref();
+    } catch { fallback(); }
+    return;
+  }
   // detached 子程序是自己的 process group；只 kill child 會留下 shell/tool 孫進程。
   try { if (proc.pid) process.kill(-proc.pid, signal); } catch {}
   try { proc.kill(signal); } catch {}
@@ -2239,19 +2251,13 @@ async function openRpc({ file, cwd, name }) {
     }
     if (name) args.push("--name", String(name).slice(0, 80));
   }
-  const proc = spawn(PI_BIN, args, {
+  const launch = piLaunch(PI_BIN, args, { env: { ...process.env, HOME: APP_HOME } });
+  const proc = spawn(launch.file, launch.args, {
+    ...launch,
     cwd: spawnCwd,
-    // pi 的 shebang 是 #!/usr/bin/env node —— launchd 環境 PATH 沒有 node，
-    // 必須把 pi 所在目錄（同層就有 node）加進 PATH，否則進程秒死
-    env: {
-      ...process.env,
-      HOME: APP_HOME,
-      PATH: path.dirname(PI_BIN) + ":" + (process.env.PATH || "/usr/bin:/bin:/usr/sbin:/sbin"),
-    },
     stdio: ["pipe", "pipe", "pipe"],
-    // Mini 實測：launchd(gui) 作為祖先時 spawn 出的 pi 會永久卡在 fs.open；
-    // detached 讓子進程脫離 launchd 的進程組繞過此問題（MBP 無此問題，但加了無害）
-    detached: true,
+    // Unix retains its detached process-group behavior; Windows stays in the
+    // parent's console context so pipe IO works reliably.
   });
 
   const sess = {
@@ -2420,15 +2426,11 @@ function queryAvailableModels() {
     };
     const timer = setTimeout(() => finish(new Error("model catalog timeout")), 20000);
     try {
-      proc = spawn(PI_BIN, ["--mode", "rpc"], {
+      const launch = piLaunch(PI_BIN, ["--mode", "rpc"], { env: { ...process.env, HOME: APP_HOME } });
+      proc = spawn(launch.file, launch.args, {
+        ...launch,
         cwd: APP_HOME,
-        env: {
-          ...process.env,
-          HOME: APP_HOME,
-          PATH: path.dirname(PI_BIN) + ":" + (process.env.PATH || "/usr/bin:/bin:/usr/sbin:/sbin"),
-        },
         stdio: ["pipe", "pipe", "pipe"],
-        detached: true,
       });
       const catalogDecoder = createLineDecoder({
         onError: finish,
@@ -4899,7 +4901,7 @@ const server = http.createServer(async (req, res) => {
         const body = await readJSON(req);
         const s = rpcSessions.get(body.sid);
         let closed = false;
-        if (s && !s.exited && s.clients.size === 0) {
+        if (s && !s.exited && s.clients.size === 0 && !s.ui?.size) {
           if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
           killRpcProcess(s.proc); closed = true;
         }

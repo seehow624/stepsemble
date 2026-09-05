@@ -112,3 +112,29 @@ recovery. Windows native Pi launch/arguments/version/model probing remains to be
 fixed and exercised independently of the generic-agent Windows launcher. Real
 model/tool streaming, native version/OS coverage and all original durable gates
 remain open. Production **3.0.3 has not been restarted or deployed**.
+
+## Queued native UI and Windows Pi launch — Plan 1.11 (unreleased)
+
+- The single visible sheet now has a bounded strict-TypeScript FIFO behind it.
+  Failed/unconfirmed sends retain input for manual retry, and each request has
+  one in-flight send with a 12-second deadline. Late replies/old clicks cannot
+  act on the next request. Provider UI suspends native drafts without storing
+  provider secrets in the queue. Host/session switches clear local state.
+- Leaving chat no longer closes an RPC with pending native input, including
+  requests from older clients using `/api/close`. This is process-lifetime
+  protection; page reload does not preserve typed drafts.
+- Pi's version/model/RPC launch paths now share Windows-safe PATH/argv handling
+  and owned-tree termination. Actual Windows batch/direct-script IO tests and
+  the previously skipped native HTTP replay test are in the CI matrix. Batch
+  expansion characters fail explicitly; an owner-configured CLI `.js` path
+  permits literal arguments without silently bypassing a wrapper.
+- Local suite: **181 tests, 179 pass, 2 Windows-only skips**, with strict TS,
+  artifacts, syntax/version and 802-case Ajv conformance passing. Chrome mobile
+  emulation verified real offline/online behavior, preserved input, no automatic
+  retry, FIFO and manual button replies. OS-specific success must be checked in
+  CI; this does not establish native Pi model/provider/tool parity.
+
+See the [native contract](../protocol/native/pi/README.md) for exact constraints.
+Full pending-set reconciliation after replay expiry, durable/idempotent state,
+rolling compatibility, provider-auth recovery and Windows native package/resource
+discovery still remain open. Production and native accounts remain untouched.

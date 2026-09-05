@@ -9,6 +9,7 @@ const golden = JSON.parse(fs.readFileSync(process.env.STEPSEMBLE_TEST_PI_FIXTURE
 const outbound = golden.frames.filter(frame => frame.direction === "out");
 const frame = id => structuredClone(outbound.find(frame => frame.message.id === id).message);
 let pending, held, uiReplies = 0;
+const batch = new Set();
 const emit = message => {
   const bytes = Buffer.from(JSON.stringify(message) + "\r\n");
   // Exercise arbitrary UTF-8 byte fragmentation and native CRLF framing.
@@ -28,11 +29,22 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
     }
   } else if (command.type === "extension_ui_response") {
     uiReplies++;
+    if (batch.delete(command.id)) { emit({ type: "extension_ui_request", id: "batch-notice", method: "notify", message: JSON.stringify({ id: command.id, result: command.value ?? command.confirmed ?? false }) }); return; }
     if (pending && command.id === "native-id-1") {
       const value = frame("native-id-2"); value.message = JSON.stringify({ method: "confirm", result: command.cancelled ? false : command.confirmed }); emit(value);
       const response = frame("prompt-allow"); response.id = pending.id; emit(response); pending = null;
     }
   } else if (command.type === "fixture_counts") respond(command, { uiReplies, heldId: held?.id ?? null });
+  else if (command.type === "fixture_args") respond(command, { args: process.argv.slice(2), cwd: process.cwd(), pid: process.pid });
+  else if (command.type === "fixture_dialogs") {
+    for (const [id, method] of [["batch-input", "input"], ["batch-confirm", "confirm"]]) {
+      const request = structuredClone(outbound.find(item => item.message.type === "extension_ui_request" && item.message.method === method).message);
+      request.id = id; delete request.timeout;
+      request.title = `Synthetic ${method}`;
+      batch.add(id); emit(request);
+    }
+    respond(command, {});
+  }
   else if (command.type === "fixture_hold") held = command;
   else if (command.type === "fixture_release") { if (held) respond(held, { source: "own-session" }); held = null; respond(command, {}); }
   else if (command.type === "fixture_spoof") { emit({ type: "response", id: command.spoofId, command: "fixture_hold", success: true, data: { source: "foreign-session" } }); respond(command, {}); }

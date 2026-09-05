@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.10
+> 計畫版本：1.11
 > 最後更新：2026-09-05
 > 當前產品基線：Stepsemble 3.0.3（由 Pi Harbor 2.13.2 相容遷移）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
@@ -42,13 +42,13 @@
 | Browser 效能基線 | 已量測，保留缺口 | Chrome DevTools 已連線；cold/warm、長 session、30 秒串流、mobile 4× CPU、network/accessibility 見 `browser-performance-baseline.md`；標準 TBT 與完整 trace export 待補 |
 | 階段 0：計畫與基線 | 基線可供後續比較 | 已記錄長對話 INP 537 ms、mobile restore LCP 4859 ms、串流收尾長任務；這不是順滑度驗收通過 |
 | 階段 1：Stepsemble Protocol v1 | 進行中 | handshake／strict TS SDK／29 events＋8 commands schema／pure domain checks／generation-aware replay preflight、802-case Ajv conformance 已實作；Pi 0.84.2 離線 native 57 frames／dialog／persisted resume 已驗；stateful/idempotency、durable snapshot／rolling gate 仍未通過 |
-| Pi 原生 RPC 邊界 | 已實作，未部署 | 嚴格 frame／UI reply、跨程序 response correlation、有界 pending dialog／重連 snapshot、更新／idle 保護；macOS 真實離線 probe 與隔離 HTTP／browser replay 通過；Windows 原生 Pi 啟動與全版本／模型串流未驗收 |
+| Pi 原生 RPC 邊界 | 已實作，未部署 | 嚴格 frame／UI reply、跨程序 correlation、有界 pending dialog、TypeScript FIFO／失敗保留手動重試、更新／idle／離開聊天保護；Windows core launch／PATH／owned tree 已實作且接上真實 runner fixture；不等於原生 Pi 全版本／provider／模型串流驗收 |
 | 優先可靠性修復 | 已實作，未部署 | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
 | Web 卡頓修復 | 部分完成 | 歷史離屏分批建立、相鄰訊息線性合併、局部翻譯、聊天可及性；仍需 virtualization、實機／多輪效能門檻驗收 |
 
 ### 下一個可執行任務
 
-先閱讀 `reliability-followup.md`、`protocol/v1/README.md` 及 `protocol/native/pi/README.md`，再繼續 Phase 1 stateful／idempotency 契約、durable snapshot/cursor recovery 與 rolling compatibility。Pi 0.84.2 的 57-frame 離線 native fixture、process-scoped response correlation、pending dialog 重連已加入，不要重做；下一批也需處理 Web 多對話框佇列／失敗送出恢復、Pi Windows `.cmd` 啟動路徑與原生 runner 驗收。UI handshake、discriminated schema、pure ownership／approval preflight 與 replay batch 檢查已加入。Pure check 與 process-lifetime dialog map 都不代表 durable journal、原子 winner 或 native ACK。模型／tool stream、native 跨版本、virtualization、標準 TBT、raw trace export、實機／多輪與長時間測試仍未完成。
+先閱讀 `reliability-followup.md`、`protocol/v1/README.md` 及 `protocol/native/pi/README.md`，再繼續 Phase 1 stateful／idempotency 契約、durable snapshot/cursor recovery 與 rolling compatibility。Pi 0.84.2 的 57-frame 離線 fixture、response correlation、pending dialog 重連、typed FIFO／failed-send 恢復、Windows core launch／PATH／owned tree 已加入，不要重做。下一個 recovery 缺口是 legacy SSE replay 超界後完整 pending-set 對齊，以及持久化之前的狀態轉移／idempotency 契約；Windows native provider/resource discovery、真正 Pi 全平台／版本／模型與 tool stream 仍未驗收。Pure check 與 process/page-lifetime map 都不是 durable journal、原子 winner 或 native ACK。virtualization、標準 TBT、raw trace export、實機／多輪與長時間測試仍未完成。
 
 ## 一、不可退讓的核心決策
 
@@ -929,6 +929,15 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-05 — Plan 1.11
+
+- 新增 strict TypeScript native dialog queue 與 checked-in browser artifact，32 requests／64 KiB per event／256 KiB replay，Host＋session＋request 隔離與 FIFO；重複 snapshot 不清草稿，queued expiry／close 只移除對應請求。
+- Native 送出改為等待 pipe ACK、12 秒 deadline、阻擋重複送出與舊 click；失敗／結果不明保留內容讓使用者手動重試，不自動重播 side effect。其他 client close 優先於遲到的 HTTP 回覆；已知404／409清掉失效請求。
+- Provider 登入 sheet 暫停 native input 並在關閉後恢復；登入秘密不放 native queue／localStorage，切 Host／登出只 detach 舊登入 UI，不改官方 credentials。離開聊天與 legacy close endpoint 保護 pending Pi；頁面 reload 草稿仍非持久化。
+- Pi RPC／models／version 共用 launch helper；Windows PATH大小寫與分隔符、absolute `.cmd` 參數邊界、literal `.js` fallback、無二次 detached console、bounded owned-tree taskkill。含 shell expansion 的 shim path／argv 明確拒絕，需使用者明確指定 direct CLI，不繞過第三方 wrapper。
+- 本機181 tests＝179 pass／2 Windows-only skip；802-case Ajv／strict TS／generated artifact／syntax／版本檢查通過。新增 Windows argv 與跨平台 HTTP fixture（不再 skip Windows），需以該 commit 的 CI 結果確認，不把本機 skip 當 Windows 成功。
+- Chrome mobile emulation 實際 Offline/online、FIFO、手動送出／取消／false、2 replies／無自動重試通過；provider preemption／stale結果由隔離 controller tests 覆蓋，不做真實登入。正式3.0.3未部署／重啟、品牌與訂閱不變；完整 durable／rolling／native adapter／Rust／App 路線仍未完成。
 
 ### 2026-09-05 — Plan 1.10
 

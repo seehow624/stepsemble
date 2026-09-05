@@ -93,8 +93,9 @@ function safeCommandName(value) {
 }
 
 function resolveFromPath(command, env = process.env) {
-  const rawPath = Object.prototype.hasOwnProperty.call(env || {}, "PATH")
-    ? String(env?.PATH || "") : String(process.env.PATH || "");
+  const pathKey = Object.hasOwn(env, "PATH") ? "PATH"
+    : process.platform === "win32" ? Object.keys(env).find(key => key.toUpperCase() === "PATH") : null;
+  const rawPath = pathKey ? String(env[pathKey] || "") : String(process.env.PATH || "");
   const directories = rawPath.split(path.delimiter).filter(Boolean);
   const extensions = process.platform === "win32"
     ? String(env?.PATHEXT || ".EXE;.CMD;.BAT").split(";").filter(Boolean)

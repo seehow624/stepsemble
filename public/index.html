@@ -782,14 +782,15 @@
 
   <!-- Pi RPC extension UI request：confirm / select / input / editor -->
   <div id="extension-ui-sheet" class="sheet-layer hidden">
-    <div class="sheet extension-ui-sheet">
+    <div class="sheet extension-ui-sheet" role="dialog" aria-modal="true" aria-labelledby="extension-ui-title">
       <div class="sheet-handle"></div>
       <p id="extension-ui-kind" class="eyebrow">PI REQUEST</p>
       <h2 id="extension-ui-title">Your response is needed</h2>
       <p id="extension-ui-message" class="extension-ui-message"></p>
       <div id="extension-ui-options" class="extension-ui-options"></div>
-      <input id="extension-ui-input" class="hidden" type="text">
-      <textarea id="extension-ui-editor" class="hidden" rows="6"></textarea>
+      <input id="extension-ui-input" class="hidden" type="text" aria-labelledby="extension-ui-title" aria-describedby="extension-ui-message extension-ui-status">
+      <textarea id="extension-ui-editor" class="hidden" rows="6" aria-labelledby="extension-ui-title" aria-describedby="extension-ui-message extension-ui-status"></textarea>
+      <p id="extension-ui-status" class="settings-note" role="status" aria-live="polite"></p>
       <div class="sheet-actions">
         <button id="extension-ui-cancel" class="btn ghost" type="button">Cancel</button>
         <button id="extension-ui-submit" class="btn primary hidden" type="button">Confirm</button>
@@ -872,6 +873,7 @@
 <script src="/modules/context-usage.js?v=3.0.3"></script>
 <script src="/modules/protocol-contracts.js?v=3.0.3"></script>
 <script src="/modules/client-sdk.js?v=3.0.3"></script>
+<script src="/modules/native-dialogs.js?v=3.0.3"></script>
 <script src="/app.js?v=3.0.3"></script>
 </body>
 </html>

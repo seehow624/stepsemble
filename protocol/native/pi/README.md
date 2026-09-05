@@ -85,9 +85,56 @@ UI handlers directly; they are not real model/tool executions. The first smoke
 assertion incorrectly expected an empty EventSource ID; correcting the assertion
 to the inherited-ID rule above passed without a server workaround.
 
-CI runs captured-byte/state/correlation tests on macOS, Linux and Windows. The
-HTTP peer uses a Unix shebang and skips Windows. The real native probe has only
-been run on macOS arm64; replay success is **not native cross-platform parity**.
+CI runs captured-byte/state/correlation and isolated HTTP peer tests on macOS,
+Linux and Windows. On Windows the peer runs behind an actual `.cmd` shim:
+version/model probes, launch arguments, replies, SSE and owned-child exit are
+exercised. This replaces the previous Windows skip. The real native Pi probe
+has only been run on macOS arm64; replay success is **not native cross-platform
+provider/tool parity**.
+
+## Queued dialogs and launch follow-up — Plan 1.11
+
+`client/native-dialogs.ts` is the strict, dependency-free, page-lifetime queue,
+compiled and checked alongside the Client SDK. It validates incoming requests,
+bounds replay to the Host's count/byte limits, keys by Host/session/request and
+displays FIFO. Duplicate snapshots preserve the current draft; queued close
+events remove only their own request. Old clicks and late HTTP results cannot
+answer, dismiss or resurrect another request.
+
+During a native reply, controls are disabled and the request has one in-flight
+send with a 12-second deadline. Failed/unknown delivery retains the visible
+input and permits **manual** retry, never automatic side-effect retry. A known
+404/409 dismisses the stale request; a close event from another client wins over
+a late response failure. `sent:true` is still only pipe-queue acceptance.
+
+Provider sign-in UI temporarily suspends the native sheet and restores its
+draft when sign-in UI closes; provider secrets are not copied into this queue.
+Host switch/sign-out detaches old login UI locally instead of retargeting it.
+Leaving a chat clears local dialog data but does not close a Pi waiting for
+input; the Host's pending snapshot can restore it on reconnect. No draft is
+saved to localStorage or disk. Losing/reloading the page still loses its draft.
+
+Chrome mobile-emulation smoke used two synthetic requests, real Offline/online
+network toggling and manual button clicks: no automatic retry, input retained,
+FIFO advance, false/cancel and two accepted replies. State tests also cover
+provider preemption, expiry, duplicate click, stale Host/session and late HTTP
+completion. This is not an iOS/Android physical-device or performance test.
+
+`server/pi-launch.js` now supplies one launch configuration to RPC, temporary
+model discovery and version probing. Windows uses a resolved absolute `.cmd`
+through restricted `cmd.exe`, correct PATH casing/delimiter, hidden window and
+no second detached console; Unix retains its own process group. Windows stop
+uses bounded `taskkill /PID <owned pid> /T /F`, which is forceful, not a graceful
+Unix signal. The version probe still uses bounded synchronous IO (Phase 3 work).
+
+Shell expansion characters in batch-shim paths or arguments are explicitly
+rejected, not escaped optimistically. For a path/name containing `&`, `%`, `!`,
+quotes or other rejected shell characters, the Host owner can explicitly set
+`PI_BIN` to the installed `dist/cli.js` path. On Windows it is then launched with
+the Host's Node binary and literal argv, with no shell. Stepsemble never guesses
+another package behind a wrapper, bypasses its routing configuration, or edits
+native login files. Windows native package/resource/auth discovery beyond these
+core launch paths remains unverified.
 
 ## Deliberately incomplete boundaries
 
@@ -99,12 +146,12 @@ been run on macOS arm64; replay success is **not native cross-platform parity**.
 - There is no persistent approval nonce/idempotency ledger or exactly-once
   execution across Host restarts. Upstream AbortSignal cancellation may not emit
   a close frame; the Host cannot infer every upstream cancellation.
-- The current Web sheet still displays one dialog at a time, not a queued
-  multi-approval inbox. A failed reply request can require reconnect to restore
-  the pending dialog. These need further client state/recovery work.
-- Pi's Windows npm `.cmd` launch/argument/path/process-tree behavior still needs
-  a native runner check and remediation; the prior generic-agent shim fix does
-  not cover `openRpc`, model catalog or Pi version probing.
+- The queue covers the currently attached native session, not a durable
+  cross-session approval inbox. If both a terminal event and its entire replay
+  range are lost, legacy SSE still lacks an authoritative full-dialog snapshot
+  reconciliation boundary; a stale reply is refused by the Host.
+- Provider sign-in retry/durability and its underlying native flows remain
+  separate from this native Pi dialog queue. No real sign-in was exercised.
 - Model/tool streaming, interruption during a real turn, auth/subscription
   behavior, multiple native versions, crash/power loss, Host-restart survival
   and previous shipped Client compatibility remain outside this fixture.

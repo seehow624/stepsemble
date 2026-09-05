@@ -3003,6 +3003,23 @@
   };
   for (const [id, table] of Object.entries(RUNTIME_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], table);
 
+  const DIALOG_TRANSLATIONS = {
+    en: ["{count} pending requests", "Sending…", "Delivery is unconfirmed. Your input is kept; you can retry manually.", "Could not display this request safely. Reconnect to restore pending requests."],
+    "zh-Hant": ["共 {count} 個待回答請求", "正在送出…", "尚未確認送達。內容已保留，你可以手動重試。", "無法安全顯示此請求，請重新連線以恢復待回答請求。"],
+    "zh-Hans": ["共 {count} 个待回答请求", "正在发送…", "尚未确认送达。内容已保留，你可以手动重试。", "无法安全显示此请求，请重新连接以恢复待回答请求。"],
+    ja: ["応答待ちのリクエスト：{count} 件", "送信中…", "送達を確認できません。入力は保持されています。手動で再試行できます。", "このリクエストを安全に表示できません。再接続して復元してください。"],
+    ko: ["응답 대기 요청 {count}개", "전송 중…", "전달이 확인되지 않았습니다. 입력은 유지되며 직접 다시 시도할 수 있습니다.", "요청을 안전하게 표시할 수 없습니다. 다시 연결해 대기 요청을 복원하세요."],
+    tr: ["{count} bekleyen istek", "Gönderiliyor…", "Teslimat doğrulanmadı. Girdiniz korundu; elle yeniden deneyebilirsiniz.", "İstek güvenli biçimde gösterilemiyor. Bekleyen istekleri geri yüklemek için yeniden bağlanın."],
+    fr: ["{count} demandes en attente", "Envoi…", "La réception n’est pas confirmée. Votre saisie est conservée ; vous pouvez réessayer manuellement.", "Impossible d’afficher cette demande en toute sécurité. Reconnectez-vous pour restaurer les demandes en attente."],
+    de: ["{count} ausstehende Anfragen", "Wird gesendet…", "Die Zustellung ist unbestätigt. Ihre Eingabe bleibt erhalten; Sie können es manuell erneut versuchen.", "Diese Anfrage kann nicht sicher angezeigt werden. Verbinden Sie sich erneut, um ausstehende Anfragen wiederherzustellen."],
+    es: ["{count} solicitudes pendientes", "Enviando…", "La entrega no está confirmada. Se conserva tu entrada; puedes reintentar manualmente.", "No se puede mostrar esta solicitud de forma segura. Vuelve a conectarte para restaurar las solicitudes pendientes."],
+    "pt-BR": ["{count} solicitações pendentes", "Enviando…", "A entrega não foi confirmada. Sua entrada foi mantida; você pode tentar novamente manualmente.", "Não foi possível exibir esta solicitação com segurança. Reconecte-se para restaurar as solicitações pendentes."],
+    it: ["{count} richieste in attesa", "Invio…", "La consegna non è confermata. Il testo è conservato; puoi riprovare manualmente.", "Impossibile mostrare questa richiesta in sicurezza. Riconnettiti per ripristinare le richieste in attesa."],
+  };
+  for (const [localeId, values] of Object.entries(DIALOG_TRANSLATIONS)) {
+    ["queued", "sending", "retry", "invalid"].forEach((name, index) => { KEYED_TRANSLATIONS[localeId][`dialog.${name}`] = values[index]; });
+  }
+
   // Provider setup and device management. Same reason as RUNTIME_TRANSLATIONS:
   // these were Chinese sentences that phrase substitution could not translate.
   const PROVIDER_DEVICE_TRANSLATIONS = {
