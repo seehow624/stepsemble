@@ -357,3 +357,26 @@ test("bad runtime proof or final event rolls back cancellations, receipt cleanup
     assert.equal((await tx.planRunTerminal(s, "run-1", terminalContext(s, "run.interrupted", more))).kind, "reject"); assert.equal(JSON.stringify(s), saved);
   }
 });
+test("owned normalized observations atomically project history and pending requests with Host-assigned envelope", async () => {
+  let s = await view(); s.projection = await append(s.projection, ["run.starting", "launch_profile.locked", "run.started"]);
+  const observed = [fact("message.delta"), fact("tool.requested"), fact("approval.requested")].map(e => ({ type: e.type, payload: e.payload }));
+  const c = context(s, { runtimeVerified: true, sessionId: "session-1", runId: "run-1", incarnationId: "native-1", eventIds: ["text-1", "tool-1", "request-1"] });
+  const result = await tx.planObservedEvents(s, observed, c), next = transaction(result);
+  assert.equal(next.projection.approvals[0].approval.status, "pending"); assert.equal(next.projection.runs[0].run.state, "waiting_approval");
+  assert.equal(next.projection.messages.length, 1); assert.equal(next.receipts.length, 0); assert.equal(result.source.incarnationId, "native-1");
+  assert.equal(result.append[0].createdAt, at); assert.equal(result.append[0].sequence, s.projection.cursor.sequence + 1);
+  for (const more of [{ runtimeVerified: false }, { sessionId: "foreign" }, { runId: "foreign" }]) assert.equal((await tx.planObservedEvents(s, observed, { ...c, ...more })).code, "evidence_mismatch");
+});
+test("observation input cannot smuggle winners/ACK/terminal events or override scope/cursor/time", async () => {
+  const s = await view(true), c = context(s, { runtimeVerified: true, sessionId: "session-1", runId: "run-1", incarnationId: "native-1", eventIds: ["fact-1"] });
+  for (const type of ["approval.resolved", "approval.acknowledged", "run.interrupted", "model.changed", "session.updated", "run.starting"]) {
+    assert.equal((await tx.planObservedEvents(s, [{ type, payload: fact(type).payload }], c)).code, "unsupported_observation");
+  }
+  for (const extra of [{ sequence: 1 }, { createdAt: at }, { runId: "foreign" }, { sessionId: "foreign" }]) {
+    assert.equal((await tx.planObservedEvents(s, [{ type: "message.delta", payload: fact("message.delta").payload, ...extra }], c)).code, "unsupported_observation");
+  }
+  const saved = JSON.stringify(s);
+  const result = await tx.planObservedEvents(s, [{ type: "message.delta", payload: fact("message.delta").payload }, { type: "tool.started", payload: { toolId: "missing" } }], { ...c, eventIds: ["text-1", "bad-tool"] });
+  assert.equal(result.kind, "reject"); assert.equal(JSON.stringify(s), saved);
+  assert.equal((await tx.planObservedEvents(s, [{ type: "run.resumed", payload: fact("run.resumed").payload }], c)).code, "evidence_mismatch");
+});

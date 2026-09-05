@@ -403,5 +403,28 @@ async function planRunTerminal(input, runId, context) {
   const result = finish(read.expected, next, projected.events);
   return result.kind === "transaction" ? { ...result, proof } : result;
 }
+async function planObservedEvents(input, facts, context) {
+  const read = preflight(input, context); if (read.kind !== "view") return read;
+  const next = read.state;
+  if (context.runtimeVerified !== true || !id(context.incarnationId) || context.sessionId !== next.projection.cursor.sessionId
+    || !next.projection.runs.some(row => row.run.runId === context.runId)) return reject("evidence_mismatch");
+  // Normalized facts from one verified owned runtime, never an HTTP Client's
+  // commands or event envelope. The Host assigns time, IDs, scope and cursor.
+  if (projectionModule.canonicalJSON(facts, 16 * 1024 * 1024) === null || !Array.isArray(facts) || !facts.length || facts.length > 500) return reject("invalid_payload");
+  const allowed = new Set(["message.delta", "message.completed", "tool.requested", "tool.started", "tool.progress", "tool.completed", "tool.failed",
+    "usage.updated", "context.updated", "context.compacted", "approval.requested", "approval.cancelled", "approval.expired", "run.started", "run.orphaned", "run.resumed", "run.reconciled"]);
+  for (const fact of facts) {
+    if (!exact(fact, ["type", "payload"]) || !allowed.has(fact.type)) return reject("unsupported_observation");
+    // Winner/ACK/terminal/effect events must use their receipt-aware planner.
+    if (["run.resumed", "run.reconciled"].includes(fact.type) && (context.evidenceVerified !== true || !evidenceShape(context.evidence)
+      || !isDeepStrictEqual(fact.payload?.evidence, context.evidence))) return reject("evidence_mismatch");
+  }
+  const normalized = facts.map(fact => ({ type: fact.type, runId: context.runId, payload: clone(fact.payload) }));
+  const source = { sessionId: context.sessionId, runId: context.runId, incarnationId: context.incarnationId,
+    evidence: context.evidenceVerified === true && evidenceShape(context.evidence) ? clone(context.evidence) : null };
+  const projected = await project(next, normalized, context.eventIds, context.now); if (projected.kind !== "projected") return projected;
+  const result = finish(read.expected, next, projected.events);
+  return result.kind === "transaction" ? { ...result, source } : result;
+}
 module.exports = { checkView, initialView, planAdmission, planDispatch, planPipeAccepted, planApprovalAcknowledgement, planRecovery,
-  planRunStartAcknowledgement, planRejectBeforeDispatch, planNativeFailure, planDeliveryUncertain, planOperationAcknowledgement, planRunTerminal };
+  planRunStartAcknowledgement, planRejectBeforeDispatch, planNativeFailure, planDeliveryUncertain, planOperationAcknowledgement, planRunTerminal, planObservedEvents };

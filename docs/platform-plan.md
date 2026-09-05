@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.19
+> 計畫版本：1.20
 > 最後更新：2026-09-05
 > 當前產品基線：Stepsemble 3.0.3（由 Pi Harbor 2.13.2 相容遷移）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
@@ -34,21 +34,21 @@
 | Host/Client 邊界 | 已定案 | Desktop 可為 Host + Client；iOS/Android 初期只為 Client |
 | App Shell | 目標已定，待驗證 | Tauri 2 為預設方案；必須先通過 Apple 實機 PoC 驗收門檻 |
 | 當前回歸基線 | 已通過 | 2026-09-04 Stepsemble 3.0.3 執行 `npm test`：127/127 通過，約 11.4 秒 |
-| 開發分支跨平台回歸 | 已通過，逐批驗證 | 2026-09-05 `3108ee0`三OS CI全綠，257tests；Plan1.19本機260tests/258pass/2skip、fresh Pi57frames與audit通過，新增三OS native matrix結果須看各自workflow；不等於model/provider parity或release |
+| 開發分支跨平台回歸 | 已通過，逐批驗證 | 2026-09-05 `e83f545`／CI33967509737三OS全綠，260tests；Native Pi offline contract33967509738三OS實跑0.84.2各57frames、Linux audit零已知漏洞；不等於model/provider parity或release |
 | 現行系統盤點 | 已完成 | HTTP/SSE/RPC、資料、狀態、approval、event、安裝與 rollback 已落於 `current-system-inventory.md` |
 | 本機品牌遷移 | 已部署 | Mac Mini 已由 2.13.2 原地升級至 3.0.0；session/token/SSH launcher/CUA driver 均完成前後核對 |
 | 跨平台 installer smoke | 部分完成 | macOS live migration、Linux clean-container install、Windows PowerShell AST 通過；Linux systemd/Windows Scheduled Task real runner 待補 |
 | Host 效能基線 | 已完成 | 2.13.2 與 clean source commit `39e671d` 的 3.0.0 都以 301 synthetic sessions、41,000 messages、8 generic tasks 實測；結果見 `performance-baseline.md` |
 | Browser 效能基線 | 已量測，保留缺口 | Chrome DevTools 已連線；cold/warm、長 session、30 秒串流、mobile 4× CPU、network/accessibility 見 `browser-performance-baseline.md`；標準 TBT 與完整 trace export 待補 |
 | 階段 0：計畫與基線 | 基線可供後續比較 | 已記錄長對話 INP 537 ms、mobile restore LCP 4859 ms、串流收尾長任務；這不是順滑度驗收通過 |
-| 階段 1：Stepsemble Protocol v1 | 進行中 | handshake／strict TS SDK／35 events＋8 commands schema／pure checks、receipt／entity／bounded history／snapshot、全8commands＋maintenance／terminal多列proposal與1,251-case Ajv conformance已實作；Pi0.84.2 macOS離線57frames已驗；native/evidence ingestion／durable ledger／實際snapshot transport／rolling gate仍未通過 |
+| 階段 1：Stepsemble Protocol v1 | 進行中 | handshake／strict TS SDK／35 events＋8 commands、receipt／entity／bounded history／snapshot、多列proposal／observed-fact邊界、30-step synthetic transaction golden與1,251-case Ajv conformance已實作；Pi0.84.2三OS真實離線57frames已驗；實際native ownership/evidence驗證／durable ledger／snapshot transport／rolling gate仍未通過 |
 | Pi 原生 RPC 邊界 | 已實作，未部署 | 嚴格 frame／UI reply、跨程序 correlation、有界 pending dialog、TypeScript FIFO／失敗手動重試、完整 pending-set 重連對齊／舊 stream fencing、更新／idle／離開聊天保護；Windows core launch／PATH／owned tree 已接上 runner fixture；仍非 durable approval 或原生全版本／provider／模型串流驗收 |
 | 優先可靠性修復 | 已實作，未部署 | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
 | Web 卡頓修復 | 部分完成 | 歷史離屏分批建立、相鄰訊息線性合併、局部翻譯、聊天可及性；仍需 virtualization、實機／多輪效能門檻驗收 |
 
 ### 下一個可執行任務
 
-先閱讀 `reliability-followup.md`、`protocol/v1/README.md`、`command-state.md`、`lifecycle.md`、`projection.md`、`transactions.md` 及 `protocol/native/pi/README.md`，再繼續 Phase 1。Pi macOS離線／correlation／FIFO／Windows core launch／pending-set recovery、receipt／entity／bounded history／snapshot／revision fence、全8commands與startup/failure/maintenance/terminal多列proposal已加入，不要重做。下一步補native/evidence ingestion與跨平台真實離線Pi fixture、transaction golden／rolling兼容，之後按計畫階段接真實durable store及crash/restore；純函式／in-memory CAS不是DB證據。`orphaned`保留writer；decision／ACK／resume分開，未知startup的late ACK須真實reconciliation。Projection未接live UI；paging、worker／效能、authenticated snapshot transport仍待。Native多版本／model/tool／訂閱、rolling／virtualization／標準TBT／raw trace／實機／長時間gate仍未完成。
+先閱讀 `reliability-followup.md`、`protocol/v1/README.md`、`command-state.md`、`lifecycle.md`、`projection.md`、`transactions.md` 及 `protocol/native/pi/README.md`，再繼續 Phase 1。Pi三OS真實離線／correlation／FIFO／pending-set recovery、receipt／entity／bounded history／snapshot／revision fence、全8commands多列proposal／observed-fact邊界與30-step synthetic golden已加入，不要重做。下一步驗證前兩已發佈Client rolling兼容；實際native ownership/evidence與authenticated transport仍需接入，之後按階段接真實durable store及crash/restore，純函式／in-memory CAS不是DB證據。`orphaned`保留writer；decision／ACK／resume分開，未知startup的late ACK須真實reconciliation。Projection未接live UI；paging、worker／效能仍待。Native多版本／model/tool／訂閱、virtualization／標準TBT／raw trace／實機／長時間gate仍未完成。
 
 ## 一、不可退讓的核心決策
 
@@ -731,7 +731,7 @@ iOS/iPadOS：
 - [x] 建立 Host/Client version negotiation 與 capability negotiation。
 - [x] 建立 typed TypeScript Client SDK，先替換 Web JSON `api()`；其餘 SSE/bootstrap caller 待後續收斂。
 
-已實作但不等於整個Phase1通過：35events／8commands schema、pure checks、receipt／entity／bounded history／snapshot、全8commands＋maintenance／terminal多列proposals、1,251cases Ajv conformance；另有Pi0.84.2 macOS真實離線57frames。Native/evidence ingestion、多版本／平台／模型tool、transaction golden、durable store／snapshot transport／rolling gate仍保留未勾選。
+已實作但不等於整個Phase1通過：35events／8commands schema、pure checks、receipt／entity／bounded history／snapshot、全8commands＋maintenance／terminal／observation多列proposals、30-step synthetic transaction golden、1,251cases Ajv conformance；另有Pi0.84.2三OS真實離線57frames。實際native ownership/evidence、多版本／模型tool、durable store／authenticated snapshot transport／rolling gate仍保留未勾選。
 
 驗收門檻：舊 UI 行為不變；同一 fixture 可用於 Node 與未來 Rust；過期與未知 event 有明確處理。
 
@@ -934,6 +934,13 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-05 — Plan 1.20
+
+- 新增Host-only `planObservedEvents`：一次最多500筆／16MiB exact normalized facts，綁定已驗runtime/session/run；Host自派envelope、整批projection和receipt關係一起檢查。拒絕混入decision/ACK/terminal/model/session effect；resume/reconciliation須同一verified proof binding。這只是純接入邊界，沒有實作native identity/proof service，也不接受Client boolean作權限。
+- 固定30-step synthetic transaction JSON，覆蓋全部8commands、歷史/思考/tool/approval、原生確認、terminal、compact/archive/restore、backup quarantine與read-only replay／新intent拒絕；保存完整rows/outbox/events/digests/CAS。Tests只比對，不自動更新expected；跨語言reference不是native／durability證據。
+- 已確認上批e83f545 regular CI33967509737與Native Pi offline contract33967509738皆三OS全綠；後者為實際Pi0.84.2 CLI：macOS14 arm64、Windows2025 x64、Ubuntu24.04 x64，各57frames，Linux audit零已知漏洞。不是model/tool/登入/訂閱驗收。正式服務與品牌仍未動。
+- 本批本機264tests／262pass／2skip／零fail，strict TS／artifact／syntax／version／1,251-case獨立conformance皆通過；新commit的三OS結果需另外驗證。
 
 ### 2026-09-05 — Plan 1.19
 

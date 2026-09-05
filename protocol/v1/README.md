@@ -184,13 +184,17 @@ identity. The compiler is pinned to TypeScript 7.0.2; npm cache and intermediate
 output are local temporary files. The deployed PWA needs neither npm install
 nor a compiler. Runtime request cancellation and existing auth UI are preserved.
 
-An initial native Pi 0.84.2 offline transcript now captures 57 frames, dialogs
-and persisted-session resume; native streaming/tools/version/OS coverage remains
-partial. The live legacy Host's pending-dialog reconnect snapshot is in-memory,
+The native Pi 0.84.2 offline transcript captures 57 frames, dialogs and persisted
+session resume. Integrity-pinned real CLI execution passed on macOS arm64,
+Windows x64 and Linux x64 (Native Pi offline contract run 33967509738).
+Native streaming/tools/other versions and account behavior remain unverified.
+The live legacy Host's pending-dialog reconnect snapshot is in-memory,
 not the reserved generation-aware journal transport above.
 
 Still required for the full Phase 1 gate: remaining native Pi coverage,
-receipt/entity multi-row transaction integration, full message/tool/usage/context
-projections, durable admission/idempotency storage and transport snapshot/cursor
-recovery contracts, and the rolling
+receipt/entity multi-row durable transaction integration, authenticated runtime
+evidence ingestion, durable admission/idempotency storage and transport
+snapshot/cursor recovery, and the rolling
 Client compatibility matrix. Do not mark Phase 1 complete from this slice.
+The bounded projection and synthetic 30-step transaction golden reference already
+exist; they do not establish those runtime or persistence gates.

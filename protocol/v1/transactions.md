@@ -1,6 +1,6 @@
 # Receipt/entity/outbox transaction proposals
 
-Plan 1.18. `protocol/transaction-state.js` is a Host-only **reference transaction
+Plan 1.20. `protocol/transaction-state.js` is a Host-only **reference transaction
 planner**, not a database or native dispatcher. It composes existing receipt
 contracts and the complete projection reducer over one detached, consistent
 session view. None of its results imply an operation was persisted or sent.
@@ -53,6 +53,7 @@ compaction, or `null`. It is not arbitrary provider/credential configuration.
 | `planDeliveryUncertain` | Same attempt/incarnation goes uncertain; retain orphaned writer and private command; no resend |
 | `planOperationAcknowledgement` | Confirm exact title/profile/archive/context owner and original attempt/incarnation; atomically settle receipt and apply the corresponding fact; interrupt ACK alone has no terminal fact |
 | `planRunTerminal` | Verified runtime/terminal fact, cancel or expire every pending approval first, preserve partial history, release terminal writer and reject provably unsent commands or mark attempted deliveries uncertain together |
+| `planObservedEvents` | Bound normalized facts to one verified owned runtime/run, assign Host envelopes and atomically project history, pending requests and evidence-backed reconciliation; no command winner or ACK fabrication |
 | `planRecovery(current_store)` | In-flight receipts become uncertain and nonterminal writer becomes orphaned; retain writer and partial history; no redispatch |
 | `planRecovery(restored_backup/unknown)` | Quarantine entire view even if all old receipts say accepted; no implicit unquarantine or new native effect |
 
@@ -163,6 +164,28 @@ accepted ambiguity even after a verified terminal observation. Bad final events
 roll back cancellations, receipt updates, partial history and cursor together.
 
 ## Evidence and remaining work
+
+`planObservedEvents` accepts at most 500 exact `{type, payload}` facts, bounded
+at 16 MiB. The Host assigns scope, IDs, timestamps and cursor; the source cannot
+override the envelope. Its allowlist excludes command decisions, acknowledgements,
+terminal and session/profile mutations that require receipt-aware composition.
+Resume/reconciliation additionally require the exact verified evidence binding.
+The full next view is validated after projection, so malformed late facts or
+invalid receipt relationships publish nothing. `source` records the declared
+runtime identity; `runtimeVerified` is a trusted future adapter assertion, not
+implemented ownership verification or a client-settable permission.
+
+`protocol/v1/fixtures/transactions.json` freezes 30 synthetic steps covering all
+eight commands, message/thinking/tool/approval ingestion, native confirmation,
+terminal cleanup, compaction, archive/restore and backup quarantine/replay/refusal.
+Each step contains exact arguments and expected rows, private outbox, receipts,
+events, hashes and CAS token. It is cross-language reference data, **not captured
+native traffic, database durability or real proof material**. All content is
+synthetic. The replay test also ensures callers' input views remain unchanged.
+
+Run `node scripts/record-transaction-fixture.mjs --check` to verify the reference
+scenario. `--write` is an explicit development-only recapture: review every changed
+expectation before committing. Tests never regenerate the golden file silently.
 
 `test/transaction-state.test.js` covers detached start admission, two-device
 writer/winner races with different keys, retry replay after the state changed,
