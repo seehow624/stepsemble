@@ -113,6 +113,19 @@ The prior `646793d` projection batch passed all three OSes in CI 33964682613.
 This is not DB or power-loss evidence; remaining command/effect builders, proof
 storage, native adapters, actual durable transactions and rollout are still open.
 
+## Start/failure cleanup — Plan 1.17 (unreleased)
+
+Six more transaction tests cover normal/late startup acknowledgement, definitely
+unsent writer cleanup, retained failed-key replay, verified non-application versus
+unknown delivery, backup/dispatch barriers and stale/malformed cleanup rollback.
+Unknown delivery retains the writer; a late startup ACK without recorded startup
+must reconcile instead of resurrecting a stopping/orphaned/terminal run. These
+are detached Host proposals, not live native calls, persistent storage or rollout.
+
+Local full suite: 246 tests, 244 passed, 2 Windows-only skips; strict TypeScript,
+generated artifacts and version consistency passed. `d7ac60a`'s 240-test batch is
+verified green on macOS, Windows and Linux in CI 33965309286.
+
 ## Native Pi follow-up — Plan 1.10 (unreleased)
 
 The [native contract](../protocol/native/pi/README.md) now includes a real offline

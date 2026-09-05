@@ -25,6 +25,9 @@ function transaction(result) { assert.equal(result.kind, "transaction", result.c
 async function decided() {
   const s = await view(true); return transaction(await tx.planAdmission(s, command("approval.resolve"), context(s, { eventIds: ["decision-1"] })));
 }
+async function starting() {
+  const s = await view(); return transaction(await tx.planAdmission(s, command("run.start"), context(s)));
+}
 function dispatch(s, more = {}) { return tx.planDispatch(s, "receipt-1", context(s, { receiptRevision: s.receipts[0].revision, attemptId: "attempt-1", incarnationId: "native-incarnation-1", ...more })); }
 function ackContext(s, more = {}) { return context(s, { receiptRevision: s.receipts[0].revision, attemptId: "attempt-1", incarnationId: "native-incarnation-1", evidenceVerified: true,
   evidence: { kind: "native_ack", reference: "proof-1" }, nonce: "nonce-1", nativeRequestId: "native-request-1", eventIds: ["ack-1"], ...more }); }
@@ -157,4 +160,69 @@ test("async planners capture their original store/cursor read set before callers
   assert.equal(result.expected.revision, expected.revision); assert.deepEqual(result.expected.cursor, expected.projection.cursor);
   assert.equal(result.expected.storeGeneration, expected.storeGeneration); assert.equal(next.outbox[0].command.payload.prompt, "Synthetic prompt");
   assert.ok(commit(expected, result));
+});
+test("run start ACK atomically confirms delivery and starts the locked run, not the whole coding turn", async () => {
+  const current = transaction(dispatch(await starting()));
+  const result = await tx.planRunStartAcknowledgement(current, "receipt-1", ackContext(current, { runId: "run-1", nativeRunId: "native-run-1", eventIds: ["started-1"] }));
+  const next = transaction(result);
+  assert.equal(next.receipts[0].state, "succeeded"); assert.equal(next.projection.runs[0].run.state, "running");
+  assert.equal(next.projection.runs[0].nativeRunId, "native-run-1"); assert.equal(next.projection.runs[0].finishedAt, null);
+  assert.deepEqual(result.append.map(e => e.type), ["run.started"]); assert.deepEqual(result.expected.cursor, current.projection.cursor);
+  assert.equal((await tx.planRunStartAcknowledgement(next, "receipt-1", ackContext(next, { runId: "run-1", nativeRunId: "native-run-1" }))).code, "receipt_state_conflict");
+});
+test("a late start ACK never turns orphaned/stopping/terminal state into running", async () => {
+  for (const type of ["run.orphaned", "run.stopping", "run.interrupted"]) {
+    const current = transaction(dispatch(await starting())); current.projection = await append(current.projection, [type]);
+    const saved = JSON.stringify(current);
+    assert.equal((await tx.planRunStartAcknowledgement(current, "receipt-1", ackContext(current, { runId: "run-1", nativeRunId: "native-run-1", eventIds: ["started-1"] }))).code, "reconciliation_required");
+    assert.equal(JSON.stringify(current), saved);
+  }
+  const known = transaction(dispatch(await starting())); known.projection = await append(known.projection, ["run.started", "run.interrupted"]);
+  const next = transaction(await tx.planRunStartAcknowledgement(known, "receipt-1", ackContext(known, { runId: "run-1", nativeRunId: null, eventIds: [] })));
+  assert.equal(next.projection.runs[0].run.state, "interrupted"); assert.equal(next.receipts[0].state, "succeeded");
+});
+test("pre-dispatch rejection releases only a provably unsent starting writer and retains its tombstone", async () => {
+  const current = await starting(), result = await tx.planRejectBeforeDispatch(current, "receipt-1", context(current, { source: "current_store", receiptRevision: 0, code: "grant_revoked", eventIds: ["failed-1"] }));
+  const next = transaction(result);
+  assert.equal(next.receipts[0].state, "failed"); assert.equal(next.receipts[0].attemptId, null); assert.equal(next.receipts[0].outcome.evidence, null);
+  assert.equal(next.projection.runs[0].run.state, "failed"); assert.equal(next.projection.runs[0].startedAt, null); assert.equal(next.outbox[0].dispatch, null);
+  const retry = await tx.planAdmission(next, command("run.start"), context(next)); assert.equal(retry.kind, "replay"); assert.equal(retry.receipt.state, "failed");
+  const other = command("run.start"); other.payload.runId = "run-2"; other.commandId = "command-2"; other.idempotencyKey = "key-2";
+  const resumed = transaction(await tx.planAdmission(next, other, context(next, { receiptId: "receipt-2", eventIds: ["second-start", "second-lock"] })));
+  assert.equal(resumed.receipts.length, 2); assert.equal(resumed.projection.runs[1].run.state, "starting");
+});
+test("rejection cannot reinterpret a dispatched or backup-accepted effect as definitely unsent", async () => {
+  const initial = await starting(), c = s => context(s, { source: "current_store", receiptRevision: s.receipts[0].revision, code: "cancelled", eventIds: ["failed-1"] });
+  const dispatched = transaction(dispatch(initial));
+  assert.equal((await tx.planRejectBeforeDispatch(dispatched, "receipt-1", c(dispatched))).code, "receipt_state_conflict");
+  for (const source of ["unknown", "restored_backup"]) {
+    assert.equal((await tx.planRejectBeforeDispatch(initial, "receipt-1", { ...c(initial), source })).code, "missing_recovery_context");
+    const restored = transaction(await tx.planRecovery(initial, context(initial, { source })));
+    assert.equal((await tx.planRejectBeforeDispatch(restored, "receipt-1", c(restored))).code, "store_recovery_required");
+  }
+  const approval = await decided(), result = transaction(await tx.planRejectBeforeDispatch(approval, "receipt-1", c(approval)));
+  assert.equal(result.projection.approvals[0].approval.status, "approved"); assert.equal(result.projection.approvals[0].nativeAcknowledgement, null);
+  assert.equal(result.projection.runs[0].run.state, "waiting_approval", "delivery rejection is neither decision reversal nor native resume");
+});
+test("verified native non-application settles failure; unknown delivery stays uncertain with its writer", async () => {
+  const current = transaction(dispatch(await starting())), c = s => ackContext(s, { runId: "run-1", effect: "not_applied", code: "native_rejected", eventIds: ["failed-1"] });
+  const uncertain = transaction(await tx.planDeliveryUncertain(current, "receipt-1", { ...c(current), eventIds: ["lost-1"] }));
+  assert.equal(uncertain.receipts[0].state, "uncertain"); assert.equal(uncertain.projection.runs[0].run.state, "orphaned");
+  assert.equal(uncertain.outbox[0].dispatch.attemptId, "attempt-1"); assert.equal(dispatch(uncertain, { attemptId: "again" }).kind, "reject");
+  assert.equal((await tx.planNativeFailure(uncertain, "receipt-1", { ...c(uncertain), effect: "unknown" })).code, "evidence_mismatch");
+  assert.equal((await tx.planNativeFailure(uncertain, "receipt-1", { ...c(uncertain), evidenceVerified: false })).code, "evidence_mismatch");
+  const failed = transaction(await tx.planNativeFailure(uncertain, "receipt-1", c(uncertain)));
+  assert.equal(failed.receipts[0].state, "failed"); assert.equal(failed.projection.runs[0].run.state, "failed");
+  const approval = transaction(dispatch(await decided()));
+  const rejected = transaction(await tx.planNativeFailure(approval, "receipt-1", c(approval)));
+  assert.equal(rejected.receipts[0].state, "failed"); assert.equal(rejected.projection.approvals[0].nativeAcknowledgement, null);
+});
+test("corrupt or stale final failure proposals cannot partially release a writer", async () => {
+  const current = transaction(dispatch(await starting())), saved = JSON.stringify(current);
+  for (const more of [{ eventIds: ["native-1"] }, { receiptRevision: 0 }, { runId: "wrong" }, { incarnationId: "wrong" }, { code: "bad\n" }]) {
+    const result = await tx.planNativeFailure(current, "receipt-1", ackContext(current, { runId: "run-1", effect: "not_applied", code: "failed", eventIds: ["failed-1"], ...more }));
+    assert.equal(result.kind, "reject"); assert.equal(JSON.stringify(current), saved);
+  }
+  const started = clone(current); started.projection = await append(started.projection, ["run.started"]);
+  assert.equal((await tx.planNativeFailure(started, "receipt-1", ackContext(started, { runId: "run-1", effect: "not_applied", code: "model_error", eventIds: ["failed-1"] }))).code, "reconciliation_required");
 });

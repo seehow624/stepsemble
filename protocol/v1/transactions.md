@@ -1,6 +1,6 @@
 # Receipt/entity/outbox transaction proposals
 
-Plan 1.16. `protocol/transaction-state.js` is a Host-only **reference transaction
+Plan 1.17. `protocol/transaction-state.js` is a Host-only **reference transaction
 planner**, not a database or native dispatcher. It composes existing receipt
 contracts and the complete projection reducer over one detached, consistent
 session view. None of its results imply an operation was persisted or sent.
@@ -9,10 +9,11 @@ session view. None of its results imply an operation was persisted or sent.
 
 The first native-effect integration covers `run.start` and `approval.resolve`,
 dispatch-marker/pipe-acceptance transitions, correlated approval acknowledgement,
-and current-store versus backup recovery. Other six command transaction builders,
-run-start confirmation/failure, pre-dispatch rejection with correct entity
-cleanup, terminal/cancellation and maintenance reservations are **not implemented
-here yet**. Unsupported builders reject explicitly; no live endpoint uses this
+current-store versus backup recovery, normal run-start confirmation, verified
+non-application failure, pre-dispatch rejection/starting-writer cleanup, and
+uncertain-delivery/orphan proposals. Other six command transaction builders,
+terminal/cancellation and maintenance reservations are **not implemented here
+yet**. Unsupported builders reject explicitly; no live endpoint uses this
 module and no new protocol capability is advertised.
 
 `initialView` accepts an already validated, nonempty session projection plus
@@ -41,6 +42,10 @@ bounds. Prompts belong only in the private outbox, not receipts or diagnostics.
 | `planDispatch` | Recheck grants/device, quarantine, run state and approval expiry; CAS receipt revision into a unique attempt bound to an explicit native incarnation; no IO |
 | `planPipeAccepted` | Same attempt/incarnation, receipt to awaiting confirmation; no approval/run mutation |
 | `planApprovalAcknowledgement` | Trusted verified evidence for exact native request/nonce/attempt/incarnation; succeeded receipt plus approval ACK row plus one event; no automatic run resume |
+| `planRunStartAcknowledgement` | Correlated native start proof; succeeded receipt plus run.started if still starting; never confuses command success with completed coding turn |
+| `planRejectBeforeDispatch` | Current, non-quarantined store's accepted receipt becomes failed; an unsent starting/orphaned writer becomes failed atomically; retain receipt/outbox for idempotent replay |
+| `planNativeFailure` | Verified exact attempt was not applied; failed receipt plus failed unstarted run where appropriate; no guessed outcome after a transport failure |
+| `planDeliveryUncertain` | Same attempt/incarnation goes uncertain; retain orphaned writer and private command; no resend |
 | `planRecovery(current_store)` | In-flight receipts become uncertain and nonterminal writer becomes orphaned; retain writer and partial history; no redispatch |
 | `planRecovery(restored_backup/unknown)` | Quarantine entire view even if all old receipts say accepted; no implicit unquarantine or new native effect |
 
@@ -88,6 +93,30 @@ may record such evidence but keeps the global quarantine in place. Rotating
 generations, identifying operations omitted from old backups and eventually
 clearing quarantine need a separate audited store-level recovery procedure.
 
+## Start/failure and late evidence
+
+A normal start ACK confirms the command's startup effect, **not** completion of
+the coding run. If native startup was already recorded and the same native ID is
+known, a delayed receipt ACK can settle without another run event, including
+after the run ended. If no startup was ever recorded and the run is now stopping,
+orphaned or terminal, an old startup ACK is not fresh liveness/history proof:
+the planner requires reconciliation and does not turn the run back to running.
+The future adapter must import/reconcile authoritative timing/state for that gap.
+
+Pre-dispatch rejection requires an explicit `current_store` source and a view
+that is not quarantined. Once an attempt marker exists, the operation cannot be
+relabeled definitely unsent. A verified current-store accepted row can be rejected
+after grant revocation without native execution; its unstarted writer is released
+with a run-failure fact, but the original failed receipt remains replayable. A
+different explicit user command can start a new run; the rejected key cannot.
+
+A native failure planner requires verified `not_applied` evidence for the exact
+attempt/incarnation and run or approval request/nonce. Model errors *after* a
+known startup are not failures of the original start command. Unknown effects
+instead retain an uncertain receipt and orphaned writer. Approval delivery
+failure does not reverse the recorded user decision, fabricate native ACK or
+automatically resume; the failed delivery remains visible through its receipt.
+
 ## Evidence and remaining work
 
 `test/transaction-state.test.js` covers detached start admission, two-device
@@ -95,7 +124,9 @@ writer/winner races with different keys, retry replay after the state changed,
 malformed/colliding late events, corrupt receipt/outbox relations, competing
 dispatch attempts, pipe versus native ACK, wrong nonce/request/incarnation/proof,
 late terminal ACK, current-store uncertain/orphaned recovery, backup quarantine
-and async caller mutation. The commit model checks the full expected view token;
+async caller mutation, normal/late start ACK, unsent-writer cleanup, retained
+failed-key replay, verified non-application versus uncertainty and rollback of
+stale/malformed cleanup. The commit model checks the full expected view token;
 it is deliberately **not SQL concurrency, fsync, power-loss or native evidence**.
 
 Next: complete the remaining command/effect builders and fixtures, then integrate

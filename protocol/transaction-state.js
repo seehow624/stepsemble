@@ -46,6 +46,7 @@ function checkView(value) {
     if (targets.has(target)) return reject("winner_conflict"); targets.add(target);
     if (cmd.type === "run.start") {
       if (!run.profileLocked || run.launchProfile.launchProfileId !== cmd.payload.launchProfileId) return reject("profile_mismatch");
+      if (receipt.attemptId === null && run.startedAt !== null || receipt.state === "succeeded" && run.startedAt === null) return reject("acknowledgement_conflict");
     } else {
       const a = approvals.get(cmd.payload.approvalId);
       if (!a || a.resolutionReceiptId !== receipt.receiptId || a.resolvedByDeviceId !== cmd.deviceId
@@ -189,4 +190,85 @@ async function planRecovery(input, context) {
   }
   return finish(read.expected, next, events);
 }
-module.exports = { checkView, initialView, planAdmission, planDispatch, planPipeAccepted, planApprovalAcknowledgement, planRecovery };
+function effectRead(input, receiptId, context) {
+  const read = preflight(input, context); if (read.kind !== "view") return read;
+  const index = read.state.receipts.findIndex(row => row.receiptId === receiptId), row = read.state.outbox.find(row => row.receiptId === receiptId);
+  if (index < 0 || !row) return reject("receipt_conflict");
+  if (context.evidenceVerified !== true || !contracts.validate("nativeEvidence", context.evidence).valid
+    || row.dispatch?.incarnationId !== context.incarnationId || row.dispatch?.attemptId !== context.attemptId) return reject("evidence_mismatch");
+  return { ...read, index, row, evidence: clone(context.evidence),
+    run: read.state.projection.runs.find(run => run.run.runId === row.command.payload.runId) };
+}
+async function planRunStartAcknowledgement(input, receiptId, context) {
+  const read = effectRead(input, receiptId, context); if (read.kind !== "view") return read;
+  const { state: next, row, index, run } = read;
+  if (row.command.type !== "run.start" || context.runId !== row.command.payload.runId) return reject("entity_mismatch");
+  if (context.nativeRunId !== null && (typeof context.nativeRunId !== "string" || !context.nativeRunId.length || context.nativeRunId.length > 512)) return reject("invalid_payload");
+  const result = commands.transitionReceipt(next.receipts[index], { type: "settle", attemptId: context.attemptId,
+    outcome: { status: "succeeded", code: "native_started", resultReference: run.run.runId, evidence: read.evidence } }, { expectedRevision: context.receiptRevision, now: context.now });
+  if (result.kind !== "transition") return result;
+  let events = [];
+  if (run.startedAt === null) {
+    // A late start ACK after stop/orphan/terminal is not a fresh liveness proof.
+    // Reconciliation must first establish the actual native/history state.
+    if (run.run.state !== "starting") return reject("reconciliation_required");
+    const projected = await project(next, [{ type: "run.started", runId: run.run.runId, payload: { nativeRunId: context.nativeRunId } }], context.eventIds, context.now);
+    if (projected.kind !== "projected") return projected; events = projected.events;
+  } else if (run.nativeRunId !== context.nativeRunId) return reject("entity_mismatch");
+  next.receipts[index] = result.receipt; return finish(read.expected, next, events, receiptId);
+}
+async function planRejectBeforeDispatch(input, receiptId, context) {
+  const read = preflight(input, context); if (read.kind !== "view") return read;
+  const next = read.state, index = next.receipts.findIndex(row => row.receiptId === receiptId), row = next.outbox.find(row => row.receiptId === receiptId);
+  // An old backup's accepted marker is NOT proof that no external effect ran.
+  if (next.quarantined) return reject("store_recovery_required");
+  if (context.source !== "current_store") return reject("missing_recovery_context");
+  if (index < 0 || !row) return reject("receipt_conflict");
+  const result = commands.transitionReceipt(next.receipts[index], { type: "reject", code: context.code }, { expectedRevision: context.receiptRevision, now: context.now });
+  if (result.kind !== "transition") return result;
+  let events = [];
+  if (row.command.type === "run.start") {
+    const run = next.projection.runs.find(run => run.run.runId === row.command.payload.runId);
+    if (run.startedAt !== null) return reject("reconciliation_required");
+    if (!terminal(run.run.state)) {
+      const projected = await project(next, [{ type: "run.failed", runId: run.run.runId,
+        payload: { error: { code: context.code, message: "Command rejected before dispatch", retryable: false } } }], context.eventIds, context.now);
+      if (projected.kind !== "projected") return projected; events = projected.events;
+    }
+  }
+  next.receipts[index] = result.receipt; return finish(read.expected, next, events, receiptId);
+}
+async function planNativeFailure(input, receiptId, context) {
+  const read = effectRead(input, receiptId, context); if (read.kind !== "view") return read;
+  const { state: next, row, index, run } = read;
+  if (context.effect !== "not_applied" || !id(context.code)) return reject("evidence_mismatch");
+  if (row.command.type === "approval.resolve") {
+    const a = next.projection.approvals.find(a => a.approval.approvalId === row.command.payload.approvalId);
+    if (context.nonce !== a.approval.nonce || context.nativeRequestId !== a.approval.nativeRequestId) return reject("evidence_mismatch");
+  } else if (context.runId !== run.run.runId || run.startedAt !== null) return reject("reconciliation_required");
+  const result = commands.transitionReceipt(next.receipts[index], { type: "settle", attemptId: context.attemptId,
+    outcome: { status: "failed", code: context.code, resultReference: null, evidence: read.evidence } }, { expectedRevision: context.receiptRevision, now: context.now });
+  if (result.kind !== "transition") return result;
+  let events = [];
+  if (row.command.type === "run.start" && !terminal(run.run.state)) {
+    const projected = await project(next, [{ type: "run.failed", runId: run.run.runId,
+      payload: { error: { code: context.code, message: "Native start was not applied", retryable: false } } }], context.eventIds, context.now);
+    if (projected.kind !== "projected") return projected; events = projected.events;
+  }
+  next.receipts[index] = result.receipt; return finish(read.expected, next, events, receiptId);
+}
+async function planDeliveryUncertain(input, receiptId, context) {
+  const read = preflight(input, context); if (read.kind !== "view") return read;
+  const next = read.state, index = next.receipts.findIndex(row => row.receiptId === receiptId), row = next.outbox.find(row => row.receiptId === receiptId);
+  if (index < 0 || !row || row.dispatch?.incarnationId !== context.incarnationId || row.dispatch?.attemptId !== context.attemptId) return reject("attempt_mismatch");
+  const result = commands.transitionReceipt(next.receipts[index], { type: "uncertain" }, { expectedRevision: context.receiptRevision, now: context.now });
+  if (result.kind !== "transition") return result;
+  const run = next.projection.runs.find(run => run.run.runId === row.command.payload.runId); let events = [];
+  if (!terminal(run.run.state) && run.run.state !== "orphaned") {
+    const projected = await project(next, [{ type: "run.orphaned", runId: run.run.runId, payload: { reason: "transport_lost" } }], context.eventIds, context.now);
+    if (projected.kind !== "projected") return projected; events = projected.events;
+  }
+  next.receipts[index] = result.receipt; return finish(read.expected, next, events, receiptId);
+}
+module.exports = { checkView, initialView, planAdmission, planDispatch, planPipeAccepted, planApprovalAcknowledgement, planRecovery,
+  planRunStartAcknowledgement, planRejectBeforeDispatch, planNativeFailure, planDeliveryUncertain };

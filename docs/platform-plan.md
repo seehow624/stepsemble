@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.16
+> 計畫版本：1.17
 > 最後更新：2026-09-05
 > 當前產品基線：Stepsemble 3.0.3（由 Pi Harbor 2.13.2 相容遷移）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
@@ -34,7 +34,7 @@
 | Host/Client 邊界 | 已定案 | Desktop 可為 Host + Client；iOS/Android 初期只為 Client |
 | App Shell | 目標已定，待驗證 | Tauri 2 為預設方案；必須先通過 Apple 實機 PoC 驗收門檻 |
 | 當前回歸基線 | 已通過 | 2026-09-04 Stepsemble 3.0.3 執行 `npm test`：127/127 通過，約 11.4 秒 |
-| 開發分支跨平台回歸 | 已通過，逐批驗證 | 2026-09-05 `646793d`：macOS／Windows／Linux CI 全綠，227 tests；Plan 1.16 本機為 240 tests／238 pass／2 Windows-only skip，新增批次跨 OS 結果須看對應 commit 的 CI；不等於原生 agent parity 或正式 release |
+| 開發分支跨平台回歸 | 已通過，逐批驗證 | 2026-09-05 `d7ac60a`：macOS／Windows／Linux CI 全綠，240 tests；Plan 1.17 本機 246 tests／244 pass／2 skip，新增批次跨 OS 結果須看對應 commit 的 CI；不等於原生 agent parity 或正式 release |
 | 現行系統盤點 | 已完成 | HTTP/SSE/RPC、資料、狀態、approval、event、安裝與 rollback 已落於 `current-system-inventory.md` |
 | 本機品牌遷移 | 已部署 | Mac Mini 已由 2.13.2 原地升級至 3.0.0；session/token/SSH launcher/CUA driver 均完成前後核對 |
 | 跨平台 installer smoke | 部分完成 | macOS live migration、Linux clean-container install、Windows PowerShell AST 通過；Linux systemd/Windows Scheduled Task real runner 待補 |
@@ -48,7 +48,7 @@
 
 ### 下一個可執行任務
 
-先閱讀 `reliability-followup.md`、`protocol/v1/README.md`、`protocol/v1/command-state.md`、`protocol/v1/lifecycle.md`、`protocol/v1/projection.md`、`protocol/v1/transactions.md` 及 `protocol/native/pi/README.md`，再繼續 Phase 1。Pi 離線／correlation／FIFO／Windows core launch／pending-set recovery、receipt／entity／完整 bounded history／snapshot／revision fence 與 start／approval 多列 proposal 已加入，不要重做。下一步完成其餘 6 commands 的交易 builders、run-start 確認／失敗、pre-dispatch rejection／entity cleanup、terminal/cancellation 與 maintenance reservation，再按後續階段驗 durable store 的原子 admission／winner／event／outbox、CAS 與 crash/restore；純函式和記憶體競爭模擬不是 DB 證據。`orphaned` 保留 writer；decision／native ACK／run resume 必須分開。Projection 尚未接管 live UI，超容量須明確拒絕；paged snapshot、worker／效能驗收和 authenticated transport 待補。Native 多版本／多 OS／model/tool、rolling compatibility、virtualization、標準 TBT、raw trace、實機／長時間 gate 仍未完成。
+先閱讀 `reliability-followup.md`、`protocol/v1/README.md`、`protocol/v1/command-state.md`、`protocol/v1/lifecycle.md`、`protocol/v1/projection.md`、`protocol/v1/transactions.md` 及 `protocol/native/pi/README.md`，再繼續 Phase 1。Pi 離線／correlation／FIFO／Windows core launch／pending-set recovery、receipt／entity／完整 bounded history／snapshot／revision fence、start／approval 多列 proposal 與 startup ACK／failure／predispatch cleanup／uncertain 已加入，不要重做。下一步完成其餘 6 commands 的交易 builders、terminal/cancellation 與 maintenance reservation，再按後續階段驗 durable store 的原子 admission／winner／event／outbox、CAS 與 crash/restore；純函式和記憶體競爭模擬不是 DB 證據。`orphaned` 保留 writer；decision／native ACK／run resume 必須分開。未知startup且已stop/orphan/terminal的late ACK仍須真實reconciliation，不能復活run。Projection 尚未接 live UI；paged snapshot、worker／效能與authenticated transport待補。Native 多版本／多 OS／model/tool、rolling／virtualization／標準 TBT／raw trace／實機／長時間 gate 仍未完成。
 
 ## 一、不可退讓的核心決策
 
@@ -934,6 +934,12 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-05 — Plan 1.17
+
+- 補齊 start ACK／verified native not-applied failure／current-store predispatch rejection＋unstarted writer cleanup／delivery uncertain＋orphan 等多列 proposals。Receipt success 不是 coding run completed；失敗key留原receipt，不自動retry，新的明確command才可新開run。
+- 只有尚未dispatch且current非quarantined store才能視為未送出；marker之後須verify not-applied或留uncertain。Approval delivery failure不反轉用戶decision、不偽造ACK、不resume。已知startup的late ACK可記錄；未知startup且已stopping/orphaned/terminal則要求reconciliation，不復活writer。
+- 新增6tests，正常／延遲ACK、rejection／backup／dispatch barrier、failed-key replay、unknown與verifiedfailure、latecleanup rollback；全套本機246tests/244pass/2skip、strict TS/artifact/versionchecks通過；前批 `d7ac60a` CI33965309286三OS全綠（240tests、零fail）。未部署／未改帳號／品牌，純proposal仍不是durable/native-proof驗收。
 
 ### 2026-09-05 — Plan 1.16
 
