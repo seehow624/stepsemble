@@ -148,6 +148,7 @@ not proof of database locking, power-loss safety or real multi-client atomicity.
 `commandReceipt` shape cases are compared independently with Ajv and the shared
 Node/browser validator; semantic cases additionally run in Node, generated browser
 code and typed SDK parsing. No accounts/native calls or browser visual changes
-are involved. The actual durable store/outbox, complete session/run/approval state
-reducers, projection/generation snapshots, evidence verification and shipped-client
+are involved. Plan 1.14 adds pure [entity lifecycle reducers](lifecycle.md), not
+durable transactions. The actual store/outbox, receipt/entity atomic integration,
+full projection/generation snapshots, evidence verification and shipped-client
 rolling matrix remain Phase 1/5 work. Do not advertise durable idempotency yet.

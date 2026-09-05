@@ -38,7 +38,7 @@ release artifacts. Node and browser run the same sanitized fixtures in
 invalid scopes/states, timestamps and unsafe sequences. Typed `parse()` covers
 nativeReference/session/run/approval/launchProfile/event/cursor/command/commandReceipt/page/replayBatch.
 
-The closed unions define **29 event variants and 8 command variants**.
+The closed unions define **35 event variants and 8 command variants**.
 `fixtures/wire.json` supplies explicit synthetic examples for every variant;
 `fixtures/corpus.cjs` adds negative/boundary cases. Unknown variants fail closed.
 Events require a journal generation. Commands require a protocol version and
@@ -48,7 +48,7 @@ Deltas allow 65,536 Unicode code points, completed text 262,144, and replay batc
 500 events. Byte bounds are an additional future transport responsibility.
 
 `npm run check:protocol:conformance` compares the corpus independently with
-Ajv 8.20.0 (Draft 2020-12, full date-time formats), currently 853 cases. CI runs this on all three
+Ajv 8.20.0 (Draft 2020-12, full date-time formats), currently 1,179 cases. CI runs this on all three
 desktop OSes and before release. Its pinned dependency lock is under
 `scripts/protocol-conformance`; installation happens in a disposable local
 temporary directory, with install scripts disabled. The deployed app still
@@ -86,8 +86,9 @@ must be committed with the projection before advancing the cursor. Across-batch
 event ID uniqueness, payload integrity and prior-run ID uniqueness belong to the
 journal store. Snapshot/restore must establish generation explicitly; never
 force a stale cursor to zero silently. Receipt transition/recovery proposals are
-specified below; full session/run/approval reducers, real transaction races and
-durable crash recovery remain unimplemented. External exactly-once effects cannot
+specified below; entity lifecycle reducers are also implemented as pure proposals.
+Real multi-row transactions, full projections and durable crash recovery remain
+unimplemented. External exactly-once effects cannot
 be promised when a provider lacks a deduplication/reconciliation primitive.
 
 Generated TypeScript unions narrow payloads by `event.type` or `command.type`;
@@ -112,6 +113,32 @@ Uncertain attempts never automatically redispatch, and restored/unknown store
 origins require reconciliation even if a receipt still says `accepted`. The
 in-memory competing-proposal tests are not storage or crash-durability proof.
 No live endpoint, advertised capability or automatic SDK retry is added.
+
+## Reserved entity lifecycle reducers
+
+[`lifecycle.md`](lifecycle.md) specifies strict TypeScript reducers in
+`client/lifecycle.ts`. Node and browser evaluate the same generated artifact.
+The canonical `sessionState`, `runState` and `approvalState` wrappers add revisions,
+time/profile/winner/acknowledgement metadata; use the lifecycle factory's semantic
+checks/reducers, not the existing SDK's `parse()` for these new wrapper types.
+
+Session archive/restore binds the exact archive identity. Active and orphaned
+writers block replacements. Run profiles stay immutable, terminal runs cannot
+revive, and a stop intent survives reconciliation. Approval resolution records a
+device and receipt, separately from native acknowledgement and explicit runtime
+resume. Pending approvals must receive cancellation/expiry facts before a run
+can become terminal. Unsupported facts fail; no event is silently cursor-skipped.
+
+Six reserved facts extend the earlier 29-event union: `session.restored`,
+`run.stopping`, `run.orphaned`, `run.resumed`, `run.reconciled`, and
+`approval.acknowledged`. Resolution additionally requires its receipt ID. This
+tightens unadvertised domains only; the live handshake stays at schema 1.0.0.
+
+These reducers require already-authorized, ordered journal facts and explicit
+related reads. They do not verify native proof, enforce database uniqueness,
+commit transactions or advance a journal cursor. The 10 session / 90 run / 20
+approval transition cases and in-memory competing-winner model do not prove
+durability. The artifact is not wired into the legacy Host or UI.
 
 ## Compatibility policy
 
@@ -158,6 +185,7 @@ partial. The live legacy Host's pending-dialog reconnect snapshot is in-memory,
 not the reserved generation-aware journal transport above.
 
 Still required for the full Phase 1 gate: remaining native Pi coverage,
-full session/run/approval reducers and transaction invariants, durable admission/
-idempotency storage and transport snapshot/cursor recovery contracts, and the rolling
+receipt/entity multi-row transaction integration, full message/tool/usage/context
+projections, durable admission/idempotency storage and transport snapshot/cursor
+recovery contracts, and the rolling
 Client compatibility matrix. Do not mark Phase 1 complete from this slice.

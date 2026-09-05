@@ -258,6 +258,8 @@
             "starting",
             "running",
             "waiting_approval",
+            "stopping",
+            "orphaned",
             "completed",
             "failed",
             "interrupted"
@@ -493,6 +495,237 @@
       ],
       "additionalProperties": true,
       "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "session.restored"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "archiveId": {
+                  "$ref": "#/$defs/id"
+                }
+              },
+              "required": [
+                "archiveId"
+              ],
+              "additionalProperties": true
+            },
+            "runId": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "type",
+            "payload",
+            "runId"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "run.stopping"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "enum": [
+                    "user",
+                    "host_shutdown"
+                  ]
+                }
+              },
+              "required": [
+                "reason"
+              ],
+              "additionalProperties": true
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "type",
+            "payload",
+            "runId"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "run.orphaned"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "enum": [
+                    "transport_lost",
+                    "host_restarted",
+                    "unknown"
+                  ]
+                }
+              },
+              "required": [
+                "reason"
+              ],
+              "additionalProperties": true
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "type",
+            "payload",
+            "runId"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "run.resumed"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "nativeRunId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "evidence": {
+                  "$ref": "#/$defs/nativeEvidence"
+                }
+              },
+              "required": [
+                "nativeRunId",
+                "evidence"
+              ],
+              "additionalProperties": true
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "type",
+            "payload",
+            "runId"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "run.reconciled"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "enum": [
+                    "running",
+                    "waiting_approval",
+                    "stopping"
+                  ]
+                },
+                "nativeRunId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "evidence": {
+                  "$ref": "#/$defs/nativeEvidence"
+                }
+              },
+              "required": [
+                "state",
+                "nativeRunId",
+                "evidence"
+              ],
+              "additionalProperties": true
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "type",
+            "payload",
+            "runId"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "approval.acknowledged"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "approvalId": {
+                  "$ref": "#/$defs/id"
+                },
+                "nonce": {
+                  "$ref": "#/$defs/id"
+                },
+                "receiptId": {
+                  "$ref": "#/$defs/id"
+                },
+                "attemptId": {
+                  "$ref": "#/$defs/id"
+                },
+                "evidence": {
+                  "$ref": "#/$defs/nativeEvidence"
+                }
+              },
+              "required": [
+                "approvalId",
+                "nonce",
+                "receiptId",
+                "attemptId",
+                "evidence"
+              ],
+              "additionalProperties": true
+            },
+            "runId": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "type",
+            "payload",
+            "runId"
+          ],
+          "additionalProperties": true
+        },
         {
           "type": "object",
           "properties": {
@@ -1064,6 +1297,9 @@
                 },
                 "nativeAcknowledged": {
                   "type": "boolean"
+                },
+                "receiptId": {
+                  "$ref": "#/$defs/id"
                 }
               },
               "required": [
@@ -1071,7 +1307,8 @@
                 "nonce",
                 "decision",
                 "deviceId",
-                "nativeAcknowledged"
+                "nativeAcknowledged",
+                "receiptId"
               ],
               "additionalProperties": true
             }
@@ -1811,6 +2048,283 @@
           "additionalProperties": true
         }
       ]
+    },
+    "nativeEvidence": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "native_ack",
+            "authoritative_readback"
+          ]
+        },
+        "reference": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "kind",
+        "reference"
+      ],
+      "additionalProperties": false
+    },
+    "sessionState": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "$ref": "#/$defs/session"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "updatedAt": {
+          "$ref": "#/$defs/timestamp",
+          "type": "string",
+          "maxLength": 64
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "archiveId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "launchProfile": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/launchProfile"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "session",
+        "revision",
+        "updatedAt",
+        "title",
+        "archiveId",
+        "launchProfile"
+      ],
+      "additionalProperties": false
+    },
+    "runState": {
+      "type": "object",
+      "properties": {
+        "run": {
+          "$ref": "#/$defs/run"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "updatedAt": {
+          "$ref": "#/$defs/timestamp",
+          "type": "string",
+          "maxLength": 64
+        },
+        "launchProfile": {
+          "$ref": "#/$defs/launchProfile"
+        },
+        "profileLocked": {
+          "type": "boolean"
+        },
+        "nativeRunId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "startedAt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/timestamp",
+              "type": "string",
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stopRequestedAt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/timestamp",
+              "type": "string",
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finishedAt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/timestamp",
+              "type": "string",
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "recoveryReason": {
+          "anyOf": [
+            {
+              "enum": [
+                "transport_lost",
+                "host_restarted",
+                "unknown"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "run",
+        "revision",
+        "updatedAt",
+        "launchProfile",
+        "profileLocked",
+        "nativeRunId",
+        "startedAt",
+        "stopRequestedAt",
+        "finishedAt",
+        "recoveryReason"
+      ],
+      "additionalProperties": false
+    },
+    "approvalState": {
+      "type": "object",
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "updatedAt": {
+          "$ref": "#/$defs/timestamp",
+          "type": "string",
+          "maxLength": 64
+        },
+        "resolvedAt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/timestamp",
+              "type": "string",
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resolvedByDeviceId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resolutionReceiptId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nativeAcknowledgement": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "receiptId": {
+                  "$ref": "#/$defs/id"
+                },
+                "attemptId": {
+                  "$ref": "#/$defs/id"
+                },
+                "evidence": {
+                  "$ref": "#/$defs/nativeEvidence"
+                }
+              },
+              "required": [
+                "receiptId",
+                "attemptId",
+                "evidence"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "terminalReason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "approval",
+        "revision",
+        "updatedAt",
+        "resolvedAt",
+        "resolvedByDeviceId",
+        "resolutionReceiptId",
+        "nativeAcknowledgement",
+        "terminalReason"
+      ],
+      "additionalProperties": false
     },
     "commandReceipt": {
       "type": "object",

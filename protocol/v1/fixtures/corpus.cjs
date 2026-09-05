@@ -41,4 +41,9 @@ const fullBatch = { ...seed.replayBatch, cursor: { ...seed.cursor, sequence: 500
 add("full replay batch", "replayBatch", fullBatch, true);
 add("oversized replay batch", "replayBatch", { ...fullBatch, events: [...fullBatch.events, seed.event] }, false);
 for (const item of require("./receipts.cjs").cases) add(`receipt ${item.name}`, "commandReceipt", item.value, item.shape);
+for (const item of require("./lifecycle.cjs").cases) add(`lifecycle ${item.name}`, item.contract, item.value, item.shape);
+for (const { contract, value } of require("./lifecycle.cjs").cases.filter(item => item.state)) {
+  for (const field of Object.keys(value)) { const missing = structuredClone(value); delete missing[field]; add(`lifecycle missing ${field}`, contract, missing, false); }
+  add("closed lifecycle root", contract, { ...value, future: true }, false);
+}
 module.exports = { cases, seed, wire, fullBatch };

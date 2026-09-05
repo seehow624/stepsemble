@@ -191,3 +191,31 @@ No live endpoint/capability, native dispatch, account change or production
 restart is introduced. Full entity reducers, atomic approval winners, verified
 native evidence, durable receipt/event/outbox storage, projection snapshot and
 rolling compatibility remain open. A pure proposal never authorizes an effect.
+
+## Entity lifecycle reference reducers — Plan 1.14 (unreleased)
+
+- Strict TypeScript session/run/approval reducers and canonical revisioned rows
+  now have one generated Node/browser artifact, with LF identity gated in CI.
+  They are not loaded by the legacy UI or Host routes.
+- The reserved union grows to 35 events: explicit archive restore, stopping,
+  orphan/reconciliation, resume and native approval acknowledgement. Approval
+  resolution binds the original receipt; it cannot claim a native ACK by itself.
+- Terminal runs cannot revive; orphaned execution retains the writer fence;
+  reconciliation preserves stop intent. Pending approvals need explicit terminal
+  facts before run completion. Known source/auth changes require a fork, while
+  per-run profile snapshots remain immutable.
+- Related state/index reads, scoped IDs/nonces/native-request uniqueness,
+  revisions and millisecond journal time fail closed. Decoded rows/events are
+  bounded to 64 KiB, 64 levels and 8,192 nodes; new approval admission stops at
+  32 unsettled records. Transport must still cap bytes before parsing.
+- Local suite: **213 tests, 211 pass, 2 Windows-only skips**; strict TS/artifacts,
+  syntax/version and **1,179-case** independent Ajv pass. New tests cover 10
+  session, 90 run and 20 approval state/event pairs in both Node and browser,
+  hostile decoded graphs and a synthetic competing-transaction model. Real
+  cross-platform results require CI; the model is not database durability proof.
+
+See [lifecycle.md](../protocol/v1/lifecycle.md) for exact transitions and required
+multi-row transaction boundaries. Fresh grants/native proof verification, actual
+atomic receipt/entity/event/outbox storage, full conversation projections,
+generation/cursor recovery and rolling compatibility remain open. No production
+restart, account/subscription change, native model call or brand change is made.

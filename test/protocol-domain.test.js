@@ -79,7 +79,7 @@ test("mutations cannot replace an active writer or switch a locked model", () =>
     for (const type of ["run.start", "model.change", "session.archive", "context.compact"]) {
       const command = example(type);
       assert.equal(api.checkCommandContext(command, state).valid, true, type);
-      for (const status of ["starting", "running", "waiting_approval"]) assert.equal(api.checkCommandContext(command, { ...state, run: { ...seed.run, state: status } }).code, "run_conflict");
+      for (const status of ["starting", "running", "waiting_approval", "stopping", "orphaned"]) assert.equal(api.checkCommandContext(command, { ...state, run: { ...seed.run, state: status } }).code, "run_conflict");
     }
     assert.equal(api.checkCommandContext(example("run.start"), { ...state, launchProfile: { ...seed.launchProfile, harnessId: "other" } }).code, "profile_mismatch");
     assert.equal(api.checkCommandContext(example("run.start"), { ...state, run: { ...seed.run, state: "completed" } }).code, "run_conflict");

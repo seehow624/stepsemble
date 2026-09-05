@@ -1,5 +1,6 @@
 # Compare generated client artifacts byte-for-byte on every OS, including Windows.
 public/modules/client-sdk.js text eol=lf
 public/modules/native-dialogs.js text eol=lf
+public/modules/lifecycle.js text eol=lf
 public/modules/protocol-contracts.js text eol=lf
 client/protocol-types.d.ts text eol=lf
