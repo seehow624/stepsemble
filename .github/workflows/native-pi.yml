@@ -1,0 +1,50 @@
+name: Native Pi offline contract
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/native-pi.yml'
+      - 'scripts/check-native-pi*.mjs'
+      - 'scripts/native-pi-runtime/**'
+      - 'protocol/native/pi/**'
+      - 'test-support/pi-probe-extension.mjs'
+      - 'server/pi-rpc-contract.js'
+      - 'server/pi-launch.js'
+      - 'server/stream-safety.js'
+  pull_request:
+    paths:
+      - '.github/workflows/native-pi.yml'
+      - 'scripts/check-native-pi*.mjs'
+      - 'scripts/native-pi-runtime/**'
+      - 'protocol/native/pi/**'
+      - 'test-support/pi-probe-extension.mjs'
+      - 'server/pi-rpc-contract.js'
+      - 'server/pi-launch.js'
+      - 'server/stream-safety.js'
+
+permissions:
+  contents: read
+
+jobs:
+  native-pi:
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.19.0
+          package-manager-cache: false
+      - name: Verify pinned runtime manifest and integrity policy
+        run: node --test test/native-pi-runtime.test.js
+      - name: Run real Pi 0.84.2 offline in disposable local state
+        run: npm run test:native:pi:runtime
+      - name: Audit test-only pinned dependency graph
+        if: runner.os == 'Linux'
+        run: npm run test:native:pi:runtime -- --audit

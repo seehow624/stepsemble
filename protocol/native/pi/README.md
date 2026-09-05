@@ -17,6 +17,35 @@ an existing package. It checks the package name and exact version. A different
 version requires review. Append `--record` to print sanitized JSON for review;
 the script never overwrites the checked-in golden file itself.
 
+There is now a separate **test-only installation** entry point:
+
+```sh
+npm run test:native:pi:runtime
+npm run test:native:pi:runtime -- --audit
+```
+
+`scripts/check-native-pi-runtime.mjs` installs the exact 0.84.2 graph from
+`scripts/native-pi-runtime/package-lock.json` into a disposable local temporary
+directory. It never touches the existing installed Pi or project `node_modules`.
+Installation uses the public npm registry, SHA-512 integrity for every package,
+disabled install scripts, empty user/global npm configs, an allow-listed
+environment and a private temporary cache. The production Host still has no npm
+runtime dependencies. The audit mode reads the locked graph without installing
+or running Pi; the initial local audit reported zero known vulnerabilities.
+
+The explicit maintenance option `--update-lock` regenerates only that test lock.
+Pi's published shrinkwrap omitted integrity values for six first-party 0.84.2
+packages. The generator supplements them from exact public version metadata,
+requiring matching package name/version/tarball URL and SHA-512; it does not relax
+the runtime's integrity requirement, float versions or silently switch sources.
+Review changes before using the resulting lock. Normal tests and CI never update it.
+
+The `Native Pi offline contract` workflow runs the real CLI probe on macOS,
+Windows and Linux for relevant changes and manual dispatch. The new clean local
+darwin/arm64 install passed all 57 frames. Cross-OS native results must be checked
+on the corresponding workflow run before treating them as verified. The regular
+CI suite also checks the lock/source policy without downloading or launching Pi.
+
 `scripts/check-native-pi.mjs` starts Node directly with:
 
 - `--mode rpc --offline`, `PI_OFFLINE=1`, `PI_SKIP_VERSION_CHECK=1`;
@@ -89,8 +118,9 @@ CI runs captured-byte/state/correlation and isolated HTTP peer tests on macOS,
 Linux and Windows. On Windows the peer runs behind an actual `.cmd` shim:
 version/model probes, launch arguments, replies, SSE and owned-child exit are
 exercised. This replaces the previous Windows skip. The real native Pi probe
-has only been run on macOS arm64; replay success is **not native cross-platform
-provider/tool parity**.
+was initially run only on macOS arm64; the separate real-CLI matrix described
+above extends the offline check. Replay alone is **not native cross-platform
+provider/tool parity**, and the real offline probe still has no model/provider turns.
 
 ## Queued dialogs and launch follow-up — Plan 1.11
 

@@ -141,6 +141,26 @@ The prior 246-test `5de5c81` batch passed all three OSes in CI33965895866. These
 are still reference proposals; actual proof/storage/native integration, rolling
 compatibility and live rollout remain open, without production/account changes.
 
+## Pinned native Pi runtime matrix — Plan 1.19 (unreleased)
+
+A separate test-only installer now runs exact Pi 0.84.2 from an integrity-locked
+public-registry graph in a disposable local directory. Install scripts and
+inherited npm configs/credentials are disabled. It does not upgrade the user's
+Pi, install project/runtime dependencies, access native accounts or call a model.
+Six missing upstream first-party shrinkwrap hashes are supplemented only from
+matching exact-version registry metadata; CI never relaxes hash checks.
+
+Clean local darwin/arm64 install passed the real 57-frame fixture; dependency
+audit found zero known vulnerabilities. Three regular-suite tests check lock and
+isolation policy. The separate native workflow targets all three desktop OSes;
+verify its actual run before claiming native Windows/Linux success. The previous
+`3108ee0` regular CI33966713093 is all green, 257 tests. Native model/provider,
+subscription, crash/soak, actual durable integration and rollout remain open.
+
+Full local suite with the lock tests: 260 tests, 258 passed, 2 Windows-only skips;
+strict TS/generated artifact and version checks passed. Fresh isolated native
+Pi was rerun successfully after the final installer hardening.
+
 ## Native Pi follow-up — Plan 1.10 (unreleased)
 
 The [native contract](../protocol/native/pi/README.md) now includes a real offline

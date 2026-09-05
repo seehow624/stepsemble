@@ -19,6 +19,7 @@
     "test": "node --test --test-timeout=60000",
     "test:i18n": "node --test test/i18n.test.js",
     "test:native:pi": "node scripts/check-native-pi.mjs",
+    "test:native:pi:runtime": "node scripts/check-native-pi-runtime.mjs",
     "version:check": "node scripts/version.mjs check",
     "version:set": "node scripts/version.mjs set"
   }
