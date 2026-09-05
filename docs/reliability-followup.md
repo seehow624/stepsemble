@@ -81,6 +81,23 @@ Next entry point: [current plan](platform-plan.md), then Protocol v1's remaining
 contracts. Do not change the decided language/platform boundaries or relabel
 terminal integrations as native parity.
 
+## Full history projection follow-up — Plan 1.15 (unreleased)
+
+The [projection contract](../protocol/v1/projection.md) adds strict TS full bounded
+message/tool/usage/context history using the existing entity reducers. All 35
+events have explicit coverage; invalid late events roll back the entire proposal.
+SHA-256 duplicate integrity, explicit identity-window floor, complete checksum
+snapshots and a local revision-fenced replica handle concurrent/stale responses,
+including same-cursor repairs. Partial terminal output remains explicitly
+incomplete, not fake success. No native command is dispatched by projection.
+
+Local verification: 227 tests, 225 passed, 2 Windows-only skips; independent Ajv
+conformance 1,251 cases. Tests include all replay split points, 10,000 messages,
+5,500-event identity rollover, corruption and async races. These are not browser
+performance or DB/crash evidence. Real transactional receipt/entity/outbox, durable
+store, authenticated snapshot transport, worker/paging and live rollout remain
+open; the production service, accounts and brand assets are unchanged.
+
 ## Native Pi follow-up — Plan 1.10 (unreleased)
 
 The [native contract](../protocol/native/pi/README.md) now includes a real offline

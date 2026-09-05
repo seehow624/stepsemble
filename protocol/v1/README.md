@@ -48,7 +48,7 @@ Deltas allow 65,536 Unicode code points, completed text 262,144, and replay batc
 500 events. Byte bounds are an additional future transport responsibility.
 
 `npm run check:protocol:conformance` compares the corpus independently with
-Ajv 8.20.0 (Draft 2020-12, full date-time formats), currently 1,179 cases. CI runs this on all three
+Ajv 8.20.0 (Draft 2020-12, full date-time formats), currently 1,251 cases. CI runs this on all three
 desktop OSes and before release. Its pinned dependency lock is under
 `scripts/protocol-conformance`; installation happens in a disposable local
 temporary directory, with install scripts disabled. The deployed app still
@@ -87,8 +87,11 @@ event ID uniqueness, payload integrity and prior-run ID uniqueness belong to the
 journal store. Snapshot/restore must establish generation explicitly; never
 force a stale cursor to zero silently. Receipt transition/recovery proposals are
 specified below; entity lifecycle reducers are also implemented as pure proposals.
-Real multi-row transactions, full projections and durable crash recovery remain
-unimplemented. External exactly-once effects cannot
+Full bounded history projection, atomic batch proposals, checksum snapshots and
+an in-memory revision-fenced replica are specified in [projection.md](projection.md).
+They are reserved, not live snapshot transport or native history replacement.
+Real multi-row transactions and durable crash recovery remain unimplemented.
+External exactly-once effects cannot
 be promised when a provider lacks a deduplication/reconciliation primitive.
 
 Generated TypeScript unions narrow payloads by `event.type` or `command.type`;

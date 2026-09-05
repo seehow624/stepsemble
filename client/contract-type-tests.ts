@@ -1,5 +1,6 @@
 /// <reference path="./client.ts" />
 /// <reference path="./lifecycle.ts" />
+/// <reference path="./projection.ts" />
 // Compile-only regression tests. No output ships to browsers.
 function assertWireNarrowing(event: StepsembleClient.WireEvent, command: StepsembleClient.Command): void {
   if (event.type === "message.delta") {
@@ -44,4 +45,16 @@ function assertLifecycleTypes(api: ReturnType<typeof StepsembleLifecycle.create>
   }
   // @ts-expect-error Missing a complete approval lookup is not an empty set.
   api.reduceRun(row, event, { expectedRevision: row.revision, writer: row, session });
+}
+async function assertProjectionTypes(api: ReturnType<typeof StepsembleProjection.create>, state: StepsembleClient.SessionProjection, batch: StepsembleClient.ReplayBatch): Promise<void> {
+  const result = await api.applyBatch(state, batch);
+  if (result.kind === "apply") {
+    const text: string | undefined = result.state.messages[0]?.text;
+    // @ts-expect-error Applying journal facts is never native execution authority.
+    const sent: boolean = result.sent;
+    void text; void sent;
+  }
+  const replica = api.createReplica(state);
+  // @ts-expect-error Snapshot requests must retain the original local revision fence.
+  await replica.restore({}, { expectedCursor: state.cursor, targetGeneration: "journal-2" });
 }

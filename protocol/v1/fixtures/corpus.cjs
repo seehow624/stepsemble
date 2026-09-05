@@ -46,4 +46,5 @@ for (const { contract, value } of require("./lifecycle.cjs").cases.filter(item =
   for (const field of Object.keys(value)) { const missing = structuredClone(value); delete missing[field]; add(`lifecycle missing ${field}`, contract, missing, false); }
   add("closed lifecycle root", contract, { ...value, future: true }, false);
 }
+for (const item of require("./projection.cjs").cases) add(`projection ${item.name}`, item.contract, item.value, item.shape);
 module.exports = { cases, seed, wire, fullBatch };

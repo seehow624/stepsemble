@@ -50,7 +50,9 @@ function createValidator(schema) {
     if (!Object.hasOwn(schema.$defs, definition)) return { valid: false, code: "unknown_contract" };
     let visited = 0;
     function matches(node, current, depth = 0) {
-      if (++visited > 100000 || depth > 64) return false;
+      // Complete bounded snapshots have more rows than a 500-event wire page.
+      const budget = definition === "sessionProjection" || definition === "projectionSnapshot" ? 2000000 : 100000;
+      if (++visited > budget || depth > 64) return false;
       // Draft 2020-12 applies sibling constraints alongside $ref.
       if (node.$ref && !matches(schema.$defs[node.$ref.slice(8)], current, depth + 1)) return false;
       if (discriminators.has(node)) {
