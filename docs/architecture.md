@@ -116,6 +116,9 @@ protocol handshake reports existing capabilities only; the full Phase 1 gate
 remains open. Windows batch CLI shims use `server/windows-launch.js` with fixed
 cmd.exe switches and a validated absolute filename, while all prompts go over
 stdin. Windows stop terminates the owned process tree, including shim children.
+Only the supervisor is detached on Windows; a second detached console context
+for the CLI caused pipe output to stall in the Windows runner. Regression tests
+cover pipe IO, web-service restart/reattachment, and actual owned-process exit.
 Native executables and Unix PTYs retain their direct launch paths.
 
 The next low-risk extractions are session rendering, provider management, and

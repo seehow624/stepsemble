@@ -34,6 +34,7 @@
 | Host/Client 邊界 | 已定案 | Desktop 可為 Host + Client；iOS/Android 初期只為 Client |
 | App Shell | 目標已定，待驗證 | Tauri 2 為預設方案；必須先通過 Apple 實機 PoC 驗收門檻 |
 | 當前回歸基線 | 已通過 | 2026-09-04 Stepsemble 3.0.3 執行 `npm test`：127/127 通過，約 11.4 秒 |
+| 開發分支跨平台回歸 | 已通過 | 2026-09-05 `2d5e6de`：macOS／Windows／Linux CI 全綠；包含 typed artifact、CLI output、restart/reattach 與 stopped-process exit；不等於原生 agent parity 或正式 release |
 | 現行系統盤點 | 已完成 | HTTP/SSE/RPC、資料、狀態、approval、event、安裝與 rollback 已落於 `current-system-inventory.md` |
 | 本機品牌遷移 | 已部署 | Mac Mini 已由 2.13.2 原地升級至 3.0.0；session/token/SSH launcher/CUA driver 均完成前後核對 |
 | 跨平台 installer smoke | 部分完成 | macOS live migration、Linux clean-container install、Windows PowerShell AST 通過；Linux systemd/Windows Scheduled Task real runner 待補 |
@@ -933,7 +934,8 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 - 本機 `npm test` 132/132、TypeScript strict/artifact check、語法與版本檢查通過；瀏覽器成功載入 120 列與最新 300 則長對話，無 console error。此為開發中的第一批，Phase 1 與完整產品路線尚未完成，未發佈新 release。
 - CI 揭露此前 Windows run 已多次卡住到 6 小時取消。新增 test/file 60 秒、CI job 10 分鐘上限；修正測試的 PATH delimiter、大小寫／canonical path、CRLF comment parsing、signal-only exit 清理等待。
 - Windows npm `.cmd/.bat` shim 改為受限 cmd.exe 啟動：只接受 resolved absolute path，拒絕 expansion/metacharacters；prompt 永遠走 stdin；停止使用 taskkill 結束該 child tree。此修正仍不代表 ConPTY／完整原生 agent parity 已完成。
-- 新增 Windows launch contract tests；本機全套134/134通過，三平台 CI 正在驗證。未變更線上 v3.0.3 或正式 release。
+- 新增 Windows launch contract 與 real-runner pipe IO 測試；確認 Windows CLI child 不再二次 detached，只有 supervisor 脫離 Web service；Unix process group 行為不變。測試覆蓋 spaced path、literal stdin、輸出串流、restart/reattach 與停止後 child/supervisor 實際退出，清理不再搶先刪除使用中的 cwd。
+- 本機全套 135 項：134 pass、1 Windows-only skip；strict TypeScript/artifact check 通過。`2d5e6de` 的 [CI 33941315112](https://github.com/seehow624/stepsemble/actions/runs/33941315112) macOS／Windows／Linux 全綠；不把平台限定 skip 當成執行成功。線上 health 仍為 v3.0.3、服務未重啟，本批未建立正式 release。
 
 ### 2026-09-04 — Plan 1.4
 
