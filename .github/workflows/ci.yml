@@ -33,5 +33,7 @@ jobs:
         run: '$null = [scriptblock]::Create((Get-Content -Raw ./install-windows.ps1))'
       - name: Check JavaScript
         run: npm run check
+      - name: Check typed client and generated artifact
+        run: npm run check:client
       - name: Run tests
         run: npm test

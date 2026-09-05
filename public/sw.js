@@ -7,6 +7,7 @@ const SHELL = [
   "/modules/app-foundation.js?v=3.0.3",
   "/modules/session-utils.js?v=3.0.3",
   "/modules/context-usage.js?v=3.0.3",
+  "/modules/client-sdk.js?v=3.0.3",
   "/app.js?v=3.0.3",
   "/manifest.webmanifest?v=3.0.3",
   "/stepsemble-glyph.png",

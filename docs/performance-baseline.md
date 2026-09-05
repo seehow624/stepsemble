@@ -84,7 +84,17 @@ npm run benchmark:host
 - Event-loop utilization 約 0.72–0.73，來自 benchmark 刻意不停送 health probe，不代表一般 idle 負載。
 - Generic SSE數據只驗證舊 Node supervisor與stream handshake；假的Claude CLI不代表Claude Code官方session、approval或訂閱路徑已驗證。
 
-## Missing browser baseline
+## Browser baseline follow-up (2026-09-05)
+
+Chrome DevTools MCP is now configured and real browser measurements are recorded
+in [browser-performance-baseline.md](browser-performance-baseline.md), with
+[returned MCP evidence](baselines/browser-performance-2026-09-05.json). Desktop
+long-session interaction and mobile restore are measured failures for Phase 2.
+Standardized TBT and downloadable full trace exports remain explicit gaps.
+The following section preserves the historical setup limitation at the time of
+the Host-only baseline; it is no longer a request to install the MCP again.
+
+## Original browser limitation (historical)
 
 本次環境沒有 `chrome-devtools` MCP，依web performance audit規則不能聲稱LCP、FCP、CLS、INP、TBT、network waterfall或accessibility trace結果。配置後應在同一版本補做：
 

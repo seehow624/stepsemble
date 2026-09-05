@@ -25,6 +25,7 @@ jobs:
           test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
           zsh -n install.sh uninstall.sh deploy/*.sh
           npm run check
+          npm run check:client
           npm test
       - name: Build verified source archive
         id: archive

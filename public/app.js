@@ -685,27 +685,18 @@ function showRemoteAuthorizationState(base) {
   return error;
 }
 
-async function api(path, opts = {}) {
-  const baseAtStart = apiBase;
-  const requestPath = baseAtStart + path;
-  const res = await fetch(requestPath, { credentials: "same-origin", ...opts });
-  if (res.status === 401) {
-    if (baseAtStart) throw showRemoteAuthorizationState(baseAtStart);
+const hostClient = new StepsembleClient.Client({
+  onUnauthorized(baseAtStart, requestPath) {
+    if (baseAtStart) return showRemoteAuthorizationState(baseAtStart);
     showLogin();
     const error = new Error("unauthorized");
     error.status = 401;
     error.path = requestPath;
-    throw error;
-  }
-  if (!res.ok && res.status !== 204) {
-    let msg = res.statusText;
-    try { msg = (await res.json()).error || msg; } catch {}
-    const error = new Error(msg);
-    error.status = res.status;
-    error.path = requestPath;
-    throw error;
-  }
-  return res.status === 204 ? null : res.json();
+    return error;
+  },
+});
+async function api(path, opts = {}) {
+  return hostClient.request(apiBase, path, opts);
 }
 const post = (path, body) => api(path, {
   method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),

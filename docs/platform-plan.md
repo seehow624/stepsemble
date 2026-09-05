@@ -1,8 +1,8 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.5
-> 最後更新：2026-09-04
+> 計畫版本：1.6
+> 最後更新：2026-09-05
 > 當前產品基線：Stepsemble 3.0.3（由 Pi Harbor 2.13.2 相容遷移）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
@@ -38,13 +38,13 @@
 | 本機品牌遷移 | 已部署 | Mac Mini 已由 2.13.2 原地升級至 3.0.0；session/token/SSH launcher/CUA driver 均完成前後核對 |
 | 跨平台 installer smoke | 部分完成 | macOS live migration、Linux clean-container install、Windows PowerShell AST 通過；Linux systemd/Windows Scheduled Task real runner 待補 |
 | Host 效能基線 | 已完成 | 2.13.2 與 clean source commit `39e671d` 的 3.0.0 都以 301 synthetic sessions、41,000 messages、8 generic tasks 實測；結果見 `performance-baseline.md` |
-| Browser 效能基線 | 待工具 | 缺 `chrome-devtools` MCP，尚不能取得可信 LCP/INP/CLS/TBT 與 accessibility trace |
-| 階段 0：計畫與基線 | 進行中 | 除 Browser trace 外已完成；不得以 Host 數據代替 Web 順滑度驗收 |
-| 階段 1：Stepsemble Protocol v1 | 未開始 | 必須先通過階段 0 gate |
+| Browser 效能基線 | 已量測，保留缺口 | Chrome DevTools 已連線；cold/warm、長 session、30 秒串流、mobile 4× CPU、network/accessibility 見 `browser-performance-baseline.md`；標準 TBT 與完整 trace export 待補 |
+| 階段 0：計畫與基線 | 基線可供後續比較 | 已記錄長對話 INP 537 ms、mobile restore LCP 4859 ms、串流收尾長任務；這不是順滑度驗收通過 |
+| 階段 1：Stepsemble Protocol v1 | 進行中 | 已有 schema 起點、authenticated handshake、golden negotiation fixtures、strict TypeScript SDK 接管 Web JSON requests；完整 domain/replay/rolling compatibility gate 尚未通過 |
 
 ### 下一個可執行任務
 
-由使用者在 Codex 配置 `chrome-devtools` MCP；目前工具清單已確認沒有 `navigate_page`／`performance_start_trace`，依 `web-perf` 規範不能用其他瀏覽器自動化冒充。在配置後，於隔離 synthetic Host 完成 cold/warm page trace、長 session render、持續 streaming、network 與 accessibility 基線，將結果存入 `docs/baselines/`。通過後才進入 Phase 1，把現況盤點轉成不含秘密的 protocol fixtures、canonical schemas 與 Node contract tests。
+進入 Phase 1，把現況盤點轉成不含秘密的 protocol fixtures、canonical schemas 與 Node contract tests。Chrome DevTools 的比較基線已保存於 `docs/baselines/browser-performance-2026-09-05.json`；Phase 2 優先處理長 session render、串流收尾、mobile layout shift 與 chat accessibility。標準 TBT、完整 raw trace export、實機與多輪量測仍需補齊；不得以完成基線宣稱已通過產品效能驗收。
 
 ## 一、不可退讓的核心決策
 
@@ -923,6 +923,14 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-05 — Plan 1.6
+
+- Chrome DevTools 已啟用，完成 301 synthetic sessions、長 session、600 deltas/30 秒、桌面與 mobile 4× CPU、network、accessibility 基線；結果與工具輸出已落檔。標準 TBT 與完整 raw trace export 缺口仍明確保留。
+- 確認 Phase 2 優先問題：長對話開啟 INP 537 ms、串流完成 479 ms long task、mobile restore LCP 4859 ms/CLS 約0.12、聊天按鈕對比度不足。
+- Phase 1 第一批：新增 `protocol/v1` schema/policy、negotiation golden fixtures、authenticated `/api/protocol/handshake`；僅宣告現有能力，不宣告尚未實作的 durable approval/journal。
+- 新增 strict TypeScript SDK 與 checked-in JS，既有 Web `api()` 改由 SDK 處理；保留 auth UX、AbortSignal、204、legacy error 與 no-side-effect-retry。CI/Release 檢查編譯產物一致性。
+- 本機 `npm test` 132/132、TypeScript strict/artifact check、語法與版本檢查通過；瀏覽器成功載入 120 列與最新 300 則長對話，無 console error。此為開發中的第一批，Phase 1 與完整產品路線尚未完成，未發佈新 release。
 
 ### 2026-09-04 — Plan 1.4
 

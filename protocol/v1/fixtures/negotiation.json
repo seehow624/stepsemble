@@ -1,0 +1,84 @@
+[
+  {
+    "name": "current-host",
+    "request": {
+      "clientVersion": "3.0.3",
+      "protocolMin": 1,
+      "protocolMax": 1,
+      "platform": "web",
+      "deviceId": "synthetic-browser",
+      "capabilities": [
+        "legacy.http",
+        "approval.durable"
+      ]
+    },
+    "status": 200,
+    "response": {
+      "protocolVersion": 1,
+      "schemaVersion": "1.0.0",
+      "hostVersion": "3.0.3",
+      "mode": "legacy-compatible",
+      "capabilities": [
+        "legacy.http",
+        "pi.native-rpc",
+        "agent.terminal-v1"
+      ],
+      "disabledCapabilities": [
+        "approval.durable"
+      ],
+      "limits": {
+        "handshakeBytes": 16384
+      }
+    }
+  },
+  {
+    "name": "future-client",
+    "request": {
+      "clientVersion": "3.0.3",
+      "protocolMin": 2,
+      "protocolMax": 3,
+      "platform": "web",
+      "deviceId": "synthetic-browser",
+      "capabilities": [
+        "legacy.http",
+        "approval.durable"
+      ]
+    },
+    "status": 426,
+    "response": {
+      "protocolVersion": 1,
+      "error": {
+        "code": "protocol_incompatible",
+        "message": "No common protocol version",
+        "retryable": false
+      },
+      "supported": {
+        "min": 1,
+        "max": 1
+      }
+    }
+  },
+  {
+    "name": "bad-range",
+    "request": {
+      "clientVersion": "3.0.3",
+      "protocolMin": 3,
+      "protocolMax": 1,
+      "platform": "web",
+      "deviceId": "synthetic-browser",
+      "capabilities": [
+        "legacy.http",
+        "approval.durable"
+      ]
+    },
+    "status": 400,
+    "response": {
+      "protocolVersion": 1,
+      "error": {
+        "code": "invalid_request",
+        "message": "Invalid protocol handshake",
+        "retryable": false
+      }
+    }
+  }
+]

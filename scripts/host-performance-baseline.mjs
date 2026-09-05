@@ -609,7 +609,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+export { createFixture, freePort, waitForServer, stopServer, WORKLOAD };
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((error) => {
   console.error(`Stepsemble host performance baseline failed: ${error?.stack || error}`);
   process.exitCode = 1;
 });

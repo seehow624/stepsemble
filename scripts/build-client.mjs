@@ -1,0 +1,27 @@
+#!/usr/bin/env node
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const temp = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-ts-"));
+try {
+  const output = path.join(temp, "client.js");
+  // npm's local cache and temporary output keep dependency/build files off SMB.
+  const npmCli = process.env.npm_execpath;
+  if (process.platform === "win32" && !npmCli) throw new Error("Use npm run build:client on Windows");
+  const result = spawnSync(npmCli ? process.execPath : "npm", [
+    ...(npmCli ? [npmCli] : []),
+    "exec", "--yes", "--package=typescript@7.0.2", "--", "tsc",
+    "--strict", "--target", "es2022", "--lib", "es2022,dom", "--module", "es2022", "--moduleDetection", "legacy",
+    "--newLine", "lf", "--outDir", temp, path.join(root, "client/client.ts"),
+  ], { cwd: temp, stdio: "inherit", timeout: 120000 });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`TypeScript compilation failed: ${result.status}`);
+  const built = await fs.readFile(output, "utf8");
+  const artifact = path.join(root, "public/modules/client-sdk.js");
+  if (process.argv.includes("--check")) {
+    if (built !== await fs.readFile(artifact, "utf8")) throw new Error("Client SDK artifact is stale; run npm run build:client");
+  } else await fs.writeFile(artifact, built);
+} finally { await fs.rm(temp, { recursive: true, force: true }); }

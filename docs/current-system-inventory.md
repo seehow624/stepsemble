@@ -484,7 +484,12 @@ Host benchmark 已落於 [`scripts/host-performance-baseline.mjs`](../scripts/ho
 - 每個 route family的coverage或未覆蓋標記。
 - 隔離 Host 效能基線：301 個 session、41,000 則 message、8 個並行 generic tasks。
 
-尚待：
+2026-09-05 follow-up：Chrome DevTools 已完成桌面、手機 CPU emulation、長 session、
+30 秒 synthetic streaming、network 與 accessibility 量測，見
+[`browser-performance-baseline.md`](browser-performance-baseline.md)。完整 raw trace
+export 與標準 TBT 仍未取得。下列為原盤點時的歷史 open item：
+
+尚待（原始記錄）：
 
 - 配置 Chrome DevTools MCP後補 browser performance/accessibility trace。
 

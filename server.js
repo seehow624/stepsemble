@@ -24,6 +24,7 @@ const crypto = require("node:crypto");
 const { pathToFileURL } = require("node:url");
 const { spawn, execFileSync } = require("node:child_process");
 const { createHttpUtils } = require("./server/http-utils");
+const { negotiate, protocolError } = require("./server/platform-protocol");
 const { createGitChangesService } = require("./server/git-changes");
 const { createPiResourcesService } = require("./server/pi-resources");
 const { createAgentTaskService } = require("./server/agent-connectors");
@@ -3918,6 +3919,15 @@ const server = http.createServer(async (req, res) => {
       if (!auth) {
         console.log(`[stepsemble] 401 for ${req.method} ${p} from ${clientAddress(req)}`);
         sendJSON(res, 401, { error: "unauthorized" }); return;
+      }
+
+      if (p === "/api/protocol/handshake" && req.method === "POST") {
+        let body;
+        try { body = await readJSON(req, 16384); }
+        catch (error) { sendJSON(res, error.statusCode || 400, protocolError("invalid_request", "Invalid protocol handshake")); return; }
+        const result = negotiate(body, APP_VERSION);
+        sendJSON(res, result.status, result.body);
+        return;
       }
 
       if (p === "/api/session-export" && req.method === "GET") {
