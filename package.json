@@ -8,6 +8,8 @@
     "node": ">=22.19.0"
   },
   "scripts": {
+    "build:protocol": "node scripts/build-protocol.mjs",
+    "check:protocol": "node scripts/build-protocol.mjs --check",
     "build:client": "node scripts/build-client.mjs",
     "check:client": "node scripts/build-client.mjs --check",
     "benchmark:browser": "node scripts/browser-performance-host.mjs",

@@ -33,7 +33,8 @@ test("malformed handshakes fail without echoing client-supplied material", () =>
 });
 
 async function sdk() {
-  const context = vm.createContext({ fetch, Error });
+  const context = vm.createContext({ fetch, Error, SyntaxError, AbortController, setTimeout, clearTimeout });
+  vm.runInContext(await fs.readFile(path.join(root, "public/modules/protocol-contracts.js"), "utf8"), context);
   vm.runInContext(await fs.readFile(path.join(root, "public/modules/client-sdk.js"), "utf8"), context);
   return context.StepsembleClient;
 }
@@ -69,6 +70,69 @@ test("client only treats missing handshake endpoint as a legacy host", async () 
   await assert.rejects(newer.negotiate("", fixtures[0].request), error => error.status === 426 && error.code === "protocol_incompatible");
   const malformed = new Client({ fetch: async () => Response.json({ protocolVersion: 9 }) });
   await assert.rejects(malformed.negotiate("", fixtures[0].request), error => error.code === "invalid_response");
+});
+
+test("negotiated responses tolerate additive minor changes but reject invalid required fields", async () => {
+  const { Client } = await sdk();
+  const good = fixtures[0].response;
+  const compatible = { ...good, schemaVersion: "1.2.0", extra: true, limits: { ...good.limits, futureLimit: 10 } };
+  const client = new Client({ fetch: async () => Response.json(compatible) });
+  assert.equal((await client.negotiate("", fixtures[0].request)).schemaVersion, "1.2.0");
+  for (const value of [{ ...good, hostVersion: null }, { ...good, limits: {} }, { ...good, schemaVersion: "2.0.0" },
+    { ...good, capabilities: ["legacy.http", "legacy.http"] }, { ...good, disabledCapabilities: ["legacy.http"] }]) {
+    const bad = new Client({ fetch: async () => Response.json(value) });
+    await assert.rejects(bad.negotiate("", fixtures[0].request), error => error.code === "invalid_response");
+  }
+  const malformed = new Client({ fetch: async () => new Response("not json") });
+  await assert.rejects(malformed.negotiate("", fixtures[0].request), error => error.code === "invalid_response");
+});
+
+test("connections coalesce by host, isolate caller cancellation and do not cache failure", async () => {
+  const { Client, Connections } = await sdk();
+  const requests = [];
+  const client = new Client({ fetch: (url, options) => new Promise((resolve, reject) => {
+    requests.push({ url, resolve }); options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true });
+  }) });
+  const connections = new Connections(client, () => fixtures[0].request);
+  const abort = new AbortController();
+  const cancelled = connections.ensure("/r/one", abort.signal);
+  const retained = connections.ensure("/r/one");
+  const other = connections.ensure("/r/two");
+  assert.equal(requests.length, 2);
+  abort.abort(); await assert.rejects(cancelled);
+  requests[0].resolve(Response.json(fixtures[0].response));
+  requests[1].resolve(Response.json({ error: "unavailable" }, { status: 503 }));
+  assert.equal((await retained).protocolVersion, 1);
+  await assert.rejects(other, error => error.status === 503);
+  await connections.ensure("/r/one"); assert.equal(requests.length, 2);
+  const retry = connections.ensure("/r/two"); assert.equal(requests.length, 3);
+  requests[2].resolve(new Response(null, { status: 404 })); assert.equal(await retry, null);
+  connections.reset();
+});
+
+test("connection timeout and missing transport capability never silently downgrade", async () => {
+  const { Client, Connections } = await sdk();
+  const stalled = new Client({ fetch: (url, options) => new Promise((resolve, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true })) });
+  await assert.rejects(new Connections(stalled, () => fixtures[0].request, 60000, 10).ensure(""), error => error.code === "protocol_timeout");
+  const missing = new Client({ fetch: async () => Response.json({ ...fixtures[0].response, capabilities: [] }) });
+  await assert.rejects(new Connections(missing, () => fixtures[0].request).ensure(""), error => error.code === "capability_missing");
+});
+
+test("Web API captures its host before negotiation and never sends a mutation on negotiation failure", async () => {
+  const source = (await fs.readFile(path.join(root, "public/app.js"), "utf8")).replace(/\r\n/g, "\n");
+  const start = source.indexOf("async function api(");
+  const end = source.indexOf("\nconst post", start);
+  const calls = [];
+  let release;
+  const context = vm.createContext({ apiBase: "/r/one", protocolConnections: { ensure: () => new Promise(resolve => { release = resolve; }) },
+    hostClient: { request: (...args) => { calls.push(args); return true; } } });
+  vm.runInContext(source.slice(start, end), context);
+  const pending = context.api("/api/sessions");
+  context.apiBase = "/r/two"; release(); await pending;
+  assert.equal(calls[0][0], "/r/one");
+  context.protocolConnections.ensure = async () => { throw new Error("incompatible"); };
+  await assert.rejects(context.api("/api/agent/open", { method: "POST" }), /incompatible/);
+  assert.equal(calls.length, 1);
 });
 
 test("real HTTP handshake requires auth, honors golden wire responses, and bounds request size", async t => {

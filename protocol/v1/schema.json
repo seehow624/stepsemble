@@ -67,7 +67,8 @@
           "const": 1
         },
         "schemaVersion": {
-          "const": "1.0.0"
+          "type": "string",
+          "pattern": "^1\\.\\d+\\.\\d+(?:-[A-Za-z0-9.-]+)?$"
         },
         "hostVersion": {
           "type": "string",
@@ -105,7 +106,7 @@
           "required": [
             "handshakeBytes"
           ],
-          "additionalProperties": false
+          "additionalProperties": true
         }
       },
       "required": [

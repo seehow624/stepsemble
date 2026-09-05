@@ -36,5 +36,7 @@ jobs:
         run: npm run check
       - name: Check typed client and generated artifact
         run: npm run check:client
+      - name: Check canonical protocol artifact
+        run: npm run check:protocol
       - name: Run tests
         run: npm test

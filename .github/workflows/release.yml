@@ -26,6 +26,7 @@ jobs:
           zsh -n install.sh uninstall.sh deploy/*.sh
           npm run check
           npm run check:client
+          npm run check:protocol
           npm test
       - name: Build verified source archive
         id: archive

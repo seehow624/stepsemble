@@ -687,6 +687,7 @@ function showRemoteAuthorizationState(base) {
 
 const hostClient = new StepsembleClient.Client({
   onUnauthorized(baseAtStart, requestPath) {
+    protocolConnections.reset(baseAtStart);
     if (baseAtStart) return showRemoteAuthorizationState(baseAtStart);
     showLogin();
     const error = new Error("unauthorized");
@@ -695,8 +696,17 @@ const hostClient = new StepsembleClient.Client({
     return error;
   },
 });
+// Opaque browser-lifetime identity; it is not a native account or an auth grant.
+const protocolDeviceId = "web-" + (globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2));
+const protocolConnections = new StepsembleClient.Connections(hostClient, () => ({
+  clientVersion: CLIENT_APP_VERSION, protocolMin: 1, protocolMax: 1,
+  platform: "web", deviceId: protocolDeviceId,
+  capabilities: ["legacy.http", "pi.native-rpc", "agent.terminal-v1"],
+}));
 async function api(path, opts = {}) {
-  return hostClient.request(apiBase, path, opts);
+  const baseAtStart = apiBase;
+  await protocolConnections.ensure(baseAtStart, opts.signal);
+  return hostClient.request(baseAtStart, path, opts);
 }
 const post = (path, body) => api(path, {
   method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -740,6 +750,7 @@ matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", () => {
 // ===========================================================================
 
 function showLogin() {
+  protocolConnections.reset();
   stopUpdateCenterPolling();
   closeChat(true);
   el.app.classList.add("hidden");

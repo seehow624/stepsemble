@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.7
+> 計畫版本：1.8
 > 最後更新：2026-09-05
 > 當前產品基線：Stepsemble 3.0.3（由 Pi Harbor 2.13.2 相容遷移）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
@@ -41,13 +41,13 @@
 | Host 效能基線 | 已完成 | 2.13.2 與 clean source commit `39e671d` 的 3.0.0 都以 301 synthetic sessions、41,000 messages、8 generic tasks 實測；結果見 `performance-baseline.md` |
 | Browser 效能基線 | 已量測，保留缺口 | Chrome DevTools 已連線；cold/warm、長 session、30 秒串流、mobile 4× CPU、network/accessibility 見 `browser-performance-baseline.md`；標準 TBT 與完整 trace export 待補 |
 | 階段 0：計畫與基線 | 基線可供後續比較 | 已記錄長對話 INP 537 ms、mobile restore LCP 4859 ms、串流收尾長任務；這不是順滑度驗收通過 |
-| 階段 1：Stepsemble Protocol v1 | 進行中 | 已有 schema 起點、authenticated handshake、golden negotiation fixtures、strict TypeScript SDK 接管 Web JSON requests；完整 domain/replay/rolling compatibility gate 尚未通過 |
+| 階段 1：Stepsemble Protocol v1 | 進行中 | authenticated handshake、strict TS SDK、Node/browser 共用 entity/envelope shape validator、負向 fixtures、Web connection-time negotiation 已實作；discriminated payload／語意／replay／rolling gate 尚未通過 |
 | 優先可靠性修復 | 已實作，未部署 | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
 | Web 卡頓修復 | 部分完成 | 歷史離屏分批建立、相鄰訊息線性合併、局部翻譯、聊天可及性；仍需 virtualization、實機／多輪效能門檻驗收 |
 
 ### 下一個可執行任務
 
-先閱讀 `reliability-followup.md` 核對本批已修項目及尚未解決的邊界，再繼續 Phase 1 domain payload validation、native RPC golden transcripts、UI handshake、cursor/replay 與 rolling compatibility。不得把本次安全熱修補等同 durable journal／approval 已完成。效能以原基線與 follow-up 證據比較；virtualization、標準 TBT、raw trace export、實機／多輪與長時間測試仍未完成。
+先閱讀 `reliability-followup.md` 及 `protocol/v1/README.md` 核對目前邊界，再繼續 Phase 1 discriminated event/command payload、跨實體語意驗證、獨立 schema conformance、native RPC golden transcripts、cursor/replay 與 rolling compatibility。UI handshake 已加入，不要重做；shared validator 只驗資料形狀，不能當 durable journal／approval 已完成。virtualization、標準 TBT、raw trace export、實機／多輪與長時間測試仍未完成。
 
 ## 一、不可退讓的核心決策
 
@@ -926,6 +926,16 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-05 — Plan 1.8
+
+- 可靠性修復 `26c4fbb` 的 Windows 測試遇到 CRLF source extraction 問題，`29ec18e` 已修；[CI 33949171058](https://github.com/seehow624/stepsemble/actions/runs/33949171058) 三平台全綠，不略過失敗測試。
+- 新增 canonical schema 的 dependency-free vocabulary validator 與 browser generated artifact；CI/release 會核對來源／產物一致性。支援的 schema vocabulary 以外採 fail-closed，不宣稱完整 JSON Schema engine。
+- Node/browser 對 session/run/approval/profile/event/cursor/command/page 等保留 shape 共用 fixtures＋負向測試；SDK 提供 typed parse。這不是 native agent domain endpoints 已實作。
+- Web JSON API 接上 connection-time handshake：per-host coalescing、60秒快取、10秒timeout、caller abort隔離、401時失效；只允許404 legacy fallback，缺transport capability或不相容版本明確拒絕。
+- strict negotiation response validation 接受 additive 1.x schema minor／limits fields；缺必填、重複capability、交集矛盾及錯誤major不靜默接受。
+- Phase1仍缺discriminated payload語意、獨立validatorconformance、nativegoldentranscripts與replay/rollingmatrix。未部署正式服務、未更動官方登入／訂閱設定。
+- 本批本機155項=154 pass／1 Windows-only skip；syntax、strict TypeScript、canonical artifact及version checks通過。Chrome synthetic登入→handshake→sessions／300則history→RPCready成功；426阻擋agentopen、404允許legacyAPI，無consoleerror。
 
 ### 2026-09-05 — Plan 1.7
 

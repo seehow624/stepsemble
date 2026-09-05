@@ -55,6 +55,11 @@ syntax, strict TypeScript/generated artifact and version consistency checks
 passed. Cross-platform CI is verified separately after pushing; local success is
 not a substitute for that matrix.
 
+`26c4fbb` initially failed one Windows test because the test's source extraction
+assumed LF. `29ec18e` normalizes CRLF; [CI 33949171058](https://github.com/seehow624/stepsemble/actions/runs/33949171058)
+passed macOS, Windows and Linux. Later Protocol progress is tracked in Plan 1.8
+and `protocol/v1/README.md`, not retroactively claimed as part of this hotfix.
+
 1. Protocol v1 complete domain schemas/validators, native RPC golden transcripts,
    client handshake usage and rolling compatibility matrix.
 2. Durable event journal and generation-aware cursor recovery. Generic tasks

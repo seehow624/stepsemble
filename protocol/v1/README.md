@@ -1,4 +1,4 @@
-# Protocol v1 — first migration slice
+# Protocol v1 — incremental migration contracts
 
 The canonical machine-readable definitions are in `schema.json` (JSON Schema
 2020-12). `fixtures/negotiation.json` freezes sanitized, isolated Node wire
@@ -6,12 +6,40 @@ responses. The HTTP contract tests replay these against a real server and can
 be reused by a future Rust server. No fixture contains native account data.
 
 Currently implemented: authenticated `POST /api/protocol/handshake`, protocol
-range and capability negotiation, typed client request/error handling, and the
-existing UI's JSON transport through that client. The host advertises only
+range and capability negotiation, typed client request/error handling, shared
+schema shape validation, and UI connection-time negotiation. The host advertises only
 `legacy.http`, `pi.native-rpc`, and `agent.terminal-v1`. Domain definitions for
 session/run/approval/profile/event/cursor/commands are **reserved**, not live
 endpoints or promises of durable behavior. Legacy HTTP/RPC wire formats remain
-unchanged. Existing peers need not implement the new handshake.
+unchanged. Existing peers need not implement the new handshake. The UI coalesces
+negotiation per host, caches successful results for 60 seconds, times out after
+10 seconds, invalidates on authentication failure/sign-in view, and isolates
+one caller's cancellation from other callers. Only 404 permits legacy fallback;
+missing `legacy.http` capability, malformed responses, 401/403/426 and transport
+errors block that request. This is capability compatibility, not authentication.
+
+## Shared shape validation
+
+`protocol/validator.js` implements only the JSON Schema vocabulary used here;
+unsupported keywords, formats or external references fail during construction.
+It is **not** a general-purpose JSON Schema 2020-12 engine. Date-time uses an
+explicit-offset RFC3339 profile, rejects impossible calendar dates and leap
+seconds; integers must be JavaScript-safe. Reversed negotiation ranges and
+inconsistent negotiated capability sets are additional semantic checks.
+
+`npm run build:protocol` generates `public/modules/protocol-contracts.js` from
+the same validator and canonical JSON schema; `check:protocol` gates CI and
+release artifacts. Node and browser run the same sanitized fixtures in
+`fixtures/domains.json`, including mutations for missing required fields,
+invalid scopes/states, timestamps and unsafe sequences. Typed `parse()` covers
+nativeReference/session/run/approval/launchProfile/event/cursor/command/page.
+
+These are envelope/entity **shape** contracts. Event/command payload schemas,
+cross-entity ownership, approval expiry enforcement, credential-reference policy,
+billing compatibility, cursor continuity and durable state transitions still
+require their own validators and tests before domain endpoints are enabled.
+Independent validation-engine conformance remains a gate; same-code Node/browser
+parity must not be represented as two independent implementations agreeing.
 
 ## Compatibility policy
 
@@ -46,7 +74,7 @@ identity. The compiler is pinned to TypeScript 7.0.2; npm cache and intermediate
 output are local temporary files. The deployed PWA needs neither npm install
 nor a compiler. Runtime request cancellation and existing auth UI are preserved.
 
-Still required for the full Phase 1 gate: domain payload contracts and their
-negative fixtures, schema-validator parity, native Pi golden transcripts,
-sequencing/cursor recovery, UI connection-time negotiation, and the rolling
+Still required for the full Phase 1 gate: discriminated domain payload contracts
+and semantic invariants, independent schema conformance, native Pi golden transcripts,
+sequencing/cursor recovery, and the rolling
 Client compatibility matrix. Do not mark Phase 1 complete from this slice.
