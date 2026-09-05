@@ -5,6 +5,20 @@ const os = require("node:os");
 const path = require("node:path");
 const { discoverConnectors, safeConnectorId, createAgentTaskService, resolvePtyRuntime, resolveCommand, CONNECTOR_DEFINITIONS } = require("../server/agent-connectors");
 
+async function waitForOwnedProcesses(service) {
+  const pids = service.list().flatMap(({ id }) => {
+    const task = service.get(id);
+    return [task.pid, task.supervisorPid].filter(Number.isInteger);
+  });
+  const alive = () => pids.filter(pid => {
+    try { process.kill(pid, 0); return true; } catch { return false; }
+  });
+  for (let attempt = 0; attempt < 50 && alive().length; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.deepEqual(alive(), [], "stopped synthetic CLI and supervisor must exit");
+}
+
 test("Agent Hub exposes only the allow-listed connector ids", () => {
   const catalog = discoverConnectors({ piBin: process.execPath, env: { PATH: "" }, includeKnownPaths: false });
   assert.deepEqual(catalog.map((item) => item.id), ["pi", "claude-code", "codex", "grok-build", "opencode"]);
@@ -46,7 +60,11 @@ test("generic connector tasks stream bounded output and stop without shell injec
     env: { PATH: [bin, path.dirname(process.execPath), process.env.PATH || ""].join(path.delimiter), HOME: temp },
     validateCwd(value) { return value === project ? project : null; },
   });
-  t.after(() => { service.shutdown(); fs.rmSync(temp, { recursive: true, force: true }); });
+  t.after(async () => {
+    service.shutdown();
+    await waitForOwnedProcesses(service);
+    fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
 
   const opened = await service.open({ agentId: "claude-code", cwd: project, name: "Smoke task" });
   assert.equal(opened.agentId, "claude-code");
@@ -92,10 +110,11 @@ test("generic task supervisor survives a web-service restart and reattaches", as
   const first = createAgentTaskService(options);
   let second;
   t.after(async () => {
-    first.shutdown();
-    second?.shutdown();
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    fs.rmSync(temp, { recursive: true, force: true });
+    const owner = second || first;
+    owner.shutdown();
+    if (second) first.shutdown({ preserve: true });
+    await waitForOwnedProcesses(owner);
+    fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
   const opened = await first.open({ agentId: "claude-code", cwd: project, name: "Restart-safe task" });
   for (let attempt = 0; attempt < 40 && !first.get(opened.id).outputTail; attempt += 1) {
