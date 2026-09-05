@@ -273,13 +273,13 @@ function waitForServer(child, timeoutMs = 10_000) {
 }
 
 async function stopServer(child) {
-  if (!child || child.exitCode !== null) return;
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
   child.kill("SIGTERM");
   await Promise.race([
     new Promise((resolve) => child.once("exit", resolve)),
     delay(5_000),
   ]);
-  if (child.exitCode === null) {
+  if (child.exitCode === null && child.signalCode === null) {
     child.kill("SIGKILL");
     await Promise.race([
       new Promise((resolve) => child.once("exit", resolve)),

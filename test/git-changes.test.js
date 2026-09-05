@@ -33,7 +33,7 @@ test("Git changes service lists scoped files and returns staged, worktree, and u
   const nonRepo = path.join(temp, "plain");
   fs.mkdirSync(repo);
   fs.mkdirSync(nonRepo);
-  const realTemp = fs.realpathSync(temp);
+  const realTemp = fs.realpathSync.native(temp);
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
 
   git(repo, "init", "-q");
@@ -53,7 +53,7 @@ test("Git changes service lists scoped files and returns staged, worktree, and u
   });
   const state = await service.overview(repo);
   assert.equal(state.repository, true);
-  assert.equal(state.root, fs.realpathSync(repo));
+  assert.equal(state.root, fs.realpathSync.native(repo));
   assert.equal(state.summary.files, 3);
   assert.equal(state.summary.additions, 2);
   assert.equal(state.summary.deletions, 0);

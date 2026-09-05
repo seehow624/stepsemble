@@ -91,7 +91,7 @@ test("keyed accessibility attributes are idempotent under mutation observation",
 test("user-facing strings never fall back to phrase substitution", () => {
   const i18n = loadLocaleLayer();
   i18n.setLocale("en");
-  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8").split("\n");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8").split(/\r?\n/);
   // The onboarding guide stores per-locale copy as data, so its Chinese text is
   // correct by design. Track those tables by content, not line numbers, so the
   // check keeps working as the file grows.

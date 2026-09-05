@@ -57,13 +57,13 @@ async function waitForServer(port, child, output) {
 }
 
 async function stopServer(child) {
-  if (child.exitCode !== null) return;
+  if (child.exitCode !== null || child.signalCode !== null) return;
   child.kill("SIGTERM");
   await Promise.race([
     once(child, "exit"),
     new Promise((resolve) => setTimeout(resolve, 1500)),
   ]);
-  if (child.exitCode === null) {
+  if (child.exitCode === null && child.signalCode === null) {
     child.kill("SIGKILL");
     await once(child, "exit");
   }
