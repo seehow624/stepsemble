@@ -135,8 +135,11 @@ test("isolated HTTP native boundary preserves responses, reconnect replay, and a
     for (const item of owned) await post?.("/api/close", { sid: item.sid }).catch(() => {});
     for (let i = 0; i < 60 && owned.some(item => { try { process.kill(item.pid, 0); return true; } catch { return false; } }); i++) await new Promise(resolve => setTimeout(resolve, 50));
     await stopServer(child);
+    assert.ok(child.exitCode !== null || child.signalCode !== null, "owned HTTP host must exit before temporary files are removed");
     for (const item of owned) assert.throws(() => process.kill(item.pid, 0), "owned Pi peer must exit before temporary files are removed");
-    await fs.rm(home, { recursive: true, force: true });
+    // Windows may briefly retain a cwd handle after the owned processes exit.
+    // Retry only this fixture's directory cleanup, never the test or peer work.
+    await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
   await waitForServer(child); child.stdout.resume(); child.stderr.resume();
   const base = `http://127.0.0.1:${port}`;
