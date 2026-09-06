@@ -1176,8 +1176,7 @@ function showListSilent() {
   el.viewList.classList.remove("hidden");
   el.viewSettings.classList.add("hidden");
   el.viewModelSettings.classList.add("hidden");
-  el.viewChat.classList.add("chat-is-empty");
-  if (isDesktop()) showChatEmpty();
+  showChatEmpty();
 }
 
 // ---- 頂欄機器切換下拉 ----
@@ -1398,9 +1397,8 @@ function showList(options = {}) {
   ++viewGeneration;
   const wasStreaming = !!(rpc && (rpc.streaming || rpc.connectionLost));
   closeChat(wasStreaming); // streaming 中保留進程繼續跑；閒置對話離開時關閉
-  el.viewChat.classList.add("chat-is-empty");
+  showChatEmpty();
   if (!isDesktop()) el.viewChat.classList.add("hidden");
-  else showChatEmpty();
   el.viewChat.style.transform = "";
   resetSettingsOverlay();
   el.viewSettings.classList.add("hidden");
@@ -1412,6 +1410,9 @@ el.btnBack.addEventListener("click", showList);
 
 function showChatEmpty() {
   el.viewChat.classList.add("chat-is-empty");
+  el.chatTitle.textContent = "Stepsemble";
+  el.chatSub.textContent = "";
+  el.chatSub.dataset.base = "";
   el.messages.innerHTML = '';
   resetSessionUsage();
   if (el.chatEmpty) {

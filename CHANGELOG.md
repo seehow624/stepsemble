@@ -11,6 +11,8 @@
 - Fence Agent Hub responses by host and request identity; do not turn failed
   discovery into a fabricated installed-agent status.
 - Precache the colour logo and limit service-worker cleanup to known app shells.
+- Clear closed-chat content at every viewport size, so widening a mobile list
+  cannot reveal a stale conversation in the desktop pane.
 - Include the previously tested protocol, dialog recovery, bounded streaming,
   recoverable archive and opt-in Claude desktop-helper work from the rc series.
 - Publish under Apache-2.0 with preserved legacy and third-party notices.

@@ -85,3 +85,20 @@ test("project creation is disabled when discovery or the selected executable is 
   context.updateNewAgentNote(); assert.equal(el.newStart.disabled, true);
   assert.equal(el.newAgentNote.textContent, "unavailable");
 });
+
+test("returning to a mobile list clears the desktop pane and stale session identity", async () => {
+  const source = fs.readFileSync(require.resolve("../public/app.js"), "utf8");
+  const element = () => ({ classList: { add() {}, remove() {} }, style: {}, dataset: {}, textContent: "old session" });
+  const el = { viewChat: element(), viewList: element(), viewSettings: element(), viewModelSettings: element(),
+    chatTitle: element(), chatSub: element(), messages: { innerHTML: "private old chat" } };
+  const context = vm.createContext({ el, isDesktop: () => false, saveActiveDraft() {}, resetProjectChanges() {},
+    stopUpdateCenterPolling() {}, closeChat() {}, resetSettingsOverlay() {}, resetSessionUsage() {},
+    refreshSessions: async () => {}, rpc: null, viewGeneration: 0, currentSessionCwd: "old" });
+  vm.runInContext(source.slice(source.indexOf("function showList(options"), source.indexOf('el.btnBack.addEventListener')), context);
+  vm.runInContext(source.slice(source.indexOf("function showChatEmpty("), source.indexOf("function hideChatEmpty(")), context);
+  await context.showList();
+  assert.equal(el.messages.innerHTML, "");
+  assert.equal(el.chatTitle.textContent, "Stepsemble");
+  assert.equal(el.chatSub.textContent, "");
+  assert.equal(el.chatSub.dataset.base, "");
+});
