@@ -1,6 +1,6 @@
 # Generic Agent stop / recovery follow-up
 
-Status: 3.0.6 candidate implemented; final-source release gates pending.
+Status: 3.0.6 publicly released and activated on both production Macs.
 
 ## Evidence and scope
 
@@ -69,3 +69,41 @@ ownership, native approval/history parity and Rust/App migration remain open.
   Both `/tmp` and repository trace export paths were rejected by the MCP's
   configured roots; full raw traces and standardized TBT remain unavailable.
   No viewport/CPU emulation or whole-browser preference was changed.
+
+## Release / rollout
+
+- Exact source `331b9f09408adbbdfb8170ce73b7454dc553fd37`, tag `v3.0.6`:
+  [three-OS CI34027897400](https://github.com/seehow624/stepsemble/actions/runs/34027897400)
+  passed335 tests each: macOS333pass/2skip, Windows325/10, Linux332/3, zero
+  failures. Syntax/version, strict client/artifacts and Ajv1251 conformance pass.
+- [Rolling34027897382](https://github.com/seehow624/stepsemble/actions/runs/34027897382)
+  passed on macOS/Linux,15 cases each:8 historical pairings,2 Claude-auth,
+  2 Pi-session (including preserved selected-row DOM/ARIA),3 nested pickers.
+- [Release34028079034](https://github.com/seehow624/stepsemble/actions/runs/34028079034)
+  published [3.0.6](https://github.com/seehow624/stepsemble/releases/tag/v3.0.6).
+  Downloaded source/legacy aliases are identical, both checksums pass, installer
+  archive preflight passes, decompressed tar exactly matches the tested tag.
+  SHA256:`6ddf871bfe947fa260fa18b14435b6cc9e4f2b38fa69f56876c1da2cd64f68c9`.
+  Attestation verification restricted to this repository's release workflow,
+  source commit and tag passed.
+- Both Hosts were3.0.5 with zero RPCs/active tasks and inactive Claude login
+  before one ordinary updater request per Host. MBP applied at10:42:59Z and
+  Mini at10:43:44Z on2026-09-06. Subsequent health/update reports are3.0.6,
+  up_to_date, no pending/error, stable60-minute checks still enabled.
+- Five served assets match the exact tag on Mini local HTTP, Mini HTTPS and
+  MBP direct HTTPS, including the unchanged approved colour mark. Actual Mini
+  browser reload and Settings show3.0.6 on both devices,8 sessions, no active
+  tasks and no console warnings/errors; it is left on the session list.
+- Mini's17 protected hashes/absent states,25 native Pi file path/size/mtime
+  records and both independent helper PIDs are unchanged. Previous3.0.5 is
+  retained for rollback; its former3.0.4 backup was moved to a dated archive
+  before activation. Exact private audit/backup paths live only in the vault.
+  No claim is made about uninspected remote credential hashes or Keychain.
+- Clean-source isolated Host benchmark also passed8-task open/stream/stop;
+  [results](performance-baseline.md) retain cold-read latency and soak limits.
+  Owned synthetic browser/Host resources were closed and their temporary
+  fixture removed. No real model/OAuth call, route change or logo rewrite.
+
+The release workflow emitted a non-blocking upstream attestation-action Node20
+deprecation annotation (runner forced Node24; job succeeded). Updating pinned
+actions is a separate maintenance item, not a runtime Node requirement change.

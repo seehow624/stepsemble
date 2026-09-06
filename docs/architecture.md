@@ -13,6 +13,13 @@ runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
+Current stable is3.0.6 on both owner Macs. It includes3.0.5 nested folder
+scrolling/SW activation preservation and3.0.6 confirmed generic stop,
+selection-only list updates and non-destructive archive cleanup. Exact source,
+CI, measured limits and rollout evidence are in
+[`agent-stop-reliability.md`](agent-stop-reliability.md). The3.0.4 deployment
+statements below describe that earlier release, not an outstanding MBP blocker.
+
 Reliability changes (2026-09-05) are documented separately in
 [`reliability-followup.md`](reliability-followup.md): recoverable session archive,
 bounded stream framing/writes, supervisor snapshot replacement, asynchronous

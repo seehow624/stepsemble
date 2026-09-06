@@ -116,3 +116,19 @@ the Host-only baseline; it is no longer a request to install the MCP again.
 - TypeScript Client SDK接管network/replay。
 - Rust shadow daemon與Rust runtime切換。
 - 1/4/8/16 concurrent tasks、slow SSE consumer與72-hour soak專用bench加入時。
+
+## 2026-09-06: clean 3.0.6 candidate
+
+Exact source `331b9f0`, clean worktree, Node22.22.3 on the same Darwin25.6.0
+arm64 host: [raw result](baselines/host-performance-2026-09-06-stepsemble-3.0.6-darwin-arm64.json).
+The benchmark/parser have changed since the original 3.0.0 measurement; do not
+attribute every difference to the 3.0.6 stop fix or combine runs as a percentile.
+
+- Warm health p95:0.771ms; warm session list p95:13.938ms; long history p95:18.655ms.
+- Cold list:139.666ms; invalidated scan:138.358ms; concurrent health max:1.304ms.
+  Cold reads still exceed the plan's initial100ms control target; slow disks and
+  much larger histories remain unverified.
+- Eight synthetic generic tasks opened in104.605ms, SSE handshake p95:7.342ms,
+  all stopped through the confirmed-exit API; no real provider/model used.
+- Event-loop delay p95:13.099ms/max22.512ms; RSS idle54.656/loaded97.719MiB.
+  One run is not a memory-leak/soak result.

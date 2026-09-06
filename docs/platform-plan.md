@@ -3,8 +3,8 @@
 > 狀態：已接受（Accepted）
 > 計畫版本：1.30
 > 最後更新：2026-09-06
-> 當前產品基線：Stepsemble 3.0.5（由 Pi Harbor 2.13.2 相容遷移）
-> Mini／MacBook Pro 啟用版本：3.0.5／source `7851c10`（2026-09-06 已部署並公開 stable release）
+> 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
+> Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
@@ -29,13 +29,13 @@
 
 | 項目 | 狀態 | 說明 |
 | --- | --- | --- |
-| Web 正式上線／品牌介面整理 | 3.0.5 已在兩台 Mac 上線並公開 | exact `7851c10` 三OS CI／雙平台 rolling 全綠；巢狀資料夾捲動、首次 SW 啟用表單保留已上線，品牌原圖未改；原生歷史／保護設定保留，兩台更新器正常。見 `project-picker-scroll.md` |
+| Web 正式上線／品牌介面整理 | 3.0.6 已在兩台 Mac 上線並公開 | exact `331b9f0` 三OS CI／雙平台 rolling 全綠；停止確認、選取不重建及還原保護已上線，既有巢狀捲動與品牌原圖保留；兩台更新器正常。見 `agent-stop-reliability.md` |
 | 長期語言邊界 | 已定案 | Rust Host Core；TypeScript UI/Client；Swift/Kotlin 僅處理平台專屬能力 |
 | Web 產品定位 | 已定案 | Web/PWA 永久保留，不是過渡版 |
 | 產品名稱與識別 | 已定案 | Stepsemble；step + ensemble；四個等權模組代表 agents，藍紫內緣代表每個 agent 共用的 Stepsemble coordination layer |
 | Host/Client 邊界 | 已定案 | Desktop 可為 Host + Client；iOS/Android 初期只為 Client |
 | App Shell | 目標已定，待驗證 | Tauri 2 為預設方案；必須先通過 Apple 實機 PoC 驗收門檻 |
-| 當前回歸基線 | 3.0.5 已發布；3.0.6 candidate 驗收中 | Windows stop fix `ae0cebc` 已通過 CI34027450549 三OS333tests／0fail及 rolling34027450520。新增 UI／restore 修正待final-source gate；見 `agent-stop-reliability.md` |
+| 當前回歸基線 | 3.0.6 發布 gate 全通過 | `331b9f0`／CI34027897400三OS335tests／0fail（Mac333pass2skip、Win325/10、Linux332/3）；rolling34027897382兩OS各15cases；Release34028079034全綠。原Windows stop race已修，見 `agent-stop-reliability.md` |
 | Pi Failed／session 名稱修正 | 已隨3.0.4部署 | 已分離預期 idle close 與異常退出、補上送出／關閉競爭保護，名稱統一 native name／first user；驗證與相容邊界見 `pi-session-lifecycle.md`。未呼叫真實模型或改寫歷史 |
 | 開發分支跨平台回歸 | 已通過，逐批驗證 | 2026-09-05 `6a0ddd4`／CI33970842907三OS全綠270tests/0fail；Rolling33970842871 macOS/Linux各8cases全綠。Native Pi offline contract33967509738三OS實跑0.84.2各57frames；本批見1.23記錄，新的commit需看各自workflow；不等於model/provider parity或release |
 | 現行系統盤點 | 已完成 | HTTP/SSE/RPC、資料、狀態、approval、event、安裝與 rollback 已落於 `current-system-inventory.md` |
@@ -56,7 +56,7 @@
 
 ### 下一個可執行任務
 
-**2026-09-06 最新進度**：Web 3.0.5已完成公開 release、Mini／MacBook Pro 可回滾部署，兩台每60分鐘自動更新正常；不要再要求 MBP 補裝。SSH 仍沒有權限，不繞過。使用者同意下一批先修 Windows 停止／重連競態、補恢復驗收，再量測長對話；實作／驗收記錄見 `agent-stop-reliability.md`。Claude 最近 metadata 為 signed_out，登入由 owner 進行；模型重測仍需新的用量同意。Phase 1、實機和72h不因Web上線就完成。每次部署仍先檢查 active work 並保留回滾。
+**2026-09-06 最新進度**：Web 3.0.6已完成公開 release、Mini／MacBook Pro 可回滾部署，兩台每60分鐘自動更新正常；不要再要求 MBP 補裝。SSH 仍沒有權限，不繞過。Windows 停止／重連、還原後未知資料保留及對話選取不重建已實作／跨平台驗收／上線，見 `agent-stop-reliability.md`。Chrome單輪量測、合成Host重啟／衝突還原與8-task基線已補；實機背景恢復、多輪性能、完整Host備份還原、Pi存活與72h仍未完成。Claude 最近 metadata 為 signed_out，登入由 owner 進行；模型重測仍需新的用量同意。每次部署仍先檢查 active work 並保留回滾。
 
 先閱讀 `reliability-followup.md`、`protocol/v1/README.md`、`command-state.md`、`lifecycle.md`、`projection.md`、`transactions.md`、`protocol/native/pi/README.md`、`protocol/native/codex/README.md`、`protocol/rolling-compatibility.md` 、`native-subscription-smoke.md` 與 `claude-sign-in.md`，再繼續 Phase 1。Pi三OS真實離線、pending-set/FIFO/reconnect、receipt/entity/projection/snapshot、8commands/observations多列proposal與30-step golden已做；前兩已發布版本的legacy browser雙向8cases在macOS/Linux皆過；Codex0.153.3離線schema metadata已驗，不要重做。Jerome已同意Claude/Codex各1次最小測試；Claude唯一attempt因OAuth過期失敗，記錄用量0但不得自動重試，Jerome曾於09-06自行重新登入，但最新metadata又為signed_out；官方登入由owner進行，模型重測仍需新的同意。Codex沒有送turn：有效設定仍有本機API代理與全域指令，需要先決定隔離方式，不可自行改設定／搬憑證／移除私人指令。Native ownership/evidence、模型/tool／訂閱與authenticated transport仍需接入，之後按階段接durable store/crash/restore，純函式不是DB證據。Projection未接live UI，paging/worker/效能、SW/cache/Safari/Firefox/實機/futurejournalrolling、72h等仍待；Rust/App完整體未完成；後續部署依本次active-work與回滾安全邊界辦理。
 
@@ -951,6 +951,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 - 下一批按使用者同意，先修 Windows stop/reconnect，再補隔離恢復與長對話效能驗收；邊界見 `agent-stop-reliability.md`。
 - 停止改成等待已驗身分的控制連線與程序退出、合併重複要求；未確認不標停止、不殺持久 PID，逾時可重試。首輪本機333tests：331pass／2skip，尚待新 source 的跨平台 CI。
 - `ae0cebc` 三OS／雙OS rolling 已通過；3.0.6候選補上還原衝突／Host重啟／sidecar保留、chat stop錯誤回饋、選取清單不重建；Chrome單輪first-open195ms與warm-reopen72ms保留量測條件，不作受控百分比或全平台順滑度宣稱。完整trace export仍受工具限制。
+- Final `331b9f0` 三OS335tests／兩OS各15browsercases／Release全綠；3.0.6公開並透過既有updater更新兩台Mac。15份live asset比對、Mini17保護hash／25Pi inventory／helpers、正式UI版本與自動更新皆驗過。合成8tasks基線cold scan138ms仍是性能open item，不把短測當72h。
 
 ### 2026-09-06 — Plan 1.29
 
