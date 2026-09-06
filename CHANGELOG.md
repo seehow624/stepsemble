@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.0.4
+
+- Display the approved full-colour Step Mosaic on the workspace, sign-in,
+  onboarding and empty conversation, without redrawing the source artwork.
+- Separate the workspace identity from the host selector, label New project,
+  wrap all Agent chips on narrow screens, and enlarge key touch targets.
+- Fix Pi idle shutdown being reported as Failed, unify native session titles,
+  and protect work starting concurrently with session closure.
+- Fence Agent Hub responses by host and request identity; do not turn failed
+  discovery into a fabricated installed-agent status.
+- Precache the colour logo and limit service-worker cleanup to known app shells.
+- Include the previously tested protocol, dialog recovery, bounded streaming,
+  recoverable archive and opt-in Claude desktop-helper work from the rc series.
+- Publish under Apache-2.0 with preserved legacy and third-party notices.
+- Other CLI agents remain terminal integrations, not full native history or
+  structured approval parity. Rust, native Apps, physical-device and long-soak
+  gates remain on the roadmap.
+
 ## 3.0.4-rc.4
 
 Development candidate; not activated or published as a stable release.

@@ -82,16 +82,15 @@ test("Stepsemble ships its own equal-participation Step Mosaic", () => {
   assert.equal(icon512[25], 2, "maskable PWA artwork should be opaque RGB");
 });
 
-test("the in-app brand mark follows the active theme colour without a plate", () => {
+test("the in-app brand uses approved colour artwork with a forced-colour fallback", () => {
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const glyph = fs.readFileSync(path.join(root, "public", "stepsemble-glyph.png"));
   const markBlock = css.slice(css.indexOf(".login-mark.brand-mark"), css.indexOf("html[data-design-theme="));
-  assert.match(markBlock, /background-color: var\(--ink\)/);
-  assert.match(markBlock, /-webkit-mask: url\("\/stepsemble-glyph\.png"\)/);
-  assert.match(markBlock, /\n  mask: url\("\/stepsemble-glyph\.png"\)/);
-  assert.doesNotMatch(markBlock, /#09090b/i);
-  assert.doesNotMatch(markBlock, /border-radius: 1[0-9]px/);
+  assert.match(markBlock, /background: #121212 url\("\/icon-512\.png"\)/);
+  assert.match(markBlock, /forced-colors: active[\s\S]*-webkit-mask: url\("\/stepsemble-glyph\.png"\)/);
+  assert.match(markBlock, /forced-colors: active[\s\S]*mask: url\("\/stepsemble-glyph\.png"\)/);
+  assert.match(html, /class="workspace-logo"/);
   assert.match(markBlock, /forced-colors: active/);
   assert.deepEqual([glyph.readUInt32BE(16), glyph.readUInt32BE(20)], [512, 512]);
   assert.equal(glyph[25], 6, "the theme-colour mask must retain transparency");

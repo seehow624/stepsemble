@@ -1,7 +1,7 @@
-/* stepsemble v3.0.4-rc.4 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.4 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.4-rc.4";
+const CLIENT_APP_VERSION = "3.0.4";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -173,6 +173,7 @@ let sessionsCache = [];
 let sessionRenderLimit = 120;
 let temporarySessionCount = 0;
 let agentCatalog = [];
+let agentCatalogError = false;
 let claudeAuthClient = null;
 let agentTasks = [];
 let agentTaskPollTimer = null;
@@ -759,6 +760,7 @@ matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", () => {
 
 function showLogin() {
   claudeAuthClient?.reset();
+  resetAgentHub();
   protocolConnections.reset();
   stopUpdateCenterPolling();
   closeChat(true);
@@ -1003,7 +1005,10 @@ function applyMachineCatalog(data) {
   machines = state.machines;
   selfId = state.selfId;
   selectedId = state.selectedId;
-  if (previousSelectedId !== selectedId || previousSelfId !== selfId) resetIncomingGrants();
+  if (previousSelectedId !== selectedId || previousSelfId !== selfId) {
+    resetIncomingGrants();
+    resetAgentHub();
+  }
   updateDeviceStatuses = new Map([...updateDeviceStatuses].filter(([id]) => machines.some((machine) => machine.id === id)));
   updateStatusData = updateDeviceStatuses.get(selectedId)?.data || null;
   cancelUpdateCenterRequest();
@@ -1110,6 +1115,7 @@ function applyApiBase() {
 function switchMachine(id, silent) {
   if (!machines.some(m => m.id === id)) return;
   claudeAuthClient?.reset();
+  resetAgentHub();
   if ($("claude-auth")) $("claude-auth").open = false;
   clearDraftScopeForDeviceSwitch();
   resetProjectChanges();
@@ -1649,6 +1655,7 @@ function agentHubText(key, vars = {}) {
   const fallback = {
     title: "Agent Hub",
     discovering: "Discovering local agents…",
+    unavailable: "Could not refresh agents. Try Refresh agents.",
     refresh: "Refresh agents",
     viewAll: "View all",
     close: "Close",
@@ -1713,7 +1720,7 @@ function renderAgentHub() {
   const active = agentTasks.filter(agentTaskIsRunning).length;
   if (el.agentHubTitle) el.agentHubTitle.textContent = agentHubText("title");
   if (el.agentHubSummary) {
-    el.agentHubSummary.textContent = connectors.length
+    el.agentHubSummary.textContent = agentCatalogError ? agentHubText("unavailable") : connectors.length
       ? (active ? agentHubText("activeSummary", { active, ready }) : agentHubText("readySummary", { ready }))
       : agentHubText("discovering");
   }
@@ -1937,7 +1944,7 @@ function renderNewAgentOptions() {
   if (!el.newAgent) return;
   const previous = el.newAgent.value || "pi";
   el.newAgent.replaceChildren();
-  const connectors = agentCatalog.length ? agentCatalog : [{ id: "pi", label: "Pi Agent", installed: true, kind: "native" }];
+  const connectors = agentCatalog;
   for (const connector of connectors) {
     const option = document.createElement("option");
     option.value = connector.id;
@@ -1947,45 +1954,74 @@ function renderNewAgentOptions() {
     el.newAgent.appendChild(option);
   }
   const selected = [...el.newAgent.options].find((option) => option.value === previous && !option.disabled)
-    || [...el.newAgent.options].find((option) => option.value === "pi")
-    || el.newAgent.options[0];
+    || [...el.newAgent.options].find((option) => option.value === "pi" && !option.disabled)
+    || [...el.newAgent.options].find((option) => !option.disabled);
   if (selected) el.newAgent.value = selected.value;
   updateNewAgentNote();
 }
 
 function updateNewAgentNote() {
-  const id = el.newAgent?.value || "pi";
+  const id = el.newAgent?.value;
   const connector = agentCatalog.find((item) => item.id === id);
-  if (el.newAgentNote) el.newAgentNote.textContent = id === "pi" ? agentHubText("piNote") : (connector?.description || agentHubText("cliNote"));
+  const unavailable = agentCatalogError || connector?.installed !== true;
+  if (el.newStart) el.newStart.disabled = unavailable;
+  if (el.newAgentNote) el.newAgentNote.textContent = unavailable ? agentHubText(agentCatalogError ? "unavailable" : "discovering") : id === "pi" ? agentHubText("piNote") : (connector?.description || agentHubText("cliNote"));
   if (el.newWorktree) el.newWorktree.disabled = connector?.capabilities?.includes("worktree") === false;
 }
 
 async function loadAgentCatalog() {
   if (agentCatalogRequest) agentCatalogRequest.abort();
-  agentCatalogRequest = new AbortController();
+  const request = new AbortController();
+  agentCatalogRequest = request;
+  const base = apiBase, host = selectedId;
+  const isCurrent = () => agentCatalogRequest === request && !request.signal.aborted && base === apiBase && host === selectedId;
   try {
-    const data = await api("/api/agents", { signal: agentCatalogRequest.signal });
-    agentCatalog = Array.isArray(data?.connectors) ? data.connectors : [];
+    const data = await api("/api/agents", { signal: request.signal });
+    if (!isCurrent()) return;
+    if (!Array.isArray(data?.connectors)) throw new Error("Invalid agent catalog");
+    agentCatalog = data.connectors;
+    agentCatalogError = false;
     renderNewAgentOptions();
     renderAgentHub();
   } catch (error) {
-    if (error?.name !== "AbortError") {
-      agentCatalog = [{ id: "pi", label: "Pi Agent", installed: true, kind: "native", capabilities: ["rpc", "worktree"] }];
+    if (isCurrent() && error?.name !== "AbortError") {
+      // Only a legacy Host without this endpoint can use the Pi-only catalog.
+      // Network/auth errors are unknown, not proof that Pi is installed.
+      agentCatalogError = error?.status !== 404;
+      if (!agentCatalogError) agentCatalog = [{ id: "pi", label: "Pi Agent", installed: true, kind: "native", capabilities: ["rpc", "worktree"] }];
       renderNewAgentOptions();
       renderAgentHub();
     }
   } finally {
-    agentCatalogRequest = null;
+    if (agentCatalogRequest === request) agentCatalogRequest = null;
   }
 }
 
 let agentTaskRefreshRequest = null;
+function resetAgentHub() {
+  agentCatalogRequest?.abort();
+  agentTaskRefreshRequest?.abort();
+  agentCatalogRequest = agentTaskRefreshRequest = null;
+  agentCatalog = [];
+  agentTasks = [];
+  agentCatalogError = false;
+  renderNewAgentOptions();
+  renderAgentHub();
+  renderAgentTaskCenter();
+  syncAgentTaskPolling();
+}
+
 async function refreshAgentTasks() {
   if (agentTaskRefreshRequest) agentTaskRefreshRequest.abort();
-  agentTaskRefreshRequest = new AbortController();
+  const request = new AbortController();
+  agentTaskRefreshRequest = request;
+  const base = apiBase, host = selectedId;
+  const isCurrent = () => agentTaskRefreshRequest === request && !request.signal.aborted && base === apiBase && host === selectedId;
   try {
-    const data = await api("/api/agent-tasks", { signal: agentTaskRefreshRequest.signal });
-    agentTasks = Array.isArray(data?.tasks) ? data.tasks : [];
+    const data = await api("/api/agent-tasks", { signal: request.signal });
+    if (!isCurrent()) return;
+    if (!Array.isArray(data?.tasks)) throw new Error("Invalid task snapshot");
+    agentTasks = data.tasks;
     renderAgentHub();
     renderAgentTaskCenter();
     syncAgentTaskPolling();
@@ -1994,7 +2030,7 @@ async function refreshAgentTasks() {
     // stale native session.
     void restoreLastChat();
   } catch (error) {
-    if (error?.name !== "AbortError") {
+    if (isCurrent() && error?.name !== "AbortError") {
       // Keep the last truthful snapshot during a transient network hiccup.
       // Clearing it makes a long-running task disappear even though its
       // supervisor is still alive and the next poll can recover it.
@@ -2002,7 +2038,7 @@ async function refreshAgentTasks() {
       renderAgentTaskCenter();
     }
   } finally {
-    agentTaskRefreshRequest = null;
+    if (agentTaskRefreshRequest === request) agentTaskRefreshRequest = null;
   }
 }
 
@@ -9843,6 +9879,7 @@ async function loadProjectFolder(requestedPath = null) {
 }
 
 function openNewDialog(initialCwd = null) {
+  if (agentCatalogError || !agentCatalog.length) void loadAgentCatalog();
   el.newCwd.value = "";
   el.newName.value = "";
   if (el.newAgent) {
@@ -9967,6 +10004,8 @@ el.newFolderUp.addEventListener("click", () => {
 });
 el.newFolderHome.addEventListener("click", () => loadProjectFolder(null));
 el.newStart.addEventListener("click", async () => {
+  const connector = agentCatalog.find((item) => item.id === el.newAgent?.value);
+  if (agentCatalogError || connector?.installed !== true) { toast(agentHubText("unavailable"), true); return; }
   const cwd = el.newCwd.value.trim();
   if (!cwd) { toast(browseText("Choose a folder first"), true); return; }
   cancelProjectFolderRequest();
@@ -9974,7 +10013,7 @@ el.newStart.addEventListener("click", async () => {
   if (settings.removedProjects?.includes(cwd)) {
     settings = saveSettings({ removedProjects: settings.removedProjects.filter((value) => value !== cwd) });
   }
-  await startNew(cwd, el.newName.value.trim() || null, el.newAgent?.value || "pi", !!el.newWorktree?.checked);
+  await startNew(cwd, el.newName.value.trim() || null, connector.id, !!el.newWorktree?.checked);
 });
 
 // ---- iOS 鍵盤適配：visualViewport 高度變化時收緊 composer ----

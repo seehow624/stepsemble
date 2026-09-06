@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.27
+> 計畫版本：1.28
 > 最後更新：2026-09-06
 > 當前產品基線：Stepsemble 3.0.3（由 Pi Harbor 2.13.2 相容遷移）
 > Mini 當前啟用版本：3.0.4-rc.3／source `f5455e1`（2026-09-06 owner-authorized local activation；未公開 stable release）
@@ -29,6 +29,7 @@
 
 | 項目 | 狀態 | 說明 |
 | --- | --- | --- |
+| Web 正式上線／品牌介面整理 | 已授權，3.0.4 驗收中 | 2026-09-06 owner 明確要求上線既有改善與定案 logo；安全更新不再等待上一輪 rc.4 確認。沿用既有 SSH 與 helpers，不中斷工作、不改帳號／計費。見 `web-release-3.0.4.md` |
 | 長期語言邊界 | 已定案 | Rust Host Core；TypeScript UI/Client；Swift/Kotlin 僅處理平台專屬能力 |
 | Web 產品定位 | 已定案 | Web/PWA 永久保留，不是過渡版 |
 | 產品名稱與識別 | 已定案 | Stepsemble；step + ensemble；四個等權模組代表 agents，藍紫內緣代表每個 agent 共用的 Stepsemble coordination layer |
@@ -54,6 +55,8 @@
 | Web 卡頓修復 | 部分完成 | 歷史離屏分批建立、相鄰訊息線性合併、局部翻譯、聊天可及性；仍需 virtualization、實機／多輪效能門檻驗收 |
 
 ### 下一個可執行任務
+
+**2026-09-06 最新優先順序**：先完成已授權的 Web 3.0.4 品牌／介面／穩定性發佈與 Mini 可回滾啟用，核對 exact commit CI、實際畫面／cache／版本、session inventory 與保護設定。不把 GitHub push 當成已上線，不將本次 Web 上線等同 Rust／原生 App 完整體。以下 Phase 1 清單是後續長期工程，之前「正式服務不重啟」已由本次安全更新授權取代；帳號、模型、實機與跨平台 gate 不變。
 
 先閱讀 `reliability-followup.md`、`protocol/v1/README.md`、`command-state.md`、`lifecycle.md`、`projection.md`、`transactions.md`、`protocol/native/pi/README.md`、`protocol/native/codex/README.md`、`protocol/rolling-compatibility.md` 、`native-subscription-smoke.md` 與 `claude-sign-in.md`，再繼續 Phase 1。Pi三OS真實離線、pending-set/FIFO/reconnect、receipt/entity/projection/snapshot、8commands/observations多列proposal與30-step golden已做；前兩已發布版本的legacy browser雙向8cases在macOS/Linux皆過；Codex0.153.3離線schema metadata已驗，不要重做。Jerome已同意Claude/Codex各1次最小測試；Claude唯一attempt因OAuth過期失敗，記錄用量0但不得自動重試，Jerome已於09-06自行重新登入，模型重測仍需新的同意。Codex沒有送turn：有效設定仍有本機API代理與全域指令，需要先決定隔離方式，不可自行改設定／搬憑證／移除私人指令。Native ownership/evidence、模型/tool／訂閱與authenticated transport仍需接入，之後按階段接durable store/crash/restore，純函式不是DB證據。Projection未接live UI，paging/worker/效能、SW/cache/Safari/Firefox/實機/futurejournalrolling、72h等仍待；Rust/App完整體未完成，正式服務不重啟。
 
@@ -941,6 +944,13 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-06 — Plan 1.28
+
+- Owner 明確要求既有成果與定案 logo 上線，授權可回滾 Web 部署／正式 release；不再停在 rc.4 啟用確認。未授權自動重登入、憑證搬移、模型重試或商店上架。
+- 3.0.4 使用原圖派生的彩色 icon 取代一般畫面的單色 mask，新增常駐 workspace 品牌與獨立主機列、具文字的新專案按鈕；手機 Agent chips 換行，主要按鈕44px、搜尋／欄位 labels、鍵盤與 reduced-motion/transparency 支援。
+- 修復 Agent catalog/task 的 stale-host／finally 競態；切主機與登出清快照／取消請求。只有404可 legacy Pi fallback，其他錯誤不假裝已安裝，未驗選項禁止啟動。
+- Service Worker 預快取彩色 logo，清除範圍只限產品自己的舊 shell。母圖／icon 原始 bytes 不變。回歸、部署與未完成邊界見 `web-release-3.0.4.md`；正式成功狀態須驗證後另記，未降低 native／durable／Rust／Apps gate。
 
 ### 2026-09-06 — Plan 1.27
 

@@ -6,10 +6,10 @@
 <title>Stepsemble</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=3.0.4-rc.4">
-<link rel="icon" href="/icon-512.png?v=3.0.4-rc.4" type="image/png">
-<link rel="apple-touch-icon" href="/icon-180.png?v=3.0.4-rc.4">
-<link rel="stylesheet" href="/style.css?v=3.0.4-rc.4">
+<link rel="manifest" href="/manifest.webmanifest?v=3.0.4">
+<link rel="icon" href="/icon-512.png?v=3.0.4" type="image/png">
+<link rel="apple-touch-icon" href="/icon-180.png?v=3.0.4">
+<link rel="stylesheet" href="/style.css?v=3.0.4">
 </head>
 <body>
 
@@ -107,13 +107,17 @@
 
   <!-- ===== View: Sessions list ===== -->
   <main id="view-list" class="view">
-    <header class="topbar">
+    <header class="topbar workspace-topbar">
+      <div class="workspace-identity" aria-label="Stepsemble">
+        <span class="workspace-logo" aria-hidden="true"></span>
+        <span class="workspace-wordmark" data-i18n-ignore>Stepsemble</span>
+      </div>
+      <button id="btn-open-settings" class="btn ghost icon-btn" type="button" title="Settings" aria-label="Settings"><svg class="icon"><use href="#i-settings"></use></svg></button>
+      <button id="btn-new" class="btn primary workspace-new hidden" type="button" title="New project" aria-label="New project"><svg class="icon" aria-hidden="true"><use href="#i-plus"></use></svg><span>New project</span></button>
       <div class="machine-switch-wrap">
         <span id="machine-switch-status" class="machine-status-dot machine-status-unknown" aria-hidden="true"></span>
         <select id="machine-switch" class="machine-select" title="Switch device" aria-label="Switch device"></select>
       </div>
-      <button id="btn-open-settings" class="btn ghost icon-btn" type="button" title="Settings" aria-label="Settings"><svg class="icon"><use href="#i-settings"></use></svg></button>
-      <button id="btn-new" class="btn ghost icon-btn hidden" type="button" title="New project" aria-label="New project"><svg class="icon"><use href="#i-plus"></use></svg></button>
     </header>
     <div id="machine-catalog-status" class="machine-catalog-status hidden" role="status" aria-live="polite">
       <span id="machine-catalog-status-copy"></span>
@@ -158,7 +162,7 @@
       </span>
     </div>
     <div class="list-toolbar">
-      <input id="search" type="search" placeholder="Search sessions…">
+      <input id="search" type="search" placeholder="Search sessions…" aria-label="Search sessions…">
     </div>
     <div id="temporary-session-filter" class="temporary-session-filter hidden">
       <label class="temporary-session-filter-control" for="show-temporary-sessions">
@@ -418,8 +422,8 @@
           <button id="push-toggle" class="settings-action-btn" type="button">Enable</button>
         </div>
         <div class="settings-row">
-          <span><strong>Stepsemble</strong><small>Mobile-first remote workspace for Pi</small></span>
-          <span class="settings-value" id="set-app-version">v3.0.4-rc.4</span>
+          <span><strong>Stepsemble</strong><small data-i18n-key="agentHub.workspace">A workspace for local coding agents</small></span>
+          <span class="settings-value" id="set-app-version">v3.0.4</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -678,9 +682,9 @@
         <span id="new-folder-path" class="project-folder-path" data-i18n-ignore>—</span>
       </div>
       <div id="new-folder-list" class="project-folder-list"></div>
-      <label class="field-label">Selected location</label>
+      <label class="field-label" for="new-cwd">Selected location</label>
       <input id="new-cwd" type="text" spellcheck="false" readonly placeholder="Choose a folder">
-      <label class="field-label">Session name (optional)</label>
+      <label class="field-label" for="new-name">Session name (optional)</label>
       <input id="new-name" type="text" placeholder="e.g. Project QA">
       <label class="field-label" for="new-agent" data-i18n-key="agentHub.agent">Agent</label>
       <select id="new-agent" class="new-agent-select" data-i18n-ignore aria-describedby="new-agent-note"></select>
@@ -880,15 +884,15 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=3.0.4-rc.4"></script>
-<script src="/modules/app-foundation.js?v=3.0.4-rc.4"></script>
-<script src="/modules/session-utils.js?v=3.0.4-rc.4"></script>
-<script src="/modules/pi-session.js?v=3.0.4-rc.4"></script>
-<script src="/modules/context-usage.js?v=3.0.4-rc.4"></script>
-<script src="/modules/claude-auth.js?v=3.0.4-rc.4"></script>
-<script src="/modules/protocol-contracts.js?v=3.0.4-rc.4"></script>
-<script src="/modules/client-sdk.js?v=3.0.4-rc.4"></script>
-<script src="/modules/native-dialogs.js?v=3.0.4-rc.4"></script>
-<script src="/app.js?v=3.0.4-rc.4"></script>
+<script src="/i18n.js?v=3.0.4"></script>
+<script src="/modules/app-foundation.js?v=3.0.4"></script>
+<script src="/modules/session-utils.js?v=3.0.4"></script>
+<script src="/modules/pi-session.js?v=3.0.4"></script>
+<script src="/modules/context-usage.js?v=3.0.4"></script>
+<script src="/modules/claude-auth.js?v=3.0.4"></script>
+<script src="/modules/protocol-contracts.js?v=3.0.4"></script>
+<script src="/modules/client-sdk.js?v=3.0.4"></script>
+<script src="/modules/native-dialogs.js?v=3.0.4"></script>
+<script src="/app.js?v=3.0.4"></script>
 </body>
 </html>

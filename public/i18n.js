@@ -3468,6 +3468,8 @@
   const AGENT_HUB_TRANSLATIONS = {
     en: {
       "agentHub.title": "Agent Hub", "agentHub.agent": "Agent", "agentHub.discovering": "Discovering local agents…", "agentHub.refresh": "Refresh agents",
+      "agentHub.unavailable": "Could not refresh agents. Try Refresh agents.",
+      "agentHub.workspace": "A workspace for local coding agents",
       "agentHub.activeSummary": "{active} active · {ready} ready", "agentHub.readySummary": "{ready} agents ready",
       "agentHub.noTasks": "No active tasks — choose an Agent when you start a project.", "agentHub.notInstalled": "not installed",
       "agentHub.isolated": "Isolated worktree", "agentHub.worktreeDescription": "Give this task its own Git branch and folder", "agentHub.piNote": "Pi Agent keeps full session history. CLI agents stream terminal output here.",
@@ -3477,6 +3479,8 @@
     },
     "zh-Hant": {
       "agentHub.title": "Agent Hub", "agentHub.agent": "Agent", "agentHub.discovering": "正在探索本機 Agent…", "agentHub.refresh": "重新探索 Agent",
+      "agentHub.unavailable": "無法更新 Agent 狀態，請按重新探索。",
+      "agentHub.workspace": "本機 Coding Agent 的共用工作區",
       "agentHub.activeSummary": "{active} 個執行中 · {ready} 個可用", "agentHub.readySummary": "{ready} 個 Agent 可用",
       "agentHub.noTasks": "目前沒有工作；建立專案時選擇要使用的 Agent。", "agentHub.notInstalled": "尚未安裝",
       "agentHub.isolated": "隔離 Worktree", "agentHub.worktreeDescription": "為這個工作建立獨立的 Git 分支與資料夾", "agentHub.piNote": "Pi Agent 會保留完整工作階段記錄；CLI Agent 會在這裡串流終端輸出。",
@@ -3486,6 +3490,8 @@
     },
     "zh-Hans": {
       "agentHub.title": "Agent Hub", "agentHub.agent": "Agent", "agentHub.discovering": "正在探索本机 Agent…", "agentHub.refresh": "重新探索 Agent",
+      "agentHub.unavailable": "无法更新 Agent 状态，请点击重新探索。",
+      "agentHub.workspace": "本地 Coding Agent 的共享工作区",
       "agentHub.activeSummary": "{active} 个运行中 · {ready} 个可用", "agentHub.readySummary": "{ready} 个 Agent 可用",
       "agentHub.noTasks": "目前没有任务；创建项目时选择要使用的 Agent。", "agentHub.notInstalled": "尚未安装",
       "agentHub.isolated": "隔离 Worktree", "agentHub.worktreeDescription": "为此任务建立独立的 Git 分支和文件夹", "agentHub.piNote": "Pi Agent 会保留完整会话记录；CLI Agent 会在这里串流终端输出。",

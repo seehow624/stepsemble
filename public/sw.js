@@ -1,22 +1,23 @@
-const CACHE_NAME = "stepsemble-shell-v3.0.4-rc.4";
+const CACHE_NAME = "stepsemble-shell-v3.0.4";
 const SHELL = [
   "/",
   "/index.html",
-  "/style.css?v=3.0.4-rc.4",
-  "/i18n.js?v=3.0.4-rc.4",
-  "/modules/app-foundation.js?v=3.0.4-rc.4",
-  "/modules/session-utils.js?v=3.0.4-rc.4",
-  "/modules/pi-session.js?v=3.0.4-rc.4",
-  "/modules/context-usage.js?v=3.0.4-rc.4",
-  "/modules/claude-auth.js?v=3.0.4-rc.4",
-  "/modules/protocol-contracts.js?v=3.0.4-rc.4",
-  "/modules/client-sdk.js?v=3.0.4-rc.4",
-  "/modules/native-dialogs.js?v=3.0.4-rc.4",
-  "/app.js?v=3.0.4-rc.4",
-  "/manifest.webmanifest?v=3.0.4-rc.4",
+  "/style.css?v=3.0.4",
+  "/i18n.js?v=3.0.4",
+  "/modules/app-foundation.js?v=3.0.4",
+  "/modules/session-utils.js?v=3.0.4",
+  "/modules/pi-session.js?v=3.0.4",
+  "/modules/context-usage.js?v=3.0.4",
+  "/modules/claude-auth.js?v=3.0.4",
+  "/modules/protocol-contracts.js?v=3.0.4",
+  "/modules/client-sdk.js?v=3.0.4",
+  "/modules/native-dialogs.js?v=3.0.4",
+  "/app.js?v=3.0.4",
+  "/manifest.webmanifest?v=3.0.4",
   "/stepsemble-glyph.png",
-  "/icon-180.png?v=3.0.4-rc.4",
-  "/icon-512.png?v=3.0.4-rc.4",
+  "/icon-512.png",
+  "/icon-180.png?v=3.0.4",
+  "/icon-512.png?v=3.0.4",
   "/vendor/marked.min.js",
   "/vendor/purify.min.js",
   "/vendor/mermaid.min.js",
@@ -41,7 +42,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME && /^(?:stepsemble|pi-harbor|pi-web)-shell-v/.test(key)).map((key) => caches.delete(key))))
       .then(() => self.clients.claim())
       .then(() => self.clients.matchAll({ type: "window", includeUncontrolled: false }))
       // Use the former wire name for this one-way notification throughout v3:
