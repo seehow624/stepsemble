@@ -542,7 +542,7 @@ test("New project browsing starts with a selected-host no-path request", () => {
   assert.match(server, /isBrowseAllowed\(dir\)/);
 });
 
-test("New project picker keeps the whole sheet scrollable", () => {
+test("New project picker keeps outer controls reachable and bounds the nested folder scroller", () => {
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   const projectSheet = css.slice(css.indexOf(".project-sheet {"), css.indexOf(".sheet-handle", css.indexOf(".project-sheet {")));
   const folderList = css.slice(css.indexOf(".project-folder-list {"), css.indexOf(".project-folder-row", css.indexOf(".project-folder-list {")));
@@ -551,10 +551,12 @@ test("New project picker keeps the whole sheet scrollable", () => {
   assert.match(projectSheet, /-webkit-overflow-scrolling: touch/);
   assert.match(projectSheet, /touch-action: pan-y/);
   assert.match(projectSheet, /scrollbar-width: thin/);
-  // Avoid a nested scroll trap: folder rows and the agent/worktree controls
-  // belong to the same scroll surface.
-  assert.doesNotMatch(folderList, /overflow-y:/);
-  assert.doesNotMatch(folderList, /max-height:/);
+  assert.match(folderList, /overflow-y: auto/);
+  assert.match(folderList, /max-height: clamp\(144px, 32dvh, 320px\)/);
+  assert.match(folderList, /overscroll-behavior-y: contain/);
+  assert.match(folderList, /scrollbar-gutter: stable/);
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  assert.match(html, /id="new-folder-list"[^>]*role="region"[^>]*aria-labelledby="new-folder-heading"[^>]*tabindex="0"/);
 });
 
 test("project folder browsing can move from a home root to configured volumes", () => {

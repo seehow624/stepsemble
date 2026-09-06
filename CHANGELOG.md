@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.5
+
+- Bound the New project folder list to its own scroll area while preserving
+  the outer form scrollbar and access to Agent settings and Start here.
+- Add a labelled, keyboard-focusable folder region, native touch scrolling,
+  a stable scrollbar gutter and scroll-position reset when opening a folder.
+- Exercise 200 folders, nested wheel/keyboard scrolling, empty folders and
+  reachable bottom controls at desktop, mobile and short-screen sizes in CI.
+
 ## 3.0.4
 
 - Display the approved full-colour Step Mosaic on the workspace, sign-in,

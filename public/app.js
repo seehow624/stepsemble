@@ -1,7 +1,7 @@
-/* stepsemble v3.0.4 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.5 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.4";
+const CLIENT_APP_VERSION = "3.0.5";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -9846,6 +9846,7 @@ async function loadProjectFolder(requestedPath = null) {
   projectFolderRequest = request;
   el.newFolderPath.textContent = browseText("Loading folders…");
   el.newFolderList.innerHTML = `<p class="project-folder-empty">${browseText("Loading folders…")}</p>`;
+  el.newFolderList.scrollTop = 0;
   el.newFolderUp.disabled = true;
   try {
     // An empty initial home is intentional: /api/browse resolves it to the

@@ -6,10 +6,10 @@
 <title>Stepsemble</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=3.0.4">
-<link rel="icon" href="/icon-512.png?v=3.0.4" type="image/png">
-<link rel="apple-touch-icon" href="/icon-180.png?v=3.0.4">
-<link rel="stylesheet" href="/style.css?v=3.0.4">
+<link rel="manifest" href="/manifest.webmanifest?v=3.0.5">
+<link rel="icon" href="/icon-512.png?v=3.0.5" type="image/png">
+<link rel="apple-touch-icon" href="/icon-180.png?v=3.0.5">
+<link rel="stylesheet" href="/style.css?v=3.0.5">
 </head>
 <body>
 
@@ -423,7 +423,7 @@
         </div>
         <div class="settings-row">
           <span><strong>Stepsemble</strong><small data-i18n-key="agentHub.workspace">A workspace for local coding agents</small></span>
-          <span class="settings-value" id="set-app-version">v3.0.4</span>
+          <span class="settings-value" id="set-app-version">v3.0.5</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -673,7 +673,7 @@
     <div class="sheet project-sheet">
       <div class="sheet-handle"></div>
       <div class="sheet-heading-row">
-        <div><p class="eyebrow">NEW PROJECT</p><h2>Choose a project folder</h2></div>
+        <div><p class="eyebrow">NEW PROJECT</p><h2 id="new-folder-heading">Choose a project folder</h2></div>
         <button id="new-cancel" class="btn ghost icon-btn" type="button" title="Close" aria-label="Close">×</button>
       </div>
       <div class="project-location-toolbar">
@@ -681,7 +681,7 @@
         <button id="new-folder-home" class="btn ghost icon-btn" type="button" title="Home folder" aria-label="Home folder"><svg class="icon"><use href="#i-home"></use></svg></button>
         <span id="new-folder-path" class="project-folder-path" data-i18n-ignore>—</span>
       </div>
-      <div id="new-folder-list" class="project-folder-list"></div>
+      <div id="new-folder-list" class="project-folder-list" role="region" aria-labelledby="new-folder-heading" tabindex="0"></div>
       <label class="field-label" for="new-cwd">Selected location</label>
       <input id="new-cwd" type="text" spellcheck="false" readonly placeholder="Choose a folder">
       <label class="field-label" for="new-name">Session name (optional)</label>
@@ -884,15 +884,15 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=3.0.4"></script>
-<script src="/modules/app-foundation.js?v=3.0.4"></script>
-<script src="/modules/session-utils.js?v=3.0.4"></script>
-<script src="/modules/pi-session.js?v=3.0.4"></script>
-<script src="/modules/context-usage.js?v=3.0.4"></script>
-<script src="/modules/claude-auth.js?v=3.0.4"></script>
-<script src="/modules/protocol-contracts.js?v=3.0.4"></script>
-<script src="/modules/client-sdk.js?v=3.0.4"></script>
-<script src="/modules/native-dialogs.js?v=3.0.4"></script>
-<script src="/app.js?v=3.0.4"></script>
+<script src="/i18n.js?v=3.0.5"></script>
+<script src="/modules/app-foundation.js?v=3.0.5"></script>
+<script src="/modules/session-utils.js?v=3.0.5"></script>
+<script src="/modules/pi-session.js?v=3.0.5"></script>
+<script src="/modules/context-usage.js?v=3.0.5"></script>
+<script src="/modules/claude-auth.js?v=3.0.5"></script>
+<script src="/modules/protocol-contracts.js?v=3.0.5"></script>
+<script src="/modules/client-sdk.js?v=3.0.5"></script>
+<script src="/modules/native-dialogs.js?v=3.0.5"></script>
+<script src="/app.js?v=3.0.5"></script>
 </body>
 </html>
