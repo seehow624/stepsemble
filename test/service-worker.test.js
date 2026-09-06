@@ -29,6 +29,9 @@ test("the approved full-colour brand image is precached for offline CSS", async 
   f.handlers.install({ waitUntil(promise) { done = promise; } }); await done;
   assert.ok(f.cached.includes("/icon-512.png"));
   assert.ok(f.cached.includes("/stepsemble-glyph.png"));
+  assert.ok(f.cached.some((url) => url.startsWith("/icon-16.png?v=")));
+  assert.ok(f.cached.some((url) => url.startsWith("/icon-32.png?v=")));
+  assert.ok(f.cached.some((url) => url.startsWith("/icon-maskable-512.png?v=")));
 });
 test("API and remote-host traffic never enter the service-worker cache", () => {
   const f = worker();

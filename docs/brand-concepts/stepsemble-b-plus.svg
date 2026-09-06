@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1254 1254" role="img" aria-labelledby="title desc">
+  <title id="title">Stepsemble B+ logo candidate</title>
+  <desc id="desc">Four identical ivory modules rotate around a shared dark workspace, joined by four equal blue-violet inner ribbons.</desc>
+  <defs>
+    <radialGradient id="background" cx="50%" cy="47%" r="72%">
+      <stop offset="0" stop-color="#181818"/>
+      <stop offset="1" stop-color="#101010"/>
+    </radialGradient>
+    <linearGradient id="module-fill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fffdf9"/>
+      <stop offset="1" stop-color="#eee9e2"/>
+    </linearGradient>
+    <linearGradient id="connector-fill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5068ff"/>
+      <stop offset="1" stop-color="#7457f4"/>
+    </linearGradient>
+
+    <!-- One connector and one module are reused at exact 90-degree rotations. -->
+    <path id="connector" d="
+      M 603 517
+      C 603 454, 645 392, 700 368
+      L 734 357
+      C 665 421, 626 500, 626 574
+      C 611 560, 603 541, 603 517
+      Z"/>
+
+    <path id="module" d="
+      M 408 441
+      V 295
+      C 408 223, 468 164, 543 164
+      H 755
+      C 776 164, 792 181, 792 202
+      V 281
+      C 792 322, 767 352, 733 358
+      C 664 370, 603 429, 603 516
+      C 603 538, 612 559, 625 574
+      H 567
+      C 479 574, 408 516, 408 441
+      Z"/>
+  </defs>
+
+  <rect width="1254" height="1254" fill="url(#background)"/>
+
+  <!-- The full mark is reduced by eight percent around its true centre. -->
+  <g transform="translate(627 627) scale(.92) translate(-627 -627)">
+    <g fill="url(#connector-fill)">
+      <use href="#connector"/>
+      <use href="#connector" transform="rotate(90 627 627)"/>
+      <use href="#connector" transform="rotate(180 627 627)"/>
+      <use href="#connector" transform="rotate(270 627 627)"/>
+    </g>
+
+    <g fill="url(#module-fill)">
+      <use href="#module"/>
+      <use href="#module" transform="rotate(90 627 627)"/>
+      <use href="#module" transform="rotate(180 627 627)"/>
+      <use href="#module" transform="rotate(270 627 627)"/>
+    </g>
+  </g>
+</svg>

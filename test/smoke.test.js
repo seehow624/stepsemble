@@ -59,27 +59,52 @@ test("service worker keeps local Mermaid offline and never intercepts API or rel
 test("Stepsemble ships its own equal-participation Step Mosaic", () => {
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, "public", "manifest.webmanifest"), "utf8"));
+  const master = fs.readFileSync(path.join(root, "public", "stepsemble-mark.svg"), "utf8");
   const mark = fs.readFileSync(path.join(root, "public", "stepsemble-mark.png"));
   const icon180 = fs.readFileSync(path.join(root, "public", "icon-180.png"));
   const icon512 = fs.readFileSync(path.join(root, "public", "icon-512.png"));
+  const icon32 = fs.readFileSync(path.join(root, "public", "icon-32.png"));
+  const icon16 = fs.readFileSync(path.join(root, "public", "icon-16.png"));
+  const maskable512 = fs.readFileSync(path.join(root, "public", "icon-maskable-512.png"));
   assert.match(html, /class="login-mark brand-mark"/);
   assert.doesNotMatch(html, /official-mark/);
-  assert.match(html, /rel="icon" href="\/icon-512\.png\?v=[^"]+" type="image\/png"/);
+  assert.match(html, /rel="icon" href="\/icon-16\.png\?v=[^"]+" sizes="16x16" type="image\/png"/);
+  assert.match(html, /rel="icon" href="\/icon-32\.png\?v=[^"]+" sizes="32x32" type="image\/png"/);
+  assert.match(html, /rel="icon" href="\/icon-512\.png\?v=[^"]+" sizes="512x512" type="image\/png"/);
   assert.match(readme, /public\/stepsemble-mark\.png/);
   assert.doesNotMatch(`${html}\n${readme}`, /stepsemble-(?:logo|app-icon)\.svg/);
+  assert.equal(crypto.createHash("sha256").update(master).digest("hex"), "79dc722c0b8369bc69bc175bd6b1c7af386d9844569f5851a3b41aa1f67829a1");
+  assert.equal((master.match(/<use href="#module"/g) || []).length, 4);
+  assert.equal((master.match(/<use href="#connector"/g) || []).length, 4);
+  assert.match(master, /rotate\(90 627 627\)/);
+  assert.match(master, /rotate\(180 627 627\)/);
+  assert.match(master, /rotate\(270 627 627\)/);
+  assert.match(master, /translate\(627 627\) scale\(\.92\) translate\(-627 -627\)/);
   assert.equal(
     crypto.createHash("sha256").update(mark).digest("hex"),
-    "cc1b089b74d7ed6b38ad40498b43fcd68957cce5692a84689f2b3b9fdf23f511",
-    "the canonical mark must remain the exact user-approved source artwork",
+    "22b33509d2028eaba8fa1f24494cb0122f19549f52976be2c6468ef08d0f2f09",
+    "the raster mark must remain the exact derivative of the approved vector master",
   );
   assert.deepEqual([mark.readUInt32BE(16), mark.readUInt32BE(20)], [1254, 1254]);
-  assert.equal(mark[25], 2, "canonical artwork should be opaque RGB");
-  assert.equal(crypto.createHash("sha256").update(icon512).digest("hex"), "2d24fdd14cdf46a043f83783a178448901cc1510a5f290f76e3226e0b586c892");
-  assert.equal(crypto.createHash("sha256").update(icon180).digest("hex"), "57ef7c5afe598cceb5e1e93c6fdcb98ab75f42f5e94e3dc7e40141ba787250b9");
+  assert.equal(mark[25], 2, "canonical raster artwork should be opaque RGB");
+  assert.equal(crypto.createHash("sha256").update(icon512).digest("hex"), "17fee5c55f031efc0a6d65e1149602d6007f60d9ca9b78f30a59614667a7be38");
+  assert.equal(crypto.createHash("sha256").update(icon180).digest("hex"), "f40fb61fc9b937dba6563403afd31520ec4bb8eab796210f0a2d2e2e8de9158a");
+  assert.equal(crypto.createHash("sha256").update(icon32).digest("hex"), "f5af06c57f3a61b067220287afce4cbe5c18a56de0af0e6e567f09c1cdba6321");
+  assert.equal(crypto.createHash("sha256").update(icon16).digest("hex"), "26f2f5994a4472cb9f71d0919121de8604d72ba88ad2c5cc25098bcb5f92ac50");
+  assert.equal(crypto.createHash("sha256").update(maskable512).digest("hex"), "431f9b2cb4cf043b59aacae9fc00bc46ef3ced835d70aa1ee2f76f720bc7a528");
   assert.deepEqual([icon180.readUInt32BE(16), icon180.readUInt32BE(20)], [180, 180]);
   assert.deepEqual([icon512.readUInt32BE(16), icon512.readUInt32BE(20)], [512, 512]);
+  assert.deepEqual([icon32.readUInt32BE(16), icon32.readUInt32BE(20)], [32, 32]);
+  assert.deepEqual([icon16.readUInt32BE(16), icon16.readUInt32BE(20)], [16, 16]);
+  assert.deepEqual([maskable512.readUInt32BE(16), maskable512.readUInt32BE(20)], [512, 512]);
   assert.equal(icon180[25], 2, "Apple touch artwork should be opaque RGB");
-  assert.equal(icon512[25], 2, "maskable PWA artwork should be opaque RGB");
+  assert.equal(icon512[25], 2, "standard PWA artwork should be opaque RGB");
+  assert.equal(maskable512[25], 2, "maskable PWA artwork should be opaque RGB");
+  const standardEntry = manifest.icons.find((entry) => entry.src.startsWith("/icon-512.png"));
+  const maskableEntry = manifest.icons.find((entry) => entry.src.startsWith("/icon-maskable-512.png"));
+  assert.equal(standardEntry?.purpose, "any");
+  assert.equal(maskableEntry?.purpose, "maskable");
 });
 
 test("the in-app brand uses approved colour artwork with a forced-colour fallback", () => {
@@ -94,7 +119,7 @@ test("the in-app brand uses approved colour artwork with a forced-colour fallbac
   assert.match(markBlock, /forced-colors: active/);
   assert.deepEqual([glyph.readUInt32BE(16), glyph.readUInt32BE(20)], [512, 512]);
   assert.equal(glyph[25], 6, "the theme-colour mask must retain transparency");
-  assert.equal(crypto.createHash("sha256").update(glyph).digest("hex"), "c9447433cd2caaddac1928f221d013bb75257005c612ff1ccc703cac1e45a217");
+  assert.equal(crypto.createHash("sha256").update(glyph).digest("hex"), "37bd6f357e77b74d1112779ab578bbd538246db79679f4410dbeba6fd217c287");
   assert.match(html, /class="login-mark brand-mark" role="img" aria-label="Stepsemble"/);
   assert.match(html, /class="brand-glyph" role="img" aria-label="Stepsemble"/);
 });

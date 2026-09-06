@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.0.7-rc.2
+
+Development candidate; stable Hosts remain on 3.0.6 pending verification.
+
+- Replace the former hand-balanced Step Mosaic with the user-approved B+
+  vector master: one module and one coordination ribbon repeated at exact
+  90-degree rotations around the true centre.
+- Give the standard mark equal 16% optical margins and retain a more generous
+  safe area in a separate maskable PWA icon.
+- Add dedicated 16 px and 32 px favicon artwork, a transparent monochrome
+  glyph source and integrity checks for every promoted raster derivative.
+- Keep the fixed-source 72-hour runtime soak on its original rc.1 source; this
+  brand-only candidate does not restart or retroactively alter that evidence.
+
 ## 3.0.7-rc.1
 
 Development candidate; stable Hosts remain on 3.0.6 pending verification.

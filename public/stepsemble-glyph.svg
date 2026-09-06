@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1254 1254" role="img" aria-labelledby="title desc">
+  <title id="title">Stepsemble glyph</title>
+  <desc id="desc">A transparent single-colour mask formed from four identical modules and four equal connectors.</desc>
+  <defs>
+    <path id="connector" d="M 603 517 C 603 454, 645 392, 700 368 L 734 357 C 665 421, 626 500, 626 574 C 611 560, 603 541, 603 517 Z"/>
+    <path id="module" d="M 408 441 V 295 C 408 223, 468 164, 543 164 H 755 C 776 164, 792 181, 792 202 V 281 C 792 322, 767 352, 733 358 C 664 370, 603 429, 603 516 C 603 538, 612 559, 625 574 H 567 C 479 574, 408 516, 408 441 Z"/>
+  </defs>
+  <g fill="#000" transform="translate(627 627) scale(.92) translate(-627 -627)">
+    <use href="#connector"/>
+    <use href="#connector" transform="rotate(90 627 627)"/>
+    <use href="#connector" transform="rotate(180 627 627)"/>
+    <use href="#connector" transform="rotate(270 627 627)"/>
+    <use href="#module"/>
+    <use href="#module" transform="rotate(90 627 627)"/>
+    <use href="#module" transform="rotate(180 627 627)"/>
+    <use href="#module" transform="rotate(270 627 627)"/>
+  </g>
+</svg>

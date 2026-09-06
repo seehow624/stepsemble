@@ -2,7 +2,7 @@
 
 > 狀態：已接受（Accepted）
 > 計畫版本：1.31
-> 最後更新：2026-09-06
+> 最後更新：2026-09-07
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
@@ -32,7 +32,7 @@
 | Web 正式上線／品牌介面整理 | 3.0.6 已在兩台 Mac 上線並公開 | exact `331b9f0` 三OS CI／雙平台 rolling 全綠；停止確認、選取不重建及還原保護已上線，既有巢狀捲動與品牌原圖保留；兩台更新器正常。見 `agent-stop-reliability.md` |
 | 長期語言邊界 | 已定案 | Rust Host Core；TypeScript UI/Client；Swift/Kotlin 僅處理平台專屬能力 |
 | Web 產品定位 | 已定案 | Web/PWA 永久保留，不是過渡版 |
-| 產品名稱與識別 | 已定案 | Stepsemble；step + ensemble；四個等權模組代表 agents，藍紫內緣代表每個 agent 共用的 Stepsemble coordination layer |
+| 產品名稱與識別 | B+ 向量母版已定案，本機候選驗收通過 | Stepsemble；step + ensemble。Jerome於2026-09-07確認B+：同一模組與藍紫內緣精確旋轉四次、一般版四邊16%、maskable另留安全區；3.0.7-rc.2本機測試與實際瀏覽器尺寸通過，待CI，不代表已部署 |
 | Host/Client 邊界 | 已定案 | Desktop 可為 Host + Client；iOS/Android 初期只為 Client |
 | App Shell | 目標已定，待驗證 | Tauri 2 為預設方案；必須先通過 Apple 實機 PoC 驗收門檻 |
 | 當前回歸基線 | 3.0.6 發布 gate 全通過 | `331b9f0`／CI34027897400三OS335tests／0fail（Mac333pass2skip、Win325/10、Linux332/3）；rolling34027897382兩OS各15cases；Release34028079034全綠。原Windows stop race已修，見 `agent-stop-reliability.md` |
@@ -59,6 +59,13 @@
 ### 下一個可執行任務
 
 **1.31 開發接續**：Jerome要求繼續直到完整完成。先完成不改native ownership的現行Node可靠性修復，並為72h gate加入可重跑工具；不是提前切換Rust／DB／原生adapter。3.0.7-rc.1 使用隔離固定source，正式兩台維持3.0.6。新來源須核對各自CI／rolling與多輪Host基線，再開始72h連續觀察；有中斷就如實失敗，不將休眠空白或短測充當72h。Claude/Codex新模型用量已另詢問，未回覆前不執行；full native／實機／Rust／App門檻仍未完成。接續證據見 `session-discovery-and-soak.md`。
+
+**2026-09-07 品牌候選**：Jerome明確確認B+為最終方向。新的
+`public/stepsemble-mark.svg` 是向量母版，使用單一module／connector在
+627,627中心作0°／90°／180°／270°重用；標準版0.92 scale，maskable
+版0.82 scale。PNG、獨立maskable、16／32 favicon、manifest／SW／完整性
+測試隨3.0.7-rc.2準備；不重啟或修改固定ab227af的72h長測，也尚未部署
+正式3.0.6主機。驗收見`brand-refresh-3.0.7-rc.2.md`。
 
 **2026-09-06 最新進度**：Web 3.0.6已完成公開 release、Mini／MacBook Pro 可回滾部署，兩台每60分鐘自動更新正常；不要再要求 MBP 補裝。SSH 仍沒有權限，不繞過。Windows 停止／重連、還原後未知資料保留及對話選取不重建已實作／跨平台驗收／上線，見 `agent-stop-reliability.md`。Chrome單輪量測、合成Host重啟／衝突還原與8-task基線已補；實機背景恢復、多輪性能、完整Host備份還原、Pi存活與72h仍未完成。Claude 最近 metadata 為 signed_out，登入由 owner 進行；模型重測仍需新的用量同意。每次部署仍先檢查 active work 並保留回滾。
 
@@ -128,7 +135,7 @@ Tauri App 不得繞過公開 Host API 直接呼叫私有商業邏輯。原生 IP
 
 - 公開產品名、套件名、服務名、設定路徑、環境變數與 protocol 新前綴統一使用 Stepsemble／`stepsemble`／`STEPSEMBLE_*`。
 - 名稱來自 **step + ensemble**：不同 coding agent 以一致步伐協作，不綁定單一 harness 或 model。
-- Step Mosaic 由四個等權模組組成：錯落旋轉代表 step-by-step handoff，四個相同藍紫內緣代表每個 agent 都接入同一個 Stepsemble coordination layer，中央負空間代表共同 workspace。品牌母檔是使用者親自確認的 `public/stepsemble-mark.png`（1254×1254；SHA-256 `cc1b089b74d7ed6b38ad40498b43fcd68957cce5692a84689f2b3b9fdf23f511`）；彩色輸出必須由此母檔直接派生。未來若製作向量版，必須以母檔做視覺比對並由使用者確認後才能取代，禁止再以近似重畫稿直接上線。
+- Step Mosaic 由四個等權模組組成：錯落旋轉代表 step-by-step handoff，四個相同藍紫內緣代表每個 agent 都接入同一個 Stepsemble coordination layer，中央負空間代表共同 workspace。Jerome於2026-09-07在舊版／A／B／D／B+與實際尺寸對照後確認B+；`public/stepsemble-mark.svg`（SHA-256 `79dc722c0b8369bc69bc175bd6b1c7af386d9844569f5851a3b41aa1f67829a1`）為新母版，1254×1254 `public/stepsemble-mark.png`（SHA-256 `22b33509d2028eaba8fa1f24494cb0122f19549f52976be2c6468ef08d0f2f09`）是其正式派生。四個module與connector必須由同一path精確旋轉，不再手調四塊；候選驗收見`brand-refresh-3.0.7-rc.2.md`。
 - 核心品牌禁止使用 provider logo 或把 Claude、Codex 等供應商代表色固定分配給任一模組；provider identity 只在有文字標籤的產品 UI 中出現。
 - v3 保留 Pi Harbor／Pi Web 的設定路徑、cookie、環境變數、配對碼與 Release asset 讀取相容；舊來源只複製、不刪除，健康檢查成功前不封存舊程式。
 - 2026-09-04 的初步 exact-name 網路、常見 package registry、GitHub、App Store 與主要網域檢查未發現明顯同名產品；這不是正式商標法律意見，公開商業發佈前仍需做目標市場商標檢索。
