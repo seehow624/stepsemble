@@ -4,10 +4,13 @@ import { startProjectPickerFixture } from '../test-support/project-picker-fixtur
 
 export async function runProjectPickerBrowserCases(browser) {
   for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }, { width: 320, height: 480 }]) {
-    // Onboarding preferences are Host-persisted, not only browser-local.
+    // Each viewport gets fresh browser storage and a separate synthetic Host.
     const f = await startProjectPickerFixture();
     try {
-      const context = await browser.newContext({ viewport });
+      const context = await browser.newContext({ viewport, locale: 'en-US' });
+      // This case tests folder navigation, not the separate welcome wizard.
+      // Keep service-worker storage fresh so first activation is still tested.
+      await context.addInitScript(() => localStorage.setItem('stepsemble.onboarding.v1', 'complete'));
       const page = await context.newPage(), errors = [];
       let stage = 'login';
       page.on('pageerror', error => errors.push(error.message));
@@ -18,7 +21,6 @@ export async function runProjectPickerBrowserCases(browser) {
         await page.goto(f.base);
         let unexpectedNavigations = 0;
         page.on('framenavigated', frame => { if (frame === page.mainFrame()) unexpectedNavigations++; });
-        await page.getByRole('button', { name: 'Skip', exact: true }).click();
         await page.locator('#btn-new-project').click();
         stage = 'initial folder listing';
         const list = page.locator('#new-folder-list'), sheet = page.locator('.project-sheet');
