@@ -54,6 +54,7 @@
 | 優先可靠性修復 | 已實作，隨rc.3啟用於Mini | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
 | Web 卡頓修復 | 部分完成 | 歷史離屏分批建立、相鄰訊息線性合併、局部翻譯、聊天可及性；仍需 virtualization、實機／多輪效能門檻驗收 |
 | 非同步歷史掃描／72h 測試工具 | 3.0.7-rc.1 開發候選 | 清單／搜尋／用量的 metadata 改非同步4工人＋single-flight；補齊400-file／8MiB限制與真實8-task／16-client／Host crash短測。未啟用正式機；長測尚未完成，見 `session-discovery-and-soak.md` |
+| 隔離72h長測 | 2026-09-06 11:34Z 已開始 | clean `ab227af`（runtime `2b7f0b6`）；8tasks／16clients，預計09-09 11:34Z結束；同對話每小時追蹤。未passed，不代替native／實機／durable gate |
 
 ### 下一個可執行任務
 
@@ -955,6 +956,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 - 新增8-task／16-client隔離HTTP壓測：固定source copy/hash、官方登入與Node preload環境排除、正常／SIGKILL只處理own HTTP child、same task/PID/start/peer incarnation、每次synthetic ACK三個視角恰一份、停止實際程序確認。Lease缺失／超120秒fake peer自行退出，清理不殺持久PID；未確認則保留fixture。
 - 72h模式要求clean commit，status是running而非pass；只保留最近512samples並記Host epoch，超時觀察空白fail closed。不是native history/approval、durable replay、實機休眠／網路／電源測試。3.0.7-rc.1尚未stable release或正式部署；CI與長測依實際結果追加。
 - Exact `2b7f0b6` CI34030379708三OS346tests零fail（Mac344pass2skip、Windows336/10、Linux343/3），Rolling34030379721兩OS各15cases過。3輪clean-source冷清單89.744–91.907ms、invalidate91.904–92.785ms，health during scan max4.944–5.184ms；RSS高水位123.891–126.172MiB，不能宣稱memory改善。raw與限制已落檔；72h仍待真實時間完成。
+- 文件commit `ab227af`／CI34030572260也全綠；2026-09-06T11:34:13Z啟動clean72h隔離run，先5cycles/40ACK確認running，非passed；同對話每小時追蹤，私人位置和程序記於vault。正式兩台仍3.0.6／uptime連續；未正式部署／新模型呼叫。
 
 ### 2026-09-06 — Plan 1.30
 

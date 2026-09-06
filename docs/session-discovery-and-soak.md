@@ -101,6 +101,26 @@ source hashes and any skips/failures separately.
   The candidate is ready for the isolated long-duration gate, not yet certified
   by72hours and not automatically promoted to stable.
 
+### Long run started — not passed
+
+At2026-09-06T11:34:13Z a full72-hour run started from clean documentation commit
+`ab227af7e12edd7a9182d700ce052dfaf92a34b4`, with the same runtime as `2b7f0b6`.
+That documentation commit's [CI34030572260](https://github.com/seehow624/stepsemble/actions/runs/34030572260)
+also passed. The first saved check at11:36:16Z was `running`:8tasks,
+2clients each,5cycles/40verifiedACKs,121298ms observed; no scheduled Host restart
+yet (every20cycles). Do not mistake the short tests' restart counts for this run.
+
+Expected completion is approximately2026-09-09T11:34Z if continuous observation
+and final cleanup succeed. A same-conversation hourly follow-up watches the
+private status; local report/controller details live in the vault, not the
+public repository. Unchanged progress stays quiet; failure/completion requires
+verification and an explicit report. The follow-up itself cannot promote this
+candidate to stable. Keep the local computer and desktop app running for local
+scheduled checks, per [official scheduling documentation](https://learn.chatgpt.com/docs/automations?surface=app).
+
+At the launch check, production Mini and MBP `/api/health` still reported3.0.6,
+with continuously increasing uptimes. This batch did not restart either service.
+
 ## Remaining boundaries
 
 This does **not** certify complete native Claude/Codex/Grok/OpenCode session,
