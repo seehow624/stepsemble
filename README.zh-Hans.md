@@ -100,3 +100,7 @@ npm test
 ```
 
 更多部署说明、配置项和安全注意事项请参阅[英文文档](README.md)。
+
+## 许可
+
+采用 [Apache License 2.0](LICENSE)，声明见 [NOTICE](NOTICE)。此前 MIT 版本的许可不会被追溯撤销，原有声明保留于 [legacy-MIT.txt](licenses/legacy-MIT.txt)。[第三方库](public/vendor/THIRD-PARTY-NOTICES.md)及单独安装的 coding agents 保留各自许可。

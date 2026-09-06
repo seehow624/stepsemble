@@ -1,0 +1,15 @@
+Stepsemble
+Copyright 2026 Jerome Teng and Stepsemble contributors
+
+This distribution is licensed under the Apache License, Version 2.0,
+except for material carrying its own license or attribution notice.
+
+Stepsemble includes software previously distributed as Stepsemble, Pi Harbor,
+and Pi Web under the MIT License. The original MIT copyright and permission
+notices are preserved in licenses/legacy-MIT.txt. The new project license does
+not revoke permissions granted for previously distributed MIT versions.
+
+Vendored third-party software retains its upstream licenses and notices.
+See public/vendor/THIRD-PARTY-NOTICES.md and public/vendor/licenses/.
+The coding-agent programs launched by Stepsemble are separately installed
+products and are not relicensed by this distribution.

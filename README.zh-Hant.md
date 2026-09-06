@@ -114,3 +114,7 @@ npm test
 大型架構變更前，請依序讀取[跨平台完整體架構與執行計畫](docs/platform-plan.md)、
 [目前系統盤點](docs/current-system-inventory.md)、[目前架構](docs/architecture.md)與
 [效能基線](docs/performance-baseline.md)。完整部署、設定與安全說明請參閱[英文文件](README.md)。
+
+## 授權
+
+採用 [Apache License 2.0](LICENSE)，聲明見 [NOTICE](NOTICE)。先前 MIT 版本的授權不會被追溯撤銷，原有聲明保留於 [legacy-MIT.txt](licenses/legacy-MIT.txt)。[第三方套件](public/vendor/THIRD-PARTY-NOTICES.md)及另行安裝的 coding agents 維持各自授權。

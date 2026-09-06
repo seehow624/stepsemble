@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-1A1A1A"></a>
+  <a href="LICENSE"><img alt="Apache License 2.0" src="https://img.shields.io/badge/license-Apache--2.0-1A1A1A"></a>
   <img alt="macOS Linux Windows" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-1A1A1A">
   <img alt="Node.js 22.19+" src="https://img.shields.io/badge/Node.js-22.19%2B-1A1A1A">
 </p>
@@ -293,4 +293,10 @@ project content, account credentials, selected-model history, or usage totals.
 
 ## License
 
-MIT. See [`LICENSE`](LICENSE).
+Apache License 2.0. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+
+Previously distributed MIT code retains its original notices in
+[`licenses/legacy-MIT.txt`](licenses/legacy-MIT.txt); permissions already granted
+under MIT are not revoked. Vendored libraries keep their own licenses, listed
+in [`public/vendor/THIRD-PARTY-NOTICES.md`](public/vendor/THIRD-PARTY-NOTICES.md).
+Separately installed coding agents retain their vendors' terms.
