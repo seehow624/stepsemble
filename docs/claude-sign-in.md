@@ -1,5 +1,9 @@
 # Claude Code 官方登入入口
 
+最新狀態：Mini Web已更新正式3.0.4；本次部署前後桌面metadata均為
+`signed_out`、`liveVerified=false`。未自動登入、搬憑證或重試模型。
+以下rc.3的detected是當時驗收紀錄，不代表帳號一直保持登入。
+
 2026-09-06 後續：Jerome已同意桌面元件，3.0.4-rc.3實作登入與Claude任務共用Aqua助手，
 Mini已獨立安裝並通過真正SSH→助手→官方CLI唯讀metadata檢查。Jerome另同意安全更新後，
 主Web已啟用3.0.4-rc.3，正式UI及API均偵測既有登入，3.0.3保留可回退；

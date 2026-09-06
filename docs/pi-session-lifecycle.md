@@ -1,7 +1,8 @@
 # Pi session titles and idle process shutdown
 
-Development candidate: **3.0.4-rc.4**, 2026-09-06. Not activated on the owner's
-live Host; no public release or native account/model verification is implied.
+First implemented in **3.0.4-rc.4**, then deployed on the Mini and publicly
+released in **3.0.4** on 2026-09-06. See [rollout evidence](web-release-3.0.4.md).
+This does not imply native account/model verification.
 
 ## Root causes
 

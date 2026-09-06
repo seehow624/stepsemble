@@ -1,10 +1,10 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.28
+> 計畫版本：1.29
 > 最後更新：2026-09-06
-> 當前產品基線：Stepsemble 3.0.3（由 Pi Harbor 2.13.2 相容遷移）
-> Mini 當前啟用版本：3.0.4-rc.3／source `f5455e1`（2026-09-06 owner-authorized local activation；未公開 stable release）
+> 當前產品基線：Stepsemble 3.0.4（由 Pi Harbor 2.13.2 相容遷移）
+> Mini 當前啟用版本：3.0.4／source `4c144ad`（2026-09-06 已部署並公開 stable release）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
@@ -29,14 +29,14 @@
 
 | 項目 | 狀態 | 說明 |
 | --- | --- | --- |
-| Web 正式上線／品牌介面整理 | 已授權，3.0.4 驗收中 | 2026-09-06 owner 明確要求上線既有改善與定案 logo；安全更新不再等待上一輪 rc.4 確認。沿用既有 SSH 與 helpers，不中斷工作、不改帳號／計費。見 `web-release-3.0.4.md` |
+| Web 正式上線／品牌介面整理 | 3.0.4 已在 Mini 上線並公開 | exact `4c144ad` 三OS CI／雙平台 rolling 全綠；正式 HTTP／HTTPS 與原圖 bytes 相符，25份原生session和保護設定未变；舊版保留可回退。MacBook Pro 仍3.0.0，更新器不可用且 SSH 無權限，需 owner 在該機器補裝。見 `web-release-3.0.4.md` |
 | 長期語言邊界 | 已定案 | Rust Host Core；TypeScript UI/Client；Swift/Kotlin 僅處理平台專屬能力 |
 | Web 產品定位 | 已定案 | Web/PWA 永久保留，不是過渡版 |
 | 產品名稱與識別 | 已定案 | Stepsemble；step + ensemble；四個等權模組代表 agents，藍紫內緣代表每個 agent 共用的 Stepsemble coordination layer |
 | Host/Client 邊界 | 已定案 | Desktop 可為 Host + Client；iOS/Android 初期只為 Client |
 | App Shell | 目標已定，待驗證 | Tauri 2 為預設方案；必須先通過 Apple 實機 PoC 驗收門檻 |
-| 當前回歸基線 | 已通過 | 2026-09-04 Stepsemble 3.0.3 執行 `npm test`：127/127 通過，約 11.4 秒 |
-| Pi Failed／session 名稱修正 | rc.4 開發候選，未部署 | 已分離預期 idle close 與異常退出、補上送出／關閉競爭保護，名稱統一 native name／first user；驗證與相容邊界見 `pi-session-lifecycle.md`。Mini 仍 rc.3，未呼叫真實模型或改寫歷史 |
+| 當前回歸基線 | 3.0.4 三OS通過 | CI34018959542：各331tests／0fail；Mac329pass2skip、Windows321pass10skip、Linux328pass3skip。Rolling34018995751兩OS各12cases通過；1,251-case Ajv conformance通過 |
+| Pi Failed／session 名稱修正 | 已隨3.0.4部署 | 已分離預期 idle close 與異常退出、補上送出／關閉競爭保護，名稱統一 native name／first user；驗證與相容邊界見 `pi-session-lifecycle.md`。未呼叫真實模型或改寫歷史 |
 | 開發分支跨平台回歸 | 已通過，逐批驗證 | 2026-09-05 `6a0ddd4`／CI33970842907三OS全綠270tests/0fail；Rolling33970842871 macOS/Linux各8cases全綠。Native Pi offline contract33967509738三OS實跑0.84.2各57frames；本批見1.23記錄，新的commit需看各自workflow；不等於model/provider parity或release |
 | 現行系統盤點 | 已完成 | HTTP/SSE/RPC、資料、狀態、approval、event、安裝與 rollback 已落於 `current-system-inventory.md` |
 | 本機品牌遷移 | 已部署 | Mac Mini 已由 2.13.2 原地升級至 3.0.0；session/token/SSH launcher/CUA driver 均完成前後核對 |
@@ -49,16 +49,16 @@
 | 已發佈 Web rolling 相容 | Legacy smoke 已驗 | 真實v3.0.3/v3.0.2 pinned source與development雙向搭配，Chromium桌面/手機尺寸8cases，macOS/Linux各跑一次共16cases／CI33970245044過。SW/PWA cache、Safari/Firefox/Windows/實機、future journal transport不包含，見`protocol/rolling-compatibility.md` |
 | Codex 官方介面基線 | 離線 metadata 已驗 | 0.153.3官方CLI輸出18個schema hash與99/10/81方法catalog；隔離HOME且不啟app-server/模型/登入，不改OpenCodex wrapper；不是原生runtime/session/approval驗收 |
 | Claude／Codex 真實訂閱 smoke | 已授權，成功 gate 未通過 | 各1次最小測試已獲同意；Claude唯一一次因OAuth過期／更新失敗，native記錄usage四項0，不重試；Codex preflight檢出既有本機API代理與全域指令，未送turn/start、不改設定。詳見`native-subscription-smoke.md`；不是adapter/parity通過 |
-| Claude 官方登入入口 | rc.3已在Mini啟用，metadata/UI gate通過 | rc.1因SSH／桌面metadata落差曾還原；rc.3用桌面助手解決此執行環境落差，正式API/UI detected／liveVerified=false，Chrome cache升級與reload驗收過。未觸發真實登入或模型，不改寫rc.1失敗紀錄；詳見 `claude-sign-in.md` |
+| Claude 官方登入入口 | 3.0.4在Mini啟用，當前signed_out | rc.3曾以桌面助手通過detected metadata／UI；3.0.4部署前後均signed_out，liveVerified=false，不以舊成功記錄冒充現在已登入。入口保留，不自動修憑證／重試模型；詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
 | 優先可靠性修復 | 已實作，隨rc.3啟用於Mini | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
 | Web 卡頓修復 | 部分完成 | 歷史離屏分批建立、相鄰訊息線性合併、局部翻譯、聊天可及性；仍需 virtualization、實機／多輪效能門檻驗收 |
 
 ### 下一個可執行任務
 
-**2026-09-06 最新優先順序**：先完成已授權的 Web 3.0.4 品牌／介面／穩定性發佈與 Mini 可回滾啟用，核對 exact commit CI、實際畫面／cache／版本、session inventory 與保護設定。不把 GitHub push 當成已上線，不將本次 Web 上線等同 Rust／原生 App 完整體。以下 Phase 1 清單是後續長期工程，之前「正式服務不重啟」已由本次安全更新授權取代；帳號、模型、實機與跨平台 gate 不變。
+**2026-09-06 最新進度**：Web 3.0.4已完成公開release與Mini可回滾部署；不要重做或再等待rc.4授權。MacBook Pro的更新器不可用，SSH BatchMode被拒，需owner本機補裝；不經agent終端繞過權限。Claude目前signed_out，需要owner官方登入；模型重測仍需新的用量同意。以下Phase 1、實機和72h是後續工程，不因本次Web上線就完成。之前「正式服務不重啟」已由本次安全更新授權取代；每次仍要先檢查active work並保留回滾。
 
-先閱讀 `reliability-followup.md`、`protocol/v1/README.md`、`command-state.md`、`lifecycle.md`、`projection.md`、`transactions.md`、`protocol/native/pi/README.md`、`protocol/native/codex/README.md`、`protocol/rolling-compatibility.md` 、`native-subscription-smoke.md` 與 `claude-sign-in.md`，再繼續 Phase 1。Pi三OS真實離線、pending-set/FIFO/reconnect、receipt/entity/projection/snapshot、8commands/observations多列proposal與30-step golden已做；前兩已發布版本的legacy browser雙向8cases在macOS/Linux皆過；Codex0.153.3離線schema metadata已驗，不要重做。Jerome已同意Claude/Codex各1次最小測試；Claude唯一attempt因OAuth過期失敗，記錄用量0但不得自動重試，Jerome已於09-06自行重新登入，模型重測仍需新的同意。Codex沒有送turn：有效設定仍有本機API代理與全域指令，需要先決定隔離方式，不可自行改設定／搬憑證／移除私人指令。Native ownership/evidence、模型/tool／訂閱與authenticated transport仍需接入，之後按階段接durable store/crash/restore，純函式不是DB證據。Projection未接live UI，paging/worker/效能、SW/cache/Safari/Firefox/實機/futurejournalrolling、72h等仍待；Rust/App完整體未完成，正式服務不重啟。
+先閱讀 `reliability-followup.md`、`protocol/v1/README.md`、`command-state.md`、`lifecycle.md`、`projection.md`、`transactions.md`、`protocol/native/pi/README.md`、`protocol/native/codex/README.md`、`protocol/rolling-compatibility.md` 、`native-subscription-smoke.md` 與 `claude-sign-in.md`，再繼續 Phase 1。Pi三OS真實離線、pending-set/FIFO/reconnect、receipt/entity/projection/snapshot、8commands/observations多列proposal與30-step golden已做；前兩已發布版本的legacy browser雙向8cases在macOS/Linux皆過；Codex0.153.3離線schema metadata已驗，不要重做。Jerome已同意Claude/Codex各1次最小測試；Claude唯一attempt因OAuth過期失敗，記錄用量0但不得自動重試，Jerome曾於09-06自行重新登入，但最新metadata又為signed_out；官方登入由owner進行，模型重測仍需新的同意。Codex沒有送turn：有效設定仍有本機API代理與全域指令，需要先決定隔離方式，不可自行改設定／搬憑證／移除私人指令。Native ownership/evidence、模型/tool／訂閱與authenticated transport仍需接入，之後按階段接durable store/crash/restore，純函式不是DB證據。Projection未接live UI，paging/worker/效能、SW/cache/Safari/Firefox/實機/futurejournalrolling、72h等仍待；Rust/App完整體未完成；後續部署依本次active-work與回滾安全邊界辦理。
 
 ## 一、不可退讓的核心決策
 
@@ -944,6 +944,13 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-06 — Plan 1.29
+
+- Web 3.0.4 stable已公開並在Mini啟用，release source `4c144ad994ed9e1538c4a0c35655e063eb89152d`。CI34018959542三OS331tests零fail；Rolling34018995751兩OS各12cases；Release34019119879成功。原图完全不重繪。
+- CUA真瀏覽器驗收390／320／1440px、淺暗／繁體、5000則合成歷史、未送草稿reload保留。抓到mobile返回後放大露出舊chat，已修全viewport清空及session identity並補行為測試；CI先被過時desktop-only smoke assertion擋下，修正後重跑全綠。不是Safari／實機或效能分數認證。
+- 正式HTTP/HTTPS與archive/source逐byte相符，GitHub兩個品牌archive同digest、checksum及指定release workflow provenance驗過；內建update/run一次後up_to_date/3.0.4/error無。Web token/模型設定/SSH及helper未變，25份原生session path/size/mtime一致。3.0.3及rc.3回退副本保留。
+- MacBook Pro仍3.0.0，relay health可達、RPC/task0，updater installed=false；SSH權限拒絕，不改登入／不繞過。其補裝、owner Claude登入、真模型／native parity／durable/Rust/Apps／實機與72h仍未完成。完整交付紀錄 `web-release-3.0.4.md`。
 
 ### 2026-09-06 — Plan 1.28
 

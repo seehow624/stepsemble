@@ -1,6 +1,6 @@
 # macOS Claude 桌面執行元件
 
-> 2026-09-06，Mini 桌面助手與 Web Host 3.0.4-rc.3 已啟用，正式 UI 已偵測既有登入。不是 Claude 原生 session／approval adapter 已完成。
+> 2026-09-06，Mini 桌面助手已啟用，Web已更新stable3.0.4；助手程序未被這次更新重啟。rc.3曾偵測既有登入，最新metadata已為signed_out，須owner重新官方登入。不是 Claude 原生 session／approval adapter 已完成。
 
 ## 決策與範圍
 

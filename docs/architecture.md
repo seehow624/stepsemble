@@ -17,8 +17,8 @@ Reliability changes (2026-09-05) are documented separately in
 [`reliability-followup.md`](reliability-followup.md): recoverable session archive,
 bounded stream framing/writes, supervisor snapshot replacement, asynchronous
 worktrees, and scoped history/localization rendering. They are included in the
-owner-authorized Mini activation of 3.0.4-rc.3 on 2026-09-06; the public stable
-baseline remains 3.0.3. Do not interpret them as durable full history,
+owner-authorized Mini activation and public stable release of 3.0.4 on
+2026-09-06. Do not interpret them as durable full history,
 approval parity, or the Rust migration being complete.
 
 The Mini also uses the opt-in macOS Claude desktop helper described in
@@ -28,11 +28,15 @@ login and task supervisors in the Aqua desktop context. Other connectors are
 not moved. Metadata and deployed UI checks pass, but actual OAuth/model and
 native session/approval parity remain separate gates.
 
-Development candidate rc.4 corrects legacy Pi idle-exit classification, guards
+Stable 3.0.4 includes the rc.4 correction to Pi idle-exit classification, guards
 send/close races and shares native-name/first-user title precedence through a
 strict TypeScript helper. See [`pi-session-lifecycle.md`](pi-session-lifecycle.md).
-This candidate is not activated on the live rc.3 Host and is not a durable
-session/run store or another native account/model verification.
+It is active on the Mini, but is not a durable session/run store or another
+native account/model verification. The Web also fences stale-host discovery and
+task responses, displays the approved colour artwork, clears closed chat panes
+across viewport changes and scopes service-worker cache cleanup. Exact release,
+deployment and remaining MacBook Pro rollout gates are recorded in
+[`web-release-3.0.4.md`](web-release-3.0.4.md).
 
 ## Boundaries
 
