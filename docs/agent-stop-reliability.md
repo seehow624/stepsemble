@@ -1,6 +1,6 @@
 # Generic Agent stop / recovery follow-up
 
-Status: implementation and isolated verification in progress, not yet released.
+Status: 3.0.6 candidate implemented; final-source release gates pending.
 
 ## Evidence and scope
 
@@ -36,5 +36,36 @@ and confirmed code defect rather than labelling it a harmless test flake.
    idle Hosts; never stop real work to deploy.
 
 No native model calls, credential changes, logo edits or Host restarts occur
-as part of these tests. Physical mobile sleep/resume, 72-hour soak, durable Pi
+on production as part of these tests. Physical mobile sleep/resume, 72-hour soak, durable Pi
 ownership, native approval/history parity and Rust/App migration remain open.
+
+## Results (2026-09-06)
+
+- First stop fix `ae0cebc` passed CI 34027450549 on Windows/macOS/Linux and
+  rolling browser 34027450520 on macOS/Linux. Local 333 tests: 331 pass, two
+  platform skips. Final candidate adds selection/stop-feedback regressions.
+- Real synthetic supervisor disconnect/stop and Web service recreation pass;
+  the original output occurs once. Canary/no-ACK test proves a timed-out stop
+  leaves the named process alive and task active, then an explicit retry works.
+- Archive HTTP test now stops and restarts an isolated Host before recovery,
+  verifies conflict bytes are unchanged, moves only the fixture's conflicting
+  file aside, restores original bytes and keeps an unknown recovery sidecar.
+  Fixed recursive archive cleanup, which previously erased that sidecar;
+  cleanup now removes empty directories only. This is not a full-machine or
+  power-loss restore rehearsal.
+- Opening a session no longer rebuilds all visible list rows. Selection uses
+  an exact dataset identity and `aria-current`, preserving DOM/focus/scroll.
+  Unit regression plus desktop/mobile CI row-identity assertions cover it.
+- Actual Chrome/Codex Computer Use desktop fixture: 301 sessions, 41,000 messages,
+  latest 300 of the 5,000-message session, 1200×773/DPR1/CPU1×. First open before
+  selection change observed INP195 ms; final warm reopen observed INP72 ms.
+  Intermediate Back+Open trace observed119 ms. These are different warm/cold
+  interaction contexts, not a controlled percentage improvement or p95 result.
+  CLS0 in these windows; all14 shell/script/style requests200; no console
+  warnings/errors. Desktop long-chat Lighthouse snapshot accessibility100 and
+  best-practices100, automatic state-specific checks only.
+- Returned evidence is preserved in
+  [`baselines/session-selection-2026-09-06.json`](baselines/session-selection-2026-09-06.json).
+  Both `/tmp` and repository trace export paths were rejected by the MCP's
+  configured roots; full raw traces and standardized TBT remain unavailable.
+  No viewport/CPU emulation or whole-browser preference was changed.

@@ -64,7 +64,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.5";
+const APP_VERSION = "3.0.6";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1729,10 +1729,12 @@ function unarchiveSessions(archiveId) {
   let restored = 0;
   let captured = 0;
   const stack = [archiveRoot];
+  const visited = [];
   // Count first: the snapshot is only cleaned up when EVERY file made it
   // back. A partial restore keeps the archive so nothing is silently lost.
   while (stack.length) {
     const dir = stack.pop();
+    visited.push(dir);
     let entries;
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
     for (const entry of entries) {
@@ -1755,7 +1757,11 @@ function unarchiveSessions(archiveId) {
   }
   // Only when every captured file returned home is the snapshot disposable.
   if (restored && restored === captured) {
-    try { fs.rmSync(archiveRoot, { recursive: true, force: true }); } catch {}
+    // Remove only empty directories. Unknown sidecars, unreadable branches or
+    // symlinks were not restored and must never be erased as "cleanup".
+    for (const directory of visited.reverse()) {
+      try { fs.rmdirSync(directory); } catch {}
+    }
   }
   return restored;
 }

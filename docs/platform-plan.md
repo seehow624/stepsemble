@@ -35,7 +35,7 @@
 | 產品名稱與識別 | 已定案 | Stepsemble；step + ensemble；四個等權模組代表 agents，藍紫內緣代表每個 agent 共用的 Stepsemble coordination layer |
 | Host/Client 邊界 | 已定案 | Desktop 可為 Host + Client；iOS/Android 初期只為 Client |
 | App Shell | 目標已定，待驗證 | Tauri 2 為預設方案；必須先通過 Apple 實機 PoC 驗收門檻 |
-| 當前回歸基線 | 3.0.5 發布 gate 通過；後續 Windows race 修復中 | source CI34022367919 各332tests／0fail；rolling34022367901 兩OS各15cases。文件-only `fbc0d42`／CI34022716198 的 Windows stop-after-reconnect 失敗，不以發布前成功忽略；見 `agent-stop-reliability.md` |
+| 當前回歸基線 | 3.0.5 已發布；3.0.6 candidate 驗收中 | Windows stop fix `ae0cebc` 已通過 CI34027450549 三OS333tests／0fail及 rolling34027450520。新增 UI／restore 修正待final-source gate；見 `agent-stop-reliability.md` |
 | Pi Failed／session 名稱修正 | 已隨3.0.4部署 | 已分離預期 idle close 與異常退出、補上送出／關閉競爭保護，名稱統一 native name／first user；驗證與相容邊界見 `pi-session-lifecycle.md`。未呼叫真實模型或改寫歷史 |
 | 開發分支跨平台回歸 | 已通過，逐批驗證 | 2026-09-05 `6a0ddd4`／CI33970842907三OS全綠270tests/0fail；Rolling33970842871 macOS/Linux各8cases全綠。Native Pi offline contract33967509738三OS實跑0.84.2各57frames；本批見1.23記錄，新的commit需看各自workflow；不等於model/provider parity或release |
 | 現行系統盤點 | 已完成 | HTTP/SSE/RPC、資料、狀態、approval、event、安裝與 rollback 已落於 `current-system-inventory.md` |
@@ -950,6 +950,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 - 同步兩台 Mac 的3.0.5正式部署與更新器狀態，保留歷史版本記錄。
 - 下一批按使用者同意，先修 Windows stop/reconnect，再補隔離恢復與長對話效能驗收；邊界見 `agent-stop-reliability.md`。
 - 停止改成等待已驗身分的控制連線與程序退出、合併重複要求；未確認不標停止、不殺持久 PID，逾時可重試。首輪本機333tests：331pass／2skip，尚待新 source 的跨平台 CI。
+- `ae0cebc` 三OS／雙OS rolling 已通過；3.0.6候選補上還原衝突／Host重啟／sidecar保留、chat stop錯誤回饋、選取清單不重建；Chrome單輪first-open195ms與warm-reopen72ms保留量測條件，不作受控百分比或全平台順滑度宣稱。完整trace export仍受工具限制。
 
 ### 2026-09-06 — Plan 1.29
 

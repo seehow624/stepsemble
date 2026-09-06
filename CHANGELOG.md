@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.0.6
+
+- Wait for verified generic Agent reattachment and actual CLI exit when
+  stopping; concurrent stop requests share one bounded operation. Unconfirmed
+  stops remain active and retryable instead of falsely reporting completion.
+- Do not kill a persisted supervisor PID when its control connection is down;
+  retain Windows owned-tree cleanup and reject input while stopping.
+- Preserve session-list DOM, keyboard focus and scroll when opening a chat;
+  update only selection and its accessible current-state marker.
+- Surface chat stop failures so a lost connection is not silently ignored.
+- Restore archives across Host restart without overwriting conflicting newer
+  files; clean up only empty directories and preserve unknown recovery files.
+
 ## 3.0.5
 
 - Bound the New project folder list to its own scroll area while preserving

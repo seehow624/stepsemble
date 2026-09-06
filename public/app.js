@@ -1,7 +1,7 @@
-/* stepsemble v3.0.5 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.6 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.5";
+const CLIENT_APP_VERSION = "3.0.6";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -2403,6 +2403,19 @@ function updateSessionRunTicker() {
   }
 }
 
+function updateSessionSelection() {
+  // Opening a chat changes selection, not the list's content/order. Keep the
+  // existing rows, keyboard focus and scroll position instead of rebuilding
+  // every visible row in the input event's critical path.
+  for (const row of el.sessionList.querySelectorAll(".session-item")) {
+    const selected = row.dataset.sessionFile === currentSessionFile;
+    row.classList.toggle("selected", selected);
+    const button = row.querySelector(".session-item-main");
+    if (selected) button?.setAttribute("aria-current", "true");
+    else button?.removeAttribute("aria-current");
+  }
+}
+
 function renderSessionList(q) {
   updateNewProjectAffordance();
   const query = (q || "").trim().toLowerCase();
@@ -2420,6 +2433,7 @@ function renderSessionList(q) {
   const makeItem = (s) => {
     const li = document.createElement("li");
     li.className = "session-item" + (s.file === currentSessionFile ? " selected" : "");
+    li.dataset.sessionFile = s.file;
     const rawName = sessionDisplayTitle(s);
     const name = stripMd(rawName).slice(0, 70) || (window.stepsembleI18n?.t("(Untitled)") || "(Untitled)");
     // Recency first: scanning for "what did I just do" beats tok/$.
@@ -2506,6 +2520,7 @@ function renderSessionList(q) {
       }
     });
     const sessionMain = li.querySelector(".session-item-main");
+    if (s.file === currentSessionFile) sessionMain?.setAttribute("aria-current", "true");
     let lpTimer = null, longPressed = false, swipeConsumed = false, touchStartX = 0, touchStartY = 0;
     li.addEventListener("touchstart", (event) => {
       if (event.target.closest(".session-item-action")) return;
@@ -3051,7 +3066,7 @@ async function openExisting(s) {
   currentSessionCwd = s.cwd;
   clearLastAgentTask();
   rememberLastChat(s.file);
-  renderSessionList(el.search.value);
+  updateSessionSelection();
   hideChatEmpty();
   setChatTitle(sessionDisplayTitle(s));
   el.chatSub.dataset.base = s.cwd; el.chatSub.textContent = s.cwd; resetLiveUsage();
@@ -3526,6 +3541,7 @@ async function startNew(cwd, name, agentId = "pi", worktree = false) {
   resetComposerSummary();
   currentSessionFile = null;
   _lastMsgDate = null;
+  updateSessionSelection();
   lastUserText = "";
   currentSessionCwd = cwd;
   historyState = null;
@@ -5734,6 +5750,7 @@ function updateLiveUsage(u) {
   el.chatSub.textContent = base;
 }
 function setStreaming(on) {
+  el.btnAbort.disabled = !!rpc?.stopPending;
   if (rpc) rpc.streaming = on;
   const generic = !!rpc?.generic;
   setTaskProgressRunState(!!on);
@@ -6007,10 +6024,21 @@ async function sendCurrent() {
     }
   }
 }
-el.btnAbort.addEventListener("click", () => {
+el.btnAbort.addEventListener("click", async () => {
   if (!rpc) return;
-  if (rpc.generic) post("/api/agent/abort", { taskId: rpc.sid }).catch(() => {});
-  else post("/api/abort", { sid: rpc.sid }).catch(() => {});
+  const connection = rpc, base = apiBase;
+  if (connection.stopPending) return;
+  connection.stopPending = true;
+  el.btnAbort.disabled = true;
+  try {
+    if (connection.generic) await post("/api/agent/abort", { taskId: connection.sid });
+    else await post("/api/abort", { sid: connection.sid });
+  } catch (error) {
+    if (rpc === connection && apiBase === base) toast(error.message || agentHubText("taskStopFailed"), true);
+  } finally {
+    connection.stopPending = false;
+    if (rpc === connection && apiBase === base) el.btnAbort.disabled = false;
+  }
 });
 
 // ---- chat ⋯ menu：重命名目前 session / 返回列表 ----

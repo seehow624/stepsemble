@@ -4,6 +4,25 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 
+test("chat stop gives retryable feedback, coalesces clicks and fences old-host replies", async () => {
+  const source = fs.readFileSync(require.resolve("../public/app.js"), "utf8");
+  const calls = [], notices = [];
+  let click;
+  const button = { disabled: false, addEventListener(name, handler) { assert.equal(name, "click"); click = handler; } };
+  const context = vm.createContext({ el: { btnAbort: button }, rpc: { sid: "a", generic: true }, apiBase: "/r/a",
+    post(url, body) { return new Promise((resolve, reject) => calls.push({ url, body, resolve, reject })); },
+    toast(message) { notices.push(message); }, agentHubText: key => key });
+  vm.runInContext(source.slice(source.indexOf('el.btnAbort.addEventListener("click"'), source.indexOf('// ---- chat ⋯ menu')), context);
+  const first = click(); await click();
+  assert.equal(calls.length, 1); assert.equal(button.disabled, true);
+  calls[0].reject(new Error("Stop not confirmed")); await first;
+  assert.deepEqual(notices, ["Stop not confirmed"]); assert.equal(button.disabled, false);
+  const second = click(); context.rpc = { sid: "b", generic: true }; context.apiBase = "/r/b";
+  calls[1].reject(new Error("Stale failure")); await second;
+  assert.equal(notices.length, 1, "old-host failure is not shown in the new chat");
+  assert.match(source.slice(source.indexOf("function setStreaming(on)"), source.indexOf("// ---- 送出 / 中止")), /el\.btnAbort\.disabled = !!rpc\?\.stopPending/);
+});
+
 // Run the actual controller functions, including finally blocks, with a
 // transport that deliberately delivers replies even after abort.
 function setup() {

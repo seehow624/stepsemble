@@ -29,10 +29,11 @@ test("HTTP deletion is recoverable, failure preserves originals, corrupt history
   const content = JSON.stringify({ type: "session", id: "fixture", cwd: home }) + "\n";
   await fs.writeFile(path.join(directory, "safe.jsonl"), content);
   const port = await freePort();
-  const child = spawn(process.execPath, [path.resolve("server.js")], {
+  const startHost = () => spawn(process.execPath, [path.resolve("server.js")], {
     env: { PATH: path.dirname(process.execPath), HOME: home, PI_HOME: home, STEPSEMBLE_PORT: String(port), STEPSEMBLE_HOST: "127.0.0.1", STEPSEMBLE_ORPHAN_EXIT: "0", PI_BIN: process.execPath },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  let child = startHost();
   t.after(async () => { await stopServer(child); await fs.rm(home, { recursive: true, force: true }); });
   await waitForServer(child); child.stdout.resume(); child.stderr.resume();
   const base = `http://127.0.0.1:${port}`;
@@ -45,8 +46,24 @@ test("HTTP deletion is recoverable, failure preserves originals, corrupt history
   const { archiveId, recoverable } = await deleted.json(); assert.equal(recoverable, true);
   const archive = path.join(home, ".pi/agent/sessions/.archive", archiveId, "project/safe.jsonl");
   assert.equal(await fs.readFile(archive, "utf8"), content);
+  // Preserve a collision and unknown archive material through a real Host
+  // restart. Restoring an archive is not permission to overwrite new work.
+  const conflict = content + "newer bytes\n";
+  const sidecar = path.join(path.dirname(archive), "recovery-note.txt");
+  await fs.writeFile(path.join(directory, "safe.jsonl"), conflict);
+  await fs.writeFile(sidecar, "keep this recovery material");
+  await stopServer(child); child = startHost();
+  await waitForServer(child); child.stdout.resume(); child.stderr.resume();
+  const collision = await post("/api/session-action", { action: "unarchive", archiveId });
+  assert.equal(collision.status, 400);
+  assert.equal(await fs.readFile(path.join(directory, "safe.jsonl"), "utf8"), conflict);
+  assert.equal(await fs.readFile(archive, "utf8"), content);
+  // The fixture owns both versions; move the conflicting new version aside.
+  await fs.rename(path.join(directory, "safe.jsonl"), path.join(directory, "newer-backup.jsonl"));
   assert.equal((await post("/api/session-action", { action: "unarchive", archiveId })).status, 200);
   assert.equal(await fs.readFile(path.join(directory, "safe.jsonl"), "utf8"), content);
+  assert.equal(await fs.readFile(path.join(directory, "newer-backup.jsonl"), "utf8"), conflict);
+  assert.equal(await fs.readFile(sidecar, "utf8"), "keep this recovery material");
   await fs.rm(path.join(home, ".pi/agent/sessions/.archive"), { recursive: true, force: true });
   await fs.writeFile(path.join(home, ".pi/agent/sessions/.archive"), "block directory creation");
   assert.equal((await post("/api/delete", { file: "project/safe.jsonl" })).status, 400);
