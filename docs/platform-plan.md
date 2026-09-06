@@ -48,7 +48,7 @@
 | Pi 原生 RPC 邊界 | 已實作，隨rc.3啟用於Mini | 嚴格 frame／UI reply、跨程序 correlation、有界 pending dialog、TypeScript FIFO／失敗手動重試、完整 pending-set 重連對齊／舊 stream fencing、更新／idle／離開聊天保護；Windows core launch／PATH／owned tree 已接上 runner fixture；仍非 durable approval 或原生全版本／provider／模型串流驗收 |
 | 已發佈 Web rolling 相容 | Legacy smoke 已驗 | 真實v3.0.3/v3.0.2 pinned source與development雙向搭配，Chromium桌面/手機尺寸8cases，macOS/Linux各跑一次共16cases／CI33970245044過。SW/PWA cache、Safari/Firefox/Windows/實機、future journal transport不包含，見`protocol/rolling-compatibility.md` |
 | Codex 官方介面基線 | 離線 metadata 已驗 | 0.153.3官方CLI輸出18個schema hash與99/10/81方法catalog；隔離HOME且不啟app-server/模型/登入，不改OpenCodex wrapper；不是原生runtime/session/approval驗收 |
-| Claude／Codex 真實訂閱 smoke | 已授權，成功 gate 未通過 | 各1次最小測試已獲同意；Claude唯一一次因OAuth過期／更新失敗，native記錄usage四項0，不重試；Codex preflight檢出既有本機API代理與全域指令，未送turn/start、不改設定。詳見`native-subscription-smoke.md`；不是adapter/parity通過 |
+| Claude／Codex 真實訂閱 smoke | 新單次同意已收到，仍停在前置檢查 | 2026-09-06 Claude助手與Aqua原生CLI均signed_out；Codex原生已0.153.4，runner在0.153.3版本門檻停止，未啟app-server。本次各0模型attempt，未改登入／路由；9/5失敗及舊版路由／指令阻礙保留為歷史，詳見`native-subscription-smoke.md`；不是adapter/parity通過 |
 | Claude 官方登入入口 | 3.0.4在Mini啟用，當前signed_out | rc.3曾以桌面助手通過detected metadata／UI；3.0.4部署前後均signed_out，liveVerified=false，不以舊成功記錄冒充現在已登入。入口保留，不自動修憑證／重試模型；詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
 | 優先可靠性修復 | 已實作，隨rc.3啟用於Mini | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
@@ -951,6 +951,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 
 ### 2026-09-06 — Plan 1.31
 
+- 後續新的Claude/Codex各一次額度同意已收到，但安全preflight仍未過：Claude助手與直接Aqua官方CLI均signed_out；Codex已0.153.4，在既有0.153.3門檻停止，未啟app-server。本輪兩邊0模型attempt、舊失敗marker保留、5個設定／指令路徑前後SHA一致，正式仍3.0.6未重啟。最新獨立baseline與後續gate見`native-subscription-smoke.md`；不放寬版本或路由防線，不宣稱72h／native parity通過。
 - 新增Node async session discovery：4個metadata worker、50,000 entries／15秒budget、single-flight在底層慢IO未settle前不放行新scan；whole-root讀失敗503，不伪造空清單。清單解析同時最多4份、cache10,000且mtime/size/ctime/inode/device驗證，讀取中變更不重新寫入過期cache。
 - 搜尋原宣告400-file卻未slice、用量原宣告8MiB卻未檢查，現已實際接上。讀取增長檔案仍檢查實際bytes，summary/search/usage每128lines讓出eventloop。保留native名稱、temporary filter與既有wire欄位；rename/export等其他同步／大JSON工作尚未全清。
 - 新增8-task／16-client隔離HTTP壓測：固定source copy/hash、官方登入與Node preload環境排除、正常／SIGKILL只處理own HTTP child、same task/PID/start/peer incarnation、每次synthetic ACK三個視角恰一份、停止實際程序確認。Lease缺失／超120秒fake peer自行退出，清理不殺持久PID；未確認則保留fixture。

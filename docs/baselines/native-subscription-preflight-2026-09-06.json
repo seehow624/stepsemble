@@ -1,0 +1,57 @@
+{
+  "reportVersion": 1,
+  "checkedAt": "2026-09-06T12:11:52.559Z",
+  "platform": "darwin-arm64",
+  "sourceCommit": "1aaa008f83eb016dca7acfdeb19d2eacceb1f38d",
+  "scope": "Newly authorized minimal subscription checks; both blocked before model execution, not a native adapter acceptance result",
+  "authorization": {
+    "newMaxTurnAttemptsPerAgent": 1,
+    "automaticRetriesAuthorized": false,
+    "loginOrRoutingChangesAuthorized": false,
+    "priorClaudeAttemptMarkerRetained": true
+  },
+  "claude": {
+    "nativeVersion": "2.1.259",
+    "executionManager": "Aqua",
+    "webDesktopHelperCredentialState": "signed_out",
+    "directNativeLoggedIn": false,
+    "directNativeAuthMethod": "none",
+    "directNativeApiProvider": "firstParty",
+    "result": "blocked_before_turn",
+    "reason": "signed_out",
+    "turnAttempts": 0,
+    "attemptMarkerExists": false,
+    "reportedUsage": null,
+    "modelTurnCompletionObserved": false
+  },
+  "codex": {
+    "nativeVersion": "0.153.4",
+    "runnerAcceptedVersion": "0.153.3",
+    "runnerReportedReason": "native_probe_failed",
+    "diagnosedReason": "native_version_review_required",
+    "diagnosisBasis": "Trusted executable --version and runner version guard before config inventory or app-server startup",
+    "result": "blocked_before_app_server",
+    "appServerStarted": false,
+    "accountReadInvoked": false,
+    "effectiveRouteVerifiedThisRun": false,
+    "threadStartSent": false,
+    "turnStartSent": false,
+    "turnAttempts": 0,
+    "attemptMarkerExists": false,
+    "reportedUsage": null,
+    "modelTurnCompletionObserved": false
+  },
+  "nativeSettingsAndInstructionFilesUnchangedBySha256": true,
+  "protectedLogicalPathCount": 5,
+  "nativeCredentialsDirectlyReadOrCopiedByStepsemble": false,
+  "nativeLoginOrLogoutInvoked": false,
+  "modelRoutingFilesModified": false,
+  "productionRestarted": false,
+  "productionHealth": [
+    { "hostRole": "primary", "ok": true, "appVersion": "3.0.6", "uptime": 5287 },
+    { "hostRole": "secondary", "ok": true, "appVersion": "3.0.6", "uptime": 5333 }
+  ],
+  "approvalParityVerified": false,
+  "historyResumeParityVerified": false,
+  "completeNativeAdapterVerified": false
+}

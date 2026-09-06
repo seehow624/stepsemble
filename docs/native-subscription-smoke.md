@@ -4,7 +4,33 @@
 不改登入／模型路由，不重啟正式服務。這是人工 native harness 驗收，
 **不是已接上 Stepsemble Web 的 adapter，也不是 approval／resume parity 通過**。
 
-## 本次實際結果
+## 最新檢查：2026-09-06，新的同意，兩邊均未送模型
+
+Jerome 再回覆「好」，同意 Claude／Codex 各新一次最小訂閱測試；仍不授權變更
+登入、路由、計費來源或全域指令，也不允許失敗後自動重試。此同意與 9 月 5 日
+已消耗的 Claude attempt 分開記錄，沒有刪除或重置舊 marker。
+
+去識別結果：[`baselines/native-subscription-preflight-2026-09-06.json`](baselines/native-subscription-preflight-2026-09-06.json)。
+
+- Claude 2.1.259：正式 Web 經桌面助手回 `signed_out`；本次執行環境確認為
+  Aqua，直接官方 CLI 的 `--safe-mode auth status --json` 亦為
+  `loggedIn:false`／`authMethod:none`。沒有執行 `-p`，不是模型請求失敗，
+  也不是只從 SSH 的狀態推定登出。需要 owner 完成官方登入，未定位頻繁登出的全部根因。
+- Codex：可信任原生入口現為 **0.153.4**，而 runner 僅釘住 0.153.3。
+  實際 preflight 回泛化的 `native_probe_failed`；後續只讀 `--version` 與 runner
+  執行順序核對，確認在版本檢查即停止，未啟動 app-server／查 account／建立 thread。
+  不把舊版的帳號、有效路由或 instruction-source 觀察當成新版已驗證結果；
+  也沒有放寬版本門檻、降版 binary 或更改 OpenCodex wrapper。
+- 新 run 的兩個 attempt marker 均不存在；本次模型 attempt **各 0 次**，
+  usage 未觀察，不填成全帳號零用量。原生登入／登出均未呼叫。
+- 5 個原生設定／全域指令邏輯路徑的前後 SHA-256 相同，沒有直接讀取、輸出或複製原生憑證；官方 CLI 仍自行讀取其登入狀態。
+  Mini／MBP 正式仍 3.0.6、uptime 連續；桌面助手、既有 CUA 服務和 72h fixture
+  均未被重啟。72h 仍 running，不是通過。
+
+本輪因此停在前置檢查。未使用的額度同意不授權任意新版本、路由、設定或自動重送；
+後續先完成 Claude 官方登入、Codex 新版介面與路由／指令／工具隔離審查，才可再評估最小驗收。
+
+## 歷史實際結果：2026-09-05
 
 完整去識別摘要：[`baselines/native-subscription-smoke-2026-09-05.json`](baselines/native-subscription-smoke-2026-09-05.json)。
 
@@ -64,9 +90,9 @@ node scripts/probe-native-subscriptions.mjs claude /absolute/prepared-run /absol
 
 ## 後續需要人工處理
 
-2026-09-06 Jerome 已表示在官方 CLI 重新登入，唯讀 metadata 亦已偵測到 claude.ai。
-沒有再次模型呼叫，前次失敗仍保留；重測要重新確認額度授權，不能沿用已消耗的
-那一次 attempt。新增 App 登入入口的開發進度見 [`claude-sign-in.md`](claude-sign-in.md)，
+2026-09-06 較早曾偵測到 claude.ai；當日最新檢查已是 `signed_out`，以上方新紀錄為準。
+新的單次額度同意已收到，但前置檢查未過、沒有再次模型呼叫；前次失敗仍保留，
+不能沿用已消耗的那一次 attempt。新增 App 登入入口的開發進度見 [`claude-sign-in.md`](claude-sign-in.md)，
 不等於原生 smoke 或完整 adapter 成功。
 
 Codex 要先決定原生訂閱與既有第三方路由的隔離方式，以及全域指令是否可納入
