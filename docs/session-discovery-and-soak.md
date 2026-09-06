@@ -76,6 +76,31 @@ source hashes and any skips/failures separately.
   checks passed before version finalization. New exact-source CI/rolling,
   repeated Host measurements and full72-hour result are still required.
 
+### Clean-source acceptance (2026-09-06)
+
+- Source `2b7f0b652634a30cb546aceb27339cdad140efc0` is committed/pushed.
+  [CI34030379708](https://github.com/seehow624/stepsemble/actions/runs/34030379708)
+  passed346tests on each OS: macOS344pass/2skip, Windows336/10, Linux343/3,
+  zero failures. Both the actual8-task Host recovery case and HTTP discovery
+  case ran successfully on all three systems; they were not platform skips.
+- [Rolling34030379721](https://github.com/seehow624/stepsemble/actions/runs/34030379721)
+  passed15cases each on macOS/Linux:8real-source historical pairings,2auth UI,
+  2Pi-session UI and3nested folder-picker viewports. These are Chromium tests,
+  not physical mobile evidence. StrictTS/artifact/Ajv gates passed in CI.
+- Three sequential clean-source Host benchmarks are preserved in
+  [`baselines/host-performance-2026-09-06-stepsemble-3.0.7-rc.1-darwin-arm64.json`](baselines/host-performance-2026-09-06-stepsemble-3.0.7-rc.1-darwin-arm64.json).
+  Cold list89.744–91.907ms; warm-list per-run p95 7.319–7.485ms;
+  invalidated scan91.904–92.785ms; concurrent health max4.944–5.184ms.
+  Each report identifies source/hash/dirty=false and uses the same301-session,
+  41,000-message/8-task workload. These are not a controlled old/new A/B, not
+  browser INP, and not a global p95 made from only three runs.
+- After-workload RSS123.891–126.172MiB, versus97.719MiB in the earlier single
+  3.0.6 report. Concurrent parsing may increase the high-water mark; do not claim
+  a memory improvement or absence of leaks from these short measurements.
+- Public stable and both installed production versions are still3.0.6.
+  The candidate is ready for the isolated long-duration gate, not yet certified
+  by72hours and not automatically promoted to stable.
+
 ## Remaining boundaries
 
 This does **not** certify complete native Claude/Codex/Grok/OpenCode session,

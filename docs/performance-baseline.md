@@ -132,3 +132,26 @@ attribute every difference to the 3.0.6 stop fix or combine runs as a percentile
   all stopped through the confirmed-exit API; no real provider/model used.
 - Event-loop delay p95:13.099ms/max22.512ms; RSS idle54.656/loaded97.719MiB.
   One run is not a memory-leak/soak result.
+
+## 2026-09-06: three clean 3.0.7-rc.1 runs
+
+[`Raw repeated results`](baselines/host-performance-2026-09-06-stepsemble-3.0.7-rc.1-darwin-arm64.json)
+retain three sequential executions of exact `2b7f0b6` with dirty=false, on the
+same Darwin25.6.0 arm64 / Node22.22.3 machine and the unchanged benchmark script.
+This candidate has not replaced3.0.6 production.
+
+| Metric (three independent run values) | Run1 | Run2 | Run3 |
+| --- | ---: | ---: | ---: |
+| Cold list ms |90.266|89.744|91.907|
+| Warm-list p95 ms |7.340|7.485|7.319|
+| Invalidated scan ms |91.904|92.607|92.785|
+| Health max during scan ms |4.944|5.184|5.171|
+| Event-loop delay p95 ms |12.403|12.132|12.083|
+| After-workload RSS MiB |123.891|126.172|125.031|
+
+All three cold/invalidated reads fit the initial100ms local goal for this
+fixture. The three old/new executions are not interleaved controlled A/B trials;
+no population percentile or percentage speedup is claimed. Peak RSS is higher
+than the prior single3.0.6 run; four concurrent parsers trade some memory for
+latency. Slow disks, larger stores, physical mobile and long-run memory behavior
+remain separate gates. See [soak scope](session-discovery-and-soak.md).

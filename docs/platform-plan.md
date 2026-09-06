@@ -954,6 +954,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 - 搜尋原宣告400-file卻未slice、用量原宣告8MiB卻未檢查，現已實際接上。讀取增長檔案仍檢查實際bytes，summary/search/usage每128lines讓出eventloop。保留native名稱、temporary filter與既有wire欄位；rename/export等其他同步／大JSON工作尚未全清。
 - 新增8-task／16-client隔離HTTP壓測：固定source copy/hash、官方登入與Node preload環境排除、正常／SIGKILL只處理own HTTP child、same task/PID/start/peer incarnation、每次synthetic ACK三個視角恰一份、停止實際程序確認。Lease缺失／超120秒fake peer自行退出，清理不殺持久PID；未確認則保留fixture。
 - 72h模式要求clean commit，status是running而非pass；只保留最近512samples並記Host epoch，超時觀察空白fail closed。不是native history/approval、durable replay、實機休眠／網路／電源測試。3.0.7-rc.1尚未stable release或正式部署；CI與長測依實際結果追加。
+- Exact `2b7f0b6` CI34030379708三OS346tests零fail（Mac344pass2skip、Windows336/10、Linux343/3），Rolling34030379721兩OS各15cases過。3輪clean-source冷清單89.744–91.907ms、invalidate91.904–92.785ms，health during scan max4.944–5.184ms；RSS高水位123.891–126.172MiB，不能宣稱memory改善。raw與限制已落檔；72h仍待真實時間完成。
 
 ### 2026-09-06 — Plan 1.30
 
