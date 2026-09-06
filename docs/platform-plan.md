@@ -949,6 +949,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 - 增加獨立firstMessage，保留preview原用途；最新session_info含清空優先；list／Hub／detail／search／export統一標題，開既有file不採用caller display name改native名稱。共用strict TS helper與checked-in JS，保持runtime無依賴。
 - 新增synthetic HTTP競爭、143／crash／失敗／名稱／pagination／history byte-preservation與1440／390實際browser cases。SSE detach晚於close時保留Waiting是正確防護；browser case明確等待detach再走idle close邊界，不冒稱返回必定立即kill。
 - 本機319tests／317pass2Windows-onlyskip／0fail；strict TS／artifact／syntax／version／Ajv1251cases皆通過。Pinned Chromium153.0.8010.12的8組rolling＋2組既有Claude auth UI＋2組Pi session UI全過；跨OS需核對本批新commit CI。
+- 第一個commit65d7295在CI34014570496的Windows因新artifact未固定LF而被byte一致性gate擋下，macOS/Linux與Rolling34014570478兩OS各12cases過。後續將public/modules/*.js統一LF並補policy回歸／rolling path gate，保留嚴格byte檢查，不略過Windows；需看後續commit結果。
 - Source候選rc.4使用獨立cache identity；未部署／未重啟正式rc.3、未public release／真實帳號模型／history migration。各次CI需看exact commit；完整durable journal、其他native adapter／Rust／Apps等既有gate不因本修復完成。細節 `pi-session-lifecycle.md`。
 
 ### 2026-09-06 — Plan 1.26

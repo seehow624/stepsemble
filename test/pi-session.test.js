@@ -4,6 +4,10 @@ const fs = require("node:fs/promises"), path = require("node:path"), os = requir
 const { spawn } = require("node:child_process");
 const piSession = require("../public/modules/pi-session");
 const root = path.resolve(__dirname, "..");
+test("all browser module artifacts keep LF on Windows checkout, including future typed helpers", async () => {
+  const attributes = (await fs.readFile(path.join(root, ".gitattributes"), "utf8")).replace(/\r\n/g, "\n");
+  assert.match(attributes, /^public\/modules\/\*\.js text eol=lf$/m);
+});
 test("Pi titles use latest native name then first user text, with old Host fallback only", () => {
   assert.equal(piSession.title({ name: " Custom ", firstMessage: "Question", preview: "Answer" }), "Custom");
   assert.equal(piSession.title({ name: "", firstMessage: "Question 🐾", preview: "Answer" }), "Question 🐾");

@@ -56,6 +56,14 @@ conformance passed. Pinned Chromium 153.0.8010.12 passed all 8 rolling cases,
 2 existing Claude-auth UI cases and 2 new Pi-session UI cases. These are
 isolated synthetic tests, not real account use or a live deployment.
 
+The first candidate commit `65d7295` passed macOS/Linux and both rolling jobs,
+but Windows correctly rejected the new generated artifact after CRLF checkout.
+The follow-up applies LF to every browser module (including future helpers),
+adds a policy regression and includes attributes in the rolling workflow path
+gate. Byte-for-byte artifact checking is unchanged; Windows must pass anew.
+After the LF follow-up, local tests are 320 total / 318 passed / 2 Windows-only
+skips / 0 failures; strict TS/artifact checks and effective Git LF attributes pass.
+
 - `test/pi-session.test.js`: shared Node/browser classifier, normal and
   unexpected 143, SIGKILL, Windows termination classification, model failure,
   preflight/send/close races, client joins, compaction, revisions, concurrent

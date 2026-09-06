@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
     paths:
+      - '.gitattributes'
       - '.github/workflows/rolling-clients.yml'
       - 'server.js'
       - 'server/**'
@@ -21,6 +22,7 @@ on:
       - 'package.json'
   pull_request:
     paths:
+      - '.gitattributes'
       - '.github/workflows/rolling-clients.yml'
       - 'server.js'
       - 'server/**'
