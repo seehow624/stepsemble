@@ -14,6 +14,10 @@ subfolders stretch it into a very long page.
   reach Agent/worktree settings and Start here. No custom wheel/touch handlers.
 - The folder region is labelled using the existing translated heading and can
   receive keyboard focus. Opening another directory resets its scroll position.
+  Navigation replaces only that lightweight region: native in-flight keyboard
+  scrolling on Chromium/Linux can survive setting scrollTop to zero and move
+  newly inserted rows. A fresh region discards old momentum, while focus stays
+  inside the list only if it was already there; the outer form is preserved.
 - The approved logo, native harness launch paths, account configuration and
   session/history storage are unchanged. Versioned assets and the service-worker
   cache move together to 3.0.5.

@@ -9845,10 +9845,16 @@ async function loadProjectFolder(requestedPath = null) {
   const request = new AbortController();
   projectFolderRequest = request;
   el.newFolderPath.textContent = browseText("Loading folders…");
-  // Stop a pending native keyboard scroll before shrinking its scroll range.
-  // Clearing the rows first can clamp to zero without cancelling that motion.
-  el.newFolderList.scrollTop = 0;
+  // A directory is a new scroll surface. Native keyboard/touch momentum can
+  // outlive scrollTop=0 (notably Chromium/Linux) and move newly inserted rows.
+  // Replace only this lightweight region to discard the old scroll animation;
+  // preserve keyboard focus without moving the independent outer form.
+  const focusFolderList = el.newFolderList.contains(document.activeElement);
+  const folderList = el.newFolderList.cloneNode(false);
+  el.newFolderList.replaceWith(folderList);
+  el.newFolderList = folderList;
   el.newFolderList.innerHTML = `<p class="project-folder-empty">${browseText("Loading folders…")}</p>`;
+  if (focusFolderList) el.newFolderList.focus({ preventScroll: true });
   el.newFolderUp.disabled = true;
   try {
     // An empty initial home is intentional: /api/browse resolves it to the
