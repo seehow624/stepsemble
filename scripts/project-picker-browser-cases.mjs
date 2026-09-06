@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { startProjectPickerFixture } from '../test-support/project-picker-fixture.mjs';
 
 export async function runProjectPickerBrowserCases(browser) {
-  const f = await startProjectPickerFixture();
-  try {
-    for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }, { width: 320, height: 480 }]) {
+  for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }, { width: 320, height: 480 }]) {
+    // Onboarding preferences are Host-persisted, not only browser-local.
+    const f = await startProjectPickerFixture();
+    try {
       const context = await browser.newContext({ viewport });
       const page = await context.newPage(), errors = [];
       let stage = 'login';
@@ -89,6 +90,6 @@ export async function runProjectPickerBrowserCases(browser) {
         }))).catch(() => ({}));
         throw new Error(`Project picker ${viewport.width}x${viewport.height} at ${stage}: ${error.message.replace(/\b[a-f0-9]{64}\b/gi, '[redacted-test-key]')} ${JSON.stringify(geometry)}`, { cause: error });
       } finally { await context.close(); }
-    }
-  } finally { await f.close(); }
+    } finally { await f.close(); }
+  }
 }
