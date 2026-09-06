@@ -20,6 +20,13 @@ CI, measured limits and rollout evidence are in
 [`agent-stop-reliability.md`](agent-stop-reliability.md). The3.0.4 deployment
 statements below describe that earlier release, not an outstanding MBP blocker.
 
+Development candidate 3.0.7-rc.1 adds `server/session-discovery.js` for asynchronous,
+bounded metadata scans shared by list/search/usage requests. It does not replace
+native ownership or introduce a database. Isolated recovery/soak tooling and
+remaining gates are documented in
+[`session-discovery-and-soak.md`](session-discovery-and-soak.md); this candidate
+has not replaced the stable deployment.
+
 Reliability changes (2026-09-05) are documented separately in
 [`reliability-followup.md`](reliability-followup.md): recoverable session archive,
 bounded stream framing/writes, supervisor snapshot replacement, asynchronous

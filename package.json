@@ -2,7 +2,7 @@
   "name": "stepsemble",
   "private": true,
   "license": "Apache-2.0",
-  "version": "3.0.6",
+  "version": "3.0.7-rc.1",
   "description": "A calm, cross-platform workspace for local coding agents",
   "type": "commonjs",
   "engines": {
@@ -18,6 +18,7 @@
     "check": "node --check server.js && node --check server/agent-connectors.js && node --check server/agent-task-supervisor.js && node --check server/brand.js && node --check server/claude-auth.js && node --check server/connector-protocol.js && node --check server/device-trust.js && node --check server/git-changes.js && node --check server/http-utils.js && node --check scripts/version.mjs && node --check scripts/host-performance-baseline.mjs && node --check scripts/claude-auth-browser-cases.mjs && node --check public/i18n.js && node --check public/modules/app-foundation.js && node --check public/modules/session-utils.js && node --check public/modules/context-usage.js && node --check public/modules/claude-auth.js && node --check public/app.js && npm run check:desktop",
     "check:desktop": "node --check server/agent-supervisor-launch.js && node --check server/claude-desktop-state.js && node --check server/claude-desktop-helper.js && node --check server/claude-desktop-client.js && node --check server/claude-desktop-entry.js && node --check scripts/install-claude-desktop.mjs && node --check scripts/check-desktop-context.mjs",
     "benchmark:host": "node scripts/host-performance-baseline.mjs",
+    "test:soak": "node scripts/reliability-soak.mjs",
     "test": "node --test --test-timeout=60000",
     "test:i18n": "node --test test/i18n.test.js",
     "test:native:pi": "node scripts/check-native-pi.mjs",

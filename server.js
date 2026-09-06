@@ -25,6 +25,7 @@ const { pathToFileURL } = require("node:url");
 const { spawn, execFile, execFileSync } = require("node:child_process");
 const { createHttpUtils } = require("./server/http-utils");
 const { createLineDecoder, activePathIds } = require("./server/stream-safety");
+const { createSessionDiscovery, mapLimit, readBoundedText, withDeadline: sessionReadDeadline } = require("./server/session-discovery");
 const { parsePiEvent, validPiCommand, resolvePiResponse, parsePiUiReply } = require("./server/pi-rpc-contract");
 const { createPiUiState, METHODS: PI_UI_METHODS } = require("./server/pi-ui-state");
 const { piLaunch } = require("./server/pi-launch");
@@ -64,7 +65,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.6";
+const APP_VERSION = "3.0.7-rc.1";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1086,6 +1087,9 @@ function isCrossSiteMutation(req) {
 
 /** @type {Map<string, {mtimeMs:number, size:number, info:object}>} */
 const scanCache = new Map();
+const discoverSessionFiles = createSessionDiscovery({ root: SESSIONS_DIR, maxFileBytes: MAX_SESSION_FILE_BYTES });
+const MAX_SESSION_SCAN_CACHE = 10_000;
+let sessionListFlight = null;
 
 async function* sessionLines(absPath) {
   const stream = fs.createReadStream(absPath);
@@ -1124,7 +1128,7 @@ function isTemporarySessionCwd(cwd) {
   return TEMP_SESSION_ROOTS.some((root) => candidate === root || candidate.startsWith(root + path.sep));
 }
 
-async function parseSessionFile(absPath) {
+async function parseSessionFile(absPath, { deadline = Infinity } = {}) {
   // Keep the legacy scalar tokens/cost fields for session-list clients, while
   // carrying every Pi usage component for newer consumers.
   const out = {
@@ -1135,7 +1139,15 @@ async function parseSessionFile(absPath) {
   };
   const usageTotals = createUsageTotals();
   try {
+    let parsedLines = 0;
     for await (const line of sessionLines(absPath)) {
+      if (++parsedLines % 128 === 0) {
+        await new Promise(resolve => setImmediate(resolve));
+        if (Date.now() >= deadline) {
+          const error = new Error("Session inventory exceeds its scan budget; retry after narrowing the session store");
+          error.statusCode = 503; throw error;
+        }
+      }
       if (!line) continue;
       let e;
       try { e = JSON.parse(line); } catch { continue; }
@@ -1175,7 +1187,8 @@ async function parseSessionFile(absPath) {
         if (t) out.preview = t.slice(0, 160); // 最後一條 assistant 文本覆蓋
       }
     }
-  } catch {
+  } catch (error) {
+    if (error.statusCode === 503) throw error;
     return null;
   }
   out.usage = usageTotalsToWire(usageTotals);
@@ -1221,40 +1234,37 @@ function imageAttachmentsFromContent(content) {
 }
 
 async function listSessions() {
-  const results = [];
-  const seen = new Set();
-  let dirs;
-  try {
-    dirs = fs.readdirSync(SESSIONS_DIR, { withFileTypes: true });
-  } catch {
-    return results;
+  if (!sessionListFlight) {
+    const current = scanSessionSummaries().finally(() => { if (sessionListFlight === current) sessionListFlight = null; });
+    sessionListFlight = current;
   }
-  for (const d of dirs) {
-    // Dot-prefixed directories are reserved for Stepsemble internals (for
-    // example .archive) and must not appear as projects in the session list.
-    if (!d.isDirectory() || d.name.startsWith(".")) continue;
-    const dirAbs = path.join(SESSIONS_DIR, d.name);
-    let files;
-    try { files = fs.readdirSync(dirAbs); } catch { continue; }
-    for (const f of files) {
-      if (!f.endsWith(".jsonl")) continue;
-      const rel = d.name + "/" + f;
-      const abs = safeSessionPath(rel);
-      if (!abs) continue;
-      seen.add(rel);
-      let st;
-      try { st = fs.statSync(abs); } catch { continue; }
-      const cached = scanCache.get(rel);
-      if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
-        results.push({ file: rel, mtimeMs: st.mtimeMs, ...cached.info, isTemporary: isTemporarySessionCwd(cached.info.cwd) });
-        continue;
+  // HTTP callers add live flags; never share mutable summary rows between them.
+  return (await sessionReadDeadline(sessionListFlight, 15_000)).map(info => ({ ...info }));
+}
+
+async function scanSessionSummaries() {
+  const deadline = Date.now() + 15_000;
+  const candidates = await discoverSessionFiles();
+  const seen = new Set(candidates.map(candidate => candidate.rel));
+  const parsed = await mapLimit(candidates, 4, async candidate => {
+    if (Date.now() >= deadline) { const error = new Error("Session scan timed out; retry when the store is available"); error.statusCode = 503; throw error; }
+    const { rel, abs, mtimeMs, size, ctimeMs, ino, dev } = candidate;
+    const cached = scanCache.get(rel);
+    let info = cached && cached.mtimeMs === mtimeMs && cached.size === size && cached.ctimeMs === ctimeMs && cached.ino === ino && cached.dev === dev ? cached.info : null;
+    if (!info) {
+      info = await parseSessionFile(abs, { deadline });
+      if (!info || !info.id) return null;
+      // A native writer can append, or rename/archive can invalidate the cache
+      // while parsing yields. Do not repopulate a stale metadata entry.
+      const after = await fs.promises.stat(abs).catch(() => null);
+      if (after && ["mtimeMs", "size", "ctimeMs", "ino", "dev"].every(key => after[key] === candidate[key]) && scanCache.get(rel) === cached) {
+        if (scanCache.size >= MAX_SESSION_SCAN_CACHE && !scanCache.has(rel)) scanCache.delete(scanCache.keys().next().value);
+        scanCache.set(rel, { mtimeMs, size, ctimeMs, ino, dev, info });
       }
-      const info = await parseSessionFile(abs);
-      if (!info || !info.id) continue;
-      scanCache.set(rel, { mtimeMs: st.mtimeMs, size: st.size, info });
-      results.push({ file: rel, mtimeMs: st.mtimeMs, ...info, isTemporary: isTemporarySessionCwd(info.cwd) });
     }
-  }
+    return { file: rel, mtimeMs, ...info, isTemporary: isTemporarySessionCwd(info.cwd) };
+  });
+  const results = parsed.filter(Boolean);
   for (const key of scanCache.keys()) if (!seen.has(key)) scanCache.delete(key);
   const summaries = new Map(results.map(info => [info.file, info]));
   for (const session of rpcSessions.values()) {
@@ -1287,39 +1297,24 @@ async function searchSessions(rawQuery) {
   const query = String(rawQuery || "").trim().slice(0, 200);
   if (query.length < 2) return { results: [] };
   const needle = query.toLowerCase();
-  const candidates = [];
-  let dirs;
-  try { dirs = fs.readdirSync(SESSIONS_DIR, { withFileTypes: true }); } catch { return { results: [] }; }
-  for (const d of dirs) {
-    if (!d.isDirectory() || d.name.startsWith(".")) continue;
-    let files;
-    try { files = fs.readdirSync(path.join(SESSIONS_DIR, d.name)); } catch { continue; }
-    for (const f of files) {
-      if (!f.endsWith(".jsonl")) continue;
-      const rel = d.name + "/" + f;
-      const abs = safeSessionPath(rel);
-      if (!abs) continue;
-      try {
-        const st = fs.statSync(abs);
-        candidates.push({ rel, abs, mtimeMs: st.mtimeMs, size: st.size });
-      } catch { continue; }
-    }
-  }
-  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
-  const results = [];
   const startedAt = Date.now();
-  for (const candidate of candidates) {
+  const candidates = await discoverSessionFiles({ waitMs: SESSION_SEARCH_BUDGET_MS });
+  const results = [];
+  for (const candidate of candidates.slice(0, SESSION_SEARCH_MAX_FILES)) {
     if (results.length >= SESSION_SEARCH_MAX_RESULTS || Date.now() - startedAt > SESSION_SEARCH_BUDGET_MS) break;
     if (candidate.size > SESSION_SEARCH_MAX_FILE_BYTES) continue;
     let content;
-    try { content = await fs.promises.readFile(candidate.abs, "utf8"); } catch { continue; }
+    try { content = await readBoundedText(candidate.abs, SESSION_SEARCH_MAX_FILE_BYTES, { deadline: startedAt + SESSION_SEARCH_BUDGET_MS }); } catch { continue; }
+    if (content === null) continue;
     const lines = content.split("\n");
     let hits = 0;
     let snippet = "";
     let name = "";
     let firstMessage = "";
     let cwd = "";
+    let parsedLines = 0;
     for (const rawLine of lines) {
+      if (++parsedLines % 128 === 0) await new Promise(resolve => setImmediate(resolve));
       const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
       if (!line) continue;
       let entry;
@@ -1380,39 +1375,26 @@ function addUsageToDay(day, usage) {
 }
 
 async function usageSummary(daysParam) {
-  const days = Math.min(30, Math.max(1, Number(daysParam) || 7));
+  const days = Math.floor(Math.min(30, Math.max(1, Number(daysParam) || 7)));
   const sinceMs = Date.now() - days * 86_400_000;
   const byDay = new Map();
   for (let i = days - 1; i >= 0; i--) {
     const date = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
     byDay.set(date, emptyUsageDay(date));
   }
-  const candidates = [];
-  let dirs;
-  try { dirs = fs.readdirSync(SESSIONS_DIR, { withFileTypes: true }); } catch { return { days: [...byDay.values()], generatedAt: Date.now() }; }
-  for (const d of dirs) {
-    if (!d.isDirectory() || d.name.startsWith(".")) continue;
-    let files;
-    try { files = fs.readdirSync(path.join(SESSIONS_DIR, d.name)); } catch { continue; }
-    for (const f of files) {
-      if (!f.endsWith(".jsonl")) continue;
-      const abs = safeSessionPath(d.name + "/" + f);
-      if (!abs) continue;
-      try {
-        const st = fs.statSync(abs);
-        if (Date.now() - st.mtimeMs <= days * 86_400_000) candidates.push({ abs, mtimeMs: st.mtimeMs });
-      } catch { continue; }
-    }
-  }
-  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
   const startedAt = Date.now();
+  const candidates = (await discoverSessionFiles({ waitMs: USAGE_BUDGET_MS })).filter(candidate => candidate.mtimeMs >= sinceMs);
   let scanned = 0;
   for (const candidate of candidates.slice(0, USAGE_MAX_FILES)) {
     if (Date.now() - startedAt > USAGE_BUDGET_MS) break;
+    if (candidate.size > USAGE_MAX_FILE_BYTES) continue;
     let content;
-    try { content = await fs.promises.readFile(candidate.abs, "utf8"); } catch { continue; }
+    try { content = await readBoundedText(candidate.abs, USAGE_MAX_FILE_BYTES, { deadline: startedAt + USAGE_BUDGET_MS }); } catch { continue; }
+    if (content === null) continue;
     scanned++;
+    let parsedLines = 0;
     for (const rawLine of content.split("\n")) {
+      if (++parsedLines % 128 === 0) await new Promise(resolve => setImmediate(resolve));
       const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
       if (!line) continue;
       let entry;
@@ -4131,14 +4113,14 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/session-search" && req.method === "GET") {
         searchSessions(url.searchParams.get("q") || "")
           .then((payload) => sendJSON(res, 200, payload))
-          .catch(() => sendJSON(res, 500, { error: "session search failed" }));
+          .catch(error => sendJSON(res, error.statusCode || 500, { error: "session search failed; retry when the session store is available" }));
         return;
       }
 
       if (p === "/api/usage-summary" && req.method === "GET") {
         usageSummary(url.searchParams.get("days"))
           .then((payload) => sendJSON(res, 200, payload))
-          .catch(() => sendJSON(res, 500, { error: "usage summary failed" }));
+          .catch(error => sendJSON(res, error.statusCode || 500, { error: "usage summary failed; retry when the session store is available" }));
         return;
       }
 

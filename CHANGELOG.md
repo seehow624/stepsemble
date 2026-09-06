@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.0.7-rc.1
+
+Development candidate; stable Hosts remain on 3.0.6 pending verification.
+
+- Discover session files asynchronously with four metadata workers and shared
+  in-flight scans; bound cache size, scan entries and request waiting time.
+- Preserve native title/filter semantics and refresh same-size replacements;
+  failed whole-store reads return an error instead of an empty history list.
+- Actually enforce the 400-file search and 8 MiB usage-file limits, including
+  files growing during reads; yield during summary/search/usage parsing.
+- Add isolated eight-task/two-client-per-task recovery stress tests with both
+  graceful and forced HTTP Host restarts, exact synthetic ACK checks and cleanup.
+- Provide a fixed-source, clean-commit 72-hour soak runner with bounded reports,
+  observation-gap detection and self-expiring synthetic peers. A short CI test
+  is not a completed 72-hour or native session/approval certification.
+
 ## 3.0.6
 
 - Wait for verified generic Agent reattachment and actual CLI exit when

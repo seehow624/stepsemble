@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.30
+> 計畫版本：1.31
 > 最後更新：2026-09-06
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -53,8 +53,11 @@
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
 | 優先可靠性修復 | 已實作，隨rc.3啟用於Mini | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
 | Web 卡頓修復 | 部分完成 | 歷史離屏分批建立、相鄰訊息線性合併、局部翻譯、聊天可及性；仍需 virtualization、實機／多輪效能門檻驗收 |
+| 非同步歷史掃描／72h 測試工具 | 3.0.7-rc.1 開發候選 | 清單／搜尋／用量的 metadata 改非同步4工人＋single-flight；補齊400-file／8MiB限制與真實8-task／16-client／Host crash短測。未啟用正式機；長測尚未完成，見 `session-discovery-and-soak.md` |
 
 ### 下一個可執行任務
+
+**1.31 開發接續**：Jerome要求繼續直到完整完成。先完成不改native ownership的現行Node可靠性修復，並為72h gate加入可重跑工具；不是提前切換Rust／DB／原生adapter。3.0.7-rc.1 使用隔離固定source，正式兩台維持3.0.6。新來源須核對各自CI／rolling與多輪Host基線，再開始72h連續觀察；有中斷就如實失敗，不將休眠空白或短測充當72h。Claude/Codex新模型用量已另詢問，未回覆前不執行；full native／實機／Rust／App門檻仍未完成。接續證據見 `session-discovery-and-soak.md`。
 
 **2026-09-06 最新進度**：Web 3.0.6已完成公開 release、Mini／MacBook Pro 可回滾部署，兩台每60分鐘自動更新正常；不要再要求 MBP 補裝。SSH 仍沒有權限，不繞過。Windows 停止／重連、還原後未知資料保留及對話選取不重建已實作／跨平台驗收／上線，見 `agent-stop-reliability.md`。Chrome單輪量測、合成Host重啟／衝突還原與8-task基線已補；實機背景恢復、多輪性能、完整Host備份還原、Pi存活與72h仍未完成。Claude 最近 metadata 為 signed_out，登入由 owner 進行；模型重測仍需新的用量同意。每次部署仍先檢查 active work 並保留回滾。
 
@@ -944,6 +947,13 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-06 — Plan 1.31
+
+- 新增Node async session discovery：4個metadata worker、50,000 entries／15秒budget、single-flight在底層慢IO未settle前不放行新scan；whole-root讀失敗503，不伪造空清單。清單解析同時最多4份、cache10,000且mtime/size/ctime/inode/device驗證，讀取中變更不重新寫入過期cache。
+- 搜尋原宣告400-file卻未slice、用量原宣告8MiB卻未檢查，現已實際接上。讀取增長檔案仍檢查實際bytes，summary/search/usage每128lines讓出eventloop。保留native名稱、temporary filter與既有wire欄位；rename/export等其他同步／大JSON工作尚未全清。
+- 新增8-task／16-client隔離HTTP壓測：固定source copy/hash、官方登入與Node preload環境排除、正常／SIGKILL只處理own HTTP child、same task/PID/start/peer incarnation、每次synthetic ACK三個視角恰一份、停止實際程序確認。Lease缺失／超120秒fake peer自行退出，清理不殺持久PID；未確認則保留fixture。
+- 72h模式要求clean commit，status是running而非pass；只保留最近512samples並記Host epoch，超時觀察空白fail closed。不是native history/approval、durable replay、實機休眠／網路／電源測試。3.0.7-rc.1尚未stable release或正式部署；CI與長測依實際結果追加。
 
 ### 2026-09-06 — Plan 1.30
 
