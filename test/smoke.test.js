@@ -74,7 +74,10 @@ test("Stepsemble ships its own equal-participation Step Mosaic", () => {
   assert.match(html, /rel="icon" href="\/icon-512\.png\?v=[^"]+" sizes="512x512" type="image\/png"/);
   assert.match(readme, /public\/stepsemble-mark\.png/);
   assert.doesNotMatch(`${html}\n${readme}`, /stepsemble-(?:logo|app-icon)\.svg/);
-  assert.equal(crypto.createHash("sha256").update(master).digest("hex"), "79dc722c0b8369bc69bc175bd6b1c7af386d9844569f5851a3b41aa1f67829a1");
+  // Git may check text files out with CRLF on Windows. Pin the canonical
+  // repository content rather than a platform-specific working-tree newline.
+  const canonicalMaster = master.replace(/\r\n/g, "\n");
+  assert.equal(crypto.createHash("sha256").update(canonicalMaster).digest("hex"), "79dc722c0b8369bc69bc175bd6b1c7af386d9844569f5851a3b41aa1f67829a1");
   assert.equal((master.match(/<use href="#module"/g) || []).length, 4);
   assert.equal((master.match(/<use href="#connector"/g) || []).length, 4);
   assert.match(master, /rotate\(90 627 627\)/);
