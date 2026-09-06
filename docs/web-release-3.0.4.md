@@ -95,10 +95,15 @@ visible; it does not authorize login, token repair or a billable fallback.
 - One normal update check after publication reports stable 3.0.4 / up_to_date,
   no pending update/error, automatic 60-minute checks retained; no second restart.
 
-### Remaining paired-host rollout
+### Paired-host rollout (subsequently completed)
 
-The MacBook Pro relay is reachable but still reports 3.0.0, zero RPCs/tasks and
+At the initial 3.0.4 handoff, the MacBook Pro relay reported 3.0.0, zero RPCs/tasks and
 `updater.installed=false` / `phase=unavailable`. Read-only SSH with existing
 credentials and strict host-key checking was denied. No alternate credential,
 agent-execution workaround or forced restart was attempted. Its owner must run
-the published installer locally before that host can be marked updated.
+the published installer locally before that host could be marked updated.
+
+Later on 2026-09-06 the owner installed 3.0.4 locally, then explicitly approved
+enabling automatic stable 60-minute checks; relay verification confirmed both.
+This blocker is resolved. Both hosts subsequently updated to 3.0.5 using the
+normal updater; see [the follow-up rollout](project-picker-scroll.md#rollout).

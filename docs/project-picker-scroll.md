@@ -54,6 +54,41 @@ verify first activation causes no navigation and preserves the open form.
 
 ## Rollout
 
-Pending the new browser regression gate. Do not treat the source commit as an
-installed update. Both production hosts were healthy on 3.0.4 with stable,
-60-minute automatic updating enabled and zero RPCs/tasks during preflight.
+- Released source `7851c1028d1c9f5f3286478c5912bf283241e218`, tag `v3.0.5`.
+  [CI 34022367919](https://github.com/seehow624/stepsemble/actions/runs/34022367919)
+  passed on macOS/Windows/Linux: 332 tests each; pass/skip counts 330/2,
+  322/10 and 329/3 respectively, no failures. Strict client/artifact/version,
+  shell/syntax and 1,251-case independent schema conformance also passed.
+- [Rolling 34022367901](https://github.com/seehow624/stepsemble/actions/runs/34022367901)
+  passed on macOS/Linux: each has 8 historical client/Host pairings, 2 Claude
+  auth UI cases, 2 Pi UI cases and all 3 new nested-picker viewports. Earlier
+  failures were resolved, not skipped: same-version reload, native scroll
+  momentum, and a welcome-wizard assumption (mobile hides its Skip button).
+  Picker fixtures start past that separate wizard; service workers stay enabled.
+- [Release 34022474536](https://github.com/seehow624/stepsemble/actions/runs/34022474536)
+  published [3.0.5](https://github.com/seehow624/stepsemble/releases/tag/v3.0.5).
+  Downloaded source/legacy aliases match, both checksums verify, and the archive
+  exactly equals the tested tag's tar stream. SHA-256:
+  `a8f1c23ff102301d6cd90ecde7e04cd6291b77b4226d3fb2ce0292a2f0aad686`.
+  GitHub attestation verification restricted to this repo's release workflow passed.
+- Both production hosts updated through the existing normal updater, after
+  fresh zero-RPC/active-task and inactive-Claude-login checks. MacBook Pro
+  applied at 08:41:53Z and Mini at 08:42:09Z on 2026-09-06. Both subsequently
+  reported healthy 3.0.5, up_to_date, no error/pending update, and stable automatic
+  60-minute checks still enabled. No SSH credential workaround or model call.
+- Five live assets per host (HTML/CSS/app/service-worker/approved colour icon)
+  exactly matched release source; the paired host was checked via its direct
+  HTTPS URL as well as authenticated relay health/status. Actual Mini browser
+  loaded v3.0.5 and independently scrolled its 20-folder home list (inner 733,
+  outer 0), with no console errors. Closing the picker left the session list intact.
+- Mini's 17 protected file hashes/absent-file states and all 25 native Pi file
+  path/size/mtime records stayed identical. Both independent helper PIDs stayed
+  unchanged. Its previous stable 3.0.4 is retained as the normal rollback; rc.3
+  was moved to a separate dated backup before this update, preserving older
+  rollback copies. Private audit manifests and exact backup paths are recorded
+  in the owner's vault, outside this public repository. No claim is made about
+  uninspected remote credential hashes or Keychain internals.
+
+Both owned synthetic Host processes/tabs were closed and their temporary
+directories removed. Physical-device/Safari/native-touch testing and the broader
+platform roadmap remain separate open gates.
