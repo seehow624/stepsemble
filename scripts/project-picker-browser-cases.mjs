@@ -15,11 +15,18 @@ export async function runProjectPickerBrowserCases(browser) {
         const login = await context.request.post(f.base + '/api/login', { data: { token } });
         assert.equal(login.status(), 204);
         await page.goto(f.base);
+        let unexpectedNavigations = 0;
+        page.on('framenavigated', frame => { if (frame === page.mainFrame()) unexpectedNavigations++; });
         await page.getByRole('button', { name: 'Skip', exact: true }).click();
         await page.locator('#btn-new-project').click();
         stage = 'initial folder listing';
         const list = page.locator('#new-folder-list'), sheet = page.locator('.project-sheet');
         await page.waitForFunction(() => document.querySelectorAll('.project-folder-row').length === 200);
+        // Keep real first-install service-worker activation enabled. It must
+        // not reload an already-current document and discard the open form.
+        await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+        await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+        await page.waitForFunction(() => document.querySelector('.project-sheet').getAnimations().every(a => a.playState === 'finished'));
         const dims = await list.evaluate(e => ({ height: e.clientHeight, scroll: e.scrollHeight, limit: parseFloat(getComputedStyle(e).maxHeight) }));
         assert.ok(dims.height <= dims.limit + 1 && dims.scroll > dims.height * 5);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -68,9 +75,13 @@ export async function runProjectPickerBrowserCases(browser) {
         await page.locator('#new-start').scrollIntoViewIfNeeded();
         const start = await page.locator('#new-start').boundingBox();
         assert.ok(start.y >= 0 && start.y + start.height <= viewport.height + 1, 'bottom action remains reachable');
+        // The previous same-version worker handler scheduled a 900 ms reload.
+        await page.waitForTimeout(1100);
+        assert.equal(unexpectedNavigations, 0, 'initial cache activation must preserve the open picker');
+        assert.equal(await sheet.isVisible(), true);
         assert.deepEqual(errors, []);
         console.log(JSON.stringify({ case: 'nested project picker', viewport, folders: 200, nestedWheel: true,
-          keyboard: true, resetAndEmpty: true, outerActions: true, pageErrors: 0, result: 'passed' }));
+          keyboard: true, resetAndEmpty: true, outerActions: true, initialWorkerPreservesForm: true, pageErrors: 0, result: 'passed' }));
       } catch (error) {
         const geometry = await page.evaluate(() => Object.fromEntries(['#new-folder-list', '.project-sheet'].map(selector => {
           const e = document.querySelector(selector);

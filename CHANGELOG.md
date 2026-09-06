@@ -8,6 +8,8 @@
   a stable scrollbar gutter and scroll-position reset when opening a folder.
 - Exercise 200 folders, nested wheel/keyboard scrolling, empty folders and
   reachable bottom controls at desktop, mobile and short-screen sizes in CI.
+- Do not reload and discard an open form when the offline cache activates for
+  the same version already displayed by the browser.
 
 ## 3.0.4
 

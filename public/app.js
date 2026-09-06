@@ -10062,6 +10062,9 @@ if ("serviceWorker" in navigator) {
       return;
     }
     if (!["STEPSEMBLE_UPDATED", "PI_HARBOR_UPDATED"].includes(messageType) || !navigator.serviceWorker.controller) return;
+    // Initial cache activation also broadcasts UPDATED. This document already
+    // has those assets; reloading would discard a newly opened form/draft.
+    if (event.data?.version === `stepsemble-shell-v${CLIENT_APP_VERSION}`) return;
     if (rpc?.streaming) {
       toast(updateText("Stepsemble update ready; reload after the current work finishes"), false);
       return;
