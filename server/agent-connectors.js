@@ -512,7 +512,7 @@ function createAgentTaskService({
 
   function writeControl(task, message) {
     const control = task?.control;
-    if (!control || control.destroyed || !control.writable) return false;
+    if (!control || control.destroyed || !control.writable || !task.controlReady) return false;
     try {
       control.write(`${JSON.stringify(message)}\n`);
       return true;
@@ -610,8 +610,9 @@ function createAgentTaskService({
 
   function connectSupervisor(task) {
     if (!task?.supervisorSocket) return Promise.reject(new Error("Agent task supervisor is unavailable"));
-    if (task.control && !task.control.destroyed) return Promise.resolve(true);
-    return new Promise((resolve, reject) => {
+    if (task.control && !task.control.destroyed) return task.controlPromise;
+    task.controlReady = false;
+    const pending = new Promise((resolve, reject) => {
       let settled = false;
       const control = net.createConnection(task.supervisorSocket);
       const readiness = setTimeout(() => {
@@ -624,12 +625,13 @@ function createAgentTaskService({
         if (!settled) { settled = true; reject(error instanceof Error ? error : new Error("supervisor unavailable")); }
       };
       control.on("connect", () => {
-        writeControl(task, { op: "attach", after: Number(task.supervisorEventSeq) || 0 });
+        control.write(`${JSON.stringify({ op: "attach", after: Number(task.supervisorEventSeq) || 0 })}\n`);
       });
       const decoder = createLineDecoder({
         maxBytes: 8 * 1024 * 1024,
         onError(error) { fail(error); control.destroy(); },
         onLine(line) {
+          if (task.control !== control) return;
           let message;
           try { message = JSON.parse(line); } catch { return; }
           if (message.type === "snapshot") {
@@ -637,10 +639,12 @@ function createAgentTaskService({
             if (snapshot.id !== task.id || snapshot.agentId !== task.agentId) { fail(new Error("Agent task supervisor identity mismatch")); control.destroy(); return; }
             clearTimeout(readiness);
             applySupervisorSnapshot(task, message.task || message);
+            task.controlReady = true;
             task.reconnectAttempt = 0;
+            if (task.reconnectTimer) { clearTimeout(task.reconnectTimer); task.reconnectTimer = null; }
             if (!settled) { settled = true; resolve(true); }
           } else if (message.type === "event") {
-            handleSupervisorEvent(task, message);
+            if (task.controlReady) handleSupervisorEvent(task, message);
           } else if (message.type === "error") {
             if (!settled) fail(new Error(String(message.error || "supervisor rejected request")));
           }
@@ -651,13 +655,18 @@ function createAgentTaskService({
       control.on("close", () => {
         clearTimeout(readiness);
         fail(new Error("Agent task supervisor connection closed"));
-        if (task.control === control) task.control = null;
+        // An old socket's delayed close must not reset a newer attachment.
+        if (task.control !== control) return;
+        task.control = null;
+        task.controlReady = false;
         if (taskIsActive(task) && !serviceClosing) {
           if (task.status !== "reconnecting") setStatus(task, "reconnecting");
           scheduleSupervisorReconnect(task);
         }
       });
     });
+    task.controlPromise = pending;
+    return pending;
   }
 
   async function waitForSupervisor(task, timeoutMs = 5000) {
@@ -783,6 +792,7 @@ function createAgentTaskService({
     if (!task) { const error = new Error("No such agent task"); error.statusCode = 404; throw error; }
     const text = String(message ?? "");
     if (text.length > MAX_MESSAGE) { const error = new Error("Message is too large"); error.statusCode = 413; throw error; }
+    if (task.stopPromise) { const error = new Error("Agent task stop is pending"); error.statusCode = 409; throw error; }
     if (["completed", "failed", "stopped", "orphaned", "detached"].includes(task.status)) {
       const error = new Error("Agent task is no longer running"); error.statusCode = 409; throw error;
     }
@@ -799,20 +809,27 @@ function createAgentTaskService({
 
   function stop(id) {
     const task = get(id);
-    if (!task) return false;
-    if (["completed", "failed", "stopped", "orphaned"].includes(task.status)) return false;
-    if (writeControl(task, { op: "stop" })) {
-      // The supervisor will emit the authoritative exit event. Emit an
-      // immediate status only when the browser needs instant button feedback.
-      if (task.status !== "stopped") setStatus(task, "stopped");
-      return true;
-    }
-    // A supervisor can be between restarts; mark the journal stopped and send
-    // a best-effort signal to its process group so a user action never leaves
-    // an unowned child behind.
-    try { if (task.supervisorPid) process.kill(task.supervisorPid, "SIGTERM"); } catch {}
-    if (task.status !== "stopped") setStatus(task, "stopped");
-    return false;
+    if (!task) return Promise.resolve(false);
+    if (task.stopPromise) return task.stopPromise;
+    // Keep the task active (including for update/launch gates) until the
+    // supervisor confirms exit. A socket write is not an acknowledgement.
+    task.stopPromise = (async () => {
+      const deadline = Date.now() + 10000;
+      let sentOn = null;
+      while (Date.now() < deadline) {
+        if (["completed", "failed", "stopped"].includes(task.status) && !processIsAlive(task.pid)) return true;
+        if (["orphaned", "detached"].includes(task.status)) return false;
+        try {
+          await connectSupervisor(task);
+          if (task.control !== sentOn && writeControl(task, { op: "stop" })) sentOn = task.control;
+        } catch { /* Reattach the same supervisor; never launch another CLI. */ }
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      // Do not signal a persisted PID: on Windows SIGTERM kills the supervisor
+      // without its tree cleanup, and stale PIDs can belong to another process.
+      return false;
+    })().finally(() => { task.stopPromise = null; });
+    return task.stopPromise;
   }
 
   function stream(req, res, id, after = -1, sseFrame, trySseWrite) {
@@ -861,6 +878,7 @@ function createAgentTaskService({
 
   function shutdown({ preserve = false } = {}) {
     serviceClosing = true;
+    const stopping = [];
     for (const task of tasks.values()) {
       if (task.reconnectTimer) { clearTimeout(task.reconnectTimer); task.reconnectTimer = null; }
       if (preserve) {
@@ -870,9 +888,10 @@ function createAgentTaskService({
         }
         continue;
       }
-      if (taskIsActive(task)) stop(task.id);
+      if (taskIsActive(task)) stopping.push(stop(task.id));
     }
     persist();
+    return Promise.all(stopping);
   }
 
   return Object.freeze({

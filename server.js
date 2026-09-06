@@ -4964,16 +4964,18 @@ const server = http.createServer(async (req, res) => {
           const sid = taskId.slice(3);
           ok = !!sid && rpcWrite(sid, { type: "abort" });
         } else {
-          ok = agentTasks.stop(taskId);
+          ok = await agentTasks.stop(taskId);
         }
-        sendJSON(res, ok ? 200 : 404, ok ? { stopped: true } : { error: "no such agent task" });
+        const exists = !taskId.startsWith("pi:") && agentTasks.get(taskId);
+        sendJSON(res, ok ? 200 : exists ? 409 : 404, ok ? { stopped: true } : { error: exists ? "Agent stop could not be confirmed; reconnect and retry" : "no such agent task" });
         return;
       }
 
       if (p === "/api/agent/close" && req.method === "POST") {
         const body = await readJSON(req);
-        const ok = agentTasks.stop(body?.taskId);
-        sendJSON(res, ok ? 200 : 404, ok ? { closed: true } : { error: "no such agent task" });
+        const ok = await agentTasks.stop(body?.taskId);
+        const exists = agentTasks.get(body?.taskId);
+        sendJSON(res, ok ? 200 : exists ? 409 : 404, ok ? { closed: true } : { error: exists ? "Agent stop could not be confirmed; reconnect and retry" : "no such agent task" });
         return;
       }
 

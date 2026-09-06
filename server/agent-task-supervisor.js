@@ -319,7 +319,9 @@ function startChild() {
     errorMessage = spawnError.message;
     finishProcess(-1, null);
   });
-  child.on("exit", (code, signal) => finishProcess(code, signal));
+  // Wait for the owned pipes to close, including Windows npm shim children.
+  // Reporting a terminal state before then lets updates race live CLI work.
+  child.on("close", (code, signal) => finishProcess(code, signal));
   setStatus("running");
   pushEvent({ type: "task_started", taskId, ...publicTask() });
   persistNow();
@@ -343,7 +345,7 @@ function handleCommand(socket, message) {
   }
   if (message.op === "send") {
     const text = String(message.message ?? "");
-    if (text.length > MAX_MESSAGE || !child || child.exitCode !== null || !child.stdin?.writable) {
+    if (stopRequested || text.length > MAX_MESSAGE || !child || child.exitCode !== null || !child.stdin?.writable) {
       writeLine(socket, { type: "error", error: "Agent task input is unavailable" });
       return;
     }
@@ -360,13 +362,13 @@ function handleCommand(socket, message) {
     return;
   }
   if (message.op === "stop") {
+    if (stopRequested) return;
     if (!child || child.exitCode !== null) {
       if (["starting", "running", "waiting"].includes(status)) setStatus("stopped");
       scheduleExit();
       return;
     }
     stopRequested = true;
-    setStatus("stopped");
     killChild("SIGTERM");
     setTimeout(() => killChild("SIGKILL"), 1500).unref?.();
   }

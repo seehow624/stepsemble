@@ -3,7 +3,17 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { discoverConnectors, safeConnectorId, createAgentTaskService, resolvePtyRuntime, resolveCommand, CONNECTOR_DEFINITIONS } = require("../server/agent-connectors");
+const net = require("node:net");
+const crypto = require("node:crypto");
+const { spawn } = require("node:child_process");
+const { discoverConnectors, safeConnectorId, createAgentTaskService, resolvePtyRuntime, resolveCommand, CONNECTOR_DEFINITIONS, supervisorSocketPath } = require("../server/agent-connectors");
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function until(predicate, label, timeoutMs = 5000) {
+  const end = Date.now() + timeoutMs;
+  while (!predicate() && Date.now() < end) await sleep(25);
+  assert.ok(predicate(), label);
+}
 
 async function waitForOwnedProcesses(service) {
   const pids = service.list().flatMap(({ id }) => {
@@ -61,7 +71,7 @@ test("generic connector tasks stream bounded output and stop without shell injec
     validateCwd(value) { return value === project ? project : null; },
   });
   t.after(async () => {
-    service.shutdown();
+    await service.shutdown();
     await waitForOwnedProcesses(service);
     fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
@@ -81,12 +91,16 @@ test("generic connector tasks stream bounded output and stop without shell injec
   assert.match(internal.outputTail, /hello from cli/, JSON.stringify({ task: service.publicTask(internal), snapshot: fs.readFileSync(internal.supervisorMeta, "utf8") }));
   assert.equal(internal.outputTail.split("hello from cli").length - 1, 1);
   internal.control.destroy();
-  await new Promise(resolve => setTimeout(resolve, 800));
+  // Stop inside the disconnect window, not after a machine-dependent sleep.
+  const stopped = service.stop(opened.id);
+  assert.equal(service.stop(opened.id), stopped, "concurrent stop requests share one operation");
+  assert.equal(internal.status, "running", "a request alone must not claim exit");
+  assert.throws(() => service.send(opened.id, "too late"), /stop is pending/);
+  assert.equal(await stopped, true);
   assert.equal(service.get(opened.id).outputTail.split("hello from cli").length - 1, 1);
   assert.match(internal.outputTail, new RegExp(process.platform === "win32" ? "stdin=pipe" : "stdin=tty"));
   await assert.rejects(() => service.open({ agentId: "claude;touch /tmp/pwned", cwd: project }), /not installed|Use the native Pi connector/);
-  assert.equal(service.stop(opened.id), true);
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await service.stop(opened.id), true, "a confirmed stop is idempotent");
   assert.equal(service.get(opened.id).status, "stopped");
 });
 
@@ -115,7 +129,7 @@ test("generic task supervisor survives a web-service restart and reattaches", as
   let second;
   t.after(async () => {
     const owner = second || first;
-    owner.shutdown();
+    await owner.shutdown();
     if (second) first.shutdown({ preserve: true });
     await waitForOwnedProcesses(owner);
     fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
@@ -137,7 +151,66 @@ test("generic task supervisor survives a web-service restart and reattaches", as
   assert.equal(second.publicTask(reattached).isRunning, true);
   assert.match(reattached.outputTail, /restart-safe/);
   assert.equal(reattached.outputTail.split("restart-safe").length - 1, 1);
-  assert.equal(second.stop(opened.id), true);
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(await second.stop(opened.id), true);
   assert.equal(second.get(opened.id).status, "stopped");
+});
+
+test("unconfirmed stop stays active, never signals a stale PID, and can be retried", { timeout: 20000 }, async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-stop-unknown-"));
+  // A real owned canary proves that unavailable IPC does not kill the process
+  // named by a persisted supervisorPid. It is not an agent or a native account.
+  const canary = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  await new Promise((resolve, reject) => { canary.once("spawn", resolve); canary.once("error", reject); });
+  const id = crypto.randomUUID(), socketPath = supervisorSocketPath(temp, id);
+  const row = { id, agentId: "claude-code", name: "Uncertain synthetic stop", cwd: temp,
+    status: "running", pid: canary.pid, supervisorPid: canary.pid, supervisorSocket: socketPath, startedAt: Date.now() };
+  fs.writeFileSync(path.join(temp, "agent-tasks.json"), JSON.stringify({ tasks: [row] }));
+  if (process.platform !== "win32") fs.mkdirSync(path.dirname(socketPath), { recursive: true });
+  const sockets = new Set();
+  let stopCalls = 0, allowStop = false;
+  const server = net.createServer(socket => {
+    sockets.add(socket); socket.on("close", () => sockets.delete(socket)); socket.on("error", () => {});
+    // Withhold the identity snapshot until the test observes pre-readiness.
+    let buffer = "";
+    socket.on("data", chunk => {
+      buffer += chunk;
+      let newline;
+      while ((newline = buffer.indexOf("\n")) >= 0) {
+        const message = JSON.parse(buffer.slice(0, newline)); buffer = buffer.slice(newline + 1);
+        if (message.op !== "stop") continue;
+        stopCalls++;
+        if (allowStop) {
+          canary.once("exit", () => socket.end(JSON.stringify({ type: "snapshot", task: { ...row, pid: null, status: "stopped", eventSeq: 1 } }) + "\n"));
+          canary.kill();
+        }
+      }
+    });
+  });
+  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(socketPath, resolve); });
+  const service = createAgentTaskService({ appHome: temp, configDir: temp, env: { PATH: "", HOME: temp } });
+  t.after(async () => {
+    await service.shutdown({ preserve: true });
+    for (const socket of sockets) socket.destroy();
+    await new Promise(resolve => server.close(resolve));
+    if (canary.exitCode === null && canary.signalCode === null) {
+      const exited = new Promise(resolve => canary.once("exit", resolve)); canary.kill(); await exited;
+    }
+    fs.rmSync(temp, { recursive: true, force: true });
+  });
+  await until(() => !!service.get(id).control, "fixture attachment begins");
+  assert.equal(service.get(id).controlReady, false);
+  assert.throws(() => service.send(id, "not ready"), /reconnecting|unavailable/);
+  const stopped = service.stop(id);
+  await until(() => sockets.size === 1, "fixture accepts the connection");
+  for (const socket of sockets) socket.write(JSON.stringify({ type: "snapshot", task: { ...row, eventSeq: 0 } }) + "\n");
+  assert.equal(await stopped, false, "no acknowledgement is not success");
+  assert.equal(stopCalls, 1, "do not flood the same attachment");
+  assert.equal(service.get(id).status, "running");
+  assert.equal(service.get(id).endedAt, null);
+  assert.equal(service.publicTask(service.get(id)).isRunning, true);
+  assert.doesNotThrow(() => process.kill(canary.pid, 0));
+  allowStop = true;
+  assert.equal(await service.stop(id), true);
+  assert.equal(stopCalls, 2);
+  assert.equal(await service.stop("missing-task"), false);
 });
