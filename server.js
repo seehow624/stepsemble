@@ -28,6 +28,7 @@ const { createLineDecoder, activePathIds } = require("./server/stream-safety");
 const { parsePiEvent, validPiCommand, resolvePiResponse, parsePiUiReply } = require("./server/pi-rpc-contract");
 const { createPiUiState, METHODS: PI_UI_METHODS } = require("./server/pi-ui-state");
 const { piLaunch } = require("./server/pi-launch");
+const piSession = require("./public/modules/pi-session");
 const { negotiate, protocolError } = require("./server/platform-protocol");
 const { createGitChangesService } = require("./server/git-changes");
 const { createPiResourcesService } = require("./server/pi-resources");
@@ -63,7 +64,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.4-rc.3";
+const APP_VERSION = "3.0.4-rc.4";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1130,7 +1131,7 @@ async function parseSessionFile(absPath) {
     id: null, cwd: "", name: null,
     startedAt: null, lastActivity: null,
     messages: 0, toolCalls: 0, tokens: 0, cost: 0, usage: null,
-    preview: "", userCount: 0,
+    preview: "", firstMessage: "", userCount: 0,
   };
   const usageTotals = createUsageTotals();
   try {
@@ -1145,7 +1146,7 @@ async function parseSessionFile(absPath) {
         continue;
       }
       if (e.type === "session_info") {
-        out.name = (e.name && e.name.trim()) || null; // 最新一條為準（含清空）
+        out.name = typeof e.name === "string" ? e.name.trim() || null : null; // 最新一條為準（含清空）
         continue;
       }
       // Usage for summary generation is stored on the entry rather than its
@@ -1162,6 +1163,7 @@ async function parseSessionFile(absPath) {
       if (msg.role === "user") {
         out.userCount++;
         const t = textOfContent(msg.content);
+        if (t.trim() && !out.firstMessage) out.firstMessage = t.trim().slice(0, 160);
         if (t && !out.preview) out.preview = t.slice(0, 160); // 第一條 user 當 fallback preview
       } else if (msg.role === "assistant") {
         if (Array.isArray(msg.content)) {
@@ -1254,6 +1256,11 @@ async function listSessions() {
     }
   }
   for (const key of scanCache.keys()) if (!seen.has(key)) scanCache.delete(key);
+  const summaries = new Map(results.map(info => [info.file, info]));
+  for (const session of rpcSessions.values()) {
+    const info = summaries.get(session.meta.file);
+    if (info) { session.meta.name = info.name; session.meta.firstMessage = info.firstMessage; }
+  }
   results.sort((a, b) => b.mtimeMs - a.mtimeMs);
   return results;
 }
@@ -1310,6 +1317,7 @@ async function searchSessions(rawQuery) {
     let hits = 0;
     let snippet = "";
     let name = "";
+    let firstMessage = "";
     let cwd = "";
     for (const rawLine of lines) {
       const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
@@ -1317,8 +1325,9 @@ async function searchSessions(rawQuery) {
       let entry;
       try { entry = JSON.parse(line); } catch { continue; }
       if (entry?.type === "session_info" && typeof entry.name === "string") name = entry.name;
-      if (entry?.type === "session_info" && typeof entry.cwd === "string") cwd = entry.cwd;
+      if (entry?.type === "session" && typeof entry.cwd === "string") cwd = entry.cwd;
       const text = sessionTextOfEntry(entry);
+      if (entry?.message?.role === "user" && text.trim() && !firstMessage) firstMessage = text.trim().slice(0, 160);
       if (!text) continue;
       const lower = text.toLowerCase();
       const at = lower.indexOf(needle);
@@ -1334,7 +1343,7 @@ async function searchSessions(rawQuery) {
     if (hits > 0) {
       results.push({
         file: candidate.rel,
-        name: name || candidate.rel.split("/").pop().replace(/\.jsonl$/, ""),
+        name: name.trim() || null, firstMessage,
         cwd,
         snippet: snippet || query,
         mtimeMs: candidate.mtimeMs,
@@ -1619,6 +1628,9 @@ function renameSession(rel, name) {
     fs.appendFileSync(abs, (lastLineHasNewline ? "" : "\n") + JSON.stringify(entry) + "\n");
   } catch { return false; }
   scanCache.delete(rel); // 強制重讀
+  for (const session of rpcSessions.values()) {
+    if (session.meta.file === rel) session.meta.name = clean || null;
+  }
   return true;
 }
 
@@ -1826,12 +1838,15 @@ async function readSessionActivePath(rel, options = {}) {
   const byId = new Map();
   let header = null;
   let lastMsgEntry = null;
+  let name = null, firstMessage = "";
   const order = []; // append 順序的 message entries
   try {
     for await (const line of sessionLines(abs)) {
     let e;
     try { e = JSON.parse(line); } catch { continue; }
     if (e.type === "session") { header = e; continue; }
+    if (e.type === "session_info") name = typeof e.name === "string" ? e.name.trim() || null : null;
+    if (e.type === "message" && e.message?.role === "user" && !firstMessage) firstMessage = textOfContent(e.message.content).trim().slice(0, 160);
     if (!e.id) continue;
     byId.set(e.id, e);
     if (e.type === "message") { order.push(e); lastMsgEntry = e; }
@@ -1844,13 +1859,8 @@ async function readSessionActivePath(rel, options = {}) {
   // active path
   const activeIds = activePathIds(byId, lastMsgEntry);
   const messages = [];
-  let name = null;
   for (const e of order) {
     if (e.type === "message" && activeIds.has(e.id)) messages.push(e);
-  }
-  // name 取最新 session_info
-  for (const [, e] of byId) {
-    if (e.type === "session_info" && e.name && e.name.trim()) name = e.name.trim();
   }
   const allMessages = messages.map(entryToWire);
   const requestedLimit = Number(options.limit);
@@ -1861,7 +1871,7 @@ async function readSessionActivePath(rel, options = {}) {
     ? Math.min(allMessages.length, Math.floor(requestedBefore)) : allMessages.length;
   const start = pageLimit ? Math.max(0, end - pageLimit) : 0;
   return {
-    id: header.id, cwd: header.cwd || "", name: name || null,
+    id: header.id, cwd: header.cwd || "", name: name || null, firstMessage,
     timestamp: header.timestamp, messages: allMessages.slice(start, end),
     totalMessages: allMessages.length, hasMore: start > 0, nextBefore: start,
   };
@@ -1925,16 +1935,18 @@ async function sessionToMarkdown(rel) {
   const content = await fs.promises.readFile(abs, "utf8");
   const lines = [];
   let name = "";
+  let firstMessage = "";
   for (const rawLine of content.split("\n")) {
     const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
     if (!line) continue;
     let entry;
     try { entry = JSON.parse(line); } catch { continue; }
-    if (entry?.type === "session_info" && typeof entry.name === "string" && entry.name.trim()) name = entry.name.trim();
+    if (entry?.type === "session_info") name = typeof entry.name === "string" ? entry.name.trim() : "";
     const wire = entryToWire(entry);
     if (!wire?.role || (wire.role !== "user" && wire.role !== "assistant")) continue;
     const text = String(wire.text || "");
     if (wire.role === "user") {
+      if (!firstMessage && text.trim()) firstMessage = text.trim().slice(0, 160);
       lines.push(`## 👤 User\n\n${text || "(empty)"}\n`);
     } else {
       const parts = [`## 🤖 Assistant`];
@@ -1949,7 +1961,7 @@ async function sessionToMarkdown(rel) {
       lines.push(parts.join("\n\n") + "\n");
     }
   }
-  const header = `# ${name || rel.split("/").pop().replace(/\.jsonl$/, "")}\n\n> Exported from Stepsemble · ${new Date().toISOString()}\n\n---\n\n`;
+  const header = `# ${piSession.title({ name, firstMessage }).replace(/[\r\n]+/g, " ")}\n\n> Exported from Stepsemble · ${new Date().toISOString()}\n\n---\n\n`;
   return header + lines.join("\n");
 }
 
@@ -2017,12 +2029,21 @@ let shutdownState = null;
 
 function rpcWrite(sid, obj) {
   const s = rpcSessions.get(sid);
-  if (!s || s.exited || s.protocolFailed || !s.proc.stdin || s.proc.stdin.destroyed || s.proc.stdin.writableEnded) return false;
+  if (!s || s.exited || s.closeReason || s.protocolFailed || !s.proc.stdin || s.proc.stdin.destroyed || s.proc.stdin.writableEnded) return false;
+  const tracksWork = ["prompt", "steer", "follow_up", "compact", "bash", "set_session_name", "new_session", "switch_session", "fork"].includes(obj.type);
+  const command = tracksWork && !obj.id ? { ...obj, id: `work-${crypto.randomUUID()}` } : obj;
+  if (tracksWork) {
+    if (s.pendingWork.size >= 64 || s.pendingWork.has(command.id)) return false;
+    // Set the guard before pipe acceptance, not after a later agent_start.
+    s.pendingWork.set(command.id, { type: command.type, name: command.name });
+    s.workRevision = (s.workRevision || 0) + 1;
+  }
   try {
     // write() 回傳 false 代表背壓，不代表失敗；資料仍已接受，不能把它誤報成 process gone。
-    s.proc.stdin.write(JSON.stringify(obj) + "\n");
+    s.proc.stdin.write(JSON.stringify(command) + "\n");
     return true;
   } catch {
+    if (tracksWork) s.pendingWork.delete(command.id);
     return false;
   }
 }
@@ -2097,7 +2118,27 @@ function killRpcProcess(proc, signal = "SIGTERM") {
 }
 
 function activeRpcSessions() {
-  return [...rpcSessions.values()].filter((session) => !session.exited && (session.state.isStreaming || session.ui?.size > 0));
+  return [...rpcSessions.values()].filter((session) => !session.exited && rpcHasWork(session));
+}
+
+function rpcHasWork(session) {
+  return !!(session.state.isStreaming || session.state.isCompacting || session.state.pendingMessageCount > 0 || session.pendingWork?.size || session.ui?.size);
+}
+
+async function closeIdleRpc(sid, reason) {
+  const session = rpcSessions.get(sid);
+  const idle = () => session && rpcSessions.get(sid) === session && !session.exited && !session.closeReason && !session.protocolFailed && !session.clients.size && !rpcHasWork(session);
+  if (!idle()) return false;
+  const revision = session.workRevision;
+  // A stale browser's close request is not authoritative. A fresh native
+  // snapshot plus a synchronous recheck covers sends/joins during this await.
+  let response;
+  try { response = await rpcCommand(sid, { type: "get_state" }); } catch { return false; }
+  if (!response.success || response.data?.isStreaming !== false || response.data?.isCompacting || response.data?.pendingMessageCount > 0 || session.workRevision !== revision || !idle()) return false;
+  session.closeReason = reason;
+  if (session.idleTimer) { clearTimeout(session.idleTimer); session.idleTimer = null; }
+  killRpcProcess(session.proc);
+  return true;
 }
 
 // A wedged pi process can keep isStreaming true forever (seen in the wild:
@@ -2110,7 +2151,7 @@ const STUCK_RPC_MS = Number.isFinite(Number(settingFromEnv("STUCK_RPC_MS")))
 
 function rpcStuck(session) {
   if (!session || session.exited || !session.state.isStreaming) return false;
-  if (session.ui?.size > 0) return false;
+  if (session.ui?.size > 0 || session.pendingWork?.size > 0 || session.state.isCompacting || session.state.pendingMessageCount > 0) return false;
   if (session.clients.size > 0) return false;
   const last = Number(session.meta.lastActivityAt) || Number(session.meta.openedAt) || 0;
   return Date.now() - last > STUCK_RPC_MS;
@@ -2136,9 +2177,11 @@ function activeAgentTasksForUpdate() {
 // conversation content remains behind the session/SSE endpoints.
 function publicPiAgentTask(sid, session) {
   if (!session) return null;
-  const running = !session.exited && !!session.state.isStreaming;
+  const running = !session.exited && rpcHasWork(session);
   const status = session.exited
-    ? (session.exitCode === 0 ? "completed" : "failed")
+    ? piSession.exitStatus({ code: session.exitCode, signal: session.exitSignal, expectedClose: !!session.closeReason,
+      windowsTermination: process.platform === "win32", wasStreaming: session.exitedWhileBusy, error: session.spawnError,
+      protocolFailed: session.protocolFailed, runOutcome: session.state.runOutcome })
     : running ? "running" : "waiting";
   return {
     id: `pi:${sid}`,
@@ -2146,12 +2189,15 @@ function publicPiAgentTask(sid, session) {
     agentId: "pi",
     agent: "pi",
     connector: "pi",
-    name: session.meta.name || session.state.sessionName || session.meta.file?.split("/").pop()?.replace(/\.jsonl$/, "") || "Pi Agent",
+    name: piSession.title(session.meta),
+    sessionName: session.meta.name || null,
+    firstMessage: session.meta.firstMessage || "",
     cwd: session.meta.cwd || "",
     file: session.meta.file || session.state.sessionFile || null,
     sessionFile: session.state.sessionFile || session.meta.file || null,
     pid: session.proc?.pid || null,
     status,
+    closeReason: session.closeReason || null,
     isRunning: running,
     startedAt: session.state.runStartedAt || session.meta.openedAt || null,
     endedAt: session.state.runEndedAt || null,
@@ -2170,13 +2216,13 @@ function listAgentTasks() {
 
 function scheduleRpcCleanup(sid) {
   const s = rpcSessions.get(sid);
-  if (shutdownState || !s || s.exited || s.clients.size || s.state.isStreaming || s.ui?.size > 0) return;
+  if (shutdownState || !s || s.exited || s.closeReason || s.clients.size || rpcHasWork(s)) return;
   if (s.idleTimer) clearTimeout(s.idleTimer);
   s.idleTimer = setTimeout(() => {
     const current = rpcSessions.get(sid);
-    if (!current || current.exited || current.clients.size || current.state.isStreaming || current.ui?.size > 0) return;
+    if (!current || current.exited || current.clients.size || rpcHasWork(current)) return;
     console.log(`[stepsemble] closing idle rpc (sid ${sid}, pid ${current.proc.pid})`);
-    killRpcProcess(current.proc);
+    void closeIdleRpc(sid, "idle_timeout");
   }, RPC_IDLE_CLEANUP_MS);
 }
 
@@ -2185,14 +2231,29 @@ function trackStreaming(sid, event) {
   if (!s) return;
   if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
   if (event.type === "agent_start") {
+    s.workRevision = (s.workRevision || 0) + 1;
     s.state.isStreaming = true;
+    s.state.runOutcome = null;
+    s.lastAssistantOutcome = null;
     s.currentRunStartSeq = (s.eventSeq || 0) + 1;
     // The run's own start time lives on the server so a browser that reloads,
     // reconnects, or joins from another device shows the elapsed time of the
     // actual run instead of restarting the clock at zero.
     s.state.runStartedAt = Date.now();
+  } else if (event.type === "message_end" && event.message?.role === "assistant") {
+    const message = event.message;
+    s.lastAssistantOutcome = message.stopReason === "aborted" ? "stopped"
+      : message.stopReason === "error" || message.errorMessage ? "failed" : "completed";
+  } else if (event.type === "agent_end") {
+    const message = Array.isArray(event.messages) ? event.messages.findLast(message => message?.role === "assistant") : null;
+    if (message) s.lastAssistantOutcome = message.stopReason === "aborted" ? "stopped"
+      : message.stopReason === "error" || message.errorMessage ? "failed" : "completed";
+  } else if (event.type === "queue_update") {
+    s.state.pendingMessageCount = (event.steering?.length || 0) + (event.followUp?.length || 0);
   } else if (event.type === "agent_settled") {
     s.state.isStreaming = false;
+    s.state.pendingMessageCount = 0;
+    s.state.runOutcome = s.lastAssistantOutcome || s.state.runOutcome || "stopped";
     s.currentRunStartSeq = null;
     s.state.runEndedAt = Date.now();
     scheduleRpcCleanup(sid);
@@ -2205,19 +2266,19 @@ function trackStreaming(sid, event) {
   } else if (event.type === "rpc_exit") {
     s.state.isStreaming = false;
     s.currentRunStartSeq = null;
-    s.state.runEndedAt = Date.now();
+    s.state.runEndedAt ||= Date.now();
     schedulePendingUpdateApplyAfterRpcIdle();
   }
 }
 
-async function openRpc({ file, cwd, name }) {
-  // Nous Portal access JWT 有效期有限；在新 RPC 啟動前懶惰更新，確保模型
-  // 讀到的是最新 access token，而不在背景同時刷新 single-use token。
-  await ensureNousAuthFresh();
-  // 同一 session 重新整理／重開時接回現有 RPC，避免每次 GUI reload 都 spawn 新的 pi。
+function reusableRpc(file) {
   if (file) {
     for (const [existingSid, existing] of rpcSessions) {
       if (existing.exited || existing.meta.file !== file) continue;
+      if (existing.closeReason) {
+        const error = new Error("Session process is closing; reopen it after it exits");
+        error.statusCode = 409; throw error;
+      }
       if (existing.idleTimer) { clearTimeout(existing.idleTimer); existing.idleTimer = null; }
       const replayAfter = existing.state.isStreaming && existing.currentRunStartSeq != null
         ? existing.currentRunStartSeq - 1
@@ -2233,6 +2294,15 @@ async function openRpc({ file, cwd, name }) {
       };
     }
   }
+  return null;
+}
+
+async function openRpc({ file, cwd, name }) {
+  // Nous Portal access JWT 有效期有限；在新 RPC 啟動前懶惰更新，確保模型
+  // 讀到的是最新 access token，而不在背景同時刷新 single-use token。
+  await ensureNousAuthFresh();
+  const reused = reusableRpc(file);
+  if (reused) return reused;
   const activeRpcCount = [...rpcSessions.values()].filter((session) => !session.exited).length;
   if (activeRpcCount >= MAX_RPC_SESSIONS) {
     const err = new Error(`too many rpc sessions (limit ${MAX_RPC_SESSIONS})`);
@@ -2242,10 +2312,12 @@ async function openRpc({ file, cwd, name }) {
   const sid = crypto.randomUUID();
   const args = ["--mode", "rpc"];
   let spawnCwd = APP_HOME;
+  let parsed = null;
   if (file) {
     const abs = safeSessionPath(file);
     if (!abs) throw new Error("invalid session path");
-    const parsed = scanCache.get(file)?.info;
+    const stat = await fs.promises.stat(abs), cached = scanCache.get(file);
+    parsed = cached?.mtimeMs === stat.mtimeMs && cached?.size === stat.size ? cached.info : await parseSessionFile(abs);
     if (parsed?.cwd) {
       try { if (fs.statSync(parsed.cwd).isDirectory()) spawnCwd = fs.realpathSync.native(parsed.cwd); } catch {}
     }
@@ -2260,6 +2332,14 @@ async function openRpc({ file, cwd, name }) {
     }
     if (name) args.push("--name", String(name).slice(0, 80));
   }
+  // File metadata is asynchronous. Recheck identity and capacity at the effect
+  // boundary so two simultaneous opens cannot spawn two writers for one file.
+  const concurrentlyOpened = reusableRpc(file);
+  if (concurrentlyOpened) return concurrentlyOpened;
+  if ([...rpcSessions.values()].filter(session => !session.exited).length >= MAX_RPC_SESSIONS) {
+    const error = new Error(`too many rpc sessions (limit ${MAX_RPC_SESSIONS})`);
+    error.statusCode = 429; throw error;
+  }
   const launch = piLaunch(PI_BIN, args, { env: { ...process.env, HOME: APP_HOME } });
   const proc = spawn(launch.file, launch.args, {
     ...launch,
@@ -2272,7 +2352,9 @@ async function openRpc({ file, cwd, name }) {
   const sess = {
     proc, clients: new Set(), events: [], widgets: new Map(), eventBytes: 0, eventSeq: 0, currentRunStartSeq: null,
     state: { isStreaming: false },
-    meta: { file: file || null, cwd: spawnCwd, name: name ? String(name).slice(0, 120) : null, openedAt: Date.now(), lastActivityAt: Date.now() },
+    meta: { file: file || null, cwd: spawnCwd, name: file ? parsed?.name || null : name ? String(name).slice(0, 120) : null,
+      firstMessage: parsed?.firstMessage || "", openedAt: Date.now(), lastActivityAt: Date.now() },
+    pendingWork: new Map(),
     stderrTail: "", exited: false, exitCode: null,
   };
   rpcSessions.set(sid, sess);
@@ -2300,10 +2382,24 @@ async function openRpc({ file, cwd, name }) {
       try { ev = parsePiEvent(line); } catch (error) { failRpcProtocol(error); return; }
       try { sess.ui.observe(ev); } catch (error) { failRpcProtocol(error); return; }
       resolvePiResponse(pendingRpcCmds, sid, ev);
+      if (ev.type === "response") {
+        const pending = sess.pendingWork.get(ev.id);
+        if (pending && pending.type === ev.command) {
+          sess.pendingWork.delete(ev.id);
+          if (pending.type === "set_session_name" && ev.success) {
+            sess.meta.name = typeof pending.name === "string" ? pending.name.trim() || null : null;
+            if (sess.meta.file) scanCache.delete(sess.meta.file);
+          }
+          if (pending.type === "prompt" && !ev.success && !sess.state.isStreaming) sess.state.runOutcome = "failed";
+        }
+      }
       if (ev.type === "response" && ev.command === "get_state" && ev.success) {
         sess.state = { ...sess.state, ...ev.data };
+        if (!sess.meta.file && typeof ev.data.sessionName === "string") sess.meta.name = ev.data.sessionName.trim() || null;
       }
+      if (ev.type === "message_end" && ev.message?.role === "user" && !sess.meta.firstMessage) sess.meta.firstMessage = textOfContent(ev.message.content).trim().slice(0, 160);
       broadcast(sid, ev);
+      scheduleRpcCleanup(sid);
     },
   });
   proc.stdout.on("data", chunk => rpcDecoder.push(chunk));
@@ -2319,7 +2415,7 @@ async function openRpc({ file, cwd, name }) {
   });
   proc.on("error", (err) => {
     // spawn 失敗（如 ENOENT/EACCES）只發 error 不發 exit —— 不監聽就會永遠假活
-    sess.exited = true; sess.exitCode = -1;
+    sess.exited = true; sess.exitCode = -1; sess.spawnError = true;
     sess.ui.clear();
     rejectPendingRpcCommands(sid, err);
     console.log(`[stepsemble] rpc spawn error (sid ${sid}, pid ${proc.pid}): ${err.message}`);
@@ -2328,14 +2424,17 @@ async function openRpc({ file, cwd, name }) {
     console.log(`[stepsemble] spawn error (sid ${sid}):`, err.message);
   });
   proc.on("exit", (code, signal) => {
-    const wasStreaming = !!sess.state.isStreaming;
-    sess.exited = true; sess.exitCode = code;
+    const wasStreaming = rpcHasWork(sess);
+    sess.exited = true; sess.exitCode = code; sess.exitSignal = signal || null; sess.exitedWhileBusy = wasStreaming;
     sess.ui.clear();
     console.log(`[stepsemble] rpc exit (sid ${sid}, pid ${proc.pid}, code ${code}, signal ${signal || "none"}, streaming ${wasStreaming}) stderr=${sess.stderrTail.slice(-300)}`);
     rejectPendingRpcCommands(sid, new Error("process exited"));
     trackStreaming(sid, { type: "rpc_exit" });
     broadcast(sid, {
       type: "rpc_exit", code, signal: signal || null, wasStreaming,
+      expectedClose: !!sess.closeReason, closeReason: sess.closeReason || null,
+      windowsTermination: process.platform === "win32", protocolFailed: !!sess.protocolFailed,
+      runOutcome: sess.state.runOutcome || null,
       stderrTail: sess.stderrTail.slice(-500),
     });
     for (const res of sess.clients) { try { res.end(); } catch {} }
@@ -4018,7 +4117,7 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/session-export" && req.method === "GET") {
         const rel = url.searchParams.get("file") || "";
         sessionToMarkdown(rel)
-          .then((markdown) => sendJSON(res, 200, { markdown, name: (rel.split("/").pop() || "session").replace(/\.jsonl$/, "") }))
+          .then((markdown) => sendJSON(res, 200, { markdown, name: markdown.split("\n", 1)[0].slice(2) || "session" }))
           .catch((e) => sendJSON(res, e.statusCode || 500, { error: e.message }));
         return;
       }
@@ -4091,7 +4190,7 @@ const server = http.createServer(async (req, res) => {
         // host is mid-run, which is the whole point of a remote GUI.
         const running = new Map();
         for (const session of rpcSessions.values()) {
-          if (session.exited || !session.state.isStreaming) continue;
+          if (session.exited || !rpcHasWork(session)) continue;
           const file = session.meta.file || session.state.sessionFile;
           if (!file) continue;
           running.set(file, {
@@ -4926,10 +5025,7 @@ const server = http.createServer(async (req, res) => {
         const body = await readJSON(req);
         const s = rpcSessions.get(body.sid);
         let closed = false;
-        if (s && !s.exited && s.clients.size === 0 && !s.ui?.size) {
-          if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
-          killRpcProcess(s.proc); closed = true;
-        }
+        closed = await closeIdleRpc(body.sid, "view_closed");
         sendJSON(res, 200, { closed, clients: s?.clients.size || 0 });
         return;
       }
@@ -4992,7 +5088,8 @@ const server = http.createServer(async (req, res) => {
         for (const [sid, s] of rpcSessions) {
           list.push({
             sid, pid: s.proc.pid, cwd: s.meta.cwd, file: s.meta.file, openedAt: s.meta.openedAt,
-            isStreaming: !!s.state.isStreaming, exited: s.exited,
+            isStreaming: !s.exited && rpcHasWork(s), exited: s.exited,
+            pendingWork: s.pendingWork.size, closeReason: s.closeReason || null,
             stuck: rpcStuck(s),
             sessionFile: s.state.sessionFile || null, clients: s.clients.size,
             eventSeq: s.eventSeq, stderrTail: s.stderrTail.slice(-500),
@@ -5089,7 +5186,7 @@ function shutdown(signal) {
     s.clients.clear();
     // An active Pi run owns its own session file and can finish without the
     // HTTP server.  Killing it here was the source of silent GUI-only stops.
-    if (!s.state.isStreaming && !s.ui?.size) killRpcProcess(s.proc);
+    if (!s.exited && !rpcHasWork(s)) { s.closeReason = "host_shutdown"; killRpcProcess(s.proc); }
   }
   // Generic CLI work belongs to an independent supervisor. Dropping the HTTP
   // process must not terminate a user's long-running task; the next server

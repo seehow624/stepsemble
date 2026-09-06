@@ -28,6 +28,12 @@ login and task supervisors in the Aqua desktop context. Other connectors are
 not moved. Metadata and deployed UI checks pass, but actual OAuth/model and
 native session/approval parity remain separate gates.
 
+Development candidate rc.4 corrects legacy Pi idle-exit classification, guards
+send/close races and shares native-name/first-user title precedence through a
+strict TypeScript helper. See [`pi-session-lifecycle.md`](pi-session-lifecycle.md).
+This candidate is not activated on the live rc.3 Host and is not a durable
+session/run store or another native account/model verification.
+
 ## Boundaries
 
 ```text

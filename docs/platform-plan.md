@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.26
+> 計畫版本：1.27
 > 最後更新：2026-09-06
 > 當前產品基線：Stepsemble 3.0.3（由 Pi Harbor 2.13.2 相容遷移）
 > Mini 當前啟用版本：3.0.4-rc.3／source `f5455e1`（2026-09-06 owner-authorized local activation；未公開 stable release）
@@ -35,6 +35,7 @@
 | Host/Client 邊界 | 已定案 | Desktop 可為 Host + Client；iOS/Android 初期只為 Client |
 | App Shell | 目標已定，待驗證 | Tauri 2 為預設方案；必須先通過 Apple 實機 PoC 驗收門檻 |
 | 當前回歸基線 | 已通過 | 2026-09-04 Stepsemble 3.0.3 執行 `npm test`：127/127 通過，約 11.4 秒 |
+| Pi Failed／session 名稱修正 | rc.4 開發候選，未部署 | 已分離預期 idle close 與異常退出、補上送出／關閉競爭保護，名稱統一 native name／first user；驗證與相容邊界見 `pi-session-lifecycle.md`。Mini 仍 rc.3，未呼叫真實模型或改寫歷史 |
 | 開發分支跨平台回歸 | 已通過，逐批驗證 | 2026-09-05 `6a0ddd4`／CI33970842907三OS全綠270tests/0fail；Rolling33970842871 macOS/Linux各8cases全綠。Native Pi offline contract33967509738三OS實跑0.84.2各57frames；本批見1.23記錄，新的commit需看各自workflow；不等於model/provider parity或release |
 | 現行系統盤點 | 已完成 | HTTP/SSE/RPC、資料、狀態、approval、event、安裝與 rollback 已落於 `current-system-inventory.md` |
 | 本機品牌遷移 | 已部署 | Mac Mini 已由 2.13.2 原地升級至 3.0.0；session/token/SSH launcher/CUA driver 均完成前後核對 |
@@ -940,6 +941,15 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-06 — Plan 1.27
+
+- Jerome同意修復Failed誤報／名稱不一致並補回歸。Pi0.84.2正常SIGTERM可exit143；舊mapper以非0判failed。現在先記錄Host自己的idle close intent，保留未知signal／protocol fault／active exit與已觀測model failure，不全面忽略143，不把只是看歷史當作completed run。
+- 將送出前pending work、native fresh state、clients／UI／compaction／queue與revision納入close gate，關閉中拒收新訊息；async metadata後重檢同file writer與capacity。Legacy更新gate也看得到尚未agent_start的工作。沒有model retry／帳號操作。
+- 增加獨立firstMessage，保留preview原用途；最新session_info含清空優先；list／Hub／detail／search／export統一標題，開既有file不採用caller display name改native名稱。共用strict TS helper與checked-in JS，保持runtime無依賴。
+- 新增synthetic HTTP競爭、143／crash／失敗／名稱／pagination／history byte-preservation與1440／390實際browser cases。SSE detach晚於close時保留Waiting是正確防護；browser case明確等待detach再走idle close邊界，不冒稱返回必定立即kill。
+- 本機319tests／317pass2Windows-onlyskip／0fail；strict TS／artifact／syntax／version／Ajv1251cases皆通過。Pinned Chromium153.0.8010.12的8組rolling＋2組既有Claude auth UI＋2組Pi session UI全過；跨OS需核對本批新commit CI。
+- Source候選rc.4使用獨立cache identity；未部署／未重啟正式rc.3、未public release／真實帳號模型／history migration。各次CI需看exact commit；完整durable journal、其他native adapter／Rust／Apps等既有gate不因本修復完成。細節 `pi-session-lifecycle.md`。
 
 ### 2026-09-06 — Plan 1.26
 

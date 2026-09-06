@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-ts-"));
 try {
-  const entries = [["client", "client-sdk"], ["native-dialogs", "native-dialogs"], ["lifecycle", "lifecycle"], ["projection", "projection"]];
+  const entries = [["client", "client-sdk"], ["native-dialogs", "native-dialogs"], ["lifecycle", "lifecycle"], ["projection", "projection"], ["pi-session", "pi-session"]];
   // npm's local cache and temporary output keep dependency/build files off SMB.
   const npmCli = process.env.npm_execpath;
   if (process.platform === "win32" && !npmCli) throw new Error("Use npm run build:client on Windows");

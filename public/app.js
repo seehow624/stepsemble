@@ -1,7 +1,7 @@
-/* stepsemble v3.0.4-rc.3 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.4-rc.4 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.4-rc.3";
+const CLIENT_APP_VERSION = "3.0.4-rc.4";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -9,8 +9,9 @@ const CLIENT_APP_VERSION = "3.0.4-rc.3";
 // being duplicated across future feature modules.
 const foundation = window.stepsembleFoundation;
 const sessionUtils = window.stepsembleSessionUtils;
+const piSession = window.StepsemblePiSession;
 const contextUtils = window.stepsembleContextUtils;
-if (!foundation || !sessionUtils || !contextUtils) throw new Error("Stepsemble foundation modules are missing");
+if (!foundation || !sessionUtils || !contextUtils || !piSession) throw new Error("Stepsemble foundation modules are missing");
 const {
   SELECTED_KEY, SETTINGS_KEY, LEGACY_SETTINGS_KEY, LEGACY_SETTINGS_KEYS, SETTINGS_VERSION,
   DESIGN_THEMES, DESIGN_THEME_IDS, DEFAULT_SETTINGS,
@@ -25,6 +26,9 @@ const {
   activityReceiptStats, computeActivityReceipt,
   stripAnsi, parseTaskProgressLines, extractTaskPlan,
 } = sessionUtils;
+function sessionDisplayTitle(session) {
+  return stripMd(piSession.title(session)).replace(/[\r\n]+/g, " ") || "(Untitled)";
+}
 const {
   finiteNonNegative, positiveFinite, normalizeWireUsage, normalizeSessionStats, mergeContextCapacity,
   computeCacheHitRate, formatTokenCount, formatPercent, usageTotalTokens, usageCostTotal,
@@ -1758,7 +1762,7 @@ function renderAgentHub() {
     const copy = document.createElement("span");
     copy.className = "agent-task-copy";
     const name = document.createElement("strong");
-    name.textContent = task.name || task.agent || agentHubText("agentTask");
+    name.textContent = task.agentId === "pi" ? sessionDisplayTitle(task) : task.name || task.agent || agentHubText("agentTask");
     name.dataset.i18nIgnore = "";
     const detail = document.createElement("small");
     detail.textContent = `${task.agentId === "pi" ? "Pi Agent" : (connectors.find((item) => item.id === task.agentId)?.label || task.agentId || "Agent")} · ${task.cwd || ""}`;
@@ -1829,7 +1833,7 @@ function renderAgentTaskCenter() {
     const copy = document.createElement("span");
     copy.className = "agent-task-center-copy";
     const name = document.createElement("strong");
-    name.textContent = task.name || agentConnectorLabel(task.agentId);
+    name.textContent = task.agentId === "pi" ? sessionDisplayTitle(task) : task.name || agentConnectorLabel(task.agentId);
     name.dataset.i18nIgnore = "";
     const meta = document.createElement("span");
     meta.className = "agent-task-center-meta";
@@ -2023,7 +2027,9 @@ function syncAgentTaskPolling() {
 async function openAgentTaskFromHub(task) {
   if (!task) return;
   if (task.agentId === "pi" && (task.file || task.sessionFile)) {
-    return openExisting({ file: task.file || task.sessionFile, cwd: task.cwd || "", name: task.name || "Pi Agent", preview: "" });
+    const file = task.file || task.sessionFile;
+    return openExisting(sessionsCache.find(session => session.file === file) ||
+      { file, cwd: task.cwd || "", name: task.sessionName || null, firstMessage: task.firstMessage });
   }
   return openGenericTask(task);
 }
@@ -2080,6 +2086,8 @@ async function refreshSessions() {
     const data = await api(`/api/sessions?includeTemporary=${includeTemporary}`, { signal: refreshRequest.signal });
     if (sequence !== refreshSequence || generation !== viewGeneration || baseAtStart !== apiBase) return;
     sessionsCache = data.sessions || [];
+    const currentSummary = sessionsCache.find(session => session.file === currentSessionFile);
+    if (currentSummary && !el.viewChat.classList.contains("hidden")) setChatTitle(sessionDisplayTitle(currentSummary));
     temporarySessionCount = Math.max(0, Number(data.temporarySessionCount) || 0);
     if (el.sessionCount) el.sessionCount.textContent = String(sessionsCache.length);
     renderTemporarySessionFilter(temporarySessionCount);
@@ -2363,6 +2371,7 @@ function renderSessionList(q) {
   const query = (q || "").trim().toLowerCase();
   const list = sessionsCache.filter(s => !query ||
     (s.name || "").toLowerCase().includes(query) ||
+    (s.firstMessage || "").toLowerCase().includes(query) ||
     (s.preview || "").toLowerCase().includes(query) ||
     (s.cwd || "").toLowerCase().includes(query));
   const orderedList = [...list].sort((a, b) => Number(sessionIsPinned(b)) - Number(sessionIsPinned(a)) || (Number(b.mtimeMs) || 0) - (Number(a.mtimeMs) || 0));
@@ -2374,7 +2383,7 @@ function renderSessionList(q) {
   const makeItem = (s) => {
     const li = document.createElement("li");
     li.className = "session-item" + (s.file === currentSessionFile ? " selected" : "");
-    const rawName = s.name || s.preview?.split("\n")[0] || "";
+    const rawName = sessionDisplayTitle(s);
     const name = stripMd(rawName).slice(0, 70) || (window.stepsembleI18n?.t("(Untitled)") || "(Untitled)");
     // Recency first: scanning for "what did I just do" beats tok/$.
     const relative = window.stepsembleSessionUtils.compactRelativeTime(s.mtimeMs);
@@ -2707,11 +2716,11 @@ async function runFullTextSearch(query) {
       row.type = "button";
       row.className = "session-fulltext-row";
       const name = document.createElement("strong");
-      name.textContent = stripMd(hit.name || hit.file.split("/").pop()).slice(0, 70);
+      name.textContent = sessionDisplayTitle(hit).slice(0, 70);
       const snippet = document.createElement("small");
       snippet.textContent = hit.snippet || "";
       row.append(name, snippet);
-      row.addEventListener("click", () => openExisting({ file: hit.file, cwd: hit.cwd, name: hit.name, preview: hit.snippet }));
+      row.addEventListener("click", () => openExisting(hit));
       block.appendChild(row);
     }
     el.sessionList.appendChild(block);
@@ -2775,7 +2784,7 @@ el.btnLayout?.addEventListener("click", () => {
 let actionTarget = null;
 function openSessionActions(s) {
   actionTarget = s;
-  el.saTitle.textContent = stripMd(s.name || s.preview?.split("\n")[0] || "").slice(0, 60) || "(未命名)";
+  el.saTitle.textContent = sessionDisplayTitle(s).slice(0, 60);
   el.saSheet.classList.remove("hidden");
 }
 function closeSessionActions() {
@@ -3007,7 +3016,7 @@ async function openExisting(s) {
   rememberLastChat(s.file);
   renderSessionList(el.search.value);
   hideChatEmpty();
-  setChatTitle(stripMd(s.name || s.preview?.split("\n")[0] || "") || "(未命名)");
+  setChatTitle(sessionDisplayTitle(s));
   el.chatSub.dataset.base = s.cwd; el.chatSub.textContent = s.cwd; resetLiveUsage();
   removeHistoryLoadButton();
   historyState = { file: s.file, before: null, hasMore: false, loading: false };
@@ -3026,6 +3035,8 @@ async function openExisting(s) {
     const detail = await api("/api/session?file=" + encodeURIComponent(s.file) + "&limit=300");
     if (generation !== viewGeneration) return;
     currentSessionCwd = detail.cwd;
+    // Detail is authoritative even when opening a stale Hub/search entry.
+    setChatTitle(sessionDisplayTitle({ ...s, ...detail }));
     void refreshProjectChanges({ background: true });
     _lastMsgDate = null; lastUserText = "";
     // Build offscreen: yielding with partially mounted history would force
@@ -5471,7 +5482,7 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       finalizePending({ settleTools: true });
       clearActivityNote();
       {
-        const unexpectedExit = ev.error || ev.wasStreaming || (ev.code !== 0 && ev.code !== null && ev.code !== undefined);
+        const unexpectedExit = piSession.unexpectedExit(ev);
         if (activeActivityRun && !activeActivityRun.settled) {
           setRunOutcome("interrupted", { errorMessage: ev.error || ev.stderrTail || "" });
           settleActivityRun(activeActivityRun, "interrupted");
@@ -6307,7 +6318,7 @@ function buildCommandItems() {
     .sort((a, b) => (Number(b.mtimeMs) || 0) - (Number(a.mtimeMs) || 0))
     .slice(0, 30);
   for (const s of sessions) {
-    const name = stripMd(s.name || s.preview?.split("\n")[0] || "").slice(0, 70) || "(Untitled)";
+    const name = sessionDisplayTitle(s).slice(0, 70);
     items.push({ kind: "session", label: name, run: () => openExisting(s) });
   }
   for (const m of machines) {

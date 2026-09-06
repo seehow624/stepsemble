@@ -74,7 +74,7 @@ test("native dialog state is bounded and idle/update gates preserve a pending di
   const source = (await fs.readFile(path.join(root, "server.js"), "utf8")).replace(/\r\n/g, "\n");
   const session = { exited: false, state: { isStreaming: false }, clients: new Set(), ui: { size: 1 }, meta: { lastActivityAt: 1 } };
   const context = vm.createContext({ rpcSessions: new Map([["a", session]]), STUCK_RPC_MS: 60000, shutdownState: null, setTimeout: () => { throw new Error("must not expire a pending dialog"); } });
-  for (const name of ["activeRpcSessions", "scheduleRpcCleanup", "rpcStuck", "activeRpcSessionsForUpdate"]) {
+  for (const name of ["rpcHasWork", "activeRpcSessions", "scheduleRpcCleanup", "rpcStuck", "activeRpcSessionsForUpdate"]) {
     const start = source.indexOf(`function ${name}(`), end = source.indexOf("\n}\n", start) + 2;
     vm.runInContext(source.slice(start, end), context);
   }

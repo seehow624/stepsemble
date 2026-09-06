@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.0.4-rc.4
+
+Development candidate; not activated or published as a stable release.
+
+- Prevented intentional idle Pi SIGTERM/143 shutdowns from appearing as Failed;
+  genuine crashes, active interruption and observed model failures stay visible.
+- Protected prompt preflight, pending dialogs/commands, streaming and compaction
+  from stale close requests; fenced sends/reuse after close intent and concurrent
+  metadata opens before spawning another writer.
+- Unified Pi titles across lists, Agent Hub, chat, search and export: latest
+  native name (including resets), then first user text; never the JSONL filename
+  or latest assistant answer on the new Host. Native history is not migrated.
+- Added isolated lifecycle/race and desktop/mobile browser regressions, plus a
+  separate PWA cache identity. Not deployed or published as a stable release.
+
 ## 3.0.4-rc.3
 
 - Added an opt-in macOS Aqua desktop Claude broker for both official sign-in

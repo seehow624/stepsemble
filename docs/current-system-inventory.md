@@ -28,6 +28,8 @@
 
 2026-09-05 開發增量另見 [`reliability-followup.md`](reliability-followup.md)。本文件保留歷史基線，不把尚未部署的封存、stream、worktree、前端修復改寫成既有正式版行為。
 
+2026-09-06 rc.4 開發增量見 [`pi-session-lifecycle.md`](pi-session-lifecycle.md)：Pi正常143關閉與工作結果分離、pending-work／fresh-state close gate、firstMessage標題一致性。此修復未部署；以下仍是凍結的歷史盤點，不將新版contract測試冒稱當時已有。
+
 ### 1.1 v3 品牌遷移增量
 
 - 新 identity：`Stepsemble`、`stepsemble`、`STEPSEMBLE_*`、`com.stepsemble.*`、`STEPSEMBLE3`。
