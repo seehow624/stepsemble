@@ -1,7 +1,7 @@
 # B+ vector brand refresh
 
-Status: local source and browser validation passed for 3.0.7-rc.2; CI pending.
-Production Hosts remain on 3.0.6.
+Status: source, browser, rolling compatibility and three-OS CI validation
+passed for 3.0.7-rc.2. Production Hosts remain on 3.0.6.
 
 Jerome approved the B+ direction on 2026-09-07 after comparing the previous
 mark with A, B, D, the B+ generated study and an exact-size review board. The
@@ -40,6 +40,18 @@ SVG and raster hashes.
 - Desktop and 390 × 844 responsive viewport checks retained recognisable
   spacing and silhouette at both display and favicon-scale UI sizes.
 - `git diff --check` passed. Production services were not restarted.
+
+## GitHub gates
+
+- Brand commit `cff95ee`: rolling browser compatibility run `34047303481`
+  passed on macOS and Ubuntu against both shipped releases.
+- Its first CI run `34047303544` passed macOS and Ubuntu; Windows exposed only
+  a text-checkout CRLF mismatch in the new SVG integrity assertion, not an
+  artwork or runtime failure.
+- Follow-up `b758285` normalises SVG line endings before hashing. CI run
+  `34047425379` then passed macOS, Ubuntu and Windows, including JavaScript,
+  typed-client, protocol artifact, independent schema conformance and the full
+  Node test suite.
 
 ## Boundaries
 

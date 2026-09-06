@@ -32,7 +32,7 @@
 | Web 正式上線／品牌介面整理 | 3.0.6 已在兩台 Mac 上線並公開 | exact `331b9f0` 三OS CI／雙平台 rolling 全綠；停止確認、選取不重建及還原保護已上線，既有巢狀捲動與品牌原圖保留；兩台更新器正常。見 `agent-stop-reliability.md` |
 | 長期語言邊界 | 已定案 | Rust Host Core；TypeScript UI/Client；Swift/Kotlin 僅處理平台專屬能力 |
 | Web 產品定位 | 已定案 | Web/PWA 永久保留，不是過渡版 |
-| 產品名稱與識別 | B+ 向量母版已定案，本機候選驗收通過 | Stepsemble；step + ensemble。Jerome於2026-09-07確認B+：同一模組與藍紫內緣精確旋轉四次、一般版四邊16%、maskable另留安全區；3.0.7-rc.2本機測試與實際瀏覽器尺寸通過，待CI，不代表已部署 |
+| 產品名稱與識別 | B+ 向量母版已定案，rc.2候選驗收通過 | Stepsemble；step + ensemble。Jerome於2026-09-07確認B+：同一模組與藍紫內緣精確旋轉四次、一般版四邊16%、maskable另留安全區；3.0.7-rc.2本機／瀏覽器／三OS CI／rolling全綠，不代表已部署 |
 | Host/Client 邊界 | 已定案 | Desktop 可為 Host + Client；iOS/Android 初期只為 Client |
 | App Shell | 目標已定，待驗證 | Tauri 2 為預設方案；必須先通過 Apple 實機 PoC 驗收門檻 |
 | 當前回歸基線 | 3.0.6 發布 gate 全通過 | `331b9f0`／CI34027897400三OS335tests／0fail（Mac333pass2skip、Win325/10、Linux332/3）；rolling34027897382兩OS各15cases；Release34028079034全綠。原Windows stop race已修，見 `agent-stop-reliability.md` |
