@@ -9845,8 +9845,10 @@ async function loadProjectFolder(requestedPath = null) {
   const request = new AbortController();
   projectFolderRequest = request;
   el.newFolderPath.textContent = browseText("Loading folders…");
-  el.newFolderList.innerHTML = `<p class="project-folder-empty">${browseText("Loading folders…")}</p>`;
+  // Stop a pending native keyboard scroll before shrinking its scroll range.
+  // Clearing the rows first can clamp to zero without cancelling that motion.
   el.newFolderList.scrollTop = 0;
+  el.newFolderList.innerHTML = `<p class="project-folder-empty">${browseText("Loading folders…")}</p>`;
   el.newFolderUp.disabled = true;
   try {
     // An empty initial home is intentional: /api/browse resolves it to the
@@ -9861,6 +9863,7 @@ async function loadProjectFolder(requestedPath = null) {
     el.newFolderPath.textContent = data.path || "—";
     el.newFolderUp.disabled = !data.parent || data.parent === data.path;
     renderProjectFolderList(data.entries || []);
+    el.newFolderList.scrollTop = 0;
   } catch (e) {
     if (e.name === "AbortError" || sequence !== projectFolderSequence || machineAtStart !== selectedId || baseAtStart !== apiBase || generation !== viewGeneration) return;
     projectFolder = { path: null, parent: null };
