@@ -1,6 +1,6 @@
 # macOS Claude 桌面執行元件
 
-> 2026-09-06，Mini 桌面助手已啟用，Web已更新stable3.0.4；助手程序未被這次更新重啟。rc.3曾偵測既有登入，最新metadata已為signed_out，須owner重新官方登入。不是 Claude 原生 session／approval adapter 已完成。
+> 2026-09-06 22:44 MYT，Mini 桌面助手已啟用，正式 Web 為 3.0.6。使用者完成瀏覽器登入後，助手為 completed／detected；另行同意的直接 Aqua CLI 單次模型／串流／新 history 讀回已通過。助手未被測試重啟，不是 Web task supervisor／原生 session／approval adapter 全部驗收。
 
 ## 決策與範圍
 
@@ -90,7 +90,8 @@ node scripts/install-claude-desktop.mjs --check
 - 真正 Claude metadata、正式 helper 安裝、SSH → helper → native CLI、正式 UI 及使用者瀏覽器
   登入流程，必須分別記錄實測結果，不能拿假 CLI 的成功代替。
 
-本批尚未授權新的模型用量測試；先前唯一 Claude smoke 失敗紀錄維持不變。
+助手實作批次沒有模型測試；後續 09-06 22:44 MYT 已依新的單次同意通過直接 Aqua
+CLI 最小測試，見 [`native-subscription-smoke.md`](native-subscription-smoke.md)。先前失敗紀錄維持不變，不自動重跑。
 本文件不將 Claude 頻繁登出的所有根因、完整 native history/approval、Rust/Apps 或72h soak標為完成。
 
 ### 本機觀察

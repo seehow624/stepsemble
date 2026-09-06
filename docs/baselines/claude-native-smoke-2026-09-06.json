@@ -1,0 +1,62 @@
+{
+  "reportVersion": 1,
+  "attemptedAt": "2026-09-06T14:44:32.275Z",
+  "checkedAt": "2026-09-06T14:45:24.006Z",
+  "platform": "darwin-arm64",
+  "scope": "One explicitly authorized direct Aqua official Claude CLI marker turn; not a full Stepsemble Web adapter or approval/resume acceptance test",
+  "authorization": {
+    "maxTurnAttempts": 1,
+    "previouslyPreparedUnusedRunReused": true,
+    "automaticRetriesAuthorized": false,
+    "attemptMarkerRetained": true,
+    "priorFailedAttemptMarkerRetained": true
+  },
+  "before": {
+    "executionManager": "Aqua",
+    "webHelperCredentialState": "detected",
+    "webHelperLoginState": "completed",
+    "webHelperCanStart": true,
+    "webHelperLiveVerified": false
+  },
+  "nativeResult": {
+    "agent": "claude",
+    "nativeVersion": "2.1.259 (Claude Code)",
+    "authType": "claude.ai",
+    "subscriptionType": "pro",
+    "model": "claude-opus-5[1m]",
+    "result": "passed",
+    "turnAttempts": 1,
+    "modelTurnCompletionObserved": true,
+    "automaticTurnRetries": 0,
+    "nativeTransportRetryCount": null,
+    "toolCalls": 0,
+    "approvalExercised": false,
+    "elapsedMs": 2639,
+    "streamDeltaCount": 2,
+    "sessionCorrelated": true,
+    "historyReadAfterProcessExit": true,
+    "usage": {
+      "input_tokens": 2,
+      "output_tokens": 20,
+      "cache_creation_input_tokens": 513,
+      "cache_read_input_tokens": 0
+    },
+    "observedFrameTypes": ["assistant", "rate_limit_event", "result", "stream_event", "system"]
+  },
+  "settingsAndInstructionFilesUnchangedDuringThisAttemptBySha256": true,
+  "protectedLogicalPathCount": 5,
+  "approvedLogoUnchanged": true,
+  "nativeLoginOrLogoutInvokedByProbe": false,
+  "nativeCredentialsDirectlyReadOrCopiedByStepsemble": false,
+  "modelRouteModified": false,
+  "productionRestarted": false,
+  "productionHealth": [
+    { "hostRole": "primary", "ok": true, "appVersion": "3.0.6", "uptime": 14498 },
+    { "hostRole": "secondary", "ok": true, "appVersion": "3.0.6", "uptime": 14544 }
+  ],
+  "codexInvokedThisTurn": false,
+  "webLiveVerifiedFlagUpdated": false,
+  "approvalParityVerified": false,
+  "historyResumeParityVerified": false,
+  "completeNativeAdapterVerified": false
+}

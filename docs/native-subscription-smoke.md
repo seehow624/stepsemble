@@ -4,7 +4,33 @@
 不改登入／模型路由，不重啟正式服務。這是人工 native harness 驗收，
 **不是已接上 Stepsemble Web 的 adapter，也不是 approval／resume parity 通過**。
 
-## 最新檢查：2026-09-06，新的同意，兩邊均未送模型
+## 最新結果：2026-09-06，Claude 單次模型／串流／歷史讀回通過
+
+Jerome 回報「瀏覽器登入了」後，正式 Mini Web 的桌面助手回報
+`login.state=completed`／credential `detected`。直接執行環境仍為 Aqua，
+可信任 Claude CLI 仍為 2.1.259。沿用下節同意、尚未消耗的同一個 prepared run，
+沒有另建 run 或移除 marker。
+
+官方 CLI 的 first-party `claude.ai`／Pro metadata gate 通過後，只執行一次固定
+marker prompt。約 **2,639 ms** 完成，2 個文字 delta 與最後回覆相同，native session
+ID 前後一致；程序退出後，讀取該次新 session 的確切 history 檔，確認助手回覆已保存。
+0 tool calls、沒有自動重試，新的 attempt marker 與 9 月 5 日失敗 marker 都保留。
+
+去識別結果：[`baselines/claude-native-smoke-2026-09-06.json`](baselines/claude-native-smoke-2026-09-06.json)。
+CLI 回報 input 2／output 20／cache creation 513／cache read 0 tokens；這是本次
+原生用量欄位，不是全帳號帳務或費用認證。採用原生預設模型，未改設定或切換來源。
+
+本次測試前後 5 個原生設定／全域指令邏輯路徑的 SHA-256 相同，品牌母檔相同，
+兩台正式仍 3.0.6、未重啟。官方瀏覽器登入由 Jerome 完成；測試沒有另呼叫
+login/logout 或直接讀取／複製憑證。正在跑的 72h 固定來源測試未更動。
+
+**邊界**：這是直接 Aqua CLI 的人工最小驗收，不是經正式 Web task supervisor 的
+完整 structured adapter 驗收。沒有測 approval、resume、多 Client 或斷線恢復，
+也不保證帳號不再失效；正式 metadata API 的 `liveVerified:false` 保留，不靠本次
+手動結果永久改成 true。Codex 本輪未啟動，仍待新版與路由／指令／工具隔離審查。
+Claude 此次單次同意已使用，不得自動再次執行。
+
+## 較早檢查：2026-09-06 20:11 MYT，兩邊均未送模型
 
 Jerome 再回覆「好」，同意 Claude／Codex 各新一次最小訂閱測試；仍不授權變更
 登入、路由、計費來源或全域指令，也不允許失敗後自動重試。此同意與 9 月 5 日
@@ -84,16 +110,16 @@ node scripts/probe-native-subscriptions.mjs claude /absolute/prepared-run /absol
 - 結束或中斷只停止自己啟動的 child；不重啟使用者 App／正式服務。
   stdout frame 設上限，失敗報告只用白名單欄位與數字用量；不 dump 原始 SDK errors。
 - Claude 成功路徑需要 marker stream、native session correlation 與 owned process
-  結束後的 history readback；**本次未走完成功路徑**。不做 approval；任何 Codex
+  結束後的 history readback；9 月 5 日未通過，9 月 6 日最新單次已通過。不做 approval；任何 Codex
   server request 都拒絕並停止。`approvalPolicy: never` 本身不代表工具被禁止，
   所以 Codex model turn 入口暫不提供，不能把事後檢查 tool item 當執行前安全防線。
 
 ## 後續需要人工處理
 
-2026-09-06 較早曾偵測到 claude.ai；當日最新檢查已是 `signed_out`，以上方新紀錄為準。
-新的單次額度同意已收到，但前置檢查未過、沒有再次模型呼叫；前次失敗仍保留，
-不能沿用已消耗的那一次 attempt。新增 App 登入入口的開發進度見 [`claude-sign-in.md`](claude-sign-in.md)，
-不等於原生 smoke 或完整 adapter 成功。
+2026-09-06 20:11 MYT 的 `signed_out` 已由後續使用者完成登入及單次成功結果取代；
+不需要再要求使用者重登。9 月 5 日失敗和 9 月 6 日成功是兩次分別獲同意的 attempt，
+都已消耗，不可自動重跑。新增 App 登入入口見 [`claude-sign-in.md`](claude-sign-in.md)，
+最小 smoke 通過仍不等於完整 adapter 成功。
 
 Codex 要先決定原生訂閱與既有第三方路由的隔離方式，以及全域指令是否可納入
 最小測試。此次沒有得到修改設定／憑證／指令的授權，故維持未送 turn；未使用的

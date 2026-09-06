@@ -1,8 +1,10 @@
 # Claude Code 官方登入入口
 
-最新狀態：Mini Web已更新正式3.0.4；本次部署前後桌面metadata均為
-`signed_out`、`liveVerified=false`。未自動登入、搬憑證或重試模型。
-以下rc.3的detected是當時驗收紀錄，不代表帳號一直保持登入。
+最新狀態（2026-09-06 22:44 MYT）：Mini／MBP 正式為 3.0.6。Jerome 回報已完成
+瀏覽器登入，Mini 桌面助手回 `completed`／`detected`；另獲同意的單次直接 Aqua
+Claude 2.1.259 模型／串流／新 session 歷史讀回通過。metadata API 仍保留
+`liveVerified:false`，沒有將一次成功當成永久有效。詳見 [`native-subscription-smoke.md`](native-subscription-smoke.md)。
+以下 rc.3 detected 與 3.0.4 部署時 signed_out 都是歷史，不代表目前仍未登入。
 
 2026-09-06 後續：Jerome已同意桌面元件，3.0.4-rc.3實作登入與Claude任務共用Aqua助手，
 Mini已獨立安裝並通過真正SSH→助手→官方CLI唯讀metadata檢查。Jerome另同意安全更新後，
@@ -44,13 +46,14 @@ Mini已獨立安裝並通過真正SSH→助手→官方CLI唯讀metadata檢查�
 手機連 Mac Mini 時，登入頁開在 **Mac Mini，不是手機**。Headless／SSH 環境可能
 無法自動開啟瀏覽器；若需要貼授權碼，先取消這次等待，再在 Host 的官方終端機
 執行 `claude auth login --claudeai`。不要把授權碼貼入 Stepsemble。
-目前不是手機內完整 OAuth／跨裝置回呼方案，正式原生浏览器成功流程仍待人工驗收。
+目前不是手機內完整 OAuth／跨裝置回呼方案。09-06 使用者回報瀏覽器登入完成，
+助手結果及另行同意的直接 CLI 最小模型測試已成功；未觀察瀏覽器內完整操作，
+也不冒稱實機手機登入回呼已驗收。
 
 這個入口改善「重新登入的入口」，**沒有解決所有頻繁失效的根因，也不保證永不登出**。
 2026-09-05 的一次模型驗收曾出現 metadata 已登入但 OAuth 更新失敗；該失敗紀錄
-保留於 [`native-subscription-smoke.md`](native-subscription-smoke.md)。09-06 Jerome
-表示已重新登入，本機官方 CLI 唯讀 metadata 已偵測到 claude.ai；本次沒有再登入、
-模型呼叫或沿用之前一次額度授權重試，因此不將原失敗改寫為通過。
+保留於 [`native-subscription-smoke.md`](native-subscription-smoke.md)。09-06 22:44 MYT
+新的單次模型測試成功，使用的是另外明確取得的同意，不將原失敗改寫為通過，也不自動重試。
 
 ## 帳號與執行邊界
 
