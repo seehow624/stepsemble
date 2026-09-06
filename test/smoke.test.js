@@ -639,7 +639,10 @@ test("desktop empty chat hides the composer and offers a New project action", ()
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   assert.match(app, /function showChatEmpty\(\)\s*\{[\s\S]*?el\.viewChat\.classList\.add\("chat-is-empty"\)/);
   assert.match(app, /function hideChatEmpty\(\)\s*\{[\s\S]*?el\.viewChat\.classList\.remove\("chat-is-empty"\)/);
-  assert.match(app, /el\.viewChat\.classList\.add\("chat-is-empty"\);\s*if \(!isDesktop\(\)\) el\.viewChat\.classList\.add\("hidden"\);\s*else showChatEmpty\(\)/);
+  // Viewport-independent cleanup is executed in agent-hub-races.test.js.
+  // Mobile must clear the pane too, before it can become visible on resize.
+  const showList = app.slice(app.indexOf("function showList(options"), app.indexOf('el.btnBack.addEventListener'));
+  assert.match(showList, /showChatEmpty\(\);\s*if \(!isDesktop\(\)\) el\.viewChat\.classList\.add\("hidden"\)/);
   assert.match(app, /el\.chatEmptyNewProject\?\.addEventListener\("click", openNewDialog\)/);
   assert.match(html, /<main id="view-chat" class="[^"]*chat-is-empty[^"]*">/);
   assert.match(html, /<button id="chat-empty-new-project"[^>]*type="button"[^>]*title="New project"[^>]*aria-label="New project"[^>]*>New project<\/button>/);
