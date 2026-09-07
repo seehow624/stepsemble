@@ -85,7 +85,7 @@ test("observation options/page bounds cannot add path, SDK, environment or invok
 });
 test("observe and capture share busy/abort/revoke limits and snapshot capture cannot select SDK mode", async () => {
   const h = harness(), abort = new AbortController(), p = h.bound.observe(request, { signal: abort.signal });
-  assert.deepEqual(h.children[0].job().history, { sdkPath, page });
+  assert.deepEqual(h.children[0].job().history, { sdkPath, page, expectedVersion: null });
   assert.deepEqual(await h.bound.capture(request), unavailable("source_busy"));
   abort.abort(); assert.deepEqual(await p, unavailable("source_aborted"));
   const capture = h.bound.capture(request, {}, page); assert.equal(h.children[1].job().history, undefined);

@@ -58,13 +58,60 @@ be used to infer a memory leak or clean per-mode RSS improvement.
 
 Selection uses the public alpha `getSessionMessages({sessionStore})` interface
 from the **same captured records**; no SDK transcript rediscovery occurs. Its
-disposable copy protects original compaction parents. There is still no
-version-pinned multi-page cursor: concurrent native writes between requests can
-change source SHA/identity and selected order. A future Client must not concatenate
-different source versions; authenticated registration, source-version fencing,
-ACL/descriptor-relative containment and durable publication remain prerequisites.
+disposable copy protects original compaction parents. At this initial measurement
+there was no version fence between page requests. Plan 1.39 adds the source-version
+checks described below; it does not preserve old snapshots or freeze native writes.
+Authenticated registration, Client integration, ACL/descriptor-relative containment
+and durable publication remain prerequisites.
 
 Windows source reads remain explicitly unsupported. All-OS synthetic SDK
 SessionStore contracts do not establish a Windows ACL gate. `publishable`,
 source authentication, approval ACK, run completion and resume authority all
 remain false. See [the reader boundary](../protocol/native/claude/README.md).
+
+## Dual-worker versioned pages — Plan 1.39
+
+[Raw repeated-read experiment](baselines/claude-history-concurrency-2026-09-07-darwin-arm64.json)
+records a different implementation/benchmark with exact hashes and dirty=true,
+retaining two separately labeled workload contexts rather than pooling them.
+Run `node scripts/benchmark-claude-history-concurrency.mjs /absolute/pinned/sdk.mjs`.
+Do not merge these numbers with the previous measurement as one percentile.
+
+One shared source service, two separately bound synthetic files, each containing
+2,000 records / 7,592,414 bytes. Twelve sequential rounds open **two workers at
+once**, reading 25-message pages; rounds 2–12 use the version token returned by
+round 1. All 24 reads validate source hash, session identity, selected messages
+and token consistency. Every round observes two active workers and rejects a
+third request without spawning it, then confirms both workers closed and all
+slots were released. SDK/source hashes are unchanged and fixture cleanup passed.
+
+| Metric across 12 rounds / 24 workers | Observed range |
+| --- | ---: |
+| Complete two-read round | 282.638–288.607 ms |
+| Individual parent close handler | 0.634–1.860 ms |
+| Maximum parent timer gap per round | 6.351–6.933 ms |
+| Parent sampled peak RSS per round | 107.234–119.359 MiB |
+| Sum of two worker-reported RSS high-water values | 414.734–427.422 MiB |
+
+The table uses the run after the local test suite finished. An earlier run of the
+same final implementation overlapped with the complete 429-test suite; it is also
+retained, including the less favorable numbers: round latency 283.176–634.014 ms,
+parent close handler up to 4.181 ms and timer gaps up to 10.539 ms. All its 24 reads
+and cleanup checks also passed. This shows load-sensitive latency, not a controlled
+CPU/OS-memory-pressure experiment; the separate production service and fixed
+72-hour soak continued during both contexts.
+
+The summed high-water values are **not a simultaneous total-RSS sample**: each
+worker reports its process high-water at mapping completion. Parent RSS sampling
+can miss peaks and includes fixture construction/earlier allocations and deferred
+GC. These short local observations do not establish absence of leaks, a hard
+memory ceiling, OS low-memory behavior, slow-disk reliability, responsiveness on
+weaker hardware or production/browser acceptance. No memory-exhaustion stressor
+was used alongside the user's running production service/72-hour test.
+
+This confirms bounded two-worker admission and successful version-checked paging
+on the measured fixtures, while retaining a substantial worker-memory cost. Next
+work: reduce avoidable whole-source copies with unchanged-content golden tests,
+measure the same workload again, and add Client-side same-version assembly before
+connecting this reference to a real history view. Native source authentication,
+platform ACL/descriptor containment and durable/live authority remain unverified.

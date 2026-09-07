@@ -152,13 +152,15 @@ export async function capture(suppliedSdk) {
         assert.equal(full.kind, "bound_history_observation", full.code);
         assert.deepEqual(full.history.observation.messages.map(row => row.nativeMessageId), testCase.expectedIds);
         assert.equal(full.history.source.sha256, digest(Buffer.from(testCase.records.map(row => JSON.stringify(row)).join("\n") + "\n")));
-        const partial = await bound.observe({ ...request, requestId: crypto.randomUUID() }, { page: { offset: 1, limit: 2 } });
+        assert.match(full.sourceVersion, /^[a-f0-9]{64}$/);
+        const partial = await bound.observe({ ...request, requestId: crypto.randomUUID() }, { page: { offset: 1, limit: 2 }, version: full.sourceVersion });
         assert.equal(partial.kind, "bound_history_observation", partial.code);
         assert.deepEqual(partial.history.observation.messages.map(row => row.nativeMessageId), testCase.expectedIds.slice(1, 3));
         assert.equal(partial.history.observation.sourceDigest, full.history.observation.sourceDigest);
         assert.equal(partial.history.source.recordCount, testCase.records.length);
         assert.equal(Object.hasOwn(partial.history.source, "records"), false);
         assert.equal(partial.publishable, false); assert.equal(partial.cleanupConfirmed, true);
+        assert.equal(partial.sourceVersion, full.sourceVersion);
       }
       if (["darwin", "linux"].includes(process.platform)) {
         const sessionId = "66666666-6666-4666-8666-666666666666", bindingId = crypto.randomUUID();
@@ -174,6 +176,16 @@ export async function capture(suppliedSdk) {
         const small = await bound.observe({ ...request, requestId: crypto.randomUUID() }, { page: { offset: 79, limit: 1 } });
         assert.equal(small.kind, "bound_history_observation", small.code);
         assert.equal(small.history.observation.messages[0].nativeMessageId, fixture.uuid(579));
+        // Owned fixture mutation, never a private native transcript. A stable
+        // different version must be refused, not concatenated into old pages.
+        const changed = content + JSON.stringify({ type: "custom-title", sessionId, customTitle: "Synthetic changed version" }) + "\n";
+        await fs.appendFile(file, changed.slice(content.length)); richFiles.at(-1).content = changed;
+        const continuation = { page: { offset: 0, limit: 1 }, version: small.sourceVersion };
+        assert.deepEqual(await bound.observe(request, continuation), { kind: "source_unavailable", code: "source_version_changed" });
+        assert.deepEqual(await bound.observe(request, continuation), { kind: "source_unavailable", code: "source_version_unavailable" });
+        const refreshed = await bound.observe(request, { page: continuation.page });
+        assert.equal(refreshed.kind, "bound_history_observation", refreshed.code); assert.notEqual(refreshed.sourceVersion, small.sourceVersion);
+        assert.equal(refreshed.history.source.sha256, digest(Buffer.from(changed)));
       }
     } finally { assert.equal((await service.shutdown()).cleanupConfirmed, true); }
     assert.equal(await fs.readFile(filename, "utf8"), bytes);
@@ -181,6 +193,7 @@ export async function capture(suppliedSdk) {
     assert.equal(digest(await fs.readFile(sdk)), sdkSha256);
     return { ...report, boundObservationGate: process.platform === "win32" ? "platform_unsupported" : "posix_fixture_passed",
       boundPageByteLimitGate: process.platform === "win32" ? "platform_unsupported" : "posix_fixture_passed",
+      boundSourceVersionGate: process.platform === "win32" ? "platform_unsupported" : "posix_fixture_passed",
       nativeFileUnchanged: true, sdkSha256, scope: "Offline read-only SDK history contract; no CLI/model/auth, live approval, reconnect or durable-store verification" };
   } finally { await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
 }

@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.38
+> 計畫版本：1.39
 > 最後更新：2026-09-07
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -54,6 +54,7 @@
 | Claude 無sessionId附加紀錄 | 兩種固定版本格式已補 | 檔案snapshot/delta經2.1.259 writer bytes核對；parser/mapper共用scope規則，同檔whole-source訊息引用不能缺失／重複／借subagent。保留inert index/digest/refs、不填sessionId、不還原檔案；title UUID不進transcript graph。未知unscoped／partial仍拒絕，未上線 |
 | Claude 綁定／隔離讀取生命週期 | reserved reference已實作 | trusted immutable source handle＋generation/revoke fencing；共用2worker/無queue/64binding上限，固定Node唯讀子程序、10s budget＋1s cleanup，未確認退出即quarantine並保留slot。不是authenticated registry／單檔OS隔離／硬即時或Windows ACL，未接Web |
 | Claude 快照選支／分頁效能 | pinned SDK已接隔離worker；局部量測完成 | 官方alpha SessionStore只讀同一份captured records，compaction不改原snapshot；最多100messages／256KiB整頁，不回raw records。7.6MB/2000rows本機三輪：parent處理43–45ms降至<1ms，但全程266–271ms、child約206–209MiB，仍非完整順滑度/記憶體驗收。未上線 |
+| Claude 分頁版本／雙worker | version fence及短測已實作 | first success才發binding內opaque token，續頁比對raw SHA＋dev/ino/size/ns mtime/ctime，worker在SDK前＋parent雙驗；觀察到變更即拒絕並撤銷token，失敗refresh不覆蓋。雙worker12輪/24讀、第三請求busy及cleanup通過；child high-water合計415–427MiB不是即時total RSS，另保留與全套測試並行時延遲較高的結果。沒有舊snapshot cache／Client拼頁／來源auth或Windows ACL，未上線 |
 | Claude 官方登入入口 | Mini當前detected，正式3.0.6 | 使用者回報瀏覽器登入，助手回completed／detected；另行同意的直接CLI最小模型測試成功。metadata API仍liveVerified=false，不以一次成功保證永久有效；不自動修憑證／重試模型，詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
 | 優先可靠性修復 | 已實作，隨rc.3啟用於Mini | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
@@ -63,7 +64,7 @@
 
 ### 下一個可執行任務
 
-**1.38 開發接續**：Codex 真實metadata仍止於non_native_route，官方訂閱／第三方route隔離需本人決定，本輪未再啟動。Claude固定SDK選支/mapper已進受控source worker，透過public alpha SessionStore讀同一snapshot、不再搜尋原檔；page最多100messages/256KiB且共享revoke/取消/cleanup。大history本機量測已有file-hash基線，但每頁仍全檔讀取/JSON複製/選支，cold SDK及約206–209MiB child RSS待優化；缺source-version pinned paging，native新增期間不能直接拼不同SHA的頁。下一步做source-version fencing與記憶體壓力/雙worker實驗，同時補authenticated registration／平台ACL與descriptor-relative containment設計；Node grant仍是projects-root子樹、Windows來源unsupported。其他unscoped/partial、附件/subagent/supersession、approval ACK/resume evidence、durable/authenticated transport接Web仍待。10s+1s不是hard realtime，未知cleanup不能以新service繞過；publishable/authority仍false。Claude模型同意已用，本輪僅synthetic、無私人session/模型/登入操作。3.0.7-rc.1的72h維持原source／起點，與B+rc.2分開，不提前切Rust／DB／原生adapter或部署。詳見 `protocol/native/claude/README.md`、`claude-history-performance.md`、`native-subscription-smoke.md` 與 `session-discovery-and-soak.md`。
+**1.39 開發接續**：Claude分頁來源version fence已實作，續頁必須帶首個成功頁的sourceVersion；不帶version是新view，只能替換不能拼接。觀察到SHA/identity變更即拒絕/撤銷；token只留一份小fingerprint、不持久化或快取舊原文，不是auth。雙worker本機12輪/24讀與每輪第三個busy/退出清理已驗，但worker high-water合計415–427MiB仍高、不是OS實時total/pressure/長期leak驗收。下一步減少whole-source copies（保留SDK compaction原文不变golden）並以相同workload對比，加Client同版本拼頁/舊request fencing，再補authenticated registration／平台ACL與descriptor-relative containment設計；Node grant仍是projects-root子樹，Windows來源unsupported。其他unscoped/partial、附件/subagent/supersession、approval ACK/resume、durable/authenticated transport接Web仍待。Codex真實metadata仍止於non_native_route，官方/第三方route隔離需本人決定；Claude模型同意已用，本輪只synthetic，無私人history/模型/登入/route操作。10s+1s非hard realtime，未知cleanup不能新service繞過；publishable/authority仍false。3.0.7-rc.1的72h原source/起點不動，與B+rc.2分開，不提前部署或切Rust/DB。詳見 `protocol/native/claude/README.md`、`claude-history-performance.md`、`native-subscription-smoke.md` 與 `session-discovery-and-soak.md`。
 
 **2026-09-07 品牌候選**：Jerome明確確認B+為最終方向。新的
 `public/stepsemble-mark.svg` 是向量母版，使用單一module／connector在
@@ -960,6 +961,14 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-07 — Plan 1.39
+
+- 新增source-version fence：observe無version為新view，成功close/驗證後才建立隨機256-bit token，後續options.version僅可引用同service/binding/generation目前版本。每binding最多一個token＋detached raw SHA/dev/ino/size/ns mtime/ctime，不保留raw rows/cursor map；revoke/shutdown清除，成功refresh取代舊token，失敗/取消/oversize不覆蓋。不帶version結果不得append舊view；Client尚未接上。
+- Child雙讀一致source後、SDK import前比較expected fingerprint；parent再比較summary。不同bytes/identity返回source_version_changed無page且舊token不再復活，未知/跨scope/舊generation token before-spawn source_version_unavailable；輸入不能自己指定fingerprint/path。這不是保存舊snapshot、native lock、source authenticity、TTL或跨重啟resume。
+- 新增8tests：detachment/同版repeat/成功refresh替換與失敗cancel保留、跨binding/service/gen重播、wire fingerprint/timestamp changes、late cleanup不發token；POSIX真worker測合成append/edit/truncate/same-bytes replacement在不存在SDK前即被拒。官方pinned SDK contract新增同版partial、owned append→拒絕/撤銷→explicit refresh；Windows來源gate仍unsupported。
+- 新benchmark以一service、兩個各7.6MB/2000records source跑12輪/24次同版25-message讀，每輪第三請求busy且無spawn，均確認2worker/正常close與原檔不變。測試套件完成後量測round282.638–288.607ms、parent handler0.634–1.860ms、timer gap6.351–6.933ms；parent sampled peak107.234–119.359MiB，worker高水位合計414.734–427.422MiB（不是同一時刻total RSS）。另一輪與429項全套測試並行的較差結果一併保留：round最高634.014ms、handler4.181ms、timer gap10.539ms，24讀與cleanup仍通過。兩情境不混成percentile；含dirty=true/exact hashes，非OS exhaustion stressor/leak/完整順滑度驗收。
+- 正式3.0.6/B+rc.2/public/native帳號/私人history/模型與fixed ab227af的72h未動；未接正式Web。待降低重複clone並加入Client同version拼頁，authenticated source registry/ACL/descriptor containment與native全格式/approval/resume/durable仍未完成。跨平台CI依本exact commit驗收。
 
 ### 2026-09-07 — Plan 1.38
 

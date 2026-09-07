@@ -1,0 +1,1060 @@
+{
+  "schemaVersion": 1,
+  "description": "Two separate workload contexts on the same implementation. Do not pool their latencies or interpret them as controlled OS-pressure tests.",
+  "runs": [
+    {
+      "context": "Same implementation benchmark overlapped with the full local 429-test suite; retained as an interference observation, not the quiet-workload baseline.",
+      "result": {
+        "schemaVersion": 1,
+        "recordedAt": "2026-09-07T14:41:00.179Z",
+        "sourceCommit": "ffb07e61bf2adb97e9a25ba6aa6b5c384c7d2669",
+        "sourceWorktreeDirty": true,
+        "sourceSha256": {
+          "protocol/native/claude/history-observation-value.js": "8ff8ceb3b4be2331496c4511790181a10470fb704a1ddb52eca2d9b0c9a8bd48",
+          "protocol/native/claude/history-observation.js": "fc137d0892070babcdf76ef3dec8d8b772b4dd870005a6392ded4587d5df74fa",
+          "protocol/native/claude/history-record-scope.js": "30cc730be6e593d7d3c9253457b5f716b46f5c586f0623f74202269049a19f42",
+          "protocol/native/claude/history-sdk.js": "1f91759420ecb6b71b045c86e055d597b50740d4d919fe72accccb304948ff68",
+          "protocol/native/claude/history-selection.js": "63a578543fda08025ad3a6686b65a4c67058715c5696a515f2f92e7f773164f7",
+          "protocol/native/claude/history-source-service.js": "bba717f414f93821405a5276f4ccc8883026fef54e0cac259a72fa225d4e5264",
+          "protocol/native/claude/history-source-worker.js": "636e66da62eea18be17749045159fe7e6bc23c588d58acda26a8fe6ffc2f38e6",
+          "protocol/native/claude/history-source.js": "dc7b39285399c57b5e2df68d382dfba1e0aa999c1f4a60f88b57434937983593",
+          "protocol/native/claude/history-worker-wire.js": "9f0af1c0aa61d02194b4bca2d6e4a17ddd836245f7312704c4a39a0eb3398b1f",
+          "scripts/benchmark-claude-history-concurrency.mjs": "3ac02271b7aeb2357de9777eb514505c215d1197f1818cf4b7af9fb1c069df77",
+          "scripts/benchmark-claude-history.mjs": "1397caad25e4515593cbabf534ebddd24f9bd6fe946b45d57738d69093a80fba",
+          "public/modules/projection.js": "9ca33115762e30ac35519f5ae6e52928f06743f30078cddf17fdd02cd366a760"
+        },
+        "environment": {
+          "platform": "darwin",
+          "release": "25.6.0",
+          "arch": "arm64",
+          "node": "v22.22.3",
+          "cpuLogicalCount": 10
+        },
+        "sdkVersion": "0.3.259",
+        "sdkSha256": "7fa7c212361864544e775e7551519e790515f95d4bb6a4831b0b05f5b368a0c5",
+        "workload": {
+          "sources": 2,
+          "sourceBytes": [
+            7592414,
+            7592414
+          ],
+          "rowsPerSource": 2000,
+          "textBytesPerRow": 3500,
+          "rounds": 12,
+          "successfulReads": 24,
+          "pageMessages": 25,
+          "concurrentWorkers": 2,
+          "admissionRejections": 12
+        },
+        "rounds": [
+          {
+            "round": 1,
+            "page": {
+              "offset": 1975,
+              "limit": 25
+            },
+            "elapsedMs": 283.568,
+            "workers": [
+              {
+                "elapsedMs": 281.89,
+                "workerMetrics": {
+                  "mappingMs": 91.795,
+                  "maxRssKiB": 214800,
+                  "selectionMs": 14.056
+                },
+                "wireBytes": 100358,
+                "parentCloseHandlerMs": 1.95
+              },
+              {
+                "elapsedMs": 283.541,
+                "workerMetrics": {
+                  "mappingMs": 93.505,
+                  "maxRssKiB": 213024,
+                  "selectionMs": 14.13
+                },
+                "wireBytes": 100358,
+                "parentCloseHandlerMs": 0.855
+              }
+            ],
+            "parentTimerMaxGapMs": 6.454,
+            "parentTimerTicks": 47,
+            "parentRssBeforeMiB": 116.578,
+            "parentSampledPeakRssMiB": 120,
+            "parentRssAfterMiB": 120,
+            "sumWorkerHighWaterMiB": 417.797,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 2,
+            "page": {
+              "offset": 1950,
+              "limit": 25
+            },
+            "elapsedMs": 287.416,
+            "workers": [
+              {
+                "elapsedMs": 287.391,
+                "workerMetrics": {
+                  "mappingMs": 94.862,
+                  "maxRssKiB": 215808,
+                  "selectionMs": 17.968
+                },
+                "wireBytes": 100309,
+                "parentCloseHandlerMs": 0.657
+              },
+              {
+                "elapsedMs": 286.627,
+                "workerMetrics": {
+                  "mappingMs": 94.07,
+                  "maxRssKiB": 216176,
+                  "selectionMs": 17.233
+                },
+                "wireBytes": 100309,
+                "parentCloseHandlerMs": 0.884
+              }
+            ],
+            "parentTimerMaxGapMs": 6.543,
+            "parentTimerTicks": 48,
+            "parentRssBeforeMiB": 120,
+            "parentSampledPeakRssMiB": 120,
+            "parentRssAfterMiB": 105.703,
+            "sumWorkerHighWaterMiB": 421.859,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 3,
+            "page": {
+              "offset": 1925,
+              "limit": 25
+            },
+            "elapsedMs": 283.176,
+            "workers": [
+              {
+                "elapsedMs": 282.06,
+                "workerMetrics": {
+                  "mappingMs": 93.046,
+                  "maxRssKiB": 214880,
+                  "selectionMs": 15.212
+                },
+                "wireBytes": 100358,
+                "parentCloseHandlerMs": 0.85
+              },
+              {
+                "elapsedMs": 283.101,
+                "workerMetrics": {
+                  "mappingMs": 93.439,
+                  "maxRssKiB": 216480,
+                  "selectionMs": 16.496
+                },
+                "wireBytes": 100357,
+                "parentCloseHandlerMs": 0.724
+              }
+            ],
+            "parentTimerMaxGapMs": 6.423,
+            "parentTimerTicks": 47,
+            "parentRssBeforeMiB": 105.703,
+            "parentSampledPeakRssMiB": 108.484,
+            "parentRssAfterMiB": 108.484,
+            "sumWorkerHighWaterMiB": 421.25,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 4,
+            "page": {
+              "offset": 1900,
+              "limit": 25
+            },
+            "elapsedMs": 311.447,
+            "workers": [
+              {
+                "elapsedMs": 302.086,
+                "workerMetrics": {
+                  "mappingMs": 98.734,
+                  "maxRssKiB": 221248,
+                  "selectionMs": 14.491
+                },
+                "wireBytes": 100309,
+                "parentCloseHandlerMs": 2.224
+              },
+              {
+                "elapsedMs": 311.407,
+                "workerMetrics": {
+                  "mappingMs": 107.62,
+                  "maxRssKiB": 216224,
+                  "selectionMs": 17.303
+                },
+                "wireBytes": 100310,
+                "parentCloseHandlerMs": 2.376
+              }
+            ],
+            "parentTimerMaxGapMs": 9.315,
+            "parentTimerTicks": 50,
+            "parentRssBeforeMiB": 108.484,
+            "parentSampledPeakRssMiB": 111.984,
+            "parentRssAfterMiB": 111.984,
+            "sumWorkerHighWaterMiB": 427.219,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 5,
+            "page": {
+              "offset": 1875,
+              "limit": 25
+            },
+            "elapsedMs": 634.014,
+            "workers": [
+              {
+                "elapsedMs": 633.966,
+                "workerMetrics": {
+                  "mappingMs": 178.961,
+                  "maxRssKiB": 203840,
+                  "selectionMs": 21.605
+                },
+                "wireBytes": 100351,
+                "parentCloseHandlerMs": 1.096
+              },
+              {
+                "elapsedMs": 584.867,
+                "workerMetrics": {
+                  "mappingMs": 161.397,
+                  "maxRssKiB": 202640,
+                  "selectionMs": 17.745
+                },
+                "wireBytes": 100359,
+                "parentCloseHandlerMs": 4.181
+              }
+            ],
+            "parentTimerMaxGapMs": 9.627,
+            "parentTimerTicks": 102,
+            "parentRssBeforeMiB": 111.984,
+            "parentSampledPeakRssMiB": 115.594,
+            "parentRssAfterMiB": 115.594,
+            "sumWorkerHighWaterMiB": 396.953,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 6,
+            "page": {
+              "offset": 1850,
+              "limit": 25
+            },
+            "elapsedMs": 610.174,
+            "workers": [
+              {
+                "elapsedMs": 604.601,
+                "workerMetrics": {
+                  "mappingMs": 149.524,
+                  "maxRssKiB": 202016,
+                  "selectionMs": 23.455
+                },
+                "wireBytes": 100309,
+                "parentCloseHandlerMs": 1.131
+              },
+              {
+                "elapsedMs": 610.14,
+                "workerMetrics": {
+                  "mappingMs": 154.211,
+                  "maxRssKiB": 204224,
+                  "selectionMs": 19.729
+                },
+                "wireBytes": 100310,
+                "parentCloseHandlerMs": 0.859
+              }
+            ],
+            "parentTimerMaxGapMs": 10.539,
+            "parentTimerTicks": 98,
+            "parentRssBeforeMiB": 115.594,
+            "parentSampledPeakRssMiB": 115.828,
+            "parentRssAfterMiB": 115.828,
+            "sumWorkerHighWaterMiB": 396.719,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 7,
+            "page": {
+              "offset": 1825,
+              "limit": 25
+            },
+            "elapsedMs": 405.742,
+            "workers": [
+              {
+                "elapsedMs": 405.712,
+                "workerMetrics": {
+                  "mappingMs": 124.219,
+                  "maxRssKiB": 213152,
+                  "selectionMs": 21.075
+                },
+                "wireBytes": 100359,
+                "parentCloseHandlerMs": 0.832
+              },
+              {
+                "elapsedMs": 402.335,
+                "workerMetrics": {
+                  "mappingMs": 115.505,
+                  "maxRssKiB": 213696,
+                  "selectionMs": 17.861
+                },
+                "wireBytes": 100359,
+                "parentCloseHandlerMs": 1.75
+              }
+            ],
+            "parentTimerMaxGapMs": 7.318,
+            "parentTimerTicks": 68,
+            "parentRssBeforeMiB": 115.828,
+            "parentSampledPeakRssMiB": 115.844,
+            "parentRssAfterMiB": 115.844,
+            "sumWorkerHighWaterMiB": 416.844,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 8,
+            "page": {
+              "offset": 1800,
+              "limit": 25
+            },
+            "elapsedMs": 373.894,
+            "workers": [
+              {
+                "elapsedMs": 373.867,
+                "workerMetrics": {
+                  "mappingMs": 111.863,
+                  "maxRssKiB": 214816,
+                  "selectionMs": 17.637
+                },
+                "wireBytes": 100298,
+                "parentCloseHandlerMs": 0.903
+              },
+              {
+                "elapsedMs": 365.491,
+                "workerMetrics": {
+                  "mappingMs": 110.433,
+                  "maxRssKiB": 214928,
+                  "selectionMs": 18.494
+                },
+                "wireBytes": 100310,
+                "parentCloseHandlerMs": 0.958
+              }
+            ],
+            "parentTimerMaxGapMs": 6.743,
+            "parentTimerTicks": 63,
+            "parentRssBeforeMiB": 115.844,
+            "parentSampledPeakRssMiB": 115.938,
+            "parentRssAfterMiB": 115.938,
+            "sumWorkerHighWaterMiB": 419.672,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 9,
+            "page": {
+              "offset": 1775,
+              "limit": 25
+            },
+            "elapsedMs": 309.896,
+            "workers": [
+              {
+                "elapsedMs": 308.966,
+                "workerMetrics": {
+                  "mappingMs": 96.281,
+                  "maxRssKiB": 213712,
+                  "selectionMs": 15.188
+                },
+                "wireBytes": 100350,
+                "parentCloseHandlerMs": 0.938
+              },
+              {
+                "elapsedMs": 309.868,
+                "workerMetrics": {
+                  "mappingMs": 97.678,
+                  "maxRssKiB": 217184,
+                  "selectionMs": 16.977
+                },
+                "wireBytes": 100349,
+                "parentCloseHandlerMs": 0.836
+              }
+            ],
+            "parentTimerMaxGapMs": 6.74,
+            "parentTimerTicks": 52,
+            "parentRssBeforeMiB": 115.938,
+            "parentSampledPeakRssMiB": 117,
+            "parentRssAfterMiB": 117,
+            "sumWorkerHighWaterMiB": 420.797,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 10,
+            "page": {
+              "offset": 1750,
+              "limit": 25
+            },
+            "elapsedMs": 310.895,
+            "workers": [
+              {
+                "elapsedMs": 310.866,
+                "workerMetrics": {
+                  "mappingMs": 109.263,
+                  "maxRssKiB": 216480,
+                  "selectionMs": 14.536
+                },
+                "wireBytes": 100310,
+                "parentCloseHandlerMs": 0.819
+              },
+              {
+                "elapsedMs": 307.997,
+                "workerMetrics": {
+                  "mappingMs": 103.891,
+                  "maxRssKiB": 214224,
+                  "selectionMs": 15.467
+                },
+                "wireBytes": 100302,
+                "parentCloseHandlerMs": 0.878
+              }
+            ],
+            "parentTimerMaxGapMs": 7.199,
+            "parentTimerTicks": 51,
+            "parentRssBeforeMiB": 117,
+            "parentSampledPeakRssMiB": 117,
+            "parentRssAfterMiB": 110,
+            "sumWorkerHighWaterMiB": 420.609,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 11,
+            "page": {
+              "offset": 1725,
+              "limit": 25
+            },
+            "elapsedMs": 364.029,
+            "workers": [
+              {
+                "elapsedMs": 363.933,
+                "workerMetrics": {
+                  "mappingMs": 116.614,
+                  "maxRssKiB": 215408,
+                  "selectionMs": 21.04
+                },
+                "wireBytes": 100359,
+                "parentCloseHandlerMs": 1.704
+              },
+              {
+                "elapsedMs": 359.593,
+                "workerMetrics": {
+                  "mappingMs": 118.479,
+                  "maxRssKiB": 215648,
+                  "selectionMs": 16.878
+                },
+                "wireBytes": 100359,
+                "parentCloseHandlerMs": 1.592
+              }
+            ],
+            "parentTimerMaxGapMs": 7.559,
+            "parentTimerTicks": 62,
+            "parentRssBeforeMiB": 110,
+            "parentSampledPeakRssMiB": 110,
+            "parentRssAfterMiB": 110,
+            "sumWorkerHighWaterMiB": 420.953,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 12,
+            "page": {
+              "offset": 1700,
+              "limit": 25
+            },
+            "elapsedMs": 421.753,
+            "workers": [
+              {
+                "elapsedMs": 398.256,
+                "workerMetrics": {
+                  "mappingMs": 140.806,
+                  "maxRssKiB": 214480,
+                  "selectionMs": 16.95
+                },
+                "wireBytes": 100302,
+                "parentCloseHandlerMs": 0.745
+              },
+              {
+                "elapsedMs": 421.719,
+                "workerMetrics": {
+                  "mappingMs": 144.091,
+                  "maxRssKiB": 218928,
+                  "selectionMs": 23.76
+                },
+                "wireBytes": 100302,
+                "parentCloseHandlerMs": 2.076
+              }
+            ],
+            "parentTimerMaxGapMs": 8.231,
+            "parentTimerTicks": 71,
+            "parentRssBeforeMiB": 110,
+            "parentSampledPeakRssMiB": 110.063,
+            "parentRssAfterMiB": 110.063,
+            "sumWorkerHighWaterMiB": 423.25,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          }
+        ],
+        "cleanupConfirmed": true,
+        "modelCalls": 0,
+        "sourceUnchanged": true,
+        "limitations": [
+          "Local bounded synthetic dual-worker experiment, not OS memory pressure, a memory ceiling or long-term leak proof",
+          "Same service across rounds; fresh workers, warm OS cache; no GC forcing or percentile claim",
+          "Parent sampled RSS may miss peaks and includes fixture construction and deferred GC",
+          "Sum of worker-reported high-water RSS at mapping completion is NOT a simultaneous total-RSS sample",
+          "5ms timer gaps include scheduler delay; close-handler includes decoding, validation and settlement",
+          "Version tokens reject observed changes but do not cache old snapshots, lock the native file, authenticate its origin or make live UI authoritative"
+        ]
+      }
+    },
+    {
+      "context": "Repeated after the local test suite finished; production and the separate fixed 72-hour soak continued unchanged.",
+      "result": {
+        "schemaVersion": 1,
+        "recordedAt": "2026-09-07T14:41:37.486Z",
+        "sourceCommit": "ffb07e61bf2adb97e9a25ba6aa6b5c384c7d2669",
+        "sourceWorktreeDirty": true,
+        "sourceSha256": {
+          "protocol/native/claude/history-observation-value.js": "8ff8ceb3b4be2331496c4511790181a10470fb704a1ddb52eca2d9b0c9a8bd48",
+          "protocol/native/claude/history-observation.js": "fc137d0892070babcdf76ef3dec8d8b772b4dd870005a6392ded4587d5df74fa",
+          "protocol/native/claude/history-record-scope.js": "30cc730be6e593d7d3c9253457b5f716b46f5c586f0623f74202269049a19f42",
+          "protocol/native/claude/history-sdk.js": "1f91759420ecb6b71b045c86e055d597b50740d4d919fe72accccb304948ff68",
+          "protocol/native/claude/history-selection.js": "63a578543fda08025ad3a6686b65a4c67058715c5696a515f2f92e7f773164f7",
+          "protocol/native/claude/history-source-service.js": "bba717f414f93821405a5276f4ccc8883026fef54e0cac259a72fa225d4e5264",
+          "protocol/native/claude/history-source-worker.js": "636e66da62eea18be17749045159fe7e6bc23c588d58acda26a8fe6ffc2f38e6",
+          "protocol/native/claude/history-source.js": "dc7b39285399c57b5e2df68d382dfba1e0aa999c1f4a60f88b57434937983593",
+          "protocol/native/claude/history-worker-wire.js": "9f0af1c0aa61d02194b4bca2d6e4a17ddd836245f7312704c4a39a0eb3398b1f",
+          "scripts/benchmark-claude-history-concurrency.mjs": "3ac02271b7aeb2357de9777eb514505c215d1197f1818cf4b7af9fb1c069df77",
+          "scripts/benchmark-claude-history.mjs": "1397caad25e4515593cbabf534ebddd24f9bd6fe946b45d57738d69093a80fba",
+          "public/modules/projection.js": "9ca33115762e30ac35519f5ae6e52928f06743f30078cddf17fdd02cd366a760"
+        },
+        "environment": {
+          "platform": "darwin",
+          "release": "25.6.0",
+          "arch": "arm64",
+          "node": "v22.22.3",
+          "cpuLogicalCount": 10
+        },
+        "sdkVersion": "0.3.259",
+        "sdkSha256": "7fa7c212361864544e775e7551519e790515f95d4bb6a4831b0b05f5b368a0c5",
+        "workload": {
+          "sources": 2,
+          "sourceBytes": [
+            7592414,
+            7592414
+          ],
+          "rowsPerSource": 2000,
+          "textBytesPerRow": 3500,
+          "rounds": 12,
+          "successfulReads": 24,
+          "pageMessages": 25,
+          "concurrentWorkers": 2,
+          "admissionRejections": 12
+        },
+        "rounds": [
+          {
+            "round": 1,
+            "page": {
+              "offset": 1975,
+              "limit": 25
+            },
+            "elapsedMs": 286.593,
+            "workers": [
+              {
+                "elapsedMs": 286.565,
+                "workerMetrics": {
+                  "mappingMs": 93.933,
+                  "maxRssKiB": 214288,
+                  "selectionMs": 13.908
+                },
+                "wireBytes": 100358,
+                "parentCloseHandlerMs": 0.854
+              },
+              {
+                "elapsedMs": 285.648,
+                "workerMetrics": {
+                  "mappingMs": 93.047,
+                  "maxRssKiB": 214800,
+                  "selectionMs": 14.696
+                },
+                "wireBytes": 100358,
+                "parentCloseHandlerMs": 1.86
+              }
+            ],
+            "parentTimerMaxGapMs": 6.622,
+            "parentTimerTicks": 48,
+            "parentRssBeforeMiB": 115.922,
+            "parentSampledPeakRssMiB": 119.359,
+            "parentRssAfterMiB": 119.359,
+            "sumWorkerHighWaterMiB": 419.031,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 2,
+            "page": {
+              "offset": 1950,
+              "limit": 25
+            },
+            "elapsedMs": 283.434,
+            "workers": [
+              {
+                "elapsedMs": 283.407,
+                "workerMetrics": {
+                  "mappingMs": 93.578,
+                  "maxRssKiB": 214752,
+                  "selectionMs": 16.424
+                },
+                "wireBytes": 100308,
+                "parentCloseHandlerMs": 0.694
+              },
+              {
+                "elapsedMs": 281.135,
+                "workerMetrics": {
+                  "mappingMs": 93.484,
+                  "maxRssKiB": 216368,
+                  "selectionMs": 14.429
+                },
+                "wireBytes": 100301,
+                "parentCloseHandlerMs": 0.878
+              }
+            ],
+            "parentTimerMaxGapMs": 6.463,
+            "parentTimerTicks": 47,
+            "parentRssBeforeMiB": 119.359,
+            "parentSampledPeakRssMiB": 119.359,
+            "parentRssAfterMiB": 105.047,
+            "sumWorkerHighWaterMiB": 421.016,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 3,
+            "page": {
+              "offset": 1925,
+              "limit": 25
+            },
+            "elapsedMs": 284.413,
+            "workers": [
+              {
+                "elapsedMs": 283.511,
+                "workerMetrics": {
+                  "mappingMs": 93.157,
+                  "maxRssKiB": 216576,
+                  "selectionMs": 14.701
+                },
+                "wireBytes": 100357,
+                "parentCloseHandlerMs": 0.871
+              },
+              {
+                "elapsedMs": 284.328,
+                "workerMetrics": {
+                  "mappingMs": 94.077,
+                  "maxRssKiB": 218944,
+                  "selectionMs": 14.835
+                },
+                "wireBytes": 100350,
+                "parentCloseHandlerMs": 0.751
+              }
+            ],
+            "parentTimerMaxGapMs": 6.572,
+            "parentTimerTicks": 48,
+            "parentRssBeforeMiB": 105.047,
+            "parentSampledPeakRssMiB": 107.75,
+            "parentRssAfterMiB": 107.75,
+            "sumWorkerHighWaterMiB": 425.313,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 4,
+            "page": {
+              "offset": 1900,
+              "limit": 25
+            },
+            "elapsedMs": 284.884,
+            "workers": [
+              {
+                "elapsedMs": 284.858,
+                "workerMetrics": {
+                  "mappingMs": 96.939,
+                  "maxRssKiB": 216448,
+                  "selectionMs": 15.936
+                },
+                "wireBytes": 100309,
+                "parentCloseHandlerMs": 0.803
+              },
+              {
+                "elapsedMs": 283.99,
+                "workerMetrics": {
+                  "mappingMs": 94.98,
+                  "maxRssKiB": 212960,
+                  "selectionMs": 15.028
+                },
+                "wireBytes": 100301,
+                "parentCloseHandlerMs": 0.916
+              }
+            ],
+            "parentTimerMaxGapMs": 6.933,
+            "parentTimerTicks": 47,
+            "parentRssBeforeMiB": 107.75,
+            "parentSampledPeakRssMiB": 110.797,
+            "parentRssAfterMiB": 110.797,
+            "sumWorkerHighWaterMiB": 419.344,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 5,
+            "page": {
+              "offset": 1875,
+              "limit": 25
+            },
+            "elapsedMs": 288.607,
+            "workers": [
+              {
+                "elapsedMs": 287.691,
+                "workerMetrics": {
+                  "mappingMs": 93.285,
+                  "maxRssKiB": 214896,
+                  "selectionMs": 14.7
+                },
+                "wireBytes": 100350,
+                "parentCloseHandlerMs": 1.046
+              },
+              {
+                "elapsedMs": 288.581,
+                "workerMetrics": {
+                  "mappingMs": 93.702,
+                  "maxRssKiB": 216160,
+                  "selectionMs": 16.335
+                },
+                "wireBytes": 100358,
+                "parentCloseHandlerMs": 0.764
+              }
+            ],
+            "parentTimerMaxGapMs": 6.351,
+            "parentTimerTicks": 48,
+            "parentRssBeforeMiB": 110.797,
+            "parentSampledPeakRssMiB": 114.047,
+            "parentRssAfterMiB": 114.047,
+            "sumWorkerHighWaterMiB": 420.953,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 6,
+            "page": {
+              "offset": 1850,
+              "limit": 25
+            },
+            "elapsedMs": 282.638,
+            "workers": [
+              {
+                "elapsedMs": 280.778,
+                "workerMetrics": {
+                  "mappingMs": 92.129,
+                  "maxRssKiB": 214800,
+                  "selectionMs": 14.677
+                },
+                "wireBytes": 100300,
+                "parentCloseHandlerMs": 1.023
+              },
+              {
+                "elapsedMs": 282.614,
+                "workerMetrics": {
+                  "mappingMs": 93.673,
+                  "maxRssKiB": 212448,
+                  "selectionMs": 13.773
+                },
+                "wireBytes": 100301,
+                "parentCloseHandlerMs": 0.753
+              }
+            ],
+            "parentTimerMaxGapMs": 6.698,
+            "parentTimerTicks": 48,
+            "parentRssBeforeMiB": 114.047,
+            "parentSampledPeakRssMiB": 114.141,
+            "parentRssAfterMiB": 107,
+            "sumWorkerHighWaterMiB": 417.234,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 7,
+            "page": {
+              "offset": 1825,
+              "limit": 25
+            },
+            "elapsedMs": 286.021,
+            "workers": [
+              {
+                "elapsedMs": 285.998,
+                "workerMetrics": {
+                  "mappingMs": 95.252,
+                  "maxRssKiB": 214240,
+                  "selectionMs": 13.785
+                },
+                "wireBytes": 100358,
+                "parentCloseHandlerMs": 0.693
+              },
+              {
+                "elapsedMs": 283.197,
+                "workerMetrics": {
+                  "mappingMs": 92.012,
+                  "maxRssKiB": 213376,
+                  "selectionMs": 14.642
+                },
+                "wireBytes": 100358,
+                "parentCloseHandlerMs": 0.803
+              }
+            ],
+            "parentTimerMaxGapMs": 6.369,
+            "parentTimerTicks": 48,
+            "parentRssBeforeMiB": 107,
+            "parentSampledPeakRssMiB": 107.234,
+            "parentRssAfterMiB": 107.234,
+            "sumWorkerHighWaterMiB": 417.594,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 8,
+            "page": {
+              "offset": 1800,
+              "limit": 25
+            },
+            "elapsedMs": 284.291,
+            "workers": [
+              {
+                "elapsedMs": 284.271,
+                "workerMetrics": {
+                  "mappingMs": 93.986,
+                  "maxRssKiB": 224512,
+                  "selectionMs": 16.511
+                },
+                "wireBytes": 100301,
+                "parentCloseHandlerMs": 0.634
+              },
+              {
+                "elapsedMs": 283.113,
+                "workerMetrics": {
+                  "mappingMs": 92.882,
+                  "maxRssKiB": 213168,
+                  "selectionMs": 15.243
+                },
+                "wireBytes": 100301,
+                "parentCloseHandlerMs": 0.791
+              }
+            ],
+            "parentTimerMaxGapMs": 6.377,
+            "parentTimerTicks": 48,
+            "parentRssBeforeMiB": 107.234,
+            "parentSampledPeakRssMiB": 107.344,
+            "parentRssAfterMiB": 107.344,
+            "sumWorkerHighWaterMiB": 427.422,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 9,
+            "page": {
+              "offset": 1775,
+              "limit": 25
+            },
+            "elapsedMs": 282.791,
+            "workers": [
+              {
+                "elapsedMs": 281.288,
+                "workerMetrics": {
+                  "mappingMs": 93.528,
+                  "maxRssKiB": 215328,
+                  "selectionMs": 14.365
+                },
+                "wireBytes": 100358,
+                "parentCloseHandlerMs": 0.812
+              },
+              {
+                "elapsedMs": 282.768,
+                "workerMetrics": {
+                  "mappingMs": 96.47,
+                  "maxRssKiB": 212656,
+                  "selectionMs": 14.163
+                },
+                "wireBytes": 100358,
+                "parentCloseHandlerMs": 0.714
+              }
+            ],
+            "parentTimerMaxGapMs": 6.385,
+            "parentTimerTicks": 47,
+            "parentRssBeforeMiB": 107.344,
+            "parentSampledPeakRssMiB": 107.469,
+            "parentRssAfterMiB": 107.469,
+            "sumWorkerHighWaterMiB": 417.953,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 10,
+            "page": {
+              "offset": 1750,
+              "limit": 25
+            },
+            "elapsedMs": 287.643,
+            "workers": [
+              {
+                "elapsedMs": 287.619,
+                "workerMetrics": {
+                  "mappingMs": 95.691,
+                  "maxRssKiB": 214336,
+                  "selectionMs": 17.229
+                },
+                "wireBytes": 100309,
+                "parentCloseHandlerMs": 0.653
+              },
+              {
+                "elapsedMs": 286.62,
+                "workerMetrics": {
+                  "mappingMs": 95.143,
+                  "maxRssKiB": 216032,
+                  "selectionMs": 16.445
+                },
+                "wireBytes": 100309,
+                "parentCloseHandlerMs": 0.812
+              }
+            ],
+            "parentTimerMaxGapMs": 6.387,
+            "parentTimerTicks": 48,
+            "parentRssBeforeMiB": 107.469,
+            "parentSampledPeakRssMiB": 109.063,
+            "parentRssAfterMiB": 109.063,
+            "sumWorkerHighWaterMiB": 420.281,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 11,
+            "page": {
+              "offset": 1725,
+              "limit": 25
+            },
+            "elapsedMs": 288.076,
+            "workers": [
+              {
+                "elapsedMs": 285.992,
+                "workerMetrics": {
+                  "mappingMs": 93.807,
+                  "maxRssKiB": 210112,
+                  "selectionMs": 10.629
+                },
+                "wireBytes": 100357,
+                "parentCloseHandlerMs": 0.807
+              },
+              {
+                "elapsedMs": 288.039,
+                "workerMetrics": {
+                  "mappingMs": 95.678,
+                  "maxRssKiB": 214576,
+                  "selectionMs": 13.959
+                },
+                "wireBytes": 100358,
+                "parentCloseHandlerMs": 0.748
+              }
+            ],
+            "parentTimerMaxGapMs": 6.595,
+            "parentTimerTicks": 48,
+            "parentRssBeforeMiB": 109.063,
+            "parentSampledPeakRssMiB": 109.125,
+            "parentRssAfterMiB": 109.125,
+            "sumWorkerHighWaterMiB": 414.734,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          },
+          {
+            "round": 12,
+            "page": {
+              "offset": 1700,
+              "limit": 25
+            },
+            "elapsedMs": 285.924,
+            "workers": [
+              {
+                "elapsedMs": 285.215,
+                "workerMetrics": {
+                  "mappingMs": 95.256,
+                  "maxRssKiB": 214240,
+                  "selectionMs": 14.894
+                },
+                "wireBytes": 100301,
+                "parentCloseHandlerMs": 0.823
+              },
+              {
+                "elapsedMs": 285.901,
+                "workerMetrics": {
+                  "mappingMs": 94.476,
+                  "maxRssKiB": 216336,
+                  "selectionMs": 16.038
+                },
+                "wireBytes": 100309,
+                "parentCloseHandlerMs": 0.635
+              }
+            ],
+            "parentTimerMaxGapMs": 6.368,
+            "parentTimerTicks": 48,
+            "parentRssBeforeMiB": 109.125,
+            "parentSampledPeakRssMiB": 109.156,
+            "parentRssAfterMiB": 109.156,
+            "sumWorkerHighWaterMiB": 420.484,
+            "activeWorkersObserved": 2,
+            "thirdRejectedWithoutSpawn": true,
+            "cleanupObserved": true
+          }
+        ],
+        "cleanupConfirmed": true,
+        "modelCalls": 0,
+        "sourceUnchanged": true,
+        "limitations": [
+          "Local bounded synthetic dual-worker experiment, not OS memory pressure, a memory ceiling or long-term leak proof",
+          "Same service across rounds; fresh workers, warm OS cache; no GC forcing or percentile claim",
+          "Parent sampled RSS may miss peaks and includes fixture construction and deferred GC",
+          "Sum of worker-reported high-water RSS at mapping completion is NOT a simultaneous total-RSS sample",
+          "5ms timer gaps include scheduler delay; close-handler includes decoding, validation and settlement",
+          "Version tokens reject observed changes but do not cache old snapshots, lock the native file, authenticate its origin or make live UI authoritative"
+        ]
+      }
+    }
+  ]
+}

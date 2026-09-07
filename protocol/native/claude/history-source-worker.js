@@ -2,7 +2,7 @@
 // One job in an owned read-only Node subprocess. Optional pinned offline SDK
 // history selection; no native CLI, model, login or network API is called.
 const { createSourceReader } = require("./history-source");
-const { WIRE_VERSION, LIMITS, decode, validJob } = require("./history-worker-wire");
+const { WIRE_VERSION, LIMITS, decode, validJob, sameSourceVersion } = require("./history-worker-wire");
 async function main() {
   const chunks = []; let length = 0;
   for await (const chunk of process.stdin) {
@@ -16,6 +16,9 @@ async function main() {
   let result;
   try { result = await createSourceReader()(job.source); }
   catch { result = { kind: "source_unavailable", code: "source_worker_failure" }; }
+  // Reject a stale continuation before loading the SDK or mapping any records.
+  if (job.history?.expectedVersion && result.kind === "source_snapshot" && !sameSourceVersion(job.history.expectedVersion, result))
+    result = { kind: "source_unavailable", code: "source_version_changed" };
   if (job.history && result.kind === "source_snapshot") {
     let getSessionMessages;
     try { getSessionMessages = await require("./history-sdk").loadReader(job.history.sdkPath); }

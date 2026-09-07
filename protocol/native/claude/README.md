@@ -365,8 +365,57 @@ tampered responses and rejection of changed SDK bytes before execution.
 
 [Local large-history results](../../../docs/claude-history-performance.md) show
 reduced parent decode/validation work, not complete UI/latency/memory acceptance.
-Every page still rereads/selects the whole bounded source; version-pinned paging,
-cache/index design, peak-RSS pressure and authenticated publication remain open.
+Every page still rereads/selects the whole bounded source. The version fence below
+rejects changed sources; it does not cache/index old snapshots or establish
+peak-RSS pressure safety or authenticated publication.
+
+## Source-version fence for successive pages
+
+An unversioned `bound.observe(request, {page})` starts a new view. Only a successful,
+validated result **after owned-child close** returns `sourceVersion`, a random
+256-bit opaque token. Subsequent pages must pass that token as
+`bound.observe(nextRequest, {page: nextPage, version: first.sourceVersion})`.
+An unversioned result is a replacement view, **never an append to an old view**.
+The future Client must keep its request/view fencing and only combine results
+from the same binding, generation and `sourceVersion`; there is no Web integration
+or UI accumulator in this reference yet.
+
+Each binding holds only one token and a detached small fingerprint: raw-file
+SHA-256 plus device/inode/size/mtimeNs/ctimeNs. No history rows, arbitrary cursor
+map or copy of native credentials is retained. Tokens belong to this exact service
+instance and binding generation; they do not survive restart or authenticate the
+caller/native origin. They have no wall-clock TTL: refresh, revoke, shutdown or
+an observed mismatch invalidates them. Use the single shared Host service, not a
+new instance per page.
+
+- A matching continuation rereads the bounded source using the existing POSIX
+  consistency gate. The worker compares the captured fingerprint **before SDK
+  import/selection**; the parent independently compares the returned summary.
+  Different bytes, inode, size or nanosecond timestamps return
+  `source_version_changed` with no page; that token cannot revive if bytes later
+  return to their previous value. A new explicit unversioned read is required.
+- Unknown, foreign, revoked or superseded tokens return
+  `source_version_unavailable` before spawning. Malformed tokens return
+  `invalid_history_version`. A request cannot supply its own fingerprint/path.
+- Successful explicit refresh replaces the previous token even if bytes are
+  unchanged. Failed/cancelled refresh, transient IO errors, or oversize responses
+  do not replace it; a later continuation still has to pass the full source gate.
+  A caller may explicitly request fewer messages after an oversize page.
+- This is a version mismatch detector, **not MVCC/file locking or an old snapshot
+  cache**. Native writes after capture can make the delivered page stale; writes
+  that were never observed are not audited. No atomic filesystem/provenance/ACL
+  guarantee, approval ACK, run-terminal or resume authority follows from a token.
+
+Eight additional ordinary tests cover detached fingerprints, continuation/repeat,
+refresh failures/cancellation, token replay across scope/generation/service,
+late cleanup, changed identities and real POSIX append/edit/truncate/replacement
+rejection before an unavailable SDK could load. The pinned official SDK contract
+also exercises unchanged continuation, then an owned-fixture append, rejection,
+token retirement and explicit refresh. Windows source gates remain unsupported.
+
+The [dual-worker experiment](../../../docs/claude-history-performance.md#dual-worker-versioned-pages--plan-139)
+keeps one service through 12 rounds/24 reads and verifies the third admission
+fails without a new spawn. It is not an OS memory-pressure or leak-proof test.
 
 ## Owner-session evidence and remaining gates
 

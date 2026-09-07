@@ -12,6 +12,7 @@ on:
       - 'test/claude-history-ancillary.test.js'
       - 'test/claude-history-worker.test.js'
       - 'test/claude-history-selection.test.js'
+      - 'test/claude-history-version.test.js'
       - '.github/workflows/native-claude-history.yml'
   workflow_dispatch:
 
