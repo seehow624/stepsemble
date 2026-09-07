@@ -1,0 +1,43 @@
+{
+  "recordedOn": "2026-09-07",
+  "hostPlatform": "darwin-arm64",
+  "codex": {
+    "sourceCommit": "7ecc34bd0caf2c4e6cc1906beb2099eb7cf6a1d4",
+    "nativeVersion": "codex-cli 0.153.4",
+    "result": "blocked",
+    "reason": "non_native_route",
+    "accountReadSent": false,
+    "threadStartSent": false,
+    "turnAttempts": 0,
+    "automaticTurnRetries": 0,
+    "protectedItemCount": 8,
+    "protectedItemsChanged": 0,
+    "codexAttemptUnused": true,
+    "priorClaudeAttemptUnchanged": true
+  },
+  "claude": {
+    "startedAt": "2026-09-07T05:13:20.223Z",
+    "completedAt": "2026-09-07T05:13:20.324Z",
+    "sdkVersion": "0.3.259",
+    "nativeVersion": "2.1.259",
+    "sdkSha256": "7fa7c212361864544e775e7551519e790515f95d4bb6a4831b0b05f5b368a0c5",
+    "result": "passed",
+    "source": "exact prior owner-authorized smoke session",
+    "messageCount": 2,
+    "sessionCorrelated": true,
+    "markerMatched": true,
+    "childProcessPermissionDenied": true,
+    "fileWritePermissionGranted": false,
+    "nativeFileUnchanged": true,
+    "modelCalls": 0,
+    "approvalExercised": false
+  },
+  "limitations": [
+    "Codex route gate was reached after version/schema verification and app-server initialization; current account metadata was not queried.",
+    "CLI request ordering is established by the pinned runner; no raw account/config/RPC transcript is exported.",
+    "Claude re-read the existing authorized session; no new model turn, login, resume or approval was performed.",
+    "Not a deployed Web adapter, normalized durable history, native approval parity, reconnect or cross-OS owner-account certification.",
+    "Protected-file equality covers this brief Codex preflight only, not unrelated work across the whole day or credential-store verification.",
+    "Node permission restrictions cover child-process and filesystem access, not network isolation."
+  ]
+}

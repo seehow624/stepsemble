@@ -2,6 +2,11 @@
 
 2026-09-07；開發候選 3.0.7-rc.2，**不是 release／部署／原生 adapter 完成**。
 
+後續經「好繼續」同意，已實際執行新 runner：版本/schema通過，初始化後的有效
+路由回 `non_native_route`，未讀account或建立thread，8個保護項目不變。
+此處下文保留較早離線批次範圍；最新真實preflight見
+[`native-subscription-smoke.md`](native-subscription-smoke.md)。
+
 ## 本次真正執行的範圍
 
 在 macOS arm64 以使用者已指定的可信任官方 App 內 binary，僅執行 `--version`

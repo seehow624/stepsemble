@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.32
+> 計畫版本：1.33
 > 最後更新：2026-09-07
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -48,7 +48,8 @@
 | Pi 原生 RPC 邊界 | 已實作，隨rc.3啟用於Mini | 嚴格 frame／UI reply、跨程序 correlation、有界 pending dialog、TypeScript FIFO／失敗手動重試、完整 pending-set 重連對齊／舊 stream fencing、更新／idle／離開聊天保護；Windows core launch／PATH／owned tree 已接上 runner fixture；仍非 durable approval 或原生全版本／provider／模型串流驗收 |
 | 已發佈 Web rolling 相容 | Legacy smoke 已驗 | 真實v3.0.3/v3.0.2 pinned source與development雙向搭配，Chromium桌面/手機尺寸8cases，macOS/Linux各跑一次共16cases／CI33970245044過。SW/PWA cache、Safari/Firefox/Windows/實機、future journal transport不包含，見`protocol/rolling-compatibility.md` |
 | Codex 官方介面基線 | 0.153.4 離線 metadata 已驗 | 新版24份schema，原18份及99/10/81 catalog與0.153.3全同；runner逐版本比對hash，未知版本停止。preflight不再建空session，路由先於account、傳輸有界；本輪未啟app-server／讀真帳號，不是runtime/session/approval驗收，見 `codex-metadata-compatibility.md` |
-| Claude／Codex 真實訂閱 smoke | Claude單次通過；Codex尚未通過 | 2026-09-06 22:44 MYT使用者登入後，Claude2.1.259直接Aqua CLI固定marker／2個delta／session identity／退出後新history讀回通過，1attempt無tool無重試。Codex0.153.4新版與隔離gate仍待驗，本輪未啟動。詳見`native-subscription-smoke.md`；不是完整Web adapter/parity通過 |
+| Claude／Codex 真實訂閱 smoke | Claude單次通過；Codex路由gate未過 | Claude09-06直接Aqua最小模型成功。09-07 Codex0.153.4新版schema／initialize已過，effective config回non_native_route，未送account/thread/turn；8個保護項目不變。不改第三方設定讓測試通過，詳見 `native-subscription-smoke.md` |
+| Claude 原生歷史讀取邊界 | SDK離線／單一既有session讀回已驗 | 官方SDK0.3.259對應CLI2.1.259；固定source hash，readonly Node子程序不准spawn／write。合成分支／分頁／原生title／不同UUID共享API ID通過，另只讀09-06自己的兩則訊息／marker／session correlation成功，原檔不變。不是Web normalized history／approval／resume，見 `protocol/native/claude/README.md` |
 | Claude 官方登入入口 | Mini當前detected，正式3.0.6 | 使用者回報瀏覽器登入，助手回completed／detected；另行同意的直接CLI最小模型測試成功。metadata API仍liveVerified=false，不以一次成功保證永久有效；不自動修憑證／重試模型，詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
 | 優先可靠性修復 | 已實作，隨rc.3啟用於Mini | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
@@ -58,7 +59,7 @@
 
 ### 下一個可執行任務
 
-**1.32 開發接續**：Codex 0.153.4 離線相容審閱與無 session 副作用的 metadata runner 已完成，尚未執行新版真帳號 preflight。後續先確認原生訂閱與第三方路由隔離，再補 Claude App structured history／approval／resume；不自行改設定或使用新的模型額度。既有 Claude 單次同意已於09-06成功使用，不可重跑。3.0.7-rc.1 的72h維持原固定source／開始時間，與B+ rc.2分開；本輪只改人工驗收工具、合成測試與文件，不提前切換Rust／DB／原生adapter，正式兩台保留3.0.6。詳見 `codex-metadata-compatibility.md` 與 `session-discovery-and-soak.md`。
+**1.33 開發接續**：Codex 新版真實metadata檢查已止於non_native_route，沒有送account/thread/turn，原設定保留；後續需決定官方訂閱與第三方route如何隔離，不自行更改。Claude先完成官方SDK只讀history邊界，未引入正式runtime依賴或取代nativehistory；接下來補tool/thinking/attachment／compaction／approval evidence／resume映射，再按durable與authenticated transport gate接入Web。既有Claude模型同意已用，這輪僅讀自己的既有smoke歷史，不能視為新模型同意。3.0.7-rc.1 的72h維持原source／開始時間，與B+ rc.2分開；不提前切換Rust／DB／原生adapter或部署。詳見 `protocol/native/claude/README.md`、`native-subscription-smoke.md` 與 `session-discovery-and-soak.md`。
 
 **2026-09-07 品牌候選**：Jerome明確確認B+為最終方向。新的
 `public/stepsemble-mark.svg` 是向量母版，使用單一module／connector在
@@ -955,6 +956,13 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-07 — Plan 1.33
+
+- Jerome回「好繼續」後實跑7ecc34b的Codex0.153.4metadata；offline版本/schema通過、app-server初始化與config/read完成，non_native_route停止，未讀account／建立thread／送turn。5設定/指令＋brand＋2attempt狀態共8項不變；不改wrapper或路由。去識別baseline `native-readback-2026-09-07.json`。
+- 官方Claude SDK0.3.259 metadata確認對應CLI2.1.259；先核對官方文件及實際套件source，建立SHA512 tar＋SHA256 bundle雙pin的離線reader。只取SDK JS／metadata，無npm依賴樹／nativeCLI／productiondependency；readonly permission子程序驗spawn/write被拒绝。Native parent branch、分頁、原生title、Unicode及UUID/API ID分層fixture通過，三OS獨立workflow驗實際reader，不用帳號或模型。
+- 只讀09-06那一份已獲授權Claude smoke原history，SDK回user/assistant兩則與marker／session相符、原檔SHA不變，沒有新query/login/resume。不是Web adapter／durable projection／完整history／approval或reconnect驗收。API空陣列不能被Host當成空history成功證據。
+- 本輪只新增test-only reader／fixture／workflow／guard與交接，B+候選及正式runtime不改；72h固定ab227af繼續。各新CI以實際結果為準，不把本機reader當跨OS認證。
 
 ### 2026-09-07 — Plan 1.32
 

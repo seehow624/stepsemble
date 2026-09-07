@@ -4,7 +4,23 @@
 不改登入／模型路由，不重啟正式服務。這是人工 native harness 驗收，
 **不是已接上 Stepsemble Web 的 adapter，也不是 approval／resume parity 通過**。
 
-## 2026-09-07：Codex 新版離線檢查完成，仍沒有模型 attempt
+## 2026-09-07 最新：Codex 真實 metadata 止於路由；Claude 既有歷史 SDK 讀回通過
+
+Jerome 回「好繼續」後，沿用同一 prepared run，以 `7ecc34b` 的新 runner
+實際執行 Codex 0.153.4 preflight。版本／schema 比對與 app-server 初始化通過，
+effective config 在 route gate 回 `non_native_route`；因此**未送 account/read、
+thread/start 或 turn/start**，也未改成另一個路由來放行。
+5 個原生設定／指令、B+母版、既有Claude attempt和未建立的Codex attempt，
+共8項前後雜湊／缺檔狀態相同。原有第三方設定保留。
+
+另以官方 Agent SDK 0.3.259（對應 CLI2.1.259）只讀09-06已獲授權的那一份
+Claude驗收歷史；兩則訊息、session identity與marker皆吻合，原檔SHA相同。
+讀取子程序無child-process／filesystem-write權限，沒有新模型用量或登入。
+去識別證據見 [`baselines/native-readback-2026-09-07.json`](baselines/native-readback-2026-09-07.json)；
+離線分支／分頁／原生title與SDK版本guard見 [`../protocol/native/claude/README.md`](../protocol/native/claude/README.md)。
+不是Web完整history／approval／resume驗收；Codex原生路由隔離仍需決策，不能自行更動。
+
+## 2026-09-07 較早：Codex 新版離線檢查完成，仍沒有模型 attempt
 
 0.153.4 的 24-schema metadata baseline 已保存，原有 18 份與 0.153.3 完全相同。
 Runner 現在按版本比對實際生成 hash，而非只信版本字串；preflight 改為
