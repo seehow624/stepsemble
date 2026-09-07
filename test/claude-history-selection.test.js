@@ -68,6 +68,22 @@ test("snapshot store rejects foreign/subagent keys, repeated loads and writes ev
     await o.sessionStore.load(keyFor(sid, o)); return fixture.selectedRows(c);
   }), /snapshot_store_scope/);
 });
+test("SDK clone and returned observation do not alias nested native content", async () => {
+  const c = fixture.richCases("/synthetic")[0], s = snapshot(c), before = JSON.stringify(s);
+  let selected;
+  const result = await selectHistory(s, page, async (sid, options) => {
+    const rows = await options.sessionStore.load(keyFor(sid, options));
+    rows[1].message.content[2].input.file_path = "SDK-mutated";
+    rows[0].message.content[1].source.data = "SDK-mutated";
+    selected = fixture.selectedRows(c); return selected;
+  });
+  assert.equal(JSON.stringify(s), before);
+  const observationBefore = JSON.stringify(result.observation);
+  selected[1].message.content[2].input.file_path = "later-SDK-mutation";
+  assert.equal(JSON.stringify(result.observation), observationBefore);
+  result.observation.messages[0].blocks[0].text = "view-mutated";
+  assert.equal(JSON.stringify(s), before);
+});
 test("observation options/page bounds cannot add path, SDK, environment or invoke getters", async () => {
   const h = harness(); let invoked = false;
   const accessor = {}; Object.defineProperty(accessor, "page", { enumerable: true, get() { invoked = true; } });

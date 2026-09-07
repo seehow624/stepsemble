@@ -14,14 +14,32 @@ import source from "../protocol/native/claude/history-source.js";
 import pinnedSdk from "../protocol/native/claude/history-sdk.js";
 import selection from "../protocol/native/claude/history-selection.js";
 import sourceService from "../protocol/native/claude/history-source-service.js";
+import historyPages from "../public/modules/history-pages.js";
+import wire from "../protocol/native/claude/history-worker-wire.js";
+import projection from "../public/modules/projection.js";
 const exec = promisify(execFile), self = fileURLToPath(import.meta.url);
 const fixturePath = fileURLToPath(new URL("../protocol/native/claude/history-fixture.cjs", import.meta.url));
 const observationPath = fileURLToPath(new URL("../protocol/native/claude/history-observation.js", import.meta.url));
 const sourcePath = fileURLToPath(new URL("../protocol/native/claude/history-source.js", import.meta.url));
 const recordScopePath = fileURLToPath(new URL("../protocol/native/claude/history-record-scope.js", import.meta.url));
 const projectionPath = fileURLToPath(new URL("../public/modules/projection.js", import.meta.url));
+const historyPagesPath = fileURLToPath(new URL("../public/modules/history-pages.js", import.meta.url));
 export const { SDK_VERSION, NATIVE_VERSION, SDK_SHA256, SDK_INTEGRITY } = pinnedSdk;
 const digest = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
+// Test-only transport/validator bridge. A deployed browser still needs reviewed
+// authenticated registration, bounded pre-parse transport and provider decoding.
+function clientView(bound, sourceInput, sdkPath) {
+  const scope = { hostId: "owned-fixture", ...bound.descriptor };
+  const api = historyPages.create({ canonicalJSON: projection.canonicalJSON, requestId: crypto.randomUUID,
+    read(received, request, options) { assert.deepEqual(received, scope); return bound.observe(request, options); },
+    validateHistory(history, sessionId, page) {
+      const request = { bindingId: scope.bindingId, generation: scope.generation, requestId: fixture.uuid(999) }, nonce = "e".repeat(64);
+      const job = { protocolVersion: 1, nonce, request, source: { ...sourceInput, sessionId }, history: { sdkPath, page } };
+      const bytes = Buffer.from(JSON.stringify({ protocolVersion: 1, nonce, request, result: history }) + "\n");
+      return wire.readResponse(bytes, job)?.kind === "source_history_observation";
+    } });
+  assert.deepEqual(api.reset(scope), { kind: "applied" }); return api;
+}
 export function environment(home) {
   const value = { HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: path.join(home, ".claude"),
     XDG_CONFIG_HOME: path.join(home, ".config"), XDG_CACHE_HOME: path.join(home, ".cache"),
@@ -139,7 +157,7 @@ export async function capture(suppliedSdk) {
     // No allow-child-process, allow-fs-write, allow-worker or real HOME access.
     const nativeDir = path.dirname(sourcePath);
     const extra = ["history-sdk.js", "history-selection.js", "history-source-service.js", "history-worker-wire.js", "history-observation-value.js"].map(name => path.join(nativeDir, name));
-    const args = ["--permission", ...[sdkDir, self, fixturePath, observationPath, sourcePath, recordScopePath, projectionPath, ...extra, home].map(dir => `--allow-fs-read=${dir}`), self, "--worker", sdk, home];
+    const args = ["--permission", ...[sdkDir, self, fixturePath, observationPath, sourcePath, recordScopePath, projectionPath, historyPagesPath, ...extra, home].map(dir => `--allow-fs-read=${dir}`), self, "--worker", sdk, home];
     const result = await exec(process.execPath, args, { cwd: home, env: environment(home), timeout: 30000, maxBuffer: 65536 });
     const report = JSON.parse(result.stdout);
     const service = sourceService.createSourceService({ sdkPath: sdk });
@@ -161,6 +179,14 @@ export async function capture(suppliedSdk) {
         assert.equal(Object.hasOwn(partial.history.source, "records"), false);
         assert.equal(partial.publishable, false); assert.equal(partial.cleanupConfirmed, true);
         assert.equal(partial.sourceVersion, full.sourceVersion);
+        const view = clientView(bound, { projectsRoot: path.dirname(projectDir), projectKey, sessionId: testCase.sessionId }, sdk);
+        try {
+          assert.deepEqual(await view.refresh({ offset: 2, limit: 2 }), { kind: "applied" });
+          assert.deepEqual(await view.loadPrevious(2), { kind: "applied" });
+          assert.deepEqual(await view.loadNext(20), { kind: "applied" });
+          assert.deepEqual(view.state().pages.flatMap(p => p.observation.messages.map(m => m.nativeMessageId)), testCase.expectedIds);
+          assert.equal(view.state().reachedEnd, true); assert.equal(view.state().publishable, false);
+        } finally { view.dispose(); }
       }
       if (["darwin", "linux"].includes(process.platform)) {
         const sessionId = "66666666-6666-4666-8666-666666666666", bindingId = crypto.randomUUID();
@@ -186,6 +212,18 @@ export async function capture(suppliedSdk) {
         const refreshed = await bound.observe(request, { page: continuation.page });
         assert.equal(refreshed.kind, "bound_history_observation", refreshed.code); assert.notEqual(refreshed.sourceVersion, small.sourceVersion);
         assert.equal(refreshed.history.source.sha256, digest(Buffer.from(changed)));
+        const view = clientView(bound, { projectsRoot: path.dirname(projectDir), projectKey, sessionId }, sdk);
+        try {
+          assert.deepEqual(await view.refresh({ offset: 0, limit: 1 }), { kind: "applied" });
+          const before = view.state();
+          const appended = JSON.stringify({ type: "custom-title", sessionId, customTitle: "Synthetic Client version change" }) + "\n";
+          await fs.appendFile(file, appended); richFiles.at(-1).content += appended;
+          assert.deepEqual(await view.loadNext(1), { kind: "unavailable", code: "source_version_changed" });
+          assert.equal(view.state().status, "stale"); assert.deepEqual(view.state().pages, before.pages);
+          assert.deepEqual(await view.loadNext(1), { kind: "unavailable", code: "history_refresh_required" });
+          assert.deepEqual(await view.refresh({ offset: 0, limit: 1 }), { kind: "applied" });
+          assert.notEqual(view.state().sourceVersion, before.sourceVersion);
+        } finally { view.dispose(); }
       }
     } finally { assert.equal((await service.shutdown()).cleanupConfirmed, true); }
     assert.equal(await fs.readFile(filename, "utf8"), bytes);
@@ -194,6 +232,7 @@ export async function capture(suppliedSdk) {
     return { ...report, boundObservationGate: process.platform === "win32" ? "platform_unsupported" : "posix_fixture_passed",
       boundPageByteLimitGate: process.platform === "win32" ? "platform_unsupported" : "posix_fixture_passed",
       boundSourceVersionGate: process.platform === "win32" ? "platform_unsupported" : "posix_fixture_passed",
+      boundClientPagingGate: process.platform === "win32" ? "platform_unsupported" : "posix_fixture_passed",
       nativeFileUnchanged: true, sdkSha256, scope: "Offline read-only SDK history contract; no CLI/model/auth, live approval, reconnect or durable-store verification" };
   } finally { await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
 }

@@ -376,9 +376,10 @@ validated result **after owned-child close** returns `sourceVersion`, a random
 256-bit opaque token. Subsequent pages must pass that token as
 `bound.observe(nextRequest, {page: nextPage, version: first.sourceVersion})`.
 An unversioned result is a replacement view, **never an append to an old view**.
-The future Client must keep its request/view fencing and only combine results
-from the same binding, generation and `sourceVersion`; there is no Web integration
-or UI accumulator in this reference yet.
+The reserved [typed Client view](../../history-pages.md) keeps request/view fencing
+and only combines the same Host/binding/generation/session/version and source
+identity. It is tested with the real bound worker on owned POSIX fixtures, but
+has no authenticated/browser transport or production Web integration yet.
 
 Each binding holds only one token and a detached small fingerprint: raw-file
 SHA-256 plus device/inode/size/mtimeNs/ctimeNs. No history rows, arbitrary cursor

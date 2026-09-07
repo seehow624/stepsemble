@@ -115,3 +115,38 @@ work: reduce avoidable whole-source copies with unchanged-content golden tests,
 measure the same workload again, and add Client-side same-version assembly before
 connecting this reference to a real history view. Native source authentication,
 platform ACL/descriptor containment and durable/live authority remain unverified.
+
+## Rejected clone trial — Plan 1.40
+
+[Both raw trial runs](baselines/claude-history-clone-trial-2026-09-07-darwin-arm64.json)
+retain the clean `7f74343155842446080f4273bf191f37fefb5668` baseline and dirty
+candidate's exact file hashes, workload, cleanup and environment. The candidate
+replaced the SDK's JSON round-trip clone with `structuredClone`, then cleared
+the temporary records/selected references before mapping. It retained full
+independent nested objects and the existing mapper validation; it did not weaken
+source/content checks. The raw artifact describes the exact edits to reproduce.
+
+| 12-round trial | Original | Candidate (reverted) |
+| --- | ---: | ---: |
+| Sum of worker high-water RSS, median | 421.164 MiB | 408.852 MiB |
+| Sum of worker high-water RSS, min–max | 416.625–436.703 MiB | 404.016–420.531 MiB |
+| Complete dual-read round, median | 283.539 ms | 296.171 ms |
+| Complete dual-read round, min–max | 279.160–286.068 ms | 289.500–332.734 ms |
+
+About 2.9% lower median summed high-water RSS accompanied about 4.5% greater
+median round latency in these samples. These sequential local before/after runs
+were not randomized, repeated alternating A/B trials or controlled causal proof.
+Neither overlapped the local full test suite; the unchanged production service
+and fixed soak continued. Each completed 24 reads/12 admission rejections with
+source bytes unchanged and cleanup confirmed. No model calls occurred.
+
+**The candidate was reverted**, not reported as a performance improvement. The
+original whole-source clone remains. Nested SDK/source/observation independence
+now has an additional regression test. Memory optimization is still open and
+needs a better measured approach; do not repeat this rejected change without new
+evidence. The earlier RSS/timing limitations all still apply.
+
+Plan 1.40 adds bounded [Client same-version page state](../protocol/history-pages.md)
+with explicit refresh/late-request fencing, not a faster reader or deployed UI.
+Its 2 MiB retention cap does not include all JS allocation overhead and is not an
+RSS ceiling; real browser rendering/state-copy performance remains unmeasured.

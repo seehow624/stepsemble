@@ -1,7 +1,19 @@
 /// <reference path="./client.ts" />
 /// <reference path="./lifecycle.ts" />
 /// <reference path="./projection.ts" />
+/// <reference path="./history-pages.ts" />
 // Compile-only regression tests. No output ships to browsers.
+function assertHistoryPageTypes(api: ReturnType<typeof StepsembleHistoryPages.create>, deps: StepsembleHistoryPages.Dependencies): void {
+  const view = api.state();
+  const inert: false = view.publishable;
+  // @ts-expect-error A history view is not an execution/approval authority.
+  const allowed: true = view.pages[0].observation.authority.resumeAllowed;
+  // @ts-expect-error Native source paths are not Client view identifiers.
+  api.reset({ hostId: "host", projectsRoot: "/private", bindingId: "binding", generation: 1, sessionId: "session" });
+  // @ts-expect-error The provider validator is required, never implicitly trusted.
+  StepsembleHistoryPages.create({ read: deps.read, canonicalJSON: deps.canonicalJSON, requestId: deps.requestId });
+  void inert; void allowed;
+}
 function assertWireNarrowing(event: StepsembleClient.WireEvent, command: StepsembleClient.Command): void {
   if (event.type === "message.delta") {
     const text: string = event.payload.delta;
