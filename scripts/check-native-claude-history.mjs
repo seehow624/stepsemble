@@ -11,15 +11,16 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import fixture from "../protocol/native/claude/history-fixture.cjs";
 import observation from "../protocol/native/claude/history-observation.js";
 import source from "../protocol/native/claude/history-source.js";
+import pinnedSdk from "../protocol/native/claude/history-sdk.js";
+import selection from "../protocol/native/claude/history-selection.js";
+import sourceService from "../protocol/native/claude/history-source-service.js";
 const exec = promisify(execFile), self = fileURLToPath(import.meta.url);
 const fixturePath = fileURLToPath(new URL("../protocol/native/claude/history-fixture.cjs", import.meta.url));
 const observationPath = fileURLToPath(new URL("../protocol/native/claude/history-observation.js", import.meta.url));
 const sourcePath = fileURLToPath(new URL("../protocol/native/claude/history-source.js", import.meta.url));
 const recordScopePath = fileURLToPath(new URL("../protocol/native/claude/history-record-scope.js", import.meta.url));
 const projectionPath = fileURLToPath(new URL("../public/modules/projection.js", import.meta.url));
-export const SDK_VERSION = "0.3.259", NATIVE_VERSION = "2.1.259";
-export const SDK_SHA256 = "7fa7c212361864544e775e7551519e790515f95d4bb6a4831b0b05f5b368a0c5";
-export const SDK_INTEGRITY = "sha512-5VJSzHQTAPFl2BytZSgyL0Xtdi3I7CeajEhO4KTvm6bx4nt1OIp+IHx78MuurA4Pp/t9UEPa3cWz8Q55Pi9MYw==";
+export const { SDK_VERSION, NATIVE_VERSION, SDK_SHA256, SDK_INTEGRITY } = pinnedSdk;
 const digest = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
 export function environment(home) {
   const value = { HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: path.join(home, ".claude"),
@@ -67,6 +68,11 @@ export async function worker(sdk, home) {
     assert.deepEqual(selected.map(row => row.uuid), testCase.expectedIds);
     assert.deepEqual(selected, fixture.selectedRows(testCase));
     const result = observation.observeHistory({ sessionId: testCase.sessionId, messages: selected, nativeRecords: parsed.records });
+    // Same public SDK selector over a detached captured record set, all OS.
+    // Windows uses only this parent's exact fixture, not a native ACL assertion.
+    const memory = await selection.selectHistory({ ...parsed, kind: "source_snapshot" }, { offset: 0, limit: 100 }, getSessionMessages);
+    assert.deepEqual(memory.observation, result);
+    assert.deepEqual(parsed.records, testCase.records); // Native compaction rewiring cannot mutate captured rows.
     assert.equal(result.kind, "history_observation"); assert.equal(result.publishable, false);
     assert.ok(Object.values(result.authority).every(value => value === false));
     if (testCase.name === "rich") {
@@ -104,6 +110,7 @@ export async function worker(sdk, home) {
     paginationVerified: true, titleReadbackVerified: true, missingSessionReturnsEmpty: true,
     richContentVerified: true, omittedMetadataRecovered: true, compactedBranchOrderVerified: true,
     sourceParsingVerified: true, ancillaryFileHistoryVerified: true, sourceSnapshotGate: sourceSupported ? "posix_fixture_passed" : "platform_unsupported",
+    snapshotStoreSelectionVerified: true,
     historyDoesNotGrantAuthority: true, childProcessPermissionDenied: true, fileWritePermissionDenied: true, modelCalls: 0, approvalExercised: false };
 }
 export async function capture(suppliedSdk) {
@@ -130,13 +137,51 @@ export async function capture(suppliedSdk) {
       await fs.writeFile(file, content, { mode: 0o600 }); richFiles.push({ file, content });
     }
     // No allow-child-process, allow-fs-write, allow-worker or real HOME access.
-    const args = ["--permission", ...[sdkDir, self, fixturePath, observationPath, sourcePath, recordScopePath, projectionPath, home].map(dir => `--allow-fs-read=${dir}`), self, "--worker", sdk, home];
+    const nativeDir = path.dirname(sourcePath);
+    const extra = ["history-sdk.js", "history-selection.js", "history-source-service.js", "history-worker-wire.js", "history-observation-value.js"].map(name => path.join(nativeDir, name));
+    const args = ["--permission", ...[sdkDir, self, fixturePath, observationPath, sourcePath, recordScopePath, projectionPath, ...extra, home].map(dir => `--allow-fs-read=${dir}`), self, "--worker", sdk, home];
     const result = await exec(process.execPath, args, { cwd: home, env: environment(home), timeout: 30000, maxBuffer: 65536 });
     const report = JSON.parse(result.stdout);
+    const service = sourceService.createSourceService({ sdkPath: sdk });
+    try {
+      for (const testCase of fixture.richCases(realCwd)) {
+        const bindingId = crypto.randomUUID(), request = { bindingId, generation: 1, requestId: crypto.randomUUID() };
+        const bound = service.bind({ bindingId, generation: 1, source: { projectsRoot: path.dirname(projectDir), projectKey, sessionId: testCase.sessionId } });
+        const full = await bound.observe(request);
+        if (process.platform === "win32") { assert.equal(full.code, "source_platform_unsupported"); continue; }
+        assert.equal(full.kind, "bound_history_observation", full.code);
+        assert.deepEqual(full.history.observation.messages.map(row => row.nativeMessageId), testCase.expectedIds);
+        assert.equal(full.history.source.sha256, digest(Buffer.from(testCase.records.map(row => JSON.stringify(row)).join("\n") + "\n")));
+        const partial = await bound.observe({ ...request, requestId: crypto.randomUUID() }, { page: { offset: 1, limit: 2 } });
+        assert.equal(partial.kind, "bound_history_observation", partial.code);
+        assert.deepEqual(partial.history.observation.messages.map(row => row.nativeMessageId), testCase.expectedIds.slice(1, 3));
+        assert.equal(partial.history.observation.sourceDigest, full.history.observation.sourceDigest);
+        assert.equal(partial.history.source.recordCount, testCase.records.length);
+        assert.equal(Object.hasOwn(partial.history.source, "records"), false);
+        assert.equal(partial.publishable, false); assert.equal(partial.cleanupConfirmed, true);
+      }
+      if (["darwin", "linux"].includes(process.platform)) {
+        const sessionId = "66666666-6666-4666-8666-666666666666", bindingId = crypto.randomUUID();
+        const records = Array.from({ length: 80 }, (_, i) => ({ type: "user", sessionId, uuid: fixture.uuid(i + 500),
+          parentUuid: i ? fixture.uuid(i + 499) : null, timestamp: "2026-09-01T00:00:00.000Z",
+          message: { role: "user", content: "x".repeat(4000) } }));
+        const file = path.join(projectDir, `${sessionId}.jsonl`), content = records.map(row => JSON.stringify(row)).join("\n") + "\n";
+        await fs.writeFile(file, content, { mode: 0o600 }); richFiles.push({ file, content });
+        const bound = service.bind({ bindingId, generation: 1, source: { projectsRoot: path.dirname(projectDir), projectKey, sessionId } });
+        const request = { bindingId, generation: 1, requestId: crypto.randomUUID() };
+        assert.deepEqual(await bound.observe(request), { kind: "source_unavailable", code: "source_observation_too_large" });
+        assert.equal(service.status().activeWorkers, 0);
+        const small = await bound.observe({ ...request, requestId: crypto.randomUUID() }, { page: { offset: 79, limit: 1 } });
+        assert.equal(small.kind, "bound_history_observation", small.code);
+        assert.equal(small.history.observation.messages[0].nativeMessageId, fixture.uuid(579));
+      }
+    } finally { assert.equal((await service.shutdown()).cleanupConfirmed, true); }
     assert.equal(await fs.readFile(filename, "utf8"), bytes);
     for (const { file, content } of richFiles) assert.equal(await fs.readFile(file, "utf8"), content);
     assert.equal(digest(await fs.readFile(sdk)), sdkSha256);
-    return { ...report, nativeFileUnchanged: true, sdkSha256, scope: "Offline read-only SDK history contract; no CLI/model/auth, live approval, reconnect or durable-store verification" };
+    return { ...report, boundObservationGate: process.platform === "win32" ? "platform_unsupported" : "posix_fixture_passed",
+      boundPageByteLimitGate: process.platform === "win32" ? "platform_unsupported" : "posix_fixture_passed",
+      nativeFileUnchanged: true, sdkSha256, scope: "Offline read-only SDK history contract; no CLI/model/auth, live approval, reconnect or durable-store verification" };
   } finally { await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
 }
 export async function downloadCapture() {

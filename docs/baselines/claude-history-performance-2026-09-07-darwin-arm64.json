@@ -1,0 +1,332 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-07T11:17:30.584Z",
+  "sourceCommit": "dbe83fd8a8bf0a074ebad60da6356f516bd3a10d",
+  "sourceWorktreeDirty": true,
+  "sourceSha256": {
+    "protocol/native/claude/history-observation-value.js": "8ff8ceb3b4be2331496c4511790181a10470fb704a1ddb52eca2d9b0c9a8bd48",
+    "protocol/native/claude/history-observation.js": "fc137d0892070babcdf76ef3dec8d8b772b4dd870005a6392ded4587d5df74fa",
+    "protocol/native/claude/history-record-scope.js": "30cc730be6e593d7d3c9253457b5f716b46f5c586f0623f74202269049a19f42",
+    "protocol/native/claude/history-sdk.js": "1f91759420ecb6b71b045c86e055d597b50740d4d919fe72accccb304948ff68",
+    "protocol/native/claude/history-selection.js": "63a578543fda08025ad3a6686b65a4c67058715c5696a515f2f92e7f773164f7",
+    "protocol/native/claude/history-source-service.js": "52fea28101171fed60c4e26b81a9e24ddd9d996c96b9b139c5e94d94ea8babd1",
+    "protocol/native/claude/history-source-worker.js": "5c0d7a0acbcaa4edf0b95b2dfc9be623e2025b25eeb673eb89074d4ad0cbba0a",
+    "protocol/native/claude/history-source.js": "dc7b39285399c57b5e2df68d382dfba1e0aa999c1f4a60f88b57434937983593",
+    "protocol/native/claude/history-worker-wire.js": "707266518b20bae6a838b64b80f66209a2ab7a9af66aacd724d8cd5302f7e03e",
+    "scripts/benchmark-claude-history.mjs": "1397caad25e4515593cbabf534ebddd24f9bd6fe946b45d57738d69093a80fba",
+    "public/modules/projection.js": "9ca33115762e30ac35519f5ae6e52928f06743f30078cddf17fdd02cd366a760"
+  },
+  "environment": {
+    "platform": "darwin",
+    "release": "25.6.0",
+    "arch": "arm64",
+    "node": "v22.22.3",
+    "cpuLogicalCount": 10
+  },
+  "sdkVersion": "0.3.259",
+  "sdkSha256": "7fa7c212361864544e775e7551519e790515f95d4bb6a4831b0b05f5b368a0c5",
+  "cases": [
+    {
+      "workload": {
+        "rows": 200,
+        "textBytes": 256,
+        "pageLimit": 100,
+        "rawBytes": 110313,
+        "offset": 100
+      },
+      "runs": [
+        {
+          "repetition": 1,
+          "mode": "capture",
+          "result": "bound_source_snapshot",
+          "elapsedMs": 38.096,
+          "outputBytes": 111018,
+          "parentCloseHandlerMs": 2.81,
+          "parentTimerMaxGapMs": 6.726,
+          "parentTimerTicks": 6,
+          "parentRssBeforeMiB": 58.953,
+          "parentSampledPeakRssMiB": 61.469,
+          "workerMetrics": null
+        },
+        {
+          "repetition": 1,
+          "mode": "observe",
+          "result": "bound_history_observation",
+          "elapsedMs": 121.709,
+          "outputBytes": 72018,
+          "parentCloseHandlerMs": 1.937,
+          "parentTimerMaxGapMs": 6.374,
+          "parentTimerTicks": 21,
+          "parentRssBeforeMiB": 61.5,
+          "parentSampledPeakRssMiB": 61.781,
+          "workerMetrics": {
+            "mappingMs": 8.186,
+            "maxRssKiB": 101680,
+            "selectionMs": 2.597
+          }
+        },
+        {
+          "repetition": 2,
+          "mode": "observe",
+          "result": "bound_history_observation",
+          "elapsedMs": 123.964,
+          "outputBytes": 72019,
+          "parentCloseHandlerMs": 1.492,
+          "parentTimerMaxGapMs": 6.304,
+          "parentTimerTicks": 21,
+          "parentRssBeforeMiB": 61.797,
+          "parentSampledPeakRssMiB": 62.016,
+          "workerMetrics": {
+            "mappingMs": 11.299,
+            "maxRssKiB": 106688,
+            "selectionMs": 1.355
+          }
+        },
+        {
+          "repetition": 2,
+          "mode": "capture",
+          "result": "bound_source_snapshot",
+          "elapsedMs": 39.488,
+          "outputBytes": 111018,
+          "parentCloseHandlerMs": 1.979,
+          "parentTimerMaxGapMs": 6.284,
+          "parentTimerTicks": 7,
+          "parentRssBeforeMiB": 62.016,
+          "parentSampledPeakRssMiB": 62.516,
+          "workerMetrics": null
+        },
+        {
+          "repetition": 3,
+          "mode": "capture",
+          "result": "bound_source_snapshot",
+          "elapsedMs": 37.105,
+          "outputBytes": 111018,
+          "parentCloseHandlerMs": 1.85,
+          "parentTimerMaxGapMs": 6.283,
+          "parentTimerTicks": 7,
+          "parentRssBeforeMiB": 62.516,
+          "parentSampledPeakRssMiB": 64.375,
+          "workerMetrics": null
+        },
+        {
+          "repetition": 3,
+          "mode": "observe",
+          "result": "bound_history_observation",
+          "elapsedMs": 122.597,
+          "outputBytes": 72019,
+          "parentCloseHandlerMs": 1.177,
+          "parentTimerMaxGapMs": 6.301,
+          "parentTimerTicks": 20,
+          "parentRssBeforeMiB": 64.375,
+          "parentSampledPeakRssMiB": 65.141,
+          "workerMetrics": {
+            "mappingMs": 11.398,
+            "maxRssKiB": 107024,
+            "selectionMs": 1.428
+          }
+        }
+      ]
+    },
+    {
+      "workload": {
+        "rows": 2000,
+        "textBytes": 3500,
+        "pageLimit": 25,
+        "rawBytes": 7592414,
+        "offset": 1975
+      },
+      "runs": [
+        {
+          "repetition": 1,
+          "mode": "capture",
+          "result": "bound_source_snapshot",
+          "elapsedMs": 150.68,
+          "outputBytes": 7593121,
+          "parentCloseHandlerMs": 45.044,
+          "parentTimerMaxGapMs": 48.028,
+          "parentTimerTicks": 18,
+          "parentRssBeforeMiB": 89,
+          "parentSampledPeakRssMiB": 175.219,
+          "workerMetrics": null
+        },
+        {
+          "repetition": 1,
+          "mode": "observe",
+          "result": "bound_history_observation",
+          "elapsedMs": 267.192,
+          "outputBytes": 100358,
+          "parentCloseHandlerMs": 0.745,
+          "parentTimerMaxGapMs": 6.652,
+          "parentTimerTicks": 44,
+          "parentRssBeforeMiB": 175.219,
+          "parentSampledPeakRssMiB": 175.219,
+          "workerMetrics": {
+            "mappingMs": 87.756,
+            "maxRssKiB": 212224,
+            "selectionMs": 13.298
+          }
+        },
+        {
+          "repetition": 2,
+          "mode": "observe",
+          "result": "bound_history_observation",
+          "elapsedMs": 271.378,
+          "outputBytes": 100358,
+          "parentCloseHandlerMs": 0.873,
+          "parentTimerMaxGapMs": 6.327,
+          "parentTimerTicks": 44,
+          "parentRssBeforeMiB": 131.719,
+          "parentSampledPeakRssMiB": 132.047,
+          "workerMetrics": {
+            "mappingMs": 91.336,
+            "maxRssKiB": 213600,
+            "selectionMs": 13.868
+          }
+        },
+        {
+          "repetition": 2,
+          "mode": "capture",
+          "result": "bound_source_snapshot",
+          "elapsedMs": 152.552,
+          "outputBytes": 7593121,
+          "parentCloseHandlerMs": 45.479,
+          "parentTimerMaxGapMs": 48.932,
+          "parentTimerTicks": 18,
+          "parentRssBeforeMiB": 132.047,
+          "parentSampledPeakRssMiB": 183.844,
+          "workerMetrics": null
+        },
+        {
+          "repetition": 3,
+          "mode": "capture",
+          "result": "bound_source_snapshot",
+          "elapsedMs": 148.226,
+          "outputBytes": 7593121,
+          "parentCloseHandlerMs": 42.802,
+          "parentTimerMaxGapMs": 46.124,
+          "parentTimerTicks": 18,
+          "parentRssBeforeMiB": 183.875,
+          "parentSampledPeakRssMiB": 199.781,
+          "workerMetrics": null
+        },
+        {
+          "repetition": 3,
+          "mode": "observe",
+          "result": "bound_history_observation",
+          "elapsedMs": 266.002,
+          "outputBytes": 100357,
+          "parentCloseHandlerMs": 0.768,
+          "parentTimerMaxGapMs": 6.308,
+          "parentTimerTicks": 44,
+          "parentRssBeforeMiB": 199.781,
+          "parentSampledPeakRssMiB": 199.781,
+          "workerMetrics": {
+            "mappingMs": 87.334,
+            "maxRssKiB": 211248,
+            "selectionMs": 12.866
+          }
+        }
+      ]
+    },
+    {
+      "workload": {
+        "rows": 2000,
+        "textBytes": 3500,
+        "pageLimit": 100,
+        "rawBytes": 7592414,
+        "offset": 1900
+      },
+      "runs": [
+        {
+          "repetition": 1,
+          "mode": "capture",
+          "result": "bound_source_snapshot",
+          "elapsedMs": 144.329,
+          "outputBytes": 7593121,
+          "parentCloseHandlerMs": 40.706,
+          "parentTimerMaxGapMs": 45.167,
+          "parentTimerTicks": 17,
+          "parentRssBeforeMiB": 177.891,
+          "parentSampledPeakRssMiB": 207.328,
+          "workerMetrics": null
+        },
+        {
+          "repetition": 1,
+          "mode": "observe",
+          "result": "source_observation_too_large",
+          "elapsedMs": 272.417,
+          "outputBytes": 303,
+          "parentCloseHandlerMs": 0.086,
+          "parentTimerMaxGapMs": 6.316,
+          "parentTimerTicks": 45,
+          "parentRssBeforeMiB": 207.328,
+          "parentSampledPeakRssMiB": 207.328,
+          "workerMetrics": null
+        },
+        {
+          "repetition": 2,
+          "mode": "observe",
+          "result": "source_observation_too_large",
+          "elapsedMs": 274.038,
+          "outputBytes": 303,
+          "parentCloseHandlerMs": 0.072,
+          "parentTimerMaxGapMs": 6.762,
+          "parentTimerTicks": 45,
+          "parentRssBeforeMiB": 163.656,
+          "parentSampledPeakRssMiB": 163.656,
+          "workerMetrics": null
+        },
+        {
+          "repetition": 2,
+          "mode": "capture",
+          "result": "bound_source_snapshot",
+          "elapsedMs": 149.928,
+          "outputBytes": 7593121,
+          "parentCloseHandlerMs": 46.564,
+          "parentTimerMaxGapMs": 46.584,
+          "parentTimerTicks": 18,
+          "parentRssBeforeMiB": 163.656,
+          "parentSampledPeakRssMiB": 200.156,
+          "workerMetrics": null
+        },
+        {
+          "repetition": 3,
+          "mode": "capture",
+          "result": "bound_source_snapshot",
+          "elapsedMs": 145.534,
+          "outputBytes": 7593121,
+          "parentCloseHandlerMs": 42.079,
+          "parentTimerMaxGapMs": 42.096,
+          "parentTimerTicks": 18,
+          "parentRssBeforeMiB": 200.156,
+          "parentSampledPeakRssMiB": 236.781,
+          "workerMetrics": null
+        },
+        {
+          "repetition": 3,
+          "mode": "observe",
+          "result": "source_observation_too_large",
+          "elapsedMs": 275.225,
+          "outputBytes": 303,
+          "parentCloseHandlerMs": 0.076,
+          "parentTimerMaxGapMs": 6.32,
+          "parentTimerTicks": 45,
+          "parentRssBeforeMiB": 236.781,
+          "parentSampledPeakRssMiB": 236.781,
+          "workerMetrics": null
+        }
+      ]
+    }
+  ],
+  "cleanupConfirmed": true,
+  "modelCalls": 0,
+  "sourceUnchanged": true,
+  "limitations": [
+    "Local synthetic offline reference, not production/UI/remote-disk/native-subscription acceptance",
+    "Three sequential repetitions, fresh child each time, unflushed OS cache; no population percentile",
+    "Parent close-handler includes JSON decoding/validation/settlement, not a profiler-exclusive decode measurement",
+    "5ms parent timer gaps include scheduling; sampled parent RSS may miss peaks and includes fixture construction/previous runs",
+    "Worker maxRssKiB is self-reported process.resourceUsage high-water at mapping completion, not a hard memory ceiling",
+    "Each page captures and selects the full bounded source again; no cache/version-pinned multi-page read is implemented"
+  ]
+}

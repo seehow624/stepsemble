@@ -1,5 +1,6 @@
 "use strict";
-// One job in an owned read-only Node subprocess. No SDK, native CLI or network.
+// One job in an owned read-only Node subprocess. Optional pinned offline SDK
+// history selection; no native CLI, model, login or network API is called.
 const { createSourceReader } = require("./history-source");
 const { WIRE_VERSION, LIMITS, decode, validJob } = require("./history-worker-wire");
 async function main() {
@@ -15,7 +16,19 @@ async function main() {
   let result;
   try { result = await createSourceReader()(job.source); }
   catch { result = { kind: "source_unavailable", code: "source_worker_failure" }; }
-  const output = JSON.stringify({ protocolVersion: WIRE_VERSION, nonce: job.nonce, request: job.request, result }) + "\n";
+  if (job.history && result.kind === "source_snapshot") {
+    let getSessionMessages;
+    try { getSessionMessages = await require("./history-sdk").loadReader(job.history.sdkPath); }
+    catch { result = { kind: "source_unavailable", code: "source_sdk_unavailable" }; }
+    if (getSessionMessages) try {
+      result = await require("./history-selection").selectHistory(result, job.history.page, getSessionMessages);
+    } catch { result = { kind: "source_unavailable", code: "source_selection_failed" }; }
+  }
+  const encode = () => JSON.stringify({ protocolVersion: WIRE_VERSION, nonce: job.nonce, request: job.request, result }) + "\n";
+  let output = encode();
+  if (job.history && Buffer.byteLength(output) > LIMITS.pageBytes) {
+    result = { kind: "source_unavailable", code: "source_observation_too_large" }; output = encode();
+  }
   if (Buffer.byteLength(output) > LIMITS.outputBytes) throw new Error("worker_output_limit");
   await new Promise((resolve, reject) => process.stdout.write(output, error => error ? reject(error) : resolve()));
 }

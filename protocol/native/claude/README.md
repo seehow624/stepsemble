@@ -314,7 +314,59 @@ cover a stuck worker while the parent timer keeps ticking, permission denials,
 and POSIX synthetic snapshots with unchanged source bytes. A simulated worker
 context separately checks its self-watchdog with unresolved IO. All successful bound
 snapshots remain `sourceAuthenticated: false`, `publishable: false`; there is no
-live SDK selection, history UI, approval acknowledgement, resume or durable store.
+live history UI, approval acknowledgement, resume or durable store. The optional
+snapshot SDK selection below shares this lifecycle; raw `capture()` remains a
+diagnostic reference and still has a much larger synchronous parent decode.
+
+## Pinned SDK selection inside the source worker
+
+Trusted Host construction may provide an already-managed, canonical absolute
+`sdkPath` to `createSourceService({sdkPath})`. There is no runtime package install,
+default SDK discovery or browser-supplied executable path. `bound.observe(request,
+{page: {offset, limit}, signal})` keeps the exact binding/generation/request identity
+and shared worker/revocation/cleanup limits. Offset is 0–2000, limit 1–100 (default
+0/100). Extra options, getters and invalid pages are rejected before spawning.
+Calling raw `capture()` cannot enable SDK mode through extra arguments.
+
+After one stable source capture, the worker checks the exact reviewed SDK module
+SHA-256 before import and after loading. The SDK artifact must be in a trusted
+administrator-managed location. Hash checks detect observed drift, **not an atomic
+loader guarantee against hostile same-UID swaps**. There is no extra write/child
+permission; only the exact SDK module, package metadata and implementation files
+are added to the existing read grants. No credentials are supplied and no native
+CLI is started; reviewed code only calls the public offline history reader. Node's
+permissions still do not provide full filesystem or network isolation.
+
+The official 0.3.259 alpha `getSessionMessages` accepts `sessionStore`. Our store
+serves exactly one detached in-memory snapshot to one matching synthetic-project
+key/main-session load; writes, other sessions, subpaths and repeated loads throw.
+Even a caught denial prevents success. No filesystem transcript discovery,
+materialization, import-to-store, query, resume or login API is invoked. The SDK
+may rewire compaction parents in its disposable copy; the original native records
+remain unchanged for `observeHistory` comparison and digesting. This is a pinned
+public API, not a reimplementation/eval of private branch-selection internals.
+
+Successful `bound_history_observation` includes an inert observation, selected
+page, pinned-reader identity, full-source summary/hash/identity **without raw
+records**, and diagnostic timing/high-water metrics. Whole-frame output is capped
+at **256 KiB**, independently enforced in child and parent. Too large returns
+`source_observation_too_large`, not truncation or automatic retry. Parent validation
+checks exact envelopes, page/source/session/SDK correlation, bounded content
+shapes, digests/references and every non-authoritative flag. It does not establish
+native provenance or recreate the source from a page.
+
+The all-OS pinned SDK contract compares memory-store selection with official
+filesystem selection, including branch, compaction, ancillary data and unchanged
+input. macOS/Linux additionally exercise the actual owned `observe` worker,
+partial pages, oversize rejection and explicit smaller-page recovery. Windows
+returns `platform_unsupported` at the source boundary. Eight ordinary tests cover
+detachment, store scope/write denial, option and page bounds, cancellation,
+tampered responses and rejection of changed SDK bytes before execution.
+
+[Local large-history results](../../../docs/claude-history-performance.md) show
+reduced parent decode/validation work, not complete UI/latency/memory acceptance.
+Every page still rereads/selects the whole bounded source; version-pinned paging,
+cache/index design, peak-RSS pressure and authenticated publication remain open.
 
 ## Owner-session evidence and remaining gates
 
