@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.35
+> 計畫版本：1.36
 > 最後更新：2026-09-07
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -51,6 +51,7 @@
 | Claude／Codex 真實訂閱 smoke | Claude單次通過；Codex路由gate未過 | Claude09-06直接Aqua最小模型成功。09-07 Codex0.153.4新版schema／initialize已過，effective config回non_native_route，未送account/thread/turn；8個保護項目不變。不改第三方設定讓測試通過，詳見 `native-subscription-smoke.md` |
 | Claude 原生歷史讀取邊界 | SDK讀回／豐富內容觀察映射已驗 | 官方SDK0.3.259對應CLI2.1.259；只讀子程序不准spawn／write。合成工具／thinking／附件參照、中斷/API錯誤外層metadata及壓縮保留鏈通過；相同UUID原文核對、未知格式警示、整批拒絕混入/重複。前輪自己的兩則訊息讀回仍有效，本輪未再讀私有session。不是Web journal／approval ACK／resume，見 `protocol/native/claude/README.md` |
 | Claude 歷史來源快照 | POSIX唯讀一致性／跨平台parser已實作 | 單一指定source、UID/mode/regular/single-link/no-follow、同descriptor雙讀＋前後inode/size/ns時間、原始8MiB/1MiB line/2000rows caps；partial/malformed不當空history。不是authenticated source／ACL／atomic containment；Windows source gate明確unsupported，SDK合成reader仍可驗。未接正式服務 |
+| Claude 無sessionId附加紀錄 | 兩種固定版本格式已補 | 檔案snapshot/delta經2.1.259 writer bytes核對；parser/mapper共用scope規則，同檔whole-source訊息引用不能缺失／重複／借subagent。保留inert index/digest/refs、不填sessionId、不還原檔案；title UUID不進transcript graph。未知unscoped／partial仍拒絕，未上線 |
 | Claude 官方登入入口 | Mini當前detected，正式3.0.6 | 使用者回報瀏覽器登入，助手回completed／detected；另行同意的直接CLI最小模型測試成功。metadata API仍liveVerified=false，不以一次成功保證永久有效；不自動修憑證／重試模型，詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
 | 優先可靠性修復 | 已實作，隨rc.3啟用於Mini | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
@@ -60,7 +61,7 @@
 
 ### 下一個可執行任務
 
-**1.35 開發接續**：Codex 真實metadata仍止於non_native_route，官方訂閱／第三方route隔離需本人決定，本轮未再啟動。Claude已有rich history映射及POSIX來源owner/mode／雙讀一致性基礎；Windows來源gate明確unsupported，未把Node uid/mode當ACL。接下來補authenticated source registration／平台ACL及descriptor-relative containment、unscoped/partial native紀錄策略、附件/subagent/supersession，再獨立approval ACK／resume evidence、durable與authenticated transport接Web。五秒IO budget不是可取消的硬deadline，需worker/cancellation gate；快照/觀察仍publishable=false，不得偽造native facts。既有Claude模型同意已用，本輪僅synthetic，無私人session/模型/登入操作。3.0.7-rc.1 的72h維持原source／開始時間，與B+ rc.2分開；不提前切Rust／DB／原生adapter或部署。詳見 `protocol/native/claude/README.md`、`native-subscription-smoke.md` 與 `session-discovery-and-soak.md`。
+**1.36 開發接續**：Codex 真實metadata仍止於non_native_route，官方訂閱／第三方route隔離需本人決定，本輪未再啟動。Claude已有rich history、POSIX雙讀一致性與兩種file-history附加紀錄scope profile；不是全native格式支援或檔案還原。Windows來源gate仍unsupported，未把Node uid/mode當ACL。下一批優先處理trusted source binding／有界隔離讀取與取消生命週期，並補authenticated registration／平台ACL及descriptor-relative containment；其他unscoped/partial策略、附件/subagent/supersession仍待，再獨立approval ACK／resume evidence、durable與authenticated transport接Web。五秒IO budget不是硬deadline；同檔ID關聯不是真實授權，快照/觀察仍publishable=false。既有Claude模型同意已用，本輪僅synthetic，無私人session/模型/登入操作。3.0.7-rc.1 的72h維持原source／開始時間，與B+ rc.2分開；不提前切Rust／DB／原生adapter或部署。詳見 `protocol/native/claude/README.md`、`native-subscription-smoke.md` 與 `session-discovery-and-soak.md`。
 
 **2026-09-07 品牌候選**：Jerome明確確認B+為最終方向。新的
 `public/stepsemble-mark.svg` 是向量母版，使用單一module／connector在
@@ -957,6 +958,13 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-07 — Plan 1.36
+
+- 核對本地固定官方package0.3.259所含CLI2.1.259 writer bytes（未執行CLI）：file-history-snapshot/delta不一定有sessionId。新增共用scope classifier，保守shape／型別／日期／1000files／4096units path limits，unknown additions整批拒絕，不放行所有unscoped紀錄。
+- 兩種附加紀錄以同檔whole-source main user/assistant UUID關聯，允許forward/out-of-page refs；缺失／foreign／重複／metadata-only／subagent refs不回partial。關聯不授權，不注入sessionId，不讀backup檔案或推測rewind。描述只含index/type/refs/digest，原文保留parser records；sourceAuthenticated/publishable及approval/run/resume authority仍false。
+- 修正scoped title等metadata即使帶UUID也不得進SDK transcript graph或掩蓋parent gap；transcript-like row缺有效UUID不再靜默跳過。新增auxiliaryCoverage和未映射警示，官方SDK新增synthetic fixture實驗分支、名稱、分頁、雙讀與原檔不變；9項新回歸，跨平台CI按exact commit驗收。
+- 正式3.0.6／B+rc.2／native auth/route／私人history與模型均未動，固定ab227af的72h不重設。trusted source binding／硬取消worker／authenticated registry／ACL/atomic containment仍未完成，不把本批parser修正當作完整session/parity上線。
 
 ### 2026-09-07 — Plan 1.35
 

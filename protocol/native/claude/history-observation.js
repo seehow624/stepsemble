@@ -3,6 +3,7 @@
 // URL or credential. An observation is NOT a journal event or execution proof.
 const crypto = require("node:crypto");
 const { canonicalJSON } = require("../../../public/modules/projection");
+const { classifyRecordScopes } = require("./history-record-scope");
 const LIMITS = Object.freeze({ bytes: 16 * 1024 * 1024, records: 2000, blocks: 4000, text: 262144 });
 const uuid = value => typeof value === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value);
 const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -99,9 +100,16 @@ function observeHistory(input) {
     });
   }
   try {
-    for (const row of value.nativeRecords) {
-      if (!object(row) || row.sessionId !== value.sessionId || !identifier(row.type)) fail("native_scope_mismatch");
-      if (!Object.hasOwn(row, "uuid")) continue; // Non-message metadata stays native.
+    const scope = classifyRecordScopes(value.nativeRecords, value.sessionId);
+    if (scope.kind === "reject") return reject(scope.code);
+    const auxiliaryRecords = [];
+    for (const entry of scope.classes) {
+      const row = value.nativeRecords[entry.recordIndex];
+      if (entry.kind !== "transcript") {
+        warnings.add(entry.kind === "file_history" ? "native_file_history_not_materialized" : "native_metadata_not_mapped");
+        auxiliaryRecords.push({ ...entry, nativeDigest: hash(row) });
+        continue; // Metadata UUIDs are not SDK transcript graph nodes.
+      }
       if (!uuid(row.uuid) || records.has(row.uuid)) fail("duplicate_or_invalid_native_identity");
       if (Object.hasOwn(row, "parentUuid") && row.parentUuid !== null && !uuid(row.parentUuid)) fail("invalid_native_parent");
       records.set(row.uuid, row);
@@ -170,7 +178,7 @@ function observeHistory(input) {
     if ([...records.values()].some(row => row.type === "attachment")) warnings.add("native_attachment_records_unmapped");
     if ([...tools.values()].some(tool => tool.result === null)) warnings.add("tool_result_not_observed");
     return { kind: "history_observation", formatVersion: 1, sessionId: value.sessionId,
-      messages: selected, tools: [...tools.values()], warnings: [...warnings].sort(),
+      messages: selected, tools: [...tools.values()], auxiliaryRecords, auxiliaryCoverage: "whole_source", warnings: [...warnings].sort(),
       sourceDigest: hash(value.nativeRecords), selectionDigest: hash(value.messages),
       coverage: "sdk_selected_page", publishable: false,
       authority: { sourceAuthenticated: false, approvalAcknowledged: false, runTerminalObserved: false, resumeAllowed: false } };

@@ -15,6 +15,7 @@ const exec = promisify(execFile), self = fileURLToPath(import.meta.url);
 const fixturePath = fileURLToPath(new URL("../protocol/native/claude/history-fixture.cjs", import.meta.url));
 const observationPath = fileURLToPath(new URL("../protocol/native/claude/history-observation.js", import.meta.url));
 const sourcePath = fileURLToPath(new URL("../protocol/native/claude/history-source.js", import.meta.url));
+const recordScopePath = fileURLToPath(new URL("../protocol/native/claude/history-record-scope.js", import.meta.url));
 const projectionPath = fileURLToPath(new URL("../public/modules/projection.js", import.meta.url));
 export const SDK_VERSION = "0.3.259", NATIVE_VERSION = "2.1.259";
 export const SDK_SHA256 = "7fa7c212361864544e775e7551519e790515f95d4bb6a4831b0b05f5b368a0c5";
@@ -74,12 +75,21 @@ export async function worker(sdk, home) {
       assert.equal(result.messages[4].metadata.errorCode, "authentication_failed");
       assert.deepEqual(result.tools.map(tool => tool.observation), ["result_recorded", "error_result_recorded", "request_only"]);
       assert.ok(result.warnings.includes("tool_result_not_observed"));
-    } else {
+    } else if (testCase.name === "compaction") {
       assert.equal(selected[0].subtype, undefined); assert.equal(selected[1].isCompactSummary, undefined);
       assert.equal(result.messages[0].blocks[0].kind, "compaction_boundary");
       assert.equal(result.messages[1].metadata.compactSummary, true);
       const noSystem = await getSessionMessages(testCase.sessionId, options);
       assert.deepEqual(noSystem.map(row => row.uuid), testCase.expectedIds.slice(1));
+    } else {
+      assert.equal(testCase.name, "file-history");
+      assert.equal(result.auxiliaryRecords.length, 4);
+      assert.ok(result.auxiliaryRecords.slice(0, 3).every(row => row.scopeEvidence === "same_file_message_reference"));
+      assert.ok(result.warnings.includes("native_file_history_not_materialized"));
+      assert.equal(result.auxiliaryCoverage, "whole_source");
+      assert.ok(!JSON.stringify(result).includes("/synthetic/never-open"));
+      const title = await getSessionInfo(testCase.sessionId, options);
+      assert.equal(title.customTitle, "Synthetic file history");
     }
     const page1 = await getSessionMessages(testCase.sessionId, { ...options, includeSystemMessages: true, offset: 0, limit: 2 });
     const page2 = await getSessionMessages(testCase.sessionId, { ...options, includeSystemMessages: true, offset: 2, limit: 20 });
@@ -93,7 +103,7 @@ export async function worker(sdk, home) {
     selectedMessageCount: rows.length, branchOrderVerified: true, unicodePreserved: true, messageUuidDistinctFromApiId: true,
     paginationVerified: true, titleReadbackVerified: true, missingSessionReturnsEmpty: true,
     richContentVerified: true, omittedMetadataRecovered: true, compactedBranchOrderVerified: true,
-    sourceParsingVerified: true, sourceSnapshotGate: sourceSupported ? "posix_fixture_passed" : "platform_unsupported",
+    sourceParsingVerified: true, ancillaryFileHistoryVerified: true, sourceSnapshotGate: sourceSupported ? "posix_fixture_passed" : "platform_unsupported",
     historyDoesNotGrantAuthority: true, childProcessPermissionDenied: true, fileWritePermissionDenied: true, modelCalls: 0, approvalExercised: false };
 }
 export async function capture(suppliedSdk) {
@@ -120,7 +130,7 @@ export async function capture(suppliedSdk) {
       await fs.writeFile(file, content, { mode: 0o600 }); richFiles.push({ file, content });
     }
     // No allow-child-process, allow-fs-write, allow-worker or real HOME access.
-    const args = ["--permission", ...[sdkDir, self, fixturePath, observationPath, sourcePath, projectionPath, home].map(dir => `--allow-fs-read=${dir}`), self, "--worker", sdk, home];
+    const args = ["--permission", ...[sdkDir, self, fixturePath, observationPath, sourcePath, recordScopePath, projectionPath, home].map(dir => `--allow-fs-read=${dir}`), self, "--worker", sdk, home];
     const result = await exec(process.execPath, args, { cwd: home, env: environment(home), timeout: 30000, maxBuffer: 65536 });
     const report = JSON.parse(result.stdout);
     assert.equal(await fs.readFile(filename, "utf8"), bytes);

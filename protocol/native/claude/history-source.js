@@ -4,6 +4,7 @@
 const fs = require("node:fs/promises"), { constants } = require("node:fs");
 const path = require("node:path"), crypto = require("node:crypto");
 const { canonicalJSON } = require("../../../public/modules/projection");
+const { classifyRecordScopes } = require("./history-record-scope");
 const LIMITS = Object.freeze({ bytes: 8 * 1024 * 1024, lineBytes: 1024 * 1024, records: 2000, chunkBytes: 65536, elapsedMs: 5000 });
 const uuid = value => typeof value === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value);
 class SourceFailure extends Error { constructor(code) { super(code); this.sourceCode = code; } }
@@ -34,13 +35,11 @@ function parseHistoryBytes(bytes, sessionId) {
       if (!line.trim()) return reject("source_blank_record");
       let row;
       try { row = JSON.parse(line); } catch { return reject("source_invalid_json"); }
-      if (!row || typeof row !== "object" || Array.isArray(row) || typeof row.type !== "string"
-        || row.sessionId !== sessionId) return reject("source_scope_mismatch");
-      // Keeps the mapper's supported source profile explicit. Unscoped native
-      // ancillary records need a separately reviewed contract, not inference.
       if (canonicalJSON(row, LIMITS.lineBytes) === null) return reject("source_invalid_json_value");
       records.push(row); start = end + 1;
     }
+    const scope = classifyRecordScopes(records, sessionId);
+    if (scope.kind === "reject") return reject(scope.code.replace(/^native_/, "source_"));
     return { kind: "source_records", sessionId, records, byteLength: bytes.length, sha256: digest(bytes) };
   } catch { return reject("source_invalid_json_value"); }
 }

@@ -134,10 +134,10 @@ macOS/Linux report `posix_fixture_passed`. This is not a Windows source gate pas
 The parser accepts at most 8 MiB raw UTF-8, 1 MiB per line excluding LF, and
 2,000 records. It retains CRLF/LF in the raw SHA-256 while returning parsed JSON.
 Blank rows, malformed middle rows, invalid UTF-8/BOM/Unicode, over-limit data,
-unscoped/foreign records and any newline-less tail reject the whole capture.
+unreviewed unscoped/foreign records and any newline-less tail reject the whole capture.
 An empty file is `source_empty`, not an empty valid session. No truncated tail is
-silently trimmed. This initial profile intentionally rejects ancillary native
-records without `sessionId`; support needs explicit review, not guessed scope.
+silently trimmed. Plan 1.36 adds the two narrowly reviewed ancillary forms below;
+other records without `sessionId` remain unavailable, not guessed into scope.
 Duplicate native identities and parent cycles remain the observation mapper's
 responsibility. Digests are corruption/consistency checks, not credentials.
 
@@ -156,6 +156,72 @@ macOS/Linux. The worker's temporary HOME is canonicalized before its read-only
 permission grant, preserving macOS `/var` alias compatibility without granting
 access to a wider directory. No owner session or model is used by these tests.
 
+## Ancillary record scope profile (Plan 1.36)
+
+`history-record-scope.js` is shared by the raw parser and detached mapper, so
+their acceptance rules cannot silently diverge. The native writer bundled in
+`@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.259` (Claude Code 2.1.259) was
+inspected **as bytes, never executed**. Its `insertFileHistorySnapshot` and
+`sQn`/`insertFileHistoryDelta` paths serialize these envelopes without adding
+`sessionId`; `appendEntry` chooses the current session file separately. Reviewed
+native binary SHA-256:
+`884baa38fe1a624be25c4a91568bf5a08b5cf4e7d7acf29b7760e3525d964898`.
+This is a version-specific source review, not a stable public writer schema or
+proof of real Windows/Linux native writer behavior. CI still downloads only the
+existing pinned SDK JavaScript and metadata, not a native binary.
+
+- `file-history-snapshot`: outer `messageId`, `isSnapshotUpdate`, and a snapshot
+  containing `messageId`, `trackedFileBackups`, `timestamp`, optional `preCheckpoint`.
+- `file-history-delta`: `messageId`, `snapshotMessageId`, `trackingPath`, `backup`,
+  `timestamp`. The backup profile accepts `backupFileName` (string or null),
+  positive safe-integer `version`, `backupTime`, and optional `realParentDir`.
+
+Known envelopes require the reviewed fields and reject unknown additions.
+Timestamps use the native ISO-millisecond UTC shape; file/path strings are
+bounded to 4,096 UTF-16 units and a snapshot to 1,000 tracked files, within the
+existing raw/JSON limits. These are Stepsemble's conservative supported limits,
+not claims about the maximum native format. Dates, booleans, arrays-as-objects,
+invalid versions and authority-looking extra fields are rejected. An explicit
+foreign/null `sessionId` rejects even on a known envelope.
+
+All referenced IDs must match unambiguous user/assistant rows with the requested
+session ID in the **whole same source**, including references appearing later
+or outside the selected SDK page. Missing, duplicate, metadata-only, sidechain,
+team or agent references return `source_ancillary_reference_unavailable` /
+`native_ancillary_reference_unavailable`, with no partial result. A file being
+written with its anchor not yet present is unavailable; this does not establish
+corruption, and the reader never trims, repairs or retries it automatically.
+Outer and snapshot IDs are retained separately; no native checkpoint replay,
+last-wins merge, restore or rewind semantics are inferred.
+
+No `sessionId` is injected into an unscoped record. An auxiliary descriptor has
+its source index, native type, reference IDs and digest, with
+`scopeEvidence: same_file_message_reference` (or `recorded_session_id` when
+explicitly present). **Correlation is not authorization or native provenance.**
+The observation's `auxiliaryCoverage: whole_source` is separate from its SDK
+message-page coverage. It contains no raw paths, backup names or metadata body;
+raw parsed source records remain necessary for lossless recovery.
+
+Scoped non-transcript metadata now also receives a digest/index descriptor and
+`native_metadata_not_mapped` warning. A title's UUID never becomes a transcript
+parent or fills a missing message gap: only the five SDK graph types
+user/assistant/system/progress/attachment can enter that map.
+Those transcript-like records must have valid unique UUIDs, rather than silently
+disappearing as metadata when their identities are absent.
+File-history records produce `native_file_history_not_materialized`; backup
+paths/keys (including traversal-looking strings or `__proto__`) are inert values,
+never opened, followed, merged into application objects or exposed as restore
+capabilities. `publishable` and all four authority fields remain false.
+
+The real pinned SDK reads an additional synthetic file-history transcript with
+snapshots, a delta, update, title UUID, forward references and pagination. The
+raw source survives unchanged; selected branch/title agree; only inert auxiliary
+descriptors are returned. Nine regression tests exercise valid and malformed
+envelopes, out-of-page/foreign/ambiguous links, unknown extensions, byte/digest
+preservation, metadata graph separation and bounds. This does not validate all
+unscoped forms (e.g. summary/attribution snapshots), subagents, interrupted tails,
+native file-backup restore, authenticated source binding or process cancellation.
+
 ## Owner-session evidence and remaining gates
 
 On 2026-09-07, the same SDK read **only** the exact Claude smoke session authorized
@@ -168,7 +234,7 @@ These are reader contracts, not a normalized journal import or live UI mapping.
 Selected tool/thinking/attachment-reference and interruption/compaction mapping,
 plus bounded source decoding and observed-consistency checks, now have synthetic
 pinned-SDK coverage. Full attachment materialization, authenticated source
-ownership/platform ACL containment, incomplete/unscoped JSONL recovery, subagent attribution,
+ownership/platform ACL containment, incomplete/other unscoped JSONL recovery, subagent attribution,
 refusal supersession, approval decision versus native acknowledgement,
 resume/reconnect, real persistence, retention and large-history performance
 remain unverified. No `approval.resolved`/ACK/run-completed

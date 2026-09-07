@@ -51,8 +51,23 @@ function richCases(cwd) {
     row(compactId, 11, 10, "user", "Synthetic compact summary", { isCompactSummary: true }),
     row(compactId, 12, 11, "assistant", [text("After compaction")]),
   ];
+  const fileId = "55555555-5555-4555-8555-555555555555", stamp = "2026-09-01T00:00:01.000Z";
+  // Reviewed native writer envelope; paths/backups are inert synthetic strings.
+  // Auxiliary records deliberately appear before referenced transcript messages.
+  const initial = { type: "file-history-snapshot", messageId: uuid(1), isSnapshotUpdate: false,
+    snapshot: { messageId: uuid(1), trackedFileBackups: {}, timestamp: stamp, preCheckpoint: true } };
+  const backup = { backupFileName: "synthetic-backup@v1", version: 1, backupTime: stamp, realParentDir: "/synthetic/never-open" };
+  const delta = { type: "file-history-delta", messageId: uuid(3), snapshotMessageId: uuid(1),
+    trackingPath: "/synthetic/never-open.txt", backup, timestamp: stamp };
+  const update = { type: "file-history-snapshot", messageId: uuid(3), isSnapshotUpdate: true,
+    snapshot: { messageId: uuid(1), trackedFileBackups: { "/synthetic/never-open.txt": backup }, timestamp: stamp } };
+  const fileHistory = [initial, row(fileId, 1, null, "user", "Synthetic file question"),
+    row(fileId, 2, 1, "assistant", [text("Synthetic file response")]), delta, update,
+    row(fileId, 3, 2, "user", "Synthetic continuation"), row(fileId, 4, 3, "assistant", [text("Synthetic final response")]),
+    { type: "custom-title", sessionId: fileId, customTitle: "Synthetic file history", uuid: uuid(90), timestamp: stamp }];
   return JSON.parse(JSON.stringify([{ name: "rich", sessionId: richId, records: rich, expectedIds: [1, 2, 3, 4, 5, 6].map(uuid) },
-    { name: "compaction", sessionId: compactId, records: compact, expectedIds: [10, 11, 3, 4, 12].map(uuid) }]));
+    { name: "compaction", sessionId: compactId, records: compact, expectedIds: [10, 11, 3, 4, 12].map(uuid) },
+    { name: "file-history", sessionId: fileId, records: fileHistory, expectedIds: [1, 2, 3, 4].map(uuid) }]));
 }
 // Synthetic stand-in for unit tests only. Native CI uses the actual pinned SDK.
 function selectedRows(testCase) {
