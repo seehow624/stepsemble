@@ -95,7 +95,13 @@ namespace StepsembleHistoryPages {
         || !o.messages.every(m => object(m) && uuid(m.nativeMessageId))
         || !keys(o.authority, ["sourceAuthenticated", "approvalAcknowledged", "runTerminalObserved", "resumeAllowed"])
         || !Object.values(o.authority).every(v => v === false)) return false;
-      return validateHistory(h, ticket.scope.sessionId, { ...ticket.page }) === true;
+      const verified: unknown = validateHistory(h, ticket.scope.sessionId, { ...ticket.page });
+      if (verified === true) return true;
+      // The dependency is synchronous by contract. Reject accidental Promises,
+      // but absorb their rejection so a bad adapter cannot cause an unhandled
+      // asynchronous error. Intrinsic Promise brand-check avoids then getters.
+      try { void Promise.prototype.then.call(verified as Promise<unknown>, undefined, () => undefined); } catch { /* not a Promise */ }
+      return false;
     }
     function integrate(result: Reply, ticket: Ticket): Outcome {
       const h = result.history;

@@ -2,7 +2,21 @@
 /// <reference path="./lifecycle.ts" />
 /// <reference path="./projection.ts" />
 /// <reference path="./history-pages.ts" />
+/// <reference path="./claude-history.ts" />
 // Compile-only regression tests. No output ships to browsers.
+function assertClaudeHistoryTypes(api: ReturnType<typeof StepsembleClaudeHistory.create>, sessionId: string): void {
+  const value = api.decodeHistory(new Uint8Array(), sessionId, { offset: 0, limit: 25 });
+  if (value) {
+    const inert: false = value.source.publishable;
+    // @ts-expect-error Readback validation cannot authenticate native origin.
+    const authenticated: true = value.source.sourceAuthenticated;
+    // @ts-expect-error Provider pages do not contain a raw native-record backup.
+    const records: unknown[] = value.source.records;
+    void inert; void authenticated; void records;
+  }
+  // @ts-expect-error Bytes are required; raw strings have no pre-parse byte cap.
+  api.decodeHistory("{}", sessionId, { offset: 0, limit: 25 });
+}
 function assertHistoryPageTypes(api: ReturnType<typeof StepsembleHistoryPages.create>, deps: StepsembleHistoryPages.Dependencies): void {
   const view = api.state();
   const inert: false = view.publishable;

@@ -380,6 +380,12 @@ The reserved [typed Client view](../../history-pages.md) keeps request/view fenc
 and only combines the same Host/binding/generation/session/version and source
 identity. It is tested with the real bound worker on owned POSIX fixtures, but
 has no authenticated/browser transport or production Web integration yet.
+Plan 1.41 shares the strict TypeScript provider/observation validation between
+this worker wire and the Client; generated `claude-history*.js` are exact read
+grants in the owned worker, not native SDK imports in a browser. The decoder can
+bound and validate a supplied inner JSON payload, but does not implement streaming
+HTTP collection or source registration. See the [access proposal](../../../docs/history-access-design.md)
+for principal/view separation, bounded binding reuse, revocation and relay gates.
 
 Each binding holds only one token and a detached small fingerprint: raw-file
 SHA-256 plus device/inode/size/mtimeNs/ctimeNs. No history rows, arbitrary cursor

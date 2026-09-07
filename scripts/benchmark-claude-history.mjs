@@ -31,7 +31,8 @@ export async function benchmark(suppliedSdk) {
   assert.ok(pinned.validSdkPath(sdkPath)); assert.equal(digest(await fs.readFile(sdkPath)), pinned.SDK_SHA256);
   const sourceSha256 = {};
   const names = (await fs.readdir(path.join(repo, "protocol/native/claude"))).filter(name => name.endsWith(".js"));
-  for (const name of [...names.map(n => `protocol/native/claude/${n}`), "scripts/benchmark-claude-history.mjs", "public/modules/projection.js"])
+  for (const name of [...names.map(n => `protocol/native/claude/${n}`), "scripts/benchmark-claude-history.mjs", "public/modules/projection.js",
+    "public/modules/claude-history.js", "public/modules/claude-history-value.js"])
     sourceSha256[name] = digest(await fs.readFile(path.join(repo, name)));
   const sourceCommit = (await exec("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout.trim();
   const sourceWorktreeDirty = Boolean((await exec("git", ["status", "--porcelain"], { cwd: repo })).stdout.trim());

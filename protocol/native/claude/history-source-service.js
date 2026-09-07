@@ -21,7 +21,8 @@ function launchOptions(source, sdkPath) {
   const grants = [source.projectsRoot, worker, path.join(__dirname, "history-source.js"),
     path.join(__dirname, "history-record-scope.js"), path.join(__dirname, "history-worker-wire.js"),
     path.join(__dirname, "history-sdk.js"), path.join(__dirname, "history-observation-value.js"),
-    path.resolve(__dirname, "../../../public/modules/projection.js")];
+    path.resolve(__dirname, "../../../public/modules/projection.js"),
+    path.resolve(__dirname, "../../../public/modules/claude-history.js"), path.resolve(__dirname, "../../../public/modules/claude-history-value.js")];
   if (sdkPath) grants.push(sdkPath, path.join(path.dirname(sdkPath), "package.json"),
     path.join(__dirname, "history-selection.js"), path.join(__dirname, "history-observation.js"));
   return { executable: process.execPath,

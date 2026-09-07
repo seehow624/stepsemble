@@ -3,8 +3,8 @@
 const { canonicalJSON } = require("../../../public/modules/projection");
 const { normalizeSourceInput, LIMITS: SOURCE } = require("./history-source");
 const { classifyRecordScopes } = require("./history-record-scope");
-const { validObservation } = require("./history-observation-value");
-const { validSdkPath, SDK_VERSION, NATIVE_VERSION, SDK_SHA256 } = require("./history-sdk");
+const { validHistoryValue } = require("../../../public/modules/claude-history");
+const { validSdkPath } = require("./history-sdk");
 const WIRE_VERSION = 1;
 const LIMITS = Object.freeze({ inputBytes: 12288, outputBytes: 10 * 1024 * 1024, outputChunks: 4096,
   bindings: 64, workers: 2, deadlineMs: 10000, cleanupMs: 1000, pageBytes: 256 * 1024, pageMessages: 100 });
@@ -80,16 +80,7 @@ function readResponse(bytes, job) {
   const result = value.result;
   if (keys(result, ["kind", "code"]) && result.kind === "source_unavailable" && sourceCodes.has(result.code)) return result;
   if (job.history) {
-    const valid = keys(result, ["kind", "source", "page", "observation", "reader", "metrics"])
-    && result.kind === "source_history_observation" && validSnapshot(result.source, job.source.sessionId, true)
-    && validPage(result.page) && result.page.offset === job.history.page.offset && result.page.limit === job.history.page.limit
-    && keys(result.reader, ["sdkVersion", "nativeVersion", "sdkSha256", "selection"])
-    && result.reader.sdkVersion === SDK_VERSION && result.reader.nativeVersion === NATIVE_VERSION && result.reader.sdkSha256 === SDK_SHA256
-    && result.reader.selection === "snapshot_session_store"
-    && keys(result.metrics, ["selectionMs", "mappingMs", "maxRssKiB"])
-    && Object.values(result.metrics).every(v => typeof v === "number" && Number.isFinite(v) && v >= 0)
-    && validObservation(result.observation, job.source.sessionId, result.page.limit, result.source.recordCount);
-    if (!valid) return null;
+    if (!validHistoryValue(result, job.source.sessionId, job.history.page)) return null;
     if (job.history.expectedVersion && !sameSourceVersion(job.history.expectedVersion, result.source))
       return { kind: "source_unavailable", code: "source_version_changed" };
     return result;

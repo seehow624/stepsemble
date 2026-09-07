@@ -15,7 +15,7 @@ import pinnedSdk from "../protocol/native/claude/history-sdk.js";
 import selection from "../protocol/native/claude/history-selection.js";
 import sourceService from "../protocol/native/claude/history-source-service.js";
 import historyPages from "../public/modules/history-pages.js";
-import wire from "../protocol/native/claude/history-worker-wire.js";
+import historyProvider from "../public/modules/claude-history.js";
 import projection from "../public/modules/projection.js";
 const exec = promisify(execFile), self = fileURLToPath(import.meta.url);
 const fixturePath = fileURLToPath(new URL("../protocol/native/claude/history-fixture.cjs", import.meta.url));
@@ -24,20 +24,16 @@ const sourcePath = fileURLToPath(new URL("../protocol/native/claude/history-sour
 const recordScopePath = fileURLToPath(new URL("../protocol/native/claude/history-record-scope.js", import.meta.url));
 const projectionPath = fileURLToPath(new URL("../public/modules/projection.js", import.meta.url));
 const historyPagesPath = fileURLToPath(new URL("../public/modules/history-pages.js", import.meta.url));
+const providerPaths = ["claude-history.js", "claude-history-value.js"].map(name => fileURLToPath(new URL(`../public/modules/${name}`, import.meta.url)));
 export const { SDK_VERSION, NATIVE_VERSION, SDK_SHA256, SDK_INTEGRITY } = pinnedSdk;
 const digest = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
-// Test-only transport/validator bridge. A deployed browser still needs reviewed
-// authenticated registration, bounded pre-parse transport and provider decoding.
-function clientView(bound, sourceInput, sdkPath) {
+// Test-only transport bridge with the real shared browser provider validator.
+// Deployed transport still needs authenticated registration/pre-parse byte caps.
+function clientView(bound) {
   const scope = { hostId: "owned-fixture", ...bound.descriptor };
   const api = historyPages.create({ canonicalJSON: projection.canonicalJSON, requestId: crypto.randomUUID,
     read(received, request, options) { assert.deepEqual(received, scope); return bound.observe(request, options); },
-    validateHistory(history, sessionId, page) {
-      const request = { bindingId: scope.bindingId, generation: scope.generation, requestId: fixture.uuid(999) }, nonce = "e".repeat(64);
-      const job = { protocolVersion: 1, nonce, request, source: { ...sourceInput, sessionId }, history: { sdkPath, page } };
-      const bytes = Buffer.from(JSON.stringify({ protocolVersion: 1, nonce, request, result: history }) + "\n");
-      return wire.readResponse(bytes, job)?.kind === "source_history_observation";
-    } });
+    validateHistory: historyProvider.create({ canonicalJSON: projection.canonicalJSON }).validateHistory });
   assert.deepEqual(api.reset(scope), { kind: "applied" }); return api;
 }
 export function environment(home) {
@@ -157,7 +153,7 @@ export async function capture(suppliedSdk) {
     // No allow-child-process, allow-fs-write, allow-worker or real HOME access.
     const nativeDir = path.dirname(sourcePath);
     const extra = ["history-sdk.js", "history-selection.js", "history-source-service.js", "history-worker-wire.js", "history-observation-value.js"].map(name => path.join(nativeDir, name));
-    const args = ["--permission", ...[sdkDir, self, fixturePath, observationPath, sourcePath, recordScopePath, projectionPath, historyPagesPath, ...extra, home].map(dir => `--allow-fs-read=${dir}`), self, "--worker", sdk, home];
+    const args = ["--permission", ...[sdkDir, self, fixturePath, observationPath, sourcePath, recordScopePath, projectionPath, historyPagesPath, ...providerPaths, ...extra, home].map(dir => `--allow-fs-read=${dir}`), self, "--worker", sdk, home];
     const result = await exec(process.execPath, args, { cwd: home, env: environment(home), timeout: 30000, maxBuffer: 65536 });
     const report = JSON.parse(result.stdout);
     const service = sourceService.createSourceService({ sdkPath: sdk });
@@ -179,7 +175,7 @@ export async function capture(suppliedSdk) {
         assert.equal(Object.hasOwn(partial.history.source, "records"), false);
         assert.equal(partial.publishable, false); assert.equal(partial.cleanupConfirmed, true);
         assert.equal(partial.sourceVersion, full.sourceVersion);
-        const view = clientView(bound, { projectsRoot: path.dirname(projectDir), projectKey, sessionId: testCase.sessionId }, sdk);
+        const view = clientView(bound);
         try {
           assert.deepEqual(await view.refresh({ offset: 2, limit: 2 }), { kind: "applied" });
           assert.deepEqual(await view.loadPrevious(2), { kind: "applied" });
@@ -212,7 +208,7 @@ export async function capture(suppliedSdk) {
         const refreshed = await bound.observe(request, { page: continuation.page });
         assert.equal(refreshed.kind, "bound_history_observation", refreshed.code); assert.notEqual(refreshed.sourceVersion, small.sourceVersion);
         assert.equal(refreshed.history.source.sha256, digest(Buffer.from(changed)));
-        const view = clientView(bound, { projectsRoot: path.dirname(projectDir), projectKey, sessionId }, sdk);
+        const view = clientView(bound);
         try {
           assert.deepEqual(await view.refresh({ offset: 0, limit: 1 }), { kind: "applied" });
           const before = view.state();
@@ -233,6 +229,7 @@ export async function capture(suppliedSdk) {
       boundPageByteLimitGate: process.platform === "win32" ? "platform_unsupported" : "posix_fixture_passed",
       boundSourceVersionGate: process.platform === "win32" ? "platform_unsupported" : "posix_fixture_passed",
       boundClientPagingGate: process.platform === "win32" ? "platform_unsupported" : "posix_fixture_passed",
+      sharedBrowserProvider: true,
       nativeFileUnchanged: true, sdkSha256, scope: "Offline read-only SDK history contract; no CLI/model/auth, live approval, reconnect or durable-store verification" };
   } finally { await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
 }

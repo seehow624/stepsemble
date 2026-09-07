@@ -2,8 +2,8 @@
 // Exact reviewed public artifact. No package install, CLI, login or query API.
 const fs = require("node:fs/promises"), path = require("node:path"), crypto = require("node:crypto");
 const { pathToFileURL } = require("node:url");
-const SDK_VERSION = "0.3.259", NATIVE_VERSION = "2.1.259";
-const SDK_SHA256 = "7fa7c212361864544e775e7551519e790515f95d4bb6a4831b0b05f5b368a0c5";
+const { READER } = require("../../../public/modules/claude-history");
+const { sdkVersion: SDK_VERSION, nativeVersion: NATIVE_VERSION, sdkSha256: SDK_SHA256 } = READER;
 const SDK_INTEGRITY = "sha512-5VJSzHQTAPFl2BytZSgyL0Xtdi3I7CeajEhO4KTvm6bx4nt1OIp+IHx78MuurA4Pp/t9UEPa3cWz8Q55Pi9MYw==";
 function validSdkPath(value) {
   return typeof value === "string" && value.length <= 4096 && path.isAbsolute(value)

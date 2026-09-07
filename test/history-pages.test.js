@@ -2,20 +2,13 @@
 const test = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), vm = require("node:vm"), path = require("node:path");
 const pages = require("../public/modules/history-pages"), { canonicalJSON } = require("../public/modules/projection");
 const { selectHistory } = require("../protocol/native/claude/history-selection"), { parseHistoryBytes } = require("../protocol/native/claude/history-source");
-const fixture = require("../protocol/native/claude/history-fixture.cjs"), wire = require("../protocol/native/claude/history-worker-wire");
+const fixture = require("../protocol/native/claude/history-fixture.cjs");
+const { validateHistory } = require("../public/modules/claude-history").create({ canonicalJSON });
 const uuid = fixture.uuid, token = "a".repeat(64), otherToken = "b".repeat(64);
 const defaultCase = fixture.richCases("/synthetic")[0];
 const scopeFor = c => ({ hostId: "synthetic-host", bindingId: uuid(9000), generation: 1, sessionId: c.sessionId });
 const unavailable = code => ({ kind: "unavailable", code });
-// Real reviewed provider validation, through the Host's bounded wire decoder.
-// The future browser transport needs its own reviewed provider adapter; this
-// test-only Node bridge is NOT a production browser transport or source auth.
-function validateHistory(history, sessionId, page) {
-  const request = { bindingId: uuid(9000), generation: 1, requestId: uuid(9001) }, nonce = "c".repeat(64);
-  const job = { protocolVersion: 1, nonce, request, source: { projectsRoot: path.resolve("synthetic-projects"), projectKey: "-synthetic", sessionId },
-    history: { sdkPath: path.resolve("synthetic-sdk/sdk.mjs"), page } };
-  return wire.readResponse(Buffer.from(JSON.stringify({ protocolVersion: 1, nonce, request, result: history }) + "\n"), job)?.kind === "source_history_observation";
-}
+// The same reviewed provider is browser-safe; no private worker-wire bridge.
 async function history(c, page) {
   const parsed = parseHistoryBytes(Buffer.from(c.records.map(r => JSON.stringify(r)).join("\n") + "\n"), c.sessionId);
   assert.equal(parsed.kind, "source_records");
@@ -211,7 +204,8 @@ test("invalid scope/page/dependency/UUID input never initiates reads or erases g
 test("unknown errors are sanitized; provider denial never becomes trusted data", async () => {
   const h = harness(), p = h.api.refresh(); h.calls[0].resolve({ kind: "source_unavailable", code: "/private/secret" });
   assert.deepEqual(await p, unavailable("history_read_failed")); assert.equal(h.api.state().error, "history_read_failed");
-  for (const validator of [() => false, () => "truthy-is-not-valid", async () => false, () => { throw new Error("/private/secret"); }]) {
+  for (const validator of [() => false, () => "truthy-is-not-valid", async () => false,
+    async () => { throw new Error("/private/secret"); }, () => { throw new Error("/private/secret"); }]) {
     const h = harness(defaultCase, { validateHistory: validator });
     const result = await h.finish(h.api.refresh()); assert.equal(result.kind, "unavailable"); assert.equal(h.api.state().messageCount, 0);
     assert.ok(!JSON.stringify(h.api.state()).includes("secret"));

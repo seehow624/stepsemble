@@ -1,6 +1,6 @@
 # Reserved inert-history Client view
 
-Plan 1.40. `client/history-pages.ts` builds `public/modules/history-pages.js`.
+Plan 1.40 controller / Plan 1.41 shared provider. `client/history-pages.ts` builds `public/modules/history-pages.js`.
 This is a transport-neutral state controller, **not a deployed history screen,
 Stepsemble Protocol wire endpoint, authenticated source registry or journal**.
 Production HTML, service worker, login, models and routes do not import it.
@@ -23,10 +23,49 @@ Production HTML, service worker, login, models and routes do not import it.
 
 The controller checks the outer bound reply/correlation, session/page identity
 and all-false authority itself. It then invokes the provider validator on a
-detached JSON value. Tests use the real Claude worker-wire validator through a
-**test-only Node bridge**. A reusable browser provider adapter, authenticated
-transport, source registration and authorization remain unimplemented. Do not
-attach the reserved module to production by substituting a permissive validator.
+detached JSON value. The shared Claude provider now supplies this validator
+directly, without a private worker-wire bridge. Authenticated transport, source
+registration and authorization remain unimplemented. Do not attach the reserved
+module to production by substituting a permissive validator.
+
+### Shared browser-safe provider (Plan 1.41)
+
+`client/claude-history-value.ts` contains the reviewed observation shape checks;
+`client/claude-history.ts` contains the whole provider envelope and fixed reader
+profile. Both build into `public/modules/`. The Host worker wire calls the same
+`validHistoryValue` predicate after its existing byte-bounded, detached decoding;
+`history-observation-value.js` is a compatibility export, not a second validator.
+SDK loading reads the same pinned reader constants but stays in the Node-only
+`history-sdk.js`; neither browser module imports an SDK, filesystem, network,
+credential, source file or native CLI.
+
+Load `projection.js`, `claude-history-value.js`, `claude-history.js` and
+`history-pages.js` in this order for the standalone browser namespaces. In Node,
+the generated CommonJS exports load only the value module dependency. Construct
+`StepsembleClaudeHistory.create({canonicalJSON: StepsembleProjection.canonicalJSON})`
+and pass its `validateHistory` to the page controller. These scripts are not
+added to production HTML/service-worker precache by this batch.
+
+- `parseHistory(value, sessionId, page)` validates and returns a detached provider
+  history value or null; `validateHistory` returns a synchronous boolean.
+- `decodeHistory(bytes, sessionId, page)` checks a nonempty Uint8Array's raw size
+  **before parsing**, rejects BOM/invalid UTF-8/malformed or multiple JSON values,
+  then uses the same bounded JSON/value checks. The input buffer is copied.
+- Decode accepts exactly the inner `source_history_observation` JSON payload,
+  not a private worker JSONL frame or a bound HTTP response. The future transport
+  still needs a streaming raw limit for that outer response **before collecting
+  and parsing it**. Supplying an oversized buffer here cannot undo earlier
+  unbounded transport allocation.
+- The low-level `validHistoryValue` and `validObservation` predicates assume
+  bounded detached JSON. They are not raw JavaScript accessor/Proxy defenses.
+  Public parse/decode uses the mandatory reviewed canonical JSON helper.
+- All source/observation authority stays false. Digests are structurally checked,
+  not proven against a native file by a browser. Tool/ancillary data remains
+  inert, page-scoped; validation does not execute/fetch attached content.
+
+Incorrect asynchronous validators are rejected by the controller; a native
+Promise's rejection is absorbed to avoid an unhandled error. This does not make
+async validation supported or delay the commit pending a Promise.
 
 ## State and operations
 
@@ -92,18 +131,25 @@ provider/content/authority rejection, malformed/getter/cyclic/oversized values,
 duplicate/gapped pages, all retention limits, detached ownership, sanitized
 failures and the generated browser-language namespace in a Node VM.
 Strict TypeScript includes negative authority/scope/dependency assertions.
+10 shared-provider tests additionally exercise the fixed profile, source and
+reader drift, nested blocks/tool pointers/auxiliary shapes, authority rejection,
+scope, getters/cycles/non-JSON values, pre-parse byte cap/UTF-8/BOM/truncation,
+detached ownership and real provider/controller integration in Node and the
+browser-language VM with Web primitives and no Node globals. These use explicit
+accepted/rejected fixtures, not merely equality of two aliases of one function.
 VM parity is not actual Safari/Chrome/Firefox/mobile UI acceptance.
 
 The official pinned SDK contract additionally connects this controller to the
-real bound isolated worker on owned rich, compaction and ancillary fixtures:
+real bound isolated worker and shared provider on owned rich, compaction and ancillary fixtures:
 forward/backward assembly, observed append becoming stale, preserved old view,
 blocked continuation and explicit new-version refresh. macOS/Linux test actual
 POSIX source reads; Windows reports `boundClientPagingGate: platform_unsupported`
 and only runs pure controller/SDK fixture tests. No real native CLI, model,
 private transcript, auth state or subscription credential is touched.
 
-Next: reviewed browser provider decoder and authenticated scoped transport/source
-registration design; POSIX ACL/descriptor containment and Windows ownership gate;
+Next: implement and verify the proposed authenticated scoped transport/source
+registration and bounded view pool from [the access design](../docs/history-access-design.md);
+POSIX ACL/descriptor containment and Windows ownership gate;
 then real history presentation/stale controls and multi-Client/browser performance.
 Do not turn this inert observation path into a live/durable journal or native
 approval/resume path without those independent evidence gates.
