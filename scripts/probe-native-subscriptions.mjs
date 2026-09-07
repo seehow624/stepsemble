@@ -9,6 +9,8 @@ import readline from "node:readline";
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
+import { capture, verifyCapture, NativeCodexMetadataError } from "./check-native-codex-schema.mjs";
+import { createLineDecoder } from "../server/stream-safety.js";
 const exec = promisify(execFile);
 export const MARKER = "STEPSEMBLE_NATIVE_OK";
 export const PROMPT = `Reply with exactly ${MARKER}. Do not call tools or read any files.`;
@@ -54,11 +56,19 @@ export function codexOverrides(names) {
 }
 export function verifyCodexRoute(effective) {
   const config = effective?.config;
+  const record = value => value !== null && typeof value === "object" && !Array.isArray(value);
   const nativeUrl = (value, expected) => value == null || value === expected || value === expected + "/";
-  if (!config || (config.model_provider ?? "openai") !== "openai"
+  if (!record(config)) throw new SmokeError("native_config_unavailable");
+  if ((config.model_provider ?? "openai") !== "openai"
     || !nativeUrl(config.openai_base_url, "https://api.openai.com/v1")
     || !nativeUrl(config.chatgpt_base_url, "https://chatgpt.com/backend-api"))
     throw new SmokeError("non_native_route");
+  // Native built-in IDs cannot be overridden. An attempted override is still
+  // ambiguous configuration, not evidence that a third-party route was tested.
+  if (config.model_providers != null && (!record(config.model_providers) || Object.hasOwn(config.model_providers, "openai")))
+    throw new SmokeError("ambiguous_native_provider_config");
+  if (config.forced_login_method != null && config.forced_login_method !== "chatgpt")
+    throw new SmokeError("non_subscription_auth_config");
 }
 export function verifyCodexPreflight(effective, started) {
   verifyCodexRoute(effective);
@@ -71,8 +81,9 @@ export function verifyCodexPreflight(effective, started) {
   if (started.instructionSources.length) throw new SmokeError("custom_instructions_loaded");
 }
 export function failureObservation(agent, error, context) {
-  const reason = error instanceof SmokeError ? error.reason : "native_probe_failed";
+  const reason = error instanceof SmokeError || error instanceof NativeCodexMetadataError ? error.reason : "native_probe_failed";
   const safe = {}, observation = context.observation ?? {};
+  if (error instanceof NativeCodexMetadataError && /^codex-cli \d+\.\d+\.\d+$/.test(error.nativeVersion ?? "")) safe.nativeVersion = error.nativeVersion;
   for (const key of ["nativeVersion", "authType", "subscriptionType"])
     if (typeof observation[key] === "string" && /^[a-zA-Z0-9 ()._-]{1,80}$/.test(observation[key])) safe[key] = observation[key];
   if (Number.isSafeInteger(observation.customInstructionSourceCount) && observation.customInstructionSourceCount >= 0) safe.customInstructionSourceCount = observation.customInstructionSourceCount;
@@ -145,60 +156,102 @@ async function claude(run, binary, home, context, preflightOnly) {
 }
 export function rpc(binary, cwd, env, configArgs) {
   const child = spawn(binary, ["app-server", "--listen", "stdio://", ...configArgs], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+  return metadataRpc(child);
+}
+export function metadataRpc(child) {
   children.add(child); child.stderr.resume();
-  const waiting = new Map(), notifications = []; let sequence = 0, bytes = 0, unexpectedRequest = false;
-  const lines = readline.createInterface({ input: child.stdout });
-  const send = value => child.stdin.write(JSON.stringify(value) + "\n");
-  const fail = () => { for (const row of waiting.values()) { clearTimeout(row.timer); row.reject(new Error("Native Codex transport ended; no automatic retry")); } waiting.clear(); };
-  child.on("error", fail); child.on("close", fail); child.stdin.on("error", fail);
-  lines.on("line", line => {
-    bytes += Buffer.byteLength(line); if (bytes > 8 * 1024 * 1024) { fail(); void stop(child); return; }
-    let value; try { value = JSON.parse(line); } catch { fail(); void stop(child); return; }
-    if (value.method && value.id !== undefined) {
+  const waiting = new Map(); let sequence = 0, bytes = 0, noticeCount = 0, unexpectedRequest = false, failure = null;
+  const fail = (reason = "native_transport_ended") => {
+    if (failure) return;
+    failure = new SmokeError(reason);
+    for (const row of waiting.values()) { clearTimeout(row.timer); row.reject(failure); } waiting.clear();
+    void stop(child);
+  };
+  const send = value => {
+    if (failure) throw failure;
+    try { child.stdin.write(JSON.stringify(value) + "\n"); } catch { fail(); throw failure; }
+  };
+  child.on("error", () => fail()); child.on("close", () => fail()); child.stdin.on("error", () => fail());
+  const decoder = createLineDecoder({ maxBytes: 1024 * 1024, onError: () => fail("native_frame_invalid"), onLine: line => {
+    if (failure) return;
+    let value; try { value = JSON.parse(line); } catch { fail("native_frame_invalid"); return; }
+    if (!value || typeof value !== "object" || Array.isArray(value)) { fail("native_frame_invalid"); return; }
+    if (Object.hasOwn(value, "method") && Object.hasOwn(value, "id")) {
       unexpectedRequest = true;
-      send({ id: value.id, error: { code: -32601, message: "Tool and permission requests are disabled for this smoke test" } });
-      void stop(child); return;
+      try { send({ id: value.id, error: { code: -32601, message: "Tool and permission requests are disabled for this smoke test" } }); }
+      catch { return; } // The transport failure is already latched and child stopped.
+      fail("unexpected_native_request"); return;
     }
-    if (value.method) { notifications.push(value); return; }
+    if (Object.hasOwn(value, "method")) {
+      if (typeof value.method !== "string" || ++noticeCount > 256) fail("native_frame_invalid");
+      return; // Do not retain raw notification bodies or instruction paths.
+    }
     const row = waiting.get(value.id); if (!row) return;
+    if (Object.hasOwn(value, "error") === Object.hasOwn(value, "result")) { fail("native_frame_invalid"); return; }
     waiting.delete(value.id); clearTimeout(row.timer);
-    if (value.error) row.reject(new Error(`Native Codex ${row.method} rejected (${value.error.code}); no retry`)); else row.resolve(value.result);
+    if (Object.hasOwn(value, "error")) { row.reject(new SmokeError("native_request_rejected")); fail("native_request_rejected"); }
+    else row.resolve(value.result);
+  } });
+  child.stdout.on("data", chunk => {
+    if (failure) return;
+    bytes += chunk.length;
+    if (bytes > 8 * 1024 * 1024) { fail("native_output_limit"); return; }
+    decoder.push(chunk);
   });
+  child.stdout.on("error", () => fail());
+  child.stdout.on("end", () => { decoder.end(); fail(); });
   const request = (method, params, timeout = 20000) => new Promise((resolve, reject) => {
-    const id = ++sequence, timer = setTimeout(() => { waiting.delete(id); reject(new Error(`Native Codex ${method} timed out; no retry`)); }, timeout);
+    if (failure) { reject(failure); return; }
+    if (!["initialize", "config/read", "account/read"].includes(method) || waiting.size >= 4) {
+      reject(new SmokeError("native_metadata_method_refused")); return;
+    }
+    const id = ++sequence, timer = setTimeout(() => fail("native_request_timeout"), timeout);
     waiting.set(id, { method, resolve, reject, timer }); send({ id, method, params });
   });
-  return { request, send, notifications, get unexpectedRequest() { return unexpectedRequest; },
-    async close() { await stop(child); fail(); lines.close(); children.delete(child); } };
+  return { request, send(value) {
+    if (value?.method !== "initialized" || Object.hasOwn(value, "id")) throw new SmokeError("native_metadata_method_refused");
+    send({ method: "initialized", params: {} });
+  }, get unexpectedRequest() { return unexpectedRequest; },
+    assertHealthy() { if (failure) throw failure; },
+    async close() { await stop(child); fail(); children.delete(child); } };
 }
 async function initialize(client) {
   await client.request("initialize", { clientInfo: { name: "stepsemble_native_smoke", title: "Stepsemble native smoke", version: "1.0.0" } });
   client.send({ method: "initialized", params: {} });
 }
+export async function codexMetadataPreflight(client, cwd, context) {
+  await initialize(client);
+  // Resolve the same cwd as the probe. Validate routing before account access,
+  // and never create a thread just to inspect metadata.
+  const effective = await client.request("config/read", { includeLayers: false, cwd });
+  verifyCodexRoute(effective);
+  const account = await client.request("account/read", { refreshToken: false });
+  client.assertHealthy();
+  if (account.account?.type !== "chatgpt" || account.requiresOpenaiAuth !== true)
+    throw new SmokeError("native_subscription_unavailable");
+  const planTypes = ["free", "go", "plus", "pro", "prolite", "team", "self_serve_business_prolite", "self_serve_business_usage_based", "business", "ent26", "enterprise_cbp_automation", "enterprise_cbp_usage_based", "enterprise", "edu", "edu_plus", "edu_pro", "unknown"];
+  Object.assign(context.observation, { authType: "chatgpt", subscriptionType: planTypes.includes(account.account.planType) ? account.account.planType : null });
+  return { agent: "codex", ...context.observation, result: "preflight_only", scope: "version_schema_route_account_metadata",
+    turnAttempts: 0, threadCreated: false, modelTurnCompletionObserved: false,
+    instructionIsolationVerified: false, toolIsolationVerified: false, approvalExercised: false };
+}
 async function codex(run, binary, home, context) {
+  // Offline, empty HOME first; a matching version alone is not sufficient.
+  const metadata = await capture(binary);
+  context.observation = { nativeVersion: `codex-cli ${metadata.nativeVersion}` };
+  await verifyCapture(metadata);
   const env = nativeEnvironment(home), cwd = path.join(run, "codex-workspace"); await fs.mkdir(cwd, { recursive: true });
-  const version = (await exec(binary, ["--version"], { cwd, env, timeout: 10000 })).stdout.trim();
-  assert(version === "codex-cli 0.153.3", "Review changed Codex CLI version before consuming quota");
-  context.observation = { nativeVersion: version };
   // Parse only native config server names, never return keys/URLs or copy auth.
-  const names = JSON.parse((await exec("python3", ["-c", "import tomllib,json,pathlib,sys; print(json.dumps(list(tomllib.loads(pathlib.Path(sys.argv[1]).read_text()).get('mcp_servers',{}))))", path.join(home, ".codex/config.toml")], { cwd, timeout: 10000 })).stdout);
+  // Locate the owner's installed Python (macOS system Python may lack tomllib).
+  // -I and the filtered environment omit inherited Python import/loader settings;
+  // this PATH is only for the local parser, never the native Codex child.
+  const parserEnv = { ...env, PATH: process.env.PATH || env.PATH };
+  const names = JSON.parse((await exec("python3", ["-I", "-c", "import tomllib,json,pathlib,sys; p=pathlib.Path(sys.argv[1]); assert not p.exists() or p.stat().st_size<=2097152; print(json.dumps(list(tomllib.loads(p.read_text() if p.exists() else '').get('mcp_servers',{}))))", path.join(home, ".codex/config.toml")], { cwd, env: parserEnv, timeout: 10000, maxBuffer: 65536 })).stdout);
   const overrides = codexOverrides(names);
   const args = overrides.flatMap(value => ["-c", value]);
   const client = rpc(binary, cwd, env, args);
   try {
-    await initialize(client);
-    const account = await client.request("account/read", { refreshToken: false });
-    assert(account.account?.type === "chatgpt", "Codex is not using existing ChatGPT subscription auth; no turn sent");
-    Object.assign(context.observation, { authType: "chatgpt", subscriptionType: account.account.planType ?? null });
-    const effective = await client.request("config/read", { includeLayers: false });
-    verifyCodexRoute(effective); // Refuse routing drift before creating a thread.
-    const started = await client.request("thread/start", { cwd, ephemeral: false, sandbox: "read-only", approvalPolicy: "never",
-      baseInstructions: systemPrompt, developerInstructions: "Do not use tools or read files. Return the user's fixed marker only.", serviceName: "stepsemble-native-smoke" });
-    if (Array.isArray(started.instructionSources)) context.observation.customInstructionSourceCount = started.instructionSources.length;
-    verifyCodexPreflight(effective, started);
-    // Do not ship a turn path before native instruction/tool isolation is reviewed.
-    // ApprovalPolicy "never" is not a no-tools policy and must not be used as one.
-    return { agent: "codex", ...context.observation, result: "preflight_only", turnAttempts: 0, modelTurnCompletionObserved: false };
+    return await codexMetadataPreflight(client, cwd, context);
   } finally { await client.close(); }
 }
 export async function main(argv) {

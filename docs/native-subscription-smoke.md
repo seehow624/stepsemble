@@ -4,6 +4,16 @@
 不改登入／模型路由，不重啟正式服務。這是人工 native harness 驗收，
 **不是已接上 Stepsemble Web 的 adapter，也不是 approval／resume parity 通過**。
 
+## 2026-09-07：Codex 新版離線檢查完成，仍沒有模型 attempt
+
+0.153.4 的 24-schema metadata baseline 已保存，原有 18 份與 0.153.3 完全相同。
+Runner 現在按版本比對實際生成 hash，而非只信版本字串；preflight 改為
+initialize → 相同 cwd 的 config/read → route gate → account/read，**不再建立空白 session**。
+未知版本、歧義 provider／API-only auth、串流異常均有安全原因碼並停止。
+本輪只跑離線 generator 與合成測試，沒有查真帳號、啟 app-server 或呼叫 Claude／Codex 模型。
+詳見 [`codex-metadata-compatibility.md`](codex-metadata-compatibility.md)。
+下列登入／路由觀察按各自日期保留，不代表本輪重新驗過。
+
 ## 最新結果：2026-09-06，Claude 單次模型／串流／歷史讀回通過
 
 Jerome 回報「瀏覽器登入了」後，正式 Mini Web 的桌面助手回報
@@ -80,7 +90,8 @@ Claude 的唯一 attempt marker 與自己的錯誤 history 保留供交接，不
 人工操作前須重新確認當次授權、既有 attempt 與可信任 native executable；
 旗標不是同意書，不得自動新建 run 來規避已用掉的那一次。
 目前 Claude 可做單次 attempt，**Codex 僅開放 preflight，不提供 model turn 入口**；
-完整原生指令／工具隔離審查完成後才另行實作。版本釘住 Claude 2.1.259／Codex 0.153.3；其他版本先重新檢視。Codex
+完整原生指令／工具隔離審查完成後才另行實作。版本釘住 Claude 2.1.259；Codex metadata
+支援已審閱的 0.153.3／0.153.4，先比對對應 schema hash；其他版本先重新檢視。Codex
 設定 inventory 解析另需 Python 3.11+ 的 `tomllib`。目前只做 macOS 本機驗收，
 不是三 OS 原生 runtime gate。
 
@@ -97,12 +108,13 @@ node scripts/probe-native-subscriptions.mjs claude /absolute/prepared-run /absol
 - Claude `--safe-mode` 配合固定 marker、替代 system prompt、tools 空集合、
   strict 空 MCP、1 turn。`--bare` 不適用本次：官方說明它不讀 OAuth／Keychain，
   對 Anthropic 連線只接受 API key，會改變測試目的。
-- Codex 直接指定可信任官方 binary，不執行 OpenCodex wrapper；依本次 binary 的
-  schema 使用 `sandbox: "read-only"`。初始化後核對 auth 與完整有效路由，
+- Codex 直接指定可信任官方 binary，不執行 OpenCodex wrapper；先以空 HOME
+  比對 schema，初始化後先核對有效設定的路由再讀 auth metadata，
   不改路由讓測試通過。MCP 名稱只允許可無歧義表達的 bare dotted keys；
   這個 CLI 會把加引號的 key segment 當成不同 server，不能用字串拼接猜語法。
   最終 runner 也以 per-process flags 關閉 hooks／shell snapshot／memories；不寫回設定。
-- Codex 指令來源非空就停；`project_doc_max_bytes=0` 不能當全域指令隔離證據。
+- Codex 現行 metadata preflight 不建立 thread，故不聲稱驗過指令或工具隔離。
+  保留的純函式 guard 仍拒絕非空指令來源；`project_doc_max_bytes=0` 不能當全域指令隔離證據。
   沒有為了繞過此檢查搬走 AGENTS.md、換 CODEX_HOME 或複製 auth。
 - 模型效果之前以 `wx` 排他建立並 sync 私人 attempt marker；即使後續 timeout、
   parse failure 或 crash，重跑同一 run 也先拒絕。這只是手動測試防重送，

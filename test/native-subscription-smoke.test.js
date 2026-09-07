@@ -55,6 +55,65 @@ test("native provider/account labels cannot hide a custom API or ChatGPT endpoin
     const e = effective(); Object.assign(e.config, change); assert.throws(() => verifyCodexRoute(e), /non_native_route/);
   }
 });
+test("route preflight refuses malformed evidence, built-in override attempts and API-only auth without exposing settings", async () => {
+  const { verifyCodexRoute, failureObservation } = await api();
+  for (const config of [null, [], "private"]) assert.throws(() => verifyCodexRoute({ config }), /native_config_unavailable/);
+  for (const model_providers of [[], "private", { openai: { base_url: "https://private.invalid", auth: { command: "private" } } }, { openai: null }]) {
+    const e = effective(); e.config.model_providers = model_providers;
+    assert.throws(() => verifyCodexRoute(e), /ambiguous_native_provider_config/);
+  }
+  for (const forced_login_method of ["api", "unknown", false, []]) {
+    const e = effective(); e.config.forced_login_method = forced_login_method;
+    assert.throws(() => verifyCodexRoute(e), error => {
+      const result = failureObservation("codex", error, {});
+      assert.equal(result.reason, "non_subscription_auth_config");
+      assert.ok(!JSON.stringify(result).includes("private")); return true;
+    });
+  }
+  const e = effective(); e.config.forced_login_method = "chatgpt";
+  e.config.model_providers = { third_party: { base_url: "https://private.invalid" } };
+  assert.doesNotThrow(() => verifyCodexRoute(e)); // Inactive routes remain untouched.
+});
+test("metadata-only Codex preflight resolves cwd and route before reading account and never creates sessions", async () => {
+  const { codexMetadataPreflight } = await api(), calls = [], cwd = path.resolve("synthetic-workspace");
+  const replies = { initialize: {}, "config/read": effective(), "account/read": { requiresOpenaiAuth: true, account: { type: "chatgpt", planType: "pro" } } };
+  const client = { async request(method, params) { calls.push({ method, params }); assert.ok(Object.hasOwn(replies, method)); return replies[method]; },
+    send(value) { assert.equal(value.method, "initialized"); }, assertHealthy() {} };
+  const output = await codexMetadataPreflight(client, cwd, { observation: { nativeVersion: "codex-cli 0.153.4" } });
+  assert.deepEqual(calls, [{ method: "initialize", params: { clientInfo: { name: "stepsemble_native_smoke", title: "Stepsemble native smoke", version: "1.0.0" } } },
+    { method: "config/read", params: { includeLayers: false, cwd } }, { method: "account/read", params: { refreshToken: false } }]);
+  assert.equal(output.threadCreated, false); assert.equal(output.turnAttempts, 0);
+  assert.equal(output.instructionIsolationVerified, false); assert.equal(output.toolIsolationVerified, false);
+  assert.equal(output.scope, "version_schema_route_account_metadata");
+  replies["account/read"].account.planType = { private: "must not be exported" };
+  const unknownPlan = await codexMetadataPreflight(client, cwd, { observation: {} });
+  assert.equal(unknownPlan.subscriptionType, null); assert.ok(!JSON.stringify(unknownPlan).includes("private"));
+  replies["config/read"].config.openai_base_url = "http://127.0.0.1:1/private"; calls.length = 0;
+  await assert.rejects(codexMetadataPreflight(client, cwd, { observation: {} }), /non_native_route/);
+  assert.deepEqual(calls.map(row => row.method), ["initialize", "config/read"]);
+  replies["config/read"] = effective();
+  replies["account/read"].requiresOpenaiAuth = false;
+  await assert.rejects(codexMetadataPreflight(client, cwd, { observation: {} }), /native_subscription_unavailable/);
+  replies["account/read"].requiresOpenaiAuth = true;
+  for (const account of [null, { type: "apiKey" }, { type: "chatgptAuthTokens" }]) {
+    replies["account/read"].account = account;
+    await assert.rejects(codexMetadataPreflight(client, cwd, { observation: {} }), /native_subscription_unavailable/);
+  }
+});
+test("native version and schema failures preserve safe causes rather than a generic Failed", async () => {
+  const { failureObservation } = await api();
+  const { reviewedVersion, verifySnapshot } = await import("../scripts/check-native-codex-schema.mjs");
+  for (const [check, reason, version] of [
+    [() => reviewedVersion("codex-cli 0.153.5"), "unsupported_native_version", "codex-cli 0.153.5"],
+    [() => reviewedVersion("private credential"), "invalid_native_version", undefined],
+    [() => verifySnapshot({ nativeVersion: "0.153.4" }, {}), "native_schema_mismatch", "codex-cli 0.153.4"],
+  ]) assert.throws(check, error => {
+    const result = failureObservation("codex", error, {});
+    assert.equal(result.reason, reason); assert.equal(result.nativeVersion, version);
+    assert.equal(result.result, "blocked"); assert.equal(result.turnAttempts, 0);
+    assert.ok(!JSON.stringify(result).includes("private")); return true;
+  });
+});
 test("Codex preflight refuses isolation drift and missing or mismatched thread metadata", async () => {
   const { verifyCodexPreflight } = await api();
   for (const change of [{ project_doc_max_bytes: 32768 }, { web_search: "cached" }, { features: { apps: false, plugins: false } }, { mcp_servers: { x: {} } }]) {

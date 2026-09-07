@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.31
+> 計畫版本：1.32
 > 最後更新：2026-09-07
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -47,7 +47,7 @@
 | 階段 1：Stepsemble Protocol v1 | 進行中 | handshake／strict TS SDK／35 events＋8 commands、receipt／entity／bounded history／snapshot、多列proposal／observed-fact邊界、30-step synthetic transaction golden與1,251-case Ajv conformance已實作；Pi0.84.2三OS真實離線57frames已驗；實際native ownership/evidence驗證／durable ledger／snapshot transport／rolling gate仍未通過 |
 | Pi 原生 RPC 邊界 | 已實作，隨rc.3啟用於Mini | 嚴格 frame／UI reply、跨程序 correlation、有界 pending dialog、TypeScript FIFO／失敗手動重試、完整 pending-set 重連對齊／舊 stream fencing、更新／idle／離開聊天保護；Windows core launch／PATH／owned tree 已接上 runner fixture；仍非 durable approval 或原生全版本／provider／模型串流驗收 |
 | 已發佈 Web rolling 相容 | Legacy smoke 已驗 | 真實v3.0.3/v3.0.2 pinned source與development雙向搭配，Chromium桌面/手機尺寸8cases，macOS/Linux各跑一次共16cases／CI33970245044過。SW/PWA cache、Safari/Firefox/Windows/實機、future journal transport不包含，見`protocol/rolling-compatibility.md` |
-| Codex 官方介面基線 | 離線 metadata 已驗 | 0.153.3官方CLI輸出18個schema hash與99/10/81方法catalog；隔離HOME且不啟app-server/模型/登入，不改OpenCodex wrapper；不是原生runtime/session/approval驗收 |
+| Codex 官方介面基線 | 0.153.4 離線 metadata 已驗 | 新版24份schema，原18份及99/10/81 catalog與0.153.3全同；runner逐版本比對hash，未知版本停止。preflight不再建空session，路由先於account、傳輸有界；本輪未啟app-server／讀真帳號，不是runtime/session/approval驗收，見 `codex-metadata-compatibility.md` |
 | Claude／Codex 真實訂閱 smoke | Claude單次通過；Codex尚未通過 | 2026-09-06 22:44 MYT使用者登入後，Claude2.1.259直接Aqua CLI固定marker／2個delta／session identity／退出後新history讀回通過，1attempt無tool無重試。Codex0.153.4新版與隔離gate仍待驗，本輪未啟動。詳見`native-subscription-smoke.md`；不是完整Web adapter/parity通過 |
 | Claude 官方登入入口 | Mini當前detected，正式3.0.6 | 使用者回報瀏覽器登入，助手回completed／detected；另行同意的直接CLI最小模型測試成功。metadata API仍liveVerified=false，不以一次成功保證永久有效；不自動修憑證／重試模型，詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
@@ -58,7 +58,7 @@
 
 ### 下一個可執行任務
 
-**1.31 開發接續**：Jerome要求繼續直到完整完成。先完成不改native ownership的現行Node可靠性修復，並為72h gate加入可重跑工具；不是提前切換Rust／DB／原生adapter。3.0.7-rc.1 使用隔離固定source，正式兩台維持3.0.6。新來源須核對各自CI／rolling與多輪Host基線，再開始72h連續觀察；有中斷就如實失敗，不將休眠空白或短測充當72h。Claude/Codex新模型用量已另詢問，未回覆前不執行；full native／實機／Rust／App門檻仍未完成。接續證據見 `session-discovery-and-soak.md`。
+**1.32 開發接續**：Codex 0.153.4 離線相容審閱與無 session 副作用的 metadata runner 已完成，尚未執行新版真帳號 preflight。後續先確認原生訂閱與第三方路由隔離，再補 Claude App structured history／approval／resume；不自行改設定或使用新的模型額度。既有 Claude 單次同意已於09-06成功使用，不可重跑。3.0.7-rc.1 的72h維持原固定source／開始時間，與B+ rc.2分開；本輪只改人工驗收工具、合成測試與文件，不提前切換Rust／DB／原生adapter，正式兩台保留3.0.6。詳見 `codex-metadata-compatibility.md` 與 `session-discovery-and-soak.md`。
 
 **2026-09-07 品牌候選**：Jerome明確確認B+為最終方向。新的
 `public/stepsemble-mark.svg` 是向量母版，使用單一module／connector在
@@ -67,9 +67,9 @@
 測試隨3.0.7-rc.2準備；不重啟或修改固定ab227af的72h長測，也尚未部署
 正式3.0.6主機。驗收見`brand-refresh-3.0.7-rc.2.md`。
 
-**2026-09-06 最新進度**：Web 3.0.6已完成公開 release、Mini／MacBook Pro 可回滾部署，兩台每60分鐘自動更新正常；不要再要求 MBP 補裝。SSH 仍沒有權限，不繞過。Windows 停止／重連、還原後未知資料保留及對話選取不重建已實作／跨平台驗收／上線，見 `agent-stop-reliability.md`。Chrome單輪量測、合成Host重啟／衝突還原與8-task基線已補；實機背景恢復、多輪性能、完整Host備份還原、Pi存活與72h仍未完成。Claude 最近 metadata 為 signed_out，登入由 owner 進行；模型重測仍需新的用量同意。每次部署仍先檢查 active work 並保留回滾。
+**2026-09-06 已部署成果**：Web 3.0.6已完成公開 release、Mini／MacBook Pro 可回滾部署，兩台每60分鐘自動更新正常；不要再要求 MBP 補裝。SSH 仍沒有權限，不繞過。Windows 停止／重連、還原後未知資料保留及對話選取不重建已實作／跨平台驗收／上線，見 `agent-stop-reliability.md`。Chrome單輪量測、合成Host重啟／衝突還原與8-task基線已補；實機背景恢復、多輪性能、完整Host備份還原、Pi存活與72h仍未完成。Claude 22:44 MYT 已由 owner 登入並完成另行同意的單次 smoke，不再依較早 signed_out 要求重登；模型重測仍需新的用量同意。每次部署仍先檢查 active work 並保留回滾。
 
-先閱讀 `reliability-followup.md`、`protocol/v1/README.md`、`command-state.md`、`lifecycle.md`、`projection.md`、`transactions.md`、`protocol/native/pi/README.md`、`protocol/native/codex/README.md`、`protocol/rolling-compatibility.md` 、`native-subscription-smoke.md` 與 `claude-sign-in.md`，再繼續 Phase 1。Pi三OS真實離線、pending-set/FIFO/reconnect、receipt/entity/projection/snapshot、8commands/observations多列proposal與30-step golden已做；前兩已發布版本的legacy browser雙向8cases在macOS/Linux皆過；Codex0.153.3離線schema metadata已驗，不要重做。Jerome已同意Claude/Codex各1次最小測試；Claude唯一attempt因OAuth過期失敗，記錄用量0但不得自動重試，Jerome曾於09-06自行重新登入，但最新metadata又為signed_out；官方登入由owner進行，模型重測仍需新的同意。Codex沒有送turn：有效設定仍有本機API代理與全域指令，需要先決定隔離方式，不可自行改設定／搬憑證／移除私人指令。Native ownership/evidence、模型/tool／訂閱與authenticated transport仍需接入，之後按階段接durable store/crash/restore，純函式不是DB證據。Projection未接live UI，paging/worker/效能、SW/cache/Safari/Firefox/實機/futurejournalrolling、72h等仍待；Rust/App完整體未完成；後續部署依本次active-work與回滾安全邊界辦理。
+先閱讀 `reliability-followup.md`、`protocol/v1/README.md`、`command-state.md`、`lifecycle.md`、`projection.md`、`transactions.md`、`protocol/native/pi/README.md`、`protocol/native/codex/README.md`、`protocol/rolling-compatibility.md`、`native-subscription-smoke.md` 與 `claude-sign-in.md`，再繼續 Phase 1。Pi三OS真實離線、pending-set/FIFO/reconnect、receipt/entity/projection/snapshot、8commands/observations多列proposal與30-step golden已做。Codex兩版metadata、Claude09-06唯一成功smoke見最新文件；09-05失敗attempt與09-06成功attempt各有独立同意，均保留。Codex從未送turn；本機API代理與全域指令是09-05的歷史觀察，不當成新版目前狀態，不可自行改設定／搬憑證／移除私人指令。Native ownership/evidence、模型/tool／訂閱與authenticated transport仍需接入，之後按階段接durable store/crash/restore，純函式不是DB證據。Projection未接live UI，paging/worker/效能、SW/cache/Safari/Firefox/實機/futurejournalrolling、72h等仍待；Rust/App完整體未完成；後續部署依active-work與回滾安全邊界辦理。
 
 ## 一、不可退讓的核心決策
 
@@ -955,6 +955,13 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-07 — Plan 1.32
+
+- Codex 0.153.4 官方 offline generator 驗24份schema；原18份／99-10-81 catalog與0.153.3全同。版本與hash双重門檻、baseline排他新增、保留歷史證據，不放寬成任意semver。
+- 手動metadata preflight移除thread/start；限定initialize/config-read/account-read、相同cwd先驗route、account不要求refresh。新增歧義provider／API-only auth與有界串流／失敗鎖定／工具請求拒絕；Codex model入口仍禁止。不是Web UI診斷功能已上線。
+- 本輪只用空HOME離線生成與合成測試，不啟app-server／讀真帳號／模型；Claude成功attempt不可重跑。完整356tests=354pass/2skip/0fail、strictTS／artifact／Ajv1251／version／diff通過；三OS新CI另查實際結果。詳見 `codex-metadata-compatibility.md`。
+- 修正接續段落過時的signed_out／待同意文字，保留歷史時間線；B+ rc.2不變，正式3.0.6與固定ab227af的72h不動。原生parity／durable／Rust／Apps依原gate繼續，未宣稱全完成。
 
 ### 2026-09-06 — Plan 1.31
 

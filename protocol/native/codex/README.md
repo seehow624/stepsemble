@@ -13,6 +13,12 @@ official native Codex CLI 0.153.3, plus exact client-request, server-request and
 notification method catalogs. It was captured on macOS arm64. It is metadata,
 not a transcript, live approval, history durability or cross-OS runtime proof.
 
+`0.153.4-schema.json` adds a separately generated 24-schema baseline. All 18
+previously selected schemas and all three catalogs are byte-for-byte unchanged.
+Six additional account/config/thread-start request/response schemas are recorded
+for the metadata preflight boundary; they were not captured separately in the
+older baseline. Both versions remain pinned; this is not an open-ended semver range.
+
 Run:
 
 ```sh
@@ -22,9 +28,12 @@ node scripts/check-native-codex-schema.mjs /absolute/path/to/native/codex
 The script only executes `--version` and `app-server generate-json-schema` in a
 fresh local HOME/CODEX_HOME/cwd with an allow-listed environment. It never starts
 app-server, a thread, model turn, login or provider route. Outputs are removed
-after comparison. `--record` explicitly captures a reviewed new golden; ordinary
-tests do not regenerate it. A different version fails rather than silently
-claiming compatibility. No application bundle or global CLI is modified.
+after comparison. `--record` captures a new reviewed golden with exclusive creation
+and refuses to overwrite existing evidence; ordinary tests do not regenerate it.
+An unreviewed version or same-version schema drift fails. No application bundle
+or global CLI is modified. The manual subscription runner checks these hashes in
+an empty temporary HOME **before** parsing native user configuration or starting
+app-server. Neither hash nor version is a binary-provenance guarantee.
 
 On the development Mini, `/opt/homebrew/bin/codex` is an OpenCodex routing wrapper;
 its preserved native link resolves to the ChatGPT application binary. The
@@ -44,7 +53,7 @@ The official flow distinguishes the client decision, `serverRequest/resolved`
 misrepresented as approval or successful tool execution. These mappings still
 need actual runtime evidence and reserved transaction/projection integration.
 
-No subscription amount, native turn, multi-version compatibility or full adapter
+No subscription amount, native turn, multi-version runtime compatibility or full adapter
 parity has been verified here. Model/tool tests require explicit usage permission;
 metadata checks are not a substitute. Account credentials stay native and must
 never appear in fixtures, debug exports or journal envelopes.
@@ -54,3 +63,9 @@ preflight: a non-default loopback API endpoint and a global instruction source
 were detected. No Codex `turn/start` was sent. See the exact scope and Claude's
 authentication failure in [the manual probe report](../../../docs/native-subscription-smoke.md).
 This does not upgrade this boundary to a successful runtime adapter.
+
+The 2026-09-07 runner no longer sends `thread/start` during preflight. Its
+transport allows only initialize/config-read/account-read requests; account read
+uses `refreshToken:false` and follows route validation for the exact probe cwd.
+Instruction/tool isolation remains explicitly unverified, so model execution is
+still disabled. See [the offline compatibility review](../../../docs/codex-metadata-compatibility.md).
