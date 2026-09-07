@@ -84,8 +84,8 @@ accepted; null parent metadata alone must never be treated as ownership proof.
 Limits: 16 MiB combined decoded input, 2,000 native records and selected rows each,
 4,000 blocks including tool-result children, 262,144 code points per text field;
 shared references, getters, cycles, invalid Unicode and non-JSON values are
-rejected by the existing canonical JSON guard. The future source reader must
-also cap raw bytes **before** JSON parsing and bound filesystem work. This is a
+rejected by the existing canonical JSON guard. The source boundary below now
+caps raw bytes **before** JSON parsing; its live authorization gates remain open. This is a
 bounded reference implementation, not evidence of UI/main-thread performance.
 Digests use SHA-256 of the existing sorted-JSON encoding, with separate
 source/selection/row/block fields; they detect changes, not authenticity.
@@ -98,6 +98,64 @@ before/after fixture bytes. Ordinary unit tests additionally cover malformed
 input, page gaps, unknown extensions and non-authority. Both use synthetic data;
 this batch does not reopen the owner's native session or spend model allowance.
 
+## Read-only source snapshots (Plan 1.35)
+
+`history-source.js` adds a reserved source reader and strict whole-file parser;
+it is still **not imported by the production server**. The trusted caller must
+resolve an authorized canonical `projectsRoot`, one opaque `projectKey` and one
+session UUID. These are not a browser-supplied arbitrary-path API. No directory
+enumeration, native configuration/auth access, write, repair or retry occurs.
+
+On macOS/Linux the capture checks current effective UID, no group/world write
+bits, regular-file type and a single hardlink. Root/project/file symlinks are
+rejected; OS ancestor aliases such as `/var` are canonicalized. It opens only
+`O_RDONLY | O_NOFOLLOW | O_NONBLOCK`, checks descriptor identity against the
+observed entry, reads twice in bounded 64 KiB chunks, compares bytes and
+device/inode/size/nanosecond mtime/ctime/link metadata, and rechecks file and
+directory identities afterward. Descriptor close is attempted on all settled paths;
+an uncertain close failure quarantines that reader, with no further capture or
+close retry against a potentially reused descriptor number.
+An observed append/truncate/replacement/removal or byte mismatch returns no rows.
+
+This is an **observed-consistency and POSIX owner/mode baseline**, not proof that
+Claude wrote a file, caller authorization, an ACL audit, an atomic filesystem
+snapshot or protection against a malicious same-UID process doing undetected
+ancestor swap-and-restore. Node path checks are not descriptor-relative
+`openat`/`openat2` containment. Native authenticated source registration, stronger
+platform filesystem primitives and a reviewed threat model are still required
+before live use. Therefore `sourceAuthenticated` and `publishable` stay false.
+
+Windows returns `source_platform_unsupported` **before any source IO**. Node's
+Unix-like mode/uid fields must not substitute for Windows owner/ACL/reparse-point
+validation. Native SDK CI still checks its own newly created synthetic bytes on
+Windows, but explicitly reports `sourceSnapshotGate: platform_unsupported`;
+macOS/Linux report `posix_fixture_passed`. This is not a Windows source gate pass.
+
+The parser accepts at most 8 MiB raw UTF-8, 1 MiB per line excluding LF, and
+2,000 records. It retains CRLF/LF in the raw SHA-256 while returning parsed JSON.
+Blank rows, malformed middle rows, invalid UTF-8/BOM/Unicode, over-limit data,
+unscoped/foreign records and any newline-less tail reject the whole capture.
+An empty file is `source_empty`, not an empty valid session. No truncated tail is
+silently trimmed. This initial profile intentionally rejects ancillary native
+records without `sessionId`; support needs explicit review, not guessed scope.
+Duplicate native identities and parent cycles remain the observation mapper's
+responsibility. Digests are corruption/consistency checks, not credentials.
+
+One source capture per reader remains in flight until all underlying IO and
+cleanup settle; other requests return `source_busy`. The five-second elapsed
+budget is checked between operations and does **not** cancel or put a hard
+deadline on a blocked kernel/network filesystem call. A future Host needs
+bounded process-level cancellation/worker scheduling before advertising that
+latency guarantee. Do not create a new reader to evade an occupied flight.
+
+Tests inject append, truncate, replacement, deletion, parent replacement, unchanged
+descriptor metadata with differing bytes, outstanding IO, budget failure and
+close failure on owned local fixtures. The pinned SDK worker checks source
+capture identity/bytes before and after its rich/compacted fixture readbacks on
+macOS/Linux. The worker's temporary HOME is canonicalized before its read-only
+permission grant, preserving macOS `/var` alias compatibility without granting
+access to a wider directory. No owner session or model is used by these tests.
+
 ## Owner-session evidence and remaining gates
 
 On 2026-09-07, the same SDK read **only** the exact Claude smoke session authorized
@@ -107,9 +165,10 @@ hash was unchanged. This was not a new model attempt. Sanitized evidence:
 [`native-readback-2026-09-07.json`](../../../docs/baselines/native-readback-2026-09-07.json).
 
 These are reader contracts, not a normalized journal import or live UI mapping.
-Selected tool/thinking/attachment-reference and interruption/compaction mapping
-now has synthetic pinned-SDK coverage. Full attachment materialization, native
-source ownership/stable reads, malformed JSONL recovery, subagent attribution,
+Selected tool/thinking/attachment-reference and interruption/compaction mapping,
+plus bounded source decoding and observed-consistency checks, now have synthetic
+pinned-SDK coverage. Full attachment materialization, authenticated source
+ownership/platform ACL containment, incomplete/unscoped JSONL recovery, subagent attribution,
 refusal supersession, approval decision versus native acknowledgement,
 resume/reconnect, real persistence, retention and large-history performance
 remain unverified. No `approval.resolved`/ACK/run-completed

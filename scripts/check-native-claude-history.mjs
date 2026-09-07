@@ -10,9 +10,11 @@ import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import fixture from "../protocol/native/claude/history-fixture.cjs";
 import observation from "../protocol/native/claude/history-observation.js";
+import source from "../protocol/native/claude/history-source.js";
 const exec = promisify(execFile), self = fileURLToPath(import.meta.url);
 const fixturePath = fileURLToPath(new URL("../protocol/native/claude/history-fixture.cjs", import.meta.url));
 const observationPath = fileURLToPath(new URL("../protocol/native/claude/history-observation.js", import.meta.url));
+const sourcePath = fileURLToPath(new URL("../protocol/native/claude/history-source.js", import.meta.url));
 const projectionPath = fileURLToPath(new URL("../public/modules/projection.js", import.meta.url));
 export const SDK_VERSION = "0.3.259", NATIVE_VERSION = "2.1.259";
 export const SDK_SHA256 = "7fa7c212361864544e775e7551519e790515f95d4bb6a4831b0b05f5b368a0c5";
@@ -47,11 +49,23 @@ export async function worker(sdk, home) {
   assert.deepEqual(await getSessionMessages("../not-a-session", options), []);
   const info = await getSessionInfo(fixture.sessionId, options);
   assert.equal(info.sessionId, fixture.sessionId); assert.equal(info.customTitle, "Synthetic native title");
-  for (const testCase of fixture.richCases(await fs.realpath(cwd))) {
+  const realCwd = await fs.realpath(cwd), projectKey = realCwd.replace(/[^a-zA-Z0-9]/g, "-");
+  const readSource = source.createSourceReader(), sourceSupported = ["darwin", "linux"].includes(process.platform);
+  for (const testCase of fixture.richCases(realCwd)) {
+    const sourceInput = { projectsRoot: path.join(home, ".claude/projects"), projectKey, sessionId: testCase.sessionId };
+    const captured = await readSource(sourceInput);
+    assert.equal(captured.kind, sourceSupported ? "source_snapshot" : "source_unavailable", captured.code);
+    if (!sourceSupported) assert.equal(captured.code, "source_platform_unsupported");
+    // Windows still tests exact synthetic bytes CREATED by this parent process;
+    // it does not claim ACL/ownership verification for an existing native file.
+    const filename = path.join(sourceInput.projectsRoot, projectKey, `${testCase.sessionId}.jsonl`);
+    const parsed = source.parseHistoryBytes(await fs.readFile(filename), testCase.sessionId);
+    assert.equal(parsed.kind, "source_records"); assert.deepEqual(parsed.records, testCase.records);
+    if (sourceSupported) { assert.equal(captured.sha256, parsed.sha256); assert.equal(captured.sourceAuthenticated, false); }
     const selected = JSON.parse(JSON.stringify(await getSessionMessages(testCase.sessionId, { ...options, includeSystemMessages: true })));
     assert.deepEqual(selected.map(row => row.uuid), testCase.expectedIds);
     assert.deepEqual(selected, fixture.selectedRows(testCase));
-    const result = observation.observeHistory({ sessionId: testCase.sessionId, messages: selected, nativeRecords: testCase.records });
+    const result = observation.observeHistory({ sessionId: testCase.sessionId, messages: selected, nativeRecords: parsed.records });
     assert.equal(result.kind, "history_observation"); assert.equal(result.publishable, false);
     assert.ok(Object.values(result.authority).every(value => value === false));
     if (testCase.name === "rich") {
@@ -70,11 +84,16 @@ export async function worker(sdk, home) {
     const page1 = await getSessionMessages(testCase.sessionId, { ...options, includeSystemMessages: true, offset: 0, limit: 2 });
     const page2 = await getSessionMessages(testCase.sessionId, { ...options, includeSystemMessages: true, offset: 2, limit: 20 });
     assert.deepEqual(JSON.parse(JSON.stringify([...page1, ...page2])), selected);
+    if (sourceSupported) {
+      const after = await readSource(sourceInput); assert.equal(after.kind, "source_snapshot");
+      assert.deepEqual(after.identity, captured.identity); assert.equal(after.sha256, captured.sha256);
+    }
   }
   return { sdkVersion: SDK_VERSION, nativeVersion: NATIVE_VERSION, result: "passed", source: "synthetic-jsonl",
     selectedMessageCount: rows.length, branchOrderVerified: true, unicodePreserved: true, messageUuidDistinctFromApiId: true,
     paginationVerified: true, titleReadbackVerified: true, missingSessionReturnsEmpty: true,
     richContentVerified: true, omittedMetadataRecovered: true, compactedBranchOrderVerified: true,
+    sourceParsingVerified: true, sourceSnapshotGate: sourceSupported ? "posix_fixture_passed" : "platform_unsupported",
     historyDoesNotGrantAuthority: true, childProcessPermissionDenied: true, fileWritePermissionDenied: true, modelCalls: 0, approvalExercised: false };
 }
 export async function capture(suppliedSdk) {
@@ -85,11 +104,13 @@ export async function capture(suppliedSdk) {
   assert.equal(pkg.name, "@anthropic-ai/claude-agent-sdk"); assert.equal(pkg.version, SDK_VERSION); assert.equal(pkg.claudeCodeVersion, NATIVE_VERSION);
   const sdkSha256 = digest(await fs.readFile(sdk));
   assert.equal(sdkSha256, SDK_SHA256, "Review SDK source drift before running the history contract");
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-claude-history-fixture-"));
+  // Permission grants must name the canonical owned directory too: macOS /var
+  // aliases /private/var, and the source gate rechecks that canonical path.
+  const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-claude-history-fixture-")));
   try {
     const cwd = path.join(home, "workspace"); await fs.mkdir(cwd);
     const realCwd = await fs.realpath(cwd), projectKey = realCwd.replace(/[^a-zA-Z0-9]/g, "-");
-    const projectDir = path.join(home, ".claude/projects", projectKey); await fs.mkdir(projectDir, { recursive: true });
+    const projectDir = path.join(home, ".claude/projects", projectKey); await fs.mkdir(projectDir, { recursive: true, mode: 0o700 });
     const filename = path.join(projectDir, `${fixture.sessionId}.jsonl`);
     const bytes = fixture.fixture(realCwd).map(row => JSON.stringify(row)).join("\n") + "\n";
     await fs.writeFile(filename, bytes, { mode: 0o600 });
@@ -99,7 +120,7 @@ export async function capture(suppliedSdk) {
       await fs.writeFile(file, content, { mode: 0o600 }); richFiles.push({ file, content });
     }
     // No allow-child-process, allow-fs-write, allow-worker or real HOME access.
-    const args = ["--permission", ...[sdkDir, self, fixturePath, observationPath, projectionPath, home].map(dir => `--allow-fs-read=${dir}`), self, "--worker", sdk, home];
+    const args = ["--permission", ...[sdkDir, self, fixturePath, observationPath, sourcePath, projectionPath, home].map(dir => `--allow-fs-read=${dir}`), self, "--worker", sdk, home];
     const result = await exec(process.execPath, args, { cwd: home, env: environment(home), timeout: 30000, maxBuffer: 65536 });
     const report = JSON.parse(result.stdout);
     assert.equal(await fs.readFile(filename, "utf8"), bytes);

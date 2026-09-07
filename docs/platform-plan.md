@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.34
+> 計畫版本：1.35
 > 最後更新：2026-09-07
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -50,6 +50,7 @@
 | Codex 官方介面基線 | 0.153.4 離線 metadata 已驗 | 新版24份schema，原18份及99/10/81 catalog與0.153.3全同；runner逐版本比對hash，未知版本停止。preflight不再建空session，路由先於account、傳輸有界；本輪未啟app-server／讀真帳號，不是runtime/session/approval驗收，見 `codex-metadata-compatibility.md` |
 | Claude／Codex 真實訂閱 smoke | Claude單次通過；Codex路由gate未過 | Claude09-06直接Aqua最小模型成功。09-07 Codex0.153.4新版schema／initialize已過，effective config回non_native_route，未送account/thread/turn；8個保護項目不變。不改第三方設定讓測試通過，詳見 `native-subscription-smoke.md` |
 | Claude 原生歷史讀取邊界 | SDK讀回／豐富內容觀察映射已驗 | 官方SDK0.3.259對應CLI2.1.259；只讀子程序不准spawn／write。合成工具／thinking／附件參照、中斷/API錯誤外層metadata及壓縮保留鏈通過；相同UUID原文核對、未知格式警示、整批拒絕混入/重複。前輪自己的兩則訊息讀回仍有效，本輪未再讀私有session。不是Web journal／approval ACK／resume，見 `protocol/native/claude/README.md` |
+| Claude 歷史來源快照 | POSIX唯讀一致性／跨平台parser已實作 | 單一指定source、UID/mode/regular/single-link/no-follow、同descriptor雙讀＋前後inode/size/ns時間、原始8MiB/1MiB line/2000rows caps；partial/malformed不當空history。不是authenticated source／ACL／atomic containment；Windows source gate明確unsupported，SDK合成reader仍可驗。未接正式服務 |
 | Claude 官方登入入口 | Mini當前detected，正式3.0.6 | 使用者回報瀏覽器登入，助手回completed／detected；另行同意的直接CLI最小模型測試成功。metadata API仍liveVerified=false，不以一次成功保證永久有效；不自動修憑證／重試模型，詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
 | 優先可靠性修復 | 已實作，隨rc.3啟用於Mini | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
@@ -59,7 +60,7 @@
 
 ### 下一個可執行任務
 
-**1.34 開發接續**：Codex 真實metadata仍止於non_native_route，沒有新account/thread/turn，原設定保留；官方訂閱與第三方route隔離需本人決定。Claude已有工具／thinking／附件參照／中斷及壓縮保留鏈的合成SDK觀察映射；SDK會省略外層flags，必須與同一穩定來源的exact UUID/原文核對。接下來補來源ownership/stable-read、附件實體、subagent與supersession、獨立approval ACK／resume evidence，再按durable與authenticated transport gate接Web。觀察結果固定publishable=false，不得假造journal facts或以工具文字當批准。既有Claude模型同意已用，本輪僅synthetic，沒有新模型或私有session讀取。3.0.7-rc.1 的72h維持原source／開始時間，與B+ rc.2分開；不提前切換Rust／DB／原生adapter或部署。詳見 `protocol/native/claude/README.md`、`native-subscription-smoke.md` 與 `session-discovery-and-soak.md`。
+**1.35 開發接續**：Codex 真實metadata仍止於non_native_route，官方訂閱／第三方route隔離需本人決定，本轮未再啟動。Claude已有rich history映射及POSIX來源owner/mode／雙讀一致性基礎；Windows來源gate明確unsupported，未把Node uid/mode當ACL。接下來補authenticated source registration／平台ACL及descriptor-relative containment、unscoped/partial native紀錄策略、附件/subagent/supersession，再獨立approval ACK／resume evidence、durable與authenticated transport接Web。五秒IO budget不是可取消的硬deadline，需worker/cancellation gate；快照/觀察仍publishable=false，不得偽造native facts。既有Claude模型同意已用，本輪僅synthetic，無私人session/模型/登入操作。3.0.7-rc.1 的72h維持原source／開始時間，與B+ rc.2分開；不提前切Rust／DB／原生adapter或部署。詳見 `protocol/native/claude/README.md`、`native-subscription-smoke.md` 與 `session-discovery-and-soak.md`。
 
 **2026-09-07 品牌候選**：Jerome明確確認B+為最終方向。新的
 `public/stepsemble-mark.svg` 是向量母版，使用單一module／connector在
@@ -956,6 +957,13 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-07 — Plan 1.35
+
+- Jerome回「繼續」後新增reserved native source reader；trusted已授權root/key/UUID才可呼叫，無discovery、寫入、repair、auto retry。macOS/Linux同euid/不可group-world寫/regular/single-link/no-follow，固定descriptor兩次read＋身份/bytes比對；append/truncate/replace/unlink及parent replacement等合成故障整批拒絕，close/single-flight/elapsed budget可驗。
+- Raw UTF8/8MiB/1MiB-line/2000rows parser全檔驗證，exact boundary與CRLF過；missing/empty/partial/malformed/foreign/invalid encoding分開，不丟中間壞行、不把無LF尾端截掉後當完整。初版無sessionId的native ancillary紀錄仍拒絕，後續需明確scope策略。owner/mode不是ACL或原生來源認證，same-UID惡意祖先置換亦不聲稱完整防護。
+- Pinned SDK fixture改用實際檔案parser輸入；Mac/Linux讀前/後source capture一致，Windows明示source_platform_unsupported，不放寬成fake Unix權限通過。首次macOS permission worker因/var與/private/var alias拒讀canonical path，改將owned temp HOME先canonicalize後只grant同一目錄，未擴大權限。
+- 本輪仍不接Web/live route，sourceAuthenticated/publishable=false；需authenticated source registry／ACL/descriptor-relative containment／硬取消邊界及native完整格式後才能接durable/transport。無私人history、native/model/auth、runtime/public/logo、release/deploy改動，72h保留fixed ab227af。新增CI依exactcommit實際結果驗收。
 
 ### 2026-09-07 — Plan 1.34
 
