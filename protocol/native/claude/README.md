@@ -144,9 +144,9 @@ responsibility. Digests are corruption/consistency checks, not credentials.
 One source capture per reader remains in flight until all underlying IO and
 cleanup settle; other requests return `source_busy`. The five-second elapsed
 budget is checked between operations and does **not** cancel or put a hard
-deadline on a blocked kernel/network filesystem call. A future Host needs
-bounded process-level cancellation/worker scheduling before advertising that
-latency guarantee. Do not create a new reader to evade an occupied flight.
+deadline on a blocked kernel/network filesystem call. Plan 1.37 adds the reserved
+subprocess service below; direct callers still do not get a hard IO deadline.
+Do not create a new reader/service to evade an occupied flight or quarantine.
 
 Tests inject append, truncate, replacement, deletion, parent replacement, unchanged
 descriptor metadata with differing bytes, outstanding IO, budget failure and
@@ -220,7 +220,101 @@ descriptors are returned. Nine regression tests exercise valid and malformed
 envelopes, out-of-page/foreign/ambiguous links, unknown extensions, byte/digest
 preservation, metadata graph separation and bounds. This does not validate all
 unscoped forms (e.g. summary/attribution snapshots), subagents, interrupted tails,
-native file-backup restore, authenticated source binding or process cancellation.
+native file-backup restore or authenticated source binding. The process lifecycle
+reference below is a separate gate, not part of the native writer contract.
+
+## Bound, cancellable source workers (Plan 1.37)
+
+`history-source-service.js` is a reserved Host-only reference, **not imported by
+the Web server**. `createSourceService()` owns a shared two-worker ceiling, no
+queue and no automatic retries. A trusted Host calls `bind({ bindingId, generation,
+source })` after authorizing a canonical projects root, project key and native
+session UUID. The binding is detached from caller objects. The returned opaque
+handle exposes a frozen descriptor, `capture(request, { signal })`, and `revoke()`.
+Capture accepts **only** `{ bindingId, generation, requestId }`: no path, session
+override, authority flags, executable, environment, timeout or worker options.
+IDs/generations must match the handle exactly before launching anything.
+
+This is **trusted binding/fencing, not authenticated registration**. The bind
+method must never be exposed to a browser or treated as proof of native file
+ownership. Dependencies and shorter timing overrides are trusted in-process
+test seams, not request parameters. A spawn dependency must return the newly
+owned ChildProcess or throw before launch; it must not detach an untracked child.
+`requestId` is correlation, not persistent idempotency or a journal receipt.
+
+There is one active capture per binding, at most two per service. The Host must
+share one service rather than instantiate one per request. Retained binding-ID
+tombstones are capped at 64; a revoked ID can be rebound only after cleanup and
+with a strictly higher generation. Old handles remain revoked and cannot read a
+new source. These generations/tombstones live only for that service lifetime;
+they are not a crash-safe ownership registry or durable replay fence.
+
+Each capture starts the fixed `history-source-worker.js` with the current Node
+executable (no shell/detach), an explicit 128 MiB V8 old-space limit, permission
+mode, no write/child/worker grants and a filtered environment. No inherited HOME,
+credentials, provider routing or NODE_OPTIONS/loaders are passed. The worker
+loads only the source/parser/wire modules and canonical JSON helper, not the SDK
+or any native agent/model/login API. It runs one source capture and exits.
+Source read/parse work is outside the Host process. Parent response decoding and
+validation remain synchronous but byte-bounded; large-history/event-loop/RSS
+performance still needs measurement. The V8 limit is **not a total RSS limit**;
+OOM or unsupported input fails without rows, not a claim that every 8 MiB native
+history is usable under this worker budget.
+
+Private wire version 1 uses one bounded UTF-8 JSONL request (12 KiB) and response
+(10 MiB, at most 4,096 output chunks), correlated by a fresh 256-bit nonce and all
+request IDs. Wrong version/nonce/generation/session, invalid encoding/tail/extra
+frames, unexpected fields, invalid snapshot metadata or source scopes reject
+without partial data. The parent never trusts elevated `publishable` or
+`sourceAuthenticated` flags. Digest/identity reports from this trusted worker
+are observed evidence, not authentication of an arbitrary executable. Stderr is
+discarded and marks the request failed; raw diagnostics never escape to callers.
+
+The service has a 10-second elapsed request budget, plus up to one second to
+observe cleanup after cancellation/failure. A timeout, AbortSignal, revocation,
+shutdown or protocol/output failure issues **at most one SIGKILL on the fresh
+ChildProcess object**. No saved PID, process-group scan, task tree or production
+service is targeted. A response alone is insufficient: success requires the
+worker/stdio `close` event with exit code zero, valid correlation, live binding,
+no observed abort and unexpired elapsed budget. Revoked/cancelled late output
+cannot become a successful snapshot. Repeated/late child errors are absorbed.
+The worker also has its own 10-second exit watchdog as a backstop if the parent
+disappears during pending asynchronous IO; it exits only itself. This timer also
+depends on its event loop and does not replace crash recovery or OS containment.
+
+If cleanup cannot be confirmed, the request resolves with
+`source_cleanup_unconfirmed`, the slot stays occupied and the **whole service
+is quarantined**. No further registration or capture is permitted. A late close
+can release the slot but never publishes the old result or clears quarantine.
+`shutdown()` revokes bindings, requests only owned-worker termination, waits for
+their bounded request results, and reports whether cleanup was actually observed.
+The Host must not create a replacement service to conceal an unconfirmed child.
+Timers require a responsive parent event loop; an OS process in uninterruptible
+IO may resist termination. This is bounded wait/fail-closed lifecycle logic,
+**not a hard real-time cancellation or guaranteed kernel-resource cleanup**.
+
+Important filesystem limit: Node grants a directory's descendants. The read
+grant covers the **registered projects-root subtree**, plus exact implementation
+files, not only the selected JSONL. Tests confirm outside-root reads/writes/spawn
+are denied and that another path inside that root remains permission-readable.
+Reviewed worker code reads only the immutable selected source, but this is not
+single-file OS isolation, protection from compromised worker code, or a complete
+symlink/ACL/network sandbox. Wildcard/broad filesystem roots are rejected;
+canonical-root authorization, native provenance and descriptor-relative/ACL
+containment still belong to future platform gates. No production credentials or
+private histories are used to test these grants.
+
+Windows service capture returns `source_platform_unsupported` before spawning;
+Node permission/kill/framing logic can still be tested on Windows using synthetic
+workers, **without claiming a Windows native-source ACL gate passed**. Ordinary
+cross-platform CI includes the 15 new tests: immutable scope, no-queue capacity,
+generation/revoke races, cancellation, timeout/exit gating, launch/stream failures,
+wire tampering/chunking, permanent quarantine and bounds. Real subprocess tests
+cover a stuck worker while the parent timer keeps ticking, permission denials,
+and POSIX synthetic snapshots with unchanged source bytes. A simulated worker
+context separately checks its self-watchdog with unresolved IO. All successful bound
+snapshots remain `sourceAuthenticated: false`, `publishable: false`; there is no
+live SDK selection, history UI, approval acknowledgement, resume or durable store.
 
 ## Owner-session evidence and remaining gates
 

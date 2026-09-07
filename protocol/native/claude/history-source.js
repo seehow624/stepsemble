@@ -12,6 +12,17 @@ const fail = code => { throw new SourceFailure(code); };
 const reject = code => ({ kind: "source_unavailable", code });
 const digest = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
 
+function normalizeSourceInput(input) {
+  const json = canonicalJSON(input, 8192);
+  if (json === null) return null;
+  const value = JSON.parse(json);
+  return value && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).sort().join(",") === "projectKey,projectsRoot,sessionId"
+    && typeof value.projectsRoot === "string" && path.isAbsolute(value.projectsRoot)
+    && !value.projectsRoot.includes("\0") && typeof value.projectKey === "string"
+    && /^[A-Za-z0-9_-]{1,255}$/.test(value.projectKey) && uuid(value.sessionId) ? value : null;
+}
+
 /** Strict whole-file decoding. A newline-less tail is unavailable, even if it
  * happens to parse; never trim a live partial write or discard a bad middle row.
  * Digests bind original bytes (including CRLF), not a reserialized transcript.
@@ -60,14 +71,8 @@ function checkNode(stat, uid, directory) {
 function createSourceReader({ io = fs, platform = process.platform, uid = process.geteuid?.(), now = Date.now } = {}) {
   let busy = false, quarantined = false;
   return async function capture(input) {
-    const json = canonicalJSON(input, 8192);
-    if (json === null) return reject("invalid_source_input");
-    const value = JSON.parse(json);
-    if (!value || typeof value !== "object" || Array.isArray(value)
-      || Object.keys(value).sort().join(",") !== "projectKey,projectsRoot,sessionId"
-      || typeof value.projectsRoot !== "string" || !path.isAbsolute(value.projectsRoot)
-      || value.projectsRoot.includes("\0") || typeof value.projectKey !== "string"
-      || !/^[A-Za-z0-9_-]{1,255}$/.test(value.projectKey) || !uuid(value.sessionId)) return reject("invalid_source_input");
+    const value = normalizeSourceInput(input);
+    if (!value) return reject("invalid_source_input");
     // Node uid/mode are not a Windows ACL check. Do not weaken this branch.
     if (!["darwin", "linux"].includes(platform) || !Number.isSafeInteger(uid) || uid < 0
       || typeof constants.O_NOFOLLOW !== "number" || typeof constants.O_NONBLOCK !== "number") return reject("source_platform_unsupported");
@@ -139,4 +144,4 @@ function createSourceReader({ io = fs, platform = process.platform, uid = proces
     return result;
   };
 }
-module.exports = { createSourceReader, parseHistoryBytes, LIMITS };
+module.exports = { createSourceReader, parseHistoryBytes, normalizeSourceInput, LIMITS };

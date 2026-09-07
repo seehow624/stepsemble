@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.36
+> 計畫版本：1.37
 > 最後更新：2026-09-07
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -52,6 +52,7 @@
 | Claude 原生歷史讀取邊界 | SDK讀回／豐富內容觀察映射已驗 | 官方SDK0.3.259對應CLI2.1.259；只讀子程序不准spawn／write。合成工具／thinking／附件參照、中斷/API錯誤外層metadata及壓縮保留鏈通過；相同UUID原文核對、未知格式警示、整批拒絕混入/重複。前輪自己的兩則訊息讀回仍有效，本輪未再讀私有session。不是Web journal／approval ACK／resume，見 `protocol/native/claude/README.md` |
 | Claude 歷史來源快照 | POSIX唯讀一致性／跨平台parser已實作 | 單一指定source、UID/mode/regular/single-link/no-follow、同descriptor雙讀＋前後inode/size/ns時間、原始8MiB/1MiB line/2000rows caps；partial/malformed不當空history。不是authenticated source／ACL／atomic containment；Windows source gate明確unsupported，SDK合成reader仍可驗。未接正式服務 |
 | Claude 無sessionId附加紀錄 | 兩種固定版本格式已補 | 檔案snapshot/delta經2.1.259 writer bytes核對；parser/mapper共用scope規則，同檔whole-source訊息引用不能缺失／重複／借subagent。保留inert index/digest/refs、不填sessionId、不還原檔案；title UUID不進transcript graph。未知unscoped／partial仍拒絕，未上線 |
+| Claude 綁定／隔離讀取生命週期 | reserved reference已實作 | trusted immutable source handle＋generation/revoke fencing；共用2worker/無queue/64binding上限，固定Node唯讀子程序、10s budget＋1s cleanup，未確認退出即quarantine並保留slot。不是authenticated registry／單檔OS隔離／硬即時或Windows ACL，未接Web |
 | Claude 官方登入入口 | Mini當前detected，正式3.0.6 | 使用者回報瀏覽器登入，助手回completed／detected；另行同意的直接CLI最小模型測試成功。metadata API仍liveVerified=false，不以一次成功保證永久有效；不自動修憑證／重試模型，詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
 | 優先可靠性修復 | 已實作，隨rc.3啟用於Mini | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
@@ -61,7 +62,7 @@
 
 ### 下一個可執行任務
 
-**1.36 開發接續**：Codex 真實metadata仍止於non_native_route，官方訂閱／第三方route隔離需本人決定，本輪未再啟動。Claude已有rich history、POSIX雙讀一致性與兩種file-history附加紀錄scope profile；不是全native格式支援或檔案還原。Windows來源gate仍unsupported，未把Node uid/mode當ACL。下一批優先處理trusted source binding／有界隔離讀取與取消生命週期，並補authenticated registration／平台ACL及descriptor-relative containment；其他unscoped/partial策略、附件/subagent/supersession仍待，再獨立approval ACK／resume evidence、durable與authenticated transport接Web。五秒IO budget不是硬deadline；同檔ID關聯不是真實授權，快照/觀察仍publishable=false。既有Claude模型同意已用，本輪僅synthetic，無私人session/模型/登入操作。3.0.7-rc.1 的72h維持原source／開始時間，與B+ rc.2分開；不提前切Rust／DB／原生adapter或部署。詳見 `protocol/native/claude/README.md`、`native-subscription-smoke.md` 與 `session-discovery-and-soak.md`。
+**1.37 開發接續**：Codex 真實metadata仍止於non_native_route，官方訂閱／第三方route隔離需本人決定，本輪未再啟動。Claude已有rich history、POSIX雙讀一致性、兩種file-history profile與trusted binding／有界worker取消生命週期；不是全native格式或authenticated source registry。Node grant涵蓋已登記projects-root子樹，不是單檔OS隔離；Windows來源仍unsupported。下一步補authenticated registration／平台ACL及descriptor-relative containment，將固定SDK選支/mapper納入受控來源worker並量測大history的父程序decode/記憶體；其他unscoped/partial、附件/subagent/supersession仍待，再獨立approval ACK／resume evidence、durable與authenticated transport接Web。10s+1s是event-loop可運行時的等待/cleanup邊界，kernel不可中斷IO仍可能quarantine，不能以新service繞過；publishable/authority仍false。Claude模型同意已用，本輪僅synthetic、無私人session/模型/登入操作。3.0.7-rc.1的72h維持原source／起點，與B+rc.2分開，不提前切Rust／DB／原生adapter或部署。詳見 `protocol/native/claude/README.md`、`native-subscription-smoke.md` 與 `session-discovery-and-soak.md`。
 
 **2026-09-07 品牌候選**：Jerome明確確認B+為最終方向。新的
 `public/stepsemble-mark.svg` 是向量母版，使用單一module／connector在
@@ -958,6 +959,14 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-07 — Plan 1.37
+
+- 新增trusted Host source service／單次Node worker／private versioned JSONL wire。bind不對browser開放，capture只有bindingId/generation/requestId；來源先detach，不可由request換路徑／native session／env／executable。64個binding tombstones、同handle single-flight、共用2worker ceiling且無queue/retry；revoked handle不能重用，重綁須cleanup後提高generation。不是persistent/authenticated registry。
+- 固定Node permission子程序無write/spawn grant，不傳HOME/provider/NODE_OPTIONS；原始source read/parser在child。10s request＋1s cleanup、只對本次ChildProcess一次SIGKILL；需要close/exit0＋matching scope/nonce/version且未撤銷/取消才成功。關閉未確認即保留slot並quarantine整個service，晚到close不得重發結果或清quarantine；shutdown誠實回cleanupConfirmed。
+- Input12KiB／output10MiB+4096chunks、snapshot身份/範圍/flags核對；未知wire/nonce/UTF8/多frame/截斷/超額/診斷及重複late errors不漏raw內容。worker自身10s退出watchdog補parent消失時的async IO等待；15項新tests含real owned permission worker、stuck-loop＋parent timer、synthetic revoke/late response/cleanup失敗/容量與watchdog。不是native模型smoke。
+- 明確限制：Node fs grant是registered projects-root子樹，不是單檔capability／OS sandbox；128MiB只限V8 oldspace、不限整體RSS；parent decode仍同步有界，待效能驗。計時器非hard realtime，OS不可中斷IO可能無法回收；Windows source gate仍before-spawn unsupported。snapshot sourceAuthenticated/publishable=false，未接SDK選支/UI/approval/resume/durable。
+- 本輪不改production/public/B+rc.2／帳號路由／私人history，不執行native agent/model；正式3.0.6及fixed ab227af長測維持，跨平台回歸依本commit實際CI結果验收。
 
 ### 2026-09-07 — Plan 1.36
 

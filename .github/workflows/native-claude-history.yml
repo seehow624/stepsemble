@@ -10,6 +10,7 @@ on:
       - 'test/claude-history-observation.test.js'
       - 'test/claude-history-source.test.js'
       - 'test/claude-history-ancillary.test.js'
+      - 'test/claude-history-worker.test.js'
       - '.github/workflows/native-claude-history.yml'
   workflow_dispatch:
 
