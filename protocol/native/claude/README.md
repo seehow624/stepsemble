@@ -27,8 +27,9 @@ readable. Node's permission mode here is **not network isolation or an OS sandbo
 the reviewed code calls only `getSessionMessages`/`getSessionInfo`, never query,
 startup, login, resume or mutation APIs. The public SDK download itself needs network.
 
-The fixture includes a branched transcript, Unicode, internal queue/title records
-and two assistant rows belonging to one API response. Tests establish:
+The fixtures include a branched transcript, Unicode, internal queue/title records,
+two assistant rows belonging to one API response, tool/error/attachment/thinking
+content and a compacted branch with explicitly preserved native messages. Tests establish:
 
 - Native parent-chain selection and row order are preserved, not flattened by
   timestamps or read order across alternative branches.
@@ -39,10 +40,63 @@ and two assistant rows belonging to one API response. Tests establish:
   sufficient proof of an empty valid history**; a future Host must distinguish
   unavailable/corrupt/missing sources before publishing an empty projection.
 - The synthetic native JSONL and the imported SDK source are unchanged afterward.
+- The actual pinned reader omits outer `aborted`, `error`, `isApiErrorMessage`,
+  `isCompactSummary` and system `subtype` metadata. System records require
+  `includeSystemMessages: true`. Matching native records can recover these
+  flags; visible text alone cannot replace them.
+- A preserved-message compaction returns boundary/summary/preserved messages/new
+  reply in SDK-selected order, including old timestamps after a new summary.
+  We do not rebuild the native branch by sorting timestamps.
 
 Ordinary `npm test` only checks synthetic fixtures and guards, without SDK download.
 The separate Native Claude history contract workflow runs the pinned real SDK
 reader on macOS, Linux and Windows; it does not run any native agent/model.
+
+## Detached history observations (Plan 1.34)
+
+`history-observation.js` is a Host-side reference mapper, not a public endpoint,
+client capability, runtime adapter or journal importer. `observeHistory` accepts
+only `{ sessionId, messages, nativeRecords }` as detached JSON. The SDK's selected
+main-session **page** supplies order; the caller supplies the same stable source
+records. Exact UUID/session/type/message equality is required before recovering
+outer native metadata. This equality is not authenticated file ownership or a
+stable-read implementation. No filesystem, network or execution API is called.
+Reported boolean flags retain `null` for absent, distinct from explicit `false`;
+cyclic native parent identities reject the batch rather than accepting the SDK's
+potentially truncated chain as complete.
+
+The observation separates recorded text, thinking, opaque redacted thinking,
+tool requests/results, attachment references and compaction boundaries. Tool
+output is labelled `result_recorded`/`error_result_recorded`, never an approval
+ACK or a verified run terminal. Missing results stay `request_only`; requests
+outside a page remain explicitly unavailable. API message IDs never deduplicate
+distinct row UUIDs. No token totals or model-run boundaries are guessed.
+
+Attachment references contain a native block digest and descriptive type/title,
+not base64 data, URLs or file capabilities. Opaque thinking payloads/signatures
+are not displayed or decoded. Native files remain necessary for full-fidelity
+recovery. Unsupported blocks/metadata, source gaps and unmaterialized attachments
+produce fixed warning codes rather than silently disappearing. Known malformed
+blocks, mismatched content, foreign scopes and duplicate identities reject the
+**whole** observation without returning partial rows. Subagent pages are not yet
+accepted; null parent metadata alone must never be treated as ownership proof.
+
+Limits: 16 MiB combined decoded input, 2,000 native records and selected rows each,
+4,000 blocks including tool-result children, 262,144 code points per text field;
+shared references, getters, cycles, invalid Unicode and non-JSON values are
+rejected by the existing canonical JSON guard. The future source reader must
+also cap raw bytes **before** JSON parsing and bound filesystem work. This is a
+bounded reference implementation, not evidence of UI/main-thread performance.
+Digests use SHA-256 of the existing sorted-JSON encoding, with separate
+source/selection/row/block fields; they detect changes, not authenticity.
+
+Every successful observation is explicitly `publishable: false`, with no source
+authentication, approval ACK, run-terminal or resume authority. Never pass these
+objects directly to `planObservedEvents` or invent the missing run/approval facts.
+The pinned worker checks rich/compacted observations using the actual SDK and
+before/after fixture bytes. Ordinary unit tests additionally cover malformed
+input, page gaps, unknown extensions and non-authority. Both use synthetic data;
+this batch does not reopen the owner's native session or spend model allowance.
 
 ## Owner-session evidence and remaining gates
 
@@ -53,10 +107,12 @@ hash was unchanged. This was not a new model attempt. Sanitized evidence:
 [`native-readback-2026-09-07.json`](../../../docs/baselines/native-readback-2026-09-07.json).
 
 These are reader contracts, not a normalized journal import or live UI mapping.
-Full tool/thinking/attachment history, compaction, subagent attribution, interrupted
-or corrupt transcripts, authenticated source ownership, approval decision versus
-native acknowledgement, resume/reconnect, real persistence, retention and large
-history performance remain unverified. No `approval.resolved`/ACK/run-completed
+Selected tool/thinking/attachment-reference and interruption/compaction mapping
+now has synthetic pinned-SDK coverage. Full attachment materialization, native
+source ownership/stable reads, malformed JSONL recovery, subagent attribution,
+refusal supersession, approval decision versus native acknowledgement,
+resume/reconnect, real persistence, retention and large-history performance
+remain unverified. No `approval.resolved`/ACK/run-completed
 fact may be manufactured from this preview. Native history remains authoritative;
 future publication must use the reserved transaction/projection gates.
 

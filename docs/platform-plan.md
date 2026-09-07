@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.33
+> 計畫版本：1.34
 > 最後更新：2026-09-07
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -49,7 +49,7 @@
 | 已發佈 Web rolling 相容 | Legacy smoke 已驗 | 真實v3.0.3/v3.0.2 pinned source與development雙向搭配，Chromium桌面/手機尺寸8cases，macOS/Linux各跑一次共16cases／CI33970245044過。SW/PWA cache、Safari/Firefox/Windows/實機、future journal transport不包含，見`protocol/rolling-compatibility.md` |
 | Codex 官方介面基線 | 0.153.4 離線 metadata 已驗 | 新版24份schema，原18份及99/10/81 catalog與0.153.3全同；runner逐版本比對hash，未知版本停止。preflight不再建空session，路由先於account、傳輸有界；本輪未啟app-server／讀真帳號，不是runtime/session/approval驗收，見 `codex-metadata-compatibility.md` |
 | Claude／Codex 真實訂閱 smoke | Claude單次通過；Codex路由gate未過 | Claude09-06直接Aqua最小模型成功。09-07 Codex0.153.4新版schema／initialize已過，effective config回non_native_route，未送account/thread/turn；8個保護項目不變。不改第三方設定讓測試通過，詳見 `native-subscription-smoke.md` |
-| Claude 原生歷史讀取邊界 | SDK離線／單一既有session讀回已驗 | 官方SDK0.3.259對應CLI2.1.259；固定source hash，readonly Node子程序不准spawn／write。合成分支／分頁／原生title／不同UUID共享API ID通過，另只讀09-06自己的兩則訊息／marker／session correlation成功，原檔不變。不是Web normalized history／approval／resume，見 `protocol/native/claude/README.md` |
+| Claude 原生歷史讀取邊界 | SDK讀回／豐富內容觀察映射已驗 | 官方SDK0.3.259對應CLI2.1.259；只讀子程序不准spawn／write。合成工具／thinking／附件參照、中斷/API錯誤外層metadata及壓縮保留鏈通過；相同UUID原文核對、未知格式警示、整批拒絕混入/重複。前輪自己的兩則訊息讀回仍有效，本輪未再讀私有session。不是Web journal／approval ACK／resume，見 `protocol/native/claude/README.md` |
 | Claude 官方登入入口 | Mini當前detected，正式3.0.6 | 使用者回報瀏覽器登入，助手回completed／detected；另行同意的直接CLI最小模型測試成功。metadata API仍liveVerified=false，不以一次成功保證永久有效；不自動修憑證／重試模型，詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
 | 優先可靠性修復 | 已實作，隨rc.3啟用於Mini | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
@@ -59,7 +59,7 @@
 
 ### 下一個可執行任務
 
-**1.33 開發接續**：Codex 新版真實metadata檢查已止於non_native_route，沒有送account/thread/turn，原設定保留；後續需決定官方訂閱與第三方route如何隔離，不自行更改。Claude先完成官方SDK只讀history邊界，未引入正式runtime依賴或取代nativehistory；接下來補tool/thinking/attachment／compaction／approval evidence／resume映射，再按durable與authenticated transport gate接入Web。既有Claude模型同意已用，這輪僅讀自己的既有smoke歷史，不能視為新模型同意。3.0.7-rc.1 的72h維持原source／開始時間，與B+ rc.2分開；不提前切換Rust／DB／原生adapter或部署。詳見 `protocol/native/claude/README.md`、`native-subscription-smoke.md` 與 `session-discovery-and-soak.md`。
+**1.34 開發接續**：Codex 真實metadata仍止於non_native_route，沒有新account/thread/turn，原設定保留；官方訂閱與第三方route隔離需本人決定。Claude已有工具／thinking／附件參照／中斷及壓縮保留鏈的合成SDK觀察映射；SDK會省略外層flags，必須與同一穩定來源的exact UUID/原文核對。接下來補來源ownership/stable-read、附件實體、subagent與supersession、獨立approval ACK／resume evidence，再按durable與authenticated transport gate接Web。觀察結果固定publishable=false，不得假造journal facts或以工具文字當批准。既有Claude模型同意已用，本輪僅synthetic，沒有新模型或私有session讀取。3.0.7-rc.1 的72h維持原source／開始時間，與B+ rc.2分開；不提前切換Rust／DB／原生adapter或部署。詳見 `protocol/native/claude/README.md`、`native-subscription-smoke.md` 與 `session-discovery-and-soak.md`。
 
 **2026-09-07 品牌候選**：Jerome明確確認B+為最終方向。新的
 `public/stepsemble-mark.svg` 是向量母版，使用單一module／connector在
@@ -956,6 +956,13 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-07 — Plan 1.34
+
+- Jerome回「繼續」後補Claude richer history reference mapper；固定SDK0.3.259實際驗證會省略aborted/error/isApiErrorMessage/isCompactSummary/subtype，新增same-source exact UUID/type/message核對後還原metadata。沒有用文字推測中斷／批准／完成，沒有使用新模型或讀其他私人對話。
+- 新合成fixtures驗工具成功/錯誤/無結果、thinking/opaque、image/document參照、compaction preservedMessages重接後順序與分頁；實跑官方SDK不重寫原生branch演算法。未知blocks/metadata與source/page gaps明確warnings，跨scope/重複/畸形/超額整批reject，無partial輸出。
+- 只讀observation不執行工具／開附件URL／聚合usage；固定publishable=false與所有authority=false。Native ownership/stable-read、附件原件、subagent/refusal supersession、approval ACK/resume、DB與Web整合仍待，不把test-only mapping當作已上線的完整nativehistory。入口 `protocol/native/claude/README.md`。
+- 此批不改public/runtime/version/B+，不發布／部署、不動固定ab227af的72h；新增三OS native workflow觸發範圍，各CI按exact commit實際結果驗證。
 
 ### 2026-09-07 — Plan 1.33
 
