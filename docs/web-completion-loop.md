@@ -37,7 +37,7 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 | C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.55新增Codex inert observation與缺漏檢查；rich fixture 6類已還原、command/image尚缺，完整性gate未過；paginated/items-list明示不支援。來源隔離/Host/Web及其他adapter仍待，C2未完成 |
 | C3 Session／approval／恢復 | 按真實 capability 接結構化事件、續跑與 approval；ownership、exact correlation、重送／重連／Host crash、durable journal/replay 不漏不重 | 有 contract 與局部實作，未全驗 |
 | C4 帳號與故障體驗 | 登入／登出偵測、官方登入入口、路由相容、取消／失敗／stale／busy 可復原；不修寫第三方憑證或以重試消耗模型 | 局部已驗，跨 harness 待補 |
-| C5 手機與跨裝置操作 | 完整 history i18n、鍵盤／focus／內捲動、長歷史 DOM 上限、Host 切換、background/reconnect、跨機與目標瀏覽器實測 | 桌面與手機尺寸部分已驗，實機待補 |
+| C5 手機與跨裝置操作 | 完整 history i18n、鍵盤／focus／內捲動、長歷史 DOM 上限、Host 切換、background/reconnect、跨機與目標瀏覽器實測 | Plan1.56已接119keys/11語並修正locale scroll跳動；320/390合成Host CUA、原文/DOM/focus保留已驗；人工校稿/真機/跨Host與其餘gate仍待 |
 | C6 可靠性與效能 | 保存完整失敗診斷；調查曾發生的未定位測試失敗；同 workload 多輪 before/after、記憶體、長串流與斷線驗證 | 現有短測與 baseline 已有，驗收未完成 |
 | C7 跨平台 Host 與分階段 Rust | 保留相容 Host/Client 邊界；Rust 以契約／shadow／逐 endpoint 方式接入；Windows 原生來源與真服務 runner 不把 parser 通過当成功能通過 | POSIX reader 已有，其餘按主計畫 gate 推進 |
 | C8 發布與回滾 | exact SHA 的必要 CI／browser／native gates、來源與帳號授權、active-work 檢查、備份、回滾、正式健康與版本／裝置驗收 | 正式 3.0.6 不變；新候選未部署 |
@@ -84,6 +84,15 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 - 未來 App Store 發布、費用、商標／帳號等外部事項不從「loop」推論新授權。
 
 ## 執行記錄
+
+- **2026-09-08／C1/C5歷史多語，Plan1.56／rc.7**：實際頁/preview共用119keys及
+  11完整字典；原始name/summary/messages/JSON/timestamps不翻譯，顯示上限通知另放。
+  沿用workspace locale，page-only選單不寫settings/不操作歷史。CUA抓到並修正
+  原生scroll anchoring重複補償；320px十一語、390px工具歷史、44px/無横溢/console0，
+  owned Host cleanup確認。npm777/0fail、最低Node57/57及Ajv1251/生成/語法/版本通；
+  新native browser多語、原文/focus/scroll/no-read gate依exact CI另验，詳
+  [history-localization.md](history-localization.md)。正式/私人/模型/B+/独立72h不變；
+  C1–C8未全部完成，不將人工校稿/真機/跨Host和其他adapter略過。
 
 - **2026-09-08／C2 observation 與缺漏保護，Plan1.55／rc.6不變**：有界保存
   native ID/name、完整原始item、turn狀態與未知欄位；不合成approval、不執行

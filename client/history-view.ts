@@ -1,3 +1,5 @@
+/// <reference path="./history-i18n.ts" />
+declare function require(name: "./history-i18n"): typeof StepsembleHistoryI18n;
 /// <reference path="./history-transport.ts" />
 /// <reference path="./claude-history.ts" />
 /// <reference path="./projection.ts" />
@@ -6,6 +8,7 @@
 /** Isolated inert-history preview. Only trusted catalog IDs reach the transport;
  * native text never becomes HTML, a URL, an executable action or authority. */
 namespace StepsembleHistoryView {
+  const i18n = typeof module !== "undefined" ? require("./history-i18n") : StepsembleHistoryI18n;
   type Pages = ReturnType<typeof StepsembleHistoryPages.create>;
   type Transport = Pick<ReturnType<typeof StepsembleHistoryTransport.create>, "register" | "read" | "release">;
   type Entry = StepsembleHistoryTransport.CatalogEntry;
@@ -19,7 +22,7 @@ namespace StepsembleHistoryView {
     onChange?: () => void;
   }
   export interface State {
-    selected: Entry | null; busy: boolean; stage: string; error: string | null; stale: boolean; closed: boolean;
+    selected: Entry | null; busy: boolean; stage: StepsembleHistoryI18n.Key; error: string | null; stale: boolean; closed: boolean;
     limit: number; pageIndex: number; pageCount: number; messageStart: number; retainedMessages: number;
     canPrevious: boolean; canNext: boolean; page: StepsembleHistoryPages.StoredPage | null;
     cleanupPending: boolean; sourceVersion: string | null;
@@ -27,27 +30,7 @@ namespace StepsembleHistoryView {
   const object = (v: unknown): v is ObjectValue => v !== null && typeof v === "object" && !Array.isArray(v);
   const same = (a: Registration | null, b: Registration): boolean => !!a && a.bindingId === b.bindingId && a.generation === b.generation && a.sessionId === b.sessionId;
   const uuid = (v: string): boolean => /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
-  const messages: Record<string, string> = {
-    history_binding_unavailable: "這份歷史的存取已到期，請重新整理。", history_principal_unavailable: "目前的登入已失效，請回到主頁重新登入。",
-    history_unauthorized: "目前的登入已失效，請回到主頁重新登入。", history_capacity_unavailable: "目前可用的唯讀名額已滿，請稍後手動重新整理。",
-    history_view_conflict: "上一個來源仍在釋放中，請稍後手動重新整理。", source_busy: "來源仍在讀取或收尾中，請稍後手動重新整理。",
-    source_version_changed: "來源內容已改變。保留的頁面已過期，請重新整理。", source_version_unavailable: "原版本已不可用，請重新整理。",
-    history_version_mismatch: "來源版本已改變，請重新整理。", history_refresh_required: "請先重新整理，再繼續翻頁。",
-    source_service_quarantined: "來源服務暫停提供讀取，請聯絡主機管理者。", source_cleanup_unconfirmed: "尚未確認來源讀取已結束，請稍後再試。",
-    history_registry_unavailable: "來源服務暫時不可用。", history_registry_closed: "來源服務已關閉。", source_service_closed: "來源服務已關閉。",
-    history_transport_failed: "連線未完成，保留原本的頁面。請手動重新整理。", history_timeout: "讀取逾時，請手動重新整理。",
-    history_request_timeout: "讀取逾時，請手動重新整理。", history_response_invalid: "回覆未通過驗證，沒有顯示新資料。",
-    history_response_too_large: "回覆超過安全上限，請減少每頁則數再重新整理。", source_observation_too_large: "回覆過大，請減少每頁則數再重新整理。",
-    history_source_unavailable: "主機尚未啟用這個來源，或目前的憑證沒有讀取權限。", history_view_limit: "已達本次檢視的保留上限，請重新整理目前頁面。",
-    source_platform_unsupported: "這台主機尚未支援原生歷史讀取，請選擇已支援的主機。",
-    source_containment_unavailable: "來源所在磁碟未通過安全檢查；沒有讀取新內容，也不會自動更改磁碟權限。",
-    source_root_identity_changed: "已登記的來源目錄已被替換，請由主機管理者重新確認來源。",
-    source_acl_unsupported: "來源權限尚未符合唯讀功能的支援範圍，請由主機管理者檢查。",
-    history_catalog_changed: "來源清單或對話名稱已改變，請重新整理來源。沒有套用舊回覆。",
-    source_inventory_limit: "來源超過目前可探索的範圍，請由主機管理者縮小授權來源。",
-    source_metadata_invalid: "原生名稱資料未通過驗證；仍可另外嘗試唯讀內容。",
-  };
-  export function describeError(code: string): string { return messages[code] ?? "目前無法取得新資料。請手動重新整理。"; }
+  export function describeError(code: string): string { return i18n.text(i18n.errorKey(code)); }
 
   export function createModel(deps: Dependencies) {
     if (!deps || !uuid(deps.viewId) || !/^[A-Za-z0-9_.:-]{1,128}$/.test(deps.hostId) || typeof deps.createPages !== "function"
@@ -59,7 +42,7 @@ namespace StepsembleHistoryView {
     const now = deps.now ?? Date.now;
     let selected: Entry | null = null, binding: Registration | null = null, controller = deps.createPages(deps.transport.read);
     let snapshot = controller.state(), pending: AbortController | null = null, candidate: Pages | null = null;
-    let epoch = 0, busy = false, stage = "選擇一個歷史來源", error: string | null = null, stale = false, closed = false;
+    let epoch = 0, busy = false, stage: StepsembleHistoryI18n.Key = "choose", error: string | null = null, stale = false, closed = false;
     let limit = 10, offset: number | null = null, messageStart = 0, cleanupPending = false;
     const notify = () => deps.onChange?.();
     function cancelWork(): void {
@@ -90,7 +73,7 @@ namespace StepsembleHistoryView {
       if (!selected || closed) return;
       if (mode !== "refresh" && busy) return;
       if (selectionEpoch === undefined) cancelWork();
-      const ticket = epoch, item = selected, abort = new AbortController(); pending = abort; busy = true; error = null; stage = "準備唯讀歷史…"; notify();
+      const ticket = epoch, item = selected, abort = new AbortController(); pending = abort; busy = true; error = null; stage = "preparing"; notify();
       let target = controller;
       try {
         // Renew only as part of an explicit read. No polling, keepalive timer or
@@ -108,7 +91,7 @@ namespace StepsembleHistoryView {
           target.reset({ hostId: deps.hostId, bindingId: reg.bindingId, generation: reg.generation, sessionId: reg.sessionId });
         }
         const requestedOffset = mode === "refresh" ? offset ?? 0 : mode === "previous" ? Math.max(0, (snapshot.startOffset ?? 0) - limit) : snapshot.nextOffset;
-        stage = "讀取頁面…";
+        stage = "reading";
         const flight = mode === "refresh" ? target.refresh({ offset: requestedOffset ?? 0, limit })
           : mode === "next" ? target.loadNext(limit) : target.loadPrevious(limit);
         notify(); const result = await flight;
@@ -117,17 +100,17 @@ namespace StepsembleHistoryView {
           if (target !== controller) { controller.dispose(); controller = target; candidate = null; }
           snapshot = controller.state();
           if (snapshot.pages.some(page => page.offset === requestedOffset)) offset = requestedOffset;
-          messageStart = 0; stale = false; error = null; stage = "已載入唯讀頁面";
+          messageStart = 0; stale = false; error = null; stage = "loaded";
         } else if (result.kind === "unavailable") {
           error = result.code; stale = snapshot.pages.length > 0;
           if (target === controller) snapshot = controller.state();
         }
       } catch (reason) {
         if (ticket !== epoch || abort.signal.aborted) return;
-        error = object(reason) && typeof reason.code === "string" && Object.hasOwn(messages, reason.code) ? reason.code : "history_transport_failed"; stale = snapshot.pages.length > 0;
+        error = object(reason) && typeof reason.code === "string" && Object.hasOwn(i18n.errors, reason.code) ? reason.code : "history_transport_failed"; stale = snapshot.pages.length > 0;
       } finally {
         if (target !== controller) target.dispose();
-        if (ticket === epoch) { candidate = null; pending = null; busy = false; if (error) stage = "未載入新資料"; notify(); }
+        if (ticket === epoch) { candidate = null; pending = null; busy = false; if (error) stage = "failed"; notify(); }
       }
     }
     async function select(catalogId: string): Promise<void> {
@@ -135,7 +118,7 @@ namespace StepsembleHistoryView {
       if (selected?.catalogId === catalogId && !closed) return;
       cancelWork(); const ticket = epoch, old = binding; binding = null; selected = item; closed = false; error = null; stale = false;
       controller.dispose(); controller = deps.createPages(deps.transport.read); snapshot = controller.state(); offset = null; messageStart = 0;
-      busy = true; stage = old ? "切換來源…" : "準備唯讀歷史…"; notify();
+      busy = true; stage = old ? "switching" : "preparing"; notify();
       await release(old); if (ticket !== epoch) return;
       await load("refresh", ticket);
     }
@@ -146,98 +129,114 @@ namespace StepsembleHistoryView {
       if (current.stale) { stale = true; error = "history_refresh_required"; notify(); return; }
       if (direction === "next" ? current.canNext : current.canPrevious) await load(direction);
     }
-    function cancel(): void { cancelWork(); stage = "已取消讀取；原有頁面仍保留"; notify(); }
+    function cancel(): void { cancelWork(); stage = "cancelled"; notify(); }
     async function close(): Promise<void> {
       cancelWork(); const old = binding; binding = null; selected = null; closed = true; error = null; stale = false;
-      controller.dispose(); controller = deps.createPages(deps.transport.read); snapshot = controller.state(); offset = null; messageStart = 0; stage = "已關閉唯讀歷史"; notify();
+      controller.dispose(); controller = deps.createPages(deps.transport.read); snapshot = controller.state(); offset = null; messageStart = 0; stage = "closed"; notify();
       await release(old); notify();
     }
     return Object.freeze({ select, refresh: () => load("refresh"), next: () => navigate("next"), previous: () => navigate("previous"), cancel, close, setLimit, showWindow, state });
   }
 
+
   export function create(deps: Dependencies & { root: HTMLElement; embedded?: boolean }) {
     const doc = deps.root.ownerDocument;
-    const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text = "", className = ""): HTMLElementTagNameMap[K] => {
-      const node = doc.createElement(tag); node.textContent = text; if (className) node.className = className; return node;
+    const element = <K extends keyof HTMLElementTagNameMap>(tag: K, value = "", className = ""): HTMLElementTagNameMap[K] => {
+      const node = doc.createElement(tag); i18n.raw(node, value); if (className) node.className = className; return node;
     };
-    const tabs = element("nav", "", "history-sources"); tabs.setAttribute("aria-label", "歷史來源");
-    const title = element("h2", "選擇歷史來源"), description = element("p", "", "history-description");
+    const copy = <K extends keyof HTMLElementTagNameMap>(tag: K, key: StepsembleHistoryI18n.Key, className = "", vars: StepsembleHistoryI18n.Vars = {}) =>
+      i18n.bind(element(tag, "", className), key, vars);
+    const tabs = element("nav", "", "history-sources"); i18n.bind(tabs, "choose", {}, "aria-label");
+    const title = copy("h2", "choose"), description = element("p", "", "history-description");
     const status = element("p", "", "history-status"); status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
     const warning = element("p", "", "history-warning"); warning.setAttribute("role", "status");
+    const warningReason = element("span"), prior = copy("span", "priorPage"); warning.append(warningReason, doc.createTextNode ? doc.createTextNode(" ") : element("span", " "), prior);
     const toolbar = element("div", "", "history-toolbar"), controls: Record<string, HTMLButtonElement> = {};
-    const button = (key: string, label: string, action: () => void | Promise<void>, parent: HTMLElement = toolbar) => {
-      const node = element("button", label); node.type = "button"; node.dataset.action = key; node.addEventListener("click", () => { void action(); }); parent.append(node); controls[key] = node; return node;
+    const button = (actionId: string, key: StepsembleHistoryI18n.Key, action: () => void | Promise<void>, parent: HTMLElement = toolbar, vars: StepsembleHistoryI18n.Vars = {}) => {
+      const node = copy("button", key, "", vars); node.type = "button"; node.dataset.action = actionId;
+      node.addEventListener("click", () => { void action(); }); parent.append(node); controls[actionId] = node; return node;
     };
     const model = createModel({ ...deps, onChange: () => { render(); deps.onChange?.(); } });
     const tabButtons = deps.catalog.map(entry => {
-      const node = button("source:" + entry.catalogId, entry.label, () => model.select(entry.catalogId), tabs); node.setAttribute("aria-pressed", "false"); return node;
+      // Catalog labels are owner-authored, even when they equal an interface key.
+      const node = element("button", entry.label); node.type = "button"; node.dataset.action = "source:" + entry.catalogId;
+      node.addEventListener("click", () => { void model.select(entry.catalogId); }); tabs.append(node);
+      node.setAttribute("aria-pressed", "false"); return node;
     });
-    button("refresh", "重新整理", () => model.refresh()); button("previous", "上一頁", () => model.previous()); button("next", "下一頁", () => model.next());
-    button("cancel", "取消讀取", () => model.cancel()); button("close", "關閉歷史", () => model.close());
-    const label = element("label", "每次讀取 ", "history-limit"), select = element("select"); select.setAttribute("aria-label", "每頁訊息數");
-    for (const n of [5, 10, 25]) { const option = element("option", n + " 則"); option.value = String(n); select.append(option); } select.value = "10";
+    button("refresh", "refresh", () => model.refresh()); button("previous", "previous", () => model.previous()); button("next", "next", () => model.next());
+    button("cancel", "cancel", () => model.cancel()); button("close", "close", () => model.close());
+    const label = element("label", "", "history-limit"), select = element("select"); i18n.bind(select, "limit", {}, "aria-label");
+    label.append(copy("span", "limit"));
+    for (const n of [5, 10, 25]) { const option = element("option", String(n)); option.value = String(n); select.append(option); } select.value = "10";
     select.addEventListener("change", () => model.setLimit(Number(select.value))); label.append(select); toolbar.append(label);
-    const content = element("section", "", "history-messages"); content.setAttribute("aria-label", "歷史訊息");
+    const content = element("section", "", "history-messages"); i18n.bind(content, "messages", {}, "aria-label");
     const position = element("p", "", "history-position"), windowBar = element("div", "", "history-window-controls");
-    button("windowPrevious", "本頁前 10 則", () => model.showWindow(Math.max(0, model.state().messageStart - LIMITS.messages)), windowBar);
-    button("windowNext", "本頁後 10 則", () => model.showWindow(model.state().messageStart + LIMITS.messages), windowBar);
+    button("windowPrevious", "windowPrevious", () => model.showWindow(Math.max(0, model.state().messageStart - LIMITS.messages)), windowBar, { count: LIMITS.messages });
+    button("windowNext", "windowNext", () => model.showWindow(model.state().messageStart + LIMITS.messages), windowBar, { count: LIMITS.messages });
     const evidence = element("section", "", "history-evidence"), cleanup = element("p", "", "history-footnote");
+    deps.root.dataset.i18nIgnore = "";
     deps.root.replaceChildren(tabs, title, description, toolbar, status, warning, position, content, windowBar, evidence, cleanup);
     if (deps.embedded) { tabs.hidden = true; title.hidden = true; description.hidden = true; }
     let renderedPage: string | null = null, renderedWindow = -1;
     function render(): void {
       const s = model.state(); deps.root.setAttribute("aria-busy", String(s.busy));
-      title.textContent = s.selected?.label ?? (s.closed ? "檢視已關閉" : "選擇歷史來源"); description.textContent = s.selected?.description ?? "選擇主機提供的來源。只讀取歷史，不執行或續跑工作。";
-      status.textContent = s.stage; warning.hidden = !s.error && !s.stale;
-      warning.textContent = s.error ? describeError(s.error) + (s.page ? " 目前仍顯示先前的頁面（可能已過期）。" : "")
-        : s.stale ? "這份頁面已過期。請重新整理後再讀取其他頁面。" : "";
+      if (s.selected) { i18n.raw(title, s.selected.label); i18n.raw(description, s.selected.description); }
+      else { i18n.bind(title, s.closed ? "closed" : "choose"); i18n.bind(description, "historyInfo"); }
+      i18n.bind(status, s.stage); warning.hidden = !s.error && !s.stale;
+      i18n.bind(warningReason, s.error ? i18n.errorKey(s.error) : "pageStale"); prior.hidden = !s.error || !s.page;
       warning.dataset.state = s.stale ? "stale" : "error";
       tabButtons.forEach((node, index) => node.setAttribute("aria-pressed", String(deps.catalog[index].catalogId === s.selected?.catalogId)));
       controls.refresh.disabled = !s.selected; controls.previous.disabled = !s.canPrevious; controls.next.disabled = !s.canNext;
       controls.cancel.disabled = !s.busy; controls.close.disabled = !s.selected && !s.busy;
       controls.windowPrevious.disabled = s.messageStart === 0; controls.windowNext.disabled = !s.page || s.messageStart + LIMITS.messages >= s.page.observation.messages.length;
-      select.value = String(s.limit); cleanup.textContent = s.cleanupPending ? "關閉請求已送出；部分讀取尚未確認釋放，主機租約到期會收回唯讀存取。" : "關閉歷史只釋放唯讀存取，不會中止原生工作。";
-      const pageKey = s.page ? `${s.sourceVersion}:${s.page.offset}:${s.page.limit}:${s.page.observation.selectionDigest}` : null;
-      position.textContent = s.page ? `已保留 ${s.retainedMessages} 則 · 第 ${s.pageIndex + 1} / ${s.pageCount} 個已載入頁面 · 本頁顯示 ${s.page.observation.messages.length ? s.messageStart + 1 : 0}–${Math.min(s.messageStart + LIMITS.messages, s.page.observation.messages.length)} / ${s.page.observation.messages.length} 則 · SDK 位移 ${s.page.offset}` : "尚未讀取訊息";
+      select.value = String(s.limit); i18n.bind(cleanup, s.cleanupPending ? "cleanupPending" : "cleanupSafe");
+      const pageKey = s.page ? JSON.stringify([s.sourceVersion, s.page.offset, s.page.limit, s.page.observation.selectionDigest]) : null;
+      if (s.page) i18n.bind(position, "position", { retained: s.retainedMessages, page: s.pageIndex + 1, pages: s.pageCount,
+        start: s.page.observation.messages.length ? s.messageStart + 1 : 0, end: Math.min(s.messageStart + LIMITS.messages, s.page.observation.messages.length),
+        total: s.page.observation.messages.length, offset: s.page.offset });
+      else i18n.bind(position, "notRead");
       windowBar.hidden = !s.page || s.page.observation.messages.length <= LIMITS.messages;
       if (pageKey === renderedPage && s.messageStart === renderedWindow) return;
       renderedPage = pageKey; renderedWindow = s.messageStart; content.replaceChildren(); evidence.replaceChildren();
-      if (!s.page) { content.append(element("p", s.closed ? "選擇來源可再次開啟檢視。" : "尚無訊息。請選擇歷史來源。", "history-empty")); return; }
-      let remaining = LIMITS.textUnits;
+      if (!s.page) { content.append(copy("p", s.closed ? "reopen" : "empty", "history-empty")); return; }
+      let remaining = LIMITS.textUnits, truncated = false, exhausted = false;
       const clipped = (input: string, maximum: number = LIMITS.blockTextUnits): string => {
-        const count = Math.min(remaining, maximum); if (count <= 0) return "［本畫面文字已達顯示上限］";
+        const count = Math.min(remaining, maximum);
+        if (count <= 0) { exhausted = true; return ""; }
         const value = input.slice(0, count); remaining -= value.length;
-        return input.length > value.length ? value + "\n［長內容已縮短顯示］" : value;
+        if (input.length > value.length) truncated = true;
+        return value; // Display notices stay separate from the native text.
       };
-      const details = (heading: string, value: unknown, parent: HTMLElement): void => {
-        const node = element("details"), summary = element("summary", heading), pre = element("pre", "", "history-inert-data");
-        // Bounded strings are inert even when source text resembles HTML, URLs,
-        // scripts or command lines. There is no href/src/innerHTML assignment.
+      const details = (heading: StepsembleHistoryI18n.Key, value: unknown, parent: HTMLElement, vars: StepsembleHistoryI18n.Vars = {}): void => {
+        const node = element("details"), summary = copy("summary", heading, "", vars), pre = element("pre", "", "history-inert-data");
         const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
-        pre.textContent = clipped(text ?? ""); node.append(summary, pre); parent.append(node);
+        i18n.raw(pre, clipped(text ?? "")); node.append(summary, pre); parent.append(node);
       };
       const pageMessages = s.page.observation.messages.slice(s.messageStart, s.messageStart + LIMITS.messages);
-      if (!pageMessages.length) content.append(element("p", "這一頁沒有訊息。", "history-empty"));
+      if (!pageMessages.length) content.append(copy("p", "pageEmpty", "history-empty"));
       for (const message of pageMessages) {
-        const card = element("article", "", "history-message"), role = message.role === "user" ? "你" : message.role === "assistant" ? "Claude" : "系統紀錄";
-        card.append(element("h3", role), element("p", typeof message.originalTimestamp === "string" ? clipped(message.originalTimestamp, 120) : "未提供時間", "history-message-time"));
+        const card = element("article", "", "history-message");
+        card.append(message.role === "assistant" ? element("h3", "Claude") : copy("h3", message.role === "user" ? "you" : "system"),
+          typeof message.originalTimestamp === "string" ? element("p", clipped(message.originalTimestamp, 120), "history-message-time") : copy("p", "noTime", "history-message-time"));
         const blocks = Array.isArray(message.blocks) ? message.blocks : [];
         for (const block of blocks.slice(0, LIMITS.blocks)) {
           if (!object(block)) continue;
           if (block.kind === "text" && typeof block.text === "string") card.append(element("p", clipped(block.text), "history-message-text"));
-          else if (block.kind === "thinking") details("思考紀錄 · 唯讀", block.text, card);
-          else if (block.kind === "tool_use") details("工具請求紀錄 · 不執行", block, card);
-          else if (block.kind === "tool_result") details("工具結果紀錄 · 不代表已核准", block, card);
-          else if (block.kind === "attachment") details("附件描述 · 不載入附件", block, card);
-          else details("其他來源紀錄 · 唯讀", block, card);
+          else if (block.kind === "thinking") details("thinking", block.text, card);
+          else if (block.kind === "tool_use") details("toolUse", block, card);
+          else if (block.kind === "tool_result") details("toolResult", block, card);
+          else if (block.kind === "attachment") details("attachment", block, card);
+          else details("other", block, card);
         }
-        if (blocks.length > LIMITS.blocks) card.append(element("p", "此訊息只顯示前 24 個內容區塊。", "history-footnote"));
+        if (blocks.length > LIMITS.blocks) card.append(copy("p", "blockLimit", "history-footnote", { count: LIMITS.blocks }));
         content.append(card);
       }
-      for (const [key, heading] of [["tools", "本頁工具觀測 · 沒有執行權限"], ["auxiliaryRecords", "附加來源紀錄 · 不載入檔案"], ["warnings", "來源觀測限制"]]) {
+      for (const [key, heading] of [["tools", "tools"], ["auxiliaryRecords", "auxiliary"], ["warnings", "warnings"]] as const) {
         const rows = s.page.observation[key];
-        if (Array.isArray(rows) && rows.length) details(`${heading}（${rows.length} 筆，最多顯示 ${LIMITS.evidence} 筆）`, rows.slice(0, LIMITS.evidence), evidence);
+        if (Array.isArray(rows) && rows.length) details(heading, rows.slice(0, LIMITS.evidence), evidence, { count: rows.length, limit: LIMITS.evidence });
       }
+      if (truncated) evidence.append(copy("p", "truncated", "history-footnote"));
+      if (exhausted) evidence.append(copy("p", "textLimit", "history-footnote"));
     }
     render(); return Object.freeze({ ...model, render });
   }
@@ -250,31 +249,33 @@ namespace StepsembleHistoryView {
   }
 
   export async function bootHost(): Promise<void> {
-    const root = document.querySelector<HTMLElement>("[data-history-host]"); if (!root) return;
+    const root = document.querySelector<HTMLElement>("[data-history-host]"); if (!root) return; i18n.boot();
     const status = document.createElement("p"); status.className = "history-empty"; status.setAttribute("role", "status");
-    status.textContent = "正在確認主機提供的唯讀來源…"; root.replaceChildren(status);
+    i18n.bind(status, "confirming"); root.replaceChildren(status);
     const abort = new AbortController(); let gone = false;
     const views: { close(): Promise<void> }[] = [];
     const close = () => { gone = true; abort.abort(); for (const view of views) void view.close(); };
     window.addEventListener("pagehide", close, { once: true });
     // A bfcache-restored document must not revive an old credential/view scope.
     window.addEventListener("pageshow", event => { if (event.persisted) location.reload(); });
-    const showUnavailable = (message: string) => {
+    const showUnavailable = (key: StepsembleHistoryI18n.Key) => {
       if (gone) return;
-      status.textContent = message;
+      i18n.bind(status, key);
       const retry = document.createElement("button"); retry.className = "history-button"; retry.type = "button";
-      retry.textContent = "重新確認"; retry.addEventListener("click", () => location.reload());
+      i18n.bind(retry, "recheck"); retry.addEventListener("click", () => location.reload());
       root.replaceChildren(status, retry);
     };
     try {
       const route = hostRoute(location.search), viewId = crypto.randomUUID(), canonicalJSON = StepsembleProjection.canonicalJSON;
-      const label = document.querySelector<HTMLElement>("[data-history-host-label]"); if (label) label.textContent = route.hostId === "local" ? "目前主機" : `遠端主機 · ${route.hostId}`;
+      const label = document.querySelector<HTMLElement>("[data-history-host-label]");
+      if (label) { const name = i18n.bind(document.createElement("span"), route.hostId === "local" ? "localHost" : "remoteHost");
+        const id = i18n.raw(document.createElement("span"), route.hostId === "local" ? "" : ` · ${route.hostId}`); label.replaceChildren(name, id); }
       const transport = StepsembleHistoryTransport.create({ ...route, origin: location.origin, viewId, canonicalJSON });
       const [result, groups] = await Promise.all([transport.catalog(abort.signal), transport.sources(abort.signal)]); if (gone) return;
-      if (result.kind !== "history_catalog") { showUnavailable(describeError(result.code)); return; }
-      if (groups.kind === "source_unavailable" && !["history_method_not_allowed", "history_source_unavailable"].includes(groups.code)) { showUnavailable(describeError(groups.code)); return; }
+      if (result.kind !== "history_catalog") { showUnavailable(i18n.errorKey(result.code)); return; }
+      if (groups.kind === "source_unavailable" && !["history_method_not_allowed", "history_source_unavailable"].includes(groups.code)) { showUnavailable(i18n.errorKey(groups.code)); return; }
       const sources = groups.kind === "history_sources" ? groups.sources : [];
-      if (!result.entries.length && !sources.length) { showUnavailable("這個登入尚無可讀取的來源。請由主機管理者明確登記來源與讀取權限；不會自動掃描你的私人對話。"); return; }
+      if (!result.entries.length && !sources.length) { showUnavailable("noSources"); return; }
       const provider = StepsembleClaudeHistory.create({ canonicalJSON });
       const createPages = (read: StepsembleHistoryPages.Dependencies["read"]) => StepsembleHistoryPages.create({ read, canonicalJSON, validateHistory: provider.validateHistory, requestId: () => crypto.randomUUID() });
       root.replaceChildren();
@@ -284,7 +285,7 @@ namespace StepsembleHistoryView {
           describeError, badge: (doc, agentId) => StepsembleAgentIdentity.create(doc, agentId),
           createContent(contentRoot, catalogId) {
             const contentViewId = crypto.randomUUID(), contentTransport = StepsembleHistoryTransport.create({ ...route, origin: location.origin, viewId: contentViewId, canonicalJSON });
-            return create({ root: contentRoot, ...route, viewId: contentViewId, catalog: [{ catalogId, label: "唯讀內容", description: "" }],
+            return create({ root: contentRoot, ...route, viewId: contentViewId, catalog: [{ catalogId, label: i18n.text("content"), description: "" }],
               transport: contentTransport, createPages, embedded: true });
           } }));
       }
@@ -292,31 +293,30 @@ namespace StepsembleHistoryView {
         const manualRoot = document.createElement("div");
         const init = () => { if (gone || manualRoot.childNodes.length) return; views.push(create({ root: manualRoot, ...route, viewId, catalog: result.entries, transport, createPages })); };
         if (sources.length) {
-          const details = document.createElement("details"), summary = document.createElement("summary"); summary.textContent = `單獨登記的來源（${result.entries.length}）`;
+          const details = document.createElement("details"), summary = document.createElement("summary"); i18n.bind(summary, "manual", { count: result.entries.length });
           details.className = "history-manual"; details.append(summary, manualRoot); root.append(details); details.addEventListener("toggle", () => { if (details.open) init(); });
         } else { root.append(manualRoot); init(); }
       }
     } catch (error) {
-      showUnavailable(error instanceof StepsembleHistoryTransport.TransportError ? describeError(error.code)
-        : "無法開啟這份唯讀歷史。請返回工作區確認登入和主機，然後手動重試。");
+      showUnavailable(error instanceof StepsembleHistoryTransport.TransportError ? i18n.errorKey(error.code) : "bootFailed");
     }
   }
 
   /** Only the isolated preview document calls this. It has no production import
    * or service-worker registration and accepts no URL-supplied source options. */
   export async function bootPreview(): Promise<void> {
-    const root = document.querySelector<HTMLElement>("[data-history-preview]"); if (!root) return;
-    const status = document.createElement("p"); status.textContent = "正在讀取範例來源…"; root.replaceChildren(status);
+    const root = document.querySelector<HTMLElement>("[data-history-preview]"); if (!root) return; i18n.boot();
+    const status = document.createElement("p"); i18n.bind(status, "previewLoading"); root.replaceChildren(status);
     try {
       const viewId = crypto.randomUUID(), canonicalJSON = StepsembleProjection.canonicalJSON;
       const transport = StepsembleHistoryTransport.create({ origin: location.origin, hostId: "history-preview", viewId, canonicalJSON });
       const result = await transport.catalog();
-      if (result.kind !== "history_catalog") { status.textContent = describeError(result.code); return; }
+      if (result.kind !== "history_catalog") { i18n.bind(status, i18n.errorKey(result.code)); return; }
       const provider = StepsembleClaudeHistory.create({ canonicalJSON });
       const view = create({ root, hostId: "history-preview", viewId, catalog: result.entries, transport,
         createPages: read => StepsembleHistoryPages.create({ read, canonicalJSON, validateHistory: provider.validateHistory, requestId: () => crypto.randomUUID() }) });
       window.addEventListener("pagehide", () => { void view.close(); }, { once: true });
-    } catch { status.textContent = "這個頁面需要隔離的開發預覽主機。無法載入範例來源。"; }
+    } catch { i18n.bind(status, "previewFailed"); }
   }
 }
 if (typeof module !== "undefined") module.exports = StepsembleHistoryView;

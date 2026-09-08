@@ -12,12 +12,13 @@ export async function runHistorySourcesBrowserCases(browser, helperPath) {
         let context, stage = "login", releaseName;
         try {
           context = await browser.newContext({ viewport, colorScheme, serviceWorkers: "block", reducedMotion: "reduce" });
-          const errors = [], foreign = [], catalogs = [], metadata = [], mutations = [];
+          const errors = [], foreign = [], catalogs = [], metadata = [], mutations = [], historyRequests = [];
           let holdName = true, failCatalog = false;
           const nameGate = new Promise(resolve => { releaseName = resolve; });
           await context.route("**/*", async route => {
             const request = route.request(), url = new URL(request.url());
             if (url.origin !== host.origin) { foreign.push(url.origin); return route.abort(); }
+            if (url.pathname.startsWith("/api/history/")) historyRequests.push(url.pathname);
             if (url.pathname === "/api/history/source-catalog") {
               catalogs.push(request.postDataJSON());
               if (failCatalog) return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ kind: "source_unavailable", code: "source_inventory_limit" }) });
@@ -33,6 +34,7 @@ export async function runHistorySourcesBrowserCases(browser, helperPath) {
           await page.goto(host.origin); await page.locator("#login-onboarding-skip").click();
           await page.locator("#login-token").fill(host.token); await page.locator("#login-form button").click();
           await page.locator("#agent-hub-history").waitFor(); await page.goto(`${host.origin}/history.html`);
+          await page.locator("#history-language").selectOption("zh-Hant");
           stage = "no implicit inventory";
           const refresh = page.getByRole("button", { name: "重新整理來源", exact: true });
           await page.waitForFunction(() => document.querySelector(".source-browser")?.getAttribute("aria-busy") === "false");
@@ -65,6 +67,22 @@ export async function runHistorySourcesBrowserCases(browser, helperPath) {
           await page.getByRole("button", { name: "收合名稱", exact: true }).click();
           await page.locator(".source-detail").getByText("合成來源 1 的完整內容 🐾", { exact: true }).waitFor();
           assert.equal(await page.locator(".source-detail script,.source-detail img,.source-detail iframe").count(), 0);
+          stage = "source title locale scroll anchor";
+          await page.getByRole("button", { name: "暫停載入名稱", exact: true }).click();
+          await page.waitForFunction(() => ![...document.querySelectorAll(".source-name-retry")].some(node => node.textContent === "…"));
+          const titleReads = historyRequests.length;
+          await page.evaluate(async () => {
+            const title = document.querySelector(".source-detail > h2"), text = title.textContent, list = document.querySelector(".source-list");
+            title.scrollIntoView({ block: "start", behavior: "instant" }); title.focus({ preventScroll: true });
+            const frames = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            window.stepsembleI18n.setLocale("de"); await frames();
+            const top = title.getBoundingClientRect().top, inner = list.scrollTop;
+            window.stepsembleI18n.setLocale("ja"); await frames();
+            if (Math.abs(title.getBoundingClientRect().top - top) > 2 || list.scrollTop !== inner) throw Error("native browser anchor counted twice");
+            if (title.textContent !== text || document.activeElement !== title) throw Error("source title or focus changed");
+            window.stepsembleI18n.setLocale("zh-Hant"); await frames();
+          });
+          assert.equal(historyRequests.length, titleReads, "Source title locale switch performs no history operation");
           await page.locator(".source-detail").getByRole("button", { name: "關閉歷史", exact: true }).click();
           await page.waitForFunction(() => document.querySelectorAll(".source-detail article").length === 0);
           await page.locator(".source-open").nth(4).click();
@@ -84,10 +102,48 @@ export async function runHistorySourcesBrowserCases(browser, helperPath) {
           stage = "manual fallback"; await page.locator(".history-manual > summary").click();
           await page.locator(".history-manual").getByRole("button", { name: "工具與思考", exact: true }).click();
           await page.locator(".history-manual article").first().waitFor();
+          stage = "eleven locales preserve native history";
+          // Freeze background name loading so the no-read assertion measures
+          // language switching, not a pre-existing visible-name flight.
+          const pause = page.getByRole("button", { name: "暫停載入名稱", exact: true });
+          if (await pause.isVisible()) await pause.click();
+          await page.waitForFunction(() => ![...document.querySelectorAll(".source-name-retry")].some(node => node.textContent === "…"));
+          const readsBeforeLocales = historyRequests.length;
+          const localeGate = await page.evaluate(async () => {
+            const native = [...document.querySelectorAll(".history-message-text,.history-inert-data,.source-detail > h2,.source-summary-detail p,.source-title:not([data-i18n-key])")]
+              .map(node => ({ node, text: node.textContent }));
+            const card = document.querySelector(".history-manual article"), list = document.querySelector(".source-list");
+            const focus = document.querySelector('.history-manual [data-action="refresh"]');
+            card.scrollIntoView({ block: "start", behavior: "instant" }); focus.focus({ preventScroll: true });
+            const state = { top: card.getBoundingClientRect().top, inner: list.scrollTop, settings: localStorage.getItem("stepsemble.settings.v2") };
+            const frames = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            let checks = 0;
+            for (const locale of window.stepsembleI18n.locales.map(row => row.id)) {
+              window.stepsembleI18n.setLocale(locale); await frames();
+              if (document.documentElement.lang !== locale || document.querySelector("#history-language").value !== locale) throw Error("locale mismatch");
+              if (document.activeElement !== focus || !card.isConnected || native.some(row => !row.node.isConnected || row.node.textContent !== row.text)) throw Error("native DOM or focus changed");
+              if (list.scrollTop !== state.inner || Math.abs(card.getBoundingClientRect().top - state.top) > 2) throw Error("reading position changed");
+              if (localStorage.getItem("stepsemble.settings.v2") !== state.settings) throw Error("workspace settings changed");
+              if (document.documentElement.scrollWidth > innerWidth) throw Error("localized horizontal overflow");
+              const chrome = [...document.querySelectorAll("[data-i18n-key]")].map(node => node.textContent).join("\n");
+              if (/history\.[A-Za-z]+|\{(?:count|index|retained|page|pages|start|end|total|offset|limit)\}/.test(chrome)) throw Error("unresolved localized key or count");
+              if (!["zh-Hant", "zh-Hans", "ja", "ko"].includes(locale) && /[\u3400-\u9fff]/.test(chrome)) throw Error("untranslated Chinese chrome");
+              checks++;
+            }
+            window.stepsembleI18n.setLocale("zh-Hant"); await frames();
+            return { checks, nativeNodes: native.length, preservedFocus: document.activeElement === focus };
+          });
+          assert.equal(localeGate.checks, 11); assert.ok(localeGate.nativeNodes > 0); assert.equal(localeGate.preservedFocus, true);
+          assert.equal(historyRequests.length, readsBeforeLocales, "Changing locales starts no history read, register or refresh");
+          await page.locator("#history-language").selectOption("en");
+          assert.equal(await page.locator('.history-manual [data-action="refresh"]').textContent(), "Refresh");
+          assert.equal(await page.title(), "Read-only history · Stepsemble");
           assert.deepEqual(errors, []); assert.deepEqual(foreign, []); assert.deepEqual(mutations, []);
           console.log(JSON.stringify({ case: `Native source browser (${viewport.width}, ${colorScheme})`, result: "passed", nativeSdk: "0.3.259",
             sourceCount: 64, boundedRows: 50, noImplicitScan: true, visibleNamesOnly: true, stableFocusAndContent: true,
-            fullNativeTitle: true, inertText: true, paging: true, closeReopen: true, staleRecovery: true, manualFallback: true, modelCalls: 0, privateHistoryReads: 0, pageErrors: 0 }));
+            fullNativeTitle: true, inertText: true, paging: true, closeReopen: true, staleRecovery: true, manualFallback: true,
+            localizedLanguages: localeGate.checks, localeNativeTextUnchanged: true, localeFocusAndScroll: true, localeReads: 0,
+            modelCalls: 0, privateHistoryReads: 0, pageErrors: 0 }));
         } catch (error) { throw new Error(`Native source browser (${viewport.width}, ${colorScheme}) at ${stage}: ${error.message}`); }
         finally { releaseName?.(); await context?.close(); console.log(JSON.stringify(await host.close())); }
       }

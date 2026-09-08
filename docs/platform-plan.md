@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.55
+> 計畫版本：1.56
 > 最後更新：2026-09-08
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,7 +15,14 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新增量 1.55（開發版仍3.0.7-rc.6，未部署）**：Codex 原生歷史新增有界、
+**最新增量 1.56（開發版3.0.7-rc.7，未部署）**：完整唯讀歷史 UI 的 119 keys／11語
+已接實際頁及preview；只翻譯明確UI，原生名稱/摘要/訊息/JSON/時間不變。頁首語言
+選擇沿用workspace、只作用本頁，不寫回設定或觸發歷史操作。CUA找出並修正語言
+切換時重複計算瀏覽器scroll anchoring的跳動；320px十一語／390px繁中工具歷史已驗。
+本機777tests/0fail、最低Node57/57，exact跨OS/browser CI另驗；真機/跨Host/人工校稿及
+C1–C8整體仍未完成，詳[歷史多語言](history-localization.md)。正式與獨立72h不動。
+
+**前一增量 1.55（開發版仍3.0.7-rc.6，未部署）**：Codex 原生歷史新增有界、
 不可執行的 observation 轉換與完整性檢查；保留 native name/session ID、原始項目、
 錯誤及未知欄位，不合成 approval 或執行事件。19 種標籤的保留測試通過，真 CLI
 工具 fixture 實際只還原 6 種，command/image 缺口明示 unavailable，根因尚未確定；
@@ -118,7 +125,7 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 | Claude 綁定／隔離讀取生命週期 | rc.3 已接實際 Host，預設停用／未部署 | trusted immutable source handle＋generation/revoke fencing；共用2worker/無queue/64binding上限，10s budget＋1s cleanup。registry按principal/view/source分離；logout/revoke/shutdown已接線，actual-close後才釋放，unknown-close仍quarantine。不是單檔OS隔離／硬即時或Windows ACL |
 | Claude 快照選支／分頁效能 | pinned SDK已接隔離worker；局部量測完成 | 官方alpha SessionStore只讀同一份captured records，compaction不改原snapshot；最多100messages／256KiB整頁，不回raw records。7.6MB/2000rows本機三輪：parent處理43–45ms降至<1ms，但全程266–271ms、child約206–209MiB，仍非完整順滑度/記憶體驗收。未上線 |
 | Claude 分頁版本／雙worker | version fence及短測已實作 | first success才發binding內opaque token，續頁比對raw SHA＋dev/ino/size/ns mtime/ctime，worker在SDK前＋parent雙驗；觀察到變更即拒絕並撤銷token，失敗refresh不覆蓋。雙worker12輪/24讀、第三請求busy及cleanup通過；child high-water合計415–427MiB不是即時total RSS，另保留與全套測試並行時延遲較高的結果。沒有舊snapshot cache／來源auth或Windows ACL，未上線 |
-| Claude Client歷史視窗 | rc.3 已接 Web 導航／獨立頁，未部署 | 同Host/binding/gen/session/sourceVersion及source identity才拼頁；單pending、舊ticket拒絕、refresh原子替換、失敗保留舊頁、stale禁止續頁。100/頁、500messages/32pages/2MiB；DOM最多10則。actual Host合成來源在390/320px驗過，非跨機／真機／完整i18n或approval/resume/journal驗收 |
+| Claude Client歷史視窗 | rc.7／Plan1.56已接完整UI多語，未部署 | 同Host/binding/gen/session/sourceVersion及source identity才拼頁；refresh原子替換、失敗保留舊頁、stale禁止續頁。100/頁、500messages/32pages/2MiB；DOM最多10則。119keys/11語、原文/DOM/focus/scroll保留已驗；非人工校稿／跨機／真機或approval/resume/journal驗收，詳history-localization.md |
 | Claude共用browser provider | strict TS decoder／shared Host validator已實作 | 固定reader profile、完整source/observation shape共用generated JS；inner 256KiB、outer HTTP解壓後272KiB先限額再fatal UTF-8/JSON decode，拒getter/cycle/nonJSON。官方SDK→隔離worker→registry→HTTP→browser transport→controller合成鏈已驗，未接正式來源 |
 | Claude 歷史認證／relay | rc.3 已接既有 credential／Host 選擇，未部署 | private config逐來源授權browser/peer，Origin/CSRF、invalid bearer不fallback、logout/login/token/grant/machine/shutdown撤銷已接線；relay只用dedicated peer，gateway維護bounded downstream owner/view映射。不是下游來源ACL／end-to-end delegation／native provenance，見history-host-integration.md |
 | Claude SDK 執行bytes | exact verified Buffer loader已實作 | bounded fd read＋固定SHA、sync resolve/load hooks執行已驗Buffer，獨立nonce避plain URL cache，每worker一次attempt。Node22.19.0實跑SDK全鏈通過；source ACL/atomic containment、依賴及OS sandbox仍未保證 |
@@ -136,12 +143,12 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 
 ### 下一個可執行任務
 
-**1.55接續**：C1來源設定/registry/HTTP/relay、native title/TS及Web來源操作不重做；
+**1.56接續**：C1來源設定/registry/HTTP/relay、native title/TS、Web來源操作與keyed i18n不重做；
 C2先查清 Codex rich fixture 的 command/image 缺口，使用固定版本格式的獨立
 有效性證據，不反覆猜 JSON、不減少預期項目讓測試變綠；再接 legacy 一致來源
 capture／授權／跨頁 fence。官方尚未支援的 paginated 完整歷史明示 unavailable，
 不手改 native SQLite 或偷偷 resume；目前受限 RPC 不可直接接私人 HOME。
-接續Web來源設定的可理解授權流程、history i18n、跨機路由驗收、其他agent adapter及C3durable/session gate。
+接續Web來源設定的可理解授權流程、多語真機/人工校稿、跨機路由驗收、其他agent adapter及C3durable/session gate。
 私人root/readers由owner選定、正式部署仍需既有gate；Windows／完整原生能力／
 跨機效能未完成，不能把Claude合成来源列表当作所有電腦對話已完整收錄。
 
@@ -163,7 +170,7 @@ Cargo hardlink被startup gate拒絕，改私有、逐檔SHA一致的測試副本
 這批程式CI不需再等；後續純文件CI另記，下列c40四組綠燈僅屬舊基線。
 
 **下一階段**：仍有可做工程，不是只等72h。需要owner明確選定私人來源／分享範圍
-才可正式讀取；不從「全做」推論公開所有history或放寬來源權限。完整i18n、跨機與
+才可正式讀取；不從「全做」推論公開所有history或放寬來源權限。多語真機/人工校稿、跨機與
 真機background／rolling UI、Windows來源、memory改善、native approval/resume、
 durable/Rust/App仍未完成；模型重驗另需新的用量同意。正式3.0.6與固定ab227af長測
 不動，後續部署須通過active-work／backup／rollback及候選驗收。
@@ -1080,6 +1087,13 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-08 — Plan 1.56
+
+- C1/C5完整唯讀頁119key/11語、30個安全錯誤code映射，native原文與明確UI分離；clip notices不混入原文。頁面語言選單沿用既有設定、只作用本頁，無storage或歷史操作。共用i18n新增有界單次參數插值與idempotent keyed更新；字典不載入工作區首頁。
+- 真Host/Rust/固定SDK合成CUA320px發現德日切換約83px跳動，修正以layout後scrollY補償，避免重複套用瀏覽器anchor。新origin重驗十一語累積偏差<1.5px，原文/focus/list位置不變、44px/無横溢，390px工具歷史與console0；兩個owned Host都cleanup確認，無私人讀取/模型。
+- 新9tests，本機npm777＝775pass/2skip/0fail、最低Node22.19聚焦57/57，strictTS/generated/syntax/version/actionlint/Ajv1251通。新增Mac/Linux各六組native browser多語及no-read gate，exact CI後續記於history-localization.md；測試腳本不當成成功。先前未定位偶發失敗仍未釐清。
+- rc.7只同步開發asset/cache版本；B+、正式3.0.6、私人root/readers、登入/route與固定72h不變。人工校稿/真機/跨Host、其他adapter及C1–C8完整體gate未完成。
 
 ### 2026-09-08 — Plan 1.55
 

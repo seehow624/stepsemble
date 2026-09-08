@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.0.7-rc.7
+
+Development candidate only; production Hosts and the independently frozen
+72-hour soak are unchanged.
+
+- Localize read-only history controls, status, errors, accessibility labels and
+  display limits in all eleven existing languages. Inherit the workspace locale;
+  an explicit page-local picker changes no stored workspace settings.
+- Translate only keyed interface text. Preserve native titles, summaries,
+  messages, timestamps and tool JSON verbatim; keep clipping notices separate.
+- Keep existing DOM, focus, read state and scroll anchors across locale changes.
+  Language changes do not register, refresh, resume or approve a conversation.
+
 ## 3.0.7-rc.6
 
 Development candidate; production Hosts remain on 3.0.6. The independent,

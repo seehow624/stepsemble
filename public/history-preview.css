@@ -7,7 +7,11 @@ button, select { border: 1px solid var(--line); border-radius: .7rem; background
 button:active { background: var(--soft); transform: scale(.98); }
 button:disabled { opacity: .48; cursor: default; transform: none; }
 button:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
-.preview-header { max-width: 78rem; margin: auto; display: flex; align-items: center; gap: .7rem; padding: 1.35rem 2rem; font-weight: 600; }
+.preview-header { max-width: 78rem; margin: auto; display: flex; flex-wrap: wrap; align-items: center; gap: .7rem; padding: 1.35rem 2rem; font-weight: 600; }
+.history-language { flex: 1 0 100%; min-width: 0; font-weight: 400; font-size: .8rem; }
+.history-language label { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; }
+.history-language select { max-width: 100%; }
+.history-language p { margin: .45rem 0 0; color: var(--muted); overflow-wrap: anywhere; }
 .preview-mark { flex: 0 0 auto; }
 .history-home { min-height: 44px; display: inline-flex; align-items: center; color: var(--ink); text-decoration-thickness: 1px; text-underline-offset: .2em; }
 .history-home:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }

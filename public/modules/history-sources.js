@@ -1,9 +1,11 @@
 "use strict";
 /// <reference path="./history-transport.ts" />
+/// <reference path="./history-i18n.ts" />
 /** Bounded source-group browser. Inventory is explicit; only visible row names
  * are read, one at a time. No model calls, transcript prefetch or private paths. */
 var StepsembleHistorySources;
 (function (StepsembleHistorySources) {
+    const i18n = typeof module !== "undefined" ? require("./history-i18n") : StepsembleHistoryI18n;
     function createModel(deps) {
         const groups = structuredClone(deps.groups);
         if (!deps.protocol.validSources({ kind: "history_sources", sources: groups, sourceAuthenticated: false, publishable: false })
@@ -183,12 +185,14 @@ var StepsembleHistorySources;
         const doc = deps.root.ownerDocument;
         const el = (tag, text = "", className = "") => {
             const node = doc.createElement(tag);
-            node.textContent = text;
+            i18n.raw(node, text);
             node.className = className;
             return node;
         };
-        const panel = el("section", "", "source-browser"), heading = el("h2", "原生對話"), label = el("label", "來源 "), select = el("select");
-        select.setAttribute("aria-label", "原生對話來源");
+        const copy = (tag, key, className = "") => i18n.bind(el(tag, "", className), key);
+        const panel = el("section", "", "source-browser"), heading = copy("h2", "sources"), label = el("label"), select = el("select");
+        label.append(copy("span", "source"));
+        i18n.bind(select, "source", {}, "aria-label");
         for (const group of deps.groups) {
             const option = el("option", group.label);
             option.value = group.sourceId;
@@ -196,8 +200,8 @@ var StepsembleHistorySources;
         }
         label.append(select);
         const description = el("p", "", "history-description"), toolbar = el("div", "", "source-toolbar");
-        const button = (text, action, parent = toolbar) => {
-            const node = el("button", text);
+        const button = (key, action, parent = toolbar) => {
+            const node = copy("button", key);
             node.type = "button";
             node.addEventListener("click", () => { void action(); });
             parent.append(node);
@@ -209,16 +213,16 @@ var StepsembleHistorySources;
         warning.setAttribute("role", "status");
         const list = el("div", "", "source-list");
         list.setAttribute("role", "list");
-        list.setAttribute("aria-label", "原生對話清單");
+        i18n.bind(list, "sourceList", {}, "aria-label");
         list.tabIndex = 0;
         const empty = el("p", "", "history-empty"), pager = el("nav", "", "source-pager");
-        pager.setAttribute("aria-label", "對話清單分頁");
-        const names = el("p", "只按需載入可見列名稱；摘要不是對話標題。", "history-footnote");
+        i18n.bind(pager, "paging", {}, "aria-label");
+        const names = copy("p", "namesNote", "history-footnote");
         const detail = el("section", "", "source-detail"), selectedTitle = el("h2"), selectedSummary = el("p", "", "history-description"), selectedWarning = el("p", "", "history-warning");
         const summaryDetails = el("details", "", "source-summary-detail");
-        summaryDetails.append(el("summary", "原生摘要"), selectedSummary);
+        summaryDetails.append(copy("summary", "summary"), selectedSummary);
         let titleExpanded = false;
-        const titleToggle = button("展開完整名稱", () => { titleExpanded = !titleExpanded; render(); }, detail);
+        const titleToggle = button("expand", () => { titleExpanded = !titleExpanded; render(); }, detail);
         selectedTitle.tabIndex = -1;
         const contentRoot = el("div");
         detail.replaceChildren(selectedTitle, titleToggle, summaryDetails, selectedWarning, contentRoot);
@@ -226,17 +230,22 @@ var StepsembleHistorySources;
         let content = null, selectionKey = null, closing = null, listKey = "", observer = null;
         const nodes = new Map();
         const model = createModel({ ...deps, onChange: () => { render(); deps.onChange?.(); } });
-        const refresh = button("重新整理來源", () => model.refresh()), cancel = button("取消載入", () => model.cancel());
-        const pause = button("暫停載入名稱", () => model.pauseNames()), resume = button("繼續／重試名稱", () => model.resumeNames());
-        const previous = button("上一頁對話", () => model.previous(), pager), position = el("span", "", "history-position");
+        const refresh = button("refreshSource", () => model.refresh()), cancel = button("cancel", () => model.cancel());
+        const pause = button("pauseNames", () => model.pauseNames()), resume = button("resumeNames", () => model.resumeNames());
+        const previous = button("previousConversations", () => model.previous(), pager), position = el("span", "", "history-position");
         pager.append(position);
-        const next = button("下一頁對話", () => model.next(), pager);
+        const next = button("nextConversations", () => model.next(), pager);
         select.addEventListener("change", () => { void model.selectGroup(select.value); });
         panel.append(heading, label, description, toolbar, status, warning, list, empty, pager, names);
+        deps.root.dataset.i18nIgnore = "";
         deps.root.replaceChildren(panel, detail);
-        function title(row) {
-            return row.metadata ? row.metadata.nativeTitle ?? "未命名對話" : row.status === "loading" ? "正在讀取名稱…" : row.status === "error" ? "名稱暫時不可用" : "名稱尚未載入";
+        function title(node, row) {
+            if (row.metadata?.nativeTitle != null)
+                i18n.raw(node, row.metadata.nativeTitle);
+            else
+                i18n.bind(node, row.metadata ? "untitled" : row.status === "loading" ? "loadingName" : row.status === "error" ? "unavailableName" : "notLoadedName");
         }
+        const contentError = () => contentRoot.replaceChildren(copy("p", "contentFailed"));
         function observeRows(key) {
             observer?.disconnect();
             observer = null;
@@ -272,16 +281,16 @@ var StepsembleHistorySources;
                 const current = deps.createContent(contentRoot, selected.catalogId);
                 content = current;
                 void current.select(selected.catalogId).catch(() => { if (content === current)
-                    contentRoot.textContent = "無法載入內容，請重新選取對話。"; });
+                    contentError(); });
             }
             catch {
-                contentRoot.textContent = "無法開啟內容，請重新選取對話。";
+                contentError();
             }
         }
         function render() {
             const s = model.state();
             select.value = s.group.sourceId;
-            description.textContent = s.group.description;
+            i18n.raw(description, s.group.description);
             refresh.disabled = s.busy || s.closed;
             cancel.hidden = !s.busy;
             pause.hidden = s.namesPaused || !s.rows.length;
@@ -289,11 +298,11 @@ var StepsembleHistorySources;
             resume.disabled = s.busy || s.page?.stale === true;
             panel.setAttribute("aria-busy", String(s.busy));
             warning.hidden = !s.error && !(s.page?.snapshotId && s.page.stale);
-            warning.textContent = s.error ? deps.describeError(s.error) : "清單已過期。保留上次結果，請重新整理來源後再開啟或翻頁。";
-            status.textContent = s.busy ? "正在載入來源清單…" : s.page?.snapshotId ? `找到 ${s.page.total} 個主對話。點選一列開啟唯讀歷史。` : "尚未掃描此來源。按「重新整理來源」讀取已授權的主對話清單。";
+            i18n.bind(warning, s.error ? i18n.errorKey(s.error) : "sourceStale");
+            i18n.bind(status, s.busy ? "sourceLoading" : s.page?.snapshotId ? "sourceCount" : "unscanned", { count: s.page?.total ?? 0 });
             empty.hidden = s.rows.length > 0;
             list.hidden = !s.rows.length;
-            empty.textContent = s.page?.snapshotId ? "這次清單沒有符合範圍的主對話。" : "只探索已授權的來源，不會自動掃描私人目錄。";
+            i18n.bind(empty, s.page?.snapshotId ? "sourceEmpty" : "sourcePrivacy");
             previous.disabled = s.busy || !s.page || s.page.stale || s.page.page.offset === 0;
             next.disabled = s.busy || !s.page || s.page.stale || s.page.nextOffset === null;
             position.textContent = s.rows.length && s.page ? `${s.page.page.offset + 1}–${s.page.page.offset + s.rows.length} / ${s.page.total}` : "0 / 0";
@@ -311,6 +320,8 @@ var StepsembleHistorySources;
                     const open = el("button", "", "source-open");
                     open.type = "button";
                     const texts = el("span", "", "source-text"), rowTitle = el("span", "", "source-title"), summary = el("span", "", "source-summary");
+                    const summaryLabel = el("span"), summaryValue = el("span");
+                    summary.append(summaryLabel, summaryValue);
                     texts.append(rowTitle, summary);
                     open.append(deps.badge(doc, s.group.agentId), texts);
                     open.addEventListener("click", () => {
@@ -322,29 +333,33 @@ var StepsembleHistorySources;
                         if (before === selectionKey && content) {
                             const current = content;
                             void current.select(row.catalogId).catch(() => { if (current === content)
-                                contentRoot.textContent = "無法載入內容，請重新選取對話。"; });
+                                contentError(); });
                         }
                         selectedTitle.focus({ preventScroll: true });
                         detail.scrollIntoView({ block: "start", behavior: "instant" });
                     });
-                    const retry = button("讀名稱", () => model.retryName(row.catalogId), item);
+                    const retry = button("readName", () => model.retryName(row.catalogId), item);
                     retry.className = "source-name-retry";
                     item.prepend(open);
                     list.append(item);
-                    nodes.set(row.catalogId, { row: item, open, title: rowTitle, summary, retry });
+                    nodes.set(row.catalogId, { row: item, open, title: rowTitle, summary, summaryLabel, summaryValue, retry });
                 }
                 observeRows(key);
             }
             for (const row of s.rows) {
                 const node = nodes.get(row.catalogId);
-                node.title.textContent = title(row);
+                title(node.title, row);
                 node.title.title = row.metadata?.nativeTitle ?? "";
                 node.open.disabled = s.busy || s.page?.stale === true;
                 node.open.setAttribute("aria-pressed", String(s.selected?.catalogId === row.catalogId && s.selected.sourceId === s.group.sourceId));
-                node.summary.textContent = row.error ? deps.describeError(row.error) : row.metadata?.summary ? `原生摘要：${row.metadata.summary}` : row.status === "loaded" ? "沒有原生摘要" : "Claude Code · 唯讀";
-                node.retry.textContent = row.status === "loaded" ? "✓" : row.status === "loading" ? "…" : "讀名稱";
+                i18n.bind(node.summaryLabel, row.error ? i18n.errorKey(row.error) : row.metadata?.summary ? "summary" : row.status === "loaded" ? "noSummary" : "readOnly");
+                i18n.raw(node.summaryValue, !row.error && row.metadata?.summary ? `: ${row.metadata.summary}` : "");
+                if (row.status === "loaded" || row.status === "loading")
+                    i18n.raw(node.retry, row.status === "loaded" ? "✓" : "…");
+                else
+                    i18n.bind(node.retry, "readName");
                 node.retry.setAttribute("aria-disabled", String(s.busy || s.page?.stale === true || ["loaded", "loading"].includes(row.status)));
-                node.retry.setAttribute("aria-label", `${row.status === "loaded" ? "名稱已載入" : "讀取名稱"}：本頁第 ${s.rows.findIndex(r => r.catalogId === row.catalogId) + 1} 個對話`);
+                i18n.bind(node.retry, row.status === "loaded" ? "nameLoadedAt" : "readNameAt", { index: s.rows.findIndex(r => r.catalogId === row.catalogId) + 1 }, "aria-label");
             }
             const selected = s.selected, nextKey = selected ? JSON.stringify([selected.sourceId, selected.snapshotId, selected.catalogId]) : null;
             if (nextKey !== selectionKey) {
@@ -359,17 +374,20 @@ var StepsembleHistorySources;
                     closing = old.close().catch(() => { }).then(() => { closing = null; startContent(); });
                 startContent(); // A single pending cleanup always opens the latest selection, not a queued click.
             }
-            selectedTitle.textContent = selected ? title(selected) : "";
+            if (selected)
+                title(selectedTitle, selected);
+            else
+                i18n.raw(selectedTitle, "");
             selectedTitle.className = titleExpanded ? "source-full-title" : "source-compact-title";
             titleToggle.hidden = selectedTitle.textContent.length <= 32;
-            titleToggle.textContent = titleExpanded ? "收合名稱" : "展開完整名稱";
+            i18n.bind(titleToggle, titleExpanded ? "collapse" : "expand");
             titleToggle.setAttribute("aria-expanded", String(titleExpanded));
-            selectedSummary.textContent = selected?.metadata?.summary ?? "";
+            i18n.raw(selectedSummary, selected?.metadata?.summary ?? "");
             summaryDetails.hidden = !selectedSummary.textContent;
             selectedWarning.hidden = !selected || selected.snapshotId === s.page?.snapshotId && !s.page?.stale;
-            selectedWarning.textContent = "這是先前選取的對話與名稱，清單版本已改變。重新選取清單中的對話可開啟目前版本。";
+            i18n.bind(selectedWarning, "selectedStale");
         }
-        const back = button("回到對話清單", () => {
+        const back = button("back", () => {
             const selected = model.state().selected, node = selected ? nodes.get(selected.catalogId) : null;
             if (node && !node.open.disabled)
                 node.open.focus();

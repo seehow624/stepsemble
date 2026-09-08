@@ -133,11 +133,11 @@ test("source renderer preserves row, retry focus and content while full inert na
   assert.strictEqual(r.root.ownerDocument.activeElement, retry); assert.deepEqual(opens, [id(0)]);
   assert.equal(title.textContent, nativeTitle); assert.equal(find("source-title")[0].textContent, nativeTitle);
   assert.equal(title.className, "source-compact-title");
-  all(r.root).find(e => e.tagName === "BUTTON" && e.textContent === "展開完整名稱").dispatch("click");
+  all(r.root).find(e => e.tagName === "BUTTON" && e.dataset.i18nKey === "history.expand").dispatch("click");
   assert.equal(title.className, "source-full-title"); assert.deepEqual(opens, [id(0)]);
-  assert.equal(find("source-summary")[0].textContent, "原生摘要：獨立摘要");
+  assert.equal(find("source-summary")[0].textContent, "Native summary: 獨立摘要");
   assert.ok(!all(r.root).some(e => ["SCRIPT", "A", "IMG", "IFRAME"].includes(e.tagName)));
-  all(r.root).find(e => e.tagName === "BUTTON" && e.textContent === "回到對話清單").dispatch("click");
+  all(r.root).find(e => e.tagName === "BUTTON" && e.dataset.i18nKey === "history.back").dispatch("click");
   assert.strictEqual(r.root.ownerDocument.activeElement, open);
   assert.deepEqual(selects, [id(0)]); open.dispatch("click"); assert.deepEqual(selects, [id(0), id(0)]);
   assert.deepEqual(opens, [id(0)], "explicit reselection reaches the same viewer without recreating it");

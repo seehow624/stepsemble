@@ -5,9 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
   <meta name="robots" content="noindex,nofollow">
-  <title>Claude 歷史預覽 · Stepsemble</title>
+  <title data-i18n-key="history.previewTitle">Claude 歷史預覽 · Stepsemble</title>
   <link rel="icon" href="/stepsemble-mark.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/history-preview.css">
+  <script defer src="/modules/history-i18n.js"></script>
+  <script defer src="/i18n.js"></script>
   <script defer src="/modules/projection.js"></script>
   <script defer src="/modules/claude-history-value.js"></script>
   <script defer src="/modules/claude-history.js"></script>
@@ -15,21 +17,25 @@
   <script defer src="/modules/history-transport.js"></script>
   <script defer src="/modules/history-view.js"></script>
 </head>
-<body>
+<body data-i18n-keyed-only>
   <header class="preview-header">
     <img class="preview-mark" src="/stepsemble-mark.svg" alt="Stepsemble" width="40" height="40">
-    <span>Stepsemble</span><span class="preview-badge">開發預覽</span>
+    <span>Stepsemble</span><span class="preview-badge" data-i18n-key="history.previewBadge">開發預覽</span>
+    <div class="history-language">
+      <label><span data-i18n-key="history.language">語言</span><select id="history-language" data-history-language aria-describedby="history-language-note"></select></label>
+      <p id="history-language-note" data-i18n-key="history.languageNote">只套用此頁，不更改工作區的語言設定。</p>
+    </div>
   </header>
   <main>
     <div class="preview-intro">
       <p class="preview-eyebrow">CLAUDE HISTORY</p>
-      <h1>回看脈絡，保持唯讀。</h1>
-      <p>這是隔離的歷史檢視預覽，目前只提供已測試的合成範例。</p>
-      <p class="preview-authority">來源未認證 · 唯讀觀測 · 不具核准、執行或續跑權限</p>
+      <h1 data-i18n-key="history.heading">回看脈絡，保持唯讀。</h1>
+      <p data-i18n-key="history.previewIntro">隔離的開發預覽，只提供已測試的合成範例。</p>
+      <p class="preview-authority" data-i18n-key="history.authority">來源未認證 · 唯讀觀測 · 不具核准、執行或續跑權限</p>
     </div>
-    <div data-history-preview><p class="history-empty">正在準備開發預覽…</p></div>
-    <noscript>請開啟 JavaScript 以使用唯讀預覽。</noscript>
+    <div data-history-preview><p class="history-empty" data-i18n-key="history.preparing">準備唯讀歷史…</p></div>
+    <noscript data-i18n-key="history.noscript">請開啟 JavaScript 以使用唯讀歷史。</noscript>
   </main>
-  <footer>此頁不是正式歷史功能，不會讀取你的私人 Claude 紀錄。範例中的工具、附件與指令只以文字呈現。</footer>
+  <footer data-i18n-key="history.previewFooter">不讀取私人 Claude 紀錄。範例的工具、附件與指令只以文字呈現。</footer>
 </body>
 </html>

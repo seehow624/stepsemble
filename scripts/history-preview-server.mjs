@@ -24,7 +24,8 @@ const files = new Map([
   ["/history-preview.html", ["history-preview.html", "text/html; charset=utf-8"]],
   ["/history-preview.css", ["history-preview.css", "text/css; charset=utf-8"]],
   ["/stepsemble-mark.svg", ["stepsemble-mark.svg", "image/svg+xml"]],
-  ...["projection", "claude-history-value", "claude-history", "history-pages", "history-transport", "history-view"]
+  ["/i18n.js", ["i18n.js", "text/javascript; charset=utf-8"]],
+  ...["projection", "claude-history-value", "claude-history", "history-pages", "history-transport", "history-i18n", "history-view"]
     .map(name => [`/modules/${name}.js`, [`modules/${name}.js`, "text/javascript; charset=utf-8"]]),
 ]);
 export function parseHistoryPreviewArgs(args) {

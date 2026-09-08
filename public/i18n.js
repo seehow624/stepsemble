@@ -3757,6 +3757,9 @@
     }
   }
 
+  // Optional history-page dictionary. Native content never passes through it.
+  const historyTables = window.StepsembleHistoryI18n?.tables;
+  if (historyTables) for (const id of Object.keys(KEYED_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], historyTables[id]);
   const KEYED_SOURCE_KEYS = Object.freeze(Object.keys(KEYED_TRANSLATIONS.en));
   const KEYED_FALLBACK_KEYS = {};
   for (const [id, table] of Object.entries(KEYED_TRANSLATIONS)) {
@@ -3930,9 +3933,10 @@
     return out;
   }
   function interpolate(value, vars = {}) {
-    let out = String(value ?? "");
-    for (const [name, valueForName] of Object.entries(vars || {})) out = out.replaceAll(`{${name}}`, String(valueForName));
-    return out;
+    // One pass prevents a value containing another placeholder from being
+    // expanded again. Values (including user-authored text) are opaque data.
+    return String(value ?? "").replace(/\{([a-zA-Z0-9_.-]+)\}/g, (match, name) =>
+      Object.prototype.hasOwnProperty.call(vars || {}, name) ? String(vars[name]) : match);
   }
   function tKey(key, vars = {}, target = locale) {
     const source = typeof key === "string" ? KEYED_TRANSLATIONS.en[key] : undefined;
@@ -3948,21 +3952,31 @@
     if (base.nodeType === Node.ELEMENT_NODE && base.matches?.("[data-i18n-key], [data-i18n-aria-key], [data-i18n-title-key], [data-i18n-placeholder-key]")) elements.push(base);
     elements.push(...base.querySelectorAll("[data-i18n-key], [data-i18n-aria-key], [data-i18n-title-key], [data-i18n-placeholder-key]"));
     for (const item of elements) {
+      let vars = {};
+      try {
+        const encoded = item.dataset.i18nVars;
+        if (encoded && encoded.length <= 4096) {
+          const parsed = JSON.parse(encoded);
+          if (parsed && !Array.isArray(parsed) && typeof parsed === "object" && Object.keys(parsed).length <= 16
+            && Object.entries(parsed).every(([key, value]) => /^[a-zA-Z0-9_.-]{1,48}$/.test(key)
+              && (typeof value === "string" || typeof value === "number" && Number.isFinite(value)))) vars = parsed;
+        }
+      } catch {} // Bad chrome parameters never trigger a fetch, retry or eval.
       const textKey = item.getAttribute("data-i18n-key");
       if (textKey) {
-        const translated = tKey(textKey);
+        const translated = tKey(textKey, vars);
         // Touched device/pairing nodes are text-only. For a future keyed node
         // with a child icon, replace only its text node so its structure stays.
         const textNode = [...item.childNodes].find((node) => node.nodeType === Node.TEXT_NODE);
-        if (textNode) textNode.nodeValue = translated;
-        else if (!item.children.length) item.textContent = translated;
+        if (textNode) { if (textNode.nodeValue !== translated) textNode.nodeValue = translated; }
+        else if (!item.children.length) { if (item.textContent !== translated) item.textContent = translated; }
         else item.insertBefore(document.createTextNode(translated), item.firstChild);
         item.dataset.i18nKeyRendered = translated;
       }
       for (const [attribute, dataName] of [["aria-label", "i18nAriaKey"], ["title", "i18nTitleKey"], ["placeholder", "i18nPlaceholderKey"]]) {
         const attributeKey = item.dataset[dataName];
         if (!attributeKey) continue;
-        const translated = tKey(attributeKey);
+        const translated = tKey(attributeKey, vars);
         // These attributes are observed below. Rewriting an unchanged value
         // would enqueue the same element forever and pin the renderer at 100%.
         if (item.getAttribute(attribute) !== translated) item.setAttribute(attribute, translated);
@@ -4010,6 +4024,14 @@
     localizing = true;
     try {
       localizeKeyedElements(root.body || root);
+      // History contains exact native titles, code and tool JSON. Only explicit
+      // chrome keys may be translated; never walk/phrase-replace its raw text.
+      if (document.body?.hasAttribute?.("data-i18n-keyed-only")) {
+        if (root === document) localizeKeyedElements(document.head);
+        const historyLanguage = document.getElementById("history-language");
+        if (historyLanguage && historyLanguage.value !== locale) historyLanguage.value = locale;
+        return;
+      }
       const walker = document.createTreeWalker(root.body || root, NodeFilter.SHOW_TEXT);
       const nodes = [];
       let node;
@@ -4066,10 +4088,13 @@
   function setLocale(value) {
     const next = normalizeLocale(value);
     const changed = next !== locale;
+    const restorePosition = changed && document.body?.hasAttribute?.("data-i18n-keyed-only")
+      ? window.StepsembleHistoryI18n?.preservePosition?.() : null;
     locale = next;
     document.documentElement.lang = locale;
     document.documentElement.dir = "ltr";
     if (changed || !localeApplied) localizeDom();
+    restorePosition?.();
     localeApplied = true;
     return locale;
   }

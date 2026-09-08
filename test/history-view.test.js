@@ -110,7 +110,7 @@ test("failed renewal preserves old page and marks it stale; exception details ne
   h.transport.register = async () => { throw new Error("/private/password"); };
   await h.model.refresh(); assert.equal(h.model.state().error, "history_transport_failed");
   assert.ok(!JSON.stringify(h.model.state()).includes("/private"));
-  assert.equal(view.describeError("/private/secret"), "目前無法取得新資料。請手動重新整理。");
+  assert.equal(view.describeError("/private/secret"), "New data is unavailable. Refresh manually.");
 });
 
 test("cancelled pending page never replaces content; subsequent source failure leaves a clear stale view", async () => {
@@ -209,7 +209,7 @@ test("message block/character/evidence caps bound DOM even for large trusted pro
   const h = harness({ root, createPages: fakePages }, view.create); await h.model.select("first");
   const nodes = descendants(root); assert.equal(nodes.filter(e => e.tagName === "ARTICLE").length, 10);
   assert.ok(nodes.length < 800); assert.ok(root.textContent.length < 65000);
-  assert.ok(root.textContent.includes("長內容已縮短顯示")); assert.ok(root.textContent.includes("只顯示前 24 個內容區塊"));
+  assert.ok(root.textContent.includes("Long content is shortened")); assert.ok(root.textContent.includes("first 24 content blocks"));
   assert.ok(nodes.some(e => e.tagName === "DETAILS")); assert.ok(!nodes.some(e => e.tagName === "IMG"));
 });
 
@@ -220,6 +220,7 @@ test("isolated preview markup preserves mark, accessibility media and excludes p
   for (const query of ["prefers-reduced-motion", "prefers-reduced-transparency", "prefers-contrast", "max-width: 640px"]) assert.ok(css.includes(query));
   assert.ok(css.includes("system-ui")); assert.ok(css.includes("button:active"));
   const context = vm.createContext({ structuredClone, AbortController });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "../public/modules/history-i18n.js"), "utf8"), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, "../public/modules/history-view.js"), "utf8"), context);
   assert.equal(context.StepsembleHistoryView.describeError("unknown"), view.describeError("unknown"));
 });

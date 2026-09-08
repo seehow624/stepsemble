@@ -8,7 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-ts-"));
 try {
   const entries = [["client", "client-sdk"], ["agent-identity", "agent-identity"], ["conversation-catalog", "conversation-catalog"], ["native-dialogs", "native-dialogs"], ["lifecycle", "lifecycle"], ["projection", "projection"], ["pi-session", "pi-session"], ["history-pages", "history-pages"],
-    ["claude-history-value", "claude-history-value"], ["claude-history", "claude-history"], ["history-transport", "history-transport"], ["history-sources", "history-sources"], ["history-view", "history-view"]];
+    ["claude-history-value", "claude-history-value"], ["claude-history", "claude-history"], ["history-transport", "history-transport"], ["history-i18n", "history-i18n"], ["history-sources", "history-sources"], ["history-view", "history-view"]];
   // npm's local cache and temporary output keep dependency/build files off SMB.
   const npmCli = process.env.npm_execpath;
   if (process.platform === "win32" && !npmCli) throw new Error("Use npm run build:client on Windows");
