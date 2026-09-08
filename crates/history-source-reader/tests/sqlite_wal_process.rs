@@ -22,6 +22,7 @@ const ID: &str = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 const WAIT: Duration = Duration::from_secs(5);
 static SPAWNED: AtomicUsize = AtomicUsize::new(0);
 static REAPED: AtomicUsize = AtomicUsize::new(0);
+static CLOSED_FIXTURES: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -461,7 +462,7 @@ impl Drop for Worker {
 }
 
 struct Fixture {
-    dir: tempfile::TempDir,
+    dir: Option<tempfile::TempDir>,
     path: PathBuf,
     writer: Option<Connection>,
 }
@@ -483,7 +484,7 @@ impl Fixture {
         writer.execute("INSERT INTO threads(id,rollout_path,created_at,updated_at,source,model_provider,cwd,title,sandbox_policy,approval_mode,first_user_message,name) VALUES(?1,'owned',0,0,'cli','owned','owned','base','owned','never','base','base')", [ID]).unwrap();
         writer.busy_timeout(Duration::ZERO).unwrap();
         let f = Self {
-            dir,
+            dir: Some(dir),
             path,
             writer: Some(writer),
         };
@@ -520,7 +521,7 @@ impl Fixture {
         PathBuf::from(format!("{}{suffix}", self.path.display()))
     }
     fn snapshot(&self) -> BTreeMap<String, Vec<u8>> {
-        std::fs::read_dir(self.dir.path())
+        std::fs::read_dir(self.dir.as_ref().unwrap().path())
             .unwrap()
             .map(|entry| {
                 let entry = entry.unwrap();
@@ -542,6 +543,17 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         if let Some(db) = self.writer.take() {
             db.close().unwrap();
+        }
+        if let Some(dir) = self.dir.take() {
+            let path = dir.path().to_owned();
+            // TempDir's implicit Drop ignores deletion errors. Explicit close
+            // must succeed before this gate can claim owned fixture cleanup.
+            dir.close().expect("owned fixture directory cleanup");
+            assert!(
+                !path.try_exists().expect("verify owned fixture removal"),
+                "owned fixture directory remains"
+            );
+            CLOSED_FIXTURES.fetch_add(1, Ordering::Relaxed);
         }
     }
 }
@@ -746,11 +758,14 @@ fn suite() {
     let reaped = REAPED.load(Ordering::Relaxed);
     assert_eq!(spawned, 16);
     assert_eq!(reaped, spawned);
+    let closed_fixtures = CLOSED_FIXTURES.load(Ordering::Relaxed);
+    assert_eq!(closed_fixtures, 8);
     println!(
         "{}",
         json!({"kind":"owned_sqlite_process_gate","platform":std::env::consts::OS,
         "sqliteVersion":rusqlite::version(),"cases":cases,"nativeCodexWriter":false,
         "spawnedChildren":spawned,"reapedChildren":reaped,"remainingChildren":spawned-reaped,
+        "removedOwnedFixtureDirectories":closed_fixtures,
         "productionSourceOpener":false,"privateHistoryReads":0,"modelCalls":0,"cleanupConfirmed":true})
     );
 }

@@ -74,6 +74,8 @@ temp fixture，無任意來源CLI參數；worker只由parent經私有stdin給該
 每輪16個child、16個實際reaped／remaining0；normal與kill exit分開核對，bounded
 stdin4KiB／stdout和stderr各16KiB、回覆及退出等待各5秒。failed startup/pipe/assert
 也持有kill/wait清理，不用單一exited標記冒充整條cleanup。
+最終收尾另要求8個owned fixture目錄均explicit `TempDir.close()`成功，並以
+`try_exists`核實移除；不再依賴忽略刪除錯誤的implicit Drop來宣稱清理完成。
 
 hold模式**只測OS鎖與交易隔離**，並非正式capture：它以parent有界等待控制交易、
 並行writer只有此owned fixture設synchronous=OFF。正式library的250ms保持；本批
@@ -128,6 +130,10 @@ parent先drop stdin才kill，held child可先收到EOF並panic；其stderr使gat
 `...winfix-windows-third.log`保留空輸入對finish訊息的斷言。現在kill路徑保留stdin
 直到actual exit/reap才drop，normal close路徑不變；仍要求kill非成功退出、stderr空、
 pipes EOF及checkpoint恢復。不忽略child panic，也不把此問題誤稱正式worker已修復。
+
+`4bee3f3`的reader`34268336710`現已三OS與audit成功；一般34268336854、rolling
+34268336777結果另核完整log。最後增加上述fixture目錄explicit cleanup檢查，
+新exact提交仍需三OS再驗，不以4bee3f3結果取代新SHA。
 
 下一個必做仍是**descriptor-backed DB/WAL/SHM source opener**與角色／ACL／local
 mount／replacement checks，然後正式reader worker共用admission、sourceVersion、
