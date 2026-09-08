@@ -34,7 +34,7 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 | Checkpoint | 交付與必要證據 | 開始狀態 |
 | --- | --- | --- |
 | C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | Plan1.57新增本機新群組設定精靈/review/明確readers/CREATE與真Host原檔驗證；Web列表已接，不自選私人來源或新增Web管理route，完整管理/實機與C1完整gate仍待 |
-| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.66已接Node v4／shared admission／SQLite名稱候選及selected-field版本，本機871/0fail/2skip與owned真SDK/解析器共用max2/remaining0通，CI待核；最終名稱證據組合、授權/discovery/registry/CodexHTTPWeb、cold/壓縮/其他adapter仍待，C2未完成 |
+| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.66已接Node v4／shared admission／SQLite名稱候選及selected-field版本；7bdbfe3五CI全通，各871/0fail、reader136/136、POSIX新真鏈max2/remaining0/7capture真SHM，Windows明示unsupported；最終名稱證據組合、授權/discovery/registry/CodexHTTPWeb、cold/壓縮/其他adapter仍待，C2未完成 |
 | C3 Session／approval／恢復 | 按真實 capability 接結構化事件、續跑與 approval；ownership、exact correlation、重送／重連／Host crash、durable journal/replay 不漏不重 | 有 contract 與局部實作，未全驗 |
 | C4 帳號與故障體驗 | 登入／登出偵測、官方登入入口、路由相容、取消／失敗／stale／busy 可復原；不修寫第三方憑證或以重試消耗模型 | 局部已驗，跨 harness 待補 |
 | C5 手機與跨裝置操作 | 完整 history i18n、鍵盤／focus／內捲動、長歷史 DOM 上限、Host 切換、background/reconnect、跨機與目標瀏覽器實測 | Plan1.56已接119keys/11語並修正locale scroll跳動；320/390合成Host CUA、原文/DOM/focus保留已驗；人工校稿/真機/跨Host與其餘gate仍待 |
@@ -89,7 +89,9 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
   有界名稱pipeline，Host兩名額共用／取消actualclose／unknown cleanup全域隔離；
   selected-field版本排除I/O計數和其他欄位commit，不把候選名稱當最終title。
   新18unit、本機Node871/0fail/2skip、Rust/clippy通；owned pinned writer＋真Claude
-  SDK/Codex parser驗max2/remaining0、最新WAL/名稱變更/bytes不變/取消。CI待exact SHA。
+  SDK/Codex parser驗max2/remaining0、最新WAL/名稱變更/bytes不變/取消。工程7bdbfe3
+  五CI完整logs已核：一般各871/0fail、reader各136/136/audit0/0、POSIX13reader/1writer
+  真清理/7真SHM、Winunsupported，rolling各24cases、原生Codex/Claude契約皆通。
   詳[Node SQLite接線](codex-sqlite-node-pipeline.md)，C1–C8整體未完，goal持續。
   未接私人grant或CodexHTTPWeb，正式/B+/帳號/獨立72h不動。
 

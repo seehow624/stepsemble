@@ -20,7 +20,10 @@
 Host兩個讀取名額，實際close後才解讀名稱，清理不明永久隔離。selected-field版本不受
 其他欄位commit或I/O計數影響，rename／檔案身分變更失效。新增18unit、本機Node871
 0fail/2skip及Rust/clippy通；owned pinned writer實際鏈驗max2/remaining0、來源bytes
-不變和取消，跨平台CI待exact SHA核對。詳[Node SQLite接線](codex-sqlite-node-pipeline.md)。
+不變和取消。工程7bdbfe3五CI全通且logs已核：一般各871/0fail、reader各136/136、
+POSIX新SQL鏈13reader/1writer全清理/7真SHM、Win零spawn/實際Rust unsupported；
+rolling雙OS24case、原生Codex17index＋13SQLprecedence及Claude契約通，無模型用量。
+詳[Node SQLite接線](codex-sqlite-node-pipeline.md)。
 不是最終native title、來源授權或HostWeb完成；C1–C8持續，正式/B+/帳號/72h不動。
 
 **前一增量 1.65（開發版仍3.0.7-rc.7，未部署）**：POSIX SQLite來源新增held FD／

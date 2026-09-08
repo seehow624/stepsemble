@@ -52,7 +52,36 @@ DB/WAL/SHM 的檔名集合、完整 size/SHA256 在讀取／拒絕／取消前�
 前拒絕；Rust v4 真 binary 的 unsupported 仍由原跨平台來源 gate 驗證。
 
 本機完整記錄：`/tmp/stepsemble-sqlite-node-unit.tap`、`...-npm.tap`、`...-build.log`、
-`...-clippy.log`、`...-rust.log`、`...-actual-final.log`。跨平台 CI 待 exact commit 核對。
+`...-clippy.log`、`...-rust.log`、`...-actual-final.log`。另本機完整 actual pipeline 三輪
+`...-repeat-1.log` 至3均通：每輪13 reader launches／1 writer，全實際清理；7成功
+capture 都有 SHM 映射、最高 requestedReadBytes12388。不是負載或 RSS benchmark。
+
+## Exact commit 跨平台驗證
+
+工程 **7bdbfe362c7c0235293cbc8fb9cbf49284d94ddf** 五組 CI 全部 success，完整 logs 已核：
+
+- [一般34279232220](https://github.com/seehow624/stepsemble/actions/runs/34279232220)：
+  三OS各871/0fail及Ajv1251；Mac869pass/2skip、Linux868/3、Windows824/47。
+- [Reader34279232507](https://github.com/seehow624/stepsemble/actions/runs/34279232507)：
+  三OS Node136/136，Rust lib16/main27/27/12；POSIX原100child/61dirs清理。
+  **新v4 Node鏈**在Mac/Linux Node22.19實際通：max2/remaining0、13reader launches、
+  writer真reaped/1ownedDir清除、7capture真SHM、最高requestedReadBytes12388。
+  Windows Node零spawn、Rust真v4 unsupported，舊41child/10dirs仍通；不能算來源支援。
+  SQLite artifact/pin/43-package lock不變，RustSec0.22.2、DB
+  `bf25f6575a93a35f30796c65c0ed91bee7fa19fd`、0known/0warnings；舊Host/groups/setup/
+  metadata/shared admission亦通，這些Host證據不是新CodexHTTPWeb接入。
+- [Rolling34279232221](https://github.com/seehow624/stepsemble/actions/runs/34279232221)：
+  Mac/Linux各24cases、pageErrors0；每OS六原生來源案例×11語、localeReads0。
+- [原生Codex34279232248](https://github.com/seehow624/stepsemble/actions/runs/34279232248)：
+  三OS原有fixed0.153.4 owned CLI history／17index／13SQLite precedence cases通，
+  0model endpoint requests、cleanup confirmed；paginated完整歷史仍明示不支援。
+  這是原生相容性控制組，不是新Node v4已接入原生CLI或私人帳號。
+- [Claude34279232377](https://github.com/seehow624/stepsemble/actions/runs/34279232377)：
+  三OS pinned SDK0.3.259／nativeVersion2.1.259契約通、0model calls；保留Windows
+  私人來源unsupported邊界，不因SDK fixture通過就提升來源能力。
+
+Logs `/tmp/stepsemble-sqlite-node-{general,reader,rolling,native-codex,native-claude}-ci.log`。
+本批實作／回歸／相容性證據完成，整體 Web goal 持續。
 
 ## 接續與未完成
 
