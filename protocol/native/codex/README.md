@@ -71,6 +71,13 @@ it. Fields, message digest and optional timestamp are validated; only a fixed
 diagnostic code is returned. Duplicate, late, changed or other warnings/effects
 fail closed. This does not install a helper or prove native shell sandbox support.
 
+Plan1.59 adds a separate Rust v3 selected rollout/name-index pair capture and
+`source-wire.js`. Exact locators (including distinct reverted rollout IDs), root
+identity and both file revisions stay bound. The existing owned helper instance
+shares single-flight/actual-close/quarantine across Claude and Codex operations.
+This is not Codex discovery, a source grant, name semantics, compressed decoding,
+or Host/Web integration. See [pair capture](../../../docs/codex-source-capture.md).
+
 The future adapter must correlate JSON-RPC IDs, own the child incarnation, wait
 for initialization, scope requests by native thread/turn/item, import history
 without launching work, and persist Stepsemble receipts before external effects.

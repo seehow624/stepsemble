@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
+mod codex;
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod posix;
@@ -101,6 +102,7 @@ pub enum Error {
     ContainmentUnavailable,
     CloseFailed,
     InventoryLimit,
+    EncodingUnsupported,
 }
 
 impl Error {
@@ -125,6 +127,7 @@ impl Error {
             Self::ContainmentUnavailable => "source_containment_unavailable",
             Self::CloseFailed => "source_close_failed",
             Self::InventoryLimit => "source_inventory_limit",
+            Self::EncodingUnsupported => "source_encoding_unsupported",
         }
     }
 }
@@ -138,7 +141,6 @@ fn project_key(value: &str) -> bool {
             .all(|v| v.is_ascii_alphanumeric() || v == b'-' || v == b'_')
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn session_id(value: &str) -> bool {
     value.len() == 36
         && value.bytes().enumerate().all(|(i, v)| {
@@ -330,9 +332,11 @@ fn run() -> Result<(), Error> {
         .map_err(|_| Error::Input)?;
     if let Ok(request) = parse_request(&input) {
         write_frame(std::io::stdout().lock(), &request, capture(&request))
-    } else {
-        let request = parse_inventory_request(&input)?;
+    } else if let Ok(request) = parse_inventory_request(&input) {
         write_inventory_frame(std::io::stdout().lock(), &request, inventory(&request))
+    } else {
+        let request = codex::parse_request(&input)?;
+        codex::write_frame(std::io::stdout().lock(), &request, codex::capture(&request))
     }
 }
 

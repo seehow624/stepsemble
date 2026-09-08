@@ -7,6 +7,9 @@ on:
       - 'crates/history-source-reader/**'
       - 'rust-toolchain.toml'
       - 'scripts/check-native-history-reader.mjs'
+      - 'scripts/check-native-codex-source.mjs'
+      - 'protocol/native/codex/**'
+      - 'test/native-codex-source.test.js'
       - 'scripts/check-native-history-dependencies.mjs'
       - 'scripts/check-native-history-pipeline.mjs'
       - 'scripts/check-native-claude-history.mjs'
@@ -37,6 +40,9 @@ on:
       - 'crates/history-source-reader/**'
       - 'rust-toolchain.toml'
       - 'scripts/check-native-history-reader.mjs'
+      - 'scripts/check-native-codex-source.mjs'
+      - 'protocol/native/codex/**'
+      - 'test/native-codex-source.test.js'
       - 'scripts/check-native-history-dependencies.mjs'
       - 'scripts/check-native-history-pipeline.mjs'
       - 'scripts/check-native-claude-history.mjs'
@@ -137,5 +143,9 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-native-history-reader
         run: node scripts/check-native-history-pipeline.mjs --download
+      - name: Actual Codex selected pair capture to raw pages (owned sources only)
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-native-history-reader
+        run: node scripts/check-native-codex-source.mjs
       - name: Node helper and bytes-only service negative cases
-        run: node --test --test-timeout=60000 test/claude-history-native-helper.test.mjs test/claude-history-inventory.test.js test/claude-history-admission.test.js test/claude-history-bytes-worker.test.js test/claude-history-metadata.test.js test/claude-history-native-service.test.js
+        run: node --test --test-timeout=60000 test/claude-history-native-helper.test.mjs test/claude-history-inventory.test.js test/claude-history-admission.test.js test/claude-history-bytes-worker.test.js test/claude-history-metadata.test.js test/claude-history-native-service.test.js test/native-codex-source.test.js

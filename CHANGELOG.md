@@ -23,6 +23,10 @@ Development candidate only; production Hosts and the independently frozen
 - Handle the pinned Linux CLI's single missing-system-bubblewrap startup notice
   only in the explicit owned history fixture. Validate its exact fields and keep
   a fixed diagnostic code; other warnings, execution and approval stay refused.
+- Add bounded, descriptor-checked Codex rollout/name-index pair capture to the
+  native reader. Bind exact file revisions and retain missing/empty index states;
+  share helper lifecycle limits with Claude reads. Owned fixtures only so far:
+  no new source grant, discovery, compressed decoding or Codex Web adapter.
 
 ## 3.0.7-rc.6
 

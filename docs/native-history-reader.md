@@ -1,5 +1,9 @@
 # ADR：獨立原生 history source reader 的窄邊界
 
+Plan1.59另加Codex private v3指定rollout＋固定name-index的成組capture，沿用下述
+fd/ACL/mount策略並保留兩份sourceVersion。Node同helper新增readCodex；舊Claude
+v1/v2契約與上限不變。不是Codex discovery/HostWeb；詳[Codex capture](codex-source-capture.md)。
+
 Plan1.49新增獨立private protocolVersion2的explicit-root metadata inventory與
 Host-private增量索引，沿用本文件的fd/ACL/mount/actual-close防線。
 下方「不掃描」描述原v1單檔capture；v2只在Host明確授權root後執行有界目錄雙掃，

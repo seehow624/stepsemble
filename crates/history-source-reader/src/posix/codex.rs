@@ -1,0 +1,403 @@
+//! Observe one selected plain rollout and the fixed optional name index together.
+//! Repeated checks are not an atomic filesystem transaction or native provenance.
+use super::*;
+use crate::codex::{INDEX_LIMIT, Pair, Request as CodexRequest, valid_locator};
+
+const NAME_INDEX: &str = "session_index.jsonl";
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Point {
+    Opened,
+    FirstRead,
+    SecondRead,
+}
+
+fn identity(info: &Metadata) -> Identity {
+    Identity {
+        device: info.dev().to_string(),
+        inode: info.ino().to_string(),
+        size: info.size(),
+        mtime_ns: (i128::from(info.mtime()) * 1_000_000_000 + i128::from(info.mtime_nsec()))
+            .to_string(),
+        ctime_ns: (i128::from(info.ctime()) * 1_000_000_000 + i128::from(info.ctime_nsec()))
+            .to_string(),
+    }
+}
+fn optional_index(root: &File) -> Result<Option<File>, Error> {
+    match open_at(root.as_raw_fd(), NAME_INDEX, false) {
+        Ok(file) => Ok(Some(file)),
+        Err(Error::Missing) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+fn bounded_info(
+    file: &File,
+    uid: u32,
+    device: u64,
+    limit: usize,
+    empty: bool,
+) -> Result<Metadata, Error> {
+    let info = check(file, false, uid)?;
+    if info.dev() != device {
+        return Err(Error::ContainmentUnavailable);
+    }
+    if !empty && info.size() == 0 {
+        return Err(Error::Empty);
+    }
+    if info.size() > limit as u64 {
+        return Err(Error::TooLarge);
+    }
+    Ok(info)
+}
+
+pub fn capture(request: &CodexRequest) -> Result<Pair, Error> {
+    capture_with(request, |_| {})
+}
+fn capture_with(request: &CodexRequest, mut hook: impl FnMut(Point)) -> Result<Pair, Error> {
+    if !valid_locator(&request.source.rollout_path, &request.source.thread_id) {
+        return Err(Error::Input);
+    }
+    if request.source.rollout_path.ends_with(".zst") {
+        return Err(Error::EncodingUnsupported);
+    }
+    let start = Instant::now();
+    // SAFETY: geteuid has no pointer arguments and no side effects.
+    let uid = unsafe { libc::geteuid() };
+    let anchor = root(&request.source.codex_root)?;
+    let before = check(&anchor, true, uid)?;
+    if before.dev().to_string() != request.expected_root.device
+        || before.ino().to_string() != request.expected_root.inode
+    {
+        return Err(Error::RootIdentityChanged);
+    }
+    let device = before.dev();
+    let mut directories = vec![anchor];
+    let mut directory_info = vec![before];
+    let parts: Vec<_> = request.source.rollout_path.split('/').collect();
+    for name in &parts[..parts.len() - 1] {
+        budget(start)?;
+        let next = open_at(
+            directories.last().ok_or(Error::Input)?.as_raw_fd(),
+            name,
+            true,
+        )?;
+        let info = check(&next, true, uid)?;
+        if info.dev() != device {
+            return Err(Error::ContainmentUnavailable);
+        }
+        directories.push(next);
+        directory_info.push(info);
+    }
+    let file_name = parts.last().ok_or(Error::Input)?;
+    let file = open_at(
+        directories.last().ok_or(Error::Input)?.as_raw_fd(),
+        file_name,
+        false,
+    )?;
+    let file_info = bounded_info(&file, uid, device, SOURCE_LIMIT, false)?;
+    let index = optional_index(&directories[0])?;
+    let index_info = index
+        .as_ref()
+        .map(|file| bounded_info(file, uid, device, INDEX_LIMIT, true))
+        .transpose()?;
+    // Recheck every held descriptor and the fixed name's absence/presence.
+    let verify = || -> Result<(), Error> {
+        budget(start)?;
+        for (file, info) in directories.iter().zip(&directory_info) {
+            if !same(info, &check(file, true, uid)?) {
+                return Err(Error::Changed);
+            }
+        }
+        if !same(&file_info, &check(&file, false, uid)?) {
+            return Err(Error::Changed);
+        }
+        let named = optional_index(&directories[0])?;
+        match (&index, &index_info, &named) {
+            (None, None, None) => {}
+            (Some(held), Some(before), Some(current)) => {
+                if !same(before, &check(held, false, uid)?)
+                    || !same(before, &check(current, false, uid)?)
+                {
+                    return Err(Error::Changed);
+                }
+            }
+            _ => return Err(Error::Changed),
+        }
+        if let Some(file) = named {
+            close(file)?;
+        }
+        Ok(())
+    };
+    let read_index = || -> Result<Option<Vec<u8>>, Error> {
+        index
+            .as_ref()
+            .zip(index_info.as_ref())
+            .map(|(file, info)| read(file, info.size() as usize, start))
+            .transpose()
+    };
+    hook(Point::Opened);
+    verify()?;
+    let first = read(&file, file_info.size() as usize, start)?;
+    let first_index = read_index()?;
+    hook(Point::FirstRead);
+    verify()?;
+    let second = read(&file, file_info.size() as usize, start)?;
+    let second_index = read_index()?;
+    hook(Point::SecondRead);
+    verify()?;
+    if first != second || first_index != second_index {
+        return Err(Error::Changed);
+    }
+    drop(second);
+    drop(second_index);
+    // Re-observe all selected name->object edges from the original held parents.
+    for (i, name) in parts[..parts.len() - 1].iter().enumerate() {
+        let named = open_at(directories[i].as_raw_fd(), name, true)?;
+        if !same(&directory_info[i + 1], &check(&named, true, uid)?) {
+            return Err(Error::Changed);
+        }
+        close(named)?;
+    }
+    let named = open_at(
+        directories.last().ok_or(Error::Input)?.as_raw_fd(),
+        file_name,
+        false,
+    )?;
+    if !same(&file_info, &check(&named, false, uid)?) {
+        return Err(Error::Changed);
+    }
+    close(named)?;
+    let current_root = root(&request.source.codex_root)?;
+    if !same(&directory_info[0], &check(&current_root, true, uid)?) {
+        return Err(Error::Changed);
+    }
+    close(current_root)?;
+    verify()?;
+    let pair = Pair {
+        rollout: Capture {
+            bytes: first,
+            identity: identity(&file_info),
+        },
+        name_index: first_index
+            .zip(index_info.as_ref())
+            .map(|(bytes, info)| Capture {
+                bytes,
+                identity: identity(info),
+            }),
+    };
+    let mut close_failed = false;
+    for file in index
+        .into_iter()
+        .chain(std::iter::once(file))
+        .chain(directories.into_iter().rev())
+    {
+        if close(file).is_err() {
+            close_failed = true;
+        }
+    }
+    if close_failed {
+        return Err(Error::CloseFailed);
+    }
+    budget(start)?;
+    Ok(pair)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    use std::path::PathBuf;
+    const ID: &str = "11111111-1111-4111-8111-111111111111";
+    struct Fixture {
+        _temp: tempfile::TempDir,
+        root: PathBuf,
+        file: PathBuf,
+        index: PathBuf,
+        request: CodexRequest,
+    }
+    impl Fixture {
+        fn new(archive: bool, has_index: bool) -> Self {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path().canonicalize().unwrap().join("codex");
+            let prefix = if archive {
+                "archived_sessions"
+            } else {
+                "sessions/2026/01/05"
+            };
+            let locator = format!("{prefix}/rollout-2026-01-05T12-00-00-{ID}.jsonl");
+            let file = root.join(&locator);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(&file, b"owned rollout\n").unwrap();
+            let index = root.join(NAME_INDEX);
+            if has_index {
+                fs::write(&index, b"owned index\n").unwrap();
+            }
+            let info = fs::metadata(&root).unwrap();
+            let input = serde_json::json!({"protocolVersion":3,"nonce":"a".repeat(64),"nativeVersion":"0.153.4",
+                "source":{"codexRoot":root,"rolloutPath":locator,"threadId":ID},
+                "expectedRoot":{"device":info.dev().to_string(),"inode":info.ino().to_string()}});
+            let request =
+                crate::codex::parse_request(&serde_json::to_vec(&input).unwrap()).unwrap();
+            Self {
+                _temp: temp,
+                root,
+                file,
+                index,
+                request,
+            }
+        }
+    }
+    #[test]
+    fn selected_active_archive_and_missing_empty_index_are_distinct() {
+        for archive in [false, true] {
+            for has_index in [false, true] {
+                let f = Fixture::new(archive, has_index);
+                let got = capture(&f.request).unwrap();
+                assert_eq!(got.rollout.bytes, b"owned rollout\n");
+                assert_eq!(got.name_index.is_some(), has_index);
+                if has_index {
+                    assert_eq!(got.name_index.unwrap().bytes, b"owned index\n");
+                }
+                fs::write(&f.index, []).unwrap();
+                let got = capture(&f.request).unwrap();
+                assert!(got.name_index.unwrap().bytes.is_empty());
+                assert_eq!(fs::read(&f.file).unwrap(), b"owned rollout\n");
+            }
+        }
+    }
+    #[test]
+    fn root_binding_symlink_hardlink_and_modes_fail_without_read_fallback() {
+        let mut f = Fixture::new(false, true);
+        f.request.expected_root.inode = "1".into();
+        assert!(matches!(
+            capture(&f.request),
+            Err(Error::RootIdentityChanged)
+        ));
+        for index in [false, true] {
+            let f = Fixture::new(false, true);
+            let selected = if index { &f.index } else { &f.file };
+            fs::set_permissions(selected, fs::Permissions::from_mode(0o660)).unwrap();
+            assert!(matches!(capture(&f.request), Err(Error::OwnerOrMode)));
+            fs::set_permissions(selected, fs::Permissions::from_mode(0o600)).unwrap();
+            let other = f.root.join("outside-owned");
+            fs::hard_link(selected, &other).unwrap();
+            assert!(matches!(capture(&f.request), Err(Error::Hardlinked)));
+            fs::remove_file(&other).unwrap();
+            fs::rename(selected, &other).unwrap();
+            symlink(&other, selected).unwrap();
+            assert!(matches!(capture(&f.request), Err(Error::NotRegular)));
+        }
+    }
+    #[test]
+    fn either_file_change_or_absence_change_invalidates_the_pair() {
+        for point in [Point::Opened, Point::FirstRead, Point::SecondRead] {
+            for mode in 0..5 {
+                let f = Fixture::new(false, mode != 2);
+                let result = capture_with(&f.request, |at| {
+                    if at == point {
+                        match mode {
+                            0 => fs::write(&f.file, b"changed rollout\n").unwrap(),
+                            1 => fs::write(&f.index, b"changed index\n").unwrap(),
+                            2 => fs::write(&f.index, b"new index\n").unwrap(),
+                            3 => fs::remove_file(&f.index).unwrap(),
+                            _ => {
+                                let other = f.root.join("replacement");
+                                fs::write(&other, b"owned index\n").unwrap();
+                                fs::rename(other, &f.index).unwrap();
+                            }
+                        }
+                    }
+                });
+                assert!(matches!(result, Err(Error::Changed)), "mode {mode}");
+            }
+        }
+    }
+    #[test]
+    fn directory_replacement_file_bounds_and_compressed_format_are_explicit() {
+        let mut f = Fixture::new(false, true);
+        f.request.source.rollout_path.push_str(".zst");
+        assert!(matches!(
+            capture(&f.request),
+            Err(Error::EncodingUnsupported)
+        ));
+        f.request
+            .source
+            .rollout_path
+            .truncate(f.request.source.rollout_path.len() - 4);
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&f.file)
+            .unwrap()
+            .set_len((SOURCE_LIMIT + 1) as u64)
+            .unwrap();
+        assert!(matches!(capture(&f.request), Err(Error::TooLarge)));
+        fs::write(&f.file, []).unwrap();
+        assert!(matches!(capture(&f.request), Err(Error::Empty)));
+        fs::write(&f.file, b"owned rollout\n").unwrap();
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&f.index)
+            .unwrap()
+            .set_len((INDEX_LIMIT + 1) as u64)
+            .unwrap();
+        assert!(matches!(capture(&f.request), Err(Error::TooLarge)));
+        let f = Fixture::new(false, true);
+        let result = capture_with(&f.request, |at| {
+            if at == Point::SecondRead {
+                fs::rename(f.root.join("sessions"), f.root.join("moved")).unwrap();
+                fs::create_dir(f.root.join("sessions")).unwrap();
+            }
+        });
+        assert!(matches!(result, Err(Error::Changed)));
+    }
+
+    #[test]
+    fn every_selected_descriptor_checks_acl_and_directory_mode() {
+        for component in 0..7 {
+            let f = Fixture::new(false, true);
+            let paths = [
+                f.root.clone(),
+                f.root.join("sessions"),
+                f.root.join("sessions/2026"),
+                f.root.join("sessions/2026/01"),
+                f.root.join("sessions/2026/01/05"),
+                f.file.clone(),
+                f.index.clone(),
+            ];
+            super::super::tests::add_acl(&paths[component], false);
+            assert!(matches!(capture(&f.request), Err(Error::AclUnsupported)));
+        }
+        for component in 0..5 {
+            let f = Fixture::new(false, true);
+            let paths = [
+                f.root.clone(),
+                f.root.join("sessions"),
+                f.root.join("sessions/2026"),
+                f.root.join("sessions/2026/01"),
+                f.root.join("sessions/2026/01/05"),
+            ];
+            fs::set_permissions(&paths[component], fs::Permissions::from_mode(0o770)).unwrap();
+            assert!(matches!(capture(&f.request), Err(Error::OwnerOrMode)));
+        }
+        let f = Fixture::new(false, true);
+        let changed = capture_with(&f.request, |at| {
+            if at == Point::FirstRead {
+                super::super::tests::add_acl(&f.index, false);
+            }
+        });
+        assert!(matches!(changed, Err(Error::AclUnsupported)));
+    }
+
+    #[test]
+    fn index_fifo_and_directory_never_become_absent_or_block() {
+        let f = Fixture::new(false, true);
+        fs::remove_file(&f.index).unwrap();
+        let name = CString::new(f.index.to_str().unwrap()).unwrap();
+        // SAFETY: test-owned missing pathname, live NUL-terminated string.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        assert!(matches!(capture(&f.request), Err(Error::NotRegular)));
+        fs::remove_file(&f.index).unwrap();
+        fs::create_dir(&f.index).unwrap();
+        assert!(matches!(capture(&f.request), Err(Error::NotRegular)));
+    }
+}

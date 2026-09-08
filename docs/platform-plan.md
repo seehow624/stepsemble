@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.58
+> 計畫版本：1.59
 > 最後更新：2026-09-08
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,7 +15,15 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新增量 1.58（開發版仍3.0.7-rc.7，未部署）**：已定位Codex command/image缺項
+**最新增量 1.59（開發版仍3.0.7-rc.7，未部署）**：Codex selected rollout＋固定name
+index的Rust v3成組capture已實作，active/archive/reverted locator分開，兩份bytes各自
+identity/SHA/缺空狀態和sourceVersion綁定；fd/ACL/localmount/雙讀/替換檢查，不宣稱
+原子交易。Node同helper single-flight/actualclose/quarantine，真Rust→raw頁owned鏈通。
+本機Rust25/25、完整Node816/0fail、最低Node38/38，舊Claude actualHost鏈通；exact CI
+待核。沒有name語意解析、壓縮解碼、Codex opt-in/discovery/HostWeb或完整native投影，
+詳[Codex來源capture](codex-source-capture.md)。正式/B+/私人/帳號/固定72h不動，C1–C8未全完。
+
+**前一增量 1.58（開發版仍3.0.7-rc.7，未部署）**：已定位Codex command/image缺項
 為固定legacy API套用persistence policy後排除transient事件；parse errors0，非猜測JSON。
 新增bytes-only raw記錄快照／分頁，原文與CRLF/未知欄位/工具保留，8MiB/8192records、
 50筆/272KiB、有界且handle/revision隔離、release不可逆。真CLI owned raw113頁/219records

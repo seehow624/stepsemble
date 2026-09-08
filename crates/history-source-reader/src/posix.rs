@@ -7,6 +7,7 @@ use std::mem::MaybeUninit;
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::fs::{FileExt, MetadataExt};
 use std::time::{Duration, Instant};
+pub mod codex;
 pub mod inventory;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
