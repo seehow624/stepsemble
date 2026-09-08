@@ -166,6 +166,12 @@ CI matrix 設定 macOS/Linux/Windows + Node 22.19.0；設定存在不代表本�
 
 ## 尚未完成的 production gate
 
+2026-09-08 增量：[`小型 Rust reader`](native-history-reader.md) 已實作獨立 POSIX
+fd ACL／openat／root identity capture 與 Node owned runner；尚未接進上述 source
+service／SDK worker 或正式 Host。Windows CLI 仍 unsupported，permission probe
+另驗。下列完整 production/source-authentication gate 仍保留，不能把本 helper 的
+observed checks 當成已完成所有 ancestor／namespace／provenance 保證。
+
 - 正式 Host 的 source 授權/catalog 維護、cookie/logout/token/grant lifecycle wiring、
   route／origin/reverse-proxy 設定、跨 Host UI 與端到端下游 user delegation。
 - Source ACL／descriptor-relative containment、完整 ancestor 信任、Windows

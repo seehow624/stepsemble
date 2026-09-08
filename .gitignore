@@ -16,4 +16,5 @@ pi-web-bin/
 # Test/runtime artifacts
 coverage/
 node_modules/
+target/
 .tmp-cua/
