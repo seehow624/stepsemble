@@ -3,6 +3,8 @@
 Plan1.59，2026-09-08，開發候選仍3.0.7-rc.7，未部署。
 這是 C2 的實際 Rust descriptor capture 與 Node 邊界；尚不是 Codex Host/Web adapter。
 
+後續Plan1.60已接[名稱索引候選解析](codex-name-index.md)，仍不是含SQLite的最終native title。
+
 ## 本批新增
 
 - private Rust protocolVersion3，一次程序只取得操作員已選的 rollout 與固定
@@ -91,11 +93,38 @@ ACL及name-index是否仍存在／同inode，最後重驗所有name→object edg
   owned鏈仍通；strict TS/generated/syntax/version/Ajv1251/fmt/clippy/actionlint通。
 - 擴充三OSreader CI跑新pair鏈。Windows Node precheck維持unsupported；runner用
   trusted test override，要求**實際Windows binary**也回unsupported，不冒稱POSIX通過。
-  本批exact CI尚待核對，不沿用上一批Rust binary或Mac結果宣稱Linux/Windows已驗。
+  本批exact CI已核對；Windows仍是拒絕能力驗證，不是完整來源讀取通過。
 
 logs `/tmp/stepsemble-codex-capture-{rust.log,minnode.tap,suite.tap,native.log,legacy-reader.log,pipeline.log}`。
 首次runner只因測試錯寫raw結果kind失敗，改成既有`codex_rollout_records`後重跑；
 保留`native-first.log`，沒有改raw結果讓測試過。本機debug artifact是本輪重新build。
+
+### Exact CI（2026-09-09 MYT 收尾）
+
+程式 `ebe9a8e1f9946ce03e9008e3afb76d5fe9e25099`，五組終態及完整logs均已核對：
+
+- 一般 [34248356766](https://github.com/seehow624/stepsemble/actions/runs/34248356766)：
+  各816tests；Mac814pass/2skip、Linux813/3、Windows769/47，全部0fail，各Ajv1251。
+- reader [34248356758](https://github.com/seehow624/stepsemble/actions/runs/34248356758)：
+  Rust Mac25/Linux25/Windows10；Node各85/85。POSIX新Codex9次capture→raw頁、
+  舊Claude actualHost/sourceGroups/metadata/setup/shared gates通；Windows真binary
+  回source_platform_unsupported。三平台cleanup確認、private/model0。
+  RustSec0.22.2／DB`bf25f6575a93a35f30796c65c0ed91bee7fa19fd`、1242advisories，
+  lock SHA`6583452ddbf9af1e6cce6623144f94660c4108c6877efa02e1e58b90d28f2e25`、
+  33packages，known vulnerabilities0／warnings0。
+- NativeClaude [34248356747](https://github.com/seehow624/stepsemble/actions/runs/34248356747)：
+  三OS固定SDK0.3.259、model0、nativeFileUnchanged=true。
+- NativeCodex [34248356843](https://github.com/seehow624/stepsemble/actions/runs/34248356843)：
+  attempt1的Linux在下載官方archive時curl35／connection reset，尚未執行native；
+  保留失敗log，只rerun failed Linux。attempt2 Linux通，Mac/Windows沿attempt1已通結果。
+  各49turns/147items、raw113頁/219records/3transient/byteexact、model0、loaded0、
+  11原檔不變與cleanup確認；native缺項及paginated/items-list負向gate仍保留。
+- rolling [34248356890](https://github.com/seehow624/stepsemble/actions/runs/34248356890)：
+  Mac/Linux各24cases、pageErrors0；各六native頁×11語、localeReads0及原文/focus/scroll保留。
+  這是既有合成Host UI回歸，不是新Codex Host/Web或真機驗收。
+
+CI logs `/tmp/stepsemble-codex-capture-{ci,reader-ci,claude-ci,browser-ci,codex-ci,codex-ci-rerun}.log`；
+首次下載失敗和rerun分檔保存，不抹除失敗。沒有重新部署或延伸72h證據。
 
 ## 仍待接上的產品工作
 

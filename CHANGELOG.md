@@ -27,6 +27,10 @@ Development candidate only; production Hosts and the independently frozen
   native reader. Bind exact file revisions and retain missing/empty index states;
   share helper lifecycle limits with Claude reads. Owned fixtures only so far:
   no new source grant, discovery, compressed decoding or Codex Web adapter.
+- Interpret bounded Codex legacy name-index bytes separately for single-read and
+  batch-list rules. Verify 17 owned native cases, Unicode and duplicate fields;
+  do not promote an index candidate above an unobserved SQLite title or enable
+  private history access. Bind interpretation to the captured index revision.
 
 ## 3.0.7-rc.6
 

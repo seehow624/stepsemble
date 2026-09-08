@@ -34,7 +34,7 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 | Checkpoint | 交付與必要證據 | 開始狀態 |
 | --- | --- | --- |
 | C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | Plan1.57新增本機新群組設定精靈/review/明確readers/CREATE與真Host原檔驗證；Web列表已接，不自選私人來源或新增Web管理route，完整管理/實機與C1完整gate仍待 |
-| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.59新增Codex精確rollout＋nameindex的Rustfd/ACL成組capture與sourceVersion，owned→raw頁已通、CI另核；沒有name語意解析/壓縮/opt-in/discovery/HostWeb。1.58原生投影缺項／paginated/items-list限制保留，其他adapter仍待，C2未完成 |
+| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.60名稱索引候選已接owned capture／真CLI17cases，read/list差異分開；完整name仍待SQLite，nativeTitleResolved=false。1.59成組capture五CI已驗，壓縮/opt-in/discovery/HostWeb與其他adapter仍待；1.58原生投影缺項及paginated/items-list限制保留，C2未完成 |
 | C3 Session／approval／恢復 | 按真實 capability 接結構化事件、續跑與 approval；ownership、exact correlation、重送／重連／Host crash、durable journal/replay 不漏不重 | 有 contract 與局部實作，未全驗 |
 | C4 帳號與故障體驗 | 登入／登出偵測、官方登入入口、路由相容、取消／失敗／stale／busy 可復原；不修寫第三方憑證或以重試消耗模型 | 局部已驗，跨 harness 待補 |
 | C5 手機與跨裝置操作 | 完整 history i18n、鍵盤／focus／內捲動、長歷史 DOM 上限、Host 切換、background/reconnect、跨機與目標瀏覽器實測 | Plan1.56已接119keys/11語並修正locale scroll跳動；320/390合成Host CUA、原文/DOM/focus保留已驗；人工校稿/真機/跨Host與其餘gate仍待 |
@@ -85,12 +85,20 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 
 ## 執行記錄
 
+- **2026-09-09／C2 Codex index names，Plan1.60／rc.7不變**：有界bytes parser保留
+  latest/read/list不同原生索引規則，成組capture SHA/version綁定，沒有最終title權威。
+  真CLI17cases/19原檔不變/model0/loaded0/cleanup通，最低Node及另五輪通；確認
+  preview同名read/list差異，SQLite優先來源未接。新7tests/完整823/0fail、最低Node26/26，
+  新exactCI待核，詳[名稱索引](codex-name-index.md)。其餘C1–C8、CodexHostWeb及權限關卡未完。
+
 - **2026-09-08／C2 Codex selected source，Plan1.59／rc.7不變**：Rust新v3成組
   讀rollout與固定nameindex，精確active/archive/reverted locator、root/ACL/mount/
   雙讀/各層edges復核、缺/空索引分開，16MiB raw wire與composite version fence。
   Node同helper flight/actualclose/quarantine不另繞過，真Rust→raw頁owned鏈通；
   新Rust8tests/總25、Node8tests/總816/0fail、最低Node38/38及舊ClaudeactualHost通。
-  exact CI待核，详[Codex來源capture](codex-source-capture.md)。name parser、壓縮、
+  exact ebe9a8e五CI已核：三OS816/0fail、reader POSIXpair/Windowsunsupported、雙OS
+  各24browsercases；NativeCodex Linux首次下載reset，保留log只rerun failed後通。
+  詳[Codex來源capture](codex-source-capture.md)。name parser、壓縮、
   source config/discovery/HostWeb仍待，不是完整原生歷史；私人/模型/正式/B+/72h不動。
 
 - **2026-09-08／C2 Codex原始記錄，Plan1.58／rc.7不變**：固定原始碼與owned trace

@@ -5,6 +5,9 @@
 不是已完成的 Codex 歷史 adapter。
 既有 Web／source-group 仍只接已實作的來源，不會自動多掃 Codex HOME。
 
+接續進度：Plan1.59[指定來源成組capture](codex-source-capture.md)、Plan1.60
+[名稱索引與read/list差異](codex-name-index.md)已新增；尚未接完整SQLite名稱來源與Host/Web。
+
 最新：Plan1.58已定位command/image缺項為固定tag的legacy persistence policy篩選，
 不是此fixture的JSON解析錯誤。新增bytes-only raw記錄分頁保留完整捕獲內容，但
 原生投影仍明示不完整；未接私人source capture或Host/Web。診斷、完整邊界與

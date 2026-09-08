@@ -10,6 +10,7 @@ import { createNativeHelper } from "../protocol/native/claude/history-native-hel
 import { sourceVersion, sameSourceVersion } from "../protocol/native/codex/source-wire.js";
 import { createRolloutSnapshot, readRolloutPage, releaseRolloutSnapshot } from "../protocol/native/codex/rollout-snapshot.js";
 import { richRecords } from "../protocol/native/codex/history-fixture.js";
+import { observeCapturedNameIndex } from "../protocol/native/codex/name-index.js";
 
 const target = process.env.CARGO_TARGET_DIR;
 assert(target && path.isAbsolute(target), "explicit local CARGO_TARGET_DIR required");
@@ -45,6 +46,9 @@ try {
     assert.deepEqual(first.rolloutBytes, raw); assert.deepEqual(first.nameIndexBytes, names);
     assert.equal(first.sourceAuthenticated, false); assert.equal(first.publishable, false);
     const version = sourceVersion(first); assert.ok(version); assert.equal(sameSourceVersion(version, sourceVersion(first)), true);
+    const named = observeCapturedNameIndex(first); assert.equal(named.kind, "codex_name_index_observation");
+    assert.equal(named.readCandidate, "完整原生名稱 🐾 ".repeat(12)); assert.equal(named.listCandidate, named.readCandidate.trim());
+    assert.equal(named.nativeTitleResolved, false); assert.equal(sameSourceVersion(version, named.sourceVersion), true);
     const snapshot = createRolloutSnapshot(first.rolloutBytes, { nativeVersion: first.nativeVersion, threadId }); snapshots.push(snapshot);
     assert.equal(snapshot.kind, "codex_rollout_snapshot", snapshot.code);
     let offset = 0; const rows = [];
@@ -54,6 +58,7 @@ try {
     assert.deepEqual(Buffer.from(rows.map(row => row.rawText).join("")), raw);
     assert.equal(rows.filter(row => ["exec_command_begin", "exec_command_end", "view_image_tool_call"].includes(row.payloadType)).length, 3);
     first.rolloutBytes.fill(0); first.nameIndexBytes.fill(0);
+    assert.equal(observeCapturedNameIndex(first).kind, "codex_history_unavailable"); assert.equal(named.readCandidate, "完整原生名稱 🐾 ".repeat(12));
     assert.equal(readRolloutPage(snapshot, { snapshotId: snapshot.snapshotId, offset: 0, limit: 1 }).records[0].recordType, "session_meta");
     // New title bytes, same bytes with new inode, and absent vs empty index fence separately.
     const replacement = path.join(root, "owned-replacement");
@@ -66,6 +71,7 @@ try {
     await fs.unlink(index); const missing = await helper.readCodex(request); assert.equal(missing.kind, "native_codex_source_bytes"); assert.equal(missing.nameIndexBytes, null);
     await fs.writeFile(index, Buffer.alloc(0), { mode: 0o600, flag: "wx" });
     const empty = await helper.readCodex(request); assert.equal(empty.kind, "native_codex_source_bytes"); assert.equal(empty.nameIndexBytes.length, 0);
+    assert.equal(observeCapturedNameIndex(missing).presence, "missing"); assert.equal(observeCapturedNameIndex(empty).presence, "empty");
     assert.equal(sameSourceVersion(sourceVersion(missing), sourceVersion(empty)), false);
     await fs.writeFile(index, names);
     const archive = `archived_sessions/${stem}_22222222-2222-4222-8222-222222222222.jsonl`;
@@ -86,6 +92,7 @@ try {
   console.log(JSON.stringify({ result: "passed", platform: process.platform, arch: process.arch, artifactSha256,
     codexPairCapture: process.platform === "win32" ? "source_platform_unsupported_actual_binary" : "posix_owned_fixture_passed",
     byteExactRawPaging: process.platform !== "win32", pairVersionFences: process.platform !== "win32", spawns,
+    nameIndexBytesInterpreted: process.platform !== "win32", nativeTitleResolved: false,
     sourceFilesUnchangedAtEnd: true, privateHistoryReads: 0, nativeCliLaunches: 0, modelCalls: 0,
     sourceAuthenticated: false, publishable: false, semanticHistoryComplete: false, productionWiring: false, cleanupConfirmed: true }));
 } finally {

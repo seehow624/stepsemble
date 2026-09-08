@@ -3,6 +3,9 @@
 Plan1.58，2026-09-08，開發候選仍 `3.0.7-rc.7`，未部署。
 這是 C2 的 bytes-only 原始記錄分頁及相容性診斷，不是完整 Codex adapter／Web 功能。
 
+後續已新增[Plan1.59 Rust成組capture](codex-source-capture.md)與
+[Plan1.60名稱索引解讀](codex-name-index.md)；本頁保留1.58原始證據，不重宣告缺项已補齊。
+
 ## 缺項原因已定位
 
 先前八類工具 fixture 的 native read 只有六類，commandExecution/imageView 未返回。

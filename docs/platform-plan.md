@@ -1,8 +1,8 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.59
-> 最後更新：2026-09-08
+> 計畫版本：1.60
+> 最後更新：2026-09-09
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
@@ -15,12 +15,21 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新增量 1.59（開發版仍3.0.7-rc.7，未部署）**：Codex selected rollout＋固定name
+**最新增量 1.60（開發版仍3.0.7-rc.7，未部署）**：有界Codex名稱索引解析已接owned
+Rust capture bytes，依固定版本分開latest/read/list候選、Unicode/UUID/duplicates/缺空狀態，
+不把index冒充最終native title。真CLI17cases＋最低Node及另五輪通，發現preview同名的
+read/list差異；SQLite distincttitle仍可優先，尚未capture/驗該來源。本機823/0fail、
+最低Node26/26，exact新CI待核。詳[名稱索引與API差異](codex-name-index.md)；
+Codex完整name/opt-in/discovery/壓縮/HostWeb及C1–C8仍待，正式/B+/私人/帳號/72h不動。
+
+**前一增量 1.59（開發版仍3.0.7-rc.7，未部署）**：Codex selected rollout＋固定name
 index的Rust v3成組capture已實作，active/archive/reverted locator分開，兩份bytes各自
 identity/SHA/缺空狀態和sourceVersion綁定；fd/ACL/localmount/雙讀/替換檢查，不宣稱
 原子交易。Node同helper single-flight/actualclose/quarantine，真Rust→raw頁owned鏈通。
-本機Rust25/25、完整Node816/0fail、最低Node38/38，舊Claude actualHost鏈通；exact CI
-待核。沒有name語意解析、壓縮解碼、Codex opt-in/discovery/HostWeb或完整native投影，
+本機Rust25/25、完整Node816/0fail、最低Node38/38，舊Claude actualHost鏈通；exact
+ebe9a8e五CI已核實：三OS一般816/0fail、reader新POSIXpair與Windows實際unsupported、
+rolling雙OS各24cases。NativeCodex Linux首次下載reset，保留紀錄並只重跑失敗job後通。
+沒有name語意解析、壓縮解碼、Codex opt-in/discovery/HostWeb或完整native投影，
 詳[Codex來源capture](codex-source-capture.md)。正式/B+/私人/帳號/固定72h不動，C1–C8未全完。
 
 **前一增量 1.58（開發版仍3.0.7-rc.7，未部署）**：已定位Codex command/image缺項
