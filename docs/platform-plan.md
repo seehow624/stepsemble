@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.61
+> 計畫版本：1.62
 > 最後更新：2026-09-09
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,7 +15,15 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新增量 1.61（開發版仍3.0.7-rc.7，未部署）**：Codex capture→背景bytes parser
+**最新增量 1.62（開發版仍3.0.7-rc.7，未部署）**：新增SQLite name欄位有界解讀與
+13個真native名稱優先案例，legacy distincttitle勝index、paginated用name、read/list
+差異與sqlite_home覆寫env均驗。fixture僅native actualclose後改自建DB，原五欄/
+15原檔、model/private/loaded0及cleanup通；未建立productionSQLite reader/交易快照。
+本機849/0fail、最低Node118/118、兩Node真13cases及另五輪通，exactCI待核。
+詳[SQLite名稱驗證](codex-sqlite-names.md)，原paginated完整歷史限制仍保留；Codex
+source授權/DBWAL一致性/registry/HTTPWeb及C1–C8未完，正式/B+/私人/帳號/72h不動。
+
+**前一增量 1.61（開發版仍3.0.7-rc.7，未部署）**：Codex capture→背景bytes parser
 共用Host持有的reader admission，兩階段到actualclose才釋放，取消/逾時/unknown cleanup
 跨consumer隔離。最低Node真Rust＋ClaudeSDK＋Codexparser同budget max2/remaining0，
 原文頁/版本/實際取消通。本機845/0fail、最低Node114/114；首批CI抓到Windows路徑

@@ -34,7 +34,7 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 | Checkpoint | 交付與必要證據 | 開始狀態 |
 | --- | --- | --- |
 | C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | Plan1.57新增本機新群組設定精靈/review/明確readers/CREATE與真Host原檔驗證；Web列表已接，不自選私人來源或新增Web管理route，完整管理/實機與C1完整gate仍待 |
-| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.61 capture→背景parser共用reader budget，真Rust/ClaudeSDK/Codexparser並行與版本/清理通；不是CodexHTTP/Web。1.60 index候選/read-list分開、完整name仍待SQLite；壓縮/opt-in/discovery/其他adapter、原生投影缺項及paginated限制保留，C2未完成 |
+| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.62真SQLite名稱13cases/欄位parser已驗，legacy/paginated及read-list分開；仍待DBWAL安全capture、授權/discovery/registry/CodexHTTPWeb。1.61共用budget背景parser已通；壓縮/其他adapter、原生投影缺項及paginated完整歷史限制保留，C2未完成 |
 | C3 Session／approval／恢復 | 按真實 capability 接結構化事件、續跑與 approval；ownership、exact correlation、重送／重連／Host crash、durable journal/replay 不漏不重 | 有 contract 與局部實作，未全驗 |
 | C4 帳號與故障體驗 | 登入／登出偵測、官方登入入口、路由相容、取消／失敗／stale／busy 可復原；不修寫第三方憑證或以重試消耗模型 | 局部已驗，跨 harness 待補 |
 | C5 手機與跨裝置操作 | 完整 history i18n、鍵盤／focus／內捲動、長歷史 DOM 上限、Host 切換、background/reconnect、跨機與目標瀏覽器實測 | Plan1.56已接119keys/11語並修正locale scroll跳動；320/390合成Host CUA、原文/DOM/focus保留已驗；人工校稿/真機/跨Host與其餘gate仍待 |
@@ -84,6 +84,13 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 - 未來 App Store 發布、費用、商標／帳號等外部事項不從「loop」推論新授權。
 
 ## 執行記錄
+
+- **2026-09-09／C2 SQLite名稱，Plan1.62／rc.7不變**：13個owned真native cases核
+  DB distincttitle/index/name/preview優先與sqlite_home≠CodexRoot，固定五欄parser
+  有界且不冒稱最終name/sourcegrant。本機849/0fail、最低Node118/118、兩Node真13cases
+  與另五輪通；exactCI待核。SQL NULL/empty差異與paginated deprecation拒絕均留證據，
+  不放寬通道或碰私人DB。詳[SQLite名稱](codex-sqlite-names.md)，DBWAL一致性/正式
+  reader/授權/HostWeb與C1–C8未完，正式/B+/帳號/私人/72h不變。
 
 - **2026-09-09／C2/C6背景解析，Plan1.61／rc.7不變**：Rustcapture到Nodeparser
   actualclose共用Host兩名額，未知清理隔離所有consumer、無重送或新queue。22新tests、

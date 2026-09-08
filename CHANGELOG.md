@@ -36,6 +36,10 @@ Development candidate only; production Hosts and the independently frozen
   fence cancellation, stale versions and unknown cleanup without retries.
   Verify owned cross-harness concurrency and main-loop responsiveness; this
   does not yet enable a Codex source grant, Web history or authoritative title.
+- Verify Codex SQLite title/name precedence with 13 owned native cases and
+  bounded field interpretation. Preserve read/list differences and the separate
+  SQLite-home setting; keep paginated full-history limitations explicit. This
+  does not read private databases or introduce a production SQLite dependency.
 
 ## 3.0.7-rc.6
 

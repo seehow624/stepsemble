@@ -6,6 +6,9 @@
 [codex-history-pipeline.md](codex-history-pipeline.md)。下方「尚未接worker」保留1.60
 歷史階段；仍沒有SQLite最終名稱或Codex Host/Web，不能把候選名稱直接發布。
 
+Plan1.62另以13個owned native案例驗過SQLite title/name優先規則及read/list差異，
+見[SQLite名稱](codex-sqlite-names.md)。有欄位parser，但仍未有真人DB/WAL安全reader。
+
 ## 本批交付與不能宣稱的事
 
 `protocol/native/codex/name-index.js` 解讀 caller 提供的固定版本索引 bytes，或接

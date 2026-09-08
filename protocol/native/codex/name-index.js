@@ -122,4 +122,4 @@ function observeCapturedNameIndex(capture) {
   const bound = { ...result, sourceVersion: version };
   return Buffer.byteLength(JSON.stringify(bound)) <= LIMITS.outputBytes ? bound : unavailable("name_index_output_limit");
 }
-module.exports = { observeNameIndex, observeCapturedNameIndex, LIMITS };
+module.exports = { observeNameIndex, observeCapturedNameIndex, LIMITS, trimNativeWhitespace: trim };

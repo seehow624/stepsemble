@@ -78,3 +78,4 @@ jobs:
           node -e 'const fs=require("node:fs"),crypto=require("node:crypto");console.log(JSON.stringify({binarySha256:crypto.createHash("sha256").update(fs.readFileSync(process.env.NATIVE_BINARY)).digest("hex")}));'
           node scripts/check-native-codex-history.mjs "$NATIVE_BINARY" --runtime
           node scripts/check-native-codex-names.mjs "$NATIVE_BINARY"
+          node scripts/check-native-codex-metadata-names.mjs "$NATIVE_BINARY"
