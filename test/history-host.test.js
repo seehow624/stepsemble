@@ -82,6 +82,38 @@ test("bounded startup config rejects symlinks, permissive files, oversize and mi
   fs.writeFileSync(filename, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(JSON.stringify(c))]));
   assert.throws(() => loadHistoryConfig(filename), /configuration_invalid/);
 });
+test("synthetic staging isolates hard-linked artifacts without weakening Host configuration policy", { skip: process.platform === "win32" }, async t => {
+  const { stageSyntheticArtifact } = await import("../scripts/history-host-synthetic.mjs");
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-history-artifact-")));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const helper = path.join(dir, "cargo-reader"), alias = path.join(dir, "cargo-deps-reader"), sdkPath = path.join(dir, "sdk.mjs");
+  fs.writeFileSync(helper, "owned synthetic executable, never invoked", { mode: 0o755 }); fs.linkSync(helper, alias);
+  fs.writeFileSync(sdkPath, "owned synthetic SDK, never imported", { mode: 0o600 });
+  const c = { ...config(), reader: { helperPath: helper, sdkPath } }, filename = path.join(dir, "history.json");
+  fs.writeFileSync(filename, JSON.stringify(c), { mode: 0o600 });
+  assert.throws(() => loadHistoryConfig(filename), /configuration_invalid/);
+  const before = fs.statSync(helper, { bigint: true }), staged = path.join(dir, "private-reader");
+  const result = await stageSyntheticArtifact(helper, staged, 0o500);
+  assert.equal(result.sourceLinks, 2); assert.equal(result.stagedLinks, 1); assert.equal(result.stagedMode, 0o500);
+  assert.ok(fs.readFileSync(staged).equals(fs.readFileSync(helper)));
+  const after = fs.statSync(helper, { bigint: true });
+  for (const key of ["dev", "ino", "size", "mode", "nlink", "ctimeNs", "mtimeNs"]) assert.equal(after[key], before[key], key);
+  c.reader.helperPath = staged; fs.writeFileSync(filename, JSON.stringify(c)); assert.deepEqual(loadHistoryConfig(filename), c);
+  // Unsafe modes on either artifact still fail closed, independent of staging.
+  fs.chmodSync(staged, 0o520); assert.throws(() => loadHistoryConfig(filename), /configuration_invalid/); fs.chmodSync(staged, 0o500);
+  fs.chmodSync(sdkPath, 0o620); assert.throws(() => loadHistoryConfig(filename), /configuration_invalid/);
+});
+test("synthetic artifact staging never overwrites an existing output or changes shared input modes", { skip: process.platform === "win32" }, async t => {
+  const { stageSyntheticArtifact } = await import("../scripts/history-host-synthetic.mjs");
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-history-artifact-exclusive-")));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const source = path.join(dir, "source"), destination = path.join(dir, "destination");
+  fs.writeFileSync(source, "synthetic input", { mode: 0o755 }); fs.writeFileSync(destination, "preserve output", { mode: 0o600 });
+  await assert.rejects(stageSyntheticArtifact(source, destination, 0o500), { code: "EEXIST" });
+  assert.equal(fs.readFileSync(destination, "utf8"), "preserve output"); assert.equal(fs.statSync(source).mode & 0o777, 0o755);
+  await assert.rejects(stageSyntheticArtifact(source, path.join(dir, "invalid"), 0o777), /mode_invalid/);
+  assert.equal(fs.existsSync(path.join(dir, "invalid")), false);
+});
 test("disabled history reserves local and remote namespaces without swallowing unrelated routes", async t => {
   const port = await listen(t, disabledHistoryHost());
   for (const route of ["/api/history", "/api/history/catalog", "/r/mini/api/history/page", "/r/INVALID/api/history/catalog"])

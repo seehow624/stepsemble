@@ -18,7 +18,7 @@ export async function checkHistoryHostNative(options) {
   const read = (transport, r, offset = 0, version) => transport.read({ hostId: "synthetic-host", bindingId: r.bindingId, generation: r.generation, sessionId: r.sessionId },
     { bindingId: r.bindingId, generation: r.generation, requestId: crypto.randomUUID() }, { page: { offset, limit: 10 }, signal: new AbortController().signal, ...(version ? { version } : {}) });
   try {
-    const catalog = await api.catalog(); assert.equal(catalog.kind, "history_catalog"); assert.equal(catalog.entries.length, 4);
+    const catalog = await api.catalog(); assert.equal(catalog.kind, "history_catalog", catalog.code); assert.equal(catalog.entries.length, 4);
     for (const c of host.cases) {
       const reg = await api.register({ catalogId: `fixture-${c.name}`, viewId }); assert.equal(reg.kind, "history_registration");
       const page = await read(api, reg); assert.equal(page.kind, "bound_history_observation", page.code); assert.equal(page.cleanupConfirmed, true);
@@ -46,7 +46,8 @@ export async function checkHistoryHostNative(options) {
     assert.equal((await read(api, last)).code, "history_binding_unavailable");
   } finally { cleanup = await host.close(); }
   return { actualHostGate: "passed", platform: process.platform, nodeVersion: process.version, cases: 4, privateHistoryReads: 0, modelCalls: 0,
-    helperArtifactSha256: host.helperHash, sdkSha256: host.sdkHash, sourceAuthenticated: false, publishable: false, productionChanged: false, ...cleanup };
+    helperArtifactSha256: host.helperHash, sdkSha256: host.sdkHash, helperArtifact: host.helperArtifact, sdkArtifact: host.sdkArtifact,
+    sourceAuthenticated: false, publishable: false, productionChanged: false, ...cleanup };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const [helperPath, sdkPath] = process.argv.slice(2); console.log(JSON.stringify(await checkHistoryHostNative({ helperPath, sdkPath }), null, 2));

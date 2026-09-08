@@ -18,6 +18,25 @@ const digest = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
 const token = "synthetic-history-host-only", issuedToken = "synthetic-issued-history-only", issuedId = "123456789abc";
 const encode = records => Buffer.from(records.map(row => JSON.stringify(row)).join("\n") + "\n");
 
+// Test artifacts are staged into a caller-owned private fixture directory.
+// Cargo can hard-link its executable outputs; never chmod those shared inputs
+// or relax the application's single-link/executable policy to accommodate CI.
+export async function stageSyntheticArtifact(source, destination, mode) {
+  if (![0o500, 0o600].includes(mode)) throw new Error("synthetic_artifact_mode_invalid");
+  const before = await fs.stat(source, { bigint: true });
+  if (!before.isFile()) throw new Error("synthetic_artifact_not_regular");
+  const sha256 = digest(await fs.readFile(source));
+  await fs.copyFile(source, destination, fs.constants.COPYFILE_EXCL);
+  await fs.chmod(destination, mode);
+  const after = await fs.stat(source, { bigint: true }), staged = await fs.lstat(destination, { bigint: true });
+  if (!["dev", "ino", "size", "mtimeNs", "ctimeNs", "uid", "mode", "nlink"].every(k => before[k] === after[k])
+    || !staged.isFile() || staged.nlink !== 1n || staged.uid !== BigInt(process.geteuid())
+    || (staged.mode & 0o777n) !== BigInt(mode) || (staged.dev === before.dev && staged.ino === before.ino)
+    || digest(await fs.readFile(source)) !== sha256 || digest(await fs.readFile(destination)) !== sha256)
+    throw new Error("synthetic_artifact_copy_mismatch");
+  return { sha256, sourceLinks: Number(before.nlink), sourceMode: Number(before.mode & 0o777n), stagedLinks: Number(staged.nlink), stagedMode: mode };
+}
+
 export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0 } = {}) {
   if (!["darwin", "linux"].includes(process.platform)) throw new Error("history_host_native_platform_unsupported");
   if (!path.isAbsolute(helperPath || "") || !path.isAbsolute(sdkPath || "") || !Number.isInteger(port) || port < 0 || port > 65535)
@@ -28,6 +47,12 @@ export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0 
   const temp = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-history-host-native-")));
   let child, exit, closed, mutation = Promise.resolve(); const files = new Map();
   try {
+    const artifacts = path.join(temp, "artifacts"); await fs.mkdir(artifacts, { mode: 0o700 });
+    const stagedHelper = path.join(artifacts, "history-reader"), stagedSdk = path.join(artifacts, "sdk.mjs");
+    const helperArtifact = await stageSyntheticArtifact(helper, stagedHelper, 0o500);
+    const sdkArtifact = await stageSyntheticArtifact(sdk, stagedSdk, 0o600);
+    const packageArtifact = await stageSyntheticArtifact(path.join(path.dirname(sdk), "package.json"), path.join(artifacts, "package.json"), 0o600);
+    if (helperArtifact.sha256 !== helperHash || sdkArtifact.sha256 !== sdkHash) throw new Error("synthetic_history_artifact_changed");
     if (!port) { const probe = http.createServer(); probe.listen(0, "127.0.0.1"); await once(probe, "listening"); port = probe.address().port; await new Promise(resolve => probe.close(resolve)); }
     const origin = `http://127.0.0.1:${port}`, projectsRoot = path.join(temp, "projects"), projectKey = "-owned-host", project = path.join(projectsRoot, projectKey);
     await fs.mkdir(project, { recursive: true, mode: 0o700 }); await fs.chmod(projectsRoot, 0o700); await fs.chmod(project, 0o700);
@@ -56,7 +81,7 @@ export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0 
     }
     const configPath = path.join(temp, "history.json");
     await fs.writeFile(configPath, JSON.stringify({ version: 1, trustBoundary: "host_managed_paths", allowedOrigins: [origin],
-      reader: { helperPath: helper, sdkPath: sdk }, catalog }), { mode: 0o600, flag: "wx" });
+      reader: { helperPath: stagedHelper, sdkPath: stagedSdk }, catalog }), { mode: 0o600, flag: "wx" });
     child = spawn(process.execPath, [path.join(root, "server.js")], { cwd: temp, env: {
       HOME: temp, PI_HOME: temp, PATH: path.dirname(process.execPath), PI_BIN: path.join(temp, "no-native-agent"),
       STEPSEMBLE_TOKEN: token, STEPSEMBLE_HISTORY_CONFIG: configPath, STEPSEMBLE_HOST: "127.0.0.1", STEPSEMBLE_PORT: String(port),
@@ -77,13 +102,15 @@ export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0 
         if (!result || result[0] !== 0 || result[1] !== null) throw new Error("synthetic_history_host_cleanup_unconfirmed_fixtures_preserved");
         await mutation;
         for (const row of files.values()) if (!(await fs.readFile(row.filename)).equals(row.bytes)) throw new Error("synthetic_history_fixture_changed_unexpectedly");
-        if (digest(await fs.readFile(helper)) !== helperHash || digest(await fs.readFile(sdk)) !== sdkHash) throw new Error("synthetic_history_artifact_changed");
+        for (const [original, staged, expected] of [[helper, stagedHelper, helperHash], [sdk, stagedSdk, sdkHash],
+          [path.join(path.dirname(sdk), "package.json"), path.join(artifacts, "package.json"), packageArtifact.sha256]])
+          if (digest(await fs.readFile(original)) !== expected || digest(await fs.readFile(staged)) !== expected) throw new Error("synthetic_history_artifact_changed");
         await fs.rm(temp, { recursive: true, force: true });
         return { cleanupConfirmed: true, fixturesUnchangedExceptExplicitMutation: true };
       })();
       return closed;
     }
-    return Object.freeze({ origin, token, issuedToken, issuedId, peer, cases, helperHash, sdkHash, close,
+    return Object.freeze({ origin, token, issuedToken, issuedId, peer, cases, helperHash, sdkHash, helperArtifact, sdkArtifact, close,
       changeFixture(name) {
         const file = files.get(name), c = cases.find(row => row.name === name); if (!file || !c || closed) throw new Error("synthetic_fixture_unavailable");
         const extra = encode([{ type: "custom-title", sessionId: c.sessionId, customTitle: "Synthetic explicit version change" }]);
