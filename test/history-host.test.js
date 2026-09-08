@@ -50,12 +50,13 @@ async function request(port, route = "/api/history/catalog", body = {}, override
   return { status: response.status, headers: response.headers, data, text };
 }
 function setup(input = config()) {
+  let readerOptions;
   const { service, state } = syntheticService();
   const authority = { browser: [{ id: "master", hash: hash(1) }, { id: "12345678", hash: hash(2) }], peers: [grantId], peer: null };
   const host = createHistoryHost({ config: input, browserCredentials: () => authority.browser, peerGrantIds: () => authority.peers,
     authenticatePeerCredential: v => v === hash(3) && authority.peers.includes(grantId) ? { grantId } : null,
-    resolvePeer: () => authority.peer, sourceServiceFactory: () => service });
-  return { host, state, authority };
+    resolvePeer: () => authority.peer, sourceServiceFactory: options => { readerOptions = options; return service; } });
+  return { host, state, authority, readerOptions };
 }
 test("Host configuration is explicit, detached, strictly bounded and has per-credential source grants", () => {
   const input = config(), result = parseHistoryConfig(input); input.catalog[0].readers.push("*");
@@ -183,6 +184,20 @@ test("shutdown stops admission synchronously, is idempotent and waits source cle
   const first = h.host.shutdown(), second = h.host.shutdown(); assert.equal(first, second);
   assert.equal((await request(port)).data.code, "history_registry_closed");
   assert.deepEqual(await first, { kind: "history_registry_closed", cleanupConfirmed: true, quarantined: false }); assert.equal(h.state.shutdowns, 1);
+});
+
+test("actual Host owns its shared reader budget and includes unknown cleanup in shutdown result", async () => {
+  const h = setup(), admission = h.readerOptions.admission;
+  assert.equal(require("../protocol/native/claude/history-reader-admission").isReaderAdmission(admission), true);
+  let actualClose = false, stopped = 0;
+  const permit = admission.acquire(() => { stopped++; }, () => actualClose);
+  permit.finish();
+  assert.equal(h.host.status().admission.quarantined, true);
+  const result = await h.host.shutdown();
+  assert.equal(result.cleanupConfirmed, false); assert.equal(result.quarantined, true); assert.ok(stopped > 0);
+  actualClose = true;
+  assert.equal(h.host.status().admission.cleanupConfirmed, true); assert.equal(h.host.status().admission.quarantined, true);
+  assert.equal((await h.host.shutdown()).cleanupConfirmed, false, "cached shutdown report must not rewrite an unknown cleanup into success");
 });
 
 test("actual server wires opt-in catalog, login/logout scope retirement, static entry and graceful shutdown", { skip: process.platform === "win32", timeout: 20000 }, async t => {

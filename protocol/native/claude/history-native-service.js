@@ -5,6 +5,7 @@ const path = require("node:path"), crypto = require("node:crypto");
 const { spawn } = require("node:child_process"), { performance } = require("node:perf_hooks");
 const { normalizeSourceInput } = require("./history-source");
 const { createNativeHelper, SOURCE_CODES } = require("./history-native-helper");
+const { createReaderAdmission, isReaderAdmission } = require("./history-reader-admission");
 const { validSdkPath } = require("./history-sdk");
 const { detach, keys, uuid } = require("./history-worker-wire");
 const wire = require("./history-bytes-wire");
@@ -30,14 +31,16 @@ function captureValue(value) {
 }
 
 function createNativeSourceService(options = {}) {
-  if (!ownOptions(options, ["helperPath", "sdkPath", "roots", "createHelper", "spawnChild", "platform", "deadlineMs", "cleanupMs"]))
+  if (!ownOptions(options, ["helperPath", "sdkPath", "roots", "createHelper", "spawnChild", "platform", "deadlineMs", "cleanupMs", "admission"]))
     throw new TypeError("invalid_native_source_service_options");
   const { helperPath, sdkPath, roots, createHelper = createNativeHelper, spawnChild = spawn, platform = process.platform,
     deadlineMs = LIMITS.deadlineMs, cleanupMs = LIMITS.cleanupMs } = options;
   if (!canonicalPath(helperPath) || helperPath.length > 4096 || !validSdkPath(sdkPath)
     || !Array.isArray(roots) || roots.length > LIMITS.roots || typeof createHelper !== "function" || typeof spawnChild !== "function"
+    || options.admission !== undefined && !isReaderAdmission(options.admission)
     || ![deadlineMs, cleanupMs].every(n => Number.isSafeInteger(n) && n > 0) || deadlineMs > LIMITS.deadlineMs || cleanupMs > LIMITS.cleanupMs)
     throw new TypeError("invalid_native_source_service_options");
+  const admission = options.admission ?? createReaderAdmission();
   // Detach the entire table before iteration: an Array's overridden iterator or
   // indexed accessor must not bypass its advertised 256-entry bound.
   const rootTable = detach(roots, LIMITS.roots * 12288);
@@ -61,6 +64,7 @@ function createNativeSourceService(options = {}) {
   function quarantine() {
     if (quarantined) return;
     quarantined = true;
+    admission.quarantine();
     for (const flight of flights) flight.stop("source_service_quarantined");
   }
   function helperClosed(slot) {
@@ -76,13 +80,14 @@ function createNativeSourceService(options = {}) {
     if (flight.state.flight === flight) flight.state.flight = null;
   }
   function sweep() {
+    if (admission.status().quarantined) quarantine();
     for (const flight of flights) {
       if (flight.settled && flight.helperSettled && !flight.childActive && helperClosed(flight.slot)) release(flight);
     }
   }
   function bind(input) {
     sweep();
-    if (closed) return unavailable("source_service_closed");
+    if (closed || admission.status().closed) return unavailable("source_service_closed");
     if (quarantined) return unavailable("source_service_quarantined");
     const value = detach(input), source = normalizeSourceInput(value?.source);
     if (!keys(value, ["bindingId", "generation", "source"]) || !uuid(value.bindingId) || !Number.isSafeInteger(value.generation)
@@ -104,7 +109,7 @@ function createNativeSourceService(options = {}) {
       if (!wire.validPage(page)) return unavailable("invalid_history_page");
       const { signal, version: token } = options;
       if (signal !== undefined && !(signal instanceof AbortSignal)) return unavailable("invalid_source_signal");
-      if (closed) return unavailable("source_service_closed");
+      if (closed || admission.status().closed) return unavailable("source_service_closed");
       if (quarantined) return unavailable("source_service_quarantined");
       if (state.revoked || bindings.get(value.bindingId) !== state) return unavailable("source_binding_revoked");
       if (signal?.aborted) return unavailable("source_aborted");
@@ -121,6 +126,8 @@ function createNativeSourceService(options = {}) {
       let resolve;
       const promise = new Promise(done => { resolve = done; }), controller = new AbortController();
       const flight = { promise, state, slot, stop, settled: false, helperSettled: false, childActive: false };
+      const permit = admission.acquire(stop, () => flight.helperSettled && !flight.childActive && helperClosed(slot));
+      if (permit.kind !== "reader_permit") return permit;
       state.flight = flight; slot.flight = flight; flights.add(flight);
       let failure = null, child = null, terminationSent = false, cleanupTimer = null;
       let output = null, outputBytes = 0, chunks = 0;
@@ -132,6 +139,7 @@ function createNativeSourceService(options = {}) {
         flight.settled = true; output = null;
         clearTimeout(timer); clearTimeout(cleanupTimer); signal?.removeEventListener("abort", abort);
         if (flight.helperSettled && !flight.childActive && helperClosed(slot)) release(flight);
+        permit.finish();
         resolve(result);
       }
       function terminate() {
@@ -148,7 +156,8 @@ function createNativeSourceService(options = {}) {
       }
       function current() {
         if (failure || flight.settled) return false;
-        if (closed) stop("source_service_closed");
+        if (closed || admission.status().closed) stop("source_service_closed");
+        else if (admission.status().quarantined) stop("source_service_quarantined");
         else if (state.revoked || bindings.get(value.bindingId) !== state) stop("source_binding_revoked");
         else if (signal?.aborted) stop("source_aborted");
         else if (performance.now() >= expiresAt) stop("source_worker_timeout");

@@ -7,6 +7,7 @@ const fs = require("node:fs"), path = require("node:path");
 const { canonicalJSON } = require("../public/modules/projection");
 const { normalizeSourceInput } = require("../protocol/native/claude/history-source");
 const { createNativeSourceService } = require("../protocol/native/claude/history-native-service");
+const { createReaderAdmission } = require("../protocol/native/claude/history-reader-admission");
 const { createHistoryRegistry } = require("../protocol/native/claude/history-registry");
 const { createHistoryIdentity } = require("./history-identity");
 const { createHistoryHttpHandler, configuredOrigin } = require("./history-http");
@@ -111,10 +112,11 @@ function createHistoryHost({ config: input, browserCredentials, peerGrantIds, au
   const metadata = new Map(config.catalog.map(e => [e.catalogId, e]));
   const allowed = (principal, id) => { const key = identity.credentialKey(principal); return !!key && metadata.get(id)?.readers.includes(key) === true; };
   const roots = [...new Map(config.catalog.map(e => [e.source.projectsRoot, e.expectedRoot]))].map(([projectsRoot, expectedRoot]) => ({ projectsRoot, expectedRoot }));
+  const admission = createReaderAdmission();
   let service;
   try {
     if (config.reader) {
-      service = sourceServiceFactory({ ...config.reader, roots });
+      service = sourceServiceFactory({ ...config.reader, roots, admission });
       registry = createHistoryRegistry({ sourceService: service, catalog: config.catalog.map(({ catalogId, source }) => ({ catalogId, source })),
         authorize: allowed, principalActive: identity.isPrincipalCurrent });
     }
@@ -148,17 +150,24 @@ function createHistoryHost({ config: input, browserCredentials, peerGrantIds, au
       },
       credentialsChanged: () => identity.refresh(),
       peerChanged: machineId => relay.revokePeer(machineId),
-      status: () => ({ enabled: true, registry: registry?.status() ?? null, workers: service?.status() ?? null }),
+      status: () => ({ enabled: true, registry: registry?.status() ?? null, workers: service?.status() ?? null, admission: admission.status() }),
       shutdown() {
         if (!closed) {
           closed = true;
+          admission.close();
           identity.shutdown(); relay.shutdown();
-          closing = registry ? registry.shutdown() : Promise.resolve({ cleanupConfirmed: true });
+          closing = (async () => {
+            const result = registry ? await registry.shutdown() : { cleanupConfirmed: true };
+            const shared = admission.status();
+            return { ...result, cleanupConfirmed: result.cleanupConfirmed === true && shared.cleanupConfirmed,
+              quarantined: result.quarantined === true || shared.quarantined };
+          })();
         }
         return closing;
       },
     });
   } catch (error) {
+    admission.close();
     identity.shutdown(); relay?.shutdown();
     try { void Promise.resolve(service?.shutdown()).catch(() => {}); } catch { /* construction failed closed */ }
     throw error;

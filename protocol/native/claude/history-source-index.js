@@ -4,30 +4,39 @@
 const crypto = require("node:crypto");
 const { canonicalJSON } = require("../../../public/modules/projection");
 const { createNativeHelper } = require("./history-native-helper");
+const { createReaderAdmission, isReaderAdmission } = require("./history-reader-admission");
 const wire = require("./history-inventory-wire");
 const unavailable = code => ({ kind: "source_unavailable", code });
 const own = (v, allowed) => !!v && typeof v === "object" && !Array.isArray(v)
   && [Object.prototype, null].includes(Object.getPrototypeOf(v)) && !Object.getOwnPropertySymbols(v).length
   && Object.entries(Object.getOwnPropertyDescriptors(v)).every(([k, d]) => allowed.includes(k) && Object.hasOwn(d, "value"));
 function createSourceIndex(options) {
-  if (!own(options, ["sourceId", "source", "helperPath", "authorize", "createHelper"])) throw new TypeError("invalid_source_index_options");
+  if (!own(options, ["sourceId", "source", "helperPath", "authorize", "createHelper", "admission"])) throw new TypeError("invalid_source_index_options");
   const { sourceId, helperPath, authorize, createHelper = createNativeHelper } = options;
   const encoded = canonicalJSON(options.source, 12 * 1024), source = encoded === null ? null : JSON.parse(encoded);
   if (typeof sourceId !== "string" || !/^[A-Za-z0-9:_-]{1,128}$/.test(sourceId) || !wire.input(source)
-    || typeof authorize !== "function" || typeof createHelper !== "function") throw new TypeError("invalid_source_index_options");
+    || typeof authorize !== "function" || typeof createHelper !== "function"
+    || options.admission !== undefined && !isReaderAdmission(options.admission)) throw new TypeError("invalid_source_index_options");
+  const admission = options.admission ?? createReaderAdmission();
   const helper = createHelper({ executablePath: helperPath, trustBoundary: "host_managed_executable" });
   if (!helper || !["inventory", "status", "shutdown"].every(k => typeof helper[k] === "function")) throw new TypeError("invalid_source_index_helper");
   let closed = false, quarantined = false, flight = null, revision = 0, snapshot = null, stale = true, lastError = null, shutdownPromise;
+  function helperClosed() {
+    try { const status = helper.status(); return status.activeWorker === false && status.cleanupConfirmed === true; }
+    catch { return false; }
+  }
   function allowed(principal) {
     try { return typeof principal === "string" && /^[A-Za-z0-9:_-]{1,128}$/.test(principal) && authorize(principal, sourceId) === true; }
     catch { return false; }
   }
   function failure() {
-    if (closed) return "source_service_closed";
+    const shared = admission.status();
+    if (closed || shared.closed) return "source_service_closed";
+    if (shared.quarantined) quarantined = true;
     if (quarantined) return "source_service_quarantined";
     try {
       const state = helper.status();
-      if (state.quarantined === true) return "source_service_quarantined";
+      if (state.quarantined === true) { quarantined = true; admission.quarantine(); return "source_service_quarantined"; }
       if (state.closed !== false || state.quarantined !== false) return "source_worker_failure";
     } catch { return "source_worker_failure"; }
     return null;
@@ -46,18 +55,23 @@ function createSourceIndex(options) {
     if (options.signal?.aborted) return unavailable("source_aborted");
     if (flight || helper.status().activeWorker) return unavailable("source_busy");
     if (revision === Number.MAX_SAFE_INTEGER) return unavailable("source_inventory_limit");
-    const controller = new AbortController(), current = { principal, controller, revoked: false };
+    let done;
+    const controller = new AbortController(), current = { principal, controller, revoked: false, failure: null, settled: false,
+      done: new Promise(resolve => { done = resolve; }) };
+    const permit = admission.acquire(code => { current.failure = code; controller.abort(); }, () => current.settled && helperClosed());
+    if (permit.kind !== "reader_permit") return permit;
     flight = current; stale = true;
     const abort = () => controller.abort(); options.signal?.addEventListener("abort", abort, { once: true });
     try {
       const raw = await helper.inventory(structuredClone(source), { signal: controller.signal });
       const status = helper.status();
-      if (status.quarantined || status.activeWorker || status.cleanupConfirmed !== true) {
+      if (status.quarantined !== false || status.activeWorker !== false || status.cleanupConfirmed !== true) {
         quarantined = true;
+        admission.quarantine();
         lastError = "source_cleanup_unconfirmed"; return unavailable(lastError);
       }
-      if (closed || current.revoked || controller.signal.aborted || !allowed(principal)) {
-        lastError = "source_aborted"; return unavailable(lastError);
+      if (closed || current.revoked || controller.signal.aborted || !allowed(principal) || failure()) {
+        lastError = current.failure ?? "source_aborted"; return unavailable(lastError);
       }
       // A trusted test/helper injection cannot bypass structural checks. Re-encode
       // detached metadata through the same decoder, with no executable getters.
@@ -88,17 +102,40 @@ function createSourceIndex(options) {
         changes: { added, changed, removed: old.size } };
       revision++; stale = false; lastError = null; flight = null;
       return view(principal);
-    } catch { lastError = "source_worker_failure"; return unavailable(lastError); }
-    finally { if (flight === current) flight = null; options.signal?.removeEventListener("abort", abort); }
+    } catch {
+      lastError = "source_worker_failure";
+      if (!helperClosed()) { quarantined = true; admission.quarantine(); lastError = "source_cleanup_unconfirmed"; }
+      return unavailable(lastError);
+    }
+    finally {
+      current.settled = true;
+      if (!permit.finish()) { quarantined = true; admission.quarantine(); }
+      if (flight === current) flight = null;
+      options.signal?.removeEventListener("abort", abort); done();
+    }
   }
   function revokePrincipal(principal) {
     if (flight?.principal === principal) { flight.revoked = true; flight.controller.abort(); }
   }
   function shutdown() {
-    if (!closed) { closed = true; stale = true; snapshot = null; flight?.controller.abort(); shutdownPromise = helper.shutdown(); }
+    if (!closed) {
+      closed = true; stale = true; snapshot = null;
+      const pending = flight; pending?.controller.abort();
+      shutdownPromise = (async () => {
+        let result;
+        try { result = await helper.shutdown(); } catch { quarantined = true; admission.quarantine(); }
+        await pending?.done;
+        return { kind: "source_index_closed", cleanupConfirmed: result?.cleanupConfirmed === true && helperClosed(),
+          quarantined: quarantined || admission.status().quarantined };
+      })();
+    }
     return shutdownPromise;
   }
   return Object.freeze({ refresh, view, revokePrincipal, shutdown,
-    status: () => ({ closed, quarantined, revision, stale, retainedEntries: snapshot?.entries.length ?? 0, refreshing: flight !== null }) });
+    status: () => {
+      const shared = admission.status();
+      return { closed: closed || shared.closed, quarantined: quarantined || shared.quarantined,
+        revision, stale, retainedEntries: snapshot?.entries.length ?? 0, refreshing: flight !== null };
+    } });
 }
 module.exports = { createSourceIndex };

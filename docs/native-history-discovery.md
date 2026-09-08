@@ -5,6 +5,11 @@
 開發版仍為 3.0.7-rc.5，正式兩台 Mac 仍為 3.0.6，沒有部署或新增私人來源授權。
 這不是所有 agent 自動收錄已完成，也不改寫固定 ab227af 的 72h 長測。
 
+**Plan1.50接續已實作**：[共用reader admission](history-reader-admission.md)可讓index
+與content使用同一Host-owned兩flight預算，已驗真Rust＋SDK並行/cleanup/quarantine。
+下文「全域預算待完成」保留1.49當時狀態；目前仍需將source-group設定及HTTP/Web
+掛上同一instance，不能每個group建立自己的budget，也不能說已完成全来源UI。
+
 ## 這批解決什麼
 
 既有 `history.json` 一筆設定只能指定一個 session；不能為了列出所有 native

@@ -3,6 +3,8 @@ const test = require("node:test"), assert = require("node:assert/strict"), path 
 const { EventEmitter } = require("node:events"), { PassThrough } = require("node:stream");
 const { createNativeSourceService, LIMITS } = require("../protocol/native/claude/history-native-service");
 const { createHistoryRegistry } = require("../protocol/native/claude/history-registry");
+const { createReaderAdmission } = require("../protocol/native/claude/history-reader-admission");
+const { createSourceIndex } = require("../protocol/native/claude/history-source-index");
 const wire = require("../protocol/native/claude/history-bytes-wire");
 const fixture = require("../protocol/native/claude/history-fixture.cjs");
 const { parseHistoryBytes } = require("../protocol/native/claude/history-source");
@@ -75,6 +77,87 @@ async function start(h, options = {}) {
   h.helpers.find(h => h.active).finish(); await tick();
   const child = h.children.at(-1); child.reply(await history(child.job())); return pending;
 }
+
+function sharedIndex(admission, sourceId = "group-a") {
+  let finish, active = false, closed = false, calls = 0;
+  const index = createSourceIndex({ sourceId, source: roots()[0], helperPath, admission, authorize: principal => principal === "owner",
+    createHelper: () => ({
+      inventory(_source, { signal }) {
+        active = true; calls++;
+        return new Promise(resolve => {
+          finish = (confirmClose = true) => { if (confirmClose) active = false; resolve(unavailable("source_missing")); };
+          signal.addEventListener("abort", () => finish(), { once: true });
+        });
+      },
+      status: () => ({ activeWorker: active, cleanupConfirmed: !active, closed, quarantined: false }),
+      async shutdown() { closed = true; finish?.(); return { cleanupConfirmed: !active }; }
+    }) });
+  return { index, calls: () => calls, active: () => active, finish: confirmClose => finish(confirmClose), lateClose: () => { active = false; } };
+}
+
+test("one Host admission bounds inventory plus both content stages without an intervening free slot", async () => {
+  const admission = createReaderAdmission(), h = harness({ admission }), a = sharedIndex(admission), b = sharedIndex(admission, "group-b");
+  const content = h.bound.observe(request, { page }), scan = a.index.refresh("owner");
+  assert.equal(admission.status().activeWorkers, 2); assert.equal(h.physical() + Number(a.active()), 2);
+  assert.equal((await b.index.refresh("owner")).code, "source_busy"); assert.equal(b.calls(), 0);
+  h.helpers[0].finish(); await tick();
+  assert.equal(h.children.length, 1); assert.equal(admission.status().activeWorkers, 2);
+  assert.equal((await b.index.refresh("owner")).code, "source_busy"); assert.equal(b.calls(), 0);
+  h.children[0].reply(await history(h.children[0].job())); assert.equal((await content).kind, "bound_history_observation");
+  const next = b.index.refresh("owner"); assert.equal(b.calls(), 1); assert.equal(admission.status().activeWorkers, 2);
+  a.finish(); b.finish(); await Promise.all([scan, next]); assert.equal(admission.status().cleanupConfirmed, true);
+  await Promise.all([h.service.shutdown(), a.index.shutdown(), b.index.shutdown()]);
+});
+
+test("two source-group scans deny content before spawn, and shutting one index leaves the other alive", async () => {
+  const admission = createReaderAdmission(), h = harness({ admission }), a = sharedIndex(admission), b = sharedIndex(admission, "group-b");
+  const first = a.index.refresh("owner"), second = b.index.refresh("owner");
+  assert.equal((await h.bound.observe(request, { page })).code, "source_busy");
+  assert.equal(h.helpers.every(h => h.calls.length === 0), true);
+  await a.index.shutdown(); assert.equal((await first).kind, "source_unavailable");
+  assert.equal(b.active(), true); assert.equal(admission.status().activeWorkers, 1); assert.equal(admission.status().closed, false);
+  const content = h.bound.observe(request, { page }); assert.equal(admission.status().activeWorkers, 2);
+  h.helpers[0].finish(); await tick(); h.children[0].reply(await history(h.children[0].job())); await content;
+  b.finish(); await second; await Promise.all([h.service.shutdown(), b.index.shutdown()]);
+});
+
+test("unknown index cleanup stops content and prevents a replacement service from bypassing quarantine", async () => {
+  const admission = createReaderAdmission(), h = harness({ admission }), a = sharedIndex(admission);
+  const content = h.bound.observe(request, { page }), scan = a.index.refresh("owner");
+  h.helpers[0].finish(); await tick(); a.finish(false);
+  assert.equal((await scan).code, "source_cleanup_unconfirmed");
+  assert.equal((await content).code, "source_service_quarantined"); assert.equal(h.children[0].kills, 1);
+  assert.equal(admission.status().quarantined, true);
+  // Cancellation may close this synthetic inventory helper; neither a late
+  // close nor a new consumer of the same Host budget can reset quarantine.
+  a.lateClose(); assert.equal(admission.status().cleanupConfirmed, true);
+  const replacement = harness({ admission }); assert.equal(replacement.bound.code, "source_service_quarantined");
+  assert.equal(replacement.helpers.every(h => h.calls.length === 0), true);
+  await Promise.all([h.service.shutdown(), a.index.shutdown(), replacement.service.shutdown()]);
+});
+
+test("unknown content cleanup propagates across the shared budget to inventory, and late close stays quarantined", async () => {
+  const admission = createReaderAdmission(), h = harness({ admission, holdHelperClose: true }), a = sharedIndex(admission);
+  const content = h.bound.observe(request, { page }), scan = a.index.refresh("owner");
+  h.helpers[0].finish(unavailable("source_cleanup_unconfirmed"), false);
+  assert.equal((await content).code, "source_cleanup_unconfirmed"); assert.equal((await scan).code, "source_service_quarantined");
+  assert.equal(a.active(), false); assert.equal(admission.status().activeWorkers, 1);
+  h.helpers[0].lateClose(); assert.equal(admission.status().activeWorkers, 0); assert.equal(admission.status().quarantined, true);
+  assert.equal((await a.index.refresh("owner")).code, "source_service_quarantined");
+  await Promise.all([h.service.shutdown(), a.index.shutdown()]);
+});
+
+test("shared Host close cancels scans and content before any more spawn; forged budgets are rejected", async () => {
+  const admission = createReaderAdmission(), h = harness({ admission }), a = sharedIndex(admission);
+  const content = h.bound.observe(request, { page }), scan = a.index.refresh("owner");
+  admission.close(); await Promise.all([content, scan]);
+  assert.equal(admission.status().cleanupConfirmed, true); assert.equal(h.children.length, 0);
+  assert.equal((await a.index.refresh("owner")).code, "source_service_closed");
+  assert.equal((await h.bound.observe(request, { page })).code, "source_service_closed");
+  assert.throws(() => harness({ admission: { ...admission } }), /invalid_native_source_service_options/);
+  assert.throws(() => sharedIndex({ ...admission }), /invalid_source_index_options/);
+  await Promise.all([h.service.shutdown(), a.index.shutdown()]);
+});
 
 test("trusted immutable root grants and mandatory helper/SDK paths reject unknown roots and extra fields", async () => {
   const grant = roots(), h = harness({ roots: grant });

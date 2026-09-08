@@ -5,11 +5,15 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
+import { spawn } from "node:child_process";
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
 import fixture from "../protocol/native/claude/history-fixture.cjs";
 import nativeService from "../protocol/native/claude/history-native-service.js";
+import nativeHelper from "../protocol/native/claude/history-native-helper.js";
+import sourceIndex from "../protocol/native/claude/history-source-index.js";
+import readerAdmission from "../protocol/native/claude/history-reader-admission.js";
 import provider from "../public/modules/claude-history.js";
 import projection from "../public/modules/projection.js";
 import { checkHistoryAccess } from "./check-history-access.mjs";
@@ -28,7 +32,18 @@ export async function checkNativeHistoryPipeline({ helperPath, sdkPath }) {
   const pkg = JSON.parse(await fs.readFile(path.join(path.dirname(sdk), "package.json"), "utf8"));
   assert.equal(pkg.name, "@anthropic-ai/claude-agent-sdk"); assert.equal(pkg.version, SDK_VERSION); assert.equal(pkg.claudeCodeVersion, NATIVE_VERSION);
   const temp = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-native-pipeline-")));
-  const services = [], expectedFiles = new Map(), metrics = [], started = performance.now();
+  const services = [], indexes = [], expectedFiles = new Map(), metrics = [], started = performance.now();
+  const admission = readerAdmission.createReaderAdmission();
+  let physicalWorkers = 0, maxPhysicalWorkers = 0, spawnAttempts = 0;
+  const spawnOwned = (...args) => {
+    spawnAttempts++;
+    assert.ok(physicalWorkers < 2, "shared inventory/content physical worker budget exceeded");
+    const child = spawn(...args);
+    physicalWorkers++; maxPhysicalWorkers = Math.max(maxPhysicalWorkers, physicalWorkers);
+    child.once("close", () => { physicalWorkers--; });
+    return child;
+  };
+  const createHelper = options => nativeHelper.createNativeHelper({ ...options, spawnChild: spawnOwned });
   let cleanupConfirmed = true;
   try {
     const root = path.join(temp, "projects"), projectKey = "owned-pipeline", project = path.join(root, projectKey);
@@ -37,7 +52,8 @@ export async function checkNativeHistoryPipeline({ helperPath, sdkPath }) {
     const rootStat = await fs.stat(root, { bigint: true });
     const roots = [{ projectsRoot: root, expectedRoot: { device: String(rootStat.dev), inode: String(rootStat.ino) } }];
     const createService = () => {
-      const service = nativeService.createNativeSourceService({ helperPath: helper, sdkPath: sdk, roots }); services.push(service); return service;
+      const service = nativeService.createNativeSourceService({ helperPath: helper, sdkPath: sdk, roots, admission,
+        createHelper, spawnChild: spawnOwned }); services.push(service); return service;
     };
     const cases = fixture.richCases(temp);
     const write = async (sessionId, bytes) => {
@@ -46,6 +62,27 @@ export async function checkNativeHistoryPipeline({ helperPath, sdkPath }) {
     };
     for (const testCase of cases) await write(testCase.sessionId, encode(testCase.records));
     const service = createService(), validator = provider.create({ canonicalJSON: projection.canonicalJSON });
+    if (process.platform !== "win32") {
+      const index = sourceIndex.createSourceIndex({ sourceId: "owned-native-pipeline", source: roots[0], helperPath: helper,
+        admission, createHelper, authorize: principal => principal === "synthetic-owner" });
+      indexes.push(index);
+      const bindingId = crypto.randomUUID(), bound = service.bind({ bindingId, generation: 1,
+        source: { projectsRoot: root, projectKey, sessionId: cases[0].sessionId } });
+      const contentRequest = { bindingId, generation: 1, requestId: crypto.randomUUID() };
+      const content = bound.observe(contentRequest), scan = index.refresh("synthetic-owner");
+      assert.equal(admission.status().activeWorkers, 2); assert.equal(physicalWorkers, 2);
+      const otherId = crypto.randomUUID(), other = service.bind({ bindingId: otherId, generation: 1,
+        source: { projectsRoot: root, projectKey, sessionId: cases[1].sessionId } });
+      const before = spawnAttempts;
+      assert.equal((await other.observe({ bindingId: otherId, generation: 1, requestId: crypto.randomUUID() })).code, "source_busy");
+      assert.equal(spawnAttempts, before, "busy response must precede any spawn attempt");
+      const [observed, inventory] = await Promise.all([content, scan]);
+      assert.equal(observed.kind, "bound_history_observation", observed.code);
+      assert.equal(inventory.kind, "source_inventory_state", inventory.code);
+      assert.equal(inventory.snapshot.entries.length, cases.length); assert.equal(inventory.stale, false);
+      assert.equal(admission.status().cleanupConfirmed, true); assert.equal(physicalWorkers, 0);
+      bound.revoke(); other.revoke(); assert.equal((await index.shutdown()).cleanupConfirmed, true);
+    }
     for (const testCase of cases) {
       const bindingId = crypto.randomUUID(), request = { bindingId, generation: 1, requestId: crypto.randomUUID() };
       const bound = service.bind({ bindingId, generation: 1, source: { projectsRoot: root, projectKey, sessionId: testCase.sessionId } });
@@ -114,14 +151,21 @@ export async function checkNativeHistoryPipeline({ helperPath, sdkPath }) {
       officialSdkVersion: SDK_VERSION, nativeVersion: NATIVE_VERSION, sdkSha256, helperArtifactSha256: helperSha256,
       metrics, elapsedMs: Math.round(performance.now() - started), ...access,
       boundedPageAndVersionGate: process.platform === "win32" ? "source_platform_unsupported" : "posix_owned_fixture_passed",
+      sharedReaderAdmissionGate: process.platform === "win32" ? "source_platform_unsupported" : "posix_owned_fixture_passed",
+      readerPhysicalWorkers: { max: maxPhysicalWorkers, remaining: physicalWorkers, spawnAttempts },
       sourceAuthenticated: false, publishable: false, privateHistoryReads: 0, modelCalls: 0, productionWiring: false,
       applicationHostWiring: process.platform !== "win32", productionChanged: false,
       ownedFixturesUnchangedExceptExplicitMutation: true, cleanupConfirmed: true };
   } finally {
+    for (const index of indexes) {
+      try { cleanupConfirmed = (await index.shutdown()).cleanupConfirmed === true && cleanupConfirmed; }
+      catch { cleanupConfirmed = false; }
+    }
     for (const service of services) {
       try { cleanupConfirmed = (await service.shutdown()).cleanupConfirmed === true && cleanupConfirmed; }
       catch { cleanupConfirmed = false; }
     }
+    cleanupConfirmed = admission.close().cleanupConfirmed === true && physicalWorkers === 0 && cleanupConfirmed;
     if (cleanupConfirmed) await fs.rm(temp, { recursive: true, force: true });
     else { const error = new Error("native_pipeline_cleanup_unconfirmed_owned_fixtures_preserved"); error.cleanupUnconfirmed = true; throw error; }
   }
