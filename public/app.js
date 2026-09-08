@@ -1,7 +1,7 @@
-/* stepsemble v3.0.7-rc.3 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.7-rc.4 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.7-rc.3";
+const CLIENT_APP_VERSION = "3.0.7-rc.4";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -83,7 +83,7 @@ const el = {
   agentTaskCenter: $("agent-task-center"), agentTaskCenterClose: $("agent-task-center-close"), agentTaskCenterTitle: $("agent-task-center-title"), agentTaskCenterSummary: $("agent-task-center-summary"), agentTaskCenterSearch: $("agent-task-center-search"), agentTaskCenterFilter: $("agent-task-center-filter"), agentTaskCenterList: $("agent-task-center-list"), agentTaskCenterEmpty: $("agent-task-center-empty"),
   machineSwitch: $("machine-switch"), machineSwitchStatus: $("machine-switch-status"),
   machineCatalogStatus: $("machine-catalog-status"), machineCatalogStatusCopy: $("machine-catalog-status-copy"), machineCatalogRetry: $("machine-catalog-retry"),
-  btnBack: $("btn-back"), chatTitle: $("chat-title"), chatSub: $("chat-sub"),
+  btnBack: $("btn-back"), chatTitle: $("chat-title"), chatSub: $("chat-sub"), chatAgentLogo: $("chat-agent-logo"),
   chatHeadInfo: $("chat-head-info"), thinkingStatus: $("thinking-status"), btnChatMenu: $("btn-chat-menu"),
   runTimer: $("run-timer"),
   btnChanges: $("btn-changes"), changesBadge: $("changes-badge"), changesLayer: $("changes-layer"),
@@ -1410,6 +1410,7 @@ function showList(options = {}) {
 el.btnBack.addEventListener("click", showList);
 
 function showChatEmpty() {
+  setChatAgent(null);
   el.viewChat.classList.add("chat-is-empty");
   el.chatTitle.textContent = "Stepsemble";
   el.chatSub.textContent = "";
@@ -1742,7 +1743,7 @@ function renderAgentHub() {
       const label = document.createElement("span");
       label.textContent = connector.label || connector.id;
       label.dataset.i18nIgnore = "";
-      chip.append(dot, label);
+      chip.append(dot, StepsembleAgentIdentity.create(document, connector.id, true), label);
       el.agentHubConnectors.appendChild(chip);
     }
   }
@@ -1780,7 +1781,9 @@ function renderAgentHub() {
     const state = document.createElement("span");
     state.className = "agent-task-state";
     state.textContent = agentTaskElapsed(task) ? `${agentStatusText(task.status)} · ${agentTaskElapsed(task)}` : agentStatusText(task.status);
-    row.append(dot, copy, state);
+    const logo = StepsembleAgentIdentity.create(document, task.agentId, true);
+    logo.appendChild(dot);
+    row.append(logo, copy, state);
     row.addEventListener("click", () => openAgentTaskFromHub(task));
     el.agentTaskList.appendChild(row);
   }
@@ -1879,7 +1882,9 @@ function renderAgentTaskCenter() {
       });
       actions.appendChild(stop);
     }
-    row.append(dot, open, actions);
+    const logo = StepsembleAgentIdentity.create(document, task.agentId, true);
+    logo.appendChild(dot);
+    row.append(logo, open, actions);
     el.agentTaskCenterList.appendChild(row);
   }
 }
@@ -2446,10 +2451,12 @@ function renderSessionList(q) {
     li.dataset.sessionFile = s.file;
     const rawName = sessionDisplayTitle(s);
     const name = stripMd(rawName).slice(0, 70) || (window.stepsembleI18n?.t("(Untitled)") || "(Untitled)");
-    // Recency first: scanning for "what did I just do" beats tok/$.
+    // This list is populated by the Pi sessions endpoint, including legacy rows.
+    const sessionAgentId = s.agentId ?? "pi";
     const relative = window.stepsembleSessionUtils.compactRelativeTime(s.mtimeMs);
     const when = relative || (s.mtimeMs ? tKey("sessions.justNow") : "");
     const usage = [
+      StepsembleAgentIdentity.lookup(sessionAgentId).label,
       when,
       s.tokens ? `${fmtTokens(s.tokens)} tok` : "",
       s.cost ? "$" + s.cost.toFixed(2) : "",
@@ -2464,6 +2471,7 @@ function renderSessionList(q) {
       </button>
       <span class="session-item-actions"></span>`;
     li.querySelector(".s-name").textContent = name;
+    li.querySelector(".session-item-main").prepend(StepsembleAgentIdentity.create(document, sessionAgentId, true));
     const meta = li.querySelector(".s-meta");
     // A session that is still working outranks its token/cost summary: after
     // a reload this row is the only place that says the host is busy.
@@ -3059,6 +3067,13 @@ el.projectActionRemove?.addEventListener("click", () => {
 // 對話視圖 + RPC
 // ===========================================================================
 
+function setChatAgent(agentId) {
+  if (!el.chatAgentLogo) return;
+  el.chatAgentLogo.replaceChildren();
+  el.chatAgentLogo.classList.toggle("hidden", agentId == null);
+  if (agentId != null) el.chatAgentLogo.appendChild(StepsembleAgentIdentity.create(document, agentId));
+}
+
 function setChatTitle(title) {
   const value = String(title || "").trim();
   el.chatTitle.textContent = value || (window.stepsembleI18n?.t("New conversation") || "New conversation");
@@ -3079,6 +3094,7 @@ async function openExisting(s) {
   updateSessionSelection();
   hideChatEmpty();
   setChatTitle(sessionDisplayTitle(s));
+  setChatAgent(s.agentId ?? "pi");
   el.chatSub.dataset.base = s.cwd; el.chatSub.textContent = s.cwd; resetLiveUsage();
   removeHistoryLoadButton();
   historyState = { file: s.file, before: null, hasMore: false, loading: false };
@@ -3559,6 +3575,7 @@ async function startNew(cwd, name, agentId = "pi", worktree = false) {
   autoScrollPinned = true;
   hideChatEmpty();
   setChatTitle(name);
+  setChatAgent(agentId);
   el.chatSub.dataset.base = cwd; el.chatSub.textContent = cwd; resetLiveUsage();
   el.messages.innerHTML = "";
   resetSessionUsage();
@@ -3799,6 +3816,7 @@ function applyGenericTaskSnapshot(snapshot = {}) {
   rpc.taskStatus = status;
   if (snapshot.agentId) rpc.agentId = String(snapshot.agentId);
   if (snapshot.agentId) rpc.agentLabel = agentConnectorLabel(snapshot.agentId);
+  if (snapshot.agentId) setChatAgent(snapshot.agentId);
   if (Number.isFinite(Number(snapshot.startedAt)) && Number(snapshot.startedAt) > 0) rpc.runStartedAt = Number(snapshot.startedAt);
   if (Number.isFinite(Number(snapshot.endedAt)) && Number(snapshot.endedAt) > 0) rpc.runEndedAt = Number(snapshot.endedAt);
   rpc.activityLabel = status === "waiting" ? "waiting" : "working";
@@ -3855,6 +3873,7 @@ async function openGenericTask(task) {
   autoScrollPinned = true;
   hideChatEmpty();
   setChatTitle(name);
+  setChatAgent(task.agentId || "agent");
   el.chatSub.dataset.base = cwd;
   el.chatSub.textContent = cwd;
   resetLiveUsage();

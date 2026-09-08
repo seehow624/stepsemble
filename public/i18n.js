@@ -3631,6 +3631,15 @@
   for (const [id, table] of Object.entries(AGENT_HUB_TASK_CENTER_TRANSLATIONS)) {
     if (AGENT_HUB_TRANSLATIONS[id]) Object.assign(AGENT_HUB_TRANSLATIONS[id], table);
   }
+  const AGENT_MESSAGE_PLACEHOLDERS = {
+    en: "Write a message…", "zh-Hant": "輸入訊息…", "zh-Hans": "输入消息…",
+    ja: "メッセージを入力…", ko: "메시지 입력…", tr: "Bir mesaj yazın…",
+    fr: "Écrivez un message…", de: "Nachricht schreiben…", es: "Escribe un mensaje…",
+    "pt-BR": "Escreva uma mensagem…", it: "Scrivi un messaggio…",
+  };
+  for (const [id, placeholder] of Object.entries(AGENT_MESSAGE_PLACEHOLDERS)) {
+    AGENT_HUB_TRANSLATIONS[id]["agentHub.messagePlaceholder"] = placeholder;
+  }
   for (const id of Object.keys(KEYED_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], AGENT_HUB_TRANSLATIONS.en, AGENT_HUB_TRANSLATIONS[id] || {});
 
   const KEYED_SOURCE_KEYS = Object.freeze(Object.keys(KEYED_TRANSLATIONS.en));

@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.46
+> 計畫版本：1.47
 > 最後更新：2026-09-08
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -34,6 +34,7 @@
 | Web 產品定位 | 已定案 | Web/PWA 永久保留，不是過渡版 |
 | 產品名稱與識別 | B+ 向量母版已定案，rc.2候選驗收通過 | Stepsemble；step + ensemble。Jerome於2026-09-07確認B+：同一模組與藍紫內緣精確旋轉四次、一般版四邊16%、maskable另留安全區；3.0.7-rc.2本機／瀏覽器／三OS CI／rolling全綠，不代表已部署 |
 | Host/Client 邊界 | 已定案 | Desktop 可為 Host + Client；iOS/Android 初期只為 Client |
+| 對話來源辨識 | rc.4 已實作，未部署 | 共用 allowlisted Agent 圖示：Pi、Claude Code、Codex、OpenCode、Grok Build；列表／Hub／工作中心／標題；模型不冒充 Agent，未知來源中性 fallback。GPT/ChatGPT 僅預留呈現映射，未新增 connector。見 `agent-identity.md` |
 | App Shell | 目標已定，待驗證 | Tauri 2 為預設方案；必須先通過 Apple 實機 PoC 驗收門檻 |
 | 當前回歸基線 | 3.0.6 發布 gate 全通過 | `331b9f0`／CI34027897400三OS335tests／0fail（Mac333pass2skip、Win325/10、Linux332/3）；rolling34027897382兩OS各15cases；Release34028079034全綠。原Windows stop race已修，見 `agent-stop-reliability.md` |
 | Pi Failed／session 名稱修正 | 已隨3.0.4部署 | 已分離預期 idle close 與異常退出、補上送出／關閉競爭保護，名稱統一 native name／first user；驗證與相容邊界見 `pi-session-lifecycle.md`。未呼叫真實模型或改寫歷史 |
@@ -1005,6 +1006,14 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-08 — Plan 1.47
+
+- Jerome 確認所有本機 Agent 對話都應納入長期統一入口；以來源一次授權、增量索引、原生 ID／名稱保存、按需讀取為方向，不要求逐對話手動登記。這是後續工作，rc.3 的 explicit catalog 不是完整自動探索。
+- 本批只完成各來源對話前的 logo：共用 strict TypeScript identity／固定本機 SVG／SW precache，接入既有 Pi 清單、五個 Agent 的 Hub／工作中心與 chat heading。來源身分不隨模型切換；Codex 與 GPT 各自辨識；未知中性 fallback。
+- 保留 Stepsemble B+、原生檔案／帳號／approval／模型路由與正式 3.0.6；開發候選升 3.0.7-rc.4 使快取同步。舊 Pi-only composer 提示改為 11 語中性提示。
+- 本機 Node22.22.3 完整646tests：644pass／2平台skip／0fail，strict TS artifact／version checks通過；CUA自建隔離 Host 驗390px暗色、320px亮色、Claude→Codex標題切換與重載、工作中心，無水平溢出。沒有真實模型呼叫。
+- 精確驗收與限制見 `agent-identity.md`；這不是全部原生歷史／session／approval parity完成，也未改固定72h soak或發布正式版。
 
 ### 2026-09-08 — Plan 1.46
 

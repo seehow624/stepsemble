@@ -1,0 +1,41 @@
+/* Fixed local masks: no model metadata, remote requests, or layout shifts. */
+.agent-logo {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--text, currentColor);
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  vertical-align: middle;
+}
+.agent-logo-mark {
+  display: block;
+  width: 20px;
+  height: 20px;
+  background: currentColor;
+  -webkit-mask: var(--agent-mark) center / contain no-repeat;
+  mask: var(--agent-mark) center / contain no-repeat;
+}
+.agent-logo[data-agent-id="pi"] { --agent-mark: url("/agent-logos/v1/pi.svg"); }
+/* Pi's official artwork includes a generous square canvas. */
+.agent-logo[data-agent-id="pi"] .agent-logo-mark { -webkit-mask-size: 160%; mask-size: 160%; }
+.agent-logo[data-agent-id="claude-code"] { --agent-mark: url("/agent-logos/v1/claude.svg"); color: #c66b45; }
+.agent-logo[data-agent-id="codex"] { --agent-mark: url("/agent-logos/v1/codex.svg"); }
+.agent-logo[data-agent-id="opencode"] { --agent-mark: url("/agent-logos/v1/opencode.svg"); }
+.agent-logo[data-agent-id="grok-build"] { --agent-mark: url("/agent-logos/v1/grok.svg"); }
+.agent-logo[data-agent-id="gpt"], .agent-logo[data-agent-id="chatgpt"] { --agent-mark: url("/agent-logos/v1/openai.svg"); }
+.agent-logo[data-agent-id="agent"] { --agent-mark: url("/agent-logos/v1/agent.svg"); }
+.agent-task-row, .agent-task-center-row { grid-template-columns: 28px minmax(0, 1fr) auto; }
+.agent-logo > .agent-task-dot { position: absolute; right: -1px; bottom: -1px; margin: 0; }
+.session-item-main { gap: 8px; }
+.chat-agent-logo { display: inline-flex; flex: 0 0 28px; }
+.agent-connector-chip .agent-logo { width: 18px; height: 18px; flex-basis: 18px; background: none; }
+.agent-connector-chip .agent-logo-mark { width: 16px; height: 16px; }
+@media (forced-colors: active) {
+  .agent-logo { color: CanvasText; background: Canvas; }
+  .agent-logo-mark { forced-color-adjust: none; background: CanvasText; }
+}

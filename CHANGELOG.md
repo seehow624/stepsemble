@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.0.7-rc.4
+
+Development candidate; production Hosts remain on 3.0.6. The fixed-source
+72-hour soak is unchanged and does not cover these newer changes.
+
+- Add leading local agent marks to sessions, Agent Hub, the task center and
+  conversation headers, keeping status indicators and accessible agent names.
+- Replace the Pi-only composer placeholder with a neutral prompt in all 11
+  interface languages so other agents are not mislabeled as Pi.
+- Distinguish harness identity from selected models: Codex and GPT use different
+  marks; Pi stays Pi regardless of its model. Unknown sources use a neutral mark.
+- Precache pinned, attributed SVG assets for offline display; no per-row external
+  image requests or new runtime dependencies. Keep Stepsemble's B+ logo unchanged.
+- Reserve explicit GPT/ChatGPT presentation mappings without claiming a new
+  connector or automatic discovery of all native histories.
+
 ## 3.0.7-rc.3
 
 Development candidate; stable Hosts remain on 3.0.6. The fixed-source 72-hour

@@ -115,6 +115,7 @@ test("returning to a mobile list clears the desktop pane and stale session ident
     refreshSessions: async () => {}, rpc: null, viewGeneration: 0, currentSessionCwd: "old" });
   vm.runInContext(source.slice(source.indexOf("function showList(options"), source.indexOf('el.btnBack.addEventListener')), context);
   vm.runInContext(source.slice(source.indexOf("function showChatEmpty("), source.indexOf("function hideChatEmpty(")), context);
+  vm.runInContext(source.slice(source.indexOf("function setChatAgent("), source.indexOf("function setChatTitle(")), context);
   await context.showList();
   assert.equal(el.messages.innerHTML, "");
   assert.equal(el.chatTitle.textContent, "Stepsemble");

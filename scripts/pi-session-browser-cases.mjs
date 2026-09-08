@@ -51,10 +51,13 @@ export async function runPiSessionBrowserCases(browser) {
       await page.locator("#login-onboarding-skip").click(); await page.locator("#login-token").fill(token);
       await page.locator("#login-form button").click();
       const title = "First question 貓掌🐾";
+      await page.locator('.session-item-main .agent-logo[data-agent-id="pi"]').waitFor();
+      assert.equal(await page.locator('.session-item-main .agent-logo[data-agent-id="pi"]').count(), 1);
       await page.locator(".session-item-main").filter({ hasText: title }).evaluate(node => { window.__selectionFixtureRow = node; });
       await page.locator(".session-item-main").filter({ hasText: title }).click();
       await page.locator("#messages").getByText("Different last assistant answer", { exact: true }).waitFor();
       assert.equal(await page.locator("#chat-title").textContent(), title);
+      assert.equal(await page.locator('#chat-agent-logo [role="img"][aria-label="Pi Agent"]').count(), 1);
       assert.equal(await page.evaluate(() => window.__selectionFixtureRow.isConnected), true, "opening history preserves the selected row DOM");
       assert.equal(await page.locator(".session-item-main[aria-current=true]").count(), 1);
       await page.waitForFunction(() => !document.querySelector("#btn-send").disabled);
@@ -78,6 +81,7 @@ export async function runPiSessionBrowserCases(browser) {
       await waitTasks(tasks => tasks.some(task => task.status === "stopped"));
       await page.locator("#agent-hub-refresh").click();
       await page.locator("#agent-task-list .agent-task-row.stopped").waitFor();
+      assert.equal(await page.locator('#agent-task-list .agent-logo[data-agent-id="pi"] .agent-task-dot').count(), 1);
       assert.equal(await page.locator("#agent-task-list .agent-task-copy strong").first().textContent(), title);
       assert.equal(await page.locator("#agent-task-list .agent-task-row.failed").count(), 0);
       await page.locator("#agent-task-list .agent-task-row.stopped").click();
