@@ -12,7 +12,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 export async function runConversationBrowserCases(browser) {
   for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }, { width: 320, height: 780 }]) {
     const home = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-conversation-browser-"));
-    let child, context;
+    let child, context, stage = "fixture";
     try {
       const cwd = path.join(home, "Projects", "fixture"), folder = path.join(home, ".pi/agent/sessions/synthetic"), config = path.join(home, ".config/stepsemble");
       for (const dir of [cwd, folder, config]) await fs.mkdir(dir, { recursive: true });
@@ -47,15 +47,19 @@ export async function runConversationBrowserCases(browser) {
       });
       await context.addInitScript(() => {
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
-        localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "light", reducedMotion: true }));
+        // All fixtures live under an owned temporary root. Explicitly include
+        // them just like the existing Pi browser suite; do not weaken the
+        // product's default rule that hides temporary/subagent histories.
+        localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "light", reducedMotion: true, showTemporarySessions: true }));
       });
       const page = await context.newPage(); page.setDefaultTimeout(15000); page.on("pageerror", error => errors.push(error.message));
-      await page.goto(base);
+      stage = "login"; await page.goto(base);
       const token = (await fs.readFile(path.join(config, "token"), "utf8")).trim();
       await page.locator("#login-onboarding-skip").click(); await page.locator("#login-token").fill(token); await page.locator("#login-form button").click();
+      stage = "session summaries";
       await page.waitForFunction(() => document.querySelector("#session-count")?.textContent === "126");
       await page.locator("#agent-task-list .agent-task-row").first().waitFor();
-      await page.locator("#btn-conversations").click();
+      stage = "catalog paging"; await page.locator("#btn-conversations").click();
       const dialog = page.locator("#conversation-catalog"), summary = dialog.locator(".conversation-summary");
       assert.match(await summary.textContent(), /131 records.*Page 1\/3/);
       assert.equal(await dialog.locator(".conversation-row").count(), 50);
@@ -71,21 +75,21 @@ export async function runConversationBrowserCases(browser) {
       // Explicit refresh must retain row identity (and focus/scroll), while a
       // failed source remains visibly stale instead of becoming an empty store.
       await dialog.locator(".conversation-row").evaluate(node => { window.__catalogFixtureRow = node; });
-      sourceFailure = true; await dialog.getByRole("button", { name: "Refresh", exact: true }).click();
+      stage = "source failure"; sourceFailure = true; await dialog.getByRole("button", { name: "Refresh", exact: true }).click();
       await page.waitForFunction(() => document.querySelector(".conversation-summary")?.textContent.includes("Some sources are not current"));
       assert.equal(await dialog.locator(".conversation-row").count(), 1);
       assert.equal(await page.evaluate(() => window.__catalogFixtureRow.isConnected), true);
-      sourceFailure = false; await dialog.getByRole("button", { name: "Refresh", exact: true }).click();
+      stage = "source recovery"; sourceFailure = false; await dialog.getByRole("button", { name: "Refresh", exact: true }).click();
       await page.waitForFunction(() => !document.querySelector(".conversation-summary")?.textContent.includes("Some sources are not current"));
       assert.equal(await page.evaluate(() => window.__catalogFixtureRow.isConnected), true);
-      await dialog.getByLabel("Agent source", { exact: true }).selectOption("all");
+      stage = "keyboard"; await dialog.getByLabel("Agent source", { exact: true }).selectOption("all");
       await dialog.getByRole("searchbox").fill("Same title"); assert.equal(await dialog.locator(".conversation-row").count(), 6);
       // Escape closes even a populated search; no workspace command palette or
       // new-project sheet may react behind it.
       await dialog.getByRole("searchbox").press("ControlOrMeta+k"); assert.equal(await page.locator("#command-palette").isVisible(), false);
       await dialog.getByRole("searchbox").press("Escape"); await dialog.waitFor({ state: "hidden" });
       assert.equal(await page.locator("#btn-conversations").evaluate(node => node === document.activeElement), true);
-      await page.locator("#btn-conversations").click(); await dialog.getByLabel("Agent source", { exact: true }).selectOption("codex");
+      stage = "completed task"; await page.locator("#btn-conversations").click(); await dialog.getByLabel("Agent source", { exact: true }).selectOption("codex");
       await dialog.locator(".conversation-open").click();
       await page.locator("#chat-title").getByText("Same title", { exact: true }).waitFor();
       assert.equal(await page.locator('#chat-agent-logo .agent-logo[data-agent-id="codex"]').count(), 1);
@@ -95,7 +99,7 @@ export async function runConversationBrowserCases(browser) {
       assert.deepEqual(errors, []); assert.deepEqual(forbidden, []); assert.deepEqual(mutations, []);
       console.log(JSON.stringify({ case: `Conversation catalog (${viewport.width})`, result: "passed", sourceRecords: 131,
         boundedRows: 50, sameTitleIsolation: true, staleRecovery: true, stableRow: true, keyboardFocus: true, modelCalls: 0, pageErrors: 0 }));
-    } catch (error) { throw new Error(`Conversation catalog (${viewport.width}): ${error.message.replace(/\b[a-f0-9]{64}\b/gi, "[redacted-test-key]")}`); }
+    } catch (error) { throw new Error(`Conversation catalog (${viewport.width}) at ${stage}: ${error.message.replace(/\b[a-f0-9]{64}\b/gi, "[redacted-test-key]")}`); }
     finally { await context?.close(); if (child) await stopServer(child); await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
   }
 }
