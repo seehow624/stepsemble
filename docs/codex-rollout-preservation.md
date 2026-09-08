@@ -104,9 +104,36 @@ Node22.23.2 Linux arm64容器、官方固定0.153.4 binary和自建HOME重現：
 語法／版本／Ajv1251／actionlint通。macOS兩Node真CLI及隔離Linux arm64真CLI均
 raw113頁219records一致、model0、loaded0、11原檔不變、actual cleanup確認；
 Linux僅多一個上述診斷碼。Linux容器network none/read-only、cap-drop ALL，這不是
-跨Host／私人source reader或shell sandbox功能驗收。修正版本的exact三OS CI待核對。
+跨Host／私人source reader或shell sandbox功能驗收。
 完整logs為 `/tmp/stepsemble-codex-raw-notice-{full.tap,minnode.tap,runtime.json,minnode-runtime.json}`
 及 `/tmp/stepsemble-codex-raw-linux-verified.{json,log}`；本次owned容器已結束且移除。
+
+## 修正後 exact CI 已核實
+
+程式 `607677b0fcf6bfcda4bbfe8998b142de8145e0ea` 已push：
+
+- [一般CI34245329559](https://github.com/seehow624/stepsemble/actions/runs/34245329559)
+  三OS各808/0fail（Mac806pass/2skip、Linux805/3、Windows761/47），各Ajv1251通。
+- [Native Codex34245329521](https://github.com/seehow624/stepsemble/actions/runs/34245329521)
+  最低Node22.19，Macarm64／Linuxx64／Windowsx64三平台真0.153.4均通，沒有skip。
+  每個回覆raw113頁219records／3transient、byte-exact、releasedHandlesRefused，
+  legacy49turns147items／29observation頁、model0、loaded0、11原檔不變、cleanup確認。
+  Linux有一次精確missing-bwrap碼，Mac/Win無startupNotices；不是缺少警告輸出就算過。
+- 三平台仍一致回 `native_projection_incomplete`（command/image）、paginated與
+  items-list unavailable，semanticHistoryComplete/sourceAuthenticated/publishable均false。
+  這是正向＋負向回歸通，不是native投影完整、Windows Rust source reader、真機、
+  UI、帳號／模型或正式服務已驗。沒有重跑無關的browser／Claude-reader gates。
+
+Archive SHA 固定於workflow，下載後驗SHA才extract單一binary；實跑binary SHA：
+
+| 平台 | binary SHA256 |
+| --- | --- |
+| macos-14 arm64 | b973d440acac501fd2594a43e7ca9ce41e0a65b9dfb28d0d7a7837c99e1261e3 |
+| ubuntu-24.04 x64 | 56ef98ab4032d317ab26e9b5e5a175650717351edb16ed9cde0cb6d1734d62da |
+| windows-2025 x64 | 444a3f0008050605cae73cd9b7a2dcac61294062dfaab56dd20430fd6498518b |
+
+完整logs `/tmp/stepsemble-codex-raw-notice-{ci,native}.log`，首批失敗logs也保留。
+原生runtime證據歸屬上面程式SHA；後續純文件commit的一般CI不冒充native重跑。
 
 ## 下一步
 

@@ -22,7 +22,8 @@
 byte-exact，保留三筆被省略事件；原生缺項gate仍未過，不假装完整native投影或已接Web。
 首批三OS一般CI805/0fail，但native Linux啟動通知失敗；已隔離重現並精確驗證
 一次缺system-bwrap通知與timestamp，其他警告/effects仍拒絕。本機增至808/0fail、
-最低Node40/40，Mac與隔離Linux真CLI通；修正三平台固定CLI CI另核對，詳
+最低Node40/40。修正607677b的一般CI34245329559三OS808/0fail，以及固定真CLI
+CI34245329521三OS均已通、完整logs核實，缺項/unavailable仍明示；詳
 [Codex原始記錄保留](codex-rollout-preservation.md)。source ACL/capture/Host及C1–C8仍待，
 正式/B+/私人/帳號route/固定72h不動。
 

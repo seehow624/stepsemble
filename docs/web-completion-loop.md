@@ -34,7 +34,7 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 | Checkpoint | 交付與必要證據 | 開始狀態 |
 | --- | --- | --- |
 | C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | Plan1.57新增本機新群組設定精靈/review/明確readers/CREATE與真Host原檔驗證；Web列表已接，不自選私人來源或新增Web管理route，完整管理/實機與C1完整gate仍待 |
-| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.58已定位Codex legacy filter省略command/image；raw記錄分頁保存219records，但不是補成native投影。原生完整性未過／paginated與items-list不支援；新三OS真CLI CI另核。source隔離/capture/Host/Web及其他adapter仍待，C2未完成 |
+| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.58已定位Codex legacy filter省略command/image；raw分頁保存219records，owned Linux啟動通知相容修正，exact607677b三OS真CLI及一般808/0fail均已驗。原生完整性未過／paginated與items-list不支援；source隔離/capture/Host/Web及其他adapter仍待，C2未完成 |
 | C3 Session／approval／恢復 | 按真實 capability 接結構化事件、續跑與 approval；ownership、exact correlation、重送／重連／Host crash、durable journal/replay 不漏不重 | 有 contract 與局部實作，未全驗 |
 | C4 帳號與故障體驗 | 登入／登出偵測、官方登入入口、路由相容、取消／失敗／stale／busy 可復原；不修寫第三方憑證或以重試消耗模型 | 局部已驗，跨 harness 待補 |
 | C5 手機與跨裝置操作 | 完整 history i18n、鍵盤／focus／內捲動、長歷史 DOM 上限、Host 切換、background/reconnect、跨機與目標瀏覽器實測 | Plan1.56已接119keys/11語並修正locale scroll跳動；320/390合成Host CUA、原文/DOM/focus保留已驗；人工校稿/真機/跨Host與其餘gate仍待 |
@@ -92,7 +92,8 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
   首批exact57decd7一般三OS805/0fail，native Mac/Windows通但Linux啟動通知失敗。
   隔離重現後只允許owned Linux一次精確缺system-bwrap通知，timestamp合法且第一個
   history回覆前；其他warnings/effects仍拒絕。本機增至808/0fail、最低Node40/40，
-  Mac/Linux真CLI通；修正三OS CI後核，詳[raw records](codex-rollout-preservation.md)。
+  修正607677b一般CI34245329559三OS808/0fail/Ajv1251，native34245329521三OS
+  真CLI最低Node22.19全部通、完整logs核實；原缺項gate仍留，詳[raw records](codex-rollout-preservation.md)。
   還沒有source fd/ACL/capture/nameindex/HostWeb接線，不等於C2或全產品完成，正式與72h不動。
 
 - **2026-09-08／C1 owner設定精靈，Plan1.57／rc.7不變**：逐欄修正與明確現在/未來

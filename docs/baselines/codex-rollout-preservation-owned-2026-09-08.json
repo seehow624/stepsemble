@@ -24,7 +24,24 @@
     "sourceFilesUnchanged": 11,
     "cleanupConfirmed": true,
     "localTests": { "total": 808, "pass": 806, "skipped": 2, "failed": 0, "minimumNodeFocusedPass": 40 },
-    "correctedCI": "pending_exact_commit"
+    "correctedCI": {
+      "engineeringCommit": "607677b0fcf6bfcda4bbfe8998b142de8145e0ea",
+      "generalRun": 34245329559,
+      "nativeRun": 34245329521,
+      "result": "success",
+      "nodeVersion": "22.19.0",
+      "generalTestsPerOS": 808,
+      "generalFailuresPerOS": 0,
+      "conformanceCasesPerOS": 1251,
+      "nativeRuntimePassedOnAllThreeOS": true,
+      "nativeProjectionComplete": false,
+      "windowsPrivateSourceReaderVerified": false,
+      "platforms": [
+        { "os": "macos-14", "architecture": "arm64", "pass": 806, "skipped": 2, "startupNotices": [], "binarySha256": "b973d440acac501fd2594a43e7ca9ce41e0a65b9dfb28d0d7a7837c99e1261e3" },
+        { "os": "ubuntu-24.04", "architecture": "x64", "pass": 805, "skipped": 3, "startupNotices": ["owned_linux_system_bwrap_missing"], "binarySha256": "56ef98ab4032d317ab26e9b5e5a175650717351edb16ed9cde0cb6d1734d62da" },
+        { "os": "windows-2025", "architecture": "x64", "pass": 761, "skipped": 47, "startupNotices": [], "binarySha256": "444a3f0008050605cae73cd9b7a2dcac61294062dfaab56dd20430fd6498518b" }
+      ]
+    }
   },
   "runtime": {
     "nativeVersion": "0.153.4",
