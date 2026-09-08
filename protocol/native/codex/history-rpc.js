@@ -28,11 +28,25 @@ function parameters(method, input, allowIndexRepair) {
   if (method === "thread/items/list") result.sortDirection = "asc";
   return result;
 }
-function historyRpc(child, { timeoutMs = 15000, stopGraceMs = 1000, closeTimeoutMs = 5000, allowIndexRepair = false } = {}) {
+function ownedMissingBwrapNotice(frame) {
+  const params = frame.params;
+  return frame.method === "configWarning" && Object.keys(frame).every(key => ["jsonrpc", "method", "params", "emittedAtMs"].includes(key)) &&
+    (frame.emittedAtMs === undefined || (Number.isSafeInteger(frame.emittedAtMs) && frame.emittedAtMs >= 0)) &&
+    object(params) && Object.keys(params).every(key => ["summary", "details", "path", "range"].includes(key)) && params.details === null &&
+    (params.path === undefined || params.path === null) && (params.range === undefined || params.range === null) &&
+    typeof params.summary === "string" && params.summary.length <= 1024 &&
+    // Exact 0.153.4 system-bwrap-missing notice observed in the owned Linux
+    // fixture. Never accept arbitrary config warnings or emit native text.
+    crypto.createHash("sha256").update(params.summary).digest("hex") === "0423500be79523998b914735593b9d7a2a3bde53601c0f60bd51ae9bac1a6ba1";
+}
+function historyRpc(child, { timeoutMs = 15000, stopGraceMs = 1000, closeTimeoutMs = 5000, allowIndexRepair = false, allowOwnedLinuxSandboxNotice = false } = {}) {
   for (const value of [timeoutMs, stopGraceMs, closeTimeoutMs]) if (!Number.isInteger(value) || value < 1 || value > 60000) throw new Error("codex_history_options_invalid");
-  if (typeof allowIndexRepair !== "boolean" || closeTimeoutMs <= stopGraceMs) throw new Error("codex_history_options_invalid");
+  if (typeof allowIndexRepair !== "boolean" || typeof allowOwnedLinuxSandboxNotice !== "boolean" ||
+      (allowOwnedLinuxSandboxNotice && !allowIndexRepair) || closeTimeoutMs <= stopGraceMs) throw new Error("codex_history_options_invalid");
   const incarnation = crypto.randomUUID(), waiting = new Map();
   let sequence = 0, initialized = false, initializing = false, failure = null, stopping = false, closed = false, bytes = 0, stderrBytes = 0, notices = 0;
+  let readReplySeen = false;
+  const startupNotices = [];
   let killTimer, closeTimer, resolveClose;
   const cleanup = new Promise(resolve => { resolveClose = resolve; });
   const utf8 = new TextDecoder("utf-8", { fatal: true });
@@ -61,6 +75,9 @@ function historyRpc(child, { timeoutMs = 15000, stopGraceMs = 1000, closeTimeout
     if (!object(frame) || ("jsonrpc" in frame && frame.jsonrpc !== "2.0")) return fail("codex_history_frame_invalid");
     // 0.153.4 emits this at startup. Discard all identifying fields; never accept an enabled remote channel.
     if (frame.method === "remoteControl/status/changed" && !("id" in frame) && frame.params?.status === "disabled" && ++notices <= 4) return;
+    if (allowOwnedLinuxSandboxNotice && !readReplySeen && startupNotices.length === 0 && ownedMissingBwrapNotice(frame)) {
+      startupNotices.push("owned_linux_system_bwrap_missing"); return;
+    }
     // No execution event or approval request is valid on this owned read channel.
     if ("method" in frame) return fail("codex_history_unexpected_native_event");
     if (typeof frame.id !== "string" || !waiting.has(frame.id) || ("result" in frame) === ("error" in frame)) return fail("codex_history_response_unbound");
@@ -81,6 +98,7 @@ function historyRpc(child, { timeoutMs = 15000, stopGraceMs = 1000, closeTimeout
       }
     }
     for (const key of ["nextCursor", "backwardsCursor"]) if (frame.result?.[key] != null && (typeof frame.result[key] !== "string" || !frame.result[key].length || frame.result[key].length > 4096)) return fail("codex_history_page_invalid");
+    if (pending.method !== "initialize") readReplySeen = true;
     waiting.delete(frame.id); clearTimeout(pending.timer);
     if (frame.error) {
       // Never leak native error text (paths, transcript excerpts, account data).
@@ -132,6 +150,7 @@ function historyRpc(child, { timeoutMs = 15000, stopGraceMs = 1000, closeTimeout
       return request(method, params);
     },
     assertHealthy() { if (failure) throw failure; if (closed || stopping) throw new Error("codex_history_closed"); },
+    diagnostics() { return { startupNotices: [...startupNotices] }; },
     close() { settle(new Error("codex_history_closed")); stop(); return cleanup; },
   };
 }

@@ -63,7 +63,7 @@ endOfFile 只表示這份已複製 raw file 到尾，不表示 live session 完�
 - 新11項unit tests：raw byte round-trip／CRLF/Unicode/blank/unknown、rich transient
   records、typed-view copy／input/output mutation、snapshot混用、release、metadata/
   fork/mode、UTF8/partial/size/count、page byte budget、accessor/shared-memory拒絕。
-- 本機完整805＝803pass/2skip/0fail；Node22.19聚焦37/37，strict TS/generated/syntax/
+- 首批本機完整805＝803pass/2skip/0fail；Node22.19聚焦37/37，strict TS/generated/syntax/
   version及Ajv1251通；actionlint通。
 - 本機固定真CLI兩個Node版本（22.19.0、22.22.3）：原49 legacy turns／147 items、
   29原生觀察頁及缺漏 gate 不變；raw新增113頁／219 records逐位元組還原，保留
@@ -72,11 +72,41 @@ endOfFile 只表示這份已複製 raw file 到尾，不表示 live session 完�
 - 新 `Native Codex owned history` workflow：官方0.153.4三平台archive與SHA固定；
   hash通過才extract單一固定binary，不安裝／不改PATH/帳號。以Node22.19和owned
   fixture跑真CLI；必要schema drift/實際method行為會失敗，不能以skip/unsupported
-  冒稱完整產品。跨平台結果須核對本批exact commit，尚待CI。
+  冒稱完整產品。首批exact commit `57decd7d5a6d448ba6b05ba222e5ffaa56043aa3`：
+  [一般CI34243456424](https://github.com/seehow624/stepsemble/actions/runs/34243456424)
+  三OS各805/0fail（Mac803pass/2skip、Linux802/3、Windows758/47），各Ajv1251；
+  [native CI34243456521](https://github.com/seehow624/stepsemble/actions/runs/34243456521)
+  Mac/Windows真CLI通過、Linux遇啟動通知失敗，不能把此run整體寫成通過。
 
 本機logs：`/tmp/stepsemble-codex-raw-{focused.tap,full.tap,minnode.tap,runtime.json,minnode-runtime.json}`。
 Plan1.55既有負向evidence不覆寫；新結果另存
 [Plan1.58 evidence](baselines/codex-rollout-preservation-owned-2026-09-08.json)。
+
+## Linux 啟動通知修正
+
+首批Linux CI停在 `codex_history_unexpected_native_event`。使用已存在的
+Node22.23.2 Linux arm64容器、官方固定0.153.4 binary和自建HOME重現：原生
+`configWarning` 提醒PATH沒有system bubblewrap，會使用bundled版本；通知外層
+另有 `emittedAtMs`。官方同tag的 `ServerNotificationEnvelope` 與 bwrap helper
+也有這兩項定義。暫時診斷只對owned fixture使用，已移除，不保留原生通知文字。
+
+修正只在 runner 的Linux owned-fixture模式明確開
+`allowOwnedLinuxSandboxNotice:true`（另必須已有 `allowIndexRepair:true`）：
+
+- 預設仍關閉；只接受固定0.153.4缺system-bwrap通知的精確文字SHA、空details、
+  無非空path/range、合法可選整數timestamp、無request ID或多餘欄位。
+- 最多一次，且必須在第一個history回覆前；變字、重複、過晚、user-namespace
+  警告及其他事件／approval一律終止。不是略過所有configWarning。
+- 只回固定診斷碼 `owned_linux_system_bwrap_missing`，不輸出native summary。
+  沒有偽裝bubblewrap、安裝系統helper、改sandbox權限或增加執行能力。
+
+修正後本機808＝806pass/2skip/0fail、最低Node22.19聚焦40/40，生成／strict TS／
+語法／版本／Ajv1251／actionlint通。macOS兩Node真CLI及隔離Linux arm64真CLI均
+raw113頁219records一致、model0、loaded0、11原檔不變、actual cleanup確認；
+Linux僅多一個上述診斷碼。Linux容器network none/read-only、cap-drop ALL，這不是
+跨Host／私人source reader或shell sandbox功能驗收。修正版本的exact三OS CI待核對。
+完整logs為 `/tmp/stepsemble-codex-raw-notice-{full.tap,minnode.tap,runtime.json,minnode-runtime.json}`
+及 `/tmp/stepsemble-codex-raw-linux-verified.{json,log}`；本次owned容器已結束且移除。
 
 ## 下一步
 

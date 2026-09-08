@@ -65,6 +65,12 @@ from caller-supplied bytes. It is **not** a filesystem capture, source grant,
 semantic history reconstruction, native capability or Web endpoint; every result
 remains non-publishable. See [raw record preservation](../../../docs/codex-rollout-preservation.md).
 
+The Linux owned runner explicitly permits one exact pinned system-bwrap-missing
+startup warning, before any history response. The default transport still refuses
+it. Fields, message digest and optional timestamp are validated; only a fixed
+diagnostic code is returned. Duplicate, late, changed or other warnings/effects
+fail closed. This does not install a helper or prove native shell sandbox support.
+
 The future adapter must correlate JSON-RPC IDs, own the child incarnation, wait
 for initialization, scope requests by native thread/turn/item, import history
 without launching work, and persist Stepsemble receipts before external effects.

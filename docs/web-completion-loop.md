@@ -89,7 +89,10 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
   定位legacy persistence filter省略command/image；原缺項gate仍留，不反覆猜JSON。
   bytes-only有界快照/分頁保存原文、unknown/CRLF，handle隔離及release；新11tests、
   本機805/0fail、最低Node37/37及真CLI raw113頁219records byte-exact、model/private0。
-  新三OS固定binary native CI後核，詳[raw records](codex-rollout-preservation.md)。
+  首批exact57decd7一般三OS805/0fail，native Mac/Windows通但Linux啟動通知失敗。
+  隔離重現後只允許owned Linux一次精確缺system-bwrap通知，timestamp合法且第一個
+  history回覆前；其他warnings/effects仍拒絕。本機增至808/0fail、最低Node40/40，
+  Mac/Linux真CLI通；修正三OS CI後核，詳[raw records](codex-rollout-preservation.md)。
   還沒有source fd/ACL/capture/nameindex/HostWeb接線，不等於C2或全產品完成，正式與72h不動。
 
 - **2026-09-08／C1 owner設定精靈，Plan1.57／rc.7不變**：逐欄修正與明確現在/未來

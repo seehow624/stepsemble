@@ -20,6 +20,9 @@ Development candidate only; production Hosts and the independently frozen
   executing recorded tools. Keep the pinned native projection's command/image
   omissions explicit; add an owned-home native history CI matrix. This internal
   module does not enable private sources, session resume or a new Web adapter.
+- Handle the pinned Linux CLI's single missing-system-bubblewrap startup notice
+  only in the explicit owned history fixture. Validate its exact fields and keep
+  a fixed diagnostic code; other warnings, execution and approval stay refused.
 
 ## 3.0.7-rc.6
 

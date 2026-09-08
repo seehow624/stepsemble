@@ -101,7 +101,10 @@ subscription metadata transport。每 child 一個隨機 incarnation、單次 ha
 response ID、selected thread／item turn、重複 row ID、page envelope 先驗。
 
 原生啟動會送 `remoteControl/status/changed`；只丟棄最多四個 disabled 通知，
-不保存機器名等欄位。其他通知、執行事件及 server approval requests 全部終止通道，
+不保存機器名等欄位。Plan1.58 Linux owned runner另明確允許一次精確的缺system-bwrap
+啟動通知，預設仍拒絕，驗文字SHA／空診斷欄位／timestamp且限定在第一個history回覆前；
+僅回固定診斷碼，不宣稱shell sandbox可用。詳[Linux通知修正](codex-rollout-preservation.md#linux-啟動通知修正)。
+除此之外的通知、執行事件及 server approval requests 全部終止通道，
 不自動回 approval。SIGTERM→SIGKILL 只送自己的 child；exitCode 不是 actual close，
 cleanup timeout 永久回 unknown，runner 不刪仍可能使用中的 owned HOME。
 

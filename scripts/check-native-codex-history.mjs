@@ -94,7 +94,7 @@ export async function checkHistoryRuntime(binary) {
           { id: row.id, thread_name: row.name, updated_at: "2026-01-05T12:30:00Z" },
         ]).map(value => JSON.stringify(value)).join("\n") + "\n");
         const child = spawn(await fs.realpath(binary), ["app-server", "--listen", "stdio://"], { cwd: home, env: probeEnvironment(home), stdio: ["pipe", "pipe", "pipe"] });
-        client = historyRpc(child, { allowIndexRepair: true });
+        client = historyRpc(child, { allowIndexRepair: true, allowOwnedLinuxSandboxNotice: process.platform === "linux" });
         await client.initialize();
         assert.deepEqual((await client.request("thread/loaded/list")).data, []);
         const collect = async (method, params, consume) => {
@@ -192,6 +192,7 @@ export async function checkHistoryRuntime(binary) {
           legacyTurns, legacyItems, observedPages, richItemTypes, richCoverage, paginatedProjection, paginatedName: "unavailable_from_legacy_index", itemsList,
           rawRecordPaging: { pages: rawPages, records: rawRecords, preservedTransientRecords, byteExactRoundTrip: true,
             releasedHandlesRefused: true, semanticHistoryComplete: false, sourceAuthenticated: false, publishable: false },
+          startupNotices: client.diagnostics().startupNotices,
           modelEndpointRequests: requests, loadedThreads: 0, sourceFilesUnchanged: saved.size, cleanupConfirmed };
       } finally { sink.closeAllConnections(); await new Promise(resolve => sink.close(resolve)); }
     } finally {

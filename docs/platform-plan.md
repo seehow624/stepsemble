@@ -20,7 +20,9 @@
 新增bytes-only raw記錄快照／分頁，原文與CRLF/未知欄位/工具保留，8MiB/8192records、
 50筆/272KiB、有界且handle/revision隔離、release不可逆。真CLI owned raw113頁/219records
 byte-exact，保留三筆被省略事件；原生缺項gate仍未過，不假装完整native投影或已接Web。
-本機805/0fail、最低Node37/37；新三平台固定CLI CI另核對，詳
+首批三OS一般CI805/0fail，但native Linux啟動通知失敗；已隔離重現並精確驗證
+一次缺system-bwrap通知與timestamp，其他警告/effects仍拒絕。本機增至808/0fail、
+最低Node40/40，Mac與隔離Linux真CLI通；修正三平台固定CLI CI另核對，詳
 [Codex原始記錄保留](codex-rollout-preservation.md)。source ACL/capture/Host及C1–C8仍待，
 正式/B+/私人/帳號route/固定72h不動。
 

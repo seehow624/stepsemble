@@ -69,6 +69,49 @@ test("native errors preserve unsupported versus failed, never private error text
     p.client.assertHealthy();
   }
 });
+function bwrapNotice() {
+  // Exact interoperability fixture from the pinned CLI, not arbitrary warning text.
+  return { method: "configWarning", emittedAtMs: 1788880000000, params: { summary: "Codex could not find bubblewrap on PATH. Install bubblewrap with your OS package manager. See the sandbox prerequisites: https://developers.openai.com/codex/concepts/sandboxing#prerequisites. Codex will use the bundled bubblewrap in the meantime.", details: null } };
+}
+test("only explicit owned-fixture mode permits one exact missing-system-bwrap startup diagnostic", async t => {
+  const p = await peer(t, { allowIndexRepair: true, allowOwnedLinuxSandboxNotice: true }); await p.initialize();
+  p.receive(bwrapNotice()); p.client.assertHealthy();
+  const diagnostics = p.client.diagnostics(); assert.deepEqual(diagnostics, { startupNotices: ["owned_linux_system_bwrap_missing"] });
+  diagnostics.startupNotices.push("changed"); assert.equal(p.client.diagnostics().startupNotices.length, 1);
+  assert.equal(JSON.stringify(p.client.diagnostics()).includes("summary"), false);
+  const pending = p.client.request("thread/list"); p.reply({ data: [] }); assert.deepEqual(await pending, { data: [] });
+  assert.deepEqual(p.kills, []);
+});
+test("sandbox notice exception defaults closed and never accepts server requests, extra fields or changed warning text", async t => {
+  for (const mutate of [frame => { frame.id = 1; }, frame => { frame.params.details = "PRIVATE"; },
+    frame => { frame.emittedAtMs = "1788880000000"; }, frame => { frame.emittedAtMs = -1; }, frame => { frame.emittedAtMs = 0.5; },
+    frame => { frame.emittedAtMs = Number.MAX_SAFE_INTEGER + 1; }, frame => { frame.emittedAtMs = null; },
+    frame => { frame.params.path = "/PRIVATE"; }, frame => { frame.params.range = {}; }, frame => { frame.params.extra = true; },
+    frame => { frame.result = {}; }, frame => { frame.params.summary += " changed"; }, frame => { frame.params.summary = "PRIVATE".repeat(1000); },
+    frame => { frame.params.summary = "Codex's Linux sandbox uses bubblewrap and needs access to create user namespaces."; }]) {
+    const p = await peer(t, { allowIndexRepair: true, allowOwnedLinuxSandboxNotice: true }); await p.initialize();
+    const pending = assert.rejects(p.client.request("thread/list"), error => error.message === "codex_history_unexpected_native_event" && !JSON.stringify(error).includes("PRIVATE"));
+    const frame = bwrapNotice(); mutate(frame); p.receive(frame); await pending; assert.deepEqual(p.kills, ["SIGTERM"]);
+    assert.deepEqual(p.client.diagnostics(), { startupNotices: [] });
+  }
+  const p = await peer(t); await p.initialize(); const pending = assert.rejects(p.client.request("thread/list"), /unexpected_native_event/);
+  p.receive(bwrapNotice()); await pending;
+  await assert.rejects(peer(t, { allowOwnedLinuxSandboxNotice: true }), /options_invalid/);
+  await assert.rejects(peer(t, { allowIndexRepair: true, allowOwnedLinuxSandboxNotice: "true" }), /options_invalid/);
+});
+test("repeated or post-read sandbox warnings fail permanently, without enabling execution or approval", async t => {
+  for (const late of [false, true]) {
+    const p = await peer(t, { allowIndexRepair: true, allowOwnedLinuxSandboxNotice: true }); await p.initialize();
+    if (late) { const done = p.client.request("thread/list"); p.reply({ data: [] }); await done; }
+    else p.receive(bwrapNotice());
+    const pending = assert.rejects(p.client.request("thread/list"), /unexpected_native_event/); p.receive(bwrapNotice()); await pending;
+    assert.deepEqual(p.kills, ["SIGTERM"]);
+  }
+  const p = await peer(t, { allowIndexRepair: true, allowOwnedLinuxSandboxNotice: true }); await p.initialize(); p.receive(bwrapNotice());
+  const count = p.writes.length; await assert.rejects(p.client.request("turn/start", { threadId }), /method_refused/); assert.equal(p.writes.length, count);
+  const pending = assert.rejects(p.client.request("thread/list"), /unexpected_native_event/);
+  p.receive({ id: 1, method: "item/commandExecution/requestApproval", params: {} }); await pending;
+});
 test("wrong child IDs, duplicate IDs and wrong selected thread permanently invalidate the channel", async t => {
   for (const variant of ["child", "duplicate", "thread"]) {
     const p = await peer(t); await p.initialize();
