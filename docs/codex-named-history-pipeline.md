@@ -80,12 +80,41 @@ Host仍須在publication前確認binding／grant generation，下一頁帶expect
   原始bytes，避免同writerprocess開關同inode FD破壞POSIX鎖。
   新90與舊SQL24 reader合計114，另1writer；outerCodex全gate143children皆close，
   writer實際reaped／1個ownedtemp根目錄完整移除。不是私人來源或正式服務。
-- 原client／protocol／Ajv1251、check、actionlint、diff-check另驗；cross-platform CI待核。
+- 原client／protocol／Ajv1251、check、actionlint、diff-check另驗；跨平台結果見下。
 
 本機logs `/tmp/stepsemble-named-{new-first,reader-unit,npm-first}.tap`、
 `...-actual-first.log`、`...-{build,rust,clippy,check,client,protocol,ajv}.log`。
 這不是新named流程的RSS／負載／Web Core Vitals驗收；舊8MiB parser main-loop比較
 保留作控制組，不拿它聲稱新五階段延遲改善或Web已順滑。
+
+## Exact工程跨平台驗證
+
+工程 **2501c881d62f4490d2310e6179a9e68e013e69b2** 的五CI全部success，完整logs已核：
+
+- [一般34285310005](https://github.com/seehow624/stepsemble/actions/runs/34285310005)：
+  三OS各922／0fail／Ajv1251；Mac920pass/2skip、Linux919/3、Windows875/47。
+- [Reader34285310066](https://github.com/seehow624/stepsemble/actions/runs/34285310066)：
+  三OS各Node187/187，Rust lib21/main28/28/13；最低Node22.19的Mac/Linux各新named
+  90reader/parser、35真SHM/read12388、六mutation/五cancel/max2/remaining0；舊SQL
+  24reader/16SHM亦通，共用1writer全reaped。outerCodex143children全部close。
+  Windows新named與原v4/v5在Node零spawn明示unsupported，Rust實際source仍unsupported；
+  不把純parser通過當Windows來源支援。原POSIX Rust103child/61dirs、Windows43/10
+  均清理；SQLite artifact/source pin與既有lock不變。
+  RustSec0.22.2、DB `bf25f6575a93a35f30796c65c0ed91bee7fa19fd`，0known/0warnings。
+- [Rolling34285310015](https://github.com/seehow624/stepsemble/actions/runs/34285310015)：
+  Mac/Linux各24cases、pageErrors0；每OS六個既有native來源browser案例各11語、
+  localeReads0。它是現有Web控制組，不是新Codex名稱已接Web的證據。
+- [原生Codex34285309991](https://github.com/seehow624/stepsemble/actions/runs/34285309991)：
+  三OS固定0.153.4原history、17index、19read/18list名稱，21owned原檔及七SQL欄不變、
+  2native程序全close，loaded0/model endpoint requests0；paginated完整history仍unsupported。
+- [Claude34285412218](https://github.com/seehow624/stepsemble/actions/runs/34285412218)：
+  在同一exact工程手動觸發（本次未改Claude路徑，不會自動觸發該workflow）；三OS
+  SDK0.3.259/native2.1.259既有契約通、0model calls。
+
+Logs `/tmp/stepsemble-named-{general,reader,rolling,native-codex,native-claude}-ci.log`。
+本機actual第二輪 `/tmp/stepsemble-named-actual-second.log` 同樣90/35/read12388、
+所有實際close通。沒有測試失敗被跳過或靠重試掩蓋；未改原生／私人資料或正式服務。
+本批是實質工程進度，整體goal仍active，C1–C8沒有全勾完成。
 
 ## 接續與保留
 

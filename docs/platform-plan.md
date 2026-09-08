@@ -20,7 +20,9 @@ SQL A→rollout/index A→permissioned parser→SQL B→rollout/index B，全程
 permit／總期限，兩種來源都重驗；晚回覆／取消／清理不明不發布、shared quarantine。
 v2嚴格bounded header保留舊API，paginated僅metadata名稱，完整歷史仍unsupported。
 本機922/0fail、reader187/187、Rust21/28；真named鏈90reader/parser＋共用ownedwriter，
-35真SHM/max2/remaining0、六種mutation／五階段實際取消、原bytes不變通；CI待核。
+35真SHM/max2/remaining0、六種mutation／五階段實際取消、原bytes不變通。exact2501c88
+五CI全success/logs已核：三OS各922/0fail、reader187、POSIX新鏈90/35全cleanup、
+Windows新named零spawn明示unsupported；rolling各24case及Codex/Claude原生契約通。
 詳[雙來源背景接線](codex-named-history-pipeline.md)。仍非原子snapshot／finaltitle，
 Codex discovery/grants/registry/HTTPWeb及cold/壓縮/其他adapter與C1–C8繼續。
 正式3.0.6／B+／帳號／獨立72h不變。
