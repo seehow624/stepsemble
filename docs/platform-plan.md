@@ -10,6 +10,11 @@
 
 ## 文件用途與回復方法
 
+**持續執行（2026-09-08）**：Jerome 已要求開啟 loop，產品 goal 已啟用。
+本階段以 Web 完整可驗收／安全發布為終點，逐項驗收與接續入口見
+[Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
+既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
+
 **最新增量 1.49（開發版仍3.0.7-rc.5，未部署）**：Rust已新增explicit-root的
 Claude主對話metadata雙掃，Host-private索引可辨識增改刪、穩定ID與失敗stale保留。
 本批只做安全來源探索核心，未接來源設定／動態registry／Web，沒有讀取私人history、
