@@ -1088,6 +1088,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 - 真CLI owned rich fixture共需8類，實際6類（user/reasoning/fileChange/mcp/compaction/agent）；commandExecution/imageView缺口被檢查攔下，根因尚未確認。runner exit0代表正向讀取與缺漏偵測的回歸通過，不是完整rich歷史gate passed。最低Node22.19與22.22結果一致，9來源／11原檔bytes不變、29觀察頁、loaded0/model endpoint0、actualcleanup確認；增加明確file credentials store與listen error處理。
 - 官方App Server文件確認paginated完整歷史仍未支援，因此不繼續以手工建立native store繞過；原先Plan1.54的owned store探索改為受限legacy capture與缺口查證。來源ACL／immutable capture／cross-page fence／sharedHost接線仍待，C1/C3–C8未完成。
 - 本機768 tests＝766 pass/2 skip/0 fail，Ajv1251、strictTS/generated/syntax/version通；本批exact跨OS CI另核對。無私人歷史/模型/帳號/第三方route/正式部署/B+或固定72h變動；rc.6仍開發候選。
+- Exact程式`ebf756e1e052ac5db2bc689a3b5c60ab15ac16b7`的CI34232465377三OS已全通：768/0fail（Mac766/2skip、Linux765/3、Windows736/32）及各Ajv1251，完整logs核實。這批沒有改Host/Web，未重跑browser/native-reader，不冒稱Codex跨OS真CLI或rich完整性gate已過。
 
 ### 2026-09-08 — Plan 1.54
 

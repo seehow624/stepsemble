@@ -116,7 +116,17 @@ node scripts/check-native-codex-history.mjs /absolute/trusted/native/codex --run
 `--record` 只供人工審查後新增證據、exclusive create；不覆寫既有 golden。
 一般測試不得執行真人 CLI、消耗模型或把 unsupported 改成 passed。
 
-## Plan1.54 exact CI 證據（不可當成1.55已過）
+## Plan1.55 exact CI 證據
+
+程式 `ebf756e1e052ac5db2bc689a3b5c60ab15ac16b7` 的
+[CI 34232465377](https://github.com/seehow624/stepsemble/actions/runs/34232465377)
+三 OS 全部成功、完整 logs 已核對：各 768 tests／0 fail，macOS 766 pass／2 skip、
+Linux 765／3、Windows 736／32，各 Ajv 1251 通過。
+這是合成 observation／transport／既有程式回歸，不是三 OS 真 Codex CLI。
+本批未改 Host/Web、未觸發或重跑 browser/native-reader workflows，不能繼承
+上一批 rolling 的綠燈為新增功能背書；真 CLI 僅本機上述 owned evidence。
+
+## Plan1.54 exact CI 證據（歷史基線）
 
 程式 SHA `87225f953dce96f77eeea5956ab28fe4510008be`：
 

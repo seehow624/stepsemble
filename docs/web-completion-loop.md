@@ -92,6 +92,8 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
   Node22.19/22.22 owned runner均模型endpoint0／11原檔不變／actualcleanup確認。
   官方paginated完整讀取仍不支援，下一步查證rich格式與legacy capture/fence；
   不反覆猜格式或手改native store。詳相容性文件，C1–C8整體仍未完成。
+  程式ebf756e已push，CI34232465377三OS各768/0fail（Mac766/2skip、Linux765/3、
+  Windows736/32）與各Ajv1251通；未重跑browser/native-reader，非新UI驗收。
 
 - **2026-09-08／C2 Codex讀取邊界，Plan1.54／rc.6不變**：10個補充schema固定、
   獨立read-only RPC與真0.153.4 owned-home runner；cli/vscode/exec/appServer/
