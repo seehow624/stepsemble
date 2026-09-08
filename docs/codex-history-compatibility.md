@@ -75,6 +75,20 @@ node scripts/check-native-codex-history.mjs /absolute/trusted/native/codex --run
 `--record` 只供人工審查後新增證據、exclusive create；不覆寫既有 golden。
 一般測試不得執行真人 CLI、消耗模型或把 unsupported 改成 passed。
 
+## 本批 exact CI 證據
+
+程式 SHA `87225f953dce96f77eeea5956ab28fe4510008be`：
+
+- [一般 CI 34227909134](https://github.com/seehow624/stepsemble/actions/runs/34227909134)：
+  三 OS 各 755 tests／0 fail；Mac 753 pass／2 skip、Linux 752／3、Windows 723／32，
+  各自 Ajv 1251 通過。包含本批 13 個傳輸／schema 測試，不執行真 Codex binary。
+- [Rolling 34227909162](https://github.com/seehow624/stepsemble/actions/runs/34227909162)：
+  macOS／Linux 各 24 browser cases 通過、pageErrors 0；含既有 Claude native
+  source browser 六個明暗／尺寸組合及 fixture cleanup。**不是新增 Codex Web UI**。
+- 真 Codex runner 為上面記錄的本機 macOS arm64、兩個 Node 版本 owned fixture；
+  Linux／Windows 真 Codex 歷史仍未實跑。此次未改 Claude reader，未冒用旧 native CI
+  為 Codex 相容性背書；正式服務與獨立 72h 不變。
+
 ## 下一步
 
 先補 Codex 的 owned thread-store fixtures 與一致快照／來源授權設計，釐清分頁

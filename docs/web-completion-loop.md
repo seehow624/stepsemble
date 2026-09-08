@@ -92,6 +92,8 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
   items/list有schema卻native -32601，paginated JSONL-only缺name/store projection。
   下一步補owned store／capture／rich mapping及同Host接線，不能直讀私人Codex HOME。
   官方文件只作介面參照，以固定CLI實測為準；詳[codex-history-compatibility.md](codex-history-compatibility.md)。
+  程式87225f9已push且exact CI34227909134三OS755/0fail、各Ajv1251及rolling34227909162
+  雙OS各24cases/pageErrors0全過；真Codex不是跨OS或Web驗收，沒有重跑／冒用舊reader gates。
   C1及C3–C8仍繼續，正式/帳號/第三方route/獨立72h不變。
 
 - **2026-09-08／C1 Web來源操作，Plan1.53／rc.6**：新增有界source browser model＋

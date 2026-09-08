@@ -1076,6 +1076,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 - 真native CLI只在自建HOME/config/模型拒絕endpoint讀8份synthetic rollouts，7legacy對話49turns/147items、最新原生長名稱與preview分離、六種source/封存/兩列paging通過；Node22.19與22.22均驗，loadedthreads0/模型endpoint0/10原檔bytes不變/ownedcleanup確認。
 - 實測items/list雖有schema仍回-32601，paginated JSONL-only不還原legacy index名稱且turn projection為空；明確保留缺口，不當原文空白，不自動resume或改第三方route。RPC尚未有source snapshot/ACL/authority/全item映射/Host-Web接線，C2不是完成，詳codex-history-compatibility.md。
 - 本機755tests＝753pass/2skip/0fail，新增13個history transport/schema回歸；既有Ajv1251、syntax/strictTS/generated protocol通。新commit仍須核對自己的三OS CI，不繼承前一批綠燈。順便修正當前狀態表兩個過期的C1「未接Web/HTTP」說明；不重做已完成工程。
+- Exact程式`87225f953dce96f77eeea5956ab28fe4510008be`的CI34227909134三OS755/0fail（Mac753/2skip、Linux752/3、Windows723/32）及各Ajv1251通；rolling34227909162雙OS各24cases全passed/pageErrors0、既有source fixtures cleanup確認，logs已核實。真Codex CLI仍只有上述本機owned證據，rolling不是Codex Web；詳相容性文件。
 - 正式3.0.6、B+ logo、私人來源/登入/第三方route與固定ab227af72h完全不變；rc.6未部署。其他C1/C3–C8、未定位的歷史flaky及實機/完整效能gate仍待。
 
 ### 2026-09-08 — Plan 1.52
