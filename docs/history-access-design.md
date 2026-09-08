@@ -1,113 +1,189 @@
-# Claude 歷史安全接入設計（Plan 1.41）
+# Claude 歷史安全接入：實作狀態與剩餘 gate
 
-日期：2026-09-08。**以下是待實作 proposal，不是已上線 API 或權限保證。**
-本批只完成共用 provider decoder；未新增 HTTP route、來源登記或認證資料，
-未部署／讀取私人歷史／更改官方登入。正式 3.0.6 與固定來源 72h 長測不變。
+日期：2026-09-08。這份文件接續 Plan 1.41 proposal，區分已完成的 reserved
+implementation、synthetic 驗證與尚未達成的 production 條件。**正式 server/app
+尚未啟用新歷史 routes 或 UI**；隔離預覽只建立自己的合成來源，未掃描／讀取
+私人 Claude 歷史、變更官方登入或呼叫模型。未部署，固定來源 72h 長測不變。
 
-## 目前能重用什麼
+## 已有元件與邊界
 
-| 本地程式依據 | 已有能力 | 不可誤認為已有 |
+| 元件 | 本輪已有能力 | 不代表已完成 |
 | --- | --- | --- |
-| `server/http-utils.js` 的 `authenticate` | Browser cookie／peer bearer 驗證；peer 回 grantId/device | Browser 目前只回 mode，沒有 per-device/per-tab principal；peer grant 本身不是 session 級 ACL |
-| `server/device-trust.js` 的 `authenticatePeerCredential`／`revokeIncomingGrant` | Hash-only 持久 peer grant，可撤銷 | 尚無 active-history binding 索引／撤銷後中止讀取回呼 |
-| `server.js` 的 `cookieSuffix`／`isCrossSiteMutation` | HttpOnly、SameSite=Strict；檢查部分跨站 mutation | 缺 Origin 會放行；只比較 URL.host（包含 port，不包含 scheme），無 history 專屬 CSRF 規則 |
-| `server.js` 的 `/r/<machineId>/api/*` relay | 已配對時只用 dedicated peer bearer，不回傳 Set-Cookie/auth challenge | Legacy 仍可走 shared cookie；一般 pipeline 沒有 history response byte cap |
-| `protocol/native/claude/history-source-service.js` | Trusted-only bind、單 binding flight、共用 2 workers、generation/revoke、version fence、close/quarantine | 不是 authenticated source registry；64 binding tombstones 沒有通用 view allocator |
-| `client/claude-history*.ts`、`client/history-pages.ts` | 共用驗證器、有限分頁、舊 ticket 排除、stale／refresh 原子替換 | 不是 HTTP transport／真 UI／native origin authenticity／durable journal |
+| `protocol/native/claude/history-registry.js` | Host 固定 catalog、principal/view/binding 隔離、64-slot pool、租期、撤銷與 actual-close 再利用 | 正式來源登記 UI、原生來源認證、ACL／descriptor containment |
+| `server/history-identity.js` | 注入既有 cookie／peer authority，建立有界 opaque principal，rotation/logout/revoke fan-out | 新登入系統、browser device grant、per-tab authentication |
+| `server/history-http.js` | 注入式 catalog/register/page/release handler、exact Origin／CSRF／auth、byte cap、取消及送出前重驗 | 已安裝在 `server.js` 的 production routes |
+| `server/history-relay.js` | dedicated peer bearer、有界本地 owner mapping／解壓後收取、current peer／principal 重驗與取消 | legacy shared-cookie relay、gateway 下游使用者的端到端 delegation |
+| `client/history-transport.ts`、`client/history-pages.ts` | same-origin bounded transport、provider 驗證、分頁／version／stale fence | 原生來源可信性、journal publication、正式跨 Host UI 接線 |
+| `client/history-view.ts`、`public/history-preview.*` | 隔離唯讀 UI、catalog 選擇、分頁／取消／手動 refresh、有限 DOM | 正式 app 入口、手機／多 Client 效能與可部署性驗收 |
+| `protocol/native/claude/history-sdk.js` | 執行 exact hash-verified Buffer、resolution/cache fencing、one-shot SDK attempt | 原始 JSONL provenance、完整依賴／OS／網路隔離 |
 
-不要重用 Pi 的 `/api/session?file=` 作 Claude 歷史入口。它以 Pi sessions-root
-containment 驗證檔案，回的是 legacy session 形狀；新的 inert 資料不得誤入
+不要重用 Pi 的 `/api/session?file=` 作 Claude 歷史入口。新的 inert 資料不可誤入
 rename/archive、approval、resume 或 normalized journal 路徑。
 
-## 三層身份必須分開
+## 三層身份與 Host wiring
 
-1. **Authenticated principal**：Host 驗證的身份，決定能讀哪些已登記來源。
-   Peer 用當前有效 grantId/device；Browser 目前是 host-wide token 登入。
-   如要區分不同 browser device，必須另做可撤銷 device grant，不能靠 client
-   自報 deviceId。內部 principal reference 不應含明文 credential，也不能由 body 指定。
-2. **View／tab reference**：只用於分頁隔離與生命週期，不是新權限。
-   同一 browser profile 的 tabs 共享 cookie；再加一顆 cookie 也不是 per-tab
-   認證。不同 view 不共用一份會被 refresh 替換的 sourceVersion。
-3. **Source binding**：Host 自派 bindingId/generation，绑定已授權 principal、
-   view、原生 session 與 server-resolved source；請求不能帶原生路徑或 SDK path。
+1. **Authenticated principal**：Host 由當前有效 cookie／peer grant 得到穩定
+   opaque reference。它不是 raw credential，不能由 request body 指定。
+2. **View reference**：UUID，只隔離分頁與生命週期。同一 cookie 的 tabs 共用
+   principal；自報 view ID 不是額外認證，也不是 browser device identity。
+3. **Source binding**：Host 自派 bindingId／遞增 generation，綁定 principal、
+   view、catalog source 與原生 session。HTTP 不接受來源路徑或 SDK 覆寫。
 
-Relay 的 peer grant 識別的是 gateway device，不會自動證明 gateway 後方的
-各個終端使用者。不能把 downstream 自報 viewId 說成跨使用者 ACL。
+Identity adapter 每次驗證重新讀取注入的目前 authority；最多保留 21 個 browser
+及 128 個 peer principal entries，只保留加鹽 fingerprint 與 opaque reference。
+登入資料本身仍由原有 Host store 管理。Host 必須把 logout／token rotation／
+grant revoke 同步接到 identity invalidation、registry revoke 及 relay cancellation。
+單靠下次請求重新驗證不足以即時中止飛行中的讀取。
 
-## 最小分階段實作
+`invalidateBrowserCredential`／`invalidateBrowserCookie` 會撤掉當前歷史 scope，
+**不會刪除原 store 的 shared token**；若該 token 仍有效，可建立新的 principal，
+但不能復活舊 binding。真正撤銷 credential 必須先改 authoritative store。
+`peerGrantIds` 與 credential lookup 必須反映有效／到期／撤銷狀態，不能只列曾存在的 ID。
 
-### A. 先做 registry／pool 的純狀態與隔離測試
+Relay 的 remote Host 認到的是 gateway 的 peer grant，不能從自報 view ID 得知
+gateway 下游的終端使用者。Gateway 以有界本地 mapping 檢查 downstream principal
+到 remote binding 的 ownership，並自派 upstream view UUID；這提供 gateway 內的
+scope fencing，仍不是 remote Host 的端到端 user delegation。
 
-- Host 管理的 catalog 先把授權工作區／固定官方 Claude session 解析成來源。
-  Client 只能選 catalog opaque ID；不能送 projectsRoot/projectKey/file/sdkPath/
-  executable/env。未知來源與未知版本拒絕，不靠任意掃描私人 HOME 補成功。
-- Registry row 保存 internal principal、view、bindingId/generation/sessionId、
-  trusted source handle、狀態與 lease；不存 raw history 或 native credentials。
-  每次操作重新驗 current principal/grant 與 row ownership，不能只檢查 UUID。
-- Host 共用**同一個** source service。Grant revoke、logout/token revoke、來源
-  撤銷、view release/lease expiry、shutdown 都須 fan-out revoke；完成回覆前
-  再確認 grant/registry generation 有效。只做 next-request auth 不夠。
-- 每個同時開啟的 view 要獨立 binding，避免 A refresh 淘汰 B 的唯一 token。
-  但每次開頁都創新 ID 會耗盡目前 64 個 tombstones，因此先做 bounded slot
-  pool：同 principal 的空閒 slot 可跨 session 重用**同 bindingId、更高
-  generation**，前提是 revoke 舊 handle 且確認 worker 已 close。Active/closing
-  slot 不重用，不刪 generation fence，不重建 service 繞過 quarantine。
-- 多 principal 的總 slot 預算也必須有界。跨 principal 回收要另外驗證原子
-  owner 轉移、嚴格增加 generation 與舊 callback/credential 排除；驗證前只
-  回明確 capacity unavailable，不能把 pool 當作已經解決任意長期 churn。
-- Lease 限制 registry/view 生命週期，不把現有無 TTL 的 sourceVersion 說成
-  有時間保證。Idle view 過期不停止原生 Claude task，只撤銷自己的唯讀 handle。
+## Registry／pool 已實作
 
-### B. 再做獨立 transport，先只接 synthetic source
+- 固定 Host catalog 最多 256 項；Client 只能選 bounded opaque `catalogId`。
+  建構時 detach source，只接受 canonical absolute root／project key／session ID；
+  不做 HOME discovery。未知／撤銷／未授權 source 在 worker spawn 前拒絕。
+- 共用一個 source service：至多 64 個 stable slot，source service 共用 2 workers。
+  row 不保留 raw transcript。每 view 有自己的 binding 與 sourceVersion；同來源
+  的 A refresh 不取代 B 的 token，來源改變時各自的續頁會變 stale。
+- release／principal revoke／source withdrawal／lease expiry／shutdown 先同步失效，
+  再 revoke owned handle。只在 `status()` 確認 revoked、無 activeWorker 且
+  cleanupConfirmed 後，才以同 bindingId、嚴格更高 generation 重用。
+- 優先重用同 owner 的 idle slot，也可原子移轉給其他 principal。舊 row、callback、
+  generation、token 不會取得新 owner 的 scope；沒有無界 per-principal tombstone map。
+  active／closing slot 不可重用，滿額回 `history_capacity_unavailable`。
+- 租期預設 60 秒，trusted constructor 可設 1ms–24h。相同 view/source 的明確
+  register 會續租；observe 本身不續租。timer 會撤銷閒置／飛行中 view，操作與
+  回覆前也重驗租期。這不是 token 本身新增 TTL，不會停止原生 Claude task。
+- 註冊起初是尚未 observe 的 tentative row。Host 的 private
+  `cancelRegistration(principal, receipt)` 只接受最新原始回覆物件的 identity，
+  複製／舊 renewal receipt 不能撤銷較新註冊；回 true 只表示邏輯退役。首次合法
+  observe 同步 claim，之後 renewal 也不能透過舊 registration rollback 撤掉它。
+  同 principal/view 可在新 catalog 授權成功後替換未 observe 的 row，以恢復遺失
+  註冊回覆的切來源操作；已 claim 的 row 仍須 release。Generation／actual-close
+  及 quarantine 條件不變，拒絕新 source 不會破壞仍有效的舊 row。
+- cleanup timeout 保留占用並 quarantine 原 service；late close 可釋放實體 slot，
+  **不能解除 quarantine**。不得另建 service 或重啟 Host 來繞過。
 
-候選 endpoints：`POST /api/history/registrations`、`POST /api/history/page`、
-`DELETE /api/history/registrations/<id>`；名稱待 contract 實作定案。
-Registration 只收 catalog ID/view reference；page body 僅
-`{bindingId,generation,requestId,page:{offset,limit},version?}`，strict exact keys。
-Host 自行恢復 session/source/SDK，不接受 caller timeout、source override 或 authority。
+Registry 測試包含 mocked token churn，以及真正 source service 的單 slot
+跨 principal/session 1000 次 register/release：retained binding 始終為 1。
+另驗 64-slot cap、closing、owner transfer、post-close/pre-publication revoke、
+來源撤銷、租期、shutdown 與實際 permission worker 的自有 fixture。
 
-- Browser 分支要求 canonical origin 的 **scheme/host/port** 全相同、JSON
-  content type、history CSRF header，拒絕缺失/無效 Origin。不盲信 request Host
-  或未經驗證的 forwarded headers；HTTPS reverse proxy 的允許 origin 必須來自
-  trusted Host 設定。保留舊 API 相容，不直接改全域 auth 行為。
-- Remote/native 分支要求可撤銷 peer grant。新 history route 不允 legacy
-  shared-cookie relay，也不讓 invalid bearer 回退 cookie；混合憑證策略明確
-  fail closed。現有 `authenticate` 會在 invalid bearer 後考慮 cookie，不能
-  不加檢查就拿來當這個新 contract。
-- 不加 wildcard CORS、反射 origin 或 credentials。初期 same-origin／既有
-  trusted relay；跨 origin native client 若需要，另驗 exact allow-list。
-- Host 在 serialize/write 前限制 outer response ≤272KiB（child frame 仍
-  ≤256KiB）。Browser／relay 串流讀取**解壓後 bytes**時累計限额，超額 cancel/
-  abort，之後才 fatal UTF-8 decode 和 JSON.parse；不能只信 Content-Length，
-  也不能沿用無界 `response.json()` 或一般 relay pipeline。
-- HTTP aborted／response close 且未正常 writableEnded 時取消本次 observe；
-  finally 移除 listeners。正常 response close 不應當失敗。Client cancel 只
-  保證本地舊資料不發布，不是 worker close 證據。
-- `source_cleanup_unconfirmed` 保留 worker slot 並 quarantine 共用 service；
-  late close 不發布，也不自動解除 quarantine。沒有 Host/process restart 捷徑。
-- 回覆 no-store、固定 sanitized code，不記 raw transcript、路徑、query token
-  或 credentials。固定官方 SDK pin 漂移拒絕，不安裝或呼叫 query/login/model。
+## 保留 HTTP contract
 
-### C. 過 gate 才接真實 inert UI
+每個 endpoint 都需要 UUID header `X-Stepsemble-History-View`。Browser 額外需要
+`X-Stepsemble-History-CSRF: 1`、正確 JSON Content-Type 及 trusted configured Origin。
 
-先驗證 synthetic Client → authenticated transport → registry → source worker
-全鏈，再接正式歷史顯示與 stale/refresh/capacity 控制。任何 public response
-仍 `sourceAuthenticated:false`、`publishable:false`、approval ACK／run-terminal／
-resume authority 全 false；不發 journal event，不對工具輸出自動採取行動。
-來源 UID/mode/雙讀、官方 SDK hash 只給 observed consistency/drift evidence，
-不是 provenance、完整 ACL、atomic descriptor containment；Windows native source
-gate 尚 unsupported。上線前仍要獨立處理這些缺口與來源顯示措辭。
+| Method／path | Exact JSON body |
+| --- | --- |
+| `POST /api/history/catalog` | `{}` |
+| `POST /api/history/registrations` | `{catalogId, viewId}`；viewId 須等於 header |
+| `POST /api/history/page` | `{bindingId, generation, requestId, page:{offset,limit}, version?}` |
+| `DELETE /api/history/registrations/<bindingId>` | `{generation}` |
 
-## 接入前驗收清單（全部尚待）
+Catalog 回 bounded `{catalogId,label,description}` 清單，不回 path／principal／SDK。
+Host 注入的 `listCatalog` 必須只回該 principal 當下可見的 metadata；registry 的
+register 仍獨立檢查授權。Registration 回 binding/session/view/catalog/expiry；page
+沿用嚴格 inert `bound_history_observation` envelope。每次送出前重驗當前 auth，
+registration/page 再驗 registry owner、generation 與租期。
+HTTP 保留 register 的原始 private receipt，在已知 timeout／abort／auth failure／
+無效回覆等尚未正常送出的情況 best-effort rollback；晚到結果也走同一精確 receipt。
+已正常 `res.end` 不取消，更不以複製的 JSON 回覆撤銷新 renewal 或已 claim 的讀取。
 
-- [ ] 任意 path／SDK／source 欄位、未知 catalog ID、未授權 source 在 spawn 前拒絕。
-- [ ] 跨 principal/view/binding/generation、失效 grant、logout/revoke 中途、late response 全拒。
-- [ ] A/B 同 source 各自 refresh/續頁不互相污染；原檔改變各自變 stale。
-- [ ] 單 slot 跨 session churn 1000 次不增加 tombstone，舊 gen/token 全拒；64-slot cap、closing slot、owner 轉移、quarantine 均驗。
-- [ ] 缺／偽／異 scheme Origin、無 CSRF、混合 auth、invalid bearer fallback、legacy relay 均拒絕。
-- [ ] Browser/Host/relay 的超額與慢分塊、假 Content-Length、壞 UTF-8、中途斷線，無 partial publish／無界 buffering／遺失 abort listeners。
-- [ ] Source grant subtree、POSIX ACL/descriptor containment、Windows ownership gate 與 SDK loader 競爭有獨立驗收。
-- [ ] 真瀏覽器/手機與多 Client 效能、stale/refresh/capacity 錯誤介面，再做可回滾部署。
+Browser Origin 需完整 scheme/host/port 相符，缺失／偽造／不同 scheme 拒絕；不信任
+request Host 或任意 forwarded header。CSRF header 是 intent marker，並非秘密。
+Cookie 與 Authorization 混用、invalid bearer fallback、重複安全 header 均拒絕。
+Peer 只接受 dedicated 可撤銷 bearer；帶 Origin 的 peer 仍須符合 browser intent。
+不加入 wildcard／反射 CORS 或 legacy shared-cookie fallback。
 
-這份設計不代替 native session/approval 全能力、durable journal、Rust migration、
-App Shell 或實機長測；72h 的 fixed-source 結果也不能涵蓋本批尚未上線的功能。
+Host body 上限 8KiB／1024 chunks、deadline 15 秒；outer response 上限 272KiB，
+child page frame 仍為 256KiB。Browser 與 relay 以單一固定 buffer 累計 **fetch
+解壓後 bytes**，超額取消；不信 Content-Length，不用無界 `response.json()`。
+完成 byte bound 後才 fatal UTF-8 decode／JSON parse／shape validation。逾時、
+中途斷線、late fetch、忽略 abort 的 adapter 不發布 partial data；finally 移除 listeners。
+正常 response close 不當成取消。回覆 no-store 與固定 sanitized code。
+
+Relay 預留 `/r/<machineId>/api/history/*` namespace，由 Host 解析 canonical peer
+origin、grantId 與 credential；只送 dedicated bearer，不傳 browser cookie、Origin、
+Set-Cookie 或 auth challenge，不跟 redirect。最多 64 個 relay flights，peer rotation／
+revoke／logout／shutdown 可 abort active streams。它沒有安裝進正式 relay pipeline。
+本地 ownership map 最多 64 rows，key 為 principal/machine/view tuple；pending 註冊
+尚不能讀取，完整驗證後才 active。不同 principal 即使使用相同 caller view ID，也會
+取得不同 upstream view UUID。Page/release 必須匹配本地 owner、binding/generation；
+遠端同 ID 更高 generation 轉移會淘汰舊 owner。Release 先標 closing 並取消 page，
+cleanup 未確認就保持 closing。Revoke 清除本地 row 並取消 streams；未知／閒置遠端
+handle 仍靠 remote lease 收回，不把 local map 刪除說成 actual remote close。
+未 observe 的 source change 沿原 upstream view 交由 remote registry 授權後替換；
+拒絕新 source 時保留舊本地能力，已 observed row 仍須 release。Relay 的 private
+receipt cancellation 只把本地未 observed row 退回 pending，以供重新註冊／租期回收，
+不送可能晚到並誤撤新 renewal 的非同步 DELETE。
+現有 browser transport 固定走 local `/api/history/*`；跨 Host selector／relay prefix
+尚未接進預覽 UI，不能把 unit relay coverage 說成真實跨機 UI 驗收。
+
+## 隔離 preview 與 SDK loading
+
+`scripts/history-preview-server.mjs /absolute/pinned/sdk.mjs` 只在 loopback 隨機 port
+啟動自己的 HTTP server、temporary synthetic JSONL 與臨時 cookie。Catalog 有 rich、
+compaction、file-history，以及 1000 則長對話範例；不掛載私人來源。CLI 的 `change`／
+`revoke` 只操作此 preview fixture／credential：revoke 先 rotate synthetic cookie，
+再撤銷舊 principal，重新載入頁面才取得新 cookie。正式 `server.js`、`public/app.js`
+沒有載入這個功能，預覽也不註冊 service worker。
+
+UI 每次明確讀取先 register/續租，換 generation 時禁止直接續舊頁，保留先前頁面直到
+refresh 成功原子替換。切來源會釋放舊 binding；取消／close／pagehide 只要求本地取消
+及 release，**不是 actual worker close 的證據**；lease 是未完成 release 的後備機制。
+文字、工具、附件、URL 外觀內容都用 inert text/details，不產生可執行連結或附件 fetch。
+DOM 每畫面最多 10 則、每訊息 24 blocks、48000 文字 units；長資料明示縮短顯示。
+DOM/model 測試不取代真 browser／手機／多 Client 效能與無障礙驗收。
+註冊取消的 Host cleanup 只能 best effort：server 正常送出回覆不代表 browser 已消費，
+不能靠 disconnect 推論每個 lost reply。Tentative replacement 與 lease 為此保留恢復途徑。
+
+SDK source 在讀取前檢查 size，再由一個 descriptor 以 64KiB chunks bounded read，
+驗證 exact SHA-256。Node 的同步 `registerHooks` 只攔 exact nonce file URL 的
+resolve/load，直接提供已驗證 Buffer，保留 `import.meta.url`／`createRequire` 語意。
+nonce 避免命中既有 plain-path ESM namespace，resolve hook 避免 symlink 重新導向。
+import 後 finally deregister，仍重新讀取／核對磁碟 artifact 以拒絕已觀測 drift。
+每 owned worker/module 只有一次 attempt，失敗也耗用，不建立無界 nonce module cache。
+
+9 個 SDK loader 測試驗證 overwrite/symlink swap-and-restore、舊 cache、前後 drift、
+oversize/growth、短讀、close 失敗與既有 permission profile。**本機實際 Node 22.19.0**
+已跑過這些測試與完整 pinned SDK contract，後者包含 real loopback HTTP → registry →
+owned source worker → official SDK → Client paging、owner transfer 與 in-flight revoke。
+結果為 synthetic POSIX fixture passed、`modelCalls:0`、來源 bytes unchanged。
+Script另以兩個loopback listener實測dedicated relay→remote registry→固定SDK，
+同caller view的不同browser principals不能借用binding；`relayScopeGate`與
+`relayDownstreamOwnerIsolation`有actual fixture證據，但不是跨機browser UI。
+主代理另以Computer Use操作隔離viewer，詳見 [history-preview.md](history-preview.md)。
+CI matrix 設定 macOS/Linux/Windows + Node 22.19.0；設定存在不代表本輪 CI 已執行完成。
+
+## 尚未完成的 production gate
+
+- 正式 Host 的 source 授權/catalog 維護、cookie/logout/token/grant lifecycle wiring、
+  route／origin/reverse-proxy 設定、跨 Host UI 與端到端下游 user delegation。
+- Source ACL／descriptor-relative containment、完整 ancestor 信任、Windows
+  owner/ACL/reparse-point gate，以及 native provenance。目前 POSIX uid/mode、雙讀、
+  inode/hash 只證明已觀測一致性；SDK exact bytes 不替原始 JSONL 提供來源認證。
+- Node 22 沒有公開 `fs.openat/openat2` 或 fd ACL API。傳 source fd 能縮小 child 的
+  路徑讀取需求，但 parent 初次 open 的 ancestor race／阻塞及 cleanup 仍需處理；
+  不可把 `/proc/self/fd` 拼接當成跨平台 containment。完整 gate 需要原生 helper。
+- Node permission model 不是防惡意程式的 sandbox：既有 fd 可繞過其 path checks，
+  symlink 可跟隨到 grant 外，directory grant 也涵蓋 descendants。直接 outside-root
+  deny canary 不等於 single-file isolation、ACL audit 或 OS/network sandbox。
+- 多 Client admission／資源壓力、真 browser/mobile 與可回滾部署驗收；更完整附件、
+  subagent、approval、resume、durable journal 等仍有各自的 capability gates。
+
+所有觀測仍 `sourceAuthenticated:false`、`publishable:false`，approvalAcknowledged／
+runTerminalObserved／resumeAllowed 全 false；不發 journal event，不執行來源中的指令。
+固定來源 72h 長測不能替代這些新 contract 與剩餘 gate。
+
+參考：[Node 22.19 module hooks](https://nodejs.org/download/release/v22.19.0/docs/api/module.html#moduleregisterhooksoptions)、
+[descriptor 繼承](https://nodejs.org/download/release/v22.19.0/docs/api/child_process.html#optionsstdio)、
+[Permission Model 限制](https://nodejs.org/download/release/v22.19.0/docs/api/permissions.html#limitations-and-known-issues)。

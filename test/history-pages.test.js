@@ -110,7 +110,9 @@ test("failed or cancelled refresh preserves the visible version; explicit succes
   assert.deepEqual(ids(h.api), defaultCase.expectedIds.slice(2, 4)); assert.equal(h.api.state().sourceVersion, otherToken);
 });
 test("observed source version failures freeze continuation until an explicit refresh", async () => {
-  for (const code of ["source_version_changed", "source_version_unavailable", "source_binding_revoked", "source_cleanup_unconfirmed", "source_service_quarantined", "source_service_closed"]) {
+  for (const code of ["source_version_changed", "source_version_unavailable", "source_binding_revoked", "source_cleanup_unconfirmed", "source_service_quarantined", "source_service_closed",
+    "history_principal_unavailable", "history_source_unavailable", "history_binding_unavailable", "history_registry_closed", "history_registry_unavailable",
+    "history_unauthorized", "history_origin_rejected", "history_csrf_rejected"]) {
     const h = harness(); await h.finish(h.api.refresh({ offset: 0, limit: 2 })); const before = h.api.state().pages;
     const p = h.api.loadNext(2); h.calls.at(-1).resolve({ kind: "source_unavailable", code });
     assert.deepEqual(await p, unavailable(code)); assert.equal(h.api.state().status, "stale"); assert.deepEqual(h.api.state().pages, before);

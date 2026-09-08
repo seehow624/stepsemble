@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.41
+> 計畫版本：1.42
 > 最後更新：2026-09-08
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -52,11 +52,13 @@
 | Claude 原生歷史讀取邊界 | SDK讀回／豐富內容觀察映射已驗 | 官方SDK0.3.259對應CLI2.1.259；只讀子程序不准spawn／write。合成工具／thinking／附件參照、中斷/API錯誤外層metadata及壓縮保留鏈通過；相同UUID原文核對、未知格式警示、整批拒絕混入/重複。前輪自己的兩則訊息讀回仍有效，本輪未再讀私有session。不是Web journal／approval ACK／resume，見 `protocol/native/claude/README.md` |
 | Claude 歷史來源快照 | POSIX唯讀一致性／跨平台parser已實作 | 單一指定source、UID/mode/regular/single-link/no-follow、同descriptor雙讀＋前後inode/size/ns時間、原始8MiB/1MiB line/2000rows caps；partial/malformed不當空history。不是authenticated source／ACL／atomic containment；Windows source gate明確unsupported，SDK合成reader仍可驗。未接正式服務 |
 | Claude 無sessionId附加紀錄 | 兩種固定版本格式已補 | 檔案snapshot/delta經2.1.259 writer bytes核對；parser/mapper共用scope規則，同檔whole-source訊息引用不能缺失／重複／借subagent。保留inert index/digest/refs、不填sessionId、不還原檔案；title UUID不進transcript graph。未知unscoped／partial仍拒絕，未上線 |
-| Claude 綁定／隔離讀取生命週期 | reserved reference已實作 | trusted immutable source handle＋generation/revoke fencing；共用2worker/無queue/64binding上限，固定Node唯讀子程序、10s budget＋1s cleanup，未確認退出即quarantine並保留slot。不是authenticated registry／單檔OS隔離／硬即時或Windows ACL，未接Web |
+| Claude 綁定／隔離讀取生命週期 | reserved service＋scoped registry已實作 | trusted immutable source handle＋generation/revoke fencing；共用2worker/無queue/64binding上限，固定Node唯讀子程序、10s budget＋1s cleanup。registry按principal/view/source分離、確認close後同slot高generation重用；未知cleanup仍quarantine。不是單檔OS隔離／硬即時或Windows ACL，未接正式Web |
 | Claude 快照選支／分頁效能 | pinned SDK已接隔離worker；局部量測完成 | 官方alpha SessionStore只讀同一份captured records，compaction不改原snapshot；最多100messages／256KiB整頁，不回raw records。7.6MB/2000rows本機三輪：parent處理43–45ms降至<1ms，但全程266–271ms、child約206–209MiB，仍非完整順滑度/記憶體驗收。未上線 |
 | Claude 分頁版本／雙worker | version fence及短測已實作 | first success才發binding內opaque token，續頁比對raw SHA＋dev/ino/size/ns mtime/ctime，worker在SDK前＋parent雙驗；觀察到變更即拒絕並撤銷token，失敗refresh不覆蓋。雙worker12輪/24讀、第三請求busy及cleanup通過；child high-water合計415–427MiB不是即時total RSS，另保留與全套測試並行時延遲較高的結果。沒有舊snapshot cache／來源auth或Windows ACL，未上線 |
-| Claude Client歷史視窗 | reserved strict TS狀態管理已實作 | 同Host/binding/gen/session/sourceVersion及source identity才拼頁；單pending、舊ticket先於decode拒絕、refresh原子替換、失敗保留舊頁、stale禁止續頁。100/頁、500messages/32pages/2MiB上限，純VM及owned POSIX官方SDK端到端fixture已驗。尚無authenticated transport或正式UI；不是approval/resume/journal |
-| Claude共用browser provider | strict TS decoder／shared Host validator已實作 | 固定reader profile、完整source/observation shape共用同份generated JS；raw inner payload先限256KiB再fatal UTF-8/JSON decode，public parse拒getter/cycle/nonJSON並回detached結果。Client與官方SDK fixture不再用Node wire橋。認證/outer HTTP streaming未實作，接入設計見history-access-design.md；非真browser/手機驗收 |
+| Claude Client歷史視窗 | strict TS controller／isolated viewer已實作 | 同Host/binding/gen/session/sourceVersion及source identity才拼頁；單pending、舊ticket先於decode拒絕、refresh原子替換、失敗保留舊頁、stale禁止續頁。100/頁、500messages/32pages/2MiB；viewer一次最多10則，合成1000則在實際browser 1440/390/320 viewport驗過。不是正式UI／approval/resume/journal或實機效能驗收 |
+| Claude共用browser provider | strict TS decoder／shared Host validator已實作 | 固定reader profile、完整source/observation shape共用generated JS；inner 256KiB、outer HTTP解壓後272KiB先限額再fatal UTF-8/JSON decode，拒getter/cycle/nonJSON。官方SDK→隔離worker→registry→HTTP→browser transport→controller合成鏈已驗，未接正式來源 |
+| Claude 歷史認證／relay | 隔離模組及HTTP測試已實作 | private identity接既有credential authority、Origin/CSRF、invalid bearer不fallback、bounded decoder、deadline/disconnect/revoke；relay只用dedicated peer，gateway維護bounded downstream owner/view映射。正式logout/rotation/device revoke/Host選擇尚未接線；不是end-user native source provenance，見history-access-design.md |
+| Claude SDK 執行bytes | exact verified Buffer loader已實作 | bounded fd read＋固定SHA、sync resolve/load hooks執行已驗Buffer，獨立nonce避plain URL cache，每worker一次attempt。Node22.19.0實跑SDK全鏈通過；source ACL/atomic containment、依賴及OS sandbox仍未保證 |
 | Claude clone記憶體嘗試 | 已量測並撤回 | 同workload兩次12輪，structuredClone＋提前清引用讓worker高水位合計中位數421.164→408.852MiB，但round283.539→296.171ms。沒有證明順滑度改善，保留原JSON clone並存完整before/after與重現方法；memory優化仍待，見claude-history-performance.md |
 | Claude 官方登入入口 | Mini當前detected，正式3.0.6 | 使用者回報瀏覽器登入，助手回completed／detected；另行同意的直接CLI最小模型測試成功。metadata API仍liveVerified=false，不以一次成功保證永久有效；不自動修憑證／重試模型，詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
@@ -67,7 +69,9 @@
 
 ### 下一個可執行任務
 
-**1.41 開發接續**：共用browser provider decoder＋Host驗證器已做，Client與官方SDK fixture改用真正shared provider；仍沒有接正式Web或authenticated HTTP。下一步按 `history-access-design.md` 先做source registry／principal-view分層／bounded slot pool與撤銷的純狀態及synthetic測試，避免每tab mint新binding耗盡64 tombstones，以及A refresh影響B同binding token；同principal slot可跨session高generation重用，未知cleanup不能回收或新service繞過。再補outer transport/relay解壓後bytes cap、Origin/CSRF/invalid bearer不fallback、來源授權與inflight revoke；不能把host-wide cookie當per-tab授權。補平台ACL與descriptor-relative containment，再接真實history畫面/stale操作與效能；Node grant仍projects-root子樹，Windows來源unsupported。whole-source memory改善仍待，structuredClone候選已撤回（省約2.9%但慢約4.5%），不能稱完成。其他unscoped/partial、附件/subagent/supersession、approval ACK/resume、durable仍待。Codex non_native_route gate仍需本人決定，Claude模型同意已用，本輪只synthetic，無私人history/模型/登入/route操作。publishable/authority全false；10s+1s非hard realtime。3.0.7-rc.1的72h fixed source/起點不動，與B+rc.2分開，不提前部署或切Rust/DB。詳見 `protocol/history-pages.md`、`protocol/native/claude/README.md`、`native-subscription-smoke.md` 與 `session-discovery-and-soak.md`。
+**1.42 開發接續**：source registry／principal-view分層／bounded slot pool、HTTP／relay／TypeScript transport與隔離歷史viewer已實作；官方固定SDK的合成端到端鏈與真browser分頁/stale操作已驗。不能再把這些列成未開始，也不能宣稱已接正式Web。詳細界線與重現步驟見 `history-access-design.md`、`history-preview.md`。
+
+接下來依安全順序：先設計小型原生source opener/reader來完成POSIX ACL／descriptor-relative containment及Windows owner/ACL gate；Node fs缺少可攜openat/fd ACL，額外stat不能包裝成完整保證。SDK root module現在執行exact pinned Buffer，但Node permission model仍非惡意程式sandbox，source/依賴/OS隔離不可混淆。通過後再接正式credential/catalog authority、logout/rotation/device revoke/shutdown、Host選擇/remote UI，並補rolling、實機背景恢復與多輪效能。whole-source memory改善仍待（原structuredClone候選撤回），不可宣稱已順滑度驗收；其他unscoped/partial、附件/subagent/supersession、approval ACK/resume、durable仍待。Codex non_native_route需本人決定，Claude單次模型同意已用，本轮只synthetic，無私人history/model/login/route操作。publishable/authority全false；10s+1s非hard realtime。72h繼續固定ab227af／rc.1起點，不因B+rc.2或本批code更換；未通過前不提前部署或啟動Rust/DB大遷移。
 
 **2026-09-07 品牌候選**：Jerome明確確認B+為最終方向。新的
 `public/stepsemble-mark.svg` 是向量母版，使用單一module／connector在
@@ -964,6 +968,15 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-08 — Plan 1.42
+
+- 從前轮proposal接成可執行的scoped registry、private identity、HTTP／relay與strict TS transport。64-slot pool確認actual close後以原ID高generation重用；principal/view/source分層、每view獨立版本、lease/revoke/owner-transfer/inflight fences與quarantine保留。HTTP先驗Origin/CSRF/credential，再bounded body/response；relay只用dedicated peer，64-row gateway ownership與自派upstream view隔離不同browser principals。
+- 修復review找到的取消註冊窗口：private原receipt才能best-effort退役，舊renewal／已observe的row不能誤撤。未observe註冊可在新source授權成功後同view替換；relay不發可能誤撤新renewal的背景DELETE。成功res.end不代表browser收到，lease仍是未知清理後備，不冒稱exact remote close。
+- 新增isolated history preview，官方SDK／自建rich、compaction、file-history及1000-message來源經真正HTTP到UI。來源選擇、取消／關閉、5/10/25則分頁、stale保留／手動refresh；畫面最多10則。Computer Use在1440/390/320驗無橫溢出、44px觸控、10/10/5分段、來源append／合成cookie撤銷／reload／keyboard重開。採Apple Design技能的字體、觸控與可及性原則，未改B+logo。詳見 `history-preview.md`；不是CWV、iOS/Android/Safari/多機實機驗收。
+- SDK loader改直接執行exact hash-verified Buffer，resolve/load hooks＋nonce拒swap/symlink/cache poison；bounded fd read與one-shot attempt防無界cache／unknown retry。最低Node22.19實際跑完整固定SDK鏈，含兩個loopback HTTP主機的relay／同view不同principal防竊用，modelCalls0／原fixture不變。Node permission model仍非惡意程式sandbox，不把SDK bytes pin當source ACL或provenance。
+- 本機完整574tests＝572pass／2Windows-only skip／0fail；strict TS／generated artifacts、syntax、版本與1251-case Ajv通過。預覽程序與自己建立的fixture已確認清理，正式3.0.6、訂閱／route／私人history、B+母版及fixed ab227af的72h未動。本輪跨平台CI須以新exactcommit實際结果核對，不能沿用上一輪綠燈。
+- 下一個正式接入前置仍是原生source opener/reader的ACL／descriptor containment及Windows gate，然後正式Host credential/catalog/remote UI wiring、rolling與實機/效能。approval/resume/durable journal/Rust Host/App整體路線未完成；不新增正式routes、不部署、不提前把72h標passed。
 
 ### 2026-09-08 — Plan 1.41
 

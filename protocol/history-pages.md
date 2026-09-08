@@ -1,6 +1,6 @@
 # Reserved inert-history Client view
 
-Plan 1.40 controller / Plan 1.41 shared provider. `client/history-pages.ts` builds `public/modules/history-pages.js`.
+Plan 1.40 controller / Plan 1.41 shared provider / Plan 1.42 isolated transport and viewer. `client/history-pages.ts` builds `public/modules/history-pages.js`.
 This is a transport-neutral state controller, **not a deployed history screen,
 Stepsemble Protocol wire endpoint, authenticated source registry or journal**.
 Production HTML, service worker, login, models and routes do not import it.
@@ -147,9 +147,16 @@ POSIX source reads; Windows reports `boundClientPagingGate: platform_unsupported
 and only runs pure controller/SDK fixture tests. No real native CLI, model,
 private transcript, auth state or subscription credential is touched.
 
-Next: implement and verify the proposed authenticated scoped transport/source
-registration and bounded view pool from [the access design](../docs/history-access-design.md);
-POSIX ACL/descriptor containment and Windows ownership gate;
-then real history presentation/stale controls and multi-Client/browser performance.
+Plan 1.42 adds the authenticated scoped HTTP/source registry and bounded view
+pool, browser-safe transport, and an isolated synthetic viewer. The official
+pinned SDK script now exercises the real HTTP boundary with two views, principal
+revocation during a read and confirmed slot ownership transfer. The viewer has
+also been operated in an actual browser at desktop and phone viewport sizes;
+see [preview acceptance and limits](../docs/history-preview.md). These are not
+production routes, private native-history acceptance, or a CWV benchmark.
+
+Next: complete POSIX ACL/descriptor containment and Windows ownership gates,
+then wire Host credential/source authority and remote Host selection into the
+formal UI with rolling compatibility, physical-device and performance acceptance.
 Do not turn this inert observation path into a live/durable journal or native
 approval/resume path without those independent evidence gates.

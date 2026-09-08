@@ -82,11 +82,17 @@ test("two worker ceiling has no queue; cancelling one flight does not cancel ano
 });
 test("revocation fences late replies and rebind requires a strictly newer generation after cleanup", async () => {
   const h = harness(), a = h.service.bind(binding()), pending = a.capture(request());
+  assert.deepEqual(a.status(), { revoked: false, activeWorker: true, cleanupConfirmed: false });
+  assert.ok(Object.isFrozen(a.status()));
   a.revoke(); a.revoke(); assert.deepEqual(h.children[0].kills, ["SIGKILL"]);
+  assert.deepEqual(a.status(), { revoked: true, activeWorker: true, cleanupConfirmed: false });
   assert.deepEqual(h.service.bind({ ...binding(), generation: 2 }), reject("source_binding_conflict"));
   h.children[0].reply(reject("source_missing")); h.children[0].close(); assert.deepEqual(await pending, reject("source_binding_revoked"));
+  assert.deepEqual(a.status(), { revoked: true, activeWorker: false, cleanupConfirmed: true });
   assert.deepEqual(h.service.bind(binding()), reject("source_binding_conflict"));
   const next = h.service.bind({ ...binding(), generation: 2 }); assert.equal(next.kind, "bound_source");
+  assert.deepEqual(next.status(), { revoked: false, activeWorker: false, cleanupConfirmed: true });
+  assert.deepEqual(a.status(), { revoked: true, activeWorker: false, cleanupConfirmed: true });
   assert.deepEqual(await a.capture(request()), reject("source_binding_revoked"));
   assert.deepEqual(await next.capture(request()), reject("source_binding_mismatch"));
   const p = next.capture(request(2)); h.children[1].reply(reject("source_empty")); h.children[1].close();
@@ -96,11 +102,14 @@ test("unconfirmed cleanup resolves boundedly, quarantines service, retains slot 
   const h = harness({ deadlineMs: 20, cleanupMs: 20 }), a = h.service.bind(binding()), start = performance.now();
   const result = await a.capture(request());
   assert.deepEqual(result, reject("source_cleanup_unconfirmed")); assert.ok(performance.now() - start < 2000);
+  assert.deepEqual(a.status(), { revoked: false, activeWorker: true, cleanupConfirmed: false });
   assert.deepEqual(h.children[0].kills, ["SIGKILL"]); assert.equal(h.service.status().activeWorkers, 1); assert.equal(h.service.status().quarantined, true);
   assert.deepEqual(await a.capture(request()), reject("source_service_quarantined"));
   assert.deepEqual(h.service.bind({ ...binding(), bindingId: fixture.uuid(81) }), reject("source_service_quarantined"));
   assert.deepEqual(await h.service.shutdown(), { kind: "source_service_closed", cleanupConfirmed: false, quarantined: true });
+  assert.deepEqual(a.status(), { revoked: true, activeWorker: true, cleanupConfirmed: false });
   h.children[0].reply(reject("source_empty")); h.children[0].close();
+  assert.deepEqual(a.status(), { revoked: true, activeWorker: false, cleanupConfirmed: true });
   assert.equal(h.service.status().activeWorkers, 0); assert.equal(h.service.status().quarantined, true);
 });
 test("a response alone is not completion; timeout wins until actual process and stream close", async () => {

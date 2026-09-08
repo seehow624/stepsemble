@@ -17,7 +17,11 @@ var StepsembleHistoryPages;
     const sourceFailures = new Set(["source_busy", "source_aborted", "source_version_changed", "source_version_unavailable", "source_observation_too_large",
         "source_platform_unsupported", "source_missing", "source_empty", "source_changed", "source_incomplete_tail", "source_invalid_json",
         "source_access_denied", "source_read_budget", "source_worker_timeout", "source_cleanup_unconfirmed", "source_service_quarantined",
-        "source_service_closed", "source_binding_revoked", "source_binding_mismatch", "source_sdk_unavailable"]);
+        "source_service_closed", "source_binding_revoked", "source_binding_mismatch", "source_sdk_unavailable",
+        "history_principal_unavailable", "history_source_unavailable", "history_binding_unavailable", "history_view_conflict",
+        "history_capacity_unavailable", "history_registry_closed", "history_registry_unavailable", "history_unauthorized",
+        "history_origin_rejected", "history_csrf_rejected", "history_request_timeout", "history_request_aborted",
+        "history_response_too_large", "history_response_invalid", "history_transport_failed"]);
     function create(deps) {
         if (![deps?.read, deps?.canonicalJSON, deps?.validateHistory, deps?.requestId].every(v => typeof v === "function"))
             throw new TypeError("history_dependencies_required");
@@ -64,7 +68,9 @@ var StepsembleHistoryPages;
         function fail(code) {
             error = code;
             if (["source_version_changed", "source_version_unavailable", "history_version_mismatch", "source_binding_revoked",
-                "source_service_closed", "source_service_quarantined", "source_cleanup_unconfirmed"].includes(code))
+                "source_service_closed", "source_service_quarantined", "source_cleanup_unconfirmed", "history_principal_unavailable",
+                "history_source_unavailable", "history_binding_unavailable", "history_registry_closed", "history_registry_unavailable",
+                "history_unauthorized", "history_origin_rejected", "history_csrf_rejected"].includes(code))
                 stale = true;
             return unavailable(code);
         }

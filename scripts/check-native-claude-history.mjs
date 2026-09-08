@@ -222,6 +222,12 @@ export async function capture(suppliedSdk) {
         } finally { view.dispose(); }
       }
     } finally { assert.equal((await service.shutdown()).cleanupConfirmed, true); }
+    // Separate, fully cleaned-up fixture Host: real HTTP, current synthetic
+    // principals, registry, bounded browser transport and the same SDK worker.
+    const { checkHistoryAccess } = await import("./check-history-access.mjs");
+    const accessReport = await checkHistoryAccess({ sdkPath: sdk,
+      catalog: fixture.richCases(realCwd).map(testCase => ({ catalogId: `fixture-${testCase.name}`, expectedIds: testCase.expectedIds,
+        source: { projectsRoot: path.dirname(projectDir), projectKey, sessionId: testCase.sessionId } })) });
     assert.equal(await fs.readFile(filename, "utf8"), bytes);
     for (const { file, content } of richFiles) assert.equal(await fs.readFile(file, "utf8"), content);
     assert.equal(digest(await fs.readFile(sdk)), sdkSha256);
@@ -229,8 +235,8 @@ export async function capture(suppliedSdk) {
       boundPageByteLimitGate: process.platform === "win32" ? "platform_unsupported" : "posix_fixture_passed",
       boundSourceVersionGate: process.platform === "win32" ? "platform_unsupported" : "posix_fixture_passed",
       boundClientPagingGate: process.platform === "win32" ? "platform_unsupported" : "posix_fixture_passed",
-      sharedBrowserProvider: true,
-      nativeFileUnchanged: true, sdkSha256, scope: "Offline read-only SDK history contract; no CLI/model/auth, live approval, reconnect or durable-store verification" };
+      sharedBrowserProvider: true, ...accessReport,
+      nativeFileUnchanged: true, sdkSha256, scope: "Offline read-only SDK history contract with synthetic HTTP credentials; no native CLI/model/auth, live approval, reconnect or durable-store verification" };
   } finally { await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
 }
 export async function downloadCapture() {

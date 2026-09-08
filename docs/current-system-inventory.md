@@ -30,6 +30,13 @@
 
 2026-09-06 rc.4 開發增量見 [`pi-session-lifecycle.md`](pi-session-lifecycle.md)：Pi正常143關閉與工作結果分離、pending-work／fresh-state close gate、firstMessage標題一致性。此修復未部署；以下仍是凍結的歷史盤點，不將新版contract測試冒稱當時已有。
 
+2026-09-08 Plan 1.42 開發增量：新增 Claude 唯讀歷史的 bounded source registry、
+credential lifecycle adapter、嚴格 HTTP／relay／TypeScript transport，以及只使用合成資料的
+[`隔離歷史預覽`](history-preview.md)。這些尚未掛進正式 `server.js` 或既有 Web 導航／SW，
+不能將本文件的正式 session/history/approval 缺口改成「已完成」。實作、測試與剩餘的
+source ACL／descriptor containment／Windows gate 見 [`history-access-design.md`](history-access-design.md)。
+正式版本仍以 `architecture.md` 與 deployment 紀錄為準，以下維持凍結基線。
+
 ### 1.1 v3 品牌遷移增量
 
 - 新 identity：`Stepsemble`、`stepsemble`、`STEPSEMBLE_*`、`com.stepsemble.*`、`STEPSEMBLE3`。

@@ -1,8 +1,12 @@
 # Claude native history boundary
 
-Test-only evidence, not an installed production adapter. The Web still uses the
-existing terminal supervisor and opt-in macOS desktop helper. No new capability,
-SDK runtime dependency, login, model call or native history mutation is added.
+Reserved implementation and synthetic test evidence, not an installed production
+adapter. The Web still uses the existing terminal supervisor and opt-in macOS
+desktop helper. Registry, HTTP/relay/identity adapters and an isolated preview now
+exist, but production `server.js`/`public/app.js` do not enable them. No SDK runtime
+dependency, provider login change, model call or private native history read is
+introduced by this batch. The earlier explicitly scoped owner-session experiment
+at the end of this document remains separate evidence.
 
 ## Pinned official reader
 
@@ -22,8 +26,9 @@ node scripts/check-native-claude-history.mjs /absolute/official-sdk/sdk.mjs
 The parent creates synthetic JSONL under a fresh HOME. The reader runs in a
 separate Node 22.19+ permission-mode process with only fixture/SDK/script read
 access, no filesystem-write or child-process permission. Actual negative
-canaries verify these two restrictions. No native credentials/settings are
-readable. Node's permission mode here is **not network isolation or an OS sandbox**;
+canaries verify these two restrictions. No native credential/settings paths are
+granted or read by the reviewed fixture workflow. Node's permission mode here is
+**not network isolation or a sandbox against malicious code**;
 the reviewed code calls only `getSessionMessages`/`getSessionInfo`, never query,
 startup, login, resume or mutation APIs. The public SDK download itself needs network.
 
@@ -230,7 +235,10 @@ the Web server**. `createSourceService()` owns a shared two-worker ceiling, no
 queue and no automatic retries. A trusted Host calls `bind({ bindingId, generation,
 source })` after authorizing a canonical projects root, project key and native
 session UUID. The binding is detached from caller objects. The returned opaque
-handle exposes a frozen descriptor, `capture(request, { signal })`, and `revoke()`.
+handle exposes a frozen descriptor, `capture(request, { signal })`, `revoke()`,
+and read-only `status()` with `revoked`, `activeWorker`, `cleanupConfirmed`.
+The latter confirms that no worker is active only after actual child/stdio close,
+or when no worker was launched; a settled cleanup-timeout promise is insufficient.
 Capture accepts **only** `{ bindingId, generation, requestId }`: no path, session
 override, authority flags, executable, environment, timeout or worker options.
 IDs/generations must match the handle exactly before launching anything.
@@ -295,8 +303,11 @@ IO may resist termination. This is bounded wait/fail-closed lifecycle logic,
 
 Important filesystem limit: Node grants a directory's descendants. The read
 grant covers the **registered projects-root subtree**, plus exact implementation
-files, not only the selected JSONL. Tests confirm outside-root reads/writes/spawn
-are denied and that another path inside that root remains permission-readable.
+files, not only the selected JSONL. Tests confirm specific direct outside-root
+reads/writes/spawn are denied and another path inside the root remains readable.
+Node's documented limitations include symlinks that can lead outside granted
+paths and existing descriptors that bypass path permissions. These canaries do
+not establish arbitrary-path or malicious-code containment.
 Reviewed worker code reads only the immutable selected source, but this is not
 single-file OS isolation, protection from compromised worker code, or a complete
 symlink/ACL/network sandbox. Wildcard/broad filesystem roots are rejected;
@@ -328,14 +339,31 @@ and shared worker/revocation/cleanup limits. Offset is 0–2000, limit 1–100 (
 0/100). Extra options, getters and invalid pages are rejected before spawning.
 Calling raw `capture()` cannot enable SDK mode through extra arguments.
 
-After one stable source capture, the worker checks the exact reviewed SDK module
-SHA-256 before import and after loading. The SDK artifact must be in a trusted
-administrator-managed location. Hash checks detect observed drift, **not an atomic
-loader guarantee against hostile same-UID swaps**. There is no extra write/child
-permission; only the exact SDK module, package metadata and implementation files
-are added to the existing read grants. No credentials are supplied and no native
-CLI is started; reviewed code only calls the public offline history reader. Node's
-permissions still do not provide full filesystem or network isolation.
+After one stable source capture, the worker reads the SDK from one descriptor in
+bounded 64 KiB chunks, checks metadata/EOF and the exact reviewed SHA-256, and
+closes the descriptor before import. The 4 MiB input cap also bounds growth races;
+there is no unbounded `readFile()` after a stale size check. Synchronous Node
+`registerHooks` supply the **already verified Buffer** to the exact SDK module URL.
+The resolve hook prevents a swapped symlink from redirecting module resolution;
+a random URL query excludes a preexisting plain-path ESM namespace while keeping
+the file URL semantics needed by `import.meta.url` and `createRequire`.
+
+Hooks are deregistered in `finally`, and the artifact is read/verified again after
+evaluation to retain observed-drift rejection. Each owned worker/module permits
+only one SDK attempt, including failures and uncertain descriptor close; this
+matches one job per worker and avoids an unbounded nonce-module cache. There is
+no production override for the pin or import dependencies. A source path remains
+trusted Host configuration, not request data.
+
+This closes the root SDK's verified-bytes-versus-evaluated-bytes gap. It does not
+authenticate native JSONL, audit ACLs, sandbox malicious code or guarantee the
+entire dependency graph/OS/network boundary. The reviewed pinned bundle's offline
+reader is still the only SDK API used by this worker. There is no extra
+write/child/worker permission and no provider credential or native CLI startup.
+Nine loader tests cover overwrite/symlink swap-and-restore, stale ESM cache,
+post-evaluation drift, bounded growth/short reads, uncertain close, one-shot
+failure and the unchanged permission profile. These pass on actual Node 22.19.0;
+synchronous hooks were introduced in Node 22.15.0.
 
 The official 0.3.259 alpha `getSessionMessages` accepts `sessionStore`. Our store
 serves exactly one detached in-memory snapshot to one matching synthetic-project
@@ -378,14 +406,15 @@ validated result **after owned-child close** returns `sourceVersion`, a random
 An unversioned result is a replacement view, **never an append to an old view**.
 The reserved [typed Client view](../../history-pages.md) keeps request/view fencing
 and only combines the same Host/binding/generation/session/version and source
-identity. It is tested with the real bound worker on owned POSIX fixtures, but
-has no authenticated/browser transport or production Web integration yet.
+identity. It is tested with the real bound worker on owned POSIX fixtures and now
+with the reserved authenticated HTTP transport. Production Web integration is
+not enabled.
 Plan 1.41 shares the strict TypeScript provider/observation validation between
 this worker wire and the Client; generated `claude-history*.js` are exact read
 grants in the owned worker, not native SDK imports in a browser. The decoder can
 bound and validate a supplied inner JSON payload, but does not implement streaming
-HTTP collection or source registration. See the [access proposal](../../../docs/history-access-design.md)
-for principal/view separation, bounded binding reuse, revocation and relay gates.
+HTTP collection or source registration itself. Those now have separate reserved
+implementations described in the [access status](../../../docs/history-access-design.md).
 
 Each binding holds only one token and a detached small fingerprint: raw-file
 SHA-256 plus device/inode/size/mtimeNs/ctimeNs. No history rows, arbitrary cursor
@@ -424,6 +453,145 @@ The [dual-worker experiment](../../../docs/claude-history-performance.md#dual-wo
 keeps one service through 12 rounds/24 reads and verifies the third admission
 fails without a new spawn. It is not an OS memory-pressure or leak-proof test.
 
+## Reserved registry, identity, HTTP and relay access
+
+`history-registry.js` accepts a fixed trusted catalog (at most 256 sources) and
+current principal/authorization callbacks. Client input selects an opaque catalog
+ID, never a filesystem/SDK path. A principal is a Host-created stable reference,
+a view UUID separates lifecycle, and each principal/view/source owns a distinct
+binding/version. The registry retains no transcript rows or raw credentials.
+
+One shared source service backs at most 64 stable registry slots. Release,
+principal revoke, source withdrawal, lease expiry and shutdown invalidate rows
+synchronously before worker termination. Reuse requires the handle's actual-close
+status and a strictly greater generation. An idle slot can atomically change
+owner; old callbacks/credentials/tokens cannot gain the new binding. Active or
+closing slots are unavailable, and late close never clears service quarantine.
+Both mock token churn and the actual service exercise 1,000 cross-owner/session
+registrations with one retained binding ID; registry tests cover the remaining
+scope, capacity, lifecycle and real owned-fixture cases.
+
+Unobserved registrations are tentative. Private `cancelRegistration(principal,
+receipt)` compares the latest original object identity, not a JSON receipt field;
+old/cloned receipts cannot revoke renewed scopes. First valid observe claims the
+row synchronously and disables registration rollback permanently, including after
+later renewals. An authorized source change may replace a same-principal/view
+tentative row when its first registration reply was lost; claimed rows still
+require release. The new catalog is authorized before retiring the old row, and
+generation/actual-close/quarantine rules still apply. Cancellation success means
+logical retirement, not physical cleanup confirmation.
+
+The default lease is 60 seconds (trusted range 1 ms–24 hours). Explicit register
+of the same view/source renews it; observe alone does not. An expiry timer revokes
+even idle/in-flight views, with additional checks on operations and publication.
+This is a registry lease, not a new sourceVersion TTL or permission to stop native
+Claude work. Source versions/generations are still process-local, not durable.
+
+`server/history-identity.js` derives bounded opaque principals from injected live
+browser token and peer-grant authority. It retains at most 21 browser and 128 peer
+entries, with salted fingerprints instead of raw credentials. Token rotation,
+deletion and explicit invalidation fan out to Host callbacks. Invalidating a
+browser history scope does not delete the original shared token: if that token
+remains valid it can establish a new scope, but cannot revive old bindings.
+Current credential stores and revoke callbacks must both be wired by the Host.
+Tabs sharing a cookie are not distinct authenticated devices/users.
+
+`server/history-http.js` is an injected handler, not a registered production
+route. It defines POST catalog (`{}`), POST registrations (`{catalogId,viewId}`),
+POST page (`{bindingId,generation,requestId,page,version?}`), and DELETE registration
+(`{generation}`) under `/api/history`. Every request carries the view UUID in
+`X-Stepsemble-History-View`; registration body/header values must agree. Browser
+requests require exact configured scheme/host/port Origin, JSON and the fixed
+CSRF intent header. Mixed cookie/bearer, invalid bearer fallback, duplicate
+security headers, absent/foreign Origin and caller source overrides reject.
+There is no CORS or legacy cookie relay exception.
+
+The optional authenticated catalog contains only bounded `{catalogId,label,
+description}` metadata. Host `listCatalog` must apply current principal visibility;
+registration independently applies source authorization. HTTP request bodies cap
+at 8 KiB/1,024 chunks with a 15-second maximum deadline. Before publication the
+handler reauthenticates and checks registry owner/generation/lease. Responses are
+no-store and capped at 272 KiB, independently of the worker's 256 KiB page frame.
+For a registration that fails before normal response completion, the handler
+best-effort cancels only its original private receipt, including late results
+after timeout/abort. Newer renewals and claimed reads are fenced from that cleanup.
+Successful `res.end` is not rolled back and does not prove browser consumption.
+
+`client/history-transport.ts` and `server/history-relay.js` consume decoded fetch
+bytes into fixed-size buffers before fatal UTF-8/JSON validation, without trusting
+Content-Length or using unbounded `response.json()`. Timeout/disconnection/abort
+cancel reads; late and partial replies do not publish. The relay selects only
+Host-configured dedicated peer grants and exact canonical origins, sends no
+browser cookie/Origin, follows no redirect, forwards no Set-Cookie/auth challenge,
+and caps active forwarding flights at 64. A separate map retains at most 64 local
+principal/machine/view rows, assigning its own upstream view UUID for each scope.
+Page/release must match the local owner's binding/generation, pending registration
+cannot read, and remote generation transfer invalidates previous local owners.
+Release becomes closing before cancelling page flights and remains closing when
+cleanup is unconfirmed. Relay tests cover these boundaries alongside
+stream/auth/size failures. Grant rotation, local logout and shutdown must also
+remove local rows and abort streams. Unknown or idle remote handles still rely on
+remote lease expiry; local removal is not actual-close evidence. The remote Host
+authenticates the gateway grant, not an end-to-end downstream user identity.
+Production relay mounting and browser Host selection are not installed.
+The pinned SDK script separately exercises two actual loopback HTTP listeners:
+relay to remote registry/worker, with distinct browser principals sharing a
+caller view ID and rejection of a stolen binding. This is not a real multi-host
+browser test or end-to-end downstream user delegation.
+An unobserved relay source change uses the existing upstream view so remote
+authorization can decide tentative replacement; rejection preserves the old local
+scope. A private cancelled registration receipt only returns an unobserved local
+row to pending for explicit reconciliation/expiry. It does not send a delayed
+DELETE that could revoke a newer remote renewal. Observed rows still require
+normal release and cannot be rolled back by old registration receipts.
+
+## Isolated synthetic preview and current evidence
+
+`scripts/history-preview-server.mjs /absolute/pinned/sdk.mjs` creates its own
+loopback HTTP server, temporary cookie and synthetic sources. It does not mount
+the owner's Claude history. Its catalog offers rich, compaction, file-history and
+a 1,000-message example. `public/history-preview.html` and `client/history-view.ts`
+have no production app/service-worker import. The CLI's optional fixture-change
+and revoke controls affect only this isolated development instance. Revoke rotates
+the synthetic cookie first and invalidates its old principal; reloading the page
+obtains the new cookie. It does not touch production token/grant authority.
+
+The viewer supports source selection, manual refresh, forward/backward paging,
+cancel/close, explicit page-size choice and visible stale/error states. A new
+generation cannot continue old pages; a successful refresh replaces them
+atomically. Native text/tool/attachment/URL-looking content is inert text/details,
+never executable HTML, active links or attachment fetches. Rendering is bounded
+to 10 messages per window, 24 blocks per message and 48,000 text units, with visible
+shortening indicators. Close/pagehide release is best effort; local cancellation
+does not prove worker close, and Host leases remain the fallback.
+Likewise server response completion does not establish browser consumption of a
+registration reply. Exact-receipt rollback can handle known failed delivery;
+tentative replacement and leases cover the remaining lost-reply window.
+
+On 2026-09-08 an actual Node **22.19.0** binary on macOS arm64 passed the loader
+tests and complete pinned `check-native-claude-history.mjs` contract. The latter
+now calls `scripts/check-history-access.mjs` for real loopback HTTP → registry →
+owned worker → official SDK → Client paging, independent views, owner transfer
+and in-flight revocation. It reported synthetic POSIX fixture gates passed,
+`modelCalls: 0`, unchanged native fixture bytes and no added authority. Existing
+CI targets Node 22.19.0 on macOS/Linux/Windows; that configuration is not a claim
+that this uncommitted batch has completed remote CI. Windows source gates remain
+unsupported, even when non-source framing and SDK fixture tests pass.
+
+An actual Computer Use pass also checked the isolated viewer at desktop and
+320/390px phone viewports, paging, source changes and synthetic cookie revocation;
+see [preview acceptance](../../../docs/history-preview.md). This does not replace
+mobile-device, multi-client performance, rollout or production identity/source-policy
+integration. POSIX ACL/descriptor containment, ancestor trust and native
+provenance remain separate blockers. Node 22 provides no public `fs.openat` or
+fd-based ACL API; passing an already opened file descriptor can narrow child
+path grants but does not fix the parent's initial open race or cleanup/IO budget.
+A reviewed native helper is required for those stronger platform gates.
+
+Primary runtime references: [Node 22.19 synchronous hooks](https://nodejs.org/download/release/v22.19.0/docs/api/module.html#moduleregisterhooksoptions),
+[descriptor inheritance](https://nodejs.org/download/release/v22.19.0/docs/api/child_process.html#optionsstdio),
+[permission limitations](https://nodejs.org/download/release/v22.19.0/docs/api/permissions.html#limitations-and-known-issues).
+
 ## Owner-session evidence and remaining gates
 
 On 2026-09-07, the same SDK read **only** the exact Claude smoke session authorized
@@ -432,7 +600,8 @@ user/assistant rows, native session identity and fixed marker matched; the file
 hash was unchanged. This was not a new model attempt. Sanitized evidence:
 [`native-readback-2026-09-07.json`](../../../docs/baselines/native-readback-2026-09-07.json).
 
-These are reader contracts, not a normalized journal import or live UI mapping.
+These are reader/access contracts and an isolated inert preview, not a normalized
+journal import or an enabled production history feature.
 Selected tool/thinking/attachment-reference and interruption/compaction mapping,
 plus bounded source decoding and observed-consistency checks, now have synthetic
 pinned-SDK coverage. Full attachment materialization, authenticated source

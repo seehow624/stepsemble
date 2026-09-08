@@ -179,8 +179,13 @@ function createSourceService({ spawnChild = spawn, platform = process.platform,
       if (token !== undefined && (!state.version || token !== state.version.token)) return unavailable("source_version_unavailable");
       return capture(input, { signal: options.signal }, page, token === undefined ? null : state.version);
     }
+    // A settled timeout is not proof of exit. Registry pools may reuse this
+    // binding only after revoke AND actual close (or no child was launched).
+    // The global quarantine remains authoritative even after a late close.
+    const status = () => Object.freeze({ revoked: state.revoked || bindings.get(value.bindingId) !== state,
+      activeWorker: state.flight !== null, cleanupConfirmed: state.flight === null });
     // Do not expose the internal third argument or let capture select SDK mode.
-    return Object.freeze({ kind: "bound_source", descriptor, capture: (input, options) => capture(input, options), observe, revoke });
+    return Object.freeze({ kind: "bound_source", descriptor, capture: (input, options) => capture(input, options), observe, revoke, status });
   }
   async function shutdown() {
     closed = true;
