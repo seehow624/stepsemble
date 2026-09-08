@@ -1,0 +1,79 @@
+name: Native Codex owned history
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/native-codex-history.yml'
+      - 'protocol/native/codex/**'
+      - 'scripts/check-native-codex-*.mjs'
+      - 'test/native-codex-*.test.js'
+      - 'server/stream-safety.js'
+      - 'public/modules/projection.js'
+  pull_request:
+    paths:
+      - '.github/workflows/native-codex-history.yml'
+      - 'protocol/native/codex/**'
+      - 'scripts/check-native-codex-*.mjs'
+      - 'test/native-codex-*.test.js'
+      - 'server/stream-safety.js'
+      - 'public/modules/projection.js'
+
+permissions:
+  contents: read
+
+jobs:
+  owned-history:
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            asset: codex-aarch64-apple-darwin.tar.gz
+            binary: codex-aarch64-apple-darwin
+            sha256: 8cf911ea676523bfb2121ec561848d2aba564890ad536db4d8a3353f2b9850b1
+          - os: ubuntu-24.04
+            asset: codex-x86_64-unknown-linux-musl.tar.gz
+            binary: codex-x86_64-unknown-linux-musl
+            sha256: f479424eca092484dc40d87ae28c44f4cc40234a60045d6131e493800d814a30
+          - os: windows-2025
+            asset: codex-x86_64-pc-windows-msvc.exe.tar.gz
+            binary: codex-x86_64-pc-windows-msvc.exe
+            sha256: e5434e7df009c65c610b03088b34a9f9df338d7e6b83f6dc07520da00542e44b
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.19.0
+          package-manager-cache: false
+      - name: Fetch and verify one pinned official binary into disposable runner storage
+        id: artifact
+        shell: bash
+        env:
+          ASSET: ${{ matrix.asset }}
+          BINARY: ${{ matrix.binary }}
+          EXPECTED_SHA256: ${{ matrix.sha256 }}
+        run: |
+          artifact_root="$(mktemp -d)"
+          archive="$artifact_root/runtime.tar.gz"
+          curl --fail --location --proto '=https' --proto-redir '=https' --max-time 120 --max-filesize 110000000 \
+            "https://github.com/openai/codex/releases/download/rust-v0.153.4/$ASSET" -o "$archive"
+          node -e 'const fs=require("node:fs"),crypto=require("node:crypto");const b=fs.readFileSync(process.argv[1]);const sha=crypto.createHash("sha256").update(b).digest("hex");if(sha!==process.env.EXPECTED_SHA256)throw Error("native_artifact_digest_mismatch");console.log(JSON.stringify({archiveSha256:sha,archiveBytes:b.length}));' "$archive"
+          # Hash checked first; extract only the fixed single member, no install/PATH change.
+          tar -xzf "$archive" -C "$artifact_root" "$BINARY"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            artifact_root="$(cygpath -m "$artifact_root")"
+          fi
+          echo "binary=$artifact_root/$BINARY" >> "$GITHUB_OUTPUT"
+      - name: Real pinned CLI with synthetic config, sources and model-refusal endpoint
+        env:
+          NATIVE_BINARY: ${{ steps.artifact.outputs.binary }}
+        shell: bash
+        run: |
+          node -e 'const fs=require("node:fs"),crypto=require("node:crypto");console.log(JSON.stringify({binarySha256:crypto.createHash("sha256").update(fs.readFileSync(process.env.NATIVE_BINARY)).digest("hex")}));'
+          node scripts/check-native-codex-history.mjs "$NATIVE_BINARY" --runtime

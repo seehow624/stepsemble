@@ -1,9 +1,15 @@
 # Codex 原生歷史：固定版本讀取驗證
 
-2026-09-08／Plan 1.55，開發候選仍為 3.0.7-rc.6，**沒有部署**。
+2026-09-08／Plan 1.58，開發候選為 3.0.7-rc.7，**沒有部署**。
 這是 C2 的受限 RPC、inert observation 核心與真 CLI 合成測試，
 不是已完成的 Codex 歷史 adapter。
 既有 Web／source-group 仍只接已實作的來源，不會自動多掃 Codex HOME。
+
+最新：Plan1.58已定位command/image缺項為固定tag的legacy persistence policy篩選，
+不是此fixture的JSON解析錯誤。新增bytes-only raw記錄分頁保留完整捕獲內容，但
+原生投影仍明示不完整；未接私人source capture或Host/Web。診斷、完整邊界與
+新三平台native CI見[原始記錄保留](codex-rollout-preservation.md)。以下1.54/1.55
+結果保留為歷史證據，不覆寫以前未定位時的狀態。
 
 ## Plan 1.54 已執行範圍（原基線保留）
 
@@ -73,7 +79,7 @@ runner exit 0 表示「正向讀取＋缺漏偵測」回歸通過，**不表示 
 | --- | --- | --- |
 | `thread/items/list` | schema／method catalog 存在，但原生回 -32601「not supported yet」 | 必須顯示 unavailable；不能靠 schema 宣称 item 分頁可用，不能重試或偷偷 resume |
 | paginated JSONL-only fixture | `historyMode:paginated`，turns list 為空，legacy name index 未還原名稱 | 官方文件亦明示 paginated 完整讀取尚未支援；observation 一律 unavailable，不手改 store／偷偷 resume 或當作空歷史 |
-| rich fixture command/image | 固定 CLI 在此 fixture 未還原兩項；其他六類有返回 | 原因仍待查證，完整性 gate 未過；不得減少預期 ID、丟掉工具後稱完整 |
+| rich fixture command/image | 固定 legacy API 先依 persistence policy 排除 transient events；解析16條0錯誤仍只返回六類 | Plan1.58已定位；原生完整性仍未過，raw records另行保留，不偽裝已還原兩個native items |
 | `thread/list useStateDbOnly:false` | 原生可能掃 rollout 並修復自己的索引 | 不是 OS 唯讀操作；只有本 runner 的自建 HOME 明確允許，不可直接對私人 HOME 執行 |
 | 超大單回合 | 本模組 frame 上限 2 MiB，整個 child stdout 32 MiB | 超限明確失敗；不能截斷後稱完整，也不能依賴未實作的 items 分頁補救 |
 
@@ -142,8 +148,8 @@ Linux 765／3、Windows 736／32，各 Ajv 1251 通過。
 
 ## 下一步
 
-先獨立驗證固定版本 raw fixture 的格式，查清 command/image 未還原原因；不反覆
-猜 JSON、不縮減 expected 清單、不把負向 gate 的成功檢出當成完整歷史通過。
+Plan1.58已定位command/image為legacy projection的persistence篩選，不再猜JSON。
+原生expected清單保留；不把raw分頁還原或負向gate成功檢出當成完整native歷史通過。
 Paginated 完整讀取暫時明示 unavailable，避免手改 native SQLite。
 接著做 legacy 一致快照／來源授權、改名／同時間來源／增改刪及 cross-page fence，
 接同 Host 的限額、來源 registry、HTTP/relay/TS/UI。

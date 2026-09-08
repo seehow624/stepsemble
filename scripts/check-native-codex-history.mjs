@@ -12,6 +12,7 @@ import { capture, verifyCapture, probeEnvironment } from "./check-native-codex-s
 import { historyRpc } from "../protocol/native/codex/history-rpc.js";
 import { observeHistoryPage, checkItemCoverage, TYPES } from "../protocol/native/codex/history-observation.js";
 import { richRecords } from "../protocol/native/codex/history-fixture.js";
+import { createRolloutSnapshot, readRolloutPage, releaseRolloutSnapshot, LIMITS as ROLLOUT_LIMITS } from "../protocol/native/codex/rollout-snapshot.js";
 const exec = promisify(execFile), root = fileURLToPath(new URL("../", import.meta.url));
 export const HISTORY_SCHEMAS = Object.freeze([
   "v2/ThreadListParams.json", "v2/ThreadListResponse.json", "v2/ThreadReadParams.json", "v2/ThreadReadResponse.json",
@@ -82,7 +83,11 @@ export async function checkHistoryRuntime(binary) {
           }
           if (paginated) lines.forEach((entry, ordinal) => { entry.ordinal = ordinal; });
           const file = path.join(codexHome, archived ? "archived_sessions" : "sessions/2026/01/05", `rollout-2026-01-05T12-00-0${i}-${id}.jsonl`);
-          await save(file, lines.map(value => JSON.stringify(value)).join("\n") + "\n"); fixtures.push({ id, name, paginated, archived, source, rich });
+          const raw = lines.map(value => JSON.stringify(value)).join("\n") + "\n";
+          await save(file, raw);
+          const rawSnapshot = createRolloutSnapshot(Buffer.from(raw), { nativeVersion: snapshot.nativeVersion, threadId: id });
+          fixtures.push({ id, name, paginated, archived, source, rich, rawSnapshot, raw });
+          assert.equal(rawSnapshot.kind, paginated ? "codex_history_unavailable" : "codex_rollout_snapshot");
         }
         await save(path.join(codexHome, "session_index.jsonl"), fixtures.flatMap(row => [
           { id: row.id, thread_name: "舊名字", updated_at: "2026-01-05T12:00:00Z" },
@@ -107,7 +112,28 @@ export async function checkHistoryRuntime(binary) {
         assert.deepEqual(active.map(row => row.id).sort(), fixtures.filter(row => !row.archived).map(row => row.id).sort());
         assert.deepEqual(archived.map(row => row.id), fixtures.filter(row => row.archived).map(row => row.id));
         let legacyTurns = 0, legacyItems = 0, observedPages = 0, paginatedProjection, itemsList = "not_checked", richItemTypes = [], richCoverage;
+        let rawPages = 0, rawRecords = 0, preservedTransientRecords = 0;
         for (const fixture of fixtures) {
+          if (fixture.paginated) assert.deepEqual(fixture.rawSnapshot, { kind: "codex_history_unavailable", code: "native_paginated_history_unsupported" });
+          else {
+            const { rawSnapshot } = fixture, records = []; let offset = 0;
+            do {
+              const page = readRolloutPage(rawSnapshot, { snapshotId: rawSnapshot.snapshotId, offset, limit: 2 });
+              assert.equal(page.kind, "codex_rollout_records"); assert.equal(page.semanticHistoryComplete, false); assert.equal(page.publishable, false);
+              assert.ok(Buffer.byteLength(JSON.stringify(page)) <= ROLLOUT_LIMITS.pageBytes);
+              assert.ok(page.records.length > 0); records.push(...page.records); rawPages++; offset = page.nextOffset;
+            } while (offset !== null);
+            rawRecords += records.length;
+            assert.equal(records.map(row => row.rawText).join(""), fixture.raw);
+            assert.equal(rawSnapshot.sha256, crypto.createHash("sha256").update(fixture.raw).digest("hex"));
+            if (fixture.rich) {
+              preservedTransientRecords = records.filter(row => ["exec_command_begin", "exec_command_end", "view_image_tool_call"].includes(row.payloadType)).length;
+              assert.equal(preservedTransientRecords, 3);
+            }
+            assert.equal(releaseRolloutSnapshot(rawSnapshot), true);
+            assert.deepEqual(readRolloutPage(rawSnapshot, { snapshotId: rawSnapshot.snapshotId, offset: 0, limit: 2 }),
+              { kind: "codex_history_unavailable", code: "rollout_snapshot_unavailable" });
+          }
           const { thread } = await client.request("thread/read", { threadId: fixture.id });
           // This pinned build does not hydrate paginated names from the legacy session index.
           assert.equal(thread.name, fixture.paginated ? null : fixture.name);
@@ -129,8 +155,9 @@ export async function checkHistoryRuntime(binary) {
           assert.deepEqual(turns, full.thread.turns);
           if (fixture.rich) {
             richItemTypes = turns.flatMap(turn => turn.items.map(item => item.type));
-            // This fixture is deliberately NOT declared complete when native
-            // history omits a required tool record. Preserve the diagnostic gap.
+            // Pinned tag 3d2ee51: build_legacy_api_turns_from_rollout_items applies
+            // is_persisted_rollout_item, which excludes transient exec/image
+            // events. Keep the native gap; raw record paging is a distinct view.
             richCoverage = checkItemCoverage(observeHistoryPage({ nativeVersion: snapshot.nativeVersion, threadId: fixture.id, thread, page: { data: turns } }), [
               { nativeItemId: "fixture-command", nativeType: "commandExecution" }, { nativeItemId: "fixture-image", nativeType: "imageView" },
               { nativeItemId: "fixture-patch", nativeType: "fileChange" }, { nativeItemId: "fixture-mcp", nativeType: "mcpToolCall" },
@@ -163,9 +190,12 @@ export async function checkHistoryRuntime(binary) {
         assert.equal(requests, 0);
         return { nativeVersion: snapshot.nativeVersion, schemaCount: snapshot.schemas.length, scope: "owned-synthetic-home-only", active: active.length, archived: archived.length,
           legacyTurns, legacyItems, observedPages, richItemTypes, richCoverage, paginatedProjection, paginatedName: "unavailable_from_legacy_index", itemsList,
+          rawRecordPaging: { pages: rawPages, records: rawRecords, preservedTransientRecords, byteExactRoundTrip: true,
+            releasedHandlesRefused: true, semanticHistoryComplete: false, sourceAuthenticated: false, publishable: false },
           modelEndpointRequests: requests, loadedThreads: 0, sourceFilesUnchanged: saved.size, cleanupConfirmed };
       } finally { sink.closeAllConnections(); await new Promise(resolve => sink.close(resolve)); }
     } finally {
+      for (const fixture of fixtures) releaseRolloutSnapshot(fixture.rawSnapshot);
       if (client && !cleanupConfirmed) ({ cleanupConfirmed } = await client.close());
       // Never erase an owned workspace while process cleanup remains unknown.
       if (!client || cleanupConfirmed) await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });

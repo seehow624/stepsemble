@@ -59,6 +59,12 @@ its name from the legacy index. Neither is silently treated as full-history supp
 to do that only in its new synthetic home. No model, account or private-source
 capability is added by this test.
 
+Plan 1.58 identifies the fixed legacy persistence filter behind omitted command/image
+events. `rollout-snapshot.js` separately retains bounded, byte-exact inert records
+from caller-supplied bytes. It is **not** a filesystem capture, source grant,
+semantic history reconstruction, native capability or Web endpoint; every result
+remains non-publishable. See [raw record preservation](../../../docs/codex-rollout-preservation.md).
+
 The future adapter must correlate JSON-RPC IDs, own the child incarnation, wait
 for initialization, scope requests by native thread/turn/item, import history
 without launching work, and persist Stepsemble receipts before external effects.

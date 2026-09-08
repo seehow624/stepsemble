@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.57
+> 計畫版本：1.58
 > 最後更新：2026-09-08
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,7 +15,16 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新增量 1.57（開發版仍3.0.7-rc.7，未部署）**：本機owner設定精靈提供繁中/英文
+**最新增量 1.58（開發版仍3.0.7-rc.7，未部署）**：已定位Codex command/image缺項
+為固定legacy API套用persistence policy後排除transient事件；parse errors0，非猜測JSON。
+新增bytes-only raw記錄快照／分頁，原文與CRLF/未知欄位/工具保留，8MiB/8192records、
+50筆/272KiB、有界且handle/revision隔離、release不可逆。真CLI owned raw113頁/219records
+byte-exact，保留三筆被省略事件；原生缺項gate仍未過，不假装完整native投影或已接Web。
+本機805/0fail、最低Node37/37；新三平台固定CLI CI另核對，詳
+[Codex原始記錄保留](codex-rollout-preservation.md)。source ACL/capture/Host及C1–C8仍待，
+正式/B+/私人/帳號route/固定72h不動。
+
+**前一增量 1.57（開發版仍3.0.7-rc.7，未部署）**：本機owner設定精靈提供繁中/英文
 逐欄修正、完整scope/readers摘要、CREATE後exclusive私有新檔。review immutable/單次，
 root/artifact/parent改變拒絕、partial write不刪競爭者檔案，原非互動命令相容且可選多讀者。
 真TTY建立/取消已驗，最低Node真Rust/SDK/Host使用精靈原檔通actualSetupGate；本機794tests/0fail。
@@ -1095,6 +1104,13 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-08 — Plan 1.58
+
+- 定位固定Codex0.153.4 legacy API的persistence filter省略ExecCommandBegin/End及ViewImageToolCall，16條rich raw parse0error；公開tag解引用3d2ee51、三份referencehash與診斷記錄保存。原生缺漏expected及舊1.55證據保留，不把六類改叫完整八類；paginated/items-list仍明示unsupported。
+- 新rollout-snapshot.js只接受已取得bytes，private WeakMap複製／凍結header、每行offset/hash/rawText、selected firstmeta、forkmetadata不換主ID、未知欄位/CRLF保留；8MiB/8192條/128KiB單行、50條/272KiB回覆，不截尾，bytebudget逐完整record推進。handle+snapshotID隔離、release不可逆、input/output修改不污染保存。所有結果semanticHistoryComplete/sourceAuthenticated/publishable=false，不是fd capture/ACL/OS sandbox或Web。
+- 新11tests、本機805=803pass2skip0fail、Node22.19聚焦37/37、TS/generated/syntax/version/Ajv1251/actionlint通。兩Node真CLIowned raw113頁219records逐bytes還原、三筆transient保留／released handle拒絕；原49turns147items/29observationpages與負向gate不變，11原檔不變/model0/loaded0/actualcleanup。新增三OS固定官方binaryhash CI，exact結果後補，見codex-rollout-preservation.md。
+- 下一步明確root/name-index授權、Rust filesystem capture/版本stale fence、同Host reader/registry/HTTP/TS/UI；不重做本批raw分頁或猜已定位格式。C1完整管理/C3–C8/native真機/效能/Windows來源/發布尚待；B+/rc.7/正式3.0.6/帳號route/私人來源/原72h未改。
 
 ### 2026-09-08 — Plan 1.57
 

@@ -16,6 +16,10 @@ Development candidate only; production Hosts and the independently frozen
   Claude source group. Review exact current/future scope and explicit reader IDs
   before CREATE; reject changed review metadata and never overwrite a config.
   No private discovery, credential lookup, native execution or service activation.
+- Preserve Codex legacy raw records in bounded, immutable-snapshot pages without
+  executing recorded tools. Keep the pinned native projection's command/image
+  omissions explicit; add an owned-home native history CI matrix. This internal
+  module does not enable private sources, session resume or a new Web adapter.
 
 ## 3.0.7-rc.6
 
