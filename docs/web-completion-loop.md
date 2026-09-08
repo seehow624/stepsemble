@@ -34,11 +34,11 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 | Checkpoint | 交付與必要證據 | 開始狀態 |
 | --- | --- | --- |
 | C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | Plan1.57新增本機新群組設定精靈/review/明確readers/CREATE與真Host原檔驗證；Web列表已接，不自選私人來源或新增Web管理route，完整管理/實機與C1完整gate仍待 |
-| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.60名稱索引候選已接owned capture／真CLI17cases，read/list差異分開；完整name仍待SQLite，nativeTitleResolved=false。1.59成組capture五CI已驗，壓縮/opt-in/discovery/HostWeb與其他adapter仍待；1.58原生投影缺項及paginated/items-list限制保留，C2未完成 |
+| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.61 capture→背景parser共用reader budget，真Rust/ClaudeSDK/Codexparser並行與版本/清理通；不是CodexHTTP/Web。1.60 index候選/read-list分開、完整name仍待SQLite；壓縮/opt-in/discovery/其他adapter、原生投影缺項及paginated限制保留，C2未完成 |
 | C3 Session／approval／恢復 | 按真實 capability 接結構化事件、續跑與 approval；ownership、exact correlation、重送／重連／Host crash、durable journal/replay 不漏不重 | 有 contract 與局部實作，未全驗 |
 | C4 帳號與故障體驗 | 登入／登出偵測、官方登入入口、路由相容、取消／失敗／stale／busy 可復原；不修寫第三方憑證或以重試消耗模型 | 局部已驗，跨 harness 待補 |
 | C5 手機與跨裝置操作 | 完整 history i18n、鍵盤／focus／內捲動、長歷史 DOM 上限、Host 切換、background/reconnect、跨機與目標瀏覽器實測 | Plan1.56已接119keys/11語並修正locale scroll跳動；320/390合成Host CUA、原文/DOM/focus保留已驗；人工校稿/真機/跨Host與其餘gate仍待 |
-| C6 可靠性與效能 | 保存完整失敗診斷；調查曾發生的未定位測試失敗；同 workload 多輪 before/after、記憶體、長串流與斷線驗證 | 現有短測與 baseline 已有，驗收未完成 |
+| C6 可靠性與效能 | 保存完整失敗診斷；調查曾發生的未定位測試失敗；同 workload 多輪 before/after、記憶體、長串流與斷線驗證 | Plan1.61新Codex pipeline同8MiB合成workload三輪main-loop改善，總耗時增加；非Web/Host/RSS驗收，完整gate未完 |
 | C7 跨平台 Host 與分階段 Rust | 保留相容 Host/Client 邊界；Rust 以契約／shadow／逐 endpoint 方式接入；Windows 原生來源與真服務 runner 不把 parser 通過当成功能通過 | POSIX reader 已有，其餘按主計畫 gate 推進 |
 | C8 發布與回滾 | exact SHA 的必要 CI／browser／native gates、來源與帳號授權、active-work 檢查、備份、回滾、正式健康與版本／裝置驗收 | 正式 3.0.6 不變；新候選未部署 |
 
@@ -84,6 +84,13 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 - 未來 App Store 發布、費用、商標／帳號等外部事項不從「loop」推論新授權。
 
 ## 執行記錄
+
+- **2026-09-09／C2/C6背景解析，Plan1.61／rc.7不變**：Rustcapture到Nodeparser
+  actualclose共用Host兩名額，未知清理隔離所有consumer、無重送或新queue。22新tests、
+  本機845/0fail、最低Node114/114，真跨harness max2/remaining0、stale/取消/raw頁通；
+  三OSexactCI待核。合成8MiB索引main-loop gap由87–94ms降6–8ms，整次約0.76秒，
+  非Web/RSS驗收。詳[背景解析](codex-history-pipeline.md)，CodexSQLite/授權/registry/
+  HTTPWeb與C1–C8未全完；正式、私人、帳號、B+與固定72h不變。
 
 - **2026-09-09／C2 Codex index names，Plan1.60／rc.7不變**：有界bytes parser保留
   latest/read/list不同原生索引規則，成組capture SHA/version綁定，沒有最終title權威。

@@ -2,6 +2,10 @@
 
 2026-09-09／Plan1.60，開發候選仍3.0.7-rc.7、未部署。
 
+後續Plan1.61已將同步parser放入共用admission的短生命週期背景管線，見
+[codex-history-pipeline.md](codex-history-pipeline.md)。下方「尚未接worker」保留1.60
+歷史階段；仍沒有SQLite最終名稱或Codex Host/Web，不能把候選名稱直接發布。
+
 ## 本批交付與不能宣稱的事
 
 `protocol/native/codex/name-index.js` 解讀 caller 提供的固定版本索引 bytes，或接

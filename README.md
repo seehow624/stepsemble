@@ -292,6 +292,11 @@ integration. It is not enabled by installing Stepsemble, does not scan private
 history, and is not session/approval/resume parity. See the
 [operator setup and verification notes](docs/history-host-integration.md).
 
+Development-only Codex capture and background parsing use the same bounded
+reader budget as Claude. They do **not** enable private Codex sources, a Web
+history adapter or final native titles. See the
+[pipeline evidence and remaining gates](docs/codex-history-pipeline.md).
+
 The public repository contains application code and generic templates only.
 It must never include tokens, private URLs, device names, session logs,
 project content, account credentials, selected-model history, or usage totals.

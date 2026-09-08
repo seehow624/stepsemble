@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.60
+> 計畫版本：1.61
 > 最後更新：2026-09-09
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,7 +15,16 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新增量 1.60（開發版仍3.0.7-rc.7，未部署）**：有界Codex名稱索引解析已接owned
+**最新增量 1.61（開發版仍3.0.7-rc.7，未部署）**：Codex capture→背景bytes parser
+共用Host持有的reader admission，兩階段到actualclose才釋放，取消/逾時/unknown cleanup
+跨consumer隔離。最低Node真Rust＋ClaudeSDK＋Codexparser同budget max2/remaining0，
+原文頁/版本/實際取消通。本機845/0fail、最低Node114/114；三OSexactCI待push後核。
+約8MiB合成index的main-loop gap由87–94ms降到6–8ms，但整次I/O+解析仍約0.76秒，
+非Web/RSS/完整Host效能驗收。詳[背景解析](codex-history-pipeline.md)；沒有Codex
+source grant/registry/HTTPWeb、SQLite最終name或壓縮能力，C1–C8仍未全完。
+正式/B+/私人/帳號/固定72h不動。
+
+**前一增量 1.60（開發版仍3.0.7-rc.7，未部署）**：有界Codex名稱索引解析已接owned
 Rust capture bytes，依固定版本分開latest/read/list候選、Unicode/UUID/duplicates/缺空狀態，
 不把index冒充最終native title。真CLI17cases＋最低Node及另五輪通，發現preview同名的
 read/list差異；SQLite distincttitle仍可優先，尚未capture/驗該來源。本機823/0fail、

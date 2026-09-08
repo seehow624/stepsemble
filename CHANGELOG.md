@@ -31,6 +31,11 @@ Development candidate only; production Hosts and the independently frozen
   batch-list rules. Verify 17 owned native cases, Unicode and duplicate fields;
   do not promote an index candidate above an unobserved SQLite title or enable
   private history access. Bind interpretation to the captured index revision.
+- Parse captured Codex history in a bounded, permissioned child process. Hold
+  the Host's shared Claude/Codex reader permit through both actual-close events;
+  fence cancellation, stale versions and unknown cleanup without retries.
+  Verify owned cross-harness concurrency and main-loop responsiveness; this
+  does not yet enable a Codex source grant, Web history or authoritative title.
 
 ## 3.0.7-rc.6
 
