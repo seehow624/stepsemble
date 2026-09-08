@@ -68,6 +68,13 @@ clippy -D warnings、舊Node→Rust reader/inventory＋Codex pair capture與arti
 `...-final-clippy.log`、`...-npm.tap`、`...-existing-reader.log`、`...-existing-codex.log`。
 SQLite3.53.4/上游rev/43-package lock不變；三OS exact CI尚待，不把Windows source算成支援。
 
+首批工程25c49c7的reader CI34274961806：Mac通，Linux被ACL fixture的unsafe註解
+放在assert外而非unsafe前的lint擋；Windows舊13case/35children和正常unsupported通，
+真v4 fixture因canonicalize產生`\\?\`前綴，撞上既有question-mark拒絕規則，main無frame退出。
+修正只移動註解、以普通絕對路徑描述同owned Windows目錄；每OS unit保留普通Windows
+path可parse/extended path拒絕。沒有放寬生產path或把無回覆當unsupported成功。
+完整失敗logs `...-first-linux.log`／`...-first-windows.log`保留；修正CI結果待核。
+
 ## 接續（未完成）
 
 Node v4嚴格decoder／shared admission/actualclose/quarantine與名稱resolver尚未接；

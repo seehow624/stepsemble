@@ -129,6 +129,11 @@ mod tests {
     fn exact_sqlite_request_not_arbitrary_file_or_inherited_root() {
         let base = request();
         assert!(parse_request(&serde_json::to_vec(&base).unwrap()).is_ok());
+        let mut windows = base.clone();
+        windows["source"]["sqliteRoot"] = serde_json::json!(r"C:\owned sqlite 🐾 #%");
+        assert!(parse_request(&serde_json::to_vec(&windows).unwrap()).is_ok());
+        windows["source"]["sqliteRoot"] = serde_json::json!(r"\\?\C:\owned sqlite 🐾 #%");
+        assert!(parse_request(&serde_json::to_vec(&windows).unwrap()).is_err());
         for (path, value) in [
             (vec!["protocolVersion"], serde_json::json!(3)),
             (vec!["nativeVersion"], serde_json::json!("unknown")),

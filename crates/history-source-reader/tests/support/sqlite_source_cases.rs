@@ -10,8 +10,14 @@ fn request(f: &Fixture) -> Value {
     };
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     let (device, inode) = ("1".to_owned(), "1".to_owned());
+    let root = f.path.parent().unwrap().to_str().unwrap();
+    // canonicalize uses the extended Windows spelling. The v4 contract rejects
+    // wildcard/question-mark paths; test the same owned directory using its
+    // ordinary absolute spelling, not a broadened production input contract.
+    #[cfg(windows)]
+    let root = root.strip_prefix(r"\\?\").unwrap_or(root);
     json!({"protocolVersion":4,"nonce":"a".repeat(64),"nativeVersion":"0.153.4",
-        "source":{"sqliteRoot":f.path.parent().unwrap(),"threadId":ID},
+        "source":{"sqliteRoot":root,"threadId":ID},
         "expectedRoot":{"device":device,"inode":inode}})
 }
 fn frame(f: &Fixture, request: Value) -> Value {
@@ -266,9 +272,9 @@ fn add_acl(path: &Path) {
         bytes.extend(perm.to_le_bytes());
         bytes.extend(id.to_le_bytes());
     }
-    // SAFETY: fixed ACL version/entries, live bounded buffer and owned path.
-    // Path-based setxattr opens/closes no writer-process DB descriptor.
     assert_eq!(
+        // SAFETY: fixed ACL version/entries, live bounded buffer and owned path.
+        // Path-based setxattr opens/closes no writer-process DB descriptor.
         unsafe {
             libc::setxattr(
                 path.as_ptr(),
