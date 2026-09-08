@@ -11,6 +11,7 @@ import { once } from "node:events";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import fixture from "../protocol/native/claude/history-fixture.cjs";
 import sourceModule from "../protocol/native/claude/history-source-service.js";
+import nativeSourceModule from "../protocol/native/claude/history-native-service.js";
 import registryModule from "../protocol/native/claude/history-registry.js";
 import httpModule from "../server/history-http.js";
 import identityModule from "../server/history-identity.js";
@@ -26,7 +27,13 @@ const files = new Map([
   ...["projection", "claude-history-value", "claude-history", "history-pages", "history-transport", "history-view"]
     .map(name => [`/modules/${name}.js`, [`modules/${name}.js`, "text/javascript; charset=utf-8"]]),
 ]);
-export async function createHistoryPreview({ sdkPath, port = 0 } = {}) {
+export function parseHistoryPreviewArgs(args) {
+  if (!Array.isArray(args) || args.length < 1 || args.length > 2 || args.some(value => typeof value !== "string")
+    || args.length === 2 && (!args[1].startsWith("--native-helper=") || !args[1].slice("--native-helper=".length)))
+    throw new Error("Usage: history-preview-server.mjs /absolute/pinned/sdk.mjs [--native-helper=/absolute/binary]");
+  return { sdkPath: args[0], ...(args.length === 2 ? { nativeHelperPath: args[1].slice("--native-helper=".length) } : {}) };
+}
+export async function createHistoryPreview({ sdkPath, port = 0, nativeHelperPath } = {}) {
   if (typeof sdkPath !== "string" || !path.isAbsolute(sdkPath) || path.basename(sdkPath) !== "sdk.mjs"
     || !Number.isInteger(port) || port < 0 || port > 65535) throw new Error("history_preview_configuration_invalid");
   let sdk;
@@ -34,6 +41,21 @@ export async function createHistoryPreview({ sdkPath, port = 0 } = {}) {
     sdk = await fs.realpath(sdkPath);
     if (!sdkModule.validSdkPath(sdk) || !(await fs.lstat(sdk)).isFile()) throw new Error();
   } catch { throw new Error("history_preview_configuration_invalid"); }
+  let nativeHelper;
+  if (nativeHelperPath !== undefined) {
+    if (typeof nativeHelperPath !== "string" || !path.isAbsolute(nativeHelperPath) || nativeHelperPath !== path.resolve(nativeHelperPath)
+      || nativeHelperPath.length > 4096 || /[\u0000-\u001f\u007f*?\[\]{},]/.test(nativeHelperPath))
+      throw new Error("history_preview_configuration_invalid");
+    if (!["darwin", "linux"].includes(process.platform)) throw new Error("history_preview_native_platform_unsupported");
+    try {
+      // Native mode is explicit trusted launch configuration, never a browser
+      // source choice. Do not canonicalize an executable symlink into acceptance.
+      nativeHelper = await fs.realpath(nativeHelperPath);
+      if (nativeHelper !== nativeHelperPath || !(await fs.lstat(nativeHelperPath)).isFile()) throw new Error();
+      await fs.access(nativeHelperPath, fs.constants.X_OK);
+    } catch { throw new Error("history_preview_configuration_invalid"); }
+  }
+  const backend = nativeHelper ? "native_bytes_worker" : "legacy_source_worker";
   const temp = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-history-preview-")));
   let registry, handler, closing, identity, service, server;
   let mutation = Promise.resolve();
@@ -61,7 +83,11 @@ export async function createHistoryPreview({ sdkPath, port = 0 } = {}) {
   const credentials = [{ id: "preview", hash: crypto.randomBytes(32).toString("hex") }];
   identity = identityModule.createHistoryIdentity({ browserCredentials: () => credentials, peerGrantIds: () => [],
     authenticatePeerCredential: () => null, onRevoke: principal => registry?.revokePrincipal(principal) });
-  service = sourceModule.createSourceService({ sdkPath: sdk });
+  if (nativeHelper) {
+    const root = await fs.stat(projectsRoot, { bigint: true });
+    service = nativeSourceModule.createNativeSourceService({ helperPath: nativeHelper, sdkPath: sdk,
+      roots: [{ projectsRoot, expectedRoot: { device: root.dev.toString(), inode: root.ino.toString() } }] });
+  } else service = sourceModule.createSourceService({ sdkPath: sdk });
   registry = registryModule.createHistoryRegistry({ sourceService: service, catalog,
     principalActive: identity.isPrincipalCurrent, authorize: principal => identity.isPrincipalCurrent(principal) });
   const { send, sendJSON } = httpUtils.createHttpUtils();
@@ -105,7 +131,7 @@ export async function createHistoryPreview({ sdkPath, port = 0 } = {}) {
       })();
       return closing;
     }
-    return Object.freeze({ origin, close,
+    return Object.freeze({ origin, backend, close,
       changeFixture(name) {
         const target = expectedBytes.get(name), entry = cases.find(c => c.name === name);
         if (!target || !entry || closing) return Promise.reject(new Error("preview_fixture_unavailable"));
@@ -123,7 +149,7 @@ export async function createHistoryPreview({ sdkPath, port = 0 } = {}) {
         credentials[0].hash = crypto.randomBytes(32).toString("hex");
         identity.invalidateBrowserCredential("preview"); return true;
       },
-      status: () => ({ registry: registry.status(), workers: service.status(), identity: identity.status() }),
+      status: () => ({ backend, registry: registry.status(), workers: service.status(), identity: identity.status() }),
     });
   } catch {
     identity?.shutdown();
@@ -135,10 +161,8 @@ export async function createHistoryPreview({ sdkPath, port = 0 } = {}) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  const args = process.argv.slice(2);
-  if (args.length !== 1) throw new Error("Usage: history-preview-server.mjs /absolute/pinned/sdk.mjs");
-  const preview = await createHistoryPreview({ sdkPath: args[0] });
-  console.log(JSON.stringify({ kind: "history_preview_ready", url: preview.origin, syntheticOnly: true, modelCalls: 0 }));
+  const preview = await createHistoryPreview(parseHistoryPreviewArgs(process.argv.slice(2)));
+  console.log(JSON.stringify({ kind: "history_preview_ready", url: preview.origin, backend: preview.backend, syntheticOnly: true, modelCalls: 0 }));
   const input = readline.createInterface({ input: process.stdin }); let stopping = false;
   const stop = async () => {
     if (stopping) return; stopping = true; input.close();

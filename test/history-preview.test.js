@@ -65,6 +65,7 @@ test("preview validates SDK target before allocating fixtures; failed listen lea
 test("isolated preview origin bootstrap, bounded catalog, revoke and actual worker cleanup remain synthetic", async t => {
   const { createHistoryPreview } = await import("../scripts/history-preview-server.mjs"), { sdk } = await ownedSdk(t);
   const preview = await createHistoryPreview({ sdkPath: sdk }); t.after(() => preview.close());
+  assert.equal(preview.backend, "legacy_source_worker"); assert.equal(preview.status().backend, "legacy_source_worker");
   const origin = preview.origin;
   for (const headers of [{ Host: "attacker.invalid" }, { Origin: "https://attacker.invalid" }, { "sec-fetch-site": "cross-site" }]) {
     const result = await request(origin, "/", { headers }); assert.equal(result.status, 403); assert.equal(result.headers["set-cookie"], undefined);
@@ -113,4 +114,80 @@ test("isolated preview origin bootstrap, bounded catalog, revoke and actual work
   await assert.rejects(preview.changeFixture("rich"), /preview_fixture_unavailable/);
   assert.equal(preview.revoke(), false);
   await assert.rejects(request(origin), error => error.code === "ECONNREFUSED" || error.code === "ECONNRESET");
+});
+
+test("preview CLI selects native mode only through one explicit trusted flag", async () => {
+  const { parseHistoryPreviewArgs } = await import("../scripts/history-preview-server.mjs");
+  const sdk = path.resolve("owned-sdk/sdk.mjs"), helper = path.resolve("owned-bin/helper");
+  assert.deepEqual(parseHistoryPreviewArgs([sdk]), { sdkPath: sdk });
+  assert.deepEqual(parseHistoryPreviewArgs([sdk, `--native-helper=${helper}`]), { sdkPath: sdk, nativeHelperPath: helper });
+  for (const args of [[], [sdk, "--native-helper="], [sdk, "--source=/private"], [sdk, helper],
+    [sdk, `--native-helper=${helper}`, `--native-helper=${helper}`], [sdk, undefined]])
+    assert.throws(() => parseHistoryPreviewArgs(args), /Usage:/);
+});
+
+test("native preview validates trusted executable before fixtures and never falls back on invalid configuration", async t => {
+  const { createHistoryPreview } = await import("../scripts/history-preview-server.mjs"), { root, sdk } = await ownedSdk(t);
+  const names = async () => new Set((await fs.readdir(os.tmpdir())).filter(name => name.startsWith("stepsemble-history-preview-")));
+  const before = await names();
+  for (const helper of ["", "relative-helper", `${root}\nhelper`, path.join(root, "helper") + "*"])
+    await assert.rejects(createHistoryPreview({ sdkPath: sdk, nativeHelperPath: helper }), /history_preview_configuration_invalid/);
+  if (process.platform === "win32") {
+    await assert.rejects(createHistoryPreview({ sdkPath: sdk, nativeHelperPath: await fs.realpath(process.execPath) }), /history_preview_native_platform_unsupported/);
+  } else {
+    const canonicalRoot = await fs.realpath(root), helper = path.join(canonicalRoot, "helper"), directory = path.join(canonicalRoot, "directory");
+    await assert.rejects(createHistoryPreview({ sdkPath: sdk, nativeHelperPath: helper }), /history_preview_configuration_invalid/);
+    await fs.mkdir(directory);
+    await assert.rejects(createHistoryPreview({ sdkPath: sdk, nativeHelperPath: directory }), /history_preview_configuration_invalid/);
+    await fs.writeFile(helper, "owned fixture, not executable\n", { mode: 0o600 });
+    await assert.rejects(createHistoryPreview({ sdkPath: sdk, nativeHelperPath: helper }), /history_preview_configuration_invalid/);
+    await fs.chmod(helper, 0o700);
+    const alias = path.join(canonicalRoot, "helper-alias"); await fs.symlink(helper, alias);
+    await assert.rejects(createHistoryPreview({ sdkPath: sdk, nativeHelperPath: alias }), /history_preview_configuration_invalid/);
+  }
+  const after = await names(); assert.deepEqual([...after].filter(name => !before.has(name)), []);
+});
+
+test("native preview uses only its own synthetic root identity and preserves native failures, cookie revoke and cleanup", async t => {
+  const { createHistoryPreview } = await import("../scripts/history-preview-server.mjs"), { root, sdk } = await ownedSdk(t);
+  if (process.platform === "win32") {
+    await assert.rejects(createHistoryPreview({ sdkPath: sdk, nativeHelperPath: await fs.realpath(process.execPath) }), /history_preview_native_platform_unsupported/);
+    return;
+  }
+  const helper = path.join(await fs.realpath(root), "owned-helper.cjs");
+  // An owned executable protocol fixture, NOT a Rust/ACL success substitute.
+  // It verifies the authority tuple passed by preview, then intentionally returns
+  // a native-only failure. Legacy fallback would instead return sdk_unavailable.
+  await fs.writeFile(helper, `#!${await fs.realpath(process.execPath)}
+const fs = require('node:fs');
+const job = JSON.parse(fs.readFileSync(0, 'utf8'));
+const path = require('node:path');
+if (job.protocolVersion !== 1 || job.source.projectKey !== '-synthetic-preview'
+  || path.basename(job.source.projectsRoot) !== 'projects'
+  || !path.basename(path.dirname(job.source.projectsRoot)).startsWith('stepsemble-history-preview-')) process.exit(2);
+const stat = fs.statSync(job.source.projectsRoot, {bigint:true});
+if (job.expectedRoot.device !== String(stat.dev) || job.expectedRoot.inode !== String(stat.ino)) process.exit(2);
+const header = Buffer.from(JSON.stringify({protocolVersion:1,nonce:job.nonce,result:{kind:'source_unavailable',code:'source_acl_unsupported'}}));
+const length = Buffer.alloc(4); length.writeUInt32BE(header.length); process.stdout.write(Buffer.concat([length,header]));
+`, { mode: 0o700 });
+  const preview = await createHistoryPreview({ sdkPath: sdk, nativeHelperPath: helper }); t.after(() => preview.close());
+  assert.equal(preview.backend, "native_bytes_worker"); assert.equal(preview.status().backend, "native_bytes_worker");
+  const bootstrap = await request(preview.origin), cookie = bootstrap.headers["set-cookie"][0].split(";")[0];
+  assert.ok(!bootstrap.text.includes(helper));
+  const viewId = crypto.randomUUID(), post = (target, body, credential = cookie) => request(preview.origin, target,
+    { method: "POST", body, cookie: credential, viewId });
+  const catalog = await post("/api/history/catalog", {}); assert.equal(catalog.data.entries.length, 4);
+  assert.ok(!catalog.text.includes(helper) && !catalog.text.includes("projectsRoot"));
+  const registration = await post("/api/history/registrations", { catalogId: "fixture-rich", viewId }); assert.equal(registration.status, 200);
+  const page = { bindingId: registration.data.bindingId, generation: registration.data.generation, requestId: crypto.randomUUID(), page: { offset: 0, limit: 2 } };
+  const observed = await post("/api/history/page", page);
+  assert.equal(observed.status, 409); assert.equal(observed.data.code, "source_acl_unsupported");
+  assert.equal(preview.status().workers.activeWorkers, 0); assert.equal(preview.status().workers.quarantined, false);
+  preview.revoke(); assert.equal((await post("/api/history/catalog", {})).status, 401);
+  const renewed = await request(preview.origin), newCookie = renewed.headers["set-cookie"][0].split(";")[0];
+  assert.notEqual(newCookie, cookie); assert.equal((await post("/api/history/catalog", {}, newCookie)).status, 200);
+  assert.equal((await post("/api/history/page", page, newCookie)).data.code, "history_binding_unavailable");
+  await preview.changeFixture("rich"); await preview.close();
+  assert.equal(preview.status().workers.closed, true); assert.equal(preview.status().workers.activeWorkers, 0);
+  assert.equal(preview.status().registry.closingSlots, 0);
 });

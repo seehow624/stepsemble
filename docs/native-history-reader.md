@@ -1,7 +1,7 @@
 # ADR：獨立原生 history source reader 的窄邊界
 
-日期：2026-09-08。狀態：Rust reader／bytes-only SDK composite 已實作與本機合成驗證；本 exact commit 的
-跨平台 CI 驗收 **pending**。本機證據見下節，不代表 production gate 已完成。
+日期：2026-09-08。狀態：Rust reader／bytes-only SDK composite 已實作，core
+`d3e2fe1` 的四組跨平台 CI 已通過。Windows 仍 unsupported，不代表 production gate 已完成。
 
 ## 決策與非目標
 
@@ -237,7 +237,12 @@ root 最後一次 Node 22.19 驗證與完整測試並行，整套 synthetic pipe
 這是整套測試時間，不是單次互動延遲；三個小來源為 3,621／3,141／2,965 bytes，
 不是大歷史效能證據。全套 Node 621 tests：619 pass／2 platform skips／0 fail；
 64 項 helper／bytes／composite／registry 測試全過，strict TS／artifact／syntax／
-version 與 1,251-case Ajv conformance 皆過。新 exact-commit 遠端 CI 另行核對。
+version 與 1,251-case Ajv conformance 皆過。該 core exact-commit 遠端 CI 見下節。
+後續 explicit native preview 已用 release helper 通過真 browser 功能驗收，新增
+3 項 preview 回歸後本機 624 tests＝622 pass／2 skip／0 fail，詳見 `history-preview.md`。
+雙大來源 3 輪 debug／release 實測及所有原始 hashes 見 `claude-history-performance.md`：
+SDK 單程序 RSS 高水位仍約 201–212MiB，release 慢首輪 756ms 保留；沒有記憶體
+改善、controlled A/B 或整體順滑度通過的宣稱。
 
 本鏈 `modelCalls:0`、`privateHistoryReads:0`、`productionWiring:false`。
 Windows report 的 native／SDK pipeline gate 明確 `source_platform_unsupported`，
@@ -253,15 +258,29 @@ CARGO_TARGET_DIR=/absolute/local/build node scripts/check-native-history-pipelin
 
 ## 已有本機證據與待驗收矩陣
 
+Core exact `d3e2fe1cbb8818e4b5d4850a7d8285897fc25d99`：
+[一般 CI](https://github.com/seehow624/stepsemble/actions/runs/34175539973)、
+[Native Claude](https://github.com/seehow624/stepsemble/actions/runs/34175540015)、
+[Rolling](https://github.com/seehow624/stepsemble/actions/runs/34175540044)、
+[Native reader](https://github.com/seehow624/stepsemble/actions/runs/34175539992)
+全部成功。Mac/Linux/Windows Rust 分別 10／11／7 tests；新 workflow Node helper／
+bytes／composite 是各 44/44，64/64 為本機另外包含 registry 的組合，不混報。
+Mac/Linux actual SDK native pipeline 和 bounded-page/version gate passed；Windows
+兩者都 `source_platform_unsupported`。Linux 真 ACL/default ACL/race fixture 與
+Windows 3 個 owned permission probes 已實跑；Windows junction 必測通過，symlink
+若無建立權限可明確不執行，因此沒有獨立 evidence 時不稱 symlink fixture 真跑過。
+此 run 的 RustSec audit 同上 official DB／lock，33 packages、0 已知漏洞／0 warnings。
+這些結果只屬上述 core commit，不自動涵蓋未來 preview／其他改動。
+
 2026-09-08 macOS arm64／Rust 1.97.1 本機 Rust 10 tests 通過，包含 root/project/file
-各層 extended ACL 拒絕與第一次讀取後加入 ACL 的 deterministic race。這只證明
-該次本機 source revision／filesystem fixture；尚非三 OS exact-commit CI 結果。
+各層 extended ACL 拒絕與第一次讀取後加入 ACL 的 deterministic race。本機結果與
+上方 exact-commit CI 分別記錄，不把所有結果視為同一環境。
 另驗 pre-epoch 明確拒絕、root spelling、首次讀取前增長由 EOF probe 拒絕。
 `scripts/check-native-history-reader.mjs` 在 Node 22.22.3 及最低 22.19.0 已實跑：
 actual Node→Rust→既有 JSONL parser、原文/Unicode/SHA、wrong root identity、unsafe
 mode 拒絕與 cleanup 都通過。僅自建 fixture，`modelCalls:0`、`privateHistoryReads:0`；
-不是官方 SDK 新鏈或正式 UI。Windows permission probe 的平台實跑及 Linux ACL
-fixture 仍須各自 CI 證據。
+這支 basic reader script 不含 SDK／UI；完整 SDK 新鏈和各平台 probe 已由上方
+獨立 pipeline／CI 證據提供，不將 basic parser 測試冒充全部。
 
 獨立 reviewer 在本機 Node 22.22.3 重跑 `test/claude-history-native-helper.test.mjs`：
 16 tests／16 pass／0 fail／0 skip，包含實際 owned Node 子程序 binary-frame fixture。

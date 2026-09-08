@@ -70,9 +70,9 @@
 
 ### 下一個可執行任務
 
-**1.44 開發接續**：已串通Rust capture→bytes-only permission worker→official pinned SDK→registry／HTTP／relay→shared provider/controller的自建資料全鏈。新SDK worker只有12個exact code/SDK grants，不再取得source-root目錄樹或raw暫存檔。固定兩條flight共用10s deadline/1s cleanup，unknown-close不釋放slot且永久quarantine。全套本機621tests＝619pass/2skip/0fail，strictTS/artifacts/syntax/version與1251-case conformance全過；新composite的exactcommit三OS/rolling仍須看其CI。底層`4c07464`三OSreader jobs已過，dependency audit的`2fd9fb8`官方RustSec DB/lock本次0已知漏洞/0warnings；不把不同revision的結果混成fullHEAD已驗。
+**1.44 開發接續**：已串通Rust capture→bytes-only permission worker→official pinned SDK→registry／HTTP／relay→shared provider/controller的自建資料全鏈，並以explicit native backend在隔離預覽完成真browser驗收。新SDK worker只有12個exact code/SDK grants，不再取得source-root目錄樹或raw暫存檔。固定兩條flight共用10s deadline/1s cleanup，unknown-close不釋放slot且永久quarantine。core `d3e2fe1`四組CI（34175539973／34175540015／34175539992／34175540044）全綠，包含3OSreader/SDK和0advisory audit及2OSrolling；Windowsnativepipeline仍unsupported。後續preview新增3tests後本機624tests＝622pass/2skip/0fail，該preview的exactcommit另核對CI；不把不同revision的結果混成fullHEAD已驗。
 
-接下來依安全順序：核對新composite三OS／依賴與rolling，量測大來源記憶體／延遲，再處理trusted executable/root bootstrap、Windows完整read/close、正式credential/catalog/logout/rotation/device revoke/shutdown、Host選擇/remote UI，補實機背景恢復與多輪效能。Rootinode／ACL／雙讀不是native provenance／同UID隔離／原子namespace snapshot，Nodepermission也非惡意程式sandbox。whole-source memory改善、其他unscoped/partial、附件/subagent/supersession、approval ACK/resume、durable仍待。Codex non_native_route需本人決定，Claude單次模型同意已用，本輪只synthetic、無私人history/model/login/route。publishable/authority全false；10s+1s非hard realtime。72h固定ab227af／rc.1不重設，09-08 01:01Z仍running約37.46h／4451cycles／35608ACK／graceful/crash各111，不提前部署或啟動Rust/DB大遷移。
+接下來依安全順序：收妥最新preview的exactcommit CI，處理trusted executable/root bootstrap、Windows完整read/close、正式credential/catalog/logout/rotation/device revoke/shutdown、Host選擇/remote UI，補實機背景恢復與多輪效能。雙7.6MB/2000rows已量3輪，release含慢首輪756ms/其後320、318ms，SDK每程序RSS高水位約201–212MiB；不是totalRSS、受控A/B或效能門檻通過，詳見claude-history-performance.md。Rootinode／ACL／雙讀不是native provenance／同UID隔離／原子namespace snapshot，Nodepermission也非惡意程式sandbox。whole-source memory改善、其他unscoped/partial、附件/subagent/supersession、approval ACK/resume、durable仍待。Codex non_native_route需本人決定，Claude單次模型同意已用，本輪只synthetic、無私人history/model/login/route。publishable/authority全false；10s+1s非hard realtime。72h固定ab227af／rc.1不重設，09-08 01:01Z仍running約37.46h／4451cycles／35608ACK／graceful/crash各111，不提前部署或啟動Rust/DB大遷移。
 
 **2026-09-07 品牌候選**：Jerome明確確認B+為最終方向。新的
 `public/stepsemble-mark.svg` 是向量母版，使用單一module／connector在
@@ -972,6 +972,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 
 ### 2026-09-08 — Plan 1.44
 
+- Core `d3e2fe1`四組exactCI全過：CI34175539973、Native34175540015、reader+audit34175539992、rolling34175540044；Windowsnativepipeline明確unsupported。後續`7d581c9`提交雙7.6MB來源的3輪debug/release完整性能原始數據，無虛假改善宣稱。再新增explicitnativepreview、3tests，本機624/622pass2skip0fail；CUA驗4來源、10/10/5、source-stale/refresh、cookie-revoke/reload、close/Enter、390/320無overflow，ownedpreview清理exit0。preview exactCI另查其revision。
 - 新增v2 bytes-only worker/wire與native composite service：Rust關閉後才把已驗8MiB有界bytes送往SDK worker，無source-root grant、raw暫存或spawn/write權限；只允12個exactcode/SDK檔案，真permissionprobe拒外部讀/寫/spawn。回覆維持native ACL/containment checks，拒降級，所有authority仍false。
 - 固定兩helper/兩flight、無queue；兩stage共用10s＋1s cleanup，跨stage/revoke/version/lease/generation fencing及永久quarantine，lateclose僅釋slot。root table整表bounded detach阻getter/iterator繞上限，helper reply在取值前驗descriptor；64cross-layertests過。
 - 新增actual native pipeline腳本，可用固定SDKartifact `--download`，重用trusted factory注入的HTTP/relay gate；Node22.19.0/22.22.3均實跑rich/compaction/file-history/版本/大頁拒絕/ownertransfer/inflightrevoke/cleanup。原legacySDKgate仍過。HTTP/client保留六種固定source拒絕碼，未知diagnostic/path不外洩，failedrefresh不丟舊頁。
