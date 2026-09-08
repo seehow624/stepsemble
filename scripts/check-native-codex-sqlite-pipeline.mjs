@@ -6,6 +6,9 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { createCodexMetadataPipeline, createCodexNameContextPipeline } from "../protocol/native/codex/metadata-pipeline.js";
+import { createCodexHistoryPipeline } from "../protocol/native/codex/history-pipeline.js";
+import parserFixture from "../protocol/native/codex/parser-fixture.cjs";
+import { checkCodexNamedPipeline } from "./check-native-codex-named-pipeline.mjs";
 
 async function startWriter(helperPath) {
   const executable = path.join(path.dirname(helperPath), "examples", `owned_sqlite_writer${process.platform === "win32" ? ".exe" : ""}`);
@@ -43,7 +46,7 @@ async function startWriter(helperPath) {
     } finally { clearTimeout(timer); }
   }
   // Install the cleanup handle before waiting for the first message.
-  return { line, stop, command: async command => { assert(["other", "rename", "preview", "path", "paginated", "missing"].includes(command)); child.stdin.write(`${command}\n`); assert.deepEqual(await line(), { kind: "owned_writer_updated" }); } };
+  return { line, stop, command: async command => { assert(["other", "rename", "preview", "path", "paginated", "missing", "reset", "index", "rollout", "fallback"].includes(command)); child.stdin.write(`${command}\n`); assert.deepEqual(await line(), { kind: "owned_writer_updated" }); } };
 }
 async function snapshot(root) {
   const entries = (await fs.readdir(root)).sort(), output = {};
@@ -56,7 +59,7 @@ async function snapshot(root) {
   }
   return output;
 }
-export async function checkCodexSqlitePipeline({ helperPath, admission, createHelper, claudeRead, codexRead, counters }) {
+export async function checkCodexSqlitePipeline({ helperPath, admission, createHelper, spawnChild, claudeRead, codexRead, counters }) {
   const captures = [];
   const options = { helperPath, admission, createHelper: options => {
     const helper = createHelper(options);
@@ -79,12 +82,17 @@ export async function checkCodexSqlitePipeline({ helperPath, admission, createHe
       const before = counters().attempts;
       assert.equal((await pipeline.read({ nativeVersion: "0.153.4", source: { sqliteRoot: path.resolve("owned-not-opened"), threadId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" }, expectedRoot: { device: "1", inode: "2" } })).code, "source_platform_unsupported");
       assert.equal((await contextPipeline.read({ nativeVersion: "0.153.4", source: { sqliteRoot: path.resolve("owned-not-opened"), threadId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" }, expectedRoot: { device: "1", inode: "2" } })).code, "source_platform_unsupported");
+      const named = createCodexHistoryPipeline({ ...options, spawnChild });
+      try { assert.equal((await named.readNamed(parserFixture.namedRequest())).code, "source_platform_unsupported"); }
+      finally { assert.equal((await named.shutdown()).cleanupConfirmed, true); }
       assert.equal(counters().attempts, before);
-      return { gate: "node_source_platform_unsupported", readerSpawns: 0, writerSpawns: 0, cleanupConfirmed: true };
+      return { gate: "node_source_platform_unsupported", namedPipeline: { gate: "node_source_platform_unsupported", readerSpawns: 0, cleanupConfirmed: true }, readerSpawns: 0, writerSpawns: 0, cleanupConfirmed: true };
     }
     writer = await startWriter(helperPath); ready = await writer.line(); assert.equal(ready.kind, "owned_writer_ready");
     const root = await fs.realpath(ready.sqliteRoot), stat = await fs.stat(root, { bigint: true });
     const request = { nativeVersion: "0.153.4", source: { sqliteRoot: root, threadId: ready.threadId }, expectedRoot: { device: String(stat.dev), inode: String(stat.ino) } };
+    const namedPipeline = await checkCodexNamedPipeline({ helperPath, admission, createHelper, spawnChild, counters, writer, ready, request,
+      sqlSnapshot: () => snapshot(root), claudeRead, codexRead });
     const before = await snapshot(root), attemptsBefore = counters().attempts;
     const first = pipeline.read(request), peer = claudeRead();
     assert.equal(admission.status().activeWorkers, 2); assert.equal(counters().physical, 2);
@@ -105,7 +113,7 @@ export async function checkCodexSqlitePipeline({ helperPath, admission, createHe
     assert.equal(counters().attempts, v5BusyBefore);
     const [initialContext, compatible] = await Promise.all([contextRead, oldRead]);
     assert.equal(initialContext.kind, "codex_sqlite_context_capture", initialContext.code);
-    assert.deepEqual(initialContext.nameContext, { rolloutPath: "owned", preview: "" });
+    assert.deepEqual(initialContext.nameContext, { rolloutPath: path.join(ready.codexRoot, ready.rolloutPath), preview: "" });
     assert.deepEqual(initialContext.metadata, compatible.metadata);
     assert.deepEqual(await snapshot(root), before, "v5 captures additional context without touching DB/WAL/SHM");
     await writer.command("other");
@@ -138,7 +146,7 @@ export async function checkCodexSqlitePipeline({ helperPath, admission, createHe
     assert.equal(counters().physical, 0); assert.equal(admission.status().cleanupConfirmed, true); assert.equal(admission.status().quarantined, false);
     assert.deepEqual(await snapshot(root), endBytes, "failed/cancelled captures never repair owned sources");
     assert(captures.length >= 7 && captures.every(c => c.mappings > 0), "active writer requires actual SHM mapping, not orphan WAL recovery");
-    gate = { gate: "posix_owned_sqlite_pipeline_passed", platform: process.platform, nodeVersion: process.version, writerSpawns: 1,
+    gate = { gate: "posix_owned_sqlite_pipeline_passed", namedPipeline, platform: process.platform, nodeVersion: process.version, writerSpawns: 1,
       crossHarnessSharedAdmission: true, actualClaudeSdkPeer: true, actualCodexParserPeer: true, maximumPhysicalReaders: counters().maximum,
       remainingReaders: counters().physical, readerSpawns: counters().attempts - attemptsBefore, exactSourceBytesPreserved: true,
       unrelatedWriteVersionStable: true, selectedRenameVersionChanged: true, actualCaptureCancellation: true,

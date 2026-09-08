@@ -37,7 +37,7 @@ function rawRecord(bytes, boundary, index) {
   return { recordIndex: index, byteOffset: start, byteLength: end - start, recordType, payloadType,
     rawText: value.toString("utf8"), sha256: hash(value), executable: false };
 }
-function createRolloutSnapshot(input, parameters) {
+function parseRollout(input, parameters, namesOnly) {
   const options = optionsJSON(parameters);
   if (!object(options) || Object.keys(options).sort().join(",") !== "nativeVersion,threadId" ||
       options.nativeVersion !== NATIVE_VERSION || !uuid(options.threadId)) return unavailable("invalid_envelope_or_version");
@@ -49,7 +49,7 @@ function createRolloutSnapshot(input, parameters) {
     // be refreshed explicitly, never dropped and reported as a complete file.
     if (bytes[bytes.length - 1] !== 10) return unavailable("rollout_incomplete_tail");
     const utf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }), boundaries = [];
-    let start = 0, selected = false;
+    let start = 0, selected = false, selectedMode = null;
     for (let end = 0; end < bytes.length; end++) {
       if (end - start + 1 > LIMITS.recordBytes) return unavailable("rollout_record_limit");
       if (bytes[end] !== 10) continue;
@@ -64,21 +64,25 @@ function createRolloutSnapshot(input, parameters) {
         recordType = value.type;
         if (object(value.payload) && label(value.payload.type)) payloadType = value.payload.type;
         if (!selected && value.type !== "session_meta") return unavailable("rollout_selected_thread_mismatch");
-        if (value.type === "session_meta") {
+        if (value.type === "session_meta" && (!namesOnly || !selected)) {
           if (!object(value.payload) || !uuid(value.payload.id)) return unavailable("rollout_invalid_metadata");
           const mode = Object.hasOwn(value.payload, "history_mode") ? value.payload.history_mode : "legacy";
-          if (mode === "paginated") return unavailable("native_paginated_history_unsupported");
-          if (mode !== "legacy") return unavailable("native_history_mode_unknown");
+          if (mode === "paginated" && !namesOnly) return unavailable("native_paginated_history_unsupported");
+          if (!["legacy", "paginated"].includes(mode)) return unavailable("native_history_mode_unknown");
           if (!selected && value.payload.id !== options.threadId) return unavailable("rollout_selected_thread_mismatch");
+          if (!selected) selectedMode = mode;
           selected = true; // Later fork metadata is preserved, never changes selected ID.
         }
       }
       const boundary = [start, end + 1, recordType, payloadType];
       // Every record must fit in one encoded output page without truncation.
-      if (Buffer.byteLength(JSON.stringify(rawRecord(bytes, boundary, boundaries.length))) + 1024 > LIMITS.pageBytes) return unavailable("rollout_record_limit");
+      if (!namesOnly && Buffer.byteLength(JSON.stringify(rawRecord(bytes, boundary, boundaries.length))) + 1024 > LIMITS.pageBytes) return unavailable("rollout_record_limit");
       boundaries.push(boundary); start = end + 1;
     }
     if (!selected) return unavailable("rollout_invalid_metadata");
+    if (namesOnly) return { kind: "codex_rollout_name_identity", nativeVersion: NATIVE_VERSION, nativeThreadId: options.threadId,
+      historyMode: selectedMode, scope: "selected_rollout_metadata_only", byteLength: bytes.length, sha256: hash(bytes),
+      sourceAuthenticated: false, publishable: false, semanticHistoryComplete: false };
     const snapshot = Object.freeze({ kind: "codex_rollout_snapshot", snapshotId: crypto.randomUUID(), nativeVersion: NATIVE_VERSION,
       nativeThreadId: options.threadId, scope: "one_legacy_rollout_raw_records", byteLength: bytes.length,
       recordCount: boundaries.length, sha256: hash(bytes), sourceAuthenticated: false, publishable: false, semanticHistoryComplete: false });
@@ -87,6 +91,8 @@ function createRolloutSnapshot(input, parameters) {
   } catch { return unavailable("rollout_invalid_record"); }
   finally { if (!retained) bytes.fill(0); }
 }
+function createRolloutSnapshot(input, parameters) { return parseRollout(input, parameters, false); }
+function observeRolloutNameIdentity(input, parameters) { return parseRollout(input, parameters, true); }
 function readRolloutPage(snapshot, parameters) {
   const entry = snapshots.get(snapshot);
   if (!entry) return unavailable("rollout_snapshot_unavailable");
@@ -120,4 +126,4 @@ function releaseRolloutSnapshot(snapshot) {
   // Previously returned detached text belongs to its caller; no wipe guarantee.
   return true;
 }
-module.exports = { createRolloutSnapshot, readRolloutPage, releaseRolloutSnapshot, LIMITS };
+module.exports = { createRolloutSnapshot, observeRolloutNameIdentity, readRolloutPage, releaseRolloutSnapshot, LIMITS };

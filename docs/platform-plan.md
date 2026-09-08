@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.67
+> 計畫版本：1.68
 > 最後更新：2026-09-09
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,7 +15,17 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新增量 1.67（開發版仍3.0.7-rc.7，未部署）**：Rust/Node v5在同交易補
+**最新增量 1.68（開發版仍3.0.7-rc.7，未部署）**：Codex新增readNamed背景鏈，
+SQL A→rollout/index A→permissioned parser→SQL B→rollout/index B，全程同一Host
+permit／總期限，兩種來源都重驗；晚回覆／取消／清理不明不發布、shared quarantine。
+v2嚴格bounded header保留舊API，paginated僅metadata名稱，完整歷史仍unsupported。
+本機922/0fail、reader187/187、Rust21/28；真named鏈90reader/parser＋共用ownedwriter，
+35真SHM/max2/remaining0、六種mutation／五階段實際取消、原bytes不變通；CI待核。
+詳[雙來源背景接線](codex-named-history-pipeline.md)。仍非原子snapshot／finaltitle，
+Codex discovery/grants/registry/HTTPWeb及cold/壓縮/其他adapter與C1–C8繼續。
+正式3.0.6／B+／帳號／獨立72h不變。
+
+**前一增量 1.67（開發版仍3.0.7-rc.7，未部署）**：Rust/Node v5在同交易補
 rollout_path／raw preview，v4保持相容；兩欄也納入selected version，actualclose與
 Host兩名額共用。新增方法別純resolver，明確拒path/ID/mode不符，原生19read／18list
 驗名稱與空preview排除，0模型／私人讀取；本機897/0fail、reader162/162、Rust21/28，

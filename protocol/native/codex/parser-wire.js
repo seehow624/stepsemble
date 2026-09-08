@@ -3,16 +3,19 @@
 const path = require("node:path"), crypto = require("node:crypto");
 const { canonicalJSON } = require("../../../public/modules/projection");
 const source = require("./source-wire");
+const sqlite = require("./sqlite-wire").context;
+const { observeMetadataName } = require("./metadata-name");
 const { LIMITS: INDEX } = require("./name-index");
 const { LIMITS: RAW } = require("./rollout-snapshot");
-const LIMITS = Object.freeze({ headerBytes: 16 * 1024, inputBytes: 4 + 16 * 1024 + 16 * 1024 * 1024,
+const LIMITS = Object.freeze({ headerBytes: 16 * 1024, namedHeaderBytes: 224 * 1024, inputBytes: 4 + 224 * 1024 + 16 * 1024 * 1024,
   outputBytes: 416 * 1024, chunks: 4096, deadlineMs: 10000, cleanupMs: 1000 });
 const CODES = Object.freeze(["source_worker_protocol", "source_worker_failure", "source_version_changed", "source_worker_output_limit",
   "invalid_envelope_or_version", "invalid_rollout_bytes_or_limit", "rollout_incomplete_tail", "rollout_record_limit", "rollout_invalid_utf8",
   "rollout_invalid_record", "rollout_selected_thread_mismatch", "rollout_invalid_metadata", "native_paginated_history_unsupported",
   "native_history_mode_unknown", "invalid_rollout_page", "rollout_snapshot_changed", "rollout_page_limit", "rollout_snapshot_unavailable",
   "invalid_name_index_bytes_or_limit", "name_index_record_limit", "name_index_invalid_utf8", "name_index_name_limit",
-  "name_index_record_unsupported", "name_index_output_limit"]);
+  "name_index_record_unsupported", "name_index_output_limit", "invalid_name_resolution_input", "invalid_name_resolution_fields",
+  "invalid_name_resolution_context", "name_resolution_missing_row_unsupported", "name_resolution_rollout_mismatch", "name_resolution_index_unavailable"]);
 const keys = (v, expected) => !!v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).sort().join(",") === [...expected].sort().join(",");
 const sha = b => crypto.createHash("sha256").update(b).digest("hex");
 const hash = v => typeof v === "string" && /^[a-f0-9]{64}$/.test(v);
@@ -26,10 +29,32 @@ function validSelection(v) {
   return keys(v, ["mode"]) && v.mode === "names" || keys(v, ["mode", "offset", "limit"]) && v.mode === "records"
     && integer(v.offset, RAW.records) && integer(v.limit, RAW.pageRecords) && v.limit > 0;
 }
+function validNameRequest(v) {
+  return keys(v, ["history", "sqlite", "method"]) && source.input(v.history) && sqlite.input(v.sqlite)
+    && v.history.nativeVersion === v.sqlite.nativeVersion && v.history.source.threadId === v.sqlite.source.threadId
+    && ["thread_read_sqlite", "thread_list_state_row"].includes(v.method);
+}
+function sameNamedVersion(a, b) {
+  a = detach(a); b = detach(b);
+  const valid = v => keys(v, ["kind", "history", "sqlite"]) && v.kind === "codex_named_source_version"
+    && source.sameSourceVersion(v.history, v.history) && sqlite.sameSourceVersion(v.sqlite, v.sqlite)
+    && v.history.threadId === v.sqlite.threadId && v.history.nativeVersion === v.sqlite.nativeVersion;
+  return valid(a) && valid(b) && source.sameSourceVersion(a.history, b.history) && sqlite.sameSourceVersion(a.sqlite, b.sqlite);
+}
+function validNameContext(v, version) {
+  if (!keys(v, ["fields", "nameContext", "method", "rolloutPath"]) || !["thread_read_sqlite", "thread_list_state_row"].includes(v.method)
+    || typeof v.rolloutPath !== "string" || !v.rolloutPath.isWellFormed() || Buffer.byteLength(v.rolloutPath) > 8192
+    || !path.isAbsolute(v.rolloutPath) || path.resolve(v.rolloutPath) !== v.rolloutPath || /[\u0000-\u001f\u007f]/.test(v.rolloutPath)) return false;
+  if (observeMetadataName(v.fields, { nativeVersion: version.nativeVersion, threadId: version.threadId }).kind !== "codex_metadata_name_observation") return false;
+  const c = v.nameContext;
+  return v.fields === null ? c === null : keys(c, ["rolloutPath", "preview"]) && typeof c.rolloutPath === "string" && c.rolloutPath.isWellFormed()
+    && Buffer.byteLength(c.rolloutPath) <= 8192 && typeof c.preview === "string" && c.preview.isWellFormed() && Buffer.byteLength(c.preview) <= 32768;
+}
 function validJob(v) {
-  return keys(v, ["protocolVersion", "nonce", "source", "selection", "expectedVersion"]) && v.protocolVersion === 1 && hash(v.nonce)
+  const named = v?.protocolVersion === 2;
+  return keys(v, ["protocolVersion", "nonce", "source", "selection", "expectedVersion", ...(named ? ["nameResolution"] : [])]) && [1, 2].includes(v.protocolVersion) && hash(v.nonce)
     && source.sameSourceVersion(v.source, v.source) && validSelection(v.selection)
-    && (v.expectedVersion === null || source.sameSourceVersion(v.expectedVersion, v.expectedVersion));
+    && (v.expectedVersion === null || source.sameSourceVersion(v.expectedVersion, v.expectedVersion)) && (!named || validNameContext(v.nameResolution, v.source));
 }
 function validPayload(bytes, job) {
   if (!Buffer.isBuffer(bytes) || !validJob(job)) return false;
@@ -38,7 +63,7 @@ function validPayload(bytes, job) {
     && (job.source.nameIndex === null || sha(bytes.subarray(split)) === job.source.nameIndex.sha256);
 }
 function encodeJob(input, captured) {
-  const job = detach(input), version = source.sourceVersion(captured);
+  const job = detach(input, LIMITS.namedHeaderBytes), version = source.sourceVersion(captured);
   if (!validJob(job) || !version || !source.sameSourceVersion(version, job.source)) return null;
   const fields = Object.getOwnPropertyDescriptors(captured);
   if (fields.cleanupConfirmed?.value !== true) return null;
@@ -55,7 +80,7 @@ function encodeJob(input, captured) {
   };
   const a = view(rollout, version.rollout.identity.size), b = version.nameIndex === null ? null : view(index, version.nameIndex.identity.size);
   if (!a || (version.nameIndex === null ? index !== null : b === null)) return null;
-  const header = Buffer.from(JSON.stringify(job)); if (header.length > LIMITS.headerBytes) return null;
+  const header = Buffer.from(JSON.stringify(job)); if (header.length > (job.protocolVersion === 2 ? LIMITS.namedHeaderBytes : LIMITS.headerBytes)) return null;
   const encoded = Buffer.allocUnsafe(4 + header.length + a.length + (b?.length ?? 0));
   encoded.writeUInt32BE(header.length); header.copy(encoded, 4); encoded.set(a, 4 + header.length);
   if (b) encoded.set(b, 4 + header.length + a.length);
@@ -69,8 +94,9 @@ function decode(bytes, limit) {
 }
 function readJob(frame) {
   if (!Buffer.isBuffer(frame) || frame.length < 5 || frame.length > LIMITS.inputBytes) return null;
-  const length = frame.readUInt32BE(0); if (!length || length > LIMITS.headerBytes || length + 4 > frame.length) return null;
-  const job = decode(frame.subarray(4, 4 + length), LIMITS.headerBytes), bytes = frame.subarray(4 + length);
+  const length = frame.readUInt32BE(0); if (!length || length > LIMITS.namedHeaderBytes || length + 4 > frame.length) return null;
+  const job = decode(frame.subarray(4, 4 + length), LIMITS.namedHeaderBytes), bytes = frame.subarray(4 + length);
+  if (job?.protocolVersion !== 2 && length > LIMITS.headerBytes) return null;
   return validPayload(bytes, job) ? { job, bytes } : null;
 }
 function validIndex(v, job) {
@@ -113,10 +139,20 @@ function validPage(v, job, payload) {
 }
 function validResult(v, job, payload) {
   if (keys(v, ["kind", "code"]) && v.kind === "source_unavailable") return CODES.includes(v.code);
-  return keys(v, ["kind", "source", "index", "page", "sourceAuthenticated", "publishable", "semanticHistoryComplete"])
+  return keys(v, ["kind", "source", "index", "page", "sourceAuthenticated", "publishable", "semanticHistoryComplete", ...(job.protocolVersion === 2 ? ["name"] : [])])
     && v.kind === "codex_parsed_capture" && source.sameSourceVersion(job.source, v.source) && validIndex(v.index, job)
     && (job.selection.mode === "names" ? v.page === null : validPage(v.page, job, payload))
-    && v.sourceAuthenticated === false && v.publishable === false && v.semanticHistoryComplete === false;
+    && v.sourceAuthenticated === false && v.publishable === false && v.semanticHistoryComplete === false
+    && (job.protocolVersion !== 2 || validName(v.name, job));
+}
+function validName(v, job) {
+  return keys(v, ["kind", "nativeVersion", "nativeThreadId", "scope", "method", "name", "candidateSource", "suppressedByPreview", "nativeTitleResolved", "sourceAuthenticated", "publishable"])
+    && v.kind === "codex_name_resolution_observation" && v.nativeVersion === job.source.nativeVersion && v.nativeThreadId === job.source.threadId
+    && v.scope === "provided_matched_sqlite_rollout_context_only" && v.method === job.nameResolution.method
+    && (v.name === null || typeof v.name === "string" && v.name.isWellFormed() && Buffer.byteLength(v.name) <= 32768)
+    && [null, "sqlite_distinct_legacy_title", "sqlite_paginated_name", "legacy_index_single_read", "legacy_index_batch_list"].includes(v.candidateSource)
+    && typeof v.suppressedByPreview === "boolean" && (!v.suppressedByPreview || v.name === null && v.method === "thread_list_state_row" && job.nameResolution.fields?.history_mode === "legacy")
+    && v.nativeTitleResolved === false && v.sourceAuthenticated === false && v.publishable === false;
 }
 function readResponse(bytes, job, payload) {
   if (!validJob(job) || !Buffer.isBuffer(bytes) || bytes.at(-1) !== 10 || bytes.indexOf(10) !== bytes.length - 1) return null;
@@ -132,9 +168,9 @@ function encodeResponse(result, job) {
   return readResponse(bytes, job) ? bytes : encode(unavailable("source_worker_protocol"));
 }
 function launchOptions() {
-  const files = ["parser-worker.js", "parser-wire.js", "source-wire.js", "name-index.js", "rollout-snapshot.js"].map(f => path.join(__dirname, f));
+  const files = ["parser-worker.js", "parser-wire.js", "source-wire.js", "name-index.js", "rollout-snapshot.js", "sqlite-wire.js", "metadata-name.js", "name-resolution.js"].map(f => path.join(__dirname, f));
   files.push(path.resolve(__dirname, "../../../public/modules/projection.js"));
   return { executable: process.execPath, args: ["--permission", "--no-warnings", "--max-old-space-size=128", ...files.map(f => `--allow-fs-read=${f}`), files[0]],
     options: { cwd: __dirname, env: { LANG: "C", LC_ALL: "C" }, stdio: ["pipe", "pipe", "pipe"], shell: false, detached: false, windowsHide: true } };
 }
-module.exports = { LIMITS, CODES, detach, keys, validSelection, validJob, validPayload, encodeJob, readJob, readResponse, encodeResponse, launchOptions };
+module.exports = { LIMITS, CODES, detach, keys, validSelection, validJob, validPayload, validNameRequest, sameNamedVersion, encodeJob, readJob, readResponse, encodeResponse, launchOptions };

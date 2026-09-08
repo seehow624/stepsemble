@@ -9,9 +9,9 @@
 
 ## 1. 這份文件的角色
 
-2026-09-09 Plan1.67 開發增量：Node/Rust v5同交易補SQLite rollout_path／preview，
-保持v4及Host共用兩名額；新增方法別純名稱解讀與19read／18list原生oracle。詳
-[名稱脈絡與解讀](codex-name-context-resolution.md)。未接跨來源resolver pipeline、Codex registry/HTTP/Web、未部署，
+2026-09-09 Plan1.68 開發增量：Codex readNamed已組合v5 SQL／v3 bytes／背景parser，
+回覆前再次capture兩邊版本，全程同一Host permit，unknown cleanup共享隔離。詳
+[雙來源背景接線](codex-named-history-pipeline.md)。Codex discovery/grants/registry/HTTP/Web仍未接、未部署，
 不將以下凍結盤點改成完整原生歷史／approval 已完成。
 
 這份盤點凍結「目前真的存在什麼」，不是未來設計。長期方向與階段門檻見 [`platform-plan.md`](platform-plan.md)；已上線架構摘要見 [`architecture.md`](architecture.md)。

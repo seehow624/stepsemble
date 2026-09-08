@@ -6,6 +6,7 @@ const { spawn } = require("node:child_process"), { performance } = require("node
 const { createNativeHelper, SOURCE_CODES } = require("../claude/history-native-helper");
 const { isReaderAdmission, LIMIT } = require("../claude/history-reader-admission");
 const source = require("./source-wire"), wire = require("./parser-wire");
+const sqlite = require("./sqlite-wire").context;
 const unavailable = code => ({ kind: "source_unavailable", code });
 const codes = new Set([...SOURCE_CODES, ...wire.CODES, "source_worker_exit", "source_worker_timeout", "source_worker_spawn_failed",
   "source_worker_io_error", "source_worker_diagnostic", "source_worker_input_limit", "source_busy", "source_aborted", "source_cleanup_unconfirmed",
@@ -40,12 +41,13 @@ function createCodexHistoryPipeline(options = {}) {
     if (admission.status().quarantined) quarantine();
     for (const f of flights) if (f.settled && f.helperSettled && !f.childActive && helperClosed(f.slot)) release(f);
   }
-  async function read(input, options = {}) {
+  async function read(input, options = {}, named = false) {
     sweep();
     if (!own(options, ["selection", "expectedVersion", "signal"])) return unavailable("invalid_codex_pipeline_request");
-    const request = wire.detach(input), selection = wire.detach(options.selection ?? { mode: "records", offset: 0, limit: 50 });
+    const request = wire.detach(input, named ? wire.LIMITS.namedHeaderBytes : wire.LIMITS.headerBytes), selection = wire.detach(options.selection ?? (named ? { mode: "names" } : { mode: "records", offset: 0, limit: 50 }));
     const expected = options.expectedVersion === undefined ? null : wire.detach(options.expectedVersion);
-    if (!source.input(request) || !wire.validSelection(selection) || options.expectedVersion !== undefined && !source.sameSourceVersion(expected, expected))
+    if (!(named ? wire.validNameRequest(request) : source.input(request)) || !wire.validSelection(selection)
+      || options.expectedVersion !== undefined && !(named ? wire.sameNamedVersion(expected, expected) : source.sameSourceVersion(expected, expected)))
       return unavailable("invalid_codex_pipeline_request");
     const signal = options.signal;
     if (signal !== undefined && !(signal instanceof AbortSignal)) return unavailable("invalid_source_signal");
@@ -56,6 +58,8 @@ function createCodexHistoryPipeline(options = {}) {
     if (flights.size >= LIMIT) return unavailable("source_busy");
     const slot = slots.find(v => !v.flight);
     if (!slot || !helperClosed(slot) || quarantined) return unavailable("source_service_quarantined");
+    if (named && typeof slot.helper.readCodexNameContext !== "function") return unavailable("source_worker_protocol");
+    const historyRequest = named ? request.history : request;
     let nonce;
     try { nonce = crypto.randomBytes(32).toString("hex"); } catch { return unavailable("source_worker_failure"); }
     let resolve; const promise = new Promise(done => { resolve = done; }), controller = new AbortController();
@@ -94,25 +98,46 @@ function createCodexHistoryPipeline(options = {}) {
       return !failure && !flight.settled;
     }
     signal?.addEventListener("abort", abort, { once: true });
-    async function run() {
-      if (!current()) { flight.helperSettled = true; settle(unavailable(failure)); return; }
+    async function captureStep(method, selected) {
+      if (!current()) { flight.helperSettled = true; if (!flight.settled) settle(unavailable(failure)); return null; }
+      flight.helperSettled = false;
       let captured;
-      try { captured = await slot.helper.readCodex(request, { signal: controller.signal }); } catch { captured = unavailable("source_worker_failure"); }
+      try { captured = await slot.helper[method](selected, { signal: controller.signal }); } catch { captured = unavailable("source_worker_failure"); }
       flight.helperSettled = true;
       if (!helperClosed(slot)) {
         if (!failure) failure = "source_cleanup_unconfirmed";
-        controller.abort(); quarantine(); settle(unavailable("source_cleanup_unconfirmed")); return;
+        controller.abort(); quarantine(); settle(unavailable("source_cleanup_unconfirmed")); return null;
       }
-      if (!current()) { if (!flight.settled) settle(unavailable(failure)); else sweep(); return; }
+      if (!current()) { if (!flight.settled) settle(unavailable(failure)); else sweep(); return null; }
       if (own(captured, ["kind", "code"]) && wire.keys(captured, ["kind", "code"]) && captured.kind === "source_unavailable") {
         if (["source_cleanup_unconfirmed", "source_service_quarantined"].includes(captured.code)) { failure = captured.code; quarantine(); }
-        return settle(unavailable(codes.has(captured.code) ? captured.code : "source_worker_failure"));
+        settle(unavailable(codes.has(captured.code) ? captured.code : "source_worker_failure")); return null;
       }
-      const version = source.sourceVersion(captured);
-      if (!version || version.nativeVersion !== request.nativeVersion || version.threadId !== request.source.threadId || version.rolloutPath !== request.source.rolloutPath
-        || version.rootIdentity.device !== request.expectedRoot.device || version.rootIdentity.inode !== request.expectedRoot.inode) return settle(unavailable("source_worker_protocol"));
-      if (expected !== null && !source.sameSourceVersion(expected, version)) return settle(unavailable("source_version_changed"));
-      const job = { protocolVersion: 1, nonce, source: version, selection, expectedVersion: expected };
+      if (!captured) { settle(unavailable("source_worker_protocol")); return null; }
+      return captured;
+    }
+    function historyVersion(captured) {
+      const v = source.sourceVersion(captured), r = historyRequest;
+      return v && captured.cleanupConfirmed === true && v.nativeVersion === r.nativeVersion && v.threadId === r.source.threadId && v.rolloutPath === r.source.rolloutPath
+        && v.rootIdentity.device === r.expectedRoot.device && v.rootIdentity.inode === r.expectedRoot.inode ? v : null;
+    }
+    async function run() {
+      let sqlCapture = null, sqlVersion = null;
+      if (named) {
+        const raw = await captureStep("readCodexNameContext", request.sqlite); if (!raw) return;
+        sqlCapture = sqlite.capture(raw, request.sqlite); sqlVersion = sqlCapture && sqlite.sourceVersion(sqlCapture, request.sqlite);
+        if (!sqlVersion) return settle(unavailable("source_worker_protocol"));
+        if (expected !== null && !sqlite.sameSourceVersion(expected.sqlite, sqlVersion)) return settle(unavailable("source_version_changed"));
+      }
+      let captured = await captureStep("readCodex", historyRequest); if (!captured) return;
+      const version = historyVersion(captured);
+      if (!version) return settle(unavailable("source_worker_protocol"));
+      const expectedHistory = named ? expected?.history ?? null : expected;
+      if (expectedHistory !== null && !source.sameSourceVersion(expectedHistory, version)) return settle(unavailable("source_version_changed"));
+      const job = { protocolVersion: named ? 2 : 1, nonce, source: version, selection, expectedVersion: expectedHistory,
+        ...(named ? { nameResolution: { fields: sqlCapture.metadata.observation.fields, nameContext: sqlCapture.metadata.observation.nameContext,
+          method: request.method, rolloutPath: path.join(historyRequest.source.codexRoot, historyRequest.source.rolloutPath) } } : {}) };
+      sqlCapture = null;
       encoded = wire.encodeJob(job, captured); captured = null;
       if (!encoded) return settle(unavailable("source_worker_protocol"));
       if (!current()) return;
@@ -129,7 +154,14 @@ function createCodexHistoryPipeline(options = {}) {
           try { result = wire.readResponse(output.subarray(0, size), job, encoded.subarray(4 + encoded.readUInt32BE(0))); } catch { result = null; }
           if (!current()) return;
           if (!result) return settle(unavailable("source_worker_protocol"));
-          settle(result.kind === "source_unavailable" ? result : { ...result, cleanupConfirmed: true });
+          if (!named || result.kind === "source_unavailable") return settle(result.kind === "source_unavailable" ? result : { ...result, cleanupConfirmed: true });
+          // Release large parser buffers before the two final captures. A
+          // single permit spans every stage; none reacquires or queues work.
+          output = null; encoded = null;
+          finishNamed(result, version, sqlVersion).catch(() => {
+            if (!flight.helperSettled) stop("source_worker_failure");
+            else if (!flight.settled) settle(unavailable(failure || "source_worker_failure"));
+          });
         });
         child.on("error", () => stop("source_worker_spawn_failed"));
         for (const stream of [child.stdin, child.stdout, child.stderr]) stream.on("error", () => stop("source_worker_io_error"));
@@ -145,6 +177,19 @@ function createCodexHistoryPipeline(options = {}) {
         if (child) stop("source_worker_spawn_failed");
         else { flight.childActive = false; settle(unavailable(failure || "source_worker_spawn_failed")); }
       }
+    }
+    async function finishNamed(parsed, initialHistory, initialSqlite) {
+      let captured = await captureStep("readCodexNameContext", request.sqlite); if (!captured) return;
+      const finalSqlite = sqlite.sourceVersion(captured, request.sqlite); captured = null;
+      if (!finalSqlite) return settle(unavailable("source_worker_protocol"));
+      if (!sqlite.sameSourceVersion(initialSqlite, finalSqlite)) return settle(unavailable("source_version_changed"));
+      captured = await captureStep("readCodex", historyRequest); if (!captured) return;
+      const finalHistory = historyVersion(captured); captured = null;
+      if (!finalHistory) return settle(unavailable("source_worker_protocol"));
+      if (!source.sameSourceVersion(initialHistory, finalHistory)) return settle(unavailable("source_version_changed"));
+      if (!current()) return;
+      settle({ ...parsed, kind: "codex_named_capture", source: { kind: "codex_named_source_version", history: finalHistory, sqlite: finalSqlite },
+        consistency: "matching_selected_versions_before_and_after_parse", cleanupConfirmed: true });
     }
     run().catch(() => {
       if (flight.childActive || !flight.helperSettled) stop("source_worker_failure");
@@ -162,7 +207,7 @@ function createCodexHistoryPipeline(options = {}) {
     })();
     return shutdownPromise;
   }
-  return Object.freeze({ read, shutdown, status() { sweep(); return Object.freeze({ closed: closed || admission.status().closed, quarantined,
+  return Object.freeze({ read: (input, options) => read(input, options), readNamed: (input, options) => read(input, options, true), shutdown, status() { sweep(); return Object.freeze({ closed: closed || admission.status().closed, quarantined,
     activeWorkers: flights.size, cleanupConfirmed: flights.size === 0 }); } });
 }
 module.exports = { createCodexHistoryPipeline };

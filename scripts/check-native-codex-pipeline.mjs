@@ -53,7 +53,7 @@ export async function checkCodexHistoryPipeline({ helperPath, sdkPath }) {
     const inventory = createSourceIndex({ sourceId: "owned-cross-harness", source: roots[0], helperPath, admission, createHelper, authorize: who => who === "owner" }); services.push(inventory);
     const bindingId = crypto.randomUUID(), bound = claude.bind({ bindingId, generation: 1, source: { projectsRoot: claudeRoot, projectKey, sessionId: c.sessionId } });
     const peerRequest = { bindingId, generation: 1, requestId: crypto.randomUUID() };
-    const sqlitePipeline = await checkCodexSqlitePipeline({ helperPath, admission, createHelper,
+    const sqlitePipeline = await checkCodexSqlitePipeline({ helperPath, admission, createHelper, spawnChild: spawnOwned,
       claudeRead: () => bound.observe({ ...peerRequest, requestId: crypto.randomUUID() }),
       codexRead: () => pipeline.read(request, { selection: { mode: "names" } }), counters: () => ({ physical, maximum, attempts }) });
     if (process.platform === "win32") {

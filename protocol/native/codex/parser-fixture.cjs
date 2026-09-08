@@ -15,4 +15,21 @@ function captured(index = Buffer.from(JSON.stringify({ id, thread_name: "  åŽŸç”
     rolloutBytes: raw, nameIndexBytes: index };
 }
 const job = (capture = captured(), selection = { mode: "records", offset: 0, limit: 2 }) => ({ protocolVersion: 1, nonce: "a".repeat(64), source: sourceVersion(capture), selection, expectedVersion: null });
-module.exports = { id, root, request, captured, job, sha };
+const sqlFixture = require("./sqlite-fixture.cjs").context;
+const namedRequest = () => ({ history: request(), sqlite: sqlFixture.request(), method: "thread_read_sqlite" });
+function sqliteCapture(change = () => {}) {
+  const body = sqlFixture.body(); body.observation.nameContext.rolloutPath = path.join(root, locator);
+  change(body.observation); return sqlFixture.capture(body);
+}
+function namedJob(capture = captured(), selection = { mode: "names" }, sql = sqliteCapture(), method = "thread_read_sqlite") {
+  return { ...job(capture, selection), protocolVersion: 2, nameResolution: { fields: sql.metadata.observation.fields,
+    nameContext: sql.metadata.observation.nameContext, method, rolloutPath: path.join(root, locator) } };
+}
+function withRollout(records, index) {
+  const c = captured(index), raw = Buffer.from(records.map(v => typeof v === "string" ? v : JSON.stringify(v)).join("\n") + "\n");
+  c.rolloutBytes = raw; Object.assign(c.rollout, { byteLength: raw.length, sha256: sha(raw) }); c.rollout.identity.size = raw.length;
+  if (c.nameIndex) c.nameIndex.byteOffset = raw.length;
+  c.byteLength = raw.length + (c.nameIndexBytes?.length ?? 0); c.sha256 = sha(Buffer.concat([raw, c.nameIndexBytes ?? Buffer.alloc(0)]));
+  return c;
+}
+module.exports = { id, root, request, captured, job, sha, namedRequest, sqliteCapture, namedJob, withRollout };
