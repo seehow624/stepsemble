@@ -1,7 +1,7 @@
-/* stepsemble v3.0.7-rc.4 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.7-rc.5 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.7-rc.4";
+const CLIENT_APP_VERSION = "3.0.7-rc.5";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -2005,12 +2005,42 @@ async function loadAgentCatalog() {
 }
 
 let agentTaskRefreshRequest = null;
+let runningStateRequest = null;
+let conversationView = null;
+let conversationSourceState = { sessions: "loading", tasks: "loading" };
+function updateConversationCatalog() {
+  if (!conversationView?.isOpen()) return;
+  conversationView.update(StepsembleConversations.build(lastChatMachineKey(), sessionsCache, agentTasks),
+    lastChatMachineKey(), machineName(selectedId), Object.values(conversationSourceState).some(state => state !== "ready"));
+}
+function openConversationCatalog() {
+  if (!conversationView) conversationView = StepsembleConversations.createView({ dialog: $("conversation-catalog"),
+    t: (key, vars) => tKey(`conversations.${key}`, vars), title: entry => stripMd(entry.title),
+    status: entry => entry.status === "history" ? tKey("conversations.saved") : entry.status === "unknown" ? tKey("conversations.unknown") : agentStatusText(entry.status),
+    updated: entry => entry.updatedAt ? fmtTime(entry.updatedAt) : "",
+    open(entry) {
+      // Resolve the exact still-current source at click time. A stale row must
+      // never fall back to a same-name conversation, another Host, or a new run.
+      if (entry.hostId !== lastChatMachineKey()) return;
+      const row = entry.kind === "pi_history" ? sessionsCache.find(s => s.file === entry.reference)
+        : agentTasks.find(task => String(task.id || task.taskId || "") === entry.reference);
+      if (!row) { toast(tKey("conversations.gone"), true); return; }
+      if (entry.kind === "pi_history") void openExisting(row); else void openAgentTaskFromHub(row);
+    },
+    async refresh() { await Promise.all([refreshSessions({ refreshTasks: false }), refreshAgentTasks()]); updateConversationCatalog(); },
+  });
+  conversationView.open(); updateConversationCatalog();
+}
 function resetAgentHub() {
+  runningStateRequest?.controller.abort();
+  runningStateRequest = null;
   agentCatalogRequest?.abort();
   agentTaskRefreshRequest?.abort();
   agentCatalogRequest = agentTaskRefreshRequest = null;
   agentCatalog = [];
   agentTasks = [];
+  conversationSourceState = { sessions: "loading", tasks: "loading" };
+  conversationView?.reset();
   agentCatalogError = false;
   renderNewAgentOptions();
   renderAgentHub();
@@ -2029,6 +2059,7 @@ async function refreshAgentTasks() {
     if (!isCurrent()) return;
     if (!Array.isArray(data?.tasks)) throw new Error("Invalid task snapshot");
     agentTasks = data.tasks;
+    conversationSourceState.tasks = "ready";
     renderAgentHub();
     renderAgentTaskCenter();
     syncAgentTaskPolling();
@@ -2038,6 +2069,7 @@ async function refreshAgentTasks() {
     void restoreLastChat();
   } catch (error) {
     if (isCurrent() && error?.name !== "AbortError") {
+      conversationSourceState.tasks = "stale";
       // Keep the last truthful snapshot during a transient network hiccup.
       // Clearing it makes a long-running task disappear even though its
       // supervisor is still alive and the next poll can recover it.
@@ -2127,7 +2159,7 @@ el.agentTaskCenterSearch?.addEventListener("input", renderAgentTaskCenter);
 el.agentTaskCenterFilter?.addEventListener("change", renderAgentTaskCenter);
 el.newAgent?.addEventListener("change", updateNewAgentNote);
 
-async function refreshSessions() {
+async function refreshSessions({ refreshTasks = true } = {}) {
   const generation = viewGeneration;
   const baseAtStart = apiBase;
   const sequence = ++refreshSequence;
@@ -2137,7 +2169,9 @@ async function refreshSessions() {
     const includeTemporary = settings.showTemporarySessions ? "1" : "0";
     const data = await api(`/api/sessions?includeTemporary=${includeTemporary}`, { signal: refreshRequest.signal });
     if (sequence !== refreshSequence || generation !== viewGeneration || baseAtStart !== apiBase) return;
-    sessionsCache = data.sessions || [];
+    if (!Array.isArray(data?.sessions)) throw new Error("Invalid session snapshot");
+    sessionsCache = data.sessions;
+    conversationSourceState.sessions = "ready";
     const currentSummary = sessionsCache.find(session => session.file === currentSessionFile);
     if (currentSummary && !el.viewChat.classList.contains("hidden")) setChatTitle(sessionDisplayTitle(currentSummary));
     temporarySessionCount = Math.max(0, Number(data.temporarySessionCount) || 0);
@@ -2146,8 +2180,9 @@ async function refreshSessions() {
     renderSessionList(el.search.value);
     syncSessionListPolling();
     void refreshStuckSessions();
-    void refreshAgentTasks();
+    if (refreshTasks) void refreshAgentTasks();
   } catch (e) {
+    if (sequence === refreshSequence && generation === viewGeneration && baseAtStart === apiBase && e.name !== "AbortError") conversationSourceState.sessions = "stale";
     if (e.name !== "AbortError") { /* unauthorized 已處理 */ }
   } finally {
     if (sequence === refreshSequence) refreshRequest = null;
@@ -2182,10 +2217,20 @@ let sessionListPollTimer = null;
 let lastRunningSignature = "";
 async function refreshRunningState() {
   if (el.viewList.classList.contains("hidden")) { syncSessionListPolling(); return; }
+  const base = apiBase, host = selectedId, generation = viewGeneration;
+  // Slow health polling must not accumulate requests. A new Host/view may
+  // replace the flight, but an old reply must never alter its running badges.
+  if (runningStateRequest?.base === base && runningStateRequest.host === host && runningStateRequest.generation === generation) return;
+  runningStateRequest?.controller.abort();
+  const request = { base, host, generation, controller: new AbortController() };
+  runningStateRequest = request;
+  const current = () => runningStateRequest === request && base === apiBase && host === selectedId && generation === viewGeneration
+    && !request.controller.signal.aborted && !el.viewList.classList.contains("hidden");
   try {
-    const data = await api("/api/rpcs");
+    const data = await api("/api/rpcs", { signal: request.controller.signal });
+    if (!current() || !Array.isArray(data?.rpcs)) return;
     const live = new Map();
-    for (const rpc of (Array.isArray(data?.rpcs) ? data.rpcs : [])) {
+    for (const rpc of data.rpcs) {
       if (rpc.exited || !rpc.isStreaming) continue;
       const file = rpc.file || rpc.sessionFile;
       if (file) live.set(file, rpc);
@@ -2209,7 +2254,8 @@ async function refreshRunningState() {
     if (signature !== lastRunningSignature) changed = true;
     lastRunningSignature = signature;
     if (changed) renderSessionList(el.search.value);
-  } catch { /* transient network errors: the next tick retries */ }
+  } catch { /* transient network errors: preserve last truth; the next tick retries */ }
+  finally { if (runningStateRequest === request) runningStateRequest = null; }
 }
 function syncSessionListPolling() {
   const listVisible = el.viewList && !el.viewList.classList.contains("hidden");
@@ -2798,6 +2844,7 @@ async function runFullTextSearch(query) {
 }
 el.search.addEventListener("input", () => { sessionRenderLimit = 120; renderSessionList(el.search.value); });
 el.btnRefresh.addEventListener("click", refreshSessions);
+$("btn-conversations")?.addEventListener("click", openConversationCatalog);
 el.showTemporarySessions?.addEventListener("change", () => {
   settings = saveSettings({ showTemporarySessions: el.showTemporarySessions.checked });
   if (!settings.showTemporarySessions) sessionsCache = sessionsCache.filter((session) => !session.isTemporary);
@@ -3757,6 +3804,26 @@ function genericTaskTerminal(status) {
   return ["completed", "failed", "stopped", "orphaned", "detached"].includes(String(status || ""));
 }
 
+function genericInputBlock(connection = rpc) {
+  if (!connection?.generic) return null;
+  if (genericTaskTerminal(connection.taskStatus)) return "taskReadOnly";
+  if (connection.streamReady !== true || connection.connectionLost || connection.stopPending
+    || !["running", "waiting"].includes(connection.taskStatus)) return "inputUnavailable";
+  return null;
+}
+
+function syncGenericInputState() {
+  const reason = genericInputBlock();
+  el.input.readOnly = !!reason;
+  el.btnSend.disabled = !!reason;
+  const note = $("agent-input-note");
+  if (note) {
+    note.classList.toggle("hidden", !reason);
+    if (reason) { note.dataset.i18nKey = `agentHub.${reason}`; note.textContent = agentHubText(reason); }
+    else { delete note.dataset.i18nKey; note.textContent = ""; }
+  }
+}
+
 function updateAgentTaskCache(task) {
   if (!task) return;
   const id = String(task.id || task.taskId || "");
@@ -3936,19 +4003,22 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
       runStartedAt: Number(result.startedAt) || null,
       runEndedAt: Number(result.endedAt) || null,
     };
+    const connection = rpc;
+    const ownsTask = () => rpc === connection && generation === viewGeneration && baseAtStart === apiBase;
     currentAgentTaskId = taskId;
     updateAgentTaskCache({ ...result, id: taskId });
     setStreaming(rpc.streaming);
     let esFail = 0;
 
     const scheduleReconnect = (es) => {
-      if (!rpc || rpc.sid !== taskId || rpc.streamEnded) return;
+      if (!ownsTask() || rpc.streamEnded || rpc.es !== es) return;
       if (rpc.readyTimer) clearTimeout(rpc.readyTimer);
       rpc.readyTimer = null;
       rpc.streamReady = false;
       try { es?.close(); } catch {}
       if (rpc.es === es) rpc.es = null;
       rpc.connectionLost = true;
+      syncGenericInputState();
       const attempt = ++rpc.reconnectAttempt;
       const delay = Math.min(30_000, 800 * (2 ** Math.min(attempt - 1, 5)));
       el.queueNote.dataset.connection = "lost";
@@ -3958,23 +4028,25 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
       el.queueNote.classList.remove("hidden");
       if (rpc.reconnectTimer) return;
       rpc.reconnectTimer = setTimeout(() => {
-        if (!rpc || rpc.sid !== taskId || rpc.streamEnded) return;
+        if (!ownsTask() || rpc.streamEnded) return;
         rpc.reconnectTimer = null;
         openStream(Math.max(-1, Number(rpc.lastEventId) || -1));
       }, delay);
     };
 
     const openStream = (after) => {
-      if (!rpc || rpc.sid !== taskId || rpc.streamEnded) return;
+      if (!ownsTask() || rpc.streamEnded) return;
       const es = new EventSource(baseAtStart + "/api/agent/stream?taskId=" + encodeURIComponent(taskId) + "&after=" + encodeURIComponent(after));
       rpc.es = es;
       rpc.streamReady = false;
+      syncGenericInputState();
+      const ownsStream = () => ownsTask() && rpc.es === es;
       if (rpc.readyTimer) clearTimeout(rpc.readyTimer);
       rpc.readyTimer = setTimeout(() => {
-        if (rpc?.sid === taskId && rpc.es === es && !rpc.streamReady && !rpc.streamEnded) scheduleReconnect(es);
+        if (ownsStream() && !rpc.streamReady && !rpc.streamEnded) scheduleReconnect(es);
       }, 12_000);
       const markStreamReady = (snapshot = null) => {
-        if (!rpc || rpc.sid !== taskId || rpc.streamEnded) return;
+        if (!ownsStream() || rpc.streamEnded) return;
         rpc.streamReady = true;
         if (rpc.readyTimer) clearTimeout(rpc.readyTimer);
         rpc.readyTimer = null;
@@ -3982,7 +4054,8 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
         rpc.connectionLost = false;
         rpc.reconnectAttempt = 0;
         rpc.lastEventAt = Date.now();
-        applyGenericTaskSnapshot(snapshot || { status: rpc.taskStatus, id: taskId });
+        rpc.snapshotEventSeq = snapshot.eventSeq;
+        applyGenericTaskSnapshot(snapshot);
         if (genericTaskTerminal(rpc.taskStatus)) rpc.streamEnded = true;
         if (el.queueNote.dataset.connection === "lost") {
           delete el.queueNote.dataset.connection;
@@ -3991,26 +4064,41 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
         }
       };
       es.onopen = () => {
-        if (rpc?.sid !== taskId) { try { es.close(); } catch {} return; }
-        markStreamReady();
+        if (!ownsStream()) { try { es.close(); } catch {} }
+        // Transport-open alone does not confirm the task or writable state.
       };
       es.addEventListener("connected", (event) => {
+        if (!ownsStream()) { try { es.close(); } catch {} return; }
         let snapshot = null;
         try { snapshot = JSON.parse(event.data); } catch {}
-        if (Number.isSafeInteger(snapshot?.eventSeq) && snapshot.eventSeq < rpc.lastEventId) rpc.lastEventId = -1;
+        if (!snapshot || (snapshot.taskId ?? snapshot.id) !== taskId || snapshot.id !== undefined && snapshot.id !== taskId
+          || !Number.isSafeInteger(snapshot.eventSeq) || snapshot.eventSeq < 0
+          || !["starting", "running", "waiting", "reconnecting", "completed", "failed", "stopped", "orphaned", "detached"].includes(snapshot.status)) {
+          scheduleReconnect(es); return;
+        }
+        if (snapshot.eventSeq < rpc.lastEventId) rpc.lastEventId = -1;
         markStreamReady(snapshot);
       });
       es.onmessage = (event) => {
-        if (rpc?.sid !== taskId) { try { es.close(); } catch {} return; }
+        if (!ownsStream()) { try { es.close(); } catch {} return; }
+        if (!rpc.streamReady) return;
         const eventId = Number(event.lastEventId);
         if (Number.isFinite(eventId)) rpc.lastEventId = Math.max(rpc.lastEventId, eventId);
         let data;
         try { data = JSON.parse(event.data); } catch { return; }
+        if (!data || typeof data !== "object" || data.taskId !== undefined && data.taskId !== taskId) return;
+        // Connected is the current lifecycle snapshot. Historical output is
+        // still replayed, but old task_started/status/exit must not revive input.
+        if (["task_started", "status", "task_exit"].includes(data.type) && eventId <= rpc.snapshotEventSeq) return;
         handleAgentTaskEvent(data, taskId);
+        if (data.type === "task_exit" && genericTaskTerminal(rpc.taskStatus)) { try { es.close(); } catch {} }
       };
       es.onerror = () => {
-        if (rpc?.sid !== taskId) { try { es.close(); } catch {} return; }
-        if (rpc.streamEnded) return;
+        if (!ownsStream()) { try { es.close(); } catch {} return; }
+        // EOF on a completed record is expected. EventSource otherwise retries
+        // automatically forever even though no more live output can arrive.
+        if (rpc.streamEnded) { try { es.close(); } catch {} return; }
+        rpc.streamReady = false; rpc.connectionLost = true; syncGenericInputState();
         esFail++;
         if (esFail >= 3 && baseAtStart) showRemoteAuthorizationState(baseAtStart);
         if (esFail >= 3) scheduleReconnect(es);
@@ -5780,6 +5868,7 @@ function updateLiveUsage(u) {
 }
 function setStreaming(on) {
   el.btnAbort.disabled = !!rpc?.stopPending;
+  syncGenericInputState();
   if (rpc) rpc.streaming = on;
   const generic = !!rpc?.generic;
   setTaskProgressRunState(!!on);
@@ -6004,6 +6093,8 @@ async function sendCurrent() {
   let text = el.input.value.trim();
   if ((!text && !pendingImages.length) || !rpc) return;
   const generic = !!rpc.generic;
+  const inputBlock = genericInputBlock();
+  if (inputBlock) { toast(agentHubText(inputBlock), true); return; }
   if (generic && pendingImages.length) {
     toast(agentHubText("cliTextOnly"), true);
     return;
@@ -6059,6 +6150,7 @@ el.btnAbort.addEventListener("click", async () => {
   if (connection.stopPending) return;
   connection.stopPending = true;
   el.btnAbort.disabled = true;
+  if (connection.generic) syncGenericInputState();
   try {
     if (connection.generic) await post("/api/agent/abort", { taskId: connection.sid });
     else await post("/api/abort", { sid: connection.sid });
@@ -6066,7 +6158,7 @@ el.btnAbort.addEventListener("click", async () => {
     if (rpc === connection && apiBase === base) toast(error.message || agentHubText("taskStopFailed"), true);
   } finally {
     connection.stopPending = false;
-    if (rpc === connection && apiBase === base) el.btnAbort.disabled = false;
+    if (rpc === connection && apiBase === base) { el.btnAbort.disabled = false; if (connection.generic) syncGenericInputState(); }
   }
 });
 

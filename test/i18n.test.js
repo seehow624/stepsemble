@@ -246,6 +246,20 @@ test("project changes inspector is translated in every supported locale", () => 
   }
 });
 
+test("conversation catalog copy is translated and interpolated in every locale", () => {
+  const i18n = loadLocaleLayer(), keys = ["title", "search", "scope", "count", "stale", "omitted", "empty", "unknown", "gone"];
+  const vars = { total: 131, page: 1, pages: 3, count: 2 };
+  const english = Object.fromEntries(keys.map(key => [key, i18n.tKey(`conversations.${key}`, vars)]));
+  for (const locale of i18n.locales.map(item => item.id)) {
+    i18n.setLocale(locale);
+    for (const key of keys) {
+      const value = i18n.tKey(`conversations.${key}`, vars);
+      assert.doesNotMatch(value, /conversations\.|\{(?:total|page|pages|count)\}/);
+      if (locale !== "en") assert.notEqual(value, english[key], `${locale}: ${key}`);
+    }
+  }
+});
+
 test("update center phrases are translated in every supported locale", () => {
   const i18n = loadLocaleLayer();
   const keys = [

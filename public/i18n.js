@@ -3640,7 +3640,122 @@
   for (const [id, placeholder] of Object.entries(AGENT_MESSAGE_PLACEHOLDERS)) {
     AGENT_HUB_TRANSLATIONS[id]["agentHub.messagePlaceholder"] = placeholder;
   }
+  const AGENT_INPUT_TRANSLATIONS = {
+    en: ["This task has ended. Its output is read-only; native resume is not connected yet.", "Waiting for the task to confirm input is available. Your draft is preserved."],
+    "zh-Hant": ["這個工作已結束，目前僅能查看輸出；原生續跑功能尚未接通。", "正在等候工作確認可以接收輸入，草稿會保留。"],
+    "zh-Hans": ["这个任务已结束，目前只能查看输出；原生继续运行功能尚未接通。", "正在等待任务确认可以接收输入，草稿会保留。"],
+    ja: ["このタスクは終了しました。出力は読み取り専用で、ネイティブ再開はまだ利用できません。", "入力可能な状態をタスクが確認するまで待機中です。下書きは保持されます。"],
+    ko: ["이 작업은 종료되었습니다. 출력은 읽기 전용이며 네이티브 재개는 아직 연결되지 않았습니다.", "작업에서 입력 가능 상태를 확인할 때까지 기다립니다. 초안은 유지됩니다."],
+    tr: ["Bu görev sona erdi. Çıktısı salt okunurdur; yerel sürdürme henüz bağlı değil.", "Görevin giriş kabul edebildiğini doğrulaması bekleniyor. Taslağınız korunuyor."],
+    fr: ["Cette tâche est terminée. Sa sortie est en lecture seule ; la reprise native n’est pas encore connectée.", "En attente de confirmation que la tâche accepte une saisie. Votre brouillon est conservé."],
+    de: ["Diese Aufgabe ist beendet. Die Ausgabe ist schreibgeschützt; natives Fortsetzen ist noch nicht angebunden.", "Die Bestätigung, dass die Aufgabe Eingaben annimmt, steht aus. Ihr Entwurf bleibt erhalten."],
+    es: ["Esta tarea ha terminado. Su salida es de solo lectura; la reanudación nativa aún no está conectada.", "Esperando a que la tarea confirme que acepta entradas. Tu borrador se conserva."],
+    "pt-BR": ["Esta tarefa terminou. A saída é somente leitura; a retomada nativa ainda não está conectada.", "Aguardando a tarefa confirmar que aceita entrada. Seu rascunho é preservado."],
+    it: ["Questa attività è terminata. L’output è di sola lettura; la ripresa nativa non è ancora collegata.", "In attesa che l’attività confermi di accettare input. La bozza viene conservata."],
+  };
+  for (const [id, [readOnly, unavailable]] of Object.entries(AGENT_INPUT_TRANSLATIONS)) {
+    AGENT_HUB_TRANSLATIONS[id]["agentHub.taskReadOnly"] = readOnly;
+    AGENT_HUB_TRANSLATIONS[id]["agentHub.inputUnavailable"] = unavailable;
+  }
   for (const id of Object.keys(KEYED_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], AGENT_HUB_TRANSLATIONS.en, AGENT_HUB_TRANSLATIONS[id] || {});
+
+  const CONVERSATION_TRANSLATIONS = {
+    en: {
+      title: "All conversations", close: "Close", search: "Search title or project…", agent: "Agent source", kind: "Record type",
+      allAgents: "All agents", all: "All records", active: "Active tasks", pi_history: "Pi history", task_record: "Task output",
+      scope: "This host’s visible Pi history and Stepsemble task records. Task output is not full native history or a resume grant. Other native conversations are not automatically imported yet.",
+      count: "{total} records · Page {page}/{pages}", stale: "Some sources are not current; refresh to check", omitted: "{count} records omitted by validation or limits",
+      previous: "Previous", next: "Next", refresh: "Refresh", loading: "Refreshing…", empty: "No matching records in the available sources.",
+      saved: "Saved", unknown: "Unknown status", gone: "This record is no longer available. Refresh the list.",
+    },
+    "zh-Hant": {
+      title: "全部對話", close: "關閉", search: "搜尋名稱或專案…", agent: "Agent 來源", kind: "紀錄類型",
+      allAgents: "所有 Agent", all: "全部紀錄", active: "進行中的工作", pi_history: "Pi 對話歷史", task_record: "工作輸出",
+      scope: "整合這台主機可見的 Pi 對話與 Stepsemble 工作紀錄。工作輸出不等於完整原生歷史，也不代表可以續跑；其他原生對話目前尚未自動匯入。",
+      count: "共 {total} 筆 · 第 {page}/{pages} 頁", stale: "部分來源尚未更新，請重新整理確認", omitted: "{count} 筆因格式或數量限制未列出",
+      previous: "上一頁", next: "下一頁", refresh: "重新整理", loading: "整理中…", empty: "目前可用的來源沒有符合的紀錄。",
+      saved: "已儲存", unknown: "狀態未知", gone: "這筆紀錄已無法取得，請重新整理清單。",
+    },
+    "zh-Hans": {
+      title: "全部对话", close: "关闭", search: "搜索名称或项目…", agent: "Agent 来源", kind: "记录类型",
+      allAgents: "所有 Agent", all: "全部记录", active: "进行中的任务", pi_history: "Pi 对话历史", task_record: "任务输出",
+      scope: "整合这台主机可见的 Pi 对话与 Stepsemble 任务记录。任务输出不等于完整原生历史，也不代表可以继续运行；其他原生对话目前尚未自动导入。",
+      count: "共 {total} 条 · 第 {page}/{pages} 页", stale: "部分来源尚未更新，请刷新确认", omitted: "{count} 条因格式或数量限制未列出",
+      previous: "上一页", next: "下一页", refresh: "刷新", loading: "刷新中…", empty: "当前可用的来源没有匹配的记录。",
+      saved: "已保存", unknown: "状态未知", gone: "这条记录已无法获取，请刷新列表。",
+    },
+  };
+  Object.assign(CONVERSATION_TRANSLATIONS, {
+    ja: {
+      title: "すべての会話", close: "閉じる", search: "名前やプロジェクトを検索…", agent: "Agent の種類", kind: "記録の種類",
+      allAgents: "すべての Agent", all: "すべての記録", active: "実行中のタスク", pi_history: "Pi の会話履歴", task_record: "タスク出力",
+      scope: "このホストで表示できる Pi の履歴と Stepsemble のタスク記録です。タスク出力は完全なネイティブ履歴や再開権限ではありません。他のネイティブ会話はまだ自動取得されません。",
+      count: "{total} 件 · {page}/{pages} ページ", stale: "未更新の取得元があります。更新してください", omitted: "形式または件数の制限により {count} 件を除外",
+      previous: "前へ", next: "次へ", refresh: "更新", loading: "更新中…", empty: "利用できる取得元に一致する記録がありません。",
+      saved: "保存済み", unknown: "状態不明", gone: "この記録は利用できません。一覧を更新してください。",
+    },
+    ko: {
+      title: "모든 대화", close: "닫기", search: "이름 또는 프로젝트 검색…", agent: "Agent 출처", kind: "기록 유형",
+      allAgents: "모든 Agent", all: "모든 기록", active: "진행 중인 작업", pi_history: "Pi 대화 기록", task_record: "작업 출력",
+      scope: "이 호스트에서 볼 수 있는 Pi 기록과 Stepsemble 작업 기록입니다. 작업 출력은 전체 네이티브 기록이나 재개 권한이 아닙니다. 다른 네이티브 대화는 아직 자동으로 가져오지 않습니다.",
+      count: "{total}개 · {page}/{pages}페이지", stale: "일부 출처가 최신 상태가 아닙니다. 새로 고치세요", omitted: "형식 또는 개수 제한으로 {count}개 제외",
+      previous: "이전", next: "다음", refresh: "새로 고침", loading: "새로 고치는 중…", empty: "사용 가능한 출처에 일치하는 기록이 없습니다.",
+      saved: "저장됨", unknown: "상태 알 수 없음", gone: "이 기록은 더 이상 사용할 수 없습니다. 목록을 새로 고치세요.",
+    },
+    tr: {
+      title: "Tüm konuşmalar", close: "Kapat", search: "Ad veya proje ara…", agent: "Agent kaynağı", kind: "Kayıt türü",
+      allAgents: "Tüm Agent’lar", all: "Tüm kayıtlar", active: "Etkin görevler", pi_history: "Pi geçmişi", task_record: "Görev çıktısı",
+      scope: "Bu ana makinenin görünür Pi geçmişi ve Stepsemble görev kayıtları. Görev çıktısı tam yerel geçmiş veya sürdürme izni değildir. Diğer yerel konuşmalar henüz otomatik içe aktarılmaz.",
+      count: "{total} kayıt · Sayfa {page}/{pages}", stale: "Bazı kaynaklar güncel değil; yenileyin", omitted: "Biçim veya sayı sınırı nedeniyle {count} kayıt atlandı",
+      previous: "Önceki", next: "Sonraki", refresh: "Yenile", loading: "Yenileniyor…", empty: "Mevcut kaynaklarda eşleşen kayıt yok.",
+      saved: "Kaydedildi", unknown: "Durum bilinmiyor", gone: "Bu kayıt artık kullanılamıyor. Listeyi yenileyin.",
+    },
+    fr: {
+      title: "Toutes les conversations", close: "Fermer", search: "Rechercher un nom ou un projet…", agent: "Source de l’agent", kind: "Type de relevé",
+      allAgents: "Tous les agents", all: "Tous les relevés", active: "Tâches actives", pi_history: "Historique Pi", task_record: "Sortie de tâche",
+      scope: "Historique Pi visible et relevés Stepsemble de cet hôte. La sortie d’une tâche n’est ni un historique natif complet ni une autorisation de reprise. Les autres conversations natives ne sont pas encore importées automatiquement.",
+      count: "{total} relevés · Page {page}/{pages}", stale: "Certaines sources ne sont pas à jour ; actualisez", omitted: "{count} relevés omis en raison des limites de format ou de nombre",
+      previous: "Précédent", next: "Suivant", refresh: "Actualiser", loading: "Actualisation…", empty: "Aucun relevé correspondant dans les sources disponibles.",
+      saved: "Enregistré", unknown: "État inconnu", gone: "Ce relevé n’est plus disponible. Actualisez la liste.",
+    },
+    de: {
+      title: "Alle Gespräche", close: "Schließen", search: "Name oder Projekt suchen…", agent: "Agent-Quelle", kind: "Eintragstyp",
+      allAgents: "Alle Agents", all: "Alle Einträge", active: "Aktive Aufgaben", pi_history: "Pi-Verlauf", task_record: "Aufgabenausgabe",
+      scope: "Sichtbarer Pi-Verlauf und Stepsemble-Aufgaben dieses Hosts. Aufgabenausgaben sind weder vollständige native Verläufe noch eine Berechtigung zum Fortsetzen. Andere native Gespräche werden noch nicht automatisch importiert.",
+      count: "{total} Einträge · Seite {page}/{pages}", stale: "Einige Quellen sind nicht aktuell; bitte aktualisieren", omitted: "{count} Einträge wegen Format- oder Mengenbeschränkungen ausgelassen",
+      previous: "Zurück", next: "Weiter", refresh: "Aktualisieren", loading: "Wird aktualisiert…", empty: "Keine passenden Einträge in den verfügbaren Quellen.",
+      saved: "Gespeichert", unknown: "Status unbekannt", gone: "Dieser Eintrag ist nicht mehr verfügbar. Aktualisieren Sie die Liste.",
+    },
+    es: {
+      title: "Todas las conversaciones", close: "Cerrar", search: "Buscar nombre o proyecto…", agent: "Origen del agente", kind: "Tipo de registro",
+      allAgents: "Todos los agentes", all: "Todos los registros", active: "Tareas activas", pi_history: "Historial de Pi", task_record: "Salida de tarea",
+      scope: "Historial de Pi visible y registros de tareas de Stepsemble de este equipo. La salida de una tarea no es un historial nativo completo ni un permiso para reanudar. Las otras conversaciones nativas aún no se importan automáticamente.",
+      count: "{total} registros · Página {page}/{pages}", stale: "Algunas fuentes no están actualizadas; actualiza", omitted: "{count} registros omitidos por límites de formato o cantidad",
+      previous: "Anterior", next: "Siguiente", refresh: "Actualizar", loading: "Actualizando…", empty: "No hay registros coincidentes en las fuentes disponibles.",
+      saved: "Guardado", unknown: "Estado desconocido", gone: "Este registro ya no está disponible. Actualiza la lista.",
+    },
+    "pt-BR": {
+      title: "Todas as conversas", close: "Fechar", search: "Buscar nome ou projeto…", agent: "Origem do agente", kind: "Tipo de registro",
+      allAgents: "Todos os agentes", all: "Todos os registros", active: "Tarefas ativas", pi_history: "Histórico do Pi", task_record: "Saída da tarefa",
+      scope: "Histórico visível do Pi e registros de tarefas do Stepsemble neste host. A saída da tarefa não é um histórico nativo completo nem uma permissão para retomar. Outras conversas nativas ainda não são importadas automaticamente.",
+      count: "{total} registros · Página {page}/{pages}", stale: "Algumas fontes estão desatualizadas; atualize", omitted: "{count} registros omitidos por limites de formato ou quantidade",
+      previous: "Anterior", next: "Próxima", refresh: "Atualizar", loading: "Atualizando…", empty: "Nenhum registro correspondente nas fontes disponíveis.",
+      saved: "Salvo", unknown: "Status desconhecido", gone: "Este registro não está mais disponível. Atualize a lista.",
+    },
+    it: {
+      title: "Tutte le conversazioni", close: "Chiudi", search: "Cerca nome o progetto…", agent: "Origine dell’agent", kind: "Tipo di record",
+      allAgents: "Tutti gli agent", all: "Tutti i record", active: "Attività in corso", pi_history: "Cronologia Pi", task_record: "Output attività",
+      scope: "Cronologia Pi visibile e record delle attività Stepsemble di questo host. L’output non è una cronologia nativa completa né un’autorizzazione a riprendere. Le altre conversazioni native non vengono ancora importate automaticamente.",
+      count: "{total} record · Pagina {page}/{pages}", stale: "Alcune origini non sono aggiornate; aggiorna", omitted: "{count} record omessi per limiti di formato o quantità",
+      previous: "Precedente", next: "Successiva", refresh: "Aggiorna", loading: "Aggiornamento…", empty: "Nessun record corrispondente nelle origini disponibili.",
+      saved: "Salvato", unknown: "Stato sconosciuto", gone: "Questo record non è più disponibile. Aggiorna l’elenco.",
+    },
+  });
+  for (const id of Object.keys(KEYED_TRANSLATIONS)) {
+    for (const [key, value] of Object.entries({ ...CONVERSATION_TRANSLATIONS.en, ...CONVERSATION_TRANSLATIONS[id] })) {
+      KEYED_TRANSLATIONS[id][`conversations.${key}`] = value;
+    }
+  }
 
   const KEYED_SOURCE_KEYS = Object.freeze(Object.keys(KEYED_TRANSLATIONS.en));
   const KEYED_FALLBACK_KEYS = {};

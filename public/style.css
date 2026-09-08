@@ -1,4 +1,4 @@
-/* stepsemble v3.0.7-rc.4 — Ink & Ivory / English-first localization */
+/* stepsemble v3.0.7-rc.5 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -61,6 +61,8 @@ body {
 }
 .hidden { display: none !important; }
 button { font: inherit; color: inherit; }
+.agent-input-note { font-size: .8rem; line-height: 1.5; color: var(--pine-soft); padding: .5rem .8rem; }
+#btn-send:disabled { opacity: .45; cursor: not-allowed; }
 
 /* ---- 通用 ---- */
 .btn {

@@ -1,5 +1,27 @@
 # Changelog
 
+## 3.0.7-rc.5
+
+Development candidate; production Hosts remain on 3.0.6. The fixed-source
+72-hour soak is unchanged and does not cover these newer changes.
+
+- Add a unified, per-Host conversation browser for visible Pi histories and
+  Stepsemble task records, with local agent logos, source/type filters, search,
+  fixed 50-row pages and an independently scrolling mobile list.
+- Preserve native Pi titles and exact file identity when a live Pi task refers
+  to the same conversation; task process exit never overwrites the saved title
+  or turns the conversation into a failed task. Same titles across agents stay separate.
+- Clearly distinguish terminal task output from native history; this does not
+  add automatic discovery or native resume/approval for other agents.
+- Keep list snapshots stable until explicit refresh, retain records on transient
+  source failures, and resolve selected rows against the current Host at click time.
+- Fence running-state polling by Host/view and coalesce slow requests; a late
+  response or malformed snapshot no longer clears another Host’s running badges.
+- Make completed/interrupted CLI task output explicitly read-only. Preserve
+  drafts while reconnecting, wait for a validated task snapshot before enabling
+  input, fence obsolete SSE callbacks by exact connection/Host/view, and stop
+  terminal EOF retries. Replayed lifecycle events cannot revive an ended task.
+
 ## 3.0.7-rc.4
 
 Development candidate; production Hosts remain on 3.0.6. The fixed-source

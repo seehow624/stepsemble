@@ -1061,7 +1061,7 @@ test("running-state polling redraws only when something actually changed", () =>
   assert.match(app, /async function refreshRunningState\(\)/);
   // The poll hits the cheap endpoint, never the full session rescan.
   const poll = app.slice(app.indexOf("async function refreshRunningState()"));
-  assert.match(poll, /api\("\/api\/rpcs"\)/);
+  assert.match(poll, /api\("\/api\/rpcs", \{ signal: request.controller.signal \}\)/);
   assert.doesNotMatch(poll, /\/api\/sessions/);
   // Same running set → no render; a run started/settled or stuck flip → redraw.
   assert.match(poll, /const signature = sessionsCache/);

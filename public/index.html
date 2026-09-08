@@ -6,13 +6,14 @@
 <title>Stepsemble</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=3.0.7-rc.4">
-<link rel="icon" href="/icon-16.png?v=3.0.7-rc.4" sizes="16x16" type="image/png">
-<link rel="icon" href="/icon-32.png?v=3.0.7-rc.4" sizes="32x32" type="image/png">
-<link rel="icon" href="/icon-512.png?v=3.0.7-rc.4" sizes="512x512" type="image/png">
-<link rel="apple-touch-icon" href="/icon-180.png?v=3.0.7-rc.4">
-  <link rel="stylesheet" href="/style.css?v=3.0.7-rc.4">
-  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.0.7-rc.4">
+<link rel="manifest" href="/manifest.webmanifest?v=3.0.7-rc.5">
+<link rel="icon" href="/icon-16.png?v=3.0.7-rc.5" sizes="16x16" type="image/png">
+<link rel="icon" href="/icon-32.png?v=3.0.7-rc.5" sizes="32x32" type="image/png">
+<link rel="icon" href="/icon-512.png?v=3.0.7-rc.5" sizes="512x512" type="image/png">
+<link rel="apple-touch-icon" href="/icon-180.png?v=3.0.7-rc.5">
+  <link rel="stylesheet" href="/style.css?v=3.0.7-rc.5">
+  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.0.7-rc.5">
+  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.0.7-rc.5">
 </head>
 <body>
 
@@ -160,6 +161,7 @@
     <div class="session-section-heading">
       <span class="session-heading-title">Sessions</span>
       <span class="session-heading-actions">
+        <button id="btn-conversations" type="button" class="conversation-entry" data-i18n-key="conversations.title">All conversations</button>
         <span id="session-count" class="session-count">0</span>
         <button id="btn-refresh" class="icon-button-small" title="Refresh" aria-label="Refresh"><svg class="icon"><use href="#i-refresh"></use></svg></button>
         <button id="btn-layout" class="icon-button-small" title="Toggle project grouping" aria-label="Toggle project grouping"><svg class="icon"><use href="#i-grid"></use></svg></button>
@@ -226,6 +228,7 @@
       </button>
     </section>
     <footer class="composer">
+      <p id="agent-input-note" class="agent-input-note hidden" role="status" aria-live="polite"></p>
       <button id="scroll-bottom-btn" class="scroll-bottom-btn hidden" type="button" title="Jump to latest" aria-label="Jump to latest">
         <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"></use></svg><span>Latest</span>
       </button>
@@ -428,7 +431,7 @@
         </div>
         <div class="settings-row">
           <span><strong>Stepsemble</strong><small data-i18n-key="agentHub.workspace">A workspace for local coding agents</small></span>
-          <span class="settings-value" id="set-app-version">v3.0.7-rc.4</span>
+          <span class="settings-value" id="set-app-version">v3.0.7-rc.5</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -507,6 +510,7 @@
   <!-- Full task inbox for cross-agent work. The compact Agent Hub card stays
        intentionally small; this view gives long-running work a searchable,
        Codex-like activity center without hiding the session list. -->
+  <dialog id="conversation-catalog" class="conversation-dialog"></dialog>
   <div id="agent-task-center" class="sheet-layer center hidden" role="dialog" aria-modal="true" aria-labelledby="agent-task-center-title">
     <section class="sheet agent-task-center-sheet">
       <div class="sheet-heading-row agent-task-center-heading">
@@ -889,16 +893,17 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=3.0.7-rc.4"></script>
-<script src="/modules/app-foundation.js?v=3.0.7-rc.4"></script>
-<script src="/modules/agent-identity.js?v=3.0.7-rc.4"></script>
-<script src="/modules/session-utils.js?v=3.0.7-rc.4"></script>
-<script src="/modules/pi-session.js?v=3.0.7-rc.4"></script>
-<script src="/modules/context-usage.js?v=3.0.7-rc.4"></script>
-<script src="/modules/claude-auth.js?v=3.0.7-rc.4"></script>
-<script src="/modules/protocol-contracts.js?v=3.0.7-rc.4"></script>
-<script src="/modules/client-sdk.js?v=3.0.7-rc.4"></script>
-<script src="/modules/native-dialogs.js?v=3.0.7-rc.4"></script>
-<script src="/app.js?v=3.0.7-rc.4"></script>
+<script src="/i18n.js?v=3.0.7-rc.5"></script>
+<script src="/modules/app-foundation.js?v=3.0.7-rc.5"></script>
+<script src="/modules/agent-identity.js?v=3.0.7-rc.5"></script>
+<script src="/modules/session-utils.js?v=3.0.7-rc.5"></script>
+<script src="/modules/pi-session.js?v=3.0.7-rc.5"></script>
+<script src="/modules/conversation-catalog.js?v=3.0.7-rc.5"></script>
+<script src="/modules/context-usage.js?v=3.0.7-rc.5"></script>
+<script src="/modules/claude-auth.js?v=3.0.7-rc.5"></script>
+<script src="/modules/protocol-contracts.js?v=3.0.7-rc.5"></script>
+<script src="/modules/client-sdk.js?v=3.0.7-rc.5"></script>
+<script src="/modules/native-dialogs.js?v=3.0.7-rc.5"></script>
+<script src="/app.js?v=3.0.7-rc.5"></script>
 </body>
 </html>

@@ -27,6 +27,16 @@ try {
     { type: "message", id: "u1", timestamp, message: { role: "user", content: [{ type: "text", text: "整理介面與貓掌標誌" }] } },
     { type: "message", id: "a1", parentId: "u1", timestamp, message: { role: "assistant", content: [{ type: "text", text: "這是隔離的介面範例，不含私人對話。" }] } },
   ].map(row => JSON.stringify(row)).join("\n") + "\n", { mode: 0o600 });
+  if (process.argv.includes("--catalog-stress")) {
+    for (let i = 0; i < 125; i++) {
+      const id = `catalog-${String(i).padStart(3, "0")}`;
+      await fs.writeFile(path.join(folder, `${id}.jsonl`), [
+        { type: "session", id, cwd, timestamp },
+        { type: "session_info", name: `合成對話 ${String(i).padStart(3, "0")} · 不同來源保留同名`, timestamp },
+        { type: "message", id: "u1", timestamp, message: { role: "user", content: [{ type: "text", text: "Synthetic catalog pagination" }] } },
+      ].map(row => JSON.stringify(row)).join("\n") + "\n", { mode: 0o600 });
+    }
+  }
   const names = ["檢查登入流程與錯誤提示", "調整手機版對話列表", "整理模型設定與工具", "研究專案結構", "新來源的中性圖示"];
   const tasks = ["claude-code", "codex", "opencode", "grok-build", "unknown-source"].map((agentId, index) => ({
     id: `synthetic-icon-${index}`, agentId, name: names[index], cwd, status: "completed",

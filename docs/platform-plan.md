@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.47
+> 計畫版本：1.48
 > 最後更新：2026-09-08
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -9,6 +9,13 @@
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
 ## 文件用途與回復方法
+
+**最新增量 1.48／3.0.7-rc.5（開發候選、未部署）**：已加入同主機 Pi 歷史＋
+Stepsemble 多 Agent 工作的統一清單，來源／類型篩選、搜尋、50列分頁、獨立捲動，
+及慢回覆跨主機執行狀態隔離。這是既有來源的**呈現索引**，不是其他原生CLI歷史的
+自動探索、完整歷史或續跑實作。其餘來源一次授權／增量探索、native approval/resume、
+durable journal、Windows原生reader與App仍待；不要將新清單稱為「全部已完成」。
+詳見 [統一清單的範圍與驗收](conversation-catalog.md)。正式3.0.6與固定ab227af長測不變。
 
 這份文件是 Stepsemble 從 Web App 發展為跨平台 Coding Agent 工作區的長期計畫與決策來源。它的目的是讓後續對話即使經過 session 壓縮、開啟新 session，或換由其他 agent 執行，仍可恢復已確認的方向，不需要重新推導。
 
@@ -1006,6 +1013,22 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-08 — Plan 1.48
+
+- Jerome 要求其他剩餘項目也繼續實作。本批先交付可使用的統一清單，不僅列計畫。
+- 新 strict TS 呈現索引以 `[hostId, kind, exact reference]` 保存身分；只有同主機且
+  Pi 檔案完全相同才合併即時task，名稱／工作路徑／模型相同不是去重依據。
+- 新modal採native焦點範圍、50列固定頁與內層捲動；保留明確的「Pi歷史／工作輸出」
+  標示，手動刷新才替換清單，失敗保留舊資料且標示未更新，不改subscription/login。
+- 補上 `/api/rpcs` single-flight及Host/view fence，避免舊主機慢回覆改掉新主機狀態；
+  malformed `sessions`/`rpcs` 不可當成成功空清單。測試與限制見專項文件。
+- 實際UI檢查另修CLI已結束仍可送出的問題：read-only提示、draft保留、validated connected
+  才開input，exact RPC/Host/view/SSE fencing，snapshot前歷史lifecycle不能復活工作，
+  terminal EOF明確close避免EventSource自行不停重試。不是新增native resume權限。
+- 下一個真正缺口仍是來源一次授權＋安全探索，不得將task輸出當作已接通的原生歷史。
+  調整先後順序是因既有Pi/task資料可直接完成UI，Claude reader目前僅接受逐session來源，
+  新探索需擴充來源邊界，而非讓瀏覽器傳任意path或重用寬鬆讀取方式。
 
 ### 2026-09-08 — Plan 1.47
 

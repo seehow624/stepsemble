@@ -11,7 +11,7 @@ test("chat stop gives retryable feedback, coalesces clicks and fences old-host r
   const button = { disabled: false, addEventListener(name, handler) { assert.equal(name, "click"); click = handler; } };
   const context = vm.createContext({ el: { btnAbort: button }, rpc: { sid: "a", generic: true }, apiBase: "/r/a",
     post(url, body) { return new Promise((resolve, reject) => calls.push({ url, body, resolve, reject })); },
-    toast(message) { notices.push(message); }, agentHubText: key => key });
+    toast(message) { notices.push(message); }, agentHubText: key => key, syncGenericInputState() {} });
   vm.runInContext(source.slice(source.indexOf('el.btnAbort.addEventListener("click"'), source.indexOf('// ---- chat ⋯ menu')), context);
   const first = click(); await click();
   assert.equal(calls.length, 1); assert.equal(button.disabled, true);
