@@ -190,8 +190,8 @@ mod owned_windows_probe {
     };
     use windows_sys::Win32::{
         Foundation::{
-            CloseHandle, HANDLE, INVALID_HANDLE_VALUE, LocalFree, OBJ_CASE_INSENSITIVE,
-            OBJ_DONT_REPARSE, UNICODE_STRING,
+            CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE, LocalFree,
+            OBJ_CASE_INSENSITIVE, OBJ_DONT_REPARSE, UNICODE_STRING,
         },
         Security::{
             ACE_HEADER, ACL,
@@ -200,17 +200,20 @@ mod owned_windows_probe {
                 SetSecurityInfo, TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
             },
             CreateWellKnownSid, DACL_SECURITY_INFORMATION, EqualSid, GetAce, GetLengthSid,
-            GetSecurityDescriptorDacl, GetTokenInformation, IsValidAcl, IsValidSid,
-            OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSID, TOKEN_QUERY,
-            TOKEN_USER, TokenUser, WinBuiltinAdministratorsSid, WinLocalSystemSid, WinWorldSid,
+            GetSecurityDescriptorDacl, GetTokenInformation, InitializeSecurityDescriptor,
+            IsValidAcl, IsValidSid, OWNER_SECURITY_INFORMATION,
+            PROTECTED_DACL_SECURITY_INFORMATION, PSID, SE_DACL_PROTECTED, SECURITY_ATTRIBUTES,
+            SECURITY_DESCRIPTOR, SetSecurityDescriptorControl, SetSecurityDescriptorDacl,
+            SetSecurityDescriptorOwner, TOKEN_QUERY, TOKEN_USER, TokenUser,
+            WinBuiltinAdministratorsSid, WinLocalSystemSid, WinWorldSid,
         },
         Storage::FileSystem::{
-            CreateFileW, FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO,
-            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO,
-            FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_DELETE, FILE_SHARE_READ,
+            CREATE_NEW, CreateDirectoryW, CreateFileW, FILE_ATTRIBUTE_REPARSE_POINT,
+            FILE_ATTRIBUTE_TAG_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+            FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_DELETE, FILE_SHARE_READ,
             FILE_SHARE_WRITE, FILE_STANDARD_INFO, FILE_TYPE_DISK, FileAttributeTagInfo, FileIdInfo,
             FileStandardInfo, GetFileInformationByHandleEx, GetFileType, OPEN_EXISTING,
-            READ_CONTROL, SYNCHRONIZE, WRITE_DAC, WRITE_OWNER,
+            READ_CONTROL, SYNCHRONIZE, WRITE_DAC,
         },
         System::{
             IO::IO_STATUS_BLOCK,
@@ -221,6 +224,9 @@ mod owned_windows_probe {
     #[derive(Debug, PartialEq, Eq)]
     enum ProbeError {
         Open,
+        FixtureOpen(u32),
+        FixtureCreate(u32),
+        FixtureSecurity(u32),
         Metadata,
         Security,
         Reparse,
@@ -349,13 +355,8 @@ mod owned_windows_probe {
         // Fixture-only bootstrap. This is NOT a general canonical-root resolver;
         // all callers below pass paths created in Fixture::new(). Capture never
         // invokes it, and no public CLI/API exposes an arbitrary-path probe.
-        let access = FILE_READ_ATTRIBUTES
-            | READ_CONTROL
-            | if writable_security {
-                WRITE_DAC | WRITE_OWNER
-            } else {
-                0
-            };
+        let access =
+            FILE_READ_ATTRIBUTES | READ_CONTROL | if writable_security { WRITE_DAC } else { 0 };
         // SAFETY: UTF-16 string is terminated and live for the synchronous call;
         // all optional pointers are null and access is limited to owned fixtures.
         let raw = unsafe {
@@ -370,7 +371,8 @@ mod owned_windows_probe {
             )
         };
         if raw == INVALID_HANDLE_VALUE {
-            Err(ProbeError::Open)
+            // SAFETY: Read this thread's error immediately after CreateFileW failed.
+            Err(ProbeError::FixtureOpen(unsafe { GetLastError() }))
         } else {
             Ok(OwnedHandle(raw))
         }
@@ -620,13 +622,7 @@ mod owned_windows_probe {
         Ok(())
     }
 
-    fn set_fixture_security(
-        path: &Path,
-        user: &Sid,
-        world_write: bool,
-        null_dacl: bool,
-    ) -> Result<()> {
-        let handle = open_fixture_path(path, true)?;
+    fn fixture_acl(user: &Sid, world_write: bool) -> Result<LocalAllocation> {
         let system = Sid::known(WinLocalSystemSid)?;
         let admins = Sid::known(WinBuiltinAdministratorsSid)?;
         let world = Sid::known(WinWorldSid)?;
@@ -654,32 +650,96 @@ mod owned_windows_probe {
             });
         }
         let mut dacl = null_mut();
-        if !null_dacl
-            // SAFETY: Entries reference live owned SID buffers; Win32 allocates
-            // the output, freed after SetSecurityInfo copies it.
-            && unsafe { SetEntriesInAclW(access.len() as u32, access.as_ptr(), null(), &mut dacl) }
-                != 0
+        // SAFETY: Entries reference live owned SID buffers; Win32 allocates and
+        // copies the complete ACL, which the returned wrapper owns.
+        if unsafe { SetEntriesInAclW(access.len() as u32, access.as_ptr(), null(), &mut dacl) } != 0
         {
             return Err(ProbeError::Security);
         }
-        let _allocation = LocalAllocation(dacl.cast());
-        // SAFETY: Handle is exclusively a newly created fixture; owner SID and
-        // optional ACL are live and the API copies their security information.
-        if unsafe {
+        Ok(LocalAllocation(dacl.cast()))
+    }
+
+    fn set_fixture_security(
+        path: &Path,
+        user: &Sid,
+        world_write: bool,
+        null_dacl: bool,
+    ) -> Result<()> {
+        let handle = open_fixture_path(path, true)?;
+        let allocation = if null_dacl {
+            LocalAllocation(null_mut())
+        } else {
+            fixture_acl(user, world_write)?
+        };
+        // SAFETY: Handle is exclusively a newly created fixture; the optional ACL
+        // is live and Win32 copies it. Owner is never modified after creation.
+        let error = unsafe {
             SetSecurityInfo(
                 handle.0,
                 SE_FILE_OBJECT,
-                OWNER_SECURITY_INFORMATION
-                    | DACL_SECURITY_INFORMATION
-                    | PROTECTED_DACL_SECURITY_INFORMATION,
-                user.pointer(),
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
                 null_mut(),
-                dacl,
+                null_mut(),
+                allocation.0.cast(),
                 null(),
             )
-        } != 0
-        {
+        };
+        if error != 0 {
+            return Err(ProbeError::FixtureSecurity(error));
+        }
+        Ok(())
+    }
+
+    fn create_fixture(path: &Path, user: &Sid, directory: bool) -> Result<()> {
+        // Create only absent fixture paths with their owner/DACL supplied at
+        // creation. The default token owner can be Administrators; do not depend
+        // on inherited TEMP rights or request WRITE_OWNER on an existing object.
+        let acl = fixture_acl(user, false)?;
+        // SAFETY: SECURITY_DESCRIPTOR is a Win32 POD that is initialized below.
+        let mut descriptor: SECURITY_DESCRIPTOR = unsafe { zeroed() };
+        let pointer = (&mut descriptor as *mut SECURITY_DESCRIPTOR).cast();
+        // SAFETY: Descriptor, current-user SID and ACL remain live for all calls;
+        // revision 1 is SECURITY_DESCRIPTOR_REVISION. These APIs edit only memory.
+        let initialized = unsafe {
+            InitializeSecurityDescriptor(pointer, 1) != 0
+                && SetSecurityDescriptorOwner(pointer, user.pointer(), 0) != 0
+                && SetSecurityDescriptorDacl(pointer, 1, acl.0.cast(), 0) != 0
+                && SetSecurityDescriptorControl(pointer, SE_DACL_PROTECTED, SE_DACL_PROTECTED) != 0
+        };
+        if !initialized {
             return Err(ProbeError::Security);
+        }
+        let attributes = SECURITY_ATTRIBUTES {
+            nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: pointer,
+            bInheritHandle: 0,
+        };
+        let path = wide(path);
+        if directory {
+            // SAFETY: Terminated owned fixture path and complete live security
+            // attributes; CreateDirectoryW refuses an already-existing path.
+            if unsafe { CreateDirectoryW(path.as_ptr(), &attributes) } == 0 {
+                // SAFETY: Read the creating call's thread-local error immediately.
+                return Err(ProbeError::FixtureCreate(unsafe { GetLastError() }));
+            }
+        } else {
+            // SAFETY: Same live inputs; CREATE_NEW never overwrites an object.
+            let raw = unsafe {
+                CreateFileW(
+                    path.as_ptr(),
+                    FILE_READ_ATTRIBUTES | READ_CONTROL,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    &attributes,
+                    CREATE_NEW,
+                    FILE_FLAG_OPEN_REPARSE_POINT,
+                    null_mut(),
+                )
+            };
+            if raw == INVALID_HANDLE_VALUE {
+                // SAFETY: Read the creating call's thread-local error immediately.
+                return Err(ProbeError::FixtureCreate(unsafe { GetLastError() }));
+            }
+            drop(OwnedHandle(raw));
         }
         Ok(())
     }
@@ -700,17 +760,13 @@ mod owned_windows_probe {
                     .as_nanos(),
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
-            std::fs::create_dir(&root).unwrap();
+            let user = Sid::current_user().unwrap();
+            create_fixture(&root, &user, true).unwrap();
             let root = std::fs::canonicalize(root).unwrap();
-            let result = Self {
-                root,
-                user: Sid::current_user().unwrap(),
-            };
-            std::fs::create_dir(result.project()).unwrap();
+            let result = Self { root, user };
+            create_fixture(&result.project(), &result.user, true).unwrap();
+            create_fixture(&result.file(), &result.user, false).unwrap();
             std::fs::write(result.file(), b"owned synthetic fixture\n").unwrap();
-            for path in [&result.root, &result.project(), &result.file()] {
-                set_fixture_security(path, &result.user, false, false).unwrap();
-            }
             result
         }
         fn project(&self) -> PathBuf {

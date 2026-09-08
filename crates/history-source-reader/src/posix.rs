@@ -541,8 +541,8 @@ mod tests {
         } else {
             c"system.posix_acl_access"
         };
-        // SAFETY: test-only owned fd, static attribute name and live bounded data buffer.
         assert_eq!(
+            // SAFETY: test-only owned fd, static attribute name and live bounded data buffer.
             unsafe {
                 libc::fsetxattr(
                     fd.as_raw_fd(),
