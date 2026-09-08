@@ -19,10 +19,11 @@ const identity = value => uuid(value?.bindingId) && uuid(value?.viewId)
  * before revokePrincipal(), and principalActive must consult that authority.
  * Lease timers revoke only these read-only bindings, never native agent tasks.
  */
-function createHistoryRegistry({ sourceService, catalog, authorize, principalActive,
+function createHistoryRegistry({ sourceService, catalog, authorize, principalActive, resolveSource,
   maxSlots = REGISTRY_LIMITS.slots, leaseMs = REGISTRY_LIMITS.leaseMs, now = Date.now } = {}) {
   if (!sourceService || !["bind", "status", "shutdown"].every(k => typeof sourceService[k] === "function")
     || typeof authorize !== "function" || typeof principalActive !== "function" || typeof now !== "function"
+    || resolveSource !== undefined && typeof resolveSource !== "function"
     || !Number.isSafeInteger(maxSlots) || maxSlots < 1 || maxSlots > REGISTRY_LIMITS.slots
     || !Number.isSafeInteger(leaseMs) || leaseMs < 1 || leaseMs > REGISTRY_LIMITS.maxLeaseMs)
     throw new TypeError("invalid_history_registry_options");
@@ -56,8 +57,27 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
   function activePrincipal(principal) {
     try { return reference(principal) && principalActive(principal) === true; } catch { return false; }
   }
-  function allowed(principal, catalogId) {
-    try { return sources.get(catalogId)?.active === true && authorize(principal, catalogId) === true; } catch { return false; }
+  function selected(principal, catalogId) {
+    try {
+      // Authorization precedes private lookup. The optional Host resolver owns
+      // its bounded inventory; the registry retains only its 64 live slot refs,
+      // never copies a dynamic inventory into the legacy 256-entry catalog.
+      if (authorize(principal, catalogId) !== true) return null;
+      const fixed = sources.get(catalogId);
+      if (fixed) return fixed.active ? { source: fixed.source, key: "fixed" } : null;
+      const resolved = resolveSource?.(principal, catalogId);
+      if (resolved instanceof Promise) { void Promise.prototype.then.call(resolved, undefined, () => {}); return null; }
+      const value = detach(resolved);
+      const source = normalizeSourceInput(value?.source);
+      if (!keys(value, ["source", "revision"]) || !reference(value.revision) || !source
+        || source.projectsRoot !== path.resolve(source.projectsRoot) || source.projectsRoot === path.parse(source.projectsRoot).root
+        || /[*?\[\]{},\r\n]/.test(source.projectsRoot)) return null;
+      return { source, key: crypto.createHash("sha256").update(JSON.stringify([source, value.revision])).digest("hex") };
+    } catch { return null; }
+  }
+  function allowed(principal, catalogId, sourceKey) {
+    const value = selected(principal, catalogId);
+    return value !== null && (sourceKey === undefined || sourceKey === value.key);
   }
   function collect(slot) {
     if (slot.state !== "closing" || !slot.handle) return;
@@ -90,7 +110,7 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
     try { current = time(); } catch { failed = true; }
     for (const slot of slots) {
       if (slot.state === "active" && (failed || current >= slot.row.expiresAt
-        || !activePrincipal(slot.owner) || !allowed(slot.owner, slot.row.catalogId))) retire(slot);
+        || !activePrincipal(slot.owner) || !allowed(slot.owner, slot.row.catalogId, slot.row.sourceKey))) retire(slot);
       collect(slot);
     }
     schedule(); return status();
@@ -110,7 +130,8 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
       return unavailable("invalid_history_registration");
     sweep(); const failure = serviceFailure(); if (failure) return unavailable(failure);
     if (!activePrincipal(principal)) return unavailable("history_principal_unavailable");
-    if (!allowed(principal, request.catalogId)) return unavailable("history_source_unavailable");
+    const selection = selected(principal, request.catalogId);
+    if (!selection) return unavailable("history_source_unavailable");
     const existing = slots.find(s => s.state === "active" && s.owner === principal && s.row.viewId === request.viewId);
     if (existing) {
       if (existing.row.catalogId === request.catalogId) {
@@ -131,9 +152,9 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
       slot = { bindingId: crypto.randomUUID(), generation: 0, owner: null, row: null, handle: null, state: "idle" }; slots.push(slot);
     }
     if (!slot) return unavailable("history_capacity_unavailable");
-    const source = sources.get(request.catalogId).source;
+    const { source } = selection;
     const row = { ...request, bindingId: slot.bindingId, generation: slot.generation + 1,
-      sessionId: source.sessionId, expiresAt: time() + leaseMs, active: true, claimed: false, receipt: null };
+      sessionId: source.sessionId, sourceKey: selection.key, expiresAt: time() + leaseMs, active: true, claimed: false, receipt: null };
     slot.generation = row.generation; slot.owner = principal; slot.row = row; slot.state = "binding";
     let handle;
     try { handle = sourceService.bind({ bindingId: row.bindingId, generation: row.generation, source }); }
@@ -144,7 +165,7 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
       failed = true; return unavailable("history_registry_unavailable");
     }
     slot.handle = handle;
-    if (!row.active || serviceFailure() || !activePrincipal(principal) || !allowed(principal, row.catalogId)) {
+    if (!row.active || serviceFailure() || !activePrincipal(principal) || !allowed(principal, row.catalogId, row.sourceKey)) {
       // A trusted hook may revoke while bind is running, before handle exists.
       slot.state = "active"; retire(slot); schedule(); return unavailable("history_binding_unavailable");
     }
@@ -155,7 +176,7 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
     if (serviceFailure() || !activePrincipal(principal)) return null;
     const slot = slots.find(s => s.bindingId === request.bindingId);
     if (!slot || slot.state !== "active" || slot.owner !== principal || slot.generation !== request.generation
-      || slot.row.viewId !== request.viewId || !allowed(principal, slot.row.catalogId)) return null;
+      || slot.row.viewId !== request.viewId || !allowed(principal, slot.row.catalogId, slot.row.sourceKey)) return null;
     return slot;
   }
   function current(principal, input) {
@@ -214,6 +235,8 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
     schedule(); return status();
   }
   function revokeSource(catalogId) {
+    // Dynamic owners must withdraw their resolver/ACL first. No unbounded
+    // dynamic tombstone set is kept here; sweep also fences revision changes.
     const entry = sources.get(catalogId); if (entry) entry.active = false;
     for (const slot of slots) if (slot.row?.catalogId === catalogId) retire(slot);
     schedule(); return status();

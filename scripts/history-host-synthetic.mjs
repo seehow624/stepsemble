@@ -37,9 +37,9 @@ export async function stageSyntheticArtifact(source, destination, mode) {
   return { sha256, sourceLinks: Number(before.nlink), sourceMode: Number(before.mode & 0o777n), stagedLinks: Number(staged.nlink), stagedMode: mode };
 }
 
-export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0 } = {}) {
+export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0, sourceGroups = false } = {}) {
   if (!["darwin", "linux"].includes(process.platform)) throw new Error("history_host_native_platform_unsupported");
-  if (!path.isAbsolute(helperPath || "") || !path.isAbsolute(sdkPath || "") || !Number.isInteger(port) || port < 0 || port > 65535)
+  if (!path.isAbsolute(helperPath || "") || !path.isAbsolute(sdkPath || "") || !Number.isInteger(port) || port < 0 || port > 65535 || typeof sourceGroups !== "boolean")
     throw new Error("synthetic_history_host_configuration_invalid");
   const helper = await fs.realpath(helperPath), sdk = await fs.realpath(sdkPath);
   const helperHash = digest(await fs.readFile(helper)), sdkHash = digest(await fs.readFile(sdk));
@@ -74,14 +74,17 @@ export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0 
     const catalog = [];
     for (const c of cases) {
       const filename = path.join(project, `${c.sessionId}.jsonl`), bytes = encode(c.records);
-      await fs.writeFile(filename, bytes, { mode: 0o600, flag: "wx" }); files.set(c.name, { filename, bytes });
+      await fs.writeFile(filename, bytes, { mode: 0o600, flag: "wx" }); files.set(c.name, { filename, bytes, present: true });
       catalog.push({ catalogId: `fixture-${c.name}`, label: labels[c.name], description: "此隔離主機只有合成資料，沒有連接真實帳號。",
         source: { projectsRoot, projectKey, sessionId: c.sessionId }, expectedRoot: { device: String(stat.dev), inode: String(stat.ino) },
         readers: ["browser:master", `browser:${issuedId}`, `peer:${peer.grantId}`] });
     }
     const configPath = path.join(temp, "history.json");
-    await fs.writeFile(configPath, JSON.stringify({ version: 1, trustBoundary: "host_managed_paths", allowedOrigins: [origin],
-      reader: { helperPath: stagedHelper, sdkPath: stagedSdk }, catalog }), { mode: 0o600, flag: "wx" });
+    await fs.writeFile(configPath, JSON.stringify({ version: sourceGroups ? 2 : 1, trustBoundary: "host_managed_paths", allowedOrigins: [origin],
+      reader: { helperPath: stagedHelper, sdkPath: stagedSdk }, catalog,
+      ...(sourceGroups ? { sourceGroups: [{ sourceId: "fixture-root", agentId: "claude-code", scope: "main_sessions", label: "Owned synthetic Claude root", description: "No private history",
+        projectsRoot, expectedRoot: { device: String(stat.dev), inode: String(stat.ino) }, readers: ["browser:master", `browser:${issuedId}`, `peer:${peer.grantId}`] }] } : {}) }),
+    { mode: 0o600, flag: "wx" });
     child = spawn(process.execPath, [path.join(root, "server.js")], { cwd: temp, env: {
       HOME: temp, PI_HOME: temp, PATH: path.dirname(process.execPath), PI_BIN: path.join(temp, "no-native-agent"),
       STEPSEMBLE_TOKEN: token, STEPSEMBLE_HISTORY_CONFIG: configPath, STEPSEMBLE_HOST: "127.0.0.1", STEPSEMBLE_PORT: String(port),
@@ -101,7 +104,10 @@ export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0 
         const result = await Promise.race([exit, new Promise(resolve => { timer = setTimeout(() => resolve(null), 15000); })]).finally(() => clearTimeout(timer));
         if (!result || result[0] !== 0 || result[1] !== null) throw new Error("synthetic_history_host_cleanup_unconfirmed_fixtures_preserved");
         await mutation;
-        for (const row of files.values()) if (!(await fs.readFile(row.filename)).equals(row.bytes)) throw new Error("synthetic_history_fixture_changed_unexpectedly");
+        for (const row of files.values()) {
+          if (row.present ? !(await fs.readFile(row.filename)).equals(row.bytes) : await fs.stat(row.filename).then(() => true, e => { if (e.code === "ENOENT") return false; throw e; }))
+            throw new Error("synthetic_history_fixture_changed_unexpectedly");
+        }
         for (const [original, staged, expected] of [[helper, stagedHelper, helperHash], [sdk, stagedSdk, sdkHash],
           [path.join(path.dirname(sdk), "package.json"), path.join(artifacts, "package.json"), packageArtifact.sha256]])
           if (digest(await fs.readFile(original)) !== expected || digest(await fs.readFile(staged)) !== expected) throw new Error("synthetic_history_artifact_changed");
@@ -111,8 +117,17 @@ export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0 
       return closed;
     }
     return Object.freeze({ origin, token, issuedToken, issuedId, peer, cases, helperHash, sdkHash, helperArtifact, sdkArtifact, close,
+      setFixturePresent(name, present) {
+        const file = files.get(name); if (!file || closed || typeof present !== "boolean") throw new Error("synthetic_fixture_unavailable");
+        const next = mutation.then(async () => {
+          if (file.present === present) return;
+          if (present) await fs.writeFile(file.filename, file.bytes, { mode: 0o600, flag: "wx" }); else await fs.unlink(file.filename);
+          file.present = present;
+        });
+        mutation = next.catch(() => {}); return next;
+      },
       changeFixture(name) {
-        const file = files.get(name), c = cases.find(row => row.name === name); if (!file || !c || closed) throw new Error("synthetic_fixture_unavailable");
+        const file = files.get(name), c = cases.find(row => row.name === name); if (!file || !c || !file.present || closed) throw new Error("synthetic_fixture_unavailable");
         const extra = encode([{ type: "custom-title", sessionId: c.sessionId, customTitle: "Synthetic explicit version change" }]);
         const next = mutation.then(async () => { await fs.appendFile(file.filename, extra); file.bytes = Buffer.concat([file.bytes, extra]); });
         mutation = next.catch(() => {}); return next;

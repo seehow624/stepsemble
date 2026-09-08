@@ -33,7 +33,7 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 
 | Checkpoint | 交付與必要證據 | 開始狀態 |
 | --- | --- | --- |
-| C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | inventory及共享admission已驗，來源設定／動態清單／title與產品流程待完成 |
+| C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | Plan1.51來源設定／动态registry／HTTP分頁與原生內容鏈已驗；title／Web來源操作仍待 |
 | C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Pi／Claude 部分完成，其他 adapter 待完成 |
 | C3 Session／approval／恢復 | 按真實 capability 接結構化事件、續跑與 approval；ownership、exact correlation、重送／重連／Host crash、durable journal/replay 不漏不重 | 有 contract 與局部實作，未全驗 |
 | C4 帳號與故障體驗 | 登入／登出偵測、官方登入入口、路由相容、取消／失敗／stale／busy 可復原；不修寫第三方憑證或以重試消耗模型 | 局部已驗，跨 harness 待補 |
@@ -84,6 +84,12 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 - 未來 App Store 發布、費用、商標／帳號等外部事項不從「loop」推論新授權。
 
 ## 執行記錄
+
+- **2026-09-08／C1後端進展，Plan1.51**：明確source-group/private readers設定、
+  同Hostbudget、dynamicresolver與變更/刪除撤銷、snapshot-fenced50列分頁、HTTP及
+  dedicatedrelay已實作；actualserver.js＋真Rust＋SDK合成鏈通。來源尚未接Web，
+  titleStatus為not_loaded，不是完整C1。下一輪從native title/metadata及TS/Web接線
+  繼續，不重做已完成後端；詳[來源群組](history-source-groups.md)。
 
 - **2026-09-08／C1部分進展，Plan1.50**：shared admission接上Host/content及index，
   真Rust＋SDK合成並行physical max2／remaining0、第三要求spawn前busy通過；本機

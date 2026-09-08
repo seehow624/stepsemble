@@ -28,3 +28,16 @@ test("invalid paths, grants, duplicate flags and permissive output parents never
   assert.throws(() => run(["create", f.output, "--reader", "browser:master", "--reader", "browser:master"]));
   fs.chmodSync(f.dir, 0o755); assert.throws(() => createHistoryConfigFile(f.output, f.options)); assert.equal(fs.existsSync(f.output), false);
 });
+test("explicit group creation requires main-session scope and reader; it captures no transcript or automatic HOME source", { skip: !supported }, t => {
+  const f = fixture(t), { "project-key": _project, "session-id": _session, ...base } = f.options;
+  const options = { ...base, "source-id": "my-reviewed-source", scope: "main_sessions" };
+  for (const bad of [{ ...options, scope: "all" }, { ...options, reader: "*" }, { ...options, "source-id": "../root" }]) {
+    assert.throws(() => createHistoryConfigFile(f.output, bad, "group")); assert.equal(fs.existsSync(f.output), false);
+  }
+  const created = run(["create-group", f.output, ...Object.entries(options).flatMap(([k, v]) => [`--${k}`, v])]);
+  assert.equal(created.sourceGroups, 1); assert.equal(created.catalogEntries, 0); assert.equal(created.sourceReads, 0);
+  const config = JSON.parse(fs.readFileSync(f.output)); assert.equal(config.version, 2); assert.equal(config.sourceGroups[0].scope, "main_sessions");
+  assert.deepEqual(config.sourceGroups[0].readers, ["browser:master"]); assert.equal(run(["check", f.output]).sourceGroups, 1);
+  const before = fs.readFileSync(f.output); assert.throws(() => createHistoryConfigFile(f.output, options, "group"));
+  assert.deepEqual(fs.readFileSync(f.output), before); assert.equal(fs.statSync(f.output).mode & 0o777, 0o600);
+});

@@ -5,9 +5,11 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import host from "../server/history-host.js";
 const invalid = () => { throw new Error("history_configuration_invalid"); };
-export function createHistoryConfigFile(filename, options) {
+export function createHistoryConfigFile(filename, options, mode = "session") {
   if (!["darwin", "linux"].includes(process.platform)) throw new Error("history_configuration_platform_unsupported");
-  const names = ["origin", "helper", "sdk", "projects-root", "project-key", "session-id", "reader", "label"];
+  if (!["session", "group"].includes(mode)) invalid();
+  const names = ["origin", "helper", "sdk", "projects-root", "reader", "label",
+    ...(mode === "group" ? ["source-id", "scope"] : ["project-key", "session-id"])];
   if (!options || Object.keys(options).sort().join() !== names.sort().join() || names.some(n => typeof options[n] !== "string" || !options[n])) invalid();
   if (!path.isAbsolute(filename) || path.resolve(filename) !== filename || fs.realpathSync(path.dirname(filename)) !== path.dirname(filename)) invalid();
   const parent = fs.lstatSync(path.dirname(filename));
@@ -17,10 +19,12 @@ export function createHistoryConfigFile(filename, options) {
   const root = options["projects-root"];
   if (fs.realpathSync(root) !== root) invalid();
   const stat = fs.lstatSync(root, { bigint: true }); if (!stat.isDirectory()) invalid();
-  const config = host.parseHistoryConfig({ version: 1, trustBoundary: "host_managed_paths", allowedOrigins: [options.origin],
-    reader: { helperPath: options.helper, sdkPath: options.sdk }, catalog: [{ catalogId: "source-1", label: options.label, description: "",
+  const expectedRoot = { device: String(stat.dev), inode: String(stat.ino) };
+  const config = host.parseHistoryConfig({ version: mode === "group" ? 2 : 1, trustBoundary: "host_managed_paths", allowedOrigins: [options.origin],
+    reader: { helperPath: options.helper, sdkPath: options.sdk }, catalog: mode === "group" ? [] : [{ catalogId: "source-1", label: options.label, description: "",
       source: { projectsRoot: root, projectKey: options["project-key"], sessionId: options["session-id"] },
-      expectedRoot: { device: String(stat.dev), inode: String(stat.ino) }, readers: [options.reader] }] });
+      expectedRoot, readers: [options.reader] }], ...(mode === "group" ? { sourceGroups: [{ sourceId: options["source-id"], agentId: "claude-code",
+        scope: options.scope, label: options.label, description: "", projectsRoot: root, expectedRoot, readers: [options.reader] }] } : {}) });
   let fd, createdIdentity, failure;
   try {
     fd = fs.openSync(filename, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
@@ -38,21 +42,21 @@ export function createHistoryConfigFile(filename, options) {
     } catch { failure = new Error("history_configuration_incomplete_check_output"); }
   }
   if (failure) throw failure;
-  return { valid: true, catalogEntries: 1, origins: 1, sourceReads: 0, hostRestarted: false };
+  return { valid: true, catalogEntries: config.catalog.length, sourceGroups: config.sourceGroups?.length ?? 0, origins: 1, sourceReads: 0, hostRestarted: false };
 }
 export function run(args) {
   const [command, filename, ...rest] = args;
   if (command === "check" && filename && !rest.length) {
     const c = host.loadHistoryConfig(filename);
-    return { valid: true, catalogEntries: c.catalog.length, origins: c.allowedOrigins.length, sourceReads: 0, hostRestarted: false };
+    return { valid: true, catalogEntries: c.catalog.length, sourceGroups: c.sourceGroups?.length ?? 0, origins: c.allowedOrigins.length, sourceReads: 0, hostRestarted: false };
   }
-  if (command !== "create" || !filename || rest.length % 2) invalid();
+  if (!["create", "create-group"].includes(command) || !filename || rest.length % 2) invalid();
   const options = Object.create(null);
   for (let i = 0; i < rest.length; i += 2) {
     if (!rest[i].startsWith("--") || Object.hasOwn(options, rest[i].slice(2))) invalid();
     options[rest[i].slice(2)] = rest[i + 1];
   }
-  return createHistoryConfigFile(filename, options);
+  return createHistoryConfigFile(filename, options, command === "create-group" ? "group" : "session");
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   try { console.log(JSON.stringify(run(process.argv.slice(2)))); }

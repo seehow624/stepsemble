@@ -1,18 +1,21 @@
 "use strict";
 // Explicit, operator-managed read-only integration. Disabled without a reviewed
-// local configuration. No discovery, dependency installation, native login or
-// credential export. Config/ancestors/executable are a trusted Host boundary,
+// local configuration. Discovery only on an authorized source-group refresh;
+// no dependency installation, native login or credential export.
+// Config/ancestors/executable are a trusted Host boundary,
 // not an OS sandbox or a claim of exact executed-binary pinning.
 const fs = require("node:fs"), path = require("node:path");
 const { canonicalJSON } = require("../public/modules/projection");
 const { normalizeSourceInput } = require("../protocol/native/claude/history-source");
 const { createNativeSourceService } = require("../protocol/native/claude/history-native-service");
 const { createReaderAdmission } = require("../protocol/native/claude/history-reader-admission");
+const { createSourceIndex } = require("../protocol/native/claude/history-source-index");
 const { createHistoryRegistry } = require("../protocol/native/claude/history-registry");
 const { createHistoryIdentity } = require("./history-identity");
-const { createHistoryHttpHandler, configuredOrigin } = require("./history-http");
+const { createHistoryHttpHandler, configuredOrigin, PUBLIC_CODES } = require("./history-http");
 const { createHistoryRelayHandler } = require("./history-relay");
 const CONFIG_BYTES = 128 * 1024;
+const SOURCE_GROUP_LIMIT = 8;
 const invalid = () => { throw new Error("history_configuration_invalid"); };
 const exact = (v, keys) => v && typeof v === "object" && !Array.isArray(v)
   && Object.keys(v).sort().join(",") === [...keys].sort().join(",");
@@ -23,15 +26,23 @@ const readerKey = v => typeof v === "string" && /^(browser:(master|[a-f0-9]{8,32
 function parseHistoryConfig(value) {
   let config;
   try { const raw = canonicalJSON(value, CONFIG_BYTES); if (raw === null) invalid(); config = JSON.parse(raw); } catch { invalid(); }
-  if (!exact(config, ["version", "trustBoundary", "allowedOrigins", "reader", "catalog"])
-    || config.version !== 1 || config.trustBoundary !== "host_managed_paths"
+  if (!exact(config, ["version", "trustBoundary", "allowedOrigins", "reader", "catalog", ...(config?.version === 2 ? ["sourceGroups"] : [])])
+    || ![1, 2].includes(config.version) || config.trustBoundary !== "host_managed_paths"
     || !Array.isArray(config.allowedOrigins) || !config.allowedOrigins.length || config.allowedOrigins.length > 16
     || !config.allowedOrigins.every(configuredOrigin) || new Set(config.allowedOrigins).size !== config.allowedOrigins.length
     || !Array.isArray(config.catalog) || config.catalog.length > 256) invalid();
-  if (config.reader === null) { if (config.catalog.length) invalid(); }
+  const groups = config.version === 2 ? config.sourceGroups : [];
+  if (!Array.isArray(groups) || groups.length > SOURCE_GROUP_LIMIT) invalid();
+  if (config.reader === null) { if (config.catalog.length || groups.length) invalid(); }
   else if (!exact(config.reader, ["helperPath", "sdkPath"]) || !canonicalPath(config.reader.helperPath)
     || !canonicalPath(config.reader.sdkPath) || path.basename(config.reader.sdkPath) !== "sdk.mjs") invalid();
   const ids = new Set(), roots = new Map();
+  function root(projectsRoot, expectedRoot) {
+    const previous = roots.get(projectsRoot);
+    if (previous && (previous.device !== expectedRoot.device || previous.inode !== expectedRoot.inode)) invalid();
+    roots.set(projectsRoot, expectedRoot);
+    if (roots.size > 256) invalid();
+  }
   for (const entry of config.catalog) {
     if (!exact(entry, ["catalogId", "label", "description", "source", "expectedRoot", "readers"])
       || typeof entry.catalogId !== "string" || !/^[A-Za-z0-9:_-]{1,128}$/.test(entry.catalogId) || ids.has(entry.catalogId)
@@ -43,9 +54,21 @@ function parseHistoryConfig(value) {
       || !Array.isArray(entry.readers) || !entry.readers.length || entry.readers.length > 149
       || !entry.readers.every(readerKey) || new Set(entry.readers).size !== entry.readers.length) invalid();
     ids.add(entry.catalogId);
-    const previous = roots.get(entry.source.projectsRoot);
-    if (previous && (previous.device !== entry.expectedRoot.device || previous.inode !== entry.expectedRoot.inode)) invalid();
-    roots.set(entry.source.projectsRoot, entry.expectedRoot);
+    if (groups.length && /^claude-[a-f0-9]{64}$/.test(entry.catalogId)) invalid(); // Reserved dynamic identity namespace.
+    root(entry.source.projectsRoot, entry.expectedRoot);
+  }
+  const groupIds = new Set(), groupRoots = new Set();
+  for (const group of groups) {
+    if (!exact(group, ["sourceId", "agentId", "scope", "label", "description", "projectsRoot", "expectedRoot", "readers"])
+      || typeof group.sourceId !== "string" || !/^[A-Za-z0-9:_-]{1,128}$/.test(group.sourceId) || groupIds.has(group.sourceId)
+      || group.agentId !== "claude-code" || group.scope !== "main_sessions"
+      || typeof group.label !== "string" || !group.label.length || group.label.length > 120 || /[\u0000-\u001f\u007f]/.test(group.label)
+      || typeof group.description !== "string" || group.description.length > 300 || /[\u0000-\u001f\u007f]/.test(group.description)
+      || !canonicalPath(group.projectsRoot) || groupRoots.has(group.projectsRoot)
+      || !exact(group.expectedRoot, ["device", "inode"]) || !u64(group.expectedRoot.device) || !u64(group.expectedRoot.inode) || group.expectedRoot.inode === "0"
+      || !Array.isArray(group.readers) || !group.readers.length || group.readers.length > 149
+      || !group.readers.every(readerKey) || new Set(group.readers).size !== group.readers.length) invalid();
+    groupIds.add(group.sourceId); groupRoots.add(group.projectsRoot); root(group.projectsRoot, group.expectedRoot);
   }
   return config;
 }
@@ -103,27 +126,83 @@ function disabledHistoryHost() {
     shutdown: async () => ({ cleanupConfirmed: true }) });
 }
 function createHistoryHost({ config: input, browserCredentials, peerGrantIds, authenticatePeerCredential,
-  resolvePeer, browserCookieNames = ["stepsemble", "pi_harbor", "pi_web"], sourceServiceFactory = createNativeSourceService } = {}) {
+  resolvePeer, browserCookieNames = ["stepsemble", "pi_harbor", "pi_web"], sourceServiceFactory = createNativeSourceService,
+  sourceIndexFactory = createSourceIndex } = {}) {
   const config = parseHistoryConfig(input);
-  if (typeof resolvePeer !== "function" || typeof sourceServiceFactory !== "function") invalid();
+  if (typeof resolvePeer !== "function" || typeof sourceServiceFactory !== "function" || typeof sourceIndexFactory !== "function") invalid();
   let registry, relay, closing, closed = false;
+  const groups = new Map((config.sourceGroups ?? []).map(group => [group.sourceId, { config: group, active: true, index: null }]));
   const identity = createHistoryIdentity({ browserCredentials, peerGrantIds, authenticatePeerCredential,
-    onRevoke(principal) { try { registry?.revokePrincipal(principal); } finally { relay?.revokePrincipal(principal); } } });
+    onRevoke(principal) {
+      for (const group of groups.values()) group.index?.revokePrincipal(principal);
+      try { registry?.revokePrincipal(principal); } finally { relay?.revokePrincipal(principal); }
+    } });
   const metadata = new Map(config.catalog.map(e => [e.catalogId, e]));
-  const allowed = (principal, id) => { const key = identity.credentialKey(principal); return !!key && metadata.get(id)?.readers.includes(key) === true; };
-  const roots = [...new Map(config.catalog.map(e => [e.source.projectsRoot, e.expectedRoot]))].map(([projectsRoot, expectedRoot]) => ({ projectsRoot, expectedRoot }));
+  const groupAllowed = (principal, id) => {
+    const group = groups.get(id), key = identity.credentialKey(principal);
+    return !closed && group?.active === true && !!key && group.config.readers.includes(key);
+  };
+  const resolveSource = (principal, id) => {
+    if (!/^claude-[a-f0-9]{64}$/.test(id)) return null;
+    for (const group of groups.values()) if (groupAllowed(principal, group.config.sourceId)) {
+      const value = group.index?.lookup(principal, id); if (value) return value;
+    }
+    return null;
+  };
+  const allowed = (principal, id) => {
+    const entry = metadata.get(id), key = identity.credentialKey(principal);
+    return !!key && (entry ? entry.readers.includes(key) : resolveSource(principal, id) !== null);
+  };
+  const roots = [...new Map([...config.catalog.map(e => [e.source.projectsRoot, e.expectedRoot]),
+    ...(config.sourceGroups ?? []).map(g => [g.projectsRoot, g.expectedRoot])])]
+    .map(([projectsRoot, expectedRoot]) => ({ projectsRoot, expectedRoot }));
   const admission = createReaderAdmission();
+  function closeIndex(group) {
+    if (!group.closing) group.closing = (async () => {
+      try { return await group.index.shutdown(); }
+      catch { admission.quarantine(); return { cleanupConfirmed: false, quarantined: true }; }
+    })();
+    return group.closing;
+  }
   let service;
   try {
     if (config.reader) {
+      for (const group of groups.values()) {
+        const { sourceId, projectsRoot, expectedRoot } = group.config;
+        group.index = sourceIndexFactory({ sourceId, source: { projectsRoot, expectedRoot }, helperPath: config.reader.helperPath,
+          authorize: groupAllowed, admission });
+        if (!["refresh", "metadata", "lookup", "page", "revokePrincipal", "shutdown", "status"].every(k => typeof group.index?.[k] === "function")) invalid();
+      }
       service = sourceServiceFactory({ ...config.reader, roots, admission });
       registry = createHistoryRegistry({ sourceService: service, catalog: config.catalog.map(({ catalogId, source }) => ({ catalogId, source })),
-        authorize: allowed, principalActive: identity.isPrincipalCurrent });
+        authorize: allowed, principalActive: identity.isPrincipalCurrent, resolveSource });
     }
     const local = registry ? createHistoryHttpHandler({ registry, auth: identity, allowedOrigins: config.allowedOrigins, browserCookieNames,
       listCatalog: principal => {
         const key = identity.credentialKey(principal);
         return config.catalog.filter(e => key && e.readers.includes(key)).map(({ catalogId, label, description }) => ({ catalogId, label, description }));
+      },
+      listSources: principal => ({ kind: "history_sources", sources: [...groups.values()].filter(g => groupAllowed(principal, g.config.sourceId))
+        .map(({ config: { sourceId, agentId, scope, label, description } }) => ({ sourceId, agentId, scope, label, description })),
+        sourceAuthenticated: false, publishable: false }),
+      async sourceCatalog(principal, body, { signal }) {
+        if (!groupAllowed(principal, body.sourceId)) return { kind: "source_unavailable", code: "history_source_unavailable" };
+        const group = groups.get(body.sourceId);
+        if (body.refresh) {
+          const result = await group.index.refresh(principal, { signal });
+          registry.sweep(); // Changed/removed identities retire pages and in-flight publishers before reply.
+          if (result.kind === "source_unavailable") return result;
+        }
+        if (!groupAllowed(principal, body.sourceId) || signal.aborted) return { kind: "source_unavailable", code: "history_source_unavailable" };
+        const reply = group.index.page(principal, { ...body.page, snapshotId: body.snapshotId });
+        if (reply.kind === "history_source_catalog" && reply.lastError !== null && !PUBLIC_CODES.has(reply.lastError)) reply.lastError = "history_transport_failed";
+        return reply;
+      },
+      catalogCurrent(principal, reply) {
+        if (reply.kind === "history_sources") return reply.sources.every(g => groupAllowed(principal, g.sourceId));
+        if (!groupAllowed(principal, reply.sourceId)) return false;
+        const state = groups.get(reply.sourceId).index.metadata(principal);
+        return state.kind !== "source_unavailable" && state.snapshotId === reply.snapshotId;
       } }) : null;
     relay = createHistoryRelayHandler({ auth: identity, allowedOrigins: config.allowedOrigins, browserCookieNames, resolvePeer,
       isPeerCurrent(machineId, selected) {
@@ -150,17 +229,28 @@ function createHistoryHost({ config: input, browserCredentials, peerGrantIds, au
       },
       credentialsChanged: () => identity.refresh(),
       peerChanged: machineId => relay.revokePeer(machineId),
-      status: () => ({ enabled: true, registry: registry?.status() ?? null, workers: service?.status() ?? null, admission: admission.status() }),
+      revokeSourceGroup(sourceId) {
+        const group = groups.get(sourceId); if (!group?.active || closed) return false;
+        group.active = false; registry?.sweep();
+        // Logical withdrawal is synchronous; Host shutdown still awaits the
+        // index's cached actual-close evidence, not this boolean result.
+        void closeIndex(group);
+        return true;
+      },
+      status: () => ({ enabled: true, registry: registry?.status() ?? null, workers: service?.status() ?? null, admission: admission.status(),
+        sourceGroups: [...groups.values()].map(g => ({ sourceId: g.config.sourceId, active: g.active, ...g.index.status() })) }),
       shutdown() {
         if (!closed) {
           closed = true;
           admission.close();
           identity.shutdown(); relay.shutdown();
           closing = (async () => {
-            const result = registry ? await registry.shutdown() : { cleanupConfirmed: true };
+            const registryClosing = registry ? registry.shutdown() : Promise.resolve({ cleanupConfirmed: true });
+            const results = await Promise.all([...groups.values()].map(closeIndex));
+            const result = await registryClosing;
             const shared = admission.status();
-            return { ...result, cleanupConfirmed: result.cleanupConfirmed === true && shared.cleanupConfirmed,
-              quarantined: result.quarantined === true || shared.quarantined };
+            return { ...result, cleanupConfirmed: result.cleanupConfirmed === true && shared.cleanupConfirmed && results.every(r => r.cleanupConfirmed === true),
+              quarantined: result.quarantined === true || shared.quarantined || results.some(r => r.quarantined === true) };
           })();
         }
         return closing;
@@ -169,8 +259,9 @@ function createHistoryHost({ config: input, browserCredentials, peerGrantIds, au
   } catch (error) {
     admission.close();
     identity.shutdown(); relay?.shutdown();
+    for (const group of groups.values()) try { void Promise.resolve(group.index?.shutdown()).catch(() => {}); } catch { /* construction failed closed */ }
     try { void Promise.resolve(service?.shutdown()).catch(() => {}); } catch { /* construction failed closed */ }
     throw error;
   }
 }
-module.exports = { parseHistoryConfig, loadHistoryConfig, createHistoryHost, disabledHistoryHost, CONFIG_BYTES };
+module.exports = { parseHistoryConfig, loadHistoryConfig, createHistoryHost, disabledHistoryHost, CONFIG_BYTES, SOURCE_GROUP_LIMIT };

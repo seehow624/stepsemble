@@ -1,5 +1,9 @@
 # Claude 唯讀歷史：Host 接線與操作邊界
 
+**Plan1.51接續**：v2來源群組/readers、動態registry與分頁HTTP／relay已接實際Host，
+詳[history-source-groups.md](history-source-groups.md)。原生title與Web來源UI尚未接上；
+下方單session設定／頁面仍為既有v1相容介面，不自動擴大分享。正式3.0.6不變。
+
 2026-09-08，3.0.7-rc.3 開發候選。**程式已接入實際 `server.js` 與 Web 導航，
 但尚未部署正式主機，也沒有登記／讀取使用者的私人歷史。**這不是完整 native
 session／approval／resume parity。正式兩台 Mac 仍為 3.0.6；固定來源 72h 長測不變。

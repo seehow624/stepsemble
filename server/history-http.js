@@ -3,6 +3,7 @@
 // is discovered here. A Host must provide a reviewed catalog/registry, current
 // authorization callbacks, revoke fan-out and trusted configured origins.
 const { canonicalJSON } = require("../public/modules/projection");
+const sourceCatalogWire = require("./history-catalog-wire");
 const LIMITS = Object.freeze({ requestBytes: 8192, responseBytes: 272 * 1024, requestChunks: 1024, deadlineMs: 15000 });
 const VIEW_HEADER = "x-stepsemble-history-view", CSRF_HEADER = "x-stepsemble-history-csrf";
 const uuid = v => typeof v === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
@@ -26,6 +27,7 @@ const PUBLIC_CODES = new Set([
   "invalid_history_registration", "invalid_history_request", "invalid_history_release", "invalid_source_signal",
   "history_principal_unavailable", "history_source_unavailable", "history_binding_unavailable", "history_view_conflict",
   "history_capacity_unavailable", "history_registry_closed", "history_registry_unavailable",
+  "history_catalog_changed", "source_inventory_limit", "source_worker_failure",
   "source_busy", "source_aborted", "source_version_changed", "source_version_unavailable", "source_observation_too_large",
   "source_platform_unsupported", "source_missing", "source_empty", "source_changed", "source_incomplete_tail", "source_invalid_json",
   "source_access_denied", "source_read_budget", "source_worker_timeout", "source_cleanup_unconfirmed", "source_service_quarantined",
@@ -161,9 +163,11 @@ function validCatalog(reply) {
 }
 
 function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCookieNames = ["stepsemble"], deadlineMs = LIMITS.deadlineMs,
-  browserOnly = false, listCatalog } = {}) {
+  browserOnly = false, listCatalog, listSources, sourceCatalog, catalogCurrent } = {}) {
   if (![registry?.register, registry?.observe, registry?.release, registry?.current].every(v => typeof v === "function")
-    || !positive(deadlineMs) || deadlineMs > LIMITS.deadlineMs || listCatalog !== undefined && typeof listCatalog !== "function")
+    || !positive(deadlineMs) || deadlineMs > LIMITS.deadlineMs || listCatalog !== undefined && typeof listCatalog !== "function"
+    || [listSources, sourceCatalog, catalogCurrent].some(v => v !== undefined && typeof v !== "function")
+    || (listSources !== undefined || sourceCatalog !== undefined) && typeof catalogCurrent !== "function")
     throw new TypeError("history_http_configuration_invalid");
   const authenticate = createHistoryRequestAuth({ auth, allowedOrigins, browserCookieNames, browserOnly });
   return async function handle(req, res) {
@@ -194,12 +198,15 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
       if (!uuid(viewId)) throw error("invalid_history_request");
       const release = /^\/api\/history\/registrations\/([a-f0-9-]{36})$/i.exec(target);
       const route = target === "/api/history/catalog" && req.method === "POST" ? "catalog"
+        : target === "/api/history/sources" && req.method === "POST" ? "sources"
+        : target === "/api/history/source-catalog" && req.method === "POST" ? "sourceCatalog"
         : target === "/api/history/registrations" && req.method === "POST" ? "register"
         : target === "/api/history/page" && req.method === "POST" ? "observe"
           : release && uuid(release[1]) && req.method === "DELETE" ? "release" : null;
       if (!route) throw error("history_method_not_allowed", 405);
       const body = await readBody(req, abort.signal);
-      if (route === "catalog" && !exact(body, [])) throw error("invalid_history_request");
+      if (["catalog", "sources"].includes(route) && !exact(body, [])) throw error("invalid_history_request");
+      if (route === "sourceCatalog" && !sourceCatalogWire.validRequest(body)) throw error("invalid_history_request");
       if (route === "register" && (!exact(body, ["catalogId", "viewId"]) || body.viewId !== viewId
         || typeof body.catalogId !== "string" || !/^[A-Za-z0-9:_-]{1,128}$/.test(body.catalogId))) throw error("invalid_history_registration");
       if (route === "observe" && (!exact(body, ["bindingId", "generation", "requestId", "page", ...(Object.hasOwn(body, "version") ? ["version"] : [])])
@@ -211,6 +218,8 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
       if (authenticate(req) !== principal) throw error("history_unauthorized", 401);
       const operation = route === "catalog" ? listCatalog ? Promise.resolve(listCatalog(principal, { signal: abort.signal, viewId }))
         .then(entries => ({ kind: "history_catalog", entries, sourceAuthenticated: false, publishable: false })) : unavailable("history_source_unavailable")
+        : route === "sources" ? listSources?.(principal, { signal: abort.signal, viewId }) ?? unavailable("history_source_unavailable")
+        : route === "sourceCatalog" ? sourceCatalog?.(principal, body, { signal: abort.signal, viewId }) ?? unavailable("history_source_unavailable")
         : route === "register" ? registry.register(principal, body, { signal: abort.signal })
         : route === "observe" ? registry.observe(principal, { ...body, viewId }, { signal: abort.signal })
           : registry.release(principal, { bindingId: release[1], generation: body.generation, viewId }, { signal: abort.signal });
@@ -239,6 +248,8 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
         // preserves the existing inert response envelope and forbids authority.
         const reply = JSON.parse(raw);
         const valid = route === "catalog" ? validCatalog(reply)
+          : route === "sources" ? sourceCatalogWire.validSources(reply)
+          : route === "sourceCatalog" ? sourceCatalogWire.validPage(reply, body, PUBLIC_CODES)
           : route === "release" ? exact(reply, ["kind", "cleanupConfirmed"]) && reply.kind === "history_released" && typeof reply.cleanupConfirmed === "boolean"
           : route === "register" ? exact(reply, ["kind", "bindingId", "generation", "sessionId", "viewId", "catalogId", "expiresAt", "sourceAuthenticated", "publishable"])
             && reply.kind === "history_registration" && reply.viewId === viewId && reply.catalogId === body.catalogId && uuid(reply.bindingId)
@@ -248,7 +259,9 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
               && reply.requestId === body.requestId && typeof reply.sourceVersion === "string" && /^[a-f0-9]{64}$/.test(reply.sourceVersion)
               && reply.sourceAuthenticated === false && reply.publishable === false && reply.cleanupConfirmed === true && inertHistory(reply.history, body.page);
         if (!valid) throw error("history_response_invalid", 502);
-        if (!["release", "catalog"].includes(route) && registry.current(principal, { bindingId: reply.bindingId, generation: reply.generation, viewId }) !== true)
+        if (["sources", "sourceCatalog"].includes(route) && catalogCurrent(principal, reply) !== true)
+          throw error("history_catalog_changed", 409);
+        if (["register", "observe"].includes(route) && registry.current(principal, { bindingId: reply.bindingId, generation: reply.generation, viewId }) !== true)
           throw error("history_binding_unavailable", 409);
         send(res, 200, reply);
         // This cannot prove browser consumption: a completely sent response

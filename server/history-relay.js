@@ -6,6 +6,7 @@
 // isolate remote lifecycles and do not claim end-to-end native user provenance.
 const { createHistoryHttpHandler, createHistoryRequestAuth, validCatalog, LIMITS, VIEW_HEADER, PUBLIC_CODES } = require("./history-http");
 const { canonicalJSON } = require("../public/modules/projection");
+const sourceCatalogWire = require("./history-catalog-wire");
 const { validHistoryValue } = require("../public/modules/claude-history");
 const { randomUUID } = require("node:crypto");
 const MAX_FLIGHTS = 64;
@@ -139,6 +140,8 @@ function createHistoryRelayHandler({ auth, allowedOrigins, browserCookieNames = 
         }
         if (!response.ok) throw fail("history_response_invalid");
         if (path === "/api/history/catalog" && !validCatalog(value)) throw fail("history_response_invalid");
+        if (path === "/api/history/sources" && !sourceCatalogWire.validSources(value)) throw fail("history_response_invalid");
+        if (path === "/api/history/source-catalog" && !sourceCatalogWire.validPage(value, body, PUBLIC_CODES)) throw fail("history_response_invalid");
         if (path === "/api/history/page" && (!row || row.state !== "active" || !validHistoryValue(value?.history, row.sessionId, body.page)))
           throw fail("history_response_invalid");
         // Shared HTTP handler checks whole bound/registration/release envelopes,
@@ -238,7 +241,10 @@ function createHistoryRelayHandler({ auth, allowedOrigins, browserCookieNames = 
         const value = await forward(principal, "/api/history/catalog", "POST", {}, viewId, signal);
         if (value.kind === "source_unavailable") throw fail(value.code, 503);
         return value.entries;
-      } });
+      },
+      listSources: (principal, { signal, viewId }) => forward(principal, "/api/history/sources", "POST", {}, viewId, signal),
+      sourceCatalog: (principal, body, { signal, viewId }) => forward(principal, "/api/history/source-catalog", "POST", body, viewId, signal),
+      catalogCurrent: () => peerActive() });
     req.url = upstreamPath;
     try { return await local(req, res); } finally { req.url = original; }
   }

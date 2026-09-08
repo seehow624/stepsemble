@@ -15,7 +15,7 @@ function reply(body = PAGE) {
       page: { ...body.page }, observation: { publishable: false, authority: { sourceAuthenticated: false, approvalAcknowledged: false,
         runTerminalObserved: false, resumeAllowed: false } }, reader: {}, metrics: {} }, sourceAuthenticated: false, publishable: false, cleanupConfirmed: true };
 }
-async function fixture(t, { observe, deadlineMs = 500, current, listCatalog, register, cancelRegistration } = {}) {
+async function fixture(t, { observe, deadlineMs = 500, current, listCatalog, register, cancelRegistration, listSources, sourceCatalog, catalogCurrent } = {}) {
   const calls = [], completed = [], state = { active: true, peer: true, current: true, aborts: 0, browserChecks: 0, peerChecks: 0 };
   const auth = {
     authenticateBrowserCookie(name, value) { state.browserChecks++; return name === "stepsemble" && value === "synthetic-cookie" && state.active ? "browser:synthetic" : null; },
@@ -30,7 +30,7 @@ async function fixture(t, { observe, deadlineMs = 500, current, listCatalog, reg
     current(principal, scope) { return current ? current(principal, scope, state) : state.current; },
     ...(cancelRegistration ? { cancelRegistration } : {}),
   };
-  const handler = createHistoryHttpHandler({ registry, auth, allowedOrigins: [ORIGIN], deadlineMs, listCatalog });
+  const handler = createHistoryHttpHandler({ registry, auth, allowedOrigins: [ORIGIN], deadlineMs, listCatalog, listSources, sourceCatalog, catalogCurrent });
   const server = http.createServer(async (req, res) => {
     const before = [req.listenerCount("aborted"), res.listenerCount("close"), res.listenerCount("error")];
     const handled = await handler(req, res);
@@ -71,6 +71,24 @@ test("actual HTTP registration/page/release preserve inert envelope and inject h
   assert.deepEqual(f.calls[2].body, { bindingId: BINDING, generation: 1, viewId: VIEW });
   assert.ok(f.completed.every(row => JSON.stringify(row.before) === JSON.stringify(row.after)));
   assert.ok(f.completed.every(row => row.req.listenerCount("data") === 0));
+});
+test("new source catalog response must pass current source authority after async work, not just HTTP identity", async t => {
+  let current = true;
+  const listing = { kind: "history_sources", sources: [{ sourceId: "source-1", agentId: "claude-code", scope: "main_sessions", label: "Owned", description: "" }],
+    sourceAuthenticated: false, publishable: false };
+  const f = await fixture(t, { listSources: async () => { await Promise.resolve(); current = false; return listing; }, catalogCurrent: () => current });
+  assert.equal((await f.request("/api/history/sources", {})).data.code, "history_catalog_changed");
+  assert.equal(f.calls.length, 0); assert.equal(f.state.active, true);
+});
+test("source group HTTP bounds and authentication reject before callback and never serialize malformed metadata", async t => {
+  let calls = 0;
+  const f = await fixture(t, { listSources: () => { calls++; return { kind: "history_sources", sources: [], path: "/private", sourceAuthenticated: false, publishable: false }; },
+    sourceCatalog: () => { calls++; return { kind: "source_unavailable", code: "source_inventory_limit" }; }, catalogCurrent: () => true });
+  assert.equal((await f.request("/api/history/sources", {}, { origin: "https://untrusted.invalid" })).status, 403); assert.equal(calls, 0);
+  assert.equal((await f.request("/api/history/source-catalog", { sourceId: "one", page: { offset: 0, limit: 51 }, snapshotId: null, refresh: true })).status, 400);
+  assert.equal(calls, 0);
+  const result = await f.request("/api/history/sources", {}); assert.equal(result.status, 502); assert.equal(result.data.code, "history_response_invalid");
+  assert.equal(result.bytes.includes(Buffer.from("/private")), false);
 });
 
 test("native reader denials preserve fixed codes without exposing source diagnostics", async t => {

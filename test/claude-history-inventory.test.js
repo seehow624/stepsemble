@@ -176,3 +176,28 @@ test("identical UUIDs from different exact projects remain separate candidates, 
   const again = await h.index.refresh("owner"); assert.deepEqual(again.snapshot.changes, { added: 0, changed: 0, removed: 0 });
   assert.deepEqual(again.snapshot.entries, first.snapshot.entries); await h.index.shutdown();
 });
+test("private lookup keeps unchanged entry revisions but changed or removed/readded candidates never inherit old bindings", async () => {
+  const h = indexHarness(), first = await h.index.refresh("owner"), id = first.snapshot.entries[0].catalogId;
+  const a = h.index.lookup("owner", id); await h.index.refresh("owner");
+  assert.deepEqual(h.index.lookup("owner", id), a); a.source.projectKey = "caller-mutated";
+  assert.equal(h.index.lookup("owner", id).source.projectKey, "owned");
+  h.set([{ ...entry(), identity: { ...entry().identity, size: 20 } }]); await h.index.refresh("owner");
+  assert.notEqual(h.index.lookup("owner", id).revision, a.revision);
+  h.set([]); await h.index.refresh("owner"); assert.equal(h.index.lookup("owner", id), null);
+  h.set([entry()]); await h.index.refresh("owner"); assert.notEqual(h.index.lookup("owner", id).revision, a.revision);
+  assert.equal(h.index.lookup("unknown", id), null); await h.index.shutdown(); assert.equal(h.index.lookup("owner", id), null);
+});
+test("public inventory pages are bounded, version-fenced and contain no private paths or guessed native titles", async () => {
+  const h = indexHarness(); h.set(Array.from({ length: 101 }, (_, n) => entry(n)));
+  await h.index.refresh("owner");
+  const first = h.index.page("owner", { offset: 0, limit: 50, snapshotId: null });
+  assert.equal(first.entries.length, 50); assert.equal(first.total, 101); assert.equal(first.nextOffset, 50);
+  assert.equal(JSON.stringify(first).includes("projectsRoot"), false); assert.equal(JSON.stringify(first).includes("sessionId"), false);
+  assert.ok(first.entries.every(e => e.nativeTitle === null && e.titleStatus === "not_loaded"));
+  assert.equal(h.index.page("owner", { offset: 100, limit: 50, snapshotId: first.snapshotId }).entries.length, 1);
+  assert.equal(h.index.page("owner", { offset: 50, limit: 50, snapshotId: null }).code, "history_catalog_changed");
+  assert.equal(h.index.page("owner", { offset: 0, limit: 51, snapshotId: null }).code, "invalid_history_request");
+  await h.index.refresh("owner");
+  assert.equal(h.index.page("owner", { offset: 50, limit: 50, snapshotId: first.snapshotId }).code, "history_catalog_changed");
+  h.revoke(); assert.equal(h.index.metadata("owner").code, "history_source_unavailable"); await h.index.shutdown();
+});

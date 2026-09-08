@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.50
+> 計畫版本：1.51
 > 最後更新：2026-09-08
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,7 +15,13 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新增量 1.50（開發版仍3.0.7-rc.5，未部署）**：inventory與content現在可共用
+**最新增量 1.51（開發版仍3.0.7-rc.5，未部署）**：source-group v2設定、readers範圍、
+Host同instance接線、dynamic resolver／增改刪撤銷與50列snapshot分頁已接入實際HTTP及
+dedicated relay。最低Node22.19真Rust→source-catalog→dynamic bind→SDK合成Host鏈已驗；
+沒有新增私人來源。原生title明示not_loaded，Web來源UI／其他harness仍待，不能說C1已完。
+見[來源群組接線](history-source-groups.md)。
+
+**前一增量 1.50（開發版仍3.0.7-rc.5，未部署）**：inventory與content現在可共用
 Host持有的兩個reader名額；capture→SDK不提前釋放，unknown close永久quarantine
 並停止其他來源，Host shutdown合併共享清理結果。最低Node22.19真Rust＋SDK並行
 合成鏈已驗，physical max2／remaining0；source-group設定／dynamic registry／Web
@@ -87,6 +93,7 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 | 原生唯讀 reader 邊界 | Rust helper＋bytes-only SDK，rc.3 已接 Host／未部署 | POSIX逐層no-follow、trusted root identity、fd ACL/localFS、8MiB雙讀；macOS拒絕noowners，Windows來源仍unsupported。composite固定2flights、共用10s/1s、actual-close/quarantine；最低Node22.19合成Rust→SDK→actual Host gate本機過。逐commit跨OS證據與範圍見history-host-integration.md |
 | Claude原生來源探索 | Plan1.49核心已實作，未接Host/Web | explicit-root metadata双掃，10k entries／512projects／2048candidates／1MiB，fd owner/ACL/mount不降級；增改刪、exact-source ID與stale snapshot。沒有HOME掃描／私人來源／title推測；動態catalog/來源授權/原生metadata/全域預算仍待，見native-history-discovery.md |
 | 原生歷史共用reader預算 | Plan1.50已實作／合成鏈已驗 | Host-owned兩個flight供inventory與完整content pipeline共用、無queue、actual-close／永久quarantine及Host合併shutdown；source-group尚未掛HTTP，未部署，見history-reader-admission.md |
+| 原生來源群組／動態catalog | Plan1.51已接實際Host／HTTP，未部署 | v2私有設定最多8組、每組2048candidate／50列分頁、同Host兩flight、逐reader範圍、dynamicrevision及同步撤銷、dedicatedrelay、actualRust＋SDK合成鏈；原生title及Web來源UI待完成，見history-source-groups.md |
 | Claude clone記憶體嘗試 | 已量測並撤回 | 同workload兩次12輪，structuredClone＋提前清引用讓worker高水位合計中位數421.164→408.852MiB，但round283.539→296.171ms。沒有證明順滑度改善，保留原JSON clone並存完整before/after與重現方法；memory優化仍待，見claude-history-performance.md |
 | Claude 官方登入入口 | Mini當前detected，正式3.0.6 | 使用者回報瀏覽器登入，助手回completed／detected；另行同意的直接CLI最小模型測試成功。metadata API仍liveVerified=false，不以一次成功保證永久有效；不自動修憑證／重試模型，詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
@@ -97,12 +104,12 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 
 ### 下一個可執行任務
 
-**1.50接續**：不要重做Rust目錄inventory、共用admission或Pi/task呈現索引。先把source-group
-明確一次授權與可讀credential範圍接到private config／registry，所有group共用Host已建的
-同一reader admission，補dynamic source撤銷與bounded catalog paging；再加固定版本native title
-metadata及按需讀取，才接Web。不得用UUID當原生session名稱，不能把2048項Host-private
-snapshot直接塞進舊256項／Host-wide catalog，或為了「自動」默認分享整個HOME。
-本批新helper已驗合成資料，完整原生體驗、正式部署與Windows仍待。
+**1.51接續**：source-group config/readers、同一Hostadmission、dynamicregistry撤銷及
+catalogpaging／實際HTTP和relay已接上，不再重做。接著固定SDK native title/metadata、
+TypeScript transport與Web來源選擇／手動刷新／分頁，驗actualHost→browser完整操作。
+目前列的nativeTitle為null/titleStatus:not_loaded，不能用UUID或猜測文字冒充原生名稱；
+列表不能預讀全部transcript。私人來源及正式部署仍需既有gate，其他agent/fullnative／
+Windows／跨機實機性能等仍待；不把這個後端checkpoint當C1或整個Web完成。
 
 **1.46 歷史開發增量（3.0.7-rc.3，未部署）**：Claude 唯讀歷史已接入實際
 `server.js`、Agent Hub連結及獨立歷史頁，不再只存在隔離preview。預設停用，
@@ -1039,6 +1046,14 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-08 — Plan 1.51
+
+- C1接續實作source-group v2設定與exclusive create-group CLI；保留v1手動catalog，主對話scope與readers明確指定、最多8組／每組2048metadata／每HTTP頁50列，同rootidentity/ACL/native平台gate不降級。啟動與列sources不掃描，只有已授權單次refresh才讀metadata。
+- 所有group接同Hostadmission；registry加可信動態resolver且不擴舊256catalog，source tuple＋entryrevision fencing、成功refresh同步撤銷changed/removed binding與晚發布；同metadata保留revision，移除重加不沿用。snapshotUUID跨refresh/Hostrestart隔離分頁、失敗stale保留，unknowncleanup永久隔離與合併shutdown。
+- 新source/snapshot HTTP與dedicatedrelay經既有origin/CSRF/currentcredential/bytes/deadline，發布前再驗groupauthority；不回paths/readers/identity或rawinventory。AgentID沿用claude-code。原生title明示null/not_loaded，未接Web/原生metadata，C1未完成。
+- 新unit/actualHTTP合成測試及最低Node22.19 actual server.js→Rust inventory→新分頁→dynamicregister→fixedSDK內容链通過，新增metadata變更/刪除/恢復及舊binding/page拒絕；model/privatehistory0、fixture/childcleanup已確認。完整TAP保存，本批exact CI另外核對；舊未定位單次flaky仍未結案。正式3.0.6/B+／帳號route／fixedab227af72h不動，詳history-source-groups.md。
+- 本機最終705tests＝703pass/2平台skip/0fail，聚焦69/69；strictTS/artifact/syntax/version與Ajv1251通過。沒有新GUI／真機／效能改善宣稱；新增HTTP後端與原生合成鏈不冒稱Web來源UI已驗收。
 
 ### 2026-09-08 — Plan 1.50
 

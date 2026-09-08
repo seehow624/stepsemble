@@ -6,15 +6,26 @@ import { pathToFileURL } from "node:url";
 import { startSyntheticHistoryHost } from "./history-host-synthetic.mjs";
 import transportModule from "../public/modules/history-transport.js";
 import projection from "../public/modules/projection.js";
+import catalogWire from "../server/history-catalog-wire.js";
+import historyHttp from "../server/history-http.js";
 const { create: createTransport } = transportModule, { canonicalJSON } = projection;
 
 export async function checkHistoryHostNative(options) {
-  const host = await startSyntheticHistoryHost(options), viewId = crypto.randomUUID(); let cleanup;
+  const host = await startSyntheticHistoryHost({ ...options, sourceGroups: true }), viewId = crypto.randomUUID(); let cleanup;
   const cookie = token => `stepsemble=${crypto.createHash("sha256").update(token).digest("hex")}`;
   const browser = (token, view = viewId) => createTransport({ origin: host.origin, hostId: "synthetic-host", viewId: view, canonicalJSON,
     fetch: (url, init) => fetch(url, { ...init, headers: { ...init.headers, origin: host.origin, cookie: cookie(token) } }) });
   const api = browser(host.token);
   const mutate = (route, body) => fetch(host.origin + route, { method: "POST", headers: { cookie: cookie(host.token), origin: host.origin, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const groupRequest = async (route, body) => {
+    const response = await fetch(host.origin + route, { method: "POST", headers: { cookie: cookie(host.token), origin: host.origin,
+      "content-type": "application/json", "X-Stepsemble-History-View": viewId, "X-Stepsemble-History-CSRF": "1" }, body: JSON.stringify(body) });
+    const value = await response.json();
+    if (value.kind !== "source_unavailable") assert.equal(route === "/api/history/sources" ? catalogWire.validSources(value)
+      : catalogWire.validPage(value, body, historyHttp.PUBLIC_CODES), true);
+    return value;
+  };
+  const groupPage = (extra = {}) => groupRequest("/api/history/source-catalog", { sourceId: "fixture-root", page: { offset: 0, limit: 2 }, snapshotId: null, refresh: false, ...extra });
   const read = (transport, r, offset = 0, version) => transport.read({ hostId: "synthetic-host", bindingId: r.bindingId, generation: r.generation, sessionId: r.sessionId },
     { bindingId: r.bindingId, generation: r.generation, requestId: crypto.randomUUID() }, { page: { offset, limit: 10 }, signal: new AbortController().signal, ...(version ? { version } : {}) });
   try {
@@ -32,6 +43,24 @@ export async function checkHistoryHostNative(options) {
       }
       assert.equal((await api.release({ bindingId: reg.bindingId, generation: reg.generation })).cleanupConfirmed, true);
     }
+    assert.equal((await groupRequest("/api/history/sources", {})).sources.length, 1);
+    assert.equal((await groupPage()).snapshotId, null, "startup/listing do not scan the source root");
+    const firstCatalog = await groupPage({ refresh: true }); assert.equal(firstCatalog.total, 4); assert.equal(firstCatalog.entries.length, 2);
+    assert.equal(firstCatalog.entries[0].nativeTitle, null); assert.equal(firstCatalog.entries[0].titleStatus, "not_loaded");
+    const nextCatalog = await groupPage({ snapshotId: firstCatalog.snapshotId, page: { offset: 2, limit: 2 } });
+    assert.equal(nextCatalog.entries.length, 2); assert.equal(nextCatalog.nextOffset, null);
+    assert.equal(new Set([...firstCatalog.entries, ...nextCatalog.entries].map(e => e.catalogId)).size, 4);
+    const dynamic = await api.register({ catalogId: firstCatalog.entries[0].catalogId, viewId }); assert.equal(dynamic.kind, "history_registration");
+    const selectedCase = host.cases.find(c => c.sessionId === dynamic.sessionId); assert.ok(selectedCase);
+    assert.deepEqual((await read(api, dynamic)).history.observation.messages.map(m => m.nativeMessageId), selectedCase.expectedIds.slice(0, 10));
+    await host.changeFixture(selectedCase.name);
+    const refreshedCatalog = await groupPage({ refresh: true }); assert.equal(refreshedCatalog.total, 4);
+    assert.notEqual(refreshedCatalog.snapshotId, firstCatalog.snapshotId);
+    assert.equal((await read(api, dynamic)).code, "history_binding_unavailable", "metadata change retires the actual native binding");
+    assert.equal((await groupPage({ snapshotId: firstCatalog.snapshotId, page: { offset: 2, limit: 2 } })).code, "history_catalog_changed");
+    await host.setFixturePresent(selectedCase.name, false); assert.equal((await groupPage({ refresh: true })).total, 3);
+    assert.equal((await api.register({ catalogId: firstCatalog.entries[0].catalogId, viewId })).code, "history_source_unavailable");
+    await host.setFixturePresent(selectedCase.name, true); assert.equal((await groupPage({ refresh: true })).total, 4);
     const issuedView = crypto.randomUUID(), issued = browser(host.issuedToken, issuedView);
     const reg = await issued.register({ catalogId: "fixture-rich", viewId: issuedView }); assert.equal(reg.kind, "history_registration");
     assert.equal((await mutate("/api/access-tokens/revoke", { id: host.issuedId })).status, 204);
@@ -45,7 +74,7 @@ export async function checkHistoryHostNative(options) {
     assert.equal((await mutate("/api/logout", {})).status, 204);
     assert.equal((await read(api, last)).code, "history_binding_unavailable");
   } finally { cleanup = await host.close(); }
-  return { actualHostGate: "passed", platform: process.platform, nodeVersion: process.version, cases: 4, privateHistoryReads: 0, modelCalls: 0,
+  return { actualHostGate: "passed", actualSourceGroupsGate: "passed", platform: process.platform, nodeVersion: process.version, cases: 4, privateHistoryReads: 0, modelCalls: 0,
     helperArtifactSha256: host.helperHash, sdkSha256: host.sdkHash, helperArtifact: host.helperArtifact, sdkArtifact: host.sdkArtifact,
     sourceAuthenticated: false, publishable: false, productionChanged: false, ...cleanup };
 }

@@ -13,6 +13,45 @@ const catalog = [{ catalogId: "one", source }, { catalogId: "two", source: { ...
 const unavailable = code => ({ kind: "source_unavailable", code });
 const scope = reg => ({ bindingId: reg.bindingId, generation: reg.generation, viewId: reg.viewId });
 const request = (reg, extra = {}) => ({ ...scope(reg), requestId, page: { offset: 0, limit: 2 }, ...extra });
+test("trusted dynamic resolution fences changed metadata and paths without expanding the fixed catalog", async () => {
+  let selected = { source, revision: "one" };
+  const h = setup({ catalog: [], resolveSource: () => selected });
+  const first = h.register(); assert.equal(first.kind, "history_registration");
+  assert.equal(h.registry.status().catalogSources, 0);
+  selected = { source: { ...source }, revision: "one" }; h.registry.sweep();
+  assert.equal(h.registry.current("alice", scope(first)), true);
+  selected = { source, revision: "two" }; h.registry.sweep();
+  assert.equal(h.registry.current("alice", scope(first)), false);
+  const second = h.register(); assert.equal(second.generation, first.generation + 1);
+  selected = { source: { ...source, projectKey: "other" }, revision: "two" };
+  assert.equal(h.registry.current("alice", scope(second)), false, "unchanged resolver revision cannot mask a changed source tuple");
+  selected = null; assert.equal(h.register().code, "history_source_unavailable"); await h.registry.shutdown();
+});
+test("dynamic resolver is authorized before lookup, rejects getters/promises and cannot revive withdrawn fixed entries", async () => {
+  let calls = 0, selected = { source, revision: "v1" }, getterCalls = 0;
+  const h = setup({ resolveSource: () => { calls++; return selected; } });
+  h.denied.add("bob:dynamic"); assert.equal(h.register("bob", viewId, "dynamic").code, "history_source_unavailable"); assert.equal(calls, 0);
+  const accessor = { source }; Object.defineProperty(accessor, "revision", { enumerable: true, get() { getterCalls++; return "v1"; } });
+  for (const value of [accessor, Promise.resolve(selected), Promise.reject(new Error("private resolver failure")), { source, revision: "v1", authority: true }, { source, revision: "" }]) {
+    selected = value; assert.equal(h.register("alice", viewId, "dynamic").code, "history_source_unavailable");
+  }
+  assert.equal(getterCalls, 0); selected = { source, revision: "v2" };
+  h.registry.revokeSource("one"); assert.equal(h.register().code, "history_source_unavailable"); await h.registry.shutdown();
+});
+test("dynamic revision change during bind or observe rejects late publication and retires the exact old row", async () => {
+  let revision = "a", resolve;
+  const service = fakeService(), baseBind = service.bind;
+  service.bind = input => {
+    const bound = baseBind(input);
+    return { ...bound, async observe() { return new Promise(r => { resolve = r; }); } };
+  };
+  const h = setup({ sourceService: service, catalog: [], resolveSource: () => ({ source, revision }) });
+  const reg = h.register(), pending = h.registry.observe("alice", request(reg));
+  revision = "b"; h.registry.sweep(); resolve({ kind: "bound_history_observation" });
+  assert.equal((await pending).code, "history_binding_unavailable");
+  service.bind = input => { const bound = baseBind(input); revision = "c"; return bound; };
+  assert.equal(h.register().code, "history_binding_unavailable"); await h.registry.shutdown();
+});
 function fakeService() {
   const rows = new Map(); let closed = false, quarantined = false, binds = 0;
   return {

@@ -1,6 +1,6 @@
 "use strict";
-// Host-private, opt-in source-group inventory. Not mounted in HTTP or the legacy
-// catalog. Metadata identities are candidates, never titles or resume authority.
+// Host-private, opt-in source-group inventory. Only bounded metadata/page
+// projections may cross HTTP; private view/lookup paths never do.
 const crypto = require("node:crypto");
 const { canonicalJSON } = require("../../../public/modules/projection");
 const { createNativeHelper } = require("./history-native-helper");
@@ -21,6 +21,7 @@ function createSourceIndex(options) {
   const helper = createHelper({ executablePath: helperPath, trustBoundary: "host_managed_executable" });
   if (!helper || !["inventory", "status", "shutdown"].every(k => typeof helper[k] === "function")) throw new TypeError("invalid_source_index_helper");
   let closed = false, quarantined = false, flight = null, revision = 0, snapshot = null, stale = true, lastError = null, shutdownPromise;
+  let snapshotId = null, lookupEntries = new Map();
   function helperClosed() {
     try { const status = helper.status(); return status.activeWorker === false && status.cleanupConfirmed === true; }
     catch { return false; }
@@ -47,6 +48,34 @@ function createSourceIndex(options) {
     // Detached private source paths must never be sent directly to a Client.
     return { kind: "source_inventory_state", sourceId, revision, stale, refreshing: flight !== null, lastError,
       snapshot: snapshot === null ? null : structuredClone(snapshot), sourceAuthenticated: false, publishable: false };
+  }
+  function metadata(principal) {
+    if (!allowed(principal)) return unavailable("history_source_unavailable");
+    const code = failure(); if (code) return unavailable(code);
+    return { sourceId, snapshotId, stale, refreshing: flight !== null, lastError, total: lookupEntries.size };
+  }
+  function lookup(principal, catalogId) {
+    if (!allowed(principal) || failure()) return null;
+    const row = lookupEntries.get(catalogId);
+    return row ? { source: { ...row.entry.source }, revision: row.revision } : null;
+  }
+  function page(principal, request) {
+    const state = metadata(principal); if (state.kind === "source_unavailable") return state;
+    if (!wirePage(request)) return unavailable("invalid_history_request");
+    if (request.snapshotId !== null && request.snapshotId !== snapshotId || request.offset > 0 && request.snapshotId === null)
+      return unavailable("history_catalog_changed");
+    if (request.offset > lookupEntries.size) return unavailable("history_catalog_changed");
+    const entries = (snapshot?.entries ?? []).slice(request.offset, request.offset + request.limit)
+      .map(e => ({ catalogId: e.catalogId, nativeTitle: null, titleStatus: "not_loaded" }));
+    return { kind: "history_source_catalog", ...state, page: { offset: request.offset, limit: request.limit },
+      nextOffset: request.offset + entries.length < state.total ? request.offset + entries.length : null,
+      entries, sourceAuthenticated: false, publishable: false };
+  }
+  function wirePage(value) {
+    return own(value, ["offset", "limit", "snapshotId"]) && Object.keys(value).length === 3
+      && Number.isSafeInteger(value.offset) && value.offset >= 0 && value.offset <= wire.LIMITS.entries
+      && Number.isSafeInteger(value.limit) && value.limit >= 1 && value.limit <= 50
+      && (value.snapshotId === null || typeof value.snapshotId === "string" && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(value.snapshotId));
   }
   async function refresh(principal, options = {}) {
     if (!own(options, ["signal"]) || options.signal !== undefined && !(options.signal instanceof AbortSignal)) return unavailable("invalid_source_signal");
@@ -98,8 +127,14 @@ function createSourceIndex(options) {
         if (!previous) added++; else if (JSON.stringify(previous.identity) !== JSON.stringify(entry.identity)) changed++;
         old.delete(entry.catalogId);
       }
+      const nextLookup = new Map(next.map(entry => {
+        const previous = lookupEntries.get(entry.catalogId);
+        return [entry.catalogId, { entry, revision: previous && JSON.stringify(previous.entry.identity) === JSON.stringify(entry.identity)
+          ? previous.revision : crypto.randomUUID() }];
+      }));
       snapshot = { entries: next, projectsScanned: checked.projectsScanned, ignoredEntries: checked.ignoredEntries,
         changes: { added, changed, removed: old.size } };
+      lookupEntries = nextLookup; snapshotId = crypto.randomUUID();
       revision++; stale = false; lastError = null; flight = null;
       return view(principal);
     } catch {
@@ -119,7 +154,7 @@ function createSourceIndex(options) {
   }
   function shutdown() {
     if (!closed) {
-      closed = true; stale = true; snapshot = null;
+      closed = true; stale = true; snapshot = null; snapshotId = null; lookupEntries.clear();
       const pending = flight; pending?.controller.abort();
       shutdownPromise = (async () => {
         let result;
@@ -131,7 +166,7 @@ function createSourceIndex(options) {
     }
     return shutdownPromise;
   }
-  return Object.freeze({ refresh, view, revokePrincipal, shutdown,
+  return Object.freeze({ refresh, view, metadata, lookup, page, revokePrincipal, shutdown,
     status: () => {
       const shared = admission.status();
       return { closed: closed || shared.closed, quarantined: quarantined || shared.quarantined,
