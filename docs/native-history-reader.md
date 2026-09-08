@@ -1,14 +1,14 @@
 # ADR：獨立原生 history source reader 的窄邊界
 
-日期：2026-09-08。狀態：standalone 實作／本機合成驗證；本 exact commit 的
+日期：2026-09-08。狀態：Rust reader／bytes-only SDK composite 已實作與本機合成驗證；本 exact commit 的
 跨平台 CI 驗收 **pending**。本機證據見下節，不代表 production gate 已完成。
 
 ## 決策與非目標
 
 以小型 Rust helper 補上 Node 公開 API 缺少的 descriptor-relative 開檔與
 fd-based ACL 檢查。這是單次、唯讀、指定 source 的 reader，不是 Rust Host
-大遷移；不接正式 Web／Node source service、不部署、不改固定來源 72h 長測。
-不 discovery HOME、不掃描私人 history、不載入 SDK、不啟動 native CLI、模型、
+大遷移；僅經新 composite service 驗證合成全鏈，不接正式 Web，不部署、不改固定來源 72h 長測。
+Rust helper 本身不 discovery HOME、不掃描私人 history、不載入 SDK、不啟動 native CLI、模型、
 登入或網路功能，不執行 JSONL 裡的指令，不建立 journal／approval／resume 證據。
 
 所有成功結果仍為 `sourceAuthenticated:false`、`publishable:false`。POSIX gate
@@ -174,7 +174,7 @@ provenance、Windows reader 支援或整體計畫完成；未來 advisories 仍�
 返回值檢查、ACL allocation 的唯一釋放。不雙重接管 raw fd、不重試關閉可能已被
 重用的 fd number，不把 unchecked errno／size 轉換帶進安全邏輯。
 
-Node runner 是獨立測試／實驗 adapter，不替換現有 source service。它限制 stdin、
+Node runner 是測試／實驗 adapter，由新 composite service 組合使用，不替換既有正式服務。它限制 stdin、
 header、raw frame／stderr 和 pending work；完整驗形／hash／nonce 後仍等 owned
 child actual close，再檢查 revoke／timeout 才能成功。abort、malformed frame、
 非零退出或 cleanup unknown 不得發布 partial 或 late bytes；未知 close 保留占用。
@@ -191,6 +191,65 @@ USERDOMAIN/USERNAME/USERPROFILE/WINDIR。實體 Node fixture 僅接受這些已�
 的系統注入鍵並仍驗 spawn env exact；不輸出值，不宣稱 Windows 已隔離 native HOME。
 Windows reader 仍 before-spawn unsupported，未利用這些欄位讀取任何來源。
 依據：[Node 22.19 libuv required_vars](https://github.com/nodejs/node/blob/v22.19.0/deps/uv/src/win/process.c#L50)。
+
+## Bytes-only SDK composite（Plan 1.44）
+
+新增 `history-native-service.js`，trusted Host 必須提供固定 helper／SDK 路徑與
+最多 256 筆已授權 root identity；整張表先 bounded detach，拒絕 getter／自訂
+iterator／unknown fields，browser 不得選擇這些依賴。既有 Node source service
+保留，沒有靜默 fallback；`capture()` 明確 unavailable，不冒充 raw capture parity。
+
+單條工作順序是 Rust actual close → 父層驗證固定 bytes frame → bytes-only Node
+worker → 官方固定版本 SDK → worker actual close → registry／HTTP／Client。
+Service 固定持有兩個 helper runner instance，最多兩條 composite flights、無
+queue，Rust 和 SDK 共用 10 秒 deadline＋1 秒 cleanup，不把兩階段相加成 20 秒。
+每個 binding 的 generation、version、lease／revoke、caller abort、shutdown
+在階段間及發布前重查；unknown-close 永久 quarantine 並停止其他 flight，實體
+slot 保留到 late actual close，status sweep 只釋放 slot，不解除 quarantine。
+
+`history-bytes-wire.js` v2 stdin 為 4-byte BE header＋16KiB 以內 metadata＋8MiB
+以內 raw bytes。只傳 request scope、native snapshot summary、pinned SDK path、
+page／expected fingerprint；**不傳 source 路徑，不建立 raw snapshot 暫存檔**。
+SHA／大小／session／identity／兩個 native checks 都由 child 重驗；回應仍最多
+256KiB，不回 raw records，native checks 不可降級成舊 mode-only profile。
+
+`history-bytes-worker.js` 的 Node permission 僅允許 12 個確定的 code／SDK 檔案，
+沒有 source-root／HOME／write／child-spawn grant。實際 owned sentinel 測試確認
+來源／相鄰檔案讀取、寫入、spawn 皆拒絕；owned 錯 hash SDK 未被執行。
+這是 reviewed SDK 的最小能力配置，不是惡意 JavaScript／native code 的 OS
+sandbox；`--max-old-space-size=128` 也不是 process RSS 上限。
+
+共用 strict TypeScript provider 接受兩種 exact check profile，兩者 authority
+仍全 false。HTTP／relay／transport／page controller 保留六種固定的 ACL、root
+identity、containment、identity、close 拒絕碼；任意 diagnostics／path 不外傳。
+失敗 refresh 保留既有頁面，不把讀取失敗顯示成空白歷史。
+
+`scripts/check-native-history-pipeline.mjs` 用自建 rich／compaction／file-history
+sources，實跑 Rust → 官方 SDK 0.3.259 → registry → loopback HTTP／relay →
+shared transport／provider／controller；含 owner/view 隔離、高 generation 重用、
+in-flight revoke、版本漂移、256KiB 大頁拒絕、原檔不變和 actual cleanup。
+既有 `checkHistoryAccess` 只增加 trusted factory 注入，default 舊 service 不變；
+官方 artifact downloader 保持 integrity pin，只抽出 callback 共用，unknown-close
+不刪除仍可能使用中的 SDK fixture。
+
+2026-09-08 本機 Node 22.19.0／22.22.3 及 CI 同款 `--download` 指令均通過；
+root 最後一次 Node 22.19 驗證與完整測試並行，整套 synthetic pipeline 3,728ms。
+這是整套測試時間，不是單次互動延遲；三個小來源為 3,621／3,141／2,965 bytes，
+不是大歷史效能證據。全套 Node 621 tests：619 pass／2 platform skips／0 fail；
+64 項 helper／bytes／composite／registry 測試全過，strict TS／artifact／syntax／
+version 與 1,251-case Ajv conformance 皆過。新 exact-commit 遠端 CI 另行核對。
+
+本鏈 `modelCalls:0`、`privateHistoryReads:0`、`productionWiring:false`。
+Windows report 的 native／SDK pipeline gate 明確 `source_platform_unsupported`，
+不把不執行當成功讀取。正式 trusted executable/root bootstrap、credential／catalog
+及 logout／rotation／device revoke 接線、Windows 完整 reader、來源 provenance、
+大來源記憶體／延遲及實機 UI 仍待，不因合成全鏈通過而上線。
+
+重跑（先以固定 Rust toolchain build，build output 使用本機絕對 temporary path）：
+
+```sh
+CARGO_TARGET_DIR=/absolute/local/build node scripts/check-native-history-pipeline.mjs --download
+```
 
 ## 已有本機證據與待驗收矩陣
 

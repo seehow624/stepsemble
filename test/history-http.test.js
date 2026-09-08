@@ -73,6 +73,22 @@ test("actual HTTP registration/page/release preserve inert envelope and inject h
   assert.ok(f.completed.every(row => row.req.listenerCount("data") === 0));
 });
 
+test("native reader denials preserve fixed codes without exposing source diagnostics", async t => {
+  let code, extra = {};
+  const f = await fixture(t, { observe: () => ({ kind: "source_unavailable", code, ...extra }) });
+  for (code of ["source_acl_unavailable", "source_acl_unsupported", "source_root_identity_changed", "source_containment_unavailable",
+    "source_identity_unavailable", "source_close_failed", "/private/synthetic-source"]) {
+    const result = await f.request();
+    assert.equal(result.status, 409);
+    assert.deepEqual(result.data, { kind: "source_unavailable", code: code.startsWith("/") ? "history_transport_failed" : code });
+    assert.ok(!result.bytes.includes(Buffer.from("private")));
+  }
+  code = "source_acl_unavailable"; extra = { path: "/private/synthetic-source", diagnostic: "private-detail" };
+  const invalid = await f.request();
+  assert.equal(invalid.status, 502); assert.equal(invalid.data.code, "history_response_invalid");
+  assert.ok(!invalid.bytes.includes(Buffer.from("private")));
+});
+
 test("browser boundary uses configured scheme/host/port and requires JSON/CSRF/Origin", async t => {
   const f = await fixture(t);
   for (const origin of [undefined, "null", "http://history.example:9443", "https://history.example", "https://evil.example:9443", `${ORIGIN}/`, `${ORIGIN}/path`, `${ORIGIN}, https://evil.example`]) {

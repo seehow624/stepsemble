@@ -32,6 +32,8 @@ var StepsembleHistoryTransport;
         "source_busy", "source_aborted", "source_version_changed", "source_version_unavailable", "source_observation_too_large",
         "source_platform_unsupported", "source_missing", "source_empty", "source_changed", "source_incomplete_tail", "source_invalid_json",
         "source_access_denied", "source_read_budget", "source_worker_timeout", "source_cleanup_unconfirmed", "source_service_quarantined",
+        "source_acl_unavailable", "source_acl_unsupported", "source_root_identity_changed", "source_containment_unavailable",
+        "source_identity_unavailable", "source_close_failed",
         "source_service_closed", "source_binding_revoked", "source_binding_mismatch", "source_sdk_unavailable"]);
     const pageValid = (v) => keys(v, ["offset", "limit"]) && Number.isSafeInteger(v.offset)
         && v.offset >= 0 && v.offset <= 2000 && positive(v.limit) && v.limit <= 100;

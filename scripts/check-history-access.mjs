@@ -13,9 +13,10 @@ import pagesModule from "../public/modules/history-pages.js";
 import providerModule from "../public/modules/claude-history.js";
 import projection from "../public/modules/projection.js";
 
-export async function checkHistoryAccess({ sdkPath, catalog }) {
+export async function checkHistoryAccess({ sdkPath, catalog, createService = sourceService.createSourceService }) {
   assert.ok(Array.isArray(catalog) && catalog.length > 1);
-  const service = sourceService.createSourceService({ sdkPath });
+  // Trusted test dependency only; never selected by an HTTP/browser field.
+  const service = createService({ sdkPath });
   const principals = new Set(["fixture-browser-a", "fixture-browser-b", "fixture-peer"]);
   const peerCredential = crypto.randomBytes(32).toString("hex");
   const registry = registryModule.createHistoryRegistry({ sourceService: service,

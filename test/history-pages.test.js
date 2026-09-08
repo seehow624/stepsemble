@@ -203,6 +203,18 @@ test("invalid scope/page/dependency/UUID input never initiates reads or erases g
   noScope.dispose(); assert.deepEqual(await noScope.refresh(), unavailable("history_disposed"));
   assert.deepEqual(noScope.reset(scopeFor(defaultCase)), unavailable("history_disposed"));
 });
+test("native reader denials retain existing pages and expose only fixed error codes", async () => {
+  for (const code of ["source_acl_unavailable", "source_acl_unsupported", "source_root_identity_changed", "source_containment_unavailable",
+    "source_identity_unavailable", "source_close_failed"]) {
+    const h = harness(); await h.finish(h.api.refresh({ offset: 0, limit: 2 }));
+    const before = h.api.state(), pending = h.api.refresh({ offset: 0, limit: 2 });
+    h.calls.at(-1).resolve({ kind: "source_unavailable", code });
+    assert.deepEqual(await pending, unavailable(code));
+    assert.equal(h.api.state().error, code); assert.equal(h.api.state().sourceVersion, before.sourceVersion);
+    assert.deepEqual(h.api.state().pages, before.pages);
+  }
+});
+
 test("unknown errors are sanitized; provider denial never becomes trusted data", async () => {
   const h = harness(), p = h.api.refresh(); h.calls[0].resolve({ kind: "source_unavailable", code: "/private/secret" });
   assert.deepEqual(await p, unavailable("history_read_failed")); assert.equal(h.api.state().error, "history_read_failed");

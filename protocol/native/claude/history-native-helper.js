@@ -1,6 +1,6 @@
 "use strict";
-// Standalone, reserved owned-child runner. Not connected to the source service,
-// an HTTP route, private history, native account, SDK, UI or model invocation.
+// Reserved owned-child runner, used by the synthetic native composite service.
+// No production route, private history, native account, UI or model invocation.
 const path = require("node:path"), crypto = require("node:crypto");
 const { spawn } = require("node:child_process"), { performance } = require("node:perf_hooks");
 const { normalizeSourceInput } = require("./history-source");

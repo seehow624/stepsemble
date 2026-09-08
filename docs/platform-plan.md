@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.43
+> 計畫版本：1.44
 > 最後更新：2026-09-08
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -59,7 +59,7 @@
 | Claude共用browser provider | strict TS decoder／shared Host validator已實作 | 固定reader profile、完整source/observation shape共用generated JS；inner 256KiB、outer HTTP解壓後272KiB先限額再fatal UTF-8/JSON decode，拒getter/cycle/nonJSON。官方SDK→隔離worker→registry→HTTP→browser transport→controller合成鏈已驗，未接正式來源 |
 | Claude 歷史認證／relay | 隔離模組及HTTP測試已實作 | private identity接既有credential authority、Origin/CSRF、invalid bearer不fallback、bounded decoder、deadline/disconnect/revoke；relay只用dedicated peer，gateway維護bounded downstream owner/view映射。正式logout/rotation/device revoke/Host選擇尚未接線；不是end-user native source provenance，見history-access-design.md |
 | Claude SDK 執行bytes | exact verified Buffer loader已實作 | bounded fd read＋固定SHA、sync resolve/load hooks執行已驗Buffer，獨立nonce避plain URL cache，每worker一次attempt。Node22.19.0實跑SDK全鏈通過；source ACL/atomic containment、依賴及OS sandbox仍未保證 |
-| 原生唯讀 reader 邊界 | 小型 Rust helper 與 Node runner 已實作 | POSIX逐層no-follow、trusted root identity、fd ACL/localFS、8MiB雙讀；macOS本機10Rust tests及Node22.19真binary鏈過。Windows有owner/DACL/relative-handle實際probe但CLI仍unsupported；三OS本exactcommit CI待核。未接既有sourceService或正式Web，見`native-history-reader.md` |
+| 原生唯讀 reader 邊界 | Rust helper＋bytes-only SDK composite 已實作 | POSIX逐層no-follow、trusted root identity、fd ACL/localFS、8MiB雙讀；`4c07464`三OS reader jobs過（Mac10/Linux11/Windows7 Rust tests），Windows只有owned permission probe與unsupported gate。新composite固定2flights、共用10s/1s、actual-close/quarantine；最低Node22.19合成Rust→SDK→HTTP/relay→provider全鏈通過，正式Web未接，見`native-history-reader.md` |
 | Claude clone記憶體嘗試 | 已量測並撤回 | 同workload兩次12輪，structuredClone＋提前清引用讓worker高水位合計中位數421.164→408.852MiB，但round283.539→296.171ms。沒有證明順滑度改善，保留原JSON clone並存完整before/after與重現方法；memory優化仍待，見claude-history-performance.md |
 | Claude 官方登入入口 | Mini當前detected，正式3.0.6 | 使用者回報瀏覽器登入，助手回completed／detected；另行同意的直接CLI最小模型測試成功。metadata API仍liveVerified=false，不以一次成功保證永久有效；不自動修憑證／重試模型，詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
@@ -70,9 +70,9 @@
 
 ### 下一個可執行任務
 
-**1.43 開發接續**：在1.42的registry／HTTP／relay／transport／isolated viewer後，已新增小型standalone Rust reader與owned Node runner。它補上descriptor-relative開檔與fd ACL檢查，尚未接入既有Node sourceService；不能將舊preview說成已走Rust或已正式上線。Mac本機10Rust／16Node tests及最低Node22.19 actualbinary→parser鏈已過，三OS本exactcommit及依賴audit須實際核對。詳細見`native-history-reader.md`。
+**1.44 開發接續**：已串通Rust capture→bytes-only permission worker→official pinned SDK→registry／HTTP／relay→shared provider/controller的自建資料全鏈。新SDK worker只有12個exact code/SDK grants，不再取得source-root目錄樹或raw暫存檔。固定兩條flight共用10s deadline/1s cleanup，unknown-close不釋放slot且永久quarantine。全套本機621tests＝619pass/2skip/0fail，strictTS/artifacts/syntax/version與1251-case conformance全過；新composite的exactcommit三OS/rolling仍須看其CI。底層`4c07464`三OSreader jobs已過，dependency audit的`2fd9fb8`官方RustSec DB/lock本次0已知漏洞/0warnings；不把不同revision的結果混成fullHEAD已驗。
 
-接下來依安全順序：核對native reader三OS／依賴後，由既有Host authority串接Rust capture及bytes-only Node SDK worker，共用2-flight／10s deadline／revoke／actual-close與quarantine，移除SDK worker的source-root樹狀grant；不給受限worker新增spawn權限或寫raw snapshot暫存檔。先synthetic全鏈，再處理trusted executable/root bootstrap、Windows完整read/close、正式credential/catalog/logout/rotation/device revoke/shutdown、Host選擇/remote UI，補rolling、實機背景恢復與多輪效能。Rootinode／ACL／雙讀不是native provenance／同UID隔離／原子namespace snapshot，Nodepermission也非惡意程式sandbox。whole-source memory改善、其他unscoped/partial、附件/subagent/supersession、approval ACK/resume、durable仍待。Codex non_native_route需本人決定，Claude單次模型同意已用，本輪只synthetic、無私人history/model/login/route。publishable/authority全false；10s+1s非hard realtime。72h固定ab227af／rc.1不重設，不提前部署或啟動Rust/DB大遷移。
+接下來依安全順序：核對新composite三OS／依賴與rolling，量測大來源記憶體／延遲，再處理trusted executable/root bootstrap、Windows完整read/close、正式credential/catalog/logout/rotation/device revoke/shutdown、Host選擇/remote UI，補實機背景恢復與多輪效能。Rootinode／ACL／雙讀不是native provenance／同UID隔離／原子namespace snapshot，Nodepermission也非惡意程式sandbox。whole-source memory改善、其他unscoped/partial、附件/subagent/supersession、approval ACK/resume、durable仍待。Codex non_native_route需本人決定，Claude單次模型同意已用，本輪只synthetic、無私人history/model/login/route。publishable/authority全false；10s+1s非hard realtime。72h固定ab227af／rc.1不重設，09-08 01:01Z仍running約37.46h／4451cycles／35608ACK／graceful/crash各111，不提前部署或啟動Rust/DB大遷移。
 
 **2026-09-07 品牌候選**：Jerome明確確認B+為最終方向。新的
 `public/stepsemble-mark.svg` 是向量母版，使用單一module／connector在
@@ -969,6 +969,15 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-08 — Plan 1.44
+
+- 新增v2 bytes-only worker/wire與native composite service：Rust關閉後才把已驗8MiB有界bytes送往SDK worker，無source-root grant、raw暫存或spawn/write權限；只允12個exactcode/SDK檔案，真permissionprobe拒外部讀/寫/spawn。回覆維持native ACL/containment checks，拒降級，所有authority仍false。
+- 固定兩helper/兩flight、無queue；兩stage共用10s＋1s cleanup，跨stage/revoke/version/lease/generation fencing及永久quarantine，lateclose僅釋slot。root table整表bounded detach阻getter/iterator繞上限，helper reply在取值前驗descriptor；64cross-layertests過。
+- 新增actual native pipeline腳本，可用固定SDKartifact `--download`，重用trusted factory注入的HTTP/relay gate；Node22.19.0/22.22.3均實跑rich/compaction/file-history/版本/大頁拒絕/ownertransfer/inflightrevoke/cleanup。原legacySDKgate仍過。HTTP/client保留六種固定source拒絕碼，未知diagnostic/path不外洩，failedrefresh不丟舊頁。
+- 本機621tests＝619pass/2platformskip/0fail、strictTS/artifacts/syntax/version、1251Ajvconformance過。新exactcommit跨OS/rolling另核對，不以本機代替遠端。`4c07464`原生reader三OSjob已過：Mac10/Linux11/Windows7Rusttests；Windows7包含3ownedpermissionprobe，不是完整Windowsreader。修復CI runner.temp非法context、Winlibuv系統envfixture、Linuxunsafe註解位置、Windowsfixture建立時owner/DACL，未略過失敗。
+- cargo-audit0.22.2/官方DB `8a1eb4f933fb5821add5b4e98601ebd90b8b3538`，lock SHA `6583452ddbf9af1e6cce6623144f94660c4108c6877efa02e1e58b90d28f2e25`；33packages含root、0已知漏洞/0warnings，LinuxCI2fd9fb8auditjob實際過。新workflow增加三OSactual native→SDK→HTTP gate與v2負測。
+- 所有資料自建，modelCalls0/privateHistoryReads0，正式3.0.6/帳號/路由/B+資產不變；72h未到期不提前pass。正式Host接線/Windowsreader/nativeprovenance/durable/approval/resume/RustHost/Tauri/iOS/各平台完整體仍未完成，這一批不是全產品完成宣告。
 
 ### 2026-09-08 — Plan 1.43
 

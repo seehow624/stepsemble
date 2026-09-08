@@ -8,11 +8,19 @@ on:
       - 'rust-toolchain.toml'
       - 'scripts/check-native-history-reader.mjs'
       - 'scripts/check-native-history-dependencies.mjs'
-      - 'server/native-history-reader*.js'
-      - 'protocol/native/claude/native-history-reader*.js'
-      - 'protocol/native/claude/history-native-helper.js'
-      - 'test/native-history-reader*.test.js'
-      - 'test/claude-history-native-helper.test.mjs'
+      - 'scripts/check-native-history-pipeline.mjs'
+      - 'scripts/check-native-claude-history.mjs'
+      - 'scripts/check-history-access.mjs'
+      - 'scripts/build-client.mjs'
+      - 'server/history-*.js'
+      - 'protocol/native/claude/**'
+      - 'client/claude-history*.ts'
+      - 'client/history-*.ts'
+      - 'public/modules/claude-history*.js'
+      - 'public/modules/history-*.js'
+      - 'public/modules/projection.js'
+      - 'test/claude-history*.test.*'
+      - 'test/history-*.test.js'
       - 'docs/native-history-reader.md'
       - '.github/workflows/native-history-reader.yml'
   pull_request:
@@ -21,11 +29,19 @@ on:
       - 'rust-toolchain.toml'
       - 'scripts/check-native-history-reader.mjs'
       - 'scripts/check-native-history-dependencies.mjs'
-      - 'server/native-history-reader*.js'
-      - 'protocol/native/claude/native-history-reader*.js'
-      - 'protocol/native/claude/history-native-helper.js'
-      - 'test/native-history-reader*.test.js'
-      - 'test/claude-history-native-helper.test.mjs'
+      - 'scripts/check-native-history-pipeline.mjs'
+      - 'scripts/check-native-claude-history.mjs'
+      - 'scripts/check-history-access.mjs'
+      - 'scripts/build-client.mjs'
+      - 'server/history-*.js'
+      - 'protocol/native/claude/**'
+      - 'client/claude-history*.ts'
+      - 'client/history-*.ts'
+      - 'public/modules/claude-history*.js'
+      - 'public/modules/history-*.js'
+      - 'public/modules/projection.js'
+      - 'test/claude-history*.test.*'
+      - 'test/history-*.test.js'
       - 'docs/native-history-reader.md'
       - '.github/workflows/native-history-reader.yml'
   workflow_dispatch:
@@ -99,5 +115,9 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-native-history-reader
         run: node scripts/check-native-history-reader.mjs
-      - name: Node helper transport negative cases
-        run: node --test --test-timeout=60000 test/claude-history-native-helper.test.mjs
+      - name: Actual Rust to pinned SDK to HTTP pipeline (owned sources only)
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-native-history-reader
+        run: node scripts/check-native-history-pipeline.mjs --download
+      - name: Node helper and bytes-only service negative cases
+        run: node --test --test-timeout=60000 test/claude-history-native-helper.test.mjs test/claude-history-bytes-worker.test.js test/claude-history-native-service.test.js

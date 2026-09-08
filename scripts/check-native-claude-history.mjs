@@ -239,8 +239,10 @@ export async function capture(suppliedSdk) {
       nativeFileUnchanged: true, sdkSha256, scope: "Offline read-only SDK history contract with synthetic HTTP credentials; no native CLI/model/auth, live approval, reconnect or durable-store verification" };
   } finally { await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
 }
-export async function downloadCapture() {
+export async function withDownloadedSdk(callback) {
+  assert.equal(typeof callback, "function");
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-claude-history-sdk-"));
+  let cleanupConfirmed = true;
   try {
     // Fetch one public integrity-pinned artifact, not a floating npm dependency
     // tree. Extract only the bundled JS and metadata; no native CLI is installed.
@@ -259,9 +261,11 @@ export async function downloadCapture() {
     const tarEnv = environment(temp);
     tarEnv.PATH = process.platform === "win32" ? path.join(process.env.SystemRoot || process.env.SYSTEMROOT || "C:\\Windows", "System32") : "/usr/bin:/bin";
     await exec("tar", ["-xzf", archive, "-C", temp, "package/sdk.mjs", "package/package.json"], { env: tarEnv, timeout: 10000, maxBuffer: 65536 });
-    return await capture(path.join(temp, "package/sdk.mjs"));
-  } finally { await fs.rm(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
+    return await callback(await fs.realpath(path.join(temp, "package/sdk.mjs")));
+  } catch (error) { if (error.cleanupUnconfirmed === true) cleanupConfirmed = false; throw error; }
+  finally { if (cleanupConfirmed) await fs.rm(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
 }
+export async function downloadCapture() { return withDownloadedSdk(capture); }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const args = process.argv.slice(2);
   if (args[0] === "--worker" && args.length === 3) console.log(JSON.stringify(await worker(args[1], args[2])));

@@ -153,6 +153,23 @@ test("provider enforces the exact shared envelope, source, reader, metrics and a
   }
 });
 
+test("native observed checks are an exact non-authoritative profile, not partial or upgraded claims", async () => {
+  const client = makeClient(), history = await historyFor(defaultCase);
+  history.source.checks.acl = "no_extended_acl";
+  history.source.checks.containment = "root_identity_and_openat_nofollow";
+  assert.equal(provider.validSourceChecks(history.source.checks),true);
+  assert.deepEqual(client.parseHistory(history,defaultCase.sessionId,page),history);
+  const browser = loadBrowserModules();
+  assert.equal(browser.StepsembleClaudeHistory.validHistoryValue(history,defaultCase.sessionId,page),true);
+  for (const mutate of [h=>{delete h.source.checks.acl;},h=>{delete h.source.checks.containment;},
+    h=>{h.source.checks.acl="owner_only";},h=>{h.source.checks.containment="atomic_snapshot";},
+    h=>{h.source.checks.sourceAuthenticated=true;},h=>{h.source.sourceAuthenticated=true;},h=>{h.publishable=true;}]) {
+    const changed=bad(history,mutate);
+    assert.equal(client.parseHistory(changed,defaultCase.sessionId,page),null);
+    assert.equal(browser.StepsembleClaudeHistory.validHistoryValue(changed,defaultCase.sessionId,page),false);
+  }
+});
+
 test("nested content, tool pointers, auxiliary records and reported API errors remain fail-closed", async () => {
   const client = makeClient();
   const toolHistory = await historyFor(richCases.find(testCase => testCase.name === "rich"));

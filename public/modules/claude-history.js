@@ -19,6 +19,16 @@ var StepsembleClaudeHistory;
         return keys(v, ["offset", "limit"]) && integer(v.offset) && v.offset <= StepsembleClaudeHistory.LIMITS.sourceRecords
             && positive(v.limit) && v.limit <= StepsembleClaudeHistory.LIMITS.pageMessages;
     }
+    /** Two exact observed-check profiles; neither grants native authenticity.
+     * Native workers additionally REQUIRE the native profile, never downgrade. */
+    function validSourceChecks(v) {
+        return (keys(v, ["owner", "reads", "matchingBytes", "unchangedObservedIdentity"])
+            || keys(v, ["owner", "reads", "matchingBytes", "unchangedObservedIdentity", "acl", "containment"])
+                && v.acl === "no_extended_acl" && v.containment === "root_identity_and_openat_nofollow")
+            && v.owner === "posix_euid_and_mode" && v.reads === 2
+            && v.matchingBytes === true && v.unchangedObservedIdentity === true;
+    }
+    StepsembleClaudeHistory.validSourceChecks = validSourceChecks;
     function validSource(v, sessionId) {
         return keys(v, ["kind", "sessionId", "recordCount", "byteLength", "sha256", "identity", "checks", "sourceAuthenticated", "publishable"])
             && v.kind === "source_snapshot_summary" && v.sessionId === sessionId && v.sourceAuthenticated === false && v.publishable === false
@@ -26,9 +36,7 @@ var StepsembleClaudeHistory;
             && keys(v.identity, ["device", "inode", "size", "mtimeNs", "ctimeNs"])
             && ["device", "inode", "mtimeNs", "ctimeNs"].every(k => decimal(v.identity[k]))
             && v.identity.inode !== "0" && v.identity.size === v.byteLength
-            && keys(v.checks, ["owner", "reads", "matchingBytes", "unchangedObservedIdentity"])
-            && v.checks.owner === "posix_euid_and_mode" && v.checks.reads === 2
-            && v.checks.matchingBytes === true && v.checks.unchangedObservedIdentity === true;
+            && validSourceChecks(v.checks);
     }
     /** Host fast path ONLY for already byte-bounded, detached JSON and validated
      * scope/page. Browser callers should use create().parse/validate/decodeHistory.

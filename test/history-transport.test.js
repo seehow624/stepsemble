@@ -138,7 +138,8 @@ test("registration and release reply identities and authority never accept extra
 
 test("HTTP denial and thrown failures are sanitized without body or exception diagnostics", async () => {
   for (const code of ["history_principal_unavailable", "history_source_unavailable", "history_binding_unavailable", "history_view_conflict",
-    "history_capacity_unavailable", "history_registry_closed", "history_registry_unavailable", "history_unauthorized", "history_origin_rejected", "history_csrf_rejected"]) {
+    "history_capacity_unavailable", "history_registry_closed", "history_registry_unavailable", "history_unauthorized", "history_origin_rejected", "history_csrf_rejected",
+    "source_acl_unavailable", "source_acl_unsupported", "source_root_identity_changed", "source_containment_unavailable", "source_identity_unavailable", "source_close_failed"]) {
     const response = { kind: "source_unavailable", code };
     assert.deepEqual(await read(make(async () => fakeResponse([encode(response)], { ok: false }).response)), response);
   }
