@@ -106,7 +106,10 @@ Helper 只交付 bytes；JSONL UTF-8／逐行大小／record count／session sco
 3. 所有 authority 檢查都針對已開 fd，不使用 pathname ACL query、`/proc/self/fd`
    拼接或檢查後重新 absolute-path open。File 必須 regular、owner 符合、無
    group/other write、single link，且 `0 < size <= 8MiB`。
-4. 由 fd 的 `fstatfs` 取得 filesystem type。本階段 macOS 只接受 APFS／HFS，
+4. 由 fd 的 `fstatfs` 取得 filesystem type。本階段 macOS 只接受 local APFS／HFS
+   且不得設定 `MNT_IGNORE_OWNERSHIP`（`noowners`）；該模式會把 apparent owner
+   解釋為 current euid，不能靠 UID/mode 視作隔離。讀取器回
+   `source_containment_unavailable`，不修改掛載或修權限。
    Linux 只接受 ext4／XFS／Btrfs／tmpfs；root/project/file device 必須相同。
    未知 filesystem、NFS／SMB／FUSE 或查詢失敗 unavailable；不可降級成 mode-only。
    Linux ext 家族共用 filesystem magic，不能只憑該值宣稱辨認了特定 ext 版本。
@@ -257,6 +260,31 @@ CARGO_TARGET_DIR=/absolute/local/build node scripts/check-native-history-pipelin
 ```
 
 ## 已有本機證據與待驗收矩陣
+
+2026-09-08 Plan 1.45 補上 macOS noowners 拒絕：本機官方 SDK `sys/mount.h`
+定義 `MNT_IGNORE_OWNERSHIP=0x00200000`（alias `MNT_UNKNOWNPERMISSIONS`），
+`mount(8)` 說明 noowners 將 apparent UID 99 解釋為 current effective UID。
+既有 local/type allowlist 不足，因此加入 mounted ownership policy 正反單測；
+Mac Rust 由 10 增至 11 項，本機全過，fmt／Clippy／locked debug/release build 過。
+在 internal temp 的實際 Node→Rust 正常來源成功；另外將同一合成 checker 的
+TMPDIR 指向 devkit 上自己建立的空目錄，取得 exact `source_containment_unavailable`，
+而不是 SDK 或 frame error。Reader actual close、來源 fixture 清理與父空目錄清理
+皆確認；没有 remount、沒有讀取私人來源或更改使用者權限。這個安全補強晚於下方
+`3a8bb4d` 的驗收，須以後續 exact revision CI 為準；既有 benchmark/browser
+數據保留各自 old binary SHA，不冒充已測新 binary。新的 release SHA256 是
+`9045ccb6e22fbd3a08d02c91aa5b7b8a5b8e7263393c874fd6ef1cb9e0937aa0`。
+此條件也不保證特權管理者在觀測間瞬間 remount 的原子安全，既有 namespace
+及 trusted executable 限制保持不變。
+
+Preview exact `3a8bb4dcdb862d577fab8f89ac43b22146edf2da` 的四組
+[一般 CI](https://github.com/seehow624/stepsemble/actions/runs/34176030867)、
+[Native Claude](https://github.com/seehow624/stepsemble/actions/runs/34176030870)、
+[Native reader](https://github.com/seehow624/stepsemble/actions/runs/34176030859)、
+[手動 Rolling](https://github.com/seehow624/stepsemble/actions/runs/34176052550)
+全部成功。624 項一般測試：Mac 622 pass／2 skip、Linux 621／3、Windows 599／25，
+0 fail；reader 各 44/44 Node negatives、當時 Mac10/Linux11/Windows7 Rust tests；
+同一 official DB／lock 的 fresh audit 0 已知漏洞／0 warnings。此結果沒有略過前面
+發現的 Windows 或 Linux CI failure，而是修正後完整再驗。
 
 Core exact `d3e2fe1cbb8818e4b5d4850a7d8285897fc25d99`：
 [一般 CI](https://github.com/seehow624/stepsemble/actions/runs/34175539973)、

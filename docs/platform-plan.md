@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.44
+> 計畫版本：1.45
 > 最後更新：2026-09-08
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -69,6 +69,13 @@
 | 隔離72h長測 | 2026-09-06 11:34Z 已開始 | clean `ab227af`（runtime `2b7f0b6`）；8tasks／16clients，預計09-09 11:34Z結束；同對話每小時追蹤。未passed，不代替native／實機／durable gate |
 
 ### 下一個可執行任務
+
+**1.45 安全補強**：最後本機環境檢查確認 macOS `noowners` 會忽略擁有者資訊，
+不能以 `uid==euid` 及 owner-only mode 視作 UID 隔離；Rust fd mount policy 已明確
+拒絕該旗標。Mac Rust 11tests／fmt／clippy／locked builds過，內部temp正常讀取與
+devkit自建temp實際拒絕皆驗證，未改磁碟設定或私人來源。`3a8bb4d` 的四組exact
+CI已全過（34176030867／34176030870／34176030859／34176052550），本補強之後
+須看自己的CI，不沿用舊binary／benchmark結果。其他下一步沿用下面1.44清單。
 
 **1.44 開發接續**：已串通Rust capture→bytes-only permission worker→official pinned SDK→registry／HTTP／relay→shared provider/controller的自建資料全鏈，並以explicit native backend在隔離預覽完成真browser驗收。新SDK worker只有12個exact code/SDK grants，不再取得source-root目錄樹或raw暫存檔。固定兩條flight共用10s deadline/1s cleanup，unknown-close不釋放slot且永久quarantine。core `d3e2fe1`四組CI（34175539973／34175540015／34175539992／34175540044）全綠，包含3OSreader/SDK和0advisory audit及2OSrolling；Windowsnativepipeline仍unsupported。後續preview新增3tests後本機624tests＝622pass/2skip/0fail，該preview的exactcommit另核對CI；不把不同revision的結果混成fullHEAD已驗。
 
@@ -969,6 +976,12 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-08 — Plan 1.45
+
+- macOS mount policy增加`!MNT_IGNORE_OWNERSHIP`，`noowners`來源回固定containment unavailable，不以UID/mode或ACL觀測假裝仍有一般ownership約束；localAPFS/HFS與其他所有gate保留。只改reader，不修改mount、正式登入/服務、私人history或B+母圖。
+- 官方localSDK mount.h/mount(8)確認原因，Mac新增pure flags/fs正反test後Rust11/11；fmt/clippy/lockeddebug+release過。自建internal來源成功、devkit noowners來源實際拒絕且ownedcleanup確認，model/private0。詳細evidence與新releaseSHA見native-history-reader.md。
+- 此修正晚於已全綠的3a8bb4d四workflow，本exactcommit需重驗。preview本機624tests622pass2skip0fail、CUA與6項previewtests已完成，性能及browser資料保留其測試時各自hash，沒有虛假覆蓋新binary。整套roadmap、Windows來源、正式wire、72h及Apps仍未完成。
 
 ### 2026-09-08 — Plan 1.44
 

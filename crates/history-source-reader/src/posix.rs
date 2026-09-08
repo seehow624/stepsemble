@@ -77,6 +77,20 @@ fn root(path: &str) -> Result<File, Error> {
     Ok(current)
 }
 
+#[cfg(target_os = "macos")]
+fn macos_mount_policy(flags: u32, filesystem: &[u8]) -> Result<(), Error> {
+    // SDK sys/mount.h: IGNORE_OWNERSHIP means VFS ignores object ownership.
+    // mount(8) noowners maps the apparent owner to the current effective UID;
+    // observing uid == euid and owner-only modes does not establish UID isolation.
+    if flags & libc::MNT_LOCAL as u32 == 0
+        || flags & libc::MNT_IGNORE_OWNERSHIP as u32 != 0
+        || ![b"apfs".as_slice(), b"hfs".as_slice()].contains(&filesystem)
+    {
+        return Err(Error::ContainmentUnavailable);
+    }
+    Ok(())
+}
+
 fn local_filesystem(file: &File) -> Result<(), Error> {
     let mut info = MaybeUninit::<libc::statfs>::uninit();
     // SAFETY: a valid borrowed fd and correctly sized writable statfs storage.
@@ -93,11 +107,7 @@ fn local_filesystem(file: &File) -> Result<(), Error> {
             .take_while(|v| **v != 0)
             .map(|v| *v as u8)
             .collect();
-        if info.f_flags & libc::MNT_LOCAL as u32 == 0
-            || ![b"apfs".as_slice(), b"hfs".as_slice()].contains(&name.as_slice())
-        {
-            return Err(Error::ContainmentUnavailable);
-        }
+        macos_mount_policy(info.f_flags, &name)?;
     }
     #[cfg(target_os = "linux")]
     {
@@ -347,6 +357,32 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::{PermissionsExt, symlink};
     use std::path::PathBuf;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_mount_policy_requires_local_supported_and_enforced_ownership() {
+        let local = libc::MNT_LOCAL as u32;
+        let noowners = libc::MNT_IGNORE_OWNERSHIP as u32;
+        for filesystem in [b"apfs".as_slice(), b"hfs".as_slice()] {
+            assert_eq!(macos_mount_policy(local, filesystem), Ok(()));
+            assert_eq!(
+                macos_mount_policy(local | libc::MNT_RDONLY as u32, filesystem),
+                Ok(())
+            );
+            for flags in [0, noowners, local | noowners, u32::MAX] {
+                assert_eq!(
+                    macos_mount_policy(flags, filesystem),
+                    Err(Error::ContainmentUnavailable)
+                );
+            }
+        }
+        for filesystem in [b"".as_slice(), b"nfs", b"smbfs", b"APFS", b"apfs\0"] {
+            assert_eq!(
+                macos_mount_policy(local, filesystem),
+                Err(Error::ContainmentUnavailable)
+            );
+        }
+    }
 
     struct Fixture {
         _temp: tempfile::TempDir,
