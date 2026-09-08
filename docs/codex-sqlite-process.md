@@ -123,6 +123,12 @@ guarded缺sidecar回覆／bytes/名稱不變，再於**unguarded cold負向控�
 heap-index fallback符合觀測。現在針對這個未受保護控制逐平台核exact回覆與sidecars，
 不是放寬guarded no-create/no-write、skip Windows或宣稱cold DB已支援。
 
+`6e7eabc`／reader`34267894535`的Windows後續到kill case又抓到**測試清理順序競態**：
+parent先drop stdin才kill，held child可先收到EOF並panic；其stderr使gate失敗。
+`...winfix-windows-third.log`保留空輸入對finish訊息的斷言。現在kill路徑保留stdin
+直到actual exit/reap才drop，normal close路徑不變；仍要求kill非成功退出、stderr空、
+pipes EOF及checkpoint恢復。不忽略child panic，也不把此問題誤稱正式worker已修復。
+
 下一個必做仍是**descriptor-backed DB/WAL/SHM source opener**與角色／ACL／local
 mount／replacement checks，然後正式reader worker共用admission、sourceVersion、
 Codex明確opt-in／inventory／registry／HTTP/Web。cold DB缺sidecar的完整讀取方案

@@ -408,9 +408,14 @@ impl Worker {
         self.lines.recv_timeout(WAIT).expect("bounded child reply")
     }
     fn finish(&mut self, killed: bool) {
-        self.input.take();
         if killed {
+            // Keep stdin live through actual exit. Closing it first lets the
+            // held reader observe EOF and panic before Windows terminates it,
+            // turning a kill/OS-lock test into an accidental protocol failure.
+            assert!(self.input.is_some());
             self.child.kill().unwrap();
+        } else {
+            self.input.take();
         }
         let start = Instant::now();
         loop {
@@ -423,6 +428,7 @@ impl Worker {
             assert!(start.elapsed() < WAIT, "child did not actually close");
             thread::sleep(Duration::from_millis(5));
         }
+        self.input.take();
         self.output.take().unwrap().join().unwrap();
         let errors = self.errors.take().unwrap().join().unwrap();
         assert!(
