@@ -130,4 +130,4 @@ jobs:
           CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-native-history-reader
         run: node scripts/check-native-history-pipeline.mjs --download
       - name: Node helper and bytes-only service negative cases
-        run: node --test --test-timeout=60000 test/claude-history-native-helper.test.mjs test/claude-history-bytes-worker.test.js test/claude-history-native-service.test.js
+        run: node --test --test-timeout=60000 test/claude-history-native-helper.test.mjs test/claude-history-inventory.test.js test/claude-history-bytes-worker.test.js test/claude-history-native-service.test.js

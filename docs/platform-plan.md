@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.48
+> 計畫版本：1.49
 > 最後更新：2026-09-08
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -10,7 +10,13 @@
 
 ## 文件用途與回復方法
 
-**最新增量 1.48／3.0.7-rc.5（開發候選、未部署）**：已加入同主機 Pi 歷史＋
+**最新增量 1.49（開發版仍3.0.7-rc.5，未部署）**：Rust已新增explicit-root的
+Claude主對話metadata雙掃，Host-private索引可辨識增改刪、穩定ID與失敗stale保留。
+本批只做安全來源探索核心，未接來源設定／動態registry／Web，沒有讀取私人history、
+取得原生title或完成全來源自動收錄。下一步接來源一次授權、global admission、原生
+metadata／catalog分頁與按需讀取；詳見[原生來源探索](native-history-discovery.md)。
+
+**前一增量 1.48／3.0.7-rc.5（開發候選、未部署）**：已加入同主機 Pi 歷史＋
 Stepsemble 多 Agent 工作的統一清單，來源／類型篩選、搜尋、50列分頁、獨立捲動，
 及慢回覆跨主機執行狀態隔離。這是既有來源的**呈現索引**，不是其他原生CLI歷史的
 自動探索、完整歷史或續跑實作。其餘來源一次授權／增量探索、native approval/resume、
@@ -68,6 +74,7 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 | Claude 歷史認證／relay | rc.3 已接既有 credential／Host 選擇，未部署 | private config逐來源授權browser/peer，Origin/CSRF、invalid bearer不fallback、logout/login/token/grant/machine/shutdown撤銷已接線；relay只用dedicated peer，gateway維護bounded downstream owner/view映射。不是下游來源ACL／end-to-end delegation／native provenance，見history-host-integration.md |
 | Claude SDK 執行bytes | exact verified Buffer loader已實作 | bounded fd read＋固定SHA、sync resolve/load hooks執行已驗Buffer，獨立nonce避plain URL cache，每worker一次attempt。Node22.19.0實跑SDK全鏈通過；source ACL/atomic containment、依賴及OS sandbox仍未保證 |
 | 原生唯讀 reader 邊界 | Rust helper＋bytes-only SDK，rc.3 已接 Host／未部署 | POSIX逐層no-follow、trusted root identity、fd ACL/localFS、8MiB雙讀；macOS拒絕noowners，Windows來源仍unsupported。composite固定2flights、共用10s/1s、actual-close/quarantine；最低Node22.19合成Rust→SDK→actual Host gate本機過。逐commit跨OS證據與範圍見history-host-integration.md |
+| Claude原生來源探索 | Plan1.49核心已實作，未接Host/Web | explicit-root metadata双掃，10k entries／512projects／2048candidates／1MiB，fd owner/ACL/mount不降級；增改刪、exact-source ID與stale snapshot。沒有HOME掃描／私人來源／title推測；動態catalog/來源授權/原生metadata/全域預算仍待，見native-history-discovery.md |
 | Claude clone記憶體嘗試 | 已量測並撤回 | 同workload兩次12輪，structuredClone＋提前清引用讓worker高水位合計中位數421.164→408.852MiB，但round283.539→296.171ms。沒有證明順滑度改善，保留原JSON clone並存完整before/after與重現方法；memory優化仍待，見claude-history-performance.md |
 | Claude 官方登入入口 | Mini當前detected，正式3.0.6 | 使用者回報瀏覽器登入，助手回completed／detected；另行同意的直接CLI最小模型測試成功。metadata API仍liveVerified=false，不以一次成功保證永久有效；不自動修憑證／重試模型，詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
@@ -78,7 +85,14 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 
 ### 下一個可執行任務
 
-**1.46 最新開發增量（3.0.7-rc.3，未部署）**：Claude 唯讀歷史已接入實際
+**1.49接續**：不要重做Rust目錄inventory或Pi/task呈現索引。先把source-group
+明確一次授權與可讀credential範圍接到private config／registry，全Host共用reader
+admission、dynamic source撤銷與bounded catalog paging；再加固定版本native title
+metadata及按需讀取，才接Web。不得用UUID當原生session名稱，不能把2048項Host-private
+snapshot直接塞進舊256項／Host-wide catalog，或為了「自動」默認分享整個HOME。
+本批新helper已驗合成資料，完整原生體驗、正式部署與Windows仍待。
+
+**1.46 歷史開發增量（3.0.7-rc.3，未部署）**：Claude 唯讀歷史已接入實際
 `server.js`、Agent Hub連結及獨立歷史頁，不再只存在隔離preview。預設停用，
 操作員private config逐來源指定browser token ID／incoming peer grant；新增安全
 config建立／check工具，沒有替owner選取或分享私人session。logout／成功登入／
@@ -1013,6 +1027,13 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-08 — Plan 1.49
+
+- 實作Claude explicit-root metadata inventory：Rust fdopendir/openat雙掃，沿用UID/mode、ACL/localFS/noowners/root identity防線，10k entries/512projects/2048sessions/1MiB/5s，不讀transcript、不遞迴subagents、不以截斷當完整成功。Windows compiled CLI仍unsupported。
+- 新private v2 wire與既有v1 capture分離，共用owned-helper single-flight/10s+1s/actual-close/quarantine。Host-private source index有source authority callback、stable exact tuple IDs、增改刪、失敗保留stale、取消/revoke/shutdown late-result fences；constructor不自動掃描，無watcher/DB/自動retry。
+- 新Rust與Node測試涵蓋限額/metadata/權限/links/FIFO/ACL/兩掃間變更/wire/auth/lifecycle。Node22.19/22.22實際Rust增量目錄gate＋最低Node既有SDK→actualHost4來源鏈通過；原fixture不變、cleanup確認、model/privatehistory0。跨OS依本次exact CI，不沿用舊綠燈。
+- 只完成探索核心，不接private source設定／動態registry／Web，不以檔名冒充title。正式3.0.6、B+、帳號/模型路由、fixedab227af72h不變，產品仍rc.5。原生metadata/title、source-level onboarding、global admission/catalog paging、其他agents/approval/resume/durable/RustHost/Apps仍待；完整邊界見native-history-discovery.md。
 
 ### 2026-09-08 — Plan 1.48
 

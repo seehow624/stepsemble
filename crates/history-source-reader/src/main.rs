@@ -1,5 +1,6 @@
 //! Standalone experiment, NOT a daemon or production history endpoint.
-//! No discovery, credentials, SDK, network, source writes or model calls.
+//! Explicit-root metadata inventory or one-file capture; no HOME discovery,
+//! credentials, SDK, network, source writes or model calls.
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
@@ -11,6 +12,34 @@ mod windows;
 
 const INPUT_LIMIT: usize = 12 * 1024;
 pub const SOURCE_LIMIT: usize = 8 * 1024 * 1024;
+pub const INVENTORY_LIMIT: usize = 1024 * 1024;
+pub const INVENTORY_ENTRIES: usize = 2048;
+pub const DIRECTORY_ENTRIES: usize = 10000;
+pub const PROJECTS_LIMIT: usize = 512;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InventoryRequest {
+    protocol_version: u8,
+    nonce: String,
+    pub projects_root: String,
+    pub expected_root: RootIdentity,
+}
+
+#[derive(Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct InventoryEntry {
+    pub project_key: String,
+    pub session_id: String,
+    pub identity: Identity,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Inventory {
+    pub entries: Vec<InventoryEntry>,
+    pub projects_scanned: usize,
+    pub ignored_entries: usize,
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -71,6 +100,7 @@ pub enum Error {
     IdentityUnavailable,
     ContainmentUnavailable,
     CloseFailed,
+    InventoryLimit,
 }
 
 impl Error {
@@ -94,8 +124,52 @@ impl Error {
             Self::IdentityUnavailable => "source_identity_unavailable",
             Self::ContainmentUnavailable => "source_containment_unavailable",
             Self::CloseFailed => "source_close_failed",
+            Self::InventoryLimit => "source_inventory_limit",
         }
     }
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn project_key(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 255
+        && value
+            .bytes()
+            .all(|v| v.is_ascii_alphanumeric() || v == b'-' || v == b'_')
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn session_id(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(i, v)| {
+            if [8, 13, 18, 23].contains(&i) {
+                v == b'-'
+            } else {
+                v.is_ascii_hexdigit()
+            }
+        })
+}
+
+fn parse_inventory_request(bytes: &[u8]) -> Result<InventoryRequest, Error> {
+    if bytes.is_empty() || bytes.len() > INPUT_LIMIT {
+        return Err(Error::Input);
+    }
+    let r: InventoryRequest = serde_json::from_slice(bytes).map_err(|_| Error::Input)?;
+    if r.protocol_version != 2
+        || r.nonce.len() != 64
+        || !r
+            .nonce
+            .bytes()
+            .all(|v| v.is_ascii_digit() || (b'a'..=b'f').contains(&v))
+        || r.projects_root.is_empty()
+        || r.projects_root.len() > 8192
+        || r.projects_root.contains('\0')
+        || !decimal(&r.expected_root.device, false)
+        || !decimal(&r.expected_root.inode, true)
+    {
+        return Err(Error::Input);
+    }
+    Ok(r)
 }
 
 fn decimal(value: &str, positive: bool) -> bool {
@@ -156,6 +230,56 @@ fn capture(request: &Request) -> Result<Capture, Error> {
     }
 }
 
+fn inventory(request: &InventoryRequest) -> Result<Inventory, Error> {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    return posix::inventory::inventory(request);
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = request;
+        Err(Error::PlatformUnsupported)
+    }
+}
+
+fn write_inventory_frame(
+    mut output: impl Write,
+    request: &InventoryRequest,
+    result: Result<Inventory, Error>,
+) -> Result<(), Error> {
+    let (result, payload) = match result {
+        Ok(value) => {
+            let payload = serde_json::to_vec(&value.entries).map_err(|_| Error::Io)?;
+            if payload.len() > INVENTORY_LIMIT {
+                return write_inventory_frame(output, request, Err(Error::InventoryLimit));
+            }
+            let result = serde_json::json!({"kind":"native_source_inventory", "byteLength":payload.len(),
+                "sha256":format!("{:x}", Sha256::digest(&payload)), "entryCount":value.entries.len(),
+                "projectsScanned":value.projects_scanned, "ignoredEntries":value.ignored_entries,
+                "expectedRoot":{"device":request.expected_root.device,"inode":request.expected_root.inode},
+                "checks":{"owner":"posix_euid_and_mode","acl":"no_extended_acl",
+                    "containment":"root_identity_and_openat_nofollow","enumerations":2,"matchingInventory":true},
+                "sourceAuthenticated":false,"publishable":false});
+            (result, payload)
+        }
+        Err(e) => (
+            serde_json::json!({"kind":"source_unavailable","code":e.code()}),
+            Vec::new(),
+        ),
+    };
+    let header = serde_json::to_vec(
+        &serde_json::json!({"protocolVersion":2,"nonce":request.nonce,"result":result}),
+    )
+    .map_err(|_| Error::Io)?;
+    if header.len() > 16 * 1024 {
+        return Err(Error::TooLarge);
+    }
+    output
+        .write_all(&(header.len() as u32).to_be_bytes())
+        .map_err(|_| Error::Io)?;
+    output.write_all(&header).map_err(|_| Error::Io)?;
+    output.write_all(&payload).map_err(|_| Error::Io)?;
+    output.flush().map_err(|_| Error::Io)
+}
+
 fn write_frame(
     mut output: impl Write,
     request: &Request,
@@ -204,8 +328,12 @@ fn run() -> Result<(), Error> {
         .take((INPUT_LIMIT + 1) as u64)
         .read_to_end(&mut input)
         .map_err(|_| Error::Input)?;
-    let request = parse_request(&input)?;
-    write_frame(std::io::stdout().lock(), &request, capture(&request))
+    if let Ok(request) = parse_request(&input) {
+        write_frame(std::io::stdout().lock(), &request, capture(&request))
+    } else {
+        let request = parse_inventory_request(&input)?;
+        write_inventory_frame(std::io::stdout().lock(), &request, inventory(&request))
+    }
 }
 
 fn main() {
@@ -256,6 +384,45 @@ mod tests {
                 .expect("fixture")
                 .replacen("{", "{\"nonce\":\"bad\",", 1);
         assert!(parse_request(duplicate.as_bytes()).is_err());
+    }
+    #[test]
+    fn inventory_protocol_is_separate_and_strict() {
+        let base = serde_json::json!({"protocolVersion":2,"nonce":"a".repeat(64),
+            "projectsRoot":"/owned/projects","expectedRoot":{"device":"0","inode":"1"}});
+        assert!(parse_inventory_request(&serde_json::to_vec(&base).expect("fixture")).is_ok());
+        assert!(parse_request(&serde_json::to_vec(&base).expect("fixture")).is_err());
+        assert!(
+            parse_inventory_request(&serde_json::to_vec(&request()).expect("fixture")).is_err()
+        );
+        for (key, value) in [
+            ("protocolVersion", serde_json::json!(1)),
+            ("nonce", serde_json::json!("bad")),
+            ("source", serde_json::json!({})),
+            ("maxEntries", serde_json::json!(999999)),
+        ] {
+            let mut r = base.clone();
+            r[key] = value;
+            assert!(parse_inventory_request(&serde_json::to_vec(&r).expect("fixture")).is_err());
+        }
+        let r =
+            parse_inventory_request(&serde_json::to_vec(&base).expect("fixture")).expect("request");
+        let mut out = Vec::new();
+        write_inventory_frame(
+            &mut out,
+            &r,
+            Ok(Inventory {
+                entries: vec![],
+                projects_scanned: 0,
+                ignored_entries: 0,
+            }),
+        )
+        .expect("frame");
+        let len = u32::from_be_bytes(out[..4].try_into().expect("size")) as usize;
+        let header: serde_json::Value = serde_json::from_slice(&out[4..4 + len]).expect("header");
+        assert_eq!(header["protocolVersion"], 2);
+        assert_eq!(header["result"]["entryCount"], 0);
+        assert_eq!(header["result"]["sourceAuthenticated"], false);
+        assert_eq!(&out[4 + len..], b"[]");
     }
     #[test]
     fn frame_is_length_delimited_and_error_has_no_payload() {

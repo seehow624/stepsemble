@@ -1,5 +1,10 @@
 # ADR：獨立原生 history source reader 的窄邊界
 
+Plan1.49新增獨立private protocolVersion2的explicit-root metadata inventory與
+Host-private增量索引，沿用本文件的fd/ACL/mount/actual-close防線。
+下方「不掃描」描述原v1單檔capture；v2只在Host明確授權root後執行有界目錄雙掃，
+仍不探索HOME／讀私人history，未接Host/Web。詳見[native-history-discovery.md](native-history-discovery.md)。
+
 日期：2026-09-08。狀態：Rust reader／bytes-only SDK composite 已實作，core
 `d3e2fe1` 的四組跨平台 CI 已通過。Windows 仍 unsupported，不代表 production gate 已完成。
 

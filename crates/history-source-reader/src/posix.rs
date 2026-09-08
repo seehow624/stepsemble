@@ -7,6 +7,7 @@ use std::mem::MaybeUninit;
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::fs::{FileExt, MetadataExt};
 use std::time::{Duration, Instant};
+pub mod inventory;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stage {
@@ -546,7 +547,7 @@ mod tests {
         }
     }
     #[cfg(target_os = "macos")]
-    fn add_acl(path: &std::path::Path, _default: bool) {
+    pub(super) fn add_acl(path: &std::path::Path, _default: bool) {
         let result = std::process::Command::new("/bin/chmod")
             .args(["+a", "everyone allow read"])
             .arg(path)
@@ -555,7 +556,7 @@ mod tests {
         assert!(result.status.success(), "owned ACL fixture creation failed");
     }
     #[cfg(target_os = "linux")]
-    fn add_acl(path: &std::path::Path, default: bool) {
+    pub(super) fn add_acl(path: &std::path::Path, default: bool) {
         let fd = File::open(path).expect("owned file");
         let mut bytes = 2_u32.to_le_bytes().to_vec();
         // POSIX ACL xattr version 2: owner, named user, group, mask, other.
