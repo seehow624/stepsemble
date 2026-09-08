@@ -37,9 +37,10 @@ export async function stageSyntheticArtifact(source, destination, mode) {
   return { sha256, sourceLinks: Number(before.nlink), sourceMode: Number(before.mode & 0o777n), stagedLinks: Number(staged.nlink), stagedMode: mode };
 }
 
-export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0, sourceGroups = false } = {}) {
+export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0, sourceGroups = false, extraSessions = 0 } = {}) {
   if (!["darwin", "linux"].includes(process.platform)) throw new Error("history_host_native_platform_unsupported");
-  if (!path.isAbsolute(helperPath || "") || !path.isAbsolute(sdkPath || "") || !Number.isInteger(port) || port < 0 || port > 65535 || typeof sourceGroups !== "boolean")
+  if (!path.isAbsolute(helperPath || "") || !path.isAbsolute(sdkPath || "") || !Number.isInteger(port) || port < 0 || port > 65535 || typeof sourceGroups !== "boolean"
+    || !Number.isSafeInteger(extraSessions) || extraSessions < 0 || extraSessions > 96 || extraSessions > 0 && !sourceGroups)
     throw new Error("synthetic_history_host_configuration_invalid");
   const helper = await fs.realpath(helperPath), sdk = await fs.realpath(sdkPath);
   const helperHash = digest(await fs.readFile(helper)), sdkHash = digest(await fs.readFile(sdk));
@@ -70,11 +71,19 @@ export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0,
       records: Array.from({ length: 35 }, (_, i) => ({ type: "user", sessionId: longId, uuid: fixture.uuid(52100 + i), parentUuid: i ? fixture.uuid(52099 + i) : null,
         timestamp: "2026-09-08T00:00:00.000Z", message: { role: "user", content: `合成訊息 ${i + 1}：長對話按需分頁。🐾\n` + "這不是私人歷史，也不會執行工具。".repeat(8) } })) });
     const labels = { rich: "工具與思考", compaction: "壓縮後的脈絡", "file-history": "檔案歷史描述", long: "長對話 · 35 則" };
+    for (let i = 0; i < extraSessions; i++) {
+      const sessionId = fixture.uuid(60000 + i), messageId = fixture.uuid(61000 + i);
+      cases.push({ name: `extra-${i}`, sessionId, expectedIds: [messageId], records: [
+        { type: "user", sessionId, uuid: messageId, parentUuid: null, message: { role: "user", content: `合成來源 ${i + 1} 的完整內容 🐾` } },
+        { type: "custom-title", sessionId, customTitle: `合成對話 ${i + 1} 🐾 <script>never()</script>` + (i === 0 ? "長名稱保留原文。".repeat(20) : "") }
+      ] });
+    }
     const stat = await fs.stat(projectsRoot, { bigint: true });
     const catalog = [];
     for (const c of cases) {
       const filename = path.join(project, `${c.sessionId}.jsonl`), bytes = encode(c.records);
       await fs.writeFile(filename, bytes, { mode: 0o600, flag: "wx" }); files.set(c.name, { filename, bytes, present: true });
+      if (c.name.startsWith("extra-")) continue;
       catalog.push({ catalogId: `fixture-${c.name}`, label: labels[c.name], description: "此隔離主機只有合成資料，沒有連接真實帳號。",
         source: { projectsRoot, projectKey, sessionId: c.sessionId }, expectedRoot: { device: String(stat.dev), inode: String(stat.ino) },
         readers: ["browser:master", `browser:${issuedId}`, `peer:${peer.grantId}`] });
@@ -126,9 +135,10 @@ export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0,
         });
         mutation = next.catch(() => {}); return next;
       },
-      changeFixture(name) {
+      changeFixture(name, title = "Synthetic explicit version change") {
         const file = files.get(name), c = cases.find(row => row.name === name); if (!file || !c || !file.present || closed) throw new Error("synthetic_fixture_unavailable");
-        const extra = encode([{ type: "custom-title", sessionId: c.sessionId, customTitle: "Synthetic explicit version change" }]);
+        if (typeof title !== "string" || !title.length || title.length > 1024 || /[\u0000-\u001f\u007f]/.test(title)) throw new Error("synthetic_title_invalid");
+        const extra = encode([{ type: "custom-title", sessionId: c.sessionId, customTitle: title }]);
         const next = mutation.then(async () => { await fs.appendFile(file.filename, extra); file.bytes = Buffer.concat([file.bytes, extra]); });
         mutation = next.catch(() => {}); return next;
       } });

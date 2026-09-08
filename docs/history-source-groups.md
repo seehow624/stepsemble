@@ -1,10 +1,11 @@
 # 原生來源群組：設定、動態綁定與分頁
 
-2026-09-08，Plan 1.52；開發候選仍3.0.7-rc.5，正式3.0.6未變。
+2026-09-08，Plan 1.53；開發候選3.0.7-rc.6，正式3.0.6未變。
 **來源群組已接入實際 Host 的設定、HTTP／dedicated relay 及原生內容讀取鏈。**
 原生名稱及TypeScript source transport也已接真SDK合成鏈。
-本批沒有新增私人來源或部署。Web 來源選擇介面、按需名稱呈現、其他 harness adapter
-仍未完成；不是「全部原生對話已完整收錄」。
+本批已接Web來源選擇／分頁／按需名稱，沒有新增私人來源或部署。
+來源授權設定仍是operator私有檔、其他harness adapter及實機完整驗收仍待；
+不是「全部原生對話已完整收錄」。
 
 ## 明確授權範圍
 
@@ -124,8 +125,44 @@ HTTP 送出前再驗 source authority／snapshot，relay 兩端驗 exact inert e
 - strictTS `sources`／`sourceCatalog`／`sourceMetadata`共用既有bounded exchange，
   Client與Host validators對照測試、wrong snapshot/request/status/extra fields/過量
   Unicode資料/取消/晚body/解壓bytes上限覆蓋。舊Host不支援或busy不自動fallback/retry。
-- Web頁目前還是手動catalog。後續來源選擇與可見列名稱應逐步、可取消、有限保留；
-  不能為了列表一次預讀全2048個transcript。此批不宣稱新UI或實機順滑度通過。
+- Web列表現在按需逐一讀可見名稱，不能為了列表一次預讀全2048個transcript。
+
+## Web來源列表（Plan1.53）
+
+- `client/history-sources.ts`模型與render分離；初始只詢問已授權來源及現有索引，
+  明確按重新整理才掃描。不提供私人路徑輸入或擴reader grant的捷徑。
+- 每頁最多50列，保留當前選取的一份metadata；前後翻頁均帶snapshot UUID，
+  舊回覆受epoch/source/snapshot/catalog/request隔離。失敗保留stale列、不可翻頁或
+  新開；真正空結果才清空。撤銷/auth失效清除來源顯示及內容view。
+- IntersectionObserver以內層清單為root，逐一讀可見列名稱。捲離取消該UI的名稱
+  請求；背景頁暫停，回前景不自動重試。沒有observer時可用每列「讀名稱」手動操作。
+  source_busy/error不自動retry；所有名稱仍受Host共享2flight actual-close預算。
+- row與retry DOM在名稱到達時保持同一節點，full native title與summary分別顯示；
+  title缺少明示未命名、不用摘要冒充。小螢幕名稱最多三行，可展開完整原文，
+  summary另置原生details。含script標記的名稱只進textContent、不建立HTML/URL。
+- 開啟內容使用獨立view，名稱變更不重建正在讀的內容；快速選擇只等待一次舊view
+  cleanup後開最新一項。清單換snapshot保留舊選取但警示，重新點列才重開當前內容。
+  手動catalog收在lazy details；無群組時沿用原viewer。舊Host不支援群組不會假造來源。
+- 清單原生內捲動、overscroll containment、44px控制、鍵盤焦點與返回清單；保持
+  B+logo及現有light/dark/reduced motion/transparency/contrast媒體規則。
+- HTML入口現在no-cache/revalidate，含304回覆，避免更新後history document仍指向
+  舊版本JS達24小時。版本化static assets仍保留快取，不取消整站cache。
+
+### Plan1.53本機與瀏覽器證據
+
+本機742 tests＝740 pass／2平台skip／0 fail；新增12項model/renderer涵蓋晚回覆、
+撤銷、來源切換、snapshot、lazy名稱、焦點、完整文字及cleanup最新選擇。首輪唯一
+失敗是rc.6缺CHANGELOG項，已補後重跑；以前678項未定位失敗仍未解釋。
+最低Node22.19原生pipeline通過，actualMetadataGate/sourceGroups/Host/shared gate
+保持passed，model/privatehistory=0，ownedcleanup確認。
+
+Codex Computer Use→actual server.js→Rust→固定SDK，用64個owned合成來源：
+50/14列前後翻頁、可見5列起始名稱、inner scroll不帶動outer、320/390px無横溢與
+44px控制、中文/emoji/script inert長名稱展開、選取正文、原檔改名後明確refresh/reselect、
+舊snapshot警示、manual4來源相容、console0error/warn；關閉後點同列可重開內容，
+三個GUI測試Host均actual cleanup，預覽分頁已關閉、viewport override已還原。
+本機觀察為dark，不冒稱Safari/手機實機或light實測；新增CI真native gate在Mac/Linux
+各跑1440/390/320×light/dark，結果依本批exact commit記錄，未沿用舊rolling綠燈。
 
 ## 前批 Plan 1.51 驗收
 

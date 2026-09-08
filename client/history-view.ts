@@ -1,6 +1,8 @@
 /// <reference path="./history-transport.ts" />
 /// <reference path="./claude-history.ts" />
 /// <reference path="./projection.ts" />
+/// <reference path="./history-sources.ts" />
+/// <reference path="./agent-identity.ts" />
 /** Isolated inert-history preview. Only trusted catalog IDs reach the transport;
  * native text never becomes HTML, a URL, an executable action or authority. */
 namespace StepsembleHistoryView {
@@ -41,6 +43,9 @@ namespace StepsembleHistoryView {
     source_containment_unavailable: "來源所在磁碟未通過安全檢查；沒有讀取新內容，也不會自動更改磁碟權限。",
     source_root_identity_changed: "已登記的來源目錄已被替換，請由主機管理者重新確認來源。",
     source_acl_unsupported: "來源權限尚未符合唯讀功能的支援範圍，請由主機管理者檢查。",
+    history_catalog_changed: "來源清單或對話名稱已改變，請重新整理來源。沒有套用舊回覆。",
+    source_inventory_limit: "來源超過目前可探索的範圍，請由主機管理者縮小授權來源。",
+    source_metadata_invalid: "原生名稱資料未通過驗證；仍可另外嘗試唯讀內容。",
   };
   export function describeError(code: string): string { return messages[code] ?? "目前無法取得新資料。請手動重新整理。"; }
 
@@ -150,7 +155,7 @@ namespace StepsembleHistoryView {
     return Object.freeze({ select, refresh: () => load("refresh"), next: () => navigate("next"), previous: () => navigate("previous"), cancel, close, setLimit, showWindow, state });
   }
 
-  export function create(deps: Dependencies & { root: HTMLElement }) {
+  export function create(deps: Dependencies & { root: HTMLElement; embedded?: boolean }) {
     const doc = deps.root.ownerDocument;
     const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text = "", className = ""): HTMLElementTagNameMap[K] => {
       const node = doc.createElement(tag); node.textContent = text; if (className) node.className = className; return node;
@@ -178,6 +183,7 @@ namespace StepsembleHistoryView {
     button("windowNext", "本頁後 10 則", () => model.showWindow(model.state().messageStart + LIMITS.messages), windowBar);
     const evidence = element("section", "", "history-evidence"), cleanup = element("p", "", "history-footnote");
     deps.root.replaceChildren(tabs, title, description, toolbar, status, warning, position, content, windowBar, evidence, cleanup);
+    if (deps.embedded) { tabs.hidden = true; title.hidden = true; description.hidden = true; }
     let renderedPage: string | null = null, renderedWindow = -1;
     function render(): void {
       const s = model.state(); deps.root.setAttribute("aria-busy", String(s.busy));
@@ -247,8 +253,9 @@ namespace StepsembleHistoryView {
     const root = document.querySelector<HTMLElement>("[data-history-host]"); if (!root) return;
     const status = document.createElement("p"); status.className = "history-empty"; status.setAttribute("role", "status");
     status.textContent = "正在確認主機提供的唯讀來源…"; root.replaceChildren(status);
-    const abort = new AbortController(); let gone = false, view: ReturnType<typeof create> | null = null;
-    const close = () => { gone = true; abort.abort(); void view?.close(); };
+    const abort = new AbortController(); let gone = false;
+    const views: { close(): Promise<void> }[] = [];
+    const close = () => { gone = true; abort.abort(); for (const view of views) void view.close(); };
     window.addEventListener("pagehide", close, { once: true });
     // A bfcache-restored document must not revive an old credential/view scope.
     window.addEventListener("pageshow", event => { if (event.persisted) location.reload(); });
@@ -263,12 +270,32 @@ namespace StepsembleHistoryView {
       const route = hostRoute(location.search), viewId = crypto.randomUUID(), canonicalJSON = StepsembleProjection.canonicalJSON;
       const label = document.querySelector<HTMLElement>("[data-history-host-label]"); if (label) label.textContent = route.hostId === "local" ? "目前主機" : `遠端主機 · ${route.hostId}`;
       const transport = StepsembleHistoryTransport.create({ ...route, origin: location.origin, viewId, canonicalJSON });
-      const result = await transport.catalog(abort.signal); if (gone) return;
+      const [result, groups] = await Promise.all([transport.catalog(abort.signal), transport.sources(abort.signal)]); if (gone) return;
       if (result.kind !== "history_catalog") { showUnavailable(describeError(result.code)); return; }
-      if (!result.entries.length) { showUnavailable("這個登入尚無可讀取的來源。請由主機管理者明確登記來源與讀取權限；不會自動掃描你的私人對話。"); return; }
+      if (groups.kind === "source_unavailable" && !["history_method_not_allowed", "history_source_unavailable"].includes(groups.code)) { showUnavailable(describeError(groups.code)); return; }
+      const sources = groups.kind === "history_sources" ? groups.sources : [];
+      if (!result.entries.length && !sources.length) { showUnavailable("這個登入尚無可讀取的來源。請由主機管理者明確登記來源與讀取權限；不會自動掃描你的私人對話。"); return; }
       const provider = StepsembleClaudeHistory.create({ canonicalJSON });
-      view = create({ root, ...route, viewId, catalog: result.entries, transport,
-        createPages: read => StepsembleHistoryPages.create({ read, canonicalJSON, validateHistory: provider.validateHistory, requestId: () => crypto.randomUUID() }) });
+      const createPages = (read: StepsembleHistoryPages.Dependencies["read"]) => StepsembleHistoryPages.create({ read, canonicalJSON, validateHistory: provider.validateHistory, requestId: () => crypto.randomUUID() });
+      root.replaceChildren();
+      if (sources.length) {
+        const browser = document.createElement("div"); root.append(browser);
+        views.push(StepsembleHistorySources.create({ root: browser, groups: sources, transport, protocol: StepsembleHistoryTransport, requestId: () => crypto.randomUUID(),
+          describeError, badge: (doc, agentId) => StepsembleAgentIdentity.create(doc, agentId),
+          createContent(contentRoot, catalogId) {
+            const contentViewId = crypto.randomUUID(), contentTransport = StepsembleHistoryTransport.create({ ...route, origin: location.origin, viewId: contentViewId, canonicalJSON });
+            return create({ root: contentRoot, ...route, viewId: contentViewId, catalog: [{ catalogId, label: "唯讀內容", description: "" }],
+              transport: contentTransport, createPages, embedded: true });
+          } }));
+      }
+      if (result.entries.length) {
+        const manualRoot = document.createElement("div");
+        const init = () => { if (gone || manualRoot.childNodes.length) return; views.push(create({ root: manualRoot, ...route, viewId, catalog: result.entries, transport, createPages })); };
+        if (sources.length) {
+          const details = document.createElement("details"), summary = document.createElement("summary"); summary.textContent = `單獨登記的來源（${result.entries.length}）`;
+          details.className = "history-manual"; details.append(summary, manualRoot); root.append(details); details.addEventListener("toggle", () => { if (details.open) init(); });
+        } else { root.append(manualRoot); init(); }
+      }
     } catch (error) {
       showUnavailable(error instanceof StepsembleHistoryTransport.TransportError ? describeError(error.code)
         : "無法開啟這份唯讀歷史。請返回工作區確認登入和主機，然後手動重試。");

@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.52
+> 計畫版本：1.53
 > 最後更新：2026-09-08
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,7 +15,15 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新增量 1.52（開發版仍3.0.7-rc.5，未部署）**：原生名稱使用固定Claude SDK
+**最新增量 1.53（開發版3.0.7-rc.6，未部署）**：source-group Web來源選擇、明確
+refresh、50列snapshot分頁與手機內捲動已接實際Host；只逐一載入可見名稱，保留
+原生title/summary分離及完整原文展開。名稱更新不重建列或內容，切換等待舊內容清理、
+只開最新選擇；stale/取消/撤銷/背景暫停與manual fallback已實作。合成Host CUA
+320/390px、64來源、改名/內容/焦點已驗，本機742tests/0fail；新增跨OS明暗CI gate
+待本批exact SHA結果。HTML入口改revalidate避免更新後沿用舊版本資源。沒有私人來源、
+正式部署或72h變動；C1整體與C2–C8仍未完成。見[來源群組接線](history-source-groups.md)。
+
+**前一增量 1.52（開發版3.0.7-rc.5，未部署）**：原生名稱使用固定Claude SDK
 `getSessionInfo`＋既有captured SessionStore取得；customTitle與summary分開，缺名不冒充。
 名稱與內容共用兩flight／64registry slots，HTTP/relay回傳前再驗indexed identity及
 snapshot/reader權限。TypeScript sources/catalog/metadata transport已實作並通真Host鏈；
@@ -99,7 +107,7 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 | 原生唯讀 reader 邊界 | Rust helper＋bytes-only SDK，rc.3 已接 Host／未部署 | POSIX逐層no-follow、trusted root identity、fd ACL/localFS、8MiB雙讀；macOS拒絕noowners，Windows來源仍unsupported。composite固定2flights、共用10s/1s、actual-close/quarantine；最低Node22.19合成Rust→SDK→actual Host gate本機過。逐commit跨OS證據與範圍見history-host-integration.md |
 | Claude原生來源探索 | Plan1.51已接Host，Web待完成 | explicit-root metadata双掃，10k entries／512projects／2048candidates／1MiB，fd owner/ACL/mount不降級；增改刪、exact-source ID與stale snapshot。沒有HOME掃描／私人來源；動態catalog/來源授權/全域預算已接線，見native-history-discovery.md及history-source-groups.md |
 | 原生歷史共用reader預算 | Plan1.50已實作／合成鏈已驗 | Host-owned兩個flight供inventory與完整content pipeline共用、無queue、actual-close／永久quarantine及Host合併shutdown；source-group尚未掛HTTP，未部署，見history-reader-admission.md |
-| 原生來源群組／動態catalog | Plan1.52已接原生名稱及TS transport，未部署 | v2私有設定最多8組、每組2048candidate／50列分頁、同Host兩flight、逐reader範圍、dynamicrevision及同步撤銷、dedicatedrelay；原生title/summary分離與snapshot/identity fence通最低Node22.19真SDK合成鏈。Web來源UI/lazy名稱仍待，見history-source-groups.md |
+| 原生來源群組／動態catalog | Plan1.53已接Web按需名稱及來源分頁，未部署 | v2私有設定最多8組、每組2048candidate／50列分頁、同Host兩flight、逐reader範圍、dynamicrevision及同步撤銷、dedicatedrelay；原生title/summary分離、snapshot/identity fence、手機inner scroll/stablefocus及manual fallback。合成Host已驗，私人opt-in/真機與完整gate仍待，見history-source-groups.md |
 | Claude clone記憶體嘗試 | 已量測並撤回 | 同workload兩次12輪，structuredClone＋提前清引用讓worker高水位合計中位數421.164→408.852MiB，但round283.539→296.171ms。沒有證明順滑度改善，保留原JSON clone並存完整before/after與重現方法；memory優化仍待，見claude-history-performance.md |
 | Claude 官方登入入口 | Mini當前detected，正式3.0.6 | 使用者回報瀏覽器登入，助手回completed／detected；另行同意的直接CLI最小模型測試成功。metadata API仍liveVerified=false，不以一次成功保證永久有效；不自動修憑證／重試模型，詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
@@ -110,12 +118,11 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 
 ### 下一個可執行任務
 
-**1.51接續**：source-group config/readers、同一Hostadmission、dynamicregistry撤銷及
-catalogpaging／實際HTTP和relay已接上，不再重做。接著固定SDK native title/metadata、
-TypeScript transport與Web來源選擇／手動刷新／分頁，驗actualHost→browser完整操作。
-目前列的nativeTitle為null/titleStatus:not_loaded，不能用UUID或猜測文字冒充原生名稱；
-列表不能預讀全部transcript。私人來源及正式部署仍需既有gate，其他agent/fullnative／
-Windows／跨機實機性能等仍待；不把這個後端checkpoint當C1或整個Web完成。
+**1.53接續**：來源設定/registry/HTTP/relay、native title/TS及Web來源操作已接上，
+不重做。先核對本批exact CI，再补Web來源設定的可理解授權流程與history i18n／
+跨機路由實機驗收，同時依C2推進其他agent原生adapter及C3durable/session gate。
+私人root/readers由owner選定、正式部署仍需既有gate；Windows／完整原生能力／
+跨機效能未完成，不能把Claude合成来源列表当作所有電腦對話已完整收錄。
 
 **1.46 歷史開發增量（3.0.7-rc.3，未部署）**：Claude 唯讀歷史已接入實際
 `server.js`、Agent Hub連結及獨立歷史頁，不再只存在隔離preview。預設停用，

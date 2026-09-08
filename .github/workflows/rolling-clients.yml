@@ -13,6 +13,11 @@ on:
       - 'scripts/check-rolling-clients.mjs'
       - 'scripts/rolling-browser-worker.mjs'
       - 'scripts/conversation-browser-cases.mjs'
+      - 'scripts/history-sources-browser-cases.mjs'
+      - 'scripts/history-host-synthetic.mjs'
+      - 'scripts/check-native-claude-history.mjs'
+      - 'crates/history-source-reader/**'
+      - 'protocol/native/claude/**'
       - 'scripts/claude-auth-browser-cases.mjs'
       - 'scripts/pi-session-browser-cases.mjs'
       - 'scripts/project-picker-browser-cases.mjs'
@@ -34,6 +39,11 @@ on:
       - 'scripts/check-rolling-clients.mjs'
       - 'scripts/rolling-browser-worker.mjs'
       - 'scripts/conversation-browser-cases.mjs'
+      - 'scripts/history-sources-browser-cases.mjs'
+      - 'scripts/history-host-synthetic.mjs'
+      - 'scripts/check-native-claude-history.mjs'
+      - 'crates/history-source-reader/**'
+      - 'protocol/native/claude/**'
       - 'scripts/claude-auth-browser-cases.mjs'
       - 'scripts/pi-session-browser-cases.mjs'
       - 'scripts/project-picker-browser-cases.mjs'
@@ -69,5 +79,11 @@ jobs:
           package-manager-cache: false
       - name: Check isolated browser runtime policy
         run: node --test test/rolling-runtime.test.js
+      - name: Build pinned native reader for owned browser fixtures
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-browser-reader
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          cargo +1.97.1 build --manifest-path crates/history-source-reader/Cargo.toml --locked
       - name: Test both directions against two shipped releases
-        run: npm run test:rolling
+        run: npm run test:rolling -- --history-helper="${{ runner.temp }}/stepsemble-browser-reader/debug/stepsemble-history-source-reader"

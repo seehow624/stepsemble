@@ -246,6 +246,9 @@ test("actual server wires opt-in catalog, login/logout scope retirement, static 
   assert.equal((await live("/api/history/page", page(second), { cookie })).data.code, "history_binding_unavailable");
   const document = await fetch(`http://127.0.0.1:${port}/history.html`, { headers: { cookie } });
   assert.equal(document.status, 200); assert.match(await document.text(), /data-history-host/);
+  assert.equal(document.headers.get("cache-control"), "no-cache", "HTML must revalidate versioned script URLs after an update");
+  const cached = await fetch(`http://127.0.0.1:${port}/history.html`, { headers: { "if-none-match": document.headers.get("etag") } });
+  assert.equal(cached.status, 304); assert.equal(cached.headers.get("cache-control"), "no-cache");
   const malformed = await new Promise((resolve, reject) => {
     const req = http.request({ hostname: "127.0.0.1", port, path: "http://[", method: "GET" }, res => { res.resume(); res.on("end", () => resolve(res.statusCode)); });
     req.on("error", reject); req.end();

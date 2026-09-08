@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.0.7-rc.6
+
+Development candidate; production Hosts remain on 3.0.6. The independent,
+fixed-source 72-hour soak is unchanged and does not cover this candidate.
+
+- Add a source-group browser to the read-only Claude history page: explicit
+  inventory refresh, 50-row snapshot-fenced pages and an independently scrolling
+  mobile list with the existing local Claude mark.
+- Read only visible row names, one at a time; preserve native titles separately
+  from summaries, with full-text expansion for long names and no model calls.
+- Keep row focus and opened content stable as names arrive. Abort obsolete
+  requests, serialize content cleanup and open only the latest selection.
+- Show stale, busy, missing-name and revoked-source states explicitly; pause
+  name loading in the background and retain the manual catalog as a lazy fallback.
+- Do not add private source grants, automatic home-directory scanning, new native
+  resume/approval support or production deployment.
+- Revalidate HTML entry documents so an updated history page does not keep
+  loading yesterday's versioned scripts from a day-long document cache.
+
 ## 3.0.7-rc.5
 
 Development candidate; production Hosts remain on 3.0.6. The fixed-source

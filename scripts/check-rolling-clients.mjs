@@ -36,7 +36,7 @@ export function run(command, args, cwd, env, timeout = 300000) {
     child.once("close", (code, signal) => code === 0 ? resolve() : reject(new Error(`Browser test child failed (${code ?? signal})`)));
   });
 }
-async function main(updateLock) {
+async function main(updateLock, historyHelper) {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-rolling-runtime-"));
   try {
     const manifest = JSON.parse(await fs.readFile(path.join(runtime, "package.json"), "utf8"));
@@ -57,12 +57,14 @@ async function main(updateLock) {
       console.log("Updated test-only browser lock; review the diff.");
     } else {
       await run(process.execPath, [path.join(temp, "node_modules/playwright/cli.js"), "install", "--only-shell", "chromium"], temp, env);
-      await run(process.execPath, [path.join(root, "scripts/rolling-browser-worker.mjs"), temp], root, env);
+      await run(process.execPath, [path.join(root, "scripts/rolling-browser-worker.mjs"), temp, ...(historyHelper ? [historyHelper] : [])], root, env);
     }
   } finally { await fs.rm(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const flags = process.argv.slice(2);
-  if (flags.length > 1 || flags.some(flag => flag !== "--update-lock")) throw new Error("Invalid rolling test option");
-  await main(flags.includes("--update-lock"));
+  if (flags.length > 1 || flags.some(flag => flag !== "--update-lock" && !flag.startsWith("--history-helper="))) throw new Error("Invalid rolling test option");
+  const helper = flags.find(flag => flag.startsWith("--history-helper="))?.slice("--history-helper=".length);
+  if (helper !== undefined && (!path.isAbsolute(helper) || helper !== path.resolve(helper))) throw new Error("Invalid history helper path");
+  await main(flags.includes("--update-lock"), helper);
 }

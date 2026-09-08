@@ -66,7 +66,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.7-rc.5";
+const APP_VERSION = "3.0.7-rc.6";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -5159,7 +5159,7 @@ const server = http.createServer(async (req, res) => {
         "Content-Type": MIME[path.extname(abs)] || "application/octet-stream",
         "Cache-Control": rel === "sw.js"
           ? "no-cache, no-store, must-revalidate"
-          : rel === "index.html" ? "no-cache" : "public, max-age=86400",
+          : path.extname(rel) === ".html" ? "no-cache" : "public, max-age=86400",
         "ETag": etag,
         "Last-Modified": stat.mtime.toUTCString(),
       };
