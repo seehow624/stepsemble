@@ -643,6 +643,10 @@ fn suite() {
         );
         if missing_wal {
             expect_title(&reply, "base");
+        } else if cfg!(windows) {
+            // Verified on Windows CI: unguarded winHandleOpen(OPEN_ALWAYS)
+            // creates a zero-byte SHM as well, enabling heap-index fallback.
+            expect_title(&reply, "latest");
         } else {
             assert_eq!(reply, json!({"error":"SqliteUnavailable"}));
         }
@@ -659,9 +663,28 @@ fn suite() {
             0,
             "unguarded engine creates an empty WAL"
         );
-        assert!(after == before, "only the empty WAL is created");
+        if cfg!(windows) && !missing_wal {
+            let shm_name = f
+                .sidecar("-shm")
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned();
+            assert_eq!(
+                after.remove(&shm_name).unwrap().len(),
+                0,
+                "unguarded Windows also creates an empty SHM"
+            );
+        }
+        assert!(
+            after == before,
+            "only the expected empty sidecars are created"
+        );
         cases.push(if missing_wal {
             "unguarded_missing_wal_creates_file_and_reads_old_base"
+        } else if cfg!(windows) {
+            "unguarded_cold_database_creates_wal_and_shm_on_success"
         } else {
             "unguarded_cold_database_creates_wal_even_on_failure"
         });

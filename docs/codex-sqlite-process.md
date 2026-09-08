@@ -11,7 +11,8 @@
 1. 普通唯讀連線讀最新WAL，SHM bytes變動；main DB/WAL保持不變。
 2. `readonly_shm=1`，關閉writer後移除自建WAL、保留SHM：建立0-byte WAL，回傳
    主DB較舊的`base`，而不是移除前WAL中的`latest`。
-3. 正常checkpoint/close後無sidecar的cold DB：回SqliteUnavailable，**仍建立空WAL**。
+3. 正常checkpoint/close後無sidecar的cold DB：POSIX回SqliteUnavailable，**仍建立空WAL**；
+   Windows回latest，**同時建立0-byte WAL與SHM**，不是無副作用成功。
 
 首個assert失敗完整保留`/tmp/stepsemble-sqlite-process-first.log`，第二次偵察完整
 列出檔案集合與大小；**這兩次都不是零寫入gate通過**。最終保留未受保護負向控制，
@@ -65,7 +66,7 @@ temp fixture，無任意來源CLI參數；worker只由parent經私有stdin給該
 | 缺WAL | unavailable，不建WAL、不發布舊base |
 | 無sidecar的cold DB | unavailable，不建任何sidecar；**此能力尚未支援** |
 | 未受保護缺WAL控制 | 重現建立空WAL＋回舊base，未被當成權威名稱 |
-| 未受保護cold控制 | 重現即使失敗也建立空WAL |
+| 未受保護cold控制 | POSIX失敗仍建空WAL；Windows回latest且建立空WAL＋SHM；均不是受保護讀取 |
 | writer未commit | reader只見已commit值；commit後新reader讀新值 |
 | 20個跨process commit | 人為持有read transaction時writer20次commit，重讀仍同snapshot；actualclose後checkpoint可進行 |
 | kill reader | 持有read lock時checkpoint busy；kill並確認實際exit及pipes EOF後，writer checkpoint成功 |
@@ -114,6 +115,13 @@ DB/lock SHA與1.63相同。
 `byte_char_slices` lint（`[b'!']`應寫`b"!"`），尚未執行新的process gate。
 直接修正字串寫法，不allow lint或skip平台；完整job log保留
 `/tmp/stepsemble-sqlite-process-winfix-windows-first.log`，新SHA待再驗。
+
+後續`d588183`／reader CI`34267576834`的Windows實際通過新7個syscall檢查與所有
+guarded缺sidecar回覆／bytes/名稱不變，再於**unguarded cold負向控制**失敗。
+完整log `...winfix-windows-second.log`已確認Windows回latest並新增WAL0bytes＋SHM0bytes，
+而POSIX回unavailable只新增WAL0bytes；固定`winHandleOpen(OPEN_ALWAYS)`及readonly
+heap-index fallback符合觀測。現在針對這個未受保護控制逐平台核exact回覆與sidecars，
+不是放寬guarded no-create/no-write、skip Windows或宣稱cold DB已支援。
 
 下一個必做仍是**descriptor-backed DB/WAL/SHM source opener**與角色／ACL／local
 mount／replacement checks，然後正式reader worker共用admission、sourceVersion、
