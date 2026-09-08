@@ -34,7 +34,7 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 | Checkpoint | 交付與必要證據 | 開始狀態 |
 | --- | --- | --- |
 | C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | Plan1.57新增本機新群組設定精靈/review/明確readers/CREATE與真Host原檔驗證；Web列表已接，不自選私人來源或新增Web管理route，完整管理/實機與C1完整gate仍待 |
-| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.64新增SQLite唯讀VFS與Win內部開檔政策；2df35cd三OS各13個owned跨process正反案例/16reaped/8dirs cleanup，三CI全通；仍不是descriptor/ACL來源開啟，cold DB缺sidecar未支援。1.63交易／1.62名稱／1.61parser保留；worker/授權/discovery/registry/CodexHTTPWeb、壓縮/其他adapter／完整歷史仍待，C2未完成 |
+| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.65新增POSIX descriptor-bound SQLite/v4；發現並修正writer同process比對解除POSIX鎖的測試缺陷，原13與新正常SHM＋53source/wire案例Mac通，三OS CI待核；Windows v4真binary unsupported。Node v4/shared admission、授權/discovery/registry/CodexHTTPWeb、cold/壓縮/其他adapter仍待，C2未完成 |
 | C3 Session／approval／恢復 | 按真實 capability 接結構化事件、續跑與 approval；ownership、exact correlation、重送／重連／Host crash、durable journal/replay 不漏不重 | 有 contract 與局部實作，未全驗 |
 | C4 帳號與故障體驗 | 登入／登出偵測、官方登入入口、路由相容、取消／失敗／stale／busy 可復原；不修寫第三方憑證或以重試消耗模型 | 局部已驗，跨 harness 待補 |
 | C5 手機與跨裝置操作 | 完整 history i18n、鍵盤／focus／內捲動、長歷史 DOM 上限、Host 切換、background/reconnect、跨機與目標瀏覽器實測 | Plan1.56已接119keys/11語並修正locale scroll跳動；320/390合成Host CUA、原文/DOM/focus保留已驗；人工校稿/真機/跨Host與其餘gate仍待 |
@@ -84,6 +84,15 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 - 未來 App Store 發布、費用、商標／帳號等外部事項不從「loop」推論新授權。
 
 ## 執行記錄
+
+- **2026-09-09／C2來源FD綁定，Plan1.65／rc.7不變**：新增POSIX DB/WAL/SHM
+  retained FD、共用ACL/owner/mount/root檢查、精確virtual-path syscall與有界讀取；
+  SQLclose後再核權限/身份並關閉驗證FD才回覆，Rust v4 request/frame嚴格區分SQLite root。
+  舊測試比對開/關同inode解除writer鎖已定位，改獨立process比對size/SHA/檔名；
+  新正常case要求真SHM映射，原13negative/snapshot/kill案例重新驗，另53source/wire
+  cases Mac通，總100child全reaped/61dirs清除。Node849/0fail、原reader/pair亦通；
+  三OS CI待。未接Node v4／HostWeb、不授權私人來源，Windowssource與cold能力仍拒絕。
+  詳[SQLite來源綁定](codex-sqlite-source-bound.md)，goal仍active，正式/B+/帳號/72h不動。
 
 - **2026-09-09／C2 SQLite程序邊界，Plan1.64／rc.7不變**：新增非default的唯讀
   VFS政策、獨立子程序正反fixture。未受保護readonly_shm缺WAL會建立空檔且讀舊base，

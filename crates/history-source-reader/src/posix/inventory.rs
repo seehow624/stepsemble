@@ -5,6 +5,7 @@ use crate::{
     PROJECTS_LIMIT,
 };
 use std::ffi::CStr;
+use std::os::fd::IntoRawFd;
 
 struct Directory(*mut libc::DIR);
 impl Directory {

@@ -264,6 +264,25 @@ unsafe extern "C" fn deny_delete(
 /// On installation failure, terminate the dedicated process: policy callbacks
 /// may already be partially installed, and an unguarded fallback is forbidden.
 pub unsafe fn install_for_dedicated_process() -> Result<&'static CStr, InstallError> {
+    // SAFETY: forwarded exclusive process-lifetime contract from the caller.
+    unsafe { install(None) }
+}
+
+type Configure =
+    unsafe fn(*mut ffi::sqlite3_vfs, &mut ffi::sqlite3_vfs) -> Result<(), InstallError>;
+
+/// Internal composition point: source callbacks are installed before registration
+/// and before the first connection, never after an ordinary VFS has been used.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub(crate) unsafe fn install_bound(configure: Configure) -> Result<&'static CStr, InstallError> {
+    if INSTALLED.get().is_some() {
+        return Err(InstallError::Registration);
+    }
+    // SAFETY: source-bound caller has the same exclusive fresh-process contract.
+    unsafe { install(Some(configure)) }
+}
+
+unsafe fn install(configure: Option<Configure>) -> Result<&'static CStr, InstallError> {
     *INSTALLED.get_or_init(|| {
         #[cfg(unix)]
         // SAFETY: geteuid has no arguments and only returns this process's UID.
@@ -295,6 +314,11 @@ pub unsafe fn install_for_dedicated_process() -> Result<&'static CStr, InstallEr
         let mut shim = Box::new(unsafe { *original });
         if shim.iVersion != 3 || shim.xOpen.is_none() || shim.szOsFile <= 0 {
             return Err(InstallError::Unsupported);
+        }
+        if let Some(configure) = configure {
+            // SAFETY: registration has not occurred and no SQLite connection
+            // exists. Callback performs the source boundary's pinned setup.
+            unsafe { configure(original, &mut shim)? };
         }
         #[cfg(windows)]
         // SAFETY: installation's exclusive fresh-process contract also covers

@@ -3,6 +3,12 @@
 2026-09-09／Plan1.64，開發仍3.0.7-rc.7，未部署；延續
 [短交易library](codex-sqlite-transactions.md)。這不是完整Codex歷史／source grant。
 
+**Plan1.65勘誤**：舊測試的檔案比對在writer process開/關同inode，會解除其POSIX鎖，
+所以部分「活動writer」案例實際走orphan/heap-index而非活動SHM路徑。已把比對移到
+獨立process，原13case重新驗證；新bound正向案例明確要求真SHM映射/關閉。最新證據與
+來源FD綁定見[descriptor-backed來源](codex-sqlite-source-bound.md)。下方1.64的CI與數字
+保留為當時記錄，不當作修正後結果或完整活動writer證據。
+
 ## 實際抓到的問題
 
 只用READ_ONLY開main DB，或另加`readonly_shm=1`，**不能保證來源檔案不變**。

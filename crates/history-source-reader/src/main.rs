@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 mod codex;
+mod codex_sqlite;
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod posix;
@@ -81,56 +82,7 @@ pub struct Capture {
     pub identity: Identity,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum Error {
-    Input,
-    PlatformUnsupported,
-    Missing,
-    NotRegular,
-    OwnerOrMode,
-    Hardlinked,
-    Empty,
-    TooLarge,
-    Changed,
-    AccessDenied,
-    Io,
-    Budget,
-    AclUnavailable,
-    AclUnsupported,
-    RootIdentityChanged,
-    IdentityUnavailable,
-    ContainmentUnavailable,
-    CloseFailed,
-    InventoryLimit,
-    EncodingUnsupported,
-}
-
-impl Error {
-    fn code(&self) -> &'static str {
-        match self {
-            Self::Input => "invalid_source_input",
-            Self::PlatformUnsupported => "source_platform_unsupported",
-            Self::Missing => "source_missing",
-            Self::NotRegular => "source_not_regular_or_linked",
-            Self::OwnerOrMode => "source_owner_or_mode",
-            Self::Hardlinked => "source_hardlinked",
-            Self::Empty => "source_empty",
-            Self::TooLarge => "source_too_large",
-            Self::Changed => "source_changed",
-            Self::AccessDenied => "source_access_denied",
-            Self::Io => "source_io_error",
-            Self::Budget => "source_read_budget",
-            Self::AclUnavailable => "source_acl_unavailable",
-            Self::AclUnsupported => "source_acl_unsupported",
-            Self::RootIdentityChanged => "source_root_identity_changed",
-            Self::IdentityUnavailable => "source_identity_unavailable",
-            Self::ContainmentUnavailable => "source_containment_unavailable",
-            Self::CloseFailed => "source_close_failed",
-            Self::InventoryLimit => "source_inventory_limit",
-            Self::EncodingUnsupported => "source_encoding_unsupported",
-        }
-    }
-}
+pub use stepsemble_history_source_reader::source_error::Error;
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn project_key(value: &str) -> bool {
@@ -334,9 +286,15 @@ fn run() -> Result<(), Error> {
         write_frame(std::io::stdout().lock(), &request, capture(&request))
     } else if let Ok(request) = parse_inventory_request(&input) {
         write_inventory_frame(std::io::stdout().lock(), &request, inventory(&request))
-    } else {
-        let request = codex::parse_request(&input)?;
+    } else if let Ok(request) = codex::parse_request(&input) {
         codex::write_frame(std::io::stdout().lock(), &request, codex::capture(&request))
+    } else {
+        let request = codex_sqlite::parse_request(&input)?;
+        codex_sqlite::write_frame(
+            std::io::stdout().lock(),
+            &request,
+            codex_sqlite::capture(&request),
+        )
     }
 }
 

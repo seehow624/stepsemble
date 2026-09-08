@@ -17,12 +17,26 @@ use std::time::{Duration, Instant};
 use stepsemble_history_source_reader::sqlite_metadata::{
     THREADS_SCHEMA, capture_name_fields, engine_matches_pin,
 };
+#[path = "support/sqlite_source_cases.rs"]
+mod source_cases;
 
 const ID: &str = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 const WAIT: Duration = Duration::from_secs(5);
 static SPAWNED: AtomicUsize = AtomicUsize::new(0);
 static REAPED: AtomicUsize = AtomicUsize::new(0);
 static CLOSED_FIXTURES: AtomicUsize = AtomicUsize::new(0);
+static SNAPSHOT_CHILDREN: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Deserialize, Serialize, PartialEq, Eq)]
+struct FileDigest {
+    bytes: usize,
+    sha256: String,
+}
+impl FileDigest {
+    fn len(&self) -> usize {
+        self.bytes
+    }
+}
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -199,10 +213,47 @@ fn child() {
             "unguarded",
             "cancel",
             "hold",
-            "policy"
+            "policy",
+            "bound",
+            "bound_prepared",
+            "bound_read",
+            "bound_cancel",
+            "snapshot"
         ]
         .contains(&request.mode.as_str())
     );
+    if request.mode == "snapshot" {
+        // Never read/close same-inode descriptors in the writer process: POSIX
+        // close releases that process's SQLite locks, even for an unrelated FD.
+        use sha2::{Digest, Sha256};
+        let files = std::fs::read_dir(request.path.parent().unwrap())
+            .unwrap()
+            .map(|entry| {
+                let entry = entry.unwrap();
+                assert!(entry.file_type().unwrap().is_file());
+                let mut bytes = Vec::new();
+                std::fs::File::open(entry.path())
+                    .unwrap()
+                    .take(4 * 1024 * 1024 + 1)
+                    .read_to_end(&mut bytes)
+                    .unwrap();
+                assert!(bytes.len() <= 4 * 1024 * 1024);
+                (
+                    entry.file_name().to_str().unwrap().to_owned(),
+                    FileDigest {
+                        bytes: bytes.len(),
+                        sha256: format!("{:x}", Sha256::digest(&bytes)),
+                    },
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        send(serde_json::to_value(files).unwrap());
+        return;
+    }
+    if request.mode.starts_with("bound") {
+        bound_child(request, &mut input);
+        return;
+    }
     let guarded = request.mode != "ordinary" && request.mode != "unguarded";
     let vfs = if guarded {
         // SAFETY: this is a new dedicated subprocess. No SQLite connection has
@@ -341,13 +392,70 @@ struct Worker {
     errors: Option<thread::JoinHandle<Vec<u8>>>,
     reaped: bool,
 }
+
+fn bound_child(request: Request, input: &mut BufReader<std::io::Stdin>) {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        use std::os::unix::fs::MetadataExt;
+        use stepsemble_history_source_reader::sqlite_source::{self, Selection};
+        let parent = request.path.parent().unwrap();
+        let info = std::fs::metadata(parent).unwrap();
+        let selection = Selection {
+            root_path: parent.to_str().unwrap().to_owned(),
+            expected_device: info.dev(),
+            expected_inode: info.ino(),
+            native_version: "0.153.4".into(),
+            thread_id: ID.into(),
+        };
+        let result = (|| {
+            // SAFETY: fresh fixture-only subprocess with no SQLite connections
+            // or lock-bearing descriptors; no unguarded fallback or later use.
+            let prepared = unsafe {
+                sqlite_source::prepare(
+                    selection,
+                    Arc::new(AtomicBool::new(request.mode == "bound_cancel")),
+                )
+            }?;
+            let mut wait = |stage| {
+                send(json!({"ready":stage}));
+                let mut line = Vec::new();
+                input.by_ref().take(8).read_until(b'\n', &mut line).unwrap();
+                assert_eq!(line, b"finish\n");
+            };
+            if request.mode == "bound_prepared" {
+                wait("prepared");
+            }
+            let pending = prepared.read()?;
+            if request.mode == "bound_read" {
+                wait("read");
+            }
+            pending.finish()
+        })();
+        send(match result {
+            Ok(value) => serde_json::to_value(value).unwrap(),
+            Err(error) => json!({"error":error.code()}),
+        });
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = (request, input);
+        send(json!({"error":"source_platform_unsupported"}));
+    }
+}
 impl Worker {
     fn start(path: &Path, mode: &str) -> Self {
-        let mut command = Command::new(std::env::current_exe().unwrap());
-        command
-            .arg("--owned-reader-child")
-            .current_dir(path.parent().unwrap())
-            .env_clear();
+        Self::start_request(path, mode, None)
+    }
+    fn start_request(path: &Path, mode: &str, frame: Option<Value>) -> Self {
+        let framed = frame.is_some();
+        let mut command = if framed {
+            Command::new(env!("CARGO_BIN_EXE_stepsemble-history-source-reader"))
+        } else {
+            let mut c = Command::new(std::env::current_exe().unwrap());
+            c.arg("--owned-reader-child");
+            c
+        };
+        command.current_dir(path.parent().unwrap()).env_clear();
         // Windows runtime system location only; no native HOME/auth/config.
         #[cfg(windows)]
         if let Some(value) = std::env::var_os("SystemRoot") {
@@ -360,6 +468,9 @@ impl Worker {
             .spawn()
             .unwrap();
         SPAWNED.fetch_add(1, Ordering::Relaxed);
+        if mode == "snapshot" {
+            SNAPSHOT_CHILDREN.fetch_add(1, Ordering::Relaxed);
+        }
         let input = child.stdin.take().unwrap();
         let (tx, lines) = mpsc::channel();
         let stdout = child.stdout.take().unwrap();
@@ -374,6 +485,28 @@ impl Worker {
             reaped: false,
         };
         worker.output = Some(thread::spawn(move || {
+            if framed {
+                use sha2::{Digest, Sha256};
+                let mut bytes = Vec::new();
+                stdout.take(164 * 1024 + 1).read_to_end(&mut bytes).unwrap();
+                assert!((5..=164 * 1024).contains(&bytes.len()));
+                let n = u32::from_be_bytes(bytes[..4].try_into().unwrap()) as usize;
+                assert!((1..=16 * 1024).contains(&n) && 4 + n <= bytes.len());
+                let header: Value = serde_json::from_slice(&bytes[4..4 + n]).unwrap();
+                let payload = &bytes[4 + n..];
+                let body = if payload.is_empty() {
+                    Value::Null
+                } else {
+                    assert_eq!(header["result"]["byteLength"], payload.len());
+                    assert_eq!(
+                        header["result"]["sha256"],
+                        format!("{:x}", Sha256::digest(payload))
+                    );
+                    serde_json::from_slice(payload).unwrap()
+                };
+                tx.send(json!({"header":header,"body":body})).unwrap();
+                return;
+            }
             let mut reader = BufReader::new(stdout).take(16385);
             let mut count = 0;
             loop {
@@ -393,16 +526,19 @@ impl Worker {
             bytes
         }));
         let input = worker.input.as_mut().unwrap();
-        serde_json::to_writer(
-            &mut *input,
-            &Request {
+        let request = frame.unwrap_or_else(|| {
+            serde_json::to_value(Request {
                 path: path.into(),
                 mode: mode.into(),
-            },
-        )
-        .unwrap();
+            })
+            .unwrap()
+        });
+        serde_json::to_writer(&mut *input, &request).unwrap();
         writeln!(input).unwrap();
         input.flush().unwrap();
+        if framed {
+            worker.input.take(); // Production helper consumes exactly one bounded stdin to EOF.
+        }
         worker
     }
     fn line(&self) -> Value {
@@ -468,16 +604,19 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
+        Self::named(if cfg!(windows) {
+            "owned 🐾 #% space.sqlite"
+        } else {
+            "owned 🐾 #%?.sqlite"
+        })
+    }
+    fn named(filename: &str) -> Self {
         let dir = tempfile::Builder::new()
             .prefix("stepsemble-sqlite-process-owned-")
             .tempdir()
             .unwrap();
-        let filename = if cfg!(windows) {
-            "owned 🐾 #% space.sqlite"
-        } else {
-            "owned 🐾 #%?.sqlite"
-        };
         let path = dir.path().canonicalize().unwrap().join(filename);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let writer = Connection::open(&path).unwrap();
         writer.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE projects(id TEXT PRIMARY KEY); CREATE TABLE thread_sections(id TEXT PRIMARY KEY);").unwrap();
         writer.execute_batch(THREADS_SCHEMA).unwrap();
@@ -520,17 +659,8 @@ impl Fixture {
     fn sidecar(&self, suffix: &str) -> PathBuf {
         PathBuf::from(format!("{}{suffix}", self.path.display()))
     }
-    fn snapshot(&self) -> BTreeMap<String, Vec<u8>> {
-        std::fs::read_dir(self.dir.as_ref().unwrap().path())
-            .unwrap()
-            .map(|entry| {
-                let entry = entry.unwrap();
-                assert!(entry.metadata().unwrap().is_file());
-                assert!(entry.metadata().unwrap().len() <= 4 * 1024 * 1024);
-                let bytes = std::fs::read(entry.path()).unwrap();
-                (entry.file_name().to_str().unwrap().to_owned(), bytes)
-            })
-            .collect()
+    fn snapshot(&self) -> BTreeMap<String, FileDigest> {
+        serde_json::from_value(self.capture("snapshot")).unwrap()
     }
     fn capture(&self, mode: &str) -> Value {
         let mut child = Worker::start(&self.path, mode);
@@ -756,7 +886,8 @@ fn suite() {
     drop(f);
     let spawned = SPAWNED.load(Ordering::Relaxed);
     let reaped = REAPED.load(Ordering::Relaxed);
-    assert_eq!(spawned, 16);
+    let snapshots = SNAPSHOT_CHILDREN.load(Ordering::Relaxed);
+    assert_eq!(spawned, 16 + snapshots);
     assert_eq!(reaped, spawned);
     let closed_fixtures = CLOSED_FIXTURES.load(Ordering::Relaxed);
     assert_eq!(closed_fixtures, 8);
@@ -765,6 +896,7 @@ fn suite() {
         json!({"kind":"owned_sqlite_process_gate","platform":std::env::consts::OS,
         "sqliteVersion":rusqlite::version(),"cases":cases,"nativeCodexWriter":false,
         "spawnedChildren":spawned,"reapedChildren":reaped,"remainingChildren":spawned-reaped,
+        "snapshotChildren":snapshots,"readerChildren":16,"fileComparison":"size_and_sha256_in_separate_process",
         "removedOwnedFixtureDirectories":closed_fixtures,
         "productionSourceOpener":false,"privateHistoryReads":0,"modelCalls":0,"cleanupConfirmed":true})
     );
@@ -777,5 +909,43 @@ fn main() {
     } else {
         assert_eq!(args.len(), 1, "no user-supplied source arguments");
         suite();
+        source_suite();
+        source_cases::run();
     }
+}
+
+fn source_suite() {
+    let before_spawn = SPAWNED.load(Ordering::Relaxed);
+    let before_reap = REAPED.load(Ordering::Relaxed);
+    let before_dirs = CLOSED_FIXTURES.load(Ordering::Relaxed);
+    let f = Fixture::named("sqlite-root/state_5.sqlite");
+    let before = f.snapshot();
+    let reply = f.capture("bound");
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        expect_title(&reply, "latest");
+        assert_eq!(reply["filesystemChecksPassed"], true);
+        assert_eq!(reply["sourceDescriptorsClosed"], 4);
+        assert_eq!(reply["sqliteDescriptorsOpened"], 3);
+        assert_eq!(reply["sqliteDescriptorsClosed"], 3);
+        assert!(reply["shmMappingsClosed"].as_u64().unwrap() > 0);
+        assert!(reply["readCalls"].as_u64().unwrap() > 0);
+        assert_eq!(reply["publishable"], false);
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    assert_eq!(reply, json!({"error":"source_platform_unsupported"}));
+    assert!(
+        f.snapshot() == before,
+        "bound source read leaves exact bytes/names unchanged"
+    );
+    drop(f);
+    let children = SPAWNED.load(Ordering::Relaxed) - before_spawn;
+    assert_eq!(children, REAPED.load(Ordering::Relaxed) - before_reap);
+    println!(
+        "{}",
+        json!({"kind":"owned_sqlite_source_gate","platform":std::env::consts::OS,
+        "sourceBoundary":if cfg!(any(target_os="macos",target_os="linux")) {"passed"}else{"unsupported"},
+        "spawnedChildren":children,"reapedChildren":children,"remainingChildren":0,
+        "removedOwnedFixtureDirectories":CLOSED_FIXTURES.load(Ordering::Relaxed)-before_dirs})
+    );
 }

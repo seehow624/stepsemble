@@ -2,6 +2,15 @@
 
 ## 3.0.7-rc.7
 
+- Add a POSIX descriptor-bound SQLite metadata source and one-shot helper v4,
+  reusing existing root/owner/ACL checks and retaining DB/WAL/SHM descriptors
+  through native close. Revalidate before returning fields; reject missing
+  sidecars and keep Windows source explicitly unsupported. This is not Node
+  shared-admission wiring, a private reader grant or Codex Host/Web completion.
+- Fix owned SQLite test snapshots to run in a separate process: closing snapshot
+  descriptors in the writer process releases its POSIX locks. Require real
+  read-only SHM mapping in the active-writer source case and retain negative controls.
+
 - Add a dedicated-process SQLite VFS policy that refuses writable main files,
   forces read-only WAL handles and denies creation/deletion. Owned cross-process
   controls reproduce ordinary read-only SHM writes and missing-WAL creation;

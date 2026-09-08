@@ -1,0 +1,59 @@
+//! Stable internal source errors; never include raw paths or OS diagnostics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Error {
+    Input,
+    PlatformUnsupported,
+    Missing,
+    NotRegular,
+    OwnerOrMode,
+    Hardlinked,
+    Empty,
+    TooLarge,
+    Changed,
+    AccessDenied,
+    Io,
+    Budget,
+    AclUnavailable,
+    AclUnsupported,
+    RootIdentityChanged,
+    IdentityUnavailable,
+    ContainmentUnavailable,
+    CloseFailed,
+    InventoryLimit,
+    EncodingUnsupported,
+    DatabaseUnsupported,
+    DatabaseUnavailable,
+    Busy,
+    Cancelled,
+}
+
+impl Error {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Input => "invalid_source_input",
+            Self::PlatformUnsupported => "source_platform_unsupported",
+            Self::Missing => "source_missing",
+            Self::NotRegular => "source_not_regular_or_linked",
+            Self::OwnerOrMode => "source_owner_or_mode",
+            Self::Hardlinked => "source_hardlinked",
+            Self::Empty => "source_empty",
+            Self::TooLarge => "source_too_large",
+            Self::Changed => "source_changed",
+            Self::AccessDenied => "source_access_denied",
+            Self::Io => "source_io_error",
+            Self::Budget => "source_read_budget",
+            Self::AclUnavailable => "source_acl_unavailable",
+            Self::AclUnsupported => "source_acl_unsupported",
+            Self::RootIdentityChanged => "source_root_identity_changed",
+            Self::IdentityUnavailable => "source_identity_unavailable",
+            Self::ContainmentUnavailable => "source_containment_unavailable",
+            Self::CloseFailed => "source_close_failed",
+            Self::InventoryLimit => "source_inventory_limit",
+            Self::EncodingUnsupported => "source_encoding_unsupported",
+            Self::DatabaseUnsupported => "source_database_unsupported",
+            Self::DatabaseUnavailable => "source_database_unavailable",
+            Self::Busy => "source_busy",
+            Self::Cancelled => "source_cancelled",
+        }
+    }
+}

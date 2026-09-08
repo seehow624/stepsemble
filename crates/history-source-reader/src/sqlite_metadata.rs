@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 pub const SQLITE_VERSION: &str = "3.53.4";
+pub const NATIVE_VERSION: &str = "0.153.4";
 pub const SQLITE_SOURCE_ID: &str =
     "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc";
 pub const THREADS_SCHEMA: &str =
@@ -75,7 +76,7 @@ fn sqlite_error(error: rusqlite::Error) -> Error {
     }
 }
 
-fn valid_id(id: &str) -> bool {
+pub(crate) fn valid_id(id: &str) -> bool {
     id.len() == 36
         && id.bytes().enumerate().all(|(i, b)| {
             if [8, 13, 18, 23].contains(&i) {
@@ -276,7 +277,7 @@ fn capture_with_hook(
         if !no_close_checkpoint.map_err(sqlite_error)? {
             return Err(Error::SqliteUnavailable);
         }
-        if native_version != "0.153.4" || !valid_id(id) {
+        if native_version != NATIVE_VERSION || !valid_id(id) {
             return Err(Error::InvalidSelection);
         }
         guard.check()?;
@@ -308,7 +309,7 @@ fn capture_with_hook(
         guard.check()?;
         let observation = Observation {
             kind: "codex_sqlite_metadata_observation",
-            native_version: "0.153.4",
+            native_version: NATIVE_VERSION,
             sqlite_version: SQLITE_VERSION,
             scope: "provided_connection_selected_name_fields_only",
             fields,
