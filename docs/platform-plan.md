@@ -19,7 +19,9 @@
 rollout_path／raw preview，v4保持相容；兩欄也納入selected version，actualclose與
 Host兩名額共用。新增方法別純resolver，明確拒path/ID/mode不符，原生19read／18list
 驗名稱與空preview排除，0模型／私人讀取；本機897/0fail、reader162/162、Rust21/28，
-真v4/v5链24reader＋1writer全清理/16真SHM，preview/path改變失效。跨平台CI待exact核，
+真v4/v5鏈24reader＋1writer全清理/16真SHM，preview/path改變失效。d506f21五CI全通且logs
+已核：三OS各897/0fail、reader162/162/Rust21+28/28/13、POSIX新鏈及Windows明示unsupported，
+rolling雙OS24cases、原生Codex19read/18list及Claude契約通，無模型/私人來源用量。
 詳[名稱脈絡與解讀](codex-name-context-resolution.md)。仍需跨來源有界capture/版本重驗
 接resolver，再discovery/grants/registry/HTTPWeb；非final title/C1–C8完成，正式/B+/72h不動。
 

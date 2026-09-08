@@ -53,14 +53,41 @@ section／relation filters可能納入。也不提供跨SQLite／rollout／index
   空preview案例由native list排除，不拿「缺列」當作name=null通過。
 
 上述不是native writer壓測、RSS/Core Vitals、私人session或新HostWeb接線。
-Windows仍應在Node spawn前unsupported，Rust實際v5亦必須明示unsupported，
+Windows在Node spawn前unsupported，Rust實際v5亦已驗明示unsupported，
 不能把Windows SQL library／純parser測試通過當成source支援。
 
 本機logs：`/tmp/stepsemble-name-context-{npm,reader-unit,resolver}.tap`、
 `...-rust-final-2.log`、`...-clippy-final.log`、`...-actual-second.log`、
 `...-native-oracle-second.log`、`...-{check,client,protocol,ajv}.log`。
 fmt／clippy warnings-as-errors／client／protocol／Ajv1251／actionlint／diff-check另驗。
-跨平台CI以本批exact工程SHA核對後補錄，未把本機結果外推到Linux／Windows。
+
+## Exact工程跨平台驗證
+
+工程 **d506f21edab783057c8595f70a0ec1422704fbcb** 五CI全部success，完整logs已核：
+
+- [一般34282625342](https://github.com/seehow624/stepsemble/actions/runs/34282625342)：
+  三OS各897/0fail及Ajv1251；Mac895pass/2skip、Linux894/3、Windows850/47。
+- [Reader34282625281](https://github.com/seehow624/stepsemble/actions/runs/34282625281)：
+  三OS Node162/162、Rust lib21/main28/28/13；POSIX Rust103child/61dirs全部清理。
+  最低Node22.19的Mac/Linux實際v4/v5鏈各24reader/1writer全reaped、16真SHM、
+  read12388/max2/remaining0、context變版與原bytes不變通。Windows Rust實際v5
+  unsupported（連同舊gates共43child/10dirs全清理），Node v4/v5零spawn。
+  RustSec0.22.2／DB `bf25f6575a93a35f30796c65c0ed91bee7fa19fd`，43packages，
+  0known/0warnings；SQLite artifact/source pin與既有lock不變。
+- [Rolling34282625193](https://github.com/seehow624/stepsemble/actions/runs/34282625193)：
+  Mac/Linux各24cases、pageErrors0；各六個原生來源browser案例×11語、localeReads0。
+  這是現有Web相容性控制組，不是新Codex名稱已接Web的證據。
+- [原生Codex34282625389](https://github.com/seehow624/stepsemble/actions/runs/34282625389)：
+  三OS固定0.153.4原history／17index／新19read及18list名字、21原檔與七SQL欄不變
+  均通，0model endpoint requests及cleanup confirmed；Windows CRLF、POSIX LF真DDL。
+  paginated完整歷史仍unsupported，不用metadata通過冒充完整內容。
+- [Claude34282625286](https://github.com/seehow624/stepsemble/actions/runs/34282625286)：
+  三OS SDK0.3.259/native2.1.259契約通，0model calls；未增加Windows私人來源能力。
+
+Logs `/tmp/stepsemble-name-context-{general,reader,rolling,native-codex,native-claude}-ci.log`。
+本機另外两次完整actual pipeline（`...-actual-repeat-1.log`／2）同樣24reader/1writer、
+16capture真SHM、read12388與全部cleanup通；不是負載／效能benchmark。
+本批有完整工程回歸證據，整體goal仍active，未到Web完整體或正式發布終點。
 
 ## 保留的失敗與修正
 
