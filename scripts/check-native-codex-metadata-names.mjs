@@ -82,7 +82,13 @@ await withHistorySchemas(binary, async snapshot => {
     sqliteVersion = db.prepare("SELECT sqlite_version() AS version").get().version;
     const threadsSchema = db.prepare("SELECT sql FROM sqlite_schema WHERE type='table' AND name='threads'").get().sql;
     const expectedSchema = (await fs.readFile(new URL("../protocol/native/codex/sqlite-threads-0.153.4.sql", import.meta.url), "utf8")).trim();
-    assert.equal(threadsSchema, expectedSchema, "pinned threads schema must match the real native-created database");
+    assert(!expectedSchema.includes("\r"), "canonical schema fixture must stay LF on every checkout");
+    assert([expectedSchema, expectedSchema.replaceAll("\n", "\r\n")].includes(threadsSchema),
+      "pinned threads schema must match one of the two exact native-created DDL forms");
+    const schemaSha256 = crypto.createHash("sha256").update(threadsSchema).digest("hex");
+    assert.equal(schemaSha256, threadsSchema.includes("\r")
+      ? "66863400450b5838251535ee0f507dedbb1fa8335000e90c40bd10a36476c52c"
+      : "244d1f71265bbdfaf4f7bf92c06a68a4e2b93e6edf4e1e27fceecd04e6b07b5e");
     assert.equal(nameFields(db).length, cases.length);
     const update = db.prepare("UPDATE threads SET history_mode=?, title=?, first_user_message=?, name=? WHERE id=?");
     db.exec("BEGIN IMMEDIATE");
@@ -123,7 +129,7 @@ await withHistorySchemas(binary, async snapshot => {
     console.log(JSON.stringify({ result: "passed", nativeVersion: snapshot.nativeVersion, scope: "owned_sqlite_name_precedence_only", cases: cases.length,
       caseLabels: cases.map(c => c.label), legacyCases: cases.filter(c => c.mode === "legacy").length, paginatedMetadataCases: cases.filter(c => c.mode === "paginated").length,
       sqliteConfigOverridesEnvVerified: true, separateSqliteHome: true, sqliteFixtureVersion: sqliteVersion, fixtureMutationOnlyWithNativeClosed: true,
-      sqliteThreadsSchemaSha256: crypto.createHash("sha256").update(threadsSchema).digest("hex"),
+      sqliteThreadsSchemaSha256: schemaSha256, sqliteThreadsSchemaLineEndings: threadsSchema.includes("\r") ? "CRLF" : "LF",
       databaseNameFieldsUnchangedAfterReads: true, stateOnlyAndScanListsVerified: true, metadataReadBeforeAfterVerified: true, legacyReadWithHistoryVerified: true,
       paginatedFullHistorySupported: false, paginatedFullHistoryProbe: "unavailable_deprecation_notice_refused", ownedNativeStarts: starts, remainingChildren: physical, modelEndpointRequests: requests, loadedThreads: 0,
       sourceFilesUnchangedExceptExplicitSetup: saved.size, privateHistoryReads: 0, productionSqliteReader: false, startupNotices: notices, cleanupConfirmed }));

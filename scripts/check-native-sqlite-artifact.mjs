@@ -15,7 +15,8 @@ assert.equal(process.argv.length, 2, "no user-supplied sources or artifact overr
 const result = spawnSync("cargo", ["+1.97.1", "metadata", "--manifest-path", "crates/history-source-reader/Cargo.toml", "--locked", "--offline", "--format-version", "1"], {
   cwd: root, encoding: "utf8", timeout: 120000, maxBuffer: 4 * 1024 * 1024, windowsHide: true,
 });
-assert.equal(result.error, undefined); assert.equal(result.signal, null); assert.equal(result.status, 0, "locked metadata must be available after the build");
+assert.equal(result.error, undefined); assert.equal(result.signal, null);
+assert.equal(result.status, 0, `locked metadata requires cargo fetch --locked for all targets before offline verification: ${result.stderr.trim()}`);
 assert.equal(result.stderr.trim(), "", "metadata diagnostics are not ignored");
 const metadata = JSON.parse(result.stdout);
 function packageFor(name, version, features) {

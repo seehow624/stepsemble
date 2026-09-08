@@ -55,9 +55,11 @@ rollout＋name-index跨檔案原子交易，也不是跨請求版本穩定證明
 4. authorizer只允許固定schema欄位、選定五欄、唯讀journal_mode及交易操作；
    其他表、cwd等未選欄、函式、attach、migration、checkpoint、VACUUM／repair與寫入拒絕。
    它是SQL第二道防線，不是OS sandbox或FS授權。
-5. exact threads DDL存於`protocol/native/codex/sqlite-threads-0.153.4.sql`，真owned
-   Codex建DB後逐字核對；SHA256
-   `244d1f71265bbdfaf4f7bf92c06a68a4e2b93e6edf4e1e27fceecd04e6b07b5e`。
+5. exact threads DDL存於`protocol/native/codex/sqlite-threads-0.153.4.sql`，canonical
+   fixture由Git固定LF。真owned Codex建DB後逐字核對兩種已驗格式：POSIX LF SHA256
+   `244d1f71265bbdfaf4f7bf92c06a68a4e2b93e6edf4e1e27fceecd04e6b07b5e`；Windows CRLF
+   `66863400450b5838251535ee0f507dedbb1fa8335000e90c40bd10a36476c52c`。
+   library只接受這兩種完整字串，不全面normalize SQL或接受混合換行／其他空白改寫。
    不執行此DDL於來源，不接受改欄／view或未知mode；這是相容性辨識，不证明來源真實。
 6. 每文字欄32KiB，SQLite row長度128KiB、SQL8KiB、output128KiB、column64、
    expression depth20、VDBE allocation25,000、variable1；blob／無效UTF8／超量拒絕不替換。
@@ -77,11 +79,14 @@ local-filesystem與既有writer邊界仍是下一個必做關卡，不可直接�
 
 ## 已驗與保留的失敗
 
-- 新15項Rust tests＋既有main25項全通。涵蓋exact engine、WAL尚未checkpoint的名稱、
+- 新16項Rust tests＋既有main25項本機全通。涵蓋exact engine、兩種native DDL及
+  其他改寫拒絕、WAL尚未checkpoint的名稱、
   missing/unknown schema、read-only／attached／既有transaction拒絕、raw/null/UTF8/limits、
   authorizer、cancel/deadline/VM budget，以及另一thread的獨立SQLite連線**20次commit**。
-  writer提交時reader仍讀原snapshot，下一次request讀新值；這是跨連線／thread，
-  **尚非跨process或真Codex同時寫入的壓力驗收**。
+  writer提交時reader仍讀原snapshot，下一次request讀新值。獨立writer在capture前
+  ready，僅此owned並行fixture設synchronous=OFF，避免把20次磁碟flush算進reader
+  250ms限額；正式capture限額不變。這是跨連線／thread的交易隔離測試，
+  **不是crash durability／吞吐效能、跨process或真Codex同時寫入的壓力驗收**。
 - 專門保留checkpoint副作用測試：owned writer在reader持有交易時TRUNCATE回busy，
   readerclose後成功。不聲稱讀者完全不影響writer／checkpoint。另一案例明確驗主DB
   bytes保持舊值、WAL含新值，reader取得新值且主DB／WAL bytes讀前後不變；未把SHM算入。
@@ -99,7 +104,31 @@ local-filesystem與既有writer邊界仍是下一個必做關卡，不可直接�
 
 本機logs `/tmp/stepsemble-sqlite-{tests-first.log,tests-second.log,tests-third.log,
 tests-fourth.log,tests-fifth.log,clippy.log,audit.log,node-full.tap,existing-pipeline.log,
-native-schema-final.log}`。Exact工程CI待push後核完整結果，不能先當成三OS皆通。
+native-schema-final.log}`。
+
+### 首批CI與修正
+
+工程`379265aaab2a2cc1373c3a2488721b2a4918d885`：一般34261880239三OS各849/0fail
+與Ajv1251，native34261880201各13SQLite＋17index cases、原檔／model0／cleanup通；
+native Windows原始DDL為CRLF，上面兩個digest由此確認。rolling34261880343雙OS
+各24cases/pageErrors0（含六native×11語localeReads0）。完整logs已核，非新SQLite
+library接Web的驗收。Reader34261880347 **失敗且不覆寫紀錄**：
+
+- Mac/Linux Rust15＋25通，接著offline cargo metadata回101。原本錯假設host build
+  會下載完整跨target依賴；全新隔離Cargo cache只fetch host後，實際重現缺
+  linux-raw-sys／offline refused。完整`cargo fetch --locked`補齊四個非host crates
+  後，同一離線SHA／source／features gate通。CI新增明確完整locked fetch，未去掉
+  offline/hash檢查；失敗診斷現在保留Cargo stderr，不再只看到exit101。
+- Windows Rust14pass/1fail：測試把20次同步commit與writer建立等待放進交易，回Budget；
+  未分別量測磁碟flush／排程耗時，不當成正式reader效能結論。修正
+  上述fixture同步／寫入準備，保留20次commit、snapshot／next-read比較和250ms
+  正式限額，不刪case／不skip Windows。另補明確LF/CRLF與未知DDL負向回歸。
+- RustSec該run仍success：43packages/0known/0warnings。同舊fixed DB／lockfile；
+  reader後續actual pipeline未執行，不能以其他CI綠燈冒稱來源鏈已通。
+
+失敗logs `/tmp/stepsemble-sqlite-reader-{failed-ci,linux-failed,macos-failed,windows-failed}.log`，
+乾淨cache重現 `/tmp/stepsemble-sqlite-cargo-{host-fetch,clean-metadata-error,all-fetch,clean-fixed}.log`；
+修正本機Rust16＋25、clippy、最低Node native13與artifact gate已通。修正SHA之exactCI待核。
 
 ## 接續
 

@@ -125,6 +125,10 @@ jobs:
         run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
       - name: Record exact toolchain
         run: rustc +1.97.1 --version --verbose
+      # Host-only builds do not cache crates used by other targets. The offline
+      # provenance gate resolves the complete locked graph, including those.
+      - name: Fetch complete locked dependency graph for offline provenance
+        run: cargo +1.97.1 fetch --manifest-path crates/history-source-reader/Cargo.toml --locked
       - name: Check formatting
         run: cargo +1.97.1 fmt --manifest-path crates/history-source-reader/Cargo.toml --all -- --check
       - name: Clippy (warnings are errors)

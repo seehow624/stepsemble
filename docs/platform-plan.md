@@ -19,8 +19,10 @@
 名稱讀取；固定SQLite3.53.4、上游SHA與真Codex threadsDDL，禁止SQL寫入／attach／
 額外欄位、限額／取消／busy無retry、close後才回覆。owned獨立連線20次commit時仍讀
 同snapshot，readclose後checkpoint恢復；不宣稱SHM零寫、跨process／原生writer壓測。
-Rust新15＋原25、本機Node849/0fail、舊actualsharedpipeline通、43packages audit0/0；
-exactCI待核。這是交易library，未接source opener／descriptor/VFS/ACL、private grant、
+Rust新16＋原25、本機Node849/0fail、舊actualsharedpipeline通、43packages audit0/0；
+首批general/native/rolling通，reader抓到完整依賴快取與Windows20次flush超時，已
+重現修正，保留250ms限額；另明確固定LF/CRLF兩個native DDL。修正exactCI待核。
+這是交易library，未接source opener／descriptor/VFS/ACL、private grant、
 worker／CodexHostWeb，C1–C8仍未完。詳[SQLite交易](codex-sqlite-transactions.md)。
 正式/B+/私人/帳號/獨立72h不變。
 

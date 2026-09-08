@@ -88,7 +88,9 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 - **2026-09-09／C2 SQLite短交易，Plan1.63／rc.7不變**：Rust接caller-owned唯讀
   connection，exact native schema／SQLite3.53.4、欄位／SQL／deadline/VM/cancel限額，
   close後才回；owned另一thread連線20次commit不混snapshot，checkpoint成本明示。
-  新15Rust＋原25、Node849/0fail、舊sharedpipeline／43packages audit0/0通；exactCI待核。
+  新16Rust＋原25、Node849/0fail、舊sharedpipeline／43packages audit0/0通；首批
+  general/native/rolling通，reader的offline跨target依賴與Windowsfixture等待超時
+  已修，原失敗保留／正式250ms不變，LF/CRLF兩種native DDL明確固定，修正CI待核。
   尚無source opener/VFS/ACL或新worker/HostWeb，不拿普通VFS開私人DB。详
   [SQLite交易](codex-sqlite-transactions.md)，C1–C8與正式/私人/B+/帳號/72h邊界不變。
 

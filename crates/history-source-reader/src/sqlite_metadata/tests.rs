@@ -130,6 +130,33 @@ fn exact_schema_rejects_views_and_changed_column_contracts() {
 }
 
 #[test]
+fn exact_native_lf_and_crlf_schemas_are_supported_but_other_rewrites_are_not() {
+    assert!(
+        !THREADS_SCHEMA.contains('\r'),
+        "canonical checkout stays LF"
+    );
+    for schema in [
+        THREADS_SCHEMA.to_owned(),
+        THREADS_SCHEMA.replace('\n', "\r\n"),
+    ] {
+        let f = Fixture::new();
+        f.writer.execute_batch("DROP TABLE threads").unwrap();
+        f.writer.execute_batch(&schema).unwrap();
+        assert!(read(&f).unwrap().fields.is_none());
+    }
+    for schema in [
+        THREADS_SCHEMA.replace('\n', " "),
+        THREADS_SCHEMA.replacen("title TEXT", "title  TEXT", 1),
+        THREADS_SCHEMA.replacen('\n', "\r\n", 1),
+    ] {
+        let f = Fixture::new();
+        f.writer.execute_batch("DROP TABLE threads").unwrap();
+        f.writer.execute_batch(&schema).unwrap();
+        assert_eq!(read(&f), Err(Error::SchemaUnsupported));
+    }
+}
+
+#[test]
 fn fixed_version_selection_and_read_only_flag_are_mandatory() {
     let f = Fixture::new();
     for (version, id) in [
@@ -317,11 +344,18 @@ fn opcode_budget_interrupts_expensive_reads_even_before_time_limit() {
 fn wal_writer_commits_while_reader_sees_one_consistent_transaction() {
     let f = Fixture::new();
     let path = f.path.clone();
+    let (ready_tx, ready_rx) = mpsc::channel();
     let (go_tx, go_rx) = mpsc::channel();
     let (done_tx, done_rx) = mpsc::channel();
     let writer = thread::spawn(move || {
         let db = Connection::open(path).unwrap();
         db.busy_timeout(Duration::ZERO).unwrap();
+        // This fixture verifies transaction isolation, not crash durability or
+        // native-writer throughput. Avoid 20 disk flushes inside the reader's
+        // unchanged 250ms budget; prepare the independent writer beforehand.
+        db.execute_batch("PRAGMA synchronous=OFF; PRAGMA wal_autocheckpoint=0;")
+            .unwrap();
+        ready_tx.send(()).unwrap();
         go_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         for n in 0..20 {
             db.execute(
@@ -330,9 +364,10 @@ fn wal_writer_commits_while_reader_sees_one_consistent_transaction() {
             )
             .unwrap();
         }
-        done_tx.send(()).unwrap();
         db.close().unwrap();
+        done_tx.send(()).unwrap();
     });
+    ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     let result = capture_with_hook(f.reader(), "0.153.4", ID, flag(), |db, first| {
         go_tx.send(()).unwrap();
         done_rx.recv_timeout(Duration::from_secs(2)).unwrap();

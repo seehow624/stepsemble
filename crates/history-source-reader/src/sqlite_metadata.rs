@@ -93,6 +93,13 @@ pub fn engine_matches_pin() -> bool {
     rusqlite::version() == SQLITE_VERSION && source.to_bytes() == SQLITE_SOURCE_ID.as_bytes()
 }
 
+fn schema_matches_pin(schema: &str) -> bool {
+    // Both byte-exact native 0.153.4 forms are verified by the owned oracle:
+    // POSIX LF and Windows CRLF. Do not normalize other SQL whitespace or DDL.
+    let canonical = THREADS_SCHEMA.trim();
+    schema == canonical || schema == canonical.replace('\n', "\r\n")
+}
+
 fn authorize(context: AuthContext<'_>) -> Authorization {
     if context.accessor.is_some() || context.database_name.is_some_and(|name| name != "main") {
         return Authorization::Deny;
@@ -285,7 +292,7 @@ fn capture_with_hook(
             )
             .optional()
             .map_err(sqlite_error)?;
-        if schema.as_deref() != Some(THREADS_SCHEMA.trim()) {
+        if !schema.as_deref().is_some_and(schema_matches_pin) {
             return Err(Error::SchemaUnsupported);
         }
         let mode: String = transaction
