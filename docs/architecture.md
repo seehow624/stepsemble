@@ -13,7 +13,15 @@ runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
-Development-only Plan1.66 adds a strict Node v4 SQLite capture decoder and an
+Development-only Plan1.67 adds v5 SQLite rollout-path/preview context in the same
+bounded read transaction, preserving v4 and the Host-owned two-reader admission.
+A pure method-specific name interpreter is verified against owned native read/list
+cases, but does not grant source access, determine inventory membership or provide
+an atomic cross-source snapshot. The aggregate parser/version-bracket pipeline and
+Codex registry/HTTP/Web are still pending. See
+[`codex-name-context-resolution.md`](codex-name-context-resolution.md).
+
+Development-only Plan1.66 added a strict Node v4 SQLite capture decoder and an
 admitted metadata-name pipeline. It shares the Host-owned two-reader budget with
 Claude SDK and Codex parsing; actual child close gates publication and release.
 Selected-field versions are not global DB versions or final native titles. See

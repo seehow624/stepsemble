@@ -4,12 +4,13 @@
 const { performance } = require("node:perf_hooks");
 const { createNativeHelper, LIMITS, SOURCE_CODES } = require("../claude/history-native-helper");
 const { isReaderAdmission, LIMIT } = require("../claude/history-reader-admission");
-const wire = require("./sqlite-wire"), { observeMetadataName } = require("./metadata-name");
+const sqliteWire = require("./sqlite-wire"), { observeMetadataName } = require("./metadata-name");
 const unavailable = code => ({ kind: "source_unavailable", code });
 const codes = new Set([...SOURCE_CODES, "source_worker_exit", "source_worker_timeout", "source_worker_spawn_failed", "source_worker_io_error",
   "source_worker_diagnostic", "source_worker_input_limit", "source_worker_output_limit", "source_worker_protocol", "source_aborted",
   "source_cleanup_unconfirmed", "source_service_quarantined", "source_service_closed"]);
-function createCodexMetadataPipeline(options = {}) {
+function createPipeline(options = {}, withContext = false) {
+  const wire = withContext ? sqliteWire.context : sqliteWire, method = withContext ? "readCodexNameContext" : "readCodexMetadata";
   if (!wire.own(options, ["helperPath", "admission", "createHelper", "platform", "deadlineMs", "cleanupMs"])) throw new TypeError("invalid_codex_metadata_pipeline_options");
   const { helperPath, admission, createHelper = createNativeHelper, platform = process.platform,
     deadlineMs = LIMITS.deadlineMs, cleanupMs = LIMITS.cleanupMs } = options;
@@ -20,7 +21,7 @@ function createCodexMetadataPipeline(options = {}) {
   createNativeHelper({ executablePath: helperPath, trustBoundary: "host_managed_executable", platform, deadlineMs, cleanupMs });
   const slots = Array.from({ length: LIMIT }, () => ({ flight: null, helper: createHelper({ executablePath: helperPath,
     trustBoundary: "host_managed_executable", platform, deadlineMs, cleanupMs }) }));
-  if (new Set(slots.map(s => s.helper)).size !== LIMIT || slots.some(s => !s.helper || ["readCodexMetadata", "status", "shutdown"].some(k => typeof s.helper[k] !== "function")))
+  if (new Set(slots.map(s => s.helper)).size !== LIMIT || slots.some(s => !s.helper || [method, "status", "shutdown"].some(k => typeof s.helper[k] !== "function")))
     throw new TypeError("invalid_codex_metadata_pipeline_helper");
   let closed = false, quarantined = false, shutdownPromise = null;
   const flights = new Set();
@@ -86,7 +87,7 @@ function createCodexMetadataPipeline(options = {}) {
     async function run() {
       if (!current()) { f.helperSettled = true; settle(unavailable(failure)); return; }
       let raw;
-      try { raw = await slot.helper.readCodexMetadata(request, { signal: controller.signal }); } catch { raw = unavailable("source_worker_failure"); }
+      try { raw = await slot.helper[method](request, { signal: controller.signal }); } catch { raw = unavailable("source_worker_failure"); }
       f.helperSettled = true;
       if (!helperClosed(slot)) { failure ||= "source_cleanup_unconfirmed"; controller.abort(); quarantine(); settle(unavailable("source_cleanup_unconfirmed")); return; }
       if (!current()) { if (!f.settled) settle(unavailable(failure)); else sweep(); return; }
@@ -100,7 +101,8 @@ function createCodexMetadataPipeline(options = {}) {
       const metadata = observeMetadataName(captured.metadata.observation.fields, { nativeVersion: request.nativeVersion, threadId: request.source.threadId });
       if (!current()) return;
       if (metadata.kind !== "codex_metadata_name_observation") return settle(unavailable("source_observation_rejected"));
-      settle({ kind: "codex_sqlite_name_capture", source: version, metadata, sourceAuthenticated: false, publishable: false, cleanupConfirmed: true });
+      settle({ kind: withContext ? "codex_sqlite_context_capture" : "codex_sqlite_name_capture", source: version, metadata,
+        ...(withContext ? { nameContext: captured.metadata.observation.nameContext } : {}), sourceAuthenticated: false, publishable: false, cleanupConfirmed: true });
     }
     run().catch(() => { if (!f.helperSettled) stop("source_worker_failure"); else if (!f.settled) settle(unavailable(failure || "source_worker_failure")); });
     return promise;
@@ -118,4 +120,6 @@ function createCodexMetadataPipeline(options = {}) {
   return Object.freeze({ read, shutdown, status() { sweep(); return Object.freeze({ closed: closed || admission.status().closed, quarantined,
     activeWorkers: flights.size, cleanupConfirmed: flights.size === 0 }); } });
 }
-module.exports = { createCodexMetadataPipeline };
+function createCodexMetadataPipeline(options) { return createPipeline(options); }
+function createCodexNameContextPipeline(options) { return createPipeline(options, true); }
+module.exports = { createCodexMetadataPipeline, createCodexNameContextPipeline };

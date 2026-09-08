@@ -55,6 +55,20 @@ fn main() {
                 db.execute("UPDATE threads SET title='renamed' WHERE id=?1", [ID])
                     .unwrap();
             }
+            b"preview\n" => {
+                db.execute(
+                    "UPDATE threads SET preview='  preview 🐾  ' WHERE id=?1",
+                    [ID],
+                )
+                .unwrap();
+            }
+            b"path\n" => {
+                db.execute(
+                    "UPDATE threads SET rollout_path='../never-open/auth.json' WHERE id=?1",
+                    [ID],
+                )
+                .unwrap();
+            }
             b"paginated\n" => {
                 db.execute("UPDATE threads SET history_mode='paginated',name='  paginated name  ' WHERE id=?1", [ID]).unwrap();
             }

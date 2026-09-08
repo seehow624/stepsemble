@@ -21,10 +21,11 @@ fn request(f: &Fixture) -> Value {
         "expectedRoot":{"device":device,"inode":inode}})
 }
 fn frame(f: &Fixture, request: Value) -> Value {
+    let version = request["protocolVersion"].clone();
     let mut child = Worker::start_request(&f.path, "frame", Some(request));
     let reply = child.line();
     child.finish(false);
-    assert_eq!(reply["header"]["protocolVersion"], 4);
+    assert_eq!(reply["header"]["protocolVersion"], version);
     assert_eq!(reply["header"]["nonce"], "a".repeat(64));
     reply
 }
@@ -71,6 +72,40 @@ pub(super) fn run() {
         );
     }
     assert!(f.snapshot() == before);
+    let mut v5 = request(&f);
+    v5["protocolVersion"] = json!(5);
+    let context = frame(&f, v5.clone());
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        expect_title(&context["body"], "latest");
+        assert_eq!(
+            context["header"]["result"]["kind"],
+            "native_sqlite_name_context"
+        );
+        assert_eq!(
+            context["body"]["observation"]["nameContext"],
+            json!({"rolloutPath":"owned","preview":""})
+        );
+        assert!(context["body"]["shmMappingsClosed"].as_u64().unwrap() > 0);
+        v5["expectedRoot"]["inode"] = json!("18446744073709551615");
+        let rejected = frame(&f, v5);
+        assert_eq!(rejected["body"], Value::Null);
+        assert_eq!(
+            rejected["header"]["result"]["code"],
+            "source_root_identity_changed"
+        );
+        cases.push("actual_v5_wrong_root_zero_fields".into());
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        assert_eq!(context["body"], Value::Null);
+        assert_eq!(
+            context["header"]["result"]["code"],
+            "source_platform_unsupported"
+        );
+    }
+    assert!(f.snapshot() == before);
+    cases.push("actual_v5_context_frame_and_platform_boundary".into());
     drop(f);
     cases.push("actual_v4_frame_nonce_digest_and_platform_boundary".into());
     #[cfg(any(target_os = "macos", target_os = "linux"))]

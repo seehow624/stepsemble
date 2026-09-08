@@ -307,6 +307,12 @@ pub unsafe fn prepare(selection: Selection, cancelled: Arc<AtomicBool>) -> Resul
 
 impl Prepared {
     pub fn read(self) -> Result<Pending, Error> {
+        self.read_selected(false)
+    }
+    pub fn read_name_context(self) -> Result<Pending, Error> {
+        self.read_selected(true)
+    }
+    fn read_selected(self, with_context: bool) -> Result<Pending, Error> {
         self.state.verify()?;
         self.state.verify_root_path()?;
         let native = self.state.selection.native_version.clone();
@@ -329,8 +335,14 @@ impl Prepared {
                     | OpenFlags::SQLITE_OPEN_PRIVATE_CACHE,
                 name.to_str().map_err(|_| Error::DatabaseUnsupported)?,
             ) {
-                Ok(db) => sqlite_metadata::capture_name_fields(db, &native, &thread, cancelled)
-                    .map_err(map_sqlite_error),
+                Ok(db) => {
+                    let capture = if with_context {
+                        sqlite_metadata::capture_name_context
+                    } else {
+                        sqlite_metadata::capture_name_fields
+                    };
+                    capture(db, &native, &thread, cancelled).map_err(map_sqlite_error)
+                }
                 Err(_) => Err(Error::DatabaseUnavailable),
             },
         };

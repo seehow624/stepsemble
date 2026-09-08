@@ -23,6 +23,7 @@ pub const THREADS_SCHEMA: &str =
     include_str!("../../../protocol/native/codex/sqlite-threads-0.153.4.sql");
 pub const TEXT_LIMIT: usize = 32 * 1024;
 pub const OUTPUT_LIMIT: usize = 128 * 1024;
+pub const CONTEXT_OUTPUT_LIMIT: usize = 192 * 1024;
 pub const VM_STEPS: usize = 20_000;
 pub const TRANSACTION_BUDGET: Duration = Duration::from_millis(250);
 
@@ -52,6 +53,13 @@ pub struct NameFields {
     pub name: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NameContext {
+    pub rollout_path: String,
+    pub preview: String,
+}
+
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Observation {
@@ -60,6 +68,10 @@ pub struct Observation {
     pub sqlite_version: &'static str,
     pub scope: &'static str,
     pub fields: Option<NameFields>,
+    // None is the unchanged v4 contract. Some(None) is an observed missing row
+    // in v5, never an unread/implicitly authorized source.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name_context: Option<Option<NameContext>>,
     pub native_title_resolved: bool,
     pub source_authenticated: bool,
     pub publishable: bool,
@@ -102,6 +114,10 @@ fn schema_matches_pin(schema: &str) -> bool {
 }
 
 fn authorize(context: AuthContext<'_>) -> Authorization {
+    authorize_selected(context, false)
+}
+
+fn authorize_selected(context: AuthContext<'_>, name_context: bool) -> Authorization {
     if context.accessor.is_some() || context.database_name.is_some_and(|name| name != "main") {
         return Authorization::Deny;
     }
@@ -114,6 +130,7 @@ fn authorize(context: AuthContext<'_>) -> Authorization {
             "sqlite_master" | "sqlite_schema" => ["name", "type", "sql"].contains(&column_name),
             "threads" => {
                 ["id", "history_mode", "title", "first_user_message", "name"].contains(&column_name)
+                    || name_context && ["rollout_path", "preview"].contains(&column_name)
             }
             _ => false,
         },
@@ -150,6 +167,10 @@ impl Guard {
 }
 
 fn configure(db: &Connection, guard: &Guard) -> Result<(), Error> {
+    configure_selected(db, guard, false)
+}
+
+fn configure_selected(db: &Connection, guard: &Guard, name_context: bool) -> Result<(), Error> {
     if !engine_matches_pin() {
         return Err(Error::EngineMismatch);
     }
@@ -217,7 +238,14 @@ fn configure(db: &Connection, guard: &Guard) -> Result<(), Error> {
     // Connection-local settings only. No journal mode change, migration,
     // checkpoint, VACUUM, repair, database_list/path output, or source SQL write.
     db.execute_batch("PRAGMA query_only=ON; PRAGMA temp_store=MEMORY; PRAGMA mmap_size=0; PRAGMA cache_size=-512;").map_err(sqlite_error)?;
-    db.authorizer(Some(authorize)).map_err(sqlite_error)?;
+    if name_context {
+        db.authorizer(Some(|context: AuthContext<'_>| {
+            authorize_selected(context, true)
+        }))
+        .map_err(sqlite_error)?;
+    } else {
+        db.authorizer(Some(authorize)).map_err(sqlite_error)?;
+    }
     guard.check()
 }
 
@@ -258,11 +286,57 @@ pub fn capture_name_fields(
     capture_with_hook(db, native_version, id, cancelled, |_, _| Ok(()))
 }
 
+/// v5 only: the two additional fields are read in the SAME short transaction
+/// as the five name fields. They are inert data, never paths to follow here.
+pub fn capture_name_context(
+    db: Connection,
+    native_version: &str,
+    id: &str,
+    cancelled: Arc<AtomicBool>,
+) -> Result<Observation, Error> {
+    capture_selected(db, native_version, id, cancelled, true, |_, _| Ok(()))
+}
+
+fn selected_context(db: &Connection, id: &str) -> Result<NameContext, Error> {
+    let result = db
+        .query_row(
+            "SELECT rollout_path, preview FROM main.threads WHERE id=?1 LIMIT 2",
+            [id],
+            |row| {
+                Ok(NameContext {
+                    rollout_path: row.get(0)?,
+                    preview: row.get(1)?,
+                })
+            },
+        )
+        .map_err(|error| match error {
+            rusqlite::Error::InvalidColumnType(..)
+            | rusqlite::Error::FromSqlConversionFailure(..)
+            | rusqlite::Error::Utf8Error(..) => Error::InvalidFields,
+            _ => sqlite_error(error),
+        })?;
+    if result.rollout_path.len() > 8192 || result.preview.len() > TEXT_LIMIT {
+        return Err(Error::TooLarge);
+    }
+    Ok(result)
+}
+
 fn capture_with_hook(
+    db: Connection,
+    native_version: &str,
+    id: &str,
+    cancelled: Arc<AtomicBool>,
+    hook: impl FnOnce(&Connection, &Option<NameFields>) -> Result<(), Error>,
+) -> Result<Observation, Error> {
+    capture_selected(db, native_version, id, cancelled, false, hook)
+}
+
+fn capture_selected(
     mut db: Connection,
     native_version: &str,
     id: &str,
     cancelled: Arc<AtomicBool>,
+    with_context: bool,
     hook: impl FnOnce(&Connection, &Option<NameFields>) -> Result<(), Error>,
 ) -> Result<Observation, Error> {
     let guard = Guard {
@@ -281,7 +355,11 @@ fn capture_with_hook(
             return Err(Error::InvalidSelection);
         }
         guard.check()?;
-        configure(&db, &guard)?;
+        if with_context {
+            configure_selected(&db, &guard, true)?;
+        } else {
+            configure(&db, &guard)?;
+        }
         let transaction = db
             .transaction_with_behavior(TransactionBehavior::Deferred)
             .map_err(sqlite_error)?;
@@ -303,6 +381,15 @@ fn capture_with_hook(
             return Err(Error::JournalUnsupported);
         }
         let fields = selected_fields(&transaction, id)?;
+        let name_context = if with_context {
+            Some(if fields.is_some() {
+                Some(selected_context(&transaction, id)?)
+            } else {
+                None
+            })
+        } else {
+            None
+        };
         hook(&transaction, &fields)?;
         guard.check()?;
         transaction.rollback().map_err(sqlite_error)?;
@@ -311,8 +398,13 @@ fn capture_with_hook(
             kind: "codex_sqlite_metadata_observation",
             native_version: NATIVE_VERSION,
             sqlite_version: SQLITE_VERSION,
-            scope: "provided_connection_selected_name_fields_only",
+            scope: if with_context {
+                "provided_connection_selected_name_context_only"
+            } else {
+                "provided_connection_selected_name_fields_only"
+            },
             fields,
+            name_context,
             native_title_resolved: false,
             source_authenticated: false,
             publishable: false,
@@ -321,7 +413,11 @@ fn capture_with_hook(
         if serde_json::to_vec(&observation)
             .map_err(|_| Error::InvalidFields)?
             .len()
-            > OUTPUT_LIMIT
+            > if with_context {
+                CONTEXT_OUTPUT_LIMIT
+            } else {
+                OUTPUT_LIMIT
+            }
         {
             return Err(Error::TooLarge);
         }

@@ -12,6 +12,7 @@ import { withHistorySchemas, verifyHistorySchemas } from "./check-native-codex-h
 import { probeEnvironment } from "./check-native-codex-schema.mjs";
 import { historyRpc } from "../protocol/native/codex/history-rpc.js";
 import { observeMetadataName } from "../protocol/native/codex/metadata-name.js";
+import { observeSqliteNameResolution } from "../protocol/native/codex/name-resolution.js";
 import { metadataNameCases } from "../protocol/native/codex/metadata-name-fixture.js";
 import { createLineDecoder } from "../server/stream-safety.js";
 
@@ -42,14 +43,15 @@ await withHistorySchemas(binary, async snapshot => {
     notices.push(...client.diagnostics().startupNotices);
     ({ cleanupConfirmed } = await client.close()); assert.equal(cleanupConfirmed, true); assert.equal(physical, 0); client = null;
   };
-  const list = async useStateDbOnly => {
+  const list = async (useStateDbOnly, expected = cases) => {
     const rows = [], seen = new Set(); let cursor;
     for (let page = 0; page < 16; page++) {
       const r = await client.request("thread/list", { useStateDbOnly, limit: 3, ...(cursor ? { cursor } : {}) });
       rows.push(...r.data); cursor = r.nextCursor;
       if (cursor === null) break; assert(!seen.has(cursor), "cursor cycle"); seen.add(cursor);
     }
-    assert.equal(cursor, null); assert.equal(new Set(rows.map(r => r.id)).size, rows.length); assert.equal(rows.length, cases.length); return rows;
+    assert.equal(cursor, null); assert.equal(new Set(rows.map(r => r.id)).size, rows.length);
+    assert.deepEqual(rows.map(r => r.id).sort(), expected.map(c => c.id).sort(), "exact native list membership"); return rows;
   };
   const nameFields = db => db.prepare("SELECT id, history_mode, title, first_user_message, name FROM threads ORDER BY id").all();
   try {
@@ -90,14 +92,22 @@ await withHistorySchemas(binary, async snapshot => {
       ? "66863400450b5838251535ee0f507dedbb1fa8335000e90c40bd10a36476c52c"
       : "244d1f71265bbdfaf4f7bf92c06a68a4e2b93e6edf4e1e27fceecd04e6b07b5e");
     assert.equal(nameFields(db).length, cases.length);
-    const update = db.prepare("UPDATE threads SET history_mode=?, title=?, first_user_message=?, name=? WHERE id=?");
+    const update = db.prepare("UPDATE threads SET history_mode=?, title=?, first_user_message=?, name=?, preview=? WHERE id=?");
     db.exec("BEGIN IMMEDIATE");
-    for (const c of cases) assert.equal(update.run(c.mode, c.title, c.first, c.name, c.id).changes, 1);
+    for (const c of cases) assert.equal(update.run(c.mode, c.title, c.first, c.name, c.preview, c.id).changes, 1);
     db.exec("COMMIT");
     const expectedRows = nameFields(db).map(r => ({ ...r }));
+    const expectedContexts = db.prepare("SELECT id, rollout_path, preview FROM threads ORDER BY id").all().map(r => ({ ...r }));
+    const indexBytes = saved.get(path.join(codexHome, "session_index.jsonl"));
     for (const c of cases) {
       const observation = observeMetadataName(expectedRows.find(r => r.id === c.id), { nativeVersion: snapshot.nativeVersion, threadId: c.id });
       assert.equal(observation.kind, "codex_metadata_name_observation", c.label); assert.equal(observation.candidate, c.candidate, c.label);
+      const context = expectedContexts.find(r => r.id === c.id);
+      for (const [method, expected] of [["thread_read_sqlite", c.read], ["thread_list_state_row", c.list]]) {
+        const resolved = observeSqliteNameResolution(observation.fields, { rolloutPath: context.rollout_path, preview: context.preview }, indexBytes,
+          { nativeVersion: snapshot.nativeVersion, threadId: c.id, method, rollout: { threadId: c.id, path: c.file, historyMode: c.mode } });
+        assert.equal(resolved.kind, "codex_name_resolution_observation", c.label); assert.equal(resolved.name, expected, `${method}: ${c.label}`);
+      }
     }
     db.close(); db = null;
     for (const c of cases.filter(c => c.mode === "paginated")) {
@@ -111,8 +121,10 @@ await withHistorySchemas(binary, async snapshot => {
       if (c.mode === "legacy") assert.equal((await client.request("thread/read", { threadId: c.id, includeTurns: true })).thread.name, c.read, `read history: ${c.label}`);
     }
     for (const stateOnly of [true, false]) {
-      const listed = await list(stateOnly);
-      for (const c of cases) assert.equal(listed.find(r => r.id === c.id)?.name, c.list, `list stateOnly=${stateOnly}: ${c.label}`);
+      // Ordinary native lists exclude exactly-empty stored preview even when
+      // first_user_message is present. Name interpretation is not membership.
+      const visible = cases.filter(c => c.preview !== ""), listed = await list(stateOnly, visible);
+      for (const c of visible) assert.equal(listed.find(r => r.id === c.id)?.name, c.list, `list stateOnly=${stateOnly}: ${c.label}`);
     }
     for (const c of cases) assert.equal((await client.request("thread/read", { threadId: c.id })).thread.name, c.read, `read after list: ${c.label}`);
     assert.deepEqual((await client.request("thread/loaded/list")).data, []); client.assertHealthy();
@@ -123,7 +135,8 @@ await withHistorySchemas(binary, async snapshot => {
       e => e.message === "codex_history_unexpected_native_event");
     assert.equal(nativeEventKinds.at(-1).method, "deprecationNotice"); await close();
     db = new DatabaseSync(dbFile, { readOnly: true, allowExtension: false }); db.exec("PRAGMA trusted_schema=OFF");
-    assert.deepEqual(nameFields(db).map(r => ({ ...r })), expectedRows, "native reads must preserve selected fixture metadata columns"); db.close(); db = null;
+    assert.deepEqual(nameFields(db).map(r => ({ ...r })), expectedRows, "native reads must preserve selected fixture metadata columns");
+    assert.deepEqual(db.prepare("SELECT id, rollout_path, preview FROM threads ORDER BY id").all().map(r => ({ ...r })), expectedContexts, "selected context remains unchanged"); db.close(); db = null;
     for (const [file, bytes] of saved) assert.deepEqual(await fs.readFile(file), bytes, "native changed owned rollout/index/config outside explicit setup");
     assert.equal(requests, 0); assert.equal(physical, 0);
     console.log(JSON.stringify({ result: "passed", nativeVersion: snapshot.nativeVersion, scope: "owned_sqlite_name_precedence_only", cases: cases.length,
@@ -131,6 +144,8 @@ await withHistorySchemas(binary, async snapshot => {
       sqliteConfigOverridesEnvVerified: true, separateSqliteHome: true, sqliteFixtureVersion: sqliteVersion, fixtureMutationOnlyWithNativeClosed: true,
       sqliteThreadsSchemaSha256: schemaSha256, sqliteThreadsSchemaLineEndings: threadsSchema.includes("\r") ? "CRLF" : "LF",
       databaseNameFieldsUnchangedAfterReads: true, stateOnlyAndScanListsVerified: true, metadataReadBeforeAfterVerified: true, legacyReadWithHistoryVerified: true,
+      combinedNameResolutionVerified: true, selectedPreviewAndRolloutPathUnchanged: true,
+      nativeReadNameCases: cases.length, nativeListNameCases: cases.filter(c => c.preview !== "").length, emptyPreviewNativeListExclusionVerified: true,
       paginatedFullHistorySupported: false, paginatedFullHistoryProbe: "unavailable_deprecation_notice_refused", ownedNativeStarts: starts, remainingChildren: physical, modelEndpointRequests: requests, loadedThreads: 0,
       sourceFilesUnchangedExceptExplicitSetup: saved.size, privateHistoryReads: 0, productionSqliteReader: false, startupNotices: notices, cleanupConfirmed }));
   } catch (error) {

@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.66
+> 計畫版本：1.67
 > 最後更新：2026-09-09
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,7 +15,15 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新增量 1.66（開發版仍3.0.7-rc.7，未部署）**：Node接上Rust v4 metadata，
+**最新增量 1.67（開發版仍3.0.7-rc.7，未部署）**：Rust/Node v5在同交易補
+rollout_path／raw preview，v4保持相容；兩欄也納入selected version，actualclose與
+Host兩名額共用。新增方法別純resolver，明確拒path/ID/mode不符，原生19read／18list
+驗名稱與空preview排除，0模型／私人讀取；本機897/0fail、reader162/162、Rust21/28，
+真v4/v5链24reader＋1writer全清理/16真SHM，preview/path改變失效。跨平台CI待exact核，
+詳[名稱脈絡與解讀](codex-name-context-resolution.md)。仍需跨來源有界capture/版本重驗
+接resolver，再discovery/grants/registry/HTTPWeb；非final title/C1–C8完成，正式/B+/72h不動。
+
+**前一增量 1.66（開發版仍3.0.7-rc.7，未部署）**：Node接上Rust v4 metadata，
 嚴格bounded frame／SQLite欄位／FD close／版本檢查；與Claude SDK、Codex parser共用
 Host兩個讀取名額，實際close後才解讀名稱，清理不明永久隔離。selected-field版本不受
 其他欄位commit或I/O計數影響，rename／檔案身分變更失效。新增18unit、本機Node871

@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
-import { createCodexMetadataPipeline } from "../protocol/native/codex/metadata-pipeline.js";
+import { createCodexMetadataPipeline, createCodexNameContextPipeline } from "../protocol/native/codex/metadata-pipeline.js";
 
 async function startWriter(helperPath) {
   const executable = path.join(path.dirname(helperPath), "examples", `owned_sqlite_writer${process.platform === "win32" ? ".exe" : ""}`);
@@ -43,7 +43,7 @@ async function startWriter(helperPath) {
     } finally { clearTimeout(timer); }
   }
   // Install the cleanup handle before waiting for the first message.
-  return { line, stop, command: async command => { assert(["other", "rename", "paginated", "missing"].includes(command)); child.stdin.write(`${command}\n`); assert.deepEqual(await line(), { kind: "owned_writer_updated" }); } };
+  return { line, stop, command: async command => { assert(["other", "rename", "preview", "path", "paginated", "missing"].includes(command)); child.stdin.write(`${command}\n`); assert.deepEqual(await line(), { kind: "owned_writer_updated" }); } };
 }
 async function snapshot(root) {
   const entries = (await fs.readdir(root)).sort(), output = {};
@@ -58,23 +58,27 @@ async function snapshot(root) {
 }
 export async function checkCodexSqlitePipeline({ helperPath, admission, createHelper, claudeRead, codexRead, counters }) {
   const captures = [];
-  const pipeline = createCodexMetadataPipeline({ helperPath, admission, createHelper: options => {
+  const options = { helperPath, admission, createHelper: options => {
     const helper = createHelper(options);
-    return { ...helper, async readCodexMetadata(...args) {
-      const result = await helper.readCodexMetadata(...args);
-      if (result.kind === "native_sqlite_metadata") {
-        assert(captures.length < 20); assert.equal(helper.status().cleanupConfirmed, true);
+    const methods = {};
+    for (const method of ["readCodexMetadata", "readCodexNameContext"]) methods[method] = async (...args) => {
+      const result = await helper[method](...args);
+      if (["native_sqlite_metadata", "native_sqlite_name_context"].includes(result.kind)) {
+        assert(captures.length < 30); assert.equal(helper.status().cleanupConfirmed, true);
         captures.push({ mappings: result.metadata.shmMappingsClosed, readCalls: result.metadata.readCalls,
           readBytes: result.metadata.requestedReadBytes });
       }
       return result;
-    } };
-  } });
+    };
+    return { ...helper, ...methods };
+  } };
+  const pipeline = createCodexMetadataPipeline(options), contextPipeline = createCodexNameContextPipeline(options);
   let writer, ready, gate;
   try {
     if (process.platform === "win32") {
       const before = counters().attempts;
       assert.equal((await pipeline.read({ nativeVersion: "0.153.4", source: { sqliteRoot: path.resolve("owned-not-opened"), threadId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" }, expectedRoot: { device: "1", inode: "2" } })).code, "source_platform_unsupported");
+      assert.equal((await contextPipeline.read({ nativeVersion: "0.153.4", source: { sqliteRoot: path.resolve("owned-not-opened"), threadId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" }, expectedRoot: { device: "1", inode: "2" } })).code, "source_platform_unsupported");
       assert.equal(counters().attempts, before);
       return { gate: "node_source_platform_unsupported", readerSpawns: 0, writerSpawns: 0, cleanupConfirmed: true };
     }
@@ -94,17 +98,43 @@ export async function checkCodexSqlitePipeline({ helperPath, admission, createHe
     assert.equal(admission.status().activeWorkers, 2); assert.equal(counters().physical, 2);
     const againBefore = counters().attempts; assert.equal((await claudeRead()).code, "source_busy"); assert.equal(counters().attempts, againBefore);
     const [c, d] = await Promise.all([second, codex]); assert.equal(c.kind, "codex_sqlite_name_capture", c.code); assert.equal(d.kind, "codex_parsed_capture", d.code);
+    const contextRead = contextPipeline.read(request), oldRead = pipeline.read(request);
+    assert.equal(admission.status().activeWorkers, 2); assert.equal(counters().physical, 2);
+    const v5BusyBefore = counters().attempts;
+    assert.equal((await claudeRead()).code, "source_busy"); assert.equal((await codexRead()).code, "source_busy");
+    assert.equal(counters().attempts, v5BusyBefore);
+    const [initialContext, compatible] = await Promise.all([contextRead, oldRead]);
+    assert.equal(initialContext.kind, "codex_sqlite_context_capture", initialContext.code);
+    assert.deepEqual(initialContext.nameContext, { rolloutPath: "owned", preview: "" });
+    assert.deepEqual(initialContext.metadata, compatible.metadata);
+    assert.deepEqual(await snapshot(root), before, "v5 captures additional context without touching DB/WAL/SHM");
     await writer.command("other");
     assert.equal((await pipeline.read(request, { expectedVersion: a.source })).kind, "codex_sqlite_name_capture", "unrelated writes do not invalidate selected fields");
+    assert.equal((await contextPipeline.read(request, { expectedVersion: initialContext.source })).kind, "codex_sqlite_context_capture");
+    await writer.command("preview");
+    assert.equal((await contextPipeline.read(request, { expectedVersion: initialContext.source })).code, "source_version_changed");
+    const previewContext = await contextPipeline.read(request);
+    assert.equal(previewContext.nameContext.preview, "  preview 🐾  ");
+    assert.equal((await pipeline.read(request, { expectedVersion: a.source })).kind, "codex_sqlite_name_capture", "v4 scope remains five fields");
+    await writer.command("path");
+    assert.equal((await contextPipeline.read(request, { expectedVersion: previewContext.source })).code, "source_version_changed");
+    const inertContext = await contextPipeline.read(request);
+    assert.deepEqual(inertContext.nameContext, { rolloutPath: "../never-open/auth.json", preview: "  preview 🐾  " });
     await writer.command("rename"); assert.equal((await pipeline.read(request, { expectedVersion: a.source })).code, "source_version_changed");
     assert.equal((await pipeline.read(request)).metadata.candidate, "renamed");
     await writer.command("paginated"); assert.equal((await pipeline.read(request)).metadata.candidate, "paginated name");
     await writer.command("missing"); const missing = await pipeline.read(request);
     assert.equal(missing.metadata.presence, "missing_row"); assert.equal(missing.metadata.candidate, null);
+    const missingContext = await contextPipeline.read(request);
+    assert.equal(missingContext.nameContext, null); assert.equal(missingContext.metadata.presence, "missing_row");
     const endBytes = await snapshot(root), wrongRoot = { ...request, expectedRoot: { ...request.expectedRoot, inode: "18446744073709551615" } };
     assert.equal((await pipeline.read(wrongRoot)).code, "source_root_identity_changed");
+    assert.equal((await contextPipeline.read(wrongRoot)).code, "source_root_identity_changed");
     const controller = new AbortController(), cancelBefore = counters().attempts, pending = pipeline.read(request, { signal: controller.signal });
     controller.abort(); assert.equal((await pending).code, "source_aborted"); assert.equal(counters().attempts, cancelBefore + 1);
+    const contextController = new AbortController(), contextCancelBefore = counters().attempts;
+    const contextPending = contextPipeline.read(request, { signal: contextController.signal }); contextController.abort();
+    assert.equal((await contextPending).code, "source_aborted"); assert.equal(counters().attempts, contextCancelBefore + 1);
     assert.equal(counters().physical, 0); assert.equal(admission.status().cleanupConfirmed, true); assert.equal(admission.status().quarantined, false);
     assert.deepEqual(await snapshot(root), endBytes, "failed/cancelled captures never repair owned sources");
     assert(captures.length >= 7 && captures.every(c => c.mappings > 0), "active writer requires actual SHM mapping, not orphan WAL recovery");
@@ -112,10 +142,12 @@ export async function checkCodexSqlitePipeline({ helperPath, admission, createHe
       crossHarnessSharedAdmission: true, actualClaudeSdkPeer: true, actualCodexParserPeer: true, maximumPhysicalReaders: counters().maximum,
       remainingReaders: counters().physical, readerSpawns: counters().attempts - attemptsBefore, exactSourceBytesPreserved: true,
       unrelatedWriteVersionStable: true, selectedRenameVersionChanged: true, actualCaptureCancellation: true,
+      v5ContextCaptured: true, previewAndPathVersionChanged: true, v4FieldScopePreserved: true, inertPathNotFollowed: true,
       successfulCaptures: captures.length, actualShmMappingEveryCapture: true, maximumReadBytes: Math.max(...captures.map(c => c.readBytes)),
       privateHistoryReads: 0, modelCalls: 0, nativeCodexLaunches: 0, nativeTitleResolved: false, productionWiring: false };
   } finally {
     const cleanup = await pipeline.shutdown(); assert.equal(cleanup.cleanupConfirmed, true, "preserve writer/source if reader cleanup unknown");
+    assert.equal((await contextPipeline.shutdown()).cleanupConfirmed, true);
     if (writer) { await writer.stop(); if (ready) assert.equal(await fs.stat(ready.sqliteRoot).then(() => true, e => { if (e.code === "ENOENT") return false; throw e; }), false); }
   }
   return { ...gate, writerReaped: true, removedOwnedDirectories: 1, cleanupConfirmed: true };

@@ -3,6 +3,10 @@
 2026-09-09／Plan1.66，開發仍3.0.7-rc.7，未部署。接續
 [FD 綁定來源](codex-sqlite-source-bound.md)；本頁不是完整原生歷史或正式上線宣告。
 
+Plan1.67新增相容v5，同交易捕捉rollout_path／raw preview與方法別純resolver，詳
+[名稱脈絡與解讀](codex-name-context-resolution.md)。本頁保留1.66的v4歷史證據；
+不能把下列18tests／13reader counts當作新版總數或final title已接Web。
+
 ## 已實作
 
 - `sqlite-wire.js` 嚴格接收 v4：nonce／固定 native 版本／獨立 SQLite root／thread ID／

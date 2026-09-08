@@ -1,10 +1,13 @@
-//! Private v4 selected metadata capture. Distinct SQLite root, no native CLI.
+//! Private v4 fields / v5 name-context capture. Distinct root, no native CLI.
 use crate::{Error, INPUT_LIMIT, RootIdentity, decimal};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::io::Write;
-use stepsemble_history_source_reader::sqlite_metadata::{NATIVE_VERSION, OUTPUT_LIMIT};
+use stepsemble_history_source_reader::sqlite_metadata::{
+    CONTEXT_OUTPUT_LIMIT, NATIVE_VERSION, OUTPUT_LIMIT,
+};
 pub const PAYLOAD_LIMIT: usize = OUTPUT_LIMIT + 16 * 1024;
+pub const CONTEXT_PAYLOAD_LIMIT: usize = CONTEXT_OUTPUT_LIMIT + 16 * 1024;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -27,7 +30,7 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Error> {
         return Err(Error::Input);
     }
     let r: Request = serde_json::from_slice(bytes).map_err(|_| Error::Input)?;
-    if r.protocol_version != 4
+    if ![4, 5].contains(&r.protocol_version)
         || r.native_version != NATIVE_VERSION
         || r.nonce.len() != 64
         || !r
@@ -67,9 +70,14 @@ pub fn capture(r: &Request) -> Result<Vec<u8>, Error> {
         // connection, VFS replacement or source fallback exists in this branch.
         let prepared =
             unsafe { sqlite_source::prepare(selection, Arc::new(AtomicBool::new(false))) }?;
-        let result = prepared.read()?.finish()?;
+        let result = if r.protocol_version == 5 {
+            prepared.read_name_context()?
+        } else {
+            prepared.read()?
+        }
+        .finish()?;
         let bytes = serde_json::to_vec(&result).map_err(|_| Error::Io)?;
-        if bytes.len() > PAYLOAD_LIMIT {
+        if bytes.len() > payload_limit(r) {
             return Err(Error::TooLarge);
         }
         Ok(bytes)
@@ -81,6 +89,14 @@ pub fn capture(r: &Request) -> Result<Vec<u8>, Error> {
     }
 }
 
+fn payload_limit(r: &Request) -> usize {
+    if r.protocol_version == 5 {
+        CONTEXT_PAYLOAD_LIMIT
+    } else {
+        PAYLOAD_LIMIT
+    }
+}
+
 pub fn write_frame(
     mut output: impl Write,
     r: &Request,
@@ -88,10 +104,15 @@ pub fn write_frame(
 ) -> Result<(), Error> {
     let (result, payload) = match capture {
         Ok(payload) => {
-            if payload.is_empty() || payload.len() > PAYLOAD_LIMIT {
+            if payload.is_empty() || payload.len() > payload_limit(r) {
                 return Err(Error::TooLarge);
             }
-            let result = serde_json::json!({"kind":"native_sqlite_metadata","nativeVersion":r.native_version,
+            let kind = if r.protocol_version == 5 {
+                "native_sqlite_name_context"
+            } else {
+                "native_sqlite_metadata"
+            };
+            let result = serde_json::json!({"kind":kind,"nativeVersion":r.native_version,
                 "threadId":r.source.thread_id,"expectedRoot":{"device":r.expected_root.device,"inode":r.expected_root.inode},
                 "byteLength":payload.len(),"sha256":format!("{:x}",Sha256::digest(&payload)),
                 "sourceAuthenticated":false,"publishable":false});
@@ -103,7 +124,7 @@ pub fn write_frame(
         ),
     };
     let header = serde_json::to_vec(
-        &serde_json::json!({"protocolVersion":4,"nonce":r.nonce,"result":result}),
+        &serde_json::json!({"protocolVersion":r.protocol_version,"nonce":r.nonce,"result":result}),
     )
     .map_err(|_| Error::Io)?;
     if header.len() > 16 * 1024 {
@@ -169,6 +190,43 @@ mod tests {
                 .replacen('{', "{\"nonce\":\"bad\",", 1);
         assert!(parse_request(duplicate.as_bytes()).is_err());
         assert!(parse_request(&vec![b' '; INPUT_LIMIT + 1]).is_err());
+    }
+    #[test]
+    fn v5_is_separate_and_preserves_version_on_success_and_refusal() {
+        let mut input = request();
+        input["protocolVersion"] = serde_json::json!(5);
+        let r = parse_request(&serde_json::to_vec(&input).unwrap()).unwrap();
+        for ok in [true, false] {
+            let mut bytes = Vec::new();
+            write_frame(
+                &mut bytes,
+                &r,
+                if ok {
+                    Ok(vec![b'x'; PAYLOAD_LIMIT + 1])
+                } else {
+                    Err(Error::PlatformUnsupported)
+                },
+            )
+            .unwrap();
+            let n = u32::from_be_bytes(bytes[..4].try_into().unwrap()) as usize;
+            let header: serde_json::Value = serde_json::from_slice(&bytes[4..4 + n]).unwrap();
+            assert_eq!(header["protocolVersion"], 5);
+            assert_eq!(
+                header["result"]["kind"],
+                if ok {
+                    "native_sqlite_name_context"
+                } else {
+                    "source_unavailable"
+                }
+            );
+            assert_eq!(bytes.len() - 4 - n, if ok { PAYLOAD_LIMIT + 1 } else { 0 });
+        }
+        assert!(write_frame(Vec::new(), &r, Ok(vec![b'x'; CONTEXT_PAYLOAD_LIMIT + 1])).is_err());
+        input["protocolVersion"] = serde_json::json!(4);
+        let old = parse_request(&serde_json::to_vec(&input).unwrap()).unwrap();
+        assert!(write_frame(Vec::new(), &old, Ok(vec![b'x'; PAYLOAD_LIMIT + 1])).is_err());
+        input["protocolVersion"] = serde_json::json!(6);
+        assert!(parse_request(&serde_json::to_vec(&input).unwrap()).is_err());
     }
     #[test]
     fn unavailable_sqlite_frame_has_no_fields_or_source_path() {

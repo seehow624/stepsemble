@@ -66,6 +66,107 @@ fn read(f: &Fixture) -> Result<Observation, Error> {
 }
 
 #[test]
+fn v5_context_is_explicit_and_does_not_change_v4_fields_contract() {
+    let f = Fixture::new();
+    let old = serde_json::to_value(read(&f).unwrap()).unwrap();
+    assert!(old.get("nameContext").is_none());
+    let result = capture_name_context(f.reader(), NATIVE_VERSION, ID, flag()).unwrap();
+    assert_eq!(result.fields, read(&f).unwrap().fields);
+    assert_eq!(
+        result.scope,
+        "provided_connection_selected_name_context_only"
+    );
+    assert_eq!(
+        result.name_context.unwrap().unwrap(),
+        NameContext {
+            rollout_path: "owned".into(),
+            preview: String::new()
+        }
+    );
+    let missing = capture_name_context(f.reader(), NATIVE_VERSION, MISSING, flag()).unwrap();
+    assert_eq!(missing.name_context, Some(None));
+    assert!(serde_json::to_value(missing).unwrap()["nameContext"].is_null());
+}
+
+#[test]
+fn context_keeps_raw_empty_preview_and_does_not_follow_paths() {
+    let f = Fixture::new();
+    for preview in ["", "  🐾 <img>\u{feff}\0  "] {
+        f.writer
+            .execute(
+                "UPDATE threads SET preview=?1,rollout_path='../never-open/auth.json' WHERE id=?2",
+                params![preview, ID],
+            )
+            .unwrap();
+        let result = capture_name_context(f.reader(), NATIVE_VERSION, ID, flag()).unwrap();
+        let context = result.name_context.unwrap().unwrap();
+        assert_eq!(context.preview, preview);
+        assert_eq!(context.rollout_path, "../never-open/auth.json");
+        assert_eq!(f.checkpoint().0, 0);
+    }
+}
+
+#[test]
+fn v5_context_limits_and_types_refuse_without_truncation_or_v4_scope_expansion() {
+    for sql in [
+        "UPDATE threads SET preview=CAST(zeroblob(32769) AS TEXT)",
+        "UPDATE threads SET rollout_path=CAST(zeroblob(8193) AS TEXT)",
+        "UPDATE threads SET preview=x'FF'",
+    ] {
+        let f = Fixture::new();
+        f.writer.execute_batch(sql).unwrap();
+        let result = capture_name_context(f.reader(), NATIVE_VERSION, ID, flag());
+        assert!(matches!(
+            result,
+            Err(Error::TooLarge | Error::InvalidFields)
+        ));
+        assert!(read(&f).is_ok(), "v4 never requests the new fields");
+        assert_eq!(f.checkpoint().0, 0);
+    }
+}
+
+#[test]
+fn only_v5_authorizes_exact_additional_columns_and_still_denies_writes() {
+    let f = Fixture::new();
+    for with_context in [false, true] {
+        let db = f.reader();
+        let guard = Guard {
+            started: Instant::now(),
+            cancelled: flag(),
+            steps: Arc::new(AtomicUsize::new(0)),
+        };
+        configure_selected(&db, &guard, with_context).unwrap();
+        assert_eq!(selected_context(&db, ID).is_ok(), with_context);
+        assert!(db.prepare("SELECT cwd FROM threads").is_err());
+        assert!(db.prepare("UPDATE threads SET preview='changed'").is_err());
+        db.close().unwrap();
+    }
+}
+
+#[test]
+fn name_and_context_queries_observe_one_transaction_across_concurrent_commit() {
+    let f = Fixture::new();
+    f.writer
+        .execute(
+            "UPDATE threads SET preview='before',rollout_path='before' WHERE id=?1",
+            [ID],
+        )
+        .unwrap();
+    let result = capture_selected(f.reader(), NATIVE_VERSION, ID, flag(), true, |db, fields| {
+        f.writer.execute("UPDATE threads SET title='after',preview='after',rollout_path='after' WHERE id=?1", [ID]).unwrap();
+        assert_eq!(selected_fields(db, ID)?.as_ref(), fields.as_ref());
+        assert_eq!(selected_context(db, ID)?.preview, "before");
+        Ok(())
+    }).unwrap();
+    assert_eq!(result.fields.unwrap().title, "original 🐾");
+    assert_eq!(result.name_context.unwrap().unwrap().rollout_path, "before");
+    let next = capture_name_context(f.reader(), NATIVE_VERSION, ID, flag()).unwrap();
+    assert_eq!(next.fields.unwrap().title, "after");
+    assert_eq!(next.name_context.unwrap().unwrap().preview, "after");
+    assert_eq!(f.checkpoint().0, 0);
+}
+
+#[test]
 fn exact_engine_has_the_official_wal_fix_and_newer_patch_pin() {
     assert!(engine_matches_pin());
     assert_eq!(rusqlite::version_number(), 3_053_004);

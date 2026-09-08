@@ -16,6 +16,12 @@ function metadataNameCases() {
     { label: "paginated_uses_name_not_title_or_index", mode: "paginated", title: "ignored title", name: "\u0085Page name 🐾\u3000", candidate: "Page name 🐾", read: "Page name 🐾", list: "Page name 🐾" },
     { label: "paginated_empty_name_has_no_index_fallback", mode: "paginated", title: "ignored title", name: " \u0085", candidate: null, read: null, list: null },
     { label: "paginated_missing_name_has_no_title_fallback", mode: "paginated", title: "ignored title", name: null, candidate: null, read: null, list: null },
-  ].map(c => ({ mode: "legacy", first: "preview", name: null, index: "  Index name  ", ...c }));
+    { label: "distinct_title_equals_stored_preview", title: "DB title", preview: "DB title", candidate: "DB title", read: "DB title", list: null },
+    { label: "empty_preview_falls_back_to_first_user", title: "preview", preview: "", index: "  preview  ", candidate: null, read: "  preview  ", list: null },
+    { label: "whitespace_preview_is_not_missing", title: "preview", preview: " ", index: "  preview  ", candidate: null, read: "  preview  ", list: "preview" },
+    { label: "goal_preview_can_differ_from_first_user", title: "preview", preview: "goal", index: "  goal  ", candidate: null, read: "  goal  ", list: null },
+    { label: "bom_preview_is_not_trimmed", title: "preview", preview: "\ufeffpreview", index: "preview", candidate: null, read: "preview", list: "preview" },
+    { label: "paginated_name_equal_preview_is_kept", mode: "paginated", title: "ignored title", name: " preview ", candidate: "preview", read: "preview", list: "preview" },
+  ].map(c => ({ mode: "legacy", first: "preview", preview: "preview", name: null, index: "  Index name  ", ...c }));
 }
 module.exports = { metadataNameCases };
