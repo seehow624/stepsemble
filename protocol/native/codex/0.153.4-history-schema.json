@@ -1,0 +1,56 @@
+{
+  "fixtureVersion": 1,
+  "nativeVersion": "0.153.4",
+  "schemas": [
+    {
+      "file": "v2/ThreadListParams.json",
+      "bytes": 3628,
+      "sha256": "b227bb78acf9b91060d03c56d3f2072cdd9f1bd08290c11e8869f1a663b16da2"
+    },
+    {
+      "file": "v2/ThreadListResponse.json",
+      "bytes": 68425,
+      "sha256": "351be50beed03976ddd63e8027e9ddeecb240d7611856b2dc19125c3f8eba400"
+    },
+    {
+      "file": "v2/ThreadReadParams.json",
+      "bytes": 502,
+      "sha256": "dfe040c6ac71d30795b8be3f3ff232e66f362a37f883b491e5d1ea367f470db4"
+    },
+    {
+      "file": "v2/ThreadReadResponse.json",
+      "bytes": 67761,
+      "sha256": "a76583d07f6096fee33045da2dc9caed84d858f8f2d39b37bb38528dbaf32511"
+    },
+    {
+      "file": "v2/ThreadTurnsListParams.json",
+      "bytes": 1889,
+      "sha256": "2a8b93d7d4437cc25e16a1dde16d8db3c338d39e16c5eece2a56e943a21577d7"
+    },
+    {
+      "file": "v2/ThreadTurnsListResponse.json",
+      "bytes": 55347,
+      "sha256": "45bffd91efc358859a1a54b8165c0a8b1c21ebc2a312da9f25d05ff27af798ee"
+    },
+    {
+      "file": "v2/ThreadItemsListParams.json",
+      "bytes": 1138,
+      "sha256": "ff56040c327ecdd30ef02affac9bc71fab64031e8980f2b4fea9fd8a888160b4"
+    },
+    {
+      "file": "v2/ThreadItemsListResponse.json",
+      "bytes": 46506,
+      "sha256": "886369490fec07067597460301b3d5c1dc9aedc41ea42522cae397d8babe6156"
+    },
+    {
+      "file": "v2/ThreadLoadedListParams.json",
+      "bytes": 489,
+      "sha256": "42c2d124ab2b2998d84f0126daae2d32b0bf9c5a7ea7266e3a0814e5e37cf00d"
+    },
+    {
+      "file": "v2/ThreadLoadedListResponse.json",
+      "bytes": 565,
+      "sha256": "1ea02c4710083e552b2a3a89b931b9049d5bf05b7db46278b8352cf9fd80cd52"
+    }
+  ]
+}

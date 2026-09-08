@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.53
+> 計畫版本：1.54
 > 最後更新：2026-09-08
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,7 +15,14 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新增量 1.53（開發版3.0.7-rc.6，未部署）**：source-group Web來源選擇、明確
+**最新增量 1.54（開發版仍3.0.7-rc.6，未部署）**：C2新增固定Codex0.153.4的受限
+read-only RPC及真CLI owned-home歷史runner，10個補充schema固定；7個legacy對話
+49turns／147items、完整原生名稱、主/subagent來源與封存分頁、模型endpoint0及
+actual-close／10原檔不變已驗。發現items/list實際-32601，paginated JSONL-only
+缺name與store projection，明確記為未支援，不假裝全歷史已接。沒有私人來源、
+Host/Web接線、session/resume/approval或部署；詳[Codex歷史相容性](codex-history-compatibility.md)。
+
+**前一增量 1.53（開發版3.0.7-rc.6，未部署）**：source-group Web來源選擇、明確
 refresh、50列snapshot分頁與手機內捲動已接實際Host；只逐一載入可見名稱，保留
 原生title/summary分離及完整原文展開。名稱更新不重建列或內容，切換等待舊內容清理、
 只開最新選擇；stale/取消/撤銷/背景暫停與manual fallback已實作。合成Host CUA
@@ -94,6 +101,7 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 | Pi 原生 RPC 邊界 | 已實作，隨rc.3啟用於Mini | 嚴格 frame／UI reply、跨程序 correlation、有界 pending dialog、TypeScript FIFO／失敗手動重試、完整 pending-set 重連對齊／舊 stream fencing、更新／idle／離開聊天保護；Windows core launch／PATH／owned tree 已接上 runner fixture；仍非 durable approval 或原生全版本／provider／模型串流驗收 |
 | 已發佈 Web rolling 相容 | Legacy smoke 已驗 | 真實v3.0.3/v3.0.2 pinned source與development雙向搭配，Chromium桌面/手機尺寸8cases，macOS/Linux各跑一次共16cases／CI33970245044過。SW/PWA cache、Safari/Firefox/Windows/實機、future journal transport不包含，見`protocol/rolling-compatibility.md` |
 | Codex 官方介面基線 | 0.153.4 離線 metadata 已驗 | 新版24份schema，原18份及99/10/81 catalog與0.153.3全同；runner逐版本比對hash，未知版本停止。preflight不再建空session，路由先於account、傳輸有界；本輪未啟app-server／讀真帳號，不是runtime/session/approval驗收，見 `codex-metadata-compatibility.md` |
+| Codex原生歷史通道 | Plan1.54受限RPC／macOS真CLI合成已驗，未接Host/Web | 0.153.4額外10schema固定、legacy49turns/147items/name及all-source/archivepaging；items/list原生不支援、paginated缺store projection明示gap。自己HOME可修索引，不能直接對私人HOME執行；完整adapter未完成，見codex-history-compatibility.md |
 | Claude／Codex 真實訂閱 smoke | Claude單次通過；Codex路由gate未過 | Claude09-06直接Aqua最小模型成功。09-07 Codex0.153.4新版schema／initialize已過，effective config回non_native_route，未送account/thread/turn；8個保護項目不變。不改第三方設定讓測試通過，詳見 `native-subscription-smoke.md` |
 | Claude 原生歷史讀取邊界 | SDK讀回／豐富內容觀察映射已驗 | 官方SDK0.3.259對應CLI2.1.259；只讀子程序不准spawn／write。合成工具／thinking／附件參照、中斷/API錯誤外層metadata及壓縮保留鏈通過；相同UUID原文核對、未知格式警示、整批拒絕混入/重複。前輪自己的兩則訊息讀回仍有效，本輪未再讀私有session。不是Web journal／approval ACK／resume，見 `protocol/native/claude/README.md` |
 | Claude 歷史來源快照 | POSIX唯讀一致性／跨平台parser已實作 | 單一指定source、UID/mode/regular/single-link/no-follow、同descriptor雙讀＋前後inode/size/ns時間、原始8MiB/1MiB line/2000rows caps；partial/malformed不當空history。不是authenticated source／ACL／atomic containment；Windows source gate明確unsupported，SDK合成reader仍可驗。未接正式服務 |
@@ -106,8 +114,8 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 | Claude 歷史認證／relay | rc.3 已接既有 credential／Host 選擇，未部署 | private config逐來源授權browser/peer，Origin/CSRF、invalid bearer不fallback、logout/login/token/grant/machine/shutdown撤銷已接線；relay只用dedicated peer，gateway維護bounded downstream owner/view映射。不是下游來源ACL／end-to-end delegation／native provenance，見history-host-integration.md |
 | Claude SDK 執行bytes | exact verified Buffer loader已實作 | bounded fd read＋固定SHA、sync resolve/load hooks執行已驗Buffer，獨立nonce避plain URL cache，每worker一次attempt。Node22.19.0實跑SDK全鏈通過；source ACL/atomic containment、依賴及OS sandbox仍未保證 |
 | 原生唯讀 reader 邊界 | Rust helper＋bytes-only SDK，rc.3 已接 Host／未部署 | POSIX逐層no-follow、trusted root identity、fd ACL/localFS、8MiB雙讀；macOS拒絕noowners，Windows來源仍unsupported。composite固定2flights、共用10s/1s、actual-close/quarantine；最低Node22.19合成Rust→SDK→actual Host gate本機過。逐commit跨OS證據與範圍見history-host-integration.md |
-| Claude原生來源探索 | Plan1.51已接Host，Web待完成 | explicit-root metadata双掃，10k entries／512projects／2048candidates／1MiB，fd owner/ACL/mount不降級；增改刪、exact-source ID與stale snapshot。沒有HOME掃描／私人來源；動態catalog/來源授權/全域預算已接線，見native-history-discovery.md及history-source-groups.md |
-| 原生歷史共用reader預算 | Plan1.50已實作／合成鏈已驗 | Host-owned兩個flight供inventory與完整content pipeline共用、無queue、actual-close／永久quarantine及Host合併shutdown；source-group尚未掛HTTP，未部署，見history-reader-admission.md |
+| Claude原生來源探索 | Plan1.53已接Host/Web合成來源，未部署 | explicit-root metadata双掃，10k entries／512projects／2048candidates／1MiB，fd owner/ACL/mount不降級；增改刪、exact-source ID與stale snapshot。沒有HOME掃描／私人來源；動態catalog/來源授權/全域預算及Web按需操作已接線，見native-history-discovery.md及history-source-groups.md |
+| 原生歷史共用reader預算 | Plan1.50–1.53已接Host/HTTP/Web及合成鏈 | Host-owned兩個flight供inventory、metadata與完整content pipeline共用、無queue、actual-close／永久quarantine及Host合併shutdown；source-group已接線但未部署，見history-reader-admission.md與history-source-groups.md |
 | 原生來源群組／動態catalog | Plan1.53已接Web按需名稱及來源分頁，未部署 | v2私有設定最多8組、每組2048candidate／50列分頁、同Host兩flight、逐reader範圍、dynamicrevision及同步撤銷、dedicatedrelay；原生title/summary分離、snapshot/identity fence、手機inner scroll/stablefocus及manual fallback。合成Host已驗，私人opt-in/真機與完整gate仍待，見history-source-groups.md |
 | Claude clone記憶體嘗試 | 已量測並撤回 | 同workload兩次12輪，structuredClone＋提前清引用讓worker高水位合計中位數421.164→408.852MiB，但round283.539→296.171ms。沒有證明順滑度改善，保留原JSON clone並存完整before/after與重現方法；memory優化仍待，見claude-history-performance.md |
 | Claude 官方登入入口 | Mini當前detected，正式3.0.6 | 使用者回報瀏覽器登入，助手回completed／detected；另行同意的直接CLI最小模型測試成功。metadata API仍liveVerified=false，不以一次成功保證永久有效；不自動修憑證／重試模型，詳見 `claude-sign-in.md` |
@@ -119,9 +127,10 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 
 ### 下一個可執行任務
 
-**1.53接續**：來源設定/registry/HTTP/relay、native title/TS及Web來源操作已接上，
-不重做；本批工程CI已核對。接著补Web來源設定的可理解授權流程與history i18n／
-跨機路由實機驗收，同時依C2推進其他agent原生adapter及C3durable/session gate。
+**1.54接續**：C1來源設定/registry/HTTP/relay、native title/TS及Web來源操作不重做；
+C2先補Codex owned thread-store／一致來源快照與rich item映射，不能直接把目前
+受限RPC接私人HOME，也不能略過實際未支援的items/list及paginated缺口。
+接續Web來源設定的可理解授權流程、history i18n、跨機路由驗收、其他agent adapter及C3durable/session gate。
 私人root/readers由owner選定、正式部署仍需既有gate；Windows／完整原生能力／
 跨機效能未完成，不能把Claude合成来源列表当作所有電腦對話已完整收錄。
 
@@ -1060,6 +1069,14 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-08 — Plan 1.54
+
+- C2開始推進Codex：固定0.153.4、10份補充history schemas，舊24份及method catalogs不漂移；新read RPC不放寬既有subscription metadata allowlist。exact child/request/thread/turn correlation、有限pending/pages/bytes/time、fatal UTF8、拒execution/approval及actual-close/quarantine均有負向測試。
+- 真native CLI只在自建HOME/config/模型拒絕endpoint讀8份synthetic rollouts，7legacy對話49turns/147items、最新原生長名稱與preview分離、六種source/封存/兩列paging通過；Node22.19與22.22均驗，loadedthreads0/模型endpoint0/10原檔bytes不變/ownedcleanup確認。
+- 實測items/list雖有schema仍回-32601，paginated JSONL-only不還原legacy index名稱且turn projection為空；明確保留缺口，不當原文空白，不自動resume或改第三方route。RPC尚未有source snapshot/ACL/authority/全item映射/Host-Web接線，C2不是完成，詳codex-history-compatibility.md。
+- 本機755tests＝753pass/2skip/0fail，新增13個history transport/schema回歸；既有Ajv1251、syntax/strictTS/generated protocol通。新commit仍須核對自己的三OS CI，不繼承前一批綠燈。順便修正當前狀態表兩個過期的C1「未接Web/HTTP」說明；不重做已完成工程。
+- 正式3.0.6、B+ logo、私人來源/登入/第三方route與固定ab227af72h完全不變；rc.6未部署。其他C1/C3–C8、未定位的歷史flaky及實機/完整效能gate仍待。
 
 ### 2026-09-08 — Plan 1.52
 

@@ -45,6 +45,20 @@ path, and it does not alter the user's default command.
 
 ## Integration gates
 
+Plan 1.54 adds a **separate, fixture-only read transport** (`history-rpc.js`) and
+`0.153.4-history-schema.json` (10 history schemas, four overlapping the original
+baseline). The owned-home runtime fixture has exercised native list/read/turn
+pagination with legacy names, 49 turns and 147 user/agent items. It does not grant
+private sources, isolate an arbitrary Codex home, validate all item semantics or
+connect this module to Host/Web. See the [runtime evidence and remaining gates](../../../docs/codex-history-compatibility.md).
+
+Crucially, this native build advertises `thread/items/list` but returns -32601.
+A paginated JSONL-only fixture also lacks the store projection and does not hydrate
+its name from the legacy index. Neither is silently treated as full-history support.
+`thread/list` can repair native indexes; the owned runner is explicitly allowed
+to do that only in its new synthetic home. No model, account or private-source
+capability is added by this test.
+
 The future adapter must correlate JSON-RPC IDs, own the child incarnation, wait
 for initialization, scope requests by native thread/turn/item, import history
 without launching work, and persist Stepsemble receipts before external effects.
@@ -53,7 +67,7 @@ The official flow distinguishes the client decision, `serverRequest/resolved`
 misrepresented as approval or successful tool execution. These mappings still
 need actual runtime evidence and reserved transaction/projection integration.
 
-No subscription amount, native turn, multi-version runtime compatibility or full adapter
+No subscription amount, executed native turn, multi-version runtime compatibility or full adapter
 parity has been verified here. Model/tool tests require explicit usage permission;
 metadata checks are not a substitute. Account credentials stay native and must
 never appear in fixtures, debug exports or journal envelopes.

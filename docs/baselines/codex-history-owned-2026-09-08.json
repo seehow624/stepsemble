@@ -1,0 +1,23 @@
+{
+  "planVersion": "1.54",
+  "platform": "macOS arm64",
+  "nodeVersions": ["22.19.0", "22.22.3"],
+  "nativeVersion": "0.153.4",
+  "schemaCount": 10,
+  "scope": "owned-synthetic-home-only",
+  "active": 7,
+  "archived": 1,
+  "legacyTurns": 49,
+  "legacyItems": 147,
+  "paginatedProjection": 0,
+  "paginatedName": "unavailable_from_legacy_index",
+  "itemsList": "native_method_unavailable",
+  "modelEndpointRequests": 0,
+  "loadedThreads": 0,
+  "sourceFilesUnchanged": 10,
+  "cleanupConfirmed": true,
+  "privateSourceAccess": false,
+  "hostWebIntegration": false,
+  "allItemKindsVerified": false,
+  "productionDeployment": false
+}

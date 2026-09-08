@@ -5,6 +5,10 @@
 Development candidate; production Hosts remain on 3.0.6. The independent,
 fixed-source 72-hour soak is unchanged and does not cover this candidate.
 
+- Add a fixture-only Codex 0.153.4 history RPC boundary and native owned-home
+  regression runner. Verify legacy history and original names without executing
+  turns; record unsupported item pagination and paginated-store gaps explicitly.
+  This does not enable private Codex history or add a new Web source.
 - Add a source-group browser to the read-only Claude history page: explicit
   inventory refresh, 50-row snapshot-fenced pages and an independently scrolling
   mobile list with the existing local Claude mark.
