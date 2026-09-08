@@ -19,7 +19,9 @@
 13個真native名稱優先案例，legacy distincttitle勝index、paginated用name、read/list
 差異與sqlite_home覆寫env均驗。fixture僅native actualclose後改自建DB，原五欄/
 15原檔、model/private/loaded0及cleanup通；未建立productionSQLite reader/交易快照。
-本機849/0fail、最低Node118/118、兩Node真13cases及另五輪通，exactCI待核。
+本機849/0fail、最低Node118/118、兩Node真13cases及另五輪通；exact7bd9acb三CI完整
+logs已核，一般三OS各849/0fail、native各13SQLite＋17index cases、reader各118/118與
+POSIX實際sharedpipeline／Windowsunsupported，RustSec0known0warnings。
 詳[SQLite名稱驗證](codex-sqlite-names.md)，原paginated完整歷史限制仍保留；Codex
 source授權/DBWAL一致性/registry/HTTPWeb及C1–C8未完，正式/B+/私人/帳號/72h不動。
 

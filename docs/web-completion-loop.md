@@ -88,7 +88,9 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 - **2026-09-09／C2 SQLite名稱，Plan1.62／rc.7不變**：13個owned真native cases核
   DB distincttitle/index/name/preview優先與sqlite_home≠CodexRoot，固定五欄parser
   有界且不冒稱最終name/sourcegrant。本機849/0fail、最低Node118/118、兩Node真13cases
-  與另五輪通；exactCI待核。SQL NULL/empty差異與paginated deprecation拒絕均留證據，
+  與另五輪通；exact7bd9acb三CI完整logs已核，一般各849/0fail、native各13SQLite＋
+  17index cases、reader各118/118＋POSIXactual／Windowsunsupported、audit0known0warnings。
+  SQL NULL/empty差異與paginated deprecation拒絕均留證據，
   不放寬通道或碰私人DB。詳[SQLite名稱](codex-sqlite-names.md)，DBWAL一致性/正式
   reader/授權/HostWeb與C1–C8未完，正式/B+/帳號/私人/72h不變。
 

@@ -81,10 +81,32 @@ SQLite artifact/version及依賴稽核，不以測試方便為由使用較舊SQL
 - Node22.19與22.22.3真native各13cases通；22.22.3另5輪通，每輪2個owned native
   processes、15份原檔按預期保留、5欄不變、model/private/loaded0、cleanup確認。
 - 原來17個index cases與raw/native投影限制仍保留。新native CI三OS追加13個metadata
-  cases；reader聚焦suite增加至118。exact工程CI待push後核完整logs，不先宣稱通過。
+  cases；reader聚焦suite增加至118。工程CI結果見下方exact SHA，不以本機結果代替跨OS。
 
 主要logs `/tmp/stepsemble-codex-metadata-{full.tap,minimum.tap,native-fourth.log,
 native-current.log,native-repeat.log}`。沒有真人模型、私人DB、Host/UI部署或72h變更。
+
+## Exact 工程 CI
+
+工程`7bd9acbbceb54503a36196847423add59a0fd6f1`三組已通，完整logs已核對：
+
+- [一般 CI 34257973240](https://github.com/seehow624/stepsemble/actions/runs/34257973240)：
+  三OS各849tests/0fail、Ajv1251；Mac847pass/2skip、Linux846/3、Windows802/47。
+- [真 Codex 34257973226](https://github.com/seehow624/stepsemble/actions/runs/34257973226)：
+  三OS最低Node22.19各13個SQLite cases（10legacy＋3paginated metadata）；兩次owned
+  native啟動後remaining0、model/private/loaded0、五欄不變、15份原檔按setup保持、
+  config覆寫env及separate root通。SQLite fixture各3.50.4，仍不是production reader。
+  paginated full-history均明確`unavailable_deprecation_notice_refused`，沒有變成支援；
+  原17index cases和raw113頁/219records/3transient/byte-exact亦通。
+- [Reader 34257973158](https://github.com/seehow624/stepsemble/actions/runs/34257973158)：
+  Node三OS各118/118；Rust Mac/Linux各25、Windows10全過。POSIX既有真Rust＋ClaudeSDK＋
+  Codexparser共用budget max2/remaining0/29spawns、actual cancel、舊Claude Host/groups/
+  metadata/setup通；Windows實際source reader仍unsupported，不冒稱完整原生支援。
+  RustSec0.22.2、DB`bf25f6575a93a35f30796c65c0ed91bee7fa19fd`，1242advisories、
+  33packages/0known vulnerabilities/0warnings；本批沒有更動Rust依賴或正式SQLite依賴。
+
+完整logs `/tmp/stepsemble-codex-metadata-{general-ci,native-ci,reader-ci}.log`。
+這批沒有獨立rolling/UI或新Claude原生workflow，不把既有Host fixture當新介面驗收。
 
 ## 接續到產品所需的關卡
 
