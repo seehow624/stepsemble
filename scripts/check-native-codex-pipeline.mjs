@@ -16,6 +16,7 @@ import { processJob } from "../protocol/native/codex/parser-worker.js";
 import wire from "../protocol/native/codex/parser-wire.js";
 import codexFixture from "../protocol/native/codex/parser-fixture.cjs";
 import claudeFixture from "../protocol/native/claude/history-fixture.cjs";
+import { checkCodexSqlitePipeline } from "./check-native-codex-sqlite-pipeline.mjs";
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function sampleLoop(work) {
@@ -52,10 +53,13 @@ export async function checkCodexHistoryPipeline({ helperPath, sdkPath }) {
     const inventory = createSourceIndex({ sourceId: "owned-cross-harness", source: roots[0], helperPath, admission, createHelper, authorize: who => who === "owner" }); services.push(inventory);
     const bindingId = crypto.randomUUID(), bound = claude.bind({ bindingId, generation: 1, source: { projectsRoot: claudeRoot, projectKey, sessionId: c.sessionId } });
     const peerRequest = { bindingId, generation: 1, requestId: crypto.randomUUID() };
+    const sqlitePipeline = await checkCodexSqlitePipeline({ helperPath, admission, createHelper,
+      claudeRead: () => bound.observe({ ...peerRequest, requestId: crypto.randomUUID() }),
+      codexRead: () => pipeline.read(request, { selection: { mode: "names" } }), counters: () => ({ physical, maximum, attempts }) });
     if (process.platform === "win32") {
       assert.deepEqual(await pipeline.read(request), { kind: "source_unavailable", code: "source_platform_unsupported" });
       assert.equal(attempts, 0);
-      return { gate: "source_platform_unsupported", sourceReads: 0, modelCalls: 0, privateHistoryReads: 0, productionWiring: false, cleanupConfirmed: true };
+      return { gate: "source_platform_unsupported", sqlitePipeline, sourceReads: 0, modelCalls: 0, privateHistoryReads: 0, productionWiring: false, cleanupConfirmed: true };
     }
     const native = bound.observe(peerRequest), parsed = pipeline.read(request, { selection: { mode: "names" } });
     assert.equal(admission.status().activeWorkers, 2); assert.equal(physical, 2);
@@ -100,7 +104,7 @@ export async function checkCodexHistoryPipeline({ helperPath, sdkPath }) {
     for (const [file, original] of saved) assert.deepEqual(await fs.readFile(file), original, "owned fixture bytes restored");
     assert.equal(admission.status().cleanupConfirmed, true); assert.equal(physical, 0); assert.equal(maximum, 2);
     bound.revoke();
-    return { gate: "posix_owned_fixture_passed", platform: process.platform, nodeVersion: process.version, crossHarnessSharedAdmission: true,
+    return { gate: "posix_owned_fixture_passed", sqlitePipeline, platform: process.platform, nodeVersion: process.version, crossHarnessSharedAdmission: true,
       actualClaudeSdkPeer: true, maximumPhysicalChildren: maximum, remainingChildren: physical, spawnAttempts: attempts, byteExactRawPages: true,
       preservedTransientRecords: 3, staleBeforeParser: true, actualParserCancellation: true, beforeAfter: { inputIndexBytes: largeIndex.length, comparison,
         syntheticMainLoopOnly: true, webOrHostAcceptance: false }, modelCalls: 0, privateHistoryReads: 0, nativeCodexLaunches: 0,

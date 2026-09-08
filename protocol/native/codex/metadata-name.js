@@ -1,6 +1,7 @@
 "use strict";
 // Pure interpretation of caller-provided fields, NOT a SQLite reader or source
-// grant. A future fd/DB/WAL capture must authenticate and version these values.
+// grant. metadata-pipeline supplies bounded v4 FD/DB/WAL observations and a
+// selected-field version; neither this function nor that pipeline grants access.
 const { canonicalJSON } = require("../../../public/modules/projection");
 const { trimNativeWhitespace: trim } = require("./name-index");
 const LIMITS = Object.freeze({ inputBytes: 128 * 1024, textBytes: 32 * 1024, outputBytes: 128 * 1024 });

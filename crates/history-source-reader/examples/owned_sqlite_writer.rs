@@ -1,0 +1,72 @@
+//! Test-only pinned writer peer for Node gates. Creates its own temp directory;
+//! no path/SQL input, native HOME, credentials or shipped reader write mode.
+use rusqlite::{Connection, params};
+use serde_json::json;
+use std::io::{BufRead, Write};
+use stepsemble_history_source_reader::sqlite_metadata::{THREADS_SCHEMA, engine_matches_pin};
+
+const ID: &str = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+fn send(value: serde_json::Value) {
+    println!("{value}");
+    std::io::stdout().flush().unwrap();
+}
+fn main() {
+    assert_eq!(std::env::args().count(), 1, "no caller paths or SQL");
+    assert!(engine_matches_pin());
+    let dir = tempfile::Builder::new()
+        .prefix("stepsemble-node-sqlite-owned-")
+        .tempdir()
+        .unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let db = Connection::open(root.join("state_5.sqlite")).unwrap();
+    db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE projects(id TEXT PRIMARY KEY); CREATE TABLE thread_sections(id TEXT PRIMARY KEY);").unwrap();
+    db.execute_batch(THREADS_SCHEMA).unwrap();
+    db.execute("INSERT INTO threads(id,rollout_path,created_at,updated_at,source,model_provider,cwd,title,sandbox_policy,approval_mode,first_user_message,name) VALUES(?1,'owned',0,0,'cli','owned','owned','base','owned','never','first',NULL)", [ID]).unwrap();
+    let busy: i32 = db
+        .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(busy, 0);
+    db.execute(
+        "UPDATE threads SET title=?1 WHERE id=?2",
+        params!["  最新 WAL 名稱 🐾  ", ID],
+    )
+    .unwrap();
+    let root_text = root.to_str().unwrap();
+    #[cfg(windows)]
+    let root_text = root_text.strip_prefix(r"\\?\").unwrap_or(root_text);
+    send(json!({"kind":"owned_writer_ready","sqliteRoot":root_text,"threadId":ID}));
+    // Bound every line; a parent owns the total deadline and actual reaping.
+    let mut input = std::io::stdin().lock();
+    loop {
+        let mut bytes = Vec::new();
+        let read = std::io::Read::take(&mut input, 65)
+            .read_until(b'\n', &mut bytes)
+            .unwrap();
+        if read == 0 || bytes == b"finish\n" {
+            break;
+        }
+        assert!(read <= 64 && bytes.ends_with(b"\n"));
+        match bytes.as_slice() {
+            b"other\n" => {
+                db.execute("INSERT INTO projects(id) VALUES('unrelated')", [])
+                    .unwrap();
+            }
+            b"rename\n" => {
+                db.execute("UPDATE threads SET title='renamed' WHERE id=?1", [ID])
+                    .unwrap();
+            }
+            b"paginated\n" => {
+                db.execute("UPDATE threads SET history_mode='paginated',name='  paginated name  ' WHERE id=?1", [ID]).unwrap();
+            }
+            b"missing\n" => {
+                db.execute("DELETE FROM threads WHERE id=?1", [ID]).unwrap();
+            }
+            _ => panic!("unknown owned fixture command"),
+        }
+        send(json!({"kind":"owned_writer_updated"}));
+    }
+    db.close().unwrap();
+    dir.close().expect("owned fixture explicit cleanup");
+    assert!(!root.try_exists().unwrap());
+    send(json!({"kind":"owned_writer_closed","removedOwnedDirectories":1}));
+}

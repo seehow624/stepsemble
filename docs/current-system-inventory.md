@@ -9,6 +9,11 @@
 
 ## 1. 這份文件的角色
 
+2026-09-09 Plan1.66 開發增量：Node 已接 Rust v4 SQLite metadata、Host 共用兩個讀取
+名額與名稱候選／selected-field 版本；owned 跨程序 gate 不變更私人來源。詳
+[Node SQLite接線](codex-sqlite-node-pipeline.md)。未接 Codex registry/HTTP/Web、未部署，
+不將以下凍結盤點改成完整原生歷史／approval 已完成。
+
 這份盤點凍結「目前真的存在什麼」，不是未來設計。長期方向與階段門檻見 [`platform-plan.md`](platform-plan.md)；已上線架構摘要見 [`architecture.md`](architecture.md)。
 
 未來開始 Stepsemble Protocol、Rust Host Core、TypeScript Client SDK、agent adapter、session、approval、Model Source 或跨平台工作前，依序完整讀取：

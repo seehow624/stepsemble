@@ -7,6 +7,7 @@ const { normalizeSourceInput } = require("./history-source");
 const { canonicalJSON } = require("../../../public/modules/projection");
 const inventoryWire = require("./history-inventory-wire");
 const codexWire = require("../codex/source-wire");
+const sqliteWire = require("../codex/sqlite-wire");
 const LIMITS = Object.freeze({ inputBytes: 12 * 1024, headerBytes: 16 * 1024, sourceBytes: 8 * 1024 * 1024,
   outputBytes: 4 + 16 * 1024 + 8 * 1024 * 1024, outputChunks: 4096, deadlineMs: 10000, cleanupMs: 1000 });
 const SOURCE_CODES = Object.freeze(["invalid_source_input", "source_platform_unsupported", "source_missing", "source_empty", "source_too_large",
@@ -15,7 +16,8 @@ const SOURCE_CODES = Object.freeze(["invalid_source_input", "source_platform_uns
   "source_not_regular_or_linked", "source_owner_or_mode", "source_identity_unavailable", "source_hardlinked", "source_changed",
   "source_access_denied", "source_io_error", "source_read_budget", "source_close_failed", "source_worker_failure",
   "source_sdk_unavailable", "source_selection_failed", "source_observation_rejected", "source_observation_too_large", "source_version_changed",
-  "source_acl_unavailable", "source_acl_unsupported", "source_root_identity_changed", "source_containment_unavailable", "source_inventory_limit", "source_encoding_unsupported"]);
+  "source_acl_unavailable", "source_acl_unsupported", "source_root_identity_changed", "source_containment_unavailable", "source_inventory_limit", "source_encoding_unsupported",
+  "source_database_unsupported", "source_database_unavailable", "source_busy", "source_cancelled"]);
 const sourceCodes = new Set(SOURCE_CODES), unavailable = code => ({ kind: "source_unavailable", code });
 const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const keys = (value, names) => object(value) && Object.keys(value).sort().join(",") === [...names].sort().join(",");
@@ -40,6 +42,7 @@ function decode(bytes, job) {
     return sourceCodes.has(result.code) && payload.length === 0 ? result : null;
   if (job.protocolVersion === 2) return inventoryWire.decode(result, payload, job);
   if (job.protocolVersion === 3) return codexWire.decode(result, payload, job);
+  if (job.protocolVersion === 4) return sqliteWire.decode(result, payload, job);
   if (!keys(result, ["kind", "sessionId", "byteLength", "sha256", "identity", "checks", "sourceAuthenticated", "publishable"])
     || result.kind !== "native_source_bytes" || result.sessionId !== job.source.sessionId || result.sourceAuthenticated !== false || result.publishable !== false
     || !Number.isSafeInteger(result.byteLength) || result.byteLength < 1 || result.byteLength > LIMITS.sourceBytes || result.byteLength !== payload.length
@@ -86,7 +89,7 @@ function createNativeHelper(options = {}) {
     const signal = options.signal;
     if (signal !== undefined && !(signal instanceof AbortSignal)) return unavailable("invalid_source_signal");
     const value = detach(input, LIMITS.inputBytes), source = version === 1 ? normalizeSourceInput(value?.source) : value?.source;
-    if (version === 3 ? !codexWire.input(value) : version === 2 ? !inventoryWire.input(value) : !keys(value, ["source", "expectedRoot"]) || !source || !rootIdentity(value.expectedRoot)
+    if (version === 4 ? !sqliteWire.input(value) : version === 3 ? !codexWire.input(value) : version === 2 ? !inventoryWire.input(value) : !keys(value, ["source", "expectedRoot"]) || !source || !rootIdentity(value.expectedRoot)
       || source.projectsRoot === path.parse(source.projectsRoot).root || source.projectsRoot !== path.resolve(source.projectsRoot)
       || /[*?\[\]{},\r\n]/.test(source.projectsRoot)) return unavailable("invalid_source_input");
     if (closed) return unavailable("source_service_closed");
@@ -94,12 +97,12 @@ function createNativeHelper(options = {}) {
     if (signal?.aborted) return unavailable("source_aborted");
     if (!["darwin", "linux"].includes(platform)) return unavailable("source_platform_unsupported");
     if (active) return unavailable("source_busy");
-    const outputLimit = version === 3 ? codexWire.LIMITS.outputBytes : version === 2 ? 4 + LIMITS.headerBytes + inventoryWire.LIMITS.bytes : LIMITS.outputBytes;
+    const outputLimit = version === 4 ? sqliteWire.LIMITS.outputBytes : version === 3 ? codexWire.LIMITS.outputBytes : version === 2 ? 4 + LIMITS.headerBytes + inventoryWire.LIMITS.bytes : LIMITS.outputBytes;
     let job, inputLine, output;
     try {
       job = { protocolVersion: version, nonce: crypto.randomBytes(32).toString("hex"),
         ...(version === 2 ? { projectsRoot: value.projectsRoot } : { source }), expectedRoot: value.expectedRoot,
-        ...(version === 3 ? { nativeVersion: value.nativeVersion } : {}) };
+        ...(version === 3 || version === 4 ? { nativeVersion: value.nativeVersion } : {}) };
       inputLine = JSON.stringify(job) + "\n";
       if (Buffer.byteLength(inputLine) > LIMITS.inputBytes) return unavailable("source_worker_input_limit");
       output = Buffer.allocUnsafe(outputLimit);
@@ -168,6 +171,7 @@ function createNativeHelper(options = {}) {
     return { kind: "source_helper_closed", cleanupConfirmed: active === null, quarantined };
   }
   return Object.freeze({ read: (input, options) => run(input, options), inventory: (input, options) => run(input, options, 2), readCodex: (input, options) => run(input, options, 3),
+    readCodexMetadata: (input, options) => run(input, options, 4),
     shutdown, status: () => Object.freeze({ closed, quarantined, activeWorker: active !== null, cleanupConfirmed: active === null }) });
 }
 module.exports = { createNativeHelper, LIMITS, SOURCE_CODES };

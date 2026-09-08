@@ -103,9 +103,9 @@ loading再fetch，跨process route observer收到請求更晚，DOM loading不�
 
 ## 接續（未完成）
 
-Node v4嚴格decoder／shared admission/actualclose/quarantine與名稱resolver尚未接；
-本批只提供Rust獨立程序協定，不啟用私人root、不掛Host HTTP或Web。接續不能新增無界SQL
-worker或使用synchronous Node DB parser，必須沿既有Host持有的共享budget。
+Plan1.66已接[Node v4 decoder／shared admission／名稱候選](codex-sqlite-node-pipeline.md)，
+沿既有Host共享budget並在actual close後解讀；沒有同步Node SQLite parser。
+最終名稱resolver的多來源證據組合仍待；不啟用私人root、不掛Codex Host HTTP或Web。
 
 後續還有cold DB、壓縮/paginated/reference、Codex來源inventory/registry/HTTPWeb，以及
 其餘harness/C1–C8；本批不能當完整Web或完整多Agent歷史。

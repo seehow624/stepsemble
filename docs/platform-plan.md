@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.65
+> 計畫版本：1.66
 > 最後更新：2026-09-09
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,7 +15,15 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新增量 1.65（開發版仍3.0.7-rc.7，未部署）**：POSIX SQLite來源新增held FD／
+**最新增量 1.66（開發版仍3.0.7-rc.7，未部署）**：Node接上Rust v4 metadata，
+嚴格bounded frame／SQLite欄位／FD close／版本檢查；與Claude SDK、Codex parser共用
+Host兩個讀取名額，實際close後才解讀名稱，清理不明永久隔離。selected-field版本不受
+其他欄位commit或I/O計數影響，rename／檔案身分變更失效。新增18unit、本機Node871
+0fail/2skip及Rust/clippy通；owned pinned writer實際鏈驗max2/remaining0、來源bytes
+不變和取消，跨平台CI待exact SHA核對。詳[Node SQLite接線](codex-sqlite-node-pipeline.md)。
+不是最終native title、來源授權或HostWeb完成；C1–C8持續，正式/B+/帳號/72h不動。
+
+**前一增量 1.65（開發版仍3.0.7-rc.7，未部署）**：POSIX SQLite來源新增held FD／
 固定virtual names、DB/WAL/SHM實際身份/ACL/owner檢查與final-close後回覆，Rust v4
 獨立SQLite root/nonce/digest；Windows實際v4拒unsupported。新測試發現舊fixture比對
 開/關FD解除writer的POSIX鎖，已改獨立process比對，保留原失敗並重新驗原13case。

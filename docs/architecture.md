@@ -13,6 +13,13 @@ runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
+Development-only Plan1.66 adds a strict Node v4 SQLite capture decoder and an
+admitted metadata-name pipeline. It shares the Host-owned two-reader budget with
+Claude SDK and Codex parsing; actual child close gates publication and release.
+Selected-field versions are not global DB versions or final native titles. See
+[`codex-sqlite-node-pipeline.md`](codex-sqlite-node-pipeline.md). Codex grants,
+registry/HTTP/Web integration and private sources remain outside this increment.
+
 Development-only 3.0.7-rc.3 wires the bounded Claude history modules into the
 actual Host and a separate Web page, behind explicit operator configuration.
 It does not deploy or enable private source access by default. Configuration,

@@ -10,6 +10,7 @@ on:
       - 'scripts/check-native-sqlite-artifact.mjs'
       - 'scripts/check-native-codex-source.mjs'
       - 'scripts/check-native-codex-pipeline.mjs'
+      - 'scripts/check-native-codex-sqlite-pipeline.mjs'
       - 'protocol/native/codex/**'
       - 'test/native-codex-*.test.js'
       - 'scripts/check-native-history-dependencies.mjs'
@@ -45,6 +46,7 @@ on:
       - 'scripts/check-native-sqlite-artifact.mjs'
       - 'scripts/check-native-codex-source.mjs'
       - 'scripts/check-native-codex-pipeline.mjs'
+      - 'scripts/check-native-codex-sqlite-pipeline.mjs'
       - 'protocol/native/codex/**'
       - 'test/native-codex-*.test.js'
       - 'scripts/check-native-history-dependencies.mjs'
@@ -144,7 +146,7 @@ jobs:
       - name: Locked standalone helper build
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-native-history-reader
-        run: cargo +1.97.1 build --manifest-path crates/history-source-reader/Cargo.toml --locked
+        run: cargo +1.97.1 build --manifest-path crates/history-source-reader/Cargo.toml --locked --bins --example owned_sqlite_writer
       - name: Actual Node to Rust synthetic boundary (no native account or model)
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-native-history-reader
@@ -158,4 +160,4 @@ jobs:
           CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-native-history-reader
         run: node scripts/check-native-codex-source.mjs
       - name: Node helper and bytes-only service negative cases
-        run: node --test --test-timeout=60000 test/claude-history-native-helper.test.mjs test/claude-history-inventory.test.js test/claude-history-admission.test.js test/claude-history-bytes-worker.test.js test/claude-history-metadata.test.js test/claude-history-native-service.test.js test/native-codex-source.test.js test/native-codex-name-index.test.js test/native-codex-parser-worker.test.js test/native-codex-history-pipeline.test.js test/native-codex-metadata-name.test.js
+        run: node --test --test-timeout=60000 test/claude-history-native-helper.test.mjs test/claude-history-inventory.test.js test/claude-history-admission.test.js test/claude-history-bytes-worker.test.js test/claude-history-metadata.test.js test/claude-history-native-service.test.js test/native-codex-source.test.js test/native-codex-name-index.test.js test/native-codex-parser-worker.test.js test/native-codex-history-pipeline.test.js test/native-codex-metadata-name.test.js test/native-codex-sqlite.test.js test/native-codex-metadata-pipeline.test.js
