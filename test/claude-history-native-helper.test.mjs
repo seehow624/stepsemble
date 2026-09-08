@@ -233,8 +233,11 @@ test("external abort listener is removed after a successful close or quarantined
 test("real owned subprocess transports a binary frame with isolated environment; no native history/SDK/CLI is invoked", async () => {
   const script = `const fs = require('node:fs'), crypto = require('node:crypto');
     const job = JSON.parse(fs.readFileSync(0, 'utf8'));
-    // macOS injects this runtime key even when spawn's environment is exact.
-    if (Object.keys(process.env).some(k => !['LANG','LC_ALL',...(process.platform==='darwin'?['__CF_USER_TEXT_ENCODING']:[])].includes(k))) { process.stderr.write('environment_not_isolated'); process.exit(1); }
+    // Platform runtimes add these keys despite the exact two-key spawn env.
+    // Windows list: Node v22.19.0 deps/uv/src/win/process.c required_vars.
+    const injected = process.platform==='darwin' ? ['__CF_USER_TEXT_ENCODING'] : process.platform==='win32'
+      ? ['HOMEDRIVE','HOMEPATH','LOGONSERVER','PATH','SYSTEMDRIVE','SYSTEMROOT','TEMP','USERDOMAIN','USERNAME','USERPROFILE','WINDIR'] : [];
+    if (Object.keys(process.env).some(k => !['LANG','LC_ALL',...injected].includes(k.toUpperCase()))) { process.stderr.write('environment_not_isolated'); process.exit(1); }
     const bytes = Buffer.from('owned synthetic child fixture\\n');
     const result = {kind:'native_source_bytes',sessionId:job.source.sessionId,byteLength:bytes.length,sha256:crypto.createHash('sha256').update(bytes).digest('hex'),
       identity:{device:'1',inode:'3',size:bytes.length,mtimeNs:'4',ctimeNs:'5'},checks:{owner:'posix_euid_and_mode',acl:'no_extended_acl',containment:'root_identity_and_openat_nofollow',reads:2,matchingBytes:true,unchangedObservedIdentity:true},sourceAuthenticated:false,publishable:false};

@@ -152,6 +152,23 @@ Crate：`crates/history-source-reader/Cargo.toml`。Toolchain 固定 1.97.1；�
 固定 libc 0.2.186、serde 1.0.228、serde_json 1.0.150、sha2 0.10.9，Windows
 target dependency windows-sys 0.61.2；提交 lockfile，CI 以 `--locked` 執行。
 
+依賴安全另由同一 workflow 的獨立 Linux `dependency-audit` job 驗證，不在三 OS
+矩陣重複編譯工具。固定 `cargo-audit 0.22.2` 並以 `cargo install --locked` 安裝；
+tool root、build target、官方 RustSec DB 都在 `runner.temp`，不修改全域 PATH。
+`scripts/check-native-history-dependencies.mjs` 接受工具／DB／temporary root 三個
+絕對路徑，建立自有隔離 audit config 和 process-local Cargo home，明確
+`ignore=[]`、沒有平台或 severity 篩選、拒絕所有 warnings、啟用並更新 yanked
+檢查；工具失敗或 stderr diagnostics 不得當作零漏洞通過。它輸出工具版本／
+hash、官方 DB exact commit、advisory 數量與 lockfile 前後一致 SHA256，並在
+自有 temporary directory 保留原始 JSON 與 evidence。不自動更新任何依賴。
+
+2026-09-08 本機使用上述固定工具，官方 DB
+`8a1eb4f933fb5821add5b4e98601ebd90b8b3538`（1,242 advisories），對 lockfile
+SHA256 `6583452ddbf9af1e6cce6623144f94660c4108c6877efa02e1e58b90d28f2e25`
+完成稽核：33 packages 含專案自身、32 個外部依賴，0 已知漏洞、0 warnings、exit 0。
+這只是當次 DB／lockfile 的已知 advisory 檢查，不是 supply-chain 完整保證、來源
+provenance、Windows reader 支援或整體計畫完成；未來 advisories 仍可能令 CI 失敗。
+
 檔案／fd 由 Rust `File`／RAII 擁有；raw fd 只借用於局部 libc interoperability。
 每段 unsafe 都記錄：fd 生命週期、buffer 長度／alignment、C 字串無 NUL、初始化與
 返回值檢查、ACL allocation 的唯一釋放。不雙重接管 raw fd、不重試關閉可能已被
@@ -166,6 +183,14 @@ Helper executable 的 pre-exec hash 驗證只證明「檢查時 pathname bytes�
 到 spawn 仍有替換競爭，不能稱為 exact executed-bytes pinning。Caller 須信任
 build/output directory 及 launch environment；不讀 HOME／credential／loader 注入。
 本版不是 OS sandbox、網路 sandbox 或對惡意 helper executable 的隔離。
+
+平台附註：Node spawn 的顯式 env 是固定欄位，不代表 child environment 只有
+那幾個欄位。macOS 可注入 `__CF_USER_TEXT_ENCODING`；Node 22.19 libuv 在 Windows
+會補入 HOMEDRIVE/HOMEPATH/LOGONSERVER/PATH/SYSTEMDRIVE/SYSTEMROOT/TEMP/
+USERDOMAIN/USERNAME/USERPROFILE/WINDIR。實體 Node fixture 僅接受這些已核對
+的系統注入鍵並仍驗 spawn env exact；不輸出值，不宣稱 Windows 已隔離 native HOME。
+Windows reader 仍 before-spawn unsupported，未利用這些欄位讀取任何來源。
+依據：[Node 22.19 libuv required_vars](https://github.com/nodejs/node/blob/v22.19.0/deps/uv/src/win/process.c#L50)。
 
 ## 已有本機證據與待驗收矩陣
 

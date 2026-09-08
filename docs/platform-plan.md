@@ -977,6 +977,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 - Node固定noshell/noargs/microenv、12KiBinput／16KiBheader＋8MiBraw／4096chunks、nonce／SHA／scope／sameDevice／u64 validation；singleflight、10s＋1s，只actualclose後成功，未知close保留slot永久quarantine。trusted executable acknowledgement不是執行bytes認證，不拿preexec hash冒充消除swap。
 - 本機Rust10tests／Node16tests過；actualNode22.19及22.22.3→Rust→既有parser通過、原fixture不變／modelCalls0／cleanup確認；完整590tests＝588pass2skip0fail，strictTS／artifacts／version checks過。Windows純policy及crosscompile過，真owner/DACL/relativehandle/reparse probe由WindowsCI驗，CLI仍unsupported；本exactcommit結果另核，不用上批綠燈。
 - 未接sourceService/SDK新鏈/正式UI，不宣稱atomic subtree、同UID隔離、native provenance或完整產品完成。下一步為composite Rust capture→bytes-only permissionworker，然後正式Host wiring／Windowsread／實機與後續capabilities，細節與剩餘fault測試見ADR。
+- 首次`ce4619b`：NativeClaude34174667957三OS過；普通CI34174667922僅Windows新subprocessfixture漏算libuv自動environment欄位而失敗（564pass/1fail/25skip）。固定Node22.19官方libuv source核對11個必補系統欄位，僅修fixtureallowlist、不放寬runner spawn env。新workflow34174667061在job.env錯用runner context而未啟job，改step.env；不能稱這輪Rust三OS已過。32外部Cargo依賴另以固定cargo-audit0.22.2/RustSec完整掃描，0已知漏洞/0warnings/noignore，新增獨立LinuxCI。
 
 ### 2026-09-08 — Plan 1.42
 
