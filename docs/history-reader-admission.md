@@ -2,8 +2,8 @@
 
 2026-09-08，Plan 1.50。開發版仍 `3.0.7-rc.5`，未部署正式服務。
 
-**Plan1.51接續**：source-group config／同instance／dynamicregistry／HTTP分頁已接上，
-見[來源群組](history-source-groups.md)；下方未接線是1.50當時範圍。Web來源UI和title仍待。
+**Plan1.52接續**：source-group config／同instance／dynamicregistry／HTTP分頁與原生title/summary已接上，
+名稱也共用相同兩flight；見[來源群組](history-source-groups.md)。下方未接線是1.50當時範圍，Web來源UI仍待。
 
 ## 這批實際完成的部分
 

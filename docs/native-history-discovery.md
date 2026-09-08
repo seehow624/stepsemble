@@ -1,8 +1,8 @@
 # 原生對話來源探索：第一個安全增量
 
-**最新接續Plan1.51**：來源群組設定、同Hostbudget、動態registry和分頁HTTP已接線，
-actualRust＋SDK合成Host已驗；見[來源群組](history-source-groups.md)。原生title、Web
-來源UI及其他agents仍待。下文保留1.49/1.50當時「未接線」的歷史，不作最新待辦。
+**最新接續Plan1.52**：來源群組設定、同Hostbudget、動態registry和分頁HTTP已接線；
+原生title/summary及TS transport也通actualRust＋SDK合成Host，見[來源群組](history-source-groups.md)。
+Web來源UI及其他agents仍待。下文保留1.49/1.50當時「未接線」的歷史，不作最新待辦。
 
 2026-09-08，Plan 1.49。**已完成 Claude 主對話的 explicit-root metadata inventory
 與 Host-private 增量索引核心；尚未接入 `server.js`、來源設定或 Web 清單。**

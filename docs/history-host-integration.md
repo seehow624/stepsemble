@@ -1,7 +1,7 @@
 # Claude 唯讀歷史：Host 接線與操作邊界
 
-**Plan1.51接續**：v2來源群組/readers、動態registry與分頁HTTP／relay已接實際Host，
-詳[history-source-groups.md](history-source-groups.md)。原生title與Web來源UI尚未接上；
+**Plan1.52接續**：v2來源群組/readers、動態registry、分頁及原生title/summary HTTP／relay和TS transport已接實際Host，
+詳[history-source-groups.md](history-source-groups.md)。Web來源選擇與按需名稱UI尚未接上；
 下方單session設定／頁面仍為既有v1相容介面，不自動擴大分享。正式3.0.6不變。
 
 2026-09-08，3.0.7-rc.3 開發候選。**程式已接入實際 `server.js` 與 Web 導航，

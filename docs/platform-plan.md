@@ -1061,6 +1061,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 - 真最低Node22.19 actual server.js→Rust capture→permissioned SDK→新HTTP→compiledTS transport，四個合成來源驗native title／未命名摘要、改名、舊snapshot/identity拒絕、零私人history/model及清理；`actualMetadataGate=passed`。新增純selection／wire／worker/service／registry／Host/relay／HTTP／client對照與取消測試，完整TAP保留，當批CI逐SHA另核對。
 - 本批沒有GUI操作、真機或完整效能驗收；Web來源選擇/refresh/paging/lazy名稱仍待，C1不是完成，C2–C8照舊。B+、正式3.0.6、帳號/路由/私人來源與固定ab227af72h未變；版本仍rc.5，沒有stable release或部署。
 - 本機最終730tests＝728pass／2平台skip／0fail，native聚焦90/90、HTTP/TS聚焦57/57；strictTS/generated/syntax/version/actionlint及Ajv1251通過。最低Node22.19真SDK pipeline已以compiledTS transport重跑；跨OS當批exact CI仍需核對。
+- Exact程式`850e01294991c4a81173a69438081ebe4d73731e`四組CI全過且logs核實：一般34220571677三OS730/0fail（Mac728/2skip、Linux727/3、Windows698/32）及各Ajv1251；reader34220571738 Rust17/17/8、Node各77/77，Mac/Linux新actualMetadataGate/既有Host/sourceGroup/shared通，locked audit0已知漏洞0warnings；NativeClaude34220571704三OS固定SDK/model0/原檔不變；rolling34220571699雙OS各18cases/pageErrors0。Windowsfullnative仍unsupported，Web來源UI/實機不在此證據內。
 
 ### 2026-09-08 — Plan 1.51
 

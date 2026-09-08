@@ -111,7 +111,7 @@ HTTP 送出前再驗 source authority／snapshot，relay 兩端驗 exact inert e
   worker同13個named runtime/SDK read grants，不加source/HOME/write/child grants。
 - `nativeTitle`只取SDK `customTitle`（SDK自身包含aiTitle選擇），與SDK `summary`
   分開。後者可能是first/last prompt，不能當原生名稱。缺title是null＋untitled，
-  有原生title是native；title1024／summary4096字，壞型別／控制字元／超限回固定錯誤。
+  有原生title是native；title1024／summary4096個UTF-16 code units，壞型別／控制字元／超限回固定錯誤。
 - 查名稱也有完整原生read成本，與inventory/content共享兩flight而不是獨立pool。
   Host在既有64-slot registry建立短期private view，完成/失敗均release，不能用caller
   view取代或續約使用者正在閱讀的內容。連續70讀＋一個active conversation保留2slots。
@@ -165,7 +165,18 @@ owned fixture/child清理確認。新增選擇、scope/pin/wire、worker/service
 HTTP/relay/權限/70讀slot重用與TS validators對照/取消/decoded-cap回歸。
 本機最終730tests＝728pass／2平台skip／0fail；native聚焦90/90、HTTP/TS聚焦57/57，
 strict TS/generated／syntax／版本一致性／actionlint及1,251-case Ajv通過。
-當批exact CI另核對，不繼承上表綠燈；舊未定位單次flaky仍未根因結案。
+舊未定位單次flaky仍未根因結案，這次未重現不能當作已修復。
+
+程式 **`850e01294991c4a81173a69438081ebe4d73731e`** 四組CI均成功，logs已核實：
+
+| Gate | 結果與邊界 |
+| --- | --- |
+| [一般CI34220571677](https://github.com/seehow624/stepsemble/actions/runs/34220571677) | 三OS各730tests／0fail；Mac728pass2skip、Linux727pass3skip、Windows698pass32skip；各Ajv1251 |
+| [Native reader＋audit34220571738](https://github.com/seehow624/stepsemble/actions/runs/34220571738) | Rust Mac17／Linux17／Windows8，Node各77/77；Mac/Linux新`actualMetadataGate=passed`及既有actualHost/sourceGroup/shared gate通，Windows原生Host仍unsupported；locked RustSec 0已知漏洞/0warnings |
+| [Native Claude34220571704](https://github.com/seehow624/stepsemble/actions/runs/34220571704) | SDK0.3.259三OS合成契約passed／modelCalls0／nativeFileUnchanged=true |
+| [Browser rolling34220571699](https://github.com/seehow624/stepsemble/actions/runs/34220571699) | Mac/Linux各18cases全passed／pageErrors0；既有介面回歸，不是新source-group UI或實機驗收 |
+
+後續純文件commit與這份程式證據分開，不宣稱新native UI已上線。
 
 下一步是 Web 來源选择／重新整理／分頁與按需名稱介面及browser驗收，再進真人來源確認。其餘harness、resume、approval、
 durable journal、真機/性能、Windows reader與發布關卡仍依主計畫待完成。

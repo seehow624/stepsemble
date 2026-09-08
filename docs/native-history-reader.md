@@ -221,7 +221,10 @@ page／expected fingerprint；**不傳 source 路徑，不建立 raw snapshot �
 SHA／大小／session／identity／兩個 native checks 都由 child 重驗；回應仍最多
 256KiB，不回 raw records，native checks 不可降級成舊 mode-only profile。
 
-`history-bytes-worker.js` 的 Node permission 僅允許 12 個確定的 code／SDK 檔案，
+`history-bytes-worker.js` 的 Node permission 在Plan1.44允許12個確定的code／SDK檔案；
+Plan1.52新增 `history-metadata.js`，目前共13個exact檔案。新增私有v3 job只讀
+captured SessionStore的 `getSessionInfo`，title/summary分離且與v2 page operation互斥；
+仍共用相同two-flight/deadline/close budget，詳[來源群組](history-source-groups.md)。
 沒有 source-root／HOME／write／child-spawn grant。實際 owned sentinel 測試確認
 來源／相鄰檔案讀取、寫入、spawn 皆拒絕；owned 錯 hash SDK 未被執行。
 這是 reviewed SDK 的最小能力配置，不是惡意 JavaScript／native code 的 OS

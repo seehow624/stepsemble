@@ -91,6 +91,8 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
   最低Node22.19真Rust＋SDK合成Host鏈，`actualMetadataGate=passed`；沒有私人
   history/model/正式變動。接續Web來源UI＋按需名稱，不預讀全2048份transcript，
   做完CUA與相應回歸才可把C1往前勾。其餘C2–C8與原72h邊界不變。
+  程式`850e012`四組exact CI全過：三OS730tests/0fail、POSIX新actualMetadataGate、
+  固定SDK三OS及既有browser雙OS各18cases；詳細run ID/counts見來源群組文件。
 
 - **2026-09-08／C1後端進展，Plan1.51**：明確source-group/private readers設定、
   同Hostbudget、dynamicresolver與變更/刪除撤銷、snapshot-fenced50列分頁、HTTP及
