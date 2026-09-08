@@ -86,4 +86,21 @@ TTY，拒絕 pipe、檔案輸入與 raw terminal；保留終端機原生行編�
   或 C2–C8 驗收；其他 agent 的 native history/session/approval/durable 仍按主計畫補齊。
 
 完整本機 logs：`/tmp/stepsemble-history-setup-{final.tap,focused.tap,minnode.tap,native.log}`。
-CI須以本批 exact commit 核對，結果後補；不繼承前一輪綠燈。
+
+## Exact CI
+
+程式 `3c919a59b8ecf21853ae524e1c39f2e826c242ce` 的四組 CI 全部成功，完整 logs 已核對：
+
+- [一般 CI 34240582314](https://github.com/seehow624/stepsemble/actions/runs/34240582314)：
+  三 OS 各794 tests／0 fail；macOS 792 pass／2 skip、Linux 791／3、Windows 747／47，
+  各 Ajv1251 通過。Windows 新增 POSIX setup 的 skips 不表示原生功能通過。
+- [Reader 34240582404](https://github.com/seehow624/stepsemble/actions/runs/34240582404)：
+  macOS/Linux 的新 `actualSetupGate:passed` 驗精靈原檔未修改即用於真 Host、明確
+  refresh 後 inventory/metadata/content；setup 本身 sourceReads0/hostRestartedfalse。
+  既有 Host/sourceGroups/metadata/shared gates 亦通；Windows 明示
+  `source_platform_unsupported`。Rust 17/17/8、Node 各77/77；locked audit 0漏洞/0警告。
+- [Native Claude 34240582335](https://github.com/seehow624/stepsemble/actions/runs/34240582335)：
+  三 OS 固定 SDK0.3.259 合約通、modelCalls0/原檔不變；不是 Windows full-native reader。
+- [Rolling 34240582379](https://github.com/seehow624/stepsemble/actions/runs/34240582379)：
+  macOS/Linux 各24 cases／pageErrors0，含既有六 native來源×11語、localeReads0及
+  owned cleanup。不是新增 Web 設定管理 UI 或真人／跨裝置驗收。

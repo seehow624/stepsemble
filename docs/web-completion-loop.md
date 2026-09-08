@@ -89,7 +89,9 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
   scope、master/peer讀者邊界，精確CREATE後才建立新的private config；review immutable/
   單次及metadata漂移拒絕，partial write不刪競爭輸出。真TTY建立/取消與最低Node真
   Rust/SDK/Host使用精靈原檔的actualSetupGate已通；新17tests、本機794/0fail、最低
-  Node32/32及Ajv1251通。ExactCI後續核對，詳[owner setup](history-owner-setup.md)。
+  Node32/32及Ajv1251通。Exact3c919a5四CI已通：一般34240582314三OS794/0fail，
+  reader34240582404新POSIXactualSetupGate、Claude34240582335、rolling34240582379
+  雙OS各24cases；skip/unsupported分列，詳[owner setup](history-owner-setup.md)。
   不改正式服務/私人來源/讀者/帳號/B+/獨立72h，非Web管理API/多群組編輯/C1全完。
 
 - **2026-09-08／C1/C5歷史多語，Plan1.56／rc.7**：實際頁/preview共用119keys及

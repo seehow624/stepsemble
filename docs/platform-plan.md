@@ -20,7 +20,8 @@
 root/artifact/parent改變拒絕、partial write不刪競爭者檔案，原非互動命令相容且可選多讀者。
 真TTY建立/取消已驗，最低Node真Rust/SDK/Host使用精靈原檔通actualSetupGate；本機794tests/0fail。
 沒有Web設定寫入API或替owner選私人root/readers，不scan/登入/重啟，C1與C2–C8仍未完成；
-詳[owner設定與驗證](history-owner-setup.md)。正式與獨立72h不動，exactCI另驗。
+詳[owner設定與驗證](history-owner-setup.md)。四組exact CI已通，一般三OS794/0fail、
+POSIX新actualSetupGate passed、rolling雙OS各24cases；正式與獨立72h不動。
 
 **前一增量 1.56（開發版3.0.7-rc.7，未部署）**：完整唯讀歷史 UI 的 119 keys／11語
 已接實際頁及preview；只翻譯明確UI，原生名稱/摘要/訊息/JSON/時間不變。頁首語言
@@ -1101,6 +1102,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 - `history-config.mjs` prepare/commit用detached frozen review、WeakMap單次原內容；前後驗root/parent及artifact identity/time/size/mode。shared startup artifact validator不執行讀取artifact；partial write只清自己exclusive新inode、競爭輸出保留明示incomplete。既有create/create-group/check相容，reader逗號明確複選且拒重複/空/wildcard。不假裝ACL/可信祖先/sameUID/powerloss已驗。
 - 新17tests及真TTY建立/拒覆寫/CtrlC130/原sourcehash不變；本機794=792pass/2skip/0fail、最低Node聚焦32/32、TS/generated/syntax/version/actionlint/Ajv1251通。最低Node實際Rust→固定SDK→Host使用精靈檔不修改，初始不scan/explicitrefresh4sources/native metadata/content/release/cleanup通，actualSetupGate passed；將此gate納入原生reader CI，exact結果另記。
 - 沒有新Web管理route/自選私人root/readers/帳號/模型/部署；新群組檔精靈不是完整多來源編輯或C1完成。其餘C2–C8、舊unknownflaky、真機/效能/Windowsnative/發布仍待。B+/rc.7/正式3.0.6/固定72h不變。
+- Exact程式3c919a5四CI成功、logs核實：一般34240582314三OS794/0fail與各Ajv1251（Mac792pass2skip、Linux791/3、Windows747/47）；reader34240582404雙POSIX新actualSetupGate passed、Win明示unsupported及audit0/0；Claude34240582335三OS固定SDK合約通；rolling34240582379雙OS各24cases/pageErrors0。詳owner setup，skip不冒稱支援。
 
 ### 2026-09-08 — Plan 1.56
 
