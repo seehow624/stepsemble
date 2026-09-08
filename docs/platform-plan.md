@@ -977,6 +977,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 - SDK loader改直接執行exact hash-verified Buffer，resolve/load hooks＋nonce拒swap/symlink/cache poison；bounded fd read與one-shot attempt防無界cache／unknown retry。最低Node22.19實際跑完整固定SDK鏈，含兩個loopback HTTP主機的relay／同view不同principal防竊用，modelCalls0／原fixture不變。Node permission model仍非惡意程式sandbox，不把SDK bytes pin當source ACL或provenance。
 - 本機完整574tests＝572pass／2Windows-only skip／0fail；strict TS／generated artifacts、syntax、版本與1251-case Ajv通過。預覽程序與自己建立的fixture已確認清理，正式3.0.6、訂閱／route／私人history、B+母版及fixed ab227af的72h未動。本輪跨平台CI須以新exactcommit實際结果核對，不能沿用上一輪綠燈。
 - 下一個正式接入前置仍是原生source opener/reader的ACL／descriptor containment及Windows gate，然後正式Host credential/catalog/remote UI wiring、rolling與實機/效能。approval/resume/durable journal/Rust Host/App整體路線未完成；不新增正式routes、不部署、不提前把72h標passed。
+- 跨平台收尾：`ab8bade`的Native34172640250三OS、Rolling34172640264兩OS已過；CI34172640254僅Windows新增兩個receipt測試因Unix字面root不canonical而失敗。測試root改用`path.resolve`，不跳過測試、不放寬production來源驗證；修正commit需重驗三OS。
 
 ### 2026-09-08 — Plan 1.41
 

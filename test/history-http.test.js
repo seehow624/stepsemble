@@ -1,6 +1,7 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict");
 const http = require("node:http"), net = require("node:net"), { once } = require("node:events");
+const path = require("node:path");
 const { createHistoryHttpHandler, LIMITS, VIEW_HEADER, CSRF_HEADER } = require("../server/history-http");
 const VIEW = "11111111-1111-4111-8111-111111111111", BINDING = "22222222-2222-4222-8222-222222222222";
 const REQUEST = "33333333-3333-4333-8333-333333333333", SESSION = "44444444-4444-4444-8444-444444444444";
@@ -240,7 +241,7 @@ test("late aborted registration uses its exact private receipt to retire only an
   const { createHistoryRegistry } = require("../protocol/native/claude/history-registry");
   const { createSourceService } = require("../protocol/native/claude/history-source-service");
   const registry = createHistoryRegistry({ sourceService: createSourceService(),
-    catalog: [{ catalogId: "synthetic", source: { projectsRoot: "/synthetic/projects", projectKey: "fixture", sessionId: SESSION } }],
+    catalog: [{ catalogId: "synthetic", source: { projectsRoot: path.resolve("/synthetic/projects"), projectKey: "fixture", sessionId: SESSION } }],
     authorize: () => true, principalActive: () => true });
   t.after(async () => { assert.equal((await registry.shutdown()).cleanupConfirmed, true); });
   let finish, receipt, cancelled;
@@ -259,7 +260,7 @@ test("an aborted old registration cannot cancel a newer same-view renewal or an 
   const { createSourceService } = require("../protocol/native/claude/history-source-service");
   for (const mode of ["renewed", "claimed"]) {
     const registry = createHistoryRegistry({ sourceService: createSourceService(),
-      catalog: [{ catalogId: "synthetic", source: { projectsRoot: "/synthetic/projects", projectKey: "fixture", sessionId: SESSION } }],
+      catalog: [{ catalogId: "synthetic", source: { projectsRoot: path.resolve("/synthetic/projects"), projectKey: "fixture", sessionId: SESSION } }],
       authorize: () => true, principalActive: () => true });
     t.after(async () => { assert.equal((await registry.shutdown()).cleanupConfirmed, true); });
     let finish, receipt, count = 0, cancelled;
