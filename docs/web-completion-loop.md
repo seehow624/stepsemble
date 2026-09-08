@@ -89,7 +89,9 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
   latest/read/list不同原生索引規則，成組capture SHA/version綁定，沒有最終title權威。
   真CLI17cases/19原檔不變/model0/loaded0/cleanup通，最低Node及另五輪通；確認
   preview同名read/list差異，SQLite優先來源未接。新7tests/完整823/0fail、最低Node26/26，
-  新exactCI待核，詳[名稱索引](codex-name-index.md)。其餘C1–C8、CodexHostWeb及權限關卡未完。
+  exact f884843三CI全過且核logs，一般三OS823/0fail、native各17cases、reader各92tests/
+  POSIXcapture→name/Windowsunsupported、audit0known0warnings。詳[名稱索引](codex-name-index.md)。
+  其餘C1–C8、CodexHostWeb及權限關卡未完。
 
 - **2026-09-08／C2 Codex selected source，Plan1.59／rc.7不變**：Rust新v3成組
   讀rollout與固定nameindex，精確active/archive/reverted locator、root/ACL/mount/

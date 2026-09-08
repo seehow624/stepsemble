@@ -19,7 +19,9 @@
 Rust capture bytes，依固定版本分開latest/read/list候選、Unicode/UUID/duplicates/缺空狀態，
 不把index冒充最終native title。真CLI17cases＋最低Node及另五輪通，發現preview同名的
 read/list差異；SQLite distincttitle仍可優先，尚未capture/驗該來源。本機823/0fail、
-最低Node26/26，exact新CI待核。詳[名稱索引與API差異](codex-name-index.md)；
+最低Node26/26；exact f884843三CI全過並核logs，一般三OS823/0fail、native各17cases、
+reader各92tests與POSIX實際capture→name/Windowsunsupported、audit0known0warnings。
+詳[名稱索引與API差異](codex-name-index.md)；
 Codex完整name/opt-in/discovery/壓縮/HostWeb及C1–C8仍待，正式/B+/私人/帳號/72h不動。
 
 **前一增量 1.59（開發版仍3.0.7-rc.7，未部署）**：Codex selected rollout＋固定name

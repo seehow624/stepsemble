@@ -45,6 +45,10 @@ output；超限回unavailable，不截斷或退回舊名稱。完整但沒有末
 缺index、空index、無此ID不同；只回選定ID的名稱，不回其他對話名稱或全index。
 input透過intrinsic byte getters複製，拒shared memory，回傳不依賴caller後續改bytes。
 此同步parser仍有固定工作上限，**尚未接Host worker/admission，不宣稱主執行緒效能驗收**。
+另在Mini/Node22.22.3用8,387,188bytes／7,598records的owned index做三輪單程序探測，
+解析84.55／78.66／74.93ms（`/tmp/stepsemble-codex-names-synchronous-baseline.jsonl`）。
+這不是before/after、Host或Web基準；此量級不應接到請求主執行緒批量重複解析，
+後續需納入worker、shared admission與有界版本快取後另測。
 
 ## 驗證紀錄
 
@@ -60,11 +64,32 @@ input透過intrinsic byte getters複製，拒shared memory，回傳不依賴call
 - 新native runner的前兩次失敗是把preview同名誤當一律null、再誤猜cold preview空。
   固定source與實際API確認read/list差異後改成分方法精確斷言；不是刪掉case或更改
   原生資料讓測試過。失敗logs `...-native-first.log`／`...-native-second.log`保留。
-- strict TS/generated/syntax/version/Ajv1251/actionlint通。exact新CI待push後核對；
-  不沿用Plan1.59的816項結果當本批823或native17cases已過三平台。
+- strict TS/generated/syntax/version/Ajv1251/actionlint通。
 
 本機logs `/tmp/stepsemble-codex-names-{full-final.tap,minnode-final.tap,unit-bounds.tap,
 minnode-native-final.log,native-repeat.jsonl,reader-final.log,checks.log}`。
+
+### Exact CI
+
+程式`f884843222e3d39c72891c4d07b2f15f7c7ca334`已push：
+
+- 一般[34250969945](https://github.com/seehow624/stepsemble/actions/runs/34250969945)
+  三OS823/0fail、各Ajv1251；Mac821pass/2skip、Linux820/3、Windows776/47。
+- 固定原生[34250969947](https://github.com/seehow624/stepsemble/actions/runs/34250969947)
+  三OS最低Node22.19各17新name cases、read/list前後分別驗、19原檔不變、model/private/loaded0、
+  actualcleanup通。旧raw113頁/219records/3transient/byteexact與native缺項gate亦保持。
+  全部首次attempt成功，完整logs核實；不是SQLite覆寫、paginated或Windows Rust來源驗收。
+- reader [34250970005](https://github.com/seehow624/stepsemble/actions/runs/34250970005)
+  完整workflow成功且logs核實：Rust Mac25/Linux25/Windows10，Node各92/92；
+  POSIX實際9次capture→name解析＋raw頁、原ClaudeactualHost/sourceGroups/metadata/setup/
+  shared gates仍通，Windows實際binary維持unsupported，沒有宣稱name解析來源能力通過。
+  RustSec DB`bf25f6575a93a35f30796c65c0ed91bee7fa19fd`、1242advisories、
+  lock`6583452ddbf9af1e6cce6623144f94660c4108c6877efa02e1e58b90d28f2e25`、
+  33packages／0known vulnerabilities／0warnings。
+
+完整logs `/tmp/stepsemble-codex-names-{general-ci,native-ci,reader-ci}.log`。
+本批沒有Host/Web或Claude reader程式變動，不新增rolling/nativeClaude workflow；
+Plan1.59相應證據不冒稱本SHA有新UI／實機驗收。
 
 下一步：完整名稱來源（SQLite/WAL一致性／固定版本與權限）及owned優先順序驗證、
 Codex opt-in／精確locator inventory、壓縮與referenced history、同Host資源限额下
