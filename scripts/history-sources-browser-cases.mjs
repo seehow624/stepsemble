@@ -48,7 +48,7 @@ export async function runHistorySourcesBrowserCases(browser, helperPath) {
           await page.evaluate(() => { window.__sourceRow = document.querySelector(".source-row"); window.__sourceContent = document.querySelector(".source-detail article"); });
           releaseName();
           await page.waitForFunction(() => document.querySelector(".source-name-retry")?.textContent === "✓");
-          assert.equal(await page.evaluate(() => window.__sourceRow.isConnected && window.__sourceContent.isConnected && document.activeElement === document.querySelector(".source-detail h2")), true);
+          assert.equal(await page.evaluate(() => window.__sourceRow.isConnected && window.__sourceContent.isConnected && document.activeElement === document.querySelector(".source-detail > h2")), true);
           assert.ok(metadata.length < 50, "No full-page metadata prefetch");
           assert.equal(await page.locator('.source-row .agent-logo[data-agent-id="claude-code"]').count(), 50);
           stage = "paging"; await page.getByRole("button", { name: "下一頁對話", exact: true }).click();
@@ -57,11 +57,11 @@ export async function runHistorySourcesBrowserCases(browser, helperPath) {
           await page.waitForFunction(() => document.querySelectorAll(".source-row").length === 50);
           assert.ok(catalogs.at(-1).snapshotId); assert.equal(catalogs.at(-1).snapshotId, catalogs.at(-2).snapshotId);
           stage = "native title and content"; await page.locator(".source-open").nth(4).click();
-          await page.waitForFunction(() => document.querySelector(".source-detail h2")?.textContent.startsWith("合成對話 1 🐾"));
+          await page.waitForFunction(() => document.querySelector(".source-detail > h2")?.textContent.startsWith("合成對話 1 🐾"));
           const expectedTitle = host.cases.find(c => c.name === "extra-0").records.at(-1).customTitle;
-          assert.equal(await page.locator(".source-detail h2").textContent(), expectedTitle);
+          assert.equal(await page.locator(".source-detail > h2").textContent(), expectedTitle);
           await page.getByRole("button", { name: "展開完整名稱", exact: true }).click();
-          assert.equal(await page.locator(".source-detail h2").getAttribute("class"), "source-full-title");
+          assert.equal(await page.locator(".source-detail > h2").getAttribute("class"), "source-full-title");
           await page.getByRole("button", { name: "收合名稱", exact: true }).click();
           await page.locator(".source-detail").getByText("合成來源 1 的完整內容 🐾", { exact: true }).waitFor();
           assert.equal(await page.locator(".source-detail script,.source-detail img,.source-detail iframe").count(), 0);
