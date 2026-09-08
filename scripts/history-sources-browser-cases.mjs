@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { withDownloadedSdk } from "./check-native-claude-history.mjs";
 import { startSyntheticHistoryHost } from "./history-host-synthetic.mjs";
+import { createBrowserRequestBarrier } from "./browser-request-barrier.mjs";
 
 export async function runHistorySourcesBrowserCases(browser, helperPath) {
   await withDownloadedSdk(async sdkPath => {
@@ -15,6 +16,7 @@ export async function runHistorySourcesBrowserCases(browser, helperPath) {
           const errors = [], foreign = [], catalogs = [], metadata = [], mutations = [], historyRequests = [];
           let holdName = true, failCatalog = false;
           const nameGate = new Promise(resolve => { releaseName = resolve; });
+          const firstNameRequest = createBrowserRequestBarrier();
           await context.route("**/*", async route => {
             const request = route.request(), url = new URL(request.url());
             if (url.origin !== host.origin) { foreign.push(url.origin); return route.abort(); }
@@ -25,6 +27,7 @@ export async function runHistorySourcesBrowserCases(browser, helperPath) {
             }
             if (url.pathname === "/api/history/source-metadata") {
               metadata.push(request.postDataJSON());
+              firstNameRequest.observe();
               if (holdName) { holdName = false; await nameGate; }
             }
             if (request.method() === "POST" && ["/api/send", "/api/open", "/api/agent-tasks", "/api/rpc-ui"].includes(url.pathname)) mutations.push(url.pathname);
@@ -44,6 +47,9 @@ export async function runHistorySourcesBrowserCases(browser, helperPath) {
           stage = "bounded lazy rows"; await refresh.click(); await page.locator(".source-row").first().waitFor();
           assert.equal(await page.locator(".source-row").count(), 50);
           await page.waitForFunction(() => document.querySelector(".source-name-retry")?.textContent === "…");
+          // pump renders loading before fetch reaches this process. Wait for
+          // actual interception, with the first response still held by nameGate.
+          await firstNameRequest.wait();
           assert.equal(metadata.length, 1, "Only one name request in flight");
           await page.locator(".source-open").first().click();
           await page.locator(".source-detail article").first().waitFor();

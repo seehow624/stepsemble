@@ -75,6 +75,14 @@ SQLite3.53.4/上游rev/43-package lock不變；三OS exact CI尚待，不把Wind
 path可parse/extended path拒絕。沒有放寬生產path或把無回覆當unsupported成功。
 完整失敗logs `...-first-linux.log`／`...-first-windows.log`保留；修正CI結果待核。
 
+修正a8f0080的reader34275320126三OS與audit成功，另Mac source程序完整跑五輪通。
+一般34275320199成功，但rolling34275320180的Mac320px light在bounded lazy rows
+斷言metadata.length時0≠1；Linux24cases成功。client/history-sources.ts的pump先notify
+loading再fetch，跨process route observer收到請求更晚，DOM loading不是觀測請求的barrier。
+新增有界first-request observation barrier，再保留nameGate掛起回應及metadata.length===1
+斷言；四個unit cases涵蓋先UI/後request、先request/後wait、無request逾時及參數限制。
+不改產品UI/排程或放寬單flight；完整失敗`...-fix-rolling-ci.log`保留，修正browser CI待核。
+
 ## 接續（未完成）
 
 Node v4嚴格decoder／shared admission/actualclose/quarantine與名稱resolver尚未接；

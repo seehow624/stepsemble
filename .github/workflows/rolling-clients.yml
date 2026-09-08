@@ -14,6 +14,8 @@ on:
       - 'scripts/rolling-browser-worker.mjs'
       - 'scripts/conversation-browser-cases.mjs'
       - 'scripts/history-sources-browser-cases.mjs'
+      - 'scripts/browser-request-barrier.mjs'
+      - 'test/browser-request-barrier.test.mjs'
       - 'scripts/history-host-synthetic.mjs'
       - 'scripts/check-native-claude-history.mjs'
       - 'crates/history-source-reader/**'
@@ -40,6 +42,8 @@ on:
       - 'scripts/rolling-browser-worker.mjs'
       - 'scripts/conversation-browser-cases.mjs'
       - 'scripts/history-sources-browser-cases.mjs'
+      - 'scripts/browser-request-barrier.mjs'
+      - 'test/browser-request-barrier.test.mjs'
       - 'scripts/history-host-synthetic.mjs'
       - 'scripts/check-native-claude-history.mjs'
       - 'crates/history-source-reader/**'
@@ -78,7 +82,7 @@ jobs:
           node-version: 22.19.0
           package-manager-cache: false
       - name: Check isolated browser runtime policy
-        run: node --test test/rolling-runtime.test.js
+        run: node --test test/rolling-runtime.test.js test/browser-request-barrier.test.mjs
       - name: Build pinned native reader for owned browser fixtures
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-browser-reader
