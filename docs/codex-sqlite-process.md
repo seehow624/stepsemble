@@ -106,7 +106,14 @@ bytes/檔名。guarded缺sidecar案例改成**先比較snapshot再判回覆**；
 檔名、大小及changed，不dump DB bytes。修正的Windows實際CI尚待，不宣稱通過。
 
 同一原工程的一般CI`34265981014`三OS各849/0fail＋Ajv1251成功；rolling
-`34265981058`完成成功（完整log尚待查核），不以此抵銷reader Windows失敗。
+`34265981058`雙OS各24cases/pageErrors0、各六native×11語/localeReads0，完整log已核，
+不以此抵銷reader Windows失敗。原audit43packages/1242advisories/0known0warnings，
+DB/lock SHA與1.63相同。
+
+修正`6f7d846`的reader CI`34267247684`：POSIX兩OS成功；Windows止於測試程式的
+`byte_char_slices` lint（`[b'!']`應寫`b"!"`），尚未執行新的process gate。
+直接修正字串寫法，不allow lint或skip平台；完整job log保留
+`/tmp/stepsemble-sqlite-process-winfix-windows-first.log`，新SHA待再驗。
 
 下一個必做仍是**descriptor-backed DB/WAL/SHM source opener**與角色／ACL／local
 mount／replacement checks，然後正式reader worker共用admission、sourceVersion、

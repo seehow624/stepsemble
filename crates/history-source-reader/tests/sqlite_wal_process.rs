@@ -129,13 +129,7 @@ fn windows_policy_probe(path: &Path) {
         );
         assert_ne!(handle, INVALID_HANDLE_VALUE, "existing file can be opened");
         let mut written = 0;
-        let wrote = WriteFile(
-            handle,
-            [b'!'].as_ptr(),
-            1,
-            &mut written,
-            std::ptr::null_mut(),
-        );
+        let wrote = WriteFile(handle, b"!".as_ptr(), 1, &mut written, std::ptr::null_mut());
         let closed = CloseHandle(handle);
         assert_eq!(wrote, 0, "kernel handle must not grant write access");
         assert_ne!(closed, 0);
