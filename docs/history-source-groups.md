@@ -39,6 +39,10 @@ group＋manual catalog 合計最多256個獨立 root；動態 ID namespace 不�
 
 建立**新的**私有設定檔（父目錄必須已存在、private 且受可信 owner 管理）：
 
+Plan1.57可先使用 `node scripts/history-setup.mjs --lang zh-Hant` 的本機逐欄精靈；
+完整步驟、CREATE確認、reader範圍及失敗處理見[owner setup](history-owner-setup.md)。
+它不選預設私人root、不讀credentials、不改既有檔或重啟。下方非互動方式仍可用。
+
 ```sh
 node scripts/history-config.mjs create-group /absolute/private-config/history.json \
   --origin https://your-host.example \

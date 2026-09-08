@@ -17,7 +17,7 @@ import readerAdmission from "../protocol/native/claude/history-reader-admission.
 import provider from "../public/modules/claude-history.js";
 import projection from "../public/modules/projection.js";
 import { checkHistoryAccess } from "./check-history-access.mjs";
-import { checkHistoryHostNative } from "./check-history-host-native.mjs";
+import { checkHistoryHostNative, checkHistorySetupNative } from "./check-history-host-native.mjs";
 import { withDownloadedSdk, SDK_VERSION, NATIVE_VERSION, SDK_SHA256 } from "./check-native-claude-history.mjs";
 const digest = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
 const encode = rows => Buffer.from(rows.map(row => JSON.stringify(row)).join("\n") + "\n");
@@ -146,7 +146,9 @@ export async function checkNativeHistoryPipeline({ helperPath, sdkPath }) {
     for (const instance of services) { const status = await instance.shutdown(); assert.equal(status.cleanupConfirmed, true); assert.equal(status.quarantined, false); }
     const actualHost = process.platform === "win32" ? { actualHostGate: "source_platform_unsupported" }
       : await checkHistoryHostNative({ helperPath: helper, sdkPath: sdk });
-    return { result: "passed", nodeVersion: process.version, platform: process.platform, arch: process.arch, actualHost,
+    const actualSetup = process.platform === "win32" ? { actualSetupGate: "source_platform_unsupported" }
+      : await checkHistorySetupNative({ helperPath: helper, sdkPath: sdk });
+    return { result: "passed", nodeVersion: process.version, platform: process.platform, arch: process.arch, actualHost, actualSetup,
       nativePipelineGate: process.platform === "win32" ? "source_platform_unsupported" : "posix_owned_fixture_passed",
       officialSdkVersion: SDK_VERSION, nativeVersion: NATIVE_VERSION, sdkSha256, helperArtifactSha256: helperSha256,
       metrics, elapsedMs: Math.round(performance.now() - started), ...access,

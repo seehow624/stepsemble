@@ -5,15 +5,22 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import host from "../server/history-host.js";
 const invalid = () => { throw new Error("history_configuration_invalid"); };
-export function createHistoryConfigFile(filename, options, mode = "session") {
+const reviews = new WeakMap();
+const identity = (a, b, fields) => fields.every(key => a[key] === b[key]);
+const directoryFields = ["dev", "ino", "uid", "mode"];
+const artifactFields = [...directoryFields, "size", "nlink", "mtimeNs", "ctimeNs"];
+const freeze = value => { if (value && typeof value === "object") { Object.values(value).forEach(freeze); Object.freeze(value); } return value; };
+export function prepareHistoryConfigFile(filename, options, mode = "session") {
   if (!["darwin", "linux"].includes(process.platform)) throw new Error("history_configuration_platform_unsupported");
   if (!["session", "group"].includes(mode)) invalid();
   const names = ["origin", "helper", "sdk", "projects-root", "reader", "label",
     ...(mode === "group" ? ["source-id", "scope"] : ["project-key", "session-id"])];
   if (!options || Object.keys(options).sort().join() !== names.sort().join() || names.some(n => typeof options[n] !== "string" || !options[n])) invalid();
-  if (!path.isAbsolute(filename) || path.resolve(filename) !== filename || fs.realpathSync(path.dirname(filename)) !== path.dirname(filename)) invalid();
-  const parent = fs.lstatSync(path.dirname(filename));
-  if (!parent.isDirectory() || parent.uid !== process.geteuid() || (parent.mode & 0o077)) invalid();
+  if (typeof filename !== "string" || filename.length > 4096 || /[\u0000-\u001f\u007f*?\[\]{},]/.test(filename)
+    || !path.isAbsolute(filename) || path.resolve(filename) !== filename || fs.realpathSync(path.dirname(filename)) !== path.dirname(filename)) invalid();
+  const parent = fs.lstatSync(path.dirname(filename), { bigint: true });
+  if (!parent.isDirectory() || parent.uid !== BigInt(process.geteuid()) || (parent.mode & 0o077n)) invalid();
+  try { fs.lstatSync(filename); throw new Error("history_configuration_not_created"); } catch (error) { if (error.code !== "ENOENT") throw error; }
   // Metadata capture is an expected root identity, not proof that native source
   // owner/ACL/mount/containment checks will pass. No transcript content is read.
   const root = options["projects-root"];
@@ -23,14 +30,36 @@ export function createHistoryConfigFile(filename, options, mode = "session") {
   const config = host.parseHistoryConfig({ version: mode === "group" ? 2 : 1, trustBoundary: "host_managed_paths", allowedOrigins: [options.origin],
     reader: { helperPath: options.helper, sdkPath: options.sdk }, catalog: mode === "group" ? [] : [{ catalogId: "source-1", label: options.label, description: "",
       source: { projectsRoot: root, projectKey: options["project-key"], sessionId: options["session-id"] },
-      expectedRoot, readers: [options.reader] }], ...(mode === "group" ? { sourceGroups: [{ sourceId: options["source-id"], agentId: "claude-code",
-        scope: options.scope, label: options.label, description: "", projectsRoot: root, expectedRoot, readers: [options.reader] }] } : {}) });
+      expectedRoot, readers: options.reader.split(",").map(value => value.trim()) }], ...(mode === "group" ? { sourceGroups: [{ sourceId: options["source-id"], agentId: "claude-code",
+        scope: options.scope, label: options.label, description: "", projectsRoot: root, expectedRoot, readers: options.reader.split(",").map(value => value.trim()) }] } : {}) });
+  const artifacts = host.historyReaderMetadata(config.reader);
+  const prepared = freeze({ filename, config: JSON.parse(JSON.stringify(config)) });
+  reviews.set(prepared, { filename, config, parent, root, rootStat: stat, artifacts });
+  return prepared;
+}
+export function discardHistoryConfigReview(prepared) { return reviews.delete(prepared); }
+export function commitHistoryConfigFile(prepared) {
+  const review = reviews.get(prepared); if (!review) throw new Error("history_configuration_review_unavailable");
+  reviews.delete(prepared); // Single use even when validation or publication fails.
+  const { filename, config, parent, root, rootStat, artifacts } = review;
+  const verifyReview = () => {
+    try {
+      if (fs.realpathSync(path.dirname(filename)) !== path.dirname(filename) || fs.realpathSync(root) !== root
+        || !identity(parent, fs.lstatSync(path.dirname(filename), { bigint: true }), directoryFields)
+        || !identity(rootStat, fs.lstatSync(root, { bigint: true }), directoryFields)) throw new Error();
+      const current = host.historyReaderMetadata(config.reader);
+      if (current.some((item, index) => !identity(item.stat, artifacts[index].stat, artifactFields))) throw new Error();
+    } catch { throw new Error("history_configuration_review_changed"); }
+  };
+  verifyReview();
   let fd, createdIdentity, failure;
   try {
     fd = fs.openSync(filename, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
     createdIdentity = fs.fstatSync(fd, { bigint: true });
     fs.writeFileSync(fd, JSON.stringify(config, null, 2) + "\n"); fs.fsyncSync(fd); fs.closeSync(fd); fd = undefined;
-    host.loadHistoryConfig(filename); // Same startup validator; no worker or source read.
+    const loaded = host.loadHistoryConfig(filename); // Startup validator, no worker or source read.
+    if (JSON.stringify(loaded) !== JSON.stringify(config)) throw new Error();
+    verifyReview();
   } catch { failure = new Error("history_configuration_not_created"); }
   finally {
     if (fd !== undefined) try { fs.closeSync(fd); } catch { failure = new Error("history_configuration_not_created"); }
@@ -43,6 +72,9 @@ export function createHistoryConfigFile(filename, options, mode = "session") {
   }
   if (failure) throw failure;
   return { valid: true, catalogEntries: config.catalog.length, sourceGroups: config.sourceGroups?.length ?? 0, origins: 1, sourceReads: 0, hostRestarted: false };
+}
+export function createHistoryConfigFile(filename, options, mode = "session") {
+  return commitHistoryConfigFile(prepareHistoryConfigFile(filename, options, mode));
 }
 export function run(args) {
   const [command, filename, ...rest] = args;

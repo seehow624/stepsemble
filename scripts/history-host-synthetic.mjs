@@ -13,6 +13,7 @@ import readline from "node:readline";
 import fixture from "../protocol/native/claude/history-fixture.cjs";
 import trust from "../server/device-trust.js";
 import { SDK_SHA256 } from "../protocol/native/claude/history-sdk.js";
+import { setupHistory } from "./history-setup.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const digest = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
 const token = "synthetic-history-host-only", issuedToken = "synthetic-issued-history-only", issuedId = "123456789abc";
@@ -37,10 +38,11 @@ export async function stageSyntheticArtifact(source, destination, mode) {
   return { sha256, sourceLinks: Number(before.nlink), sourceMode: Number(before.mode & 0o777n), stagedLinks: Number(staged.nlink), stagedMode: mode };
 }
 
-export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0, sourceGroups = false, extraSessions = 0 } = {}) {
+export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0, sourceGroups = false, extraSessions = 0, setupWizard = false } = {}) {
   if (!["darwin", "linux"].includes(process.platform)) throw new Error("history_host_native_platform_unsupported");
   if (!path.isAbsolute(helperPath || "") || !path.isAbsolute(sdkPath || "") || !Number.isInteger(port) || port < 0 || port > 65535 || typeof sourceGroups !== "boolean"
-    || !Number.isSafeInteger(extraSessions) || extraSessions < 0 || extraSessions > 96 || extraSessions > 0 && !sourceGroups)
+    || !Number.isSafeInteger(extraSessions) || extraSessions < 0 || extraSessions > 96 || extraSessions > 0 && !sourceGroups
+    || typeof setupWizard !== "boolean" || setupWizard && !sourceGroups)
     throw new Error("synthetic_history_host_configuration_invalid");
   const helper = await fs.realpath(helperPath), sdk = await fs.realpath(sdkPath);
   const helperHash = digest(await fs.readFile(helper)), sdkHash = digest(await fs.readFile(sdk));
@@ -89,7 +91,15 @@ export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0,
         readers: ["browser:master", `browser:${issuedId}`, `peer:${peer.grantId}`] });
     }
     const configPath = path.join(temp, "history.json");
-    await fs.writeFile(configPath, JSON.stringify({ version: sourceGroups ? 2 : 1, trustBoundary: "host_managed_paths", allowedOrigins: [origin],
+    let setupResult = null;
+    if (setupWizard) {
+      // Exercise the real wizard transaction with owned answers. Do not append
+      // a manual catalog or otherwise edit the confirmed file before Host startup.
+      const answers = [configPath, origin, stagedHelper, stagedSdk, projectsRoot, "fixture-root", "Owned synthetic Claude root",
+        `browser:master,browser:${issuedId},peer:${peer.grantId}`, "CREATE"];
+      setupResult = await setupHistory({ ask: async () => answers.shift(), write() {} });
+      if (!setupResult.created || setupResult.sourceReads !== 0 || setupResult.hostRestarted || answers.length) throw new Error("synthetic_history_setup_failed");
+    } else await fs.writeFile(configPath, JSON.stringify({ version: sourceGroups ? 2 : 1, trustBoundary: "host_managed_paths", allowedOrigins: [origin],
       reader: { helperPath: stagedHelper, sdkPath: stagedSdk }, catalog,
       ...(sourceGroups ? { sourceGroups: [{ sourceId: "fixture-root", agentId: "claude-code", scope: "main_sessions", label: "Owned synthetic Claude root", description: "No private history",
         projectsRoot, expectedRoot: { device: String(stat.dev), inode: String(stat.ino) }, readers: ["browser:master", `browser:${issuedId}`, `peer:${peer.grantId}`] }] } : {}) }),
@@ -125,7 +135,7 @@ export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0,
       })();
       return closed;
     }
-    return Object.freeze({ origin, token, issuedToken, issuedId, peer, cases, helperHash, sdkHash, helperArtifact, sdkArtifact, close,
+    return Object.freeze({ origin, token, issuedToken, issuedId, peer, cases, helperHash, sdkHash, helperArtifact, sdkArtifact, setupResult, close,
       setFixturePresent(name, present) {
         const file = files.get(name); if (!file || closed || typeof present !== "boolean") throw new Error("synthetic_fixture_unavailable");
         const next = mutation.then(async () => {

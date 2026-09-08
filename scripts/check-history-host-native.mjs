@@ -10,6 +10,34 @@ import catalogWire from "../server/history-catalog-wire.js";
 import historyHttp from "../server/history-http.js";
 const { create: createTransport } = transportModule, { canonicalJSON } = projection;
 
+export async function checkHistorySetupNative(options) {
+  const host = await startSyntheticHistoryHost({ ...options, sourceGroups: true, setupWizard: true }); let cleanup;
+  const viewId = crypto.randomUUID(), cookie = `stepsemble=${crypto.createHash("sha256").update(host.token).digest("hex")}`;
+  const api = createTransport({ origin: host.origin, hostId: "synthetic-host", viewId, canonicalJSON,
+    fetch: (url, init) => fetch(url, { ...init, headers: { ...init.headers, origin: host.origin, cookie } }) });
+  try {
+    assert.equal(host.setupResult.created, true); assert.equal(host.setupResult.sourceReads, 0); assert.equal(host.setupResult.hostRestarted, false);
+    const manual = await api.catalog(); assert.equal(manual.kind, "history_catalog"); assert.equal(manual.entries.length, 0);
+    const sources = await api.sources(); assert.equal(sources.kind, "history_sources"); assert.equal(sources.sources.length, 1);
+    assert.equal(sources.sources[0].sourceId, "fixture-root");
+    const input = { sourceId: "fixture-root", page: { offset: 0, limit: 10 }, snapshotId: null, refresh: false };
+    assert.equal((await api.sourceCatalog(input)).snapshotId, null, "wizard and Host startup do not scan");
+    const catalog = await api.sourceCatalog({ ...input, refresh: true }); assert.equal(catalog.kind, "history_source_catalog"); assert.equal(catalog.total, 4);
+    const metadata = await api.sourceMetadata({ sourceId: "fixture-root", catalogId: catalog.entries[0].catalogId, snapshotId: catalog.snapshotId, requestId: crypto.randomUUID() });
+    assert.equal(metadata.kind, "history_source_metadata", metadata.code);
+    const reg = await api.register({ catalogId: catalog.entries[0].catalogId, viewId }); assert.equal(reg.kind, "history_registration", reg.code);
+    const page = await api.read({ hostId: "synthetic-host", bindingId: reg.bindingId, generation: reg.generation, sessionId: reg.sessionId },
+      { bindingId: reg.bindingId, generation: reg.generation, requestId: crypto.randomUUID() }, { page: { offset: 0, limit: 10 }, signal: new AbortController().signal });
+    assert.equal(page.kind, "bound_history_observation", page.code);
+    const source = host.cases.find(row => row.sessionId === reg.sessionId); assert.ok(source);
+    assert.deepEqual(page.history.observation.messages.map(row => row.nativeMessageId), source.expectedIds.slice(0, 10));
+    assert.equal((await api.release({ bindingId: reg.bindingId, generation: reg.generation })).cleanupConfirmed, true);
+  } finally { cleanup = await host.close(); }
+  return { actualSetupGate: "passed", createdConfigUsedUnedited: true, setupSourceReads: 0, setupHostRestarted: false,
+    explicitTestHostStartedAfterSetup: true, firstInventoryRequiresRefresh: true, actualSourceMetadataAndContent: true,
+    modelCalls: 0, privateHistoryReads: 0, ...cleanup };
+}
+
 export async function checkHistoryHostNative(options) {
   const host = await startSyntheticHistoryHost({ ...options, sourceGroups: true }), viewId = crypto.randomUUID(); let cleanup;
   const cookie = token => `stepsemble=${crypto.createHash("sha256").update(token).digest("hex")}`;

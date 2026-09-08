@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.56
+> 計畫版本：1.57
 > 最後更新：2026-09-08
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,7 +15,14 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新增量 1.56（開發版3.0.7-rc.7，未部署）**：完整唯讀歷史 UI 的 119 keys／11語
+**最新增量 1.57（開發版仍3.0.7-rc.7，未部署）**：本機owner設定精靈提供繁中/英文
+逐欄修正、完整scope/readers摘要、CREATE後exclusive私有新檔。review immutable/單次，
+root/artifact/parent改變拒絕、partial write不刪競爭者檔案，原非互動命令相容且可選多讀者。
+真TTY建立/取消已驗，最低Node真Rust/SDK/Host使用精靈原檔通actualSetupGate；本機794tests/0fail。
+沒有Web設定寫入API或替owner選私人root/readers，不scan/登入/重啟，C1與C2–C8仍未完成；
+詳[owner設定與驗證](history-owner-setup.md)。正式與獨立72h不動，exactCI另驗。
+
+**前一增量 1.56（開發版3.0.7-rc.7，未部署）**：完整唯讀歷史 UI 的 119 keys／11語
 已接實際頁及preview；只翻譯明確UI，原生名稱/摘要/訊息/JSON/時間不變。頁首語言
 選擇沿用workspace、只作用本頁，不寫回設定或觸發歷史操作。CUA找出並修正語言
 切換時重複計算瀏覽器scroll anchoring的跳動；320px十一語／390px繁中工具歷史已驗。
@@ -132,7 +139,7 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 | 原生唯讀 reader 邊界 | Rust helper＋bytes-only SDK，rc.3 已接 Host／未部署 | POSIX逐層no-follow、trusted root identity、fd ACL/localFS、8MiB雙讀；macOS拒絕noowners，Windows來源仍unsupported。composite固定2flights、共用10s/1s、actual-close/quarantine；最低Node22.19合成Rust→SDK→actual Host gate本機過。逐commit跨OS證據與範圍見history-host-integration.md |
 | Claude原生來源探索 | Plan1.53已接Host/Web合成來源，未部署 | explicit-root metadata双掃，10k entries／512projects／2048candidates／1MiB，fd owner/ACL/mount不降級；增改刪、exact-source ID與stale snapshot。沒有HOME掃描／私人來源；動態catalog/來源授權/全域預算及Web按需操作已接線，見native-history-discovery.md及history-source-groups.md |
 | 原生歷史共用reader預算 | Plan1.50–1.53已接Host/HTTP/Web及合成鏈 | Host-owned兩個flight供inventory、metadata與完整content pipeline共用、無queue、actual-close／永久quarantine及Host合併shutdown；source-group已接線但未部署，見history-reader-admission.md與history-source-groups.md |
-| 原生來源群組／動態catalog | Plan1.53已接Web按需名稱及來源分頁，未部署 | v2私有設定最多8組、每組2048candidate／50列分頁、同Host兩flight、逐reader範圍、dynamicrevision及同步撤銷、dedicatedrelay；原生title/summary分離、snapshot/identity fence、手機inner scroll/stablefocus及manual fallback。合成Host已驗，私人opt-in/真機與完整gate仍待，見history-source-groups.md |
+| 原生來源群組／動態catalog | Plan1.57補本機owner精靈，未部署 | Plan1.53的Web清單與50列paging不變；本機逐欄/review/CREATE新檔、shared startup validator、metadata drift/partial write/競爭輸出保護與真Host讀回已驗。不提供Web config寫入，不自選私人root/readers，完整C1/真機/多群組編輯仍待，見history-owner-setup.md及history-source-groups.md |
 | Claude clone記憶體嘗試 | 已量測並撤回 | 同workload兩次12輪，structuredClone＋提前清引用讓worker高水位合計中位數421.164→408.852MiB，但round283.539→296.171ms。沒有證明順滑度改善，保留原JSON clone並存完整before/after與重現方法；memory優化仍待，見claude-history-performance.md |
 | Claude 官方登入入口 | Mini當前detected，正式3.0.6 | 使用者回報瀏覽器登入，助手回completed／detected；另行同意的直接CLI最小模型測試成功。metadata API仍liveVerified=false，不以一次成功保證永久有效；不自動修憑證／重試模型，詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
@@ -143,12 +150,12 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 
 ### 下一個可執行任務
 
-**1.56接續**：C1來源設定/registry/HTTP/relay、native title/TS、Web來源操作與keyed i18n不重做；
+**1.57接續**：C1來源設定/registry/HTTP/relay、native title/TS、Web來源操作、keyed i18n及本機新檔精靈不重做；
 C2先查清 Codex rich fixture 的 command/image 缺口，使用固定版本格式的獨立
 有效性證據，不反覆猜 JSON、不減少預期項目讓測試變綠；再接 legacy 一致來源
 capture／授權／跨頁 fence。官方尚未支援的 paginated 完整歷史明示 unavailable，
 不手改 native SQLite 或偷偷 resume；目前受限 RPC 不可直接接私人 HOME。
-接續Web來源設定的可理解授權流程、多語真機/人工校稿、跨機路由驗收、其他agent adapter及C3durable/session gate。
+接續完整owner管理能力（不能將一般reader當admin）、多語真機/人工校稿、跨機路由驗收、其他agent adapter及C3durable/session gate。
 私人root/readers由owner選定、正式部署仍需既有gate；Windows／完整原生能力／
 跨機效能未完成，不能把Claude合成来源列表当作所有電腦對話已完整收錄。
 
@@ -1087,6 +1094,13 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-08 — Plan 1.57
+
+- C1新增本機`history-setup.mjs`繁中/英文逐欄流程，canonical paths/格式/metadata可最多3次修正，明示目前與未來主session、master所有持有人/peerHost邊界；只有完整CREATE才建新private config，任意其他確認/EOF/CtrlC取消。8192byte/4096字元、fatalUTF8、多行paste/非TTY/raw拒絕，原生行編輯不變。
+- `history-config.mjs` prepare/commit用detached frozen review、WeakMap單次原內容；前後驗root/parent及artifact identity/time/size/mode。shared startup artifact validator不執行讀取artifact；partial write只清自己exclusive新inode、競爭輸出保留明示incomplete。既有create/create-group/check相容，reader逗號明確複選且拒重複/空/wildcard。不假裝ACL/可信祖先/sameUID/powerloss已驗。
+- 新17tests及真TTY建立/拒覆寫/CtrlC130/原sourcehash不變；本機794=792pass/2skip/0fail、最低Node聚焦32/32、TS/generated/syntax/version/actionlint/Ajv1251通。最低Node實際Rust→固定SDK→Host使用精靈檔不修改，初始不scan/explicitrefresh4sources/native metadata/content/release/cleanup通，actualSetupGate passed；將此gate納入原生reader CI，exact結果另記。
+- 沒有新Web管理route/自選私人root/readers/帳號/模型/部署；新群組檔精靈不是完整多來源編輯或C1完成。其餘C2–C8、舊unknownflaky、真機/效能/Windowsnative/發布仍待。B+/rc.7/正式3.0.6/固定72h不變。
 
 ### 2026-09-08 — Plan 1.56
 

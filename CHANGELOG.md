@@ -12,6 +12,10 @@ Development candidate only; production Hosts and the independently frozen
   messages, timestamps and tool JSON verbatim; keep clipping notices separate.
 - Keep existing DOM, focus, read state and scroll anchors across locale changes.
   Language changes do not register, refresh, resume or approve a conversation.
+- Add a local English/Traditional Chinese owner setup wizard for a new read-only
+  Claude source group. Review exact current/future scope and explicit reader IDs
+  before CREATE; reject changed review metadata and never overwrite a config.
+  No private discovery, credential lookup, native execution or service activation.
 
 ## 3.0.7-rc.6
 

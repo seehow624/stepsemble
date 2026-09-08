@@ -26,6 +26,9 @@ URL 只攜帶已選機器 ID，不能指定來源路徑、SDK、模型或憑證�
 
 ## 預設停用，操作員明確啟用
 
+Plan1.57新增[本機互動設定精靈](history-owner-setup.md)，可逐欄選擇、核對後建立新設定，
+不覆寫／熱載入／重啟；讀者身份不因此得到 Web 管理權。以下原有命令與格式仍相容。
+
 Host 啟動時才載入 `CONFIG_DIR/history.json`，通常為
 `~/.config/stepsemble/history.json`。可以用 `STEPSEMBLE_HISTORY_CONFIG` 指定另一個
 canonical absolute file。安裝器不建立這份檔案；檔案不存在即停用。自訂路徑錯誤

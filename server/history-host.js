@@ -97,16 +97,24 @@ function loadHistoryConfig(filename) {
     const same = s => ["dev", "ino", "size", "mtimeNs", "ctimeNs", "uid", "mode", "nlink"].every(k => s[k] === before[k]);
     if (!same(after) || !same(named) || bytes.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]))) invalid();
     result = parseHistoryConfig(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
-    if (result.reader) for (const target of [result.reader.helperPath, result.reader.sdkPath]) {
-      if (fs.realpathSync(target) !== target) invalid();
-      const s = fs.lstatSync(target);
-      if (!s.isFile() || s.nlink !== 1 || s.uid !== process.geteuid() || (s.mode & 0o022)) invalid();
-      fs.accessSync(target, target === result.reader.helperPath ? fs.constants.X_OK | fs.constants.R_OK : fs.constants.R_OK);
-    }
+    historyReaderMetadata(result.reader);
   } catch { failure = new Error("history_configuration_invalid"); }
   finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { failure = new Error("history_configuration_invalid"); } }
   if (failure) throw failure;
   return result;
+}
+
+// Shared startup/operator preflight. Metadata only: does not load/execute the
+// artifacts and is not their runtime hash pin or the source fd ACL/mount gate.
+function historyReaderMetadata(reader) {
+  if (reader === null) return [];
+  return [reader.helperPath, reader.sdkPath].map(target => {
+    if (!canonicalPath(target) || fs.realpathSync(target) !== target) invalid();
+    const stat = fs.lstatSync(target, { bigint: true });
+    if (!stat.isFile() || stat.nlink !== 1n || stat.uid !== BigInt(process.geteuid()) || (stat.mode & 0o022n)) invalid();
+    fs.accessSync(target, target === reader.helperPath ? fs.constants.X_OK | fs.constants.R_OK : fs.constants.R_OK);
+    return { target, stat };
+  });
 }
 
 const inHistoryNamespace = target => target === "/api/history" || target.startsWith("/api/history/") || target.startsWith("/api/history?")
@@ -297,4 +305,4 @@ function createHistoryHost({ config: input, browserCredentials, peerGrantIds, au
     throw error;
   }
 }
-module.exports = { parseHistoryConfig, loadHistoryConfig, createHistoryHost, disabledHistoryHost, CONFIG_BYTES, SOURCE_GROUP_LIMIT };
+module.exports = { parseHistoryConfig, loadHistoryConfig, historyReaderMetadata, createHistoryHost, disabledHistoryHost, CONFIG_BYTES, SOURCE_GROUP_LIMIT };
