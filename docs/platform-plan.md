@@ -59,7 +59,7 @@
 | Claude共用browser provider | strict TS decoder／shared Host validator已實作 | 固定reader profile、完整source/observation shape共用generated JS；inner 256KiB、outer HTTP解壓後272KiB先限額再fatal UTF-8/JSON decode，拒getter/cycle/nonJSON。官方SDK→隔離worker→registry→HTTP→browser transport→controller合成鏈已驗，未接正式來源 |
 | Claude 歷史認證／relay | 隔離模組及HTTP測試已實作 | private identity接既有credential authority、Origin/CSRF、invalid bearer不fallback、bounded decoder、deadline/disconnect/revoke；relay只用dedicated peer，gateway維護bounded downstream owner/view映射。正式logout/rotation/device revoke/Host選擇尚未接線；不是end-user native source provenance，見history-access-design.md |
 | Claude SDK 執行bytes | exact verified Buffer loader已實作 | bounded fd read＋固定SHA、sync resolve/load hooks執行已驗Buffer，獨立nonce避plain URL cache，每worker一次attempt。Node22.19.0實跑SDK全鏈通過；source ACL/atomic containment、依賴及OS sandbox仍未保證 |
-| 原生唯讀 reader 邊界 | Rust helper＋bytes-only SDK composite 已實作 | POSIX逐層no-follow、trusted root identity、fd ACL/localFS、8MiB雙讀；`4c07464`三OS reader jobs過（Mac10/Linux11/Windows7 Rust tests），Windows只有owned permission probe與unsupported gate。新composite固定2flights、共用10s/1s、actual-close/quarantine；最低Node22.19合成Rust→SDK→HTTP/relay→provider全鏈通過，正式Web未接，見`native-history-reader.md` |
+| 原生唯讀 reader 邊界 | Rust helper＋bytes-only SDK composite 已實作 | POSIX逐層no-follow、trusted root identity、fd ACL/localFS、8MiB雙讀；`c40dfec`三OS reader jobs過（Mac11/Linux11/Windows7 Rust tests），macOS拒絕noowners；Windows只有owned permission probe與unsupported gate。composite固定2flights、共用10s/1s、actual-close/quarantine；最低Node22.19合成Rust→SDK→HTTP/relay→provider全鏈通過，正式Web未接，見`native-history-reader.md` |
 | Claude clone記憶體嘗試 | 已量測並撤回 | 同workload兩次12輪，structuredClone＋提前清引用讓worker高水位合計中位數421.164→408.852MiB，但round283.539→296.171ms。沒有證明順滑度改善，保留原JSON clone並存完整before/after與重現方法；memory優化仍待，見claude-history-performance.md |
 | Claude 官方登入入口 | Mini當前detected，正式3.0.6 | 使用者回報瀏覽器登入，助手回completed／detected；另行同意的直接CLI最小模型測試成功。metadata API仍liveVerified=false，不以一次成功保證永久有效；不自動修憑證／重試模型，詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
@@ -73,13 +73,19 @@
 **1.45 安全補強**：最後本機環境檢查確認 macOS `noowners` 會忽略擁有者資訊，
 不能以 `uid==euid` 及 owner-only mode 視作 UID 隔離；Rust fd mount policy 已明確
 拒絕該旗標。Mac Rust 11tests／fmt／clippy／locked builds過，內部temp正常讀取與
-devkit自建temp實際拒絕皆驗證，未改磁碟設定或私人來源。`3a8bb4d` 的四組exact
-CI已全過（34176030867／34176030870／34176030859／34176052550），本補強之後
-須看自己的CI，不沿用舊binary／benchmark結果。其他下一步沿用下面1.44清單。
+devkit自建temp實際拒絕皆驗證，未改磁碟設定或私人來源。最終程式
+`c40dfeca6d9266db75c07e0b777d8e12376f215d` 四組exact CI已全過：
+一般34176346310、reader＋audit34176346301、Native Claude34176360039、
+rolling34176361981。一般CI三OS各624tests、0fail（Mac622pass/2skip、
+Linux621/3、Windows599/25）；reader Rust Mac11/Linux11/Windows7，
+每OS另44項Node邊界測試；Mac/Linux完整native→SDK→HTTP合成鏈通過，
+Windows來源仍unsupported。RustSec 33packages、0已知漏洞／0warnings。
+這些最終程式的CI不需再等；後續若只有本計畫文件更新，文件commit的一般CI
+與上述程式commit四組證據分開記錄，不沿用舊binary／benchmark聲稱覆蓋新修正。
 
-**1.44 開發接續**：已串通Rust capture→bytes-only permission worker→official pinned SDK→registry／HTTP／relay→shared provider/controller的自建資料全鏈，並以explicit native backend在隔離預覽完成真browser驗收。新SDK worker只有12個exact code/SDK grants，不再取得source-root目錄樹或raw暫存檔。固定兩條flight共用10s deadline/1s cleanup，unknown-close不釋放slot且永久quarantine。core `d3e2fe1`四組CI（34175539973／34175540015／34175539992／34175540044）全綠，包含3OSreader/SDK和0advisory audit及2OSrolling；Windowsnativepipeline仍unsupported。後續preview新增3tests後本機624tests＝622pass/2skip/0fail，該preview的exactcommit另核對CI；不把不同revision的結果混成fullHEAD已驗。
+**1.44 已完成基礎（最終CI見上方1.45）**：已串通Rust capture→bytes-only permission worker→official pinned SDK→registry／HTTP／relay→shared provider/controller的自建資料全鏈，並以explicit native backend在隔離預覽完成真browser驗收。新SDK worker只有12個exact code/SDK grants，不再取得source-root目錄樹或raw暫存檔。固定兩條flight共用10s deadline/1s cleanup，unknown-close不釋放slot且永久quarantine。core `d3e2fe1`與preview `3a8bb4d`各自四組CI皆已完成；CUA/性能保留測試當時的binary與程式hash，未冒稱重跑最終noowners binary。預覽已停止、自己的browser tab及合成fixture已清理，沒有背景preview服務；正式來源仍未接入。
 
-接下來依安全順序：收妥最新preview的exactcommit CI，處理trusted executable/root bootstrap、Windows完整read/close、正式credential/catalog/logout/rotation/device revoke/shutdown、Host選擇/remote UI，補實機背景恢復與多輪效能。雙7.6MB/2000rows已量3輪，release含慢首輪756ms/其後320、318ms，SDK每程序RSS高水位約201–212MiB；不是totalRSS、受控A/B或效能門檻通過，詳見claude-history-performance.md。Rootinode／ACL／雙讀不是native provenance／同UID隔離／原子namespace snapshot，Nodepermission也非惡意程式sandbox。whole-source memory改善、其他unscoped/partial、附件/subagent/supersession、approval ACK/resume、durable仍待。Codex non_native_route需本人決定，Claude單次模型同意已用，本輪只synthetic、無私人history/model/login/route。publishable/authority全false；10s+1s非hard realtime。72h固定ab227af／rc.1不重設，09-08 01:01Z仍running約37.46h／4451cycles／35608ACK／graceful/crash各111，不提前部署或啟動Rust/DB大遷移。
+接下來依安全順序：處理trusted executable/root bootstrap、Windows完整read/close、正式credential/catalog/logout/rotation/device revoke/shutdown、Host選擇/remote UI，補實機背景恢復與多輪效能。雙7.6MB/2000rows已量3輪，release含慢首輪756ms/其後320、318ms，SDK每程序RSS高水位約201–212MiB；不是totalRSS、受控A/B或效能門檻通過，詳見claude-history-performance.md。Rootinode／ACL／雙讀不是native provenance／同UID隔離／原子namespace snapshot，Nodepermission也非惡意程式sandbox。whole-source memory改善、其他unscoped/partial、附件/subagent/supersession、approval ACK/resume、durable仍待。Codex non_native_route需本人決定，Claude單次模型同意已用，本輪只synthetic、無私人history/model/login/route。publishable/authority全false；10s+1s非hard realtime。72h固定ab227af／rc.1不重設，09-08 01:16Z仍running約37.7h／4479cycles／35832ACK／112graceful＋111crash，不提前部署或啟動Rust/DB大遷移。
 
 **2026-09-07 品牌候選**：Jerome明確確認B+為最終方向。新的
 `public/stepsemble-mark.svg` 是向量母版，使用單一module／connector在
@@ -981,7 +987,9 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 
 - macOS mount policy增加`!MNT_IGNORE_OWNERSHIP`，`noowners`來源回固定containment unavailable，不以UID/mode或ACL觀測假裝仍有一般ownership約束；localAPFS/HFS與其他所有gate保留。只改reader，不修改mount、正式登入/服務、私人history或B+母圖。
 - 官方localSDK mount.h/mount(8)確認原因，Mac新增pure flags/fs正反test後Rust11/11；fmt/clippy/lockeddebug+release過。自建internal來源成功、devkit noowners來源實際拒絕且ownedcleanup確認，model/private0。詳細evidence與新releaseSHA見native-history-reader.md。
-- 此修正晚於已全綠的3a8bb4d四workflow，本exactcommit需重驗。preview本機624tests622pass2skip0fail、CUA與6項previewtests已完成，性能及browser資料保留其測試時各自hash，沒有虛假覆蓋新binary。整套roadmap、Windows來源、正式wire、72h及Apps仍未完成。
+- 最終程式`c40dfeca6d9266db75c07e0b777d8e12376f215d`四workflow全綠：[一般CI](https://github.com/seehow624/stepsemble/actions/runs/34176346310)、[native reader＋audit](https://github.com/seehow624/stepsemble/actions/runs/34176346301)、[Native Claude](https://github.com/seehow624/stepsemble/actions/runs/34176360039)、[rolling](https://github.com/seehow624/stepsemble/actions/runs/34176361981)。三OS各624tests/0fail（Mac622pass2skip、Linux621/3、Windows599/25）；Rust Mac11/Linux11/Windows7、eachOS Node44/44，Windowsnativepipeline仍unsupported。新Mac mount ownership test確實實跑過；Mac/Linux完整native→SDK→HTTP鏈及兩OSrolling成功。
+- 該revision的Linux audit亦成功：官方RustSec DB `8a1eb4f933fb5821add5b4e98601ebd90b8b3538`／1242advisories，lock SHA `6583452ddbf9af1e6cce6623144f94660c4108c6877efa02e1e58b90d28f2e25`，33packages含root／32外部、0已知漏洞／0warnings。未關閉yanked check或加入ignore/platform/severity filters。
+- preview本機624tests622pass2skip0fail、CUA與6項previewtests已完成，性能及browser資料保留其測試時各自hash，沒有虛假覆蓋新binary。自己的preview程序/tab/fixtures已正常清理；累積程式diff327.49KB經gitleaks零發現。整套roadmap、Windows來源、正式wire、72h及Apps仍未完成；本次僅文件收尾不代表重新部署或重跑不同revision的native驗收。
 
 ### 2026-09-08 — Plan 1.44
 
