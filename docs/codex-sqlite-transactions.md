@@ -128,9 +128,42 @@ library接Web的驗收。Reader34261880347 **失敗且不覆寫紀錄**：
 
 失敗logs `/tmp/stepsemble-sqlite-reader-{failed-ci,linux-failed,macos-failed,windows-failed}.log`，
 乾淨cache重現 `/tmp/stepsemble-sqlite-cargo-{host-fetch,clean-metadata-error,all-fetch,clean-fixed}.log`；
-修正本機Rust16＋25、clippy、最低Node native13與artifact gate已通。修正SHA之exactCI待核。
+修正本機Rust16＋25、clippy、最低Node native13與artifact gate已通；新16項另五輪全通。
+
+### 修正後exact CI
+
+`510c3f318bf9da75511160ee17bcdb5f44463d1f`四組全部success，已讀完整logs：
+
+- 一般[34262843356](https://github.com/seehow624/stepsemble/actions/runs/34262843356)：
+  三OS各849/0fail、Ajv1251；Mac847pass/2skip、Linux846/3、Windows802/47。
+- Native[34262843355](https://github.com/seehow624/stepsemble/actions/runs/34262843355)：
+  最低Node22.19三OS各13SQLite＋17index cases，POSIX LF／Windows CRLF digest正確，
+  model/private0、原檔驗證與actual cleanup通。不是新Rust library讀native DB的端到端測試。
+- Reader[34262843377](https://github.com/seehow624/stepsemble/actions/runs/34262843377)：
+  三OS新Rust16全通，原main為25/25/10；完整locked fetch、精確source/features／
+  官方SQLite SHA3與實際linked engine都通。Node每OS118/118；POSIX舊actual Rust→
+  ClaudeSDK/Codexparser shared max2/remaining0/29spawns、舊Host/groups/metadata/setup通。
+  **Windows實際source reader與相應Host流程仍明示unsupported**，不把library test
+  通過當成Windows私人來源功能已完成。RustSec43packages/0known/0warnings，DB
+  `bf25f6575a93a35f30796c65c0ed91bee7fa19fd`；lock SHA256
+  `aa93d9f47ca7b3c38d21b8a5ce4b17b397d9a6c171a71867e82b8979626fca8e`。
+- Rolling[34262843430](https://github.com/seehow624/stepsemble/actions/runs/34262843430)：
+  Mac/Linux各24cases、pageErrors0；各六native source cases×11語、localeReads0。
+  這是既有Web回歸，沒有新SQLite Web／真機／真人帳號驗收。
+
+完整logs `/tmp/stepsemble-sqlite-fix-{general,native,reader,rolling}-ci.log`。
+這個checkpoint已驗工程增量，C1–C8／完整Web goal繼續，不是發布／部署或72h結案。
 
 ## 接續
+
+固定SQLite source已讀`unixOpenSharedMemory`、`walIndexReadHdr`與
+`walBeginShmUnreliable`。下一輪可實測`readonly_shm=1`作為**POSIX候選**：它會略過
+SHM的O_RDWR/O_CREAT並用O_RDONLY/O_NOFOLLOW，但同process已有SHM物件會重用，
+所以不能在已有writer的同process測完就聲稱成立；需要獨立process。readonly SHM
+的unreliable/recovery分支仍有read locks及checkpoint成本，root還可能fchown。
+**這不是已採用的source opener或零副作用保證**；必須驗DB/WAL/SHM每個實際descriptor、
+local mount／ACL／ownership、替換／missing／取消／actualclose與跨process writer，
+不得只加URI參數就開私人資料庫。Windows需要自己VFS實證，不能沿用unix推論。
 
 先做descriptor-backed來源開啟及DB/WAL/SHM策略，把本交易module接進獨立受限worker，
 再整合既有Codex rollout/index capture、composite revision／取消／source grant與

@@ -21,7 +21,9 @@
 同snapshot，readclose後checkpoint恢復；不宣稱SHM零寫、跨process／原生writer壓測。
 Rust新16＋原25、本機Node849/0fail、舊actualsharedpipeline通、43packages audit0/0；
 首批general/native/rolling通，reader抓到完整依賴快取與Windows20次flush超時，已
-重現修正，保留250ms限額；另明確固定LF/CRLF兩個native DDL。修正exactCI待核。
+重現修正，保留250ms限額；另明確固定LF/CRLF兩個native DDL。修正510c3f3四CI
+完整logs已核：三OS各849/0fail、native各13＋17cases、Rust各16新tests及sourcehash，
+reader各118/118／POSIX舊Host鏈與Windowsunsupported、audit0/0、browser各24cases。
 這是交易library，未接source opener／descriptor/VFS/ACL、private grant、
 worker／CodexHostWeb，C1–C8仍未完。詳[SQLite交易](codex-sqlite-transactions.md)。
 正式/B+/私人/帳號/獨立72h不變。

@@ -90,7 +90,9 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
   close後才回；owned另一thread連線20次commit不混snapshot，checkpoint成本明示。
   新16Rust＋原25、Node849/0fail、舊sharedpipeline／43packages audit0/0通；首批
   general/native/rolling通，reader的offline跨target依賴與Windowsfixture等待超時
-  已修，原失敗保留／正式250ms不變，LF/CRLF兩種native DDL明確固定，修正CI待核。
+  已修，原失敗保留／正式250ms不變，LF/CRLF兩種native DDL明確固定。修正510c3f3
+  四CI完整logs已核：一般三OS849/0fail、native各13＋17cases、新Rust16與sourcehash、
+  Node各118/118、POSIX舊actual鏈／Windowsunsupported、audit0/0、browser各24cases。
   尚無source opener/VFS/ACL或新worker/HostWeb，不拿普通VFS開私人DB。详
   [SQLite交易](codex-sqlite-transactions.md)，C1–C8與正式/私人/B+/帳號/72h邊界不變。
 
