@@ -57,7 +57,7 @@ mode或paginated仍unavailable；不是名稱模式可以跳過來源格式驗�
   覆蓋兩階段取消、啟動重入取消、deadline、close前不發布、unknown cleanup隔離全域、
   stale rollout/index、getter/shared-memory/extra fields、nonce/bytes偽造、超量stderr/
   stdout、未知模式及真permissioned child拒絕FS/child權限。
-- 最低Node22.19實際Rust→parser與固定Claude SDK0.3.259／native2.1.259同額度並行；
+- Node22.19及22.22.3實際Rust→parser與固定Claude SDK0.3.259／native2.1.259同額度並行；
   inventory第三個要求busy且不spawn。實體max2、remaining0、29次child啟動，exact raw
   頁逐byte還原並保留3筆transient事件；改index後只capture一次即拒stale，不啟parser。
   實際parser取消後cleanup確認，pre-abort零spawn。3份自建來源測後回到原bytes。
@@ -71,7 +71,7 @@ mode或paginated仍unavailable；不是名稱模式可以跳過來源格式驗�
   首次失敗TAP保留。
 
 本機完整logs：`/tmp/stepsemble-codex-pipeline-{full-final.tap,minimum-final.tap,
-actual-first.json,actual-first.err}`；前期worker測試logs同prefix的`worker-first.tap`／
+actual-first.json,actual-first.err,actual-current.json}`；前期worker測試logs同prefix的`worker-first.tap`／
 `worker-second.tap`。實際pipeline只用owned fixtures，private/model/nativeCodex launches均0。
 
 ### 同工作負載的主要執行緒探測
@@ -96,13 +96,34 @@ Web Core Vitals或Host完整效能驗收。RSS/長期記憶體、跨頁快取、
 路徑的反斜線已合法跳脫，測試卻用未跳脫原路徑比對。不是parser丟失原文；修正以
 JSON literal比對，所有平台再同測Windows/POSIX路徑及完整rollout byte equality。
 最低Node22項通，沒有skip/delete失敗case或更改runtime讓測試過；原始failure logs
-`/tmp/stepsemble-codex-pipeline-{general-first,windows-first}.log`保留。修正SHA CI待核。
+`/tmp/stepsemble-codex-pipeline-{general-first,windows-first,reader-first}.log`保留。
 
 首批native [34255155675](https://github.com/seehow624/stepsemble/actions/runs/34255155675)
 三OS真固定CLI通、完整logs核實：各17name cases/19原檔不變，raw113頁/219records/
 3transient/model0/loaded0/cleanup通；原本native投影缺項及paginated限制仍保留。
 reader workflow新script/test paths與114項聚焦suite，POSIX實際跨harness管線；
 Windows的實際unsupported gate已通，不能當Windows來源成功。
+
+修正工程 **`391f72b87f8542dc8d2136a2e13e3d61b2130a08`** 三組CI全部成功，完整logs核實：
+
+- 一般[34255510434](https://github.com/seehow624/stepsemble/actions/runs/34255510434)：
+  各845/0fail及Ajv1251；Mac843pass/2skip、Linux842/3、Windows798/47。
+- 固定原生[34255510471](https://github.com/seehow624/stepsemble/actions/runs/34255510471)：
+  三OS最低Node22.19各17name cases、read/list分驗、19原檔不變；raw113頁/219records/
+  3transient、model/private/loaded0、actualcleanup通，原有native缺項仍明示。
+- reader [34255510390](https://github.com/seehow624/stepsemble/actions/runs/34255510390)：
+  Rust Mac25/Linux25/Windows10、Node各114/114；POSIX新真跨harness maxphysical2/
+  remaining0、各29spawns、raw/stale/cancel/3原檔還原均通，舊Claude actualHost/setup/
+  sourceGroups/metadata保持。Windows实际來源unsupported，沒有偽裝支援。
+  RustSec0.22.2／DB`bf25f6575a93a35f30796c65c0ed91bee7fa19fd`／1242advisories、
+  lock`6583452ddbf9af1e6cce6623144f94660c4108c6877efa02e1e58b90d28f2e25`／33packages／
+  0known vulnerabilities／0warnings。
+
+新CI三輪loop gap：Linux同步194.82/194.69/201.59ms→背景20.92/22.32/21.02ms；
+Mac同步158.05/164.47/194.80ms→背景16.61/18.68/19.03ms。整次pipeline Linux約
+784–820ms、Mac1242–1381ms；不同runner不直接作硬體比較，也不只挑本機6–8ms結果。
+完整logs `/tmp/stepsemble-codex-pipeline-{general-final,native-final,reader-final}.log`。
+本批不改Web/Host/Claude runtime，沒有新的rolling browser gate，不冒稱UI或實機通過。
 
 ## 下一步
 

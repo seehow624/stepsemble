@@ -19,7 +19,8 @@
 共用Host持有的reader admission，兩階段到actualclose才釋放，取消/逾時/unknown cleanup
 跨consumer隔離。最低Node真Rust＋ClaudeSDK＋Codexparser同budget max2/remaining0，
 原文頁/版本/實際取消通。本機845/0fail、最低Node114/114；首批CI抓到Windows路徑
-JSON escaping的測試斷言錯誤，已加跨OS資料並修正，修正SHA的CI待核；native三OS已通。
+JSON escaping的測試斷言錯誤，已加跨OS資料並修正；exact391f72b三CI完整log已核，
+一般各845/0fail、native各17cases、reader各114/114＋POSIX真跨harness／Windowsunsupported，audit0known0warnings。
 約8MiB合成index的main-loop gap由87–94ms降到6–8ms，但整次I/O+解析仍約0.76秒，
 非Web/RSS/完整Host效能驗收。詳[背景解析](codex-history-pipeline.md)；沒有Codex
 source grant/registry/HTTPWeb、SQLite最終name或壓縮能力，C1–C8仍未全完。
