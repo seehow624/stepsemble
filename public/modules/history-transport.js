@@ -26,6 +26,7 @@ var StepsembleHistoryTransport;
     const sourceCodes = new Set(["invalid_history_registration", "invalid_history_request", "invalid_history_release", "invalid_source_signal",
         "history_principal_unavailable", "history_source_unavailable", "history_binding_unavailable", "history_view_conflict",
         "history_capacity_unavailable", "history_registry_closed", "history_registry_unavailable",
+        "history_catalog_changed", "source_inventory_limit", "source_worker_failure", "source_metadata_invalid",
         "history_unauthorized", "history_origin_rejected", "history_csrf_rejected", "history_content_type_rejected",
         "history_body_too_large", "history_body_invalid", "history_request_timeout", "history_request_aborted",
         "history_response_too_large", "history_response_invalid", "history_transport_failed", "history_method_not_allowed",
@@ -37,6 +38,56 @@ var StepsembleHistoryTransport;
         "source_service_closed", "source_binding_revoked", "source_binding_mismatch", "source_sdk_unavailable"]);
     const pageValid = (v) => keys(v, ["offset", "limit"]) && Number.isSafeInteger(v.offset)
         && v.offset >= 0 && v.offset <= 2000 && positive(v.limit) && v.limit <= 100;
+    const reference = (v) => typeof v === "string" && /^[A-Za-z0-9:_-]{1,128}$/.test(v);
+    const sourceUuid = (v) => typeof v === "string" && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(v);
+    const count = (v, max) => Number.isSafeInteger(v) && v >= 0 && v <= max;
+    const text = (v, max, min = 0) => typeof v === "string" && v.length >= min && v.length <= max && !/[\u0000-\u001f\u007f]/.test(v);
+    const catalogId = (v) => typeof v === "string" && /^claude-[a-f0-9]{64}$/.test(v);
+    function validSources(v) {
+        return keys(v, ["kind", "sources", "sourceAuthenticated", "publishable"]) && v.kind === "history_sources"
+            && v.sourceAuthenticated === false && v.publishable === false && Array.isArray(v.sources) && v.sources.length <= 8
+            && new Set(v.sources.map(g => g?.sourceId)).size === v.sources.length
+            && v.sources.every(g => keys(g, ["sourceId", "agentId", "scope", "label", "description"]) && reference(g.sourceId)
+                && g.agentId === "claude-code" && g.scope === "main_sessions" && text(g.label, 120, 1) && text(g.description, 300));
+    }
+    StepsembleHistoryTransport.validSources = validSources;
+    function validSourceCatalogRequest(v) {
+        return keys(v, ["sourceId", "page", "snapshotId", "refresh"]) && reference(v.sourceId)
+            && keys(v.page, ["offset", "limit"]) && count(v.page.offset, 2048) && count(v.page.limit, 50) && v.page.limit > 0
+            && (v.snapshotId === null || sourceUuid(v.snapshotId)) && typeof v.refresh === "boolean"
+            && (v.page.offset === 0 || v.snapshotId !== null) && (!v.refresh || v.page.offset === 0 && v.snapshotId === null);
+    }
+    StepsembleHistoryTransport.validSourceCatalogRequest = validSourceCatalogRequest;
+    function validSourceCatalog(v, request) {
+        return validSourceCatalogRequest(request) && keys(v, ["kind", "sourceId", "snapshotId", "stale", "refreshing", "lastError", "total", "page",
+            "nextOffset", "entries", "sourceAuthenticated", "publishable"]) && v.kind === "history_source_catalog"
+            && v.sourceId === request.sourceId && (v.snapshotId === null || sourceUuid(v.snapshotId))
+            && (request.snapshotId === null || request.snapshotId === v.snapshotId) && (!request.refresh || v.snapshotId !== null)
+            && typeof v.stale === "boolean" && typeof v.refreshing === "boolean" && (v.lastError === null || typeof v.lastError === "string" && sourceCodes.has(v.lastError))
+            && count(v.total, 2048) && keys(v.page, ["offset", "limit"]) && v.page.offset === request.page.offset && v.page.limit === request.page.limit
+            && request.page.offset <= v.total && Array.isArray(v.entries) && v.entries.length === Math.min(request.page.limit, v.total - request.page.offset)
+            && v.entries.every(e => keys(e, ["catalogId", "nativeTitle", "titleStatus"]) && catalogId(e.catalogId) && e.nativeTitle === null && e.titleStatus === "not_loaded")
+            && new Set(v.entries.map(e => e.catalogId)).size === v.entries.length
+            && v.nextOffset === (request.page.offset + v.entries.length < v.total ? request.page.offset + v.entries.length : null)
+            && (v.snapshotId !== null || v.total === 0 && v.stale === true) && v.sourceAuthenticated === false && v.publishable === false;
+    }
+    StepsembleHistoryTransport.validSourceCatalog = validSourceCatalog;
+    function validMetadataRequest(v) {
+        return keys(v, ["sourceId", "catalogId", "snapshotId", "requestId"]) && reference(v.sourceId) && catalogId(v.catalogId) && sourceUuid(v.snapshotId) && sourceUuid(v.requestId);
+    }
+    StepsembleHistoryTransport.validMetadataRequest = validMetadataRequest;
+    function validSourceMetadata(v, request) {
+        const metadataText = (v, max) => typeof v === "string" && v.length > 0 && v.length <= max
+            && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(v);
+        return validMetadataRequest(request) && keys(v, ["kind", "sourceId", "catalogId", "snapshotId", "requestId", "metadata", "sourceAuthenticated", "publishable"])
+            && v.kind === "history_source_metadata" && v.sourceId === request.sourceId && v.catalogId === request.catalogId
+            && v.snapshotId === request.snapshotId && v.requestId === request.requestId
+            && keys(v.metadata, ["sessionId", "nativeTitle", "summary", "titleStatus"]) && sourceUuid(v.metadata.sessionId)
+            && (v.metadata.summary === null || metadataText(v.metadata.summary, 4096))
+            && (v.metadata.titleStatus === "native" && metadataText(v.metadata.nativeTitle, 1024) || v.metadata.titleStatus === "untitled" && v.metadata.nativeTitle === null)
+            && v.sourceAuthenticated === false && v.publishable === false;
+    }
+    StepsembleHistoryTransport.validSourceMetadata = validSourceMetadata;
     function create(deps) {
         if (typeof deps?.canonicalJSON !== "function" || !opaque(deps.hostId) || !uuid(deps.viewId))
             failure("history_dependencies_required");
@@ -243,6 +294,39 @@ var StepsembleHistoryTransport;
                 return failure("history_response_invalid");
             return value;
         }
+        async function sources(signal) {
+            const { value, ok } = await exchange("/api/history/sources", "POST", {}, signal);
+            const denied = unavailable(value);
+            if (denied)
+                return denied;
+            if (!ok || !validSources(value))
+                return failure("history_response_invalid");
+            return value;
+        }
+        async function sourceCatalog(input, signal) {
+            const request = detach(input);
+            if (!validSourceCatalogRequest(request))
+                return failure("history_request_invalid");
+            const { value, ok } = await exchange("/api/history/source-catalog", "POST", request, signal);
+            const denied = unavailable(value);
+            if (denied)
+                return denied;
+            if (!ok || !validSourceCatalog(value, request))
+                return failure("history_response_invalid");
+            return value;
+        }
+        async function sourceMetadata(input, signal) {
+            const request = detach(input);
+            if (!validMetadataRequest(request))
+                return failure("history_request_invalid");
+            const { value, ok } = await exchange("/api/history/source-metadata", "POST", request, signal);
+            const denied = unavailable(value);
+            if (denied)
+                return denied;
+            if (!ok || !validSourceMetadata(value, request))
+                return failure("history_response_invalid");
+            return value;
+        }
         async function read(scope, request, options) {
             if (!keys(options, options?.version === undefined ? ["page", "signal"] : ["page", "signal", "version"]))
                 return failure("history_request_invalid");
@@ -278,7 +362,7 @@ var StepsembleHistoryTransport;
                 return failure("history_response_invalid");
             return value;
         }
-        return Object.freeze({ catalog, register, read, release });
+        return Object.freeze({ catalog, sources, sourceCatalog, sourceMetadata, register, read, release });
     }
     StepsembleHistoryTransport.create = create;
 })(StepsembleHistoryTransport || (StepsembleHistoryTransport = {}));

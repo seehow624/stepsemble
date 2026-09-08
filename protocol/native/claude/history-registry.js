@@ -183,10 +183,10 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
     const request = detach(input);
     return !!(keys(request, ["bindingId", "generation", "viewId"]) && identity(request) && owned(principal, request));
   }
-  async function observe(principal, input, options = {}) {
+  async function read(principal, input, options, metadata) {
     const request = detach(input);
-    if (!keys(request, ["bindingId", "generation", "viewId", "requestId", "page", ...(request?.version === undefined ? [] : ["version"])])
-      || !identity(request) || !uuid(request.requestId) || !validPage(request.page)
+    if (!keys(request, ["bindingId", "generation", "viewId", "requestId", ...(metadata ? [] : ["page"]), ...(request?.version === undefined ? [] : ["version"])])
+      || !identity(request) || !uuid(request.requestId) || !metadata && !validPage(request.page)
       || request.version !== undefined && (typeof request.version !== "string" || !/^[a-f0-9]{64}$/.test(request.version)))
       return unavailable("invalid_history_request");
     if (!options || ![Object.prototype, null].includes(Object.getPrototypeOf(options)) || Object.getOwnPropertySymbols(options).length
@@ -195,13 +195,14 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
     const slot = owned(principal, request);
     if (!slot) return unavailable(serviceFailure() || "history_binding_unavailable");
     const row = slot.row, handle = slot.handle;
+    if (metadata && typeof handle.metadata !== "function") return unavailable("history_source_unavailable");
     // Claim synchronously, before source work or its callbacks. Once observed,
     // even a later renewal cannot make this row cancellable by an HTTP receipt.
     row.claimed = true; row.receipt = null;
     let result;
     try {
-      result = await handle.observe({ bindingId: request.bindingId, generation: request.generation, requestId: request.requestId },
-        { page: request.page, ...(request.version === undefined ? {} : { version: request.version }), signal: options.signal });
+      result = await handle[metadata ? "metadata" : "observe"]({ bindingId: request.bindingId, generation: request.generation, requestId: request.requestId },
+        { ...(metadata ? {} : { page: request.page }), ...(request.version === undefined ? {} : { version: request.version }), signal: options.signal });
     } catch {
       if (slot.row === row) retire(slot);
       schedule(); return unavailable("history_registry_unavailable");
@@ -260,6 +261,8 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
     })();
     return shutdownPromise;
   }
-  return Object.freeze({ register, observe, release, cancelRegistration, current, revokePrincipal, revokeSource, sweep, status, shutdown });
+  return Object.freeze({ register, observe: (principal, request, options = {}) => read(principal, request, options, false),
+    metadata: (principal, request, options = {}) => read(principal, request, options, true),
+    release, cancelRegistration, current, revokePrincipal, revokeSource, sweep, status, shutdown });
 }
 module.exports = { createHistoryRegistry, REGISTRY_LIMITS, REGISTRY_CODES };

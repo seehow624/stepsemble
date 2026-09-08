@@ -1,8 +1,9 @@
 # 原生來源群組：設定、動態綁定與分頁
 
-2026-09-08，Plan 1.51；開發候選仍3.0.7-rc.5，正式3.0.6未變。
+2026-09-08，Plan 1.52；開發候選仍3.0.7-rc.5，正式3.0.6未變。
 **來源群組已接入實際 Host 的設定、HTTP／dedicated relay 及原生內容讀取鏈。**
-本批沒有新增私人來源或部署。Web 來源選擇介面、原生 title、其他 harness adapter
+原生名稱及TypeScript source transport也已接真SDK合成鏈。
+本批沒有新增私人來源或部署。Web 來源選擇介面、按需名稱呈現、其他 harness adapter
 仍未完成；不是「全部原生對話已完整收錄」。
 
 ## 明確授權範圍
@@ -86,6 +87,7 @@ SDK／worker count 選項；配對只走 dedicated peer，不退回 legacy cooki
 | --- | --- |
 | `/api/history/sources` | `{}`；回傳 `history_sources`，只含該讀者可讀的 sourceId／agentId／scope／label／description；不掃描 |
 | `/api/history/source-catalog` | `{sourceId, page:{offset,limit}, snapshotId:null或UUID, refresh:boolean}`；回傳 `history_source_catalog`，含當前 snapshotId、page／total／nextOffset、stale／refreshing／lastError 和最多50列 |
+| `/api/history/source-metadata` | `{sourceId,catalogId,snapshotId:UUID,requestId:UUID}`；回傳 `history_source_metadata`，含上述correlation及 `metadata:{sessionId,nativeTitle,summary,titleStatus}`；一次按需原生唯讀 |
 
 `refresh:true` 只接受 offset0、snapshotId:null；每次都是明確、單次刷新。
 `refresh:false` 只讀現有 snapshot，未掃過回 snapshotId:null／total0／stale:true；
@@ -93,12 +95,39 @@ SDK／worker count 選項；配對只走 dedicated peer，不退回 legacy cooki
 `history_catalog_changed`。同一 endpoint 可經 `/r/<machineId>` 使用。
 
 列目前只有 `catalogId`、`nativeTitle:null`、`titleStatus:"not_loaded"`。
-**尚未取得 native title**；不把 source label、UUID、檔名或第一行冒充對話名稱。
+**列舉本身不讀 title**；新增metadata route才按需取得。沒有把 source label、UUID、檔名或第一行冒充對話名稱。
 不回私人 path／dev-inode／readers／完整 inventory／transcript。
 選到 catalogId 後沿用既有 register→page→release，原生內容依固定 SDK gate 讀取。
 HTTP 送出前再驗 source authority／snapshot，relay 兩端驗 exact inert envelope。
 
-## 本批驗收與下一步
+## 原生名稱／metadata 的邊界
+
+- 固定SDK0.3.259的 `getSessionInfo` 使用既有captured records，one-shot module
+  loader只允許明確的 `getSessionMessages` 或 `getSessionInfo`；不暴露整個namespace
+  或 `query`。SDK只拿memory SessionStore，同session/projectKey最多一次load，
+  append／額外或跨scope load即使被SDK吞掉例外仍拒絕；不給SDK私人目錄權限。
+- metadata私有protocolVersion3沒有page，內容version2維持不变；回覆operation／
+  nonce／request／session／reader pin／raw hash與完整identity都必須一致。metadata
+  worker同13個named runtime/SDK read grants，不加source/HOME/write/child grants。
+- `nativeTitle`只取SDK `customTitle`（SDK自身包含aiTitle選擇），與SDK `summary`
+  分開。後者可能是first/last prompt，不能當原生名稱。缺title是null＋untitled，
+  有原生title是native；title1024／summary4096字，壞型別／控制字元／超限回固定錯誤。
+- 查名稱也有完整原生read成本，與inventory/content共享兩flight而不是獨立pool。
+  Host在既有64-slot registry建立短期private view，完成/失敗均release，不能用caller
+  view取代或續約使用者正在閱讀的內容。連續70讀＋一個active conversation保留2slots。
+- 列表snapshot只證明當次inventory metadata。查名稱重新capture後，需與該catalog
+  entry的dev/inode/size/mtimeNs/ctimeNs完全相符，回覆前再次驗snapshot/entryrevision
+  與readers；對話在列舉後改名／刪除，不會被貼上舊snapshot，回history_catalog_changed。
+- Host-private回覆限32KiB，公開回覆只留受限metadata與correlation及false authority；
+  不序列化source identity/path/SDK cwd/gitBranch/tag/raw records/registry binding。
+  原token/Origin/CSRF/15s/取消/relay decoded cap不變，也不新增對外metadata快取。
+- strictTS `sources`／`sourceCatalog`／`sourceMetadata`共用既有bounded exchange，
+  Client與Host validators對照測試、wrong snapshot/request/status/extra fields/過量
+  Unicode資料/取消/晚body/解壓bytes上限覆蓋。舊Host不支援或busy不自動fallback/retry。
+- Web頁目前還是手動catalog。後續來源選擇與可見列名稱應逐步、可取消、有限保留；
+  不能為了列表一次預讀全2048個transcript。此批不宣稱新UI或實機順滑度通過。
+
+## 前批 Plan 1.51 驗收
 
 - 新測試覆盖 v1/v2、scope/readers/root/群組上限、無自動掃描、2,048項／50列分頁、
   舊 snapshot、stale保留/空清單、動態revision/tuple/撤銷/晚回覆、共同2flight、
@@ -112,7 +141,7 @@ HTTP 送出前再驗 source authority／snapshot，relay 兩端驗 exact inert e
 - 本批 exact CI 結果逐批記錄，不沿用1.50的綠燈。Rust本身未修改；
   Windows只跑公開contract／Host替身，不宣稱 POSIX native gate 在 Windows 成功。
 
-### Exact commit 證據
+### Plan 1.51 exact commit 證據（前批，不代替1.52驗收）
 
 程式 **`ad7e53454af9ae245be3ac1d0bc1253c42feacdd`** 四組CI均成功，logs已核實：
 
@@ -127,7 +156,17 @@ Windows compiled source pipeline仍明示unsupported，沒有在該平台實跑�
 source-group gate；Node Host/HTTP替身與跨平台SDK契約不能取代Windows reader。
 後續純文件commit與上述程式證據分開。
 
-下一步是固定版本 native title/metadata、TypeScript transport 和 Web 來源选择／
-重新整理／分頁介面與browser驗收，再進真人來源確認。其餘harness、resume、approval、
+### Plan 1.52 驗收
+
+最低Node22.19新pipeline經compiled TS→actual server.js→Rust→固定SDK，
+`actualMetadataGate=passed`；四份合成來源的原生title、未命名summary、改名後的
+indexedidentity和snapshot拒絕、先前page與內容鏈均通過，model/privatehistory0、
+owned fixture/child清理確認。新增選擇、scope/pin/wire、worker/service/registry、
+HTTP/relay/權限/70讀slot重用與TS validators對照/取消/decoded-cap回歸。
+本機最終730tests＝728pass／2平台skip／0fail；native聚焦90/90、HTTP/TS聚焦57/57，
+strict TS/generated／syntax／版本一致性／actionlint及1,251-case Ajv通過。
+當批exact CI另核對，不繼承上表綠燈；舊未定位單次flaky仍未根因結案。
+
+下一步是 Web 來源选择／重新整理／分頁與按需名稱介面及browser驗收，再進真人來源確認。其餘harness、resume、approval、
 durable journal、真機/性能、Windows reader與發布關卡仍依主計畫待完成。
 固定ab227af的72h長測不包含本批runtime，保持獨立。

@@ -120,7 +120,7 @@ test("response fencing rejects changed source, request, session, legacy checks a
 
 test("launch grants exact code/SDK files only, not source directories, write, child, environment, or arbitrary flags", () => {
   const launch = wire.launchOptions(sdkPath), grants = launch.args.filter(v => v.startsWith("--allow-fs-read="));
-  assert.equal(launch.executable, process.execPath); assert.ok(launch.args.includes("--permission")); assert.equal(grants.length, 12);
+  assert.equal(launch.executable, process.execPath); assert.ok(launch.args.includes("--permission")); assert.equal(grants.length, 13);
   assert.ok(grants.every(v => /\.(?:js|mjs|json)$/.test(v))); assert.ok(!grants.includes(`--allow-fs-read=${path.dirname(sdkPath)}`));
   assert.ok(!launch.args.some(v => /allow-child|allow-fs-write|source-root/.test(v))); assert.deepEqual(launch.options.env, { LANG: "C", LC_ALL: "C" });
   assert.equal(launch.options.shell, false); assert.equal(launch.options.detached, false); assert.deepEqual(launch.options.stdio, ["pipe", "pipe", "pipe"]);

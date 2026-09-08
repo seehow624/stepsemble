@@ -34,6 +34,17 @@ test("verified bytes supply exactly one module load while retaining file URL cre
   await assert.rejects(sdk.loadReader(f.sdkPath), /^Error: sdk_unavailable$/);
   assert.deepEqual(sdk.counters, { registered: 1, deregistered: 1, loaded: 1 });
 });
+test("metadata loader allows only explicit getSessionInfo and consumes the same single verified attempt", async t => {
+  const moduleBytes = 'export function getSessionInfo(){return "owned metadata"};export function query(){throw new Error("never")};\n';
+  const f = await fixture(t, moduleBytes), sdk = loader(moduleBytes);
+  assert.equal((await sdk.loadReader(f.sdkPath, "getSessionInfo"))(), "owned metadata");
+  await assert.rejects(sdk.loadReader(f.sdkPath, "getSessionMessages"), /sdk_unavailable/);
+  for (const method of ["query", "listSessions", "constructor", "__proto__", null, {}, 1]) {
+    const denied = loader(moduleBytes);
+    await assert.rejects(denied.loadReader(f.sdkPath, method), /sdk_unavailable/);
+    assert.equal(denied.counters.registered, 0); await assert.rejects(denied.loadReader(f.sdkPath, "getSessionInfo"), /sdk_unavailable/);
+  }
+});
 test("same-path preexisting ESM namespace cannot replace the freshly verified SDK module", async t => {
   const poison = 'export function getSessionMessages(){return "old-cache"}\n', f = await fixture(t, poison);
   const old = await import(pathToFileURL(f.sdkPath).href); assert.equal(old.getSessionMessages(), "old-cache");

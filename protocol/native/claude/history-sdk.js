@@ -37,11 +37,11 @@ async function verifiedBytes(sdkPath) {
     return bytes;
   } finally { if (handle) await handle.close(); } // An uncertain close consumes the sole attempt too.
 }
-async function loadReader(sdkPath) {
+async function loadReader(sdkPath, method = "getSessionMessages") {
   if (attempted) throw new Error("sdk_unavailable");
   attempted = true;
   try {
-    if (!validSdkPath(sdkPath) || typeof registerHooks !== "function") throw new Error("sdk_unavailable");
+    if (!validSdkPath(sdkPath) || !["getSessionMessages", "getSessionInfo"].includes(method) || typeof registerHooks !== "function") throw new Error("sdk_unavailable");
     const bytes = await verifiedBytes(sdkPath);
     // Node >=22.15 synchronous hooks need no worker permission. Preserve a file
     // URL for the pinned bundle's import.meta.url/createRequire, but make this
@@ -62,9 +62,9 @@ async function loadReader(sdkPath) {
     });
     let sdk;
     try { sdk = await import(url); } finally { hook.deregister(); }
-    if (!loaded || typeof sdk.getSessionMessages !== "function") throw new Error("sdk_unavailable");
+    if (!loaded || typeof sdk[method] !== "function") throw new Error("sdk_unavailable");
     await verifiedBytes(sdkPath); // Retain observed artifact-drift rejection after evaluation.
-    return sdk.getSessionMessages;
+    return sdk[method];
   } catch { throw new Error("sdk_unavailable"); }
 }
 module.exports = { SDK_VERSION, NATIVE_VERSION, SDK_SHA256, SDK_INTEGRITY, validSdkPath, loadReader };

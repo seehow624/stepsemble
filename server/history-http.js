@@ -27,7 +27,7 @@ const PUBLIC_CODES = new Set([
   "invalid_history_registration", "invalid_history_request", "invalid_history_release", "invalid_source_signal",
   "history_principal_unavailable", "history_source_unavailable", "history_binding_unavailable", "history_view_conflict",
   "history_capacity_unavailable", "history_registry_closed", "history_registry_unavailable",
-  "history_catalog_changed", "source_inventory_limit", "source_worker_failure",
+  "history_catalog_changed", "source_inventory_limit", "source_worker_failure", "source_metadata_invalid",
   "source_busy", "source_aborted", "source_version_changed", "source_version_unavailable", "source_observation_too_large",
   "source_platform_unsupported", "source_missing", "source_empty", "source_changed", "source_incomplete_tail", "source_invalid_json",
   "source_access_denied", "source_read_budget", "source_worker_timeout", "source_cleanup_unconfirmed", "source_service_quarantined",
@@ -163,11 +163,11 @@ function validCatalog(reply) {
 }
 
 function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCookieNames = ["stepsemble"], deadlineMs = LIMITS.deadlineMs,
-  browserOnly = false, listCatalog, listSources, sourceCatalog, catalogCurrent } = {}) {
+  browserOnly = false, listCatalog, listSources, sourceCatalog, sourceMetadata, catalogCurrent } = {}) {
   if (![registry?.register, registry?.observe, registry?.release, registry?.current].every(v => typeof v === "function")
     || !positive(deadlineMs) || deadlineMs > LIMITS.deadlineMs || listCatalog !== undefined && typeof listCatalog !== "function"
-    || [listSources, sourceCatalog, catalogCurrent].some(v => v !== undefined && typeof v !== "function")
-    || (listSources !== undefined || sourceCatalog !== undefined) && typeof catalogCurrent !== "function")
+    || [listSources, sourceCatalog, sourceMetadata, catalogCurrent].some(v => v !== undefined && typeof v !== "function")
+    || (listSources !== undefined || sourceCatalog !== undefined || sourceMetadata !== undefined) && typeof catalogCurrent !== "function")
     throw new TypeError("history_http_configuration_invalid");
   const authenticate = createHistoryRequestAuth({ auth, allowedOrigins, browserCookieNames, browserOnly });
   return async function handle(req, res) {
@@ -200,6 +200,7 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
       const route = target === "/api/history/catalog" && req.method === "POST" ? "catalog"
         : target === "/api/history/sources" && req.method === "POST" ? "sources"
         : target === "/api/history/source-catalog" && req.method === "POST" ? "sourceCatalog"
+        : target === "/api/history/source-metadata" && req.method === "POST" ? "sourceMetadata"
         : target === "/api/history/registrations" && req.method === "POST" ? "register"
         : target === "/api/history/page" && req.method === "POST" ? "observe"
           : release && uuid(release[1]) && req.method === "DELETE" ? "release" : null;
@@ -207,6 +208,7 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
       const body = await readBody(req, abort.signal);
       if (["catalog", "sources"].includes(route) && !exact(body, [])) throw error("invalid_history_request");
       if (route === "sourceCatalog" && !sourceCatalogWire.validRequest(body)) throw error("invalid_history_request");
+      if (route === "sourceMetadata" && !sourceCatalogWire.validMetadataRequest(body)) throw error("invalid_history_request");
       if (route === "register" && (!exact(body, ["catalogId", "viewId"]) || body.viewId !== viewId
         || typeof body.catalogId !== "string" || !/^[A-Za-z0-9:_-]{1,128}$/.test(body.catalogId))) throw error("invalid_history_registration");
       if (route === "observe" && (!exact(body, ["bindingId", "generation", "requestId", "page", ...(Object.hasOwn(body, "version") ? ["version"] : [])])
@@ -220,6 +222,7 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
         .then(entries => ({ kind: "history_catalog", entries, sourceAuthenticated: false, publishable: false })) : unavailable("history_source_unavailable")
         : route === "sources" ? listSources?.(principal, { signal: abort.signal, viewId }) ?? unavailable("history_source_unavailable")
         : route === "sourceCatalog" ? sourceCatalog?.(principal, body, { signal: abort.signal, viewId }) ?? unavailable("history_source_unavailable")
+        : route === "sourceMetadata" ? sourceMetadata?.(principal, body, { signal: abort.signal, viewId }) ?? unavailable("history_source_unavailable")
         : route === "register" ? registry.register(principal, body, { signal: abort.signal })
         : route === "observe" ? registry.observe(principal, { ...body, viewId }, { signal: abort.signal })
           : registry.release(principal, { bindingId: release[1], generation: body.generation, viewId }, { signal: abort.signal });
@@ -250,6 +253,7 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
         const valid = route === "catalog" ? validCatalog(reply)
           : route === "sources" ? sourceCatalogWire.validSources(reply)
           : route === "sourceCatalog" ? sourceCatalogWire.validPage(reply, body, PUBLIC_CODES)
+          : route === "sourceMetadata" ? sourceCatalogWire.validMetadata(reply, body)
           : route === "release" ? exact(reply, ["kind", "cleanupConfirmed"]) && reply.kind === "history_released" && typeof reply.cleanupConfirmed === "boolean"
           : route === "register" ? exact(reply, ["kind", "bindingId", "generation", "sessionId", "viewId", "catalogId", "expiresAt", "sourceAuthenticated", "publishable"])
             && reply.kind === "history_registration" && reply.viewId === viewId && reply.catalogId === body.catalogId && uuid(reply.bindingId)
@@ -259,7 +263,7 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
               && reply.requestId === body.requestId && typeof reply.sourceVersion === "string" && /^[a-f0-9]{64}$/.test(reply.sourceVersion)
               && reply.sourceAuthenticated === false && reply.publishable === false && reply.cleanupConfirmed === true && inertHistory(reply.history, body.page);
         if (!valid) throw error("history_response_invalid", 502);
-        if (["sources", "sourceCatalog"].includes(route) && catalogCurrent(principal, reply) !== true)
+        if (["sources", "sourceCatalog", "sourceMetadata"].includes(route) && catalogCurrent(principal, reply) !== true)
           throw error("history_catalog_changed", 409);
         if (["register", "observe"].includes(route) && registry.current(principal, { bindingId: reply.bindingId, generation: reply.generation, viewId }) !== true)
           throw error("history_binding_unavailable", 409);

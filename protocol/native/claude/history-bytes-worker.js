@@ -4,6 +4,7 @@ const { parseHistoryBytes } = require("./history-source");
 const wire = require("./history-bytes-wire");
 const { loadReader } = require("./history-sdk");
 const { selectHistory } = require("./history-selection");
+const { selectMetadata } = require("./history-metadata");
 const unavailable = code => ({ kind: "source_unavailable", code });
 async function processJob(input, raw, { loadReader: reader = loadReader } = {}) {
   const job = wire.detach(input);
@@ -13,9 +14,11 @@ async function processJob(input, raw, { loadReader: reader = loadReader } = {}) 
   if (parsed.kind !== "source_records") return parsed;
   const snapshot = { ...job.snapshot, kind: "source_snapshot", records: parsed.records };
   let getSessionMessages;
-  try { getSessionMessages = await reader(job.history.sdkPath); } catch { return unavailable("source_sdk_unavailable"); }
+  const metadata = job.protocolVersion === wire.METADATA_WIRE_VERSION;
+  try { getSessionMessages = await reader(job.history.sdkPath, metadata ? "getSessionInfo" : "getSessionMessages"); } catch { return unavailable("source_sdk_unavailable"); }
   if (typeof getSessionMessages !== "function") return unavailable("source_sdk_unavailable");
-  try { return await selectHistory(snapshot, job.history.page, getSessionMessages); } catch { return unavailable("source_selection_failed"); }
+  try { return metadata ? await selectMetadata(snapshot, getSessionMessages) : await selectHistory(snapshot, job.history.page, getSessionMessages); }
+  catch { return unavailable("source_selection_failed"); }
 }
 function validContext(permission = process.permission) {
   return !!permission && typeof permission.has === "function" && !permission.has("fs.write") && !permission.has("child") && !permission.has("fs.read");

@@ -100,9 +100,9 @@ function createNativeSourceService(options = {}) {
     bindings.set(value.bindingId, state);
     const descriptor = Object.freeze({ bindingId: value.bindingId, generation: value.generation, sessionId: source.sessionId });
     const revoke = () => { state.revoked = true; state.version = null; state.flight?.stop("source_binding_revoked"); };
-    async function observe(input, options = {}) {
+    async function read(input, options, metadata) {
       sweep();
-      if (!ownOptions(options, ["page", "version", "signal"])) return unavailable("invalid_history_options");
+      if (!ownOptions(options, [...(metadata ? [] : ["page"]), "version", "signal"])) return unavailable("invalid_history_options");
       const request = detach(input), page = detach(options.page === undefined ? { offset: 0, limit: 100 } : options.page);
       if (!wire.validRequest(request) || request.bindingId !== descriptor.bindingId || request.generation !== descriptor.generation)
         return unavailable("source_binding_mismatch");
@@ -190,8 +190,8 @@ function createNativeSourceService(options = {}) {
           if (state.version === version) state.version = null;
           return settle(unavailable("source_version_changed"));
         }
-        const job = { protocolVersion: wire.WIRE_VERSION, nonce, request, snapshot,
-          history: { sdkPath, page, expectedVersion: version?.source ?? null } };
+        const job = { protocolVersion: metadata ? wire.METADATA_WIRE_VERSION : wire.WIRE_VERSION, nonce, request, snapshot,
+          history: { sdkPath, ...(metadata ? {} : { page }), expectedVersion: version?.source ?? null } };
         const encoded = wire.encodeJob(job, bytes);
         if (!encoded) return settle(unavailable("source_worker_protocol"));
         if (!current()) return;
@@ -214,12 +214,13 @@ function createNativeSourceService(options = {}) {
             if (result.code === "source_version_changed" && state.version === version) state.version = null;
             return settle(result);
           }
-          // The v2 decoder must preserve the native profile even while the shared
+          // Both decoders must preserve the native profile even while the shared
           // provider accepts both legacy and native snapshots elsewhere.
           if (result.source?.checks?.acl !== "no_extended_acl" || result.source?.checks?.containment !== "root_identity_and_openat_nofollow"
             || !wire.sameSourceVersion(wire.sourceVersion(snapshot), result.source)) return settle(unavailable("source_worker_protocol"));
           if (!version) state.version = { token: nextToken, source: wire.sourceVersion(result.source) };
-          settle({ kind: "bound_history_observation", ...request, sourceVersion: state.version.token, history: result,
+          settle({ kind: metadata ? "bound_session_metadata" : "bound_history_observation", ...request, sourceVersion: state.version.token,
+            ...(metadata ? { metadata: result.metadata, source: result.source } : { history: result }),
             sourceAuthenticated: false, publishable: false, cleanupConfirmed: true });
         });
         child.on("error", () => stop("source_worker_spawn_failed"));
@@ -242,7 +243,8 @@ function createNativeSourceService(options = {}) {
     }
     const status = () => { sweep(); return Object.freeze({ revoked: state.revoked || bindings.get(value.bindingId) !== state,
       activeWorker: state.flight !== null, cleanupConfirmed: state.flight === null }); };
-    return Object.freeze({ kind: "bound_source", descriptor, observe, revoke, status,
+    return Object.freeze({ kind: "bound_source", descriptor, observe: (request, options = {}) => read(request, options, false),
+      metadata: (request, options = {}) => read(request, options, true), revoke, status,
       capture: async () => unavailable("reserved_source_capture_unavailable") });
   }
   function shutdown() {

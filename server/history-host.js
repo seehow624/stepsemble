@@ -5,6 +5,9 @@
 // Config/ancestors/executable are a trusted Host boundary,
 // not an OS sandbox or a claim of exact executed-binary pinning.
 const fs = require("node:fs"), path = require("node:path");
+const { randomUUID } = require("node:crypto");
+const nativeWire = require("../protocol/native/claude/history-bytes-wire");
+const { validMetadata } = require("../protocol/native/claude/history-metadata");
 const { canonicalJSON } = require("../public/modules/projection");
 const { normalizeSourceInput } = require("../protocol/native/claude/history-source");
 const { createNativeSourceService } = require("../protocol/native/claude/history-native-service");
@@ -171,7 +174,7 @@ function createHistoryHost({ config: input, browserCredentials, peerGrantIds, au
         const { sourceId, projectsRoot, expectedRoot } = group.config;
         group.index = sourceIndexFactory({ sourceId, source: { projectsRoot, expectedRoot }, helperPath: config.reader.helperPath,
           authorize: groupAllowed, admission });
-        if (!["refresh", "metadata", "lookup", "page", "revokePrincipal", "shutdown", "status"].every(k => typeof group.index?.[k] === "function")) invalid();
+        if (!["refresh", "metadata", "lookup", "matchesIdentity", "page", "revokePrincipal", "shutdown", "status"].every(k => typeof group.index?.[k] === "function")) invalid();
       }
       service = sourceServiceFactory({ ...config.reader, roots, admission });
       registry = createHistoryRegistry({ sourceService: service, catalog: config.catalog.map(({ catalogId, source }) => ({ catalogId, source })),
@@ -197,6 +200,36 @@ function createHistoryHost({ config: input, browserCredentials, peerGrantIds, au
         const reply = group.index.page(principal, { ...body.page, snapshotId: body.snapshotId });
         if (reply.kind === "history_source_catalog" && reply.lastError !== null && !PUBLIC_CODES.has(reply.lastError)) reply.lastError = "history_transport_failed";
         return reply;
+      },
+      async sourceMetadata(principal, body, { signal }) {
+        const denied = code => ({ kind: "source_unavailable", code });
+        if (!groupAllowed(principal, body.sourceId)) return denied("history_source_unavailable");
+        const index = groups.get(body.sourceId).index;
+        if (index.metadata(principal).snapshotId !== body.snapshotId) return denied("history_catalog_changed");
+        const selected = index.lookup(principal, body.catalogId);
+        if (!selected) return denied("history_source_unavailable");
+        if (signal.aborted) return denied("source_aborted");
+        // One ephemeral registration in the same bounded 64-slot registry. A
+        // metadata request cannot renew, replace or claim a browser's view.
+        const receipt = registry.register(principal, { catalogId: body.catalogId, viewId: randomUUID() });
+        if (receipt.kind !== "history_registration") return receipt;
+        const scope = { bindingId: receipt.bindingId, generation: receipt.generation, viewId: receipt.viewId };
+        try {
+          const raw = await registry.metadata(principal, { ...scope, requestId: body.requestId }, { signal });
+          if (raw?.kind === "source_unavailable") return raw;
+          const encoded = canonicalJSON(raw, 32 * 1024), value = encoded === null ? null : JSON.parse(encoded);
+          if (!exact(value, ["kind", "bindingId", "generation", "requestId", "sourceVersion", "metadata", "source", "sourceAuthenticated", "publishable", "cleanupConfirmed"])
+            || value.kind !== "bound_session_metadata" || value.bindingId !== scope.bindingId || value.generation !== scope.generation || value.requestId !== body.requestId
+            || typeof value.sourceVersion !== "string" || !/^[a-f0-9]{64}$/.test(value.sourceVersion)
+            || !nativeWire.validNativeSnapshot(value.source) || value.source.sessionId !== selected.source.sessionId
+            || !validMetadata(value.metadata, selected.source.sessionId) || value.sourceAuthenticated !== false || value.publishable !== false || value.cleanupConfirmed !== true)
+            return denied("history_response_invalid");
+          if (signal.aborted) return denied("source_aborted");
+          if (!groupAllowed(principal, body.sourceId)) return denied("history_source_unavailable");
+          if (index.metadata(principal).snapshotId !== body.snapshotId || index.lookup(principal, body.catalogId)?.revision !== selected.revision
+            || !index.matchesIdentity(principal, body.catalogId, value.source.identity)) return denied("history_catalog_changed");
+          return { kind: "history_source_metadata", ...body, metadata: value.metadata, sourceAuthenticated: false, publishable: false };
+        } finally { registry.release(principal, scope); }
       },
       catalogCurrent(principal, reply) {
         if (reply.kind === "history_sources") return reply.sources.every(g => groupAllowed(principal, g.sourceId));

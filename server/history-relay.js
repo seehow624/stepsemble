@@ -142,6 +142,7 @@ function createHistoryRelayHandler({ auth, allowedOrigins, browserCookieNames = 
         if (path === "/api/history/catalog" && !validCatalog(value)) throw fail("history_response_invalid");
         if (path === "/api/history/sources" && !sourceCatalogWire.validSources(value)) throw fail("history_response_invalid");
         if (path === "/api/history/source-catalog" && !sourceCatalogWire.validPage(value, body, PUBLIC_CODES)) throw fail("history_response_invalid");
+        if (path === "/api/history/source-metadata" && !sourceCatalogWire.validMetadata(value, body)) throw fail("history_response_invalid");
         if (path === "/api/history/page" && (!row || row.state !== "active" || !validHistoryValue(value?.history, row.sessionId, body.page)))
           throw fail("history_response_invalid");
         // Shared HTTP handler checks whole bound/registration/release envelopes,
@@ -244,6 +245,7 @@ function createHistoryRelayHandler({ auth, allowedOrigins, browserCookieNames = 
       },
       listSources: (principal, { signal, viewId }) => forward(principal, "/api/history/sources", "POST", {}, viewId, signal),
       sourceCatalog: (principal, body, { signal, viewId }) => forward(principal, "/api/history/source-catalog", "POST", body, viewId, signal),
+      sourceMetadata: (principal, body, { signal, viewId }) => forward(principal, "/api/history/source-metadata", "POST", body, viewId, signal),
       catalogCurrent: () => peerActive() });
     req.url = upstreamPath;
     try { return await local(req, res); } finally { req.url = original; }

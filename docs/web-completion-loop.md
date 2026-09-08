@@ -33,7 +33,7 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 
 | Checkpoint | 交付與必要證據 | 開始狀態 |
 | --- | --- | --- |
-| C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | Plan1.51來源設定／动态registry／HTTP分頁與原生內容鏈已驗；title／Web來源操作仍待 |
+| C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | Plan1.52原生title/summary及TS sources/catalog/metadata通真Host鏈；Web來源操作/lazy名稱仍待，C1未完成 |
 | C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Pi／Claude 部分完成，其他 adapter 待完成 |
 | C3 Session／approval／恢復 | 按真實 capability 接結構化事件、續跑與 approval；ownership、exact correlation、重送／重連／Host crash、durable journal/replay 不漏不重 | 有 contract 與局部實作，未全驗 |
 | C4 帳號與故障體驗 | 登入／登出偵測、官方登入入口、路由相容、取消／失敗／stale／busy 可復原；不修寫第三方憑證或以重試消耗模型 | 局部已驗，跨 harness 待補 |
@@ -84,6 +84,13 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 - 未來 App Store 發布、費用、商標／帳號等外部事項不從「loop」推論新授權。
 
 ## 執行記錄
+
+- **2026-09-08／C1名稱與client transport，Plan1.52**：固定SDK透過captured store取得
+  native title，summary分開、不推測名稱；同2flight/64slots、ephemeral綁定不干擾
+  現有對話、indexedidentity/snapshot/權限再次驗證。新HTTP/relay/strict TS已通
+  最低Node22.19真Rust＋SDK合成Host鏈，`actualMetadataGate=passed`；沒有私人
+  history/model/正式變動。接續Web來源UI＋按需名稱，不預讀全2048份transcript，
+  做完CUA與相應回歸才可把C1往前勾。其餘C2–C8與原72h邊界不變。
 
 - **2026-09-08／C1後端進展，Plan1.51**：明確source-group/private readers設定、
   同Hostbudget、dynamicresolver與變更/刪除撤銷、snapshot-fenced50列分頁、HTTP及

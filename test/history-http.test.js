@@ -15,7 +15,7 @@ function reply(body = PAGE) {
       page: { ...body.page }, observation: { publishable: false, authority: { sourceAuthenticated: false, approvalAcknowledged: false,
         runTerminalObserved: false, resumeAllowed: false } }, reader: {}, metrics: {} }, sourceAuthenticated: false, publishable: false, cleanupConfirmed: true };
 }
-async function fixture(t, { observe, deadlineMs = 500, current, listCatalog, register, cancelRegistration, listSources, sourceCatalog, catalogCurrent } = {}) {
+async function fixture(t, { observe, deadlineMs = 500, current, listCatalog, register, cancelRegistration, listSources, sourceCatalog, sourceMetadata, catalogCurrent } = {}) {
   const calls = [], completed = [], state = { active: true, peer: true, current: true, aborts: 0, browserChecks: 0, peerChecks: 0 };
   const auth = {
     authenticateBrowserCookie(name, value) { state.browserChecks++; return name === "stepsemble" && value === "synthetic-cookie" && state.active ? "browser:synthetic" : null; },
@@ -30,7 +30,7 @@ async function fixture(t, { observe, deadlineMs = 500, current, listCatalog, reg
     current(principal, scope) { return current ? current(principal, scope, state) : state.current; },
     ...(cancelRegistration ? { cancelRegistration } : {}),
   };
-  const handler = createHistoryHttpHandler({ registry, auth, allowedOrigins: [ORIGIN], deadlineMs, listCatalog, listSources, sourceCatalog, catalogCurrent });
+  const handler = createHistoryHttpHandler({ registry, auth, allowedOrigins: [ORIGIN], deadlineMs, listCatalog, listSources, sourceCatalog, sourceMetadata, catalogCurrent });
   const server = http.createServer(async (req, res) => {
     const before = [req.listenerCount("aborted"), res.listenerCount("close"), res.listenerCount("error")];
     const handled = await handler(req, res);
@@ -89,6 +89,24 @@ test("source group HTTP bounds and authentication reject before callback and nev
   assert.equal(calls, 0);
   const result = await f.request("/api/history/sources", {}); assert.equal(result.status, 502); assert.equal(result.data.code, "history_response_invalid");
   assert.equal(result.bytes.includes(Buffer.from("/private")), false);
+});
+test("native metadata HTTP retains Origin/CSRF, exact request shape and post-await catalog fencing", async t => {
+  const body = { sourceId: "owned", catalogId: "claude-" + "a".repeat(64), snapshotId: VIEW, requestId: REQUEST };
+  let calls = 0, current = true;
+  const f = await fixture(t, { sourceMetadata: async () => { calls++; await Promise.resolve(); current = false;
+    return { kind: "history_source_metadata", ...body, metadata: { sessionId: SESSION, nativeTitle: "Owned", summary: null, titleStatus: "native" }, sourceAuthenticated: false, publishable: false }; }, catalogCurrent: () => current });
+  assert.equal((await f.request("/api/history/source-metadata", body, { origin: "https://untrusted.invalid" })).status, 403);
+  assert.equal((await f.request("/api/history/source-metadata", body, { [CSRF_HEADER]: undefined })).status, 403);
+  assert.equal((await f.request("/api/history/source-metadata", { ...body, page: {} })).status, 400); assert.equal(calls, 0);
+  assert.equal((await f.request("/api/history/source-metadata", body)).data.code, "history_catalog_changed"); assert.equal(calls, 1);
+});
+test("native metadata HTTP deadline aborts source operation and never publishes its late title", async t => {
+  let aborted = false;
+  const f = await fixture(t, { deadlineMs: 30, sourceMetadata: (_principal, _body, { signal }) => new Promise(resolve => {
+    signal.addEventListener("abort", () => { aborted = true; resolve({ kind: "source_unavailable", code: "source_aborted" }); }, { once: true });
+  }), catalogCurrent: () => true });
+  const result = await f.request("/api/history/source-metadata", { sourceId: "owned", catalogId: "claude-" + "a".repeat(64), snapshotId: VIEW, requestId: REQUEST });
+  assert.equal(result.status, 408); assert.equal(result.data.code, "history_request_timeout"); assert.equal(aborted, true);
 });
 
 test("native reader denials preserve fixed codes without exposing source diagnostics", async t => {

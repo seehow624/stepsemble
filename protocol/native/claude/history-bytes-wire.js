@@ -1,17 +1,19 @@
 "use strict";
-// Private v2 bytes-only worker protocol. No source pathname crosses this wire.
+// Private v2 (pages) / v3 (metadata) bytes-only worker protocol. No source pathname crosses this wire.
 const path = require("node:path"), crypto = require("node:crypto");
 const { canonicalJSON } = require("../../../public/modules/projection");
 const { validHistoryValue } = require("../../../public/modules/claude-history");
-const { validSdkPath } = require("./history-sdk");
+const { validSdkPath, SDK_VERSION, NATIVE_VERSION, SDK_SHA256 } = require("./history-sdk");
+const { validMetadata } = require("./history-metadata");
 const WIRE_VERSION = 2;
+const METADATA_WIRE_VERSION = 3;
 const LIMITS = Object.freeze({ headerBytes: 16 * 1024, sourceBytes: 8 * 1024 * 1024,
   inputBytes: 4 + 16 * 1024 + 8 * 1024 * 1024, outputBytes: 256 * 1024, pageBytes: 256 * 1024,
   inputChunks: 4096, outputChunks: 4096, deadlineMs: 10000, cleanupMs: 1000, pageMessages: 100 });
 const sourceCodes = new Set(["invalid_source_input", "source_empty", "source_too_large", "source_line_too_large", "source_too_many_records",
   "source_incomplete_tail", "source_invalid_encoding", "source_blank_record", "source_invalid_json", "source_invalid_json_value",
   "source_scope_mismatch", "source_ancillary_invalid", "source_ancillary_reference_unavailable", "source_worker_failure", "source_worker_protocol",
-  "source_sdk_unavailable", "source_selection_failed", "source_observation_rejected", "source_observation_too_large", "source_version_changed"]);
+  "source_sdk_unavailable", "source_selection_failed", "source_observation_rejected", "source_observation_too_large", "source_version_changed", "source_metadata_invalid"]);
 const keys = (v, names) => v !== null && typeof v === "object" && !Array.isArray(v) && Object.keys(v).sort().join(",") === [...names].sort().join(",");
 const uuid = v => typeof v === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
 const hash = v => typeof v === "string" && /^[a-f0-9]{64}$/.test(v);
@@ -35,9 +37,10 @@ function sourceVersion(v) { return { sha256: v.sha256, identity: { ...v.identity
 function validSourceVersion(v) { return keys(v, ["sha256", "identity"]) && hash(v.sha256) && validIdentity(v.identity); }
 function sameSourceVersion(expected, actual) { return validSourceVersion(expected) && expected.sha256 === actual?.sha256
   && Object.keys(expected.identity).every(k => expected.identity[k] === actual.identity?.[k]); }
-function validJob(v) { return keys(v, ["protocolVersion", "nonce", "request", "snapshot", "history"]) && v.protocolVersion === WIRE_VERSION && hash(v.nonce)
-  && validRequest(v.request) && validNativeSnapshot(v.snapshot) && keys(v.history, ["sdkPath", "page", "expectedVersion"])
-  && validSdkPath(v.history.sdkPath) && validPage(v.history.page) && (v.history.expectedVersion === null || validSourceVersion(v.history.expectedVersion)); }
+function validJob(v) { return keys(v, ["protocolVersion", "nonce", "request", "snapshot", "history"]) && [WIRE_VERSION, METADATA_WIRE_VERSION].includes(v.protocolVersion) && hash(v.nonce)
+  && validRequest(v.request) && validNativeSnapshot(v.snapshot) && keys(v.history, ["sdkPath", "expectedVersion", ...(v.protocolVersion === WIRE_VERSION ? ["page"] : [])])
+  && validSdkPath(v.history.sdkPath) && (v.protocolVersion !== WIRE_VERSION || validPage(v.history.page))
+  && (v.history.expectedVersion === null || validSourceVersion(v.history.expectedVersion)); }
 function validBytes(bytes, snapshot) { return Buffer.isBuffer(bytes) && validNativeSnapshot(snapshot) && bytes.length === snapshot.byteLength
   && crypto.createHash("sha256").update(bytes).digest("hex") === snapshot.sha256; }
 function encodeJob(metadata, bytes) {
@@ -59,11 +62,16 @@ function readJob(frame) {
 function readResponse(bytes, job) {
   if (!validJob(job) || !Buffer.isBuffer(bytes) || bytes.at(-1) !== 10 || bytes.indexOf(10) !== bytes.length - 1) return null;
   const value = decodeJSON(bytes, LIMITS.outputBytes);
-  if (!keys(value, ["protocolVersion", "nonce", "request", "result"]) || value.protocolVersion !== WIRE_VERSION || value.nonce !== job.nonce
+  if (!keys(value, ["protocolVersion", "nonce", "request", "result"]) || value.protocolVersion !== job.protocolVersion || value.nonce !== job.nonce
     || !validRequest(value.request) || Object.keys(job.request).some(k => value.request[k] !== job.request[k])) return null;
   const result = value.result;
   if (keys(result, ["kind", "code"]) && result.kind === "source_unavailable") return sourceCodes.has(result.code) ? result : null;
-  if (!validHistoryValue(result, job.snapshot.sessionId, job.history.page) || !validNativeChecks(result.source.checks)
+  const valid = job.protocolVersion === METADATA_WIRE_VERSION ? keys(result, ["kind", "source", "metadata", "reader"])
+    && result.kind === "source_session_metadata" && validMetadata(result.metadata, job.snapshot.sessionId) && validNativeSnapshot(result.source)
+    && keys(result.reader, ["sdkVersion", "nativeVersion", "sdkSha256"]) && result.reader.sdkVersion === SDK_VERSION
+    && result.reader.nativeVersion === NATIVE_VERSION && result.reader.sdkSha256 === SDK_SHA256
+    : validHistoryValue(result, job.snapshot.sessionId, job.history.page);
+  if (!valid || result.source.sessionId !== job.snapshot.sessionId || !validNativeChecks(result.source.checks)
     || !sameSourceVersion(sourceVersion(job.snapshot), result.source) || result.source.byteLength !== job.snapshot.byteLength) return null;
   if (job.history.expectedVersion && !sameSourceVersion(job.history.expectedVersion, result.source))
     return { kind: "source_unavailable", code: "source_version_changed" };
@@ -71,7 +79,7 @@ function readResponse(bytes, job) {
 }
 function encodeResponse(result, job) {
   if (!validJob(job)) return null;
-  const encode = result => Buffer.from(JSON.stringify({ protocolVersion: WIRE_VERSION, nonce: job.nonce, request: job.request, result }) + "\n");
+  const encode = result => Buffer.from(JSON.stringify({ protocolVersion: job.protocolVersion, nonce: job.nonce, request: job.request, result }) + "\n");
   let bytes;
   try { bytes = encode(result); } catch { bytes = encode({ kind: "source_unavailable", code: "source_worker_failure" }); }
   if (bytes.length > LIMITS.outputBytes) bytes = encode({ kind: "source_unavailable", code: "source_observation_too_large" });
@@ -82,11 +90,11 @@ function encodeResponse(result, job) {
 function launchOptions(sdkPath) {
   if (!validSdkPath(sdkPath)) throw new TypeError("invalid_history_sdk_path");
   const worker = path.join(__dirname, "history-bytes-worker.js");
-  const grants = [worker, ...["history-bytes-wire.js", "history-source.js", "history-record-scope.js", "history-sdk.js", "history-selection.js", "history-observation.js"].map(v => path.join(__dirname, v)),
+  const grants = [worker, ...["history-bytes-wire.js", "history-source.js", "history-record-scope.js", "history-sdk.js", "history-selection.js", "history-metadata.js", "history-observation.js"].map(v => path.join(__dirname, v)),
     ...["projection.js", "claude-history.js", "claude-history-value.js"].map(v => path.resolve(__dirname, "../../../public/modules", v)),
     sdkPath, path.join(path.dirname(sdkPath), "package.json")];
   return { executable: process.execPath, args: ["--permission", "--no-warnings", "--max-old-space-size=128", ...grants.map(v => `--allow-fs-read=${v}`), worker],
     options: { cwd: __dirname, env: { LANG: "C", LC_ALL: "C" }, stdio: ["pipe", "pipe", "pipe"], windowsHide: true, detached: false, shell: false } };
 }
-module.exports = { WIRE_VERSION, LIMITS, keys, detach, validRequest, validPage, validIdentity, validNativeChecks, validNativeSnapshot,
+module.exports = { WIRE_VERSION, METADATA_WIRE_VERSION, LIMITS, keys, detach, validRequest, validPage, validIdentity, validNativeChecks, validNativeSnapshot,
   sourceVersion, validSourceVersion, sameSourceVersion, validJob, validBytes, encodeJob, readJob, readResponse, encodeResponse, launchOptions };

@@ -23,6 +23,7 @@ function inventory(entries, source) {
 async function fixture(t, count = 1, options = {}) {
   const rows = [], indexes = [], states = [], budgets = []; let contentBudget, closed = false;
   const state = { tokens: [{ id: "master", hash: primary }, { id: "12345678", hash: secondary }], paired: null };
+  const titles = { calls: 0, hold: false, finish: null, alter: null };
   const host = createHistoryHost({ config: config(count), browserCredentials: () => state.tokens, peerGrantIds: () => [grant],
     authenticatePeerCredential: token => token === peer ? { grantId: grant } : null, resolvePeer: () => state.paired,
     sourceIndexFactory(opts) {
@@ -48,20 +49,34 @@ async function fixture(t, count = 1, options = {}) {
       return { bind(input) {
         const row = { ...input, revoked: false }; rows.push(row);
         return { kind: "bound_source", revoke() { row.revoked = true; }, status: () => ({ revoked: row.revoked, activeWorker: false, cleanupConfirmed: true }),
+          async metadata(request, { signal }) {
+            titles.calls++;
+            if (titles.hold) await new Promise(resolve => {
+              titles.finish = () => { signal.removeEventListener("abort", cancel); resolve(); };
+              const cancel = () => titles.finish(); signal.addEventListener("abort", cancel, { once: true });
+            });
+            const identity = structuredClone(states.find((_, n) => group(n).projectsRoot === input.source.projectsRoot).entries.find(e => e.sessionId === input.source.sessionId).identity);
+            const value = { kind: "bound_session_metadata", ...request, sourceVersion: "e".repeat(64),
+              source: { kind: "native_source_bytes", sessionId: input.source.sessionId, byteLength: identity.size, sha256: "f".repeat(64), identity,
+                checks: { owner: "posix_euid_and_mode", acl: "no_extended_acl", containment: "root_identity_and_openat_nofollow", reads: 2, matchingBytes: true, unchangedObservedIdentity: true },
+                sourceAuthenticated: false, publishable: false }, metadata: { sessionId: input.source.sessionId, nativeTitle: "原生標題 🐾", summary: "獨立摘要", titleStatus: "native" },
+              sourceAuthenticated: false, publishable: false, cleanupConfirmed: true };
+            titles.alter?.(value); return value;
+          },
           async observe() { return unavailable("source_missing"); } };
       }, status: () => ({ closed, quarantined: false }), async shutdown() { closed = true; return { cleanupConfirmed: true }; } };
     }, ...options });
   const server = http.createServer(async (req, res) => { if (!await host.handle(req, res)) res.writeHead(404).end(); });
   server.listen(0, "127.0.0.1"); await once(server, "listening");
   const url = `http://127.0.0.1:${server.address().port}`;
-  t.after(async () => { for (const s of states) s.finish?.(); await host.shutdown(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+  t.after(async () => { for (const s of states) s.finish?.(); titles.finish?.(); await host.shutdown(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
   async function request(route, data = {}, token = primary, view = randomUUID(), peerAuth = false) {
     const response = await fetch(url + route, { method: "POST", headers: { "Content-Type": "application/json", origin,
       "X-Stepsemble-History-CSRF": "1", "X-Stepsemble-History-View": view,
       ...(peerAuth ? { authorization: `Bearer ${token}` } : { cookie: `stepsemble=${token}` }) }, body: JSON.stringify(data) });
     return { status: response.status, value: await response.json() };
   }
-  return { host, state, rows, indexes, states, budgets, contentBudget, url, request,
+  return { host, state, rows, indexes, states, titles, budgets, contentBudget, url, request,
     page: (data = body(), token = primary) => request("/api/history/source-catalog", data, token) };
 }
 test("v2 source groups are explicit, strict, bounded, non-overlapping and compatible with v1 manual catalogs", () => {
@@ -168,4 +183,78 @@ test("group cleanup failure quarantines the shared Host and cached shutdown neve
   const stopped = await h.host.shutdown(); assert.equal(stopped.cleanupConfirmed, false); assert.equal(stopped.quarantined, true);
   h.states[0].cleanup = true; assert.equal(h.host.status().admission.cleanupConfirmed, true);
   assert.equal(h.host.status().admission.quarantined, true); assert.equal((await h.host.shutdown()).cleanupConfirmed, false);
+});
+const metadataBody = page => ({ sourceId: page.sourceId, catalogId: page.entries[0].catalogId, snapshotId: page.snapshotId, requestId: randomUUID() });
+test("metadata HTTP uses short-lived shared registry slots without replacing the same caller's active conversation", async t => {
+  const h = await fixture(t), page = (await h.page(body("source-0", { refresh: true }))).value, viewId = randomUUID(), request = metadataBody(page);
+  assert.equal((await h.request("/api/history/registrations", { catalogId: request.catalogId, viewId }, primary, viewId)).value.kind, "history_registration");
+  for (let i = 0; i < 70; i++) {
+    const response = await h.request("/api/history/source-metadata", { ...request, requestId: randomUUID() }, primary, viewId);
+    assert.equal(response.status, 200, response.value.code); assert.equal(response.value.metadata.nativeTitle, "原生標題 🐾");
+    for (const privateField of ["projectsRoot", "expectedRoot", "readers", "identity", "mtimeNs", "sourceVersion", "bindingId", "cleanupConfirmed"])
+      assert.equal(Object.hasOwn(response.value, privateField), false);
+    assert.equal(h.host.status().registry.activeSlots, 1); assert.equal(h.rows[0].revoked, false);
+  }
+  assert.equal(h.host.status().registry.retainedSlots, 2); assert.equal(h.titles.calls, 70); assert.equal(h.states[0].calls, 1, "metadata never refreshes or expands the inventory");
+});
+test("metadata request rejects mismatched group, stale snapshot and unauthorized readers before registering or loading", async t => {
+  const h = await fixture(t, 2), page = (await h.page(body("source-0", { refresh: true }))).value, request = metadataBody(page);
+  for (const change of [r => { r.sourceId = "source-1"; }, r => { r.snapshotId = randomUUID(); }, r => { r.catalogId = "claude-" + "f".repeat(64); }]) {
+    const changed = { ...request }; change(changed); assert.equal((await h.request("/api/history/source-metadata", changed)).value.kind, "source_unavailable");
+  }
+  assert.equal((await h.request("/api/history/source-metadata", request, secondary)).value.code, "history_source_unavailable");
+  for (const changed of [{ ...request, projectsRoot: "/private" }, { ...request, snapshotId: null }, { ...request, requestId: "wrong" }, { ...request, page: {} }])
+    assert.equal((await h.request("/api/history/source-metadata", changed)).status, 400);
+  assert.equal(h.titles.calls, 0); assert.equal(h.rows.length, 0);
+});
+test("metadata publishes only the indexed identity and exact captured session; failed replies release ephemeral bindings", async t => {
+  const h = await fixture(t), page = (await h.page(body("source-0", { refresh: true }))).value, request = metadataBody(page);
+  h.titles.alter = v => { v.source.identity.mtimeNs = "999"; };
+  assert.equal((await h.request("/api/history/source-metadata", request)).value.code, "history_catalog_changed");
+  for (const alter of [v => { v.source.sessionId = sid(9); }, v => { v.metadata.sessionId = sid(9); },
+    v => { v.metadata.source = "/private"; }, v => { v.publishable = true; }, v => { v.cleanupConfirmed = false; }, v => { v.requestId = randomUUID(); }]) {
+    h.titles.alter = alter; assert.equal((await h.request("/api/history/source-metadata", request)).value.code, "history_response_invalid");
+    assert.equal(h.host.status().registry.activeSlots, 0);
+  }
+  h.titles.alter = v => { v.metadata.nativeTitle = null; v.metadata.titleStatus = "untitled"; };
+  const untitled = (await h.request("/api/history/source-metadata", request)).value;
+  assert.equal(untitled.metadata.nativeTitle, null); assert.equal(untitled.metadata.summary, "獨立摘要");
+});
+test("pending metadata cannot publish after catalog refresh, group withdrawal, or logout", async t => {
+  for (const mode of ["refresh", "group", "logout"]) {
+    const h = await fixture(t), page = (await h.page(body("source-0", { refresh: true }))).value, request = metadataBody(page);
+    h.titles.hold = true; const pending = h.request("/api/history/source-metadata", request);
+    for (let i = 0; i < 500 && !h.titles.finish; i++) await new Promise(r => setTimeout(r, 10));
+    assert.ok(h.titles.finish);
+    if (mode === "refresh") await h.page(body("source-0", { refresh: true }));
+    if (mode === "group") h.host.revokeSourceGroup("source-0");
+    if (mode === "logout") { h.state.tokens = []; h.host.credentialsChanged(); }
+    h.titles.finish(); const reply = await pending;
+    assert.equal(reply.value.kind, "source_unavailable"); assert.equal(h.host.status().registry.activeSlots, 0);
+    if (mode === "refresh") assert.equal(reply.value.code, "history_catalog_changed");
+    if (mode === "logout") assert.equal(reply.status, 401);
+  }
+});
+test("dedicated relay validates metadata and uses no gateway registration to expose a title", async t => {
+  const upstream = await fixture(t), gateway = await fixture(t); gateway.state.paired = { url: upstream.url, credential: peer, grantId: grant };
+  const page = (await gateway.request("/r/owned/api/history/source-catalog", body("source-0", { refresh: true }))).value, request = metadataBody(page);
+  const reply = await gateway.request("/r/owned/api/history/source-metadata", request);
+  assert.equal(reply.status, 200); assert.equal(wire.validMetadata(reply.value, request), true);
+  assert.equal(gateway.rows.length, 0); assert.equal(gateway.titles.calls, 0); assert.equal(upstream.rows.length, 1); assert.equal(upstream.rows[0].revoked, true);
+  upstream.titles.alter = v => { v.metadata.nativeTitle = 123; };
+  assert.equal((await gateway.request("/r/owned/api/history/source-metadata", request)).value.code, "history_response_invalid");
+  gateway.state.paired = null; gateway.host.peerChanged("owned");
+  assert.equal((await gateway.request("/r/owned/api/history/source-metadata", request)).value.code, "history_source_unavailable");
+});
+test("public metadata wire rejects extra fields, controls, wrong correlation, unsupported status and excessive title data", () => {
+  const request = { sourceId: "owned", catalogId: "claude-" + "a".repeat(64), snapshotId: randomUUID(), requestId: randomUUID() };
+  const reply = { kind: "history_source_metadata", ...request, metadata: { sessionId: sid(1), nativeTitle: "Original", summary: "Preview", titleStatus: "native" }, sourceAuthenticated: false, publishable: false };
+  assert.equal(wire.validMetadata(reply, request), true);
+  for (const alter of [v => { v.snapshotId = randomUUID(); }, v => { v.requestId = randomUUID(); }, v => { v.catalogId = "wrong"; },
+    v => { v.sourceId = "wrong"; }, v => { v.sourceVersion = "private"; }, v => { v.publishable = true; }, v => { v.sourceAuthenticated = true; },
+    v => { v.metadata.titleStatus = "not_loaded"; }, v => { v.metadata.nativeTitle = null; }, v => { v.metadata.summary = "s".repeat(4097); },
+    v => { v.metadata.nativeTitle = "t".repeat(1025); }, v => { v.metadata.nativeTitle = "\u0000"; }, v => { v.metadata.sessionId = "wrong"; },
+    v => { v.metadata.path = "/private"; }]) {
+    const value = structuredClone(reply); alter(value); assert.equal(wire.validMetadata(value, request), false);
+  }
 });

@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.51
+> 計畫版本：1.52
 > 最後更新：2026-09-08
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,7 +15,13 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新增量 1.51（開發版仍3.0.7-rc.5，未部署）**：source-group v2設定、readers範圍、
+**最新增量 1.52（開發版仍3.0.7-rc.5，未部署）**：原生名稱使用固定Claude SDK
+`getSessionInfo`＋既有captured SessionStore取得；customTitle與summary分開，缺名不冒充。
+名稱與內容共用兩flight／64registry slots，HTTP/relay回傳前再驗indexed identity及
+snapshot/reader權限。TypeScript sources/catalog/metadata transport已實作並通真Host鏈；
+Web來源操作與lazy名稱呈現尚未接線，C1及其餘完整體gate未完成。見[來源群組接線](history-source-groups.md)。
+
+**前一增量 1.51（開發版仍3.0.7-rc.5，未部署）**：source-group v2設定、readers範圍、
 Host同instance接線、dynamic resolver／增改刪撤銷與50列snapshot分頁已接入實際HTTP及
 dedicated relay。最低Node22.19真Rust→source-catalog→dynamic bind→SDK合成Host鏈已驗；
 沒有新增私人來源。原生title明示not_loaded，Web來源UI／其他harness仍待，不能說C1已完。
@@ -91,9 +97,9 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 | Claude 歷史認證／relay | rc.3 已接既有 credential／Host 選擇，未部署 | private config逐來源授權browser/peer，Origin/CSRF、invalid bearer不fallback、logout/login/token/grant/machine/shutdown撤銷已接線；relay只用dedicated peer，gateway維護bounded downstream owner/view映射。不是下游來源ACL／end-to-end delegation／native provenance，見history-host-integration.md |
 | Claude SDK 執行bytes | exact verified Buffer loader已實作 | bounded fd read＋固定SHA、sync resolve/load hooks執行已驗Buffer，獨立nonce避plain URL cache，每worker一次attempt。Node22.19.0實跑SDK全鏈通過；source ACL/atomic containment、依賴及OS sandbox仍未保證 |
 | 原生唯讀 reader 邊界 | Rust helper＋bytes-only SDK，rc.3 已接 Host／未部署 | POSIX逐層no-follow、trusted root identity、fd ACL/localFS、8MiB雙讀；macOS拒絕noowners，Windows來源仍unsupported。composite固定2flights、共用10s/1s、actual-close/quarantine；最低Node22.19合成Rust→SDK→actual Host gate本機過。逐commit跨OS證據與範圍見history-host-integration.md |
-| Claude原生來源探索 | Plan1.49核心已實作，未接Host/Web | explicit-root metadata双掃，10k entries／512projects／2048candidates／1MiB，fd owner/ACL/mount不降級；增改刪、exact-source ID與stale snapshot。沒有HOME掃描／私人來源／title推測；動態catalog/來源授權/原生metadata/全域預算仍待，見native-history-discovery.md |
+| Claude原生來源探索 | Plan1.51已接Host，Web待完成 | explicit-root metadata双掃，10k entries／512projects／2048candidates／1MiB，fd owner/ACL/mount不降級；增改刪、exact-source ID與stale snapshot。沒有HOME掃描／私人來源；動態catalog/來源授權/全域預算已接線，見native-history-discovery.md及history-source-groups.md |
 | 原生歷史共用reader預算 | Plan1.50已實作／合成鏈已驗 | Host-owned兩個flight供inventory與完整content pipeline共用、無queue、actual-close／永久quarantine及Host合併shutdown；source-group尚未掛HTTP，未部署，見history-reader-admission.md |
-| 原生來源群組／動態catalog | Plan1.51已接實際Host／HTTP，未部署 | v2私有設定最多8組、每組2048candidate／50列分頁、同Host兩flight、逐reader範圍、dynamicrevision及同步撤銷、dedicatedrelay、actualRust＋SDK合成鏈；原生title及Web來源UI待完成，見history-source-groups.md |
+| 原生來源群組／動態catalog | Plan1.52已接原生名稱及TS transport，未部署 | v2私有設定最多8組、每組2048candidate／50列分頁、同Host兩flight、逐reader範圍、dynamicrevision及同步撤銷、dedicatedrelay；原生title/summary分離與snapshot/identity fence通最低Node22.19真SDK合成鏈。Web來源UI/lazy名稱仍待，見history-source-groups.md |
 | Claude clone記憶體嘗試 | 已量測並撤回 | 同workload兩次12輪，structuredClone＋提前清引用讓worker高水位合計中位數421.164→408.852MiB，但round283.539→296.171ms。沒有證明順滑度改善，保留原JSON clone並存完整before/after與重現方法；memory優化仍待，見claude-history-performance.md |
 | Claude 官方登入入口 | Mini當前detected，正式3.0.6 | 使用者回報瀏覽器登入，助手回completed／detected；另行同意的直接CLI最小模型測試成功。metadata API仍liveVerified=false，不以一次成功保證永久有效；不自動修憑證／重試模型，詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
@@ -1046,6 +1052,15 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-08 — Plan 1.52
+
+- C1原生名稱改走固定SDK0.3.259 `getSessionInfo`；只允許一次exact captured SessionStore load，禁止append／跨session／額外load。customTitle（含SDK原生aiTitle選擇）與summary分開；沒有title回untitled，不用firstPrompt/UUID/檔名/來源label偽裝。1024字title／4096字summary及型別/控制字元上限，不寫native來源或存額外title快取。
+- 私有v3 metadata bytes-worker與v2內容分頁operation隔離，同樣pin／nonce/request/session/hash/identity/version驗證與13個exact code/SDK read grants，無source directory/write/spawn權限；service共用原兩flight、deadline/actualclose/quarantine。Registry同64slot共用metadata claim，Host ephemeral view不干擾使用者正在讀的對話，70次連續查詢實測只保留2slots（其中1為既有active view）。
+- 新source-metadata HTTP／dedicated relay與strict TS三個source操作；Host發布前驗原index snapshot／entryrevision／完整capturedidentity及目前reader authority，來源檔案改名但未refresh也拒舊metadata。只公開受限nativeTitle/summary/sessionId，不公開private路徑/readers/identity/binding/versiontoken。request byte/deadline/decoded stream cap與取消沿既有transport，沒有auto fallback/scan/retry。
+- 真最低Node22.19 actual server.js→Rust capture→permissioned SDK→新HTTP→compiledTS transport，四個合成來源驗native title／未命名摘要、改名、舊snapshot/identity拒絕、零私人history/model及清理；`actualMetadataGate=passed`。新增純selection／wire／worker/service／registry／Host/relay／HTTP／client對照與取消測試，完整TAP保留，當批CI逐SHA另核對。
+- 本批沒有GUI操作、真機或完整效能驗收；Web來源選擇/refresh/paging/lazy名稱仍待，C1不是完成，C2–C8照舊。B+、正式3.0.6、帳號/路由/私人來源與固定ab227af72h未變；版本仍rc.5，沒有stable release或部署。
+- 本機最終730tests＝728pass／2平台skip／0fail，native聚焦90/90、HTTP/TS聚焦57/57；strictTS/generated/syntax/version/actionlint及Ajv1251通過。最低Node22.19真SDK pipeline已以compiledTS transport重跑；跨OS當批exact CI仍需核對。
 
 ### 2026-09-08 — Plan 1.51
 

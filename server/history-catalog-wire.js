@@ -1,6 +1,6 @@
 "use strict";
 // Public, bounded metadata contract. No source paths, readers, file identities,
-// raw inventory, transcript previews or inferred/native authority.
+// raw inventory or inferred/native authority. SDK metadata is a separate read.
 const exact = (v, names) => v && typeof v === "object" && !Array.isArray(v)
   && Object.keys(v).sort().join() === [...names].sort().join();
 const reference = v => typeof v === "string" && /^[A-Za-z0-9:_-]{1,128}$/.test(v);
@@ -35,4 +35,19 @@ function validPage(v, request, codes) {
     && (v.snapshotId !== null || v.total === 0 && v.stale === true)
     && v.sourceAuthenticated === false && v.publishable === false;
 }
-module.exports = { validSources, validRequest, validPage };
+function validMetadataRequest(v) {
+  return exact(v, ["sourceId", "catalogId", "snapshotId", "requestId"]) && reference(v.sourceId)
+    && typeof v.catalogId === "string" && /^claude-[a-f0-9]{64}$/.test(v.catalogId) && uuid(v.snapshotId) && uuid(v.requestId);
+}
+function validMetadata(v, request) {
+  const metadataText = (v, max) => typeof v === "string" && v.length > 0 && v.length <= max
+    && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(v);
+  return validMetadataRequest(request) && exact(v, ["kind", "sourceId", "catalogId", "snapshotId", "requestId", "metadata", "sourceAuthenticated", "publishable"])
+    && v.kind === "history_source_metadata" && Object.keys(request).every(k => v[k] === request[k])
+    && exact(v.metadata, ["sessionId", "nativeTitle", "summary", "titleStatus"]) && uuid(v.metadata.sessionId)
+    && (v.metadata.summary === null || metadataText(v.metadata.summary, 4096))
+    && (v.metadata.titleStatus === "native" && metadataText(v.metadata.nativeTitle, 1024)
+      || v.metadata.titleStatus === "untitled" && v.metadata.nativeTitle === null)
+    && v.sourceAuthenticated === false && v.publishable === false;
+}
+module.exports = { validSources, validRequest, validPage, validMetadataRequest, validMetadata };

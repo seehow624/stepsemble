@@ -59,6 +59,15 @@ function createSourceIndex(options) {
     const row = lookupEntries.get(catalogId);
     return row ? { source: { ...row.entry.source }, revision: row.revision } : null;
   }
+  function matchesIdentity(principal, catalogId, identity) {
+    if (!allowed(principal) || failure()) return false;
+    const expected = lookupEntries.get(catalogId)?.entry.identity;
+    const value = canonicalJSON(identity, 1024);
+    if (!expected || value === null) return false;
+    const actual = JSON.parse(value);
+    return own(actual, Object.keys(expected)) && Object.keys(actual).length === Object.keys(expected).length
+      && Object.keys(expected).every(key => expected[key] === actual[key]);
+  }
   function page(principal, request) {
     const state = metadata(principal); if (state.kind === "source_unavailable") return state;
     if (!wirePage(request)) return unavailable("invalid_history_request");
@@ -166,7 +175,7 @@ function createSourceIndex(options) {
     }
     return shutdownPromise;
   }
-  return Object.freeze({ refresh, view, metadata, lookup, page, revokePrincipal, shutdown,
+  return Object.freeze({ refresh, view, metadata, lookup, matchesIdentity, page, revokePrincipal, shutdown,
     status: () => {
       const shared = admission.status();
       return { closed: closed || shared.closed, quarantined: quarantined || shared.quarantined,

@@ -9,6 +9,7 @@ const wire = require("../protocol/native/claude/history-bytes-wire");
 const fixture = require("../protocol/native/claude/history-fixture.cjs");
 const { parseHistoryBytes } = require("../protocol/native/claude/history-source");
 const { selectHistory } = require("../protocol/native/claude/history-selection");
+const { selectMetadata } = require("../protocol/native/claude/history-metadata");
 const testCase = fixture.richCases("/synthetic")[0];
 const source = { projectsRoot: path.resolve("owned-composite-projects"), projectKey: "-owned", sessionId: testCase.sessionId };
 const helperPath = path.resolve("owned-composite-bin/helper"), sdkPath = path.resolve("owned-sdk/sdk.mjs");
@@ -65,7 +66,7 @@ function harness(options = {}) {
       child.close = (code = 0, signal = null) => { if (child.active) { child.active = false; free(); } child.emit("close", code, signal); };
       child.kill = () => { child.kills++; if (!options.holdWorkerClose) child.close(null, "SIGKILL"); return true; };
       child.reply = (result, close = true) => {
-        const job = child.job(); child.stdout.write(JSON.stringify({ protocolVersion: 2, nonce: job.nonce, request: job.request, result }) + "\n");
+        const job = child.job(); child.stdout.write(JSON.stringify({ protocolVersion: job.protocolVersion, nonce: job.nonce, request: job.request, result }) + "\n");
         if (close) child.close();
       };
       children.push(child); options.onWorkerSpawn?.(child); return child;
@@ -77,6 +78,62 @@ async function start(h, options = {}) {
   h.helpers.find(h => h.active).finish(); await tick();
   const child = h.children.at(-1); child.reply(await history(child.job())); return pending;
 }
+async function titleResult(job) {
+  return selectMetadata({ ...job.snapshot, kind: "source_snapshot", records: testCase.records }, async (sid, options) => {
+    await options.sessionStore.load({ projectKey: options.dir.replace(/[^a-zA-Z0-9]/g, "-"), sessionId: sid });
+    return { sessionId: sid, customTitle: "原生名稱", summary: "separate summary" };
+  });
+}
+test("native metadata uses the same capture/actual-close/version lifecycle and rejects page options", async () => {
+  const h = harness();
+  assert.equal((await h.bound.metadata(request, { page })).code, "invalid_history_options");
+  assert.equal(h.helpers[0].calls.length, 0);
+  const pending = h.bound.metadata(request); h.helpers[0].finish(); await tick();
+  const child = h.children[0]; assert.equal(child.job().protocolVersion, 3); assert.equal(Object.hasOwn(child.job().history, "page"), false);
+  child.reply(await titleResult(child.job()), false);
+  assert.equal(h.bound.status().activeWorker, true, "stdout alone is not actual child close");
+  child.close(); const result = await pending;
+  assert.equal(result.kind, "bound_session_metadata"); assert.equal(result.metadata.nativeTitle, "原生名稱"); assert.equal(result.cleanupConfirmed, true);
+  assert.equal(result.source.kind, "native_source_bytes"); assert.equal(Object.hasOwn(result, "history"), false);
+  assert.equal((await start(h, { version: result.sourceVersion })).kind, "bound_history_observation", "metadata token refers to the same captured bytes");
+  const changed = h.bound.metadata(request, { version: result.sourceVersion }), bytes = captured(); bytes.identity.inode = "9";
+  h.helpers[0].finish(bytes); assert.equal((await changed).code, "source_version_changed"); assert.equal(h.children.length, 2);
+  await h.service.shutdown();
+});
+test("metadata and content share two permits; no third operation or hidden metadata queue", async () => {
+  const admission = createReaderAdmission(), h = harness({ admission, allowOtherHelperActive: true });
+  const id = fixture.uuid(773), second = h.service.bind({ ...binding, bindingId: id }), scan = sharedIndex(admission);
+  const title = h.bound.metadata(request), content = second.observe({ ...request, bindingId: id }, { page });
+  assert.equal(admission.status().activeWorkers, 2); assert.equal((await scan.index.refresh("owner")).code, "source_busy");
+  assert.equal((await h.bound.observe(request, { page })).code, "source_busy");
+  h.helpers[0].finish(); await tick(); assert.equal(admission.status().activeWorkers, 2);
+  h.children[0].reply(await titleResult(h.children[0].job())); assert.equal((await title).kind, "bound_session_metadata");
+  h.helpers[1].finish(); await tick(); h.children[1].reply(await history(h.children[1].job())); await content;
+  assert.equal(admission.status().cleanupConfirmed, true); assert.equal(h.maxPhysical(), 2);
+  await Promise.all([h.service.shutdown(), scan.index.shutdown()]);
+});
+test("metadata cancellation and unknown actual-close quarantine the shared service instead of reusing a live worker", async () => {
+  const admission = createReaderAdmission(), h = harness({ admission, holdWorkerClose: true }), controller = new AbortController();
+  const pending = h.bound.metadata(request, { signal: controller.signal }); h.helpers[0].finish(); await tick(); controller.abort();
+  assert.equal((await pending).code, "source_cleanup_unconfirmed"); assert.equal(h.children[0].kills, 1);
+  assert.equal(admission.status().quarantined, true); assert.equal((await h.bound.metadata(request)).code, "source_service_quarantined");
+  assert.equal(h.children.length, 1); h.children[0].close(null, "SIGKILL");
+  assert.equal(admission.status().cleanupConfirmed, true); assert.equal((await h.service.shutdown()).quarantined, true);
+});
+test("registry metadata claims exact ownership and refuses a completion after credential revocation", async () => {
+  const h = harness(); let active = true;
+  const registry = createHistoryRegistry({ sourceService: h.service, catalog: [{ catalogId: "owned", source }],
+    authorize: p => p === "owner", principalActive: p => p === "owner" && active });
+  const receipt = registry.register("owner", { catalogId: "owned", viewId: fixture.uuid(774) });
+  const scope = { bindingId: receipt.bindingId, generation: receipt.generation, viewId: receipt.viewId }, metadataRequest = { ...scope, requestId: request.requestId };
+  assert.equal((await registry.metadata("stranger", metadataRequest)).code, "history_binding_unavailable");
+  assert.equal((await registry.metadata("owner", { ...metadataRequest, page })).code, "invalid_history_request");
+  const pending = registry.metadata("owner", metadataRequest);
+  assert.equal(registry.cancelRegistration("owner", receipt), false, "metadata irreversibly claims the private receipt");
+  h.helpers[0].finish(); await tick(); active = false; registry.revokePrincipal("owner");
+  assert.equal((await pending).code, "history_binding_unavailable"); assert.equal(h.children[0].kills, 1);
+  assert.equal((await registry.shutdown()).cleanupConfirmed, true);
+});
 
 function sharedIndex(admission, sourceId = "group-a") {
   let finish, active = false, closed = false, calls = 0;
