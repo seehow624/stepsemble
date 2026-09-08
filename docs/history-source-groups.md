@@ -190,7 +190,8 @@ selector，沒有runtime變動**：
   三OS742tests/0fail，pass/skip同上。上面的native gate屬runtime相同的c88f526，
   不冒稱f1f47ca另外跑過未觸發的workflow。所有log已逐項核對。
 
-仍未完成：owner來源授權體驗／history完整i18n／真Safari與跨機／其他harness原生
+Plan1.56已補history UI的119keys/11語與切換保留，見[history-localization.md](history-localization.md)。
+仍未完成：owner來源授權體驗／多語人工校稿／真Safari與跨機／其他harness原生
 歷史與session/approval/durable／完整性能與發布關卡；C1及整個Web goal不勾完成。
 
 ## 前批 Plan 1.51 驗收

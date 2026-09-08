@@ -13,7 +13,7 @@ Plan 1.56，開發候選 `3.0.7-rc.7`，2026-09-08。這是 C1/C5 的增量，
   是資料，不走文字猜測翻譯；不是把 native 的「Refresh」誤譯成 UI。字數裁切通知另放，
   不混進原文。這不取消既有 10 則 DOM／內容區塊／文字上限。
 - 翻譯只更新 keyed 文字及屬性，保留原 DOM、展開狀態、焦點、已讀內容和內層捲動。
-  參數有 byte/key/type 上限，單次插值不重複展開值內的 placeholder；不使用 HTML 解析。
+  參數有字元/key/type 上限，單次插值不重複展開值內的 placeholder；不使用 HTML 解析。
 - locale 切換不呼叫 read/register/refresh/resume/approval，不載入翻譯服務、字型或外部圖示。
   新字典只在歷史頁載入，不加進工作區首頁的 JavaScript 載入路徑。
 
@@ -50,7 +50,18 @@ Plan 1.56，開發候選 `3.0.7-rc.7`，2026-09-08。這是 C1/C5 的增量，
 
 ## Exact CI
 
-本批程式 commit/push 後另填實際 run 與完整 log 結果；目前不宣稱跨 OS 已通。
+程式 `f7f1f17eec8a74fc6fe50e464375e8ef31e97123` 已 push；下列四組均完成 success，
+完整 log 已核對，不繼承舊 SHA 的結果。
+
+| Gate | Exact 結果 |
+| --- | --- |
+| [一般 CI34237527689](https://github.com/seehow624/stepsemble/actions/runs/34237527689) | 三 OS 各 777 tests／0 fail；Mac775pass/2skip、Linux774/3、Windows745/32；各 Ajv1251 通 |
+| [瀏覽器34237527690](https://github.com/seehow624/stepsemble/actions/runs/34237527690) | Mac/Linux 各 24 cases 全 passed/pageErrors0；其中各六組 1440/390/320×明暗驗 11 語言、原文/DOM/focus/scroll 保留、localeReads0；每個 owned Host cleanupConfirmed |
+| [原生 reader34237527771](https://github.com/seehow624/stepsemble/actions/runs/34237527771) | Rust Mac17/Linux17/Win8 tests，Node 各77/77；POSIX actualHost/sourceGroups/metadata/shared gate 通、remaining0。Windows native 仍明確 unsupported；RustSec locked audit 0 known vulnerabilities／0 warnings |
+| [Claude SDK34237527724](https://github.com/seehow624/stepsemble/actions/runs/34237527724) | 三 OS 固定0.3.259離線合成歷史契約通，modelCalls0/nativeFileUnchanged；Windows snapshot/原生HTTP鏈仍 unsupported，不當完整來源讀取通過 |
+
+執行機完整 log：`/tmp/stepsemble-history-i18n-{ci,browser,reader,claude}.log`。
+CI browser 為 Chromium 合成來源，不是 Safari／真人帳號／真機／正式部署驗收。
 
 ## 仍未完成
 

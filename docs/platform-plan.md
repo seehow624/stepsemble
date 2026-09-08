@@ -19,7 +19,7 @@
 已接實際頁及preview；只翻譯明確UI，原生名稱/摘要/訊息/JSON/時間不變。頁首語言
 選擇沿用workspace、只作用本頁，不寫回設定或觸發歷史操作。CUA找出並修正語言
 切換時重複計算瀏覽器scroll anchoring的跳動；320px十一語／390px繁中工具歷史已驗。
-本機777tests/0fail、最低Node57/57，exact跨OS/browser CI另驗；真機/跨Host/人工校稿及
+本機777tests/0fail、最低Node57/57，exact四組CI全過（browser雙OS各24cases）；真機/跨Host/人工校稿及
 C1–C8整體仍未完成，詳[歷史多語言](history-localization.md)。正式與獨立72h不動。
 
 **前一增量 1.55（開發版仍3.0.7-rc.6，未部署）**：Codex 原生歷史新增有界、
@@ -1094,6 +1094,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 - 真Host/Rust/固定SDK合成CUA320px發現德日切換約83px跳動，修正以layout後scrollY補償，避免重複套用瀏覽器anchor。新origin重驗十一語累積偏差<1.5px，原文/focus/list位置不變、44px/無横溢，390px工具歷史與console0；兩個owned Host都cleanup確認，無私人讀取/模型。
 - 新9tests，本機npm777＝775pass/2skip/0fail、最低Node22.19聚焦57/57，strictTS/generated/syntax/version/actionlint/Ajv1251通。新增Mac/Linux各六組native browser多語及no-read gate，exact CI後續記於history-localization.md；測試腳本不當成成功。先前未定位偶發失敗仍未釐清。
 - rc.7只同步開發asset/cache版本；B+、正式3.0.6、私人root/readers、登入/route與固定72h不變。人工校稿/真機/跨Host、其他adapter及C1–C8完整體gate未完成。
+- Exact程式f7f1f17eec8a74fc6fe50e464375e8ef31e97123四組CI全過且完整logs核實：一般34237527689三OS777/0fail及Ajv1251；rolling34237527690雙OS各24cases/pageErrors0，其中各六組native多語11/原文focusscroll保留/localeReads0/cleanup確認。reader34237527771 Rust17/17/8、Node各77、POSIX actualHost/sourceGroups/metadata/shared通及locked audit0/0；Claude34237527724三OS固定SDK/model0/原檔不變。Windows完整native仍unsupported；不是全adapter/真機驗收。
 
 ### 2026-09-08 — Plan 1.55
 

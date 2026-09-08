@@ -93,6 +93,9 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
   新native browser多語、原文/focus/scroll/no-read gate依exact CI另验，詳
   [history-localization.md](history-localization.md)。正式/私人/模型/B+/独立72h不變；
   C1–C8未全部完成，不將人工校稿/真機/跨Host和其他adapter略過。
+  Exact f7f1f17 四組CI已全通：一般34237527689三OS777/0fail及Ajv1251、rolling34237527690
+  雙OS各24cases（各六native×11語/localeReads0/原文focusscroll不變）、reader34237527771
+  與Claude34237527724；完整logs及各平台skip/unsupported已記專題文件。
 
 - **2026-09-08／C2 observation 與缺漏保護，Plan1.55／rc.6不變**：有界保存
   native ID/name、完整原始item、turn狀態與未知欄位；不合成approval、不執行

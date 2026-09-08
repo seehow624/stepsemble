@@ -1,8 +1,9 @@
 # Claude 唯讀歷史：Host 接線與操作邊界
 
-**Plan1.52接續**：v2來源群組/readers、動態registry、分頁及原生title/summary HTTP／relay和TS transport已接實際Host，
-詳[history-source-groups.md](history-source-groups.md)。Web來源選擇與按需名稱UI尚未接上；
-下方單session設定／頁面仍為既有v1相容介面，不自動擴大分享。正式3.0.6不變。
+**Plan1.56接續**：v2來源群組/readers、動態registry、分頁及原生title/summary HTTP／relay和TS transport已接實際Host，
+Web來源選擇/按需名稱/50列分頁已實作，詳[history-source-groups.md](history-source-groups.md)。
+歷史頁119keys/11語及閱讀位置保留已接，詳[history-localization.md](history-localization.md)。
+下方單session設定仍為既有v1相容介面，不自動擴大分享。正式3.0.6不變。
 
 2026-09-08，3.0.7-rc.3 開發候選。**程式已接入實際 `server.js` 與 Web 導航，
 但尚未部署正式主機，也沒有登記／讀取使用者的私人歷史。**這不是完整 native
@@ -20,8 +21,8 @@ URL 只攜帶已選機器 ID，不能指定來源路徑、SDK、模型或憑證�
 關閉歷史、取消或離開頁面不停止原生 Agent 工作，也不是 worker 已關閉的證據。
 
 沒有設定、設定被拒絕或尚無授權來源，都顯示可重新確認的明確狀態；不以空白畫面
-或一般 `Failed` 冒充一個原生 session。這個試用頁目前使用繁體中文，工作區入口
-有完整11語系翻譯；歷史頁完整多語系仍待補。
+或一般 `Failed` 冒充一個原生 session。頁面沿用工作區語言，頁首提供只作用本頁的
+11語選單；原生內容、來源名稱與管理者說明保留原文。人工校稿與目標真機仍待驗收。
 
 ## 預設停用，操作員明確啟用
 
