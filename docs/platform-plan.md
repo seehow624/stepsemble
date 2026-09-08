@@ -19,8 +19,9 @@
 refresh、50列snapshot分頁與手機內捲動已接實際Host；只逐一載入可見名稱，保留
 原生title/summary分離及完整原文展開。名稱更新不重建列或內容，切換等待舊內容清理、
 只開最新選擇；stale/取消/撤銷/背景暫停與manual fallback已實作。合成Host CUA
-320/390px、64來源、改名/內容/焦點已驗，本機742tests/0fail；新增跨OS明暗CI gate
-待本批exact SHA結果。HTML入口改revalidate避免更新後沿用舊版本資源。沒有私人來源、
+320/390px、64來源、改名/內容/焦點已驗，本機742tests/0fail；新增Mac/Linux各六組
+明暗/尺寸native browser CI已通，exact SHA分層證據見來源群組文件。
+HTML入口改revalidate避免更新後沿用舊版本資源。沒有私人來源、
 正式部署或72h變動；C1整體與C2–C8仍未完成。見[來源群組接線](history-source-groups.md)。
 
 **前一增量 1.52（開發版3.0.7-rc.5，未部署）**：原生名稱使用固定Claude SDK
@@ -119,7 +120,7 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 ### 下一個可執行任務
 
 **1.53接續**：來源設定/registry/HTTP/relay、native title/TS及Web來源操作已接上，
-不重做。先核對本批exact CI，再补Web來源設定的可理解授權流程與history i18n／
+不重做；本批工程CI已核對。接著补Web來源設定的可理解授權流程與history i18n／
 跨機路由實機驗收，同時依C2推進其他agent原生adapter及C3durable/session gate。
 私人root/readers由owner選定、正式部署仍需既有gate；Windows／完整原生能力／
 跨機效能未完成，不能把Claude合成来源列表当作所有電腦對話已完整收錄。

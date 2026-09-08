@@ -162,7 +162,36 @@ Codex Computer Use→actual server.js→Rust→固定SDK，用64個owned合成�
 舊snapshot警示、manual4來源相容、console0error/warn；關閉後點同列可重開內容，
 三個GUI測試Host均actual cleanup，預覽分頁已關閉、viewport override已還原。
 本機觀察為dark，不冒稱Safari/手機實機或light實測；新增CI真native gate在Mac/Linux
-各跑1440/390/320×light/dark，結果依本批exact commit記錄，未沿用舊rolling綠燈。
+各跑1440/390/320×light/dark，全部通過，exact commit記錄如下。
+
+### Plan1.53 exact commit CI
+
+工程commit `c88f52668daa089f96f377964d8d0b6c7084b3c5`：
+
+- 一般CI [34224589995](https://github.com/seehow624/stepsemble/actions/runs/34224589995)
+  三OS742項/0fail：Mac740pass/2skip、Linux739/3、Windows710/32；各Ajv1251。
+- Reader [34224589935](https://github.com/seehow624/stepsemble/actions/runs/34224589935)
+  三OSNode77/77、Rust17/17/8；Mac/Linux actualHost/sourceGroups/Metadata/shared
+  gates全部passed；Windows actualHost仍unsupported。locked RustSec0known/0warnings。
+- NativeClaude [34224589996](https://github.com/seehow624/stepsemble/actions/runs/34224589996)
+  三OSSDK0.3.259、modelCalls0、nativeFileUnchanged true。
+- 首輪rolling34224590024雙OS在測試locator失敗：`.source-detail h2`同时選到外層
+  原生title與內層hiddenheading，不是native reader失敗。完整diagnostics保留。
+
+修正測試locator的 `f1f47caacdaeee6a1dceaa366fb206a99a6763b5` **只改測試script的四個
+selector，沒有runtime變動**：
+
+- 新[rolling34224865408](https://github.com/seehow624/stepsemble/actions/runs/34224865408)
+  Mac/Linux各24cases全部passed。每OS六組新native來源case確認64來源、50列、
+  noImplicitScan、visibleNamesOnly、stableFocusAndContent、fullNativeTitle、inertText、
+  paging、closeReopen、staleRecovery、manualFallback、0model/0private/0pageErrors；
+  每個ownedHost均cleanupConfirmed true。不是只重跑舊18cases。
+- 新[一般CI34224865394](https://github.com/seehow624/stepsemble/actions/runs/34224865394)
+  三OS742tests/0fail，pass/skip同上。上面的native gate屬runtime相同的c88f526，
+  不冒稱f1f47ca另外跑過未觸發的workflow。所有log已逐項核對。
+
+仍未完成：owner來源授權體驗／history完整i18n／真Safari與跨機／其他harness原生
+歷史與session/approval/durable／完整性能與發布關卡；C1及整個Web goal不勾完成。
 
 ## 前批 Plan 1.51 驗收
 

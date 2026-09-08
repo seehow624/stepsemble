@@ -91,7 +91,9 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
   snapshotpaging/stale/abort/背景pause/manual fallback。CUA真Host64個owned來源、
   320/390px無横溢、原生改名及正文、返回焦點、manual內容與console無error已驗；
   本機742＝740pass/2skip/0fail、Node22.19真pipelinecleanup確認。新增Mac/Linux
-  3尺寸×明暗的真native瀏覽器CI，結果待exact SHA。測試首輪只因rc.6 CHANGELOG
+  3尺寸×明暗的真native瀏覽器CI，f1f47ca雙OS各24cases（其中六個新sourcecases）
+  已通；程式c88f526的三OS一般/native/audit gates也通，見來源群組exact紀錄。
+  測試首輪只因rc.6 CHANGELOG
   尚未加而失敗，補上重跑通；不是以前678項unknownfail已定位。正式/私人/72h不變。
 
 - **2026-09-08／C1名稱與client transport，Plan1.52**：固定SDK透過captured store取得
