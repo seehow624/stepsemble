@@ -142,10 +142,37 @@ incoming grant 起完整應用程式，跑四種來源、版本改變／重新�
 device-grant revoke、logout。`check-native-history-pipeline.mjs` 已納入此 gate；
 Windows 明示 unsupported，不藉 skip 宣稱可讀。
 
+Linux 第一輪 `bcd9188` 的 actual Host catalog 曾回 source unavailable；
+Rust讀取與既有隔離鏈通過，但啟動設定拒絕 shared Cargo output。
+修正 `686e3c0` 把 helper、SDK與其package metadata複製到本次自有的0700測試目錄，
+使用exclusive create、獨立inode、helper0500／SDK0600，逐檔核對SHA及來源metadata。
+不chmod Cargo/NPM原檔，不放寬正式Host的single-link／mode policy。
+Linux job實際記錄helper原本nlink=2、副本nlink=1，兩者SHA同為
+`d96d97b82af7cb0dd33d4cda10ebb360cdf65ffa5840763d701aa0aba43deeba`；
+同一Rust artifact的actual Host四來源流程、revoke和cleanup修後通過。
+另補硬連結原件被Host拒絕／獨立副本接受、原檔mode不變、禁止覆寫與寬權限仍拒絕的回歸。
+這是可信測試fixture的artifact staging，不是已完成production安裝bootstrap的證據。
+
 本機 Node22.19.0 與22.22.3 actual Host gate通過，Rust release artifact
 `9045ccb6e22fbd3a08d02c91aa5b7b8a5b8e7263393c874fd6ef1cb9e0937aa0`，固定SDK。
 全部合成來源／artifact前後確認，owned helper/Host已關閉、測試檔回收；私人history與
-model calls均0。完整跨OS CI需以本批exact commit結果為準，不能借用前版綠燈。
+model calls均0。
+
+### 最終程式 CI（2026-09-08）
+
+程式與測試 commit **`686e3c0bd9d038d6695a2f3ba14d6ca5fc44d008`** 四組均完成，
+逐 job 記錄已核對；後續純文件 commit 的一般CI與這份程式證據分開記錄。
+
+| 檢查 | 結果與範圍 |
+| --- | --- |
+| [一般 CI 34188490692](https://github.com/seehow624/stepsemble/actions/runs/34188490692) | 三OS各641tests／0fail：Mac639pass2skip、Linux638pass3skip、Windows610pass31skip；每OS Ajv1251cases通過 |
+| [Native reader＋audit 34188490746](https://github.com/seehow624/stepsemble/actions/runs/34188490746) | Rust Mac11／Linux11／Windows7tests，另每OS Node44/44；Mac/Linux包含actual server.js四來源gate及confirmed cleanup。Windows原生source與actual Host gate仍明示unsupported |
+| [Native Claude 34188558271](https://github.com/seehow624/stepsemble/actions/runs/34188558271) | 三OS固定SDK的合成offline history contract；Mac/Linux HTTP/source gate過，Windows source gate unsupported；modelCalls0、nativeFileUnchanged=true |
+| [Rolling 34188556600](https://github.com/seehow624/stepsemble/actions/runs/34188556600) | Mac/Linux各15cases：真release雙向搭配8、Claude登入UI2、Pi session2、巢狀選資料夾3；pageErrors0。不是新history頁／Safari／SW／實機背景恢復的驗收 |
+
+Windows 的 skip／unsupported 不可寫成「Windows 原生歷史已支援」。Linux hardlink
+初次失敗見 [34187803290](https://github.com/seehow624/stepsemble/actions/runs/34187803290)，
+保留失敗與修正證據，不把重跑成功改寫成第一輪即全部通過。
 
 Computer Use 實際操作新版：登入、來源選擇、下一頁、來源變動保留舊頁、手動refresh、
 close清空；390×844及320×740無橫向溢出，可見button≥44px、DOM維持10則。

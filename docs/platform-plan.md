@@ -52,14 +52,14 @@
 | Claude 原生歷史讀取邊界 | SDK讀回／豐富內容觀察映射已驗 | 官方SDK0.3.259對應CLI2.1.259；只讀子程序不准spawn／write。合成工具／thinking／附件參照、中斷/API錯誤外層metadata及壓縮保留鏈通過；相同UUID原文核對、未知格式警示、整批拒絕混入/重複。前輪自己的兩則訊息讀回仍有效，本輪未再讀私有session。不是Web journal／approval ACK／resume，見 `protocol/native/claude/README.md` |
 | Claude 歷史來源快照 | POSIX唯讀一致性／跨平台parser已實作 | 單一指定source、UID/mode/regular/single-link/no-follow、同descriptor雙讀＋前後inode/size/ns時間、原始8MiB/1MiB line/2000rows caps；partial/malformed不當空history。不是authenticated source／ACL／atomic containment；Windows source gate明確unsupported，SDK合成reader仍可驗。未接正式服務 |
 | Claude 無sessionId附加紀錄 | 兩種固定版本格式已補 | 檔案snapshot/delta經2.1.259 writer bytes核對；parser/mapper共用scope規則，同檔whole-source訊息引用不能缺失／重複／借subagent。保留inert index/digest/refs、不填sessionId、不還原檔案；title UUID不進transcript graph。未知unscoped／partial仍拒絕，未上線 |
-| Claude 綁定／隔離讀取生命週期 | reserved service＋scoped registry已實作 | trusted immutable source handle＋generation/revoke fencing；共用2worker/無queue/64binding上限，固定Node唯讀子程序、10s budget＋1s cleanup。registry按principal/view/source分離、確認close後同slot高generation重用；未知cleanup仍quarantine。不是單檔OS隔離／硬即時或Windows ACL，未接正式Web |
+| Claude 綁定／隔離讀取生命週期 | rc.3 已接實際 Host，預設停用／未部署 | trusted immutable source handle＋generation/revoke fencing；共用2worker/無queue/64binding上限，10s budget＋1s cleanup。registry按principal/view/source分離；logout/revoke/shutdown已接線，actual-close後才釋放，unknown-close仍quarantine。不是單檔OS隔離／硬即時或Windows ACL |
 | Claude 快照選支／分頁效能 | pinned SDK已接隔離worker；局部量測完成 | 官方alpha SessionStore只讀同一份captured records，compaction不改原snapshot；最多100messages／256KiB整頁，不回raw records。7.6MB/2000rows本機三輪：parent處理43–45ms降至<1ms，但全程266–271ms、child約206–209MiB，仍非完整順滑度/記憶體驗收。未上線 |
 | Claude 分頁版本／雙worker | version fence及短測已實作 | first success才發binding內opaque token，續頁比對raw SHA＋dev/ino/size/ns mtime/ctime，worker在SDK前＋parent雙驗；觀察到變更即拒絕並撤銷token，失敗refresh不覆蓋。雙worker12輪/24讀、第三請求busy及cleanup通過；child high-water合計415–427MiB不是即時total RSS，另保留與全套測試並行時延遲較高的結果。沒有舊snapshot cache／來源auth或Windows ACL，未上線 |
-| Claude Client歷史視窗 | strict TS controller／isolated viewer已實作 | 同Host/binding/gen/session/sourceVersion及source identity才拼頁；單pending、舊ticket先於decode拒絕、refresh原子替換、失敗保留舊頁、stale禁止續頁。100/頁、500messages/32pages/2MiB；viewer一次最多10則，合成1000則在實際browser 1440/390/320 viewport驗過。不是正式UI／approval/resume/journal或實機效能驗收 |
+| Claude Client歷史視窗 | rc.3 已接 Web 導航／獨立頁，未部署 | 同Host/binding/gen/session/sourceVersion及source identity才拼頁；單pending、舊ticket拒絕、refresh原子替換、失敗保留舊頁、stale禁止續頁。100/頁、500messages/32pages/2MiB；DOM最多10則。actual Host合成來源在390/320px驗過，非跨機／真機／完整i18n或approval/resume/journal驗收 |
 | Claude共用browser provider | strict TS decoder／shared Host validator已實作 | 固定reader profile、完整source/observation shape共用generated JS；inner 256KiB、outer HTTP解壓後272KiB先限額再fatal UTF-8/JSON decode，拒getter/cycle/nonJSON。官方SDK→隔離worker→registry→HTTP→browser transport→controller合成鏈已驗，未接正式來源 |
-| Claude 歷史認證／relay | 隔離模組及HTTP測試已實作 | private identity接既有credential authority、Origin/CSRF、invalid bearer不fallback、bounded decoder、deadline/disconnect/revoke；relay只用dedicated peer，gateway維護bounded downstream owner/view映射。正式logout/rotation/device revoke/Host選擇尚未接線；不是end-user native source provenance，見history-access-design.md |
+| Claude 歷史認證／relay | rc.3 已接既有 credential／Host 選擇，未部署 | private config逐來源授權browser/peer，Origin/CSRF、invalid bearer不fallback、logout/login/token/grant/machine/shutdown撤銷已接線；relay只用dedicated peer，gateway維護bounded downstream owner/view映射。不是下游來源ACL／end-to-end delegation／native provenance，見history-host-integration.md |
 | Claude SDK 執行bytes | exact verified Buffer loader已實作 | bounded fd read＋固定SHA、sync resolve/load hooks執行已驗Buffer，獨立nonce避plain URL cache，每worker一次attempt。Node22.19.0實跑SDK全鏈通過；source ACL/atomic containment、依賴及OS sandbox仍未保證 |
-| 原生唯讀 reader 邊界 | Rust helper＋bytes-only SDK composite 已實作 | POSIX逐層no-follow、trusted root identity、fd ACL/localFS、8MiB雙讀；`c40dfec`三OS reader jobs過（Mac11/Linux11/Windows7 Rust tests），macOS拒絕noowners；Windows只有owned permission probe與unsupported gate。composite固定2flights、共用10s/1s、actual-close/quarantine；最低Node22.19合成Rust→SDK→HTTP/relay→provider全鏈通過，正式Web未接，見`native-history-reader.md` |
+| 原生唯讀 reader 邊界 | Rust helper＋bytes-only SDK，rc.3 已接 Host／未部署 | POSIX逐層no-follow、trusted root identity、fd ACL/localFS、8MiB雙讀；macOS拒絕noowners，Windows來源仍unsupported。composite固定2flights、共用10s/1s、actual-close/quarantine；最低Node22.19合成Rust→SDK→actual Host gate本機過。逐commit跨OS證據與範圍見history-host-integration.md |
 | Claude clone記憶體嘗試 | 已量測並撤回 | 同workload兩次12輪，structuredClone＋提前清引用讓worker高水位合計中位數421.164→408.852MiB，但round283.539→296.171ms。沒有證明順滑度改善，保留原JSON clone並存完整before/after與重現方法；memory優化仍待，見claude-history-performance.md |
 | Claude 官方登入入口 | Mini當前detected，正式3.0.6 | 使用者回報瀏覽器登入，助手回completed／detected；另行同意的直接CLI最小模型測試成功。metadata API仍liveVerified=false，不以一次成功保證永久有效；不自動修憑證／重試模型，詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
@@ -80,7 +80,12 @@ normalization別名不落legacy代理；成功登入也清除兩個舊cookie ali
 通過；手機390/320px、點按44px、保留10則DOM與手動恢復已實測。CUA未開出新tab，
 不冒稱新tab／跨機／Safari實機已過。B+logo原檔不動；rc.3只是asset/cache identity。
 完整配置、信任假設與驗收見 [`history-host-integration.md`](history-host-integration.md)。
-本批新程式CI以自己的commit結果為準；下列c40四組綠燈僅屬舊基線。
+最終程式／測試 `686e3c0bd9d038d6695a2f3ba14d6ca5fc44d008` 四CI全成功且logs已核對：
+一般34188490692（三OS641tests／0fail）、reader＋audit34188490746、
+Native Claude34188558271、rolling34188556600（Mac/Linux各15cases）。Linux首輪
+Cargo hardlink被startup gate拒絕，改私有、逐檔SHA一致的測試副本後通過；未放寬
+正式檢查。Windows原生讀取仍unsupported；詳細count／範圍見上方接線文件。
+這批程式CI不需再等；後續純文件CI另記，下列c40四組綠燈僅屬舊基線。
 
 **下一階段**：仍有可做工程，不是只等72h。需要owner明確選定私人來源／分享範圍
 才可正式讀取；不從「全做」推論公開所有history或放寬來源權限。完整i18n、跨機與
@@ -103,7 +108,7 @@ Windows來源仍unsupported。RustSec 33packages、0已知漏洞／0warnings。
 
 **1.44 已完成基礎（最終CI見上方1.45）**：已串通Rust capture→bytes-only permission worker→official pinned SDK→registry／HTTP／relay→shared provider/controller的自建資料全鏈，並以explicit native backend在隔離預覽完成真browser驗收。新SDK worker只有12個exact code/SDK grants，不再取得source-root目錄樹或raw暫存檔。固定兩條flight共用10s deadline/1s cleanup，unknown-close不釋放slot且永久quarantine。core `d3e2fe1`與preview `3a8bb4d`各自四組CI皆已完成；CUA/性能保留測試當時的binary與程式hash，未冒稱重跑最終noowners binary。預覽已停止、自己的browser tab及合成fixture已清理，沒有背景preview服務；正式來源仍未接入。
 
-接下來依安全順序：處理trusted executable/root bootstrap、Windows完整read/close、正式credential/catalog/logout/rotation/device revoke/shutdown、Host選擇/remote UI，補實機背景恢復與多輪效能。雙7.6MB/2000rows已量3輪，release含慢首輪756ms/其後320、318ms，SDK每程序RSS高水位約201–212MiB；不是totalRSS、受控A/B或效能門檻通過，詳見claude-history-performance.md。Rootinode／ACL／雙讀不是native provenance／同UID隔離／原子namespace snapshot，Nodepermission也非惡意程式sandbox。whole-source memory改善、其他unscoped/partial、附件/subagent/supersession、approval ACK/resume、durable仍待。Codex non_native_route需本人決定，Claude單次模型同意已用，本輪只synthetic、無私人history/model/login/route。publishable/authority全false；10s+1s非hard realtime。72h固定ab227af／rc.1不重設，09-08 01:16Z仍running約37.7h／4479cycles／35832ACK／112graceful＋111crash，不提前部署或啟動Rust/DB大遷移。
+1.45 當時的待辦中，credential/catalog/logout/rotation/device revoke/shutdown與Host選擇已由1.46補上opt-in接線；私人授權／正式部署及跨機UI驗收尚未完成。trusted executable/root bootstrap更強OS證據、Windows完整read/close、實機背景恢復與多輪效能仍待。雙7.6MB/2000rows既有3輪資料（release慢首輪756ms、其後320/318ms、SDK每程序RSS高水位約201–212MiB）不是totalRSS、受控A/B或效能門檻通過，詳見claude-history-performance.md。Rootinode／ACL／雙讀不是native provenance／同UID隔離／原子namespace snapshot；whole-source memory、其他unscoped/partial、附件/subagent/supersession、approval ACK/resume、durable仍待。Codex non_native_route需本人決定，Claude單次模型同意已用；本輪synthetic、無私人history/model/login/route，publishable/authority全false。72h固定ab227af／rc.1不重設，不提前部署或啟動Rust/DB大遷移。
 
 **2026-09-07 品牌候選**：Jerome明確確認B+為最終方向。新的
 `public/stepsemble-mark.svg` 是向量母版，使用單一module／connector在
@@ -1006,7 +1011,8 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 - 新增明確opt-in Host config／source readers、實際server/auth/device/shutdown接線及安全config工具；不auto-scan私人歷史，不改原生登入／model route。
 - 新增Agent Hub一般連結、local／dedicated-peer route、手機唯讀頁、空／失敗重試、bfcache重載和版本化assets；history不進SW離線SPA fallback。
 - 成功登入過期legacy cookie aliases；保留strict mixed auth拒絕，避免新舊cookie造成登入有效但history拒絕。URL normalized aliases也不能繞入legacy relay。
-- 真Host＋Rust＋SDK＋browser synthetic驗證已執行，含stalled helper shutdown實際清理；開發候選3.0.7-rc.3，logo不改，正式兩台3.0.6及72h固定source不變。詳見history-host-integration.md，跨OS exact CI另記本批結果。
+- Linux Cargo executable有2個hardlinks，第一輪actual Host startup gate拒絕；測試改exclusive、逐檔SHA相同的私有副本後通過。保留正式single-link/mode policy與shared input不變，新增硬連結／原件mode／不覆寫負測；不是production bootstrap已完成。
+- 真Host＋Rust＋SDK＋browser synthetic驗證已執行，含stalled helper shutdown實際清理；開發候選3.0.7-rc.3，logo不改，正式兩台3.0.6及72h固定source不變。最終686e3c0四CI成功：一般34188490692／reader+audit34188490746／Native34188558271／rolling34188556600，詳細count及未涵蓋範圍見history-host-integration.md。
 
 ### 2026-09-08 — Plan 1.45
 
