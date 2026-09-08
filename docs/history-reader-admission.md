@@ -67,10 +67,22 @@ Rust／SDK pin、原生 source policy 和 Windows unsupported 邊界不變。
   分頁／變更／撤銷 gate 通過，原 fixture 除明確合成 mutation 外不變，owned cleanup
   已確認。這些範圍與新 shared gate 分開，沒有冒稱 source-group 已掛 HTTP。
 
-跨平台 evidence 以本批 exact commit 的 CI 記錄補上；不能沿用 Plan1.49 的綠燈。
-Native reader workflow 已納入 admission 負向測試及 actual mixed pipeline；Windows
-仍明確 `source_platform_unsupported`，不因 Node parser/pool 測試成功宣稱原生可讀。
-沒有改 UI，沒有新 browser／真機／RSS／CWV／長時間效能改善宣稱。
+### Exact commit 跨平台驗收
+
+程式／測試 **`ab8e6ed8ae30a6e643da6f9a8474c331c0f6a9fb`** 已 push，四組 workflow
+全部成功，以下數字已核對該 SHA 的 logs，不沿用 Plan1.49 的綠燈。
+
+| Gate | 已驗範圍 |
+| --- | --- |
+| [一般 CI 34214491752](https://github.com/seehow624/stepsemble/actions/runs/34214491752) | 每 OS 689 tests、0 fail；Mac 687 pass／2 skip、Linux 686／3、Windows 658／31；Ajv 每 OS 1,251 cases |
+| [Native reader＋audit 34214491852](https://github.com/seehow624/stepsemble/actions/runs/34214491852) | Rust Mac17／Linux17／Windows8；Node 每 OS 65/65；Mac/Linux 實際 mixed inventory＋SDK gate 的 physical max2／remaining0／51 spawn attempts，既有 actual Host gate 通過；locked RustSec audit 成功 |
+| [Native Claude 34214491802](https://github.com/seehow624/stepsemble/actions/runs/34214491802) | 固定 SDK0.3.259 三 OS 合成契約 passed，modelCalls0、nativeFileUnchanged=true |
+| [Browser rolling 34214491690](https://github.com/seehow624/stepsemble/actions/runs/34214491690) | Mac/Linux 各18 cases 全 passed／pageErrors0；含既有雙向 released-source、登入／Pi／巢狀 picker／131-record catalog 回歸 |
+
+Windows 的 native inventory／content pipeline 仍明確 `source_platform_unsupported`，
+physical spawn0 不是原生讀取成功；不能因 Node parser/pool 測試成功宣稱原生可讀。
+本批沒有變更 UI；rolling 是既有介面回歸，不是新 source-group UI、真機、RSS、
+CWV 或長時間效能改善驗收。後續純文件提交與本次程式 SHA 證據分開。
 
 重跑使用前述文件的明確 local helper 和固定 SDK artifact，或 pipeline 的
 `--download` 固定版本合成測試模式；不要指定私人 history。完整測試輸出應保存，

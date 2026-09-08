@@ -1046,6 +1046,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 - 新增10項unit／跨index-content／actual Host邊界回歸；本機最終689tests＝687pass/2skip/0fail，聚焦51/51、strictTS/artifact/syntax/version/Ajv1251/actionlint通過。完整TAP保存，先前未定位偶發失敗仍未結案，不稱根因已修。
 - 最低Node22.19真Rust inventory＋fixedSDK content並行gate通過，actual child physical max2/remaining0、第三要求spawn前busy；既有actualHost4sources/HTTP/relay/provider也通，所有fixture/child確認cleanup，model/privatehistory0。跨OS依本exactcommit CI，不沿用舊SHA證據。
 - Source-group config／dynamicregistry/catalogpaging/native titles/Web未完成，不將基礎模組當完整產品；正式3.0.6/B+／帳號路由／fixedab227af72h不動，開發版rc.5。接續見history-reader-admission.md與web-completion-loop.md。
+- Exact程式`ab8e6ed8ae30a6e643da6f9a8474c331c0f6a9fb`四組CI全過且logs已驗：一般34214491752三OS各689/0fail（Mac687/2skip、Linux686/3、Win658/31），Ajv各1251；reader34214491852 Rust17/17/8＋Node各65/65、POSIX actual mixed gate max2/remaining0/51spawn、locked audit成功；NativeClaude34214491802三OSmodel0/原檔不變；rolling34214491690雙OS各18cases passed/pageErrors0。Windows source仍unsupported，browser只覆蓋既有介面，非新source-group或真機驗收。
 
 ### 2026-09-08 — Plan 1.49
 

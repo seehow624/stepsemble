@@ -89,7 +89,9 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
   真Rust＋SDK合成並行physical max2／remaining0、第三要求spawn前busy通過；本機
   689項回歸0fail。來源group還未掛HTTP/Web，C1未完成；下一輪不重做這個budget，
   從source-group config／同instance接線／dynamicregistry／catalog paging繼續。
-  驗證範圍見[reader admission](history-reader-admission.md)，跨OS依本批exact CI。
+  程式`ab8e6ed`四組exact CI全過：一般三OS各689項0fail、reader三OS及audit、
+  固定SDK三OS、rolling雙OS各18cases。驗證範圍見[reader admission](history-reader-admission.md)；
+  Windows原生來源仍unsupported，並非C1產品流程或整體goal驗收完成。
 
 - **2026-09-08／啟動**：產品 goal 建立成功，狀態 active、沒有自行設定 token budget。
   本文件與主計畫入口保存完成條件和下一個 checkpoint；本次只是啟動及交接，
