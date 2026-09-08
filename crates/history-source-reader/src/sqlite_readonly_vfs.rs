@@ -15,6 +15,162 @@ static ORIGINAL: AtomicPtr<ffi::sqlite3_vfs> = AtomicPtr::new(std::ptr::null_mut
 static INSTALLED: OnceLock<Result<&'static CStr, InstallError>> = OnceLock::new();
 const NAME: &CStr = c"stepsemble-readonly-vfs-1";
 
+// Win32 SHM opens bypass VFS xOpen and use OPEN_ALWAYS even for readonly_shm.
+// Restrict SQLite's own syscall table in this dedicated process, not the OS's
+// global API table. This also covers built-in cleanup bypassing shim xDelete.
+#[cfg(windows)]
+mod windows_policy {
+    use super::*;
+    use windows_sys::Win32::{
+        Foundation::{
+            ERROR_ACCESS_DENIED, GENERIC_READ, HANDLE, INVALID_HANDLE_VALUE, SetLastError,
+        },
+        Security::SECURITY_ATTRIBUTES,
+        Storage::FileSystem::{FILE_FLAG_DELETE_ON_CLOSE, OPEN_EXISTING},
+    };
+
+    type CreateWide = unsafe extern "system" fn(
+        *const u16,
+        u32,
+        u32,
+        *const SECURITY_ATTRIBUTES,
+        u32,
+        u32,
+        HANDLE,
+    ) -> HANDLE;
+    static CREATE_WIDE: OnceLock<CreateWide> = OnceLock::new();
+
+    unsafe extern "system" fn open_existing(
+        name: *const u16,
+        _access: u32,
+        sharing: u32,
+        security: *const SECURITY_ATTRIBUTES,
+        _disposition: u32,
+        flags: u32,
+        template: HANDLE,
+    ) -> HANDLE {
+        if name.is_null() || flags & FILE_FLAG_DELETE_ON_CLOSE != 0 {
+            // SAFETY: SetLastError only changes this thread's error code.
+            unsafe { SetLastError(ERROR_ACCESS_DENIED) };
+            return INVALID_HANDLE_VALUE;
+        }
+        let Some(original) = CREATE_WIDE.get() else {
+            // SAFETY: same thread-local error operation as above.
+            unsafe { SetLastError(ERROR_ACCESS_DENIED) };
+            return INVALID_HANDLE_VALUE;
+        };
+        // SAFETY: SQLite's pinned osCreateFileW has the exact Windows ABI and
+        // pointer lifetimes below. Keep sharing/overlapped semantics for locks,
+        // but the kernel must not create, truncate, delete or grant write access.
+        unsafe {
+            original(
+                name,
+                GENERIC_READ,
+                sharing,
+                security,
+                OPEN_EXISTING,
+                flags,
+                template,
+            )
+        }
+    }
+
+    unsafe extern "system" fn deny_ansi_open(
+        _name: *const u8,
+        _access: u32,
+        _sharing: u32,
+        _security: *const SECURITY_ATTRIBUTES,
+        _disposition: u32,
+        _flags: u32,
+        _template: HANDLE,
+    ) -> HANDLE {
+        // SAFETY: SetLastError has no pointer arguments. Legacy ANSI paths are
+        // intentionally unsupported; modern Windows uses the wide callback.
+        unsafe { SetLastError(ERROR_ACCESS_DENIED) };
+        INVALID_HANDLE_VALUE
+    }
+
+    unsafe extern "system" fn deny_wide_delete(_name: *const u16) -> i32 {
+        // SAFETY: thread-local error only; no path is touched.
+        unsafe { SetLastError(ERROR_ACCESS_DENIED) };
+        0
+    }
+
+    unsafe extern "system" fn deny_ansi_delete(_name: *const u8) -> i32 {
+        // SAFETY: thread-local error only; no path is touched.
+        unsafe { SetLastError(ERROR_ACCESS_DENIED) };
+        0
+    }
+
+    pub(super) unsafe fn install(vfs: *mut ffi::sqlite3_vfs) -> Result<(), InstallError> {
+        // SAFETY: caller verified a process-lifetime built-in VFS v3, before
+        // any connections/concurrent use. Function table mutation is exclusive.
+        let (get, set) = unsafe {
+            (
+                (*vfs).xGetSystemCall.ok_or(InstallError::Unsupported)?,
+                (*vfs).xSetSystemCall.ok_or(InstallError::Unsupported)?,
+            )
+        };
+        // SAFETY: valid built-in VFS and static names; lookups open no files.
+        let wide = unsafe { get(vfs, c"CreateFileW".as_ptr()) }.ok_or(InstallError::Unsupported)?;
+        // SAFETY: the pinned Win32 VFS declares osCreateFileW as HANDLE
+        // (WINAPI*)(LPCWSTR,DWORD,DWORD,LPSECURITY_ATTRIBUTES,DWORD,DWORD,HANDLE).
+        // SQLite's erased C function pointer is cast back to that precise ABI;
+        // it is never invoked using the erased signature.
+        let wide = unsafe { std::mem::transmute::<unsafe extern "C" fn(), CreateWide>(wide) };
+        CREATE_WIDE
+            .set(wide)
+            .map_err(|_| InstallError::Registration)?;
+        // SAFETY: SQLite's syscall registration uses erased function pointers;
+        // pinned C casts each back to the matching WINAPI prototype before use.
+        let callbacks = unsafe {
+            [
+                (
+                    c"CreateFileW",
+                    std::mem::transmute::<CreateWide, unsafe extern "C" fn()>(open_existing),
+                ),
+                (
+                    c"CreateFileA",
+                    std::mem::transmute::<
+                        unsafe extern "system" fn(
+                            *const u8,
+                            u32,
+                            u32,
+                            *const SECURITY_ATTRIBUTES,
+                            u32,
+                            u32,
+                            HANDLE,
+                        ) -> HANDLE,
+                        unsafe extern "C" fn(),
+                    >(deny_ansi_open),
+                ),
+                (
+                    c"DeleteFileW",
+                    std::mem::transmute::<
+                        unsafe extern "system" fn(*const u16) -> i32,
+                        unsafe extern "C" fn(),
+                    >(deny_wide_delete),
+                ),
+                (
+                    c"DeleteFileA",
+                    std::mem::transmute::<
+                        unsafe extern "system" fn(*const u8) -> i32,
+                        unsafe extern "C" fn(),
+                    >(deny_ansi_delete),
+                ),
+            ]
+        };
+        for (name, callback) in callbacks {
+            // SAFETY: all four names exist in the pinned Win32 syscall table,
+            // even when the optional ANSI callback was originally null.
+            if unsafe { set(vfs, name.as_ptr(), Some(callback)) } != ffi::SQLITE_OK {
+                return Err(InstallError::Registration);
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InstallError {
     EngineMismatch,
@@ -92,7 +248,9 @@ unsafe extern "C" fn deny_delete(
     ffi::SQLITE_READONLY
 }
 
-/// Register once, without changing SQLite's default VFS. No file is opened here.
+/// Register once, without changing SQLite's default VFS selection. On Windows,
+/// restrict the built-in SQLite Win32 syscall table for this process as well.
+/// No file is opened here.
 /// Use the returned exact name with a READ_ONLY, URI, NOFOLLOW connection and
 /// `readonly_shm=1`, followed by `sqlite_metadata::capture_name_fields`.
 ///
@@ -103,6 +261,8 @@ unsafe extern "C" fn deny_delete(
 /// calls. Even an ordinary READ_ONLY connection can own writable SHM. SQLite
 /// can reuse a pre-existing writable SHM object and defeat the readonly policy.
 /// This is not a promise of filesystem containment or no checkpoint contention.
+/// On installation failure, terminate the dedicated process: policy callbacks
+/// may already be partially installed, and an unguarded fallback is forbidden.
 pub unsafe fn install_for_dedicated_process() -> Result<&'static CStr, InstallError> {
     *INSTALLED.get_or_init(|| {
         #[cfg(unix)]
@@ -136,6 +296,12 @@ pub unsafe fn install_for_dedicated_process() -> Result<&'static CStr, InstallEr
         if shim.iVersion != 3 || shim.xOpen.is_none() || shim.szOsFile <= 0 {
             return Err(InstallError::Unsupported);
         }
+        #[cfg(windows)]
+        // SAFETY: installation's exclusive fresh-process contract also covers
+        // SQLite's shared Win32 syscall table; no other connection may use it.
+        unsafe {
+            windows_policy::install(original)?
+        };
         shim.pNext = std::ptr::null_mut();
         shim.zName = NAME.as_ptr();
         shim.xOpen = Some(open);

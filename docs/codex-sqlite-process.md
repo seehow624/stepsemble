@@ -85,6 +85,29 @@ artifact hash通；Node849＝847pass/2skip/0fail。Cargo.lock仍43packages且未
 SQLite/ABI/toolchain不升級。新test由CI原`--all-targets`自動執行，不以skip取代Win。
 Exact工程CI待push後核結果，不能以本機結果聲稱三OS皆通。
 
+### Windows 首輪失敗與修正驗證中
+
+工程`aeaa5986d6df81a6efe6d005d257df763f152e01`的reader CI
+`34265980949`：Mac/Linux13cases通，Windows在missing_shm回latest而非unavailable。
+該版先assert回覆、後比較snapshot，**失敗log本身未證明是否建立SHM**；固定C原始碼
+`winHandleOpen`則明確使用`OPEN_ALWAYS`，不因readonly_shm改成OPEN_EXISTING。
+因此不能把POSIX的唯讀SHM行為直接套到Windows，也不能只改預期為成功。
+
+新修正保留VFS default選擇，但在**專用process內的SQLite Win32 syscall table**
+註冊CreateFileW保護：GENERIC_READ＋OPEN_EXISTING、拒絕delete-on-close；ANSI開檔
+及W/A delete明確拒絕。保留原始wide callback、Windows ABI、sharing與overlapped
+flags；不是修改全系統API或先exists再open的競態檢查。若registration失敗，caller
+必須終止process，不能退回未受保護開檔。[Microsoft CreateFileW規格](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)
+與固定SQLite syscall原型一併核對。
+
+Windows獨立policy child加7個直接syscall檢查：缺檔OPEN_ALWAYS、既有檔CREATE_ALWAYS
+不截斷、實際WriteFile無權限、delete-on-close、ANSI open、W/A delete；parent再比完整
+bytes/檔名。guarded缺sidecar案例改成**先比較snapshot再判回覆**；負向控制只印自建
+檔名、大小及changed，不dump DB bytes。修正的Windows實際CI尚待，不宣稱通過。
+
+同一原工程的一般CI`34265981014`三OS各849/0fail＋Ajv1251成功；rolling
+`34265981058`完成成功（完整log尚待查核），不以此抵銷reader Windows失敗。
+
 下一個必做仍是**descriptor-backed DB/WAL/SHM source opener**與角色／ACL／local
 mount／replacement checks，然後正式reader worker共用admission、sourceVersion、
 Codex明確opt-in／inventory／registry／HTTP/Web。cold DB缺sidecar的完整讀取方案

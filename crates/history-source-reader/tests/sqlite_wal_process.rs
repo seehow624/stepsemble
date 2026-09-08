@@ -58,6 +58,128 @@ fn send(value: Value) {
     std::io::stdout().flush().unwrap();
 }
 
+#[cfg(windows)]
+fn windows_policy_probe(path: &Path) {
+    use rusqlite::ffi;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE},
+        Security::SECURITY_ATTRIBUTES,
+        Storage::FileSystem::{
+            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_DELETE_ON_CLOSE, FILE_SHARE_READ,
+            FILE_SHARE_WRITE, OPEN_ALWAYS, OPEN_EXISTING, WriteFile,
+        },
+    };
+    type Open = unsafe extern "system" fn(
+        *const u16,
+        u32,
+        u32,
+        *const SECURITY_ATTRIBUTES,
+        u32,
+        u32,
+        HANDLE,
+    ) -> HANDLE;
+    type OpenAnsi = unsafe extern "system" fn(
+        *const u8,
+        u32,
+        u32,
+        *const SECURITY_ATTRIBUTES,
+        u32,
+        u32,
+        HANDLE,
+    ) -> HANDLE;
+    let wide = |p: &Path| p.as_os_str().encode_wide().chain([0]).collect::<Vec<_>>();
+    let existing = wide(path);
+    let missing = wide(&path.with_file_name("never-create-shm"));
+    let ansi = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+    // SAFETY: dedicated test process already installed the policy. SQLite's
+    // Win32 table and static names remain live; cast erased callbacks to the
+    // exact pinned WINAPI signatures. All paths refer to owned fixtures only.
+    unsafe {
+        let vfs = ffi::sqlite3_vfs_find(c"win32".as_ptr());
+        assert!(!vfs.is_null());
+        let get = (*vfs).xGetSystemCall.unwrap();
+        let open = std::mem::transmute::<unsafe extern "C" fn(), Open>(
+            get(vfs, c"CreateFileW".as_ptr()).unwrap(),
+        );
+        let share = FILE_SHARE_READ | FILE_SHARE_WRITE;
+        let null = std::ptr::null();
+        let null_handle = std::ptr::null_mut();
+        assert_eq!(
+            open(
+                missing.as_ptr(),
+                GENERIC_READ,
+                share,
+                null,
+                OPEN_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL,
+                null_handle
+            ),
+            INVALID_HANDLE_VALUE,
+            "internal SHM OPEN_ALWAYS cannot create a missing file"
+        );
+        let handle = open(
+            existing.as_ptr(),
+            GENERIC_WRITE,
+            share,
+            null,
+            CREATE_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL,
+            null_handle,
+        );
+        assert_ne!(handle, INVALID_HANDLE_VALUE, "existing file can be opened");
+        let mut written = 0;
+        let wrote = WriteFile(
+            handle,
+            [b'!'].as_ptr(),
+            1,
+            &mut written,
+            std::ptr::null_mut(),
+        );
+        let closed = CloseHandle(handle);
+        assert_eq!(wrote, 0, "kernel handle must not grant write access");
+        assert_ne!(closed, 0);
+        assert_eq!(
+            open(
+                existing.as_ptr(),
+                GENERIC_READ,
+                share,
+                null,
+                OPEN_EXISTING,
+                FILE_FLAG_DELETE_ON_CLOSE,
+                null_handle
+            ),
+            INVALID_HANDLE_VALUE
+        );
+        let open_ansi = std::mem::transmute::<unsafe extern "C" fn(), OpenAnsi>(
+            get(vfs, c"CreateFileA".as_ptr()).unwrap(),
+        );
+        assert_eq!(
+            open_ansi(
+                ansi.as_ptr().cast(),
+                GENERIC_READ,
+                share,
+                null,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                null_handle
+            ),
+            INVALID_HANDLE_VALUE
+        );
+        let delete_wide = std::mem::transmute::<
+            unsafe extern "C" fn(),
+            unsafe extern "system" fn(*const u16) -> i32,
+        >(get(vfs, c"DeleteFileW".as_ptr()).unwrap());
+        let delete_ansi = std::mem::transmute::<
+            unsafe extern "C" fn(),
+            unsafe extern "system" fn(*const u8) -> i32,
+        >(get(vfs, c"DeleteFileA".as_ptr()).unwrap());
+        assert_eq!(delete_wide(existing.as_ptr()), 0);
+        assert_eq!(delete_ansi(ansi.as_ptr().cast()), 0);
+    }
+    // Parent checks the complete byte/name snapshot, including no truncation.
+}
+
 fn child() {
     // A fresh process has no writable SQLite/SHM object to reuse. The parent
     // supplies only its disposable fixture; never consult HOME or native config.
@@ -149,7 +271,10 @@ fn child() {
                 "registration leaves the default unchanged"
             );
         }
-        send(json!({"policyRefusals":4,"defaultUnchanged":true}));
+        #[cfg(windows)]
+        windows_policy_probe(&request.path);
+        send(json!({"policyRefusals":4,"defaultUnchanged":true,
+                    "windowsSyscallChecks":if cfg!(windows) { 7 } else { 0 }}));
         return;
     }
     let db = Connection::open_with_flags_and_vfs(
@@ -447,7 +572,8 @@ fn suite() {
     cases.push("cancelled_capture_bytes_unchanged");
     assert_eq!(
         f.capture("policy"),
-        json!({"policyRefusals":4,"defaultUnchanged":true})
+        json!({"policyRefusals":4,"defaultUnchanged":true,
+               "windowsSyscallChecks":if cfg!(windows) { 7 } else { 0 }})
     );
     assert!(f.snapshot() == before);
     cases.push("vfs_refuses_writable_main_create_delete_and_missing_shm_flag");
@@ -487,13 +613,13 @@ fn suite() {
         }
         let before = f.snapshot();
         let reply = f.capture("capture");
+        let after = f.snapshot();
+        assert!(after == before, "no repair/create/checkpoint for {label}");
         if label == "orphan_wal" {
             expect_title(&reply, "latest");
         } else {
             assert_eq!(reply, json!({"error":"SqliteUnavailable"}), "{label}");
         }
-        let after = f.snapshot();
-        assert!(after == before, "no repair/create/checkpoint for {label}");
         cases.push(label);
     }
 
@@ -505,6 +631,22 @@ fn suite() {
         }
         let before = f.snapshot();
         let reply = f.capture("unguarded");
+        // Bounded diagnostics contain owned filenames/sizes, never DB bytes.
+        let summary = f
+            .snapshot()
+            .iter()
+            .map(|(name, bytes)| {
+                (
+                    name.clone(),
+                    json!({"bytes":bytes.len(),"changed":before.get(name)!=Some(bytes)}),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        println!(
+            "{}",
+            json!({"negativeControl":if missing_wal {"missing_wal"}else{"cold"},
+            "reply":reply,"ownedFiles":summary})
+        );
         if missing_wal {
             expect_title(&reply, "base");
         } else {
