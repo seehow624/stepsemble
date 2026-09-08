@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.63
+> 計畫版本：1.64
 > 最後更新：2026-09-09
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,7 +15,15 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新增量 1.63（開發版仍3.0.7-rc.7，未部署）**：新增Rust唯讀connection的短交易
+**最新增量 1.64（開發版仍3.0.7-rc.7，未部署）**：新增專用process的SQLite
+唯讀VFS開檔／刪除政策，已實際抓到readonly_shm仍可能建立空WAL／讀舊主DB，
+現明確禁止建立、WAL強制唯讀；13個owned跨process案例與反例、本機原Rust16＋25
+及Node849/0fail通。完整檔案bytes/名稱集合、20commit一致snapshot、actualclose與kill
+釋放OS鎖已驗；exact跨OS CI待核。這不是descriptor/ACL source opener，冷DB缺sidecar
+仍明示unavailable，不能當完整原生歷史；授權/worker/registry/HTTPWeb及C1–C8繼續。
+詳[SQLite程序與VFS](codex-sqlite-process.md)，正式/B+/私人/帳號/獨立72h不動。
+
+**前一增量 1.63（開發版仍3.0.7-rc.7，未部署）**：新增Rust唯讀connection的短交易
 名稱讀取；固定SQLite3.53.4、上游SHA與真Codex threadsDDL，禁止SQL寫入／attach／
 額外欄位、限額／取消／busy無retry、close後才回覆。owned獨立連線20次commit時仍讀
 同snapshot，readclose後checkpoint恢復；不宣稱SHM零寫、跨process／原生writer壓測。

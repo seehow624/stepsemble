@@ -2,6 +2,12 @@
 
 ## 3.0.7-rc.7
 
+- Add a dedicated-process SQLite VFS policy that refuses writable main files,
+  forces read-only WAL handles and denies creation/deletion. Owned cross-process
+  controls reproduce ordinary read-only SHM writes and missing-WAL creation;
+  verify fixed snapshots and actual-exit lock release. This is not filesystem
+  authorization, a private-source opener or support for cold DBs without sidecars.
+
 - Add a bounded read-only SQLite transaction library for selected Codex name
   fields, with a pinned SQLite 3.53.4 source hash, native-created schema oracle,
   cancellation/limits and concurrent WAL writer checks. This does not enable

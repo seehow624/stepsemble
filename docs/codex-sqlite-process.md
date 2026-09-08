@@ -1,0 +1,94 @@
+# SQLite：跨程序驗證與唯讀開檔政策
+
+2026-09-09／Plan1.64，開發仍3.0.7-rc.7，未部署；延續
+[短交易library](codex-sqlite-transactions.md)。這不是完整Codex歷史／source grant。
+
+## 實際抓到的問題
+
+只用READ_ONLY開main DB，或另加`readonly_shm=1`，**不能保證來源檔案不變**。
+固定SQLite3.53.4、獨立子程序、完全自建fixture有三個反例：
+
+1. 普通唯讀連線讀最新WAL，SHM bytes變動；main DB/WAL保持不變。
+2. `readonly_shm=1`，關閉writer後移除自建WAL、保留SHM：建立0-byte WAL，回傳
+   主DB較舊的`base`，而不是移除前WAL中的`latest`。
+3. 正常checkpoint/close後無sidecar的cold DB：回SqliteUnavailable，**仍建立空WAL**。
+
+首個assert失敗完整保留`/tmp/stepsemble-sqlite-process-first.log`，第二次偵察完整
+列出檔案集合與大小；**這兩次都不是零寫入gate通過**。最終保留未受保護負向控制，
+每輪重新驗證原問題仍可見，不能只以新路徑成功取代失敗證據。首次log曾印自建DB
+byte arrays，已把斷言改為等值布林以免再dump；沒有私人DB內容。
+
+[官方WAL說明](https://www.sqlite.org/wal.html)把sidecar存在／可建立列為唯讀
+WAL可用條件；[URI說明](https://www.sqlite.org/uri.html)的immutable會關locking及
+change detection，不能用來繞過活動來源的問題。本輪用Tavily查核官方說明和固定C
+原始碼，再以實際程序行為定測試預期，不把URI旗標當安全證明。
+
+## 新VFS policy primitive
+
+`crates/history-source-reader/src/sqlite_readonly_vfs.rs`註冊
+`stepsemble-readonly-vfs-1`，**不更換default VFS**，不接受path或設定私人root。
+固定engine/source ID先驗，delegation僅固定內建unix或win32；不繼承自訂default。
+
+- main只接受READ_ONLY＋readonly_shm；可寫／create／缺旗標直接拒絕。
+- SQLite對WAL的READWRITE/CREATE要求，改為READ_ONLY／NOFOLLOW；WAL缺失就失敗，
+  不建立空檔、不退回較舊主DB值。其他file-kind／delete-on-close與xDelete拒絕。
+- 保留built-in的szOsFile/pAppData與IO methods；native SQLite仍處理WAL、SHM和OS locks，
+  不自製WAL重播。根據[官方VFS contract](https://www.sqlite.org/c3ref/vfs.html)，
+  失敗xOpen也清pMethods、outflags；delegation沿原VFS，不傳錯的file storage大小。
+- 註冊物件與名稱為一次、process-lifetime配置，不能stack引用／關connection即free；
+  OnceLock避免多次配置。不開DB於registration，Unix euid0明確拒絕。
+- **unsafe API明列caller契約**：全新專用process，無既有SQLite connection；所有後續
+  connection均用此VFS／READ_ONLY／readonly_shm，不改built-in VFS/syscalls。
+  否則內建VFS可重用同process既有可寫SHM物件。讀取仍必須配合交易library的
+  NO_CKPT_ON_CLOSE、query limits、authorizer、取消和actualclose。
+
+這是**開檔/刪除政策，不是OS sandbox或完整來源VFS**。內建VFS仍自行按path解析
+DB/WAL/SHM：實際descriptor identity、ACL、owner、mount、symlink/hardlink／替換、
+native來源真實性與root grant尚未接上。NOFOLLOW與前後bytes相同不能取代上述驗證。
+不能直接套用真人資料，也不宣稱所有syscall／atime／metadata完全無副作用。
+
+## 跨程序13個case
+
+Cargo新增`harness=false`的integration test `sqlite_wal_process`；正常執行只自建
+temp fixture，無任意來源CLI參數；worker只由parent經私有stdin給該fixture path。
+每個reader是fresh process，清env（Windows只留SystemRoot），不讀HOME/config/auth。
+它不是production worker或正式admission接線；Rust main v1–v3仍未呼叫新module。
+
+| Case | 實際驗證 |
+| --- | --- |
+| 活動writer／WAL最新名稱 | capture取latest；quiet writer期間DB/WAL/SHM bytes與名稱集合不變 |
+| 預先取消 | Cancelled；來源bytes/名稱不變 |
+| VFS policy | 可寫main／create／缺SHM旗標／delete四拒絕；default VFS不變 |
+| 普通唯讀負向控制 | 只有SHM bytes改變，測試確實能抓到副作用 |
+| writer關閉但保留WAL/SHM | 新process取latest，無原檔bytes/名稱變化 |
+| 缺SHM | unavailable，不建SHM／不repair |
+| 缺WAL | unavailable，不建WAL、不發布舊base |
+| 無sidecar的cold DB | unavailable，不建任何sidecar；**此能力尚未支援** |
+| 未受保護缺WAL控制 | 重現建立空WAL＋回舊base，未被當成權威名稱 |
+| 未受保護cold控制 | 重現即使失敗也建立空WAL |
+| writer未commit | reader只見已commit值；commit後新reader讀新值 |
+| 20個跨process commit | 人為持有read transaction時writer20次commit，重讀仍同snapshot；actualclose後checkpoint可進行 |
+| kill reader | 持有read lock時checkpoint busy；kill並確認實際exit及pipes EOF後，writer checkpoint成功 |
+
+每輪16個child、16個實際reaped／remaining0；normal與kill exit分開核對，bounded
+stdin4KiB／stdout和stderr各16KiB、回覆及退出等待各5秒。failed startup/pipe/assert
+也持有kill/wait清理，不用單一exited標記冒充整條cleanup。
+
+hold模式**只測OS鎖與交易隔離**，並非正式capture：它以parent有界等待控制交易、
+並行writer只有此owned fixture設synchronous=OFF。正式library的250ms保持；本批
+不是crash durability、吞吐／RSS、真Codex writer或Web流暢度測量。
+
+## 驗證與接續
+
+本機原Rust16＋main25、13cases及另五輪、clippy -D warnings／fmt／固定SQLite
+artifact hash通；Node849＝847pass/2skip/0fail。Cargo.lock仍43packages且未變，
+SQLite/ABI/toolchain不升級。新test由CI原`--all-targets`自動執行，不以skip取代Win。
+Exact工程CI待push後核結果，不能以本機結果聲稱三OS皆通。
+
+下一個必做仍是**descriptor-backed DB/WAL/SHM source opener**與角色／ACL／local
+mount／replacement checks，然後正式reader worker共用admission、sourceVersion、
+Codex明確opt-in／inventory／registry／HTTP/Web。cold DB缺sidecar的完整讀取方案
+需要另證明一致性且不寫來源，不能直接開immutable或讓native CLI偷偷repair。
+壓縮／paginated/reference、其他harness與C1–C8仍待；不將目前unavailable當完成條件。
+
+正式3.0.6／B+／私人來源與readers／帳號route／独立72h凍結全不變。

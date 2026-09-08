@@ -135,7 +135,7 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-native-history-reader
         run: cargo +1.97.1 clippy --manifest-path crates/history-source-reader/Cargo.toml --locked --all-targets -- -D warnings
-      - name: Locked helper tests (Windows reader remains unsupported)
+      - name: Locked helper and cross-process SQLite tests (private Windows source remains unsupported)
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-native-history-reader
         run: cargo +1.97.1 test --manifest-path crates/history-source-reader/Cargo.toml --locked --all-targets

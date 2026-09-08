@@ -156,6 +156,10 @@ library接Web的驗收。Reader34261880347 **失敗且不覆寫紀錄**：
 
 ## 接續
 
+Plan1.64已加入[跨程序正反案例與唯讀VFS政策](codex-sqlite-process.md)：原先的
+readonly_shm候選單獨使用仍會建空WAL，新shim補開檔拒寫／拒建／拒刪。這仍不是
+descriptor/ACL source opener；以下安全來源、cold DB及HostWeb缺口未被取消。
+
 固定SQLite source已讀`unixOpenSharedMemory`、`walIndexReadHdr`與
 `walBeginShmUnreliable`。下一輪可實測`readonly_shm=1`作為**POSIX候選**：它會略過
 SHM的O_RDWR/O_CREAT並用O_RDONLY/O_NOFOLLOW，但同process已有SHM物件會重用，
