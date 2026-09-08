@@ -1,14 +1,16 @@
 /// <reference path="./history-pages.ts" />
-/** Reserved same-origin history HTTP transport. No SDK, source paths, bearer
- * credentials, relay fallback, journal writes or production route installation.
+/** Same-origin history HTTP transport. No SDK, source paths, bearer
+ * credentials, legacy relay fallback or journal writes.
  * Cookie authentication and ownership remain the Host's responsibility. */
 namespace StepsembleHistoryTransport {
   type ObjectValue = Record<string, unknown>;
   export const LIMITS = Object.freeze({ responseBytes: 272 * 1024, requestBytes: 4096, timeoutMs: 15000 });
   export interface Dependencies {
     /** Trusted application origin, never a history-row URL. In a browser this
-     * must equal location.origin. Only fixed /api/history paths are supported. */
+     * must equal location.origin. Only fixed local/paired history paths are supported. */
     origin: string; hostId: string; viewId: string;
+    /** Empty for local; otherwise one exact dedicated-peer route. Never a URL. */
+    routePrefix?: string;
     canonicalJSON(value: unknown, maxBytes: number): string | null;
     fetch?: typeof fetch;
     /** Local transport deadline, never forwarded as source authority. */
@@ -60,6 +62,8 @@ namespace StepsembleHistoryTransport {
       origin = url.origin;
     } catch { return failure("history_origin_invalid"); }
     const { hostId, viewId, canonicalJSON } = deps;
+    const routePrefix = deps.routePrefix ?? "";
+    if (typeof routePrefix !== "string" || routePrefix !== "" && !/^\/r\/[a-z0-9-]{1,48}$/.test(routePrefix)) failure("history_route_invalid");
     const transport = deps.fetch ?? globalThis.fetch.bind(globalThis);
     const timeoutMs = deps.timeoutMs ?? LIMITS.timeoutMs;
     if (typeof transport !== "function" || !positive(timeoutMs) || timeoutMs > 120000) failure("history_dependencies_required");
@@ -102,7 +106,7 @@ namespace StepsembleHistoryTransport {
         // Handle a signal implementation that changes during subscription.
         if (signal?.aborted) abort();
         timer = setTimeout(() => stop("history_timeout"), timeoutMs);
-        const url = origin + path;
+        const url = origin + routePrefix + path;
         const flight = Promise.resolve().then(() => {
           if (stopped) return failure("history_aborted");
           return transport(url, { method, credentials: "same-origin", mode: "same-origin", redirect: "error", cache: "no-store",

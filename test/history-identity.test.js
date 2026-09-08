@@ -32,6 +32,14 @@ test("logout invalidates before fan-out; same shared cookie may create a new sco
   assert.notEqual(after, before); assert.equal(identity.status().retainedPrincipals, 1);
   identity.shutdown();
 });
+test("only current opaque principals resolve to Host-private credential keys", () => {
+  const { state, identity } = setup();
+  const browser = identity.authenticateBrowserCookie("stepsemble", credential(1)), peer = identity.authenticatePeerCredential(credential(2));
+  assert.equal(identity.credentialKey(browser), "browser:master"); assert.equal(identity.credentialKey(peer), "peer:peer-1");
+  for (const forged of ["browser:master", credential(1), null, {}]) assert.equal(identity.credentialKey(forged), null);
+  state.browser = []; assert.equal(identity.credentialKey(browser), null);
+  identity.shutdown(); assert.equal(identity.credentialKey(peer), null);
+});
 test("token rotation/deletion and grant revocation revoke current rows without storing raw credentials", () => {
   const { state, identity } = setup();
   const first = identity.authenticateBrowserCookie("stepsemble", credential(1)), peer = identity.authenticatePeerCredential(credential(2));

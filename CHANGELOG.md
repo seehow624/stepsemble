@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.0.7-rc.3
+
+Development candidate; stable Hosts remain on 3.0.6. The fixed-source 72-hour
+soak continues unchanged and does not cover these newer changes.
+
+- Connect the bounded Claude read-only history pipeline to the application Host
+  behind explicit operator configuration and per-credential source grants.
+- Add a separate history tab with local/paired-host routing, inert message
+  rendering, pagination, stale-page recovery and accessible mobile controls.
+- Retire history scopes on logout, successful login, token/grant revocation and
+  peer replacement; wait for owned reader cleanup during Host shutdown.
+- Keep history routes out of the legacy proxy and history documents out of the
+  offline SPA fallback. Version new assets with the current client cache.
+- Keep native accounts, approval/resume authority and production deployment
+  unchanged. Native source reading is opt-in POSIX only; Windows remains gated.
+
 ## 3.0.7-rc.2
 
 Development candidate; stable Hosts remain on 3.0.6 pending verification.

@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.45
+> 計畫版本：1.46
 > 最後更新：2026-09-08
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -69,6 +69,24 @@
 | 隔離72h長測 | 2026-09-06 11:34Z 已開始 | clean `ab227af`（runtime `2b7f0b6`）；8tasks／16clients，預計09-09 11:34Z結束；同對話每小時追蹤。未passed，不代替native／實機／durable gate |
 
 ### 下一個可執行任務
+
+**1.46 最新開發增量（3.0.7-rc.3，未部署）**：Claude 唯讀歷史已接入實際
+`server.js`、Agent Hub連結及獨立歷史頁，不再只存在隔離preview。預設停用，
+操作員private config逐來源指定browser token ID／incoming peer grant；新增安全
+config建立／check工具，沒有替owner選取或分享私人session。logout／成功登入／
+token／grant／machine變動同步撤銷，shutdown等待owned reader actual close，URL
+normalization別名不落legacy代理；成功登入也清除兩個舊cookie aliases。
+真Rust＋固定SDK＋實際Host的4來源／分頁／stale／revoke gate已在本機22.19與22.22
+通過；手機390/320px、點按44px、保留10則DOM與手動恢復已實測。CUA未開出新tab，
+不冒稱新tab／跨機／Safari實機已過。B+logo原檔不動；rc.3只是asset/cache identity。
+完整配置、信任假設與驗收見 [`history-host-integration.md`](history-host-integration.md)。
+本批新程式CI以自己的commit結果為準；下列c40四組綠燈僅屬舊基線。
+
+**下一階段**：仍有可做工程，不是只等72h。需要owner明確選定私人來源／分享範圍
+才可正式讀取；不從「全做」推論公開所有history或放寬來源權限。完整i18n、跨機與
+真機background／rolling UI、Windows來源、memory改善、native approval/resume、
+durable/Rust/App仍未完成；模型重驗另需新的用量同意。正式3.0.6與固定ab227af長測
+不動，後續部署須通過active-work／backup／rollback及候選驗收。
 
 **1.45 安全補強**：最後本機環境檢查確認 macOS `noowners` 會忽略擁有者資訊，
 不能以 `uid==euid` 及 owner-only mode 視作 UID 隔離；Rust fd mount policy 已明確
@@ -982,6 +1000,13 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-08 — Plan 1.46
+
+- 新增明確opt-in Host config／source readers、實際server/auth/device/shutdown接線及安全config工具；不auto-scan私人歷史，不改原生登入／model route。
+- 新增Agent Hub一般連結、local／dedicated-peer route、手機唯讀頁、空／失敗重試、bfcache重載和版本化assets；history不進SW離線SPA fallback。
+- 成功登入過期legacy cookie aliases；保留strict mixed auth拒絕，避免新舊cookie造成登入有效但history拒絕。URL normalized aliases也不能繞入legacy relay。
+- 真Host＋Rust＋SDK＋browser synthetic驗證已執行，含stalled helper shutdown實際清理；開發候選3.0.7-rc.3，logo不改，正式兩台3.0.6及72h固定source不變。詳見history-host-integration.md，跨OS exact CI另記本批結果。
 
 ### 2026-09-08 — Plan 1.45
 

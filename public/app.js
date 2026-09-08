@@ -1,7 +1,7 @@
-/* stepsemble v3.0.7-rc.2 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.7-rc.3 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.7-rc.2";
+const CLIENT_APP_VERSION = "3.0.7-rc.3";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -1110,6 +1110,7 @@ function loadVersion() {
 // ---- SPA 機器切換：零頁面跳轉，只切資料源 ----
 function applyApiBase() {
   apiBase = selectedId === selfId ? "" : "/r/" + selectedId;
+  syncHistoryLink();
 }
 
 function switchMachine(id, silent) {
@@ -2073,6 +2074,15 @@ async function openAgentTaskFromHub(task) {
 
 el.agentHubRefresh?.addEventListener("click", () => { void loadAgentCatalog(); void refreshAgentTasks(); });
 el.agentHubOpenCenter?.addEventListener("click", openAgentTaskCenter);
+function syncHistoryLink() {
+  // A normal link supports keyboard/context-menu navigation without a script
+  // popup. Only the saved machine ID crosses into the separate history tab.
+  const link = $("agent-hub-history"); if (!link) return;
+  const match = /^\/r\/([a-z0-9-]{1,48})$/.exec(apiBase);
+  if (apiBase && !match) { link.removeAttribute("href"); link.setAttribute("aria-disabled", "true"); return; }
+  link.removeAttribute("aria-disabled");
+  link.href = `/history.html${match ? `?machine=${encodeURIComponent(match[1])}` : ""}`;
+}
 
 function renderClaudeAuth({ data, error, pending }) {
   const status = $("claude-auth-status"), start = $("claude-auth-start"), cancel = $("claude-auth-cancel"), refresh = $("claude-auth-refresh");

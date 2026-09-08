@@ -44,6 +44,15 @@ async function bound(body, c = testCase, sourceVersion = token) {
 const rejects = (promise, code) => assert.rejects(promise, e => e.name === "HistoryTransportError" && e.code === code && e.message === code);
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
+test("remote history prefix is a fixed same-origin machine route, never a URL or path override", async () => {
+  const calls = [];
+  const api = make(async (url, init) => { calls.push({ url, init }); return new Response(encode({ kind: "history_catalog", entries: [], sourceAuthenticated: false, publishable: false }), { headers: { "content-type": "application/json" } }); }, { routePrefix: "/r/mac-mini" });
+  await api.catalog(); assert.equal(calls[0].url, origin + "/r/mac-mini/api/history/catalog");
+  assert.equal(calls[0].init.credentials, "same-origin"); assert.equal(calls[0].init.headers.Authorization, undefined);
+  for (const value of ["/", "/r/../mini", "/r/mini/", "https://evil.invalid", "//evil.invalid", "/r/mini?token=x", "/r/MINI", "/r/a%2Fb"])
+    assert.throws(() => make(() => assert.fail("must not fetch"), { routePrefix: value }), /history_route_invalid/);
+});
+
 test("fixed same-origin registration/page/release use exact bodies, cookie mode, CSRF marker and view header", async () => {
   const calls = [];
   const api = make(async (url, init) => {

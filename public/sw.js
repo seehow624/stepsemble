@@ -1,26 +1,26 @@
-const CACHE_NAME = "stepsemble-shell-v3.0.7-rc.2";
+const CACHE_NAME = "stepsemble-shell-v3.0.7-rc.3";
 const SHELL = [
   "/",
   "/index.html",
-  "/style.css?v=3.0.7-rc.2",
-  "/i18n.js?v=3.0.7-rc.2",
-  "/modules/app-foundation.js?v=3.0.7-rc.2",
-  "/modules/session-utils.js?v=3.0.7-rc.2",
-  "/modules/pi-session.js?v=3.0.7-rc.2",
-  "/modules/context-usage.js?v=3.0.7-rc.2",
-  "/modules/claude-auth.js?v=3.0.7-rc.2",
-  "/modules/protocol-contracts.js?v=3.0.7-rc.2",
-  "/modules/client-sdk.js?v=3.0.7-rc.2",
-  "/modules/native-dialogs.js?v=3.0.7-rc.2",
-  "/app.js?v=3.0.7-rc.2",
-  "/manifest.webmanifest?v=3.0.7-rc.2",
+  "/style.css?v=3.0.7-rc.3",
+  "/i18n.js?v=3.0.7-rc.3",
+  "/modules/app-foundation.js?v=3.0.7-rc.3",
+  "/modules/session-utils.js?v=3.0.7-rc.3",
+  "/modules/pi-session.js?v=3.0.7-rc.3",
+  "/modules/context-usage.js?v=3.0.7-rc.3",
+  "/modules/claude-auth.js?v=3.0.7-rc.3",
+  "/modules/protocol-contracts.js?v=3.0.7-rc.3",
+  "/modules/client-sdk.js?v=3.0.7-rc.3",
+  "/modules/native-dialogs.js?v=3.0.7-rc.3",
+  "/app.js?v=3.0.7-rc.3",
+  "/manifest.webmanifest?v=3.0.7-rc.3",
   "/stepsemble-glyph.png",
   "/icon-512.png",
-  "/icon-16.png?v=3.0.7-rc.2",
-  "/icon-32.png?v=3.0.7-rc.2",
-  "/icon-180.png?v=3.0.7-rc.2",
-  "/icon-512.png?v=3.0.7-rc.2",
-  "/icon-maskable-512.png?v=3.0.7-rc.2",
+  "/icon-16.png?v=3.0.7-rc.3",
+  "/icon-32.png?v=3.0.7-rc.3",
+  "/icon-180.png?v=3.0.7-rc.3",
+  "/icon-512.png?v=3.0.7-rc.3",
+  "/icon-maskable-512.png?v=3.0.7-rc.3",
   "/vendor/marked.min.js",
   "/vendor/purify.min.js",
   "/vendor/mermaid.min.js",
@@ -90,6 +90,9 @@ self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
   if (request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/") || url.pathname.startsWith("/r/")) return;
+  // History is a separate opt-in document, not a cached transcript or the SPA
+  // navigation fallback. Offline must not show an unrelated workspace page.
+  if (url.pathname === "/history.html") return;
 
   if (request.mode === "navigate") {
     // Reload the document on every navigation/reload. This is the important

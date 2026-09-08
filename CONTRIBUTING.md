@@ -17,5 +17,5 @@ Thanks for helping improve Stepsemble.
    npm test
    ```
 
-By contributing, you agree that your work is licensed under the MIT License.
-
+By contributing, you agree that your work is licensed under the Apache License,
+Version 2.0. Existing third-party components retain their own licenses.

@@ -1,6 +1,6 @@
 "use strict";
-// Reserved composite service: one Rust reader, then one bytes-only Node worker.
-// No production route, source discovery, native CLI/account, or model invocation.
+// Composite service: one Rust reader, then one bytes-only Node worker. Mounted
+// only by explicit Host configuration; no discovery, native login or model call.
 const path = require("node:path"), crypto = require("node:crypto");
 const { spawn } = require("node:child_process"), { performance } = require("node:perf_hooks");
 const { normalizeSourceInput } = require("./history-source");

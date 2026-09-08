@@ -13,6 +13,13 @@ runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
+Development-only 3.0.7-rc.3 wires the bounded Claude history modules into the
+actual Host and a separate Web page, behind explicit operator configuration.
+It does not deploy or enable private source access by default. Configuration,
+credential lifecycle, dedicated relay, limitations and synthetic verification
+are documented in [`history-host-integration.md`](history-host-integration.md).
+The shipped architecture described below remains the 3.0.6 baseline.
+
 Current stable is3.0.6 on both owner Macs. It includes3.0.5 nested folder
 scrolling/SW activation preservation and3.0.6 confirmed generic stop,
 selection-only list updates and non-destructive archive cleanup. Exact source,

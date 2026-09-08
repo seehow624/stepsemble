@@ -36,6 +36,7 @@ const { createPiResourcesService } = require("./server/pi-resources");
 const { createAgentTaskService, resolveCommand } = require("./server/agent-connectors");
 const { createClaudeAuthService, handleClaudeAuthRequest } = require("./server/claude-auth");
 const { createDesktopClaudeClient } = require("./server/claude-desktop-client");
+const { loadHistoryConfig, createHistoryHost, disabledHistoryHost } = require("./server/history-host");
 const {
   BROWSER_COOKIE,
   LEGACY_BROWSER_COOKIES,
@@ -65,7 +66,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.7-rc.2";
+const APP_VERSION = "3.0.7-rc.3";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -3766,8 +3767,39 @@ const {
   isPeerCredentialValid: (candidate) => deviceTrust.authenticatePeerCredential(candidate),
 });
 
+// Opt-in startup-only operator configuration. Nothing is discovered or enabled
+// from a browser path, forwarded Host header, credential, or default HOME scan.
+const historyHost = (() => {
+  const configured = settingFromEnv("HISTORY_CONFIG"), filename = configured || path.join(CONFIG_DIR, "history.json");
+  // Presence of an explicitly prepared config is opt-in. The installer never
+  // creates it, and no native history directory is discovered automatically.
+  if (!configured && !fs.existsSync(filename)) return disabledHistoryHost();
+  try {
+    return createHistoryHost({ config: loadHistoryConfig(filename),
+      browserCredentials: () => [{ id: "master", hash: TOKEN_HASH }, ...apiTokens.map(({ id, hash }) => ({ id, hash }))],
+      peerGrantIds: () => {
+        if (!deviceTrust.isStateHealthy()) throw new Error("history_authority_unavailable");
+        return deviceTrust.listIncomingGrants().map(row => row.grantId);
+      },
+      authenticatePeerCredential: value => deviceTrust.authenticatePeerCredential(value),
+      resolvePeer(id) {
+        const remote = MACHINES[id], grant = deviceTrust.outgoingCredential(id);
+        if (!deviceTrust.isStateHealthy() || !remote || isLocalMachine(remote) || !grant) return null;
+        // The dedicated relay validates canonical origins; do not normalize a
+        // saved path/credentials/query away into an accepted upstream.
+        return { url: remote.url, grantId: grant.grantId, credential: grant.credential };
+      },
+    });
+  } catch {
+    console.warn("[stepsemble] optional history configuration rejected; history access remains disabled");
+    return disabledHistoryHost();
+  }
+})();
+
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+  let url;
+  try { url = new URL(req.url, `http://${req.headers.host || "localhost"}`); }
+  catch { sendJSON(res, 400, { error: "invalid request URL" }); return; }
   const p = url.pathname;
 
   try {
@@ -3775,6 +3807,10 @@ const server = http.createServer(async (req, res) => {
       sendJSON(res, 403, { error: "cross-site request blocked" });
       return;
     }
+
+    // History has its own strict auth/origin/body limits. Always intercept its
+    // namespace before legacy auth/relay, including when the feature is off.
+    if (await historyHost.handle(req, res)) return;
 
     // ---- 登入 ----
     if (p === "/api/login" && req.method === "POST") {
@@ -3791,13 +3827,19 @@ const server = http.createServer(async (req, res) => {
       const candidate = typeof body.token === "string" && body.token.length <= 512 ? body.token : "";
       const candidateHash = sha256(candidate);
       if (isAuthorizedTokenHash(candidateHash)) {
+        historyHost.logout(req); // A successful account switch retires the old view scopes.
         loginAttempts.delete(key);
         const issued = apiTokens.find((row) => safeEqual(candidateHash, row.hash));
         if (issued) {
           issued.lastUsedAt = new Date().toISOString();
           try { saveApiTokens(); } catch { console.warn("[stepsemble] could not update token last-used time"); }
         }
-        send(res, 204, "", { "Set-Cookie": `${BROWSER_COOKIE}=${candidateHash}${cookieSuffix(60 * 60 * 24 * 30)}` });
+        send(res, 204, "", { "Set-Cookie": [
+          `${BROWSER_COOKIE}=${candidateHash}${cookieSuffix(60 * 60 * 24 * 30)}`,
+          // Retire migrated aliases so strict history authentication never has
+          // to guess between multiple browser credentials after a new login.
+          ...LEGACY_BROWSER_COOKIES.map(name => `${name}=${cookieSuffix(0)}`),
+        ] });
       } else {
         state.failures++;
         sendJSON(res, 401, { error: "Invalid token" });
@@ -3806,6 +3848,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === "/api/logout" && req.method === "POST") {
+      historyHost.logout(req);
       send(res, 204, "", {
         "Set-Cookie": [BROWSER_COOKIE, ...LEGACY_BROWSER_COOKIES]
           .map((name) => `${name}=${cookieSuffix(0)}`),
@@ -4359,6 +4402,7 @@ const server = http.createServer(async (req, res) => {
           sendJSON(res, 500, { error: "could not store tokens" });
           return;
         }
+        historyHost.credentialsChanged(); // Persist authority first, then abort affected reads.
         send(res, 204, "");
         return;
       }
@@ -4576,6 +4620,7 @@ const server = http.createServer(async (req, res) => {
           const grantId = typeof body.grantId === "string" ? body.grantId : "";
           if (!/^[0-9a-f]{32}$/.test(grantId)) { const err = new Error("Device grant is invalid"); err.statusCode = 400; throw err; }
           if (!deviceTrust.revokeIncomingGrant(grantId)) { const err = new Error("Device grant not found"); err.statusCode = 404; throw err; }
+          historyHost.credentialsChanged();
           sendJSON(res, 200, { ok: true, grantId });
         } catch (error) {
           sendJSON(res, error.statusCode || 400, { error: error.message || "Could not revoke device grant" });
@@ -4588,6 +4633,7 @@ const server = http.createServer(async (req, res) => {
         try {
           const grantId = revokeGrantMatch[1];
           if (!deviceTrust.revokeIncomingGrant(grantId)) { const err = new Error("Device grant not found"); err.statusCode = 404; throw err; }
+          historyHost.credentialsChanged();
           sendJSON(res, 200, { ok: true, grantId });
         } catch (error) {
           sendJSON(res, error.statusCode || 400, { error: error.message || "Could not revoke device grant" });
@@ -4727,7 +4773,10 @@ const server = http.createServer(async (req, res) => {
           // catalog write fails, removing the new credential can leave only an
           // orphaned grant; that is safe because add/update below refuse to
           // reuse an ID which still has a grant.
-          if (outgoingGrant) deviceTrust.setOutgoingCredential(id, outgoingGrant.id, outgoingGrant.credential);
+          if (outgoingGrant) {
+            deviceTrust.setOutgoingCredential(id, outgoingGrant.id, outgoingGrant.credential);
+            historyHost.peerChanged(id);
+          }
 
           const previousMachines = MACHINES;
           MACHINES = { ...MACHINES, [id]: normalized };
@@ -4799,6 +4848,7 @@ const server = http.createServer(async (req, res) => {
                 throw error;
               }
             }
+            historyHost.peerChanged(id);
             sendJSON(res, 200, { ok: true, id });
             return;
           }
@@ -4856,6 +4906,8 @@ const server = http.createServer(async (req, res) => {
                 console.warn(`[stepsemble] peer credential cleanup after ID move failed: ${error.message}`);
               }
             }
+            historyHost.peerChanged(oldId);
+            historyHost.peerChanged(next.id);
             sendJSON(res, 200, { machine: publicMachine(next) });
             return;
           }
@@ -5143,6 +5195,10 @@ function shutdown(signal) {
   }
 
   const active = activeRpcSessions();
+  let historyDrained = false, historyFailed = false, pendingFinish = null;
+  // Stop admission/revoke synchronously; do not exit ahead of owned reader
+  // actual-close cleanup. Never stop a native agent task through this path.
+  const historyCleanup = historyHost.shutdown();
   shutdownState = {
     signal,
     deadline: Date.now() + SHUTDOWN_GRACE_MS,
@@ -5154,10 +5210,18 @@ function shutdown(signal) {
 
   const finish = (code) => {
     if (!shutdownState || shutdownState.finished) return;
+    if (!historyDrained) { pendingFinish = code; return; }
     shutdownState.finished = true;
     if (shutdownState.timer) clearInterval(shutdownState.timer);
-    process.exit(code);
+    process.exit(historyFailed ? 1 : code);
   };
+  Promise.resolve(historyCleanup).then(result => {
+    historyFailed = result?.cleanupConfirmed !== true;
+  }, () => { historyFailed = true; }).finally(() => {
+    historyDrained = true;
+    if (historyFailed) console.warn("[stepsemble] history reader cleanup not confirmed");
+    if (pendingFinish !== null) finish(pendingFinish);
+  });
   const closeHttp = () => {
     if (shutdownState.closeRequested) return;
     shutdownState.closeRequested = true;

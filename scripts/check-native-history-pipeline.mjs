@@ -13,6 +13,7 @@ import nativeService from "../protocol/native/claude/history-native-service.js";
 import provider from "../public/modules/claude-history.js";
 import projection from "../public/modules/projection.js";
 import { checkHistoryAccess } from "./check-history-access.mjs";
+import { checkHistoryHostNative } from "./check-history-host-native.mjs";
 import { withDownloadedSdk, SDK_VERSION, NATIVE_VERSION, SDK_SHA256 } from "./check-native-claude-history.mjs";
 const digest = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
 const encode = rows => Buffer.from(rows.map(row => JSON.stringify(row)).join("\n") + "\n");
@@ -106,12 +107,15 @@ export async function checkNativeHistoryPipeline({ helperPath, sdkPath }) {
     for (const [file, bytes] of expectedFiles) assert.deepEqual(await fs.readFile(file), bytes, "owned fixture changed outside explicit mutation");
     assert.equal(digest(await fs.readFile(sdk)), sdkSha256); assert.equal(digest(await fs.readFile(helper)), helperSha256);
     for (const instance of services) { const status = await instance.shutdown(); assert.equal(status.cleanupConfirmed, true); assert.equal(status.quarantined, false); }
-    return { result: "passed", nodeVersion: process.version, platform: process.platform, arch: process.arch,
+    const actualHost = process.platform === "win32" ? { actualHostGate: "source_platform_unsupported" }
+      : await checkHistoryHostNative({ helperPath: helper, sdkPath: sdk });
+    return { result: "passed", nodeVersion: process.version, platform: process.platform, arch: process.arch, actualHost,
       nativePipelineGate: process.platform === "win32" ? "source_platform_unsupported" : "posix_owned_fixture_passed",
       officialSdkVersion: SDK_VERSION, nativeVersion: NATIVE_VERSION, sdkSha256, helperArtifactSha256: helperSha256,
       metrics, elapsedMs: Math.round(performance.now() - started), ...access,
       boundedPageAndVersionGate: process.platform === "win32" ? "source_platform_unsupported" : "posix_owned_fixture_passed",
       sourceAuthenticated: false, publishable: false, privateHistoryReads: 0, modelCalls: 0, productionWiring: false,
+      applicationHostWiring: process.platform !== "win32", productionChanged: false,
       ownedFixturesUnchangedExceptExplicitMutation: true, cleanupConfirmed: true };
   } finally {
     for (const service of services) {

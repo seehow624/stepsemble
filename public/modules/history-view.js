@@ -11,7 +11,7 @@ var StepsembleHistoryView;
     const same = (a, b) => !!a && a.bindingId === b.bindingId && a.generation === b.generation && a.sessionId === b.sessionId;
     const uuid = (v) => /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
     const messages = {
-        history_binding_unavailable: "這份預覽的存取已到期，請重新整理。", history_principal_unavailable: "目前的登入已失效，請回到主頁重新登入。",
+        history_binding_unavailable: "這份歷史的存取已到期，請重新整理。", history_principal_unavailable: "目前的登入已失效，請回到主頁重新登入。",
         history_unauthorized: "目前的登入已失效，請回到主頁重新登入。", history_capacity_unavailable: "目前可用的唯讀名額已滿，請稍後手動重新整理。",
         history_view_conflict: "上一個來源仍在釋放中，請稍後手動重新整理。", source_busy: "來源仍在讀取或收尾中，請稍後手動重新整理。",
         source_version_changed: "來源內容已改變。保留的頁面已過期，請重新整理。", source_version_unavailable: "原版本已不可用，請重新整理。",
@@ -21,7 +21,11 @@ var StepsembleHistoryView;
         history_transport_failed: "連線未完成，保留原本的頁面。請手動重新整理。", history_timeout: "讀取逾時，請手動重新整理。",
         history_request_timeout: "讀取逾時，請手動重新整理。", history_response_invalid: "回覆未通過驗證，沒有顯示新資料。",
         history_response_too_large: "回覆超過安全上限，請減少每頁則數再重新整理。", source_observation_too_large: "回覆過大，請減少每頁則數再重新整理。",
-        history_source_unavailable: "這個來源目前無法讀取。", history_view_limit: "已達本次預覽的保留上限，請重新整理目前頁面。",
+        history_source_unavailable: "主機尚未啟用這個來源，或目前的憑證沒有讀取權限。", history_view_limit: "已達本次檢視的保留上限，請重新整理目前頁面。",
+        source_platform_unsupported: "這台主機尚未支援原生歷史讀取，請選擇已支援的主機。",
+        source_containment_unavailable: "來源所在磁碟未通過安全檢查；沒有讀取新內容，也不會自動更改磁碟權限。",
+        source_root_identity_changed: "已登記的來源目錄已被替換，請由主機管理者重新確認來源。",
+        source_acl_unsupported: "來源權限尚未符合唯讀功能的支援範圍，請由主機管理者檢查。",
     };
     function describeError(code) { return messages[code] ?? "目前無法取得新資料。請手動重新整理。"; }
     StepsembleHistoryView.describeError = describeError;
@@ -37,7 +41,7 @@ var StepsembleHistoryView;
         const now = deps.now ?? Date.now;
         let selected = null, binding = null, controller = deps.createPages(deps.transport.read);
         let snapshot = controller.state(), pending = null, candidate = null;
-        let epoch = 0, busy = false, stage = "選擇一個範例來源", error = null, stale = false, closed = false;
+        let epoch = 0, busy = false, stage = "選擇一個歷史來源", error = null, stale = false, closed = false;
         let limit = 10, offset = null, messageStart = 0, cleanupPending = false;
         const notify = () => deps.onChange?.();
         function cancelWork() {
@@ -94,7 +98,7 @@ var StepsembleHistoryView;
             pending = abort;
             busy = true;
             error = null;
-            stage = "準備唯讀預覽…";
+            stage = "準備唯讀歷史…";
             notify();
             let target = controller;
             try {
@@ -190,7 +194,7 @@ var StepsembleHistoryView;
             offset = null;
             messageStart = 0;
             busy = true;
-            stage = old ? "切換來源…" : "準備唯讀預覽…";
+            stage = old ? "切換來源…" : "準備唯讀歷史…";
             notify();
             await release(old);
             if (ticket !== epoch)
@@ -231,7 +235,7 @@ var StepsembleHistoryView;
             snapshot = controller.state();
             offset = null;
             messageStart = 0;
-            stage = "已關閉唯讀預覽";
+            stage = "已關閉唯讀歷史";
             notify();
             await release(old);
             notify();
@@ -249,8 +253,8 @@ var StepsembleHistoryView;
             return node;
         };
         const tabs = element("nav", "", "history-sources");
-        tabs.setAttribute("aria-label", "範例來源");
-        const title = element("h2", "選擇範例來源"), description = element("p", "", "history-description");
+        tabs.setAttribute("aria-label", "歷史來源");
+        const title = element("h2", "選擇歷史來源"), description = element("p", "", "history-description");
         const status = element("p", "", "history-status");
         status.setAttribute("role", "status");
         status.setAttribute("aria-live", "polite");
@@ -276,7 +280,7 @@ var StepsembleHistoryView;
         button("previous", "上一頁", () => model.previous());
         button("next", "下一頁", () => model.next());
         button("cancel", "取消讀取", () => model.cancel());
-        button("close", "關閉預覽", () => model.close());
+        button("close", "關閉歷史", () => model.close());
         const label = element("label", "每次讀取 ", "history-limit"), select = element("select");
         select.setAttribute("aria-label", "每頁訊息數");
         for (const n of [5, 10, 25]) {
@@ -299,8 +303,8 @@ var StepsembleHistoryView;
         function render() {
             const s = model.state();
             deps.root.setAttribute("aria-busy", String(s.busy));
-            title.textContent = s.selected?.label ?? (s.closed ? "預覽已關閉" : "選擇範例來源");
-            description.textContent = s.selected?.description ?? "選擇上方來源以讀取已測試的合成資料。";
+            title.textContent = s.selected?.label ?? (s.closed ? "檢視已關閉" : "選擇歷史來源");
+            description.textContent = s.selected?.description ?? "選擇主機提供的來源。只讀取歷史，不執行或續跑工作。";
             status.textContent = s.stage;
             warning.hidden = !s.error && !s.stale;
             warning.textContent = s.error ? describeError(s.error) + (s.page ? " 目前仍顯示先前的頁面（可能已過期）。" : "")
@@ -315,7 +319,7 @@ var StepsembleHistoryView;
             controls.windowPrevious.disabled = s.messageStart === 0;
             controls.windowNext.disabled = !s.page || s.messageStart + StepsembleHistoryView.LIMITS.messages >= s.page.observation.messages.length;
             select.value = String(s.limit);
-            cleanup.textContent = s.cleanupPending ? "關閉請求已送出；部分讀取尚未確認釋放，主機租約到期會收回唯讀存取。" : "關閉預覽只釋放唯讀存取，不會中止原生工作。";
+            cleanup.textContent = s.cleanupPending ? "關閉請求已送出；部分讀取尚未確認釋放，主機租約到期會收回唯讀存取。" : "關閉歷史只釋放唯讀存取，不會中止原生工作。";
             const pageKey = s.page ? `${s.sourceVersion}:${s.page.offset}:${s.page.limit}:${s.page.observation.selectionDigest}` : null;
             position.textContent = s.page ? `已保留 ${s.retainedMessages} 則 · 第 ${s.pageIndex + 1} / ${s.pageCount} 個已載入頁面 · 本頁顯示 ${s.page.observation.messages.length ? s.messageStart + 1 : 0}–${Math.min(s.messageStart + StepsembleHistoryView.LIMITS.messages, s.page.observation.messages.length)} / ${s.page.observation.messages.length} 則 · SDK 位移 ${s.page.offset}` : "尚未讀取訊息";
             windowBar.hidden = !s.page || s.page.observation.messages.length <= StepsembleHistoryView.LIMITS.messages;
@@ -326,7 +330,7 @@ var StepsembleHistoryView;
             content.replaceChildren();
             evidence.replaceChildren();
             if (!s.page) {
-                content.append(element("p", s.closed ? "選擇來源可再次開啟預覽。" : "尚無訊息。請選擇範例來源。", "history-empty"));
+                content.append(element("p", s.closed ? "選擇來源可再次開啟檢視。" : "尚無訊息。請選擇歷史來源。", "history-empty"));
                 return;
             }
             let remaining = StepsembleHistoryView.LIMITS.textUnits;
@@ -384,6 +388,69 @@ var StepsembleHistoryView;
         return Object.freeze({ ...model, render });
     }
     StepsembleHistoryView.create = create;
+    function hostRoute(search) {
+        const params = new URLSearchParams(search), entries = [...params];
+        if (!entries.length)
+            return { hostId: "local", routePrefix: "" };
+        if (entries.length !== 1 || entries[0][0] !== "machine" || !/^[a-z0-9-]{1,48}$/.test(entries[0][1]))
+            throw new Error("history_route_invalid");
+        return { hostId: entries[0][1], routePrefix: `/r/${entries[0][1]}` };
+    }
+    StepsembleHistoryView.hostRoute = hostRoute;
+    async function bootHost() {
+        const root = document.querySelector("[data-history-host]");
+        if (!root)
+            return;
+        const status = document.createElement("p");
+        status.className = "history-empty";
+        status.setAttribute("role", "status");
+        status.textContent = "正在確認主機提供的唯讀來源…";
+        root.replaceChildren(status);
+        const abort = new AbortController();
+        let gone = false, view = null;
+        const close = () => { gone = true; abort.abort(); void view?.close(); };
+        window.addEventListener("pagehide", close, { once: true });
+        // A bfcache-restored document must not revive an old credential/view scope.
+        window.addEventListener("pageshow", event => { if (event.persisted)
+            location.reload(); });
+        const showUnavailable = (message) => {
+            if (gone)
+                return;
+            status.textContent = message;
+            const retry = document.createElement("button");
+            retry.className = "history-button";
+            retry.type = "button";
+            retry.textContent = "重新確認";
+            retry.addEventListener("click", () => location.reload());
+            root.replaceChildren(status, retry);
+        };
+        try {
+            const route = hostRoute(location.search), viewId = crypto.randomUUID(), canonicalJSON = StepsembleProjection.canonicalJSON;
+            const label = document.querySelector("[data-history-host-label]");
+            if (label)
+                label.textContent = route.hostId === "local" ? "目前主機" : `遠端主機 · ${route.hostId}`;
+            const transport = StepsembleHistoryTransport.create({ ...route, origin: location.origin, viewId, canonicalJSON });
+            const result = await transport.catalog(abort.signal);
+            if (gone)
+                return;
+            if (result.kind !== "history_catalog") {
+                showUnavailable(describeError(result.code));
+                return;
+            }
+            if (!result.entries.length) {
+                showUnavailable("這個登入尚無可讀取的來源。請由主機管理者明確登記來源與讀取權限；不會自動掃描你的私人對話。");
+                return;
+            }
+            const provider = StepsembleClaudeHistory.create({ canonicalJSON });
+            view = create({ root, ...route, viewId, catalog: result.entries, transport,
+                createPages: read => StepsembleHistoryPages.create({ read, canonicalJSON, validateHistory: provider.validateHistory, requestId: () => crypto.randomUUID() }) });
+        }
+        catch (error) {
+            showUnavailable(error instanceof StepsembleHistoryTransport.TransportError ? describeError(error.code)
+                : "無法開啟這份唯讀歷史。請返回工作區確認登入和主機，然後手動重試。");
+        }
+    }
+    StepsembleHistoryView.bootHost = bootHost;
     /** Only the isolated preview document calls this. It has no production import
      * or service-worker registration and accepts no URL-supplied source options. */
     async function bootPreview() {
@@ -415,4 +482,7 @@ var StepsembleHistoryView;
 if (typeof module !== "undefined")
     module.exports = StepsembleHistoryView;
 else if (typeof document !== "undefined")
-    document.addEventListener("DOMContentLoaded", () => { void StepsembleHistoryView.bootPreview(); }, { once: true });
+    document.addEventListener("DOMContentLoaded", () => {
+        void StepsembleHistoryView.bootPreview();
+        void StepsembleHistoryView.bootHost();
+    }, { once: true });

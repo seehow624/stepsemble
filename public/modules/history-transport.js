@@ -1,7 +1,7 @@
 "use strict";
 /// <reference path="./history-pages.ts" />
-/** Reserved same-origin history HTTP transport. No SDK, source paths, bearer
- * credentials, relay fallback, journal writes or production route installation.
+/** Same-origin history HTTP transport. No SDK, source paths, bearer
+ * credentials, legacy relay fallback or journal writes.
  * Cookie authentication and ownership remain the Host's responsibility. */
 var StepsembleHistoryTransport;
 (function (StepsembleHistoryTransport) {
@@ -52,6 +52,9 @@ var StepsembleHistoryTransport;
             return failure("history_origin_invalid");
         }
         const { hostId, viewId, canonicalJSON } = deps;
+        const routePrefix = deps.routePrefix ?? "";
+        if (typeof routePrefix !== "string" || routePrefix !== "" && !/^\/r\/[a-z0-9-]{1,48}$/.test(routePrefix))
+            failure("history_route_invalid");
         const transport = deps.fetch ?? globalThis.fetch.bind(globalThis);
         const timeoutMs = deps.timeoutMs ?? StepsembleHistoryTransport.LIMITS.timeoutMs;
         if (typeof transport !== "function" || !positive(timeoutMs) || timeoutMs > 120000)
@@ -126,7 +129,7 @@ var StepsembleHistoryTransport;
                 if (signal?.aborted)
                     abort();
                 timer = setTimeout(() => stop("history_timeout"), timeoutMs);
-                const url = origin + path;
+                const url = origin + routePrefix + path;
                 const flight = Promise.resolve().then(() => {
                     if (stopped)
                         return failure("history_aborted");

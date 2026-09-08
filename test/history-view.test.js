@@ -20,6 +20,22 @@ async function history(page) {
 }
 const createPages = read => pages.create({ read, canonicalJSON, validateHistory: provider.create({ canonicalJSON }).validateHistory, requestId: () => uuid(902) });
 const tick = () => new Promise(resolve => setImmediate(resolve));
+test("Host page query accepts one machine identifier and never selects a source or endpoint", () => {
+  assert.deepEqual(view.hostRoute(""), { hostId: "local", routePrefix: "" });
+  assert.deepEqual(view.hostRoute("?machine=mac-mini"), { hostId: "mac-mini", routePrefix: "/r/mac-mini" });
+  for (const query of ["?machine=a&machine=b", "?machine=a&source=private", "?url=https://evil.invalid", "?machine=../", "?machine=A", "?machine="])
+    assert.throws(() => view.hostRoute(query), /history_route_invalid/);
+});
+test("workspace history link tracks the current machine and rejects arbitrary prefixes", () => {
+  const source = fs.readFileSync(require.resolve("../public/app.js"), "utf8"), start = source.indexOf("function syncHistoryLink() {"), end = source.indexOf("\nfunction renderClaudeAuth", start);
+  assert.ok(start > 0 && end > start);
+  const link = { href: "", setAttribute(k, v) { this[k] = v; }, removeAttribute(k) { delete this[k]; } };
+  const context = vm.createContext({ $: () => link, apiBase: "", encodeURIComponent });
+  vm.runInContext(source.slice(start, end), context); context.syncHistoryLink(); assert.equal(link.href, "/history.html");
+  context.apiBase = "/r/mini"; context.syncHistoryLink(); assert.equal(link.href, "/history.html?machine=mini");
+  context.apiBase = "https://evil.invalid"; context.syncHistoryLink(); assert.equal(link.href, undefined); assert.equal(link["aria-disabled"], "true");
+  context.apiBase = ""; context.syncHistoryLink(); assert.equal(link.href, "/history.html"); assert.equal(link["aria-disabled"], undefined);
+});
 function harness(overrides = {}, create = view.createModel) {
   const calls = []; let generation = 1, clock = 1000000;
   const registration = (catalogId, selectedGeneration = generation) => ({ kind: "history_registration", bindingId: uuid(903), generation: selectedGeneration,

@@ -9,6 +9,8 @@ button:disabled { opacity: .48; cursor: default; transform: none; }
 button:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .preview-header { max-width: 78rem; margin: auto; display: flex; align-items: center; gap: .7rem; padding: 1.35rem 2rem; font-weight: 600; }
 .preview-mark { flex: 0 0 auto; }
+.history-home { min-height: 44px; display: inline-flex; align-items: center; color: var(--ink); text-decoration-thickness: 1px; text-underline-offset: .2em; }
+.history-home:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .preview-badge { margin-left: auto; border: 1px solid var(--line); border-radius: 2rem; padding: .3rem .75rem; font-size: .8rem; color: var(--muted); letter-spacing: .025em; }
 main { max-width: 68rem; margin: auto; padding: 1.8rem 2rem 4rem; }
 .preview-intro { max-width: 47rem; margin-bottom: 2.3rem; }

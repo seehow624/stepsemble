@@ -1,4 +1,4 @@
-/* stepsemble v3.0.7-rc.2 — Ink & Ivory / English-first localization */
+/* stepsemble v3.0.7-rc.3 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -1754,14 +1754,15 @@ body.image-lightbox-open { overflow: hidden; }
   border-radius: 18px;
   background: color-mix(in srgb, var(--paper) 76%, var(--milk));
 }
-.agent-hub-heading { display: flex; align-items: center; gap: 10px; }
+.agent-hub-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .agent-hub-heading > div { min-width: 0; flex: 1; }
 .agent-hub-heading strong { display: block; font-size: 13px; font-weight: 720; letter-spacing: .01em; }
 .agent-hub-heading small { display: block; margin-top: 2px; color: var(--pine-soft); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-hub-heading .agent-hub-heading-actions { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; }
 .agent-hub-heading .icon-button-small { flex: 0 0 auto; }
 .agent-hub-view-all {
-  min-height: 44px; padding: 0 7px; border: 0; border-radius: 7px;
+  display: inline-flex; align-items: center; justify-content: center; text-decoration: none;
+  min-height: 44px; min-width: 44px; padding: 0 7px; border: 0; border-radius: 7px;
   color: var(--accent); background: transparent; font-size: 10.5px;
   font-weight: 650; cursor: pointer;
 }

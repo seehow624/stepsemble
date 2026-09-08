@@ -1,5 +1,10 @@
 # Claude 歷史安全接入：實作狀態與剩餘 gate
 
+**Plan1.46更新**：開發候選rc.3已掛入實際server.js／Agent Hub／獨立頁面，
+但預設停用、未部署、沒有私人來源登記。新接線／權限／操作方式／當前驗收以
+[history-host-integration.md](history-host-integration.md)為準；下方保留1.42–1.45
+階段記錄，其中「尚未接入正式server」不能再當作最新開發狀態。
+
 日期：2026-09-08。這份文件接續 Plan 1.41 proposal，區分已完成的 reserved
 implementation、synthetic 驗證與尚未達成的 production 條件。**正式 server/app
 尚未啟用新歷史 routes 或 UI**；隔離預覽只建立自己的合成來源，未掃描／讀取

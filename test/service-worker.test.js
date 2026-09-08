@@ -35,7 +35,7 @@ test("the approved full-colour brand image is precached for offline CSS", async 
 });
 test("API and remote-host traffic never enter the service-worker cache", () => {
   const f = worker();
-  for (const route of ["/api/sessions", "/api/agent-tasks", "/r/host/api/session"]) {
+  for (const route of ["/api/sessions", "/api/agent-tasks", "/r/host/api/session", "/api/history/page", "/history.html", "/history.html?machine=mini"]) {
     f.handlers.fetch({ request: { method: "GET", url: "http://localhost" + route }, respondWith() { assert.fail("API intercepted"); } });
   }
 });

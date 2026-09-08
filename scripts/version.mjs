@@ -15,6 +15,7 @@ const TEXT_FILES = [
   "server.js",
   "public/app.js",
   "public/index.html",
+  "public/history.html",
   "public/manifest.webmanifest",
   "public/sw.js",
   "public/style.css",
@@ -46,6 +47,7 @@ function currentVersionValues(version) {
   addMatches("public/app.js", /const CLIENT_APP_VERSION\s*=\s*["']([^"']+)["']/g, "CLIENT_APP_VERSION");
   addMatches("public/app.js", /\/\* stepsemble v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/g, "client release comment");
   addMatches("public/index.html", /[?&]v=(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/g, "HTML asset query");
+  addMatches("public/history.html", /[?&]v=(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/g, "history asset query");
   addMatches("public/index.html", /id="set-app-version">v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)</g, "HTML app version");
   addMatches("public/manifest.webmanifest", /[?&]v=(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/g, "manifest asset query");
   addMatches("public/sw.js", /const CACHE_NAME\s*=\s*["'][^"']*-v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)["']/g, "service-worker cache");
@@ -77,6 +79,7 @@ function replaceTextVersions(file, version) {
     text = text.replace(/(id="set-app-version">v)\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/, `$1${version}`);
   }
   if (file === "public/manifest.webmanifest") text = text.replace(/([?&]v=)\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/g, `$1${version}`);
+  if (file === "public/history.html") text = text.replace(/([?&]v=)\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/g, `$1${version}`);
   if (file === "public/sw.js") {
     text = text.replace(/(const CACHE_NAME\s*=\s*["'][^"']*-v)\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/, `$1${version}`);
     text = text.replace(/([?&]v=)\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/g, `$1${version}`);

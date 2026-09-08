@@ -98,6 +98,13 @@ function createHistoryIdentity({ browserCredentials, peerGrantIds, authenticateP
     const existed = entries.has(`peer:${id}`); retire(`peer:${id}`); return existed;
   }
   return Object.freeze({ authenticateBrowserCookie: browser, authenticatePeerCredential: peer, isPrincipalCurrent,
+    // Private Host catalog policy only. Never serialize this authority key or
+    // accept a caller-supplied key in place of authenticating the request.
+    credentialKey(principal) {
+      if (!isPrincipalCurrent(principal)) return null;
+      for (const [key, entry] of entries) if (entry.principal === principal) return key;
+      return null;
+    },
     invalidateBrowserCredential, invalidateBrowserCookie, invalidatePeerGrant,
     refresh: () => snapshot() !== null,
     shutdown() { closed = true; clear(); },

@@ -287,6 +287,11 @@ Before making substantial changes, read the accepted
 
 ## Privacy
 
+Development candidate 3.0.7-rc.3 adds an **opt-in, read-only Claude history**
+integration. It is not enabled by installing Stepsemble, does not scan private
+history, and is not session/approval/resume parity. See the
+[operator setup and verification notes](docs/history-host-integration.md).
+
 The public repository contains application code and generic templates only.
 It must never include tokens, private URLs, device names, session logs,
 project content, account credentials, selected-model history, or usage totals.

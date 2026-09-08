@@ -3574,6 +3574,7 @@
   };
   const AGENT_HUB_TASK_CENTER_TRANSLATIONS = {
     en: {
+      "agentHub.history": "History", "agentHub.historyHint": "Open read-only Claude history in a separate tab",
       "agentHub.viewAll": "View all", "agentHub.close": "Close", "agentHub.taskCenterTitle": "Task center",
       "agentHub.taskSearch": "Search tasks…", "agentHub.taskFilter": "Filter tasks", "agentHub.filterAll": "All",
       "agentHub.filterActive": "Active", "agentHub.taskCenterEmpty": "No tasks match this view.",
@@ -3582,6 +3583,7 @@
       "agentHub.taskNoOutput": "No output yet", "agentHub.taskLastActivity": "Updated {value}", "agentHub.reconnectingNote": "Reconnecting to the supervisor…",
     },
     "zh-Hant": {
+      "agentHub.history": "唯讀歷史", "agentHub.historyHint": "在另一個分頁開啟 Claude 唯讀歷史",
       "agentHub.viewAll": "查看全部", "agentHub.close": "關閉", "agentHub.taskCenterTitle": "工作中心", "agentHub.taskSearch": "搜尋工作…", "agentHub.taskFilter": "篩選工作", "agentHub.filterAll": "全部", "agentHub.filterActive": "執行中", "agentHub.taskCenterEmpty": "沒有符合的工作。", "agentHub.taskCenterCount": "顯示 {visible}／{total} 個工作", "agentHub.taskOpen": "開啟", "agentHub.taskStop": "停止", "agentHub.taskStopping": "停止中…", "agentHub.taskStoppedToast": "Agent 工作已停止", "agentHub.taskStopFailed": "無法停止 Agent 工作", "agentHub.taskNoOutput": "尚無輸出", "agentHub.taskLastActivity": "更新於 {value}", "agentHub.reconnectingNote": "正在重新連線至監督器…",
     },
     "zh-Hans": {
@@ -3612,6 +3614,20 @@
       "agentHub.viewAll": "Mostra tutto", "agentHub.close": "Chiudi", "agentHub.taskCenterTitle": "Centro attività", "agentHub.taskSearch": "Cerca attività…", "agentHub.taskFilter": "Filtra attività", "agentHub.filterAll": "Tutte", "agentHub.filterActive": "Attive", "agentHub.taskCenterEmpty": "Nessuna attività corrisponde.", "agentHub.taskCenterCount": "{visible} di {total} attività", "agentHub.taskOpen": "Apri", "agentHub.taskStop": "Arresta", "agentHub.taskStopping": "Arresto…", "agentHub.taskStoppedToast": "Attività dell’agent arrestata", "agentHub.taskStopFailed": "Impossibile arrestare l’attività", "agentHub.taskNoOutput": "Nessun output", "agentHub.taskLastActivity": "Aggiornato {value}", "agentHub.reconnectingNote": "Riconnessione al supervisore…",
     },
   };
+  const HISTORY_ENTRY_TRANSLATIONS = {
+    "zh-Hans": ["只读历史", "在新标签页中打开 Claude 只读历史"],
+    ja: ["履歴", "Claude の読み取り専用履歴を別のタブで開く"],
+    ko: ["기록", "새 탭에서 Claude 읽기 전용 기록 열기"],
+    tr: ["Geçmiş", "Claude salt okunur geçmişini ayrı bir sekmede aç"],
+    fr: ["Historique", "Ouvrir l’historique Claude en lecture seule dans un autre onglet"],
+    de: ["Verlauf", "Schreibgeschützten Claude-Verlauf in einem neuen Tab öffnen"],
+    es: ["Historial", "Abrir el historial de Claude de solo lectura en otra pestaña"],
+    "pt-BR": ["Histórico", "Abrir o histórico do Claude somente para leitura em outra aba"],
+    it: ["Cronologia", "Apri la cronologia Claude in sola lettura in un’altra scheda"],
+  };
+  for (const [id, [label, hint]] of Object.entries(HISTORY_ENTRY_TRANSLATIONS)) {
+    Object.assign(AGENT_HUB_TASK_CENTER_TRANSLATIONS[id], { "agentHub.history": label, "agentHub.historyHint": hint });
+  }
   for (const [id, table] of Object.entries(AGENT_HUB_TASK_CENTER_TRANSLATIONS)) {
     if (AGENT_HUB_TRANSLATIONS[id]) Object.assign(AGENT_HUB_TRANSLATIONS[id], table);
   }

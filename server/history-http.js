@@ -270,4 +270,4 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
   };
 }
 
-module.exports = { createHistoryHttpHandler, createHistoryRequestAuth, validCatalog, LIMITS, VIEW_HEADER, CSRF_HEADER, PUBLIC_CODES };
+module.exports = { createHistoryHttpHandler, createHistoryRequestAuth, configuredOrigin, validCatalog, LIMITS, VIEW_HEADER, CSRF_HEADER, PUBLIC_CODES };

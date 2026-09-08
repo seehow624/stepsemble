@@ -39,6 +39,11 @@ source ACL／descriptor containment／Windows gate 見 [`history-access-design.m
 
 ### 1.1 v3 品牌遷移增量
 
+2026-09-08 Plan1.46補充：rc.3已在開發程式接入explicit opt-in正式Host routes／
+Web入口、source grants及logout/revoke/shutdown；尚未部署／登記私人来源。
+見[history-host-integration.md](history-host-integration.md)。上方1.42「未接線」
+是歷史階段，不再描述最新開發程式；下方3.0.0盤點與正式3.0.6基線維持原樣。
+
 - 新 identity：`Stepsemble`、`stepsemble`、`STEPSEMBLE_*`、`com.stepsemble.*`、`STEPSEMBLE3`。
 - 雙讀相容：`~/.config/pi-harbor`、`~/.config/pi-web`、`pi_harbor`／`pi_web` cookie、`PI_HARBOR_*`／`PI_WEB_*`、`PIHARBOR3`／`PIHARBOR2`。
 - private state 只在新檔不存在時複製；舊來源不刪除，symlink 不跟隨，檔案／資料夾權限收斂為 `0600`／`0700`。
