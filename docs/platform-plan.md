@@ -1035,6 +1035,8 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 - 新Rust與Node測試涵蓋限額/metadata/權限/links/FIFO/ACL/兩掃間變更/wire/auth/lifecycle。Node22.19/22.22實際Rust增量目錄gate＋最低Node既有SDK→actualHost4來源鏈通過；原fixture不變、cleanup確認、model/privatehistory0。跨OS依本次exact CI，不沿用舊綠燈。
 - 只完成探索核心，不接private source設定／動態registry／Web，不以檔名冒充title。正式3.0.6、B+、帳號/模型路由、fixedab227af72h不變，產品仍rc.5。原生metadata/title、source-level onboarding、global admission/catalog paging、其他agents/approval/resume/durable/RustHost/Apps仍待；完整邊界見native-history-discovery.md。
 
+- Exact程式`25c91bb117af7791ca70feb52a84dcd951798d23`三組CI全過：一般34207765820每OS679項/0fail（Mac677/2skip、Linux676/3、Win648/31）、Ajv各1251；reader34207765833 Rust17/17/8、Node各56/56、POSIX真inventory/SDK/actualHost過，Winunsupported；NativeClaude34207765784三OSmodel0/原檔不變；RustSec0known/0warnings。開發中途一輪678項曾有1項未定位失敗、其後最終679兩輪及CI皆0fail；不抹去該次紀錄或冒稱已證明無flaky。完整限制與debug/release區別已記native-history-discovery.md。
+
 ### 2026-09-08 — Plan 1.48
 
 - Jerome 要求其他剩餘項目也繼續實作。本批先交付可使用的統一清單，不僅列計畫。

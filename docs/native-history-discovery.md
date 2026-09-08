@@ -119,3 +119,27 @@ source authority、incremental changes、stale保留與恢复、late revoke/shut
 本機 Rust17/17、strict TS／產物／syntax／version已過。一般Node完整回歸及跨平台
 以本次 exact commit 的 CI結果為準，不沿用上一批綠燈。
 沒有做新 browser／真機／效能／RSS改善宣稱，因為此次沒有變更Web UI。
+
+### 本機回歸的限制
+
+開發中途與Rust測試／編譯並行的一輪678項回歸有1項失敗；當時只保留尾端統計，
+無法確認是哪個case或根因，不能宣稱已定位修復。其後678項重跑零失敗，最終679項
+連續兩輪（677pass／2平台skip）與下列三OS exact-commit CI均零失敗。
+這些通過結果不抹去該次未定位失敗，也不構成高負載／無flaky／整體穩定性證明。
+
+### Exact commit 驗收
+
+程式／測試 **`25c91bb117af7791ca70feb52a84dcd951798d23`** 已push，三組workflow全過：
+
+| Gate | 已核實的範圍 |
+| --- | --- |
+| [一般CI 34207765820](https://github.com/seehow624/stepsemble/actions/runs/34207765820) | 每OS679項／0fail：Mac677pass2skip、Linux676pass3skip、Windows648pass31skip；每OS Ajv1251cases |
+| [Native reader＋audit 34207765833](https://github.com/seehow624/stepsemble/actions/runs/34207765833) | Rust Mac17/Linux17/Windows8；每OS Node56/56；Mac/Linux實際inventory增量/stale/recovery及既有SDK→actualHost過；Windows兩種compiled CLI操作皆明示unsupported；locked RustSec audit成功 |
+| [Native Claude 34207765784](https://github.com/seehow624/stepsemble/actions/runs/34207765784) | 固定SDK三OS合成history contract、modelCalls0、nativeFileUnchanged=true；不是Windows source支援 |
+
+未變更UI/assets，這批未重跑browser rolling，不沿用舊rolling當作本SHA的新UI測試。
+本機release helper另在最低Node22.19.0跑既有SDK→actualHost鏈成功，SHA256
+`ea6b20d9ec8f2b76f107893648eb0d0ecf329f47c8f88cba23fe67c9c3e830fc`；debug的
+inventory＋舊pipeline SHA是`efedbde33d9ddcf8ed5f6aa084284349c3bbc0a4bd56b1bad4636452572e634a`。
+不把debug inventory的驗證冒充release inventory已另外實跑；build/fmt/Clippy皆過。
+後續純文件commit與這份程式證據分開，不將commit改寫為未知future revision。
