@@ -88,7 +88,8 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 - **2026-09-09／C2/C6背景解析，Plan1.61／rc.7不變**：Rustcapture到Nodeparser
   actualclose共用Host兩名額，未知清理隔離所有consumer、無重送或新queue。22新tests、
   本機845/0fail、最低Node114/114，真跨harness max2/remaining0、stale/取消/raw頁通；
-  三OSexactCI待核。合成8MiB索引main-loop gap由87–94ms降6–8ms，整次約0.76秒，
+  首批CI Windows路徑JSON escaping斷言已定位修正，修正SHA待核，native三OS通。
+  合成8MiB索引main-loop gap由87–94ms降6–8ms，整次約0.76秒，
   非Web/RSS驗收。詳[背景解析](codex-history-pipeline.md)，CodexSQLite/授權/registry/
   HTTPWeb與C1–C8未全完；正式、私人、帳號、B+與固定72h不變。
 

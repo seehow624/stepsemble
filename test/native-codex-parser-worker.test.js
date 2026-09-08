@@ -30,8 +30,13 @@ test("worker pages round trip all captured records, preserving command/image eve
 });
 test("binary input rejects segment substitution, unknown fields, extra bytes and stale versions before parsing", () => {
   const { job, parsed, encoded, capture } = prepared();
-  assert.equal(encoded.subarray(4, 4 + encoded.readUInt32BE(0)).includes(Buffer.from(fixture.root)), false, "no absolute source-reading path in worker header");
-  assert.equal(parsed.bytes.includes(Buffer.from(fixture.root)), true, "transcript paths remain inert bytes, never read grants");
+  for (const workdir of [fixture.root, "C:\\owned\\history", "/owned/原文"]) {
+    const owned = fixture.captured(undefined, workdir), j = fixture.job(owned), binary = wire.encodeJob(j, owned), p = wire.readJob(binary);
+    const literal = Buffer.from(JSON.stringify(workdir).slice(1, -1));
+    assert.equal(binary.subarray(4, 4 + binary.readUInt32BE(0)).includes(literal), false, "no absolute source-reading path in worker header");
+    assert.equal(p.bytes.includes(literal), true, "JSON-escaped transcript paths remain inert bytes, never read grants");
+    assert.deepEqual(p.bytes.subarray(0, j.source.rollout.identity.size), owned.rolloutBytes);
+  }
   for (const change of [v => { v.protocolVersion = 2; }, v => { v.nonce = "bad"; }, v => { v.path = "private"; },
     v => { v.selection.limit = 51; }, v => { v.source.nativeVersion = "latest"; }, v => { v.selection = { mode: "names", offset: 0 }; }]) {
     const bad = structuredClone(job); change(bad); assert.equal(wire.readJob(frame(bad, parsed.bytes)), null);

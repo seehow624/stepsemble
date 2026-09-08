@@ -91,9 +91,18 @@ Web Core Vitals或Host完整效能驗收。RSS/長期記憶體、跨頁快取、
 
 ### Exact CI
 
-本機gate已通；工程commit的三OS一般／native Codex／reader CI待push後核完整log，
-尚未宣稱通過。reader workflow新增新script/test paths與114項聚焦suite，POSIX會跑
-實際跨harness管線，Windows只驗unsupported而非假稱來源成功。
+工程`f92b2f5d9e35782e9526387e96ae2d447f0c3c89`首批一般CI34255155653的Mac/Linux
+通845/0fail，Windows與reader34255155692聚焦suite同一斷言失敗：JSON內Windows
+路徑的反斜線已合法跳脫，測試卻用未跳脫原路徑比對。不是parser丟失原文；修正以
+JSON literal比對，所有平台再同測Windows/POSIX路徑及完整rollout byte equality。
+最低Node22項通，沒有skip/delete失敗case或更改runtime讓測試過；原始failure logs
+`/tmp/stepsemble-codex-pipeline-{general-first,windows-first}.log`保留。修正SHA CI待核。
+
+首批native [34255155675](https://github.com/seehow624/stepsemble/actions/runs/34255155675)
+三OS真固定CLI通、完整logs核實：各17name cases/19原檔不變，raw113頁/219records/
+3transient/model0/loaded0/cleanup通；原本native投影缺項及paginated限制仍保留。
+reader workflow新script/test paths與114項聚焦suite，POSIX實際跨harness管線；
+Windows的實際unsupported gate已通，不能當Windows來源成功。
 
 ## 下一步
 
