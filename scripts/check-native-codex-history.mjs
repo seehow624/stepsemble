@@ -10,6 +10,8 @@ import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { capture, verifyCapture, probeEnvironment } from "./check-native-codex-schema.mjs";
 import { historyRpc } from "../protocol/native/codex/history-rpc.js";
+import { observeHistoryPage, checkItemCoverage, TYPES } from "../protocol/native/codex/history-observation.js";
+import { richRecords } from "../protocol/native/codex/history-fixture.js";
 const exec = promisify(execFile), root = fileURLToPath(new URL("../", import.meta.url));
 export const HISTORY_SCHEMAS = Object.freeze([
   "v2/ThreadListParams.json", "v2/ThreadListResponse.json", "v2/ThreadReadParams.json", "v2/ThreadReadResponse.json",
@@ -45,8 +47,9 @@ export async function verifyHistorySchemas(snapshot) {
 // Synthetic data only, based on the official codex-rs app-server rollout tests.
 // No caller-supplied home, source path, transcript, credentials, or provider config.
 export async function checkHistoryRuntime(binary) {
-  return withHistorySchemas(binary, async snapshot => {
+  return withHistorySchemas(binary, async (snapshot, documents) => {
     await verifyHistorySchemas(snapshot);
+    assert.deepEqual([...TYPES].sort(), documents.get("v2/ThreadReadResponse.json").definitions.ThreadItem.oneOf.map(value => value.properties.type.enum[0]).sort());
     const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-codex-history-owned-")));
     const codexHome = path.join(home, "codex"), saved = new Map(), fixtures = [];
     let client, cleanupConfirmed = false;
@@ -56,17 +59,21 @@ export async function checkHistoryRuntime(binary) {
       const { createServer } = await import("node:http");
       let requests = 0;
       const sink = createServer((_req, res) => { requests++; res.writeHead(503); res.end(); });
-      await new Promise(resolve => sink.listen(0, "127.0.0.1", resolve));
+      await new Promise((resolve, reject) => {
+        sink.once("error", reject);
+        sink.listen(0, "127.0.0.1", () => { sink.removeListener("error", reject); resolve(); });
+      });
       try {
-        const config = `model_provider = "history_fixture"\nproject_doc_max_bytes = 0\n[model_providers.history_fixture]\nname = "Owned history fixture"\nbase_url = "http://127.0.0.1:${sink.address().port}/v1"\nwire_api = "responses"\nrequires_openai_auth = false\n[features]\napps = false\nplugins = false\nhooks = false\nshell_snapshot = false\nmemories = false\nshell_tool = false\n[otel]\nexporter = "none"\n`;
+        const config = `model_provider = "history_fixture"\ncli_auth_credentials_store = "file"\nproject_doc_max_bytes = 0\n[model_providers.history_fixture]\nname = "Owned history fixture"\nbase_url = "http://127.0.0.1:${sink.address().port}/v1"\nwire_api = "responses"\nrequires_openai_auth = false\n[features]\napps = false\nplugins = false\nhooks = false\nshell_snapshot = false\nmemories = false\nshell_tool = false\n[otel]\nexporter = "none"\n`;
         await save(path.join(codexHome, "config.toml"), config);
-        for (const [i, source] of ["cli", "vscode", "exec", "mcp", { subagent: "review" }, "unknown", "cli", "cli"].entries()) {
-          const id = crypto.randomUUID(), archived = i === 7, paginated = i === 6;
+        for (const [i, source] of ["cli", "vscode", "exec", "mcp", { subagent: "review" }, "unknown", "cli", "cli", "cli"].entries()) {
+          const id = crypto.randomUUID(), archived = i === 7, paginated = i === 6, rich = i === 8;
           const name = `原生完整名稱 ${i} — ${"貓掌🐾長名稱 ".repeat(20)}`;
           const timestamp = `2026-01-05T12:00:0${i}Z`, line = (type, payload) => ({ timestamp, type, payload });
           const lines = [line("session_meta", { id, session_id: id, timestamp, cwd: home, originator: "codex", cli_version: snapshot.nativeVersion,
             source, model_provider: "history_fixture", history_mode: paginated ? "paginated" : "legacy" })];
-          for (let turn = 0; turn < 7; turn++) {
+          if (rich) lines.push(...richRecords(home).map(record => line(record.type, record.payload)));
+          for (let turn = 0; !rich && turn < 7; turn++) {
             const message = `使用者 ${i}/${turn} <script>not executable</script>`;
             lines.push(line("response_item", { type: "message", role: "user", content: [{ type: "input_text", text: message }] }),
               line("event_msg", { type: "user_message", message, text_elements: [], local_images: [] }),
@@ -75,7 +82,7 @@ export async function checkHistoryRuntime(binary) {
           }
           if (paginated) lines.forEach((entry, ordinal) => { entry.ordinal = ordinal; });
           const file = path.join(codexHome, archived ? "archived_sessions" : "sessions/2026/01/05", `rollout-2026-01-05T12-00-0${i}-${id}.jsonl`);
-          await save(file, lines.map(value => JSON.stringify(value)).join("\n") + "\n"); fixtures.push({ id, name, paginated, archived, source });
+          await save(file, lines.map(value => JSON.stringify(value)).join("\n") + "\n"); fixtures.push({ id, name, paginated, archived, source, rich });
         }
         await save(path.join(codexHome, "session_index.jsonl"), fixtures.flatMap(row => [
           { id: row.id, thread_name: "舊名字", updated_at: "2026-01-05T12:00:00Z" },
@@ -85,11 +92,12 @@ export async function checkHistoryRuntime(binary) {
         client = historyRpc(child, { allowIndexRepair: true });
         await client.initialize();
         assert.deepEqual((await client.request("thread/loaded/list")).data, []);
-        const collect = async (method, params) => {
+        const collect = async (method, params, consume) => {
           const rows = [], cursors = new Set(); let cursor;
           for (let page = 0; page < 32; page++) {
             const result = await client.request(method, { ...params, limit: 2, ...(cursor ? { cursor } : {}) });
             assert.ok(Array.isArray(result.data)); rows.push(...result.data);
+            if (consume) consume(result);
             if (!result.nextCursor) return rows;
             assert.ok(!cursors.has(result.nextCursor), "cursor cycle"); cursors.add(result.nextCursor); cursor = result.nextCursor;
           }
@@ -98,7 +106,7 @@ export async function checkHistoryRuntime(binary) {
         const active = await collect("thread/list", { useStateDbOnly: false }), archived = await collect("thread/list", { archived: true, useStateDbOnly: false });
         assert.deepEqual(active.map(row => row.id).sort(), fixtures.filter(row => !row.archived).map(row => row.id).sort());
         assert.deepEqual(archived.map(row => row.id), fixtures.filter(row => row.archived).map(row => row.id));
-        let legacyTurns = 0, legacyItems = 0, paginatedProjection, itemsList = "not_checked";
+        let legacyTurns = 0, legacyItems = 0, observedPages = 0, paginatedProjection, itemsList = "not_checked", richItemTypes = [], richCoverage;
         for (const fixture of fixtures) {
           const { thread } = await client.request("thread/read", { threadId: fixture.id });
           // This pinned build does not hydrate paginated names from the legacy session index.
@@ -107,10 +115,33 @@ export async function checkHistoryRuntime(binary) {
           assert.equal(thread.historyMode, fixture.paginated ? "paginated" : "legacy");
           assert.deepEqual(thread.source, fixture.source === "mcp" ? "appServer" : typeof fixture.source === "object" ? { subAgent: "review" } : fixture.source);
           assert.notEqual(thread.preview, fixture.name);
-          const turns = await collect("thread/turns/list", { threadId: fixture.id });
+          const turns = await collect("thread/turns/list", { threadId: fixture.id }, page => {
+            const observation = observeHistoryPage({ nativeVersion: snapshot.nativeVersion, threadId: fixture.id, thread, page });
+            if (fixture.paginated) assert.deepEqual(observation, { kind: "codex_history_unavailable", code: "native_paginated_history_unsupported" });
+            else {
+              assert.equal(observation.kind, "codex_history_observation"); assert.equal(observation.nativeTitle, fixture.name);
+              assert.equal(observation.nativeSessionId, thread.sessionId); assert.equal(observation.publishable, false);
+              assert.deepEqual(observation.turns.flatMap(turn => turn.items.map(item => item.nativeData)), page.data.flatMap(turn => turn.items)); observedPages++;
+            }
+          });
           if (fixture.paginated) { paginatedProjection = turns.length; assert.equal(paginatedProjection, 0, "re-review native paginated projection behavior"); continue; }
           const full = await client.request("thread/read", { threadId: fixture.id, includeTurns: true });
-          assert.equal(turns.length, 7); assert.deepEqual(turns, full.thread.turns);
+          assert.deepEqual(turns, full.thread.turns);
+          if (fixture.rich) {
+            richItemTypes = turns.flatMap(turn => turn.items.map(item => item.type));
+            // This fixture is deliberately NOT declared complete when native
+            // history omits a required tool record. Preserve the diagnostic gap.
+            richCoverage = checkItemCoverage(observeHistoryPage({ nativeVersion: snapshot.nativeVersion, threadId: fixture.id, thread, page: { data: turns } }), [
+              { nativeItemId: "fixture-command", nativeType: "commandExecution" }, { nativeItemId: "fixture-image", nativeType: "imageView" },
+              { nativeItemId: "fixture-patch", nativeType: "fileChange" }, { nativeItemId: "fixture-mcp", nativeType: "mcpToolCall" },
+            ]);
+            assert.deepEqual(richCoverage, { kind: "codex_history_unavailable", code: "native_projection_incomplete", missingTypes: ["commandExecution", "imageView"] });
+            assert.deepEqual(richItemTypes, ["userMessage", "reasoning", "fileChange", "mcpToolCall", "contextCompaction", "agentMessage"]);
+            assert.equal(turns.flatMap(turn => turn.items).find(item => item.type === "fileChange").status, "declined");
+            assert.equal(turns.flatMap(turn => turn.items).find(item => item.type === "mcpToolCall").status, "failed");
+            continue;
+          }
+          assert.equal(turns.length, 7);
           assert.ok(turns.every(turn => turn.itemsView === "full" && turn.items.length === 3));
           assert.ok(turns.every((turn, i) => turn.items[1].text === `草稿 ${fixtures.indexOf(fixture)}/${i}` && turn.items[2].text === `回答 ${fixtures.indexOf(fixture)}/${i} 🐾`));
           if (itemsList === "not_checked") {
@@ -128,9 +159,10 @@ export async function checkHistoryRuntime(binary) {
         client.assertHealthy(); assert.deepEqual((await client.request("thread/loaded/list")).data, []); client.assertHealthy();
         ({ cleanupConfirmed } = await client.close()); assert.equal(cleanupConfirmed, true);
         for (const [file, text] of saved) assert.deepEqual(await fs.readFile(file), Buffer.from(text), "owned source changed");
+        for (const file of ["never-created-by-history.txt", "never-loaded-image.png"]) await assert.rejects(fs.stat(path.join(home, file)), { code: "ENOENT" });
         assert.equal(requests, 0);
         return { nativeVersion: snapshot.nativeVersion, schemaCount: snapshot.schemas.length, scope: "owned-synthetic-home-only", active: active.length, archived: archived.length,
-          legacyTurns, legacyItems, paginatedProjection, paginatedName: "unavailable_from_legacy_index", itemsList,
+          legacyTurns, legacyItems, observedPages, richItemTypes, richCoverage, paginatedProjection, paginatedName: "unavailable_from_legacy_index", itemsList,
           modelEndpointRequests: requests, loadedThreads: 0, sourceFilesUnchanged: saved.size, cleanupConfirmed };
       } finally { sink.closeAllConnections(); await new Promise(resolve => sink.close(resolve)); }
     } finally {

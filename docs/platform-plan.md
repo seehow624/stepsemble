@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.54
+> 計畫版本：1.55
 > 最後更新：2026-09-08
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,7 +15,16 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新增量 1.54（開發版仍3.0.7-rc.6，未部署）**：C2新增固定Codex0.153.4的受限
+**最新增量 1.55（開發版仍3.0.7-rc.6，未部署）**：Codex 原生歷史新增有界、
+不可執行的 observation 轉換與完整性檢查；保留 native name/session ID、原始項目、
+錯誤及未知欄位，不合成 approval 或執行事件。19 種標籤的保留測試通過，真 CLI
+工具 fixture 實際只還原 6 種，command/image 缺口明示 unavailable，根因尚未確定；
+不能說完整工具歷史已通過。官方文件亦確認 paginated 完整歷史尚未支援，先停止
+追求以手改 store 繞過的路徑。13 個新測試／本機總 768 tests、0 fail，真 CLI
+兩個 Node 版本均 model endpoint 0／11 原檔不變／cleanup 確認；尚未接 Host/Web。
+詳細正反向證據見 [Codex 歷史相容性](codex-history-compatibility.md)。
+
+**前一增量 1.54（開發版仍3.0.7-rc.6，未部署）**：C2新增固定Codex0.153.4的受限
 read-only RPC及真CLI owned-home歷史runner，10個補充schema固定；7個legacy對話
 49turns／147items、完整原生名稱、主/subagent來源與封存分頁、模型endpoint0及
 actual-close／10原檔不變已驗。發現items/list實際-32601，paginated JSONL-only
@@ -101,7 +110,7 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 | Pi 原生 RPC 邊界 | 已實作，隨rc.3啟用於Mini | 嚴格 frame／UI reply、跨程序 correlation、有界 pending dialog、TypeScript FIFO／失敗手動重試、完整 pending-set 重連對齊／舊 stream fencing、更新／idle／離開聊天保護；Windows core launch／PATH／owned tree 已接上 runner fixture；仍非 durable approval 或原生全版本／provider／模型串流驗收 |
 | 已發佈 Web rolling 相容 | Legacy smoke 已驗 | 真實v3.0.3/v3.0.2 pinned source與development雙向搭配，Chromium桌面/手機尺寸8cases，macOS/Linux各跑一次共16cases／CI33970245044過。SW/PWA cache、Safari/Firefox/Windows/實機、future journal transport不包含，見`protocol/rolling-compatibility.md` |
 | Codex 官方介面基線 | 0.153.4 離線 metadata 已驗 | 新版24份schema，原18份及99/10/81 catalog與0.153.3全同；runner逐版本比對hash，未知版本停止。preflight不再建空session，路由先於account、傳輸有界；本輪未啟app-server／讀真帳號，不是runtime/session/approval驗收，見 `codex-metadata-compatibility.md` |
-| Codex原生歷史通道 | Plan1.54受限RPC／macOS真CLI合成已驗，未接Host/Web | 0.153.4額外10schema固定、legacy49turns/147items/name及all-source/archivepaging；items/list原生不支援、paginated缺store projection明示gap。自己HOME可修索引，不能直接對私人HOME執行；完整adapter未完成，見codex-history-compatibility.md |
+| Codex原生歷史通道 | Plan1.55新增inert observation及缺漏檢查，未接Host/Web | 0.153.4固定schema／受限RPC與legacy49turns/147items/name已驗；rich fixture還原6類但command/image缺失，完整性gate明示unavailable；不是全19類真CLI驗證。items/list與paginated仍不支援，不直讀私人HOME，詳codex-history-compatibility.md |
 | Claude／Codex 真實訂閱 smoke | Claude單次通過；Codex路由gate未過 | Claude09-06直接Aqua最小模型成功。09-07 Codex0.153.4新版schema／initialize已過，effective config回non_native_route，未送account/thread/turn；8個保護項目不變。不改第三方設定讓測試通過，詳見 `native-subscription-smoke.md` |
 | Claude 原生歷史讀取邊界 | SDK讀回／豐富內容觀察映射已驗 | 官方SDK0.3.259對應CLI2.1.259；只讀子程序不准spawn／write。合成工具／thinking／附件參照、中斷/API錯誤外層metadata及壓縮保留鏈通過；相同UUID原文核對、未知格式警示、整批拒絕混入/重複。前輪自己的兩則訊息讀回仍有效，本輪未再讀私有session。不是Web journal／approval ACK／resume，見 `protocol/native/claude/README.md` |
 | Claude 歷史來源快照 | POSIX唯讀一致性／跨平台parser已實作 | 單一指定source、UID/mode/regular/single-link/no-follow、同descriptor雙讀＋前後inode/size/ns時間、原始8MiB/1MiB line/2000rows caps；partial/malformed不當空history。不是authenticated source／ACL／atomic containment；Windows source gate明確unsupported，SDK合成reader仍可驗。未接正式服務 |
@@ -127,9 +136,11 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 
 ### 下一個可執行任務
 
-**1.54接續**：C1來源設定/registry/HTTP/relay、native title/TS及Web來源操作不重做；
-C2先補Codex owned thread-store／一致來源快照與rich item映射，不能直接把目前
-受限RPC接私人HOME，也不能略過實際未支援的items/list及paginated缺口。
+**1.55接續**：C1來源設定/registry/HTTP/relay、native title/TS及Web來源操作不重做；
+C2先查清 Codex rich fixture 的 command/image 缺口，使用固定版本格式的獨立
+有效性證據，不反覆猜 JSON、不減少預期項目讓測試變綠；再接 legacy 一致來源
+capture／授權／跨頁 fence。官方尚未支援的 paginated 完整歷史明示 unavailable，
+不手改 native SQLite 或偷偷 resume；目前受限 RPC 不可直接接私人 HOME。
 接續Web來源設定的可理解授權流程、history i18n、跨機路由驗收、其他agent adapter及C3durable/session gate。
 私人root/readers由owner選定、正式部署仍需既有gate；Windows／完整原生能力／
 跨機效能未完成，不能把Claude合成来源列表当作所有電腦對話已完整收錄。
@@ -1069,6 +1080,14 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
 
 ## 變更記錄
+
+### 2026-09-08 — Plan 1.55
+
+- C2新增獨立 `history-observation.js`：固定0.153.4、exact thread/session及full items、2MiB input/256KiB output、50 turns/1000 items限制；detached原始item、turn error/timing、unknown欄位與digest保留，native title與preview分開。所有結果sourceAuthenticated/publishable皆false，不是可公開資料或durable execution/approval證據。
+- 新增獨立expected ID/type完整性檢查；缺漏回native_projection_incomplete，超限/summary/重複ID/未知historyMode拒絕。paginated即使回空頁亦不可當成功空歷史。新13 tests通過，只證明19標籤inert保留，不是假裝19種native payload都已驗。
+- 真CLI owned rich fixture共需8類，實際6類（user/reasoning/fileChange/mcp/compaction/agent）；commandExecution/imageView缺口被檢查攔下，根因尚未確認。runner exit0代表正向讀取與缺漏偵測的回歸通過，不是完整rich歷史gate passed。最低Node22.19與22.22結果一致，9來源／11原檔bytes不變、29觀察頁、loaded0/model endpoint0、actualcleanup確認；增加明確file credentials store與listen error處理。
+- 官方App Server文件確認paginated完整歷史仍未支援，因此不繼續以手工建立native store繞過；原先Plan1.54的owned store探索改為受限legacy capture與缺口查證。來源ACL／immutable capture／cross-page fence／sharedHost接線仍待，C1/C3–C8未完成。
+- 本機768 tests＝766 pass/2 skip/0 fail，Ajv1251、strictTS/generated/syntax/version通；本批exact跨OS CI另核對。無私人歷史/模型/帳號/第三方route/正式部署/B+或固定72h變動；rc.6仍開發候選。
 
 ### 2026-09-08 — Plan 1.54
 

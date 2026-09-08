@@ -1,0 +1,30 @@
+{
+  "planVersion": "1.55",
+  "platform": "macOS-arm64",
+  "nodeVersions": ["22.19.0", "22.22.3"],
+  "nativeVersion": "0.153.4",
+  "schemaCount": 10,
+  "scope": "owned-synthetic-home-only",
+  "active": 8,
+  "archived": 1,
+  "legacyTurns": 49,
+  "legacyItems": 147,
+  "observedPages": 29,
+  "richItemTypes": ["userMessage", "reasoning", "fileChange", "mcpToolCall", "contextCompaction", "agentMessage"],
+  "richCoverage": {
+    "kind": "codex_history_unavailable",
+    "code": "native_projection_incomplete",
+    "missingTypes": ["commandExecution", "imageView"]
+  },
+  "richGapCause": "unconfirmed",
+  "paginatedProjection": 0,
+  "paginatedName": "unavailable_from_legacy_index",
+  "itemsList": "native_method_unavailable",
+  "modelEndpointRequests": 0,
+  "loadedThreads": 0,
+  "sourceFilesUnchanged": 11,
+  "cleanupConfirmed": true,
+  "privateHistoryRead": false,
+  "hostWebConnected": false,
+  "fullHistoryGatePassed": false
+}
