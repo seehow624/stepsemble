@@ -112,6 +112,21 @@ HTTP 送出前再驗 source authority／snapshot，relay 兩端驗 exact inert e
 - 本批 exact CI 結果逐批記錄，不沿用1.50的綠燈。Rust本身未修改；
   Windows只跑公開contract／Host替身，不宣稱 POSIX native gate 在 Windows 成功。
 
+### Exact commit 證據
+
+程式 **`ad7e53454af9ae245be3ac1d0bc1253c42feacdd`** 四組CI均成功，logs已核實：
+
+| Gate | 結果與邊界 |
+| --- | --- |
+| [一般CI34217624560](https://github.com/seehow624/stepsemble/actions/runs/34217624560) | 每OS705tests／0fail；Mac703pass2skip、Linux702pass3skip、Windows673pass32skip；每OS Ajv1251 |
+| [Native reader＋audit34217624556](https://github.com/seehow624/stepsemble/actions/runs/34217624556) | Rust Mac17／Linux17／Windows8，Node每OS67/67；Mac/Linux新`actualSourceGroupsGate=passed`及既有actualHost/shared gate通過，physical2/0/51；locked RustSec audit成功 |
+| [Native Claude34217624589](https://github.com/seehow624/stepsemble/actions/runs/34217624589) | 固定SDK0.3.259三OS合成契約passed／modelCalls0／nativeFileUnchanged=true |
+| [Browser rolling34217624540](https://github.com/seehow624/stepsemble/actions/runs/34217624540) | Mac/Linux各18cases全passed／pageErrors0，仍是既有介面回歸，非新來源UI或真機驗收 |
+
+Windows compiled source pipeline仍明示unsupported，沒有在該平台實跑新native
+source-group gate；Node Host/HTTP替身與跨平台SDK契約不能取代Windows reader。
+後續純文件commit與上述程式證據分開。
+
 下一步是固定版本 native title/metadata、TypeScript transport 和 Web 來源选择／
 重新整理／分頁介面與browser驗收，再進真人來源確認。其餘harness、resume、approval、
 durable journal、真機/性能、Windows reader與發布關卡仍依主計畫待完成。

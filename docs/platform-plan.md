@@ -1054,6 +1054,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 - 新source/snapshot HTTP與dedicatedrelay經既有origin/CSRF/currentcredential/bytes/deadline，發布前再驗groupauthority；不回paths/readers/identity或rawinventory。AgentID沿用claude-code。原生title明示null/not_loaded，未接Web/原生metadata，C1未完成。
 - 新unit/actualHTTP合成測試及最低Node22.19 actual server.js→Rust inventory→新分頁→dynamicregister→fixedSDK內容链通過，新增metadata變更/刪除/恢復及舊binding/page拒絕；model/privatehistory0、fixture/childcleanup已確認。完整TAP保存，本批exact CI另外核對；舊未定位單次flaky仍未結案。正式3.0.6/B+／帳號route／fixedab227af72h不動，詳history-source-groups.md。
 - 本機最終705tests＝703pass/2平台skip/0fail，聚焦69/69；strictTS/artifact/syntax/version與Ajv1251通過。沒有新GUI／真機／效能改善宣稱；新增HTTP後端與原生合成鏈不冒稱Web來源UI已驗收。
+- Exact程式`ad7e53454af9ae245be3ac1d0bc1253c42feacdd`四組CI全過：一般34217624560三OS各705/0fail（Mac703/2skip、Linux702/3、Win673/32）及Ajv1251；reader34217624556 Rust17/17/8＋Node各67/67、POSIX新actualSourceGroupsGate/既有actualHost/shared gate與locked audit通；NativeClaude34217624589三OS固定SDK/model0/原檔不變；rolling34217624540雙OS各18cases全passed/pageErrors0。Windowsfullnative仍unsupported，詳history-source-groups.md；不沿用1.50綠燈。
 
 ### 2026-09-08 — Plan 1.50
 

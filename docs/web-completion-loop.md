@@ -90,6 +90,8 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
   dedicatedrelay已實作；actualserver.js＋真Rust＋SDK合成鏈通。來源尚未接Web，
   titleStatus為not_loaded，不是完整C1。下一輪從native title/metadata及TS/Web接線
   繼續，不重做已完成後端；詳[來源群組](history-source-groups.md)。
+  程式`ad7e534`四組exact CI已全過：一般三OS705項0fail、新POSIX原生來源群組鏈、
+  固定SDK三OS及既有browser雙OS各18cases；不代表native title／Web操作或C1全完成。
 
 - **2026-09-08／C1部分進展，Plan1.50**：shared admission接上Host/content及index，
   真Rust＋SDK合成並行physical max2／remaining0、第三要求spawn前busy通過；本機
