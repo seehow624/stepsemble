@@ -32,7 +32,7 @@ Rust單次helper新增v4：精確nonce/nativeVersion/source.sqliteRoot/threadId/
 - 準備時持有root＋三個唯讀原FD；SQLite只dup三檔。native fd close與SHM munmap
   都逐一核實；成功回覆必須SQLite3開3關、原FD4關。未知close保留leases到process exit，
   不推論已清理，也不能由回覆取代parent actual-exit/EOF gate。
-- 只允許SHM的PROT_READ/MAP_SHARED映射，主DB mmap关闭；累計SHM映射8MiB/256次。
+- 只允許SHM的PROT_READ/MAP_SHARED映射，主DB mmap關閉；累計SHM映射8MiB/256次。
   SQLite實際read/pread請求8MiB/1024次，source操作含準備與最後檢查合作式5秒；
   SQL交易原250ms/20,000 VM steps與欄位32KiB/結果128KiB不變。
 - SQLite全域PRNG使用default VFS；專用process將其entropy改用getentropy，避免未知
@@ -50,7 +50,7 @@ Rust單次helper新增v4：精確nonce/nativeVersion/source.sqliteRoot/threadId/
 第一輪`/tmp/stepsemble-sqlite-source-first-process.log`雖讀到latest，卻沒有SHM映射。
 查固定C的unixLockSharedMemory後確認：舊fixture在writer所在process開/關比對用FD，
 連帶解除writer的POSIX鎖，使部分「活動writer」案例實際進入orphan/heap-index路徑。
-**這修正了Plan1.64對活動writer情境的證據範圍；不把先前綠燈當正確SHM路径驗證。**
+**這修正了Plan1.64對活動writer情境的證據範圍；不把先前綠燈當正確SHM路徑驗證。**
 
 現在所有檔案比對用獨立process，完整讀取owned檔案並比較名稱集合、size及SHA256；
 不再於writer process開/關同inode。正常bound case要求至少一次真SHM mmap/munmap，
