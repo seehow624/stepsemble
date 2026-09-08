@@ -19,8 +19,10 @@
 固定virtual names、DB/WAL/SHM實際身份/ACL/owner檢查與final-close後回覆，Rust v4
 單独SQLite root/nonce/digest；Windows實際v4拒unsupported。新測試發現舊fixture比對
 開/關FD解除writer的POSIX鎖，已改獨立process比對，保留原失敗並重新驗原13case。
-Mac新增正常SHM＋53source/wire案例通，全部100children reaped/61dirs清除，Rust16＋27、
-Node849/0fail、舊reader/pair通；三OS CI待核。不冒稱全Web、私人grant或Windows完成，
+最終9bf8bf7三CI完整logs已核：POSIX各正常SHM＋53source/wire、100children/61dirs，
+Win真v4unsupported、Rust16＋27/27/12；三OS Node853/0fail、reader118/118/audit0/0，
+rolling雙OS24case通。另修Mac320px測試把loading誤當request已到的競態，以有界observer
+barrier保留exact單flight斷言；原失敗保留。不冒稱全Web、私人grant或Windows完成，
 Node v4/admission/name resolver、Codex inventory/HostWeb/cold及C1–C8繼續。
 详[SQLite來源綁定](codex-sqlite-source-bound.md)，正式/B+/私人/帳號/獨立72h不動。
 

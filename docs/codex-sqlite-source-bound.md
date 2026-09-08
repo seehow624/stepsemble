@@ -1,7 +1,7 @@
 # SQLite：以實際檔案描述符綁定來源
 
 2026-09-09／Plan1.65，開發仍3.0.7-rc.7，未部署；接續Plan1.64。
-本機Mac owned驗證通過，三OS CI仍待；不是完整Codex歷史或Host/Web接線完成。
+最終工程9bf8bf7的三組CI已通過；不是完整Codex歷史或Host/Web接線完成。
 正式服務、私人來源、帳號與獨立72h均不變。
 
 ## 已實作的來源邊界
@@ -66,14 +66,14 @@ rollback journal拒絕、過大欄位不截斷；read後合法commit＋checkpoin
 clippy -D warnings、舊Node→Rust reader/inventory＋Codex pair capture與artifact SHA驗證通；
 本機Node849/0fail（847pass/2skip）。完整logs `/tmp/stepsemble-sqlite-source-final-rust.log`、
 `...-final-clippy.log`、`...-npm.tap`、`...-existing-reader.log`、`...-existing-codex.log`。
-SQLite3.53.4/上游rev/43-package lock不變；三OS exact CI尚待，不把Windows source算成支援。
+SQLite3.53.4/上游rev/43-package lock不變；最終三OS結果見下，不把Windows source算成支援。
 
 首批工程25c49c7的reader CI34274961806：Mac通，Linux被ACL fixture的unsafe註解
 放在assert外而非unsafe前的lint擋；Windows舊13case/35children和正常unsupported通，
 真v4 fixture因canonicalize產生`\\?\`前綴，撞上既有question-mark拒絕規則，main無frame退出。
 修正只移動註解、以普通絕對路徑描述同owned Windows目錄；每OS unit保留普通Windows
 path可parse/extended path拒絕。沒有放寬生產path或把無回覆當unsupported成功。
-完整失敗logs `...-first-linux.log`／`...-first-windows.log`保留；修正CI結果待核。
+完整失敗logs `...-first-linux.log`／`...-first-windows.log`保留；修正結果見下。
 
 修正a8f0080的reader34275320126三OS與audit成功，另Mac source程序完整跑五輪通。
 一般34275320199成功，但rolling34275320180的Mac320px light在bounded lazy rows
@@ -81,7 +81,25 @@ path可parse/extended path拒絕。沒有放寬生產path或把無回覆當unsup
 loading再fetch，跨process route observer收到請求更晚，DOM loading不是觀測請求的barrier。
 新增有界first-request observation barrier，再保留nameGate掛起回應及metadata.length===1
 斷言；四個unit cases涵蓋先UI/後request、先request/後wait、無request逾時及參數限制。
-不改產品UI/排程或放寬單flight；完整失敗`...-fix-rolling-ci.log`保留，修正browser CI待核。
+不改產品UI/排程或放寬單flight；完整失敗`...-fix-rolling-ci.log`保留，修正browser CI已通。
+
+## 最終工程驗證
+
+**9bf8bf7d80cb4ba32d44772cd36a21c2a3a7d362** 的三組CI success，完整logs已核：
+
+- 一般34275966204：三OS各853/0fail＋Ajv1251；Mac851pass/2skip、Linux850/3、Win806/47。
+- Reader34275995045：三OSlib16，main27/27/12，Node118/118；POSIX各原13＋新正常
+  source＋53source/wire，100child全reaped/61dirs；Win原13＋source明示unsupported＋
+  真v4unsupported，41child全reaped/10dirs。原Host/groups/metadata/setup/shared max2、
+  remaining0和SQLite artifact hash通；這些Host證據沿舊Claude鏈，不是新v4 Web接線。
+  RustSec0.22.2/DB bf25f6575a93a35f30796c65c0ed91bee7fa19fd，43packages/0known/0warnings，
+  lock SHA256 aa93d9f47ca7b3c38d21b8a5ce4b17b397d9a6c171a71867e82b8979626fca8e未變。
+- Rolling34275966237：Mac/Linux各24cases、pageErrors0；各六native source場景×11語、
+  localeReads0，包含原失敗320px light與新request barrier。不是新SQLite UI或真人資料驗收。
+- Mac另五輪完整程序suite，各100child/61dirs全清理。完整logs
+  `/tmp/stepsemble-sqlite-source-final-{general,reader,rolling}-ci.log`、`...-repeat-1.log`至5。
+
+本批工程/跨平台/已知失敗修正完成；C1–C8整體仍未完成，goal持續。
 
 ## 接續（未完成）
 
