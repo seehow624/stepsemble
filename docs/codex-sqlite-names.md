@@ -2,6 +2,9 @@
 
 2026-09-09／Plan1.62，開發候選仍3.0.7-rc.7，未部署。
 
+後續Plan1.63已新增[有界SQLite短交易與固定修補版引擎](codex-sqlite-transactions.md)，
+仍待descriptor-backed source opener，不代表可直接開啟私人資料庫。
+
 ## 已完成的範圍
 
 新增`metadata-name.js`，有界解讀caller提供的固定版本SQLite欄位；13組自建資料

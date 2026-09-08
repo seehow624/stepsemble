@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.62
+> 計畫版本：1.63
 > 最後更新：2026-09-09
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,7 +15,16 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新增量 1.62（開發版仍3.0.7-rc.7，未部署）**：新增SQLite name欄位有界解讀與
+**最新增量 1.63（開發版仍3.0.7-rc.7，未部署）**：新增Rust唯讀connection的短交易
+名稱讀取；固定SQLite3.53.4、上游SHA與真Codex threadsDDL，禁止SQL寫入／attach／
+額外欄位、限額／取消／busy無retry、close後才回覆。owned獨立連線20次commit時仍讀
+同snapshot，readclose後checkpoint恢復；不宣稱SHM零寫、跨process／原生writer壓測。
+Rust新15＋原25、本機Node849/0fail、舊actualsharedpipeline通、43packages audit0/0；
+exactCI待核。這是交易library，未接source opener／descriptor/VFS/ACL、private grant、
+worker／CodexHostWeb，C1–C8仍未完。詳[SQLite交易](codex-sqlite-transactions.md)。
+正式/B+/私人/帳號/獨立72h不變。
+
+**前一增量 1.62（開發版仍3.0.7-rc.7，未部署）**：新增SQLite name欄位有界解讀與
 13個真native名稱優先案例，legacy distincttitle勝index、paginated用name、read/list
 差異與sqlite_home覆寫env均驗。fixture僅native actualclose後改自建DB，原五欄/
 15原檔、model/private/loaded0及cleanup通；未建立productionSQLite reader/交易快照。

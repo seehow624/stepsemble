@@ -2,7 +2,7 @@
 name = "stepsemble-history-source-reader"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 publish = false
 license = "Apache-2.0"
 description = "Standalone, bounded read-only history source capability experiment"
@@ -11,6 +11,9 @@ description = "Standalone, bounded read-only history source capability experimen
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.150"
 sha2 = "=0.10.9"
+# The current crates.io bundle is SQLite 3.53.2. Pin the upstream SQLite 3.53.4
+# update (verified against sqlite.org's amalgamation SHA3) instead of using it.
+rusqlite = { git = "https://github.com/rusqlite/rusqlite.git", rev = "901f9946efdaaa289e6b1c5bd56dc67f4b651e51", default-features = false, features = ["bundled", "hooks", "limits"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.186"

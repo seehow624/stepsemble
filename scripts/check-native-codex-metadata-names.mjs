@@ -80,6 +80,9 @@ await withHistorySchemas(binary, async snapshot => {
     const { DatabaseSync } = await import("node:sqlite");
     db = new DatabaseSync(dbFile, { allowExtension: false }); db.exec("PRAGMA trusted_schema=OFF");
     sqliteVersion = db.prepare("SELECT sqlite_version() AS version").get().version;
+    const threadsSchema = db.prepare("SELECT sql FROM sqlite_schema WHERE type='table' AND name='threads'").get().sql;
+    const expectedSchema = (await fs.readFile(new URL("../protocol/native/codex/sqlite-threads-0.153.4.sql", import.meta.url), "utf8")).trim();
+    assert.equal(threadsSchema, expectedSchema, "pinned threads schema must match the real native-created database");
     assert.equal(nameFields(db).length, cases.length);
     const update = db.prepare("UPDATE threads SET history_mode=?, title=?, first_user_message=?, name=? WHERE id=?");
     db.exec("BEGIN IMMEDIATE");
@@ -120,6 +123,7 @@ await withHistorySchemas(binary, async snapshot => {
     console.log(JSON.stringify({ result: "passed", nativeVersion: snapshot.nativeVersion, scope: "owned_sqlite_name_precedence_only", cases: cases.length,
       caseLabels: cases.map(c => c.label), legacyCases: cases.filter(c => c.mode === "legacy").length, paginatedMetadataCases: cases.filter(c => c.mode === "paginated").length,
       sqliteConfigOverridesEnvVerified: true, separateSqliteHome: true, sqliteFixtureVersion: sqliteVersion, fixtureMutationOnlyWithNativeClosed: true,
+      sqliteThreadsSchemaSha256: crypto.createHash("sha256").update(threadsSchema).digest("hex"),
       databaseNameFieldsUnchangedAfterReads: true, stateOnlyAndScanListsVerified: true, metadataReadBeforeAfterVerified: true, legacyReadWithHistoryVerified: true,
       paginatedFullHistorySupported: false, paginatedFullHistoryProbe: "unavailable_deprecation_notice_refused", ownedNativeStarts: starts, remainingChildren: physical, modelEndpointRequests: requests, loadedThreads: 0,
       sourceFilesUnchangedExceptExplicitSetup: saved.size, privateHistoryReads: 0, productionSqliteReader: false, startupNotices: notices, cleanupConfirmed }));

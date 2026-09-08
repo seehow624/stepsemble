@@ -7,6 +7,7 @@ on:
       - 'crates/history-source-reader/**'
       - 'rust-toolchain.toml'
       - 'scripts/check-native-history-reader.mjs'
+      - 'scripts/check-native-sqlite-artifact.mjs'
       - 'scripts/check-native-codex-source.mjs'
       - 'scripts/check-native-codex-pipeline.mjs'
       - 'protocol/native/codex/**'
@@ -41,6 +42,7 @@ on:
       - 'crates/history-source-reader/**'
       - 'rust-toolchain.toml'
       - 'scripts/check-native-history-reader.mjs'
+      - 'scripts/check-native-sqlite-artifact.mjs'
       - 'scripts/check-native-codex-source.mjs'
       - 'scripts/check-native-codex-pipeline.mjs'
       - 'protocol/native/codex/**'
@@ -133,6 +135,8 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-native-history-reader
         run: cargo +1.97.1 test --manifest-path crates/history-source-reader/Cargo.toml --locked --all-targets
+      - name: Verify pinned SQLite amalgamation against official source hash
+        run: node scripts/check-native-sqlite-artifact.mjs
       - name: Locked standalone helper build
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-native-history-reader

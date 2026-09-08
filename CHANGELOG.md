@@ -2,6 +2,11 @@
 
 ## 3.0.7-rc.7
 
+- Add a bounded read-only SQLite transaction library for selected Codex name
+  fields, with a pinned SQLite 3.53.4 source hash, native-created schema oracle,
+  cancellation/limits and concurrent WAL writer checks. This does not enable
+  private database access, source VFS/ACL enforcement or Codex Host/Web history.
+
 Development candidate only; production Hosts and the independently frozen
 72-hour soak are unchanged.
 
