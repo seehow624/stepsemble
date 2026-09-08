@@ -17,9 +17,11 @@
 
 **最新增量 1.64（開發版仍3.0.7-rc.7，未部署）**：新增專用process的SQLite
 唯讀VFS開檔／刪除政策，已實際抓到readonly_shm仍可能建立空WAL／讀舊主DB，
-現明確禁止建立、WAL強制唯讀；13個owned跨process案例與反例、本機原Rust16＋25
-及Node849/0fail通。完整檔案bytes/名稱集合、20commit一致snapshot、actualclose與kill
-釋放OS鎖已驗；exact跨OS CI待核。這不是descriptor/ACL source opener，冷DB缺sidecar
+現明確禁止建立、WAL強制唯讀；Windows內部SHM開檔另加專用process syscall限制。
+最終工程2df35cd三CI已核：三OS各13個owned跨process案例、16child全reaped、8個
+fixture目錄實際清除，原Rust16＋25/25/10、Node849/0fail與118/118、audit及rolling通。
+完整檔案bytes/名稱集合、20commit一致snapshot、actualclose與kill釋放OS鎖已驗；
+原Win失敗與修正保留。這不是descriptor/ACL source opener，冷DB缺sidecar
 仍明示unavailable，不能當完整原生歷史；授權/worker/registry/HTTPWeb及C1–C8繼續。
 詳[SQLite程序與VFS](codex-sqlite-process.md)，正式/B+/私人/帳號/獨立72h不動。
 

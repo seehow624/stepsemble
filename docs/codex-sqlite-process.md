@@ -86,9 +86,25 @@ hold模式**只測OS鎖與交易隔離**，並非正式capture：它以parent有
 本機原Rust16＋main25、13cases及另五輪、clippy -D warnings／fmt／固定SQLite
 artifact hash通；Node849＝847pass/2skip/0fail。Cargo.lock仍43packages且未變，
 SQLite/ABI/toolchain不升級。新test由CI原`--all-targets`自動執行，不以skip取代Win。
-Exact工程CI待push後核結果，不能以本機結果聲稱三OS皆通。
+最終工程 **`2df35cd305e5821601f551055940fe168f46342c`** 三組CI已成功、完整logs已核：
 
-### Windows 首輪失敗與修正驗證中
+- 一般 **34268766553**：三OS各849/0fail＋Ajv1251；Mac847pass/2skip、
+  Linux846/3、Windows802/47。skip不表示對應能力已支援。
+- Reader **34268766580**：三OS各新13cases、16spawn/reaped16/remaining0、8個owned
+  目錄實際移除；Windows7個直接syscall檢查也執行。原Rust library16及main25/25/10、
+  artifact hash、Node118/118全通。POSIX舊actualHost/groups/metadata/setup與shared max2/
+  remaining0仍通；**Windows正式source reader依然unsupported**，不是新SQLite接Web。
+- 同一reader RustSec：audit0.22.2、DB bf25f6575a93a35f30796c65c0ed91bee7fa19fd、
+  1242advisories、43packages、0known/0warnings；lock SHA
+  aa93d9f47ca7b3c38d21b8a5ce4b17b397d9a6c171a71867e82b8979626fca8e不變。
+- Rolling **34268766557**：Mac/Linux各24cases/pageErrors0；各六native UI×11語、
+  localeReads0。只驗既有browser routes，不聲稱本module已接入Codex UI。
+
+完整紀錄在`/tmp/stepsemble-sqlite-process-final-{general,reader,rolling}-ci.log`。
+kill順序修正後另本機五輪通；最後explicit cleanup版也本機Rust16＋25＋13cases與clippy
+全通。沒有新模型／私人history／GUI／真人跨裝置操作或正式部署，C1–C8仍未全完。
+
+### Windows 失敗與修正歷程（保留原失敗，不重跑舊SHA掩蓋）
 
 工程`aeaa5986d6df81a6efe6d005d257df763f152e01`的reader CI
 `34265980949`：Mac/Linux13cases通，Windows在missing_shm回latest而非unavailable。
@@ -106,7 +122,7 @@ flags；不是修改全系統API或先exists再open的競態檢查。若registra
 Windows獨立policy child加7個直接syscall檢查：缺檔OPEN_ALWAYS、既有檔CREATE_ALWAYS
 不截斷、實際WriteFile無權限、delete-on-close、ANSI open、W/A delete；parent再比完整
 bytes/檔名。guarded缺sidecar案例改成**先比較snapshot再判回覆**；負向控制只印自建
-檔名、大小及changed，不dump DB bytes。修正的Windows實際CI尚待，不宣稱通過。
+檔名、大小及changed，不dump DB bytes。實際三OS驗證見上方最終exact CI。
 
 同一原工程的一般CI`34265981014`三OS各849/0fail＋Ajv1251成功；rolling
 `34265981058`雙OS各24cases/pageErrors0、各六native×11語/localeReads0，完整log已核，
@@ -116,7 +132,7 @@ DB/lock SHA與1.63相同。
 修正`6f7d846`的reader CI`34267247684`：POSIX兩OS成功；Windows止於測試程式的
 `byte_char_slices` lint（`[b'!']`應寫`b"!"`），尚未執行新的process gate。
 直接修正字串寫法，不allow lint或skip平台；完整job log保留
-`/tmp/stepsemble-sqlite-process-winfix-windows-first.log`，新SHA待再驗。
+`/tmp/stepsemble-sqlite-process-winfix-windows-first.log`，由新SHA再驗。
 
 後續`d588183`／reader CI`34267576834`的Windows實際通過新7個syscall檢查與所有
 guarded缺sidecar回覆／bytes/名稱不變，再於**unguarded cold負向控制**失敗。
@@ -131,9 +147,10 @@ parent先drop stdin才kill，held child可先收到EOF並panic；其stderr使gat
 直到actual exit/reap才drop，normal close路徑不變；仍要求kill非成功退出、stderr空、
 pipes EOF及checkpoint恢復。不忽略child panic，也不把此問題誤稱正式worker已修復。
 
-`4bee3f3`的reader`34268336710`現已三OS與audit成功；一般34268336854、rolling
-34268336777結果另核完整log。最後增加上述fixture目錄explicit cleanup檢查，
-新exact提交仍需三OS再驗，不以4bee3f3結果取代新SHA。
+`4bee3f3`的reader`34268336710`三OS與audit成功；一般34268336854、rolling
+34268336777也成功且完整log核實。最後增加上述fixture目錄explicit cleanup檢查，
+再由2df35cd三OS驗證，不以4bee3f3結果取代新SHA。中間6f7d846/d588183/6e7eabc的
+general/rolling亦成功、完整logs保留，但均不能抵銷各自reader的Windows失敗。
 
 下一個必做仍是**descriptor-backed DB/WAL/SHM source opener**與角色／ACL／local
 mount／replacement checks，然後正式reader worker共用admission、sourceVersion、

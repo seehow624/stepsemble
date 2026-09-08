@@ -7,6 +7,10 @@
   controls reproduce ordinary read-only SHM writes and missing-WAL creation;
   verify fixed snapshots and actual-exit lock release. This is not filesystem
   authorization, a private-source opener or support for cold DBs without sidecars.
+- Restrict SQLite's internal Windows file-opening callbacks to existing,
+  read-only handles in the dedicated worker process; refuse ANSI opens and
+  deletion. Verify seven direct syscall controls, kill-before-input-close ordering
+  and explicit disposal of all owned fixture directories across three OS runners.
 
 - Add a bounded read-only SQLite transaction library for selected Codex name
   fields, with a pinned SQLite 3.53.4 source hash, native-created schema oracle,
