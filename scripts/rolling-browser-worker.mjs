@@ -19,7 +19,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url), exec = promisify(execFile);
 const pins = require("../protocol/rolling-releases.json").releases;
 const runtime = process.argv[2];
+const suite = process.argv[3], historyHelper = process.argv[4];
 if (!runtime || !path.isAbsolute(runtime)) throw new Error("Missing isolated browser runtime");
+if (!["core", "sources", "codex"].includes(suite) || process.argv.length > 5
+  || (suite === "core" ? historyHelper !== undefined : !historyHelper || !path.isAbsolute(historyHelper)))
+  throw new Error("Invalid browser suite or owned helper path");
 if (process.platform === "win32") throw new Error("Historical Hosts cannot launch this Unix synthetic peer; Windows rolling runtime is not claimed");
 const { chromium } = await import(pathToFileURL(path.join(runtime, "node_modules/playwright/index.mjs")));
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-rolling-cases-"));
@@ -141,25 +145,24 @@ async function runCase(host, client, viewport) {
   finally { await context?.close(); await stopServer(child); children.delete(child); }
 }
 try {
-  const releases = [];
-  for (const pin of pins) releases.push(await released(pin));
-  const current = { name: "development", directory: root, commit: (await exec("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim() };
-  console.log(JSON.stringify({ developmentCommit: current.commit, sourceDirty: !!(await exec("git", ["status", "--porcelain"], { cwd: root })).stdout.trim() }));
   browser = await chromium.launch({ headless: true, env: cleanEnvironment(runtime), args: ["--disable-background-networking"] });
-  for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
-    for (const release of releases) {
-      await runCase(current, release, viewport);
-      await runCase(release, current, viewport);
+  if (suite === "core") {
+    const releases = [];
+    for (const pin of pins) releases.push(await released(pin));
+    const current = { name: "development", directory: root, commit: (await exec("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim() };
+    console.log(JSON.stringify({ developmentCommit: current.commit, sourceDirty: !!(await exec("git", ["status", "--porcelain"], { cwd: root })).stdout.trim() }));
+    for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+      for (const release of releases) {
+        await runCase(current, release, viewport);
+        await runCase(release, current, viewport);
+      }
     }
+    console.log("Rolling browser compatibility: 8 real-source pair/viewport cases passed; synthetic Pi only, no service-worker or physical-device claim.");
+    await runClaudeAuthBrowserCases(browser);
+    await runPiSessionBrowserCases(browser);
+    await runProjectPickerBrowserCases(browser);
+    await runConversationBrowserCases(browser);
   }
-  console.log("Rolling browser compatibility: 8 real-source pair/viewport cases passed; synthetic Pi only, no service-worker or physical-device claim.");
-  await runClaudeAuthBrowserCases(browser);
-  await runPiSessionBrowserCases(browser);
-  await runProjectPickerBrowserCases(browser);
-  await runConversationBrowserCases(browser);
-  if (process.argv[3]) {
-    await runHistorySourcesBrowserCases(browser, process.argv[3]);
-    await runCodexHistoryBrowserCases(browser, process.argv[3]);
-  }
-  else console.log("Native source browser cases not requested; pass --history-helper=/absolute/binary to include this gate.");
+  else if (suite === "sources") await runHistorySourcesBrowserCases(browser, historyHelper);
+  else await runCodexHistoryBrowserCases(browser, historyHelper);
 } finally { await cleanup(); }

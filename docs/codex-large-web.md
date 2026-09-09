@@ -55,8 +55,27 @@
   每輪Host/writer已退出、兩owned目錄移除，來源未被產品讀取路徑改動。
 
 Logs `/tmp/stepsemble-large-web-{full-final,minimum-final,focused-final3}.tap`及
-`owned-{first,measured1,measured2,final}.log`。CI已加三尺寸×明暗的大檔操作與真Host workload；
-**exact SHA結果提交後補，不使用40d2b43舊CI代替新Web證據**。
+`owned-{first,measured1,measured2,final}.log`。
+
+## GitHub 證據與保留的失敗
+
+工程`087102f6165a568ab72b5b510c980ff95fe33911`：
+[一般測試](https://github.com/seehow624/stepsemble/actions/runs/34319968916)、
+[Claude契約](https://github.com/seehow624/stepsemble/actions/runs/34319968919)、
+[Codex契約](https://github.com/seehow624/stepsemble/actions/runs/34319968928)、
+[reader安全邊界](https://github.com/seehow624/stepsemble/actions/runs/34319968934)通，完整logs已核。
+三OS一般1057/0fail（Mac2／Linux3／Windows50skip，不冒稱原生Windows支援）。
+POSIX真Host皆17.2MB/16384筆、舊筆數限制協商、名稱／版本／損壞及actual cleanup通。
+CI Mac最大單次5.32秒、health p95 3.78ms、取樣RSS93,782,016bytes；Linux3.99秒、
+2.34ms、115,281,920bytes，仍只是單來源owned workload，不是最大容量保證。
+
+[原瀏覽器run](https://github.com/seehow624/stepsemble/actions/runs/34319968902)保留失敗：
+Linux六組全通，Mac四組通後在worker開始約300秒被共同程序期限終止，未輸出頁面斷言失敗。
+舊runner把所有core／sources／Codex案例放同一個五分鐘worker；新增大檔後矩陣超出
+總預算。現在拆三個順序、獨立browser worker，每組仍300秒、CI job仍12分鐘、
+每次UI等待與產品pipeline/HTTP期限不改；所有案例保留、不自動重試。
+逾時單獨記錄原因，等實體close再返回，必要時五秒後終止未退出child；新增兩個
+分組完整性及timeout/非零退出/成功的測試。**修正後exact CI待核，不把原Mac標成功。**
 
 ## 下一段：goal維持active
 

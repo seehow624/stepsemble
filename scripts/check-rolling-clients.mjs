@@ -29,11 +29,31 @@ export function validateBrowserLock(manifest, lock) {
   }
   return true;
 }
-export function run(command, args, cwd, env, timeout = 300000) {
+export function browserWorkerJobs(runtimeDirectory, historyHelper) {
+  // Every group gets a fresh worker/browser and the same finite process budget.
+  // Growing the matrix must not spend Codex's budget on unrelated earlier cases.
+  return ["core", ...(historyHelper ? ["sources", "codex"] : [])].map(suite => ({
+    suite, args: [path.join(root, "scripts/rolling-browser-worker.mjs"), runtimeDirectory, suite,
+      ...(suite === "core" ? [] : [historyHelper])],
+  }));
+}
+export function run(command, args, cwd, env, timeout = 300000, spawnProcess = spawn) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env, stdio: "inherit", timeout });
-    child.once("error", reject);
-    child.once("close", (code, signal) => code === 0 ? resolve() : reject(new Error(`Browser test child failed (${code ?? signal})`)));
+    const child = spawnProcess(command, args, { cwd, env, stdio: "inherit" });
+    let expired = false, force;
+    const timer = setTimeout(() => {
+      expired = true;
+      force = setTimeout(() => child.kill("SIGKILL"), 5000);
+      child.kill("SIGTERM");
+    }, timeout);
+    const clear = () => { clearTimeout(timer); clearTimeout(force); };
+    child.once("error", error => { clear(); reject(error); });
+    child.once("close", (code, signal) => {
+      clear();
+      if (expired) reject(new Error(`Browser test child exceeded ${timeout}ms process budget (${code ?? signal}); no retry`));
+      else if (code === 0) resolve();
+      else reject(new Error(`Browser test child failed (${code ?? signal})`));
+    });
   });
 }
 async function main(updateLock, historyHelper) {
@@ -57,7 +77,11 @@ async function main(updateLock, historyHelper) {
       console.log("Updated test-only browser lock; review the diff.");
     } else {
       await run(process.execPath, [path.join(temp, "node_modules/playwright/cli.js"), "install", "--only-shell", "chromium"], temp, env);
-      await run(process.execPath, [path.join(root, "scripts/rolling-browser-worker.mjs"), temp, ...(historyHelper ? [historyHelper] : [])], root, env);
+      for (const job of browserWorkerJobs(temp, historyHelper)) {
+        console.log(JSON.stringify({ browserSuite: job.suite, state: "starting", processBudgetMs: 300000 }));
+        await run(process.execPath, job.args, root, env);
+        console.log(JSON.stringify({ browserSuite: job.suite, state: "passed" }));
+      }
     }
   } finally { await fs.rm(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
 }

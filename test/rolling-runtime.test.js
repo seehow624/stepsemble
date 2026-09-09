@@ -25,3 +25,39 @@ test("rolling matrix names exactly two immutable shipped release commits", () =>
   assert.equal(releases.length, 2); assert.equal(new Set(releases.map(row => row.commit)).size, 2);
   for (const row of releases) { assert.match(row.commit, /^[a-f0-9]{40}$/); assert.equal(row.tag, `v${row.version}`); }
 });
+test("browser matrix splits finite workers without losing or repeating any suite", async () => {
+  const { browserWorkerJobs } = await import("../scripts/check-rolling-clients.mjs");
+  const runtime = path.resolve("owned-runtime"), helper = path.resolve("owned-helper");
+  const jobs = browserWorkerJobs(runtime, helper);
+  assert.deepEqual(jobs.map(job => job.suite), ["core", "sources", "codex"]);
+  for (const job of jobs) {
+    assert.equal(path.basename(job.args[0]), "rolling-browser-worker.mjs");
+    assert.deepEqual(job.args.slice(1), [runtime, job.suite, ...(job.suite === "core" ? [] : [helper])]);
+  }
+  assert.deepEqual(browserWorkerJobs(runtime).map(job => job.suite), ["core"]);
+});
+test("browser runner distinguishes process-budget cancellation from a case failure and waits for close", async () => {
+  const { run } = await import("../scripts/check-rolling-clients.mjs"), { EventEmitter } = require("node:events");
+  let attempts = 0, closed = false;
+  const makeChild = () => {
+    attempts++;
+    const child = new EventEmitter();
+    child.kill = signal => {
+      assert.equal(signal, "SIGTERM");
+      setImmediate(() => { closed = true; child.emit("close", 1, null); });
+      return true;
+    };
+    return child;
+  };
+  await assert.rejects(run("owned", [], ".", {}, 10, makeChild), /exceeded 10ms process budget \(1\); no retry/);
+  assert.equal(attempts, 1); assert.equal(closed, true);
+  for (const code of [0, 1]) {
+    const operation = run("owned", [], ".", {}, 1000, () => {
+      const child = new EventEmitter();
+      child.kill = () => assert.fail("completed child must not be killed");
+      setImmediate(() => child.emit("close", code, null)); return child;
+    });
+    if (code === 0) await operation;
+    else await assert.rejects(operation, /child failed \(1\)/);
+  }
+});
