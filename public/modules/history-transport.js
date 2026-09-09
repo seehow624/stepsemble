@@ -339,7 +339,7 @@ var StepsembleHistoryTransport;
         async function read(scope, request, options, codex = false) {
             if (!keys(options, ["page", "signal", ...(options?.version === undefined ? [] : ["version"]), ...(Object.hasOwn(options ?? {}, "structured") ? ["structured"] : []), ...(Object.hasOwn(options ?? {}, "profile") ? ["profile"] : [])])
                 || Object.hasOwn(options, "structured") && (!codex || options.structured !== true)
-                || Object.hasOwn(options, "profile") && (!codex || options.profile !== codexRecords.PAGE_PROFILE || options.structured !== undefined))
+                || Object.hasOwn(options, "profile") && (!codex || !codexRecords.validProfile(options.profile) || options.structured !== undefined))
                 return failure("history_request_invalid");
             const expected = detach({ scope, request, page: options.page, ...(options.profile === undefined ? {} : { profile: options.profile }), ...(options.structured === true ? { structured: true } : {}), ...(options.version === undefined ? {} : { version: options.version }) });
             if (!object(expected) || !keys(expected.scope, ["hostId", "bindingId", "generation", "sessionId"])

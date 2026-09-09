@@ -159,9 +159,10 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
         const largeStart = histories.length; await page.locator(".source-open").first().click();
         await page.waitForFunction(() => document.querySelector(".codex-record-view")?.getAttribute("aria-busy") === "false"
           && document.querySelector('[data-action="recordNumber"]')?.max === "16384");
-        assert.deepEqual(histories.slice(largeStart, largeStart + 2).map(h => h.profile), [undefined, "codex_validated_page_v1"]);
-        assert((await content.textContent()).includes("跨頁回合與工具關聯尚未提供"));
-        assert.equal(await page.locator(".codex-history-turn,[data-related-record]").count(), 0);
+        assert.deepEqual(histories.slice(largeStart, largeStart + 2).map(h => h.profile), [undefined, "codex_structured_page_v1"]);
+        assert((await content.textContent()).includes("owned-large-native-turn 🐾"));
+        assert((await content.textContent()).includes("來源已回退"));
+        assert.equal(await page.locator('[data-related-record="10000"]').count(), 1);
         assert.equal(await page.locator(".codex-record").count(), 10);
         const largeText = page.locator('.codex-record[data-record-kind="assistant"] .history-message-text').first();
         assert((await largeText.textContent()).endsWith("END-OF-OWNED-LARGE-TEXT"));
@@ -169,6 +170,12 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
         await largeText.press("PageDown");
         await page.waitForFunction(top => document.querySelector('.codex-record[data-record-kind="assistant"] .history-message-text').scrollTop > top, largeBefore.inner);
         assert.equal(await page.evaluate(() => scrollY), largeBefore.outer);
+        await page.locator('[data-related-record="10000"]').click();
+        await page.locator('[data-related-record="3"]').waitFor();
+        assert.equal(histories.at(-1).page.offset, 10000); assert.equal(histories.at(-1).profile, "codex_structured_page_v1"); assert(histories.at(-1).version);
+        assert((await content.textContent()).includes("owned-large-native-turn 🐾"));
+        await page.locator('[data-related-record="3"]').click(); await page.locator('[data-related-record="10000"]').waitFor();
+        assert.equal(histories.at(-1).page.offset, 3);
         const jumpInput = page.locator('[data-action="recordNumber"]'); await jumpInput.fill("16381");
         const largeReads = histories.length;
         for (const locale of ["en", "zh-Hans", "ja", "ko", "tr", "fr", "de", "es", "pt-BR", "it", "zh-Hant"]) {
@@ -177,7 +184,7 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
         }
         assert.equal(histories.length, largeReads);
         await page.locator('[data-action="jump"]').click(); await page.waitForFunction(() => document.querySelector("#codex-record-16380") !== null);
-        assert.equal(histories.at(-1).page.offset, 16380); assert.equal(histories.at(-1).profile, "codex_validated_page_v1"); assert(histories.at(-1).version);
+        assert.equal(histories.at(-1).page.offset, 16380); assert.equal(histories.at(-1).profile, "codex_structured_page_v1"); assert(histories.at(-1).version);
         assert.equal(await page.locator(".codex-record").count(), 4); assert.equal(await next.isEnabled(), false);
         assert((await content.textContent()).includes("END-OF-OWNED-LARGE-HISTORY"));
         await host.mutate("large_append"); await jumpInput.fill("1"); await page.locator('[data-action="jump"]').click();
@@ -197,6 +204,7 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
         console.log(JSON.stringify({ gate: "codex_history_browser", width: viewport.width, colorScheme, passed: true,
           structuredConversationAndRawModes: true, structuredFullText: true, crossPageToolNavigation: true, rolledBackAndInferredTurns: true,
           largeHistory16384Records: true, largeFullTextAndInnerScroll: true, directJumpPast8192: true, largeAppendFenceAndRecovery: true,
+          largeGlobalTurnAndRollback: true, largeOriginalNativeIds: true, largeBidirectionalToolNavigation: true,
           coldHistoryAndBothLayoutTransitions: true, compressedAllPagesAndBothTransitions: true, damagedCompressedGuidanceAndRecovery: true, physicalDevice: false }));
       } catch (error) {
         // Owned fixtures only; retain bounded UI state, never dump transcripts

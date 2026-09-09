@@ -13,9 +13,14 @@ runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
-Development-only Plan1.75 adds bounded global turn/tool/rollback indexing and a
-distinct v12 held-source receipt through the same open/check/close and admission.
-Its new structure is not yet connected to the parser, named pipeline or Web.
+Development-only Plan1.76 connects the v12 global turn/tool/rollback sideband
+through explicit parser9/10, the SAME five-stage admitted named pipeline, registry,
+HTTP/peer and typed Web. The explicit structured-page profile is version-bound;
+raw v11 and small/compressed contracts remain distinct. Owned17.2MB/16384-record
+Host and CUA320/390px prove native IDs, bidirectional tool links and off-page
+rollback; full/minimum Node1085/0fail and cancel-cleanup regressions pass. Exact CI
+must be checked for this commit independently of the previous checkpoint.
+Plan1.75 foundation a4e503e passed all five exact CI workflows with full logs checked.
 See [`codex-structured-source.md`](codex-structured-source.md).
 
 Plan1.74 connects an explicit validated-page profile through the SAME Host,

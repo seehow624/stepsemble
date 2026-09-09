@@ -220,7 +220,7 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
         || typeof body.catalogId !== "string" || !/^[A-Za-z0-9:_-]{1,128}$/.test(body.catalogId))) throw error("invalid_history_registration");
       if (route === "observe" && (!exact(body, ["bindingId", "generation", "requestId", "page", ...(Object.hasOwn(body, "version") ? ["version"] : []), ...(Object.hasOwn(body, "structured") ? ["structured"] : []), ...(Object.hasOwn(body, "profile") ? ["profile"] : [])])
         || Object.hasOwn(body, "structured") && (!codexEnabled || body.structured !== true)
-        || Object.hasOwn(body, "profile") && (!codexEnabled || body.profile !== codexRecords.PAGE_PROFILE || body.structured !== undefined)
+        || Object.hasOwn(body, "profile") && (!codexEnabled || !codexRecords.validProfile(body.profile) || body.structured !== undefined)
         || !uuid(body.bindingId) || !positive(body.generation) || !uuid(body.requestId) || !exact(body.page, ["offset", "limit"])
         || !(codexEnabled && codexRecords.validPage(body.page, body.profile) || body.profile === undefined && Number.isSafeInteger(body.page.offset) && body.page.offset >= 0 && body.page.offset <= 2000 && positive(body.page.limit) && body.page.limit <= 100)
         || Object.hasOwn(body, "version") && (typeof body.version !== "string" || !/^[a-f0-9]{64}$/.test(body.version)))) throw error("invalid_history_request");

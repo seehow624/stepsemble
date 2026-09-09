@@ -7,11 +7,16 @@ const { createRolloutSnapshot, observeRolloutNameIdentity, readRolloutPage, rele
 const { observeSqliteNameResolution } = require("./name-resolution");
 const { decodeRollout } = require("./rollout-decompression");
 const structure = require("./rollout-structure");
+const structuredSource = require("./structured-source-wire"), structuredPage = require("./structured-page");
 const { createHash } = require("node:crypto");
 const unavailable = code => ({ kind: "source_unavailable", code });
 function processJob(input, bytes) {
   const job = wire.detach(input, wire.LIMITS.namedHeaderBytes);
   if (!wire.validPayload(bytes, job)) return unavailable("source_worker_protocol");
+  if ([9, 10].includes(job.protocolVersion)) {
+    if (job.expectedVersion !== null && !structuredSource.sameSourceVersion(job.expectedVersion, job.source)) return unavailable("source_version_changed");
+    return structuredPage.process(job, bytes);
+  }
   if ([7, 8].includes(job.protocolVersion)) return processPage(job, bytes);
   if (job.expectedVersion !== null && !sameSourceVersion(job.expectedVersion, job.source)) return unavailable("source_version_changed");
   const split = job.source.rollout.identity.size;

@@ -41,7 +41,7 @@ namespace StepsembleHistoryTransport {
   export interface SessionMetadata { sessionId: string; nativeTitle: string | null; summary: string | null; titleStatus: "native" | "untitled" }
   export interface SourceMetadata extends MetadataRequest { kind: "history_source_metadata"; metadata: SessionMetadata; sourceAuthenticated: false; publishable: false }
   export interface Unavailable { kind: "source_unavailable"; code: string }
-  export interface CodexReadOptions extends StepsembleHistoryPages.ReadOptions { structured?: true; profile?: typeof StepsembleCodexHistoryRecords.PAGE_PROFILE }
+  export interface CodexReadOptions extends StepsembleHistoryPages.ReadOptions { structured?: true; profile?: StepsembleCodexHistoryRecords.PageProfile }
   export class TransportError extends Error {
     constructor(public readonly code: string) { super(code); this.name = "HistoryTransportError"; }
   }
@@ -277,7 +277,7 @@ namespace StepsembleHistoryTransport {
     async function read(scope: StepsembleHistoryPages.Scope, request: StepsembleHistoryPages.Request, options: CodexReadOptions, codex = false): Promise<unknown> {
       if (!keys(options, ["page", "signal", ...(options?.version === undefined ? [] : ["version"]), ...(Object.hasOwn(options ?? {}, "structured") ? ["structured"] : []), ...(Object.hasOwn(options ?? {}, "profile") ? ["profile"] : [])])
         || Object.hasOwn(options, "structured") && (!codex || options.structured !== true)
-        || Object.hasOwn(options, "profile") && (!codex || options.profile !== codexRecords.PAGE_PROFILE || options.structured !== undefined)) return failure("history_request_invalid");
+        || Object.hasOwn(options, "profile") && (!codex || !codexRecords.validProfile(options.profile) || options.structured !== undefined)) return failure("history_request_invalid");
       const expected = detach({ scope, request, page: options.page, ...(options.profile === undefined ? {} : { profile: options.profile }), ...(options.structured === true ? { structured: true } : {}), ...(options.version === undefined ? {} : { version: options.version }) });
       if (!object(expected) || !keys(expected.scope, ["hostId", "bindingId", "generation", "sessionId"])
         || expected.scope.hostId !== hostId || !uuid(expected.scope.bindingId) || !uuid(expected.scope.sessionId) || !positive(expected.scope.generation)

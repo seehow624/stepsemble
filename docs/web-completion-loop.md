@@ -1,7 +1,8 @@
 # Web 完整體：持續執行與驗收清單
 
-2026-09-09／Plan1.75：全來源結構核心與private v12來源接線已本機驗，包含真17MB
-跨頁工具／rollback與source race修正；**parser／named pipeline／Web新結構仍待接**，
+2026-09-09／Plan1.76：全來源結構已接parser9/10、同五階段與Host／peer／Web，
+真17.2MB的原生ID、跨頁工具／rollback與320/390px通；完整／最低Node1085/0fail及
+取消清理回歸通，exact CI獨立核對。前段a4e503e五組CI及full logs不套新變更。C2/C6不勾完成，
 見[來源接續](codex-structured-source.md)。今晚19:35核72h終態後按
 [發布審查](release-review-2026-09-09.md)大總結，不按時間直接判最終版完成。
 
@@ -100,11 +101,11 @@ Rust29/30／全部179child與83dirs清理通。新工程7b16d03五CI已通／ful
 | Checkpoint | 交付與必要證據 | 目前進展（不等於整項驗收完成） |
 | --- | --- | --- |
 | C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | Plan1.57新增本機新群組設定精靈/review/明確readers/CREATE與真Host原檔驗證；Web列表已接，不自選私人來源或新增Web管理route，完整管理/實機與C1完整gate仍待 |
-| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.74已接大型plain來源到同Host／Web，實驗證17.2MB／16384筆、原名與直跳／完整逐筆文字；小型及壓縮來源保留既有回合／工具關聯。大檔全域turn/tool/rollback、大型壓縮、paginated/native投影、其他adapter與C2完整驗收繼續；不是完整語義、原子snapshot或resume |
+| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.76已把大型plain全來源turn/tool/rollback接同Host／Web，17.2MB／16384筆原名、原生ID、直跳／雙向工具連結與頁外回退已驗；小型及壓縮來源保留舊契約。大型壓縮、paginated/native投影、其他adapter與C2完整驗收繼續；不是完整語義、原子snapshot或resume |
 | C3 Session／approval／恢復 | 按真實 capability 接結構化事件、續跑與 approval；ownership、exact correlation、重送／重連／Host crash、durable journal/replay 不漏不重 | 有 contract 與局部實作，未全驗 |
 | C4 帳號與故障體驗 | 登入／登出偵測、官方登入入口、路由相容、取消／失敗／stale／busy 可復原；不修寫第三方憑證或以重試消耗模型 | 局部已驗，跨 harness 待補 |
 | C5 手機與跨裝置操作 | 完整 history i18n、鍵盤／focus／內捲動、長歷史 DOM 上限、Host 切換、background/reconnect、跨機與目標瀏覽器實測 | Plan1.56已接119keys/11語並修正locale scroll跳動；320/390合成Host CUA、原文/DOM/focus保留已驗；人工校稿/真機/跨Host與其餘gate仍待 |
-| C6 可靠性與效能 | 保存完整失敗診斷；調查曾發生的未定位測試失敗；同 workload 多輪 before/after、記憶體、長串流與斷線驗證 | 原fixture鎖／頁面觀測／Buffer差異格式化／PTY競態均保留失敗及修正證據。Plan1.74兩輪相同owned大檔17讀取，health p95 1.39／1.76ms、RSS樣本91.5／93.1MB，非峰值／容量結論。新增瀏覽器suite共同300秒期限問題已拆組，無skip／retry；最大來源、混合負載、真機及整體效能gate仍待 |
+| C6 可靠性與效能 | 保存完整失敗診斷；調查曾發生的未定位測試失敗；同 workload 多輪 before/after、記憶體、長串流與斷線驗證 | 原fixture鎖／頁面觀測／Buffer差異格式化／PTY及browser共同期限失敗均保留。Plan1.76修cancel後refresh競態；最後兩輪同17.2MB/18reads，max request255.5／253.5ms、health p95 2.23／2.30ms、RSS200ms樣本103.6／101.7MB，非峰值／A/B或容量結論。最大來源、混合負載、真機及整體效能gate仍待 |
 | C7 跨平台 Host 與分階段 Rust | 保留相容 Host/Client 邊界；Rust 以契約／shadow／逐 endpoint 方式接入；Windows 原生來源與真服務 runner 不把 parser 通過当成功能通過 | POSIX reader 已有，其餘按主計畫 gate 推進 |
 | C8 發布與回滾 | exact SHA 的必要 CI／browser／native gates、來源與帳號授權、active-work 檢查、備份、回滾、正式健康與版本／裝置驗收 | 正式 3.0.6 不變；新候選未部署 |
 

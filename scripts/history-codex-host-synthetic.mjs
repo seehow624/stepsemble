@@ -58,6 +58,11 @@ export async function startSyntheticCodexHistoryHost({ helperPath, port = 0 } = 
           const rows = [];
           for (let n = first; n < Math.min(first + 64, 16384); n++) {
             const value = n === 0 ? { type: "session_meta", payload: { id: ready.threadId, history_mode: "legacy", cli_version: "0.153.4" } }
+              : n === 2 ? { type: "event_msg", payload: { type: "task_started", turn_id: "owned-large-native-turn 🐾" } }
+              : n === 3 ? { type: "event_msg", payload: { type: "exec_command_begin", turn_id: "owned-large-native-turn 🐾", call_id: "owned-large-native-call 🐾", command: ["owned-never-execute"] } }
+              : n === 10000 ? { type: "event_msg", payload: { type: "exec_command_end", turn_id: "owned-large-native-turn 🐾", call_id: "owned-large-native-call 🐾", aggregated_output: "owned-large-10000 tool output", exit_code: 0 } }
+              : n === 16381 ? { type: "event_msg", payload: { type: "task_complete", turn_id: "owned-large-native-turn 🐾" } }
+              : n === 16382 ? { type: "event_msg", payload: { type: "thread_rolled_back", num_turns: 1 } }
               : n === 16383 ? { type: "future_owned_record", payload: { marker: "END-OF-OWNED-LARGE-HISTORY" } }
               : { type: "event_msg", payload: { type: "agent_message", message: `owned-large-${n} ` + (n === 1 ? "長".repeat(5000) + "END-OF-OWNED-LARGE-TEXT" : "x".repeat(command === "many_records" ? 4 : 960)) } };
             const row = JSON.stringify(value) + "\n"; if (n === 10000) largeDamageOffset = byteOffset;

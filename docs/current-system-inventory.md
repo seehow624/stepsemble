@@ -9,9 +9,14 @@
 
 ## 1. 這份文件的角色
 
-Plan1.75增加全來源有界turn/tool/rollback與private v12來源接線；本機證據與仍待
-parser／named pipeline／Web的邊界見[最新結構來源](codex-structured-source.md)。
+Plan1.76已把全來源turn/tool/rollback接parser9/10、同named五階段與Host／peer／Web；
+17.2MB/16384筆原生ID、跨頁雙向工具與頁外rollback、320/390px已有本機證據，
+完整／最低Node1085/0fail及取消清理競態回歸通，本提交exact CI另逐項核對，
+見[最新結構來源](codex-structured-source.md)。
 正式基線不變，不將來源模組驗證視為新Web功能已部署。
+
+Plan1.75基礎來源a4e503e五組exact CI已全通且full logs核對；下列舊「全域結構仍待」
+是當時狀態，完整native語義／大型壓縮／其他adapter及C1–C8仍未全驗收。
 
 Plan1.74接新大型profile到Host／registry／HTTP／peer／Web；原名、17.2MB/16384筆、
 直跳、追加／改名／損壞恢復與320/390px已驗，完整／最低Node1059/0fail。

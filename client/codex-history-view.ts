@@ -26,32 +26,38 @@ namespace StepsembleCodexHistoryView {
       || ![deps.transport?.register, deps.transport?.readCodex, deps.transport?.release, deps.canonicalJSON, deps.requestId].every(v => typeof v === "function")) throw new Error("history_view_dependencies_required");
     let binding: Registration | null = null, page: Bound | null = null, offsets = [0], pageIndex = 0, epoch = 0;
     let structured = deps.initialStructured === true;
-    let profile: typeof wire.PAGE_PROFILE | undefined;
-    let selected = false, closed = false, busy = false, stale = false, error: string | null = null, cleanupPending = false;
+    let profile: StepsembleCodexHistoryRecords.PageProfile | undefined;
+    let selected = false, closed = false, busy = false, stale = false, error: string | null = null, cleanupPending = false, localAbortPending = false;
     let stage: StepsembleHistoryI18n.Key = "choose", flight: { controller: AbortController; done: Promise<void> } | null = null, closing: Promise<void> | null = null;
     const notify = () => deps.onChange?.();
     function state() {
       const expired = !!binding && (deps.now ?? Date.now)() >= binding.expiresAt;
-      return structuredClone({ selected, closed, busy, stale: stale || expired, error, stage, cleanupPending, page, pageIndex, structured, profile,
-        canPrevious: !busy && !stale && !expired && !!page && pageIndex > 0,
-        canNext: !busy && !stale && !expired && !!page && page.history.records.nextOffset !== null });
+      return structuredClone({ selected, closed, busy, stale: stale || expired, error, stage, cleanupPending: cleanupPending || localAbortPending, page, pageIndex, structured, profile,
+        canJump: !busy && !localAbortPending && !stale && !expired && !!page,
+        canPrevious: !busy && !localAbortPending && !stale && !expired && !!page && pageIndex > 0,
+        canNext: !busy && !localAbortPending && !stale && !expired && !!page && page.history.records.nextOffset !== null });
     }
-    async function release(row: Registration | null) {
-      if (!row) return;
+    async function release(row: Registration | null): Promise<boolean> {
+      if (!row) return false;
       try { const result = await deps.transport.release({ bindingId: row.bindingId, generation: row.generation });
-        if (result.kind !== "history_released" || !result.cleanupConfirmed) cleanupPending = true;
+        if (result.kind === "history_released" && result.cleanupConfirmed) return true;
+        cleanupPending = true;
       } catch { cleanupPending = true; }
+      return false;
     }
     function fail(code: string) {
       error = code; stale = page !== null;
       if (["history_unauthorized", "history_principal_unavailable", "history_source_unavailable"].includes(code)) { page = null; offsets = [0]; pageIndex = 0; }
     }
     async function load(mode: "refresh" | "next" | "previous" | "jump", target?: number, interruptPrevious = true) {
-      if (!selected || closed || mode !== "refresh" && busy) return;
+      if (!selected || closed || mode !== "refresh" && (busy || localAbortPending)) return;
       if (mode !== "refresh" && state().stale) { fail("history_refresh_required"); notify(); return; }
       const ticket = ++epoch, previous = flight, readStructured = structured;
       let readProfile = mode === "refresh" && interruptPrevious ? undefined : profile;
-      if (interruptPrevious) previous?.controller.abort();
+      // A display switch starts a fresh version in its explicit protocol, not
+      // a v11 receipt silently relabelled with global structure.
+      if (mode === "refresh" && readProfile !== undefined) readProfile = readStructured ? wire.STRUCTURED_PAGE_PROFILE : wire.PAGE_PROFILE;
+      if (interruptPrevious && previous && !previous.controller.signal.aborted) { localAbortPending = true; previous.controller.abort(); }
       busy = true; error = null; stage = "preparing"; notify();
       await previous?.done;
       if (ticket !== epoch || closed || !selected) return;
@@ -85,13 +91,16 @@ namespace StepsembleCodexHistoryView {
         // Subsequent pages use the negotiated profile and its opaque version.
         if (mode === "refresh" && readProfile === undefined && value?.kind === "source_unavailable"
           && ["source_too_large", "rollout_record_limit"].includes(value.code)) {
-          readProfile = wire.PAGE_PROFILE; stage = "codexLargeReading"; notify();
+          readProfile = readStructured ? wire.STRUCTURED_PAGE_PROFILE : wire.PAGE_PROFILE; stage = "codexLargeReading"; notify();
           if (!live()) return;
           request = { ...request, requestId: deps.requestId() };
           value = await readOnce();
           if (!live()) return;
         }
-        if (value?.kind === "source_unavailable") { fail(typeof value.code === "string" && Object.hasOwn(i18n.errors, value.code) ? value.code : "history_transport_failed"); return; }
+        if (value?.kind === "source_unavailable") {
+          if (value.code === "source_busy" && localAbortPending) { error = null; stage = "cancelled"; return; }
+          fail(typeof value.code === "string" && Object.hasOwn(i18n.errors, value.code) ? value.code : "history_transport_failed"); return;
+        }
         if (!wire.validBoundRecords(value, reg.sessionId, selection, { ...request, ...(version === undefined ? {} : { version }),
           ...(readProfile ? { profile: readProfile } : readStructured ? { structured: true } : {}) })) { fail("history_response_invalid"); return; }
         const records = value.history.records, prior = page?.history.records;
@@ -102,7 +111,7 @@ namespace StepsembleCodexHistoryView {
         if (mode === "refresh" || mode === "jump") { offsets = [offset]; pageIndex = 0; }
         else if (mode === "previous") pageIndex--;
         else { pageIndex++; offsets[pageIndex] = offset; offsets.length = pageIndex + 1; }
-        page = value; profile = readProfile; stale = false; error = null; stage = "loaded";
+        page = value; profile = readProfile; stale = false; error = null; localAbortPending = false; stage = "loaded";
       } catch (cause) {
         if (live()) { const code = (cause as { code?: unknown })?.code; fail(typeof code === "string" && Object.hasOwn(i18n.errors, code) ? code : "history_transport_failed"); }
       } finally {
@@ -110,12 +119,16 @@ namespace StepsembleCodexHistoryView {
         if (ticket === epoch) { busy = false; if (error) stage = "failed"; notify(); }
       }
     }
-    function cancel() { epoch++; flight?.controller.abort(); busy = false; stage = "cancelled"; notify(); }
+    function cancel() {
+      epoch++;
+      if (flight && !flight.controller.signal.aborted) { localAbortPending = true; flight.controller.abort(); }
+      busy = false; stage = "cancelled"; notify();
+    }
     function close(): Promise<void> {
       if (closing) return closing;
       cancel(); selected = false; closed = true; page = null; profile = undefined; offsets = [0]; pageIndex = 0; stale = false; error = null; stage = "closed"; notify();
       const pending = flight?.done;
-      closing = (async () => { await pending; const old = binding; binding = null; await release(old); notify(); })().finally(() => { closing = null; });
+      closing = (async () => { await pending; const old = binding; binding = null; if (await release(old)) localAbortPending = false; notify(); })().finally(() => { closing = null; });
       return closing;
     }
     async function select(catalogId: string) {
@@ -165,7 +178,7 @@ namespace StepsembleCodexHistoryView {
     const status = el("p", "", "history-status"), warning = el("p", "", "history-warning"), position = el("p", "", "history-position"), content = el("section", "", "history-messages"), cleanup = el("p", "", "history-footnote");
     status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite"); warning.setAttribute("role", "status");
     i18n.bind(content, "codexRecords", {}, "aria-label");
-    let rendered: string | null = null;
+    let rendered: string | null = null, relatedButtons: HTMLButtonElement[] = [];
     const model = createModel({ ...deps, initialStructured: deps.initialStructured ?? true, onChange: () => { render(); deps.onChange?.(); } });
     const modes = el("div", "", "codex-history-modes");
     const modeButton = (value: boolean) => {
@@ -193,12 +206,14 @@ namespace StepsembleCodexHistoryView {
       i18n.bind(status, s.stage); warning.hidden = !s.error && !s.stale; i18n.bind(warning, s.error ? i18n.errorKey(s.error) : "pageStale");
       if (s.page?.history.nativeTitle != null) i18n.raw(title, s.page.history.nativeTitle); else i18n.bind(title, "codexRecords");
       refresh.disabled = !s.selected; previous.disabled = !s.canPrevious; next.disabled = !s.canNext; cancel.disabled = !s.busy; close.disabled = !s.selected;
-      jumpForm.hidden = !r; jumpInput.disabled = jumpButton.disabled = s.busy || s.stale || !r;
+      jumpForm.hidden = !r; jumpInput.disabled = jumpButton.disabled = !s.canJump;
       jumpInput.max = String(r?.recordCount ?? 1);
       i18n.bind(cleanup, s.cleanupPending ? "cleanupPending" : "cleanupSafe");
       i18n.bind(position, "codexRecordPosition", { start: r?.records.length ? r.offset + 1 : 0, end: r ? r.offset + r.records.length : 0, total: r?.recordCount ?? 0 });
       const key = s.page ? `${s.page.sourceVersion}:${r!.offset}:${s.structured}` : null;
+      for (const related of relatedButtons) related.disabled = !s.canJump;
       if (key === rendered) return; rendered = key; content.replaceChildren();
+      relatedButtons = [];
       if (!r) return;
       jumpInput.value = String(r.offset + 1);
       let opened: { details: HTMLDetailsElement; pre: HTMLPreElement } | null = null;
@@ -259,7 +274,8 @@ namespace StepsembleCodexHistoryView {
           const related = annotation.tool.relatedRecordIndex;
           if (related !== null) {
             const reference = copy("button", "codexRelatedRecord"); i18n.bind(reference, "codexRelatedRecord", { record: related + 1 }); reference.type = "button";
-            reference.dataset.relatedRecord = String(related); reference.addEventListener("click", () => { void model.jump(related).then(() => {
+            reference.dataset.relatedRecord = String(related); reference.disabled = !s.canJump; relatedButtons.push(reference);
+            reference.addEventListener("click", () => { void model.jump(related).then(() => {
               if (model.state().page?.history.records.offset !== related) return;
               const target = content.querySelector<HTMLElement>(`#codex-record-${related}`); if (target) { target.tabIndex = -1; target.focus(); }
             }); }); article.append(reference);

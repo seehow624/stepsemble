@@ -18,7 +18,7 @@ function harness(t, config = {}) {
       const h = { active: false };
       h.status = () => ({ activeWorker: h.active, cleanupConfirmed: !h.active, quarantined: false });
       h.close = () => { if (h.active) { h.active = false; drop(); } };
-      for (const method of ["readCodex", "readCodexNameContext", "readCodexValidatedPage"]) h[method] = (input, { signal }) => {
+      for (const method of ["readCodex", "readCodexNameContext", "readCodexValidatedPage", "readCodexStructuredPage"]) h[method] = (input, { signal }) => {
         assert.equal(h.active, false); add(); h.active = true; stages.push(method);
         const promise = new Promise(resolve => { h.finish = (result = method === "readCodex" ? f.captured()
           : method === "readCodexValidatedPage" ? f.pageCaptured(input.page.offset, input.page.limit) : f.sqliteCapture(), close = true) => { if (close) h.close(); resolve(result); }; });

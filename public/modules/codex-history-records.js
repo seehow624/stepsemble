@@ -10,8 +10,10 @@ var StepsembleCodexHistoryRecords;
     // Explicit capability negotiation: old callers keep the original bounds and
     // reject this shape. A validated page is not an old whole-file snapshot.
     StepsembleCodexHistoryRecords.PAGE_PROFILE = "codex_validated_page_v1";
+    StepsembleCodexHistoryRecords.STRUCTURED_PAGE_PROFILE = "codex_structured_page_v1";
     StepsembleCodexHistoryRecords.PAGE_LIMITS = Object.freeze({ sourceBytes: 256 * 1024 * 1024, records: 262144 });
     StepsembleCodexHistoryRecords.STRUCTURE_PROFILE = "codex_legacy_record_structure_v1";
+    StepsembleCodexHistoryRecords.SELECTED_STRUCTURE_PROFILE = "codex_legacy_selected_structure_v1";
     StepsembleCodexHistoryRecords.STRUCTURE_WARNINGS = ["invalid_turn_reference", "ambiguous_turn_reference", "unmatched_turn_reference", "invalid_tool_reference",
         "ambiguous_tool_reference", "unknown_record_preserved", "unknown_event_preserved", "invalid_terminal_error", "unclassified_error_preserved",
         "invalid_rollback_count", "invalid_message_preserved"];
@@ -25,16 +27,17 @@ var StepsembleCodexHistoryRecords;
     const label = (v) => typeof v === "string" && v.length > 0 && v.length <= 128 && !/[\u0000-\u001f\u007f-\u009f]/.test(v);
     const encoder = new TextEncoder();
     StepsembleCodexHistoryRecords.validTitle = (v) => v === null || typeof v === "string" && encoder.encode(v).length <= StepsembleCodexHistoryRecords.LIMITS.nameBytes;
+    StepsembleCodexHistoryRecords.validProfile = (v) => v === StepsembleCodexHistoryRecords.PAGE_PROFILE || v === StepsembleCodexHistoryRecords.STRUCTURED_PAGE_PROFILE;
     function validPage(v, profile) {
-        return (profile === undefined || profile === StepsembleCodexHistoryRecords.PAGE_PROFILE) && keys(v, ["offset", "limit"])
-            && count(v.offset, profile === StepsembleCodexHistoryRecords.PAGE_PROFILE ? StepsembleCodexHistoryRecords.PAGE_LIMITS.records : StepsembleCodexHistoryRecords.LIMITS.records) && count(v.limit, StepsembleCodexHistoryRecords.LIMITS.pageRecords) && v.limit > 0;
+        return (profile === undefined || StepsembleCodexHistoryRecords.validProfile(profile)) && keys(v, ["offset", "limit"])
+            && count(v.offset, StepsembleCodexHistoryRecords.validProfile(profile) ? StepsembleCodexHistoryRecords.PAGE_LIMITS.records : StepsembleCodexHistoryRecords.LIMITS.records) && count(v.limit, StepsembleCodexHistoryRecords.LIMITS.pageRecords) && v.limit > 0;
     }
     StepsembleCodexHistoryRecords.validPage = validPage;
     /** Input must already be byte-bounded detached JSON, with no getters. */
     function validHistoryValue(v, threadId, page, structured = false, profile) {
-        const paged = profile === StepsembleCodexHistoryRecords.PAGE_PROFILE, limits = paged ? StepsembleCodexHistoryRecords.PAGE_LIMITS : StepsembleCodexHistoryRecords.LIMITS;
-        if (typeof structured !== "boolean" || structured && paged || !uuid(threadId) || !validPage(page, profile) || !keys(v, ["kind", "nativeVersion", "nativeThreadId", "nativeTitle", "page", "records", "semanticHistoryComplete", "sourceAuthenticated", "publishable", "authority", ...(structured ? ["structure"] : [])])
-            || v.kind !== (paged ? "codex_validated_source_records" : "codex_source_records") || v.nativeVersion !== "0.153.4" || v.nativeThreadId !== threadId || !StepsembleCodexHistoryRecords.validTitle(v.nativeTitle)
+        const paged = StepsembleCodexHistoryRecords.validProfile(profile), globalStructure = profile === StepsembleCodexHistoryRecords.STRUCTURED_PAGE_PROFILE, limits = paged ? StepsembleCodexHistoryRecords.PAGE_LIMITS : StepsembleCodexHistoryRecords.LIMITS;
+        if (typeof structured !== "boolean" || structured && paged || !uuid(threadId) || !validPage(page, profile) || !keys(v, ["kind", "nativeVersion", "nativeThreadId", "nativeTitle", "page", "records", "semanticHistoryComplete", "sourceAuthenticated", "publishable", "authority", ...(structured || globalStructure ? ["structure"] : [])])
+            || v.kind !== (globalStructure ? "codex_structured_page_source_records" : paged ? "codex_validated_source_records" : "codex_source_records") || v.nativeVersion !== "0.153.4" || v.nativeThreadId !== threadId || !StepsembleCodexHistoryRecords.validTitle(v.nativeTitle)
             || !validPage(v.page, profile) || v.page.offset !== page.offset || v.page.limit !== page.limit || v.semanticHistoryComplete !== false || v.sourceAuthenticated !== false || v.publishable !== false
             || !keys(v.authority, ["sourceAuthenticated", "approvalAcknowledged", "runTerminalObserved", "resumeAllowed"]) || !Object.values(v.authority).every(x => x === false))
             return false;
@@ -57,17 +60,19 @@ var StepsembleCodexHistoryRecords;
                 return false;
             end = row.byteOffset + row.byteLength;
         }
-        return (!r.endOfFile || end === null || end === r.byteLength) && (!structured || validStructure(v.structure, r));
+        return (!r.endOfFile || end === null || end === r.byteLength) && (!(structured || globalStructure)
+            || validStructure(v.structure, r, globalStructure ? StepsembleCodexHistoryRecords.SELECTED_STRUCTURE_PROFILE : StepsembleCodexHistoryRecords.STRUCTURE_PROFILE));
     }
     StepsembleCodexHistoryRecords.validHistoryValue = validHistoryValue;
     /** Detached JSON only. This validates a source-linked observation, not source
      * authentication or an execution/approval receipt. Shared with the parser. */
-    function validStructure(v, page) {
+    function validStructure(v, page, profile = StepsembleCodexHistoryRecords.STRUCTURE_PROFILE) {
+        const globalStructure = profile === StepsembleCodexHistoryRecords.SELECTED_STRUCTURE_PROFILE;
         const id = (n) => typeof n === "string" && n.length > 0 && n.length <= 1024 && !/[\u0000-\u001f\u007f-\u009f]/.test(n)
             && !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(n);
         const index = (n) => count(n, page.recordCount - 1);
         const key = (n) => typeof n === "string" && /^record-(0|[1-9][0-9]*)$/.test(n) && index(Number(n.slice(7)));
-        if (!keys(v, ["profile", "totalTurns", "retainedTurns", "turns", "annotations"]) || v.profile !== StepsembleCodexHistoryRecords.STRUCTURE_PROFILE
+        if (![StepsembleCodexHistoryRecords.STRUCTURE_PROFILE, StepsembleCodexHistoryRecords.SELECTED_STRUCTURE_PROFILE].includes(profile) || !keys(v, ["profile", "totalTurns", "retainedTurns", "turns", "annotations"]) || v.profile !== profile
             || !count(v.totalTurns, page.recordCount) || !count(v.retainedTurns, v.totalTurns) || !Array.isArray(v.turns)
             || v.turns.length > Math.min(v.totalTurns, page.records.length) || !Array.isArray(v.annotations) || v.annotations.length !== page.records.length
             || encoder.encode(JSON.stringify({ records: page, structure: v })).length > StepsembleCodexHistoryRecords.LIMITS.pageBytes)
@@ -80,7 +85,9 @@ var StepsembleCodexHistoryRecords;
                 || t.firstRecordIndex > t.lastRecordIndex || t.turnKey !== `record-${t.firstRecordIndex}`
                 || typeof t.recordedStatus !== "string" || !["unknown", "started", "completed", "failed", "interrupted"].includes(t.recordedStatus)
                 || t.statusRecordIndex !== null && (!index(t.statusRecordIndex) || t.statusRecordIndex < t.firstRecordIndex || t.statusRecordIndex > t.lastRecordIndex)
-                || t.recordedStatus !== "unknown" && t.statusRecordIndex === null || !["retained", "rolled_back"].includes(t.branchState)
+                || t.recordedStatus !== "unknown" && t.statusRecordIndex === null
+                || globalStructure && t.recordedStatus === "started" && (t.boundary !== "explicit" || t.statusRecordIndex !== t.firstRecordIndex)
+                || !["retained", "rolled_back"].includes(t.branchState)
                 || (t.branchState === "retained" ? t.rollbackRecordIndex !== null : !index(t.rollbackRecordIndex) || t.rollbackRecordIndex <= t.lastRecordIndex))
                 return false;
             turns.set(t.turnKey, t);
@@ -97,12 +104,25 @@ var StepsembleCodexHistoryRecords;
                 if (a.recordIndex < t.firstRecordIndex || a.recordIndex > t.lastRecordIndex)
                     return false;
             }
+            if (globalStructure && a.kind === "tool" && a.tool === null && !a.warnings.includes("invalid_tool_reference"))
+                return false;
             if (a.tool !== null) {
                 const t = a.tool;
                 if (a.kind !== "tool" || !keys(t, ["family", "phase", "nativeCallId", "relatedRecordIndex"]) || !StepsembleCodexHistoryRecords.TOOL_FAMILIES.includes(t.family)
                     || !["begin", "end", "request", "single"].includes(t.phase) || !id(t.nativeCallId)
                     || t.relatedRecordIndex !== null && (!index(t.relatedRecordIndex) || t.relatedRecordIndex === a.recordIndex || a.turnKey === null || !["begin", "end"].includes(t.phase)))
                     return false;
+                if (globalStructure) {
+                    const phases = t.family === "image_view" ? ["single"] : t.family === "patch" ? ["begin", "end", "request"] : ["begin", "end"];
+                    if (!phases.includes(t.phase) || a.warnings.includes("invalid_tool_reference")
+                        || a.warnings.includes("ambiguous_tool_reference") && t.relatedRecordIndex !== null)
+                        return false;
+                    if (t.relatedRecordIndex !== null) {
+                        const turn = turns.get(a.turnKey);
+                        if (t.relatedRecordIndex < turn.firstRecordIndex || t.relatedRecordIndex > turn.lastRecordIndex)
+                            return false;
+                    }
+                }
                 const other = t.relatedRecordIndex === null ? null : v.annotations[t.relatedRecordIndex - page.offset];
                 if (other && (other.turnKey !== a.turnKey || other.tool?.family !== t.family || other.tool.nativeCallId !== t.nativeCallId
                     || other.tool.relatedRecordIndex !== a.recordIndex || other.tool.phase !== (t.phase === "begin" ? "end" : "begin")))
@@ -117,7 +137,7 @@ var StepsembleCodexHistoryRecords;
         return uuid(scope.bindingId) && uuid(scope.requestId) && count(scope.generation, Number.MAX_SAFE_INTEGER) && scope.generation > 0
             && (scope.version === undefined || hash(scope.version))
             && (scope.structured === undefined || scope.structured === true)
-            && (scope.profile === undefined || scope.profile === StepsembleCodexHistoryRecords.PAGE_PROFILE && scope.structured === undefined)
+            && (scope.profile === undefined || StepsembleCodexHistoryRecords.validProfile(scope.profile) && scope.structured === undefined)
             && keys(v, ["kind", "bindingId", "generation", "requestId", "sourceVersion", "history", "sourceAuthenticated", "publishable", "cleanupConfirmed"])
             && v.kind === "bound_codex_records" && v.bindingId === scope.bindingId && v.generation === scope.generation && v.requestId === scope.requestId
             && hash(v.sourceVersion) && (scope.version === undefined || v.sourceVersion === scope.version)

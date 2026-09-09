@@ -70,8 +70,8 @@ function createCodexSourceService(options = {}) {
       const status = sweep();
       if (!sql.own(options, ["signal", "version", ...(metadata ? [] : ["page", "structured", "profile"])])
         || options.structured !== undefined && options.structured !== true
-        || options.profile !== undefined && (options.profile !== publicWire.PAGE_PROFILE || options.structured !== undefined)) return unavailable("invalid_history_options");
-      let paged = options.profile === publicWire.PAGE_PROFILE;
+        || options.profile !== undefined && (!publicWire.validProfile(options.profile) || options.structured !== undefined)) return unavailable("invalid_history_options");
+      let profile = options.profile, paged = publicWire.validProfile(profile), globalStructure = profile === publicWire.STRUCTURED_PAGE_PROFILE;
       const request = wire.detach(input), page = wire.detach(options.page ?? { offset: 0, limit: 25 });
       if (!wire.keys(request, ["bindingId", "generation", "requestId"]) || request.bindingId !== value.bindingId || request.generation !== value.generation || !uuid(request.requestId))
         return unavailable("source_binding_mismatch");
@@ -90,12 +90,12 @@ function createCodexSourceService(options = {}) {
       // Opaque versions belong to one capture protocol. They cannot be reused
       // to silently upgrade/downgrade source validation or storage semantics.
       if (expected && !metadata && expected.profile !== options.profile) return unavailable("source_version_unavailable");
-      if (expected && metadata) paged = expected.profile === publicWire.PAGE_PROFILE;
+      if (expected && metadata) { profile = expected.profile; paged = publicWire.validProfile(profile); globalStructure = profile === publicWire.STRUCTURED_PAGE_PROFILE; }
       let finish;
       const controller = new AbortController(), current = { controller, unknown: false, done: new Promise(resolve => { finish = resolve; }) }; state.flight = current;
       const abort = () => controller.abort(); options.signal?.addEventListener("abort", abort, { once: true });
       try {
-        const capture = () => pipeline[paged ? "readNamedPage" : "readNamed"]({ history: source.history, sqlite: source.sqlite, method: "thread_read_sqlite" },
+        const capture = () => pipeline[globalStructure ? "readNamedStructuredPage" : paged ? "readNamedPage" : "readNamed"]({ history: source.history, sqlite: source.sqlite, method: "thread_read_sqlite" },
           { selection: metadata ? { mode: "names" } : { mode: "records", ...page }, ...(options.structured === true ? { structured: true } : {}),
             ...(expected ? { expectedVersion: expected.source } : {}), signal: controller.signal });
         let result = await capture();
@@ -106,7 +106,7 @@ function createCodexSourceService(options = {}) {
         if (metadata && !expected && !paged && source.historyMode === "legacy" && result.kind === "source_unavailable"
           && ["source_too_large", "rollout_record_limit"].includes(result.code) && beforeSwitch.cleanupConfirmed
           && !beforeSwitch.closed && !beforeSwitch.quarantined && !closed && !state.revoked && !controller.signal.aborted) {
-          paged = true; result = await capture();
+          profile = publicWire.PAGE_PROFILE; paged = true; result = await capture();
         }
         const status = pipeline.status();
         if (result?.code === "source_cleanup_unconfirmed" || status.quarantined && !status.cleanupConfirmed) {
@@ -117,10 +117,11 @@ function createCodexSourceService(options = {}) {
         if (controller.signal.aborted) return unavailable("source_aborted");
         if (status.quarantined) return unavailable("source_service_quarantined");
         if (result.kind === "source_unavailable") return result;
-        if (result.kind !== (paged ? "codex_named_page_capture" : "codex_named_capture") || result.cleanupConfirmed !== true || !wire.sameNamedVersion(result.source, result.source, paged)
+        if (result.kind !== (globalStructure ? "codex_named_structured_page_capture" : paged ? "codex_named_page_capture" : "codex_named_capture") || result.cleanupConfirmed !== true
+          || !(globalStructure ? wire.sameStructuredNamedVersion(result.source, result.source) : wire.sameNamedVersion(result.source, result.source, paged))
           || result.source.history.threadId !== source.sessionId || result.name?.nativeThreadId !== source.sessionId
           || result.consistency !== "matching_selected_versions_before_and_after_parse") return unavailable("source_worker_protocol");
-        const version = expected ?? { token: crypto.randomBytes(32).toString("hex"), source: result.source, profile: paged ? publicWire.PAGE_PROFILE : undefined };
+        const version = expected ?? { token: crypto.randomBytes(32).toString("hex"), source: result.source, profile };
         const common = { bindingId: value.bindingId, generation: value.generation, requestId: request.requestId, sourceVersion: version.token,
           sourceAuthenticated: false, publishable: false, cleanupConfirmed: true };
         let output;
@@ -128,8 +129,8 @@ function createCodexSourceService(options = {}) {
           output = { ...common, kind: "bound_codex_metadata", source: result.source, name: result.name,
             metadata: { sessionId: source.sessionId, nativeTitle: result.name.name, summary: null, titleStatus: result.name.name === null ? "untitled" : "native" } };
         } else {
-          output = { ...common, kind: "bound_codex_records", history: { kind: paged ? "codex_validated_source_records" : "codex_source_records", nativeVersion: "0.153.4", nativeThreadId: source.sessionId,
-            nativeTitle: result.name.name, page, records: result.page, ...(options.structured === true ? { structure: result.structure } : {}),
+          output = { ...common, kind: "bound_codex_records", history: { kind: globalStructure ? "codex_structured_page_source_records" : paged ? "codex_validated_source_records" : "codex_source_records", nativeVersion: "0.153.4", nativeThreadId: source.sessionId,
+            nativeTitle: result.name.name, page, records: result.page, ...(options.structured === true || globalStructure ? { structure: result.structure } : {}),
             semanticHistoryComplete: false, sourceAuthenticated: false, publishable: false,
             authority: { sourceAuthenticated: false, approvalAcknowledged: false, runTerminalObserved: false, resumeAllowed: false } } };
         }

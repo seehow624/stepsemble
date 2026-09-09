@@ -7,6 +7,7 @@ const { createNativeHelper, SOURCE_CODES } = require("../claude/history-native-h
 const { isReaderAdmission, LIMIT } = require("../claude/history-reader-admission");
 const source = require("./source-wire"), wire = require("./parser-wire");
 const scanned = require("./scanned-source-wire"), paged = require("./validated-page");
+const structuredSource = require("./structured-source-wire");
 const sqlite = require("./sqlite-wire").context;
 const unavailable = code => ({ kind: "source_unavailable", code });
 const codes = new Set([...SOURCE_CODES, ...wire.CODES, "source_worker_exit", "source_worker_timeout", "source_worker_spawn_failed",
@@ -42,16 +43,17 @@ function createCodexHistoryPipeline(options = {}) {
     if (admission.status().quarantined) quarantine();
     for (const f of flights) if (f.settled && f.helperSettled && !f.childActive && helperClosed(f.slot)) release(f);
   }
-  async function read(input, options = {}, named = false, pageMode = false) {
+  async function read(input, options = {}, named = false, pageMode = false, globalStructure = false) {
     sweep();
     if (!own(options, ["selection", "expectedVersion", "signal", "structured"]) || options.structured !== undefined && typeof options.structured !== "boolean") return unavailable("invalid_codex_pipeline_request");
     const request = wire.detach(input, named ? wire.LIMITS.namedHeaderBytes : wire.LIMITS.headerBytes), selection = wire.detach(options.selection ?? (named ? { mode: "names" } : { mode: "records", offset: 0, limit: 50 }));
     const expected = options.expectedVersion === undefined ? null : wire.detach(options.expectedVersion);
-    const history = pageMode ? scanned : source;
+    const history = globalStructure ? structuredSource : pageMode ? scanned : source;
+    const sameNamedVersion = globalStructure ? wire.sameStructuredNamedVersion : (a, b) => wire.sameNamedVersion(a, b, pageMode);
     if (!(named ? wire.validNameRequest(request) : source.input(request)) || !(pageMode ? paged.selection(selection) : wire.validSelection(selection))
       || options.structured === true && (pageMode || selection.mode !== "records")
-      || options.expectedVersion !== undefined && !(named ? wire.sameNamedVersion(expected, expected, pageMode)
-        : history.sameSourceVersion(expected, expected) && (!pageMode || paged.version(expected))))
+      || options.expectedVersion !== undefined && !(named ? sameNamedVersion(expected, expected)
+        : history.sameSourceVersion(expected, expected) && (globalStructure || !pageMode || paged.version(expected))))
       return unavailable("invalid_codex_pipeline_request");
     const signal = options.signal;
     if (signal !== undefined && !(signal instanceof AbortSignal)) return unavailable("invalid_source_signal");
@@ -64,7 +66,7 @@ function createCodexHistoryPipeline(options = {}) {
     if (!slot || !helperClosed(slot) || quarantined) return unavailable("source_service_quarantined");
     if (named && typeof slot.helper.readCodexNameContext !== "function") return unavailable("source_worker_protocol");
     const historyRequest = named ? request.history : request;
-    const historyMethod = pageMode ? "readCodexValidatedPage" : "readCodex";
+    const historyMethod = globalStructure ? "readCodexStructuredPage" : pageMode ? "readCodexValidatedPage" : "readCodex";
     if (typeof slot.helper[historyMethod] !== "function") return unavailable("source_worker_protocol");
     const captureRequest = pageMode ? { ...historyRequest, page: selection.mode === "names" ? { offset: 0, limit: 1 } : { offset: selection.offset, limit: selection.limit } } : historyRequest;
     let nonce;
@@ -125,7 +127,7 @@ function createCodexHistoryPipeline(options = {}) {
     }
     function historyVersion(captured) {
       const v = history.sourceVersion(captured), r = historyRequest;
-      return v && (!pageMode || paged.version(v)) && captured.cleanupConfirmed === true && v.nativeVersion === r.nativeVersion && v.threadId === r.source.threadId && v.rolloutPath === r.source.rolloutPath
+      return v && (globalStructure || !pageMode || paged.version(v)) && captured.cleanupConfirmed === true && v.nativeVersion === r.nativeVersion && v.threadId === r.source.threadId && v.rolloutPath === r.source.rolloutPath
         && v.rootIdentity.device === r.expectedRoot.device && v.rootIdentity.inode === r.expectedRoot.inode ? v : null;
     }
     async function run() {
@@ -141,8 +143,9 @@ function createCodexHistoryPipeline(options = {}) {
       if (!version) return settle(unavailable("source_worker_protocol"));
       const expectedHistory = named ? expected?.history ?? null : expected;
       if (expectedHistory !== null && !history.sameSourceVersion(expectedHistory, version)) return settle(unavailable("source_version_changed"));
-      const job = { protocolVersion: pageMode ? (named ? 8 : 7) : options.structured === true ? (named ? 6 : 5) : (named ? 2 : 1) + (version.storage ? 2 : 0), nonce, source: version, selection, expectedVersion: expectedHistory,
+      const job = { protocolVersion: globalStructure ? (named ? 10 : 9) : pageMode ? (named ? 8 : 7) : options.structured === true ? (named ? 6 : 5) : (named ? 2 : 1) + (version.storage ? 2 : 0), nonce, source: version, selection, expectedVersion: expectedHistory,
         ...(pageMode ? { page: captured.page } : {}),
+        ...(globalStructure ? { structureFrame: captured.structureFrame } : {}),
         ...(named ? { nameResolution: { fields: sqlCapture.metadata.observation.fields, nameContext: sqlCapture.metadata.observation.nameContext,
           method: request.method, rolloutPath: path.join(historyRequest.source.codexRoot, historyRequest.source.rolloutPath) } } : {}) };
       sqlCapture = null;
@@ -196,7 +199,7 @@ function createCodexHistoryPipeline(options = {}) {
       if (!finalHistory) return settle(unavailable("source_worker_protocol"));
       if (!history.sameSourceVersion(initialHistory, finalHistory)) return settle(unavailable("source_version_changed"));
       if (!current()) return;
-      settle({ ...parsed, kind: pageMode ? "codex_named_page_capture" : "codex_named_capture", source: { kind: pageMode ? "codex_named_page_source_version" : "codex_named_source_version", history: finalHistory, sqlite: finalSqlite },
+      settle({ ...parsed, kind: globalStructure ? "codex_named_structured_page_capture" : pageMode ? "codex_named_page_capture" : "codex_named_capture", source: { kind: globalStructure ? "codex_named_structured_page_source_version" : pageMode ? "codex_named_page_source_version" : "codex_named_source_version", history: finalHistory, sqlite: finalSqlite },
         consistency: "matching_selected_versions_before_and_after_parse", cleanupConfirmed: true });
     }
     run().catch(() => {
@@ -216,7 +219,9 @@ function createCodexHistoryPipeline(options = {}) {
     return shutdownPromise;
   }
   return Object.freeze({ read: (input, options) => read(input, options), readNamed: (input, options) => read(input, options, true),
-    readPage: (input, options) => read(input, options, false, true), readNamedPage: (input, options) => read(input, options, true, true), shutdown, status() { sweep(); return Object.freeze({ closed: closed || admission.status().closed, quarantined,
+    readPage: (input, options) => read(input, options, false, true), readNamedPage: (input, options) => read(input, options, true, true),
+    readStructuredPage: (input, options) => read(input, options, false, true, true), readNamedStructuredPage: (input, options) => read(input, options, true, true, true),
+    shutdown, status() { sweep(); return Object.freeze({ closed: closed || admission.status().closed, quarantined,
     activeWorkers: flights.size, cleanupConfirmed: flights.size === 0 }); } });
 }
 module.exports = { createCodexHistoryPipeline };

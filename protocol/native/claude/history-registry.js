@@ -196,7 +196,7 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
     if (!keys(request, ["bindingId", "generation", "viewId", "requestId", ...(metadata ? [] : ["page", ...(Object.hasOwn(request ?? {}, "structured") ? ["structured"] : []), ...(Object.hasOwn(request ?? {}, "profile") ? ["profile"] : [])]), ...(request?.version === undefined ? [] : ["version"])])
       || !identity(request) || !uuid(request.requestId) || !metadata && validReadPage(request.page, request.profile) !== true
       || Object.hasOwn(request, "structured") && request.structured !== true
-      || Object.hasOwn(request, "profile") && (request.profile !== "codex_validated_page_v1" || request.structured !== undefined)
+      || Object.hasOwn(request, "profile") && (!["codex_validated_page_v1", "codex_structured_page_v1"].includes(request.profile) || request.structured !== undefined)
       || request.version !== undefined && (typeof request.version !== "string" || !/^[a-f0-9]{64}$/.test(request.version)))
       return unavailable("invalid_history_request");
     if (!options || ![Object.prototype, null].includes(Object.getPrototypeOf(options)) || Object.getOwnPropertySymbols(options).length

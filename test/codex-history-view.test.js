@@ -69,6 +69,48 @@ test("cancel/refresh serializes the old flight; only the newest request can appl
   assert.equal(count, 1); assert.equal(h.model.state().page, null); finish(); await first; await second;
   assert.equal(count, 2); assert.equal(h.model.state().stage, "loaded");
 });
+test("local abort treats an immediate busy reply as cleanup pending until a manual refresh succeeds", async t => {
+  for (const interrupt of ["cancel", "refresh"]) {
+    let reads = 0, physical = 0, maximum = 0, closePhysical;
+    const h = harness(t, { read: (_scope, r, o, good) => {
+      reads++;
+      if (reads === 3) {
+        physical++; maximum = Math.max(maximum, physical);
+        return new Promise((_resolve, reject) => {
+          closePhysical = () => { physical--; };
+          o.signal.addEventListener("abort", () => reject(Object.assign(new Error("history_aborted"), { code: "history_aborted" })), { once: true });
+        });
+      }
+      if (physical) return { kind: "source_unavailable", code: "source_busy" };
+      return good(r, o);
+    } });
+    await h.model.select(catalogId); await h.model.next(); const old = h.model.state().page;
+    const pending = h.model.next(); await tick();
+    const restart = interrupt === "cancel" ? (h.model.cancel(), h.model.refresh()) : h.model.refresh();
+    await Promise.allSettled([pending, restart]);
+    assert.equal(reads, 4); assert.equal(physical, 1); assert.equal(maximum, 1);
+    assert.equal(h.model.state().stage, "cancelled"); assert.equal(h.model.state().error, null);
+    assert.equal(h.model.state().cleanupPending, true); assert.equal(h.model.state().page.sourceVersion, old.sourceVersion);
+    assert.equal(h.model.state().canPrevious, false); assert.equal(h.model.state().canNext, false); assert.equal(h.model.state().canJump, false);
+    await h.model.previous(); await h.model.next(); await h.model.jump(1); assert.equal(reads, 4, "pending navigation never sends a source read");
+    closePhysical(); await h.model.refresh();
+    assert.equal(reads, 5); assert.equal(physical, 0); assert.equal(h.model.state().stage, "loaded");
+    assert.equal(h.model.state().cleanupPending, false); assert.equal(h.model.state().error, null);
+  }
+});
+test("close preserves a false cleanup receipt after a local abort", async t => {
+  let held = false, releaseCalls = 0;
+  const h = harness(t, { read: (_scope, r, o, good) => {
+    if (!held) { held = true; return new Promise((_resolve, reject) => o.signal.addEventListener("abort",
+      () => reject(Object.assign(new Error("history_aborted"), { code: "history_aborted" })), { once: true })); }
+    return good(r, o);
+  }, release: async () => { releaseCalls++; return { kind: "history_released", cleanupConfirmed: false }; } });
+  const selected = h.model.select(catalogId); await tick(); await h.model.close(); await selected;
+  assert.equal(releaseCalls, 1); assert.equal(h.model.state().closed, true); assert.equal(h.model.state().cleanupPending, true);
+  await h.model.select(catalogId); assert.equal(h.model.state().stage, "loaded"); assert.equal(h.model.state().cleanupPending, true);
+  assert.equal(h.model.state().canNext, true); assert.equal(h.model.state().canJump, true);
+  await h.model.next(); await h.model.jump(1); assert.equal(h.model.state().error, null);
+});
 test("closing during a late registration awaits cleanup, drops content and only then allows reopen", async t => {
   let finish, calls = 0, released = 0;
   const h = harness(t, { register: (_r, _s, good) => ++calls === 1 ? new Promise(resolve => { finish = () => resolve(good()); }) : good(),
@@ -97,15 +139,44 @@ function largeReader(large) {
   return (_scope, request, options, good) => {
     if (!options.profile) return { kind: "source_unavailable", code: "source_too_large" };
     const reply = good(request, { ...options, page: { offset: 0, limit: 1 } });
-    reply.history.kind = "codex_validated_source_records"; reply.history.page = options.page; reply.history.records = large.page(options.page);
+    const global = options.profile === wire.STRUCTURED_PAGE_PROFILE;
+    reply.history.kind = global ? "codex_structured_page_source_records" : "codex_validated_source_records"; reply.history.page = options.page; reply.history.records = large.page(options.page);
+    if (global) { const { structureProfile, ...value } = large.structure(reply.history.records); reply.history.structure = { profile: structureProfile, ...value }; }
     return reply;
   };
 }
+test("related tool button follows cleanup-pending navigation without rebuilding the visible page", async t => {
+  const doc = { createElement(tag) { return new Element(tag, doc); } }, root = new Element("div", doc);
+  const large = require("./support/codex-large-fixture.cjs")(true), normal = largeReader(large);
+  let hold = false, physical = false, closePhysical;
+  const h = harness(t, { dependencies: { root, initialStructured: true }, read: (scope, request, options, good) => {
+    if (hold) {
+      hold = false; physical = true;
+      return new Promise((_resolve, reject) => {
+        closePhysical = () => { physical = false; };
+        options.signal.addEventListener("abort", () => reject(Object.assign(new Error("history_aborted"), { code: "history_aborted" })), { once: true });
+      });
+    }
+    if (physical) return { kind: "source_unavailable", code: "source_busy" };
+    return normal(scope, request, options, good);
+  } }, view.create);
+  await h.model.select(catalogId);
+  const related = all(root).find(v => v.dataset.relatedRecord === "9000"); assert(related); assert.equal(related.disabled, false);
+  hold = true; const pending = h.model.next(); await tick(); const restarted = h.model.refresh();
+  await Promise.allSettled([pending, restarted]);
+  assert.equal(h.model.state().cleanupPending, true); assert.equal(related.disabled, true);
+  const before = h.calls.filter(v => typeof v === "object").length; related.dispatch("click"); await tick();
+  assert.equal(h.calls.filter(v => typeof v === "object").length, before, "disabled related action cannot read while cleanup is pending");
+  closePhysical(); await h.model.refresh();
+  const current = all(root).find(v => v.dataset.relatedRecord === "9000");
+  assert.equal(current, related, "same page cards preserve scroll/focus state"); assert.equal(current.disabled, false);
+  assert.equal(h.model.state().cleanupPending, false);
+});
 test("large history negotiates once after the old limit, then jumps beyond 8192 using the same version", async t => {
   const large = require("./support/codex-large-fixture.cjs")(), h = harness(t, { read: largeReader(large), dependencies: { initialStructured: true } });
-  await h.model.select(catalogId); assert.equal(h.model.state().error, null); assert.equal(h.model.state().profile, wire.PAGE_PROFILE);
-  assert.equal(h.model.state().page.history.records.recordCount, 9005); assert.equal(h.model.state().page.history.structure, undefined);
-  assert.deepEqual(h.calls.filter(v => typeof v === "object").map(v => [v.structured, v.profile]), [[true, undefined], [undefined, wire.PAGE_PROFILE]]);
+  await h.model.select(catalogId); assert.equal(h.model.state().error, null); assert.equal(h.model.state().profile, wire.STRUCTURED_PAGE_PROFILE);
+  assert.equal(h.model.state().page.history.records.recordCount, 9005); assert.equal(h.model.state().page.history.structure.profile, wire.SELECTED_STRUCTURE_PROFILE);
+  assert.deepEqual(h.calls.filter(v => typeof v === "object").map(v => [v.structured, v.profile]), [[true, undefined], [undefined, wire.STRUCTURED_PAGE_PROFILE]]);
   await h.model.jump(9000); assert.equal(h.model.state().page.history.records.offset, 9000); assert.equal(h.model.state().canNext, false);
   assert.equal(h.calls.at(-1).version, token); assert.equal(h.calls.at(-1).structured, undefined);
   await h.model.setStructured(false); assert.equal(h.calls.at(-1).profile, wire.PAGE_PROFILE); assert.equal(h.model.state().error, null);
@@ -122,6 +193,28 @@ test("format negotiation never retries other failures, continuation failures or 
   let limited = false; const old = harness(t, { read: (_s, r, o, good) => limited ? { kind: "source_unavailable", code: "source_too_large" } : good(r, o) });
   await old.model.select(catalogId); limited = true; await old.model.next();
   assert.equal(old.calls.filter(v => typeof v === "object").length, 2); assert.equal(old.model.state().stale, true);
+});
+test("global structure keeps original IDs and rollback across tool jumps and rejects malformed or downgraded profiles", async t => {
+  const large = require("./support/codex-large-fixture.cjs")(true), h = harness(t, { read: largeReader(large), dependencies: { initialStructured: true } });
+  await h.model.select(catalogId); const first = h.model.state().page;
+  assert.equal(first.history.structure.turns[1].nativeTurnId, "原生回合 🐾"); assert.equal(first.history.structure.turns[1].branchState, "rolled_back");
+  await h.model.jump(first.history.structure.annotations[3].tool.relatedRecordIndex);
+  const last = h.model.state().page; assert.equal(last.history.records.offset, 9000);
+  assert.equal(last.history.structure.annotations[0].tool.relatedRecordIndex, 3); assert.equal(last.sourceVersion, first.sourceVersion);
+  await h.model.jump(3); assert.equal(h.model.state().page.history.structure.annotations[0].tool.relatedRecordIndex, 9000);
+  const scope = { bindingId: last.bindingId, generation: last.generation, requestId: last.requestId, profile: wire.STRUCTURED_PAGE_PROFILE };
+  for (const change of [v => { v.history.kind = "codex_validated_source_records"; }, v => { v.history.structure.profile = wire.STRUCTURE_PROFILE; },
+    v => { v.history.structure.annotations.pop(); }, v => { v.history.structure.turns.pop(); }, v => { v.history.structure.annotations[0].tool.relatedRecordIndex = 9004; },
+    v => { v.history.structure.annotations[0].tool.nativeCallId = "\ud800"; }, v => { v.history.structure.annotations[0].tool.phase = "single"; },
+    v => { v.history.structure.annotations[0].warnings.push("ambiguous_tool_reference"); }, v => { v.history.structure.annotations[0].tool = null; },
+    v => { v.history.structure.retainedTurns = 2; }, v => { v.history.records.nextOffset = 9004; }, v => { v.history.authority.approvalAcknowledged = true; }]) {
+    const v = structuredClone(last); change(v); assert.equal(wire.validBoundRecords(v, id, last.history.page, scope), false);
+  }
+  assert.equal(wire.validBoundRecords(last, id, last.history.page, { ...scope, profile: wire.PAGE_PROFILE }), false);
+  assert.equal(wire.validBoundRecords(last, id, last.history.page, { ...scope, structured: true }), false);
+  assert.equal(wire.validStructure(last.history.structure, last.history.records), false, "legacy caller never accepts selected-global profile implicitly");
+  await h.model.setStructured(false); assert.equal(h.calls.at(-1).profile, wire.PAGE_PROFILE); assert.equal(h.model.state().page.history.structure, undefined);
+  await h.model.setStructured(true); assert.equal(h.calls.at(-1).profile, wire.STRUCTURED_PAGE_PROFILE); assert.equal(h.model.state().error, null);
 });
 test("cancel between profile selection and read prevents the second request and keeps the UI interruptible", async t => {
   let model; const h = harness(t, { read: () => ({ kind: "source_unavailable", code: "source_too_large" }),
@@ -149,7 +242,7 @@ test("large readable UI retains complete text, bounded cards, direct jump and lo
   const input = all(root).find(v => v.dataset.action === "recordNumber"), form = all(root).find(v => v.tagName === "FORM");
   assert.equal(input.max, "9005"); input.value = "9001"; form.listeners.submit[0]({ preventDefault() {} }); await tick();
   assert.equal(h.model.state().page.history.records.offset, 9000); assert.equal(all(root).filter(v => v.tagName === "ARTICLE").length, 5);
-  assert.equal(h.calls.at(-1).profile, wire.PAGE_PROFILE); assert.equal(input.disabled, false);
+  assert.equal(h.calls.at(-1).profile, wire.STRUCTURED_PAGE_PROFILE); assert.equal(input.disabled, false);
   await h.model.setStructured(false); assert(all(root).filter(v => v.className === "history-message-text").every(v => v.textContent.length <= 4000));
   await h.model.close(); assert.equal(form.hidden, true); assert.equal(all(root).filter(v => v.tagName === "ARTICLE").length, 0);
 });

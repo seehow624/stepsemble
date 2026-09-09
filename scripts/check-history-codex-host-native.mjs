@@ -150,14 +150,24 @@ export async function checkCodexHostNative({ helperPath, onProgress = () => {} }
       } } });
     try {
       await model.select(p.entries[0].catalogId); let state = model.state(); assert.equal(state.error, null, state.error);
-      assert.deepEqual(requests.slice(0, 2).map(r => r.profile), [undefined, "codex_validated_page_v1"]);
+      assert.deepEqual(requests.slice(0, 2).map(r => r.profile), [undefined, "codex_structured_page_v1"]);
       const firstLarge = state.page; assert.equal(firstLarge.history.records.recordCount, 16384);
-      assert(firstLarge.history.records.byteLength > 16 * 1024 * 1024); assert.equal(firstLarge.history.structure, undefined);
+      assert(firstLarge.history.records.byteLength > 16 * 1024 * 1024);
+      assert.equal(firstLarge.history.structure.profile, "codex_legacy_selected_structure_v1");
+      assert.equal(firstLarge.history.structure.totalTurns, 2); assert.equal(firstLarge.history.structure.retainedTurns, 1);
+      assert.equal(firstLarge.history.structure.annotations[3].tool.relatedRecordIndex, 10000);
+      const turn = firstLarge.history.structure.turns.find(t => t.turnKey === "record-2");
+      assert.equal(turn.nativeTurnId, "owned-large-native-turn 🐾"); assert.equal(turn.recordedStatus, "completed");
+      assert.equal(turn.branchState, "rolled_back"); assert.equal(turn.rollbackRecordIndex, 16382);
       assert(firstLarge.history.records.records[1].rawText.includes("END-OF-OWNED-LARGE-TEXT"));
       assert.equal(firstLarge.history.nativeTitle, "最新 WAL 名稱 🐾");
       await model.next(); await model.previous(); assert.equal(model.state().page.history.records.offset, 0);
       await model.jump(10000); state = model.state(); assert.equal(state.page.history.records.offset, 10000);
       assert.equal(state.page.sourceVersion, firstLarge.sourceVersion); assert(state.page.history.records.records[0].rawText.includes("owned-large-10000"));
+      assert.equal(state.page.history.structure.annotations[0].tool.relatedRecordIndex, 3);
+      assert.equal(state.page.history.structure.annotations[0].tool.nativeCallId, "owned-large-native-call 🐾");
+      assert.equal(state.page.history.structure.turns[0].nativeTurnId, turn.nativeTurnId);
+      await model.jump(3); assert.equal(model.state().page.history.structure.annotations[0].tool.relatedRecordIndex, 10000);
       await model.jump(16380); state = model.state(); assert.equal(state.canNext, false); assert.equal(state.page.history.records.records.length, 4);
       assert(state.page.history.records.records.at(-1).rawText.includes("END-OF-OWNED-LARGE-HISTORY"));
       await host.mutate("large_append"); await model.jump(0); assert.equal(model.state().error, "source_version_changed");
@@ -171,7 +181,9 @@ export async function checkCodexHostNative({ helperPath, onProgress = () => {} }
       healthTimes.sort((a, b) => a - b);
       largeResult = { bytes: firstLarge.history.records.byteLength, records: 16384, maximumPageRecords: 10,
         nextPreviousAndDirectJump: true, originalNameAndRename: true, appendVersionFence: true, offPageCorruptionRefusedAndRepaired: true,
-        sameTypedWebModel: true, maxRequestMs: Math.max(...timings), readRequests: requests.length, sourceLinkedStructureComplete: false,
+        sameTypedWebModel: true, maxRequestMs: Math.max(...timings), readRequests: requests.length,
+        globalSelectedStructure: true, nativeIdsPreserved: true, crossPageToolLinks: true, rollbackOutsidePagePreserved: true,
+        nativeProjectionComplete: false,
         healthDuringReads: { samples: healthTimes.length, p95Ms: healthTimes[Math.ceil(healthTimes.length * .95) - 1], maxMs: Math.max(...healthTimes) },
         hostRss: { samples: hostRssSamples.length, maxObservedBytes: hostRssSamples.length ? Math.max(...hostRssSamples) : null,
           scope: "200ms_samples_not_peak_RSS_or_capacity" } };

@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.75
+> 計畫版本：1.76
 > 最後更新：2026-09-09
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -10,10 +10,16 @@
 
 ## 文件用途與回復方法
 
-**最新接續1.75（大型全來源結構與v12來源能力）**：有界turn/tool/rollback核心與
+**最新接續1.76（大型全來源結構接 Web）**：明確 parser9/10 與 profile 接同五階段
+named pipeline、registry／HTTP／peer／typed Web；真17.2MB/16384筆、原生ID、
+跨頁雙向工具／頁外rollback及320/390px已驗。完整／最低Node1085/0fail、取消後清理
+競態及工具按鈕回歸通；本提交exact CI另逐項核對，不沿用前段結果。
+見[本段證據](codex-structured-source.md)。C2/C6及C1–C8不冒稱完成，正式版本與B+不變。
+
+**前段接續1.75（大型全來源結構與v12來源能力）**：有界turn/tool/rollback核心與
 同held-FD／actual-close來源接線，本機Rust、最低Node差分與真17MB owned來源已驗；
-修正matching source race分類、最大rollback取消粒度。**尚未接新parser／named
-pipeline／Web，不是C2完成**；見[結構來源](codex-structured-source.md)。今晚依
+修正matching source race分類、最大rollback取消粒度。a4e503e五組exact CI全通，
+完整logs已核；當時的parser／named／Web缺口由1.76接續，不是C2完成。今晚依
 [發布審查](release-review-2026-09-09.md)核72h終態後總結，不將凍結結果套新SHA。
 
 **持續執行（2026-09-08）**：Jerome 已要求開啟 loop，產品 goal 已啟用。

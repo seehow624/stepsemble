@@ -10,6 +10,7 @@ import { createCodexHistoryPipeline } from "../protocol/native/codex/history-pip
 import parserFixture from "../protocol/native/codex/parser-fixture.cjs";
 import { checkCodexNamedPipeline } from "./check-native-codex-named-pipeline.mjs";
 import { checkCodexPagePipeline } from "./check-native-codex-page-pipeline.mjs";
+import { checkCodexStructuredPagePipeline } from "./check-native-codex-structured-page-pipeline.mjs";
 import { checkCodexCatalogPipeline } from "./check-native-codex-catalog-pipeline.mjs";
 
 export async function startOwnedSqliteWriter(helperPath) {
@@ -93,10 +94,15 @@ export async function checkCodexSqlitePipeline({ helperPath, admission, createHe
         assert.equal((await named.readNamed(parserFixture.namedRequest())).code, "source_platform_unsupported");
         assert.equal((await named.readNamedPage(parserFixture.namedRequest())).code, "source_platform_unsupported");
         assert.equal((await named.readPage(parserFixture.request())).code, "source_platform_unsupported");
+        assert.equal((await named.readNamedStructuredPage(parserFixture.namedRequest())).code, "source_platform_unsupported");
+        assert.equal((await named.readStructuredPage(parserFixture.request())).code, "source_platform_unsupported");
       }
       finally { assert.equal((await named.shutdown()).cleanupConfirmed, true); }
       assert.equal(counters().attempts, before);
-      return { gate: "node_source_platform_unsupported", catalogPipeline, namedPagePipeline: { gate: "node_source_platform_unsupported", readerSpawns: 0, cleanupConfirmed: true }, namedPipeline: { gate: "node_source_platform_unsupported", readerSpawns: 0, cleanupConfirmed: true }, readerSpawns: 0, writerSpawns: 0, cleanupConfirmed: true };
+      return { gate: "node_source_platform_unsupported", catalogPipeline,
+        structuredPagePipeline: { gate: "node_source_platform_unsupported", readerSpawns: 0, cleanupConfirmed: true },
+        namedPagePipeline: { gate: "node_source_platform_unsupported", readerSpawns: 0, cleanupConfirmed: true },
+        namedPipeline: { gate: "node_source_platform_unsupported", readerSpawns: 0, cleanupConfirmed: true }, readerSpawns: 0, writerSpawns: 0, cleanupConfirmed: true };
     }
     writer = await startOwnedSqliteWriter(helperPath); ready = await writer.line(); assert.equal(ready.kind, "owned_writer_ready");
     const root = await fs.realpath(ready.sqliteRoot), stat = await fs.stat(root, { bigint: true });
@@ -106,6 +112,8 @@ export async function checkCodexSqlitePipeline({ helperPath, admission, createHe
     const namedPipeline = await checkCodexNamedPipeline({ helperPath, admission, createHelper, spawnChild, counters, writer, ready, request,
       sqlSnapshot: () => snapshot(root), claudeRead, codexRead });
     const namedPagePipeline = await checkCodexPagePipeline({ helperPath, admission, createHelper, spawnChild, counters, writer, ready, request,
+      sqlSnapshot: () => snapshot(root), claudeRead, codexRead });
+    const structuredPagePipeline = await checkCodexStructuredPagePipeline({ helperPath, admission, createHelper, spawnChild, counters, writer, ready, request,
       sqlSnapshot: () => snapshot(root), claudeRead, codexRead });
     const before = await snapshot(root), attemptsBefore = counters().attempts;
     const first = pipeline.read(request), peer = claudeRead();
@@ -160,7 +168,7 @@ export async function checkCodexSqlitePipeline({ helperPath, admission, createHe
     assert.equal(counters().physical, 0); assert.equal(admission.status().cleanupConfirmed, true); assert.equal(admission.status().quarantined, false);
     assert.deepEqual(await snapshot(root), endBytes, "failed/cancelled captures never repair owned sources");
     assert(captures.length >= 7 && captures.every(c => c.mappings > 0), "active writer requires actual SHM mapping, not orphan WAL recovery");
-    gate = { gate: "posix_owned_sqlite_pipeline_passed", namedPipeline, namedPagePipeline, catalogPipeline, platform: process.platform, nodeVersion: process.version, writerSpawns: 1,
+    gate = { gate: "posix_owned_sqlite_pipeline_passed", namedPipeline, namedPagePipeline, structuredPagePipeline, catalogPipeline, platform: process.platform, nodeVersion: process.version, writerSpawns: 1,
       crossHarnessSharedAdmission: true, actualClaudeSdkPeer: true, actualCodexParserPeer: true, maximumPhysicalReaders: counters().maximum,
       remainingReaders: counters().physical, readerSpawns: counters().attempts - attemptsBefore, exactSourceBytesPreserved: true,
       unrelatedWriteVersionStable: true, selectedRenameVersionChanged: true, actualCaptureCancellation: true,

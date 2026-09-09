@@ -108,6 +108,46 @@ test("large-page profile crosses Host registry and typed HTTP, with old-client a
   assert.equal((await client.readCodex(scope, request(), { page: { offset: 9000, limit: 2 }, profile, signal: undefined })).kind, "source_unavailable");
   assert.equal(h.control.bindings.stages.length, stages); assert.equal(h.host.status().admission.activeWorkers, 0);
 });
+test("global structured pages traverse real Host HTTP and typed transport with original IDs, EOF and explicit version fences", async t => {
+  const large = require("./support/codex-large-fixture.cjs")(true), h = await setup(t, { binding: { capture: large.capture } });
+  const viewId = randomUUID(), client = h.client(viewId), catalog = await client.sourceCatalog(refresh()), profile = "codex_structured_page_v1";
+  const r = await client.register({ catalogId: catalog.entries[0].catalogId, viewId });
+  const scope = { hostId: "owned", bindingId: r.bindingId, generation: r.generation, sessionId: r.sessionId };
+  const request = () => ({ bindingId: r.bindingId, generation: r.generation, requestId: randomUUID() });
+  const read = (offset, version, selectedProfile = profile) => client.readCodex(scope, request(), { page: { offset, limit: 10 }, signal: undefined,
+    profile: selectedProfile, ...(version ? { version } : {}) });
+  const first = await read(0); assert.equal(first.kind, "bound_codex_records", first.code);
+  assert.equal(first.history.kind, "codex_structured_page_source_records"); assert.equal(first.history.structure.totalTurns, 2);
+  assert.equal(first.history.structure.annotations[3].tool.relatedRecordIndex, 9000);
+  assert.equal(first.history.structure.turns[1].nativeTurnId, "原生回合 🐾"); assert.equal(first.history.structure.turns[1].branchState, "rolled_back");
+  const last = await read(9000, first.sourceVersion); assert.equal(last.kind, "bound_codex_records", last.code);
+  assert.equal(last.sourceVersion, first.sourceVersion); assert.equal(last.history.records.endOfFile, true);
+  assert.equal(last.history.structure.annotations[0].tool.relatedRecordIndex, 3); assert.equal(last.history.structure.annotations[0].tool.nativeCallId, "原生工具 🐾");
+  assert.equal(last.history.structure.turns[0].nativeTurnId, "原生回合 🐾");
+  const eof = await read(9005, first.sourceVersion); assert.equal(eof.history.records.nextOffset, null); assert.deepEqual(eof.history.structure.turns, []);
+  assert.deepEqual(eof.history.structure.annotations, []); assert.equal(eof.history.structure.totalTurns, 2);
+  const before = h.control.bindings.stages.length;
+  assert.equal((await read(9000, first.sourceVersion, "codex_validated_page_v1")).code, "source_version_unavailable");
+  assert.equal(h.control.bindings.stages.length, before);
+  assert.equal((await h.request("/api/history/page", { ...request(), page: { offset: 0, limit: 2 }, profile, structured: true }, viewId)).status, 400);
+  const raw = await read(9000, undefined, "codex_validated_page_v1"); assert.equal(raw.history.structure, undefined);
+  assert.deepEqual(raw.history.records, last.history.records); assert.notEqual(raw.sourceVersion, first.sourceVersion);
+  assert.equal((await read(9000, raw.sourceVersion)).code, "source_version_unavailable");
+  await client.release({ bindingId: r.bindingId, generation: r.generation }); assert.equal(h.host.status().admission.activeWorkers, 0);
+  assert.equal(h.control.bindings.physical(), 0);
+});
+test("global structured page survives a dedicated peer relay and stops on peer revocation", async t => {
+  const large = require("./support/codex-large-fixture.cjs")(true), upstream = await setup(t, { binding: { capture: large.capture } }), gateway = await setup(t), viewId = randomUUID();
+  gateway.control.peer = { url: upstream.url, credential: peer, grantId: grant };
+  const prefix = "/r/owned/api/history", page = (await gateway.request(prefix + "/source-catalog", refresh(), viewId)).value;
+  const r = (await gateway.request(prefix + "/registrations", { catalogId: page.entries[0].catalogId, viewId }, viewId)).value;
+  const body = { bindingId: r.bindingId, generation: r.generation, requestId: randomUUID(), profile: "codex_structured_page_v1", page: { offset: 9000, limit: 2 } };
+  const result = await gateway.request(prefix + "/page", body, viewId); assert.equal(result.status, 200, result.value.code);
+  assert.equal(result.value.history.structure.turns[0].nativeTurnId, "原生回合 🐾"); assert.equal(result.value.history.structure.annotations[0].tool.relatedRecordIndex, 3);
+  assert.equal(result.value.history.authority.resumeAllowed, false);
+  gateway.control.peer = null; gateway.host.peerChanged("owned");
+  assert.equal((await gateway.request(prefix + "/page", body, viewId)).value.kind, "source_unavailable");
+});
 test("large-page request and selected native identity survive the dedicated peer relay", async t => {
   const large = require("./support/codex-large-fixture.cjs")(), upstream = await setup(t, { binding: { capture: large.capture } }), gateway = await setup(t), viewId = randomUUID();
   gateway.control.peer = { url: upstream.url, credential: peer, grantId: grant };
@@ -139,6 +179,33 @@ test("changing display mode over real HTTP waits for the previous read receipt, 
   }
   await selected; await switched; assert.equal(model.state().stage, "loaded"); assert.equal(model.state().page.history.structure, undefined);
   assert.equal(h.control.bindings.physical(), 0);
+});
+test("cancelled HTTP fetch exposes delayed physical cleanup without spawning a concurrent reader and manual refresh recovers", async t => {
+  const h = await setup(t, { binding: { holdReader: true } }), viewId = randomUUID(), client = h.client(viewId);
+  const catalog = await client.sourceCatalog(refresh());
+  const model = require("../public/modules/codex-history-view").createModel({ hostId: "owned", viewId, catalogId: catalog.entries[0].catalogId,
+    initialStructured: false, transport: client, canonicalJSON, requestId: randomUUID });
+  t.after(() => model.close());
+  const waitFor = async condition => { for (let n = 0; n < 100 && !condition(); n++) await new Promise(resolve => setTimeout(resolve, 5)); assert(condition()); };
+  const finishRead = async () => {
+    // holdReader pauses only the four helper captures; the parser child keeps
+    // the harness's auto-close behavior and must not be stepped a fifth time.
+    for (let n = 0; n < 4; n++) { await waitFor(() => !!h.control.bindings.activeHelper()); await h.control.bindings.step(); }
+  };
+  const selected = model.select(catalog.entries[0].catalogId); await finishRead(); await selected;
+  assert.equal(model.state().stage, "loaded"); assert.equal(h.control.bindings.physical(), 0);
+  const stages = h.control.bindings.stages.length, pending = model.next();
+  await waitFor(() => h.control.bindings.stages.length === stages + 1 && h.control.bindings.physical() === 1);
+  const restarted = model.refresh(); await Promise.allSettled([pending, restarted]);
+  assert.equal(h.control.bindings.stages.length, stages + 1, "busy fence precedes a second physical spawn");
+  assert.equal(h.control.bindings.physical(), 1); assert.equal(model.state().stage, "cancelled");
+  assert.equal(model.state().error, null); assert.equal(model.state().cleanupPending, true); assert.equal(model.state().canNext, false);
+  await model.next(); await model.previous(); await model.jump(1);
+  assert.equal(h.control.bindings.stages.length, stages + 1, "cleanup-pending navigation is fenced in the model");
+  await h.control.bindings.step(); await waitFor(() => h.control.bindings.physical() === 0);
+  const recovered = model.refresh(); await finishRead(); await recovered;
+  assert.equal(model.state().stage, "loaded"); assert.equal(model.state().cleanupPending, false);
+  assert.equal(model.state().error, null); assert.equal(h.control.bindings.physical(), 0);
 });
 test("real Host + index + binding + parser + typed HTTP transport exposes Codex without leaking private source selectors", async t => {
   const h = await setup(t), viewId = randomUUID(), client = h.client(viewId);

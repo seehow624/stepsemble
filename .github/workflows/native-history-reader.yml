@@ -17,11 +17,14 @@ on:
       - 'scripts/check-native-codex-page-pipeline.mjs'
       - 'scripts/check-codex-structure-scan.mjs'
       - 'scripts/check-native-codex-structured-source.mjs'
+      - 'scripts/check-native-codex-structured-page-pipeline.mjs'
       - 'protocol/native/codex/**'
       - 'client/codex-history*.ts'
       - 'public/modules/codex-history*.js'
       - 'test/codex-history*.test.js'
       - 'test/support/codex-binding-harness.cjs'
+      - 'test/support/codex-global-capture.cjs'
+      - 'test/support/codex-large-fixture.cjs'
       - 'scripts/history-codex-host-synthetic.mjs'
       - 'scripts/check-history-codex-host-native.mjs'
       - 'scripts/check-native-codex-catalog-pipeline.mjs'
@@ -66,11 +69,14 @@ on:
       - 'scripts/check-native-codex-page-pipeline.mjs'
       - 'scripts/check-codex-structure-scan.mjs'
       - 'scripts/check-native-codex-structured-source.mjs'
+      - 'scripts/check-native-codex-structured-page-pipeline.mjs'
       - 'protocol/native/codex/**'
       - 'client/codex-history*.ts'
       - 'public/modules/codex-history*.js'
       - 'test/codex-history*.test.js'
       - 'test/support/codex-binding-harness.cjs'
+      - 'test/support/codex-global-capture.cjs'
+      - 'test/support/codex-large-fixture.cjs'
       - 'scripts/history-codex-host-synthetic.mjs'
       - 'scripts/check-history-codex-host-native.mjs'
       - 'scripts/check-native-codex-catalog-pipeline.mjs'
@@ -190,7 +196,7 @@ jobs:
         shell: bash
         run: node scripts/check-native-codex-scanned-source.mjs "${{ runner.temp }}/stepsemble-native-history-reader/release/stepsemble-history-source-reader${{ runner.os == 'Windows' && '.exe' || '' }}"
       - name: Strict selected-page wire and helper cancellation regressions
-        run: node --test --test-timeout=60000 test/native-codex-scanned-source.test.js test/native-codex-structured-source.test.js test/native-codex-page-parser.test.js
+        run: node --test --test-timeout=60000 test/native-codex-scanned-source.test.js test/native-codex-structured-source.test.js test/native-codex-page-parser.test.js test/native-codex-structured-page-parser.test.js
       - name: Actual global selected structure and close (owned sources only)
         shell: bash
         run: node scripts/check-native-codex-structured-source.mjs "${{ runner.temp }}/stepsemble-native-history-reader/release/stepsemble-history-source-reader${{ runner.os == 'Windows' && '.exe' || '' }}"
