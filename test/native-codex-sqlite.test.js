@@ -3,9 +3,11 @@ const baseTest = require("node:test"), assert = require("node:assert/strict"), p
 const { EventEmitter } = require("node:events"), { PassThrough } = require("node:stream");
 const { createNativeHelper } = require("../protocol/native/claude/history-native-helper");
 const allWire = require("../protocol/native/codex/sqlite-wire"), allFixture = require("../protocol/native/codex/sqlite-fixture.cjs");
-for (const withContext of [false, true]) {
-  const wire = withContext ? allWire.context : allWire, fixture = withContext ? allFixture.context : allFixture;
-  const method = withContext ? "readCodexNameContext" : "readCodexMetadata", version = withContext ? 5 : 4;
+for (const version of [4, 5, 7]) {
+  const withContext = version !== 4;
+  const wire = version === 5 ? allWire.legacyContext : withContext ? allWire.context : allWire;
+  const fixture = version === 5 ? allFixture.legacyContext : withContext ? allFixture.context : allFixture;
+  const method = version === 5 ? "readCodexNameContextLegacy" : withContext ? "readCodexNameContext" : "readCodexMetadata";
   const test = (name, fn) => baseTest(`v${version}: ${name}`, fn);
   const tick = () => new Promise(resolve => setImmediate(resolve));
   function harness(t, extra = {}) {
@@ -113,5 +115,35 @@ for (const withContext of [false, true]) {
     const h = harness(t), controller = new AbortController(); controller.abort();
     assert.equal((await h.helper[method](fixture.request(), { signal: controller.signal })).code, "source_aborted"); assert.equal(h.children.length, 0);
   });
+
+  if (version === 7) {
+    test("cold proof remains private, exact and actual-close gated; legacy decoder refuses it", async t => {
+      const h = harness(t), pending = h.helper[method](fixture.request()), c = h.children[0];
+      const cold = allFixture.coldBody(fixture.body()), packet = fixture.packet(cold);
+      c.stdout.write(fixture.frame(c.job, packet)); c.emit("exit", 0);
+      let done = false; pending.then(() => { done = true; }); await tick(); assert.equal(done, false);
+      c.close(); assert.deepEqual((await pending).metadata, cold);
+      assert.equal(allWire.legacyContext.decode(packet.header, packet.payload, fixture.request()), null);
+      const legacy = harness(t), old = legacy.helper.readCodexNameContextLegacy(fixture.request());
+      legacy.children[0].reply(packet, v => ({ ...v, protocolVersion: 5 }));
+      assert.equal((await old).code, "source_worker_protocol");
+      for (const change of [v => { v.sourceLayout = "wal"; }, v => { delete v.sourceLayout; }, v => { v.sqliteDescriptorsClosed = 3; },
+        v => { v.sourceDescriptorsClosed = 4; }, v => { v.sourceMainSharedLock = false; }, v => { v.absentSidecarsVerified = false; },
+        v => { v.snapshotStorage = "temp_file"; }, v => { v.snapshotBytes = 64 * 1024 * 1024 + 512; }, v => { v.snapshotBytes = 511; },
+        v => { v.snapshotBytes++; }, v => { v.sourceReadCalls = 2; }, v => { v.identities.push(fixture.body().identities[1]); },
+        v => { v.identities[0].role = "wal"; }, v => { v.observation.connectionClosed = false; }, v => { v.filesystemChecksPassed = false; },
+        v => { v.sourceAuthenticated = true; }, v => { v.publishable = true; }]) {
+        const bad = structuredClone(cold); change(bad); assert.equal(fixture.capture(bad), null);
+      }
+      const max = structuredClone(cold); max.snapshotBytes = 64 * 1024 * 1024; max.sourceReadCalls = 1024;
+      assert.notEqual(fixture.capture(max), null);
+      const coldVersion = wire.sourceVersion(fixture.capture(cold), fixture.request());
+      assert(wire.sameSourceVersion(coldVersion, coldVersion));
+      assert(!allWire.legacyContext.sameSourceVersion(coldVersion, coldVersion));
+      assert(!wire.sameSourceVersion(coldVersion, wire.sourceVersion(fixture.capture(), fixture.request())), "same title/main identity cannot cross layouts");
+      max.observation.fields.title += "changed";
+      assert(!wire.sameSourceVersion(coldVersion, wire.sourceVersion(fixture.capture(max), fixture.request())));
+    });
+  }
 
 }

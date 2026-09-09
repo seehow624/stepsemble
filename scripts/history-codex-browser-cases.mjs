@@ -77,9 +77,21 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
         for (const n of [11, 21, 31]) { await next.click(); await page.waitForFunction(i => document.querySelector(".codex-record h4")?.textContent.startsWith(`${i} ·`), n); }
         assert.equal(await page.locator(".codex-record").count(), 9); assert.equal(await next.isEnabled(), false);
         assert((await content.textContent()).includes("future_owned_record")); assert((await content.textContent()).includes("function_call_output"));
-        stage = "WAL rename rejects stale continuation";
+        stage = "closed writer retains history and invalidates hot pages";
         await content.getByRole("button", { name: "重新整理", exact: true }).click();
         await page.waitForFunction(() => document.querySelector(".codex-record h4")?.textContent.startsWith("1 ·"));
+        await host.mutate("cold"); await next.click(); await content.locator(".history-warning").waitFor();
+        assert.equal(await next.isEnabled(), false);
+        await refreshSource.click(); await page.locator(".source-open").first().click();
+        await page.waitForFunction(() => document.querySelector(".codex-record-title")?.textContent === "最新 WAL 名稱 🐾");
+        await next.click(); await page.waitForFunction(() => document.querySelector(".codex-record h4")?.textContent.startsWith("11 ·"));
+        assert.equal(await page.locator(".codex-record").count(), 10);
+        stage = "reopened writer invalidates cold pages without renaming";
+        await host.mutate("reopen"); await next.click(); await content.locator(".history-warning").waitFor();
+        assert.equal(await next.isEnabled(), false); assert((await page.locator(".codex-record h4").first().textContent()).startsWith("11 ·"));
+        await refreshSource.click(); await page.locator(".source-open").first().click();
+        await page.waitForFunction(() => document.querySelector(".codex-record h4")?.textContent.startsWith("1 ·"));
+        stage = "WAL rename rejects stale continuation";
         await host.mutate("rename"); await next.click(); await content.locator(".history-warning").waitFor();
         assert.equal(await next.isEnabled(), false); assert((await page.locator(".codex-record h4").first().textContent()).startsWith("1 ·"));
         await refreshSource.click(); await page.locator(".source-open").first().click();
@@ -97,7 +109,8 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
         await page.waitForFunction(() => document.querySelectorAll(".source-open").length === 0);
         await page.getByText("這次清單沒有符合範圍的對話。", { exact: true }).waitFor();
         assert.deepEqual(errors, []); assert.deepEqual(foreign, []); assert.deepEqual(forbidden, []);
-        console.log(JSON.stringify({ gate: "codex_history_browser", width: viewport.width, colorScheme, passed: true, physicalDevice: false }));
+        console.log(JSON.stringify({ gate: "codex_history_browser", width: viewport.width, colorScheme, passed: true,
+          coldHistoryAndBothLayoutTransitions: true, physicalDevice: false }));
       } catch (error) { throw new Error(`Codex history ${viewport.width}/${colorScheme} at ${stage}: ${error.message}`, { cause: error }); }
       finally { await context?.close(); assert.equal((await host.close()).cleanupConfirmed, true); }
     }

@@ -11,8 +11,9 @@
 
 2026-09-09 Plan1.69 開發增量已接Codex雙root owner設定、catalog／共享registry／
 HTTP・peer／typedWeb原始紀錄，全鏈CI已驗；不是完整原生語義歷史／approval。
-Plan1.70正在補cold SQLite：底層有鎖RAM副本本機已驗，新版本frame／Node／HostWeb
-接線仍待。詳[Web接線](codex-web-integration.md)與[冷DB接續](codex-cold-sqlite.md)。
+Plan1.70冷SQLite已接有鎖RAM副本、v7/v8／Node共用admission与version／HostWeb；
+真ownedHost39筆及CUA390px冷熱切換本機已驗，新工程CI待驗。詳
+[Web接線](codex-web-integration.md)與[冷DB接續](codex-cold-sqlite.md)。
 兩批均未正式部署；以下保留凍結基線，不重寫成開發版或完整產品現況。
 
 這份盤點凍結「目前真的存在什麼」，不是未來設計。長期方向與階段門檻見 [`platform-plan.md`](platform-plan.md)；已上線架構摘要見 [`architecture.md`](architecture.md)。

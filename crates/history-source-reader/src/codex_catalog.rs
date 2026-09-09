@@ -27,7 +27,7 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Error> {
         return Err(Error::Input);
     }
     let r: Request = serde_json::from_slice(bytes).map_err(|_| Error::Input)?;
-    if r.protocol_version != 6
+    if ![6, 8].contains(&r.protocol_version)
         || r.native_version != NATIVE_VERSION
         || r.nonce.len() != 64
         || !r
@@ -59,8 +59,21 @@ pub fn capture(r: &Request) -> Result<Vec<u8>, Error> {
             expected_inode: r.expected_root.inode.parse().map_err(|_| Error::Input)?,
             native_version: r.native_version.clone(),
         };
-        // SAFETY: main executes one request in this fresh dedicated process,
-        // with no prior SQLite connection or VFS and no fallback on any error.
+        if r.protocol_version == 8 {
+            // SAFETY: main executes one request in a fresh dedicated process,
+            // with no prior SQLite connection or VFS and no fallback on error.
+            let result = unsafe {
+                sqlite_source::capture_stored_catalog(selection, Arc::new(AtomicBool::new(false)))
+            }?;
+            let bytes = serde_json::to_vec(&result).map_err(|_| Error::Io)?;
+            return if bytes.len() <= PAYLOAD_LIMIT {
+                Ok(bytes)
+            } else {
+                Err(Error::TooLarge)
+            };
+        }
+        // SAFETY: the same fresh one-request process; legacy calls never retry
+        // with another connection, VFS replacement or source fallback.
         let result =
             unsafe { sqlite_source::prepare_catalog(selection, Arc::new(AtomicBool::new(false))) }?
                 .read_catalog()?
@@ -100,7 +113,7 @@ pub fn write_frame(
         ),
     };
     let header = serde_json::to_vec(
-        &serde_json::json!({"protocolVersion":6,"nonce":r.nonce,"result":result}),
+        &serde_json::json!({"protocolVersion":r.protocol_version,"nonce":r.nonce,"result":result}),
     )
     .map_err(|_| Error::Io)?;
     if header.len() > 16 * 1024 {

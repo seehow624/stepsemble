@@ -142,6 +142,38 @@ pub(super) fn run() {
     }
     assert!(f.snapshot() == before);
     cases.push("actual_v6_catalog_frame_and_platform_boundary".into());
+    for version in [7, 8] {
+        let mut input = request(&f);
+        input["protocolVersion"] = json!(version);
+        if version == 8 {
+            input["source"].as_object_mut().unwrap().remove("threadId");
+        }
+        let reply = frame(&f, input.clone());
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            assert_eq!(reply["body"]["sourceDescriptorsClosed"], 4);
+            assert_eq!(reply["body"]["sqliteDescriptorsClosed"], 3);
+            assert!(reply["body"].get("sourceLayout").is_none());
+            assert!(reply["body"]["shmMappingsClosed"].as_u64().unwrap() > 0);
+            input["expectedRoot"]["inode"] = json!("18446744073709551615");
+            let rejected = frame(&f, input);
+            assert_eq!(rejected["body"], Value::Null);
+            assert_eq!(
+                rejected["header"]["result"]["code"],
+                "source_root_identity_changed"
+            );
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        {
+            assert_eq!(reply["body"], Value::Null);
+            assert_eq!(
+                reply["header"]["result"]["code"],
+                "source_platform_unsupported"
+            );
+        }
+        assert!(f.snapshot() == before);
+        cases.push(format!("actual_v{version}_hot_frame_and_platform_boundary"));
+    }
     drop(f);
     cases.push("actual_v4_frame_nonce_digest_and_platform_boundary".into());
     #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -167,6 +199,60 @@ fn posix(cases: &mut Vec<String>) {
         f.close_writer(true);
         f
     };
+    {
+        let mut f = new();
+        f.close_writer(false);
+        let before = f.snapshot();
+        assert!(!f.sidecar("-wal").exists());
+        assert!(!f.sidecar("-shm").exists());
+        for version in [4, 5, 6, 7, 8] {
+            let mut input = request(&f);
+            input["protocolVersion"] = json!(version);
+            if [6, 8].contains(&version) {
+                input["source"].as_object_mut().unwrap().remove("threadId");
+            }
+            let reply = frame(&f, input);
+            if version < 7 {
+                assert_eq!(reply["body"], Value::Null);
+                assert_eq!(reply["header"]["result"]["code"], "source_missing");
+            } else {
+                let body = &reply["body"];
+                assert_eq!(body["sourceLayout"], "cold_snapshot");
+                assert_eq!(body["sourceDescriptorsClosed"], 2);
+                assert_eq!(body["identities"].as_array().unwrap().len(), 1);
+                assert_eq!(body["sourceMainSharedLock"], true);
+                assert_eq!(body["absentSidecarsVerified"], true);
+                assert_eq!(body["snapshotStorage"], "private_readonly_memory");
+                assert!(body.get("sqliteDescriptorsClosed").is_none());
+                if version == 7 {
+                    expect_title(body, "latest");
+                } else {
+                    assert_eq!(body["observation"]["entries"][0]["id"], ID);
+                }
+            }
+            assert!(f.snapshot() == before);
+            cases.push(format!(
+                "actual_v{version}_cold_layout_compatibility_no_source_changes"
+            ));
+        }
+        for suffix in ["-wal", "-shm", "-journal"] {
+            std::fs::File::create_new(f.sidecar(suffix)).unwrap();
+            let before = f.snapshot();
+            for version in [7, 8] {
+                let mut input = request(&f);
+                input["protocolVersion"] = json!(version);
+                if version == 8 {
+                    input["source"].as_object_mut().unwrap().remove("threadId");
+                }
+                let reply = frame(&f, input);
+                assert_eq!(reply["body"], Value::Null);
+                assert_eq!(reply["header"]["result"]["kind"], "source_unavailable");
+                assert!(f.snapshot() == before);
+            }
+            std::fs::remove_file(f.sidecar(suffix)).unwrap();
+        }
+        cases.push("actual_v7_v8_partial_or_journal_no_fallback_no_repair".into());
+    }
     let role = |f: &Fixture, i: usize| -> PathBuf {
         match i {
             0 => f.path.parent().unwrap().into(),

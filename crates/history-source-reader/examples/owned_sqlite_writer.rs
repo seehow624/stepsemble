@@ -59,6 +59,7 @@ fn main() {
         json!({"kind":"owned_writer_ready","sqliteRoot":root_text,"threadId":ID,"codexRoot":codex,"rolloutPath":locator}),
     );
     // Bound every line; a parent owns the total deadline and actual reaping.
+    let mut connection = Some(db);
     let mut input = std::io::stdin().lock();
     loop {
         let mut bytes = Vec::new();
@@ -70,95 +71,133 @@ fn main() {
         }
         assert!(read <= 64 && bytes.ends_with(b"\n"));
         match bytes.as_slice() {
-            b"rich_rollout\n" => {
-                let mut records = vec![
-                    json!({"type":"session_meta","payload":{"id":ID,"history_mode":"legacy"}}),
-                ];
-                for n in 0..35 {
-                    records.push(json!({"type":"response_item","payload":{"type":"message","role":if n % 2 == 0 {"user"} else {"assistant"},
+            b"cold\n" => {
+                connection
+                    .take()
+                    .expect("owned writer must be open")
+                    .close()
+                    .unwrap();
+                assert!(!root.join("state_5.sqlite-wal").try_exists().unwrap());
+                assert!(!root.join("state_5.sqlite-shm").try_exists().unwrap());
+            }
+            b"reopen\n" => {
+                assert!(connection.is_none());
+                let reopened = Connection::open(root.join("state_5.sqlite")).unwrap();
+                reopened
+                    .execute_batch("PRAGMA wal_autocheckpoint=0; UPDATE threads SET title=title;")
+                    .unwrap();
+                assert!(root.join("state_5.sqlite-wal").try_exists().unwrap());
+                assert!(root.join("state_5.sqlite-shm").try_exists().unwrap());
+                connection = Some(reopened);
+            }
+            b"partial_sidecar\n" => {
+                assert!(connection.is_none());
+                std::fs::File::create_new(root.join("state_5.sqlite-wal")).unwrap();
+            }
+            b"remove_partial_sidecar\n" => {
+                assert!(connection.is_none());
+                std::fs::remove_file(root.join("state_5.sqlite-wal")).unwrap();
+            }
+            _ => {
+                let db = connection
+                    .as_ref()
+                    .expect("owned database mutation requires open writer");
+                match bytes.as_slice() {
+                    b"rich_rollout\n" => {
+                        let mut records = vec![
+                            json!({"type":"session_meta","payload":{"id":ID,"history_mode":"legacy"}}),
+                        ];
+                        for n in 0..35 {
+                            records.push(json!({"type":"response_item","payload":{"type":"message","role":if n % 2 == 0 {"user"} else {"assistant"},
                         "content":[{"type":"output_text","text":format!("Owned message {n} 🐾 <script>never()</script> https://never.invalid/\n{}", "合成長文，不執行任何工具。".repeat(if n == 1 {1000} else {4}))}]}}));
+                        }
+                        records.push(json!({"type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"owned-call","arguments":"{\"cmd\":\"never execute this\"}"}}));
+                        records.push(json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"owned-call","output":"Owned inert output"}}));
+                        records.push(json!({"type":"future_owned_record","payload":{"unknown":"preserved, not discarded"}}));
+                        let text = records
+                            .iter()
+                            .map(serde_json::Value::to_string)
+                            .collect::<Vec<_>>()
+                            .join("\r\n")
+                            + "\r\n";
+                        std::fs::write(&rollout, text).unwrap();
+                    }
+                    b"catalog_full\n" => {
+                        db.execute_batch("BEGIN;").unwrap();
+                        for n in 1..2048 {
+                            let id = format!("{n:08x}-0000-4000-8000-000000000000");
+                            let selected = codex.join(format!(
+                                "sessions/2026/01/05/rollout-2026-01-05T12-00-00-{id}.jsonl"
+                            ));
+                            db.execute("INSERT INTO threads(id,rollout_path,created_at,updated_at,source,model_provider,cwd,title,sandbox_policy,approval_mode) VALUES(?1,?2,0,0,'cli','owned','owned','owned capacity row','owned','never')", params![id, selected.to_str().unwrap()]).unwrap();
+                        }
+                        db.execute_batch("COMMIT;").unwrap();
+                    }
+                    b"catalog_extra\n" => {
+                        db.execute("INSERT INTO threads(id,rollout_path,created_at,updated_at,source,model_provider,cwd,title,sandbox_policy,approval_mode) VALUES('00000800-0000-4000-8000-000000000000','owned',0,0,'cli','owned','owned','owned overflow row','owned','never')", []).unwrap();
+                    }
+                    b"catalog_reset\n" => {
+                        db.execute("DELETE FROM threads WHERE id<>?1", [ID])
+                            .unwrap();
+                    }
+                    b"other\n" => {
+                        db.execute("INSERT INTO projects(id) VALUES('unrelated')", [])
+                            .unwrap();
+                    }
+                    b"rename\n" => {
+                        db.execute("UPDATE threads SET title='renamed' WHERE id=?1", [ID])
+                            .unwrap();
+                    }
+                    b"preview\n" => {
+                        db.execute(
+                            "UPDATE threads SET preview='  preview 🐾  ' WHERE id=?1",
+                            [ID],
+                        )
+                        .unwrap();
+                    }
+                    b"path\n" => {
+                        db.execute(
+                            "UPDATE threads SET rollout_path='../never-open/auth.json' WHERE id=?1",
+                            [ID],
+                        )
+                        .unwrap();
+                    }
+                    b"paginated\n" => {
+                        db.execute("UPDATE threads SET history_mode='paginated',name='  paginated name  ' WHERE id=?1", [ID]).unwrap();
+                        std::fs::write(&rollout, rollout_bytes("paginated", false)).unwrap();
+                    }
+                    b"reset\n" => {
+                        db.execute("UPDATE threads SET title='  最新 WAL 名稱 🐾  ',first_user_message='first',preview='',history_mode='legacy',name=NULL,rollout_path=?1 WHERE id=?2", params![rollout.to_str().unwrap(), ID]).unwrap();
+                        std::fs::write(&rollout, rollout_bytes("legacy", false)).unwrap();
+                        std::fs::write(codex.join("session_index.jsonl"), index_bytes(false))
+                            .unwrap();
+                    }
+                    b"index\n" => {
+                        std::fs::write(codex.join("session_index.jsonl"), index_bytes(true))
+                            .unwrap();
+                    }
+                    b"rollout\n" => {
+                        std::fs::write(&rollout, rollout_bytes("legacy", true)).unwrap();
+                    }
+                    b"fallback\n" => {
+                        db.execute(
+                            "UPDATE threads SET title='first',preview='owned index 🐾' WHERE id=?1",
+                            [ID],
+                        )
+                        .unwrap();
+                    }
+                    b"missing\n" => {
+                        db.execute("DELETE FROM threads WHERE id=?1", [ID]).unwrap();
+                    }
+                    _ => panic!("unknown owned fixture command"),
                 }
-                records.push(json!({"type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"owned-call","arguments":"{\"cmd\":\"never execute this\"}"}}));
-                records.push(json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"owned-call","output":"Owned inert output"}}));
-                records.push(json!({"type":"future_owned_record","payload":{"unknown":"preserved, not discarded"}}));
-                let text = records
-                    .iter()
-                    .map(serde_json::Value::to_string)
-                    .collect::<Vec<_>>()
-                    .join("\r\n")
-                    + "\r\n";
-                std::fs::write(&rollout, text).unwrap();
             }
-            b"catalog_full\n" => {
-                db.execute_batch("BEGIN;").unwrap();
-                for n in 1..2048 {
-                    let id = format!("{n:08x}-0000-4000-8000-000000000000");
-                    let selected = codex.join(format!(
-                        "sessions/2026/01/05/rollout-2026-01-05T12-00-00-{id}.jsonl"
-                    ));
-                    db.execute("INSERT INTO threads(id,rollout_path,created_at,updated_at,source,model_provider,cwd,title,sandbox_policy,approval_mode) VALUES(?1,?2,0,0,'cli','owned','owned','owned capacity row','owned','never')", params![id, selected.to_str().unwrap()]).unwrap();
-                }
-                db.execute_batch("COMMIT;").unwrap();
-            }
-            b"catalog_extra\n" => {
-                db.execute("INSERT INTO threads(id,rollout_path,created_at,updated_at,source,model_provider,cwd,title,sandbox_policy,approval_mode) VALUES('00000800-0000-4000-8000-000000000000','owned',0,0,'cli','owned','owned','owned overflow row','owned','never')", []).unwrap();
-            }
-            b"catalog_reset\n" => {
-                db.execute("DELETE FROM threads WHERE id<>?1", [ID])
-                    .unwrap();
-            }
-            b"other\n" => {
-                db.execute("INSERT INTO projects(id) VALUES('unrelated')", [])
-                    .unwrap();
-            }
-            b"rename\n" => {
-                db.execute("UPDATE threads SET title='renamed' WHERE id=?1", [ID])
-                    .unwrap();
-            }
-            b"preview\n" => {
-                db.execute(
-                    "UPDATE threads SET preview='  preview 🐾  ' WHERE id=?1",
-                    [ID],
-                )
-                .unwrap();
-            }
-            b"path\n" => {
-                db.execute(
-                    "UPDATE threads SET rollout_path='../never-open/auth.json' WHERE id=?1",
-                    [ID],
-                )
-                .unwrap();
-            }
-            b"paginated\n" => {
-                db.execute("UPDATE threads SET history_mode='paginated',name='  paginated name  ' WHERE id=?1", [ID]).unwrap();
-                std::fs::write(&rollout, rollout_bytes("paginated", false)).unwrap();
-            }
-            b"reset\n" => {
-                db.execute("UPDATE threads SET title='  最新 WAL 名稱 🐾  ',first_user_message='first',preview='',history_mode='legacy',name=NULL,rollout_path=?1 WHERE id=?2", params![rollout.to_str().unwrap(), ID]).unwrap();
-                std::fs::write(&rollout, rollout_bytes("legacy", false)).unwrap();
-                std::fs::write(codex.join("session_index.jsonl"), index_bytes(false)).unwrap();
-            }
-            b"index\n" => {
-                std::fs::write(codex.join("session_index.jsonl"), index_bytes(true)).unwrap();
-            }
-            b"rollout\n" => {
-                std::fs::write(&rollout, rollout_bytes("legacy", true)).unwrap();
-            }
-            b"fallback\n" => {
-                db.execute(
-                    "UPDATE threads SET title='first',preview='owned index 🐾' WHERE id=?1",
-                    [ID],
-                )
-                .unwrap();
-            }
-            b"missing\n" => {
-                db.execute("DELETE FROM threads WHERE id=?1", [ID]).unwrap();
-            }
-            _ => panic!("unknown owned fixture command"),
         }
         send(json!({"kind":"owned_writer_updated"}));
     }
-    db.close().unwrap();
+    if let Some(db) = connection {
+        db.close().unwrap();
+    }
     dir.close().expect("owned fixture explicit cleanup");
     assert!(!base.try_exists().unwrap());
     send(json!({"kind":"owned_writer_closed","removedOwnedDirectories":1}));

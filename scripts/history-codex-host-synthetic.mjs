@@ -27,7 +27,7 @@ export async function startSyntheticCodexHistoryHost({ helperPath, port = 0 } = 
   const stagedHelper = path.join(temp, "history-reader");
   async function snapshot() {
     const rollout = await fs.readFile(path.join(ready.codexRoot, ready.rolloutPath)), index = await fs.readFile(path.join(ready.codexRoot, "session_index.jsonl"));
-    return { sql: await snapshotOwnedSqlite(ready.sqliteRoot), rollout: digest(rollout), index: digest(index) };
+    return { sql: await snapshotOwnedSqlite(ready.sqliteRoot, { allowStoredLayout: true }), rollout: digest(rollout), index: digest(index) };
   }
   async function stopChild(requireSuccess = true) {
     if (!child) return;
@@ -71,7 +71,7 @@ export async function startSyntheticCodexHistoryHost({ helperPath, port = 0 } = 
     }
     return Object.freeze({ origin, token, threadId: ready.threadId, setupResult, artifact, close,
       mutate(command) {
-        if (closing || !["rename", "path", "paginated", "reset", "rich_rollout", "catalog_full", "catalog_reset", "missing"].includes(command)) throw new Error("synthetic_codex_mutation_invalid");
+        if (closing || !["rename", "path", "paginated", "reset", "rich_rollout", "catalog_full", "catalog_reset", "missing", "cold", "reopen", "partial_sidecar", "remove_partial_sidecar"].includes(command)) throw new Error("synthetic_codex_mutation_invalid");
         const next = mutation.then(async () => { assert.deepEqual(await snapshot(), expected); await writer.command(command); expected = await snapshot(); });
         mutation = next; return next;
       } });

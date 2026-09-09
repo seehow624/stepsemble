@@ -21,7 +21,7 @@ function harness(t, options = {}) {
 test("catalog root-only request is detached and cannot be v4/v5 or grant file paths", async t => {
   const h = harness(t), request = f.request(), reading = h.helper.readCodexCatalog(request), c = h.children[0];
   request.source.sqliteRoot += "changed";
-  assert.deepEqual(c.job.source, f.request().source); assert.equal(c.job.protocolVersion, 6);
+  assert.deepEqual(c.job.source, f.request().source); assert.equal(c.job.protocolVersion, 8);
   c.stdout.write(f.frame(c.job)); c.emit("exit", 0); let done = false; reading.then(() => { done = true; });
   await new Promise(resolve => setImmediate(resolve)); assert.equal(done, false);
   c.close(); const result = await reading; assert.deepEqual(result.metadata, f.body()); assert.equal(result.cleanupConfirmed, true);
@@ -107,4 +107,20 @@ test("catalog pre-abort and unsupported platform never start reader or native CL
   assert.equal(win.children.length, 0);
   const h = harness(t), controller = new AbortController(); controller.abort();
   assert.equal((await h.helper.readCodexCatalog(f.request(), { signal: controller.signal })).code, "source_aborted"); assert.equal(h.children.length, 0);
+});
+test("v8 cold catalog and v6 legacy compatibility stay separate with exact layout versions", async t => {
+  const cold = selected.coldBody(f.body()), packet = f.packet(cold);
+  const h = harness(t), pending = h.helper.readCodexCatalog(f.request()); h.children[0].reply(packet);
+  assert.deepEqual((await pending).metadata, cold);
+  const version = wire.sourceVersion(f.capture(cold), f.request());
+  assert(wire.sameSourceVersion(version, version));
+  assert(!wire.sameSourceVersion(version, wire.sourceVersion(f.capture(), f.request())));
+  assert(!wires.legacyCatalog.sameSourceVersion(version, version));
+  assert.equal(wires.legacyCatalog.decode(packet.header, packet.payload, f.request()), null);
+  for (const [packet, success] of [[f.packet(), true], [f.packet(cold), false]]) {
+    const old = harness(t), result = old.helper.readCodexCatalogLegacy(f.request());
+    assert.equal(old.children[0].job.protocolVersion, 6);
+    old.children[0].reply(packet, v => ({ ...v, protocolVersion: 6 }));
+    assert.equal((await result).kind, success ? "native_sqlite_catalog" : "source_unavailable");
+  }
 });

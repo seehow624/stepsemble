@@ -1,8 +1,9 @@
 # Codex 冷資料庫：有鎖的唯讀記憶體副本
 
 2026-09-09／Plan1.70 進行中，開發3.0.7-rc.7，正式3.0.6未部署。
-這批已實作並在自建資料驗證底層 cold API；**尚未接入 shipped Rust frame、Node
-admission／version 或 Host/Web**。不能把以下證據稱為 Web 冷歷史已可用或 C2 完成。
+底層 cold API 與 Rust v7/v8、Node 共用 admission／version、實際 Host/Web 已接通，
+本機合成資料全鏈及手機尺寸 CUA 已驗；這次新工程 CI 待提交後驗證。**未部署，
+不是完整原生語義歷史或 C2 完成**。私人來源仍須 owner 選定，Windows 仍不支援。
 
 ## 為什麼需要另一條來源路徑
 
@@ -43,7 +44,7 @@ capture仍嚴格拒絕這種connection。測試在query_only=0且未安裝author
 
 冷Verified回覆明示cold_snapshot、僅database的真identity、兩個來源FDclose、RAM
 copy byte/call、main shared lock／sidecar absence檢查；不杜撰WAL/SHM inode、native
-SQLite FD或mapping計數。既有v4–v6 frame與decoder完全未改，仍只接受原三檔證據。
+SQLite FD或mapping計數。既有v4–v6 frame契約與legacy decoder仍只接受原三檔證據。
 64MiB是cold完整RAM副本上限，不放大hot路徑8MiB實際I/O上限。兩個並行cold read最多
 128MiB image storage，另有SQLite/parser/DTO overhead；尚無完整Host RSS量測。
 RAM釋放不是安全抹除記憶體承諾。超限明示不可用，不截斷DB或回部分catalog。
@@ -84,18 +85,43 @@ Mac Mini、Rust1.97.1、鎖定SQLite3.53.4；只使用owned fixtures，沒有私
 - 本機額外三輪完整程序gate通，每輪cold41child／21dirs、全套147／82全清理。
   `...-repeat-1.log`至3、`...-general-ci.log`、`...-reader-ci.log`、`...-rolling-ci.log`。
 
-## 下一段：仍屬同一Plan1.70，不可停在library
+## 同一 Plan1.70 的 Host/Web 接線（本機已驗，新 CI 待驗）
 
-1. 設計新版本frame區分hot三檔與cold主檔／RAM證據；v4–v6不偷偷變更shape或減少close
-   要求。layout選擇限全新worker準備階段，已啟動SQLite/VFS後不得無保護fallback。
-   最好在同一held root/main上一次判斷sidecar狀態；不能直接把舊prepare的Missing
-   catch後再cold prepare，因為舊錯誤分支File::drop不提供中途close成功證據。
-2. Node嚴格驗證layout／identity／copy預算／actual-close，仍共用Host兩個reader與
-   總期限／quarantine，不為cold另開pool。opaque source version須能拒絕hot↔cold變化。
-3. 接catalog與readNamed雙來源重驗；owned actualHost由熱到正常關閉再冷讀、重開失效、
-   partial sidecar、超限、取消／actualcleanup，最後在Web驗正確清單、名稱及原始紀錄。
-4. 再補compressed rollout、原生語義projection、其他adapter與C1–C8；未知或不支援
-   格式保留明確狀態，不變成完整native聊天宣稱。
+- Rust v7 選定 name context、v8 root catalog，在**同一 held root/main**準備中選 layout。
+  WAL/SHM 都在才走既有 VFS；兩者都不在才上主檔鎖讀 RAM；部分存在、權限或其他
+  失敗均拒絕，沒有「失敗後再開另一條連線」或普通 SQLite fallback。
+- v4/v5/v6 的 shape、三檔與 close 要求保持；v7/v8 接受舊 hot proof 或明示
+  `sourceLayout: cold_snapshot` 的單一 DB proof。Node 嚴格核對 RAM 大小、64KiB chunk
+  計數、鎖／absence／兩 FD close，混入 hot 計數、假 layout、超限均拒絕。legacy
+  helper 方法與 decoder 留存，實際 v4–v6 冷來源零 payload 拒絕有回歸測試。
+- 現有 context/catalog 方法改用 v7/v8；沿用同一 Host 兩 reader admission、deadline、
+  actual-close、quarantine 與 named pipeline 的前後雙來源驗證，不另開 pool。
+  cold source version 含 layout，hot version 保持舊 shape；名稱／主檔 identity 相同
+  仍會在 hot↔cold 後失效。分頁 token 維持 binding 私有，舊 binding token 不可跨用。
+- 真 `server.js`＋未改寫的 owner 精靈 config＋固定 writer/reader：39 筆原始 CRLF
+  紀錄在熱、關閉後冷讀的所有分頁完全一致；cold catalog／native title、雙向 layout
+  stale page、partial sidecar 明確不可用且不修檔、復原、WAL rename、paginated拒絕、
+  unsafe path、empty catalog、occupied-port startup failure cleanup 全通。
+- 本機 Rust29lib/30binary／全部 process gate 通：source adversarial增為100 child／
+  53 dirs，全套179 child／83 dirs，全 reaped／explicit cleanup；原 cold12組41／21
+  與 hot 真 SHM 保留。Node975／973pass／2skip／0fail，fmt/clippy/generated/check通。
+- Codex Computer Use 的390×844實際合成 Host：熱頁→cold失效→cold清單與第11–20筆→
+  reopen失效→refresh恢復第1–10筆，UI已驗；無橫溢、live embeds0、warn/error logs空。
+  關閉歷史／分頁及viewport reset完成；Host/writer實際退出，兩自建目錄已清除。
+  不是iPhone真機或正式來源驗收。CI六個Codex尺寸／明暗案例已加入相同雙向冷熱流程。
+- 本輪失敗保留：`/tmp/stepsemble-cold-web-host-1.log`測試錯把舊binding token用於新
+  binding，正確收到source_version_unavailable；修正測試使用當前binding token後，
+  `host-2.log`驗真正layout改變的source_version_changed。`clippy-1.log`因新增分支
+  讓舊unsafe註解離開直接相鄰位置，補回註解後`clippy-2.log`通，未放寬lint。
+  其餘`rust-1.log`／`rust-2.log`、`node-1.tap`／`node-2.tap`、`check-1.log`與
+  `gitleaks-1.log`皆使用相同 `/tmp/stepsemble-cold-web-` 前綴，attempt不互相覆寫。
+
+## 剩餘工程與限制
+
+本批 CI exact SHA 及各OS冷/熱回歸仍須核完後記錄。接著處理compressed rollout、
+原生語義projection、其他adapter與C1–C8；未知或不支援格式保留明確狀態。
+冷大DB完整Host RSS／延遲與多輪混合負載尚待；64MiB上限、共享兩reader沒有放大。
+原始紀錄完整保存不是完整native聊天語義；paginated仍只支援metadata名稱。
 
 OpenAI Docs讓本次維持「讀stored thread、不resume／載入工作」的界線，見
 [官方App Server讀取說明](https://learn.chatgpt.com/docs/app-server)。SQLite依據為鎖定

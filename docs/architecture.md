@@ -15,9 +15,11 @@ simple.
 
 Development-only Plan1.69 connects Codex owner setup, root-only catalog,
 shared registry, HTTP/peer transport and typed Web raw records. These are not
-complete native semantic history, resume or approvals. Plan1.70 adds a separately
-verified cold SQLite RAM-snapshot library; new wire/Node/Host/Web cold integration
-is still pending. See [`codex-web-integration.md`](codex-web-integration.md) and
+complete native semantic history, resume or approvals. Plan1.70 now connects the
+locked cold SQLite RAM snapshot through v7/v8, strict layout-specific proofs,
+the same Host admission/version fences and actual Host/Web. Owned local tests
+and 390px CUA cover cold pages and both layout transitions; exact new CI remains
+pending. See [`codex-web-integration.md`](codex-web-integration.md) and
 [`codex-cold-sqlite.md`](codex-cold-sqlite.md). Shipped 3.0.6 remains unchanged.
 
 Development-only Plan1.68 added an admitted named pipeline: SQL A, bytes A,

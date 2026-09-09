@@ -30,7 +30,7 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Error> {
         return Err(Error::Input);
     }
     let r: Request = serde_json::from_slice(bytes).map_err(|_| Error::Input)?;
-    if ![4, 5].contains(&r.protocol_version)
+    if ![4, 5, 7].contains(&r.protocol_version)
         || r.native_version != NATIVE_VERSION
         || r.nonce.len() != 64
         || !r
@@ -65,9 +65,21 @@ pub fn capture(r: &Request) -> Result<Vec<u8>, Error> {
             native_version: r.native_version.clone(),
             thread_id: r.source.thread_id.clone(),
         };
-        // SAFETY: main processes exactly one bounded request, has opened no
-        // SQLite connections, and terminates after the single response. No other
-        // connection, VFS replacement or source fallback exists in this branch.
+        if r.protocol_version == 7 {
+            // SAFETY: main processes exactly one bounded request in a fresh
+            // process, without prior SQLite connections or a fallback.
+            let result = unsafe {
+                sqlite_source::capture_stored_context(selection, Arc::new(AtomicBool::new(false)))
+            }?;
+            let bytes = serde_json::to_vec(&result).map_err(|_| Error::Io)?;
+            return if bytes.len() <= payload_limit(r) {
+                Ok(bytes)
+            } else {
+                Err(Error::TooLarge)
+            };
+        }
+        // SAFETY: the same fresh one-request process; legacy calls never retry
+        // with another connection, VFS replacement or source fallback.
         let prepared =
             unsafe { sqlite_source::prepare(selection, Arc::new(AtomicBool::new(false))) }?;
         let result = if r.protocol_version == 5 {
@@ -90,7 +102,7 @@ pub fn capture(r: &Request) -> Result<Vec<u8>, Error> {
 }
 
 fn payload_limit(r: &Request) -> usize {
-    if r.protocol_version == 5 {
+    if matches!(r.protocol_version, 5 | 7) {
         CONTEXT_PAYLOAD_LIMIT
     } else {
         PAYLOAD_LIMIT
@@ -107,7 +119,7 @@ pub fn write_frame(
             if payload.is_empty() || payload.len() > payload_limit(r) {
                 return Err(Error::TooLarge);
             }
-            let kind = if r.protocol_version == 5 {
+            let kind = if matches!(r.protocol_version, 5 | 7) {
                 "native_sqlite_name_context"
             } else {
                 "native_sqlite_metadata"

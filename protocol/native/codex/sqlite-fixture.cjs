@@ -4,7 +4,13 @@ const path = require("node:path"), crypto = require("node:crypto");
 const wire = require("./sqlite-wire");
 const id = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 const request = () => ({ nativeVersion: wire.VERSION, source: { sqliteRoot: path.resolve("owned-sqlite"), threadId: id }, expectedRoot: { device: "1", inode: "2" } });
-function createFixture(withContext) {
+function coldBody(hot) {
+  return { observation: hot.observation, sourceLayout: "cold_snapshot", identities: [hot.identities[0]],
+    filesystemChecksPassed: true, sourceDescriptorsClosed: 2, snapshotBytes: 28672, sourceReadCalls: 1,
+    sourceMainSharedLock: true, absentSidecarsVerified: true, snapshotStorage: "private_readonly_memory",
+    sourceAuthenticated: false, publishable: false };
+}
+function createFixture(withContext, version = withContext ? 7 : 4) {
   const selectedWire = withContext ? wire.context : wire;
   function body() {
     return { observation: { kind: "codex_sqlite_metadata_observation", nativeVersion: wire.VERSION, sqliteVersion: wire.SQLITE_VERSION,
@@ -21,10 +27,10 @@ function createFixture(withContext) {
       byteLength: payload.length, sha256: crypto.createHash("sha256").update(payload).digest("hex"), sourceAuthenticated: false, publishable: false } };
   }
   function frame(job, p = packet(), change = v => v) {
-    const header = Buffer.from(JSON.stringify(change({ protocolVersion: withContext ? 5 : 4, nonce: job.nonce, result: p.header }))), size = Buffer.alloc(4);
+    const header = Buffer.from(JSON.stringify(change({ protocolVersion: version, nonce: job.nonce, result: p.header }))), size = Buffer.alloc(4);
     size.writeUInt32BE(header.length); return Buffer.concat([size, header, p.payload]);
   }
   function capture(metadata = body()) { const p = packet(metadata); return selectedWire.decode(p.header, p.payload, request()); }
   return { id, request, body, packet, frame, capture };
 }
-module.exports = { ...createFixture(false), context: createFixture(true) };
+module.exports = { ...createFixture(false), context: createFixture(true), legacyContext: createFixture(true, 5), coldBody };

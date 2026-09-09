@@ -112,6 +112,22 @@ pub struct Verified<T = Observation> {
     pub publishable: bool,
 }
 
+/// v7/v8 keep the existing WAL proof and a distinct, explicitly tagged RAM
+/// snapshot proof. Neither proof grants access or makes the source authentic.
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum StoredVerified<T> {
+    Wal(Verified<T>),
+    Cold(cold::Verified<T>),
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum LayoutPolicy {
+    Wal,
+    Cold,
+    Stored,
+}
+
 fn same_authority(a: &Metadata, b: &Metadata) -> bool {
     a.dev() == b.dev()
         && a.ino() == b.ino()
@@ -275,12 +291,12 @@ pub unsafe fn prepare_catalog(
     prepare_root(selection, cancelled)
 }
 fn prepare_root(selection: RootSelection, cancelled: Arc<AtomicBool>) -> Result<Prepared, Error> {
-    prepare_root_mode(selection, cancelled, false)
+    prepare_root_mode(selection, cancelled, LayoutPolicy::Wal)
 }
 fn prepare_root_mode(
     selection: RootSelection,
     cancelled: Arc<AtomicBool>,
-    cold: bool,
+    policy: LayoutPolicy,
 ) -> Result<Prepared, Error> {
     if !cfg!(target_pointer_width = "64") || STATE.get().is_some() {
         return Err(Error::PlatformUnsupported);
@@ -321,7 +337,7 @@ fn prepare_root_mode(
         return Err(Error::RootIdentityChanged);
     }
     let mut state = State {
-        cold,
+        cold: policy == LayoutPolicy::Cold,
         selection,
         root,
         root_before,
@@ -339,7 +355,21 @@ fn prepare_root_mode(
         started,
         cancelled,
     };
-    for name in &NAMES[..if cold { 1 } else { 3 }] {
+    for (i, name) in NAMES.iter().enumerate() {
+        if i == 1 {
+            if policy == LayoutPolicy::Stored {
+                // Select once while holding the original root and main FD.
+                // Never retry a failed WAL preparation as a cold read.
+                state.cold = match (state.named(NAMES[1]), state.named(NAMES[2])) {
+                    (Ok(_), Ok(_)) => false,
+                    (Err(Error::Missing), Err(Error::Missing)) => true,
+                    (Err(error), _) | (_, Err(error)) => return Err(error),
+                };
+            }
+            if state.cold {
+                break;
+            }
+        }
         state.budget()?;
         let file = open_at(
             state.root.as_raw_fd(),
@@ -361,6 +391,58 @@ fn prepare_root_mode(
         state,
         thread_id: None,
     })
+}
+
+/// Read stored selected-name context using the layout observed under one held
+/// root/main preparation. Partial sidecars and layout races fail closed.
+/// # Safety
+/// Fresh dedicated one-shot process only; same descriptor/lock obligations as
+/// prepare and cold::prepare. No retry or other SQLite connection is permitted.
+pub unsafe fn capture_stored_context(
+    selection: Selection,
+    cancelled: Arc<AtomicBool>,
+) -> Result<StoredVerified<Observation>, Error> {
+    if !sqlite_metadata::valid_id(&selection.thread_id) {
+        return Err(Error::Input);
+    }
+    let mut prepared = prepare_root_mode(
+        RootSelection {
+            root_path: selection.root_path,
+            expected_device: selection.expected_device,
+            expected_inode: selection.expected_inode,
+            native_version: selection.native_version,
+        },
+        cancelled,
+        LayoutPolicy::Stored,
+    )?;
+    if prepared.state.cold {
+        return cold::from_state(prepared.state)?
+            .read_name_context(&selection.thread_id)
+            .finish()
+            .map(StoredVerified::Cold);
+    }
+    prepared.thread_id = Some(selection.thread_id);
+    prepared
+        .read_name_context()?
+        .finish()
+        .map(StoredVerified::Wal)
+}
+
+/// Root-only v8 stored catalog, with the same one-shot obligations.
+/// # Safety
+/// Same fresh process and no other source descriptors as capture_stored_context.
+pub unsafe fn capture_stored_catalog(
+    selection: RootSelection,
+    cancelled: Arc<AtomicBool>,
+) -> Result<StoredVerified<sqlite_metadata::CatalogObservation>, Error> {
+    let prepared = prepare_root_mode(selection, cancelled, LayoutPolicy::Stored)?;
+    if prepared.state.cold {
+        return cold::from_state(prepared.state)?
+            .read_catalog()
+            .finish()
+            .map(StoredVerified::Cold);
+    }
+    prepared.read_catalog()?.finish().map(StoredVerified::Wal)
 }
 
 impl Prepared {

@@ -29,10 +29,11 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 
 ## 順序與驗收
 
-2026-09-09／Plan1.70進行中：cold SQLite已新增主DB共享鎖＋absence/content-stamp
-重驗＋有界唯讀RAM副本，808efca三CI全通；POSIX新cold12組／41child／21dirs，原hot
-Host／browser回歸與RustSec0/0通，Windows cold明示unsupported。**尚未接新frame、
-Node及Host/Web**。同一增量下一段必須完成冷熱切換全鏈，而不是把library當C2完成。
+2026-09-09／Plan1.70進行中：cold SQLite已接主DB共享鎖＋有界唯讀RAM副本、v7/v8、
+Node同admission/version、實際Host/Web。真ownedHost39筆冷頁／清單／名稱、雙向
+layout失效／partial拒絕與復原、CUA390px冷熱流程已驗；本機975/0fail/2skip、
+Rust29/30／全部179child與83dirs清理通。新工程exact CI待驗，底層808efca既有
+三CI證據不套成新SHA結果；Windows來源仍unsupported，也不是C2整體完成。
 詳[冷資料庫接續與證據](codex-cold-sqlite.md)；Plan1.69 Web原始紀錄既有成果不重做。
 
 「待完成」不表示從零開始；沿用主計畫已驗模組，只補缺口。

@@ -15,14 +15,14 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**進行中增量 1.70（cold底層跨平台CI已驗，未接Web／未部署）**：新增冷SQLite的短時間
-主檔SHARED lock／sidecar absence與content stamp重驗，再於最大64MiB唯讀RAM副本
-查詢；不新建原生WAL/SHM、不把原來源immutable化。sealed READONLY deserialize
-保留熱DBguard，Rust29/30及新的writer重開／撤權／換檔／kill／大DBcase通，原熱WAL
-真SHM與負向控制保留。**這仍不是Web冷歷史完成**：新版本frame、Node同admission與
-sourceVersion、actualHost到Web冷熱切換驗收仍屬1.70的必要工作。808efca三CI全success／
-完整logs已核：三OSNode965／0fail、reader226／226；POSIX新cold12組／41child／21dirs
-與原hot鏈皆通，Windows cold明示unsupported；雙OS既有browser及RustSec0/0通。
+**進行中增量 1.70（cold Host/Web本機已驗，新CI待驗／未部署）**：冷SQLite短時間
+主檔SHARED lock／absence與content-stamp重驗、最大64MiB唯讀RAM副本，已接Rust
+v7/v8、Node嚴格雙layout proof、同Host兩reader與named雙來源version fence。
+同held root/main一次選layout，部分sidecar拒絕、不repair；v4–v6舊契約不變。
+真owner→Host39筆所有冷頁一致、清單／名稱／雙向切換失效／partial拒絕及恢復通；
+CUA390px cold頁與reopen／refresh已驗，無横溢、error logs空，fixture/Host全清理。
+本機Rust29/30、完整process179child/83dirs、Node975/0fail/2skip、clippy/generated通。
+新CI仍須exact核實。底層808efca三CI成功證據保留，不套用成新工程CI或正式結果。
 詳[冷SQLite接續](codex-cold-sqlite.md)。C1–C8／正式服務／帳號／B+／獨立72h關卡不變。
 
 **前一已完成增量 1.69（raw-records 全鏈與 CI 已驗，未部署）**：Codex state DB
@@ -292,6 +292,11 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 | 隔離72h長測 | 2026-09-06 11:34Z 已開始 | clean `ab227af`（runtime `2b7f0b6`）；8tasks／16clients，預計09-09 11:34Z結束；同對話每小時追蹤。未passed，不代替native／實機／durable gate |
 
 ### 下一個可執行任務
+
+**1.70接續**：先核冷資料庫Host/Web新工程的exact CI；不要重做已通的Rust v7/v8、
+Node admission/version、owner→Host39筆與手機冷熱切換。再接compressed rollout、
+原生語義projection／其他adapter，並補冷大DB完整Host RSS與混合負載。所有C1–C8
+既有驗收与私人來源／正式部署關卡保持，不把raw頁等同完整native聊天。
 
 **1.57接續**：C1來源設定/registry/HTTP/relay、native title/TS、Web來源操作、keyed i18n及本機新檔精靈不重做；
 C2先查清 Codex rich fixture 的 command/image 缺口，使用固定版本格式的獨立

@@ -40,7 +40,27 @@ export async function checkCodexHostNative({ helperPath }) {
     assert.equal(records.at(-1).recordType, "future_owned_record");
     assert(records.some(row => row.payloadType === "function_call")); assert(records.some(row => row.payloadType === "function_call_output"));
     assert(records.every(row => row.rawText.endsWith("\r\n"))); assert.equal(first.history.semanticHistoryComplete, false);
-    await host.mutate("rename"); assert.equal((await read(r, 10, first.sourceVersion)).code, "source_version_changed");
+    await host.mutate("cold");
+    assert.equal((await read(r, 10, first.sourceVersion)).code, "source_version_changed", "same title, new cold layout invalidates a hot continuation");
+    const cold = await read(r); assert.equal(cold.kind, "bound_codex_records", cold.code);
+    assert.equal(cold.history.nativeTitle, first.history.nativeTitle);
+    const coldRecords = [...cold.history.records.records]; let coldCursor = cold.history.records.nextOffset;
+    while (coldCursor !== null) {
+      const page = await read(r, coldCursor, cold.sourceVersion); assert.equal(page.kind, "bound_codex_records", page.code);
+      coldRecords.push(...page.history.records.records); coldCursor = page.history.records.nextOffset;
+    }
+    assert.deepEqual(coldRecords, records, "closed writer retains every raw record and page boundary");
+    await release(r); p = await catalog(); assert.equal(p.total, 1);
+    assert.equal((await metadata(p)).metadata.nativeTitle, first.history.nativeTitle); r = await register(p);
+    await host.mutate("partial_sidecar");
+    assert.equal((await catalog()).kind, "source_unavailable", "partial files are not an empty catalog");
+    assert.equal((await read(r)).kind, "source_unavailable", "no repair, model call or hidden stale cache");
+    await host.mutate("remove_partial_sidecar");
+    const recoveredCold = await read(r); assert.equal(recoveredCold.kind, "bound_codex_records");
+    await host.mutate("reopen");
+    assert.equal((await read(r, 10, recoveredCold.sourceVersion)).code, "source_version_changed", "same title, reopened WAL cannot continue a cold page");
+    const reopened = await read(r); assert.equal(reopened.history.nativeTitle, first.history.nativeTitle);
+    await host.mutate("rename"); assert.equal((await read(r, 10, reopened.sourceVersion)).code, "source_version_changed");
     assert.equal((await read(r)).history.nativeTitle, "renamed"); assert.equal((await release(r)).cleanupConfirmed, true);
     p = await catalog(); assert.equal((await metadata(p)).metadata.nativeTitle, "renamed");
     await host.mutate("paginated"); p = await catalog();
@@ -59,7 +79,8 @@ export async function checkCodexHostNative({ helperPath }) {
     await assert.rejects(startSyntheticCodexHistoryHost({ helperPath, port: occupied.address().port }), /synthetic_codex_host_early_exit/);
   } finally { await new Promise(resolve => occupied.close(resolve)); }
   return { gate: "codex_actual_host_passed", records: 39, sourceScope: "stored_threads", semanticHistoryComplete: false,
-    createdConfigUsedUnedited: true, explicitInventory: true, walRenameAndStalePage: true, paginatedExplicitUnavailable: true,
+    createdConfigUsedUnedited: true, explicitInventory: true, walRenameAndStalePage: true, coldCatalogAndAllPages: true,
+    bothLayoutTransitionsRejectStalePage: true, partialSidecarsRefusedWithoutRepair: true, paginatedExplicitUnavailable: true,
     unsafePathNotOpened: true, emptyCatalog: true, startupFailureCleanup: true, noClaudeSdk: true, modelCalls: 0, privateHistoryReads: 0, ...cleanup };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

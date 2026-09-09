@@ -47,11 +47,13 @@ export async function startOwnedSqliteWriter(helperPath) {
     } finally { clearTimeout(timer); }
   }
   // Install the cleanup handle before waiting for the first message.
-  return { line, stop, command: async command => { assert(["other", "rename", "preview", "path", "paginated", "missing", "reset", "index", "rollout", "fallback", "catalog_full", "catalog_extra", "catalog_reset", "rich_rollout"].includes(command)); child.stdin.write(`${command}\n`); assert.deepEqual(await line(), { kind: "owned_writer_updated" }); } };
+  return { line, stop, command: async command => { assert(["other", "rename", "preview", "path", "paginated", "missing", "reset", "index", "rollout", "fallback", "catalog_full", "catalog_extra", "catalog_reset", "rich_rollout", "cold", "reopen", "partial_sidecar", "remove_partial_sidecar"].includes(command)); child.stdin.write(`${command}\n`); assert.deepEqual(await line(), { kind: "owned_writer_updated" }); } };
 }
-export async function snapshotOwnedSqlite(root) {
+export async function snapshotOwnedSqlite(root, { allowStoredLayout = false } = {}) {
   const entries = (await fs.readdir(root)).sort(), output = {};
-  assert.deepEqual(entries, ["state_5.sqlite", "state_5.sqlite-shm", "state_5.sqlite-wal"]);
+  const allowed = ["state_5.sqlite", "state_5.sqlite-shm", "state_5.sqlite-wal"];
+  if (allowStoredLayout) assert(entries.includes(allowed[0]) && entries.every(name => allowed.includes(name)));
+  else assert.deepEqual(entries, allowed);
   // This Node process must stay distinct from the SQLite writer: opening and
   // closing its same-inode files in the writer would release POSIX locks.
   for (const name of entries) {

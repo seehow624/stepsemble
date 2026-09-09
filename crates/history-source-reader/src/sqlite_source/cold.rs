@@ -85,7 +85,10 @@ pub unsafe fn prepare(
     selection: RootSelection,
     cancelled: Arc<AtomicBool>,
 ) -> Result<Prepared, Error> {
-    let state = prepare_root_mode(selection, cancelled, true)?.state;
+    from_state(prepare_root_mode(selection, cancelled, LayoutPolicy::Cold)?.state)
+}
+
+pub(super) fn from_state(state: State) -> Result<Prepared, Error> {
     let fd = state.leases[0].file.as_raw_fd();
     // Match SQLite's SHARED acquisition ordering, including its pending-byte
     // check. Closing the held main FD releases locks on every error path.

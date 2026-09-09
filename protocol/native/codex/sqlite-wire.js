@@ -4,7 +4,7 @@
 const path = require("node:path"), crypto = require("node:crypto");
 const { canonicalJSON } = require("../../../public/modules/projection");
 const VERSION = "0.153.4", SQLITE_VERSION = "3.53.4";
-function createWire(withContext, withCatalog = false) {
+function createWire(withContext, withCatalog = false, allowCold = false) {
   const payloadBytes = (withCatalog ? 2064 : withContext ? 208 : 144) * 1024;
   const LIMITS = Object.freeze({ inputBytes: 12 * 1024, payloadBytes, textBytes: 32 * 1024,
     outputBytes: 4 + 16 * 1024 + payloadBytes, readBytes: 8 * 1024 * 1024, readCalls: 1024, mapBytes: 8 * 1024 * 1024, maps: 256,
@@ -28,10 +28,11 @@ function createWire(withContext, withCatalog = false) {
       && path.isAbsolute(v.source.sqliteRoot) && path.resolve(v.source.sqliteRoot) === v.source.sqliteRoot
       && path.parse(v.source.sqliteRoot).root !== v.source.sqliteRoot && !/[\u0000-\u001f\u007f*?\[\]{},]/.test(v.source.sqliteRoot);
   }
-  function identities(v) {
-    return Array.isArray(v) && v.length === 3 && ["database", "wal", "shm"].every((role, i) => keys(v[i], ["role", "device", "inode"])
+  function identities(v, cold = false) {
+    const roles = cold ? ["database"] : ["database", "wal", "shm"];
+    return Array.isArray(v) && v.length === roles.length && roles.every((role, i) => keys(v[i], ["role", "device", "inode"])
       && v[i].role === role && rootIdentity({ device: v[i].device, inode: v[i].inode }))
-      && new Set(v.map(x => `${x.device}:${x.inode}`)).size === 3;
+      && new Set(v.map(x => `${x.device}:${x.inode}`)).size === roles.length;
   }
   function fields(v, id) {
     const text = s => typeof s === "string" && s.isWellFormed() && Buffer.byteLength(s) <= LIMITS.textBytes;
@@ -55,8 +56,10 @@ function createWire(withContext, withCatalog = false) {
     return valid && Buffer.byteLength(JSON.stringify(o)) <= LIMITS.catalogBytes;
   }
   function body(v, id) {
-    if (!keys(v, ["observation", "identities", "filesystemChecksPassed", "sourceDescriptorsClosed", "sqliteDescriptorsOpened", "sqliteDescriptorsClosed",
-      "shmMappingsClosed", "requestedReadBytes", "readCalls", "mappedShmBytes", "sourceAuthenticated", "publishable"])) return false;
+    const cold = allowCold && v?.sourceLayout === "cold_snapshot";
+    if (!keys(v, ["observation", "identities", "filesystemChecksPassed", "sourceDescriptorsClosed", "sourceAuthenticated", "publishable",
+      ...(cold ? ["sourceLayout", "snapshotBytes", "sourceReadCalls", "sourceMainSharedLock", "absentSidecarsVerified", "snapshotStorage"]
+        : ["sqliteDescriptorsOpened", "sqliteDescriptorsClosed", "shmMappingsClosed", "requestedReadBytes", "readCalls", "mappedShmBytes"])])) return false;
     const o = v.observation;
     const context = o?.nameContext;
     if (withContext && (o?.fields === null ? context !== null : !keys(context, ["rolloutPath", "preview"])
@@ -66,10 +69,13 @@ function createWire(withContext, withCatalog = false) {
       && o.kind === "codex_sqlite_metadata_observation" && o.nativeVersion === VERSION && o.sqliteVersion === SQLITE_VERSION
       && o.scope === (withContext ? "provided_connection_selected_name_context_only" : "provided_connection_selected_name_fields_only") && fields(o.fields, id) && o.nativeTitleResolved === false
       && o.sourceAuthenticated === false && o.publishable === false && o.connectionClosed === true)
-      && identities(v.identities) && v.filesystemChecksPassed === true && v.sourceDescriptorsClosed === 4
-      && v.sqliteDescriptorsOpened === 3 && v.sqliteDescriptorsClosed === 3 && count(v.shmMappingsClosed, LIMITS.maps)
-      && count(v.requestedReadBytes, LIMITS.readBytes, 1) && count(v.readCalls, LIMITS.readCalls, 1) && count(v.mappedShmBytes, LIMITS.mapBytes)
-      && (v.shmMappingsClosed === 0 ? v.mappedShmBytes === 0 : v.mappedShmBytes >= v.shmMappingsClosed)
+      && identities(v.identities, cold) && v.filesystemChecksPassed === true
+      && (cold ? v.sourceDescriptorsClosed === 2 && v.sourceMainSharedLock === true && v.absentSidecarsVerified === true
+        && v.snapshotStorage === "private_readonly_memory" && count(v.snapshotBytes, 64 * 1024 * 1024, 512) && v.snapshotBytes % 512 === 0
+        && count(v.sourceReadCalls, 1024, 1) && v.sourceReadCalls === Math.ceil(v.snapshotBytes / 65536)
+        : v.sourceDescriptorsClosed === 4 && v.sqliteDescriptorsOpened === 3 && v.sqliteDescriptorsClosed === 3 && count(v.shmMappingsClosed, LIMITS.maps)
+          && count(v.requestedReadBytes, LIMITS.readBytes, 1) && count(v.readCalls, LIMITS.readCalls, 1) && count(v.mappedShmBytes, LIMITS.mapBytes)
+          && (v.shmMappingsClosed === 0 ? v.mappedShmBytes === 0 : v.mappedShmBytes >= v.shmMappingsClosed))
       && v.sourceAuthenticated === false && v.publishable === false;
   }
   function header(v, job) {
@@ -97,12 +103,13 @@ function createWire(withContext, withCatalog = false) {
   }
   function versionOf(v) {
     const observed = v.metadata.observation;
-    if (withCatalog) return { kind: "codex_sqlite_catalog_version", nativeVersion: VERSION, rootIdentity: v.expectedRoot,
+    const layout = v.metadata.sourceLayout === "cold_snapshot" ? { sourceLayout: "cold_snapshot" } : {};
+    if (withCatalog) return { kind: "codex_sqlite_catalog_version", nativeVersion: VERSION, rootIdentity: v.expectedRoot, ...layout,
       // Fixed field tuples are canonical regardless of incoming JSON key order.
       identities: v.metadata.identities, entriesSha256: digest(JSON.stringify(observed.entries.map(e => [e.id, e.rolloutPath, e.source, e.historyMode,
         e.archived, e.createdAt, e.updatedAt, e.createdAtMs, e.updatedAtMs]))) };
     return { kind: withContext ? "codex_sqlite_name_context_version" : "codex_sqlite_selected_fields_version", nativeVersion: VERSION, threadId: v.threadId,
-      rootIdentity: v.expectedRoot, identities: v.metadata.identities, fieldsSha256: digest(canonicalJSON(withContext ? { fields: observed.fields, nameContext: observed.nameContext } : observed.fields)) };
+      rootIdentity: v.expectedRoot, ...layout, identities: v.metadata.identities, fieldsSha256: digest(canonicalJSON(withContext ? { fields: observed.fields, nameContext: observed.nameContext } : observed.fields)) };
   }
   function sourceVersion(value, request) {
     const v = capture(value, request); return v ? versionOf(v) : null;
@@ -114,11 +121,12 @@ function createWire(withContext, withCatalog = false) {
     return captured ? { captured, version: versionOf(captured) } : null;
   }
   function validVersion(v) {
-    if (withCatalog) return keys(v, ["kind", "nativeVersion", "rootIdentity", "identities", "entriesSha256"])
-      && v.kind === "codex_sqlite_catalog_version" && v.nativeVersion === VERSION && rootIdentity(v.rootIdentity) && identities(v.identities) && hash(v.entriesSha256);
-    return keys(v, ["kind", "nativeVersion", "threadId", "rootIdentity", "identities", "fieldsSha256"])
+    const cold = allowCold && v?.sourceLayout === "cold_snapshot", extra = cold ? ["sourceLayout"] : [];
+    if (withCatalog) return keys(v, ["kind", "nativeVersion", "rootIdentity", "identities", "entriesSha256", ...extra])
+      && v.kind === "codex_sqlite_catalog_version" && v.nativeVersion === VERSION && rootIdentity(v.rootIdentity) && identities(v.identities, cold) && hash(v.entriesSha256);
+    return keys(v, ["kind", "nativeVersion", "threadId", "rootIdentity", "identities", "fieldsSha256", ...extra])
       && v.kind === (withContext ? "codex_sqlite_name_context_version" : "codex_sqlite_selected_fields_version") && v.nativeVersion === VERSION && uuid(v.threadId)
-      && rootIdentity(v.rootIdentity) && identities(v.identities) && hash(v.fieldsSha256);
+      && rootIdentity(v.rootIdentity) && identities(v.identities, cold) && hash(v.fieldsSha256);
   }
   function sameSourceVersion(expected, actual) {
     const a = detach(expected), b = detach(actual);
@@ -126,4 +134,5 @@ function createWire(withContext, withCatalog = false) {
   }
   return Object.freeze({ VERSION, SQLITE_VERSION, LIMITS, keys, own, detach, input, decode, capture, sourceVersion, sameSourceVersion, inspectCapture });
 }
-module.exports = { ...createWire(false), context: createWire(true), catalog: createWire(false, true) };
+module.exports = { ...createWire(false), legacyContext: createWire(true), legacyCatalog: createWire(false, true),
+  context: createWire(true, false, true), catalog: createWire(false, true, true) };
