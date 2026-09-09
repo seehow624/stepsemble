@@ -46,8 +46,25 @@
 - 兩Node版本各跑真 Rust／Claude SDK共用管線：新結構107次reader/parser spawns，
   整組381次attempts、max physical2／remaining0，五階段取消及全域索引各通；
   數字是巢狀範圍，不能相加。SDK／writer／owned來源均清理，0模型／私人歷史。
-- 本次 exact SHA 的一般／Claude／Codex／reader／browser CI 需逐項核對完整 logs；
-  結果以該次提交的 GitHub Actions 與 vault 交接記錄為準，不沿用 a4e503e。
+- 工程 `1b37173` 的一般／Claude／Codex／reader 四組 exact CI 成功、full logs已核；
+  三OS1085/0fail（Mac1083pass/2skip、Linux1082/3、Windows1035/50），POSIX真新管線
+  107spawns/max2/0remaining、五階段取消與Host新結構各通；Windows仍明示來源unsupported。
+  Codex原生固定版147items/50turns/219raw原件回歸、Claude SDK隔離/無模型與RustSec亦通。
+
+### 瀏覽器 CI 的實際失敗及建置修復
+
+保留 [1b37173 rolling失敗](https://github.com/seehow624/stepsemble/actions/runs/34342859676)：
+Linux完整6組Codex尺寸／主題案例通；macOS前5組通，第6組期間碰到整suite300000ms
+程序上限，未觀察到功能斷言失敗，不能算最後一組成功或宣稱整組通過。
+workflow原用Debug Rust reader；大型新全來源結構案例每组約45–56秒，總時間超預算。
+
+修復改固定Rust1.97.1／locked **Release** build（含同profile的owned writer），並把
+helper路徑成對改release；增加workflow policy regression避免build/profile脫節。
+修復後本機完整與最低Node各1086total/1084pass/2既有skip/0fail，actionlint通。
+與本機實際Host/CUA已驗的最佳化建置一致；不是修改產品邏輯、10s/15s期限、300s suite
+或12min job上限，沒有少跑case／skip／重試。原Debug reader仍由獨立reader CI覆蓋。
+修復提交的一般及完整雙OSbrowser CI仍須另核full logs，不能用原Linux局部通過替代。
+最新驗收以對應GitHub Actions與vault交接為準，不為補寫CI結果無限追加docs-only提交。
 
 ### 修正取消後立即重新整理
 

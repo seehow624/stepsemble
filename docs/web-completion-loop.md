@@ -2,7 +2,8 @@
 
 2026-09-09／Plan1.76：全來源結構已接parser9/10、同五階段與Host／peer／Web，
 真17.2MB的原生ID、跨頁工具／rollback與320/390px通；完整／最低Node1085/0fail及
-取消清理回歸通，exact CI獨立核對。前段a4e503e五組CI及full logs不套新變更。C2/C6不勾完成，
+取消清理回歸通，1b37173四CI通／logs核；原Mac browser第6案例逾300s，改Release
+reader建置後完整CI獨立驗。未增期限／少跑case，原失敗保留。C2/C6不勾完成，
 見[來源接續](codex-structured-source.md)。今晚19:35核72h終態後按
 [發布審查](release-review-2026-09-09.md)大總結，不按時間直接判最終版完成。
 

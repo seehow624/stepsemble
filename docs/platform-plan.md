@@ -13,7 +13,8 @@
 **最新接續1.76（大型全來源結構接 Web）**：明確 parser9/10 與 profile 接同五階段
 named pipeline、registry／HTTP／peer／typed Web；真17.2MB/16384筆、原生ID、
 跨頁雙向工具／頁外rollback及320/390px已驗。完整／最低Node1085/0fail、取消後清理
-競態及工具按鈕回歸通；本提交exact CI另逐項核對，不沿用前段結果。
+競態及工具按鈕回歸通；工程1b37173四CI通、full logs核。rolling的Mac第6案例碰
+300s suite上限，改pinned Release reader建置而不增期限／少跑案例；修復CI獨立驗證。
 見[本段證據](codex-structured-source.md)。C2/C6及C1–C8不冒稱完成，正式版本與B+不變。
 
 **前段接續1.75（大型全來源結構與v12來源能力）**：有界turn/tool/rollback核心與

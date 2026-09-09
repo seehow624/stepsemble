@@ -1,5 +1,5 @@
 "use strict";
-const test = require("node:test"), assert = require("node:assert/strict"), path = require("node:path");
+const test = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), path = require("node:path");
 const manifest = require("../scripts/browser-test-runtime/package.json"), lock = require("../scripts/browser-test-runtime/package-lock.json");
 test("browser runtime lock pins reviewed public packages and rejects changed sources or hashes", async () => {
   const { validateBrowserLock } = await import("../scripts/check-rolling-clients.mjs");
@@ -24,6 +24,12 @@ test("rolling matrix names exactly two immutable shipped release commits", () =>
   const { releases } = require("../protocol/rolling-releases.json");
   assert.equal(releases.length, 2); assert.equal(new Set(releases.map(row => row.commit)).size, 2);
   for (const row of releases) { assert.match(row.commit, /^[a-f0-9]{40}$/); assert.equal(row.tag, `v${row.version}`); }
+});
+test("rolling owned history helper uses the pinned release build and matching output", () => {
+  const workflow = fs.readFileSync(path.resolve(".github/workflows/rolling-clients.yml"), "utf8");
+  assert.match(workflow, /cargo \+1\.97\.1 build --manifest-path crates\/history-source-reader\/Cargo\.toml --locked --release --bins --example owned_sqlite_writer/);
+  assert.match(workflow, /npm run test:rolling -- --history-helper="\$\{\{ runner\.temp \}\}\/stepsemble-browser-reader\/release\/stepsemble-history-source-reader"/);
+  assert.doesNotMatch(workflow, /npm run test:rolling -- --history-helper="[^\n]*\/debug\/stepsemble-history-source-reader"/);
 });
 test("browser matrix splits finite workers without losing or repeating any suite", async () => {
   const { browserWorkerJobs } = await import("../scripts/check-rolling-clients.mjs");

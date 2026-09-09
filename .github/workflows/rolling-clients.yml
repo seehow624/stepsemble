@@ -100,6 +100,6 @@ jobs:
           CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-browser-reader
         run: |
           rustup toolchain install 1.97.1 --profile minimal
-          cargo +1.97.1 build --manifest-path crates/history-source-reader/Cargo.toml --locked --bins --example owned_sqlite_writer
+          cargo +1.97.1 build --manifest-path crates/history-source-reader/Cargo.toml --locked --release --bins --example owned_sqlite_writer
       - name: Test both directions against two shipped releases
-        run: npm run test:rolling -- --history-helper="${{ runner.temp }}/stepsemble-browser-reader/debug/stepsemble-history-source-reader"
+        run: npm run test:rolling -- --history-helper="${{ runner.temp }}/stepsemble-browser-reader/release/stepsemble-history-source-reader"
