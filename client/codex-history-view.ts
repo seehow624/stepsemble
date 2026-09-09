@@ -26,12 +26,13 @@ namespace StepsembleCodexHistoryView {
       || ![deps.transport?.register, deps.transport?.readCodex, deps.transport?.release, deps.canonicalJSON, deps.requestId].every(v => typeof v === "function")) throw new Error("history_view_dependencies_required");
     let binding: Registration | null = null, page: Bound | null = null, offsets = [0], pageIndex = 0, epoch = 0;
     let structured = deps.initialStructured === true;
+    let profile: typeof wire.PAGE_PROFILE | undefined;
     let selected = false, closed = false, busy = false, stale = false, error: string | null = null, cleanupPending = false;
     let stage: StepsembleHistoryI18n.Key = "choose", flight: { controller: AbortController; done: Promise<void> } | null = null, closing: Promise<void> | null = null;
     const notify = () => deps.onChange?.();
     function state() {
       const expired = !!binding && (deps.now ?? Date.now)() >= binding.expiresAt;
-      return structuredClone({ selected, closed, busy, stale: stale || expired, error, stage, cleanupPending, page, pageIndex, structured,
+      return structuredClone({ selected, closed, busy, stale: stale || expired, error, stage, cleanupPending, page, pageIndex, structured, profile,
         canPrevious: !busy && !stale && !expired && !!page && pageIndex > 0,
         canNext: !busy && !stale && !expired && !!page && page.history.records.nextOffset !== null });
     }
@@ -49,6 +50,7 @@ namespace StepsembleCodexHistoryView {
       if (!selected || closed || mode !== "refresh" && busy) return;
       if (mode !== "refresh" && state().stale) { fail("history_refresh_required"); notify(); return; }
       const ticket = ++epoch, previous = flight, readStructured = structured;
+      let readProfile = mode === "refresh" && interruptPrevious ? undefined : profile;
       if (interruptPrevious) previous?.controller.abort();
       busy = true; error = null; stage = "preparing"; notify();
       await previous?.done;
@@ -64,15 +66,34 @@ namespace StepsembleCodexHistoryView {
         if (changed && mode !== "refresh") { fail("history_binding_unavailable"); return; }
         const offset = mode === "refresh" ? 0 : mode === "jump" ? target : mode === "previous" ? offsets[pageIndex - 1] : page?.history.records.nextOffset;
         if (offset == null || mode !== "refresh" && !page) { fail("history_refresh_required"); return; }
-        const request = { bindingId: reg.bindingId, generation: reg.generation, requestId: deps.requestId() }, selection = { offset, limit: LIMITS.pageRecords };
+        let request = { bindingId: reg.bindingId, generation: reg.generation, requestId: deps.requestId() };
+        const selection = { offset, limit: LIMITS.pageRecords };
         const version = mode === "refresh" ? undefined : page!.sourceVersion;
         stage = "reading"; notify();
-        const raw = await deps.transport.readCodex({ hostId: deps.hostId, bindingId: reg.bindingId, generation: reg.generation, sessionId: reg.sessionId }, request,
-          { page: selection, signal: current.controller.signal, ...(version === undefined ? {} : { version }), ...(readStructured ? { structured: true } : {}) });
+        const readOptions = () => ({ page: selection, signal: current.controller.signal, ...(version === undefined ? {} : { version }),
+          ...(readProfile ? { profile: readProfile } : readStructured ? { structured: true as const } : {}) });
+        const readOnce = async () => {
+          const raw = await deps.transport.readCodex({ hostId: deps.hostId, bindingId: reg.bindingId, generation: reg.generation, sessionId: reg.sessionId }, request, readOptions());
+          const encoded = deps.canonicalJSON(raw, wire.LIMITS.responseBytes);
+          return encoded === null ? null : JSON.parse(encoded);
+        };
+        let value = await readOnce();
         if (!live()) return;
-        const encoded = deps.canonicalJSON(raw, wire.LIMITS.responseBytes), value = encoded === null ? null : JSON.parse(encoded);
+        // One explicit format negotiation, only after the old bounded request
+        // has returned a size-limit failure. Never retry busy/auth/timeout,
+        // changed versions, malformed data or an unconfirmed physical close.
+        // Subsequent pages use the negotiated profile and its opaque version.
+        if (mode === "refresh" && readProfile === undefined && value?.kind === "source_unavailable"
+          && ["source_too_large", "rollout_record_limit"].includes(value.code)) {
+          readProfile = wire.PAGE_PROFILE; stage = "codexLargeReading"; notify();
+          if (!live()) return;
+          request = { ...request, requestId: deps.requestId() };
+          value = await readOnce();
+          if (!live()) return;
+        }
         if (value?.kind === "source_unavailable") { fail(typeof value.code === "string" && Object.hasOwn(i18n.errors, value.code) ? value.code : "history_transport_failed"); return; }
-        if (!wire.validBoundRecords(value, reg.sessionId, selection, { ...request, ...(version === undefined ? {} : { version }), ...(readStructured ? { structured: true } : {}) })) { fail("history_response_invalid"); return; }
+        if (!wire.validBoundRecords(value, reg.sessionId, selection, { ...request, ...(version === undefined ? {} : { version }),
+          ...(readProfile ? { profile: readProfile } : readStructured ? { structured: true } : {}) })) { fail("history_response_invalid"); return; }
         const records = value.history.records, prior = page?.history.records;
         if (mode !== "refresh" && prior && (records.sha256 !== prior.sha256 || records.byteLength !== prior.byteLength || records.recordCount !== prior.recordCount
           || value.history.nativeTitle !== page?.history.nativeTitle
@@ -81,7 +102,7 @@ namespace StepsembleCodexHistoryView {
         if (mode === "refresh" || mode === "jump") { offsets = [offset]; pageIndex = 0; }
         else if (mode === "previous") pageIndex--;
         else { pageIndex++; offsets[pageIndex] = offset; offsets.length = pageIndex + 1; }
-        page = value; stale = false; error = null; stage = "loaded";
+        page = value; profile = readProfile; stale = false; error = null; stage = "loaded";
       } catch (cause) {
         if (live()) { const code = (cause as { code?: unknown })?.code; fail(typeof code === "string" && Object.hasOwn(i18n.errors, code) ? code : "history_transport_failed"); }
       } finally {
@@ -92,7 +113,7 @@ namespace StepsembleCodexHistoryView {
     function cancel() { epoch++; flight?.controller.abort(); busy = false; stage = "cancelled"; notify(); }
     function close(): Promise<void> {
       if (closing) return closing;
-      cancel(); selected = false; closed = true; page = null; offsets = [0]; pageIndex = 0; stale = false; error = null; stage = "closed"; notify();
+      cancel(); selected = false; closed = true; page = null; profile = undefined; offsets = [0]; pageIndex = 0; stale = false; error = null; stage = "closed"; notify();
       const pending = flight?.done;
       closing = (async () => { await pending; const old = binding; binding = null; await release(old); notify(); })().finally(() => { closing = null; });
       return closing;
@@ -156,19 +177,30 @@ namespace StepsembleCodexHistoryView {
       const v = copy("button", action); v.type = "button"; v.dataset.action = action; v.addEventListener("click", () => { void model[action](); }); toolbar.append(v); return v;
     };
     const refresh = button("refresh"), previous = button("previous"), next = button("next"), cancel = button("cancel"), close = button("close");
-    deps.root.dataset.i18nIgnore = ""; deps.root.classList?.add("codex-record-view"); deps.root.replaceChildren(title, modes, note, toolbar, status, warning, position, content, cleanup);
+    const jumpForm = el("form", "", "codex-history-jump"), jumpLabel = el("label"), jumpInput = el("input"), jumpButton = copy("button", "codexJump");
+    jumpInput.type = "number"; jumpInput.inputMode = "numeric"; jumpInput.min = "1"; jumpInput.step = "1"; jumpInput.required = true;
+    jumpInput.dataset.action = "recordNumber"; i18n.bind(jumpInput, "codexJumpLabel", {}, "aria-label");
+    jumpLabel.append(copy("span", "codexJumpLabel"), jumpInput); jumpButton.type = "submit"; jumpButton.dataset.action = "jump"; jumpForm.append(jumpLabel, jumpButton);
+    jumpForm.addEventListener("submit", event => {
+      event.preventDefault(); const n = Number(jumpInput.value);
+      if (jumpInput.value.trim() && Number.isSafeInteger(n) && n > 0) void model.jump(n - 1);
+    });
+    deps.root.dataset.i18nIgnore = ""; deps.root.classList?.add("codex-record-view"); deps.root.replaceChildren(title, modes, note, toolbar, status, warning, position, jumpForm, content, cleanup);
     function render() {
       const s = model.state(), r = s.page?.history.records; deps.root.setAttribute("aria-busy", String(s.busy));
       readable.setAttribute("aria-pressed", String(s.structured)); rawMode.setAttribute("aria-pressed", String(!s.structured));
-      i18n.bind(note, s.structured ? "codexStructuredNote" : "codexRecordsNote");
+      i18n.bind(note, s.profile === wire.PAGE_PROFILE ? "codexLargeNote" : s.structured ? "codexStructuredNote" : "codexRecordsNote");
       i18n.bind(status, s.stage); warning.hidden = !s.error && !s.stale; i18n.bind(warning, s.error ? i18n.errorKey(s.error) : "pageStale");
       if (s.page?.history.nativeTitle != null) i18n.raw(title, s.page.history.nativeTitle); else i18n.bind(title, "codexRecords");
       refresh.disabled = !s.selected; previous.disabled = !s.canPrevious; next.disabled = !s.canNext; cancel.disabled = !s.busy; close.disabled = !s.selected;
+      jumpForm.hidden = !r; jumpInput.disabled = jumpButton.disabled = s.busy || s.stale || !r;
+      jumpInput.max = String(r?.recordCount ?? 1);
       i18n.bind(cleanup, s.cleanupPending ? "cleanupPending" : "cleanupSafe");
       i18n.bind(position, "codexRecordPosition", { start: r?.records.length ? r.offset + 1 : 0, end: r ? r.offset + r.records.length : 0, total: r?.recordCount ?? 0 });
       const key = s.page ? `${s.page.sourceVersion}:${r!.offset}:${s.structured}` : null;
       if (key === rendered) return; rendered = key; content.replaceChildren();
       if (!r) return;
+      jumpInput.value = String(r.offset + 1);
       let opened: { details: HTMLDetailsElement; pre: HTMLPreElement } | null = null;
       const structure = s.page?.history.structure, turns = new Map(structure?.turns.map(t => [t.turnKey, t]));
       let priorTurn: string | null = null;
@@ -197,13 +229,30 @@ namespace StepsembleCodexHistoryView {
           }
           heading.append(el("span", ` · ${row.recordIndex + 1}`, "history-footnote"));
         }
-        const text = excerpt(row), preview = el("p", annotation ? text : text.slice(0, LIMITS.previewUnits), "history-message-text");
+        const completeText = !!annotation || s.structured && s.profile === wire.PAGE_PROFILE;
+        if (!annotation && completeText) {
+          // Per-record role is explicit source data, not an inferred turn or
+          // cross-page tool association. Never promote it to the structure DTO.
+          let role: string | null = null;
+          try {
+            const v = JSON.parse(row.rawText), p = v.payload;
+            if (v.type === "response_item" && p?.type === "message" && ["assistant", "user"].includes(p.role)) role = p.role;
+            if (v.type === "event_msg" && ["agent_message", "user_message"].includes(p?.type)) role = p.type === "agent_message" ? "assistant" : "user";
+          } catch { /* preserve unknown/blank records unchanged */ }
+          if (role) {
+            article.dataset.recordKind = role;
+            if (role === "assistant") heading.replaceChildren(identity.create(doc, "codex", true), el("span", "Codex"));
+            else heading.replaceChildren(copy("span", "you"));
+            heading.append(el("span", ` · ${row.recordIndex + 1}`, "history-footnote"));
+          }
+        }
+        const text = excerpt(row), preview = el("p", completeText ? text : text.slice(0, LIMITS.previewUnits), "history-message-text");
         preview.tabIndex = 0; preview.setAttribute("aria-labelledby", heading.id = `codex-record-${row.recordIndex}`);
         article.append(heading);
         if (annotation && !["user", "assistant", "reasoning", "tool"].includes(annotation.kind)) {
           const auxiliary = el("details", "", "codex-history-auxiliary"); auxiliary.append(copy("summary", "codexExpand"), preview); article.append(auxiliary);
         } else article.append(preview);
-        if (!annotation && text.length > LIMITS.previewUnits) article.append(copy("p", "truncated", "history-footnote"));
+        if (!completeText && text.length > LIMITS.previewUnits) article.append(copy("p", "truncated", "history-footnote"));
         if (annotation?.warnings.length) { const warnings = el("p", "", "history-footnote"); warnings.append(copy("span", "codexWarnings"), el("span", ` · ${annotation.warnings.join(", ")}`)); article.append(warnings); }
         if (annotation?.tool) {
           article.append(el("p", `${annotation.tool.family} · ${annotation.tool.nativeCallId}`, "history-footnote"));

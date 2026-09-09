@@ -9,6 +9,31 @@ async function complete(h, handle, b, options = {}, metadata = false) {
   const pending = handle[metadata ? "metadata" : "observe"](request(b), options);
   for (let i = 0; i < 5; i++) await h.step(); return pending;
 }
+test("validated pages preserve their own opaque version protocol and reject structural claims without readers", async t => {
+  const h = harness(t), b = binding(), handle = h.service.bind(b), profile = "codex_validated_page_v1";
+  const first = await complete(h, handle, b, { profile, page: { offset: 0, limit: 2 } });
+  assert.equal(first.kind, "bound_codex_records", first.code); assert.equal(first.history.kind, "codex_validated_source_records");
+  assert.equal(first.history.records.kind, "codex_validated_rollout_records"); assert.equal(first.history.nativeTitle, "原生候選 🐾");
+  assert.equal(first.history.structure, undefined); assert.equal(first.history.authority.resumeAllowed, false);
+  const next = await complete(h, handle, b, { profile, version: first.sourceVersion, page: { offset: 2, limit: 2 } });
+  assert.equal(next.sourceVersion, first.sourceVersion); assert.equal(next.history.records.offset, 2);
+  const n = h.stages.length;
+  for (const options of [{ version: first.sourceVersion }, { profile, structured: true }, { profile: "future" }, { profile, page: { offset: 262145, limit: 1 } }])
+    assert.equal((await handle.observe(request(b), options)).kind, "source_unavailable");
+  assert.equal(h.stages.length, n);
+  const old = await complete(h, handle, b); assert.equal(old.history.kind, "codex_source_records");
+  assert.equal((await handle.observe(request(b), { profile, version: old.sourceVersion })).code, "source_version_unavailable");
+  assert.equal(h.physical(), 0); assert.equal(h.max(), 1);
+});
+test("new page profile keeps revoke/actual-close quarantine and paginated refusal", async t => {
+  const h = harness(t, { holdReader: true }), b = binding(), handle = h.service.bind(b), profile = "codex_validated_page_v1";
+  const pending = handle.observe(request(b), { profile }); handle.revoke();
+  assert.equal((await pending).code, "source_cleanup_unconfirmed"); assert.equal(handle.status().cleanupConfirmed, false);
+  await h.step(); assert.equal(handle.status().cleanupConfirmed, true); assert.equal(h.service.status().quarantined, true);
+  const other = harness(t), paginated = binding(); paginated.source.historyMode = "paginated";
+  assert.equal((await other.service.bind(paginated).observe(request(paginated), { profile })).code, "native_paginated_history_unsupported");
+  assert.equal(other.stages.length, 0);
+});
 test("Codex bindings require both explicit root identities and a detached exact source; no implicit grants", t => {
   const h = harness(t), b = binding();
   assert.deepEqual(normalizeCodexSource(b.source), b.source);

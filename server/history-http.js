@@ -218,10 +218,11 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
       if (route === "sourceMetadata" && !sourceCatalogWire.validMetadataRequest(body)) throw error("invalid_history_request");
       if (route === "register" && (!exact(body, ["catalogId", "viewId"]) || body.viewId !== viewId
         || typeof body.catalogId !== "string" || !/^[A-Za-z0-9:_-]{1,128}$/.test(body.catalogId))) throw error("invalid_history_registration");
-      if (route === "observe" && (!exact(body, ["bindingId", "generation", "requestId", "page", ...(Object.hasOwn(body, "version") ? ["version"] : []), ...(Object.hasOwn(body, "structured") ? ["structured"] : [])])
+      if (route === "observe" && (!exact(body, ["bindingId", "generation", "requestId", "page", ...(Object.hasOwn(body, "version") ? ["version"] : []), ...(Object.hasOwn(body, "structured") ? ["structured"] : []), ...(Object.hasOwn(body, "profile") ? ["profile"] : [])])
         || Object.hasOwn(body, "structured") && (!codexEnabled || body.structured !== true)
+        || Object.hasOwn(body, "profile") && (!codexEnabled || body.profile !== codexRecords.PAGE_PROFILE || body.structured !== undefined)
         || !uuid(body.bindingId) || !positive(body.generation) || !uuid(body.requestId) || !exact(body.page, ["offset", "limit"])
-        || !(codexEnabled && codexRecords.validPage(body.page) || Number.isSafeInteger(body.page.offset) && body.page.offset >= 0 && body.page.offset <= 2000 && positive(body.page.limit) && body.page.limit <= 100)
+        || !(codexEnabled && codexRecords.validPage(body.page, body.profile) || body.profile === undefined && Number.isSafeInteger(body.page.offset) && body.page.offset >= 0 && body.page.offset <= 2000 && positive(body.page.limit) && body.page.limit <= 100)
         || Object.hasOwn(body, "version") && (typeof body.version !== "string" || !/^[a-f0-9]{64}$/.test(body.version)))) throw error("invalid_history_request");
       if (route === "release" && (!exact(body, ["generation"]) || !positive(body.generation))) throw error("invalid_history_release");
       if (abort.signal.aborted) throw error("history_request_aborted", 408);
@@ -267,7 +268,7 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
             && reply.kind === "history_registration" && reply.viewId === viewId && reply.catalogId === body.catalogId && uuid(reply.bindingId)
             && uuid(reply.sessionId) && positive(reply.generation) && positive(reply.expiresAt) && reply.sourceAuthenticated === false && reply.publishable === false
             : reply.kind === "bound_codex_records" ? codexEnabled && codexRecords.validBoundRecords(reply, reply.history?.nativeThreadId, body.page, body)
-            : body.structured === undefined && Buffer.byteLength(raw) <= LIMITS.claudeResponseBytes && exact(reply, ["kind", "bindingId", "generation", "requestId", "sourceVersion", "history", "sourceAuthenticated", "publishable", "cleanupConfirmed"])
+            : body.structured === undefined && body.profile === undefined && Buffer.byteLength(raw) <= LIMITS.claudeResponseBytes && exact(reply, ["kind", "bindingId", "generation", "requestId", "sourceVersion", "history", "sourceAuthenticated", "publishable", "cleanupConfirmed"])
               && reply.kind === "bound_history_observation" && reply.bindingId === body.bindingId && reply.generation === body.generation
               && reply.requestId === body.requestId && typeof reply.sourceVersion === "string" && /^[a-f0-9]{64}$/.test(reply.sourceVersion)
               && reply.sourceAuthenticated === false && reply.publishable === false && reply.cleanupConfirmed === true && inertHistory(reply.history, body.page);

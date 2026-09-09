@@ -1,5 +1,9 @@
 # Web 完整體：持續執行與驗收清單
 
+2026-09-09／Plan1.74：大型page已接真正Host／registry／HTTP／peer／Web，
+17.2MB/16384筆、原名、直跳／頁外版本及損壞恢復、320/390px通；1057/0fail。
+跨頁全域結構仍待，C2/C6不勾完成，exact CI待核。[最新接續與證據](codex-large-web.md)。
+
 2026-09-08，Jerome 明確要求「開啟 loop 模式，讓它變得完整」。已建立目前任務的
 持續 goal；本文件保存工作順序和驗收狀態，**不是另一個排程器，也不執行背景 shell loop**。
 長期決策仍以 [platform-plan.md](platform-plan.md) 為準；本文件不取代或放寬該計畫。

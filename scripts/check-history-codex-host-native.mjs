@@ -10,10 +10,11 @@ import { pathToFileURL } from "node:url";
 import { startSyntheticCodexHistoryHost } from "./history-codex-host-synthetic.mjs";
 import transport from "../public/modules/history-transport.js";
 import projection from "../public/modules/projection.js";
+import codexView from "../public/modules/codex-history-view.js";
 
 export async function checkCodexHostNative({ helperPath, onProgress = () => {} }) {
   const started = performance.now();
-  const host = await startSyntheticCodexHistoryHost({ helperPath }); let cleanup;
+  const host = await startSyntheticCodexHistoryHost({ helperPath }); let cleanup, largeResult;
   const mark = async stage => onProgress({ gate: "codex_owned_host_progress", stage, elapsedMs: Math.round(performance.now() - started),
     parentRssBytes: process.memoryUsage().rss, ...await host.diagnostics() });
   const viewId = crypto.randomUUID(), cookie = `stepsemble=${crypto.createHash("sha256").update(host.token).digest("hex")}`;
@@ -126,6 +127,60 @@ export async function checkCodexHostNative({ helperPath, onProgress = () => {} }
     const compressedLinked = await read(r, 0, undefined, true); assert.deepEqual(compressedLinked.history.structure, linked.history.structure);
     await host.mutate("restore_plain"); await host.mutate("clear_compressed"); await release(r);
     assert.equal((await read(r, 0, undefined, true)).kind, "source_unavailable"); await mark("structured_turns_tools_raw_roundtrip_and_revocation");
+    await host.mutate("reset"); await host.mutate("large_rollout"); p = await catalog();
+    assert.equal((await metadata(p)).metadata.nativeTitle, "最新 WAL 名稱 🐾");
+    const requests = [], timings = [], healthTimes = [], hostRssSamples = [];
+    const model = codexView.createModel({ hostId: "owned-codex-host", viewId, catalogId: p.entries[0].catalogId,
+      initialStructured: true, canonicalJSON: projection.canonicalJSON, requestId: crypto.randomUUID,
+      transport: { ...client, async readCodex(scope, request, options) {
+        const before = performance.now(); requests.push({ offset: options.page.offset, profile: options.profile, version: options.version });
+        let monitoring = true;
+        const monitor = (async () => {
+          while (monitoring) {
+            const beforeHealth = performance.now(), health = await fetch(host.origin + "/api/health", { headers: { cookie }, signal: AbortSignal.timeout(5000) });
+            assert.equal(health.status, 200); await health.arrayBuffer(); healthTimes.push(performance.now() - beforeHealth);
+            const diagnostic = await host.diagnostics(); if (diagnostic.hostRssBytes !== null) hostRssSamples.push(diagnostic.hostRssBytes);
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+        })();
+        // Install a handler immediately; failures remain fatal after read cleanup.
+        const observed = monitor.then(() => null, error => error);
+        try { const result = await client.readCodex(scope, request, options); timings.push(performance.now() - before); return result; }
+        finally { monitoring = false; const error = await observed; if (error) throw error; }
+      } } });
+    try {
+      await model.select(p.entries[0].catalogId); let state = model.state(); assert.equal(state.error, null, state.error);
+      assert.deepEqual(requests.slice(0, 2).map(r => r.profile), [undefined, "codex_validated_page_v1"]);
+      const firstLarge = state.page; assert.equal(firstLarge.history.records.recordCount, 16384);
+      assert(firstLarge.history.records.byteLength > 16 * 1024 * 1024); assert.equal(firstLarge.history.structure, undefined);
+      assert(firstLarge.history.records.records[1].rawText.includes("END-OF-OWNED-LARGE-TEXT"));
+      assert.equal(firstLarge.history.nativeTitle, "最新 WAL 名稱 🐾");
+      await model.next(); await model.previous(); assert.equal(model.state().page.history.records.offset, 0);
+      await model.jump(10000); state = model.state(); assert.equal(state.page.history.records.offset, 10000);
+      assert.equal(state.page.sourceVersion, firstLarge.sourceVersion); assert(state.page.history.records.records[0].rawText.includes("owned-large-10000"));
+      await model.jump(16380); state = model.state(); assert.equal(state.canNext, false); assert.equal(state.page.history.records.records.length, 4);
+      assert(state.page.history.records.records.at(-1).rawText.includes("END-OF-OWNED-LARGE-HISTORY"));
+      await host.mutate("large_append"); await model.jump(0); assert.equal(model.state().error, "source_version_changed");
+      assert.equal(model.state().stale, true); await model.refresh(); assert.equal(model.state().page.history.records.recordCount, 16385);
+      await host.mutate("rename"); await model.next(); assert.equal(model.state().error, "source_version_changed");
+      await model.refresh(); assert.equal(model.state().page.history.nativeTitle, "renamed");
+      await host.mutate("large_invalid_outside"); await model.refresh(); assert.equal(model.state().error, "rollout_invalid_record");
+      await host.mutate("large_repair"); await model.refresh(); assert.equal(model.state().error, null);
+      await model.setStructured(false); assert.equal(requests.at(-1).profile, "codex_validated_page_v1");
+      assert.equal(model.state().page.history.structure, undefined);
+      healthTimes.sort((a, b) => a - b);
+      largeResult = { bytes: firstLarge.history.records.byteLength, records: 16384, maximumPageRecords: 10,
+        nextPreviousAndDirectJump: true, originalNameAndRename: true, appendVersionFence: true, offPageCorruptionRefusedAndRepaired: true,
+        sameTypedWebModel: true, maxRequestMs: Math.max(...timings), readRequests: requests.length, sourceLinkedStructureComplete: false,
+        healthDuringReads: { samples: healthTimes.length, p95Ms: healthTimes[Math.ceil(healthTimes.length * .95) - 1], maxMs: Math.max(...healthTimes) },
+        hostRss: { samples: hostRssSamples.length, maxObservedBytes: hostRssSamples.length ? Math.max(...hostRssSamples) : null,
+          scope: "200ms_samples_not_peak_RSS_or_capacity" } };
+      await host.mutate("many_records"); await model.refresh();
+      const many = model.state(); assert.equal(many.error, null, many.error); assert.equal(many.profile, "codex_validated_page_v1");
+      assert(many.page.history.records.byteLength < 8 * 1024 * 1024); assert.equal(many.page.history.records.recordCount, 16384);
+      largeResult.smallBytesManyRecords = { bytes: many.page.history.records.byteLength, records: 16384, oldRecordLimitNegotiation: true };
+    } finally { await model.close(); assert.equal(model.state().page, null); assert.equal(model.state().cleanupPending, false); }
+    await mark("large_history_actual_host_web_model_and_cleanup");
     await host.mutate("missing"); p = await catalog(); assert.equal(p.total, 0); assert.equal(p.entries.length, 0);
     await mark("empty_and_main_cleanup_start");
   } finally { cleanup = await host.close(); }
@@ -150,7 +205,7 @@ export async function checkCodexHostNative({ helperPath, onProgress = () => {} }
     createdConfigUsedUnedited: true, explicitInventory: true, walRenameAndStalePage: true, coldCatalogAndAllPages: true,
     bothLayoutTransitionsRejectStalePage: true, partialSidecarsRefusedWithoutRepair: true, paginatedExplicitUnavailable: true,
     compressedAllPagesAndNames: true, concatenatedAndColdCompressed: true, corruptRefusedAndPlainPriority: true, explicitCompressedCatalogLocator: true,
-    structuredRecords: 23, structuredTurns: 3, crossPageToolLinks: true, rollbackPreserved: true, structuredRawRoundtrip: true,
+    structuredRecords: 23, structuredTurns: 3, crossPageToolLinks: true, rollbackPreserved: true, structuredRawRoundtrip: true, largeHistory: largeResult,
     unsafePathNotOpened: true, emptyCatalog: true, startupFailureCleanup: true, rejectedMutationRecoveryAndCleanup: true, noClaudeSdk: true, modelCalls: 0, privateHistoryReads: 0, ...cleanup };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

@@ -145,7 +145,7 @@ function createHistoryRelayHandler({ auth, allowedOrigins, browserCookieNames = 
         if (path === "/api/history/source-catalog" && !sourceCatalogWire.validPage(value, body, PUBLIC_CODES)) throw fail("history_response_invalid");
         if (path === "/api/history/source-metadata" && !sourceCatalogWire.validMetadata(value, body)) throw fail("history_response_invalid");
         if (path === "/api/history/page" && (!row || row.state !== "active" || !(value?.kind === "bound_codex_records"
-          ? codexRecords.validBoundRecords(value, row.sessionId, body.page, body) : body.structured === undefined && validHistoryValue(value?.history, row.sessionId, body.page))))
+          ? codexRecords.validBoundRecords(value, row.sessionId, body.page, body) : body.structured === undefined && body.profile === undefined && validHistoryValue(value?.history, row.sessionId, body.page))))
           throw fail("history_response_invalid");
         // Shared HTTP handler checks whole bound/registration/release envelopes,
         // binding/generation/requestId and all inert authority before writing.

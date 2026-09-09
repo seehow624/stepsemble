@@ -331,7 +331,8 @@ function createHistoryHost({ config: input, browserCredentials, peerGrantIds, au
   }
 }
 function validCodexMetadata(value, selected) {
-  if (!codexWire.sameNamedVersion(value.source, value.source)) return false;
+  const paged = value.source?.kind === "codex_named_page_source_version";
+  if (!codexWire.sameNamedVersion(value.source, value.source, paged)) return false;
   const h = value.source.history, s = value.source.sqlite, m = value.metadata;
   return h.threadId === selected.sessionId && h.rolloutPath === selected.history.source.rolloutPath
     && h.rootIdentity.device === selected.history.expectedRoot.device && h.rootIdentity.inode === selected.history.expectedRoot.inode

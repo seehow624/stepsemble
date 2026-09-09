@@ -13,6 +13,13 @@ runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
+Plan1.74 connects an explicit validated-page profile through the SAME Host,
+registry, HTTP/peer and typed Web. Small/compressed structured history retains
+its original contract. Large records have full text and direct navigation, not
+invented global turn/tool links. Owned17.2MB/16384-record Host, CUA320/390px,
+full/minimum Node1057/0fail pass; exact CI pending. See
+[`codex-large-web.md`](codex-large-web.md) for protocol and performance limits.
+
 Latest development-only 40d2b43 adds page-aware parser v7/v8 and readPage/readNamedPage
 to the SAME admitted five-stage name/version pipeline. Real 16.9MB/16,384-record
 pages, native name rules, shared Claude peer, all-stage cancellation and unselected

@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.73
+> 計畫版本：1.74
 > 最後更新：2026-09-09
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,7 +15,13 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新接續1.73（大型分頁解析與名稱共用管線）**：40d2b43接parser7/8與同兩reader／
+**最新接續1.74（大型歷史接實際Host／Web）**：明確新profile接同binding／registry／
+HTTP／peer／typed Web，保留舊小型／壓縮回合檢視。大檔完整單筆文字與直接跳轉已接，
+不冒稱跨頁turn/tool結構。真17.2MB/16384筆、原名／append／rename／損壞恢復、
+320/390px與完整／最低Node1057/0fail通，兩輪health/RSS樣本已留。exact CI待核，
+見[大型Web接線](codex-large-web.md)。C2/C6及C1–C8仍未全完成。
+
+**前段接續1.73（大型分頁解析與名稱共用管線）**：40d2b43接parser7/8與同兩reader／
 五階段版本檢查，真16.9MB/16,384筆與Claude peer、五階段取消、頁外變更拒絕通；
 完整及最低Node1047/0fail；四exact CI全通且完整logs核，POSIX真大檔管線均通，
 Windows來源仍unsupported。仍未接新大檔registry/HTTP/Web，C2/C6不勾完成；

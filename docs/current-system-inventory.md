@@ -9,6 +9,10 @@
 
 ## 1. 這份文件的角色
 
+Plan1.74接新大型profile到Host／registry／HTTP／peer／Web；原名、17.2MB/16384筆、
+直跳、追加／改名／損壞恢復與320/390px已驗，完整／最低Node1057/0fail。
+跨頁結構仍待、exact CI待核，見[最新產品接線](codex-large-web.md)。下段「未接Host/Web」是歷史狀態。
+
 最新40d2b43已接v11 page-aware parser7/8及同named五階段／共享兩reader，原名與
 大檔頁外變更／真取消驗證通，完整及最低Node1047/0fail；四exact CI全通／full logs核。
 **新大檔Host/Web未接**，

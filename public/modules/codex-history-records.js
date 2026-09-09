@@ -7,6 +7,10 @@ var StepsembleCodexHistoryRecords;
 (function (StepsembleCodexHistoryRecords) {
     StepsembleCodexHistoryRecords.LIMITS = Object.freeze({ responseBytes: 384 * 1024, pageBytes: 272 * 1024, sourceBytes: 8 * 1024 * 1024,
         recordBytes: 128 * 1024, records: 8192, pageRecords: 50, nameBytes: 32768 });
+    // Explicit capability negotiation: old callers keep the original bounds and
+    // reject this shape. A validated page is not an old whole-file snapshot.
+    StepsembleCodexHistoryRecords.PAGE_PROFILE = "codex_validated_page_v1";
+    StepsembleCodexHistoryRecords.PAGE_LIMITS = Object.freeze({ sourceBytes: 256 * 1024 * 1024, records: 262144 });
     StepsembleCodexHistoryRecords.STRUCTURE_PROFILE = "codex_legacy_record_structure_v1";
     StepsembleCodexHistoryRecords.STRUCTURE_WARNINGS = ["invalid_turn_reference", "ambiguous_turn_reference", "unmatched_turn_reference", "invalid_tool_reference",
         "ambiguous_tool_reference", "unknown_record_preserved", "unknown_event_preserved", "invalid_terminal_error", "unclassified_error_preserved",
@@ -21,21 +25,23 @@ var StepsembleCodexHistoryRecords;
     const label = (v) => typeof v === "string" && v.length > 0 && v.length <= 128 && !/[\u0000-\u001f\u007f-\u009f]/.test(v);
     const encoder = new TextEncoder();
     StepsembleCodexHistoryRecords.validTitle = (v) => v === null || typeof v === "string" && encoder.encode(v).length <= StepsembleCodexHistoryRecords.LIMITS.nameBytes;
-    function validPage(v) {
-        return keys(v, ["offset", "limit"]) && count(v.offset, StepsembleCodexHistoryRecords.LIMITS.records) && count(v.limit, StepsembleCodexHistoryRecords.LIMITS.pageRecords) && v.limit > 0;
+    function validPage(v, profile) {
+        return (profile === undefined || profile === StepsembleCodexHistoryRecords.PAGE_PROFILE) && keys(v, ["offset", "limit"])
+            && count(v.offset, profile === StepsembleCodexHistoryRecords.PAGE_PROFILE ? StepsembleCodexHistoryRecords.PAGE_LIMITS.records : StepsembleCodexHistoryRecords.LIMITS.records) && count(v.limit, StepsembleCodexHistoryRecords.LIMITS.pageRecords) && v.limit > 0;
     }
     StepsembleCodexHistoryRecords.validPage = validPage;
     /** Input must already be byte-bounded detached JSON, with no getters. */
-    function validHistoryValue(v, threadId, page, structured = false) {
-        if (typeof structured !== "boolean" || !uuid(threadId) || !validPage(page) || !keys(v, ["kind", "nativeVersion", "nativeThreadId", "nativeTitle", "page", "records", "semanticHistoryComplete", "sourceAuthenticated", "publishable", "authority", ...(structured ? ["structure"] : [])])
-            || v.kind !== "codex_source_records" || v.nativeVersion !== "0.153.4" || v.nativeThreadId !== threadId || !StepsembleCodexHistoryRecords.validTitle(v.nativeTitle)
-            || !validPage(v.page) || v.page.offset !== page.offset || v.page.limit !== page.limit || v.semanticHistoryComplete !== false || v.sourceAuthenticated !== false || v.publishable !== false
+    function validHistoryValue(v, threadId, page, structured = false, profile) {
+        const paged = profile === StepsembleCodexHistoryRecords.PAGE_PROFILE, limits = paged ? StepsembleCodexHistoryRecords.PAGE_LIMITS : StepsembleCodexHistoryRecords.LIMITS;
+        if (typeof structured !== "boolean" || structured && paged || !uuid(threadId) || !validPage(page, profile) || !keys(v, ["kind", "nativeVersion", "nativeThreadId", "nativeTitle", "page", "records", "semanticHistoryComplete", "sourceAuthenticated", "publishable", "authority", ...(structured ? ["structure"] : [])])
+            || v.kind !== (paged ? "codex_validated_source_records" : "codex_source_records") || v.nativeVersion !== "0.153.4" || v.nativeThreadId !== threadId || !StepsembleCodexHistoryRecords.validTitle(v.nativeTitle)
+            || !validPage(v.page, profile) || v.page.offset !== page.offset || v.page.limit !== page.limit || v.semanticHistoryComplete !== false || v.sourceAuthenticated !== false || v.publishable !== false
             || !keys(v.authority, ["sourceAuthenticated", "approvalAcknowledged", "runTerminalObserved", "resumeAllowed"]) || !Object.values(v.authority).every(x => x === false))
             return false;
         const r = v.records;
         if (!keys(r, ["kind", "nativeVersion", "nativeThreadId", "scope", "sha256", "recordCount", "byteLength", "offset", "records", "nextOffset", "endOfFile", "sourceAuthenticated", "publishable", "semanticHistoryComplete"])
-            || r.kind !== "codex_rollout_records" || r.nativeVersion !== v.nativeVersion || r.nativeThreadId !== threadId || r.scope !== "one_legacy_rollout_raw_records"
-            || !hash(r.sha256) || !count(r.recordCount, StepsembleCodexHistoryRecords.LIMITS.records) || !r.recordCount || !count(r.byteLength, StepsembleCodexHistoryRecords.LIMITS.sourceBytes) || !r.byteLength
+            || r.kind !== (paged ? "codex_validated_rollout_records" : "codex_rollout_records") || r.nativeVersion !== v.nativeVersion || r.nativeThreadId !== threadId || r.scope !== (paged ? "one_legacy_rollout_validated_page" : "one_legacy_rollout_raw_records")
+            || !hash(r.sha256) || !count(r.recordCount, limits.records) || !r.recordCount || !count(r.byteLength, limits.sourceBytes) || !r.byteLength
             || r.offset !== page.offset || !Array.isArray(r.records) || r.records.length > page.limit || r.offset + r.records.length > r.recordCount
             || r.endOfFile !== (r.offset + r.records.length === r.recordCount) || r.nextOffset !== (r.endOfFile ? null : r.offset + r.records.length)
             || !r.endOfFile && !r.records.length || r.sourceAuthenticated !== false || r.publishable !== false || r.semanticHistoryComplete !== false
@@ -111,10 +117,11 @@ var StepsembleCodexHistoryRecords;
         return uuid(scope.bindingId) && uuid(scope.requestId) && count(scope.generation, Number.MAX_SAFE_INTEGER) && scope.generation > 0
             && (scope.version === undefined || hash(scope.version))
             && (scope.structured === undefined || scope.structured === true)
+            && (scope.profile === undefined || scope.profile === StepsembleCodexHistoryRecords.PAGE_PROFILE && scope.structured === undefined)
             && keys(v, ["kind", "bindingId", "generation", "requestId", "sourceVersion", "history", "sourceAuthenticated", "publishable", "cleanupConfirmed"])
             && v.kind === "bound_codex_records" && v.bindingId === scope.bindingId && v.generation === scope.generation && v.requestId === scope.requestId
             && hash(v.sourceVersion) && (scope.version === undefined || v.sourceVersion === scope.version)
-            && v.sourceAuthenticated === false && v.publishable === false && v.cleanupConfirmed === true && validHistoryValue(v.history, threadId, page, scope.structured === true);
+            && v.sourceAuthenticated === false && v.publishable === false && v.cleanupConfirmed === true && validHistoryValue(v.history, threadId, page, scope.structured === true, scope.profile);
     }
     StepsembleCodexHistoryRecords.validBoundRecords = validBoundRecords;
 })(StepsembleCodexHistoryRecords || (StepsembleCodexHistoryRecords = {}));

@@ -7,6 +7,7 @@ const { normalizeGroupSource } = require("./history-source-index");
 const { isReaderAdmission } = require("../claude/history-reader-admission");
 const wire = require("./parser-wire"), sql = require("./sqlite-wire").context;
 const historyWire = require("./source-wire");
+const publicWire = require("../../../public/modules/codex-history-records");
 const LIMITS = Object.freeze({ bindings: 64, groups: 8, sourceBytes: 64 * 1024, responseBytes: 384 * 1024, pageRecords: 50, records: 8192 });
 const unavailable = code => ({ kind: "source_unavailable", code });
 const uuid = value => typeof value === "string" && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(value);
@@ -24,10 +25,7 @@ function sourceGroup(source) {
 }
 const key = value => JSON.stringify([value.nativeVersion, value.codexRoot, value.expectedCodexRoot.device, value.expectedCodexRoot.inode,
   value.sqliteRoot, value.expectedSqliteRoot.device, value.expectedSqliteRoot.inode]);
-function validPage(page) {
-  return wire.keys(page, ["offset", "limit"]) && Number.isSafeInteger(page.offset) && page.offset >= 0 && page.offset <= LIMITS.records
-    && Number.isSafeInteger(page.limit) && page.limit >= 1 && page.limit <= LIMITS.pageRecords;
-}
+const validPage = (page, profile) => publicWire.validPage(page, profile);
 function createCodexSourceService(options = {}) {
   if (!sql.own(options, ["helperPath", "roots", "admission", "createHelper", "spawnChild", "platform", "deadlineMs", "cleanupMs"]))
     throw new TypeError("invalid_codex_source_service_options");
@@ -70,12 +68,14 @@ function createCodexSourceService(options = {}) {
     const revoke = () => { state.revoked = true; state.version = null; state.flight?.controller.abort(); };
     async function read(input, options, metadata) {
       const status = sweep();
-      if (!sql.own(options, ["signal", "version", ...(metadata ? [] : ["page", "structured"])])
-        || options.structured !== undefined && options.structured !== true) return unavailable("invalid_history_options");
+      if (!sql.own(options, ["signal", "version", ...(metadata ? [] : ["page", "structured", "profile"])])
+        || options.structured !== undefined && options.structured !== true
+        || options.profile !== undefined && (options.profile !== publicWire.PAGE_PROFILE || options.structured !== undefined)) return unavailable("invalid_history_options");
+      let paged = options.profile === publicWire.PAGE_PROFILE;
       const request = wire.detach(input), page = wire.detach(options.page ?? { offset: 0, limit: 25 });
       if (!wire.keys(request, ["bindingId", "generation", "requestId"]) || request.bindingId !== value.bindingId || request.generation !== value.generation || !uuid(request.requestId))
         return unavailable("source_binding_mismatch");
-      if (!validPage(page)) return unavailable("invalid_history_page");
+      if (!validPage(page, options.profile)) return unavailable("invalid_history_page");
       if (options.signal !== undefined && !(options.signal instanceof AbortSignal)) return unavailable("invalid_source_signal");
       if (options.version !== undefined && !token(options.version)) return unavailable("invalid_history_version");
       if (closed || status.closed) return unavailable("source_service_closed");
@@ -87,13 +87,27 @@ function createCodexSourceService(options = {}) {
       // No empty transcript fallback for unsupported native storage.
       if (!metadata && source.historyMode === "paginated") return unavailable("native_paginated_history_unsupported");
       const expected = options.version === undefined ? null : state.version;
+      // Opaque versions belong to one capture protocol. They cannot be reused
+      // to silently upgrade/downgrade source validation or storage semantics.
+      if (expected && !metadata && expected.profile !== options.profile) return unavailable("source_version_unavailable");
+      if (expected && metadata) paged = expected.profile === publicWire.PAGE_PROFILE;
       let finish;
       const controller = new AbortController(), current = { controller, unknown: false, done: new Promise(resolve => { finish = resolve; }) }; state.flight = current;
       const abort = () => controller.abort(); options.signal?.addEventListener("abort", abort, { once: true });
       try {
-        const result = await pipeline.readNamed({ history: source.history, sqlite: source.sqlite, method: "thread_read_sqlite" },
+        const capture = () => pipeline[paged ? "readNamedPage" : "readNamed"]({ history: source.history, sqlite: source.sqlite, method: "thread_read_sqlite" },
           { selection: metadata ? { mode: "names" } : { mode: "records", ...page }, ...(options.structured === true ? { structured: true } : {}),
             ...(expected ? { expectedVersion: expected.source } : {}), signal: controller.signal });
+        let result = await capture();
+        // Metadata's public shape is unchanged. Select the page-capable native
+        // name reader only for a fresh, legacy, size-limited source and only
+        // after the old reader has physically closed. No error retry loop.
+        const beforeSwitch = pipeline.status();
+        if (metadata && !expected && !paged && source.historyMode === "legacy" && result.kind === "source_unavailable"
+          && ["source_too_large", "rollout_record_limit"].includes(result.code) && beforeSwitch.cleanupConfirmed
+          && !beforeSwitch.closed && !beforeSwitch.quarantined && !closed && !state.revoked && !controller.signal.aborted) {
+          paged = true; result = await capture();
+        }
         const status = pipeline.status();
         if (result?.code === "source_cleanup_unconfirmed" || status.quarantined && !status.cleanupConfirmed) {
           current.unknown = true; return unavailable("source_cleanup_unconfirmed");
@@ -103,10 +117,10 @@ function createCodexSourceService(options = {}) {
         if (controller.signal.aborted) return unavailable("source_aborted");
         if (status.quarantined) return unavailable("source_service_quarantined");
         if (result.kind === "source_unavailable") return result;
-        if (result.kind !== "codex_named_capture" || result.cleanupConfirmed !== true || !wire.sameNamedVersion(result.source, result.source)
+        if (result.kind !== (paged ? "codex_named_page_capture" : "codex_named_capture") || result.cleanupConfirmed !== true || !wire.sameNamedVersion(result.source, result.source, paged)
           || result.source.history.threadId !== source.sessionId || result.name?.nativeThreadId !== source.sessionId
           || result.consistency !== "matching_selected_versions_before_and_after_parse") return unavailable("source_worker_protocol");
-        const version = expected ?? { token: crypto.randomBytes(32).toString("hex"), source: result.source };
+        const version = expected ?? { token: crypto.randomBytes(32).toString("hex"), source: result.source, profile: paged ? publicWire.PAGE_PROFILE : undefined };
         const common = { bindingId: value.bindingId, generation: value.generation, requestId: request.requestId, sourceVersion: version.token,
           sourceAuthenticated: false, publishable: false, cleanupConfirmed: true };
         let output;
@@ -114,7 +128,7 @@ function createCodexSourceService(options = {}) {
           output = { ...common, kind: "bound_codex_metadata", source: result.source, name: result.name,
             metadata: { sessionId: source.sessionId, nativeTitle: result.name.name, summary: null, titleStatus: result.name.name === null ? "untitled" : "native" } };
         } else {
-          output = { ...common, kind: "bound_codex_records", history: { kind: "codex_source_records", nativeVersion: "0.153.4", nativeThreadId: source.sessionId,
+          output = { ...common, kind: "bound_codex_records", history: { kind: paged ? "codex_validated_source_records" : "codex_source_records", nativeVersion: "0.153.4", nativeThreadId: source.sessionId,
             nativeTitle: result.name.name, page, records: result.page, ...(options.structured === true ? { structure: result.structure } : {}),
             semanticHistoryComplete: false, sourceAuthenticated: false, publishable: false,
             authority: { sourceAuthenticated: false, approvalAcknowledged: false, runTerminalObserved: false, resumeAllowed: false } } };

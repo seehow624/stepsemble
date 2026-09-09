@@ -154,12 +154,49 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
         assert.equal(histories.at(-1).structured, undefined); assert.equal(await page.locator(".codex-history-turn").count(), 0);
         await page.locator('[data-history-mode="structured"]').click(); await page.locator(".codex-history-turn").first().waitFor();
         await content.getByRole("button", { name: "關閉歷史", exact: true }).click();
+        stage = "large history format negotiation, full text and direct record jump";
+        await host.mutate("reset"); await host.mutate("large_rollout"); await refreshSource.click();
+        const largeStart = histories.length; await page.locator(".source-open").first().click();
+        await page.waitForFunction(() => document.querySelector(".codex-record-view")?.getAttribute("aria-busy") === "false"
+          && document.querySelector('[data-action="recordNumber"]')?.max === "16384");
+        assert.deepEqual(histories.slice(largeStart, largeStart + 2).map(h => h.profile), [undefined, "codex_validated_page_v1"]);
+        assert((await content.textContent()).includes("跨頁回合與工具關聯尚未提供"));
+        assert.equal(await page.locator(".codex-history-turn,[data-related-record]").count(), 0);
+        assert.equal(await page.locator(".codex-record").count(), 10);
+        const largeText = page.locator('.codex-record[data-record-kind="assistant"] .history-message-text').first();
+        assert((await largeText.textContent()).endsWith("END-OF-OWNED-LARGE-TEXT"));
+        await largeText.focus(); const largeBefore = await largeText.evaluate(n => ({ outer: scrollY, inner: n.scrollTop }));
+        await largeText.press("PageDown");
+        await page.waitForFunction(top => document.querySelector('.codex-record[data-record-kind="assistant"] .history-message-text').scrollTop > top, largeBefore.inner);
+        assert.equal(await page.evaluate(() => scrollY), largeBefore.outer);
+        const jumpInput = page.locator('[data-action="recordNumber"]'); await jumpInput.fill("16381");
+        const largeReads = histories.length;
+        for (const locale of ["en", "zh-Hans", "ja", "ko", "tr", "fr", "de", "es", "pt-BR", "it", "zh-Hant"]) {
+          await page.locator("#history-language").selectOption(locale);
+          assert.equal(await jumpInput.inputValue(), "16381"); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        }
+        assert.equal(histories.length, largeReads);
+        await page.locator('[data-action="jump"]').click(); await page.waitForFunction(() => document.querySelector("#codex-record-16380") !== null);
+        assert.equal(histories.at(-1).page.offset, 16380); assert.equal(histories.at(-1).profile, "codex_validated_page_v1"); assert(histories.at(-1).version);
+        assert.equal(await page.locator(".codex-record").count(), 4); assert.equal(await next.isEnabled(), false);
+        assert((await content.textContent()).includes("END-OF-OWNED-LARGE-HISTORY"));
+        await host.mutate("large_append"); await jumpInput.fill("1"); await page.locator('[data-action="jump"]').click();
+        await page.waitForFunction(() => document.querySelector(".codex-record-view .history-warning")?.hidden === false);
+        assert.equal(await jumpInput.isEnabled(), false);
+        await content.getByRole("button", { name: "重新整理", exact: true }).click();
+        await page.waitForFunction(() => document.querySelector(".codex-record-view")?.getAttribute("aria-busy") === "false"
+          && document.querySelector('[data-action="recordNumber"]')?.max === "16385");
+        await page.locator('[data-history-mode="raw"]').click();
+        await page.waitForFunction(() => document.querySelector(".codex-record h4")?.textContent.startsWith("1 ·"));
+        assert.equal(histories.at(-1).profile, "codex_validated_page_v1");
+        await content.getByRole("button", { name: "關閉歷史", exact: true }).click();
         stage = "empty stored catalog"; await host.mutate("missing"); await refreshSource.click();
         await page.waitForFunction(() => document.querySelectorAll(".source-open").length === 0);
         await page.getByText("這次清單沒有符合範圍的對話。", { exact: true }).waitFor();
         assert.deepEqual(errors, []); assert.deepEqual(foreign, []); assert.deepEqual(forbidden, []);
         console.log(JSON.stringify({ gate: "codex_history_browser", width: viewport.width, colorScheme, passed: true,
           structuredConversationAndRawModes: true, structuredFullText: true, crossPageToolNavigation: true, rolledBackAndInferredTurns: true,
+          largeHistory16384Records: true, largeFullTextAndInnerScroll: true, directJumpPast8192: true, largeAppendFenceAndRecovery: true,
           coldHistoryAndBothLayoutTransitions: true, compressedAllPagesAndBothTransitions: true, damagedCompressedGuidanceAndRecovery: true, physicalDevice: false }));
       } catch (error) {
         // Owned fixtures only; retain bounded UI state, never dump transcripts

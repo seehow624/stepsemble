@@ -5,7 +5,7 @@ const { normalizeRegistrySource } = require("../protocol/native/claude/history-r
 const { normalizeCodexSource, validPage } = require("../protocol/native/codex/history-source-service");
 const { validPage: claudePage } = require("../protocol/native/claude/history-worker-wire");
 const normalizeSource = input => normalizeCodexSource(input) ?? normalizeRegistrySource(input);
-const validReadPage = input => validPage(input) || claudePage(input);
+const validReadPage = (input, profile) => validPage(input, profile) || profile === undefined && claudePage(input);
 function createHistorySourceServices({ claude, codex, admission }) {
   const services = [claude, codex].filter(Boolean);
   if (!services.length || services.some(s => ["bind", "status", "shutdown"].some(k => typeof s[k] !== "function"))) throw new TypeError("invalid_history_services");

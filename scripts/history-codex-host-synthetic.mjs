@@ -8,7 +8,8 @@ import os from "node:os";
 import crypto from "node:crypto";
 import http from "node:http";
 import { once } from "node:events";
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
+import { promisify } from "node:util";
 import readline from "node:readline";
 import { zstdCompressSync, constants } from "node:zlib";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -28,7 +29,13 @@ export async function startSyntheticCodexHistoryHost({ helperPath, port = 0 } = 
   const stagedHelper = path.join(temp, "history-reader");
   async function snapshot() {
     const file = path.join(ready.codexRoot, ready.rolloutPath), index = await fs.readFile(path.join(ready.codexRoot, "session_index.jsonl"));
-    const hashOptional = async file => { try { return digest(await fs.readFile(file)); } catch (error) { if (error.code === "ENOENT") return null; throw error; } };
+    const hashOptional = async file => {
+      let handle; try {
+        handle = await fs.open(file, "r"); const hash = crypto.createHash("sha256");
+        for await (const chunk of handle.createReadStream({ autoClose: false, highWaterMark: 65536 })) hash.update(chunk);
+        return hash.digest("hex");
+      } catch (error) { if (error.code === "ENOENT") return null; throw error; } finally { await handle?.close(); }
+    };
     return { sql: await snapshotOwnedSqlite(ready.sqliteRoot, { allowStoredLayout: true }), rollout: await hashOptional(file), compressed: await hashOptional(file + ".zst"), index: digest(index) };
   }
   async function stopChild(requireSuccess = true) {
@@ -39,11 +46,37 @@ export async function startSyntheticCodexHistoryHost({ helperPath, port = 0 } = 
     assert(outcome, "synthetic_codex_host_cleanup_unconfirmed_owned_fixtures_preserved");
     if (requireSuccess) assert(outcome[0] === 0 && outcome[1] === null, "synthetic_codex_host_failed_owned_fixtures_preserved");
   }
-  let retainedRollout = null;
+  let retainedRollout = null, largeDamageOffset = null;
   async function fixtureMutation(command) {
     // These are exact files under the fixture writer's owned temporary root,
     // never product source-reader operations or source paths from HTTP.
     const file = path.join(ready.codexRoot, ready.rolloutPath);
+    if (["large_rollout", "many_records"].includes(command)) {
+      assert(retainedRollout === null); const handle = await fs.open(file, "w"); let byteOffset = 0;
+      try {
+        for (let first = 0; first < 16384; first += 64) {
+          const rows = [];
+          for (let n = first; n < Math.min(first + 64, 16384); n++) {
+            const value = n === 0 ? { type: "session_meta", payload: { id: ready.threadId, history_mode: "legacy", cli_version: "0.153.4" } }
+              : n === 16383 ? { type: "future_owned_record", payload: { marker: "END-OF-OWNED-LARGE-HISTORY" } }
+              : { type: "event_msg", payload: { type: "agent_message", message: `owned-large-${n} ` + (n === 1 ? "長".repeat(5000) + "END-OF-OWNED-LARGE-TEXT" : "x".repeat(command === "many_records" ? 4 : 960)) } };
+            const row = JSON.stringify(value) + "\n"; if (n === 10000) largeDamageOffset = byteOffset;
+            byteOffset += Buffer.byteLength(row); rows.push(row);
+          }
+          await handle.writeFile(rows.join(""));
+        }
+      } finally { await handle.close(); }
+      assert(command === "many_records" ? byteOffset < 8 * 1024 * 1024 : byteOffset > 16 * 1024 * 1024); return;
+    }
+    if (["large_invalid_outside", "large_repair"].includes(command)) {
+      assert(Number.isSafeInteger(largeDamageOffset)); const handle = await fs.open(file, "r+");
+      try { await handle.write(Buffer.from(command === "large_repair" ? "{" : "!"), 0, 1, largeDamageOffset); } finally { await handle.close(); }
+      return;
+    }
+    if (command === "large_append") {
+      assert(Number.isSafeInteger(largeDamageOffset));
+      await fs.appendFile(file, JSON.stringify({ type: "future_owned_record", payload: { marker: "OWNED-LARGE-APPEND" } }) + "\n"); return;
+    }
     if (["compress", "compress_concat", "compress_corrupt"].includes(command)) {
       // A failed Buffer-vs-null equality assertion formats a massive diff.
       // This expected negative case must never retain/format transcript bytes.
@@ -99,14 +132,20 @@ export async function startSyntheticCodexHistoryHost({ helperPath, port = 0 } = 
     return Object.freeze({ origin, token, threadId: ready.threadId, setupResult, artifact, close,
       async diagnostics() {
         // Only the exact owned child; never scan other processes or environments.
-        if (process.platform !== "linux" || child.exitCode !== null || child.signalCode !== null) return { hostRssBytes: null };
+        if (child.exitCode !== null || child.signalCode !== null) return { hostRssBytes: null };
+        if (process.platform === "darwin") {
+          const { stdout } = await promisify(execFile)("/bin/ps", ["-o", "rss=", "-p", String(child.pid)], { timeout: 2000, maxBuffer: 1024 });
+          const rss = stdout.trim(); return { hostRssBytes: /^\d+$/.test(rss) ? Number(rss) * 1024 : null };
+        }
+        if (process.platform !== "linux") return { hostRssBytes: null };
         const status = await fs.readFile(`/proc/${child.pid}/status`, "utf8");
         const rss = /^VmRSS:\s+(\d+)\s+kB$/m.exec(status);
         return { hostRssBytes: rss ? Number(rss[1]) * 1024 : null };
       },
       mutate(command) {
         if (closing || !["rename", "path", "paginated", "reset", "rich_rollout", "structured_rollout", "catalog_full", "catalog_reset", "missing", "cold", "reopen", "partial_sidecar", "remove_partial_sidecar",
-          "compress", "compress_concat", "compress_corrupt", "restore_plain", "clear_compressed", "compressed_path", "plain_path"].includes(command)) throw new Error("synthetic_codex_mutation_invalid");
+          "compress", "compress_concat", "compress_corrupt", "restore_plain", "clear_compressed", "compressed_path", "plain_path",
+          "large_rollout", "many_records", "large_invalid_outside", "large_repair", "large_append"].includes(command)) throw new Error("synthetic_codex_mutation_invalid");
         const next = mutation.then(async () => { assert.deepEqual(await snapshot(), expected); await fixtureMutation(command); expected = await snapshot(); });
         // The caller still receives the exact failure; the serialization tail
         // must settle so close/recovery can actually reap the owned processes.

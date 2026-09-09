@@ -24,7 +24,7 @@ function harness(t, options = {}, create = view.createModel) {
   };
   const transport = {
     async register(...args) { calls.push("register"); return options.register ? options.register(...args, registration) : registration(); },
-    async readCodex(scope, request, opts) { calls.push({ offset: opts.page.offset, version: opts.version, structured: opts.structured }); return options.read ? options.read(scope, request, opts, bound) : bound(request, opts); },
+    async readCodex(scope, request, opts) { calls.push({ offset: opts.page.offset, version: opts.version, structured: opts.structured, profile: opts.profile }); return options.read ? options.read(scope, request, opts, bound) : bound(request, opts); },
     async release(...args) { calls.push("release"); return options.release ? options.release(...args) : { kind: "history_released", cleanupConfirmed: true }; }
   };
   const model = create({ catalogId, viewId, hostId: "owned", transport, canonicalJSON, requestId: randomUUID, now: () => control.now, ...options.dependencies });
@@ -93,6 +93,66 @@ class Element {
   addEventListener(e, fn) { (this.listeners[e] ??= []).push(fn); } dispatch(e) { for (const fn of this.listeners[e] ?? []) fn({ target: this }); }
 }
 const all = n => [n, ...n.children.flatMap(all)];
+function largeReader(large) {
+  return (_scope, request, options, good) => {
+    if (!options.profile) return { kind: "source_unavailable", code: "source_too_large" };
+    const reply = good(request, { ...options, page: { offset: 0, limit: 1 } });
+    reply.history.kind = "codex_validated_source_records"; reply.history.page = options.page; reply.history.records = large.page(options.page);
+    return reply;
+  };
+}
+test("large history negotiates once after the old limit, then jumps beyond 8192 using the same version", async t => {
+  const large = require("./support/codex-large-fixture.cjs")(), h = harness(t, { read: largeReader(large), dependencies: { initialStructured: true } });
+  await h.model.select(catalogId); assert.equal(h.model.state().error, null); assert.equal(h.model.state().profile, wire.PAGE_PROFILE);
+  assert.equal(h.model.state().page.history.records.recordCount, 9005); assert.equal(h.model.state().page.history.structure, undefined);
+  assert.deepEqual(h.calls.filter(v => typeof v === "object").map(v => [v.structured, v.profile]), [[true, undefined], [undefined, wire.PAGE_PROFILE]]);
+  await h.model.jump(9000); assert.equal(h.model.state().page.history.records.offset, 9000); assert.equal(h.model.state().canNext, false);
+  assert.equal(h.calls.at(-1).version, token); assert.equal(h.calls.at(-1).structured, undefined);
+  await h.model.setStructured(false); assert.equal(h.calls.at(-1).profile, wire.PAGE_PROFILE); assert.equal(h.model.state().error, null);
+  await h.model.refresh(); assert.equal(h.calls.at(-2).profile, undefined); assert.equal(h.calls.at(-1).profile, wire.PAGE_PROFILE);
+  assert.equal(Object.hasOwn(h.model.state(), "pages"), false);
+});
+test("format negotiation never retries other failures, continuation failures or the new profile's failure", async t => {
+  for (const code of ["source_busy", "source_worker_timeout", "source_cleanup_unconfirmed", "rollout_invalid_record", "history_unauthorized", "source_version_changed"]) {
+    const h = harness(t, { read: () => ({ kind: "source_unavailable", code }) }); await h.model.select(catalogId);
+    assert.equal(h.calls.filter(v => typeof v === "object").length, 1); assert.equal(h.model.state().error, code);
+  }
+  const h = harness(t, { read: () => ({ kind: "source_unavailable", code: "rollout_record_limit" }) }); await h.model.select(catalogId);
+  assert.equal(h.calls.filter(v => typeof v === "object").length, 2); assert.equal(h.model.state().error, "rollout_record_limit");
+  let limited = false; const old = harness(t, { read: (_s, r, o, good) => limited ? { kind: "source_unavailable", code: "source_too_large" } : good(r, o) });
+  await old.model.select(catalogId); limited = true; await old.model.next();
+  assert.equal(old.calls.filter(v => typeof v === "object").length, 2); assert.equal(old.model.state().stale, true);
+});
+test("cancel between profile selection and read prevents the second request and keeps the UI interruptible", async t => {
+  let model; const h = harness(t, { read: () => ({ kind: "source_unavailable", code: "source_too_large" }),
+    dependencies: { onChange() { if (model?.state().stage === "codexLargeReading") model.cancel(); } } }); model = h.model;
+  await model.select(catalogId); assert.equal(h.calls.filter(v => typeof v === "object").length, 1);
+  assert.equal(model.state().stage, "cancelled"); assert.equal(model.state().busy, false); assert.equal(model.state().page, null);
+});
+test("large public DTOs require exact opt-in and reject old versions, mixed scopes, fake structure or excess totals", async t => {
+  const large = require("./support/codex-large-fixture.cjs")(), h = harness(t, { read: largeReader(large) }); await h.model.select(catalogId);
+  const value = h.model.state().page, scope = { bindingId: value.bindingId, generation: value.generation, requestId: value.requestId, profile: wire.PAGE_PROFILE };
+  assert(wire.validBoundRecords(value, id, value.history.page, scope));
+  assert.equal(wire.validBoundRecords(value, id, value.history.page, { ...scope, profile: undefined }), false);
+  assert.equal(wire.validPage({ offset: 9000, limit: 1 }), false); assert(wire.validPage({ offset: 9000, limit: 1 }, wire.PAGE_PROFILE));
+  for (const change of [v => { v.history.kind = "codex_source_records"; }, v => { v.history.records.scope = "one_legacy_rollout_raw_records"; },
+    v => { v.history.structure = {}; }, v => { v.history.records.byteLength = wire.PAGE_LIMITS.sourceBytes + 1; },
+    v => { v.history.records.recordCount = wire.PAGE_LIMITS.records + 1; }, v => { v.history.authority.resumeAllowed = true; }]) {
+    const changed = structuredClone(value); change(changed); assert.equal(wire.validBoundRecords(changed, id, value.history.page, scope), false);
+  }
+});
+test("large readable UI retains complete text, bounded cards, direct jump and localized controls without rereading", async t => {
+  const doc = { createElement(tag) { return new Element(tag, doc); } }, root = new Element("div", doc), large = require("./support/codex-large-fixture.cjs")();
+  const h = harness(t, { read: largeReader(large), dependencies: { root } }, view.create); await h.model.select(catalogId);
+  assert.equal(all(root).filter(v => v.tagName === "ARTICLE").length, 10);
+  assert(all(root).some(v => v.className === "history-message-text" && v.textContent.endsWith("END-OF-LARGE-TEXT")));
+  const input = all(root).find(v => v.dataset.action === "recordNumber"), form = all(root).find(v => v.tagName === "FORM");
+  assert.equal(input.max, "9005"); input.value = "9001"; form.listeners.submit[0]({ preventDefault() {} }); await tick();
+  assert.equal(h.model.state().page.history.records.offset, 9000); assert.equal(all(root).filter(v => v.tagName === "ARTICLE").length, 5);
+  assert.equal(h.calls.at(-1).profile, wire.PAGE_PROFILE); assert.equal(input.disabled, false);
+  await h.model.setStructured(false); assert(all(root).filter(v => v.className === "history-message-text").every(v => v.textContent.length <= 4000));
+  await h.model.close(); assert.equal(form.hidden, true); assert.equal(all(root).filter(v => v.tagName === "ARTICLE").length, 0);
+});
 test("raw record UI keeps native text inert, bounds preview DOM, opens original text lazily and preserves controls", async t => {
   const doc = { createElement(tag) { return new Element(tag, doc); } }, root = new Element("div", doc);
   const h = harness(t, { long: true, dependencies: { root, initialStructured: false } }, view.create);

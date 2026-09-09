@@ -81,6 +81,11 @@ footer { max-width: 68rem; margin: auto; padding: 0 2rem 2rem; font-size: .76rem
 [hidden] { display: none !important; }
 .codex-history-modes { display: flex; flex-wrap: wrap; gap: .5rem; margin-block: .75rem; }
 .codex-history-modes [aria-pressed="true"] { background: var(--soft); border-color: var(--accent); }
+.codex-history-jump { display: flex; flex-wrap: wrap; align-items: end; gap: .6rem; margin-block: .75rem; }
+.codex-history-jump[hidden] { display: none; }
+.codex-history-jump label { display: grid; gap: .3rem; min-width: 0; max-width: 100%; font-size: .85rem; }
+.codex-history-jump input { box-sizing: border-box; width: 9rem; max-width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: .6rem; background: var(--surface); color: var(--ink); padding: .6rem; font: inherit; }
+.codex-history-jump input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .codex-history-turn { border-block-start: 1px solid var(--line); padding-block-start: 1rem; margin-block-start: .5rem; overflow-wrap: anywhere; }
 .codex-history-turn h4 { margin: 0; font-size: .95rem; }
 .codex-record h4 { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
