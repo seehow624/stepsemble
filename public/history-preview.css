@@ -38,6 +38,11 @@ h2 { font-size: 1.45rem; letter-spacing: -.015em; line-height: 1.3; margin: .5re
 .history-messages { display: grid; gap: .9rem; }
 .history-message { border: 1px solid var(--line); border-radius: 1rem; background: var(--surface); padding: 1.2rem 1.35rem; min-width: 0; }
 .history-message h3 { font-size: .9rem; margin: 0; font-weight: 700; }
+.codex-record h4 { font-size: .85rem; margin: 0; font-weight: 650; overflow-wrap: anywhere; }
+.codex-record-title { font-size: 1rem; max-height: 8rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.codex-record .history-inert-data { overscroll-behavior-y: contain; scrollbar-gutter: stable; }
+.codex-record .history-message-text { max-height: 14rem; overflow: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; }
+.codex-record .history-inert-data:focus-visible, .codex-record .history-message-text:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
 .history-message-time { margin: .2rem 0 1rem; color: var(--muted); font-size: .76rem; overflow-wrap: anywhere; }
 .history-message-text { white-space: pre-wrap; overflow-wrap: anywhere; margin-block: .6rem; }
 .history-empty { padding: 3rem 1.25rem; border: 1px dashed var(--line); border-radius: 1rem; color: var(--muted); text-align: center; }

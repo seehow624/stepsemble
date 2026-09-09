@@ -24,7 +24,12 @@ pub const THREADS_SCHEMA: &str =
 pub const TEXT_LIMIT: usize = 32 * 1024;
 pub const OUTPUT_LIMIT: usize = 128 * 1024;
 pub const CONTEXT_OUTPUT_LIMIT: usize = 192 * 1024;
+pub const CATALOG_OUTPUT_LIMIT: usize = 2 * 1024 * 1024;
+pub const CATALOG_ENTRIES: usize = 2048;
 pub const VM_STEPS: usize = 20_000;
+// A full catalog selects nine columns for up to 2048 rows. Keep the original
+// selected-row budget unchanged, with a separate finite discovery allowance.
+pub const CATALOG_VM_STEPS: usize = 64_000;
 pub const TRANSACTION_BUDGET: Duration = Duration::from_millis(250);
 
 #[derive(Debug, PartialEq, Eq)]
@@ -151,6 +156,7 @@ struct Guard {
     started: Instant,
     cancelled: Arc<AtomicBool>,
     steps: Arc<AtomicUsize>,
+    max_steps: usize,
 }
 impl Guard {
     fn check(&self) -> Result<(), Error> {
@@ -158,7 +164,7 @@ impl Guard {
             return Err(Error::Cancelled);
         }
         if self.started.elapsed() >= TRANSACTION_BUDGET
-            || self.steps.load(Ordering::Relaxed) >= VM_STEPS
+            || self.steps.load(Ordering::Relaxed) >= self.max_steps
         {
             return Err(Error::Budget);
         }
@@ -225,11 +231,12 @@ fn configure_selected(db: &Connection, guard: &Guard, name_context: bool) -> Res
     let started = guard.started;
     let cancelled = guard.cancelled.clone();
     let steps = guard.steps.clone();
+    let max_steps = guard.max_steps;
     db.progress_handler(
         100,
         Some(move || {
             let count = steps.fetch_add(100, Ordering::Relaxed) + 100;
-            count >= VM_STEPS
+            count >= max_steps
                 || cancelled.load(Ordering::Acquire)
                 || started.elapsed() >= TRANSACTION_BUDGET
         }),
@@ -247,6 +254,206 @@ fn configure_selected(db: &Connection, guard: &Guard, name_context: bool) -> Res
         db.authorizer(Some(authorize)).map_err(sqlite_error)?;
     }
     guard.check()
+}
+
+// Deliberately separate from the v4/v5 column allowlists. Discovery reads only
+// routing/classification metadata, never content, credentials or arbitrary SQL.
+fn authorize_catalog(context: AuthContext<'_>) -> Authorization {
+    if context.accessor.is_some() || context.database_name.is_some_and(|v| v != "main") {
+        return Authorization::Deny;
+    }
+    let allowed = match context.action {
+        AuthAction::Select | AuthAction::Transaction { .. } => true,
+        AuthAction::Read {
+            table_name: "sqlite_master" | "sqlite_schema",
+            column_name,
+        } => ["name", "type", "sql"].contains(&column_name),
+        AuthAction::Read {
+            table_name: "threads",
+            column_name,
+        } => [
+            "id",
+            "rollout_path",
+            "source",
+            "history_mode",
+            "archived",
+            "created_at",
+            "updated_at",
+            "created_at_ms",
+            "updated_at_ms",
+        ]
+        .contains(&column_name),
+        AuthAction::Pragma {
+            pragma_name: "journal_mode",
+            pragma_value: None,
+        } => true,
+        _ => false,
+    };
+    if allowed {
+        Authorization::Allow
+    } else {
+        Authorization::Deny
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogEntry {
+    pub id: String,
+    pub rollout_path: String,
+    pub source: String,
+    pub history_mode: String,
+    pub archived: bool,
+    // Exact integers, not lossy JavaScript Numbers. Interpretation happens in
+    // the bounded Host projection; filenames never provide a timestamp or ID.
+    pub created_at: String,
+    pub updated_at: String,
+    pub created_at_ms: Option<String>,
+    pub updated_at_ms: Option<String>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogObservation {
+    pub kind: &'static str,
+    pub native_version: &'static str,
+    pub sqlite_version: &'static str,
+    pub scope: &'static str,
+    pub entries: Vec<CatalogEntry>,
+    pub source_authenticated: bool,
+    pub publishable: bool,
+    pub connection_closed: bool,
+}
+
+/// All stored state-DB rows, including archived/subagent/empty-preview rows.
+/// This is not the filtered native thread/list API or transcript discovery.
+/// A catalog over the explicit limits is unavailable, never silently truncated.
+pub fn capture_catalog(
+    db: Connection,
+    native_version: &str,
+    cancelled: Arc<AtomicBool>,
+) -> Result<CatalogObservation, Error> {
+    capture_catalog_with_hook(db, native_version, cancelled, |_| Ok(()))
+}
+fn capture_catalog_with_hook(
+    mut db: Connection,
+    native_version: &str,
+    cancelled: Arc<AtomicBool>,
+    hook: impl FnOnce(&Connection) -> Result<(), Error>,
+) -> Result<CatalogObservation, Error> {
+    let guard = Guard {
+        started: Instant::now(),
+        cancelled,
+        steps: Arc::new(AtomicUsize::new(0)),
+        max_steps: CATALOG_VM_STEPS,
+    };
+    let no_checkpoint = db.set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true);
+    let result = (|| {
+        if !no_checkpoint.map_err(sqlite_error)? || native_version != NATIVE_VERSION {
+            return Err(Error::InvalidSelection);
+        }
+        configure(&db, &guard)?;
+        db.authorizer(Some(authorize_catalog))
+            .map_err(sqlite_error)?;
+        // Same 250ms transaction deadline; catalog's finite VM allowance is
+        // larger than a single selected row, not an unlimited scan or retry.
+        let transaction = db
+            .transaction_with_behavior(TransactionBehavior::Deferred)
+            .map_err(sqlite_error)?;
+        let schema: Option<String> = transaction
+            .query_row(
+                "SELECT sql FROM main.sqlite_schema WHERE name='threads' AND type='table' LIMIT 2",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(sqlite_error)?;
+        if !schema.as_deref().is_some_and(schema_matches_pin) {
+            return Err(Error::SchemaUnsupported);
+        }
+        let mode: String = transaction
+            .query_row("PRAGMA main.journal_mode", [], |r| r.get(0))
+            .map_err(sqlite_error)?;
+        if mode != "wal" {
+            return Err(Error::JournalUnsupported);
+        }
+        hook(&transaction)?;
+        let mut entries = Vec::new();
+        let mut encoded_entry_bytes = 0_usize;
+        {
+            let mut statement = transaction.prepare("SELECT id,rollout_path,source,history_mode,archived,created_at,updated_at,created_at_ms,updated_at_ms FROM main.threads ORDER BY id LIMIT 2049").map_err(sqlite_error)?;
+            let mut rows = statement.query([]).map_err(sqlite_error)?;
+            while let Some(row) = rows.next().map_err(sqlite_error)? {
+                guard.check()?;
+                if entries.len() == CATALOG_ENTRIES {
+                    return Err(Error::TooLarge);
+                }
+                let field_error = |_| Error::InvalidFields;
+                let archived: i64 = row.get(4).map_err(field_error)?;
+                let entry = CatalogEntry {
+                    id: row.get(0).map_err(field_error)?,
+                    rollout_path: row.get(1).map_err(field_error)?,
+                    source: row.get(2).map_err(field_error)?,
+                    history_mode: row.get(3).map_err(field_error)?,
+                    archived: archived == 1,
+                    created_at: row.get::<_, i64>(5).map_err(field_error)?.to_string(),
+                    updated_at: row.get::<_, i64>(6).map_err(field_error)?.to_string(),
+                    created_at_ms: row
+                        .get::<_, Option<i64>>(7)
+                        .map_err(field_error)?
+                        .map(|v| v.to_string()),
+                    updated_at_ms: row
+                        .get::<_, Option<i64>>(8)
+                        .map_err(field_error)?
+                        .map(|v| v.to_string()),
+                };
+                if !valid_id(&entry.id)
+                    || !(0..=1).contains(&archived)
+                    || !["legacy", "paginated"].contains(&entry.history_mode.as_str())
+                {
+                    return Err(Error::InvalidFields);
+                }
+                if entry.rollout_path.len() > 8192 || entry.source.len() > 4096 {
+                    return Err(Error::TooLarge);
+                }
+                encoded_entry_bytes += serde_json::to_vec(&entry)
+                    .map_err(|_| Error::InvalidFields)?
+                    .len()
+                    + usize::from(!entries.is_empty());
+                // Stop retaining rows as soon as the payload cannot fit.
+                // The complete envelope gets its own exact check below.
+                if encoded_entry_bytes > CATALOG_OUTPUT_LIMIT {
+                    return Err(Error::TooLarge);
+                }
+                entries.push(entry);
+            }
+        }
+        guard.check()?;
+        transaction.rollback().map_err(sqlite_error)?;
+        let observation = CatalogObservation {
+            kind: "codex_sqlite_catalog_observation",
+            native_version: NATIVE_VERSION,
+            sqlite_version: SQLITE_VERSION,
+            scope: "provided_state_database_all_stored_threads",
+            entries,
+            source_authenticated: false,
+            publishable: false,
+            connection_closed: true,
+        };
+        if serde_json::to_vec(&observation)
+            .map_err(|_| Error::InvalidFields)?
+            .len()
+            > CATALOG_OUTPUT_LIMIT
+        {
+            return Err(Error::TooLarge);
+        }
+        Ok(observation)
+    })();
+    if db.close().is_err() {
+        return Err(Error::CloseUnconfirmed);
+    }
+    guard.check()?;
+    result
 }
 
 fn selected_fields(db: &Connection, id: &str) -> Result<Option<NameFields>, Error> {
@@ -343,6 +550,7 @@ fn capture_selected(
         started: Instant::now(),
         cancelled,
         steps: Arc::new(AtomicUsize::new(0)),
+        max_steps: VM_STEPS,
     };
     // Also suppress close checkpoint on invalid/cancelled requests. This is
     // connection-local, not PRAGMA wal_checkpoint on the source.

@@ -14,6 +14,7 @@ import { runPiSessionBrowserCases } from "./pi-session-browser-cases.mjs";
 import { runProjectPickerBrowserCases } from "./project-picker-browser-cases.mjs";
 import { runConversationBrowserCases } from "./conversation-browser-cases.mjs";
 import { runHistorySourcesBrowserCases } from "./history-sources-browser-cases.mjs";
+import { runCodexHistoryBrowserCases } from "./history-codex-browser-cases.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url), exec = promisify(execFile);
 const pins = require("../protocol/rolling-releases.json").releases;
@@ -156,6 +157,9 @@ try {
   await runPiSessionBrowserCases(browser);
   await runProjectPickerBrowserCases(browser);
   await runConversationBrowserCases(browser);
-  if (process.argv[3]) await runHistorySourcesBrowserCases(browser, process.argv[3]);
+  if (process.argv[3]) {
+    await runHistorySourcesBrowserCases(browser, process.argv[3]);
+    await runCodexHistoryBrowserCases(browser, process.argv[3]);
+  }
   else console.log("Native source browser cases not requested; pass --history-helper=/absolute/binary to include this gate.");
 } finally { await cleanup(); }

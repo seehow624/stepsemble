@@ -8,6 +8,10 @@ import http from "../server/history-http.js";
 import { prepareHistoryConfigFile, commitHistoryConfigFile, discardHistoryConfigReview } from "./history-config.mjs";
 const copy = {
   en: {
+    codexStart: "Stepsemble · Set up read-only Codex 0.153.4 history\nRun this on the source Host. No automatic HOME selection, credential reading, native client launch or model use. Do not enter tokens or passwords.\n",
+    codexRoot: "Codex rollout/index root you explicitly want to share (absolute canonical path): ",
+    sqliteRoot: "Codex state SQLite root you explicitly want to share (absolute canonical path; may be the same reviewed root): ",
+    codexScope: "Scope: stored_threads. Shares stored rows, including archived, subagent, internal and unknown sources, with the selected readers. Rollout paths must independently fit the approved Codex root. Raw legacy records are not the complete native conversation view; paginated history and compressed rollouts remain unsupported. Both current and future stored rows are in scope after explicit refresh. No Claude SDK is required.",
     start: "Stepsemble · Set up read-only Claude history\nRun this on the source Host. Paths and reader IDs stay in this terminal. Never enter tokens or passwords. No source is selected automatically.\n",
     filename: "New private config file (absolute path; existing files are never overwritten): ",
     origin: "Exact Stepsemble browser origin, including scheme and optional port: ",
@@ -25,9 +29,13 @@ const copy = {
     done: "Config created with private permissions. NOT activated or read-verified. Before controlled activation, confirm source/readers, active work, backup and rollback. Do not restart a busy Host. See docs/history-host-integration.md.",
     failed: "Setup did not complete. Check the named field, absolute canonical paths, existing output, private parent permissions and trusted reader/SDK. A changed review must be started again. No source/account/service changes were requested. An incomplete output requires local inspection; never share its contents in chat or logs.",
     invalid: "That field is not ready. Use the exact format shown; paths must already exist and be canonical (no ~ or symlink). The output must be NEW in a private directory; artifacts must be trusted files. Please correct this field or type cancel.",
-    help: "Usage: node scripts/history-setup.mjs [--lang en|zh-Hant]\nInteractive local terminal only. Creates one NEW private main-session source-group config after explicit review. Does not install, scan, activate, merge or overwrite. Existing non-interactive commands: scripts/history-config.mjs create, create-group, check.",
+    help: "Usage: node scripts/history-setup.mjs [--lang en|zh-Hant] [--agent claude-code|codex]\nInteractive local terminal only. Creates one NEW private source-group config after explicit review (default: Claude main_sessions). Codex requires two explicit roots. Does not install, scan, activate, merge or overwrite. Non-interactive commands: scripts/history-config.mjs create, create-group, create-codex-group, check.",
   },
   "zh-Hant": {
+    codexStart: "Stepsemble · 設定 Codex 0.153.4 唯讀歷史\n請在來源主機執行。不自動選取 HOME、不讀取憑證、不啟動原生客戶端或呼叫模型；不要輸入 token 或密碼。\n",
+    codexRoot: "你明確要分享的 Codex rollout/index 根目錄（canonical 絕對路徑）：",
+    sqliteRoot: "你明確要分享的 Codex state SQLite 根目錄（canonical 絕對路徑；可與前者相同，但須核對）：",
+    codexScope: "範圍：stored_threads。向選定讀者分享已儲存的 rows，包括封存、subagent、internal 與未知來源。rollout 路徑仍須另外符合已核准的 Codex root。legacy 原始紀錄不是完整原生對話視圖；paginated 歷史與壓縮 rollout 尚未支援。明確重新整理後，目前與未來新增的 rows 都在範圍內。不需要 Claude SDK。",
     start: "Stepsemble · 設定 Claude 唯讀歷史\n請在來源主機執行。路徑與讀者 ID 只顯示於此終端機；不要輸入 token 或密碼，不會自動選取來源。\n",
     filename: "新的私有設定檔（絕對路徑；絕不覆寫既有檔案）：",
     origin: "Stepsemble 瀏覽器的完整 origin（含 http/https 及必要的 port）：",
@@ -45,7 +53,7 @@ const copy = {
     done: "已用私有權限建立設定，但尚未啟用、也未驗證實際讀取。受控啟用前仍須確認來源／讀者、執行中的工作、備份及回滾；不要重啟忙碌的 Host。請參考 docs/history-host-integration.md。",
     failed: "設定尚未完成。請檢查提示欄位、canonical 絕對路徑、既有輸出、父目錄私有權限與可信 reader／SDK。核對後若資料改變，需重新執行。未要求修改来源、帳號或服務；若有不完整輸出，請在本機檢查，不要把內容貼到聊天或日誌。",
     invalid: "此欄位尚未通過檢查。請用提示格式；路徑須已存在且為 canonical（不含 ~ 或 symlink）。輸出須是私有目錄中的新檔，artifact 須是可信檔案。請修正此欄位，或輸入 cancel 取消。",
-    help: "用法：node scripts/history-setup.mjs [--lang en|zh-Hant]\n僅限本機互動終端機；明確核對後才建立一個新的私有主對話來源群組設定。不安裝、掃描、啟用、合併或覆寫。原本非互動指令仍可用：scripts/history-config.mjs create、create-group、check。",
+    help: "用法：node scripts/history-setup.mjs [--lang en|zh-Hant] [--agent claude-code|codex]\n僅限本機互動終端機；明確核對後才建立一個新的私有來源群組設定（預設 Claude main_sessions）。Codex 須明確指定兩個根目錄。不安裝、掃描、啟用、合併或覆寫。非互動指令：scripts/history-config.mjs create、create-group、create-codex-group、check。",
   },
 };
 const safeInput = value => typeof value === "string" && value.length <= 4096 && !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(value);
@@ -63,7 +71,7 @@ function readyField(key, value) {
     const target = key === "filename" ? path.dirname(value) : value;
     if (fs.realpathSync(target) !== target) return false;
     const stat = fs.lstatSync(target);
-    if (key === "root") return stat.isDirectory(); // Source fd ACL/mount gate is deliberately separate.
+    if (["root", "codexRoot", "sqliteRoot"].includes(key)) return stat.isDirectory(); // Source fd ACL/mount gate is deliberately separate.
     if (key === "filename") {
       if (!stat.isDirectory() || stat.uid !== process.geteuid() || (stat.mode & 0o077)) return false;
       try { fs.lstatSync(value); return false; } catch (error) { return error.code === "ENOENT"; }
@@ -73,12 +81,14 @@ function readyField(key, value) {
     fs.accessSync(value, fs.constants.R_OK | (key === "helper" ? fs.constants.X_OK : 0)); return true;
   } catch { return false; }
 }
-export async function setupHistory({ language = "en", ask, write } = {}) {
+export async function setupHistory({ language = "en", agent = "claude-code", ask, write } = {}) {
   const text = Object.hasOwn(copy, language) ? copy[language] : null; if (!text) throw new Error("history_setup_language_invalid");
   if (typeof ask !== "function" || typeof write !== "function") throw new Error("history_setup_io_invalid");
+  if (!["claude-code", "codex"].includes(agent)) throw new Error("history_setup_agent_invalid");
   if (!["darwin", "linux"].includes(process.platform)) throw new Error("history_configuration_platform_unsupported");
-  write(text.start); const values = {};
-  for (const key of ["filename", "origin", "helper", "sdk", "root", "id", "label", "readers"]) {
+  const codex = agent === "codex";
+  write(codex ? text.codexStart : text.start); const values = {};
+  for (const key of ["filename", "origin", "helper", ...(codex ? ["codexRoot", "sqliteRoot"] : ["sdk", "root"]), "id", "label", "readers"]) {
     for (let attempt = 0; attempt < 3; attempt++) {
       const answer = await ask(text[key]);
       if (answer === null || answer === "cancel") { write(text.cancelled); return { created: false, sourceReads: 0, hostRestarted: false }; }
@@ -88,10 +98,12 @@ export async function setupHistory({ language = "en", ask, write } = {}) {
     }
     if (!values[key]) throw new Error(`history_setup_input_invalid:${key}`);
   }
-  const prepared = prepareHistoryConfigFile(values.filename, { origin: values.origin, helper: values.helper, sdk: values.sdk,
-    "projects-root": values.root, "source-id": values.id, label: values.label, reader: values.readers, scope: "main_sessions" }, "group");
+  const prepared = prepareHistoryConfigFile(values.filename, { origin: values.origin, helper: values.helper,
+    "source-id": values.id, label: values.label, reader: values.readers,
+    ...(codex ? { "codex-root": values.codexRoot, "sqlite-root": values.sqliteRoot, scope: "stored_threads" }
+      : { sdk: values.sdk, "projects-root": values.root, scope: "main_sessions" }) }, codex ? "codex-group" : "group");
   try {
-    write(text.review); write(JSON.stringify(prepared, null, 2)); write(text.scope);
+    write(text.review); write(JSON.stringify(prepared, null, 2)); write(codex ? text.codexScope : text.scope);
     const readers = prepared.config.sourceGroups[0].readers;
     if (readers.includes("browser:master")) write(text.master);
     if (readers.some(reader => reader.startsWith("peer:"))) write(text.peer);
@@ -133,19 +145,23 @@ export function createTerminalQuestions(input, output) {
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const args = process.argv.slice(2);
-  let language = "en", terminal, interrupt;
+  let language = "en", agent = "claude-code", terminal, interrupt;
   try {
     const flags = args.filter(value => value !== "--help");
     if (args.filter(value => value === "--help").length > 1) throw new Error("history_setup_language_invalid");
-    if (flags.length) {
-      if (flags.length !== 2 || flags[0] !== "--lang" || !Object.hasOwn(copy, flags[1])) throw new Error("history_setup_language_invalid");
-      language = flags[1];
+    if (flags.length % 2 || flags.length > 4) throw new Error("history_setup_options_invalid");
+    const used = new Set();
+    for (let i = 0; i < flags.length; i += 2) {
+      if (used.has(flags[i])) throw new Error("history_setup_options_invalid"); used.add(flags[i]);
+      if (flags[i] === "--lang" && Object.hasOwn(copy, flags[i + 1])) language = flags[i + 1];
+      else if (flags[i] === "--agent" && ["claude-code", "codex"].includes(flags[i + 1])) agent = flags[i + 1];
+      else throw new Error("history_setup_options_invalid");
     }
     if (args.includes("--help")) process.stdout.write(copy[language].help + "\n");
     else {
       terminal = createTerminalQuestions(process.stdin, process.stderr);
       interrupt = () => { terminal.close(); process.exitCode = 130; }; process.once("SIGINT", interrupt);
-      const result = await setupHistory({ language, ask: terminal.ask, write: line => process.stderr.write(line + "\n") });
+      const result = await setupHistory({ language, agent, ask: terminal.ask, write: line => process.stderr.write(line + "\n") });
       process.stdout.write(JSON.stringify(result) + "\n");
     }
   } catch (error) {

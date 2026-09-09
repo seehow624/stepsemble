@@ -8,6 +8,7 @@ const { createHistoryHttpHandler, createHistoryRequestAuth, validCatalog, LIMITS
 const { canonicalJSON } = require("../public/modules/projection");
 const sourceCatalogWire = require("./history-catalog-wire");
 const { validHistoryValue } = require("../public/modules/claude-history");
+const codexRecords = require("../public/modules/codex-history-records");
 const { randomUUID } = require("node:crypto");
 const MAX_FLIGHTS = 64;
 const MAX_BINDINGS = 64;
@@ -143,7 +144,8 @@ function createHistoryRelayHandler({ auth, allowedOrigins, browserCookieNames = 
         if (path === "/api/history/sources" && !sourceCatalogWire.validSources(value)) throw fail("history_response_invalid");
         if (path === "/api/history/source-catalog" && !sourceCatalogWire.validPage(value, body, PUBLIC_CODES)) throw fail("history_response_invalid");
         if (path === "/api/history/source-metadata" && !sourceCatalogWire.validMetadata(value, body)) throw fail("history_response_invalid");
-        if (path === "/api/history/page" && (!row || row.state !== "active" || !validHistoryValue(value?.history, row.sessionId, body.page)))
+        if (path === "/api/history/page" && (!row || row.state !== "active" || !(value?.kind === "bound_codex_records"
+          ? codexRecords.validBoundRecords(value, row.sessionId, body.page, body) : validHistoryValue(value?.history, row.sessionId, body.page))))
           throw fail("history_response_invalid");
         // Shared HTTP handler checks whole bound/registration/release envelopes,
         // binding/generation/requestId and all inert authority before writing.
@@ -236,7 +238,7 @@ function createHistoryRelayHandler({ auth, allowedOrigins, browserCookieNames = 
         return true;
       },
     };
-    const local = createHistoryHttpHandler({ registry, browserOnly: true, allowedOrigins, browserCookieNames, deadlineMs,
+    const local = createHistoryHttpHandler({ registry, browserOnly: true, codexEnabled: true, allowedOrigins, browserCookieNames, deadlineMs,
       auth: { ...auth, isPrincipalCurrent(principal) { return auth.isPrincipalCurrent(principal) === true && (!selected || peerActive()); } },
       listCatalog: async (principal, { signal, viewId }) => {
         const value = await forward(principal, "/api/history/catalog", "POST", {}, viewId, signal);

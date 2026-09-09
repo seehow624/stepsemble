@@ -65,6 +65,170 @@ fn read(f: &Fixture) -> Result<Observation, Error> {
     capture_name_fields(f.reader(), "0.153.4", ID, flag())
 }
 
+fn fill_catalog(f: &Fixture, count: usize, path: &str) {
+    f.writer
+        .execute_batch("BEGIN; DELETE FROM threads;")
+        .unwrap();
+    for n in 0..count {
+        let id = format!("{n:08x}-0000-4000-8000-000000000000");
+        f.writer.execute("INSERT INTO threads(id,rollout_path,created_at,updated_at,source,model_provider,cwd,title,sandbox_policy,approval_mode) VALUES(?1,?2,0,0,'cli','owned','owned','private title','owned','never')", params![id, path]).unwrap();
+    }
+    f.writer.execute_batch("COMMIT").unwrap();
+}
+
+#[test]
+fn catalog_includes_all_stored_kinds_without_name_or_preview_filtering() {
+    let f = Fixture::new();
+    fill_catalog(&f, 3, "../inert/never-follow");
+    f.writer.execute_batch("UPDATE threads SET source='unknown-future',archived=1,history_mode='paginated',created_at=-9223372036854775808,updated_at=9223372036854775807,created_at_ms=9007199254740993,updated_at_ms=NULL WHERE id LIKE '00000001%';").unwrap();
+    let result = capture_catalog(f.reader(), NATIVE_VERSION, flag()).unwrap();
+    assert_eq!(result.entries.len(), 3);
+    assert_eq!(result.scope, "provided_state_database_all_stored_threads");
+    let entry = &result.entries[1];
+    assert_eq!(entry.source, "unknown-future");
+    assert!(entry.archived);
+    assert_eq!(entry.history_mode, "paginated");
+    assert_eq!(entry.rollout_path, "../inert/never-follow");
+    assert_eq!(entry.created_at, i64::MIN.to_string());
+    assert_eq!(entry.updated_at, i64::MAX.to_string());
+    assert_eq!(entry.created_at_ms.as_deref(), Some("9007199254740993"));
+    assert_eq!(entry.updated_at_ms, None);
+    assert!(
+        !serde_json::to_string(&result)
+            .unwrap()
+            .contains("private title")
+    );
+    assert!(result.connection_closed);
+    assert!(!result.publishable && !result.source_authenticated);
+    assert_eq!(f.checkpoint().0, 0);
+}
+
+#[test]
+fn catalog_supports_the_full_declared_row_limit_but_never_truncates() {
+    let f = Fixture::new();
+    fill_catalog(&f, CATALOG_ENTRIES, "owned");
+    assert_eq!(
+        capture_catalog(f.reader(), NATIVE_VERSION, flag())
+            .unwrap()
+            .entries
+            .len(),
+        CATALOG_ENTRIES
+    );
+    fill_catalog(&f, CATALOG_ENTRIES + 1, "owned");
+    assert_eq!(
+        capture_catalog(f.reader(), NATIVE_VERSION, flag()),
+        Err(Error::TooLarge)
+    );
+    assert_eq!(f.checkpoint().0, 0);
+}
+
+#[test]
+fn catalog_snapshot_retains_selection_while_writer_commits_and_releases_locks() {
+    let f = Fixture::new();
+    let result = capture_catalog_with_hook(f.reader(), NATIVE_VERSION, flag(), |_| {
+        f.writer
+            .execute_batch("UPDATE threads SET rollout_path='after',archived=1;")
+            .unwrap();
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(result.entries[0].rollout_path, "owned");
+    assert!(!result.entries[0].archived);
+    let next = capture_catalog(f.reader(), NATIVE_VERSION, flag()).unwrap();
+    assert_eq!(next.entries[0].rollout_path, "after");
+    assert!(next.entries[0].archived);
+    assert_eq!(f.checkpoint().0, 0);
+}
+
+#[test]
+fn catalog_cancelled_unknown_version_and_writes_are_refused_and_closed() {
+    let f = Fixture::new();
+    let cancelled = flag();
+    cancelled.store(true, Ordering::Release);
+    assert_eq!(
+        capture_catalog(f.reader(), NATIVE_VERSION, cancelled),
+        Err(Error::Cancelled)
+    );
+    assert_eq!(
+        capture_catalog(f.reader(), "unknown", flag()),
+        Err(Error::InvalidSelection)
+    );
+    capture_catalog_with_hook(f.reader(), NATIVE_VERSION, flag(), |db| {
+        for sql in [
+            "SELECT title FROM threads",
+            "SELECT cwd FROM threads",
+            "SELECT preview FROM threads",
+            "SELECT name FROM threads",
+            "SELECT first_user_message FROM threads",
+            "UPDATE threads SET archived=1",
+            "ATTACH ':memory:' AS other",
+            "PRAGMA wal_checkpoint(TRUNCATE)",
+            "SELECT random()",
+        ] {
+            assert!(db.prepare(sql).is_err(), "unexpectedly authorized: {sql}");
+        }
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(f.checkpoint().0, 0);
+}
+
+#[test]
+fn catalog_empty_and_invalid_typed_fields_never_invent_or_coerce_rows() {
+    let f = Fixture::new();
+    fill_catalog(&f, 0, "owned");
+    assert!(
+        capture_catalog(f.reader(), NATIVE_VERSION, flag())
+            .unwrap()
+            .entries
+            .is_empty()
+    );
+    for sql in [
+        "UPDATE threads SET id='NOT-A-UUID'",
+        "UPDATE threads SET rollout_path=x'FF'",
+        "UPDATE threads SET source=x'FF'",
+        "UPDATE threads SET archived=2",
+        "UPDATE threads SET archived='true'",
+        "UPDATE threads SET history_mode='unknown'",
+        "UPDATE threads SET created_at='not an integer'",
+        "UPDATE threads SET updated_at=0.5",
+        "UPDATE threads SET updated_at_ms=x'01'",
+    ] {
+        fill_catalog(&f, 1, "owned");
+        f.writer.execute_batch(sql).unwrap();
+        assert_eq!(
+            capture_catalog(f.reader(), NATIVE_VERSION, flag()),
+            Err(Error::InvalidFields),
+            "{sql}"
+        );
+        assert_eq!(f.checkpoint().0, 0);
+    }
+}
+
+#[test]
+fn catalog_limits_encoded_bytes_and_each_text_field_without_truncation() {
+    let f = Fixture::new();
+    fill_catalog(&f, 400, &"x".repeat(8192));
+    assert_eq!(
+        capture_catalog(f.reader(), NATIVE_VERSION, flag()),
+        Err(Error::TooLarge)
+    );
+    fill_catalog(&f, 1, &"x".repeat(8193));
+    assert_eq!(
+        capture_catalog(f.reader(), NATIVE_VERSION, flag()),
+        Err(Error::TooLarge)
+    );
+    fill_catalog(&f, 1, "owned");
+    f.writer
+        .execute("UPDATE threads SET source=?1", ["x".repeat(4097)])
+        .unwrap();
+    assert_eq!(
+        capture_catalog(f.reader(), NATIVE_VERSION, flag()),
+        Err(Error::TooLarge)
+    );
+    assert_eq!(f.checkpoint().0, 0);
+}
+
 #[test]
 fn v5_context_is_explicit_and_does_not_change_v4_fields_contract() {
     let f = Fixture::new();
@@ -134,6 +298,7 @@ fn only_v5_authorizes_exact_additional_columns_and_still_denies_writes() {
             started: Instant::now(),
             cancelled: flag(),
             steps: Arc::new(AtomicUsize::new(0)),
+            max_steps: VM_STEPS,
         };
         configure_selected(&db, &guard, with_context).unwrap();
         assert_eq!(selected_context(&db, ID).is_ok(), with_context);
@@ -415,6 +580,7 @@ fn opcode_budget_interrupts_expensive_reads_even_before_time_limit() {
         started: Instant::now(),
         cancelled: flag(),
         steps: Arc::new(AtomicUsize::new(0)),
+        max_steps: VM_STEPS,
     };
     let db = f.reader();
     configure(&db, &guard).unwrap();

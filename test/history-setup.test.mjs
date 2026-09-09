@@ -86,6 +86,26 @@ test("multiple explicit readers retain exact scope; duplicates and empty/wildcar
   assert.deepEqual(JSON.parse(fs.readFileSync(f.output)).sourceGroups[0].readers, ["browser:master", "browser:12345678", "peer:" + "a".repeat(32)]);
 });
 const answers = f => [f.output, f.options.origin, f.helper, f.sdk, f.root, f.options["source-id"], f.options.label, f.options.reader];
+test("Codex wizard reviews both roots and all stored-thread scope, requires CREATE, and needs no SDK", { skip: !supported }, async t => {
+  for (const language of ["en", "zh-Hant"]) {
+    const f = fixture(t), sqliteRoot = path.join(f.dir, "sqlite"); fs.mkdirSync(sqliteRoot, { mode: 0o700 });
+    const input = [f.output, f.options.origin, f.helper, f.root, sqliteRoot, "owned-codex", "Codex", "browser:master", "CREATE"], output = [];
+    const result = await setupHistory({ language, agent: "codex", ask: async prompt => { output.push(prompt); return input.shift(); }, write: line => output.push(line) });
+    assert.equal(result.sourceReads, 0); assert.equal(result.hostRestarted, false); assert.equal(input.length, 0);
+    const config = JSON.parse(fs.readFileSync(f.output)); assert.equal(config.version, 3); assert.equal(config.reader.sdkPath, null);
+    assert.equal(config.sourceGroups[0].codexRoot, f.root); assert.equal(config.sourceGroups[0].sqliteRoot, sqliteRoot);
+    assert.equal(config.sourceGroups[0].scope, "stored_threads"); assert.equal(config.sourceGroups[0].nativeVersion, "0.153.4");
+    assert.equal(fs.statSync(f.output).mode & 0o777, 0o600); assert(output.join("\n").includes("paginated"));
+    assert.deepEqual(fs.readdirSync(f.root), []); assert.deepEqual(fs.readdirSync(sqliteRoot), []);
+  }
+});
+for (const changedRoot of ["codex-root", "sqlite-root"]) test(`Codex review rejects replaced ${changedRoot} without publishing a new config`, { skip: !supported }, t => {
+  const f = fixture(t), sqlite = path.join(f.dir, "sqlite"); fs.mkdirSync(sqlite, { mode: 0o700 });
+  const options = { origin: f.options.origin, helper: f.helper, "codex-root": f.root, "sqlite-root": sqlite, "source-id": "owned", scope: "stored_threads", reader: "browser:master", label: "Owned" };
+  const prepared = prepareHistoryConfigFile(f.output, options, "codex-group"), target = options[changedRoot];
+  fs.renameSync(target, target + "-old"); fs.mkdirSync(target, { mode: 0o700 });
+  assert.throws(() => commitHistoryConfigFile(prepared), /review_changed/); assert.equal(fs.existsSync(f.output), false);
+});
 test("wizard reviews the exact scope, accepts only explicit CREATE and changes no native files", { skip: !supported }, async t => {
   for (const language of ["en", "zh-Hant"]) {
     const f = fixture(t), input = [...answers(f), "CREATE"], output = [], source = path.join(f.root, "do-not-read.jsonl");

@@ -237,7 +237,7 @@ test("controller cancellation fences stale fetch replies before provider validat
 test("browser-language VM enforces location origin and runs full transport/provider/controller without Node globals", async () => {
   const context = vm.createContext({ URL, Headers, Response, ReadableStream, TextEncoder, TextDecoder, Uint8Array, structuredClone, AbortController,
     setTimeout, clearTimeout, location: { origin } });
-  for (const name of ["projection", "claude-history-value", "claude-history", "history-pages", "history-transport"])
+  for (const name of ["projection", "claude-history-value", "claude-history", "history-pages", "codex-history-records", "history-transport"])
     vm.runInContext(fs.readFileSync(path.join(__dirname, "../public/modules", name + ".js"), "utf8"), context);
   assert.equal(context.Buffer, undefined); assert.equal(context.require, undefined); assert.equal(context.process, undefined);
   const create = context.StepsembleHistoryTransport.create, canonical = context.StepsembleProjection.canonicalJSON;

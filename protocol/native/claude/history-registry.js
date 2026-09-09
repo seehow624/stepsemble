@@ -12,6 +12,11 @@ const unavailable = code => ({ kind: "source_unavailable", code });
 const reference = value => typeof value === "string" && /^[A-Za-z0-9:_-]{1,128}$/.test(value);
 const identity = value => uuid(value?.bindingId) && uuid(value?.viewId)
   && Number.isSafeInteger(value?.generation) && value.generation > 0;
+function normalizeRegistrySource(input) {
+  const source = normalizeSourceInput(input);
+  return source && source.projectsRoot === path.resolve(source.projectsRoot) && source.projectsRoot !== path.parse(source.projectsRoot).root
+    && !/[*?\[\]{},\r\n]/.test(source.projectsRoot) ? source : null;
+}
 
 /** A single bounded slot array retains generations across all owners. Inactive
  * principal refs occupy at most maxSlots entries; no per-principal/revocation
@@ -20,21 +25,26 @@ const identity = value => uuid(value?.bindingId) && uuid(value?.viewId)
  * Lease timers revoke only these read-only bindings, never native agent tasks.
  */
 function createHistoryRegistry({ sourceService, catalog, authorize, principalActive, resolveSource,
+  normalizeSource = normalizeRegistrySource, validReadPage = validPage, privateSourceBytes = LIMITS.inputBytes,
   maxSlots = REGISTRY_LIMITS.slots, leaseMs = REGISTRY_LIMITS.leaseMs, now = Date.now } = {}) {
   if (!sourceService || !["bind", "status", "shutdown"].every(k => typeof sourceService[k] === "function")
     || typeof authorize !== "function" || typeof principalActive !== "function" || typeof now !== "function"
     || resolveSource !== undefined && typeof resolveSource !== "function"
+    || typeof normalizeSource !== "function" || typeof validReadPage !== "function"
+    || !Number.isSafeInteger(privateSourceBytes) || privateSourceBytes < LIMITS.inputBytes || privateSourceBytes > 64 * 1024
     || !Number.isSafeInteger(maxSlots) || maxSlots < 1 || maxSlots > REGISTRY_LIMITS.slots
     || !Number.isSafeInteger(leaseMs) || leaseMs < 1 || leaseMs > REGISTRY_LIMITS.maxLeaseMs)
     throw new TypeError("invalid_history_registry_options");
   // A fixed catalog cannot be expanded by callers, even after source withdrawal.
   if (!Array.isArray(catalog) || catalog.length > REGISTRY_LIMITS.catalog) throw new TypeError("invalid_history_catalog");
   const sources = new Map();
+  // Host-only format policy. Request bodies cannot select a normalizer, source
+  // root, larger limit or second registry. Detach the policy result as well.
+  const normalize = input => detach(normalizeSource(input), privateSourceBytes);
   for (const input of catalog) {
-    const entry = detach(input), source = normalizeSourceInput(entry?.source);
+    const entry = detach(input, privateSourceBytes), source = normalize(entry?.source);
     if (!keys(entry, ["catalogId", "source"]) || !reference(entry.catalogId) || sources.has(entry.catalogId) || !source
-      || source.projectsRoot !== path.resolve(source.projectsRoot) || source.projectsRoot === path.parse(source.projectsRoot).root
-      || /[*?\[\]{},\r\n]/.test(source.projectsRoot)) throw new TypeError("invalid_history_catalog");
+      || !uuid(source.sessionId)) throw new TypeError("invalid_history_catalog");
     sources.set(entry.catalogId, { source: Object.freeze(source), active: true });
   }
   const slots = []; let closed = false, failed = false, leaseTimer = null, shutdownPromise = null;
@@ -67,11 +77,9 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
       if (fixed) return fixed.active ? { source: fixed.source, key: "fixed" } : null;
       const resolved = resolveSource?.(principal, catalogId);
       if (resolved instanceof Promise) { void Promise.prototype.then.call(resolved, undefined, () => {}); return null; }
-      const value = detach(resolved);
-      const source = normalizeSourceInput(value?.source);
-      if (!keys(value, ["source", "revision"]) || !reference(value.revision) || !source
-        || source.projectsRoot !== path.resolve(source.projectsRoot) || source.projectsRoot === path.parse(source.projectsRoot).root
-        || /[*?\[\]{},\r\n]/.test(source.projectsRoot)) return null;
+      const value = detach(resolved, privateSourceBytes);
+      const source = normalize(value?.source);
+      if (!keys(value, ["source", "revision"]) || !reference(value.revision) || !source || !uuid(source.sessionId)) return null;
       return { source, key: crypto.createHash("sha256").update(JSON.stringify([source, value.revision])).digest("hex") };
     } catch { return null; }
   }
@@ -186,7 +194,7 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
   async function read(principal, input, options, metadata) {
     const request = detach(input);
     if (!keys(request, ["bindingId", "generation", "viewId", "requestId", ...(metadata ? [] : ["page"]), ...(request?.version === undefined ? [] : ["version"])])
-      || !identity(request) || !uuid(request.requestId) || !metadata && !validPage(request.page)
+      || !identity(request) || !uuid(request.requestId) || !metadata && validReadPage(request.page) !== true
       || request.version !== undefined && (typeof request.version !== "string" || !/^[a-f0-9]{64}$/.test(request.version)))
       return unavailable("invalid_history_request");
     if (!options || ![Object.prototype, null].includes(Object.getPrototypeOf(options)) || Object.getOwnPropertySymbols(options).length
@@ -265,4 +273,4 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
     metadata: (principal, request, options = {}) => read(principal, request, options, true),
     release, cancelRegistration, current, revokePrincipal, revokeSource, sweep, status, shutdown });
 }
-module.exports = { createHistoryRegistry, REGISTRY_LIMITS, REGISTRY_CODES };
+module.exports = { createHistoryRegistry, normalizeRegistrySource, REGISTRY_LIMITS, REGISTRY_CODES };

@@ -15,9 +15,11 @@
   <script defer src="/modules/projection.js?v=3.0.7-rc.7"></script>
   <script defer src="/modules/claude-history-value.js?v=3.0.7-rc.7"></script>
   <script defer src="/modules/claude-history.js?v=3.0.7-rc.7"></script>
+  <script defer src="/modules/codex-history-records.js?v=3.0.7-rc.7"></script>
   <script defer src="/modules/history-pages.js?v=3.0.7-rc.7"></script>
   <script defer src="/modules/history-transport.js?v=3.0.7-rc.7"></script>
   <script defer src="/modules/history-sources.js?v=3.0.7-rc.7"></script>
+  <script defer src="/modules/codex-history-view.js?v=3.0.7-rc.7"></script>
   <script defer src="/modules/history-view.js?v=3.0.7-rc.7"></script>
 </head>
 <body data-i18n-keyed-only>
@@ -31,9 +33,9 @@
   </header>
   <main>
     <div class="preview-intro">
-      <p class="preview-eyebrow" data-history-host-label>CLAUDE HISTORY</p>
+      <p class="preview-eyebrow" data-history-host-label>STEPSEMBLE HISTORY</p>
       <h1 data-i18n-key="history.heading">回看脈絡，保持唯讀。</h1>
-      <p data-i18n-key="history.intro">只顯示主機管理者已登記、且目前登入獲准讀取的 Claude 歷史。</p>
+      <p data-i18n-key="history.multiAgentIntro">只顯示主機管理者明確啟用、且目前登入獲准讀取的原生歷史。</p>
       <p class="preview-authority" data-i18n-key="history.authority">來源未認證 · 唯讀觀測 · 不具核准、執行或續跑權限</p>
     </div>
     <div data-history-host><p class="history-empty" role="status" data-i18n-key="history.preparing">準備唯讀歷史…</p></div>

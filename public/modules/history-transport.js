@@ -1,11 +1,13 @@
 "use strict";
 /// <reference path="./history-pages.ts" />
+/// <reference path="./codex-history-records.ts" />
 /** Same-origin history HTTP transport. No SDK, source paths, bearer
  * credentials, legacy relay fallback or journal writes.
  * Cookie authentication and ownership remain the Host's responsibility. */
 var StepsembleHistoryTransport;
 (function (StepsembleHistoryTransport) {
-    StepsembleHistoryTransport.LIMITS = Object.freeze({ responseBytes: 272 * 1024, requestBytes: 4096, timeoutMs: 15000 });
+    const codexRecords = typeof module !== "undefined" ? require("./codex-history-records") : StepsembleCodexHistoryRecords;
+    StepsembleHistoryTransport.LIMITS = Object.freeze({ responseBytes: 384 * 1024, claudeResponseBytes: 272 * 1024, requestBytes: 4096, timeoutMs: 15000 });
     class TransportError extends Error {
         code;
         constructor(code) {
@@ -35,6 +37,10 @@ var StepsembleHistoryTransport;
         "source_access_denied", "source_read_budget", "source_worker_timeout", "source_cleanup_unconfirmed", "source_service_quarantined",
         "source_acl_unavailable", "source_acl_unsupported", "source_root_identity_changed", "source_containment_unavailable",
         "source_identity_unavailable", "source_close_failed",
+        "source_scope_mismatch", "source_encoding_unsupported", "source_too_large", "source_sqlite_unsupported",
+        "native_paginated_history_unsupported", "native_history_mode_unknown", "rollout_incomplete_tail", "rollout_record_limit",
+        "rollout_invalid_utf8", "rollout_invalid_record", "rollout_selected_thread_mismatch", "rollout_invalid_metadata",
+        "name_resolution_rollout_mismatch", "name_resolution_missing_row_unsupported", "name_resolution_index_unavailable",
         "source_service_closed", "source_binding_revoked", "source_binding_mismatch", "source_sdk_unavailable"]);
     const pageValid = (v) => keys(v, ["offset", "limit"]) && Number.isSafeInteger(v.offset)
         && v.offset >= 0 && v.offset <= 2000 && positive(v.limit) && v.limit <= 100;
@@ -42,13 +48,13 @@ var StepsembleHistoryTransport;
     const sourceUuid = (v) => typeof v === "string" && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(v);
     const count = (v, max) => Number.isSafeInteger(v) && v >= 0 && v <= max;
     const text = (v, max, min = 0) => typeof v === "string" && v.length >= min && v.length <= max && !/[\u0000-\u001f\u007f]/.test(v);
-    const catalogId = (v) => typeof v === "string" && /^claude-[a-f0-9]{64}$/.test(v);
+    const catalogId = (v) => typeof v === "string" && /^(claude|codex)-[a-f0-9]{64}$/.test(v);
     function validSources(v) {
         return keys(v, ["kind", "sources", "sourceAuthenticated", "publishable"]) && v.kind === "history_sources"
             && v.sourceAuthenticated === false && v.publishable === false && Array.isArray(v.sources) && v.sources.length <= 8
             && new Set(v.sources.map(g => g?.sourceId)).size === v.sources.length
             && v.sources.every(g => keys(g, ["sourceId", "agentId", "scope", "label", "description"]) && reference(g.sourceId)
-                && g.agentId === "claude-code" && g.scope === "main_sessions" && text(g.label, 120, 1) && text(g.description, 300));
+                && (g.agentId === "claude-code" && g.scope === "main_sessions" || g.agentId === "codex" && g.scope === "stored_threads") && text(g.label, 120, 1) && text(g.description, 300));
     }
     StepsembleHistoryTransport.validSources = validSources;
     function validSourceCatalogRequest(v) {
@@ -83,8 +89,9 @@ var StepsembleHistoryTransport;
             && v.kind === "history_source_metadata" && v.sourceId === request.sourceId && v.catalogId === request.catalogId
             && v.snapshotId === request.snapshotId && v.requestId === request.requestId
             && keys(v.metadata, ["sessionId", "nativeTitle", "summary", "titleStatus"]) && sourceUuid(v.metadata.sessionId)
-            && (v.metadata.summary === null || metadataText(v.metadata.summary, 4096))
-            && (v.metadata.titleStatus === "native" && metadataText(v.metadata.nativeTitle, 1024) || v.metadata.titleStatus === "untitled" && v.metadata.nativeTitle === null)
+            && (v.metadata.summary === null || !request.catalogId.startsWith("codex-") && metadataText(v.metadata.summary, 4096))
+            && (v.metadata.titleStatus === "native" && (request.catalogId.startsWith("codex-") ? typeof v.metadata.nativeTitle === "string" && codexRecords.validTitle(v.metadata.nativeTitle) : metadataText(v.metadata.nativeTitle, 1024))
+                || v.metadata.titleStatus === "untitled" && v.metadata.nativeTitle === null)
             && v.sourceAuthenticated === false && v.publishable === false;
     }
     StepsembleHistoryTransport.validSourceMetadata = validSourceMetadata;
@@ -327,7 +334,7 @@ var StepsembleHistoryTransport;
                 return failure("history_response_invalid");
             return value;
         }
-        async function read(scope, request, options) {
+        async function read(scope, request, options, codex = false) {
             if (!keys(options, options?.version === undefined ? ["page", "signal"] : ["page", "signal", "version"]))
                 return failure("history_request_invalid");
             const expected = detach({ scope, request, page: options.page, ...(options.version === undefined ? {} : { version: options.version }) });
@@ -335,14 +342,19 @@ var StepsembleHistoryTransport;
                 || expected.scope.hostId !== hostId || !uuid(expected.scope.bindingId) || !uuid(expected.scope.sessionId) || !positive(expected.scope.generation)
                 || !keys(expected.request, ["bindingId", "generation", "requestId"]) || !uuid(expected.request.requestId)
                 || expected.request.bindingId !== expected.scope.bindingId || expected.request.generation !== expected.scope.generation
-                || !pageValid(expected.page) || ("version" in expected && !hash(expected.version)))
+                || !(codex ? codexRecords.validPage(expected.page) : pageValid(expected.page)) || ("version" in expected && !hash(expected.version)))
                 return failure("history_request_invalid");
             const body = { ...expected.request, page: expected.page, ...("version" in expected ? { version: expected.version } : {}) };
             const { value, ok } = await exchange("/api/history/page", "POST", body, options.signal);
             const denied = unavailable(value);
             if (denied)
                 return denied;
-            if (!ok || !keys(value, ["kind", "bindingId", "generation", "requestId", "sourceVersion", "history", "sourceAuthenticated", "publishable", "cleanupConfirmed"])
+            if (codex) {
+                if (!ok || !codexRecords.validBoundRecords(value, expected.scope.sessionId, expected.page, body))
+                    return failure("history_response_invalid");
+                return value;
+            }
+            if (!ok || canonicalJSON(value, StepsembleHistoryTransport.LIMITS.claudeResponseBytes) === null || !keys(value, ["kind", "bindingId", "generation", "requestId", "sourceVersion", "history", "sourceAuthenticated", "publishable", "cleanupConfirmed"])
                 || value.kind !== "bound_history_observation" || value.bindingId !== expected.request.bindingId || value.generation !== expected.request.generation
                 || value.requestId !== expected.request.requestId || !hash(value.sourceVersion) || value.sourceAuthenticated !== false
                 || value.publishable !== false || value.cleanupConfirmed !== true || !keys(value.history, ["kind", "source", "page", "observation", "reader", "metrics"])
@@ -362,7 +374,8 @@ var StepsembleHistoryTransport;
                 return failure("history_response_invalid");
             return value;
         }
-        return Object.freeze({ catalog, sources, sourceCatalog, sourceMetadata, register, read, release });
+        return Object.freeze({ catalog, sources, sourceCatalog, sourceMetadata, register, read: (scope, request, options) => read(scope, request, options),
+            readCodex: (scope, request, options) => read(scope, request, options, true), release });
     }
     StepsembleHistoryTransport.create = create;
 })(StepsembleHistoryTransport || (StepsembleHistoryTransport = {}));

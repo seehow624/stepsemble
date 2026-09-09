@@ -109,7 +109,7 @@ namespace StepsembleHistorySources {
 
   interface Content { select(id: string): Promise<void>; close(): Promise<void> }
   export function create(deps: Dependencies & { root: HTMLElement; describeError(code: string): string;
-    badge(doc: Document, agentId: string): HTMLElement; createContent(root: HTMLElement, catalogId: string): Content }) {
+    badge(doc: Document, agentId: string): HTMLElement; createContent(root: HTMLElement, catalogId: string, agentId: Group["agentId"]): Content }) {
     const doc = deps.root.ownerDocument;
     const el = <K extends keyof HTMLElementTagNameMap>(tag: K, text = "", className = ""): HTMLElementTagNameMap[K] => {
       const node = doc.createElement(tag); i18n.raw(node, text); node.className = className; return node;
@@ -164,7 +164,8 @@ namespace StepsembleHistorySources {
       if (closing || content) return;
       const selected = model.state().selected; if (!selected) return;
       try {
-        const current = deps.createContent(contentRoot, selected.catalogId); content = current;
+        const group = deps.groups.find(g => g.sourceId === selected.sourceId); if (!group) return;
+        const current = deps.createContent(contentRoot, selected.catalogId, group.agentId); content = current;
         void current.select(selected.catalogId).catch(() => { if (content === current) contentError(); });
       } catch { contentError(); }
     }
@@ -174,7 +175,9 @@ namespace StepsembleHistorySources {
       resume.hidden = !s.namesPaused && !s.rows.some(r => r.status === "error"); resume.disabled = s.busy || s.page?.stale === true;
       panel.setAttribute("aria-busy", String(s.busy)); warning.hidden = !s.error && !(s.page?.snapshotId && s.page.stale);
       i18n.bind(warning, s.error ? i18n.errorKey(s.error) : "sourceStale");
-      i18n.bind(status, s.busy ? "sourceLoading" : s.page?.snapshotId ? "sourceCount" : "unscanned", { count: s.page?.total ?? 0 });
+      i18n.bind(status, s.busy ? "sourceLoading" : s.page?.snapshotId
+        ? s.group.agentId === "codex" ? "storedSourceCount" : "sourceCount"
+        : s.group.agentId === "codex" ? "storedUnscanned" : "unscanned", { count: s.page?.total ?? 0 });
       empty.hidden = s.rows.length > 0; list.hidden = !s.rows.length;
       i18n.bind(empty, s.page?.snapshotId ? "sourceEmpty" : "sourcePrivacy");
       previous.disabled = s.busy || !s.page || s.page.stale || s.page.page.offset === 0;

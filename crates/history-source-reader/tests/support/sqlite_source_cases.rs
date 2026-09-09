@@ -106,6 +106,42 @@ pub(super) fn run() {
     }
     assert!(f.snapshot() == before);
     cases.push("actual_v5_context_frame_and_platform_boundary".into());
+    let mut v6 = request(&f);
+    v6["protocolVersion"] = json!(6);
+    v6["source"].as_object_mut().unwrap().remove("threadId");
+    let catalog = frame(&f, v6.clone());
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        assert_eq!(catalog["header"]["result"]["kind"], "native_sqlite_catalog");
+        assert!(catalog["header"]["result"].get("threadId").is_none());
+        let observation = &catalog["body"]["observation"];
+        assert_eq!(observation["kind"], "codex_sqlite_catalog_observation");
+        assert_eq!(observation["entries"].as_array().unwrap().len(), 1);
+        assert_eq!(observation["entries"][0]["id"], ID);
+        assert_eq!(observation["entries"][0]["rolloutPath"], "owned");
+        assert!(observation["entries"][0].get("title").is_none());
+        assert_eq!(catalog["body"]["sourceDescriptorsClosed"], 4);
+        assert_eq!(catalog["body"]["sqliteDescriptorsClosed"], 3);
+        assert!(catalog["body"]["shmMappingsClosed"].as_u64().unwrap() > 0);
+        v6["expectedRoot"]["inode"] = json!("18446744073709551615");
+        let rejected = frame(&f, v6);
+        assert_eq!(rejected["body"], Value::Null);
+        assert_eq!(
+            rejected["header"]["result"]["code"],
+            "source_root_identity_changed"
+        );
+        cases.push("actual_v6_wrong_root_zero_entries".into());
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        assert_eq!(catalog["body"], Value::Null);
+        assert_eq!(
+            catalog["header"]["result"]["code"],
+            "source_platform_unsupported"
+        );
+    }
+    assert!(f.snapshot() == before);
+    cases.push("actual_v6_catalog_frame_and_platform_boundary".into());
     drop(f);
     cases.push("actual_v4_frame_nonce_digest_and_platform_boundary".into());
     #[cfg(any(target_os = "macos", target_os = "linux"))]

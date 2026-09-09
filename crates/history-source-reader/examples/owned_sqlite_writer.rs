@@ -70,6 +70,43 @@ fn main() {
         }
         assert!(read <= 64 && bytes.ends_with(b"\n"));
         match bytes.as_slice() {
+            b"rich_rollout\n" => {
+                let mut records = vec![
+                    json!({"type":"session_meta","payload":{"id":ID,"history_mode":"legacy"}}),
+                ];
+                for n in 0..35 {
+                    records.push(json!({"type":"response_item","payload":{"type":"message","role":if n % 2 == 0 {"user"} else {"assistant"},
+                        "content":[{"type":"output_text","text":format!("Owned message {n} 🐾 <script>never()</script> https://never.invalid/\n{}", "合成長文，不執行任何工具。".repeat(if n == 1 {1000} else {4}))}]}}));
+                }
+                records.push(json!({"type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"owned-call","arguments":"{\"cmd\":\"never execute this\"}"}}));
+                records.push(json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"owned-call","output":"Owned inert output"}}));
+                records.push(json!({"type":"future_owned_record","payload":{"unknown":"preserved, not discarded"}}));
+                let text = records
+                    .iter()
+                    .map(serde_json::Value::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\r\n")
+                    + "\r\n";
+                std::fs::write(&rollout, text).unwrap();
+            }
+            b"catalog_full\n" => {
+                db.execute_batch("BEGIN;").unwrap();
+                for n in 1..2048 {
+                    let id = format!("{n:08x}-0000-4000-8000-000000000000");
+                    let selected = codex.join(format!(
+                        "sessions/2026/01/05/rollout-2026-01-05T12-00-00-{id}.jsonl"
+                    ));
+                    db.execute("INSERT INTO threads(id,rollout_path,created_at,updated_at,source,model_provider,cwd,title,sandbox_policy,approval_mode) VALUES(?1,?2,0,0,'cli','owned','owned','owned capacity row','owned','never')", params![id, selected.to_str().unwrap()]).unwrap();
+                }
+                db.execute_batch("COMMIT;").unwrap();
+            }
+            b"catalog_extra\n" => {
+                db.execute("INSERT INTO threads(id,rollout_path,created_at,updated_at,source,model_provider,cwd,title,sandbox_policy,approval_mode) VALUES('00000800-0000-4000-8000-000000000000','owned',0,0,'cli','owned','owned','owned overflow row','owned','never')", []).unwrap();
+            }
+            b"catalog_reset\n" => {
+                db.execute("DELETE FROM threads WHERE id<>?1", [ID])
+                    .unwrap();
+            }
             b"other\n" => {
                 db.execute("INSERT INTO projects(id) VALUES('unrelated')", [])
                     .unwrap();

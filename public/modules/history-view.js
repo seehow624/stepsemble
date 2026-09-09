@@ -5,6 +5,7 @@
 /// <reference path="./projection.ts" />
 /// <reference path="./history-sources.ts" />
 /// <reference path="./agent-identity.ts" />
+/// <reference path="./codex-history-view.ts" />
 /** Isolated inert-history preview. Only trusted catalog IDs reach the transport;
  * native text never becomes HTML, a URL, an executable action or authority. */
 var StepsembleHistoryView;
@@ -479,8 +480,11 @@ var StepsembleHistoryView;
                 root.append(browser);
                 views.push(StepsembleHistorySources.create({ root: browser, groups: sources, transport, protocol: StepsembleHistoryTransport, requestId: () => crypto.randomUUID(),
                     describeError, badge: (doc, agentId) => StepsembleAgentIdentity.create(doc, agentId),
-                    createContent(contentRoot, catalogId) {
+                    createContent(contentRoot, catalogId, agentId) {
                         const contentViewId = crypto.randomUUID(), contentTransport = StepsembleHistoryTransport.create({ ...route, origin: location.origin, viewId: contentViewId, canonicalJSON });
+                        if (agentId === "codex")
+                            return StepsembleCodexHistoryView.create({ root: contentRoot, ...route, viewId: contentViewId, catalogId, transport: contentTransport,
+                                canonicalJSON, requestId: () => crypto.randomUUID() });
                         return create({ root: contentRoot, ...route, viewId: contentViewId, catalog: [{ catalogId, label: i18n.text("content"), description: "" }],
                             transport: contentTransport, createPages, embedded: true });
                     } }));

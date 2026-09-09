@@ -14,6 +14,12 @@ on:
       - 'scripts/rolling-browser-worker.mjs'
       - 'scripts/conversation-browser-cases.mjs'
       - 'scripts/history-sources-browser-cases.mjs'
+      - 'scripts/history-codex-browser-cases.mjs'
+      - 'scripts/history-codex-host-synthetic.mjs'
+      - 'scripts/check-native-codex-sqlite-pipeline.mjs'
+      - 'scripts/history-config.mjs'
+      - 'scripts/history-setup.mjs'
+      - 'protocol/native/codex/**'
       - 'scripts/browser-request-barrier.mjs'
       - 'test/browser-request-barrier.test.mjs'
       - 'scripts/history-host-synthetic.mjs'
@@ -42,6 +48,12 @@ on:
       - 'scripts/rolling-browser-worker.mjs'
       - 'scripts/conversation-browser-cases.mjs'
       - 'scripts/history-sources-browser-cases.mjs'
+      - 'scripts/history-codex-browser-cases.mjs'
+      - 'scripts/history-codex-host-synthetic.mjs'
+      - 'scripts/check-native-codex-sqlite-pipeline.mjs'
+      - 'scripts/history-config.mjs'
+      - 'scripts/history-setup.mjs'
+      - 'protocol/native/codex/**'
       - 'scripts/browser-request-barrier.mjs'
       - 'test/browser-request-barrier.test.mjs'
       - 'scripts/history-host-synthetic.mjs'
@@ -88,6 +100,6 @@ jobs:
           CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-browser-reader
         run: |
           rustup toolchain install 1.97.1 --profile minimal
-          cargo +1.97.1 build --manifest-path crates/history-source-reader/Cargo.toml --locked
+          cargo +1.97.1 build --manifest-path crates/history-source-reader/Cargo.toml --locked --bins --example owned_sqlite_writer
       - name: Test both directions against two shipped releases
         run: npm run test:rolling -- --history-helper="${{ runner.temp }}/stepsemble-browser-reader/debug/stepsemble-history-source-reader"

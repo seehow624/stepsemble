@@ -34,7 +34,7 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 | Checkpoint | 交付與必要證據 | 開始狀態 |
 | --- | --- | --- |
 | C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | Plan1.57新增本機新群組設定精靈/review/明確readers/CREATE與真Host原檔驗證；Web列表已接，不自選私人來源或新增Web管理route，完整管理/實機與C1完整gate仍待 |
-| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.68接通SQL A→bytes A→parser→SQL B→bytes B，共用單permit/總期限，雙版本/取消/cleanup gate；exact2501c88五CI全通/logs已核，各922/0fail、reader187、Rust21+28/28/13，POSIX真named鏈90reader/parser/35真SHM/max2/remaining0，六mutation/五實際cancel通；Windows新named零spawn明示unsupported。非原子snapshot/final title，授權/discovery/registry/CodexHTTPWeb、cold/壓縮/其他adapter仍待，C2未完成 |
+| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.69已接Codex v3設定／state DB catalog／共享registry／HTTP・peer／typed Web raw records；本機及最低Node965/0fail、真owned Host39筆／WAL名稱／paginated拒絕／cleanup與CUA320/390已驗，新CI待核。仍非完整native語義projection／原子snapshot／resume；cold／壓縮／其他adapter與C2完整驗收繼續 |
 | C3 Session／approval／恢復 | 按真實 capability 接結構化事件、續跑與 approval；ownership、exact correlation、重送／重連／Host crash、durable journal/replay 不漏不重 | 有 contract 與局部實作，未全驗 |
 | C4 帳號與故障體驗 | 登入／登出偵測、官方登入入口、路由相容、取消／失敗／stale／busy 可復原；不修寫第三方憑證或以重試消耗模型 | 局部已驗，跨 harness 待補 |
 | C5 手機與跨裝置操作 | 完整 history i18n、鍵盤／focus／內捲動、長歷史 DOM 上限、Host 切換、background/reconnect、跨機與目標瀏覽器實測 | Plan1.56已接119keys/11語並修正locale scroll跳動；320/390合成Host CUA、原文/DOM/focus保留已驗；人工校稿/真機/跨Host與其餘gate仍待 |
@@ -84,6 +84,18 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 - 未來 App Store 發布、費用、商標／帳號等外部事項不從「loop」推論新授權。
 
 ## 執行記錄
+
+- **2026-09-09／C2 Codex 完整 Web 接線，Plan 1.69 工作中**：以固定 state DB
+  thread ID／選定 rollout 建立 catalog，避免同 thread 多 rollout 重複／錯選。
+  驗收範圍含設定、授權、discovery、共用 registry、HTTP 與 Web；尚未完成或部署。
+  工作入口與未完成項見 [Codex Web 接線](codex-web-integration.md)，不可把底層 reader
+  完成等同 C2／本輪產品完成。私人來源、帳號及獨立 72h 不變。
+  08:05更新：雙root owner精靈v3／source service／單一64槽union registry／HTTP／
+  peer／typed Web raw-records已接通；完整及最低Node各965/0fail/2skip、Rust27/30、
+  Ajv1251／fmt／clippy／generated／gitleaks通。真ownedHost39筆、WAL名稱／版本、
+  paginated拒絕、unsafe path／actual cleanup通；CUA320/390長文內捲及原始紀錄、
+  翻頁／格式提示已驗，並修正租約過期按鈕無反應。新CI待提交後核，未部署；raw
+  非完整native語義畫面，其他來源及C1–C8仍未完成。詳工作入口，不重做已接線模組。
 
 - **2026-09-09／C2 Node SQLite接線，Plan1.66／rc.7不變**：新增嚴格v4 frame及
   有界名稱pipeline，Host兩名額共用／取消actualclose／unknown cleanup全域隔離；

@@ -7,12 +7,13 @@ const reference = v => typeof v === "string" && /^[A-Za-z0-9:_-]{1,128}$/.test(v
 const uuid = v => typeof v === "string" && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(v);
 const count = (v, max) => Number.isSafeInteger(v) && v >= 0 && v <= max;
 const text = (v, max, min = 0) => typeof v === "string" && v.length >= min && v.length <= max && !/[\u0000-\u001f\u007f]/.test(v);
+const { validTitle } = require("../public/modules/codex-history-records");
 function validSources(v) {
   return exact(v, ["kind", "sources", "sourceAuthenticated", "publishable"]) && v.kind === "history_sources"
     && v.sourceAuthenticated === false && v.publishable === false && Array.isArray(v.sources) && v.sources.length <= 8
     && new Set(v.sources.map(g => g?.sourceId)).size === v.sources.length
     && v.sources.every(g => exact(g, ["sourceId", "agentId", "scope", "label", "description"]) && reference(g.sourceId)
-      && g.agentId === "claude-code" && g.scope === "main_sessions" && text(g.label, 120, 1) && text(g.description, 300));
+      && (g.agentId === "claude-code" && g.scope === "main_sessions" || g.agentId === "codex" && g.scope === "stored_threads") && text(g.label, 120, 1) && text(g.description, 300));
 }
 function validRequest(v) {
   return exact(v, ["sourceId", "page", "snapshotId", "refresh"]) && reference(v.sourceId)
@@ -28,7 +29,7 @@ function validPage(v, request, codes) {
     && typeof v.stale === "boolean" && typeof v.refreshing === "boolean" && (v.lastError === null || codes.has(v.lastError))
     && count(v.total, 2048) && exact(v.page, ["offset", "limit"]) && v.page.offset === request.page.offset && v.page.limit === request.page.limit
     && v.page.offset <= v.total && Array.isArray(v.entries) && v.entries.length === Math.min(v.page.limit, v.total - v.page.offset)
-    && v.entries.every(e => exact(e, ["catalogId", "nativeTitle", "titleStatus"]) && typeof e.catalogId === "string" && /^claude-[a-f0-9]{64}$/.test(e.catalogId)
+    && v.entries.every(e => exact(e, ["catalogId", "nativeTitle", "titleStatus"]) && typeof e.catalogId === "string" && /^(claude|codex)-[a-f0-9]{64}$/.test(e.catalogId)
       && e.nativeTitle === null && e.titleStatus === "not_loaded")
     && new Set(v.entries.map(e => e.catalogId)).size === v.entries.length
     && v.nextOffset === (v.page.offset + v.entries.length < v.total ? v.page.offset + v.entries.length : null)
@@ -37,7 +38,7 @@ function validPage(v, request, codes) {
 }
 function validMetadataRequest(v) {
   return exact(v, ["sourceId", "catalogId", "snapshotId", "requestId"]) && reference(v.sourceId)
-    && typeof v.catalogId === "string" && /^claude-[a-f0-9]{64}$/.test(v.catalogId) && uuid(v.snapshotId) && uuid(v.requestId);
+    && typeof v.catalogId === "string" && /^(claude|codex)-[a-f0-9]{64}$/.test(v.catalogId) && uuid(v.snapshotId) && uuid(v.requestId);
 }
 function validMetadata(v, request) {
   const metadataText = (v, max) => typeof v === "string" && v.length > 0 && v.length <= max
@@ -45,8 +46,8 @@ function validMetadata(v, request) {
   return validMetadataRequest(request) && exact(v, ["kind", "sourceId", "catalogId", "snapshotId", "requestId", "metadata", "sourceAuthenticated", "publishable"])
     && v.kind === "history_source_metadata" && Object.keys(request).every(k => v[k] === request[k])
     && exact(v.metadata, ["sessionId", "nativeTitle", "summary", "titleStatus"]) && uuid(v.metadata.sessionId)
-    && (v.metadata.summary === null || metadataText(v.metadata.summary, 4096))
-    && (v.metadata.titleStatus === "native" && metadataText(v.metadata.nativeTitle, 1024)
+    && (v.metadata.summary === null || !request.catalogId.startsWith("codex-") && metadataText(v.metadata.summary, 4096))
+    && (v.metadata.titleStatus === "native" && (request.catalogId.startsWith("codex-") ? typeof v.metadata.nativeTitle === "string" && validTitle(v.metadata.nativeTitle) : metadataText(v.metadata.nativeTitle, 1024))
       || v.metadata.titleStatus === "untitled" && v.metadata.nativeTitle === null)
     && v.sourceAuthenticated === false && v.publishable === false;
 }

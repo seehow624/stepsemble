@@ -13,6 +13,13 @@ on:
       - 'scripts/check-native-codex-sqlite-pipeline.mjs'
       - 'scripts/check-native-codex-named-pipeline.mjs'
       - 'protocol/native/codex/**'
+      - 'client/codex-history*.ts'
+      - 'public/modules/codex-history*.js'
+      - 'test/codex-history*.test.js'
+      - 'test/support/codex-binding-harness.cjs'
+      - 'scripts/history-codex-host-synthetic.mjs'
+      - 'scripts/check-history-codex-host-native.mjs'
+      - 'scripts/check-native-codex-catalog-pipeline.mjs'
       - 'test/native-codex-*.test.js'
       - 'scripts/check-native-history-dependencies.mjs'
       - 'scripts/check-native-history-pipeline.mjs'
@@ -50,6 +57,13 @@ on:
       - 'scripts/check-native-codex-sqlite-pipeline.mjs'
       - 'scripts/check-native-codex-named-pipeline.mjs'
       - 'protocol/native/codex/**'
+      - 'client/codex-history*.ts'
+      - 'public/modules/codex-history*.js'
+      - 'test/codex-history*.test.js'
+      - 'test/support/codex-binding-harness.cjs'
+      - 'scripts/history-codex-host-synthetic.mjs'
+      - 'scripts/check-history-codex-host-native.mjs'
+      - 'scripts/check-native-codex-catalog-pipeline.mjs'
       - 'test/native-codex-*.test.js'
       - 'scripts/check-native-history-dependencies.mjs'
       - 'scripts/check-native-history-pipeline.mjs'
@@ -149,6 +163,9 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-native-history-reader
         run: cargo +1.97.1 build --manifest-path crates/history-source-reader/Cargo.toml --locked --bins --example owned_sqlite_writer
+      - name: Actual Codex owner wizard to Host, typed HTTP and native records (owned sources only)
+        if: runner.os != 'Windows'
+        run: node scripts/check-history-codex-host-native.mjs "${{ runner.temp }}/stepsemble-native-history-reader/debug/stepsemble-history-source-reader"
       - name: Actual Node to Rust synthetic boundary (no native account or model)
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-native-history-reader
@@ -162,4 +179,4 @@ jobs:
           CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-native-history-reader
         run: node scripts/check-native-codex-source.mjs
       - name: Node helper and bytes-only service negative cases
-        run: node --test --test-timeout=60000 test/claude-history-native-helper.test.mjs test/claude-history-inventory.test.js test/claude-history-admission.test.js test/claude-history-bytes-worker.test.js test/claude-history-metadata.test.js test/claude-history-native-service.test.js test/native-codex-source.test.js test/native-codex-name-index.test.js test/native-codex-parser-worker.test.js test/native-codex-history-pipeline.test.js test/native-codex-metadata-name.test.js test/native-codex-sqlite.test.js test/native-codex-metadata-pipeline.test.js test/native-codex-name-context.test.js test/native-codex-name-resolution.test.js test/native-codex-named-parser.test.js test/native-codex-named-pipeline.test.js
+        run: node --test --test-timeout=60000 test/claude-history-native-helper.test.mjs test/claude-history-inventory.test.js test/claude-history-admission.test.js test/claude-history-bytes-worker.test.js test/claude-history-metadata.test.js test/claude-history-native-service.test.js test/native-codex-source.test.js test/native-codex-name-index.test.js test/native-codex-parser-worker.test.js test/native-codex-history-pipeline.test.js test/native-codex-metadata-name.test.js test/native-codex-sqlite.test.js test/native-codex-metadata-pipeline.test.js test/native-codex-name-context.test.js test/native-codex-name-resolution.test.js test/native-codex-named-parser.test.js test/native-codex-named-pipeline.test.js test/native-codex-catalog.test.js test/native-codex-source-index.test.js test/native-codex-source-service.test.js test/history-codex-host.test.js test/codex-history-view.test.js

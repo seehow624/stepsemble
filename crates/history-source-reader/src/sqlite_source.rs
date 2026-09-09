@@ -44,13 +44,19 @@ pub struct Selection {
     pub native_version: String,
     pub thread_id: String,
 }
+pub struct RootSelection {
+    pub root_path: String,
+    pub expected_device: u64,
+    pub expected_inode: u64,
+    pub native_version: String,
+}
 
 struct Lease {
     file: File,
     before: Metadata,
 }
 struct State {
-    selection: Selection,
+    selection: RootSelection,
     root: File,
     root_before: Metadata,
     leases: Vec<Lease>,
@@ -70,11 +76,12 @@ struct State {
 
 pub struct Prepared {
     state: State,
+    thread_id: Option<String>,
 }
 /// No access to fields until finish revalidates authority and confirms close.
-pub struct Pending {
+pub struct Pending<T = Observation> {
     state: State,
-    observation: Result<Observation, Error>,
+    observation: Result<T, Error>,
 }
 
 #[derive(Serialize)]
@@ -87,8 +94,8 @@ pub struct SourceIdentity {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Verified {
-    pub observation: Observation,
+pub struct Verified<T = Observation> {
+    pub observation: T,
     pub identities: Vec<SourceIdentity>,
     pub filesystem_checks_passed: bool,
     pub source_descriptors_closed: usize,
@@ -227,6 +234,32 @@ impl State {
 /// the selected DB/WAL/SHM in that process, including during cleanup or failure.
 /// A failed/abandoned operation must not fall back to an unguarded connection.
 pub unsafe fn prepare(selection: Selection, cancelled: Arc<AtomicBool>) -> Result<Prepared, Error> {
+    if !sqlite_metadata::valid_id(&selection.thread_id) {
+        return Err(Error::Input);
+    }
+    let mut prepared = prepare_root(
+        RootSelection {
+            root_path: selection.root_path,
+            expected_device: selection.expected_device,
+            expected_inode: selection.expected_inode,
+            native_version: selection.native_version,
+        },
+        cancelled,
+    )?;
+    prepared.thread_id = Some(selection.thread_id);
+    Ok(prepared)
+}
+/// Prepare the exact database root for bounded catalog discovery, not a guessed
+/// selected thread or a permission to follow database-provided paths.
+/// # Safety
+/// Same fresh dedicated process and one-shot VFS/descriptor obligations as prepare.
+pub unsafe fn prepare_catalog(
+    selection: RootSelection,
+    cancelled: Arc<AtomicBool>,
+) -> Result<Prepared, Error> {
+    prepare_root(selection, cancelled)
+}
+fn prepare_root(selection: RootSelection, cancelled: Arc<AtomicBool>) -> Result<Prepared, Error> {
     if !cfg!(target_pointer_width = "64") || STATE.get().is_some() {
         return Err(Error::PlatformUnsupported);
     }
@@ -243,7 +276,6 @@ pub unsafe fn prepare(selection: Selection, cancelled: Arc<AtomicBool>) -> Resul
         || selection.root_path.contains('\0')
         || selection.expected_inode == 0
         || selection.native_version != sqlite_metadata::NATIVE_VERSION
-        || !sqlite_metadata::valid_id(&selection.thread_id)
     {
         return Err(Error::Input);
     }
@@ -302,7 +334,10 @@ pub unsafe fn prepare(selection: Selection, cancelled: Arc<AtomicBool>) -> Resul
     }
     state.verify()?;
     state.verify_root_path()?;
-    Ok(Prepared { state })
+    Ok(Prepared {
+        state,
+        thread_id: None,
+    })
 }
 
 impl Prepared {
@@ -313,10 +348,29 @@ impl Prepared {
         self.read_selected(true)
     }
     fn read_selected(self, with_context: bool) -> Result<Pending, Error> {
+        let thread = self.thread_id.clone().ok_or(Error::Input)?;
+        self.read_with(move |db, native, cancelled| {
+            let capture = if with_context {
+                sqlite_metadata::capture_name_context
+            } else {
+                sqlite_metadata::capture_name_fields
+            };
+            capture(db, native, &thread, cancelled)
+        })
+    }
+    pub fn read_catalog(self) -> Result<Pending<sqlite_metadata::CatalogObservation>, Error> {
+        if self.thread_id.is_some() {
+            return Err(Error::Input);
+        }
+        self.read_with(sqlite_metadata::capture_catalog)
+    }
+    fn read_with<T>(
+        self,
+        capture: impl FnOnce(Connection, &str, Arc<AtomicBool>) -> Result<T, sqlite_metadata::Error>,
+    ) -> Result<Pending<T>, Error> {
         self.state.verify()?;
         self.state.verify_root_path()?;
         let native = self.state.selection.native_version.clone();
-        let thread = self.state.selection.thread_id.clone();
         let cancelled = self.state.cancelled.clone();
         if STATE.set(Mutex::new(Some(self.state))).is_err() {
             return Err(Error::PlatformUnsupported);
@@ -335,14 +389,7 @@ impl Prepared {
                     | OpenFlags::SQLITE_OPEN_PRIVATE_CACHE,
                 name.to_str().map_err(|_| Error::DatabaseUnsupported)?,
             ) {
-                Ok(db) => {
-                    let capture = if with_context {
-                        sqlite_metadata::capture_name_context
-                    } else {
-                        sqlite_metadata::capture_name_fields
-                    };
-                    capture(db, &native, &thread, cancelled).map_err(map_sqlite_error)
-                }
+                Ok(db) => capture(db, &native, cancelled).map_err(map_sqlite_error),
                 Err(_) => Err(Error::DatabaseUnavailable),
             },
         };
@@ -369,8 +416,8 @@ impl Prepared {
         Ok(Pending { state, observation })
     }
 }
-impl Pending {
-    pub fn finish(self) -> Result<Verified, Error> {
+impl<T> Pending<T> {
+    pub fn finish(self) -> Result<Verified<T>, Error> {
         let Self { state, observation } = self;
         let verified = state.verify().and_then(|_| state.verify_root_path());
         let identities = state

@@ -4,7 +4,8 @@
 // authorization callbacks, revoke fan-out and trusted configured origins.
 const { canonicalJSON } = require("../public/modules/projection");
 const sourceCatalogWire = require("./history-catalog-wire");
-const LIMITS = Object.freeze({ requestBytes: 8192, responseBytes: 272 * 1024, requestChunks: 1024, deadlineMs: 15000 });
+const codexRecords = require("../public/modules/codex-history-records");
+const LIMITS = Object.freeze({ requestBytes: 8192, responseBytes: 384 * 1024, claudeResponseBytes: 272 * 1024, requestChunks: 1024, deadlineMs: 15000 });
 const VIEW_HEADER = "x-stepsemble-history-view", CSRF_HEADER = "x-stepsemble-history-csrf";
 const uuid = v => typeof v === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
 const principalValid = v => typeof v === "string" && /^[A-Za-z0-9:_-]{1,128}$/.test(v);
@@ -33,6 +34,10 @@ const PUBLIC_CODES = new Set([
   "source_access_denied", "source_read_budget", "source_worker_timeout", "source_cleanup_unconfirmed", "source_service_quarantined",
   "source_acl_unavailable", "source_acl_unsupported", "source_root_identity_changed", "source_containment_unavailable",
   "source_identity_unavailable", "source_close_failed",
+  "source_scope_mismatch", "source_encoding_unsupported", "source_too_large", "source_sqlite_unsupported",
+  "native_paginated_history_unsupported", "native_history_mode_unknown", "rollout_incomplete_tail", "rollout_record_limit",
+  "rollout_invalid_utf8", "rollout_invalid_record", "rollout_selected_thread_mismatch", "rollout_invalid_metadata",
+  "name_resolution_rollout_mismatch", "name_resolution_missing_row_unsupported", "name_resolution_index_unavailable",
   "source_service_closed", "source_binding_revoked", "source_binding_mismatch", "source_sdk_unavailable",
   "history_unauthorized", "history_origin_rejected", "history_csrf_rejected", "history_content_type_rejected",
   "history_body_too_large", "history_body_invalid", "history_request_timeout", "history_request_aborted",
@@ -163,9 +168,9 @@ function validCatalog(reply) {
 }
 
 function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCookieNames = ["stepsemble"], deadlineMs = LIMITS.deadlineMs,
-  browserOnly = false, listCatalog, listSources, sourceCatalog, sourceMetadata, catalogCurrent } = {}) {
+  browserOnly = false, codexEnabled = false, listCatalog, listSources, sourceCatalog, sourceMetadata, catalogCurrent } = {}) {
   if (![registry?.register, registry?.observe, registry?.release, registry?.current].every(v => typeof v === "function")
-    || !positive(deadlineMs) || deadlineMs > LIMITS.deadlineMs || listCatalog !== undefined && typeof listCatalog !== "function"
+    || typeof codexEnabled !== "boolean" || !positive(deadlineMs) || deadlineMs > LIMITS.deadlineMs || listCatalog !== undefined && typeof listCatalog !== "function"
     || [listSources, sourceCatalog, sourceMetadata, catalogCurrent].some(v => v !== undefined && typeof v !== "function")
     || (listSources !== undefined || sourceCatalog !== undefined || sourceMetadata !== undefined) && typeof catalogCurrent !== "function")
     throw new TypeError("history_http_configuration_invalid");
@@ -213,7 +218,7 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
         || typeof body.catalogId !== "string" || !/^[A-Za-z0-9:_-]{1,128}$/.test(body.catalogId))) throw error("invalid_history_registration");
       if (route === "observe" && (!exact(body, ["bindingId", "generation", "requestId", "page", ...(Object.hasOwn(body, "version") ? ["version"] : [])])
         || !uuid(body.bindingId) || !positive(body.generation) || !uuid(body.requestId) || !exact(body.page, ["offset", "limit"])
-        || !Number.isSafeInteger(body.page.offset) || body.page.offset < 0 || body.page.offset > 2000 || !positive(body.page.limit) || body.page.limit > 100
+        || !(codexEnabled && codexRecords.validPage(body.page) || Number.isSafeInteger(body.page.offset) && body.page.offset >= 0 && body.page.offset <= 2000 && positive(body.page.limit) && body.page.limit <= 100)
         || Object.hasOwn(body, "version") && (typeof body.version !== "string" || !/^[a-f0-9]{64}$/.test(body.version)))) throw error("invalid_history_request");
       if (route === "release" && (!exact(body, ["generation"]) || !positive(body.generation))) throw error("invalid_history_release");
       if (abort.signal.aborted) throw error("history_request_aborted", 408);
@@ -258,7 +263,8 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
           : route === "register" ? exact(reply, ["kind", "bindingId", "generation", "sessionId", "viewId", "catalogId", "expiresAt", "sourceAuthenticated", "publishable"])
             && reply.kind === "history_registration" && reply.viewId === viewId && reply.catalogId === body.catalogId && uuid(reply.bindingId)
             && uuid(reply.sessionId) && positive(reply.generation) && positive(reply.expiresAt) && reply.sourceAuthenticated === false && reply.publishable === false
-            : exact(reply, ["kind", "bindingId", "generation", "requestId", "sourceVersion", "history", "sourceAuthenticated", "publishable", "cleanupConfirmed"])
+            : reply.kind === "bound_codex_records" ? codexEnabled && codexRecords.validBoundRecords(reply, reply.history?.nativeThreadId, body.page, body)
+            : Buffer.byteLength(raw) <= LIMITS.claudeResponseBytes && exact(reply, ["kind", "bindingId", "generation", "requestId", "sourceVersion", "history", "sourceAuthenticated", "publishable", "cleanupConfirmed"])
               && reply.kind === "bound_history_observation" && reply.bindingId === body.bindingId && reply.generation === body.generation
               && reply.requestId === body.requestId && typeof reply.sourceVersion === "string" && /^[a-f0-9]{64}$/.test(reply.sourceVersion)
               && reply.sourceAuthenticated === false && reply.publishable === false && reply.cleanupConfirmed === true && inertHistory(reply.history, body.page);

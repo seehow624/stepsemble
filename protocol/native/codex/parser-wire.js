@@ -173,4 +173,4 @@ function launchOptions() {
   return { executable: process.execPath, args: ["--permission", "--no-warnings", "--max-old-space-size=128", ...files.map(f => `--allow-fs-read=${f}`), files[0]],
     options: { cwd: __dirname, env: { LANG: "C", LC_ALL: "C" }, stdio: ["pipe", "pipe", "pipe"], shell: false, detached: false, windowsHide: true } };
 }
-module.exports = { LIMITS, CODES, detach, keys, validSelection, validJob, validPayload, validNameRequest, sameNamedVersion, encodeJob, readJob, readResponse, encodeResponse, launchOptions };
+module.exports = { LIMITS, CODES, detach, keys, validSelection, validJob, validPayload, validNameRequest, validName, sameNamedVersion, encodeJob, readJob, readResponse, encodeResponse, launchOptions };

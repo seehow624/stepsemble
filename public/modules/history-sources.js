@@ -278,7 +278,10 @@ var StepsembleHistorySources;
             if (!selected)
                 return;
             try {
-                const current = deps.createContent(contentRoot, selected.catalogId);
+                const group = deps.groups.find(g => g.sourceId === selected.sourceId);
+                if (!group)
+                    return;
+                const current = deps.createContent(contentRoot, selected.catalogId, group.agentId);
                 content = current;
                 void current.select(selected.catalogId).catch(() => { if (content === current)
                     contentError(); });
@@ -299,7 +302,9 @@ var StepsembleHistorySources;
             panel.setAttribute("aria-busy", String(s.busy));
             warning.hidden = !s.error && !(s.page?.snapshotId && s.page.stale);
             i18n.bind(warning, s.error ? i18n.errorKey(s.error) : "sourceStale");
-            i18n.bind(status, s.busy ? "sourceLoading" : s.page?.snapshotId ? "sourceCount" : "unscanned", { count: s.page?.total ?? 0 });
+            i18n.bind(status, s.busy ? "sourceLoading" : s.page?.snapshotId
+                ? s.group.agentId === "codex" ? "storedSourceCount" : "sourceCount"
+                : s.group.agentId === "codex" ? "storedUnscanned" : "unscanned", { count: s.page?.total ?? 0 });
             empty.hidden = s.rows.length > 0;
             list.hidden = !s.rows.length;
             i18n.bind(empty, s.page?.snapshotId ? "sourceEmpty" : "sourcePrivacy");

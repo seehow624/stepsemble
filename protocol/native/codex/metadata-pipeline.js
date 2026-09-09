@@ -9,8 +9,9 @@ const unavailable = code => ({ kind: "source_unavailable", code });
 const codes = new Set([...SOURCE_CODES, "source_worker_exit", "source_worker_timeout", "source_worker_spawn_failed", "source_worker_io_error",
   "source_worker_diagnostic", "source_worker_input_limit", "source_worker_output_limit", "source_worker_protocol", "source_aborted",
   "source_cleanup_unconfirmed", "source_service_quarantined", "source_service_closed"]);
-function createPipeline(options = {}, withContext = false) {
-  const wire = withContext ? sqliteWire.context : sqliteWire, method = withContext ? "readCodexNameContext" : "readCodexMetadata";
+function createPipeline(options = {}, withContext = false, withCatalog = false) {
+  const wire = withCatalog ? sqliteWire.catalog : withContext ? sqliteWire.context : sqliteWire;
+  const method = withCatalog ? "readCodexCatalog" : withContext ? "readCodexNameContext" : "readCodexMetadata";
   if (!wire.own(options, ["helperPath", "admission", "createHelper", "platform", "deadlineMs", "cleanupMs"])) throw new TypeError("invalid_codex_metadata_pipeline_options");
   const { helperPath, admission, createHelper = createNativeHelper, platform = process.platform,
     deadlineMs = LIMITS.deadlineMs, cleanupMs = LIMITS.cleanupMs } = options;
@@ -95,9 +96,14 @@ function createPipeline(options = {}, withContext = false) {
         if (["source_cleanup_unconfirmed", "source_service_quarantined"].includes(raw.code)) { failure = raw.code; quarantine(); }
         settle(unavailable(codes.has(raw.code) ? raw.code : "source_worker_failure")); return;
       }
-      const captured = wire.capture(raw, request), version = captured && wire.sourceVersion(captured, request);
+      const inspected = wire.inspectCapture(raw, request), captured = inspected?.captured, version = inspected?.version;
       if (!version) return settle(unavailable("source_worker_protocol"));
       if (expected !== null && !wire.sameSourceVersion(expected, version)) return settle(unavailable("source_version_changed"));
+      if (withCatalog) {
+        if (!current()) return;
+        return settle({ kind: "codex_catalog_capture", source: version, metadata: captured.metadata.observation,
+          sourceAuthenticated: false, publishable: false, cleanupConfirmed: true });
+      }
       const metadata = observeMetadataName(captured.metadata.observation.fields, { nativeVersion: request.nativeVersion, threadId: request.source.threadId });
       if (!current()) return;
       if (metadata.kind !== "codex_metadata_name_observation") return settle(unavailable("source_observation_rejected"));
@@ -122,4 +128,5 @@ function createPipeline(options = {}, withContext = false) {
 }
 function createCodexMetadataPipeline(options) { return createPipeline(options); }
 function createCodexNameContextPipeline(options) { return createPipeline(options, true); }
-module.exports = { createCodexMetadataPipeline, createCodexNameContextPipeline };
+function createCodexCatalogPipeline(options) { return createPipeline(options, false, true); }
+module.exports = { createCodexMetadataPipeline, createCodexNameContextPipeline, createCodexCatalogPipeline };

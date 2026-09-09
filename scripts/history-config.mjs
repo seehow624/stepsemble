@@ -12,9 +12,10 @@ const artifactFields = [...directoryFields, "size", "nlink", "mtimeNs", "ctimeNs
 const freeze = value => { if (value && typeof value === "object") { Object.values(value).forEach(freeze); Object.freeze(value); } return value; };
 export function prepareHistoryConfigFile(filename, options, mode = "session") {
   if (!["darwin", "linux"].includes(process.platform)) throw new Error("history_configuration_platform_unsupported");
-  if (!["session", "group"].includes(mode)) invalid();
-  const names = ["origin", "helper", "sdk", "projects-root", "reader", "label",
-    ...(mode === "group" ? ["source-id", "scope"] : ["project-key", "session-id"])];
+  if (!["session", "group", "codex-group"].includes(mode)) invalid();
+  const codex = mode === "codex-group", grouped = mode !== "session";
+  const names = ["origin", "helper", "reader", "label", ...(codex ? ["codex-root", "sqlite-root"] : ["sdk", "projects-root"]),
+    ...(grouped ? ["source-id", "scope"] : ["project-key", "session-id"])];
   if (!options || Object.keys(options).sort().join() !== names.sort().join() || names.some(n => typeof options[n] !== "string" || !options[n])) invalid();
   if (typeof filename !== "string" || filename.length > 4096 || /[\u0000-\u001f\u007f*?\[\]{},]/.test(filename)
     || !path.isAbsolute(filename) || path.resolve(filename) !== filename || fs.realpathSync(path.dirname(filename)) !== path.dirname(filename)) invalid();
@@ -23,30 +24,33 @@ export function prepareHistoryConfigFile(filename, options, mode = "session") {
   try { fs.lstatSync(filename); throw new Error("history_configuration_not_created"); } catch (error) { if (error.code !== "ENOENT") throw error; }
   // Metadata capture is an expected root identity, not proof that native source
   // owner/ACL/mount/containment checks will pass. No transcript content is read.
-  const root = options["projects-root"];
-  if (fs.realpathSync(root) !== root) invalid();
-  const stat = fs.lstatSync(root, { bigint: true }); if (!stat.isDirectory()) invalid();
-  const expectedRoot = { device: String(stat.dev), inode: String(stat.ino) };
-  const config = host.parseHistoryConfig({ version: mode === "group" ? 2 : 1, trustBoundary: "host_managed_paths", allowedOrigins: [options.origin],
-    reader: { helperPath: options.helper, sdkPath: options.sdk }, catalog: mode === "group" ? [] : [{ catalogId: "source-1", label: options.label, description: "",
-      source: { projectsRoot: root, projectKey: options["project-key"], sessionId: options["session-id"] },
-      expectedRoot, readers: options.reader.split(",").map(value => value.trim()) }], ...(mode === "group" ? { sourceGroups: [{ sourceId: options["source-id"], agentId: "claude-code",
-        scope: options.scope, label: options.label, description: "", projectsRoot: root, expectedRoot, readers: options.reader.split(",").map(value => value.trim()) }] } : {}) });
+  const roots = (codex ? ["codex-root", "sqlite-root"] : ["projects-root"]).map(key => {
+    const root = options[key]; if (fs.realpathSync(root) !== root) invalid();
+    const stat = fs.lstatSync(root, { bigint: true }); if (!stat.isDirectory()) invalid();
+    return { root, stat, expectedRoot: { device: String(stat.dev), inode: String(stat.ino) } };
+  });
+  const readers = options.reader.split(",").map(value => value.trim()), { root, expectedRoot } = roots[0];
+  const config = host.parseHistoryConfig({ version: codex ? 3 : grouped ? 2 : 1, trustBoundary: "host_managed_paths", allowedOrigins: [options.origin],
+    reader: { helperPath: options.helper, sdkPath: codex ? null : options.sdk }, catalog: grouped ? [] : [{ catalogId: "source-1", label: options.label, description: "",
+      source: { projectsRoot: root, projectKey: options["project-key"], sessionId: options["session-id"] }, expectedRoot, readers }],
+    ...(grouped ? { sourceGroups: [{ sourceId: options["source-id"], scope: options.scope, label: options.label, description: "", readers,
+      ...(codex ? { agentId: "codex", nativeVersion: "0.153.4", codexRoot: root, expectedCodexRoot: expectedRoot, sqliteRoot: roots[1].root, expectedSqliteRoot: roots[1].expectedRoot }
+        : { agentId: "claude-code", projectsRoot: root, expectedRoot }) }] } : {}) });
   const artifacts = host.historyReaderMetadata(config.reader);
   const prepared = freeze({ filename, config: JSON.parse(JSON.stringify(config)) });
-  reviews.set(prepared, { filename, config, parent, root, rootStat: stat, artifacts });
+  reviews.set(prepared, { filename, config, parent, roots, artifacts });
   return prepared;
 }
 export function discardHistoryConfigReview(prepared) { return reviews.delete(prepared); }
 export function commitHistoryConfigFile(prepared) {
   const review = reviews.get(prepared); if (!review) throw new Error("history_configuration_review_unavailable");
   reviews.delete(prepared); // Single use even when validation or publication fails.
-  const { filename, config, parent, root, rootStat, artifacts } = review;
+  const { filename, config, parent, roots, artifacts } = review;
   const verifyReview = () => {
     try {
-      if (fs.realpathSync(path.dirname(filename)) !== path.dirname(filename) || fs.realpathSync(root) !== root
+      if (fs.realpathSync(path.dirname(filename)) !== path.dirname(filename)
         || !identity(parent, fs.lstatSync(path.dirname(filename), { bigint: true }), directoryFields)
-        || !identity(rootStat, fs.lstatSync(root, { bigint: true }), directoryFields)) throw new Error();
+        || roots.some(({ root, stat }) => fs.realpathSync(root) !== root || !identity(stat, fs.lstatSync(root, { bigint: true }), directoryFields))) throw new Error();
       const current = host.historyReaderMetadata(config.reader);
       if (current.some((item, index) => !identity(item.stat, artifacts[index].stat, artifactFields))) throw new Error();
     } catch { throw new Error("history_configuration_review_changed"); }
@@ -82,13 +86,13 @@ export function run(args) {
     const c = host.loadHistoryConfig(filename);
     return { valid: true, catalogEntries: c.catalog.length, sourceGroups: c.sourceGroups?.length ?? 0, origins: c.allowedOrigins.length, sourceReads: 0, hostRestarted: false };
   }
-  if (!["create", "create-group"].includes(command) || !filename || rest.length % 2) invalid();
+  if (!["create", "create-group", "create-codex-group"].includes(command) || !filename || rest.length % 2) invalid();
   const options = Object.create(null);
   for (let i = 0; i < rest.length; i += 2) {
     if (!rest[i].startsWith("--") || Object.hasOwn(options, rest[i].slice(2))) invalid();
     options[rest[i].slice(2)] = rest[i + 1];
   }
-  return createHistoryConfigFile(filename, options, command === "create-group" ? "group" : "session");
+  return createHistoryConfigFile(filename, options, command === "create-codex-group" ? "codex-group" : command === "create-group" ? "group" : "session");
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   try { console.log(JSON.stringify(run(process.argv.slice(2)))); }
