@@ -158,7 +158,10 @@ export async function runPiSessionBrowserCases(browser) {
       await page.locator("#new-name").fill(worktreeTitle);
       await page.locator("#new-agent").selectOption("pi");
       await page.waitForFunction(() => document.querySelector("#new-worktree")?.disabled === false);
-      await page.locator("#new-worktree").check();
+      // The visual switch covers the native checkbox. Use its visible label,
+      // as a pointer user does, without forcing a click through the track.
+      await page.locator('label[for="new-worktree"]').click();
+      await page.waitForFunction(() => document.querySelector("#new-worktree")?.checked === true);
       const genericBefore = genericStreams.length, nativeBefore = nativeStreams.length;
       await page.locator("#new-start").click();
       await page.waitForFunction(() => !document.querySelector("#btn-send")?.disabled);

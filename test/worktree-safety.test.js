@@ -7,17 +7,31 @@ const vm = require("node:vm");
 const crypto = require("node:crypto");
 const { execFile } = require("node:child_process");
 
+function normalizeSource(source) {
+  return source.replace(/\r\n?/g, "\n");
+}
+
+function forceCrlf(source) {
+  return normalizeSource(source).replace(/\n/g, "\r\n");
+}
+
 // Execute the production functions, with isolated filesystem/Git boundaries.
 function functionSource(source, name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.ok(start >= 0, name);
-  return source.slice(start, source.indexOf("\n}\n", start) + 2);
+  const normalized = normalizeSource(source);
+  const start = normalized.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `${name} start marker`);
+  const end = normalized.indexOf("\n}\n", start);
+  assert.ok(end >= 0, `${name} end marker`);
+  return normalized.slice(start, end + 2);
 }
 
 function fixture(execute = execFile, options = {}) {
-  const source = fs.readFileSync(path.resolve("server.js"), "utf8");
+  const rawSource = fs.readFileSync(path.resolve("server.js"), "utf8");
+  const source = normalizeSource(options.sourceTransform ? options.sourceTransform(rawSource) : rawSource);
   const start = source.indexOf("function runWorktreeGit(");
+  assert.ok(start >= 0, "runWorktreeGit start marker");
   const end = source.indexOf("/** 讀取單一 session", start);
+  assert.ok(end >= 0, "runWorktreeGit end marker");
   const appHome = options.appHome || path.resolve("synthetic-home");
   const context = vm.createContext({ execFile: execute, path, crypto,
     APP_HOME: appHome, BROWSE_ROOTS: options.browseRoots || [appHome], projectDirectory: cwd => cwd,
@@ -30,7 +44,7 @@ function fixture(execute = execFile, options = {}) {
 }
 
 test("worktree runner yields to the event loop and cancellation terminates its child", async () => {
-  const context = fixture();
+  const context = fixture(execFile, { sourceTransform: forceCrlf });
   const controller = new AbortController();
   let ticked = false;
   const running = context.runWorktreeGit(process.execPath, ["-e", "setTimeout(()=>{},10000)"], 15000, controller.signal);
@@ -70,7 +84,7 @@ test("managed worktree preflight allows existing authority and denies outside de
     const context = fixture((git, args, options, done) => {
       calls.push(args);
       done(null, args.includes("rev-parse") ? repo : "");
-    }, { appHome, browseRoots });
+    }, { appHome, browseRoots, sourceTransform: forceCrlf });
     return { calls, result: await context.createPermanentWorktree(repo) };
   }
 

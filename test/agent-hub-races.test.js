@@ -4,15 +4,29 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 
+function appSource({ crlf = false } = {}) {
+  const raw = fs.readFileSync(require.resolve("../public/app.js"), "utf8");
+  const transformed = crlf ? raw.replace(/\r\n?/g, "\n").replace(/\n/g, "\r\n") : raw;
+  return transformed.replace(/\r\n?/g, "\n");
+}
+
+function sourceSlice(source, startMarker, endMarker, label = startMarker) {
+  const start = source.indexOf(startMarker);
+  assert.ok(start >= 0, `${label} start marker`);
+  const end = source.indexOf(endMarker, start);
+  assert.ok(end >= 0, `${label} end marker`);
+  return source.slice(start, end);
+}
+
 test("chat stop gives retryable feedback, coalesces clicks and fences old-host replies", async () => {
-  const source = fs.readFileSync(require.resolve("../public/app.js"), "utf8");
+  const source = appSource();
   const calls = [], notices = [];
   let click;
   const button = { disabled: false, addEventListener(name, handler) { assert.equal(name, "click"); click = handler; } };
   const context = vm.createContext({ el: { btnAbort: button }, rpc: { sid: "a", generic: true }, apiBase: "/r/a",
     post(url, body) { return new Promise((resolve, reject) => calls.push({ url, body, resolve, reject })); },
     toast(message) { notices.push(message); }, agentHubText: key => key, syncGenericInputState() {} });
-  vm.runInContext(source.slice(source.indexOf('el.btnAbort.addEventListener("click"'), source.indexOf('// ---- chat ⋯ menu')), context);
+  vm.runInContext(sourceSlice(source, 'el.btnAbort.addEventListener("click"', '// ---- chat ⋯ menu', "chat stop handler"), context);
   const first = click(); await click();
   assert.equal(calls.length, 1); assert.equal(button.disabled, true);
   calls[0].reject(new Error("Stop not confirmed")); await first;
@@ -20,13 +34,13 @@ test("chat stop gives retryable feedback, coalesces clicks and fences old-host r
   const second = click(); context.rpc = { sid: "b", generic: true }; context.apiBase = "/r/b";
   calls[1].reject(new Error("Stale failure")); await second;
   assert.equal(notices.length, 1, "old-host failure is not shown in the new chat");
-  assert.match(source.slice(source.indexOf("function setStreaming(on)"), source.indexOf("// ---- 送出 / 中止")), /el\.btnAbort\.disabled = !!rpc\?\.stopPending/);
+  assert.match(sourceSlice(source, "function setStreaming(on)", "// ---- 送出 / 中止", "streaming state"), /el\.btnAbort\.disabled = !!rpc\?\.stopPending/);
 });
 
 // Run the actual controller functions, including finally blocks, with a
 // transport that deliberately delivers replies even after abort.
 function setup() {
-  const source = fs.readFileSync(require.resolve("../public/app.js"), "utf8");
+  const source = appSource();
   const calls = [];
   let restores = 0;
   const context = vm.createContext({
@@ -38,7 +52,7 @@ function setup() {
   vm.runInContext(`let agentCatalogRequest = null, agentCatalog = [], agentTasks = [], agentCatalogError = false;
     let newAgentOpenRequest = null, newAgentStartPending = false;
     let apiBase = '/r/a', selectedId = 'a';
-    ${source.slice(source.indexOf("async function loadAgentCatalog("), source.indexOf("function syncAgentTaskPolling("))}
+    ${sourceSlice(source, "async function loadAgentCatalog(", "function syncAgentTaskPolling(", "agent catalog functions")}
     function snapshot() { return { agentCatalog, agentTasks, agentCatalogError, catalogPending: !!agentCatalogRequest, tasksPending: !!agentTaskRefreshRequest }; }
     function switchHost(id) { resetAgentHub(); selectedId = id; apiBase = '/r/' + id; }
   `, context);
@@ -94,10 +108,10 @@ test("malformed task snapshot preserves the last known same-host tasks", async (
 });
 
 test("project creation is disabled when discovery or the selected executable is unknown", () => {
-  const source = fs.readFileSync(require.resolve("../public/app.js"), "utf8");
+  const source = appSource();
   const el = { newAgent: { value: "pi" }, newStart: {}, newAgentNote: {}, newWorktree: {}, newCwd: { value: "/allowed" } };
   const context = vm.createContext({ el, agentCatalog: [], agentCatalogError: false, agentHubText: key => key });
-  vm.runInContext(`let newAgentStartPending = false;\n${source.slice(source.indexOf("function updateNewAgentNote("), source.indexOf("async function loadAgentCatalog("))}`, context);
+  vm.runInContext(`let newAgentStartPending = false;\n${sourceSlice(source, "function updateNewAgentNote(", "async function loadAgentCatalog(", "new-agent note")}`, context);
   context.updateNewAgentNote(); assert.equal(el.newStart.disabled, true);
   context.agentCatalog = [{ id: "pi", installed: true }];
   context.updateNewAgentNote(); assert.equal(el.newStart.disabled, false);
@@ -110,9 +124,14 @@ test("project creation is disabled when discovery or the selected executable is 
 });
 
 test("Pi worktree launch coalesces repeated clicks and host reset aborts the single owned request", async () => {
-  const source = fs.readFileSync(require.resolve("../public/app.js"), "utf8");
+  // Exercise the same source path after a Windows-style checkout conversion;
+  // the VM must receive normalized LF rather than relying on the working tree.
+  const source = appSource({ crlf: true });
   const resetStart = source.indexOf("function resetAgentHub(");
-  const resetSource = source.slice(resetStart, source.indexOf("\n}\n", resetStart) + 2);
+  assert.ok(resetStart >= 0, "resetAgentHub start marker");
+  const resetEnd = source.indexOf("\n}\n", resetStart);
+  assert.ok(resetEnd >= 0, "resetAgentHub end marker");
+  const resetSource = source.slice(resetStart, resetEnd + 2);
   let click, finish;
   const launches = [];
   const classes = { add() {} };
@@ -130,9 +149,9 @@ test("Pi worktree launch coalesces repeated clicks and host reset aborts the sin
   vm.runInContext(`let agentCatalog = [{ id: "pi", installed: true, capabilities: ["rpc", "worktree"] }];
     let agentCatalogError = false, newAgentStartPending = false, newAgentOpenRequest = null;
     let agentCatalogRequest = null, agentTasks = [], conversationSourceState = {}, settings = { removedProjects: [] };
-    ${source.slice(source.indexOf("function updateNewAgentNote("), source.indexOf("async function loadAgentCatalog("))}
+    ${sourceSlice(source, "function updateNewAgentNote(", "async function loadAgentCatalog(", "new-agent note")}
     ${resetSource}
-    ${source.slice(source.indexOf('el.newStart.addEventListener("click"'), source.indexOf("// ---- iOS 鍵盤適配"))}
+    ${sourceSlice(source, 'el.newStart.addEventListener("click"', "// ---- iOS 鍵盤適配", "new-agent start handler")}
   `, context);
   const first = click();
   assert.equal(el.newStart.disabled, true);
@@ -148,7 +167,7 @@ test("Pi worktree launch coalesces repeated clicks and host reset aborts the sin
 });
 
 test("folder root bridge is navigation-only and loading cannot start the previously selected cwd", async () => {
-  const source = fs.readFileSync(require.resolve("../public/app.js"), "utf8");
+  const source = appSource();
   const folderList = () => ({
     innerHTML: "", scrollTop: 0, children: [], contains() { return false; }, focus() {},
     cloneNode() { return folderList(); }, replaceWith() {}, appendChild(child) { this.children.push(child); },
@@ -164,10 +183,12 @@ test("folder root bridge is navigation-only and loading cannot start the previou
     api() { return replies.length ? Promise.resolve(replies.shift()) : new Promise(resolve => { finish = resolve; }); },
   });
   const browseStart = source.indexOf("function isAbsoluteBrowsePath(");
+  assert.ok(browseStart >= 0, "browse path start marker");
   const browseEnd = source.indexOf("function openNewDialog(", browseStart);
+  assert.ok(browseEnd >= 0, "browse path end marker");
   vm.runInContext(`let agentCatalog = [{ id: "pi", installed: true, capabilities: ["rpc", "worktree"] }];
     let agentCatalogError = false, newAgentStartPending = false;
-    ${source.slice(source.indexOf("function updateNewAgentNote("), source.indexOf("async function loadAgentCatalog("))}
+    ${sourceSlice(source, "function updateNewAgentNote(", "async function loadAgentCatalog(", "new-agent note")}
     let projectFolder = { path: null, parent: null }, projectFolderRequest = null, projectFolderSequence = 0;
     ${source.slice(browseStart, browseEnd)}
   `, context);
@@ -193,16 +214,16 @@ test("folder root bridge is navigation-only and loading cannot start the previou
 });
 
 test("returning to a mobile list clears the desktop pane and stale session identity", async () => {
-  const source = fs.readFileSync(require.resolve("../public/app.js"), "utf8");
+  const source = appSource();
   const element = () => ({ classList: { add() {}, remove() {} }, style: {}, dataset: {}, textContent: "old session" });
   const el = { viewChat: element(), viewList: element(), viewSettings: element(), viewModelSettings: element(),
     chatTitle: element(), chatSub: element(), messages: { innerHTML: "private old chat" } };
   const context = vm.createContext({ el, isDesktop: () => false, saveActiveDraft() {}, resetProjectChanges() {},
     stopUpdateCenterPolling() {}, closeChat() {}, resetSettingsOverlay() {}, resetSessionUsage() {},
     refreshSessions: async () => {}, rpc: null, viewGeneration: 0, currentSessionCwd: "old" });
-  vm.runInContext(source.slice(source.indexOf("function showList(options"), source.indexOf('el.btnBack.addEventListener')), context);
-  vm.runInContext(source.slice(source.indexOf("function showChatEmpty("), source.indexOf("function hideChatEmpty(")), context);
-  vm.runInContext(source.slice(source.indexOf("function setChatAgent("), source.indexOf("function setChatTitle(")), context);
+  vm.runInContext(sourceSlice(source, "function showList(options", 'el.btnBack.addEventListener', "show list"), context);
+  vm.runInContext(sourceSlice(source, "function showChatEmpty(", "function hideChatEmpty(", "empty chat"), context);
+  vm.runInContext(sourceSlice(source, "function setChatAgent(", "function setChatTitle(", "chat agent"), context);
   await context.showList();
   assert.equal(el.messages.innerHTML, "");
   assert.equal(el.chatTitle.textContent, "Stepsemble");

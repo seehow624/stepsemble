@@ -76,6 +76,21 @@ reader；改為相同固定工具鏈的Release建置後兩OS全通。沒有加�
 2.23／2.30ms；200ms取樣Host RSS最大103.6／101.7MB。這不是峰值、A/B改善、
 256MiB最大來源、SMB或混合負載容量驗收，不用它保證所有操作不卡。
 
+### 本輪Pi／入口修正的原始CI失敗與修復
+
+產品提交`949e23589597cc79b4fd84168d0db64c77257af1`的
+[一般CI34350383074](https://github.com/seehow624/stepsemble/actions/runs/34350383074)
+在Windows出現三項fixture失敗：VM擷取函式以LF尋找結尾，CRLF checkout下抓到空內容，
+造成resetAgentHub／realBrowsePath未定義。Mac1098/1096pass2skip、Linux1098/1095pass3skip
+全通；Windows1098/1044pass51skip3fail。修正只正規化測試讀入字串、明確檢查擷取邊界，
+並以CRLF合成來源實際執行reset／managed preflight，不改runtime或跳過Windows。
+
+同提交[Rolling34350383209](https://github.com/seehow624/stepsemble/actions/runs/34350383209)
+兩OS均在新Pi1440案例的checkbox操作失敗：visual toggle track攔截直接點input。
+前8個雙向舊版案例及兩個Claude登入UI已通；後續案例未執行，不能當整組通過。
+改點可見label，再確認checked，沒有force、加長期限或刪驗收。兩個原完整失敗logs保留；
+測試修正提交的general／rolling必須獨立核對，不能重標原949e235失敗為成功。
+
 ## 長測通過門檻
 
 **實際終態：passed，2026-09-09 19:34:16 MYT完成。** 連續觀察259200335ms、
