@@ -15,12 +15,14 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**進行中增量 1.70（cold底層本機已驗，未接Web／未部署）**：新增冷SQLite的短時間
+**進行中增量 1.70（cold底層跨平台CI已驗，未接Web／未部署）**：新增冷SQLite的短時間
 主檔SHARED lock／sidecar absence與content stamp重驗，再於最大64MiB唯讀RAM副本
 查詢；不新建原生WAL/SHM、不把原來源immutable化。sealed READONLY deserialize
 保留熱DBguard，Rust29/30及新的writer重開／撤權／換檔／kill／大DBcase通，原熱WAL
 真SHM與負向控制保留。**這仍不是Web冷歷史完成**：新版本frame、Node同admission與
-sourceVersion、actualHost到Web冷熱切換驗收仍屬1.70的必要工作，CI待提交後核對。
+sourceVersion、actualHost到Web冷熱切換驗收仍屬1.70的必要工作。808efca三CI全success／
+完整logs已核：三OSNode965／0fail、reader226／226；POSIX新cold12組／41child／21dirs
+與原hot鏈皆通，Windows cold明示unsupported；雙OS既有browser及RustSec0/0通。
 詳[冷SQLite接續](codex-cold-sqlite.md)。C1–C8／正式服務／帳號／B+／獨立72h關卡不變。
 
 **前一已完成增量 1.69（raw-records 全鏈與 CI 已驗，未部署）**：Codex state DB

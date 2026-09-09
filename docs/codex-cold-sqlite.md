@@ -14,7 +14,7 @@ Codex正常關閉最後一個SQLite連線時，WAL和SHM可以被原生SQLite清
 必須取得非空主DB的EXCLUSIVE lock才能刪除WAL。因此新路徑：
 
 1. 沿用原root/openat/owner/mode/ACL/local-mount檢查，只取得主DB的O_RDONLY FD。
-   DB名稱固定state_5.sqlite；WAL、SHM、rollback journal必须均不存在。
+   DB名稱固定state_5.sqlite；WAL、SHM、rollback journal必須均不存在。
 2. 按POSIX SQLite順序取得主DBSHARED lock：先pending byte共享鎖，再shared range，
    最後釋放pending byte。全部F_SETLK非阻塞；已有exclusive/pending writer就busy，無重試。
 3. 保留唯一主檔FD與共享鎖，逐64KiB讀入SQLite分配的私有RAM，最大64MiB／1024次讀。
@@ -62,13 +62,34 @@ Mac Mini、Rust1.97.1、鎖定SQLite3.53.4；只使用owned fixtures，沒有私
 - 初始失敗：fixture呼叫不存在的send方法（改用現有stdin）；memdb被舊readonly guard
   拒絕（以上sealed型別及負向測試）；舊snapshot測試4MiB上限撞12MiB fixture（改有界
   streaming比對）；unsafe安全註解在assert外（移到unsafe前）。沒有改正式上限以洗過測試。
-- logs：`/tmp/stepsemble-sqlite-cold-first.log`、`...-second.log`、`...-final-rust.log`、
-  `...-clippy.log`、`...-node.tap`及`...-check.log`。CI在提交後核對，不預先宣稱跨平台通過。
+- logs：`/tmp/stepsemble-sqlite-cold-first.log`保留memdb guard失敗，`...-second.log`、
+  `...-final-rust.log`、`...-clippy.log`、`...-node.tap`及`...-check.log`保存修正結果。
+  部分早期編譯／fixture失敗使用重複log名稱，完整檔已被後一次覆寫；其實際錯誤在工具
+  對話與上述摘要可查，但不能冒称全部初次原始log均已保存。後續attempt使用獨立名稱。
+
+## Exact工程驗證（底層通過，1.70全鏈仍進行中）
+
+工程`808efcaf584066e1f53c169ee0eb66ae8129be06`三組CI全部success，完整log已核：
+
+- 一般34296495850：三OS各965／0fail、Ajv1251；Mac963pass／2skip、Linux962／3、
+  Windows915／50。不是把skip算成功的功能驗證。
+- reader34296495847：Mac/Linux各Rust29lib＋30binary；新增cold12組、41child全部
+  reaped／21owned目錄explicit cleanup，全套跨程序147child／82dirs；原hot真SHM保持。
+  Windows27lib＋15binary，cold只驗unsupported／3child／1dir，不宣稱Windows支援。
+  三OSNode226／226；POSIX既有真owner→Host39筆／WAL名稱／版本失效／empty與startup
+  cleanup均通，**此Host gate仍是hot，非本批cold接線**。
+- RustSec0known／0warnings，43package lock／SQLite artifact pin不變；fmt/clippy通。
+- rolling34296495886：Mac/Linux各原24browser cases與六個Codex1440/390/320×明暗
+  全通，pageErrors0；是既有Web回歸，非cold或真機驗收。
+- 本機額外三輪完整程序gate通，每輪cold41child／21dirs、全套147／82全清理。
+  `...-repeat-1.log`至3、`...-general-ci.log`、`...-reader-ci.log`、`...-rolling-ci.log`。
 
 ## 下一段：仍屬同一Plan1.70，不可停在library
 
 1. 設計新版本frame區分hot三檔與cold主檔／RAM證據；v4–v6不偷偷變更shape或減少close
    要求。layout選擇限全新worker準備階段，已啟動SQLite/VFS後不得無保護fallback。
+   最好在同一held root/main上一次判斷sidecar狀態；不能直接把舊prepare的Missing
+   catch後再cold prepare，因為舊錯誤分支File::drop不提供中途close成功證據。
 2. Node嚴格驗證layout／identity／copy預算／actual-close，仍共用Host兩個reader與
    總期限／quarantine，不為cold另開pool。opaque source version須能拒絕hot↔cold變化。
 3. 接catalog與readNamed雙來源重驗；owned actualHost由熱到正常關閉再冷讀、重開失效、
