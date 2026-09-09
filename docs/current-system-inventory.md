@@ -9,6 +9,10 @@
 
 ## 1. 這份文件的角色
 
+Plan1.78開發增量新增本機多source-group管理，以新候選檔保留原設定；完整權限review、
+SDK顯式補入、變更fence與真Host四階段產物原檔讀取已驗。正式基線未改，亦不新增
+Web寫route或hot reload；見[最新owner管理](history-owner-management.md)。
+
 Plan1.76已把全來源turn/tool/rollback接parser9/10、同named五階段與Host／peer／Web；
 17.2MB/16384筆原生ID、跨頁雙向工具與頁外rollback、320/390px已有本機證據，
 完整／最低Node1085/0fail及取消清理競態回歸通，本提交exact CI另逐項核對，

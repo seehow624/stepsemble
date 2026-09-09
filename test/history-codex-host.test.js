@@ -46,6 +46,24 @@ async function setup(t, options = {}) {
   return { host, control, budgets, request, url, client(viewId) { return transport.create({ origin: url, hostId: "owned", viewId, canonicalJSON,
     fetch: (url, opts) => fetch(url, { ...opts, headers: { ...opts.headers, origin, cookie: `stepsemble=${primary}` } }) }); } };
 }
+function controlCleanupDeadline(t) {
+  const nativeSetTimeout = global.setTimeout, nativeClearTimeout = global.clearTimeout, pending = new Map(), delays = [];
+  t.mock.method(global, "setTimeout", (callback, delay, ...args) => {
+    if (delay !== 20) return nativeSetTimeout(callback, delay, ...args);
+    const timer = nativeSetTimeout(() => {}, 0); nativeClearTimeout(timer);
+    delays.push(delay); pending.set(timer, { callback, active: true }); return timer;
+  });
+  t.mock.method(global, "clearTimeout", timer => {
+    const controlled = pending.get(timer);
+    if (controlled) { controlled.active = false; return; }
+    nativeClearTimeout(timer);
+  });
+  t.after(() => { for (const controlled of pending.values()) controlled.active = false; pending.clear(); });
+  return { delays, armed: () => [...pending.values()].some(value => value.active), fire() {
+    const next = [...pending.values()].find(value => value.active); assert(next, "cleanup deadline must be armed by the propagated HTTP abort");
+    next.active = false; next.callback();
+  } };
+}
 test("v3 Codex groups require two explicit matching roots/readers, preserve v1/v2 and need no Claude SDK", () => {
   assert.deepEqual(parseHistoryConfig(config()), config());
   for (const mutate of [c => { c.version = 2; }, c => { c.reader = null; }, c => { c.sourceGroups[0].nativeVersion = "latest"; },
@@ -181,7 +199,7 @@ test("changing display mode over real HTTP waits for the previous read receipt, 
   assert.equal(h.control.bindings.physical(), 0);
 });
 test("cancelled HTTP fetch exposes delayed physical cleanup without spawning a concurrent reader and manual refresh recovers", async t => {
-  const h = await setup(t, { binding: { holdReader: true } }), viewId = randomUUID(), client = h.client(viewId);
+  const cleanup = controlCleanupDeadline(t), h = await setup(t, { binding: { holdReader: true } }), viewId = randomUUID(), client = h.client(viewId);
   const catalog = await client.sourceCatalog(refresh());
   const model = require("../public/modules/codex-history-view").createModel({ hostId: "owned", viewId, catalogId: catalog.entries[0].catalogId,
     initialStructured: false, transport: client, canonicalJSON, requestId: randomUUID });
@@ -196,16 +214,41 @@ test("cancelled HTTP fetch exposes delayed physical cleanup without spawning a c
   assert.equal(model.state().stage, "loaded"); assert.equal(h.control.bindings.physical(), 0);
   const stages = h.control.bindings.stages.length, pending = model.next();
   await waitFor(() => h.control.bindings.stages.length === stages + 1 && h.control.bindings.physical() === 1);
-  const restarted = model.refresh(); await Promise.allSettled([pending, restarted]);
+  const restarted = model.refresh(); await waitFor(cleanup.armed); await Promise.allSettled([pending, restarted]);
   assert.equal(h.control.bindings.stages.length, stages + 1, "busy fence precedes a second physical spawn");
   assert.equal(h.control.bindings.physical(), 1); assert.equal(model.state().stage, "cancelled");
   assert.equal(model.state().error, null); assert.equal(model.state().cleanupPending, true); assert.equal(model.state().canNext, false);
   await model.next(); await model.previous(); await model.jump(1);
   assert.equal(h.control.bindings.stages.length, stages + 1, "cleanup-pending navigation is fenced in the model");
   await h.control.bindings.step(); await waitFor(() => h.control.bindings.physical() === 0);
+  assert.equal(cleanup.armed(), false, "actual close cancels the queued cleanup deadline");
   const recovered = model.refresh(); await finishRead(); await recovered;
   assert.equal(model.state().stage, "loaded"); assert.equal(model.state().cleanupPending, false);
   assert.equal(model.state().error, null); assert.equal(h.control.bindings.physical(), 0);
+});
+test("a cleanup deadline before the replacement registration quarantines the held reader and late close cannot revive it", async t => {
+  const cleanup = controlCleanupDeadline(t), h = await setup(t, { binding: { holdReader: true } }), viewId = randomUUID(), client = h.client(viewId);
+  const catalog = await client.sourceCatalog(refresh()); let registrations = 0;
+  const waitFor = async condition => { for (let n = 0; n < 100 && !condition(); n++) await new Promise(resolve => setTimeout(resolve, 5)); assert(condition()); };
+  const fencedClient = { ...client, async register(...args) {
+    if (++registrations === 3) { await waitFor(cleanup.armed); cleanup.fire(); }
+    return client.register(...args);
+  } };
+  const model = require("../public/modules/codex-history-view").createModel({ hostId: "owned", viewId, catalogId: catalog.entries[0].catalogId,
+    initialStructured: false, transport: fencedClient, canonicalJSON, requestId: randomUUID });
+  t.after(() => model.close());
+  const finishRead = async () => { for (let n = 0; n < 4; n++) { await waitFor(() => !!h.control.bindings.activeHelper()); await h.control.bindings.step(); } };
+  const selected = model.select(catalog.entries[0].catalogId); await finishRead(); await selected;
+  const stages = h.control.bindings.stages.length, pending = model.next();
+  await waitFor(() => h.control.bindings.stages.length === stages + 1 && h.control.bindings.physical() === 1);
+  const restarted = model.refresh(); await Promise.allSettled([pending, restarted]);
+  assert.deepEqual(cleanup.delays, [20]);
+  assert.equal(model.state().stage, "failed"); assert.equal(model.state().error, "source_service_quarantined");
+  assert.equal(model.state().cleanupPending, true); assert.equal(h.control.bindings.physical(), 1);
+  assert.equal(h.control.bindings.stages.length, stages + 1); assert.equal(h.control.bindings.max(), 1);
+  await h.control.bindings.step(); await waitFor(() => h.control.bindings.physical() === 0);
+  await model.refresh(); assert.equal(model.state().stage, "failed"); assert.equal(model.state().error, "source_service_quarantined");
+  assert.equal(model.state().cleanupPending, true); assert.equal(h.control.bindings.stages.length, stages + 1, "late close cannot reopen quarantined admission");
 });
 test("real Host + index + binding + parser + typed HTTP transport exposes Codex without leaking private source selectors", async t => {
   const h = await setup(t), viewId = randomUUID(), client = h.client(viewId);

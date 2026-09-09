@@ -13,6 +13,15 @@ runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
+Development-only Plan1.78 adds local owner source-group management. Exact
+add/replace/edit/remove review creates a separate inactive candidate; no HTTP
+management authority or live config reload is added. Base/import, roots and
+artifact identities are fenced before and after exclusive publication. A real
+owned Host consumes the unedited final candidate and verifies reader replacement,
+manual-grant preservation and native reads. See
+[`owner management`](history-owner-management.md); C1 and overall release gates
+remain separate from this evidence.
+
 Development-only Plan1.77 fixes Pi worktree launches using native sid/SSE rather
 than the generic task contract, plus stale-request cleanup and canonical cwd.
 New-project paths now share the configured project-directory fence; the root

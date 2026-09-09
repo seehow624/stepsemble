@@ -10,6 +10,42 @@ import catalogWire from "../server/history-catalog-wire.js";
 import historyHttp from "../server/history-http.js";
 const { create: createTransport } = transportModule, { canonicalJSON } = projection;
 
+export async function checkHistoryManageNative(options) {
+  const host = await startSyntheticHistoryHost({ ...options, sourceGroups: true, manageSetup: true }); let cleanup;
+  const browser = token => {
+    const viewId = crypto.randomUUID(), cookie = `stepsemble=${crypto.createHash("sha256").update(token).digest("hex")}`;
+    return { viewId, api: createTransport({ origin: host.origin, hostId: "synthetic-managed-host", viewId, canonicalJSON,
+      fetch: (url, init) => fetch(url, { ...init, headers: { ...init.headers, origin: host.origin, cookie } }) }) };
+  };
+  try {
+    assert.deepEqual(host.manageResult, { stages: 4, sourceReads: 0, hostRestarted: false, candidateUsedUnedited: true });
+    const master = browser(host.token), issued = browser(host.issuedToken);
+    assert.equal((await master.api.catalog()).entries.length, 4, "manual grants survive group removal");
+    assert.deepEqual((await master.api.sources()).sources, [], "edited readers are replaced, not unioned with master");
+    const sources = await issued.api.sources(); assert.equal(sources.sources.length, 1);
+    assert.equal(sources.sources[0].sourceId, "managed-root"); assert.equal(sources.sources[0].label, "Managed source 🐾");
+    const input = { sourceId: "managed-root", page: { offset: 0, limit: 10 }, snapshotId: null, refresh: false };
+    assert.equal((await master.api.sourceCatalog({ ...input, refresh: true })).code, "history_source_unavailable");
+    assert.equal((await issued.api.sourceCatalog({ ...input, sourceId: "fixture-root", refresh: true })).code, "history_source_unavailable");
+    assert.equal((await issued.api.sourceCatalog(input)).snapshotId, null, "manage and startup never implicitly scan");
+    const catalog = await issued.api.sourceCatalog({ ...input, refresh: true });
+    assert.equal(catalog.kind, "history_source_catalog", catalog.code); assert.equal(catalog.total, 4);
+    const metadata = await issued.api.sourceMetadata({ sourceId: "managed-root", catalogId: catalog.entries[0].catalogId,
+      snapshotId: catalog.snapshotId, requestId: crypto.randomUUID() });
+    assert.equal(metadata.kind, "history_source_metadata", metadata.code);
+    const reg = await issued.api.register({ catalogId: catalog.entries[0].catalogId, viewId: issued.viewId });
+    assert.equal(reg.kind, "history_registration", reg.code);
+    const page = await issued.api.read({ hostId: "synthetic-managed-host", bindingId: reg.bindingId, generation: reg.generation, sessionId: reg.sessionId },
+      { bindingId: reg.bindingId, generation: reg.generation, requestId: crypto.randomUUID() }, { page: { offset: 0, limit: 10 }, signal: new AbortController().signal });
+    assert.equal(page.kind, "bound_history_observation", page.code);
+    assert.deepEqual(page.history.observation.messages.map(row => row.nativeMessageId), host.cases.find(row => row.sessionId === reg.sessionId).expectedIds.slice(0, 10));
+    assert.equal((await issued.api.release({ bindingId: reg.bindingId, generation: reg.generation })).cleanupConfirmed, true);
+  } finally { cleanup = await host.close(); }
+  return { actualManagementGate: "passed", managementStages: 4, candidateUsedUnedited: true, originalConfigsUnchanged: true,
+    manualGrantsPreserved: true, groupReaderReplacementEnforced: true, removedGroupUnavailable: true,
+    firstInventoryRequiresRefresh: true, actualSourceMetadataAndContent: true, modelCalls: 0, privateHistoryReads: 0, ...cleanup };
+}
+
 export async function checkHistorySetupNative(options) {
   const host = await startSyntheticHistoryHost({ ...options, sourceGroups: true, setupWizard: true }); let cleanup;
   const viewId = crypto.randomUUID(), cookie = `stepsemble=${crypto.createHash("sha256").update(host.token).digest("hex")}`;

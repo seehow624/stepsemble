@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.77
+> 計畫版本：1.78
 > 最後更新：2026-09-09
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -9,6 +9,13 @@
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
 ## 文件用途與回復方法
+
+**最新接續1.78（本機多來源管理）**：新增inspect/add/replace/edit/remove逐項精靈，
+exact ID／origin／helper、SDK獨立同意、完整before/after與CREATE只產生新candidate，
+不覆寫或啟用舊Host。manual／其他group保留，readers完整替換；input/root/artifact
+變更拒絕。最低Node22.19真Host以四階段產物原檔啟動，授權、明確refresh、原生名稱／
+內容及cleanup已驗；C1完整owner／Web管理與C2–C8仍未完成。
+見[群組管理與驗收](history-owner-management.md)，正式3.0.6／B+／私人來源關卡不變。
 
 **最新接續1.77（長測結案與新對話入口修正）**：固定rc.1的72h已於19:34:16 MYT
 真正passed，8554cycles／68432ACK、清理與來源hash核畢，原追蹤已刪除。
@@ -367,7 +374,7 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 | 原生唯讀 reader 邊界 | Rust helper＋bytes-only SDK，rc.3 已接 Host／未部署 | POSIX逐層no-follow、trusted root identity、fd ACL/localFS、8MiB雙讀；macOS拒絕noowners，Windows來源仍unsupported。composite固定2flights、共用10s/1s、actual-close/quarantine；最低Node22.19合成Rust→SDK→actual Host gate本機過。逐commit跨OS證據與範圍見history-host-integration.md |
 | Claude原生來源探索 | Plan1.53已接Host/Web合成來源，未部署 | explicit-root metadata双掃，10k entries／512projects／2048candidates／1MiB，fd owner/ACL/mount不降級；增改刪、exact-source ID與stale snapshot。沒有HOME掃描／私人來源；動態catalog/來源授權/全域預算及Web按需操作已接線，見native-history-discovery.md及history-source-groups.md |
 | 原生歷史共用reader預算 | Plan1.50–1.53已接Host/HTTP/Web及合成鏈 | Host-owned兩個flight供inventory、metadata與完整content pipeline共用、無queue、actual-close／永久quarantine及Host合併shutdown；source-group已接線但未部署，見history-reader-admission.md與history-source-groups.md |
-| 原生來源群組／動態catalog | Plan1.57補本機owner精靈，未部署 | Plan1.53的Web清單與50列paging不變；本機逐欄/review/CREATE新檔、shared startup validator、metadata drift/partial write/競爭輸出保護與真Host讀回已驗。不提供Web config寫入，不自選私人root/readers，完整C1/真機/多群組編輯仍待，見history-owner-setup.md及history-source-groups.md |
+| 原生來源群組／動態catalog | Plan1.78補本機多群組管理，未部署 | 新增／替換／編輯／移除只產生新candidate，保留原檔、manual授權及其他group；顯式SDK同意、完整review／CREATE、root/input/artifact fence及真Host權限讀取已驗。Web50列paging不變；不新增Web寫route／hot reload，真人owner／受控啟用與完整C1仍待，見history-owner-management.md |
 | Claude clone記憶體嘗試 | 已量測並撤回 | 同workload兩次12輪，structuredClone＋提前清引用讓worker高水位合計中位數421.164→408.852MiB，但round283.539→296.171ms。沒有證明順滑度改善，保留原JSON clone並存完整before/after與重現方法；memory優化仍待，見claude-history-performance.md |
 | Claude 官方登入入口 | Mini當前detected，正式3.0.6 | 使用者回報瀏覽器登入，助手回completed／detected；另行同意的直接CLI最小模型測試成功。metadata API仍liveVerified=false，不以一次成功保證永久有效；不自動修憑證／重試模型，詳見 `claude-sign-in.md` |
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
@@ -378,11 +385,10 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 
 ### 下一個可執行任務
 
-**Plan1.76／2026-09-09收尾入口**：產品工程`1b37173`、runner修正`2beab685`的必要
-CI及完整logs已核；不要重做冷DB、小型壓縮、大型plain parser/Host/Web或跨頁結構。
-今晚19:35先按[發布審查](release-review-2026-09-09.md)核對原72h終態、cleanup與固定
-來源，再總結已交付、未交付和版本判定。rc.7仍是候選，不因時間到或舊runtime通過而
-改stable、restart正式服務或新增私人readers。
+**Plan1.78／2026-09-09接續入口**：原72h已於19:34:16 passed／清理確認／追蹤刪除，
+前段Pi及目錄修正必要CI全通，最新已驗7e5fd58見[發布審查](release-review-2026-09-09.md)。
+本段新增本機多group管理與真Host驗收，不重做冷DB、小型壓縮、大型plain parser／
+Host／Web或跨頁結構。rc.7仍是候選，不以舊runtime長測替代新版本或正式啟用gate。
 
 工程接續以[C1–C8清單](web-completion-loop.md)為準：C1多群組安全管理；C2大型壓縮與
 其他原生adapter；C3真native session/approval/resume及durable證據；C4跨harness故障

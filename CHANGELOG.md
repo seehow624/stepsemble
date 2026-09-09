@@ -31,6 +31,10 @@ The separately frozen rc.1 soak does not certify this later runtime.
 - Add a local English/Traditional Chinese setup wizard for new Claude/Codex
   source groups. Review exact roots and reader scope before CREATE; never select
   private sources, overwrite an existing configuration or activate a service.
+- Manage multiple source groups locally with inspect/add/replace/edit/remove,
+  exact before/after review and a new inactive candidate. Preserve manual grants
+  and original files; require explicit SDK adoption, reject changed reviews and
+  never imply that candidate removal revokes access on the running Host.
 - Localize read-only history controls, errors and accessibility text in all
   eleven existing languages. Preserve native content, DOM, focus and scroll
   through locale changes; bound history cards and retain independent inner scroll.

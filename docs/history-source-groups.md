@@ -7,6 +7,11 @@
 來源授權設定仍是operator私有檔、其他harness adapter及實機完整驗收仍待；
 不是「全部原生對話已完整收錄」。
 
+Plan1.78新增[本機owner群組管理](history-owner-management.md)：明確選取來源config，
+完整核對後以新candidate檔新增／替換／編輯／移除，保留manual授權與其他group。
+真Host已驗最終產物的權限和讀取；不是live config mutation，舊段「operator手改」
+已有此管理入口可用。正式啟用與Web／真人owner完整gate仍分開。
+
 ## 明確授權範圍
 
 舊 `version:1` 的逐 session 手動 catalog 繼續可用，不自動遷移或擴大。

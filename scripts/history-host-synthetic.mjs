@@ -14,6 +14,8 @@ import fixture from "../protocol/native/claude/history-fixture.cjs";
 import trust from "../server/device-trust.js";
 import { SDK_SHA256 } from "../protocol/native/claude/history-sdk.js";
 import { setupHistory } from "./history-setup.mjs";
+import { manageHistory } from "./history-manage.mjs";
+import { createHistoryConfigFile } from "./history-config.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const digest = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
 const token = "synthetic-history-host-only", issuedToken = "synthetic-issued-history-only", issuedId = "123456789abc";
@@ -38,11 +40,12 @@ export async function stageSyntheticArtifact(source, destination, mode) {
   return { sha256, sourceLinks: Number(before.nlink), sourceMode: Number(before.mode & 0o777n), stagedLinks: Number(staged.nlink), stagedMode: mode };
 }
 
-export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0, sourceGroups = false, extraSessions = 0, setupWizard = false } = {}) {
+export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0, sourceGroups = false, extraSessions = 0, setupWizard = false, manageSetup = false } = {}) {
   if (!["darwin", "linux"].includes(process.platform)) throw new Error("history_host_native_platform_unsupported");
   if (!path.isAbsolute(helperPath || "") || !path.isAbsolute(sdkPath || "") || !Number.isInteger(port) || port < 0 || port > 65535 || typeof sourceGroups !== "boolean"
     || !Number.isSafeInteger(extraSessions) || extraSessions < 0 || extraSessions > 96 || extraSessions > 0 && !sourceGroups
-    || typeof setupWizard !== "boolean" || setupWizard && !sourceGroups)
+    || typeof setupWizard !== "boolean" || setupWizard && !sourceGroups
+    || typeof manageSetup !== "boolean" || manageSetup && (!sourceGroups || setupWizard))
     throw new Error("synthetic_history_host_configuration_invalid");
   const helper = await fs.realpath(helperPath), sdk = await fs.realpath(sdkPath);
   const helperHash = digest(await fs.readFile(helper)), sdkHash = digest(await fs.readFile(sdk));
@@ -90,8 +93,8 @@ export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0,
         source: { projectsRoot, projectKey, sessionId: c.sessionId }, expectedRoot: { device: String(stat.dev), inode: String(stat.ino) },
         readers: ["browser:master", `browser:${issuedId}`, `peer:${peer.grantId}`] });
     }
-    const configPath = path.join(temp, "history.json");
-    let setupResult = null;
+    let configPath = path.join(temp, "history.json");
+    let setupResult = null, manageResult = null; const configBytes = new Map();
     if (setupWizard) {
       // Exercise the real wizard transaction with owned answers. Do not append
       // a manual catalog or otherwise edit the confirmed file before Host startup.
@@ -104,6 +107,35 @@ export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0,
       ...(sourceGroups ? { sourceGroups: [{ sourceId: "fixture-root", agentId: "claude-code", scope: "main_sessions", label: "Owned synthetic Claude root", description: "No private history",
         projectsRoot, expectedRoot: { device: String(stat.dev), inode: String(stat.ino) }, readers: ["browser:master", `browser:${issuedId}`, `peer:${peer.grantId}`] }] } : {}) }),
     { mode: 0o600, flag: "wx" });
+    if (manageSetup) {
+      // Real management entry point: every stage is a new candidate, and the
+      // last exact confirmed file is the one loaded by the actual Host below.
+      const secondRoot = path.join(temp, "managed-projects"), secondProject = path.join(secondRoot, projectKey);
+      await fs.mkdir(secondProject, { recursive: true, mode: 0o700 }); await fs.chmod(secondRoot, 0o700);
+      for (const [name, file] of [...files]) {
+        const filename = path.join(secondProject, path.basename(file.filename));
+        await fs.writeFile(filename, file.bytes, { mode: 0o600, flag: "wx" });
+        files.set("managed-" + name, { filename, bytes: file.bytes, present: true });
+      }
+      const from = path.join(temp, "import.json"), replacement = path.join(temp, "replacement.json");
+      const options = { origin, helper: stagedHelper, sdk: stagedSdk, "projects-root": secondRoot,
+        "source-id": "managed-root", scope: "main_sessions", reader: "browser:master", label: "New group" };
+      createHistoryConfigFile(from, options, "group");
+      createHistoryConfigFile(replacement, { ...options, label: "Replacement group" }, "group");
+      for (const filename of [configPath, from, replacement]) configBytes.set(filename, await fs.readFile(filename));
+      const results = [];
+      for (const action of ["add", "replace", "edit", "remove"]) {
+        const output = path.join(temp, `managed-${action}.json`);
+        const answers = [configPath, action, action === "remove" ? "fixture-root" : "managed-root",
+          ...(["add", "replace"].includes(action) ? [action === "add" ? from : replacement]
+            : action === "edit" ? ["Managed source 🐾", "Only the explicit issued reader", `browser:${issuedId}`] : []), output, "CREATE"];
+        const result = await manageHistory({ language: "zh-Hant", ask: async () => answers.shift(), write() {} });
+        if (!result.created || result.sourceReads !== 0 || result.hostRestarted || answers.length) throw new Error("synthetic_history_management_failed");
+        results.push(result); configPath = output; configBytes.set(output, await fs.readFile(output));
+        for (const [filename, bytes] of configBytes) if (!(await fs.readFile(filename)).equals(bytes)) throw new Error("synthetic_management_input_changed");
+      }
+      manageResult = { stages: results.length, sourceReads: 0, hostRestarted: false, candidateUsedUnedited: true };
+    }
     child = spawn(process.execPath, [path.join(root, "server.js")], { cwd: temp, env: {
       HOME: temp, PI_HOME: temp, PATH: path.dirname(process.execPath), PI_BIN: path.join(temp, "no-native-agent"),
       STEPSEMBLE_TOKEN: token, STEPSEMBLE_HISTORY_CONFIG: configPath, STEPSEMBLE_HOST: "127.0.0.1", STEPSEMBLE_PORT: String(port),
@@ -130,12 +162,13 @@ export async function startSyntheticHistoryHost({ helperPath, sdkPath, port = 0,
         for (const [original, staged, expected] of [[helper, stagedHelper, helperHash], [sdk, stagedSdk, sdkHash],
           [path.join(path.dirname(sdk), "package.json"), path.join(artifacts, "package.json"), packageArtifact.sha256]])
           if (digest(await fs.readFile(original)) !== expected || digest(await fs.readFile(staged)) !== expected) throw new Error("synthetic_history_artifact_changed");
+        for (const [filename, bytes] of configBytes) if (!(await fs.readFile(filename)).equals(bytes)) throw new Error("synthetic_management_input_changed");
         await fs.rm(temp, { recursive: true, force: true });
         return { cleanupConfirmed: true, fixturesUnchangedExceptExplicitMutation: true };
       })();
       return closed;
     }
-    return Object.freeze({ origin, token, issuedToken, issuedId, peer, cases, helperHash, sdkHash, helperArtifact, sdkArtifact, setupResult, close,
+    return Object.freeze({ origin, token, issuedToken, issuedId, peer, cases, helperHash, sdkHash, helperArtifact, sdkArtifact, setupResult, manageResult, close,
       setFixturePresent(name, present) {
         const file = files.get(name); if (!file || closed || typeof present !== "boolean") throw new Error("synthetic_fixture_unavailable");
         const next = mutation.then(async () => {

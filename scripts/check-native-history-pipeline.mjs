@@ -17,7 +17,7 @@ import readerAdmission from "../protocol/native/claude/history-reader-admission.
 import provider from "../public/modules/claude-history.js";
 import projection from "../public/modules/projection.js";
 import { checkHistoryAccess } from "./check-history-access.mjs";
-import { checkHistoryHostNative, checkHistorySetupNative } from "./check-history-host-native.mjs";
+import { checkHistoryHostNative, checkHistorySetupNative, checkHistoryManageNative } from "./check-history-host-native.mjs";
 import { checkCodexHistoryPipeline } from "./check-native-codex-pipeline.mjs";
 import { withDownloadedSdk, SDK_VERSION, NATIVE_VERSION, SDK_SHA256 } from "./check-native-claude-history.mjs";
 const digest = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
@@ -149,8 +149,10 @@ export async function checkNativeHistoryPipeline({ helperPath, sdkPath }) {
       : await checkHistoryHostNative({ helperPath: helper, sdkPath: sdk });
     const actualSetup = process.platform === "win32" ? { actualSetupGate: "source_platform_unsupported" }
       : await checkHistorySetupNative({ helperPath: helper, sdkPath: sdk });
+    const actualManagement = process.platform === "win32" ? { actualManagementGate: "source_platform_unsupported" }
+      : await checkHistoryManageNative({ helperPath: helper, sdkPath: sdk });
     const codexPipeline = await checkCodexHistoryPipeline({ helperPath: helper, sdkPath: sdk });
-    return { result: "passed", nodeVersion: process.version, platform: process.platform, arch: process.arch, actualHost, actualSetup, codexPipeline,
+    return { result: "passed", nodeVersion: process.version, platform: process.platform, arch: process.arch, actualHost, actualSetup, actualManagement, codexPipeline,
       nativePipelineGate: process.platform === "win32" ? "source_platform_unsupported" : "posix_owned_fixture_passed",
       officialSdkVersion: SDK_VERSION, nativeVersion: NATIVE_VERSION, sdkSha256, helperArtifactSha256: helperSha256,
       metrics, elapsedMs: Math.round(performance.now() - started), ...access,

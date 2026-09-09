@@ -1,5 +1,10 @@
 # Web 完整體：持續執行與驗收清單
 
+2026-09-09／Plan1.78：本機多group管理已接完整before/after、CREATE新候選、SDK獨立
+同意與input/root/artifact fence；真Host直接使用四階段產物，manual授權保留、群組讀者
+替換／移除與原生讀取通。這不是live撤權／Web管理route／真人owner或C1全完成，
+見[本機群組管理](history-owner-management.md)。舊72h已結案，不重查。
+
 2026-09-09 19:34:16 MYT：**固定rc.1的72h已通過**，8554cycles／68432ACK、
 214正常／213強制HTTP重啟、cleanup=true與controller退出已核；見
 [終態與限定範圍](session-discovery-and-soak.md)。不再等或重跑這個已完成的長測，
@@ -116,7 +121,7 @@ Rust29/30／全部179child與83dirs清理通。新工程7b16d03五CI已通／ful
 
 | Checkpoint | 交付與必要證據 | 目前進展（不等於整項驗收完成） |
 | --- | --- | --- |
-| C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | Plan1.57新增本機新群組設定精靈/review/明確readers/CREATE與真Host原檔驗證；Web列表已接，不自選私人來源或新增Web管理route，完整管理/實機與C1完整gate仍待 |
+| C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | Plan1.78本機多group新增／替換／編輯／移除產生新候選，完整權限review、保留manual與原檔，真Host原檔權限／讀取已驗；Web列表既有。不新增live mutation或管理route，真人owner／受控啟用及完整C1仍待 |
 | C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.76已把大型plain全來源turn/tool/rollback接同Host／Web，17.2MB／16384筆原名、原生ID、直跳／雙向工具連結與頁外回退已驗；小型及壓縮來源保留舊契約。大型壓縮、paginated/native投影、其他adapter與C2完整驗收繼續；不是完整語義、原子snapshot或resume |
 | C3 Session／approval／恢復 | 按真實 capability 接結構化事件、續跑與 approval；ownership、exact correlation、重送／重連／Host crash、durable journal/replay 不漏不重 | 有 contract 與局部實作，未全驗 |
 | C4 帳號與故障體驗 | 登入／登出偵測、官方登入入口、路由相容、取消／失敗／stale／busy 可復原；不修寫第三方憑證或以重試消耗模型 | 局部已驗，跨 harness 待補 |

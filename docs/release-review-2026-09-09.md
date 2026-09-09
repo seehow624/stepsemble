@@ -7,6 +7,10 @@
 驗收仍未完成，因此不能稱為「全部功能的最終正式版」。正式使用仍是3.0.6，
 開發候選是3.0.7-rc.7。接續時直接看本文件的剩餘範圍，不重新等待已通過的72h。
 
+後續Plan1.78已接[本機多來源群組管理](history-owner-management.md)：新candidate
+保留原設定，真Host權限／讀取與清理已驗。這是下列收尾來源之後的新增工程，
+不拿本表舊CI代替它的驗收，也不代表新增正式部署或C1–C8全部完成。
+
 **本輪阻擋問題**：Pi＋worktree回原生`sid`卻被Web當generic task，造成假的Failed；
 HOME不在browse roots內時New Project卡住；root chooser本身可誤當專案；managed
 worktree在授權範圍外仍先建立。修正保持原生Pi連線，收緊新建目錄邊界，不新增檔案授權。
