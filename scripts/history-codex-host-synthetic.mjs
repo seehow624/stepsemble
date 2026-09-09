@@ -45,7 +45,9 @@ export async function startSyntheticCodexHistoryHost({ helperPath, port = 0 } = 
     // never product source-reader operations or source paths from HTTP.
     const file = path.join(ready.codexRoot, ready.rolloutPath);
     if (["compress", "compress_concat", "compress_corrupt"].includes(command)) {
-      assert.equal(retainedRollout, null); retainedRollout = await fs.readFile(file);
+      // A failed Buffer-vs-null equality assertion formats a massive diff.
+      // This expected negative case must never retain/format transcript bytes.
+      assert(retainedRollout === null, "synthetic_owned_compression_already_active"); retainedRollout = await fs.readFile(file);
       const encode = bytes => zstdCompressSync(bytes, { pledgedSrcSize: bytes.length, params: { [constants.ZSTD_c_checksumFlag]: 1 } });
       const encoded = command === "compress_concat" ? Buffer.concat([encode(retainedRollout.subarray(0, 29)), encode(retainedRollout.subarray(29))]) : encode(retainedRollout);
       if (command === "compress_corrupt") encoded[encoded.length - 1] ^= 1;
@@ -55,7 +57,7 @@ export async function startSyntheticCodexHistoryHost({ helperPath, port = 0 } = 
       assert(retainedRollout); await fs.writeFile(file, retainedRollout, { mode: 0o600, flag: "wx" }); return;
     }
     if (command === "clear_compressed") {
-      assert(retainedRollout); assert.deepEqual(await fs.readFile(file), retainedRollout);
+      assert(retainedRollout); assert((await fs.readFile(file)).equals(retainedRollout), "synthetic_owned_plain_restore_mismatch");
       await fs.unlink(file + ".zst"); retainedRollout.fill(0); retainedRollout = null; return;
     }
     await writer.command(command);
@@ -95,6 +97,13 @@ export async function startSyntheticCodexHistoryHost({ helperPath, port = 0 } = 
       })(); return closing;
     }
     return Object.freeze({ origin, token, threadId: ready.threadId, setupResult, artifact, close,
+      async diagnostics() {
+        // Only the exact owned child; never scan other processes or environments.
+        if (process.platform !== "linux" || child.exitCode !== null || child.signalCode !== null) return { hostRssBytes: null };
+        const status = await fs.readFile(`/proc/${child.pid}/status`, "utf8");
+        const rss = /^VmRSS:\s+(\d+)\s+kB$/m.exec(status);
+        return { hostRssBytes: rss ? Number(rss[1]) * 1024 : null };
+      },
       mutate(command) {
         if (closing || !["rename", "path", "paginated", "reset", "rich_rollout", "catalog_full", "catalog_reset", "missing", "cold", "reopen", "partial_sidecar", "remove_partial_sidecar",
           "compress", "compress_concat", "compress_corrupt", "restore_plain", "clear_compressed", "compressed_path", "plain_path"].includes(command)) throw new Error("synthetic_codex_mutation_invalid");

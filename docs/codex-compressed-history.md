@@ -65,4 +65,48 @@
   actionlint已驗；最後完整及最低Node均985／983pass／2skip／0fail（node-all-3.tap、
   min-node-2.tap）。exact SHA CI 待收尾。
 
+## Exact CI 初次結果與重驗
+
+工程 `a2af9f64853313210868798b25439fd815ae4fb0` 已推 master：
+一般34300956326、nativeCodex34300956330、nativeClaude34300956333、rolling34300956363
+均success；reader34300956349的Mac、Windows與RustSec通，Linux job102307551204在
+真Host測試中被runner shutdown signal中斷，exit143，**非 assertion failure**。
+完整第一attempt log保存`/tmp/stepsemble-compressed-ci-reader-attempt-1.log`，Linux單job
+完整log另存`...-ci-linux-reader-2.log`。只重跑該Linux job，不變更SHA、放寬測試或
+把第一次失敗消掉；其最終結果與完整CI核對仍待記錄。不是正式3.0.6或72h結果。
+
+第二attempt同Linux job102308367558仍在Host步驟被取消（24秒，annotation僅
+`The operation was canceled.`，該step cancelled、後續skipped），並非測試通過。
+完整log`...-ci-reader-attempt-2.log`保留。兩次同位置中斷，尚不能排除資源／清理問題，
+不再僅憑第一次runner訊息當成純平台偶發：補有界stage/elapsed/parent RSS與Linux
+**exact owned Host PID**的VmRSS診斷，不掃其他process、不讀環境／對話／憑證，不改
+timeout/skip/斷言；待新SHA CI定位及通過。本增量仍進行中。
+
+新增stage診斷後，在同一Mac owned workload重現測試程序RSS由main cleanup的
+110,149,632 bytes→expected duplicate-compress rejection後1,344,241,664 bytes，
+該段耗時近7秒；完整`...-host-progress-1.log`保留。根因為fixture
+`assert.equal(retainedRollout, null)` 在預期失敗時產生整個Buffer的巨大差異。
+改 boolean 斷言＋固定短錯誤碼，不格式化原文；restore bytes仍exact equals，
+新增固定message及boolean actual回歸斷言。這是測試診斷的資源缺陷，不放寬
+產品source/parser/Host限制；Linux兩次中斷可能與此相關，待新CI確認，不再斷言
+只是GitHub平台偶發。
+
+本機同workload修正後（host-progress-2.log）：main cleanup110,149,632→mutation
+cleanup110,460,928 bytes（85ms），整輪2,979ms／最高stage110,608,384 bytes；最低
+Node22.19對照整輪2,737ms／最高stage128,581,632 bytes（host-progress-min-1.log）。
+這是測試parent的stage RSS，不是完整採樣峰值或產品Host效能數據；Linux exact owned
+Host RSS另由下一CI記錄。所有Host/writer/owned目錄均完成實際清理。
+
 下一段仍要完整語義歷史、其餘 Agent、C1–C8 驗收與既有正式發布關卡。
+
+## 接續入口（不重做本增量）
+
+- C2：現階段仍是 ≤8MiB 的完整單檔 raw records，不能宣稱所有大型對話可讀。
+  大型/長歷史需有界分頁或串流方案與實際 Host 記憶體/主執行緒負載證據，不能直接
+  提高解壓上限。保持 source version、取消及原件不變的界線。
+- 完整語義：已有 `history-observation.js` 的 API observation，不是 raw rollout
+  的完整重建。固定 source 的 `app-server-protocol/src/protocol/thread_history.rs`、
+  `thread_history_projection.rs`、`thread-store/src/local/thread_history/read.rs`
+  及其 tests 是下一輪入口，需完整讀取選中的檔案後才實作；本輪只定位了路徑。
+  不能憑外觀把 synthetic turn ID/工具核准/terminal status 稱為原生能力。
+- 各 Agent 的未完項與 C3–C8 仍由 web-completion-loop.md 排序，正式部署照既有關卡。
