@@ -48,7 +48,7 @@ var StepsembleCodexHistoryView;
                 pageIndex = 0;
             }
         }
-        async function load(mode, target) {
+        async function load(mode, target, interruptPrevious = true) {
             if (!selected || closed || mode !== "refresh" && busy)
                 return;
             if (mode !== "refresh" && state().stale) {
@@ -57,7 +57,8 @@ var StepsembleCodexHistoryView;
                 return;
             }
             const ticket = ++epoch, previous = flight, readStructured = structured;
-            previous?.controller.abort();
+            if (interruptPrevious)
+                previous?.controller.abort();
             busy = true;
             error = null;
             stage = "preparing";
@@ -194,7 +195,11 @@ var StepsembleCodexHistoryView;
             stale = false;
             error = null;
             notify();
-            await load("refresh");
+            // A local fetch abort is not proof that the Host reader has closed.
+            // Display changes discard the old page immediately, but await its
+            // bounded response/cleanup receipt before asking for a different shape.
+            // Explicit cancel/close still abort; no second reader is queued here.
+            await load("refresh", undefined, false);
         }
         function jump(recordIndex) {
             if (!Number.isSafeInteger(recordIndex) || recordIndex < 0 || !page || recordIndex >= page.history.records.recordCount)

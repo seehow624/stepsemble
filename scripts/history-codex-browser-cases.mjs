@@ -5,7 +5,7 @@ import { startSyntheticCodexHistoryHost } from "./history-codex-host-synthetic.m
 export async function runCodexHistoryBrowserCases(browser, helperPath) {
   for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }, { width: 320, height: 740 }]) {
     for (const colorScheme of ["light", "dark"]) {
-      const host = await startSyntheticCodexHistoryHost({ helperPath }); let context, stage = "login";
+      const host = await startSyntheticCodexHistoryHost({ helperPath }); let context, page, stage = "login";
       try {
         context = await browser.newContext({ viewport, colorScheme, serviceWorkers: "block", reducedMotion: "reduce" });
         const errors = [], foreign = [], forbidden = [], catalogs = [], histories = [], historyRequests = [];
@@ -21,7 +21,7 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
           }
           return route.continue();
         });
-        const page = await context.newPage(); page.setDefaultTimeout(15000); page.on("pageerror", e => errors.push(e.message));
+        page = await context.newPage(); page.setDefaultTimeout(15000); page.on("pageerror", e => errors.push(e.message));
         await page.goto(host.origin); await page.locator("#login-onboarding-skip").click();
         await page.locator("#login-token").fill(host.token); await page.locator("#login-form button").click();
         await page.locator("#agent-hub-history").waitFor();
@@ -161,7 +161,18 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
         console.log(JSON.stringify({ gate: "codex_history_browser", width: viewport.width, colorScheme, passed: true,
           structuredConversationAndRawModes: true, structuredFullText: true, crossPageToolNavigation: true, rolledBackAndInferredTurns: true,
           coldHistoryAndBothLayoutTransitions: true, compressedAllPagesAndBothTransitions: true, damagedCompressedGuidanceAndRecovery: true, physicalDevice: false }));
-      } catch (error) { throw new Error(`Codex history ${viewport.width}/${colorScheme} at ${stage}: ${error.message}`, { cause: error }); }
+      } catch (error) {
+        // Owned fixtures only; retain bounded UI state, never dump transcripts
+        // or silently retry a failure into a passing browser result.
+        const state = await page?.evaluate(() => ({
+          busy: document.querySelector(".codex-record-view")?.getAttribute("aria-busy"),
+          status: document.querySelector(".codex-record-view .history-status")?.textContent?.slice(0, 300),
+          warning: document.querySelector(".codex-record-view .history-warning")?.textContent?.slice(0, 300),
+          records: document.querySelectorAll(".codex-record").length,
+          structured: document.querySelector('[data-history-mode="structured"]')?.getAttribute("aria-pressed"),
+        })).catch(() => null);
+        throw new Error(`Codex history ${viewport.width}/${colorScheme} at ${stage}: ${error.message}; UI ${JSON.stringify(state)}`, { cause: error });
+      }
       finally { await context?.close(); assert.equal((await host.close()).cleanupConfirmed, true); }
     }
   }

@@ -83,6 +83,26 @@ test("structured Codex records cross actual Host HTTP and typed transport withou
   assert.equal((await client.readCodex(scope, request(), { page: { offset: 0, limit: 2 }, signal: undefined, structured: true })).kind, "source_unavailable");
   assert.equal(h.control.bindings.stages.length, stages); assert.equal(h.host.status().admission.activeWorkers, 0);
 });
+test("changing display mode over real HTTP waits for the previous read receipt, not just local fetch abort", async t => {
+  const h = await setup(t, { binding: { holdReader: true } }), viewId = randomUUID(), client = h.client(viewId);
+  const catalog = await client.sourceCatalog(refresh());
+  const model = require("../public/modules/codex-history-view").createModel({ hostId: "owned", viewId, catalogId: catalog.entries[0].catalogId,
+    initialStructured: true, transport: client, canonicalJSON, requestId: randomUUID });
+  t.after(() => model.close());
+  const waitFor = async condition => { for (let n = 0; n < 100 && !condition(); n++) await new Promise(resolve => setTimeout(resolve, 5)); assert(condition()); };
+  const selected = model.select(catalog.entries[0].catalogId); await waitFor(() => h.control.bindings.stages.length === 1);
+  const switched = model.setStructured(false);
+  // A browser abort settles before the Host's held reader closes. A display
+  // preference must not race a second read against that still-owned worker.
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.equal(model.state().error, null); assert.equal(model.state().busy, true); assert.equal(h.control.bindings.stages.length, 1);
+  for (let n = 0; n < 8; n++) {
+    await waitFor(() => !!h.control.bindings.activeHelper());
+    await h.control.bindings.step(h.control.bindings.stages.at(-1) === "readCodex" ? f.structuredCaptured() : f.sqliteCapture());
+  }
+  await selected; await switched; assert.equal(model.state().stage, "loaded"); assert.equal(model.state().page.history.structure, undefined);
+  assert.equal(h.control.bindings.physical(), 0);
+});
 test("real Host + index + binding + parser + typed HTTP transport exposes Codex without leaking private source selectors", async t => {
   const h = await setup(t), viewId = randomUUID(), client = h.client(viewId);
   assert.equal(h.control.scans, 0); assert.equal(h.control.bindings.stages.length, 0); assert.equal(h.budgets.length, 2); assert.equal(h.budgets[0], h.budgets[1]);

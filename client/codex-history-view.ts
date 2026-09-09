@@ -45,10 +45,12 @@ namespace StepsembleCodexHistoryView {
       error = code; stale = page !== null;
       if (["history_unauthorized", "history_principal_unavailable", "history_source_unavailable"].includes(code)) { page = null; offsets = [0]; pageIndex = 0; }
     }
-    async function load(mode: "refresh" | "next" | "previous" | "jump", target?: number) {
+    async function load(mode: "refresh" | "next" | "previous" | "jump", target?: number, interruptPrevious = true) {
       if (!selected || closed || mode !== "refresh" && busy) return;
       if (mode !== "refresh" && state().stale) { fail("history_refresh_required"); notify(); return; }
-      const ticket = ++epoch, previous = flight, readStructured = structured; previous?.controller.abort(); busy = true; error = null; stage = "preparing"; notify();
+      const ticket = ++epoch, previous = flight, readStructured = structured;
+      if (interruptPrevious) previous?.controller.abort();
+      busy = true; error = null; stage = "preparing"; notify();
       await previous?.done;
       if (ticket !== epoch || closed || !selected) return;
       let done!: () => void;
@@ -110,7 +112,11 @@ namespace StepsembleCodexHistoryView {
     async function setStructured(value: boolean) {
       if (typeof value !== "boolean" || value === structured) return;
       structured = value; page = null; offsets = [0]; pageIndex = 0; stale = false; error = null; notify();
-      await load("refresh");
+      // A local fetch abort is not proof that the Host reader has closed.
+      // Display changes discard the old page immediately, but await its
+      // bounded response/cleanup receipt before asking for a different shape.
+      // Explicit cancel/close still abort; no second reader is queued here.
+      await load("refresh", undefined, false);
     }
     function jump(recordIndex: number) {
       if (!Number.isSafeInteger(recordIndex) || recordIndex < 0 || !page || recordIndex >= page.history.records.recordCount) return Promise.resolve();

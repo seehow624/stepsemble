@@ -86,7 +86,7 @@ test("Codex structured mode cannot invoke a Claude source or claim its registrat
   service.bind = input => { const bound = bind(input); return { ...bound, observe: async () => { reads++; return unavailable("unexpected_read"); } }; };
   const h = setup({ sourceService: service }), registration = h.register();
   assert.equal((await h.registry.observe("alice", request(registration, { structured: true }))).code, "invalid_history_request");
-  assert.equal((await h.registry.metadata("alice", request(registration, { structured: true }))).code, "invalid_history_request");
+  assert.equal((await h.registry.metadata("alice", { ...scope(registration), requestId, structured: true })).code, "invalid_history_request");
   assert.equal(reads, 0); assert.equal(h.registry.current("alice", scope(registration)), true); await h.registry.shutdown();
 });
 test("catalog is fixed, bounded, detached and never accepts caller paths or authority", async () => {
