@@ -7,6 +7,7 @@ const sqlite = require("./sqlite-wire").context;
 const { observeMetadataName } = require("./metadata-name");
 const { LIMITS: INDEX } = require("./name-index");
 const { LIMITS: RAW } = require("./rollout-snapshot");
+const structure = require("./rollout-structure");
 const LIMITS = Object.freeze({ headerBytes: 16 * 1024, namedHeaderBytes: 224 * 1024, inputBytes: 4 + 224 * 1024 + 16 * 1024 * 1024,
   outputBytes: 416 * 1024, chunks: 4096, deadlineMs: 10000, cleanupMs: 1000 });
 const CODES = Object.freeze(["source_worker_protocol", "source_worker_failure", "source_version_changed", "source_worker_output_limit",
@@ -16,7 +17,8 @@ const CODES = Object.freeze(["source_worker_protocol", "source_worker_failure", 
   "invalid_name_index_bytes_or_limit", "name_index_record_limit", "name_index_invalid_utf8", "name_index_name_limit",
   "name_index_record_unsupported", "name_index_output_limit", "invalid_name_resolution_input", "invalid_name_resolution_fields",
   "invalid_name_resolution_context", "name_resolution_missing_row_unsupported", "name_resolution_rollout_mismatch", "name_resolution_index_unavailable",
-  "source_encoding_unsupported", "rollout_compression_limit", "rollout_compression_invalid", "rollout_compression_unsupported"]);
+  "source_encoding_unsupported", "rollout_compression_limit", "rollout_compression_invalid", "rollout_compression_unsupported",
+  "rollout_structure_invalid", "rollout_structure_page_limit"]);
 const keys = (v, expected) => !!v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).sort().join(",") === [...expected].sort().join(",");
 const sha = b => crypto.createHash("sha256").update(b).digest("hex");
 const hash = v => typeof v === "string" && /^[a-f0-9]{64}$/.test(v);
@@ -52,9 +54,10 @@ function validNameContext(v, version) {
     && Buffer.byteLength(c.rolloutPath) <= 8192 && typeof c.preview === "string" && c.preview.isWellFormed() && Buffer.byteLength(c.preview) <= 32768;
 }
 function validJob(v) {
-  const named = [2, 4].includes(v?.protocolVersion), stored = [3, 4].includes(v?.protocolVersion);
-  return keys(v, ["protocolVersion", "nonce", "source", "selection", "expectedVersion", ...(named ? ["nameResolution"] : [])]) && [1, 2, 3, 4].includes(v.protocolVersion) && hash(v.nonce)
+  const named = [2, 4, 6].includes(v?.protocolVersion), stored = [3, 4, 5, 6].includes(v?.protocolVersion);
+  return keys(v, ["protocolVersion", "nonce", "source", "selection", "expectedVersion", ...(named ? ["nameResolution"] : [])]) && [1, 2, 3, 4, 5, 6].includes(v.protocolVersion) && hash(v.nonce)
     && source.sameSourceVersion(v.source, v.source) && validSelection(v.selection)
+    && (![5, 6].includes(v.protocolVersion) || v.selection.mode === "records")
     && Object.hasOwn(v.source, "storage") === stored
     && (v.expectedVersion === null || source.sameSourceVersion(v.expectedVersion, v.expectedVersion)) && (!named || validNameContext(v.nameResolution, v.source));
 }
@@ -82,7 +85,7 @@ function encodeJob(input, captured) {
   };
   const a = view(rollout, version.rollout.identity.size), b = version.nameIndex === null ? null : view(index, version.nameIndex.identity.size);
   if (!a || (version.nameIndex === null ? index !== null : b === null)) return null;
-  const header = Buffer.from(JSON.stringify(job)); if (header.length > ([2, 4].includes(job.protocolVersion) ? LIMITS.namedHeaderBytes : LIMITS.headerBytes)) return null;
+  const header = Buffer.from(JSON.stringify(job)); if (header.length > ([2, 4, 6].includes(job.protocolVersion) ? LIMITS.namedHeaderBytes : LIMITS.headerBytes)) return null;
   const encoded = Buffer.allocUnsafe(4 + header.length + a.length + (b?.length ?? 0));
   encoded.writeUInt32BE(header.length); header.copy(encoded, 4); encoded.set(a, 4 + header.length);
   if (b) encoded.set(b, 4 + header.length + a.length);
@@ -98,7 +101,7 @@ function readJob(frame) {
   if (!Buffer.isBuffer(frame) || frame.length < 5 || frame.length > LIMITS.inputBytes) return null;
   const length = frame.readUInt32BE(0); if (!length || length > LIMITS.namedHeaderBytes || length + 4 > frame.length) return null;
   const job = decode(frame.subarray(4, 4 + length), LIMITS.namedHeaderBytes), bytes = frame.subarray(4 + length);
-  if (![2, 4].includes(job?.protocolVersion) && length > LIMITS.headerBytes) return null;
+  if (![2, 4, 6].includes(job?.protocolVersion) && length > LIMITS.headerBytes) return null;
   return validPayload(bytes, job) ? { job, bytes } : null;
 }
 function validIndex(v, job) {
@@ -141,13 +144,55 @@ function validPage(v, job, payload, decoded) {
 }
 function validResult(v, job, payload) {
   if (keys(v, ["kind", "code"]) && v.kind === "source_unavailable") return CODES.includes(v.code);
-  const stored = [3, 4].includes(job.protocolVersion), named = [2, 4].includes(job.protocolVersion);
-  return keys(v, ["kind", "source", "index", "page", "sourceAuthenticated", "publishable", "semanticHistoryComplete", ...(named ? ["name"] : []), ...(stored ? ["decoded"] : [])])
+  const stored = [3, 4, 5, 6].includes(job.protocolVersion), named = [2, 4, 6].includes(job.protocolVersion), structured = [5, 6].includes(job.protocolVersion);
+  return keys(v, ["kind", "source", "index", "page", "sourceAuthenticated", "publishable", "semanticHistoryComplete", ...(named ? ["name"] : []), ...(stored ? ["decoded"] : []), ...(structured ? ["structure"] : [])])
     && v.kind === "codex_parsed_capture" && source.sameSourceVersion(job.source, v.source) && validIndex(v.index, job)
     && (!stored || validDecoded(v.decoded, job))
     && (job.selection.mode === "names" ? v.page === null : validPage(v.page, job, job.source.storage?.encoding === "zstd" ? null : payload, v.decoded))
+    && (!structured || validStructure(v.structure, v.page))
     && v.sourceAuthenticated === false && v.publishable === false && v.semanticHistoryComplete === false
     && (!named || validName(v.name, job));
+}
+function validStructure(v, page) {
+  const id = n => typeof n === "string" && n.isWellFormed() && n.length > 0 && n.length <= structure.LIMITS.identifierUnits && !/[\u0000-\u001f\u007f-\u009f]/.test(n);
+  const index = n => integer(n, page.recordCount - 1), key = n => typeof n === "string" && /^record-(0|[1-9][0-9]*)$/.test(n) && index(Number(n.slice(7)));
+  if (!keys(v, ["profile", "totalTurns", "retainedTurns", "turns", "annotations"]) || v.profile !== structure.PROFILE
+    || !integer(v.totalTurns, page.recordCount) || !integer(v.retainedTurns, v.totalTurns) || !Array.isArray(v.turns)
+    || v.turns.length > Math.min(v.totalTurns, page.records.length) || !Array.isArray(v.annotations) || v.annotations.length !== page.records.length) return false;
+  const turns = new Map();
+  for (const t of v.turns) {
+    if (!keys(t, ["turnKey", "nativeTurnId", "boundary", "firstRecordIndex", "lastRecordIndex", "recordedStatus", "statusRecordIndex", "branchState", "rollbackRecordIndex"])
+      || !key(t.turnKey) || turns.has(t.turnKey) || t.nativeTurnId !== null && !id(t.nativeTurnId)
+      || t.boundary !== (t.nativeTurnId === null ? "inferred" : "explicit") || !index(t.firstRecordIndex) || !index(t.lastRecordIndex)
+      || t.firstRecordIndex > t.lastRecordIndex || t.turnKey !== `record-${t.firstRecordIndex}`
+      || !["unknown", "started", "completed", "failed", "interrupted"].includes(t.recordedStatus)
+      || t.statusRecordIndex !== null && (!index(t.statusRecordIndex) || t.statusRecordIndex < t.firstRecordIndex || t.statusRecordIndex > t.lastRecordIndex)
+      || t.recordedStatus !== "unknown" && t.statusRecordIndex === null
+      || !["retained", "rolled_back"].includes(t.branchState)
+      || (t.branchState === "retained" ? t.rollbackRecordIndex !== null : !index(t.rollbackRecordIndex) || t.rollbackRecordIndex <= t.lastRecordIndex)) return false;
+    turns.set(t.turnKey, t);
+  }
+  const used = new Set();
+  for (const [i, a] of v.annotations.entries()) {
+    if (!keys(a, ["recordIndex", "kind", "turnKey", "tool", "warnings"]) || a.recordIndex !== page.offset + i
+      || !structure.KINDS.includes(a.kind) || a.turnKey !== null && !turns.has(a.turnKey) || !Array.isArray(a.warnings)
+      || a.warnings.length > structure.WARNINGS.length || new Set(a.warnings).size !== a.warnings.length || a.warnings.some(w => !structure.WARNINGS.includes(w))) return false;
+    if (a.turnKey !== null) {
+      const t = turns.get(a.turnKey); used.add(a.turnKey);
+      if (a.recordIndex < t.firstRecordIndex || a.recordIndex > t.lastRecordIndex) return false;
+    }
+    if (a.tool !== null) {
+      const t = a.tool;
+      if (a.kind !== "tool" || !keys(t, ["family", "phase", "nativeCallId", "relatedRecordIndex"]) || !structure.TOOL_FAMILIES.includes(t.family)
+        || !["begin", "end", "request", "single"].includes(t.phase) || !id(t.nativeCallId)
+        || t.relatedRecordIndex !== null && (!index(t.relatedRecordIndex) || t.relatedRecordIndex === a.recordIndex || a.turnKey === null || !["begin", "end"].includes(t.phase))) return false;
+      const other = t.relatedRecordIndex === null ? null : v.annotations[t.relatedRecordIndex - page.offset];
+      if (other && (other.turnKey !== a.turnKey || other.tool?.family !== t.family || other.tool.nativeCallId !== t.nativeCallId
+        || other.tool.relatedRecordIndex !== a.recordIndex || other.tool.phase !== (t.phase === "begin" ? "end" : "begin"))) return false;
+    }
+  }
+  const retainedVisible = v.turns.filter(t => t.branchState === "retained").length;
+  return used.size === turns.size && retainedVisible <= v.retainedTurns && v.turns.length - retainedVisible <= v.totalTurns - v.retainedTurns;
 }
 function validDecoded(v, job) {
   return keys(v, ["encoding", "byteLength", "sha256", "frames"]) && v.encoding === job.source.storage.encoding && hash(v.sha256)
@@ -177,9 +222,9 @@ function encodeResponse(result, job) {
   return readResponse(bytes, job) ? bytes : encode(unavailable("source_worker_protocol"));
 }
 function launchOptions() {
-  const files = ["parser-worker.js", "parser-wire.js", "source-wire.js", "name-index.js", "rollout-snapshot.js", "rollout-decompression.js", "sqlite-wire.js", "metadata-name.js", "name-resolution.js"].map(f => path.join(__dirname, f));
+  const files = ["parser-worker.js", "parser-wire.js", "source-wire.js", "name-index.js", "rollout-snapshot.js", "rollout-decompression.js", "rollout-structure.js", "sqlite-wire.js", "metadata-name.js", "name-resolution.js"].map(f => path.join(__dirname, f));
   files.push(path.resolve(__dirname, "../../../public/modules/projection.js"));
   return { executable: process.execPath, args: ["--permission", "--no-warnings", "--max-old-space-size=128", ...files.map(f => `--allow-fs-read=${f}`), files[0]],
     options: { cwd: __dirname, env: { LANG: "C", LC_ALL: "C" }, stdio: ["pipe", "pipe", "pipe"], shell: false, detached: false, windowsHide: true } };
 }
-module.exports = { LIMITS, CODES, detach, keys, validSelection, validJob, validPayload, validNameRequest, validName, sameNamedVersion, encodeJob, readJob, readResponse, encodeResponse, launchOptions };
+module.exports = { LIMITS, CODES, detach, keys, validSelection, validJob, validPayload, validNameRequest, validName, validStructure, sameNamedVersion, encodeJob, readJob, readResponse, encodeResponse, launchOptions };

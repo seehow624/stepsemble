@@ -13,6 +13,7 @@ import { historyRpc } from "../protocol/native/codex/history-rpc.js";
 import { observeHistoryPage, checkItemCoverage, TYPES } from "../protocol/native/codex/history-observation.js";
 import { richRecords } from "../protocol/native/codex/history-fixture.js";
 import { createRolloutSnapshot, readRolloutPage, releaseRolloutSnapshot, LIMITS as ROLLOUT_LIMITS } from "../protocol/native/codex/rollout-snapshot.js";
+import { createStructuredRolloutSnapshot, readStructuredRolloutPage, releaseStructuredRolloutSnapshot } from "../protocol/native/codex/rollout-structure.js";
 const exec = promisify(execFile), root = fileURLToPath(new URL("../", import.meta.url));
 export const HISTORY_SCHEMAS = Object.freeze([
   "v2/ThreadListParams.json", "v2/ThreadListResponse.json", "v2/ThreadReadParams.json", "v2/ThreadReadResponse.json",
@@ -86,8 +87,10 @@ export async function checkHistoryRuntime(binary) {
           const raw = lines.map(value => JSON.stringify(value)).join("\n") + "\n";
           await save(file, raw);
           const rawSnapshot = createRolloutSnapshot(Buffer.from(raw), { nativeVersion: snapshot.nativeVersion, threadId: id });
-          fixtures.push({ id, name, paginated, archived, source, rich, rawSnapshot, raw });
+          const structuredSnapshot = createStructuredRolloutSnapshot(Buffer.from(raw), { nativeVersion: snapshot.nativeVersion, threadId: id });
+          fixtures.push({ id, name, paginated, archived, source, rich, rawSnapshot, structuredSnapshot, raw });
           assert.equal(rawSnapshot.kind, paginated ? "codex_history_unavailable" : "codex_rollout_snapshot");
+          assert.equal(structuredSnapshot.kind, paginated ? "codex_history_unavailable" : "codex_structured_rollout_snapshot");
         }
         await save(path.join(codexHome, "session_index.jsonl"), fixtures.flatMap(row => [
           { id: row.id, thread_name: "舊名字", updated_at: "2026-01-05T12:00:00Z" },
@@ -112,7 +115,7 @@ export async function checkHistoryRuntime(binary) {
         assert.deepEqual(active.map(row => row.id).sort(), fixtures.filter(row => !row.archived).map(row => row.id).sort());
         assert.deepEqual(archived.map(row => row.id), fixtures.filter(row => row.archived).map(row => row.id));
         let legacyTurns = 0, legacyItems = 0, observedPages = 0, paginatedProjection, itemsList = "not_checked", richItemTypes = [], richCoverage;
-        let rawPages = 0, rawRecords = 0, preservedTransientRecords = 0;
+        let rawPages = 0, rawRecords = 0, preservedTransientRecords = 0, structuredPages = 0, structuredTurns = 0, structuredMessageMatches = 0;
         for (const fixture of fixtures) {
           if (fixture.paginated) assert.deepEqual(fixture.rawSnapshot, { kind: "codex_history_unavailable", code: "native_paginated_history_unsupported" });
           else {
@@ -153,6 +156,30 @@ export async function checkHistoryRuntime(binary) {
           if (fixture.paginated) { paginatedProjection = turns.length; assert.equal(paginatedProjection, 0, "re-review native paginated projection behavior"); continue; }
           const full = await client.request("thread/read", { threadId: fixture.id, includeTurns: true });
           assert.deepEqual(turns, full.thread.turns);
+          const structured = { records: [], annotations: [], turns: new Map() }; let structureOffset = 0;
+          do {
+            const page = readStructuredRolloutPage(fixture.structuredSnapshot, { snapshotId: fixture.structuredSnapshot.snapshotId, offset: structureOffset, limit: 2 });
+            assert.equal(page.kind, "codex_structured_rollout_records"); assert.equal(page.semanticHistoryComplete, false); assert.equal(page.executable, false);
+            structured.records.push(...page.records.records); structured.annotations.push(...page.annotations);
+            for (const turn of page.turns) structured.turns.set(turn.turnKey, turn);
+            structureOffset = page.records.nextOffset; structuredPages++;
+          } while (structureOffset !== null);
+          assert.equal(structured.records.map(r => r.rawText).join(""), fixture.raw);
+          assert.equal(structured.turns.size, turns.length); structuredTurns += structured.turns.size;
+          if (!fixture.rich) {
+            const indexed = [...structured.turns.values()].map(turn => structured.annotations.filter(a => a.turnKey === turn.turnKey && ["user", "assistant"].includes(a.kind))
+              .map(a => JSON.parse(structured.records[a.recordIndex].rawText).payload.message));
+            const projected = turns.map(turn => turn.items.map(item => item.type === "userMessage" ? item.content.filter(p => p.type === "text").map(p => p.text).join("\n") : item.text));
+            assert.deepEqual(indexed, projected); structuredMessageMatches += projected.flat().length;
+            // Native synthesizes IDs and completed statuses for these implicit
+            // turns. Our source index deliberately does not claim they were stored.
+            assert([...structured.turns.values()].every(turn => turn.nativeTurnId === null && turn.boundary === "inferred" && turn.recordedStatus === "unknown"));
+          } else {
+            assert.equal([...structured.turns.values()][0].nativeTurnId, turns[0].id);
+            assert.equal(structured.annotations.filter(a => a.kind === "tool").length, 7);
+            assert.equal(structured.annotations.find(a => a.tool?.family === "command" && a.tool.phase === "begin").tool.relatedRecordIndex, 6);
+          }
+          assert.equal(releaseStructuredRolloutSnapshot(fixture.structuredSnapshot), true);
           if (fixture.rich) {
             richItemTypes = turns.flatMap(turn => turn.items.map(item => item.type));
             // Pinned tag 3d2ee51: build_legacy_api_turns_from_rollout_items applies
@@ -192,11 +219,13 @@ export async function checkHistoryRuntime(binary) {
           legacyTurns, legacyItems, observedPages, richItemTypes, richCoverage, paginatedProjection, paginatedName: "unavailable_from_legacy_index", itemsList,
           rawRecordPaging: { pages: rawPages, records: rawRecords, preservedTransientRecords, byteExactRoundTrip: true,
             releasedHandlesRefused: true, semanticHistoryComplete: false, sourceAuthenticated: false, publishable: false },
+          structuralIndex: { pages: structuredPages, turns: structuredTurns, nativeMessageMatches: structuredMessageMatches,
+            richExplicitTurnMatched: true, transientToolsRetained: true, implicitIdsNotFabricated: true, semanticHistoryComplete: false },
           startupNotices: client.diagnostics().startupNotices,
           modelEndpointRequests: requests, loadedThreads: 0, sourceFilesUnchanged: saved.size, cleanupConfirmed };
       } finally { sink.closeAllConnections(); await new Promise(resolve => sink.close(resolve)); }
     } finally {
-      for (const fixture of fixtures) releaseRolloutSnapshot(fixture.rawSnapshot);
+      for (const fixture of fixtures) { releaseRolloutSnapshot(fixture.rawSnapshot); releaseStructuredRolloutSnapshot(fixture.structuredSnapshot); }
       if (client && !cleanupConfirmed) ({ cleanupConfirmed } = await client.close());
       // Never erase an owned workspace while process cleanup remains unknown.
       if (!client || cleanupConfirmed) await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });

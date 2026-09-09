@@ -43,10 +43,11 @@ function createCodexHistoryPipeline(options = {}) {
   }
   async function read(input, options = {}, named = false) {
     sweep();
-    if (!own(options, ["selection", "expectedVersion", "signal"])) return unavailable("invalid_codex_pipeline_request");
+    if (!own(options, ["selection", "expectedVersion", "signal", "structured"]) || options.structured !== undefined && typeof options.structured !== "boolean") return unavailable("invalid_codex_pipeline_request");
     const request = wire.detach(input, named ? wire.LIMITS.namedHeaderBytes : wire.LIMITS.headerBytes), selection = wire.detach(options.selection ?? (named ? { mode: "names" } : { mode: "records", offset: 0, limit: 50 }));
     const expected = options.expectedVersion === undefined ? null : wire.detach(options.expectedVersion);
     if (!(named ? wire.validNameRequest(request) : source.input(request)) || !wire.validSelection(selection)
+      || options.structured === true && selection.mode !== "records"
       || options.expectedVersion !== undefined && !(named ? wire.sameNamedVersion(expected, expected) : source.sameSourceVersion(expected, expected)))
       return unavailable("invalid_codex_pipeline_request");
     const signal = options.signal;
@@ -134,7 +135,7 @@ function createCodexHistoryPipeline(options = {}) {
       if (!version) return settle(unavailable("source_worker_protocol"));
       const expectedHistory = named ? expected?.history ?? null : expected;
       if (expectedHistory !== null && !source.sameSourceVersion(expectedHistory, version)) return settle(unavailable("source_version_changed"));
-      const job = { protocolVersion: (named ? 2 : 1) + (version.storage ? 2 : 0), nonce, source: version, selection, expectedVersion: expectedHistory,
+      const job = { protocolVersion: options.structured === true ? (named ? 6 : 5) : (named ? 2 : 1) + (version.storage ? 2 : 0), nonce, source: version, selection, expectedVersion: expectedHistory,
         ...(named ? { nameResolution: { fields: sqlCapture.metadata.observation.fields, nameContext: sqlCapture.metadata.observation.nameContext,
           method: request.method, rolloutPath: path.join(historyRequest.source.codexRoot, historyRequest.source.rolloutPath) } } : {}) };
       sqlCapture = null;

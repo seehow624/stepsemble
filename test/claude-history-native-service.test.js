@@ -1,6 +1,7 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict"), path = require("node:path"), crypto = require("node:crypto");
 const { EventEmitter } = require("node:events"), { PassThrough } = require("node:stream");
+const { performance } = require("node:perf_hooks");
 const { createNativeSourceService, LIMITS } = require("../protocol/native/claude/history-native-service");
 const { createHistoryRegistry } = require("../protocol/native/claude/history-registry");
 const { createReaderAdmission } = require("../protocol/native/claude/history-reader-admission");
@@ -284,14 +285,28 @@ test("cancel, revoke and shutdown after helper resolution prevent the second spa
   }
 });
 
-test("one total deadline covers both stages rather than granting the second child another full budget", async () => {
+test("one total deadline covers both stages rather than granting the second child another full budget", async t => {
+  let elapsed = 0;
+  t.mock.method(performance, "now", () => elapsed); t.mock.timers.enable({ apis: ["setTimeout"] });
   const h = harness({ deadlineMs: 100, cleanupMs: 100 }), pending = h.bound.observe(request, { page });
-  await new Promise(done => setTimeout(done, 60)); h.helpers[0].finish(); await tick();
+  t.after(() => h.service.shutdown());
+  elapsed = 60; t.mock.timers.tick(60); h.helpers[0].finish(); await tick();
   assert.equal(h.children.length, 1);
-  await new Promise(done => setTimeout(done, 55));
+  elapsed = 99; t.mock.timers.tick(39); assert.equal(h.children[0].kills, 0);
+  elapsed = 100; t.mock.timers.tick(1);
   assert.equal(h.children[0].kills, 1, "outer 100ms deadline, not a new 100ms after the 60ms helper phase");
   assert.deepEqual(await pending, unavailable("source_worker_timeout")); assert.equal(h.children[0].kills, 1);
   assert.equal(h.physical(), 0); await h.service.shutdown();
+});
+test("an exhausted helper deadline prevents a parser spawn even before the timer callback can run", async t => {
+  let elapsed = 0;
+  t.mock.method(performance, "now", () => elapsed); t.mock.timers.enable({ apis: ["setTimeout"] });
+  const h = harness({ deadlineMs: 100, cleanupMs: 100 }), pending = h.bound.observe(request, { page });
+  t.after(() => h.service.shutdown());
+  elapsed = 101; h.helpers[0].finish();
+  assert.deepEqual(await pending, unavailable("source_worker_timeout")); assert.equal(h.children.length, 0);
+  assert.equal(h.physical(), 0); assert.equal(h.service.status().activeWorkers, 0); assert.equal(h.bound.status().cleanupConfirmed, true);
+  assert.equal((await h.service.shutdown()).cleanupConfirmed, true);
 });
 
 test("quarantine in one slot aborts the other active flight without replacing either helper", async () => {

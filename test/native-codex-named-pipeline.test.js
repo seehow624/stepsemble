@@ -17,7 +17,7 @@ function harness(t, config = {}) {
       h.close = () => { if (h.active) { h.active = false; drop(); } };
       for (const method of ["readCodex", "readCodexNameContext"]) h[method] = (input, { signal }) => {
         assert.equal(h.active, false); add(); h.active = true; h.calls.push({ method, input }); stages.push(method);
-        const promise = new Promise(resolve => { h.finish = (result = method === "readCodex" ? f.captured() : f.sqliteCapture(), close = true) => { if (close) h.close(); resolve(result); }; });
+        const promise = new Promise(resolve => { h.finish = (result = method === "readCodex" ? (config.structured ? f.structuredCaptured() : f.captured()) : f.sqliteCapture(), close = true) => { if (close) h.close(); resolve(result); }; });
         signal.addEventListener("abort", () => { if (!config.holdReader) h.finish(unavailable("source_aborted")); }, { once: true });
         return promise;
       };
@@ -57,6 +57,26 @@ test("one permit spans SQL A, bytes A, parser close, SQL B and bytes B; no early
   assert(wire.sameNamedVersion(result.source, result.source)); assert.equal(h.max(), 1); assert.equal(h.physical(), 0);
   assert.deepEqual(h.stages, ["readCodexNameContext", "readCodex", "parser", "readCodexNameContext", "readCodex"]);
   assert.equal(h.admission.status().cleanupConfirmed, true);
+});
+test("structured named capture uses the same five stages and cannot appear before both final source checks", async t => {
+  const h = harness(t, { structured: true }), selection = { mode: "records", offset: 4, limit: 3 };
+  const result = await complete(h, { structured: true, selection });
+  assert.equal(result.kind, "codex_named_capture", result.code); assert.equal(result.structure.totalTurns, 1);
+  assert.equal(result.structure.annotations[1].tool.relatedRecordIndex, 6); assert.equal(result.cleanupConfirmed, true);
+  assert.equal(h.children[0].input().job.protocolVersion, 6); assert.equal(h.max(), 1); assert.equal(h.physical(), 0);
+  const pending = h.pipeline.readNamed(f.namedRequest(), { structured: true, selection, expectedVersion: result.source });
+  for (let i = 0; i < 4; i++) await h.step();
+  const changed = f.structuredCaptured(); changed.rollout.identity.inode = "100"; await h.step(changed);
+  assert.equal((await pending).code, "source_version_changed"); assert.equal(h.admission.status().cleanupConfirmed, true);
+});
+test("structured cancellation at all five stages preserves cleanup and never publishes a partial graph", async t => {
+  for (const stage of [0, 1, 2, 3, 4]) {
+    const h = harness(t, { structured: true }), controller = new AbortController();
+    const pending = h.pipeline.readNamed(f.namedRequest(), { structured: true, selection: { mode: "records", offset: 0, limit: 5 }, signal: controller.signal });
+    for (let i = 0; i < stage; i++) await h.step(); controller.abort();
+    assert.deepEqual(await pending, unavailable("source_aborted")); assert.equal(h.physical(), 0); assert.equal(h.stages.length, stage + 1);
+    assert.equal(h.admission.status().cleanupConfirmed, true);
+  }
 });
 test("named and old flows use the same two Host slots at every stage without a queue or a nested reservation", async t => {
   const admission = createReaderAdmission(), a = harness(t, { admission }), b = harness(t, { admission });
@@ -132,7 +152,8 @@ test("named inputs and expected versions are detached, exact and matched before 
     v => { v.sqlite.nativeVersion = "latest"; }, v => { v.env = {}; }, v => { Object.defineProperty(v.sqlite, "source", { get() { calls++; } }); }]) {
     const input = f.namedRequest(); change(input); assert.equal((await h.pipeline.readNamed(input)).code, "invalid_codex_pipeline_request");
   }
-  for (const options of [{ expectedVersion: f.job().source }, { selection: { mode: "names", limit: 1 } }, { signal: {} }, { env: {} }])
+  for (const options of [{ expectedVersion: f.job().source }, { selection: { mode: "names", limit: 1 } }, { signal: {} }, { env: {} },
+    { structured: "true" }, { structured: true }, { structured: true, selection: { mode: "names" } }])
     assert.match((await h.pipeline.readNamed(f.namedRequest(), options)).code, /^invalid_/);
   const abort = new AbortController(); abort.abort(); assert.equal((await h.pipeline.readNamed(f.namedRequest(), { signal: abort.signal })).code, "source_aborted");
   assert.equal(calls, 0); assert.equal(h.stages.length, 0);

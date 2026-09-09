@@ -9,6 +9,11 @@
 
 ## 1. 這份文件的角色
 
+Plan1.72進行中：固定Codex的來源關聯回合／工具結構已接背景pipeline v5/v6，
+普通147messages與rich native turn ID實際比對、219原始records不漏；最低Node與完整
+1012/0fail、真reader／Claude peer／雙版本及5階段取消通。尚未接source service／HTTP／
+Web，不能把此底層增量當完整對話介面或C2完成。詳[接續入口](codex-history-structure.md)。
+
 Plan1.71 開發增量已本機驗 Codex plain/壓縮來源、Rust v9、permissioned背景解壓、
 bounded多frame／實體及decoded版本，接既有清單/名稱/HostWeb；完整及最低Node985/0fail，
 ownedHost39筆、cold＋compressed、直接zst locator與CUA390px通。9820ed2修正預期拒絕

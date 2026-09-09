@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.71
+> 計畫版本：1.72
 > 最後更新：2026-09-09
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -14,6 +14,14 @@
 本階段以 Web 完整可驗收／安全發布為終點，逐項驗收與接續入口見
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
+
+**進行中增量 1.72（Codex 可讀歷史，尚未完成 Web 接線）**：新增來源關聯回合／工具
+結構與 parser v5/v6，接既有 bounded named pipeline，不改舊 raw DTO。真正固定 CLI
+比對 147 則普通訊息與 rich turn ID／全部219原始records通；原生省略工具的差異保留。
+本機完整與最低Node1012/0fail/2skip；實際共用Claude peer／5階段取消／雙版本拒絕、
+近8MiB且8192筆受限worker通，並修正既有Claude deadline測試的牆鐘競態。
+**source service／HTTP／Web 尚未接此結構，C2 未完成**；下一段直接完成接線與可讀介面。
+詳[歷史結構與接續](codex-history-structure.md)。新exact CI待核，不跨正式／私人／72h關卡。
 
 **已完成增量 1.71（壓縮歷史全鏈與 exact CI 已驗／未部署）**：接同root下plain/壓縮sibling、Rust v9
 capture與permissioned parser v3/v4、實體/解壓版本分離、同Host有界named流程、實際

@@ -29,6 +29,13 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 
 ## 順序與驗收
 
+2026-09-09／Plan1.72 **進行中**：Codex可讀歷史先補來源關聯回合／工具結構與
+parser5/6、同兩reader named流程。真正native147messages／rich turn ID與219原文
+逐byte比對通；新近8MiB/8192筆worker、真Claude peer、雙版本及五階段取消通。
+完整及最低Node1012/0fail；既有Claude deadline測試牆鐘競態已改精確時鐘回歸。
+**尚未接source service／HTTP／Web，不勾C2**；接下來直接做這條接線與可讀介面，
+不重做已驗壓縮／冷DB。詳[結構與未完成項](codex-history-structure.md)，新exact CI待核。
+
 2026-09-09／Plan1.71壓縮來源增量：v9同heldparent選plain/壓縮、strict frame boundary
 及有界背景解壓、雙來源version fence、真正Host/catalog/名稱/分頁已接；985/0fail本機及
 最低Node、390px CUA壓縮頁和恢復通。工程a2af9f6後以9820ed2修測試Buffer差異膨脹，

@@ -59,6 +59,12 @@ export async function checkCodexNamedPipeline({ helperPath, admission, createHel
     assert.equal(page.page.records.map(r => r.rawText).join(""), await fs.readFile(path.join(codexRoot, ready.rolloutPath), "utf8"));
     assert.deepEqual(await sourceSnapshot(), untouched);
 
+    const structured = await stableRead({ expectedVersion: page.source, structured: true, selection: { mode: "records", offset: 0, limit: 2 } });
+    assert.equal(structured.kind, "codex_named_capture", structured.code); assert.equal(stage, 5);
+    assert.equal(structured.name.name, page.name.name); assert.equal(structured.structure.totalTurns, 1);
+    assert.equal(structured.structure.turns[0].nativeTurnId, null); assert.equal(structured.structure.turns[0].recordedStatus, "unknown");
+    assert.deepEqual(structured.page, page.page);
+
     await writer.command("fallback"); const readFallback = await stableRead(), listFallback = await stableRead({}, { ...input, method: "thread_list_state_row" });
     assert.equal(readFallback.name.name, "  owned index 🐾  "); assert.equal(readFallback.name.candidateSource, "legacy_index_single_read");
     assert.equal(listFallback.name.name, null); assert.equal(listFallback.name.suppressedByPreview, true);
@@ -82,6 +88,11 @@ export async function checkCodexNamedPipeline({ helperPath, admission, createHel
       const result = await stableRead({ signal: cancel.controller.signal }); cancel = null;
       assert.equal(result.code, "source_aborted"); assert.equal(stage, at + 1);
     }
+    for (const at of [0, 1, 2, 3, 4]) {
+      cancel = { stage: at, controller: new AbortController() };
+      const result = await stableRead({ signal: cancel.controller.signal, structured: true, selection: { mode: "records", offset: 0, limit: 2 } }); cancel = null;
+      assert.equal(result.code, "source_aborted"); assert.equal(stage, at + 1);
+    }
     await writer.command("path"); assert.equal((await stableRead()).code, "name_resolution_rollout_mismatch"); assert.equal(stage, 3);
     await writer.command("reset"); const final = await stableRead(); assert.equal(final.name.name, initial.name.name);
     assert.equal(final.sourceAuthenticated, false); assert.equal(final.publishable, false); assert.equal(final.name.nativeTitleResolved, false);
@@ -90,6 +101,7 @@ export async function checkCodexNamedPipeline({ helperPath, admission, createHel
       sequence: ["v5_sqlite_a", "v3_bytes_a", "permissioned_parser", "v5_sqlite_b", "v3_bytes_b"], crossHarnessSharedAdmission: true,
       maximumPhysicalChildren: counters().maximum, remainingChildren: counters().physical, actualCancellationStages: 5, mutations,
       exactBothSourceBytesPreserved: true, expectedCompositeVersionFenced: true, rawPageBytesPreserved: true,
+      structuredNamedCapture: true, structuredActualCancellationStages: 5, implicitNativeIdsNotFabricated: true,
       paginatedMetadataOnly: true, paginatedCompleteHistoryUnsupported: true, inertPathNotFollowed: true,
       cleanupConfirmed: true, atomicCrossSourceSnapshot: false, nativeTitleResolved: false, productionWiring: false, privateHistoryReads: 0, modelCalls: 0 };
   } finally { assert.equal((await pipeline.shutdown()).cleanupConfirmed, true, "retain owned writer if reader cleanup is unknown"); }

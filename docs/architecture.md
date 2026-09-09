@@ -13,6 +13,15 @@ runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
+Development-only Plan1.72 is in progress: a source-linked structural index adds
+recorded/inferred turn boundaries and scoped tool correlations to the existing
+bounded parser (v5/v6) and named pipeline. It is not a native projection clone;
+implicit native IDs/statuses are not invented, and raw records survive rollback.
+Pinned CLI comparisons and actual reader/shared-peer/cancellation gates pass.
+Source-service, HTTP and Web consumers are **not yet connected** to this opt-in
+shape. See [`codex-history-structure.md`](codex-history-structure.md) for evidence,
+the existing timer-test race fixed in this increment, and the next integration.
+
 Development-only Plan1.71 adds stored rollout v9: resolve the plain/compressed
 sibling under one held parent, recheck selection and physical bytes, then
 decompress in the existing permissioned parser process. Frame, block, window

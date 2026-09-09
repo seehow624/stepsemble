@@ -32,4 +32,9 @@ function withRollout(records, index) {
   c.byteLength = raw.length + (c.nameIndexBytes?.length ?? 0); c.sha256 = sha(Buffer.concat([raw, c.nameIndexBytes ?? Buffer.alloc(0)]));
   return c;
 }
-module.exports = { id, root, request, captured, job, sha, namedRequest, sqliteCapture, namedJob, withRollout };
+function structuredCaptured(index, workdir = root) {
+  const c = withRollout([{ type: "session_meta", payload: { id, history_mode: "legacy", cli_version: "0.153.4" } }, ...richRecords(workdir)], index);
+  c.storage = { encoding: "jsonl", rolloutPath: c.rolloutPath }; c.checks.rolloutSelectionRechecked = true;
+  return c;
+}
+module.exports = { id, root, request, captured, job, sha, namedRequest, sqliteCapture, namedJob, withRollout, structuredCaptured };

@@ -9,7 +9,7 @@ const ID: &str = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 fn rollout_bytes(mode: &str, changed: bool) -> String {
     format!(
         "{}\n{}\n",
-        json!({"type":"session_meta","payload":{"id":ID,"history_mode":mode}}),
+        json!({"type":"session_meta","payload":{"id":ID,"history_mode":mode,"cli_version":"0.153.4"}}),
         json!({"type":"event_msg","payload":{"type":"user_message","message":if changed {"changed"} else {"first"}}})
     )
 }
@@ -105,7 +105,7 @@ fn main() {
                 match bytes.as_slice() {
                     b"rich_rollout\n" => {
                         let mut records = vec![
-                            json!({"type":"session_meta","payload":{"id":ID,"history_mode":"legacy"}}),
+                            json!({"type":"session_meta","payload":{"id":ID,"history_mode":"legacy","cli_version":"0.153.4"}}),
                         ];
                         for n in 0..35 {
                             records.push(json!({"type":"response_item","payload":{"type":"message","role":if n % 2 == 0 {"user"} else {"assistant"},

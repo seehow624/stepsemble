@@ -42,7 +42,7 @@ export async function checkCodexHistoryPipeline({ helperPath, sdkPath }) {
   const save = async (file, bytes) => { await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 }); await fs.writeFile(file, bytes, { flag: "wx", mode: 0o600 }); saved.set(file, Buffer.from(bytes)); };
   const rootIdentity = async root => { const s = await fs.stat(root, { bigint: true }); return { device: String(s.dev), inode: String(s.ino) }; };
   try {
-    const codexRoot = path.join(temp, "codex"), capture = codexFixture.captured(undefined, temp), rollout = path.join(codexRoot, capture.rolloutPath), indexFile = path.join(codexRoot, "session_index.jsonl");
+    const codexRoot = path.join(temp, "codex"), capture = codexFixture.structuredCaptured(undefined, temp), rollout = path.join(codexRoot, capture.rolloutPath), indexFile = path.join(codexRoot, "session_index.jsonl");
     await save(rollout, capture.rolloutBytes); await save(indexFile, capture.nameIndexBytes);
     const request = { nativeVersion: "0.153.4", source: { codexRoot, rolloutPath: capture.rolloutPath, threadId: capture.threadId }, expectedRoot: await rootIdentity(codexRoot) };
     const pipeline = createCodexHistoryPipeline({ helperPath, admission, createHelper, spawnChild: parserSpawn }); services.push(pipeline);
@@ -75,6 +75,20 @@ export async function checkCodexHistoryPipeline({ helperPath, sdkPath }) {
     } while (offset !== null);
     assert.equal(rows.map(v => v.rawText).join(""), capture.rolloutBytes.toString());
     assert.equal(rows.filter(v => ["exec_command_begin", "exec_command_end", "view_image_tool_call"].includes(v.payloadType)).length, 3);
+    const structuredRows = [], annotations = []; let structuredPages = 0; offset = 0;
+    do {
+      const pending = pipeline.read(request, { expectedVersion: b.source, structured: true, selection: { mode: "records", offset, limit: 2 } });
+      if (structuredPages === 0) {
+        const peer = bound.observe({ ...peerRequest, requestId: crypto.randomUUID() });
+        assert.equal(admission.status().activeWorkers, 2); const busyAttempts = attempts;
+        assert.equal((await inventory.refresh("owner")).code, "source_busy"); assert.equal(attempts, busyAttempts);
+        assert.equal((await peer).kind, "bound_history_observation");
+      }
+      const r = await pending; assert.equal(r.kind, "codex_parsed_capture", r.code); assert.equal(r.cleanupConfirmed, true);
+      structuredRows.push(...r.page.records); annotations.push(...r.structure.annotations); structuredPages++; offset = r.page.nextOffset;
+    } while (offset !== null);
+    assert.equal(structuredRows.map(v => v.rawText).join(""), capture.rolloutBytes.toString());
+    assert.equal(annotations[5].tool.relatedRecordIndex, 6); assert.equal(annotations[6].tool.relatedRecordIndex, 5);
     await fs.writeFile(indexFile, Buffer.concat([capture.nameIndexBytes, capture.nameIndexBytes]));
     const staleBefore = attempts;
     assert.equal((await pipeline.read(request, { expectedVersion: b.source })).code, "source_version_changed");
@@ -91,7 +105,9 @@ export async function checkCodexHistoryPipeline({ helperPath, sdkPath }) {
     const other = JSON.stringify({ id: "00000000-0000-4000-8000-000000000000", thread_name: "x".repeat(1024), updated_at: "x" }) + "\n";
     const largeIndex = Buffer.from(other.repeat(Math.floor((8 * 1024 * 1024 - 1000) / Buffer.byteLength(other))) + capture.nameIndexBytes.toString());
     await fs.writeFile(indexFile, largeIndex);
-    const owned = codexFixture.captured(largeIndex, temp), j = codexFixture.job(owned, { mode: "names" }), payload = wire.readJob(wire.encodeJob(j, owned)).bytes;
+    const owned = codexFixture.structuredCaptured(largeIndex, temp), j = { ...codexFixture.job(owned, { mode: "names" }), protocolVersion: 3 };
+    const directInput = wire.readJob(wire.encodeJob(j, owned)); assert(directInput, "owned stored benchmark input must validate");
+    const payload = directInput.bytes;
     const comparison = [];
     for (let i = 0; i < 3; i++) {
       const direct = await sampleLoop(() => processJob(j, payload));
@@ -106,7 +122,8 @@ export async function checkCodexHistoryPipeline({ helperPath, sdkPath }) {
     bound.revoke();
     return { gate: "posix_owned_fixture_passed", sqlitePipeline, platform: process.platform, nodeVersion: process.version, crossHarnessSharedAdmission: true,
       actualClaudeSdkPeer: true, maximumPhysicalChildren: maximum, remainingChildren: physical, spawnAttempts: attempts, byteExactRawPages: true,
-      preservedTransientRecords: 3, staleBeforeParser: true, actualParserCancellation: true, beforeAfter: { inputIndexBytes: largeIndex.length, comparison,
+      preservedTransientRecords: 3, structuredRecords: { pages: structuredPages, records: structuredRows.length, crossPageToolCorrelation: true, sharedClaudePeer: true, semanticHistoryComplete: false },
+      staleBeforeParser: true, actualParserCancellation: true, beforeAfter: { inputIndexBytes: largeIndex.length, comparison,
         syntheticMainLoopOnly: true, webOrHostAcceptance: false }, modelCalls: 0, privateHistoryReads: 0, nativeCodexLaunches: 0,
       sourceFilesRestoredAtEnd: saved.size, nativeTitleResolved: false, productionWiring: false, cleanupConfirmed: true };
   } finally {

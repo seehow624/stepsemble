@@ -5,6 +5,7 @@ const { sameSourceVersion } = require("./source-wire");
 const { createRolloutSnapshot, observeRolloutNameIdentity, readRolloutPage, releaseRolloutSnapshot } = require("./rollout-snapshot");
 const { observeSqliteNameResolution } = require("./name-resolution");
 const { decodeRollout } = require("./rollout-decompression");
+const structure = require("./rollout-structure");
 const { createHash } = require("node:crypto");
 const unavailable = code => ({ kind: "source_unavailable", code });
 function processJob(input, bytes) {
@@ -13,20 +14,26 @@ function processJob(input, bytes) {
   if (job.expectedVersion !== null && !sameSourceVersion(job.expectedVersion, job.source)) return unavailable("source_version_changed");
   const split = job.source.rollout.identity.size;
   const parameters = { nativeVersion: job.source.nativeVersion, threadId: job.source.threadId };
-  const named = [2, 4].includes(job.protocolVersion), stored = [3, 4].includes(job.protocolVersion);
+  const named = [2, 4, 6].includes(job.protocolVersion), stored = [3, 4, 5, 6].includes(job.protocolVersion), structured = [5, 6].includes(job.protocolVersion);
   const decoded = decodeRollout(bytes.subarray(0, split), job.source.storage?.encoding ?? "jsonl");
   if (decoded.kind !== "decoded_rollout") return decoded;
   let snapshot;
   try {
     const identity = named ? observeRolloutNameIdentity(decoded.bytes, parameters) : null;
     if (named && identity.kind !== "codex_rollout_name_identity") return unavailable(identity.code);
-    snapshot = !named || job.selection.mode === "records" ? createRolloutSnapshot(decoded.bytes, parameters) : null;
-    if (snapshot && snapshot.kind !== "codex_rollout_snapshot") return unavailable(snapshot.code);
+    snapshot = !named || job.selection.mode === "records" ? (structured ? structure.createStructuredRolloutSnapshot : createRolloutSnapshot)(decoded.bytes, parameters) : null;
+    if (snapshot && snapshot.kind !== (structured ? "codex_structured_rollout_snapshot" : "codex_rollout_snapshot")) return unavailable(snapshot.code);
     const index = observeNameIndex(job.source.nameIndex === null ? null : bytes.subarray(split), { nativeVersion: job.source.nativeVersion, threadId: job.source.threadId });
     if (index.kind !== "codex_name_index_observation") return unavailable(index.code);
-    let page = null;
+    let page = null, structuredPage = null;
     if (job.selection.mode === "records") {
-      const result = readRolloutPage(snapshot, { snapshotId: snapshot.snapshotId, offset: job.selection.offset, limit: job.selection.limit });
+      let result;
+      if (structured) {
+        const selected = structure.readStructuredRolloutPage(snapshot, { snapshotId: snapshot.snapshotId, offset: job.selection.offset, limit: job.selection.limit });
+        if (selected.kind !== "codex_structured_rollout_records") return unavailable(selected.code);
+        result = selected.records; structuredPage = { profile: selected.structureProfile, totalTurns: selected.totalTurns, retainedTurns: selected.retainedTurns,
+          turns: selected.turns, annotations: selected.annotations };
+      } else result = readRolloutPage(snapshot, { snapshotId: snapshot.snapshotId, offset: job.selection.offset, limit: job.selection.limit });
       if (result.kind !== "codex_rollout_records") return unavailable(result.code);
       const { snapshotId: _ephemeralHandle, ...records } = result; page = records;
     }
@@ -38,10 +45,11 @@ function processJob(input, bytes) {
       if (name.kind !== "codex_name_resolution_observation") return unavailable(name.code);
     }
     return { kind: "codex_parsed_capture", source: job.source, index, page, ...(named ? { name } : {}),
+      ...(structured ? { structure: structuredPage } : {}),
       ...(stored ? { decoded: { encoding: job.source.storage.encoding, byteLength: decoded.bytes.length,
         sha256: createHash("sha256").update(decoded.bytes).digest("hex"), frames: decoded.frames } } : {}),
       sourceAuthenticated: false, publishable: false, semanticHistoryComplete: false };
-  } finally { if (snapshot) releaseRolloutSnapshot(snapshot); if (job.source.storage?.encoding === "zstd") decoded.bytes.fill(0); }
+  } finally { if (snapshot) (structured ? structure.releaseStructuredRolloutSnapshot : releaseRolloutSnapshot)(snapshot); if (job.source.storage?.encoding === "zstd") decoded.bytes.fill(0); }
 }
 function validContext(permission = process.permission) {
   return !!permission && typeof permission.has === "function" && !permission.has("fs.write") && !permission.has("child") && !permission.has("fs.read");
