@@ -70,7 +70,8 @@ function createCodexSourceService(options = {}) {
     const revoke = () => { state.revoked = true; state.version = null; state.flight?.controller.abort(); };
     async function read(input, options, metadata) {
       const status = sweep();
-      if (!sql.own(options, ["signal", "version", ...(metadata ? [] : ["page"])])) return unavailable("invalid_history_options");
+      if (!sql.own(options, ["signal", "version", ...(metadata ? [] : ["page", "structured"])])
+        || options.structured !== undefined && options.structured !== true) return unavailable("invalid_history_options");
       const request = wire.detach(input), page = wire.detach(options.page ?? { offset: 0, limit: 25 });
       if (!wire.keys(request, ["bindingId", "generation", "requestId"]) || request.bindingId !== value.bindingId || request.generation !== value.generation || !uuid(request.requestId))
         return unavailable("source_binding_mismatch");
@@ -91,7 +92,8 @@ function createCodexSourceService(options = {}) {
       const abort = () => controller.abort(); options.signal?.addEventListener("abort", abort, { once: true });
       try {
         const result = await pipeline.readNamed({ history: source.history, sqlite: source.sqlite, method: "thread_read_sqlite" },
-          { selection: metadata ? { mode: "names" } : { mode: "records", ...page }, ...(expected ? { expectedVersion: expected.source } : {}), signal: controller.signal });
+          { selection: metadata ? { mode: "names" } : { mode: "records", ...page }, ...(options.structured === true ? { structured: true } : {}),
+            ...(expected ? { expectedVersion: expected.source } : {}), signal: controller.signal });
         const status = pipeline.status();
         if (result?.code === "source_cleanup_unconfirmed" || status.quarantined && !status.cleanupConfirmed) {
           current.unknown = true; return unavailable("source_cleanup_unconfirmed");
@@ -113,7 +115,8 @@ function createCodexSourceService(options = {}) {
             metadata: { sessionId: source.sessionId, nativeTitle: result.name.name, summary: null, titleStatus: result.name.name === null ? "untitled" : "native" } };
         } else {
           output = { ...common, kind: "bound_codex_records", history: { kind: "codex_source_records", nativeVersion: "0.153.4", nativeThreadId: source.sessionId,
-            nativeTitle: result.name.name, page, records: result.page, semanticHistoryComplete: false, sourceAuthenticated: false, publishable: false,
+            nativeTitle: result.name.name, page, records: result.page, ...(options.structured === true ? { structure: result.structure } : {}),
+            semanticHistoryComplete: false, sourceAuthenticated: false, publishable: false,
             authority: { sourceAuthenticated: false, approvalAcknowledged: false, runTerminalObserved: false, resumeAllowed: false } } };
         }
         const detached = wire.detach(output, LIMITS.responseBytes);

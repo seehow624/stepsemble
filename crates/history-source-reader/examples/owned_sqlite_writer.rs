@@ -103,6 +103,37 @@ fn main() {
                     .as_ref()
                     .expect("owned database mutation requires open writer");
                 match bytes.as_slice() {
+                    b"structured_rollout\n" => {
+                        let mut records = vec![
+                            json!({"type":"session_meta","payload":{"id":ID,"history_mode":"legacy","cli_version":"0.153.4"}}),
+                            json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"owned-turn-1"}}),
+                            json!({"type":"event_msg","payload":{"type":"user_message","message":"Owned user 🐾 <script>never()</script> https://never.invalid/"}}),
+                            json!({"type":"event_msg","payload":{"type":"agent_message","message":format!("Owned complete long message\n{}END-OF-OWNED-LONG-TEXT", "合成長文，不執行任何工具。".repeat(1000))}}),
+                            json!({"type":"event_msg","payload":{"type":"exec_command_begin","turn_id":"owned-turn-1","call_id":"owned-command","command":["never-execute"]}}),
+                        ];
+                        for n in 0..8 {
+                            records.push(json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":format!("Owned model context {n}")}]}}));
+                        }
+                        records.extend([
+                            json!({"type":"event_msg","payload":{"type":"exec_command_end","turn_id":"owned-turn-1","call_id":"owned-command","aggregated_output":"Owned inert result","exit_code":0}}),
+                            json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":"owned-turn-1"}}),
+                            json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"owned-turn-2"}}),
+                            json!({"type":"event_msg","payload":{"type":"user_message","message":"Owned rolled-back question"}}),
+                            json!({"type":"event_msg","payload":{"type":"agent_message","message":"Owned rolled-back answer"}}),
+                            json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":"owned-turn-2"}}),
+                            json!({"type":"event_msg","payload":{"type":"thread_rolled_back","num_turns":1}}),
+                            json!({"type":"event_msg","payload":{"type":"user_message","message":"Owned inferred question"}}),
+                            json!({"type":"event_msg","payload":{"type":"agent_message","message":"Owned inferred answer"}}),
+                            json!({"type":"future_owned_record","payload":{"unknown":"preserved, not discarded"}}),
+                        ]);
+                        let text = records
+                            .iter()
+                            .map(serde_json::Value::to_string)
+                            .collect::<Vec<_>>()
+                            .join("\r\n")
+                            + "\r\n";
+                        std::fs::write(&rollout, text).unwrap();
+                    }
                     b"rich_rollout\n" => {
                         let mut records = vec![
                             json!({"type":"session_meta","payload":{"id":ID,"history_mode":"legacy","cli_version":"0.153.4"}}),

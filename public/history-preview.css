@@ -79,6 +79,15 @@ footer { max-width: 68rem; margin: auto; padding: 0 2rem 2rem; font-size: .76rem
 .history-manual .history-sources { max-height: 20rem; overflow: auto; overscroll-behavior-y: contain; }
 @media (max-width: 640px) { .source-browser { padding: .8rem; } .source-toolbar button { font-size: .82rem; flex: 1 1 auto; padding-inline: .5rem; } .source-pager button { font-size: .78rem; padding-inline: .5rem; } .source-open { padding-inline: .5rem; } .source-browser select { width: 100%; } }
 [hidden] { display: none !important; }
+.codex-history-modes { display: flex; flex-wrap: wrap; gap: .5rem; margin-block: .75rem; }
+.codex-history-modes [aria-pressed="true"] { background: var(--soft); border-color: var(--accent); }
+.codex-history-turn { border-block-start: 1px solid var(--line); padding-block-start: 1rem; margin-block-start: .5rem; overflow-wrap: anywhere; }
+.codex-history-turn h4 { margin: 0; font-size: .95rem; }
+.codex-record h4 { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.codex-record[data-record-kind="user"] { margin-inline-start: min(2rem, 5vw); background: var(--soft); }
+.codex-record[data-branch-state="rolled_back"] { border-inline-start: 3px solid var(--warning-ink); }
+.codex-history-auxiliary summary { padding: .65rem 0; cursor: pointer; }
+.codex-record [data-related-record] { max-width: 100%; overflow-wrap: anywhere; text-align: start; }
 @media (max-width: 640px) { .preview-header { padding: 1rem; } main { padding: 1.2rem 1rem 3rem; } .preview-intro { margin-bottom: 1.5rem; } .history-toolbar { gap: .4rem; position: static; } .history-toolbar button { flex: 1 1 auto; font-size: .86rem; padding-inline: .65rem; } .history-limit { margin-left: 0; width: 100%; padding-top: .3rem; } .history-message { padding: 1rem; border-radius: .8rem; } footer { padding-inline: 1rem; } }
 @media (prefers-color-scheme: dark) { :root { --background: #151b18; --surface: #1e2722; --ink: #e7eee8; --muted: #a9b7ad; --line: #425349; --accent: #9dd8bb; --soft: #2c4738; --warning: #382a14; --warning-ink: #f6d799; } .history-sources button[aria-pressed="true"], .history-toolbar [data-action="refresh"] { color: #142b1f; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } button:active { transform: none; } }

@@ -2,24 +2,29 @@
 const test = require("node:test"), assert = require("node:assert/strict"), { randomUUID } = require("node:crypto");
 const view = require("../public/modules/codex-history-view"), wire = require("../public/modules/codex-history-records");
 const { canonicalJSON } = require("../public/modules/projection"), raw = require("../protocol/native/codex/rollout-snapshot");
+const structure = require("../protocol/native/codex/rollout-structure"), fixture = require("../protocol/native/codex/parser-fixture.cjs");
 const id = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", catalogId = "codex-" + "a".repeat(64), token = "a".repeat(64);
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function harness(t, options = {}, create = view.createModel) {
   const records = [{ type: "session_meta", payload: { id, history_mode: "legacy" } }, ...Array.from({ length: 31 }, (_, i) => ({ type: "response_item", payload: { type: "message", role: "assistant",
     content: [{ type: "output_text", text: `${i} <script>never()</script> https://never.invalid/ ${options.long ? "長".repeat(20000) : ""}` }] } }))];
-  const bytes = Buffer.from(records.map(v => JSON.stringify(v)).join("\n") + "\n"), snapshot = raw.createRolloutSnapshot(bytes, { threadId: id, nativeVersion: "0.153.4" });
+  const bytes = options.structured ? fixture.structuredCaptured().rolloutBytes : Buffer.from(records.map(v => JSON.stringify(v)).join("\n") + "\n"), snapshot = raw.createRolloutSnapshot(bytes, { threadId: id, nativeVersion: "0.153.4" });
+  const structuredSnapshot = options.structured ? structure.createStructuredRolloutSnapshot(bytes, { threadId: id, nativeVersion: "0.153.4" }) : null;
   assert.equal(snapshot.kind, "codex_rollout_snapshot"); t.after(() => raw.releaseRolloutSnapshot(snapshot));
+  if (structuredSnapshot) t.after(() => structure.releaseStructuredRolloutSnapshot(structuredSnapshot));
   const viewId = randomUUID(), bindingId = randomUUID(), calls = [], control = { generation: 1, now: 1000000 };
   const registration = () => ({ kind: "history_registration", catalogId, viewId, bindingId, generation: control.generation, sessionId: id, expiresAt: control.now + 60000, sourceAuthenticated: false, publishable: false });
   const bound = (request, options) => {
     const { snapshotId: _snapshotId, ...records } = raw.readRolloutPage(snapshot, { ...options.page, snapshotId: snapshot.snapshotId });
+    const linked = options.structured && structuredSnapshot ? structure.readStructuredRolloutPage(structuredSnapshot, { ...options.page, snapshotId: structuredSnapshot.snapshotId }) : null;
     return { kind: "bound_codex_records", ...request, sourceVersion: token, history: { kind: "codex_source_records", nativeVersion: "0.153.4", nativeThreadId: id, nativeTitle: "原生名稱",
       page: options.page, records, semanticHistoryComplete: false, sourceAuthenticated: false, publishable: false,
+      ...(linked ? { structure: { profile: linked.structureProfile, totalTurns: linked.totalTurns, retainedTurns: linked.retainedTurns, turns: linked.turns, annotations: linked.annotations } } : {}),
       authority: { sourceAuthenticated: false, approvalAcknowledged: false, runTerminalObserved: false, resumeAllowed: false } }, sourceAuthenticated: false, publishable: false, cleanupConfirmed: true };
   };
   const transport = {
     async register(...args) { calls.push("register"); return options.register ? options.register(...args, registration) : registration(); },
-    async readCodex(scope, request, opts) { calls.push({ offset: opts.page.offset, version: opts.version }); return options.read ? options.read(scope, request, opts, bound) : bound(request, opts); },
+    async readCodex(scope, request, opts) { calls.push({ offset: opts.page.offset, version: opts.version, structured: opts.structured }); return options.read ? options.read(scope, request, opts, bound) : bound(request, opts); },
     async release(...args) { calls.push("release"); return options.release ? options.release(...args) : { kind: "history_released", cleanupConfirmed: true }; }
   };
   const model = create({ catalogId, viewId, hostId: "owned", transport, canonicalJSON, requestId: randomUUID, now: () => control.now, ...options.dependencies });
@@ -83,14 +88,14 @@ class Element {
   constructor(tag, doc) { this.tagName = tag.toUpperCase(); this.ownerDocument = doc; this.children = []; this.attributes = {}; this.dataset = {}; this.listeners = {}; this._text = ""; }
   set textContent(v) { this._text = String(v); this.children = []; } get textContent() { return this._text + this.children.map(c => c.textContent).join(""); }
   set innerHTML(_) { assert.fail("no native text in HTML"); } set href(_) { assert.fail("no active URLs"); } set src(_) { assert.fail("no source fetches"); }
-  append(...v) { this.children.push(...v); } replaceChildren(...v) { this._text = ""; this.children = v; }
+  append(...v) { this.children.push(...v); } appendChild(v) { this.append(v); return v; } replaceChildren(...v) { this._text = ""; this.children = v; }
   setAttribute(k, v) { assert(!/^on|^href$|^src$/i.test(k)); this.attributes[k] = String(v); }
   addEventListener(e, fn) { (this.listeners[e] ??= []).push(fn); } dispatch(e) { for (const fn of this.listeners[e] ?? []) fn({ target: this }); }
 }
 const all = n => [n, ...n.children.flatMap(all)];
 test("raw record UI keeps native text inert, bounds preview DOM, opens original text lazily and preserves controls", async t => {
   const doc = { createElement(tag) { return new Element(tag, doc); } }, root = new Element("div", doc);
-  const h = harness(t, { long: true, dependencies: { root } }, view.create);
+  const h = harness(t, { long: true, dependencies: { root, initialStructured: false } }, view.create);
   const refresh = all(root).find(v => v.dataset.action === "refresh"); await h.model.select(catalogId);
   assert.equal(all(root).find(v => v.dataset.action === "refresh"), refresh);
   assert(all(root).filter(v => v.tagName === "ARTICLE").length <= view.LIMITS.pageRecords); assert(root.textContent.includes("<script>never()</script>"));
@@ -106,4 +111,39 @@ test("raw record UI keeps native text inert, bounds preview DOM, opens original 
 test("large public names have exact UTF-8 byte limits; structural validation never invents a native session ID", async t => {
   assert.equal(wire.validTitle("名".repeat(10922)), true); assert.equal(wire.validTitle("名".repeat(10923)), false);
   const h = harness(t); await h.model.select(catalogId); assert(!Object.hasOwn(h.model.state().page.history, "nativeSessionId"));
+});
+test("structured mode is explicit, source-versioned across page jumps, and can return to the exact original records", async t => {
+  const h = harness(t, { structured: true, dependencies: { initialStructured: true } });
+  await h.model.select(catalogId); const first = h.model.state().page;
+  assert.equal(first.history.structure.totalTurns, 1); assert.equal(h.calls.at(-1).structured, true);
+  await h.model.jump(12); assert.equal(h.model.state().page.history.records.offset, 12); assert.equal(h.calls.at(-1).version, first.sourceVersion);
+  assert.equal(h.model.state().canPrevious, false); const calls = h.calls.length;
+  for (const n of [-1, NaN, 0.5, 99999]) await h.model.jump(n); assert.equal(h.calls.length, calls);
+  await h.model.setStructured(false); const plain = h.model.state().page;
+  assert.equal(h.calls.at(-1).structured, undefined); assert.equal(plain.history.structure, undefined);
+  assert.deepEqual(plain.history.records, first.history.records); assert.equal(plain.sourceVersion, first.sourceVersion);
+  await h.model.setStructured(true); await h.model.next(); assert.equal(h.calls.at(-1).structured, true);
+});
+test("mode changes await actual old-flight completion and reject a silent structural downgrade", async t => {
+  let finish, count = 0;
+  const h = harness(t, { structured: true, read: (_s, r, o, good) => ++count === 1 ? new Promise(resolve => { finish = () => resolve(good(r, o)); }) : good(r, o) });
+  const first = h.model.select(catalogId); await tick(); const switching = h.model.setStructured(true); await tick();
+  assert.equal(count, 1); assert.equal(h.model.state().page, null); finish(); await first; await switching;
+  assert.equal(h.model.state().structured, true); assert(h.model.state().page.history.structure);
+  const bad = harness(t, { dependencies: { initialStructured: true } }); await bad.model.select(catalogId);
+  assert.equal(bad.model.state().error, "history_response_invalid"); assert.equal(bad.model.state().page, null);
+  await bad.model.setStructured(false); assert.equal(bad.model.state().stage, "loaded");
+});
+test("conversation DOM shows inert native roles, Codex identity, historical turns and source links with stable mode controls", async t => {
+  const doc = { createElement(tag) { return new Element(tag, doc); } }, root = new Element("div", doc);
+  const h = harness(t, { structured: true, dependencies: { root } }, view.create);
+  const control = all(root).find(v => v.dataset.historyMode === "structured"); await h.model.select(catalogId);
+  assert.equal(control.attributes["aria-pressed"], "true");
+  assert(root.textContent.includes("Historical status")); assert(root.textContent.includes("fixture-rich-turn"));
+  assert.equal(/\{(?:count|limit|record)\}/.test(root.textContent), false);
+  assert(all(root).some(v => v.dataset.recordKind === "model_context")); assert(all(root).some(v => v.dataset.relatedRecord !== undefined));
+  await h.model.next(); assert(all(root).some(v => v.dataset.agentId === "codex"));
+  assert(!all(root).some(v => ["SCRIPT", "A", "IMG", "IFRAME"].includes(v.tagName)));
+  await h.model.setStructured(false); assert.equal(all(root).find(v => v.dataset.historyMode === "structured"), control);
+  assert.equal(control.attributes["aria-pressed"], "false"); assert(!all(root).some(v => v.dataset.turnKey));
 });

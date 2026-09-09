@@ -22,8 +22,8 @@ export async function checkCodexHostNative({ helperPath, onProgress = () => {} }
   const catalog = (refresh = true) => client.sourceCatalog({ sourceId: "owned-codex", snapshotId: null, page: { offset: 0, limit: 50 }, refresh });
   const metadata = p => client.sourceMetadata({ sourceId: p.sourceId, catalogId: p.entries[0].catalogId, snapshotId: p.snapshotId, requestId: crypto.randomUUID() });
   const register = p => client.register({ catalogId: p.entries[0].catalogId, viewId });
-  const read = (r, offset = 0, version) => client.readCodex({ hostId: "owned-codex-host", bindingId: r.bindingId, generation: r.generation, sessionId: r.sessionId },
-    { bindingId: r.bindingId, generation: r.generation, requestId: crypto.randomUUID() }, { page: { offset, limit: 10 }, signal: undefined, ...(version ? { version } : {}) });
+  const read = (r, offset = 0, version, structured = false) => client.readCodex({ hostId: "owned-codex-host", bindingId: r.bindingId, generation: r.generation, sessionId: r.sessionId },
+    { bindingId: r.bindingId, generation: r.generation, requestId: crypto.randomUUID() }, { page: { offset, limit: 10 }, signal: undefined, ...(version ? { version } : {}), ...(structured ? { structured: true } : {}) });
   const release = r => client.release({ bindingId: r.bindingId, generation: r.generation });
   try {
     await mark("host_ready");
@@ -106,6 +106,26 @@ export async function checkCodexHostNative({ helperPath, onProgress = () => {} }
     assert.equal((await metadata(p)).code, "source_scope_mismatch"); assert.equal((await register(p)).kind, "source_unavailable");
     await host.mutate("reset"); await host.mutate("rich_rollout"); p = await catalog();
     r = await register(p); assert.equal((await read(r)).history.records.recordCount, 39); await release(r);
+    await host.mutate("structured_rollout"); p = await catalog(); r = await register(p);
+    const linked = await read(r, 0, undefined, true); assert.equal(linked.kind, "bound_codex_records", linked.code);
+    assert.equal(linked.history.structure.totalTurns, 3); assert.equal(linked.history.structure.retainedTurns, 2);
+    const linkedRows = [], annotations = [], turns = new Map(); let linkedPage = linked;
+    for (;;) {
+      linkedRows.push(...linkedPage.history.records.records); annotations.push(...linkedPage.history.structure.annotations);
+      for (const turn of linkedPage.history.structure.turns) turns.set(turn.turnKey, turn);
+      if (linkedPage.history.records.nextOffset === null) break;
+      linkedPage = await read(r, linkedPage.history.records.nextOffset, linked.sourceVersion, true);
+      assert.equal(linkedPage.kind, "bound_codex_records", linkedPage.code);
+    }
+    assert.equal(linkedRows.length, 23); assert.equal(annotations[4].tool.relatedRecordIndex, 13); assert.equal(annotations[13].tool.relatedRecordIndex, 4);
+    assert.equal(turns.get("record-15").branchState, "rolled_back"); assert.equal(turns.get("record-20").recordedStatus, "unknown");
+    assert.equal(turns.get("record-20").nativeTurnId, null); assert(linkedRows[3].rawText.includes("END-OF-OWNED-LONG-TEXT"));
+    const plainLinked = await read(r, 0, linked.sourceVersion); assert.equal(plainLinked.history.structure, undefined);
+    assert.deepEqual(plainLinked.history.records, linked.history.records);
+    await host.mutate("compress_concat"); assert.equal((await read(r, 10, linked.sourceVersion, true)).code, "source_version_changed");
+    const compressedLinked = await read(r, 0, undefined, true); assert.deepEqual(compressedLinked.history.structure, linked.history.structure);
+    await host.mutate("restore_plain"); await host.mutate("clear_compressed"); await release(r);
+    assert.equal((await read(r, 0, undefined, true)).kind, "source_unavailable"); await mark("structured_turns_tools_raw_roundtrip_and_revocation");
     await host.mutate("missing"); p = await catalog(); assert.equal(p.total, 0); assert.equal(p.entries.length, 0);
     await mark("empty_and_main_cleanup_start");
   } finally { cleanup = await host.close(); }
@@ -130,6 +150,7 @@ export async function checkCodexHostNative({ helperPath, onProgress = () => {} }
     createdConfigUsedUnedited: true, explicitInventory: true, walRenameAndStalePage: true, coldCatalogAndAllPages: true,
     bothLayoutTransitionsRejectStalePage: true, partialSidecarsRefusedWithoutRepair: true, paginatedExplicitUnavailable: true,
     compressedAllPagesAndNames: true, concatenatedAndColdCompressed: true, corruptRefusedAndPlainPriority: true, explicitCompressedCatalogLocator: true,
+    structuredRecords: 23, structuredTurns: 3, crossPageToolLinks: true, rollbackPreserved: true, structuredRawRoundtrip: true,
     unsafePathNotOpened: true, emptyCatalog: true, startupFailureCleanup: true, rejectedMutationRecoveryAndCleanup: true, noClaudeSdk: true, modelCalls: 0, privateHistoryReads: 0, ...cleanup };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

@@ -40,6 +40,7 @@ var StepsembleHistoryTransport;
         "source_scope_mismatch", "source_encoding_unsupported", "source_too_large", "source_sqlite_unsupported",
         "native_paginated_history_unsupported", "native_history_mode_unknown", "rollout_incomplete_tail", "rollout_record_limit",
         "rollout_compression_limit", "rollout_compression_invalid", "rollout_compression_unsupported",
+        "rollout_structure_invalid", "rollout_structure_page_limit",
         "rollout_invalid_utf8", "rollout_invalid_record", "rollout_selected_thread_mismatch", "rollout_invalid_metadata",
         "name_resolution_rollout_mismatch", "name_resolution_missing_row_unsupported", "name_resolution_index_unavailable",
         "source_service_closed", "source_binding_revoked", "source_binding_mismatch", "source_sdk_unavailable"]);
@@ -336,16 +337,17 @@ var StepsembleHistoryTransport;
             return value;
         }
         async function read(scope, request, options, codex = false) {
-            if (!keys(options, options?.version === undefined ? ["page", "signal"] : ["page", "signal", "version"]))
+            if (!keys(options, ["page", "signal", ...(options?.version === undefined ? [] : ["version"]), ...(Object.hasOwn(options ?? {}, "structured") ? ["structured"] : [])])
+                || Object.hasOwn(options, "structured") && (!codex || options.structured !== true))
                 return failure("history_request_invalid");
-            const expected = detach({ scope, request, page: options.page, ...(options.version === undefined ? {} : { version: options.version }) });
+            const expected = detach({ scope, request, page: options.page, ...(options.structured === true ? { structured: true } : {}), ...(options.version === undefined ? {} : { version: options.version }) });
             if (!object(expected) || !keys(expected.scope, ["hostId", "bindingId", "generation", "sessionId"])
                 || expected.scope.hostId !== hostId || !uuid(expected.scope.bindingId) || !uuid(expected.scope.sessionId) || !positive(expected.scope.generation)
                 || !keys(expected.request, ["bindingId", "generation", "requestId"]) || !uuid(expected.request.requestId)
                 || expected.request.bindingId !== expected.scope.bindingId || expected.request.generation !== expected.scope.generation
                 || !(codex ? codexRecords.validPage(expected.page) : pageValid(expected.page)) || ("version" in expected && !hash(expected.version)))
                 return failure("history_request_invalid");
-            const body = { ...expected.request, page: expected.page, ...("version" in expected ? { version: expected.version } : {}) };
+            const body = { ...expected.request, page: expected.page, ...("structured" in expected ? { structured: expected.structured } : {}), ...("version" in expected ? { version: expected.version } : {}) };
             const { value, ok } = await exchange("/api/history/page", "POST", body, options.signal);
             const denied = unavailable(value);
             if (denied)

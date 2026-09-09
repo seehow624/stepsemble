@@ -32,7 +32,8 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
         assert.equal(catalogs.length, 1); assert.equal(catalogs[0].refresh, false); assert.equal(histories.length, 0);
         assert.equal(await page.locator(".source-open").count(), 0);
         const refreshSource = page.getByRole("button", { name: "重新整理來源", exact: true }); await refreshSource.click();
-        await page.locator(".source-open").first().waitFor(); await page.locator(".source-open").first().click();
+        const openRaw = async () => { await page.locator(".source-open").first().click(); await page.locator('[data-history-mode="raw"]').click(); await page.waitForFunction(() => document.querySelector(".codex-record-view")?.getAttribute("aria-busy") === "false"); };
+        await page.locator(".source-open").first().waitFor(); await openRaw();
         await page.locator(".codex-record").first().waitFor();
         await page.waitForFunction(() => document.querySelector(".source-detail > h2")?.textContent === "最新 WAL 名稱 🐾");
         assert.equal(await page.locator('.source-row .agent-logo[data-agent-id="codex"]').count(), 1);
@@ -77,7 +78,7 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
         stage = "compressed sibling and plain restoration invalidate old pages";
         await host.mutate("compress_concat"); await next.click(); await content.locator(".history-warning").waitFor();
         assert.equal(await next.isEnabled(), false);
-        await refreshSource.click(); await page.locator(".source-open").first().click();
+        await refreshSource.click(); await openRaw();
         await page.waitForFunction(() => document.querySelector(".codex-record-title")?.textContent === "最新 WAL 名稱 🐾");
         for (const n of [11, 21, 31]) { await next.click(); await page.waitForFunction(i => document.querySelector(".codex-record h4")?.textContent.startsWith(`${i} ·`), n); }
         assert.equal(await page.locator(".codex-record").count(), 9); assert((await content.textContent()).includes("future_owned_record"));
@@ -85,7 +86,7 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
         await page.waitForFunction(() => document.querySelector(".codex-record h4")?.textContent.startsWith("1 ·"));
         await host.mutate("restore_plain"); await next.click(); await content.locator(".history-warning").waitFor();
         assert.equal(await next.isEnabled(), false);
-        await host.mutate("clear_compressed"); await refreshSource.click(); await page.locator(".source-open").first().click();
+        await host.mutate("clear_compressed"); await refreshSource.click(); await openRaw();
         await page.waitForFunction(() => document.querySelector(".codex-record h4")?.textContent.startsWith("1 ·"));
         for (const n of [11, 21, 31]) { await next.click(); await page.waitForFunction(i => document.querySelector(".codex-record h4")?.textContent.startsWith(`${i} ·`), n); }
         assert.equal(await page.locator(".codex-record").count(), 9); assert.equal(await next.isEnabled(), false);
@@ -95,40 +96,70 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
         await page.waitForFunction(() => document.querySelector(".codex-record h4")?.textContent.startsWith("1 ·"));
         await host.mutate("cold"); await next.click(); await content.locator(".history-warning").waitFor();
         assert.equal(await next.isEnabled(), false);
-        await refreshSource.click(); await page.locator(".source-open").first().click();
+        await refreshSource.click(); await openRaw();
         await page.waitForFunction(() => document.querySelector(".codex-record-title")?.textContent === "最新 WAL 名稱 🐾");
         await next.click(); await page.waitForFunction(() => document.querySelector(".codex-record h4")?.textContent.startsWith("11 ·"));
         assert.equal(await page.locator(".codex-record").count(), 10);
         stage = "reopened writer invalidates cold pages without renaming";
         await host.mutate("reopen"); await next.click(); await content.locator(".history-warning").waitFor();
         assert.equal(await next.isEnabled(), false); assert((await page.locator(".codex-record h4").first().textContent()).startsWith("11 ·"));
-        await refreshSource.click(); await page.locator(".source-open").first().click();
+        await refreshSource.click(); await openRaw();
         await page.waitForFunction(() => document.querySelector(".codex-record h4")?.textContent.startsWith("1 ·"));
         stage = "damaged compressed data gives a specific recoverable error";
-        await host.mutate("compress_corrupt"); await refreshSource.click(); await page.locator(".source-open").first().click();
+        await host.mutate("compress_corrupt"); await refreshSource.click(); await openRaw();
         await page.waitForFunction(() => document.querySelector(".codex-record-view .history-warning")?.textContent.includes("壓縮歷史不完整或已損壞"));
         assert.equal(await page.locator(".codex-record").count(), 0); assert.equal(await next.isEnabled(), false);
-        await host.mutate("restore_plain"); await host.mutate("clear_compressed"); await refreshSource.click(); await page.locator(".source-open").first().click();
+        await host.mutate("restore_plain"); await host.mutate("clear_compressed"); await refreshSource.click(); await openRaw();
         await page.waitForFunction(() => document.querySelector(".codex-record h4")?.textContent.startsWith("1 ·"));
         stage = "WAL rename rejects stale continuation";
         await host.mutate("rename"); await next.click(); await content.locator(".history-warning").waitFor();
         assert.equal(await next.isEnabled(), false); assert((await page.locator(".codex-record h4").first().textContent()).startsWith("1 ·"));
-        await refreshSource.click(); await page.locator(".source-open").first().click();
+        await refreshSource.click(); await openRaw();
         await page.waitForFunction(() => document.querySelector(".codex-record-title")?.textContent === "renamed");
         stage = "unsupported is not empty; close and recover";
-        await host.mutate("paginated"); await refreshSource.click(); await page.locator(".source-open").first().click();
+        await host.mutate("paginated"); await refreshSource.click(); await openRaw();
         await page.waitForFunction(() => document.querySelector(".codex-record-view .history-warning")?.textContent.includes("paginated"));
         assert.equal(await page.locator(".codex-record").count(), 0);
         await content.getByRole("button", { name: "關閉歷史", exact: true }).click();
-        await host.mutate("reset"); await host.mutate("rich_rollout"); await refreshSource.click(); await page.locator(".source-open").first().click();
+        await host.mutate("reset"); await host.mutate("rich_rollout"); await refreshSource.click(); await openRaw();
         await page.locator(".codex-record").first().waitFor(); assert.equal(await page.locator(".codex-record").count(), 10);
         await content.getByRole("button", { name: "關閉歷史", exact: true }).click();
         await page.waitForFunction(() => document.querySelectorAll(".codex-record").length === 0);
+        stage = "structured native conversation, full text and cross-page tool navigation";
+        await host.mutate("structured_rollout"); await refreshSource.click(); await page.locator(".source-open").first().click();
+        await page.locator('.codex-record[data-record-kind="assistant"]').first().waitFor();
+        assert.equal(await page.locator('[data-history-mode="structured"]').getAttribute("aria-pressed"), "true");
+        assert.equal(histories.at(-1).structured, true); assert.equal(await page.locator('.codex-record .agent-logo[data-agent-id="codex"]').count(), 1);
+        const fullMessage = page.locator('.codex-record[data-record-kind="assistant"] .history-message-text');
+        assert((await fullMessage.textContent()).endsWith("END-OF-OWNED-LONG-TEXT")); assert((await fullMessage.textContent()).length > 10000);
+        await fullMessage.focus(); const longBefore = await fullMessage.evaluate(n => ({ outer: scrollY, inner: n.scrollTop, height: n.clientHeight, full: n.scrollHeight }));
+        assert(longBefore.full > longBefore.height); await fullMessage.press("PageDown");
+        await page.waitForFunction(top => document.querySelector('.codex-record[data-record-kind="assistant"] .history-message-text').scrollTop > top, longBefore.inner);
+        assert.equal(await page.evaluate(() => scrollY), longBefore.outer);
+        const structuredReads = historyRequests.length;
+        for (const locale of ["en", "zh-Hans", "ja", "ko", "tr", "fr", "de", "es", "pt-BR", "it", "zh-Hant"]) {
+          await page.locator("#history-language").selectOption(locale);
+          assert((await fullMessage.textContent()).endsWith("END-OF-OWNED-LONG-TEXT"));
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        }
+        assert.equal(historyRequests.length, structuredReads);
+        await page.locator('[data-related-record="13"]').click();
+        await page.waitForFunction(() => document.querySelector('[data-related-record="4"]') !== null);
+        assert.equal(histories.at(-1).page.offset, 13); assert(histories.at(-1).version); assert.equal(histories.at(-1).structured, true);
+        assert((await content.textContent()).includes("來源已回退")); assert((await content.textContent()).includes("推定回合"));
+        assert((await content.textContent()).includes("歷史記錄狀態")); assert((await content.textContent()).includes("Owned rolled-back answer"));
+        assert.equal(await page.locator(".codex-record script,.codex-record a,.codex-record img,.codex-record iframe").count(), 0);
+        await page.locator('[data-history-mode="raw"]').click();
+        await page.waitForFunction(() => document.querySelector(".codex-record h4")?.textContent.startsWith("1 ·"));
+        assert.equal(histories.at(-1).structured, undefined); assert.equal(await page.locator(".codex-history-turn").count(), 0);
+        await page.locator('[data-history-mode="structured"]').click(); await page.locator(".codex-history-turn").first().waitFor();
+        await content.getByRole("button", { name: "關閉歷史", exact: true }).click();
         stage = "empty stored catalog"; await host.mutate("missing"); await refreshSource.click();
         await page.waitForFunction(() => document.querySelectorAll(".source-open").length === 0);
         await page.getByText("這次清單沒有符合範圍的對話。", { exact: true }).waitFor();
         assert.deepEqual(errors, []); assert.deepEqual(foreign, []); assert.deepEqual(forbidden, []);
         console.log(JSON.stringify({ gate: "codex_history_browser", width: viewport.width, colorScheme, passed: true,
+          structuredConversationAndRawModes: true, structuredFullText: true, crossPageToolNavigation: true, rolledBackAndInferredTurns: true,
           coldHistoryAndBothLayoutTransitions: true, compressedAllPagesAndBothTransitions: true, damagedCompressedGuidanceAndRecovery: true, physicalDevice: false }));
       } catch (error) { throw new Error(`Codex history ${viewport.width}/${colorScheme} at ${stage}: ${error.message}`, { cause: error }); }
       finally { await context?.close(); assert.equal((await host.close()).cleanupConfirmed, true); }

@@ -2,12 +2,14 @@
 /// <reference path="./history-transport.ts" />
 /// <reference path="./history-i18n.ts" />
 /// <reference path="./codex-history-records.ts" />
+/// <reference path="./agent-identity.ts" />
 /** Explicit raw-record reader, not a fabricated native chat projection. One
  * page in memory, native scrolling, lazy raw details, no URLs or execution. */
 var StepsembleCodexHistoryView;
 (function (StepsembleCodexHistoryView) {
     const i18n = typeof module !== "undefined" ? require("./history-i18n") : StepsembleHistoryI18n;
     const wire = typeof module !== "undefined" ? require("./codex-history-records") : StepsembleCodexHistoryRecords;
+    const identity = typeof module !== "undefined" ? require("./agent-identity") : StepsembleAgentIdentity;
     StepsembleCodexHistoryView.LIMITS = Object.freeze({ pageRecords: 10, previewUnits: 4000, retainedPages: 1 });
     const same = (a, b) => a?.bindingId === b.bindingId && a.generation === b.generation && a.sessionId === b.sessionId;
     function createModel(deps) {
@@ -15,12 +17,13 @@ var StepsembleCodexHistoryView;
             || ![deps.transport?.register, deps.transport?.readCodex, deps.transport?.release, deps.canonicalJSON, deps.requestId].every(v => typeof v === "function"))
             throw new Error("history_view_dependencies_required");
         let binding = null, page = null, offsets = [0], pageIndex = 0, epoch = 0;
+        let structured = deps.initialStructured === true;
         let selected = false, closed = false, busy = false, stale = false, error = null, cleanupPending = false;
         let stage = "choose", flight = null, closing = null;
         const notify = () => deps.onChange?.();
         function state() {
             const expired = !!binding && (deps.now ?? Date.now)() >= binding.expiresAt;
-            return structuredClone({ selected, closed, busy, stale: stale || expired, error, stage, cleanupPending, page, pageIndex,
+            return structuredClone({ selected, closed, busy, stale: stale || expired, error, stage, cleanupPending, page, pageIndex, structured,
                 canPrevious: !busy && !stale && !expired && !!page && pageIndex > 0,
                 canNext: !busy && !stale && !expired && !!page && page.history.records.nextOffset !== null });
         }
@@ -45,7 +48,7 @@ var StepsembleCodexHistoryView;
                 pageIndex = 0;
             }
         }
-        async function load(mode) {
+        async function load(mode, target) {
             if (!selected || closed || mode !== "refresh" && busy)
                 return;
             if (mode !== "refresh" && state().stale) {
@@ -53,7 +56,7 @@ var StepsembleCodexHistoryView;
                 notify();
                 return;
             }
-            const ticket = ++epoch, previous = flight;
+            const ticket = ++epoch, previous = flight, readStructured = structured;
             previous?.controller.abort();
             busy = true;
             error = null;
@@ -83,7 +86,7 @@ var StepsembleCodexHistoryView;
                     fail("history_binding_unavailable");
                     return;
                 }
-                const offset = mode === "refresh" ? 0 : mode === "previous" ? offsets[pageIndex - 1] : page?.history.records.nextOffset;
+                const offset = mode === "refresh" ? 0 : mode === "jump" ? target : mode === "previous" ? offsets[pageIndex - 1] : page?.history.records.nextOffset;
                 if (offset == null || mode !== "refresh" && !page) {
                     fail("history_refresh_required");
                     return;
@@ -92,7 +95,7 @@ var StepsembleCodexHistoryView;
                 const version = mode === "refresh" ? undefined : page.sourceVersion;
                 stage = "reading";
                 notify();
-                const raw = await deps.transport.readCodex({ hostId: deps.hostId, bindingId: reg.bindingId, generation: reg.generation, sessionId: reg.sessionId }, request, { page: selection, signal: current.controller.signal, ...(version === undefined ? {} : { version }) });
+                const raw = await deps.transport.readCodex({ hostId: deps.hostId, bindingId: reg.bindingId, generation: reg.generation, sessionId: reg.sessionId }, request, { page: selection, signal: current.controller.signal, ...(version === undefined ? {} : { version }), ...(readStructured ? { structured: true } : {}) });
                 if (!live())
                     return;
                 const encoded = deps.canonicalJSON(raw, wire.LIMITS.responseBytes), value = encoded === null ? null : JSON.parse(encoded);
@@ -100,7 +103,7 @@ var StepsembleCodexHistoryView;
                     fail(typeof value.code === "string" && Object.hasOwn(i18n.errors, value.code) ? value.code : "history_transport_failed");
                     return;
                 }
-                if (!wire.validBoundRecords(value, reg.sessionId, selection, { ...request, ...(version === undefined ? {} : { version }) })) {
+                if (!wire.validBoundRecords(value, reg.sessionId, selection, { ...request, ...(version === undefined ? {} : { version }), ...(readStructured ? { structured: true } : {}) })) {
                     fail("history_response_invalid");
                     return;
                 }
@@ -112,8 +115,8 @@ var StepsembleCodexHistoryView;
                     fail("history_response_invalid");
                     return;
                 }
-                if (mode === "refresh") {
-                    offsets = [0];
+                if (mode === "refresh" || mode === "jump") {
+                    offsets = [offset];
                     pageIndex = 0;
                 }
                 else if (mode === "previous")
@@ -181,7 +184,24 @@ var StepsembleCodexHistoryView;
                 return load(mode);
             return Promise.resolve();
         }
-        return Object.freeze({ state, select, close, cancel, refresh: () => load("refresh"), next: () => navigate("next"), previous: () => navigate("previous") });
+        async function setStructured(value) {
+            if (typeof value !== "boolean" || value === structured)
+                return;
+            structured = value;
+            page = null;
+            offsets = [0];
+            pageIndex = 0;
+            stale = false;
+            error = null;
+            notify();
+            await load("refresh");
+        }
+        function jump(recordIndex) {
+            if (!Number.isSafeInteger(recordIndex) || recordIndex < 0 || !page || recordIndex >= page.history.records.recordCount)
+                return Promise.resolve();
+            return load("jump", recordIndex);
+        }
+        return Object.freeze({ state, select, close, cancel, setStructured, jump, refresh: () => load("refresh"), next: () => navigate("next"), previous: () => navigate("previous") });
     }
     StepsembleCodexHistoryView.createModel = createModel;
     /** Only a compact display excerpt; original text remains in the raw record. */
@@ -214,7 +234,17 @@ var StepsembleCodexHistoryView;
         warning.setAttribute("role", "status");
         i18n.bind(content, "codexRecords", {}, "aria-label");
         let rendered = null;
-        const model = createModel({ ...deps, onChange: () => { render(); deps.onChange?.(); } });
+        const model = createModel({ ...deps, initialStructured: deps.initialStructured ?? true, onChange: () => { render(); deps.onChange?.(); } });
+        const modes = el("div", "", "codex-history-modes");
+        const modeButton = (value) => {
+            const v = copy("button", value ? "codexReadable" : "codexRawMode");
+            v.type = "button";
+            v.dataset.historyMode = value ? "structured" : "raw";
+            v.addEventListener("click", () => { void model.setStructured(value); });
+            modes.append(v);
+            return v;
+        };
+        const readable = modeButton(true), rawMode = modeButton(false);
         const button = (action) => {
             const v = copy("button", action);
             v.type = "button";
@@ -226,10 +256,13 @@ var StepsembleCodexHistoryView;
         const refresh = button("refresh"), previous = button("previous"), next = button("next"), cancel = button("cancel"), close = button("close");
         deps.root.dataset.i18nIgnore = "";
         deps.root.classList?.add("codex-record-view");
-        deps.root.replaceChildren(note, title, toolbar, status, warning, position, content, cleanup);
+        deps.root.replaceChildren(title, modes, note, toolbar, status, warning, position, content, cleanup);
         function render() {
             const s = model.state(), r = s.page?.history.records;
             deps.root.setAttribute("aria-busy", String(s.busy));
+            readable.setAttribute("aria-pressed", String(s.structured));
+            rawMode.setAttribute("aria-pressed", String(!s.structured));
+            i18n.bind(note, s.structured ? "codexStructuredNote" : "codexRecordsNote");
             i18n.bind(status, s.stage);
             warning.hidden = !s.error && !s.stale;
             i18n.bind(warning, s.error ? i18n.errorKey(s.error) : "pageStale");
@@ -244,7 +277,7 @@ var StepsembleCodexHistoryView;
             close.disabled = !s.selected;
             i18n.bind(cleanup, s.cleanupPending ? "cleanupPending" : "cleanupSafe");
             i18n.bind(position, "codexRecordPosition", { start: r?.records.length ? r.offset + 1 : 0, end: r ? r.offset + r.records.length : 0, total: r?.recordCount ?? 0 });
-            const key = s.page ? `${s.page.sourceVersion}:${r.offset}` : null;
+            const key = s.page ? `${s.page.sourceVersion}:${r.offset}:${s.structured}` : null;
             if (key === rendered)
                 return;
             rendered = key;
@@ -252,14 +285,83 @@ var StepsembleCodexHistoryView;
             if (!r)
                 return;
             let opened = null;
+            const structure = s.page?.history.structure, turns = new Map(structure?.turns.map(t => [t.turnKey, t]));
+            let priorTurn = null;
             for (const row of r.records) {
+                const annotation = structure?.annotations[row.recordIndex - r.offset], turn = annotation?.turnKey ? turns.get(annotation.turnKey) : null;
+                if (turn && turn.turnKey !== priorTurn) {
+                    const section = el("header", "", "codex-history-turn");
+                    section.dataset.turnKey = turn.turnKey;
+                    section.dataset.branchState = turn.branchState;
+                    const label = copy("h4", turn.boundary === "explicit" ? "codexTurn" : "codexInferredTurn");
+                    i18n.bind(label, turn.boundary === "explicit" ? "codexTurn" : "codexInferredTurn", { record: turn.firstRecordIndex + 1 });
+                    section.append(label);
+                    if (turn.nativeTurnId !== null)
+                        section.append(el("p", turn.nativeTurnId, "history-footnote"));
+                    const statusLabel = el("p", "", "history-footnote");
+                    const statuses = { unknown: "codexStatusUnknown", started: "codexStatusStarted", completed: "codexStatusCompleted", failed: "codexStatusFailed", interrupted: "codexStatusInterrupted" };
+                    statusLabel.append(copy("span", "codexRecordedStatus"), el("span", " · "), copy("span", statuses[turn.recordedStatus]));
+                    section.append(statusLabel);
+                    if (turn.branchState === "rolled_back")
+                        section.append(copy("p", "codexRolledBack", "history-warning"));
+                    content.append(section);
+                }
+                priorTurn = annotation?.turnKey ?? null;
                 const article = el("article", "", "history-message codex-record"), heading = el("h4", `${row.recordIndex + 1} · ${row.recordType}${row.payloadType ? ` / ${row.payloadType}` : ""}`);
-                const text = excerpt(row), preview = el("p", text.slice(0, StepsembleCodexHistoryView.LIMITS.previewUnits), "history-message-text");
+                if (annotation) {
+                    article.dataset.recordKind = annotation.kind;
+                    article.dataset.branchState = turn?.branchState ?? "retained";
+                    const label = el("span");
+                    if (annotation.kind === "assistant") {
+                        heading.replaceChildren(identity.create(doc, "codex", true), el("span", "Codex"));
+                    }
+                    else {
+                        const labels = { user: "you", reasoning: "thinking", tool: annotation.tool?.phase === "end" ? "toolResult" : "toolUse", model_context: "codexModelContext", metadata: "codexMetadata", lifecycle: "system" };
+                        i18n.bind(label, labels[annotation.kind] ?? "other");
+                        heading.replaceChildren(label);
+                    }
+                    heading.append(el("span", ` · ${row.recordIndex + 1}`, "history-footnote"));
+                }
+                const text = excerpt(row), preview = el("p", annotation ? text : text.slice(0, StepsembleCodexHistoryView.LIMITS.previewUnits), "history-message-text");
                 preview.tabIndex = 0;
                 preview.setAttribute("aria-labelledby", heading.id = `codex-record-${row.recordIndex}`);
-                article.append(heading, preview);
-                if (text.length > StepsembleCodexHistoryView.LIMITS.previewUnits)
+                article.append(heading);
+                if (annotation && !["user", "assistant", "reasoning", "tool"].includes(annotation.kind)) {
+                    const auxiliary = el("details", "", "codex-history-auxiliary");
+                    auxiliary.append(copy("summary", "codexExpand"), preview);
+                    article.append(auxiliary);
+                }
+                else
+                    article.append(preview);
+                if (!annotation && text.length > StepsembleCodexHistoryView.LIMITS.previewUnits)
                     article.append(copy("p", "truncated", "history-footnote"));
+                if (annotation?.warnings.length) {
+                    const warnings = el("p", "", "history-footnote");
+                    warnings.append(copy("span", "codexWarnings"), el("span", ` · ${annotation.warnings.join(", ")}`));
+                    article.append(warnings);
+                }
+                if (annotation?.tool) {
+                    article.append(el("p", `${annotation.tool.family} · ${annotation.tool.nativeCallId}`, "history-footnote"));
+                    const related = annotation.tool.relatedRecordIndex;
+                    if (related !== null) {
+                        const reference = copy("button", "codexRelatedRecord");
+                        i18n.bind(reference, "codexRelatedRecord", { record: related + 1 });
+                        reference.type = "button";
+                        reference.dataset.relatedRecord = String(related);
+                        reference.addEventListener("click", () => {
+                            void model.jump(related).then(() => {
+                                if (model.state().page?.history.records.offset !== related)
+                                    return;
+                                const target = content.querySelector(`#codex-record-${related}`);
+                                if (target) {
+                                    target.tabIndex = -1;
+                                    target.focus();
+                                }
+                            });
+                        });
+                        article.append(reference);
+                    }
+                }
                 const details = el("details"), summary = copy("summary", "codexRawRecord"), pre = el("pre", "", "history-inert-data");
                 pre.tabIndex = 0;
                 i18n.bind(pre, "codexRawRecord", {}, "aria-label");

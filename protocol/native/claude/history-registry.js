@@ -162,7 +162,7 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
     if (!slot) return unavailable("history_capacity_unavailable");
     const { source } = selection;
     const row = { ...request, bindingId: slot.bindingId, generation: slot.generation + 1,
-      sessionId: source.sessionId, sourceKey: selection.key, expiresAt: time() + leaseMs, active: true, claimed: false, receipt: null };
+      sessionId: source.sessionId, agentId: source.agentId ?? "claude-code", sourceKey: selection.key, expiresAt: time() + leaseMs, active: true, claimed: false, receipt: null };
     slot.generation = row.generation; slot.owner = principal; slot.row = row; slot.state = "binding";
     let handle;
     try { handle = sourceService.bind({ bindingId: row.bindingId, generation: row.generation, source }); }
@@ -193,8 +193,9 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
   }
   async function read(principal, input, options, metadata) {
     const request = detach(input);
-    if (!keys(request, ["bindingId", "generation", "viewId", "requestId", ...(metadata ? [] : ["page"]), ...(request?.version === undefined ? [] : ["version"])])
+    if (!keys(request, ["bindingId", "generation", "viewId", "requestId", ...(metadata ? [] : ["page", ...(Object.hasOwn(request ?? {}, "structured") ? ["structured"] : [])]), ...(request?.version === undefined ? [] : ["version"])])
       || !identity(request) || !uuid(request.requestId) || !metadata && validReadPage(request.page) !== true
+      || Object.hasOwn(request, "structured") && request.structured !== true
       || request.version !== undefined && (typeof request.version !== "string" || !/^[a-f0-9]{64}$/.test(request.version)))
       return unavailable("invalid_history_request");
     if (!options || ![Object.prototype, null].includes(Object.getPrototypeOf(options)) || Object.getOwnPropertySymbols(options).length
@@ -203,6 +204,7 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
     const slot = owned(principal, request);
     if (!slot) return unavailable(serviceFailure() || "history_binding_unavailable");
     const row = slot.row, handle = slot.handle;
+    if (request.structured === true && row.agentId !== "codex") return unavailable("invalid_history_request");
     if (metadata && typeof handle.metadata !== "function") return unavailable("history_source_unavailable");
     // Claim synchronously, before source work or its callbacks. Once observed,
     // even a later renewal cannot make this row cancellable by an HTTP receipt.
@@ -210,7 +212,8 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
     let result;
     try {
       result = await handle[metadata ? "metadata" : "observe"]({ bindingId: request.bindingId, generation: request.generation, requestId: request.requestId },
-        { ...(metadata ? {} : { page: request.page }), ...(request.version === undefined ? {} : { version: request.version }), signal: options.signal });
+        { ...(metadata ? {} : { page: request.page }), ...(request.structured === true ? { structured: true } : {}),
+          ...(request.version === undefined ? {} : { version: request.version }), signal: options.signal });
     } catch {
       if (slot.row === row) retire(slot);
       schedule(); return unavailable("history_registry_unavailable");

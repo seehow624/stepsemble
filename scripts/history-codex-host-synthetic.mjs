@@ -105,7 +105,7 @@ export async function startSyntheticCodexHistoryHost({ helperPath, port = 0 } = 
         return { hostRssBytes: rss ? Number(rss[1]) * 1024 : null };
       },
       mutate(command) {
-        if (closing || !["rename", "path", "paginated", "reset", "rich_rollout", "catalog_full", "catalog_reset", "missing", "cold", "reopen", "partial_sidecar", "remove_partial_sidecar",
+        if (closing || !["rename", "path", "paginated", "reset", "rich_rollout", "structured_rollout", "catalog_full", "catalog_reset", "missing", "cold", "reopen", "partial_sidecar", "remove_partial_sidecar",
           "compress", "compress_concat", "compress_corrupt", "restore_plain", "clear_compressed", "compressed_path", "plain_path"].includes(command)) throw new Error("synthetic_codex_mutation_invalid");
         const next = mutation.then(async () => { assert.deepEqual(await snapshot(), expected); await fixtureMutation(command); expected = await snapshot(); });
         // The caller still receives the exact failure; the serialization tail

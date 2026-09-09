@@ -15,6 +15,18 @@ function fixture(named = false, compressed = false, selection = { mode: "records
   return { c, job, frame, bytes: parsed.bytes, result: worker.processJob(job, parsed.bytes) };
 }
 function response(result, job) { return Buffer.from(JSON.stringify({ protocolVersion: job.protocolVersion, nonce: job.nonce, result }) + "\n"); }
+test("browser and permissioned parser share exact structure vocabulary and reject public mode downgrade", () => {
+  const browser = require("../public/modules/codex-history-records"), core = require("../protocol/native/codex/rollout-structure");
+  assert.equal(browser.STRUCTURE_PROFILE, core.PROFILE); assert.deepEqual(browser.STRUCTURE_WARNINGS, core.WARNINGS);
+  assert.deepEqual([...browser.STRUCTURE_KINDS].sort(), [...core.KINDS].sort()); assert.deepEqual(browser.TOOL_FAMILIES, core.TOOL_FAMILIES);
+  const { result } = fixture(true); assert(browser.validStructure(result.structure, result.page));
+  for (const id of ["ok🐾", "🐾🐾", "a𐀀b"]) {
+    const valid = structuredClone(result); valid.structure.turns[0].nativeTurnId = id; assert(browser.validStructure(valid.structure, valid.page));
+  }
+  for (const id of ["\ud800", "\udc00", "a\udc00", "🐾\udc00", "\ud800\ud800", "a\u0000"]) {
+    const invalid = structuredClone(result); invalid.structure.turns[0].nativeTurnId = id; assert.equal(browser.validStructure(invalid.structure, invalid.page), false);
+  }
+});
 test("v5/v6 require stored source and explicit record selection; prior versions cannot accept structural output", () => {
   for (const named of [false, true]) {
     const { c, job, result, bytes } = fixture(named);

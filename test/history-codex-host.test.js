@@ -55,6 +55,34 @@ test("v3 Codex groups require two explicit matching roots/readers, preserve v1/v
     const c = config(); mutate(c); assert.throws(() => parseHistoryConfig(c), /configuration_invalid/);
   }
 });
+test("structured Codex records cross actual Host HTTP and typed transport without a raw downgrade or extra authority", async t => {
+  const h = await setup(t, { binding: { capture: method => method === "readCodex" ? f.structuredCaptured() : f.sqliteCapture() } });
+  const viewId = randomUUID(), client = h.client(viewId), catalog = await client.sourceCatalog(refresh());
+  const r = await client.register({ catalogId: catalog.entries[0].catalogId, viewId });
+  const scope = { hostId: "owned", bindingId: r.bindingId, generation: r.generation, sessionId: r.sessionId };
+  const request = () => ({ bindingId: r.bindingId, generation: r.generation, requestId: randomUUID() });
+  let offset = 0, version; const records = [], annotations = [];
+  do {
+    const result = await client.readCodex(scope, request(), { page: { offset, limit: 2 }, signal: undefined, structured: true, ...(version ? { version } : {}) });
+    assert.equal(result.kind, "bound_codex_records", result.code); version = result.sourceVersion;
+    assert.equal(result.history.nativeTitle, "原生候選 🐾"); assert.equal(result.history.structure.totalTurns, 1);
+    assert.equal(result.history.semanticHistoryComplete, false); assert(Object.values(result.history.authority).every(v => v === false));
+    records.push(...result.history.records.records); annotations.push(...result.history.structure.annotations); offset = result.history.records.nextOffset;
+  } while (offset !== null);
+  assert.equal(records.map(r => r.rawText).join(""), f.structuredCaptured().rolloutBytes.toString());
+  assert.equal(annotations[5].tool.relatedRecordIndex, 6); assert.equal(annotations[6].tool.relatedRecordIndex, 5);
+  const raw = await client.readCodex(scope, request(), { page: { offset: 0, limit: 2 }, version, signal: undefined });
+  assert.equal(raw.history.structure, undefined); assert.deepEqual(raw.history.records.records, records.slice(0, 2));
+  const stages = h.control.bindings.stages.length;
+  for (const structured of [false, 1, "true", null]) {
+    assert.equal((await h.request("/api/history/page", { ...request(), page: { offset: 0, limit: 2 }, structured }, viewId)).status, 400);
+  }
+  assert.equal((await h.request("/api/history/page", { ...request(), page: { offset: 0, limit: 2 }, structured: true }, viewId, secondary)).value.kind, "source_unavailable");
+  assert.equal(h.control.bindings.stages.length, stages);
+  await client.release({ bindingId: r.bindingId, generation: r.generation });
+  assert.equal((await client.readCodex(scope, request(), { page: { offset: 0, limit: 2 }, signal: undefined, structured: true })).kind, "source_unavailable");
+  assert.equal(h.control.bindings.stages.length, stages); assert.equal(h.host.status().admission.activeWorkers, 0);
+});
 test("real Host + index + binding + parser + typed HTTP transport exposes Codex without leaking private source selectors", async t => {
   const h = await setup(t), viewId = randomUUID(), client = h.client(viewId);
   assert.equal(h.control.scans, 0); assert.equal(h.control.bindings.stages.length, 0); assert.equal(h.budgets.length, 2); assert.equal(h.budgets[0], h.budgets[1]);
@@ -117,10 +145,13 @@ test("Host rejects mismatched Codex metadata proof instead of publishing a trust
   }
 });
 test("dedicated owned peer relay preserves Codex DTO and revokes its local view after peer withdrawal", async t => {
-  const upstream = await setup(t), gateway = await setup(t), viewId = randomUUID(); gateway.control.peer = { url: upstream.url, credential: peer, grantId: grant };
+  const upstream = await setup(t, { binding: { capture: method => method === "readCodex" ? f.structuredCaptured() : f.sqliteCapture() } }), gateway = await setup(t), viewId = randomUUID(); gateway.control.peer = { url: upstream.url, credential: peer, grantId: grant };
   const prefix = "/r/owned/api/history", page = (await gateway.request(prefix + "/source-catalog", refresh(), viewId)).value;
   const registered = (await gateway.request(prefix + "/registrations", { catalogId: page.entries[0].catalogId, viewId }, viewId)).value;
   const body = { bindingId: registered.bindingId, generation: registered.generation, requestId: randomUUID(), page: { offset: 0, limit: 2 } };
   const result = await gateway.request(prefix + "/page", body, viewId); assert.equal(result.status, 200, result.value.code); assert.equal(result.value.kind, "bound_codex_records");
+  const linked = await gateway.request(prefix + "/page", { ...body, requestId: randomUUID(), structured: true, version: result.value.sourceVersion }, viewId);
+  assert.equal(linked.status, 200, linked.value.code); assert.equal(linked.value.history.structure.totalTurns, 1);
+  assert.deepEqual(linked.value.history.records, result.value.history.records);
   gateway.control.peer = null; gateway.host.peerChanged("owned"); assert.equal((await gateway.request(prefix + "/page", body, viewId)).value.kind, "source_unavailable");
 });

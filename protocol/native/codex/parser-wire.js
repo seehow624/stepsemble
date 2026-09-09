@@ -7,7 +7,6 @@ const sqlite = require("./sqlite-wire").context;
 const { observeMetadataName } = require("./metadata-name");
 const { LIMITS: INDEX } = require("./name-index");
 const { LIMITS: RAW } = require("./rollout-snapshot");
-const structure = require("./rollout-structure");
 const LIMITS = Object.freeze({ headerBytes: 16 * 1024, namedHeaderBytes: 224 * 1024, inputBytes: 4 + 224 * 1024 + 16 * 1024 * 1024,
   outputBytes: 416 * 1024, chunks: 4096, deadlineMs: 10000, cleanupMs: 1000 });
 const CODES = Object.freeze(["source_worker_protocol", "source_worker_failure", "source_version_changed", "source_worker_output_limit",
@@ -153,47 +152,7 @@ function validResult(v, job, payload) {
     && v.sourceAuthenticated === false && v.publishable === false && v.semanticHistoryComplete === false
     && (!named || validName(v.name, job));
 }
-function validStructure(v, page) {
-  const id = n => typeof n === "string" && n.isWellFormed() && n.length > 0 && n.length <= structure.LIMITS.identifierUnits && !/[\u0000-\u001f\u007f-\u009f]/.test(n);
-  const index = n => integer(n, page.recordCount - 1), key = n => typeof n === "string" && /^record-(0|[1-9][0-9]*)$/.test(n) && index(Number(n.slice(7)));
-  if (!keys(v, ["profile", "totalTurns", "retainedTurns", "turns", "annotations"]) || v.profile !== structure.PROFILE
-    || !integer(v.totalTurns, page.recordCount) || !integer(v.retainedTurns, v.totalTurns) || !Array.isArray(v.turns)
-    || v.turns.length > Math.min(v.totalTurns, page.records.length) || !Array.isArray(v.annotations) || v.annotations.length !== page.records.length) return false;
-  const turns = new Map();
-  for (const t of v.turns) {
-    if (!keys(t, ["turnKey", "nativeTurnId", "boundary", "firstRecordIndex", "lastRecordIndex", "recordedStatus", "statusRecordIndex", "branchState", "rollbackRecordIndex"])
-      || !key(t.turnKey) || turns.has(t.turnKey) || t.nativeTurnId !== null && !id(t.nativeTurnId)
-      || t.boundary !== (t.nativeTurnId === null ? "inferred" : "explicit") || !index(t.firstRecordIndex) || !index(t.lastRecordIndex)
-      || t.firstRecordIndex > t.lastRecordIndex || t.turnKey !== `record-${t.firstRecordIndex}`
-      || !["unknown", "started", "completed", "failed", "interrupted"].includes(t.recordedStatus)
-      || t.statusRecordIndex !== null && (!index(t.statusRecordIndex) || t.statusRecordIndex < t.firstRecordIndex || t.statusRecordIndex > t.lastRecordIndex)
-      || t.recordedStatus !== "unknown" && t.statusRecordIndex === null
-      || !["retained", "rolled_back"].includes(t.branchState)
-      || (t.branchState === "retained" ? t.rollbackRecordIndex !== null : !index(t.rollbackRecordIndex) || t.rollbackRecordIndex <= t.lastRecordIndex)) return false;
-    turns.set(t.turnKey, t);
-  }
-  const used = new Set();
-  for (const [i, a] of v.annotations.entries()) {
-    if (!keys(a, ["recordIndex", "kind", "turnKey", "tool", "warnings"]) || a.recordIndex !== page.offset + i
-      || !structure.KINDS.includes(a.kind) || a.turnKey !== null && !turns.has(a.turnKey) || !Array.isArray(a.warnings)
-      || a.warnings.length > structure.WARNINGS.length || new Set(a.warnings).size !== a.warnings.length || a.warnings.some(w => !structure.WARNINGS.includes(w))) return false;
-    if (a.turnKey !== null) {
-      const t = turns.get(a.turnKey); used.add(a.turnKey);
-      if (a.recordIndex < t.firstRecordIndex || a.recordIndex > t.lastRecordIndex) return false;
-    }
-    if (a.tool !== null) {
-      const t = a.tool;
-      if (a.kind !== "tool" || !keys(t, ["family", "phase", "nativeCallId", "relatedRecordIndex"]) || !structure.TOOL_FAMILIES.includes(t.family)
-        || !["begin", "end", "request", "single"].includes(t.phase) || !id(t.nativeCallId)
-        || t.relatedRecordIndex !== null && (!index(t.relatedRecordIndex) || t.relatedRecordIndex === a.recordIndex || a.turnKey === null || !["begin", "end"].includes(t.phase))) return false;
-      const other = t.relatedRecordIndex === null ? null : v.annotations[t.relatedRecordIndex - page.offset];
-      if (other && (other.turnKey !== a.turnKey || other.tool?.family !== t.family || other.tool.nativeCallId !== t.nativeCallId
-        || other.tool.relatedRecordIndex !== a.recordIndex || other.tool.phase !== (t.phase === "begin" ? "end" : "begin"))) return false;
-    }
-  }
-  const retainedVisible = v.turns.filter(t => t.branchState === "retained").length;
-  return used.size === turns.size && retainedVisible <= v.retainedTurns && v.turns.length - retainedVisible <= v.totalTurns - v.retainedTurns;
-}
+function validStructure(v, page) { return require("../../../public/modules/codex-history-records").validStructure(v, page); }
 function validDecoded(v, job) {
   return keys(v, ["encoding", "byteLength", "sha256", "frames"]) && v.encoding === job.source.storage.encoding && hash(v.sha256)
     && integer(v.byteLength, RAW.inputBytes) && v.byteLength > 0 && integer(v.frames, 256)
@@ -224,6 +183,7 @@ function encodeResponse(result, job) {
 function launchOptions() {
   const files = ["parser-worker.js", "parser-wire.js", "source-wire.js", "name-index.js", "rollout-snapshot.js", "rollout-decompression.js", "rollout-structure.js", "sqlite-wire.js", "metadata-name.js", "name-resolution.js"].map(f => path.join(__dirname, f));
   files.push(path.resolve(__dirname, "../../../public/modules/projection.js"));
+  files.push(path.resolve(__dirname, "../../../public/modules/codex-history-records.js"));
   return { executable: process.execPath, args: ["--permission", "--no-warnings", "--max-old-space-size=128", ...files.map(f => `--allow-fs-read=${f}`), files[0]],
     options: { cwd: __dirname, env: { LANG: "C", LC_ALL: "C" }, stdio: ["pipe", "pipe", "pipe"], shell: false, detached: false, windowsHide: true } };
 }
