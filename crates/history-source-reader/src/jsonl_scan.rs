@@ -61,6 +61,12 @@ pub struct Page {
     pub next_offset: Option<u32>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScanPass {
+    First,
+    Matching,
+}
+
 fn valid(size: u64, selection: Option<Selection>) -> Result<(), Error> {
     if size == 0 {
         return Err(Error::Empty);
@@ -181,8 +187,34 @@ pub fn scan_matching_page(
     observed_size: u64,
     selection: Selection,
     expected: Option<Summary>,
-    mut checkpoint: impl FnMut() -> Result<(), Error>,
+    checkpoint: impl FnMut() -> Result<(), Error>,
     mut validate: impl FnMut(u32, u64, &[u8]) -> Result<(), Error>,
+) -> Result<Page, Error> {
+    scan_matching_page_observed(
+        reader,
+        observed_size,
+        selection,
+        expected,
+        checkpoint,
+        |pass, i, offset, bytes| {
+            if pass == ScanPass::First {
+                validate(i, offset, bytes)
+            } else {
+                Ok(())
+            }
+        },
+    )
+}
+
+/// A bounded caller may recover selected metadata during the matching scan.
+/// Neither pass permits publication before digest/checkpoint/source/close checks.
+pub fn scan_matching_page_observed(
+    reader: &mut (impl Read + Seek),
+    observed_size: u64,
+    selection: Selection,
+    expected: Option<Summary>,
+    mut checkpoint: impl FnMut() -> Result<(), Error>,
+    mut observe: impl FnMut(ScanPass, u32, u64, &[u8]) -> Result<(), Error>,
 ) -> Result<Page, Error> {
     valid(observed_size, Some(selection))?;
     checkpoint()?;
@@ -195,7 +227,7 @@ pub fn scan_matching_page(
         observed_size,
         Some(selection),
         &mut checkpoint,
-        &mut validate,
+        &mut |i, offset, bytes| observe(ScanPass::First, i, offset, bytes),
     )?;
     if expected.is_some_and(|s| s != first) {
         return Err(Error::Changed);
@@ -207,7 +239,7 @@ pub fn scan_matching_page(
         observed_size,
         None,
         &mut checkpoint,
-        &mut |_, _, _| Ok(()),
+        &mut |i, offset, bytes| observe(ScanPass::Matching, i, offset, bytes),
     )?;
     checkpoint()?;
     if first != second {

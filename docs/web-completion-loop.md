@@ -1,5 +1,10 @@
 # Web 完整體：持續執行與驗收清單
 
+2026-09-09／Plan1.75：全來源結構核心與private v12來源接線已本機驗，包含真17MB
+跨頁工具／rollback與source race修正；**parser／named pipeline／Web新結構仍待接**，
+見[來源接續](codex-structured-source.md)。今晚19:35核72h終態後按
+[發布審查](release-review-2026-09-09.md)大總結，不按時間直接判最終版完成。
+
 2026-09-09／Plan1.74：大型page已接真正Host／registry／HTTP／peer／Web，
 17.2MB/16384筆、原名、直跳／頁外版本及損壞恢復、320/390px通；最新1059/0fail。
 原工程087102f四CI通，0acf6a8修瀏覽器共同期限；新一般／雙OS完整瀏覽器CI全通及

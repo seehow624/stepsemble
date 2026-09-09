@@ -2,7 +2,7 @@
 //! Repeated checks are not an atomic filesystem transaction or native provenance.
 use super::*;
 use crate::codex::{INDEX_LIMIT, Pair, Request as CodexRequest, valid_locator};
-use stepsemble_history_source_reader::{codex_rollout_format, jsonl_scan};
+use stepsemble_history_source_reader::{codex_rollout_format, codex_rollout_structure, jsonl_scan};
 
 const NAME_INDEX: &str = "session_index.jsonl";
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -10,6 +10,12 @@ enum Point {
     Opened,
     FirstRead,
     SecondRead,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PageMode {
+    Opaque,
+    Validated,
+    Structured,
 }
 
 fn identity(info: &Metadata) -> Identity {
@@ -54,7 +60,7 @@ pub fn capture(request: &CodexRequest) -> Result<Pair, Error> {
     capture_with(request, |_| {})
 }
 fn capture_with(request: &CodexRequest, mut hook: impl FnMut(Point)) -> Result<Pair, Error> {
-    match capture_variant(request, None, false, &mut hook)? {
+    match capture_variant(request, None, PageMode::Opaque, &mut hook)? {
         Captured::Bytes(pair) => Ok(pair),
         Captured::Page(_) => Err(Error::Input),
     }
@@ -71,25 +77,31 @@ fn capture_scanned_with(
     page: jsonl_scan::Selection,
     mut hook: impl FnMut(Point),
 ) -> Result<crate::codex_scanned::Pair, Error> {
-    capture_scanned_mode(request, page, false, &mut hook)
+    capture_scanned_mode(request, page, PageMode::Opaque, &mut hook)
 }
 pub fn capture_validated(
     request: &CodexRequest,
     page: jsonl_scan::Selection,
 ) -> Result<crate::codex_scanned::Pair, Error> {
-    capture_scanned_mode(request, page, true, &mut |_| {})
+    capture_scanned_mode(request, page, PageMode::Validated, &mut |_| {})
+}
+pub fn capture_structured(
+    request: &CodexRequest,
+    page: jsonl_scan::Selection,
+) -> Result<crate::codex_scanned::Pair, Error> {
+    capture_scanned_mode(request, page, PageMode::Structured, &mut |_| {})
 }
 fn capture_scanned_mode(
     request: &CodexRequest,
     page: jsonl_scan::Selection,
-    validate: bool,
+    mode: PageMode,
     hook: &mut impl FnMut(Point),
 ) -> Result<crate::codex_scanned::Pair, Error> {
     if page.offset > jsonl_scan::RECORDS || page.limit == 0 || page.limit > jsonl_scan::PAGE_RECORDS
     {
         return Err(Error::Input);
     }
-    match capture_variant(request, Some(page), validate, hook)? {
+    match capture_variant(request, Some(page), mode, hook)? {
         Captured::Page(pair) => Ok(pair),
         Captured::Bytes(_) => Err(Error::Input),
     }
@@ -108,7 +120,7 @@ enum Rollout {
 fn capture_variant(
     request: &CodexRequest,
     page: Option<jsonl_scan::Selection>,
-    validate: bool,
+    mode: PageMode,
     hook: &mut impl FnMut(Point),
 ) -> Result<Captured, Error> {
     if !valid_locator(&request.source.rollout_path, &request.source.thread_id) {
@@ -239,6 +251,7 @@ fn capture_variant(
     hook(Point::Opened);
     verify()?;
     let mut validation = None;
+    let mut structure = None;
     let (rollout, first_index) = if let Some(selection) = page {
         let first_index = read_index()?;
         let mut selected = SelectedReader {
@@ -251,42 +264,67 @@ fn capture_variant(
                 verify()
             },
         };
-        let mut validator = if validate {
-            Some(
-                codex_rollout_format::Validator::new(&request.source.thread_id)
-                    .map_err(Error::RolloutFormat)?,
-            )
+        let scanned = if mode == PageMode::Structured {
+            let result = codex_rollout_structure::scan_page(
+                &mut selected,
+                file_info.size(),
+                selection,
+                &request.source.thread_id,
+                &request.native_version,
+                None,
+                || budget(start).map_err(|_| jsonl_scan::Error::Budget),
+            );
+            if let Some(error) = selected.failure {
+                return Err(error);
+            }
+            let result = result.map_err(|error| match error {
+                codex_rollout_structure::Error::Format(e) => Error::RolloutFormat(e),
+                codex_rollout_structure::Error::Scan(e) => scan_error(e),
+                codex_rollout_structure::Error::InvalidStructure => Error::RolloutStructure,
+                codex_rollout_structure::Error::Allocation => Error::Io,
+            })?;
+            validation = Some(result.validation);
+            structure = Some(result.structure);
+            result.records
         } else {
-            None
+            let mut validator = if mode == PageMode::Validated {
+                Some(
+                    codex_rollout_format::Validator::new(&request.source.thread_id)
+                        .map_err(Error::RolloutFormat)?,
+                )
+            } else {
+                None
+            };
+            let mut format_failure = None;
+            let scanned = jsonl_scan::scan_matching_page(
+                &mut selected,
+                file_info.size(),
+                selection,
+                None,
+                || budget(start).map_err(|_| jsonl_scan::Error::Budget),
+                |index, _, bytes| {
+                    if let Some(validator) = &mut validator {
+                        validator.record(index, bytes).map_err(|error| {
+                            format_failure = Some(error);
+                            jsonl_scan::Error::InvalidRecord
+                        })?;
+                    }
+                    Ok(())
+                },
+            );
+            if let Some(error) = selected.failure {
+                return Err(error);
+            }
+            if let Some(error) = format_failure {
+                return Err(Error::RolloutFormat(error));
+            }
+            let scanned = scanned.map_err(scan_error)?;
+            validation = validator
+                .map(|v| v.finish())
+                .transpose()
+                .map_err(Error::RolloutFormat)?;
+            scanned
         };
-        let mut format_failure = None;
-        let scanned = jsonl_scan::scan_matching_page(
-            &mut selected,
-            file_info.size(),
-            selection,
-            None,
-            || budget(start).map_err(|_| jsonl_scan::Error::Budget),
-            |index, _, bytes| {
-                if let Some(validator) = &mut validator {
-                    validator.record(index, bytes).map_err(|error| {
-                        format_failure = Some(error);
-                        jsonl_scan::Error::InvalidRecord
-                    })?;
-                }
-                Ok(())
-            },
-        );
-        if let Some(error) = selected.failure {
-            return Err(error);
-        }
-        if let Some(error) = format_failure {
-            return Err(Error::RolloutFormat(error));
-        }
-        let scanned = scanned.map_err(scan_error)?;
-        validation = validator
-            .map(|v| v.finish())
-            .transpose()
-            .map_err(Error::RolloutFormat)?;
         let second_index = read_index()?;
         hook(Point::SecondRead);
         verify()?;
@@ -353,6 +391,7 @@ fn capture_variant(
             page,
             rollout_identity: identity(&file_info),
             validation,
+            structure,
         }),
     };
     let mut close_failed = false;
@@ -422,6 +461,7 @@ impl<F: FnMut() -> Result<(), Error>> std::io::Seek for SelectedReader<'_, F> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::Digest;
     use std::fs;
     use std::os::unix::fs::{PermissionsExt, symlink};
     use std::path::PathBuf;
@@ -462,6 +502,189 @@ mod tests {
                 file,
                 index,
                 request,
+            }
+        }
+    }
+    #[test]
+    fn structured_capture_has_global_links_and_a_distinct_bounded_frame() {
+        let mut f = Fixture::new(false, true);
+        f.request.protocol_version = 9;
+        let rows = [
+            serde_json::json!({"type":"session_meta","payload":{"id":ID,"cli_version":"0.153.4"}}),
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"native A 🐾"}}),
+            serde_json::json!({"type":"event_msg","payload":{"type":"exec_command_begin","turn_id":"native A 🐾","call_id":"native call"}}),
+            serde_json::json!({"type":"event_msg","payload":{"type":"agent_message","message":"entire original text"}}),
+            serde_json::json!({"type":"event_msg","payload":{"type":"exec_command_end","turn_id":"native A 🐾","call_id":"native call"}}),
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":"native A 🐾"}}),
+            serde_json::json!({"type":"event_msg","payload":{"type":"thread_rolled_back","num_turns":1}}),
+        ];
+        let raw = rows.iter().map(|v| format!("{v}\n")).collect::<String>();
+        fs::write(&f.file, &raw).unwrap();
+        for (offset, related) in [(2, Some(4)), (4, Some(2)), (7, None)] {
+            let selection = jsonl_scan::Selection { offset, limit: 1 };
+            let pair = capture_structured(&f.request, selection).unwrap();
+            let structure = pair.structure.as_ref().unwrap();
+            assert_eq!(structure.total_turns, 1);
+            assert_eq!(structure.retained_turns, 0);
+            assert_eq!(pair.validation.as_ref().unwrap().records_validated, 7);
+            if let Some(related) = related {
+                assert_eq!(
+                    structure.turns[0].native_turn_id.as_deref(),
+                    Some("native A 🐾")
+                );
+                assert_eq!(structure.turns[0].recorded_status, "completed");
+                assert_eq!(structure.turns[0].rollback_record_index, Some(6));
+                assert_eq!(
+                    structure.annotations[0]
+                        .tool
+                        .as_ref()
+                        .unwrap()
+                        .related_record_index,
+                    Some(related)
+                );
+                assert_eq!(
+                    pair.page.records[0].bytes,
+                    format!("{}\n", rows[offset as usize]).as_bytes()
+                );
+            } else {
+                assert!(structure.turns.is_empty());
+                assert!(structure.annotations.is_empty());
+            }
+            let request = crate::codex_scanned::Request { base: crate::codex::parse_request(&serde_json::to_vec(&serde_json::json!({
+                "protocolVersion":9,"nonce":"a".repeat(64),"nativeVersion":"0.153.4",
+                "source":{"codexRoot":f.root.to_str().unwrap(),"threadId":ID,"rolloutPath":f.request.source.rollout_path},
+                "expectedRoot":{"device":f.request.expected_root.device,"inode":f.request.expected_root.inode}
+            })).unwrap()).unwrap(), page: selection, protocol_version: 12 };
+            let mut frame = Vec::new();
+            crate::codex_scanned::write_frame(&mut frame, &request, Ok(pair)).unwrap();
+            let header_len = u32::from_be_bytes(frame[..4].try_into().unwrap()) as usize;
+            assert!(header_len <= 16 * 1024);
+            let header: serde_json::Value =
+                serde_json::from_slice(&frame[4..4 + header_len]).unwrap();
+            let result = &header["result"];
+            assert_eq!(header["protocolVersion"], 12);
+            assert_eq!(result["kind"], "native_codex_structured_source_page");
+            let payload = &frame[4 + header_len..];
+            let descriptor = &result["structureFrame"];
+            let split = descriptor["byteOffset"].as_u64().unwrap() as usize;
+            assert_eq!(
+                split,
+                result["page"]["byteLength"].as_u64().unwrap() as usize
+                    + result["nameIndex"]["byteLength"].as_u64().unwrap() as usize
+            );
+            assert_eq!(descriptor["byteLength"], payload.len() - split);
+            assert_eq!(result["byteLength"], payload.len());
+            assert_eq!(
+                result["sha256"],
+                format!("{:x}", sha2::Sha256::digest(payload))
+            );
+            assert_eq!(
+                descriptor["sha256"],
+                format!("{:x}", sha2::Sha256::digest(&payload[split..]))
+            );
+            let value: serde_json::Value = serde_json::from_slice(&payload[split..]).unwrap();
+            assert_eq!(value["structureProfile"], codex_rollout_structure::PROFILE);
+            for flag in [
+                "recordSemanticsValidated",
+                "semanticHistoryComplete",
+                "sourceAuthenticated",
+                "publishable",
+            ] {
+                assert_eq!(result[flag], false);
+            }
+        }
+        assert!(
+            capture_validated(
+                &f.request,
+                jsonl_scan::Selection {
+                    offset: 0,
+                    limit: 1
+                }
+            )
+            .unwrap()
+            .structure
+            .is_none()
+        );
+        assert!(
+            capture_scanned(
+                &f.request,
+                jsonl_scan::Selection {
+                    offset: 0,
+                    limit: 1
+                }
+            )
+            .unwrap()
+            .structure
+            .is_none()
+        );
+        fs::write(&f.file, raw.replace("0.153.4", "other-writer")).unwrap();
+        assert!(matches!(
+            capture_structured(
+                &f.request,
+                jsonl_scan::Selection {
+                    offset: 0,
+                    limit: 1
+                }
+            ),
+            Err(Error::RolloutStructure)
+        ));
+        // Envelope-only remains intentionally different from structure semantics.
+        assert!(
+            capture_validated(
+                &f.request,
+                jsonl_scan::Selection {
+                    offset: 0,
+                    limit: 1
+                }
+            )
+            .is_ok()
+        );
+    }
+    #[test]
+    fn structured_capture_keeps_permission_selection_and_index_fences_on_each_pass() {
+        for point in [Point::Opened, Point::FirstRead, Point::SecondRead] {
+            for mutation in 0..4 {
+                let mut f = Fixture::new(false, true);
+                f.request.protocol_version = 9;
+                let raw = format!(
+                    "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{ID}\",\"cli_version\":\"0.153.4\"}}}}\n"
+                );
+                fs::write(&f.file, &raw).unwrap();
+                let result = capture_scanned_mode(
+                    &f.request,
+                    jsonl_scan::Selection {
+                        offset: 0,
+                        limit: 1,
+                    },
+                    PageMode::Structured,
+                    &mut |at| {
+                        if at == point {
+                            match mutation {
+                                0 => fs::write(&f.file, format!("{raw}\n")).unwrap(),
+                                1 => {
+                                    fs::set_permissions(&f.file, fs::Permissions::from_mode(0o644))
+                                        .unwrap()
+                                }
+                                2 => {
+                                    let replacement = f.root.join("owned-new-index");
+                                    fs::write(&replacement, b"owned index\n").unwrap();
+                                    fs::rename(&replacement, &f.index).unwrap();
+                                }
+                                _ => {
+                                    let replacement = f.root.join("owned-new-rollout");
+                                    fs::write(&replacement, &raw).unwrap();
+                                    fs::set_permissions(
+                                        &replacement,
+                                        fs::Permissions::from_mode(0o600),
+                                    )
+                                    .unwrap();
+                                    fs::rename(&replacement, &f.file).unwrap();
+                                }
+                            }
+                        }
+                    },
+                );
+                assert!(matches!(result, Err(Error::Changed | Error::OwnerOrMode)));
             }
         }
     }
@@ -519,7 +742,7 @@ mod tests {
                         offset: 0,
                         limit: 1,
                     },
-                    true,
+                    PageMode::Validated,
                     &mut |at| {
                         if at == point {
                             match mutation {

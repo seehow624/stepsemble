@@ -1,6 +1,7 @@
 //! Reusable internal primitives, not a source grant or a production endpoint.
 //! SQLite connections must come from a separately authenticated source boundary.
 pub mod codex_rollout_format;
+pub mod codex_rollout_structure;
 pub mod jsonl_scan;
 pub mod source_error;
 #[cfg(any(target_os = "macos", target_os = "linux"))]

@@ -13,6 +13,11 @@ runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
+Development-only Plan1.75 adds bounded global turn/tool/rollback indexing and a
+distinct v12 held-source receipt through the same open/check/close and admission.
+Its new structure is not yet connected to the parser, named pipeline or Web.
+See [`codex-structured-source.md`](codex-structured-source.md).
+
 Plan1.74 connects an explicit validated-page profile through the SAME Host,
 registry, HTTP/peer and typed Web. Small/compressed structured history retains
 its original contract. Large records have full text and direct navigation, not

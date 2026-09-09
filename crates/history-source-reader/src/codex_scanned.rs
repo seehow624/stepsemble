@@ -1,10 +1,11 @@
-//! Private v10 byte scan / v11 complete legacy-envelope validated page.
-//! Neither is native projection parity, a source grant or public history API.
+//! Private v10 byte scan / v11 validated page / v12 selected global structure.
+//! None is native projection parity, a source grant or public history API.
 use crate::{Capture, Error, INPUT_LIMIT, Identity, RootIdentity, codex};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::io::Write;
-use stepsemble_history_source_reader::jsonl_scan;
+use stepsemble_history_source_reader::{codex_rollout_structure, jsonl_scan};
+const STRUCTURE_BYTES: usize = 512 * 1024;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -35,6 +36,7 @@ pub struct Pair {
     pub name_index: Option<Capture>,
     pub physical_path: String,
     pub validation: Option<stepsemble_history_source_reader::codex_rollout_format::Validation>,
+    pub structure: Option<codex_rollout_structure::Structure>,
 }
 
 pub fn parse_request(bytes: &[u8]) -> Result<Request, Error> {
@@ -44,7 +46,7 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Error> {
     // Deserialize once into exact structs BEFORE rebuilding the common input:
     // duplicate/unknown/null/extra fields must not disappear in a Value map.
     let r: WireRequest = serde_json::from_slice(bytes).map_err(|_| Error::Input)?;
-    if ![10, 11].contains(&r.protocol_version)
+    if ![10, 11, 12].contains(&r.protocol_version)
         || r.page.offset > jsonl_scan::RECORDS
         || r.page.limit == 0
         || r.page.limit > jsonl_scan::PAGE_RECORDS
@@ -52,7 +54,7 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Error> {
         return Err(Error::Input);
     }
     // Reuse the legacy selected-locator/native-version/root/nonce validation.
-    // The internal base requests stored selection; the output is ONLY v10.
+    // The internal base requests stored selection; output keeps its explicit version.
     let base = serde_json::to_vec(&serde_json::json!({"protocolVersion":9,"nonce":r.nonce,
         "nativeVersion":r.native_version,"source":{"codexRoot":r.source.codex_root,
         "threadId":r.source.thread_id,"rolloutPath":r.source.rollout_path},
@@ -71,7 +73,9 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Error> {
 pub fn capture(request: &Request) -> Result<Pair, Error> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        if request.protocol_version == 11 {
+        if request.protocol_version == 12 {
+            crate::posix::codex::capture_structured(&request.base, request.page)
+        } else if request.protocol_version == 11 {
             crate::posix::codex::capture_validated(&request.base, request.page)
         } else {
             crate::posix::codex::capture_scanned(&request.base, request.page)
@@ -100,7 +104,8 @@ pub fn write_frame(
                 || pair.rollout_identity.size > jsonl_scan::SOURCE_BYTES
                 || pair.page.summary.record_count == 0
                 || pair.page.summary.record_count > jsonl_scan::RECORDS
-                || pair.validation.is_some() != (request.protocol_version == 11)
+                || pair.validation.is_some() != (request.protocol_version >= 11)
+                || pair.structure.is_some() != (request.protocol_version == 12)
                 || pair
                     .validation
                     .as_ref()
@@ -130,6 +135,26 @@ pub fn write_frame(
                 None
             };
             let base = &request.base;
+            let structure_frame = if let Some(structure) = pair.structure {
+                if structure.structure_profile != codex_rollout_structure::PROFILE
+                    || structure.total_turns > pair.page.summary.record_count
+                    || structure.retained_turns > structure.total_turns
+                    || structure.annotations.len() != pair.page.records.len()
+                    || structure.turns.len() > structure.annotations.len()
+                {
+                    return Err(Error::RolloutStructure);
+                }
+                let bytes = serde_json::to_vec(&structure).map_err(|_| Error::Io)?;
+                if bytes.len() > STRUCTURE_BYTES {
+                    return Err(Error::TooLarge);
+                }
+                let descriptor = serde_json::json!({"profile":codex_rollout_structure::PROFILE,
+                    "byteOffset":payload.len(),"byteLength":bytes.len(),"sha256":format!("{:x}",Sha256::digest(&bytes))});
+                payload.extend_from_slice(&bytes);
+                Some(descriptor)
+            } else {
+                None
+            };
             let source_sha: String = pair
                 .page
                 .summary
@@ -137,7 +162,12 @@ pub fn write_frame(
                 .iter()
                 .map(|byte| format!("{byte:02x}"))
                 .collect();
-            let mut result = serde_json::json!({"kind":if request.protocol_version == 11 {"native_codex_validated_source_page"} else {"native_codex_source_page"},"nativeVersion":base.native_version,
+            let kind = match request.protocol_version {
+                12 => "native_codex_structured_source_page",
+                11 => "native_codex_validated_source_page",
+                _ => "native_codex_source_page",
+            };
+            let mut result = serde_json::json!({"kind":kind,"nativeVersion":base.native_version,
                 "threadId":base.source.thread_id,"rolloutPath":base.source.rollout_path,
                 "rootIdentity":{"device":base.expected_root.device,"inode":base.expected_root.inode},
                 "storage":{"encoding":"jsonl","rolloutPath":pair.physical_path},
@@ -153,6 +183,9 @@ pub fn write_frame(
                 "recordSemanticsValidated":false,"semanticHistoryComplete":false,"sourceAuthenticated":false,"publishable":false});
             if let Some(validation) = pair.validation {
                 result["validation"] = serde_json::to_value(validation).map_err(|_| Error::Io)?;
+            }
+            if let Some(structure_frame) = structure_frame {
+                result["structureFrame"] = structure_frame;
             }
             (result, payload)
         }
@@ -210,7 +243,7 @@ mod tests {
             header["result"],
             serde_json::json!({"kind":"source_unavailable","code":"rollout_invalid_metadata"})
         );
-        value["protocolVersion"] = serde_json::json!(12);
+        value["protocolVersion"] = serde_json::json!(13);
         assert!(parse_request(&serde_json::to_vec(&value).unwrap()).is_err());
     }
     #[test]

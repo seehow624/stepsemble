@@ -98,6 +98,11 @@ impl Validator {
         })
     }
     pub fn record(&mut self, index: u32, bytes: &[u8]) -> Result<(), Error> {
+        self.record_value(index, bytes).map(|_| ())
+    }
+    /// A bounded observer can use the transient validated value without parsing
+    /// twice. It must not retain full records or publish a partial scan.
+    pub fn record_value(&mut self, index: u32, bytes: &[u8]) -> Result<Option<Value>, Error> {
         if let Some(error) = self.failed {
             return Err(error);
         }
@@ -107,7 +112,7 @@ impl Validator {
         }
         result
     }
-    fn check_record(&mut self, index: u32, bytes: &[u8]) -> Result<(), Error> {
+    fn check_record(&mut self, index: u32, bytes: &[u8]) -> Result<Option<Value>, Error> {
         if index != self.records
             || index >= crate::jsonl_scan::RECORDS
             || bytes.len() > crate::jsonl_scan::RECORD_BYTES
@@ -118,6 +123,7 @@ impl Validator {
             return Err(Error::InvalidRecord);
         }
         let text = std::str::from_utf8(bytes).map_err(|_| Error::InvalidUtf8)?;
+        let mut parsed = None;
         if !text.chars().all(whitespace) {
             let value: Value = serde_json::from_str(text).map_err(|_| Error::InvalidRecord)?;
             if !value.is_object() || !label(&value["type"]) || !tree(&value, 0) {
@@ -154,9 +160,10 @@ impl Validator {
                 // to run it and not the fixed parser version in the request.
                 self.metadata += 1;
             }
+            parsed = Some(value);
         }
         self.records += 1;
-        Ok(())
+        Ok(parsed)
     }
     pub fn finish(self) -> Result<Validation, Error> {
         if let Some(error) = self.failed {
