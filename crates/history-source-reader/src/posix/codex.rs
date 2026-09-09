@@ -2,7 +2,7 @@
 //! Repeated checks are not an atomic filesystem transaction or native provenance.
 use super::*;
 use crate::codex::{INDEX_LIMIT, Pair, Request as CodexRequest, valid_locator};
-use stepsemble_history_source_reader::jsonl_scan;
+use stepsemble_history_source_reader::{codex_rollout_format, jsonl_scan};
 
 const NAME_INDEX: &str = "session_index.jsonl";
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -54,7 +54,7 @@ pub fn capture(request: &CodexRequest) -> Result<Pair, Error> {
     capture_with(request, |_| {})
 }
 fn capture_with(request: &CodexRequest, mut hook: impl FnMut(Point)) -> Result<Pair, Error> {
-    match capture_variant(request, None, &mut hook)? {
+    match capture_variant(request, None, false, &mut hook)? {
         Captured::Bytes(pair) => Ok(pair),
         Captured::Page(_) => Err(Error::Input),
     }
@@ -71,11 +71,25 @@ fn capture_scanned_with(
     page: jsonl_scan::Selection,
     mut hook: impl FnMut(Point),
 ) -> Result<crate::codex_scanned::Pair, Error> {
+    capture_scanned_mode(request, page, false, &mut hook)
+}
+pub fn capture_validated(
+    request: &CodexRequest,
+    page: jsonl_scan::Selection,
+) -> Result<crate::codex_scanned::Pair, Error> {
+    capture_scanned_mode(request, page, true, &mut |_| {})
+}
+fn capture_scanned_mode(
+    request: &CodexRequest,
+    page: jsonl_scan::Selection,
+    validate: bool,
+    hook: &mut impl FnMut(Point),
+) -> Result<crate::codex_scanned::Pair, Error> {
     if page.offset > jsonl_scan::RECORDS || page.limit == 0 || page.limit > jsonl_scan::PAGE_RECORDS
     {
         return Err(Error::Input);
     }
-    match capture_variant(request, Some(page), &mut hook)? {
+    match capture_variant(request, Some(page), validate, hook)? {
         Captured::Page(pair) => Ok(pair),
         Captured::Bytes(_) => Err(Error::Input),
     }
@@ -94,6 +108,7 @@ enum Rollout {
 fn capture_variant(
     request: &CodexRequest,
     page: Option<jsonl_scan::Selection>,
+    validate: bool,
     hook: &mut impl FnMut(Point),
 ) -> Result<Captured, Error> {
     if !valid_locator(&request.source.rollout_path, &request.source.thread_id) {
@@ -223,6 +238,7 @@ fn capture_variant(
     };
     hook(Point::Opened);
     verify()?;
+    let mut validation = None;
     let (rollout, first_index) = if let Some(selection) = page {
         let first_index = read_index()?;
         let mut selected = SelectedReader {
@@ -235,18 +251,42 @@ fn capture_variant(
                 verify()
             },
         };
+        let mut validator = if validate {
+            Some(
+                codex_rollout_format::Validator::new(&request.source.thread_id)
+                    .map_err(Error::RolloutFormat)?,
+            )
+        } else {
+            None
+        };
+        let mut format_failure = None;
         let scanned = jsonl_scan::scan_matching_page(
             &mut selected,
             file_info.size(),
             selection,
             None,
             || budget(start).map_err(|_| jsonl_scan::Error::Budget),
-            |_, _, _| Ok(()),
+            |index, _, bytes| {
+                if let Some(validator) = &mut validator {
+                    validator.record(index, bytes).map_err(|error| {
+                        format_failure = Some(error);
+                        jsonl_scan::Error::InvalidRecord
+                    })?;
+                }
+                Ok(())
+            },
         );
         if let Some(error) = selected.failure {
             return Err(error);
         }
+        if let Some(error) = format_failure {
+            return Err(Error::RolloutFormat(error));
+        }
         let scanned = scanned.map_err(scan_error)?;
+        validation = validator
+            .map(|v| v.finish())
+            .transpose()
+            .map_err(Error::RolloutFormat)?;
         let second_index = read_index()?;
         hook(Point::SecondRead);
         verify()?;
@@ -312,6 +352,7 @@ fn capture_variant(
             name_index,
             page,
             rollout_identity: identity(&file_info),
+            validation,
         }),
     };
     let mut close_failed = false;
@@ -421,6 +462,82 @@ mod tests {
                 file,
                 index,
                 request,
+            }
+        }
+    }
+    #[test]
+    fn validated_capture_observes_every_record_and_never_upgrades_opaque_bytes() {
+        let mut f = Fixture::new(false, true);
+        f.request.protocol_version = 9;
+        let selection = jsonl_scan::Selection {
+            offset: 0,
+            limit: 1,
+        };
+        assert!(matches!(
+            capture_validated(&f.request, selection),
+            Err(Error::RolloutFormat(
+                codex_rollout_format::Error::InvalidRecord
+            ))
+        ));
+        let mut raw =
+            format!("{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{ID}\"}}}}\n").into_bytes();
+        for _ in 0..1000 {
+            raw.extend_from_slice(b"{\"type\":\"event_msg\"}\n");
+        }
+        fs::write(&f.file, &raw).unwrap();
+        let pair = capture_validated(&f.request, selection).unwrap();
+        assert_eq!(pair.page.records.len(), 1);
+        assert_eq!(pair.validation.unwrap().records_validated, 1001);
+        assert!(
+            capture_scanned(&f.request, selection)
+                .unwrap()
+                .validation
+                .is_none()
+        );
+        raw.extend_from_slice(b"{\"type\":\"session_meta\",\"payload\":null}\n");
+        fs::write(&f.file, &raw).unwrap();
+        assert!(matches!(
+            capture_validated(&f.request, selection),
+            Err(Error::RolloutFormat(
+                codex_rollout_format::Error::InvalidMetadata
+            ))
+        ));
+        assert!(capture_scanned(&f.request, selection).is_ok());
+    }
+    #[test]
+    fn validated_capture_keeps_before_between_after_permissions_and_name_fences() {
+        for point in [Point::Opened, Point::FirstRead, Point::SecondRead] {
+            for mutation in 0..3 {
+                let mut f = Fixture::new(false, true);
+                f.request.protocol_version = 9;
+                let raw =
+                    format!("{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{ID}\"}}}}\n");
+                fs::write(&f.file, &raw).unwrap();
+                let result = capture_scanned_mode(
+                    &f.request,
+                    jsonl_scan::Selection {
+                        offset: 0,
+                        limit: 1,
+                    },
+                    true,
+                    &mut |at| {
+                        if at == point {
+                            match mutation {
+                                0 => fs::write(&f.file, format!("{raw}\n")).unwrap(),
+                                1 => {
+                                    fs::set_permissions(&f.file, fs::Permissions::from_mode(0o644))
+                                        .unwrap()
+                                }
+                                _ => {
+                                    let replacement = f.root.join("owned-new-index");
+                                    fs::write(&replacement, b"owned index\n").unwrap();
+                                    fs::rename(&replacement, &f.index).unwrap();
+                                }
+                            }
+                        }
+                    },
+                );
+                assert!(matches!(result, Err(Error::Changed | Error::OwnerOrMode)));
             }
         }
     }

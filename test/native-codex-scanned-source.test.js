@@ -24,7 +24,7 @@ function fixture(offset = 0, limit = 2, names = Buffer.from("owned name🐾\n"),
     recordSemanticsValidated: false, semanticHistoryComplete: false, sourceAuthenticated: false, publishable: false } };
 }
 function frame(job, value = fixture(job.page.offset, job.page.limit), mutate = v => v) {
-  const header = Buffer.from(JSON.stringify(mutate({ protocolVersion: 10, nonce: job.nonce, result: value.header }))), size = Buffer.alloc(4);
+  const header = Buffer.from(JSON.stringify(mutate({ protocolVersion: job.protocolVersion, nonce: job.nonce, result: value.header }))), size = Buffer.alloc(4);
   size.writeUInt32BE(header.length); return Buffer.concat([size, header, value.bytes]);
 }
 function harness(t, options = {}) {
@@ -40,6 +40,62 @@ function harness(t, options = {}) {
   t.after(async () => { for (const child of children) child.emit("close", 0, null); await helper.shutdown(); });
   return { helper, children };
 }
+function validatedFixture(offset = 0, limit = 2) {
+  const value = fixture(offset, limit);
+  value.header.kind = "native_codex_validated_source_page";
+  value.header.validation = { profile: "codex_legacy_envelope_v1", recordsValidated: 3, selectedMetadataRecord: 0, metadataRecords: 1, historyMode: "legacy" };
+  return value; // Trusted-helper receipt fixture, not proof these mock bytes are JSON.
+}
+test("v11 requests full-source envelope validation explicitly and cannot upgrade a v10 receipt", async t => {
+  const { helper, children } = harness(t), pending = helper.readCodexValidatedPage(input()), child = children[0];
+  assert.equal(child.job.protocolVersion, 11); assert.deepEqual(child.job.page, { offset: 0, limit: 2 });
+  assert.equal((await helper.readCodexPage(input())).code, "source_busy");
+  let settled = false; pending.then(() => { settled = true; });
+  child.stdout.write(frame(child.job, validatedFixture())); child.emit("exit", 0);
+  await new Promise(resolve => setImmediate(resolve)); assert.equal(settled, false);
+  child.emit("close", 0, null); const result = await pending;
+  assert.equal(result.validation.recordsValidated, result.rollout.recordCount); assert.equal(result.semanticHistoryComplete, false);
+  assert.equal(result.recordSemanticsValidated, false); assert.equal(result.cleanupConfirmed, true);
+  const version = wire.sourceVersion(result); assert.equal(version.kind, "codex_validated_source_version");
+  const next = helper.readCodexValidatedPage(input(2)); children.at(-1).finish(frame(children.at(-1).job, validatedFixture(2)));
+  assert.equal(wire.sameSourceVersion(version, wire.sourceVersion(await next)), true);
+  const raw = helper.readCodexPage(input()); children.at(-1).finish();
+  assert.equal(wire.sameSourceVersion(version, wire.sourceVersion(await raw)), false);
+  for (const [method,value] of [["readCodexValidatedPage",fixture()],["readCodexPage",validatedFixture()]]) {
+    const p=helper[method](input());children.at(-1).finish(frame(children.at(-1).job,value));assert.equal((await p).code,"source_worker_protocol");
+  }
+});
+test("v11 exact validation counters, profile and mode are required and cannot become native authority", async t => {
+  const {helper,children}=harness(t);
+  for(const change of [v=>{delete v.validation;},v=>{v.validation=null;},v=>{v.validation.profile="latest";},
+    v=>{v.validation.recordsValidated--;},v=>{v.validation.selectedMetadataRecord=-1;},v=>{v.validation.selectedMetadataRecord=3;},
+    v=>{v.validation.metadataRecords=0;},v=>{v.validation.metadataRecords=4;},v=>{v.validation.historyMode="paginated";},
+    v=>{v.validation.extra=true;},v=>{v.recordSemanticsValidated=true;},v=>{v.publishable=true;}]) {
+    const value=validatedFixture();change(value.header);const p=helper.readCodexValidatedPage(input());
+    children.at(-1).finish(frame(children.at(-1).job,value));assert.equal((await p).code,"source_worker_protocol");
+  }
+});
+test("v11 format failures settle only after close and the same helper recovers without respawn retries", async t => {
+  const {helper,children}=harness(t);
+  for(const code of ["rollout_invalid_utf8","rollout_invalid_record","rollout_invalid_metadata","rollout_selected_thread_mismatch",
+    "native_paginated_history_unsupported","native_history_mode_unknown","rollout_record_limit"]) {
+    const p=helper.readCodexValidatedPage(input());const child=children.at(-1);
+    child.finish(frame(child.job,{header:{kind:"source_unavailable",code},bytes:Buffer.alloc(0)}));
+    assert.deepEqual(await p,{kind:"source_unavailable",code});
+    assert.equal(helper.status().cleanupConfirmed,true);
+  }
+  assert.equal(children.length,7);const p=helper.readCodexValidatedPage(input());children.at(-1).finish(frame(children.at(-1).job,validatedFixture()));
+  assert.equal((await p).kind,"native_codex_validated_source_page");assert.equal(children.length,8);
+});
+test("v11 cancellation quarantines shared v10 and v11 admission on unknown close", async t => {
+  const {helper,children}=harness(t), controller=new AbortController();
+  const p=helper.readCodexValidatedPage(input(),{signal:controller.signal}),child=children[0];child.hold=true;
+  child.stdout.write(frame(child.job,validatedFixture()));controller.abort();
+  assert.equal((await p).code,"source_cleanup_unconfirmed");assert.deepEqual(child.kills,["SIGKILL"]);
+  for(const method of ["readCodexPage","readCodexValidatedPage"])assert.equal((await helper[method](input())).code,"source_service_quarantined");
+  child.emit("close",null,"SIGKILL");assert.equal(helper.status().activeWorker,false);
+  assert.equal((await helper.readCodexValidatedPage(input())).code,"source_service_quarantined");
+});
 test("v10 input is explicit and cannot change legacy selectors or read arbitrary files", async t => {
   const { helper, children } = harness(t); let touched = 0;
   const getter = input(); Object.defineProperty(getter.page, "offset", { enumerable: true, get() { touched++; return 0; } });

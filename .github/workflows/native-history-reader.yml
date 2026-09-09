@@ -10,6 +10,7 @@ on:
       - 'scripts/check-native-sqlite-artifact.mjs'
       - 'scripts/check-native-codex-source.mjs'
       - 'scripts/check-native-codex-scanned-source.mjs'
+      - 'scripts/check-native-codex-validated-source.mjs'
       - 'scripts/check-native-codex-pipeline.mjs'
       - 'scripts/check-native-codex-sqlite-pipeline.mjs'
       - 'scripts/check-native-codex-named-pipeline.mjs'
@@ -55,6 +56,7 @@ on:
       - 'scripts/check-native-sqlite-artifact.mjs'
       - 'scripts/check-native-codex-source.mjs'
       - 'scripts/check-native-codex-scanned-source.mjs'
+      - 'scripts/check-native-codex-validated-source.mjs'
       - 'scripts/check-native-codex-pipeline.mjs'
       - 'scripts/check-native-codex-sqlite-pipeline.mjs'
       - 'scripts/check-native-codex-named-pipeline.mjs'
@@ -172,6 +174,9 @@ jobs:
         run: node scripts/check-native-codex-scanned-source.mjs "${{ runner.temp }}/stepsemble-native-history-reader/release/stepsemble-history-source-reader${{ runner.os == 'Windows' && '.exe' || '' }}"
       - name: Strict selected-page wire and helper cancellation regressions
         run: node --test --test-timeout=60000 test/native-codex-scanned-source.test.js
+      - name: Complete envelope validation and actual large source pages (owned only)
+        shell: bash
+        run: node scripts/check-native-codex-validated-source.mjs "${{ runner.temp }}/stepsemble-native-history-reader/release/stepsemble-history-source-reader${{ runner.os == 'Windows' && '.exe' || '' }}"
       - name: Verify pinned SQLite amalgamation against official source hash
         run: node scripts/check-native-sqlite-artifact.mjs
       - name: Locked standalone helper build

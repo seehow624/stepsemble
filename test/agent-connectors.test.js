@@ -57,7 +57,9 @@ test("generic connector tasks stream bounded output and stop without shell injec
   fs.mkdirSync(bin);
   fs.mkdirSync(project);
   const fakeAgent = path.join(bin, "fake-agent.cjs");
-  fs.writeFileSync(fakeAgent, "process.stdout.write('hello from cli\\n'); process.stdout.write(`stdin=${process.stdin.isTTY ? 'tty' : 'pipe'}\\n`); setInterval(() => {}, 1000);\n");
+  // Deliberately separate writes: neither the PTY nor its IPC transport promises
+  // that observing the greeting also means the terminal probe has been emitted.
+  fs.writeFileSync(fakeAgent, "process.stdout.write('hello from cli\\n'); setTimeout(() => process.stdout.write(`stdin=${process.stdin.isTTY ? 'tty' : 'pipe'}\\n`), 400); setInterval(() => {}, 1000);\n");
   if (process.platform === "win32") {
     fs.writeFileSync(path.join(bin, "claude.cmd"), `@echo off\r\n\"${process.execPath}\" \"${fakeAgent}\"\r\n`);
   } else {
@@ -81,14 +83,16 @@ test("generic connector tasks stream bounded output and stop without shell injec
   assert.equal(opened.status, "running");
   assert.equal(opened.isRunning, true);
   // Python startup on shared macOS runners can be slower than local runs.
-  // Wait for the first output with a bounded timeout instead of making the
-  // PTY smoke test depend on a single scheduling slice.
+  // Wait for BOTH observations before asking to stop. The greeting can arrive
+  // before the second write; stopping on the first chunk races the probe itself.
+  const terminalProbe = new RegExp(process.platform === "win32" ? "stdin=pipe" : "stdin=tty");
   let internal = service.get(opened.id);
-  for (let attempt = 0; attempt < 40 && !internal.outputTail; attempt += 1) {
+  for (let attempt = 0; attempt < 40 && (!internal.outputTail.includes("hello from cli") || !terminalProbe.test(internal.outputTail)); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 100));
     internal = service.get(opened.id);
   }
   assert.match(internal.outputTail, /hello from cli/, JSON.stringify({ task: service.publicTask(internal), snapshot: fs.readFileSync(internal.supervisorMeta, "utf8") }));
+  assert.match(internal.outputTail, terminalProbe, "terminal probe must arrive before stopping the owned agent");
   assert.equal(internal.outputTail.split("hello from cli").length - 1, 1);
   internal.control.destroy();
   // Stop inside the disconnect window, not after a machine-dependent sleep.
@@ -98,7 +102,7 @@ test("generic connector tasks stream bounded output and stop without shell injec
   assert.throws(() => service.send(opened.id, "too late"), /stop is pending/);
   assert.equal(await stopped, true);
   assert.equal(service.get(opened.id).outputTail.split("hello from cli").length - 1, 1);
-  assert.match(internal.outputTail, new RegExp(process.platform === "win32" ? "stdin=pipe" : "stdin=tty"));
+  assert.match(internal.outputTail, terminalProbe);
   await assert.rejects(() => service.open({ agentId: "claude;touch /tmp/pwned", cwd: project }), /not installed|Use the native Pi connector/);
   assert.equal(await service.stop(opened.id), true, "a confirmed stop is idempotent");
   assert.equal(service.get(opened.id).status, "stopped");

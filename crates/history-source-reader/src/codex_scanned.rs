@@ -1,5 +1,5 @@
-//! Private v10, byte-framed selected page + full-source digest observation.
-//! Not a JSON/native semantic validator, source grant or public history API.
+//! Private v10 byte scan / v11 complete legacy-envelope validated page.
+//! Neither is native projection parity, a source grant or public history API.
 use crate::{Capture, Error, INPUT_LIMIT, Identity, RootIdentity, codex};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -27,12 +27,14 @@ struct Selection {
 pub struct Request {
     pub base: codex::Request,
     pub page: jsonl_scan::Selection,
+    pub protocol_version: u8,
 }
 pub struct Pair {
     pub page: jsonl_scan::Page,
     pub rollout_identity: Identity,
     pub name_index: Option<Capture>,
     pub physical_path: String,
+    pub validation: Option<stepsemble_history_source_reader::codex_rollout_format::Validation>,
 }
 
 pub fn parse_request(bytes: &[u8]) -> Result<Request, Error> {
@@ -42,7 +44,7 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Error> {
     // Deserialize once into exact structs BEFORE rebuilding the common input:
     // duplicate/unknown/null/extra fields must not disappear in a Value map.
     let r: WireRequest = serde_json::from_slice(bytes).map_err(|_| Error::Input)?;
-    if r.protocol_version != 10
+    if ![10, 11].contains(&r.protocol_version)
         || r.page.offset > jsonl_scan::RECORDS
         || r.page.limit == 0
         || r.page.limit > jsonl_scan::PAGE_RECORDS
@@ -58,6 +60,7 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Error> {
     .map_err(|_| Error::Input)?;
     Ok(Request {
         base: codex::parse_request(&base)?,
+        protocol_version: r.protocol_version,
         page: jsonl_scan::Selection {
             offset: r.page.offset,
             limit: r.page.limit,
@@ -68,7 +71,11 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Error> {
 pub fn capture(request: &Request) -> Result<Pair, Error> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        crate::posix::codex::capture_scanned(&request.base, request.page)
+        if request.protocol_version == 11 {
+            crate::posix::codex::capture_validated(&request.base, request.page)
+        } else {
+            crate::posix::codex::capture_scanned(&request.base, request.page)
+        }
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
@@ -93,6 +100,11 @@ pub fn write_frame(
                 || pair.rollout_identity.size > jsonl_scan::SOURCE_BYTES
                 || pair.page.summary.record_count == 0
                 || pair.page.summary.record_count > jsonl_scan::RECORDS
+                || pair.validation.is_some() != (request.protocol_version == 11)
+                || pair
+                    .validation
+                    .as_ref()
+                    .is_some_and(|v| v.records_validated != pair.page.summary.record_count)
             {
                 return Err(Error::Input);
             }
@@ -125,7 +137,7 @@ pub fn write_frame(
                 .iter()
                 .map(|byte| format!("{byte:02x}"))
                 .collect();
-            let result = serde_json::json!({"kind":"native_codex_source_page","nativeVersion":base.native_version,
+            let mut result = serde_json::json!({"kind":if request.protocol_version == 11 {"native_codex_validated_source_page"} else {"native_codex_source_page"},"nativeVersion":base.native_version,
                 "threadId":base.source.thread_id,"rolloutPath":base.source.rollout_path,
                 "rootIdentity":{"device":base.expected_root.device,"inode":base.expected_root.inode},
                 "storage":{"encoding":"jsonl","rolloutPath":pair.physical_path},
@@ -139,6 +151,9 @@ pub fn write_frame(
                     "matchingRolloutDigests":true,"matchingNameIndexBytes":true,
                     "unchangedObservedIdentity":true,"nameIndexPresenceRechecked":true,"rolloutSelectionRechecked":true},
                 "recordSemanticsValidated":false,"semanticHistoryComplete":false,"sourceAuthenticated":false,"publishable":false});
+            if let Some(validation) = pair.validation {
+                result["validation"] = serde_json::to_value(validation).map_err(|_| Error::Io)?;
+            }
             (result, payload)
         }
         Err(error) => (
@@ -147,7 +162,7 @@ pub fn write_frame(
         ),
     };
     let header = serde_json::to_vec(
-        &serde_json::json!({"protocolVersion":10,"nonce":request.base.nonce,"result":result}),
+        &serde_json::json!({"protocolVersion":request.protocol_version,"nonce":request.base.nonce,"result":result}),
     )
     .map_err(|_| Error::Io)?;
     if header.len() > 16 * 1024 {
@@ -171,6 +186,32 @@ mod tests {
             "source":{"codexRoot":"/owned/source","threadId":id,
             "rolloutPath":format!("sessions/2026/01/05/rollout-2026-01-05T12-00-00-{id}.jsonl")},
             "expectedRoot":{"device":"1","inode":"2"},"page":{"offset":0,"limit":50}})
+    }
+    #[test]
+    fn validated_protocol_is_explicit_and_errors_do_not_claim_a_validation_receipt() {
+        let mut value = input();
+        value["protocolVersion"] = serde_json::json!(11);
+        let request = parse_request(&serde_json::to_vec(&value).unwrap()).unwrap();
+        assert_eq!(request.protocol_version, 11);
+        let mut frame = Vec::new();
+        write_frame(
+            &mut frame,
+            &request,
+            Err(Error::RolloutFormat(
+                stepsemble_history_source_reader::codex_rollout_format::Error::InvalidMetadata,
+            )),
+        )
+        .unwrap();
+        let length = u32::from_be_bytes(frame[..4].try_into().unwrap()) as usize;
+        assert_eq!(length + 4, frame.len());
+        let header: serde_json::Value = serde_json::from_slice(&frame[4..]).unwrap();
+        assert_eq!(header["protocolVersion"], 11);
+        assert_eq!(
+            header["result"],
+            serde_json::json!({"kind":"source_unavailable","code":"rollout_invalid_metadata"})
+        );
+        value["protocolVersion"] = serde_json::json!(12);
+        assert!(parse_request(&serde_json::to_vec(&value).unwrap()).is_err());
     }
     #[test]
     fn separate_exact_v10_request_reuses_the_existing_source_scope() {

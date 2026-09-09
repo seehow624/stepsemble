@@ -1,5 +1,6 @@
 "use strict";
-// Host-private v10 byte-framed scan receipt. Not a native-semantic history DTO,
+// Host-private v10 byte scan / v11 complete legacy-envelope validation receipt.
+// Not a native-semantic history DTO,
 // HTTP schema, source grant or replacement for the legacy raw parser contracts.
 const crypto = require("node:crypto");
 const { canonicalJSON } = require("../../../public/modules/projection");
@@ -42,10 +43,16 @@ function checks(v) {
     && v.owner === "posix_euid_and_mode" && v.acl === "no_extended_acl" && v.containment === "root_identity_and_openat_nofollow"
     && v.reads === 2 && ["matchingRolloutDigests", "matchingNameIndexBytes", "unchangedObservedIdentity", "nameIndexPresenceRechecked", "rolloutSelectionRechecked"].every(k => v[k] === true);
 }
-function metadata(v) {
+function validation(v, count) {
+  return keys(v, ["profile", "recordsValidated", "selectedMetadataRecord", "metadataRecords", "historyMode"])
+    && v.profile === "codex_legacy_envelope_v1" && v.recordsValidated === count && v.historyMode === "legacy"
+    && integer(v.selectedMetadataRecord, 0, count - 1) && integer(v.metadataRecords, 1, count - v.selectedMetadataRecord);
+}
+function metadata(v, validated = false) {
   if (!keys(v, ["kind", "nativeVersion", "threadId", "rolloutPath", "rootIdentity", "storage", "byteLength", "sha256", "rollout", "page", "nameIndex", "checks",
-    "recordSemanticsValidated", "semanticHistoryComplete", "sourceAuthenticated", "publishable"])
-    || v.kind !== "native_codex_source_page" || !context(v) || !rollout(v.rollout, v.rootIdentity)
+    "recordSemanticsValidated", "semanticHistoryComplete", "sourceAuthenticated", "publishable", ...(validated ? ["validation"] : [])])
+    || v.kind !== (validated ? "native_codex_validated_source_page" : "native_codex_source_page") || !context(v) || !rollout(v.rollout, v.rootIdentity)
+    || validated && !validation(v.validation, v.rollout.recordCount)
     || !keys(v.page, ["offset", "byteLength", "records", "nextOffset"]) || !integer(v.page.offset, 0, v.rollout.recordCount)
     || !integer(v.page.byteLength, 0, LIMITS.pageBytes) || !Array.isArray(v.page.records) || v.page.records.length > LIMITS.pageRecords
     || !index(v.nameIndex, v.rootIdentity, v.rollout, v.page.byteLength, true)
@@ -65,8 +72,8 @@ function metadata(v) {
   return payloadOffset === v.page.byteLength && (byteEnd === null || integer(v.rollout.identity.size - byteEnd, remaining, remaining * LIMITS.recordBytes));
 }
 function decode(v, payload, job) {
-  if (job.protocolVersion !== 10 || !input({ nativeVersion: job.nativeVersion, source: job.source, expectedRoot: job.expectedRoot, page: job.page })
-    || !metadata(v) || !Buffer.isBuffer(payload) || payload.length !== v.byteLength || digest(payload) !== v.sha256
+  if (![10, 11].includes(job.protocolVersion) || !input({ nativeVersion: job.nativeVersion, source: job.source, expectedRoot: job.expectedRoot, page: job.page })
+    || !metadata(v, job.protocolVersion === 11) || !Buffer.isBuffer(payload) || payload.length !== v.byteLength || digest(payload) !== v.sha256
     || v.nativeVersion !== job.nativeVersion || v.threadId !== job.source.threadId || v.rolloutPath !== job.source.rolloutPath
     || v.rootIdentity.device !== job.expectedRoot.device || v.rootIdentity.inode !== job.expectedRoot.inode
     || v.page.offset !== job.page.offset || v.page.records.length > job.page.limit) return null;
@@ -88,14 +95,17 @@ function sourceVersion(result) {
     if (Object.values(props).some(d => !Object.hasOwn(d, "value") || !d.enumerable)) return null;
     header = Object.fromEntries(Object.entries(props).filter(([k]) => !["pageBytes", "nameIndexBytes", "cleanupConfirmed"].includes(k)).map(([k, d]) => [k, d.value]));
   } catch { return null; }
-  const v = detach(header); if (!metadata(v)) return null;
-  return { kind: "codex_scanned_source_version", nativeVersion: v.nativeVersion, threadId: v.threadId, rolloutPath: v.rolloutPath,
+  const v = detach(header), validated = v?.kind === "native_codex_validated_source_page"; if (!metadata(v, validated)) return null;
+  return { kind: validated ? "codex_validated_source_version" : "codex_scanned_source_version", nativeVersion: v.nativeVersion, threadId: v.threadId, rolloutPath: v.rolloutPath,
     rootIdentity: v.rootIdentity, storage: v.storage, rollout: v.rollout,
+    ...(validated ? { validation: v.validation } : {}),
     nameIndex: v.nameIndex === null ? null : { identity: v.nameIndex.identity, sha256: v.nameIndex.sha256 } };
 }
 function validVersion(v) {
-  return keys(v, ["kind", "nativeVersion", "threadId", "rolloutPath", "rootIdentity", "storage", "rollout", "nameIndex"])
-    && v.kind === "codex_scanned_source_version" && context(v) && rollout(v.rollout, v.rootIdentity) && index(v.nameIndex, v.rootIdentity, v.rollout, null, false);
+  const validated = v?.kind === "codex_validated_source_version";
+  return keys(v, ["kind", "nativeVersion", "threadId", "rolloutPath", "rootIdentity", "storage", "rollout", "nameIndex", ...(validated ? ["validation"] : [])])
+    && v.kind === (validated ? "codex_validated_source_version" : "codex_scanned_source_version") && context(v) && rollout(v.rollout, v.rootIdentity)
+    && (!validated || validation(v.validation, v.rollout.recordCount)) && index(v.nameIndex, v.rootIdentity, v.rollout, null, false);
 }
 function sameSourceVersion(a, b) { a = detach(a); b = detach(b); return validVersion(a) && validVersion(b) && canonicalJSON(a) === canonicalJSON(b); }
 module.exports = { LIMITS, input, decode, sourceVersion, sameSourceVersion };
