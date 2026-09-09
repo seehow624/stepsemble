@@ -1,0 +1,183 @@
+#!/usr/bin/env node
+// Native read oracle over trusted owned projection rows. No resume/materialize,
+// model, credentials, private source, production grant or schema migration logic.
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import crypto from "node:crypto";
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { createServer } from "node:http";
+import { pathToFileURL } from "node:url";
+import { withHistorySchemas, verifyHistorySchemas } from "./check-native-codex-history.mjs";
+import { probeEnvironment } from "./check-native-codex-schema.mjs";
+import { historyRpc } from "../protocol/native/codex/history-rpc.js";
+import { paginatedFixture } from "../protocol/native/codex/paginated-history-fixture.js";
+import { observePaginatedItems } from "../protocol/native/codex/paginated-history-observation.js";
+
+export async function checkPaginatedRuntime(binary) {
+  assert(path.isAbsolute(binary), "absolute pinned native binary required");
+  return withHistorySchemas(binary, async snapshot => {
+    await verifyHistorySchemas(snapshot);
+    const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-codex-paginated-owned-")));
+    const codexHome = path.join(home, "codex"), sqliteHome = path.join(home, "sqlite"), saved = new Map();
+    let client, db, physical = 0, starts = 0, requests = 0, cleanupConfirmed = true;
+    const notices = [], sink = createServer((_req, res) => { requests++; res.writeHead(503); res.end(); });
+    const save = async (file, bytes) => { await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+      await fs.writeFile(file, bytes, { flag: "wx", mode: 0o600 }); saved.set(file, Buffer.from(bytes)); };
+    const start = async () => {
+      assert(!db && !client && physical === 0 && cleanupConfirmed, "no fixture/native overlap");
+      const child = spawn(await fs.realpath(binary), ["app-server", "--listen", "stdio://"],
+        { cwd: home, env: probeEnvironment(home), stdio: ["pipe", "pipe", "pipe"], shell: false });
+      physical++; starts++; cleanupConfirmed = false; child.once("close", () => { physical--; });
+      client = historyRpc(child, { allowIndexRepair: true, allowOwnedLinuxSandboxNotice: process.platform === "linux" });
+      await client.initialize(); assert.deepEqual((await client.request("thread/loaded/list")).data, []);
+    };
+    const close = async () => {
+      if (!client) return;
+      notices.push(...client.diagnostics().startupNotices);
+      ({ cleanupConfirmed } = await client.close()); assert(cleanupConfirmed && physical === 0); client = null;
+    };
+    let observedPages = 0;
+    const collect = async (method, params, meta) => {
+      const rows = [], seen = new Set(); let cursor;
+      for (let page = 0; page < 16; page++) {
+        const result = await client.request(method, { ...params, limit: 1, ...(cursor ? { cursor } : {}) });
+        if (meta) {
+          const observation = observePaginatedItems({ nativeVersion: snapshot.nativeVersion, threadId: params.threadId, turnId: params.turnId ?? null, thread: meta, page: result });
+          assert.equal(observation.kind, "codex_paginated_items_observation"); assert.equal(observation.nativeTitle, meta.name);
+          assert.deepEqual(observation.items.map(row => ({ turnId: row.nativeTurnId, item: row.nativeData })), result.data);
+          assert.equal(observation.sourceAuthenticated, false); assert.equal(observation.publishable, false); assert.equal(observation.historyComplete, false); observedPages++;
+        }
+        rows.push(...result.data);
+        if (result.nextCursor === null) return rows;
+        assert(result.nextCursor && !seen.has(result.nextCursor), "missing/repeated cursor"); seen.add(result.nextCursor); cursor = result.nextCursor;
+      }
+      throw new Error("owned_paginated_page_limit");
+    };
+    const stateFile = path.join(sqliteHome, "state_5.sqlite"), historyFile = path.join(sqliteHome, "thread_history_1.sqlite");
+    const root = paginatedFixture({ threadId: crypto.randomUUID(), cwd: home });
+    const child = paginatedFixture({ threadId: crypto.randomUUID(), cwd: home, historyBase: root.forkCutoff, suffix: "child" });
+    const fixtures = [root, child];
+    try {
+      await new Promise((resolve, reject) => { sink.once("error", reject); sink.listen(0, "127.0.0.1", () => { sink.removeListener("error", reject); resolve(); }); });
+      await fs.mkdir(sqliteHome, { mode: 0o700 });
+      await save(path.join(codexHome, "config.toml"), `sqlite_home = ${JSON.stringify(sqliteHome)}\nmodel_provider = "paginated_fixture"\ncli_auth_credentials_store = "file"\nproject_doc_max_bytes = 0\n[model_providers.paginated_fixture]\nname = "Owned paginated fixture"\nbase_url = "http://127.0.0.1:${sink.address().port}/v1"\nwire_api = "responses"\nrequires_openai_auth = false\n[features]\napps = false\nplugins = false\nhooks = false\nshell_snapshot = false\nmemories = false\nshell_tool = false\n[otel]\nexporter = "none"\n`);
+      for (const [i, fixture] of fixtures.entries()) {
+        fixture.file = path.join(codexHome, "sessions/2026/01/05", `rollout-2026-01-05T12-00-0${i}-${fixture.rolloutId}.jsonl`);
+        fixture.name = `原生分頁名稱 ${i} 🐾`;
+        await save(fixture.file, fixture.raw);
+      }
+      await save(path.join(codexHome, "session_index.jsonl"), fixtures.map(f => JSON.stringify({ id: f.threadId, thread_name: "不應使用的舊索引名稱", updated_at: "2026-01-05T12:30:00Z" })).join("\n") + "\n");
+      // Native itself creates all DBs/tables/migrations. This first scan is allowed
+      // to repair ONLY this owned metadata DB; an empty projection is not success.
+      await start();
+      await collect("thread/list", { useStateDbOnly: false });
+      for (const f of fixtures) {
+        assert.equal((await client.request("thread/read", { threadId: f.threadId })).thread.historyMode, "paginated");
+        assert.deepEqual(await collect("thread/items/list", { threadId: f.threadId }), []);
+      }
+      client.assertHealthy(); await close();
+      const { DatabaseSync } = await import("node:sqlite");
+      const open = (file, readOnly = false) => { assert(!client && physical === 0); db = new DatabaseSync(file, { readOnly, allowExtension: false }); db.exec("PRAGMA trusted_schema=OFF"); return db; };
+      const metadataRows = () => db.prepare("SELECT id,name,preview,history_mode,rollout_path FROM threads ORDER BY id").all().map(r => ({ ...r }));
+      open(stateFile); db.exec("BEGIN IMMEDIATE");
+      for (const f of fixtures) assert.equal(db.prepare("UPDATE threads SET name=?, preview=? WHERE id=? AND history_mode='paginated'").run(f.name, "Fixture preview", f.threadId).changes, 1);
+      db.exec("COMMIT"); let expectedMetadata = metadataRows(); db.close(); db = null;
+      open(historyFile);
+      const schemas = db.prepare("SELECT type, name, sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY name").all().map(r => ({ ...r, sql: r.sql?.replaceAll("\r\n", "\n") ?? null }));
+      assert(schemas.some(r => r.name === "thread_items") && schemas.some(r => r.name === "thread_turns") && schemas.some(r => r.name === "thread_history_projection_state"));
+      const historySchemaSha256 = crypto.createHash("sha256").update(JSON.stringify(schemas)).digest("hex");
+      assert.equal(historySchemaSha256, "5dc2e78ea370ca336b00f7ed52a845bd89692804fb0a829476eb9e901e57dd90", "pinned native-created history schema drift");
+      const seed = f => {
+        for (const t of f.turns) db.prepare("INSERT INTO thread_turns (thread_id,turn_id,rollout_ordinal,status,started_at,completed_at,duration_ms,first_user_item_id,final_agent_item_id,rollout_byte_offset,rollout_end_ordinal,rollout_end_byte_offset) VALUES (?,?,?,'completed',10,20,10000,?,?,?,?,?)")
+          .run(f.rolloutId, t.turnId, t.ordinal, t.firstUserItemId, t.finalAgentItemId, t.offset, t.endOrdinal, t.endOffset);
+        for (const it of f.items) db.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,rollout_ordinal,created_at_ms,item_json,item_type,updated_at_ordinal) VALUES (?,?,?,?,?,?,?,?)")
+          .run(f.rolloutId, it.turnId, it.itemId, it.createdOrdinal, it.createdAtMs, JSON.stringify(it.item), it.item.type, it.updatedOrdinal);
+        db.prepare("INSERT INTO thread_history_projection_state (thread_id,next_rollout_byte_offset,next_rollout_ordinal) VALUES (?,?,?)")
+          .run(f.rolloutId, f.checkpoint.nextByteOffset, f.checkpoint.nextOrdinal);
+      };
+      db.exec("BEGIN IMMEDIATE"); for (const f of fixtures) seed(f);
+      db.exec("COMMIT");
+      const tables = ["thread_turns", "thread_items", "thread_history_projection_state"];
+      const rows = () => tables.map(table => db.prepare(`SELECT * FROM ${table} ORDER BY thread_id${table === "thread_history_projection_state" ? "" : ",rollout_ordinal"}`).all().map(r => ({ ...r })));
+      let expectedProjection = rows(); db.close(); db = null;
+      await start();
+      let itemPages = 0, turnPages = 0;
+      for (const f of fixtures) {
+        const meta = (await client.request("thread/read", { threadId: f.threadId })).thread;
+        assert.equal(meta.name, f.name); assert.equal(meta.status.type, "notLoaded"); assert.deepEqual(meta.turns, []);
+        const expected = f === root ? root.items : [...root.items.filter(it => it.createdOrdinal < root.forkCutoff.end_ordinal_exclusive), ...child.items];
+        const entries = await collect("thread/items/list", { threadId: f.threadId }, meta);
+        assert.deepEqual(entries, expected.map(it => ({ turnId: it.turnId, item: it.item }))); itemPages += entries.length;
+        const all = await client.request("thread/items/list", { threadId: f.threadId, limit: 50 });
+        assert.deepEqual(all.data, entries); assert.equal(all.nextCursor, null);
+        assert.equal(observePaginatedItems({ nativeVersion: snapshot.nativeVersion, threadId: f.threadId, turnId: null, thread: meta, page: all }).kind, "codex_paginated_items_observation");
+        const turns = await collect("thread/turns/list", { threadId: f.threadId });
+        assert.deepEqual(turns.flatMap(t => t.items.map(item => ({ turnId: t.id, item }))), entries);
+        assert(turns.every(t => t.itemsView === "full" && t.status === "completed" && t.startedAt === 10 && t.completedAt === 20 && t.durationMs === 10000)); turnPages += turns.length;
+        for (const turn of turns) assert.deepEqual(await collect("thread/items/list", { threadId: f.threadId, turnId: turn.id }, meta), entries.filter(it => it.turnId === turn.id));
+      }
+      const first = await client.request("thread/items/list", { threadId: root.threadId, limit: 1 });
+      assert(first.nextCursor);
+      await assert.rejects(client.request("thread/items/list", { threadId: child.threadId, cursor: first.nextCursor }), error => error.message === "codex_history_read_failed" && error.nativeCode === -32600);
+      assert.deepEqual((await client.request("thread/loaded/list")).data, []); client.assertHealthy(); await close();
+      open(historyFile, true); assert.deepEqual(rows(), expectedProjection, "native read changed seeded projection"); db.close(); db = null;
+      open(stateFile, true); assert.deepEqual(metadataRows(), expectedMetadata); db.close(); db = null;
+      // Revert keeps the stable thread ID but selects a different physical
+      // rollout ID via the state row. Old filename-derived identities are wrong.
+      const reverted = paginatedFixture({ threadId: child.threadId, rolloutId: crypto.randomUUID(), cwd: home, historyBase: root.forkCutoff, suffix: "revert" });
+      const revertedFile = path.join(codexHome, "archived_sessions", `rollout-2026-01-05T12-00-02-${reverted.rolloutId}.jsonl`);
+      await save(revertedFile, reverted.raw);
+      open(stateFile); assert.equal(db.prepare("UPDATE threads SET rollout_path=? WHERE id=?").run(revertedFile, child.threadId).changes, 1);
+      expectedMetadata = metadataRows(); db.close(); db = null;
+      open(historyFile); db.exec("BEGIN IMMEDIATE"); seed(reverted);
+      // A deliberately lagging, but internally consistent, native projection.
+      // Native item reads can succeed despite durable JSONL having more items.
+      // This case is NOT counted as complete source history by our observation.
+      db.prepare("DELETE FROM thread_items WHERE thread_id=? AND rollout_ordinal>=?").run(root.rolloutId, root.forkCutoff.end_ordinal_exclusive);
+      db.prepare("DELETE FROM thread_turns WHERE thread_id=? AND rollout_ordinal>=?").run(root.rolloutId, root.forkCutoff.end_ordinal_exclusive);
+      db.prepare("UPDATE thread_history_projection_state SET next_rollout_byte_offset=?,next_rollout_ordinal=? WHERE thread_id=?")
+        .run(root.forkCutoff.end_byte_offset, root.forkCutoff.end_ordinal_exclusive, root.rolloutId);
+      db.exec("COMMIT"); expectedProjection = rows(); db.close(); db = null;
+      await start();
+      const revertedMeta = (await client.request("thread/read", { threadId: child.threadId })).thread;
+      assert.equal(revertedMeta.id, child.threadId); assert.equal(revertedMeta.name, child.name); assert.equal(revertedMeta.status.type, "notLoaded");
+      const inherited = root.items.filter(it => it.createdOrdinal < root.forkCutoff.end_ordinal_exclusive);
+      const revertedEntries = await collect("thread/items/list", { threadId: child.threadId }, revertedMeta);
+      assert.deepEqual(revertedEntries, [...inherited, ...reverted.items].map(it => ({ turnId: it.turnId, item: it.item })));
+      assert(revertedEntries.every(row => !row.turnId.startsWith("child-")), "superseded rollout must not leak into current history");
+      const laggedMeta = (await client.request("thread/read", { threadId: root.threadId })).thread;
+      const lagged = await client.request("thread/items/list", { threadId: root.threadId, limit: 50 });
+      assert.deepEqual(lagged.data, inherited.map(it => ({ turnId: it.turnId, item: it.item }))); assert.equal(lagged.nextCursor, null);
+      assert(lagged.data.length < root.items.length, "lagging projection must remain a known missing-history fixture");
+      const laggedObservation = observePaginatedItems({ nativeVersion: snapshot.nativeVersion, threadId: root.threadId, turnId: null, thread: laggedMeta, page: lagged });
+      assert.equal(laggedObservation.kind, "codex_paginated_items_observation"); assert.equal(laggedObservation.historyComplete, false); assert.equal(laggedObservation.publishable, false);
+      assert.deepEqual((await client.request("thread/loaded/list")).data, []); client.assertHealthy(); await close();
+      open(historyFile, true); assert.deepEqual(rows(), expectedProjection, "native reads must not materialize/repair lagging projection"); db.close(); db = null;
+      open(stateFile, true); assert.deepEqual(metadataRows(), expectedMetadata); db.close(); db = null;
+      for (const [file, bytes] of saved) assert.deepEqual(await fs.readFile(file), bytes, "native changed owned input file");
+      assert.equal(requests, 0); assert.equal(physical, 0);
+      return { result: "passed", nativeVersion: snapshot.nativeVersion, scope: "owned_seeded_paginated_projection_read_oracle", historySchemaSha256,
+        itemPages, turnPages, observedPages, rootItems: 4, inheritedChildItems: 6, sameItemLatestSnapshotAtFirstCreatedOrdinal: true, forkCutoffExcludedLaterParentItems: true,
+        equalItemIdsInDifferentTurnsPreserved: true, wrongThreadCursorRefused: true,
+        revertedStableIdFromStatePath: true, archivedCurrentRolloutReadable: true, supersededRolloutExcluded: true,
+        laggingProjectionNativeSuccessObserved: true, laggingProjectionNotPublished: true, selectedMetadataUnchangedAfterReads: true,
+        nativeNames: true, singleTurnFilters: true, sourceFilesUnchanged: saved.size, seededProjectionUnchanged: true,
+        nativeMaterializationVerified: false, fullThreadReadVerified: false, privateHistoryReads: 0, modelEndpointRequests: requests, loadedThreads: 0,
+        ownedNativeStarts: starts, remainingChildren: physical, startupNotices: notices, cleanupConfirmed };
+    } finally {
+      if (db) { db.close(); db = null; }
+      try { if (client) await close(); } finally {
+        sink.closeAllConnections(); if (sink.listening) await new Promise(resolve => sink.close(resolve));
+        if (cleanupConfirmed && physical === 0) await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+        else throw new Error("owned_paginated_home_retained_cleanup_unknown");
+      }
+    }
+  });
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  const [binary, ...extra] = process.argv.slice(2);
+  assert(binary && extra.length === 0, "Usage: check-native-codex-paginated.mjs /absolute/native/codex");
+  console.log(JSON.stringify(await checkPaginatedRuntime(binary)));
+}

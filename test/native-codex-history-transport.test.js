@@ -145,6 +145,27 @@ test("item replies cannot cross the selected native turn", async t => {
   const pending = assert.rejects(p.client.request("thread/items/list", { threadId, turnId: "turn-owned" }), /turn_mismatch/);
   p.reply({ data: [{ turnId: "turn-other", item: { id: "item-1", type: "userMessage", content: [] } }] }); await pending;
 });
+test("paginated items use exact turn/item pair identity, not a global item ID or joined delimiter", async t => {
+  const p = await peer(t); await p.initialize();
+  const result = p.client.request("thread/items/list", { threadId });
+  const data = [{ turnId: "a:b", item: { id: "c", type: "plan" } }, { turnId: "a", item: { id: "b:c", type: "plan" } },
+    { turnId: "other", item: { id: "c", type: "plan" } }];
+  p.reply({ data }); assert.deepEqual((await result).data, data); p.client.assertHealthy();
+  const duplicate = assert.rejects(p.client.request("thread/items/list", { threadId }), /page_invalid/);
+  p.reply({ data: [data[0], data[0]] }); await duplicate;
+});
+test("native item and turn identifier bounds are enforced on request and response", async t => {
+  for (const turnId of ["x".repeat(257), "a\nb", "a\u0000b", "a\u007fb"]) {
+    const p = await peer(t); await p.initialize(); const count = p.writes.length;
+    await assert.rejects(p.client.request("thread/items/list", { threadId, turnId }), /params_invalid/);
+    assert.equal(p.writes.length, count);
+    const bad = assert.rejects(p.client.request("thread/items/list", { threadId }), /turn_mismatch/);
+    p.reply({ data: [{ turnId, item: { id: "item" } }] }); await bad;
+  }
+  const p = await peer(t); await p.initialize();
+  const bad = assert.rejects(p.client.request("thread/items/list", { threadId }), /page_invalid/);
+  p.reply({ data: [{ turnId: "turn", item: { id: "a\nb" } }] }); await bad;
+});
 test("EOF, timeout, stderr and total output limits stop only the owned child", async t => {
   for (const mode of ["eof", "timeout", "stderr", "total"]) {
     const p = await peer(t, { timeoutMs: mode === "timeout" ? 5 : 15000 }); await p.initialize();

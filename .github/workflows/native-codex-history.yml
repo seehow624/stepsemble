@@ -79,3 +79,4 @@ jobs:
           node scripts/check-native-codex-history.mjs "$NATIVE_BINARY" --runtime
           node scripts/check-native-codex-names.mjs "$NATIVE_BINARY"
           node scripts/check-native-codex-metadata-names.mjs "$NATIVE_BINARY"
+          node scripts/check-native-codex-paginated.mjs "$NATIVE_BINARY"

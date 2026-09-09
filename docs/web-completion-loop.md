@@ -1,8 +1,12 @@
 # Web 完整體：持續執行與驗收清單
 
+2026-09-09／Plan1.80：paginated owned真CLI oracle、獨立item observation及scoped-ID
+修正已驗；1158/0fail完整／最低Node，fork/revert/更新與lagging projection保護通。
+不改legacy拒絕或冒稱新Rust來源／Host/Web已接，詳[下一段](codex-paginated-history.md)。
+
 2026-09-09／Plan1.79：真17.2MB／16,384筆壓縮歷史容量缺口已修，Rust13/14、
 physical/decoded雙版本與parser11–14接同Host/Web。完整／最低Node1146/0fail、Rust／
-RustSec、實際Host及CUA390/320px已通；exact提交跨平台CI待核，詳
+RustSec、實際Host及CUA390/320px已通；fa8c84a五組exact跨平台CI全通/full logs核，詳
 [驗收入口](codex-large-compressed-history.md)。不是最大容量／peak RSS或完整native
 projection；C2及C1–C8未勾完成，正式服務與已結案72h不變。
 
@@ -128,11 +132,11 @@ Rust29/30／全部179child與83dirs清理通。新工程7b16d03五CI已通／ful
 | Checkpoint | 交付與必要證據 | 目前進展（不等於整項驗收完成） |
 | --- | --- | --- |
 | C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | Plan1.78本機多group新增／替換／編輯／移除產生新候選，完整權限review、保留manual與原檔，真Host原檔權限／讀取已驗；Web列表既有。不新增live mutation或管理route，真人owner／受控啟用及完整C1仍待 |
-| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.76已把大型plain全來源turn/tool/rollback接同Host／Web，17.2MB／16384筆原名、原生ID、直跳／雙向工具連結與頁外回退已驗；小型及壓縮來源保留舊契約。大型壓縮、paginated/native投影、其他adapter與C2完整驗收繼續；不是完整語義、原子snapshot或resume |
+| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.79大型plain/壓縮全來源turn/tool/rollback及Host/Web、17.2MB/16384筆/手機尺寸已驗，五CI全通。Plan1.80補paginated native oracle、獨立item契約和scoped-ID；新projection/lineage安全來源→Host/Web、其他adapter及C2整體仍待 |
 | C3 Session／approval／恢復 | 按真實 capability 接結構化事件、續跑與 approval；ownership、exact correlation、重送／重連／Host crash、durable journal/replay 不漏不重 | 有 contract 與局部實作，未全驗 |
 | C4 帳號與故障體驗 | 登入／登出偵測、官方登入入口、路由相容、取消／失敗／stale／busy 可復原；不修寫第三方憑證或以重試消耗模型 | 局部已驗，跨 harness 待補 |
 | C5 手機與跨裝置操作 | 完整 history i18n、鍵盤／focus／內捲動、長歷史 DOM 上限、Host 切換、background/reconnect、跨機與目標瀏覽器實測 | Plan1.56已接119keys/11語並修正locale scroll跳動；320/390合成Host CUA、原文/DOM/focus保留已驗；人工校稿/真機/跨Host與其餘gate仍待 |
-| C6 可靠性與效能 | 保存完整失敗診斷；調查曾發生的未定位測試失敗；同 workload 多輪 before/after、記憶體、長串流與斷線驗證 | 原fixture鎖／頁面觀測／Buffer差異格式化／PTY及browser共同期限失敗均保留。Plan1.76修cancel後refresh競態；最後兩輪同17.2MB/18reads，max request255.5／253.5ms、health p95 2.23／2.30ms、RSS200ms樣本103.6／101.7MB，非峰值／A/B或容量結論。最大來源、混合負載、真機及整體效能gate仍待 |
+| C6 可靠性與效能 | 保存完整失敗診斷；調查曾發生的未定位測試失敗；同 workload 多輪 before/after、記憶體、長串流與斷線驗證 | 原fixture／timeout失敗與修正均保留。Plan1.79最終真17.2MB/19壓縮reads：max247.42ms、health p95 1.64ms、RSS200ms樣本102.58MB（非峰值）。後續32次單release-reader測到256MiB/262144筆，macOS最高ru_maxrss5,193,728B，但只有一個推定turn，不是最大索引/Host/pool/mixedload。完整效能gate仍待 |
 | C7 跨平台 Host 與分階段 Rust | 保留相容 Host/Client 邊界；Rust 以契約／shadow／逐 endpoint 方式接入；Windows 原生來源與真服務 runner 不把 parser 通過当成功能通過 | POSIX reader 已有，其餘按主計畫 gate 推進 |
 | C8 發布與回滾 | exact SHA 的必要 CI／browser／native gates、來源與帳號授權、active-work 檢查、備份、回滾、正式健康與版本／裝置驗收 | 正式 3.0.6 不變；新候選未部署 |
 

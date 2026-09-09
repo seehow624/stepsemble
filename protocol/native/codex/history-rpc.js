@@ -13,7 +13,7 @@ function parameters(method, input, allowIndexRepair) {
     method === "thread/loaded/list" ? ["cursor", "limit"] : ["threadId", "cursor", "limit", ...(method === "thread/items/list" ? ["turnId"] : [])];
   if (Object.keys(input).some(key => !fields.includes(key)) ||
       (fields.includes("threadId") && !id(input.threadId)) ||
-      (input.turnId !== undefined && (typeof input.turnId !== "string" || !input.turnId.length || input.turnId.length > 256)) ||
+      (input.turnId !== undefined && (typeof input.turnId !== "string" || !input.turnId.length || input.turnId.length > 256 || /[\u0000-\u001f\u007f]/.test(input.turnId))) ||
       (input.cursor !== undefined && (typeof input.cursor !== "string" || !input.cursor.length || input.cursor.length > 4096)) ||
       (input.limit !== undefined && (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 50)) ||
       (input.archived !== undefined && typeof input.archived !== "boolean") ||
@@ -91,10 +91,15 @@ function historyRpc(child, { timeoutMs = 15000, stopGraceMs = 1000, closeTimeout
       const data = frame.result.data, identifiers = new Set();
       for (const entry of data) {
         const key = pending.method === "thread/loaded/list" ? entry : pending.method === "thread/items/list" ? entry?.item?.id : entry?.id;
-        if (typeof key !== "string" || !key.length || key.length > 256 || identifiers.has(key)) return fail("codex_history_page_invalid");
-        identifiers.add(key);
-        if (pending.method === "thread/items/list" && (!object(entry) || typeof entry.turnId !== "string" || !entry.turnId.length ||
-            (pending.params.turnId !== undefined && entry.turnId !== pending.params.turnId))) return fail("codex_history_turn_mismatch");
+        if (typeof key !== "string" || !key.length || key.length > 256 || /[\u0000-\u001f\u007f]/.test(key)) return fail("codex_history_page_invalid");
+        if (pending.method === "thread/items/list" && (!object(entry) || typeof entry.turnId !== "string" || !entry.turnId.length || entry.turnId.length > 256 ||
+            /[\u0000-\u001f\u007f]/.test(entry.turnId) || (pending.params.turnId !== undefined && entry.turnId !== pending.params.turnId))) return fail("codex_history_turn_mismatch");
+        // Native thread_items uses (thread_id, turn_id, item_id), not item_id
+        // alone. Preserve equal IDs in different turns; never join with a
+        // delimiter that could itself occur in an ID.
+        const scopedKey = pending.method === "thread/items/list" ? JSON.stringify([entry.turnId, key]) : key;
+        if (identifiers.has(scopedKey)) return fail("codex_history_page_invalid");
+        identifiers.add(scopedKey);
       }
     }
     for (const key of ["nextCursor", "backwardsCursor"]) if (frame.result?.[key] != null && (typeof frame.result[key] !== "string" || !frame.result[key].length || frame.result[key].length > 4096)) return fail("codex_history_page_invalid");

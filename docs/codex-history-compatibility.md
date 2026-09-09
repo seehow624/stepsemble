@@ -1,5 +1,10 @@
 # Codex 原生歷史：固定版本讀取驗證
 
+**Plan1.80更正目前解讀**：舊items/list -32601僅在legacy fixture發生，不能推論
+所有paginated都不支援。新增正確owned projection真CLI讀取、獨立item observation、
+fork/revert/lagging投影驗證，見[codex-paginated-history.md](codex-paginated-history.md)。
+下文是當時的測試及解讀，原失敗保留；目前仍未把新paginated來源接入Host/Web。
+
 2026-09-08／Plan 1.58，開發候選為 3.0.7-rc.7，**沒有部署**。
 這是 C2 的受限 RPC、inert observation 核心與真 CLI 合成測試，
 不是已完成的 Codex 歷史 adapter。

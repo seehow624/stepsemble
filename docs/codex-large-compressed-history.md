@@ -1,7 +1,13 @@
 # 大型 Codex 壓縮歷史：有界讀取與完整產品接線
 
-2026-09-09／Plan1.79，開發中的 rc.7，**本機產品驗收已通，exact提交的CI待核；未正式部署**。
+2026-09-09／Plan1.79，開發中的 rc.7，**本機產品驗收與fa8c84a五組exact CI均通；未正式部署**。
 前一已驗提交為 `46bca82`；C1–C8完整範圍與正式啟用關卡不變。
+
+提交後已核完整logs：general34364271047、reader34364271069、Codex34364270861、
+Claude34364270865、rolling34364270956全為terminal success。三OS一般1146/0fail；
+reader364Node tests/OS全通；POSIX17.2MB/16384筆/19壓縮reads；rolling雙OS各
+24既有＋6Codex cases、六個尺寸／theme組合、新大型壓縮flags與pageErrors0通。
+Windows private source仍unsupported。接續paginated見[codex-paginated-history.md](codex-paginated-history.md)。
 
 ## 實際缺口
 
@@ -26,6 +32,15 @@ Zstandard後，refresh回`source_unavailable/rollout_compression_limit`，畫面
 與pinned Codex的transitive lock完全相同。
 
 ## 協定與語言邊界
+
+提交後的唯讀 C6 follow-up 另以同一 release reader SHA（下文74c5…a2a3）測量：
+repetitive／4MiB循環alphabet bounded-entropy兩profile × 1/16/64/256MiB × v13/v14
+× 2rounds，共32次成功，逐頁SHA/計數/structure驗證；macOS `/usr/bin/time -l`
+單helper最高ru_maxrss **5,193,728 bytes**。256MiB bounded-entropy實體185,814,876B、
+2.22–2.23秒；repetitive實體24,812B、1.23–1.24秒。
+所有sample都是一個推定turn，不是最大turn/call索引、Host共享pool、混合負載或其他OS
+峰值。+1024 decoded bytes案例由header早拒（zero payload），不當作解壓超限峰值證明。
+這些測量沒有改程式／依賴／deadline，也不能把5.2MB當整個應用程式RAM上限。
 
 | 層 | 新能力 | 不變的界線 |
 | --- | --- | --- |
