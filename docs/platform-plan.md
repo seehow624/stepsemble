@@ -1,14 +1,22 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.81
-> 最後更新：2026-09-09
-> 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
-> Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
+> 計畫版本：1.82
+> 最後更新：2026-09-10
+> 當前產品基線：Stepsemble 3.0.8（由 Pi Harbor 2.13.2 相容遷移）
+> Mini 啟用版本：3.0.8／source `3bae06c`（2026-09-09 已公開 stable release 並更新）
+> MacBook Pro 最後確認：3.0.7；本機離線中，會由既有 updater 自行升到 3.0.8，不冒稱已完成
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
 ## 文件用途與回復方法
+
+**最新接續1.82（paginated 投影檢查點讀取）**：新增受控唯讀模組讀
+`thread_history_1.sqlite` 的 projection checkpoint 與 turn 邊界，三張表 DDL 逐字固定、
+item payload 與其他表／SQL 函式維持未授權，落後投影如實回報且永遠
+`historyComplete:false`。Rust 全套與新 12 項通過、fmt/clippy 乾淨、固定 DDL 由真原生
+資料庫逐表比對；Node 1158/0fail 不變。**尚未接祖先鏈、durable 比對、cursor 或 Host/Web**，
+C2 不勾完成，詳[檢查點讀取邊界](codex-paginated-checkpoint.md)。
 
 **Jerome最新指示／1.81**：停止長期Goal擴充，收尾、總結並發布本批已驗增量為
 3.0.7正式版供Mini/MBP更新；不把C1–C8長期計畫改寫成全完成。發布/實裝以各gate

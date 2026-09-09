@@ -89,6 +89,16 @@ export async function checkPaginatedRuntime(binary) {
       assert(schemas.some(r => r.name === "thread_items") && schemas.some(r => r.name === "thread_turns") && schemas.some(r => r.name === "thread_history_projection_state"));
       const historySchemaSha256 = crypto.createHash("sha256").update(JSON.stringify(schemas)).digest("hex");
       assert.equal(historySchemaSha256, "5dc2e78ea370ca336b00f7ed52a845bd89692804fb0a829476eb9e901e57dd90", "pinned native-created history schema drift");
+      // The bounded Rust checkpoint reader compiles these exact DDL fixtures in
+      // and refuses anything else, so drift must fail here rather than silently
+      // changing what a projection checkpoint is allowed to mean.
+      for (const [table, file] of [["thread_turns", "sqlite-thread-turns-0.153.4.sql"],
+        ["thread_items", "sqlite-thread-items-0.153.4.sql"],
+        ["thread_history_projection_state", "sqlite-thread-projection-0.153.4.sql"]]) {
+        const pinned = (await fs.readFile(new URL(`../protocol/native/codex/${file}`, import.meta.url), "utf8")).trim();
+        assert(!pinned.includes("\r"), "canonical schema fixture must stay LF on every checkout");
+        assert.equal(schemas.find(row => row.name === table).sql, pinned, `pinned ${table} DDL drift`);
+      }
       const seed = f => {
         for (const t of f.turns) db.prepare("INSERT INTO thread_turns (thread_id,turn_id,rollout_ordinal,status,started_at,completed_at,duration_ms,first_user_item_id,final_agent_item_id,rollout_byte_offset,rollout_end_ordinal,rollout_end_byte_offset) VALUES (?,?,?,'completed',10,20,10000,?,?,?,?,?)")
           .run(f.rolloutId, t.turnId, t.ordinal, t.firstUserItemId, t.finalAgentItemId, t.offset, t.endOrdinal, t.endOffset);

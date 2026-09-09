@@ -7,6 +7,7 @@ pub mod source_error;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub mod source_filesystem;
 pub mod sqlite_metadata;
+pub mod sqlite_paginated;
 pub mod sqlite_readonly_vfs;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub mod sqlite_source;

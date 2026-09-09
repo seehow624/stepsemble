@@ -76,8 +76,10 @@ node scripts/check-native-codex-paginated.mjs /absolute/verified/native/codex
 
 ## 下一段：安全來源到產品全鏈（仍待）
 
-1. 固定 `state_5.sqlite` selected row + `thread_history_1.sqlite` WAL/cold schema／
-   projection checkpoint／visible turns/items，接同一個 reader admission/deadline，
+1. **（Plan1.82 已完成讀取邊界）** `thread_history_1.sqlite` 的 WAL/cold schema、
+   projection checkpoint 與 turn 邊界已由固定 DDL 的受控唯讀模組讀取，item payload
+   維持不可讀；見[檢查點讀取邊界](codex-paginated-checkpoint.md)。仍待：與
+   `state_5.sqlite` selected row 在同一 reader admission/deadline 下合併，
    所有資料只從已授權 roots 與 held FD 取得；不得將本 oracle 指向真人 HOME。
 2. 從 state 的 current rollout_path 起，按 SessionMeta.history_base 解析祖先；
    stable thread ID／physical rollout ID 分離，active/archive及plain/zstd都需驗。
