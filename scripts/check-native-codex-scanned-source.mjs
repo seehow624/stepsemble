@@ -12,7 +12,9 @@ const { createNativeHelper } = require("../protocol/native/claude/history-native
 const wire = require("../protocol/native/codex/scanned-source-wire.js");
 const sha = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
 if (process.argv.length !== 3 || !path.isAbsolute(process.argv[2])) throw new Error("explicit_owned_helper_required");
-const binary = process.argv[2], created = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-codex-scanned-owned-"));
+// CI supplies a native absolute runner path with a portable '/' suffix. Keep
+// the helper's strict canonical-path rule; normalize this owned CLI argument.
+const binary = path.resolve(process.argv[2]), created = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-codex-scanned-owned-"));
 const temp = await fs.realpath(created), root = path.join(temp, "codex");
 const id = "11111111-1111-4111-8111-111111111111", stem = `rollout-2026-01-05T12-00-00-${id}.jsonl`;
 const rolloutPath = `sessions/2026/01/05/${stem}`, file = path.join(root, rolloutPath), index = path.join(root, "session_index.jsonl");
