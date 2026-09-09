@@ -1,8 +1,8 @@
 # Codex 冷資料庫：有鎖的唯讀記憶體副本
 
-2026-09-09／Plan1.70 進行中，開發3.0.7-rc.7，正式3.0.6未部署。
+2026-09-09／Plan1.70 冷來源全鏈增量已驗，開發3.0.7-rc.7，正式3.0.6未部署。
 底層 cold API 與 Rust v7/v8、Node 共用 admission／version、實際 Host/Web 已接通，
-本機合成資料全鏈及手機尺寸 CUA 已驗；這次新工程 CI 待提交後驗證。**未部署，
+本機合成資料全鏈及手機尺寸 CUA 已驗；工程7b16d03五組CI全部success，完整logs已核。**未部署，
 不是完整原生語義歷史或 C2 完成**。私人來源仍須 owner 選定，Windows 仍不支援。
 
 ## 為什麼需要另一條來源路徑
@@ -85,7 +85,7 @@ Mac Mini、Rust1.97.1、鎖定SQLite3.53.4；只使用owned fixtures，沒有私
 - 本機額外三輪完整程序gate通，每輪cold41child／21dirs、全套147／82全清理。
   `...-repeat-1.log`至3、`...-general-ci.log`、`...-reader-ci.log`、`...-rolling-ci.log`。
 
-## 同一 Plan1.70 的 Host/Web 接線（本機已驗，新 CI 待驗）
+## 同一 Plan1.70 的 Host/Web 接線（本機與 exact CI 已驗）
 
 - Rust v7 選定 name context、v8 root catalog，在**同一 held root/main**準備中選 layout。
   WAL/SHM 都在才走既有 VFS；兩者都不在才上主檔鎖讀 RAM；部分存在、權限或其他
@@ -118,10 +118,35 @@ Mac Mini、Rust1.97.1、鎖定SQLite3.53.4；只使用owned fixtures，沒有私
 
 ## 剩餘工程與限制
 
-本批 CI exact SHA 及各OS冷/熱回歸仍須核完後記錄。接著處理compressed rollout、
+本批exact工程CI已驗；接著處理compressed rollout、
 原生語義projection、其他adapter與C1–C8；未知或不支援格式保留明確狀態。
 冷大DB完整Host RSS／延遲與多輪混合負載尚待；64MiB上限、共享兩reader沒有放大。
 原始紀錄完整保存不是完整native聊天語義；paginated仍只支援metadata名稱。
+
+## Exact Host/Web 工程驗證
+
+工程 `7b16d03753c008bf894fac3f3e14769b9c0dedc3` 五組CI全部success，完整logs已下載核對：
+
+- 一般34298626311：三OS各975／0fail，Mac973pass/2skip、Linux972/3、Windows925/50；
+  Ajv1251與generated通。最低Node22.19本機全套975/0fail/2skip亦通。
+- reader34298626299：三OSNode236/236；Mac/Linux Rust29lib/30bin，source adversarial
+  65case／100child／53dirs、cold12組41／21，全套179child／83dirs皆清理；真ownedHost
+  `coldCatalogAndAllPages`、`bothLayoutTransitionsRejectStalePage`、partial拒絕／復原均通。
+  Windows27lib/15bin，v7/v8實際worker明示unsupported，**不算Windows來源已支援**。
+  RustSec0known/0warnings，43packages與既有lock SHA／SQLite固定artifact不變。
+- rolling34298626347：Mac/Linux各30case，包括六Codex1440/390/320×light/dark全部
+  `coldHistoryAndBothLayoutTransitions:true`；既有24case／pageErrors0仍通。
+- nativeCodex34298626314、nativeClaude34298626223：三OS各自既有固定版本owned契約
+  通；Codex19read/18list名稱、17index cases，原command/image投影缺口仍明示；
+  不是私人HOME、真模型、原生cold writer或完整native語義驗收。
+- 最低Node22.19本機完整Host再連續3輪通，皆實際退出Host/writer與清理owned dirs。
+  完整logs `/tmp/stepsemble-cold-web-ci-{general,reader,rolling,codex,claude}.log`，
+  `...-host-min-repeat-1.log`至3、`...-min-node-1.tap`及`...-conformance-1.log`。
+
+下一個來源入口已定位固定upstream3d2ee51的`codex-rs/rollout/src/compression.rs`與
+`seekable_reader.rs`：plain `.jsonl` 優先 `.jsonl.zst`，offset指解壓後JSONL。
+不能調用materialize-for-append改動來源，也不能照搬無本產品上限的temp解壓；
+後續需明確compressed/decoded/window上限、表示切換fence及同reader預算再接全鏈。
 
 OpenAI Docs讓本次維持「讀stored thread、不resume／載入工作」的界線，見
 [官方App Server讀取說明](https://learn.chatgpt.com/docs/app-server)。SQLite依據為鎖定

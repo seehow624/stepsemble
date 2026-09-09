@@ -158,8 +158,8 @@ SessionSource serde／state enum_to_string 促成原始分類保留與不 resume
 
 ## 下一輪仍需完成（整體 goal 保持 active）
 
-1. 優先處理cold SQLite缺sidecar／compressed rollout等實際來源可用性；不能為了
-   成功而讓reader建立WAL／SHM、修復DB或改成會啟動原生工作。
+1. Plan1.70已完成cold SQLite到Host/Web及五CI驗收，見[冷資料庫全鏈](codex-cold-sqlite.md)。
+   接著compressed rollout等來源可用性；不能讓reader修復來源或啟動原生工作。
 2. 補齊完整native語義projection／其他adapter；不把raw reader算C2完成。
 3. 依C1–C8清單接續真capability的session、approval、resume、跨裝置與可靠性驗收；
    私人root、帳號／模型用量、正式部署／active-work保護關卡依原計畫，不跨越。

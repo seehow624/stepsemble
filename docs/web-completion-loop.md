@@ -29,10 +29,10 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 
 ## 順序與驗收
 
-2026-09-09／Plan1.70進行中：cold SQLite已接主DB共享鎖＋有界唯讀RAM副本、v7/v8、
+2026-09-09／Plan1.70冷來源增量已驗，整體goal繼續：cold SQLite已接主DB共享鎖＋有界唯讀RAM副本、v7/v8、
 Node同admission/version、實際Host/Web。真ownedHost39筆冷頁／清單／名稱、雙向
 layout失效／partial拒絕與復原、CUA390px冷熱流程已驗；本機975/0fail/2skip、
-Rust29/30／全部179child與83dirs清理通。新工程exact CI待驗，底層808efca既有
+Rust29/30／全部179child與83dirs清理通。新工程7b16d03五CI已通／full logs已核，底層808efca既有
 三CI證據不套成新SHA結果；Windows來源仍unsupported，也不是C2整體完成。
 詳[冷資料庫接續與證據](codex-cold-sqlite.md)；Plan1.69 Web原始紀錄既有成果不重做。
 
@@ -41,7 +41,7 @@ Rust29/30／全部179child與83dirs清理通。新工程exact CI待驗，底層8
 | Checkpoint | 交付與必要證據 | 開始狀態 |
 | --- | --- | --- |
 | C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | Plan1.57新增本機新群組設定精靈/review/明確readers/CREATE與真Host原檔驗證；Web列表已接，不自選私人來源或新增Web管理route，完整管理/實機與C1完整gate仍待 |
-| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.69已接Codex v3設定／state DB catalog／共享registry／HTTP・peer／typed Web raw records；2fe48d0五CI＋c57747f三CI全success/logs已核，各965/0fail、reader226、POSIX真Host39筆與cleanup、兩OS×六Codex browser cases通。仍非完整native語義projection／原子snapshot／resume；cold／壓縮／其他adapter與C2完整驗收繼續 |
+| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.69已接Codex owner→catalog→registry→HTTP/peer→Web raw records；Plan1.70再接cold v7/v8＋雙layout版本，7b16d03五CI/full logs已核，三OS975/0fail/reader236，POSIX真Host39筆冷頁與cleanup、雙OS×六冷熱browser cases通。仍非完整native語義projection／原子snapshot／resume；壓縮／其他adapter與C2完整驗收繼續 |
 | C3 Session／approval／恢復 | 按真實 capability 接結構化事件、續跑與 approval；ownership、exact correlation、重送／重連／Host crash、durable journal/replay 不漏不重 | 有 contract 與局部實作，未全驗 |
 | C4 帳號與故障體驗 | 登入／登出偵測、官方登入入口、路由相容、取消／失敗／stale／busy 可復原；不修寫第三方憑證或以重試消耗模型 | 局部已驗，跨 harness 待補 |
 | C5 手機與跨裝置操作 | 完整 history i18n、鍵盤／focus／內捲動、長歷史 DOM 上限、Host 切換、background/reconnect、跨機與目標瀏覽器實測 | Plan1.56已接119keys/11語並修正locale scroll跳動；320/390合成Host CUA、原文/DOM/focus保留已驗；人工校稿/真機/跨Host與其餘gate仍待 |
