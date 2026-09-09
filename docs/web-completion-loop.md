@@ -29,6 +29,14 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 
 ## 順序與驗收
 
+2026-09-09／Plan1.73來源邊界進展：da12256接同held-FD權限／ACL／name-edge／close，
+新v10 Node/Rust分頁與全來源digest/count版本，真16MiB/16,384筆、50筆頁與頁外變動通。
+完整及最低Node1028/0fail、Rust29/41＋15scanner與舊Host回歸通；eabba3e一般/reader/
+Codex與da12256的Claude/browser全通且完整logs核對。原Windows owned-script路徑失敗
+已精確修正並保留紀錄，未放寬產品路徑驗證；Windows來源仍unsupported。
+**尚不是native語義/名稱/structure或Host/Web新大檔能力**，下一段按
+[來源接線接續清單](codex-scanned-source.md)，不重做已完成的generic scanner/opener。
+
 2026-09-09／Plan1.73第一段：1c7a7d2新增有界JSONL雙掃核心、15測試及256MiB
 allocation gate；三輪release峰值不隨source增長，原Node1019/0fail。exact一般/reader/rolling
 CI全通與full logs核，三OS15scanner＋五allocation workload通，

@@ -14,11 +14,21 @@ without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
 Development-only Plan1.73 starts with a byte-level bounded JSONL double-scan core.
-It retains one page and validates the full source through a caller callback,
-with unchanged digest/count/length observations across both scans. Generated
+Follow-up da12256 connects it to the SAME authenticated POSIX opener/rechecks/
+actual-close boundary and a distinct v10 Node/Rust page receipt. The new method
+does not validate native JSON semantics or expose HTTP/registry history. Actual
+owned 16MiB/16,384-record reads and unselected-record version changes pass;
+full/minimum Node1028/0fail and old Host regression pass. Exact eabba3e general/
+reader/Codex CI and unchanged da12256 Claude/browser gates passed; the original
+Windows owned-script path failure remains documented. See
+[`codex-scanned-source.md`](codex-scanned-source.md) for remaining
+semantic/name/structure/named-pipeline/Web integration. Old contracts stay intact.
+The generic core retains one page and visits the full source through a caller
+validation hook (v10 currently establishes byte framing only), with unchanged
+digest/count/length observations across both scans. Generated
 1–256MiB allocation gates do not establish filesystem authority or Host performance.
-The existing 8MiB source/parser protocols are unchanged; held-source security,
-native semantics, framing and actual Host/Web integration remain required.
+The existing 8MiB source/parser protocols are unchanged; full native semantics,
+page-aware parser framing and actual Host/Web integration remain required.
 See [`history-large-scan.md`](history-large-scan.md); exact general/reader/rolling
 CI passed with full logs checked, including 15 new scanner cases and five
 allocation workloads on each OS. These are not large-source Web evidence.

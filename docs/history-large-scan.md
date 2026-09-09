@@ -2,8 +2,14 @@
 
 2026-09-09；工程 `1c7a7d2d9b66cdc7631a3be71067605e70c5de79`。
 這是 C2/C6 的下一個底層增量，**不是大型原生歷史已可在 Web 使用**。
-既有 v3/v9 capture、parser v1–v6、HTTP/peer/client 和 8 MiB 上限都未修改。
+既有 v3/v9 協定、parser v1–v6、HTTP/peer/client 和 8 MiB 上限都未放寬。
 不新增來源、readers、私有路徑或官方帳號使用，不部署；正式 3.0.6／dev rc.7／B+ 不變。
+
+**後續進展**：`da12256`已將此核心接到共用POSIX安全開啟／重驗／關閉邊界與新v10
+Node/Rust私有協定；真16MiB/16,384筆及頁外變動、本機1028/0fail通。eabba3e修owned
+Windows路徑後一般/reader/Codex全通，未變產品的da12256 Claude/browser也通，完整logs已核。
+詳[來源接線與下一段](codex-scanned-source.md)。不是原生語義或Host/Web已接，下面保留
+第一段核心的精確歷史證據；末節第1步的機械來源邊界已有這份增量，不能再從零重做。
 
 ## 問題與本段界線
 

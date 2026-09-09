@@ -15,12 +15,18 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**進行中增量1.73（大型歷史掃描核心，尚未接Host）**：`1c7a7d2`新增有界byte-level
+**進行中增量1.73（大型歷史核心與安全來源接線，尚未接Host）**：`da12256`已接同held-FD
+權限／ACL／name-edge／actualclose與獨立v10 Node/Rust來源分頁，真16MiB/16,384筆、
+最多50筆頁面與頁外變動version驗證通；舊Host39raw＋23structure回歸通、完整及最低Node
+1028/0fail。eabba3e一般/reader/Codex與da12256的Claude/browser已通且完整logs核對；
+原Windows owned-script路徑失敗及修正保留，不放寬產品檢查。下一段仍需全來源native格式/名稱/structure及named pipeline→
+Web，不把byte framing當原生語義。詳[新來源協定與接續](codex-scanned-source.md)。
+`1c7a7d2`的前置核心新增有界byte-level
 雙掃／整檔摘要／單頁留存，保留caller語義與來源授權關卡。15新測試及原Node1019/0fail，
 三輪generated release256MiB掃描約1.25–1.33秒，峰值live allocation約247／580KiB且不隨
 來源增長；不是RSS或真磁碟/Host效能。exact一般／reader／rolling全通且full logs已核，
-三OS各15新scanner＋五allocation workload通；下一段必須接held-source security、
-格式/名稱/structure與Host/Web，**舊8MiB協定仍未改，C2不勾完成**。
+三OS各15新scanner＋五allocation workload通；source security見上述後續增量，
+格式/名稱/structure與Host/Web仍待，**舊8MiB協定仍未改，C2不勾完成**。
 詳[大型歷史核心、量測及接續](history-large-scan.md)。正式/private/72h界線不變。
 
 **已驗增量 1.72（Codex 來源關聯可讀 Web，未部署）**：新增來源關聯回合／工具

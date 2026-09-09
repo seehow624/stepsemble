@@ -9,6 +9,13 @@
 
 ## 1. 這份文件的角色
 
+Plan1.73新進展：da12256接同POSIX來源權限與actualclose、新v10 byte-framed Node/Rust
+分頁。真16MiB/16,384筆與50筆頁、頁外變動version、索引存在性及拒絕恢復通，1028/0fail
+完整與最低Node；eabba3e一般/reader/Codex及da12256的Claude/browser已通且完整logs核對，
+原Windows owned-script路徑失敗保留，未放寬產品檢查。**尚未接native語義/名稱/structure或實際Host/Web**，
+見[來源邊界接續](codex-scanned-source.md)。下列第一段的「尚未接source wire」已由新v10
+增量取代，但舊8MiB/Web能力不變，不能混成已驗完整歷史。
+
 Plan1.73第一段新增有界JSONL雙掃核心與15測試／1–256MiB直接allocation gate；
 工程1c7a7d2的exact一般／reader／rolling全通且full logs已核，三OS15scanner/五allocation通。
 本機三輪release峰值約247／580KiB、256MiB約1.25–1.33秒，
