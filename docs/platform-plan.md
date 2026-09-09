@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.69
+> 計畫版本：1.70
 > 最後更新：2026-09-09
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,7 +15,15 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**最新已完成增量 1.69（raw-records 全鏈與 CI 已驗，未部署）**：Codex state DB
+**進行中增量 1.70（cold底層本機已驗，未接Web／未部署）**：新增冷SQLite的短時間
+主檔SHARED lock／sidecar absence與content stamp重驗，再於最大64MiB唯讀RAM副本
+查詢；不新建原生WAL/SHM、不把原來源immutable化。sealed READONLY deserialize
+保留熱DBguard，Rust29/30及新的writer重開／撤權／換檔／kill／大DBcase通，原熱WAL
+真SHM與負向控制保留。**這仍不是Web冷歷史完成**：新版本frame、Node同admission與
+sourceVersion、actualHost到Web冷熱切換驗收仍屬1.70的必要工作，CI待提交後核對。
+詳[冷SQLite接續](codex-cold-sqlite.md)。C1–C8／正式服務／帳號／B+／獨立72h關卡不變。
+
+**前一已完成增量 1.69（raw-records 全鏈與 CI 已驗，未部署）**：Codex state DB
 v6 catalog、雙 root owner 精靈、binding／單一共享 64-slot registry、HTTP／peer／
 typed Web 原始紀錄已接通。完整 Node 與最低 Node22.19 各965／0 fail／2 skip；
 Rust27/30與跨程序、fmt/clippy/Ajv1251通。真 owned Host 39筆／最新WAL名稱／

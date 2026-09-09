@@ -29,6 +29,11 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 
 ## 順序與驗收
 
+2026-09-09／Plan1.70進行中：cold SQLite已新增主DB共享鎖＋absence/content-stamp
+重驗＋有界唯讀RAM副本，原生writer重開與actualkill等本機測試通；**尚未接新frame、
+Node及Host/Web**。同一增量下一段必須完成冷熱切換全鏈，而不是把library當C2完成。
+詳[冷資料庫接續與證據](codex-cold-sqlite.md)；Plan1.69 Web原始紀錄既有成果不重做。
+
 「待完成」不表示從零開始；沿用主計畫已驗模組，只補缺口。
 
 | Checkpoint | 交付與必要證據 | 開始狀態 |

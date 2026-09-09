@@ -17,6 +17,8 @@ use std::time::{Duration, Instant};
 use stepsemble_history_source_reader::sqlite_metadata::{
     THREADS_SCHEMA, capture_name_fields, engine_matches_pin,
 };
+#[path = "support/sqlite_cold_cases.rs"]
+mod cold_cases;
 #[path = "support/sqlite_source_cases.rs"]
 mod source_cases;
 
@@ -218,7 +220,12 @@ fn child() {
             "bound_prepared",
             "bound_read",
             "bound_cancel",
-            "snapshot"
+            "snapshot",
+            "cold",
+            "cold_catalog",
+            "cold_prepared",
+            "cold_read",
+            "cold_cancel"
         ]
         .contains(&request.mode.as_str())
     );
@@ -231,18 +238,26 @@ fn child() {
             .map(|entry| {
                 let entry = entry.unwrap();
                 assert!(entry.file_type().unwrap().is_file());
-                let mut bytes = Vec::new();
-                std::fs::File::open(entry.path())
-                    .unwrap()
-                    .take(4 * 1024 * 1024 + 1)
-                    .read_to_end(&mut bytes)
-                    .unwrap();
-                assert!(bytes.len() <= 4 * 1024 * 1024);
+                // Separate-process streaming comparison also covers the cold
+                // 64 MiB image limit without allocating another whole image.
+                let mut file = std::fs::File::open(entry.path()).unwrap();
+                let mut digest = Sha256::new();
+                let mut buffer = [0_u8; 64 * 1024];
+                let mut bytes = 0_usize;
+                loop {
+                    let count = file.read(&mut buffer).unwrap();
+                    if count == 0 {
+                        break;
+                    }
+                    bytes += count;
+                    assert!(bytes <= 65 * 1024 * 1024);
+                    digest.update(&buffer[..count]);
+                }
                 (
                     entry.file_name().to_str().unwrap().to_owned(),
                     FileDigest {
-                        bytes: bytes.len(),
-                        sha256: format!("{:x}", Sha256::digest(&bytes)),
+                        bytes,
+                        sha256: format!("{:x}", digest.finalize()),
                     },
                 )
             })
@@ -252,6 +267,10 @@ fn child() {
     }
     if request.mode.starts_with("bound") {
         bound_child(request, &mut input);
+        return;
+    }
+    if request.mode.starts_with("cold") {
+        cold_cases::child(request, &mut input);
         return;
     }
     let guarded = request.mode != "ordinary" && request.mode != "unguarded";
@@ -911,6 +930,7 @@ fn main() {
         suite();
         source_suite();
         source_cases::run();
+        cold_cases::run();
     }
 }
 

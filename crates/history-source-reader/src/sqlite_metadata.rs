@@ -177,13 +177,21 @@ fn configure(db: &Connection, guard: &Guard) -> Result<(), Error> {
 }
 
 fn configure_selected(db: &Connection, guard: &Guard, name_context: bool) -> Result<(), Error> {
+    configure_source(db, guard, name_context, false)
+}
+fn configure_source(
+    db: &Connection,
+    guard: &Guard,
+    name_context: bool,
+    readonly_memory: bool,
+) -> Result<(), Error> {
     if !engine_matches_pin() {
         return Err(Error::EngineMismatch);
     }
     // A writable connection cannot be made acceptable by setting query_only.
     // Reject existing transactions/attached DBs before preparing any SQL.
     if !db.is_autocommit()
-        || !db.is_readonly("main").map_err(sqlite_error)?
+        || (!readonly_memory && !db.is_readonly("main").map_err(sqlite_error)?)
         || db.db_name(0).map_err(sqlite_error)? != "main"
         || db.db_name(2).is_ok()
         || db.db_name(1).is_ok_and(|name| name != "temp")
@@ -336,9 +344,32 @@ pub fn capture_catalog(
     capture_catalog_with_hook(db, native_version, cancelled, |_| Ok(()))
 }
 fn capture_catalog_with_hook(
+    db: Connection,
+    native_version: &str,
+    cancelled: Arc<AtomicBool>,
+    hook: impl FnOnce(&Connection) -> Result<(), Error>,
+) -> Result<CatalogObservation, Error> {
+    capture_catalog_mode(db, native_version, cancelled, "wal", hook)
+}
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub(crate) fn capture_cold_catalog(
+    db: crate::sqlite_source::cold::ReadOnlyMemory,
+    native_version: &str,
+    cancelled: Arc<AtomicBool>,
+) -> Result<CatalogObservation, Error> {
+    capture_catalog_mode(
+        db.into_connection(),
+        native_version,
+        cancelled,
+        "memory",
+        |_| Ok(()),
+    )
+}
+fn capture_catalog_mode(
     mut db: Connection,
     native_version: &str,
     cancelled: Arc<AtomicBool>,
+    journal_mode: &str,
     hook: impl FnOnce(&Connection) -> Result<(), Error>,
 ) -> Result<CatalogObservation, Error> {
     let guard = Guard {
@@ -352,7 +383,7 @@ fn capture_catalog_with_hook(
         if !no_checkpoint.map_err(sqlite_error)? || native_version != NATIVE_VERSION {
             return Err(Error::InvalidSelection);
         }
-        configure(&db, &guard)?;
+        configure_source(&db, &guard, false, journal_mode == "memory")?;
         db.authorizer(Some(authorize_catalog))
             .map_err(sqlite_error)?;
         // Same 250ms transaction deadline; catalog's finite VM allowance is
@@ -374,7 +405,7 @@ fn capture_catalog_with_hook(
         let mode: String = transaction
             .query_row("PRAGMA main.journal_mode", [], |r| r.get(0))
             .map_err(sqlite_error)?;
-        if mode != "wal" {
+        if mode != journal_mode {
             return Err(Error::JournalUnsupported);
         }
         hook(&transaction)?;
@@ -539,11 +570,39 @@ fn capture_with_hook(
 }
 
 fn capture_selected(
+    db: Connection,
+    native_version: &str,
+    id: &str,
+    cancelled: Arc<AtomicBool>,
+    with_context: bool,
+    hook: impl FnOnce(&Connection, &Option<NameFields>) -> Result<(), Error>,
+) -> Result<Observation, Error> {
+    capture_selected_mode(db, native_version, id, cancelled, with_context, "wal", hook)
+}
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub(crate) fn capture_cold_context(
+    db: crate::sqlite_source::cold::ReadOnlyMemory,
+    native_version: &str,
+    id: &str,
+    cancelled: Arc<AtomicBool>,
+) -> Result<Observation, Error> {
+    capture_selected_mode(
+        db.into_connection(),
+        native_version,
+        id,
+        cancelled,
+        true,
+        "memory",
+        |_, _| Ok(()),
+    )
+}
+fn capture_selected_mode(
     mut db: Connection,
     native_version: &str,
     id: &str,
     cancelled: Arc<AtomicBool>,
     with_context: bool,
+    journal_mode: &str,
     hook: impl FnOnce(&Connection, &Option<NameFields>) -> Result<(), Error>,
 ) -> Result<Observation, Error> {
     let guard = Guard {
@@ -563,7 +622,9 @@ fn capture_selected(
             return Err(Error::InvalidSelection);
         }
         guard.check()?;
-        if with_context {
+        if journal_mode == "memory" {
+            configure_source(&db, &guard, with_context, true)?;
+        } else if with_context {
             configure_selected(&db, &guard, true)?;
         } else {
             configure(&db, &guard)?;
@@ -585,7 +646,7 @@ fn capture_selected(
         let mode: String = transaction
             .query_row("PRAGMA main.journal_mode", [], |row| row.get(0))
             .map_err(sqlite_error)?;
-        if mode != "wal" {
+        if mode != journal_mode {
             return Err(Error::JournalUnsupported);
         }
         let fields = selected_fields(&transaction, id)?;

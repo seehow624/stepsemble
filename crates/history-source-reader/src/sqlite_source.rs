@@ -19,6 +19,8 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
+pub mod cold;
+
 const NAMES: [&CStr; 3] = [
     c"state_5.sqlite",
     c"state_5.sqlite-wal",
@@ -56,6 +58,7 @@ struct Lease {
     before: Metadata,
 }
 struct State {
+    cold: bool,
     selection: RootSelection,
     root: File,
     root_before: Metadata,
@@ -163,6 +166,9 @@ impl State {
             if !same_authority(&lease.before, &current) {
                 return Err(Error::Changed);
             }
+            if self.cold && !cold::same_content_stamp(&lease.before, &current) {
+                return Err(Error::Changed);
+            }
             let named = self.named(NAMES[i])?;
             if !stat_number(named.st_dev, current.dev())
                 || !stat_number(named.st_ino, current.ino())
@@ -170,6 +176,15 @@ impl State {
                 || named.st_nlink != 1
             {
                 return Err(Error::Changed);
+            }
+        }
+        if self.cold {
+            for name in &NAMES[1..] {
+                match self.named(name) {
+                    Err(Error::Missing) => (),
+                    Ok(_) => return Err(Error::Changed),
+                    Err(error) => return Err(error),
+                }
             }
         }
         match self.named(c"state_5.sqlite-journal") {
@@ -260,6 +275,13 @@ pub unsafe fn prepare_catalog(
     prepare_root(selection, cancelled)
 }
 fn prepare_root(selection: RootSelection, cancelled: Arc<AtomicBool>) -> Result<Prepared, Error> {
+    prepare_root_mode(selection, cancelled, false)
+}
+fn prepare_root_mode(
+    selection: RootSelection,
+    cancelled: Arc<AtomicBool>,
+    cold: bool,
+) -> Result<Prepared, Error> {
     if !cfg!(target_pointer_width = "64") || STATE.get().is_some() {
         return Err(Error::PlatformUnsupported);
     }
@@ -299,6 +321,7 @@ fn prepare_root(selection: RootSelection, cancelled: Arc<AtomicBool>) -> Result<
         return Err(Error::RootIdentityChanged);
     }
     let mut state = State {
+        cold,
         selection,
         root,
         root_before,
@@ -316,7 +339,7 @@ fn prepare_root(selection: RootSelection, cancelled: Arc<AtomicBool>) -> Result<
         started,
         cancelled,
     };
-    for name in NAMES {
+    for name in &NAMES[..if cold { 1 } else { 3 }] {
         state.budget()?;
         let file = open_at(
             state.root.as_raw_fd(),

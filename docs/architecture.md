@@ -13,19 +13,26 @@ runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
-Development-only Plan1.68 adds an admitted named pipeline: SQL A, bytes A,
+Development-only Plan1.69 connects Codex owner setup, root-only catalog,
+shared registry, HTTP/peer transport and typed Web raw records. These are not
+complete native semantic history, resume or approvals. Plan1.70 adds a separately
+verified cold SQLite RAM-snapshot library; new wire/Node/Host/Web cold integration
+is still pending. See [`codex-web-integration.md`](codex-web-integration.md) and
+[`codex-cold-sqlite.md`](codex-cold-sqlite.md). Shipped 3.0.6 remains unchanged.
+
+Development-only Plan1.68 added an admitted named pipeline: SQL A, bytes A,
 permissioned parser, SQL B, bytes B. Both selected source versions must match;
 one Host permit and deadline cover every actual child close. This is matching
 observations, not an atomic cross-source snapshot or publication authority.
 See [`codex-named-history-pipeline.md`](codex-named-history-pipeline.md).
-Codex discovery/grants/registry/HTTP/Web and full paginated history remain pending.
+Plan1.69 subsequently connects discovery/registry/HTTP/Web; full paginated history remains pending.
 
 Development-only Plan1.67 added v5 SQLite rollout-path/preview context in the same
 bounded read transaction, preserving v4 and the Host-owned two-reader admission.
 A pure method-specific name interpreter is verified against owned native read/list
 cases, but does not grant source access, determine inventory membership or provide
 an atomic cross-source snapshot. Plan1.68 adds the aggregate pipeline; Codex
-registry/HTTP/Web remain pending. See
+registry/HTTP/Web were subsequently connected in Plan1.69. See
 [`codex-name-context-resolution.md`](codex-name-context-resolution.md).
 
 Development-only Plan1.66 added a strict Node v4 SQLite capture decoder and an

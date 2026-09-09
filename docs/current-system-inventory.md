@@ -9,10 +9,11 @@
 
 ## 1. 這份文件的角色
 
-2026-09-09 Plan1.68 開發增量：Codex readNamed已組合v5 SQL／v3 bytes／背景parser，
-回覆前再次capture兩邊版本，全程同一Host permit，unknown cleanup共享隔離。詳
-[雙來源背景接線](codex-named-history-pipeline.md)。Codex discovery/grants/registry/HTTP/Web仍未接、未部署，
-不將以下凍結盤點改成完整原生歷史／approval 已完成。
+2026-09-09 Plan1.69 開發增量已接Codex雙root owner設定、catalog／共享registry／
+HTTP・peer／typedWeb原始紀錄，全鏈CI已驗；不是完整原生語義歷史／approval。
+Plan1.70正在補cold SQLite：底層有鎖RAM副本本機已驗，新版本frame／Node／HostWeb
+接線仍待。詳[Web接線](codex-web-integration.md)與[冷DB接續](codex-cold-sqlite.md)。
+兩批均未正式部署；以下保留凍結基線，不重寫成開發版或完整產品現況。
 
 這份盤點凍結「目前真的存在什麼」，不是未來設計。長期方向與階段門檻見 [`platform-plan.md`](platform-plan.md)；已上線架構摘要見 [`architecture.md`](architecture.md)。
 
