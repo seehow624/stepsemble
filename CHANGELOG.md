@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.8
+
+Small fix release, no feature or roadmap changes.
+
+- Fix the stable-release updater leaving its recorded status at an
+  intermediate "health check" phase after a successful update. The updater
+  now writes the final "updated" phase once the new release passes its
+  health check, matching what the service is actually running.
+
 ## 3.0.7
 
 Stable incremental release of the verified work below, not completion of the

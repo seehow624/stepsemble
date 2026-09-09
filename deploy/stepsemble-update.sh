@@ -467,4 +467,5 @@ if ! wait_for_release_health "$latest_version"; then
   wait_for_release_health "$installed_version" || log "rollback installed but the previous release is not healthy yet"
   die "release health check failed; previous release restored"
 fi
+write_state "" "$now" "$latest_version" "$latest_version" "$updated_at" "updated" ""
 log "updated Stepsemble to $latest_version"
