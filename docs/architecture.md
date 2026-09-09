@@ -18,9 +18,18 @@ recorded/inferred turn boundaries and scoped tool correlations to the existing
 bounded parser (v5/v6) and named pipeline. It is not a native projection clone;
 implicit native IDs/statuses are not invented, and raw records survive rollback.
 Pinned CLI comparisons and actual reader/shared-peer/cancellation gates pass.
-Source-service, HTTP and Web consumers are **not yet connected** to this opt-in
-shape. See [`codex-history-structure.md`](codex-history-structure.md) for evidence,
-the existing timer-test race fixed in this increment, and the next integration.
+Commit b8d1843 connects the opt-in shape through source service, registry,
+strict HTTP/peer and typed Web consumers. The real view defaults to readable
+records with explicit raw fallback, historical turn status and inert cross-page
+tool navigation; raw clients remain compatible. e9aac82 fixes a real HTTP mode
+switch race: fetch abort settlement was not Host reader completion. Display
+switches now await the bounded old read while discarding its UI result; explicit
+cancel/close remain interruptible. Local full/minimum Node1019/0fail, owned Host23
+records/3 turns and CUA320/390px pass. All four affected exact-SHA CI workflows
+pass with full logs checked; Mac/Linux each cover six structured/raw browser
+cases across sizes and themes. The original rolling failure is retained.
+See [`codex-history-structure.md`](codex-history-structure.md) for evidence and
+remaining large-history, paginated/native-semantics and C1–C8 work.
 All three affected CI gates for test-path fix 8b29e62 passed with full logs
 checked; rolling browser evidence remains 24f924f for unchanged product code.
 The original Windows test failure is preserved, not relabeled as passing.

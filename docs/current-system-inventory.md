@@ -11,8 +11,11 @@
 
 Plan1.72進行中：固定Codex的來源關聯回合／工具結構已接背景pipeline v5/v6，
 普通147messages與rich native turn ID實際比對、219原始records不漏；最低Node與完整
-1012/0fail、真reader／Claude peer／雙版本及5階段取消通。尚未接source service／HTTP／
-Web，不能把此底層增量當完整對話介面或C2完成。8b29e62的一般／reader／nativeCodex
+1012/0fail、真reader／Claude peer／雙版本及5階段取消通。b8d1843再接source service／
+HTTP／peer／Web可讀與raw模式；e9aac82修真HTTP模式切換source_busy競態，
+1019/0fail、真Host23筆3回合及CUA320/390長文／工具跳轉／回退／清空均驗。
+修後e9一般／reader／Claude／rolling全通/full logs核，三OS1019/0fail與雙OS各六新結構
+Web cases通，原rolling失敗保留；仍非完整native語義或C2完成。8b29e62的一般／reader／nativeCodex
 三CI與24f924f既有raw browser回歸全通且full logs已核；Windows測試路徑原失敗保留。
 詳[接續入口](codex-history-structure.md)。
 

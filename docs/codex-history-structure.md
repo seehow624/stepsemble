@@ -1,8 +1,86 @@
-# Codex 歷史的來源關聯結構（Plan 1.72／進行中）
+# Codex 歷史的來源關聯結構（Plan 1.72／Web 接線已驗，未部署）
 
-這一段將原始紀錄補上回合與工具關聯，供後續可讀對話介面使用。
-**目前只接到既有的背景讀取 pipeline，尚未接 HTTP／Web；不是 C2 完成。**
-既有 Web 原始紀錄、正式 3.0.6、開發 rc.7、私人來源及獨立 72h 均不變。
+這一段將原始紀錄補上回合與工具關聯，並接入真正的 Host／HTTP／Web。
+**工程 `b8d18436c1fa63ceb9074ecdaf938303543b17e1` 已完成此接線；
+`e9aac82aa8921f2b8d6dc8dbf518fc36f85735a1` 修正模式切換的真 HTTP 收尾競態。
+仍不是 C2 整體完成。**
+既有 raw API 保持相容；正式 3.0.6、開發 rc.7、私人來源及獨立 72h 均不變。
+
+## Web 接線增量（2026-09-09 11:29 MYT）
+
+- `structured: true` 明確穿過 source service、registry、HTTP、peer relay、typed client。
+  registry 先確認來源是 Codex，Claude／metadata／false／未知欄位不啟動讀取；撤權、
+  source version、generation、實際清理與舊 raw DTO 不變。結構回覆不能無聲降級。
+- parser 與 public boundary 共用嚴格 `codex-history-records` validator；受限 worker
+  只多一個固定程式檔 read grant，沒有原生來源路徑、model、登入或執行權限。
+- 實際 Web 預設對話檢視；原始模式可明確切換。回合標成歷史狀態，沒有 native ID
+  時標推定／未知；回退內容仍在。assistant 使用 Codex identity，model-context 不
+  當第二則對話，未知紀錄可展開。長文不截斷、內層捲動，raw JSON 仍惰性且只展開一筆。
+- 跨頁工具關聯按鈕沿用同 source version，跳轉後聚焦確切 record heading；不執行工具。
+  跳轉後上一頁停用，下一頁循真正 nextOffset，重新整理回開頭。模式切換立即清除
+  舊畫面，但不把fetch abort誤當Host關閉：等待舊bounded唯讀回覆收尾後再讀新模式；
+  舊內容不得覆蓋新模式。明確取消／關閉仍可abort，一頁留存與撤權保護不變。
+- 修正後本機 Node22.22.3／最低22.19 各 **1019 total／1017 pass／2 skip／0 fail**。
+  新增七測試，含 strict vocabulary／Unicode、HTTP全頁、模式競態／downgrade、DOM、
+  Claude 零誤讀；既有 peer 測試也驗新結構轉送。build／generated／version／fmt／
+  clippy／syntax／actionlint／gitleaks 通過。
+- 真 owned Host 先完成原39筆 cold／compressed／名稱／復原 gate，再以新23筆／3回合
+  驗 full pages、跨頁4↔13工具、回退及推定回合、raw逐筆相同、壓縮version與撤銷。
+  0model／0private history reads，Host/writer actualclose及兩owned目錄清理確認。
+- Computer Use 實際390px與320px：13050字長文保留結尾，224px內捲動 PageDown
+  0→196，外頁1835不動；無橫溢、按鈕≥44px、Codex圖示、跨頁聚焦record13、回退與
+  推定unknown、raw切換及關閉清空均驗。這是瀏覽器viewport，不是真實iPhone。
+  i18n11語有CI案例；本機實看發現錯用舊auxiliary/expand文案，已換專用key並加回歸。
+- 開發中同rc.7的24h靜態快取曾顯示舊文案，改用全新owned Host origin驗最新build；
+  不修改正式cache或部署。唯讀租約在人工驗收期間過期時正確要求refresh，更新後跳轉通。
+- b8d1843一般／原生Claude／原生Codex／reader四CI已通並核full logs；rolling出現
+  真模式切換競態，已修為e9aac82，新四CI全部通過且完整logs已核，見下表。
+
+本輪 logs `/tmp/stepsemble-structured-web-*`：full-3.tap、minimum-2.tap、host-2.log、
+boundary-2.tap、clippy-1.log、secrets-1.log。保留 view-1／integrated-1 的新測試fixture
+呼叫錯誤（snapshot API、必要signal、assistant實際在下一頁），以及host-1遺漏owned
+fixture command allowlist的失敗；修正測試而未放寬產品協定。所有owned程序已清理。
+
+### Web CI 發現的實際缺陷與修正
+
+- [b8d1843 rolling34307301537](https://github.com/seehow624/stepsemble/actions/runs/34307301537)
+  兩OS均在壓縮來源重開後超時：Linux1440/light、Mac1440/dark；Mac前一light組通過。
+  不清洗成成功。full log `ci-rolling-1.log`，Linux獨立job完整log
+  `ci-rolling-linux-1-complete.log`；沒有轉義旗標的第一個下載檔為空，不能當證據。
+- 真HTTP新增red test `mode-race-before.tap`精確重現`source_busy`：client abort先回來，
+  Host仍持有reader，model卻以為flight.done代表actualclose。不是單純CI等待時間太短。
+- e9aac82對模式切換採立即更新偏好與清空舊頁、等待原bounded唯讀回覆，不abort-fetch
+  後立刻發第二次讀取；取消/關閉仍可中止。新測試用held reader＋真HTTP，先確認新模式
+  busy且沒有第二讀，逐階段真正完成兩輪，再驗raw／physical0；修後`mode-race-after.tap`
+  通。完整與最低Node各1019/0fail（full-4／minimum-3），不是調大timeout或跳過案例。
+- CI失敗時新增有界UI診斷（status/warning/mode/record count），只用owned合成資料，
+  不dump歷史、不自動重试掩蓋失敗。
+
+| b8d1843 gate | 結果 |
+| --- | --- |
+| [一般34307301629](https://github.com/seehow624/stepsemble/actions/runs/34307301629) | 三OS1018/0fail；Mac1016pass2skip、Linux1015/3、Win968/50 |
+| [Claude34307301559](https://github.com/seehow624/stepsemble/actions/runs/34307301559) | 固定SDK2.1.259合成readback、分頁／原文／權限邊界、0model；Windows source unsupported保留 |
+| [Codex34307301578](https://github.com/seehow624/stepsemble/actions/runs/34307301578) | 三OS147messages／50結構turns／219raw、0model／0loaded／11files不變；完整投影仍未支援 |
+| [Reader34307301540](https://github.com/seehow624/stepsemble/actions/runs/34307301540) | 三OS243reader＋25structure＋10compressed；POSIX真Host39raw＋23structured／3turns及cleanup，RustSec0/0 |
+
+本批reader Rust仍POSIX29/33、Windows27/15；43packages、RustSec0.22.2、DB bf25f657…、
+lock aa93d9…不變。Windows私人source/真Host仍unsupported/skipped，不能算全平台產品支援。
+
+### 修正後 exact CI（2026-09-09 11:43 MYT）
+
+以下均為 `e9aac82aa8921f2b8d6dc8dbf518fc36f85735a1`，全部success且full logs已核。
+不是重新標綠原失敗；本輪未更動的native Codex維持上述b8d1843證據。
+
+| Gate | 結果 |
+| --- | --- |
+| [一般34307855470](https://github.com/seehow624/stepsemble/actions/runs/34307855470) | 三OS1019/0fail；Mac1017pass2skip、Linux1016/3、Win969/50；新增真HTTP模式競態回歸通 |
+| [Claude34307855413](https://github.com/seehow624/stepsemble/actions/runs/34307855413) | 固定SDK合成契約與授權/唯讀邊界通，0model，Windows source unsupported不變 |
+| [Reader34307855452](https://github.com/seehow624/stepsemble/actions/runs/34307855452) | 三OS244reader＋25structure＋10compressed；POSIX真Host39raw＋23structured/3turns/cleanup，RustSec0/0及固定DB/lock不變 |
+| [Rolling34307855519](https://github.com/seehow624/stepsemble/actions/runs/34307855519) | Mac/Linux各24原case＋6Codex三尺寸×明暗；可讀/raw、完整長文內捲、跨頁工具、回退/推定回合、11語不重讀、冷/壓縮/復原全通 |
+
+完整logs `/tmp/stepsemble-structured-web-ci-fixed-{general,claude,reader,rolling}.log`；
+所有本批watch與本機owned程序已結束。整體goal持續；這是來源關聯可讀Web增量，
+不是完整native語義、私人來源授權、正式部署或C1–C8完成。
 
 ## 固定來源與行為
 
@@ -41,7 +119,7 @@
 - sourceAuthenticated／publishable／semanticHistoryComplete／executable 均不升為 true；
   process-local snapshot handle 不出 worker。不新建 transcript cache 或寫原生來源。
 
-## 本機證據（2026-09-09／Mac Mini）
+## 背景結構階段證據（2026-09-09／Mac Mini，Web 接線前）
 
 - 固定真正 Codex：7 份普通 legacy 對話共 49 turns／147 messages 的順序及內容
   與結構索引吻合；另一份 rich fixture 的明確 turn ID 相同。全部原始資料共
@@ -97,11 +175,10 @@ Cargo.lock SHA `aa93d9f47ca7b3c38d21b8a5ce4b17b397d9a6c171a71867e82b8979626fca8e
 原始 logs 在本機 `/tmp/stepsemble-structure-*`；失敗的 pipeline-1、focused-3、
 minimum-1/2 與成功的 pipeline-2、native-3、full-4、minimum-3、near-limit-* 分開保存。
 
-## 接續：仍需完成，不能停在 library
+## 接續：仍需完成
 
-1. 把此 opt-in 結構接 source service → registry → 嚴格 HTTP／peer → typed client，
-   保持舊 raw DTO 相容、版本與租約／撤權圍籬；拒絕未知版本時仍可明確選 raw。
-2. Web 以可讀回合、訊息與工具關聯呈現，unknown／model context／rollback 可核對原文；
-   不顯示成可核准／續跑。單頁 DOM、完整長文、i18n、focus、320/390px 及取消／重連驗收。
-3. 真 owned Host 與 Computer Use 操作、跨平台 CI，以及大型歷史限制與其他 adapter。
-   paginated store、完整 native item 語義及 C1–C8 未完成，不以本段或 72h 結果代替。
+1. 本段UI/HTTP/實際Host與新CI已驗，不再重做；後續先處理大型歷史超8MiB、
+   paginated store與完整native item語義。目前source-linked
+   可讀紀錄不是完整native投影，也沒有approval／resume能力。
+2. 其他adapter與C1–C8仍依web-completion-loop接續；真機／跨裝置、混合負載、來源
+   管理與正式發布關卡不能由本段或獨立72h代替。
