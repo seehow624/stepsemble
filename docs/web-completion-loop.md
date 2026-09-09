@@ -34,7 +34,9 @@ parser5/6、同兩reader named流程。真正native147messages／rich turn ID與
 逐byte比對通；新近8MiB/8192筆worker、真Claude peer、雙版本及五階段取消通。
 完整及最低Node1012/0fail；既有Claude deadline測試牆鐘競態已改精確時鐘回歸。
 **尚未接source service／HTTP／Web，不勾C2**；接下來直接做這條接線與可讀介面，
-不重做已驗壓縮／冷DB。詳[結構與未完成項](codex-history-structure.md)，新exact CI待核。
+不重做已驗壓縮／冷DB。8b29e62新一般／reader／nativeCodex全通且full logs已核，
+原工程24f924f rolling通；原Windows測試路径缺陷的兩CI失敗保留，未放寬worker grant。
+詳[結構與未完成項](codex-history-structure.md)，這不是結構Web驗收或C1–C8完成。
 
 2026-09-09／Plan1.71壓縮來源增量：v9同heldparent選plain/壓縮、strict frame boundary
 及有界背景解壓、雙來源version fence、真正Host/catalog/名稱/分頁已接；985/0fail本機及

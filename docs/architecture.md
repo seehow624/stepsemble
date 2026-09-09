@@ -21,6 +21,9 @@ Pinned CLI comparisons and actual reader/shared-peer/cancellation gates pass.
 Source-service, HTTP and Web consumers are **not yet connected** to this opt-in
 shape. See [`codex-history-structure.md`](codex-history-structure.md) for evidence,
 the existing timer-test race fixed in this increment, and the next integration.
+All three affected CI gates for test-path fix 8b29e62 passed with full logs
+checked; rolling browser evidence remains 24f924f for unchanged product code.
+The original Windows test failure is preserved, not relabeled as passing.
 
 Development-only Plan1.71 adds stored rollout v9: resolve the plain/compressed
 sibling under one held parent, recheck selection and physical bytes, then

@@ -21,7 +21,9 @@
 本機完整與最低Node1012/0fail/2skip；實際共用Claude peer／5階段取消／雙版本拒絕、
 近8MiB且8192筆受限worker通，並修正既有Claude deadline測試的牆鐘競態。
 **source service／HTTP／Web 尚未接此結構，C2 未完成**；下一段直接完成接線與可讀介面。
-詳[歷史結構與接續](codex-history-structure.md)。新exact CI待核，不跨正式／私人／72h關卡。
+詳[歷史結構與接續](codex-history-structure.md)。24f924f的Windows測試路徑缺陷以8b29e62修正，
+新一般／reader／原生Codex三CI全通及full logs已核；原rolling亦通，舊兩失敗保留。
+三OS1012/0fail、reader239＋24＋10、RustSec0/0；不跨正式／私人／72h關卡。
 
 **已完成增量 1.71（壓縮歷史全鏈與 exact CI 已驗／未部署）**：接同root下plain/壓縮sibling、Rust v9
 capture與permissioned parser v3/v4、實體/解壓版本分離、同Host有界named流程、實際

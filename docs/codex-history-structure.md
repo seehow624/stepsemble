@@ -56,8 +56,27 @@
 - 完整 Node22.22.3 與最低22.19 各 1,012 total／1,010 pass／2 skip／0 fail；最後加強的
   near-byte-limit worker 測試另在兩版本通過。Rust 29 lib／33 binary、跨程序清理通；
   fmt／clippy／syntax／generated client及protocol／version／actionlint／gitleaks 通過。
-- 新增結構後真正 native、一般、reader 等 exact-SHA CI 待提交後核對，不能借前批成功。
-  HTTP/Web 此時仍是舊 raw DTO；既有 Host/browser 回歸不能算結構 UI 驗收。
+- 下列 exact-SHA CI 已通過並核對完整 logs。HTTP/Web 此時仍是舊 raw DTO；
+  既有 Host/browser 回歸不能算結構 UI 驗收。
+
+### Exact CI（2026-09-09）
+
+核心工程 `24f924fd38e1dbdc5c33dca135299c5e71601e86`；只修跨平台測試路徑的
+`8b29e621e9ef4bc4b8981aafca5a2a7438b02d33` 不改產品程式。
+
+| SHA | Gate | 結果 |
+| --- | --- | --- |
+| 8b29e62 | [一般 CI](https://github.com/seehow624/stepsemble/actions/runs/34304885283) | 三 OS 各1,012／0 fail；Mac1,010 pass/2 skip，Linux1,009/3，Windows962/50 |
+| 8b29e62 | [原生 Codex](https://github.com/seehow624/stepsemble/actions/runs/34304885284) | 三 OS 各147 messages／50結構turns／219原始records、0model／11原件不變／cleanup |
+| 8b29e62 | [Reader](https://github.com/seehow624/stepsemble/actions/runs/34304885315) | 三 OS 各239 reader＋24 structure＋10 compressed測試通；POSIX真named/peer/取消/Host，RustSec0/0 |
+| 24f924f | [Rolling browser](https://github.com/seehow624/stepsemble/actions/runs/34304650230) | 雙 OS 各24原case＋6 Codex三尺寸×明暗，冷/壓縮/雙向切換/損壞提示及恢復通 |
+
+POSIX 真 Host 各39筆原始records及cleanup通；Rust29lib/33bin，Windows27/15，
+Windows私人source仍unsupported、真Host skipped不是功能通。RustSec0.22.2／
+DB `bf25f6575a93a35f30796c65c0ed91bee7fa19fd`／43packages／0known、0warnings；
+Cargo.lock SHA `aa93d9f47ca7b3c38d21b8a5ce4b17b397d9a6c171a71867e82b8979626fca8e`。
+未新增 native Claude 全套 gate；既有真 Claude SDK peer 在新 reader gate 內實際驗證。
+所有本機 owned Host／writer／reader 已清理，未進行新的 GUI 操作或正式部署。
 
 ### 本輪失敗及修正（保留，不洗成綠色）
 
@@ -72,7 +91,8 @@
 4. 工程 `24f924f` 的一般 CI Windows 在新 worker 測試檢查檔案 grant 時失敗：
    測試寫死 `/rollout-structure.js`，實際 Windows 路徑用反斜線。改為平台原生
    `path.resolve` 比對完整且唯一的 `--allow-fs-read`，不放寬 grant、skip Windows
-   或略過四種真 worker 組合。原失敗 CI 保留，修正後另驗新 SHA。
+   或略過四種真 worker 組合。原失敗 CI（一般34304650253／reader34304650239）
+   完整 logs 保留；修正後8b29e62的新兩gate已通，不重寫原失敗結果。
 
 原始 logs 在本機 `/tmp/stepsemble-structure-*`；失敗的 pipeline-1、focused-3、
 minimum-1/2 與成功的 pipeline-2、native-3、full-4、minimum-3、near-limit-* 分開保存。
