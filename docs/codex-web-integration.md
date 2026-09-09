@@ -1,8 +1,10 @@
-# Codex 來源群組到 Web：進行中的完整接線
+# Codex 來源群組到 Web：已驗證的原始紀錄增量
 
-2026-09-09，Plan 1.69 工作中；基線 `0eb7e3362a433cb960d53ab0e26ad68530d06ac3`。
-**尚未完成、尚未部署**。本輪的驗收單位是 source settings → grants → discovery →
-binding/registry → HTTP → Web，而不是新增一個 reader 後就宣稱 C2 完成。
+2026-09-09，Plan 1.69；起始基線 `0eb7e3362a433cb960d53ab0e26ad68530d06ac3`。
+**本增量與相應 CI 已驗，尚未部署；C1–C8 整體未完成**。本輪驗收涵蓋 source
+settings → grants → discovery → binding/registry → HTTP → Web，不是僅新增reader。
+主要工程`2fe48d03eeeb8a38e9c2bf4e0a68e5cc5b25b082`；最後工程與空清單／fixture
+清理補強`c57747f4c34f34a1730098dd00a3bd43c275d917`，exact CI見下。
 
 ## 已選定的方向
 
@@ -18,7 +20,7 @@ binding/registry → HTTP → Web，而不是新增一個 reader 後就宣稱 C2
 - 沿用已驗 readNamed 的雙來源前後版本檢查，同一 Host admission 與 64 個 registry slots；
   不因新增 harness/group 而乘出額外讀取名額。
 
-## 待完成與驗收順序
+## 本增量驗收範圍（已執行）
 
 1. v6 root-only catalog：固定欄位、唯讀短交易、2048 rows／2 MiB 上限，超限明示，
    不截斷為「全部」。需實測最大正常容量、VM/time budget、並行 commit、取消與 actual close。
@@ -31,10 +33,9 @@ binding/registry → HTTP → Web，而不是新增一個 reader 後就宣稱 C2
 6. 合成 Host + 真 owned reader + Web 案例驗授權隔離、取消、名稱/內容更新、手機捲動、
    混合 harness 的共享資源上限、舊 Claude 相容。完成後才記錄 exact SHA CI 證據。
 
-## 當前工作樹
+## 實作範圍
 
-截至本機 2026-09-09 08:05 MYT，仍是同一輪 Plan 1.69；**全鏈已接上，正在驗收**。
-下述為本機證據；新 GitHub CI 待提交後核對，不冒称跨平台或正式發布完成。
+以下先保存本機實作／驗收，再列08:16 MYT已核對的exact CI；不冒稱正式發布或真機驗收。
 
 - Rust v6 已新增 root-only catalog 與 shared prepared source 泛型，原 v4/v5 形狀及
   欄位 allowlist 不變。catalog 單獨 64,000 VM steps，原單筆仍 20,000；兩者都保留
@@ -108,7 +109,7 @@ SessionSource serde／state enum_to_string 促成原始分類保留與不 resume
   下一頁disabled；重新整理後成功讀到第11–20筆。全部隔離Host/writer及CUA頁面已關閉，
   viewport還原、owned目錄清除；沒有留下本批背景測試程序。
 - 已新增CI-only三尺寸×明暗真Codex Host瀏覽器案例，含11語不重讀、工具／未知頁、
-  版本變更、格式拒絕及關閉恢復；本機不繞過CUA執行Playwright。CI結果**待核**。
+  版本變更、格式拒絕、空清單及關閉恢復；本機不繞過CUA執行Playwright。CI結果見下。
 - 保留首輪失敗：Host測試同root同identity本應合法，改測同root不同identity；HTTP
   union初版擴到舊Claudeoffset2001，已用Codex-enabled gate恢復舊限制；VM漏load
   CodexDTO依賴已修HTML/VM順序。新actualHost CLI首次漏傳必要signal欄位的request
@@ -116,11 +117,49 @@ SessionSource serde／state enum_to_string 促成原始分類保留與不 resume
 - 全鏈logs `/tmp/stepsemble-codex-{full-final,web-min-node-final}.tap`、
   `/tmp/stepsemble-codex-{actual-host-first,actual-host-second,web-rust-final,web-clippy-final,web-check,web-gitleaks}.log`。
   UI與owner `/tmp/stepsemble-codex-{ui-scroll,expiry,view-owner-first}.tap`；HTTP
-  `/tmp/stepsemble-codex-http-{first,second}.tap`。本批新增CI尚無exact SHA通過證據。
+  `/tmp/stepsemble-codex-http-{first,second}.tap`。空清單補強後完整965/0fail/2skip、
+  generated與最低Node真Host（含啟動衝突後清理）再次通；logs
+  `/tmp/stepsemble-codex-empty-final-suite.tap`、`/tmp/stepsemble-codex-actual-host-empty-cleanup.log`。
 
-## 本輪仍需完成
+## Exact CI 證據（2026-09-09 08:16 MYT）
 
-1. 核對新工程SHA的所有CI，尤其Mac/Linux真Codex瀏覽器與Windows明示unsupported。
-2. 補齊完整native語義projection／cold或壓縮／其他adapter；不把raw reader算C2完成。
+主要工程 **2fe48d0** 的五組全部success，完整logs已保存／核對：
+
+- [一般CI34293643993](https://github.com/seehow624/stepsemble/actions/runs/34293643993)：
+  三OS各965，Mac963pass/2skip、Linux962/3、Win915/50，fail皆0；各Ajv1251。
+- [reader34293643961](https://github.com/seehow624/stepsemble/actions/runs/34293643961)：
+  三OS Node reader226/226；Rust27lib、POSIX30bin／Win15bin，all-targets／fmt／clippy通。
+  POSIX真CodexHost39筆／cleanup；v6 catalog真2048／41頁、超限stale、共用max2與
+  actual-close通。Windows的私人來源／新Host gate仍unsupported或明示skip，不當支援成功。
+  RustSec鎖定audit為0已知漏洞／0警告。
+- [rolling34293643946](https://github.com/seehow624/stepsemble/actions/runs/34293643946)：
+  Mac/Linux既有rolling／帳號／session／picker／catalog／Claude source與新增Codex
+  1440/390/320×light/dark六案例全部通，每頁10筆／原文inert／11語不重讀／版本更新
+  ／paginated提示／close-reopen；不是Windows瀏覽器、實體手機或正式來源的驗收。
+- [原生Codex34293644095](https://github.com/seehow624/stepsemble/actions/runs/34293644095)、
+  [Claude34293643991](https://github.com/seehow624/stepsemble/actions/runs/34293643991)：
+  三OS固定版本契約通；Codex17index案例、19read／18list名稱優先級、0model endpoint／
+  loaded0／private0／actual cleanup；Claude原SDK來源能力的POSIX／Windows邊界保持。
+
+收尾工程 **c57747f** 的三組相應CI也全部success，full logs已核：
+
+- [一般34294010688](https://github.com/seehow624/stepsemble/actions/runs/34294010688)：
+  同上三OS965／0fail與skip分布，無縮減測試。
+- [reader34294010681](https://github.com/seehow624/stepsemble/actions/runs/34294010681)：
+  226/226與Rust/audit照常；POSIX新增`emptyCatalog:true`、`startupFailureCleanup:true`
+  真Host gate通，沒有測試子程序因啟動失败殘留。
+- [rolling34294010665](https://github.com/seehow624/stepsemble/actions/runs/34294010665)：
+  兩OS全部通，新增空Codex清單文案／沒有假主對話範圍、12個Codex明暗／尺寸組合通。
+  收尾只改文案及owned測試，原生Codex／Claude workflow未另觸發，不能說此SHA重跑五組。
+
+完整logs在 `/tmp/stepsemble-codex-web-ci-{main,reader,browser}-{first,final}.log`
+（第一輪main／reader無`-first`尾碼）、`...-native-codex.log`、`...-native-claude.log`。
+所有下載／watch本機程序皆已結束；不用再重等舊session。
+
+## 下一輪仍需完成（整體 goal 保持 active）
+
+1. 優先處理cold SQLite缺sidecar／compressed rollout等實際來源可用性；不能為了
+   成功而讓reader建立WAL／SHM、修復DB或改成會啟動原生工作。
+2. 補齊完整native語義projection／其他adapter；不把raw reader算C2完成。
 3. 依C1–C8清單接續真capability的session、approval、resume、跨裝置與可靠性驗收；
    私人root、帳號／模型用量、正式部署／active-work保護關卡依原計畫，不跨越。

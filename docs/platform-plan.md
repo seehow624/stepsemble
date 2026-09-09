@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.68
+> 計畫版本：1.69
 > 最後更新：2026-09-09
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -15,17 +15,20 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**進行中 1.69（完整接線已進本機驗收，未部署／新 CI 待核）**：Codex state DB
+**最新已完成增量 1.69（raw-records 全鏈與 CI 已驗，未部署）**：Codex state DB
 v6 catalog、雙 root owner 精靈、binding／單一共享 64-slot registry、HTTP／peer／
 typed Web 原始紀錄已接通。完整 Node 與最低 Node22.19 各965／0 fail／2 skip；
 Rust27/30與跨程序、fmt/clippy/Ajv1251通。真 owned Host 39筆／最新WAL名稱／
 版本失效／paginated拒絕／unsafe path／actual cleanup通；CUA 320/390px 長文
 內捲動／無横溢／惰性原始JSON、前後翻頁與格式提示已驗，並修正租約過期按鈕無反應。
-catalog 2048 rows／41頁及原效能失敗、改善數值仍保留。**這是 raw records，非完整
-native語義視圖、續跑或核准**；跨平台新CI、其他來源與C1–C8仍繼續。工作入口與
-證據見 [Codex Web 完整接線](codex-web-integration.md)，以下1.68是前一已核CI基線。
+catalog 2048 rows／41頁及原效能失敗、改善數值仍保留。2fe48d0五CI及收尾工程
+c57747f三CI全部success／full logs已核：三OS各965/0fail（skip2/3/50）、reader226、
+POSIX真Host／empty／startup cleanup與雙OS各六個新Codex browser cases通。
+**這是 raw records，非完整native語義視圖、續跑或核准**；cold／compressed／
+其他來源與C1–C8仍繼續，正式3.0.6／B+／私人帳號／獨立72h不動。證據與下一輪入口見
+[Codex Web 完整接線](codex-web-integration.md)。
 
-**最新已完成增量 1.68（開發版仍3.0.7-rc.7，未部署）**：Codex新增readNamed背景鏈，
+**前一增量 1.68（開發版仍3.0.7-rc.7，未部署）**：Codex新增readNamed背景鏈，
 SQL A→rollout/index A→permissioned parser→SQL B→rollout/index B，全程同一Host
 permit／總期限，兩種來源都重驗；晚回覆／取消／清理不明不發布、shared quarantine。
 v2嚴格bounded header保留舊API，paginated僅metadata名稱，完整歷史仍unsupported。

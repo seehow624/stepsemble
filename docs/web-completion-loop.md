@@ -34,7 +34,7 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 | Checkpoint | 交付與必要證據 | 開始狀態 |
 | --- | --- | --- |
 | C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | Plan1.57新增本機新群組設定精靈/review/明確readers/CREATE與真Host原檔驗證；Web列表已接，不自選私人來源或新增Web管理route，完整管理/實機與C1完整gate仍待 |
-| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.69已接Codex v3設定／state DB catalog／共享registry／HTTP・peer／typed Web raw records；本機及最低Node965/0fail、真owned Host39筆／WAL名稱／paginated拒絕／cleanup與CUA320/390已驗，新CI待核。仍非完整native語義projection／原子snapshot／resume；cold／壓縮／其他adapter與C2完整驗收繼續 |
+| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.69已接Codex v3設定／state DB catalog／共享registry／HTTP・peer／typed Web raw records；2fe48d0五CI＋c57747f三CI全success/logs已核，各965/0fail、reader226、POSIX真Host39筆與cleanup、兩OS×六Codex browser cases通。仍非完整native語義projection／原子snapshot／resume；cold／壓縮／其他adapter與C2完整驗收繼續 |
 | C3 Session／approval／恢復 | 按真實 capability 接結構化事件、續跑與 approval；ownership、exact correlation、重送／重連／Host crash、durable journal/replay 不漏不重 | 有 contract 與局部實作，未全驗 |
 | C4 帳號與故障體驗 | 登入／登出偵測、官方登入入口、路由相容、取消／失敗／stale／busy 可復原；不修寫第三方憑證或以重試消耗模型 | 局部已驗，跨 harness 待補 |
 | C5 手機與跨裝置操作 | 完整 history i18n、鍵盤／focus／內捲動、長歷史 DOM 上限、Host 切換、background/reconnect、跨機與目標瀏覽器實測 | Plan1.56已接119keys/11語並修正locale scroll跳動；320/390合成Host CUA、原文/DOM/focus保留已驗；人工校稿/真機/跨Host與其餘gate仍待 |
@@ -84,6 +84,16 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 - 未來 App Store 發布、費用、商標／帳號等外部事項不從「loop」推論新授權。
 
 ## 執行記錄
+
+- **2026-09-09 08:16／Plan1.69增量完成、整體goal繼續**：主工程2fe48d0五CI全success；
+  收尾c57747f三CI全success且完整logs已核。三OS各965/0fail（Mac2skip/Linux3/Win50）、
+  reader226、Rust27lib/30POSIXbin/15Winbin／audit0/0，POSIX真Host39筆、emptyCatalog、
+  startupFailureCleanup通；Mac/Linux各六個Codex三尺寸×明暗browser cases，原文／
+  11語不重讀、長文內捲、翻頁／rename／格式提示／empty／關閉恢復通。不是全native
+  語義或C1–C8完成，不支持的Windows私人reader未被算通。私人來源／B+／帳號／正式／
+  獨立72h不動；下一輪優先cold／compressed來源可用性與完整語義、其他adapter，
+  不重做已接的owner→registry→HTTP→Web。全部本機owned程序與CUA已清理。詳
+  [Codex Web接線與exact CI](codex-web-integration.md)。
 
 - **2026-09-09／C2 Codex 完整 Web 接線，Plan 1.69 工作中**：以固定 state DB
   thread ID／選定 rollout 建立 catalog，避免同 thread 多 rollout 重複／錯選。
