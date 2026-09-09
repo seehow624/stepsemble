@@ -15,7 +15,14 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**進行中增量1.73（大型歷史核心與安全來源接線，尚未接Host）**：`da12256`已接同held-FD
+**最新接續1.73（全來源格式驗證v11，尚未接新大檔Host）**：全檔逐筆UTF8/JSON/depth/
+selected/fork/history-mode驗證已接同held-FD雙掃；新receipt與v10分開，未知raw不丟失，
+不冒稱native完整語義/approval。46組差分與16,384筆真檔案頁外損壞拒絕／修復通；
+既有PTY測試時序失敗亦穩定重現並修正，完整及最低Node1032/0fail。5555a7e五組exact
+CI全通且完整logs核；POSIX真v11 gate63child/1dir清理，Windows仍unsupported。接續
+[v11證據與實際整合待辦](codex-validated-source.md)，不重做已驗scanner/opener。
+
+**前段增量1.73（大型歷史核心與安全來源接線，尚未接Host）**：`da12256`已接同held-FD
 權限／ACL／name-edge／actualclose與獨立v10 Node/Rust來源分頁，真16MiB/16,384筆、
 最多50筆頁面與頁外變動version驗證通；舊Host39raw＋23structure回歸通、完整及最低Node
 1028/0fail。eabba3e一般/reader/Codex與da12256的Claude/browser已通且完整logs核對；

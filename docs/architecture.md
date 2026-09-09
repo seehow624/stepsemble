@@ -14,6 +14,14 @@ without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
 Development-only Plan1.73 starts with a byte-level bounded JSONL double-scan core.
+The latest v11 increment validates EVERY legacy envelope through that held-FD
+scan and distinguishes its receipt/version from opaque v10. Unknown records
+stay raw; native projection/approval authority remains false. Real owned large
+source and parser differential gates pass; all five exact 5555a7e CI workflows
+passed with full logs checked (Windows private source still unsupported). Name/structure/
+page-aware parser and large Host/Web integration remain required; see
+[`codex-validated-source.md`](codex-validated-source.md). The v10 details below
+are preserved as the preceding mechanical-source checkpoint, not work to redo.
 Follow-up da12256 connects it to the SAME authenticated POSIX opener/rechecks/
 actual-close boundary and a distinct v10 Node/Rust page receipt. The new method
 does not validate native JSON semantics or expose HTTP/registry history. Actual

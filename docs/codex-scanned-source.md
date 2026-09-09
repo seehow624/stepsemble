@@ -7,6 +7,10 @@ Node→Rust 的 Host-private 協定。**尚未接入 registry／named parser／H
 尚未提供大型原生語義歷史，也不是 C2 完成。**
 正式3.0.6、dev3.0.7-rc.7、B+、來源／讀者授權、帳號及獨立72h均不變。
 
+後續：[v11全來源格式驗證](codex-validated-source.md)已接同held-FD scanner，46差分與
+真16,384筆頁外壞紀錄拒絕/恢復通；v10本文的opaque契約不改。末節第1步的envelope
+驗證已有此增量，名稱、完整native語義／structure／HostWeb仍待，不從零重做。
+
 ## 實作範圍
 
 - `posix/codex.rs` 的同一個 authenticated open/check/close 流程分成 bytes 與 page

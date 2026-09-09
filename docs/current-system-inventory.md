@@ -9,6 +9,11 @@
 
 ## 1. 這份文件的角色
 
+Plan1.73接續v11已將完整來源legacy envelope驗證接held-FD雙掃，新receipt區分v10。
+46差分／16,384筆真檔頁外損壞拒絕與修復、PTY測試競態修正／本機1032/0fail通。
+5555a7e五組exact CI已全通且完整logs核；仍不是name/structure/pipeline或Web大檔已接，
+見[v11接續](codex-validated-source.md)。Windows來源仍unsupported，不將測試通過當支援。
+
 Plan1.73新進展：da12256接同POSIX來源權限與actualclose、新v10 byte-framed Node/Rust
 分頁。真16MiB/16,384筆與50筆頁、頁外變動version、索引存在性及拒絕恢復通，1028/0fail
 完整與最低Node；eabba3e一般/reader/Codex及da12256的Claude/browser已通且完整logs核對，

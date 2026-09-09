@@ -29,6 +29,12 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 
 ## 順序與驗收
 
+2026-09-09／Plan1.73全檔格式接續：v11在同held-FD掃描驗全來源envelope，含未選頁、
+UTF8/JSON/depth/selected/fork/historymode；46差分及16,384筆真檔／頁外破壞與恢復通。
+既有PTY測試時序先重現後修、完整及最低Node1032/0fail；5555a7e五exact CI全通且
+完整logs已核，POSIX真v11全gate/cleanup通、Windows仍unsupported。不是完整native projection或
+新大檔Web已接，下一段按[v11整合清單](codex-validated-source.md)，C2/C6仍未勾完成。
+
 2026-09-09／Plan1.73來源邊界進展：da12256接同held-FD權限／ACL／name-edge／close，
 新v10 Node/Rust分頁與全來源digest/count版本，真16MiB/16,384筆、50筆頁與頁外變動通。
 完整及最低Node1028/0fail、Rust29/41＋15scanner與舊Host回歸通；eabba3e一般/reader/
