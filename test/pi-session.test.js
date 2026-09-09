@@ -1,9 +1,27 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict");
 const fs = require("node:fs/promises"), path = require("node:path"), os = require("node:os"), vm = require("node:vm");
-const { spawn } = require("node:child_process");
+const { spawn, execFile } = require("node:child_process");
+const { promisify } = require("node:util");
+const execFileAsync = promisify(execFile);
 const piSession = require("../public/modules/pi-session");
 const root = path.resolve(__dirname, "..");
+async function knownGitBinary() {
+  const candidates = process.platform === "win32"
+    ? [path.join(process.env.ProgramFiles || "C:\\Program Files", "Git", "cmd", "git.exe")]
+    : ["/usr/bin/git", "/opt/homebrew/bin/git", "/usr/local/bin/git"];
+  for (const candidate of candidates) {
+    try { await fs.access(candidate); return candidate; } catch {}
+  }
+  throw new Error("A Git executable in a known system location is required");
+}
+function isolatedGitEnvironment(home) {
+  return {
+    HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, ".config"),
+    GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: path.join(home, "gitconfig.disabled"),
+    GIT_TERMINAL_PROMPT: "0", ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+  };
+}
 test("all browser module artifacts keep LF on Windows checkout, including future typed helpers", async () => {
   const attributes = (await fs.readFile(path.join(root, ".gitattributes"), "utf8")).replace(/\r\n/g, "\n");
   assert.match(attributes, /^public\/modules\/\*\.js text eol=lf$/m);
@@ -69,8 +87,36 @@ test("recorded close intent rejects new writes and reuse before the child exit c
 test("isolated HTTP preserves names, 143 close intent, outcomes and send/close races", async t => {
   const { freePort, waitForServer, stopServer } = await import("../scripts/host-performance-baseline.mjs");
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-pi-lifecycle-"));
+  let child = null, base = "", cookie = "";
+  const owned = [];
+  const request = (url, body) => fetch(base + url, { headers: { cookie, "content-type": "application/json" },
+    ...(body ? { method: "POST", body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(5000) });
+  const json = async (url, body) => { const response = await request(url, body); assert.equal(response.status, 200, url); return response.json(); };
+  const rpc = (sid, command) => json("/api/rpc-cmd", { sid, command });
+  const task = async sid => (await json("/api/agent-tasks")).tasks.find(row => row.id === `pi:${sid}`);
+  const wait = async predicate => { for (let i = 0; i < 100; i++) { if (await predicate()) return; await new Promise(resolve => setTimeout(resolve, 20)); } assert.fail("Synthetic state deadline"); };
+  t.after(async () => {
+    if (child) {
+      for (const item of owned) {
+        await rpc(item.sid, { type: "fixture_release_state" }).catch(() => {});
+        await rpc(item.sid, { type: "abort" }).catch(() => {});
+        await request("/api/close", { sid: item.sid }).catch(() => {});
+      }
+      await wait(() => owned.every(item => { try { process.kill(item.pid, 0); return false; } catch { return true; } }));
+      await stopServer(child);
+      assert.ok(child.exitCode !== null || child.signalCode !== null);
+    }
+    await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  });
   const directory = path.join(home, ".pi/agent/sessions/synthetic"), cwd = path.join(home, "project");
   await fs.mkdir(directory, { recursive: true }); await fs.mkdir(cwd);
+  const git = await knownGitBinary(), hooks = path.join(home, "git-hooks-disabled"), gitEnv = isolatedGitEnvironment(home);
+  await fs.mkdir(hooks);
+  const gitArgs = ["-c", `core.hooksPath=${hooks}`, "-c", "commit.gpgSign=false"];
+  await execFileAsync(git, [...gitArgs, "init"], { cwd, env: gitEnv });
+  await fs.writeFile(path.join(cwd, "owned.txt"), "owned worktree fixture\n");
+  await execFileAsync(git, [...gitArgs, "add", "owned.txt"], { cwd, env: gitEnv });
+  await execFileAsync(git, [...gitArgs, "-c", "user.name=Stepsemble Test", "-c", "user.email=test@stepsemble.invalid", "commit", "-m", "fixture"], { cwd, env: gitEnv });
   const stamp = "2026-01-01T00:00:00.000Z", relative = "synthetic/2026-01-01_uuid.jsonl", filename = path.join(directory, "2026-01-01_uuid.jsonl");
   const rows = [{ type: "session", id: "synthetic", cwd, timestamp: stamp },
     { type: "message", id: "u1", parentId: null, timestamp: stamp, message: { role: "user", content: [{ type: "text", text: "First user question 🐾" }] } },
@@ -82,30 +128,11 @@ test("isolated HTTP preserves names, 143 close intent, outcomes and send/close r
   const script = path.join(home, "peer.cjs"), peer = process.platform === "win32" ? path.join(home, "pi.cmd") : script;
   await fs.copyFile(path.join(root, "test-support/pi-lifecycle-peer.cjs"), script); await fs.chmod(script, 0o700);
   if (process.platform === "win32") await fs.writeFile(peer, `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`);
-  const port = await freePort(), base = `http://127.0.0.1:${port}`;
-  const child = spawn(process.execPath, [path.join(root, "server.js")], { cwd: home, env: {
-    PATH: path.dirname(process.execPath), ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-    PI_HOME: home, PI_BIN: peer, STEPSEMBLE_HOST: "127.0.0.1", STEPSEMBLE_PORT: String(port), STEPSEMBLE_ORPHAN_EXIT: "0",
+  const port = await freePort(); base = `http://127.0.0.1:${port}`;
+  child = spawn(process.execPath, [path.join(root, "server.js")], { cwd: home, env: {
+    ...isolatedGitEnvironment(home), PATH: [...new Set([path.dirname(process.execPath), path.dirname(git), "/usr/bin", "/bin"])].join(path.delimiter),
+    GIT_BIN: git, PI_HOME: home, PI_BIN: peer, STEPSEMBLE_HOST: "127.0.0.1", STEPSEMBLE_PORT: String(port), STEPSEMBLE_ORPHAN_EXIT: "0",
   }, stdio: ["ignore", "pipe", "pipe"] });
-  let cookie = "";
-  const owned = [];
-  const request = (url, body) => fetch(base + url, { headers: { cookie, "content-type": "application/json" },
-    ...(body ? { method: "POST", body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(5000) });
-  const json = async (url, body) => { const response = await request(url, body); assert.equal(response.status, 200, url); return response.json(); };
-  const rpc = (sid, command) => json("/api/rpc-cmd", { sid, command });
-  const task = async sid => (await json("/api/agent-tasks")).tasks.find(row => row.id === `pi:${sid}`);
-  const wait = async predicate => { for (let i = 0; i < 100; i++) { if (await predicate()) return; await new Promise(resolve => setTimeout(resolve, 20)); } assert.fail("Synthetic state deadline"); };
-  t.after(async () => {
-    for (const item of owned) {
-      await rpc(item.sid, { type: "fixture_release_state" }).catch(() => {});
-      await rpc(item.sid, { type: "abort" }).catch(() => {});
-      await request("/api/close", { sid: item.sid }).catch(() => {});
-    }
-    await wait(() => owned.every(item => { try { process.kill(item.pid, 0); return false; } catch { return true; } }));
-    await stopServer(child);
-    assert.ok(child.exitCode !== null || child.signalCode !== null);
-    await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-  });
   await waitForServer(child); child.stdout.resume(); child.stderr.resume();
   const token = (await fs.readFile(path.join(home, ".config/stepsemble/token"), "utf8")).trim();
   const login = await request("/api/login", { token }); cookie = login.headers.get("set-cookie").split(";", 1)[0];
@@ -119,6 +146,15 @@ test("isolated HTTP preserves names, 143 close intent, outcomes and send/close r
     await wait(async () => (await task(sid)).status === outcome);
     assert.equal((await task(sid)).closeReason, "view_closed");
   }
+  const worktreeOpen = await json("/api/agent/open", { agentId: "pi", cwd, name: "Owned Pi worktree", worktree: true });
+  assert.equal(worktreeOpen.kind, "pi"); assert.equal(worktreeOpen.agentId, "pi");
+  assert.equal(worktreeOpen.cwd, worktreeOpen.worktree.path);
+  assert.equal(path.normalize(worktreeOpen.worktree.repository), path.normalize(await fs.realpath(cwd)));
+  const worktreeCounts = await rpc(worktreeOpen.sid, { type: "fixture_counts" });
+  owned.push({ sid: worktreeOpen.sid, pid: worktreeCounts.data.pid });
+  assert.equal((await task(worktreeOpen.sid)).name, "Owned Pi worktree");
+  assert.equal((await task(worktreeOpen.sid)).cwd, worktreeOpen.worktree.path);
+  await close(worktreeOpen.sid, "stopped");
   const sid = await open(relative); // No preceding list/cache hydration required.
   assert.equal((await task(sid)).name, "First user question 🐾");
   const listed = (await json("/api/sessions?includeTemporary=1")).sessions.find(row => row.file === relative);

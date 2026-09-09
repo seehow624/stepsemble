@@ -565,7 +565,9 @@ test("New project browsing starts with a selected-host no-path request", () => {
   assert.doesNotMatch(app, /loadProjectFolder\(initialCwd \|\| window\._piHome \|\| null\)/);
   assert.match(server, /const requestedPath = url\.searchParams\.get\("path"\)/);
   assert.match(server, /typeof requestedPath === "string" \? requestedPath\.trim\(\) : ""/);
-  assert.match(server, /if \(!dir\) dir = APP_HOME/);
+  assert.match(server, /if \(!dir\) \{\s+dir = defaultBrowseDirectory\(\)/);
+  assert.match(server, /realHome && isBrowseAllowed\(realHome\)/);
+  assert.match(server, /no allowed browse root is available/);
   assert.match(server, /if \(!path\.isAbsolute\(dir\)\)/);
   assert.match(server, /isBrowseAllowed\(dir\)/);
 });

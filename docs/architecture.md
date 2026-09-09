@@ -13,13 +13,23 @@ runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
+Development-only Plan1.77 fixes Pi worktree launches using native sid/SSE rather
+than the generic task contract, plus stale-request cleanup and canonical cwd.
+New-project paths now share the configured project-directory fence; the root
+picker is navigation-only and managed worktrees must pass preflight before any
+mkdir or worktree add. Existing file-resume policy is unchanged. Full/minimum
+Node1098/0fail and owned CUA320/390px pass; exact new-runtime CI is a separate
+gate. The original fixed rc.1 72h has passed and its monitor is removed, but that
+result does not certify this runtime. See the
+[`release review`](release-review-2026-09-09.md).
+
 Development-only Plan1.76 connects the v12 global turn/tool/rollback sideband
 through explicit parser9/10, the SAME five-stage admitted named pipeline, registry,
 HTTP/peer and typed Web. The explicit structured-page profile is version-bound;
 raw v11 and small/compressed contracts remain distinct. Owned17.2MB/16384-record
 Host and CUA320/390px prove native IDs, bidirectional tool links and off-page
-rollback; full/minimum Node1085/0fail and cancel-cleanup regressions pass. Exact CI
-must be checked for this commit independently of the previous checkpoint.
+rollback; full/minimum Node1085/0fail and cancel-cleanup regressions pass. Its
+required engineering and optimized-runner CI passed with full logs checked.
 Plan1.75 foundation a4e503e passed all five exact CI workflows with full logs checked.
 See [`codex-structured-source.md`](codex-structured-source.md).
 
@@ -208,11 +218,13 @@ explicit input/output boundary before adding more state to the controllers.
 ## Runtime rules
 
 - Keep API and relay requests out of the service-worker cache.
-- Agent Hub uses one versioned connector contract for Pi and local CLI agents.
-  The public catalog includes `protocolVersion`, capabilities, and lifecycle
-  event types so future adapters can be added without changing the browser API.
-  Pi keeps
-  its native JSON-RPC/session history; Claude Code, Codex CLI, Grok Build, and
+- Agent Hub uses one allow-listed catalog, not one shared execution protocol.
+  Generic CLI entries expose the versioned task lifecycle event contract.
+  Pi keeps its separate native JSON-RPC/SSE/session-history path and does not
+  emit those generic task events. The development release-review correction
+  advertises `protocolVersion: null` and `events: []` for native Pi; the older
+  shipped catalog incorrectly populated the generic manifest fields for it.
+  Claude Code, Codex CLI, Grok Build, and
   OpenCode are discovered from an explicit allow-list and run only from their
   resolved executable path. The browser can submit an Agent id and text, never
   an arbitrary command or shell fragment.

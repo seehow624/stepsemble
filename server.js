@@ -229,6 +229,20 @@ function isBrowseAllowed(dir) {
   });
 }
 
+function defaultBrowseDirectory() {
+  const realHome = realBrowsePath(APP_HOME);
+  if (realHome && isBrowseAllowed(realHome)) {
+    try { if (fs.statSync(realHome).isDirectory()) return realHome; } catch {}
+  }
+  // Preserve administrator order. Invalid or missing configured roots grant
+  // nothing and are skipped; this fallback is used only for an empty request.
+  for (const root of BROWSE_ROOTS_FROM_ENV) {
+    const realRoot = realBrowsePath(root);
+    try { if (realRoot && fs.statSync(realRoot).isDirectory()) return realRoot; } catch {}
+  }
+  return null;
+}
+
 // ---- 機器清單（server 端權威來源；供 SPA 反代切換）----
 // Do not ship private LAN/Tailscale addresses in the public source. Add remote
 // devices through the UI (machines.json), or provide STEPSEMBLE_MACHINES as JSON.
@@ -1787,6 +1801,21 @@ function runWorktreeGit(git, args, timeout, signal) {
       (error, stdout) => error ? reject(error) : resolve(stdout));
   });
 }
+
+function managedWorktreeDirectoryAllowed(target) {
+  if (isBrowseAllowed(target)) return true;
+  // A missing descendant is safe only when an existing, canonical allowed
+  // root contains every path component and none of those components is a
+  // symlink. An explicit root that does not exist grants no lexical authority.
+  for (const configuredRoot of BROWSE_ROOTS) {
+    const realRoot = realBrowsePath(configuredRoot);
+    try {
+      if (realRoot && fs.statSync(realRoot).isDirectory() && containedMissingPath(realRoot, target)) return true;
+    } catch {}
+  }
+  return false;
+}
+
 let worktreeCreates = 0;
 async function createPermanentWorktree(cwd, signal) {
   if (worktreeCreates >= 2) { const error = new Error("Worktree creation is busy; retry when the current operation finishes"); error.statusCode = 429; throw error; }
@@ -1806,7 +1835,13 @@ async function createPermanentWorktree(cwd, signal) {
     const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
     const suffix = crypto.randomBytes(2).toString("hex");
     const branch = `pi-worktree/${repoName}-${stamp}-${suffix}`;
-    const worktreeRoot = path.join(APP_HOME, ".pi", "worktrees", repoName);
+    const realAppHome = realBrowsePath(APP_HOME);
+    const worktreeRoot = realAppHome ? path.join(realAppHome, ".pi", "worktrees", repoName) : "";
+    if (!worktreeRoot || !managedWorktreeDirectoryAllowed(worktreeRoot)) {
+      const error = new Error("Managed worktree directory is outside browse roots; an administrator must explicitly allow the Stepsemble worktree directory");
+      error.statusCode = 403;
+      throw error;
+    }
     const target = path.join(worktreeRoot, `${stamp}-${suffix}`);
     try {
       await fs.promises.mkdir(worktreeRoot, { recursive: true, mode: 0o700 });
@@ -2287,6 +2322,15 @@ function reusableRpc(file) {
 }
 
 async function openRpc({ file, cwd, name }) {
+  let validatedNewCwd = null;
+  if (!file) {
+    validatedNewCwd = projectDirectory(cwd || APP_HOME);
+    if (!validatedNewCwd) {
+      const error = new Error("Project folder is unavailable or outside browse roots");
+      error.statusCode = 403;
+      throw error;
+    }
+  }
   // Nous Portal access JWT 有效期有限；在新 RPC 啟動前懶惰更新，確保模型
   // 讀到的是最新 access token，而不在背景同時刷新 single-use token。
   await ensureNousAuthFresh();
@@ -2312,19 +2356,21 @@ async function openRpc({ file, cwd, name }) {
     }
     args.push("--session", abs);
   } else {
-    if (cwd) {
-      if (typeof cwd !== "string" || !path.isAbsolute(cwd)) throw new Error("invalid cwd");
-      try {
-        if (!fs.statSync(cwd).isDirectory()) throw new Error("not a directory");
-        spawnCwd = fs.realpathSync.native(cwd);
-      } catch { throw new Error("invalid cwd"); }
-    }
+    spawnCwd = validatedNewCwd;
     if (name) args.push("--name", String(name).slice(0, 80));
   }
   // File metadata is asynchronous. Recheck identity and capacity at the effect
   // boundary so two simultaneous opens cannot spawn two writers for one file.
   const concurrentlyOpened = reusableRpc(file);
   if (concurrentlyOpened) return concurrentlyOpened;
+  if (!file) {
+    const recheckedCwd = projectDirectory(spawnCwd);
+    if (!recheckedCwd || recheckedCwd !== spawnCwd) {
+      const error = new Error("Project folder is unavailable or outside browse roots");
+      error.statusCode = 403;
+      throw error;
+    }
+  }
   if ([...rpcSessions.values()].filter(session => !session.exited).length >= MAX_RPC_SESSIONS) {
     const error = new Error(`too many rpc sessions (limit ${MAX_RPC_SESSIONS})`);
     error.statusCode = 429; throw error;
@@ -4959,6 +5005,14 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/agent/open" && req.method === "POST") {
         const body = await readJSON(req, 64 * 1024);
         let reservedClaude = false;
+        const controller = new AbortController();
+        let requesterGone = false;
+        const onResponseClose = () => {
+          if (res.writableEnded) return;
+          requesterGone = true;
+          controller.abort();
+        };
+        res.once("close", onResponseClose);
         try {
           const agentId = String(body?.agentId || "pi").trim().toLowerCase();
           if (agentId === "claude-code" && claudeAuth.isBusy()) {
@@ -4968,21 +5022,28 @@ const server = http.createServer(async (req, res) => {
           let cwd = typeof body?.cwd === "string" ? body.cwd : "";
           let worktree = null;
           if (body?.worktree === true) {
-            const controller = new AbortController();
-            res.once("close", () => controller.abort());
             worktree = await createPermanentWorktree(cwd, controller.signal);
             cwd = worktree.path;
           }
+          if (requesterGone) return;
           if (agentId === "pi") {
             const result = await openRpc({ file: body?.file, cwd, name: body?.name });
-            sendJSON(res, 200, { ...result, kind: "pi", agentId: "pi", worktree });
+            if (requesterGone) {
+              if (!result.reused) await closeIdleRpc(result.sid, "view_closed");
+              return;
+            }
+            sendJSON(res, 200, { ...result, kind: "pi", agentId: "pi",
+              worktree: worktree ? { ...worktree, path: result.cwd } : null });
           } else {
             const result = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
             sendJSON(res, 201, { ...result, kind: "cli", agentId });
           }
         } catch (error) {
-          sendJSON(res, error.statusCode || 409, { error: error.message || "Could not start agent task" });
-        } finally { if (reservedClaude) claudeLaunchReservations--; }
+          if (!requesterGone) sendJSON(res, error.statusCode || 409, { error: error.message || "Could not start agent task" });
+        } finally {
+          res.off("close", onResponseClose);
+          if (reservedClaude) claudeLaunchReservations--;
+        }
         return;
       }
 
@@ -5086,11 +5147,14 @@ const server = http.createServer(async (req, res) => {
 
       if (p === "/api/browse" && req.method === "GET") {
         // Directory browsing is read-only and defaults to the selected host's
-        // safe application home. Treat missing, empty, and whitespace-only
-        // paths alike so a first mobile render never sends a relative value.
+        // allowed HOME or first explicit root. Missing, empty, and whitespace-
+        // only paths stay equivalent so a first render never sends a relative value.
         const requestedPath = url.searchParams.get("path");
         let dir = typeof requestedPath === "string" ? requestedPath.trim() : "";
-        if (!dir) dir = APP_HOME;
+        if (!dir) {
+          dir = defaultBrowseDirectory();
+          if (!dir) { sendJSON(res, 403, { error: "no allowed browse root is available" }); return; }
+        }
         else if (dir === "~" || dir.startsWith("~/") || dir.startsWith("~\\")) dir = path.join(APP_HOME, dir.slice(1));
         if (!path.isAbsolute(dir)) { sendJSON(res, 400, { error: "absolute path required" }); return; }
         try { dir = fs.realpathSync.native(dir); } catch (e) {
@@ -5099,7 +5163,8 @@ const server = http.createServer(async (req, res) => {
         }
         const filesystemRoot = path.parse(dir).root;
         const isRootPicker = BROWSE_ROOTS.length > 0 && dir === filesystemRoot;
-        if (!isBrowseAllowed(dir) && !isRootPicker) { sendJSON(res, 403, { error: "path is outside browse roots" }); return; }
+        const selectable = isBrowseAllowed(dir);
+        if (!selectable && !isRootPicker) { sendJSON(res, 403, { error: "path is outside browse roots" }); return; }
         let entries;
         if (isRootPicker) {
           // The filesystem root is a narrow bridge: expose only configured
@@ -5121,7 +5186,7 @@ const server = http.createServer(async (req, res) => {
         const parent = dir === filesystemRoot
           ? dir
           : (isConfiguredBrowseRoot(dir) ? filesystemRoot : path.dirname(dir));
-        sendJSON(res, 200, { path: dir, parent, entries });
+        sendJSON(res, 200, { path: dir, parent, entries, selectable });
         return;
       }
 

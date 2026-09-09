@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.76
+> 計畫版本：1.77
 > 最後更新：2026-09-09
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -10,7 +10,16 @@
 
 ## 文件用途與回復方法
 
-**最新接續1.76（大型全來源結構接 Web）**：明確 parser9/10 與 profile 接同五階段
+**最新接續1.77（長測結案與新對話入口修正）**：固定rc.1的72h已於19:34:16 MYT
+真正passed，8554cycles／68432ACK、清理與來源hash核畢，原追蹤已刪除。
+df713033發布分流保護已推並通三OS CI；Pi+worktree改接原生sid/SSE，保留名稱／
+canonical cwd／Changes，補重複Start與late cleanup。窄browse roots預設入口、root
+chooser不可誤啟動、新Pi cwd同目錄政策、managed worktree寫入前檢查均補齊。
+最後本機完整／最低Node各1098tests/0fail；CUA320/390px與owned關閉清理通；本輪
+新runtime仍須獨立exact CI，不套用舊72h。見[今晚總結與驗收](release-review-2026-09-09.md)。
+正式3.0.6／開發rc.7、B+與私人來源／帳號／正式部署關卡不變，C1–C8未全完成。
+
+**前段接續1.76（大型全來源結構接 Web）**：明確 parser9/10 與 profile 接同五階段
 named pipeline、registry／HTTP／peer／typed Web；真17.2MB/16384筆、原生ID、
 跨頁雙向工具／頁外rollback及320/390px已驗。完整／最低Node1085/0fail、取消後清理
 競態及工具按鈕回歸通；工程1b37173四CI通、full logs核。rolling的Mac第6案例碰

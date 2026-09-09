@@ -36,6 +36,7 @@ function setup() {
     restoreLastChat() { restores++; },
   });
   vm.runInContext(`let agentCatalogRequest = null, agentCatalog = [], agentTasks = [], agentCatalogError = false;
+    let newAgentOpenRequest = null, newAgentStartPending = false;
     let apiBase = '/r/a', selectedId = 'a';
     ${source.slice(source.indexOf("async function loadAgentCatalog("), source.indexOf("function syncAgentTaskPolling("))}
     function snapshot() { return { agentCatalog, agentTasks, agentCatalogError, catalogPending: !!agentCatalogRequest, tasksPending: !!agentTaskRefreshRequest }; }
@@ -94,15 +95,101 @@ test("malformed task snapshot preserves the last known same-host tasks", async (
 
 test("project creation is disabled when discovery or the selected executable is unknown", () => {
   const source = fs.readFileSync(require.resolve("../public/app.js"), "utf8");
-  const el = { newAgent: { value: "pi" }, newStart: {}, newAgentNote: {}, newWorktree: {} };
+  const el = { newAgent: { value: "pi" }, newStart: {}, newAgentNote: {}, newWorktree: {}, newCwd: { value: "/allowed" } };
   const context = vm.createContext({ el, agentCatalog: [], agentCatalogError: false, agentHubText: key => key });
-  vm.runInContext(source.slice(source.indexOf("function updateNewAgentNote("), source.indexOf("async function loadAgentCatalog(")), context);
+  vm.runInContext(`let newAgentStartPending = false;\n${source.slice(source.indexOf("function updateNewAgentNote("), source.indexOf("async function loadAgentCatalog("))}`, context);
   context.updateNewAgentNote(); assert.equal(el.newStart.disabled, true);
   context.agentCatalog = [{ id: "pi", installed: true }];
   context.updateNewAgentNote(); assert.equal(el.newStart.disabled, false);
+  el.newCwd.value = "";
+  context.updateNewAgentNote(); assert.equal(el.newStart.disabled, true);
+  el.newCwd.value = "/allowed";
   context.agentCatalogError = true;
   context.updateNewAgentNote(); assert.equal(el.newStart.disabled, true);
   assert.equal(el.newAgentNote.textContent, "unavailable");
+});
+
+test("Pi worktree launch coalesces repeated clicks and host reset aborts the single owned request", async () => {
+  const source = fs.readFileSync(require.resolve("../public/app.js"), "utf8");
+  const resetStart = source.indexOf("function resetAgentHub(");
+  const resetSource = source.slice(resetStart, source.indexOf("\n}\n", resetStart) + 2);
+  let click, finish;
+  const launches = [];
+  const classes = { add() {} };
+  const el = {
+    newStart: { disabled: false, addEventListener(type, handler) { assert.equal(type, "click"); click = handler; } },
+    newAgent: { value: "pi" }, newAgentNote: {}, newWorktree: { checked: true },
+    newCwd: { value: "/owned/repo" }, newName: { value: "Owned Pi worktree" }, newDialog: { classList: classes },
+  };
+  const context = vm.createContext({ AbortController, el, agentHubText: key => key, browseText: key => key,
+    toast() {}, cancelProjectFolderRequest() {}, saveSettings: value => value,
+    startNew(...args) { launches.push(args); return new Promise(resolve => { finish = resolve; }); },
+    runningStateRequest: null, agentTaskRefreshRequest: null, conversationView: null,
+    renderNewAgentOptions() {}, renderAgentHub() {}, renderAgentTaskCenter() {}, syncAgentTaskPolling() {},
+  });
+  vm.runInContext(`let agentCatalog = [{ id: "pi", installed: true, capabilities: ["rpc", "worktree"] }];
+    let agentCatalogError = false, newAgentStartPending = false, newAgentOpenRequest = null;
+    let agentCatalogRequest = null, agentTasks = [], conversationSourceState = {}, settings = { removedProjects: [] };
+    ${source.slice(source.indexOf("function updateNewAgentNote("), source.indexOf("async function loadAgentCatalog("))}
+    ${resetSource}
+    ${source.slice(source.indexOf('el.newStart.addEventListener("click"'), source.indexOf("// ---- iOS 鍵盤適配"))}
+  `, context);
+  const first = click();
+  assert.equal(el.newStart.disabled, true);
+  assert.equal(launches.length, 1);
+  await click();
+  assert.equal(launches.length, 1, "repeat click cannot create a second child");
+  const signal = launches[0][4];
+  assert.equal(signal.aborted, false);
+  context.resetAgentHub();
+  assert.equal(signal.aborted, true, "Host reset cancels the owned worktree launch");
+  finish(); await first;
+  assert.equal(launches.length, 1);
+});
+
+test("folder root bridge is navigation-only and loading cannot start the previously selected cwd", async () => {
+  const source = fs.readFileSync(require.resolve("../public/app.js"), "utf8");
+  const folderList = () => ({
+    innerHTML: "", scrollTop: 0, children: [], contains() { return false; }, focus() {},
+    cloneNode() { return folderList(); }, replaceWith() {}, appendChild(child) { this.children.push(child); },
+  });
+  const el = { newAgent: { value: "pi" }, newStart: {}, newAgentNote: {}, newWorktree: {},
+    newCwd: { value: "/previous" }, newFolderPath: {}, newFolderUp: {}, newFolderList: folderList() };
+  let finish;
+  const replies = [];
+  const context = vm.createContext({ AbortController, el, apiBase: "", selectedId: "local", viewGeneration: 1,
+    agentHubText: key => key, window: {}, document: {
+      activeElement: null, createElement() { return { className: "", textContent: "" }; }, createTextNode: value => value,
+    },
+    api() { return replies.length ? Promise.resolve(replies.shift()) : new Promise(resolve => { finish = resolve; }); },
+  });
+  const browseStart = source.indexOf("function isAbsoluteBrowsePath(");
+  const browseEnd = source.indexOf("function openNewDialog(", browseStart);
+  vm.runInContext(`let agentCatalog = [{ id: "pi", installed: true, capabilities: ["rpc", "worktree"] }];
+    let agentCatalogError = false, newAgentStartPending = false;
+    ${source.slice(source.indexOf("function updateNewAgentNote("), source.indexOf("async function loadAgentCatalog("))}
+    let projectFolder = { path: null, parent: null }, projectFolderRequest = null, projectFolderSequence = 0;
+    ${source.slice(browseStart, browseEnd)}
+  `, context);
+  context.renderProjectFolderList = () => {};
+
+  const loading = context.loadProjectFolder("/bridge");
+  assert.equal(el.newCwd.value, "");
+  assert.equal(el.newStart.disabled, true, "loading a new directory fences the previous selection");
+  finish({ path: "/", parent: "/", selectable: false, entries: [{ name: "allowed", path: "/allowed" }] });
+  await loading;
+  assert.equal(el.newCwd.value, "");
+  assert.equal(el.newStart.disabled, true, "filesystem root is a chooser, not a project cwd");
+
+  replies.push({ path: "/allowed", parent: "/", selectable: true, entries: [] });
+  await context.loadProjectFolder("/allowed");
+  assert.equal(el.newCwd.value, "/allowed");
+  assert.equal(el.newStart.disabled, false);
+
+  replies.push({ path: "/", parent: "/", entries: [{ name: "allowed", path: "/allowed" }] });
+  await context.loadProjectFolder("/");
+  assert.equal(el.newCwd.value, "", "old Hosts use path=parent as a conservative root-bridge fallback");
+  assert.equal(el.newStart.disabled, true);
 });
 
 test("returning to a mobile list clears the desktop pane and stale session identity", async () => {

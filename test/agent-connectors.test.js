@@ -33,6 +33,9 @@ test("Agent Hub exposes only the allow-listed connector ids", () => {
   const catalog = discoverConnectors({ piBin: process.execPath, env: { PATH: "" }, includeKnownPaths: false });
   assert.deepEqual(catalog.map((item) => item.id), ["pi", "claude-code", "codex", "grok-build", "opencode"]);
   assert.equal(catalog[0].installed, true);
+  assert.equal(catalog[0].protocolVersion, null);
+  assert.deepEqual(catalog[0].events, [], "native Pi must not claim the generic task event stream");
+  assert.equal(catalog.slice(1).every((item) => item.protocolVersion === 1 && item.events.includes("task_exit")), true);
   assert.equal(catalog.slice(1).every((item) => item.installed === false), true);
   assert.equal(catalog[1].transport, null);
   assert.equal(resolvePtyRuntime({ env: { PATH: "" } }) !== null, process.platform !== "win32");

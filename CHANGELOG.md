@@ -3,7 +3,7 @@
 ## 3.0.7-rc.7
 
 Development candidate, not a stable release or a production deployment. This
-section summarizes the completed rc.7 increments through `2beab685`; earlier
+section summarizes the rc.7 history and launch-safety increments; earlier
 intermediate limitations are retained in the linked engineering documents.
 The separately frozen rc.1 soak does not certify this later runtime.
 
@@ -37,6 +37,18 @@ The separately frozen rc.1 soak does not certify this later runtime.
 - Use optimized, pinned Rust readers in owned browser CI on macOS and Linux.
   Retain all 24 existing and six Codex cases and the finite suite deadlines;
   preserve the original macOS debug-build timeout as a diagnosed failure.
+- Attach new Pi worktrees to their native session/SSE connection, preserving the
+  name and canonical project path. Coalesce repeated starts and fence cancelled
+  or old-Host responses; close only newly opened, confirmed-idle native sessions.
+- Start the project picker at an allowed home or its first valid configured
+  root. Keep the root chooser navigation-only, disable Start while folders load,
+  and apply the existing project-directory policy to new Pi sessions.
+- Reject managed worktrees outside the configured directory policy before
+  creating a directory or Git branch. Do not silently add browse roots; retain
+  existing session-resume policy and potentially useful partial worktree data.
+- Validate release tags against the package version and explicitly mark RC
+  assets as prereleases, never latest stable. Keep legacy asset aliases and
+  provenance; invalid tags or unknown classification fail before publication.
 
 Large compressed histories, unsupported Codex paginated/native projections,
 other agents' native-history adapters, durable approval/resume, full source-group

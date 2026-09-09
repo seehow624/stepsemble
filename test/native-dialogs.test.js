@@ -18,7 +18,7 @@ function ui(api = async () => ({ sent: true })) {
   const el = Object.fromEntries(["Sheet", "Kind", "Title", "Message", "Options", "Input", "Editor", "Submit", "Cancel", "Status"].map(key => ["extensionUi" + key, node()]));
   const errors = [], sends = [];
   const context = vm.createContext({ TextEncoder, AbortSignal, setTimeout, clearTimeout, nativeDialogs: queue(), extensionUiRequest: null, providerAuthRun: null, providerAuthStream: null, providerAuthRequest: null, providerAuthNotice: "", providerAuthUrl: "", apiBase: "", rpc: { sid: "a" }, el, document: { createElement: node }, window: {}, markRpcActivity() {}, tKey: (key, vars) => `${key}:${vars?.count ?? ""}`, toast: message => errors.push(message), api: (...args) => { sends.push(args); return api(...args); }, post: (...args) => { sends.push(args); return api(...args); } });
-  for (const name of ["dismissNativeDialog", "resetNativeDialogs", "suspendNativeDialog", "refreshNativeDialogControls", "reconcileNativeDialogs", "connectRpc", "renderNextNativeDialog", "finishExtensionUi", "showExtensionUi", "renderNativeDialog", "handleRpcEvent", "resetProviderDialogControls", "showProviderAuthPrompt", "showProviderAuthNotify", "closeProviderAuthClient", "cancelProviderAuth"]) {
+  for (const name of ["dismissNativeDialog", "resetNativeDialogs", "suspendNativeDialog", "refreshNativeDialogControls", "reconcileNativeDialogs", "connectRpc", "connectAgentTask", "renderNextNativeDialog", "finishExtensionUi", "showExtensionUi", "renderNativeDialog", "handleRpcEvent", "resetProviderDialogControls", "showProviderAuthPrompt", "showProviderAuthNotify", "closeProviderAuthClient", "cancelProviderAuth"]) {
     let start = appSource.indexOf(`function ${name}(`); assert.ok(start >= 0, name);
     if (appSource.slice(start - 6, start) === "async ") start -= 6;
     const end = appSource.indexOf("\n}\n", start) + 2;
@@ -177,11 +177,17 @@ test("authoritative removal wins over an in-flight HTTP result without touching 
   }
 });
 
-async function transport() {
+function nativeTransport(postImpl = async () => ({ sid: "a", replayAfter: 37 })) {
   const state = ui(), c = state.context, streams = [], timers = new Map(); let timerId = 0;
+  const endpoints = [], cleanup = [], draftScopes = [];
   state.el.queueNote = node(); state.el.queueNote.dataset = {};
+  state.el.chatSub = node(); state.el.chatSub.dataset = {};
+  state.el.chatTitle = node(); state.el.chatTitle.textContent = "Named worktree";
   Object.assign(c, { viewGeneration: 1, setStreaming(value) { if (c.rpc) c.rpc.streaming = value; },
-    post: async () => ({ sid: "a", replayAfter: 37 }), refreshCommands() {}, syncComposerState() {}, syncSessionStats() {},
+    post: async (...args) => { endpoints.push(args[0]); return postImpl(...args); },
+    fetch: async (...args) => { cleanup.push(args); return {}; },
+    beginDraftScope(scope) { draftScopes.push(scope); }, resetProjectChanges() {}, refreshProjectChanges() {},
+    refreshCommands() {}, syncComposerState() {}, syncSessionStats() {},
     showRemoteAuthorizationState() {}, setActivityLabel() {}, setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
     EventSource: class {
       constructor(url) { this.url = url; this.listeners = {}; streams.push(this); }
@@ -190,8 +196,13 @@ async function transport() {
       connected(value) { this.listeners.connected({ data: JSON.stringify(value) }); }
     },
   });
+  return { ...state, streams, timers, endpoints, cleanup, draftScopes,
+    retry() { const id = c.rpc.reconnectTimer, fn = timers.get(id); assert.equal(typeof fn, "function"); timers.delete(id); fn(); } };
+}
+async function transport() {
+  const state = nativeTransport(), c = state.context;
   await c.connectRpc({});
-  return { ...state, streams, timers, retry() { const id = c.rpc.reconnectTimer, fn = timers.get(id); assert.equal(typeof fn, "function"); timers.delete(id); fn(); } };
+  return state;
 }
 const connected = requests => ({ type: "connected", sid: "a", isStreaming: false, eventSeq: 999, nativeUiSnapshot: snapshot(requests) });
 test("connected snapshot is cursor-neutral; reconnect blocks replies until full validation", async () => {
@@ -223,4 +234,55 @@ test("legacy Host fallback remains usable; same-sid replaced views and foreign s
   remote.streams[0].connected(connected([event("foreign")])); assert.equal(remote.context.nativeDialogs.count("/r/other", "a"), 0);
   const view = await transport(); view.context.viewGeneration++;
   view.streams[0].connected(connected([event("old-view")])); assert.equal(view.context.extensionUiRequest, null);
+});
+
+test("Pi worktree launch attaches its returned sid to the native stream and never opens a generic task stream", async () => {
+  const state = nativeTransport(async path => {
+    assert.equal(path, "/api/agent/open");
+    return { kind: "pi", agentId: "pi", sid: "a", cwd: "/owned/worktree", replayAfter: 12, worktree: { path: "/owned/worktree" } };
+  });
+  await state.context.connectAgentTask({ agentId: "pi", cwd: "/repo", name: "Named worktree", worktree: true });
+  assert.equal(state.context.rpc.sid, "a");
+  assert.equal(state.context.rpc.generic, undefined);
+  assert.equal(state.context.currentSessionCwd, "/owned/worktree");
+  assert.equal(state.el.chatSub.textContent, "/owned/worktree");
+  assert.equal(state.el.chatTitle.textContent, "Named worktree");
+  assert.deepEqual(JSON.parse(JSON.stringify(state.draftScopes)), [{ cwd: "/owned/worktree", name: "Named worktree" }]);
+  assert.deepEqual(state.endpoints, ["/api/agent/open"]);
+  assert.equal(state.streams.length, 1);
+  assert.match(state.streams[0].url, /^\/api\/stream\?sid=a&after=12&uiSnapshot=1$/);
+  assert.doesNotMatch(state.streams[0].url, /\/api\/agent\/stream/);
+});
+
+test("late Pi worktree response closes only its old Host sid and cannot attach to the new Host", async () => {
+  let finish;
+  const state = nativeTransport(() => new Promise(resolve => { finish = resolve; }));
+  state.context.rpc = null;
+  const pending = state.context.connectAgentTask({ agentId: "pi", cwd: "/repo", worktree: true });
+  state.context.apiBase = "/r/new";
+  state.context.viewGeneration = 2;
+  finish({ kind: "pi", agentId: "pi", sid: "late", reused: false });
+  await pending;
+  assert.equal(state.streams.length, 0);
+  assert.equal(state.context.rpc?.sid, undefined);
+  assert.equal(state.cleanup.length, 1);
+  assert.equal(state.cleanup[0][0], "/api/close");
+  assert.equal(JSON.parse(state.cleanup[0][1].body).sid, "late");
+});
+
+test("aborted same-Host Pi worktree response is closed instead of attaching a late native stream", async () => {
+  let finish;
+  const controller = new AbortController();
+  const state = nativeTransport(() => new Promise(resolve => { finish = resolve; }));
+  state.context.rpc = null;
+  const pending = state.context.connectAgentTask({ agentId: "pi", cwd: "/repo", worktree: true, signal: controller.signal });
+  controller.abort();
+  finish({ kind: "pi", agentId: "pi", sid: "cancelled", cwd: "/owned/worktree", reused: false,
+    worktree: { path: "/owned/worktree" } });
+  await pending;
+  assert.equal(state.streams.length, 0);
+  assert.equal(state.context.rpc, null);
+  assert.equal(state.cleanup.length, 1);
+  assert.equal(JSON.parse(state.cleanup[0][1].body).sid, "cancelled");
+  assert.equal(state.draftScopes.length, 0);
 });

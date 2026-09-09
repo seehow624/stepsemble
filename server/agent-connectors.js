@@ -245,9 +245,11 @@ function publicDefinition(definition, options = {}) {
     label: definition.label,
     kind: definition.kind,
     description: definition.description,
-    protocolVersion: contract.protocolVersion,
+    // Native Pi owns the separate JSON-RPC/SSE contract in server.js. Do not
+    // advertise the generic connector task event protocol for that source.
+    protocolVersion: definition.kind === "native" ? null : contract.protocolVersion,
     capabilities: [...contract.capabilities],
-    events: [...contract.events],
+    events: definition.kind === "native" ? [] : [...contract.events],
     installed: !!command,
     command: command ? path.basename(command) : null,
     transport: command ? (options.transport || (definition.kind === "native" ? "rpc" : "pipe")) : null,

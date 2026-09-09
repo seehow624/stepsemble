@@ -179,6 +179,8 @@ let agentTasks = [];
 let agentTaskPollTimer = null;
 let agentHubTicker = null;
 let agentCatalogRequest = null;
+let newAgentStartPending = false;
+let newAgentOpenRequest = null;
 let currentAgentTaskId = null;
 const collapsedProjects = new Set();
 const expandedProjectSessions = new Set();
@@ -716,8 +718,8 @@ async function api(path, opts = {}) {
   await protocolConnections.ensure(baseAtStart, opts.signal);
   return hostClient.request(baseAtStart, path, opts);
 }
-const post = (path, body) => api(path, {
-  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+const post = (path, body, opts = {}) => api(path, {
+  ...opts, method: "POST", headers: { "Content-Type": "application/json", ...(opts.headers || {}) }, body: JSON.stringify(body),
 });
 
 function tKey(key, vars = {}) {
@@ -1971,7 +1973,8 @@ function updateNewAgentNote() {
   const id = el.newAgent?.value;
   const connector = agentCatalog.find((item) => item.id === id);
   const unavailable = agentCatalogError || connector?.installed !== true;
-  if (el.newStart) el.newStart.disabled = unavailable;
+  const folderUnavailable = el.newCwd ? !el.newCwd.value.trim() : false;
+  if (el.newStart) el.newStart.disabled = unavailable || folderUnavailable || newAgentStartPending;
   if (el.newAgentNote) el.newAgentNote.textContent = unavailable ? agentHubText(agentCatalogError ? "unavailable" : "discovering") : id === "pi" ? agentHubText("piNote") : (connector?.description || agentHubText("cliNote"));
   if (el.newWorktree) el.newWorktree.disabled = connector?.capabilities?.includes("worktree") === false;
 }
@@ -2036,6 +2039,8 @@ function resetAgentHub() {
   runningStateRequest = null;
   agentCatalogRequest?.abort();
   agentTaskRefreshRequest?.abort();
+  newAgentOpenRequest?.abort();
+  newAgentOpenRequest = null;
   agentCatalogRequest = agentTaskRefreshRequest = null;
   agentCatalog = [];
   agentTasks = [];
@@ -3605,7 +3610,7 @@ async function loadOlderHistory(button) {
   }
 }
 
-async function startNew(cwd, name, agentId = "pi", worktree = false) {
+async function startNew(cwd, name, agentId = "pi", worktree = false, signal = null) {
   beginDraftScope({ cwd, name });
   const generation = ++viewGeneration;
   if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
@@ -3637,16 +3642,18 @@ async function startNew(cwd, name, agentId = "pi", worktree = false) {
   if (String(agentId || "pi") === "pi" && !worktree) {
     await connectRpc({ cwd, name }, generation);
   } else {
-    await connectAgentTask({ agentId: String(agentId || "pi"), cwd, name, worktree: !!worktree }, generation);
+    await connectAgentTask({ agentId: String(agentId || "pi"), cwd, name, worktree: !!worktree, signal }, generation);
   }
 }
 
-async function connectRpc(opts, generation = viewGeneration) {
-  const baseAtStart = apiBase;
+async function connectRpc(opts, generation = viewGeneration, openedResult = null, openedBase = apiBase, signal = null) {
+  const baseAtStart = openedResult === null ? apiBase : openedBase;
   setStreaming(false);
   try {
-    const r = await post("/api/open", opts);
-    if (generation !== viewGeneration || baseAtStart !== apiBase) {
+    const r = openedResult === null ? await post("/api/open", opts, signal ? { signal } : {}) : openedResult;
+    const sid = typeof r?.sid === "string" ? r.sid : "";
+    if (!sid) throw new Error("Native session did not return a sid");
+    if (signal?.aborted || generation !== viewGeneration || baseAtStart !== apiBase) {
       if (!r.reused) fetch(baseAtStart + "/api/close", {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
@@ -3654,7 +3661,24 @@ async function connectRpc(opts, generation = viewGeneration) {
       }).catch(() => {});
       return;
     }
-    const sid = r.sid;
+    if (openedResult !== null) {
+      const openedCwd = typeof r.cwd === "string" ? r.cwd.trim() : "";
+      const worktreeCwd = typeof r.worktree?.path === "string" ? r.worktree.path.trim() : "";
+      if (!openedCwd || (worktreeCwd && worktreeCwd !== openedCwd)) {
+        if (!r.reused) fetch(baseAtStart + "/api/close", {
+          method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sid }),
+        }).catch(() => {});
+        throw new Error("Invalid native worktree response");
+      }
+      beginDraftScope({ cwd: openedCwd, name: el.chatTitle?.textContent || null });
+      currentSessionCwd = openedCwd;
+      el.chatSub.dataset.base = openedCwd;
+      el.chatSub.textContent = openedCwd;
+      resetProjectChanges();
+      void refreshProjectChanges({ background: true });
+    }
     const replayAfter = Number.isFinite(Number(r.replayAfter)) ? Number(r.replayAfter) : -1;
     rpc = {
       sid, es: null, streaming: !!r.isStreaming, connectionLost: false,
@@ -3778,7 +3802,7 @@ async function connectRpc(opts, generation = viewGeneration) {
     };
     openStream(replayAfter);
   } catch (e) {
-    if (generation !== viewGeneration) return;
+    if (signal?.aborted || generation !== viewGeneration || baseAtStart !== apiBase) return;
     toast(tKey("runtime.openChatFailed", { detail: e.message }), true);
     showList();
     return;
@@ -3972,7 +3996,20 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
         cwd: options.cwd,
         name: options.name,
         worktree: !!options.worktree,
-      });
+      }, options.signal ? { signal: options.signal } : {});
+    }
+    if (result?.kind === "pi") {
+      if (String(result.agentId || "") !== "pi") {
+        const sid = typeof result.sid === "string" ? result.sid : "";
+        if (sid && !result.reused) fetch(baseAtStart + "/api/close", {
+          method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sid }),
+        }).catch(() => {});
+        throw new Error("Invalid native agent response");
+      }
+      await connectRpc(null, generation, result, baseAtStart, options.signal || null);
+      return;
     }
     if (generation !== viewGeneration || baseAtStart !== apiBase) return;
     const taskId = String(result?.id || result?.taskId || "");
@@ -4106,7 +4143,7 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
     };
     openStream(-1);
   } catch (error) {
-    if (generation !== viewGeneration) return;
+    if (options.signal?.aborted || generation !== viewGeneration || baseAtStart !== apiBase) return;
     toast(tKey("runtime.openChatFailed", { detail: error.message }), true);
     showList();
   }
@@ -7118,77 +7155,77 @@ const ONBOARDING_ACTIONABLE_STEPS = {
     { eyebrow: "TOKEN & SIGN-IN", title: "Find your Web token", body: "The installer creates a private Web token on the computer running Stepsemble. On that computer, open Terminal and run cat ~/.config/stepsemble/token, then paste it here. From another device, retrieve it securely from that host.", points: ["Never share the token in chat, screenshots, repositories, or logs.", "If STEPSEMBLE_TOKEN_FILE is configured, use that file instead of the default path."] },
     { eyebrow: "DEVICES", title: "Connect another computer", body: "Install and run Stepsemble on each additional computer. Use Tailscale or HTTPS, then open Settings → Devices → Add device, or use a five-minute pairing code.", points: ["Prefer one-time pairing for an independent, revocable credential; only manual URL entry requires the same Web token.", "Never expose public port 3140 to an untrusted network."] },
     { eyebrow: "MODELS & PROVIDERS", title: "Add an LLM provider", body: "Open Settings → Connection → Models & providers. Choose a catalog service, account/OAuth sign-in, API key, local service, or Custom provider.", points: ["Credentials stay on the selected host.", "Then select the visible models you want to use."] },
-    { eyebrow: "PROJECT", title: "Choose a folder and start", body: "Open New project, choose a folder on this host, optionally name the session, and select Start here.", points: ["The folder picker starts at the host home and only shows allowed browse roots.", "You can return to this guide from Settings → About → Setup guide."] },
+    { eyebrow: "PROJECT", title: "Choose a folder and start", body: "Open New project, choose a folder on this host, optionally name the session, and select Start here.", points: ["The folder picker starts at the host home when allowed, otherwise at an allowed root.", "You can return to this guide from Settings → About → Setup guide."] },
   ],
   "zh-Hans": [
     { eyebrow: "欢迎", title: "欢迎使用", body: "Stepsemble 会将 Pi Agent、会话、凭证和项目保留在选定的电脑上。", points: ["现在选择语言和外观，之后都可以更改。"] },
     { eyebrow: "TOKEN 与登录", title: "找到 Web token", body: "安装程序会在运行 Stepsemble 的电脑上创建私密 Web token。在那台电脑打开终端并运行 cat ~/.config/stepsemble/token，然后将结果粘贴到这里。在其他设备上，请从该主机安全地取得 token。", points: ["绝不要在聊天、截图、代码仓库或日志中分享 token。", "如果配置了 STEPSEMBLE_TOKEN_FILE，请使用该文件，而不是默认路径。"] },
     { eyebrow: "设备", title: "连接另一台电脑", body: "在每台额外的电脑上安装并运行 Stepsemble。使用 Tailscale 或 HTTPS，然后打开“设置 → 设备 → 添加设备”，也可以使用五分钟有效的一次性配对码。", points: ["优先使用一次性配对来取得独立且可撤销的凭证；只有手动输入网址时才需要相同的 Web token。", "不要将公共 3140 端口暴露给不受信任的网络。"] },
     { eyebrow: "模型与服务", title: "添加 LLM 服务商", body: "打开“设置 → 连接 → 模型与 Provider”。选择目录服务、账号/OAuth 登录、API key、本地服务或自定义 Provider。", points: ["凭证保留在选定的主机上。", "然后选择要使用的可见模型。"] },
-    { eyebrow: "项目", title: "选择文件夹并开始", body: "打开“新建项目”，选择这台主机上的文件夹，可选填写会话名称，然后选择“从这里开始”。", points: ["文件夹选择器从主机主目录开始，只显示允许访问的目录。", "以后可以从“设置 → 关于 → 设置导览”再次打开本指南。"] },
+    { eyebrow: "项目", title: "选择文件夹并开始", body: "打开“新建项目”，选择这台主机上的文件夹，可选填写会话名称，然后选择“从这里开始”。", points: ["文件夹选择器会在获准时从主机主目录开始，否则从获准的根目录开始。", "以后可以从“设置 → 关于 → 设置导览”再次打开本指南。"] },
   ],
   "zh-Hant": [
     { eyebrow: "歡迎", title: "歡迎使用", body: "Stepsemble 會將 Pi Agent、工作階段、憑證與專案保留在選定的電腦上。", points: ["現在選擇語言與外觀，之後都可以更改。"] },
     { eyebrow: "TOKEN 與登入", title: "找到 Web token", body: "安裝程式會在執行 Stepsemble 的電腦上建立私密 Web token。在該電腦開啟終端機並執行 cat ~/.config/stepsemble/token，然後將結果貼到這裡。在其他裝置上，請從該主機安全地取得 token。", points: ["絕不要在聊天、截圖、程式碼儲存庫或日誌中分享 token。", "如果設定了 STEPSEMBLE_TOKEN_FILE，請使用該檔案，不要使用預設路徑。"] },
     { eyebrow: "裝置", title: "連接另一台電腦", body: "在每台額外的電腦上安裝並執行 Stepsemble。使用 Tailscale 或 HTTPS，然後開啟「設定 → 設備 → 新增設備」，也可以使用五分鐘有效的一次性配對碼。", points: ["優先使用一次性配對來取得獨立且可撤銷的憑證；只有手動輸入網址時才需要相同的 Web token。", "不要將公開的 3140 port 暴露給不受信任的網路。"] },
     { eyebrow: "模型與服務", title: "加入 LLM 服務商", body: "開啟「設定 → 連線 → 模型與 Provider」。選擇目錄服務、帳號／OAuth 登入、API key、本機服務或自訂 Provider。", points: ["憑證會保留在選定的主機上。", "然後選擇要使用的可見模型。"] },
-    { eyebrow: "專案", title: "選擇資料夾並開始", body: "開啟「新增專案」，選擇這台主機上的資料夾，可選填寫工作階段名稱，然後選擇「在這裡開始」。", points: ["資料夾選擇器會從主機家目錄開始，只顯示允許存取的目錄。", "之後可以從「設定 → 關於 → 設定導覽」再次開啟本指南。"] },
+    { eyebrow: "專案", title: "選擇資料夾並開始", body: "開啟「新增專案」，選擇這台主機上的資料夾，可選填寫工作階段名稱，然後選擇「在這裡開始」。", points: ["資料夾選擇器會在獲准時從主機家目錄開始，否則從獲准的根目錄開始。", "之後可以從「設定 → 關於 → 設定導覽」再次開啟本指南。"] },
   ],
   ja: [
     { eyebrow: "ようこそ", title: "Stepsemble へようこそ", body: "Stepsemble は Pi Agent、セッション、認証情報、プロジェクトを選択したコンピューターに保管します。", points: ["言語と外観は今選択でき、後から変更できます。"] },
     { eyebrow: "トークンとサインイン", title: "Web トークンを確認", body: "インストーラーは Stepsemble を実行するコンピューターに非公開の Web トークンを作成します。そのコンピューターでターミナルを開き、cat ~/.config/stepsemble/token を実行して、結果をここに貼り付けます。別のデバイスでは、そのホストから安全にトークンを取得してください。", points: ["トークンをチャット、スクリーンショット、リポジトリ、ログで共有しないでください。", "カスタムの STEPSEMBLE_TOKEN_FILE を設定している場合は、既定のパスではなくそのファイルを使います。"] },
     { eyebrow: "デバイス", title: "別のコンピューターを接続", body: "追加する各コンピューターに Stepsemble をインストールして実行します。Tailscale または HTTPS を使い、「設定 → デバイス → デバイスを追加」を開くか、5 分間有効なペアリングコードを使います。", points: ["独立して取り消せる認証情報にはワンタイムペアリングを使います。同じ Web トークンが必要なのは URL を手動入力する場合だけです。", "公開ポート 3140 を信頼できないネットワークに公開しないでください。"] },
     { eyebrow: "モデルとプロバイダー", title: "LLM プロバイダーを追加", body: "「設定 → 接続 → モデルとプロバイダー」を開きます。カタログサービス、アカウント／OAuth サインイン、API キー、ローカルサービス、またはカスタムプロバイダーを選択します。", points: ["認証情報は選択したホストに保管されます。", "次に使用するモデルを表示対象から選択します。"] },
-    { eyebrow: "プロジェクト", title: "フォルダーを選んで開始", body: "「新しいプロジェクト」を開き、このホストのフォルダーを選び、必要ならセッション名を入力して「ここから開始」を選択します。", points: ["フォルダー選択はホストのホームから始まり、許可されたルートだけを表示します。", "後で「設定 → 概要 → セットアップガイド」から再び開けます。"] },
+    { eyebrow: "プロジェクト", title: "フォルダーを選んで開始", body: "「新しいプロジェクト」を開き、このホストのフォルダーを選び、必要ならセッション名を入力して「ここから開始」を選択します。", points: ["フォルダー選択は、許可されていればホストのホームから、それ以外は許可されたルートから始まります。", "後で「設定 → 概要 → セットアップガイド」から再び開けます。"] },
   ],
   ko: [
     { eyebrow: "환영합니다", title: "Stepsemble에 오신 것을 환영합니다", body: "Stepsemble는 Pi Agent, 세션, 자격 증명과 프로젝트를 선택한 컴퓨터에 보관합니다.", points: ["지금 언어와 화면 모드를 선택할 수 있으며 나중에 변경할 수 있습니다."] },
     { eyebrow: "토큰 및 로그인", title: "Web 토큰 찾기", body: "설치 프로그램이 Stepsemble를 실행하는 컴퓨터에 비공개 Web 토큰을 만듭니다. 해당 컴퓨터에서 터미널을 열고 cat ~/.config/stepsemble/token을 실행한 뒤 결과를 여기에 붙여넣으세요. 다른 기기에서는 해당 호스트에서 토큰을 안전하게 가져오세요.", points: ["토큰을 채팅, 스크린샷, 저장소 또는 로그에 절대 공유하지 마세요.", "사용자 지정 STEPSEMBLE_TOKEN_FILE을 설정했다면 기본 경로 대신 해당 파일을 사용하세요."] },
     { eyebrow: "기기", title: "다른 컴퓨터 연결", body: "추가할 각 컴퓨터에 Stepsemble를 설치하고 실행하세요. Tailscale 또는 HTTPS를 사용한 뒤 ‘설정 → 기기 → 기기 추가’를 열거나 5분 동안 유효한 페어링 코드를 사용하세요.", points: ["독립적으로 취소할 수 있는 인증 정보에는 일회용 페어링을 사용하세요. 같은 Web 토큰은 URL을 수동으로 입력할 때만 필요합니다.", "공개 포트 3140을 신뢰할 수 없는 네트워크에 노출하지 마세요."] },
     { eyebrow: "모델 및 제공자", title: "LLM 제공자 추가", body: "‘설정 → 연결 → 모델 및 제공자’를 여세요. 카탈로그 서비스, 계정/OAuth 로그인, API 키, 로컬 서비스 또는 사용자 지정 제공자를 선택하세요.", points: ["인증 정보는 선택한 호스트에만 저장됩니다.", "그런 다음 사용할 모델을 표시 목록에서 선택하세요."] },
-    { eyebrow: "프로젝트", title: "폴더를 선택하고 시작", body: "‘새 프로젝트’를 열고 이 호스트의 폴더를 선택한 다음 세션 이름을 입력하고 ‘여기서 시작’을 누르세요.", points: ["폴더 선택기는 호스트 홈에서 시작하며 허용된 경로만 보여 줍니다.", "나중에 ‘설정 → 정보 → 설정 안내’에서 이 안내를 다시 열 수 있습니다."] },
+    { eyebrow: "프로젝트", title: "폴더를 선택하고 시작", body: "‘새 프로젝트’를 열고 이 호스트의 폴더를 선택한 다음 세션 이름을 입력하고 ‘여기서 시작’을 누르세요.", points: ["폴더 선택기는 허용된 경우 호스트 홈에서, 그렇지 않으면 허용된 루트에서 시작합니다.", "나중에 ‘설정 → 정보 → 설정 안내’에서 이 안내를 다시 열 수 있습니다."] },
   ],
   tr: [
     { eyebrow: "HOŞ GELDİNİZ", title: "Stepsemble'a hoş geldiniz", body: "Stepsemble; Pi Agent'ı, oturumları, kimlik bilgilerini ve projeleri seçtiğiniz bilgisayarda tutar.", points: ["Dil ve görünümü şimdi seçebilirsiniz; daha sonra da değiştirebilirsiniz."] },
     { eyebrow: "TOKEN VE GİRİŞ", title: "Web token'ını bulun", body: "Yükleyici, Stepsemble'ı çalıştıran bilgisayarda özel bir Web token'ı oluşturur. Bu bilgisayarda Terminal'i açıp cat ~/.config/stepsemble/token komutunu çalıştırın ve sonucu buraya yapıştırın. Başka bir cihazda token'ı bu ana bilgisayardan güvenli şekilde alın.", points: ["Token'ı sohbetlerde, ekran görüntülerinde, depolarda veya günlüklerde asla paylaşmayın.", "Özel bir STEPSEMBLE_TOKEN_FILE yapılandırıldıysa varsayılan yol yerine bu dosyayı kullanın."] },
     { eyebrow: "CİHAZLAR", title: "Başka bir bilgisayarı bağlayın", body: "Eklediğiniz her bilgisayara Stepsemble'i yükleyip çalıştırın. Tailscale veya HTTPS kullanın; ardından Ayarlar → Cihazlar → Cihaz ekle yolunu açın ya da beş dakika geçerli bir eşleştirme kodu kullanın.", points: ["Bağımsız ve iptal edilebilir kimlik bilgisi için tek kullanımlık eşleştirmeyi tercih edin; aynı Web token'ı yalnızca URL elle girildiğinde gerekir.", "3140 numaralı genel bağlantı noktasını güvenilmeyen bir ağa açmayın."] },
     { eyebrow: "MODELLER VE SAĞLAYICILAR", title: "Bir LLM sağlayıcısı ekleyin", body: "Ayarlar → Bağlantı → Modeller ve sağlayıcılar bölümünü açın. Bir katalog hizmeti, hesap/OAuth girişi, API anahtarı, yerel hizmet veya Özel sağlayıcı seçin.", points: ["Kimlik bilgileri seçilen ana bilgisayarda kalır.", "Ardından kullanmak istediğiniz görünür modelleri seçin."] },
-    { eyebrow: "PROJE", title: "Klasör seçip başlayın", body: "Yeni proje'yi açın, bu ana bilgisayardaki bir klasörü seçin, isteğe bağlı oturum adını yazın ve Buradan başla'yı seçin.", points: ["Klasör seçici ana bilgisayarın ana klasöründe başlar ve yalnızca izin verilen kökleri gösterir.", "Bu rehberi daha sonra Ayarlar → Hakkında → Kurulum rehberi bölümünden açabilirsiniz."] },
+    { eyebrow: "PROJE", title: "Klasör seçip başlayın", body: "Yeni proje'yi açın, bu ana bilgisayardaki bir klasörü seçin, isteğe bağlı oturum adını yazın ve Buradan başla'yı seçin.", points: ["Klasör seçici izin verilmişse ana bilgisayarın ana klasöründe, aksi halde izin verilen bir kökte başlar.", "Bu rehberi daha sonra Ayarlar → Hakkında → Kurulum rehberi bölümünden açabilirsiniz."] },
   ],
   fr: [
     { eyebrow: "BIENVENUE", title: "Bienvenue sur Stepsemble", body: "Stepsemble conserve l’agent Pi, les sessions, les identifiants et les projets sur l’ordinateur sélectionné.", points: ["Choisissez la langue et l’apparence maintenant ; vous pourrez les modifier plus tard."] },
     { eyebrow: "JETON ET CONNEXION", title: "Trouver votre jeton Web", body: "L’installeur crée un jeton Web privé sur l’ordinateur qui exécute Stepsemble. Sur cet ordinateur, ouvrez le Terminal et exécutez cat ~/.config/stepsemble/token, puis collez le résultat ici. Depuis un autre appareil, récupérez le jeton en toute sécurité sur cet hôte.", points: ["Ne partagez jamais le jeton dans un chat, une capture d’écran, un dépôt ou un journal.", "Si un STEPSEMBLE_TOKEN_FILE personnalisé est configuré, utilisez ce fichier plutôt que le chemin par défaut."] },
     { eyebrow: "APPAREILS", title: "Connecter un autre ordinateur", body: "Installez et lancez Stepsemble sur chaque ordinateur supplémentaire. Utilisez Tailscale ou HTTPS, puis ouvrez Réglages → Appareils → Ajouter un appareil, ou utilisez un code d’association valable cinq minutes.", points: ["Préférez l’association à usage unique pour un identifiant indépendant et révocable ; le même jeton Web n’est requis que pour la saisie manuelle d’une URL.", "N’exposez jamais le port public 3140 à un réseau non fiable."] },
     { eyebrow: "MODÈLES ET FOURNISSEURS", title: "Ajouter un fournisseur LLM", body: "Ouvrez Réglages → Connexion → Modèles et fournisseurs. Choisissez un service du catalogue, une connexion par compte/OAuth, une clé API, un service local ou un fournisseur personnalisé.", points: ["Les identifiants restent sur l’hôte sélectionné.", "Sélectionnez ensuite les modèles visibles que vous souhaitez utiliser."] },
-    { eyebrow: "PROJET", title: "Choisir un dossier et commencer", body: "Ouvrez Nouveau projet, choisissez un dossier sur cet hôte, indiquez éventuellement le nom de la session, puis sélectionnez Commencer ici.", points: ["Le sélecteur commence dans le dossier personnel de l’hôte et n’affiche que les racines autorisées.", "Vous pourrez rouvrir ce guide dans Réglages → À propos → Guide de configuration."] },
+    { eyebrow: "PROJET", title: "Choisir un dossier et commencer", body: "Ouvrez Nouveau projet, choisissez un dossier sur cet hôte, indiquez éventuellement le nom de la session, puis sélectionnez Commencer ici.", points: ["Le sélecteur commence dans le dossier personnel de l’hôte s’il est autorisé, sinon dans une racine autorisée.", "Vous pourrez rouvrir ce guide dans Réglages → À propos → Guide de configuration."] },
   ],
   de: [
     { eyebrow: "WILLKOMMEN", title: "Willkommen bei Stepsemble", body: "Stepsemble bewahrt Pi Agent, Sitzungen, Zugangsdaten und Projekte auf dem ausgewählten Computer auf.", points: ["Wählen Sie Sprache und Darstellung jetzt aus; beides lässt sich später ändern."] },
     { eyebrow: "TOKEN UND ANMELDUNG", title: "Web-Token finden", body: "Das Installationsprogramm erstellt ein privates Web-Token auf dem Computer, auf dem Stepsemble läuft. Öffnen Sie dort das Terminal und führen Sie cat ~/.config/stepsemble/token aus. Fügen Sie das Ergebnis hier ein. Rufen Sie das Token auf einem anderen Gerät sicher von diesem Host ab.", points: ["Teilen Sie das Token niemals in Chats, Screenshots, Repositories oder Protokollen.", "Wenn ein eigenes STEPSEMBLE_TOKEN_FILE konfiguriert ist, verwenden Sie diese Datei statt des Standardpfads."] },
     { eyebrow: "GERÄTE", title: "Anderen Computer verbinden", body: "Installieren und starten Sie Stepsemble auf jedem weiteren Computer. Verwenden Sie Tailscale oder HTTPS und öffnen Sie Einstellungen → Geräte → Gerät hinzufügen oder verwenden Sie einen fünf Minuten gültigen Kopplungscode.", points: ["Bevorzugen Sie die einmalige Kopplung für eine unabhängige, widerrufbare Anmeldung; dasselbe Web-Token ist nur bei manueller URL-Eingabe erforderlich.", "Geben Sie den öffentlichen Port 3140 nie in einem nicht vertrauenswürdigen Netzwerk frei."] },
     { eyebrow: "MODELLE UND ANBIETER", title: "LLM-Anbieter hinzufügen", body: "Öffnen Sie Einstellungen → Verbindung → Modelle und Anbieter. Wählen Sie einen Katalogdienst, die Konto-/OAuth-Anmeldung, einen API-Schlüssel, einen lokalen Dienst oder einen benutzerdefinierten Anbieter.", points: ["Zugangsdaten bleiben auf dem ausgewählten Host.", "Wählen Sie danach die sichtbaren Modelle aus, die Sie verwenden möchten."] },
-    { eyebrow: "PROJEKT", title: "Ordner auswählen und starten", body: "Öffnen Sie Neues Projekt, wählen Sie einen Ordner auf diesem Host, geben Sie optional einen Sitzungsnamen ein und wählen Sie Hier starten.", points: ["Die Ordnerauswahl beginnt im Home-Ordner des Hosts und zeigt nur erlaubte Wurzeln.", "Sie können den Assistenten später unter Einstellungen → Über → Einrichtungsassistent erneut öffnen."] },
+    { eyebrow: "PROJEKT", title: "Ordner auswählen und starten", body: "Öffnen Sie Neues Projekt, wählen Sie einen Ordner auf diesem Host, geben Sie optional einen Sitzungsnamen ein und wählen Sie Hier starten.", points: ["Die Ordnerauswahl beginnt im Home-Ordner des Hosts, wenn er erlaubt ist, andernfalls in einer erlaubten Wurzel.", "Sie können den Assistenten später unter Einstellungen → Über → Einrichtungsassistent erneut öffnen."] },
   ],
   es: [
     { eyebrow: "BIENVENIDA", title: "Bienvenido a Stepsemble", body: "Stepsemble conserva el agente Pi, las sesiones, las credenciales y los proyectos en el ordenador seleccionado.", points: ["Elige ahora el idioma y la apariencia; podrás cambiarlos más adelante."] },
     { eyebrow: "TOKEN E INICIO DE SESIÓN", title: "Encuentra tu token web", body: "El instalador crea un token web privado en el ordenador que ejecuta Stepsemble. En ese ordenador, abre Terminal y ejecuta cat ~/.config/stepsemble/token; después pega el resultado aquí. Desde otro dispositivo, recupera el token de forma segura en ese equipo anfitrión.", points: ["Nunca compartas el token en chats, capturas de pantalla, repositorios ni registros.", "Si se ha configurado un STEPSEMBLE_TOKEN_FILE personalizado, usa ese archivo en lugar de la ruta predeterminada."] },
     { eyebrow: "DISPOSITIVOS", title: "Conecta otro ordenador", body: "Instala y ejecuta Stepsemble en cada ordenador adicional. Usa Tailscale o HTTPS y abre Ajustes → Dispositivos → Añadir dispositivo, o utiliza un código de emparejamiento válido durante cinco minutos.", points: ["Prefiere el emparejamiento de un solo uso para obtener una credencial independiente y revocable; el mismo token web solo se necesita al introducir la URL manualmente.", "No expongas el puerto público 3140 directamente a una red que no sea de confianza."] },
     { eyebrow: "MODELOS Y PROVEEDORES", title: "Añade un proveedor LLM", body: "Abre Ajustes → Conexión → Modelos y proveedores. Elige un servicio del catálogo, inicio de sesión con cuenta/OAuth, una clave API, un servicio local o un proveedor personalizado.", points: ["Las credenciales permanecen en el equipo anfitrión seleccionado.", "Después, selecciona los modelos visibles que quieras utilizar."] },
-    { eyebrow: "PROYECTO", title: "Elige una carpeta y empieza", body: "Abre Nuevo proyecto, elige una carpeta en este equipo anfitrión, escribe opcionalmente el nombre de la sesión y selecciona Empezar aquí.", points: ["El selector empieza en la carpeta personal del equipo y solo muestra raíces permitidas.", "Puedes volver a abrir esta guía desde Ajustes → Acerca de → Guía de configuración."] },
+    { eyebrow: "PROYECTO", title: "Elige una carpeta y empieza", body: "Abre Nuevo proyecto, elige una carpeta en este equipo anfitrión, escribe opcionalmente el nombre de la sesión y selecciona Empezar aquí.", points: ["El selector empieza en la carpeta personal del equipo si está permitida; de lo contrario, en una raíz permitida.", "Puedes volver a abrir esta guía desde Ajustes → Acerca de → Guía de configuración."] },
   ],
   "pt-BR": [
     { eyebrow: "BOAS-VINDAS", title: "Bem-vindo ao Stepsemble", body: "O Stepsemble mantém o Pi Agent, as sessões, as credenciais e os projetos no computador selecionado.", points: ["Escolha o idioma e a aparência agora; ambos podem ser alterados depois."] },
     { eyebrow: "TOKEN E LOGIN", title: "Encontre seu token Web", body: "O instalador cria um token Web privado no computador que executa o Stepsemble. Nesse computador, abra o Terminal e execute cat ~/.config/stepsemble/token; depois cole o resultado aqui. Em outro dispositivo, obtenha o token com segurança nesse host.", points: ["Nunca compartilhe o token em chats, capturas de tela, repositórios ou logs.", "Se um STEPSEMBLE_TOKEN_FILE personalizado estiver configurado, use esse arquivo em vez do caminho padrão."] },
     { eyebrow: "DISPOSITIVOS", title: "Conecte outro computador", body: "Instale e execute o Stepsemble em cada computador adicional. Use Tailscale ou HTTPS e abra Configurações → Dispositivos → Adicionar dispositivo, ou use um código de pareamento válido por cinco minutos.", points: ["Prefira o pareamento de uso único para obter uma credencial independente e revogável; o mesmo token Web só é necessário ao informar a URL manualmente.", "Não exponha a porta pública 3140 diretamente a uma rede não confiável."] },
     { eyebrow: "MODELOS E PROVEDORES", title: "Adicione um provedor de LLM", body: "Abra Configurações → Conexão → Modelos e provedores. Escolha um serviço do catálogo, login com conta/OAuth, uma chave de API, um serviço local ou um provedor personalizado.", points: ["As credenciais permanecem no host selecionado.", "Depois, selecione os modelos visíveis que deseja usar."] },
-    { eyebrow: "PROJETO", title: "Escolha uma pasta e comece", body: "Abra Novo projeto, escolha uma pasta neste host, informe opcionalmente o nome da sessão e selecione Começar aqui.", points: ["O seletor começa na pasta pessoal do host e mostra apenas raízes permitidas.", "Você pode reabrir este guia em Configurações → Sobre → Guia de configuração."] },
+    { eyebrow: "PROJETO", title: "Escolha uma pasta e comece", body: "Abra Novo projeto, escolha uma pasta neste host, informe opcionalmente o nome da sessão e selecione Começar aqui.", points: ["O seletor começa na pasta pessoal do host quando ela é permitida; caso contrário, em uma raiz permitida.", "Você pode reabrir este guia em Configurações → Sobre → Guia de configuração."] },
   ],
   it: [
     { eyebrow: "BENVENUTO", title: "Benvenuto in Stepsemble", body: "Stepsemble conserva Pi Agent, sessioni, credenziali e progetti sul computer selezionato.", points: ["Scegli ora lingua e aspetto; potrai modificarli in seguito."] },
     { eyebrow: "TOKEN E ACCESSO", title: "Trova il token Web", body: "Il programma di installazione crea un token Web privato sul computer che esegue Stepsemble. Su quel computer apri Terminale ed esegui cat ~/.config/stepsemble/token, quindi incolla il risultato qui. Da un altro dispositivo, recupera il token in modo sicuro da quell’host.", points: ["Non condividere mai il token in chat, schermate, repository o log.", "Se è configurato un STEPSEMBLE_TOKEN_FILE personalizzato, usa quel file invece del percorso predefinito."] },
     { eyebrow: "DISPOSITIVI", title: "Collega un altro computer", body: "Installa e avvia Stepsemble su ogni computer aggiuntivo. Usa Tailscale o HTTPS, quindi apri Impostazioni → Dispositivi → Aggiungi dispositivo oppure usa un codice di abbinamento valido cinque minuti.", points: ["Preferisci l’abbinamento una tantum per una credenziale indipendente e revocabile; lo stesso token Web serve solo quando inserisci manualmente l’URL.", "Non esporre la porta pubblica 3140 a una rete non attendibile."] },
     { eyebrow: "MODELLI E PROVIDER", title: "Aggiungi un provider LLM", body: "Apri Impostazioni → Connessione → Modelli e provider. Scegli un servizio del catalogo, l’accesso con account/OAuth, una chiave API, un servizio locale o un provider personalizzato.", points: ["Le credenziali restano sull’host selezionato.", "Poi seleziona i modelli visibili che vuoi usare."] },
-    { eyebrow: "PROGETTO", title: "Scegli una cartella e inizia", body: "Apri Nuovo progetto, scegli una cartella su questo host, inserisci facoltativamente il nome della sessione e seleziona Inizia qui.", points: ["Il selettore parte dalla cartella home dell’host e mostra solo le radici autorizzate.", "Puoi riaprire questa guida da Impostazioni → Informazioni → Guida alla configurazione."] },
+    { eyebrow: "PROGETTO", title: "Scegli una cartella e inizia", body: "Apri Nuovo progetto, scegli una cartella su questo host, inserisci facoltativamente il nome della sessione e seleziona Inizia qui.", points: ["Il selettore parte dalla cartella home dell’host se autorizzata, altrimenti da una radice autorizzata.", "Puoi riaprire questa guida da Impostazioni → Informazioni → Guida alla configurazione."] },
   ],
 };
 for (const [locale, steps] of Object.entries(ONBOARDING_ACTIONABLE_STEPS)) {
@@ -9993,6 +10030,8 @@ async function loadProjectFolder(requestedPath = null) {
   if (projectFolderRequest) projectFolderRequest.abort();
   const request = new AbortController();
   projectFolderRequest = request;
+  el.newCwd.value = "";
+  updateNewAgentNote();
   el.newFolderPath.textContent = browseText("Loading folders…");
   // A directory is a new scroll surface. Native keyboard/touch momentum can
   // outlive scrollTop=0 (notably Chromium/Linux) and move newly inserted rows.
@@ -10006,19 +10045,23 @@ async function loadProjectFolder(requestedPath = null) {
   if (focusFolderList) el.newFolderList.focus({ preventScroll: true });
   el.newFolderUp.disabled = true;
   try {
-    // An empty initial home is intentional: /api/browse resolves it to the
-    // selected host's APP_HOME. Never put ".", an empty string, or a stale
-    // previous device home into the query string.
+    // An empty initial request lets the Host choose HOME when it is allowed,
+    // otherwise its first explicit browse root. Never send a stale device home.
     const path = validatedBrowsePath(requestedPath);
     const query = path ? "?path=" + encodeURIComponent(path) : "";
     const data = await api("/api/browse" + query, { signal: request.signal });
     if (sequence !== projectFolderSequence || machineAtStart !== selectedId || baseAtStart !== apiBase || generation !== viewGeneration) return;
-    projectFolder = { path: data.path || null, parent: data.parent || null };
-    el.newCwd.value = data.path || "";
+    // `selectable` is additive. Older Hosts identify their filesystem-root
+    // bridge by returning the same path as parent; keep that bridge navigable
+    // without treating it as an authorized project directory.
+    const selectable = typeof data.selectable === "boolean" ? data.selectable : data.path !== data.parent;
+    projectFolder = { path: data.path || null, parent: data.parent || null, selectable };
+    el.newCwd.value = selectable ? data.path || "" : "";
     el.newFolderPath.textContent = data.path || "—";
     el.newFolderUp.disabled = !data.parent || data.parent === data.path;
     renderProjectFolderList(data.entries || []);
     el.newFolderList.scrollTop = 0;
+    updateNewAgentNote();
   } catch (e) {
     if (e.name === "AbortError" || sequence !== projectFolderSequence || machineAtStart !== selectedId || baseAtStart !== apiBase || generation !== viewGeneration) return;
     projectFolder = { path: null, parent: null };
@@ -10033,6 +10076,7 @@ async function loadProjectFolder(requestedPath = null) {
     detail.textContent = e.message || "";
     error.appendChild(detail);
     el.newFolderList.appendChild(error);
+    updateNewAgentNote();
   } finally {
     if (projectFolderRequest === request) projectFolderRequest = null;
   }
@@ -10164,16 +10208,28 @@ el.newFolderUp.addEventListener("click", () => {
 });
 el.newFolderHome.addEventListener("click", () => loadProjectFolder(null));
 el.newStart.addEventListener("click", async () => {
+  if (newAgentStartPending) return;
   const connector = agentCatalog.find((item) => item.id === el.newAgent?.value);
   if (agentCatalogError || connector?.installed !== true) { toast(agentHubText("unavailable"), true); return; }
   const cwd = el.newCwd.value.trim();
   if (!cwd) { toast(browseText("Choose a folder first"), true); return; }
-  cancelProjectFolderRequest();
-  el.newDialog.classList.add("hidden");
-  if (settings.removedProjects?.includes(cwd)) {
-    settings = saveSettings({ removedProjects: settings.removedProjects.filter((value) => value !== cwd) });
+  const worktree = !!el.newWorktree?.checked;
+  const request = connector.id === "pi" && worktree ? new AbortController() : null;
+  newAgentStartPending = true;
+  newAgentOpenRequest = request;
+  updateNewAgentNote();
+  try {
+    cancelProjectFolderRequest();
+    el.newDialog.classList.add("hidden");
+    if (settings.removedProjects?.includes(cwd)) {
+      settings = saveSettings({ removedProjects: settings.removedProjects.filter((value) => value !== cwd) });
+    }
+    await startNew(cwd, el.newName.value.trim() || null, connector.id, worktree, request?.signal || null);
+  } finally {
+    if (newAgentOpenRequest === request) newAgentOpenRequest = null;
+    newAgentStartPending = false;
+    updateNewAgentNote();
   }
-  await startNew(cwd, el.newName.value.trim() || null, connector.id, !!el.newWorktree?.checked);
 });
 
 // ---- iOS 鍵盤適配：visualViewport 高度變化時收緊 composer ----
