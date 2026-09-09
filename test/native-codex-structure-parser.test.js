@@ -1,5 +1,6 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict"), { spawn } = require("node:child_process"), z = require("node:zlib");
+const path = require("node:path");
 const f = require("../protocol/native/codex/parser-fixture.cjs"), wire = require("../protocol/native/codex/parser-wire"), worker = require("../protocol/native/codex/parser-worker");
 function fixture(named = false, compressed = false, selection = { mode: "records", offset: 0, limit: 50 }) {
   const c = f.structuredCaptured();
@@ -80,7 +81,8 @@ test("near-byte-limit and maximum record-count capture succeeds in the actual 12
 test("permissioned v5/v6 workers parse structure with no source grants, side effects or leaked process-local handles", async () => {
   for (const named of [false, true]) for (const compressed of [false, true]) {
     const { job, frame, bytes } = fixture(named, compressed), launch = wire.launchOptions();
-    assert.equal(launch.args.filter(a => a.endsWith("/rollout-structure.js")).length, 1);
+    const structureGrant = `--allow-fs-read=${path.resolve(__dirname, "../protocol/native/codex/rollout-structure.js")}`;
+    assert.equal(launch.args.filter(a => a === structureGrant).length, 1);
     assert(launch.args.includes("--permission")); assert.equal(launch.options.shell, false);
     const done = await new Promise((resolve, reject) => {
       const child = spawn(launch.executable, launch.args, launch.options), chunks = [], errors = [];

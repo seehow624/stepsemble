@@ -69,6 +69,10 @@
    100ms 總期限，0 parser spawn 卻被測試要求為 1。產品正確拒絕過期工作；測試改用
    受控 timer／monotonic clock，精確驗 60ms 轉階段、99ms 未殺、100ms 殺且不延長期限。
    另加 101ms 且 timer callback 尚未執行時仍拒絕下一階段的回歸；不調大產品期限。
+4. 工程 `24f924f` 的一般 CI Windows 在新 worker 測試檢查檔案 grant 時失敗：
+   測試寫死 `/rollout-structure.js`，實際 Windows 路徑用反斜線。改為平台原生
+   `path.resolve` 比對完整且唯一的 `--allow-fs-read`，不放寬 grant、skip Windows
+   或略過四種真 worker 組合。原失敗 CI 保留，修正後另驗新 SHA。
 
 原始 logs 在本機 `/tmp/stepsemble-structure-*`；失敗的 pipeline-1、focused-3、
 minimum-1/2 與成功的 pipeline-2、native-3、full-4、minimum-3、near-limit-* 分開保存。
