@@ -13,6 +13,18 @@ runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
+Development-only Plan1.71 adds stored rollout v9: resolve the plain/compressed
+sibling under one held parent, recheck selection and physical bytes, then
+decompress in the existing permissioned parser process. Frame, block, window
+and decoded-byte limits supplement Node's decoder; the physical version fence
+is distinct from decoded page offsets/digests. No new process pool, Rust
+dependency, source writes or native login. Owned Host and 390px CUA are verified;
+the three affected CI gates for 9820ed2 passed with full logs checked. This also
+fixes an oversized Buffer diff in an expected-failure test; it is not a claim
+of reduced product memory. Native Codex/Claude gates remain the successful
+a2af9f6 evidence for unchanged product code. Large/semantic history and other
+adapters remain pending. See [`codex-compressed-history.md`](codex-compressed-history.md).
+
 Development-only Plan1.69 connects Codex owner setup, root-only catalog,
 shared registry, HTTP/peer transport and typed Web raw records. These are not
 complete native semantic history, resume or approvals. Plan1.70 now connects the

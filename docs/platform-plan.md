@@ -15,9 +15,13 @@
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
 
-**進行中增量 1.71（壓縮歷史／未部署）**：接同root下plain/壓縮sibling、Rust v9
+**已完成增量 1.71（壓縮歷史全鏈與 exact CI 已驗／未部署）**：接同root下plain/壓縮sibling、Rust v9
 capture與permissioned parser v3/v4、實體/解壓版本分離、同Host有界named流程、實際
-Host/Web與最低Node限制驗證。詳[壓縮歷史接線](codex-compressed-history.md)；C1–C8
+Host/Web與最低Node限制驗證。工程a2af9f6後，9820ed2修正預期失敗時Buffer差異格式化
+造成測試記憶體膨脹；新一般／reader／rolling三CI全通、full logs已核，原生Codex／
+Claude沿用未改產品的a2af9f6成功證據。三OS985/0fail、reader236＋compressed10，
+POSIX真Host39筆／清理與雙OS×六壓縮browser cases通，RustSec0/0。
+詳[壓縮歷史接線](codex-compressed-history.md)；大型／完整語義歷史、其他adapter與C1–C8
 仍持續，不變更正式服務、私人來源、帳號與獨立72h。
 
 **已完成增量 1.70（cold Host/Web與exact CI已驗／未部署）**：冷SQLite短時間

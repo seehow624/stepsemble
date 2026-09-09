@@ -42,7 +42,7 @@
 - decoded proof 是可信受限 worker 的輸出，不是 parent 自行重解壓或密碼學 native
   證明；完整語義視圖仍 `semanticHistoryComplete:false`，不假造 resume/approval。
 
-## 本機驗證（exact CI 待執行）
+## 本機驗證（執行過程；最終 CI 見下節）
 
 - 第一輪完整 Node984 / 0 fail / 2 skip；Rust29 lib/33 bin 通過；clippy通過。
 - 新10組單元案例含實際 permissioned worker、每個截斷 prefix、checksum、串接、
@@ -96,6 +96,36 @@ cleanup110,460,928 bytes（85ms），整輪2,979ms／最高stage110,608,384 byte
 Node22.19對照整輪2,737ms／最高stage128,581,632 bytes（host-progress-min-1.log）。
 這是測試parent的stage RSS，不是完整採樣峰值或產品Host效能數據；Linux exact owned
 Host RSS另由下一CI記錄。所有Host/writer/owned目錄均完成實際清理。
+
+## 最終工程驗收（2026-09-09／未部署）
+
+修正工程 `9820ed2932ecf9beab2fe8ead1179ab90bfc54af` 已推 origin/master。
+以下三個受影響 CI 全部 success，完整 logs 已下載核對；初工程失敗的兩個 attempts
+仍保留，不用成功重驗改寫歷史，也不宣稱已精確取得 GitHub runner 的 OOM kill 證據。
+
+- [一般 CI 34301665184](https://github.com/seehow624/stepsemble/actions/runs/34301665184)：
+  三OS各985 tests／0 fail；Mac983pass/2skip，Linux982/3，Windows935/50。
+- [Reader CI 34301665130](https://github.com/seehow624/stepsemble/actions/runs/34301665130)：
+  三OS各236 reader＋10 compressed tests，全部通；POSIX Rust29lib/33bin，Windows
+  27/15。Windows私人來源仍明示unsupported，Host gate skipped不是功能通過。
+  POSIX真Host39筆／原設定／名稱／完整頁／壓縮與cold／失效和錯誤復原通，Host/writer
+  已reaped及兩owned目錄移除。Linux成功完成先前中斷的Host步驟和全部後續gates。
+  RustSec0.22.2／DB `bf25f6575a93a35f30796c65c0ed91bee7fa19fd`／43packages／
+  0known/0warnings；原lock SHA `aa93d9f47ca7b3c38d21b8a5ce4b17b397d9a6c171a71867e82b8979626fca8e`不變。
+- [Rolling browser CI 34301665201](https://github.com/seehow624/stepsemble/actions/runs/34301665201)：
+  Mac/Linux各原24case＋六個Codex1440/390/320×明暗gate全通，壓縮全部頁／双向版本
+  切換／損壞專用提示與復原通。不是實體手機、私人來源或模型驗收。
+- 原生Codex34300956330與Claude34300956333仍是工程a2af9f6的success證據；9820ed2
+  只改owned測試資源診斷，這兩個workflow未重新觸發，不能標成9820ed2五CI全跑。
+
+Linux真Host整輪4,229ms；測試parent最高觀測stage RSS164,651,008 bytes，main cleanup
+→mutation cleanup為180ms，沒有本機修正前的1.344GB巨大差異。exact owned Host的
+最高觀測stage RSS85,794,816 bytes；清理後為null。這是合成39筆workload的階段讀值，
+**不是完整峰值、產品before/after改善或大型歷史容量驗收**。新Linux結果支持修正測試
+資源缺陷的判斷；原runner兩次中斷只有shutdown/cancelled訊息的限制仍保留。
+
+完整新logs：`/tmp/stepsemble-compressed-fixed-ci-{general,reader,rolling}.log`。
+本機Host/writer/CUA與所有本輪CI watch／下載程序已結束，沒有未清理的本輪fixture。
 
 下一段仍要完整語義歷史、其餘 Agent、C1–C8 驗收與既有正式發布關卡。
 

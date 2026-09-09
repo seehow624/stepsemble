@@ -9,6 +9,14 @@
 
 ## 1. 這份文件的角色
 
+Plan1.71 開發增量已本機驗 Codex plain/壓縮來源、Rust v9、permissioned背景解壓、
+bounded多frame／實體及decoded版本，接既有清單/名稱/HostWeb；完整及最低Node985/0fail，
+ownedHost39筆、cold＋compressed、直接zst locator與CUA390px通。9820ed2修正預期拒絕
+測試的大Buffer差異格式化，三個受影響CI全通／full logs已核；三OS985/0fail、
+reader236＋compressed10、POSIX真Host與雙OS各六個壓縮browser cases、RustSec0/0通。
+未改產品的nativeCodex／Claude採a2af9f6成功證據，不冒稱在9820ed2重新跑過。
+詳[壓縮歷史接線](codex-compressed-history.md)。這仍不是完整native語義／大型歷史或正式部署。
+
 2026-09-09 Plan1.69 開發增量已接Codex雙root owner設定、catalog／共享registry／
 HTTP・peer／typedWeb原始紀錄，全鏈CI已驗；不是完整原生語義歷史／approval。
 Plan1.70冷SQLite已接有鎖RAM副本、v7/v8／Node共用admission与version／HostWeb；
