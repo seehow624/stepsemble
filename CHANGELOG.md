@@ -2,68 +2,49 @@
 
 ## 3.0.7-rc.7
 
-- Add a POSIX descriptor-bound SQLite metadata source and one-shot helper v4,
-  reusing existing root/owner/ACL checks and retaining DB/WAL/SHM descriptors
-  through native close. Revalidate before returning fields; reject missing
-  sidecars and keep Windows source explicitly unsupported. This is not Node
-  shared-admission wiring, a private reader grant or Codex Host/Web completion.
-- Fix owned SQLite test snapshots to run in a separate process: closing snapshot
-  descriptors in the writer process releases its POSIX locks. Require real
-  read-only SHM mapping in the active-writer source case and retain negative controls.
+Development candidate, not a stable release or a production deployment. This
+section summarizes the completed rc.7 increments through `2beab685`; earlier
+intermediate limitations are retained in the linked engineering documents.
+The separately frozen rc.1 soak does not certify this later runtime.
 
-- Add a dedicated-process SQLite VFS policy that refuses writable main files,
-  forces read-only WAL handles and denies creation/deletion. Owned cross-process
-  controls reproduce ordinary read-only SHM writes and missing-WAL creation;
-  verify fixed snapshots and actual-exit lock release. This is not filesystem
-  authorization, a private-source opener or support for cold DBs without sidecars.
-- Restrict SQLite's internal Windows file-opening callbacks to existing,
-  read-only handles in the dedicated worker process; refuse ANSI opens and
-  deletion. Verify seven direct syscall controls, kill-before-input-close ordering
-  and explicit disposal of all owned fixture directories across three OS runners.
+- Connect opt-in Codex legacy history to the actual Host, source catalog,
+  HTTP/peer transport and read-only Web view. Preserve original session IDs and
+  native names with SQLite/name-index precedence and version-fenced pagination.
+- Read active-WAL and cold SQLite metadata without repairing or writing the
+  source. POSIX descriptor, owner, ACL and local-filesystem checks remain strict;
+  Windows private native-history sources are explicitly unsupported.
+- Support bounded small plain/Zstandard rollouts and a separate large-plain
+  page profile. Verify whole-source revisions and reject stale, malformed or
+  unsupported sources without replacing a valid displayed page with empty data.
+- Show source-linked turns, native IDs, rollback state and bidirectional tool
+  navigation across large-history pages. Preserve unknown and original records
+  in raw mode; never execute historical tools or present this as native resume.
+- Verify a real owned 17.2 MB / 16,384-record Host fixture, including direct jumps,
+  off-page changes, original IDs and cross-page links. This is not a maximum-size
+  capacity, mixed-load or physical-mobile performance certification.
+- Share the Host's two-reader admission limit across inventory, Claude and Codex
+  pipelines. Retain permits until actual worker close; reject late/stale results
+  and quarantine unconfirmed cleanup rather than silently starting more work.
+- Fix mode-switch and cancel/refresh races where browser fetch cancellation can
+  precede Host cleanup. Preserve the displayed history, disable unsafe navigation
+  during cleanup and provide explicit manual recovery without automatic retries.
+- Add a local English/Traditional Chinese setup wizard for new Claude/Codex
+  source groups. Review exact roots and reader scope before CREATE; never select
+  private sources, overwrite an existing configuration or activate a service.
+- Localize read-only history controls, errors and accessibility text in all
+  eleven existing languages. Preserve native content, DOM, focus and scroll
+  through locale changes; bound history cards and retain independent inner scroll.
+- Use optimized, pinned Rust readers in owned browser CI on macOS and Linux.
+  Retain all 24 existing and six Codex cases and the finite suite deadlines;
+  preserve the original macOS debug-build timeout as a diagnosed failure.
 
-- Add a bounded read-only SQLite transaction library for selected Codex name
-  fields, with a pinned SQLite 3.53.4 source hash, native-created schema oracle,
-  cancellation/limits and concurrent WAL writer checks. This does not enable
-  private database access, source VFS/ACL enforcement or Codex Host/Web history.
-
-Development candidate only; production Hosts and the independently frozen
-72-hour soak are unchanged.
-
-- Localize read-only history controls, status, errors, accessibility labels and
-  display limits in all eleven existing languages. Inherit the workspace locale;
-  an explicit page-local picker changes no stored workspace settings.
-- Translate only keyed interface text. Preserve native titles, summaries,
-  messages, timestamps and tool JSON verbatim; keep clipping notices separate.
-- Keep existing DOM, focus, read state and scroll anchors across locale changes.
-  Language changes do not register, refresh, resume or approve a conversation.
-- Add a local English/Traditional Chinese owner setup wizard for a new read-only
-  Claude source group. Review exact current/future scope and explicit reader IDs
-  before CREATE; reject changed review metadata and never overwrite a config.
-  No private discovery, credential lookup, native execution or service activation.
-- Preserve Codex legacy raw records in bounded, immutable-snapshot pages without
-  executing recorded tools. Keep the pinned native projection's command/image
-  omissions explicit; add an owned-home native history CI matrix. This internal
-  module does not enable private sources, session resume or a new Web adapter.
-- Handle the pinned Linux CLI's single missing-system-bubblewrap startup notice
-  only in the explicit owned history fixture. Validate its exact fields and keep
-  a fixed diagnostic code; other warnings, execution and approval stay refused.
-- Add bounded, descriptor-checked Codex rollout/name-index pair capture to the
-  native reader. Bind exact file revisions and retain missing/empty index states;
-  share helper lifecycle limits with Claude reads. Owned fixtures only so far:
-  no new source grant, discovery, compressed decoding or Codex Web adapter.
-- Interpret bounded Codex legacy name-index bytes separately for single-read and
-  batch-list rules. Verify 17 owned native cases, Unicode and duplicate fields;
-  do not promote an index candidate above an unobserved SQLite title or enable
-  private history access. Bind interpretation to the captured index revision.
-- Parse captured Codex history in a bounded, permissioned child process. Hold
-  the Host's shared Claude/Codex reader permit through both actual-close events;
-  fence cancellation, stale versions and unknown cleanup without retries.
-  Verify owned cross-harness concurrency and main-loop responsiveness; this
-  does not yet enable a Codex source grant, Web history or authoritative title.
-- Verify Codex SQLite title/name precedence with 13 owned native cases and
-  bounded field interpretation. Preserve read/list differences and the separate
-  SQLite-home setting; keep paginated full-history limitations explicit. This
-  does not read private databases or introduce a production SQLite dependency.
+Large compressed histories, unsupported Codex paginated/native projections,
+other agents' native-history adapters, durable approval/resume, full source-group
+management and physical-device/platform acceptance remain open. No additional
+provider login, model call, private-source grant or production change is included.
+See [the release review](docs/release-review-2026-09-09.md),
+[current Web checkpoints](docs/web-completion-loop.md) and
+[large structured history evidence](docs/codex-structured-source.md).
 
 ## 3.0.7-rc.6
 

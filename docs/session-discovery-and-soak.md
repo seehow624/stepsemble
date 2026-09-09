@@ -4,6 +4,16 @@ Status: development candidate 3.0.7-rc.1. Both production Hosts remain 3.0.6.
 No native account/model calls, native file mutation, logo change or deployment
 is part of this development test batch.
 
+**Final result, verified 2026-09-09 19:34 MYT: PASSED.** The frozen rc.1 run
+completed 259,200,335 ms of continuous observation, 8,554 cycles / 68,432 verified
+ACKs, eight tasks with two viewers each, 214 graceful and 213 forced HTTP Host
+restarts. Cleanup is confirmed, the controller exited and its owned temporary
+home was removed. This does not promote rc.7 or any later runtime to stable.
+The [de-identified final summary](baselines/reliability-soak-72h-2026-09-09.json)
+preserves exact source identity, timestamps, counts, hashes and limitations;
+the full report and frozen source remain local. See the
+[release review](release-review-2026-09-09.md) for current product status.
+
 ## Actual defects addressed
 
 - List/search/usage discovery synchronously enumerated directories and resolved
@@ -101,7 +111,7 @@ source hashes and any skips/failures separately.
   The candidate is ready for the isolated long-duration gate, not yet certified
   by72hours and not automatically promoted to stable.
 
-### Long run started — not passed
+### Long-run launch record (historical)
 
 At2026-09-06T11:34:13Z a full72-hour run started from clean documentation commit
 `ab227af7e12edd7a9182d700ce052dfaf92a34b4`, with the same runtime as `2b7f0b6`.
@@ -120,6 +130,22 @@ scheduled checks, per [official scheduling documentation](https://learn.chatgpt.
 
 At the launch check, production Mini and MBP `/api/health` still reported3.0.6,
 with continuously increasing uptimes. This batch did not restart either service.
+
+### Final acceptance — 2026-09-09
+
+The final report is `passed`, updated at `2026-09-09T11:34:16.904Z`, with
+`cleanupConfirmed=true` and continuous observation above the requested72hours.
+ACKs equal cycles×8; 427 scheduled HTTP Host restarts split214graceful/213crash.
+All76 frozen source file hashes match the report, launch commit `ab227af7` and
+equivalent runtime `2b7f0b6`; runner and frozen peer bytes also match launch hashes.
+No production service, provider account or private native source was touched.
+
+The largest sampled HTTP Host RSS was90,767,360bytes (86.5625MiB). The report
+retains the last512samples and a cumulative maximum across restarted Host epochs;
+it is not peak whole-system RSS or proof of no long-lived single-process leak.
+The former hourly follow-up is no longer needed after this verified result is
+recorded. Future candidate verification must identify its own exact source and
+workload instead of reusing this older result.
 
 ## Remaining boundaries
 

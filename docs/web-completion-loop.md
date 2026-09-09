@@ -1,5 +1,12 @@
 # Web 完整體：持續執行與驗收清單
 
+2026-09-09 19:34:16 MYT：**固定rc.1的72h已通過**，8554cycles／68432ACK、
+214正常／213強制HTTP重啟、cleanup=true與controller退出已核；見
+[終態與限定範圍](session-discovery-and-soak.md)。不再等或重跑這個已完成的長測，
+也不套用後續rc.7。今晚發布審查另發現Pi+worktree原生sid誤進generic連線，以及
+RC tag未分流正式Release；兩項正在修正、逐項驗收後才能繼續發布判定。
+C1–C8未全完成，[今晚大總結](release-review-2026-09-09.md)列實際交付與缺口。
+
 2026-09-09／Plan1.76：全來源結構已接parser9/10、同五階段與Host／peer／Web，
 真17.2MB的原生ID、跨頁工具／rollback與320/390px通；完整／最低Node1085/0fail及
 取消清理回歸通，1b37173四CI通／logs核；原Mac browser第6案例逾300s，改Release

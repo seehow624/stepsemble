@@ -329,7 +329,7 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 | App Shell | 目標已定，待驗證 | Tauri 2 為預設方案；必須先通過 Apple 實機 PoC 驗收門檻 |
 | 當前回歸基線 | 3.0.6 發布 gate 全通過 | `331b9f0`／CI34027897400三OS335tests／0fail（Mac333pass2skip、Win325/10、Linux332/3）；rolling34027897382兩OS各15cases；Release34028079034全綠。原Windows stop race已修，見 `agent-stop-reliability.md` |
 | Pi Failed／session 名稱修正 | 已隨3.0.4部署 | 已分離預期 idle close 與異常退出、補上送出／關閉競爭保護，名稱統一 native name／first user；驗證與相容邊界見 `pi-session-lifecycle.md`。未呼叫真實模型或改寫歷史 |
-| 開發分支跨平台回歸 | 已通過，逐批驗證 | 2026-09-05 `6a0ddd4`／CI33970842907三OS全綠270tests/0fail；Rolling33970842871 macOS/Linux各8cases全綠。Native Pi offline contract33967509738三OS實跑0.84.2各57frames；本批見1.23記錄，新的commit需看各自workflow；不等於model/provider parity或release |
+| 開發分支跨平台回歸 | Plan1.76／rc.7 必要 CI 已核 | `2beab685` general34344004839三OS各1086/0fail；rolling34344004874雙OS各24＋6cases/pageErrors0。產品工程`1b37173`的Claude34342859660、Codex34342859706、reader34342859653全通；runner-only修正未觸發三組native，不能冒稱它們在2be重跑。原Mac rolling timeout保留，見發布審查；不是stable/deploy |
 | 現行系統盤點 | 已完成 | HTTP/SSE/RPC、資料、狀態、approval、event、安裝與 rollback 已落於 `current-system-inventory.md` |
 | 本機品牌遷移 | 已部署 | Mac Mini 已由 2.13.2 原地升級至 3.0.0；session/token/SSH launcher/CUA driver 均完成前後核對 |
 | 跨平台 installer smoke | 部分完成 | macOS live migration、Linux clean-container install、Windows PowerShell AST 通過；Linux systemd/Windows Scheduled Task real runner 待補 |
@@ -341,6 +341,7 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 | 已發佈 Web rolling 相容 | Legacy smoke 已驗 | 真實v3.0.3/v3.0.2 pinned source與development雙向搭配，Chromium桌面/手機尺寸8cases，macOS/Linux各跑一次共16cases／CI33970245044過。SW/PWA cache、Safari/Firefox/Windows/實機、future journal transport不包含，見`protocol/rolling-compatibility.md` |
 | Codex 官方介面基線 | 0.153.4 離線 metadata 已驗 | 新版24份schema，原18份及99/10/81 catalog與0.153.3全同；runner逐版本比對hash，未知版本停止。preflight不再建空session，路由先於account、傳輸有界；本輪未啟app-server／讀真帳號，不是runtime/session/approval驗收，見 `codex-metadata-compatibility.md` |
 | Codex原生歷史通道 | Plan1.55新增inert observation及缺漏檢查，未接Host/Web | 0.153.4固定schema／受限RPC與legacy49turns/147items/name已驗；rich fixture還原6類但command/image缺失，完整性gate明示unavailable；不是全19類真CLI驗證。items/list與paginated仍不支援，不直讀私人HOME，詳codex-history-compatibility.md |
+| Codex來源紀錄Web | Plan1.76已接Host／peer／Web，未部署 | 與上一列官方RPC投影分開：owner雙root、新舊SQLite、small plain/壓縮與large plain受限唯讀來源已接線；17.2MB/16384筆、原名/原生ID、全來源turn/tool/rollback、雙向跨頁工具與320/390px已驗。非完整native投影/resume；large compressed、其他adapter與C2完整gate仍待，見codex-structured-source.md |
 | Claude／Codex 真實訂閱 smoke | Claude單次通過；Codex路由gate未過 | Claude09-06直接Aqua最小模型成功。09-07 Codex0.153.4新版schema／initialize已過，effective config回non_native_route，未送account/thread/turn；8個保護項目不變。不改第三方設定讓測試通過，詳見 `native-subscription-smoke.md` |
 | Claude 原生歷史讀取邊界 | SDK讀回／豐富內容觀察映射已驗 | 官方SDK0.3.259對應CLI2.1.259；只讀子程序不准spawn／write。合成工具／thinking／附件參照、中斷/API錯誤外層metadata及壓縮保留鏈通過；相同UUID原文核對、未知格式警示、整批拒絕混入/重複。前輪自己的兩則訊息讀回仍有效，本輪未再讀私有session。不是Web journal／approval ACK／resume，見 `protocol/native/claude/README.md` |
 | Claude 歷史來源快照 | POSIX唯讀一致性／跨平台parser已實作 | 單一指定source、UID/mode/regular/single-link/no-follow、同descriptor雙讀＋前後inode/size/ns時間、原始8MiB/1MiB line/2000rows caps；partial/malformed不當空history。不是authenticated source／ACL／atomic containment；Windows source gate明確unsupported，SDK合成reader仍可驗。未接正式服務 |
@@ -361,24 +362,25 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 | Claude macOS 桌面執行元件 | Mini助手與Web已啟用 | rc.3 Aqua LaunchAgent、owner-only IPC、登入/task互斥及單次launch票；真GUI fake-CLI metadata/task均Aqua且重啟重接只開一次。真正SSH Background→助手Aqua→官方Claude metadata detected；零login/logout/model。Web經另行同意後無任務啟用，保留3.0.3可回退；不是原生全能力驗收，見`claude-desktop-runner.md` |
 | 優先可靠性修復 | 已實作，隨rc.3啟用於Mini | 可復原封存、開啟中 session 保護、symlink containment、循環／超大 history 防護、UTF-8 framing、SSE 背壓、snapshot 去重、async worktree；詳見 `reliability-followup.md` |
 | Web 卡頓修復 | 部分完成 | 歷史離屏分批建立、相鄰訊息線性合併、局部翻譯、聊天可及性；仍需 virtualization、實機／多輪效能門檻驗收 |
-| 非同步歷史掃描／72h 測試工具 | 3.0.7-rc.1 開發候選 | 清單／搜尋／用量的 metadata 改非同步4工人＋single-flight；補齊400-file／8MiB限制與真實8-task／16-client／Host crash短測。未啟用正式機；長測尚未完成，見 `session-discovery-and-soak.md` |
-| 隔離72h長測 | 2026-09-06 11:34Z 已開始 | clean `ab227af`（runtime `2b7f0b6`）；8tasks／16clients，預計09-09 11:34Z結束；同對話每小時追蹤。未passed，不代替native／實機／durable gate |
+| 非同步歷史掃描／72h 測試工具 | rc.1固定隔離長測已通過，未部署 | 清單／搜尋／用量metadata採非同步4工人＋single-flight；400-file／8MiB限制、8-task／16-client／Host crash短測與下列固定72h通過。不涵蓋後續rc.7；見 `session-discovery-and-soak.md` |
+| 隔離72h長測 | 2026-09-09 19:34:16 MYT已通過 | 固定clean `ab227af`／rc.1（runtime `2b7f0b6`）；continuous259200335ms、8554cycles/68432ACK、8tasks/16clients、214正常/213強制重啟、cleanup=true與controller退出；76凍結檔案hash核對。只關閉本工作負載gate，不代替新rc.7/native/實機/durable驗收，詳session-discovery-and-soak.md |
 
 ### 下一個可執行任務
 
-**1.70接續**：冷資料庫Host/Web工程7b16d03五CI已核；不要重做已通的Rust v7/v8、
-Node admission/version、owner→Host39筆與手機冷熱切換。再接compressed rollout、
-原生語義projection／其他adapter，並補冷大DB完整Host RSS與混合負載。所有C1–C8
-既有驗收与私人來源／正式部署關卡保持，不把raw頁等同完整native聊天。
+**Plan1.76／2026-09-09收尾入口**：產品工程`1b37173`、runner修正`2beab685`的必要
+CI及完整logs已核；不要重做冷DB、小型壓縮、大型plain parser/Host/Web或跨頁結構。
+今晚19:35先按[發布審查](release-review-2026-09-09.md)核對原72h終態、cleanup與固定
+來源，再總結已交付、未交付和版本判定。rc.7仍是候選，不因時間到或舊runtime通過而
+改stable、restart正式服務或新增私人readers。
 
-**1.57接續**：C1來源設定/registry/HTTP/relay、native title/TS、Web來源操作、keyed i18n及本機新檔精靈不重做；
-C2先查清 Codex rich fixture 的 command/image 缺口，使用固定版本格式的獨立
-有效性證據，不反覆猜 JSON、不減少預期項目讓測試變綠；再接 legacy 一致來源
-capture／授權／跨頁 fence。官方尚未支援的 paginated 完整歷史明示 unavailable，
-不手改 native SQLite 或偷偷 resume；目前受限 RPC 不可直接接私人 HOME。
-接續完整owner管理能力（不能將一般reader當admin）、多語真機/人工校稿、跨機路由驗收、其他agent adapter及C3durable/session gate。
-私人root/readers由owner選定、正式部署仍需既有gate；Windows／完整原生能力／
-跨機效能未完成，不能把Claude合成来源列表当作所有電腦對話已完整收錄。
+工程接續以[C1–C8清單](web-completion-loop.md)為準：C1多群組安全管理；C2大型壓縮與
+其他原生adapter；C3真native session/approval/resume及durable證據；C4跨harness故障
+恢復；C5真機/跨Host；C6全Host記憶體、最大來源/混合負載；C7 Windows來源及真服務
+runner；C8候選安裝/回滾/active-work與正式上線。每次選一個可獨立驗收的實際缺口，
+不重做已接線核心、不把第三方unsupported當作實作成功、不用真模型重試補合成證據。
+私人root/readers、第三方路由/帳號與正式部署依既有owner門檻。
+
+### 歷史checkpoint說明（不作為目前待辦）
 
 **1.46 歷史開發增量（3.0.7-rc.3，未部署）**：Claude 唯讀歷史已接入實際
 `server.js`、Agent Hub連結及獨立歷史頁，不再只存在隔離preview。預設停用，
