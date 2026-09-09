@@ -13,6 +13,16 @@ runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
+Development-only Plan1.73 starts with a byte-level bounded JSONL double-scan core.
+It retains one page and validates the full source through a caller callback,
+with unchanged digest/count/length observations across both scans. Generated
+1–256MiB allocation gates do not establish filesystem authority or Host performance.
+The existing 8MiB source/parser protocols are unchanged; held-source security,
+native semantics, framing and actual Host/Web integration remain required.
+See [`history-large-scan.md`](history-large-scan.md); exact general/reader/rolling
+CI passed with full logs checked, including 15 new scanner cases and five
+allocation workloads on each OS. These are not large-source Web evidence.
+
 Development-only Plan1.72 is in progress: a source-linked structural index adds
 recorded/inferred turn boundaries and scoped tool correlations to the existing
 bounded parser (v5/v6) and named pipeline. It is not a native projection clone;

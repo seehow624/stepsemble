@@ -29,6 +29,13 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 
 ## 順序與驗收
 
+2026-09-09／Plan1.73第一段：1c7a7d2新增有界JSONL雙掃核心、15測試及256MiB
+allocation gate；三輪release峰值不隨source增長，原Node1019/0fail。exact一般/reader/rolling
+CI全通與full logs核，三OS15scanner＋五allocation workload通，
+**不是大型歷史已可在Web讀取**：現有8MiB協定未放寬，下一段須接held-root/source安全邊界、
+原生名稱/語義/structure與Host/Web。詳[完整接續與量測界線](history-large-scan.md)。
+目前是實作進展，C2/C6保持未完成，也不重跑或改動獨立72h。
+
 2026-09-09／Plan1.72 **進行中**：Codex可讀歷史先補來源關聯回合／工具結構與
 parser5/6、同兩reader named流程。真正native147messages／rich turn ID與219原文
 逐byte比對通；新近8MiB/8192筆worker、真Claude peer、雙版本及五階段取消通。
