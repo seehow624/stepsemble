@@ -57,7 +57,12 @@ test("worktree admission is bounded, failure releases capacity and does not eras
   const temp = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "stepsemble-worktree-admission-"));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
   const callbacks = [];
-  const context = fixture((git, args, options, done) => { callbacks.push(done); }, { appHome: temp, browseRoots: [temp] });
+  let notifyWorktreeAdd;
+  const worktreeAddStarted = new Promise(resolve => { notifyWorktreeAdd = resolve; });
+  const context = fixture((git, args, options, done) => {
+    callbacks.push(done);
+    if (args.includes("worktree") && args.includes("add")) notifyWorktreeAdd();
+  }, { appHome: temp, browseRoots: [temp] });
   const first = context.createPermanentWorktree(path.resolve("repo"));
   const second = context.createPermanentWorktree(path.resolve("repo"));
   await assert.rejects(context.createPermanentWorktree(path.resolve("repo")), error => error.statusCode === 429);
@@ -66,7 +71,9 @@ test("worktree admission is bounded, failure releases capacity and does not eras
   await Promise.all([assert.rejects(first), assert.rejects(second)]);
   const next = context.createPermanentWorktree(path.resolve("repo"));
   callbacks.shift()(null, path.resolve("repo"));
-  for (let i = 0; i < 20 && !callbacks.length; i++) await new Promise(resolve => setImmediate(resolve));
+  // Observe the real effect boundary, not a fixed number of event-loop turns:
+  // Windows directory creation can still be pending after those turns finish.
+  await worktreeAddStarted;
   assert.equal(callbacks.length, 1, "git add begins after the async managed-directory mkdir");
   // Production deliberately does not remove partial worktree data on failure.
   callbacks.shift()(new Error("synthetic partial checkout"));

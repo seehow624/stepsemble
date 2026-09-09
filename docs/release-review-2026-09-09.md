@@ -91,6 +91,13 @@ reader；改為相同固定工具鏈的Release建置後兩OS全通。沒有加�
 改點可見label，再確認checked，沒有force、加長期限或刪驗收。兩個原完整失敗logs保留；
 測試修正提交的general／rolling必須獨立核對，不能重標原949e235失敗為成功。
 
+`3641d82058422088ce128fb68e6feb1acc82f756`的
+[一般CI34351189837](https://github.com/seehow624/stepsemble/actions/runs/34351189837)
+確認上述三個CRLF錯誤已消失，但Windows尚有一個fixture時序失敗：20次setImmediate
+不保證async mkdir已完成。Mac／Linux1098項仍零失敗，Windows1046pass／51skip／1fail。
+改為等待fake Git收到worktree add的實際訊號，再驗證callback／容量，不用固定輪數或
+新增睡眠；仍受原測試期限保護。完整失敗log保留，後續修復提交只需自己的必要CI。
+
 ## 長測通過門檻
 
 **實際終態：passed，2026-09-09 19:34:16 MYT完成。** 連續觀察259200335ms、
