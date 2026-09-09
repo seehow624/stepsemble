@@ -123,7 +123,7 @@ var StepsembleCodexHistoryView;
                 // changed versions, malformed data or an unconfirmed physical close.
                 // Subsequent pages use the negotiated profile and its opaque version.
                 if (mode === "refresh" && readProfile === undefined && value?.kind === "source_unavailable"
-                    && ["source_too_large", "rollout_record_limit"].includes(value.code)) {
+                    && ["source_too_large", "rollout_record_limit", "rollout_compression_limit"].includes(value.code)) {
                     readProfile = readStructured ? wire.STRUCTURED_PAGE_PROFILE : wire.PAGE_PROFILE;
                     stage = "codexLargeReading";
                     notify();

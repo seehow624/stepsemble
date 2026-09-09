@@ -4,6 +4,8 @@ const { createCodexHistoryPipeline } = require("../protocol/native/codex/history
 const { createReaderAdmission } = require("../protocol/native/claude/history-reader-admission");
 const wire = require("../protocol/native/codex/parser-wire"), { processJob } = require("../protocol/native/codex/parser-worker");
 const f = require("../protocol/native/codex/parser-fixture.cjs");
+const compressedFixture = require("../protocol/native/codex/compressed-page-parser-fixture.cjs");
+const structuredFixture = require("../protocol/native/codex/structured-page-fixture.cjs");
 const tick = () => new Promise(resolve => setImmediate(resolve)), unavailable = code => ({ kind: "source_unavailable", code });
 function harness(t, config = {}) {
   const admission = config.admission ?? createReaderAdmission(), helpers = [], children = [], stages = [];
@@ -15,9 +17,16 @@ function harness(t, config = {}) {
       const h = { active: false, calls: [] };
       h.status = () => ({ activeWorker: h.active, cleanupConfirmed: !h.active, quarantined: false });
       h.close = () => { if (h.active) { h.active = false; drop(); } };
-      for (const method of ["readCodex", "readCodexNameContext", "readCodexValidatedPage"]) h[method] = (input, { signal }) => {
+      for (const method of ["readCodex", "readCodexNameContext", "readCodexValidatedPage", "readCodexStructuredPage", "readCodexCompressedPage", "readCodexCompressedStructuredPage"]) h[method] = (input, { signal }) => {
         assert.equal(h.active, false); add(); h.active = true; h.calls.push({ method, input }); stages.push(method);
-        const promise = new Promise(resolve => { h.finish = (result = method === "readCodexValidatedPage" ? f.pageCaptured(input.page.offset, input.page.limit)
+        const compressed = () => {
+          const value = compressedFixture.captureFrom(undefined, input.page.offset, input.page.limit, { structured: method === "readCodexCompressedStructuredPage" });
+          value.rolloutPath = input.source.rolloutPath; return value;
+        };
+        const promise = new Promise(resolve => { h.finish = (result = method.startsWith("readCodexCompressed") ? compressed()
+          : ["readCodexValidatedPage", "readCodexStructuredPage"].includes(method) && config.compressed ? unavailable("source_encoding_unsupported")
+          : method === "readCodexStructuredPage" ? structuredFixture.captureFrom(undefined, input.page.offset, input.page.limit)
+          : method === "readCodexValidatedPage" ? f.pageCaptured(input.page.offset, input.page.limit)
           : method === "readCodex" ? (config.structured ? f.structuredCaptured() : f.captured()) : f.sqliteCapture(), close = true) => { if (close) h.close(); resolve(result); }; });
         signal.addEventListener("abort", () => { if (!config.holdReader) h.finish(unavailable("source_aborted")); }, { once: true });
         return promise;
@@ -43,6 +52,72 @@ function harness(t, config = {}) {
 async function complete(h, options = {}, input = f.namedRequest()) {
   const promise = h.pipeline.readNamed(input, options); for (let i = 0; i < 5; i++) await h.step(); return promise;
 }
+test("large compressed raw/structured negotiate on one permit and subsequent versions select only the matching decoder", async t => {
+  for (const structured of [false, true]) {
+    const h = harness(t, { compressed: true }), method = structured ? "readNamedStructuredPage" : "readNamedPage";
+    const plain = structured ? "readCodexStructuredPage" : "readCodexValidatedPage", compressed = structured ? "readCodexCompressedStructuredPage" : "readCodexCompressedPage";
+    const first = h.pipeline[method](f.namedRequest(), { selection: { mode: "records", offset: 0, limit: 2 } });
+    for (let i = 0; i < 6; i++) { assert.equal(h.admission.status().activeWorkers, 1); assert.equal(h.physical(), 1); await h.step(); }
+    const result = await first;
+    assert.equal(result.kind, structured ? "codex_named_structured_page_capture" : "codex_named_page_capture", result.code);
+    assert.equal(result.source.history.storage.encoding, "zstd"); assert.equal(Object.hasOwn(result.source.history, "rollout"), false);
+    const expectedCapture = compressedFixture.captureFrom(undefined, 0, 2, { structured });
+    assert.equal(result.source.history.physical.identity.size, expectedCapture.physical.identity.size);
+    assert.equal(result.source.history.decoded.byteLength, expectedCapture.decoded.byteLength);
+    assert.equal(result.page.byteLength, result.source.history.decoded.byteLength);
+    assert.equal(result.page.sha256, result.source.history.decoded.sha256); assert.equal(result.name.name, "原生候選 🐾");
+    assert.equal(h.children[0].input().job.protocolVersion, structured ? 14 : 12);
+    assert.deepEqual(h.stages, ["readCodexNameContext", plain, compressed, "parser", "readCodexNameContext", compressed]);
+    const continuation = h.pipeline[method](f.namedRequest(), { expectedVersion: result.source, selection: { mode: "records", offset: 4, limit: 2 } });
+    for (let i = 0; i < 5; i++) await h.step();
+    const next = await continuation; assert.equal(next.kind, result.kind, next.code); assert.equal(next.page.offset, 4);
+    assert.deepEqual(h.stages.slice(6), ["readCodexNameContext", compressed, "parser", "readCodexNameContext", compressed]);
+    assert.equal(h.max(), 1); assert.equal(h.physical(), 0); assert.equal(h.admission.status().cleanupConfirmed, true);
+  }
+});
+test("compressed encoding negotiation is narrow, cannot reset the common deadline and waits for actual close", async t => {
+  for (const code of ["source_busy", "source_worker_timeout", "source_owner_or_mode", "source_changed", "rollout_compression_invalid", "rollout_compression_limit"]) {
+    const h = harness(t), pending = h.pipeline.readNamedPage(f.namedRequest());
+    await h.step(); await h.step(unavailable(code)); assert.equal((await pending).code, code);
+    assert.deepEqual(h.stages, ["readCodexNameContext", "readCodexValidatedPage"]);
+  }
+  const unknown = harness(t, { holdReader: true }), pending = unknown.pipeline.readNamedPage(f.namedRequest()); await unknown.step();
+  await unknown.step(unavailable("source_encoding_unsupported"), false);
+  assert.equal((await pending).code, "source_cleanup_unconfirmed"); assert.equal(unknown.stages.length, 2);
+  assert.equal(unknown.admission.status().quarantined, true); assert.equal(unknown.physical(), 1);
+  const { performance } = require("node:perf_hooks"); let clock = 0; t.mock.method(performance, "now", () => clock);
+  const deadline = harness(t, { compressed: true, deadlineMs: 1000 }), limited = deadline.pipeline.readNamedPage(f.namedRequest());
+  await deadline.step(); clock = 999; await deadline.step();
+  assert.equal(deadline.stages.at(-1), "readCodexCompressedPage"); clock = 1001; await deadline.step();
+  assert.equal((await limited).code, "source_worker_timeout"); assert.equal(deadline.children.length, 0);
+  assert.equal(deadline.physical(), 0); assert.equal(deadline.admission.status().cleanupConfirmed, true);
+});
+test("all six fresh compressed stages cancel on the shared reader budget without publishing or spawning a replacement", async t => {
+  for (const stage of [0, 1, 2, 3, 4, 5]) {
+    const admission = createReaderAdmission(), h = harness(t, { compressed: true, admission }), peer = harness(t, { admission });
+    const controller = new AbortController(), pending = h.pipeline.readNamedPage(f.namedRequest(), { signal: controller.signal }), other = peer.pipeline.read(f.request());
+    for (let i = 0; i < stage; i++) await h.step();
+    assert.equal(admission.status().activeWorkers, 2); assert.equal(h.physical() + peer.physical(), 2);
+    assert.equal((await h.pipeline.readNamedPage(f.namedRequest())).code, "source_busy"); controller.abort();
+    assert.equal((await pending).code, "source_aborted"); assert.equal(h.physical(), 0); assert.equal(h.stages.length, stage + 1);
+    await peer.step(); await peer.step(); assert.equal((await other).kind, "codex_parsed_capture");
+    assert.equal(admission.status().cleanupConfirmed, true);
+  }
+});
+test("compressed final/expected captures reject physical, decoded and encoding changes even outside selected bytes", async t => {
+  for (const change of [c => { c.physical.identity.ctimeNs = "100"; }, c => { c.physical.sha256 = "a".repeat(64); },
+    c => { c.decoded.sha256 = "b".repeat(64); }, c => { c.decoded.frames = 3; }, () => unavailable("source_encoding_unsupported")]) {
+    const h = harness(t, { compressed: true }), pending = h.pipeline.readNamedPage(f.namedRequest());
+    for (let i = 0; i < 5; i++) await h.step();
+    let changed = compressedFixture.captureFrom(undefined, 0, 1); changed.rolloutPath = f.request().source.rolloutPath;
+    changed = change(changed) ?? changed; await h.step(changed);
+    assert.equal((await pending).code, "source_version_changed"); assert.equal(h.physical(), 0);
+  }
+  const h = harness(t, { compressed: true }), first = h.pipeline.readNamedPage(f.namedRequest());
+  for (let i = 0; i < 6; i++) await h.step(); const expectedVersion = (await first).source;
+  const next = h.pipeline.readNamedPage(f.namedRequest(), { expectedVersion }); await h.step(); await h.step(unavailable("source_encoding_unsupported"));
+  assert.equal((await next).code, "source_version_changed"); assert.equal(h.stages.length, 8); assert.equal(h.children.length, 1);
+});
 test("v8 named page uses the same five-stage permit, exact page selection and page-independent composite version", async t => {
   const h = harness(t), stages = ["readCodexNameContext", "readCodexValidatedPage", "parser", "readCodexNameContext", "readCodexValidatedPage"];
   let version;

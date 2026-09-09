@@ -4,7 +4,7 @@
 // the parent; this module never opens a source or grants native authority.
 const crypto = require("node:crypto");
 const { canonicalJSON } = require("../../../public/modules/projection");
-const source = require("./structured-source-wire"), paged = require("./validated-page");
+const source = require("./structured-source-wire"), compressed = require("./compressed-page-source-wire"), paged = require("./validated-page");
 const { observeNameIndex } = require("./name-index");
 const { observeSqliteNameResolution } = require("./name-resolution");
 const LIMITS = Object.freeze({ combinedBytes: 272 * 1024, publicBytes: 380 * 1024, parserBytes: 416 * 1024 });
@@ -14,9 +14,10 @@ const digest = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
 const unavailable = code => ({ kind: "source_unavailable", code });
 
 function baseSource(v) {
-  if (!source.sameSourceVersion(v, v)) return null;
+  const plain = source.sameSourceVersion(v, v), packed = !plain && compressed.structured.sameSourceVersion(v, v);
+  if (!plain && !packed) return null;
   const { structureProfile: _privateProfile, ...rest } = v;
-  return { ...rest, kind: "codex_validated_source_version" };
+  return { ...rest, kind: packed ? "codex_compressed_validated_source_version" : "codex_validated_source_version" };
 }
 function baseJob(job) {
   const selected = baseSource(job?.source);
@@ -46,7 +47,8 @@ function decode(bytes, job) {
     const json = canonicalJSON(structure, source.LIMITS.structureBytes);
     structure = json === null ? null : JSON.parse(json);
   } catch { structure = null; }
-  if (!structure || !source.validStructure(structure, job.page, job.source.rollout.recordCount)) return null;
+  const summary = paged.summary(base.source);
+  if (!structure || !summary || !source.validStructure(structure, job.page, summary.recordCount)) return null;
   return { pageAndIndex, pageBytes: pageAndIndex.subarray(0, job.page.byteLength),
     indexBytes: job.source.nameIndex === null ? null : pageAndIndex.subarray(job.page.byteLength, job.page.byteLength + indexLength), structure };
 }
@@ -82,7 +84,7 @@ function budgets(result, job) {
 }
 function makeResult(job, index, name, page, structure) {
   return { kind: "codex_parsed_structured_page_capture", source: job.source, index, page,
-    ...(job.protocolVersion === 10 ? { name } : {}), structure,
+    ...([10, 14].includes(job.protocolVersion) ? { name } : {}), structure,
     sourceAuthenticated: false, publishable: false, semanticHistoryComplete: false };
 }
 function process(job, bytes) {
@@ -92,7 +94,7 @@ function process(job, bytes) {
   const index = observeNameIndex(decoded.indexBytes, parameters);
   if (index.kind !== "codex_name_index_observation") return unavailable(index.code);
   let name;
-  if (job.protocolVersion === 10) {
+  if ([10, 14].includes(job.protocolVersion)) {
     const context = job.nameResolution;
     name = observeSqliteNameResolution(context.fields, context.nameContext, decoded.indexBytes, { ...parameters, method: context.method,
       rollout: { threadId: job.source.threadId, historyMode: job.source.validation.historyMode, path: context.rolloutPath } });
@@ -114,7 +116,7 @@ function process(job, bytes) {
 }
 function validResult(value, job) {
   if (!keys(value, ["kind", "source", "index", "page", "structure", "sourceAuthenticated", "publishable", "semanticHistoryComplete",
-    ...(job.protocolVersion === 10 ? ["name"] : [])]) || value.kind !== "codex_parsed_structured_page_capture"
+    ...([10, 14].includes(job.protocolVersion) ? ["name"] : [])]) || value.kind !== "codex_parsed_structured_page_capture"
     || value.sourceAuthenticated !== false || value.publishable !== false || value.semanticHistoryComplete !== false
     || !validProjection(value.page, value.structure, job)) return false;
   return budgets(value, job);

@@ -67,11 +67,11 @@ pub enum ScanPass {
     Matching,
 }
 
-fn valid(size: u64, selection: Option<Selection>) -> Result<(), Error> {
-    if size == 0 {
+fn valid(size: Option<u64>, selection: Option<Selection>) -> Result<(), Error> {
+    if size == Some(0) {
         return Err(Error::Empty);
     }
-    if size > SOURCE_BYTES {
+    if size.is_some_and(|size| size > SOURCE_BYTES) {
         return Err(Error::SourceLimit);
     }
     if selection.is_some_and(|s| s.offset > RECORDS || s.limit == 0 || s.limit > PAGE_RECORDS) {
@@ -86,7 +86,7 @@ fn valid(size: u64, selection: Option<Selection>) -> Result<(), Error> {
 /// No callbacks run for a partial tail or an oversized record.
 fn scan(
     reader: &mut impl Read,
-    observed_size: u64,
+    observed_size: Option<u64>,
     selection: Option<Selection>,
     checkpoint: &mut impl FnMut() -> Result<(), Error>,
     validate: &mut impl FnMut(u32, u64, &[u8]) -> Result<(), Error>,
@@ -107,7 +107,8 @@ fn scan(
         checkpoint()?;
         // Read at most one byte beyond the observed length, including at EOF.
         // This detects growth without accepting an appended prefix as stable.
-        let remaining = observed_size - total;
+        let limit = observed_size.unwrap_or(SOURCE_BYTES);
+        let remaining = limit - total;
         let capacity = (remaining + 1).min(CHUNK_BYTES as u64) as usize;
         let length = match reader.read(&mut chunk[..capacity]) {
             Ok(n) => n,
@@ -119,7 +120,11 @@ fn scan(
             break;
         }
         if length as u64 > remaining {
-            return Err(Error::Changed);
+            return Err(if observed_size.is_some() {
+                Error::Changed
+            } else {
+                Error::SourceLimit
+            });
         }
         total += length as u64;
         digest.update(&chunk[..length]);
@@ -159,8 +164,11 @@ fn scan(
         }
     }
     checkpoint()?;
-    if total != observed_size {
+    if observed_size.is_some_and(|size| total != size) {
         return Err(Error::Changed);
+    }
+    if total == 0 {
+        return Err(Error::Empty);
     }
     if !line.is_empty() {
         return Err(Error::IncompleteTail);
@@ -216,7 +224,7 @@ pub fn scan_matching_page_observed(
     mut checkpoint: impl FnMut() -> Result<(), Error>,
     mut observe: impl FnMut(ScanPass, u32, u64, &[u8]) -> Result<(), Error>,
 ) -> Result<Page, Error> {
-    valid(observed_size, Some(selection))?;
+    valid(Some(observed_size), Some(selection))?;
     checkpoint()?;
     if expected.is_some_and(|s| s.byte_length != observed_size) {
         return Err(Error::Changed);
@@ -224,7 +232,7 @@ pub fn scan_matching_page_observed(
     rewind(reader, &mut checkpoint)?;
     let (first, records) = scan(
         reader,
-        observed_size,
+        Some(observed_size),
         Some(selection),
         &mut checkpoint,
         &mut |i, offset, bytes| observe(ScanPass::First, i, offset, bytes),
@@ -236,7 +244,48 @@ pub fn scan_matching_page_observed(
     rewind(reader, &mut checkpoint)?;
     let (second, _) = scan(
         reader,
-        observed_size,
+        Some(observed_size),
+        None,
+        &mut checkpoint,
+        &mut |i, offset, bytes| observe(ScanPass::Matching, i, offset, bytes),
+    )?;
+    checkpoint()?;
+    if first != second {
+        return Err(Error::Changed);
+    }
+    let next = selection.offset + records.len() as u32;
+    Ok(Page {
+        summary: first,
+        offset: selection.offset,
+        records,
+        next_offset: (next < first.record_count).then_some(next),
+    })
+}
+
+/// Two full scans when the logical byte length is not known until decoding.
+/// The first pass reads at most `SOURCE_BYTES + 1`; the matching pass requires
+/// the exact decoded length, digest and record count observed by the first.
+pub fn scan_matching_page_bounded_observed(
+    reader: &mut (impl Read + Seek),
+    selection: Selection,
+    mut checkpoint: impl FnMut() -> Result<(), Error>,
+    mut observe: impl FnMut(ScanPass, u32, u64, &[u8]) -> Result<(), Error>,
+) -> Result<Page, Error> {
+    valid(None, Some(selection))?;
+    checkpoint()?;
+    rewind(reader, &mut checkpoint)?;
+    let (first, records) = scan(
+        reader,
+        None,
+        Some(selection),
+        &mut checkpoint,
+        &mut |i, offset, bytes| observe(ScanPass::First, i, offset, bytes),
+    )?;
+    checkpoint()?;
+    rewind(reader, &mut checkpoint)?;
+    let (second, _) = scan(
+        reader,
+        Some(first.byte_length),
         None,
         &mut checkpoint,
         &mut |i, offset, bytes| observe(ScanPass::Matching, i, offset, bytes),

@@ -8,16 +8,18 @@ const { observeSqliteNameResolution } = require("./name-resolution");
 const { decodeRollout } = require("./rollout-decompression");
 const structure = require("./rollout-structure");
 const structuredSource = require("./structured-source-wire"), structuredPage = require("./structured-page");
+const compressed = require("./compressed-page-source-wire");
 const { createHash } = require("node:crypto");
 const unavailable = code => ({ kind: "source_unavailable", code });
 function processJob(input, bytes) {
   const job = wire.detach(input, wire.LIMITS.namedHeaderBytes);
   if (!wire.validPayload(bytes, job)) return unavailable("source_worker_protocol");
-  if ([9, 10].includes(job.protocolVersion)) {
-    if (job.expectedVersion !== null && !structuredSource.sameSourceVersion(job.expectedVersion, job.source)) return unavailable("source_version_changed");
+  if ([9, 10, 13, 14].includes(job.protocolVersion)) {
+    const history = [13, 14].includes(job.protocolVersion) ? compressed.structured : structuredSource;
+    if (job.expectedVersion !== null && !history.sameSourceVersion(job.expectedVersion, job.source)) return unavailable("source_version_changed");
     return structuredPage.process(job, bytes);
   }
-  if ([7, 8].includes(job.protocolVersion)) return processPage(job, bytes);
+  if ([7, 8, 11, 12].includes(job.protocolVersion)) return processPage(job, bytes);
   if (job.expectedVersion !== null && !sameSourceVersion(job.expectedVersion, job.source)) return unavailable("source_version_changed");
   const split = job.source.rollout.identity.size;
   const parameters = { nativeVersion: job.source.nativeVersion, threadId: job.source.threadId };
@@ -59,7 +61,8 @@ function processJob(input, bytes) {
   } finally { if (snapshot) (structured ? structure.releaseStructuredRolloutSnapshot : releaseRolloutSnapshot)(snapshot); if (job.source.storage?.encoding === "zstd") decoded.bytes.fill(0); }
 }
 function processPage(job, bytes) {
-  if (job.expectedVersion !== null && !scanned.sameSourceVersion(job.expectedVersion, job.source)) return unavailable("source_version_changed");
+  const history = [11, 12].includes(job.protocolVersion) ? compressed.validated : scanned;
+  if (job.expectedVersion !== null && !history.sameSourceVersion(job.expectedVersion, job.source)) return unavailable("source_version_changed");
   const page = paged.project(bytes, job);
   if (page?.kind === "source_unavailable") return page;
   const indexBytes = job.source.nameIndex === null ? null : bytes.subarray(job.page.byteLength);
@@ -67,7 +70,7 @@ function processPage(job, bytes) {
   const index = observeNameIndex(indexBytes, parameters);
   if (index.kind !== "codex_name_index_observation") return unavailable(index.code);
   let name;
-  if (job.protocolVersion === 8) {
+  if ([8, 12].includes(job.protocolVersion)) {
     const context = job.nameResolution;
     name = observeSqliteNameResolution(context.fields, context.nameContext, indexBytes, { ...parameters, method: context.method,
       rollout: { threadId: job.source.threadId, historyMode: job.source.validation.historyMode, path: context.rolloutPath } });

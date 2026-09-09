@@ -791,6 +791,38 @@ pub fn scan_page(
     index.finish(records)
 }
 
+/// Compressed counterpart of [`scan_page`]. The logical decoded length is
+/// learned under the first bounded scan and required exactly on the matching
+/// scan; the caller still owns the held source and physical-version checks.
+pub fn scan_page_bounded(
+    reader: &mut (impl Read + Seek),
+    selection: scan::Selection,
+    thread_id: &str,
+    native_version: &str,
+    checkpoint: impl FnMut() -> Result<(), scan::Error>,
+) -> Result<Page, Error> {
+    let mut index = Index::new(selection, thread_id, native_version)?;
+    let mut failure = None;
+    let checkpoint = RefCell::new(checkpoint);
+    let result = scan::scan_matching_page_bounded_observed(
+        reader,
+        selection,
+        || (checkpoint.borrow_mut())(),
+        |pass, i, _, bytes| {
+            let result = match pass {
+                scan::ScanPass::First => index.record(i, bytes, &mut *checkpoint.borrow_mut()),
+                scan::ScanPass::Matching => index.matching(i, bytes),
+            };
+            result.map_err(|e| {
+                failure = Some(e);
+                scan::Error::InvalidRecord
+            })
+        },
+    );
+    let records = result.map_err(|e| failure.unwrap_or(Error::Scan(e)))?;
+    index.finish(records)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

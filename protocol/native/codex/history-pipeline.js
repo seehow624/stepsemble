@@ -8,6 +8,7 @@ const { isReaderAdmission, LIMIT } = require("../claude/history-reader-admission
 const source = require("./source-wire"), wire = require("./parser-wire");
 const scanned = require("./scanned-source-wire"), paged = require("./validated-page");
 const structuredSource = require("./structured-source-wire");
+const compressedSource = require("./compressed-page-source-wire");
 const sqlite = require("./sqlite-wire").context;
 const unavailable = code => ({ kind: "source_unavailable", code });
 const codes = new Set([...SOURCE_CODES, ...wire.CODES, "source_worker_exit", "source_worker_timeout", "source_worker_spawn_failed",
@@ -48,7 +49,9 @@ function createCodexHistoryPipeline(options = {}) {
     if (!own(options, ["selection", "expectedVersion", "signal", "structured"]) || options.structured !== undefined && typeof options.structured !== "boolean") return unavailable("invalid_codex_pipeline_request");
     const request = wire.detach(input, named ? wire.LIMITS.namedHeaderBytes : wire.LIMITS.headerBytes), selection = wire.detach(options.selection ?? (named ? { mode: "names" } : { mode: "records", offset: 0, limit: 50 }));
     const expected = options.expectedVersion === undefined ? null : wire.detach(options.expectedVersion);
-    const history = globalStructure ? structuredSource : pageMode ? scanned : source;
+    const expectedHistory = named ? expected?.history ?? null : expected;
+    let compressedPage = pageMode && expectedHistory?.storage?.encoding === "zstd";
+    let history = compressedPage ? (globalStructure ? compressedSource.structured : compressedSource.validated) : globalStructure ? structuredSource : pageMode ? scanned : source;
     const sameNamedVersion = globalStructure ? wire.sameStructuredNamedVersion : (a, b) => wire.sameNamedVersion(a, b, pageMode);
     if (!(named ? wire.validNameRequest(request) : source.input(request)) || !(pageMode ? paged.selection(selection) : wire.validSelection(selection))
       || options.structured === true && (pageMode || selection.mode !== "records")
@@ -66,7 +69,8 @@ function createCodexHistoryPipeline(options = {}) {
     if (!slot || !helperClosed(slot) || quarantined) return unavailable("source_service_quarantined");
     if (named && typeof slot.helper.readCodexNameContext !== "function") return unavailable("source_worker_protocol");
     const historyRequest = named ? request.history : request;
-    const historyMethod = globalStructure ? "readCodexStructuredPage" : pageMode ? "readCodexValidatedPage" : "readCodex";
+    let historyMethod = compressedPage ? (globalStructure ? "readCodexCompressedStructuredPage" : "readCodexCompressedPage")
+      : globalStructure ? "readCodexStructuredPage" : pageMode ? "readCodexValidatedPage" : "readCodex";
     if (typeof slot.helper[historyMethod] !== "function") return unavailable("source_worker_protocol");
     const captureRequest = pageMode ? { ...historyRequest, page: selection.mode === "names" ? { offset: 0, limit: 1 } : { offset: selection.offset, limit: selection.limit } } : historyRequest;
     let nonce;
@@ -107,7 +111,7 @@ function createCodexHistoryPipeline(options = {}) {
       return !failure && !flight.settled;
     }
     signal?.addEventListener("abort", abort, { once: true });
-    async function captureStep(method, selected) {
+    async function captureStep(method, selected, encodingPolicy = "fail") {
       if (!current()) { flight.helperSettled = true; if (!flight.settled) settle(unavailable(failure)); return null; }
       flight.helperSettled = false;
       let captured;
@@ -119,6 +123,12 @@ function createCodexHistoryPipeline(options = {}) {
       }
       if (!current()) { if (!flight.settled) settle(unavailable(failure)); else sweep(); return null; }
       if (own(captured, ["kind", "code"]) && wire.keys(captured, ["kind", "code"]) && captured.kind === "source_unavailable") {
+        // Only a fresh large-page encoding probe may continue, after actual
+        // close, on this same permit/deadline. No busy/auth/timeout retry.
+        if (captured.code === "source_encoding_unsupported" && encodingPolicy === "negotiate") return captured;
+        if (captured.code === "source_encoding_unsupported" && encodingPolicy === "version_changed") {
+          settle(unavailable("source_version_changed")); return null;
+        }
         if (["source_cleanup_unconfirmed", "source_service_quarantined"].includes(captured.code)) { failure = captured.code; quarantine(); }
         settle(unavailable(codes.has(captured.code) ? captured.code : "source_worker_failure")); return null;
       }
@@ -138,12 +148,19 @@ function createCodexHistoryPipeline(options = {}) {
         if (!sqlVersion) return settle(unavailable("source_worker_protocol"));
         if (expected !== null && !sqlite.sameSourceVersion(expected.sqlite, sqlVersion)) return settle(unavailable("source_version_changed"));
       }
-      let captured = await captureStep(historyMethod, captureRequest); if (!captured) return;
+      let captured = await captureStep(historyMethod, captureRequest, pageMode ? (expectedHistory !== null ? "version_changed" : "negotiate") : "fail");
+      if (!captured) return;
+      if (pageMode && captured.kind === "source_unavailable" && captured.code === "source_encoding_unsupported") {
+        compressedPage = true; history = globalStructure ? compressedSource.structured : compressedSource.validated;
+        historyMethod = globalStructure ? "readCodexCompressedStructuredPage" : "readCodexCompressedPage";
+        if (typeof slot.helper[historyMethod] !== "function") return settle(unavailable("source_worker_protocol"));
+        captured = await captureStep(historyMethod, captureRequest, "version_changed"); if (!captured) return;
+      }
       const version = historyVersion(captured);
       if (!version) return settle(unavailable("source_worker_protocol"));
-      const expectedHistory = named ? expected?.history ?? null : expected;
       if (expectedHistory !== null && !history.sameSourceVersion(expectedHistory, version)) return settle(unavailable("source_version_changed"));
-      const job = { protocolVersion: globalStructure ? (named ? 10 : 9) : pageMode ? (named ? 8 : 7) : options.structured === true ? (named ? 6 : 5) : (named ? 2 : 1) + (version.storage ? 2 : 0), nonce, source: version, selection, expectedVersion: expectedHistory,
+      const job = { protocolVersion: compressedPage ? (globalStructure ? (named ? 14 : 13) : (named ? 12 : 11))
+        : globalStructure ? (named ? 10 : 9) : pageMode ? (named ? 8 : 7) : options.structured === true ? (named ? 6 : 5) : (named ? 2 : 1) + (version.storage ? 2 : 0), nonce, source: version, selection, expectedVersion: expectedHistory,
         ...(pageMode ? { page: captured.page } : {}),
         ...(globalStructure ? { structureFrame: captured.structureFrame } : {}),
         ...(named ? { nameResolution: { fields: sqlCapture.metadata.observation.fields, nameContext: sqlCapture.metadata.observation.nameContext,
@@ -194,7 +211,7 @@ function createCodexHistoryPipeline(options = {}) {
       const finalSqlite = sqlite.sourceVersion(captured, request.sqlite); captured = null;
       if (!finalSqlite) return settle(unavailable("source_worker_protocol"));
       if (!sqlite.sameSourceVersion(initialSqlite, finalSqlite)) return settle(unavailable("source_version_changed"));
-      captured = await captureStep(historyMethod, captureRequest); if (!captured) return;
+      captured = await captureStep(historyMethod, captureRequest, pageMode ? "version_changed" : "fail"); if (!captured) return;
       const finalHistory = historyVersion(captured); captured = null;
       if (!finalHistory) return settle(unavailable("source_worker_protocol"));
       if (!history.sameSourceVersion(initialHistory, finalHistory)) return settle(unavailable("source_version_changed"));

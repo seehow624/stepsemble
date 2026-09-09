@@ -2,7 +2,7 @@
 const test = require("node:test"), assert = require("node:assert/strict"), { randomUUID } = require("node:crypto");
 const { createCodexSourceService, normalizeCodexSource } = require("../protocol/native/codex/history-source-service");
 const { createReaderAdmission } = require("../protocol/native/claude/history-reader-admission");
-const { harness, source, group, f, tick } = require("./support/codex-binding-harness.cjs");
+const { harness, source, group, f, tick, unavailable } = require("./support/codex-binding-harness.cjs");
 const binding = () => ({ bindingId: randomUUID(), generation: 1, source: source() });
 const request = b => ({ bindingId: b.bindingId, generation: b.generation, requestId: randomUUID() });
 async function complete(h, handle, b, options = {}, metadata = false) {
@@ -33,6 +33,62 @@ test("new page profile keeps revoke/actual-close quarantine and paginated refusa
   const other = harness(t), paginated = binding(); paginated.source.historyMode = "paginated";
   assert.equal((await other.service.bind(paginated).observe(request(paginated), { profile })).code, "native_paginated_history_unsupported");
   assert.equal(other.stages.length, 0);
+});
+test("fresh compressed metadata negotiates PAGE once, preserves its name and reuses one opaque version", async t => {
+  const h = harness(t), b = binding(), handle = h.service.bind(b), profile = "codex_validated_page_v1";
+  const pending = handle.metadata(request(b));
+  await h.step();
+  await h.step(unavailable("rollout_compression_limit"));
+  await h.step();
+  await h.step(unavailable("source_encoding_unsupported"));
+  for (let i = 0; i < 4; i++) await h.step();
+  const first = await pending;
+  assert.equal(first.kind, "bound_codex_metadata", first.code);
+  assert.equal(first.metadata.nativeTitle, "原生候選 🐾");
+  assert.equal(first.source.history.kind, "codex_compressed_validated_source_version");
+  assert.deepEqual(h.stages, ["readCodexNameContext", "readCodex", "readCodexNameContext", "readCodexValidatedPage",
+    "readCodexCompressedPage", "parser", "readCodexNameContext", "readCodexCompressedPage"]);
+
+  const continuedMetadata = handle.metadata(request(b), { version: first.sourceVersion });
+  for (let i = 0; i < 5; i++) await h.step();
+  const second = await continuedMetadata;
+  assert.equal(second.kind, "bound_codex_metadata", second.code);
+  assert.equal(second.sourceVersion, first.sourceVersion);
+  assert.equal(second.metadata.nativeTitle, first.metadata.nativeTitle);
+  assert.deepEqual(h.stages.slice(-5), ["readCodexNameContext", "readCodexCompressedPage", "parser", "readCodexNameContext", "readCodexCompressedPage"]);
+
+  const records = handle.observe(request(b), { profile, version: first.sourceVersion, page: { offset: 2, limit: 2 } });
+  for (let i = 0; i < 5; i++) await h.step();
+  const page = await records;
+  assert.equal(page.kind, "bound_codex_records", page.code);
+  assert.equal(page.sourceVersion, first.sourceVersion);
+  assert.equal(page.history.nativeTitle, first.metadata.nativeTitle);
+  assert.equal(page.history.records.offset, 2);
+  assert.deepEqual(h.stages.slice(-5), ["readCodexNameContext", "readCodexCompressedPage", "parser", "readCodexNameContext", "readCodexCompressedPage"]);
+  const stageCount = h.stages.length;
+  assert.equal((await handle.observe(request(b), { version: first.sourceVersion })).code, "source_version_unavailable");
+  assert.equal(h.stages.length, stageCount);
+  assert.equal(h.max(), 1); assert.equal(h.physical(), 0); assert.equal(h.admission.status().cleanupConfirmed, true);
+});
+test("compressed metadata capacity negotiation never retries busy or corrupt old-reader failures", async t => {
+  for (const code of ["source_busy", "rollout_compression_invalid"]) {
+    const h = harness(t), b = binding(), handle = h.service.bind(b), pending = handle.metadata(request(b));
+    await h.step(); await h.step(unavailable(code));
+    assert.equal((await pending).code, code);
+    assert.deepEqual(h.stages, ["readCodexNameContext", "readCodex"]);
+    assert.equal(h.max(), 1); assert.equal(h.physical(), 0);
+  }
+});
+test("compressed metadata refuses PAGE fallback after an unconfirmed old-reader close and quarantines later reads", async t => {
+  const h = harness(t, { holdReader: true }), b = binding(), handle = h.service.bind(b), pending = handle.metadata(request(b));
+  await h.step(); await h.step(unavailable("rollout_compression_limit"), false);
+  assert.equal((await pending).code, "source_cleanup_unconfirmed");
+  assert.deepEqual(h.stages, ["readCodexNameContext", "readCodex"]);
+  assert.equal(handle.status().cleanupConfirmed, false); assert.equal(h.admission.status().quarantined, true);
+  await h.step();
+  const stageCount = h.stages.length;
+  assert.equal((await handle.metadata(request(b))).code, "source_service_quarantined");
+  assert.equal(h.stages.length, stageCount); assert.equal(handle.status().cleanupConfirmed, true);
 });
 test("Codex bindings require both explicit root identities and a detached exact source; no implicit grants", t => {
   const h = harness(t), b = binding();

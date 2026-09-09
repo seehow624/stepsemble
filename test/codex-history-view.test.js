@@ -135,9 +135,9 @@ class Element {
   addEventListener(e, fn) { (this.listeners[e] ??= []).push(fn); } dispatch(e) { for (const fn of this.listeners[e] ?? []) fn({ target: this }); }
 }
 const all = n => [n, ...n.children.flatMap(all)];
-function largeReader(large) {
+function largeReader(large, limitCode = "source_too_large") {
   return (_scope, request, options, good) => {
-    if (!options.profile) return { kind: "source_unavailable", code: "source_too_large" };
+    if (!options.profile) return { kind: "source_unavailable", code: limitCode };
     const reply = good(request, { ...options, page: { offset: 0, limit: 1 } });
     const global = options.profile === wire.STRUCTURED_PAGE_PROFILE;
     reply.history.kind = global ? "codex_structured_page_source_records" : "codex_validated_source_records"; reply.history.page = options.page; reply.history.records = large.page(options.page);
@@ -184,7 +184,7 @@ test("large history negotiates once after the old limit, then jumps beyond 8192 
   assert.equal(Object.hasOwn(h.model.state(), "pages"), false);
 });
 test("format negotiation never retries other failures, continuation failures or the new profile's failure", async t => {
-  for (const code of ["source_busy", "source_worker_timeout", "source_cleanup_unconfirmed", "rollout_invalid_record", "history_unauthorized", "source_version_changed"]) {
+  for (const code of ["source_busy", "source_worker_timeout", "source_cleanup_unconfirmed", "rollout_invalid_record", "rollout_compression_invalid", "rollout_compression_unsupported", "history_unauthorized", "source_version_changed"]) {
     const h = harness(t, { read: () => ({ kind: "source_unavailable", code }) }); await h.model.select(catalogId);
     assert.equal(h.calls.filter(v => typeof v === "object").length, 1); assert.equal(h.model.state().error, code);
   }
@@ -193,6 +193,21 @@ test("format negotiation never retries other failures, continuation failures or 
   let limited = false; const old = harness(t, { read: (_s, r, o, good) => limited ? { kind: "source_unavailable", code: "source_too_large" } : good(r, o) });
   await old.model.select(catalogId); limited = true; await old.model.next();
   assert.equal(old.calls.filter(v => typeof v === "object").length, 2); assert.equal(old.model.state().stale, true);
+});
+test("fresh compressed capacity negotiation preserves both views and never loops on the bounded decoder's refusal", async t => {
+  for (const initialStructured of [false, true]) {
+    const large = require("./support/codex-large-fixture.cjs")(), h = harness(t, {
+      read: largeReader(large, "rollout_compression_limit"), dependencies: { initialStructured } });
+    await h.model.select(catalogId);
+    assert.equal(h.model.state().error, null);
+    assert.deepEqual(h.calls.filter(v => typeof v === "object").map(v => v.profile), [undefined, initialStructured ? wire.STRUCTURED_PAGE_PROFILE : wire.PAGE_PROFILE]);
+    await h.model.jump(9000); assert.equal(h.model.state().page.history.records.offset, 9000);
+    assert.equal(h.calls.at(-1).version, token);
+  }
+  const denied = harness(t, { read: () => ({ kind: "source_unavailable", code: "rollout_compression_limit" }) });
+  await denied.model.select(catalogId);
+  assert.equal(denied.calls.filter(v => typeof v === "object").length, 2);
+  assert.equal(denied.model.state().error, "rollout_compression_limit"); assert.equal(denied.model.state().page, null);
 });
 test("global structure keeps original IDs and rollback across tool jumps and rejects malformed or downgraded profiles", async t => {
   const large = require("./support/codex-large-fixture.cjs")(true), h = harness(t, { read: largeReader(large), dependencies: { initialStructured: true } });

@@ -196,6 +196,40 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
         await page.locator('[data-history-mode="raw"]').click();
         await page.waitForFunction(() => document.querySelector(".codex-record h4")?.textContent.startsWith("1 ·"));
         assert.equal(histories.at(-1).profile, "codex_validated_page_v1");
+        stage = "large compressed history uses bounded pages and preserves cross-page structure";
+        await host.mutate("compress_concat"); await next.click();
+        await page.waitForFunction(() => document.querySelector(".codex-record-view .history-warning")?.hidden === false);
+        assert.equal(await next.isEnabled(), false);
+        const compressedStart = histories.length;
+        await content.getByRole("button", { name: "重新整理", exact: true }).click();
+        await page.waitForFunction(() => document.querySelector(".codex-record-view")?.getAttribute("aria-busy") === "false"
+          && document.querySelector(".codex-record-view .history-warning")?.hidden === true
+          && document.querySelector('[data-action="recordNumber"]')?.max === "16385");
+        assert.deepEqual(histories.slice(compressedStart, compressedStart + 2).map(h => h.profile), [undefined, "codex_validated_page_v1"]);
+        assert.equal(await page.locator(".codex-record").count(), 10);
+        assert.equal(await page.locator(".codex-record-title").textContent(), "最新 WAL 名稱 🐾");
+        await page.locator('[data-history-mode="structured"]').click();
+        await page.locator('[data-related-record="10000"]').waitFor();
+        assert.equal(histories.at(-1).profile, "codex_structured_page_v1");
+        assert((await content.textContent()).includes("owned-large-native-turn 🐾"));
+        assert((await content.textContent()).includes("來源已回退"));
+        await page.locator('[data-related-record="10000"]').click(); await page.locator('[data-related-record="3"]').waitFor();
+        assert.equal(histories.at(-1).page.offset, 10000); assert(histories.at(-1).version);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        await host.mutate("restore_plain"); await page.locator('[data-related-record="3"]').click();
+        await page.waitForFunction(() => document.querySelector(".codex-record-view .history-warning")?.hidden === false);
+        await host.mutate("clear_compressed");
+        await content.getByRole("button", { name: "重新整理", exact: true }).click();
+        await page.locator('[data-related-record="10000"]').waitFor();
+        stage = "large compressed checksum failure remains specific and recoverable";
+        await host.mutate("compress_corrupt");
+        await content.getByRole("button", { name: "重新整理", exact: true }).click();
+        await page.waitForFunction(() => document.querySelector(".codex-record-view .history-warning")?.textContent.includes("壓縮歷史不完整或已損壞"));
+        assert.equal(await next.isEnabled(), false);
+        await host.mutate("restore_plain"); await host.mutate("clear_compressed");
+        await content.getByRole("button", { name: "重新整理", exact: true }).click();
+        await page.waitForFunction(() => document.querySelector(".codex-record-view")?.getAttribute("aria-busy") === "false"
+          && document.querySelector(".codex-record-view .history-warning")?.hidden === true);
         await content.getByRole("button", { name: "關閉歷史", exact: true }).click();
         stage = "empty stored catalog"; await host.mutate("missing"); await refreshSource.click();
         await page.waitForFunction(() => document.querySelectorAll(".source-open").length === 0);
@@ -205,6 +239,8 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
           structuredConversationAndRawModes: true, structuredFullText: true, crossPageToolNavigation: true, rolledBackAndInferredTurns: true,
           largeHistory16384Records: true, largeFullTextAndInnerScroll: true, directJumpPast8192: true, largeAppendFenceAndRecovery: true,
           largeGlobalTurnAndRollback: true, largeOriginalNativeIds: true, largeBidirectionalToolNavigation: true,
+          largeCompressedPagesAndNativeName: true, largeCompressedCrossPageStructure: true, largeCompressedEncodingFences: true,
+          largeCompressedChecksumRefusedAndRecovery: true,
           coldHistoryAndBothLayoutTransitions: true, compressedAllPagesAndBothTransitions: true, damagedCompressedGuidanceAndRecovery: true, physicalDevice: false }));
       } catch (error) {
         // Owned fixtures only; retain bounded UI state, never dump transcripts

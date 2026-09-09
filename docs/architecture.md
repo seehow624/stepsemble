@@ -13,6 +13,15 @@ runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
+Development-only Plan1.79 adds bounded large-compressed Codex history.
+Rust v13/v14 keeps physical zstd and decoded JSONL proofs separate; permissioned
+parser11–14 receives only selected decoded bytes. Encoding negotiation retains
+the same permit/deadline and existing public large-page profiles. Full/minimum
+Node1146/0fail, Rust/RustSec, actual 17.2MB/16384-record Host and CUA390/320px
+pass locally, including native names/IDs, cross-page tools and corruption recovery.
+Exact-commit cross-platform CI remains pending; no production deployment. See
+[`large compressed history`](codex-large-compressed-history.md).
+
 Development-only Plan1.78 adds local owner source-group management. Exact
 add/replace/edit/remove review creates a separate inactive candidate; no HTTP
 management authority or live config reload is added. Base/import, roots and

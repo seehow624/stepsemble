@@ -2,7 +2,11 @@
 //! Repeated checks are not an atomic filesystem transaction or native provenance.
 use super::*;
 use crate::codex::{INDEX_LIMIT, Pair, Request as CodexRequest, valid_locator};
-use stepsemble_history_source_reader::{codex_rollout_format, codex_rollout_structure, jsonl_scan};
+use sha2::{Digest, Sha256};
+use std::io::{BufReader, Read, Seek, SeekFrom};
+use stepsemble_history_source_reader::{
+    codex_rollout_format, codex_rollout_structure, jsonl_scan, zstd_framing,
+};
 
 const NAME_INDEX: &str = "session_index.jsonl";
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -16,6 +20,21 @@ enum PageMode {
     Opaque,
     Validated,
     Structured,
+    CompressedValidated,
+    CompressedStructured,
+}
+impl PageMode {
+    fn compressed(self) -> bool {
+        matches!(self, Self::CompressedValidated | Self::CompressedStructured)
+    }
+
+    fn structured(self) -> bool {
+        matches!(self, Self::Structured | Self::CompressedStructured)
+    }
+
+    fn validated(self) -> bool {
+        !matches!(self, Self::Opaque)
+    }
 }
 
 fn identity(info: &Metadata) -> Identity {
@@ -61,7 +80,7 @@ pub fn capture(request: &CodexRequest) -> Result<Pair, Error> {
 }
 fn capture_with(request: &CodexRequest, mut hook: impl FnMut(Point)) -> Result<Pair, Error> {
     match capture_variant(request, None, PageMode::Opaque, &mut hook)? {
-        Captured::Bytes(pair) => Ok(pair),
+        Captured::Bytes(pair) => Ok(*pair),
         Captured::Page(_) => Err(Error::Input),
     }
 }
@@ -91,6 +110,18 @@ pub fn capture_structured(
 ) -> Result<crate::codex_scanned::Pair, Error> {
     capture_scanned_mode(request, page, PageMode::Structured, &mut |_| {})
 }
+pub fn capture_compressed_validated(
+    request: &CodexRequest,
+    page: jsonl_scan::Selection,
+) -> Result<crate::codex_scanned::Pair, Error> {
+    capture_scanned_mode(request, page, PageMode::CompressedValidated, &mut |_| {})
+}
+pub fn capture_compressed_structured(
+    request: &CodexRequest,
+    page: jsonl_scan::Selection,
+) -> Result<crate::codex_scanned::Pair, Error> {
+    capture_scanned_mode(request, page, PageMode::CompressedStructured, &mut |_| {})
+}
 fn capture_scanned_mode(
     request: &CodexRequest,
     page: jsonl_scan::Selection,
@@ -102,17 +133,17 @@ fn capture_scanned_mode(
         return Err(Error::Input);
     }
     match capture_variant(request, Some(page), mode, hook)? {
-        Captured::Page(pair) => Ok(pair),
+        Captured::Page(pair) => Ok(*pair),
         Captured::Bytes(_) => Err(Error::Input),
     }
 }
 enum Captured {
-    Bytes(Pair),
-    Page(crate::codex_scanned::Pair),
+    Bytes(Box<Pair>),
+    Page(Box<crate::codex_scanned::Pair>),
 }
 enum Rollout {
     Bytes(Vec<u8>),
-    Page(jsonl_scan::Page),
+    Page((jsonl_scan::Page, Option<PhysicalSummary>)),
 }
 
 // Shared authenticated open/check/close boundary. v3/v9 retain their exact
@@ -187,7 +218,7 @@ fn capture_variant(
         },
         false,
     )?;
-    if page.is_some() && file_name.ends_with(".zst") {
+    if page.is_some() && file_name.ends_with(".zst") != mode.compressed() {
         // Never feed compressed bytes to the plain byte-framing scanner.
         return Err(Error::EncodingUnsupported);
     }
@@ -254,76 +285,49 @@ fn capture_variant(
     let mut structure = None;
     let (rollout, first_index) = if let Some(selection) = page {
         let first_index = read_index()?;
-        let mut selected = SelectedReader {
-            file: &file,
-            offset: 0,
-            rewinds: 0,
-            failure: None,
-            between: || {
+        let (scanned, physical) = if mode.compressed() {
+            let mut selected = CompressedReader::new(&file, file_info.size(), start, || {
                 hook(Point::FirstRead);
                 verify()
-            },
-        };
-        let scanned = if mode == PageMode::Structured {
-            let result = codex_rollout_structure::scan_page(
+            })?;
+            let scanned = scan_selected_compressed(
                 &mut selected,
-                file_info.size(),
                 selection,
+                mode,
                 &request.source.thread_id,
                 &request.native_version,
-                None,
-                || budget(start).map_err(|_| jsonl_scan::Error::Budget),
-            );
-            if let Some(error) = selected.failure {
-                return Err(error);
-            }
-            let result = result.map_err(|error| match error {
-                codex_rollout_structure::Error::Format(e) => Error::RolloutFormat(e),
-                codex_rollout_structure::Error::Scan(e) => scan_error(e),
-                codex_rollout_structure::Error::InvalidStructure => Error::RolloutStructure,
-                codex_rollout_structure::Error::Allocation => Error::Io,
-            })?;
-            validation = Some(result.validation);
-            structure = Some(result.structure);
-            result.records
+                &mut validation,
+                &mut structure,
+                start,
+            )?;
+            let physical = selected.summary()?;
+            (scanned, Some(physical))
         } else {
-            let mut validator = if mode == PageMode::Validated {
-                Some(
-                    codex_rollout_format::Validator::new(&request.source.thread_id)
-                        .map_err(Error::RolloutFormat)?,
-                )
-            } else {
-                None
+            let mut selected = SelectedReader {
+                file: &file,
+                offset: 0,
+                rewinds: 0,
+                failure: None,
+                between: || {
+                    hook(Point::FirstRead);
+                    verify()
+                },
             };
-            let mut format_failure = None;
-            let scanned = jsonl_scan::scan_matching_page(
+            let scanned = scan_selected_plain(
                 &mut selected,
                 file_info.size(),
                 selection,
-                None,
-                || budget(start).map_err(|_| jsonl_scan::Error::Budget),
-                |index, _, bytes| {
-                    if let Some(validator) = &mut validator {
-                        validator.record(index, bytes).map_err(|error| {
-                            format_failure = Some(error);
-                            jsonl_scan::Error::InvalidRecord
-                        })?;
-                    }
-                    Ok(())
-                },
+                mode,
+                &request.source.thread_id,
+                &request.native_version,
+                &mut validation,
+                &mut structure,
+                start,
             );
             if let Some(error) = selected.failure {
                 return Err(error);
             }
-            if let Some(error) = format_failure {
-                return Err(Error::RolloutFormat(error));
-            }
-            let scanned = scanned.map_err(scan_error)?;
-            validation = validator
-                .map(|v| v.finish())
-                .transpose()
-                .map_err(Error::RolloutFormat)?;
-            scanned
+            (scanned?, None)
         };
         let second_index = read_index()?;
         hook(Point::SecondRead);
@@ -331,7 +335,7 @@ fn capture_variant(
         if first_index != second_index {
             return Err(Error::Changed);
         }
-        (Rollout::Page(scanned), first_index)
+        (Rollout::Page((scanned, physical)), first_index)
     } else {
         let first = read(&file, file_info.size() as usize, start)?;
         let first_index = read_index()?;
@@ -377,22 +381,24 @@ fn capture_variant(
             identity: identity(info),
         });
     let pair = match rollout {
-        Rollout::Bytes(bytes) => Captured::Bytes(Pair {
+        Rollout::Bytes(bytes) => Captured::Bytes(Box::new(Pair {
             physical_path,
             name_index,
             rollout: Capture {
                 bytes,
                 identity: identity(&file_info),
             },
-        }),
-        Rollout::Page(page) => Captured::Page(crate::codex_scanned::Pair {
+        })),
+        Rollout::Page((page, physical)) => Captured::Page(Box::new(crate::codex_scanned::Pair {
             physical_path,
             name_index,
             page,
             rollout_identity: identity(&file_info),
             validation,
             structure,
-        }),
+            physical_sha256: physical.map(|value| value.sha256),
+            decoded_frames: physical.map(|value| value.frames),
+        })),
     };
     let mut close_failed = false;
     for file in index
@@ -422,6 +428,355 @@ fn scan_error(error: jsonl_scan::Error) -> Error {
         jsonl_scan::Error::Io => Error::Io,
         jsonl_scan::Error::Cancelled => Error::Cancelled,
         jsonl_scan::Error::Budget => Error::Budget,
+    }
+}
+
+fn structure_error(error: codex_rollout_structure::Error) -> Error {
+    match error {
+        codex_rollout_structure::Error::Format(e) => Error::RolloutFormat(e),
+        codex_rollout_structure::Error::Scan(e) => scan_error(e),
+        codex_rollout_structure::Error::InvalidStructure => Error::RolloutStructure,
+        codex_rollout_structure::Error::Allocation => Error::Io,
+    }
+}
+
+fn compressed_scan_error(error: jsonl_scan::Error) -> Error {
+    match error {
+        jsonl_scan::Error::SourceLimit => Error::RolloutCompressionLimit,
+        jsonl_scan::Error::Empty => Error::RolloutCompressionInvalid,
+        other => scan_error(other),
+    }
+}
+
+fn compressed_structure_error(error: codex_rollout_structure::Error) -> Error {
+    match error {
+        codex_rollout_structure::Error::Scan(error) => compressed_scan_error(error),
+        other => structure_error(other),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn scan_selected_plain(
+    reader: &mut (impl Read + Seek),
+    observed_size: u64,
+    selection: jsonl_scan::Selection,
+    mode: PageMode,
+    thread_id: &str,
+    native_version: &str,
+    validation: &mut Option<codex_rollout_format::Validation>,
+    structure: &mut Option<codex_rollout_structure::Structure>,
+    start: Instant,
+) -> Result<jsonl_scan::Page, Error> {
+    if mode.structured() {
+        let result = codex_rollout_structure::scan_page(
+            reader,
+            observed_size,
+            selection,
+            thread_id,
+            native_version,
+            None,
+            || budget(start).map_err(|_| jsonl_scan::Error::Budget),
+        )
+        .map_err(structure_error)?;
+        *validation = Some(result.validation);
+        *structure = Some(result.structure);
+        return Ok(result.records);
+    }
+    let mut validator = mode
+        .validated()
+        .then(|| codex_rollout_format::Validator::new(thread_id))
+        .transpose()
+        .map_err(Error::RolloutFormat)?;
+    let mut format_failure = None;
+    let result = jsonl_scan::scan_matching_page(
+        reader,
+        observed_size,
+        selection,
+        None,
+        || budget(start).map_err(|_| jsonl_scan::Error::Budget),
+        |index, _, bytes| {
+            if let Some(validator) = &mut validator {
+                validator.record(index, bytes).map_err(|error| {
+                    format_failure = Some(error);
+                    jsonl_scan::Error::InvalidRecord
+                })?;
+            }
+            Ok(())
+        },
+    );
+    if let Some(error) = format_failure {
+        return Err(Error::RolloutFormat(error));
+    }
+    let page = result.map_err(scan_error)?;
+    *validation = validator
+        .map(|value| value.finish())
+        .transpose()
+        .map_err(Error::RolloutFormat)?;
+    Ok(page)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn scan_selected_compressed<F: FnMut() -> Result<(), Error>>(
+    reader: &mut CompressedReader<'_, F>,
+    selection: jsonl_scan::Selection,
+    mode: PageMode,
+    thread_id: &str,
+    native_version: &str,
+    validation: &mut Option<codex_rollout_format::Validation>,
+    structure: &mut Option<codex_rollout_structure::Structure>,
+    start: Instant,
+) -> Result<jsonl_scan::Page, Error> {
+    if mode.structured() {
+        let result = codex_rollout_structure::scan_page_bounded(
+            reader,
+            selection,
+            thread_id,
+            native_version,
+            || budget(start).map_err(|_| jsonl_scan::Error::Budget),
+        );
+        if let Some(error) = reader.failure() {
+            return Err(error);
+        }
+        let result = result.map_err(compressed_structure_error)?;
+        *validation = Some(result.validation);
+        *structure = Some(result.structure);
+        return Ok(result.records);
+    }
+    let mut validator =
+        codex_rollout_format::Validator::new(thread_id).map_err(Error::RolloutFormat)?;
+    let mut format_failure = None;
+    let result = jsonl_scan::scan_matching_page_bounded_observed(
+        reader,
+        selection,
+        || budget(start).map_err(|_| jsonl_scan::Error::Budget),
+        |pass, index, _, bytes| {
+            if pass == jsonl_scan::ScanPass::First {
+                validator.record(index, bytes).map_err(|error| {
+                    format_failure = Some(error);
+                    jsonl_scan::Error::InvalidRecord
+                })?;
+            }
+            Ok(())
+        },
+    );
+    if let Some(error) = reader.failure() {
+        return Err(error);
+    }
+    if let Some(error) = format_failure {
+        return Err(Error::RolloutFormat(error));
+    }
+    let page = result.map_err(compressed_scan_error)?;
+    *validation = Some(validator.finish().map_err(Error::RolloutFormat)?);
+    Ok(page)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PhysicalSummary {
+    sha256: [u8; 32],
+    frames: u32,
+}
+
+struct PhysicalReader<'a> {
+    file: &'a File,
+    size: u64,
+    offset: u64,
+    digest: Sha256,
+    framing: zstd_framing::Verifier,
+    start: Instant,
+    failure: Option<Error>,
+}
+
+impl PhysicalReader<'_> {
+    fn fail(&mut self, error: Error) -> io::Result<usize> {
+        self.failure = Some(error);
+        Err(io::ErrorKind::Other.into())
+    }
+
+    fn summary(&self) -> Result<PhysicalSummary, Error> {
+        if let Some(error) = self.failure {
+            return Err(error);
+        }
+        if self.offset != self.size {
+            return Err(Error::RolloutCompressionInvalid);
+        }
+        let frames = self.framing.finish().map_err(compression_error)?;
+        Ok(PhysicalSummary {
+            sha256: self.digest.clone().finalize().into(),
+            frames,
+        })
+    }
+}
+
+impl Read for PhysicalReader<'_> {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        if self.offset == self.size || bytes.is_empty() {
+            return Ok(0);
+        }
+        if let Err(error) = budget(self.start) {
+            return self.fail(error);
+        }
+        let length = bytes
+            .len()
+            .min(jsonl_scan::CHUNK_BYTES)
+            .min((self.size - self.offset) as usize);
+        let count = match self.file.read_at(&mut bytes[..length], self.offset) {
+            Ok(0) => return self.fail(Error::Changed),
+            Ok(count) => count,
+            Err(error) => return self.fail(io_error(error)),
+        };
+        if let Err(error) = self.framing.push(&bytes[..count]) {
+            return self.fail(compression_error(error));
+        }
+        self.digest.update(&bytes[..count]);
+        self.offset += count as u64;
+        Ok(count)
+    }
+}
+
+type Decoder<'a> = zstd::stream::read::Decoder<'static, BufReader<PhysicalReader<'a>>>;
+
+struct CompressedReader<'a, F> {
+    file: &'a File,
+    size: u64,
+    start: Instant,
+    decoder: Option<Decoder<'a>>,
+    rewinds: usize,
+    finished: bool,
+    first: Option<PhysicalSummary>,
+    second: Option<PhysicalSummary>,
+    failure: Option<Error>,
+    between: F,
+}
+
+impl<'a, F: FnMut() -> Result<(), Error>> CompressedReader<'a, F> {
+    fn new(file: &'a File, size: u64, start: Instant, between: F) -> Result<Self, Error> {
+        Ok(Self {
+            file,
+            size,
+            start,
+            decoder: None,
+            rewinds: 0,
+            finished: false,
+            first: None,
+            second: None,
+            failure: None,
+            between,
+        })
+    }
+
+    fn reset(&mut self) -> Result<(), Error> {
+        // The matching pass replaces, rather than overlaps, the first decoder
+        // and its bounded window.
+        self.decoder = None;
+        let input = PhysicalReader {
+            file: self.file,
+            size: self.size,
+            offset: 0,
+            digest: Sha256::new(),
+            framing: zstd_framing::Verifier::default(),
+            start: self.start,
+            failure: None,
+        };
+        let mut decoder = zstd::stream::read::Decoder::new(input)
+            .map_err(|_| Error::RolloutCompressionInvalid)?;
+        decoder
+            .window_log_max(23)
+            .map_err(|_| Error::RolloutCompressionLimit)?;
+        self.decoder = Some(decoder);
+        self.finished = false;
+        Ok(())
+    }
+
+    fn finish_pass(&mut self) -> Result<(), Error> {
+        if self.finished {
+            return Ok(());
+        }
+        let decoder = self.decoder.as_ref().ok_or(Error::Io)?;
+        let summary = decoder.get_ref().get_ref().summary()?;
+        if let Some(first) = self.first {
+            if first != summary {
+                return Err(Error::Changed);
+            }
+            self.second = Some(summary);
+        } else {
+            self.first = Some(summary);
+        }
+        self.finished = true;
+        Ok(())
+    }
+
+    fn failure(&self) -> Option<Error> {
+        self.failure
+    }
+
+    fn summary(&self) -> Result<PhysicalSummary, Error> {
+        if let Some(error) = self.failure {
+            return Err(error);
+        }
+        match (self.first, self.second, self.finished) {
+            (Some(first), Some(second), true) if first == second => Ok(second),
+            _ => Err(Error::Changed),
+        }
+    }
+}
+
+impl<F: FnMut() -> Result<(), Error>> Read for CompressedReader<'_, F> {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        let result = self
+            .decoder
+            .as_mut()
+            .ok_or(io::ErrorKind::InvalidInput)?
+            .read(bytes);
+        match result {
+            Ok(0) => match self.finish_pass() {
+                Ok(()) => Ok(0),
+                Err(error) => {
+                    self.failure = Some(error);
+                    Err(io::ErrorKind::Other.into())
+                }
+            },
+            Ok(count) => Ok(count),
+            Err(_) => {
+                let failure = self
+                    .decoder
+                    .as_ref()
+                    .and_then(|decoder| decoder.get_ref().get_ref().failure)
+                    .unwrap_or(Error::RolloutCompressionInvalid);
+                self.failure = Some(failure);
+                Err(io::ErrorKind::Other.into())
+            }
+        }
+    }
+}
+
+impl<F: FnMut() -> Result<(), Error>> Seek for CompressedReader<'_, F> {
+    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        if position != SeekFrom::Start(0)
+            || self.rewinds >= 2
+            || self.decoder.is_some() && !self.finished
+        {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        if self.rewinds == 1
+            && let Err(error) = (self.between)()
+        {
+            self.failure = Some(error);
+            return Err(io::ErrorKind::Other.into());
+        }
+        if let Err(error) = self.reset() {
+            self.failure = Some(error);
+            return Err(io::ErrorKind::Other.into());
+        }
+        self.rewinds += 1;
+        Ok(0)
+    }
+}
+
+fn compression_error(error: zstd_framing::Error) -> Error {
+    match error {
+        zstd_framing::Error::Invalid => Error::RolloutCompressionInvalid,
+        zstd_framing::Error::Unsupported => Error::RolloutCompressionUnsupported,
+        zstd_framing::Error::Limit => Error::RolloutCompressionLimit,
     }
 }
 
@@ -502,6 +857,287 @@ mod tests {
                 file,
                 index,
                 request,
+            }
+        }
+
+        fn compress(&self, frames: &[&[u8]]) -> Vec<u8> {
+            use std::io::Write;
+            let mut physical = Vec::new();
+            for frame in frames {
+                let mut encoder = zstd::stream::write::Encoder::new(Vec::new(), 3).unwrap();
+                encoder
+                    .set_pledged_src_size(Some(frame.len() as u64))
+                    .unwrap();
+                encoder.write_all(frame).unwrap();
+                physical.extend(encoder.finish().unwrap());
+            }
+            fs::remove_file(&self.file).unwrap();
+            fs::write(self.file.with_extension("jsonl.zst"), &physical).unwrap();
+            physical
+        }
+    }
+    #[test]
+    fn compressed_validated_and_structured_pages_bind_physical_and_decoded_versions() {
+        let mut f = Fixture::new(false, true);
+        f.request.protocol_version = 9;
+        let first = format!(
+            "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{ID}\",\"cli_version\":\"0.153.4\"}}}}\n"
+        );
+        let second = "{\"type\":\"event_msg\",\"payload\":{\"type\":\"agent_message\",\"message\":\"owned 🐾\"}}\n";
+        let mut physical = f.compress(&[first.as_bytes(), second.as_bytes()]);
+        physical.extend([0x50, 0x2a, 0x4d, 0x18, 0, 0, 0, 0]);
+        fs::write(f.file.with_extension("jsonl.zst"), &physical).unwrap();
+        let selection = jsonl_scan::Selection {
+            offset: 1,
+            limit: 1,
+        };
+        let validated = capture_compressed_validated(&f.request, selection).unwrap();
+        assert_eq!(
+            validated.page.summary.byte_length,
+            (first.len() + second.len()) as u64
+        );
+        assert_eq!(validated.page.summary.record_count, 2);
+        assert_eq!(validated.page.records[0].bytes, second.as_bytes());
+        assert_eq!(validated.rollout_identity.size, physical.len() as u64);
+        assert_eq!(
+            validated.physical_sha256,
+            Some(Sha256::digest(&physical).into())
+        );
+        assert_eq!(validated.decoded_frames, Some(3));
+        assert_eq!(validated.validation.as_ref().unwrap().records_validated, 2);
+        assert!(validated.structure.is_none());
+
+        let structured = capture_compressed_structured(&f.request, selection).unwrap();
+        assert_eq!(structured.page.summary, validated.page.summary);
+        assert_eq!(structured.physical_sha256, validated.physical_sha256);
+        assert_eq!(structured.decoded_frames, Some(3));
+        assert!(structured.structure.is_some());
+    }
+
+    #[test]
+    fn compressed_wire_has_separate_physical_and_decoded_proofs() {
+        let mut f = Fixture::new(false, true);
+        f.request.protocol_version = 9;
+        let raw = format!(
+            "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{ID}\",\"cli_version\":\"0.153.4\"}}}}\n\
+             {{\"type\":\"event_msg\",\"payload\":{{\"type\":\"task_started\",\"turn_id\":\"turn-1\"}}}}\n\
+             {{\"type\":\"event_msg\",\"payload\":{{\"type\":\"task_complete\",\"turn_id\":\"turn-1\"}}}}\n"
+        );
+        let physical = f.compress(&[raw.as_bytes()]);
+        let selection = jsonl_scan::Selection {
+            offset: 0,
+            limit: 3,
+        };
+        for protocol_version in [13, 14] {
+            let pair = if protocol_version == 13 {
+                capture_compressed_validated(&f.request, selection).unwrap()
+            } else {
+                capture_compressed_structured(&f.request, selection).unwrap()
+            };
+            let request = crate::codex_scanned::Request {
+                base: crate::codex::parse_request(
+                    &serde_json::to_vec(&serde_json::json!({
+                        "protocolVersion":9,"nonce":"a".repeat(64),"nativeVersion":"0.153.4",
+                        "source":{"codexRoot":f.root.to_str().unwrap(),"threadId":ID,
+                            "rolloutPath":f.request.source.rollout_path},
+                        "expectedRoot":{"device":f.request.expected_root.device,
+                            "inode":f.request.expected_root.inode}
+                    }))
+                    .unwrap(),
+                )
+                .unwrap(),
+                page: selection,
+                protocol_version,
+            };
+            let mut frame = Vec::new();
+            crate::codex_scanned::write_frame(&mut frame, &request, Ok(pair)).unwrap();
+            let header_len = u32::from_be_bytes(frame[..4].try_into().unwrap()) as usize;
+            let header: serde_json::Value =
+                serde_json::from_slice(&frame[4..4 + header_len]).unwrap();
+            let result = &header["result"];
+            assert_eq!(header["protocolVersion"], protocol_version);
+            assert_eq!(
+                result["kind"],
+                if protocol_version == 13 {
+                    "native_codex_compressed_source_page"
+                } else {
+                    "native_codex_compressed_structured_source_page"
+                }
+            );
+            assert_eq!(result["storage"]["encoding"], "zstd");
+            assert_eq!(result["physical"]["identity"]["size"], physical.len());
+            assert_eq!(
+                result["physical"]["sha256"],
+                format!("{:x}", Sha256::digest(&physical))
+            );
+            assert_eq!(result["decoded"]["byteLength"], raw.len());
+            assert_eq!(result["decoded"]["recordCount"], 3);
+            assert_eq!(result["decoded"]["frames"], 1);
+            assert!(result.get("rollout").is_none());
+            assert_eq!(result["checks"]["matchingPhysicalDigests"], true);
+            assert_eq!(result["checks"]["matchingDecodedDigests"], true);
+            assert_eq!(result["checks"]["completeCompressedFrames"], true);
+            assert_eq!(
+                result.get("structureFrame").is_some(),
+                protocol_version == 14
+            );
+            for flag in [
+                "recordSemanticsValidated",
+                "semanticHistoryComplete",
+                "sourceAuthenticated",
+                "publishable",
+            ] {
+                assert_eq!(result[flag], false);
+            }
+        }
+    }
+
+    #[test]
+    fn compressed_reader_supports_large_decoded_history_without_a_whole_file_buffer() {
+        use std::io::Write;
+        let mut f = Fixture::new(false, true);
+        f.request.protocol_version = 9;
+        let metadata = format!("{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{ID}\"}}}}\n");
+        let mut raw = metadata.into_bytes();
+        let prefix = b"{\"type\":\"event_msg\",\"padding\":\"";
+        let suffix = b"\"}\n";
+        let mut line = Vec::with_capacity(1024);
+        line.extend_from_slice(prefix);
+        line.extend(std::iter::repeat_n(
+            b'a',
+            1024 - prefix.len() - suffix.len(),
+        ));
+        line.extend_from_slice(suffix);
+        for _ in 0..9000 {
+            raw.write_all(&line).unwrap();
+        }
+        assert!(raw.len() > SOURCE_LIMIT);
+        f.compress(&[&raw]);
+        let pair = capture_compressed_validated(
+            &f.request,
+            jsonl_scan::Selection {
+                offset: 8999,
+                limit: 2,
+            },
+        )
+        .unwrap();
+        assert_eq!(pair.page.summary.byte_length, raw.len() as u64);
+        assert_eq!(pair.page.summary.record_count, 9001);
+        assert_eq!(pair.page.records.len(), 2);
+        assert_eq!(pair.page.records[0].record_index, 8999);
+        assert_eq!(pair.decoded_frames, Some(1));
+    }
+
+    #[test]
+    fn compressed_unknown_size_decoded_limit_maps_for_raw_and_structured_scans_only() {
+        assert_eq!(
+            compressed_scan_error(jsonl_scan::Error::SourceLimit),
+            Error::RolloutCompressionLimit
+        );
+        assert_eq!(
+            compressed_structure_error(codex_rollout_structure::Error::Scan(
+                jsonl_scan::Error::SourceLimit
+            )),
+            Error::RolloutCompressionLimit
+        );
+        assert_eq!(scan_error(jsonl_scan::Error::SourceLimit), Error::TooLarge);
+    }
+
+    #[test]
+    fn compressed_plain_priority_corruption_and_bounded_format_errors_fail_closed() {
+        let mut f = Fixture::new(false, true);
+        f.request.protocol_version = 9;
+        let raw = format!("{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{ID}\"}}}}\n");
+        let compressed = f.file.with_extension("jsonl.zst");
+        let mut encoder = zstd::stream::write::Encoder::new(Vec::new(), 3).unwrap();
+        encoder.include_checksum(true).unwrap();
+        encoder
+            .set_pledged_src_size(Some(raw.len() as u64))
+            .unwrap();
+        use std::io::Write;
+        encoder.write_all(raw.as_bytes()).unwrap();
+        let encoded = encoder.finish().unwrap();
+        fs::write(&compressed, &encoded).unwrap();
+        let selection = jsonl_scan::Selection {
+            offset: 0,
+            limit: 1,
+        };
+        assert!(matches!(
+            capture_compressed_validated(&f.request, selection),
+            Err(Error::EncodingUnsupported)
+        ));
+        fs::remove_file(&f.file).unwrap();
+
+        let mut damaged = encoded.clone();
+        *damaged.last_mut().unwrap() ^= 1;
+        fs::write(&compressed, damaged).unwrap();
+        assert!(matches!(
+            capture_compressed_validated(&f.request, selection),
+            Err(Error::RolloutCompressionInvalid)
+        ));
+
+        let mut trailing = encoded;
+        trailing.push(0);
+        fs::write(&compressed, trailing).unwrap();
+        assert!(matches!(
+            capture_compressed_validated(&f.request, selection),
+            Err(Error::RolloutCompressionInvalid)
+        ));
+
+        let large_window = [0x28, 0xb5, 0x2f, 0xfd, 0, 0xff];
+        fs::write(&compressed, large_window).unwrap();
+        assert!(matches!(
+            capture_compressed_validated(&f.request, selection),
+            Err(Error::RolloutCompressionLimit)
+        ));
+
+        let dictionary = [0x28, 0xb5, 0x2f, 0xfd, 1, 0, 1];
+        fs::write(&compressed, dictionary).unwrap();
+        assert!(matches!(
+            capture_compressed_validated(&f.request, selection),
+            Err(Error::RolloutCompressionUnsupported)
+        ));
+    }
+
+    #[test]
+    fn compressed_reader_rechecks_plain_absence_selected_identity_and_index() {
+        let raw = format!(
+            "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{ID}\",\"cli_version\":\"0.153.4\"}}}}\n\
+             {{\"type\":\"event_msg\",\"payload\":{{\"type\":\"agent_message\",\"message\":\"owned\"}}}}\n"
+        );
+        for mode in [
+            PageMode::CompressedValidated,
+            PageMode::CompressedStructured,
+        ] {
+            for point in [Point::Opened, Point::FirstRead, Point::SecondRead] {
+                for mutation in 0..3 {
+                    let mut f = Fixture::new(false, true);
+                    f.request.protocol_version = 9;
+                    let physical = f.compress(&[raw.as_bytes()]);
+                    let compressed = f.file.with_extension("jsonl.zst");
+                    let result = capture_scanned_mode(
+                        &f.request,
+                        jsonl_scan::Selection {
+                            offset: 0,
+                            limit: 1,
+                        },
+                        mode,
+                        &mut |at| {
+                            if at == point {
+                                match mutation {
+                                    0 => fs::write(&f.file, raw.as_bytes()).unwrap(),
+                                    1 => {
+                                        let replacement = f.root.join("replacement.zst");
+                                        fs::write(&replacement, &physical).unwrap();
+                                        fs::rename(replacement, &compressed).unwrap();
+                                    }
+                                    _ => fs::write(&f.index, b"changed index\n").unwrap(),
+                                }
+                            }
+                        },
+                    );
+                    assert!(matches!(result, Err(Error::Changed)), "point/mutation");
+                }
             }
         }
     }
@@ -956,7 +1592,11 @@ mod tests {
                         }
                     }
                 });
-                assert!(matches!(result, Err(Error::Changed)), "mode={mode}");
+                assert!(
+                    matches!(result, Err(Error::Changed)),
+                    "mode={mode} error={:?}",
+                    result.as_ref().err()
+                );
             }
         }
     }

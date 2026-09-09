@@ -200,7 +200,7 @@ jobs:
         shell: bash
         run: node scripts/check-native-codex-scanned-source.mjs "${{ runner.temp }}/stepsemble-native-history-reader/release/stepsemble-history-source-reader${{ runner.os == 'Windows' && '.exe' || '' }}"
       - name: Strict selected-page wire and helper cancellation regressions
-        run: node --test --test-timeout=60000 test/native-codex-scanned-source.test.js test/native-codex-structured-source.test.js test/native-codex-page-parser.test.js test/native-codex-structured-page-parser.test.js
+        run: node --test --test-timeout=60000 test/native-codex-scanned-source.test.js test/native-codex-structured-source.test.js test/native-codex-page-parser.test.js test/native-codex-structured-page-parser.test.js test/native-codex-compressed-page-source.test.js test/native-codex-compressed-page-parser.test.js
       - name: Actual global selected structure and close (owned sources only)
         shell: bash
         run: node scripts/check-native-codex-structured-source.mjs "${{ runner.temp }}/stepsemble-native-history-reader/release/stepsemble-history-source-reader${{ runner.os == 'Windows' && '.exe' || '' }}"

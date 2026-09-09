@@ -1,4 +1,5 @@
-//! Private v10 byte scan / v11 validated page / v12 selected global structure.
+//! Private v10 byte scan / v11 validated page / v12 selected global structure,
+//! plus v13/v14 compressed equivalents with separate physical/decoded proofs.
 //! None is native projection parity, a source grant or public history API.
 use crate::{Capture, Error, INPUT_LIMIT, Identity, RootIdentity, codex};
 use serde::Deserialize;
@@ -37,6 +38,8 @@ pub struct Pair {
     pub physical_path: String,
     pub validation: Option<stepsemble_history_source_reader::codex_rollout_format::Validation>,
     pub structure: Option<codex_rollout_structure::Structure>,
+    pub physical_sha256: Option<[u8; 32]>,
+    pub decoded_frames: Option<u32>,
 }
 
 pub fn parse_request(bytes: &[u8]) -> Result<Request, Error> {
@@ -46,7 +49,7 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Error> {
     // Deserialize once into exact structs BEFORE rebuilding the common input:
     // duplicate/unknown/null/extra fields must not disappear in a Value map.
     let r: WireRequest = serde_json::from_slice(bytes).map_err(|_| Error::Input)?;
-    if ![10, 11, 12].contains(&r.protocol_version)
+    if ![10, 11, 12, 13, 14].contains(&r.protocol_version)
         || r.page.offset > jsonl_scan::RECORDS
         || r.page.limit == 0
         || r.page.limit > jsonl_scan::PAGE_RECORDS
@@ -73,7 +76,11 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Error> {
 pub fn capture(request: &Request) -> Result<Pair, Error> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        if request.protocol_version == 12 {
+        if request.protocol_version == 14 {
+            crate::posix::codex::capture_compressed_structured(&request.base, request.page)
+        } else if request.protocol_version == 13 {
+            crate::posix::codex::capture_compressed_validated(&request.base, request.page)
+        } else if request.protocol_version == 12 {
             crate::posix::codex::capture_structured(&request.base, request.page)
         } else if request.protocol_version == 11 {
             crate::posix::codex::capture_validated(&request.base, request.page)
@@ -95,17 +102,26 @@ pub fn write_frame(
 ) -> Result<(), Error> {
     let (result, payload) = match pair {
         Ok(pair) => {
+            let compressed = request.protocol_version >= 13;
             let mut payload = Vec::new();
             let mut rows = Vec::new();
             if pair.page.records.len() > request.page.limit as usize
                 || pair.page.offset != request.page.offset
-                || pair.page.summary.byte_length != pair.rollout_identity.size
                 || pair.rollout_identity.size == 0
                 || pair.rollout_identity.size > jsonl_scan::SOURCE_BYTES
+                || pair.page.summary.byte_length == 0
+                || pair.page.summary.byte_length > jsonl_scan::SOURCE_BYTES
                 || pair.page.summary.record_count == 0
                 || pair.page.summary.record_count > jsonl_scan::RECORDS
-                || pair.validation.is_some() != (request.protocol_version >= 11)
-                || pair.structure.is_some() != (request.protocol_version == 12)
+                || (!compressed && pair.page.summary.byte_length != pair.rollout_identity.size)
+                || pair.validation.is_some() != !matches!(request.protocol_version, 10)
+                || pair.structure.is_some() != matches!(request.protocol_version, 12 | 14)
+                || pair.physical_sha256.is_some() != compressed
+                || pair.decoded_frames.is_some() != compressed
+                || compressed != pair.physical_path.ends_with(".zst")
+                || pair
+                    .decoded_frames
+                    .is_some_and(|frames| frames == 0 || frames > 256)
                 || pair
                     .validation
                     .as_ref()
@@ -155,7 +171,7 @@ pub fn write_frame(
             } else {
                 None
             };
-            let source_sha: String = pair
+            let decoded_sha: String = pair
                 .page
                 .summary
                 .sha256
@@ -163,24 +179,46 @@ pub fn write_frame(
                 .map(|byte| format!("{byte:02x}"))
                 .collect();
             let kind = match request.protocol_version {
+                14 => "native_codex_compressed_structured_source_page",
+                13 => "native_codex_compressed_source_page",
                 12 => "native_codex_structured_source_page",
                 11 => "native_codex_validated_source_page",
                 _ => "native_codex_source_page",
             };
+            let storage = if compressed { "zstd" } else { "jsonl" };
             let mut result = serde_json::json!({"kind":kind,"nativeVersion":base.native_version,
                 "threadId":base.source.thread_id,"rolloutPath":base.source.rollout_path,
                 "rootIdentity":{"device":base.expected_root.device,"inode":base.expected_root.inode},
-                "storage":{"encoding":"jsonl","rolloutPath":pair.physical_path},
+                "storage":{"encoding":storage,"rolloutPath":pair.physical_path},
                 "byteLength":payload.len(),"sha256":format!("{:x}",Sha256::digest(&payload)),
-                "rollout":{"sha256":source_sha,
-                    "identity":pair.rollout_identity,"recordCount":pair.page.summary.record_count},
                 "page":{"offset":pair.page.offset,"byteLength":page_length,"records":rows,"nextOffset":pair.page.next_offset},
                 "nameIndex":name_index,
-                "checks":{"owner":"posix_euid_and_mode","acl":"no_extended_acl",
+                "recordSemanticsValidated":false,"semanticHistoryComplete":false,"sourceAuthenticated":false,"publishable":false});
+            if compressed {
+                let physical_sha: String = pair
+                    .physical_sha256
+                    .ok_or(Error::Input)?
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect();
+                result["physical"] = serde_json::json!({"identity":pair.rollout_identity,
+                    "sha256":physical_sha});
+                result["decoded"] = serde_json::json!({"byteLength":pair.page.summary.byte_length,
+                    "sha256":decoded_sha,"recordCount":pair.page.summary.record_count,
+                    "frames":pair.decoded_frames.ok_or(Error::Input)?});
+                result["checks"] = serde_json::json!({"owner":"posix_euid_and_mode","acl":"no_extended_acl",
+                    "containment":"root_identity_and_openat_nofollow","reads":2,
+                    "matchingPhysicalDigests":true,"matchingDecodedDigests":true,"completeCompressedFrames":true,
+                    "matchingNameIndexBytes":true,"unchangedObservedIdentity":true,
+                    "nameIndexPresenceRechecked":true,"rolloutSelectionRechecked":true});
+            } else {
+                result["rollout"] = serde_json::json!({"sha256":decoded_sha,
+                    "identity":pair.rollout_identity,"recordCount":pair.page.summary.record_count});
+                result["checks"] = serde_json::json!({"owner":"posix_euid_and_mode","acl":"no_extended_acl",
                     "containment":"root_identity_and_openat_nofollow","reads":2,
                     "matchingRolloutDigests":true,"matchingNameIndexBytes":true,
-                    "unchangedObservedIdentity":true,"nameIndexPresenceRechecked":true,"rolloutSelectionRechecked":true},
-                "recordSemanticsValidated":false,"semanticHistoryComplete":false,"sourceAuthenticated":false,"publishable":false});
+                    "unchangedObservedIdentity":true,"nameIndexPresenceRechecked":true,"rolloutSelectionRechecked":true});
+            }
             if let Some(validation) = pair.validation {
                 result["validation"] = serde_json::to_value(validation).map_err(|_| Error::Io)?;
             }
@@ -243,7 +281,16 @@ mod tests {
             header["result"],
             serde_json::json!({"kind":"source_unavailable","code":"rollout_invalid_metadata"})
         );
-        value["protocolVersion"] = serde_json::json!(13);
+        for version in [13, 14] {
+            value["protocolVersion"] = serde_json::json!(version);
+            assert_eq!(
+                parse_request(&serde_json::to_vec(&value).unwrap())
+                    .unwrap()
+                    .protocol_version,
+                version
+            );
+        }
+        value["protocolVersion"] = serde_json::json!(15);
         assert!(parse_request(&serde_json::to_vec(&value).unwrap()).is_err());
     }
     #[test]

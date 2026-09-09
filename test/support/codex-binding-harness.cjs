@@ -4,6 +4,7 @@ const { createCodexSourceService } = require("../../protocol/native/codex/histor
 const { createReaderAdmission } = require("../../protocol/native/claude/history-reader-admission");
 const wire = require("../../protocol/native/codex/parser-wire"), { processJob } = require("../../protocol/native/codex/parser-worker");
 const f = require("../../protocol/native/codex/parser-fixture.cjs");
+const compressedFixture = require("../../protocol/native/codex/compressed-page-parser-fixture.cjs");
 const tick = () => new Promise(resolve => setImmediate(resolve)), unavailable = code => ({ kind: "source_unavailable", code });
 const source = () => { const v = f.namedRequest(); return { agentId: "codex", sessionId: f.id, history: v.history, sqlite: v.sqlite, historyMode: "legacy" }; };
 const group = () => { const v = source(); return { nativeVersion: v.history.nativeVersion, codexRoot: v.history.source.codexRoot,
@@ -18,9 +19,18 @@ function harness(t, config = {}) {
       const h = { active: false };
       h.status = () => ({ activeWorker: h.active, cleanupConfirmed: !h.active, quarantined: false });
       h.close = () => { if (h.active) { h.active = false; drop(); } };
-      for (const method of ["readCodex", "readCodexNameContext", "readCodexValidatedPage", "readCodexStructuredPage"]) h[method] = (input, { signal }) => {
+      for (const method of ["readCodex", "readCodexNameContext", "readCodexValidatedPage", "readCodexStructuredPage",
+        "readCodexCompressedPage", "readCodexCompressedStructuredPage"]) h[method] = (input, { signal }) => {
         assert.equal(h.active, false); add(); h.active = true; stages.push(method);
-        const promise = new Promise(resolve => { h.finish = (result = method === "readCodex" ? f.captured()
+        const compressed = () => {
+          const result = compressedFixture.captureFrom(undefined, input.page.offset, input.page.limit,
+            { structured: method === "readCodexCompressedStructuredPage" });
+          result.rolloutPath = input.source.rolloutPath;
+          result.storage.rolloutPath = `${input.source.rolloutPath.replace(/\.zst$/, "")}.zst`;
+          return result;
+        };
+        const promise = new Promise(resolve => { h.finish = (result = method.startsWith("readCodexCompressed") ? compressed()
+          : method === "readCodex" ? f.captured()
           : method === "readCodexValidatedPage" ? f.pageCaptured(input.page.offset, input.page.limit) : f.sqliteCapture(), close = true) => { if (close) h.close(); resolve(result); }; });
         signal.addEventListener("abort", () => { if (!config.holdReader) h.finish(unavailable("source_aborted")); }, { once: true });
         config.onRead?.(method, input);

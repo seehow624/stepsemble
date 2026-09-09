@@ -13,8 +13,11 @@ The separately frozen rc.1 soak does not certify this later runtime.
 - Read active-WAL and cold SQLite metadata without repairing or writing the
   source. POSIX descriptor, owner, ACL and local-filesystem checks remain strict;
   Windows private native-history sources are explicitly unsupported.
-- Support bounded small plain/Zstandard rollouts and a separate large-plain
-  page profile. Verify whole-source revisions and reject stale, malformed or
+- Support bounded small plain/Zstandard rollouts and separate large-page
+  profiles for both encodings. Stream large concatenated Zstandard sources in
+  Rust; keep physical-file and decoded-content proofs distinct, preserve plain
+  sibling priority and retain the shared reader permit/deadline during negotiation.
+  Verify whole-source revisions and reject stale, malformed or
   unsupported sources without replacing a valid displayed page with empty data.
 - Show source-linked turns, native IDs, rollback state and bidirectional tool
   navigation across large-history pages. Preserve unknown and original records
@@ -54,13 +57,14 @@ The separately frozen rc.1 soak does not certify this later runtime.
   assets as prereleases, never latest stable. Keep legacy asset aliases and
   provenance; invalid tags or unknown classification fail before publication.
 
-Large compressed histories, unsupported Codex paginated/native projections,
+Unsupported Codex paginated/native projections,
 other agents' native-history adapters, durable approval/resume, full source-group
 management and physical-device/platform acceptance remain open. No additional
 provider login, model call, private-source grant or production change is included.
 See [the release review](docs/release-review-2026-09-09.md),
 [current Web checkpoints](docs/web-completion-loop.md) and
-[large structured history evidence](docs/codex-structured-source.md).
+[large structured history evidence](docs/codex-structured-source.md) and
+[large compressed history acceptance](docs/codex-large-compressed-history.md).
 
 ## 3.0.7-rc.6
 

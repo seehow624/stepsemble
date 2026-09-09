@@ -10,3 +10,4 @@ pub mod sqlite_metadata;
 pub mod sqlite_readonly_vfs;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub mod sqlite_source;
+pub mod zstd_framing;

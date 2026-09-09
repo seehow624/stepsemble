@@ -1,7 +1,7 @@
 "use strict";
 // Bytes-only, Host-private v11 page projection. Full-file validation belongs to
 // the held-FD helper receipt, not to these selected bytes. No native turn graph.
-const scan = require("./scanned-source-wire"), { canonicalJSON } = require("../../../public/modules/projection");
+const scan = require("./scanned-source-wire"), compressed = require("./compressed-page-source-wire"), { canonicalJSON } = require("../../../public/modules/projection");
 const { createHash } = require("node:crypto"), { LIMITS: RAW } = require("./rollout-snapshot");
 const keys = (v, names) => v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).sort().join(",") === [...names].sort().join(",");
 const integer = (v, min, max) => Number.isSafeInteger(v) && v >= min && v <= max;
@@ -10,27 +10,34 @@ const object = v => v !== null && typeof v === "object" && !Array.isArray(v);
 const uuid = v => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 const sha = b => createHash("sha256").update(b).digest("hex"), hash = v => typeof v === "string" && /^[a-f0-9]{64}$/.test(v);
 const unavailable = code => ({ kind: "source_unavailable", code });
-const version = v => v?.kind === "codex_validated_source_version" && scan.sameSourceVersion(v, v);
+const version = v => v?.kind === "codex_validated_source_version" && scan.sameSourceVersion(v, v)
+  || v?.kind === "codex_compressed_validated_source_version" && compressed.validated.sameSourceVersion(v, v);
+function summary(v) {
+  if (v?.kind === "codex_validated_source_version" && scan.sameSourceVersion(v, v))
+    return { byteLength: v.rollout.identity.size, sha256: v.rollout.sha256, recordCount: v.rollout.recordCount };
+  return compressed.decodedSummary(v);
+}
 function selection(v) {
   return keys(v, ["mode"]) && v.mode === "names" || keys(v, ["mode", "offset", "limit"]) && v.mode === "records"
     && integer(v.offset, 0, scan.LIMITS.records) && integer(v.limit, 1, scan.LIMITS.pageRecords);
 }
 function descriptor(page, source, selected) {
-  if (!version(source) || !selection(selected) || !keys(page, ["offset", "byteLength", "records", "nextOffset"])
-    || page.offset !== (selected.mode === "names" ? 0 : selected.offset) || !integer(page.offset, 0, source.rollout.recordCount)
+  const decoded = summary(source);
+  if (!version(source) || !decoded || !selection(selected) || !keys(page, ["offset", "byteLength", "records", "nextOffset"])
+    || page.offset !== (selected.mode === "names" ? 0 : selected.offset) || !integer(page.offset, 0, decoded.recordCount)
     || !integer(page.byteLength, 0, scan.LIMITS.pageBytes) || !Array.isArray(page.records)
     || page.records.length > (selected.mode === "names" ? 1 : selected.limit)) return false;
-  const end = page.offset + page.records.length, remaining = source.rollout.recordCount - end;
+  const end = page.offset + page.records.length, remaining = decoded.recordCount - end;
   if (remaining < 0 || page.nextOffset !== (remaining === 0 ? null : end) || remaining > 0 && !page.records.length) return false;
   let size = 0, byteEnd = null;
   for (const [i, r] of page.records.entries()) {
     if (!keys(r, ["recordIndex", "byteOffset", "byteLength", "payloadOffset", "sha256"]) || r.recordIndex !== page.offset + i
       || !integer(r.byteLength, 1, scan.LIMITS.recordBytes) || !integer(r.byteOffset, r.recordIndex, r.recordIndex * scan.LIMITS.recordBytes)
-      || r.byteOffset + r.byteLength > source.rollout.identity.size || r.payloadOffset !== size || !hash(r.sha256)
+      || r.byteOffset + r.byteLength > decoded.byteLength || r.payloadOffset !== size || !hash(r.sha256)
       || byteEnd !== null && r.byteOffset !== byteEnd) return false;
     size += r.byteLength; byteEnd = r.byteOffset + r.byteLength;
   }
-  return size === page.byteLength && (byteEnd === null || integer(source.rollout.identity.size - byteEnd, remaining, remaining * scan.LIMITS.recordBytes));
+  return size === page.byteLength && (byteEnd === null || integer(decoded.byteLength - byteEnd, remaining, remaining * scan.LIMITS.recordBytes));
 }
 function payload(bytes, job) {
   if (!Buffer.isBuffer(bytes) || !descriptor(job.page, job.source, job.selection)
@@ -64,9 +71,9 @@ function record(bytes, r, source) {
 }
 function project(bytes, job) {
   if (!payload(bytes, job)) return unavailable("source_worker_protocol");
-  const source = job.source, records = [], result = { kind: "codex_validated_rollout_records", nativeVersion: source.nativeVersion,
-    nativeThreadId: source.threadId, scope: "one_legacy_rollout_validated_page", sha256: source.rollout.sha256,
-    recordCount: source.rollout.recordCount, byteLength: source.rollout.identity.size, offset: job.page.offset, records,
+  const source = job.source, decoded = summary(source), records = [], result = { kind: "codex_validated_rollout_records", nativeVersion: source.nativeVersion,
+    nativeThreadId: source.threadId, scope: "one_legacy_rollout_validated_page", sha256: decoded.sha256,
+    recordCount: decoded.recordCount, byteLength: decoded.byteLength, offset: job.page.offset, records,
     nextOffset: null, endOfFile: false, sourceAuthenticated: false, publishable: false, semanticHistoryComplete: false };
   let size = 1024;
   for (const r of job.page.records) {
@@ -97,10 +104,11 @@ function matches(value, job, bytes) {
       const b = Buffer.from(r.rawText);
       if (b.length !== r.byteLength || sha(b) !== d.sha256 || b.at(-1) !== 10 || b.indexOf(10) !== b.length - 1) return false;
     }
-    const eof = value.offset + value.records.length === job.source.rollout.recordCount;
+    const decoded = summary(job.source); if (!decoded) return false;
+    const eof = value.offset + value.records.length === decoded.recordCount;
     const expected = { kind: "codex_validated_rollout_records", nativeVersion: job.source.nativeVersion, nativeThreadId: job.source.threadId,
-      scope: "one_legacy_rollout_validated_page", sha256: job.source.rollout.sha256, recordCount: job.source.rollout.recordCount,
-      byteLength: job.source.rollout.identity.size, offset: job.page.offset, records: value.records,
+      scope: "one_legacy_rollout_validated_page", sha256: decoded.sha256, recordCount: decoded.recordCount,
+      byteLength: decoded.byteLength, offset: job.page.offset, records: value.records,
       nextOffset: eof ? null : job.page.offset + value.records.length, endOfFile: eof,
       sourceAuthenticated: false, publishable: false, semanticHistoryComplete: false };
     return canonicalJSON(value, RAW.pageBytes) === canonicalJSON(expected, RAW.pageBytes);
@@ -109,4 +117,4 @@ function matches(value, job, bytes) {
   const expected = project(bytes, job);
   return expected?.kind !== "source_unavailable" && canonicalJSON(value, RAW.pageBytes) === canonicalJSON(expected, RAW.pageBytes);
 }
-module.exports = { version, selection, descriptor, payload, project, matches };
+module.exports = { version, summary, selection, descriptor, payload, project, matches };

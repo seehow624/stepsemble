@@ -104,7 +104,7 @@ function createCodexSourceService(options = {}) {
         // after the old reader has physically closed. No error retry loop.
         const beforeSwitch = pipeline.status();
         if (metadata && !expected && !paged && source.historyMode === "legacy" && result.kind === "source_unavailable"
-          && ["source_too_large", "rollout_record_limit"].includes(result.code) && beforeSwitch.cleanupConfirmed
+          && ["source_too_large", "rollout_record_limit", "rollout_compression_limit"].includes(result.code) && beforeSwitch.cleanupConfirmed
           && !beforeSwitch.closed && !beforeSwitch.quarantined && !closed && !state.revoked && !controller.signal.aborted) {
           profile = publicWire.PAGE_PROFILE; paged = true; result = await capture();
         }

@@ -1,5 +1,11 @@
 # Web 完整體：持續執行與驗收清單
 
+2026-09-09／Plan1.79：真17.2MB／16,384筆壓縮歷史容量缺口已修，Rust13/14、
+physical/decoded雙版本與parser11–14接同Host/Web。完整／最低Node1146/0fail、Rust／
+RustSec、實際Host及CUA390/320px已通；exact提交跨平台CI待核，詳
+[驗收入口](codex-large-compressed-history.md)。不是最大容量／peak RSS或完整native
+projection；C2及C1–C8未勾完成，正式服務與已結案72h不變。
+
 2026-09-09／Plan1.78：本機多group管理已接完整before/after、CREATE新候選、SDK獨立
 同意與input/root/artifact fence；真Host直接使用四階段產物，manual授權保留、群組讀者
 替換／移除與原生讀取通。這不是live撤權／Web管理route／真人owner或C1全完成，

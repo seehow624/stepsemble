@@ -9,6 +9,11 @@
 
 ## 1. 這份文件的角色
 
+Plan1.79已補大型壓縮歷史：有界Rust13/14、private physical/decoded雙摘要與parser11–14
+接同Host/Web大型profile。完整／最低Node1146/0fail、Rust／RustSec、真17.2MB/16384筆
+Host及CUA390/320px已驗；原name/IDs、跨頁工具、encoding與損壞恢復通。exact提交CI
+待核，不是正式基線或完整原生能力，見[本段狀態](codex-large-compressed-history.md)。
+
 Plan1.78開發增量新增本機多source-group管理，以新候選檔保留原設定；完整權限review、
 SDK顯式補入、變更fence與真Host四階段產物原檔讀取已驗。正式基線未改，亦不新增
 Web寫route或hot reload；見[最新owner管理](history-owner-management.md)。

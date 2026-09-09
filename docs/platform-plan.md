@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.78
+> 計畫版本：1.79
 > 最後更新：2026-09-09
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -9,6 +9,12 @@
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
 ## 文件用途與回復方法
+
+**最新接續1.79（大型壓縮歷史）**：已補真17.2MB／16,384筆concat容量缺口，固定Rust
+串流13/14、physical/decoded版本分離，接parser11–14、同reader/deadline與Web大型profile。
+完整／最低Node1146/0fail、Rust／RustSec、真Host與CUA390/320px均通；原名、原生IDs、
+跨頁工具／rollback、encoding及損壞恢復已驗。本提交exact CI待核，未部署，C2不勾完成。
+詳[協定、限制與驗收](codex-large-compressed-history.md)；原72h已結案不重查。
 
 **最新接續1.78（本機多來源管理）**：新增inspect/add/replace/edit/remove逐項精靈，
 exact ID／origin／helper、SDK獨立同意、完整before/after與CREATE只產生新candidate，
@@ -359,7 +365,7 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 | 已發佈 Web rolling 相容 | Legacy smoke 已驗 | 真實v3.0.3/v3.0.2 pinned source與development雙向搭配，Chromium桌面/手機尺寸8cases，macOS/Linux各跑一次共16cases／CI33970245044過。SW/PWA cache、Safari/Firefox/Windows/實機、future journal transport不包含，見`protocol/rolling-compatibility.md` |
 | Codex 官方介面基線 | 0.153.4 離線 metadata 已驗 | 新版24份schema，原18份及99/10/81 catalog與0.153.3全同；runner逐版本比對hash，未知版本停止。preflight不再建空session，路由先於account、傳輸有界；本輪未啟app-server／讀真帳號，不是runtime/session/approval驗收，見 `codex-metadata-compatibility.md` |
 | Codex原生歷史通道 | Plan1.55新增inert observation及缺漏檢查，未接Host/Web | 0.153.4固定schema／受限RPC與legacy49turns/147items/name已驗；rich fixture還原6類但command/image缺失，完整性gate明示unavailable；不是全19類真CLI驗證。items/list與paginated仍不支援，不直讀私人HOME，詳codex-history-compatibility.md |
-| Codex來源紀錄Web | Plan1.76已接Host／peer／Web，未部署 | 與上一列官方RPC投影分開：owner雙root、新舊SQLite、small plain/壓縮與large plain受限唯讀來源已接線；17.2MB/16384筆、原名/原生ID、全來源turn/tool/rollback、雙向跨頁工具與320/390px已驗。非完整native投影/resume；large compressed、其他adapter與C2完整gate仍待，見codex-structured-source.md |
+| Codex來源紀錄Web | Plan1.79已接Host／peer／Web，未部署 | 與上一列官方RPC投影分開：owner雙root、新舊SQLite、small及large plain/壓縮受限唯讀来源已接；17.2MB/16384筆、原名/原生ID、全來源turn/tool/rollback、雙向跨頁工具與320/390px本機已驗。新compressed exact CI待核；非完整native投影/resume或最大容量，其他adapter與C2完整gate仍待，見codex-large-compressed-history.md |
 | Claude／Codex 真實訂閱 smoke | Claude單次通過；Codex路由gate未過 | Claude09-06直接Aqua最小模型成功。09-07 Codex0.153.4新版schema／initialize已過，effective config回non_native_route，未送account/thread/turn；8個保護項目不變。不改第三方設定讓測試通過，詳見 `native-subscription-smoke.md` |
 | Claude 原生歷史讀取邊界 | SDK讀回／豐富內容觀察映射已驗 | 官方SDK0.3.259對應CLI2.1.259；只讀子程序不准spawn／write。合成工具／thinking／附件參照、中斷/API錯誤外層metadata及壓縮保留鏈通過；相同UUID原文核對、未知格式警示、整批拒絕混入/重複。前輪自己的兩則訊息讀回仍有效，本輪未再讀私有session。不是Web journal／approval ACK／resume，見 `protocol/native/claude/README.md` |
 | Claude 歷史來源快照 | POSIX唯讀一致性／跨平台parser已實作 | 單一指定source、UID/mode/regular/single-link/no-follow、同descriptor雙讀＋前後inode/size/ns時間、原始8MiB/1MiB line/2000rows caps；partial/malformed不當空history。不是authenticated source／ACL／atomic containment；Windows source gate明確unsupported，SDK合成reader仍可驗。未接正式服務 |
@@ -385,13 +391,13 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 
 ### 下一個可執行任務
 
-**Plan1.78／2026-09-09接續入口**：原72h已於19:34:16 passed／清理確認／追蹤刪除，
-前段Pi及目錄修正必要CI全通，最新已驗7e5fd58見[發布審查](release-review-2026-09-09.md)。
-本段新增本機多group管理與真Host驗收，不重做冷DB、小型壓縮、大型plain parser／
-Host／Web或跨頁結構。rc.7仍是候選，不以舊runtime長測替代新版本或正式啟用gate。
+**Plan1.79／2026-09-09接續入口**：原72h已passed／清理確認／追蹤刪除，前段本機
+多group管理46bca82必要三CI全通；本段大型壓縮全鏈與手機尺寸本機已驗，exact CI
+待核。不要重做冷DB、小型壓縮、大型plain／compressed Host/Web或全來源結構。
+rc.7仍是候選，不以舊runtime長測替代新版本或正式啟用gate。
 
-工程接續以[C1–C8清單](web-completion-loop.md)為準：C1多群組安全管理；C2大型壓縮與
-其他原生adapter；C3真native session/approval/resume及durable證據；C4跨harness故障
+工程接續以[C1–C8清單](web-completion-loop.md)為準：C1受控啟用與Web管理權限；C2
+paginated/native投影及其他原生adapter；C3真native session/approval/resume及durable證據；C4跨harness故障
 恢復；C5真機/跨Host；C6全Host記憶體、最大來源/混合負載；C7 Windows來源及真服務
 runner；C8候選安裝/回滾/active-work與正式上線。每次選一個可獨立驗收的實際缺口，
 不重做已接線核心、不把第三方unsupported當作實作成功、不用真模型重試補合成證據。

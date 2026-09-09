@@ -196,10 +196,15 @@ cleanupConfirmed=true、controller已退出、owned home已移除；76個凍結�
 
 ### 不應被今晚總結抹掉的未完成項
 
+22:30前後接續：Plan1.78本機多group管理已提交46bca82並通必要三CI；Plan1.79大型
+壓縮歷史已接同Host/Web，完整／最低Node1146/0fail、Rust/RustSec、真17.2MB/16384筆
+及CUA390/320px通，本提交exact CI待核。原名/IDs、跨頁工具、encoding及損壞恢復已驗。
+這兩段不改正式3.0.6，不套舊72h，詳[大型壓縮驗收](codex-large-compressed-history.md)。
+
 | 範圍 | 待完成而非從零重做 |
 | --- | --- |
-| C1 | 多來源群組安全編輯／管理、真人owner設定與實際裝置驗收 |
-| C2 | 大型壓縮、Codex官方paginated／完整投影、OpenCode／Grok等其他原生history adapters；不能承諾全電腦對話已收錄 |
+| C1 | 本機多群組管理已驗；受控啟用／Web管理權限、真人owner設定與實際裝置驗收仍待 |
+| C2 | 大型plain/壓縮已接；Codex官方paginated／完整投影、OpenCode／Grok等其他原生history adapters仍待；不能承諾全電腦對話已收錄 |
 | C3 | 各harness真session／approval ACK／resume、ownership、durable journal與crash/replay完整證據 |
 | C4 | 跨harness登入／路由／錯誤恢復；不修寫第三方憑證、不拿訂閱額度自動重試 |
 | C5 | 真iPhone/Safari/PWA背景恢復、網路斷線、跨Host與人工多語校稿 |

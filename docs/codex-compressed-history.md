@@ -131,9 +131,10 @@ Linux真Host整輪4,229ms；測試parent最高觀測stage RSS164,651,008 bytes�
 
 ## 接續入口（不重做本增量）
 
-- C2：現階段仍是 ≤8MiB 的完整單檔 raw records，不能宣稱所有大型對話可讀。
-  大型/長歷史需有界分頁或串流方案與實際 Host 記憶體/主執行緒負載證據，不能直接
-  提高解壓上限。保持 source version、取消及原件不變的界線。
+- 本文的小型profile仍是≤8MiB完整單檔；大型plain與compressed已另以有界雙掃、
+  新private receipt與既有public分頁接入Host/Web，見
+  [Plan1.79大型壓縮](codex-large-compressed-history.md)。不是提高Node整份buffer上限，
+  也不是所有大型對話／最大容量已驗；source version、取消及原件不變的界線保留。
 - 完整語義：已有 `history-observation.js` 的 API observation，不是 raw rollout
   的完整重建。固定 source 的 `app-server-protocol/src/protocol/thread_history.rs`、
   `thread_history_projection.rs`、`thread-store/src/local/thread_history/read.rs`

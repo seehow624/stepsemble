@@ -187,6 +187,56 @@ export async function checkCodexHostNative({ helperPath, onProgress = () => {} }
         healthDuringReads: { samples: healthTimes.length, p95Ms: healthTimes[Math.ceil(healthTimes.length * .95) - 1], maxMs: Math.max(...healthTimes) },
         hostRss: { samples: hostRssSamples.length, maxObservedBytes: hostRssSamples.length ? Math.max(...hostRssSamples) : null,
           scope: "200ms_samples_not_peak_RSS_or_capacity" } };
+      // Real HTTP/model path for a source whose DECODED bytes exceed the old
+      // whole-buffer bound. The initial failure and explicit negotiation are
+      // retained; no timeout/retry, fake capture or private account is involved.
+      await host.mutate("reset"); await host.mutate("large_rollout"); await model.refresh();
+      const plainLargeRaw = model.state().page, compressedStart = requests.length;
+      const compressedHealthStart = healthTimes.length, compressedRssStart = hostRssSamples.length;
+      assert.equal(plainLargeRaw.history.records.recordCount, 16384);
+      await host.mutate("compress_concat"); await model.next();
+      assert.equal(model.state().error, "source_version_changed"); assert.equal(model.state().stale, true);
+      await model.refresh(); let compressedState = model.state();
+      assert.equal(compressedState.error, null, compressedState.error);
+      assert.equal(compressedState.profile, "codex_validated_page_v1");
+      assert.deepEqual(compressedState.page.history.records, plainLargeRaw.history.records);
+      assert.equal(compressedState.page.history.nativeTitle, "最新 WAL 名稱 🐾");
+      const compressedVersion = compressedState.page.sourceVersion;
+      await model.next(); await model.previous(); assert.equal(model.state().page.sourceVersion, compressedVersion);
+      await model.jump(10000); assert.equal(model.state().page.history.records.offset, 10000);
+      assert.equal(model.state().page.history.records.records[0].recordIndex, 10000);
+      await model.jump(16380); assert.equal(model.state().canNext, false);
+      assert.equal(model.state().page.history.records.records.length, 4);
+      await model.setStructured(true); compressedState = model.state();
+      assert.equal(compressedState.error, null, compressedState.error);
+      assert.equal(compressedState.profile, "codex_structured_page_v1");
+      assert.deepEqual(compressedState.page.history.structure, firstLarge.history.structure);
+      await model.jump(10000); compressedState = model.state();
+      assert.equal(compressedState.page.history.structure.annotations[0].tool.relatedRecordIndex, 3);
+      assert.equal(compressedState.page.history.structure.annotations[0].tool.nativeCallId, "owned-large-native-call 🐾");
+      assert.equal(compressedState.page.history.structure.turns[0].rollbackRecordIndex, 16382);
+      p = await catalog(); assert.equal((await metadata(p)).metadata.nativeTitle, "最新 WAL 名稱 🐾");
+      await host.mutate("restore_plain"); await model.next(); assert.equal(model.state().error, "source_version_changed");
+      await model.refresh(); assert.equal(model.state().error, null, "fresh plain sibling has priority over the compressed capture");
+      await host.mutate("clear_compressed");
+      await host.mutate("large_invalid_outside"); await host.mutate("compress_concat");
+      await model.refresh(); assert.equal(model.state().error, "rollout_invalid_record", "unselected decoded record must be validated too");
+      await host.mutate("restore_plain"); await host.mutate("clear_compressed"); await host.mutate("large_repair");
+      await host.mutate("compress_corrupt"); await model.refresh();
+      assert.equal(model.state().error, "rollout_compression_invalid", "complete frame checksum must be verified even beyond selected page");
+      await host.mutate("restore_plain"); await host.mutate("clear_compressed"); await model.refresh();
+      assert.equal(model.state().error, null); await model.setStructured(false);
+      const compressedHealth = healthTimes.slice(compressedHealthStart).sort((a, b) => a - b), compressedRss = hostRssSamples.slice(compressedRssStart);
+      largeResult.compressed = { decodedBytes: plainLargeRaw.history.records.byteLength, records: 16384, concatenatedFrames: true,
+        samePublicTypedModel: true, rawPageEqualsPlain: true, structuredPageEqualsPlain: true, nativeNameAndMetadata: true,
+        nextPreviousAndDirectJump: true, nativeIdsAndCrossPageToolLink: true, rollbackOutsidePagePreserved: true,
+        bothEncodingTransitionsRejectStaleVersion: true, freshPlainPriority: true, offPageDecodedCorruptionRefused: true,
+        corruptCompressedFrameRefused: true, repairedFreshRead: true, readRequests: requests.length - compressedStart,
+        maxRequestMs: Math.max(...timings.slice(compressedStart)),
+        healthDuringReads: { samples: compressedHealth.length, p95Ms: compressedHealth[Math.ceil(compressedHealth.length * .95) - 1], maxMs: Math.max(...compressedHealth) },
+        hostRss: { samples: compressedRss.length, maxObservedBytes: compressedRss.length ? Math.max(...compressedRss) : null,
+          scope: "200ms_samples_not_peak_RSS_or_capacity" } };
+      await mark("large_compressed_actual_host_web_model_and_integrity");
       await host.mutate("many_records"); await model.refresh();
       const many = model.state(); assert.equal(many.error, null, many.error); assert.equal(many.profile, "codex_validated_page_v1");
       assert(many.page.history.records.byteLength < 8 * 1024 * 1024); assert.equal(many.page.history.records.recordCount, 16384);

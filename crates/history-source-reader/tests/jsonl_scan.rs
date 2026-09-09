@@ -3,7 +3,7 @@ use sha2::{Digest, Sha256};
 use std::io::{self, Cursor, Read, Seek, SeekFrom};
 use stepsemble_history_source_reader::jsonl_scan::{
     self, CHUNK_BYTES, Error, PAGE_BYTES, RECORD_BYTES, RECORDS, SOURCE_BYTES, Selection,
-    scan_matching_page,
+    scan_matching_page, scan_matching_page_bounded_observed,
 };
 
 fn selection(offset: u32, limit: u32) -> Selection {
@@ -576,6 +576,38 @@ fn large_generated_history_above_old_byte_and_record_limits_retains_only_one_pag
     assert_eq!(result.records[0].record_index, 19_997);
     assert_eq!(result.records[0].byte_offset, 19_997 * 1024);
     assert_eq!(result.next_offset, None);
+    assert_eq!(source.total_read, size * 2);
+    assert!(source.largest_read <= CHUNK_BYTES);
+}
+
+#[test]
+fn unknown_decoded_length_is_bounded_on_first_pass_and_exact_on_matching_pass() {
+    let mut line = vec![b'a'; 1024];
+    line[1023] = b'\n';
+    let mut source = Repeated {
+        line,
+        count: 20_000,
+        position: 0,
+        total_read: 0,
+        largest_read: 0,
+    };
+    let size = source.line.len() as u64 * u64::from(source.count);
+    let mut first_records = 0;
+    let result = scan_matching_page_bounded_observed(
+        &mut source,
+        selection(19_999, 1),
+        || Ok(()),
+        |pass, _, _, _| {
+            if pass == jsonl_scan::ScanPass::First {
+                first_records += 1;
+            }
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(first_records, 20_000);
+    assert_eq!(result.summary.byte_length, size);
+    assert_eq!(result.records[0].record_index, 19_999);
     assert_eq!(source.total_read, size * 2);
     assert!(source.largest_read <= CHUNK_BYTES);
 }
