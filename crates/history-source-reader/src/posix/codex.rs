@@ -2,6 +2,7 @@
 //! Repeated checks are not an atomic filesystem transaction or native provenance.
 use super::*;
 use crate::codex::{INDEX_LIMIT, Pair, Request as CodexRequest, valid_locator};
+use stepsemble_history_source_reader::jsonl_scan;
 
 const NAME_INDEX: &str = "session_index.jsonl";
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -53,6 +54,48 @@ pub fn capture(request: &CodexRequest) -> Result<Pair, Error> {
     capture_with(request, |_| {})
 }
 fn capture_with(request: &CodexRequest, mut hook: impl FnMut(Point)) -> Result<Pair, Error> {
+    match capture_variant(request, None, &mut hook)? {
+        Captured::Bytes(pair) => Ok(pair),
+        Captured::Page(_) => Err(Error::Input),
+    }
+}
+
+pub fn capture_scanned(
+    request: &CodexRequest,
+    page: jsonl_scan::Selection,
+) -> Result<crate::codex_scanned::Pair, Error> {
+    capture_scanned_with(request, page, |_| {})
+}
+fn capture_scanned_with(
+    request: &CodexRequest,
+    page: jsonl_scan::Selection,
+    mut hook: impl FnMut(Point),
+) -> Result<crate::codex_scanned::Pair, Error> {
+    if page.offset > jsonl_scan::RECORDS || page.limit == 0 || page.limit > jsonl_scan::PAGE_RECORDS
+    {
+        return Err(Error::Input);
+    }
+    match capture_variant(request, Some(page), &mut hook)? {
+        Captured::Page(pair) => Ok(pair),
+        Captured::Bytes(_) => Err(Error::Input),
+    }
+}
+enum Captured {
+    Bytes(Pair),
+    Page(crate::codex_scanned::Pair),
+}
+enum Rollout {
+    Bytes(Vec<u8>),
+    Page(jsonl_scan::Page),
+}
+
+// Shared authenticated open/check/close boundary. v3/v9 retain their exact
+// literal two-buffer comparison; v10 uses full-source digest scans explicitly.
+fn capture_variant(
+    request: &CodexRequest,
+    page: Option<jsonl_scan::Selection>,
+    hook: &mut impl FnMut(Point),
+) -> Result<Captured, Error> {
     if !valid_locator(&request.source.rollout_path, &request.source.thread_id) {
         return Err(Error::Input);
     }
@@ -106,7 +149,21 @@ fn capture_with(request: &CodexRequest, mut hook: impl FnMut(Point)) -> Result<P
         }
         Err(error) => return Err(error),
     };
-    let file_info = bounded_info(&file, uid, device, SOURCE_LIMIT, false)?;
+    let file_info = bounded_info(
+        &file,
+        uid,
+        device,
+        if page.is_some() {
+            jsonl_scan::SOURCE_BYTES as usize
+        } else {
+            SOURCE_LIMIT
+        },
+        false,
+    )?;
+    if page.is_some() && file_name.ends_with(".zst") {
+        // Never feed compressed bytes to the plain byte-framing scanner.
+        return Err(Error::EncodingUnsupported);
+    }
     let index = optional_index(&directories[0])?;
     let index_info = index
         .as_ref()
@@ -166,19 +223,51 @@ fn capture_with(request: &CodexRequest, mut hook: impl FnMut(Point)) -> Result<P
     };
     hook(Point::Opened);
     verify()?;
-    let first = read(&file, file_info.size() as usize, start)?;
-    let first_index = read_index()?;
-    hook(Point::FirstRead);
-    verify()?;
-    let second = read(&file, file_info.size() as usize, start)?;
-    let second_index = read_index()?;
-    hook(Point::SecondRead);
-    verify()?;
-    if first != second || first_index != second_index {
-        return Err(Error::Changed);
-    }
-    drop(second);
-    drop(second_index);
+    let (rollout, first_index) = if let Some(selection) = page {
+        let first_index = read_index()?;
+        let mut selected = SelectedReader {
+            file: &file,
+            offset: 0,
+            rewinds: 0,
+            failure: None,
+            between: || {
+                hook(Point::FirstRead);
+                verify()
+            },
+        };
+        let scanned = jsonl_scan::scan_matching_page(
+            &mut selected,
+            file_info.size(),
+            selection,
+            None,
+            || budget(start).map_err(|_| jsonl_scan::Error::Budget),
+            |_, _, _| Ok(()),
+        );
+        if let Some(error) = selected.failure {
+            return Err(error);
+        }
+        let scanned = scanned.map_err(scan_error)?;
+        let second_index = read_index()?;
+        hook(Point::SecondRead);
+        verify()?;
+        if first_index != second_index {
+            return Err(Error::Changed);
+        }
+        (Rollout::Page(scanned), first_index)
+    } else {
+        let first = read(&file, file_info.size() as usize, start)?;
+        let first_index = read_index()?;
+        hook(Point::FirstRead);
+        verify()?;
+        let second = read(&file, file_info.size() as usize, start)?;
+        let second_index = read_index()?;
+        hook(Point::SecondRead);
+        verify()?;
+        if first != second || first_index != second_index {
+            return Err(Error::Changed);
+        }
+        (Rollout::Bytes(first), first_index)
+    };
     // Re-observe all selected name->object edges from the original held parents.
     for (i, name) in parts[..parts.len() - 1].iter().enumerate() {
         let named = open_at(directories[i].as_raw_fd(), name, true)?;
@@ -202,18 +291,28 @@ fn capture_with(request: &CodexRequest, mut hook: impl FnMut(Point)) -> Result<P
     }
     close(current_root)?;
     verify()?;
-    let pair = Pair {
-        physical_path: format!("{}/{}", parts[..parts.len() - 1].join("/"), file_name),
-        rollout: Capture {
-            bytes: first,
-            identity: identity(&file_info),
-        },
-        name_index: first_index
-            .zip(index_info.as_ref())
-            .map(|(bytes, info)| Capture {
+    let physical_path = format!("{}/{}", parts[..parts.len() - 1].join("/"), file_name);
+    let name_index = first_index
+        .zip(index_info.as_ref())
+        .map(|(bytes, info)| Capture {
+            bytes,
+            identity: identity(info),
+        });
+    let pair = match rollout {
+        Rollout::Bytes(bytes) => Captured::Bytes(Pair {
+            physical_path,
+            name_index,
+            rollout: Capture {
                 bytes,
-                identity: identity(info),
-            }),
+                identity: identity(&file_info),
+            },
+        }),
+        Rollout::Page(page) => Captured::Page(crate::codex_scanned::Pair {
+            physical_path,
+            name_index,
+            page,
+            rollout_identity: identity(&file_info),
+        }),
     };
     let mut close_failed = false;
     for file in index
@@ -230,6 +329,53 @@ fn capture_with(request: &CodexRequest, mut hook: impl FnMut(Point)) -> Result<P
     }
     budget(start)?;
     Ok(pair)
+}
+
+fn scan_error(error: jsonl_scan::Error) -> Error {
+    match error {
+        jsonl_scan::Error::InvalidSelection | jsonl_scan::Error::InvalidRecord => Error::Input,
+        jsonl_scan::Error::SourceLimit => Error::TooLarge,
+        jsonl_scan::Error::Empty => Error::Empty,
+        jsonl_scan::Error::RecordLimit => Error::RecordLimit,
+        jsonl_scan::Error::IncompleteTail => Error::IncompleteTail,
+        jsonl_scan::Error::Changed => Error::Changed,
+        jsonl_scan::Error::Io => Error::Io,
+        jsonl_scan::Error::Cancelled => Error::Cancelled,
+        jsonl_scan::Error::Budget => Error::Budget,
+    }
+}
+
+// Positioned reads on the same held FD, not a reopened path, duplicate FD or
+// shared OS seek cursor. Check original identities between the two full scans.
+struct SelectedReader<'a, F> {
+    file: &'a File,
+    offset: u64,
+    rewinds: usize,
+    between: F,
+    failure: Option<Error>,
+}
+impl<F> std::io::Read for SelectedReader<'_, F> {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        let count = self.file.read_at(bytes, self.offset)?;
+        self.offset += count as u64;
+        Ok(count)
+    }
+}
+impl<F: FnMut() -> Result<(), Error>> std::io::Seek for SelectedReader<'_, F> {
+    fn seek(&mut self, position: std::io::SeekFrom) -> io::Result<u64> {
+        if position != std::io::SeekFrom::Start(0) {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        self.rewinds += 1;
+        if self.rewinds == 2
+            && let Err(error) = (self.between)()
+        {
+            self.failure = Some(error);
+            return Err(io::ErrorKind::Other.into());
+        }
+        self.offset = 0;
+        Ok(0)
+    }
 }
 
 #[cfg(test)]
@@ -315,6 +461,234 @@ mod tests {
                 header["result"]["checks"]["rolloutSelectionRechecked"],
                 true
             );
+        }
+    }
+
+    fn page(offset: u32) -> jsonl_scan::Selection {
+        jsonl_scan::Selection { offset, limit: 2 }
+    }
+    #[test]
+    fn scanned_pages_preserve_bytes_index_presence_and_explicit_digest_checks() {
+        use sha2::{Digest, Sha256};
+        for archive in [false, true] {
+            for has_index in [false, true] {
+                let mut f = Fixture::new(archive, has_index);
+                f.request.protocol_version = 9;
+                let bytes = "第一筆🐾\r\n \r\n第三筆\n".as_bytes();
+                fs::write(&f.file, bytes).unwrap();
+                let first = capture_scanned(&f.request, page(0)).unwrap();
+                assert_eq!(first.page.summary.record_count, 3);
+                assert_eq!(first.page.summary.byte_length, bytes.len() as u64);
+                assert_eq!(
+                    first.page.summary.sha256,
+                    <[u8; 32]>::from(Sha256::digest(bytes))
+                );
+                assert_eq!(first.page.next_offset, Some(2));
+                assert_eq!(first.name_index.is_some(), has_index);
+                let last = capture_scanned(&f.request, page(2)).unwrap();
+                assert_eq!(first.page.summary, last.page.summary);
+                assert_eq!(last.page.records[0].bytes, "第三筆\n".as_bytes());
+                assert_eq!(last.page.next_offset, None);
+                assert!(
+                    capture_scanned(&f.request, page(3))
+                        .unwrap()
+                        .page
+                        .records
+                        .is_empty()
+                );
+                assert!(matches!(
+                    capture_scanned(&f.request, page(4)),
+                    Err(Error::Input)
+                ));
+                fs::write(&f.index, b"").unwrap();
+                assert!(
+                    capture_scanned(&f.request, page(0))
+                        .unwrap()
+                        .name_index
+                        .unwrap()
+                        .bytes
+                        .is_empty()
+                );
+                f.request.source.rollout_path.push_str(".zst");
+                assert!(
+                    !capture_scanned(&f.request, page(0))
+                        .unwrap()
+                        .physical_path
+                        .ends_with(".zst")
+                );
+                fs::rename(&f.file, f.file.with_extension("jsonl.zst")).unwrap();
+                assert!(matches!(
+                    capture_scanned(&f.request, page(0)),
+                    Err(Error::EncodingUnsupported)
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn scanned_capture_exceeds_the_old_whole_buffer_limit_without_changing_legacy() {
+        use std::io::Write;
+        let f = Fixture::new(false, true);
+        let mut line = vec![b'a'; 1024];
+        line[1023] = b'\n';
+        let mut writer = fs::File::create(&f.file).unwrap();
+        for _ in 0..10_000 {
+            writer.write_all(&line).unwrap();
+        }
+        drop(writer);
+        assert!(matches!(capture(&f.request), Err(Error::TooLarge)));
+        let result = capture_scanned(&f.request, page(9998)).unwrap();
+        assert_eq!(result.rollout_identity.size, 10_240_000);
+        assert_eq!(result.page.summary.record_count, 10_000);
+        assert_eq!(result.page.records.len(), 2);
+        assert_eq!(result.page.records[0].byte_offset, 9998 * 1024);
+        assert_eq!(
+            result
+                .page
+                .records
+                .iter()
+                .map(|r| r.bytes.len())
+                .sum::<usize>(),
+            2048
+        );
+    }
+
+    #[test]
+    fn scanned_source_bound_tail_and_count_fail_without_partial_pages() {
+        let f = Fixture::new(false, true);
+        fs::write(&f.file, b"ok\npartial").unwrap();
+        assert!(matches!(
+            capture_scanned(&f.request, page(0)),
+            Err(Error::IncompleteTail)
+        ));
+        fs::write(&f.file, vec![b'\n'; jsonl_scan::RECORDS as usize + 1]).unwrap();
+        assert!(matches!(
+            capture_scanned(&f.request, page(0)),
+            Err(Error::RecordLimit)
+        ));
+        fs::write(
+            &f.file,
+            [vec![b'a'; jsonl_scan::RECORD_BYTES], vec![b'\n']].concat(),
+        )
+        .unwrap();
+        assert!(matches!(
+            capture_scanned(&f.request, page(0)),
+            Err(Error::RecordLimit)
+        ));
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&f.file)
+            .unwrap()
+            .set_len(jsonl_scan::SOURCE_BYTES + 1)
+            .unwrap();
+        assert!(matches!(
+            capture_scanned(&f.request, page(0)),
+            Err(Error::TooLarge)
+        ));
+    }
+
+    #[test]
+    fn scanned_source_rechecks_files_index_presence_and_all_name_edges() {
+        for point in [Point::Opened, Point::FirstRead, Point::SecondRead] {
+            for mode in 0..7 {
+                let f = Fixture::new(false, mode != 2);
+                let result = capture_scanned_with(&f.request, page(0), |at| {
+                    if at != point {
+                        return;
+                    }
+                    match mode {
+                        0 => fs::write(&f.file, b"changed rollout\n").unwrap(),
+                        1 => fs::write(&f.index, b"changed index\n").unwrap(),
+                        2 => fs::write(&f.index, b"new index\n").unwrap(),
+                        3 => fs::remove_file(&f.index).unwrap(),
+                        4 => {
+                            fs::rename(&f.file, f.root.join("moved-rollout")).unwrap();
+                            fs::write(&f.file, b"owned rollout\n").unwrap();
+                        }
+                        5 => {
+                            fs::rename(f.root.join("sessions"), f.root.join("moved")).unwrap();
+                            fs::create_dir(f.root.join("sessions")).unwrap();
+                        }
+                        _ => {
+                            let other = f.root.join("replacement");
+                            fs::write(&other, b"owned index\n").unwrap();
+                            fs::rename(other, &f.index).unwrap();
+                        }
+                    }
+                });
+                assert!(matches!(result, Err(Error::Changed)), "mode={mode}");
+            }
+        }
+    }
+
+    #[test]
+    fn scanned_source_preserves_acl_and_mode_rejection_before_between_and_after_scans() {
+        for point in [Point::Opened, Point::FirstRead, Point::SecondRead] {
+            for component in 0..7 {
+                for acl in [false, true] {
+                    let f = Fixture::new(false, true);
+                    let paths = [
+                        f.root.clone(),
+                        f.root.join("sessions"),
+                        f.root.join("sessions/2026"),
+                        f.root.join("sessions/2026/01"),
+                        f.root.join("sessions/2026/01/05"),
+                        f.file.clone(),
+                        f.index.clone(),
+                    ];
+                    let result = capture_scanned_with(&f.request, page(0), |at| {
+                        if at == point {
+                            if acl {
+                                super::super::tests::add_acl(&paths[component], false);
+                            } else {
+                                fs::set_permissions(
+                                    &paths[component],
+                                    fs::Permissions::from_mode(0o770),
+                                )
+                                .unwrap();
+                            }
+                        }
+                    });
+                    assert!(matches!(
+                        result,
+                        Err(Error::OwnerOrMode | Error::AclUnsupported)
+                    ));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn scanned_source_rejects_root_substitution_and_unsafe_selected_objects() {
+        let mut f = Fixture::new(false, true);
+        f.request.expected_root.inode = "1".into();
+        assert!(matches!(
+            capture_scanned(&f.request, page(0)),
+            Err(Error::RootIdentityChanged)
+        ));
+        for index in [false, true] {
+            for mode in ["symlink", "directory", "fifo", "hardlink"] {
+                let f = Fixture::new(false, true);
+                let target = if index { &f.index } else { &f.file };
+                if mode == "hardlink" {
+                    fs::hard_link(target, f.root.join("other")).unwrap();
+                } else {
+                    fs::remove_file(target).unwrap();
+                    match mode {
+                        "symlink" => symlink(f.root.join("missing"), target).unwrap(),
+                        "directory" => fs::create_dir(target).unwrap(),
+                        _ => {
+                            let path = CString::new(target.to_str().unwrap()).unwrap();
+                            // SAFETY: fresh, owned missing fixture path with valid CString.
+                            assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+                        }
+                    }
+                }
+                assert!(matches!(
+                    capture_scanned(&f.request, page(0)),
+                    Err(Error::NotRegular | Error::Hardlinked)
+                ));
+            }
         }
     }
     #[test]

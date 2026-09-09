@@ -9,6 +9,7 @@ on:
       - 'scripts/check-native-history-reader.mjs'
       - 'scripts/check-native-sqlite-artifact.mjs'
       - 'scripts/check-native-codex-source.mjs'
+      - 'scripts/check-native-codex-scanned-source.mjs'
       - 'scripts/check-native-codex-pipeline.mjs'
       - 'scripts/check-native-codex-sqlite-pipeline.mjs'
       - 'scripts/check-native-codex-named-pipeline.mjs'
@@ -53,6 +54,7 @@ on:
       - 'scripts/check-native-history-reader.mjs'
       - 'scripts/check-native-sqlite-artifact.mjs'
       - 'scripts/check-native-codex-source.mjs'
+      - 'scripts/check-native-codex-scanned-source.mjs'
       - 'scripts/check-native-codex-pipeline.mjs'
       - 'scripts/check-native-codex-sqlite-pipeline.mjs'
       - 'scripts/check-native-codex-named-pipeline.mjs'
@@ -161,6 +163,15 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-native-history-reader
         run: cargo +1.97.1 run --manifest-path crates/history-source-reader/Cargo.toml --locked --release --example owned_jsonl_scan
+      - name: Build optimized selected-page reader for owned source gate
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/stepsemble-native-history-reader
+        run: cargo +1.97.1 build --manifest-path crates/history-source-reader/Cargo.toml --locked --release --bin stepsemble-history-source-reader
+      - name: Actual selected-page source capture and close (Windows source remains unsupported)
+        shell: bash
+        run: node scripts/check-native-codex-scanned-source.mjs "${{ runner.temp }}/stepsemble-native-history-reader/release/stepsemble-history-source-reader${{ runner.os == 'Windows' && '.exe' || '' }}"
+      - name: Strict selected-page wire and helper cancellation regressions
+        run: node --test --test-timeout=60000 test/native-codex-scanned-source.test.js
       - name: Verify pinned SQLite amalgamation against official source hash
         run: node scripts/check-native-sqlite-artifact.mjs
       - name: Locked standalone helper build

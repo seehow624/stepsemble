@@ -11,7 +11,7 @@ pub const INDEX_LIMIT: usize = 8 * 1024 * 1024;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Request {
     pub(crate) protocol_version: u8,
-    nonce: String,
+    pub(crate) nonce: String,
     pub native_version: String,
     pub source: Source,
     pub expected_root: RootIdentity,

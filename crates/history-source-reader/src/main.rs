@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 mod codex;
 mod codex_catalog;
+mod codex_scanned;
 mod codex_sqlite;
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -289,6 +290,12 @@ fn run() -> Result<(), Error> {
         write_inventory_frame(std::io::stdout().lock(), &request, inventory(&request))
     } else if let Ok(request) = codex::parse_request(&input) {
         codex::write_frame(std::io::stdout().lock(), &request, codex::capture(&request))
+    } else if let Ok(request) = codex_scanned::parse_request(&input) {
+        codex_scanned::write_frame(
+            std::io::stdout().lock(),
+            &request,
+            codex_scanned::capture(&request),
+        )
     } else if let Ok(request) = codex_sqlite::parse_request(&input) {
         codex_sqlite::write_frame(
             std::io::stdout().lock(),
