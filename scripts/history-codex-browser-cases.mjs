@@ -93,6 +93,9 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
         await page.locator(".codex-record").first().waitFor(); assert.equal(await page.locator(".codex-record").count(), 10);
         await content.getByRole("button", { name: "關閉歷史", exact: true }).click();
         await page.waitForFunction(() => document.querySelectorAll(".codex-record").length === 0);
+        stage = "empty stored catalog"; await host.mutate("missing"); await refreshSource.click();
+        await page.waitForFunction(() => document.querySelectorAll(".source-open").length === 0);
+        await page.getByText("這次清單沒有符合範圍的對話。", { exact: true }).waitFor();
         assert.deepEqual(errors, []); assert.deepEqual(foreign, []); assert.deepEqual(forbidden, []);
         console.log(JSON.stringify({ gate: "codex_history_browser", width: viewport.width, colorScheme, passed: true, physicalDevice: false }));
       } catch (error) { throw new Error(`Codex history ${viewport.width}/${colorScheme} at ${stage}: ${error.message}`, { cause: error }); }

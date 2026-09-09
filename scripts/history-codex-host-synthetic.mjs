@@ -71,7 +71,7 @@ export async function startSyntheticCodexHistoryHost({ helperPath, port = 0 } = 
     }
     return Object.freeze({ origin, token, threadId: ready.threadId, setupResult, artifact, close,
       mutate(command) {
-        if (closing || !["rename", "path", "paginated", "reset", "rich_rollout", "catalog_full", "catalog_reset"].includes(command)) throw new Error("synthetic_codex_mutation_invalid");
+        if (closing || !["rename", "path", "paginated", "reset", "rich_rollout", "catalog_full", "catalog_reset", "missing"].includes(command)) throw new Error("synthetic_codex_mutation_invalid");
         const next = mutation.then(async () => { assert.deepEqual(await snapshot(), expected); await writer.command(command); expected = await snapshot(); });
         mutation = next; return next;
       } });

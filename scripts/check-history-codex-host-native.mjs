@@ -3,6 +3,8 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import path from "node:path";
+import http from "node:http";
+import { once } from "node:events";
 import { pathToFileURL } from "node:url";
 import { startSyntheticCodexHistoryHost } from "./history-codex-host-synthetic.mjs";
 import transport from "../public/modules/history-transport.js";
@@ -48,10 +50,17 @@ export async function checkCodexHostNative({ helperPath }) {
     assert.equal((await metadata(p)).code, "source_scope_mismatch"); assert.equal((await register(p)).kind, "source_unavailable");
     await host.mutate("reset"); await host.mutate("rich_rollout"); p = await catalog();
     r = await register(p); assert.equal((await read(r)).history.records.recordCount, 39); await release(r);
+    await host.mutate("missing"); p = await catalog(); assert.equal(p.total, 0); assert.equal(p.entries.length, 0);
   } finally { cleanup = await host.close(); }
+  // A failed startup must still await actual Host close and stop its owned
+  // writer. The fixture rethrows the original error only after that cleanup.
+  const occupied = http.createServer(); occupied.listen(0, "127.0.0.1"); await once(occupied, "listening");
+  try {
+    await assert.rejects(startSyntheticCodexHistoryHost({ helperPath, port: occupied.address().port }), /synthetic_codex_host_early_exit/);
+  } finally { await new Promise(resolve => occupied.close(resolve)); }
   return { gate: "codex_actual_host_passed", records: 39, sourceScope: "stored_threads", semanticHistoryComplete: false,
     createdConfigUsedUnedited: true, explicitInventory: true, walRenameAndStalePage: true, paginatedExplicitUnavailable: true,
-    unsafePathNotOpened: true, noClaudeSdk: true, modelCalls: 0, privateHistoryReads: 0, ...cleanup };
+    unsafePathNotOpened: true, emptyCatalog: true, startupFailureCleanup: true, noClaudeSdk: true, modelCalls: 0, privateHistoryReads: 0, ...cleanup };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   assert.equal(process.argv.length, 3); console.log(JSON.stringify(await checkCodexHostNative({ helperPath: process.argv[2] })));
