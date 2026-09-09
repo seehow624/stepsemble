@@ -1,5 +1,33 @@
 # Changelog
 
+## 3.0.7
+
+Stable incremental release of the verified work below, not completion of the
+entire cross-agent roadmap. Native history remains explicit opt-in; upgrading
+does not grant access to private conversations or alter provider accounts.
+
+- Ship the approved B+ brand assets and agent-specific conversation marks.
+- Improve the conversation browser, mobile inner scrolling, localized history
+  controls, preserved focus/scroll and stale/busy/recovery feedback.
+- Fix Pi worktree launches incorrectly appearing failed, retain native session
+  names and SSE, prevent duplicate starts, and enforce project-folder boundaries.
+- Add local source-group setup/management and bounded read-only Claude/Codex
+  history, including original names, WAL/cold metadata, raw/structured pages,
+  compressed large rollouts and cross-page tool links. These require separately
+  configured trusted readers/SDK and owner-selected sources; the installer does
+  not automatically build helpers or scan private agent directories.
+- Fix history mode-switch/cancel races; share a two-reader resource limit and
+  require actual process cleanup before admitting replacement work.
+- Validate Codex paginated native item reads with owned fixtures and fix
+  turn-scoped item identity. Paginated private-source/Web integration is still
+  unavailable, as are full cross-agent native resume/durable approvals.
+- Harden update/release validation and retain compatibility aliases and
+  automatic code rollback on failed post-update health checks.
+
+Validation: full/minimum-Node regression and platform/browser/native gates are
+recorded in [the release manifest](docs/release-3.0.7.md). The completed 72-hour
+test covers its frozen rc.1 workload only, not this later release runtime.
+
 ## 3.0.7-rc.7
 
 Development candidate, not a stable release or a production deployment. This

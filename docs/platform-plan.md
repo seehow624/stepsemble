@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.80
+> 計畫版本：1.81
 > 最後更新：2026-09-09
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -9,6 +9,11 @@
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
 ## 文件用途與回復方法
+
+**Jerome最新指示／1.81**：停止長期Goal擴充，收尾、總結並發布本批已驗增量為
+3.0.7正式版供Mini/MBP更新；不把C1–C8長期計畫改寫成全完成。發布/實裝以各gate
+及實際結果為準，見[3.0.7發布清單](release-3.0.7.md)。未完成項保留，發布後等新指示。
+下方3.0.6部署基線及歷史checkpoint不代表新的主機版本；不可猜測兩台已自動更新。
 
 **最新接續1.80（paginated真原生讀取與item契約）**：owned state＋projection oracle
 確認0.153.4的items/list可用；舊-32601僅legacy案例，不能推為全面不支援。新增獨立
