@@ -14,6 +14,7 @@ on:
       - 'scripts/check-native-codex-pipeline.mjs'
       - 'scripts/check-native-codex-sqlite-pipeline.mjs'
       - 'scripts/check-native-codex-named-pipeline.mjs'
+      - 'scripts/check-native-codex-page-pipeline.mjs'
       - 'protocol/native/codex/**'
       - 'client/codex-history*.ts'
       - 'public/modules/codex-history*.js'
@@ -60,6 +61,7 @@ on:
       - 'scripts/check-native-codex-pipeline.mjs'
       - 'scripts/check-native-codex-sqlite-pipeline.mjs'
       - 'scripts/check-native-codex-named-pipeline.mjs'
+      - 'scripts/check-native-codex-page-pipeline.mjs'
       - 'protocol/native/codex/**'
       - 'client/codex-history*.ts'
       - 'public/modules/codex-history*.js'
@@ -173,7 +175,7 @@ jobs:
         shell: bash
         run: node scripts/check-native-codex-scanned-source.mjs "${{ runner.temp }}/stepsemble-native-history-reader/release/stepsemble-history-source-reader${{ runner.os == 'Windows' && '.exe' || '' }}"
       - name: Strict selected-page wire and helper cancellation regressions
-        run: node --test --test-timeout=60000 test/native-codex-scanned-source.test.js
+        run: node --test --test-timeout=60000 test/native-codex-scanned-source.test.js test/native-codex-page-parser.test.js
       - name: Complete envelope validation and actual large source pages (owned only)
         shell: bash
         run: node scripts/check-native-codex-validated-source.mjs "${{ runner.temp }}/stepsemble-native-history-reader/release/stepsemble-history-source-reader${{ runner.os == 'Windows' && '.exe' || '' }}"

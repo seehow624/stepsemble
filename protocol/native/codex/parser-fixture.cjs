@@ -37,4 +37,30 @@ function structuredCaptured(index, workdir = root) {
   c.storage = { encoding: "jsonl", rolloutPath: c.rolloutPath }; c.checks.rolloutSelectionRechecked = true;
   return c;
 }
-module.exports = { id, root, request, captured, job, sha, namedRequest, sqliteCapture, namedJob, withRollout, structuredCaptured };
+function pageCaptured(offset = 0, limit = 2, base = structuredCaptured()) {
+  const rows = [], bytes = base.rolloutBytes; let start = 0;
+  for (let end = 0; end < bytes.length; end++) if (bytes[end] === 10) { rows.push({ start, end: end + 1 }); start = end + 1; }
+  const records = []; let size = 0;
+  for (let i = offset; i < rows.length && records.length < limit; i++) {
+    const row = rows[i], b = bytes.subarray(row.start, row.end);
+    if (size + b.length > 256 * 1024) break;
+    records.push({ recordIndex: i, byteOffset: row.start, byteLength: b.length, payloadOffset: size, sha256: sha(b) }); size += b.length;
+  }
+  const pageBytes = records.length ? Buffer.from(bytes.subarray(rows[offset].start, rows[offset].start + size)) : Buffer.alloc(0);
+  const index = base.nameIndexBytes, body = Buffer.concat([pageBytes, index ?? Buffer.alloc(0)]);
+  return { kind: "native_codex_validated_source_page", nativeVersion: base.nativeVersion, threadId: base.threadId, rolloutPath: base.rolloutPath,
+    rootIdentity: base.rootIdentity, storage: { encoding: "jsonl", rolloutPath: base.rolloutPath }, byteLength: body.length, sha256: sha(body),
+    rollout: { identity: base.rollout.identity, sha256: base.rollout.sha256, recordCount: rows.length },
+    page: { offset, byteLength: size, records, nextOffset: offset + records.length === rows.length ? null : offset + records.length },
+    nameIndex: base.nameIndex === null ? null : { ...base.nameIndex, byteOffset: size },
+    validation: { profile: "codex_legacy_envelope_v1", recordsValidated: rows.length, selectedMetadataRecord: 0, metadataRecords: 1, historyMode: "legacy" },
+    checks: { owner: "posix_euid_and_mode", acl: "no_extended_acl", containment: "root_identity_and_openat_nofollow", reads: 2,
+      matchingRolloutDigests: true, matchingNameIndexBytes: true, unchangedObservedIdentity: true, nameIndexPresenceRechecked: true, rolloutSelectionRechecked: true },
+    recordSemanticsValidated: false, sourceAuthenticated: false, publishable: false, semanticHistoryComplete: false,
+    pageBytes, nameIndexBytes: index, cleanupConfirmed: true };
+}
+function pageJob(capture = pageCaptured(), selection = { mode: "records", offset: capture.page.offset, limit: 2 }, named = false, sql = sqliteCapture()) {
+  const base = named ? namedJob(undefined, selection, sql) : job(undefined, selection);
+  return { ...base, protocolVersion: named ? 8 : 7, source: require("./scanned-source-wire").sourceVersion(capture), page: capture.page };
+}
+module.exports = { id, root, request, captured, job, sha, namedRequest, sqliteCapture, namedJob, withRollout, structuredCaptured, pageCaptured, pageJob };

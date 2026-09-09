@@ -3,6 +3,7 @@
 const path = require("node:path"), crypto = require("node:crypto");
 const { canonicalJSON } = require("../../../public/modules/projection");
 const source = require("./source-wire");
+const scanned = require("./scanned-source-wire"), paged = require("./validated-page");
 const sqlite = require("./sqlite-wire").context;
 const { observeMetadataName } = require("./metadata-name");
 const { LIMITS: INDEX } = require("./name-index");
@@ -36,12 +37,13 @@ function validNameRequest(v) {
     && v.history.nativeVersion === v.sqlite.nativeVersion && v.history.source.threadId === v.sqlite.source.threadId
     && ["thread_read_sqlite", "thread_list_state_row"].includes(v.method);
 }
-function sameNamedVersion(a, b) {
+function sameNamedVersion(a, b, pageMode = false) {
   a = detach(a); b = detach(b);
-  const valid = v => keys(v, ["kind", "history", "sqlite"]) && v.kind === "codex_named_source_version"
-    && source.sameSourceVersion(v.history, v.history) && sqlite.sameSourceVersion(v.sqlite, v.sqlite)
+  const history = pageMode ? scanned : source;
+  const valid = v => keys(v, ["kind", "history", "sqlite"]) && v.kind === (pageMode ? "codex_named_page_source_version" : "codex_named_source_version")
+    && (!pageMode || paged.version(v.history)) && history.sameSourceVersion(v.history, v.history) && sqlite.sameSourceVersion(v.sqlite, v.sqlite)
     && v.history.threadId === v.sqlite.threadId && v.history.nativeVersion === v.sqlite.nativeVersion;
-  return valid(a) && valid(b) && source.sameSourceVersion(a.history, b.history) && sqlite.sameSourceVersion(a.sqlite, b.sqlite);
+  return valid(a) && valid(b) && history.sameSourceVersion(a.history, b.history) && sqlite.sameSourceVersion(a.sqlite, b.sqlite);
 }
 function validNameContext(v, version) {
   if (!keys(v, ["fields", "nameContext", "method", "rolloutPath"]) || !["thread_read_sqlite", "thread_list_state_row"].includes(v.method)
@@ -53,25 +55,29 @@ function validNameContext(v, version) {
     && Buffer.byteLength(c.rolloutPath) <= 8192 && typeof c.preview === "string" && c.preview.isWellFormed() && Buffer.byteLength(c.preview) <= 32768;
 }
 function validJob(v) {
-  const named = [2, 4, 6].includes(v?.protocolVersion), stored = [3, 4, 5, 6].includes(v?.protocolVersion);
-  return keys(v, ["protocolVersion", "nonce", "source", "selection", "expectedVersion", ...(named ? ["nameResolution"] : [])]) && [1, 2, 3, 4, 5, 6].includes(v.protocolVersion) && hash(v.nonce)
-    && source.sameSourceVersion(v.source, v.source) && validSelection(v.selection)
+  const named = [2, 4, 6, 8].includes(v?.protocolVersion), pageMode = [7, 8].includes(v?.protocolVersion), stored = [3, 4, 5, 6].includes(v?.protocolVersion);
+  const history = pageMode ? scanned : source;
+  return keys(v, ["protocolVersion", "nonce", "source", "selection", "expectedVersion", ...(named ? ["nameResolution"] : []), ...(pageMode ? ["page"] : [])]) && [1, 2, 3, 4, 5, 6, 7, 8].includes(v.protocolVersion) && hash(v.nonce)
+    && history.sameSourceVersion(v.source, v.source) && (pageMode ? paged.descriptor(v.page, v.source, v.selection) : validSelection(v.selection))
     && (![5, 6].includes(v.protocolVersion) || v.selection.mode === "records")
-    && Object.hasOwn(v.source, "storage") === stored
-    && (v.expectedVersion === null || source.sameSourceVersion(v.expectedVersion, v.expectedVersion)) && (!named || validNameContext(v.nameResolution, v.source));
+    && Object.hasOwn(v.source, "storage") === (stored || pageMode)
+    && (v.expectedVersion === null || history.sameSourceVersion(v.expectedVersion, v.expectedVersion) && (!pageMode || paged.version(v.expectedVersion))) && (!named || validNameContext(v.nameResolution, v.source));
 }
 function validPayload(bytes, job) {
   if (!Buffer.isBuffer(bytes) || !validJob(job)) return false;
+  if ([7, 8].includes(job.protocolVersion)) return paged.payload(bytes, job);
   const split = job.source.rollout.identity.size, size = split + (job.source.nameIndex?.identity.size ?? 0);
   return bytes.length === size && sha(bytes.subarray(0, split)) === job.source.rollout.sha256
     && (job.source.nameIndex === null || sha(bytes.subarray(split)) === job.source.nameIndex.sha256);
 }
 function encodeJob(input, captured) {
-  const job = detach(input, LIMITS.namedHeaderBytes), version = source.sourceVersion(captured);
-  if (!validJob(job) || !version || !source.sameSourceVersion(version, job.source)) return null;
+  const job = detach(input, LIMITS.namedHeaderBytes), pageMode = [7, 8].includes(job?.protocolVersion), history = pageMode ? scanned : source;
+  const version = history.sourceVersion(captured);
+  if (!validJob(job) || !version || !history.sameSourceVersion(version, job.source)) return null;
   const fields = Object.getOwnPropertyDescriptors(captured);
   if (fields.cleanupConfirmed?.value !== true) return null;
-  const rollout = fields.rolloutBytes?.value, index = fields.nameIndexBytes?.value;
+  if (pageMode && canonicalJSON(fields.page?.value) !== canonicalJSON(job.page)) return null;
+  const rollout = (pageMode ? fields.pageBytes : fields.rolloutBytes)?.value, index = fields.nameIndexBytes?.value;
   // Capture buffers are Host-owned. Reject accessors/shared memory/overridden
   // properties rather than executing a caller's byteLength or copy hook.
   const typed = Object.getPrototypeOf(Uint8Array.prototype), get = key => Object.getOwnPropertyDescriptor(typed, key).get;
@@ -82,9 +88,9 @@ function encodeJob(input, captured) {
       return Object.getPrototypeOf(backing) === ArrayBuffer.prototype ? new Uint8Array(backing, offset, size) : null;
     } catch { return null; }
   };
-  const a = view(rollout, version.rollout.identity.size), b = version.nameIndex === null ? null : view(index, version.nameIndex.identity.size);
+  const a = view(rollout, pageMode ? job.page.byteLength : version.rollout.identity.size), b = version.nameIndex === null ? null : view(index, version.nameIndex.identity.size);
   if (!a || (version.nameIndex === null ? index !== null : b === null)) return null;
-  const header = Buffer.from(JSON.stringify(job)); if (header.length > ([2, 4, 6].includes(job.protocolVersion) ? LIMITS.namedHeaderBytes : LIMITS.headerBytes)) return null;
+  const header = Buffer.from(JSON.stringify(job)); if (header.length > ([2, 4, 6, 8].includes(job.protocolVersion) ? LIMITS.namedHeaderBytes : LIMITS.headerBytes)) return null;
   const encoded = Buffer.allocUnsafe(4 + header.length + a.length + (b?.length ?? 0));
   encoded.writeUInt32BE(header.length); header.copy(encoded, 4); encoded.set(a, 4 + header.length);
   if (b) encoded.set(b, 4 + header.length + a.length);
@@ -100,7 +106,7 @@ function readJob(frame) {
   if (!Buffer.isBuffer(frame) || frame.length < 5 || frame.length > LIMITS.inputBytes) return null;
   const length = frame.readUInt32BE(0); if (!length || length > LIMITS.namedHeaderBytes || length + 4 > frame.length) return null;
   const job = decode(frame.subarray(4, 4 + length), LIMITS.namedHeaderBytes), bytes = frame.subarray(4 + length);
-  if (![2, 4, 6].includes(job?.protocolVersion) && length > LIMITS.headerBytes) return null;
+  if (![2, 4, 6, 8].includes(job?.protocolVersion) && length > LIMITS.headerBytes) return null;
   return validPayload(bytes, job) ? { job, bytes } : null;
 }
 function validIndex(v, job) {
@@ -143,11 +149,12 @@ function validPage(v, job, payload, decoded) {
 }
 function validResult(v, job, payload) {
   if (keys(v, ["kind", "code"]) && v.kind === "source_unavailable") return CODES.includes(v.code);
-  const stored = [3, 4, 5, 6].includes(job.protocolVersion), named = [2, 4, 6].includes(job.protocolVersion), structured = [5, 6].includes(job.protocolVersion);
+  const stored = [3, 4, 5, 6].includes(job.protocolVersion), named = [2, 4, 6, 8].includes(job.protocolVersion), structured = [5, 6].includes(job.protocolVersion), pageMode = [7, 8].includes(job.protocolVersion);
+  const history = pageMode ? scanned : source;
   return keys(v, ["kind", "source", "index", "page", "sourceAuthenticated", "publishable", "semanticHistoryComplete", ...(named ? ["name"] : []), ...(stored ? ["decoded"] : []), ...(structured ? ["structure"] : [])])
-    && v.kind === "codex_parsed_capture" && source.sameSourceVersion(job.source, v.source) && validIndex(v.index, job)
+    && v.kind === (pageMode ? "codex_parsed_page_capture" : "codex_parsed_capture") && history.sameSourceVersion(job.source, v.source) && validIndex(v.index, job)
     && (!stored || validDecoded(v.decoded, job))
-    && (job.selection.mode === "names" ? v.page === null : validPage(v.page, job, job.source.storage?.encoding === "zstd" ? null : payload, v.decoded))
+    && (pageMode ? paged.matches(v.page, job, payload) : job.selection.mode === "names" ? v.page === null : validPage(v.page, job, job.source.storage?.encoding === "zstd" ? null : payload, v.decoded))
     && (!structured || validStructure(v.structure, v.page))
     && v.sourceAuthenticated === false && v.publishable === false && v.semanticHistoryComplete === false
     && (!named || validName(v.name, job));
@@ -181,7 +188,7 @@ function encodeResponse(result, job) {
   return readResponse(bytes, job) ? bytes : encode(unavailable("source_worker_protocol"));
 }
 function launchOptions() {
-  const files = ["parser-worker.js", "parser-wire.js", "source-wire.js", "name-index.js", "rollout-snapshot.js", "rollout-decompression.js", "rollout-structure.js", "sqlite-wire.js", "metadata-name.js", "name-resolution.js"].map(f => path.join(__dirname, f));
+  const files = ["parser-worker.js", "parser-wire.js", "source-wire.js", "name-index.js", "rollout-snapshot.js", "rollout-decompression.js", "rollout-structure.js", "sqlite-wire.js", "metadata-name.js", "name-resolution.js", "scanned-source-wire.js", "validated-page.js"].map(f => path.join(__dirname, f));
   files.push(path.resolve(__dirname, "../../../public/modules/projection.js"));
   files.push(path.resolve(__dirname, "../../../public/modules/codex-history-records.js"));
   return { executable: process.execPath, args: ["--permission", "--no-warnings", "--max-old-space-size=128", ...files.map(f => `--allow-fs-read=${f}`), files[0]],

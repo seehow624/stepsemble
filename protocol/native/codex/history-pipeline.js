@@ -6,6 +6,7 @@ const { spawn } = require("node:child_process"), { performance } = require("node
 const { createNativeHelper, SOURCE_CODES } = require("../claude/history-native-helper");
 const { isReaderAdmission, LIMIT } = require("../claude/history-reader-admission");
 const source = require("./source-wire"), wire = require("./parser-wire");
+const scanned = require("./scanned-source-wire"), paged = require("./validated-page");
 const sqlite = require("./sqlite-wire").context;
 const unavailable = code => ({ kind: "source_unavailable", code });
 const codes = new Set([...SOURCE_CODES, ...wire.CODES, "source_worker_exit", "source_worker_timeout", "source_worker_spawn_failed",
@@ -41,14 +42,16 @@ function createCodexHistoryPipeline(options = {}) {
     if (admission.status().quarantined) quarantine();
     for (const f of flights) if (f.settled && f.helperSettled && !f.childActive && helperClosed(f.slot)) release(f);
   }
-  async function read(input, options = {}, named = false) {
+  async function read(input, options = {}, named = false, pageMode = false) {
     sweep();
     if (!own(options, ["selection", "expectedVersion", "signal", "structured"]) || options.structured !== undefined && typeof options.structured !== "boolean") return unavailable("invalid_codex_pipeline_request");
     const request = wire.detach(input, named ? wire.LIMITS.namedHeaderBytes : wire.LIMITS.headerBytes), selection = wire.detach(options.selection ?? (named ? { mode: "names" } : { mode: "records", offset: 0, limit: 50 }));
     const expected = options.expectedVersion === undefined ? null : wire.detach(options.expectedVersion);
-    if (!(named ? wire.validNameRequest(request) : source.input(request)) || !wire.validSelection(selection)
-      || options.structured === true && selection.mode !== "records"
-      || options.expectedVersion !== undefined && !(named ? wire.sameNamedVersion(expected, expected) : source.sameSourceVersion(expected, expected)))
+    const history = pageMode ? scanned : source;
+    if (!(named ? wire.validNameRequest(request) : source.input(request)) || !(pageMode ? paged.selection(selection) : wire.validSelection(selection))
+      || options.structured === true && (pageMode || selection.mode !== "records")
+      || options.expectedVersion !== undefined && !(named ? wire.sameNamedVersion(expected, expected, pageMode)
+        : history.sameSourceVersion(expected, expected) && (!pageMode || paged.version(expected))))
       return unavailable("invalid_codex_pipeline_request");
     const signal = options.signal;
     if (signal !== undefined && !(signal instanceof AbortSignal)) return unavailable("invalid_source_signal");
@@ -61,6 +64,9 @@ function createCodexHistoryPipeline(options = {}) {
     if (!slot || !helperClosed(slot) || quarantined) return unavailable("source_service_quarantined");
     if (named && typeof slot.helper.readCodexNameContext !== "function") return unavailable("source_worker_protocol");
     const historyRequest = named ? request.history : request;
+    const historyMethod = pageMode ? "readCodexValidatedPage" : "readCodex";
+    if (typeof slot.helper[historyMethod] !== "function") return unavailable("source_worker_protocol");
+    const captureRequest = pageMode ? { ...historyRequest, page: selection.mode === "names" ? { offset: 0, limit: 1 } : { offset: selection.offset, limit: selection.limit } } : historyRequest;
     let nonce;
     try { nonce = crypto.randomBytes(32).toString("hex"); } catch { return unavailable("source_worker_failure"); }
     let resolve; const promise = new Promise(done => { resolve = done; }), controller = new AbortController();
@@ -118,8 +124,8 @@ function createCodexHistoryPipeline(options = {}) {
       return captured;
     }
     function historyVersion(captured) {
-      const v = source.sourceVersion(captured), r = historyRequest;
-      return v && captured.cleanupConfirmed === true && v.nativeVersion === r.nativeVersion && v.threadId === r.source.threadId && v.rolloutPath === r.source.rolloutPath
+      const v = history.sourceVersion(captured), r = historyRequest;
+      return v && (!pageMode || paged.version(v)) && captured.cleanupConfirmed === true && v.nativeVersion === r.nativeVersion && v.threadId === r.source.threadId && v.rolloutPath === r.source.rolloutPath
         && v.rootIdentity.device === r.expectedRoot.device && v.rootIdentity.inode === r.expectedRoot.inode ? v : null;
     }
     async function run() {
@@ -130,12 +136,13 @@ function createCodexHistoryPipeline(options = {}) {
         if (!sqlVersion) return settle(unavailable("source_worker_protocol"));
         if (expected !== null && !sqlite.sameSourceVersion(expected.sqlite, sqlVersion)) return settle(unavailable("source_version_changed"));
       }
-      let captured = await captureStep("readCodex", historyRequest); if (!captured) return;
+      let captured = await captureStep(historyMethod, captureRequest); if (!captured) return;
       const version = historyVersion(captured);
       if (!version) return settle(unavailable("source_worker_protocol"));
       const expectedHistory = named ? expected?.history ?? null : expected;
-      if (expectedHistory !== null && !source.sameSourceVersion(expectedHistory, version)) return settle(unavailable("source_version_changed"));
-      const job = { protocolVersion: options.structured === true ? (named ? 6 : 5) : (named ? 2 : 1) + (version.storage ? 2 : 0), nonce, source: version, selection, expectedVersion: expectedHistory,
+      if (expectedHistory !== null && !history.sameSourceVersion(expectedHistory, version)) return settle(unavailable("source_version_changed"));
+      const job = { protocolVersion: pageMode ? (named ? 8 : 7) : options.structured === true ? (named ? 6 : 5) : (named ? 2 : 1) + (version.storage ? 2 : 0), nonce, source: version, selection, expectedVersion: expectedHistory,
+        ...(pageMode ? { page: captured.page } : {}),
         ...(named ? { nameResolution: { fields: sqlCapture.metadata.observation.fields, nameContext: sqlCapture.metadata.observation.nameContext,
           method: request.method, rolloutPath: path.join(historyRequest.source.codexRoot, historyRequest.source.rolloutPath) } } : {}) };
       sqlCapture = null;
@@ -184,12 +191,12 @@ function createCodexHistoryPipeline(options = {}) {
       const finalSqlite = sqlite.sourceVersion(captured, request.sqlite); captured = null;
       if (!finalSqlite) return settle(unavailable("source_worker_protocol"));
       if (!sqlite.sameSourceVersion(initialSqlite, finalSqlite)) return settle(unavailable("source_version_changed"));
-      captured = await captureStep("readCodex", historyRequest); if (!captured) return;
+      captured = await captureStep(historyMethod, captureRequest); if (!captured) return;
       const finalHistory = historyVersion(captured); captured = null;
       if (!finalHistory) return settle(unavailable("source_worker_protocol"));
-      if (!source.sameSourceVersion(initialHistory, finalHistory)) return settle(unavailable("source_version_changed"));
+      if (!history.sameSourceVersion(initialHistory, finalHistory)) return settle(unavailable("source_version_changed"));
       if (!current()) return;
-      settle({ ...parsed, kind: "codex_named_capture", source: { kind: "codex_named_source_version", history: finalHistory, sqlite: finalSqlite },
+      settle({ ...parsed, kind: pageMode ? "codex_named_page_capture" : "codex_named_capture", source: { kind: pageMode ? "codex_named_page_source_version" : "codex_named_source_version", history: finalHistory, sqlite: finalSqlite },
         consistency: "matching_selected_versions_before_and_after_parse", cleanupConfirmed: true });
     }
     run().catch(() => {
@@ -208,7 +215,8 @@ function createCodexHistoryPipeline(options = {}) {
     })();
     return shutdownPromise;
   }
-  return Object.freeze({ read: (input, options) => read(input, options), readNamed: (input, options) => read(input, options, true), shutdown, status() { sweep(); return Object.freeze({ closed: closed || admission.status().closed, quarantined,
+  return Object.freeze({ read: (input, options) => read(input, options), readNamed: (input, options) => read(input, options, true),
+    readPage: (input, options) => read(input, options, false, true), readNamedPage: (input, options) => read(input, options, true, true), shutdown, status() { sweep(); return Object.freeze({ closed: closed || admission.status().closed, quarantined,
     activeWorkers: flights.size, cleanupConfirmed: flights.size === 0 }); } });
 }
 module.exports = { createCodexHistoryPipeline };

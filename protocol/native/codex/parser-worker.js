@@ -1,5 +1,6 @@
 "use strict";
 const wire = require("./parser-wire");
+const scanned = require("./scanned-source-wire"), paged = require("./validated-page");
 const { observeNameIndex } = require("./name-index");
 const { sameSourceVersion } = require("./source-wire");
 const { createRolloutSnapshot, observeRolloutNameIdentity, readRolloutPage, releaseRolloutSnapshot } = require("./rollout-snapshot");
@@ -11,6 +12,7 @@ const unavailable = code => ({ kind: "source_unavailable", code });
 function processJob(input, bytes) {
   const job = wire.detach(input, wire.LIMITS.namedHeaderBytes);
   if (!wire.validPayload(bytes, job)) return unavailable("source_worker_protocol");
+  if ([7, 8].includes(job.protocolVersion)) return processPage(job, bytes);
   if (job.expectedVersion !== null && !sameSourceVersion(job.expectedVersion, job.source)) return unavailable("source_version_changed");
   const split = job.source.rollout.identity.size;
   const parameters = { nativeVersion: job.source.nativeVersion, threadId: job.source.threadId };
@@ -50,6 +52,24 @@ function processJob(input, bytes) {
         sha256: createHash("sha256").update(decoded.bytes).digest("hex"), frames: decoded.frames } } : {}),
       sourceAuthenticated: false, publishable: false, semanticHistoryComplete: false };
   } finally { if (snapshot) (structured ? structure.releaseStructuredRolloutSnapshot : releaseRolloutSnapshot)(snapshot); if (job.source.storage?.encoding === "zstd") decoded.bytes.fill(0); }
+}
+function processPage(job, bytes) {
+  if (job.expectedVersion !== null && !scanned.sameSourceVersion(job.expectedVersion, job.source)) return unavailable("source_version_changed");
+  const page = paged.project(bytes, job);
+  if (page?.kind === "source_unavailable") return page;
+  const indexBytes = job.source.nameIndex === null ? null : bytes.subarray(job.page.byteLength);
+  const parameters = { nativeVersion: job.source.nativeVersion, threadId: job.source.threadId };
+  const index = observeNameIndex(indexBytes, parameters);
+  if (index.kind !== "codex_name_index_observation") return unavailable(index.code);
+  let name;
+  if (job.protocolVersion === 8) {
+    const context = job.nameResolution;
+    name = observeSqliteNameResolution(context.fields, context.nameContext, indexBytes, { ...parameters, method: context.method,
+      rollout: { threadId: job.source.threadId, historyMode: job.source.validation.historyMode, path: context.rolloutPath } });
+    if (name.kind !== "codex_name_resolution_observation") return unavailable(name.code);
+  }
+  return { kind: "codex_parsed_page_capture", source: job.source, index, page, ...(name ? { name } : {}),
+    sourceAuthenticated: false, publishable: false, semanticHistoryComplete: false };
 }
 function validContext(permission = process.permission) {
   return !!permission && typeof permission.has === "function" && !permission.has("fs.write") && !permission.has("child") && !permission.has("fs.read");

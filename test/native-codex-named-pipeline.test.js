@@ -15,9 +15,10 @@ function harness(t, config = {}) {
       const h = { active: false, calls: [] };
       h.status = () => ({ activeWorker: h.active, cleanupConfirmed: !h.active, quarantined: false });
       h.close = () => { if (h.active) { h.active = false; drop(); } };
-      for (const method of ["readCodex", "readCodexNameContext"]) h[method] = (input, { signal }) => {
+      for (const method of ["readCodex", "readCodexNameContext", "readCodexValidatedPage"]) h[method] = (input, { signal }) => {
         assert.equal(h.active, false); add(); h.active = true; h.calls.push({ method, input }); stages.push(method);
-        const promise = new Promise(resolve => { h.finish = (result = method === "readCodex" ? (config.structured ? f.structuredCaptured() : f.captured()) : f.sqliteCapture(), close = true) => { if (close) h.close(); resolve(result); }; });
+        const promise = new Promise(resolve => { h.finish = (result = method === "readCodexValidatedPage" ? f.pageCaptured(input.page.offset, input.page.limit)
+          : method === "readCodex" ? (config.structured ? f.structuredCaptured() : f.captured()) : f.sqliteCapture(), close = true) => { if (close) h.close(); resolve(result); }; });
         signal.addEventListener("abort", () => { if (!config.holdReader) h.finish(unavailable("source_aborted")); }, { once: true });
         return promise;
       };
@@ -42,6 +43,77 @@ function harness(t, config = {}) {
 async function complete(h, options = {}, input = f.namedRequest()) {
   const promise = h.pipeline.readNamed(input, options); for (let i = 0; i < 5; i++) await h.step(); return promise;
 }
+test("v8 named page uses the same five-stage permit, exact page selection and page-independent composite version", async t => {
+  const h = harness(t), stages = ["readCodexNameContext", "readCodexValidatedPage", "parser", "readCodexNameContext", "readCodexValidatedPage"];
+  let version;
+  for (const selection of [{ mode: "names" }, { mode: "records", offset: 4, limit: 2 }]) {
+    const pending = h.pipeline.readNamedPage(f.namedRequest(), { selection, ...(version ? { expectedVersion: version } : {}) });
+    for (let i = 0; i < 5; i++) {
+      assert.equal(h.admission.status().activeWorkers, 1); assert.equal(h.physical(), 1);
+      await h.step();
+    }
+    const result = await pending;
+    assert.equal(result.kind, "codex_named_page_capture", result.code); assert.equal(result.name.name, "原生候選 🐾");
+    assert.equal(result.source.kind, "codex_named_page_source_version"); assert(wire.sameNamedVersion(result.source, result.source, true));
+    assert.equal(wire.sameNamedVersion(result.source, result.source), false);
+    if (version) { assert(wire.sameNamedVersion(version, result.source, true)); assert.equal(result.page.offset, 4); } else assert.equal(result.page, null);
+    version = result.source; assert.equal(result.cleanupConfirmed, true); assert.equal(h.admission.status().cleanupConfirmed, true);
+    assert.deepEqual(h.stages.slice(-5), stages); assert.equal(h.children.at(-1).input().job.protocolVersion, 8);
+  }
+  assert.equal(h.max(), 1);
+  assert.equal((await h.pipeline.readNamed(f.namedRequest(), { expectedVersion: version })).code, "invalid_codex_pipeline_request");
+  assert.equal((await h.pipeline.readNamedPage(f.namedRequest(), { structured: true })).code, "invalid_codex_pipeline_request");
+});
+test("v7 raw page shares the original two-stage lifecycle and fences complete validated versions", async t => {
+  const h = harness(t);
+  const pending = h.pipeline.readPage(f.request(), { selection: { mode: "records", offset: 4, limit: 2 } });
+  await h.step(); assert.equal(h.admission.status().activeWorkers, 1);
+  await h.step(undefined, false); let done = false; pending.then(() => { done = true; });
+  h.activeChild().emit("exit", 0); await tick(); assert.equal(done, false);
+  h.activeChild().close(); const first = await pending;
+  assert.equal(first.kind, "codex_parsed_page_capture", first.code); assert.equal(first.page.offset, 4); assert.equal(first.cleanupConfirmed, true);
+  assert.deepEqual(h.stages, ["readCodexValidatedPage", "parser"]);
+  const next = h.pipeline.readPage(f.request(), { expectedVersion: first.source }); await h.step(); await h.step();
+  assert.equal((await next).kind, "codex_parsed_page_capture");
+  const downgraded = structuredClone(first.source); downgraded.kind = "codex_scanned_source_version"; delete downgraded.validation;
+  assert.equal((await h.pipeline.readPage(f.request(), { expectedVersion: downgraded })).code, "invalid_codex_pipeline_request");
+  assert.equal((await h.pipeline.read(f.request(), { expectedVersion: first.source })).code, "invalid_codex_pipeline_request");
+});
+test("v8 cancellation at every stage waits for physical closure, shares old consumers' budget, and never publishes late names", async t => {
+  for (const at of [0, 1, 2, 3, 4]) {
+    const admission = createReaderAdmission(), h = harness(t, { admission }), peer = harness(t, { admission }), controller = new AbortController();
+    const pending = h.pipeline.readNamedPage(f.namedRequest(), { signal: controller.signal }), other = peer.pipeline.read(f.request());
+    for (let i = 0; i < at; i++) await h.step();
+    assert.equal(admission.status().activeWorkers, 2); assert.equal(h.physical() + peer.physical(), 2);
+    assert.equal((await h.pipeline.readPage(f.request())).code, "source_busy"); controller.abort();
+    assert.deepEqual(await pending, unavailable("source_aborted")); assert.equal(h.physical(), 0); assert.equal(admission.status().activeWorkers, 1);
+    await peer.step(); await peer.step(); assert.equal((await other).kind, "codex_parsed_capture");
+    assert.equal(admission.status().cleanupConfirmed, true); assert.equal(h.stages.length, at + 1);
+  }
+});
+test("v8 final and expected fences catch SQL/index changes and valid mutations outside the selected page", async t => {
+  for (const [stage, make] of [[3, () => f.sqliteCapture(o => { o.fields.title = "renamed"; })],
+    [4, () => { const c = f.pageCaptured(0, 1); c.rollout.sha256 = "f".repeat(64); return c; }],
+    [4, () => { const c = f.pageCaptured(0, 1); c.nameIndex.identity.ctimeNs = "99"; return c; }]]) {
+    const h = harness(t), pending = h.pipeline.readNamedPage(f.namedRequest());
+    for (let i = 0; i < stage; i++) await h.step(); await h.step(make());
+    assert.deepEqual(await pending, unavailable("source_version_changed")); assert.equal(h.physical(), 0);
+  }
+  const h = harness(t), first = h.pipeline.readNamedPage(f.namedRequest()); for (let i = 0; i < 5; i++) await h.step();
+  const expectedVersion = (await first).source; expectedVersion.history.rollout.sha256 = "f".repeat(64);
+  const pending = h.pipeline.readNamedPage(f.namedRequest(), { expectedVersion }); await h.step(); await h.step();
+  assert.deepEqual(await pending, unavailable("source_version_changed")); assert.equal(h.children.length, 1);
+});
+test("v8 unknown parser/reader closure quarantines the same Host admission and cannot fall back to a new reader", async t => {
+  for (const stage of [1, 2, 4]) {
+    const h = harness(t, { holdParser: true, holdReader: true }), controller = new AbortController();
+    const pending = h.pipeline.readNamedPage(f.namedRequest(), { signal: controller.signal });
+    for (let i = 0; i < stage; i++) await h.step(); controller.abort();
+    assert.deepEqual(await pending, unavailable("source_cleanup_unconfirmed")); assert.equal(h.admission.status().quarantined, true);
+    for (const method of ["read", "readPage"]) assert.equal((await h.pipeline[method](f.request())).code, "source_service_quarantined");
+    assert.equal(h.physical(), 1);
+  }
+});
 test("one permit spans SQL A, bytes A, parser close, SQL B and bytes B; no early success or name authority", async t => {
   const h = harness(t), input = f.namedRequest(), pending = h.pipeline.readNamed(input); let done = false; pending.then(() => { done = true; });
   input.method = "changed"; input.sqlite.source.threadId = "changed";
