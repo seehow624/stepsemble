@@ -1,8 +1,10 @@
 # Web 完整體：持續執行與驗收清單
 
 2026-09-09／Plan1.74：大型page已接真正Host／registry／HTTP／peer／Web，
-17.2MB/16384筆、原名、直跳／頁外版本及損壞恢復、320/390px通；1057/0fail。
-跨頁全域結構仍待，C2/C6不勾完成，exact CI待核。[最新接續與證據](codex-large-web.md)。
+17.2MB/16384筆、原名、直跳／頁外版本及損壞恢復、320/390px通；最新1059/0fail。
+原工程087102f四CI通，0acf6a8修瀏覽器共同期限；新一般／雙OS完整瀏覽器CI全通及
+完整logs已核。跨頁全域結構仍待，
+C2/C6不勾完成。[最新接續與證據](codex-large-web.md)。
 
 2026-09-08，Jerome 明確要求「開啟 loop 模式，讓它變得完整」。已建立目前任務的
 持續 goal；本文件保存工作順序和驗收狀態，**不是另一個排程器，也不執行背景 shell loop**。
@@ -90,14 +92,14 @@ Rust29/30／全部179child與83dirs清理通。新工程7b16d03五CI已通／ful
 
 「待完成」不表示從零開始；沿用主計畫已驗模組，只補缺口。
 
-| Checkpoint | 交付與必要證據 | 開始狀態 |
+| Checkpoint | 交付與必要證據 | 目前進展（不等於整項驗收完成） |
 | --- | --- | --- |
 | C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | Plan1.57新增本機新群組設定精靈/review/明確readers/CREATE與真Host原檔驗證；Web列表已接，不自選私人來源或新增Web管理route，完整管理/實機與C1完整gate仍待 |
-| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.69 owner→catalog→registry→HTTP/peer→Web raw records；1.70冷DB及1.71壓縮v9／bounded parser全鏈與CI已驗。三OS985/0fail、reader236＋10，POSIX39筆全頁／名稱／雙向切換與cleanup，雙OS×六壓縮browser cases通。仍非完整native語義／原子snapshot／resume；超8MiB大型歷史、paginated、其他adapter與C2完整驗收繼續 |
+| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.74已接大型plain來源到同Host／Web，實驗證17.2MB／16384筆、原名與直跳／完整逐筆文字；小型及壓縮來源保留既有回合／工具關聯。大檔全域turn/tool/rollback、大型壓縮、paginated/native投影、其他adapter與C2完整驗收繼續；不是完整語義、原子snapshot或resume |
 | C3 Session／approval／恢復 | 按真實 capability 接結構化事件、續跑與 approval；ownership、exact correlation、重送／重連／Host crash、durable journal/replay 不漏不重 | 有 contract 與局部實作，未全驗 |
 | C4 帳號與故障體驗 | 登入／登出偵測、官方登入入口、路由相容、取消／失敗／stale／busy 可復原；不修寫第三方憑證或以重試消耗模型 | 局部已驗，跨 harness 待補 |
 | C5 手機與跨裝置操作 | 完整 history i18n、鍵盤／focus／內捲動、長歷史 DOM 上限、Host 切換、background/reconnect、跨機與目標瀏覽器實測 | Plan1.56已接119keys/11語並修正locale scroll跳動；320/390合成Host CUA、原文/DOM/focus保留已驗；人工校稿/真機/跨Host與其餘gate仍待 |
-| C6 可靠性與效能 | 保存完整失敗診斷；調查曾發生的未定位測試失敗；同 workload 多輪 before/after、記憶體、長串流與斷線驗證 | Plan1.65修POSIX fixture鎖與Mac320px觀測競態；1.71重現並修測試Buffer差異格式化膨脹，原兩次Linux失敗保留，新9820ed2通。Linux合成Host最高觀測stage RSS85,794,816 bytes，非完整峰值／容量結論；混合負載、長歷史與整體效能gate仍待 |
+| C6 可靠性與效能 | 保存完整失敗診斷；調查曾發生的未定位測試失敗；同 workload 多輪 before/after、記憶體、長串流與斷線驗證 | 原fixture鎖／頁面觀測／Buffer差異格式化／PTY競態均保留失敗及修正證據。Plan1.74兩輪相同owned大檔17讀取，health p95 1.39／1.76ms、RSS樣本91.5／93.1MB，非峰值／容量結論。新增瀏覽器suite共同300秒期限問題已拆組，無skip／retry；最大來源、混合負載、真機及整體效能gate仍待 |
 | C7 跨平台 Host 與分階段 Rust | 保留相容 Host/Client 邊界；Rust 以契約／shadow／逐 endpoint 方式接入；Windows 原生來源與真服務 runner 不把 parser 通過当成功能通過 | POSIX reader 已有，其餘按主計畫 gate 推進 |
 | C8 發布與回滾 | exact SHA 的必要 CI／browser／native gates、來源與帳號授權、active-work 檢查、備份、回滾、正式健康與版本／裝置驗收 | 正式 3.0.6 不變；新候選未部署 |
 

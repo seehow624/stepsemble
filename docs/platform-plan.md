@@ -18,7 +18,8 @@
 **最新接續1.74（大型歷史接實際Host／Web）**：明確新profile接同binding／registry／
 HTTP／peer／typed Web，保留舊小型／壓縮回合檢視。大檔完整單筆文字與直接跳轉已接，
 不冒稱跨頁turn/tool結構。真17.2MB/16384筆、原名／append／rename／損壞恢復、
-320/390px與完整／最低Node1057/0fail通，兩輪health/RSS樣本已留。exact CI待核，
+320/390px與完整／最低Node1059/0fail通，兩輪health/RSS樣本已留。
+原工程087102f四CI通；0acf6a8修瀏覽器共同期限，新一般及雙OS完整browser CI全通、full logs已核；
 見[大型Web接線](codex-large-web.md)。C2/C6及C1–C8仍未全完成。
 
 **前段接續1.73（大型分頁解析與名稱共用管線）**：40d2b43接parser7/8與同兩reader／

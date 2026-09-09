@@ -75,7 +75,21 @@ Linux六組全通，Mac四組通後在worker開始約300秒被共同程序期限
 總預算。現在拆三個順序、獨立browser worker，每組仍300秒、CI job仍12分鐘、
 每次UI等待與產品pipeline/HTTP期限不改；所有案例保留、不自動重試。
 逾時單獨記錄原因，等實體close再返回，必要時五秒後終止未退出child；新增兩個
-分組完整性及timeout/非零退出/成功的測試。**修正後exact CI待核，不把原Mac標成功。**
+分組完整性及timeout/非零退出/成功的測試。另以真owned Node child驗成功、exit2、
+100ms逾時皆等close才返回，沒有重試。
+
+修正工程`0acf6a83db429b618af014722a83e8efe42a7add`的
+[一般測試](https://github.com/seehow624/stepsemble/actions/runs/34320999141)及
+[瀏覽器相容性](https://github.com/seehow624/stepsemble/actions/runs/34320999106)**全部成功，完整logs已核**。
+三OS1059/0fail（Mac1057pass/2skip、Linux1056/3、Windows1009/50），本機完整及
+最低Node22.19亦1059/0fail/2skip。Mac/Linux的core、sources、Codex三組各執行一次，
+各24原case＋6Codex三尺寸×明暗全部通、6來源清理通；新大檔全文／內捲／16384筆／
+直跳／追加version fence及恢復全通，仍不是實體手機。兩job耗時7m3s／5m3s。
+此commit只改test runner／測試及文件，reader／Claude／Codex產品仍是上列087102f
+已驗內容；未觸發的三個workflow不冒稱在0acf重跑。未部署、未用私人來源或模型。
+修正版完整logs `/tmp/stepsemble-large-web-runner-ci-{general,browser}.log`；
+原失敗 `/tmp/stepsemble-large-web-ci-browser.log`保留。109本地文件連結有效，
+actionlint及本批差異gitleaks0leaks。
 
 ## 下一段：goal維持active
 

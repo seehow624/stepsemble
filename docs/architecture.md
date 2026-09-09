@@ -17,7 +17,9 @@ Plan1.74 connects an explicit validated-page profile through the SAME Host,
 registry, HTTP/peer and typed Web. Small/compressed structured history retains
 its original contract. Large records have full text and direct navigation, not
 invented global turn/tool links. Owned17.2MB/16384-record Host, CUA320/390px,
-full/minimum Node1057/0fail pass; exact CI pending. See
+full/minimum Node1059/0fail pass. Four 087102f engineering CI workflows passed;
+0acf6a8 isolated the browser aggregate deadline by suite. Its general and complete
+Mac/Linux browser CI passed, with full logs checked and the original failure retained. See
 [`codex-large-web.md`](codex-large-web.md) for protocol and performance limits.
 
 Latest development-only 40d2b43 adds page-aware parser v7/v8 and readPage/readNamedPage
