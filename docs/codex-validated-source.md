@@ -1,5 +1,9 @@
 # 大型來源全檔格式驗證（Plan1.73／v11，尚未接 Web）
 
+接續更新：40d2b43已把此receipt接page-aware parser7/8、既有原名規則與共享named
+管線，見[新分頁管線證據](codex-page-pipeline.md)。下列「尚未接parser/name/pipeline」
+保留為本checkpoint的歷史狀態；新大檔Host/Web與全域結構仍待。
+
 2026-09-09；工程 `5555a7eb2a185da3a4f49e4c46d0c3eda18dc8bf`。
 接續 [v10 安全分頁擷取](codex-scanned-source.md)。
 這一段將全來源 legacy envelope 驗證接入真正的 held-FD 雙掃路徑，不只解析當前頁。

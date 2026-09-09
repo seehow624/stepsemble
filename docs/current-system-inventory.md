@@ -9,6 +9,11 @@
 
 ## 1. 這份文件的角色
 
+最新40d2b43已接v11 page-aware parser7/8及同named五階段／共享兩reader，原名與
+大檔頁外變更／真取消驗證通，完整及最低Node1047/0fail；四exact CI全通／full logs核。
+**新大檔Host/Web未接**，
+接續[分頁管線與產品待辦](codex-page-pipeline.md)。下列v11「尚未接pipeline」為歷史狀態。
+
 Plan1.73接續v11已將完整來源legacy envelope驗證接held-FD雙掃，新receipt區分v10。
 46差分／16,384筆真檔頁外損壞拒絕與修復、PTY測試競態修正／本機1032/0fail通。
 5555a7e五組exact CI已全通且完整logs核；仍不是name/structure/pipeline或Web大檔已接，

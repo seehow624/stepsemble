@@ -13,6 +13,14 @@ runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
+Latest development-only 40d2b43 adds page-aware parser v7/v8 and readPage/readNamedPage
+to the SAME admitted five-stage name/version pipeline. Real 16.9MB/16,384-record
+pages, native name rules, shared Claude peer, all-stage cancellation and unselected
+changes pass; full/minimum Node1047/0fail, all four exact CI workflows passed with
+full logs verified (Windows private sources remain unsupported). Large-source registry/HTTP/Web and global
+bounded structure remain required; see [`codex-page-pipeline.md`](codex-page-pipeline.md).
+Old small/compressed/public paths remain unchanged. The following checkpoints are historical.
+
 Development-only Plan1.73 starts with a byte-level bounded JSONL double-scan core.
 The latest v11 increment validates EVERY legacy envelope through that held-FD
 scan and distinguishes its receipt/version from opaque v10. Unknown records

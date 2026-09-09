@@ -29,6 +29,11 @@ Web/PWA 永久保留；iOS/macOS 與其餘平台客戶端依既定分期另行�
 
 ## 順序與驗收
 
+2026-09-09／Plan1.73分頁管線接續：40d2b43已接v7/v8受限parser、原名規則與同
+五階段版本／兩reader；真16.9MB/16,384筆、Claude peer、五階段取消與頁外變更通。
+完整及最低Node1047/0fail、四exact CI全通/full logs核；[證據及下一段](codex-page-pipeline.md)。C2/C6仍未完成：
+新大檔還要接registry/HTTP/peer/Web、全來源有界結構與真Host/RSS/手機，不重做parser。
+
 2026-09-09／Plan1.73全檔格式接續：v11在同held-FD掃描驗全來源envelope，含未選頁、
 UTF8/JSON/depth/selected/fork/historymode；46差分及16,384筆真檔／頁外破壞與恢復通。
 既有PTY測試時序先重現後修、完整及最低Node1032/0fail；5555a7e五exact CI全通且
