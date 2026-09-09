@@ -16,7 +16,9 @@ df713033發布分流保護已推並通三OS CI；Pi+worktree改接原生sid/SSE�
 canonical cwd／Changes，補重複Start與late cleanup。窄browse roots預設入口、root
 chooser不可誤啟動、新Pi cwd同目錄政策、managed worktree寫入前檢查均補齊。
 最後本機完整／最低Node各1098tests/0fail；CUA320/390px與owned關閉清理通；本輪
-新runtime仍須獨立exact CI，不套用舊72h。見[今晚總結與驗收](release-review-2026-09-09.md)。
+產品949e235與測試修正3641d82/e7104f0的必要reader／rolling／general均通且完整logs已核，
+保留Windows CRLF／async mkdir、visible toggle原失敗，不套用舊72h。
+見[今晚總結與驗收](release-review-2026-09-09.md)。
 正式3.0.6／開發rc.7、B+與私人來源／帳號／正式部署關卡不變，C1–C8未全完成。
 
 **前段接續1.76（大型全來源結構接 Web）**：明確 parser9/10 與 profile 接同五階段

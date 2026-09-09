@@ -18,9 +18,11 @@ than the generic task contract, plus stale-request cleanup and canonical cwd.
 New-project paths now share the configured project-directory fence; the root
 picker is navigation-only and managed worktrees must pass preflight before any
 mkdir or worktree add. Existing file-resume policy is unchanged. Full/minimum
-Node1098/0fail and owned CUA320/390px pass; exact new-runtime CI is a separate
-gate. The original fixed rc.1 72h has passed and its monitor is removed, but that
-result does not certify this runtime. See the
+Node1098/0fail and owned CUA320/390px pass. Required 949e235 reader, 3641d82 browser
+and e7104f0 general CI all passed with full logs checked; the latter two changed
+only test fixtures/documentation, not the runtime. The original fixed rc.1 72h
+has passed and its monitor is removed, but that result does not certify this
+runtime. See the
 [`release review`](release-review-2026-09-09.md).
 
 Development-only Plan1.76 connects the v12 global turn/tool/rollback sideband

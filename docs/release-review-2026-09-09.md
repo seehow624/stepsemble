@@ -1,16 +1,23 @@
 # 2026-09-09 Stepsemble 大總結與發布審查
 
-狀態：**72h已核對通過；RC發布保護已通CI，Pi／New Project修正已通本機與CUA驗收，待本輪必要CI。候選未升為 stable，沒有部署或重新授權私人來源。**
+狀態：**72h已結案；本輪候選修正的必要CI、本機及CUA均已驗證。候選未升為 stable，沒有部署或重新授權私人來源。**
+
+今晚結論：可靠性長測與這批使用者入口修復已完成，可以交付有證據的候選更新；
+但完整跨Agent原生session／approval／resume、其他history adapters與真機／正式部署
+驗收仍未完成，因此不能稱為「全部功能的最終正式版」。正式使用仍是3.0.6，
+開發候選是3.0.7-rc.7。接續時直接看本文件的剩餘範圍，不重新等待已通過的72h。
 
 **本輪阻擋問題**：Pi＋worktree回原生`sid`卻被Web當generic task，造成假的Failed；
 HOME不在browse roots內時New Project卡住；root chooser本身可誤當專案；managed
 worktree在授權範圍外仍先建立。修正保持原生Pi連線，收緊新建目錄邊界，不新增檔案授權。
-本輪必要CI與實際操作驗收完成前，不可發布候選為正式版。
+上述問題已修復並通本輪必要CI與實際操作驗收；整體發布仍須下面C1–C8與owner關卡。
 
-本文件是今晚的單一收尾入口。功能實作與證據截至產品工程
+本文件是今晚的單一收尾入口。前段功能實作與證據對應產品工程
 `1b37173e8e8569e3c0bb18d807bff5ab20ff7a67`、browser runner 修正
 `2beab6853497da210edc645200a1144095e31618`；發布分流保護與72h總結已提交
-`df713033192d6b8ae916f7deb7694deb45400383`並通必要CI。Pi／資料夾修正另行驗證。
+`df713033192d6b8ae916f7deb7694deb45400383`並通必要CI。Pi／資料夾產品修正為
+`949e23589597cc79b4fd84168d0db64c77257af1`；後續`3641d82`、`e7104f0`只修測試／
+記錄，產品bytes未變，必要CI依下表精確來源交叉核對。
 主計畫的歷史 checkpoint 不再當作現行待辦；完整未完成範圍仍以
 [C1–C8](web-completion-loop.md)為準，不縮小原定產品目標。
 
@@ -56,6 +63,9 @@ Jerome要求馬來西亞時間19:34長測結束後大總結及製作最終版本
 
 | 工作流／確切來源 | 結果與範圍 |
 | --- | --- |
+| [CI34351652043](https://github.com/seehow624/stepsemble/actions/runs/34351652043)／e7104f05 | 三OS各1098tests、0fail；Mac1096pass/2skip、Linux1095/3、Windows1047/51；三個原Windows失敗均實際通過 |
+| [Rolling34351189545](https://github.com/seehow624/stepsemble/actions/runs/34351189545)／3641d82 | Mac5m19s／Linux4m33s；各24既有＋6Codex案例、pageErrors0；新增Pi1440/390 worktree／title／native143Close／history unchanged通，6來源cleanup；實際Release reader已核 |
+| [Reader34350383112](https://github.com/seehow624/stepsemble/actions/runs/34350383112)／949e235 | 三OS各341Node reader tests零fail；POSIX真owned pipeline／Host／清理通，174資料/2565差分，RustSec通；Windows私人來源仍unsupported |
 | [CI34347125342](https://github.com/seehow624/stepsemble/actions/runs/34347125342)／df713033 | 發布分流／總結提交：三OS各1090tests、0fail；Mac1088pass/2skip、Linux1087/3、Windows1039/51；Ajv1251。Windows實跑CLI，fake bash案例明確skip |
 | [CI34344004839](https://github.com/seehow624/stepsemble/actions/runs/34344004839)／2beab685 | 三OS各1086 tests、0fail；Mac1084pass/2skip、Linux1083/3、Windows1036/50；Ajv1251 |
 | [Rolling34344004874](https://github.com/seehow624/stepsemble/actions/runs/34344004874)／2beab685 | macOS/Linux各24既有＋6Codex案例、1440/390/320×明暗、pageErrors0；實際release helper與cleanup均核 |
@@ -66,6 +76,11 @@ Jerome要求馬來西亞時間19:34長測結束後大總結及製作最終版本
 2be只改測試runner政策及相應測試／文件，三native workflow未觸發，故明確沿用
 未變產品的1b證據，**不冒稱它們在2be重跑**。本機完整及最低Node22.19各1086/0fail；
 Rust來源、typed/generated、Ajv、版本、actionlint與秘密掃描另有已保存證據。
+
+同樣地，949e235只觸發general／reader／rolling；Claude/Codex來源未改且未觸發對應
+workflow。3641d82只修VM CRLF擷取與可見label操作，e7104f0只修fixture effect等待；
+兩者均未改產品runtime。最終採上表e710 general、364 rolling與949 reader，全數
+成功且完整logs已核；原失敗仍保留，沒有重標、跳過OS或混稱所有workflow在同SHA重跑。
 
 GitHub通知中，本輪確有[原rolling34342859676失敗](https://github.com/seehow624/stepsemble/actions/runs/34342859676)：
 Linux全通，macOS前五個Codex案例通，第六個碰到整組300秒期限。工作流用了Debug
@@ -98,6 +113,9 @@ reader；改為相同固定工具鏈的Release建置後兩OS全通。沒有加�
 改為等待fake Git收到worktree add的實際訊號，再驗證callback／容量，不用固定輪數或
 新增睡眠；仍受原測試期限保護。完整失敗log保留，後續修復提交只需自己的必要CI。
 
+**最終結果已通**：e7104f0 general三OS零fail，3641d82 rolling兩OS所有案例通；
+確切run與統計見上表。這些測試修復沒有改變949e235的產品程式。
+
 ## 長測通過門檻
 
 **實際終態：passed，2026-09-09 19:34:16 MYT完成。** 連續觀察259200335ms、
@@ -128,7 +146,7 @@ cleanupConfirmed=true、controller已退出、owned home已移除；76個凍結�
 | 回滾 | 版本校驗、安裝／資料備份、回滾步驟、部署前active-work檢查 |
 | 正式上線 | 依既有owner確認；私人roots/readers、登入／路由／真模型用量不越權 |
 
-### 發布前仍需完成的實際事項
+### 本輪候選修正與驗收
 
 本輪Pi／目錄修正的已驗範圍：
 
@@ -150,14 +168,19 @@ cleanupConfirmed=true、controller已退出、owned home已移除；76個凍結�
   沒有發送模型prompt；所有本次owned Host／目錄／viewport／分頁已清理。
 - 新browser CI案例保留全部舊Pi名稱／history／143 close／reload驗收，新增1440/390
   的root chooser與Pi工作樹／native SSE／Changes cwd／原件不變／cleanup gate。
-  本機未另用Playwright操控GUI；這些新增自動案例須以GitHub實際結果為準。
+  本機未另用Playwright操控GUI；新增自動案例已由3641d82的雙OS GitHub結果驗證。
+- 本機source封裝以e7104f0建立並解壓，版本同步／Host與Web語法／4個release-policy
+  測試通。SHA256為`b86113057e871b136f5ab2fa2496d070062f5e2bc3ab4e40e63567c4036a0355`；
+  此為未簽名、未attest、未發布的工程驗包，不是可推給正式服務的Release資產。
 
-1. **發布通道保護**：本輪審查發現原workflow會對所有`v*` tag直接建立普通Release，
+### 發布準備與剩餘關卡
+
+1. **已完成的發布通道保護**：本輪審查發現原workflow會對所有`v*` tag直接建立普通Release，
    沒有RC分流。已補canonical tag/package精確比對；prerelease加`--prerelease
    --latest=false`，未知分類立即拒絕。4個focused測試涵蓋實際CLI／空格路徑、
    非法版本／尾換行／numeric identifier、隔離fake gh的完整資產與旗標、注入與
    fail-closed；actionlint與df713033三OS必要CI通。沒有建立tag／Release或切換更新來源。
-2. **候選驗收**：逐變更核對必要CI；若發行新的runtime，按變動風險補自己的穩定性
+2. **候選驗收**：本輪必要CI已核對；若發行新的runtime，按變動風險補自己的穩定性
    證據。不得將固定rc.1的72h貼到最新SHA。
 3. **可安裝的來源功能**：需準備目標平台可信Rust reader／固定SDK，明確來源和
    reader scope，驗實際安裝/設定；目前不是installer自動探索私人原生歷史。
@@ -187,6 +210,6 @@ cleanupConfirmed=true、controller已退出、owned home已移除；76個凍結�
 合成terminal agents／loopback clients不驗證native history/approval/resume、durable journal、
 exactly-once、真手機背景／斷線或完整Rust Host。原生各平台App仍按長期分期，不臨時上架。
 
-原長測終態與追蹤已結案；後續直接處理本輪Pi／目錄修正的確切提交與CI，再按C1–C8
-做實際產品工程與發布／回滾準備，不重查已完成的72h、不拿文件更新代替產品驗收。
+原長測終態／追蹤及本輪Pi／目錄修正必要CI已結案；後續按C1–C8做實際產品工程與
+發布／回滾準備，不重查已完成的72h或本批CI，不拿文件更新代替產品驗收。
 需要owner操作則清楚列出，不封存開發任務。大型歷史證據見[v12來源](codex-structured-source.md)。

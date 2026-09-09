@@ -4,7 +4,7 @@
 214正常／213強制HTTP重啟、cleanup=true與controller退出已核；見
 [終態與限定範圍](session-discovery-and-soak.md)。不再等或重跑這個已完成的長測，
 也不套用後續rc.7。RC分流已提交df713033並通必要CI；Pi+worktree原生sid接線與
-New Project目錄邊界修正已完成本機／CUA驗收，下一步核該runtime的必要CI。
+New Project目錄邊界修正已完成本機／CUA與必要CI驗收，原失敗及修復來源均保留。
 C1–C8未全完成，[今晚大總結](release-review-2026-09-09.md)列實際交付與缺口。
 
 2026-09-09／Plan1.77：新Pi工作樹保持native SSE／sid、名稱與actual cwd，重複Start
@@ -12,7 +12,8 @@ C1–C8未全完成，[今晚大總結](release-review-2026-09-09.md)列實際�
 明確root；root chooser不可作專案，新Pi cwd與projectDirectory同政策；managed
 worktree在mkdir/git add前確認權限，不擴大HOME。完整／最低Node1098/1096pass2skip0fail，
 CUA320/390px、Changes正確分支、idle close後Stopped／owned pid與fixture清理均通。
-新runtime必要CI仍須獨立核對；既有file resume／原始history與B+未改，不等於C1–C8完成。
+產品949 reader、364 rolling、e710 general已全通且完整logs已核；後兩者僅改測試／記錄，
+runtime相同。既有file resume／原始history與B+未改，不等於C1–C8完成。
 
 2026-09-09／Plan1.76：全來源結構已接parser9/10、同五階段與Host／peer／Web，
 真17.2MB的原生ID、跨頁工具／rollback與320/390px通；完整／最低Node1085/0fail及
