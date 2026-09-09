@@ -66,6 +66,7 @@ namespace StepsembleHistoryTransport {
     "source_identity_unavailable", "source_close_failed",
     "source_scope_mismatch", "source_encoding_unsupported", "source_too_large", "source_sqlite_unsupported",
     "native_paginated_history_unsupported", "native_history_mode_unknown", "rollout_incomplete_tail", "rollout_record_limit",
+    "rollout_compression_limit", "rollout_compression_invalid", "rollout_compression_unsupported",
     "rollout_invalid_utf8", "rollout_invalid_record", "rollout_selected_thread_mismatch", "rollout_invalid_metadata",
     "name_resolution_rollout_mismatch", "name_resolution_missing_row_unsupported", "name_resolution_index_unavailable",
     "source_service_closed", "source_binding_revoked", "source_binding_mismatch", "source_sdk_unavailable"]);

@@ -82,7 +82,7 @@ test("archived, internal, subagent and unknown rows are retained; unsafe routing
   assert.equal(entries.length, 7); assert.equal(entries[0].unavailable, null); assert.equal(entries[1].sourceKind, "subagent");
   assert.equal(entries[2].sourceKind, "internal"); assert.equal(entries[3].sourceKind, "unknown");
   for (const n of [3, 4]) { assert.equal(entries[n].unavailable, "source_scope_mismatch"); assert.equal(entries[n].source.history, null); }
-  assert.equal(entries[5].native.historyMode, "paginated"); assert.equal(entries[6].unavailable, "source_encoding_unsupported");
+  assert.equal(entries[5].native.historyMode, "paginated"); assert.equal(entries[6].unavailable, null);
   assert.equal(h.index.page("owner", { offset: 0, limit: 50, snapshotId: null }).total, 7);
 });
 test("catalog failure retains last known rows as stale, and revoke blocks in-flight or later publication", async t => {

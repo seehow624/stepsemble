@@ -10,6 +10,7 @@ import http from "node:http";
 import { once } from "node:events";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
+import { zstdCompressSync, constants } from "node:zlib";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { stageSyntheticArtifact } from "./history-host-synthetic.mjs";
 import { setupHistory } from "./history-setup.mjs";
@@ -26,8 +27,9 @@ export async function startSyntheticCodexHistoryHost({ helperPath, port = 0 } = 
   let writer, ready, child, exit, closing, expected, artifact, mutation = Promise.resolve();
   const stagedHelper = path.join(temp, "history-reader");
   async function snapshot() {
-    const rollout = await fs.readFile(path.join(ready.codexRoot, ready.rolloutPath)), index = await fs.readFile(path.join(ready.codexRoot, "session_index.jsonl"));
-    return { sql: await snapshotOwnedSqlite(ready.sqliteRoot, { allowStoredLayout: true }), rollout: digest(rollout), index: digest(index) };
+    const file = path.join(ready.codexRoot, ready.rolloutPath), index = await fs.readFile(path.join(ready.codexRoot, "session_index.jsonl"));
+    const hashOptional = async file => { try { return digest(await fs.readFile(file)); } catch (error) { if (error.code === "ENOENT") return null; throw error; } };
+    return { sql: await snapshotOwnedSqlite(ready.sqliteRoot, { allowStoredLayout: true }), rollout: await hashOptional(file), compressed: await hashOptional(file + ".zst"), index: digest(index) };
   }
   async function stopChild(requireSuccess = true) {
     if (!child) return;
@@ -36,6 +38,27 @@ export async function startSyntheticCodexHistoryHost({ helperPath, port = 0 } = 
     const outcome = await Promise.race([exit, new Promise(resolve => { timer = setTimeout(() => resolve(null), 15000); })]).finally(() => clearTimeout(timer));
     assert(outcome, "synthetic_codex_host_cleanup_unconfirmed_owned_fixtures_preserved");
     if (requireSuccess) assert(outcome[0] === 0 && outcome[1] === null, "synthetic_codex_host_failed_owned_fixtures_preserved");
+  }
+  let retainedRollout = null;
+  async function fixtureMutation(command) {
+    // These are exact files under the fixture writer's owned temporary root,
+    // never product source-reader operations or source paths from HTTP.
+    const file = path.join(ready.codexRoot, ready.rolloutPath);
+    if (["compress", "compress_concat", "compress_corrupt"].includes(command)) {
+      assert.equal(retainedRollout, null); retainedRollout = await fs.readFile(file);
+      const encode = bytes => zstdCompressSync(bytes, { pledgedSrcSize: bytes.length, params: { [constants.ZSTD_c_checksumFlag]: 1 } });
+      const encoded = command === "compress_concat" ? Buffer.concat([encode(retainedRollout.subarray(0, 29)), encode(retainedRollout.subarray(29))]) : encode(retainedRollout);
+      if (command === "compress_corrupt") encoded[encoded.length - 1] ^= 1;
+      await fs.writeFile(file + ".zst", encoded, { mode: 0o600, flag: "wx" }); await fs.unlink(file); return;
+    }
+    if (command === "restore_plain") {
+      assert(retainedRollout); await fs.writeFile(file, retainedRollout, { mode: 0o600, flag: "wx" }); return;
+    }
+    if (command === "clear_compressed") {
+      assert(retainedRollout); assert.deepEqual(await fs.readFile(file), retainedRollout);
+      await fs.unlink(file + ".zst"); retainedRollout.fill(0); retainedRollout = null; return;
+    }
+    await writer.command(command);
   }
   try {
     artifact = await stageSyntheticArtifact(helper, stagedHelper, 0o500);
@@ -63,17 +86,22 @@ export async function startSyntheticCodexHistoryHost({ helperPath, port = 0 } = 
     function close() {
       if (closing) return closing;
       closing = (async () => {
-        await mutation; await stopChild(); assert.deepEqual(await snapshot(), expected, "owned source bytes changed without explicit fixture mutation");
-        assert.equal(digest(await fs.readFile(helper)), artifact.sha256); assert.equal(digest(await fs.readFile(stagedHelper)), artifact.sha256);
-        await writer.stop(); await fs.rm(temp, { recursive: true, force: true });
+        await mutation; await stopChild();
+        try {
+          assert.deepEqual(await snapshot(), expected, "owned source bytes changed without explicit fixture mutation");
+          assert.equal(digest(await fs.readFile(helper)), artifact.sha256); assert.equal(digest(await fs.readFile(stagedHelper)), artifact.sha256);
+        } finally { await writer.stop(); await fs.rm(temp, { recursive: true, force: true }); }
         return { cleanupConfirmed: true, hostReaped: true, writerReaped: true, ownedDirectoriesRemoved: 2, sourcesUnchangedExceptExplicitMutation: true };
       })(); return closing;
     }
     return Object.freeze({ origin, token, threadId: ready.threadId, setupResult, artifact, close,
       mutate(command) {
-        if (closing || !["rename", "path", "paginated", "reset", "rich_rollout", "catalog_full", "catalog_reset", "missing", "cold", "reopen", "partial_sidecar", "remove_partial_sidecar"].includes(command)) throw new Error("synthetic_codex_mutation_invalid");
-        const next = mutation.then(async () => { assert.deepEqual(await snapshot(), expected); await writer.command(command); expected = await snapshot(); });
-        mutation = next; return next;
+        if (closing || !["rename", "path", "paginated", "reset", "rich_rollout", "catalog_full", "catalog_reset", "missing", "cold", "reopen", "partial_sidecar", "remove_partial_sidecar",
+          "compress", "compress_concat", "compress_corrupt", "restore_plain", "clear_compressed", "compressed_path", "plain_path"].includes(command)) throw new Error("synthetic_codex_mutation_invalid");
+        const next = mutation.then(async () => { assert.deepEqual(await snapshot(), expected); await fixtureMutation(command); expected = await snapshot(); });
+        // The caller still receives the exact failure; the serialization tail
+        // must settle so close/recovery can actually reap the owned processes.
+        mutation = next.catch(() => {}); return next;
       } });
   } catch (error) {
     // A startup failure is already the primary error. Once its child has really

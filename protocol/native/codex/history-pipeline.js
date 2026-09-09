@@ -134,7 +134,7 @@ function createCodexHistoryPipeline(options = {}) {
       if (!version) return settle(unavailable("source_worker_protocol"));
       const expectedHistory = named ? expected?.history ?? null : expected;
       if (expectedHistory !== null && !source.sameSourceVersion(expectedHistory, version)) return settle(unavailable("source_version_changed"));
-      const job = { protocolVersion: named ? 2 : 1, nonce, source: version, selection, expectedVersion: expectedHistory,
+      const job = { protocolVersion: (named ? 2 : 1) + (version.storage ? 2 : 0), nonce, source: version, selection, expectedVersion: expectedHistory,
         ...(named ? { nameResolution: { fields: sqlCapture.metadata.observation.fields, nameContext: sqlCapture.metadata.observation.nameContext,
           method: request.method, rolloutPath: path.join(historyRequest.source.codexRoot, historyRequest.source.rolloutPath) } } : {}) };
       sqlCapture = null;

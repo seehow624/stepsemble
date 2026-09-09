@@ -38,10 +38,15 @@ try {
     // so the actual Windows binary must emit unsupported. No POSIX proof is inferred.
     platform: process.platform === "win32" ? "linux" : process.platform,
     spawnChild(...args) { spawns++; return spawn(...args); } });
-  const first = await helper.readCodex(request);
+  const first = await helper.readCodexLegacy(request);
+  const stored = await helper.readCodex(request);
   if (process.platform === "win32") {
-    assert.deepEqual(first, { kind: "source_unavailable", code: "source_platform_unsupported" }); assert.equal(spawns, 1);
+    assert.deepEqual(first, { kind: "source_unavailable", code: "source_platform_unsupported" });
+    assert.deepEqual(stored, first); assert.equal(spawns, 2);
   } else {
+    assert.equal(stored.kind, "native_codex_source_bytes", stored.code);
+    assert.deepEqual(stored.storage, { encoding: "jsonl", rolloutPath }); assert.equal(stored.checks.rolloutSelectionRechecked, true);
+    assert.deepEqual(stored.rolloutBytes, raw); assert.equal(stored.cleanupConfirmed, true);
     assert.equal(first.kind, "native_codex_source_bytes", first.code); assert.equal(first.cleanupConfirmed, true);
     assert.deepEqual(first.rolloutBytes, raw); assert.deepEqual(first.nameIndexBytes, names);
     assert.equal(first.sourceAuthenticated, false); assert.equal(first.publishable, false);
@@ -63,28 +68,28 @@ try {
     // New title bytes, same bytes with new inode, and absent vs empty index fence separately.
     const replacement = path.join(root, "owned-replacement");
     await fs.writeFile(replacement, names, { mode: 0o600, flag: "wx" }); await fs.rename(replacement, index);
-    const swapped = await helper.readCodex(request); assert.equal(swapped.kind, "native_codex_source_bytes");
+    const swapped = await helper.readCodexLegacy(request); assert.equal(swapped.kind, "native_codex_source_bytes");
     assert.equal(sameSourceVersion(version, sourceVersion(swapped)), false);
     await fs.writeFile(index, Buffer.concat([names, names]));
-    const appended = await helper.readCodex(request); assert.equal(appended.kind, "native_codex_source_bytes");
+    const appended = await helper.readCodexLegacy(request); assert.equal(appended.kind, "native_codex_source_bytes");
     assert.equal(sameSourceVersion(sourceVersion(swapped), sourceVersion(appended)), false);
-    await fs.unlink(index); const missing = await helper.readCodex(request); assert.equal(missing.kind, "native_codex_source_bytes"); assert.equal(missing.nameIndexBytes, null);
+    await fs.unlink(index); const missing = await helper.readCodexLegacy(request); assert.equal(missing.kind, "native_codex_source_bytes"); assert.equal(missing.nameIndexBytes, null);
     await fs.writeFile(index, Buffer.alloc(0), { mode: 0o600, flag: "wx" });
-    const empty = await helper.readCodex(request); assert.equal(empty.kind, "native_codex_source_bytes"); assert.equal(empty.nameIndexBytes.length, 0);
+    const empty = await helper.readCodexLegacy(request); assert.equal(empty.kind, "native_codex_source_bytes"); assert.equal(empty.nameIndexBytes.length, 0);
     assert.equal(observeCapturedNameIndex(missing).presence, "missing"); assert.equal(observeCapturedNameIndex(empty).presence, "empty");
     assert.equal(sameSourceVersion(sourceVersion(missing), sourceVersion(empty)), false);
     await fs.writeFile(index, names);
     const archive = `archived_sessions/${stem}_22222222-2222-4222-8222-222222222222.jsonl`;
     await fs.mkdir(path.join(root, "archived_sessions"), { mode: 0o700 }); await fs.writeFile(path.join(root, archive), raw, { mode: 0o600, flag: "wx" });
-    const archived = await helper.readCodex({ ...request, source: { ...request.source, rolloutPath: archive } });
+    const archived = await helper.readCodexLegacy({ ...request, source: { ...request.source, rolloutPath: archive } });
     assert.equal(archived.kind, "native_codex_source_bytes"); assert.deepEqual(archived.rolloutBytes, raw);
     assert.equal(sameSourceVersion(version, sourceVersion(archived)), false);
-    assert.equal((await helper.readCodex({ ...request, source: { ...request.source, rolloutPath: rolloutPath + ".zst" } })).code, "source_encoding_unsupported");
-    assert.equal((await helper.readCodex({ ...request, expectedRoot: { ...request.expectedRoot, inode: String(rootStat.ino + 1n) } })).code, "source_root_identity_changed");
+    assert.equal((await helper.readCodexLegacy({ ...request, source: { ...request.source, rolloutPath: rolloutPath + ".zst" } })).code, "source_encoding_unsupported");
+    assert.equal((await helper.readCodexLegacy({ ...request, expectedRoot: { ...request.expectedRoot, inode: String(rootStat.ino + 1n) } })).code, "source_root_identity_changed");
     await fs.chmod(index, 0o660);
-    try { assert.equal((await helper.readCodex(request)).code, "source_owner_or_mode"); } finally { await fs.chmod(index, 0o600); }
+    try { assert.equal((await helper.readCodexLegacy(request)).code, "source_owner_or_mode"); } finally { await fs.chmod(index, 0o600); }
     const count = spawns;
-    assert.equal((await helper.readCodex({ ...request, source: { ...request.source, rolloutPath: "auth.json" } })).code, "invalid_source_input"); assert.equal(spawns, count);
+    assert.equal((await helper.readCodexLegacy({ ...request, source: { ...request.source, rolloutPath: "auth.json" } })).code, "invalid_source_input"); assert.equal(spawns, count);
   }
   assert.deepEqual(await fs.readFile(file), raw); assert.deepEqual(await fs.readFile(index), names);
   assert.equal(await fs.readFile(sentinel, "utf8"), "owned-sentinel-not-a-credential");

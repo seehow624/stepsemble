@@ -41,23 +41,29 @@ function descriptor(v, offset, device, empty, max) {
   return keys(v, ["byteOffset", "byteLength", "sha256", "identity"]) && v.byteOffset === offset && hash(v.sha256)
     && identity(v.identity, v.byteLength) && v.identity.device === device && v.byteLength >= (empty ? 0 : 1) && v.byteLength <= max;
 }
-function checks(v) {
-  return keys(v, ["owner", "acl", "containment", "reads", "matchingBytes", "unchangedObservedIdentity", "nameIndexPresenceRechecked"])
+function storage(v) {
+  if (!Object.hasOwn(v, "storage")) return !v.rolloutPath.endsWith(".zst");
+  const s = v.storage, plain = v.rolloutPath.replace(/\.zst$/, "");
+  return keys(s, ["encoding", "rolloutPath"]) && (s.encoding === "jsonl" && s.rolloutPath === plain || s.encoding === "zstd" && s.rolloutPath === plain + ".zst");
+}
+function checks(v, stored) {
+  return keys(v, ["owner", "acl", "containment", "reads", "matchingBytes", "unchangedObservedIdentity", "nameIndexPresenceRechecked", ...(stored ? ["rolloutSelectionRechecked"] : [])])
     && v.owner === "posix_euid_and_mode" && v.acl === "no_extended_acl" && v.containment === "root_identity_and_openat_nofollow"
-    && v.reads === 2 && v.matchingBytes === true && v.unchangedObservedIdentity === true && v.nameIndexPresenceRechecked === true;
+    && v.reads === 2 && v.matchingBytes === true && v.unchangedObservedIdentity === true && v.nameIndexPresenceRechecked === true && (!stored || v.rolloutSelectionRechecked === true);
 }
 function metadata(v) {
-  return keys(v, ["kind", "nativeVersion", "threadId", "rolloutPath", "rootIdentity", "byteLength", "sha256", "rollout", "nameIndex", "checks", "sourceAuthenticated", "publishable"])
+  const stored = !!v && Object.hasOwn(v, "storage");
+  return keys(v, ["kind", "nativeVersion", "threadId", "rolloutPath", "rootIdentity", "byteLength", "sha256", "rollout", "nameIndex", "checks", "sourceAuthenticated", "publishable", ...(stored ? ["storage"] : [])])
     && v.kind === "native_codex_source_bytes" && v.nativeVersion === VERSION && rootIdentity(v.rootIdentity)
-    && locator(v.rolloutPath, v.threadId) && !v.rolloutPath.endsWith(".zst") && hash(v.sha256)
+    && locator(v.rolloutPath, v.threadId) && storage(v) && hash(v.sha256)
     && descriptor(v.rollout, 0, v.rootIdentity.device, false, LIMITS.rolloutBytes)
     && (v.nameIndex === null || (descriptor(v.nameIndex, v.rollout.byteLength, v.rootIdentity.device, true, LIMITS.indexBytes)
       && v.nameIndex.identity.inode !== v.rollout.identity.inode))
-    && v.byteLength === v.rollout.byteLength + (v.nameIndex?.byteLength ?? 0) && checks(v.checks)
+    && v.byteLength === v.rollout.byteLength + (v.nameIndex?.byteLength ?? 0) && checks(v.checks, stored)
     && v.sourceAuthenticated === false && v.publishable === false;
 }
 function decode(result, payload, job) {
-  if (!metadata(result) || !Buffer.isBuffer(payload) || job.nativeVersion !== result.nativeVersion || job.source.threadId !== result.threadId
+  if (!metadata(result) || Object.hasOwn(result, "storage") !== (job.protocolVersion === 9) || !Buffer.isBuffer(payload) || job.nativeVersion !== result.nativeVersion || job.source.threadId !== result.threadId
     || job.source.rolloutPath !== result.rolloutPath || job.expectedRoot.device !== result.rootIdentity.device || job.expectedRoot.inode !== result.rootIdentity.inode
     || payload.length !== result.byteLength || digest(payload) !== result.sha256) return null;
   const rollout = payload.subarray(0, result.rollout.byteLength), index = payload.subarray(result.rollout.byteLength);
@@ -76,13 +82,13 @@ function sourceVersion(result) {
   const v = detached(header); if (!metadata(v)) return null;
   const version = d => d === null ? null : { sha256: d.sha256, identity: { ...d.identity } };
   return { nativeVersion: v.nativeVersion, threadId: v.threadId, rolloutPath: v.rolloutPath, rootIdentity: { ...v.rootIdentity },
-    rollout: version(v.rollout), nameIndex: version(v.nameIndex) };
+    rollout: version(v.rollout), nameIndex: version(v.nameIndex), ...(v.storage ? { storage: { ...v.storage } } : {}) };
 }
 function validVersion(v) {
   const part = (p, empty, max) => keys(p, ["sha256", "identity"]) && hash(p.sha256) && identity(p.identity, p.identity?.size)
     && p.identity.size >= (empty ? 0 : 1) && p.identity.size <= max && p.identity.device === v.rootIdentity.device;
-  return keys(v, ["nativeVersion", "threadId", "rolloutPath", "rootIdentity", "rollout", "nameIndex"]) && v.nativeVersion === VERSION
-    && locator(v.rolloutPath, v.threadId) && !v.rolloutPath.endsWith(".zst") && rootIdentity(v.rootIdentity)
+  return keys(v, ["nativeVersion", "threadId", "rolloutPath", "rootIdentity", "rollout", "nameIndex", ...(v && Object.hasOwn(v, "storage") ? ["storage"] : [])]) && v.nativeVersion === VERSION
+    && locator(v.rolloutPath, v.threadId) && storage(v) && rootIdentity(v.rootIdentity)
     && part(v.rollout, false, LIMITS.rolloutBytes) && (v.nameIndex === null || (part(v.nameIndex, true, LIMITS.indexBytes)
       && v.nameIndex.identity.inode !== v.rollout.identity.inode));
 }

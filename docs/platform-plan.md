@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.70
+> 計畫版本：1.71
 > 最後更新：2026-09-09
 > 當前產品基線：Stepsemble 3.0.6（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.6／source `331b9f0`（2026-09-06 已部署並公開 stable release）
@@ -14,6 +14,11 @@
 本階段以 Web 完整可驗收／安全發布為終點，逐項驗收與接續入口見
 [Web 完整體執行清單](web-completion-loop.md)。不是整套完成宣告，也不取代本計畫、
 既有私人來源／模型／正式部署關卡或獨立 72h 長測；未來原生 App 仍依既定分期。
+
+**進行中增量 1.71（壓縮歷史／未部署）**：接同root下plain/壓縮sibling、Rust v9
+capture與permissioned parser v3/v4、實體/解壓版本分離、同Host有界named流程、實際
+Host/Web與最低Node限制驗證。詳[壓縮歷史接線](codex-compressed-history.md)；C1–C8
+仍持續，不變更正式服務、私人來源、帳號與獨立72h。
 
 **已完成增量 1.70（cold Host/Web與exact CI已驗／未部署）**：冷SQLite短時間
 主檔SHARED lock／absence與content-stamp重驗、最大64MiB唯讀RAM副本，已接Rust

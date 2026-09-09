@@ -56,7 +56,8 @@ fn capture_with(request: &CodexRequest, mut hook: impl FnMut(Point)) -> Result<P
     if !valid_locator(&request.source.rollout_path, &request.source.thread_id) {
         return Err(Error::Input);
     }
-    if request.source.rollout_path.ends_with(".zst") {
+    let stored = request.protocol_version == 9;
+    if !stored && request.source.rollout_path.ends_with(".zst") {
         return Err(Error::EncodingUnsupported);
     }
     let start = Instant::now();
@@ -87,12 +88,24 @@ fn capture_with(request: &CodexRequest, mut hook: impl FnMut(Point)) -> Result<P
         directories.push(next);
         directory_info.push(info);
     }
-    let file_name = parts.last().ok_or(Error::Input)?;
-    let file = open_at(
-        directories.last().ok_or(Error::Input)?.as_raw_fd(),
-        file_name,
-        false,
-    )?;
+    let requested = *parts.last().ok_or(Error::Input)?;
+    let plain_name = if stored {
+        requested.strip_suffix(".zst").unwrap_or(requested)
+    } else {
+        requested
+    };
+    let parent = directories.last().ok_or(Error::Input)?;
+    // Only ENOENT permits the fixed compressed sibling. Never bypass a plain
+    // symlink, directory, ACL, mode, empty file or other unreadable source.
+    let (file_name, file) = match open_at(parent.as_raw_fd(), plain_name, false) {
+        Ok(file) => (plain_name.to_owned(), file),
+        Err(Error::Missing) if stored => {
+            let compressed = format!("{plain_name}.zst");
+            let file = open_at(parent.as_raw_fd(), &compressed, false)?;
+            (compressed, file)
+        }
+        Err(error) => return Err(error),
+    };
     let file_info = bounded_info(&file, uid, device, SOURCE_LIMIT, false)?;
     let index = optional_index(&directories[0])?;
     let index_info = index
@@ -109,6 +122,23 @@ fn capture_with(request: &CodexRequest, mut hook: impl FnMut(Point)) -> Result<P
         }
         if !same(&file_info, &check(&file, false, uid)?) {
             return Err(Error::Changed);
+        }
+        if stored {
+            if file_name != plain_name {
+                match open_at(parent.as_raw_fd(), plain_name, false) {
+                    Err(Error::Missing) => {}
+                    Ok(file) => {
+                        close(file)?;
+                        return Err(Error::Changed);
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            let selected = open_at(parent.as_raw_fd(), &file_name, false)?;
+            if !same(&file_info, &check(&selected, false, uid)?) {
+                return Err(Error::Changed);
+            }
+            close(selected)?;
         }
         let named = optional_index(&directories[0])?;
         match (&index, &index_info, &named) {
@@ -159,7 +189,7 @@ fn capture_with(request: &CodexRequest, mut hook: impl FnMut(Point)) -> Result<P
     }
     let named = open_at(
         directories.last().ok_or(Error::Input)?.as_raw_fd(),
-        file_name,
+        &file_name,
         false,
     )?;
     if !same(&file_info, &check(&named, false, uid)?) {
@@ -173,6 +203,7 @@ fn capture_with(request: &CodexRequest, mut hook: impl FnMut(Point)) -> Result<P
     close(current_root)?;
     verify()?;
     let pair = Pair {
+        physical_path: format!("{}/{}", parts[..parts.len() - 1].join("/"), file_name),
         rollout: Capture {
             bytes: first,
             identity: identity(&file_info),
@@ -244,6 +275,106 @@ mod tests {
                 file,
                 index,
                 request,
+            }
+        }
+    }
+    #[test]
+    fn stored_capture_resolves_both_selectors_with_plain_priority_without_decoding() {
+        for archive in [false, true] {
+            let mut f = Fixture::new(archive, true);
+            f.request.protocol_version = 9;
+            let compressed = f.file.with_extension("jsonl.zst");
+            fs::write(&compressed, b"owned encoded bytes").unwrap();
+            let plain = capture(&f.request).unwrap();
+            assert_eq!(plain.rollout.bytes, b"owned rollout\n");
+            assert!(!plain.physical_path.ends_with(".zst"));
+            f.request.source.rollout_path.push_str(".zst");
+            assert_eq!(
+                capture(&f.request).unwrap().rollout.bytes,
+                b"owned rollout\n"
+            );
+            fs::remove_file(&f.file).unwrap();
+            let stored = capture(&f.request).unwrap();
+            assert_eq!(stored.rollout.bytes, b"owned encoded bytes");
+            assert!(stored.physical_path.ends_with(".zst"));
+            f.request
+                .source
+                .rollout_path
+                .truncate(f.request.source.rollout_path.len() - 4);
+            assert_eq!(
+                capture(&f.request).unwrap().rollout.bytes,
+                b"owned encoded bytes"
+            );
+            let mut frame = Vec::new();
+            crate::codex::write_frame(&mut frame, &f.request, Ok(stored)).unwrap();
+            let length = u32::from_be_bytes(frame[..4].try_into().unwrap()) as usize;
+            let header: serde_json::Value = serde_json::from_slice(&frame[4..4 + length]).unwrap();
+            assert_eq!(header["protocolVersion"], 9);
+            assert_eq!(header["result"]["storage"]["encoding"], "zstd");
+            assert_eq!(
+                header["result"]["checks"]["rolloutSelectionRechecked"],
+                true
+            );
+        }
+    }
+    #[test]
+    fn stored_fallback_never_bypasses_unsafe_plain_or_compressed_objects() {
+        for mode in ["symlink", "directory", "hardlink", "mode", "empty"] {
+            for compressed_only in [false, true] {
+                let mut f = Fixture::new(false, true);
+                f.request.protocol_version = 9;
+                let compressed = f.file.with_extension("jsonl.zst");
+                fs::write(&compressed, b"encoded").unwrap();
+                let target = if compressed_only {
+                    fs::remove_file(&f.file).unwrap();
+                    &compressed
+                } else {
+                    &f.file
+                };
+                match mode {
+                    "symlink" => {
+                        fs::remove_file(target).unwrap();
+                        symlink(&f.index, target).unwrap();
+                    }
+                    "directory" => {
+                        fs::remove_file(target).unwrap();
+                        fs::create_dir(target).unwrap();
+                    }
+                    "hardlink" => fs::hard_link(target, f.root.join("owned-link")).unwrap(),
+                    "mode" => {
+                        fs::set_permissions(target, fs::Permissions::from_mode(0o666)).unwrap()
+                    }
+                    _ => fs::write(target, b"").unwrap(),
+                }
+                assert!(
+                    capture(&f.request).is_err(),
+                    "{mode} compressed={compressed_only}"
+                );
+            }
+        }
+    }
+    #[test]
+    fn stored_selection_appearance_replacement_and_bytes_are_fenced_at_each_read() {
+        for point in [Point::Opened, Point::FirstRead, Point::SecondRead] {
+            for change in ["plain_appears", "compressed_replaced", "compressed_changed"] {
+                let mut f = Fixture::new(false, true);
+                f.request.protocol_version = 9;
+                let compressed = f.file.with_extension("jsonl.zst");
+                fs::rename(&f.file, &compressed).unwrap();
+                let result = capture_with(&f.request, |at| {
+                    if at != point {
+                        return;
+                    }
+                    match change {
+                        "plain_appears" => fs::write(&f.file, b"owned rollout\n").unwrap(),
+                        "compressed_replaced" => {
+                            fs::remove_file(&compressed).unwrap();
+                            fs::write(&compressed, b"owned rollout\n").unwrap();
+                        }
+                        _ => fs::write(&compressed, b"different bytes\n").unwrap(),
+                    }
+                });
+                assert!(result.is_err(), "{change}");
             }
         }
     }

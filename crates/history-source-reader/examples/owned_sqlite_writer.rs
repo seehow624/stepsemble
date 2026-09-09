@@ -162,6 +162,20 @@ fn main() {
                         )
                         .unwrap();
                     }
+                    b"compressed_path\n" => {
+                        db.execute(
+                            "UPDATE threads SET rollout_path=?1 WHERE id=?2",
+                            params![rollout.with_extension("jsonl.zst").to_str().unwrap(), ID],
+                        )
+                        .unwrap();
+                    }
+                    b"plain_path\n" => {
+                        db.execute(
+                            "UPDATE threads SET rollout_path=?1 WHERE id=?2",
+                            params![rollout.to_str().unwrap(), ID],
+                        )
+                        .unwrap();
+                    }
                     b"paginated\n" => {
                         db.execute("UPDATE threads SET history_mode='paginated',name='  paginated name  ' WHERE id=?1", [ID]).unwrap();
                         std::fs::write(&rollout, rollout_bytes("paginated", false)).unwrap();

@@ -15,7 +15,8 @@ const CODES = Object.freeze(["source_worker_protocol", "source_worker_failure", 
   "native_history_mode_unknown", "invalid_rollout_page", "rollout_snapshot_changed", "rollout_page_limit", "rollout_snapshot_unavailable",
   "invalid_name_index_bytes_or_limit", "name_index_record_limit", "name_index_invalid_utf8", "name_index_name_limit",
   "name_index_record_unsupported", "name_index_output_limit", "invalid_name_resolution_input", "invalid_name_resolution_fields",
-  "invalid_name_resolution_context", "name_resolution_missing_row_unsupported", "name_resolution_rollout_mismatch", "name_resolution_index_unavailable"]);
+  "invalid_name_resolution_context", "name_resolution_missing_row_unsupported", "name_resolution_rollout_mismatch", "name_resolution_index_unavailable",
+  "source_encoding_unsupported", "rollout_compression_limit", "rollout_compression_invalid", "rollout_compression_unsupported"]);
 const keys = (v, expected) => !!v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).sort().join(",") === [...expected].sort().join(",");
 const sha = b => crypto.createHash("sha256").update(b).digest("hex");
 const hash = v => typeof v === "string" && /^[a-f0-9]{64}$/.test(v);
@@ -51,9 +52,10 @@ function validNameContext(v, version) {
     && Buffer.byteLength(c.rolloutPath) <= 8192 && typeof c.preview === "string" && c.preview.isWellFormed() && Buffer.byteLength(c.preview) <= 32768;
 }
 function validJob(v) {
-  const named = v?.protocolVersion === 2;
-  return keys(v, ["protocolVersion", "nonce", "source", "selection", "expectedVersion", ...(named ? ["nameResolution"] : [])]) && [1, 2].includes(v.protocolVersion) && hash(v.nonce)
+  const named = [2, 4].includes(v?.protocolVersion), stored = [3, 4].includes(v?.protocolVersion);
+  return keys(v, ["protocolVersion", "nonce", "source", "selection", "expectedVersion", ...(named ? ["nameResolution"] : [])]) && [1, 2, 3, 4].includes(v.protocolVersion) && hash(v.nonce)
     && source.sameSourceVersion(v.source, v.source) && validSelection(v.selection)
+    && Object.hasOwn(v.source, "storage") === stored
     && (v.expectedVersion === null || source.sameSourceVersion(v.expectedVersion, v.expectedVersion)) && (!named || validNameContext(v.nameResolution, v.source));
 }
 function validPayload(bytes, job) {
@@ -80,7 +82,7 @@ function encodeJob(input, captured) {
   };
   const a = view(rollout, version.rollout.identity.size), b = version.nameIndex === null ? null : view(index, version.nameIndex.identity.size);
   if (!a || (version.nameIndex === null ? index !== null : b === null)) return null;
-  const header = Buffer.from(JSON.stringify(job)); if (header.length > (job.protocolVersion === 2 ? LIMITS.namedHeaderBytes : LIMITS.headerBytes)) return null;
+  const header = Buffer.from(JSON.stringify(job)); if (header.length > ([2, 4].includes(job.protocolVersion) ? LIMITS.namedHeaderBytes : LIMITS.headerBytes)) return null;
   const encoded = Buffer.allocUnsafe(4 + header.length + a.length + (b?.length ?? 0));
   encoded.writeUInt32BE(header.length); header.copy(encoded, 4); encoded.set(a, 4 + header.length);
   if (b) encoded.set(b, 4 + header.length + a.length);
@@ -96,7 +98,7 @@ function readJob(frame) {
   if (!Buffer.isBuffer(frame) || frame.length < 5 || frame.length > LIMITS.inputBytes) return null;
   const length = frame.readUInt32BE(0); if (!length || length > LIMITS.namedHeaderBytes || length + 4 > frame.length) return null;
   const job = decode(frame.subarray(4, 4 + length), LIMITS.namedHeaderBytes), bytes = frame.subarray(4 + length);
-  if (job?.protocolVersion !== 2 && length > LIMITS.headerBytes) return null;
+  if (![2, 4].includes(job?.protocolVersion) && length > LIMITS.headerBytes) return null;
   return validPayload(bytes, job) ? { job, bytes } : null;
 }
 function validIndex(v, job) {
@@ -115,11 +117,11 @@ function validIndex(v, job) {
   if (v.readCandidate !== null && (v.readCandidate === "" || v.readCandidate !== v.latestEntry?.name) || v.listCandidate === "") return false;
   return v.byteLength > 0 || v.recordCount === 0 && v.latestEntry === null && v.readCandidate === null && v.listCandidate === null;
 }
-function validPage(v, job, payload) {
+function validPage(v, job, payload, decoded) {
   if (!keys(v, ["kind", "nativeVersion", "nativeThreadId", "scope", "sha256", "recordCount", "byteLength", "offset", "records", "nextOffset", "endOfFile",
     "sourceAuthenticated", "publishable", "semanticHistoryComplete"]) || v.kind !== "codex_rollout_records"
     || v.nativeVersion !== job.source.nativeVersion || v.nativeThreadId !== job.source.threadId || v.scope !== "one_legacy_rollout_raw_records"
-    || v.sha256 !== job.source.rollout.sha256 || v.byteLength !== job.source.rollout.identity.size || !integer(v.recordCount, RAW.records) || v.recordCount === 0
+    || v.sha256 !== (decoded?.sha256 ?? job.source.rollout.sha256) || v.byteLength !== (decoded?.byteLength ?? job.source.rollout.identity.size) || !integer(v.recordCount, RAW.records) || v.recordCount === 0
     || v.offset !== job.selection.offset || !Array.isArray(v.records) || v.records.length > job.selection.limit || v.offset + v.records.length > v.recordCount
     || v.endOfFile !== (v.offset + v.records.length === v.recordCount) || v.nextOffset !== (v.endOfFile ? null : v.offset + v.records.length)
     || !v.endOfFile && v.records.length === 0 || v.sourceAuthenticated !== false || v.publishable !== false || v.semanticHistoryComplete !== false
@@ -139,11 +141,18 @@ function validPage(v, job, payload) {
 }
 function validResult(v, job, payload) {
   if (keys(v, ["kind", "code"]) && v.kind === "source_unavailable") return CODES.includes(v.code);
-  return keys(v, ["kind", "source", "index", "page", "sourceAuthenticated", "publishable", "semanticHistoryComplete", ...(job.protocolVersion === 2 ? ["name"] : [])])
+  const stored = [3, 4].includes(job.protocolVersion), named = [2, 4].includes(job.protocolVersion);
+  return keys(v, ["kind", "source", "index", "page", "sourceAuthenticated", "publishable", "semanticHistoryComplete", ...(named ? ["name"] : []), ...(stored ? ["decoded"] : [])])
     && v.kind === "codex_parsed_capture" && source.sameSourceVersion(job.source, v.source) && validIndex(v.index, job)
-    && (job.selection.mode === "names" ? v.page === null : validPage(v.page, job, payload))
+    && (!stored || validDecoded(v.decoded, job))
+    && (job.selection.mode === "names" ? v.page === null : validPage(v.page, job, job.source.storage?.encoding === "zstd" ? null : payload, v.decoded))
     && v.sourceAuthenticated === false && v.publishable === false && v.semanticHistoryComplete === false
-    && (job.protocolVersion !== 2 || validName(v.name, job));
+    && (!named || validName(v.name, job));
+}
+function validDecoded(v, job) {
+  return keys(v, ["encoding", "byteLength", "sha256", "frames"]) && v.encoding === job.source.storage.encoding && hash(v.sha256)
+    && integer(v.byteLength, RAW.inputBytes) && v.byteLength > 0 && integer(v.frames, 256)
+    && (v.encoding === "zstd" ? v.frames > 0 : v.frames === 0 && v.byteLength === job.source.rollout.identity.size && v.sha256 === job.source.rollout.sha256);
 }
 function validName(v, job) {
   return keys(v, ["kind", "nativeVersion", "nativeThreadId", "scope", "method", "name", "candidateSource", "suppressedByPreview", "nativeTitleResolved", "sourceAuthenticated", "publishable"])
@@ -168,7 +177,7 @@ function encodeResponse(result, job) {
   return readResponse(bytes, job) ? bytes : encode(unavailable("source_worker_protocol"));
 }
 function launchOptions() {
-  const files = ["parser-worker.js", "parser-wire.js", "source-wire.js", "name-index.js", "rollout-snapshot.js", "sqlite-wire.js", "metadata-name.js", "name-resolution.js"].map(f => path.join(__dirname, f));
+  const files = ["parser-worker.js", "parser-wire.js", "source-wire.js", "name-index.js", "rollout-snapshot.js", "rollout-decompression.js", "sqlite-wire.js", "metadata-name.js", "name-resolution.js"].map(f => path.join(__dirname, f));
   files.push(path.resolve(__dirname, "../../../public/modules/projection.js"));
   return { executable: process.execPath, args: ["--permission", "--no-warnings", "--max-old-space-size=128", ...files.map(f => `--allow-fs-read=${f}`), files[0]],
     options: { cwd: __dirname, env: { LANG: "C", LC_ALL: "C" }, stdio: ["pipe", "pipe", "pipe"], shell: false, detached: false, windowsHide: true } };

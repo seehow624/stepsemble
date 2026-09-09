@@ -119,7 +119,7 @@ function createCodexSourceIndex(options) {
         const previous = lookupEntries.get(catalogId);
         next.push({ catalogId, revision: previous?.fingerprint === fingerprint ? previous.revision : crypto.randomUUID(), fingerprint,
           native: row, sourceKind: sourceKind(row.source),
-          unavailable: !history ? "source_scope_mismatch" : history.source.rolloutPath.endsWith(".zst") ? "source_encoding_unsupported" : null,
+          unavailable: !history ? "source_scope_mismatch" : null,
           source: { agentId: "codex", sessionId: row.id, history, historyMode: row.historyMode,
             sqlite: { ...request, source: { ...request.source, threadId: row.id } } } });
       }

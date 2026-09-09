@@ -41,7 +41,7 @@ function decode(bytes, job) {
   if (keys(result, ["kind", "code"]) && result.kind === "source_unavailable")
     return sourceCodes.has(result.code) && payload.length === 0 ? result : null;
   if (job.protocolVersion === 2) return inventoryWire.decode(result, payload, job);
-  if (job.protocolVersion === 3) return codexWire.decode(result, payload, job);
+  if ([3, 9].includes(job.protocolVersion)) return codexWire.decode(result, payload, job);
   if (job.protocolVersion === 4) return sqliteWire.decode(result, payload, job);
   if (job.protocolVersion === 5) return sqliteWire.legacyContext.decode(result, payload, job);
   if (job.protocolVersion === 6) return sqliteWire.legacyCatalog.decode(result, payload, job);
@@ -93,7 +93,7 @@ function createNativeHelper(options = {}) {
     const signal = options.signal;
     if (signal !== undefined && !(signal instanceof AbortSignal)) return unavailable("invalid_source_signal");
     const value = detach(input, LIMITS.inputBytes), source = version === 1 ? normalizeSourceInput(value?.source) : value?.source;
-    if ([6, 8].includes(version) ? !sqliteWire.catalog.input(value) : [4, 5, 7].includes(version) ? !sqliteWire.input(value) : version === 3 ? !codexWire.input(value) : version === 2 ? !inventoryWire.input(value) : !keys(value, ["source", "expectedRoot"]) || !source || !rootIdentity(value.expectedRoot)
+    if ([6, 8].includes(version) ? !sqliteWire.catalog.input(value) : [4, 5, 7].includes(version) ? !sqliteWire.input(value) : [3, 9].includes(version) ? !codexWire.input(value) : version === 2 ? !inventoryWire.input(value) : !keys(value, ["source", "expectedRoot"]) || !source || !rootIdentity(value.expectedRoot)
       || source.projectsRoot === path.parse(source.projectsRoot).root || source.projectsRoot !== path.resolve(source.projectsRoot)
       || /[*?\[\]{},\r\n]/.test(source.projectsRoot)) return unavailable("invalid_source_input");
     if (closed) return unavailable("source_service_closed");
@@ -101,7 +101,7 @@ function createNativeHelper(options = {}) {
     if (signal?.aborted) return unavailable("source_aborted");
     if (!["darwin", "linux"].includes(platform)) return unavailable("source_platform_unsupported");
     if (active) return unavailable("source_busy");
-    const outputLimit = [6, 8].includes(version) ? sqliteWire.catalog.LIMITS.outputBytes : [5, 7].includes(version) ? sqliteWire.context.LIMITS.outputBytes : version === 4 ? sqliteWire.LIMITS.outputBytes : version === 3 ? codexWire.LIMITS.outputBytes : version === 2 ? 4 + LIMITS.headerBytes + inventoryWire.LIMITS.bytes : LIMITS.outputBytes;
+    const outputLimit = [6, 8].includes(version) ? sqliteWire.catalog.LIMITS.outputBytes : [5, 7].includes(version) ? sqliteWire.context.LIMITS.outputBytes : version === 4 ? sqliteWire.LIMITS.outputBytes : [3, 9].includes(version) ? codexWire.LIMITS.outputBytes : version === 2 ? 4 + LIMITS.headerBytes + inventoryWire.LIMITS.bytes : LIMITS.outputBytes;
     let job, inputLine, output;
     try {
       job = { protocolVersion: version, nonce: crypto.randomBytes(32).toString("hex"),
@@ -174,7 +174,8 @@ function createNativeHelper(options = {}) {
     if (active) await active.promise;
     return { kind: "source_helper_closed", cleanupConfirmed: active === null, quarantined };
   }
-  return Object.freeze({ read: (input, options) => run(input, options), inventory: (input, options) => run(input, options, 2), readCodex: (input, options) => run(input, options, 3),
+  return Object.freeze({ read: (input, options) => run(input, options), inventory: (input, options) => run(input, options, 2), readCodexLegacy: (input, options) => run(input, options, 3),
+    readCodex: (input, options) => run(input, options, 9),
     readCodexMetadata: (input, options) => run(input, options, 4),
     readCodexNameContextLegacy: (input, options) => run(input, options, 5),
     readCodexCatalogLegacy: (input, options) => run(input, options, 6),

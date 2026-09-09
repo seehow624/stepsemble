@@ -10,7 +10,7 @@ pub const INDEX_LIMIT: usize = 8 * 1024 * 1024;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Request {
-    protocol_version: u8,
+    pub(crate) protocol_version: u8,
     nonce: String,
     pub native_version: String,
     pub source: Source,
@@ -28,6 +28,7 @@ pub struct Source {
 pub struct Pair {
     pub rollout: Capture,
     pub name_index: Option<Capture>,
+    pub physical_path: String,
 }
 
 fn timestamp(value: &str) -> bool {
@@ -101,7 +102,7 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Error> {
         return Err(Error::Input);
     }
     let r: Request = serde_json::from_slice(bytes).map_err(|_| Error::Input)?;
-    if r.protocol_version != 3
+    if ![3, 9].contains(&r.protocol_version)
         || r.native_version != NATIVE_VERSION
         || r.nonce.len() != 64
         || !r
@@ -167,7 +168,7 @@ pub fn write_frame(
             }
             let length =
                 pair.rollout.bytes.len() + pair.name_index.as_ref().map_or(0, |v| v.bytes.len());
-            let result = serde_json::json!({"kind":"native_codex_source_bytes","nativeVersion":request.native_version,
+            let mut result = serde_json::json!({"kind":"native_codex_source_bytes","nativeVersion":request.native_version,
                 "threadId":request.source.thread_id,"rolloutPath":request.source.rollout_path,
                 "rootIdentity":{"device":request.expected_root.device,"inode":request.expected_root.inode},
                 "byteLength":length,"sha256":format!("{:x}",hash.finalize()),
@@ -176,6 +177,11 @@ pub fn write_frame(
                     "containment":"root_identity_and_openat_nofollow","reads":2,
                     "matchingBytes":true,"unchangedObservedIdentity":true,"nameIndexPresenceRechecked":true},
                 "sourceAuthenticated":false,"publishable":false});
+            if request.protocol_version == 9 {
+                result["storage"] = serde_json::json!({"rolloutPath":pair.physical_path,
+                    "encoding":if pair.physical_path.ends_with(".zst") {"zstd"} else {"jsonl"}});
+                result["checks"]["rolloutSelectionRechecked"] = serde_json::json!(true);
+            }
             (
                 result,
                 pair.rollout.bytes,
@@ -189,7 +195,7 @@ pub fn write_frame(
         ),
     };
     let header = serde_json::to_vec(
-        &serde_json::json!({"protocolVersion":3,"nonce":request.nonce,"result":result}),
+        &serde_json::json!({"protocolVersion":request.protocol_version,"nonce":request.nonce,"result":result}),
     )
     .map_err(|_| Error::Io)?;
     if header.len() > 16 * 1024 {

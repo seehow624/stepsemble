@@ -51,11 +51,11 @@ test("Codex source input rejects arbitrary keys, accessors and unsafe roots befo
     { ...input(), expectedRoot: { device: "1", inode: "18446744073709551616" } }, { ...input(), nativeVersion: "latest" },
     { ...input(), source: { ...input().source, nameIndex: "auth.json" } }, { ...input(), args: [] },
     ...[path.parse(process.cwd()).root, input().source.codexRoot + "/..", input().source.codexRoot + "/", "/private\nroot"].map(codexRoot => ({ ...input(), source: { ...input().source, codexRoot } }))])
-    assert.equal((await h.readCodex(candidate)).code, "invalid_source_input");
+    assert.equal((await h.readCodexLegacy(candidate)).code, "invalid_source_input");
   assert.equal(called, 0); assert.equal(children.length, 0);
 });
 test("one complete v3 frame detaches both byte ranges only after actual close", async t => {
-  const { h, children } = harness(t), value = input(), pending = h.readCodex(value), c = children[0];
+  const { h, children } = harness(t), value = input(), pending = h.readCodexLegacy(value), c = children[0];
   value.source.rolloutPath = "auth.json"; value.expectedRoot.inode = "9";
   assert.equal(c.job.protocolVersion, 3); assert.equal(c.job.source.rolloutPath, locator); assert.equal(c.job.expectedRoot.inode, "2");
   const fixtureValue = fixture(), bytes = frame(c.job, fixtureValue); c.stdout.write(bytes); c.emit("exit", 0);
@@ -93,16 +93,16 @@ test("Codex pair framing rejects mixed roots, threads, versions, offsets, hashes
     v => { v.nameIndex.identity.size--; }, v => { v.checks.nameIndexPresenceRechecked = false; },
     v => { v.sourceAuthenticated = true; }, v => { v.publishable = true; }, v => { v.extra = "PRIVATE"; }, v => { v.nameIndex = null; }];
   for (const mutate of mutations) {
-    const { h, children } = harness(t), p = h.readCodex(input()), f = fixture(); mutate(f.header); children[0].finish(frame(children[0].job, f));
+    const { h, children } = harness(t), p = h.readCodexLegacy(input()), f = fixture(); mutate(f.header); children[0].finish(frame(children[0].job, f));
     assert.deepEqual(await p, { kind: "source_unavailable", code: "source_worker_protocol" });
   }
   for (const modify of [v => ({ ...v, nonce: "0".repeat(64) }), v => ({ ...v, protocolVersion: 1 }), v => ({ ...v, extra: true })]) {
-    const { h, children } = harness(t), p = h.readCodex(input()); children[0].finish(frame(children[0].job, fixture(), modify)); assert.equal((await p).code, "source_worker_protocol");
+    const { h, children } = harness(t), p = h.readCodexLegacy(input()); children[0].finish(frame(children[0].job, fixture(), modify)); assert.equal((await p).code, "source_worker_protocol");
   }
 });
 test("partial or oversized pairs and unexpected diagnostics never release partial raw data", async t => {
   for (const mode of ["short", "trailing", "oversize", "diagnostic"]) {
-    const { h, children } = harness(t), p = h.readCodex(input()), c = children[0], bytes = frame(c.job);
+    const { h, children } = harness(t), p = h.readCodexLegacy(input()), c = children[0], bytes = frame(c.job);
     if (mode === "diagnostic") c.stderr.write("PRIVATE");
     else if (mode === "oversize") c.stdout.write(Buffer.alloc(wire.LIMITS.outputBytes+1));
     else c.finish(mode === "short" ? bytes.subarray(0, bytes.length-1) : Buffer.concat([bytes, Buffer.from("extra")]));
@@ -111,19 +111,19 @@ test("partial or oversized pairs and unexpected diagnostics never release partia
   }
 });
 test("Codex, Claude and inventory share the same flight and cleanup quarantine", async t => {
-  const { h, children } = harness(t), abort = new AbortController(), p = h.readCodex(input(), { signal: abort.signal }), c = children[0]; c.hold = true;
+  const { h, children } = harness(t), abort = new AbortController(), p = h.readCodexLegacy(input(), { signal: abort.signal }), c = children[0]; c.hold = true;
   const claude = { source: { projectsRoot: path.resolve("owned-claude"), projectKey: "owned", sessionId: id }, expectedRoot: rootIdentity };
   assert.equal((await h.read(claude)).code, "source_busy");
   assert.equal((await h.inventory({ projectsRoot: claude.source.projectsRoot, expectedRoot: rootIdentity })).code, "source_busy");
   abort.abort("PRIVATE"); assert.equal((await p).code, "source_cleanup_unconfirmed");
-  c.emit("close", 0, null); assert.equal((await h.readCodex(input())).code, "source_service_quarantined");
+  c.emit("close", 0, null); assert.equal((await h.readCodexLegacy(input())).code, "source_service_quarantined");
   assert.equal((await h.read(claude)).code, "source_service_quarantined");
   assert.equal(children.length, 1); assert.deepEqual(c.kills, ["SIGKILL"]);
 });
 test("pre-abort, Windows and a native unsupported reply remain explicit with no capability promotion", async t => {
-  const win = harness(t, { platform: "win32" }); assert.equal((await win.h.readCodex(input())).code, "source_platform_unsupported"); assert.equal(win.children.length, 0);
-  const { h, children } = harness(t), abort = new AbortController(); abort.abort(); assert.equal((await h.readCodex(input(), { signal: abort.signal })).code, "source_aborted");
+  const win = harness(t, { platform: "win32" }); assert.equal((await win.h.readCodexLegacy(input())).code, "source_platform_unsupported"); assert.equal(win.children.length, 0);
+  const { h, children } = harness(t), abort = new AbortController(); abort.abort(); assert.equal((await h.readCodexLegacy(input(), { signal: abort.signal })).code, "source_aborted");
   assert.equal(children.length, 0);
-  const p = h.readCodex(input()), c = children[0]; c.finish(frame(c.job, { header: { kind: "source_unavailable", code: "source_encoding_unsupported" }, bytes: Buffer.alloc(0) }));
+  const p = h.readCodexLegacy(input()), c = children[0]; c.finish(frame(c.job, { header: { kind: "source_unavailable", code: "source_encoding_unsupported" }, bytes: Buffer.alloc(0) }));
   assert.deepEqual(await p, { kind: "source_unavailable", code: "source_encoding_unsupported" });
 });

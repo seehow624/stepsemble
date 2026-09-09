@@ -74,6 +74,19 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
         assert.equal(histories.at(-1).page.offset, 10); assert(histories.at(-1).version);
         await content.getByRole("button", { name: "上一頁", exact: true }).click();
         await page.waitForFunction(() => document.querySelector(".codex-record h4")?.textContent.startsWith("1 ·"));
+        stage = "compressed sibling and plain restoration invalidate old pages";
+        await host.mutate("compress_concat"); await next.click(); await content.locator(".history-warning").waitFor();
+        assert.equal(await next.isEnabled(), false);
+        await refreshSource.click(); await page.locator(".source-open").first().click();
+        await page.waitForFunction(() => document.querySelector(".codex-record-title")?.textContent === "最新 WAL 名稱 🐾");
+        for (const n of [11, 21, 31]) { await next.click(); await page.waitForFunction(i => document.querySelector(".codex-record h4")?.textContent.startsWith(`${i} ·`), n); }
+        assert.equal(await page.locator(".codex-record").count(), 9); assert((await content.textContent()).includes("future_owned_record"));
+        await content.getByRole("button", { name: "重新整理", exact: true }).click();
+        await page.waitForFunction(() => document.querySelector(".codex-record h4")?.textContent.startsWith("1 ·"));
+        await host.mutate("restore_plain"); await next.click(); await content.locator(".history-warning").waitFor();
+        assert.equal(await next.isEnabled(), false);
+        await host.mutate("clear_compressed"); await refreshSource.click(); await page.locator(".source-open").first().click();
+        await page.waitForFunction(() => document.querySelector(".codex-record h4")?.textContent.startsWith("1 ·"));
         for (const n of [11, 21, 31]) { await next.click(); await page.waitForFunction(i => document.querySelector(".codex-record h4")?.textContent.startsWith(`${i} ·`), n); }
         assert.equal(await page.locator(".codex-record").count(), 9); assert.equal(await next.isEnabled(), false);
         assert((await content.textContent()).includes("future_owned_record")); assert((await content.textContent()).includes("function_call_output"));
@@ -90,6 +103,12 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
         await host.mutate("reopen"); await next.click(); await content.locator(".history-warning").waitFor();
         assert.equal(await next.isEnabled(), false); assert((await page.locator(".codex-record h4").first().textContent()).startsWith("11 ·"));
         await refreshSource.click(); await page.locator(".source-open").first().click();
+        await page.waitForFunction(() => document.querySelector(".codex-record h4")?.textContent.startsWith("1 ·"));
+        stage = "damaged compressed data gives a specific recoverable error";
+        await host.mutate("compress_corrupt"); await refreshSource.click(); await page.locator(".source-open").first().click();
+        await page.waitForFunction(() => document.querySelector(".codex-record-view .history-warning")?.textContent.includes("壓縮歷史不完整或已損壞"));
+        assert.equal(await page.locator(".codex-record").count(), 0); assert.equal(await next.isEnabled(), false);
+        await host.mutate("restore_plain"); await host.mutate("clear_compressed"); await refreshSource.click(); await page.locator(".source-open").first().click();
         await page.waitForFunction(() => document.querySelector(".codex-record h4")?.textContent.startsWith("1 ·"));
         stage = "WAL rename rejects stale continuation";
         await host.mutate("rename"); await next.click(); await content.locator(".history-warning").waitFor();
@@ -110,7 +129,7 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
         await page.getByText("這次清單沒有符合範圍的對話。", { exact: true }).waitFor();
         assert.deepEqual(errors, []); assert.deepEqual(foreign, []); assert.deepEqual(forbidden, []);
         console.log(JSON.stringify({ gate: "codex_history_browser", width: viewport.width, colorScheme, passed: true,
-          coldHistoryAndBothLayoutTransitions: true, physicalDevice: false }));
+          coldHistoryAndBothLayoutTransitions: true, compressedAllPagesAndBothTransitions: true, damagedCompressedGuidanceAndRecovery: true, physicalDevice: false }));
       } catch (error) { throw new Error(`Codex history ${viewport.width}/${colorScheme} at ${stage}: ${error.message}`, { cause: error }); }
       finally { await context?.close(); assert.equal((await host.close()).cleanupConfirmed, true); }
     }
