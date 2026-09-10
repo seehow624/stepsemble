@@ -88,6 +88,12 @@ close/reject。
 
 ## 尚未涵蓋
 
+首輪 GitHub CI（工程 `0f6c3e6`）保留兩個測試失敗：Linux 的 observe-race
+測試以固定 `setImmediate` 次數等 worker，可能在真正進入前太早斷言；已改用實際
+進入 transaction wrapper 的 Promise 訊號。Windows 的 Node SIGTERM 會直接終止
+child，不能套用 POSIX 必須升級 SIGKILL 的斷言；兩平台仍都要求 actual close／
+cleanupConfirmed。修正不延長產品期限、不跳過案例、不改 native runtime 行為。
+
 - 尚未把 bridge 接入 production HTTP/UI 或 Claude/OpenCode/Grok；這裡只交付
   Codex app-server 的 Host-only seam。
 - `serverRequest/resolved` 沒有 decision evidence；要完成 receipt settlement

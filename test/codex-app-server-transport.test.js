@@ -335,13 +335,14 @@ test("Codex approval bridge does not resurrect an observe that closes during jou
   const f = await makeJournal(t, { withApproval: false, harnessId: "codex", nativeSessionId: "native-observe-race", nativeRunId: "turn-observe-race" });
   const { createCodexApprovalBridge } = require("../server/codex-approval-bridge");
   let release;
-  let entered = false;
+  let signalEntered;
+  const entered = new Promise(resolve => { signalEntered = resolve; });
   const gate = new Promise(resolve => { release = resolve; });
   const delayedJournal = {
     read: (...args) => f.journal.read(...args),
     execute: async (sessionId, operation, args, context) => {
       if (operation === "planObservedEvents") {
-        entered = true;
+        signalEntered("entered");
         await gate;
       }
       return f.journal.execute(sessionId, operation, args, context);
@@ -357,8 +358,7 @@ test("Codex approval bridge does not resurrect an observe that closes during jou
     threadId: "native-observe-race", turnId: "turn-observe-race", itemId: "item-observe-race", summary: "race", params: {},
     authority: { sourceAuthenticated: true } };
   const observing = bridge.observe(request);
-  for (let i = 0; i < 100 && !entered; i += 1) await new Promise(resolve => setImmediate(resolve));
-  assert.equal(entered, true);
+  assert.equal(await Promise.race([entered, observing.then(result => ({ earlyResult: result }))]), "entered");
   bridge.onEvent({ type: "approval.resolved", requestId: "observe-race" });
   // Evict the bounded closure tombstone while SQLite is still in flight. The
   // per-observation reservation must nevertheless prevent rows.set() on wake.
@@ -378,7 +378,8 @@ test("Codex approval bridge records a late flushed write in its tombstone and bi
     idFactory: label => `${label}-write-race`,
   });
   let release;
-  let entered = false;
+  let signalEntered;
+  const entered = new Promise(resolve => { signalEntered = resolve; });
   const gate = new Promise(resolve => { release = resolve; });
   let itemCorrelation;
   bridge.attach({
@@ -388,7 +389,7 @@ test("Codex approval bridge records a late flushed write in its tombstone and bi
         request: { ...row.request, itemId: "different-item" }, decision: decision.decision, scope: decision.scope,
       });
       itemCorrelation = wrong.code;
-      entered = true;
+      signalEntered("entered");
       await gate;
       return { kind: "written" };
     },
@@ -400,8 +401,7 @@ test("Codex approval bridge records a late flushed write in its tombstone and bi
     }, authority: { sourceAuthenticated: true } };
   assert.equal((await bridge.observe(request)).kind, "observed");
   const resolving = bridge.resolve("write-race", { decision: "approved", scope: "once", commandId: "command-write-race", idempotencyKey: "idempotency-write-race" });
-  for (let i = 0; i < 100 && !entered; i += 1) await new Promise(resolve => setTimeout(resolve, 10));
-  assert.equal(entered, true);
+  assert.equal(await Promise.race([entered, resolving.then(result => ({ earlyResult: result }))]), "entered");
   assert.equal(itemCorrelation, "transaction_required", "native item identity is part of the authorization proof");
   bridge.onEvent({ type: "approval.resolved", requestId: "write-race" });
   release();
@@ -533,7 +533,7 @@ test("Codex resume with excluded turns refuses to assume an idle thread", async 
   assert.equal(transport.state().state, "reconciliation_required");
 });
 
-test("Codex native transport confirms bounded cleanup when an owned child ignores SIGTERM", async t => {
+test("Codex native transport confirms bounded cleanup with POSIX escalation and Windows termination", async t => {
   const child = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); process.send?.('ready'); process.stdin.resume(); setInterval(() => {}, 1000);"], { stdio: ["pipe", "pipe", "pipe", "ipc"] });
   const transport = createCodexAppServerTransport({ child });
   t.after(() => transport.close());
@@ -543,7 +543,9 @@ test("Codex native transport confirms bounded cleanup when an owned child ignore
   });
   const closed = await transport.close();
   assert.equal(closed.cleanupConfirmed, true);
-  assert.equal(child.signalCode, "SIGKILL");
+  // Windows force-terminates on Node's emulated SIGTERM even with a handler;
+  // POSIX must exercise the grace deadline and escalate to SIGKILL.
+  assert.equal(child.signalCode, process.platform === "win32" ? "SIGTERM" : "SIGKILL");
   assert.equal(transport.state().cleanupConfirmed, true);
 });
 
