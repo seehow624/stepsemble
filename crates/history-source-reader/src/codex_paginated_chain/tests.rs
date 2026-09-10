@@ -50,10 +50,15 @@ fn plans_ancestors_before_the_selected_rollout() {
             .collect::<Vec<_>>(),
         [OLD, MID, THREAD]
     );
-    // Only links that inherit carry a cut point.
-    assert_eq!(plan.sources[0].end_ordinal_exclusive, None);
-    assert_eq!(plan.sources[1].end_ordinal_exclusive.as_deref(), Some("20"));
-    assert_eq!(plan.sources[2].end_ordinal_exclusive.as_deref(), Some("40"));
+    // A cut describes how much of THAT source a descendant used. OLD is used
+    // up to 20 (named by MID), MID up to 40 (named by THREAD), and the newest
+    // rollout contributes through its end.
+    assert_eq!(plan.sources[0].end_ordinal_exclusive.as_deref(), Some("20"));
+    assert_eq!(plan.sources[0].end_byte_offset.as_deref(), Some("2000"));
+    assert_eq!(plan.sources[1].end_ordinal_exclusive.as_deref(), Some("40"));
+    assert_eq!(plan.sources[1].end_byte_offset.as_deref(), Some("4000"));
+    assert_eq!(plan.sources[2].end_ordinal_exclusive, None);
+    assert_eq!(plan.sources[2].end_byte_offset, None);
     assert!(plan.reached_root);
     assert_eq!(plan.chain_byte_budget, CHAIN_BYTES);
     assert!(!plan.source_authenticated);

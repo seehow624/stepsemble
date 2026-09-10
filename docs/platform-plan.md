@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.84
+> 計畫版本：1.85
 > 最後更新：2026-09-10
 > 當前產品基線：Stepsemble 3.0.8（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.8／source `3bae06c`（2026-09-09 公開 stable release）
@@ -10,6 +10,13 @@
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
 ## 文件用途與回復方法
+
+**最新接續1.85（paginated 解析結果與切點歸屬修正）**：新增解析層核對觀測與計畫、
+以 stored bytes 計整鏈預算、以 decoded bytes 驗切點是否落在來源內；順序錯誤、
+外來 rollout、空來源、超限一律拒絕。**修正 1.84 的語意錯誤**：切點屬於被繼承的
+來源而非繼承方，此錯誤由原生差分驗證抓出並已更新。Rust 75 項通過、fmt/clippy 乾淨、
+Node 1158/0fail 不變。**尚未接實際逐檔開啟**，C2 不勾完成，詳
+[解析結果](codex-paginated-resolution.md)。
 
 **最新接續1.84（paginated 鏈解析計畫）**：新增鏈層級計畫，最舊在前、每個 source 帶
 locator／壓縮／封存與切點，整條鏈共用單一來源同等位元組上限；重疊繼承、同檔重複、

@@ -220,8 +220,12 @@ export async function checkPaginatedRuntime(binary) {
         // and carry the exact cut point native honoured when it inherited.
         assert.equal(ancestry.plan.threadId, child.threadId);
         assert.deepEqual(ancestry.plan.sources.map(s => s.rolloutId), [root.rolloutId, child.rolloutId]);
-        assert.equal(ancestry.plan.sources[0].endOrdinalExclusive, null);
-        assert.equal(ancestry.plan.sources[1].endOrdinalExclusive, String(root.forkCutoff.end_ordinal_exclusive));
+        // A cut describes how much of THAT source a descendant used, so it
+        // belongs to the root the child inherited from, and the child itself
+        // contributes through its end.
+        assert.equal(ancestry.plan.sources[0].endOrdinalExclusive, String(root.forkCutoff.end_ordinal_exclusive));
+        assert.equal(ancestry.plan.sources[0].endByteOffset, String(root.forkCutoff.end_byte_offset));
+        assert.equal(ancestry.plan.sources[1].endOrdinalExclusive, null);
         assert.equal(ancestry.plan.reachedRoot, true);
         assert.equal(ancestry.plan.historyComplete, false);
         assert(ancestry.plan.sources.every(s => !s.compressed && !s.archived), "owned fixtures are plain active rollouts");

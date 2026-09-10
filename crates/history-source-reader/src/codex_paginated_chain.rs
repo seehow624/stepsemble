@@ -56,8 +56,9 @@ pub struct PlannedSource {
     pub compressed: bool,
     /// True when the locator lives under archived_sessions.
     pub archived: bool,
-    /// Exclusive ordinal where this link stops contributing, or None when the
-    /// link contributes to its end. Only an inherited-from link has a cut.
+    /// Exclusive ordinal where THIS source stops contributing, set by whichever
+    /// descendant inherited from it. None means the source contributes through
+    /// its end, which is true for the newest rollout in the chain.
     pub end_ordinal_exclusive: Option<String>,
     pub end_byte_offset: Option<String>,
 }
@@ -145,6 +146,22 @@ pub fn plan(
         }
         sources.push(planned(link, locator));
     }
+    // A link's history_base describes how much of its ANCESTOR is used, so the
+    // cut belongs to the source being inherited from, not to the inheritor.
+    // Shift each cut one position deeper before ordering oldest-first.
+    let cuts: Vec<_> = chain
+        .links
+        .iter()
+        .map(|link| link.history_base.clone())
+        .collect();
+    for (index, source) in sources.iter_mut().enumerate() {
+        let inherited_from_here = index
+            .checked_sub(1)
+            .and_then(|previous| cuts.get(previous))
+            .and_then(Option::as_ref);
+        source.end_ordinal_exclusive = inherited_from_here.map(|b| b.end_ordinal_exclusive.clone());
+        source.end_byte_offset = inherited_from_here.map(|b| b.end_byte_offset.clone());
+    }
     sources.reverse();
     Ok(Plan {
         profile: PROFILE,
@@ -163,14 +180,10 @@ fn planned(link: &RolloutClaim, locator: &Locator<'_>) -> PlannedSource {
         rollout_path: locator.rollout_path.to_string(),
         compressed: locator.rollout_path.ends_with(".zst"),
         archived: locator.rollout_path.starts_with("archived_sessions/"),
-        end_ordinal_exclusive: link
-            .history_base
-            .as_ref()
-            .map(|base| base.end_ordinal_exclusive.clone()),
-        end_byte_offset: link
-            .history_base
-            .as_ref()
-            .map(|base| base.end_byte_offset.clone()),
+        // Filled in by plan(), which knows which descendant inherited from
+        // this source and therefore where it stops contributing.
+        end_ordinal_exclusive: None,
+        end_byte_offset: None,
     }
 }
 

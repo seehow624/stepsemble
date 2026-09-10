@@ -15,8 +15,10 @@
 rollout 與其祖先轉成**有界、有序的解析計畫**：
 
 - 順序為**最舊在前**，讓繼承來的記錄依原始順序抵達。
-- 每個 planned source 帶自己的 locator、是否壓縮、是否封存，以及該連結停止
-  貢獻的 exclusive ordinal／byte offset（只有繼承方才有切點）。
+- 每個 planned source 帶自己的 locator、是否壓縮、是否封存，以及**該來源自己**
+  停止貢獻的 exclusive ordinal／byte offset。切點由繼承它的後代指定，最新的
+  rollout 貢獻到結尾因此沒有切點。（Plan1.84 原先誤把切點掛在繼承方，
+  已於 Plan1.85 修正，見[解析結果](codex-paginated-resolution.md)。）
 - 整條鏈共用單一來源同等的位元組上限（`CHAIN_BYTES`，256 MiB）。
   `accumulate` 讓呼叫端在讀每個來源前累計，超出即停止而非回傳部分結果。
 
@@ -60,4 +62,3 @@ complete-LF 範圍與[投影檢查點](codex-paginated-checkpoint.md)比對以�
 不一致／partial-tail、獨立 source-version 與 created-ordinal cursor、
 permissioned parser → named source service → registry／HTTP／peer／typed Web，
 以及損壞／取消／超限的三 OS 與 320/390px 實測。Windows 私有來源仍 unsupported。
-
