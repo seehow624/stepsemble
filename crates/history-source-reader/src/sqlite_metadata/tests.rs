@@ -311,6 +311,13 @@ fn only_v5_authorizes_exact_additional_columns_and_still_denies_writes() {
 #[test]
 fn name_and_context_queries_observe_one_transaction_across_concurrent_commit() {
     let f = Fixture::new();
+    // The concurrent commit below races this reader's lock. Windows CI has
+    // been observed rejecting it immediately with the default timeout, which
+    // fails the test setup rather than the behaviour under test. Give the
+    // writer a real wait; the assertions about snapshot isolation are unchanged.
+    f.writer
+        .busy_timeout(Duration::from_secs(5))
+        .expect("writer busy timeout");
     f.writer
         .execute(
             "UPDATE threads SET preview='before',rollout_path='before' WHERE id=?1",
@@ -656,18 +663,18 @@ fn wal_writer_commits_while_reader_sees_one_consistent_transaction() {
 
 #[test]
 fn a_read_lock_can_delay_checkpoint_but_is_not_retained_between_requests() {
-    // Known Windows flake (observed once on windows-2025, 2026-09-10): the
-    // in-flight assertion below expects the owned writer's TRUNCATE checkpoint
-    // to be blocked while this reader holds its lock. On a loaded shared runner
-    // Windows has occasionally let that checkpoint through. The assertion is
-    // deliberately NOT relaxed: it is the point of the test, and the
-    // post-close assertion is what protects the actual release guarantee.
-    // Rerunning the job reproduced a pass; investigate rather than weaken it if
-    // this starts recurring.
     let f = Fixture::new();
-    f.writer.busy_timeout(Duration::ZERO).unwrap();
     capture_with_hook(f.reader(), "0.153.4", ID, flag(), |_, _| {
+        // The update must actually land, so let it wait for the lock. Only the
+        // checkpoint probe below needs a zero timeout, since being blocked is
+        // exactly what it asserts.
+        f.writer
+            .busy_timeout(Duration::from_secs(5))
+            .expect("writer busy timeout");
         f.update("new");
+        f.writer
+            .busy_timeout(Duration::ZERO)
+            .expect("writer busy timeout");
         assert_eq!(
             f.checkpoint().0,
             1,
@@ -676,6 +683,9 @@ fn a_read_lock_can_delay_checkpoint_but_is_not_retained_between_requests() {
         Ok(())
     })
     .unwrap();
+    f.writer
+        .busy_timeout(Duration::from_secs(5))
+        .expect("writer busy timeout");
     assert_eq!(f.checkpoint().0, 0, "actual close releases the read lock");
     assert_eq!(read(&f).unwrap().fields.unwrap().title, "new");
 }
