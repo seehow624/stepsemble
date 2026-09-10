@@ -656,6 +656,14 @@ fn wal_writer_commits_while_reader_sees_one_consistent_transaction() {
 
 #[test]
 fn a_read_lock_can_delay_checkpoint_but_is_not_retained_between_requests() {
+    // Known Windows flake (observed once on windows-2025, 2026-09-10): the
+    // in-flight assertion below expects the owned writer's TRUNCATE checkpoint
+    // to be blocked while this reader holds its lock. On a loaded shared runner
+    // Windows has occasionally let that checkpoint through. The assertion is
+    // deliberately NOT relaxed: it is the point of the test, and the
+    // post-close assertion is what protects the actual release guarantee.
+    // Rerunning the job reproduced a pass; investigate rather than weaken it if
+    // this starts recurring.
     let f = Fixture::new();
     f.writer.busy_timeout(Duration::ZERO).unwrap();
     capture_with_hook(f.reader(), "0.153.4", ID, flag(), |_, _| {
