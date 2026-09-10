@@ -198,8 +198,10 @@ export async function checkPaginatedRuntime(binary) {
             entries: [child, root].map(f => ({
               rolloutId: f.rolloutId,
               base64Record: Buffer.from(firstRecord(f.raw)).toString("base64"),
-              // The locator native actually stored for this rollout.
-              rolloutPath: path.relative(codexHome, f.file),
+              // The locator native actually stored for this rollout. A locator
+              // is repository-relative with forward slashes on every OS, so
+              // normalise Windows separators regardless of the running platform.
+              rolloutPath: path.relative(codexHome, f.file).split(path.win32.sep).join("/"),
             })),
           })
         : null;
