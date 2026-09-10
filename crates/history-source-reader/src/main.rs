@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 mod codex;
 mod codex_catalog;
+mod codex_paginated;
 mod codex_scanned;
 mod codex_sqlite;
 
@@ -280,8 +281,12 @@ fn run() -> Result<(), Error> {
         return Err(Error::Input);
     }
     let mut input = Vec::new();
+    // Protocol 15 carries one bounded first record per planned source and is
+    // intentionally allowed a larger envelope than the legacy source readers.
+    // Each parser still enforces its own exact limit after this shared read.
+    let input_limit = INPUT_LIMIT.max(codex_paginated::INPUT_LIMIT);
     std::io::stdin()
-        .take((INPUT_LIMIT + 1) as u64)
+        .take((input_limit + 1) as u64)
         .read_to_end(&mut input)
         .map_err(|_| Error::Input)?;
     if let Ok(request) = parse_request(&input) {
@@ -295,6 +300,12 @@ fn run() -> Result<(), Error> {
             std::io::stdout().lock(),
             &request,
             codex_scanned::capture(&request),
+        )
+    } else if let Ok(request) = codex_paginated::parse_request(&input) {
+        codex_paginated::write_frame(
+            std::io::stdout().lock(),
+            &request,
+            codex_paginated::capture(&request),
         )
     } else if let Ok(request) = codex_sqlite::parse_request(&input) {
         codex_sqlite::write_frame(

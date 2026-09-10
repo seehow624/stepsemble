@@ -1,6 +1,6 @@
 use super::*;
 use crate::codex_paginated_ancestry::{self as ancestry, HistoryBase, RolloutClaim};
-use crate::codex_paginated_chain::{CHAIN_BYTES, Locator};
+use crate::codex_paginated_chain::{CHAIN_BYTES, CHAIN_DECODED_BYTES, Locator};
 
 const THREAD: &str = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 const OLD: &str = "99999999-8888-4777-8666-555555555555";
@@ -45,6 +45,7 @@ fn observed(id: &str, decoded: u64, records: u32, stored: u64) -> Observed {
         decoded_bytes: decoded,
         record_count: records,
         stored_bytes: stored,
+        ordinal_cutoff_verified: true,
     }
 }
 
@@ -78,6 +79,8 @@ fn records_each_source_and_totals_stored_bytes() {
     assert_eq!(resolution.sources[1].end_ordinal_exclusive, None);
     assert_eq!(resolution.sources[0].record_count, 12);
     assert_eq!(resolution.chain_stored_bytes, "13000");
+    assert_eq!(resolution.chain_decoded_bytes, "13000");
+    assert!(resolution.ordinal_cutoffs_verified);
     assert!(resolution.reached_root);
     assert!(!resolution.source_authenticated);
     // Following every pointer never proves the durable history is complete.
@@ -116,6 +119,7 @@ fn a_compressed_ancestor_is_budgeted_by_stored_bytes_but_cut_by_decoded_size() {
     assert_eq!(resolution.sources[0].decoded_bytes, "4000");
     assert_eq!(resolution.sources[0].stored_bytes, "900");
     assert_eq!(resolution.chain_stored_bytes, "9900");
+    assert_eq!(resolution.chain_decoded_bytes, "13000");
 }
 
 #[test]
@@ -132,17 +136,18 @@ fn a_cut_beyond_the_source_it_names_is_refused() {
         ),
         Err(Error::CutoffOutsideSource)
     );
-    // Ordinal 6 cannot lie inside an ancestor holding 3 records.
-    assert_eq!(
-        resolve(
-            &plan,
-            &[
-                observed(OLD, 4000, 3, 4000),
-                observed(THREAD, 9000, 30, 9000)
-            ]
-        ),
-        Err(Error::CutoffOutsideSource)
-    );
+    // The ordinal is global to the thread, while record_count is local to
+    // this rollout. Without a source-local ordinal cursor it must not reject
+    // a valid source merely because 6 > 3.
+    let resolution = resolve(
+        &plan,
+        &[
+            observed(OLD, 4000, 3, 4000),
+            observed(THREAD, 9000, 30, 9000),
+        ],
+    )
+    .expect("global ordinal is not a local record count");
+    assert!(resolution.ordinal_cutoffs_verified);
 }
 
 #[test]
@@ -216,5 +221,62 @@ fn the_whole_chain_cannot_exceed_one_admission_budget() {
             ]
         ),
         Err(Error::ChainBytesExceeded)
+    );
+}
+
+#[test]
+fn the_whole_chain_cannot_exceed_decoded_budget_even_when_stored_is_small() {
+    let plan = two_link_plan();
+    // Two compressed sources can each be small on disk but expand beyond the
+    // independent aggregate decoded budget.
+    assert_eq!(
+        resolve(
+            &plan,
+            &[
+                observed(OLD, CHAIN_DECODED_BYTES / 2 + 1, 12, 1),
+                observed(THREAD, CHAIN_DECODED_BYTES / 2, 30, 1),
+            ]
+        ),
+        Err(Error::DecodedChainBytesExceeded)
+    );
+}
+
+#[test]
+fn a_cutoff_without_per_record_ordinal_evidence_is_refused() {
+    let plan = two_link_plan();
+    let mut source = observed(OLD, 4000, 12, 4000);
+    source.ordinal_cutoff_verified = false;
+    assert_eq!(
+        resolve(&plan, &[source, observed(THREAD, 9000, 30, 9000)],),
+        Err(Error::CutoffUnverified)
+    );
+}
+
+#[test]
+fn malformed_or_partial_cutoff_shape_is_refused_before_resolution() {
+    let mut malformed = two_link_plan();
+    malformed.sources[0].end_byte_offset = Some("bad".into());
+    assert_eq!(
+        resolve(
+            &malformed,
+            &[
+                observed(OLD, 4000, 12, 4000),
+                observed(THREAD, 9000, 30, 9000)
+            ]
+        ),
+        Err(Error::InvalidCutoff)
+    );
+
+    let mut partial = two_link_plan();
+    partial.sources[0].end_ordinal_exclusive = None;
+    assert_eq!(
+        resolve(
+            &partial,
+            &[
+                observed(OLD, 4000, 12, 4000),
+                observed(THREAD, 9000, 30, 9000)
+            ]
+        ),
+        Err(Error::InvalidCutoff)
     );
 }

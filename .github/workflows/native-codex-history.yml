@@ -10,6 +10,11 @@ on:
       - 'scripts/check-native-codex-*.mjs'
       - 'test/native-codex-*.test.js'
       - 'server/stream-safety.js'
+      - 'server/codex-app-server-transport.js'
+      - 'server/codex-approval-bridge.js'
+      - 'server/session-journal*.js'
+      - 'protocol/transaction-state.js'
+      - 'test/codex-app-server-transport.test.js'
       - 'public/modules/projection.js'
       # Whole crate: the differential probe links against the library, so a
       # change anywhere in it can alter what this workflow proves.
@@ -21,6 +26,11 @@ on:
       - 'scripts/check-native-codex-*.mjs'
       - 'test/native-codex-*.test.js'
       - 'server/stream-safety.js'
+      - 'server/codex-app-server-transport.js'
+      - 'server/codex-approval-bridge.js'
+      - 'server/session-journal*.js'
+      - 'protocol/transaction-state.js'
+      - 'test/codex-app-server-transport.test.js'
       - 'public/modules/projection.js'
       # Whole crate: the differential probe links against the library, so a
       # change anywhere in it can alter what this workflow proves.
@@ -67,6 +77,10 @@ jobs:
           probe="crates/history-source-reader/target/debug/ancestry-probe"
           [[ "$RUNNER_OS" == "Windows" ]] && probe="$probe.exe"
           echo "probe=$PWD/$probe" >> "$GITHUB_OUTPUT"
+          cargo +1.97.1 build --locked --manifest-path crates/history-source-reader/Cargo.toml --bin stepsemble-history-source-reader
+          resolver="crates/history-source-reader/target/debug/stepsemble-history-source-reader"
+          [[ "$RUNNER_OS" == "Windows" ]] && resolver="$resolver.exe"
+          echo "resolver=$PWD/$resolver" >> "$GITHUB_OUTPUT"
       - name: Fetch and verify one pinned official binary into disposable runner storage
         id: artifact
         shell: bash
@@ -92,6 +106,9 @@ jobs:
           # The bounded Rust ancestry parser must derive the same inheritance
           # pointer from the same record the real binary just inherited from.
           STEPSEMBLE_ANCESTRY_PROBE: ${{ steps.ancestry.outputs.probe }}
+          # This owned helper opens each planned source through the existing
+          # no-follow/ACL/identity boundary and returns only Observed/resolve.
+          STEPSEMBLE_PAGINATED_RESOLUTION_PROBE: ${{ steps.ancestry.outputs.resolver }}
         shell: bash
         run: |
           node -e 'const fs=require("node:fs"),crypto=require("node:crypto");console.log(JSON.stringify({binarySha256:crypto.createHash("sha256").update(fs.readFileSync(process.env.NATIVE_BINARY)).digest("hex")}));'
@@ -99,3 +116,8 @@ jobs:
           node scripts/check-native-codex-names.mjs "$NATIVE_BINARY"
           node scripts/check-native-codex-metadata-names.mjs "$NATIVE_BINARY"
           node scripts/check-native-codex-paginated.mjs "$NATIVE_BINARY"
+      - name: Native interrupt and journal-backed denial using a local fixture model
+        env:
+          NATIVE_BINARY: ${{ steps.artifact.outputs.binary }}
+        shell: bash
+        run: node scripts/check-native-codex-approval.mjs "$NATIVE_BINARY"

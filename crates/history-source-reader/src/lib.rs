@@ -3,6 +3,7 @@
 pub mod codex_locator;
 pub mod codex_paginated_ancestry;
 pub mod codex_paginated_chain;
+pub mod codex_paginated_consistency;
 pub mod codex_paginated_resolution;
 pub mod codex_rollout_format;
 pub mod codex_rollout_structure;

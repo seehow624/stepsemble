@@ -81,12 +81,15 @@ node scripts/check-native-codex-paginated.mjs /absolute/verified/native/codex
    維持不可讀；見[檢查點讀取邊界](codex-paginated-checkpoint.md)。仍待：與
    `state_5.sqlite` selected row 在同一 reader admission/deadline 下合併，
    所有資料只從已授權 roots 與 held FD 取得；不得將本 oracle 指向真人 HOME。
-2. **（Plan1.83／1.84 已完成指標解析與鏈計畫）** `SessionMeta.history_base` 的讀取、
-   鏈結、環／深度／不符防護見[祖先鏈解析](codex-paginated-ancestry.md)；
-   排程順序、stable thread ID／physical rollout ID 分離、active/archive 與 plain/zstd
-   辨識、cutoff 單調性與整鏈 bounded bytes 見[鏈解析計畫](codex-paginated-chain.md)。
-   兩者都以真原生記錄與實際儲存 locator 做差分。仍待：**依計畫實際開啟每個祖先檔案**
-   （no-follow／ACL／逐檔 bounded bytes、zstd 解碼、missing source 與版面改變）。
+2. **（Plan1.83／1.84／1.86 已完成指標解析、鏈計畫與逐檔開啟）** `SessionMeta.history_base` 的讀取、
+  鏈結、環／深度／不符防護見[祖先鏈解析](codex-paginated-ancestry.md)；
+  排程順序、stable thread ID／physical rollout ID 分離、active/archive 與 plain/zstd
+  辨識、cutoff 單調性與整鏈 bounded bytes 見[鏈解析計畫](codex-paginated-chain.md)。
+  兩者都以真原生記錄與實際儲存 locator 做差分；依計畫逐檔開啟、plain／zstd
+  bounded scan 與 `Observed → resolve()` 見[逐檔開啟](codex-paginated-opening.md)，
+  同樣以 owned native data 做差分。仍待：
+  **把來源摘要與 projection checkpoint 在同一 admission 內比對**，以及缺檔／版面改變
+  的三 OS／產品接線（opening adapter 對這些情況已明確拒絕，不回空歷史）。
 3. 把 durable complete-LF 範圍、各段完整摘要與 selected projection checkpoint 比對；
    拒絕落後／不一致／partial-tail／來源變動。不用 native EOF 當完整證明，也不呼叫
    resume 或寫入 repair。subagent inherited prefix、跨段更新及fork截點語意另驗。

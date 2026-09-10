@@ -6,6 +6,11 @@ const CHILD: &str = "11111111-2222-4333-8444-555555555555";
 const GRANDCHILD: &str = "99999999-8888-4777-8666-555555555555";
 
 fn meta(id: &str, history_base: Option<serde_json::Value>) -> Vec<u8> {
+    let ordinal = history_base
+        .as_ref()
+        .and_then(|value| value.get("end_ordinal_exclusive"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
     let mut payload = serde_json::Map::new();
     payload.insert("id".into(), json!(id));
     payload.insert("session_id".into(), json!(id));
@@ -16,7 +21,7 @@ fn meta(id: &str, history_base: Option<serde_json::Value>) -> Vec<u8> {
     }
     let record = json!({
         "timestamp": "2026-01-05T12:00:00Z",
-        "ordinal": 0,
+        "ordinal": ordinal,
         "type": "session_meta",
         "payload": payload,
     });
@@ -69,6 +74,42 @@ fn a_record_for_another_rollout_is_refused() {
 }
 
 #[test]
+fn a_reverted_head_keeps_stable_metadata_id_but_links_physical_rollout_id() {
+    let physical = "0f0f0f0f-1e1e-4d4d-8c8c-3b3b3b3b3b3b";
+    let claim = read_claim_with_metadata_id(ROOT, physical, &meta(ROOT, Some(base(ROOT, 7, 1234))))
+        .expect("reverted metadata uses stable ID");
+    assert_eq!(claim.rollout_id, physical);
+    assert_eq!(claim.history_base.as_ref().unwrap().thread_id, ROOT);
+    // The compatibility helper remains strict for ordinary sources and does
+    // not accidentally accept the stable/physical split.
+    assert_eq!(
+        read_claim(physical, &meta(ROOT, None)),
+        Err(Error::SelectedThreadMismatch)
+    );
+}
+
+#[test]
+fn metadata_ordinal_must_start_at_zero_or_its_history_base_cutoff() {
+    let root = format!(
+        r#"{{"ordinal":100,"type":"session_meta","payload":{{"id":"{ROOT}","history_mode":"paginated"}}}}
+"#
+    );
+    assert_eq!(
+        read_claim(ROOT, root.as_bytes()),
+        Err(Error::InvalidOrdinal)
+    );
+
+    let child = format!(
+        r#"{{"ordinal":6,"type":"session_meta","payload":{{"id":"{CHILD}","history_mode":"paginated","history_base":{{"thread_id":"{ROOT}","end_ordinal_exclusive":7,"end_byte_offset":123}}}}}}
+"#
+    );
+    assert_eq!(
+        read_claim(CHILD, child.as_bytes()),
+        Err(Error::InvalidOrdinal)
+    );
+}
+
+#[test]
 fn a_legacy_or_missing_history_mode_belongs_to_the_other_validator() {
     let mut record = String::from_utf8(meta(ROOT, None)).unwrap();
     record = record.replace("\"paginated\"", "\"legacy\"");
@@ -96,6 +137,7 @@ fn a_malformed_history_base_is_refused_rather_than_partially_trusted() {
         json!({"thread_id": "not-a-uuid", "end_ordinal_exclusive": 7, "end_byte_offset": 1}),
         json!({"thread_id": ROOT, "end_ordinal_exclusive": -1, "end_byte_offset": 1}),
         json!({"thread_id": ROOT, "end_ordinal_exclusive": 1.5, "end_byte_offset": 1}),
+        json!({"thread_id": ROOT, "end_ordinal_exclusive": 0, "end_byte_offset": 1}),
         json!({"thread_id": ROOT, "end_ordinal_exclusive": "7", "end_byte_offset": 1}),
         json!([ROOT, 7, 1]),
     ];
@@ -109,6 +151,37 @@ fn a_malformed_history_base_is_refused_rather_than_partially_trusted() {
 }
 
 #[test]
+fn duplicate_ancestry_keys_are_refused_instead_of_last_key_wins() {
+    let records = [
+        format!(
+            r#"{{"type":"session_meta","payload":{{"id":"{ROOT}","id":"{ROOT}","history_mode":"paginated"}}}}"#
+        ),
+        format!(
+            r#"{{"type":"session_meta","payload":{{"id":"{ROOT}","history_mode":"paginated","history_mode":"paginated"}}}}"#
+        ),
+        format!(
+            r#"{{"type":"session_meta","payload":{{"id":"{CHILD}","history_mode":"paginated","history_base":{{"thread_id":"{ROOT}","end_ordinal_exclusive":7,"end_byte_offset":10}},"history_base":{{"thread_id":"{ROOT}","end_ordinal_exclusive":7,"end_byte_offset":10}}}}}}"#
+        ),
+        format!(
+            r#"{{"type":"session_meta","payload":{{"id":"{CHILD}","history_mode":"paginated","history_base":{{"thread_id":"{ROOT}","thread_id":"{ROOT}","end_ordinal_exclusive":7,"end_byte_offset":10}}}}}}"#
+        ),
+        format!(
+            r#"{{"type":"session_meta","payload":{{"id":"{CHILD}","history_mode":"paginated","history_base":{{"thread_id":"{ROOT}","end_ordinal_exclusive":7,"end_ordinal_exclusive":7,"end_byte_offset":10}}}}}}"#
+        ),
+        format!(
+            r#"{{"type":"session_meta","payload":{{"id":"{CHILD}","history_mode":"paginated","history_base":{{"thread_id":"{ROOT}","end_ordinal_exclusive":7,"end_byte_offset":10,"end_byte_offset":10}}}}}}"#
+        ),
+    ];
+    for record in records {
+        assert_eq!(
+            read_claim(CHILD, format!("{record}\n").as_bytes()),
+            Err(Error::InvalidRecord),
+            "duplicate ancestry key must fail closed: {record}"
+        );
+    }
+}
+
+#[test]
 fn a_non_metadata_or_unparseable_record_is_refused() {
     assert_eq!(read_claim(ROOT, b"not json\n"), Err(Error::InvalidRecord));
     assert_eq!(
@@ -117,6 +190,23 @@ fn a_non_metadata_or_unparseable_record_is_refused() {
     );
     assert_eq!(read_claim(ROOT, b""), Err(Error::RecordLimit));
     assert_eq!(read_claim(ROOT, &[0xff, b'\n']), Err(Error::InvalidUtf8));
+}
+
+#[test]
+fn the_claim_must_be_one_complete_lf_record() {
+    let record = meta(ROOT, None);
+    assert_eq!(
+        read_claim(ROOT, &record[..record.len() - 1]),
+        Err(Error::InvalidRecord)
+    );
+    let mut two = record.clone();
+    two.extend_from_slice(&record);
+    assert_eq!(read_claim(ROOT, &two), Err(Error::InvalidRecord));
+    let crlf = record
+        .strip_suffix(b"\n")
+        .map(|line| [line, b"\r\n"].concat())
+        .expect("fixture LF");
+    assert!(read_claim(ROOT, &crlf).is_ok());
 }
 
 #[test]

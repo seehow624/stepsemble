@@ -22,6 +22,7 @@ const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { windowsLaunch } = require("./windows-launch");
 const { createLineDecoder, writeBounded } = require("./stream-safety");
+const { parseConnectorProtocolEventLine } = require("./connector-protocol");
 
 const MAX_OUTPUT_TAIL = 64 * 1024;
 const MAX_EVENTS = 1200;
@@ -118,6 +119,12 @@ let stopRequested = false;
 let persistTimer = null;
 let terminalTimer = null;
 let socketServer = null;
+// Structured connector observations are opt-in and line-prefixed. Keep a
+// small independent buffer so ordinary (possibly very long) CLI output never
+// trips the structured-event limit or disappears from the output tail.
+const STRUCTURED_EVENT_MAX_LINE = 128 * 1024;
+let structuredOutputBuffer = "";
+let structuredOutputDiscarding = false;
 
 function publicTask() {
   return {
@@ -206,6 +213,42 @@ function appendOutput(stream, chunk) {
       text: text.slice(offset, offset + 32 * 1024),
       at: lastActivityAt,
     });
+  }
+}
+
+function inspectStructuredOutput(chunk) {
+  const text = String(chunk ?? "");
+  let offset = 0;
+  while (offset < text.length) {
+    const newline = text.indexOf("\n", offset);
+    const end = newline < 0 ? text.length : newline;
+    const piece = text.slice(offset, end);
+    if (structuredOutputDiscarding) {
+      // A line that exceeded the byte bound is untrusted until its LF. Never
+      // search that discarded line for a prefix: a mid-line marker must not be
+      // promoted to a fresh structured event.
+      if (newline < 0) return;
+      structuredOutputDiscarding = false;
+      structuredOutputBuffer = "";
+      offset = newline + 1;
+      continue;
+    }
+    const bytes = Buffer.byteLength(structuredOutputBuffer, "utf8") + Buffer.byteLength(piece, "utf8");
+    if (bytes > STRUCTURED_EVENT_MAX_LINE) {
+      structuredOutputBuffer = "";
+      structuredOutputDiscarding = newline < 0;
+      if (newline < 0) return;
+      offset = newline + 1;
+      continue;
+    }
+    structuredOutputBuffer += piece;
+    if (newline < 0) return;
+    const line = structuredOutputBuffer;
+    structuredOutputBuffer = "";
+    const normalized = line.endsWith("\r") ? line.slice(0, -1) : line;
+    const event = parseConnectorProtocolEventLine(normalized, { taskId, agentId });
+    if (event) pushEvent(event);
+    offset = newline + 1;
   }
 }
 
@@ -311,7 +354,7 @@ function startChild() {
   childPid = child.pid || null;
   child.stdout?.setEncoding("utf8");
   child.stderr?.setEncoding("utf8");
-  child.stdout?.on("data", (chunk) => appendOutput("stdout", chunk));
+  child.stdout?.on("data", (chunk) => { appendOutput("stdout", chunk); inspectStructuredOutput(chunk); });
   child.stderr?.on("data", (chunk) => appendOutput("stderr", chunk));
   child.stdin?.on("error", (stdinError) => { errorMessage = safeText(stdinError.message, 2000); persistSoon(); });
   child.on("error", (spawnError) => {

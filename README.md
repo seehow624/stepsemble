@@ -203,10 +203,12 @@ or supervisor itself is killed, the journal marks the task as interrupted rather
 than claiming that it is still running. The Agent Hub **View all** task center
 provides search, status filters, replay, and one-tap stop controls.
 
-Today, those generic connectors are terminal integrations: their replayable
-Stepsemble journal is not yet the same thing as each vendor's full native
-session, structured tool history, or approval schema. That parity is an
-explicit, contract-tested milestone in the
+Today, those generic connectors are still terminal integrations: their
+replayable Stepsemble journal is not yet the same thing as each vendor's full
+native session, structured tool history, or public/native approval and resume
+parity. A Host-local, observation-only approval boundary is now covered by the
+contract tests, but it has no UI, native delivery, or durable replay. Full parity
+is an explicit, contract-tested milestone in the
 [cross-platform plan](docs/platform-plan.md), not a current claim.
 
 Device aliases only affect the interface. They do not rename the operating

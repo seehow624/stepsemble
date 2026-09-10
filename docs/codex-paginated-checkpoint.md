@@ -54,11 +54,11 @@ Node 端 1158 tests／1156 pass／2 Windows-only skip／0 fail 不變。
 
 ## 仍待
 
-本批**只有讀取邊界**。尚未接上：以 state 的 `rollout_path` 解析祖先鏈與
-active/archive、plain/zstd 版面；把 durable complete-LF 範圍與檢查點實際比對
+本批**只有讀取邊界**。Plan1.86 已由[逐檔開啟 adapter](codex-paginated-opening.md)
+以 state 的 `rollout_path` 計畫解析祖先鏈與 active/archive、plain/zstd 版面；仍尚未把
+durable complete-LF 範圍與檢查點實際比對
 以判定落後／不一致／partial-tail；獨立 source-version／created-ordinal cursor；
 permissioned parser → named source service → registry／HTTP／peer／typed Web；
 以及損壞／版本變更／取消／超限的三 OS 與 320/390px 實測。
 Windows 私有來源仍 unsupported。原生 materialization、真機與帳號／部署 gate
 各自獨立，未因本批而通過。
-

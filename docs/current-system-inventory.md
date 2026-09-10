@@ -162,7 +162,7 @@ Remote Stepsemble Host
 | `server/agent-connectors.js` | allow-list discovery、generic task 目錄、HTTP SSE journal、supervisor reconnect | Host service |
 | `server/agent-task-supervisor.js` | 單一 generic CLI 的 child/PTY、控制 socket、短期 event buffer、metadata snapshot | Detached per task |
 | `server/pty-bridge.py` | Unix pseudo-terminal bridge | Generic CLI child helper |
-| `server/connector-protocol.js` | Generic connector v1 manifest、5 種 event、9 種 status 正規化 | Library |
+| `server/connector-protocol.js` | Generic connector v1 manifest、6 種 event（含 structured observation）、9 種 status 正規化 | Library |
 | `server/device-trust.js` | 一次性 pairing capability、peer credential hash、grant persistence | Library + disk |
 | `server/http-utils.js` | security headers、cookie/bearer auth、JSON body、SSE frame | Library |
 | `pi --mode rpc` | Pi 原生 session、完整 message/tool lifecycle、模型與 extension UI | Child process |

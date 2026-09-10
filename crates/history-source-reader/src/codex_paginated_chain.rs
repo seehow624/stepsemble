@@ -15,6 +15,10 @@ pub const PROFILE: &str = "codex_paginated_chain_plan_v1";
 /// One chain may not consume more than a single oversized source would.
 /// Ancestry must not become a way to read unbounded bytes in one admission.
 pub const CHAIN_BYTES: u64 = crate::jsonl_scan::SOURCE_BYTES;
+/// Decoded bytes have an independent whole-chain budget. A compressed source
+/// may be small on disk while expanding to the full per-source allowance, so
+/// stored-byte accounting alone must not permit an unbounded chain expansion.
+pub const CHAIN_DECODED_BYTES: u64 = crate::jsonl_scan::SOURCE_BYTES;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -28,6 +32,8 @@ pub enum Error {
     SelectedMismatch,
     /// The chain would read more than one admission is allowed to.
     ChainBytesExceeded,
+    /// Decoded output across the chain would exceed one admission's bound.
+    DecodedChainBytesExceeded,
     /// A link the plan needs was not supplied.
     IncompleteChain,
 }
@@ -39,6 +45,7 @@ impl Error {
             Self::NonMonotonicCutoff => "paginated_chain_non_monotonic_cutoff",
             Self::SelectedMismatch => "paginated_chain_selected_mismatch",
             Self::ChainBytesExceeded => "paginated_chain_bytes_exceeded",
+            Self::DecodedChainBytesExceeded => "paginated_chain_decoded_bytes_exceeded",
             Self::IncompleteChain => "paginated_chain_incomplete",
         }
     }
@@ -75,6 +82,7 @@ pub struct Plan {
     pub sources: Vec<PlannedSource>,
     pub reached_root: bool,
     pub chain_byte_budget: u64,
+    pub chain_decoded_byte_budget: u64,
     pub source_authenticated: bool,
     pub history_complete: bool,
 }
@@ -120,18 +128,24 @@ pub fn plan(
         if locator.rollout_id != link.rollout_id {
             return Err(Error::LocatorMismatch);
         }
-        // The head is addressed by the stable thread ID; ancestors are named
-        // by their own rollout ID. Both must survive the same locator rules.
+        // The head is addressed by the selected stable thread ID. Ancestors
+        // may themselves be reverted, so derive each locator's stable prefix
+        // rather than assuming it equals the physical chain ID.
         let locator_thread = if index == 0 {
-            thread_id
+            thread_id.to_owned()
         } else {
-            &link.rollout_id
+            crate::codex_locator::stable_thread_id(locator.rollout_path)
+                .ok_or(Error::LocatorMismatch)?
         };
-        if !crate::codex_locator::valid_locator(locator.rollout_path, locator_thread) {
-            return Err(Error::LocatorMismatch);
-        }
         if !seen_paths.insert(locator.rollout_path) {
             return Err(Error::DuplicateLocator);
+        }
+        if !crate::codex_locator::valid_locator(locator.rollout_path, &locator_thread)
+            || crate::codex_locator::physical_rollout_id(locator.rollout_path, &locator_thread)
+                .as_deref()
+                != Some(link.rollout_id.as_str())
+        {
+            return Err(Error::LocatorMismatch);
         }
         // Each ancestor must be cut strictly earlier than the link that named
         // the previous one; otherwise the chain claims overlapping history.
@@ -169,6 +183,7 @@ pub fn plan(
         sources,
         reached_root: chain.reached_root,
         chain_byte_budget: CHAIN_BYTES,
+        chain_decoded_byte_budget: CHAIN_DECODED_BYTES,
         source_authenticated: false,
         history_complete: false,
     })
@@ -196,6 +211,16 @@ pub fn accumulate(consumed: u64, next_source_bytes: u64) -> Result<u64, Error> {
         .checked_add(next_source_bytes)
         .filter(|total| *total <= CHAIN_BYTES)
         .ok_or(Error::ChainBytesExceeded)
+}
+
+/// Account for decoded bytes independently from physical stored bytes.
+/// Compressed sources must not use their small on-disk size to bypass this
+/// aggregate expansion bound.
+pub fn accumulate_decoded(consumed: u64, next_source_bytes: u64) -> Result<u64, Error> {
+    consumed
+        .checked_add(next_source_bytes)
+        .filter(|total| *total <= CHAIN_DECODED_BYTES)
+        .ok_or(Error::DecodedChainBytesExceeded)
 }
 
 #[cfg(test)]

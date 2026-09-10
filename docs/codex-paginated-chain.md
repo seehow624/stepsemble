@@ -56,8 +56,10 @@ Node 端 1158 tests／1156 pass／2 Windows-only skip／0 fail 不變。
 
 ## 仍待
 
-計畫產出後，**尚未實際依計畫開啟每個祖先檔案**：no-follow／ACL／bounded bytes
-的逐檔解析、plain 與 zstd 解碼、缺檔或版面改變的處理。之後才是把 durable
+計畫產出後，Plan1.86 已由[逐檔開啟 adapter](codex-paginated-opening.md) 實際依計畫
+開啟每個祖先檔案：沿用 no-follow／ACL／bounded bytes 的既有邊界，並處理 plain 與
+zstd 解碼、stable_physical locator、逐筆 ordinal／exact byte cutoff、缺檔或版面改變；
+stored 與 decoded 的整鏈預算分開計算。之後才是把 durable
 complete-LF 範圍與[投影檢查點](codex-paginated-checkpoint.md)比對以判定落後／
 不一致／partial-tail、獨立 source-version 與 created-ordinal cursor、
 permissioned parser → named source service → registry／HTTP／peer／typed Web，

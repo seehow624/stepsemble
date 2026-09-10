@@ -13,6 +13,7 @@ const net = require("node:net");
 const { launchAgentSupervisor } = require("./agent-supervisor-launch");
 const { createLineDecoder, writeBounded } = require("./stream-safety");
 const { CONNECTOR_PROTOCOL_VERSION, CONNECTOR_EVENT_TYPES, normalizeConnectorDefinition } = require("./connector-protocol");
+const { createConnectorApprovalState } = require("./connector-approval");
 
 const MAX_TASKS = 100;
 const MAX_EVENTS = 1200;
@@ -357,8 +358,15 @@ function createAgentTaskService({
       task.status = supervisorLooksAlive(task) ? "reconnecting" : "orphaned";
       if (task.status === "orphaned") task.endedAt = task.endedAt || Date.now();
     }
+    const approvalState = createConnectorApprovalState({ taskId: task.id, agentId: task.agentId });
+    if (terminalTaskStatus(task.status)) approvalState.close("task_terminal");
     tasks.set(task.id, {
       ...task,
+      // Approval observations are process-local. The detached supervisor can
+      // replay only events still held in its in-memory window; the task JSON
+      // is a reconnect snapshot, not a durable approval journal. A Host
+      // restart therefore cannot claim to have recovered old approvals.
+      approvalState,
       control: null,
       clients: new Set(),
       events: [],
@@ -480,7 +488,13 @@ function createAgentTaskService({
     if (extra.exitCode !== undefined) task.exitCode = Number.isInteger(extra.exitCode) ? extra.exitCode : null;
     if (extra.signal !== undefined) task.signal = extra.signal ? String(extra.signal).slice(0, 32) : null;
     task.lastActivityAt = Date.now();
-    if (["completed", "failed", "stopped", "orphaned", "detached"].includes(status)) task.endedAt = task.endedAt || Date.now();
+    if (terminalTaskStatus(status)) {
+      task.endedAt = task.endedAt || Date.now();
+      // A generic connector has no durable cancellation fact. Closing the
+      // process-local boundary prevents stale approval decisions after the
+      // owned child/supervisor has exited or become orphaned.
+      task.approvalState?.close("task_terminal");
+    }
     pushEvent(task, { type: "status", taskId: task.id, status, ...publicTask(task) });
     persist();
     if (terminalTaskStatus(status)) notifySettled(task);
@@ -561,6 +575,21 @@ function createAgentTaskService({
     const event = packet.event && typeof packet.event === "object" ? packet.event : packet;
     if (event.type === "output") {
       appendOutput(task, event.stream, event.text);
+      return;
+    }
+    if (event.type === "protocol_event") {
+      if (terminalTaskStatus(task.status)) {
+        pushEvent(task, { type: "protocol_event_rejected", taskId: task.id, agentId: task.agentId, code: "task_unavailable" });
+        return;
+      }
+      const result = task.approvalState?.observe(event);
+      if (result?.kind === "observed" || result?.kind === "duplicate") {
+        pushEvent(task, { ...event, observation: result.kind, approval: result.approval });
+      } else {
+        // Keep rejection diagnostics fixed and free of native prompt/error
+        // text. An invalid observation never changes task or run state.
+        pushEvent(task, { type: "protocol_event_rejected", taskId: task.id, agentId: task.agentId, code: result?.code || "invalid_approval_event" });
+      }
       return;
     }
     if (event.type === "status") {
@@ -742,6 +771,7 @@ function createAgentTaskService({
       reconnectTimer: null,
       persistTimer: null,
       settledNotified: false,
+      approvalState: createConnectorApprovalState({ taskId: id, agentId: definition.id }),
     };
     const spawnCwd = task.worktree?.path || realCwd;
     const useDesktop = definition.id === "claude-code" && desktopClaude;
@@ -783,6 +813,24 @@ function createAgentTaskService({
 
   function get(id) {
     return tasks.get(String(id || "")) || null;
+  }
+
+  function approvals(id) {
+    const task = get(id);
+    if (!task) return null;
+    return task.approvalState.snapshot();
+  }
+
+  // The generic connector does not own a canonical session/run projection or
+  // authenticated grant, so it must not expose the detached helper as a
+  // command path. Native adapters use the durable journal directly; this
+  // compatibility method fails closed instead of bypassing its transaction
+  // planners with an in-memory receipt.
+  function resolveApproval(id, input) {
+    const task = get(id);
+    if (!task) return { kind: "reject", code: "task_unavailable" };
+    if (terminalTaskStatus(task.status)) return { kind: "reject", code: "task_unavailable" };
+    return { kind: "reject", code: "durable_transaction_required" };
   }
 
   function list() {
@@ -900,6 +948,8 @@ function createAgentTaskService({
     catalog: () => discoverConnectors({ piBin, env }),
     open,
     get,
+    approvals,
+    resolveApproval,
     list,
     send,
     stop,

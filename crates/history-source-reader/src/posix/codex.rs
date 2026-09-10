@@ -5,7 +5,8 @@ use crate::codex::{INDEX_LIMIT, Pair, Request as CodexRequest, valid_locator};
 use sha2::{Digest, Sha256};
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use stepsemble_history_source_reader::{
-    codex_rollout_format, codex_rollout_structure, jsonl_scan, zstd_framing,
+    codex_paginated_resolution::Observed, codex_rollout_format, codex_rollout_structure,
+    jsonl_scan, zstd_framing,
 };
 
 const NAME_INDEX: &str = "session_index.jsonl";
@@ -18,6 +19,11 @@ enum Point {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PageMode {
     Opaque,
+    /// A paginated source is intentionally not run through the legacy
+    /// envelope validator: its metadata has different ancestry semantics.
+    /// It still gets the exact same bounded two-pass scanner and source
+    /// authentication as the validated modes.
+    CompressedOpaque,
     Validated,
     Structured,
     CompressedValidated,
@@ -25,7 +31,10 @@ enum PageMode {
 }
 impl PageMode {
     fn compressed(self) -> bool {
-        matches!(self, Self::CompressedValidated | Self::CompressedStructured)
+        matches!(
+            self,
+            Self::CompressedOpaque | Self::CompressedValidated | Self::CompressedStructured
+        )
     }
 
     fn structured(self) -> bool {
@@ -33,7 +42,7 @@ impl PageMode {
     }
 
     fn validated(self) -> bool {
-        !matches!(self, Self::Opaque)
+        !matches!(self, Self::Opaque | Self::CompressedOpaque)
     }
 }
 
@@ -81,7 +90,7 @@ pub fn capture(request: &CodexRequest) -> Result<Pair, Error> {
 fn capture_with(request: &CodexRequest, mut hook: impl FnMut(Point)) -> Result<Pair, Error> {
     match capture_variant(request, None, PageMode::Opaque, &mut hook)? {
         Captured::Bytes(pair) => Ok(*pair),
-        Captured::Page(_) => Err(Error::Input),
+        Captured::Page(..) => Err(Error::Input),
     }
 }
 
@@ -122,6 +131,132 @@ pub fn capture_compressed_structured(
 ) -> Result<crate::codex_scanned::Pair, Error> {
     capture_scanned_mode(request, page, PageMode::CompressedStructured, &mut |_| {})
 }
+
+/// Read one complete paginated rollout and return only the bounded observation
+/// needed by the chain resolver. The source is intentionally scanned in opaque
+/// mode: paginated records do not satisfy the legacy envelope validator, while
+/// the byte scanner still enforces complete LF records, source/record limits,
+/// two matching passes, no-follow/ACL/ownership checks and physical close.
+///
+/// `stored_limit` is the remaining chain budget. It is applied before any
+/// source bytes are read, so a source cannot consume bytes that would make the
+/// aggregate resolution exceed one admission. For zstd the limit applies to
+/// the held compressed file; the returned `decoded_bytes` comes from the full
+/// decoded scan summary.
+/// The four-argument entry point remains available for callers that already
+/// have an authenticated source but no metadata snapshot to fence. The chain
+/// adapter below always supplies that snapshot.
+#[allow(dead_code)]
+pub fn capture_paginated_source(
+    request: &CodexRequest,
+    rollout_id: &str,
+    compressed: bool,
+    stored_limit: u64,
+) -> Result<Observed, Error> {
+    capture_paginated_source_checked(
+        request,
+        rollout_id,
+        None,
+        compressed,
+        stored_limit,
+        None,
+        None,
+    )
+}
+
+/// Chain adapter variant that also fences the first metadata record against
+/// the record used to build the ancestry plan. Keeping this check at the
+/// adapter boundary prevents a static replacement from looking like an
+/// unrelated but otherwise well-formed opaque byte source.
+pub(crate) fn capture_paginated_source_checked(
+    request: &CodexRequest,
+    rollout_id: &str,
+    expected_first: Option<&[u8]>,
+    compressed: bool,
+    stored_limit: u64,
+    decoded_limit: Option<u64>,
+    ordinal_cutoff: Option<(&str, &str)>,
+) -> Result<Observed, Error> {
+    if stored_limit == 0 {
+        return Err(Error::PaginatedChainBytesExceeded);
+    }
+    if decoded_limit == Some(0) {
+        return Err(Error::PaginatedChainDecodedBytesExceeded);
+    }
+    if stepsemble_history_source_reader::codex_locator::physical_rollout_id(
+        &request.source.rollout_path,
+        &request.source.thread_id,
+    )
+    .as_deref()
+        != Some(rollout_id)
+    {
+        return Err(Error::Input);
+    }
+    let selection = jsonl_scan::Selection {
+        offset: 0,
+        // A one-record page keeps retained memory bounded while the scanner
+        // still traverses and hashes the complete source on both passes.
+        limit: 1,
+    };
+    let mode = if compressed {
+        PageMode::CompressedOpaque
+    } else {
+        PageMode::Opaque
+    };
+    let expected_first_ordinal = expected_first
+        .map(|bytes| {
+            serde_json::from_slice::<OrdinalRecord>(bytes)
+                .map(|record| record.ordinal)
+                .map_err(|_| Error::PaginatedOrdinalInvalid)
+        })
+        .transpose()?;
+    let ordinal_cutoff = ordinal_cutoff
+        .map(|(ordinal, offset)| {
+            Ok::<_, Error>((
+                ordinal
+                    .parse::<u64>()
+                    .map_err(|_| Error::PaginatedOrdinalInvalid)?,
+                offset
+                    .parse::<u64>()
+                    .map_err(|_| Error::PaginatedOrdinalInvalid)?,
+            ))
+        })
+        .transpose()?;
+    let captured = match capture_variant_limited(
+        request,
+        Some(selection),
+        mode,
+        Some(stored_limit),
+        decoded_limit,
+        ordinal_cutoff,
+        expected_first_ordinal,
+        true,
+        &mut |_| {},
+    )? {
+        Captured::Page(pair, ordinal_cutoff_verified) => {
+            let verified = ordinal_cutoff_verified.unwrap_or(false);
+            if ordinal_cutoff.is_some() && !verified {
+                return Err(Error::PaginatedOrdinalInvalid);
+            }
+            (*pair, verified)
+        }
+        Captured::Bytes(_) => return Err(Error::Input),
+    };
+    let (captured, ordinal_cutoff_verified) = captured;
+    if let Some(expected) = expected_first {
+        let first = captured.page.records.first().ok_or(Error::Empty)?;
+        if first.bytes != expected {
+            return Err(Error::Changed);
+        }
+    }
+    Ok(Observed {
+        rollout_id: rollout_id.to_owned(),
+        decoded_bytes: captured.page.summary.byte_length,
+        record_count: captured.page.summary.record_count,
+        stored_bytes: captured.rollout_identity.size,
+        ordinal_cutoff_verified,
+    })
+}
 fn capture_scanned_mode(
     request: &CodexRequest,
     page: jsonl_scan::Selection,
@@ -133,17 +268,90 @@ fn capture_scanned_mode(
         return Err(Error::Input);
     }
     match capture_variant(request, Some(page), mode, hook)? {
-        Captured::Page(pair) => Ok(*pair),
+        Captured::Page(pair, _) => Ok(*pair),
         Captured::Bytes(_) => Err(Error::Input),
     }
 }
 enum Captured {
     Bytes(Box<Pair>),
-    Page(Box<crate::codex_scanned::Pair>),
+    Page(Box<crate::codex_scanned::Pair>, Option<bool>),
 }
 enum Rollout {
     Bytes(Vec<u8>),
     Page((jsonl_scan::Page, Option<PhysicalSummary>)),
+}
+
+/// Per-source ordinal evidence collected during the scanner's first full pass.
+/// The ordinal is global to the paginated thread; record count alone cannot
+/// establish where an inherited source's exclusive cut falls.
+#[derive(Clone, Debug)]
+struct OrdinalCheck {
+    cutoff: Option<(u64, u64)>,
+    expected_first: u64,
+    seen_first: bool,
+    next: Option<u64>,
+    cut_end: Option<u64>,
+    invalid: bool,
+}
+
+impl OrdinalCheck {
+    fn new(expected_first: u64, cutoff: Option<(u64, u64)>) -> Self {
+        Self {
+            expected_first,
+            seen_first: false,
+            cutoff,
+            next: None,
+            cut_end: None,
+            invalid: false,
+        }
+    }
+
+    fn observe(&mut self, offset: u64, bytes: &[u8]) {
+        let record: OrdinalRecord = match serde_json::from_slice(bytes) {
+            Ok(record) => record,
+            Err(_) => {
+                self.invalid = true;
+                return;
+            }
+        };
+        let ordinal = record.ordinal;
+        if !self.seen_first {
+            self.seen_first = true;
+            if ordinal != self.expected_first {
+                self.invalid = true;
+            }
+        }
+        if self.next.is_some_and(|expected| expected != ordinal) {
+            self.invalid = true;
+        }
+        self.next = match ordinal.checked_add(1) {
+            Some(next) => Some(next),
+            None => {
+                self.invalid = true;
+                None
+            }
+        };
+        if let Some((cutoff, _)) = self.cutoff
+            && ordinal.checked_add(1) == Some(cutoff)
+        {
+            self.cut_end = offset.checked_add(bytes.len() as u64);
+        }
+    }
+
+    fn verified(&self) -> bool {
+        !self.invalid
+            && self
+                .cutoff
+                .is_none_or(|(_, offset)| self.cut_end == Some(offset))
+    }
+}
+
+/// Deserialize into a struct instead of `serde_json::Value`: serde rejects a
+/// duplicate `ordinal` field for a known struct field, while a JSON map would
+/// silently keep only the last duplicate key.
+#[derive(serde::Deserialize)]
+struct OrdinalRecord {
+    ordinal: u64,
 }
 
 // Shared authenticated open/check/close boundary. v3/v9 retain their exact
@@ -152,6 +360,26 @@ fn capture_variant(
     request: &CodexRequest,
     page: Option<jsonl_scan::Selection>,
     mode: PageMode,
+    hook: &mut impl FnMut(Point),
+) -> Result<Captured, Error> {
+    capture_variant_limited(request, page, mode, None, None, None, None, false, hook)
+}
+
+/// Open and scan one source through the same authenticated boundary as the
+/// existing legacy capture paths, while optionally applying the caller's
+/// remaining chain budget to the physical (stored) file size. The optional
+/// limit is only used by paginated resolution; all older protocols retain
+/// their existing per-source limit and behaviour.
+#[allow(clippy::too_many_arguments)]
+fn capture_variant_limited(
+    request: &CodexRequest,
+    page: Option<jsonl_scan::Selection>,
+    mode: PageMode,
+    stored_limit: Option<u64>,
+    decoded_limit: Option<u64>,
+    ordinal_cutoff: Option<(u64, u64)>,
+    ordinal_start: Option<u64>,
+    track_ordinals: bool,
     hook: &mut impl FnMut(Point),
 ) -> Result<Captured, Error> {
     if !valid_locator(&request.source.rollout_path, &request.source.thread_id) {
@@ -207,17 +435,35 @@ fn capture_variant(
         }
         Err(error) => return Err(error),
     };
+    let source_limit = if page.is_some() {
+        jsonl_scan::SOURCE_BYTES
+    } else {
+        SOURCE_LIMIT as u64
+    };
+    let file_limit = stored_limit.map_or(source_limit, |limit| limit.min(source_limit));
+    // Plain JSONL has a one-to-one stored/decoded size. Check this before the
+    // normal physical-size bound so a smaller aggregate decoded budget gets a
+    // distinct refusal rather than a stored-byte error.
+    if !mode.compressed()
+        && let Some(limit) = decoded_limit
+        && check(&file, false, uid)?.size() > limit
+    {
+        return Err(Error::PaginatedChainDecodedBytesExceeded);
+    }
     let file_info = bounded_info(
         &file,
         uid,
         device,
-        if page.is_some() {
-            jsonl_scan::SOURCE_BYTES as usize
-        } else {
-            SOURCE_LIMIT
-        },
+        usize::try_from(file_limit).unwrap_or(usize::MAX),
         false,
-    )?;
+    )
+    .map_err(|error| {
+        if stored_limit.is_some() && error == Error::TooLarge {
+            Error::PaginatedChainBytesExceeded
+        } else {
+            error
+        }
+    })?;
     if page.is_some() && file_name.ends_with(".zst") != mode.compressed() {
         // Never feed compressed bytes to the plain byte-framing scanner.
         return Err(Error::EncodingUnsupported);
@@ -283,13 +529,16 @@ fn capture_variant(
     verify()?;
     let mut validation = None;
     let mut structure = None;
+    let mut ordinal_check =
+        track_ordinals.then(|| OrdinalCheck::new(ordinal_start.unwrap_or(0), ordinal_cutoff));
     let (rollout, first_index) = if let Some(selection) = page {
         let first_index = read_index()?;
         let (scanned, physical) = if mode.compressed() {
-            let mut selected = CompressedReader::new(&file, file_info.size(), start, || {
-                hook(Point::FirstRead);
-                verify()
-            })?;
+            let mut selected =
+                CompressedReader::new(&file, file_info.size(), start, decoded_limit, || {
+                    hook(Point::FirstRead);
+                    verify()
+                })?;
             let scanned = scan_selected_compressed(
                 &mut selected,
                 selection,
@@ -299,6 +548,7 @@ fn capture_variant(
                 &mut validation,
                 &mut structure,
                 start,
+                &mut ordinal_check,
             )?;
             let physical = selected.summary()?;
             (scanned, Some(physical))
@@ -323,6 +573,7 @@ fn capture_variant(
                 &mut validation,
                 &mut structure,
                 start,
+                &mut ordinal_check,
             );
             if let Some(error) = selected.failure {
                 return Err(error);
@@ -350,6 +601,15 @@ fn capture_variant(
         }
         (Rollout::Bytes(first), first_index)
     };
+    let ordinal_cutoff_verified = ordinal_check
+        .map(|check| {
+            if check.invalid {
+                Err(Error::PaginatedOrdinalInvalid)
+            } else {
+                Ok(check.verified())
+            }
+        })
+        .transpose()?;
     // Re-observe all selected name->object edges from the original held parents.
     for (i, name) in parts[..parts.len() - 1].iter().enumerate() {
         let named = open_at(directories[i].as_raw_fd(), name, true)?;
@@ -389,16 +649,19 @@ fn capture_variant(
                 identity: identity(&file_info),
             },
         })),
-        Rollout::Page((page, physical)) => Captured::Page(Box::new(crate::codex_scanned::Pair {
-            physical_path,
-            name_index,
-            page,
-            rollout_identity: identity(&file_info),
-            validation,
-            structure,
-            physical_sha256: physical.map(|value| value.sha256),
-            decoded_frames: physical.map(|value| value.frames),
-        })),
+        Rollout::Page((page, physical)) => Captured::Page(
+            Box::new(crate::codex_scanned::Pair {
+                physical_path,
+                name_index,
+                page,
+                rollout_identity: identity(&file_info),
+                validation,
+                structure,
+                physical_sha256: physical.map(|value| value.sha256),
+                decoded_frames: physical.map(|value| value.frames),
+            }),
+            ordinal_cutoff_verified,
+        ),
     };
     let mut close_failed = false;
     for file in index
@@ -466,6 +729,7 @@ fn scan_selected_plain(
     validation: &mut Option<codex_rollout_format::Validation>,
     structure: &mut Option<codex_rollout_structure::Structure>,
     start: Instant,
+    ordinal_check: &mut Option<OrdinalCheck>,
 ) -> Result<jsonl_scan::Page, Error> {
     if mode.structured() {
         let result = codex_rollout_structure::scan_page(
@@ -494,7 +758,10 @@ fn scan_selected_plain(
         selection,
         None,
         || budget(start).map_err(|_| jsonl_scan::Error::Budget),
-        |index, _, bytes| {
+        |index, offset, bytes| {
+            if let Some(check) = ordinal_check {
+                check.observe(offset, bytes);
+            }
             if let Some(validator) = &mut validator {
                 validator.record(index, bytes).map_err(|error| {
                     format_failure = Some(error);
@@ -525,6 +792,7 @@ fn scan_selected_compressed<F: FnMut() -> Result<(), Error>>(
     validation: &mut Option<codex_rollout_format::Validation>,
     structure: &mut Option<codex_rollout_structure::Structure>,
     start: Instant,
+    ordinal_check: &mut Option<OrdinalCheck>,
 ) -> Result<jsonl_scan::Page, Error> {
     if mode.structured() {
         let result = codex_rollout_structure::scan_page_bounded(
@@ -542,15 +810,25 @@ fn scan_selected_compressed<F: FnMut() -> Result<(), Error>>(
         *structure = Some(result.structure);
         return Ok(result.records);
     }
-    let mut validator =
-        codex_rollout_format::Validator::new(thread_id).map_err(Error::RolloutFormat)?;
+    let mut validator = mode
+        .validated()
+        .then(|| codex_rollout_format::Validator::new(thread_id))
+        .transpose()
+        .map_err(Error::RolloutFormat)?;
     let mut format_failure = None;
     let result = jsonl_scan::scan_matching_page_bounded_observed(
         reader,
         selection,
         || budget(start).map_err(|_| jsonl_scan::Error::Budget),
-        |pass, index, _, bytes| {
-            if pass == jsonl_scan::ScanPass::First {
+        |pass, index, offset, bytes| {
+            if pass == jsonl_scan::ScanPass::First
+                && let Some(check) = ordinal_check
+            {
+                check.observe(offset, bytes);
+            }
+            if pass == jsonl_scan::ScanPass::First
+                && let Some(validator) = &mut validator
+            {
                 validator.record(index, bytes).map_err(|error| {
                     format_failure = Some(error);
                     jsonl_scan::Error::InvalidRecord
@@ -566,7 +844,10 @@ fn scan_selected_compressed<F: FnMut() -> Result<(), Error>>(
         return Err(Error::RolloutFormat(error));
     }
     let page = result.map_err(compressed_scan_error)?;
-    *validation = Some(validator.finish().map_err(Error::RolloutFormat)?);
+    *validation = validator
+        .map(|value| value.finish())
+        .transpose()
+        .map_err(Error::RolloutFormat)?;
     Ok(page)
 }
 
@@ -640,6 +921,8 @@ struct CompressedReader<'a, F> {
     size: u64,
     start: Instant,
     decoder: Option<Decoder<'a>>,
+    decoded_limit: Option<u64>,
+    decoded_bytes: u64,
     rewinds: usize,
     finished: bool,
     first: Option<PhysicalSummary>,
@@ -649,12 +932,20 @@ struct CompressedReader<'a, F> {
 }
 
 impl<'a, F: FnMut() -> Result<(), Error>> CompressedReader<'a, F> {
-    fn new(file: &'a File, size: u64, start: Instant, between: F) -> Result<Self, Error> {
+    fn new(
+        file: &'a File,
+        size: u64,
+        start: Instant,
+        decoded_limit: Option<u64>,
+        between: F,
+    ) -> Result<Self, Error> {
         Ok(Self {
             file,
             size,
             start,
             decoder: None,
+            decoded_limit,
+            decoded_bytes: 0,
             rewinds: 0,
             finished: false,
             first: None,
@@ -683,6 +974,7 @@ impl<'a, F: FnMut() -> Result<(), Error>> CompressedReader<'a, F> {
             .window_log_max(23)
             .map_err(|_| Error::RolloutCompressionLimit)?;
         self.decoder = Some(decoder);
+        self.decoded_bytes = 0;
         self.finished = false;
         Ok(())
     }
@@ -722,11 +1014,24 @@ impl<'a, F: FnMut() -> Result<(), Error>> CompressedReader<'a, F> {
 
 impl<F: FnMut() -> Result<(), Error>> Read for CompressedReader<'_, F> {
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
-        let result = self
-            .decoder
-            .as_mut()
-            .ok_or(io::ErrorKind::InvalidInput)?
-            .read(bytes);
+        if bytes.is_empty() {
+            return Ok(0);
+        }
+        // Read at most one byte beyond the remaining decoded budget. That
+        // permits an exact-at-limit source to prove EOF, while an extra byte
+        // is refused before it can escape to the scanner.
+        let room = self
+            .decoded_limit
+            .map(|limit| limit.saturating_sub(self.decoded_bytes));
+        let length = room.map_or(bytes.len(), |remaining| {
+            bytes
+                .len()
+                .min(usize::try_from(remaining.saturating_add(1)).unwrap_or(usize::MAX))
+        });
+        let result = {
+            let decoder = self.decoder.as_mut().ok_or(io::ErrorKind::InvalidInput)?;
+            decoder.read(&mut bytes[..length])
+        };
         match result {
             Ok(0) => match self.finish_pass() {
                 Ok(()) => Ok(0),
@@ -735,7 +1040,17 @@ impl<F: FnMut() -> Result<(), Error>> Read for CompressedReader<'_, F> {
                     Err(io::ErrorKind::Other.into())
                 }
             },
-            Ok(count) => Ok(count),
+            Ok(count) => {
+                if room.is_some_and(|remaining| count as u64 > remaining) {
+                    self.failure = Some(Error::PaginatedChainDecodedBytesExceeded);
+                    return Err(io::ErrorKind::Other.into());
+                }
+                self.decoded_bytes = self
+                    .decoded_bytes
+                    .checked_add(count as u64)
+                    .ok_or(io::ErrorKind::Other)?;
+                Ok(count)
+            }
             Err(_) => {
                 let failure = self
                     .decoder
@@ -875,6 +1190,21 @@ mod tests {
             fs::write(self.file.with_extension("jsonl.zst"), &physical).unwrap();
             physical
         }
+    }
+
+    #[test]
+    fn ordinal_evidence_requires_native_start_and_rejects_duplicate_or_overflow() {
+        let mut wrong_start = OrdinalCheck::new(7, Some((7, 10)));
+        wrong_start.observe(0, br#"{"ordinal":6}"#);
+        assert!(!wrong_start.verified());
+
+        let mut duplicate = OrdinalCheck::new(0, None);
+        duplicate.observe(0, br#"{"ordinal":0,"ordinal":0}"#);
+        assert!(duplicate.invalid);
+
+        let mut overflow = OrdinalCheck::new(0, None);
+        overflow.observe(0, br#"{"ordinal":18446744073709551615}"#);
+        assert!(overflow.invalid);
     }
     #[test]
     fn compressed_validated_and_structured_pages_bind_physical_and_decoded_versions() {

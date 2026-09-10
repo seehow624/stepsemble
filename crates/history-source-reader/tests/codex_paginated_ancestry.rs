@@ -1,17 +1,18 @@
-//! The ancestry parser must agree with what native Codex actually writes.
-//!
-//! These records are byte-identical to the owned paginated fixture that the
-//! native read oracle feeds to a real 0.153.4 binary, so a change in either
-//! the fixture or the parser shows up here instead of silently diverging.
+//! Synthetic native-shaped metadata fixtures; these do not prove native
+//! materialization. The separate owned native oracle checks interoperability.
 use serde_json::{Value, json};
 use stepsemble_history_source_reader::codex_paginated_ancestry as ancestry;
 
 const ROOT: &str = "0f1e2d3c-4b5a-4697-8899-aabbccddeeff";
 const CHILD: &str = "11223344-5566-4778-899a-abbccddeeff0";
 
-/// Mirrors protocol/native/codex/paginated-history-fixture.js: the first record
-/// is session_meta, and an inheriting rollout carries history_base verbatim.
+/// An inheriting rollout's metadata ordinal starts at its inherited cutoff.
 fn session_meta(id: &str, history_base: Option<Value>) -> Vec<u8> {
+    let ordinal = history_base
+        .as_ref()
+        .and_then(|base| base.get("end_ordinal_exclusive"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     let mut payload = serde_json::Map::new();
     payload.insert("id".into(), json!(id));
     payload.insert("session_id".into(), json!(id));
@@ -27,7 +28,7 @@ fn session_meta(id: &str, history_base: Option<Value>) -> Vec<u8> {
     }
     let record = json!({
         "timestamp": "2026-01-05T12:00:00Z",
-        "ordinal": 0,
+        "ordinal": ordinal,
         "type": "session_meta",
         "payload": payload,
     });
@@ -35,9 +36,8 @@ fn session_meta(id: &str, history_base: Option<Value>) -> Vec<u8> {
 }
 
 #[test]
-fn parses_the_exact_records_the_native_oracle_feeds_a_real_binary() {
-    // The fixture's forkCutoff shape, which native accepted when it inherited
-    // the parent's prefix during the owned read oracle.
+fn parses_native_shaped_metadata_with_an_inherited_ordinal() {
+    // Synthetic cutoff: no file is opened or materialized by this test.
     let fork_cutoff = json!({
         "thread_id": ROOT,
         "end_ordinal_exclusive": 6,

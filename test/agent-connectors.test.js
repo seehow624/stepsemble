@@ -162,6 +162,110 @@ test("generic task supervisor survives a web-service restart and reattaches", as
   assert.equal(second.get(opened.id).status, "stopped");
 });
 
+test("generic connector forwards an explicit approval observation without granting authority", async (t) => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-agent-approval-"));
+  const bin = path.join(temp, "bin");
+  const project = path.join(temp, "project");
+  const config = path.join(temp, "config");
+  fs.mkdirSync(bin); fs.mkdirSync(project);
+  const fakeAgent = path.join(bin, "fake-agent.cjs");
+  const source = `const createdAt = new Date().toISOString();
+const expiresAt = new Date(Date.now() + 60000).toISOString();
+const event = { type: "approval.requested", sessionId: "session-approval", runId: "run-approval", nativeEventId: "native-event-approval", createdAt,
+  payload: { approval: { approvalId: "approval-connector", sessionId: "session-approval", runId: "run-approval", status: "pending", scope: "once", expiresAt,
+    request: { summary: "Synthetic connector approval" }, createdAt, nonce: "nonce-connector", toolId: "tool-connector", nativeRequestId: "native-request-connector" } } };
+process.stdout.write("STEPSEMBLE_EVENT " + JSON.stringify(event) + "\\n");
+setInterval(() => {}, 1000);`;
+  fs.writeFileSync(fakeAgent, source);
+  if (process.platform === "win32") {
+    fs.writeFileSync(path.join(bin, "claude.cmd"), `@echo off\r\n"${process.execPath}" "${fakeAgent}"\r\n`);
+  } else {
+    fs.writeFileSync(path.join(bin, "claude"), `#!/bin/sh\nexec "${process.execPath}" "${fakeAgent}"\n`, { mode: 0o755 });
+  }
+  const service = createAgentTaskService({
+    appHome: temp,
+    configDir: config,
+    piBin: "/usr/local/bin/pi",
+    env: { PATH: [bin, path.dirname(process.execPath), process.env.PATH || ""].join(path.delimiter), HOME: temp },
+    validateCwd(value) { return value === project ? project : null; },
+  });
+  t.after(async () => {
+    await service.shutdown();
+    await waitForOwnedProcesses(service);
+    fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  const opened = await service.open({ agentId: "claude-code", cwd: project, name: "Approval observation" });
+  await until(() => service.approvals(opened.id)?.approvals.length === 1, "explicit approval observation reaches the Host");
+  const snapshot = service.approvals(opened.id);
+  assert.equal(snapshot.approvals[0].approval.approvalId, "approval-connector");
+  assert.equal(snapshot.approvals[0].nativeAcknowledgement, null);
+  assert.equal(Object.hasOwn(service.publicTask(service.get(opened.id)), "approvalState"), false, "the legacy public task shape does not advertise approval parity");
+  const result = service.resolveApproval(opened.id, {
+    commandId: "command-connector", deviceId: "device-connector", sessionId: "session-approval", runId: "run-approval",
+    approvalId: "approval-connector", nonce: "nonce-connector", scope: "once", decision: "approved", idempotencyKey: "approval-key-connector",
+  });
+  assert.equal(result.code, "durable_transaction_required", "generic service helper must not bypass the durable journal");
+  assert.equal(snapshot.approvals[0].approval.status, "pending");
+  assert.equal(service.get(opened.id).status, "running", "an unavailable generic helper cannot alter task status");
+  await service.stop(opened.id);
+  assert.equal(service.get(opened.id).status, "stopped");
+  assert.equal(service.approvals(opened.id).available, false, "task exit closes process-local approval state");
+  assert.deepEqual(service.approvals(opened.id).approvals, [], "pending approvals are not kept after process exit");
+  assert.equal(service.resolveApproval(opened.id, {
+    commandId: "command-after-stop", deviceId: "device-connector", sessionId: "session-approval", runId: "run-approval",
+    approvalId: "approval-connector", nonce: "nonce-connector", scope: "once", decision: "approved", idempotencyKey: "after-stop",
+  }).code, "task_unavailable");
+});
+
+test("generic structured observer discards an overlong line through LF and never promotes a mid-line prefix", async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-agent-structured-overflow-"));
+  const bin = path.join(temp, "bin");
+  const project = path.join(temp, "project");
+  const config = path.join(temp, "config");
+  fs.mkdirSync(bin); fs.mkdirSync(project);
+  const createdAt = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 60000).toISOString();
+  const fakeAgent = path.join(bin, "fake-agent.cjs");
+  const midline = {
+    type: "approval.requested", sessionId: "session-midline", runId: "run-midline", nativeEventId: "native-midline", createdAt,
+    payload: { approval: { approvalId: "approval-midline", sessionId: "session-midline", runId: "run-midline", status: "pending", scope: "once",
+      expiresAt, request: { summary: "Should never be promoted" }, createdAt,
+      nonce: "nonce-midline", toolId: "tool-midline", nativeRequestId: "native-midline" } },
+  };
+  const valid = {
+    ...midline, sessionId: "session-valid", runId: "run-valid", nativeEventId: "native-valid",
+    payload: { approval: { ...midline.payload.approval, approvalId: "approval-valid", sessionId: "session-valid", runId: "run-valid", nonce: "nonce-valid", toolId: "tool-valid", nativeRequestId: "native-valid", request: { summary: "Valid after discarded line" } } },
+  };
+  const source = `const overlong = ${JSON.stringify("x".repeat(140 * 1024) + "STEPSEMBLE_EVENT " + JSON.stringify(midline) + "\n")};
+process.stdout.write(overlong.slice(0, 70000));
+setTimeout(() => process.stdout.write(overlong.slice(70000)), 15);
+setTimeout(() => process.stdout.write("STEPSEMBLE_EVENT " + ${JSON.stringify(JSON.stringify(valid))} + "\\n"), 40);
+setInterval(() => {}, 1000);`;
+  fs.writeFileSync(fakeAgent, source);
+  if (process.platform === "win32") {
+    fs.writeFileSync(path.join(bin, "claude.cmd"), `@echo off\r\n"${process.execPath}" "${fakeAgent}"\r\n`);
+  } else {
+    fs.writeFileSync(path.join(bin, "claude"), `#!/bin/sh\nexec "${process.execPath}" "${fakeAgent}"\n`, { mode: 0o755 });
+  }
+  const service = createAgentTaskService({
+    appHome: temp, configDir: config, piBin: "/usr/local/bin/pi",
+    env: { PATH: [bin, path.dirname(process.execPath), process.env.PATH || ""].join(path.delimiter), HOME: temp },
+    validateCwd(value) { return value === project ? project : null; },
+  });
+  t.after(async () => {
+    await service.shutdown(); await waitForOwnedProcesses(service);
+    fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+  const opened = await service.open({ agentId: "claude-code", cwd: project, name: "Structured overflow" });
+  await until(() => service.approvals(opened.id)?.approvals.length === 1, "only the line after LF reaches the observer");
+  const snapshot = service.approvals(opened.id);
+  assert.equal(snapshot.approvals.length, 1);
+  assert.equal(snapshot.approvals[0].approval.approvalId, "approval-valid");
+  assert.equal(snapshot.approvals.some(row => row.approval.approvalId === "approval-midline"), false);
+  await service.stop(opened.id);
+});
+
 test("unconfirmed stop stays active, never signals a stale PID, and can be retried", { timeout: 20000 }, async t => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-stop-unknown-"));
   // A real owned canary proves that unavailable IPC does not kill the process

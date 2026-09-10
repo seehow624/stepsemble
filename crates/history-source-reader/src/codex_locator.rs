@@ -51,34 +51,68 @@ fn timestamp(value: &str) -> bool {
 /// Native reverted rollouts retain the thread UUID but add a distinct rollout
 /// UUID. A compressed locator is recognized, not silently changed to its plain
 /// sibling.
-pub fn valid_locator(path: &str, thread: &str) -> bool {
-    if path.len() > 160 || !session_id(thread) || thread != thread.to_ascii_lowercase() {
-        return false;
+fn parsed_ids(path: &str) -> Option<(&str, &str)> {
+    if path.len() > 160 {
+        return None;
     }
     let parts: Vec<_> = path.split('/').collect();
     let file = match parts.as_slice() {
         ["sessions", _, _, _, file] | ["archived_sessions", file] => *file,
-        _ => return false,
+        _ => return None,
     };
-    let Some(core) = file
+    let core = file
         .strip_suffix(".zst")
         .unwrap_or(file)
         .strip_prefix("rollout-")
-        .and_then(|v| v.strip_suffix(".jsonl"))
-    else {
-        return false;
-    };
-    let Some(time) = core.get(..19) else {
-        return false;
-    };
+        .and_then(|v| v.strip_suffix(".jsonl"))?;
+    let time = core.get(..19)?;
     if !timestamp(time) || core.get(19..20) != Some("-") {
-        return false;
+        return None;
     }
     let ids = &core[20..];
     let (id, rollout) = ids.split_once('_').unwrap_or((ids, ids));
-    if id != thread || !session_id(rollout) || rollout != rollout.to_ascii_lowercase() {
-        return false;
+    if !session_id(id)
+        || id != id.to_ascii_lowercase()
+        || !session_id(rollout)
+        || rollout != rollout.to_ascii_lowercase()
+    {
+        return None;
     }
-    parts.len() == 2
-        || (parts[1] == &time[..4] && parts[2] == &time[5..7] && parts[3] == &time[8..10])
+    if !(parts.len() == 2
+        || (parts[1] == &time[..4] && parts[2] == &time[5..7] && parts[3] == &time[8..10]))
+    {
+        return None;
+    }
+    Some((id, rollout))
+}
+
+fn parsed_rollout_id<'a>(path: &'a str, thread: &str) -> Option<&'a str> {
+    if !session_id(thread) || thread != thread.to_ascii_lowercase() {
+        return None;
+    }
+    let (id, rollout) = parsed_ids(path)?;
+    (id == thread).then_some(rollout)
+}
+
+/// Validate a repository-relative locator without granting access.
+pub fn valid_locator(path: &str, thread: &str) -> bool {
+    parsed_rollout_id(path, thread).is_some()
+}
+
+/// Return the physical rollout UUID encoded in a validated locator.
+///
+/// For a normal locator this is the thread UUID itself. A reverted locator
+/// has the form `<stable-thread>_<physical-rollout>`, so callers that already
+/// know the expected physical rollout can bind the filename to the metadata
+/// claim instead of accepting any sibling with the same stable prefix.
+pub fn physical_rollout_id(path: &str, thread: &str) -> Option<String> {
+    parsed_rollout_id(path, thread).map(str::to_owned)
+}
+
+/// Return the stable thread UUID encoded before the optional `_` in a
+/// locator. This is needed for an ancestor that was itself created by a
+/// revert: its physical rollout UUID names the chain link, while the native
+/// metadata still carries this stable prefix.
+pub fn stable_thread_id(path: &str) -> Option<String> {
+    parsed_ids(path).map(|(thread, _)| thread.to_owned())
 }

@@ -61,6 +61,7 @@ fn plans_ancestors_before_the_selected_rollout() {
     assert_eq!(plan.sources[2].end_byte_offset, None);
     assert!(plan.reached_root);
     assert_eq!(plan.chain_byte_budget, CHAIN_BYTES);
+    assert_eq!(plan.chain_decoded_byte_budget, CHAIN_DECODED_BYTES);
     assert!(!plan.source_authenticated);
     assert!(!plan.history_complete);
 }
@@ -90,6 +91,60 @@ fn a_reverted_thread_keeps_its_stable_id_while_the_head_file_differs() {
     let plan = plan(THREAD, physical, &chain, &locators).unwrap();
     assert_eq!(plan.thread_id, THREAD);
     assert_eq!(plan.sources.last().unwrap().rollout_id, physical);
+}
+
+#[test]
+fn a_reverted_locator_must_bind_its_physical_uuid() {
+    let physical = "0f0f0f0f-1e1e-4d4d-8c8c-3b3b3b3b3b3b";
+    let wrong_physical = "abababab-cdcd-4e4e-8f8f-010101010101";
+    let chain = chain(vec![
+        claim(physical, Some((OLD, 10, 1000))),
+        claim(OLD, None),
+    ]);
+    let head_path =
+        format!("sessions/2026/01/05/rollout-2026-01-05T12-00-00-{THREAD}_{wrong_physical}.jsonl");
+    let old_path = path(OLD);
+    let locators = vec![
+        Locator {
+            rollout_id: physical,
+            rollout_path: &head_path,
+        },
+        Locator {
+            rollout_id: OLD,
+            rollout_path: &old_path,
+        },
+    ];
+    assert_eq!(
+        plan(THREAD, physical, &chain, &locators),
+        Err(Error::LocatorMismatch)
+    );
+}
+
+#[test]
+fn an_ancestor_revert_uses_its_own_stable_locator_prefix() {
+    let ancestor_stable = "abababab-cdcd-4e4e-8f8f-010101010101";
+    let ancestor_physical = "0f0f0f0f-1e1e-4d4d-8c8c-3b3b3b3b3b3b";
+    let chain = chain(vec![
+        claim(THREAD, Some((ancestor_physical, 10, 1000))),
+        claim(ancestor_physical, None),
+    ]);
+    let head_path = path(THREAD);
+    let ancestor_path = format!(
+        "archived_sessions/rollout-2026-01-05T11-00-00-{ancestor_stable}_{ancestor_physical}.jsonl"
+    );
+    let locators = vec![
+        Locator {
+            rollout_id: THREAD,
+            rollout_path: &head_path,
+        },
+        Locator {
+            rollout_id: ancestor_physical,
+            rollout_path: &ancestor_path,
+        },
+    ];
+    let plan = plan(THREAD, THREAD, &chain, &locators).expect("ancestor revert locator");
+    assert_eq!(plan.sources[0].rollout_id, ancestor_physical);
+    assert_eq!(plan.sources[0].rollout_path, ancestor_path);
 }
 
 #[test]
@@ -253,4 +308,18 @@ fn chain_bytes_are_accounted_and_capped() {
     // One byte past the whole-chain allowance stops resolution.
     assert_eq!(accumulate(CHAIN_BYTES, 1), Err(Error::ChainBytesExceeded));
     assert_eq!(accumulate(u64::MAX, 1), Err(Error::ChainBytesExceeded));
+    let decoded_half = CHAIN_DECODED_BYTES / 2;
+    let decoded = accumulate_decoded(0, decoded_half).unwrap();
+    assert_eq!(
+        accumulate_decoded(decoded, decoded_half).unwrap(),
+        CHAIN_DECODED_BYTES
+    );
+    assert_eq!(
+        accumulate_decoded(CHAIN_DECODED_BYTES, 1),
+        Err(Error::DecodedChainBytesExceeded)
+    );
+    assert_eq!(
+        accumulate_decoded(u64::MAX, 1),
+        Err(Error::DecodedChainBytesExceeded)
+    );
 }

@@ -1,8 +1,8 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.85
-> 最後更新：2026-09-10
+> 計畫版本：1.87（C2／C3 本輪核心已驗，產品接線仍待）
+> 最後更新：2026-09-11
 > 當前產品基線：Stepsemble 3.0.8（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.8／source `3bae06c`（2026-09-09 公開 stable release）
 > MBP 於 2026-09-10 上線後由既有 updater 自行完成 3.0.7→3.0.8，未經人工介入
@@ -10,6 +10,47 @@
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
 ## 文件用途與回復方法
+
+**目前任務1.87（2026-09-11，Jerome 要求 C2／C3 全部做好）**：兩位指定的
+gpt-5.6-luna/max 分別處理 paginated 真來源與原生 session／approval，主 agent 驗收
+並實作持久化。此指示恢復本輪工程工作，不重新建立 Goal 或已結束的 72h 長測。
+正式兩台最後確認版本仍為 3.0.8；這輪未發布／部署。
+
+- C2 已有逐檔 plain/zstd 開啟；主審另要求 stable/physical ID、revert ancestor、
+  完整單行 metadata、整鏈 decoded budget、原生 ordinal／byte 切點一起補驗。
+  最新結果以 [paginated opening](codex-paginated-opening.md) 與實際測試為準，
+  不能把舊「尚未開檔」敘述當目前實作狀態，也不能把 acquisition 當完整 Web 接線。
+- C3 先前 generic stdout 前綴僅是 observation，不是 Claude 原生審批協議。
+  現在接續以固定 Codex app-server 協議實作原生 transport，再連持久化與決議。
+- 主 agent 新增真正 SQLite [session journal](session-journal.md)：fresh grant、
+  transaction/CAS、receipt/outbox/projection/event 同次 commit，專用 worker 隔離。
+  本機及最低 Node 22.19 的 11 項聚焦測試通過，含 SQL 中途失敗 rollback、SIGKILL
+  後 dispatch 記錄保留、recovery 與 journal 遺失事件偵測。尚不是完整 native/UI／Windows／跨機驗收。
+- C2 本輪完整 Rust all-targets 194 tests 通過；主審使用官方 0.153.4 binary 的
+  acquisition differential 與反向順序 negative control 均通過。手工 fixture 不冒稱
+  原生 materialization；另補 [head checkpoint／durable consistency assembly](codex-paginated-consistency.md)
+  11 tests。它尚未在同一 reader admission 接起真 DB／來源，Web 接線也仍待。
+- C3 真原生 owned oracle 已驗未回答審批被 interrupt 關閉，以及 SQLite journal-backed
+  拒絕後 native 正常結束、命令未執行、journal reopen 保留決定；兩案例皆非 decision ACK。
+  模型端只有本機固定 SSE fixture，未用訂閱或付費模型；[原生證據](codex-native-approval.md)。
+  主審補 canonical typed request ID、observer reject 的明確失敗／清理，修 scope、
+  resume、same-chunk lifecycle／replay／寫入與關閉競態後，完整 Node 22.22.3 及最低
+  22.19.0 各 1195 tests／1193 pass／2 skip／0 fail。正式 HTTP/UI、其他 agents
+  與 ACK settlement 尚未交付；新 exact SHA CI 尚待提交後驗證。
+
+以下 1.86 及更舊段落是歷史 checkpoint；未完成項必須由新證據逐項更新。
+
+**最新接續1.86（C3 generic connector approval observation）**：generic CLI supervisor
+現在只接受精確 `STEPSEMBLE_EVENT ` 前綴的 `approval.requested` observation，並以
+Host-local bounded state 做 task／session／run／native event／request／nonce correlation。
+此處描述的是歷史 detached helper，最新 task service 的 `resolveApproval` 明確拒絕
+`durable_transaction_required`；未接 journal 前不提供決議路徑。helper 只產生
+`accepted` receipt（revision 0）與 private outbox proposal；同 key
+回放原 receipt、變形意圖拒絕，且永遠不冒充 native ACK、不寫 CLI、不自動 resume。
+這是 Claude Code generic connector 的一個可獨立驗收切片，沒有公開 route／UI、authenticated
+grant、durable journal／CAS、native evidence 或 crash/reconnect recovery；不宣稱 C3 或
+Pi parity 完成。純 synthetic fake child 驗證與接續待辦見
+[approval observation 邊界](generic-connector-approval-observation.md)。
 
 **最新接續1.85（paginated 解析結果與切點歸屬修正）**：新增解析層核對觀測與計畫、
 以 stored bytes 計整鏈預算、以 decoded bytes 驗切點是否落在來源內；順序錯誤、

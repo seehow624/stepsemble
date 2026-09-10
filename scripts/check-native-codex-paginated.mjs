@@ -18,6 +18,15 @@ import { observePaginatedItems } from "../protocol/native/codex/paginated-histor
 // Optional owned differential probe. When present it must AGREE with native;
 // when absent the oracle still runs and reports that it was skipped.
 const ancestryProbe = process.env.STEPSEMBLE_ANCESTRY_PROBE || null;
+// Optional owned source-opening probe. It is a separate helper because the
+// ancestry probe intentionally never opens paths; when present this helper
+// receives only the disposable fixture root and must resolve every planned
+// source through the existing Rust POSIX boundary.
+const paginatedResolutionProbe = process.env.STEPSEMBLE_PAGINATED_RESOLUTION_PROBE
+  || (() => {
+    const candidate = path.resolve("crates/history-source-reader/target/debug/stepsemble-history-source-reader");
+    return process.platform === "win32" ? `${candidate}.exe` : candidate;
+  })();
 
 /** The first complete JSONL record, which is the rollout's session_meta. */
 function firstRecord(raw) {
@@ -34,6 +43,53 @@ function probeAncestry(binary, entries) {
   const parsed = JSON.parse(result.stdout);
   assert(!parsed.error, `ancestry probe refused a record native accepted: ${parsed.error}`);
   return parsed;
+}
+
+function probePaginatedResolution(binary, input) {
+  assert(path.isAbsolute(binary), "absolute owned resolution probe binary required");
+  const result = spawnSync(binary, [], {
+    input: JSON.stringify(input), encoding: null, timeout: 20000, maxBuffer: 256 * 1024,
+    shell: false
+  });
+  assert.equal(result.status, 0, "paginated resolution probe must exit cleanly");
+  assert(result.stdout.length >= 4, "paginated resolution probe must return a frame");
+  const length = result.stdout.readUInt32BE(0);
+  assert.equal(result.stdout.length, 4 + length, "paginated resolution probe frame length");
+  return JSON.parse(result.stdout.subarray(4).toString("utf8"));
+}
+
+function assertResolutionDifferential(result, expected) {
+  assert.equal(result.protocolVersion, 15);
+  assert.equal(result.nonce, expected.nonce);
+  assert.equal(result.result?.kind, "native_codex_paginated_resolution", result.result?.code);
+  const value = result.result;
+  assert.equal(value.nativeVersion, expected.nativeVersion);
+  assert.equal(value.threadId, expected.threadId);
+  assert.deepEqual(value.plan.sources.map(source => source.rolloutId), expected.rolloutIds);
+  assert.deepEqual(value.resolution.sources.map(source => source.rolloutId), expected.rolloutIds);
+  assert.deepEqual(value.resolution.sources.map(source => source.rolloutPath), expected.rolloutPaths);
+  assert.equal(value.plan.reachedRoot, true);
+  assert.equal(value.resolution.reachedRoot, true);
+  assert.equal(value.sourceAuthenticated, false);
+  assert.equal(value.publishable, false);
+  assert.equal(value.historyComplete, false);
+  assert.equal(value.resolution.sourceAuthenticated, false);
+  assert.equal(value.resolution.historyComplete, false);
+  assert.deepEqual(value.resolution.sources.map(source => source.storedBytes), expected.storedBytes);
+  assert.deepEqual(value.resolution.sources.map(source => source.decodedBytes), expected.decodedBytes);
+  assert.deepEqual(value.resolution.sources.map(source => source.recordCount), expected.recordCounts);
+  const expectedChainBytes = expected.storedBytes
+    .reduce((total, size) => (BigInt(total) + BigInt(size)).toString(), "0");
+  assert.equal(value.resolution.chainStoredBytes, expectedChainBytes);
+  const expectedDecodedChainBytes = expected.decodedBytes
+    .reduce((total, size) => (BigInt(total) + BigInt(size)).toString(), "0");
+  assert.equal(value.resolution.chainDecodedBytes, expectedDecodedChainBytes);
+  assert.equal(value.resolution.ordinalCutoffsVerified, true);
+  const exact = value.resolution.sources.every(source =>
+    typeof source.storedBytes === "string" && /^(0|[1-9][0-9]*)$/.test(source.storedBytes)
+    && typeof source.decodedBytes === "string" && /^(0|[1-9][0-9]*)$/.test(source.decodedBytes));
+  assert(exact, "paginated resolution sizes must remain exact decimal strings");
+  return value;
 }
 
 export async function checkPaginatedRuntime(binary) {
@@ -158,7 +214,8 @@ export async function checkPaginatedRuntime(binary) {
       // Revert keeps the stable thread ID but selects a different physical
       // rollout ID via the state row. Old filename-derived identities are wrong.
       const reverted = paginatedFixture({ threadId: child.threadId, rolloutId: crypto.randomUUID(), cwd: home, historyBase: root.forkCutoff, suffix: "revert" });
-      const revertedFile = path.join(codexHome, "archived_sessions", `rollout-2026-01-05T12-00-02-${reverted.rolloutId}.jsonl`);
+      const revertedFile = path.join(codexHome, "archived_sessions", `rollout-2026-01-05T12-00-02-${child.threadId}_${reverted.rolloutId}.jsonl`);
+      reverted.file = revertedFile;
       await save(revertedFile, reverted.raw);
       open(stateFile); assert.equal(db.prepare("UPDATE threads SET rollout_path=? WHERE id=?").run(revertedFile, child.threadId).changes, 1);
       expectedMetadata = metadataRows(); db.close(); db = null;
@@ -195,7 +252,7 @@ export async function checkPaginatedRuntime(binary) {
       const ancestry = ancestryProbe
         ? probeAncestry(ancestryProbe, {
             threadId: child.threadId,
-            entries: [child, root].map(f => ({
+            entries: [reverted, root].map(f => ({
               rolloutId: f.rolloutId,
               base64Record: Buffer.from(firstRecord(f.raw)).toString("base64"),
               // The locator native actually stored for this rollout. A locator
@@ -209,7 +266,7 @@ export async function checkPaginatedRuntime(binary) {
         assert.equal(ancestry.reachedRoot, true);
         assert.equal(ancestry.historyComplete, false);
         assert.equal(ancestry.sourceAuthenticated, false);
-        assert.deepEqual(ancestry.links.map(link => link.rolloutId), [child.rolloutId, root.rolloutId]);
+        assert.deepEqual(ancestry.links.map(link => link.rolloutId), [reverted.rolloutId, root.rolloutId]);
         assert.deepEqual(ancestry.links[0].historyBase, {
           threadId: root.forkCutoff.thread_id,
           endOrdinalExclusive: String(root.forkCutoff.end_ordinal_exclusive),
@@ -219,7 +276,7 @@ export async function checkPaginatedRuntime(binary) {
         // The plan must schedule the inherited-from rollout BEFORE the child,
         // and carry the exact cut point native honoured when it inherited.
         assert.equal(ancestry.plan.threadId, child.threadId);
-        assert.deepEqual(ancestry.plan.sources.map(s => s.rolloutId), [root.rolloutId, child.rolloutId]);
+        assert.deepEqual(ancestry.plan.sources.map(s => s.rolloutId), [root.rolloutId, reverted.rolloutId]);
         // A cut describes how much of THAT source a descendant used, so it
         // belongs to the root the child inherited from, and the child itself
         // contributes through its end.
@@ -228,10 +285,99 @@ export async function checkPaginatedRuntime(binary) {
         assert.equal(ancestry.plan.sources[1].endOrdinalExclusive, null);
         assert.equal(ancestry.plan.reachedRoot, true);
         assert.equal(ancestry.plan.historyComplete, false);
-        assert(ancestry.plan.sources.every(s => !s.compressed && !s.archived), "owned fixtures are plain active rollouts");
+        assert.equal(ancestry.plan.sources[0].archived, false);
+        assert.equal(ancestry.plan.sources[1].archived, true);
+        assert.equal(ancestry.plan.sources[1].rolloutPath,
+          path.relative(codexHome, reverted.file).split(path.sep).join("/"));
+      }
+      let resolutionDifferential = "skipped_no_probe", resolutionNegativeControl = "skipped_no_probe";
+      if (process.platform === "win32") {
+        // The existing POSIX source boundary is intentionally unsupported on
+        // Windows; require that explicit refusal rather than treating it as
+        // an empty or partially resolved chain.
+        try {
+          await fs.access(paginatedResolutionProbe);
+          const rootInfo = await fs.stat(codexHome, { bigint: true });
+          const input = {
+            protocolVersion: 15, nonce: "a".repeat(64), nativeVersion: snapshot.nativeVersion,
+            codexRoot: codexHome,
+            expectedRoot: { device: String(rootInfo.dev), inode: String(rootInfo.ino) },
+            threadId: child.threadId, selectedRolloutId: reverted.rolloutId,
+            entries: [reverted, root].map(f => ({ rolloutId: f.rolloutId,
+              base64Record: Buffer.from(firstRecord(f.raw)).toString("base64"),
+              rolloutPath: path.relative(codexHome, f.file).split(path.sep).join("/") }))
+          };
+          const refused = probePaginatedResolution(paginatedResolutionProbe, input);
+          assert.deepEqual(refused.result, { kind: "source_unavailable", code: "source_platform_unsupported" });
+          resolutionDifferential = "skipped_windows_source_unsupported";
+          resolutionNegativeControl = "explicit_refusal_checked";
+        } catch (error) {
+          if (error?.code === "ENOENT") {
+            resolutionDifferential = "skipped_no_probe";
+            resolutionNegativeControl = "skipped_no_probe";
+          } else throw error;
+        }
+      } else {
+        let haveProbe = true;
+        try { await fs.access(paginatedResolutionProbe); }
+        catch (error) {
+          if (error?.code === "ENOENT") haveProbe = false;
+          else throw error;
+        }
+        if (!haveProbe) {
+          resolutionNegativeControl = "skipped_no_probe";
+        } else {
+        const rootInfo = await fs.stat(codexHome, { bigint: true });
+        const resolutionInput = {
+          protocolVersion: 15,
+          nonce: "a".repeat(64),
+          nativeVersion: snapshot.nativeVersion,
+          codexRoot: codexHome,
+          expectedRoot: { device: String(rootInfo.dev), inode: String(rootInfo.ino) },
+          threadId: child.threadId,
+          selectedRolloutId: reverted.rolloutId,
+          // The helper receives the same first metadata records native just
+          // consumed and the exact relative locators it wrote in this owned
+          // HOME. It opens both files itself; no bytes are sent back.
+          entries: [reverted, root].map(f => ({
+            rolloutId: f.rolloutId,
+            base64Record: Buffer.from(firstRecord(f.raw)).toString("base64"),
+            rolloutPath: path.relative(codexHome, f.file).split(path.sep).join("/")
+          }))
+        };
+        const opened = probePaginatedResolution(paginatedResolutionProbe, resolutionInput);
+        const expected = {
+          nonce: resolutionInput.nonce, nativeVersion: snapshot.nativeVersion,
+          threadId: child.threadId,
+          rolloutIds: [root.rolloutId, reverted.rolloutId],
+          rolloutPaths: [
+            path.relative(codexHome, root.file).split(path.sep).join("/"),
+            path.relative(codexHome, reverted.file).split(path.sep).join("/")
+          ],
+          storedBytes: [],
+          decodedBytes: [],
+          recordCounts: []
+        };
+        for (const fixture of [root, reverted]) {
+          const info = await fs.stat(fixture.file, { bigint: true });
+          expected.storedBytes.push(String(info.size));
+          expected.decodedBytes.push(String(fixture.raw.length));
+          expected.recordCounts.push(fixture.raw.filter(byte => byte === 0x0a).length);
+        }
+        assertResolutionDifferential(opened, expected);
+        // Negative control: deliberately reverse the expected source order and
+        // prove the differential assertion really fails before restoring the
+        // correct expectation. This prevents a vacuous “probe ran” green light.
+        const wrong = { ...expected, rolloutIds: [...expected.rolloutIds].reverse() };
+        assert.throws(() => assertResolutionDifferential(opened, wrong), /deep-equal|strictly equal|source/);
+        assertResolutionDifferential(opened, expected);
+        resolutionDifferential = "matched_native_planned_source_openings";
+        resolutionNegativeControl = "mismatch_rejected";
+        }
       }
       return { result: "passed", nativeVersion: snapshot.nativeVersion, scope: "owned_seeded_paginated_projection_read_oracle", historySchemaSha256,
         ancestryDifferential: ancestry ? "matched_native_inherited_record" : "skipped_no_probe",
+        resolutionDifferential, resolutionNegativeControl,
         itemPages, turnPages, observedPages, rootItems: 4, inheritedChildItems: 6, sameItemLatestSnapshotAtFirstCreatedOrdinal: true, forkCutoffExcludedLaterParentItems: true,
         equalItemIdsInDifferentTurnsPreserved: true, wrongThreadCursorRefused: true,
         revertedStableIdFromStatePath: true, archivedCurrentRolloutReadable: true, supersededRolloutExcluded: true,

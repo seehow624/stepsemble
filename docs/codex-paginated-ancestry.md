@@ -18,7 +18,11 @@ byte offset。沒有這層解析，就無法從一個子對話往上追出完整
 新增 `crates/history-source-reader/src/codex_paginated_ancestry.rs`：
 
 - `read_claim` 讀**單一筆** `session_meta` 記錄，取出該 rollout 自己的 ID 與
-  `history_base`。整份檔案餵進來會失敗，不會只默默解析第一行。
+  `history_base`；metadata ordinal 必須是 root 的 `0`，或等於自身
+  `history_base.end_ordinal_exclusive`。整份檔案餵進來會失敗，不會只默默解析第一行。
+- 以遞迴 JSON duplicate-key detector 保護 `type`／`payload`／`id`／`history_mode`／
+  `history_base` 及其三個 cutoff 欄位；未知 metadata 欄位仍可保留，但重複控制欄位
+  不會被 last-key-wins 悄悄覆蓋。
 - `link` 把呼叫端逐一解析出的 claim 串成鏈，強制每一步真的對應前一個 link
   指名的祖先，並擋掉環（含自我指向）、超過深度 64、根之後還有多餘 link。
 - `reached_root` 只表示最後一個 link 不再指名祖先。呼叫端提早停止時為 false，
@@ -37,10 +41,9 @@ legacy 或缺少 `history_mode` 的記錄回 `HistoryModeUnsupported`，交還�
 
 ## 驗收
 
-Rust crate 全套通過：本模組 13 項單元測試（根／繼承讀取、大整數精確、跨對話
-記錄拒絕、legacy 歸屬、七種畸形 `history_base`、非 metadata／壞 UTF-8、
-完整鏈結、提早停止、祖先不符、根後多餘 link、直接與間接環、空鏈與超深）
-加上 3 項整合測試（原生 fixture 逐位元組、整檔不被吞、CRLF 相容）。
+Rust crate focused ancestry tests 17 項通過（含 metadata ordinal/base 關係、duplicate
+控制欄位、根／繼承讀取、大整數精確、跨對話記錄拒絕、legacy 歸屬、畸形
+`history_base`、非 metadata／壞 UTF-8、完整鏈結、提早停止、祖先不符、環與超深）。
 `cargo fmt --check` 與 `cargo clippy -D warnings` 乾淨。
 
 **最重要的證據是原生差分**：`scripts/check-native-codex-paginated.mjs` 現在把
@@ -52,15 +55,17 @@ Rust crate 全套通過：本模組 13 項單元測試（根／繼承讀取、�
 native inherited from`），確認這個檢查不是空跑。已接入既有三 OS
 `native-codex-history.yml`，探針在該工作流程中一併編譯。
 
-Node 端 1158 tests／1156 pass／2 Windows-only skip／0 fail 不變。
+本輪未重跑 Node 全套；Rust 與 native owned differential 證據如上。
 
 ## 仍待
 
-祖先鏈只是**指標關係**。尚未接上：以 state 的 `rollout_path` 實際解析每個祖先
-檔案（active/archive、plain/zstd 版面、no-follow／ACL／bounded bytes）；
+祖先鏈仍只是**指標關係**；Plan1.86 已由[逐檔開啟 adapter](codex-paginated-opening.md)
+依鏈計畫實際取得每個祖先檔案（active/archive、plain/zstd 版面、no-follow／ACL／
+bounded bytes）；`read_claim_with_metadata_id` 將 stable metadata ID 與 physical rollout
+ID 分開核對，要求第一筆為單筆完整 LF；開啟端再逐筆核對 ordinal 與 exact cutoff byte，
+在所有來源成功後產生 Observed、呼叫 resolution；
 把 durable complete-LF 範圍與[投影檢查點](codex-paginated-checkpoint.md)實際比對
 以判定落後／不一致／partial-tail；獨立 source-version／created-ordinal cursor；
 permissioned parser → named source service → registry／HTTP／peer／typed Web；
 以及損壞／版本變更／取消／超限的三 OS 與 320/390px 實測。
 Windows 私有來源仍 unsupported。
-

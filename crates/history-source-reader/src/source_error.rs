@@ -32,6 +32,22 @@ pub enum Error {
     DatabaseUnavailable,
     Busy,
     Cancelled,
+    /// A paginated chain exceeded the one-admission stored-byte budget.
+    /// Keep this distinct from a single-source size failure so callers do not
+    /// mistake a deliberately bounded chain refusal for an empty history.
+    PaginatedChainBytesExceeded,
+    /// A paginated chain exceeded the independent decoded-byte budget. This
+    /// is separate because a compressed source can expand far beyond storage.
+    PaginatedChainDecodedBytesExceeded,
+    /// A paginated rollout contained a missing, non-sequential or otherwise
+    /// unverifiable ordinal/byte boundary.
+    PaginatedOrdinalInvalid,
+    /// A paginated ancestry/chain/resolution layer rejected the supplied
+    /// observation. The nested error retains its stable public code without
+    /// exposing paths or OS diagnostics.
+    PaginatedAncestry(crate::codex_paginated_ancestry::Error),
+    PaginatedChain(crate::codex_paginated_chain::Error),
+    PaginatedResolution(crate::codex_paginated_resolution::Error),
 }
 
 impl Error {
@@ -68,6 +84,14 @@ impl Error {
             Self::DatabaseUnavailable => "source_database_unavailable",
             Self::Busy => "source_busy",
             Self::Cancelled => "source_cancelled",
+            Self::PaginatedChainBytesExceeded => "paginated_resolution_bytes_exceeded",
+            Self::PaginatedChainDecodedBytesExceeded => {
+                "paginated_resolution_decoded_bytes_exceeded"
+            }
+            Self::PaginatedOrdinalInvalid => "paginated_rollout_ordinal_invalid",
+            Self::PaginatedAncestry(error) => error.code(),
+            Self::PaginatedChain(error) => error.code(),
+            Self::PaginatedResolution(error) => error.code(),
         }
     }
 }

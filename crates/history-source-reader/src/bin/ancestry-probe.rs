@@ -85,11 +85,25 @@ fn main() {
         std::process::exit(2);
     };
     let mut claims = Vec::with_capacity(entries.len());
-    for entry in &entries {
+    for (index, entry) in entries.iter().enumerate() {
         let Some(bytes) = decode_base64(&entry.base64_record) else {
             std::process::exit(2);
         };
-        match ancestry::read_claim(&entry.rollout_id, &bytes) {
+        // The selected head can be a reverted file: native metadata keeps the
+        // stable thread ID while its locator carries a distinct physical ID.
+        // Ancestors continue to use their own physical IDs for both fields.
+        let metadata_id = if index == 0 {
+            thread_id
+                .clone()
+                .unwrap_or_else(|| entry.rollout_id.clone())
+        } else {
+            entry
+                .rollout_path
+                .as_deref()
+                .and_then(stepsemble_history_source_reader::codex_locator::stable_thread_id)
+                .unwrap_or_else(|| entry.rollout_id.clone())
+        };
+        match ancestry::read_claim_with_metadata_id(&metadata_id, &entry.rollout_id, &bytes) {
             Ok(claim) => claims.push(claim),
             Err(error) => {
                 println!("{}", serde_json::json!({"error": error.code()}));
