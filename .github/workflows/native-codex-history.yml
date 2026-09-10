@@ -11,6 +11,9 @@ on:
       - 'test/native-codex-*.test.js'
       - 'server/stream-safety.js'
       - 'public/modules/projection.js'
+      - 'crates/history-source-reader/src/codex_paginated_ancestry.rs'
+      - 'crates/history-source-reader/src/codex_paginated_ancestry/**'
+      - 'crates/history-source-reader/src/bin/ancestry-probe.rs'
   pull_request:
     paths:
       - '.github/workflows/native-codex-history.yml'
@@ -19,6 +22,9 @@ on:
       - 'test/native-codex-*.test.js'
       - 'server/stream-safety.js'
       - 'public/modules/projection.js'
+      - 'crates/history-source-reader/src/codex_paginated_ancestry.rs'
+      - 'crates/history-source-reader/src/codex_paginated_ancestry/**'
+      - 'crates/history-source-reader/src/bin/ancestry-probe.rs'
 
 permissions:
   contents: read
@@ -51,6 +57,16 @@ jobs:
         with:
           node-version: 22.19.0
           package-manager-cache: false
+      - name: Install exact Rust toolchain for the owned ancestry probe
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Build the owned differential ancestry probe
+        id: ancestry
+        shell: bash
+        run: |
+          cargo +1.97.1 build --locked --manifest-path crates/history-source-reader/Cargo.toml --bin ancestry-probe
+          probe="crates/history-source-reader/target/debug/ancestry-probe"
+          [[ "$RUNNER_OS" == "Windows" ]] && probe="$probe.exe"
+          echo "probe=$PWD/$probe" >> "$GITHUB_OUTPUT"
       - name: Fetch and verify one pinned official binary into disposable runner storage
         id: artifact
         shell: bash
@@ -73,6 +89,9 @@ jobs:
       - name: Real pinned CLI with synthetic config, sources and model-refusal endpoint
         env:
           NATIVE_BINARY: ${{ steps.artifact.outputs.binary }}
+          # The bounded Rust ancestry parser must derive the same inheritance
+          # pointer from the same record the real binary just inherited from.
+          STEPSEMBLE_ANCESTRY_PROBE: ${{ steps.ancestry.outputs.probe }}
         shell: bash
         run: |
           node -e 'const fs=require("node:fs"),crypto=require("node:crypto");console.log(JSON.stringify({binarySha256:crypto.createHash("sha256").update(fs.readFileSync(process.env.NATIVE_BINARY)).digest("hex")}));'

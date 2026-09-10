@@ -81,9 +81,12 @@ node scripts/check-native-codex-paginated.mjs /absolute/verified/native/codex
    維持不可讀；見[檢查點讀取邊界](codex-paginated-checkpoint.md)。仍待：與
    `state_5.sqlite` selected row 在同一 reader admission/deadline 下合併，
    所有資料只從已授權 roots 與 held FD 取得；不得將本 oracle 指向真人 HOME。
-2. 從 state 的 current rollout_path 起，按 SessionMeta.history_base 解析祖先；
-   stable thread ID／physical rollout ID 分離，active/archive及plain/zstd都需驗。
-   bounded depth／bytes、cycle／missing source／no-follow／ACL／cutoff與ordinal位置。
+2. **（Plan1.83 已完成指標解析與鏈結）** `SessionMeta.history_base` 的讀取、
+   鏈結、環／深度／不符防護已完成，並以真原生繼承記錄做差分；見
+   [祖先鏈解析](codex-paginated-ancestry.md)。仍待：從 state 的 current
+   rollout_path 起**實際解析每個祖先檔案**，stable thread ID／physical rollout ID
+   分離，active/archive及plain/zstd都需驗；bounded bytes、missing source、
+   no-follow／ACL／cutoff與ordinal位置。
 3. 把 durable complete-LF 範圍、各段完整摘要與 selected projection checkpoint 比對；
    拒絕落後／不一致／partial-tail／來源變動。不用 native EOF 當完整證明，也不呼叫
    resume 或寫入 repair。subagent inherited prefix、跨段更新及fork截點語意另驗。

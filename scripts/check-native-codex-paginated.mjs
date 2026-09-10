@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { withHistorySchemas, verifyHistorySchemas } from "./check-native-codex-history.mjs";
@@ -14,6 +14,28 @@ import { probeEnvironment } from "./check-native-codex-schema.mjs";
 import { historyRpc } from "../protocol/native/codex/history-rpc.js";
 import { paginatedFixture } from "../protocol/native/codex/paginated-history-fixture.js";
 import { observePaginatedItems } from "../protocol/native/codex/paginated-history-observation.js";
+
+// Optional owned differential probe. When present it must AGREE with native;
+// when absent the oracle still runs and reports that it was skipped.
+const ancestryProbe = process.env.STEPSEMBLE_ANCESTRY_PROBE || null;
+
+/** The first complete JSONL record, which is the rollout's session_meta. */
+function firstRecord(raw) {
+  const end = raw.indexOf(0x0a);
+  assert(end > 0, "rollout must start with a complete record");
+  return raw.subarray(0, end + 1);
+}
+
+function probeAncestry(binary, entries) {
+  assert(path.isAbsolute(binary), "absolute owned probe binary required");
+  const input = JSON.stringify(entries.map(entry => ({
+    rolloutId: entry.rolloutId, base64Record: Buffer.from(entry.bytes).toString("base64") })));
+  const result = spawnSync(binary, [], { input, encoding: "utf8", timeout: 20000, maxBuffer: 1024 * 1024, shell: false });
+  assert.equal(result.status, 0, "ancestry probe must exit cleanly");
+  const parsed = JSON.parse(result.stdout);
+  assert(!parsed.error, `ancestry probe refused a record native accepted: ${parsed.error}`);
+  return parsed;
+}
 
 export async function checkPaginatedRuntime(binary) {
   assert(path.isAbsolute(binary), "absolute pinned native binary required");
@@ -168,7 +190,29 @@ export async function checkPaginatedRuntime(binary) {
       open(stateFile, true); assert.deepEqual(metadataRows(), expectedMetadata); db.close(); db = null;
       for (const [file, bytes] of saved) assert.deepEqual(await fs.readFile(file), bytes, "native changed owned input file");
       assert.equal(requests, 0); assert.equal(physical, 0);
+      // Differential: the bounded Rust ancestry parser must derive the same
+      // inheritance pointer from the SAME first record native just consumed.
+      // A divergence here means the parser and the real writer disagree.
+      const ancestry = ancestryProbe
+        ? probeAncestry(ancestryProbe, [
+            { rolloutId: child.rolloutId, bytes: firstRecord(child.raw) },
+            { rolloutId: root.rolloutId, bytes: firstRecord(root.raw) },
+          ])
+        : null;
+      if (ancestry) {
+        assert.equal(ancestry.reachedRoot, true);
+        assert.equal(ancestry.historyComplete, false);
+        assert.equal(ancestry.sourceAuthenticated, false);
+        assert.deepEqual(ancestry.links.map(link => link.rolloutId), [child.rolloutId, root.rolloutId]);
+        assert.deepEqual(ancestry.links[0].historyBase, {
+          threadId: root.forkCutoff.thread_id,
+          endOrdinalExclusive: String(root.forkCutoff.end_ordinal_exclusive),
+          endByteOffset: String(root.forkCutoff.end_byte_offset),
+        }, "Rust ancestry parser disagrees with the record native inherited from");
+        assert.equal(ancestry.links[1].historyBase, null);
+      }
       return { result: "passed", nativeVersion: snapshot.nativeVersion, scope: "owned_seeded_paginated_projection_read_oracle", historySchemaSha256,
+        ancestryDifferential: ancestry ? "matched_native_inherited_record" : "skipped_no_probe",
         itemPages, turnPages, observedPages, rootItems: 4, inheritedChildItems: 6, sameItemLatestSnapshotAtFirstCreatedOrdinal: true, forkCutoffExcludedLaterParentItems: true,
         equalItemIdsInDifferentTurnsPreserved: true, wrongThreadCursorRefused: true,
         revertedStableIdFromStatePath: true, archivedCurrentRolloutReadable: true, supersededRolloutExcluded: true,

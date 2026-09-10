@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.82
+> 計畫版本：1.83
 > 最後更新：2026-09-10
 > 當前產品基線：Stepsemble 3.0.8（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.8／source `3bae06c`（2026-09-09 公開 stable release）
@@ -10,6 +10,14 @@
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
 ## 文件用途與回復方法
+
+**最新接續1.83（paginated 祖先鏈解析）**：新增平行模組讀 `history_base` 指標並鏈結，
+形狀必須完全相符、環／深度／祖先不符一律拒絕，大整數精確保留，永遠
+`historyComplete:false`。**真原生差分**：把 Codex 0.153.4 實際繼承過的記錄餵給 Rust
+解析器要求結果一致（`matched_native_inherited_record`），刻意改錯會如預期失敗；
+已接三 OS CI。Rust 全套通過、fmt/clippy 乾淨、Node 1158/0fail 不變。
+**尚未實際解析祖先檔案、durable 比對、cursor 或 Host/Web**，C2 不勾完成，
+詳[祖先鏈解析](codex-paginated-ancestry.md)。
 
 **最新接續1.82（paginated 投影檢查點讀取）**：新增受控唯讀模組讀
 `thread_history_1.sqlite` 的 projection checkpoint 與 turn 邊界，三張表 DDL 逐字固定、
