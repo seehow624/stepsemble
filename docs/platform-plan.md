@@ -4,8 +4,8 @@
 > 計畫版本：1.82
 > 最後更新：2026-09-10
 > 當前產品基線：Stepsemble 3.0.8（由 Pi Harbor 2.13.2 相容遷移）
-> Mini 啟用版本：3.0.8／source `3bae06c`（2026-09-09 已公開 stable release 並更新）
-> MacBook Pro 最後確認：3.0.7；本機離線中，會由既有 updater 自行升到 3.0.8，不冒稱已完成
+> Mini／MacBook Pro 啟用版本：3.0.8／source `3bae06c`（2026-09-09 公開 stable release）
+> MBP 於 2026-09-10 上線後由既有 updater 自行完成 3.0.7→3.0.8，未經人工介入
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
