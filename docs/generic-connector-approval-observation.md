@@ -126,6 +126,22 @@ fail。合成測試不等於真 CLI、真 native evidence、durability 或跨 OS
 
 ## 接續
 
+### 2026-09-11：修復快照與 observation 回放競態
+
+GitHub `7eb54ff` 的 Ubuntu general CI 揭露真實遺漏：快速 child 在 Host attach
+之前已送出 observation，文字快照卻把共用 event cursor 推過它，導致後續 replay
+被當成重複而略過。不是增加測試等待時間就能修好的問題。
+
+Host 現在分開追蹤文字快照 cursor 與 process-local protocol cursor，attach 以兩者
+較小值要求有界回放。protocol 依自己的 sequence 去重，舊 output 不再追加；terminal
+snapshot 也會關閉 pending state。Host restart 的 protocol cursor 從 0 開始，只恢復
+supervisor 尚保留的 observation，不承諾完整歷史或 durable approval recovery。
+
+新增可重現的 owned socket 測試：先送 seq 2 文字快照，再重複送 seq 1 observation
+及 seq 2 output，要求 observation 恰好一次、文字也恰好一次。原本的真 supervisor
+synthetic child 測試保留。修正後 Node 22.22.3 和最低 22.19.0 各為 1196 tests／
+1194 pass／2 skip／0 fail；跨平台結果以該修正 exact SHA CI 為準。
+
 下一步應把 observation 封裝進 Host durable journal（由 Host 指派 event ID／sequence／
 generation），在同一 transaction 內和 authenticated session/run／pending approval
 做 CAS，然後再為單一 harness 實作 native delivery、ACK proof、reconnect/crash replay

@@ -218,6 +218,62 @@ setInterval(() => {}, 1000);`;
   }).code, "task_unavailable");
 });
 
+test("supervisor text snapshot cannot consume unreplayed structured observations", async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-observation-cursor-"));
+  const canary = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  await new Promise((resolve, reject) => { canary.once("spawn", resolve); canary.once("error", reject); });
+  const id = crypto.randomUUID(), socketPath = supervisorSocketPath(temp, id);
+  const row = { id, agentId: "claude-code", name: "Owned replay", cwd: temp, status: "running", pid: canary.pid,
+    supervisorPid: canary.pid, supervisorSocket: socketPath, supervisorEventSeq: 2, startedAt: Date.now(), outputTail: "owned text\n" };
+  fs.writeFileSync(path.join(temp, "agent-tasks.json"), JSON.stringify({ tasks: [row] }));
+  if (process.platform !== "win32") fs.mkdirSync(path.dirname(socketPath), { recursive: true });
+  const createdAt = new Date().toISOString(), expiresAt = new Date(Date.now() + 60000).toISOString();
+  const observation = require("../server/connector-protocol").normalizeConnectorProtocolEvent({
+    type: "approval.requested", sessionId: "owned-session", runId: "owned-run", nativeEventId: "owned-event", createdAt,
+    payload: { approval: { approvalId: "owned-approval", sessionId: "owned-session", runId: "owned-run", status: "pending", scope: "once",
+      expiresAt, request: { summary: "Owned retained observation" }, createdAt, nonce: "owned-nonce", toolId: null, nativeRequestId: "owned-request" } },
+  }, { taskId: id, agentId: "claude-code" });
+  assert.ok(observation);
+  const packets = [ { type: "event", seq: 1, event: observation }, { type: "event", seq: 2, event: { type: "output", stream: "stdout", text: "owned text\n" } } ];
+  const sockets = new Set(), afterValues = [];
+  const server = net.createServer(socket => {
+    sockets.add(socket); socket.on("close", () => sockets.delete(socket)); socket.on("error", () => {});
+    let buffer = "";
+    socket.on("data", chunk => {
+      buffer += chunk;
+      let end;
+      while ((end = buffer.indexOf("\n")) >= 0) {
+        const message = JSON.parse(buffer.slice(0, end)); buffer = buffer.slice(end + 1);
+        if (message.op !== "attach") continue;
+        afterValues.push(message.after);
+        // The snapshot covers text up to 2, but contains no approval state.
+        socket.write(JSON.stringify({ type: "snapshot", task: { ...row, eventSeq: 2 } }) + "\n");
+        for (const packet of packets) if (packet.seq > message.after) {
+          socket.write(JSON.stringify(packet) + "\n");
+          socket.write(JSON.stringify(packet) + "\n"); // duplicate replay must be harmless
+        }
+      }
+    });
+  });
+  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(socketPath, resolve); });
+  const service = createAgentTaskService({ appHome: temp, configDir: temp, env: { PATH: "", HOME: temp } });
+  t.after(async () => {
+    await service.shutdown({ preserve: true });
+    for (const socket of sockets) socket.destroy();
+    await new Promise(resolve => server.close(resolve));
+    if (canary.exitCode === null && canary.signalCode === null) {
+      const exited = new Promise(resolve => canary.once("exit", resolve)); canary.kill(); await exited;
+    }
+    fs.rmSync(temp, { recursive: true, force: true });
+  });
+  await until(() => service.approvals(id)?.approvals.length === 1, "retained structured observation survives newer text snapshot");
+  assert.deepEqual(afterValues, [0]);
+  assert.equal(service.get(id).outputTail, "owned text\n", "snapshot text is not appended again");
+  assert.equal(service.get(id).supervisorProtocolEventSeq, 1);
+  assert.equal(service.get(id).supervisorEventSeq, 2);
+  assert.equal(service.get(id).events.filter(packet => packet.event?.type === "protocol_event").length, 1);
+});
+
 test("generic structured observer discards an overlong line through LF and never promotes a mid-line prefix", async t => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-agent-structured-overflow-"));
   const bin = path.join(temp, "bin");

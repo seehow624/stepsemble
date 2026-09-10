@@ -36,7 +36,13 @@ gpt-5.6-luna/max 分別處理 paginated 真來源與原生 session／approval，
   主審補 canonical typed request ID、observer reject 的明確失敗／清理，修 scope、
   resume、same-chunk lifecycle／replay／寫入與關閉競態後，完整 Node 22.22.3 及最低
   22.19.0 各 1195 tests／1193 pass／2 skip／0 fail。正式 HTTP/UI、其他 agents
-  與 ACK settlement 尚未交付；新 exact SHA CI 尚待提交後驗證。
+  與 ACK settlement 尚未交付。
+- `0f6c3e6` 的三平台 Rust reader、native Codex 與兩平台 rolling browser CI 全通；
+  general CI 的兩個 fixture 同步／Windows signal 斷言已由 `7eb54ff` 修正。
+  第二輪 general CI 再揭露 Ubuntu 真實 observation 遺漏：文字快照吞掉 protocol
+  replay。主審已分離兩個 cursor，補 deterministic snapshot＋duplicate replay 測試；
+  完整兩 Node 版本各 1196 tests／1194 pass／2 skip／0 fail。保留原 CI 失敗證據，
+  這個 runtime 修正仍須通過其 exact SHA CI，不能拿較舊 green run 代替。
 
 以下 1.86 及更舊段落是歷史 checkpoint；未完成項必須由新證據逐項更新。
 

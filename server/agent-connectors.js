@@ -373,6 +373,7 @@ function createAgentTaskService({
       eventBytes: 0,
       eventSeq: 0,
       supervisorEventSeq: Number(supervisor?.eventSeq) || 0,
+      supervisorProtocolEventSeq: 0,
       reconnectAttempt: 0,
       reconnectTimer: null,
       persistTimer: null,
@@ -546,12 +547,13 @@ function createAgentTaskService({
       && snapshotSeq >= (Number(task.supervisorEventSeq) || 0)) {
       const changed = task.outputTail !== snapshot.outputTail;
       task.outputTail = snapshot.outputTail.slice(-MAX_OUTPUT_TAIL);
-      // This tail already includes every event through snapshotSeq. Never
-      // append those events a second time when attach replays the old cursor.
+      // This tail includes text through snapshotSeq, not structured approval
+      // observations. Their independent cursor must still replay the window.
       task.supervisorEventSeq = snapshotSeq;
       if (changed) pushEvent(task, { type: "output", taskId: task.id, stream: "stdout", text: task.outputTail, replay: true, replace: true });
     }
     if (typeof snapshot.status === "string") task.status = snapshot.status.slice(0, 24);
+    if (terminalTaskStatus(task.status)) task.approvalState?.close("task_terminal");
     if (typeof snapshot.eventSeq === "number") task.supervisorLatestSeq = Math.max(Number(task.supervisorLatestSeq) || 0, snapshot.eventSeq);
     if (["completed", "failed", "stopped"].includes(task.status)) task.endedAt = task.endedAt || Date.now();
     // A reconnect should be visible but must not reset the task's true start
@@ -566,13 +568,15 @@ function createAgentTaskService({
 
   function handleSupervisorEvent(task, packet) {
     if (!task || !packet || typeof packet !== "object") return;
+    const event = packet.event && typeof packet.event === "object" ? packet.event : packet;
     const sequence = Number(packet.seq);
     if (Number.isFinite(sequence)) {
-      if (sequence <= (Number(task.supervisorEventSeq) || 0)) return;
-      task.supervisorEventSeq = sequence;
+      const cursor = event.type === "protocol_event" ? "supervisorProtocolEventSeq" : "supervisorEventSeq";
+      if (sequence <= (Number(task[cursor]) || 0)) return;
+      task[cursor] = sequence;
+      task.supervisorEventSeq = Math.max(Number(task.supervisorEventSeq) || 0, sequence);
       task.supervisorLatestSeq = Math.max(Number(task.supervisorLatestSeq) || 0, sequence);
     }
-    const event = packet.event && typeof packet.event === "object" ? packet.event : packet;
     if (event.type === "output") {
       appendOutput(task, event.stream, event.text);
       return;
@@ -656,7 +660,11 @@ function createAgentTaskService({
         if (!settled) { settled = true; reject(error instanceof Error ? error : new Error("supervisor unavailable")); }
       };
       control.on("connect", () => {
-        control.write(`${JSON.stringify({ op: "attach", after: Number(task.supervisorEventSeq) || 0 })}\n`);
+        // Approval observations are not in the persisted text snapshot. On
+        // Host restart replay only the supervisor's bounded retained window;
+        // this is not recovery of a durable native approval journal.
+        const after = Math.min(Number(task.supervisorEventSeq) || 0, Number(task.supervisorProtocolEventSeq) || 0);
+        control.write(`${JSON.stringify({ op: "attach", after })}\n`);
       });
       const decoder = createLineDecoder({
         maxBytes: 8 * 1024 * 1024,
@@ -761,6 +769,7 @@ function createAgentTaskService({
       supervisorSocket: supervisorSocketPath(taskConfigDir, id),
       supervisorMeta: supervisorMetadataPath(taskConfigDir, id),
       supervisorEventSeq: 0,
+      supervisorProtocolEventSeq: 0,
       supervisorLatestSeq: 0,
       control: null,
       clients: new Set(),
