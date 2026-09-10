@@ -7,6 +7,7 @@
 use serde::Deserialize;
 use std::io::Read;
 use stepsemble_history_source_reader::codex_paginated_ancestry as ancestry;
+use stepsemble_history_source_reader::codex_paginated_chain as chain_plan;
 
 const INPUT_LIMIT: usize = 4 * 1024 * 1024;
 
@@ -16,6 +17,17 @@ struct Entry {
     rollout_id: String,
     /// Standard base64 so the record's exact bytes survive transport.
     base64_record: String,
+    /// Repository-relative locator for this rollout, when the caller also
+    /// wants the chain resolution plan validated.
+    rollout_path: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Input {
+    entries: Vec<Entry>,
+    /// Stable thread ID, which differs from the head rollout after a revert.
+    thread_id: Option<String>,
 }
 
 fn decode_base64(value: &str) -> Option<Vec<u8>> {
@@ -61,7 +73,15 @@ fn main() {
     {
         std::process::exit(2);
     }
-    let Ok(entries) = serde_json::from_slice::<Vec<Entry>>(&input) else {
+    // Accept the original array form and the richer object form that also
+    // asks for a chain plan, so existing callers keep working unchanged.
+    let parsed = serde_json::from_slice::<Input>(&input).or_else(|_| {
+        serde_json::from_slice::<Vec<Entry>>(&input).map(|entries| Input {
+            entries,
+            thread_id: None,
+        })
+    });
+    let Ok(Input { entries, thread_id }) = parsed else {
         std::process::exit(2);
     };
     let mut claims = Vec::with_capacity(entries.len());
@@ -77,8 +97,32 @@ fn main() {
             }
         }
     }
-    match ancestry::link(claims) {
-        Ok(chain) => println!("{}", serde_json::to_string(&chain).unwrap()),
-        Err(error) => println!("{}", serde_json::json!({"error": error.code()})),
+    let chain = match ancestry::link(claims) {
+        Ok(chain) => chain,
+        Err(error) => {
+            println!("{}", serde_json::json!({"error": error.code()}));
+            return;
+        }
+    };
+    let mut output = serde_json::to_value(&chain).unwrap();
+    // A plan is only produced when the caller supplied every locator.
+    if let Some(thread_id) = thread_id.as_deref()
+        && entries.iter().all(|entry| entry.rollout_path.is_some())
+    {
+        let locators: Vec<_> = entries
+            .iter()
+            .map(|entry| chain_plan::Locator {
+                rollout_id: &entry.rollout_id,
+                rollout_path: entry.rollout_path.as_deref().unwrap(),
+            })
+            .collect();
+        match chain_plan::plan(thread_id, &entries[0].rollout_id, &chain, &locators) {
+            Ok(plan) => output["plan"] = serde_json::to_value(&plan).unwrap(),
+            Err(error) => {
+                println!("{}", serde_json::json!({"error": error.code()}));
+                return;
+            }
+        }
     }
+    println!("{}", serde_json::to_string(&output).unwrap());
 }

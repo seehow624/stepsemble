@@ -11,9 +11,9 @@ on:
       - 'test/native-codex-*.test.js'
       - 'server/stream-safety.js'
       - 'public/modules/projection.js'
-      - 'crates/history-source-reader/src/codex_paginated_ancestry.rs'
-      - 'crates/history-source-reader/src/codex_paginated_ancestry/**'
-      - 'crates/history-source-reader/src/bin/ancestry-probe.rs'
+      # Whole crate: the differential probe links against the library, so a
+      # change anywhere in it can alter what this workflow proves.
+      - 'crates/history-source-reader/**'
   pull_request:
     paths:
       - '.github/workflows/native-codex-history.yml'
@@ -22,9 +22,9 @@ on:
       - 'test/native-codex-*.test.js'
       - 'server/stream-safety.js'
       - 'public/modules/projection.js'
-      - 'crates/history-source-reader/src/codex_paginated_ancestry.rs'
-      - 'crates/history-source-reader/src/codex_paginated_ancestry/**'
-      - 'crates/history-source-reader/src/bin/ancestry-probe.rs'
+      # Whole crate: the differential probe links against the library, so a
+      # change anywhere in it can alter what this workflow proves.
+      - 'crates/history-source-reader/**'
 
 permissions:
   contents: read

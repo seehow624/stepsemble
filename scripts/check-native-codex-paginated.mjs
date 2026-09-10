@@ -28,8 +28,7 @@ function firstRecord(raw) {
 
 function probeAncestry(binary, entries) {
   assert(path.isAbsolute(binary), "absolute owned probe binary required");
-  const input = JSON.stringify(entries.map(entry => ({
-    rolloutId: entry.rolloutId, base64Record: Buffer.from(entry.bytes).toString("base64") })));
+  const input = JSON.stringify(entries);
   const result = spawnSync(binary, [], { input, encoding: "utf8", timeout: 20000, maxBuffer: 1024 * 1024, shell: false });
   assert.equal(result.status, 0, "ancestry probe must exit cleanly");
   const parsed = JSON.parse(result.stdout);
@@ -194,10 +193,15 @@ export async function checkPaginatedRuntime(binary) {
       // inheritance pointer from the SAME first record native just consumed.
       // A divergence here means the parser and the real writer disagree.
       const ancestry = ancestryProbe
-        ? probeAncestry(ancestryProbe, [
-            { rolloutId: child.rolloutId, bytes: firstRecord(child.raw) },
-            { rolloutId: root.rolloutId, bytes: firstRecord(root.raw) },
-          ])
+        ? probeAncestry(ancestryProbe, {
+            threadId: child.threadId,
+            entries: [child, root].map(f => ({
+              rolloutId: f.rolloutId,
+              base64Record: Buffer.from(firstRecord(f.raw)).toString("base64"),
+              // The locator native actually stored for this rollout.
+              rolloutPath: path.relative(codexHome, f.file),
+            })),
+          })
         : null;
       if (ancestry) {
         assert.equal(ancestry.reachedRoot, true);
@@ -210,6 +214,15 @@ export async function checkPaginatedRuntime(binary) {
           endByteOffset: String(root.forkCutoff.end_byte_offset),
         }, "Rust ancestry parser disagrees with the record native inherited from");
         assert.equal(ancestry.links[1].historyBase, null);
+        // The plan must schedule the inherited-from rollout BEFORE the child,
+        // and carry the exact cut point native honoured when it inherited.
+        assert.equal(ancestry.plan.threadId, child.threadId);
+        assert.deepEqual(ancestry.plan.sources.map(s => s.rolloutId), [root.rolloutId, child.rolloutId]);
+        assert.equal(ancestry.plan.sources[0].endOrdinalExclusive, null);
+        assert.equal(ancestry.plan.sources[1].endOrdinalExclusive, String(root.forkCutoff.end_ordinal_exclusive));
+        assert.equal(ancestry.plan.reachedRoot, true);
+        assert.equal(ancestry.plan.historyComplete, false);
+        assert(ancestry.plan.sources.every(s => !s.compressed && !s.archived), "owned fixtures are plain active rollouts");
       }
       return { result: "passed", nativeVersion: snapshot.nativeVersion, scope: "owned_seeded_paginated_projection_read_oracle", historySchemaSha256,
         ancestryDifferential: ancestry ? "matched_native_inherited_record" : "skipped_no_probe",
