@@ -1,5 +1,11 @@
 # Web 完整體：持續執行與驗收清單
 
+2026-09-11／Plan1.99：3.0.9 的 Windows runner 發現 journal ACL 初始化失敗時，原本 worker
+readiness 會讓 task open 收到 `journal_result_uncertain`。3.0.10 已將 Windows ACL 改為
+固定 executable + typed constructor + WAL/SHM inheritance，並讓 readiness 失敗真正降級為
+`journal_unavailable`／bounded snapshot，保留 Agent Hub 可用性且移除不實 durable 宣稱。
+本地 Node suite 1246 pass／2 skip／0 fail；新的正式標籤等待三 OS CI。
+
 2026-09-11／Plan1.98：C2／C3 的可安全落地缺口已收尾並準備發布 3.0.9。Windows generic
 journal 先鎖定 owner-only DACL（含 WAL/SHM 的父資料夾）；Agent Hub 不再把 approval
 protocol 誤標成 upstream 原生能力，而是公開 `approval_ack_required` 與

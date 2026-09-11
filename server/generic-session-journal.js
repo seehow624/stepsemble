@@ -155,12 +155,24 @@ function createGenericSessionJournal({ configDir, onUnavailable = null } = {}) {
   const filename = path.join(directory, "agent-sessions.sqlite");
   let journal = null;
   let unavailable = null;
+  let ready = Promise.resolve(false);
   try {
     fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
     if (process.platform !== "win32") {
       try { fs.chmodSync(directory, 0o700); } catch {}
     }
     journal = createSessionJournalClient({ filename });
+    ready = journal.ready.then(ok => {
+      if (!ok) {
+        unavailable = "journal_unavailable";
+        journal = null;
+      }
+      return ok;
+    }).catch(() => {
+      unavailable = "journal_unavailable";
+      journal = null;
+      return false;
+    });
   } catch (error) {
     unavailable = error?.message || "journal_unavailable";
     try { onUnavailable?.(unavailable); } catch {}
@@ -354,7 +366,8 @@ function createGenericSessionJournal({ configDir, onUnavailable = null } = {}) {
   }
   async function close() { if (journal) return journal.close(); return { kind: "closed" }; }
   return Object.freeze({
-    available: !!journal,
+    get available() { return !!journal && journal.available !== false; },
+    ready,
     filename,
     deviceId: DEVICE_ID,
     create,
@@ -368,7 +381,7 @@ function createGenericSessionJournal({ configDir, onUnavailable = null } = {}) {
     eventsAfter,
     publicView,
     close,
-    unavailable,
+    get unavailable() { return unavailable; },
   });
 }
 

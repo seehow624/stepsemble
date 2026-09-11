@@ -5,13 +5,13 @@ function createSessionJournalClient({ filename, timeoutMs = 10000 } = {}) {
   if (!Number.isInteger(timeoutMs) || timeoutMs < 50 || timeoutMs > 60000) throw new Error("invalid_journal_timeout");
   const worker = new Worker(require.resolve("./session-journal-worker"), { workerData: { filename }, resourceLimits: { maxOldGenerationSizeMb: 128 } });
   const pending = new Map();
-  let nextId = 0, pendingBytes = 0, dead = false, closing = false, closePromise;
+  let nextId = 0, pendingBytes = 0, dead = false, closing = false, closePromise, readyState = null;
   let resolveReady;
   const ready = new Promise(resolve => { resolveReady = resolve; });
   const reject = code => ({ kind: "reject", code });
   function fail() {
     if (dead) return;
-    dead = true; clearTimeout(startup); resolveReady(false);
+    dead = true; readyState = false; clearTimeout(startup); resolveReady(false);
     for (const row of pending.values()) { clearTimeout(row.timer); row.resolve(reject("journal_result_uncertain")); }
     pending.clear(); pendingBytes = 0;
     void worker.terminate();
@@ -21,6 +21,7 @@ function createSessionJournalClient({ filename, timeoutMs = 10000 } = {}) {
   worker.on("exit", () => { if (!dead) fail(); });
   worker.on("message", message => {
     if (typeof message.ready === "boolean") {
+      readyState = message.ready;
       clearTimeout(startup); resolveReady(message.ready);
       if (!message.ready) fail();
       return;
@@ -58,6 +59,8 @@ function createSessionJournalClient({ filename, timeoutMs = 10000 } = {}) {
     return closePromise;
   }
   return Object.freeze({
+    get available() { return readyState !== false && !dead; },
+    ready,
     create: (...args) => call("create", args), setGrant: (...args) => call("setGrant", args),
     execute: (...args) => call("execute", args), read: (...args) => call("read", args),
     eventsAfter: (...args) => call("eventsAfter", args), close,

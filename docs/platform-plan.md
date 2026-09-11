@@ -1,15 +1,22 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.98（generic cross-platform journal boundary／capability-aware ACK contract；native parity 仍分開驗收）
+> 計畫版本：1.99（Windows journal startup fallback／capability-aware ACK contract；native parity 仍分開驗收）
 > 最後更新：2026-09-11
-> 當前產品基線：Stepsemble 3.0.9（由 Pi Harbor 2.13.2 相容遷移）
-> Mini／MacBook Pro 啟用版本：3.0.9／source `待本版 tag`（本次完成後由 stable updater 取得）
+> 當前產品基線：Stepsemble 3.0.10（由 Pi Harbor 2.13.2 相容遷移）
+> Mini／MacBook Pro 啟用版本：3.0.10／source `待本版 tag`（本次完成後由 stable updater 取得）
 > MBP 於 2026-09-10 上線後由既有 updater 自行完成 3.0.7→3.0.8，未經人工介入
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
 ## 文件用途與回復方法
+
+**目前任務1.99（2026-09-11，3.0.9 Windows CI hotfix）**：Windows journal worker 的 ACL
+啟動現在使用固定 `SystemRoot` 下的 `whoami.exe`／Windows PowerShell、typed .NET ACL
+constructor，以及 `ContainerInherit`／`ObjectInherit` 規則，確保 SQLite 後續 WAL/SHM
+也落在 owner boundary。若 runner 或使用者環境沒有可驗證的 ACL 能力，worker readiness
+會明確轉成 `journal_unavailable`；generic task 回到 bounded snapshot、catalog 移除 durable
+capability，不能因 journal 啟動失敗讓整個 Agent Hub 無法開工作。這個 hotfix 發布為 3.0.10。
 
 **目前任務1.98（2026-09-11，C2／C3 缺口收尾與正式發布）**：generic CLI journal 現在在
 Windows 也會先以 PowerShell 建立 owner-only DACL，再開啟 SQLite；資料夾本身也鎖定，讓
@@ -29,7 +36,7 @@ Host，已認證的 dedicated peer relay 透過 `/r/<machineId>/api/agent-events
 的 cursor history。公開 DTO 帶 `hostId`、`journalScope=host-local` 與
 `journalTransport=local+dedicated-peer-relay`，讓 Web 不會把跨機讀取誤畫成共享資料庫。
 
-本版正式目標為 3.0.9。外部 CLI 未提供 Stepsemble ACK、原生完整 transcript 或 subagent
+本版正式目標為 3.0.10。外部 CLI 未提供 Stepsemble ACK、原生完整 transcript 或 subagent
 API 的情況仍是 capability boundary，不能由 Stepsemble 偽造；這是安全的明確限制，不是
 未處理的 silent failure。
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.0.10
+
+Windows durability and startup-fallback hotfix for 3.0.9.
+
+- Use explicit Windows `whoami.exe`/PowerShell paths and typed ACL
+  constructors, including directory inheritance for SQLite WAL/SHM files.
+- Treat a journal worker that cannot pass its owner/ACL gate as unavailable;
+  generic tasks keep the bounded snapshot path and the catalog removes durable
+  capabilities instead of failing every task launch.
+- Keep the exact 3.0.9 capability and ACK contract unchanged while adding the
+  startup regression coverage needed for this fallback.
+
+Validation and platform-specific evidence are recorded in
+[`docs/release-3.0.10.md`](docs/release-3.0.10.md).
+
 ## 3.0.9
 
 Durable Agent Hub and cross-platform capability-boundary release.

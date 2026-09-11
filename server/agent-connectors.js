@@ -1163,7 +1163,7 @@ function createAgentTaskService({
     const useDesktop = definition.id === "claude-code" && desktopClaude;
     tasks.set(id, task);
     const canonical = await createCanonical(task);
-    if (canonical.kind === "reject" && canonical.code !== "journal_unavailable") {
+    if (canonical.kind === "reject" && !["journal_unavailable", "journal_result_uncertain", "journal_closed"].includes(canonical.code)) {
       tasks.delete(id);
       const error = new Error(`Could not create canonical agent session (${canonical.code})`);
       error.statusCode = 503;

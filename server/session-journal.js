@@ -18,7 +18,8 @@ const reject = code => ({ kind: "reject", code });
 const operations = new Set(Object.keys(tx).filter(name => name.startsWith("plan")));
 
 function windowsOwnerSid() {
-  const result = spawnSync("whoami", ["/user", "/fo", "csv", "/nh"], {
+  const whoami = process.env.SystemRoot ? path.join(process.env.SystemRoot, "System32", "whoami.exe") : "whoami";
+  const result = spawnSync(whoami, ["/user", "/fo", "csv", "/nh"], {
     encoding: "utf8", windowsHide: true, timeout: 2000,
   });
   if (result.error || result.status !== 0) return null;
@@ -37,14 +38,17 @@ function enforceWindowsOwnerAcl(target, { directory = false } = {}) {
   const script = [
     "$ErrorActionPreference='Stop'",
     "$path=$env:STEPSEMBLE_JOURNAL_TARGET",
-    "$sid=New-Object System.Security.Principal.SecurityIdentifier($env:STEPSEMBLE_JOURNAL_SID)",
-    "$acl=if ($env:STEPSEMBLE_JOURNAL_DIRECTORY -eq '1') { New-Object System.Security.AccessControl.DirectorySecurity } else { New-Object System.Security.AccessControl.FileSecurity }",
+    "$sid=[System.Security.Principal.SecurityIdentifier]::new($env:STEPSEMBLE_JOURNAL_SID)",
+    "$acl=if ($env:STEPSEMBLE_JOURNAL_DIRECTORY -eq '1') { [System.Security.AccessControl.DirectorySecurity]::new() } else { [System.Security.AccessControl.FileSecurity]::new() }",
     "$acl.SetAccessRuleProtection($true,$false)",
-    "$rule=New-Object System.Security.AccessControl.FileSystemAccessRule($sid,'FullControl','Allow')",
+    "$rights=[System.Security.AccessControl.FileSystemRights]::FullControl",
+    "$allow=[System.Security.AccessControl.AccessControlType]::Allow",
+    "$rule=if ($env:STEPSEMBLE_JOURNAL_DIRECTORY -eq '1') { $inherit=[System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit; [System.Security.AccessControl.FileSystemAccessRule]::new($sid,$rights,$inherit,[System.Security.AccessControl.PropagationFlags]::None,$allow) } else { [System.Security.AccessControl.FileSystemAccessRule]::new($sid,$rights,$allow) }",
     "$acl.AddAccessRule($rule)",
     "Set-Acl -LiteralPath $path -AclObject $acl",
   ].join(";");
-  const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+  const powershell = process.env.SystemRoot ? path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe") : "powershell.exe";
+  const result = spawnSync(powershell, ["-NoProfile", "-NonInteractive", "-Command", script], {
     encoding: "utf8", windowsHide: true, timeout: 5000,
     env: { ...process.env, STEPSEMBLE_JOURNAL_TARGET: target, STEPSEMBLE_JOURNAL_SID: sid,
       STEPSEMBLE_JOURNAL_DIRECTORY: directory ? "1" : "0" },
