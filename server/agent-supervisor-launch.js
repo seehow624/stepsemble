@@ -8,6 +8,9 @@ const { spawn } = require("node:child_process");
 function launchAgentSupervisor({ task, appHome, command, ptyRuntime, env, spawnImpl = spawn }) {
   const args = [path.join(__dirname, "agent-task-supervisor.js"),
     "--id", task.id, "--agent-id", task.agentId, "--name", task.name,
+    ...(task.sessionId ? ["--session-id", task.sessionId] : []),
+    ...(task.runId ? ["--run-id", task.runId] : []),
+    ...(task.incarnationId ? ["--incarnation-id", task.incarnationId] : []),
     "--cwd", task.worktree?.path || task.cwd, "--app-home", appHome,
     "--meta", task.supervisorMeta, "--socket", task.supervisorSocket,
     "--command", command, "--transport", ptyRuntime ? "pty" : "pipe",

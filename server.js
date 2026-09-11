@@ -66,7 +66,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.8";
+const APP_VERSION = "3.0.9";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1694,6 +1694,23 @@ const hasClaudeTasks = () => claudeLaunchReservations > 0 || agentTasks.list().s
 const desktopClaude = process.platform === "darwin" && (process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY
   || fs.existsSync(path.join(CONFIG_DIR, "claude-desktop", "config.json")))
   ? createDesktopClaudeClient({ configDir: CONFIG_DIR, hasActiveTasks: hasClaudeTasks }) : null;
+function configuredNativeHistoryAgents() {
+  // The native history host is intentionally POSIX-only today. Merely having
+  // a stale history.json on Windows must not make Agent Hub advertise a
+  // native source that the history host will immediately reject.
+  if (![
+    "darwin", "linux",
+  ].includes(process.platform)) return [];
+  const filename = settingFromEnv("HISTORY_CONFIG") || path.join(CONFIG_DIR, "history.json");
+  try {
+    const config = loadHistoryConfig(filename);
+    return [...new Set((config.sourceGroups || [])
+      .map(group => String(group?.agentId || "").trim().toLowerCase())
+      .filter(agentId => ["claude-code", "codex"].includes(agentId)))];
+  } catch {
+    return [];
+  }
+}
 const agentTasks = createAgentTaskService({
   appHome: APP_HOME,
   configDir: CONFIG_DIR,
@@ -1702,6 +1719,8 @@ const agentTasks = createAgentTaskService({
   env: process.env,
   onSettled: maybeNotifyAgentTaskSettled,
   desktopClaude,
+  nativeHistoryConfigured: configuredNativeHistoryAgents(),
+  hostId: selfMachineId(),
 });
 const claudeAuth = desktopClaude || createClaudeAuthService({ home: APP_HOME, env: process.env, hasActiveTasks: hasClaudeTasks });
 
@@ -4072,7 +4091,9 @@ const server = http.createServer(async (req, res) => {
       const parsedAfter = Number(url.searchParams.get("after"));
       const parsedLastId = Number(req.headers["last-event-id"]);
       const after = Math.max(Number.isFinite(parsedAfter) ? parsedAfter : -1, Number.isFinite(parsedLastId) ? parsedLastId : -1);
-      if (!agentTasks.stream(req, res, taskId, after, sseFrame, trySseWrite)) {
+      if (!agentTasks.stream(req, res, taskId, after, sseFrame, trySseWrite, {
+        suppressRecoveryOutput: url.searchParams.get("canonicalHistory") === "1",
+      })) {
         sendJSON(res, 404, { error: "no such agent task" });
       }
       return;
@@ -4235,6 +4256,32 @@ const server = http.createServer(async (req, res) => {
         const task = agentTasks.get(url.searchParams.get("taskId") || "");
         if (!task) { sendJSON(res, 404, { error: "no such agent task" }); return; }
         sendJSON(res, 200, { task: agentTasks.publicTask(task, true) });
+        return;
+      }
+
+      if (p === "/api/agent-approvals" && req.method === "GET") {
+        const taskId = url.searchParams.get("taskId") || "";
+        const approvals = agentTasks.approvals(taskId);
+        if (!approvals) { sendJSON(res, 404, { error: "no such agent task" }); return; }
+        sendJSON(res, 200, approvals);
+        return;
+      }
+
+      if (p === "/api/agent-events" && req.method === "GET") {
+        const taskId = url.searchParams.get("taskId") || "";
+        const sessionId = url.searchParams.get("sessionId") || "";
+        const generation = url.searchParams.get("generation") || "";
+        const sequence = Number(url.searchParams.get("sequence"));
+        const limit = Number(url.searchParams.get("limit") || 100);
+        if (!sessionId || !generation || !Number.isSafeInteger(sequence) || sequence < 0
+          || !Number.isInteger(limit) || limit < 1 || limit > 100) {
+          sendJSON(res, 400, { error: "invalid canonical event cursor" }); return;
+        }
+        const events = await agentTasks.eventsAfter(taskId, { sessionId, generation, sequence }, limit);
+        if (events.kind === "reject") {
+          sendJSON(res, events.code === "task_unavailable" ? 404 : 409, { error: events.code }); return;
+        }
+        sendJSON(res, 200, events);
         return;
       }
 
@@ -5051,6 +5098,25 @@ const server = http.createServer(async (req, res) => {
         const body = await readJSON(req, 1_100_000);
         try { sendJSON(res, 200, agentTasks.send(body?.taskId, body?.message)); }
         catch (error) { sendJSON(res, error.statusCode || 409, { error: error.message || "Could not send to agent" }); }
+        return;
+      }
+
+      if (p === "/api/agent/approval" && req.method === "POST") {
+        const body = await readJSON(req, 64 * 1024);
+        try {
+          const result = await agentTasks.resolveApprovalDurable(body?.taskId, {
+            approvalId: body?.approvalId,
+            nonce: body?.nonce,
+            decision: body?.decision,
+            scope: body?.scope,
+            commandId: body?.commandId,
+            idempotencyKey: body?.idempotencyKey,
+          });
+          const status = result.kind === "dispatched" || result.kind === "dispatch_committed" || result.kind === "replay" ? 200 : 409;
+          sendJSON(res, status, result);
+        } catch (error) {
+          sendJSON(res, error.statusCode || 409, { error: error.message || "Could not resolve agent approval" });
+        }
         return;
       }
 

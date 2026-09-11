@@ -129,6 +129,43 @@ function normalizeConnectorProtocolEvent(value, { taskId = "", agentId = "" } = 
 }
 
 const STRUCTURED_EVENT_PREFIX = "STEPSEMBLE_EVENT ";
+// Acknowledgements use a separate prefix so ordinary JSON output (or the
+// legacy approval observation envelope) can never be mistaken for native
+// success. The Host still checks the durable receipt/attempt fence before it
+// commits this untrusted line.
+const STRUCTURED_ACK_PREFIX = "STEPSEMBLE_ACK ";
+
+function normalizeConnectorAcknowledgement(value, { taskId = "", agentId = "" } = {}) {
+  try {
+    if (!exactObject(value, ["type", "sessionId", "runId", "approvalId", "nonce", "nativeRequestId", "attemptId", "evidenceReference", "resumed", "createdAt"])
+      || value.type !== "approval.acknowledged" || !validProtocolId(value.sessionId) || !validProtocolId(value.runId)
+      || !validProtocolId(value.approvalId) || !validProtocolId(value.nonce) || !validProtocolId(value.attemptId)
+      || typeof value.nativeRequestId !== "string" || value.nativeRequestId.length < 1 || value.nativeRequestId.length > 512
+      || /[\u0000-\u001f\u007f]/.test(value.nativeRequestId) || !validProtocolId(value.evidenceReference)
+      || typeof value.resumed !== "boolean" || !validTimestamp(value.createdAt)) return null;
+    return {
+      type: "approval_ack",
+      taskId: safeText(taskId, 80),
+      ...(agentId ? { agentId: safeText(agentId, 64) } : {}),
+      sessionId: value.sessionId,
+      runId: value.runId,
+      approvalId: value.approvalId,
+      nonce: value.nonce,
+      nativeRequestId: value.nativeRequestId,
+      attemptId: value.attemptId,
+      evidenceReference: value.evidenceReference,
+      resumed: value.resumed,
+      createdAt: value.createdAt,
+      authority: { sourceAuthenticated: false, approvalAcknowledged: false, resumeAllowed: false },
+    };
+  } catch { return null; }
+}
+
+function parseConnectorAcknowledgementLine(line, context = {}) {
+  const raw = String(line ?? "");
+  if (!raw.startsWith(STRUCTURED_ACK_PREFIX) || Buffer.byteLength(raw, "utf8") > 32 * 1024) return null;
+  try { return normalizeConnectorAcknowledgement(JSON.parse(raw.slice(STRUCTURED_ACK_PREFIX.length)), context); } catch { return null; }
+}
 
 function parseConnectorProtocolEventLine(line, context = {}) {
   const raw = String(line ?? "");
@@ -187,9 +224,12 @@ module.exports = {
   CONNECTOR_PROTOCOL_EVENT_TYPES,
   CONNECTOR_STATUSES,
   STRUCTURED_EVENT_PREFIX,
+  STRUCTURED_ACK_PREFIX,
   normalizeConnectorDefinition,
   normalizeConnectorEvent,
   normalizeConnectorProtocolEvent,
   parseConnectorEventLine,
   parseConnectorProtocolEventLine,
+  normalizeConnectorAcknowledgement,
+  parseConnectorAcknowledgementLine,
 };

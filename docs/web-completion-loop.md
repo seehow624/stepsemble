@@ -1,10 +1,21 @@
 # Web 完整體：持續執行與驗收清單
 
-2026-09-11／Plan1.95 進行中：generic CLI task 已加入有限、非授權的重啟 replay；
-服務重啟後可恢復最近 output/status/input/lifecycle context 與本地 SSE cursor，approval
-observation 仍 fail-closed、不進 snapshot。Codex sequential source-version fence、
-SQLite journal／worker、native transport／bridge 核心已驗；正式產品接線與其他 agents
-仍待。
+2026-09-11／Plan1.98：C2／C3 的可安全落地缺口已收尾並準備發布 3.0.9。Windows generic
+journal 先鎖定 owner-only DACL（含 WAL/SHM 的父資料夾）；Agent Hub 不再把 approval
+protocol 誤標成 upstream 原生能力，而是公開 `approval_ack_required` 與
+`stepsemble_ack_v1`。catalog／task DTO 帶 native_full、native_readonly、canonical_bounded、
+host-local 與 dedicated-peer-relay metadata；另一台裝置仍讀取產生 journal 的 Host，不做
+跨 Host 複製。沒有官方 ACK、完整 native transcript 或 subagent API 的 harness 仍明確
+fail-closed／bounded，這些外部能力不能由 Stepsemble 偽造。
+
+2026-09-11／Plan1.97：generic CLI 的 C3 POSIX boundary 已收斂。每個 generic run 都有穩定
+sessionId/runId/nativeRunId，SQLite canonical journal 以 transaction 保存 lifecycle、bounded
+output/input、approval 與 terminal；`/api/agent-events` 提供有界 cursor replay，Web 先讀
+canonical history 再接 SSE。approval 嚴格走 decision→dispatch→pipe accepted→explicit
+`STEPSEMBLE_ACK`→resume；Host restart、重連、terminal cleanup 與完整 Node suite（1244
+pass／2 skip／0 fail）均已驗。沒有 structured ACK 的外部 CLI 會停在
+`awaiting_confirmation`，不自動猜測。完整 native harness parity、跨機 journal 與 Windows
+durable store 仍是明確的後續 capability gate，不冒稱 C2／C3 全 harness 完成。
 
 2026-09-11／Plan1.87：Jerome 要求繼續完成 C2／C3。兩位 Luna Max 處理
 paginated 來源與 native approval；主 agent 已補 SQLite 原子 journal 和專用 worker，
@@ -146,8 +157,8 @@ Rust29/30／全部179child與83dirs清理通。新工程7b16d03五CI已通／ful
 | Checkpoint | 交付與必要證據 | 目前進展（不等於整項驗收完成） |
 | --- | --- | --- |
 | C1 來源到可用清單 | source-group 一次 opt-in／readers scope；inventory 與內容共用有界 admission；動態來源撤銷、增改刪、catalog 分頁；正確 native title/metadata；actual Host→Web 按需讀取 | Plan1.78本機多group新增／替換／編輯／移除產生新候選，完整權限review、保留manual與原檔，真Host原檔權限／讀取已驗；Web列表既有。不新增live mutation或管理route，真人owner／受控啟用及完整C1仍待 |
-| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Plan1.79大型plain/壓縮全來源turn/tool/rollback及Host/Web、17.2MB/16384筆/手機尺寸已驗，五CI全通。Plan1.80補paginated native oracle、獨立item契約和scoped-ID；新projection/lineage安全來源→Host/Web、其他adapter及C2整體仍待 |
-| C3 Session／approval／恢復 | 按真實 capability 接結構化事件、續跑與 approval；ownership、exact correlation、重送／重連／Host crash、durable journal/replay 不漏不重 | Plan1.95 generic task 已保存有限非授權 output/status/input/lifecycle replay 與 SSE cursor；protocol approval observation 不持久化，決議仍明確拒絕。SQLite journal／worker、Codex native transport/bridge 與真原生拒絕／interrupt oracle 已驗；公開 route/UI、decision ACK、canonical session/run、resume、其他 adapters 與跨機 durable 恢復仍待，C3 未全驗 |
+| C2 各 Agent 原生歷史 | 各自固定版本 API／格式、native ID/name、主／subagent 範圍、完整歷史與原生名稱驗證；未知版本／來源有清楚狀態 | Pi 維持 native_full；Claude/Codex 僅在明確 source group 下標 native_readonly；OpenCode/Grok 沒有穩定 upstream store，標 canonical_bounded。完整 native transcript／subagent 仍不冒稱 |
+| C3 Session／approval／恢復 | 按真實 capability 接結構化事件、續跑與 approval；ownership、exact correlation、重送／重連／Host crash、durable journal/replay 不漏不重 | Generic POSIX/Windows canonical journal、cursor replay、Host-local peer relay、decision→dispatch→pipe accepted→explicit ACK→resume 與 restart regression 已接。`approval_ack_required` 不代表 upstream 支援；無 ACK 仍在 `awaiting_confirmation`。Native adapters、跨 Host 複製與完整原生 parity 仍是外部 capability gate |
 | C4 帳號與故障體驗 | 登入／登出偵測、官方登入入口、路由相容、取消／失敗／stale／busy 可復原；不修寫第三方憑證或以重試消耗模型 | 局部已驗，跨 harness 待補 |
 | C5 手機與跨裝置操作 | 完整 history i18n、鍵盤／focus／內捲動、長歷史 DOM 上限、Host 切換、background/reconnect、跨機與目標瀏覽器實測 | Plan1.56已接119keys/11語並修正locale scroll跳動；320/390合成Host CUA、原文/DOM/focus保留已驗；人工校稿/真機/跨Host與其餘gate仍待 |
 | C6 可靠性與效能 | 保存完整失敗診斷；調查曾發生的未定位測試失敗；同 workload 多輪 before/after、記憶體、長串流與斷線驗證 | 原fixture／timeout失敗與修正均保留。Plan1.79最終真17.2MB/19壓縮reads：max247.42ms、health p95 1.64ms、RSS200ms樣本102.58MB（非峰值）。後續32次單release-reader測到256MiB/262144筆，macOS最高ru_maxrss5,193,728B，但只有一個推定turn，不是最大索引/Host/pool/mixedload。完整效能gate仍待 |

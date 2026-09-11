@@ -1,7 +1,7 @@
-/* stepsemble v3.0.8 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.9 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.8";
+const CLIENT_APP_VERSION = "3.0.9";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -1684,8 +1684,8 @@ function agentHubText(key, vars = {}) {
     noTasks: "No active tasks — choose an Agent when you start a project.",
     notInstalled: "not installed",
     isolated: "Isolated worktree",
-    piNote: "Pi Agent keeps full session history. CLI agents stream terminal output here.",
-    cliNote: "This CLI streams terminal output here; the task keeps running when you leave the chat.",
+    piNote: "Pi Agent keeps native session history. CLI agents keep bounded canonical run history and terminal output; full native transcript depends on the harness.",
+    cliNote: "This CLI streams terminal output and keeps a bounded canonical run; the task keeps running when you leave the chat.",
     cliTextOnly: "CLI agents currently accept text input only.",
     agentTask: "Agent task",
     signal: "signal {value}",
@@ -1975,7 +1975,18 @@ function updateNewAgentNote() {
   const unavailable = agentCatalogError || connector?.installed !== true;
   const folderUnavailable = el.newCwd ? !el.newCwd.value.trim() : false;
   if (el.newStart) el.newStart.disabled = unavailable || folderUnavailable || newAgentStartPending;
-  if (el.newAgentNote) el.newAgentNote.textContent = unavailable ? agentHubText(agentCatalogError ? "unavailable" : "discovering") : id === "pi" ? agentHubText("piNote") : (connector?.description || agentHubText("cliNote"));
+  if (el.newAgentNote) {
+    if (unavailable) el.newAgentNote.textContent = agentHubText(agentCatalogError ? "unavailable" : "discovering");
+    else if (id === "pi") el.newAgentNote.textContent = agentHubText("piNote");
+    else if (connector?.history?.history === "native_readonly") el.newAgentNote.textContent = `${connector.description || agentHubText("cliNote")} ${agentHubText("nativeHistoryNote")}`;
+    else if (connector?.history?.history === "canonical_bounded") {
+      const journal = connector.history.journal === "durable_host_local"
+        ? agentHubText("journalNote")
+        : agentHubText("boundedNote");
+      el.newAgentNote.textContent = `${connector.description || agentHubText("cliNote")} ${journal} ${agentHubText("ackNote")}`;
+    }
+    else el.newAgentNote.textContent = connector?.description || agentHubText("cliNote");
+  }
   if (el.newWorktree) el.newWorktree.disabled = connector?.capabilities?.includes("worktree") === false;
 }
 
@@ -3847,10 +3858,130 @@ function genericInputBlock(connection = rpc) {
 function applyGenericReplayMetadata(snapshot = {}) {
   if (!rpc?.generic) return;
   if (snapshot.replayGap === true) rpc.genericReplayGap = true;
+  if (snapshot.canonical?.historyTruncated === true) rpc.genericReplayGap = true;
   if (rpc.genericReplayGap && el.taskReplayNote) {
     el.taskReplayNote.dataset.i18nKey = "runtime.genericReplayGap";
     el.taskReplayNote.textContent = tKey("runtime.genericReplayGap");
     el.taskReplayNote.classList.remove("hidden");
+  }
+}
+
+function genericApprovalRows(value) {
+  const rows = Array.isArray(value) ? value : [];
+  return rows.filter(row => row?.approval && ["pending", "approved", "denied"].includes(row.approval.status) && row.nativeAcknowledgement === null);
+}
+
+function genericApprovalCard(approvalId) {
+  const id = String(approvalId || "");
+  return [...(el.messages?.querySelectorAll("[data-generic-approval]") || [])]
+    .find(node => node.dataset.genericApproval === id) || null;
+}
+
+function renderGenericApproval(row) {
+  if (!rpc?.generic || !row?.approval?.approvalId) return;
+  const approval = row.approval;
+  const id = String(approval.approvalId);
+  const existing = genericApprovalCard(id);
+  if (existing) {
+    const state = existing.querySelector("[data-role=approval-state]");
+    if (state) state.textContent = approval.status === "pending" ? "Waiting for your decision" : `Decision: ${approval.status} · waiting for agent confirmation`;
+    existing.querySelectorAll("button").forEach(button => { button.disabled = approval.status !== "pending"; });
+    return;
+  }
+  const shell = makeMsgShell("assistant", rpc.agentLabel || "Agent");
+  const card = document.createElement("div");
+  card.className = "agent-approval-card";
+  card.dataset.genericApproval = id;
+  const title = document.createElement("strong");
+  title.textContent = "Approval required";
+  const summary = document.createElement("p");
+  summary.textContent = String(approval.request?.summary || "The agent is requesting permission.");
+  const state = document.createElement("small");
+  state.dataset.role = "approval-state";
+  state.textContent = approval.status === "pending" ? "Waiting for your decision" : `Decision: ${approval.status} · waiting for agent confirmation`;
+  const actions = document.createElement("div");
+  actions.className = "agent-approval-actions";
+  for (const [decision, label] of [["approved", "Allow"], ["denied", "Deny"]]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = decision === "approved" ? "btn primary" : "btn ghost";
+    button.textContent = label;
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      actions.querySelectorAll("button").forEach(item => { item.disabled = true; });
+      try {
+        const result = await post("/api/agent/approval", { taskId: currentAgentTaskId, approvalId: id, nonce: approval.nonce, scope: approval.scope, decision });
+        state.textContent = result?.kind === "dispatched" ? `Decision: ${decision} · waiting for agent confirmation` : "Decision recorded; waiting for agent confirmation";
+      } catch (error) {
+        state.textContent = error?.message || "Could not record the decision";
+        actions.querySelectorAll("button").forEach(item => { item.disabled = false; });
+      }
+    });
+    actions.appendChild(button);
+  }
+  card.append(title, summary, state, actions);
+  shell.bubble.appendChild(card);
+  scrollBottom();
+}
+
+function applyGenericApprovals(rows) {
+  const all = Array.isArray(rows) ? rows : [];
+  for (const row of genericApprovalRows(all)) renderGenericApproval(row);
+  // A native ACK removes the row from `pendingApprovals`. Keep the card in
+  // the transcript, but make the durable boundary visible instead of leaving
+  // the user with a permanently disabled “waiting” prompt.
+  for (const row of all) {
+    const approval = row?.approval;
+    if (!approval?.approvalId || !row.nativeAcknowledgement) continue;
+    const card = genericApprovalCard(approval.approvalId);
+    if (!card) continue;
+    const state = card.querySelector("[data-role=approval-state]");
+    if (state) state.textContent = `Agent confirmed · ${approval.status}`;
+    card.querySelectorAll("button").forEach(button => { button.disabled = true; });
+    card.dataset.approvalAcknowledged = "true";
+  }
+}
+
+async function loadGenericCanonicalHistory(snapshot, taskId, connection) {
+  const canonical = snapshot?.canonical;
+  if (!canonical?.durable || !canonical.sessionId || !canonical.cursor?.generation) return false;
+  const owns = () => rpc === connection && connection.sid === taskId && !connection.streamEnded;
+  const floor = Number.isSafeInteger(canonical.historyFloor) ? canonical.historyFloor : 0;
+  let cursor = { sessionId: String(canonical.sessionId), generation: String(canonical.cursor.generation), sequence: floor };
+  let pages = 0;
+  let renderedBytes = 0;
+  const maxRenderedBytes = 512 * 1024;
+  try {
+    while (owns() && pages++ < 100) {
+      const query = new URLSearchParams({ taskId, sessionId: cursor.sessionId, generation: cursor.generation, sequence: String(cursor.sequence), limit: "100" });
+      const page = await api(`/api/agent-events?${query.toString()}`);
+      if (!owns() || page?.kind !== "events" || !page.cursor || !Array.isArray(page.events)) return false;
+      for (const event of page.events) {
+        if (!owns()) return false;
+        if (event.type === "message.delta" && event.payload?.channel === "text") {
+          const delta = String(event.payload.delta || "");
+          const bytes = new TextEncoder().encode(delta).byteLength;
+          if (bytes && renderedBytes < maxRenderedBytes) {
+            const remaining = maxRenderedBytes - renderedBytes;
+            const value = bytes <= remaining ? delta : delta.slice(0, Math.max(0, Math.floor(delta.length * remaining / bytes)));
+            appendGenericOutput(value, "stdout");
+            renderedBytes += new TextEncoder().encode(value).byteLength;
+            if (value.length < delta.length) rpc.genericReplayGap = true;
+          }
+        } else if (event.type === "message.completed" && event.payload?.role === "user") {
+          appendGenericInput(String(event.payload.content || ""));
+        }
+      }
+      cursor = { sessionId: String(page.cursor.sessionId), generation: String(page.cursor.generation), sequence: Number(page.cursor.sequence) };
+      if (page.hasMore !== true) break;
+    }
+    applyGenericApprovals(canonical.pendingApprovals);
+    applyGenericReplayMetadata(snapshot);
+    return true;
+  } catch {
+    // The bounded SSE replay remains the fallback when an older Host has no
+    // canonical event route or the journal is temporarily unavailable.
+    return false;
   }
 }
 
@@ -3953,6 +4084,7 @@ function handleAgentTaskEvent(ev, eventSid = rpc?.sid) {
   if (!ev || typeof ev !== "object") return;
   if (ev.type === "connected") {
     applyGenericTaskSnapshot(ev);
+    applyGenericApprovals(ev.canonical?.pendingApprovals);
     return;
   }
   if (ev.type === "task_started" || ev.type === "status") {
@@ -3976,6 +4108,14 @@ function handleAgentTaskEvent(ev, eventSid = rpc?.sid) {
     const echoIndex = echoes.findIndex(item => item.text === text);
     if (echoIndex >= 0) echoes.splice(echoIndex, 1);
     else appendGenericInput(text, ev.truncated === true);
+    return;
+  }
+  if (ev.type === "protocol_event") {
+    if (ev.event?.type === "approval.requested") applyGenericApprovals([ev.approval]);
+    return;
+  }
+  if (ev.type === "approval.updated") {
+    applyGenericApprovals(ev.canonical?.approvals || ev.canonical?.pendingApprovals);
     return;
   }
   if (ev.type === "task_exit") {
@@ -4116,9 +4256,10 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
       }, delay);
     };
 
-    const openStream = (after) => {
+    const openStream = (after, canonicalHistory = false) => {
       if (!ownsTask() || rpc.streamEnded) return;
-      const es = new EventSource(baseAtStart + "/api/agent/stream?taskId=" + encodeURIComponent(taskId) + "&after=" + encodeURIComponent(after));
+      const historyFlag = canonicalHistory ? "&canonicalHistory=1" : "";
+      const es = new EventSource(baseAtStart + "/api/agent/stream?taskId=" + encodeURIComponent(taskId) + "&after=" + encodeURIComponent(after) + historyFlag);
       rpc.es = es;
       rpc.streamReady = false;
       syncGenericInputState();
@@ -4138,6 +4279,7 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
         rpc.lastEventAt = Date.now();
         rpc.snapshotEventSeq = snapshot.eventSeq;
         applyGenericTaskSnapshot(snapshot);
+        applyGenericApprovals(snapshot.canonical?.pendingApprovals);
         if (genericTaskTerminal(rpc.taskStatus)) rpc.streamEnded = true;
         if (el.queueNote.dataset.connection === "lost") {
           delete el.queueNote.dataset.connection;
@@ -4190,7 +4332,9 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
         if (esFail >= 3) scheduleReconnect(es);
       };
     };
-    openStream(-1);
+    rpc.lastEventId = Number.isSafeInteger(Number(result.eventSeq)) ? Number(result.eventSeq) : -1;
+    const canonicalHistoryLoaded = await loadGenericCanonicalHistory(result, taskId, connection);
+    openStream(rpc.lastEventId, canonicalHistoryLoaded);
   } catch (error) {
     if (options.signal?.aborted || generation !== viewGeneration || baseAtStart !== apiBase) return;
     toast(tKey("runtime.openChatFailed", { detail: error.message }), true);

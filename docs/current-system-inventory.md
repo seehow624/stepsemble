@@ -459,7 +459,8 @@ macOS updater 在下載前及 activation 前各檢查 active non-stuck Pi RPC；
 | `.config/stepsemble/update-state.json` | updater/Host read | phase/version/check/error metadata；0600 atomic | updater覆寫 snapshot | 不是業務 journal，可重建 |
 | `.config/stepsemble/push.json` | Host | VAPID private/public key；0600 atomic | 可重建會使舊 subscription 失效 | private key 留 Host |
 | `.config/stepsemble/push-subscriptions.json` | Host | endpoint、p256dh、auth；0600 atomic | 404/410 自動移除 | 視為敏感 endpoint material |
-| `.config/stepsemble/agent-tasks.json` | agent task service | 最多 100 個 generic task snapshot + 64 KiB tails + 每 task 64 筆／128 KiB 非授權 replay；0600 atomic | 每次變更/500 ms debounce | 不是完整歷史或 approval journal；protocol observations 不持久化 |
+| `.config/stepsemble/agent-tasks.json` | agent task service | 最多 100 個 generic task snapshot + 64 KiB tails + 每 task 64 筆／128 KiB 非授權 replay；0600 atomic | 每次變更/500 ms debounce | 不是完整歷史或 approval journal；canonical journal 另存、protocol observations 不寫此 snapshot |
+| `.config/stepsemble/agent-sessions.sqlite` | generic session journal worker | POSIX + Windows owner-bound canonical session/run、bounded lifecycle/output/input、approval receipt 與有界 event journal；SQLite worker；Windows 目錄／檔案 owner-only DACL | transaction commit 後可重開讀取；ACL／SQLite worker／資料損壞時 fail-closed；跨機由 dedicated peer relay 讀取原 Host cursor | host-local generic adapter；不代表 native harness 全歷史、跨機複製或完整 C2 parity |
 | `.config/stepsemble/agent-tasks/<taskId>.json` | detached supervisor | 單 task snapshot + 64 KiB tail；0600 atomic | terminal 時最後一次 persist | 可協助 recovery，但不能替代 event journal |
 | `.config/stepsemble/agent-tasks/<taskId>.sock` | supervisor | owner-only Unix socket | terminal 時 unlink；stale socket由 liveness/reconnect處理 | Windows 對應 local named pipe |
 | `/tmp/stepsemble-sockets/<hash>.sock` | supervisor | macOS/Unix socket path 過長時 fallback；directory 0700 | terminal 時 unlink | Hash 包含 config dir，避免 profile collision |

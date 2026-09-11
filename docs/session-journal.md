@@ -1,7 +1,12 @@
 # Session journal：原子保存審批、命令與事件
 
 2026-09-11。`server/session-journal.js` 將既有 `protocol/transaction-state.js`
-規劃器接到真正 SQLite transaction。這是 Host 內部元件，尚未接公開 API 或正式服務。
+規劃器接到真正 SQLite transaction。這份文件主要記錄 core journal／Codex adapter 的
+低階契約；generic CLI 的正式 Web 接線另由 `server/generic-session-journal.js` 使用同一
+類型的 worker／planner，資料檔為 Host config 目錄下的 `agent-sessions.sqlite`，公開
+`/api/agent-events` 與 approval ACK boundary 已在 Plan1.97 接通。兩者不可互相冒充：
+generic journal 只保存 bounded adapter observations，不會自動變成各 harness 的 native
+完整歷史。
 
 每次 admission／dispatch 都在 `BEGIN IMMEDIATE` 內讀取最新 session 與 device grant，
 呼叫既有規劃器，將 projection、receipt、private outbox 與新增事件一起提交。
@@ -52,8 +57,11 @@
 不得把這些參數直接映射成使用者可填入的 HTTP 欄位。UI 顯示與決議 API 還必須接上
 既有已認證 device/session 權限。
 
-目前要求 POSIX owner 私有目錄與資料檔；Windows 缺少 ACL 驗證，會在建立檔案前明示
-unsupported。單一 snapshot 上限 8 MiB、每 session journal 100,000 筆事件、SQLite
+目前 POSIX 要求 owner 私有目錄與資料檔；Windows 會以 `whoami /user` 取得目前 owner SID，
+由 non-interactive PowerShell 移除 inherited DACL，對 journal 目錄與 SQLite 主檔只加入
+owner FullControl。目錄先鎖定是為了涵蓋 SQLite 後續建立的 `-wal`／`-shm`；PowerShell、SID、
+ACL 或 worker 任一項無法驗證時，generic adapter 會 fail closed 並退回 bounded snapshot。
+單一 snapshot 上限 8 MiB、每 session journal 100,000 筆事件、SQLite
 檔案上限 256 MiB；達上限會拒絕新增，沒有偷偷刪除 receipt 或歷史。
 這是可信 Host／同一 OS 使用者內的邊界，不防同 UID 惡意程序在檢查後替換檔案，亦非
 歷史內容的防竄改簽章；不得將 Rust held-FD 的來源安全保證套用到這個 SQLite 元件。
@@ -62,4 +70,8 @@ unsupported。單一 snapshot 上限 8 MiB、每 session journal 100,000 筆事�
 `session-journal-client.js` 已把 SQLite 與 projection 驗證放在專用 worker；最多 16 個
 待處理要求、單筆 8 MiB／整個待處理佇列 16 MiB、預設 10 秒期限。worker 失敗或逾時會回結果不確定，終止 worker 且不自動
 重送寫入。Host 整合應使用此非同步 client；worker 的實際寫入與重新開啟測試已通過。
-現階段沒有宣稱 Windows、跨機器、原生 ACK 或完整 C3 parity 已完成。
+generic journal 是 Host-local authority。另一台已配對裝置只能經過 dedicated peer relay 讀取
+原 Host 的 `/api/agent-events` cursor；不做 SQLite 複製、雙寫或跨 Host atomic snapshot。
+原生 harness 的 ACK 仍須由 adapter 提供 exact `STEPSEMBLE_ACK`，沒有 upstream ACK 的 CLI
+會安全停在 `awaiting_confirmation`；完整 native transcript、subagent 與 native resume
+仍由各 harness capability 決定，不能由 generic journal 偽造。

@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.0.9
+
+Durable Agent Hub and cross-platform capability-boundary release.
+
+- Enable the generic canonical session journal on Windows behind an explicit
+  owner-only PowerShell DACL gate. The journal directory is protected before
+  SQLite opens so WAL/SHM siblings cannot inherit a broader ACL; failures stay
+  bounded and fail closed instead of pretending to be durable.
+- Add capability-aware catalog/task metadata for native Pi history, prepared
+  Claude/Codex read-only sources, bounded CLI history, host-local journals and
+  the authenticated dedicated peer relay.
+- Replace the misleading generic `approval_protocol` capability with explicit
+  observation and `approval_ack_required` markers. Decisions remain durable,
+  while acknowledgement and resume require exact `STEPSEMBLE_ACK` evidence.
+- Keep official CLIs without that adapter contract in `awaiting_confirmation`;
+  no native transcript, subagent store or cross-host replication is fabricated.
+
+Validation and platform-specific evidence are recorded in
+[`docs/release-3.0.9.md`](docs/release-3.0.9.md).
+
 ## 3.0.8
 
 Small fix release, no feature or roadmap changes.

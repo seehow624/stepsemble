@@ -5,6 +5,7 @@
 // owning adapter before it reaches this boundary.
 const fs = require("node:fs");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 const { DatabaseSync } = require("node:sqlite");
 const tx = require("../protocol/transaction-state");
 const { canonicalJSON } = require("../public/modules/projection");
@@ -16,19 +17,55 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const reject = code => ({ kind: "reject", code });
 const operations = new Set(Object.keys(tx).filter(name => name.startsWith("plan")));
 
+function windowsOwnerSid() {
+  const result = spawnSync("whoami", ["/user", "/fo", "csv", "/nh"], {
+    encoding: "utf8", windowsHide: true, timeout: 2000,
+  });
+  if (result.error || result.status !== 0) return null;
+  return String(result.stdout || "").match(/S-\d-\d+(?:-\d+)+/i)?.[0] || null;
+}
+
+// Windows ignores POSIX mode bits and inherits the parent DACL by default.
+// Replace the journal directory and file DACL with an owner-only rule before
+// SQLite opens it. The directory matters because SQLite may create `-wal` and
+// `-shm` siblings after this function returns. The target/SID travel through
+// the environment, never through a shell command string, so a workspace path
+// cannot become PowerShell syntax.
+function enforceWindowsOwnerAcl(target, { directory = false } = {}) {
+  const sid = windowsOwnerSid();
+  if (!sid) throw new Error("journal_windows_owner_unavailable");
+  const script = [
+    "$ErrorActionPreference='Stop'",
+    "$path=$env:STEPSEMBLE_JOURNAL_TARGET",
+    "$sid=New-Object System.Security.Principal.SecurityIdentifier($env:STEPSEMBLE_JOURNAL_SID)",
+    "$acl=if ($env:STEPSEMBLE_JOURNAL_DIRECTORY -eq '1') { New-Object System.Security.AccessControl.DirectorySecurity } else { New-Object System.Security.AccessControl.FileSecurity }",
+    "$acl.SetAccessRuleProtection($true,$false)",
+    "$rule=New-Object System.Security.AccessControl.FileSystemAccessRule($sid,'FullControl','Allow')",
+    "$acl.AddAccessRule($rule)",
+    "Set-Acl -LiteralPath $path -AclObject $acl",
+  ].join(";");
+  const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+    encoding: "utf8", windowsHide: true, timeout: 5000,
+    env: { ...process.env, STEPSEMBLE_JOURNAL_TARGET: target, STEPSEMBLE_JOURNAL_SID: sid,
+      STEPSEMBLE_JOURNAL_DIRECTORY: directory ? "1" : "0" },
+  });
+  if (result.error || result.status !== 0) throw new Error("journal_windows_acl_required");
+}
+
 function openSessionJournal({ filename }) {
-  // No file is created on platforms whose owner boundary is not implemented.
-  if (process.platform === "win32") throw new Error("journal_platform_unsupported");
+  const windows = process.platform === "win32";
   if (typeof filename !== "string" || !path.isAbsolute(filename) || path.resolve(filename) !== filename) throw new Error("journal_path_invalid");
   const directory = path.dirname(filename), parent = fs.lstatSync(directory);
   if (!parent.isDirectory() || fs.realpathSync(directory) !== directory
-    || process.platform !== "win32" && (parent.uid !== process.getuid() || (parent.mode & 0o077))) throw new Error("journal_directory_private_required");
+    || !windows && (parent.uid !== process.getuid() || (parent.mode & 0o077))) throw new Error("journal_directory_private_required");
+  if (windows) enforceWindowsOwnerAcl(directory, { directory: true });
   let fd;
   try { fd = fs.openSync(filename, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY, 0o600); }
   catch (error) { if (error.code !== "EEXIST") throw error; }
   finally { if (fd !== undefined) fs.closeSync(fd); }
   const stat = fs.lstatSync(filename);
-  if (!stat.isFile() || stat.nlink !== 1 || stat.size > MAX_DB_BYTES || stat.uid !== process.getuid() || (stat.mode & 0o077)) throw new Error("journal_file_private_required");
+  if (!stat.isFile() || stat.nlink !== 1 || stat.size > MAX_DB_BYTES || !windows && (stat.uid !== process.getuid() || (stat.mode & 0o077))) throw new Error("journal_file_private_required");
+  if (windows) enforceWindowsOwnerAcl(filename);
   const db = new DatabaseSync(filename);
   let tail = Promise.resolve(), closed = false, closePromise;
   try {

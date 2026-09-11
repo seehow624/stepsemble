@@ -14,18 +14,21 @@ const { launchAgentSupervisor } = require("./agent-supervisor-launch");
 const { createLineDecoder, writeBounded } = require("./stream-safety");
 const { CONNECTOR_PROTOCOL_VERSION, CONNECTOR_EVENT_TYPES, normalizeConnectorDefinition } = require("./connector-protocol");
 const { createConnectorApprovalState } = require("./connector-approval");
+const { createGenericSessionJournal } = require("./generic-session-journal");
+const { catalogCapability } = require("./agent-history-capabilities");
 
 const MAX_TASKS = 100;
 const MAX_EVENTS = 1200;
 const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 // Keep a small, non-authoritative replay window in the task snapshot.  The
-// generic connector has no durable approval journal, so protocol observations
-// are deliberately excluded; this window is only for output/lifecycle context
-// when the HTTP service restarts.
+// canonical session/approval journal is stored separately; protocol
+// observations remain excluded from this bounded task snapshot so a replay
+// window can never become an approval authority after a restart.
 const MAX_PERSISTED_EVENTS = 64;
 const MAX_PERSISTED_EVENT_BYTES = 128 * 1024;
 const PERSISTED_EVENT_TYPES = new Set(["output", "status", "task_started", "task_exit", "input"]);
 const MAX_OUTPUT_TAIL = 64 * 1024;
+const MAX_CANONICAL_OUTPUT_BYTES = 256 * 1024;
 const MAX_NAME = 120;
 const MAX_MESSAGE = 1_000_000;
 const PTY_BRIDGE_FILE = path.join(__dirname, "pty-bridge.py");
@@ -51,7 +54,7 @@ const CONNECTOR_DEFINITIONS = Object.freeze([
     kind: "cli",
     commands: Object.freeze(["claude"]),
     description: "Claude Code through its local interactive CLI.",
-    capabilities: Object.freeze(["terminal", "streaming", "worktree"]),
+    capabilities: Object.freeze(["terminal", "streaming", "worktree", "canonical_session", "durable_journal", "approval_observation", "approval_ack_required"]),
   }),
   Object.freeze({
     id: "codex",
@@ -59,7 +62,7 @@ const CONNECTOR_DEFINITIONS = Object.freeze([
     kind: "cli",
     commands: Object.freeze(["codex"]),
     description: "Codex through the locally installed CLI.",
-    capabilities: Object.freeze(["terminal", "streaming", "worktree"]),
+    capabilities: Object.freeze(["terminal", "streaming", "worktree", "canonical_session", "durable_journal", "approval_observation", "approval_ack_required"]),
   }),
   Object.freeze({
     id: "grok-build",
@@ -67,7 +70,7 @@ const CONNECTOR_DEFINITIONS = Object.freeze([
     kind: "cli",
     commands: Object.freeze(["grok", "grok-build"]),
     description: "Grok Build when its local CLI is installed.",
-    capabilities: Object.freeze(["terminal", "streaming", "worktree"]),
+    capabilities: Object.freeze(["terminal", "streaming", "worktree", "canonical_session", "durable_journal", "approval_observation", "approval_ack_required"]),
   }),
   Object.freeze({
     id: "opencode",
@@ -75,7 +78,7 @@ const CONNECTOR_DEFINITIONS = Object.freeze([
     kind: "cli",
     commands: Object.freeze(["opencode"]),
     description: "OpenCode through its local interactive CLI.",
-    capabilities: Object.freeze(["terminal", "streaming", "worktree"]),
+    capabilities: Object.freeze(["terminal", "streaming", "worktree", "canonical_session", "durable_journal", "approval_observation", "approval_ack_required"]),
   }),
 ]);
 
@@ -87,6 +90,18 @@ function safeConnectorId(value) {
 function safeName(value, fallback = "Untitled task") {
   const name = String(value || "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
   return (name || fallback).slice(0, MAX_NAME);
+}
+
+function utf8Prefix(value, maxBytes) {
+  const input = String(value ?? "");
+  if (Buffer.byteLength(input, "utf8") <= maxBytes) return input;
+  let low = 0, high = input.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (Buffer.byteLength(input.slice(0, middle), "utf8") <= maxBytes) low = middle;
+    else high = middle - 1;
+  }
+  return input.slice(0, low);
 }
 
 function commandCandidates(definition) {
@@ -303,6 +318,9 @@ function publicDefinition(definition, options = {}) {
     capabilities: [],
     events: [...CONNECTOR_EVENT_TYPES],
   };
+  const capabilities = contract.capabilities.filter(capability => definition.kind === "native"
+    || options.durableJournal === true
+    || !["canonical_session", "durable_journal", "approval_observation", "approval_ack_required"].includes(capability));
   return {
     id: definition.id,
     label: definition.label,
@@ -311,7 +329,11 @@ function publicDefinition(definition, options = {}) {
     // Native Pi owns the separate JSON-RPC/SSE contract in server.js. Do not
     // advertise the generic connector task event protocol for that source.
     protocolVersion: definition.kind === "native" ? null : contract.protocolVersion,
-    capabilities: [...contract.capabilities],
+    capabilities,
+    history: catalogCapability(definition.id, options),
+    journalScope: options.durableJournal === true ? "host-local" : "unavailable",
+    journalTransport: options.durableJournal === true ? "local+dedicated-peer-relay" : null,
+    hostId: String(options.hostId || "local").slice(0, 128),
     events: definition.kind === "native" ? [] : [...contract.events],
     installed: !!command,
     command: command ? path.basename(command) : null,
@@ -320,11 +342,11 @@ function publicDefinition(definition, options = {}) {
   };
 }
 
-function discoverConnectors({ piBin = "", env = process.env, includeKnownPaths = true } = {}) {
+function discoverConnectors({ piBin = "", env = process.env, includeKnownPaths = true, durableJournal = false, nativeHistoryConfigured = false, hostId = "local" } = {}) {
   const ptyRuntime = resolvePtyRuntime({ env });
   return CONNECTOR_DEFINITIONS.map((definition) => {
     const command = resolveCommand(definition, { piBin, env, includeKnownPaths });
-    return publicDefinition(definition, { command, transport: definition.kind === "native" ? "rpc" : (ptyRuntime ? "pty" : "pipe") });
+    return publicDefinition(definition, { command, durableJournal, nativeHistoryConfigured, hostId, transport: definition.kind === "native" ? "rpc" : (ptyRuntime ? "pty" : "pipe") });
   });
 }
 
@@ -350,6 +372,18 @@ function readPersistedTasks(file) {
       .slice(-MAX_TASKS).map((task) => ({
         id: task.id,
         agentId: safeConnectorId(task.agentId) || "",
+        sessionId: typeof task.sessionId === "string" ? task.sessionId.slice(0, 128) : "",
+        runId: typeof task.runId === "string" ? task.runId.slice(0, 128) : "",
+        incarnationId: typeof task.incarnationId === "string" ? task.incarnationId.slice(0, 128) : "",
+        nativeRunId: typeof task.nativeRunId === "string" ? task.nativeRunId.slice(0, 512) : "",
+        profileId: typeof task.profileId === "string" ? task.profileId.slice(0, 128) : "",
+        journalGeneration: typeof task.journalGeneration === "string" ? task.journalGeneration.slice(0, 128) : "",
+        journalState: typeof task.journalState === "string" ? task.journalState.slice(0, 32) : "unavailable",
+        journalHistoryTruncated: task.journalHistoryTruncated === true,
+        journalMessageId: typeof task.journalMessageId === "string" ? task.journalMessageId.slice(0, 128) : "",
+        journalOutputUnits: Number.isSafeInteger(task.journalOutputUnits) ? task.journalOutputUnits : 0,
+        journalStarted: task.journalStarted === true,
+        journalTerminal: task.journalTerminal === true,
         name: safeName(task.name),
         cwd: typeof task.cwd === "string" ? task.cwd.slice(0, 1000) : "",
         worktree: task.worktree && typeof task.worktree === "object" ? {
@@ -396,8 +430,11 @@ function createAgentTaskService({
   env = process.env,
   onSettled = null,
   desktopClaude = null,
+  nativeHistoryConfigured = false,
+  hostId = "local",
 } = {}) {
   const taskConfigDir = path.resolve(configDir || appHome || process.cwd());
+  const canonicalJournal = createGenericSessionJournal({ configDir: taskConfigDir });
   const tasksFile = path.join(taskConfigDir, "agent-tasks.json");
   const ptyRuntime = resolvePtyRuntime({ env });
   const tasks = new Map();
@@ -446,6 +483,10 @@ function createAgentTaskService({
       reconnectTimer: null,
       persistTimer: null,
       settledNotified: task.settledNotified === true,
+      canonicalView: null,
+      journalTail: Promise.resolve(),
+      journalStarted: task.journalStarted === true,
+      journalTerminal: task.journalTerminal === true,
     });
   }
 
@@ -453,6 +494,9 @@ function createAgentTaskService({
   // HTTP listener while a short-lived reconnect races the supervisor socket.
   setImmediate(() => {
     for (const task of tasks.values()) {
+      void refreshCanonical(task).then(() => {
+        if (task.status === "orphaned") void recordCanonicalOrphaned(task, "host_restarted");
+      }).catch(() => {});
       if (terminalTaskStatus(task.status) && !task.settledNotified) notifySettled(task);
       if (!taskIsActive(task)) continue;
       void connectSupervisor(task).catch(() => scheduleSupervisorReconnect(task));
@@ -467,6 +511,8 @@ function createAgentTaskService({
   function publicTask(task, includeOutput = false) {
     if (!task) return null;
     const replay = replayMetadata(task);
+    const canonical = task.canonicalView || null;
+    const canonicalApprovals = canonical?.approvals || [];
     return {
       id: task.id,
       taskId: task.id,
@@ -474,6 +520,7 @@ function createAgentTaskService({
       agentId: task.agentId,
       agent: task.agentId,
       connector: task.agentId,
+      hostId: String(hostId || "local").slice(0, 128),
       name: task.name,
       cwd: task.cwd,
       worktree: task.worktree || null,
@@ -491,6 +538,37 @@ function createAgentTaskService({
       eventSeq: replay.latest,
       replayFloor: replay.floor,
       replayTruncated: replay.truncated,
+      // The canonical envelope is deliberately separate from the bounded
+      // terminal replay.  It contains stable identity/cursor metadata and
+      // safe approval rows, never private commands or credentials.
+      canonical: {
+        durable: task.journalState === "ready" && !!canonical,
+        state: task.journalState || "unavailable",
+        sessionId: task.sessionId || canonical?.sessionId || null,
+        runId: task.runId || canonical?.runId || null,
+        runState: canonical?.runState || null,
+        nativeRunId: canonical?.nativeRunId || null,
+        revision: Number.isSafeInteger(canonical?.revision) ? canonical.revision : null,
+        cursor: canonical?.cursor || null,
+        historyFloor: Number.isSafeInteger(canonical?.historyFloor) ? canonical.historyFloor : null,
+        approvals: canonicalApprovals,
+        pendingApprovals: canonical?.pendingApprovals || [],
+        historyTruncated: task.journalHistoryTruncated === true,
+        capabilities: {
+          decision: task.journalState === "ready",
+          // A durable decision is local authority only. Native acknowledgement
+          // and resume remain false until the child supplies the exact
+          // STEPSEMBLE_ACK evidence; a journal alone cannot grant either.
+          acknowledgement: false,
+          resume: false,
+          acknowledgementProtocol: "stepsemble_ack_v1",
+          resumeGate: "native_ack_required",
+        },
+        history: catalogCapability(task.agentId, { journalAvailable: task.journalState === "ready", nativeHistoryConfigured }),
+        journalScope: task.journalState === "ready" ? "host-local" : "unavailable",
+        journalTransport: task.journalState === "ready" ? "local+dedicated-peer-relay" : null,
+        hostId: String(hostId || "local").slice(0, 128),
+      },
       ...(includeOutput ? { outputTail: task.outputTail || "" } : {}),
     };
   }
@@ -509,6 +587,22 @@ function createAgentTaskService({
     value.supervisorEventSeq = Number.isFinite(Number(task.supervisorEventSeq)) ? Number(task.supervisorEventSeq) : 0;
     value.eventSeq = safeEventSequence(task.eventSeq);
     value.eventHistory = normalizePersistedEventHistory(task.events, task.id);
+    // Keep canonical identity and journal bookkeeping outside the public DTO
+    // but inside the private reconnect snapshot. Dropping these fields would
+    // make a restarted Host unable to reopen the SQLite session it just ran.
+    value.sessionId = task.sessionId || "";
+    value.runId = task.runId || "";
+    value.incarnationId = task.incarnationId || "";
+    value.nativeRunId = task.nativeRunId || "";
+    value.profileId = task.profileId || "";
+    value.journalGeneration = task.journalGeneration || "";
+    value.journalState = task.journalState || "unavailable";
+    value.journalHistoryTruncated = task.journalHistoryTruncated === true;
+    value.journalMessageId = task.journalMessageId || "";
+    value.journalOutputUnits = Number.isSafeInteger(task.journalOutputUnits) ? task.journalOutputUnits : 0;
+    value.journalStarted = task.journalStarted === true;
+    value.journalTerminal = task.journalTerminal === true;
+    value.canonical = undefined;
     value.settledNotified = task.settledNotified === true;
     return value;
   }
@@ -520,6 +614,171 @@ function createAgentTaskService({
     } catch (error) {
       console.warn(`[stepsemble] could not persist agent tasks: ${error.message}`);
     }
+  }
+
+  function updateCanonicalView(task, result) {
+    if (!task || !result) return;
+    // Journal mutations return a committed transaction with `state`, while
+    // reads return a `view`.  Both carry the authoritative projection; only
+    // refreshing reads left the in-memory API one transaction behind.
+    if (result.state && typeof result.state === "object") {
+      task.canonicalView = canonicalJournal.publicView(result.state);
+      task.journalState = "ready";
+      const view = task.canonicalView;
+      if (view?.sessionId) task.sessionId = view.sessionId;
+      if (view?.runId) task.runId = view.runId;
+    } else if (result.kind === "reject" && ["journal_unavailable", "journal_result_uncertain", "journal_closed"].includes(result.code)) {
+      task.journalState = "unavailable";
+    }
+  }
+
+  async function refreshCanonical(task) {
+    if (!task || !task.sessionId || !canonicalJournal.available) return null;
+    const result = await canonicalJournal.read(task.sessionId);
+    if (result.kind === "view") updateCanonicalView(task, result);
+    else if (result.code !== "session_unavailable") updateCanonicalView(task, result);
+    return result;
+  }
+
+  function queueCanonical(task, operation) {
+    if (!task || typeof operation !== "function" || !canonicalJournal.available) return Promise.resolve({ kind: "reject", code: "journal_unavailable" });
+    task.journalTail = (task.journalTail || Promise.resolve()).then(async () => {
+      const result = await operation();
+      if (result?.state) updateCanonicalView(task, result);
+      else if (result?.kind === "view") updateCanonicalView(task, result);
+      else if (result?.kind === "reject" && ["journal_unavailable", "journal_result_uncertain", "journal_closed"].includes(result.code)) task.journalState = "unavailable";
+      persist();
+      return result;
+    }).catch(error => {
+      task.journalState = "degraded";
+      persist();
+      return { kind: "reject", code: error?.message === "journal_corrupt" ? "journal_corrupt" : "journal_write_failed" };
+    });
+    return task.journalTail;
+  }
+
+  async function createCanonical(task) {
+    if (!task || !canonicalJournal.available) {
+      if (task) task.journalState = "unavailable";
+      return { kind: "reject", code: "journal_unavailable" };
+    }
+    task.journalState = "starting";
+    const result = await canonicalJournal.create(task);
+    if (result.kind === "created" || result.kind === "existing") {
+      task.sessionId = result.sessionId;
+      task.runId = result.runId;
+      task.incarnationId = result.incarnationId;
+      task.journalGeneration = task.journalGeneration || `generic-${crypto.createHash("sha256").update(task.id).digest("hex").slice(0, 24)}`;
+      task.canonicalView = canonicalJournal.publicView(result.state);
+      task.journalState = "ready";
+      const currentRun = result.state?.projection?.runs?.find(row => row.run?.runId === task.runId);
+      task.journalStarted = result.kind === "existing" && Number.isFinite(Date.parse(currentRun?.startedAt || ""));
+    } else {
+      task.journalState = "unavailable";
+    }
+    persist();
+    return result;
+  }
+
+  function recordCanonicalStart(task) {
+    if (!task || task.journalState !== "ready" || task.journalStarted) return Promise.resolve({ kind: "replay" });
+    task.journalStarted = true;
+    return queueCanonical(task, () => canonicalJournal.observe(task, [{
+      type: "run.started",
+      payload: { nativeRunId: task.nativeRunId || task.id },
+    }]));
+  }
+
+  function recordCanonicalOutput(task, chunk) {
+    if (!task || task.journalState !== "ready" || task.journalTerminal) return Promise.resolve({ kind: "reject", code: "task_terminal" });
+    const raw = String(chunk ?? "");
+    if (!raw) return Promise.resolve({ kind: "replay" });
+    if ((Number(task.journalOutputUnits) || 0) >= MAX_CANONICAL_OUTPUT_BYTES) {
+      task.journalHistoryTruncated = true;
+      return Promise.resolve({ kind: "reject", code: "journal_projection_capacity" });
+    }
+    const remaining = MAX_CANONICAL_OUTPUT_BYTES - (Number(task.journalOutputUnits) || 0);
+    const text = utf8Prefix(raw, Math.min(remaining, 60 * 1024));
+    task.journalOutputUnits = (Number(task.journalOutputUnits) || 0) + Buffer.byteLength(text, "utf8");
+    if (text.length < raw.length) task.journalHistoryTruncated = true;
+    return queueCanonical(task, () => canonicalJournal.observe(task, [{
+      type: "message.delta",
+      payload: { messageId: task.journalMessageId || (task.journalMessageId = `message-${task.id}`), channel: "text", delta: text },
+    }]));
+  }
+
+  function recordCanonicalInput(task, message) {
+    if (!task || task.journalState !== "ready" || task.journalTerminal) return Promise.resolve({ kind: "reject", code: "task_terminal" });
+    const textValue = String(message ?? "").slice(0, 262144);
+    return queueCanonical(task, () => canonicalJournal.observe(task, [{
+      type: "message.completed",
+      payload: { messageId: `input-${crypto.randomUUID()}`, role: "user", content: textValue },
+    }]));
+  }
+
+  function recordCanonicalApproval(task, packet) {
+    if (!task || task.journalState !== "ready") return Promise.resolve({ kind: "reject", code: "journal_unavailable" });
+    const event = packet?.event || packet;
+    const approval = event?.payload?.approval;
+    if (!approval || event.sessionId !== task.sessionId || event.runId !== task.runId
+      || approval.sessionId !== task.sessionId || approval.runId !== task.runId) {
+      task.canonicalApprovalRejected = true;
+      pushEvent(task, { type: "protocol_event_rejected", taskId: task.id, agentId: task.agentId, code: "canonical_identity_mismatch" });
+      return Promise.resolve({ kind: "reject", code: "canonical_identity_mismatch" });
+    }
+    return queueCanonical(task, async () => {
+      const current = await canonicalJournal.read(task.sessionId);
+      if (current.kind !== "view") return current;
+      const now = Math.max(Date.now(), Date.parse(current.state.projection.updatedAt || "0"));
+      if (!Number.isFinite(now) || Date.parse(approval.expiresAt) <= now) return { kind: "reject", code: "approval_expired" };
+      // Native timestamps describe when the adapter observed the prompt. The
+      // canonical pending row is committed by this Host now; matching the
+      // payload timestamp to the journal event keeps the lifecycle reducer's
+      // revision/time invariant intact without extending the native expiry.
+      const canonicalApproval = { ...structuredClone(approval), createdAt: new Date(now).toISOString() };
+      return canonicalJournal.observe(task, [{
+        type: "approval.requested",
+        payload: { approval: canonicalApproval },
+      }], { now });
+    }).then(result => {
+      if (result.kind === "reject") {
+        pushEvent(task, { type: "protocol_event_rejected", taskId: task.id, agentId: task.agentId, code: result.code || "approval_journal_rejected" });
+      } else if (result.kind === "committed" && !terminalTaskStatus(task.status)) {
+        setStatus(task, "waiting");
+      }
+      return result;
+    });
+  }
+
+  function recordCanonicalTerminal(task, status, details = {}) {
+    if (!task || task.journalState !== "ready" || task.journalTerminal) return Promise.resolve({ kind: "replay" });
+    return queueCanonical(task, async () => {
+      // Close any streaming assistant message before terminal projection. A
+      // bounded tail is an honest partial transcript, never a fabricated full
+      // native history.
+      if (task.journalMessageId && !task.journalHistoryTruncated && task.journalOutputUnits > 0) {
+        const output = String(task.outputTail || "").slice(0, 262144);
+        const completed = await canonicalJournal.observe(task, [{ type: "message.completed", payload: { messageId: task.journalMessageId, role: "assistant", content: output } }]);
+        if (completed.kind === "reject" && completed.code !== "message_conflict") return completed;
+      }
+      const result = await canonicalJournal.terminal(task, status, details);
+      if (result.kind === "committed" || result.kind === "replay") task.journalTerminal = true;
+      return result;
+    });
+  }
+
+  function recordCanonicalOrphaned(task, reason = "host_restarted") {
+    if (!task || task.journalState !== "ready" || task.journalTerminal) return Promise.resolve({ kind: "replay" });
+    return queueCanonical(task, async () => {
+      const current = await canonicalJournal.read(task.sessionId);
+      if (current.kind !== "view") return current;
+      const run = current.state.projection.runs.find(row => row.run.runId === task.runId);
+      if (!run || ["completed", "failed", "interrupted", "orphaned"].includes(run.run.state)) return { kind: "replay", state: current.state };
+      return canonicalJournal.observe(task, [{
+        type: "run.orphaned",
+        payload: { reason: ["transport_lost", "host_restarted", "unknown"].includes(reason) ? reason : "unknown" },
+      }]);
+    });
   }
 
   function taskIsActive(task) {
@@ -563,12 +822,18 @@ function createAgentTaskService({
     if (extra.exitCode !== undefined) task.exitCode = Number.isInteger(extra.exitCode) ? extra.exitCode : null;
     if (extra.signal !== undefined) task.signal = extra.signal ? String(extra.signal).slice(0, 32) : null;
     task.lastActivityAt = Date.now();
-    if (terminalTaskStatus(status)) {
+    if (status === "running") void recordCanonicalStart(task);
+    if (["completed", "failed", "stopped"].includes(status)) {
       task.endedAt = task.endedAt || Date.now();
+      void recordCanonicalTerminal(task, status, { error: task.error, reason: status === "stopped" ? "host_shutdown" : "native_exit" });
       // A generic connector has no durable cancellation fact. Closing the
       // process-local boundary prevents stale approval decisions after the
       // owned child/supervisor has exited or become orphaned.
       task.approvalState?.close("task_terminal");
+    } else if (status === "orphaned") {
+      task.endedAt = task.endedAt || Date.now();
+      void recordCanonicalOrphaned(task, "host_restarted");
+      task.approvalState?.close("host_restarted");
     }
     pushEvent(task, { type: "status", taskId: task.id, status, ...publicTask(task) });
     persist();
@@ -581,6 +846,7 @@ function createAgentTaskService({
     if (!text) return;
     task.outputTail = (task.outputTail + text).slice(-MAX_OUTPUT_TAIL);
     task.lastActivityAt = Date.now();
+    void recordCanonicalOutput(task, text);
     const outputStream = stream === "stderr" ? "stderr" : "stdout";
     // Keep every byte visible to a live subscriber. A single child_process
     // chunk can be much larger than one SSE frame, so split it rather than
@@ -663,11 +929,35 @@ function createAgentTaskService({
       const result = task.approvalState?.observe(event);
       if (result?.kind === "observed" || result?.kind === "duplicate") {
         pushEvent(task, { ...event, observation: result.kind, approval: result.approval });
+        if (result.kind === "observed") void recordCanonicalApproval(task, event);
       } else {
         // Keep rejection diagnostics fixed and free of native prompt/error
         // text. An invalid observation never changes task or run state.
         pushEvent(task, { type: "protocol_event_rejected", taskId: task.id, agentId: task.agentId, code: result?.code || "invalid_approval_event" });
       }
+      return;
+    }
+    if (event.type === "approval_ack") {
+      if (terminalTaskStatus(task.status) || event.sessionId !== task.sessionId || event.runId !== task.runId) {
+        pushEvent(task, { type: "protocol_event_rejected", taskId: task.id, agentId: task.agentId, code: "native_ack_conflict" });
+        return;
+      }
+      void acknowledgeApproval(task.id, {
+        approvalId: event.approvalId,
+        nonce: event.nonce,
+        nativeRequestId: event.nativeRequestId,
+        attemptId: event.attemptId,
+        evidenceReference: event.evidenceReference,
+      }).then(result => {
+        if (result.kind !== "acknowledged" && result.kind !== "replay") {
+          pushEvent(task, { type: "protocol_event_rejected", taskId: task.id, agentId: task.agentId, code: result.code || "native_ack_conflict" });
+          return;
+        }
+        if (event.resumed === true) {
+          return resumeAfterApproval(task.id, { evidenceReference: event.evidenceReference, nativeRunId: task.nativeRunId });
+        }
+        return null;
+      }).catch(() => {});
       return;
     }
     if (event.type === "status") {
@@ -692,6 +982,7 @@ function createAgentTaskService({
     }
     if (event.type === "input") {
       task.lastInputAt = Number(event.at) || Date.now();
+      void recordCanonicalInput(task, event.text || "");
       pushEvent(task, event);
       persist();
       return;
@@ -821,6 +1112,18 @@ function createAgentTaskService({
     const task = {
       id,
       agentId: definition.id,
+      sessionId: `session-${id}`,
+      runId: `run-${id}`,
+      incarnationId: `inc-${id}`,
+      nativeRunId: `native-${id}`,
+      profileId: `profile-${id}`,
+      journalGeneration: `generic-${crypto.createHash("sha256").update(id).digest("hex").slice(0, 24)}`,
+      journalState: canonicalJournal.available ? "starting" : "unavailable",
+      journalHistoryTruncated: false,
+      journalMessageId: "",
+      journalOutputUnits: 0,
+      journalStarted: false,
+      journalTerminal: false,
       name: safeName(name, definition.label),
       cwd: realCwd,
       worktree: worktree && typeof worktree === "object" ? {
@@ -859,6 +1162,13 @@ function createAgentTaskService({
     const spawnCwd = task.worktree?.path || realCwd;
     const useDesktop = definition.id === "claude-code" && desktopClaude;
     tasks.set(id, task);
+    const canonical = await createCanonical(task);
+    if (canonical.kind === "reject" && canonical.code !== "journal_unavailable") {
+      tasks.delete(id);
+      const error = new Error(`Could not create canonical agent session (${canonical.code})`);
+      error.statusCode = 503;
+      throw error;
+    }
     persist();
     try {
       const launched = useDesktop
@@ -891,6 +1201,8 @@ function createAgentTaskService({
       try { if (task.supervisorPid) process.kill(task.supervisorPid, "SIGTERM"); } catch {}
       throw error;
     }
+    await task.journalTail;
+    if (task.status === "running") await recordCanonicalStart(task);
     return { ...publicTask(task), command: path.basename(command) };
   }
 
@@ -901,7 +1213,21 @@ function createAgentTaskService({
   function approvals(id) {
     const task = get(id);
     if (!task) return null;
-    return task.approvalState.snapshot();
+    const local = task.approvalState.snapshot();
+    if (terminalTaskStatus(task.status)) return local;
+    const durable = task.canonicalView;
+    if (!durable) return local;
+    return {
+      ...local,
+      available: local.available,
+      durable: true,
+      sessionId: durable.sessionId,
+      runId: durable.runId,
+      runState: durable.runState,
+      cursor: durable.cursor,
+      approvals: durable.approvals?.length ? durable.approvals : local.approvals,
+      pendingApprovals: durable.pendingApprovals || [],
+    };
   }
 
   // The generic connector does not own a canonical session/run projection or
@@ -914,6 +1240,64 @@ function createAgentTaskService({
     if (!task) return { kind: "reject", code: "task_unavailable" };
     if (terminalTaskStatus(task.status)) return { kind: "reject", code: "task_unavailable" };
     return { kind: "reject", code: "durable_transaction_required" };
+  }
+
+  async function resolveApprovalDurable(id, input = {}) {
+    const task = get(id);
+    if (!task) return { kind: "reject", code: "task_unavailable" };
+    if (terminalTaskStatus(task.status)) return { kind: "reject", code: "task_unavailable" };
+    if (task.journalState !== "ready") return { kind: "reject", code: "durable_transaction_required" };
+    const admitted = await queueCanonical(task, () => canonicalJournal.admitApproval(task, input));
+    if (admitted.kind === "replay") return admitted;
+    if (admitted.kind !== "dispatch") return admitted;
+    const message = {
+      op: "approval.resolve",
+      approvalId: input.approvalId,
+      nonce: input.nonce,
+      decision: input.decision,
+      scope: input.scope,
+      nativeRequestId: admitted.approval?.approval?.nativeRequestId || "",
+      receiptId: admitted.receipt?.receiptId || "",
+      attemptId: admitted.attemptId,
+      incarnationId: admitted.incarnationId,
+    };
+    if (!writeControl(task, message)) {
+      pushEvent(task, { type: "approval.updated", taskId: task.id, canonical: task.canonicalView, delivery: "dispatch_committed" });
+      return { kind: "dispatch_committed", code: "native_dispatch_unavailable", receipt: admitted.receipt, state: admitted.state };
+    }
+    const accepted = await queueCanonical(task, () => canonicalJournal.pipeAccepted(task, admitted));
+    if (accepted.kind !== "committed") return { kind: "dispatch_committed", code: accepted.code || "pipe_acceptance_failed", receipt: admitted.receipt, state: accepted.state || admitted.state };
+    pushEvent(task, { type: "approval.updated", taskId: task.id, canonical: task.canonicalView, delivery: "awaiting_confirmation" });
+    return { kind: "dispatched", receipt: accepted.state.receipts.find(row => row.receiptId === admitted.receipt.receiptId), state: accepted.state, approval: accepted.state.projection.approvals.find(row => row.approval.approvalId === input.approvalId) };
+  }
+
+  async function acknowledgeApproval(id, details = {}) {
+    const task = get(id);
+    if (!task) return { kind: "reject", code: "task_unavailable" };
+    if (task.journalState !== "ready") return { kind: "reject", code: "durable_transaction_required" };
+    const result = await queueCanonical(task, () => canonicalJournal.acknowledge(task, details));
+    if (result.kind === "acknowledged") {
+      pushEvent(task, { type: "approval.updated", taskId: task.id, canonical: task.canonicalView, delivery: "acknowledged" });
+    }
+    return result;
+  }
+
+  async function resumeAfterApproval(id, details = {}) {
+    const task = get(id);
+    if (!task) return { kind: "reject", code: "task_unavailable" };
+    const result = await queueCanonical(task, () => canonicalJournal.resume(task, details));
+    if (result.kind === "committed") {
+      setStatus(task, "running");
+      pushEvent(task, { type: "approval.updated", taskId: task.id, canonical: task.canonicalView, delivery: "resumed" });
+    }
+    return result;
+  }
+
+  async function eventsAfter(id, cursor, limit = 100) {
+    const task = get(id);
+    if (!task) return { kind: "reject", code: "task_unavailable" };
+    if (task.journalState !== "ready") return { kind: "reject", code: "durable_transaction_required" };
+    return canonicalJournal.eventsAfter(task, cursor, limit);
   }
 
   function list() {
@@ -965,7 +1349,7 @@ function createAgentTaskService({
     return task.stopPromise;
   }
 
-  function stream(req, res, id, after = -1, sseFrame, trySseWrite) {
+  function stream(req, res, id, after = -1, sseFrame, trySseWrite, options = {}) {
     const task = get(id);
     if (!task) return false;
     res.writeHead(200, {
@@ -1011,7 +1395,7 @@ function createAgentTaskService({
     // detached supervisor keeps the durable output tail. If a browser sends a
     // pre-restart Last-Event-ID that is ahead of our fresh journal, replay the
     // tail as a recovery snapshot instead of showing an apparently blank chat.
-    if (task.outputTail && (task.events.length === 0 || after >= task.eventSeq)) {
+    if (!options.suppressRecoveryOutput && task.outputTail && (task.events.length === 0 || after >= task.eventSeq)) {
       write({ type: "output", taskId: task.id, stream: "stdout", text: task.outputTail, replay: true, replace: true }, null, task.eventSeq);
     }
     if (["completed", "failed", "stopped", "orphaned", "detached"].includes(task.status)) {
@@ -1037,11 +1421,14 @@ function createAgentTaskService({
       if (taskIsActive(task)) stopping.push(stop(task.id));
     }
     persist();
-    return Promise.all(stopping);
+    return Promise.all(stopping).then(async result => {
+      try { await canonicalJournal.close(); } catch {}
+      return result;
+    });
   }
 
   return Object.freeze({
-    catalog: () => discoverConnectors({ piBin, env }),
+    catalog: () => discoverConnectors({ piBin, env, durableJournal: canonicalJournal.available, nativeHistoryConfigured, hostId }),
     open,
     get,
     approvals,
@@ -1051,6 +1438,10 @@ function createAgentTaskService({
     stop,
     stream,
     shutdown,
+    resolveApprovalDurable,
+    acknowledgeApproval,
+    resumeAfterApproval,
+    eventsAfter,
     publicTask,
     tasksFile,
   });

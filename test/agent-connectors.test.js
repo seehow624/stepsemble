@@ -313,6 +313,98 @@ setInterval(() => {}, 1000);`;
   }).code, "task_unavailable");
 });
 
+test("generic connector canonical session survives approval ACK, resume, and Host restart", { skip: process.platform === "win32" }, async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-agent-canonical-"));
+  const bin = path.join(temp, "bin");
+  const project = path.join(temp, "project");
+  const config = path.join(temp, "config");
+  fs.mkdirSync(bin); fs.mkdirSync(project);
+  const fakeAgent = path.join(bin, "fake-agent.cjs");
+  fs.writeFileSync(fakeAgent, `const sessionId = process.env.STEPSEMBLE_SESSION_ID;
+const runId = process.env.STEPSEMBLE_RUN_ID;
+const createdAt = new Date().toISOString();
+const event = { type: "approval.requested", sessionId, runId, nativeEventId: "native-canonical", createdAt,
+  payload: { approval: { approvalId: "approval-canonical", sessionId, runId, status: "pending", scope: "once",
+    expiresAt: new Date(Date.now() + 60000).toISOString(), request: { summary: "Canonical approval" }, createdAt,
+    nonce: "nonce-canonical", toolId: null, nativeRequestId: "native-request-canonical" } } };
+process.stdout.write("STEPSEMBLE_EVENT " + JSON.stringify(event) + "\\n");
+process.stdin.setEncoding("utf8");
+let buffer = "";
+process.stdin.on("data", chunk => {
+  buffer += chunk;
+  let newline;
+  while ((newline = buffer.indexOf("\\n")) >= 0) {
+    const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);
+    if (!line.startsWith("STEPSEMBLE_COMMAND ")) continue;
+    const command = JSON.parse(line.slice("STEPSEMBLE_COMMAND ".length));
+    const acknowledgement = { type: "approval.acknowledged", sessionId, runId,
+      approvalId: command.approvalId, nonce: command.nonce, nativeRequestId: command.nativeRequestId,
+      attemptId: command.attemptId, evidenceReference: "evidence-canonical", resumed: true,
+      createdAt: new Date().toISOString() };
+    process.stdout.write("STEPSEMBLE_ACK " + JSON.stringify(acknowledgement) + "\\n");
+  }
+});
+setInterval(() => {}, 1000);
+`);
+  if (process.platform === "win32") {
+    fs.writeFileSync(path.join(bin, "claude.cmd"), `@echo off\r\n"${process.execPath}" "${fakeAgent}"\r\n`);
+  } else {
+    fs.writeFileSync(path.join(bin, "claude"), `#!/bin/sh\nexec "${process.execPath}" "${fakeAgent}"\n`, { mode: 0o755 });
+  }
+  const options = {
+    appHome: temp,
+    configDir: config,
+    piBin: "/usr/local/bin/pi",
+    env: { PATH: [bin, path.dirname(process.execPath), process.env.PATH || ""].join(path.delimiter), HOME: temp },
+    validateCwd(value) { return value === project ? project : null; },
+  };
+  const first = createAgentTaskService(options);
+  let second;
+  t.after(async () => {
+    const owner = second || first;
+    await owner.shutdown();
+    if (second) await first.shutdown({ preserve: true });
+    await waitForOwnedProcesses(owner);
+    fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  const opened = await first.open({ agentId: "claude-code", cwd: project, name: "Canonical approval" });
+  await until(() => first.publicTask(first.get(opened.id)).canonical.pendingApprovals.length === 1, "canonical approval reaches the durable projection");
+  const before = first.publicTask(first.get(opened.id)).canonical;
+  assert.equal(before.runState, "waiting_approval");
+  assert.equal(before.approvals[0].approval.approvalId, "approval-canonical");
+  const decision = await first.resolveApprovalDurable(opened.id, {
+    approvalId: "approval-canonical", nonce: "nonce-canonical", decision: "approved", scope: "once", idempotencyKey: "canonical-key",
+  });
+  assert.equal(decision.kind, "dispatched");
+  assert.equal(decision.receipt.state, "awaiting_confirmation");
+  await until(() => {
+    const canonical = first.publicTask(first.get(opened.id)).canonical;
+    return canonical.runState === "running" && canonical.approvals[0]?.nativeAcknowledgement?.evidence?.reference === "evidence-canonical";
+  }, "native ACK settles the receipt and resumes the canonical run");
+  const settled = first.publicTask(first.get(opened.id)).canonical;
+  const persisted = JSON.parse(fs.readFileSync(path.join(config, "agent-tasks.json"), "utf8")).tasks.find(row => row.id === opened.id);
+  assert.equal(persisted.sessionId, settled.sessionId, "private reconnect state keeps the canonical session id");
+  assert.equal(persisted.runId, settled.runId, "private reconnect state keeps the canonical run id");
+  await first.shutdown({ preserve: true });
+
+  second = createAgentTaskService(options);
+  await until(() => {
+    const task = second.get(opened.id);
+    const canonical = task && second.publicTask(task).canonical;
+    return canonical?.approvals?.[0]?.nativeAcknowledgement?.evidence?.reference === "evidence-canonical";
+  }, "restarted Host reopens the durable approval and ACK projection", 8000);
+  const restored = second.publicTask(second.get(opened.id)).canonical;
+  assert.equal(restored.sessionId, settled.sessionId);
+  assert.equal(restored.runId, settled.runId);
+  assert.equal(restored.runState, "running");
+  assert.equal(restored.pendingApprovals.length, 0);
+  const journalEvents = await second.eventsAfter(opened.id, { sessionId: restored.sessionId, generation: restored.cursor.generation, sequence: restored.historyFloor }, 100);
+  assert.equal(journalEvents.kind, "events");
+  assert.ok(journalEvents.events.some(event => event.type === "approval.acknowledged"));
+  await second.stop(opened.id);
+});
+
 test("supervisor text snapshot cannot consume unreplayed structured observations", async t => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-observation-cursor-"));
   const canary = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });

@@ -1,4 +1,4 @@
-/* stepsemble v3.0.8 — Ink & Ivory / English-first localization */
+/* stepsemble v3.0.9 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -1859,6 +1859,12 @@ html.reduced-motion .agent-task-row.running.reconnecting .agent-task-dot { anima
 .agent-task-center-activity { color: var(--pine-soft); font-size: 10px; white-space: nowrap; }
 .agent-task-center-stop { min-height: 29px; padding: 0 9px; font-size: 11px; }
 .agent-task-center-empty { margin: 24px 0; color: var(--pine-soft); font-size: 12px; text-align: center; }
+.agent-approval-card { display: grid; gap: 7px; min-width: min(100%, 420px); padding: 12px 13px; border: 1px solid color-mix(in srgb, var(--accent) 44%, var(--line)); border-radius: 13px; background: color-mix(in srgb, var(--accent) 7%, var(--paper)); }
+.agent-approval-card strong { font-size: 12px; }
+.agent-approval-card p { margin: 0; color: var(--ink-soft); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-approval-card small { color: var(--pine-soft); font-size: 10.5px; }
+.agent-approval-actions { display: flex; gap: 7px; margin-top: 2px; }
+.agent-approval-actions .btn { min-height: 29px; padding: 0 11px; font-size: 11px; }
 html.reduced-motion .agent-task-center-row.running.reconnecting .agent-task-dot { animation: none; }
 
 @media (max-width: 499px) {

@@ -22,7 +22,7 @@ const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { windowsLaunch } = require("./windows-launch");
 const { createLineDecoder, writeBounded } = require("./stream-safety");
-const { parseConnectorProtocolEventLine } = require("./connector-protocol");
+const { parseConnectorProtocolEventLine, parseConnectorAcknowledgementLine, STRUCTURED_ACK_PREFIX } = require("./connector-protocol");
 
 const MAX_OUTPUT_TAIL = 64 * 1024;
 const MAX_EVENTS = 1200;
@@ -94,6 +94,9 @@ const socketPath = String(args.socket || "").trim();
 const transport = args.transport === "pty" ? "pty" : "pipe";
 const ptyPython = args["pty-python"] ? requiredAbsolute(args["pty-python"], "pty-python") : "";
 const ptyBridge = args["pty-bridge"] ? requiredAbsolute(args["pty-bridge"], "pty-bridge") : "";
+const canonicalSessionId = safeText(args["session-id"], 128);
+const canonicalRunId = safeText(args["run-id"], 128);
+const canonicalIncarnationId = safeText(args["incarnation-id"], 128);
 const taskId = id || "";
 
 if (!taskId || !agentId || !socketPath) {
@@ -249,6 +252,8 @@ function inspectStructuredOutput(chunk) {
     const normalized = line.endsWith("\r") ? line.slice(0, -1) : line;
     const event = parseConnectorProtocolEventLine(normalized, { taskId, agentId });
     if (event) pushEvent(event);
+    const acknowledgement = parseConnectorAcknowledgementLine(normalized, { taskId, agentId });
+    if (acknowledgement) pushEvent(acknowledgement);
     offset = newline + 1;
   }
 }
@@ -297,10 +302,9 @@ function finishProcess(code, signal) {
 
 function scheduleExit(delayMs = 250) {
   if (terminalTimer) clearTimeout(terminalTimer);
-  // Persisted metadata and the bounded output tail are the recovery snapshot;
-  // both the supervisor and web-server event journals are memory-only. Release
-  // the local socket promptly once the child exits so a later browser open can
-  // read the snapshot without needing this process.
+  // The supervisor metadata and bounded output tail are only a reconnect
+  // snapshot. Canonical session/approval history is owned by the Web host's
+  // durable journal, so release this local socket promptly after exit.
   terminalTimer = setTimeout(() => closeAndExit(0), Math.max(25, delayMs));
   terminalTimer.unref?.();
 }
@@ -334,6 +338,9 @@ function startChild() {
         TERM: process.env.TERM || "xterm-256color",
         STEPSEMBLE_AGENT_ID: agentId,
         STEPSEMBLE_TASK_ID: taskId,
+        ...(canonicalSessionId ? { STEPSEMBLE_SESSION_ID: canonicalSessionId } : {}),
+        ...(canonicalRunId ? { STEPSEMBLE_RUN_ID: canonicalRunId } : {}),
+        ...(canonicalIncarnationId ? { STEPSEMBLE_INCARNATION_ID: canonicalIncarnationId } : {}),
         PI_HARBOR_AGENT_ID: agentId,
         PI_HARBOR_TASK_ID: taskId,
       },
@@ -409,6 +416,35 @@ function handleCommand(socket, message) {
       writeLine(socket, { type: "sent", taskId });
     } catch (sendError) {
       writeLine(socket, { type: "error", error: "Agent task input is unavailable", detail: sendError.message });
+    }
+    return;
+  }
+  if (message.op === "approval.resolve") {
+    const payload = {
+      type: "approval.resolve",
+      sessionId: canonicalSessionId || null,
+      runId: canonicalRunId || null,
+      approvalId: safeText(message.approvalId, 128),
+      nonce: safeText(message.nonce, 128),
+      nativeRequestId: safeText(message.nativeRequestId, 512),
+      decision: message.decision === "approved" ? "approved" : message.decision === "denied" ? "denied" : null,
+      scope: ["once", "run", "session"].includes(message.scope) ? message.scope : null,
+      attemptId: safeText(message.attemptId, 128),
+      incarnationId: safeText(message.incarnationId, 128),
+    };
+    if (!payload.approvalId || !payload.nonce || !payload.nativeRequestId || !payload.decision || !payload.scope
+      || !payload.attemptId || !payload.incarnationId || stopRequested || !child || child.exitCode !== null || !child.stdin?.writable) {
+      writeLine(socket, { type: "error", error: "Agent approval channel is unavailable" });
+      return;
+    }
+    try {
+      // Structured adapters consume this line and answer with STEPSEMBLE_ACK.
+      // Interactive CLIs may display it as ordinary input; without an ACK the
+      // durable receipt remains awaiting_confirmation and is never auto-resumed.
+      child.stdin.write(`${STRUCTURED_ACK_PREFIX.replace("ACK", "COMMAND")}${JSON.stringify(payload)}\n`);
+      writeLine(socket, { type: "approval_dispatched", taskId, approvalId: payload.approvalId, attemptId: payload.attemptId });
+    } catch (sendError) {
+      writeLine(socket, { type: "error", error: "Agent approval channel is unavailable", detail: sendError.message });
     }
     return;
   }

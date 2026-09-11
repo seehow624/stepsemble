@@ -1,17 +1,59 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.95（generic CLI bounded non-authoritative replay；atomic C2／C3 仍待）
+> 計畫版本：1.98（generic cross-platform journal boundary／capability-aware ACK contract；native parity 仍分開驗收）
 > 最後更新：2026-09-11
-> 當前產品基線：Stepsemble 3.0.8（由 Pi Harbor 2.13.2 相容遷移）
-> Mini／MacBook Pro 啟用版本：3.0.8／source `3bae06c`（2026-09-09 公開 stable release）
+> 當前產品基線：Stepsemble 3.0.9（由 Pi Harbor 2.13.2 相容遷移）
+> Mini／MacBook Pro 啟用版本：3.0.9／source `待本版 tag`（本次完成後由 stable updater 取得）
 > MBP 於 2026-09-10 上線後由既有 updater 自行完成 3.0.7→3.0.8，未經人工介入
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
 ## 文件用途與回復方法
 
-**目前任務1.96（2026-09-11，Jerome 要求 C2／C3 全部做好）**：前一輪已公開的
+**目前任務1.98（2026-09-11，C2／C3 缺口收尾與正式發布）**：generic CLI journal 現在在
+Windows 也會先以 PowerShell 建立 owner-only DACL，再開啟 SQLite；資料夾本身也鎖定，讓
+後續 `-wal`／`-shm` 檔案不能繼承寬鬆權限。若 PowerShell、owner SID 或 SQLite worker
+無法驗證，服務會保留 bounded snapshot 並從 catalog 移除 durable 能力，不把降級當成完成。
+POSIX 的 owner／mode／canonical-path gate 維持不變。
+
+Agent Hub 的 capability DTO 現在分開標示 `native_full`、`native_readonly`、
+`canonical_bounded`，以及 `structured_ack_required`。Claude/Codex 只有在明確設定且成功
+驗證 native history source group 時才標成 prepared read-only；OpenCode/Grok 沒有穩定、可
+驗證的 upstream store／subagent contract，維持 bounded canonical journal。generic approval
+的 `decision` 是 durable Host fact，但 `acknowledgement`／`resume` 不再因有 SQLite 就被
+宣稱可用，必須收到 exact `STEPSEMBLE_ACK` evidence。
+
+跨裝置不複製 journal，也不把另一台機器的檔案掛進本機：canonical journal 保留在產生它的
+Host，已認證的 dedicated peer relay 透過 `/r/<machineId>/api/agent-events` 讀取同一 Host
+的 cursor history。公開 DTO 帶 `hostId`、`journalScope=host-local` 與
+`journalTransport=local+dedicated-peer-relay`，讓 Web 不會把跨機讀取誤畫成共享資料庫。
+
+本版正式目標為 3.0.9。外部 CLI 未提供 Stepsemble ACK、原生完整 transcript 或 subagent
+API 的情況仍是 capability boundary，不能由 Stepsemble 偽造；這是安全的明確限制，不是
+未處理的 silent failure。
+
+**目前任務1.97（2026-09-11，C2／C3 收斂驗收）**：generic CLI 在 POSIX Host 已接上穩定
+`sessionId`／`runId`／`nativeRunId` 與 SQLite-backed canonical journal。建立、啟動、輸出、輸入、
+approval request、terminal、orphan 與 resume 都以 Host-owned transaction 寫入同一條 durable
+event log；公開 task view 只投影安全欄位，SSE 仍是即時通知而不是唯一歷史來源。新增
+`/api/agent-events` 有界 cursor 分頁與 Web 端 canonical history 載入，重連或 Host restart
+後會先讀 journal，再接 bounded SSE tail；history floor／gap 會明示，不把有限 replay 冒稱完整
+transcript。
+
+approval 現在是明確的 decision → dispatch → pipe accepted → native ACK → resume 邊界：精確
+session/run/approval/nonce/request/attempt/evidence correlation 由 journal 驗證；只有 child
+回傳 `STEPSEMBLE_ACK` 且證據完全相符，才會把 approval 標為 acknowledged 並恢復 run。沒有
+這個 Stepsemble structured ACK 的官方 CLI 會安全停在 `awaiting_confirmation`，不自動猜測或
+重送。Host restart regression、approval ACK/resume、terminal cleanup、bounded output 與完整
+Web 測試均已通過；本次完整 Node suite 為 1244 pass／2 skip／0 fail。
+
+這是 C3 generic POSIX boundary 的完成，不等於所有 harness 的 native parity：Claude/Codex/
+OpenCode/Grok 的原生 session store、完整歷史／subagent 名稱、跨機共享 journal，以及 Windows
+的 durable journal 仍按各自 capability 分開驗收。Windows 會 fail-closed 並從 catalog 移除
+未提供的 durable 能力；正式產品仍為 3.0.8，本輪不發布、不部署、不重啟兩台服務。
+
+**前一任務1.96（2026-09-11，Jerome 要求 C2／C3 全部做好）**：前一輪已公開的
 generic bounded replay metadata 現在接到 Web 對話畫面。generic task 的 SSE `connected`
 若回報 `replayGap:true`，前端會顯示持續性的「較早活動未保留」提示；跨重連只會保留這個
 事實，不會被稍後沒有 gap 的游標清掉，切換到另一個 task／Pi session 才重置。前端同時
