@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.0.16
+
+Show every agent conversation in the main Sessions list.
+
+- Merge Pi history with native and generic Agent Hub task records in the main
+  list, including OpenCode sessions and their agent logos.
+- Keep stable cross-agent keys for selection and pins, while retaining Pi-only
+  archive/rename actions for Pi files.
+- Open agent rows through their native or generic session route and keep the
+  list refreshed when task discovery completes.
+
+Validation: cross-agent session-list tests, full smoke suite, and live Mac mini
+OpenCode session verification.
+
 ## 3.0.15
 
 Conversation catalog and Agent Hub layout fix.

@@ -1,7 +1,7 @@
-/* stepsemble v3.0.15 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.16 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.15";
+const CLIENT_APP_VERSION = "3.0.16";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -2088,6 +2088,12 @@ async function refreshAgentTasks() {
     conversationSourceState.tasks = "ready";
     renderAgentHub();
     renderAgentTaskCenter();
+    // The main Sessions list is cross-agent too. Re-render after the task
+    // snapshot arrives; the Pi history request intentionally resolves first.
+    if (typeof sessionListRecords === "function") {
+      if (el.sessionCount) el.sessionCount.textContent = String(sessionListRecords().length);
+      if (typeof renderSessionList === "function") renderSessionList(el.search?.value || "");
+    }
     updateConversationCatalog();
     syncAgentTaskPolling();
     // Restore only after a successful task snapshot; doing this before the
@@ -2203,7 +2209,7 @@ async function refreshSessions({ refreshTasks = true } = {}) {
     const currentSummary = sessionsCache.find(session => session.file === currentSessionFile);
     if (currentSummary && !el.viewChat.classList.contains("hidden")) setChatTitle(sessionDisplayTitle(currentSummary));
     temporarySessionCount = Math.max(0, Number(data.temporarySessionCount) || 0);
-    if (el.sessionCount) el.sessionCount.textContent = String(sessionsCache.length);
+    if (el.sessionCount) el.sessionCount.textContent = String(typeof sessionListRecords === "function" ? sessionListRecords().length : sessionsCache.length);
     renderTemporarySessionFilter(temporarySessionCount);
     renderSessionList(el.search.value);
     syncSessionListPolling();
@@ -2420,6 +2426,76 @@ function renderTemporarySessionFilter(count = temporarySessionCount) {
   }
 }
 
+// The main Sessions list is a cross-agent index. Pi history still comes from
+// the history endpoint, while native/generic agent conversations come from the
+// task snapshot. Keep a stable per-agent key so pins and selection never
+// collide with a Pi file path or with another Host.
+function sessionListTaskId(session) {
+  return String(session?.id || session?.taskId || "").trim();
+}
+
+function sessionListIsAgentTask(session) {
+  return String(session?.agentId || "pi") !== "pi";
+}
+
+function sessionListKey(session) {
+  if (typeof session === "string") return session;
+  if (!sessionListIsAgentTask(session)) return String(session?.file || "");
+  const agentId = String(session?.agentId || "agent").trim() || "agent";
+  const taskId = sessionListTaskId(session);
+  return taskId ? `agent:${agentId}:${taskId}` : "";
+}
+
+function currentSessionListKey() {
+  if (currentAgentTaskId) {
+    const agentId = String(rpc?.agentId || currentAgentTaskId.split(":", 1)[0] || "agent");
+    return sessionListKey({ agentId, id: currentAgentTaskId });
+  }
+  return String(currentSessionFile || "");
+}
+
+function sessionListTime(session) {
+  return Number(session?.mtimeMs || session?.lastActivityAt || session?.startedAt) || 0;
+}
+
+function sessionListTitle(session) {
+  if (!sessionListIsAgentTask(session)) return sessionDisplayTitle(session);
+  return stripMd(session?.name || agentConnectorLabel(session?.agentId) || "Agent").replace(/[\r\n]+/g, " ") || "Agent";
+}
+
+function sessionListRecords() {
+  const records = [...sessionsCache];
+  const piFiles = new Set(records.map((session) => String(session?.file || "")).filter(Boolean));
+  const seenTaskIds = new Set();
+  for (const task of agentTasks) {
+    const taskId = sessionListTaskId(task);
+    const agentId = String(task?.agentId || "pi");
+    const taskIdentity = `${agentId}:${taskId}`;
+    if (!taskId || seenTaskIds.has(taskIdentity)) continue;
+    seenTaskIds.add(taskIdentity);
+    const file = String(task?.file || task?.sessionFile || "");
+    if (agentId === "pi") {
+      // A Pi task is already represented by its native history row. If it is
+      // not there yet, keep the task visible so a just-created run is never
+      // missing from the main list while the history index catches up.
+      if (file && piFiles.has(file)) {
+        const existing = records.find((session) => session.file === file);
+        if (existing && agentTaskIsRunning(task)) {
+          existing.isRunning = true;
+          existing.runStartedAt ||= task.startedAt;
+        }
+        continue;
+      }
+      if (!file) continue;
+      records.push({ ...task, id: taskId, file, agentId: "pi" });
+      piFiles.add(file);
+      continue;
+    }
+    records.push({ ...task, id: taskId, taskId, agentId, __agentTask: true });
+  }
+  return records;
+}
+
 function projectIconButton(icon, title, aria) {
   const button = document.createElement("button");
   button.type = "button";
@@ -2431,8 +2507,8 @@ function projectIconButton(icon, title, aria) {
 }
 
 function sessionIsPinned(session) {
-  const file = typeof session === "string" ? session : session?.file;
-  return !!file && Array.isArray(settings.sessionPins) && settings.sessionPins.includes(file);
+  const key = sessionListKey(session);
+  return !!key && Array.isArray(settings.sessionPins) && settings.sessionPins.includes(key);
 }
 
 function sessionIconButton(icon, title) {
@@ -2452,7 +2528,7 @@ function closeSwipedSessionItems(except = null) {
 }
 
 function updateNewProjectAffordance() {
-  const hasSessions = sessionsCache.length > 0;
+  const hasSessions = sessionListRecords().length > 0;
   el.viewList?.classList.toggle("has-sessions", hasSessions);
   const newProjectLabel = window.stepsembleI18n?.t("New project") || "New project";
   if (el.btnNewProject) {
@@ -2496,8 +2572,11 @@ function updateSessionSelection() {
   // Opening a chat changes selection, not the list's content/order. Keep the
   // existing rows, keyboard focus and scroll position instead of rebuilding
   // every visible row in the input event's critical path.
+  const selectedKey = typeof currentSessionListKey === "function" ? currentSessionListKey() : String(currentSessionFile || "");
   for (const row of el.sessionList.querySelectorAll(".session-item")) {
-    const selected = row.dataset.sessionFile === currentSessionFile;
+    const selected = row.dataset.sessionKey
+      ? row.dataset.sessionKey === selectedKey
+      : row.dataset.sessionFile === currentSessionFile;
     row.classList.toggle("selected", selected);
     const button = row.querySelector(".session-item-main");
     if (selected) button?.setAttribute("aria-current", "true");
@@ -2508,29 +2587,39 @@ function updateSessionSelection() {
 function renderSessionList(q) {
   updateNewProjectAffordance();
   const query = (q || "").trim().toLowerCase();
-  const list = sessionsCache.filter(s => !query ||
-    (s.name || "").toLowerCase().includes(query) ||
+  const records = sessionListRecords();
+  const list = records.filter(s => !query ||
+    sessionListTitle(s).toLowerCase().includes(query) ||
     (s.firstMessage || "").toLowerCase().includes(query) ||
     (s.preview || "").toLowerCase().includes(query) ||
-    (s.cwd || "").toLowerCase().includes(query));
-  const orderedList = [...list].sort((a, b) => Number(sessionIsPinned(b)) - Number(sessionIsPinned(a)) || (Number(b.mtimeMs) || 0) - (Number(a.mtimeMs) || 0));
+    (s.cwd || "").toLowerCase().includes(query) ||
+    agentConnectorLabel(s.agentId).toLowerCase().includes(query));
+  const orderedList = [...list].sort((a, b) => Number(sessionIsPinned(b)) - Number(sessionIsPinned(a)) || sessionListTime(b) - sessionListTime(a));
   const visibleList = settings.groupByProject ? orderedList : orderedList.slice(0, sessionRenderLimit);
   el.sessionList.classList.toggle("grouped", !!settings.groupByProject);
   el.sessionList.innerHTML = "";
   el.listEmpty.classList.toggle("hidden", list.length > 0);
 
   const makeItem = (s) => {
+    const isAgentTask = sessionListIsAgentTask(s);
+    const recordKey = sessionListKey(s);
+    const selected = recordKey === currentSessionListKey();
     const li = document.createElement("li");
-    li.className = "session-item" + (s.file === currentSessionFile ? " selected" : "");
-    li.dataset.sessionFile = s.file;
-    const rawName = sessionDisplayTitle(s);
+    li.className = "session-item" + (selected ? " selected" : "");
+    li.dataset.sessionKey = recordKey;
+    // Keep the legacy data attribute for Pi-specific automation and CSS.
+    if (s.file) li.dataset.sessionFile = s.file;
+    const rawName = sessionListTitle(s);
     const name = stripMd(rawName).slice(0, 70) || (window.stepsembleI18n?.t("(Untitled)") || "(Untitled)");
-    // This list is populated by the Pi sessions endpoint, including legacy rows.
     const sessionAgentId = s.agentId ?? "pi";
-    const relative = window.stepsembleSessionUtils.compactRelativeTime(s.mtimeMs);
-    const when = relative || (s.mtimeMs ? tKey("sessions.justNow") : "");
+    const mtimeMs = sessionListTime(s);
+    const relative = isAgentTask
+      ? window.stepsembleSessionUtils.compactRelativeTime(mtimeMs)
+      : window.stepsembleSessionUtils.compactRelativeTime(s.mtimeMs);
+    const when = relative || (mtimeMs ? tKey("sessions.justNow") : "");
     const usage = [
       StepsembleAgentIdentity.lookup(sessionAgentId).label,
+      isAgentTask && s.status ? agentStatusText(s.status) : "",
       when,
       s.tokens ? `${fmtTokens(s.tokens)} tok` : "",
       s.cost ? "$" + s.cost.toFixed(2) : "",
@@ -2549,14 +2638,15 @@ function renderSessionList(q) {
     const meta = li.querySelector(".s-meta");
     // A session that is still working outranks its token/cost summary: after
     // a reload this row is the only place that says the host is busy.
-    if (s.isRunning) {
+    const isRunning = !!s.isRunning || (isAgentTask && agentTaskIsRunning(s));
+    if (isRunning) {
       li.classList.add("session-running");
       const dot = document.createElement("span");
       dot.className = "session-running-dot";
       dot.setAttribute("aria-hidden", "true");
       li.querySelector(".session-item-copy").prepend(dot);
       meta.classList.add("session-running-meta");
-      meta.dataset.runStartedAt = s.runStartedAt ? String(s.runStartedAt) : "";
+      meta.dataset.runStartedAt = s.runStartedAt ? String(s.runStartedAt) : (s.startedAt ? String(s.startedAt) : "");
       meta.dataset.runStuck = s.runStuck ? "1" : "";
       meta.dataset.usage = usage;
       renderSessionRunMeta(meta, usage);
@@ -2575,8 +2665,9 @@ function renderSessionList(q) {
     }
     const itemActions = li.querySelector(".session-item-actions");
     const pinButton = sessionIconButton("i-pin", projectActionText(pinned ? "Unpin" : "Pin"));
-    const archiveButton = sessionIconButton("i-archive", projectActionText("Archive chats"));
-    itemActions.append(pinButton, archiveButton);
+    itemActions.append(pinButton);
+    const archiveButton = isAgentTask ? null : sessionIconButton("i-archive", projectActionText("Archive chats"));
+    if (archiveButton) itemActions.appendChild(archiveButton);
     const stopItemAction = (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -2584,13 +2675,13 @@ function renderSessionList(q) {
     pinButton.addEventListener("click", (event) => {
       stopItemAction(event);
       const pins = new Set(settings.sessionPins || []);
-      if (pins.has(s.file)) pins.delete(s.file);
-      else pins.add(s.file);
+      if (pins.has(recordKey)) pins.delete(recordKey);
+      else pins.add(recordKey);
       settings = saveSettings({ sessionPins: [...pins] });
       closeSwipedSessionItems();
       renderSessionList(el.search.value);
     });
-    archiveButton.addEventListener("click", async (event) => {
+    if (archiveButton) archiveButton.addEventListener("click", async (event) => {
       stopItemAction(event);
       try {
         const result = await post("/api/session-action", { action: "archive", file: s.file });
@@ -2612,36 +2703,38 @@ function renderSessionList(q) {
       }
     });
     const sessionMain = li.querySelector(".session-item-main");
-    if (s.file === currentSessionFile) sessionMain?.setAttribute("aria-current", "true");
+    if (selected) sessionMain?.setAttribute("aria-current", "true");
     let lpTimer = null, longPressed = false, swipeConsumed = false, touchStartX = 0, touchStartY = 0;
-    li.addEventListener("touchstart", (event) => {
-      if (event.target.closest(".session-item-action")) return;
-      const touch = event.changedTouches?.[0];
-      touchStartX = touch?.clientX || 0;
-      touchStartY = touch?.clientY || 0;
-      swipeConsumed = false;
-      longPressed = false;
-      lpTimer = setTimeout(() => { longPressed = true; openSessionActions(s); }, 550);
-    }, { passive: true });
-    li.addEventListener("touchmove", (event) => {
-      const touch = event.changedTouches?.[0];
-      if (!touch) return;
-      const dx = touchStartX - touch.clientX;
-      const dy = touchStartY - touch.clientY;
-      if (Math.abs(dx) < 18 || Math.abs(dx) <= Math.abs(dy)) return;
-      clearTimeout(lpTimer);
-      swipeConsumed = true;
-      if (dx > 26) {
-        closeSwipedSessionItems(li);
-        li.classList.add("swiped");
-      } else if (dx < -26) {
-        li.classList.remove("swiped");
-      }
-      event.preventDefault();
-    }, { passive: false });
-    li.addEventListener("touchend", () => clearTimeout(lpTimer));
-    li.addEventListener("touchcancel", () => clearTimeout(lpTimer));
-    li.addEventListener("contextmenu", (e) => { e.preventDefault(); openSessionActions(s); });
+    if (!isAgentTask) {
+      li.addEventListener("touchstart", (event) => {
+        if (event.target.closest(".session-item-action")) return;
+        const touch = event.changedTouches?.[0];
+        touchStartX = touch?.clientX || 0;
+        touchStartY = touch?.clientY || 0;
+        swipeConsumed = false;
+        longPressed = false;
+        lpTimer = setTimeout(() => { longPressed = true; openSessionActions(s); }, 550);
+      }, { passive: true });
+      li.addEventListener("touchmove", (event) => {
+        const touch = event.changedTouches?.[0];
+        if (!touch) return;
+        const dx = touchStartX - touch.clientX;
+        const dy = touchStartY - touch.clientY;
+        if (Math.abs(dx) < 18 || Math.abs(dx) <= Math.abs(dy)) return;
+        clearTimeout(lpTimer);
+        swipeConsumed = true;
+        if (dx > 26) {
+          closeSwipedSessionItems(li);
+          li.classList.add("swiped");
+        } else if (dx < -26) {
+          li.classList.remove("swiped");
+        }
+        event.preventDefault();
+      }, { passive: false });
+      li.addEventListener("touchend", () => clearTimeout(lpTimer));
+      li.addEventListener("touchcancel", () => clearTimeout(lpTimer));
+      li.addEventListener("contextmenu", (e) => { e.preventDefault(); openSessionActions(s); });
+    }
     sessionMain?.addEventListener("click", () => {
       if (swipeConsumed) {
         swipeConsumed = false;
@@ -2651,12 +2744,16 @@ function renderSessionList(q) {
         li.classList.remove("swiped");
         return;
       }
-      if (!longPressed) openExisting(s);
+      if (!longPressed) {
+        if (isAgentTask) void openAgentTaskFromHub(s);
+        else void openExisting(s);
+      }
     });
     sessionMain?.addEventListener("keydown", (event) => {
       if ((event.key === "Enter" || event.key === " ") && !longPressed) {
         event.preventDefault();
-        openExisting(s);
+        if (isAgentTask) void openAgentTaskFromHub(s);
+        else void openExisting(s);
       }
     });
     return li;
@@ -2706,7 +2803,7 @@ function renderSessionList(q) {
       pinnedGroup.append(pinnedHeader, pinnedChildren);
       el.sessionList.appendChild(pinnedGroup);
     }
-    const newest = (items) => Math.max(...items.map(x => Number(x.mtimeMs) || 0));
+    const newest = (items) => Math.max(...items.map(sessionListTime));
     const sorted = [...groups.entries()]
       .filter(([cwd]) => !projectIsRemoved(cwd) || !!query)
       .sort((a, b) => {
@@ -2716,7 +2813,7 @@ function renderSessionList(q) {
     for (const [cwd, items] of sorted) {
       const collapsed = collapsedProjects.has(cwd);
       const expanded = expandedProjectSessions.has(cwd);
-      const orderedItems = [...items].sort((a, b) => Number(sessionIsPinned(b)) - Number(sessionIsPinned(a)) || (Number(b.mtimeMs) || 0) - (Number(a.mtimeMs) || 0));
+      const orderedItems = [...items].sort((a, b) => Number(sessionIsPinned(b)) - Number(sessionIsPinned(a)) || sessionListTime(b) - sessionListTime(a));
       const visibleItems = expanded ? orderedItems : orderedItems.slice(0, PROJECT_SESSION_PREVIEW_LIMIT);
       const group = document.createElement("li");
       group.className = "project-group" + (collapsed ? " collapsed" : "");
@@ -2876,7 +2973,7 @@ $("btn-conversations")?.addEventListener("click", openConversationCatalog);
 el.showTemporarySessions?.addEventListener("change", () => {
   settings = saveSettings({ showTemporarySessions: el.showTemporarySessions.checked });
   if (!settings.showTemporarySessions) sessionsCache = sessionsCache.filter((session) => !session.isTemporary);
-  if (el.sessionCount) el.sessionCount.textContent = String(sessionsCache.length);
+  if (el.sessionCount) el.sessionCount.textContent = String(sessionListRecords().length);
   renderTemporarySessionFilter(temporarySessionCount);
   renderSessionList(el.search.value);
   void refreshSessions();
@@ -3163,6 +3260,7 @@ async function openExisting(s) {
   resetProjectChanges();
   resetComposerSummary();
   currentSessionFile = s.file;
+  currentAgentTaskId = null;
   currentSessionCwd = s.cwd;
   clearLastAgentTask();
   rememberLastChat(s.file);
@@ -3641,6 +3739,7 @@ async function startNew(cwd, name, agentId = "pi", worktree = false, signal = nu
   resetProjectChanges();
   resetComposerSummary();
   currentSessionFile = null;
+  currentAgentTaskId = null;
   _lastMsgDate = null;
   updateSessionSelection();
   lastUserText = "";
@@ -4267,6 +4366,7 @@ async function openOpenCodeNativeTask(task, generationOverride = null) {
   resetComposerSummary();
   currentSessionFile = null;
   currentAgentTaskId = `opencode:${nativeSessionId}`;
+  updateSessionSelection();
   _lastMsgDate = null;
   lastUserText = "";
   currentSessionCwd = cwd;
@@ -4337,6 +4437,7 @@ async function openGenericTask(task) {
   resetComposerSummary();
   currentSessionFile = null;
   currentAgentTaskId = String(task.id || task.taskId || "");
+  updateSessionSelection();
   _lastMsgDate = null;
   lastUserText = "";
   currentSessionCwd = cwd;
