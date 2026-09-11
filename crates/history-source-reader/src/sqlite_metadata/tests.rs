@@ -664,6 +664,13 @@ fn wal_writer_commits_while_reader_sees_one_consistent_transaction() {
 #[test]
 fn a_read_lock_can_delay_checkpoint_but_is_not_retained_between_requests() {
     let f = Fixture::new();
+    // The assertion is about the reader's WAL lock, not host disk-flush
+    // throughput. Keep the writer setup deterministic on slower CI runners so
+    // its one update cannot consume the reader's deliberately short 250ms
+    // transaction budget before the checkpoint probe runs.
+    f.writer
+        .execute_batch("PRAGMA synchronous=OFF; PRAGMA wal_autocheckpoint=0;")
+        .unwrap();
     capture_with_hook(f.reader(), "0.153.4", ID, flag(), |_, _| {
         // The update must actually land, so let it wait for the lock. Only the
         // checkpoint probe below needs a zero timeout, since being blocked is
