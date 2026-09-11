@@ -188,6 +188,17 @@ inbox after the browser is closed. Select it again to replay the bounded output
 journal. CLI connectors must already be installed on the selected host; an
 uninstalled connector is shown but cannot be selected.
 
+OpenCode also has an opt-in native-server path. Start `opencode serve` on
+loopback and set `STEPSEMBLE_OPENCODE_SERVER_URL` (plus the optional Basic Auth
+variables) before launching Stepsemble. After a health/session probe passes,
+New project and the task center use OpenCode's native sessions, messages,
+child sessions, status, and permission response API. The selected project
+folder is passed through OpenCode's directory-scoped API, so the native
+session is created in the folder shown in Stepsemble rather than silently
+using the server's startup directory. A failed probe safely falls back to the
+normal CLI connector. See
+[`docs/agent-capability-matrix.md`](docs/agent-capability-matrix.md).
+
 Stepsemble launches each installed CLI inside the same local user environment.
 It does not copy, export, rewrite, or upload that CLI's OAuth tokens or
 subscription credentials, and it does not silently replace an official
@@ -203,13 +214,13 @@ or supervisor itself is killed, the journal marks the task as interrupted rather
 than claiming that it is still running. The Agent Hub **View all** task center
 provides search, status filters, replay, and one-tap stop controls.
 
-Today, those generic connectors are still terminal integrations: their
-replayable Stepsemble journal is not yet the same thing as each vendor's full
-native session, structured tool history, or public/native approval and resume
-parity. A Host-local, observation-only approval boundary is now covered by the
-contract tests, but it has no UI, native delivery, or durable replay. Full parity
-is an explicit, contract-tested milestone in the
-[cross-platform plan](docs/platform-plan.md), not a current claim.
+Claude Code, Codex CLI, and Grok Build remain terminal integrations unless their
+explicit native source/adapter gate is enabled. Their replayable Stepsemble
+journal is not silently presented as each vendor's full native session or
+approval/resume parity. OpenCode's native path is separately gated by the
+official server probe and still uses reconcile evidence after restart. Full
+parity is an explicit, contract-tested milestone in the
+[cross-platform plan](docs/platform-plan.md), not a brand-level promise.
 
 Device aliases only affect the interface. They do not rename the operating
 system computer. Temporary Sub Agent sessions are hidden by default and can be

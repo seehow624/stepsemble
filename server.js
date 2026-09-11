@@ -34,6 +34,7 @@ const { negotiate, protocolError } = require("./server/platform-protocol");
 const { createGitChangesService } = require("./server/git-changes");
 const { createPiResourcesService } = require("./server/pi-resources");
 const { createAgentTaskService, resolveCommand } = require("./server/agent-connectors");
+const { createOpenCodeNativeAdapter } = require("./server/opencode-native-adapter");
 const { createClaudeAuthService, handleClaudeAuthRequest } = require("./server/claude-auth");
 const { createDesktopClaudeClient } = require("./server/claude-desktop-client");
 const { loadHistoryConfig, createHistoryHost, disabledHistoryHost } = require("./server/history-host");
@@ -66,7 +67,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.11";
+const APP_VERSION = "3.0.12";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1683,6 +1684,17 @@ function projectDirectory(cwd) {
   return real;
 }
 
+function openCodeDirectory(cwd) {
+  if (cwd === null || cwd === undefined || cwd === "") return null;
+  const real = projectDirectory(cwd);
+  if (!real) {
+    const error = new Error("OpenCode directory is not an allowed project folder");
+    error.statusCode = 400;
+    throw error;
+  }
+  return real;
+}
+
 const gitChanges = createGitChangesService({ validateRepository: projectDirectory });
 const piResources = createPiResourcesService({ home: APP_HOME });
 // A connector task is deliberately separate from Pi's JSON-RPC session map:
@@ -1694,6 +1706,33 @@ const hasClaudeTasks = () => claudeLaunchReservations > 0 || agentTasks.list().s
 const desktopClaude = process.platform === "darwin" && (process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY
   || fs.existsSync(path.join(CONFIG_DIR, "claude-desktop", "config.json")))
   ? createDesktopClaudeClient({ configDir: CONFIG_DIR, hasActiveTasks: hasClaudeTasks }) : null;
+// OpenCode's native API is opt-in through an explicit server URL. We never
+// scan random ports or private ~/.opencode files. A failed probe leaves the
+// normal PTY connector available and keeps the capability catalog bounded.
+const openCodeNative = createOpenCodeNativeAdapter({
+  env: process.env,
+  stateFile: path.join(CONFIG_DIR, "opencode-native.json"),
+});
+void openCodeNative.refresh();
+// OpenCode can be started after Stepsemble (for example when the user opens
+// the OpenCode desktop app later).  Re-probe on a bounded, unref'd timer so a
+// transient startup race upgrades the Agent Hub without requiring a page
+// reload or a manual API call.  This timer never keeps the host alive.
+const openCodeNativeRetryTimer = setInterval(() => {
+  const adapter = openCodeNative.status();
+  if (!adapter.configured || adapter.state === "probing" || adapter.ready) return;
+  if (adapter.checkedAt && Date.now() - adapter.checkedAt < 20_000) return;
+  void openCodeNative.refresh();
+}, 30_000);
+openCodeNativeRetryTimer.unref?.();
+async function ensureOpenCodeNativeProbe() {
+  const current = openCodeNative.status();
+  if (!current.configured || current.ready) return current;
+  if (current.state === "probing" || !current.checkedAt || Date.now() - current.checkedAt >= 20_000) {
+    return openCodeNative.refresh();
+  }
+  return current;
+}
 function configuredNativeHistoryAgents() {
   // The native history host is intentionally POSIX-only today. Merely having
   // a stale history.json on Windows must not make Agent Hub advertise a
@@ -1720,6 +1759,7 @@ const agentTasks = createAgentTaskService({
   onSettled: maybeNotifyAgentTaskSettled,
   desktopClaude,
   nativeHistoryConfigured: configuredNativeHistoryAgents(),
+  nativeAdapterStatus: (agentId) => agentId === "opencode" ? openCodeNative.status() : null,
   hostId: selfMachineId(),
 });
 const claudeAuth = desktopClaude || createClaudeAuthService({ home: APP_HOME, env: process.env, hasActiveTasks: hasClaudeTasks });
@@ -2255,6 +2295,47 @@ function listAgentTasks() {
   for (const [sid, session] of rpcSessions) native.push(publicPiAgentTask(sid, session));
   return [...native.filter(Boolean), ...agentTasks.list()]
     .sort((a, b) => (Number(b.lastActivityAt || b.startedAt) || 0) - (Number(a.lastActivityAt || a.startedAt) || 0));
+}
+
+function publicOpenCodeNativeTask(session, status = null) {
+  if (!session?.id) return null;
+  const type = String(status?.type || status?.status || "idle").toLowerCase();
+  const running = ["active", "busy", "running"].includes(type);
+  const failed = ["error", "failed"].includes(type);
+  return {
+    id: `opencode:${session.id}`,
+    taskId: `opencode:${session.id}`,
+    agentId: "opencode",
+    agent: "opencode",
+    connector: "opencode",
+    nativeOpenCode: true,
+    nativeSessionId: session.id,
+    name: session.title || `OpenCode ${session.id}`,
+    cwd: session.directory || session.path || "",
+    status: failed ? "failed" : running ? "running" : "waiting",
+    isRunning: running,
+    startedAt: session.time?.created || null,
+    endedAt: running ? null : session.time?.updated || null,
+    lastActivityAt: session.time?.updated || session.time?.created || null,
+    nativeStatus: status || { type },
+    history: "native_readonly",
+  };
+}
+
+async function listAgentTasksWithOpenCode() {
+  const tasks = listAgentTasks();
+  if (!openCodeNative.status().ready) return tasks;
+  try {
+    const [sessions, statuses] = await Promise.all([openCodeNative.listSessions({ limit: 100 }), openCodeNative.sessionStatus()]);
+    for (const session of sessions.sessions) {
+      const task = publicOpenCodeNativeTask(session, statuses[session.id]);
+      if (task) tasks.push(task);
+    }
+  } catch {
+    // Native OpenCode is optional; a transient upstream outage must not hide
+    // the already truthful Pi/generic task snapshot.
+  }
+  return tasks.sort((a, b) => (Number(b.lastActivityAt || b.startedAt) || 0) - (Number(a.lastActivityAt || a.startedAt) || 0));
 }
 
 function scheduleRpcCleanup(sid) {
@@ -4234,10 +4315,121 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      // OpenCode native server bridge. This namespace is deliberately kept
+      // separate from the PTY task stream: it reads the upstream session
+      // identity/messages/children/status and delegates permission decisions
+      // back to OpenCode, without copying credentials into Stepsemble.
+      if (p === "/api/opencode/native" && req.method === "GET") {
+        const adapter = await ensureOpenCodeNativeProbe();
+        sendJSON(res, 200, { adapter, capability: openCodeNative.capability() });
+        return;
+      }
+
+      if (p === "/api/opencode/native/refresh" && req.method === "POST") {
+        try { sendJSON(res, 200, { adapter: await openCodeNative.refresh(), capability: openCodeNative.capability() }); }
+        catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_probe_failed" }); }
+        return;
+      }
+
+      if (p === "/api/opencode/sessions" && req.method === "GET") {
+        try {
+          const result = await openCodeNative.listSessions({
+            limit: Number(url.searchParams.get("limit") || 100),
+            cursor: url.searchParams.get("cursor") || null,
+            directory: openCodeDirectory(url.searchParams.get("directory") || null),
+          });
+          sendJSON(res, 200, { ...result, adapter: openCodeNative.status() });
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_sessions_unavailable" }); }
+        return;
+      }
+
+      if (p === "/api/opencode/session" && req.method === "GET") {
+        const sessionId = url.searchParams.get("sessionId") || "";
+        try {
+          const directory = openCodeDirectory(url.searchParams.get("directory") || null);
+          const [session, statuses, children, messages, permissions] = await Promise.all([
+            openCodeNative.getSession(sessionId, { directory }),
+            openCodeNative.sessionStatus({ directory }),
+            openCodeNative.children(sessionId, { directory }),
+            openCodeNative.messages(sessionId, { limit: Number(url.searchParams.get("limit") || 200), cursor: url.searchParams.get("cursor") || null, directory }),
+            openCodeNative.permissions({ sessionId, directory }),
+          ]);
+          sendJSON(res, 200, { session, status: statuses[sessionId] || null, children, ...messages, ...permissions, adapter: openCodeNative.status() });
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_session_unavailable" }); }
+        return;
+      }
+
+      if (p === "/api/opencode/messages" && req.method === "GET") {
+        try {
+          const result = await openCodeNative.messages(url.searchParams.get("sessionId") || "", {
+            limit: Number(url.searchParams.get("limit") || 200), cursor: url.searchParams.get("cursor") || null,
+            directory: openCodeDirectory(url.searchParams.get("directory") || null),
+          });
+          sendJSON(res, 200, { ...result, adapter: openCodeNative.status() });
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_messages_unavailable" }); }
+        return;
+      }
+
+      if (p === "/api/opencode/permissions" && req.method === "GET") {
+        try {
+          const result = await openCodeNative.permissions({ sessionId: url.searchParams.get("sessionId") || null, directory: openCodeDirectory(url.searchParams.get("directory") || null) });
+          sendJSON(res, 200, { ...result, adapter: openCodeNative.status() });
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_permissions_unavailable" }); }
+        return;
+      }
+
+      if (p === "/api/opencode/permission" && req.method === "POST") {
+        try {
+          const body = await readJSON(req, 64 * 1024);
+          const result = await openCodeNative.respondPermission({
+            sessionId: body?.sessionId,
+            permissionId: body?.permissionId,
+            response: body?.response,
+            remember: body?.remember === true,
+            directory: openCodeDirectory(body?.cwd || body?.directory || null),
+          });
+          sendJSON(res, 200, result);
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_permission_failed" }); }
+        return;
+      }
+
+      if (p === "/api/opencode/session" && req.method === "POST") {
+        try {
+          const body = await readJSON(req, 64 * 1024);
+          sendJSON(res, 201, { session: await openCodeNative.createSession({ title: body?.title, parentID: body?.parentID || null, directory: openCodeDirectory(body?.cwd || body?.directory || null) }) });
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_session_create_failed" }); }
+        return;
+      }
+
+      if (p === "/api/opencode/message" && req.method === "POST") {
+        try {
+          const body = await readJSON(req, 2 * 1024 * 1024);
+          sendJSON(res, 200, { message: await openCodeNative.sendMessage(body?.sessionId, body?.text, { model: body?.model, agent: body?.agent, noReply: body?.noReply === true, directory: openCodeDirectory(body?.cwd || body?.directory || null) }) });
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_message_failed" }); }
+        return;
+      }
+
+      if (p === "/api/opencode/abort" && req.method === "POST") {
+        try {
+          const body = await readJSON(req, 64 * 1024);
+          sendJSON(res, 200, await openCodeNative.abort(body?.sessionId, { directory: openCodeDirectory(body?.cwd || body?.directory || null) }));
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_abort_failed" }); }
+        return;
+      }
+
+      if (p === "/api/opencode/reconcile" && req.method === "POST") {
+        try {
+          const body = await readJSON(req, 64 * 1024);
+          sendJSON(res, 200, await openCodeNative.reconcile(body?.sessionId, { limit: body?.limit, directory: openCodeDirectory(body?.cwd || body?.directory || null) }));
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_reconcile_failed" }); }
+        return;
+      }
+
       // Agent Hub inventory and task inbox.  The catalog contains only
       // allow-listed connector ids and executable availability; it never
       // exposes API keys, environment values, or arbitrary shell commands.
       if (p === "/api/agents" && req.method === "GET") {
+        await ensureOpenCodeNativeProbe();
         sendJSON(res, 200, {
           machine: MACHINE_NAME,
           platform: process.platform,
@@ -4248,12 +4440,22 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (p === "/api/agent-tasks" && req.method === "GET") {
-        sendJSON(res, 200, { machine: MACHINE_NAME, generatedAt: Date.now(), tasks: listAgentTasks() });
+        await ensureOpenCodeNativeProbe();
+        sendJSON(res, 200, { machine: MACHINE_NAME, generatedAt: Date.now(), tasks: await listAgentTasksWithOpenCode() });
         return;
       }
 
       if (p === "/api/agent-task" && req.method === "GET") {
-        const task = agentTasks.get(url.searchParams.get("taskId") || "");
+        const taskId = url.searchParams.get("taskId") || "";
+        if (taskId.startsWith("opencode:")) {
+          try {
+            const nativeSessionId = taskId.slice("opencode:".length);
+            const [session, statuses] = await Promise.all([openCodeNative.getSession(nativeSessionId), openCodeNative.sessionStatus()]);
+            sendJSON(res, 200, { task: publicOpenCodeNativeTask(session, statuses[nativeSessionId]) });
+          } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_task_unavailable" }); }
+          return;
+        }
+        const task = agentTasks.get(taskId);
         if (!task) { sendJSON(res, 404, { error: "no such agent task" }); return; }
         sendJSON(res, 200, { task: agentTasks.publicTask(task, true) });
         return;
@@ -5051,6 +5253,7 @@ const server = http.createServer(async (req, res) => {
       // worktree for native Pi and external CLI agents.
       if (p === "/api/agent/open" && req.method === "POST") {
         const body = await readJSON(req, 64 * 1024);
+        await ensureOpenCodeNativeProbe();
         let reservedClaude = false;
         const controller = new AbortController();
         let requesterGone = false;
@@ -5081,6 +5284,15 @@ const server = http.createServer(async (req, res) => {
             }
             sendJSON(res, 200, { ...result, kind: "pi", agentId: "pi",
               worktree: worktree ? { ...worktree, path: result.cwd } : null });
+          } else if (agentId === "opencode" && openCodeNative.status().ready && !worktree) {
+            // When the explicit OpenCode server probe is healthy, prefer its
+            // native session API. Without that opt-in the existing PTY path
+            // below remains unchanged and keeps working for plain `opencode`.
+            const session = await openCodeNative.createSession({ title: body?.name || "", directory: openCodeDirectory(cwd) });
+            if (requesterGone) return;
+            const status = (await openCodeNative.sessionStatus())[session.id] || { type: "idle" };
+            sendJSON(res, 201, { ...publicOpenCodeNativeTask(session, status), kind: "opencode-native", agentId: "opencode",
+              worktree: worktree ? { ...worktree, path: session.directory || cwd } : null });
           } else {
             const result = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
             sendJSON(res, 201, { ...result, kind: "cli", agentId });
@@ -5096,7 +5308,13 @@ const server = http.createServer(async (req, res) => {
 
       if (p === "/api/agent/send" && req.method === "POST") {
         const body = await readJSON(req, 1_100_000);
-        try { sendJSON(res, 200, agentTasks.send(body?.taskId, body?.message)); }
+        try {
+          const taskId = String(body?.taskId || "");
+          if (taskId.startsWith("opencode:")) {
+            const message = await openCodeNative.sendMessage(taskId.slice("opencode:".length), body?.message, { directory: openCodeDirectory(body?.cwd || body?.directory || null) });
+            sendJSON(res, 200, { sent: true, taskId, message });
+          } else sendJSON(res, 200, agentTasks.send(taskId, body?.message));
+        }
         catch (error) { sendJSON(res, error.statusCode || 409, { error: error.message || "Could not send to agent" }); }
         return;
       }
@@ -5130,18 +5348,25 @@ const server = http.createServer(async (req, res) => {
         if (taskId.startsWith("pi:")) {
           const sid = taskId.slice(3);
           ok = !!sid && rpcWrite(sid, { type: "abort" });
+        } else if (taskId.startsWith("opencode:")) {
+          try { ok = (await openCodeNative.abort(taskId.slice("opencode:".length), { directory: openCodeDirectory(body?.cwd || body?.directory || null) })).aborted === true; }
+          catch { ok = false; }
         } else {
           ok = await agentTasks.stop(taskId);
         }
-        const exists = !taskId.startsWith("pi:") && agentTasks.get(taskId);
+        const exists = taskId.startsWith("opencode:") || (!taskId.startsWith("pi:") && agentTasks.get(taskId));
         sendJSON(res, ok ? 200 : exists ? 409 : 404, ok ? { stopped: true } : { error: exists ? "Agent stop could not be confirmed; reconnect and retry" : "no such agent task" });
         return;
       }
 
       if (p === "/api/agent/close" && req.method === "POST") {
         const body = await readJSON(req);
-        const ok = await agentTasks.stop(body?.taskId);
-        const exists = agentTasks.get(body?.taskId);
+        const taskId = String(body?.taskId || "");
+        let ok = false;
+        if (taskId.startsWith("opencode:")) {
+          try { ok = (await openCodeNative.abort(taskId.slice("opencode:".length), { directory: openCodeDirectory(body?.cwd || body?.directory || null) })).aborted === true; } catch { ok = false; }
+        } else ok = await agentTasks.stop(taskId);
+        const exists = taskId.startsWith("opencode:") || agentTasks.get(taskId);
         sendJSON(res, ok ? 200 : exists ? 409 : 404, ok ? { closed: true } : { error: exists ? "Agent stop could not be confirmed; reconnect and retry" : "no such agent task" });
         return;
       }
@@ -5315,6 +5540,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 function shutdown(signal) {
+  clearInterval(openCodeNativeRetryTimer);
   claudeAuth.close(); // Only its dedicated auth children, never normal agent tasks.
   if (shutdownState) {
     // A second signal means the caller is no longer willing to wait.  Kill

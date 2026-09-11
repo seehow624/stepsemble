@@ -1,7 +1,7 @@
-/* stepsemble v3.0.11 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.12 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.11";
+const CLIENT_APP_VERSION = "3.0.12";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -178,6 +178,7 @@ let claudeAuthClient = null;
 let agentTasks = [];
 let agentTaskPollTimer = null;
 let agentHubTicker = null;
+let openCodeNativePollTimer = null;
 let agentCatalogRequest = null;
 let newAgentStartPending = false;
 let newAgentOpenRequest = null;
@@ -2122,6 +2123,7 @@ async function openAgentTaskFromHub(task) {
     return openExisting(sessionsCache.find(session => session.file === file) ||
       { file, cwd: task.cwd || "", name: task.sessionName || null, firstMessage: task.firstMessage });
   }
+  if (task.nativeOpenCode === true || task.nativeSessionId) return openOpenCodeNativeTask(task);
   return openGenericTask(task);
 }
 
@@ -3848,6 +3850,11 @@ function genericTaskTerminal(status) {
 }
 
 function genericInputBlock(connection = rpc) {
+  if (connection?.nativeOpenCode) {
+    if (genericTaskTerminal(connection.taskStatus)) return "taskReadOnly";
+    if (connection.stopPending || connection.nativeLoading || !["running", "waiting"].includes(connection.taskStatus)) return "inputUnavailable";
+    return null;
+  }
   if (!connection?.generic) return null;
   if (genericTaskTerminal(connection.taskStatus)) return "taskReadOnly";
   if (connection.streamReady !== true || connection.connectionLost || connection.stopPending
@@ -4125,6 +4132,188 @@ function handleAgentTaskEvent(ev, eventSid = rpc?.sid) {
   }
 }
 
+function openCodeMessageText(message) {
+  const parts = Array.isArray(message?.parts) ? message.parts : [];
+  const text = parts.filter(part => part?.type === "text" && typeof part.text === "string").map(part => part.text).join("");
+  if (text) return text;
+  const fallback = parts.map(part => {
+    if (!part || typeof part !== "object") return "";
+    if (part.type === "reasoning" && typeof part.text === "string") return part.text;
+    if (part.type === "tool") {
+      const state = part.state || {};
+      return `[${part.tool || "tool"}] ${state.title || state.output || state.error || state.status || ""}`;
+    }
+    if (part.type === "subtask") return `[subagent] ${part.description || part.prompt || part.agent || ""}`;
+    return "";
+  }).filter(Boolean).join("\n\n");
+  return fallback.slice(0, 512 * 1024);
+}
+
+function nativeOpenCodePermissionCard(permission) {
+  if (!rpc?.nativeOpenCode || !permission?.id) return;
+  // Keep the approval bound to the session that rendered it. The user can
+  // switch tasks while a permission card is visible; reading global `rpc` at
+  // click time could otherwise answer the next session's request.
+  const connection = rpc;
+  const existing = [...(el.messages?.querySelectorAll("[data-opencode-permission]") || [])]
+    .find(node => node.dataset.opencodePermission === String(permission.id));
+  if (existing) return;
+  const shell = makeMsgShell("assistant", rpc.agentLabel || "OpenCode");
+  const card = document.createElement("div");
+  card.className = "agent-approval-card";
+  card.dataset.opencodePermission = String(permission.id);
+  const title = document.createElement("strong");
+  title.textContent = "OpenCode permission required";
+  const summary = document.createElement("p");
+  const target = Array.isArray(permission.pattern) ? permission.pattern.join(", ") : permission.pattern || "*";
+  summary.textContent = `${permission.permission || "tool"} · ${permission.title || target}`;
+  const state = document.createElement("small");
+  state.dataset.role = "approval-state";
+  state.textContent = "Waiting for your decision";
+  const actions = document.createElement("div");
+  actions.className = "agent-approval-actions";
+  for (const [decision, label] of [["once", "Allow once"], ["always", "Allow always"], ["reject", "Reject"]]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = decision === "reject" ? "btn ghost" : "btn primary";
+    button.textContent = label;
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      actions.querySelectorAll("button").forEach(item => { item.disabled = true; });
+      try {
+        await post("/api/opencode/permission", { sessionId: connection.nativeSessionId, cwd: connection.cwd, permissionId: permission.id, response: decision, remember: decision === "always" });
+        state.textContent = `Decision: ${decision} · OpenCode is reconciling`;
+      } catch (error) {
+        state.textContent = error?.message || "Could not record the decision";
+        actions.querySelectorAll("button").forEach(item => { item.disabled = false; });
+      }
+    });
+    actions.appendChild(button);
+  }
+  card.append(title, summary, state, actions);
+  shell.bubble.appendChild(card);
+}
+
+function renderOpenCodeNativeSnapshot(snapshot, { replace = false } = {}) {
+  if (!rpc?.nativeOpenCode || !snapshot) return;
+  if (replace) {
+    el.messages.innerHTML = "";
+    rpc.nativeRenderedRevision = null;
+  }
+  const revision = String(snapshot.revision || "");
+  if (!replace && revision && revision === rpc.nativeRenderedRevision) return;
+  if (!replace) el.messages.innerHTML = "";
+  const messages = Array.isArray(snapshot.messages) ? [...snapshot.messages] : [];
+  messages.sort((a, b) => (Number(a?.time?.created) || 0) - (Number(b?.time?.created) || 0));
+  for (const message of messages) {
+    const role = message?.role === "user" ? "user" : message?.role === "assistant" ? "assistant" : null;
+    if (!role) continue;
+    appendHistoryMessage({ role, text: openCodeMessageText(message), model: message?.info?.model?.modelID || message?.info?.model?.modelId || null });
+  }
+  for (const permission of Array.isArray(snapshot.permissions) ? snapshot.permissions : []) nativeOpenCodePermissionCard(permission);
+  if (revision) rpc.nativeRenderedRevision = revision;
+  keepSessionUsageAtEnd();
+  scrollBottom();
+}
+
+function nativeOpenCodeStatus(snapshot) {
+  const type = String(snapshot?.status?.type || snapshot?.status?.status || "idle").toLowerCase();
+  return ["active", "busy", "running"].includes(type) ? "running" : ["error", "failed"].includes(type) ? "failed" : "waiting";
+}
+
+async function refreshOpenCodeNativeSnapshot(connection, { initial = false } = {}) {
+  if (!connection || rpc !== connection || !connection.nativeOpenCode) return;
+  try {
+    const snapshot = await post("/api/opencode/reconcile", { sessionId: connection.nativeSessionId, cwd: connection.cwd, limit: 200 });
+    if (rpc !== connection) return;
+    const status = nativeOpenCodeStatus(snapshot);
+    applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: "opencode", nativeOpenCode: true,
+      nativeSessionId: connection.nativeSessionId, name: connection.name, cwd: connection.cwd, status,
+      startedAt: connection.runStartedAt, lastActivityAt: Date.now() });
+    renderOpenCodeNativeSnapshot(snapshot, { replace: initial || snapshot.changed === true || !connection.nativeRenderedRevision });
+    connection.nativeLoading = false;
+    syncGenericInputState();
+  } catch (error) {
+    if (rpc !== connection) return;
+    connection.nativeLoading = false;
+    connection.connectionLost = true;
+    syncGenericInputState();
+    if (initial) throw error;
+  }
+}
+
+async function openOpenCodeNativeTask(task, generationOverride = null) {
+  if (!task) return;
+  const nativeSessionId = String(task.nativeSessionId || task.id || "").replace(/^opencode:/, "");
+  if (!nativeSessionId) return;
+  const cwd = task.cwd || "";
+  const name = task.name || "OpenCode";
+  rememberLastAgentTask(task.id || `opencode:${nativeSessionId}`);
+  beginDraftScope({ cwd, name });
+  const generation = generationOverride === null ? ++viewGeneration : generationOverride;
+  if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
+  resetTaskProgress();
+  resetProjectChanges();
+  resetComposerSummary();
+  currentSessionFile = null;
+  currentAgentTaskId = `opencode:${nativeSessionId}`;
+  _lastMsgDate = null;
+  lastUserText = "";
+  currentSessionCwd = cwd;
+  historyState = null;
+  removeHistoryLoadButton();
+  autoScrollPinned = true;
+  hideChatEmpty();
+  setChatTitle(name);
+  setChatAgent("opencode");
+  el.chatSub.dataset.base = cwd;
+  el.chatSub.textContent = cwd;
+  resetLiveUsage();
+  el.messages.innerHTML = "";
+  resetSessionUsage();
+  ensureSessionUsageFooter();
+  if (!isDesktop()) { el.viewList.classList.add("hidden"); syncSessionListPolling(); }
+  el.viewChat.classList.remove("hidden");
+  void refreshProjectChanges({ background: true });
+  rpc = {
+    sid: `opencode:${nativeSessionId}`,
+    generic: true,
+    nativeOpenCode: true,
+    nativeSessionId,
+    nativeLoading: true,
+    nativeRenderedRevision: null,
+    genericOutputNode: null,
+    genericTerminalNotice: null,
+    streamReady: false,
+    connectionLost: false,
+    stopPending: false,
+    taskStatus: "waiting",
+    agentId: "opencode",
+    agentLabel: "OpenCode",
+    name,
+    cwd,
+    runStartedAt: Number(task.startedAt) || Date.now(),
+    runEndedAt: null,
+  };
+  const connection = rpc;
+  openCodeNativePollTimer = null;
+  try {
+    await refreshOpenCodeNativeSnapshot(connection, { initial: true });
+    if (rpc !== connection || generation !== viewGeneration) return;
+    connection.streamReady = true;
+    connection.connectionLost = false;
+    syncGenericInputState();
+    if (openCodeNativePollTimer) clearInterval(openCodeNativePollTimer);
+    openCodeNativePollTimer = setInterval(() => void refreshOpenCodeNativeSnapshot(connection), 2500);
+  } catch (error) {
+    if (rpc === connection && generation === viewGeneration) {
+      toast(tKey("runtime.openChatFailed", { detail: error.message }), true);
+      closeChat(true);
+      showList();
+    }
+  }
+}
+
 async function openGenericTask(task) {
   if (!task) return;
   const cwd = task.cwd || task.worktree?.path || "";
@@ -4192,6 +4381,10 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
         throw new Error("Invalid native agent response");
       }
       await connectRpc(null, generation, result, baseAtStart, options.signal || null);
+      return;
+    }
+    if (result?.kind === "opencode-native" || result?.nativeOpenCode === true) {
+      await openOpenCodeNativeTask(result, generation);
       return;
     }
     if (generation !== viewGeneration || baseAtStart !== apiBase) return;
@@ -4345,6 +4538,7 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
 function closeChat(silent) {
   const awaitingNative = rpc && !rpc.generic && nativeDialogs.count(apiBase, rpc.sid) > 0;
   resetNativeDialogs();
+  if (openCodeNativePollTimer) { clearInterval(openCodeNativePollTimer); openCodeNativePollTimer = null; }
   if (rpc) {
     const generic = !!rpc.generic;
     rpc.streamEnded = true;
@@ -6348,7 +6542,7 @@ async function sendCurrent() {
   const { bubble } = makeMsgShell("user", "你");
   if (text) bubble.appendChild(renderMarkdown(text));
   if (pendingImages.length) appendImageGallery(bubble, pendingImages, pendingImages.length);
-  if (generic && text && Array.isArray(rpc.genericInputEchoes)) {
+  if (generic && !rpc.nativeOpenCode && text && Array.isArray(rpc.genericInputEchoes)) {
     rpc.genericInputEchoes.push({ text, at: Date.now() });
     if (rpc.genericInputEchoes.length > 32) rpc.genericInputEchoes.shift();
   }
@@ -6359,7 +6553,9 @@ async function sendCurrent() {
   renderImgPreview();
   try {
     const result = generic
-      ? await post("/api/agent/send", { taskId: sendSid, message: text })
+      ? (rpc?.nativeOpenCode
+        ? await post("/api/opencode/message", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
+        : await post("/api/agent/send", { taskId: sendSid, message: text }))
       : await post("/api/send", { sid: sendSid, message: text, images }); // /skill:xxx 等直接透傳，pi 原生處理
     removeDraftForKey(sendDraftKey);
     if (result?.queued && rpc?.sid === sendSid) {
@@ -6390,7 +6586,8 @@ el.btnAbort.addEventListener("click", async () => {
   el.btnAbort.disabled = true;
   if (connection.generic) syncGenericInputState();
   try {
-    if (connection.generic) await post("/api/agent/abort", { taskId: connection.sid });
+    if (connection.nativeOpenCode) await post("/api/opencode/abort", { sessionId: connection.nativeSessionId, cwd: connection.cwd });
+    else if (connection.generic) await post("/api/agent/abort", { taskId: connection.sid });
     else await post("/api/abort", { sid: connection.sid });
   } catch (error) {
     if (rpc === connection && apiBase === base) toast(error.message || agentHubText("taskStopFailed"), true);

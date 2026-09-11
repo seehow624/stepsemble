@@ -1,15 +1,23 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：2.00（cross-platform soak／reserved-port CI stability；native parity 仍分開驗收）
+> 計畫版本：2.01（OpenCode native server adapter／cross-harness capability audit；native parity 仍分開驗收）
 > 最後更新：2026-09-11
-> 當前產品基線：Stepsemble 3.0.11（由 Pi Harbor 2.13.2 相容遷移）
-> Mini／MacBook Pro 啟用版本：3.0.11／source `待本版 tag`（本次完成後由 stable updater 取得）
+> 當前產品基線：Stepsemble 3.0.12（由 Pi Harbor 2.13.2 相容遷移）
+> Mini／MacBook Pro 啟用版本：3.0.12／source `v3.0.12`（由 stable updater 取得）
 > MBP 於 2026-09-10 上線後由既有 updater 自行完成 3.0.7→3.0.8，未經人工介入
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
 ## 文件用途與回復方法
+
+**目前任務2.01（2026-09-11，3.0.12 OpenCode native adapter）**：OpenCode 只在使用者
+明確設定官方 server URL 且 health／session probe 成功時，才啟用原生 session、history、
+child、status、message、permission 與 restart reconcile。New Project 選取的合法目錄會以
+directory-scoped query 傳入 upstream；adapter 使用 bounded HTTP、單飛 probe、owner-only
+checkpoint，並在 upstream 不可用時回到既有 canonical bounded connector。Claude Code、Codex
+與 Grok 的官方能力已一併核查並列入 [`agent-capability-matrix.md`](agent-capability-matrix.md)，
+但尚未把沒有完成 contract suite 的來源冒稱成 native parity。
 
 **目前任務2.00（2026-09-11，3.0.10 cross-platform CI hotfix）**：Windows runner 的兩個
 失敗不是產品能力缺口：access-token test 可能隨機撞到 Windows 保留的 3389，soak test 則在
@@ -33,8 +41,10 @@ POSIX 的 owner／mode／canonical-path gate 維持不變。
 
 Agent Hub 的 capability DTO 現在分開標示 `native_full`、`native_readonly`、
 `canonical_bounded`，以及 `structured_ack_required`。Claude/Codex 只有在明確設定且成功
-驗證 native history source group 時才標成 prepared read-only；OpenCode/Grok 沒有穩定、可
-驗證的 upstream store／subagent contract，維持 bounded canonical journal。generic approval
+驗證 native history source group 時才標成 prepared read-only。3.0.12 新增 OpenCode 官方
+server adapter：只有明確設定 URL 且 `/global/health` 與 `/session` probe 成功時，才把
+OpenCode 標成 `native_readonly`／`native_api`；未設定、版本不相容或 upstream 失敗時仍回到
+bounded canonical journal。Grok 目前仍沒有納入穩定 native adapter。generic approval
 的 `decision` 是 durable Host fact，但 `acknowledgement`／`resume` 不再因有 SQLite 就被
 宣稱可用，必須收到 exact `STEPSEMBLE_ACK` evidence。
 
@@ -43,7 +53,7 @@ Host，已認證的 dedicated peer relay 透過 `/r/<machineId>/api/agent-events
 的 cursor history。公開 DTO 帶 `hostId`、`journalScope=host-local` 與
 `journalTransport=local+dedicated-peer-relay`，讓 Web 不會把跨機讀取誤畫成共享資料庫。
 
-本版正式目標為 3.0.11。外部 CLI 未提供 Stepsemble ACK、原生完整 transcript 或 subagent
+本版正式目標為 3.0.12。外部 CLI 未提供 Stepsemble ACK、原生完整 transcript 或 subagent
 API 的情況仍是 capability boundary，不能由 Stepsemble 偽造；這是安全的明確限制，不是
 未處理的 silent failure。
 
@@ -1455,6 +1465,11 @@ iOS/iPadOS：
 - [ ] 保留 Node supervisor/adapter fallback 至少一個穩定版週期。
 
 驗收門檻：新 runtime 通過 72 小時 soak、關閉 Client、重啟 API、殺死 child、反覆 approval、快速 stop/restart 與多 Client 測試。
+
+> 3.0.12 的 Node Host 已先交付並驗證 OpenCode native server adapter（見
+> [`agent-capability-matrix.md`](agent-capability-matrix.md)）；這不等於 Rust runtime
+> migration 完成。Rust adapter 仍須重用同一套 bounded contract／reconcile fixtures，
+> 通過跨平台 soak 後才能勾選本 Phase 的完整項目。
 
 ### Phase 7：Model Source 與第三方路由
 

@@ -169,6 +169,11 @@ Remote Stepsemble Host
 
 ### 2.2 已知能力差距（必須保留在所有產品宣稱中）
 
+> 這是 3.0.0 的凍結基線表。3.0.12 的現況與可驗證上游接口請以
+> [`agent-capability-matrix.md`](agent-capability-matrix.md) 為準：OpenCode 已新增
+> 明確 URL opt-in 的 native server adapter；未通過 health/session probe 時仍落回本表
+> 所述的 bounded connector。
+
 | Connector | 現況 | 目前不能宣稱的能力 |
 | --- | --- | --- |
 | Pi Agent | 原生 JSON-RPC、Pi JSONL session、歷史、模型命令、structured extension UI | Host service 重啟後仍可無縫接回同一個活躍 Pi child；目前只會在 grace window 內等待它完成 |

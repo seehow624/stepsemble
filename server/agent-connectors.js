@@ -331,6 +331,16 @@ function publicDefinition(definition, options = {}) {
     protocolVersion: definition.kind === "native" ? null : contract.protocolVersion,
     capabilities,
     history: catalogCapability(definition.id, options),
+    nativeAdapter: options.nativeAdapterStatus && typeof options.nativeAdapterStatus === "object"
+      ? {
+        state: String(options.nativeAdapterStatus.state || "unknown").slice(0, 32),
+        configured: options.nativeAdapterStatus.configured === true,
+        ready: options.nativeAdapterStatus.ready === true,
+        approvalReady: options.nativeAdapterStatus.approvalReady !== false,
+        version: options.nativeAdapterStatus.version || null,
+        reason: options.nativeAdapterStatus.lastError || null,
+      }
+      : null,
     journalScope: options.durableJournal === true ? "host-local" : "unavailable",
     journalTransport: options.durableJournal === true ? "local+dedicated-peer-relay" : null,
     hostId: String(options.hostId || "local").slice(0, 128),
@@ -342,11 +352,12 @@ function publicDefinition(definition, options = {}) {
   };
 }
 
-function discoverConnectors({ piBin = "", env = process.env, includeKnownPaths = true, durableJournal = false, nativeHistoryConfigured = false, hostId = "local" } = {}) {
+function discoverConnectors({ piBin = "", env = process.env, includeKnownPaths = true, durableJournal = false, nativeHistoryConfigured = false, nativeAdapterStatus = null, hostId = "local" } = {}) {
   const ptyRuntime = resolvePtyRuntime({ env });
   return CONNECTOR_DEFINITIONS.map((definition) => {
     const command = resolveCommand(definition, { piBin, env, includeKnownPaths });
-    return publicDefinition(definition, { command, durableJournal, nativeHistoryConfigured, hostId, transport: definition.kind === "native" ? "rpc" : (ptyRuntime ? "pty" : "pipe") });
+    const adapterStatus = typeof nativeAdapterStatus === "function" ? nativeAdapterStatus(definition.id) : nativeAdapterStatus?.[definition.id] || null;
+    return publicDefinition(definition, { command, durableJournal, nativeHistoryConfigured, nativeAdapterStatus: adapterStatus, hostId, transport: definition.kind === "native" ? "rpc" : (ptyRuntime ? "pty" : "pipe") });
   });
 }
 
@@ -431,6 +442,7 @@ function createAgentTaskService({
   onSettled = null,
   desktopClaude = null,
   nativeHistoryConfigured = false,
+  nativeAdapterStatus = null,
   hostId = "local",
 } = {}) {
   const taskConfigDir = path.resolve(configDir || appHome || process.cwd());
@@ -1428,7 +1440,7 @@ function createAgentTaskService({
   }
 
   return Object.freeze({
-    catalog: () => discoverConnectors({ piBin, env, durableJournal: canonicalJournal.available, nativeHistoryConfigured, hostId }),
+    catalog: () => discoverConnectors({ piBin, env, durableJournal: canonicalJournal.available, nativeHistoryConfigured, nativeAdapterStatus, hostId }),
     open,
     get,
     approvals,

@@ -13,6 +13,14 @@ runtime is local to each coding-agent host, so the app must continue to work
 without a build server and must keep launchd, Tailscale, SSE, and the updater
 simple.
 
+The 3.0.12 Node Host adds an explicit, opt-in OpenCode server adapter. It uses
+OpenCode's bounded HTTP session/message/child/status/permission APIs, passes an
+authenticated project directory for multi-project correctness, and persists
+only owner-only ID/cursor checkpoints for restart reconciliation. The adapter
+is optional: if the health/session probe fails, the existing PTY connector and
+canonical bounded journal remain the truthful fallback. The capability matrix
+is the authority for which other harnesses have passed a native contract.
+
 Development-only Plan1.80 adds a separate inert paginated-item observation and
 fixes RPC identity to use native (turnId,itemId) pairs. A pinned owned projection
 oracle verifies paging, names, updates, forks/reverts and shows successful RPC

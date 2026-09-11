@@ -1,5 +1,31 @@
 # Changelog
 
+## 3.0.12
+
+OpenCode native server adapter and cross-harness capability audit.
+
+- Add an explicit, opt-in OpenCode adapter for the official local server. It
+  verifies health/session/permission routes, passes the selected project
+  directory through the upstream API, supports native session/history,
+  children, status, async messages, approval responses, abort, and bounded
+  restart reconciliation, and falls back to the canonical connector when the
+  upstream is not configured or healthy.
+- Wire the Agent Hub and conversation UI to native OpenCode sessions,
+  approval cards, bounded polling, and restart-safe reconcile checkpoints.
+- Keep remote access fail-closed: loopback is the default, remote URLs require
+  explicit opt-in and HTTPS, credentials are never copied into checkpoints,
+  and response sizes/IDs/cursors remain bounded.
+- Publish the capability matrix and official-source audit for Pi Agent,
+  OpenCode, Claude Code, Codex, and Grok Build. Sources without a completed
+  native contract suite remain explicitly `native_readonly`,
+  `structured_ack_required`, or `canonical_bounded`.
+- Add adapter fixtures, directory-scoping coverage, single-flight probing,
+  startup retry, protocol/client checks, and the live OpenCode 1.18.5 route
+  verification used for this release.
+
+Validation: full Node suite, syntax/protocol/client checks, and the live
+OpenCode server integration probe must pass before the v3.0.12 tag is pushed.
+
 ## 3.0.11
 
 Cross-platform CI stability hotfix for 3.0.10.

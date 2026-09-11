@@ -1,5 +1,14 @@
 # Web 完整體：持續執行與驗收清單
 
+2026-09-11／Plan2.01：Stepsemble 3.0.12 完成 OpenCode 官方 server native adapter。明確
+設定的 loopback／HTTPS server 會通過 health、session 與 permission probe 後提供原生
+session/history、child/status、async message、approval response 與 restart reconcile；
+New Project 的合法目錄會以 directory-scoped query 傳入。未設定或 upstream 失敗時仍回到
+canonical bounded connector。Claude Code、Codex、Grok 的官方 session／approval／ACP 能力
+已查核並收錄到 [agent capability matrix](agent-capability-matrix.md)，尚未完成 adapter 的
+來源維持 truthful bounded 分級。本版完整 Node suite 為 1253 pass／2 skip／0 fail，
+protocol conformance 為 1251 cases。
+
 2026-09-11／Plan2.00：3.0.10 Windows runner 的失敗已拆解為保留埠與 Host restart 的
 bounded supervisor reconnect timing。3.0.11 的 access-token test 使用 kernel-selected loopback
 port；soak 的 send 只在明確 transient reconnect response 時重試 10 秒，unknown／terminal
