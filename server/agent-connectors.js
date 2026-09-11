@@ -247,7 +247,7 @@ function safeEventSequence(value) {
   return Number.isSafeInteger(sequence) && sequence >= 0 && sequence < Number.MAX_SAFE_INTEGER ? sequence : 0;
 }
 
-function normalizePersistedEventHistory(value) {
+function normalizePersistedEventHistory(value, expectedTaskId = "") {
   if (!Array.isArray(value)) return [];
   const rows = [];
   const seen = new Set();
@@ -257,6 +257,7 @@ function normalizePersistedEventHistory(value) {
     const event = packet.event;
     if (!Number.isSafeInteger(seq) || seq <= 0 || seq >= Number.MAX_SAFE_INTEGER || seen.has(seq)) continue;
     if (!event || typeof event !== "object" || Array.isArray(event) || !PERSISTED_EVENT_TYPES.has(event.type)) continue;
+    if (!expectedTaskId || event.taskId !== expectedTaskId) continue;
     const bytes = serializedEventBytes(event);
     if (!bytes || bytes > MAX_PERSISTED_EVENT_BYTES) continue;
     seen.add(seq);
@@ -347,7 +348,7 @@ function readPersistedTasks(file) {
         supervisorMeta: typeof task.supervisorMeta === "string" ? task.supervisorMeta.slice(0, 1000) : "",
         supervisorEventSeq: Number.isFinite(Number(task.supervisorEventSeq)) ? Number(task.supervisorEventSeq) : 0,
         eventSeq: safeEventSequence(task.eventSeq),
-        eventHistory: normalizePersistedEventHistory(task.eventHistory),
+        eventHistory: normalizePersistedEventHistory(task.eventHistory, task.id),
         status: typeof task.status === "string" ? task.status.slice(0, 24) : "orphaned",
         startedAt: Number.isFinite(Number(task.startedAt)) ? Number(task.startedAt) : null,
         endedAt: Number.isFinite(Number(task.endedAt)) ? Number(task.endedAt) : null,
@@ -408,7 +409,7 @@ function createAgentTaskService({
     }
     const approvalState = createConnectorApprovalState({ taskId: task.id, agentId: task.agentId });
     if (terminalTaskStatus(task.status)) approvalState.close("task_terminal");
-    const eventHistory = normalizePersistedEventHistory(task.eventHistory);
+    const eventHistory = normalizePersistedEventHistory(task.eventHistory, task.id);
     const eventBytes = eventHistory.reduce((total, packet) => total + packet.bytes, 0);
     const eventSeq = Math.max(safeEventSequence(task.eventSeq), ...eventHistory.map((packet) => packet.seq));
     tasks.set(task.id, {
@@ -488,7 +489,7 @@ function createAgentTaskService({
     value.supervisorMeta = task.supervisorMeta || "";
     value.supervisorEventSeq = Number.isFinite(Number(task.supervisorEventSeq)) ? Number(task.supervisorEventSeq) : 0;
     value.eventSeq = safeEventSequence(task.eventSeq);
-    value.eventHistory = normalizePersistedEventHistory(task.events);
+    value.eventHistory = normalizePersistedEventHistory(task.events, task.id);
     value.settledNotified = task.settledNotified === true;
     return value;
   }

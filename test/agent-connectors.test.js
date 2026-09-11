@@ -172,6 +172,7 @@ test("persisted generic replay is bounded and keeps the cursor without approval 
   const output = { type: "output", taskId: id, stream: "stdout", text: "retained output\n" };
   const status = { type: "status", taskId: id, status: "completed" };
   const approval = { type: "protocol_event", taskId: id, agentId: "claude-code", observation: "observed" };
+  const foreignOutput = { type: "output", taskId: "another-task", stream: "stdout", text: "must not cross task boundaries\n" };
   fs.writeFileSync(path.join(temp, "agent-tasks.json"), JSON.stringify({ version: 1, tasks: [{
     id, agentId: "claude-code", name: "Snapshot replay", cwd: temp, status: "completed",
     startedAt: Date.now() - 1000, endedAt: Date.now(), outputTail: "retained output\n", eventSeq: 9,
@@ -179,6 +180,7 @@ test("persisted generic replay is bounded and keeps the cursor without approval 
       { seq: 7, event: approval },
       { seq: 8, event: output },
       { seq: 9, event: status },
+      { seq: 10, event: foreignOutput },
     ],
   }] }));
   const service = createAgentTaskService({ appHome: temp, configDir: temp, env: { PATH: "", HOME: temp } });

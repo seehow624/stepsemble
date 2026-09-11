@@ -33,6 +33,8 @@ generic task 的私有 `agent-tasks.json` 現在會在既有 output tail 之外�
 Stepsemble 自己的 SSE cursor。服務重啟後先恢復這個有限窗口，再 attach detached
 supervisor；超限資料從最舊端淘汰。`protocol_event`、`protocol_event_rejected` 和所有
 approval observation 會被過濾，不會因為 snapshot replay 而重新建立 approval state。
+每筆 replay event 也必須帶有與 task snapshot 完全相同的 `taskId`；跨 task 或缺失身份的
+資料會在載入時丟棄。
 因此這是 UI context／重連體驗的改善，不是完整 session history、durable journal 或
 approval recovery；`resolveApproval()` 仍固定回 `durable_transaction_required`。
 
