@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.88（C2 checkpoint observation 已接 Host／Web；完整 C2／C3 仍待）
+> 計畫版本：1.89（C2 checkpoint observation 已接 Host／Web；paginated protocol 15 已接 native helper／pipeline；完整 C2／C3 仍待）
 > 最後更新：2026-09-11
 > 當前產品基線：Stepsemble 3.0.8（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.8／source `3bae06c`（2026-09-09 公開 stable release）
@@ -11,7 +11,7 @@
 
 ## 文件用途與回復方法
 
-**目前任務1.88（2026-09-11，Jerome 要求 C2／C3 全部做好）**：本輪先把可安全交付的
+**目前任務1.89（2026-09-11，Jerome 要求 C2／C3 全部做好）**：本輪先把可安全交付的
 Codex paginated projection checkpoint 從 Rust 底層接到 Node pipeline、owned source
 service、registry、HTTP、typed browser transport 與 Codex 歷史畫面。protocol 16 使用固定
 `thread_history_1.sqlite`，在專用程序內持有 DB/WAL/SHM descriptor，實際 close 後才
@@ -22,6 +22,13 @@ projection checkpoint 變成 transcript、resume 或 approval。普通 paginated
 入 full Node/Rust gates；完整 C2 仍需同一 admission 內的祖先 chain／durable LF fence、
 完整 source-version、跨 DB consistency，以及 320/390px 真 Web 操作驗收。UI 只顯示受限
 checkpoint（項目數、回合數與下一個 rollout cursor），不會把它當成 transcript。
+
+本輪另把既有 Rust protocol 15 paginated ancestry/resolution 接入 native helper 與共享
+reader pipeline，新增 strict detached wire、8 個 focused Node tests 與 expected-version
+fence。它目前是 Host-private observation：上游需提供已驗證的 first metadata records／
+relative locators，尚未接 source service／registry／HTTP／Web，也尚未呼叫
+`codex_paginated_consistency::assemble()` 的 durable LF＋SQLite cross-store consistency；
+Windows 仍明確 unsupported。這個增量不代表 C2 或 C3 完整完成。
 
 **前一任務1.87（2026-09-11，Jerome 要求 C2／C3 全部做好）**：兩位指定的
 gpt-5.6-luna/max 分別處理 paginated 真來源與原生 session／approval，主 agent 驗收

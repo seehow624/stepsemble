@@ -64,7 +64,7 @@ pub struct Source {
     pub session_id: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RootIdentity {
     pub device: String,

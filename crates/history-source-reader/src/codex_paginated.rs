@@ -47,6 +47,7 @@ pub struct Success {
     kind: &'static str,
     native_version: String,
     thread_id: String,
+    expected_root: RootIdentity,
     plan: Plan,
     resolution: resolution::Resolution,
     source_authenticated: bool,
@@ -273,6 +274,10 @@ pub fn capture(request: &Request) -> Result<Success, Error> {
         kind: "native_codex_paginated_resolution",
         native_version: request.native_version.clone(),
         thread_id: request.thread_id.clone(),
+        expected_root: RootIdentity {
+            device: request.expected_root.device.clone(),
+            inode: request.expected_root.inode.clone(),
+        },
         plan,
         resolution: resolved,
         source_authenticated: false,

@@ -11,6 +11,7 @@ const scannedWire = require("../codex/scanned-source-wire");
 const structuredWire = require("../codex/structured-source-wire");
 const compressedWire = require("../codex/compressed-page-source-wire");
 const checkpointWire = require("../codex/checkpoint-wire");
+const paginatedResolutionWire = require("../codex/paginated-resolution-wire");
 const sqliteWire = require("../codex/sqlite-wire");
 const LIMITS = Object.freeze({ inputBytes: 12 * 1024, headerBytes: 16 * 1024, sourceBytes: 8 * 1024 * 1024,
   outputBytes: 4 + 16 * 1024 + 8 * 1024 * 1024, outputChunks: 4096, deadlineMs: 10000, cleanupMs: 1000 });
@@ -22,6 +23,14 @@ const SOURCE_CODES = Object.freeze(["invalid_source_input", "source_platform_uns
   "source_sdk_unavailable", "source_selection_failed", "source_observation_rejected", "source_observation_too_large", "source_version_changed",
   "source_acl_unavailable", "source_acl_unsupported", "source_root_identity_changed", "source_containment_unavailable", "source_inventory_limit", "source_encoding_unsupported",
   "source_database_unsupported", "source_database_unavailable", "source_busy", "source_cancelled", "source_record_limit",
+  "paginated_invalid_utf8", "paginated_invalid_record", "paginated_invalid_metadata", "paginated_selected_thread_mismatch",
+  "paginated_history_mode_unsupported", "paginated_invalid_history_base", "paginated_invalid_ordinal", "paginated_chain_cycle",
+  "paginated_chain_too_deep", "paginated_chain_mismatch", "paginated_record_limit", "paginated_chain_locator_mismatch",
+  "paginated_chain_duplicate_locator", "paginated_chain_non_monotonic_cutoff", "paginated_chain_selected_mismatch",
+  "paginated_chain_bytes_exceeded", "paginated_chain_decoded_bytes_exceeded", "paginated_chain_incomplete",
+  "paginated_resolution_plan_mismatch", "paginated_resolution_bytes_exceeded", "paginated_resolution_decoded_bytes_exceeded",
+  "paginated_resolution_cutoff_outside_source", "paginated_resolution_cutoff_unverified", "paginated_resolution_invalid_cutoff",
+  "paginated_resolution_incomplete", "paginated_resolution_empty_source", "paginated_rollout_ordinal_invalid",
   "rollout_invalid_utf8", "rollout_invalid_record", "rollout_invalid_metadata", "rollout_selected_thread_mismatch",
   "native_paginated_history_unsupported", "native_history_mode_unknown", "rollout_record_limit", "rollout_structure_invalid",
   "rollout_compression_limit", "rollout_compression_invalid", "rollout_compression_unsupported"]);
@@ -37,12 +46,13 @@ function detach(value, limit) {
 function decode(bytes, job) {
   if (bytes.length < 5) return null;
   const size = bytes.readUInt32BE(0);
-  if (!size || size > LIMITS.headerBytes || bytes.length < 4 + size) return null;
+  const headerLimit = job.protocolVersion === 15 ? paginatedResolutionWire.LIMITS.headerBytes : LIMITS.headerBytes;
+  if (!size || size > headerLimit || bytes.length < 4 + size) return null;
   const header = bytes.subarray(4, 4 + size);
   if (header[0] === 0xef && header[1] === 0xbb && header[2] === 0xbf) return null;
   let value;
   try { value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(header)); } catch { return null; }
-  if (canonicalJSON(value, LIMITS.headerBytes) === null || !keys(value, ["protocolVersion", "nonce", "result"])
+  if (canonicalJSON(value, headerLimit) === null || !keys(value, ["protocolVersion", "nonce", "result"])
     || value.protocolVersion !== job.protocolVersion || value.nonce !== job.nonce) return null;
   const result = value.result, payload = bytes.subarray(4 + size);
   if (keys(result, ["kind", "code"]) && result.kind === "source_unavailable")
@@ -53,6 +63,7 @@ function decode(bytes, job) {
   if (job.protocolVersion === 12) return structuredWire.decode(result, payload, job);
   if (job.protocolVersion === 13) return compressedWire.validated.decode(result, payload, job);
   if (job.protocolVersion === 14) return compressedWire.structured.decode(result, payload, job);
+  if (job.protocolVersion === 15) return paginatedResolutionWire.decode(result, payload, job);
   if (job.protocolVersion === 16) return checkpointWire.decode(result, payload, job);
   if (job.protocolVersion === 4) return sqliteWire.decode(result, payload, job);
   if (job.protocolVersion === 5) return sqliteWire.legacyContext.decode(result, payload, job);
@@ -104,8 +115,9 @@ function createNativeHelper(options = {}) {
       return unavailable("invalid_source_signal");
     const signal = options.signal;
     if (signal !== undefined && !(signal instanceof AbortSignal)) return unavailable("invalid_source_signal");
-    const value = detach(input, LIMITS.inputBytes), source = version === 1 ? normalizeSourceInput(value?.source) : value?.source;
-    if ([13, 14].includes(version) ? !compressedWire.validated.input(value) : version === 12 ? !structuredWire.input(value) : [10, 11].includes(version) ? !scannedWire.input(value) : version === 16 ? !checkpointWire.input(value) : [6, 8].includes(version) ? !sqliteWire.catalog.input(value) : [4, 5, 7].includes(version) ? !sqliteWire.input(value) : [3, 9].includes(version) ? !codexWire.input(value) : version === 2 ? !inventoryWire.input(value) : !keys(value, ["source", "expectedRoot"]) || !source || !rootIdentity(value.expectedRoot)
+    const inputLimit = version === 15 ? paginatedResolutionWire.LIMITS.inputBytes : LIMITS.inputBytes;
+    const value = detach(input, inputLimit), source = version === 1 ? normalizeSourceInput(value?.source) : value?.source;
+    if ([13, 14].includes(version) ? !compressedWire.validated.input(value) : version === 12 ? !structuredWire.input(value) : [10, 11].includes(version) ? !scannedWire.input(value) : version === 16 ? !checkpointWire.input(value) : version === 15 ? !paginatedResolutionWire.input(value) : [6, 8].includes(version) ? !sqliteWire.catalog.input(value) : [4, 5, 7].includes(version) ? !sqliteWire.input(value) : [3, 9].includes(version) ? !codexWire.input(value) : version === 2 ? !inventoryWire.input(value) : !keys(value, ["source", "expectedRoot"]) || !source || !rootIdentity(value.expectedRoot)
       || source.projectsRoot === path.parse(source.projectsRoot).root || source.projectsRoot !== path.resolve(source.projectsRoot)
       || /[*?\[\]{},\r\n]/.test(source.projectsRoot)) return unavailable("invalid_source_input");
     if (closed) return unavailable("source_service_closed");
@@ -113,14 +125,18 @@ function createNativeHelper(options = {}) {
     if (signal?.aborted) return unavailable("source_aborted");
     if (!["darwin", "linux"].includes(platform)) return unavailable("source_platform_unsupported");
     if (active) return unavailable("source_busy");
-    const outputLimit = [13, 14].includes(version) ? compressedWire.LIMITS.outputBytes : version === 12 ? structuredWire.LIMITS.outputBytes : [10, 11].includes(version) ? scannedWire.LIMITS.outputBytes : version === 16 ? checkpointWire.LIMITS.outputBytes : [6, 8].includes(version) ? sqliteWire.catalog.LIMITS.outputBytes : [5, 7].includes(version) ? sqliteWire.context.LIMITS.outputBytes : version === 4 ? sqliteWire.LIMITS.outputBytes : [3, 9].includes(version) ? codexWire.LIMITS.outputBytes : version === 2 ? 4 + LIMITS.headerBytes + inventoryWire.LIMITS.bytes : LIMITS.outputBytes;
+    const outputLimit = [13, 14].includes(version) ? compressedWire.LIMITS.outputBytes : version === 12 ? structuredWire.LIMITS.outputBytes : [10, 11].includes(version) ? scannedWire.LIMITS.outputBytes : version === 16 ? checkpointWire.LIMITS.outputBytes : version === 15 ? paginatedResolutionWire.LIMITS.outputBytes : [6, 8].includes(version) ? sqliteWire.catalog.LIMITS.outputBytes : [5, 7].includes(version) ? sqliteWire.context.LIMITS.outputBytes : version === 4 ? sqliteWire.LIMITS.outputBytes : [3, 9].includes(version) ? codexWire.LIMITS.outputBytes : version === 2 ? 4 + LIMITS.headerBytes + inventoryWire.LIMITS.bytes : LIMITS.outputBytes;
     let job, inputLine, output;
     try {
-      job = { protocolVersion: version, nonce: crypto.randomBytes(32).toString("hex"),
-        ...(version === 2 ? { projectsRoot: value.projectsRoot } : { source }), expectedRoot: value.expectedRoot,
-        ...(version >= 3 ? { nativeVersion: value.nativeVersion } : {}), ...([10, 11, 12, 13, 14].includes(version) ? { page: value.page } : {}) };
+      job = version === 15
+        ? { protocolVersion: version, nonce: crypto.randomBytes(32).toString("hex"), nativeVersion: value.nativeVersion,
+          codexRoot: value.codexRoot, expectedRoot: value.expectedRoot, threadId: value.threadId,
+          selectedRolloutId: value.selectedRolloutId, entries: value.entries }
+        : { protocolVersion: version, nonce: crypto.randomBytes(32).toString("hex"),
+          ...(version === 2 ? { projectsRoot: value.projectsRoot } : { source }), expectedRoot: value.expectedRoot,
+          ...(version >= 3 ? { nativeVersion: value.nativeVersion } : {}), ...([10, 11, 12, 13, 14].includes(version) ? { page: value.page } : {}) };
       inputLine = JSON.stringify(job) + "\n";
-      if (Buffer.byteLength(inputLine) > LIMITS.inputBytes) return unavailable("source_worker_input_limit");
+      if (Buffer.byteLength(inputLine) > inputLimit) return unavailable("source_worker_input_limit");
       output = Buffer.allocUnsafe(outputLimit);
     } catch { return unavailable("source_worker_failure"); }
     let resolve; const promise = new Promise(done => { resolve = done; });
@@ -170,7 +186,8 @@ function createNativeHelper(options = {}) {
         if (!Buffer.isBuffer(chunk) || chunk.length > outputLimit - length || ++chunks > LIMITS.outputChunks)
           return stop("source_worker_output_limit");
         chunk.copy(output, length); length += chunk.length;
-        if (length >= 4 && (!output.readUInt32BE(0) || output.readUInt32BE(0) > LIMITS.headerBytes)) stop("source_worker_protocol");
+        const headerLimit = version === 15 ? paginatedResolutionWire.LIMITS.headerBytes : LIMITS.headerBytes;
+        if (length >= 4 && (!output.readUInt32BE(0) || output.readUInt32BE(0) > headerLimit)) stop("source_worker_protocol");
       });
       child.stdin.end(inputLine);
       // A trusted spawn hook can synchronously abort/shutdown before returning.
@@ -193,6 +210,7 @@ function createNativeHelper(options = {}) {
     readCodexStructuredPage: (input, options) => run(input, options, 12),
     readCodexCompressedPage: (input, options) => run(input, options, 13),
     readCodexCompressedStructuredPage: (input, options) => run(input, options, 14),
+    readCodexPaginatedResolution: (input, options) => run(input, options, 15),
     readCodexPaginatedCheckpoint: (input, options) => run(input, options, 16),
     readCodexMetadata: (input, options) => run(input, options, 4),
     readCodexNameContextLegacy: (input, options) => run(input, options, 5),

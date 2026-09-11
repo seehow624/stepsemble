@@ -1,8 +1,34 @@
 # Codex paginated：選定列、投影檢查點與 durable 前綴一致性
 
+## 接續 1.89：protocol 15 native helper／pipeline 邊界
+
+本輪已把既有 Rust `codex_paginated` protocol 15 接到
+`history-native-helper.js` 與共享 `history-pipeline.js`。Node 端新增
+`paginated-resolution-wire.js`，對 input、stable／physical rollout locator、
+canonical base64 metadata、oldest→head plan、resolution source、stored／decoded
+整鏈合計、ordinal cutoff 與三個 false flags 做 strict detached validation；未知
+欄位、錯誤順序、跨 source mismatch、非 canonical 數字、空／超限 source 一律
+fail-closed。pipeline 沿用既有兩個 helper slot、single admission permit、
+AbortSignal、actual child close、quarantine 與 expected-version fence，輸出仍是
+`codex_paginated_resolution_capture` observation，不是 transcript、resume、
+approval 或授權。
+
+這個增量只到 Host-private native pipeline：它要求上游已持有並驗證每個 first
+metadata record 與 repository-relative locator，**不**自行掃描 HOME、不暴露任意
+檔案路徑、不接 HTTP／registry／Web，也尚未把下方 `codex_paginated_consistency::assemble()`
+的 durable LF 與 SQLite projection checkpoint 組合進來。Windows 仍明確
+`source_platform_unsupported`。
+
+驗證：focused Node helper／wire／pipeline 8 tests、完整 `npm test` 1218 passed／
+2 skipped、client build/check 通過；Rust all-targets library／binary／integration
+tests 全綠。官方 Codex 0.153.4 owned paginated fixture 的實際 Rust resolution
+probe 亦通過（stored／decoded bytes、record counts、reverted source 順序與
+negative-control mismatch）。
+
 2026-09-11／C2 bounded assembly。這一段只新增純組合邊界，尚未接到
-Host／Web 或正式 source service；它不開檔、不開 SQLite，也不改變既有
-POSIX opener、祖先鏈計畫或 projection reader。
+durable／SQLite consistency、正式 source service 或 Web；protocol 15 native
+helper／pipeline 接線見上節。它不改變既有 POSIX opener、祖先鏈計畫或
+projection reader。
 
 ## 固定原生語意
 
@@ -63,7 +89,8 @@ caller-supplied authority 或 completeness flag。
 `historyComplete:false`。它只表示本次選定 row、來源解析、durable LF 摘要與
 head projection cursor 彼此相符，**不**表示 caller 提供的 offset 有來源身分或
 原子快照證明，更不表示 durable 歷史完整、可 resume、可授權或可發布。只有尚待
-接上的同一 admission held-FD scanner／snapshot 邊界，才能建立那些來源證據。
+接上的同一 admission held-FD scanner／snapshot 邊界，才能建立那些來源證據；本輪
+pipeline 目前仍只回傳 plan/resolution 觀測。
 
 ## 測試與證據
 
