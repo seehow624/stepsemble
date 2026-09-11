@@ -2595,6 +2595,7 @@
   const RUNTIME_TRANSLATIONS = {
     en: {
       "runtime.connectionRetrying": "Connection lost; retrying",
+      "runtime.genericReplayGap": "Earlier task activity is no longer retained on this host; showing the bounded replay window.",
       "runtime.streamRetry": "Live connection dropped; reconnecting in {seconds}s…",
       "runtime.streamRecovering": "Live connection is not responding; reconnecting…",
       "runtime.streamRestored": "Connection restored; the run is still going…",
@@ -2632,6 +2633,7 @@
     },
     "zh-Hant": {
       "runtime.connectionRetrying": "連線暫時失敗，正在重試",
+      "runtime.genericReplayGap": "這項工作的較早活動已不再保留在此主機；目前顯示的是有限的重播範圍。",
       "runtime.streamRetry": "即時連線中斷，{seconds} 秒後自動恢復…",
       "runtime.streamRecovering": "即時連線沒有回應，正在恢復…",
       "runtime.streamRestored": "連線已恢復，工作仍在繼續…",
@@ -2669,6 +2671,7 @@
     },
     "zh-Hans": {
       "runtime.connectionRetrying": "连接暂时失败，正在重试",
+      "runtime.genericReplayGap": "这项工作的较早活动已不再保留在此主机；当前显示的是有限的重播范围。",
       "runtime.streamRetry": "实时连接中断，{seconds} 秒后自动恢复…",
       "runtime.streamRecovering": "实时连接没有响应，正在恢复…",
       "runtime.streamRestored": "连接已恢复，工作仍在继续…",
@@ -2706,6 +2709,7 @@
     },
     ja: {
       "runtime.connectionRetrying": "接続に失敗しました。再試行しています",
+      "runtime.genericReplayGap": "このタスクの過去の活動はこのホストに保持されていません。保持された範囲のみ表示しています。",
       "runtime.streamRetry": "接続が切れました。{seconds} 秒後に再接続します…",
       "runtime.streamRecovering": "接続が応答しません。再接続しています…",
       "runtime.streamRestored": "接続が回復しました。処理は続行中です…",
@@ -2743,6 +2747,7 @@
     },
     ko: {
       "runtime.connectionRetrying": "연결에 실패했습니다. 다시 시도 중",
+      "runtime.genericReplayGap": "이 작업의 이전 활동은 이 호스트에 더 이상 보관되지 않습니다. 보관된 재생 범위만 표시합니다.",
       "runtime.streamRetry": "실시간 연결이 끊겼습니다. {seconds}초 후 다시 연결합니다…",
       "runtime.streamRecovering": "실시간 연결이 응답하지 않습니다. 복구 중…",
       "runtime.streamRestored": "연결이 복구되었습니다. 작업은 계속 진행 중입니다…",
@@ -2780,6 +2785,7 @@
     },
     tr: {
       "runtime.connectionRetrying": "Bağlantı koptu; yeniden deneniyor",
+      "runtime.genericReplayGap": "Bu görevin önceki etkinlikleri bu ana bilgisayarda artık saklanmıyor; sınırlı yeniden oynatma aralığı gösteriliyor.",
       "runtime.streamRetry": "Canlı bağlantı koptu; {seconds} sn içinde yeniden bağlanılıyor…",
       "runtime.streamRecovering": "Canlı bağlantı yanıt vermiyor; yeniden bağlanılıyor…",
       "runtime.streamRestored": "Bağlantı geri geldi; çalışma sürüyor…",
@@ -2817,6 +2823,7 @@
     },
     fr: {
       "runtime.connectionRetrying": "Connexion perdue ; nouvelle tentative",
+      "runtime.genericReplayGap": "Les activités précédentes de cette tâche ne sont plus conservées sur cet hôte ; seule la fenêtre de rejeu limitée est affichée.",
       "runtime.streamRetry": "Connexion en direct interrompue ; reconnexion dans {seconds} s…",
       "runtime.streamRecovering": "La connexion en direct ne répond pas ; reconnexion…",
       "runtime.streamRestored": "Connexion rétablie ; le travail continue…",
@@ -2854,6 +2861,7 @@
     },
     de: {
       "runtime.connectionRetrying": "Verbindung verloren; neuer Versuch",
+      "runtime.genericReplayGap": "Frühere Aktivitäten dieser Aufgabe werden auf diesem Host nicht mehr gespeichert; das begrenzte Wiedergabefenster wird angezeigt.",
       "runtime.streamRetry": "Live-Verbindung unterbrochen; neuer Versuch in {seconds} s…",
       "runtime.streamRecovering": "Live-Verbindung antwortet nicht; Wiederherstellung läuft…",
       "runtime.streamRestored": "Verbindung wiederhergestellt; die Ausführung läuft weiter…",
@@ -2891,6 +2899,7 @@
     },
     es: {
       "runtime.connectionRetrying": "Conexión perdida; reintentando",
+      "runtime.genericReplayGap": "La actividad anterior de esta tarea ya no se conserva en este host; se muestra la ventana de reproducción limitada.",
       "runtime.streamRetry": "Conexión en vivo interrumpida; reconectando en {seconds} s…",
       "runtime.streamRecovering": "La conexión en vivo no responde; reconectando…",
       "runtime.streamRestored": "Conexión restablecida; el trabajo continúa…",
@@ -2928,6 +2937,7 @@
     },
     "pt-BR": {
       "runtime.connectionRetrying": "Conexão perdida; tentando novamente",
+      "runtime.genericReplayGap": "As atividades anteriores desta tarefa não são mais mantidas neste host; a janela de reprodução limitada é exibida.",
       "runtime.streamRetry": "Conexão ao vivo interrompida; reconectando em {seconds} s…",
       "runtime.streamRecovering": "A conexão ao vivo não responde; reconectando…",
       "runtime.streamRestored": "Conexão restabelecida; o trabalho continua…",
@@ -2965,6 +2975,7 @@
     },
     it: {
       "runtime.connectionRetrying": "Connessione persa; nuovo tentativo",
+      "runtime.genericReplayGap": "Le attività precedenti di questa attività non sono più conservate su questo host; viene mostrata la finestra di riproduzione limitata.",
       "runtime.streamRetry": "Connessione in tempo reale interrotta; riconnessione tra {seconds} s…",
       "runtime.streamRecovering": "La connessione in tempo reale non risponde; riconnessione…",
       "runtime.streamRestored": "Connessione ripristinata; il lavoro prosegue…",

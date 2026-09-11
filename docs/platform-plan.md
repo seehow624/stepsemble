@@ -11,7 +11,14 @@
 
 ## 文件用途與回復方法
 
-**目前任務1.95（2026-09-11，Jerome 要求 C2／C3 全部做好）**：generic CLI task
+**目前任務1.96（2026-09-11，Jerome 要求 C2／C3 全部做好）**：前一輪已公開的
+generic bounded replay metadata 現在接到 Web 對話畫面。generic task 的 SSE `connected`
+若回報 `replayGap:true`，前端會顯示持續性的「較早活動未保留」提示；跨重連只會保留這個
+事實，不會被稍後沒有 gap 的游標清掉，切換到另一個 task／Pi session 才重置。前端同時
+嚴格驗證 replay floor／cursor 的型別與範圍，避免錯誤 handshake 開啟輸入。這只是 bounded
+history 的誠實呈現，不是 transcript、durable journal 或 native approval authority。
+
+**前一任務1.95（2026-09-11，Jerome 要求 C2／C3 全部做好）**：generic CLI task
 snapshot 現在除了既有 64 KiB output tail，也保存最多 64 筆／128 KiB 的非授權
 output、status、input、task lifecycle replay，並持久化 Stepsemble 本地 SSE cursor。
 服務重啟後會先恢復這段有限上下文，再重新 attach detached supervisor；超出界線的舊資料

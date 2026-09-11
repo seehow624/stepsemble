@@ -91,7 +91,7 @@ const el = {
   changesSummary: $("changes-summary"), changesFilesPane: $("changes-files-pane"), changesState: $("changes-state"), changesList: $("changes-list"),
   changesDiffPane: $("changes-diff-pane"), changesDetailBack: $("changes-detail-back"), changesDiffKind: $("changes-diff-kind"),
   changesDiffTitle: $("changes-diff-title"), changesDiffEmpty: $("changes-diff-empty"), changesDiff: $("changes-diff"),
-  messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"),
+  messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"), taskReplayNote: $("task-replay-note"),
   taskProgress: $("task-progress"), taskProgressPanel: $("task-progress-panel"), taskProgressHeading: $("task-progress-heading"),
   taskProgressState: $("task-progress-state"), taskProgressList: $("task-progress-list"), taskProgressDetail: $("task-progress-detail"),
   taskProgressNotes: $("task-progress-notes"), taskProgressToggle: $("task-progress-toggle"), taskProgressIndicator: $("task-progress-indicator"),
@@ -3646,8 +3646,16 @@ async function startNew(cwd, name, agentId = "pi", worktree = false, signal = nu
   }
 }
 
+function resetGenericReplayNotice() {
+  if (!el.taskReplayNote) return;
+  el.taskReplayNote.textContent = "";
+  delete el.taskReplayNote.dataset.i18nKey;
+  el.taskReplayNote.classList.add("hidden");
+}
+
 async function connectRpc(opts, generation = viewGeneration, openedResult = null, openedBase = apiBase, signal = null) {
   const baseAtStart = openedResult === null ? apiBase : openedBase;
+  resetGenericReplayNotice();
   setStreaming(false);
   try {
     const r = openedResult === null ? await post("/api/open", opts, signal ? { signal } : {}) : openedResult;
@@ -3836,6 +3844,16 @@ function genericInputBlock(connection = rpc) {
   return null;
 }
 
+function applyGenericReplayMetadata(snapshot = {}) {
+  if (!rpc?.generic) return;
+  if (snapshot.replayGap === true) rpc.genericReplayGap = true;
+  if (rpc.genericReplayGap && el.taskReplayNote) {
+    el.taskReplayNote.dataset.i18nKey = "runtime.genericReplayGap";
+    el.taskReplayNote.textContent = tKey("runtime.genericReplayGap");
+    el.taskReplayNote.classList.remove("hidden");
+  }
+}
+
 function syncGenericInputState() {
   const reason = genericInputBlock();
   el.input.readOnly = !!reason;
@@ -3920,6 +3938,7 @@ function applyGenericTaskSnapshot(snapshot = {}) {
   if (snapshot.agentId) rpc.agentId = String(snapshot.agentId);
   if (snapshot.agentId) rpc.agentLabel = agentConnectorLabel(snapshot.agentId);
   if (snapshot.agentId) setChatAgent(snapshot.agentId);
+  applyGenericReplayMetadata(snapshot);
   if (Number.isFinite(Number(snapshot.startedAt)) && Number(snapshot.startedAt) > 0) rpc.runStartedAt = Number(snapshot.startedAt);
   if (Number.isFinite(Number(snapshot.endedAt)) && Number(snapshot.endedAt) > 0) rpc.runEndedAt = Number(snapshot.endedAt);
   rpc.activityLabel = status === "waiting" ? "waiting" : "working";
@@ -4007,6 +4026,7 @@ async function openGenericTask(task) {
 
 async function connectAgentTask(options = {}, generation = viewGeneration) {
   const baseAtStart = apiBase;
+  resetGenericReplayNotice();
   setStreaming(false);
   try {
     let result;
@@ -4043,6 +4063,7 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
       generic: true,
       genericOutputNode: null,
       genericTerminalNotice: null,
+      genericReplayGap: false,
       es: null,
       streaming: agentTaskIsRunning({ status }),
       connectionLost: false,
@@ -4134,6 +4155,10 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
         try { snapshot = JSON.parse(event.data); } catch {}
         if (!snapshot || (snapshot.taskId ?? snapshot.id) !== taskId || snapshot.id !== undefined && snapshot.id !== taskId
           || !Number.isSafeInteger(snapshot.eventSeq) || snapshot.eventSeq < 0
+          || Object.hasOwn(snapshot, "replayFloor") && (!Number.isSafeInteger(snapshot.replayFloor) || snapshot.replayFloor < 1 || snapshot.replayFloor > snapshot.eventSeq + 1)
+          || Object.hasOwn(snapshot, "replayTruncated") && typeof snapshot.replayTruncated !== "boolean"
+          || Object.hasOwn(snapshot, "replayGap") && typeof snapshot.replayGap !== "boolean"
+          || Object.hasOwn(snapshot, "replayAfter") && (!Number.isSafeInteger(snapshot.replayAfter) || snapshot.replayAfter < -1)
           || !["starting", "running", "waiting", "reconnecting", "completed", "failed", "stopped", "orphaned", "detached"].includes(snapshot.status)) {
           scheduleReconnect(es); return;
         }

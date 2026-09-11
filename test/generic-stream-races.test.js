@@ -10,16 +10,17 @@ function setup() {
     connected(status = "running", extra = {}) { this.listeners.connected({ data: JSON.stringify({ taskId: "same-id", id: "same-id", eventSeq: 10, status, ...extra }) }); }
     message(type, seq, extra = {}) { this.onmessage({ lastEventId: String(seq), data: JSON.stringify({ type, taskId: "same-id", ...extra }) }); }
   }
-  const el = { input: { value: "preserved draft" }, btnSend: {}, queueNote: { dataset: {}, classList: { add() {}, remove() {} } } };
+  const replayNote = { textContent: "", dataset: {}, classList: { add() { replayNote.hidden = true; }, remove() { replayNote.hidden = false; } }, hidden: true };
+  const el = { input: { value: "preserved draft" }, btnSend: {}, queueNote: { dataset: {}, classList: { add() {}, remove() {} } }, taskReplayNote: replayNote };
   const context = vm.createContext({ EventSource, el, rpc: null, apiBase: "/r/a", viewGeneration: 1, currentSessionCwd: "/fixture",
     api: async () => ({ task: { id: "same-id", status: "running", agentId: "codex" } }),
     setTimeout(fn) { const id = ++nextTimer; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
-    $: () => null, agentHubText: key => key, tKey: key => key, agentConnectorLabel: id => id, updateAgentTaskCache() {},
+    $: () => null, agentHubText: key => key, tKey: key => key, agentConnectorLabel: id => id, updateAgentTaskCache() {}, resetGenericReplayNotice() {},
     agentTaskIsRunning: task => ["starting", "running", "reconnecting"].includes(task.status),
     toast() {}, showList() {}, showRemoteAuthorizationState() {} });
   vm.runInContext(source.slice(source.indexOf("function genericTaskTerminal("), source.indexOf("function updateAgentTaskCache(")), context);
   context.setStreaming = on => { if (context.rpc) context.rpc.streaming = on; context.syncGenericInputState(); };
-  context.applyGenericTaskSnapshot = snapshot => { context.rpc.taskStatus = snapshot.status; seen.push(snapshot.status); context.syncGenericInputState(); };
+  context.applyGenericTaskSnapshot = snapshot => { context.applyGenericReplayMetadata(snapshot); context.rpc.taskStatus = snapshot.status; seen.push(snapshot.status); context.syncGenericInputState(); };
   context.handleAgentTaskEvent = data => { seen.push(data.type); if (data.status) { context.rpc.taskStatus = data.status; context.syncGenericInputState(); } };
   vm.runInContext(source.slice(source.indexOf("async function connectAgentTask("), source.indexOf("function closeChat(")), context);
   return { context, streams, seen, timers, el };
@@ -29,6 +30,13 @@ test("generic input waits for the task snapshot, not transport-open", async () =
   assert.equal(f.el.btnSend.disabled, true); f.streams[0].onopen(); assert.equal(f.el.btnSend.disabled, true);
   f.streams[0].connected(); assert.equal(f.el.btnSend.disabled, false);
   f.streams[0].onerror(); assert.equal(f.el.btnSend.disabled, true); assert.equal(f.el.input.value, "preserved draft");
+});
+test("bounded replay gaps are surfaced without making the task look complete", async () => {
+  const f = setup(); await f.context.connectAgentTask({ taskId: "same-id" });
+  f.streams[0].connected("running", { replayGap: true });
+  assert.equal(f.el.taskReplayNote.hidden, false);
+  assert.equal(f.el.taskReplayNote.textContent, "runtime.genericReplayGap");
+  assert.equal(f.context.rpc.taskStatus, "running");
 });
 test("terminal task snapshots stay read-only despite historical lifecycle replay", async () => {
   const f = setup(); await f.context.connectAgentTask({ taskId: "same-id" }); f.streams[0].connected("completed");
@@ -51,7 +59,8 @@ test("old Host/same-task-ID callbacks and timers cannot control a new connection
   f.context.rpc = null; old.connected(); assert.equal(f.streams[1].closed, false);
 });
 test("invalid or foreign connected frames cannot enable input", async () => {
-  for (const extra of [{ taskId: "foreign" }, { id: "foreign" }, { status: "approved" }, { eventSeq: -1 }]) {
+  for (const extra of [{ taskId: "foreign" }, { id: "foreign" }, { status: "approved" }, { eventSeq: -1 },
+    { replayFloor: 12 }, { replayFloor: "2" }, { replayTruncated: "true" }, { replayGap: "true" }, { replayAfter: "later" }]) {
     const f = setup(); await f.context.connectAgentTask({ taskId: "same-id" }); f.streams[0].connected("running", extra);
     assert.equal(f.streams[0].closed, true); assert.equal(f.el.btnSend.disabled, true); assert.deepEqual(f.seen, []);
   }
