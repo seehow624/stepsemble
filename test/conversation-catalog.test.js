@@ -13,6 +13,22 @@ test("source identity never comes from the shared title, project, model or anoth
   assert.notEqual(catalog.build("mbp", [pi()], []).entries[0].key, entries.find(row => row.kind === "pi_history").key);
   assert.ok(entries.every(row => row.title === "原本的名稱"));
 });
+test("native OpenCode sessions appear beside Pi history with their own identity", () => {
+  const entries = catalog.build("mini", [], [{
+    id: "opencode:ses_123",
+    agentId: "opencode",
+    nativeOpenCode: true,
+    name: "OpenCode session",
+    cwd: "/project",
+    status: "waiting",
+    lastActivityAt: 30,
+  }]).entries;
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].agentId, "opencode");
+  assert.equal(entries[0].kind, "task_record");
+  assert.equal(entries[0].title, "OpenCode session");
+  assert.equal(catalog.select({ entries, omitted: 0 }, { agentId: "opencode" }).total, 1);
+});
 test("deduplicates only an exact native Pi file and keeps native name/outcome", () => {
   const snapshot = catalog.build("mini", [pi()], [task("pi:abc", { agentId: "pi", file: pi().file, status: "failed", name: "2026-09-ID" }), task("same", { file: pi().file })]);
   assert.equal(snapshot.entries.length, 2);

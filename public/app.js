@@ -1,7 +1,7 @@
-/* stepsemble v3.0.14 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.15 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.14";
+const CLIENT_APP_VERSION = "3.0.15";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -1752,10 +1752,15 @@ function renderAgentHub() {
   }
   if (!el.agentTaskList) return;
   el.agentTaskList.replaceChildren();
-  const visible = [...agentTasks].sort((a, b) => {
+  const orderedTasks = [...agentTasks].sort((a, b) => {
     const activeOrder = Number(agentTaskIsRunning(b)) - Number(agentTaskIsRunning(a));
     return activeOrder || (Number(b.lastActivityAt || b.startedAt) || 0) - (Number(a.lastActivityAt || a.startedAt) || 0);
-  }).slice(0, 5);
+  });
+  // Agent Hub is a live preview, not the complete conversation index. Keep
+  // historical native rows out of the way when a connector exposes many
+  // sessions; the All conversations sheet remains the exhaustive view.
+  const previewLimit = orderedTasks.some(agentTaskIsRunning) ? 3 : 1;
+  const visible = orderedTasks.slice(0, previewLimit);
   if (!visible.length) {
     const empty = document.createElement("p");
     empty.className = "agent-hub-empty";
@@ -2045,6 +2050,10 @@ function openConversationCatalog() {
     async refresh() { await Promise.all([refreshSessions({ refreshTasks: false }), refreshAgentTasks()]); updateConversationCatalog(); },
   });
   conversationView.open(); updateConversationCatalog();
+  // The initial Agent Hub discovery is intentionally non-blocking. Refresh
+  // here as well so opening All conversations while that request is still in
+  // flight can never leave the sheet showing only the Pi snapshot.
+  void refreshAgentTasks();
 }
 function resetAgentHub() {
   runningStateRequest?.controller.abort();
@@ -2079,6 +2088,7 @@ async function refreshAgentTasks() {
     conversationSourceState.tasks = "ready";
     renderAgentHub();
     renderAgentTaskCenter();
+    updateConversationCatalog();
     syncAgentTaskPolling();
     // Restore only after a successful task snapshot; doing this before the
     // first fetch would race the durable generic-task list and fall back to a

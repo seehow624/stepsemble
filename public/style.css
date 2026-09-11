@@ -1,4 +1,4 @@
-/* stepsemble v3.0.14 — Ink & Ivory / English-first localization */
+/* stepsemble v3.0.15 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -1760,6 +1760,11 @@ body.image-lightbox-open { overflow: hidden; }
 
 /* ---- Agent Hub inbox ---- */
 .agent-hub-card {
+  flex: 0 0 auto;
+  max-height: min(36dvh, 300px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
   margin: 7px 12px 9px;
   padding: 12px 14px;
   border: .5px solid var(--line);

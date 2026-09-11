@@ -1,5 +1,22 @@
 # Changelog
 
+## 3.0.15
+
+Conversation catalog and Agent Hub layout fix.
+
+- Refresh the Agent Hub task snapshot when the All conversations sheet opens
+  and when a background task refresh completes, so native OpenCode sessions
+  cannot be hidden behind an early Pi-only snapshot.
+- Keep native OpenCode rows in the shared conversation catalog with their
+  source identity and logo.
+- Turn Agent Hub into a bounded live preview: show active work first and only
+  the latest idle row, while preserving the complete list in View all.
+- Bound the Agent Hub card to its own scroll surface so Sessions remains
+  reachable on small screens and dense workspaces.
+
+Validation: Agent Hub race tests, conversation catalog tests, full smoke suite,
+and live Mac mini OpenCode verification.
+
 ## 3.0.14
 
 Release-gate fix for native OpenCode history rows.
