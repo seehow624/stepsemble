@@ -67,13 +67,14 @@ function harness(t, config = {}) {
           chainByteBudget: 256 * 1024 * 1024, chainDecodedByteBudget: 256 * 1024 * 1024, sourceAuthenticated: false, historyComplete: false };
         const result = { kind: "native_codex_paginated_resolution", nativeVersion: paginatedResolutionWire.VERSION, threadId: input.threadId,
           expectedRoot: structuredClone(input.expectedRoot), plan, resolution: { profile: "codex_paginated_resolution_v1", threadId: input.threadId,
-            sources: [{ ...source, decodedBytes: String(Math.max(bytes.length, 1)), storedBytes: String(Math.max(bytes.length, 1)), recordCount: 1 }],
+            sources: [{ ...source, decodedBytes: String(Math.max(bytes.length, 1)), storedBytes: String(Math.max(bytes.length, 1)), recordCount: 1,
+              completeLfEndByteOffset: String(Math.max(bytes.length, 1)), nextOrdinalExclusive: "1" }],
             chainStoredBytes: String(Math.max(bytes.length, 1)), chainDecodedBytes: String(Math.max(bytes.length, 1)), ordinalCutoffsVerified: true,
             reachedRoot: true, sourceAuthenticated: false, historyComplete: false }, sourceAuthenticated: false, publishable: false, historyComplete: false,
           cleanupConfirmed: true };
         const promise = new Promise(resolve => { h.finish = (value = result, close = true) => { if (close) h.close(); resolve(value); }; });
         signal.addEventListener("abort", () => { if (!config.holdReader) h.finish(unavailable("source_aborted")); }, { once: true });
-        if (config.auto && !config.holdReader) queueMicrotask(() => h.finish(config.paginatedCapture?.(input) ?? result));
+        if (config.auto && !config.holdReader) queueMicrotask(() => h.finish(config.paginatedCapture?.(input, result) ?? result));
         return promise;
       };
       h.readCodexPaginatedConsistency = (input, { signal }) => {

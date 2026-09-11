@@ -330,12 +330,13 @@ function createCodexSourceService(options = {}) {
           || checkpoint.historyComplete !== false || checkpoint.sourceAuthenticated !== false || checkpoint.publishable !== false)
           return unavailable("source_worker_protocol");
 
-        const evidence = resolved.resolution.sources.map((item, index) => {
-          const metadataOrdinal = index === 0 ? 0n : BigInt(resolved.plan.sources[index - 1].endOrdinalExclusive);
+        const evidence = resolved.resolution.sources.map(item => {
+          if (!paginatedResolutionWire.validResolvedEvidence(item)) return null;
           return { rolloutId: item.rolloutId, decodedBytes: item.decodedBytes,
-            completeLfEndByteOffset: item.decodedBytes,
-            nextOrdinalExclusive: (metadataOrdinal + BigInt(item.recordCount)).toString() };
+            completeLfEndByteOffset: item.completeLfEndByteOffset,
+            nextOrdinalExclusive: item.nextOrdinalExclusive };
         });
+        if (evidence.some(item => item === null)) return unavailable("source_worker_protocol");
         const selected = { id: source.sessionId, rolloutPath: source.history.source.rolloutPath, source: "owned_codex_catalog",
           historyMode: "paginated", archived: head.archived, createdAt: "0", updatedAt: "0", createdAtMs: null, updatedAtMs: null };
         const projection = { kind: checkpoint.checkpoint.kind, nativeVersion: checkpoint.checkpoint.nativeVersion,
@@ -352,6 +353,41 @@ function createCodexSourceService(options = {}) {
           || assembled.threadId !== source.sessionId || assembled.sourceAuthenticated !== false
           || assembled.publishable !== false || assembled.historyComplete !== false
           || !consistencyWire.consistency(assembled.consistency, source.sessionId)) return unavailable("source_worker_protocol");
+
+        // Resolution, projection checkpoint, and pure assembly are separate
+        // observations. Re-read the owned paginated source with the first
+        // source version as a fence before publishing the composed DTO. This
+        // does not make the two databases an atomic snapshot, but it closes
+        // the window in which the paginated source could change silently
+        // while the sequential consistency request was in flight.
+        const rechecked = await pipeline.readPaginatedResolution(nativeRequest,
+          { expectedVersion: resolved.source, signal: controller.signal });
+        const recheckFailure = unavailableFromPipeline(rechecked);
+        if (recheckFailure) return recheckFailure;
+        if (!rechecked || rechecked.kind !== "codex_paginated_resolution_capture" || rechecked.cleanupConfirmed !== true
+          || !paginatedResolutionWire.validVersion(rechecked.source)
+          || !paginatedResolutionWire.sameSourceVersion(resolved.source, rechecked.source)
+          || rechecked.source.threadId !== source.sessionId
+          || rechecked.source.selectedRolloutId !== request.selectedRolloutId
+          || rechecked.source.rootIdentity.device !== source.history.expectedRoot.device
+          || rechecked.source.rootIdentity.inode !== source.history.expectedRoot.inode
+          || rechecked.consistency !== "single_codex_paginated_resolution_observation"
+          || rechecked.historyComplete !== false || rechecked.sourceAuthenticated !== false || rechecked.publishable !== false)
+          return unavailable("source_version_changed");
+        const checkpointRechecked = await pipeline.readCheckpoint(checkpointInput,
+          { expectedVersion: checkpoint.source, signal: controller.signal });
+        const checkpointRecheckFailure = unavailableFromPipeline(checkpointRechecked);
+        if (checkpointRecheckFailure) return checkpointRecheckFailure;
+        if (!checkpointRechecked || checkpointRechecked.kind !== "codex_paginated_checkpoint_capture"
+          || checkpointRechecked.cleanupConfirmed !== true || !checkpointWire.validVersion(checkpointRechecked.source)
+          || !checkpointWire.sameSourceVersion(checkpoint.source, checkpointRechecked.source)
+          || checkpointRechecked.source.threadId !== request.selectedRolloutId
+          || checkpointRechecked.source.rootIdentity.device !== source.sqlite.expectedRoot.device
+          || checkpointRechecked.source.rootIdentity.inode !== source.sqlite.expectedRoot.inode
+          || checkpointRechecked.consistency !== "single_history_database_observation"
+          || checkpointRechecked.historyComplete !== false || checkpointRechecked.sourceAuthenticated !== false
+          || checkpointRechecked.publishable !== false)
+          return unavailable("source_version_changed");
         const output = consistencyWire.detach({ kind: "bound_codex_paginated_consistency", bindingId: value.bindingId,
           generation: value.generation, requestId: request.requestId, selectedRolloutId: request.selectedRolloutId,
           resolutionVersion: structuredClone(resolved.source), checkpointVersion: structuredClone(checkpoint.source),

@@ -521,6 +521,15 @@ mod tests {
         assert!(resolved.sources[0].compressed);
         assert!(resolved.sources[0].archived);
         assert_eq!(resolved.sources[0].decoded_bytes, old_raw.len().to_string());
+        let old_decoded = old_raw.len().to_string();
+        assert_eq!(
+            resolved.sources[0].complete_lf_end_byte_offset.as_deref(),
+            Some(old_decoded.as_str())
+        );
+        assert_eq!(
+            resolved.sources[0].next_ordinal_exclusive.as_deref(),
+            Some("3")
+        );
         assert_eq!(
             resolved.sources[0].stored_bytes,
             old_compressed.len().to_string()
@@ -535,6 +544,15 @@ mod tests {
         assert_eq!(
             resolved.sources[1].decoded_bytes,
             child_raw.len().to_string()
+        );
+        let child_decoded = child_raw.len().to_string();
+        assert_eq!(
+            resolved.sources[1].complete_lf_end_byte_offset.as_deref(),
+            Some(child_decoded.as_str())
+        );
+        assert_eq!(
+            resolved.sources[1].next_ordinal_exclusive.as_deref(),
+            Some("4")
         );
         assert_eq!(
             resolved.chain_stored_bytes,

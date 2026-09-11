@@ -301,6 +301,16 @@ fn check_durable_sources(
         } {
             return Err(Error::CutoffOutsideDurablePrefix);
         }
+        if let Some(native_offset) = resolved.complete_lf_end_byte_offset.as_deref()
+            && native_offset != durable.complete_lf_end_byte_offset
+        {
+            return Err(Error::DurableEvidenceMismatch);
+        }
+        if let Some(native_ordinal) = resolved.next_ordinal_exclusive.as_deref()
+            && native_ordinal != durable.next_ordinal_exclusive
+        {
+            return Err(Error::DurableEvidenceMismatch);
+        }
     }
     Ok(())
 }
@@ -441,6 +451,14 @@ mod tests {
                 record_count: if source.rollout_id == THREAD { 40 } else { 20 },
                 stored_bytes: 1_000,
                 ordinal_cutoff_verified: source.end_ordinal_exclusive.is_some(),
+                complete_lf_end_byte_offset: Some(1_000),
+                next_ordinal_exclusive: Some(if source.rollout_id == OLD {
+                    20
+                } else if source.rollout_id == MID {
+                    40
+                } else {
+                    80
+                }),
             })
             .collect::<Vec<_>>();
         resolution::resolve(plan, &observations).expect("resolution")

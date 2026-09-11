@@ -66,6 +66,13 @@ pub struct Observed {
     /// True only when the source scanner saw every record's ordinal and
     /// matched the requested exclusive ordinal to its exact line-end byte.
     pub ordinal_cutoff_verified: bool,
+    /// Decoded byte offset immediately after the last complete LF record.
+    /// Legacy callers may omit this evidence; the owned paginated opener
+    /// always supplies it.
+    pub complete_lf_end_byte_offset: Option<u64>,
+    /// Global created ordinal immediately after the last observed record.
+    /// This is deliberately separate from the local `record_count`.
+    pub next_ordinal_exclusive: Option<u64>,
 }
 
 /// One resolved link, pairing the plan with the observation.
@@ -79,6 +86,12 @@ pub struct ResolvedSource {
     pub decoded_bytes: String,
     pub stored_bytes: String,
     pub record_count: u32,
+    /// Native complete-LF evidence, when supplied by the owned opener.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub complete_lf_end_byte_offset: Option<String>,
+    /// Native global ordinal evidence, when supplied by the owned opener.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_ordinal_exclusive: Option<String>,
     /// The exclusive ordinal this link contributes up to, when it is inherited
     /// from. None means the link contributes through its end.
     pub end_ordinal_exclusive: Option<String>,
@@ -193,6 +206,12 @@ fn resolved(planned: &PlannedSource, observed: &Observed) -> ResolvedSource {
         decoded_bytes: observed.decoded_bytes.to_string(),
         stored_bytes: observed.stored_bytes.to_string(),
         record_count: observed.record_count,
+        complete_lf_end_byte_offset: observed
+            .complete_lf_end_byte_offset
+            .map(|value| value.to_string()),
+        next_ordinal_exclusive: observed
+            .next_ordinal_exclusive
+            .map(|value| value.to_string()),
         end_ordinal_exclusive: planned.end_ordinal_exclusive.clone(),
         end_byte_offset: planned.end_byte_offset.clone(),
     }

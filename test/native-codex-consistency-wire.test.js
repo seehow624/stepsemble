@@ -18,7 +18,7 @@ function input() {
     plan: { profile: "codex_paginated_chain_plan_v1", threadId: SESSION, sources: [source], reachedRoot: true,
       chainByteBudget: 256 * 1024 * 1024, chainDecodedByteBudget: 256 * 1024 * 1024, sourceAuthenticated: false, historyComplete: false },
     resolution: { profile: "codex_paginated_resolution_v1", threadId: SESSION,
-      sources: [{ ...source, decodedBytes: "5", storedBytes: "5", recordCount: 1 }], chainStoredBytes: "5", chainDecodedBytes: "5",
+      sources: [{ ...source, decodedBytes: "5", storedBytes: "5", recordCount: 1, completeLfEndByteOffset: "5", nextOrdinalExclusive: "1" }], chainStoredBytes: "5", chainDecodedBytes: "5",
       ordinalCutoffsVerified: true, reachedRoot: true, sourceAuthenticated: false, historyComplete: false },
     projection: { kind: "codex_paginated_projection_checkpoint", nativeVersion: wire.VERSION, threadId: SESSION,
       checkpoint: { nextRolloutByteOffset: "5", nextRolloutOrdinal: "1" }, sourceAuthenticated: false, publishable: false,

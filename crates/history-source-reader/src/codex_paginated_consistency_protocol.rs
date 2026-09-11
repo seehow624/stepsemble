@@ -98,6 +98,8 @@ struct ResolvedSourceWire {
     decoded_bytes: String,
     stored_bytes: String,
     record_count: u32,
+    complete_lf_end_byte_offset: Option<String>,
+    next_ordinal_exclusive: Option<String>,
     end_ordinal_exclusive: Option<String>,
     end_byte_offset: Option<String>,
 }
@@ -209,6 +211,8 @@ fn convert_resolution(value: ResolutionWire) -> Result<Resolution, Error> {
                 decoded_bytes: source.decoded_bytes,
                 stored_bytes: source.stored_bytes,
                 record_count: source.record_count,
+                complete_lf_end_byte_offset: source.complete_lf_end_byte_offset,
+                next_ordinal_exclusive: source.next_ordinal_exclusive,
                 end_ordinal_exclusive: source.end_ordinal_exclusive,
                 end_byte_offset: source.end_byte_offset,
             })
@@ -344,6 +348,7 @@ mod tests {
                 "sourceAuthenticated": false, "historyComplete": false},
             "resolution": {"profile": resolution::PROFILE, "threadId": THREAD, "sources": [{"rolloutId": THREAD, "rolloutPath": PATH,
                 "compressed": false, "archived": false, "decodedBytes": "5", "storedBytes": "5", "recordCount": 1,
+                "completeLfEndByteOffset": "5", "nextOrdinalExclusive": "1",
                 "endOrdinalExclusive": null, "endByteOffset": null}], "chainStoredBytes": "5", "chainDecodedBytes": "5",
                 "ordinalCutoffsVerified": true, "reachedRoot": true, "sourceAuthenticated": false, "historyComplete": false},
             "projection": {"kind": "codex_paginated_projection_checkpoint", "nativeVersion": sqlite_metadata::NATIVE_VERSION,

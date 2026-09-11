@@ -123,14 +123,25 @@ function sourceShape(value, resolved = false) {
   const names = resolved
     ? ["rolloutId", "rolloutPath", "compressed", "archived", "decodedBytes", "storedBytes", "recordCount", "endOrdinalExclusive", "endByteOffset"]
     : ["rolloutId", "rolloutPath", "compressed", "archived", "endOrdinalExclusive", "endByteOffset"];
-  if (!keys(value, names) || !uuid(value.rolloutId) || !wellFormed(value.rolloutPath)) return false;
+  const evidenceNames = resolved
+    ? [...names.slice(0, -2), "completeLfEndByteOffset", "nextOrdinalExclusive", "endOrdinalExclusive", "endByteOffset"]
+    : names;
+  const hasNativeEvidence = resolved && keys(value, evidenceNames);
+  if ((!keys(value, names) && !hasNativeEvidence) || !uuid(value.rolloutId) || !wellFormed(value.rolloutPath)) return false;
   const info = locatorInfo(value.rolloutPath);
   if (!info || info.physicalRolloutId !== value.rolloutId || value.compressed !== info.compressed || value.archived !== info.archived
     || !cutoff(value.endOrdinalExclusive, value.endByteOffset)) return false;
   if (!resolved) return true;
-  return u64(value.decodedBytes) && BigInt(value.decodedBytes) > 0n && BigInt(value.decodedBytes) <= BigInt(SOURCE_BYTES)
+  if (!(u64(value.decodedBytes) && BigInt(value.decodedBytes) > 0n && BigInt(value.decodedBytes) <= BigInt(SOURCE_BYTES)
     && u64(value.storedBytes) && BigInt(value.storedBytes) > 0n && BigInt(value.storedBytes) <= BigInt(SOURCE_BYTES)
-    && count(value.recordCount, RECORDS, 1);
+    && count(value.recordCount, RECORDS, 1))) return false;
+  return !hasNativeEvidence || validResolvedEvidence(value);
+}
+
+function validResolvedEvidence(value) {
+  return object(value) && u64(value.completeLfEndByteOffset) && BigInt(value.completeLfEndByteOffset) > 0n
+    && u64(value.nextOrdinalExclusive) && BigInt(value.nextOrdinalExclusive) > 0n
+    && BigInt(value.completeLfEndByteOffset) <= BigInt(value.decodedBytes);
 }
 
 function planShape(value, threadId, selectedRolloutId) {
@@ -244,4 +255,4 @@ module.exports = Object.freeze({ VERSION, PROTOCOL_VERSION, LIMITS, keys, detach
       threadId: headerValue.threadId, selectedRolloutId: headerValue.plan?.sources?.at(-1)?.rolloutId,
       expectedRoot: headerValue.expectedRoot };
     return header(headerValue, job);
-  }, unavailable });
+  }, validResolvedEvidence, unavailable });

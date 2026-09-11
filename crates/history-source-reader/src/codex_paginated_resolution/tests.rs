@@ -46,6 +46,8 @@ fn observed(id: &str, decoded: u64, records: u32, stored: u64) -> Observed {
         record_count: records,
         stored_bytes: stored,
         ordinal_cutoff_verified: true,
+        complete_lf_end_byte_offset: None,
+        next_ordinal_exclusive: None,
     }
 }
 

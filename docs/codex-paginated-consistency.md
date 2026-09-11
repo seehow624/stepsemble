@@ -1,5 +1,26 @@
 # Codex paginated：選定列、投影檢查點與 durable 前綴一致性
 
+## 接續 1.94：跨 sequential observation 的 source-version revalidation fence
+
+本輪在同一個 owned binding 的 consistency 流程尾端加入 protocol 15 與 protocol 16
+的 revalidation：第一次 resolution、physical-head checkpoint、protocol 17 assembly
+完成後，會分別以第一次的 `sourceVersion` 作為 `expectedVersion` 再讀一次來源與 SQLite
+projection。任一 store 在流程期間改變，pipeline 會回傳 `source_version_changed`，service
+不會發布組合結果；兩次版本都相同，才回傳原本的 `cross_observation_non_atomic` detached
+DTO。這個 fence 補上兩個 sequential observation 的變更窗口，但不把兩個 store 宣稱成
+atomic snapshot，也不取代共同 DB identity fence、完整 ancestry discovery 或 durable
+cursor 語意。
+
+protocol 15 現在由 native opener 回報每個來源的 `completeLfEndByteOffset` 與真正 global
+`nextOrdinalExclusive`；service 不再以 decoded bytes 或 local `recordCount` 推導 durable
+evidence，protocol 17 Rust assembly 也會比對 native evidence（若缺失或不一致即拒絕）。
+
+測試涵蓋穩定來源的五階段順序（resolution → checkpoint → assembly → source revalidation →
+projection revalidation）、兩次讀取分別改變 `recordCount`／projection cursor 時的
+fail-closed `source_version_changed`，以及缺少 native evidence 時不回退推導；helper 仍受
+single admission、AbortSignal、actual close、quarantine 與 generation／request fence
+約束。正式版本、登入／訂閱帳號與 Web route contract 不變。
+
 ## 接續 1.93：受控 consistency gate 接入 service／HTTP／typed transport
 
 本輪新增 native protocol 17 `native_codex_paginated_consistency`，把既有的
@@ -170,7 +191,7 @@ cargo +1.97.1 test --manifest-path crates/history-source-reader/Cargo.toml --loc
 
 ## 仍待
 
-下一步（1.90 之後）仍要在一個受控 reader admission 內：先從已認證 state row 取得 selected
+下一步（1.94 之後）仍要在一個受控 reader admission 內：先從已認證 state row 取得 selected
 head，逐一透過既有 opener 產生每段真正的 complete-LF ordinal/offset evidence，
 再從同一個 owned `thread_history_1.sqlite` snapshot 讀 head physical projection
 checkpoint，最後呼叫本 assembly。仍須補來源與兩個 DB 的共同 snapshot／identity

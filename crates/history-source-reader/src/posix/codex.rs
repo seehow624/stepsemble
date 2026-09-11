@@ -233,16 +233,19 @@ pub(crate) fn capture_paginated_source_checked(
         true,
         &mut |_| {},
     )? {
-        Captured::Page(pair, ordinal_cutoff_verified) => {
-            let verified = ordinal_cutoff_verified.unwrap_or(false);
+        Captured::Page(pair, ordinal_evidence) => {
+            let verified = ordinal_evidence
+                .as_ref()
+                .map(|evidence| evidence.verified)
+                .unwrap_or(false);
             if ordinal_cutoff.is_some() && !verified {
                 return Err(Error::PaginatedOrdinalInvalid);
             }
-            (*pair, verified)
+            (*pair, ordinal_evidence)
         }
         Captured::Bytes(_) => return Err(Error::Input),
     };
-    let (captured, ordinal_cutoff_verified) = captured;
+    let (captured, ordinal_evidence) = captured;
     if let Some(expected) = expected_first {
         let first = captured.page.records.first().ok_or(Error::Empty)?;
         if first.bytes != expected {
@@ -254,7 +257,12 @@ pub(crate) fn capture_paginated_source_checked(
         decoded_bytes: captured.page.summary.byte_length,
         record_count: captured.page.summary.record_count,
         stored_bytes: captured.rollout_identity.size,
-        ordinal_cutoff_verified,
+        ordinal_cutoff_verified: ordinal_evidence
+            .as_ref()
+            .map(|evidence| evidence.verified)
+            .unwrap_or(false),
+        complete_lf_end_byte_offset: Some(captured.page.summary.byte_length),
+        next_ordinal_exclusive: ordinal_evidence.map(|evidence| evidence.next_ordinal_exclusive),
     })
 }
 fn capture_scanned_mode(
@@ -274,7 +282,7 @@ fn capture_scanned_mode(
 }
 enum Captured {
     Bytes(Box<Pair>),
-    Page(Box<crate::codex_scanned::Pair>, Option<bool>),
+    Page(Box<crate::codex_scanned::Pair>, Option<OrdinalEvidence>),
 }
 enum Rollout {
     Bytes(Vec<u8>),
@@ -292,6 +300,12 @@ struct OrdinalCheck {
     next: Option<u64>,
     cut_end: Option<u64>,
     invalid: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct OrdinalEvidence {
+    verified: bool,
+    next_ordinal_exclusive: u64,
 }
 
 impl OrdinalCheck {
@@ -601,12 +615,15 @@ fn capture_variant_limited(
         }
         (Rollout::Bytes(first), first_index)
     };
-    let ordinal_cutoff_verified = ordinal_check
+    let ordinal_evidence = ordinal_check
         .map(|check| {
             if check.invalid {
                 Err(Error::PaginatedOrdinalInvalid)
             } else {
-                Ok(check.verified())
+                Ok(OrdinalEvidence {
+                    verified: check.verified(),
+                    next_ordinal_exclusive: check.next.ok_or(Error::PaginatedOrdinalInvalid)?,
+                })
             }
         })
         .transpose()?;
@@ -660,7 +677,7 @@ fn capture_variant_limited(
                 physical_sha256: physical.map(|value| value.sha256),
                 decoded_frames: physical.map(|value| value.frames),
             }),
-            ordinal_cutoff_verified,
+            ordinal_evidence,
         ),
     };
     let mut close_failed = false;

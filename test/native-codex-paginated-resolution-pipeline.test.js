@@ -15,7 +15,8 @@ function captured() {
   const plan = { profile: "codex_paginated_chain_plan_v1", threadId, sources: [source], reachedRoot: true, chainByteBudget: 256 * 1024 * 1024,
     chainDecodedByteBudget: 256 * 1024 * 1024, sourceAuthenticated: false, historyComplete: false };
   return { kind: "native_codex_paginated_resolution", nativeVersion: wire.VERSION, threadId, expectedRoot: { device: "1", inode: "10" }, plan,
-    resolution: { profile: "codex_paginated_resolution_v1", threadId, sources: [{ ...source, decodedBytes: "123", storedBytes: "123", recordCount: 2 }],
+    resolution: { profile: "codex_paginated_resolution_v1", threadId, sources: [{ ...source, decodedBytes: "123", storedBytes: "123", recordCount: 2,
+      completeLfEndByteOffset: "123", nextOrdinalExclusive: "2" }],
       chainStoredBytes: "123", chainDecodedBytes: "123", ordinalCutoffsVerified: true, reachedRoot: true, sourceAuthenticated: false, historyComplete: false },
     sourceAuthenticated: false, publishable: false, historyComplete: false, cleanupConfirmed: true };
 }

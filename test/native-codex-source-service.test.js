@@ -185,7 +185,64 @@ test("paginated bindings compose resolution and the physical-head checkpoint thr
   assert.equal(result.aggregation, "cross_observation_non_atomic");
   assert.equal(result.consistency.selectedRolloutId, f.id);
   assert.equal(result.checkpoint.threadId, f.id);
-  assert.deepEqual(h.stages, ["readCodexPaginatedResolution", "readCodexPaginatedCheckpoint", "readCodexPaginatedConsistency"]);
+  assert.deepEqual(h.stages, ["readCodexPaginatedResolution", "readCodexPaginatedCheckpoint", "readCodexPaginatedConsistency",
+    "readCodexPaginatedResolution", "readCodexPaginatedCheckpoint"]);
+  assert.equal(h.physical(), 0); assert.equal(h.admission.status().activeWorkers, 0);
+});
+test("paginated consistency fails closed when its source-version fence changes during the sequential observations", async t => {
+  let calls = 0;
+  const h = harness(t, { auto: true,
+    paginatedCheckpoint: () => ({ nextRolloutByteOffset: "1", nextRolloutOrdinal: "1" }),
+    paginatedCapture: (_input, result) => {
+      calls++;
+      if (calls !== 2) return result;
+      const changed = structuredClone(result);
+      changed.resolution.sources[0].recordCount = 2;
+      return changed;
+    } });
+  const b = binding(); b.source.historyMode = "paginated"; const handle = h.service.bind(b);
+  const rolloutPath = b.source.history.source.rolloutPath;
+  const meta = Buffer.from(JSON.stringify({ ordinal: 0, type: "session_meta", payload: { id: f.id, history_mode: "paginated" } }) + "\n");
+  const entries = [{ rolloutId: f.id, base64Record: meta.toString("base64"), rolloutPath }];
+  const result = await handle.consistency({ ...request(b), selectedRolloutId: f.id, entries });
+  assert.equal(result.kind, "source_unavailable"); assert.equal(result.code, "source_version_changed");
+  assert.equal(calls, 2);
+  assert.deepEqual(h.stages, ["readCodexPaginatedResolution", "readCodexPaginatedCheckpoint", "readCodexPaginatedConsistency",
+    "readCodexPaginatedResolution"]);
+  assert.equal(h.physical(), 0); assert.equal(h.admission.status().activeWorkers, 0);
+});
+test("paginated consistency fails closed when its projection-version fence changes during revalidation", async t => {
+  let checkpointCalls = 0;
+  const h = harness(t, { auto: true,
+    paginatedCheckpoint: () => {
+      checkpointCalls++;
+      return { nextRolloutByteOffset: checkpointCalls === 2 ? "2" : "1", nextRolloutOrdinal: "1" };
+    } });
+  const b = binding(); b.source.historyMode = "paginated"; const handle = h.service.bind(b);
+  const rolloutPath = b.source.history.source.rolloutPath;
+  const meta = Buffer.from(JSON.stringify({ ordinal: 0, type: "session_meta", payload: { id: f.id, history_mode: "paginated" } }) + "\n");
+  const entries = [{ rolloutId: f.id, base64Record: meta.toString("base64"), rolloutPath }];
+  const result = await handle.consistency({ ...request(b), selectedRolloutId: f.id, entries });
+  assert.equal(result.kind, "source_unavailable"); assert.equal(result.code, "source_version_changed");
+  assert.equal(checkpointCalls, 2);
+  assert.deepEqual(h.stages, ["readCodexPaginatedResolution", "readCodexPaginatedCheckpoint", "readCodexPaginatedConsistency",
+    "readCodexPaginatedResolution", "readCodexPaginatedCheckpoint"]);
+  assert.equal(h.physical(), 0); assert.equal(h.admission.status().activeWorkers, 0);
+});
+test("paginated consistency never derives durable evidence from local record counts when native evidence is absent", async t => {
+  const h = harness(t, { auto: true,
+    paginatedCapture: (_input, result) => {
+      delete result.resolution.sources[0].completeLfEndByteOffset;
+      delete result.resolution.sources[0].nextOrdinalExclusive;
+      return result;
+    } });
+  const b = binding(); b.source.historyMode = "paginated"; const handle = h.service.bind(b);
+  const rolloutPath = b.source.history.source.rolloutPath;
+  const meta = Buffer.from(JSON.stringify({ ordinal: 0, type: "session_meta", payload: { id: f.id, history_mode: "paginated" } }) + "\n");
+  const entries = [{ rolloutId: f.id, base64Record: meta.toString("base64"), rolloutPath }];
+  const result = await handle.consistency({ ...request(b), selectedRolloutId: f.id, entries });
+  assert.equal(result.kind, "source_unavailable"); assert.equal(result.code, "source_worker_protocol");
+  assert.deepEqual(h.stages, ["readCodexPaginatedResolution", "readCodexPaginatedCheckpoint"]);
   assert.equal(h.physical(), 0); assert.equal(h.admission.status().activeWorkers, 0);
 });
 test("paginated resolution refuses a different selected head or a version from another binding before opening a reader", async t => {

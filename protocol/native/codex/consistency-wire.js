@@ -51,12 +51,17 @@ function planSource(value) {
 }
 
 function resolvedSource(value, planned) {
-  return keys(value, ["rolloutId", "rolloutPath", "compressed", "archived", "decodedBytes", "storedBytes", "recordCount", "endOrdinalExclusive", "endByteOffset"])
+  const names = ["rolloutId", "rolloutPath", "compressed", "archived", "decodedBytes", "storedBytes", "recordCount", "endOrdinalExclusive", "endByteOffset"];
+  const evidenceNames = ["rolloutId", "rolloutPath", "compressed", "archived", "decodedBytes", "storedBytes", "recordCount",
+    "completeLfEndByteOffset", "nextOrdinalExclusive", "endOrdinalExclusive", "endByteOffset"];
+  const hasNativeEvidence = keys(value, evidenceNames);
+  return (keys(value, names) || hasNativeEvidence)
     && uuid(value.rolloutId) && value.rolloutId === planned.rolloutId && value.rolloutPath === planned.rolloutPath
     && value.compressed === planned.compressed && value.archived === planned.archived
     && decimal(value.decodedBytes) && BigInt(value.decodedBytes) > 0n && BigInt(value.decodedBytes) <= BigInt(SOURCE_BYTES)
     && decimal(value.storedBytes) && BigInt(value.storedBytes) > 0n && BigInt(value.storedBytes) <= BigInt(SOURCE_BYTES)
-    && count(value.recordCount, 262144, 1) && value.endOrdinalExclusive === planned.endOrdinalExclusive && value.endByteOffset === planned.endByteOffset;
+    && count(value.recordCount, 262144, 1) && value.endOrdinalExclusive === planned.endOrdinalExclusive && value.endByteOffset === planned.endByteOffset
+    && (!hasNativeEvidence || paginatedWire.validResolvedEvidence(value));
 }
 
 function plan(value, threadId, selectedRolloutId) {

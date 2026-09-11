@@ -163,7 +163,12 @@ var StepsembleHistoryTransport;
     };
     const paginatedSource = (value, resolved) => {
         const v = value, names = resolved ? ["rolloutId", "rolloutPath", "compressed", "archived", "decodedBytes", "storedBytes", "recordCount", "endOrdinalExclusive", "endByteOffset"] : ["rolloutId", "rolloutPath", "compressed", "archived", "endOrdinalExclusive", "endByteOffset"];
-        return keys(v, names) && sourceUuid(v.rolloutId) && paginatedLocator(v.rolloutPath)?.physicalRolloutId === v.rolloutId && typeof v.compressed === "boolean" && typeof v.archived === "boolean"
+        const evidenceNames = resolved ? ["rolloutId", "rolloutPath", "compressed", "archived", "decodedBytes", "storedBytes", "recordCount", "completeLfEndByteOffset", "nextOrdinalExclusive", "endOrdinalExclusive", "endByteOffset"] : names;
+        const hasNativeEvidence = resolved && keys(v, evidenceNames);
+        const nativeEvidenceValid = !hasNativeEvidence || decimal64(v.completeLfEndByteOffset) && BigInt(v.completeLfEndByteOffset) > 0n
+            && decimal64(v.nextOrdinalExclusive) && BigInt(v.nextOrdinalExclusive) > 0n
+            && BigInt(v.completeLfEndByteOffset) <= BigInt(v.decodedBytes);
+        return (keys(v, names) || hasNativeEvidence) && nativeEvidenceValid && sourceUuid(v.rolloutId) && paginatedLocator(v.rolloutPath)?.physicalRolloutId === v.rolloutId && typeof v.compressed === "boolean" && typeof v.archived === "boolean"
             && (v.endOrdinalExclusive === null && v.endByteOffset === null || decimal64(v.endOrdinalExclusive) && decimal64(v.endByteOffset))
             && (!resolved || decimal64(v.decodedBytes) && BigInt(v.decodedBytes) > 0n && BigInt(v.decodedBytes) <= 256n * 1024n * 1024n
                 && decimal64(v.storedBytes) && BigInt(v.storedBytes) > 0n && BigInt(v.storedBytes) <= 256n * 1024n * 1024n
