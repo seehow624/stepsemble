@@ -99,7 +99,10 @@ test("OpenCode adapter reads sessions/messages/children/status, delegates approv
   assert.equal(checkpoint.changed, true);
   assert.equal(checkpoint.restarted, false);
   assert.equal(checkpoint.addedMessageIds.includes("m1"), true);
-  assert.equal(fs.statSync(stateFile).mode & 0o077, 0);
+  // POSIX exposes the private-file mode bits directly. Windows uses ACLs and
+  // Node's stat mode is only a compatibility projection, so it cannot be used
+  // as an owner-boundary proof there.
+  if (process.platform !== "win32") assert.equal(fs.statSync(stateFile).mode & 0o077, 0);
 
   const second = createOpenCodeNativeAdapter({ baseUrl: "http://127.0.0.1:4096", stateFile, fetchImpl });
   const recovered = await second.reconcile("s1");
