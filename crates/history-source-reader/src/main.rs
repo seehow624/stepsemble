@@ -8,6 +8,7 @@ mod codex;
 mod codex_catalog;
 mod codex_paginated;
 mod codex_paginated_checkpoint;
+mod codex_paginated_consistency_protocol;
 mod codex_scanned;
 mod codex_sqlite;
 
@@ -285,7 +286,9 @@ fn run() -> Result<(), Error> {
     // Protocol 15 carries one bounded first record per planned source and is
     // intentionally allowed a larger envelope than the legacy source readers.
     // Each parser still enforces its own exact limit after this shared read.
-    let input_limit = INPUT_LIMIT.max(codex_paginated::INPUT_LIMIT);
+    let input_limit = INPUT_LIMIT
+        .max(codex_paginated::INPUT_LIMIT)
+        .max(codex_paginated_consistency_protocol::INPUT_LIMIT);
     std::io::stdin()
         .take((input_limit + 1) as u64)
         .read_to_end(&mut input)
@@ -313,6 +316,17 @@ fn run() -> Result<(), Error> {
             std::io::stdout().lock(),
             &request,
             codex_paginated_checkpoint::capture(&request),
+        )
+    } else if let Ok(request) = codex_paginated_consistency_protocol::parse_request(&input) {
+        let result = codex_paginated_consistency_protocol::capture(request);
+        // Parse the request a second time only after the branch has been
+        // selected; this keeps the framing helper's nonce borrowed from a
+        // non-consuming request while the assembly adapter owns its values.
+        let request = codex_paginated_consistency_protocol::parse_request(&input)?;
+        codex_paginated_consistency_protocol::write_frame(
+            std::io::stdout().lock(),
+            &request,
+            result,
         )
     } else if let Ok(request) = codex_sqlite::parse_request(&input) {
         codex_sqlite::write_frame(

@@ -4,6 +4,7 @@ const { createCodexSourceService, normalizeCodexSource } = require("../protocol/
 const { createReaderAdmission } = require("../protocol/native/claude/history-reader-admission");
 const { harness, source, group, f, tick, unavailable } = require("./support/codex-binding-harness.cjs");
 const paginatedWire = require("../protocol/native/codex/paginated-resolution-wire");
+const consistencyWire = require("../protocol/native/codex/consistency-wire");
 const binding = () => ({ bindingId: randomUUID(), generation: 1, source: source() });
 const request = b => ({ bindingId: b.bindingId, generation: b.generation, requestId: randomUUID() });
 async function complete(h, handle, b, options = {}, metadata = false) {
@@ -170,6 +171,22 @@ test("paginated bindings expose a root-bound ancestry resolution observation wit
   const next = handle.resolvePaginated({ ...request(b), selectedRolloutId: f.id, entries }, { version: value.sourceVersion });
   await h.step(); assert.equal((await next).sourceVersion.planSha256, value.sourceVersion.planSha256);
   assert.equal((await handle.resolvePaginated({ ...request(b), selectedRolloutId: f.id, entries }, { version: value.sourceVersion, signal: {} })).code, "invalid_source_signal");
+});
+
+test("paginated bindings compose resolution and the physical-head checkpoint through the consistency gate", async t => {
+  const meta = Buffer.from(JSON.stringify({ ordinal: 0, type: "session_meta", payload: { id: f.id, history_mode: "paginated" } }) + "\n");
+  const h = harness(t, { auto: true, paginatedCheckpoint: () => ({ nextRolloutByteOffset: String(meta.length), nextRolloutOrdinal: "1" }) });
+  const b = binding(); b.source.historyMode = "paginated"; const handle = h.service.bind(b);
+  const rolloutPath = b.source.history.source.rolloutPath;
+  const entries = [{ rolloutId: f.id, base64Record: meta.toString("base64"), rolloutPath }];
+  const result = await handle.consistency({ ...request(b), selectedRolloutId: f.id, entries });
+  assert.equal(result.kind, "bound_codex_paginated_consistency", result.code);
+  assert(consistencyWire.validBoundConsistency(result, f.id, { bindingId: b.bindingId, generation: b.generation, requestId: result.requestId }));
+  assert.equal(result.aggregation, "cross_observation_non_atomic");
+  assert.equal(result.consistency.selectedRolloutId, f.id);
+  assert.equal(result.checkpoint.threadId, f.id);
+  assert.deepEqual(h.stages, ["readCodexPaginatedResolution", "readCodexPaginatedCheckpoint", "readCodexPaginatedConsistency"]);
+  assert.equal(h.physical(), 0); assert.equal(h.admission.status().activeWorkers, 0);
 });
 test("paginated resolution refuses a different selected head or a version from another binding before opening a reader", async t => {
   const h = harness(t), b = binding(); b.source.historyMode = "paginated"; const handle = h.service.bind(b);

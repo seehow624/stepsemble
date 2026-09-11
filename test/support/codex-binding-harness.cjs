@@ -5,6 +5,7 @@ const { createReaderAdmission } = require("../../protocol/native/claude/history-
 const wire = require("../../protocol/native/codex/parser-wire"), { processJob } = require("../../protocol/native/codex/parser-worker");
 const checkpointWire = require("../../protocol/native/codex/checkpoint-wire");
 const paginatedResolutionWire = require("../../protocol/native/codex/paginated-resolution-wire");
+const consistencyWire = require("../../protocol/native/codex/consistency-wire");
 const f = require("../../protocol/native/codex/parser-fixture.cjs");
 const compressedFixture = require("../../protocol/native/codex/compressed-page-parser-fixture.cjs");
 const tick = () => new Promise(resolve => setImmediate(resolve)), unavailable = code => ({ kind: "source_unavailable", code });
@@ -43,7 +44,7 @@ function harness(t, config = {}) {
         assert.equal(h.active, false); add(); h.active = true; stages.push("readCodexPaginatedCheckpoint");
         const metadata = { observation: { kind: "codex_paginated_projection_checkpoint", nativeVersion: checkpointWire.VERSION,
           sqliteVersion: checkpointWire.SQLITE_VERSION, scope: "provided_history_database_selected_thread_projection_only", threadId: input.source.threadId,
-          checkpoint: null, turns: [], itemCount: "0", maxItemOrdinal: null, sourceAuthenticated: false, publishable: false,
+          checkpoint: config.paginatedCheckpoint?.(input) ?? null, turns: [], itemCount: "0", maxItemOrdinal: null, sourceAuthenticated: false, publishable: false,
           historyComplete: false, connectionClosed: true }, identities: [{ role: "database", device: input.expectedRoot.device, inode: "11" },
           { role: "wal", device: input.expectedRoot.device, inode: "12" }, { role: "shm", device: input.expectedRoot.device, inode: "13" }], filesystemChecksPassed: true,
           sourceDescriptorsClosed: 4, sqliteDescriptorsOpened: 3, sqliteDescriptorsClosed: 3, shmMappingsClosed: 0, requestedReadBytes: 4096,
@@ -73,6 +74,21 @@ function harness(t, config = {}) {
         const promise = new Promise(resolve => { h.finish = (value = result, close = true) => { if (close) h.close(); resolve(value); }; });
         signal.addEventListener("abort", () => { if (!config.holdReader) h.finish(unavailable("source_aborted")); }, { once: true });
         if (config.auto && !config.holdReader) queueMicrotask(() => h.finish(config.paginatedCapture?.(input) ?? result));
+        return promise;
+      };
+      h.readCodexPaginatedConsistency = (input, { signal }) => {
+        assert.equal(h.active, false); add(); h.active = true; stages.push("readCodexPaginatedConsistency");
+        const selected = input.plan.sources.at(-1).rolloutId;
+        const result = config.paginatedConsistencyCapture?.(input) ?? { kind: "native_codex_paginated_consistency", nativeVersion: consistencyWire.VERSION,
+          threadId: input.plan.threadId, consistency: { profile: "codex_paginated_consistency_v1", threadId: input.plan.threadId,
+            selectedRolloutId: selected, projectionThreadId: input.projection.threadId,
+            projectionNextRolloutByteOffset: input.projection.checkpoint?.nextRolloutByteOffset ?? "0",
+            projectionNextRolloutOrdinal: input.projection.checkpoint?.nextRolloutOrdinal ?? "0", durableSources: input.evidence,
+            sourceAuthenticated: false, publishable: false, historyComplete: false }, sourceAuthenticated: false, publishable: false,
+          historyComplete: false, cleanupConfirmed: true };
+        const promise = new Promise(resolve => { h.finish = (value = result, close = true) => { if (close) h.close(); resolve(value); }; });
+        signal.addEventListener("abort", () => { if (!config.holdReader) h.finish(unavailable("source_aborted")); }, { once: true });
+        if (config.auto && !config.holdReader) queueMicrotask(() => h.finish(result));
         return promise;
       };
       h.shutdown = async () => ({ cleanupConfirmed: !h.active }); helpers.push(h); return h;

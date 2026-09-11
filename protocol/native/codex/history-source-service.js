@@ -8,6 +8,7 @@ const { isReaderAdmission } = require("../claude/history-reader-admission");
 const wire = require("./parser-wire"), sql = require("./sqlite-wire").context;
 const checkpointWire = require("./checkpoint-wire");
 const paginatedResolutionWire = require("./paginated-resolution-wire");
+const consistencyWire = require("./consistency-wire");
 const historyWire = require("./source-wire");
 const publicWire = require("../../../public/modules/codex-history-records");
 const LIMITS = Object.freeze({ bindings: 64, groups: 8, sourceBytes: 64 * 1024, responseBytes: 384 * 1024, pageRecords: 50, records: 8192 });
@@ -261,9 +262,119 @@ function createCodexSourceService(options = {}) {
         options.signal?.removeEventListener("abort", abort); finish();
       }
     }
+    async function consistency(input, options = {}) {
+      const status = sweep();
+      if (!sql.own(options, ["signal"])) return unavailable("invalid_history_options");
+      const request = paginatedResolutionWire.detach(input, paginatedResolutionWire.LIMITS.inputBytes);
+      if (!paginatedResolutionWire.keys(request, ["bindingId", "generation", "requestId", "selectedRolloutId", "entries"])
+        || request.bindingId !== value.bindingId || request.generation !== value.generation || !uuid(request.requestId)
+        || !paginatedResolutionWire.selection({ selectedRolloutId: request.selectedRolloutId, entries: request.entries }))
+        return unavailable("invalid_history_request");
+      if (source.historyMode !== "paginated") return unavailable("native_paginated_history_unsupported");
+      if (options.signal !== undefined && !(options.signal instanceof AbortSignal)) return unavailable("invalid_source_signal");
+      if (closed || status.closed) return unavailable("source_service_closed");
+      if (status.quarantined) return unavailable("source_service_quarantined");
+      if (state.revoked || bindings.get(value.bindingId) !== state) return unavailable("source_binding_revoked");
+      if (options.signal?.aborted) return unavailable("source_aborted");
+      if (state.flight) return unavailable("source_busy");
+      const head = paginatedResolutionWire.locatorInfo(source.history.source.rolloutPath);
+      if (!head || head.physicalRolloutId !== request.selectedRolloutId || request.entries[0].rolloutPath !== source.history.source.rolloutPath)
+        return unavailable("source_binding_mismatch");
+      const nativeRequest = { nativeVersion: source.history.nativeVersion, codexRoot: source.history.source.codexRoot,
+        expectedRoot: source.history.expectedRoot, threadId: source.sessionId, selectedRolloutId: request.selectedRolloutId, entries: request.entries };
+      if (!paginatedResolutionWire.input(nativeRequest)) return unavailable("invalid_history_request");
+      let finish;
+      const controller = new AbortController(), current = { controller, unknown: false, done: new Promise(resolve => { finish = resolve; }) };
+      state.flight = current;
+      const abort = () => controller.abort(); options.signal?.addEventListener("abort", abort, { once: true });
+      const unavailableFromPipeline = result => {
+        const pipelineStatus = pipeline.status();
+        if (result?.code === "source_cleanup_unconfirmed" || pipelineStatus.quarantined && !pipelineStatus.cleanupConfirmed) {
+          current.unknown = true; return unavailable("source_cleanup_unconfirmed");
+        }
+        if (closed || pipelineStatus.closed) return unavailable("source_service_closed");
+        if (state.revoked || bindings.get(value.bindingId) !== state) return unavailable("source_binding_revoked");
+        if (controller.signal.aborted) return unavailable("source_aborted");
+        if (pipelineStatus.quarantined) return unavailable("source_service_quarantined");
+        return result?.kind === "source_unavailable" ? result : null;
+      };
+      try {
+        const resolved = await pipeline.readPaginatedResolution(nativeRequest, { signal: controller.signal });
+        const resolutionFailure = unavailableFromPipeline(resolved);
+        if (resolutionFailure) return resolutionFailure;
+        if (!resolved || resolved.kind !== "codex_paginated_resolution_capture" || resolved.cleanupConfirmed !== true
+          || !paginatedResolutionWire.validVersion(resolved.source) || resolved.source.threadId !== source.sessionId
+          || resolved.source.selectedRolloutId !== request.selectedRolloutId
+          || resolved.source.rootIdentity.device !== source.history.expectedRoot.device
+          || resolved.source.rootIdentity.inode !== source.history.expectedRoot.inode
+          || resolved.consistency !== "single_codex_paginated_resolution_observation"
+          || resolved.historyComplete !== false || resolved.sourceAuthenticated !== false || resolved.publishable !== false)
+          return unavailable("source_worker_protocol");
+
+        // Projection keys are physical rollout IDs. A stable thread can point
+        // at a different physical head after a revert, so this second reader
+        // intentionally uses the selected physical ID rather than the catalog
+        // stable ID. It remains a separate observation; no atomic snapshot is
+        // claimed between the two owned databases.
+        const checkpointInput = { nativeVersion: source.sqlite.nativeVersion,
+          source: { ...source.sqlite.source, threadId: request.selectedRolloutId }, expectedRoot: source.sqlite.expectedRoot };
+        if (!checkpointWire.input(checkpointInput)) return unavailable("source_worker_protocol");
+        const checkpoint = await pipeline.readCheckpoint(checkpointInput, { signal: controller.signal });
+        const checkpointFailure = unavailableFromPipeline(checkpoint);
+        if (checkpointFailure) return checkpointFailure;
+        if (!checkpoint || checkpoint.kind !== "codex_paginated_checkpoint_capture" || checkpoint.cleanupConfirmed !== true
+          || !checkpointWire.validVersion(checkpoint.source) || checkpoint.source.threadId !== request.selectedRolloutId
+          || checkpoint.source.rootIdentity.device !== source.sqlite.expectedRoot.device
+          || checkpoint.source.rootIdentity.inode !== source.sqlite.expectedRoot.inode
+          || checkpoint.consistency !== "single_history_database_observation"
+          || checkpoint.historyComplete !== false || checkpoint.sourceAuthenticated !== false || checkpoint.publishable !== false)
+          return unavailable("source_worker_protocol");
+
+        const evidence = resolved.resolution.sources.map((item, index) => {
+          const metadataOrdinal = index === 0 ? 0n : BigInt(resolved.plan.sources[index - 1].endOrdinalExclusive);
+          return { rolloutId: item.rolloutId, decodedBytes: item.decodedBytes,
+            completeLfEndByteOffset: item.decodedBytes,
+            nextOrdinalExclusive: (metadataOrdinal + BigInt(item.recordCount)).toString() };
+        });
+        const selected = { id: source.sessionId, rolloutPath: source.history.source.rolloutPath, source: "owned_codex_catalog",
+          historyMode: "paginated", archived: head.archived, createdAt: "0", updatedAt: "0", createdAtMs: null, updatedAtMs: null };
+        const projection = { kind: checkpoint.checkpoint.kind, nativeVersion: checkpoint.checkpoint.nativeVersion,
+          threadId: checkpoint.checkpoint.threadId, checkpoint: checkpoint.checkpoint.checkpoint,
+          sourceAuthenticated: checkpoint.checkpoint.sourceAuthenticated, publishable: checkpoint.checkpoint.publishable,
+          historyComplete: checkpoint.checkpoint.historyComplete, connectionClosed: checkpoint.checkpoint.connectionClosed };
+        const assemblyInput = { nativeVersion: source.history.nativeVersion, selected, plan: resolved.plan,
+          resolution: resolved.resolution, projection, evidence };
+        if (!consistencyWire.input(assemblyInput)) return unavailable("source_worker_protocol");
+        const assembled = await pipeline.readPaginatedConsistency(assemblyInput, { signal: controller.signal });
+        const assemblyFailure = unavailableFromPipeline(assembled);
+        if (assemblyFailure) return assemblyFailure;
+        if (!assembled || assembled.kind !== "codex_paginated_consistency_capture" || assembled.cleanupConfirmed !== true
+          || assembled.threadId !== source.sessionId || assembled.sourceAuthenticated !== false
+          || assembled.publishable !== false || assembled.historyComplete !== false
+          || !consistencyWire.consistency(assembled.consistency, source.sessionId)) return unavailable("source_worker_protocol");
+        const output = consistencyWire.detach({ kind: "bound_codex_paginated_consistency", bindingId: value.bindingId,
+          generation: value.generation, requestId: request.requestId, selectedRolloutId: request.selectedRolloutId,
+          resolutionVersion: structuredClone(resolved.source), checkpointVersion: structuredClone(checkpoint.source),
+          plan: structuredClone(resolved.plan), resolution: structuredClone(resolved.resolution),
+          checkpoint: structuredClone(checkpoint.checkpoint), consistency: structuredClone(assembled.consistency),
+          aggregation: "cross_observation_non_atomic", historyComplete: false, sourceAuthenticated: false,
+          publishable: false, cleanupConfirmed: true }, consistencyWire.LIMITS.outputBytes);
+        if (!output || !consistencyWire.validBoundConsistency(output, source.sessionId,
+          { bindingId: value.bindingId, generation: value.generation, requestId: request.requestId }))
+          return unavailable("source_worker_protocol");
+        return output;
+      } catch {
+        if (!pipeline.status().cleanupConfirmed) { current.unknown = true; admission.quarantine(); return unavailable("source_cleanup_unconfirmed"); }
+        return unavailable("source_worker_failure");
+      } finally {
+        if (state.flight === current && !current.unknown) state.flight = null;
+        options.signal?.removeEventListener("abort", abort); finish();
+      }
+    }
     return Object.freeze({ kind: "bound_source", descriptor: Object.freeze({ bindingId: value.bindingId, generation: value.generation, sessionId: source.sessionId }),
       observe: (input, options = {}) => read(input, options, false), metadata: (input, options = {}) => read(input, options, true),
-      checkpoint: (input, options = {}) => checkpoint(input, options), resolvePaginated: (input, options = {}) => resolvePaginated(input, options), revoke,
+      checkpoint: (input, options = {}) => checkpoint(input, options), resolvePaginated: (input, options = {}) => resolvePaginated(input, options),
+      consistency: (input, options = {}) => consistency(input, options), revoke,
       status: () => { sweep(); return Object.freeze({ revoked: state.revoked, activeWorker: state.flight !== null, cleanupConfirmed: state.flight === null }); } });
   }
   function shutdown() {

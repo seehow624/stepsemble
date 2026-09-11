@@ -1,5 +1,34 @@
 # Codex paginated：選定列、投影檢查點與 durable 前綴一致性
 
+## 接續 1.93：受控 consistency gate 接入 service／HTTP／typed transport
+
+本輪新增 native protocol 17 `native_codex_paginated_consistency`，把既有的
+protocol 15 paginated resolution、protocol 16 physical-head projection checkpoint
+與 Rust `codex_paginated_consistency::assemble()` 接成一個可重複驗證的受控流程。
+同一個 owned binding 會依序完成：resolution、以 selected physical rollout ID 讀取
+checkpoint、組合 durable evidence，最後才回傳 detached consistency observation。這個
+流程共用既有 helper slot、single admission、AbortSignal、actual close、quarantine 與
+generation／request fence；不另外掃描 HOME、不暴露來源絕對路徑，也不接觸登入憑證或
+訂閱帳號。
+
+接線現在穿過 `history-source-service.js`、`history-registry.js`、
+`server/history-http.js` 與 `client/history-transport.ts`。公開 route 是
+`POST /api/history/paginated-consistency`，使用獨立 512 KiB body／2048 chunks
+界線；typed browser transport 以同一個 exact-key envelope 驗證 response。protocol 17
+本身仍只接受 detached selection、plan、resolution、projection subset 與 durable
+evidence，禁止未知欄位，並在 Rust 端再次組合與拒絕不一致資料。
+
+這個 gate 的 aggregation 明確標記為 `cross_observation_non_atomic`：它是同一次受控
+生命週期內的 sequential observation，不是來源檔案與 SQLite 的原子 snapshot。輸出的
+`historyComplete`、`sourceAuthenticated`、`publishable` 永遠是 `false`；它不代表
+transcript、resume、approval、journal replay、完整 ancestry discovery 或其他 agent
+parity。任何 partial LF、projection lagging／out-of-range、physical key、版本、generation
+或 binding mismatch 都 fail-closed，不回傳空歷史或部分成功。
+
+驗證：新增 protocol 17 wire／pipeline／HTTP／service 測試，並保留 physical selected
+rollout（revert 形狀）檢查；完整 Node、client、Rust 與 protocol conformance gates 需
+全部通過後才可提交。這一段是 C2 的安全增量，不宣稱 C2/C3 已完成。
+
 ## 接續 1.90：resolution 接入 owned Host／registry／HTTP／typed transport
 
 1.89 的 protocol 15 native helper／pipeline 現在已由

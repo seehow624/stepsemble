@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.92（修正 Codex catalog 相對 rollout locator 的 Host containment 邊界；durable C2／C3 仍待）
+> 計畫版本：1.93（接入 Codex paginated cross-observation consistency gate；atomic C2／C3 仍待）
 > 最後更新：2026-09-11
 > 當前產品基線：Stepsemble 3.0.8（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.8／source `3bae06c`（2026-09-09 公開 stable release）
@@ -11,7 +11,24 @@
 
 ## 文件用途與回復方法
 
-**目前任務1.92（2026-09-11，Jerome 要求 C2／C3 全部做好）**：修正 Codex SQLite
+**目前任務1.93（2026-09-11，Jerome 要求 C2／C3 全部做好）**：把 protocol 15 的
+paginated resolution、protocol 16 的 physical-head projection checkpoint 與 Rust
+`codex_paginated_consistency::assemble()` 接到同一個 owned binding 的受控順序流程，並
+穿過 registry、HTTP 與 typed browser transport。新 protocol 17 與各層都使用 strict
+detached envelope、generation／request fence、single admission、AbortSignal、actual
+close、quarantine 與獨立 512 KiB request budget；selected physical rollout ID 會明確傳給
+checkpoint reader，避免 revert 時把 stable catalog ID 當成 projection key。輸出固定是
+`cross_observation_non_atomic` observation，三個 authority/completeness flags 全為
+`false`；任何 partial LF、projection lagging／out-of-range、版本或 binding mismatch 都
+fail-closed。這不會掃描 HOME、不暴露絕對路徑、不改登入／訂閱帳號，也不會把資料畫成完整
+transcript。
+
+這仍不是完整 C2／C3：兩個 store 尚未有 atomic snapshot／共同 identity fence，durable
+evidence 目前是同一受控流程中的 sequential observation；仍缺完整 ancestry discovery、
+source-version／cursor 語意、transcript、resume、approval decision／ACK、journal replay、
+UI parity 與其他 agent adapter。正式版本仍是 3.0.8，本輪不發布新版本、不重啟兩台服務。
+
+**前一任務1.92（2026-09-11，Jerome 要求 C2／C3 全部做好）**：修正 Codex SQLite
 `threads.rollout_path` 的真實儲存形狀。原生 state DB 會以相對於已授權 `codexRoot` 的
 locator 儲存目前 rollout；source index 現在先在 Host 內以該明確 root 做詞法 resolve，
 拒絕 `..` 逃逸、第二個絕對 root 與 root 本身，再只把 root-relative inert locator 交給

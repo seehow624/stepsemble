@@ -8,7 +8,7 @@ namespace StepsembleHistoryTransport {
   const codexRecords = typeof module !== "undefined" ? require("./codex-history-records") : StepsembleCodexHistoryRecords;
   type ObjectValue = Record<string, unknown>;
   export const LIMITS = Object.freeze({ responseBytes: 384 * 1024, claudeResponseBytes: 272 * 1024, requestBytes: 4096,
-    paginatedResolutionRequestBytes: 16 * 1024 * 1024, timeoutMs: 15000 });
+    paginatedResolutionRequestBytes: 16 * 1024 * 1024, paginatedConsistencyRequestBytes: 512 * 1024, timeoutMs: 15000 });
   export interface Dependencies {
     /** Trusted application origin, never a history-row URL. In a browser this
      * must equal location.origin. Only fixed local/paired history paths are supported. */
@@ -51,6 +51,16 @@ namespace StepsembleHistoryTransport {
     kind: "bound_codex_paginated_resolution"; bindingId: string; generation: number; requestId: string; selectedRolloutId: string;
     sourceVersion: Record<string, unknown>; plan: Record<string, unknown>; resolution: Record<string, unknown>;
     consistency: "single_codex_paginated_resolution_observation"; historyComplete: false; sourceAuthenticated: false; publishable: false; cleanupConfirmed: true;
+  }
+  export interface CodexPaginatedConsistencyRequest extends CodexCheckpointRequest {
+    selectedRolloutId: string; entries: CodexPaginatedResolutionEntry[]
+  }
+  export interface CodexPaginatedConsistency {
+    kind: "bound_codex_paginated_consistency"; bindingId: string; generation: number; requestId: string; selectedRolloutId: string;
+    resolutionVersion: Record<string, unknown>; checkpointVersion: Record<string, unknown>;
+    plan: Record<string, unknown>; resolution: Record<string, unknown>; checkpoint: Record<string, unknown>;
+    consistency: Record<string, unknown>; aggregation: "cross_observation_non_atomic";
+    historyComplete: false; sourceAuthenticated: false; publishable: false; cleanupConfirmed: true;
   }
   export interface CodexCheckpoint {
     kind: "bound_codex_paginated_checkpoint"; bindingId: string; generation: number; requestId: string;
@@ -95,6 +105,14 @@ namespace StepsembleHistoryTransport {
     "paginated_resolution_plan_mismatch", "paginated_resolution_bytes_exceeded", "paginated_resolution_decoded_bytes_exceeded",
     "paginated_resolution_cutoff_outside_source", "paginated_resolution_cutoff_unverified", "paginated_resolution_invalid_cutoff",
     "paginated_resolution_incomplete", "paginated_resolution_empty_source", "paginated_rollout_ordinal_invalid",
+    "paginated_consistency_empty_plan", "paginated_consistency_plan_too_deep", "paginated_consistency_selected_state_mismatch",
+    "paginated_consistency_plan_resolution_mismatch", "paginated_consistency_resolution_unverified",
+    "paginated_consistency_missing_durable_evidence", "paginated_consistency_durable_evidence_mismatch",
+    "paginated_consistency_duplicate_source", "paginated_consistency_partial_tail",
+    "paginated_consistency_cutoff_outside_durable_prefix", "paginated_consistency_projection_missing",
+    "paginated_consistency_projection_thread_mismatch", "paginated_consistency_projection_lagging",
+    "paginated_consistency_projection_out_of_range", "paginated_consistency_projection_mismatch",
+    "paginated_consistency_ordinal_start_unverified", "paginated_consistency_invalid_number",
     "name_resolution_rollout_mismatch", "name_resolution_missing_row_unsupported", "name_resolution_index_unavailable",
     "source_service_closed", "source_binding_revoked", "source_binding_mismatch", "source_sdk_unavailable"]);
   const pageValid = (v: unknown): boolean => keys(v, ["offset", "limit"]) && Number.isSafeInteger(v.offset)
@@ -217,6 +235,34 @@ namespace StepsembleHistoryTransport {
       && decimal64(resolution.chainDecodedBytes) && BigInt(resolution.chainDecodedBytes as string) > 0n && BigInt(resolution.chainDecodedBytes as string) <= 256n * 1024n * 1024n
       && resolution.ordinalCutoffsVerified === true && resolution.reachedRoot === plan.reachedRoot && resolution.sourceAuthenticated === false && resolution.historyComplete === false
       && value.consistency === "single_codex_paginated_resolution_observation" && value.historyComplete === false && value.sourceAuthenticated === false && value.publishable === false && value.cleanupConfirmed === true;
+  }
+  const consistencyValueValid = (v: unknown, sessionId: string): boolean => {
+    if (!keys(v, ["profile", "threadId", "selectedRolloutId", "projectionThreadId", "projectionNextRolloutByteOffset", "projectionNextRolloutOrdinal", "durableSources", "sourceAuthenticated", "publishable", "historyComplete"])) return false;
+    const value = v as ObjectValue;
+    return value.profile === "codex_paginated_consistency_v1" && value.threadId === sessionId && sourceUuid(value.selectedRolloutId)
+      && sourceUuid(value.projectionThreadId) && decimal64(value.projectionNextRolloutByteOffset) && decimal64(value.projectionNextRolloutOrdinal)
+      && Array.isArray(value.durableSources) && value.durableSources.length >= 1 && value.durableSources.length <= 64
+      && value.durableSources.every(item => keys(item, ["rolloutId", "decodedBytes", "completeLfEndByteOffset", "nextOrdinalExclusive"])
+        && sourceUuid(item.rolloutId) && decimal64(item.decodedBytes) && decimal64(item.completeLfEndByteOffset) && decimal64(item.nextOrdinalExclusive))
+      && value.sourceAuthenticated === false && value.publishable === false && value.historyComplete === false;
+  };
+  export function validBoundPaginatedConsistency(v: unknown, sessionId: string, request?: Partial<CodexPaginatedConsistencyRequest>): v is CodexPaginatedConsistency {
+    if (!keys(v, ["kind", "bindingId", "generation", "requestId", "selectedRolloutId", "resolutionVersion", "checkpointVersion", "plan", "resolution", "checkpoint", "consistency", "aggregation", "historyComplete", "sourceAuthenticated", "publishable", "cleanupConfirmed"])) return false;
+    const value = v as ObjectValue, plan = value.plan as ObjectValue, resolution = value.resolution as ObjectValue;
+    const syntheticResolution = { kind: "bound_codex_paginated_resolution", bindingId: value.bindingId, generation: value.generation, requestId: value.requestId,
+      selectedRolloutId: value.selectedRolloutId, sourceVersion: value.resolutionVersion, plan, resolution,
+      consistency: "single_codex_paginated_resolution_observation", historyComplete: false, sourceAuthenticated: false, publishable: false, cleanupConfirmed: true };
+    return value.kind === "bound_codex_paginated_consistency" && uuid(value.bindingId) && positive(value.generation) && uuid(value.requestId)
+      && (request?.bindingId === undefined || value.bindingId === request.bindingId)
+      && (request?.generation === undefined || value.generation === request.generation)
+      && (request?.requestId === undefined || value.requestId === request.requestId)
+      && sourceUuid(value.selectedRolloutId) && validBoundPaginatedResolution(syntheticResolution, sessionId)
+      && checkpointSourceVersionValid(value.checkpointVersion, value.selectedRolloutId)
+      && checkpointObservationValid(value.checkpoint, value.selectedRolloutId)
+      && consistencyValueValid(value.consistency, sessionId) && (value.consistency as ObjectValue).selectedRolloutId === value.selectedRolloutId
+      && (value.consistency as ObjectValue).projectionThreadId === value.selectedRolloutId
+      && value.aggregation === "cross_observation_non_atomic" && value.historyComplete === false
+      && value.sourceAuthenticated === false && value.publishable === false && value.cleanupConfirmed === true;
   }
   export function validSources(v: unknown): v is Sources {
     return keys(v, ["kind", "sources", "sourceAuthenticated", "publishable"]) && v.kind === "history_sources"
@@ -444,6 +490,18 @@ namespace StepsembleHistoryTransport {
         || value.selectedRolloutId !== expected.request.selectedRolloutId) return failure("history_response_invalid");
       return value as unknown as CodexPaginatedResolution;
     }
+    async function readCodexPaginatedConsistency(scope: StepsembleHistoryPages.Scope, request: CodexPaginatedConsistencyRequest, signal?: AbortSignal): Promise<CodexPaginatedConsistency | Unavailable> {
+      const expected = detach({ scope, request }, LIMITS.paginatedConsistencyRequestBytes);
+      if (!object(expected) || !keys(expected.scope, ["hostId", "bindingId", "generation", "sessionId"])
+        || expected.scope.hostId !== hostId || !uuid(expected.scope.bindingId) || !uuid(expected.scope.sessionId) || !positive(expected.scope.generation)
+        || !keys(expected.request, ["bindingId", "generation", "requestId", "selectedRolloutId", "entries"])
+        || !uuid(expected.request.requestId) || expected.request.bindingId !== expected.scope.bindingId || expected.request.generation !== expected.scope.generation
+        || !paginatedSelection({ selectedRolloutId: expected.request.selectedRolloutId, entries: expected.request.entries })) return failure("history_request_invalid");
+      const { value, ok } = await exchange("/api/history/paginated-consistency", "POST", expected.request, signal);
+      const denied = unavailable(value); if (denied) return denied;
+      if (!ok || !validBoundPaginatedConsistency(value, expected.scope.sessionId, expected.request)) return failure("history_response_invalid");
+      return value as unknown as CodexPaginatedConsistency;
+    }
     async function read(scope: StepsembleHistoryPages.Scope, request: StepsembleHistoryPages.Request, options: CodexReadOptions, codex = false): Promise<unknown> {
       if (!keys(options, ["page", "signal", ...(options?.version === undefined ? [] : ["version"]), ...(Object.hasOwn(options ?? {}, "structured") ? ["structured"] : []), ...(Object.hasOwn(options ?? {}, "profile") ? ["profile"] : [])])
         || Object.hasOwn(options, "structured") && (!codex || options.structured !== true)
@@ -480,7 +538,7 @@ namespace StepsembleHistoryTransport {
     }
     return Object.freeze({ catalog, sources, sourceCatalog, sourceMetadata, register, read: (scope: StepsembleHistoryPages.Scope, request: StepsembleHistoryPages.Request, options: StepsembleHistoryPages.ReadOptions) => read(scope, request, options),
       readCodex: (scope: StepsembleHistoryPages.Scope, request: StepsembleHistoryPages.Request, options: CodexReadOptions) => read(scope, request, options, true),
-      readCodexCheckpoint, readCodexPaginatedResolution, release });
+      readCodexCheckpoint, readCodexPaginatedResolution, readCodexPaginatedConsistency, release });
   }
 }
 if (typeof module !== "undefined") module.exports = StepsembleHistoryTransport;

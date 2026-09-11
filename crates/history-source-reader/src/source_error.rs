@@ -48,6 +48,7 @@ pub enum Error {
     PaginatedAncestry(crate::codex_paginated_ancestry::Error),
     PaginatedChain(crate::codex_paginated_chain::Error),
     PaginatedResolution(crate::codex_paginated_resolution::Error),
+    PaginatedConsistency(crate::codex_paginated_consistency::Error),
 }
 
 impl Error {
@@ -92,6 +93,7 @@ impl Error {
             Self::PaginatedAncestry(error) => error.code(),
             Self::PaginatedChain(error) => error.code(),
             Self::PaginatedResolution(error) => error.code(),
+            Self::PaginatedConsistency(error) => error.code(),
         }
     }
 }
