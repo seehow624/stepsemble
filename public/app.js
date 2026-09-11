@@ -3876,6 +3876,18 @@ function appendGenericOutput(text, stream = "stdout") {
   scrollBottom();
 }
 
+function appendGenericInput(text, truncated = false) {
+  if (!rpc?.generic) return;
+  const clean = stripAnsi(String(text ?? ""));
+  if (!clean) return;
+  const shell = makeMsgShell("user", "你");
+  const pre = document.createElement("pre");
+  pre.className = "agent-terminal-input";
+  pre.textContent = clean + (truncated ? "\n…" : "");
+  shell.bubble.appendChild(pre);
+  scrollBottom();
+}
+
 function appendGenericTerminalNotice(status, event = {}) {
   if (!rpc?.generic || rpc.genericTerminalNotice) return;
   const terminal = String(status || "completed");
@@ -3934,6 +3946,17 @@ function handleAgentTaskEvent(ev, eventSid = rpc?.sid) {
       rpc.genericOutputNode = null;
     }
     appendGenericOutput(ev.text, ev.stream);
+    return;
+  }
+  if (ev.type === "input") {
+    const text = typeof ev.text === "string" ? ev.text : "";
+    if (!text) return;
+    const echoes = Array.isArray(rpc.genericInputEchoes) ? rpc.genericInputEchoes : [];
+    const now = Date.now();
+    while (echoes.length && now - echoes[0].at > 60_000) echoes.shift();
+    const echoIndex = echoes.findIndex(item => item.text === text);
+    if (echoIndex >= 0) echoes.splice(echoIndex, 1);
+    else appendGenericInput(text, ev.truncated === true);
     return;
   }
   if (ev.type === "task_exit") {
@@ -4033,6 +4056,7 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
       lastEventAt: Date.now(),
       activityLabel: status === "waiting" ? "waiting" : "working",
       taskStatus: status,
+      genericInputEchoes: [],
       agentId: String(result.agentId || options.agentId || "agent"),
       agentLabel: agentConnectorLabel(result.agentId || options.agentId),
       name: result.name || options.name || "Agent task",
@@ -6155,6 +6179,10 @@ async function sendCurrent() {
   const { bubble } = makeMsgShell("user", "你");
   if (text) bubble.appendChild(renderMarkdown(text));
   if (pendingImages.length) appendImageGallery(bubble, pendingImages, pendingImages.length);
+  if (generic && text && Array.isArray(rpc.genericInputEchoes)) {
+    rpc.genericInputEchoes.push({ text, at: Date.now() });
+    if (rpc.genericInputEchoes.length > 32) rpc.genericInputEchoes.shift();
+  }
   scrollBottom();
   const sendSid = rpc.sid;
   const images = pendingImages.slice();
@@ -6172,6 +6200,10 @@ async function sendCurrent() {
     }
   } catch (e) {
     if (rpc?.sid === sendSid) {
+      if (generic && Array.isArray(rpc.genericInputEchoes)) {
+        const echoIndex = rpc.genericInputEchoes.findIndex(item => item.text === text);
+        if (echoIndex >= 0) rpc.genericInputEchoes.splice(echoIndex, 1);
+      }
       el.input.value = text;
       resizeComposerInput();
       saveDraftForKey(sendDraftKey, text);

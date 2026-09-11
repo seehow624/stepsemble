@@ -1883,6 +1883,15 @@ html.reduced-motion .agent-task-center-row.running.reconnecting .agent-task-dot 
   color: var(--pine-text);
 }
 .agent-terminal-output.stderr { color: var(--danger, #e0715c); }
+.agent-terminal-input {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 500 .76rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--ink);
+  border-left: 2px solid var(--accent);
+  padding-left: 9px;
+}
 .agent-terminal-status {
   color: var(--pine-soft);
   font-size: .78rem;

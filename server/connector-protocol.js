@@ -160,6 +160,10 @@ function normalizeConnectorEvent(value, { taskId = "", agentId = "" } = {}) {
     if (value.error) event.error = safeText(value.error);
   } else if (type === "input") {
     event.at = Number.isFinite(Number(value.at)) ? Number(value.at) : Date.now();
+    if (value.text !== undefined) {
+      event.text = safeText(value.text, 32 * 1024);
+      if (value.truncated === true || String(value.text).length > event.text.length) event.truncated = true;
+    }
   } else if (type === "task_exit") {
     const status = safeText(value.status, 24);
     if (status && !CONNECTOR_STATUSES.includes(status)) return null;

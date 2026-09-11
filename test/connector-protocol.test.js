@@ -54,6 +54,11 @@ test("connector protocol normalizes a safe manifest and lifecycle event", () => 
   });
   assert.deepEqual(event, { type: "status", taskId: "task-123", agentId: "claude-code", status: "waiting", error: "need input" });
   assert.equal(parseConnectorEventLine(JSON.stringify(event), { taskId: "task-123" }).status, "waiting");
+
+  const input = normalizeConnectorEvent({ type: "input", text: "printf 'hello'", truncated: true, at: 123 }, {
+    taskId: "task-123", agentId: "claude-code",
+  });
+  assert.deepEqual(input, { type: "input", taskId: "task-123", agentId: "claude-code", at: 123, text: "printf 'hello'", truncated: true });
 });
 
 test("connector protocol accepts only an explicitly prefixed approval observation", () => {

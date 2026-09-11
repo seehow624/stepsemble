@@ -97,6 +97,8 @@ test("generic connector tasks stream bounded output and stop without shell injec
   assert.match(internal.outputTail, /hello from cli/, JSON.stringify({ task: service.publicTask(internal), snapshot: fs.readFileSync(internal.supervisorMeta, "utf8") }));
   assert.match(internal.outputTail, terminalProbe, "terminal probe must arrive before stopping the owned agent");
   assert.equal(internal.outputTail.split("hello from cli").length - 1, 1);
+  assert.equal(service.send(opened.id, "history input").sent, true);
+  await until(() => internal.events.some(packet => packet.event?.type === "input" && packet.event.text === "history input"), "generic input is represented in the event history");
   internal.control.destroy();
   // Stop inside the disconnect window, not after a machine-dependent sleep.
   const stopped = service.stop(opened.id);
@@ -146,11 +148,14 @@ test("generic task supervisor survives a web-service restart and reattaches", as
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   assert.match(first.get(opened.id).outputTail, /restart-safe/, JSON.stringify({ task: first.publicTask(first.get(opened.id)), snapshot: fs.readFileSync(first.get(opened.id).supervisorMeta, "utf8") }));
+  assert.equal(first.send(opened.id, "replayed input").sent, true);
+  await until(() => first.get(opened.id).events.some(packet => packet.event?.type === "input" && packet.event.text === "replayed input"), "input event is persisted before restart");
   first.shutdown({ preserve: true });
 
   second = createAgentTaskService(options);
   const restoredBeforeAttach = second.get(opened.id);
   assert.ok(restoredBeforeAttach.events.some(packet => packet.event?.type === "output"), "non-authoritative output replay survives service restart");
+  assert.ok(restoredBeforeAttach.events.some(packet => packet.event?.type === "input" && packet.event.text === "replayed input"), "input text replay survives service restart");
   assert.equal(restoredBeforeAttach.events.some(packet => packet.event?.type === "protocol_event"), false, "approval observations are never restored from the task snapshot");
   assert.ok(restoredBeforeAttach.eventSeq > 0, "the local SSE cursor remains monotonic across restart");
   let reattached = second.get(opened.id);

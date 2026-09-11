@@ -28,6 +28,7 @@ const MAX_OUTPUT_TAIL = 64 * 1024;
 const MAX_EVENTS = 1200;
 const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 const MAX_MESSAGE = 1_000_000;
+const MAX_INPUT_EVENT_TEXT = 32 * 1024;
 const SUPERVISOR_VERSION = 1;
 
 function parseArgs(argv) {
@@ -397,7 +398,14 @@ function handleCommand(socket, message) {
       lastInputAt = Date.now();
       if (status === "waiting") setStatus("running");
       else touch();
-      pushEvent({ type: "input", taskId, at: lastInputAt });
+      const replayText = safeText(text, MAX_INPUT_EVENT_TEXT);
+      pushEvent({
+        type: "input",
+        taskId,
+        at: lastInputAt,
+        text: replayText,
+        ...(replayText.length < text.length ? { truncated: true } : {}),
+      });
       writeLine(socket, { type: "sent", taskId });
     } catch (sendError) {
       writeLine(socket, { type: "error", error: "Agent task input is unavailable", detail: sendError.message });

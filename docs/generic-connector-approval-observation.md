@@ -1,7 +1,7 @@
 # Generic connector approval observation（C3 第一個可驗收增量）
 
 > 狀態：已完成本輪合成驗收（Host-local proposal；不是已發布能力）
-> 進度：Plan 1.86／C3 第一步
+> 進度：Plan 1.95／C3 第一個可驗收增量
 > 範圍：Claude Code generic connector 的通用 stdout 邊界；同一邊界可供其他 allow-listed CLI 重用
 
 ## 這次補上的缺口
@@ -34,6 +34,8 @@ Stepsemble 自己的 SSE cursor。服務重啟後先恢復這個有限窗口，�
 supervisor；超限資料從最舊端淘汰。`protocol_event`、`protocol_event_rejected` 和所有
 approval observation 會被過濾，不會以 structured event 形式進入 replay；CLI 原始 stdout
 仍屬不可信 terminal text，可能保留在既有 output tail，但永遠不會因此建立 approval state。
+`input` event 的文字最多 32 KiB，超出時保留前綴並標記 `truncated`；前端會以 optimistic
+echo 去重，避免送出訊息後再收到 supervisor event 時顯示兩次。
 每筆 replay event 也必須帶有與 task snapshot 完全相同的 `taskId`；跨 task 或缺失身份的
 資料會在載入時丟棄。
 因此這是 UI context／重連體驗的改善，不是完整 session history、durable journal 或
@@ -135,7 +137,7 @@ npm run check
 npm test
 ```
 
-本輪實際輸出：`npm run check` 通過；`npm test` 為 1,165 tests／1,163 pass／2 skip／0
+本輪實際輸出：`npm run check` 通過；`npm test` 為 1,244 tests／1,242 pass／2 skip／0
 fail。合成測試不等於真 CLI、真 native evidence、durability 或跨 OS parity 證據。
 
 ## 接續
