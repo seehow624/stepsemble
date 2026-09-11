@@ -262,13 +262,15 @@ explicit input/output boundary before adding more state to the controllers.
   Windows and hosts without Python use the safe pipe transport instead.
   Each generic task is owned by a detached `agent-task-supervisor.js` process.
   Its owner-only Unix socket (or local Windows named pipe) and private snapshot
-  live independently from `server.js`; bounded event replay remains in the
-  supervisor's memory, while only the short output tail is persisted. A
-  graceful Stepsemble restart drops HTTP/SSE clients, then the next process
-  reattaches to the supervisor and resumes the timer/output. If the host or
-  supervisor is killed, the snapshot records `orphaned` rather than claiming
-  that work is still running; Pi JSON-RPC runs keep the existing
-  graceful-restart behavior.
+  live independently from `server.js`; the supervisor retains the live bounded
+  event window, while the task snapshot persists only a separate maximum
+  64-event/128 KiB window of non-authoritative output, status, input, and
+  lifecycle context plus the local SSE cursor. Protocol approval observations
+  are never written there. A graceful Stepsemble restart drops HTTP/SSE clients,
+  restores that limited context, then reattaches to the supervisor and resumes
+  the timer/output. If the host or supervisor is killed, the snapshot records
+  `orphaned` rather than claiming that work is still running; Pi JSON-RPC runs
+  keep the existing graceful-restart behavior.
 - Worktree selection is server-side validated and uses the existing permanent
   Git worktree helper. A task's working directory and branch are exposed to the
   browser, while credentials and environment values stay on the host.

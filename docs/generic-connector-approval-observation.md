@@ -26,6 +26,16 @@ generic connector 原本只有 terminal stdout/stderr、短期 event buffer 和�
 `approval.resolved`、ACK、`resume` 或其他未列入 allowlist 的 JSON 永遠不會被正規化成
 權威事件。
 
+## 重啟 replay 的明確範圍
+
+generic task 的私有 `agent-tasks.json` 現在會在既有 output tail 之外，保存最多 64 筆／
+128 KiB 的 `output`、`status`、`input`、`task_started`、`task_exit` 非授權事件，以及
+Stepsemble 自己的 SSE cursor。服務重啟後先恢復這個有限窗口，再 attach detached
+supervisor；超限資料從最舊端淘汰。`protocol_event`、`protocol_event_rejected` 和所有
+approval observation 會被過濾，不會因為 snapshot replay 而重新建立 approval state。
+因此這是 UI context／重連體驗的改善，不是完整 session history、durable journal 或
+approval recovery；`resolveApproval()` 仍固定回 `durable_transaction_required`。
+
 ## Observation 形狀與安全界線
 
 事件行必須是：
@@ -86,7 +96,8 @@ API 後面：
   grant；generic service method 會固定拒絕，只有 Host-side detached helper 可供合成測試，
   後續真 adapter 必須直接接 durable journal。
 - `connector-approval.js` 和 supervisor event window 都是 process-local。task JSON
-  只是 reconnect snapshot；Host crash/restart 後不會假稱已恢復舊 approval，亦未提供
+  現在另外保存有限的非授權 output/status/input/lifecycle replay，但仍只是 reconnect
+  context；Host crash/restart 後不會假稱已恢復舊 approval，亦未提供
   durable journal、generation／cursor、CAS commit 或 replay tombstone。child/supervisor
   exit、orphan 或 task terminal 時會清空 pending／receipt／outbox；不會把失效 approval
   留給 stale helper。若 supervisor 仍存活，Host restart 只會重新觀察仍在 event window

@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.94（加入 Codex sequential source-version revalidation fence；atomic C2／C3 仍待）
+> 計畫版本：1.95（generic CLI bounded non-authoritative replay；atomic C2／C3 仍待）
 > 最後更新：2026-09-11
 > 當前產品基線：Stepsemble 3.0.8（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.8／source `3bae06c`（2026-09-09 公開 stable release）
@@ -11,7 +11,20 @@
 
 ## 文件用途與回復方法
 
-**目前任務1.94（2026-09-11，Jerome 要求 C2／C3 全部做好）**：在 protocol 15 的
+**目前任務1.95（2026-09-11，Jerome 要求 C2／C3 全部做好）**：generic CLI task
+snapshot 現在除了既有 64 KiB output tail，也保存最多 64 筆／128 KiB 的非授權
+output、status、input、task lifecycle replay，並持久化 Stepsemble 本地 SSE cursor。
+服務重啟後會先恢復這段有限上下文，再重新 attach detached supervisor；超出界線的舊資料
+會從最前端淘汰。`protocol_event`／`protocol_event_rejected` 與所有 approval observation
+仍永不寫入 task snapshot，Host restart 不能假稱恢復 approval authority；generic
+`resolveApproval()` 仍固定 `durable_transaction_required`。新增 bounded replay、cursor
+保留、protocol observation 過濾與真正 restart reattach regression tests。
+
+這仍不是完整 C2／C3：generic task 尚未接 durable journal、canonical session/run
+projection、approval decision／ACK 或 resume；兩個 Codex history store 也仍沒有 atomic
+snapshot／共同 identity fence。正式版本仍是 3.0.8，本輪不發布新版本、不重啟兩台服務。
+
+**前一任務1.94（2026-09-11，Jerome 要求 C2／C3 全部做好）**：在 protocol 15 的
 paginated resolution、protocol 16 的 physical-head projection checkpoint、protocol 17
 assembly 已接入同一個 owned binding 的順序流程後，新增尾端雙 store source-version
 revalidation fence。流程完成 resolution → checkpoint → assembly 後，分別以第一次

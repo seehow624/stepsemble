@@ -18,6 +18,13 @@ const { createConnectorApprovalState } = require("./connector-approval");
 const MAX_TASKS = 100;
 const MAX_EVENTS = 1200;
 const MAX_EVENT_BYTES = 8 * 1024 * 1024;
+// Keep a small, non-authoritative replay window in the task snapshot.  The
+// generic connector has no durable approval journal, so protocol observations
+// are deliberately excluded; this window is only for output/lifecycle context
+// when the HTTP service restarts.
+const MAX_PERSISTED_EVENTS = 64;
+const MAX_PERSISTED_EVENT_BYTES = 128 * 1024;
+const PERSISTED_EVENT_TYPES = new Set(["output", "status", "task_started", "task_exit", "input"]);
 const MAX_OUTPUT_TAIL = 64 * 1024;
 const MAX_NAME = 120;
 const MAX_MESSAGE = 1_000_000;
@@ -226,6 +233,45 @@ function readPrivateJson(file) {
   } catch { return null; }
 }
 
+function serializedEventBytes(event) {
+  try {
+    const encoded = JSON.stringify(event);
+    return Buffer.byteLength(encoded);
+  } catch {
+    return 0;
+  }
+}
+
+function safeEventSequence(value) {
+  const sequence = Number(value);
+  return Number.isSafeInteger(sequence) && sequence >= 0 && sequence < Number.MAX_SAFE_INTEGER ? sequence : 0;
+}
+
+function normalizePersistedEventHistory(value) {
+  if (!Array.isArray(value)) return [];
+  const rows = [];
+  const seen = new Set();
+  for (const packet of value) {
+    if (!packet || typeof packet !== "object" || Array.isArray(packet)) continue;
+    const seq = Number(packet.seq);
+    const event = packet.event;
+    if (!Number.isSafeInteger(seq) || seq <= 0 || seq >= Number.MAX_SAFE_INTEGER || seen.has(seq)) continue;
+    if (!event || typeof event !== "object" || Array.isArray(event) || !PERSISTED_EVENT_TYPES.has(event.type)) continue;
+    const bytes = serializedEventBytes(event);
+    if (!bytes || bytes > MAX_PERSISTED_EVENT_BYTES) continue;
+    seen.add(seq);
+    rows.push({ seq, event, bytes });
+  }
+  rows.sort((left, right) => left.seq - right.seq);
+  let totalBytes = rows.reduce((total, packet) => total + packet.bytes, 0);
+  while (rows.length > MAX_PERSISTED_EVENTS || totalBytes > MAX_PERSISTED_EVENT_BYTES) {
+    const removed = rows.shift();
+    if (!removed) break;
+    totalBytes -= removed.bytes;
+  }
+  return rows;
+}
+
 function supervisorLooksAlive(task) {
   if (!task) return false;
   if (process.platform !== "win32" && task.supervisorSocket) {
@@ -300,6 +346,8 @@ function readPersistedTasks(file) {
         supervisorSocket: typeof task.supervisorSocket === "string" ? task.supervisorSocket.slice(0, 1000) : "",
         supervisorMeta: typeof task.supervisorMeta === "string" ? task.supervisorMeta.slice(0, 1000) : "",
         supervisorEventSeq: Number.isFinite(Number(task.supervisorEventSeq)) ? Number(task.supervisorEventSeq) : 0,
+        eventSeq: safeEventSequence(task.eventSeq),
+        eventHistory: normalizePersistedEventHistory(task.eventHistory),
         status: typeof task.status === "string" ? task.status.slice(0, 24) : "orphaned",
         startedAt: Number.isFinite(Number(task.startedAt)) ? Number(task.startedAt) : null,
         endedAt: Number.isFinite(Number(task.endedAt)) ? Number(task.endedAt) : null,
@@ -360,18 +408,22 @@ function createAgentTaskService({
     }
     const approvalState = createConnectorApprovalState({ taskId: task.id, agentId: task.agentId });
     if (terminalTaskStatus(task.status)) approvalState.close("task_terminal");
+    const eventHistory = normalizePersistedEventHistory(task.eventHistory);
+    const eventBytes = eventHistory.reduce((total, packet) => total + packet.bytes, 0);
+    const eventSeq = Math.max(safeEventSequence(task.eventSeq), ...eventHistory.map((packet) => packet.seq));
     tasks.set(task.id, {
       ...task,
       // Approval observations are process-local. The detached supervisor can
       // replay only events still held in its in-memory window; the task JSON
       // is a reconnect snapshot, not a durable approval journal. A Host
-      // restart therefore cannot claim to have recovered old approvals.
+      // restart therefore cannot claim to have recovered old approvals. The
+      // separate eventHistory below contains only non-authoritative context.
       approvalState,
       control: null,
       clients: new Set(),
-      events: [],
-      eventBytes: 0,
-      eventSeq: 0,
+      events: eventHistory,
+      eventBytes,
+      eventSeq,
       supervisorEventSeq: Number(supervisor?.eventSeq) || 0,
       supervisorProtocolEventSeq: 0,
       reconnectAttempt: 0,
@@ -435,6 +487,8 @@ function createAgentTaskService({
     value.supervisorSocket = task.supervisorSocket || "";
     value.supervisorMeta = task.supervisorMeta || "";
     value.supervisorEventSeq = Number.isFinite(Number(task.supervisorEventSeq)) ? Number(task.supervisorEventSeq) : 0;
+    value.eventSeq = safeEventSequence(task.eventSeq);
+    value.eventHistory = normalizePersistedEventHistory(task.events);
     value.settledNotified = task.settledNotified === true;
     return value;
   }

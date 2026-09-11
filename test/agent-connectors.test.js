@@ -149,6 +149,10 @@ test("generic task supervisor survives a web-service restart and reattaches", as
   first.shutdown({ preserve: true });
 
   second = createAgentTaskService(options);
+  const restoredBeforeAttach = second.get(opened.id);
+  assert.ok(restoredBeforeAttach.events.some(packet => packet.event?.type === "output"), "non-authoritative output replay survives service restart");
+  assert.equal(restoredBeforeAttach.events.some(packet => packet.event?.type === "protocol_event"), false, "approval observations are never restored from the task snapshot");
+  assert.ok(restoredBeforeAttach.eventSeq > 0, "the local SSE cursor remains monotonic across restart");
   let reattached = second.get(opened.id);
   for (let attempt = 0; attempt < 30 && reattached.status === "reconnecting"; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -160,6 +164,34 @@ test("generic task supervisor survives a web-service restart and reattaches", as
   assert.equal(reattached.outputTail.split("restart-safe").length - 1, 1);
   assert.equal(await second.stop(opened.id), true);
   assert.equal(second.get(opened.id).status, "stopped");
+});
+
+test("persisted generic replay is bounded and keeps the cursor without approval authority", async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-agent-replay-snapshot-"));
+  const id = crypto.randomUUID();
+  const output = { type: "output", taskId: id, stream: "stdout", text: "retained output\n" };
+  const status = { type: "status", taskId: id, status: "completed" };
+  const approval = { type: "protocol_event", taskId: id, agentId: "claude-code", observation: "observed" };
+  fs.writeFileSync(path.join(temp, "agent-tasks.json"), JSON.stringify({ version: 1, tasks: [{
+    id, agentId: "claude-code", name: "Snapshot replay", cwd: temp, status: "completed",
+    startedAt: Date.now() - 1000, endedAt: Date.now(), outputTail: "retained output\n", eventSeq: 9,
+    eventHistory: [
+      { seq: 7, event: approval },
+      { seq: 8, event: output },
+      { seq: 9, event: status },
+    ],
+  }] }));
+  const service = createAgentTaskService({ appHome: temp, configDir: temp, env: { PATH: "", HOME: temp } });
+  t.after(async () => {
+    await service.shutdown();
+    fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  const task = service.get(id);
+  assert.equal(task.eventSeq, 9);
+  assert.deepEqual(task.events.map(packet => packet.seq), [8, 9]);
+  assert.deepEqual(task.events.map(packet => packet.event.type), ["output", "status"]);
+  assert.equal(service.approvals(id).available, false, "a restored task snapshot cannot recreate approval authority");
 });
 
 test("generic connector forwards an explicit approval observation without granting authority", async (t) => {

@@ -218,7 +218,7 @@ Generic connector 的「可啟動、可串流、server restart 可重新 attach�
 | `POST /api/device-pairing/consume` | Joining Host | C | JSON ≤16 KiB；v3 offerId/secret/requestingDevice | 200，唯一會 server-to-server 傳新 credential 的 response；410 legacy miss | Live integration |
 | `GET /api/provider-auth/stream?runId&after` | Web/relay | B/P | cursor 或 `Last-Event-ID` | SSE；15 s ping；run 最長 30 min | 靜態 lifecycle；未有完整 live provider fixture |
 | `GET /api/stream?sid&after` | Web/relay | B/P | cursor 或 `Last-Event-ID` | Pi SSE；15 s ping；最多 8,000 events/8 MiB memory replay | SSE ordering static test；未有 Pi fake-RPC contract |
-| `GET /api/agent/stream?taskId&after` | Web/relay | B/P | cursor 或 `Last-Event-ID` | Generic SSE；15 s ping；最多 1,200 events/8 MiB；restart 可回 64 KiB tail | Live connector integration |
+| `GET /api/agent/stream?taskId&after` | Web/relay | B/P | cursor 或 `Last-Event-ID` | Generic SSE；15 s ping；live 最多 1,200 events/8 MiB；restart 可回最多 64 筆／128 KiB 非授權 context 與 64 KiB tail | Live connector integration |
 | `ANY /r/<machineId>/api/*` | Web selected remote Host | B | method/query/body streaming relay | 非 SSE 60 s；SSE 無固定 timeout；response hop-by-hop/auth headers 被移除 | Live pairing/trust integration |
 
 ### 4.2 Session、project 與 task
@@ -414,7 +414,7 @@ startup recovery with dead supervisor → orphaned
 
 - HTTP service shutdown 採 `preserve: true`，只斷 control socket，不終止 supervisor/CLI。
 - Reconnect backoff：100、250、500、1,000、2,000、5,000、10,000、30,000 ms，之後以 30 秒持續 bounded retry；若 supervisor PID 已死則 orphaned。
-- Supervisor event 最多 1,200/8 MiB，只在 supervisor memory；metadata 每 500 ms debounce，保存 64 KiB output tail。
+- Supervisor event 最多 1,200/8 MiB，只在 supervisor memory；metadata 每 500 ms debounce，保存 64 KiB output tail，以及最多 64 筆／128 KiB 的非授權 output/status/input/lifecycle context 和本地 SSE cursor。`protocol_event`／approval observation 永不寫入 task snapshot。
 - Task catalog 最多保存最近 100 tasks。
 - Terminal supervisor 寫 snapshot 後約 250 ms 結束並移除 Unix socket。
 
@@ -459,7 +459,7 @@ macOS updater 在下載前及 activation 前各檢查 active non-stuck Pi RPC；
 | `.config/stepsemble/update-state.json` | updater/Host read | phase/version/check/error metadata；0600 atomic | updater覆寫 snapshot | 不是業務 journal，可重建 |
 | `.config/stepsemble/push.json` | Host | VAPID private/public key；0600 atomic | 可重建會使舊 subscription 失效 | private key 留 Host |
 | `.config/stepsemble/push-subscriptions.json` | Host | endpoint、p256dh、auth；0600 atomic | 404/410 自動移除 | 視為敏感 endpoint material |
-| `.config/stepsemble/agent-tasks.json` | agent task service | 最多 100 個 generic task snapshot + 64 KiB tails；0600 atomic | 每次變更/500 ms debounce | 不是完整歷史；未來 migration 不得假裝完整 |
+| `.config/stepsemble/agent-tasks.json` | agent task service | 最多 100 個 generic task snapshot + 64 KiB tails + 每 task 64 筆／128 KiB 非授權 replay；0600 atomic | 每次變更/500 ms debounce | 不是完整歷史或 approval journal；protocol observations 不持久化 |
 | `.config/stepsemble/agent-tasks/<taskId>.json` | detached supervisor | 單 task snapshot + 64 KiB tail；0600 atomic | terminal 時最後一次 persist | 可協助 recovery，但不能替代 event journal |
 | `.config/stepsemble/agent-tasks/<taskId>.sock` | supervisor | owner-only Unix socket | terminal 時 unlink；stale socket由 liveness/reconnect處理 | Windows 對應 local named pipe |
 | `/tmp/stepsemble-sockets/<hash>.sock` | supervisor | macOS/Unix socket path 過長時 fallback；directory 0700 | terminal 時 unlink | Hash 包含 config dir，避免 profile collision |
