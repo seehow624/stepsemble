@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.0.13
+
+OpenCode visibility fix for the macOS SSH launcher.
+
+- Carry an existing owner-only `com.jerome.opencode-web` launchd service into
+  the Stepsemble child process so the Agent Hub can discover the configured
+  OpenCode native server after a restart.
+- Keep other launch modes explicit; no random-port scan, `~/.opencode` scan,
+  provider-state migration, or HTTP credential exposure is added.
+
+Validation: launcher syntax plus the live Mac mini native probe; the full
+3.0.12 runtime contract remains unchanged.
+
 ## 3.0.12
 
 OpenCode native server adapter and cross-harness capability audit.

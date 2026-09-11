@@ -190,7 +190,10 @@ uninstalled connector is shown but cannot be selected.
 
 OpenCode also has an opt-in native-server path. Start `opencode serve` on
 loopback and set `STEPSEMBLE_OPENCODE_SERVER_URL` (plus the optional Basic Auth
-variables) before launching Stepsemble. After a health/session probe passes,
+variables) before launching Stepsemble. On the macOS SSH launcher, an existing
+owner-only `com.jerome.opencode-web.plist` is carried into the Stepsemble child
+automatically; other launch modes keep using explicit environment variables.
+After a health/session probe passes,
 New project and the task center use OpenCode's native sessions, messages,
 child sessions, status, and permission response API. The selected project
 folder is passed through OpenCode's directory-scoped API, so the native
