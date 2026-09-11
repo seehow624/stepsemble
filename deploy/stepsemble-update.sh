@@ -306,8 +306,14 @@ try {
   const tasks = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
   if (!Array.isArray(rpcs.rpcs)) process.exit(0);
   const rpcActive = rpcs.rpcs.some((rpc) => rpc?.isStreaming === true && rpc?.stuck !== true);
-  const taskActive = Array.isArray(tasks.tasks) && tasks.tasks.some((task) =>
-    ["starting", "running", "waiting", "reconnecting"].includes(String(task?.status || "")));
+  const taskActive = Array.isArray(tasks.tasks) && tasks.tasks.some((task) => {
+    // Native OpenCode history rows are intentionally projected as `waiting`
+    // so the task center can reopen them.  They are not active work unless
+    // the upstream adapter confirms isRunning=true; otherwise every old
+    // OpenCode session would block a verified release forever.
+    if (task?.nativeOpenCode === true && task?.isRunning !== true) return false;
+    return ["starting", "running", "waiting", "reconnecting"].includes(String(task?.status || ""));
+  });
   process.exit(rpcActive || taskActive ? 0 : 1);
 } catch { process.exit(0); }
 NODE

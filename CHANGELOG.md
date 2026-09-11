@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.0.14
+
+Release-gate fix for native OpenCode history rows.
+
+- Keep completed OpenCode sessions visible in the task center without treating
+  their projected `waiting` status as active work.
+- Allow the verified updater to proceed when native OpenCode reports
+  `isRunning: false`, while continuing to defer for real active sessions.
+
+Validation: full Node suite, cross-platform CI, native history boundary, and
+rolling browser compatibility.
+
 ## 3.0.13
 
 OpenCode visibility fix for the macOS SSH launcher.
