@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.91（C3 新增 Host 驗證器驅動的 native ACK settlement seam；durable C2／C3 仍待）
+> 計畫版本：1.92（修正 Codex catalog 相對 rollout locator 的 Host containment 邊界；durable C2／C3 仍待）
 > 最後更新：2026-09-11
 > 當前產品基線：Stepsemble 3.0.8（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.8／source `3bae06c`（2026-09-09 公開 stable release）
@@ -10,6 +10,15 @@
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
 ## 文件用途與回復方法
+
+**目前任務1.92（2026-09-11，Jerome 要求 C2／C3 全部做好）**：修正 Codex SQLite
+`threads.rollout_path` 的真實儲存形狀。原生 state DB 會以相對於已授權 `codexRoot` 的
+locator 儲存目前 rollout；source index 現在先在 Host 內以該明確 root 做詞法 resolve，
+拒絕 `..` 逃逸、第二個絕對 root 與 root 本身，再只把 root-relative inert locator 交給
+既有 native reader。舊 owned fixture 使用的 canonical 絕對路徑仍相容；symlink、owner／ACL、
+root identity、`openat/nofollow` 與 actual-close 仍由 Rust reader gate 負責。新增 relative
+path、containment escape、public page 不洩漏 root 的測試；沒有擴大 catalog 欄位、HTTP DTO、
+reader grant 或 paginated ancestry 自動發現，因此 C2／C3 durable parity 仍未完成。
 
 **目前任務1.91（2026-09-11，Jerome 要求 C2／C3 全部做好）**：C3 的 Codex approval
 bridge 新增 Host-only `acknowledge(requestId, details)` 邊界，但不把它當公開 endpoint 或

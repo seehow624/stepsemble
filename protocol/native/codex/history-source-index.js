@@ -19,11 +19,26 @@ function normalizeGroupSource(input) {
   if (value.sqliteRoot === value.codexRoot && canonicalJSON(value.expectedSqliteRoot) !== canonicalJSON(value.expectedCodexRoot)) return null;
   return value;
 }
+function catalogLocator(root, rolloutPath) {
+  if (typeof rolloutPath !== "string" || !rolloutPath.isWellFormed() || !rolloutPath.length) return null;
+  // Native state DB rows normally store a path relative to codex_home. Keep
+  // accepting an absolute path for older/owned fixtures, but never let a
+  // catalog row choose a second root: resolve it against the already
+  // registered codexRoot and require lexical containment before deriving the
+  // inert locator passed to the native reader. Symlink/FD checks remain the
+  // native reader's responsibility.
+  if (path.isAbsolute(rolloutPath) && path.resolve(rolloutPath) !== rolloutPath) return null;
+  const candidate = path.resolve(root, rolloutPath);
+  const relative = path.relative(root, candidate);
+  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return null;
+  return relative.split(path.sep).join("/");
+}
 function selectHistory(source, entry) {
-  // Do not resolve dot segments, tolerate relative paths or infer a private
-  // home. A failed routing selection stays visible as an unavailable row.
-  if (!path.isAbsolute(entry.rolloutPath) || path.resolve(entry.rolloutPath) !== entry.rolloutPath) return null;
-  const locator = path.relative(source.codexRoot, entry.rolloutPath).split(path.sep).join("/");
+  // A failed routing selection stays visible as an unavailable row. The
+  // returned locator is inert until the separately granted native reader
+  // rechecks root identity, ownership, containment and no-follow semantics.
+  const locator = catalogLocator(source.codexRoot, entry.rolloutPath);
+  if (!locator) return null;
   const result = { nativeVersion: source.nativeVersion,
     source: { codexRoot: source.codexRoot, threadId: entry.id, rolloutPath: locator }, expectedRoot: source.expectedCodexRoot };
   return historyWire.input(result) ? result : null;

@@ -60,6 +60,21 @@ test("Codex index publishes bounded path-free pages with explicit refresh, prese
   assert.equal(h.index.page("owner", { offset: 0, limit: 50, snapshotId: page.snapshotId }).code, "history_catalog_changed");
   assert.equal(h.index.matchesSelection("intruder", page.entries[0].catalogId, selected.revision), false);
 });
+test("Codex index resolves native relative rollout paths only inside the registered root", async t => {
+  const h = harness(t), relative = row(); relative.rolloutPath = locator(relative.id); h.rows([relative]);
+  const state = await h.index.refresh("owner"), catalogId = state.snapshot.entries[0].catalogId;
+  const selected = h.index.lookup("owner", catalogId);
+  assert.equal(selected.unavailable, null);
+  assert.equal(selected.source.history.source.rolloutPath, relative.rolloutPath);
+  const page = h.index.page("owner", { offset: 0, limit: 50, snapshotId: null });
+  assert(!JSON.stringify(page).includes(root), "private root never enters the public inventory page");
+
+  const escape = { ...relative, rolloutPath: `../${relative.rolloutPath}` };
+  h.rows([escape]); await h.index.refresh("owner");
+  const denied = h.index.lookup("owner", catalogId);
+  assert.equal(denied.unavailable, "source_scope_mismatch");
+  assert.equal(denied.source.history, null);
+});
 test("changed current rollout invalidates binding revision without duplicating a native thread", async t => {
   const h = harness(t); const a = await h.index.refresh("owner"), old = a.snapshot.entries[0];
   const changed = row(); changed.rolloutPath = changed.rolloutPath.replace(".jsonl", "_00000000-0000-4000-8000-000000000009.jsonl"); h.rows([changed]);
