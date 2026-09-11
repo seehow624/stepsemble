@@ -278,6 +278,10 @@ setInterval(() => {}, 1000);`;
   assert.equal(service.get(opened.id).status, "running", "an unavailable generic helper cannot alter task status");
   await service.stop(opened.id);
   assert.equal(service.get(opened.id).status, "stopped");
+  const persisted = JSON.parse(fs.readFileSync(path.join(config, "agent-tasks.json"), "utf8"));
+  const persistedTask = persisted.tasks.find(row => row.id === opened.id);
+  assert.ok(persistedTask);
+  assert.equal(persistedTask.eventHistory.some(packet => packet.event?.type === "protocol_event"), false);
   assert.equal(service.approvals(opened.id).available, false, "task exit closes process-local approval state");
   assert.deepEqual(service.approvals(opened.id).approvals, [], "pending approvals are not kept after process exit");
   assert.equal(service.resolveApproval(opened.id, {
