@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.0.17
+
+Keep Sessions visible when Agent Hub has dense content.
+
+- Bound Agent Hub to a compact flex panel instead of allowing its contents to
+  stretch the main sidebar.
+- Give connector chips their own horizontal scroll surface and task rows their
+  own vertical scroll surface.
+- Reserve the Sessions heading and list viewport so the main conversation list
+  remains reachable on small screens and dense workspaces.
+
+Validation: layout smoke coverage, JavaScript checks, and the full Node suite.
+
 ## 3.0.16
 
 Show every agent conversation in the main Sessions list.

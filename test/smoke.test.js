@@ -196,6 +196,15 @@ test("Agent Hub has an allow-listed connector inventory and reconnectable task s
   assert.match(css, /\.agent-terminal-output/);
 });
 
+test("Agent Hub stays bounded so the main Sessions list keeps its own viewport", () => {
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  assert.match(css, /#view-list\s*\{[\s\S]*?min-height:\s*0[\s\S]*?overflow:\s*hidden/);
+  assert.match(css, /\.agent-hub-card\s*\{[\s\S]*?max-height:\s*min\(30dvh,\s*260px\)[\s\S]*?display:\s*flex[\s\S]*?flex-direction:\s*column[\s\S]*?overflow:\s*hidden/);
+  assert.match(css, /\.agent-hub-connectors\s*\{[\s\S]*?flex-wrap:\s*nowrap[\s\S]*?overflow-x:\s*auto/);
+  assert.match(css, /\.agent-task-list\s*\{[\s\S]*?min-height:\s*0[\s\S]*?overflow-y:\s*auto/);
+  assert.match(css, /\.session-section-heading\s*\{[\s\S]*?flex:\s*0\s+0\s+auto/);
+});
+
 test("folder browsing is restricted to the user home unless roots are explicitly added", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");

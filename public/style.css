@@ -1,4 +1,4 @@
-/* stepsemble v3.0.16 — Ink & Ivory / English-first localization */
+/* stepsemble v3.0.17 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -225,6 +225,11 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 
 /* ---- 頂欄 ---- */
 .view { height: calc(100dvh - env(safe-area-inset-top)); display: flex; flex-direction: column; }
+#view-list {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
 .topbar {
   display: flex; align-items: center; gap: 8px;
   height: 56px;
@@ -1760,9 +1765,13 @@ body.image-lightbox-open { overflow: hidden; }
 
 /* ---- Agent Hub inbox ---- */
 .agent-hub-card {
-  flex: 0 0 auto;
-  max-height: min(36dvh, 300px);
-  overflow-y: auto;
+  min-width: 0;
+  min-height: 0;
+  flex: 0 1 auto;
+  max-height: min(30dvh, 260px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   margin: 7px 12px 9px;
@@ -1771,7 +1780,7 @@ body.image-lightbox-open { overflow: hidden; }
   border-radius: 18px;
   background: color-mix(in srgb, var(--paper) 76%, var(--milk));
 }
-.agent-hub-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.agent-hub-heading { display: flex; flex: 0 0 auto; align-items: center; flex-wrap: wrap; gap: 10px; }
 .agent-hub-heading > div { min-width: 0; flex: 1; }
 .agent-hub-heading strong { display: block; font-size: 13px; font-weight: 720; letter-spacing: .01em; }
 .agent-hub-heading small { display: block; margin-top: 2px; color: var(--pine-soft); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1784,7 +1793,20 @@ body.image-lightbox-open { overflow: hidden; }
   font-weight: 650; cursor: pointer;
 }
 .agent-hub-view-all:hover, .agent-hub-view-all:focus-visible { background: color-mix(in srgb, var(--accent) 10%, transparent); outline: none; }
-.agent-hub-connectors { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.agent-hub-connectors {
+  min-width: 0;
+  min-height: 0;
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  margin-top: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+  overscroll-behavior-x: contain;
+}
 .agent-connector-chip {
   display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto;
   min-height: 28px; max-width: 100%; padding: 0 9px; border-radius: 999px;
@@ -1794,7 +1816,18 @@ body.image-lightbox-open { overflow: hidden; }
 .agent-connector-chip.installed { color: var(--ink); border-color: color-mix(in srgb, var(--ok) 50%, var(--line)); }
 .agent-connector-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--pine-soft); }
 .agent-connector-chip.installed .dot { background: var(--ok); }
-.agent-task-list { display: grid; gap: 4px; margin-top: 9px; }
+.agent-task-list {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: grid;
+  gap: 4px;
+  margin-top: 9px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
 .agent-task-row {
   width: 100%; display: grid; grid-template-columns: 7px minmax(0, 1fr) auto; align-items: center; gap: 8px;
   min-height: 48px; padding: 7px 6px; border: 0; border-radius: 9px; color: var(--ink); background: transparent; text-align: left; cursor: pointer;
@@ -1815,7 +1848,7 @@ body.image-lightbox-open { overflow: hidden; }
 @keyframes agent-reconnect-pulse { 50% { opacity: .35; transform: scale(.72); } }
 html.reduced-motion .agent-task-row.running.reconnecting .agent-task-dot { animation: none; }
 
-.claude-auth { border-top: 1px solid var(--line); padding-top: 4px; margin-top: 12px; }
+.claude-auth { min-height: 0; flex: 0 1 auto; overflow-y: auto; border-top: 1px solid var(--line); padding-top: 4px; margin-top: 12px; }
 .claude-auth summary { cursor: pointer; font-size: 13px; font-weight: 600; min-height: 44px; padding: 12px 0; }
 .claude-auth p { font-size: 12px; line-height: 1.55; margin: 8px 0; overflow-wrap: anywhere; }
 .claude-auth-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
@@ -2095,6 +2128,7 @@ html.reduced-motion .agent-task-center-row.running.reconnecting .agent-task-dot 
 .new-project-copy small { max-width: none; margin-top: 2px; font-size: .72rem; }
 .session-section-heading {
   min-height: 38px;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
