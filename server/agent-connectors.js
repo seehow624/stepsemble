@@ -273,6 +273,21 @@ function normalizePersistedEventHistory(value, expectedTaskId = "") {
   return rows;
 }
 
+function replayMetadata(task, after = -1) {
+  const latest = safeEventSequence(task?.eventSeq);
+  const first = Array.isArray(task?.events) && task.events.length
+    ? safeEventSequence(task.events[0]?.seq)
+    : latest + 1;
+  const floor = first > 0 ? first : latest + 1;
+  const cursor = Number.isSafeInteger(Number(after)) && Number(after) >= -1 ? Number(after) : -1;
+  return {
+    latest,
+    floor,
+    truncated: latest > 0 && floor > 1,
+    gap: latest > 0 && cursor < floor - 1,
+  };
+}
+
 function supervisorLooksAlive(task) {
   if (!task) return false;
   if (process.platform !== "win32" && task.supervisorSocket) {
@@ -451,6 +466,7 @@ function createAgentTaskService({
 
   function publicTask(task, includeOutput = false) {
     if (!task) return null;
+    const replay = replayMetadata(task);
     return {
       id: task.id,
       taskId: task.id,
@@ -472,6 +488,9 @@ function createAgentTaskService({
       signal: task.signal,
       transport: task.transport || "pipe",
       error: task.error || "",
+      eventSeq: replay.latest,
+      replayFloor: replay.floor,
+      replayTruncated: replay.truncated,
       ...(includeOutput ? { outputTail: task.outputTail || "" } : {}),
     };
   }
@@ -971,7 +990,20 @@ function createAgentTaskService({
       const frame = typeof sseFrame === "function" ? sseFrame(event, name, seq) : `data: ${JSON.stringify(event)}\n\n`;
       return typeof trySseWrite === "function" ? trySseWrite(res, frame) : !res.destroyed && res.write(frame);
     };
-    if (!write({ type: "connected", taskId: task.id, eventSeq: task.eventSeq, status: task.status, ...publicTask(task) }, "connected")) {
+    const replay = replayMetadata(task, after);
+    if (!write({
+      type: "connected",
+      taskId: task.id,
+      status: task.status,
+      ...publicTask(task),
+      // publicTask carries the task-wide cursor; these fields are specific to
+      // this connection's requested cursor and must win after the spread.
+      eventSeq: replay.latest,
+      replayFloor: replay.floor,
+      replayTruncated: replay.truncated,
+      replayGap: replay.gap,
+      replayAfter: Number.isSafeInteger(Number(after)) ? Number(after) : -1,
+    }, "connected")) {
       cleanup(); try { res.end(); } catch {} return true;
     }
     for (const packet of task.events) if (packet.seq > after) write(packet.event, null, packet.seq);

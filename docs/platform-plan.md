@@ -15,10 +15,12 @@
 snapshot 現在除了既有 64 KiB output tail，也保存最多 64 筆／128 KiB 的非授權
 output、status、input、task lifecycle replay，並持久化 Stepsemble 本地 SSE cursor。
 服務重啟後會先恢復這段有限上下文，再重新 attach detached supervisor；超出界線的舊資料
-會從最前端淘汰。`protocol_event`／`protocol_event_rejected` 與所有 approval observation
-仍永不寫入 task snapshot，Host restart 不能假稱恢復 approval authority；generic
-`resolveApproval()` 仍固定 `durable_transaction_required`。新增 bounded replay、cursor
-保留、protocol observation 過濾與真正 restart reattach regression tests。
+會從最前端淘汰。task detail／SSE 會回報 replay floor、latest cursor 與 `replayGap`，
+讓客戶端不會把 bounded context 誤當完整 transcript。`protocol_event`／
+`protocol_event_rejected` 與所有 approval observation 仍永不寫入 task snapshot，Host
+restart 不能假稱恢復 approval authority；generic `resolveApproval()` 仍固定
+`durable_transaction_required`。新增 bounded replay、cursor 保留、protocol observation
+過濾、history completeness metadata 與真正 restart reattach regression tests。
 
 這仍不是完整 C2／C3：generic task 尚未接 durable journal、canonical session/run
 projection、approval decision／ACK 或 resume；兩個 Codex history store 也仍沒有 atomic

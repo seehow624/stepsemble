@@ -38,6 +38,9 @@ approval observation 會被過濾，不會以 structured event 形式進入 repl
 echo 去重，避免送出訊息後再收到 supervisor event 時顯示兩次。
 每筆 replay event 也必須帶有與 task snapshot 完全相同的 `taskId`；跨 task 或缺失身份的
 資料會在載入時丟棄。
+task detail 與 SSE `connected` frame 會另外回報 `replayFloor`、`eventSeq`、
+`replayTruncated`；若呼叫端的 `after` 早於保留窗口，`replayGap:true`，讓客戶端知道
+這只是 bounded context，不可當作完整 transcript。
 因此這是 UI context／重連體驗的改善，不是完整 session history、durable journal 或
 approval recovery；`resolveApproval()` 仍固定回 `durable_transaction_required`。
 

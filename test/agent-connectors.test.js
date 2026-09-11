@@ -231,8 +231,26 @@ test("generic SSE exposes restored context before a terminal task closes", async
   assert.equal(service.stream(req, res, id, -1, frame), true);
   assert.equal(res.ended, true);
   assert.match(frames[0], /"type":"connected"/);
+  const connected = JSON.parse(frames[0].split("data: ", 2)[1].trim());
+  assert.equal(connected.replayFloor, 2);
+  assert.equal(connected.replayTruncated, true);
+  assert.equal(connected.replayGap, true, "a cursor before the bounded replay floor is explicit");
   assert.ok(frames.some(frame => frame.includes("id: 2") && frame.includes("replayed over SSE")));
   assert.ok(frames.some(frame => frame.includes("id: 3") && frame.includes('"status":"completed"')));
+
+  const lateFrames = [];
+  const lateRes = {
+    destroyed: false,
+    writeHead() {},
+    flushHeaders() {},
+    write(frameText) { lateFrames.push(String(frameText)); return true; },
+    end() { this.ended = true; },
+    on() {},
+  };
+  assert.equal(service.stream({ on() {} }, lateRes, id, 1, frame), true);
+  const lateConnected = JSON.parse(lateFrames[0].split("data: ", 2)[1].trim());
+  assert.equal(lateConnected.replayGap, false, "a cursor immediately before the retained floor is complete");
+  assert.ok(lateFrames.some(frameText => frameText.includes("id: 2") && frameText.includes("replayed over SSE")));
 });
 
 test("generic connector forwards an explicit approval observation without granting authority", async (t) => {
