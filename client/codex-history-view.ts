@@ -112,7 +112,13 @@ namespace StepsembleCodexHistoryView {
             { hostId: deps.hostId, bindingId: reg.bindingId, generation: reg.generation, sessionId: reg.sessionId },
             checkpointRequest, current.controller.signal);
           if (!live()) return;
-          if (checkpointValue.kind === "source_unavailable") value = checkpointValue;
+          if (checkpointValue.kind === "source_unavailable") {
+            // The separate projection is optional on older/native fixtures.
+            // Keep the primary paginated explanation when its checkpoint is
+            // absent; a low-level `source_missing` must not turn a known
+            // unsupported format into a generic connection failure.
+            value = { kind: "source_unavailable", code: "native_paginated_history_unsupported" };
+          }
           else {
             checkpoint = checkpointValue; page = null; profile = undefined; offsets = [0]; pageIndex = 0;
             stale = false; error = "native_paginated_history_unsupported"; localAbortPending = false; stage = "checkpointed";

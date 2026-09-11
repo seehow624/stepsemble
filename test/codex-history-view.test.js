@@ -122,8 +122,10 @@ test("closing during a late registration awaits cleanup, drops content and only 
 });
 test("unsupported paginated storage is not an empty successful page; revoked access erases retained content", async t => {
   let code = "native_paginated_history_unsupported";
-  const h = harness(t, { read: (_scope, r, o, good) => code ? { kind: "source_unavailable", code } : good(r, o) });
+  const h = harness(t, { read: (_scope, r, o, good) => code ? { kind: "source_unavailable", code } : good(r, o),
+    checkpoint: () => ({ kind: "source_unavailable", code: "source_missing" }) });
   await h.model.select(catalogId); assert.equal(h.model.state().error, code); assert.equal(h.model.state().page, null);
+  assert(h.calls.some(value => value && typeof value === "object" && value.checkpoint), "optional checkpoint failure keeps the paginated explanation");
   code = null; await h.model.refresh(); assert(h.model.state().page);
   code = "history_unauthorized"; await h.model.next(); assert.equal(h.model.state().page, null);
 });
