@@ -48,3 +48,24 @@ command/file/permissions approval 都在解析／提交決定以前發 request-r
 resolved 可表示回答或清除請求；permission grant 的原生範圍是 turn／session。
 因此 adapter 不可把 permission 的 `turn` 說成「僅這一次」，也不可把 cleared 當批准。
 官方頁是交叉確認；本批線上格式仍固定 0.153.4，不能直接套用未驗證的新版本欄位。
+
+## 接續 1.91：Host 驗證器驅動的 native ACK settlement seam
+
+Codex approval bridge 現在提供 Host-only `acknowledge(requestId, details)`。它不是
+HTTP／UI API，也不接受 caller 直接傳入 `evidenceVerified: true`。建立 bridge 時必須注入
+`verifyNativeAcknowledgement` callback；這個 callback 屬於擁有原生程序的 adapter，必須
+對 detached request、approval ID／nonce、receipt、dispatch attempt、incarnation 與
+response-written 狀態做獨立核對，成功時只回傳 `{ kind: "verified", evidence }`，而
+`evidence.kind` 僅能是 `native_ack` 或 `authoritative_readback`。
+
+bridge 會重新讀 SQLite，要求同一 receipt 已進入 `awaiting_confirmation`，再呼叫
+`planApprovalAcknowledgement`。receipt outcome、`approval.acknowledged` projection fact
+與 event 會在同一 journal transaction 內 CAS；即使 device grant 隨後撤銷，已驗證的
+delivery fact 仍可落盤。`serverRequest/resolved` 仍只關閉 native request，不能直接觸發
+ACK。bridge 的 bounded tombstone 會保留必要 correlation，允許 closure 後由 verified
+adapter settlement；相同 attempt 的再次 ACK 只回 durable replay，不重跑 verifier。
+
+這是安全的接線邊界，不是原生 proof verifier 本身：目前 Codex 0.153.4 transport 沒有
+可由 `serverRequest/resolved` 單獨取得 decision proof，因此正式 adapter 仍須提供真正的
+native readback／ACK 來源。沒有 verifier 時 bridge fail closed；不自動 resume、不公開
+route、不複製帳號或訂閱憑證，也不宣稱 Claude／Pi／OpenCode 等其他 agent 已達 parity。

@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.90（C2 paginated resolution 已接 owned Host／registry／HTTP／typed transport；durable C2／C3 仍待）
+> 計畫版本：1.91（C3 新增 Host 驗證器驅動的 native ACK settlement seam；durable C2／C3 仍待）
 > 最後更新：2026-09-11
 > 當前產品基線：Stepsemble 3.0.8（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.8／source `3bae06c`（2026-09-09 公開 stable release）
@@ -11,7 +11,20 @@
 
 ## 文件用途與回復方法
 
-**目前任務1.90（2026-09-11，Jerome 要求 C2／C3 全部做好）**：在 1.89 的 native
+**目前任務1.91（2026-09-11，Jerome 要求 C2／C3 全部做好）**：C3 的 Codex approval
+bridge 新增 Host-only `acknowledge(requestId, details)` 邊界，但不把它當公開 endpoint 或
+自動推論。native owner 必須透過建構時注入的 `verifyNativeAcknowledgement` callback，對
+同一 request／approval／nonce／dispatch attempt／incarnation 做獨立驗證，僅回傳
+`native_ack` 或 `authoritative_readback` evidence；bridge 再重讀 journal，要求 response
+已寫入且 receipt 位於 `awaiting_confirmation`，最後以 `planApprovalAcknowledgement` 在
+同一 SQLite transaction 內 CAS receipt、projection approval、event。`serverRequest/resolved`
+仍只代表 request closure，不能觸發 ACK；bridge tombstone 支援 closure 後 settlement，grant
+撤銷不會回溯已送出的 native effect，重複 ACK 只回 durable replay。新增的測試涵蓋 closure
+後、grant revocation 後、malformed/unverified evidence 與 replay。這仍不是 production
+native proof verifier、resume、自動 ACK、HTTP/UI route 或其他 agent parity；未改帳號、訂閱、
+正式服務與 3.0.8。
+
+**前一任務1.90（2026-09-11，Jerome 要求 C2／C3 全部做好）**：在 1.89 的 native
 protocol 15 helper／pipeline 之上，已把 Codex paginated resolution 接到 owned source
 service、binding generation、registry、HTTP route 與 typed browser transport。請求只接受
 已由同一個 binding 擁有的 first metadata records／relative locators，Host 重新核對

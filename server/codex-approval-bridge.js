@@ -9,6 +9,7 @@
 // notification, so this bridge never turns it into approval.acknowledged.
 
 const crypto = require("node:crypto");
+const { isDeepStrictEqual } = require("node:util");
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const REQUEST_ID = /^(?:[A-Za-z0-9][A-Za-z0-9._:-]{0,255}|\d{1,18})$/;
@@ -21,6 +22,12 @@ const DECISIONS = new Set(["approved", "denied"]);
 const SCOPES = new Set(["once", "run", "session"]);
 const reject = code => ({ kind: "reject", code });
 const clone = value => structuredClone(value);
+
+function nativeEvidence(value) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).length === 2 && (value.kind === "native_ack" || value.kind === "authoritative_readback")
+    && id(value.reference);
+}
 
 function id(value) {
   return typeof value === "string" && ID.test(value);
@@ -56,12 +63,16 @@ function createCodexApprovalBridge({
   approvalTtlMs = 10 * 60 * 1000,
   idFactory = () => crypto.randomUUID(),
   authorizeOther = async () => reject("transaction_required"),
+  // This callback belongs to the native owner/adapter. It must independently
+  // verify the exact request/attempt before returning a durable evidence
+  // reference; bridge callers never get to assert `evidenceVerified`.
+  verifyNativeAcknowledgement = async () => reject("native_ack_verifier_required"),
   onEvent = null,
 } = {}) {
   if (!journal || typeof journal.read !== "function" || typeof journal.execute !== "function") throw new TypeError("journal_required");
   if (![sessionId, runId, deviceId, threadId, turnId, incarnationId, harnessId].every(id)) throw new TypeError("native_mapping_required");
   if (!Number.isSafeInteger(approvalTtlMs) || approvalTtlMs < 1000 || approvalTtlMs > 86400000) throw new TypeError("approval_ttl_invalid");
-  if (typeof idFactory !== "function" || typeof authorizeOther !== "function") throw new TypeError("bridge_callback_required");
+  if (typeof idFactory !== "function" || typeof authorizeOther !== "function" || typeof verifyNativeAcknowledgement !== "function") throw new TypeError("bridge_callback_required");
   const rows = new Map();
   const tombstones = new Map();
   let transport = null;
@@ -75,6 +86,7 @@ function createCodexApprovalBridge({
   const observing = new Map();
   const closedRequests = new Set();
   const resolving = new Set();
+  const acknowledging = new Set();
 
   function generated(label) {
     let value;
@@ -243,6 +255,58 @@ function createCodexApprovalBridge({
     } finally { resolving.delete(key); }
   }
 
+  async function acknowledge(requestValue, details = {}) {
+    if (closed) return reject("bridge_closed");
+    if (!details || typeof details !== "object" || Array.isArray(details)) return reject("native_ack_details_invalid");
+    let detachedDetails;
+    try { detachedDetails = clone(details); } catch { return reject("native_ack_details_invalid"); }
+    const key = requestKey(requestValue), entry = key ? rows.get(key) || tombstones.get(key) : null;
+    if (!entry || !entry.request || !entry.receiptId || !entry.dispatch || entry.responseWritten !== true) return reject("native_ack_unavailable");
+    if (acknowledging.has(key)) return reject("native_ack_in_flight");
+    acknowledging.add(key);
+    try {
+      const current = Number(now());
+      if (!validTime(current)) return reject("invalid_time");
+      const view = await journal.read(sessionId);
+      if (view.kind !== "view") return reject(view.code || "journal_unavailable");
+      const receipt = view.state.receipts.find(item => item.receiptId === entry.receiptId);
+      const outbox = view.state.outbox.find(item => item.receiptId === entry.receiptId);
+      const approval = view.state.projection.approvals.find(item => item.approval.approvalId === entry.approvalId);
+      if (!receipt || !outbox || !approval || outbox.command.type !== "approval.resolve"
+        || outbox.command.payload.approvalId !== entry.approvalId || outbox.command.payload.runId !== runId
+        || outbox.dispatch?.attemptId !== entry.dispatch.attemptId || outbox.dispatch?.incarnationId !== incarnationId
+        || receipt.attemptId !== entry.dispatch.attemptId || approval.approval.nativeRequestId !== entry.request.nativeRequestId
+        || approval.approval.nonce !== entry.nonce) return reject("native_ack_conflict");
+      if (receipt.state === "succeeded" && approval.nativeAcknowledgement?.attemptId === entry.dispatch.attemptId
+        && isDeepStrictEqual(approval.nativeAcknowledgement.evidence, entry.ackResult?.evidence)) {
+        return { kind: "replay", receiptId: receipt.receiptId, receipt: clone(receipt), state: clone(view.state), nativeAcknowledged: true };
+      }
+      if (receipt.state !== "awaiting_confirmation") return reject("native_ack_unavailable");
+      let request, verified;
+      try {
+        request = { request: clone(entry.request), receiptId: entry.receiptId, approvalId: entry.approvalId,
+          nonce: entry.nonce, dispatch: clone(entry.dispatch), responseWritten: true, details: detachedDetails };
+        verified = await verifyNativeAcknowledgement(request);
+      } catch { return reject("native_ack_verification_failed"); }
+      if (!verified || verified.kind !== "verified") return reject(verified?.kind === "reject" && id(verified.code) ? verified.code : "native_ack_unverified");
+      if (!nativeEvidence(verified.evidence)) return reject("native_ack_unverified");
+      if (closed) return reject("bridge_closed");
+      const eventId = generated("ack-event");
+      if (!eventId) return reject("id_generation_failed");
+      const committed = await journal.execute(sessionId, "planApprovalAcknowledgement", [entry.receiptId], {
+        now: current, authenticatedDeviceId: deviceId, sessionId, runId,
+        receiptRevision: receipt.revision, attemptId: entry.dispatch.attemptId, incarnationId,
+        nativeRequestId: entry.request.nativeRequestId, nonce: entry.nonce,
+        evidenceVerified: true, evidence: clone(verified.evidence), eventIds: [eventId],
+      });
+      if (committed.kind !== "committed") return committed;
+      const result = { kind: "acknowledged", receiptId: entry.receiptId, attemptId: entry.dispatch.attemptId,
+        evidence: clone(verified.evidence), state: clone(committed.state), event: clone(committed.append.at(-1)) };
+      entry.ackResult = clone(result);
+      return result;
+    } finally { acknowledging.delete(key); }
+  }
+
   function handleEvent(event) {
     if (event?.type === "approval.resolved") {
       const key = requestKey(event.requestId), row = key ? rows.get(key) : null;
@@ -252,7 +316,9 @@ function createCodexApprovalBridge({
       if (closedRequests.size > maxPending * 2) closedRequests.delete(closedRequests.values().next().value);
       if (row) {
         row.closed = true;
-        tombstones.set(key, { receiptId: row.receiptId, responseWritten: row.responseWritten, intent: row.intent ? {
+        tombstones.set(key, { request: clone(row.request), approvalId: row.approvalId, nonce: row.nonce,
+          receiptId: row.receiptId, responseWritten: row.responseWritten, dispatch: row.dispatch ? clone(row.dispatch) : null,
+          ackResult: row.ackResult ? clone(row.ackResult) : null, intent: row.intent ? {
           decision: row.intent.decision, scope: row.intent.scope, commandId: row.intent.commandId,
           idempotencyKey: row.intent.idempotencyKey, eventId: row.intent.eventId, receiptId: row.intent.receiptId,
           command: row.intent.command ? clone(row.intent.command) : null,
@@ -280,10 +346,10 @@ function createCodexApprovalBridge({
   function close() {
     closed = true;
     for (const row of rows.values()) { row.closed = true; row.dispatch = null; }
-    rows.clear(); observing.clear(); closedRequests.clear(); tombstones.clear();
+    rows.clear(); observing.clear(); closedRequests.clear(); tombstones.clear(); acknowledging.clear();
   }
 
-  return Object.freeze({ attach, authorizeNative, close, observe, onEvent: handleEvent, pending, resolve });
+  return Object.freeze({ acknowledge, attach, authorizeNative, close, observe, onEvent: handleEvent, pending, resolve });
 }
 
 module.exports = { createCodexApprovalBridge };

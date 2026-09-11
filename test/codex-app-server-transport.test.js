@@ -331,6 +331,69 @@ test("Codex native approval bridge observes into SQLite, gates response, survive
   assert.equal(bridge.pending().length, 0, "resolved native request is closed and cannot be automatically retried");
 });
 
+test("Codex native approval bridge settles only through a verified ACK, including after closure and grant revocation", { skip: process.platform === "win32" }, async t => {
+  const f = await makeJournal(t, { withApproval: false, harnessId: "codex", nativeSessionId: "native-ack", nativeRunId: "turn-ack" });
+  const { createCodexApprovalBridge } = require("../server/codex-approval-bridge");
+  const verifiedInputs = [];
+  const bridge = createCodexApprovalBridge({
+    journal: f.journal, sessionId: f.sessionId, runId: "run-1", deviceId: "device-1",
+    threadId: "native-ack", turnId: "turn-ack", incarnationId: "native-inc-ack",
+    idFactory: label => `${label}-ack`,
+    verifyNativeAcknowledgement: async input => {
+      verifiedInputs.push(input);
+      return { kind: "verified", evidence: { kind: "native_ack", reference: "native-proof-ack" } };
+    },
+  });
+  bridge.attach({ respondApproval: async () => ({ kind: "written" }) });
+  t.after(() => bridge.close());
+  const request = { requestId: "ack-request", nativeRequestId: "s:ack-request", method: "item/commandExecution/requestApproval",
+    threadId: "native-ack", turnId: "turn-ack", itemId: "item-ack", summary: "verified fixture", params: { command: "echo ack" },
+    authority: { sourceAuthenticated: true } };
+  assert.equal((await bridge.observe(request)).kind, "observed");
+  const written = await bridge.resolve("ack-request", { decision: "approved", scope: "once", commandId: "command-ack", idempotencyKey: "key-ack" });
+  assert.equal(written.kind, "written");
+  bridge.onEvent({ type: "approval.resolved", requestId: "ack-request" });
+  assert.equal((await f.journal.setGrant(f.sessionId, "device-1", false)).kind, "grant_updated");
+
+  const acknowledged = await bridge.acknowledge("ack-request", { readback: "owned-fixture" });
+  assert.equal(acknowledged.kind, "acknowledged", JSON.stringify(acknowledged));
+  assert.equal(acknowledged.event.type, "approval.acknowledged");
+  assert.equal(verifiedInputs.length, 1);
+  assert.equal(verifiedInputs[0].request.requestId, "ack-request");
+  assert.deepEqual(verifiedInputs[0].details, { readback: "owned-fixture" });
+  const after = await f.journal.read(f.sessionId);
+  assert.equal(after.state.receipts[0].state, "succeeded");
+  assert.deepEqual(after.state.receipts[0].outcome.evidence, { kind: "native_ack", reference: "native-proof-ack" });
+  assert.deepEqual(after.state.projection.approvals[0].nativeAcknowledgement.evidence, { kind: "native_ack", reference: "native-proof-ack" });
+
+  const replay = await bridge.acknowledge("ack-request", { readback: "different-details" });
+  assert.equal(replay.kind, "replay");
+  assert.equal(verifiedInputs.length, 1, "durable ACK replay does not invoke native verification again");
+});
+
+test("Codex native approval bridge rejects malformed verifier evidence without settling the receipt", { skip: process.platform === "win32" }, async t => {
+  const f = await makeJournal(t, { withApproval: false, harnessId: "codex", nativeSessionId: "native-bad-ack", nativeRunId: "turn-bad-ack" });
+  const { createCodexApprovalBridge } = require("../server/codex-approval-bridge");
+  const bridge = createCodexApprovalBridge({
+    journal: f.journal, sessionId: f.sessionId, runId: "run-1", deviceId: "device-1",
+    threadId: "native-bad-ack", turnId: "turn-bad-ack", incarnationId: "native-inc-bad-ack",
+    idFactory: label => `${label}-bad-ack`,
+    verifyNativeAcknowledgement: async () => ({ kind: "verified", evidence: { kind: "host_commit", reference: "not-native" } }),
+  });
+  bridge.attach({ respondApproval: async () => ({ kind: "written" }) });
+  t.after(() => bridge.close());
+  const request = { requestId: "bad-ack", nativeRequestId: "s:bad-ack", method: "item/commandExecution/requestApproval",
+    threadId: "native-bad-ack", turnId: "turn-bad-ack", itemId: "item-bad-ack", summary: "bad fixture", params: { command: "echo bad" },
+    authority: { sourceAuthenticated: true } };
+  assert.equal((await bridge.observe(request)).kind, "observed");
+  assert.equal((await bridge.resolve("bad-ack", { decision: "denied", scope: "once", commandId: "command-bad-ack", idempotencyKey: "key-bad-ack" })).kind, "written");
+  bridge.onEvent({ type: "approval.resolved", requestId: "bad-ack" });
+  assert.equal((await bridge.acknowledge("bad-ack")).code, "native_ack_unverified");
+  const after = await f.journal.read(f.sessionId);
+  assert.equal(after.state.receipts[0].state, "awaiting_confirmation");
+  assert.equal(after.state.projection.approvals[0].nativeAcknowledgement, null);
+});
+
 test("Codex approval bridge does not resurrect an observe that closes during journal await", { skip: process.platform === "win32" }, async t => {
   const f = await makeJournal(t, { withApproval: false, harnessId: "codex", nativeSessionId: "native-observe-race", nativeRunId: "turn-observe-race" });
   const { createCodexApprovalBridge } = require("../server/codex-approval-bridge");
