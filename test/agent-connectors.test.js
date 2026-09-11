@@ -196,6 +196,40 @@ test("persisted generic replay is bounded and keeps the cursor without approval 
   assert.equal(service.approvals(id).available, false, "a restored task snapshot cannot recreate approval authority");
 });
 
+test("generic SSE exposes restored context before a terminal task closes", async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-agent-replay-sse-"));
+  const id = crypto.randomUUID();
+  const output = { type: "output", taskId: id, stream: "stdout", text: "replayed over SSE\n" };
+  const status = { type: "status", taskId: id, status: "completed" };
+  fs.writeFileSync(path.join(temp, "agent-tasks.json"), JSON.stringify({ version: 1, tasks: [{
+    id, agentId: "claude-code", name: "SSE replay", cwd: temp, status: "completed",
+    startedAt: Date.now() - 1000, endedAt: Date.now(), outputTail: "replayed over SSE\n", eventSeq: 3,
+    eventHistory: [{ seq: 2, event: output }, { seq: 3, event: status }],
+  }] }));
+  const service = createAgentTaskService({ appHome: temp, configDir: temp, env: { PATH: "", HOME: temp } });
+  t.after(async () => {
+    await service.shutdown();
+    fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  const frames = [];
+  const req = { on() {} };
+  const res = {
+    destroyed: false,
+    writeHead() {},
+    flushHeaders() {},
+    write(frame) { frames.push(String(frame)); return true; },
+    end() { this.ended = true; },
+    on() {},
+  };
+  const frame = (event, name, seq) => `${seq === null || seq === undefined ? "" : `id: ${seq}\n`}${name ? `event: ${name}\n` : ""}data: ${JSON.stringify(event)}\n\n`;
+  assert.equal(service.stream(req, res, id, -1, frame), true);
+  assert.equal(res.ended, true);
+  assert.match(frames[0], /"type":"connected"/);
+  assert.ok(frames.some(frame => frame.includes("id: 2") && frame.includes("replayed over SSE")));
+  assert.ok(frames.some(frame => frame.includes("id: 3") && frame.includes('"status":"completed"')));
+});
+
 test("generic connector forwards an explicit approval observation without granting authority", async (t) => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-agent-approval-"));
   const bin = path.join(temp, "bin");
