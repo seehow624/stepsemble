@@ -57,7 +57,9 @@ export async function runConversationBrowserCases(browser) {
       const token = (await fs.readFile(path.join(config, "token"), "utf8")).trim();
       await page.locator("#login-onboarding-skip").click(); await page.locator("#login-token").fill(token); await page.locator("#login-form button").click();
       stage = "session summaries";
-      await page.waitForFunction(() => document.querySelector("#session-count")?.textContent === "126");
+      // The main Sessions list is intentionally cross-agent now: 126 Pi
+      // histories plus the five canonical task rows written above.
+      await page.waitForFunction(() => document.querySelector("#session-count")?.textContent === "131");
       await page.locator("#agent-task-list .agent-task-row").first().waitFor();
       stage = "catalog paging"; await page.locator("#btn-conversations").click();
       const dialog = page.locator("#conversation-catalog"), summary = dialog.locator(".conversation-summary");
