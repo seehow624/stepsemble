@@ -55,8 +55,10 @@ executable/schema，再把結果交給 bridge。
    `awaiting_confirmation`，需另一個獨立、驗證過的 native evidence 才能
    settle。
 4. close、resolved、journal worker uncertain 都不會自動重送。有限 tombstone
-   僅保存 replay 所需的 command intent，不保留原生 request raw params；重試
-   仍會重新走 journal grant/CAS，撤權後會得到 `not_authorized`。
+   保存 replay 所需的 command intent，以及經 transport 既有上限截斷、可供
+   verified-ACK adapter 做 correlation 的 detached request envelope；不保留無界
+   stdout 或額外原始串流。ACK verifier 仍只能由 Host 注入，重試會重新走 journal
+   grant/CAS，撤權後會得到 `not_authorized`。
 
 這個 bridge 沒有替 production HTTP/UI 宣稱 Codex session parity；呼叫端仍須
 提供已驗的 session/run/native mapping、device grant、incarnation 與其他
@@ -96,6 +98,11 @@ cleanupConfirmed。修正不延長產品期限、不跳過案例、不改 native
 
 - 尚未把 bridge 接入 production HTTP/UI 或 Claude/OpenCode/Grok；這裡只交付
   Codex app-server 的 Host-only seam。
+- bridge 的 `acknowledge(requestId, details)` 現在可在 Host verifier 回傳精確
+  `native_ack`／`authoritative_readback` 後，以 `planApprovalAcknowledgement` 原子
+  settle receipt、approval projection 與 event；沒有 verifier 或 evidence shape
+  不符時 fail closed。這仍不是 production proof provider，也不會由
+  `serverRequest/resolved` 自動觸發或自動 resume。
 - `serverRequest/resolved` 沒有 decision evidence；要完成 receipt settlement
   仍需另一路由的原生 readback/attestation，不能以 listener close 猜測成功。
 - `thread/resume` 若回傳未知 turn status 會停在
