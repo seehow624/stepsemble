@@ -135,7 +135,30 @@ export async function runSoak(options, { onReady = () => {} } = {}) {
   process.on("SIGTERM", stopSignal); process.on("SIGINT", stopSignal);
   const api = async (endpoint, body) => {
     const response = await fetch(base + endpoint, { method: body === undefined ? "GET" : "POST", headers: { cookie, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(15_000) });
-    requireCondition(response.ok, `http_${response.status}`); return response.json();
+    const text = await response.text();
+    let parsed = null;
+    try { parsed = text ? JSON.parse(text) : null; } catch {}
+    requireCondition(response.ok, `http_${response.status}${parsed?.error ? `:${String(parsed.error).slice(0, 160)}` : ""}`);
+    return parsed;
+  };
+  const sendTask = async (taskId, message) => {
+    let lastError = null;
+    await until(async () => {
+      try {
+        await api("/api/agent/send", { taskId, message });
+        return true;
+      } catch (error) {
+        lastError = error;
+        // A restarted Host may need a short, bounded named-pipe reconnect.
+        // Retry only the explicit transient responses; terminal or unknown
+        // 409s still fail the soak immediately and remain visible in evidence.
+        if (!/http_409:Agent task (?:is reconnecting|input is unavailable)$/.test(String(error?.message || ""))) throw error;
+        return false;
+      }
+    }, "agent_input_reconnect_timeout", 10_000).catch(error => {
+      if (lastError && error.message === "agent_input_reconnect_timeout") throw lastError;
+      throw error;
+    });
   };
   const startHost = async () => {
     child = spawn(process.execPath, [path.join(temp, "host.cjs")], { cwd: source, env, stdio: ["ignore", "pipe", "pipe", "ipc"] });
@@ -201,7 +224,7 @@ export async function runSoak(options, { onReady = () => {} } = {}) {
         const id = tasks[index], clients = streams[index], identity = identities.get(id);
         await clients[report.cycles % 2].open(base, cookie, id);
         const messageId = crypto.randomUUID(), acknowledgement = `ACK:${messageId}`;
-        await api("/api/agent/send", { taskId: id, message: `SEND ${messageId}` });
+        await sendTask(id, `SEND ${messageId}`);
         await until(async () => {
           const { task } = await api(`/api/agent-task?taskId=${id}`);
           requireCondition(!terminal.has(task.status) && task.pid === identity.pid && task.startedAt === identity.startedAt, "task_identity_lost");

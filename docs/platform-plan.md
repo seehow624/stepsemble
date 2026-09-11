@@ -1,15 +1,22 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.99（Windows journal startup fallback／capability-aware ACK contract；native parity 仍分開驗收）
+> 計畫版本：2.00（cross-platform soak／reserved-port CI stability；native parity 仍分開驗收）
 > 最後更新：2026-09-11
-> 當前產品基線：Stepsemble 3.0.10（由 Pi Harbor 2.13.2 相容遷移）
-> Mini／MacBook Pro 啟用版本：3.0.10／source `待本版 tag`（本次完成後由 stable updater 取得）
+> 當前產品基線：Stepsemble 3.0.11（由 Pi Harbor 2.13.2 相容遷移）
+> Mini／MacBook Pro 啟用版本：3.0.11／source `待本版 tag`（本次完成後由 stable updater 取得）
 > MBP 於 2026-09-10 上線後由既有 updater 自行完成 3.0.7→3.0.8，未經人工介入
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
 ## 文件用途與回復方法
+
+**目前任務2.00（2026-09-11，3.0.10 cross-platform CI hotfix）**：Windows runner 的兩個
+失敗不是產品能力缺口：access-token test 可能隨機撞到 Windows 保留的 3389，soak test 則在
+Host restart 後立即送 input，撞上 supervisor 合法的 bounded reconnect window。3.0.11 改成
+向 kernel 取得 loopback port，並只對明確的 `Agent task is reconnecting`／`input is unavailable`
+做最多 10 秒的 retry；terminal 或未知 409 仍立即失敗。這讓 CI 驗證真實的重啟能力，而不是把
+平台保留埠或短暫重連誤報成產品失敗。
 
 **目前任務1.99（2026-09-11，3.0.9 Windows CI hotfix）**：Windows journal worker 的 ACL
 啟動現在使用固定 `SystemRoot` 下的 `whoami.exe`／Windows PowerShell、typed .NET ACL
@@ -36,7 +43,7 @@ Host，已認證的 dedicated peer relay 透過 `/r/<machineId>/api/agent-events
 的 cursor history。公開 DTO 帶 `hostId`、`journalScope=host-local` 與
 `journalTransport=local+dedicated-peer-relay`，讓 Web 不會把跨機讀取誤畫成共享資料庫。
 
-本版正式目標為 3.0.10。外部 CLI 未提供 Stepsemble ACK、原生完整 transcript 或 subagent
+本版正式目標為 3.0.11。外部 CLI 未提供 Stepsemble ACK、原生完整 transcript 或 subagent
 API 的情況仍是 capability boundary，不能由 Stepsemble 偽造；這是安全的明確限制，不是
 未處理的 silent failure。
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.0.11
+
+Cross-platform CI stability hotfix for 3.0.10.
+
+- Make the isolated soak tolerate only the bounded supervisor reconnect window
+  after a Host restart; terminal and unknown 409 responses still fail loudly.
+- Make the access-token integration test reserve a kernel-selected loopback
+  port so Windows system-reserved ports cannot cause false failures.
+
+Validation and platform-specific evidence are recorded in
+[`docs/release-3.0.11.md`](docs/release-3.0.11.md).
+
 ## 3.0.10
 
 Windows durability and startup-fallback hotfix for 3.0.9.

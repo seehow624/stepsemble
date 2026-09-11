@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const http = require("node:http");
+const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
@@ -33,11 +34,25 @@ function request(port, pathname, { method = "GET", cookie = "", body } = {}) {
   });
 }
 
+async function freeLoopbackPort() {
+  const probe = net.createServer();
+  await new Promise((resolve, reject) => {
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", resolve);
+  });
+  const port = probe.address().port;
+  await new Promise((resolve, reject) => probe.close(error => error ? reject(error) : resolve()));
+  return port;
+}
+
 test("per-device access tokens: issue, sign in, revoke, and master stays valid", async (t) => {
   const temp = await fs.promises.mkdtemp(path.join(os.tmpdir(), "stepsemble-tokens-"));
   const home = path.join(temp, "home");
   await fs.promises.mkdir(home, { recursive: true });
-  const port = 3231 + Math.floor(Math.random() * 200);
+  // A fixed/random high port can be reserved by Windows system services
+  // (notably 3389 on hosted runners). Ask the kernel for a loopback port
+  // instead, then launch the isolated Host immediately.
+  const port = await freeLoopbackPort();
   const child = spawn(process.execPath, [path.join(root, "server.js")], {
     cwd: root,
     env: {

@@ -1,5 +1,10 @@
 # Web 完整體：持續執行與驗收清單
 
+2026-09-11／Plan2.00：3.0.10 Windows runner 的失敗已拆解為保留埠與 Host restart 的
+bounded supervisor reconnect timing。3.0.11 的 access-token test 使用 kernel-selected loopback
+port；soak 的 send 只在明確 transient reconnect response 時重試 10 秒，unknown／terminal
+409 仍 fail closed。本地完整 suite 1246 pass／2 skip／0 fail，protocol conformance 1251 cases。
+
 2026-09-11／Plan1.99：3.0.9 的 Windows runner 發現 journal ACL 初始化失敗時，原本 worker
 readiness 會讓 task open 收到 `journal_result_uncertain`。3.0.10 已將 Windows ACL 改為
 固定 executable + typed constructor + WAL/SHM inheritance，並讓 readiness 失敗真正降級為
