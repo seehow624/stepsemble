@@ -7,6 +7,7 @@ const { normalizeGroupSource } = require("./history-source-index");
 const { isReaderAdmission } = require("../claude/history-reader-admission");
 const wire = require("./parser-wire"), sql = require("./sqlite-wire").context;
 const checkpointWire = require("./checkpoint-wire");
+const paginatedResolutionWire = require("./paginated-resolution-wire");
 const historyWire = require("./source-wire");
 const publicWire = require("../../../public/modules/codex-history-records");
 const LIMITS = Object.freeze({ bindings: 64, groups: 8, sourceBytes: 64 * 1024, responseBytes: 384 * 1024, pageRecords: 50, records: 8192 });
@@ -64,9 +65,9 @@ function createCodexSourceService(options = {}) {
     const previous = bindings.get(value.bindingId);
     if (previous && (!previous.revoked || previous.flight || value.generation <= previous.generation)) return unavailable("source_binding_conflict");
     if (!previous && bindings.size >= LIMITS.bindings) return unavailable("source_binding_limit");
-    const state = { generation: value.generation, revoked: false, flight: null, version: null };
+    const state = { generation: value.generation, revoked: false, flight: null, version: null, resolutionVersion: null };
     bindings.set(value.bindingId, state);
-    const revoke = () => { state.revoked = true; state.version = null; state.flight?.controller.abort(); };
+    const revoke = () => { state.revoked = true; state.version = null; state.resolutionVersion = null; state.flight?.controller.abort(); };
     async function read(input, options, metadata) {
       const status = sweep();
       if (!sql.own(options, ["signal", "version", ...(metadata ? [] : ["page", "structured", "profile"])])
@@ -200,9 +201,69 @@ function createCodexSourceService(options = {}) {
         options.signal?.removeEventListener("abort", abort); finish();
       }
     }
+    async function resolvePaginated(input, options = {}) {
+      const status = sweep();
+      if (!sql.own(options, ["signal", "version"])) return unavailable("invalid_history_options");
+      const request = paginatedResolutionWire.detach(input, paginatedResolutionWire.LIMITS.inputBytes);
+      if (!paginatedResolutionWire.selection({ selectedRolloutId: request?.selectedRolloutId, entries: request?.entries })) return unavailable("invalid_history_request");
+      if (source.historyMode !== "paginated") return unavailable("native_paginated_history_unsupported");
+      if (options.signal !== undefined && !(options.signal instanceof AbortSignal)) return unavailable("invalid_source_signal");
+      if (options.version !== undefined && !paginatedResolutionWire.validVersion(options.version)) return unavailable("invalid_history_version");
+      if (closed || status.closed) return unavailable("source_service_closed");
+      if (status.quarantined) return unavailable("source_service_quarantined");
+      if (state.revoked || bindings.get(value.bindingId) !== state) return unavailable("source_binding_revoked");
+      if (options.signal?.aborted) return unavailable("source_aborted");
+      if (state.flight) return unavailable("source_busy");
+      if (options.version !== undefined && (!state.resolutionVersion || !paginatedResolutionWire.sameSourceVersion(state.resolutionVersion, options.version)))
+        return unavailable("source_version_unavailable");
+      const head = paginatedResolutionWire.locatorInfo(source.history.source.rolloutPath);
+      if (!head || head.physicalRolloutId !== request.selectedRolloutId || request.entries[0].rolloutPath !== source.history.source.rolloutPath)
+        return unavailable("source_binding_mismatch");
+      const nativeRequest = { nativeVersion: source.history.nativeVersion, codexRoot: source.history.source.codexRoot,
+        expectedRoot: source.history.expectedRoot, threadId: source.sessionId, selectedRolloutId: request.selectedRolloutId, entries: request.entries };
+      if (!paginatedResolutionWire.input(nativeRequest)) return unavailable("invalid_history_request");
+      let finish;
+      const controller = new AbortController(), current = { controller, unknown: false, done: new Promise(resolve => { finish = resolve; }) };
+      state.flight = current;
+      const abort = () => controller.abort(); options.signal?.addEventListener("abort", abort, { once: true });
+      try {
+        const result = await pipeline.readPaginatedResolution(nativeRequest, { ...(options.version === undefined ? {} : { expectedVersion: options.version }), signal: controller.signal });
+        const pipelineStatus = pipeline.status();
+        if (result?.code === "source_cleanup_unconfirmed" || pipelineStatus.quarantined && !pipelineStatus.cleanupConfirmed) {
+          current.unknown = true; return unavailable("source_cleanup_unconfirmed");
+        }
+        if (closed || pipelineStatus.closed) return unavailable("source_service_closed");
+        if (state.revoked || bindings.get(value.bindingId) !== state) return unavailable("source_binding_revoked");
+        if (controller.signal.aborted) return unavailable("source_aborted");
+        if (pipelineStatus.quarantined) return unavailable("source_service_quarantined");
+        if (result.kind === "source_unavailable") return result;
+        if (result.kind !== "codex_paginated_resolution_capture" || result.cleanupConfirmed !== true
+          || !paginatedResolutionWire.validVersion(result.source) || result.source.threadId !== source.sessionId
+          || result.source.selectedRolloutId !== request.selectedRolloutId
+          || result.source.rootIdentity.device !== source.history.expectedRoot.device
+          || result.source.rootIdentity.inode !== source.history.expectedRoot.inode
+          || result.consistency !== "single_codex_paginated_resolution_observation"
+          || result.historyComplete !== false || result.sourceAuthenticated !== false || result.publishable !== false)
+          return unavailable("source_worker_protocol");
+        const output = paginatedResolutionWire.detach({ kind: "bound_codex_paginated_resolution", bindingId: value.bindingId,
+          generation: value.generation, requestId: request.requestId, selectedRolloutId: request.selectedRolloutId,
+          sourceVersion: structuredClone(result.source), plan: structuredClone(result.plan), resolution: structuredClone(result.resolution),
+          consistency: result.consistency, historyComplete: false, sourceAuthenticated: false, publishable: false, cleanupConfirmed: true }, LIMITS.responseBytes);
+        if (!output || !paginatedResolutionWire.validBoundResolution(output, source.sessionId,
+          { bindingId: value.bindingId, generation: value.generation, requestId: request.requestId })) return unavailable("source_worker_protocol");
+        state.resolutionVersion = structuredClone(result.source);
+        return output;
+      } catch {
+        if (!pipeline.status().cleanupConfirmed) { current.unknown = true; admission.quarantine(); return unavailable("source_cleanup_unconfirmed"); }
+        return unavailable("source_worker_failure");
+      } finally {
+        if (state.flight === current && !current.unknown) state.flight = null;
+        options.signal?.removeEventListener("abort", abort); finish();
+      }
+    }
     return Object.freeze({ kind: "bound_source", descriptor: Object.freeze({ bindingId: value.bindingId, generation: value.generation, sessionId: source.sessionId }),
       observe: (input, options = {}) => read(input, options, false), metadata: (input, options = {}) => read(input, options, true),
-      checkpoint: (input, options = {}) => checkpoint(input, options), revoke,
+      checkpoint: (input, options = {}) => checkpoint(input, options), resolvePaginated: (input, options = {}) => resolvePaginated(input, options), revoke,
       status: () => { sweep(); return Object.freeze({ revoked: state.revoked, activeWorker: state.flight !== null, cleanupConfirmed: state.flight === null }); } });
   }
   function shutdown() {

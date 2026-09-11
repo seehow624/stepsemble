@@ -4,7 +4,8 @@
 const crypto = require("node:crypto"), path = require("node:path");
 const { normalizeSourceInput } = require("./history-source");
 const { LIMITS, detach, keys, uuid, validPage } = require("./history-worker-wire");
-const REGISTRY_LIMITS = Object.freeze({ slots: LIMITS.bindings, catalog: 256, leaseMs: 60000, maxLeaseMs: 86400000 });
+const paginatedResolutionWire = require("../codex/paginated-resolution-wire");
+const REGISTRY_LIMITS = Object.freeze({ slots: LIMITS.bindings, catalog: 256, leaseMs: 60000, maxLeaseMs: 86400000, paginatedResolutionBytes: 16 * 1024 * 1024 });
 const REGISTRY_CODES = Object.freeze(["invalid_history_registration", "invalid_history_request", "invalid_history_release",
   "invalid_source_signal", "history_principal_unavailable", "history_source_unavailable", "history_binding_unavailable",
   "history_view_conflict", "history_capacity_unavailable", "history_registry_closed", "history_registry_unavailable"]);
@@ -26,12 +27,14 @@ function normalizeRegistrySource(input) {
  */
 function createHistoryRegistry({ sourceService, catalog, authorize, principalActive, resolveSource,
   normalizeSource = normalizeRegistrySource, validReadPage = validPage, privateSourceBytes = LIMITS.inputBytes,
+  paginatedResolutionBytes = REGISTRY_LIMITS.paginatedResolutionBytes,
   maxSlots = REGISTRY_LIMITS.slots, leaseMs = REGISTRY_LIMITS.leaseMs, now = Date.now } = {}) {
   if (!sourceService || !["bind", "status", "shutdown"].every(k => typeof sourceService[k] === "function")
     || typeof authorize !== "function" || typeof principalActive !== "function" || typeof now !== "function"
     || resolveSource !== undefined && typeof resolveSource !== "function"
     || typeof normalizeSource !== "function" || typeof validReadPage !== "function"
     || !Number.isSafeInteger(privateSourceBytes) || privateSourceBytes < LIMITS.inputBytes || privateSourceBytes > 64 * 1024
+    || !Number.isSafeInteger(paginatedResolutionBytes) || paginatedResolutionBytes < privateSourceBytes || paginatedResolutionBytes > REGISTRY_LIMITS.paginatedResolutionBytes
     || !Number.isSafeInteger(maxSlots) || maxSlots < 1 || maxSlots > REGISTRY_LIMITS.slots
     || !Number.isSafeInteger(leaseMs) || leaseMs < 1 || leaseMs > REGISTRY_LIMITS.maxLeaseMs)
     throw new TypeError("invalid_history_registry_options");
@@ -256,6 +259,34 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
     if (!live || live !== slot || live.row !== row || !row.active) return unavailable(serviceFailure() || "history_binding_unavailable");
     return result;
   }
+  async function resolvePaginated(principal, input, options = {}) {
+    const request = detach(input, paginatedResolutionBytes);
+    if (!keys(request, ["bindingId", "generation", "viewId", "requestId", "selectedRolloutId", "entries", ...(request?.version === undefined ? [] : ["version"])])
+      || !identity(request) || !uuid(request.requestId)
+      || !paginatedResolutionWire.selection({ selectedRolloutId: request.selectedRolloutId, entries: request.entries })
+      || request.version !== undefined && !paginatedResolutionWire.validVersion(request.version)) return unavailable("invalid_history_request");
+    if (!options || ![Object.prototype, null].includes(Object.getPrototypeOf(options)) || Object.getOwnPropertySymbols(options).length
+      || Object.entries(Object.getOwnPropertyDescriptors(options)).some(([key, d]) => key !== "signal" || !Object.hasOwn(d, "value"))
+      || options.signal !== undefined && !(options.signal instanceof AbortSignal)) return unavailable("invalid_source_signal");
+    const slot = owned(principal, request);
+    if (!slot) return unavailable(serviceFailure() || "history_binding_unavailable");
+    const row = slot.row, handle = slot.handle;
+    if (row.agentId !== "codex" || typeof handle.resolvePaginated !== "function") return unavailable("native_paginated_history_unsupported");
+    row.claimed = true; row.receipt = null;
+    let result;
+    try {
+      result = await handle.resolvePaginated({ bindingId: request.bindingId, generation: request.generation, requestId: request.requestId,
+        selectedRolloutId: request.selectedRolloutId, entries: request.entries }, { ...(request.version === undefined ? {} : { version: request.version }), signal: options.signal });
+    } catch {
+      if (slot.row === row) retire(slot);
+      schedule(); return unavailable("history_registry_unavailable");
+    }
+    const live = owned(principal, request);
+    if (result?.code === "source_cleanup_unconfirmed") return result;
+    if (options.signal?.aborted) return unavailable("source_aborted");
+    if (!live || live !== slot || live.row !== row || !row.active) return unavailable(serviceFailure() || "history_binding_unavailable");
+    return result;
+  }
   function release(principal, input) {
     const request = detach(input);
     if (!keys(request, ["bindingId", "generation", "viewId"]) || !identity(request)) return unavailable("invalid_history_release");
@@ -304,7 +335,7 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
   }
   return Object.freeze({ register, observe: (principal, request, options = {}) => read(principal, request, options, false),
     metadata: (principal, request, options = {}) => read(principal, request, options, true),
-    checkpoint,
+    checkpoint, resolvePaginated,
     release, cancelRegistration, current, revokePrincipal, revokeSource, sweep, status, shutdown });
 }
 module.exports = { createHistoryRegistry, normalizeRegistrySource, REGISTRY_LIMITS, REGISTRY_CODES };

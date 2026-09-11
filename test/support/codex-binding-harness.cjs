@@ -4,6 +4,7 @@ const { createCodexSourceService } = require("../../protocol/native/codex/histor
 const { createReaderAdmission } = require("../../protocol/native/claude/history-reader-admission");
 const wire = require("../../protocol/native/codex/parser-wire"), { processJob } = require("../../protocol/native/codex/parser-worker");
 const checkpointWire = require("../../protocol/native/codex/checkpoint-wire");
+const paginatedResolutionWire = require("../../protocol/native/codex/paginated-resolution-wire");
 const f = require("../../protocol/native/codex/parser-fixture.cjs");
 const compressedFixture = require("../../protocol/native/codex/compressed-page-parser-fixture.cjs");
 const tick = () => new Promise(resolve => setImmediate(resolve)), unavailable = code => ({ kind: "source_unavailable", code });
@@ -54,6 +55,24 @@ function harness(t, config = {}) {
         const promise = new Promise(resolve => { h.finish = (value = result, close = true) => { if (close) h.close(); resolve(value); }; });
         signal.addEventListener("abort", () => { if (!config.holdReader) h.finish(unavailable("source_aborted")); }, { once: true });
         if (config.auto && !config.holdReader) queueMicrotask(() => h.finish());
+        return promise;
+      };
+      h.readCodexPaginatedResolution = (input, { signal }) => {
+        assert.equal(h.active, false); add(); h.active = true; stages.push("readCodexPaginatedResolution");
+        const entry = input.entries[0], bytes = Buffer.from(entry.base64Record, "base64");
+        const source = { rolloutId: entry.rolloutId, rolloutPath: entry.rolloutPath, compressed: entry.rolloutPath.endsWith(".zst"),
+          archived: entry.rolloutPath.startsWith("archived_sessions/"), endOrdinalExclusive: null, endByteOffset: null };
+        const plan = { profile: "codex_paginated_chain_plan_v1", threadId: input.threadId, sources: [source], reachedRoot: true,
+          chainByteBudget: 256 * 1024 * 1024, chainDecodedByteBudget: 256 * 1024 * 1024, sourceAuthenticated: false, historyComplete: false };
+        const result = { kind: "native_codex_paginated_resolution", nativeVersion: paginatedResolutionWire.VERSION, threadId: input.threadId,
+          expectedRoot: structuredClone(input.expectedRoot), plan, resolution: { profile: "codex_paginated_resolution_v1", threadId: input.threadId,
+            sources: [{ ...source, decodedBytes: String(Math.max(bytes.length, 1)), storedBytes: String(Math.max(bytes.length, 1)), recordCount: 1 }],
+            chainStoredBytes: String(Math.max(bytes.length, 1)), chainDecodedBytes: String(Math.max(bytes.length, 1)), ordinalCutoffsVerified: true,
+            reachedRoot: true, sourceAuthenticated: false, historyComplete: false }, sourceAuthenticated: false, publishable: false, historyComplete: false,
+          cleanupConfirmed: true };
+        const promise = new Promise(resolve => { h.finish = (value = result, close = true) => { if (close) h.close(); resolve(value); }; });
+        signal.addEventListener("abort", () => { if (!config.holdReader) h.finish(unavailable("source_aborted")); }, { once: true });
+        if (config.auto && !config.holdReader) queueMicrotask(() => h.finish(config.paginatedCapture?.(input) ?? result));
         return promise;
       };
       h.shutdown = async () => ({ cleanupConfirmed: !h.active }); helpers.push(h); return h;

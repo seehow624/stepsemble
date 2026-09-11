@@ -1,7 +1,7 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：1.89（C2 checkpoint observation 已接 Host／Web；paginated protocol 15 已接 native helper／pipeline；完整 C2／C3 仍待）
+> 計畫版本：1.90（C2 paginated resolution 已接 owned Host／registry／HTTP／typed transport；durable C2／C3 仍待）
 > 最後更新：2026-09-11
 > 當前產品基線：Stepsemble 3.0.8（由 Pi Harbor 2.13.2 相容遷移）
 > Mini／MacBook Pro 啟用版本：3.0.8／source `3bae06c`（2026-09-09 公開 stable release）
@@ -11,7 +11,25 @@
 
 ## 文件用途與回復方法
 
-**目前任務1.89（2026-09-11，Jerome 要求 C2／C3 全部做好）**：本輪先把可安全交付的
+**目前任務1.90（2026-09-11，Jerome 要求 C2／C3 全部做好）**：在 1.89 的 native
+protocol 15 helper／pipeline 之上，已把 Codex paginated resolution 接到 owned source
+service、binding generation、registry、HTTP route 與 typed browser transport。請求只接受
+已由同一個 binding 擁有的 first metadata records／relative locators，Host 重新核對
+selected head、root identity、thread、native version 與 expected-version；每次仍沿用
+single admission、AbortSignal、actual close、quarantine，回傳是 detached
+`bound_codex_paginated_resolution` observation。HTTP route 使用獨立 16 MiB／8192-chunk
+request budget，不放寬普通 history route；registry／client 也維持 exact key、generation、
+requestId、false flags 與 fail-closed response validation。focused 新增 service／registry／
+HTTP／transport 測試；完整 Node suite 為 1225 pass／2 skip／0 fail，client build/check
+通過。
+
+這仍不是完整 C2／C3：目前沒有自動從 source catalog 發現 ancestry chain，沒有把
+`codex_paginated_consistency::assemble()` 的 durable LF evidence 與 SQLite projection
+checkpoint 組成同一 admission 的 cross-store observation，也沒有 transcript、resume、
+approval ACK／decision、journal replay 或其他 agent parity；UI 仍不會把它畫成完整對話。
+Windows 私有來源仍 unsupported，正式 3.0.8、訂閱帳號、登入憑證與兩台服務未動。
+
+**前一任務1.89（2026-09-11，Jerome 要求 C2／C3 全部做好）**：本輪先把可安全交付的
 Codex paginated projection checkpoint 從 Rust 底層接到 Node pipeline、owned source
 service、registry、HTTP、typed browser transport 與 Codex 歷史畫面。protocol 16 使用固定
 `thread_history_1.sqlite`，在專用程序內持有 DB/WAL/SHM descriptor，實際 close 後才
@@ -25,7 +43,7 @@ checkpoint（項目數、回合數與下一個 rollout cursor），不會把它�
 
 本輪另把既有 Rust protocol 15 paginated ancestry/resolution 接入 native helper 與共享
 reader pipeline，新增 strict detached wire、8 個 focused Node tests 與 expected-version
-fence。它目前是 Host-private observation：上游需提供已驗證的 first metadata records／
+fence。它當時是 Host-private observation：上游需提供已驗證的 first metadata records／
 relative locators，尚未接 source service／registry／HTTP／Web，也尚未呼叫
 `codex_paginated_consistency::assemble()` 的 durable LF＋SQLite cross-store consistency；
 Windows 仍明確 unsupported。這個增量不代表 C2 或 C3 完整完成。

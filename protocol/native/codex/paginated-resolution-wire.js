@@ -78,14 +78,26 @@ function canonicalBase64(value) {
   return bytes.length >= 1 && bytes.length <= LIMITS.recordBytes && bytes.toString("base64") === value;
 }
 
-function entry(value, index, threadId) {
+function entry(value, index, threadId = null) {
   if (!keys(value, ["rolloutId", "base64Record", "rolloutPath"]) || !uuid(value.rolloutId)
     || !canonicalBase64(value.base64Record)) return false;
   const info = locatorInfo(value.rolloutPath);
   if (!info || info.physicalRolloutId !== value.rolloutId) return false;
   // The selected head is named by the stable thread ID. Ancestors carry their
   // own stable prefix (which may differ after a revert).
-  return index !== 0 || info.stableThreadId === threadId;
+  return index !== 0 || threadId === null || info.stableThreadId === threadId;
+}
+
+// The registry/service accepts this smaller selection envelope and supplies
+// the already-authorized root identity and native version. It is intentionally
+// not a filesystem or source-grant DTO.
+function selection(value) {
+  return keys(value, ["selectedRolloutId", "entries"]) && uuid(value.selectedRolloutId)
+    && Array.isArray(value.entries) && value.entries.length >= 1 && value.entries.length <= MAX_DEPTH
+    && value.selectedRolloutId === value.entries[0]?.rolloutId
+    && value.entries.every((item, index) => entry(item, index))
+    && new Set(value.entries.map(item => item.rolloutId)).size === value.entries.length
+    && new Set(value.entries.map(item => item.rolloutPath)).size === value.entries.length;
 }
 
 function input(value) {
@@ -98,8 +110,7 @@ function input(value) {
     || value.entries.length < 1 || value.entries.length > MAX_DEPTH
     || value.selectedRolloutId !== value.entries[0]?.rolloutId
     || !value.entries.every((item, index) => entry(item, index, value.threadId))
-    || new Set(value.entries.map(item => item.rolloutId)).size !== value.entries.length
-    || new Set(value.entries.map(item => item.rolloutPath)).size !== value.entries.length) return false;
+    || !selection({ selectedRolloutId: value.selectedRolloutId, entries: value.entries })) return false;
   return true;
 }
 
@@ -210,8 +221,22 @@ function sameSourceVersion(expected, actual) {
   return validVersion(a) && validVersion(b) && canonicalJSON(a) === canonicalJSON(b);
 }
 
+function validBoundResolution(value, sessionId, scope = {}) {
+  if (!keys(value, ["kind", "bindingId", "generation", "requestId", "selectedRolloutId", "sourceVersion", "plan", "resolution",
+    "consistency", "historyComplete", "sourceAuthenticated", "publishable", "cleanupConfirmed"])) return false;
+  return value.kind === "bound_codex_paginated_resolution" && uuid(value.bindingId) && count(value.generation, Number.MAX_SAFE_INTEGER, 1)
+    && uuid(value.requestId) && (scope.bindingId === undefined || value.bindingId === scope.bindingId)
+    && (scope.generation === undefined || value.generation === scope.generation)
+    && (scope.requestId === undefined || value.requestId === scope.requestId)
+    && uuid(sessionId) && uuid(value.selectedRolloutId) && validVersion(value.sourceVersion)
+    && value.sourceVersion.threadId === sessionId && value.sourceVersion.selectedRolloutId === value.selectedRolloutId
+    && planShape(value.plan, sessionId, value.selectedRolloutId) && resolutionShape(value.resolution, value.plan)
+    && value.consistency === "single_codex_paginated_resolution_observation" && value.historyComplete === false
+    && value.sourceAuthenticated === false && value.publishable === false && value.cleanupConfirmed === true;
+}
+
 module.exports = Object.freeze({ VERSION, PROTOCOL_VERSION, LIMITS, keys, detach, input, locatorInfo,
-  decode, capture, sourceVersion, sameSourceVersion, validVersion, validResolution: value => {
+  selection, decode, capture, sourceVersion, sameSourceVersion, validVersion, validBoundResolution, validResolution: value => {
     const detached = detach(value);
     if (!detached || detached.cleanupConfirmed !== true) return false;
     const { cleanupConfirmed, ...headerValue } = detached;

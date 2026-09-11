@@ -1,5 +1,26 @@
 # Codex paginated：選定列、投影檢查點與 durable 前綴一致性
 
+## 接續 1.90：resolution 接入 owned Host／registry／HTTP／typed transport
+
+1.89 的 protocol 15 native helper／pipeline 現在已由
+`protocol/native/codex/history-source-service.js` 的 paginated binding 接住，並穿過
+`protocol/native/claude/history-registry.js`、`server/history-http.js` 與
+`client/history-transport.ts`。每一層只接受 detached、exact-key 的 selection envelope：
+selected head 必須是 binding catalog 已授權的 head，第一筆 locator 必須與 source catalog
+相同；root identity、stable thread、native version、generation、request ID 與 expected
+version 都會重新核對。成功結果固定為
+`bound_codex_paginated_resolution`，仍標示 `historyComplete:false`、
+`sourceAuthenticated:false`、`publishable:false`，並在實際 close 後才釋放 admission。
+
+HTTP 的 `/api/history/paginated-resolution` 有獨立 16 MiB／8192 chunks body budget；普通
+history request 仍維持原本的小界線。這個接線不會自行掃描 HOME、不暴露來源絕對路徑，也
+不改動官方登入或訂閱帳號。Browser transport 的大 request budget 只服務已授權的 metadata
+selection，response 仍受既有 bounded reader 限制。
+
+驗證：focused service／registry／HTTP／transport 及 protocol 15 tests 34/34 通過；
+`npm run build:client`、`npm run check:client` 與完整 Node suite 1225 pass／2 skip／0 fail
+通過。這仍是 observation 接線，不是 transcript、resume、approval 或完整 C2。
+
 ## 接續 1.89：protocol 15 native helper／pipeline 邊界
 
 本輪已把既有 Rust `codex_paginated` protocol 15 接到
@@ -13,7 +34,7 @@ AbortSignal、actual child close、quarantine 與 expected-version fence，輸�
 `codex_paginated_resolution_capture` observation，不是 transcript、resume、
 approval 或授權。
 
-這個增量只到 Host-private native pipeline：它要求上游已持有並驗證每個 first
+這個增量當時只到 Host-private native pipeline：它要求上游已持有並驗證每個 first
 metadata record 與 repository-relative locator，**不**自行掃描 HOME、不暴露任意
 檔案路徑、不接 HTTP／registry／Web，也尚未把下方 `codex_paginated_consistency::assemble()`
 的 durable LF 與 SQLite projection checkpoint 組合進來。Windows 仍明確
@@ -120,12 +141,13 @@ cargo +1.97.1 test --manifest-path crates/history-source-reader/Cargo.toml --loc
 
 ## 仍待
 
-下一步要在一個受控 reader admission 內：先從已認證 state row 取得 selected
+下一步（1.90 之後）仍要在一個受控 reader admission 內：先從已認證 state row 取得 selected
 head，逐一透過既有 opener 產生每段真正的 complete-LF ordinal/offset evidence，
 再從同一個 owned `thread_history_1.sqlite` snapshot 讀 head physical projection
 checkpoint，最後呼叫本 assembly。仍須補來源與兩個 DB 的共同 snapshot／identity
 fence、projection materialization 進度與 ancestor rows 的產品語意、source-version
-及 created-ordinal cursor、permissioned parser→service→registry／HTTP／peer／
-typed Web；任何缺檔、版面變更、身份變更、lagging、out-of-range 或 partial tail
+及 created-ordinal cursor、source catalog 的 ancestry discovery、UI projection、
+journal／approval／resume 事件，以及其他 agent adapter；任何缺檔、版面變更、身份變更、
+lagging、out-of-range 或 partial tail
 都應維持明確 unavailable，不回部分或空歷史。Windows 私有來源仍
 unsupported。

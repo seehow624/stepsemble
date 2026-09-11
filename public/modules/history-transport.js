@@ -7,7 +7,8 @@
 var StepsembleHistoryTransport;
 (function (StepsembleHistoryTransport) {
     const codexRecords = typeof module !== "undefined" ? require("./codex-history-records") : StepsembleCodexHistoryRecords;
-    StepsembleHistoryTransport.LIMITS = Object.freeze({ responseBytes: 384 * 1024, claudeResponseBytes: 272 * 1024, requestBytes: 4096, timeoutMs: 15000 });
+    StepsembleHistoryTransport.LIMITS = Object.freeze({ responseBytes: 384 * 1024, claudeResponseBytes: 272 * 1024, requestBytes: 4096,
+        paginatedResolutionRequestBytes: 16 * 1024 * 1024, timeoutMs: 15000 });
     class TransportError extends Error {
         code;
         constructor(code) {
@@ -42,6 +43,14 @@ var StepsembleHistoryTransport;
         "rollout_compression_limit", "rollout_compression_invalid", "rollout_compression_unsupported",
         "rollout_structure_invalid", "rollout_structure_page_limit",
         "rollout_invalid_utf8", "rollout_invalid_record", "rollout_selected_thread_mismatch", "rollout_invalid_metadata",
+        "paginated_invalid_utf8", "paginated_invalid_record", "paginated_invalid_metadata", "paginated_selected_thread_mismatch",
+        "paginated_history_mode_unsupported", "paginated_invalid_history_base", "paginated_invalid_ordinal", "paginated_chain_cycle",
+        "paginated_chain_too_deep", "paginated_chain_mismatch", "paginated_record_limit", "paginated_chain_locator_mismatch",
+        "paginated_chain_duplicate_locator", "paginated_chain_non_monotonic_cutoff", "paginated_chain_selected_mismatch",
+        "paginated_chain_bytes_exceeded", "paginated_chain_decoded_bytes_exceeded", "paginated_chain_incomplete",
+        "paginated_resolution_plan_mismatch", "paginated_resolution_bytes_exceeded", "paginated_resolution_decoded_bytes_exceeded",
+        "paginated_resolution_cutoff_outside_source", "paginated_resolution_cutoff_unverified", "paginated_resolution_invalid_cutoff",
+        "paginated_resolution_incomplete", "paginated_resolution_empty_source", "paginated_rollout_ordinal_invalid",
         "name_resolution_rollout_mismatch", "name_resolution_missing_row_unsupported", "name_resolution_index_unavailable",
         "source_service_closed", "source_binding_revoked", "source_binding_mismatch", "source_sdk_unavailable"]);
     const pageValid = (v) => keys(v, ["offset", "limit"]) && Number.isSafeInteger(v.offset)
@@ -110,6 +119,73 @@ var StepsembleHistoryTransport;
             && value.publishable === false && value.cleanupConfirmed === true;
     }
     StepsembleHistoryTransport.validBoundCheckpoint = validBoundCheckpoint;
+    const paginatedLocator = (value) => {
+        if (typeof value !== "string" || value.length === 0 || value.length > 160)
+            return null;
+        const parts = value.split("/"), file = parts.length === 5 && parts[0] === "sessions" ? parts[4] : parts.length === 2 && parts[0] === "archived_sessions" ? parts[1] : null;
+        const match = file && /^rollout-(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-([a-f0-9-]{36})(?:_([a-f0-9-]{36}))?\.jsonl(?:\.zst)?$/.exec(file);
+        if (!match)
+            return null;
+        const year = Number(match[1]), month = Number(match[2]), day = Number(match[3]), leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0), days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+        if (!days || day < 1 || day > days || Number(match[4]) >= 24 || Number(match[5]) >= 60 || Number(match[6]) >= 60
+            || parts.length === 5 && (parts[1] !== match[1] || parts[2] !== match[2] || parts[3] !== match[3]))
+            return null;
+        return { physicalRolloutId: match[8] ?? match[7] };
+    };
+    const paginatedEntry = (value) => {
+        const v = value, locator = paginatedLocator(v?.rolloutPath);
+        return keys(v, ["rolloutId", "base64Record", "rolloutPath"]) && sourceUuid(v.rolloutId) && locator?.physicalRolloutId === v.rolloutId
+            && typeof v.base64Record === "string" && v.base64Record.length > 0 && v.base64Record.length <= 4 * Math.ceil(128 * 1024 / 3)
+            && v.base64Record.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(v.base64Record);
+    };
+    const paginatedSelection = (value) => {
+        const v = value;
+        const entries = Array.isArray(v.entries) ? v.entries : null;
+        return keys(v, ["selectedRolloutId", "entries"]) && sourceUuid(v.selectedRolloutId) && entries !== null && entries.length > 0 && entries.length <= 64
+            && v.selectedRolloutId === entries[0]?.rolloutId && entries.every(paginatedEntry)
+            && new Set(entries.map((entry) => entry.rolloutId)).size === entries.length && new Set(entries.map((entry) => entry.rolloutPath)).size === entries.length;
+    };
+    const paginatedSourceVersionValid = (value, sessionId) => {
+        if (!keys(value, ["kind", "nativeVersion", "threadId", "rootIdentity", "selectedRolloutId", "planSha256", "resolutionSha256", "sourceCount", "reachedRoot"]))
+            return false;
+        const v = value;
+        return v.kind === "codex_paginated_resolution_version" && v.nativeVersion === "0.153.4" && v.threadId === sessionId && sourceUuid(v.threadId)
+            && sourceUuid(v.selectedRolloutId) && rootIdentityValid(v.rootIdentity) && hash(v.planSha256) && hash(v.resolutionSha256)
+            && Number.isSafeInteger(v.sourceCount) && v.sourceCount >= 1 && v.sourceCount <= 64 && typeof v.reachedRoot === "boolean";
+    };
+    const paginatedSource = (value, resolved) => {
+        const v = value, names = resolved ? ["rolloutId", "rolloutPath", "compressed", "archived", "decodedBytes", "storedBytes", "recordCount", "endOrdinalExclusive", "endByteOffset"] : ["rolloutId", "rolloutPath", "compressed", "archived", "endOrdinalExclusive", "endByteOffset"];
+        return keys(v, names) && sourceUuid(v.rolloutId) && paginatedLocator(v.rolloutPath)?.physicalRolloutId === v.rolloutId && typeof v.compressed === "boolean" && typeof v.archived === "boolean"
+            && (v.endOrdinalExclusive === null && v.endByteOffset === null || decimal64(v.endOrdinalExclusive) && decimal64(v.endByteOffset))
+            && (!resolved || decimal64(v.decodedBytes) && BigInt(v.decodedBytes) > 0n && BigInt(v.decodedBytes) <= 256n * 1024n * 1024n
+                && decimal64(v.storedBytes) && BigInt(v.storedBytes) > 0n && BigInt(v.storedBytes) <= 256n * 1024n * 1024n
+                && Number.isSafeInteger(v.recordCount) && v.recordCount >= 1 && v.recordCount <= 262144);
+    };
+    function validBoundPaginatedResolution(v, sessionId, request) {
+        if (!keys(v, ["kind", "bindingId", "generation", "requestId", "selectedRolloutId", "sourceVersion", "plan", "resolution", "consistency", "historyComplete", "sourceAuthenticated", "publishable", "cleanupConfirmed"]))
+            return false;
+        const value = v, plan = value.plan, resolution = value.resolution;
+        const planSources = Array.isArray(plan.sources) ? plan.sources : null;
+        const resolutionSources = Array.isArray(resolution.sources) ? resolution.sources : null;
+        const lastPlanSource = planSources?.at(-1);
+        return value.kind === "bound_codex_paginated_resolution" && uuid(value.bindingId) && positive(value.generation) && uuid(value.requestId)
+            && (request?.bindingId === undefined || value.bindingId === request.bindingId) && (request?.generation === undefined || value.generation === request.generation)
+            && (request?.requestId === undefined || value.requestId === request.requestId) && sourceUuid(value.selectedRolloutId)
+            && paginatedSourceVersionValid(value.sourceVersion, sessionId) && value.sourceVersion.selectedRolloutId === value.selectedRolloutId
+            && keys(plan, ["profile", "threadId", "sources", "reachedRoot", "chainByteBudget", "chainDecodedByteBudget", "sourceAuthenticated", "historyComplete"])
+            && plan.profile === "codex_paginated_chain_plan_v1" && plan.threadId === sessionId && planSources !== null && planSources.length >= 1 && planSources.length <= 64
+            && planSources.every((source) => paginatedSource(source, false)) && lastPlanSource?.rolloutId === value.selectedRolloutId
+            && lastPlanSource?.endOrdinalExclusive === null && lastPlanSource?.endByteOffset === null
+            && plan.chainByteBudget === 256 * 1024 * 1024 && plan.chainDecodedByteBudget === 256 * 1024 * 1024 && typeof plan.reachedRoot === "boolean" && plan.sourceAuthenticated === false && plan.historyComplete === false
+            && keys(resolution, ["profile", "threadId", "sources", "chainStoredBytes", "chainDecodedBytes", "ordinalCutoffsVerified", "reachedRoot", "sourceAuthenticated", "historyComplete"])
+            && resolution.profile === "codex_paginated_resolution_v1" && resolution.threadId === sessionId && resolutionSources !== null && resolutionSources.length === planSources?.length
+            && resolutionSources.every((source, index) => { const s = source, p = planSources?.[index]; return p !== undefined && paginatedSource(s, true) && s.rolloutId === p.rolloutId && s.rolloutPath === p.rolloutPath && s.compressed === p.compressed && s.archived === p.archived && s.endOrdinalExclusive === p.endOrdinalExclusive && s.endByteOffset === p.endByteOffset; })
+            && decimal64(resolution.chainStoredBytes) && BigInt(resolution.chainStoredBytes) > 0n && BigInt(resolution.chainStoredBytes) <= 256n * 1024n * 1024n
+            && decimal64(resolution.chainDecodedBytes) && BigInt(resolution.chainDecodedBytes) > 0n && BigInt(resolution.chainDecodedBytes) <= 256n * 1024n * 1024n
+            && resolution.ordinalCutoffsVerified === true && resolution.reachedRoot === plan.reachedRoot && resolution.sourceAuthenticated === false && resolution.historyComplete === false
+            && value.consistency === "single_codex_paginated_resolution_observation" && value.historyComplete === false && value.sourceAuthenticated === false && value.publishable === false && value.cleanupConfirmed === true;
+    }
+    StepsembleHistoryTransport.validBoundPaginatedResolution = validBoundPaginatedResolution;
     function validSources(v) {
         return keys(v, ["kind", "sources", "sourceAuthenticated", "publishable"]) && v.kind === "history_sources"
             && v.sourceAuthenticated === false && v.publishable === false && Array.isArray(v.sources) && v.sources.length <= 8
@@ -178,9 +254,9 @@ var StepsembleHistoryTransport;
         const timeoutMs = deps.timeoutMs ?? StepsembleHistoryTransport.LIMITS.timeoutMs;
         if (typeof transport !== "function" || !positive(timeoutMs) || timeoutMs > 120000)
             failure("history_dependencies_required");
-        function detach(value) {
+        function detach(value, limit = StepsembleHistoryTransport.LIMITS.requestBytes) {
             try {
-                const text = canonicalJSON(value, StepsembleHistoryTransport.LIMITS.requestBytes);
+                const text = canonicalJSON(value, limit);
                 return text === null ? null : JSON.parse(text);
             }
             catch {
@@ -418,6 +494,24 @@ var StepsembleHistoryTransport;
                 return failure("history_response_invalid");
             return value;
         }
+        async function readCodexPaginatedResolution(scope, request, signal) {
+            const expected = detach({ scope, request }, StepsembleHistoryTransport.LIMITS.paginatedResolutionRequestBytes);
+            if (!object(expected) || !keys(expected.scope, ["hostId", "bindingId", "generation", "sessionId"])
+                || expected.scope.hostId !== hostId || !uuid(expected.scope.bindingId) || !uuid(expected.scope.sessionId) || !positive(expected.scope.generation)
+                || !keys(expected.request, ["bindingId", "generation", "requestId", "selectedRolloutId", "entries", ...(Object.hasOwn((expected.request ?? {}), "version") ? ["version"] : [])])
+                || !uuid(expected.request.requestId) || expected.request.bindingId !== expected.scope.bindingId || expected.request.generation !== expected.scope.generation
+                || !paginatedSelection({ selectedRolloutId: expected.request.selectedRolloutId, entries: expected.request.entries })
+                || (Object.hasOwn((expected.request ?? {}), "version") && !hash(expected.request.version)))
+                return failure("history_request_invalid");
+            const { value, ok } = await exchange("/api/history/paginated-resolution", "POST", expected.request, signal);
+            const denied = unavailable(value);
+            if (denied)
+                return denied;
+            if (!ok || !validBoundPaginatedResolution(value, expected.scope.sessionId, expected.request)
+                || value.selectedRolloutId !== expected.request.selectedRolloutId)
+                return failure("history_response_invalid");
+            return value;
+        }
         async function read(scope, request, options, codex = false) {
             if (!keys(options, ["page", "signal", ...(options?.version === undefined ? [] : ["version"]), ...(Object.hasOwn(options ?? {}, "structured") ? ["structured"] : []), ...(Object.hasOwn(options ?? {}, "profile") ? ["profile"] : [])])
                 || Object.hasOwn(options, "structured") && (!codex || options.structured !== true)
@@ -462,7 +556,7 @@ var StepsembleHistoryTransport;
         }
         return Object.freeze({ catalog, sources, sourceCatalog, sourceMetadata, register, read: (scope, request, options) => read(scope, request, options),
             readCodex: (scope, request, options) => read(scope, request, options, true),
-            readCodexCheckpoint, release });
+            readCodexCheckpoint, readCodexPaginatedResolution, release });
     }
     StepsembleHistoryTransport.create = create;
 })(StepsembleHistoryTransport || (StepsembleHistoryTransport = {}));

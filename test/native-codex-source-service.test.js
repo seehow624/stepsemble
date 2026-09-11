@@ -3,6 +3,7 @@ const test = require("node:test"), assert = require("node:assert/strict"), { ran
 const { createCodexSourceService, normalizeCodexSource } = require("../protocol/native/codex/history-source-service");
 const { createReaderAdmission } = require("../protocol/native/claude/history-reader-admission");
 const { harness, source, group, f, tick, unavailable } = require("./support/codex-binding-harness.cjs");
+const paginatedWire = require("../protocol/native/codex/paginated-resolution-wire");
 const binding = () => ({ bindingId: randomUUID(), generation: 1, source: source() });
 const request = b => ({ bindingId: b.bindingId, generation: b.generation, requestId: randomUUID() });
 async function complete(h, handle, b, options = {}, metadata = false) {
@@ -152,6 +153,33 @@ test("paginated bindings expose a bounded projection checkpoint without upgradin
   assert.equal(result.sourceAuthenticated, false); assert.equal(result.publishable, false);
   assert.deepEqual(h.stages, ["readCodexPaginatedCheckpoint"]); assert.equal(h.physical(), 0);
   assert.equal((await handle.checkpoint(request(b), { signal: {} })).code, "invalid_source_signal");
+});
+test("paginated bindings expose a root-bound ancestry resolution observation with a structured version fence", async t => {
+  const h = harness(t), b = binding(); b.source.historyMode = "paginated"; const handle = h.service.bind(b);
+  const rolloutPath = b.source.history.source.rolloutPath;
+  const entries = [{ rolloutId: f.id, base64Record: Buffer.from(JSON.stringify({ ordinal: 0, type: "session_meta",
+    payload: { id: f.id, history_mode: "paginated" } }) + "\n").toString("base64"), rolloutPath }];
+  const first = handle.resolvePaginated({ ...request(b), selectedRolloutId: f.id, entries });
+  await h.step(); const value = await first;
+  assert.equal(value.kind, "bound_codex_paginated_resolution", value.code);
+  assert(paginatedWire.validBoundResolution(value, f.id, { bindingId: b.bindingId, generation: b.generation, requestId: value.requestId }));
+  assert.equal(value.sourceVersion.rootIdentity.inode, b.source.history.expectedRoot.inode);
+  assert.equal(value.plan.sources.length, 1); assert.equal(value.resolution.ordinalCutoffsVerified, true);
+  assert.equal(value.historyComplete, false); assert.equal(value.publishable, false);
+  assert.deepEqual(h.stages, ["readCodexPaginatedResolution"]); assert.equal(h.physical(), 0);
+  const next = handle.resolvePaginated({ ...request(b), selectedRolloutId: f.id, entries }, { version: value.sourceVersion });
+  await h.step(); assert.equal((await next).sourceVersion.planSha256, value.sourceVersion.planSha256);
+  assert.equal((await handle.resolvePaginated({ ...request(b), selectedRolloutId: f.id, entries }, { version: value.sourceVersion, signal: {} })).code, "invalid_source_signal");
+});
+test("paginated resolution refuses a different selected head or a version from another binding before opening a reader", async t => {
+  const h = harness(t), b = binding(); b.source.historyMode = "paginated"; const handle = h.service.bind(b);
+  const entries = [{ rolloutId: f.id, base64Record: Buffer.from("meta\n").toString("base64"), rolloutPath: b.source.history.source.rolloutPath }];
+  const before = h.stages.length;
+  assert.equal((await handle.resolvePaginated({ ...request(b), selectedRolloutId: require("node:crypto").randomUUID(), entries })).code, "invalid_history_request");
+  assert.equal((await handle.resolvePaginated({ ...request(b), selectedRolloutId: f.id, entries }, { version: { kind: "bad" } })).code, "invalid_history_version");
+  const valid = handle.resolvePaginated({ ...request(b), selectedRolloutId: f.id, entries }); await h.step();
+  assert.equal((await valid).kind, "bound_codex_paginated_resolution");
+  assert.equal(h.stages.length, before + 1);
 });
 for (const stage of [0, 2, 4]) {
   test(`binding withdrawal at stage ${stage + 1} drops late success and retains unknown cleanup until actual close`, async t => {

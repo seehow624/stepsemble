@@ -6,7 +6,9 @@ const { canonicalJSON } = require("../public/modules/projection");
 const sourceCatalogWire = require("./history-catalog-wire");
 const codexRecords = require("../public/modules/codex-history-records");
 const codexCheckpoint = require("../protocol/native/codex/checkpoint-wire");
-const LIMITS = Object.freeze({ requestBytes: 8192, responseBytes: 384 * 1024, claudeResponseBytes: 272 * 1024, requestChunks: 1024, deadlineMs: 15000 });
+const codexPaginatedResolution = require("../protocol/native/codex/paginated-resolution-wire");
+const LIMITS = Object.freeze({ requestBytes: 8192, paginatedResolutionRequestBytes: codexPaginatedResolution.LIMITS.inputBytes,
+  responseBytes: 384 * 1024, claudeResponseBytes: 272 * 1024, requestChunks: 1024, paginatedResolutionRequestChunks: 8192, deadlineMs: 15000 });
 const VIEW_HEADER = "x-stepsemble-history-view", CSRF_HEADER = "x-stepsemble-history-csrf";
 const uuid = v => typeof v === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
 const principalValid = v => typeof v === "string" && /^[A-Za-z0-9:_-]{1,128}$/.test(v);
@@ -40,6 +42,14 @@ const PUBLIC_CODES = new Set([
   "rollout_compression_limit", "rollout_compression_invalid", "rollout_compression_unsupported",
   "rollout_structure_invalid", "rollout_structure_page_limit",
   "rollout_invalid_utf8", "rollout_invalid_record", "rollout_selected_thread_mismatch", "rollout_invalid_metadata",
+  "paginated_invalid_utf8", "paginated_invalid_record", "paginated_invalid_metadata", "paginated_selected_thread_mismatch",
+  "paginated_history_mode_unsupported", "paginated_invalid_history_base", "paginated_invalid_ordinal", "paginated_chain_cycle",
+  "paginated_chain_too_deep", "paginated_chain_mismatch", "paginated_record_limit", "paginated_chain_locator_mismatch",
+  "paginated_chain_duplicate_locator", "paginated_chain_non_monotonic_cutoff", "paginated_chain_selected_mismatch",
+  "paginated_chain_bytes_exceeded", "paginated_chain_decoded_bytes_exceeded", "paginated_chain_incomplete",
+  "paginated_resolution_plan_mismatch", "paginated_resolution_bytes_exceeded", "paginated_resolution_decoded_bytes_exceeded",
+  "paginated_resolution_cutoff_outside_source", "paginated_resolution_cutoff_unverified", "paginated_resolution_invalid_cutoff",
+  "paginated_resolution_incomplete", "paginated_resolution_empty_source", "paginated_rollout_ordinal_invalid",
   "name_resolution_rollout_mismatch", "name_resolution_missing_row_unsupported", "name_resolution_index_unavailable",
   "source_service_closed", "source_binding_revoked", "source_binding_mismatch", "source_sdk_unavailable",
   "history_unauthorized", "history_origin_rejected", "history_csrf_rejected", "history_content_type_rejected",
@@ -55,7 +65,7 @@ function configuredOrigin(value) {
   } catch { return null; }
 }
 
-function readBody(req, signal) {
+function readBody(req, signal, maxBytes = LIMITS.requestBytes, maxChunks = LIMITS.requestChunks) {
   return new Promise((resolve, reject) => {
     let size = 0, count = 0, done = false;
     const chunks = [];
@@ -72,7 +82,7 @@ function readBody(req, signal) {
     const data = chunk => {
       if (!Buffer.isBuffer(chunk)) return failed();
       size += chunk.length;
-      if (size > LIMITS.requestBytes || ++count > LIMITS.requestChunks) return finish(error("history_body_too_large", 413));
+      if (size > maxBytes || ++count > maxChunks) return finish(error("history_body_too_large", 413));
       chunks.push(chunk);
     };
     const end = () => {
@@ -81,7 +91,7 @@ function readBody(req, signal) {
         if (!size || bytes.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]))) return failed();
         const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
         // Bound depth/value shape too, after the independent raw-byte bound.
-        if (!object(value) || canonicalJSON(value, LIMITS.requestBytes) === null) return failed();
+        if (!object(value) || canonicalJSON(value, maxBytes) === null) return failed();
         finish(null, value);
       } catch { failed(); }
     };
@@ -170,6 +180,14 @@ function validCatalog(reply) {
       && typeof v.description === "string" && v.description.length <= 300 && !/[\u0000-\u001f\u007f]/.test(v.description));
 }
 
+function validPaginatedResolutionRequest(value) {
+  const hasVersion = Object.hasOwn(value ?? {}, "version");
+  return exact(value, ["bindingId", "generation", "requestId", "selectedRolloutId", "entries", ...(hasVersion ? ["version"] : [])])
+    && uuid(value.bindingId) && positive(value.generation) && uuid(value.requestId)
+    && codexPaginatedResolution.selection({ selectedRolloutId: value.selectedRolloutId, entries: value.entries })
+    && (!hasVersion || codexPaginatedResolution.validVersion(value.version));
+}
+
 function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCookieNames = ["stepsemble"], deadlineMs = LIMITS.deadlineMs,
   browserOnly = false, codexEnabled = false, listCatalog, listSources, sourceCatalog, sourceMetadata, catalogCurrent } = {}) {
   if (![registry?.register, registry?.observe, registry?.release, registry?.current].every(v => typeof v === "function")
@@ -201,7 +219,8 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
         throw error("history_content_type_rejected", 415);
       if (req.headers["content-encoding"] !== undefined || req.headers.expect !== undefined) throw error("history_body_invalid");
       const declared = req.headers["content-length"];
-      if (declared !== undefined && (!/^\d+$/.test(declared) || Number(declared) > LIMITS.requestBytes)) throw error("history_body_too_large", 413);
+      const declaredLimit = target === "/api/history/paginated-resolution" && req.method === "POST" ? LIMITS.paginatedResolutionRequestBytes : LIMITS.requestBytes;
+      if (declared !== undefined && (!/^\d+$/.test(declared) || Number(declared) > declaredLimit)) throw error("history_body_too_large", 413);
       const viewId = req.headers[VIEW_HEADER];
       if (!uuid(viewId)) throw error("invalid_history_request");
       const release = /^\/api\/history\/registrations\/([a-f0-9-]{36})$/i.exec(target);
@@ -210,16 +229,19 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
         : target === "/api/history/source-catalog" && req.method === "POST" ? "sourceCatalog"
         : target === "/api/history/source-metadata" && req.method === "POST" ? "sourceMetadata"
         : target === "/api/history/checkpoint" && req.method === "POST" ? "checkpoint"
+        : target === "/api/history/paginated-resolution" && req.method === "POST" ? "paginatedResolution"
         : target === "/api/history/registrations" && req.method === "POST" ? "register"
         : target === "/api/history/page" && req.method === "POST" ? "observe"
           : release && uuid(release[1]) && req.method === "DELETE" ? "release" : null;
       if (!route) throw error("history_method_not_allowed", 405);
-      const body = await readBody(req, abort.signal);
+      const body = await readBody(req, abort.signal, route === "paginatedResolution" ? LIMITS.paginatedResolutionRequestBytes : LIMITS.requestBytes,
+        route === "paginatedResolution" ? LIMITS.paginatedResolutionRequestChunks : LIMITS.requestChunks);
       if (["catalog", "sources"].includes(route) && !exact(body, [])) throw error("invalid_history_request");
       if (route === "sourceCatalog" && !sourceCatalogWire.validRequest(body)) throw error("invalid_history_request");
       if (route === "sourceMetadata" && !sourceCatalogWire.validMetadataRequest(body)) throw error("invalid_history_request");
       if (route === "checkpoint" && (!exact(body, ["bindingId", "generation", "requestId"]) || !uuid(body.bindingId)
         || !positive(body.generation) || !uuid(body.requestId))) throw error("invalid_history_request");
+      if (route === "paginatedResolution" && !validPaginatedResolutionRequest(body)) throw error("invalid_history_request");
       if (route === "register" && (!exact(body, ["catalogId", "viewId"]) || body.viewId !== viewId
         || typeof body.catalogId !== "string" || !/^[A-Za-z0-9:_-]{1,128}$/.test(body.catalogId))) throw error("invalid_history_registration");
       if (route === "observe" && (!exact(body, ["bindingId", "generation", "requestId", "page", ...(Object.hasOwn(body, "version") ? ["version"] : []), ...(Object.hasOwn(body, "structured") ? ["structured"] : []), ...(Object.hasOwn(body, "profile") ? ["profile"] : [])])
@@ -237,6 +259,8 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
         : route === "sourceCatalog" ? sourceCatalog?.(principal, body, { signal: abort.signal, viewId }) ?? unavailable("history_source_unavailable")
         : route === "sourceMetadata" ? sourceMetadata?.(principal, body, { signal: abort.signal, viewId }) ?? unavailable("history_source_unavailable")
         : route === "checkpoint" ? typeof registry.checkpoint === "function" ? registry.checkpoint(principal, { ...body, viewId }, { signal: abort.signal })
+          : unavailable("native_paginated_history_unsupported")
+        : route === "paginatedResolution" ? typeof registry.resolvePaginated === "function" ? registry.resolvePaginated(principal, { ...body, viewId }, { signal: abort.signal })
           : unavailable("native_paginated_history_unsupported")
         : route === "register" ? registry.register(principal, body, { signal: abort.signal })
         : route === "observe" ? registry.observe(principal, { ...body, viewId }, { signal: abort.signal })
@@ -270,6 +294,8 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
           : route === "sourceCatalog" ? sourceCatalogWire.validPage(reply, body, PUBLIC_CODES)
           : route === "sourceMetadata" ? sourceCatalogWire.validMetadata(reply, body)
           : route === "checkpoint" ? codexCheckpoint.validBoundCheckpoint(reply, reply.sourceVersion?.threadId, { bindingId: body.bindingId, generation: body.generation, requestId: body.requestId })
+          : route === "paginatedResolution" ? codexPaginatedResolution.validBoundResolution(reply, reply.sourceVersion?.threadId,
+            { bindingId: body.bindingId, generation: body.generation, requestId: body.requestId })
           : route === "release" ? exact(reply, ["kind", "cleanupConfirmed"]) && reply.kind === "history_released" && typeof reply.cleanupConfirmed === "boolean"
           : route === "register" ? exact(reply, ["kind", "bindingId", "generation", "sessionId", "viewId", "catalogId", "expiresAt", "sourceAuthenticated", "publishable"])
             && reply.kind === "history_registration" && reply.viewId === viewId && reply.catalogId === body.catalogId && uuid(reply.bindingId)
@@ -282,7 +308,7 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
         if (!valid) throw error("history_response_invalid", 502);
         if (["sources", "sourceCatalog", "sourceMetadata"].includes(route) && catalogCurrent(principal, reply) !== true)
           throw error("history_catalog_changed", 409);
-        if (["register", "observe", "checkpoint"].includes(route) && registry.current(principal, { bindingId: reply.bindingId, generation: reply.generation, viewId }) !== true)
+        if (["register", "observe", "checkpoint", "paginatedResolution"].includes(route) && registry.current(principal, { bindingId: reply.bindingId, generation: reply.generation, viewId }) !== true)
           throw error("history_binding_unavailable", 409);
         send(res, 200, reply);
         // This cannot prove browser consumption: a completely sent response
@@ -304,4 +330,4 @@ function createHistoryHttpHandler({ registry, auth, allowedOrigins, browserCooki
   };
 }
 
-module.exports = { createHistoryHttpHandler, createHistoryRequestAuth, configuredOrigin, validCatalog, LIMITS, VIEW_HEADER, CSRF_HEADER, PUBLIC_CODES };
+module.exports = { createHistoryHttpHandler, createHistoryRequestAuth, configuredOrigin, validCatalog, validPaginatedResolutionRequest, LIMITS, VIEW_HEADER, CSRF_HEADER, PUBLIC_CODES };
