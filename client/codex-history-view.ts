@@ -13,10 +13,12 @@ namespace StepsembleCodexHistoryView {
   const identity = typeof module !== "undefined" ? require("./agent-identity") : StepsembleAgentIdentity;
   type Registration = StepsembleHistoryTransport.Registration;
   type Bound = StepsembleCodexHistoryRecords.Bound;
+  type Checkpoint = StepsembleHistoryTransport.CodexCheckpoint;
   export const LIMITS = Object.freeze({ pageRecords: 10, previewUnits: 4000, retainedPages: 1 });
   export interface Dependencies {
     hostId: string; viewId: string; catalogId: string;
-    transport: Pick<ReturnType<typeof StepsembleHistoryTransport.create>, "register" | "readCodex" | "release">;
+    transport: Pick<ReturnType<typeof StepsembleHistoryTransport.create>, "register" | "readCodex" | "release">
+      & Partial<Pick<ReturnType<typeof StepsembleHistoryTransport.create>, "readCodexCheckpoint">>;
     canonicalJSON(value: unknown, limit: number): string | null; requestId(): string; now?(): number; onChange?(): void;
     initialStructured?: boolean;
   }
@@ -24,7 +26,7 @@ namespace StepsembleCodexHistoryView {
   export function createModel(deps: Dependencies) {
     if (!/^codex-[a-f0-9]{64}$/.test(deps.catalogId) || !/^[a-f0-9-]{36}$/.test(deps.viewId) || !/^[A-Za-z0-9_.:-]{1,128}$/.test(deps.hostId)
       || ![deps.transport?.register, deps.transport?.readCodex, deps.transport?.release, deps.canonicalJSON, deps.requestId].every(v => typeof v === "function")) throw new Error("history_view_dependencies_required");
-    let binding: Registration | null = null, page: Bound | null = null, offsets = [0], pageIndex = 0, epoch = 0;
+    let binding: Registration | null = null, page: Bound | null = null, checkpoint: Checkpoint | null = null, offsets = [0], pageIndex = 0, epoch = 0;
     let structured = deps.initialStructured === true;
     let profile: StepsembleCodexHistoryRecords.PageProfile | undefined;
     let selected = false, closed = false, busy = false, stale = false, error: string | null = null, cleanupPending = false, localAbortPending = false;
@@ -32,7 +34,7 @@ namespace StepsembleCodexHistoryView {
     const notify = () => deps.onChange?.();
     function state() {
       const expired = !!binding && (deps.now ?? Date.now)() >= binding.expiresAt;
-      return structuredClone({ selected, closed, busy, stale: stale || expired, error, stage, cleanupPending: cleanupPending || localAbortPending, page, pageIndex, structured, profile,
+      return structuredClone({ selected, closed, busy, stale: stale || expired, error, stage, cleanupPending: cleanupPending || localAbortPending, page, checkpoint, pageIndex, structured, profile,
         canJump: !busy && !localAbortPending && !stale && !expired && !!page,
         canPrevious: !busy && !localAbortPending && !stale && !expired && !!page && pageIndex > 0,
         canNext: !busy && !localAbortPending && !stale && !expired && !!page && page.history.records.nextOffset !== null });
@@ -58,6 +60,7 @@ namespace StepsembleCodexHistoryView {
       // a v11 receipt silently relabelled with global structure.
       if (mode === "refresh" && readProfile !== undefined) readProfile = readStructured ? wire.STRUCTURED_PAGE_PROFILE : wire.PAGE_PROFILE;
       if (interruptPrevious && previous && !previous.controller.signal.aborted) { localAbortPending = true; previous.controller.abort(); }
+      if (mode === "refresh") checkpoint = null;
       busy = true; error = null; stage = "preparing"; notify();
       await previous?.done;
       if (ticket !== epoch || closed || !selected) return;
@@ -97,6 +100,25 @@ namespace StepsembleCodexHistoryView {
           value = await readOnce();
           if (!live()) return;
         }
+        // Paginated Codex history has a separate native SQLite projection. A
+        // normal page is intentionally still unsupported, but when the
+        // transport exposes the bounded checkpoint seam, surface that
+        // observation instead of leaving the user with a bare failure.
+        if (value?.kind === "source_unavailable" && value.code === "native_paginated_history_unsupported"
+          && typeof deps.transport.readCodexCheckpoint === "function") {
+          stage = "checkpointReading"; notify();
+          const checkpointRequest = { bindingId: reg.bindingId, generation: reg.generation, requestId: deps.requestId() };
+          const checkpointValue = await deps.transport.readCodexCheckpoint(
+            { hostId: deps.hostId, bindingId: reg.bindingId, generation: reg.generation, sessionId: reg.sessionId },
+            checkpointRequest, current.controller.signal);
+          if (!live()) return;
+          if (checkpointValue.kind === "source_unavailable") value = checkpointValue;
+          else {
+            checkpoint = checkpointValue; page = null; profile = undefined; offsets = [0]; pageIndex = 0;
+            stale = false; error = "native_paginated_history_unsupported"; localAbortPending = false; stage = "checkpointed";
+            return;
+          }
+        }
         if (value?.kind === "source_unavailable") {
           if (value.code === "source_busy" && localAbortPending) { error = null; stage = "cancelled"; return; }
           fail(typeof value.code === "string" && Object.hasOwn(i18n.errors, value.code) ? value.code : "history_transport_failed"); return;
@@ -111,12 +133,12 @@ namespace StepsembleCodexHistoryView {
         if (mode === "refresh" || mode === "jump") { offsets = [offset]; pageIndex = 0; }
         else if (mode === "previous") pageIndex--;
         else { pageIndex++; offsets[pageIndex] = offset; offsets.length = pageIndex + 1; }
-        page = value; profile = readProfile; stale = false; error = null; localAbortPending = false; stage = "loaded";
+        page = value; checkpoint = null; profile = readProfile; stale = false; error = null; localAbortPending = false; stage = "loaded";
       } catch (cause) {
         if (live()) { const code = (cause as { code?: unknown })?.code; fail(typeof code === "string" && Object.hasOwn(i18n.errors, code) ? code : "history_transport_failed"); }
       } finally {
         if (flight === current) flight = null; done();
-        if (ticket === epoch) { busy = false; if (error) stage = "failed"; notify(); }
+        if (ticket === epoch) { busy = false; if (error && stage !== "checkpointed") stage = "failed"; notify(); }
       }
     }
     function cancel() {
@@ -126,7 +148,7 @@ namespace StepsembleCodexHistoryView {
     }
     function close(): Promise<void> {
       if (closing) return closing;
-      cancel(); selected = false; closed = true; page = null; profile = undefined; offsets = [0]; pageIndex = 0; stale = false; error = null; stage = "closed"; notify();
+      cancel(); selected = false; closed = true; page = null; checkpoint = null; profile = undefined; offsets = [0]; pageIndex = 0; stale = false; error = null; stage = "closed"; notify();
       const pending = flight?.done;
       closing = (async () => { await pending; const old = binding; binding = null; if (await release(old)) localAbortPending = false; notify(); })().finally(() => { closing = null; });
       return closing;
@@ -134,7 +156,7 @@ namespace StepsembleCodexHistoryView {
     async function select(catalogId: string) {
       if (catalogId !== deps.catalogId || selected && !closed) return;
       if (closing) await closing;
-      selected = true; closed = false; await load("refresh");
+      selected = true; closed = false; checkpoint = null; await load("refresh");
     }
     function navigate(mode: "next" | "previous") {
       const s = state();
@@ -145,7 +167,7 @@ namespace StepsembleCodexHistoryView {
     }
     async function setStructured(value: boolean) {
       if (typeof value !== "boolean" || value === structured) return;
-      structured = value; page = null; offsets = [0]; pageIndex = 0; stale = false; error = null; notify();
+      structured = value; page = null; checkpoint = null; offsets = [0]; pageIndex = 0; stale = false; error = null; notify();
       // A local fetch abort is not proof that the Host reader has closed.
       // Display changes discard the old page immediately, but await its
       // bounded response/cleanup receipt before asking for a different shape.
@@ -172,10 +194,10 @@ namespace StepsembleCodexHistoryView {
   export function create(deps: Dependencies & { root: HTMLElement }) {
     const doc = deps.root.ownerDocument;
     const el = <K extends keyof HTMLElementTagNameMap>(tag: K, text = "", className = "") => { const v = doc.createElement(tag); i18n.raw(v, text); v.className = className; return v; };
-    const copy = <K extends keyof HTMLElementTagNameMap>(tag: K, key: StepsembleHistoryI18n.Key, className = "") => i18n.bind(el(tag, "", className), key);
+    const copy = <K extends keyof HTMLElementTagNameMap>(tag: K, key: StepsembleHistoryI18n.Key, className = "", vars: StepsembleHistoryI18n.Vars = {}) => i18n.bind(el(tag, "", className), key, vars);
     const title = el("h3", "", "codex-record-title"), note = copy("p", "codexRecordsNote", "history-footnote"), toolbar = el("nav", "", "history-toolbar");
     i18n.bind(toolbar, "paging", {}, "aria-label");
-    const status = el("p", "", "history-status"), warning = el("p", "", "history-warning"), position = el("p", "", "history-position"), content = el("section", "", "history-messages"), cleanup = el("p", "", "history-footnote");
+    const status = el("p", "", "history-status"), warning = el("p", "", "history-warning"), position = el("p", "", "history-position"), checkpointPanel = el("section", "", "codex-history-checkpoint"), content = el("section", "", "history-messages"), cleanup = el("p", "", "history-footnote");
     status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite"); warning.setAttribute("role", "status");
     i18n.bind(content, "codexRecords", {}, "aria-label");
     let rendered: string | null = null, relatedButtons: HTMLButtonElement[] = [];
@@ -198,11 +220,11 @@ namespace StepsembleCodexHistoryView {
       event.preventDefault(); const n = Number(jumpInput.value);
       if (jumpInput.value.trim() && Number.isSafeInteger(n) && n > 0) void model.jump(n - 1);
     });
-    deps.root.dataset.i18nIgnore = ""; deps.root.classList?.add("codex-record-view"); deps.root.replaceChildren(title, modes, note, toolbar, status, warning, position, jumpForm, content, cleanup);
+    deps.root.dataset.i18nIgnore = ""; deps.root.classList?.add("codex-record-view"); deps.root.replaceChildren(title, modes, note, toolbar, status, warning, position, checkpointPanel, jumpForm, content, cleanup);
     function render() {
       const s = model.state(), r = s.page?.history.records; deps.root.setAttribute("aria-busy", String(s.busy));
       readable.setAttribute("aria-pressed", String(s.structured)); rawMode.setAttribute("aria-pressed", String(!s.structured));
-      i18n.bind(note, s.profile === wire.PAGE_PROFILE ? "codexLargeNote" : s.structured ? "codexStructuredNote" : "codexRecordsNote");
+      i18n.bind(note, s.checkpoint ? "codexCheckpointNote" : s.profile === wire.PAGE_PROFILE ? "codexLargeNote" : s.structured ? "codexStructuredNote" : "codexRecordsNote");
       i18n.bind(status, s.stage); warning.hidden = !s.error && !s.stale; i18n.bind(warning, s.error ? i18n.errorKey(s.error) : "pageStale");
       if (s.page?.history.nativeTitle != null) i18n.raw(title, s.page.history.nativeTitle); else i18n.bind(title, "codexRecords");
       refresh.disabled = !s.selected; previous.disabled = !s.canPrevious; next.disabled = !s.canNext; cancel.disabled = !s.busy; close.disabled = !s.selected;
@@ -210,6 +232,17 @@ namespace StepsembleCodexHistoryView {
       jumpInput.max = String(r?.recordCount ?? 1);
       i18n.bind(cleanup, s.cleanupPending ? "cleanupPending" : "cleanupSafe");
       i18n.bind(position, "codexRecordPosition", { start: r?.records.length ? r.offset + 1 : 0, end: r ? r.offset + r.records.length : 0, total: r?.recordCount ?? 0 });
+      checkpointPanel.hidden = !s.checkpoint;
+      checkpointPanel.replaceChildren();
+      if (s.checkpoint) {
+        const observation = s.checkpoint.checkpoint as { itemCount?: unknown; turns?: unknown[]; checkpoint?: { nextRolloutByteOffset?: unknown; nextRolloutOrdinal?: unknown } | null };
+        checkpointPanel.append(copy("h4", "codexCheckpointTitle"), copy("p", "codexCheckpointSummary", "history-footnote", {
+          items: typeof observation.itemCount === "string" ? observation.itemCount : "0", turns: Array.isArray(observation.turns) ? observation.turns.length : 0,
+        }));
+        if (observation.checkpoint) checkpointPanel.append(copy("p", "codexCheckpointCursor", "history-footnote", {
+          byte: String(observation.checkpoint.nextRolloutByteOffset), ordinal: String(observation.checkpoint.nextRolloutOrdinal),
+        }));
+      }
       const key = s.page ? `${s.page.sourceVersion}:${r!.offset}:${s.structured}` : null;
       for (const related of relatedButtons) related.disabled = !s.canJump;
       if (key === rendered) return; rendered = key; content.replaceChildren();

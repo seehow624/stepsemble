@@ -6,6 +6,7 @@ const { createCodexHistoryPipeline } = require("./history-pipeline");
 const { normalizeGroupSource } = require("./history-source-index");
 const { isReaderAdmission } = require("../claude/history-reader-admission");
 const wire = require("./parser-wire"), sql = require("./sqlite-wire").context;
+const checkpointWire = require("./checkpoint-wire");
 const historyWire = require("./source-wire");
 const publicWire = require("../../../public/modules/codex-history-records");
 const LIMITS = Object.freeze({ bindings: 64, groups: 8, sourceBytes: 64 * 1024, responseBytes: 384 * 1024, pageRecords: 50, records: 8192 });
@@ -144,8 +145,64 @@ function createCodexSourceService(options = {}) {
       }
       finally { if (state.flight === current && !current.unknown) state.flight = null; options.signal?.removeEventListener("abort", abort); finish(); }
     }
+    async function checkpoint(input, options = {}) {
+      const status = sweep();
+      if (!sql.own(options, ["signal"])) return unavailable("invalid_history_options");
+      const request = wire.detach(input);
+      if (!wire.keys(request, ["bindingId", "generation", "requestId"]) || request.bindingId !== value.bindingId
+        || request.generation !== value.generation || !uuid(request.requestId)) return unavailable("source_binding_mismatch");
+      if (source.historyMode !== "paginated") return unavailable("native_paginated_history_unsupported");
+      if (options.signal !== undefined && !(options.signal instanceof AbortSignal)) return unavailable("invalid_source_signal");
+      if (closed || status.closed) return unavailable("source_service_closed");
+      if (status.quarantined) return unavailable("source_service_quarantined");
+      if (state.revoked || bindings.get(value.bindingId) !== state) return unavailable("source_binding_revoked");
+      if (options.signal?.aborted) return unavailable("source_aborted");
+      if (state.flight) return unavailable("source_busy");
+      let finish;
+      const controller = new AbortController(), current = { controller, unknown: false, done: new Promise(resolve => { finish = resolve; }) };
+      state.flight = current;
+      const abort = () => controller.abort(); options.signal?.addEventListener("abort", abort, { once: true });
+      try {
+        const input = { nativeVersion: source.sqlite.nativeVersion, source: source.sqlite.source, expectedRoot: source.sqlite.expectedRoot };
+        const result = await pipeline.readCheckpoint(input, { signal: controller.signal });
+        const pipelineStatus = pipeline.status();
+        if (result?.code === "source_cleanup_unconfirmed" || pipelineStatus.quarantined && !pipelineStatus.cleanupConfirmed) {
+          current.unknown = true; return unavailable("source_cleanup_unconfirmed");
+        }
+        if (closed || pipelineStatus.closed) return unavailable("source_service_closed");
+        if (state.revoked || bindings.get(value.bindingId) !== state) return unavailable("source_binding_revoked");
+        if (controller.signal.aborted) return unavailable("source_aborted");
+        if (pipelineStatus.quarantined) return unavailable("source_service_quarantined");
+        if (result.kind === "source_unavailable") return result;
+        if (result.kind !== "codex_paginated_checkpoint_capture" || result.cleanupConfirmed !== true
+          || result.source?.threadId !== source.sessionId || !checkpointWire.sameSourceVersion(result.source, result.source)
+          || result.source?.rootIdentity?.device !== source.sqlite.expectedRoot.device
+          || result.source?.rootIdentity?.inode !== source.sqlite.expectedRoot.inode
+          || result.consistency !== "single_history_database_observation" || result.sourceAuthenticated !== false || result.publishable !== false)
+          return unavailable("source_worker_protocol");
+        const output = wire.detach({ kind: "bound_codex_paginated_checkpoint", bindingId: value.bindingId, generation: value.generation,
+          requestId: request.requestId, sourceVersion: structuredClone(result.source), checkpoint: structuredClone(result.checkpoint), evidence: structuredClone(result.evidence),
+          consistency: result.consistency, snapshotAtomic: false, historyComplete: false, sourceAuthenticated: false,
+          publishable: false, cleanupConfirmed: true }, LIMITS.responseBytes);
+        if (!output) return unavailable("source_observation_too_large");
+        // Validate the detached bound envelope before it leaves the owned
+        // service. HTTP performs the same check, but peer/direct callers must
+        // not receive a shape-valid response whose evidence/hash binding is
+        // only discovered at a later transport boundary.
+        return checkpointWire.validBoundCheckpoint(output, source.sessionId,
+          { bindingId: value.bindingId, generation: value.generation, requestId: request.requestId })
+          ? output : unavailable("source_worker_protocol");
+      } catch {
+        if (!pipeline.status().cleanupConfirmed) { current.unknown = true; admission.quarantine(); return unavailable("source_cleanup_unconfirmed"); }
+        return unavailable("source_worker_failure");
+      } finally {
+        if (state.flight === current && !current.unknown) state.flight = null;
+        options.signal?.removeEventListener("abort", abort); finish();
+      }
+    }
     return Object.freeze({ kind: "bound_source", descriptor: Object.freeze({ bindingId: value.bindingId, generation: value.generation, sessionId: source.sessionId }),
-      observe: (input, options = {}) => read(input, options, false), metadata: (input, options = {}) => read(input, options, true), revoke,
+      observe: (input, options = {}) => read(input, options, false), metadata: (input, options = {}) => read(input, options, true),
+      checkpoint: (input, options = {}) => checkpoint(input, options), revoke,
       status: () => { sweep(); return Object.freeze({ revoked: state.revoked, activeWorker: state.flight !== null, cleanupConfirmed: state.flight === null }); } });
   }
   function shutdown() {

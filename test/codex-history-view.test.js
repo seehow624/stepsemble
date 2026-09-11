@@ -27,6 +27,7 @@ function harness(t, options = {}, create = view.createModel) {
     async readCodex(scope, request, opts) { calls.push({ offset: opts.page.offset, version: opts.version, structured: opts.structured, profile: opts.profile }); return options.read ? options.read(scope, request, opts, bound) : bound(request, opts); },
     async release(...args) { calls.push("release"); return options.release ? options.release(...args) : { kind: "history_released", cleanupConfirmed: true }; }
   };
+  if (options.checkpoint) transport.readCodexCheckpoint = async (...args) => { calls.push({ checkpoint: true }); return options.checkpoint(...args, registration); };
   const model = create({ catalogId, viewId, hostId: "owned", transport, canonicalJSON, requestId: randomUUID, now: () => control.now, ...options.dependencies });
   t.after(() => model.close()); return { model, calls, control, registration, bound, snapshot, transport };
 }
@@ -125,6 +126,21 @@ test("unsupported paginated storage is not an empty successful page; revoked acc
   await h.model.select(catalogId); assert.equal(h.model.state().error, code); assert.equal(h.model.state().page, null);
   code = null; await h.model.refresh(); assert(h.model.state().page);
   code = "history_unauthorized"; await h.model.next(); assert.equal(h.model.state().page, null);
+});
+test("paginated storage renders a bounded checkpoint when the transport exposes it", async t => {
+  const doc = { createElement(tag) { return new Element(tag, doc); } }, root = new Element("div", doc);
+  const h = harness(t, { dependencies: { root }, read: () => ({ kind: "source_unavailable", code: "native_paginated_history_unsupported" }), checkpoint: (_scope, request, _signal, registration) => ({
+    kind: "bound_codex_paginated_checkpoint", bindingId: registration().bindingId, generation: 1, requestId: request.requestId,
+    sourceVersion: {}, checkpoint: { kind: "codex_paginated_projection_checkpoint", itemCount: "12", turns: [], checkpoint: { nextRolloutByteOffset: "4096", nextRolloutOrdinal: "7" } }, evidence: {},
+    consistency: "single_history_database_observation", snapshotAtomic: false, historyComplete: false, sourceAuthenticated: false, publishable: false, cleanupConfirmed: true
+  }) }, view.create);
+  // The UI receives an already transport-validated DTO; this test only checks
+  // the rendering path and that the page remains empty rather than inventing
+  // conversation records.
+  await h.model.select(catalogId);
+  assert.equal(h.model.state().page, null); assert.equal(h.model.state().stage, "checkpointed");
+  assert(root.textContent.includes("Native paginated checkpoint")); assert(root.textContent.includes("Projection items: 12"));
+  assert.equal(all(root).filter(v => v.tagName === "ARTICLE").length, 0);
 });
 class Element {
   constructor(tag, doc) { this.tagName = tag.toUpperCase(); this.ownerDocument = doc; this.children = []; this.attributes = {}; this.dataset = {}; this.listeners = {}; this._text = ""; }

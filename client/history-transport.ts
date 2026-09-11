@@ -41,6 +41,13 @@ namespace StepsembleHistoryTransport {
   export interface SessionMetadata { sessionId: string; nativeTitle: string | null; summary: string | null; titleStatus: "native" | "untitled" }
   export interface SourceMetadata extends MetadataRequest { kind: "history_source_metadata"; metadata: SessionMetadata; sourceAuthenticated: false; publishable: false }
   export interface Unavailable { kind: "source_unavailable"; code: string }
+  export interface CodexCheckpointRequest extends ReleaseRequest { requestId: string }
+  export interface CodexCheckpoint {
+    kind: "bound_codex_paginated_checkpoint"; bindingId: string; generation: number; requestId: string;
+    sourceVersion: Record<string, unknown>; checkpoint: Record<string, unknown>; evidence: Record<string, unknown>;
+    consistency: "single_history_database_observation"; snapshotAtomic: false; historyComplete: false;
+    sourceAuthenticated: false; publishable: false; cleanupConfirmed: true;
+  }
   export interface CodexReadOptions extends StepsembleHistoryPages.ReadOptions { structured?: true; profile?: StepsembleCodexHistoryRecords.PageProfile }
   export class TransportError extends Error {
     constructor(public readonly code: string) { super(code); this.name = "HistoryTransportError"; }
@@ -65,7 +72,7 @@ namespace StepsembleHistoryTransport {
     "source_access_denied", "source_read_budget", "source_worker_timeout", "source_cleanup_unconfirmed", "source_service_quarantined",
     "source_acl_unavailable", "source_acl_unsupported", "source_root_identity_changed", "source_containment_unavailable",
     "source_identity_unavailable", "source_close_failed",
-    "source_scope_mismatch", "source_encoding_unsupported", "source_too_large", "source_sqlite_unsupported",
+    "source_scope_mismatch", "source_encoding_unsupported", "source_too_large", "source_sqlite_unsupported", "source_database_unsupported", "source_database_unavailable", "source_cancelled", "source_record_limit",
     "native_paginated_history_unsupported", "native_history_mode_unknown", "rollout_incomplete_tail", "rollout_record_limit",
     "rollout_compression_limit", "rollout_compression_invalid", "rollout_compression_unsupported",
     "rollout_structure_invalid", "rollout_structure_page_limit",
@@ -79,6 +86,59 @@ namespace StepsembleHistoryTransport {
   const count = (v: unknown, max: number): v is number => Number.isSafeInteger(v) && (v as number) >= 0 && (v as number) <= max;
   const text = (v: unknown, max: number, min = 0): v is string => typeof v === "string" && v.length >= min && v.length <= max && !/[\u0000-\u001f\u007f]/.test(v);
   const catalogId = (v: unknown): v is string => typeof v === "string" && /^(claude|codex)-[a-f0-9]{64}$/.test(v);
+  const decimal64 = (v: unknown): v is string => typeof v === "string" && /^(0|[1-9]\d{0,19})$/.test(v) && BigInt(v) <= 18446744073709551615n;
+  const signed64 = (v: unknown): v is string => typeof v === "string" && /^(0|-?[1-9]\d{0,18})$/.test(v)
+    && BigInt(v) >= -9223372036854775808n && BigInt(v) <= 9223372036854775807n;
+  const nonnegative64 = (v: unknown): v is string => signed64(v) && BigInt(v) >= 0n;
+  const rootIdentityValid = (v: unknown): boolean => keys(v, ["device", "inode"]) && decimal64(v.device) && decimal64(v.inode) && v.inode !== "0";
+  const checkpointIdentityList = (v: unknown): boolean => {
+    const roles = ["database", "wal", "shm"];
+    return Array.isArray(v) && v.length === roles.length && roles.every((role, index) => {
+      const item = v[index]; return keys(item, ["role", "device", "inode"]) && item.role === role && rootIdentityValid({ device: item.device, inode: item.inode });
+    }) && new Set(v.map(item => `${item.device}:${item.inode}`)).size === roles.length;
+  };
+  const checkpointObservationValid = (v: unknown, sessionId: string): boolean => {
+    if (!keys(v, ["kind", "nativeVersion", "sqliteVersion", "scope", "threadId", "checkpoint", "turns", "itemCount", "maxItemOrdinal",
+      "sourceAuthenticated", "publishable", "historyComplete", "connectionClosed"])) return false;
+    const value = v as ObjectValue, point = value.checkpoint;
+    const validPoint = point === null || keys(point, ["nextRolloutByteOffset", "nextRolloutOrdinal"])
+      && nonnegative64(point.nextRolloutByteOffset) && nonnegative64(point.nextRolloutOrdinal);
+    return value.kind === "codex_paginated_projection_checkpoint" && value.nativeVersion === "0.153.4" && value.sqliteVersion === "3.53.4"
+      && value.scope === "provided_history_database_selected_thread_projection_only" && value.threadId === sessionId && sourceUuid(value.threadId)
+      && validPoint && Array.isArray(value.turns) && value.turns.length <= 2048 && nonnegative64(value.itemCount)
+      && (value.maxItemOrdinal === null || nonnegative64(value.maxItemOrdinal)) && value.sourceAuthenticated === false
+      && value.publishable === false && value.historyComplete === false && value.connectionClosed === true;
+  };
+  const checkpointEvidenceValid = (v: unknown, sessionId: string): boolean => {
+    if (!keys(v, ["observation", "identities", "filesystemChecksPassed", "sourceDescriptorsClosed", "sqliteDescriptorsOpened",
+      "sqliteDescriptorsClosed", "shmMappingsClosed", "requestedReadBytes", "readCalls", "mappedShmBytes", "sourceAuthenticated", "publishable"])) return false;
+    const value = v as ObjectValue;
+    return checkpointObservationValid(value.observation, sessionId) && checkpointIdentityList(value.identities)
+      && value.filesystemChecksPassed === true && value.sourceDescriptorsClosed === 4 && value.sqliteDescriptorsOpened === 3
+      && value.sqliteDescriptorsClosed === 3 && count(value.shmMappingsClosed, 256) && count(value.requestedReadBytes, 8 * 1024 * 1024)
+      && (value.requestedReadBytes as number) > 0 && count(value.readCalls, 1024) && (value.readCalls as number) > 0
+      && count(value.mappedShmBytes, 8 * 1024 * 1024) && value.sourceAuthenticated === false && value.publishable === false;
+  };
+  const checkpointSourceVersionValid = (v: unknown, sessionId: string): boolean => {
+    if (!keys(v, ["kind", "nativeVersion", "threadId", "rootIdentity", "identities", "checkpointSha256"])) return false;
+    const value = v as ObjectValue;
+    return value.kind === "codex_paginated_projection_checkpoint_version" && value.nativeVersion === "0.153.4"
+      && value.threadId === sessionId && sourceUuid(value.threadId) && rootIdentityValid(value.rootIdentity)
+      && checkpointIdentityList(value.identities) && hash(value.checkpointSha256);
+  };
+  export function validBoundCheckpoint(v: unknown, sessionId: string, request?: Partial<CodexCheckpointRequest>): v is CodexCheckpoint {
+    if (!keys(v, ["kind", "bindingId", "generation", "requestId", "sourceVersion", "checkpoint", "evidence", "consistency",
+      "snapshotAtomic", "historyComplete", "sourceAuthenticated", "publishable", "cleanupConfirmed"])) return false;
+    const value = v as ObjectValue;
+    return value.kind === "bound_codex_paginated_checkpoint" && uuid(value.bindingId) && positive(value.generation) && uuid(value.requestId)
+      && (request?.bindingId === undefined || value.bindingId === request.bindingId)
+      && (request?.generation === undefined || value.generation === request.generation)
+      && (request?.requestId === undefined || value.requestId === request.requestId)
+      && checkpointSourceVersionValid(value.sourceVersion, sessionId) && checkpointObservationValid(value.checkpoint, sessionId)
+      && checkpointEvidenceValid(value.evidence, sessionId) && value.consistency === "single_history_database_observation"
+      && value.snapshotAtomic === false && value.historyComplete === false && value.sourceAuthenticated === false
+      && value.publishable === false && value.cleanupConfirmed === true;
+  }
   export function validSources(v: unknown): v is Sources {
     return keys(v, ["kind", "sources", "sourceAuthenticated", "publishable"]) && v.kind === "history_sources"
       && v.sourceAuthenticated === false && v.publishable === false && Array.isArray(v.sources) && v.sources.length <= 8
@@ -274,6 +334,23 @@ namespace StepsembleHistoryTransport {
       if (!ok || !validSourceMetadata(value, request)) return failure("history_response_invalid");
       return value;
     }
+    async function readCodexCheckpoint(scope: StepsembleHistoryPages.Scope, request: CodexCheckpointRequest, signal?: AbortSignal): Promise<CodexCheckpoint | Unavailable> {
+      const expected = detach({ scope, request });
+      if (!object(expected) || !keys(expected.scope, ["hostId", "bindingId", "generation", "sessionId"])
+        || expected.scope.hostId !== hostId || !uuid(expected.scope.bindingId) || !uuid(expected.scope.sessionId) || !positive(expected.scope.generation)
+        || !keys(expected.request, ["bindingId", "generation", "requestId"]) || !uuid(expected.request.requestId)
+        || expected.request.bindingId !== expected.scope.bindingId || expected.request.generation !== expected.scope.generation)
+        return failure("history_request_invalid");
+      const { value, ok } = await exchange("/api/history/checkpoint", "POST", expected.request, signal);
+      const denied = unavailable(value); if (denied) return denied;
+      let bound = false;
+      try {
+        bound = object(value) && canonicalJSON(value.checkpoint, LIMITS.responseBytes) !== null
+          && canonicalJSON(value.checkpoint, LIMITS.responseBytes) === canonicalJSON((value.evidence as ObjectValue | undefined)?.observation, LIMITS.responseBytes);
+      } catch { bound = false; }
+      if (!ok || !validBoundCheckpoint(value, expected.scope.sessionId, expected.request) || !bound) return failure("history_response_invalid");
+      return value as unknown as CodexCheckpoint;
+    }
     async function read(scope: StepsembleHistoryPages.Scope, request: StepsembleHistoryPages.Request, options: CodexReadOptions, codex = false): Promise<unknown> {
       if (!keys(options, ["page", "signal", ...(options?.version === undefined ? [] : ["version"]), ...(Object.hasOwn(options ?? {}, "structured") ? ["structured"] : []), ...(Object.hasOwn(options ?? {}, "profile") ? ["profile"] : [])])
         || Object.hasOwn(options, "structured") && (!codex || options.structured !== true)
@@ -309,7 +386,8 @@ namespace StepsembleHistoryTransport {
       return value as unknown as Released;
     }
     return Object.freeze({ catalog, sources, sourceCatalog, sourceMetadata, register, read: (scope: StepsembleHistoryPages.Scope, request: StepsembleHistoryPages.Request, options: StepsembleHistoryPages.ReadOptions) => read(scope, request, options),
-      readCodex: (scope: StepsembleHistoryPages.Scope, request: StepsembleHistoryPages.Request, options: CodexReadOptions) => read(scope, request, options, true), release });
+      readCodex: (scope: StepsembleHistoryPages.Scope, request: StepsembleHistoryPages.Request, options: CodexReadOptions) => read(scope, request, options, true),
+      readCodexCheckpoint, release });
   }
 }
 if (typeof module !== "undefined") module.exports = StepsembleHistoryTransport;

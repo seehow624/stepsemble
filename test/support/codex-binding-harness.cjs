@@ -3,6 +3,7 @@ const assert = require("node:assert/strict"), { EventEmitter } = require("node:e
 const { createCodexSourceService } = require("../../protocol/native/codex/history-source-service");
 const { createReaderAdmission } = require("../../protocol/native/claude/history-reader-admission");
 const wire = require("../../protocol/native/codex/parser-wire"), { processJob } = require("../../protocol/native/codex/parser-worker");
+const checkpointWire = require("../../protocol/native/codex/checkpoint-wire");
 const f = require("../../protocol/native/codex/parser-fixture.cjs");
 const compressedFixture = require("../../protocol/native/codex/compressed-page-parser-fixture.cjs");
 const tick = () => new Promise(resolve => setImmediate(resolve)), unavailable = code => ({ kind: "source_unavailable", code });
@@ -35,6 +36,24 @@ function harness(t, config = {}) {
         signal.addEventListener("abort", () => { if (!config.holdReader) h.finish(unavailable("source_aborted")); }, { once: true });
         config.onRead?.(method, input);
         if (config.auto && !config.holdReader) queueMicrotask(() => h.finish(config.capture?.(method, input)));
+        return promise;
+      };
+      h.readCodexPaginatedCheckpoint = (input, { signal }) => {
+        assert.equal(h.active, false); add(); h.active = true; stages.push("readCodexPaginatedCheckpoint");
+        const metadata = { observation: { kind: "codex_paginated_projection_checkpoint", nativeVersion: checkpointWire.VERSION,
+          sqliteVersion: checkpointWire.SQLITE_VERSION, scope: "provided_history_database_selected_thread_projection_only", threadId: input.source.threadId,
+          checkpoint: null, turns: [], itemCount: "0", maxItemOrdinal: null, sourceAuthenticated: false, publishable: false,
+          historyComplete: false, connectionClosed: true }, identities: [{ role: "database", device: input.expectedRoot.device, inode: "11" },
+          { role: "wal", device: input.expectedRoot.device, inode: "12" }, { role: "shm", device: input.expectedRoot.device, inode: "13" }], filesystemChecksPassed: true,
+          sourceDescriptorsClosed: 4, sqliteDescriptorsOpened: 3, sqliteDescriptorsClosed: 3, shmMappingsClosed: 0, requestedReadBytes: 4096,
+          readCalls: 2, mappedShmBytes: 0, sourceAuthenticated: false, publishable: false };
+        const bytes = Buffer.from(JSON.stringify(metadata));
+        const result = { kind: "native_sqlite_paginated_checkpoint", nativeVersion: checkpointWire.VERSION, threadId: input.source.threadId,
+          expectedRoot: structuredClone(input.expectedRoot), byteLength: bytes.length, sha256: require("node:crypto").createHash("sha256").update(bytes).digest("hex"),
+          sourceAuthenticated: false, publishable: false, metadata, cleanupConfirmed: true };
+        const promise = new Promise(resolve => { h.finish = (value = result, close = true) => { if (close) h.close(); resolve(value); }; });
+        signal.addEventListener("abort", () => { if (!config.holdReader) h.finish(unavailable("source_aborted")); }, { once: true });
+        if (config.auto && !config.holdReader) queueMicrotask(() => h.finish());
         return promise;
       };
       h.shutdown = async () => ({ cleanupConfirmed: !h.active }); helpers.push(h); return h;

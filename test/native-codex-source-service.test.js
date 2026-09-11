@@ -140,6 +140,19 @@ test("one binding rejects overlap and paginated records are explicit unavailable
   assert.equal((await p.observe(request(paginated))).code, "native_paginated_history_unsupported"); assert.equal(h.stages.length, count);
   assert.equal((await complete(h, p, paginated, {}, true)).kind, "bound_codex_metadata");
 });
+test("paginated bindings expose a bounded projection checkpoint without upgrading it to history or an atomic snapshot", async t => {
+  const h = harness(t), b = binding(); b.source.historyMode = "paginated"; const handle = h.service.bind(b);
+  const resultPromise = handle.checkpoint(request(b));
+  await h.step();
+  const result = await resultPromise;
+  assert.equal(result.kind, "bound_codex_paginated_checkpoint", result.code);
+  assert.equal(result.checkpoint.kind, "codex_paginated_projection_checkpoint");
+  assert.equal(result.consistency, "single_history_database_observation");
+  assert.equal(result.snapshotAtomic, false); assert.equal(result.historyComplete, false);
+  assert.equal(result.sourceAuthenticated, false); assert.equal(result.publishable, false);
+  assert.deepEqual(h.stages, ["readCodexPaginatedCheckpoint"]); assert.equal(h.physical(), 0);
+  assert.equal((await handle.checkpoint(request(b), { signal: {} })).code, "invalid_source_signal");
+});
 for (const stage of [0, 2, 4]) {
   test(`binding withdrawal at stage ${stage + 1} drops late success and retains unknown cleanup until actual close`, async t => {
     const h = harness(t, { holdReader: true, holdParser: true }), b = binding(), handle = h.service.bind(b), pending = handle.observe(request(b));

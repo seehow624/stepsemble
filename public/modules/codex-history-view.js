@@ -16,7 +16,7 @@ var StepsembleCodexHistoryView;
         if (!/^codex-[a-f0-9]{64}$/.test(deps.catalogId) || !/^[a-f0-9-]{36}$/.test(deps.viewId) || !/^[A-Za-z0-9_.:-]{1,128}$/.test(deps.hostId)
             || ![deps.transport?.register, deps.transport?.readCodex, deps.transport?.release, deps.canonicalJSON, deps.requestId].every(v => typeof v === "function"))
             throw new Error("history_view_dependencies_required");
-        let binding = null, page = null, offsets = [0], pageIndex = 0, epoch = 0;
+        let binding = null, page = null, checkpoint = null, offsets = [0], pageIndex = 0, epoch = 0;
         let structured = deps.initialStructured === true;
         let profile;
         let selected = false, closed = false, busy = false, stale = false, error = null, cleanupPending = false, localAbortPending = false;
@@ -24,7 +24,7 @@ var StepsembleCodexHistoryView;
         const notify = () => deps.onChange?.();
         function state() {
             const expired = !!binding && (deps.now ?? Date.now)() >= binding.expiresAt;
-            return structuredClone({ selected, closed, busy, stale: stale || expired, error, stage, cleanupPending: cleanupPending || localAbortPending, page, pageIndex, structured, profile,
+            return structuredClone({ selected, closed, busy, stale: stale || expired, error, stage, cleanupPending: cleanupPending || localAbortPending, page, checkpoint, pageIndex, structured, profile,
                 canJump: !busy && !localAbortPending && !stale && !expired && !!page,
                 canPrevious: !busy && !localAbortPending && !stale && !expired && !!page && pageIndex > 0,
                 canNext: !busy && !localAbortPending && !stale && !expired && !!page && page.history.records.nextOffset !== null });
@@ -70,6 +70,8 @@ var StepsembleCodexHistoryView;
                 localAbortPending = true;
                 previous.controller.abort();
             }
+            if (mode === "refresh")
+                checkpoint = null;
             busy = true;
             error = null;
             stage = "preparing";
@@ -134,6 +136,33 @@ var StepsembleCodexHistoryView;
                     if (!live())
                         return;
                 }
+                // Paginated Codex history has a separate native SQLite projection. A
+                // normal page is intentionally still unsupported, but when the
+                // transport exposes the bounded checkpoint seam, surface that
+                // observation instead of leaving the user with a bare failure.
+                if (value?.kind === "source_unavailable" && value.code === "native_paginated_history_unsupported"
+                    && typeof deps.transport.readCodexCheckpoint === "function") {
+                    stage = "checkpointReading";
+                    notify();
+                    const checkpointRequest = { bindingId: reg.bindingId, generation: reg.generation, requestId: deps.requestId() };
+                    const checkpointValue = await deps.transport.readCodexCheckpoint({ hostId: deps.hostId, bindingId: reg.bindingId, generation: reg.generation, sessionId: reg.sessionId }, checkpointRequest, current.controller.signal);
+                    if (!live())
+                        return;
+                    if (checkpointValue.kind === "source_unavailable")
+                        value = checkpointValue;
+                    else {
+                        checkpoint = checkpointValue;
+                        page = null;
+                        profile = undefined;
+                        offsets = [0];
+                        pageIndex = 0;
+                        stale = false;
+                        error = "native_paginated_history_unsupported";
+                        localAbortPending = false;
+                        stage = "checkpointed";
+                        return;
+                    }
+                }
                 if (value?.kind === "source_unavailable") {
                     if (value.code === "source_busy" && localAbortPending) {
                         error = null;
@@ -168,6 +197,7 @@ var StepsembleCodexHistoryView;
                     offsets.length = pageIndex + 1;
                 }
                 page = value;
+                checkpoint = null;
                 profile = readProfile;
                 stale = false;
                 error = null;
@@ -186,7 +216,7 @@ var StepsembleCodexHistoryView;
                 done();
                 if (ticket === epoch) {
                     busy = false;
-                    if (error)
+                    if (error && stage !== "checkpointed")
                         stage = "failed";
                     notify();
                 }
@@ -209,6 +239,7 @@ var StepsembleCodexHistoryView;
             selected = false;
             closed = true;
             page = null;
+            checkpoint = null;
             profile = undefined;
             offsets = [0];
             pageIndex = 0;
@@ -228,6 +259,7 @@ var StepsembleCodexHistoryView;
                 await closing;
             selected = true;
             closed = false;
+            checkpoint = null;
             await load("refresh");
         }
         function navigate(mode) {
@@ -243,6 +275,7 @@ var StepsembleCodexHistoryView;
                 return;
             structured = value;
             page = null;
+            checkpoint = null;
             offsets = [0];
             pageIndex = 0;
             stale = false;
@@ -283,10 +316,10 @@ var StepsembleCodexHistoryView;
     function create(deps) {
         const doc = deps.root.ownerDocument;
         const el = (tag, text = "", className = "") => { const v = doc.createElement(tag); i18n.raw(v, text); v.className = className; return v; };
-        const copy = (tag, key, className = "") => i18n.bind(el(tag, "", className), key);
+        const copy = (tag, key, className = "", vars = {}) => i18n.bind(el(tag, "", className), key, vars);
         const title = el("h3", "", "codex-record-title"), note = copy("p", "codexRecordsNote", "history-footnote"), toolbar = el("nav", "", "history-toolbar");
         i18n.bind(toolbar, "paging", {}, "aria-label");
-        const status = el("p", "", "history-status"), warning = el("p", "", "history-warning"), position = el("p", "", "history-position"), content = el("section", "", "history-messages"), cleanup = el("p", "", "history-footnote");
+        const status = el("p", "", "history-status"), warning = el("p", "", "history-warning"), position = el("p", "", "history-position"), checkpointPanel = el("section", "", "codex-history-checkpoint"), content = el("section", "", "history-messages"), cleanup = el("p", "", "history-footnote");
         status.setAttribute("role", "status");
         status.setAttribute("aria-live", "polite");
         warning.setAttribute("role", "status");
@@ -332,13 +365,13 @@ var StepsembleCodexHistoryView;
         });
         deps.root.dataset.i18nIgnore = "";
         deps.root.classList?.add("codex-record-view");
-        deps.root.replaceChildren(title, modes, note, toolbar, status, warning, position, jumpForm, content, cleanup);
+        deps.root.replaceChildren(title, modes, note, toolbar, status, warning, position, checkpointPanel, jumpForm, content, cleanup);
         function render() {
             const s = model.state(), r = s.page?.history.records;
             deps.root.setAttribute("aria-busy", String(s.busy));
             readable.setAttribute("aria-pressed", String(s.structured));
             rawMode.setAttribute("aria-pressed", String(!s.structured));
-            i18n.bind(note, s.profile === wire.PAGE_PROFILE ? "codexLargeNote" : s.structured ? "codexStructuredNote" : "codexRecordsNote");
+            i18n.bind(note, s.checkpoint ? "codexCheckpointNote" : s.profile === wire.PAGE_PROFILE ? "codexLargeNote" : s.structured ? "codexStructuredNote" : "codexRecordsNote");
             i18n.bind(status, s.stage);
             warning.hidden = !s.error && !s.stale;
             i18n.bind(warning, s.error ? i18n.errorKey(s.error) : "pageStale");
@@ -356,6 +389,18 @@ var StepsembleCodexHistoryView;
             jumpInput.max = String(r?.recordCount ?? 1);
             i18n.bind(cleanup, s.cleanupPending ? "cleanupPending" : "cleanupSafe");
             i18n.bind(position, "codexRecordPosition", { start: r?.records.length ? r.offset + 1 : 0, end: r ? r.offset + r.records.length : 0, total: r?.recordCount ?? 0 });
+            checkpointPanel.hidden = !s.checkpoint;
+            checkpointPanel.replaceChildren();
+            if (s.checkpoint) {
+                const observation = s.checkpoint.checkpoint;
+                checkpointPanel.append(copy("h4", "codexCheckpointTitle"), copy("p", "codexCheckpointSummary", "history-footnote", {
+                    items: typeof observation.itemCount === "string" ? observation.itemCount : "0", turns: Array.isArray(observation.turns) ? observation.turns.length : 0,
+                }));
+                if (observation.checkpoint)
+                    checkpointPanel.append(copy("p", "codexCheckpointCursor", "history-footnote", {
+                        byte: String(observation.checkpoint.nextRolloutByteOffset), ordinal: String(observation.checkpoint.nextRolloutOrdinal),
+                    }));
+            }
             const key = s.page ? `${s.page.sourceVersion}:${r.offset}:${s.structured}` : null;
             for (const related of relatedButtons)
                 related.disabled = !s.canJump;

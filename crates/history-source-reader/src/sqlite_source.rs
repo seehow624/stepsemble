@@ -33,6 +33,18 @@ const VIRTUAL: [&CStr; 3] = [
 ];
 const JOURNAL: &CStr = c"/stepsemble-bound/state_5.sqlite-journal";
 const URI: &str = "file:/stepsemble-bound/state_5.sqlite?mode=ro&readonly_shm=1";
+const HISTORY_NAMES: [&CStr; 3] = [
+    c"thread_history_1.sqlite",
+    c"thread_history_1.sqlite-wal",
+    c"thread_history_1.sqlite-shm",
+];
+const HISTORY_VIRTUAL: [&CStr; 3] = [
+    c"/stepsemble-bound/thread_history_1.sqlite",
+    c"/stepsemble-bound/thread_history_1.sqlite-wal",
+    c"/stepsemble-bound/thread_history_1.sqlite-shm",
+];
+const HISTORY_JOURNAL: &CStr = c"/stepsemble-bound/thread_history_1.sqlite-journal";
+const HISTORY_URI: &str = "file:/stepsemble-bound/thread_history_1.sqlite?mode=ro&readonly_shm=1";
 pub const READ_LIMIT: usize = 8 * 1024 * 1024;
 pub const READ_CALL_LIMIT: usize = 1024;
 pub const SHM_MAP_LIMIT: usize = 8 * 1024 * 1024;
@@ -59,6 +71,7 @@ struct Lease {
 }
 struct State {
     cold: bool,
+    kind: DatabaseKind,
     selection: RootSelection,
     root: File,
     root_before: Metadata,
@@ -128,6 +141,48 @@ enum LayoutPolicy {
     Stored,
 }
 
+/// The same descriptor/VFS boundary serves the two fixed native databases,
+/// but their filenames and schemas must never be interchangeable. A fresh
+/// helper process selects one kind before installing the process-lifetime VFS.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DatabaseKind {
+    State,
+    History,
+}
+
+impl DatabaseKind {
+    fn names(self) -> &'static [&'static CStr; 3] {
+        match self {
+            Self::State => &NAMES,
+            Self::History => &HISTORY_NAMES,
+        }
+    }
+    fn virtual_names(self) -> &'static [&'static CStr; 3] {
+        match self {
+            Self::State => &VIRTUAL,
+            Self::History => &HISTORY_VIRTUAL,
+        }
+    }
+    fn journal(self) -> &'static CStr {
+        match self {
+            Self::State => JOURNAL,
+            Self::History => HISTORY_JOURNAL,
+        }
+    }
+    fn journal_name(self) -> &'static CStr {
+        match self {
+            Self::State => c"state_5.sqlite-journal",
+            Self::History => c"thread_history_1.sqlite-journal",
+        }
+    }
+    fn uri(self) -> &'static str {
+        match self {
+            Self::State => URI,
+            Self::History => HISTORY_URI,
+        }
+    }
+}
+
 fn same_authority(a: &Metadata, b: &Metadata) -> bool {
     a.dev() == b.dev()
         && a.ino() == b.ino()
@@ -185,7 +240,7 @@ impl State {
             if self.cold && !cold::same_content_stamp(&lease.before, &current) {
                 return Err(Error::Changed);
             }
-            let named = self.named(NAMES[i])?;
+            let named = self.named(self.kind.names()[i])?;
             if !stat_number(named.st_dev, current.dev())
                 || !stat_number(named.st_ino, current.ino())
                 || !stat_number(named.st_mode, u64::from(current.mode()))
@@ -195,7 +250,7 @@ impl State {
             }
         }
         if self.cold {
-            for name in &NAMES[1..] {
+            for name in &self.kind.names()[1..] {
                 match self.named(name) {
                     Err(Error::Missing) => (),
                     Ok(_) => return Err(Error::Changed),
@@ -203,7 +258,7 @@ impl State {
                 }
             }
         }
-        match self.named(c"state_5.sqlite-journal") {
+        match self.named(self.kind.journal_name()) {
             Err(Error::Missing) => Ok(()),
             Ok(_) => Err(Error::DatabaseUnsupported),
             Err(e) => Err(e),
@@ -290,13 +345,34 @@ pub unsafe fn prepare_catalog(
 ) -> Result<Prepared, Error> {
     prepare_root(selection, cancelled)
 }
+
+/// Prepare Codex's separate `thread_history_1.sqlite` database under the same
+/// descriptor-bound policy. The returned value is intentionally not a state
+/// catalog and cannot be used to read `threads` metadata.
+///
+/// # Safety
+/// Same fresh dedicated process and one-shot VFS/descriptor obligations as
+/// [`prepare`]. No other SQLite connection or source descriptor may be opened
+/// before this value is consumed and closed.
+pub unsafe fn prepare_history(
+    selection: RootSelection,
+    cancelled: Arc<AtomicBool>,
+) -> Result<Prepared, Error> {
+    prepare_root_mode(
+        selection,
+        cancelled,
+        LayoutPolicy::Wal,
+        DatabaseKind::History,
+    )
+}
 fn prepare_root(selection: RootSelection, cancelled: Arc<AtomicBool>) -> Result<Prepared, Error> {
-    prepare_root_mode(selection, cancelled, LayoutPolicy::Wal)
+    prepare_root_mode(selection, cancelled, LayoutPolicy::Wal, DatabaseKind::State)
 }
 fn prepare_root_mode(
     selection: RootSelection,
     cancelled: Arc<AtomicBool>,
     policy: LayoutPolicy,
+    kind: DatabaseKind,
 ) -> Result<Prepared, Error> {
     if !cfg!(target_pointer_width = "64") || STATE.get().is_some() {
         return Err(Error::PlatformUnsupported);
@@ -338,6 +414,7 @@ fn prepare_root_mode(
     }
     let mut state = State {
         cold: policy == LayoutPolicy::Cold,
+        kind,
         selection,
         root,
         root_before,
@@ -355,12 +432,12 @@ fn prepare_root_mode(
         started,
         cancelled,
     };
-    for (i, name) in NAMES.iter().enumerate() {
+    for (i, name) in kind.names().iter().enumerate() {
         if i == 1 {
             if policy == LayoutPolicy::Stored {
                 // Select once while holding the original root and main FD.
                 // Never retry a failed WAL preparation as a cold read.
-                state.cold = match (state.named(NAMES[1]), state.named(NAMES[2])) {
+                state.cold = match (state.named(kind.names()[1]), state.named(kind.names()[2])) {
                     (Ok(_), Ok(_)) => false,
                     (Err(Error::Missing), Err(Error::Missing)) => true,
                     (Err(error), _) | (_, Err(error)) => return Err(error),
@@ -414,6 +491,7 @@ pub unsafe fn capture_stored_context(
         },
         cancelled,
         LayoutPolicy::Stored,
+        DatabaseKind::State,
     )?;
     if prepared.state.cold {
         return cold::from_state(prepared.state)?
@@ -435,7 +513,12 @@ pub unsafe fn capture_stored_catalog(
     selection: RootSelection,
     cancelled: Arc<AtomicBool>,
 ) -> Result<StoredVerified<sqlite_metadata::CatalogObservation>, Error> {
-    let prepared = prepare_root_mode(selection, cancelled, LayoutPolicy::Stored)?;
+    let prepared = prepare_root_mode(
+        selection,
+        cancelled,
+        LayoutPolicy::Stored,
+        DatabaseKind::State,
+    )?;
     if prepared.state.cold {
         return cold::from_state(prepared.state)?
             .read_catalog()
@@ -463,6 +546,21 @@ impl Prepared {
             capture(db, native, &thread, cancelled)
         })
     }
+    /// Read only the projection checkpoint from the separate history DB. The
+    /// same bounded VFS/descriptor accounting is used, but the SQL allowlist
+    /// is selected by `sqlite_paginated`, so state tables cannot be mixed in.
+    pub fn read_checkpoint(
+        self,
+        thread_id: &str,
+    ) -> Result<Pending<crate::sqlite_paginated::Observation>, Error> {
+        if self.thread_id.is_some() || !sqlite_metadata::valid_id(thread_id) {
+            return Err(Error::Input);
+        }
+        let thread = thread_id.to_owned();
+        self.read_with(move |db, native, cancelled| {
+            crate::sqlite_paginated::capture_checkpoint(db, native, &thread, cancelled)
+        })
+    }
     pub fn read_catalog(self) -> Result<Pending<sqlite_metadata::CatalogObservation>, Error> {
         if self.thread_id.is_some() {
             return Err(Error::Input);
@@ -476,6 +574,7 @@ impl Prepared {
         self.state.verify()?;
         self.state.verify_root_path()?;
         let native = self.state.selection.native_version.clone();
+        let uri = self.state.kind.uri();
         let cancelled = self.state.cancelled.clone();
         if STATE.set(Mutex::new(Some(self.state))).is_err() {
             return Err(Error::PlatformUnsupported);
@@ -486,7 +585,7 @@ impl Prepared {
         let observation = match vfs {
             Err(_) => Err(Error::DatabaseUnsupported),
             Ok(name) => match Connection::open_with_flags_and_vfs(
-                URI,
+                uri,
                 OpenFlags::SQLITE_OPEN_READ_ONLY
                     | OpenFlags::SQLITE_OPEN_URI
                     | OpenFlags::SQLITE_OPEN_NOFOLLOW
@@ -612,20 +711,23 @@ fn with_state<T>(f: impl FnOnce(&mut State) -> Result<T, Error>) -> Result<T, Er
     }
     result
 }
-unsafe fn role(name: *const c_char) -> Result<usize, Error> {
+unsafe fn role(name: *const c_char, virtual_names: &[&CStr; 3]) -> Result<usize, Error> {
     if name.is_null() {
         return Err(Error::Input);
     }
     // SAFETY: pinned SQLite supplies a live NUL-terminated filename.
     let name = unsafe { CStr::from_ptr(name) };
-    VIRTUAL.iter().position(|v| *v == name).ok_or(Error::Input)
+    virtual_names
+        .iter()
+        .position(|v| *v == name)
+        .ok_or(Error::Input)
 }
 
 unsafe extern "C" fn system_open(name: *const c_char, flags: c_int, _mode: c_int) -> c_int {
     let result = with_state(|s| {
         s.verify()?;
         // SAFETY: SQLite supplies a live filename; role validates exact virtual names.
-        let i = unsafe { role(name) }?;
+        let i = unsafe { role(name, s.kind.virtual_names()) }?;
         if flags & libc::O_ACCMODE != libc::O_RDONLY
             || flags & (libc::O_CREAT | libc::O_TRUNC | libc::O_APPEND | libc::O_EXCL) != 0
             || s.opened[i]
@@ -677,7 +779,7 @@ unsafe extern "C" fn system_stat(name: *const c_char, out: *mut libc::stat) -> c
             return Err(Error::Input);
         }
         // SAFETY: SQLite supplies a live filename; only fixed virtual names pass.
-        let i = unsafe { role(name) }?;
+        let i = unsafe { role(name, s.kind.virtual_names()) }?;
         // SAFETY: caller supplies writable struct stat of the pinned platform ABI.
         if unsafe { libc::fstat(s.leases[i].file.as_raw_fd(), out) } != 0 {
             return Err(Error::Io);
@@ -816,7 +918,7 @@ unsafe extern "C" fn system_access(name: *const c_char, mode: c_int) -> c_int {
     let result = with_state(|s| {
         s.verify()?;
         // SAFETY: SQLite supplies a valid NUL-terminated filename.
-        unsafe { role(name) }?;
+        unsafe { role(name, s.kind.virtual_names()) }?;
         if mode != libc::F_OK && mode != libc::R_OK {
             return Err(Error::Input);
         }
@@ -834,24 +936,35 @@ unsafe extern "C" fn full_path(
     len: c_int,
     out: *mut c_char,
 ) -> c_int {
-    // SAFETY: SQLite supplies a valid filename or null; role checks the name.
-    if unsafe { role(name) } != Ok(0)
-        || out.is_null()
-        || len <= 0
-        || (len as usize) < VIRTUAL[0].to_bytes_with_nul().len()
-    {
+    if out.is_null() || len <= 0 {
         return ffi::SQLITE_CANTOPEN;
     }
-    // SAFETY: out is writable len-byte SQLite storage; checked capacity and the
-    // static virtual name never overlap. No actual path resolution is performed.
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            VIRTUAL[0].as_ptr(),
-            out,
-            VIRTUAL[0].to_bytes_with_nul().len(),
-        )
-    };
-    ffi::SQLITE_OK
+    let result = with_state(|s| {
+        // SAFETY: SQLite supplies a valid filename; role checks the exact
+        // virtual database selected by this fresh process.
+        if unsafe { role(name, s.kind.virtual_names()) }? != 0 {
+            return Err(Error::Input);
+        }
+        let virtual_name = s.kind.virtual_names()[0];
+        if (len as usize) < virtual_name.to_bytes_with_nul().len() {
+            return Err(Error::Input);
+        }
+        // SAFETY: out is writable len-byte SQLite storage; checked capacity and
+        // the static virtual name never overlap. No path is resolved.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                virtual_name.as_ptr(),
+                out,
+                virtual_name.to_bytes_with_nul().len(),
+            )
+        };
+        Ok(())
+    });
+    if result.is_ok() {
+        ffi::SQLITE_OK
+    } else {
+        ffi::SQLITE_CANTOPEN
+    }
 }
 unsafe extern "C" fn access(
     _vfs: *mut ffi::sqlite3_vfs,
@@ -864,15 +977,15 @@ unsafe extern "C" fn access(
     }
     // SAFETY: SQLite supplied writable int output and a live NUL-terminated name.
     unsafe { *out = 0 };
-    // SAFETY: same filename lifetime as above.
-    let journal = unsafe { CStr::from_ptr(name) } == JOURNAL;
     let result = with_state(|s| {
         s.verify()?; // Includes verifying absence of any rollback journal.
+        // SAFETY: SQLite supplied a live NUL-terminated filename.
+        let journal = unsafe { CStr::from_ptr(name) } == s.kind.journal();
         if journal {
             return Ok(0);
         }
         // SAFETY: valid filename checked against the exact virtual role set.
-        unsafe { role(name) }?;
+        unsafe { role(name, s.kind.virtual_names()) }?;
         match flags {
             ffi::SQLITE_ACCESS_EXISTS | ffi::SQLITE_ACCESS_READ => Ok(1),
             ffi::SQLITE_ACCESS_READWRITE => Ok(0),

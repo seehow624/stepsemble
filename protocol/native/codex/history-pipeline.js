@@ -10,6 +10,7 @@ const scanned = require("./scanned-source-wire"), paged = require("./validated-p
 const structuredSource = require("./structured-source-wire");
 const compressedSource = require("./compressed-page-source-wire");
 const sqlite = require("./sqlite-wire").context;
+const checkpointWire = require("./checkpoint-wire");
 const unavailable = code => ({ kind: "source_unavailable", code });
 const codes = new Set([...SOURCE_CODES, ...wire.CODES, "source_worker_exit", "source_worker_timeout", "source_worker_spawn_failed",
   "source_worker_io_error", "source_worker_diagnostic", "source_worker_input_limit", "source_busy", "source_aborted", "source_cleanup_unconfirmed",
@@ -225,6 +226,105 @@ function createCodexHistoryPipeline(options = {}) {
     });
     return promise;
   }
+  // Observation-only C2 seam. It reads the separate history projection in a
+  // fresh helper process under the same admission budget, but deliberately
+  // does not claim an atomic state/history snapshot or expose item payloads.
+  async function readCheckpoint(input, options = {}) {
+    sweep();
+    if (!own(options, ["expectedVersion", "signal"])) return unavailable("invalid_codex_checkpoint_request");
+    const request = checkpointWire.detach(input, checkpointWire.LIMITS.inputBytes);
+    const expected = options.expectedVersion === undefined ? null : checkpointWire.detach(options.expectedVersion);
+    if (!checkpointWire.input(request)
+      || options.expectedVersion !== undefined && (!expected || !checkpointWire.sameSourceVersion(expected, expected)))
+      return unavailable("invalid_codex_checkpoint_request");
+    const signal = options.signal;
+    if (signal !== undefined && !(signal instanceof AbortSignal)) return unavailable("invalid_source_signal");
+    if (closed || admission.status().closed) return unavailable("source_service_closed");
+    if (quarantined) return unavailable("source_service_quarantined");
+    if (signal?.aborted) return unavailable("source_aborted");
+    if (!["darwin", "linux"].includes(platform)) return unavailable("source_platform_unsupported");
+    if (flights.size >= LIMIT) return unavailable("source_busy");
+    const slot = slots.find(value => !value.flight);
+    if (!slot || !helperClosed(slot) || typeof slot.helper.readCodexPaginatedCheckpoint !== "function")
+      return unavailable("source_worker_protocol");
+    let resolve;
+    const promise = new Promise(done => { resolve = done; });
+    const controller = new AbortController();
+    const flight = { slot, promise, stop, helperSettled: false, childActive: false, settled: false };
+    const permit = admission.acquire(stop, () => flight.helperSettled && !flight.childActive && helperClosed(slot));
+    if (permit.kind !== "reader_permit") return permit;
+    slot.flight = flight; flights.add(flight);
+    let failure = null, cleanupTimer = null;
+    const expires = performance.now() + deadlineMs;
+    const timer = setTimeout(() => stop("source_worker_timeout"), deadlineMs);
+    const abort = () => stop("source_aborted");
+    function settle(result) {
+      if (flight.settled) return;
+      flight.settled = true; clearTimeout(timer); clearTimeout(cleanupTimer);
+      signal?.removeEventListener("abort", abort);
+      if (flight.helperSettled && !flight.childActive && helperClosed(slot)) release(flight);
+      permit.finish(); resolve(result);
+    }
+    function stop(code) {
+      if (failure || flight.settled) return;
+      failure = code; controller.abort();
+      cleanupTimer = setTimeout(() => { quarantine(); settle(unavailable("source_cleanup_unconfirmed")); }, cleanupMs);
+      if (flight.helperSettled && !flight.childActive && helperClosed(slot)) settle(unavailable(failure));
+    }
+    function current() {
+      if (failure || flight.settled) return false;
+      if (closed || admission.status().closed) stop("source_service_closed");
+      else if (quarantined || admission.status().quarantined) stop("source_service_quarantined");
+      else if (signal?.aborted) stop("source_aborted");
+      else if (performance.now() >= expires) stop("source_worker_timeout");
+      return !failure && !flight.settled;
+    }
+    async function runCheckpoint() {
+      if (!current()) { flight.helperSettled = true; if (!flight.settled) settle(unavailable(failure)); return; }
+      let captured;
+      try { captured = await slot.helper.readCodexPaginatedCheckpoint(request, { signal: controller.signal }); }
+      catch { captured = unavailable("source_worker_failure"); }
+      flight.helperSettled = true;
+      if (!helperClosed(slot)) {
+        if (!failure) failure = "source_cleanup_unconfirmed";
+        controller.abort(); quarantine(); settle(unavailable("source_cleanup_unconfirmed")); return;
+      }
+      if (!current()) { if (!flight.settled) settle(unavailable(failure)); else sweep(); return; }
+      if (captured?.kind === "source_unavailable") {
+        if (captured.code === "source_cleanup_unconfirmed") { failure = captured.code; quarantine(); }
+        return settle(unavailable(codes.has(captured.code) ? captured.code : "source_worker_failure"));
+      }
+      const checked = checkpointWire.capture(captured, request);
+      const version = checked && checkpointWire.sourceVersion(checked);
+      if (!checked || !version || version.threadId !== request.source.threadId
+        || version.rootIdentity.device !== request.expectedRoot.device || version.rootIdentity.inode !== request.expectedRoot.inode)
+        return settle(unavailable("source_worker_protocol"));
+      if (expected !== null && !checkpointWire.sameSourceVersion(expected, version))
+        return settle(unavailable("source_version_changed"));
+      if (!current()) return;
+      const output = checkpointWire.detach({
+        kind: "codex_paginated_checkpoint_capture",
+        source: version,
+        // Canonical JSON treats repeated object references as unsafe aliases;
+        // keep the public checkpoint and its evidence independently detached.
+        checkpoint: structuredClone(checked.metadata.observation),
+        evidence: structuredClone(checked.metadata),
+        consistency: "single_history_database_observation",
+        snapshotAtomic: false,
+        historyComplete: false,
+        sourceAuthenticated: false,
+        publishable: false,
+        cleanupConfirmed: true,
+      }, checkpointWire.LIMITS.outputBytes);
+      if (!output) return settle(unavailable("source_observation_too_large"));
+      settle(output);
+    }
+    signal?.addEventListener("abort", abort, { once: true });
+    runCheckpoint().catch(() => {
+      if (!flight.settled) stop(failure || "source_worker_failure");
+    });
+    return promise;
+  }
   function shutdown() {
     if (shutdownPromise) return shutdownPromise;
     closed = true; for (const f of flights) f.stop("source_service_closed");
@@ -238,6 +338,7 @@ function createCodexHistoryPipeline(options = {}) {
   return Object.freeze({ read: (input, options) => read(input, options), readNamed: (input, options) => read(input, options, true),
     readPage: (input, options) => read(input, options, false, true), readNamedPage: (input, options) => read(input, options, true, true),
     readStructuredPage: (input, options) => read(input, options, false, true, true), readNamedStructuredPage: (input, options) => read(input, options, true, true, true),
+    readCheckpoint: (input, options) => readCheckpoint(input, options),
     shutdown, status() { sweep(); return Object.freeze({ closed: closed || admission.status().closed, quarantined,
     activeWorkers: flights.size, cleanupConfirmed: flights.size === 0 }); } });
 }

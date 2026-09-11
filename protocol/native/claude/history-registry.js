@@ -228,6 +228,34 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
     if (!live || live !== slot || live.row !== row || !row.active) return unavailable(serviceFailure() || "history_binding_unavailable");
     return result;
   }
+  async function checkpoint(principal, input, options = {}) {
+    const request = detach(input);
+    if (!keys(request, ["bindingId", "generation", "viewId", "requestId"]) || !identity(request) || !uuid(request.requestId))
+      return unavailable("invalid_history_request");
+    if (!options || ![Object.prototype, null].includes(Object.getPrototypeOf(options)) || Object.getOwnPropertySymbols(options).length
+      || Object.entries(Object.getOwnPropertyDescriptors(options)).some(([key, d]) => key !== "signal" || !Object.hasOwn(d, "value"))
+      || options.signal !== undefined && !(options.signal instanceof AbortSignal)) return unavailable("invalid_source_signal");
+    const slot = owned(principal, request);
+    if (!slot) return unavailable(serviceFailure() || "history_binding_unavailable");
+    const row = slot.row, handle = slot.handle;
+    if (row.agentId !== "codex" || typeof handle.checkpoint !== "function") return unavailable("native_paginated_history_unsupported");
+    // Claim before crossing the async boundary, exactly like page reads. A
+    // lease renewal or a second view cannot reuse this checkpoint operation.
+    row.claimed = true; row.receipt = null;
+    let result;
+    try {
+      result = await handle.checkpoint({ bindingId: request.bindingId, generation: request.generation, requestId: request.requestId },
+        { signal: options.signal });
+    } catch {
+      if (slot.row === row) retire(slot);
+      schedule(); return unavailable("history_registry_unavailable");
+    }
+    const live = owned(principal, request);
+    if (result?.code === "source_cleanup_unconfirmed") return result;
+    if (options.signal?.aborted) return unavailable("source_aborted");
+    if (!live || live !== slot || live.row !== row || !row.active) return unavailable(serviceFailure() || "history_binding_unavailable");
+    return result;
+  }
   function release(principal, input) {
     const request = detach(input);
     if (!keys(request, ["bindingId", "generation", "viewId"]) || !identity(request)) return unavailable("invalid_history_release");
@@ -276,6 +304,7 @@ function createHistoryRegistry({ sourceService, catalog, authorize, principalAct
   }
   return Object.freeze({ register, observe: (principal, request, options = {}) => read(principal, request, options, false),
     metadata: (principal, request, options = {}) => read(principal, request, options, true),
+    checkpoint,
     release, cancelRegistration, current, revokePrincipal, revokeSource, sweep, status, shutdown });
 }
 module.exports = { createHistoryRegistry, normalizeRegistrySource, REGISTRY_LIMITS, REGISTRY_CODES };

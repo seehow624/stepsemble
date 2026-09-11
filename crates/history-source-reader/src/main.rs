@@ -7,6 +7,7 @@ use std::io::{Read, Write};
 mod codex;
 mod codex_catalog;
 mod codex_paginated;
+mod codex_paginated_checkpoint;
 mod codex_scanned;
 mod codex_sqlite;
 
@@ -306,6 +307,12 @@ fn run() -> Result<(), Error> {
             std::io::stdout().lock(),
             &request,
             codex_paginated::capture(&request),
+        )
+    } else if let Ok(request) = codex_paginated_checkpoint::parse_request(&input) {
+        codex_paginated_checkpoint::write_frame(
+            std::io::stdout().lock(),
+            &request,
+            codex_paginated_checkpoint::capture(&request),
         )
     } else if let Ok(request) = codex_sqlite::parse_request(&input) {
         codex_sqlite::write_frame(
