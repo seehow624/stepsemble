@@ -212,6 +212,24 @@ test("Agent Hub stays bounded so the main Sessions list keeps its own viewport",
   assert.match(css, /\.session-section-heading\s*\{[\s\S]*?flex:\s*0\s+0\s+auto/);
 });
 
+test("Task center keeps the mobile inbox compact, searchable, and independently scrollable", () => {
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  assert.match(html, /id="agent-task-center"[^>]*role="dialog"/);
+  assert.match(html, /class="sheet-handle agent-task-center-handle"/);
+  assert.match(html, /class="agent-task-center-toolbar" role="search"/);
+  assert.match(html, /for="agent-task-center-search"/);
+  assert.match(css, /\.agent-task-center-sheet\s*\{[\s\S]*?max-height:\s*min\(840px,\s*calc\(100dvh - 24px\)\)/);
+  assert.match(css, /\.agent-task-center-list\s*\{[\s\S]*?min-height:\s*0[\s\S]*?overflow-y:\s*auto/);
+  assert.match(css, /\.agent-task-center-row\s*\{[\s\S]*?grid-template-columns:\s*28px\s+minmax\(0,\s*1fr\)\s+auto/);
+  assert.match(css, /@media \(max-width: 499px\)[\s\S]*?\.agent-task-center-sheet\s*\{[\s\S]*?max-height:\s*calc\(100dvh - 5px\)/);
+  assert.match(css, /\.agent-task-center-stop\s*\{[\s\S]*?min-height:\s*44px/);
+  assert.match(app, /Empty output is not actionable information/);
+  assert.match(app, /open\.setAttribute\("aria-label"/);
+  assert.match(app, /stop\.setAttribute\("aria-label"/);
+});
+
 test("Claude sign-in lives in Settings instead of the Sessions hub", () => {
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");

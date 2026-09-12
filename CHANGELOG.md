@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.0.23
+
+Make the Agent Hub Task center easier to scan on phones and small windows.
+
+- Turn the task center into a bounded, mobile-first sheet with a clear handle,
+  compact header, searchable toolbar, and an independently scrolling task list.
+- Keep task cards to the useful hierarchy: task name, agent/status/elapsed time,
+  workspace path, and an output preview only when output exists.
+- Preserve visible Stop actions with accessible task-specific labels and touch
+  targets, while adding a compact path tooltip for truncated workspaces.
+- Add smoke coverage for the task center's dialog semantics, mobile geometry,
+  independent scrolling, and compact rendering contract.
+
+Validation: full Node suite (1,259 passed, 2 skipped), JavaScript checks, and
+version synchronization.
+
 ## 3.0.22
 
 Keep the conversation catalog browser coverage aligned with a collapsed Agent Hub.

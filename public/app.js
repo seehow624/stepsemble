@@ -1,7 +1,7 @@
-/* stepsemble v3.0.22 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.23 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.22";
+const CLIENT_APP_VERSION = "3.0.23";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -1885,6 +1885,7 @@ function renderAgentTaskCenter() {
     const name = document.createElement("strong");
     name.textContent = task.agentId === "pi" ? sessionDisplayTitle(task) : task.name || agentConnectorLabel(task.agentId);
     name.dataset.i18nIgnore = "";
+    name.className = "agent-task-center-name";
     const meta = document.createElement("span");
     meta.className = "agent-task-center-meta";
     const elapsed = agentTaskElapsed(task);
@@ -1892,15 +1893,26 @@ function renderAgentTaskCenter() {
     meta.dataset.i18nIgnore = "";
     const pathLabel = document.createElement("small");
     pathLabel.className = "agent-task-center-path";
-    pathLabel.textContent = task.cwd || task.worktree?.path || agentHubText("taskNoOutput");
+    pathLabel.textContent = task.cwd || task.worktree?.path || "—";
+    if (task.cwd || task.worktree?.path) pathLabel.title = task.cwd || task.worktree.path;
     pathLabel.dataset.i18nIgnore = "";
     const preview = document.createElement("small");
     preview.className = "agent-task-center-preview";
     const outputLine = stripAnsi(String(task.outputTail || "")).trim().split(/\r?\n/).filter(Boolean).pop();
-    preview.textContent = outputLine || agentHubText("taskNoOutput");
-    if (outputLine) preview.dataset.i18nIgnore = "";
-    copy.append(name, meta, pathLabel, preview);
+    if (outputLine) {
+      preview.textContent = outputLine;
+      preview.dataset.i18nIgnore = "";
+      preview.title = outputLine;
+      copy.append(name, meta, pathLabel, preview);
+    } else {
+      // Empty output is not actionable information in a dense task inbox.
+      // Keep the task state in the meta line and avoid spending a full row on
+      // a repeated “No output yet” label for every waiting task.
+      copy.append(name, meta, pathLabel);
+    }
     open.appendChild(copy);
+    const taskLabel = name.textContent || agentHubText("agentTask");
+    open.setAttribute("aria-label", `${taskLabel} · ${agentConnectorLabel(task.agentId)} · ${agentStatusText(task.status)}`);
 
     const actions = document.createElement("span");
     actions.className = "agent-task-center-actions";
@@ -1914,6 +1926,7 @@ function renderAgentTaskCenter() {
       stop.type = "button";
       stop.className = "agent-task-center-stop btn ghost";
       stop.textContent = agentHubText("taskStop");
+      stop.setAttribute("aria-label", `${agentHubText("taskStop")} · ${taskLabel}`);
       stop.addEventListener("click", (event) => {
         event.stopPropagation();
         void stopAgentTaskFromCenter(task, stop);
