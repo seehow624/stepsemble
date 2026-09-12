@@ -652,6 +652,9 @@ test("Codex native transport preserves same-chunk turn completion and interrupt 
   ].map(value => JSON.stringify(value)).join("\n") + "\n");
   const interrupted = await interrupting;
   assert.equal(interrupted.kind, "completed");
+  assert.equal(interrupted.threadId, "thread-same-chunk");
+  assert.equal(interrupted.completedTurnId, "turn-interrupt");
+  assert.equal(interrupted.status, "interrupted");
   assert.equal(transport.state().turnId, null);
   assert.equal(transport.state().turnState, "interrupted");
   assert.equal(transport.state().state, "thread_started");

@@ -14,6 +14,9 @@ Make Codex native history genuinely pageable in the conversation view.
 - Keep missing middle pages reachable after a burst of new messages; show a
   localized gap notice until they are loaded. Abort stale reads when changing
   host or conversation, and reuse unchanged message nodes during polling.
+- Fix a native CI timing assertion: an interrupt already confirmed in the same
+  stdout chunk is valid; the test still requires the matching interrupted turn,
+  zero executed commands, and no fabricated approval acknowledgement.
 
 Validation: 1,274 Node tests passed, 2 skipped, 0 failed; eight executable frontend
 controller regressions, Codex transport cursor coverage, protocol conformance,

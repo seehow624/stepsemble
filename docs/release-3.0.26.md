@@ -38,6 +38,11 @@ an incomplete transcript.
   messages, stable visible message position on prepend, translated paging
   control, and no paging control after EOF. This is a Chromium fixture check,
   not a claim of iOS Safari or live-account verification.
+- Correct the native interrupt fixture's pending-only expectation when the
+  reply and terminal notification arrive together. Both return paths must match
+  the requested turn, and terminal interruption, no command execution, and no
+  approval acknowledgement remain mandatory. The prior Linux failure is retained
+  locally in `/tmp/stepsemble-3.0.25-codex-ci-failed.log`; it is not hidden by a retry.
 
 Publishing the release makes it available to the existing stable updater; it
 does not by itself prove that either Mac has installed it. Device rollout must

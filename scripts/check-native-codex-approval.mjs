@@ -135,7 +135,18 @@ stream_max_retries = 0
       assert.equal(decision.kind, "written", JSON.stringify(decision));
       assert.equal(decision.pipe.kind, "committed");
       journalReceipt = decision.pipe.state.receipts[0].receiptId;
-    } else assert.equal((await transport.interruptTurn()).kind, "requested");
+    } else {
+      const interrupted = await transport.interruptTurn();
+      // A fast native process can return the reply and turn/completed in one
+      // stdout chunk. The transport then reports the observed terminal state,
+      // not a still-pending request. Require the same turn and actual interrupt.
+      assert.ok(["requested", "completed"].includes(interrupted.kind), JSON.stringify(interrupted));
+      assert.equal(interrupted.threadId, requested.threadId);
+      if (interrupted.kind === "completed") {
+        assert.equal(interrupted.completedTurnId, requested.turnId);
+        assert.equal(interrupted.status, "interrupted");
+      } else assert.equal(interrupted.turnId, requested.turnId);
+    }
     await deadline(Promise.all([resolvedPromise, completedPromise]), 10000, "native_interrupt_not_observed");
     assert.equal(resolved.authority.approvalAcknowledged, false, "request closed by interrupt is not approval ACK");
     assert.equal(terminal.status, journalDenial ? "completed" : "interrupted");
