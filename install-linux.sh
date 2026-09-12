@@ -193,8 +193,12 @@ try {
   const tasks = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
   if (!Array.isArray(rpcs.rpcs)) process.exit(2);
   const rpcActive = rpcs.rpcs.some((rpc) => rpc?.isStreaming === true);
-  const taskActive = Array.isArray(tasks.tasks) && tasks.tasks.some((task) =>
-    ["starting", "running", "waiting", "reconnecting"].includes(String(task?.status || "")));
+  const taskActive = Array.isArray(tasks.tasks) && tasks.tasks.some((task) => {
+    // A confirmed idle native history row is not pending agent work.
+    if ((task?.nativeOpenCode === true || task?.nativeCodex === true)
+      && task.isRunning === false && task.status === "waiting") return false;
+    return ["starting", "running", "waiting", "reconnecting"].includes(String(task?.status || ""));
+  });
   process.exit(rpcActive || taskActive ? 0 : 1);
 } catch { process.exit(2); }
 NODE

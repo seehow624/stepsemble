@@ -17,8 +17,11 @@ Make Codex native history genuinely pageable in the conversation view.
 - Fix a native CI timing assertion: an interrupt already confirmed in the same
   stdout chunk is valid; the test still requires the matching interrupted turn,
   zero executed commands, and no fabricated approval acknowledgement.
+- Do not indefinitely defer updates for explicitly idle Codex/OpenCode native
+  history rows. The macOS updater and all three installers still block genuine
+  pending work, missing idle evidence, and contradictory running status.
 
-Validation: 1,274 Node tests passed, 2 skipped, 0 failed; eight executable frontend
+Validation: 1,277 Node tests passed, 3 skipped, 0 failed on macOS; eight executable frontend
 controller regressions, Codex transport cursor coverage, protocol conformance,
 JavaScript checks, and version synchronization.
 

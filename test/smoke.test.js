@@ -1027,7 +1027,7 @@ test("automatic updates use a public GitHub source and launchd without touching 
   assert.match(updater, /shasum/);
   assert.match(updater, /active_rpc_running/);
   assert.match(updater, /\/api\/agent-tasks/);
-  assert.match(updater, /nativeOpenCode === true && task\?\.isRunning !== true/);
+  assert.match(updater, /task\.isRunning === false && task\.status === "waiting"/);
   assert.match(server, /function activeAgentTasksForUpdate\(\)/);
   assert.match(updater, /kickstart -k/);
   assert.match(updater, /STEPSEMBLE_UPDATE_FORCE/);

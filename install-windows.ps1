@@ -161,7 +161,11 @@ function Get-ActiveWorkState([int]$Port) {
       $tasks = $null
     }
     $terminal = @("completed", "failed", "stopped", "orphaned", "detached")
-    if ($tasks -and @($tasks.tasks | Where-Object { $terminal -notcontains ([string]$_.status) }).Count -gt 0) { return "active" }
+    if ($tasks -and @($tasks.tasks | Where-Object {
+      $nativeIdle = ($_.nativeOpenCode -eq $true -or $_.nativeCodex -eq $true) -and
+        ($_.isRunning -is [bool]) -and ($_.isRunning -eq $false) -and ($_.status -eq "waiting")
+      -not $nativeIdle -and ($terminal -notcontains ([string]$_.status))
+    }).Count -gt 0) { return "active" }
     return "idle"
   } catch { return "unknown" }
 }

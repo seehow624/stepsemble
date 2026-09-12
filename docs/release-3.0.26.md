@@ -28,7 +28,7 @@ an incomplete transcript.
 - eight executable frontend controller regressions cover independent cursors,
   end-of-history, retries, cyclic cursors, stable rendering, scroll anchors,
   burst gap recovery, single-flight reads and stale/aborted requests;
-- full Node suite: 1,274 passed, 2 skipped, 0 failed;
+- full Node suite on macOS: 1,277 passed, 3 skipped, 0 failed;
 - `npm run check`, `npm run check:client`, `npm run version:check`, and
   `git diff --check`.
 - `npm run check:protocol`, `npm run check:protocol:conformance` (1,251 cases),
@@ -43,6 +43,11 @@ an incomplete transcript.
   the requested turn, and terminal interruption, no command execution, and no
   approval acknowledgement remain mandatory. The prior Linux failure is retained
   locally in `/tmp/stepsemble-3.0.25-codex-ci-failed.log`; it is not hidden by a retry.
+- Execute the three shell-embedded active-task predicates with owned fixtures;
+  the Windows-only regression executes the actual PowerShell predicate in CI.
+  Only a native Codex/OpenCode history row explicitly marked `isRunning: false`
+  and `status: waiting` is exempt. Genuine waiting work, unknown idle evidence,
+  mixed active tasks and contradictory running status must still defer updates.
 
 Publishing the release makes it available to the existing stable updater; it
 does not by itself prove that either Mac has installed it. Device rollout must
