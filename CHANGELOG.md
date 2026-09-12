@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.24
+
+Keep Task center activity timestamps readable in narrow action columns.
+
+- Show the compact local date/time in each task row while retaining the full
+  translated “updated” phrase as a tooltip and accessible label.
+
+Validation: full Node suite, JavaScript checks, and version synchronization.
+
 ## 3.0.23
 
 Make the Agent Hub Task center easier to scan on phones and small windows.

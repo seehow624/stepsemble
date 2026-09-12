@@ -1,7 +1,7 @@
-/* stepsemble v3.0.23 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.24 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.23";
+const CLIENT_APP_VERSION = "3.0.24";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -1919,7 +1919,12 @@ function renderAgentTaskCenter() {
     const activity = document.createElement("small");
     activity.className = "agent-task-center-activity";
     activity.dataset.role = "activity";
-    activity.textContent = task.lastActivityAt ? agentHubText("taskLastActivity", { value: fmtTime(task.lastActivityAt) }) : "";
+    const activityLabel = task.lastActivityAt ? agentHubText("taskLastActivity", { value: fmtTime(task.lastActivityAt) }) : "";
+    activity.textContent = task.lastActivityAt ? fmtTime(task.lastActivityAt) : "";
+    if (activityLabel) {
+      activity.title = activityLabel;
+      activity.setAttribute("aria-label", activityLabel);
+    }
     actions.appendChild(activity);
     if (agentTaskIsRunning(task) || task.status === "waiting") {
       const stop = document.createElement("button");

@@ -15,3 +15,9 @@ easy to reach and accessible.
 - full Node test suite: 1,259 passed, 2 skipped, 0 failed;
 - `npm run check`, `npm run check:client`, `npm run version:check`, and
   `git diff --check`.
+
+## Follow-up
+
+The 3.0.24 patch keeps the activity column compact by showing the local
+date/time directly and moving the full translated update phrase to the tooltip
+and accessible label.
