@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.0.25
+
+Add an explicit, read-only Codex app-server history adapter.
+
+- Show native Codex threads in Agent Hub and All conversations only when
+  `STEPSEMBLE_CODEX_NATIVE=1` is explicitly enabled.
+- Hydrate the conversation view through bounded metadata, turn, and item pages;
+  large rollout history no longer blocks the page with one oversized read.
+- Keep private rollout paths out of browser DTOs and keep Codex send/resume/abort
+  and approval actions unavailable until a separately verified native contract
+  exists.
+
+Validation: real Codex 0.153.4 probe, full Node suite (1,265 passed, 2 skipped),
+JavaScript checks, and version synchronization.
+
 ## 3.0.24
 
 Keep Task center activity timestamps readable in narrow action columns.

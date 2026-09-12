@@ -1,7 +1,7 @@
-/* stepsemble v3.0.24 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.25 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.24";
+const CLIENT_APP_VERSION = "3.0.25";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -179,6 +179,7 @@ let agentTasks = [];
 let agentTaskPollTimer = null;
 let agentHubTicker = null;
 let openCodeNativePollTimer = null;
+let codexNativePollTimer = null;
 let agentCatalogRequest = null;
 let newAgentStartPending = false;
 let newAgentOpenRequest = null;
@@ -2187,6 +2188,7 @@ async function openAgentTaskFromHub(task) {
     return openExisting(sessionsCache.find(session => session.file === file) ||
       { file, cwd: task.cwd || "", name: task.sessionName || null, firstMessage: task.firstMessage });
   }
+  if (task.nativeCodex === true || task.nativeThreadId && task.agentId === "codex") return openCodexNativeTask(task);
   if (task.nativeOpenCode === true || task.nativeSessionId) return openOpenCodeNativeTask(task);
   return openGenericTask(task);
 }
@@ -3997,6 +3999,7 @@ function genericTaskTerminal(status) {
 }
 
 function genericInputBlock(connection = rpc) {
+  if (connection?.nativeCodex) return "taskReadOnly";
   if (connection?.nativeOpenCode) {
     if (genericTaskTerminal(connection.taskStatus)) return "taskReadOnly";
     if (connection.stopPending || connection.nativeLoading || !["running", "waiting"].includes(connection.taskStatus)) return "inputUnavailable";
@@ -4228,7 +4231,10 @@ function applyGenericTaskSnapshot(snapshot = {}) {
   if (Number.isFinite(Number(snapshot.endedAt)) && Number(snapshot.endedAt) > 0) rpc.runEndedAt = Number(snapshot.endedAt);
   rpc.activityLabel = status === "waiting" ? "waiting" : "working";
   updateAgentTaskCache({ ...snapshot, id: snapshot.id || snapshot.taskId || rpc.sid, agentId: rpc.agentId, name: rpc.name, cwd: rpc.cwd });
-  setStreaming(agentTaskIsRunning({ status }));
+  // Codex native history is deliberately read-only. Even an active native
+  // thread must not expose the generic abort/send controls through this
+  // metadata-only adapter.
+  setStreaming(rpc.nativeCodex ? false : agentTaskIsRunning({ status }));
   if (genericTaskTerminal(status)) appendGenericTerminalNotice(status, snapshot);
 }
 
@@ -4389,6 +4395,240 @@ async function refreshOpenCodeNativeSnapshot(connection, { initial = false } = {
   }
 }
 
+function codexNativeItemText(item) {
+  if (!item || typeof item !== "object") return "";
+  const textPart = part => {
+    if (typeof part === "string") return part;
+    if (!part || typeof part !== "object") return "";
+    if (typeof part.text === "string") return part.text;
+    if (typeof part.summary === "string") return part.summary;
+    if (typeof part.content === "string") return part.content;
+    return "";
+  };
+  if (item.type === "userMessage") {
+    return (Array.isArray(item.content) ? item.content : []).map(part => {
+      if (part?.type === "text") return textPart(part);
+      if (part?.type === "skill") return `[skill: ${part.name || part.path || ""}]`;
+      if (part?.type === "mention") return `[mention: ${part.name || part.path || ""}]`;
+      if (part?.type === "image" || part?.type === "localImage") return "[image]";
+      return "";
+    }).filter(Boolean).join("\n");
+  }
+  if (item.type === "agentMessage" || item.type === "plan") return String(item.text || "");
+  if (item.type === "reasoning") return (Array.isArray(item.summary) ? item.summary : [])
+    .concat(Array.isArray(item.content) ? item.content : []).map(textPart).filter(Boolean).join("\n");
+  if (item.type === "commandExecution") {
+    const output = item.aggregatedOutput || "";
+    return [`$ ${item.command || "command"}`, output].filter(Boolean).join("\n");
+  }
+  if (item.type === "fileChange") return `File changes · ${item.status || "observed"}`;
+  if (item.type === "functionCallOutput") {
+    const output = typeof item.output === "string" ? item.output : JSON.stringify(item.output || "");
+    return `${item.name || "function"}${output ? `\n${output}` : ""}`;
+  }
+  if (item.type === "mcpToolCall" || item.type === "dynamicToolCall" || item.type === "webSearch") {
+    return `[${item.type}] ${item.name || item.tool || item.query || item.status || "observed"}`;
+  }
+  return item.type ? `[${item.type}]` : "";
+}
+
+function appendCodexNativeItem(item) {
+  const text = codexNativeItemText(item);
+  if (!text) return;
+  if (item.type === "userMessage") {
+    const { bubble } = makeMsgShell("user", "你");
+    bubble.appendChild(renderMarkdown(text));
+    return;
+  }
+  if (item.type === "agentMessage" || item.type === "plan") {
+    const { wrap, bubble } = makeMsgShell("assistant", "Codex");
+    bubble.appendChild(renderMarkdown(text));
+    wrap.appendChild(msgActionsRow("assistant", () => text));
+    return;
+  }
+  const { bubble } = makeMsgShell("assistant", "Codex");
+  const pre = document.createElement("pre");
+  pre.className = "agent-terminal-output";
+  pre.textContent = text.slice(0, 512 * 1024);
+  bubble.appendChild(pre);
+}
+
+function codexNativeItemRevision(item) {
+  if (!item || typeof item !== "object") return "";
+  const payload = item.aggregatedOutput || item.text || item.output || item.status || item.type || "";
+  return `${item.id || ""}:${item.type || ""}:${String(payload).length}`;
+}
+
+async function loadCodexNativeTranscript(threadId) {
+  const threadQuery = new URLSearchParams({ threadId, includeTurns: "0" });
+  const snapshot = await api(`/api/codex/thread?${threadQuery.toString()}`);
+  let turnPage = null;
+  let itemPage = null;
+  let transcriptError = null;
+  try {
+    const query = new URLSearchParams({
+      threadId,
+      // Keep the first paint small and biased toward the most recent work.
+      // Older pages remain represented by the native cursors in the DTO.
+      limit: "20",
+      sortDirection: "desc",
+      itemsView: "summary",
+    });
+    turnPage = await api(`/api/codex/turns?${query.toString()}`);
+  } catch (error) {
+    transcriptError = String(error?.code || error?.message || "codex_turns_unavailable").slice(0, 128);
+  }
+  if (turnPage) {
+    try {
+      const query = new URLSearchParams({ threadId, limit: "50", sortDirection: "desc" });
+      itemPage = await api(`/api/codex/items?${query.toString()}`);
+    } catch (error) {
+      transcriptError = String(error?.code || error?.message || "codex_items_unavailable").slice(0, 128);
+    }
+  }
+  const turns = Array.isArray(turnPage?.data) ? [...turnPage.data].reverse() : [];
+  const byTurn = new Map();
+  for (const entry of Array.isArray(itemPage?.data) ? itemPage.data : []) {
+    const turnId = typeof entry?.turnId === "string" ? entry.turnId : "";
+    const item = entry?.item;
+    if (!turnId || !item || typeof item !== "object") continue;
+    const list = byTurn.get(turnId) || [];
+    if (!list.some(existing => existing.id === item.id)) list.push(item);
+    byTurn.set(turnId, list);
+  }
+  const hydratedTurns = turns.map(turn => {
+    const loaded = [...(byTurn.get(turn.id) || [])].reverse();
+    const summary = Array.isArray(turn.items) ? [...turn.items].reverse() : [];
+    const items = [...loaded];
+    for (const item of summary) if (item && !items.some(existing => existing.id === item.id)) items.push(item);
+    return { ...turn, items, itemsView: loaded.length ? "full" : turn.itemsView };
+  });
+  return {
+    ...snapshot,
+    thread: { ...snapshot.thread, turns: hydratedTurns },
+    transcript: {
+      turnsNextCursor: turnPage?.nextCursor || null,
+      itemsNextCursor: itemPage?.nextCursor || null,
+      error: transcriptError,
+      bounded: true,
+    },
+  };
+}
+
+function renderCodexNativeSnapshot(snapshot, { replace = false } = {}) {
+  if (!rpc?.nativeCodex || !snapshot?.thread) return;
+  const thread = snapshot.thread;
+  const turns = Array.isArray(thread.turns) ? thread.turns : [];
+  const revision = `${thread.updatedAt || ""}:${snapshot.transcript?.error || ""}:${turns.map(turn => `${turn.id}:${turn.status}:${(Array.isArray(turn.items) ? turn.items : []).map(codexNativeItemRevision).join("|")}`).join(",")}`;
+  if (!replace && revision === rpc.nativeRenderedRevision) return;
+  if (replace || rpc.nativeRenderedRevision) el.messages.innerHTML = "";
+  for (const turn of turns) for (const item of Array.isArray(turn?.items) ? turn.items : []) appendCodexNativeItem(item);
+  rpc.nativeRenderedRevision = revision;
+  ensureSessionUsageFooter();
+  keepSessionUsageAtEnd();
+  scrollBottom();
+}
+
+function nativeCodexStatus(thread) {
+  const type = String(thread?.status?.type || "idle");
+  return type === "systemError" ? "failed" : type === "active" ? "running" : "waiting";
+}
+
+async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) {
+  if (!connection || rpc !== connection || !connection.nativeCodex) return;
+  try {
+    const snapshot = await loadCodexNativeTranscript(connection.nativeThreadId);
+    if (rpc !== connection) return;
+    const thread = snapshot?.thread;
+    const status = nativeCodexStatus(thread);
+    applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: "codex", nativeCodex: true,
+      nativeThreadId: connection.nativeThreadId, nativeSessionId: thread?.sessionId || connection.nativeThreadId,
+      name: connection.name, cwd: thread?.cwd || connection.cwd, status,
+      startedAt: connection.runStartedAt, lastActivityAt: thread?.updatedAt || Date.now() });
+    renderCodexNativeSnapshot(snapshot, { replace: initial || !connection.nativeRenderedRevision });
+    connection.nativeLoading = false;
+    connection.connectionLost = false;
+    syncGenericInputState();
+    if (codexNativePollTimer) { clearInterval(codexNativePollTimer); codexNativePollTimer = null; }
+    if (status === "running") codexNativePollTimer = setInterval(() => void refreshCodexNativeSnapshot(connection), 2500);
+  } catch (error) {
+    if (rpc !== connection) return;
+    connection.nativeLoading = false;
+    connection.connectionLost = true;
+    syncGenericInputState();
+    if (initial) throw error;
+  }
+}
+
+async function openCodexNativeTask(task, generationOverride = null) {
+  if (!task) return;
+  const nativeThreadId = String(task.nativeThreadId || task.nativeSessionId || task.id || "").replace(/^codex:/, "");
+  if (!nativeThreadId) return;
+  const cwd = task.cwd || "";
+  const name = task.name || "Codex";
+  rememberLastAgentTask(task.id || `codex:${nativeThreadId}`);
+  beginDraftScope({ cwd, name });
+  const generation = generationOverride === null ? ++viewGeneration : generationOverride;
+  if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
+  resetTaskProgress();
+  resetProjectChanges();
+  resetComposerSummary();
+  currentSessionFile = null;
+  currentAgentTaskId = `codex:${nativeThreadId}`;
+  updateSessionSelection();
+  _lastMsgDate = null;
+  lastUserText = "";
+  currentSessionCwd = cwd;
+  historyState = null;
+  removeHistoryLoadButton();
+  autoScrollPinned = true;
+  hideChatEmpty();
+  setChatTitle(name);
+  setChatAgent("codex");
+  el.chatSub.dataset.base = cwd;
+  el.chatSub.textContent = cwd;
+  resetLiveUsage();
+  el.messages.innerHTML = "";
+  resetSessionUsage();
+  ensureSessionUsageFooter();
+  if (!isDesktop()) { el.viewList.classList.add("hidden"); syncSessionListPolling(); }
+  el.viewChat.classList.remove("hidden");
+  void refreshProjectChanges({ background: true });
+  rpc = {
+    sid: `codex:${nativeThreadId}`,
+    generic: true,
+    nativeCodex: true,
+    nativeThreadId,
+    nativeLoading: true,
+    nativeRenderedRevision: null,
+    genericOutputNode: null,
+    genericTerminalNotice: null,
+    streamReady: true,
+    connectionLost: false,
+    stopPending: false,
+    taskStatus: "waiting",
+    agentId: "codex",
+    agentLabel: "Codex CLI",
+    name,
+    cwd,
+    runStartedAt: Number(task.startedAt) || Date.now(),
+    runEndedAt: Number(task.endedAt) || null,
+  };
+  const connection = rpc;
+  codexNativePollTimer = null;
+  try {
+    await refreshCodexNativeSnapshot(connection, { initial: true });
+    if (rpc !== connection || generation !== viewGeneration) return;
+    syncGenericInputState();
+  } catch (error) {
+    if (rpc === connection && generation === viewGeneration) {
+      toast(tKey("runtime.openChatFailed", { detail: error.message }), true);
+      closeChat(true);
+      showList();
+    }
+  }
+}
+
 async function openOpenCodeNativeTask(task, generationOverride = null) {
   if (!task) return;
   const nativeSessionId = String(task.nativeSessionId || task.id || "").replace(/^opencode:/, "");
@@ -4534,6 +4774,10 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
     }
     if (result?.kind === "opencode-native" || result?.nativeOpenCode === true) {
       await openOpenCodeNativeTask(result, generation);
+      return;
+    }
+    if (result?.nativeCodex === true || result?.nativeThreadId && result?.agentId === "codex") {
+      await openCodexNativeTask(result, generation);
       return;
     }
     if (generation !== viewGeneration || baseAtStart !== apiBase) return;
@@ -4688,6 +4932,7 @@ function closeChat(silent) {
   const awaitingNative = rpc && !rpc.generic && nativeDialogs.count(apiBase, rpc.sid) > 0;
   resetNativeDialogs();
   if (openCodeNativePollTimer) { clearInterval(openCodeNativePollTimer); openCodeNativePollTimer = null; }
+  if (codexNativePollTimer) { clearInterval(codexNativePollTimer); codexNativePollTimer = null; }
   if (rpc) {
     const generic = !!rpc.generic;
     rpc.streamEnded = true;

@@ -198,6 +198,82 @@ test("Codex native transport correlates lifecycle and approval JSON-RPC without 
   assert.equal(events.filter(event => event.type === "thread.status").length, 5000);
 });
 
+test("Codex native transport reads bounded thread history through the official app-server methods", async t => {
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const transport = createCodexAppServerTransport({ child, authorizeNative: async () => proof() });
+  t.after(() => transport.close());
+
+  const initializing = transport.initialize();
+  let request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.153.4" } });
+  await initializing;
+  assert.equal((await writes.next()).method, "initialized");
+
+  const item = { id: "item-history-1", type: "userMessage", content: [{ type: "text", text: "hello" }] };
+  const turn = { id: "turn-history-1", status: "completed", startedAt: 1, completedAt: 2, items: [item], itemsView: "full" };
+  const thread = { id: "thread-history-1", sessionId: "session-history-1", cliVersion: "0.153.4", modelProvider: "openai",
+    preview: "hello", createdAt: 1, updatedAt: 2, cwd: "/owned/project", ephemeral: false, status: { type: "idle" }, turns: [],
+    name: "History title", model: "gpt-5", source: "cli", historyMode: "paginated" };
+
+  const listing = transport.listThreads({ limit: 10, sortKey: "updated_at", sortDirection: "desc", cwd: "/owned/project", useStateDbOnly: true });
+  request = await writes.next();
+  assert.equal(request.method, "thread/list");
+  assert.deepEqual(request.params, { limit: 10, sortKey: "updated_at", sortDirection: "desc", cwd: "/owned/project", useStateDbOnly: true });
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { data: [thread], nextCursor: "next-1", backwardsCursor: null } });
+  const listed = await listing;
+  assert.equal(listed.kind, "threads");
+  assert.equal(listed.data[0].name, "History title");
+  assert.equal(listed.data[0].historyMode, "paginated");
+  assert.equal(listed.nextCursor, "next-1");
+  assert.equal(Object.hasOwn(listed.data[0], "path"), false, "on-disk path is not promoted by the normalized surface");
+
+  const reading = transport.readThread({ threadId: thread.id, includeTurns: true });
+  request = await writes.next();
+  assert.equal(request.method, "thread/read");
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { thread: { ...thread, turns: [turn] } } });
+  const read = await reading;
+  assert.equal(read.kind, "thread");
+  assert.equal(read.thread.turns[0].items[0].id, item.id);
+
+  const turnsReading = transport.listThreadTurns({ threadId: thread.id, limit: 20, itemsView: "full" });
+  request = await writes.next();
+  assert.equal(request.method, "thread/turns/list");
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { data: [turn], nextCursor: null, backwardsCursor: null } });
+  const turns = await turnsReading;
+  assert.equal(turns.kind, "thread_turns");
+  assert.equal(turns.threadId, thread.id);
+  assert.equal(turns.data[0].status, "completed");
+
+  const itemsReading = transport.listThreadItems({ threadId: thread.id, turnId: turn.id, limit: 20, sortDirection: "asc" });
+  request = await writes.next();
+  assert.equal(request.method, "thread/items/list");
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { data: [{ turnId: turn.id, item }], nextCursor: null, backwardsCursor: null } });
+  const items = await itemsReading;
+  assert.equal(items.kind, "thread_items");
+  assert.equal(items.turnId, turn.id);
+  assert.equal(items.data[0].item.type, "userMessage");
+  assert.equal(transport.state().failure, null);
+});
+
+test("Codex native history requests reject unsafe filters before writing to app-server", async t => {
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const transport = createCodexAppServerTransport({ child });
+  t.after(() => transport.close());
+  const initializing = transport.initialize();
+  let request = await writes.next();
+  frame(child, { id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.153.4" } });
+  await initializing; await writes.next();
+  assert.equal((await transport.listThreads({ limit: 101 })).code, "invalid_native_params");
+  assert.equal((await transport.readThread({ threadId: "../escape" })).code, "invalid_native_params");
+  assert.equal((await transport.listThreadTurns({ threadId: "thread-history", itemsView: "unknown" })).code, "invalid_native_params");
+  assert.equal((await transport.listThreadItems({ threadId: "thread-history", turnId: "bad id" })).code, "invalid_native_params");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(writes.rows.length, 0, "rejected history requests do not reach the native process");
+  assert.equal(transport.state().failure, null);
+});
+
 test("Codex native approval validator rejects a command array instead of coercing it", async t => {
   const child = new FakeNativeProcess();
   const writes = readFrames(child);

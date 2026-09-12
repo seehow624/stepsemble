@@ -1,8 +1,10 @@
 # Codex app-server approval adapter（C3 第一個原生接線切片）
 
 這一切片把 Codex CLI `0.153.4` 的 app-server v2 JSONL 通道接到 Host 的
-session journal。它是 Host-only 的 transport/bridge，沒有新增 HTTP route，也
-不會把一般 CLI stdout 的文字當成原生事件。
+session journal。它是 Host-only 的 transport/bridge，不會把一般 CLI stdout
+的文字當成原生事件。另提供明確 opt-in 的唯讀 history adapter，讓 Agent Hub
+與 All conversations 看見官方 `thread/list`／`thread/read` 結果；它仍未把
+Codex 冒稱成公開完整 parity。
 
 ## 原生邊界
 
@@ -10,6 +12,11 @@ session journal。它是 Host-only 的 transport/bridge，沒有新增 HTTP rout
 
 - client request：`initialize`、`thread/start`、`thread/resume`、`turn/start`、
   `turn/interrupt`；
+- readonly history request：`thread/list`、`thread/read`、`thread/turns/list`、
+  `thread/items/list`。每頁最多 100 筆，cursor、filter、turn/item 形狀與
+  response bytes 都有上限；thread metadata 不會把原生 `path` 提升到 normalized
+  public surface。`thread/read(includeTurns)` 與 paginated turn/item pages 仍是
+  native observation，沒有自動授權、resume 或 approval authority；
 - Codex server request：`item/commandExecution/requestApproval`、
   `item/fileChange/requestApproval`、`item/permissions/requestApproval`；
 - lifecycle：thread/turn/item 及 `serverRequest/resolved` notification。
@@ -30,6 +37,37 @@ transport 的 `authorizeNative` 是 journal adapter 的唯一授權邊界。init
 incarnationId }` proof；授權 await 回來後會重新核對 lifecycle、approval row、
 thread/turn、decision/scope 及 incarnation，並以 in-flight reservation 拒絕
 平行 double dispatch。
+
+## 唯讀 Agent Hub adapter
+
+正常啟動不會因為偵測到 `codex` binary 就啟動 app-server。要明確啟用：
+
+```sh
+export STEPSEMBLE_CODEX_NATIVE=1
+# 可選：指定 codex 絕對路徑與 app-server 的工作目錄
+export STEPSEMBLE_CODEX_BIN=/opt/homebrew/bin/codex
+export STEPSEMBLE_CODEX_CWD="$HOME"
+```
+
+啟用後 Host 只建立一個 owner-managed `codex app-server --listen stdio://`
+子程序，先以 `initialize` 再以 `thread/list` probe；失敗時回到原本的
+`canonical_bounded` Codex CLI connector。adapter 只允許：
+
+- `GET /api/codex/native`：狀態與 capability（永遠 `approval: unavailable`）；
+- `GET /api/codex/threads`、`/api/codex/thread`、`/api/codex/turns`、
+  `/api/codex/items`：有界唯讀資料。對話檢視會先讀 metadata，再以 turn/item
+  pages 組合畫面；不依賴大型 `thread/read(includeTurns=true)` 單幀，因此大型
+  rollout 也不會因一次回應過大而卡住整個頁面；每一輪仍受 page/cursor/bytes
+  上限約束，未載入的頁面會明確保留 cursor；
+  `/api/codex/thread` 的 HTTP 預設是 metadata-only，只有明確傳
+  `includeTurns=1` 才會要求舊式 full-history response。
+- Agent Hub／All conversations 的 Codex rows：標成 `nativeCodex`、
+  `readOnly`，可以開啟 transcript，但不會送訊息、resume、abort 或回答
+  approval。
+
+adapter 不把 Codex 原生 rollout `path` 放入 browser DTO，也不會由
+`thread/list` 直接推導訂閱、登入或 approval 成功；Host shutdown 會先關閉
+此子程序並等待 bounded cleanup。
 
 ## Journal bridge
 
@@ -86,7 +124,8 @@ focused transport test 另覆蓋 observe 等待 journal 時收到 closure、clos
 late writable callback 更新 tombstone、native item correlation、Windows absolute
 cwd、permission scope、未知/排除 turns 的 resume reconciliation、同一 stdout
 chunk 的 turn completion/interrupt race，以及沒有 stdin callback 時的 bounded
-close/reject。
+close/reject；新增 history list/read/turn/item 的官方方法、cursor/filter
+validation、bounded page 與 malformed-response fail-closed cases。
 
 ## 尚未涵蓋
 
@@ -96,8 +135,9 @@ close/reject。
 child，不能套用 POSIX 必須升級 SIGKILL 的斷言；兩平台仍都要求 actual close／
 cleanupConfirmed。修正不延長產品期限、不跳過案例、不改 native runtime 行為。
 
-- 尚未把 bridge 接入 production HTTP/UI 或 Claude/OpenCode/Grok；這裡只交付
-  Codex app-server 的 Host-only seam。
+- C3 的 approval bridge 仍未接入 production HTTP/UI；本輪接入的是 C2 唯讀
+  app-server history adapter。Claude/OpenCode/Grok 的 approval authority 仍各自
+  依其上游契約分級，不會共用這個 Codex adapter。
 - bridge 的 `acknowledge(requestId, details)` 現在可在 Host verifier 回傳精確
   `native_ack`／`authoritative_readback` 後，以 `planApprovalAcknowledgement` 原子
   settle receipt、approval projection 與 event；沒有 verifier 或 evidence shape

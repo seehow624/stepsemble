@@ -35,6 +35,7 @@ const { createGitChangesService } = require("./server/git-changes");
 const { createPiResourcesService } = require("./server/pi-resources");
 const { createAgentTaskService, resolveCommand } = require("./server/agent-connectors");
 const { createOpenCodeNativeAdapter } = require("./server/opencode-native-adapter");
+const { createCodexNativeHistoryAdapter, taskFromThread: codexTaskFromThread } = require("./server/codex-native-history-adapter");
 const { createClaudeAuthService, handleClaudeAuthRequest } = require("./server/claude-auth");
 const { createDesktopClaudeClient } = require("./server/claude-desktop-client");
 const { loadHistoryConfig, createHistoryHost, disabledHistoryHost } = require("./server/history-host");
@@ -67,7 +68,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.24";
+const APP_VERSION = "3.0.25";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1714,6 +1715,15 @@ const openCodeNative = createOpenCodeNativeAdapter({
   stateFile: path.join(CONFIG_DIR, "opencode-native.json"),
 });
 void openCodeNative.refresh();
+// Codex's official app-server is a read-only history source in Stepsemble.
+// It is deliberately opt-in (`STEPSEMBLE_CODEX_NATIVE=1`) because launching
+// it can consult the user's Codex account/configuration. A normal install
+// therefore keeps the existing CLI connector untouched.
+const codexNative = createCodexNativeHistoryAdapter({
+  env: process.env,
+  cwd: APP_HOME,
+});
+if (codexNative.status().configured) void codexNative.refresh();
 // OpenCode can be started after Stepsemble (for example when the user opens
 // the OpenCode desktop app later).  Re-probe on a bounded, unref'd timer so a
 // transient startup race upgrades the Agent Hub without requiring a page
@@ -1725,11 +1735,26 @@ const openCodeNativeRetryTimer = setInterval(() => {
   void openCodeNative.refresh();
 }, 30_000);
 openCodeNativeRetryTimer.unref?.();
+const codexNativeRetryTimer = setInterval(() => {
+  const adapter = codexNative.status();
+  if (!adapter.configured || adapter.state === "probing" || adapter.ready) return;
+  if (adapter.checkedAt && Date.now() - adapter.checkedAt < 20_000) return;
+  void codexNative.refresh();
+}, 30_000);
+codexNativeRetryTimer.unref?.();
 async function ensureOpenCodeNativeProbe() {
   const current = openCodeNative.status();
   if (!current.configured || current.ready) return current;
   if (current.state === "probing" || !current.checkedAt || Date.now() - current.checkedAt >= 20_000) {
     return openCodeNative.refresh();
+  }
+  return current;
+}
+async function ensureCodexNativeProbe() {
+  const current = codexNative.status();
+  if (!current.configured || current.ready) return current;
+  if (current.state === "probing" || !current.checkedAt || Date.now() - current.checkedAt >= 20_000) {
+    return codexNative.refresh();
   }
   return current;
 }
@@ -1759,7 +1784,8 @@ const agentTasks = createAgentTaskService({
   onSettled: maybeNotifyAgentTaskSettled,
   desktopClaude,
   nativeHistoryConfigured: configuredNativeHistoryAgents(),
-  nativeAdapterStatus: (agentId) => agentId === "opencode" ? openCodeNative.status() : null,
+  nativeAdapterStatus: (agentId) => agentId === "opencode" ? openCodeNative.status()
+    : agentId === "codex" ? codexNative.status() : null,
   hostId: selfMachineId(),
 });
 const claudeAuth = desktopClaude || createClaudeAuthService({ home: APP_HOME, env: process.env, hasActiveTasks: hasClaudeTasks });
@@ -2324,16 +2350,25 @@ function publicOpenCodeNativeTask(session, status = null) {
 
 async function listAgentTasksWithOpenCode() {
   const tasks = listAgentTasks();
-  if (!openCodeNative.status().ready) return tasks;
-  try {
-    const [sessions, statuses] = await Promise.all([openCodeNative.listSessions({ limit: 100 }), openCodeNative.sessionStatus()]);
-    for (const session of sessions.sessions) {
-      const task = publicOpenCodeNativeTask(session, statuses[session.id]);
-      if (task) tasks.push(task);
+  if (openCodeNative.status().ready) {
+    try {
+      const [sessions, statuses] = await Promise.all([openCodeNative.listSessions({ limit: 100 }), openCodeNative.sessionStatus()]);
+      for (const session of sessions.sessions) {
+        const task = publicOpenCodeNativeTask(session, statuses[session.id]);
+        if (task) tasks.push(task);
+      }
+    } catch {
+      // Native OpenCode is optional; a transient upstream outage must not hide
+      // the already truthful Pi/generic task snapshot.
     }
-  } catch {
-    // Native OpenCode is optional; a transient upstream outage must not hide
-    // the already truthful Pi/generic task snapshot.
+  }
+  if (codexNative.status().ready) {
+    try {
+      tasks.push(...await codexNative.listTasks());
+    } catch {
+      // Codex native history is optional and read-only. A probe/read failure
+      // must never hide Pi, generic, or OpenCode tasks from the inbox.
+    }
   }
   return tasks.sort((a, b) => (Number(b.lastActivityAt || b.startedAt) || 0) - (Number(a.lastActivityAt || a.startedAt) || 0));
 }
@@ -4425,11 +4460,81 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      // Codex's native app-server bridge is intentionally read-only. It is
+      // disabled unless the operator sets STEPSEMBLE_CODEX_NATIVE=1; unlike
+      // the CLI connector, it never starts a model turn or answers approvals.
+      if (p === "/api/codex/native" && req.method === "GET") {
+        const adapter = await ensureCodexNativeProbe();
+        sendJSON(res, 200, { adapter, capability: codexNative.capability() });
+        return;
+      }
+
+      if (p === "/api/codex/threads" && req.method === "GET") {
+        try {
+          await ensureCodexNativeProbe();
+          const params = {};
+          const cursor = url.searchParams.get("cursor");
+          const limit = url.searchParams.get("limit");
+          if (cursor !== null) params.cursor = cursor;
+          if (limit !== null) params.limit = Number(limit);
+          sendJSON(res, 200, { ...await codexNative.listThreads(params), adapter: codexNative.status() });
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "codex_threads_unavailable" }); }
+        return;
+      }
+
+      if (p === "/api/codex/thread" && req.method === "GET") {
+        try {
+          await ensureCodexNativeProbe();
+          const threadId = url.searchParams.get("threadId") || "";
+          // Metadata-only is the safe HTTP default. Large rollout history is
+          // hydrated through the bounded turns/items routes below.
+          const includeTurns = url.searchParams.get("includeTurns") === "1";
+          sendJSON(res, 200, { ...(await codexNative.readThread(threadId, { includeTurns })), adapter: codexNative.status() });
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "codex_thread_unavailable" }); }
+        return;
+      }
+
+      if (p === "/api/codex/turns" && req.method === "GET") {
+        try {
+          await ensureCodexNativeProbe();
+          const params = {};
+          const cursor = url.searchParams.get("cursor");
+          const limit = url.searchParams.get("limit");
+          const sortDirection = url.searchParams.get("sortDirection");
+          const itemsView = url.searchParams.get("itemsView");
+          if (cursor !== null) params.cursor = cursor;
+          if (limit !== null) params.limit = Number(limit);
+          if (sortDirection !== null) params.sortDirection = sortDirection;
+          if (itemsView !== null) params.itemsView = itemsView;
+          sendJSON(res, 200, { ...await codexNative.listThreadTurns(url.searchParams.get("threadId") || "", params), adapter: codexNative.status() });
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "codex_turns_unavailable" }); }
+        return;
+      }
+
+      if (p === "/api/codex/items" && req.method === "GET") {
+        try {
+          await ensureCodexNativeProbe();
+          const params = {};
+          const cursor = url.searchParams.get("cursor");
+          const limit = url.searchParams.get("limit");
+          const turnId = url.searchParams.get("turnId");
+          const sortDirection = url.searchParams.get("sortDirection");
+          const itemsView = url.searchParams.get("itemsView");
+          if (cursor !== null) params.cursor = cursor;
+          if (limit !== null) params.limit = Number(limit);
+          if (turnId !== null) params.turnId = turnId;
+          if (sortDirection !== null) params.sortDirection = sortDirection;
+          if (itemsView !== null) params.itemsView = itemsView;
+          sendJSON(res, 200, { ...await codexNative.listThreadItems(url.searchParams.get("threadId") || "", params), adapter: codexNative.status() });
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "codex_items_unavailable" }); }
+        return;
+      }
+
       // Agent Hub inventory and task inbox.  The catalog contains only
       // allow-listed connector ids and executable availability; it never
       // exposes API keys, environment values, or arbitrary shell commands.
       if (p === "/api/agents" && req.method === "GET") {
-        await ensureOpenCodeNativeProbe();
+        await Promise.all([ensureOpenCodeNativeProbe(), ensureCodexNativeProbe()]);
         sendJSON(res, 200, {
           machine: MACHINE_NAME,
           platform: process.platform,
@@ -4440,7 +4545,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (p === "/api/agent-tasks" && req.method === "GET") {
-        await ensureOpenCodeNativeProbe();
+        await Promise.all([ensureOpenCodeNativeProbe(), ensureCodexNativeProbe()]);
         sendJSON(res, 200, { machine: MACHINE_NAME, generatedAt: Date.now(), tasks: await listAgentTasksWithOpenCode() });
         return;
       }
@@ -4453,6 +4558,16 @@ const server = http.createServer(async (req, res) => {
             const [session, statuses] = await Promise.all([openCodeNative.getSession(nativeSessionId), openCodeNative.sessionStatus()]);
             sendJSON(res, 200, { task: publicOpenCodeNativeTask(session, statuses[nativeSessionId]) });
           } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_task_unavailable" }); }
+          return;
+        }
+        if (taskId.startsWith("codex:")) {
+          try {
+            const nativeThreadId = taskId.slice("codex:".length);
+            const thread = await codexNative.readThread(nativeThreadId, { includeTurns: false });
+            const task = thread?.thread ? codexTaskFromThread(thread.thread) : null;
+            if (!task) { sendJSON(res, 404, { error: "no such codex thread" }); return; }
+            sendJSON(res, 200, { task: { ...task, adapter: codexNative.status() } });
+          } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "codex_task_unavailable" }); }
           return;
         }
         const task = agentTasks.get(taskId);
@@ -5541,6 +5656,7 @@ const server = http.createServer(async (req, res) => {
 
 function shutdown(signal) {
   clearInterval(openCodeNativeRetryTimer);
+  clearInterval(codexNativeRetryTimer);
   claudeAuth.close(); // Only its dedicated auth children, never normal agent tasks.
   if (shutdownState) {
     // A second signal means the caller is no longer willing to wait.  Kill
@@ -5555,7 +5671,10 @@ function shutdown(signal) {
   let historyDrained = false, historyFailed = false, pendingFinish = null;
   // Stop admission/revoke synchronously; do not exit ahead of owned reader
   // actual-close cleanup. Never stop a native agent task through this path.
-  const historyCleanup = historyHost.shutdown();
+  const historyCleanup = Promise.all([historyHost.shutdown(), codexNative.close()]).then(([historyResult, codexResult]) => ({
+    ...(historyResult || {}),
+    cleanupConfirmed: historyResult?.cleanupConfirmed === true && codexResult?.cleanupConfirmed !== false,
+  }));
   shutdownState = {
     signal,
     deadline: Date.now() + SHUTDOWN_GRACE_MS,

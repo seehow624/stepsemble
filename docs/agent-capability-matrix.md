@@ -1,6 +1,6 @@
 # Agent capability matrix
 
-狀態：Stepsemble 3.0.12 開發／發布驗收文件。這份矩陣把「上游 harness 官方提供什麼」和「Stepsemble 在目前版本實際驗證到什麼」分開，避免把某個 CLI 的輸出捕捉誤稱成原生 session parity。
+狀態：Stepsemble 3.0.25 開發／發布驗收文件。這份矩陣把「上游 harness 官方提供什麼」和「Stepsemble 在目前版本實際驗證到什麼」分開，避免把某個 CLI 的輸出捕捉誤稱成原生 session parity。
 
 ## Stepsemble 的驗證等級
 
@@ -19,7 +19,7 @@
 | Pi Agent | 原生 JSON-RPC session、stream、approval、history | `native_full` | 只對 Pi 自己的 store／RPC 做 full claim。 |
 | OpenCode | 官方 local server：health、session list/get/status、children、messages、abort、permission response、async prompt | **已完成 native adapter**；健康探測與 session probe 成功後標 `native_readonly`／`native_api`，可在 Agent Hub 開原生 session；重啟以 bounded checkpoint + reconcile 恢復 | 一般啟動模式必須明確設定 `STEPSEMBLE_OPENCODE_SERVER_URL`；macOS SSH launcher 若已有 owner-only `com.jerome.opencode-web.plist`，會把該本機服務設定帶入 child。仍不掃描隨機 port、不讀 `~/.opencode`、不寫入或公開密碼。若 server 未探測成功，仍是 `canonical_bounded` CLI。 |
 | Claude Code | 官方 CLI／SDK 支援 session ID resume、stream-json、permission prompt tool，以及以 `parent_tool_use_id` 轉送 subagent 文字 | Stepsemble 仍以 explicit source group 的 native read-only 或 bounded CLI 為準 | 官方介面足以做下一階段 structured adapter，但目前尚未把 CLI stream／resume／subagent transcript 接成 Stepsemble 的 native authority；未驗證的本機檔案不自動讀取。 |
-| Codex | 官方 `codex app-server` JSON-RPC 支援 thread read/list、turn/item lifecycle 與 server-initiated approval request | Stepsemble 已有明確 Codex history/approval bridge，但仍按版本／source gate 宣告 | approval 是否被 native server／auto-review 接手，必須看實際 request／completed evidence；不能只看 CLI transcript。 |
+| Codex | 官方 `codex app-server` JSON-RPC 支援 thread read/list、turn/item lifecycle 與 server-initiated approval request | Stepsemble 已接上明確 opt-in 的唯讀 app-server history adapter；Agent Hub／All conversations 可列出並開啟 native thread transcript，標示 `native_readonly`／`readOnly`。C3 approval bridge 仍是 Host-only seam | adapter 不會自動啟動；需 `STEPSEMBLE_CODEX_NATIVE=1`。不送 turn、不 resume、不 abort、不回答 approval；approval 是否被 native server／auto-review 接手，仍必須看實際 request／completed evidence。 |
 | Grok Build | 官方 CLI 支援 `--session-id`／`--resume`／`--continue`、`~/.grok/sessions`、streaming JSON，以及 `grok agent stdio` 的 ACP JSON-RPC；另有 permission mode、subagents、session list/search/export | `canonical_bounded` CLI | 官方能力已足以做候選 ACP adapter，但 Stepsemble 尚未完成 ACP session/load、permission request、subagent update 與重啟 contract suite；在此之前保留 terminal capture，不讀取未驗證的私有 session store。 |
 
 ## OpenCode native adapter 使用方式

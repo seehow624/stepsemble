@@ -1,17 +1,26 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：2.01（OpenCode native server adapter／cross-harness capability audit；native parity 仍分開驗收）
+> 計畫版本：2.02（Codex app-server readonly history／cross-harness capability audit；native parity 仍分開驗收）
 > 最後更新：2026-09-11
-> 當前產品基線：Stepsemble 3.0.12（由 Pi Harbor 2.13.2 相容遷移）
-> Mini／MacBook Pro 啟用版本：3.0.12／source `v3.0.12`（由 stable updater 取得）
+> 當前產品基線：Stepsemble 3.0.25（由 Pi Harbor 2.13.2 相容遷移）
+> Mini／MacBook Pro 啟用版本：3.0.25／source `v3.0.25`（由 stable updater 取得）
 > MBP 於 2026-09-10 上線後由既有 updater 自行完成 3.0.7→3.0.8，未經人工介入
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
 ## 文件用途與回復方法
 
-**目前任務2.01（2026-09-11，3.0.12 OpenCode native adapter）**：OpenCode 只在使用者
+**目前任務2.02（2026-09-12，3.0.25 Codex readonly history adapter）**：Codex 只在使用者
+明確設定 `STEPSEMBLE_CODEX_NATIVE=1` 且官方 `codex app-server` initialize／thread-list
+probe 成功時，才啟用 Agent Hub 的 native thread projection。對話檢視使用 metadata-only
+thread read，再以 bounded `thread/turns/list`／`thread/items/list` pages 組合最近歷史；每頁、
+cursor、JSONL frame 與 response bytes 都有上限，私有 rollout path 不會進 browser DTO。這個
+adapter 永遠是 read-only：不送 turn、不 resume、不 abort、不回答 approval；未設定、版本不符或
+上游失敗時回到既有 canonical bounded connector。Codex 的 native approval bridge 仍只是
+Host-only seam，未宣稱完整 C3 parity。
+
+**前一任務2.01（2026-09-11，3.0.12 OpenCode native adapter）**：OpenCode 只在使用者
 明確設定官方 server URL 且 health／session probe 成功時，才啟用原生 session、history、
 child、status、message、permission 與 restart reconcile。New Project 選取的合法目錄會以
 directory-scoped query 傳入 upstream；adapter 使用 bounded HTTP、單飛 probe、owner-only

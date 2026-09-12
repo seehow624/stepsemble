@@ -29,7 +29,10 @@ const APPROVAL_METHODS = Object.freeze([
   "item/fileChange/requestApproval",
   "item/permissions/requestApproval",
 ]);
-const CLIENT_METHODS = Object.freeze(["initialize", "thread/start", "thread/resume", "turn/start", "turn/interrupt"]);
+const CLIENT_METHODS = Object.freeze([
+  "initialize", "thread/start", "thread/resume", "thread/read", "thread/list",
+  "thread/turns/list", "thread/items/list", "turn/start", "turn/interrupt",
+]);
 const NATIVE_LIFECYCLE_NOTIFICATIONS = Object.freeze(new Set([
   "thread/started", "turn/started", "turn/completed", "item/started", "item/completed",
   "serverRequest/resolved", "thread/status/changed", "thread/closed", "thread/archived",
@@ -41,6 +44,14 @@ const THREAD_STATUS_TYPES = new Set(["notLoaded", "idle", "systemError", "active
 const THREAD_ACTIVE_FLAGS = new Set(["waitingOnApproval", "waitingOnUserInput"]);
 const TURN_STATUSES = new Set(["completed", "interrupted", "failed", "inProgress"]);
 const TURN_TERMINAL_STATUSES = new Set(["completed", "interrupted", "failed"]);
+const SORT_DIRECTIONS = new Set(["asc", "desc"]);
+const TURN_ITEMS_VIEWS = new Set(["notLoaded", "summary", "full"]);
+const THREAD_SORT_KEYS = new Set(["created_at", "updated_at", "recency_at", "section_position"]);
+const SESSION_SOURCES = new Set(["cli", "vscode", "exec", "appServer", "unknown"]);
+const MAX_HISTORY_CURSOR = 512;
+const MAX_HISTORY_PAGE = 100;
+const MAX_HISTORY_REQUEST_BYTES = 128 * 1024;
+const MAX_HISTORY_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 function plain(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -79,6 +90,157 @@ function bounded(value, limit = 64 * 1024) {
 
 function safeText(value, limit = 512) {
   return typeof value === "string" && !/[\u0000-\u001f\u007f]/.test(value) ? value.slice(0, limit) : "";
+}
+
+function historyCursor(value) {
+  return value === null || value === undefined
+    || typeof value === "string" && value.length <= MAX_HISTORY_CURSOR && !/[\u0000-\u001f\u007f]/.test(value)
+    ? value ?? null : null;
+}
+
+function historyLimit(value) {
+  if (value === null || value === undefined) return null;
+  return Number.isSafeInteger(value) && value >= 0 && value <= MAX_HISTORY_PAGE ? value : null;
+}
+
+function boundedHistory(value, limit = MAX_HISTORY_RESPONSE_BYTES) {
+  return bounded(value, limit);
+}
+
+function normalizeTurn(value) {
+  if (!plain(value) || !nativeId(value.id) || !TURN_STATUSES.has(value.status) || !Array.isArray(value.items)) return null;
+  const result = boundedHistory(value, 4 * 1024 * 1024);
+  if (!result || !Array.isArray(result.items)) return null;
+  return result;
+}
+
+function normalizeThreadItem(value) {
+  if (!plain(value) || !nativeId(value.id) || typeof value.type !== "string" || !value.type.length || value.type.length > 64) return null;
+  return boundedHistory(value, 4 * 1024 * 1024);
+}
+
+function normalizeThreadItemEntry(value) {
+  if (!plain(value) || !nativeId(value.turnId)) return null;
+  const item = normalizeThreadItem(value.item);
+  return item ? { turnId: value.turnId, item } : null;
+}
+
+function normalizeSessionSource(value) {
+  if (typeof value === "string") return SESSION_SOURCES.has(value) ? value : null;
+  if (!plain(value)) return null;
+  const keys = Reflect.ownKeys(value);
+  if (keys.length === 1 && keys[0] === "custom" && typeof value.custom === "string" && value.custom.length <= 256
+    && !/[\u0000-\u001f\u007f]/.test(value.custom)) return { custom: value.custom };
+  if (keys.length === 1 && keys[0] === "subAgent" && plain(value.subAgent)) return boundedHistory(value, 4 * 1024);
+  return null;
+}
+
+function normalizeThread(value) {
+  if (!plain(value)) return null;
+  const id = nativeId(value.id), sessionId = nativeId(value.sessionId);
+  if (!id || !sessionId || typeof value.cliVersion !== "string" || typeof value.modelProvider !== "string"
+    || typeof value.preview !== "string" || !Number.isSafeInteger(value.createdAt) || value.createdAt < 0
+    || !Number.isSafeInteger(value.updatedAt) || value.updatedAt < 0 || typeof value.cwd !== "string"
+    || !path.isAbsolute(value.cwd) || /[\u0000-\u001f\u007f]/.test(value.cwd)
+    || typeof value.ephemeral !== "boolean" || !Array.isArray(value.turns)) return null;
+  const source = normalizeSessionSource(value.source);
+  if (!source) return null;
+  const status = nativeThreadStatus(value.status);
+  if (!status) return null;
+  const parentThreadId = value.parentThreadId === null || value.parentThreadId === undefined ? null : nativeId(value.parentThreadId);
+  const forkedFromId = value.forkedFromId === null || value.forkedFromId === undefined ? null : nativeId(value.forkedFromId);
+  if (value.parentThreadId !== null && value.parentThreadId !== undefined && !parentThreadId
+    || value.forkedFromId !== null && value.forkedFromId !== undefined && !forkedFromId) return null;
+  const turns = value.turns.map(normalizeTurn);
+  if (turns.some(row => row === null)) return null;
+  return {
+    id,
+    sessionId,
+    parentThreadId,
+    forkedFromId,
+    name: value.name === null || value.name === undefined ? null : safeText(value.name, 512) || null,
+    cwd: safeText(value.cwd, 4096),
+    cliVersion: safeText(value.cliVersion, 128),
+    modelProvider: safeText(value.modelProvider, 128),
+    model: value.model === null || value.model === undefined ? null : safeText(value.model, 256) || null,
+    reasoningEffort: value.reasoningEffort === null || value.reasoningEffort === undefined ? null : safeText(value.reasoningEffort, 64) || null,
+    preview: safeText(value.preview, 4096),
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+    recencyAt: value.recencyAt === null || value.recencyAt === undefined ? null : Number.isSafeInteger(value.recencyAt) && value.recencyAt >= 0 ? value.recencyAt : null,
+    ephemeral: value.ephemeral,
+    status,
+    canAcceptDirectInput: value.canAcceptDirectInput === null || value.canAcceptDirectInput === undefined ? null : value.canAcceptDirectInput === true,
+    historyMode: safeText(value.historyMode, 64) || null,
+    source,
+    turns,
+    projectId: value.projectId === null || value.projectId === undefined ? null : safeText(value.projectId, 256) || null,
+  };
+}
+
+function normalizeThreadListResponse(value) {
+  value = boundedHistory(value);
+  if (!plain(value) || !Array.isArray(value.data) || value.data.length > MAX_HISTORY_PAGE) return null;
+  const data = value.data.map(normalizeThread);
+  if (data.some(row => row === null)) return null;
+  const nextCursor = historyCursor(value.nextCursor), backwardsCursor = historyCursor(value.backwardsCursor);
+  if (value.nextCursor !== undefined && nextCursor === null && value.nextCursor !== null
+    || value.backwardsCursor !== undefined && backwardsCursor === null && value.backwardsCursor !== null) return null;
+  return { data, nextCursor, backwardsCursor };
+}
+
+function normalizeThreadReadResponse(value) {
+  value = boundedHistory(value);
+  if (!plain(value)) return null;
+  const thread = normalizeThread(value.thread);
+  return thread ? { thread } : null;
+}
+
+function normalizeHistoryPageResponse(value, key = "data", normalize = value => boundedHistory(value, 4 * 1024 * 1024)) {
+  value = boundedHistory(value);
+  if (!plain(value) || !Array.isArray(value[key]) || value[key].length > MAX_HISTORY_PAGE) return null;
+  const data = value[key].map(normalize);
+  if (data.some(row => row === null)) return null;
+  const nextCursor = historyCursor(value.nextCursor), backwardsCursor = historyCursor(value.backwardsCursor);
+  if (value.nextCursor !== undefined && nextCursor === null && value.nextCursor !== null
+    || value.backwardsCursor !== undefined && backwardsCursor === null && value.backwardsCursor !== null) return null;
+  return { data, nextCursor, backwardsCursor };
+}
+
+function normalizeThreadTurnsResponse(value) {
+  return normalizeHistoryPageResponse(value, "data", normalizeTurn);
+}
+
+function normalizeThreadItemsResponse(value) {
+  return normalizeHistoryPageResponse(value, "data", normalizeThreadItemEntry);
+}
+
+function validHistoryRequest(params, { threadId = false } = {}) {
+  if (!plain(params) || bounded(params, MAX_HISTORY_REQUEST_BYTES) === null) return false;
+  if (threadId && !nativeId(params.threadId)) return false;
+  if (Object.hasOwn(params, "cursor") && historyCursor(params.cursor) !== params.cursor) return false;
+  if (Object.hasOwn(params, "limit") && params.limit !== null && historyLimit(params.limit) === null) return false;
+  if (Object.hasOwn(params, "sortDirection") && params.sortDirection !== null && !SORT_DIRECTIONS.has(params.sortDirection)) return false;
+  if (Object.hasOwn(params, "includeTurns") && typeof params.includeTurns !== "boolean") return false;
+  if (Object.hasOwn(params, "itemsView") && params.itemsView !== null && !TURN_ITEMS_VIEWS.has(params.itemsView)) return false;
+  if (Object.hasOwn(params, "sortKey") && params.sortKey !== null && !THREAD_SORT_KEYS.has(params.sortKey)) return false;
+  if (Object.hasOwn(params, "archived") && params.archived !== null && typeof params.archived !== "boolean") return false;
+  if (Object.hasOwn(params, "useStateDbOnly") && typeof params.useStateDbOnly !== "boolean") return false;
+  if (Object.hasOwn(params, "turnId") && params.turnId !== null && !nativeId(params.turnId)) return false;
+  if (Object.hasOwn(params, "cwd") && params.cwd !== null) {
+    const values = Array.isArray(params.cwd) ? params.cwd : [params.cwd];
+    if (values.length > 16 || values.some(value => typeof value !== "string" || !path.isAbsolute(value) || value.length > 4096)) return false;
+  }
+  if (Object.hasOwn(params, "ancestorThreadId") && params.ancestorThreadId !== null && !nativeId(params.ancestorThreadId)) return false;
+  if (Object.hasOwn(params, "parentThreadId") && params.parentThreadId !== null && !nativeId(params.parentThreadId)) return false;
+  for (const key of ["projectId", "sectionId", "searchTerm"]) {
+    if (Object.hasOwn(params, key) && params[key] !== null && (typeof params[key] !== "string" || params[key].length > 512 || /[\u0000-\u001f\u007f]/.test(params[key]))) return false;
+  }
+  if (Object.hasOwn(params, "modelProviders") && params.modelProviders !== null
+    && (!Array.isArray(params.modelProviders) || params.modelProviders.length > 32
+      || params.modelProviders.some(value => typeof value !== "string" || value.length > 128 || /[\u0000-\u001f\u007f]/.test(value)))) return false;
+  if (params.ancestorThreadId !== undefined && params.parentThreadId !== undefined && params.ancestorThreadId !== null && params.parentThreadId !== null) return false;
+  return true;
 }
 
 function nativeThreadStatus(value) {
@@ -324,6 +486,44 @@ function createCodexAppServerTransport({
       catch (error) { clearTimeout(timer); pending.delete(idKey(id)); rejectPromise(error); }
     });
   };
+
+  const ensureInitialized = () => initialized && !closed && !failure && ["ready", "thread_started", "turn_running", "reconciliation_required"].includes(state);
+
+  async function listThreads(params = {}) {
+    if (!ensureInitialized()) return reject("native_lifecycle_conflict");
+    if (!validHistoryRequest(params)) return reject("invalid_native_params");
+    const body = bounded(params, MAX_HISTORY_REQUEST_BYTES);
+    const response = await request("thread/list", body, { check: value => normalizeThreadListResponse(value) !== null });
+    const result = normalizeThreadListResponse(response);
+    return result ? { kind: "threads", ...result } : reject("native_response_invalid");
+  }
+
+  async function readThread(params = {}) {
+    if (!ensureInitialized()) return reject("native_lifecycle_conflict");
+    if (!validHistoryRequest(params, { threadId: true })) return reject("invalid_native_params");
+    const body = bounded(params, MAX_HISTORY_REQUEST_BYTES);
+    const response = await request("thread/read", body, { check: value => normalizeThreadReadResponse(value) !== null });
+    const result = normalizeThreadReadResponse(response);
+    return result ? { kind: "thread", ...result } : reject("native_response_invalid");
+  }
+
+  async function listThreadTurns(params = {}) {
+    if (!ensureInitialized()) return reject("native_lifecycle_conflict");
+    if (!validHistoryRequest(params, { threadId: true })) return reject("invalid_native_params");
+    const body = bounded(params, MAX_HISTORY_REQUEST_BYTES);
+    const response = await request("thread/turns/list", body, { check: value => normalizeThreadTurnsResponse(value) !== null });
+    const result = normalizeThreadTurnsResponse(response);
+    return result ? { kind: "thread_turns", ...result, threadId: params.threadId } : reject("native_response_invalid");
+  }
+
+  async function listThreadItems(params = {}) {
+    if (!ensureInitialized()) return reject("native_lifecycle_conflict");
+    if (!validHistoryRequest(params, { threadId: true })) return reject("invalid_native_params");
+    const body = bounded(params, MAX_HISTORY_REQUEST_BYTES);
+    const response = await request("thread/items/list", body, { check: value => normalizeThreadItemsResponse(value) !== null });
+    const result = normalizeThreadItemsResponse(response);
+    return result ? { kind: "thread_items", ...result, threadId: params.threadId, turnId: params.turnId ?? null } : reject("native_response_invalid");
+  }
 
   function correlation(expectedThread, expectedTurn = null) {
     if (!nativeId(expectedThread) || expectedThread !== threadId) return false;
@@ -608,6 +808,10 @@ function createCodexAppServerTransport({
     initialize,
     startThread,
     resumeThread,
+    listThreads,
+    readThread,
+    listThreadTurns,
+    listThreadItems,
     startTurn,
     interruptTurn,
     respondApproval,
@@ -635,6 +839,12 @@ module.exports = {
   CLIENT_METHODS,
   CODEX_NATIVE_VERSION,
   MAX_FRAME_BYTES,
+  MAX_HISTORY_PAGE,
+  normalizeThread,
+  normalizeThreadListResponse,
+  normalizeThreadReadResponse,
+  normalizeThreadTurnsResponse,
+  normalizeThreadItemsResponse,
   createCodexAppServerTransport,
   launchCodexAppServer,
 };

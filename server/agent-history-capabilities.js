@@ -46,6 +46,22 @@ function capabilityFor(agentId, { journalAvailable = false, nativeHistoryConfigu
       journalScope: journalAvailable ? "host-local" : "unavailable",
     };
   }
+  if (id === "codex" && adapter?.ready === true && adapter?.adapter === "codex-app-server-v2") {
+    return {
+      ...base,
+      mode: "native_readonly",
+      history: "native_readonly",
+      subagents: "native_readonly",
+      approval: "unavailable",
+      session: "native_readonly",
+      source: "codex-app-server-v2",
+      adapter: adapter.adapter,
+      nativeVersion: adapter.nativeVersion || adapter.version || null,
+      readOnly: true,
+      journal,
+      journalScope: journalAvailable ? "host-local" : "unavailable",
+    };
+  }
   if (historyConfiguredFor(id, nativeHistoryConfigured) && ["claude-code", "codex"].includes(id)) {
     return { ...base, mode: "native_readonly", history: "native_readonly", source: "history-config", subagents: "native_readonly", journal, journalScope: journalAvailable ? "host-local" : "unavailable" };
   }

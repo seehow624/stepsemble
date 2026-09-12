@@ -22,6 +22,17 @@ test("history capability metadata distinguishes native, prepared read-only and b
   assert.equal(openCode.subagents, "native_readonly");
   assert.equal(openCode.approval, "native_api");
   assert.equal(openCode.source, "opencode-server-v2");
+  const codex = capabilityFor("codex", { journalAvailable: true, nativeAdapterStatus: {
+    configured: true, ready: true, state: "ready", nativeVersion: "0.153.4", adapter: "codex-app-server-v2",
+  } });
+  assert.equal(codex.mode, "native_readonly");
+  assert.equal(codex.history, "native_readonly");
+  assert.equal(codex.subagents, "native_readonly");
+  assert.equal(codex.approval, "unavailable");
+  assert.equal(codex.session, "native_readonly");
+  assert.equal(codex.source, "codex-app-server-v2");
+  assert.equal(codex.nativeVersion, "0.153.4");
+  assert.equal(codex.readOnly, true);
 });
 
 test("connector catalog exposes the host-local relay boundary without claiming upstream ACK support", () => {
@@ -57,5 +68,22 @@ test("OpenCode catalog only upgrades after an adapter health and session probe",
   assert.equal(native.history.mode, "native_api");
   assert.equal(native.history.history, "native_readonly");
   assert.equal(native.history.approval, "native_api");
+  assert.equal(native.nativeAdapter.ready, true);
+});
+
+test("Codex catalog only upgrades after the readonly app-server probe", () => {
+  const degraded = discoverConnectors({ piBin: process.execPath, env: { PATH: "" }, includeKnownPaths: false, durableJournal: true,
+    nativeAdapterStatus: { codex: { configured: true, ready: false, state: "degraded", lastError: "timeout", adapter: "codex-app-server-v2" } } });
+  const fallback = degraded.find(item => item.id === "codex");
+  assert.equal(fallback.history.history, "canonical_bounded");
+  assert.equal(fallback.history.nativeAdapter.ready, false);
+
+  const ready = discoverConnectors({ piBin: process.execPath, env: { PATH: "" }, includeKnownPaths: false, durableJournal: true,
+    nativeAdapterStatus: { codex: { configured: true, ready: true, state: "ready", nativeVersion: "0.153.4", adapter: "codex-app-server-v2" } } });
+  const native = ready.find(item => item.id === "codex");
+  assert.equal(native.history.mode, "native_readonly");
+  assert.equal(native.history.history, "native_readonly");
+  assert.equal(native.history.approval, "unavailable");
+  assert.equal(native.history.nativeVersion, "0.153.4");
   assert.equal(native.nativeAdapter.ready, true);
 });

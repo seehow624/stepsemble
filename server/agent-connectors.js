@@ -337,7 +337,7 @@ function publicDefinition(definition, options = {}) {
         configured: options.nativeAdapterStatus.configured === true,
         ready: options.nativeAdapterStatus.ready === true,
         approvalReady: options.nativeAdapterStatus.approvalReady !== false,
-        version: options.nativeAdapterStatus.version || null,
+        version: options.nativeAdapterStatus.version || options.nativeAdapterStatus.nativeVersion || null,
         reason: options.nativeAdapterStatus.lastError || null,
       }
       : null,
