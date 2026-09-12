@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.0.29
+
+Keep mobile launches on the Sessions home instead of reopening the last chat.
+
+- Desktop reloads still restore the last conversation for continuity.
+- Touch devices with a narrow viewport skip automatic chat/task restoration on
+  startup, while explicit deep links and user taps continue to open sessions.
+- Returning from a mobile back-forward cache page also resets to Sessions.
+
+Validation: full client, syntax/session, protocol, and Node test suites passed.
+
 ## 3.0.28
 
 Fix the Agent Hub Task center Stop action on iPhone-sized layouts.

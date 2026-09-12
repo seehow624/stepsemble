@@ -1080,7 +1080,7 @@ test("sign-in help explains how to read the token on macOS, Linux, and Windows",
   assert.match(app, /selectTokenHelpOs\(tokenHelpOsFromPlatform\(m\.platform\)\)/);
 });
 
-test("reopening the app returns to the conversation the user had open", () => {
+test("desktop reload restores a chat while mobile launches stay on Sessions", () => {
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   // The last chat is remembered per device at every point the file becomes
   // known: opening an existing session and a new chat's first persisted file.
@@ -1090,6 +1090,8 @@ test("reopening the app returns to the conversation the user had open", () => {
   assert.match(app, /function rememberLastAgentTask\(taskId\)/);
   assert.match(app, /function readLastAgentTask\(\)/);
   assert.match(app, /function restoreLastChat\(\)/);
+  assert.match(app, /function shouldRestoreLastChat\(\)/);
+  assert.match(app, /if \(!shouldRestoreLastChat\(\)\) return;/);
   assert.match(app, /await openAgentTaskFromHub\(task\)/);
   assert.match(app, /await openExisting\(session\)/);
   const openHits = (app.match(/rememberLastChat\(s\.file\)/g) || []).length;
@@ -1102,6 +1104,8 @@ test("reopening the app returns to the conversation the user had open", () => {
   assert.match(app, /void restoreLastChat\(\)/);
   assert.match(app, /if \(lastChatRestoreAttempted\) return;/);
   assert.match(app, /if \(el\.onboarding && !el\.onboarding\.classList\.contains\("hidden"\)\) return;/);
+  assert.match(app, /window\.addEventListener\("pageshow", \(event\) => \{/);
+  assert.match(app, /if \(!event\.persisted \|\| shouldRestoreLastChat\(\) \|\| el\.viewChat\?\.classList\.contains\("hidden"\)\) return;/);
   // Machine-scoped: the same browser can point at two different devices.
   assert.match(app, /raw\[lastChatMachineKey\(\)\] = String\(file\)/);
 });

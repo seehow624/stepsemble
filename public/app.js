@@ -1,7 +1,7 @@
-/* stepsemble v3.0.28 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.29 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.28";
+const CLIENT_APP_VERSION = "3.0.29";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -2361,7 +2361,9 @@ function syncSessionListPolling() {
 }
 
 // ---------------------------------------------------------------------------
-// Reopen the conversation the user had open before a reload
+// Restore the last conversation on desktop reloads, but keep mobile launches
+// on the Sessions home. A phone app is usually reopened as a task switcher
+// launch, not as a deliberate request to reopen the previous conversation.
 // ---------------------------------------------------------------------------
 
 const LAST_CHAT_KEY = "stepsemble.last-chat.v1";
@@ -2369,6 +2371,18 @@ const LAST_AGENT_TASK_KEY = "stepsemble.last-agent-task.v1";
 const LEGACY_LAST_CHAT_KEYS = Object.freeze(["piharbor.last-chat.v1", "piweb.last-chat.v1"]);
 const LEGACY_LAST_AGENT_TASK_KEYS = Object.freeze(["piharbor.last-agent-task.v1", "piweb.last-agent-task.v1"]);
 let lastChatRestoreAttempted = false;
+
+function shouldRestoreLastChat() {
+  try {
+    const narrow = matchMedia("(max-width: 760px)").matches;
+    const touch = matchMedia("(pointer: coarse)").matches || Number(navigator.maxTouchPoints) > 0;
+    return !(narrow && touch);
+  } catch {
+    // Older embedded browsers should retain the safer desktop behaviour when
+    // they cannot expose viewport or touch capability information.
+    return true;
+  }
+}
 
 function lastChatMachineKey() {
   return selectedId || selfId || "local";
@@ -2420,6 +2434,7 @@ function readLastAgentTask() {
 async function restoreLastChat() {
   if (lastChatRestoreAttempted) return;
   lastChatRestoreAttempted = true;
+  if (!shouldRestoreLastChat()) return;
   const taskId = readLastAgentTask();
   if (taskId) {
     const task = agentTasks.find((item) => String(item.id || item.taskId || "") === taskId);
@@ -11469,7 +11484,15 @@ function lockMobilePortrait() {
   if (typeof screen.orientation?.lock !== "function") return;
   screen.orientation.lock("portrait").catch(() => {});
 }
-window.addEventListener("pageshow", lockMobilePortrait);
+window.addEventListener("pageshow", (event) => {
+  lockMobilePortrait();
+  // A mobile page can return from the back-forward cache without running
+  // boot() again. Treat that as a fresh app launch and return to Sessions;
+  // otherwise the old chat remains visually restored even though no explicit
+  // conversation was opened by the user.
+  if (!event.persisted || shouldRestoreLastChat() || el.viewChat?.classList.contains("hidden")) return;
+  showList({ refresh: false });
+});
 
 // ===========================================================================
 // 啟動
