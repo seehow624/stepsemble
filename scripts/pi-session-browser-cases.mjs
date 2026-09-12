@@ -116,6 +116,8 @@ export async function runPiSessionBrowserCases(browser) {
       for (const task of detached.filter(task => task.status === "waiting")) {
         await context.request.post(base + "/api/close", { data: { sid: task.id.slice(3) } });
       }
+      const agentHubToggle = page.locator("#agent-hub-toggle");
+      if (await agentHubToggle.getAttribute("aria-expanded") !== "true") await agentHubToggle.click();
       await waitTasks(tasks => tasks.some(task => task.status === "stopped"));
       await page.locator("#agent-hub-refresh").click();
       await page.locator("#agent-task-list .agent-task-row.stopped").waitFor();

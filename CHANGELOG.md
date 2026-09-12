@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.21
+
+Keep the synthetic Pi session browser coverage aligned with a collapsed Agent Hub.
+
+- Expand the live Agent Hub preview in the browser case before asserting the
+  stopped Pi task row, preserving the product's clean collapsed default.
+
+Validation: full Node suite, JavaScript checks, and rolling browser coverage.
+
 ## 3.0.20
 
 Keep browser compatibility coverage aligned with the Settings-based Claude sign-in panel.
