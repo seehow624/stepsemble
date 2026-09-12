@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.0.28
+
+Fix the Agent Hub Task center Stop action on iPhone-sized layouts.
+
+- Reset native button appearance so Safari does not apply a platform-specific
+  shape or baseline to the task action.
+- Give Stop a stable, centered 60–64px trailing control with a 44px touch
+  target; long task names, timestamps, and narrow rows can no longer squeeze
+  or distort it.
+
+Validation: client build check, full syntax/session checks, protocol checks, and
+the release workflow.
+
 ## 3.0.27
 
 Add opt-in structured adapters for Claude Code and Grok Build, plus a second

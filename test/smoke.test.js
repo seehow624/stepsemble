@@ -224,7 +224,8 @@ test("Task center keeps the mobile inbox compact, searchable, and independently 
   assert.match(css, /\.agent-task-center-list\s*\{[\s\S]*?min-height:\s*0[\s\S]*?overflow-y:\s*auto/);
   assert.match(css, /\.agent-task-center-row\s*\{[\s\S]*?grid-template-columns:\s*28px\s+minmax\(0,\s*1fr\)\s+auto/);
   assert.match(css, /@media \(max-width: 499px\)[\s\S]*?\.agent-task-center-sheet\s*\{[\s\S]*?max-height:\s*calc\(100dvh - 5px\)/);
-  assert.match(css, /\.agent-task-center-stop\s*\{[\s\S]*?min-height:\s*44px/);
+  assert.match(css, /\.agent-task-center-stop\s*\{[\s\S]*?appearance:\s*none[\s\S]*?-webkit-appearance:\s*none[\s\S]*?display:\s*inline-flex[\s\S]*?justify-content:\s*center[\s\S]*?flex:\s*0 0 64px[\s\S]*?min-height:\s*44px[\s\S]*?white-space:\s*nowrap/);
+  assert.match(css, /@media \(max-width: 359px\)[\s\S]*?\.agent-task-center-stop\s*\{[\s\S]*?flex-basis:\s*60px[\s\S]*?width:\s*60px/);
   assert.match(app, /Empty output is not actionable information/);
   assert.match(app, /open\.setAttribute\("aria-label"/);
   assert.match(app, /stop\.setAttribute\("aria-label"/);
