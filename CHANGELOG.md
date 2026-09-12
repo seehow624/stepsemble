@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.0.20
+
+Keep browser compatibility coverage aligned with the Settings-based Claude sign-in panel.
+
+- Update the synthetic Claude auth browser cases to open Settings before
+  interacting with the moved sign-in disclosure, including after reload.
+
+Validation: full Node suite, JavaScript checks, and rolling browser coverage
+against the released Settings layout.
+
 ## 3.0.19
 
 Keep the Sessions page focused while preserving access to agent controls.

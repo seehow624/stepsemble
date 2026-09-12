@@ -42,6 +42,7 @@ export async function runClaudeAuthBrowserCases(browser, { screenshotDirectory }
       const token = (await fs.readFile(path.join(home, ".config/stepsemble/token"), "utf8")).trim();
       await page.locator("#login-onboarding-skip").click();
       await page.locator("#login-token").fill(token); await page.locator("#login-form button").click();
+      await page.locator("#btn-open-settings").click();
       await page.locator("#claude-auth summary").click(); await state("signed_out");
       assert.match(await page.locator("#claude-auth-note").textContent(), /瀏覽器/);
       await page.locator("#claude-auth-start").click(); await state("login_waiting");
@@ -61,9 +62,9 @@ export async function runClaudeAuthBrowserCases(browser, { screenshotDirectory }
       assert.equal(requests.filter(row => row.url.endsWith("/start")).length, 2, "Only two explicit user starts");
       assert.equal(await fs.readFile(path.join(home, "synthetic-claude-login-attempts"), "utf8"), "attempt\nattempt\n");
       // A reload recovers metadata; it must never replay the login mutation.
-      await page.reload(); await page.locator("#claude-auth summary").click(); await state("login_completed");
+      await page.reload(); await page.locator("#btn-open-settings").click();
+      await page.locator("#claude-auth summary").click(); await state("login_completed");
       assert.equal(requests.filter(row => row.url.endsWith("/start")).length, 2);
-      await page.locator("#btn-open-settings").click();
       await page.locator("#set-locale").selectOption("en");
       assert.match(await page.locator("#claude-auth-note").textContent(), /^Official sign-in/);
       await page.locator("#set-locale").selectOption("zh-Hant");

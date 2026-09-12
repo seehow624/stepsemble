@@ -15,3 +15,9 @@ the visible Settings disclosure so a hidden panel cannot continue polling.
 - JavaScript, version-source, and whitespace checks;
 - full Node test suite;
 - clean diff before publishing.
+
+## Follow-up
+
+The first 3.0.19 browser run exposed a test-harness assumption that Claude
+sign-in was still on the Sessions page. The product move is intentional; the
+synthetic browser case now opens Settings before checking the same auth flow.
