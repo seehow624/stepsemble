@@ -200,6 +200,8 @@ test("Agent Hub stays bounded so the main Sessions list keeps its own viewport",
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   assert.match(css, /#view-list\s*\{[\s\S]*?min-height:\s*0[\s\S]*?overflow:\s*hidden/);
   assert.match(css, /\.agent-hub-card\s*\{[\s\S]*?max-height:\s*min\(30dvh,\s*260px\)[\s\S]*?display:\s*flex[\s\S]*?flex-direction:\s*column[\s\S]*?overflow:\s*hidden/);
+  assert.match(css, /\.agent-hub-card\.has-active-tasks\s*\{[\s\S]*?height:\s*clamp\(172px,\s*30dvh,\s*260px\)/);
+  assert.match(fs.readFileSync(path.join(root, "public", "app.js"), "utf8"), /classList\.toggle\("has-active-tasks",\s*active\s*>\s*0\)/);
   assert.match(css, /\.agent-hub-connectors\s*\{[\s\S]*?flex-wrap:\s*nowrap[\s\S]*?overflow-x:\s*auto/);
   assert.match(css, /\.agent-task-list\s*\{[\s\S]*?min-height:\s*0[\s\S]*?overflow-y:\s*auto/);
   assert.match(css, /\.session-section-heading\s*\{[\s\S]*?flex:\s*0\s+0\s+auto/);

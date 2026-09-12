@@ -1,4 +1,4 @@
-/* stepsemble v3.0.17 — Ink & Ivory / English-first localization */
+/* stepsemble v3.0.18 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -1779,6 +1779,12 @@ body.image-lightbox-open { overflow: hidden; }
   border: .5px solid var(--line);
   border-radius: 18px;
   background: color-mix(in srgb, var(--paper) 76%, var(--milk));
+}
+.agent-hub-card.has-active-tasks {
+  /* A fixed block-size closes the flex min-content loophole on mobile WebKit
+     and Chromium: active rows can scroll inside the preview without pushing
+     the Sessions heading below the viewport. */
+  height: clamp(172px, 30dvh, 260px);
 }
 .agent-hub-heading { display: flex; flex: 0 0 auto; align-items: center; flex-wrap: wrap; gap: 10px; }
 .agent-hub-heading > div { min-width: 0; flex: 1; }

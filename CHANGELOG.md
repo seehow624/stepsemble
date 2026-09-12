@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.0.18
+
+Keep active Agent Hub tasks inside a bounded live preview.
+
+- Mark the Agent Hub card while a task is starting, running, or reconnecting so
+  asynchronous task rows cannot expand the sidebar through flex min-content
+  sizing.
+- Reserve a compact card height for active work and keep the task list's
+  vertical scroll surface inside that card, leaving the Sessions heading and
+  list reachable.
+
+Validation: Agent Hub layout smoke coverage, JavaScript checks, and the full
+Node suite.
+
 ## 3.0.17
 
 Keep Sessions visible when Agent Hub has dense content.

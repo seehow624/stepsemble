@@ -1,7 +1,7 @@
-/* stepsemble v3.0.17 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.18 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.17";
+const CLIENT_APP_VERSION = "3.0.18";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -1724,6 +1724,10 @@ function renderAgentHub() {
   const connectors = Array.isArray(agentCatalog) ? agentCatalog : [];
   const ready = connectors.filter((item) => item.installed).length;
   const active = agentTasks.filter(agentTaskIsRunning).length;
+  // An active task makes the preview a real live surface. Mark that state on
+  // the card so CSS can reserve a bounded box even while rows are being
+  // inserted asynchronously; the task list then owns the inner scroll.
+  el.agentHubCard.classList.toggle("has-active-tasks", active > 0);
   if (el.agentHubTitle) el.agentHubTitle.textContent = agentHubText("title");
   if (el.agentHubSummary) {
     el.agentHubSummary.textContent = agentCatalogError ? agentHubText("unavailable") : connectors.length
