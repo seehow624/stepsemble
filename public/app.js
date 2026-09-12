@@ -1,7 +1,7 @@
-/* stepsemble v3.0.26 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.27 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.26";
+const CLIENT_APP_VERSION = "3.0.27";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -180,6 +180,8 @@ let agentTaskPollTimer = null;
 let agentHubTicker = null;
 let openCodeNativePollTimer = null;
 let codexNativePollTimer = null;
+let grokAcpPollTimer = null;
+let claudeStructuredPollTimer = null;
 let codexNativeHistoryButton = null;
 let agentCatalogRequest = null;
 let newAgentStartPending = false;
@@ -2190,6 +2192,8 @@ async function openAgentTaskFromHub(task) {
       { file, cwd: task.cwd || "", name: task.sessionName || null, firstMessage: task.firstMessage });
   }
   if (task.nativeCodex === true || task.nativeThreadId && task.agentId === "codex") return openCodexNativeTask(task);
+  if (task.nativeGrokAcp === true || task.nativeSessionId && task.agentId === "grok-build") return openGrokAcpTask(task);
+  if (task.nativeClaudeStructured === true || task.nativeSessionId && task.agentId === "claude-code") return openClaudeStructuredTask(task);
   if (task.nativeOpenCode === true || task.nativeSessionId) return openOpenCodeNativeTask(task);
   return openGenericTask(task);
 }
@@ -4001,7 +4005,22 @@ function genericTaskTerminal(status) {
 }
 
 function genericInputBlock(connection = rpc) {
-  if (connection?.nativeCodex) return "taskReadOnly";
+  if (connection?.nativeCodex && !connection.nativeCodexMutation) return "taskReadOnly";
+  if (connection?.nativeCodexMutation) {
+    if (genericTaskTerminal(connection.taskStatus)) return "taskReadOnly";
+    if (connection.nativeLoading || connection.connectionLost || connection.stopPending || !["running", "waiting"].includes(connection.taskStatus)) return "inputUnavailable";
+    return null;
+  }
+  if (connection?.nativeClaudeStructured) {
+    if (genericTaskTerminal(connection.taskStatus)) return "taskReadOnly";
+    if (connection.nativeLoading || connection.connectionLost || connection.stopPending || !["running", "waiting"].includes(connection.taskStatus)) return "inputUnavailable";
+    return null;
+  }
+  if (connection?.nativeGrokAcp) {
+    if (genericTaskTerminal(connection.taskStatus)) return "taskReadOnly";
+    if (connection.nativeLoading || connection.connectionLost || connection.stopPending || !["running", "waiting"].includes(connection.taskStatus)) return "inputUnavailable";
+    return null;
+  }
   if (connection?.nativeOpenCode) {
     if (genericTaskTerminal(connection.taskStatus)) return "taskReadOnly";
     if (connection.stopPending || connection.nativeLoading || !["running", "waiting"].includes(connection.taskStatus)) return "inputUnavailable";
@@ -4236,7 +4255,7 @@ function applyGenericTaskSnapshot(snapshot = {}) {
   // Codex native history is deliberately read-only. Even an active native
   // thread must not expose the generic abort/send controls through this
   // metadata-only adapter.
-  setStreaming(rpc.nativeCodex ? false : agentTaskIsRunning({ status }));
+  setStreaming(rpc.nativeCodex && !rpc.nativeCodexMutation ? false : agentTaskIsRunning({ status }));
   if (genericTaskTerminal(status)) appendGenericTerminalNotice(status, snapshot);
 }
 
@@ -4702,7 +4721,7 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
     if (!initial) connection.nativeTranscriptState.error ||= connection.nativeTranscriptState.olderError;
     const thread = page.thread;
     const status = nativeCodexStatus(thread);
-    applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: "codex", nativeCodex: true,
+    applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: "codex", nativeCodex: true, nativeCodexMutation: connection.nativeCodexMutation,
       nativeThreadId: connection.nativeThreadId, nativeSessionId: thread?.sessionId || connection.nativeThreadId,
       name: connection.name, cwd: thread?.cwd || connection.cwd, status,
       startedAt: connection.runStartedAt, lastActivityAt: thread?.updatedAt || Date.now() });
@@ -4764,6 +4783,7 @@ async function openCodexNativeTask(task, generationOverride = null) {
     sid: `codex:${nativeThreadId}`,
     generic: true,
     nativeCodex: true,
+    nativeCodexMutation: task.mutation === "native_api" || task.readOnly === false,
     nativeThreadId,
     nativeLoading: true,
     nativeRenderedRevision: null,
@@ -4871,6 +4891,213 @@ async function openOpenCodeNativeTask(task, generationOverride = null) {
   }
 }
 
+function renderGrokAcpEvents(connection, events, { replace = false } = {}) {
+  if (rpc !== connection || !connection?.nativeGrokAcp) return;
+  const rows = Array.isArray(events) ? events : [];
+  if (replace) { el.messages.innerHTML = ""; connection.grokEventIndex = 0; }
+  for (let index = connection.grokEventIndex || 0; index < rows.length; index += 1) {
+    const event = rows[index];
+    const update = event?.update;
+    const content = update?.content;
+    if (update?.sessionUpdate === "agent_message_chunk" && content?.text) appendGenericOutput(String(content.text), "stdout");
+    else if (update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") {
+      appendGenericOutput(`[${String(content?.text || update.title || "tool").slice(0, 512)}]`, "stdout");
+    }
+  }
+  connection.grokEventIndex = rows.length;
+  keepSessionUsageAtEnd();
+  scrollBottom();
+}
+
+function renderGrokAcpPermissions(connection, permissions) {
+  if (rpc !== connection || !connection?.nativeGrokAcp) return;
+  for (const permission of Array.isArray(permissions) ? permissions : []) {
+    const id = String(permission?.id ?? "");
+    if (!id || [...(el.messages?.querySelectorAll("[data-grok-permission]") || [])]
+      .some(node => node.dataset.grokPermission === id)) continue;
+    const shell = makeMsgShell("assistant", connection.agentLabel || "Grok Build");
+    const card = document.createElement("div");
+    card.className = "agent-approval-card";
+    card.dataset.grokPermission = id;
+    const title = document.createElement("strong");
+    title.textContent = "Grok Build permission required";
+    const toolCall = permission.params?.toolCall || {};
+    const summary = document.createElement("p");
+    summary.textContent = String(toolCall.title || permission.params?.method || "The agent is requesting permission.").slice(0, 1000);
+    const state = document.createElement("small");
+    state.dataset.role = "approval-state";
+    state.textContent = "Waiting for your decision";
+    const actions = document.createElement("div");
+    actions.className = "agent-approval-actions";
+    const options = Array.isArray(permission.params?.options) ? permission.params.options : [];
+    for (const option of options) {
+      const optionId = String(option?.optionId || "");
+      const label = String(option?.name || optionId || "Choose").slice(0, 120);
+      if (!optionId || !label) continue;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = String(option?.kind || "").startsWith("reject") ? "btn ghost" : "btn primary";
+      button.textContent = label;
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        actions.querySelectorAll("button").forEach(item => { item.disabled = true; });
+        try {
+          await post("/api/grok/acp/permission", { requestId: permission.id,
+            result: { outcome: { outcome: "selected", optionId } } });
+          state.textContent = `Decision sent: ${label} · waiting for Grok confirmation`;
+        } catch (error) {
+          state.textContent = error?.message || "Could not record the decision";
+          actions.querySelectorAll("button").forEach(item => { item.disabled = false; });
+        }
+      });
+      actions.appendChild(button);
+    }
+    if (!actions.children.length) {
+      state.textContent = "No valid ACP options were provided; request is blocked.";
+    }
+    card.append(title, summary, state, actions);
+    shell.bubble.appendChild(card);
+  }
+}
+
+async function refreshGrokAcpSnapshot(connection, { initial = false } = {}) {
+  if (!connection || rpc !== connection || !connection.nativeGrokAcp) return;
+  try {
+    const [snapshot, pending] = await Promise.all([
+      api(`/api/grok/acp/events?sessionId=${encodeURIComponent(connection.nativeSessionId)}`),
+      api("/api/grok/acp/pending"),
+    ]);
+    if (rpc !== connection) return;
+    renderGrokAcpEvents(connection, snapshot?.events, { replace: initial });
+    renderGrokAcpPermissions(connection, pending?.permissions);
+    connection.nativeLoading = false;
+    connection.connectionLost = false;
+    connection.taskStatus = snapshot?.adapter?.sessionReady ? "waiting" : connection.taskStatus;
+    syncGenericInputState();
+  } catch {
+    if (rpc !== connection) return;
+    connection.nativeLoading = false;
+    connection.connectionLost = true;
+    syncGenericInputState();
+  }
+}
+
+async function openGrokAcpTask(task, generationOverride = null) {
+  if (!task) return;
+  const nativeSessionId = String(task.nativeSessionId || task.id || "").replace(/^grok-build:/, "");
+  if (!nativeSessionId) return;
+  const cwd = task.cwd || "";
+  const name = task.name || "Grok Build";
+  rememberLastAgentTask(task.id || `grok-build:${nativeSessionId}`);
+  beginDraftScope({ cwd, name });
+  const generation = generationOverride === null ? ++viewGeneration : generationOverride;
+  if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
+  resetTaskProgress(); resetProjectChanges(); resetComposerSummary();
+  currentSessionFile = null; currentAgentTaskId = `grok-build:${nativeSessionId}`; updateSessionSelection();
+  _lastMsgDate = null; lastUserText = ""; currentSessionCwd = cwd; historyState = null; removeHistoryLoadButton();
+  autoScrollPinned = true; hideChatEmpty(); setChatTitle(name); setChatAgent("grok-build");
+  el.chatSub.dataset.base = cwd; el.chatSub.textContent = cwd; resetLiveUsage(); el.messages.innerHTML = ""; resetSessionUsage(); ensureSessionUsageFooter();
+  if (!isDesktop()) { el.viewList.classList.add("hidden"); syncSessionListPolling(); }
+  el.viewChat.classList.remove("hidden"); void refreshProjectChanges({ background: true });
+  rpc = { sid: `grok-build:${nativeSessionId}`, generic: true, nativeGrokAcp: true, nativeSessionId,
+    nativeLoading: true, connectionLost: false, stopPending: false, streamReady: true, taskStatus: "waiting",
+    genericOutputNode: null, genericTerminalNotice: null, genericInputEchoes: [], grokEventIndex: 0,
+    agentId: "grok-build", agentLabel: "Grok Build", name, cwd, runStartedAt: Number(task.startedAt) || Date.now(), runEndedAt: null };
+  const connection = rpc;
+  grokAcpPollTimer = null;
+  try {
+    await refreshGrokAcpSnapshot(connection, { initial: true });
+    if (rpc !== connection || generation !== viewGeneration) return;
+    grokAcpPollTimer = setInterval(() => void refreshGrokAcpSnapshot(connection), 2000);
+    syncGenericInputState();
+  } catch (error) {
+    if (rpc === connection && generation === viewGeneration) { toast(tKey("runtime.openChatFailed", { detail: error.message }), true); closeChat(true); showList(); }
+  }
+}
+
+function renderClaudeStructuredEvents(connection, events, { replace = false } = {}) {
+  if (rpc !== connection || !connection?.nativeClaudeStructured) return;
+  const rows = Array.isArray(events) ? events : [];
+  if (replace) { el.messages.innerHTML = ""; connection.claudeEventIndex = 0; }
+  for (let index = connection.claudeEventIndex || 0; index < rows.length; index += 1) {
+    const event = rows[index];
+    const text = event?.delta || event?.text || event?.result || event?.message?.content?.find?.(part => part?.type === "text")?.text || "";
+    if (text) appendGenericOutput(String(text), "stdout");
+  }
+  connection.claudeEventIndex = rows.length;
+  keepSessionUsageAtEnd(); scrollBottom();
+}
+
+function renderClaudeStructuredPermissions(connection, permissions) {
+  if (rpc !== connection || !connection?.nativeClaudeStructured) return;
+  for (const permission of Array.isArray(permissions) ? permissions : []) {
+    const id = String(permission?.request_id || permission?.requestId || permission?.eventId || "");
+    if (!id || [...(el.messages?.querySelectorAll("[data-claude-permission]") || [])]
+      .some(node => node.dataset.claudePermission === id)) continue;
+    const shell = makeMsgShell("assistant", connection.agentLabel || "Claude Code");
+    const card = document.createElement("div");
+    card.className = "agent-approval-card";
+    card.dataset.claudePermission = id;
+    const title = document.createElement("strong");
+    title.textContent = "Claude Code permission required";
+    const summary = document.createElement("p");
+    summary.textContent = String(permission.message || permission.tool || permission.name || "Claude Code requested permission.").slice(0, 1000);
+    const state = document.createElement("small");
+    state.dataset.role = "approval-state";
+    state.textContent = "Claude's public stream does not expose an approval response envelope.";
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent = "Configure Claude Code's permission-prompt-tool (MCP) to own this decision. Stepsemble will not fabricate an ACK.";
+    card.append(title, summary, state, note);
+    shell.bubble.appendChild(card);
+  }
+}
+
+async function refreshClaudeStructuredSnapshot(connection, { initial = false } = {}) {
+  if (!connection || rpc !== connection || !connection.nativeClaudeStructured) return;
+  try {
+    const [snapshot, pending] = await Promise.all([
+      api(`/api/claude/structured/events?sessionId=${encodeURIComponent(connection.nativeSessionId)}`),
+      api(`/api/claude/structured/pending?sessionId=${encodeURIComponent(connection.nativeSessionId)}`),
+    ]);
+    if (rpc !== connection) return;
+    renderClaudeStructuredEvents(connection, snapshot?.events, { replace: initial });
+    renderClaudeStructuredPermissions(connection, pending?.permissions);
+    connection.nativeLoading = false; connection.connectionLost = false; syncGenericInputState();
+  } catch {
+    if (rpc !== connection) return;
+    connection.nativeLoading = false; connection.connectionLost = true; syncGenericInputState();
+  }
+}
+
+async function openClaudeStructuredTask(task, generationOverride = null) {
+  if (!task) return;
+  const nativeSessionId = String(task.id || task.taskId || "").replace(/^claude-code:/, "");
+  if (!nativeSessionId) return;
+  const cwd = task.cwd || ""; const name = task.name || "Claude Code";
+  rememberLastAgentTask(task.id || `claude-code:${nativeSessionId}`); beginDraftScope({ cwd, name });
+  const generation = generationOverride === null ? ++viewGeneration : generationOverride;
+  if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
+  resetTaskProgress(); resetProjectChanges(); resetComposerSummary(); currentSessionFile = null;
+  currentAgentTaskId = `claude-code:${nativeSessionId}`; updateSessionSelection(); _lastMsgDate = null; lastUserText = ""; currentSessionCwd = cwd;
+  historyState = null; removeHistoryLoadButton(); autoScrollPinned = true; hideChatEmpty(); setChatTitle(name); setChatAgent("claude-code");
+  el.chatSub.dataset.base = cwd; el.chatSub.textContent = cwd; resetLiveUsage(); el.messages.innerHTML = ""; resetSessionUsage(); ensureSessionUsageFooter();
+  if (!isDesktop()) { el.viewList.classList.add("hidden"); syncSessionListPolling(); }
+  el.viewChat.classList.remove("hidden"); void refreshProjectChanges({ background: true });
+  rpc = { sid: `claude-code:${nativeSessionId}`, generic: true, nativeClaudeStructured: true, nativeSessionId, nativeLoading: true,
+    connectionLost: false, stopPending: false, streamReady: true, taskStatus: "waiting", genericOutputNode: null, genericTerminalNotice: null,
+    genericInputEchoes: [], claudeEventIndex: 0, agentId: "claude-code", agentLabel: "Claude Code", name, cwd,
+    runStartedAt: Number(task.startedAt) || Date.now(), runEndedAt: null };
+  const connection = rpc; claudeStructuredPollTimer = null;
+  try {
+    await refreshClaudeStructuredSnapshot(connection, { initial: true });
+    if (rpc !== connection || generation !== viewGeneration) return;
+    claudeStructuredPollTimer = setInterval(() => void refreshClaudeStructuredSnapshot(connection), 2000); syncGenericInputState();
+  } catch (error) {
+    if (rpc === connection && generation === viewGeneration) { toast(tKey("runtime.openChatFailed", { detail: error.message }), true); closeChat(true); showList(); }
+  }
+}
+
 async function openGenericTask(task) {
   if (!task) return;
   const cwd = task.cwd || task.worktree?.path || "";
@@ -4943,6 +5170,14 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
     }
     if (result?.kind === "opencode-native" || result?.nativeOpenCode === true) {
       await openOpenCodeNativeTask(result, generation);
+      return;
+    }
+    if (result?.kind === "grok-acp" || result?.nativeGrokAcp === true) {
+      await openGrokAcpTask(result, generation);
+      return;
+    }
+    if (result?.kind === "claude-structured" || result?.nativeClaudeStructured === true) {
+      await openClaudeStructuredTask(result, generation);
       return;
     }
     if (result?.nativeCodex === true || result?.nativeThreadId && result?.agentId === "codex") {
@@ -5102,6 +5337,8 @@ function closeChat(silent) {
   resetNativeDialogs();
   if (openCodeNativePollTimer) { clearInterval(openCodeNativePollTimer); openCodeNativePollTimer = null; }
   if (codexNativePollTimer) { clearInterval(codexNativePollTimer); codexNativePollTimer = null; }
+  if (grokAcpPollTimer) { clearInterval(grokAcpPollTimer); grokAcpPollTimer = null; }
+  if (claudeStructuredPollTimer) { clearInterval(claudeStructuredPollTimer); claudeStructuredPollTimer = null; }
   if (rpc) {
     rpc.nativeHistoryRequest?.abort();
     const generic = !!rpc.generic;
@@ -7120,9 +7357,20 @@ async function sendCurrent() {
     const result = generic
       ? (rpc?.nativeOpenCode
         ? await post("/api/opencode/message", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
-        : await post("/api/agent/send", { taskId: sendSid, message: text }))
+        : rpc?.nativeGrokAcp
+          ? await post("/api/grok/acp/prompt", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
+          : rpc?.nativeClaudeStructured
+            ? await post("/api/claude/structured/prompt", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
+            : rpc?.nativeCodexMutation
+              ? await post("/api/codex/mutation/turn", { threadId: rpc.nativeThreadId, cwd: rpc.cwd, text })
+          : await post("/api/agent/send", { taskId: sendSid, message: text }))
       : await post("/api/send", { sid: sendSid, message: text, images }); // /skill:xxx 等直接透傳，pi 原生處理
     removeDraftForKey(sendDraftKey);
+    if (rpc?.nativeCodexMutation && rpc.sid === sendSid && ["started", "requested"].includes(result?.kind)) {
+      rpc.taskStatus = "running";
+      setStreaming(true);
+      if (!codexNativePollTimer) codexNativePollTimer = setInterval(() => void refreshCodexNativeSnapshot(rpc), 2500);
+    }
     if (result?.queued && rpc?.sid === sendSid) {
       el.queueNote.dataset.persistent = "queue";
       el.queueNote.textContent = tKey("runtime.messageQueued");
@@ -7152,6 +7400,9 @@ el.btnAbort.addEventListener("click", async () => {
   if (connection.generic) syncGenericInputState();
   try {
     if (connection.nativeOpenCode) await post("/api/opencode/abort", { sessionId: connection.nativeSessionId, cwd: connection.cwd });
+    else if (connection.nativeGrokAcp) await post("/api/grok/acp/cancel", { sessionId: connection.nativeSessionId });
+    else if (connection.nativeClaudeStructured) await post("/api/agent/close", { taskId: connection.sid });
+    else if (connection.nativeCodexMutation) await post("/api/codex/mutation/interrupt", { threadId: connection.nativeThreadId });
     else if (connection.generic) await post("/api/agent/abort", { taskId: connection.sid });
     else await post("/api/abort", { sid: connection.sid });
   } catch (error) {

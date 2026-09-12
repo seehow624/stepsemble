@@ -33,9 +33,11 @@ const piSession = require("./public/modules/pi-session");
 const { negotiate, protocolError } = require("./server/platform-protocol");
 const { createGitChangesService } = require("./server/git-changes");
 const { createPiResourcesService } = require("./server/pi-resources");
-const { createAgentTaskService, resolveCommand } = require("./server/agent-connectors");
+const { createAgentTaskService, resolveCommand, CONNECTOR_DEFINITIONS } = require("./server/agent-connectors");
 const { createOpenCodeNativeAdapter } = require("./server/opencode-native-adapter");
 const { createCodexNativeHistoryAdapter, taskFromThread: codexTaskFromThread } = require("./server/codex-native-history-adapter");
+const { createGrokAcpAdapter } = require("./server/grok-acp-adapter");
+const { createClaudeStructuredSession, CLAUDE_STRUCTURED_VERSION } = require("./server/claude-code-structured-adapter");
 const { createClaudeAuthService, handleClaudeAuthRequest } = require("./server/claude-auth");
 const { createDesktopClaudeClient } = require("./server/claude-desktop-client");
 const { loadHistoryConfig, createHistoryHost, disabledHistoryHost } = require("./server/history-host");
@@ -68,7 +70,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.26";
+const APP_VERSION = "3.0.27";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1685,6 +1687,21 @@ function projectDirectory(cwd) {
   return real;
 }
 
+// Native adapters accept the host's selected project only when it is an
+// explicitly valid, allowed folder. An omitted cwd means the configured app
+// home; an invalid non-empty cwd must never silently fall back to that home.
+function nativeAgentDirectory(cwd, label = "Agent") {
+  if (cwd === null || cwd === undefined || String(cwd).trim() === "") return APP_HOME;
+  const real = projectDirectory(cwd);
+  if (!real) {
+    const error = new Error(`${label} directory is not an allowed project folder`);
+    error.statusCode = 400;
+    error.code = "agent_directory_invalid";
+    throw error;
+  }
+  return real;
+}
+
 function openCodeDirectory(cwd) {
   if (cwd === null || cwd === undefined || cwd === "") return null;
   const real = projectDirectory(cwd);
@@ -1715,15 +1732,35 @@ const openCodeNative = createOpenCodeNativeAdapter({
   stateFile: path.join(CONFIG_DIR, "opencode-native.json"),
 });
 void openCodeNative.refresh();
-// Codex's official app-server is a read-only history source in Stepsemble.
-// It is deliberately opt-in (`STEPSEMBLE_CODEX_NATIVE=1`) because launching
-// it can consult the user's Codex account/configuration. A normal install
-// therefore keeps the existing CLI connector untouched.
+// Codex's official app-server is opt-in (`STEPSEMBLE_CODEX_NATIVE=1`). Native
+// writes require a second explicit flag and an owner-only intent journal so a
+// normal install never changes the user's Codex session/account behavior.
 const codexNative = createCodexNativeHistoryAdapter({
   env: process.env,
   cwd: APP_HOME,
+  journalFile: path.join(CONFIG_DIR, "codex-native-mutations.json"),
 });
 if (codexNative.status().configured) void codexNative.refresh();
+// Grok ACP is likewise opt-in. The process is not spawned until a session is
+// opened; without the flag the existing bounded CLI connector remains the
+// truthful default and no Grok credential/config file is inspected.
+const grokDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "grok-build");
+const grokCommand = String(process.env.STEPSEMBLE_GROK_BIN || "").trim()
+  ? resolveCommand({ ...grokDefinition, commands: [String(process.env.STEPSEMBLE_GROK_BIN).trim()] }, { env: process.env, includeKnownPaths: false })
+  : resolveCommand(grokDefinition, { env: process.env });
+const grokAcpEnabled = new Set(["1", "true", "yes", "on"]).has(String(process.env.STEPSEMBLE_GROK_ACP || "").trim().toLowerCase());
+const grokAcp = grokAcpEnabled && grokCommand ? createGrokAcpAdapter({ command: grokCommand, cwd: APP_HOME, env: process.env }) : null;
+const claudeStructuredEnabled = new Set(["1", "true", "yes", "on"]).has(String(process.env.STEPSEMBLE_CLAUDE_STRUCTURED || "").trim().toLowerCase());
+const claudeDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "claude-code");
+const claudeStructuredCommand = resolveCommand(claudeDefinition, { env: process.env });
+const claudePermissionPromptTool = String(process.env.STEPSEMBLE_CLAUDE_PERMISSION_PROMPT_TOOL || "").trim() || null;
+const claudeStructuredSessions = new Map();
+function claudeStructuredStatus() {
+  return { adapter: CLAUDE_STRUCTURED_VERSION, version: CLAUDE_STRUCTURED_VERSION, state: claudeStructuredEnabled && claudeStructuredCommand ? "configured" : "disabled",
+    configured: claudeStructuredEnabled && !!claudeStructuredCommand, ready: claudeStructuredSessions.size > 0, approvalReady: false,
+    permissionPromptToolConfigured: !!claudePermissionPromptTool,
+    sessionReady: claudeStructuredSessions.size > 0, sessionCount: claudeStructuredSessions.size, lastError: claudeStructuredEnabled && !claudeStructuredCommand ? "claude_executable_unavailable" : null };
+}
 // OpenCode can be started after Stepsemble (for example when the user opens
 // the OpenCode desktop app later).  Re-probe on a bounded, unref'd timer so a
 // transient startup race upgrades the Agent Hub without requiring a page
@@ -1785,7 +1822,8 @@ const agentTasks = createAgentTaskService({
   desktopClaude,
   nativeHistoryConfigured: configuredNativeHistoryAgents(),
   nativeAdapterStatus: (agentId) => agentId === "opencode" ? openCodeNative.status()
-    : agentId === "codex" ? codexNative.status() : null,
+    : agentId === "codex" ? codexNative.status() : agentId === "grok-build" ? grokAcp?.status() || null
+      : agentId === "claude-code" ? claudeStructuredStatus() : null,
   hostId: selfMachineId(),
 });
 const claudeAuth = desktopClaude || createClaudeAuthService({ home: APP_HOME, env: process.env, hasActiveTasks: hasClaudeTasks });
@@ -2348,6 +2386,54 @@ function publicOpenCodeNativeTask(session, status = null) {
   };
 }
 
+function publicGrokAcpTask(session) {
+  if (!session?.id) return null;
+  return {
+    id: `grok-build:${session.id}`,
+    taskId: `grok-build:${session.id}`,
+    agentId: "grok-build",
+    agent: "grok-build",
+    connector: "grok-build",
+    nativeGrokAcp: true,
+    nativeSessionId: session.id,
+    name: `Grok ${session.id.slice(0, 8)}`,
+    cwd: session.cwd || "",
+    status: session.status === "running" ? "running" : "waiting",
+    isRunning: session.status === "running",
+    startedAt: null,
+    endedAt: null,
+    lastActivityAt: null,
+    nativeStatus: { type: session.status || "idle", eventCount: session.eventCount || 0 },
+    history: "native_api",
+    readOnly: false,
+  };
+}
+
+function publicClaudeStructuredTask(id, session) {
+  if (!id || !session) return null;
+  const status = session.status();
+  const nativeSessionId = id;
+  return {
+    id: `claude-code:${id}`,
+    taskId: `claude-code:${id}`,
+    agentId: "claude-code",
+    agent: "claude-code",
+    connector: "claude-code",
+    nativeClaudeStructured: true,
+    nativeSessionId,
+    name: `Claude Code ${(status.nativeSessionId || id).slice(0, 8)}`,
+    cwd: session.cwd || "",
+    status: status.closed ? "stopped" : status.failed ? "failed" : "waiting",
+    isRunning: !status.closed && !status.failed,
+    startedAt: null,
+    endedAt: status.closed ? Date.now() : null,
+    lastActivityAt: null,
+    nativeStatus: status,
+    history: "native_api",
+    readOnly: false,
+  };
+}
+
 async function listAgentTasksWithOpenCode() {
   const tasks = listAgentTasks();
   if (openCodeNative.status().ready) {
@@ -2369,6 +2455,17 @@ async function listAgentTasksWithOpenCode() {
       // Codex native history is optional and read-only. A probe/read failure
       // must never hide Pi, generic, or OpenCode tasks from the inbox.
     }
+  }
+  if (grokAcp?.status().ready) {
+    try {
+      tasks.push(...grokAcp.sessions().map(publicGrokAcpTask).filter(Boolean));
+    } catch {
+      // Optional ACP failure must not hide other task sources.
+    }
+  }
+  for (const [id, session] of claudeStructuredSessions) {
+    const task = publicClaudeStructuredTask(id, session);
+    if (task) tasks.push(task);
   }
   return tasks.sort((a, b) => (Number(b.lastActivityAt || b.startedAt) || 0) - (Number(a.lastActivityAt || a.startedAt) || 0));
 }
@@ -4460,9 +4557,114 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      // Codex's native app-server bridge is intentionally read-only. It is
-      // disabled unless the operator sets STEPSEMBLE_CODEX_NATIVE=1; unlike
-      // the CLI connector, it never starts a model turn or answers approvals.
+      // Grok Build's official ACP is opt-in and session-scoped. Unknown ACP
+      // permission requests remain pending until the explicit response route
+      // is called; this endpoint never enables `always-approve` implicitly.
+      if (p === "/api/grok/acp" && req.method === "GET") {
+        sendJSON(res, 200, { adapter: grokAcp?.status() || { state: "disabled", configured: false, ready: false, reason: "grok_acp_disabled" } });
+        return;
+      }
+      if (p === "/api/grok/acp/sessions" && req.method === "GET") {
+        if (!grokAcp) { sendJSON(res, 409, { error: "grok_acp_disabled" }); return; }
+        sendJSON(res, 200, { sessions: grokAcp.sessions(), adapter: grokAcp.status() });
+        return;
+      }
+      if (p === "/api/grok/acp/session" && req.method === "POST") {
+        try {
+          if (!grokAcp) { const error = new Error("Grok ACP is disabled; set STEPSEMBLE_GROK_ACP=1"); error.statusCode = 409; error.code = "grok_acp_disabled"; throw error; }
+          const body = await readJSON(req, 64 * 1024);
+          sendJSON(res, 201, await grokAcp.createSession({ directory: nativeAgentDirectory(body?.cwd || body?.directory, "Grok ACP"), sessionId: body?.sessionId || null, mcpServers: [] }));
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "grok_session_failed" }); }
+        return;
+      }
+      if (p === "/api/grok/acp/prompt" && req.method === "POST") {
+        try {
+          if (!grokAcp) { const error = new Error("Grok ACP is disabled"); error.statusCode = 409; error.code = "grok_acp_disabled"; throw error; }
+          const body = await readJSON(req, 2 * 1024 * 1024);
+          const result = await grokAcp.prompt(body?.sessionId, body?.text || body?.message || "");
+          sendJSON(res, result.kind === "reject" ? 409 : 200, result);
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "grok_prompt_failed" }); }
+        return;
+      }
+      if (p === "/api/grok/acp/events" && req.method === "GET") {
+        if (!grokAcp) { sendJSON(res, 409, { error: "grok_acp_disabled" }); return; }
+        sendJSON(res, 200, { sessionId: url.searchParams.get("sessionId") || "", events: grokAcp.sessionEvents(url.searchParams.get("sessionId") || ""), adapter: grokAcp.status() });
+        return;
+      }
+      if (p === "/api/grok/acp/pending" && req.method === "GET") {
+        if (!grokAcp) { sendJSON(res, 409, { error: "grok_acp_disabled" }); return; }
+        sendJSON(res, 200, { permissions: grokAcp.pendingPermissions(), adapter: grokAcp.status() });
+        return;
+      }
+      if (p === "/api/grok/acp/cancel" && req.method === "POST") {
+        try {
+          if (!grokAcp) { const error = new Error("Grok ACP is disabled"); error.statusCode = 409; error.code = "grok_acp_disabled"; throw error; }
+          const body = await readJSON(req, 64 * 1024);
+          const result = await grokAcp.cancel(body?.sessionId);
+          sendJSON(res, result.kind === "reject" ? 409 : 200, result);
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "grok_cancel_failed" }); }
+        return;
+      }
+      if (p === "/api/grok/acp/permission" && req.method === "POST") {
+        try {
+          if (!grokAcp) { const error = new Error("Grok ACP is disabled"); error.statusCode = 409; error.code = "grok_acp_disabled"; throw error; }
+          const body = await readJSON(req, 256 * 1024);
+          const result = grokAcp.respondPermission(body?.requestId, body?.result);
+          sendJSON(res, result.kind === "reject" ? 409 : 200, result);
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "grok_permission_failed" }); }
+        return;
+      }
+      if (p === "/api/claude/structured" && req.method === "GET") {
+        sendJSON(res, 200, { adapter: claudeStructuredStatus(), sessions: [...claudeStructuredSessions].map(([id, session]) => publicClaudeStructuredTask(id, session)).filter(Boolean) });
+        return;
+      }
+      if (p === "/api/claude/structured/events" && req.method === "GET") {
+        const id = String(url.searchParams.get("sessionId") || "").replace(/^claude-code:/, "");
+        const session = claudeStructuredSessions.get(id);
+        if (!session) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return; }
+        sendJSON(res, 200, { events: session.events(), status: session.status() });
+        return;
+      }
+      if (p === "/api/claude/structured/pending" && req.method === "GET") {
+        const id = String(url.searchParams.get("sessionId") || "").replace(/^claude-code:/, "");
+        const session = claudeStructuredSessions.get(id);
+        if (!session) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return; }
+        sendJSON(res, 200, { permissions: session.pendingPermissions(), status: session.status() });
+        return;
+      }
+      if (p === "/api/claude/structured/prompt" && req.method === "POST") {
+        try {
+          const body = await readJSON(req, 2 * 1024 * 1024);
+          const id = String(body?.sessionId || "").replace(/^claude-code:/, "");
+          const session = claudeStructuredSessions.get(id);
+          if (!session) { const error = new Error("Claude structured session unavailable"); error.statusCode = 404; error.code = "claude_session_unavailable"; throw error; }
+          sendJSON(res, 200, await session.send(body?.text || body?.message || ""));
+        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_prompt_failed" }); }
+        return;
+      }
+      if (p === "/api/claude/structured/permission" && req.method === "POST") {
+        try {
+          const body = await readJSON(req, 64 * 1024);
+          const id = String(body?.sessionId || "").replace(/^claude-code:/, "");
+          const session = claudeStructuredSessions.get(id);
+          if (!session) { const error = new Error("Claude structured session unavailable"); error.statusCode = 404; error.code = "claude_session_unavailable"; throw error; }
+          sendJSON(res, 409, session.acknowledgePermission(body?.requestId, body?.decision));
+        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_permission_failed" }); }
+        return;
+      }
+      if (p === "/api/claude/structured/close" && req.method === "POST") {
+        try {
+          const body = await readJSON(req, 64 * 1024);
+          const id = String(body?.sessionId || "").replace(/^claude-code:/, "");
+          const session = claudeStructuredSessions.get(id);
+          if (!session) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return; }
+          const result = await session.close(); claudeStructuredSessions.delete(id); sendJSON(res, 200, result);
+        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_close_failed" }); }
+        return;
+      }
+
+      // Codex's native app-server reads are opt-in. Native writes require the
+      // second mutation flag and remain behind the adapter's intent journal.
       if (p === "/api/codex/native" && req.method === "GET") {
         const adapter = await ensureCodexNativeProbe();
         sendJSON(res, 200, { adapter, capability: codexNative.capability() });
@@ -4530,6 +4732,50 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      if (p === "/api/codex/mutation" && req.method === "GET") {
+        try {
+          await ensureCodexNativeProbe();
+          sendJSON(res, 200, { adapter: codexNative.status(), capability: codexNative.capability(), native: codexNative.nativeState(), mutation: codexNative.mutationStatus(), pendingApprovals: codexNative.pendingApprovals() });
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "codex_mutation_unavailable" }); }
+        return;
+      }
+      if (p === "/api/codex/mutation/resume" && req.method === "POST") {
+        try {
+          await ensureCodexNativeProbe();
+          const body = await readJSON(req, 256 * 1024);
+          sendJSON(res, 200, await codexNative.resumeThread({ threadId: body?.threadId, ...(body?.excludeTurns === true ? { excludeTurns: true } : {}) }));
+        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "codex_resume_failed" }); }
+        return;
+      }
+      if (p === "/api/codex/mutation/turn" && req.method === "POST") {
+        try {
+          await ensureCodexNativeProbe();
+          const body = await readJSON(req, 256 * 1024);
+          const text = typeof body?.text === "string" ? body.text.slice(0, 1024 * 1024) : "";
+          if (!text) { sendJSON(res, 400, { error: "codex_turn_input_invalid" }); return; }
+          const native = codexNative.nativeState();
+          if (!native.threadId && body?.threadId) {
+            const resumed = await codexNative.resumeThread({ threadId: body.threadId });
+            if (resumed?.kind === "reject") { sendJSON(res, 409, resumed); return; }
+          }
+          sendJSON(res, 200, await codexNative.startTurn([{ type: "text", text }], { ...(body?.cwd ? { cwd: body.cwd } : {}) }));
+        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "codex_turn_failed" }); }
+        return;
+      }
+      if (p === "/api/codex/mutation/interrupt" && req.method === "POST") {
+        try { await ensureCodexNativeProbe(); sendJSON(res, 200, await codexNative.interruptTurn()); }
+        catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "codex_interrupt_failed" }); }
+        return;
+      }
+      if (p === "/api/codex/mutation/approval" && req.method === "POST") {
+        try {
+          await ensureCodexNativeProbe();
+          const body = await readJSON(req, 64 * 1024);
+          sendJSON(res, 200, await codexNative.respondApproval(body?.requestId, { decision: body?.decision, scope: body?.scope }));
+        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "codex_approval_failed" }); }
+        return;
+      }
+
       // Agent Hub inventory and task inbox.  The catalog contains only
       // allow-listed connector ids and executable availability; it never
       // exposes API keys, environment values, or arbitrary shell commands.
@@ -4566,8 +4812,22 @@ const server = http.createServer(async (req, res) => {
             const thread = await codexNative.readThread(nativeThreadId, { includeTurns: false });
             const task = thread?.thread ? codexTaskFromThread(thread.thread) : null;
             if (!task) { sendJSON(res, 404, { error: "no such codex thread" }); return; }
-            sendJSON(res, 200, { task: { ...task, adapter: codexNative.status() } });
+            sendJSON(res, 200, { task: { ...task, mutation: codexNative.status().mutationReady ? "native_api" : null, adapter: codexNative.status() } });
           } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "codex_task_unavailable" }); }
+          return;
+        }
+        if (taskId.startsWith("grok-build:") && grokAcp) {
+          const sessionId = taskId.slice("grok-build:".length);
+          const session = grokAcp.sessions().find(row => row.id === sessionId);
+          const task = publicGrokAcpTask(session);
+          if (!task) { sendJSON(res, 404, { error: "no such grok session" }); return; }
+          sendJSON(res, 200, { task, adapter: grokAcp.status() });
+          return;
+        }
+        if (taskId.startsWith("claude-code:") && claudeStructuredSessions.has(taskId.slice("claude-code:".length))) {
+          const id = taskId.slice("claude-code:".length);
+          const task = publicClaudeStructuredTask(id, claudeStructuredSessions.get(id));
+          sendJSON(res, 200, { task, adapter: claudeStructuredStatus() });
           return;
         }
         const task = agentTasks.get(taskId);
@@ -5369,6 +5629,7 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/agent/open" && req.method === "POST") {
         const body = await readJSON(req, 64 * 1024);
         await ensureOpenCodeNativeProbe();
+        await ensureCodexNativeProbe();
         let reservedClaude = false;
         const controller = new AbortController();
         let requesterGone = false;
@@ -5408,6 +5669,27 @@ const server = http.createServer(async (req, res) => {
             const status = (await openCodeNative.sessionStatus())[session.id] || { type: "idle" };
             sendJSON(res, 201, { ...publicOpenCodeNativeTask(session, status), kind: "opencode-native", agentId: "opencode",
               worktree: worktree ? { ...worktree, path: session.directory || cwd } : null });
+          } else if (agentId === "grok-build" && grokAcp && !worktree) {
+            const session = await grokAcp.createSession({ directory: nativeAgentDirectory(cwd, "Grok ACP") });
+            if (session.kind === "reject") { const error = new Error(session.code); error.statusCode = 409; throw error; }
+            if (requesterGone) return;
+            sendJSON(res, 201, { ...publicGrokAcpTask({ id: session.sessionId, cwd: session.cwd, status: "idle", eventCount: 0 }), kind: "grok-acp", agentId: "grok-build" });
+          } else if (agentId === "codex" && codexNative.status().mutationReady && !worktree) {
+            const nativeCwd = nativeAgentDirectory(cwd, "Codex");
+            const started = await codexNative.startThread({ cwd: nativeCwd });
+            if (started?.kind === "reject") { const error = new Error(started.code); error.statusCode = 409; throw error; }
+            const thread = started?.response?.thread;
+            const task = thread ? codexTaskFromThread(thread) : null;
+            if (!task || !started.threadId) { const error = new Error("codex_native_thread_invalid"); error.statusCode = 502; throw error; }
+            if (requesterGone) return;
+            sendJSON(res, 201, { ...task, mutation: "native_api", nativeCodex: true, kind: "codex-native", agentId: "codex" });
+          } else if (agentId === "claude-code" && claudeStructuredEnabled && claudeStructuredCommand && !worktree) {
+            const localId = crypto.randomUUID();
+            const session = createClaudeStructuredSession({ command: claudeStructuredCommand, cwd: nativeAgentDirectory(cwd, "Claude Code"), env: process.env,
+              permissionPromptTool: claudePermissionPromptTool, sessionId: body?.resumeSessionId || null });
+            claudeStructuredSessions.set(localId, session);
+            if (requesterGone) { void session.close(); claudeStructuredSessions.delete(localId); return; }
+            sendJSON(res, 201, { ...publicClaudeStructuredTask(localId, session), kind: "claude-structured", agentId: "claude-code" });
           } else {
             const result = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
             sendJSON(res, 201, { ...result, kind: "cli", agentId });
@@ -5427,6 +5709,14 @@ const server = http.createServer(async (req, res) => {
           const taskId = String(body?.taskId || "");
           if (taskId.startsWith("opencode:")) {
             const message = await openCodeNative.sendMessage(taskId.slice("opencode:".length), body?.message, { directory: openCodeDirectory(body?.cwd || body?.directory || null) });
+            sendJSON(res, 200, { sent: true, taskId, message });
+          } else if (taskId.startsWith("grok-build:") && grokAcp) {
+            const message = await grokAcp.prompt(taskId.slice("grok-build:".length), body?.message);
+            if (message.kind === "reject") { const error = new Error(message.code); error.statusCode = 409; throw error; }
+            sendJSON(res, 200, { sent: true, taskId, message });
+          } else if (taskId.startsWith("claude-code:") && claudeStructuredSessions.has(taskId.slice("claude-code:".length))) {
+            const message = await claudeStructuredSessions.get(taskId.slice("claude-code:".length)).send(body?.message || "");
+            if (message.kind === "reject") { const error = new Error(message.code); error.statusCode = 409; throw error; }
             sendJSON(res, 200, { sent: true, taskId, message });
           } else sendJSON(res, 200, agentTasks.send(taskId, body?.message));
         }
@@ -5466,10 +5756,14 @@ const server = http.createServer(async (req, res) => {
         } else if (taskId.startsWith("opencode:")) {
           try { ok = (await openCodeNative.abort(taskId.slice("opencode:".length), { directory: openCodeDirectory(body?.cwd || body?.directory || null) })).aborted === true; }
           catch { ok = false; }
+        } else if (taskId.startsWith("grok-build:") && grokAcp) {
+          try { ok = (await grokAcp.cancel(taskId.slice("grok-build:".length))).kind === "cancelled"; } catch { ok = false; }
+        } else if (taskId.startsWith("claude-code:") && claudeStructuredSessions.has(taskId.slice("claude-code:".length))) {
+          try { ok = (await claudeStructuredSessions.get(taskId.slice("claude-code:".length)).close()).cleanupConfirmed === true; claudeStructuredSessions.delete(taskId.slice("claude-code:".length)); } catch { ok = false; }
         } else {
           ok = await agentTasks.stop(taskId);
         }
-        const exists = taskId.startsWith("opencode:") || (!taskId.startsWith("pi:") && agentTasks.get(taskId));
+        const exists = taskId.startsWith("opencode:") || taskId.startsWith("grok-build:") || taskId.startsWith("claude-code:") || (!taskId.startsWith("pi:") && agentTasks.get(taskId));
         sendJSON(res, ok ? 200 : exists ? 409 : 404, ok ? { stopped: true } : { error: exists ? "Agent stop could not be confirmed; reconnect and retry" : "no such agent task" });
         return;
       }
@@ -5480,8 +5774,12 @@ const server = http.createServer(async (req, res) => {
         let ok = false;
         if (taskId.startsWith("opencode:")) {
           try { ok = (await openCodeNative.abort(taskId.slice("opencode:".length), { directory: openCodeDirectory(body?.cwd || body?.directory || null) })).aborted === true; } catch { ok = false; }
+        } else if (taskId.startsWith("grok-build:") && grokAcp) {
+          try { ok = (await grokAcp.cancel(taskId.slice("grok-build:".length))).kind === "cancelled"; } catch { ok = false; }
+        } else if (taskId.startsWith("claude-code:") && claudeStructuredSessions.has(taskId.slice("claude-code:".length))) {
+          try { ok = (await claudeStructuredSessions.get(taskId.slice("claude-code:".length)).close()).cleanupConfirmed === true; claudeStructuredSessions.delete(taskId.slice("claude-code:".length)); } catch { ok = false; }
         } else ok = await agentTasks.stop(taskId);
-        const exists = taskId.startsWith("opencode:") || agentTasks.get(taskId);
+        const exists = taskId.startsWith("opencode:") || taskId.startsWith("grok-build:") || taskId.startsWith("claude-code:") || agentTasks.get(taskId);
         sendJSON(res, ok ? 200 : exists ? 409 : 404, ok ? { closed: true } : { error: exists ? "Agent stop could not be confirmed; reconnect and retry" : "no such agent task" });
         return;
       }
@@ -5671,9 +5969,21 @@ function shutdown(signal) {
   let historyDrained = false, historyFailed = false, pendingFinish = null;
   // Stop admission/revoke synchronously; do not exit ahead of owned reader
   // actual-close cleanup. Never stop a native agent task through this path.
-  const historyCleanup = Promise.all([historyHost.shutdown(), codexNative.close()]).then(([historyResult, codexResult]) => ({
+  const claudeStructuredCleanup = Promise.all([...claudeStructuredSessions.entries()].map(async ([id, session]) => {
+    try { return await session.close(); }
+    finally { claudeStructuredSessions.delete(id); }
+  }));
+  const historyCleanup = Promise.all([
+    historyHost.shutdown(),
+    codexNative.close(),
+    grokAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
+    claudeStructuredCleanup,
+  ]).then(([historyResult, codexResult, grokResult, claudeResults]) => ({
     ...(historyResult || {}),
-    cleanupConfirmed: historyResult?.cleanupConfirmed === true && codexResult?.cleanupConfirmed !== false,
+    cleanupConfirmed: historyResult?.cleanupConfirmed === true
+      && codexResult?.cleanupConfirmed !== false
+      && grokResult?.cleanupConfirmed !== false
+      && (!Array.isArray(claudeResults) || claudeResults.every(result => result?.cleanupConfirmed !== false)),
   }));
   shutdownState = {
     signal,

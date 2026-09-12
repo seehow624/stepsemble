@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.0.27
+
+Add opt-in structured adapters for Claude Code and Grok Build, plus a second
+opt-in Codex native mutation surface with explicit approval confirmation.
+
+- Claude Code uses the public stream-json / JSONL input / resume contract and
+  keeps bounded session events plus subagent correlation without inventing a
+  permission ACK.
+- Grok Build uses the public ACP stdio contract, renders bounded permission
+  options, and only answers an optionId offered by the upstream request.
+- Codex native writes require `STEPSEMBLE_CODEX_NATIVE_MUTATIONS=1` and an
+  owner-only intent journal; approval pipe writes remain awaiting confirmation.
+- Add allow-listed native project directories, process cleanup, pending routes,
+  Agent Hub task opening, and cross-harness capability documentation.
+
+Validation: 1,286 Node tests passed, 3 skipped, 0 failed; syntax/session checks,
+protocol conformance, and short synthetic restart soak passed.
+
 ## 3.0.26
 
 Make Codex native history genuinely pageable in the conversation view.

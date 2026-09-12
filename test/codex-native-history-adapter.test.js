@@ -131,3 +131,47 @@ test("Codex task projection keeps private native rollout paths out of the browse
   assert.equal(task.id, "codex:thread-1");
   assert.equal(Object.hasOwn(task, "path"), false);
 });
+
+test("Codex native mutations require the second opt-in and persist an intent before transport IO", async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-native-mutation-"));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  let options, calls = [];
+  const fake = {
+    async initialize() {},
+    async listThreads() { return { kind: "threads", data: [thread({ status: { type: "idle" } })] }; },
+    async resumeThread(params) { const dispatch = await options.authorizeNative("thread.resume", { threadId: params.threadId, params }); calls.push(["resume", dispatch]); return dispatch.kind === "committed" ? { kind: "resumed", threadId: params.threadId, dispatch } : dispatch; },
+    async close() { return { kind: "closed", cleanupConfirmed: true }; },
+  };
+  const adapter = createCodexNativeHistoryAdapter({ enabled: true, mutationEnabled: true, executable: process.execPath, cwd: temp,
+    journalFile: path.join(temp, "mutations.json"), transportFactory: async incoming => { options = incoming; return fake; } });
+  t.after(() => adapter.close());
+  await adapter.refresh();
+  assert.equal(adapter.status().mutationReady, true);
+  const result = await adapter.resumeThread({ threadId: "thread-1" });
+  assert.equal(result.kind, "resumed");
+  assert.equal(calls[0][1].kind, "committed");
+  assert.equal(adapter.mutationStatus().operations.length, 1);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(temp, "mutations.json"), "utf8")).operations[0].state, "succeeded");
+});
+
+test("Codex approval pipe writes remain awaiting native confirmation", async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-native-approval-"));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  let options;
+  const fake = {
+    async initialize() {},
+    async listThreads() { return { kind: "threads", data: [thread({ status: { type: "idle" } })] }; },
+    async respondApproval(requestId, decision) {
+      const dispatch = await options.authorizeNative("approval.resolve", { requestId, decision });
+      return { kind: "written", requestId, dispatch };
+    },
+    async close() { return { kind: "closed", cleanupConfirmed: true }; },
+  };
+  const adapter = createCodexNativeHistoryAdapter({ enabled: true, mutationEnabled: true, executable: process.execPath, cwd: temp,
+    journalFile: path.join(temp, "mutations.json"), transportFactory: async incoming => { options = incoming; return fake; } });
+  t.after(() => adapter.close());
+  await adapter.refresh();
+  const result = await adapter.respondApproval("approval-1", { decision: "allow" });
+  assert.equal(result.kind, "written");
+  assert.equal(adapter.mutationStatus().operations[0].state, "awaiting_confirmation");
+});

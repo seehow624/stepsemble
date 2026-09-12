@@ -1,15 +1,26 @@
 # Stepsemble 跨平台完整體架構與執行計畫
 
 > 狀態：已接受（Accepted）
-> 計畫版本：2.03（Codex app-server readonly history cursor paging／cross-harness capability audit；native parity 仍分開驗收）
+> 計畫版本：2.04（cross-harness structured adapters／native mutation safety；native parity 仍分開驗收）
 > 最後更新：2026-09-12
-> 當前產品基線：Stepsemble 3.0.26（由 Pi Harbor 2.13.2 相容遷移）
-> Mini／MacBook Pro：3.0.26 為本次發布目標；實際安裝狀態需分機確認，不以 GitHub 發布視為已更新
-> MBP 於 2026-09-10 上線後由既有 updater 自行完成 3.0.7→3.0.8，未經人工介入
+> 當前產品基線：Stepsemble 3.0.27（由 Pi Harbor 2.13.2 相容遷移）
+> Mini／MacBook Pro：Mini 以正常 updater 驗證；MBP 的 Tailscale peer 可見但本輪無法以 SSH／3140 完成遠端健康驗證，不能把 GitHub release 視為已更新
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
 
 ## 文件用途與回復方法
+
+**目前任務2.04（2026-09-12，3.0.27 cross-harness structured adapters）**：新增三個 opt-in、bounded
+adapter。Claude Code 使用公開 `stream-json`／JSONL input／`--resume`，保留 native session ID、
+`parent_tool_use_id` subagent correlation 與 bounded event window；公開 stream 沒有 permission
+response envelope，所以 UI 只顯示 pending 並要求配置官方 MCP `permission-prompt-tool`，不偽造 ACK。
+Codex 在既有 readonly app-server history 之上加入第二層 `STEPSEMBLE_CODEX_NATIVE_MUTATIONS=1`
+控制面；每個 thread／turn／approval intent 先寫 owner-only journal，approval `written` 仍是
+`awaiting_confirmation`，直到後續 native evidence。Grok Build 使用公開 `grok agent stdio`
+ACP，驗證 initialize/authenticate/session/new/session/prompt/update/cancel 與 permission option
+round-trip；只接受 upstream 提供的 optionId，從不使用 `--always-approve`。三者都不掃描私有
+session store，upstream 不可用時保留原 bounded CLI。完整測試、soak、版本／產物檢查與 release
+asset verification 必須在提交前重新跑；未能連線的 MBP 保留為明確待辦，不宣稱已部署。
 
 **目前任務2.03（2026-09-12，3.0.26 Codex readonly history cursor paging）**：Codex 只在使用者
 明確設定 `STEPSEMBLE_CODEX_NATIVE=1` 且官方 `codex app-server` initialize／thread-list

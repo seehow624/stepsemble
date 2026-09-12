@@ -49,15 +49,47 @@ function capabilityFor(agentId, { journalAvailable = false, nativeHistoryConfigu
   if (id === "codex" && adapter?.ready === true && adapter?.adapter === "codex-app-server-v2") {
     return {
       ...base,
-      mode: "native_readonly",
+      mode: adapter.mutationReady === true ? "native_mutation" : "native_readonly",
       history: "native_readonly",
       subagents: "native_readonly",
-      approval: "unavailable",
-      session: "native_readonly",
+      approval: adapter.mutationReady === true ? "structured_ack_required" : "unavailable",
+      session: adapter.mutationReady === true ? "native_api" : "native_readonly",
       source: "codex-app-server-v2",
       adapter: adapter.adapter,
       nativeVersion: adapter.nativeVersion || adapter.version || null,
-      readOnly: true,
+      readOnly: adapter.mutationReady !== true,
+      journal,
+      journalScope: journalAvailable ? "host-local" : "unavailable",
+    };
+  }
+  if (id === "grok-build" && adapter?.ready === true && adapter?.adapter === "grok-acp-v1") {
+    return {
+      ...base,
+      mode: "native_api",
+      history: "native_api",
+      subagents: "native_observed",
+      approval: "structured_ack_required",
+      session: "native_api",
+      source: "grok-acp-v1",
+      adapter: adapter.adapter,
+      nativeVersion: adapter.version || null,
+      readOnly: false,
+      journal,
+      journalScope: journalAvailable ? "host-local" : "unavailable",
+    };
+  }
+  if (id === "claude-code" && adapter?.configured === true && adapter?.adapter === "claude-cli-stream-json-v1") {
+    return {
+      ...base,
+      mode: "native_api",
+      history: "native_api",
+      subagents: "native_observed",
+      approval: "structured_ack_required",
+      session: "native_api",
+      source: "claude-cli-stream-json-v1",
+      adapter: adapter.adapter,
+      nativeVersion: adapter.version || null,
+      readOnly: false,
       journal,
       journalScope: journalAvailable ? "host-local" : "unavailable",
     };
