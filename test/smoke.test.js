@@ -201,10 +201,28 @@ test("Agent Hub stays bounded so the main Sessions list keeps its own viewport",
   assert.match(css, /#view-list\s*\{[\s\S]*?min-height:\s*0[\s\S]*?overflow:\s*hidden/);
   assert.match(css, /\.agent-hub-card\s*\{[\s\S]*?max-height:\s*min\(30dvh,\s*260px\)[\s\S]*?display:\s*flex[\s\S]*?flex-direction:\s*column[\s\S]*?overflow:\s*hidden/);
   assert.match(css, /\.agent-hub-card\.has-active-tasks\s*\{[\s\S]*?height:\s*clamp\(172px,\s*30dvh,\s*260px\)/);
+  assert.match(css, /\.agent-hub-card\.is-collapsed\s*\{[\s\S]*?max-height:\s*none/);
+  assert.match(css, /\.agent-hub-body\s*\{[\s\S]*?display:\s*flex[\s\S]*?overflow:\s*hidden/);
   assert.match(fs.readFileSync(path.join(root, "public", "app.js"), "utf8"), /classList\.toggle\("has-active-tasks",\s*active\s*>\s*0\)/);
+  assert.match(fs.readFileSync(path.join(root, "public", "app.js"), "utf8"), /function renderAgentHubDisclosure\(/);
+  assert.match(fs.readFileSync(path.join(root, "public", "index.html"), "utf8"), /id="agent-hub-toggle"[^>]*aria-controls="agent-hub-body"/);
+  assert.match(fs.readFileSync(path.join(root, "public", "index.html"), "utf8"), /id="agent-hub-body"[^>]*hidden/);
   assert.match(css, /\.agent-hub-connectors\s*\{[\s\S]*?flex-wrap:\s*nowrap[\s\S]*?overflow-x:\s*auto/);
   assert.match(css, /\.agent-task-list\s*\{[\s\S]*?min-height:\s*0[\s\S]*?overflow-y:\s*auto/);
   assert.match(css, /\.session-section-heading\s*\{[\s\S]*?flex:\s*0\s+0\s+auto/);
+});
+
+test("Claude sign-in lives in Settings instead of the Sessions hub", () => {
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const hubStart = html.indexOf('id="agent-hub-card"');
+  const settingsStart = html.indexOf('id="view-settings"');
+  const auth = html.indexOf('id="claude-auth"');
+  assert.ok(hubStart >= 0 && settingsStart > hubStart && auth > settingsStart);
+  assert.doesNotMatch(html.slice(hubStart, settingsStart), /id="claude-auth"/);
+  assert.match(html, /data-settings-target="agent-auth"/);
+  assert.match(app, /isVisible:\s*\(\)\s*=>[^\n]*viewSettings[^\n]*classList\.contains\("hidden"\)/);
+  assert.match(app, /function hideSettings\(\)[\s\S]{0,320}claudeAuthClient\?\.pause\(\)/);
 });
 
 test("folder browsing is restricted to the user home unless roots are explicitly added", () => {
@@ -230,18 +248,17 @@ test("Sub Agent temporary sessions are opt-in in the session list", () => {
   assert.match(server, /includeTemporary/);
   assert.match(server, /temporarySessionCount/);
   assert.match(app, /showTemporarySessions/);
-  assert.match(app, /temporary-session-filter/);
   assert.match(app, /includeTemporary=\$\{includeTemporary\}/);
-  assert.match(html, /id="temporary-session-filter"/);
-  assert.match(html, /id="show-temporary-sessions"/);
-  assert.match(css, /\.temporary-session-filter/);
+  assert.match(app, /setShowTemporarySessions/);
+  assert.match(html, /id="set-show-temporary-sessions"/);
+  assert.match(html, /id="set-show-temporary-sessions-note"/);
+  assert.doesNotMatch(html, /id="temporary-session-filter"/);
+  assert.doesNotMatch(html, /id="show-temporary-sessions"/);
+  assert.doesNotMatch(css, /\.temporary-session-filter/);
   assert.match(i18n, /Show Sub Agent sessions/);
   assert.match(i18n, /Temporary workspaces are hidden by default/);
-  // Short label + state note keep the row readable in the narrowest sidebar.
-  assert.match(app, /t\("Sub Agent sessions"\)/);
-  assert.match(app, /temporarySessionFilterNote/);
-  assert.match(html, /id="temporary-session-filter-note"/);
-  assert.match(css, /\.temporary-session-filter-control \{[\s\S]*?border-radius: var\(--oc-radius\)/);
+  assert.match(app, /renderTemporarySessionFilter\(temporarySessionCount\)/);
+  assert.match(app, /renderSettings\(\)/);
   // New sessions surface in the sidebar without a manual reload: user message
   // starts and settled runs schedule a coalesced list refresh.
   assert.match(app, /function scheduleSessionListRefresh/);

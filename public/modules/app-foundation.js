@@ -46,6 +46,7 @@
     removedProjects: [],     // cwd strings hidden from the project list
     sessionPins: [],         // session file paths pinned within a project
     showTemporarySessions: false, // opt-in to Sub Agent sessions created under a temp root
+    agentHubCollapsed: true, // keep the live Agent Hub preview collapsed on the Sessions page
   });
 
   function loadSelected() {
@@ -92,6 +93,7 @@
         ? [...new Set(out.sessionPins.filter((value) => typeof value === "string" && value.trim()))].slice(0, 500)
         : [];
       out.showTemporarySessions = parsed.showTemporarySessions === true;
+      out.agentHubCollapsed = parsed.agentHubCollapsed !== false;
       // v1 的舊設定可能明確關閉分組；v2 首次啟用時以 Project folders 為預設。
       if (!v2) out.groupByProject = true;
       if (!v2 && raw !== "{}") global.localStorage.setItem(SETTINGS_KEY, JSON.stringify(out));

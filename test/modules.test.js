@@ -50,6 +50,7 @@ test("frontend foundation normalizes preferences and preserves selected device s
   assert.equal(settings.fontScale, 90);
   assert.deepEqual(Array.from(settings.projectPins), ["/work"]);
   assert.equal(settings.showTemporarySessions, true);
+  assert.equal(settings.agentHubCollapsed, true);
   assert.equal(foundation.machineDisplayName({ name: "" }), "Stepsemble device");
   assert.equal(foundation.currentMachine([{ id: "mini" }, { id: "mbp", self: true }], "missing").id, "mbp");
   foundation.saveSelected("mbp");

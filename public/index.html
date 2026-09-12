@@ -6,14 +6,14 @@
 <title>Stepsemble</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=3.0.18">
-<link rel="icon" href="/icon-16.png?v=3.0.18" sizes="16x16" type="image/png">
-<link rel="icon" href="/icon-32.png?v=3.0.18" sizes="32x32" type="image/png">
-<link rel="icon" href="/icon-512.png?v=3.0.18" sizes="512x512" type="image/png">
-<link rel="apple-touch-icon" href="/icon-180.png?v=3.0.18">
-  <link rel="stylesheet" href="/style.css?v=3.0.18">
-  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.0.18">
-  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.0.18">
+<link rel="manifest" href="/manifest.webmanifest?v=3.0.19">
+<link rel="icon" href="/icon-16.png?v=3.0.19" sizes="16x16" type="image/png">
+<link rel="icon" href="/icon-32.png?v=3.0.19" sizes="32x32" type="image/png">
+<link rel="icon" href="/icon-512.png?v=3.0.19" sizes="512x512" type="image/png">
+<link rel="apple-touch-icon" href="/icon-180.png?v=3.0.19">
+  <link rel="stylesheet" href="/style.css?v=3.0.19">
+  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.0.19">
+  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.0.19">
 </head>
 <body>
 
@@ -136,26 +136,16 @@
       <header class="agent-hub-heading">
         <div><strong id="agent-hub-title" data-i18n-key="agentHub.title">Agent Hub</strong><small id="agent-hub-summary">Discovering local agents…</small></div>
         <div class="agent-hub-heading-actions">
+          <button id="agent-hub-toggle" class="icon-button-small agent-hub-toggle" type="button" aria-expanded="false" aria-controls="agent-hub-body" data-i18n-title-key="agentHub.expand" data-i18n-aria-key="agentHub.expand" title="Show active tasks" aria-label="Show active tasks"><svg class="icon" aria-hidden="true"><use href="#i-chevron-right"></use></svg></button>
           <button id="agent-hub-open-center" class="agent-hub-view-all" type="button" data-i18n-key="agentHub.viewAll">View all</button>
           <a id="agent-hub-history" class="agent-hub-view-all" href="/history.html" target="_blank" rel="noopener noreferrer" data-i18n-key="agentHub.history" data-i18n-title-key="agentHub.historyHint" title="Open read-only native history in a separate tab">History</a>
           <button id="agent-hub-refresh" class="icon-button-small" type="button" data-i18n-title-key="agentHub.refresh" data-i18n-aria-key="agentHub.refresh" title="Refresh agents" aria-label="Refresh agents"><svg class="icon"><use href="#i-refresh"></use></svg></button>
         </div>
       </header>
-      <div id="agent-hub-connectors" class="agent-hub-connectors" aria-label="Available agents"></div>
-      <details id="claude-auth" class="claude-auth">
-        <summary data-i18n-key="claudeAuth.title">Claude Code sign-in</summary>
-        <p id="claude-auth-status" role="status" aria-live="polite" data-i18n-key="claudeAuth.unchecked">Sign-in status has not been checked.</p>
-        <p id="claude-auth-credential" class="hidden"></p>
-        <p id="claude-auth-note" class="settings-note" data-i18n-ignore></p>
-        <div class="claude-auth-actions">
-          <button id="claude-auth-start" type="button" class="btn primary" data-i18n-key="claudeAuth.start" disabled>Open official sign-in</button>
-          <button id="claude-auth-refresh" type="button" class="btn ghost" data-i18n-key="claudeAuth.refresh">Check status</button>
-          <button id="claude-auth-cancel" type="button" class="btn ghost hidden" data-i18n-key="claudeAuth.cancel">Cancel this sign-in</button>
-        </div>
-        <p class="settings-note" data-i18n-key="claudeAuth.fallback">If the host browser does not open or asks for a code, cancel this attempt first, then use the command below in the official terminal on that host. Do not paste codes into Stepsemble.</p>
-        <code class="claude-auth-command" data-i18n-ignore>claude auth login --claudeai</code>
-      </details>
-      <div id="agent-task-list" class="agent-task-list" aria-live="polite"></div>
+      <div id="agent-hub-body" class="agent-hub-body" hidden>
+        <div id="agent-hub-connectors" class="agent-hub-connectors" aria-label="Available agents"></div>
+        <div id="agent-task-list" class="agent-task-list" aria-live="polite"></div>
+      </div>
     </section>
     <div id="pull-indicator"><span class="pull-arrow">↓</span></div>
     <div class="session-section-heading">
@@ -169,16 +159,6 @@
     </div>
     <div class="list-toolbar">
       <input id="search" type="search" placeholder="Search sessions…" aria-label="Search sessions…">
-    </div>
-    <div id="temporary-session-filter" class="temporary-session-filter hidden">
-      <label class="temporary-session-filter-control" for="show-temporary-sessions">
-        <span class="temporary-session-filter-copy">
-          <strong id="temporary-session-filter-label">Sub Agent sessions</strong>
-          <small id="temporary-session-filter-note">Hidden by default</small>
-        </span>
-        <span id="temporary-session-count" class="temporary-session-count" aria-live="polite"></span>
-        <span class="toggle"><input id="show-temporary-sessions" type="checkbox"><span class="toggle-track"></span></span>
-      </label>
     </div>
     <div id="stuck-sessions" class="stuck-sessions hidden" role="status"></div>
     <ul id="session-list" class="session-list"></ul>
@@ -333,6 +313,24 @@
         </button>
       </section>
 
+      <section class="settings-group" data-settings-target="agent-auth">
+        <h3 class="group-title">Agent sign-in</h3>
+        <p class="settings-note">Official agent sign-in is kept here so the Sessions page stays focused.</p>
+        <details id="claude-auth" class="claude-auth settings-disclosure">
+          <summary data-i18n-key="claudeAuth.title">Claude Code sign-in</summary>
+          <p id="claude-auth-status" role="status" aria-live="polite" data-i18n-key="claudeAuth.unchecked">Sign-in status has not been checked.</p>
+          <p id="claude-auth-credential" class="hidden"></p>
+          <p id="claude-auth-note" class="settings-note" data-i18n-ignore></p>
+          <div class="claude-auth-actions">
+            <button id="claude-auth-start" type="button" class="btn primary" data-i18n-key="claudeAuth.start" disabled>Open official sign-in</button>
+            <button id="claude-auth-refresh" type="button" class="btn ghost" data-i18n-key="claudeAuth.refresh">Check status</button>
+            <button id="claude-auth-cancel" type="button" class="btn ghost hidden" data-i18n-key="claudeAuth.cancel">Cancel this sign-in</button>
+          </div>
+          <p class="settings-note" data-i18n-key="claudeAuth.fallback">If the host browser does not open or asks for a code, cancel this attempt first, then use the command below in the official terminal on that host. Do not paste codes into Stepsemble.</p>
+          <code class="claude-auth-command" data-i18n-ignore>claude auth login --claudeai</code>
+        </details>
+      </section>
+
       <section class="settings-group">
         <h3 class="group-title">Resource sync</h3>
         <p class="settings-note">Compare global Pi extensions, skills, and packages between two devices. Read-only; nothing is installed.</p>
@@ -397,6 +395,10 @@
           <span><strong>Group by project</strong><small>Group sessions by working directory</small></span>
           <span class="toggle"><input id="set-group" type="checkbox"><span class="toggle-track"></span></span>
         </label>
+        <label class="settings-row settings-toggle-row">
+          <span><strong>Sub Agent sessions</strong><small id="set-show-temporary-sessions-note">Hidden by default</small></span>
+          <span class="toggle"><input id="set-show-temporary-sessions" type="checkbox"><span class="toggle-track"></span></span>
+        </label>
         <label class="settings-row settings-select-row">
           <span><strong>Thinking blocks</strong><small>Default state for assistant thinking blocks</small></span>
           <select id="set-thinking">
@@ -432,7 +434,7 @@
         </div>
         <div class="settings-row">
           <span><strong>Stepsemble</strong><small data-i18n-key="agentHub.workspace">A workspace for local coding agents</small></span>
-          <span class="settings-value" id="set-app-version">v3.0.18</span>
+          <span class="settings-value" id="set-app-version">v3.0.19</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -894,17 +896,17 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=3.0.18"></script>
-<script src="/modules/app-foundation.js?v=3.0.18"></script>
-<script src="/modules/agent-identity.js?v=3.0.18"></script>
-<script src="/modules/session-utils.js?v=3.0.18"></script>
-<script src="/modules/pi-session.js?v=3.0.18"></script>
-<script src="/modules/conversation-catalog.js?v=3.0.18"></script>
-<script src="/modules/context-usage.js?v=3.0.18"></script>
-<script src="/modules/claude-auth.js?v=3.0.18"></script>
-<script src="/modules/protocol-contracts.js?v=3.0.18"></script>
-<script src="/modules/client-sdk.js?v=3.0.18"></script>
-<script src="/modules/native-dialogs.js?v=3.0.18"></script>
-<script src="/app.js?v=3.0.18"></script>
+<script src="/i18n.js?v=3.0.19"></script>
+<script src="/modules/app-foundation.js?v=3.0.19"></script>
+<script src="/modules/agent-identity.js?v=3.0.19"></script>
+<script src="/modules/session-utils.js?v=3.0.19"></script>
+<script src="/modules/pi-session.js?v=3.0.19"></script>
+<script src="/modules/conversation-catalog.js?v=3.0.19"></script>
+<script src="/modules/context-usage.js?v=3.0.19"></script>
+<script src="/modules/claude-auth.js?v=3.0.19"></script>
+<script src="/modules/protocol-contracts.js?v=3.0.19"></script>
+<script src="/modules/client-sdk.js?v=3.0.19"></script>
+<script src="/modules/native-dialogs.js?v=3.0.19"></script>
+<script src="/app.js?v=3.0.19"></script>
 </body>
 </html>

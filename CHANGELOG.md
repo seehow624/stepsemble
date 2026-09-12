@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.0.19
+
+Keep the Sessions page focused while preserving access to agent controls.
+
+- Move the Claude Code sign-in disclosure from Agent Hub into Settings → Agent
+  sign-in, and pause its status polling whenever Settings is hidden.
+- Make the Agent Hub live task preview collapsible, collapsed by default, with
+  an accessible disclosure button and a device-local remembered preference.
+- Move the Sub Agent sessions preference from the Sessions page into Settings
+  → Behavior, while keeping the opt-in session query and count behavior intact.
+
+Validation: Agent Hub, auth placement, settings preference, JavaScript checks,
+and the full Node suite.
+
 ## 3.0.18
 
 Keep active Agent Hub tasks inside a bounded live preview.

@@ -1,7 +1,7 @@
-/* stepsemble v3.0.18 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.19 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.18";
+const CLIENT_APP_VERSION = "3.0.19";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -76,10 +76,10 @@ const el = {
   viewList: $("view-list"), viewChat: $("view-chat"), viewSettings: $("view-settings"), viewModelSettings: $("view-model-settings"),
   search: $("search"), btnRefresh: $("btn-refresh"),
   sessionList: $("session-list"), listEmpty: $("list-empty"),
-  temporarySessionFilter: $("temporary-session-filter"), temporarySessionFilterLabel: $("temporary-session-filter-label"), temporarySessionFilterNote: $("temporary-session-filter-note"), stuckSessions: $("stuck-sessions"), temporarySessionFilterNote: $("temporary-session-filter-note"),
-  temporarySessionCount: $("temporary-session-count"), showTemporarySessions: $("show-temporary-sessions"),
+  stuckSessions: $("stuck-sessions"),
+  setShowTemporarySessions: $("set-show-temporary-sessions"), setShowTemporarySessionsNote: $("set-show-temporary-sessions-note"),
   btnNew: $("btn-new"), btnNewProject: $("btn-new-project"), pullIndicator: $("pull-indicator"),
-  agentHubCard: $("agent-hub-card"), agentHubTitle: $("agent-hub-title"), agentHubSummary: $("agent-hub-summary"), agentHubRefresh: $("agent-hub-refresh"), agentHubOpenCenter: $("agent-hub-open-center"), agentHubConnectors: $("agent-hub-connectors"), agentTaskList: $("agent-task-list"),
+  agentHubCard: $("agent-hub-card"), agentHubTitle: $("agent-hub-title"), agentHubSummary: $("agent-hub-summary"), agentHubToggle: $("agent-hub-toggle"), agentHubBody: $("agent-hub-body"), agentHubRefresh: $("agent-hub-refresh"), agentHubOpenCenter: $("agent-hub-open-center"), agentHubConnectors: $("agent-hub-connectors"), agentTaskList: $("agent-task-list"),
   agentTaskCenter: $("agent-task-center"), agentTaskCenterClose: $("agent-task-center-close"), agentTaskCenterTitle: $("agent-task-center-title"), agentTaskCenterSummary: $("agent-task-center-summary"), agentTaskCenterSearch: $("agent-task-center-search"), agentTaskCenterFilter: $("agent-task-center-filter"), agentTaskCenterList: $("agent-task-center-list"), agentTaskCenterEmpty: $("agent-task-center-empty"),
   machineSwitch: $("machine-switch"), machineSwitchStatus: $("machine-switch-status"),
   machineCatalogStatus: $("machine-catalog-status"), machineCatalogStatusCopy: $("machine-catalog-status-copy"), machineCatalogRetry: $("machine-catalog-retry"),
@@ -1457,6 +1457,9 @@ function cancelModelVisibilityRequest() {
 function hideSettings() {
   settingsSwipeCancel?.();
   stopUpdateCenterPolling();
+  const claudeAuth = $("claude-auth");
+  if (claudeAuth?.open) claudeAuth.open = false;
+  claudeAuthClient?.pause();
   cancelModelVisibilityRequest();
   resetIncomingGrants();
   resetResourceSync();
@@ -1664,6 +1667,8 @@ function agentHubText(key, vars = {}) {
     unavailable: "Could not refresh agents. Try Refresh agents.",
     refresh: "Refresh agents",
     viewAll: "View all",
+    expand: "Show active tasks",
+    collapse: "Hide active tasks",
     close: "Close",
     taskCenterTitle: "Task center",
     taskSearch: "Search tasks…",
@@ -1719,6 +1724,26 @@ function agentTaskElapsed(task) {
   return runElapsedText(Math.max(0, end - start));
 }
 
+function renderAgentHubDisclosure() {
+  if (!el.agentHubCard) return;
+  const collapsed = settings.agentHubCollapsed !== false;
+  el.agentHubCard.classList.toggle("is-collapsed", collapsed);
+  if (el.agentHubBody) el.agentHubBody.hidden = collapsed;
+  if (!el.agentHubToggle) return;
+  const label = agentHubText(collapsed ? "expand" : "collapse");
+  el.agentHubToggle.setAttribute("aria-expanded", String(!collapsed));
+  el.agentHubToggle.setAttribute("aria-label", label);
+  el.agentHubToggle.setAttribute("title", label);
+  const use = el.agentHubToggle.querySelector("use");
+  if (use) use.setAttribute("href", collapsed ? "#i-chevron-right" : "#i-chevron-down");
+}
+
+function toggleAgentHub() {
+  const collapsed = settings.agentHubCollapsed !== false;
+  settings = saveSettings({ agentHubCollapsed: !collapsed });
+  renderAgentHubDisclosure();
+}
+
 function renderAgentHub() {
   if (!el.agentHubCard) return;
   const connectors = Array.isArray(agentCatalog) ? agentCatalog : [];
@@ -1728,6 +1753,7 @@ function renderAgentHub() {
   // the card so CSS can reserve a bounded box even while rows are being
   // inserted asynchronously; the task list then owns the inner scroll.
   el.agentHubCard.classList.toggle("has-active-tasks", active > 0);
+  renderAgentHubDisclosure();
   if (el.agentHubTitle) el.agentHubTitle.textContent = agentHubText("title");
   if (el.agentHubSummary) {
     el.agentHubSummary.textContent = agentCatalogError ? agentHubText("unavailable") : connectors.length
@@ -2147,6 +2173,7 @@ async function openAgentTaskFromHub(task) {
   return openGenericTask(task);
 }
 
+el.agentHubToggle?.addEventListener("click", toggleAgentHub);
 el.agentHubRefresh?.addEventListener("click", () => { void loadAgentCatalog(); void refreshAgentTasks(); });
 el.agentHubOpenCenter?.addEventListener("click", openAgentTaskCenter);
 function syncHistoryLink() {
@@ -2178,7 +2205,7 @@ function renderClaudeAuth({ data, error, pending }) {
   cancel.disabled = pending || data?.login?.state === "cancelling";
 }
 claudeAuthClient = window.stepsembleClaudeAuth?.createController({ request: api, render: renderClaudeAuth,
-  scope: () => apiBase, isVisible: () => !!$("claude-auth")?.open && !document.hidden });
+  scope: () => apiBase, isVisible: () => !!$("claude-auth")?.open && !!el.viewSettings && !el.viewSettings.classList.contains("hidden") && !document.hidden });
 $("claude-auth")?.addEventListener("toggle", () => {
   if ($("claude-auth").open) void claudeAuthClient?.refresh(); else claudeAuthClient?.pause();
 });
@@ -2409,24 +2436,13 @@ function saveProjectListSettings(patch) {
 }
 
 function renderTemporarySessionFilter(count = temporarySessionCount) {
-  if (!el.temporarySessionFilter) return;
   const total = Math.max(0, Number(count) || 0);
-  const available = total > 0 || settings.showTemporarySessions;
-  el.temporarySessionFilter.classList.toggle("hidden", !available);
-  if (!available) return;
-  if (el.showTemporarySessions) el.showTemporarySessions.checked = !!settings.showTemporarySessions;
-  if (el.temporarySessionFilterLabel) {
-    // A short constant label keeps the row readable in every locale, even in
-    // the narrowest desktop sidebar; the toggle and note carry the state.
-    el.temporarySessionFilterLabel.textContent = window.stepsembleI18n?.t("Sub Agent sessions") || "Sub Agent sessions";
-  }
-  const note = el.temporarySessionFilterNote;
+  if (el.setShowTemporarySessions) el.setShowTemporarySessions.checked = !!settings.showTemporarySessions;
+  const note = el.setShowTemporarySessionsNote;
   if (note) {
-    note.textContent = window.stepsembleI18n?.t(settings.showTemporarySessions ? "Showing" : "Hidden by default")
+    const state = window.stepsembleI18n?.t(settings.showTemporarySessions ? "Showing" : "Hidden by default")
       || (settings.showTemporarySessions ? "Showing" : "Hidden by default");
-  }
-  if (el.temporarySessionCount) {
-    el.temporarySessionCount.textContent = String(total);
+    note.textContent = total > 0 ? `${state} · ${total}` : state;
   }
 }
 
@@ -2974,8 +2990,8 @@ async function runFullTextSearch(query) {
 el.search.addEventListener("input", () => { sessionRenderLimit = 120; renderSessionList(el.search.value); });
 el.btnRefresh.addEventListener("click", refreshSessions);
 $("btn-conversations")?.addEventListener("click", openConversationCatalog);
-el.showTemporarySessions?.addEventListener("change", () => {
-  settings = saveSettings({ showTemporarySessions: el.showTemporarySessions.checked });
+el.setShowTemporarySessions?.addEventListener("change", () => {
+  settings = saveSettings({ showTemporarySessions: el.setShowTemporarySessions.checked });
   if (!settings.showTemporarySessions) sessionsCache = sessionsCache.filter((session) => !session.isTemporary);
   if (el.sessionCount) el.sessionCount.textContent = String(sessionListRecords().length);
   renderTemporarySessionFilter(temporarySessionCount);
@@ -8682,6 +8698,7 @@ function renderSettings() {
   el.setGroup.checked = !!settings.groupByProject;
   el.setReducedMotion.checked = !!settings.reducedMotion;
   el.setThinking.value = settings.thinking;
+  renderTemporarySessionFilter(temporarySessionCount);
   const setupCopy = onboardingCopy();
   if (el.setupGuideTitle) el.setupGuideTitle.textContent = setupCopy.guideTitle;
   if (el.setupGuideSubtitle) el.setupGuideSubtitle.textContent = setupCopy.guideSubtitle;
@@ -9831,6 +9848,7 @@ el.setLocale?.addEventListener("change", () => {
   window.stepsembleI18n?.setLocale(settings.locale);
   if (claudeAuthClient) renderClaudeAuth(claudeAuthClient.snapshot());
   renderSettings();
+  renderAgentHubDisclosure();
   renderSessionList(el.search?.value || "");
   renderMachineSwitch();
   renderTokenList();

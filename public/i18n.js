@@ -3478,7 +3478,7 @@
   // user-authored task names.
   const AGENT_HUB_TRANSLATIONS = {
     en: {
-      "agentHub.title": "Agent Hub", "agentHub.agent": "Agent", "agentHub.discovering": "Discovering local agents…", "agentHub.refresh": "Refresh agents",
+      "agentHub.title": "Agent Hub", "agentHub.agent": "Agent", "agentHub.discovering": "Discovering local agents…", "agentHub.refresh": "Refresh agents", "agentHub.expand": "Show active tasks", "agentHub.collapse": "Hide active tasks",
       "agentHub.unavailable": "Could not refresh agents. Try Refresh agents.",
       "agentHub.workspace": "A workspace for local coding agents",
       "agentHub.activeSummary": "{active} active · {ready} ready", "agentHub.readySummary": "{ready} agents ready",
@@ -3489,7 +3489,7 @@
       "agentHub.failed": "Failed", "agentHub.stopped": "Stopped", "agentHub.detached": "Detached", "agentHub.orphaned": "Interrupted",
     },
     "zh-Hant": {
-      "agentHub.title": "Agent Hub", "agentHub.agent": "Agent", "agentHub.discovering": "正在探索本機 Agent…", "agentHub.refresh": "重新探索 Agent",
+      "agentHub.title": "Agent Hub", "agentHub.agent": "Agent", "agentHub.discovering": "正在探索本機 Agent…", "agentHub.refresh": "重新探索 Agent", "agentHub.expand": "展開工作", "agentHub.collapse": "收起工作",
       "agentHub.unavailable": "無法更新 Agent 狀態，請按重新探索。",
       "agentHub.workspace": "本機 Coding Agent 的共用工作區",
       "agentHub.activeSummary": "{active} 個執行中 · {ready} 個可用", "agentHub.readySummary": "{ready} 個 Agent 可用",
