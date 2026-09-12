@@ -236,18 +236,20 @@ test("Codex native transport reads bounded thread history through the official a
   assert.equal(read.kind, "thread");
   assert.equal(read.thread.turns[0].items[0].id, item.id);
 
-  const turnsReading = transport.listThreadTurns({ threadId: thread.id, limit: 20, itemsView: "full" });
+  const turnsReading = transport.listThreadTurns({ threadId: thread.id, limit: 20, itemsView: "full", cursor: "turns-cursor-1" });
   request = await writes.next();
   assert.equal(request.method, "thread/turns/list");
+  assert.deepEqual(request.params, { threadId: thread.id, limit: 20, itemsView: "full", cursor: "turns-cursor-1" });
   frame(child, { jsonrpc: "2.0", id: request.id, result: { data: [turn], nextCursor: null, backwardsCursor: null } });
   const turns = await turnsReading;
   assert.equal(turns.kind, "thread_turns");
   assert.equal(turns.threadId, thread.id);
   assert.equal(turns.data[0].status, "completed");
 
-  const itemsReading = transport.listThreadItems({ threadId: thread.id, turnId: turn.id, limit: 20, sortDirection: "asc" });
+  const itemsReading = transport.listThreadItems({ threadId: thread.id, turnId: turn.id, limit: 20, sortDirection: "asc", cursor: "items-cursor-1" });
   request = await writes.next();
   assert.equal(request.method, "thread/items/list");
+  assert.deepEqual(request.params, { threadId: thread.id, turnId: turn.id, limit: 20, sortDirection: "asc", cursor: "items-cursor-1" });
   frame(child, { jsonrpc: "2.0", id: request.id, result: { data: [{ turnId: turn.id, item }], nextCursor: null, backwardsCursor: null } });
   const items = await itemsReading;
   assert.equal(items.kind, "thread_items");

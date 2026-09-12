@@ -1,7 +1,7 @@
-/* stepsemble v3.0.25 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.26 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.25";
+const CLIENT_APP_VERSION = "3.0.26";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -180,6 +180,7 @@ let agentTaskPollTimer = null;
 let agentHubTicker = null;
 let openCodeNativePollTimer = null;
 let codexNativePollTimer = null;
+let codexNativeHistoryButton = null;
 let agentCatalogRequest = null;
 let newAgentStartPending = false;
 let newAgentOpenRequest = null;
@@ -3786,6 +3787,7 @@ async function startNew(cwd, name, agentId = "pi", worktree = false, signal = nu
   currentSessionCwd = cwd;
   historyState = null;
   removeHistoryLoadButton();
+  removeCodexNativeHistoryButton();
   autoScrollPinned = true;
   hideChatEmpty();
   setChatTitle(name);
@@ -4432,101 +4434,250 @@ function codexNativeItemText(item) {
   return item.type ? `[${item.type}]` : "";
 }
 
-function appendCodexNativeItem(item) {
+function appendCodexNativeItem(item, container = el.messages) {
   const text = codexNativeItemText(item);
   if (!text) return;
   if (item.type === "userMessage") {
-    const { bubble } = makeMsgShell("user", "你");
+    const { bubble } = makeMsgShell("user", "你", container);
     bubble.appendChild(renderMarkdown(text));
     return;
   }
   if (item.type === "agentMessage" || item.type === "plan") {
-    const { wrap, bubble } = makeMsgShell("assistant", "Codex");
+    const { wrap, bubble } = makeMsgShell("assistant", "Codex", container);
     bubble.appendChild(renderMarkdown(text));
     wrap.appendChild(msgActionsRow("assistant", () => text));
     return;
   }
-  const { bubble } = makeMsgShell("assistant", "Codex");
+  const { bubble } = makeMsgShell("assistant", "Codex", container);
   const pre = document.createElement("pre");
   pre.className = "agent-terminal-output";
   pre.textContent = text.slice(0, 512 * 1024);
   bubble.appendChild(pre);
 }
 
-function codexNativeItemRevision(item) {
-  if (!item || typeof item !== "object") return "";
-  const payload = item.aggregatedOutput || item.text || item.output || item.status || item.type || "";
-  return `${item.id || ""}:${item.type || ""}:${String(payload).length}`;
+// Cursors are independent: undefined retries the first page, null means EOF.
+function createCodexNativeTranscriptState() {
+  return { turnsCursor: undefined, itemsCursor: undefined, turns: [], entries: [],
+    seenTurns: new Set(), seenItems: new Set(), hasMore: true, loading: false,
+    initialized: false, error: null, olderError: null, thread: null,
+    itemsBoundary: null, itemGapKeys: null };
 }
 
-async function loadCodexNativeTranscript(threadId) {
-  const threadQuery = new URLSearchParams({ threadId, includeTurns: "0" });
-  const snapshot = await api(`/api/codex/thread?${threadQuery.toString()}`);
-  let turnPage = null;
-  let itemPage = null;
-  let transcriptError = null;
-  try {
-    const query = new URLSearchParams({
-      threadId,
-      // Keep the first paint small and biased toward the most recent work.
-      // Older pages remain represented by the native cursors in the DTO.
-      limit: "20",
-      sortDirection: "desc",
-      itemsView: "summary",
-    });
-    turnPage = await api(`/api/codex/turns?${query.toString()}`);
-  } catch (error) {
-    transcriptError = String(error?.code || error?.message || "codex_turns_unavailable").slice(0, 128);
+function codexNativeEntryKey(entry) {
+  return JSON.stringify([entry.turnId, entry.item.id]);
+}
+
+// Both inputs are in native descending creation order. Prefer the fresher
+// record on overlap, and never join items from different turns by item ID alone.
+function mergeCodexNativeRows(existing, incoming, key, older, boundary = null) {
+  const values = new Map();
+  const boundaryIndex = older && boundary !== null ? existing.findIndex(row => key(row) === boundary) : -1;
+  const ordered = boundaryIndex >= 0
+    ? [...existing.slice(0, boundaryIndex + 1), ...incoming, ...existing.slice(boundaryIndex + 1)]
+    : older ? [...existing, ...incoming] : [...incoming, ...existing];
+  const fresher = older ? new Map(existing.map(row => [key(row), row])) : null;
+  for (const row of ordered) {
+    const id = key(row);
+    if (!values.has(id)) values.set(id, fresher?.get(id) || row);
   }
-  if (turnPage) {
-    try {
-      const query = new URLSearchParams({ threadId, limit: "50", sortDirection: "desc" });
-      itemPage = await api(`/api/codex/items?${query.toString()}`);
-    } catch (error) {
-      transcriptError = String(error?.code || error?.message || "codex_items_unavailable").slice(0, 128);
+  return [...values.values()];
+}
+
+function applyCodexNativeTranscriptPage(state, page, { older = false } = {}) {
+  const errors = [];
+  for (const [kind, rows, seen, rowKey] of [
+    ["turns", "turns", "seenTurns", turn => turn.id],
+    ["items", "entries", "seenItems", codexNativeEntryKey],
+  ]) {
+    const result = page[kind];
+    if (!result) continue; // An exhausted stream is not requested again.
+    if (result.error) { errors.push(result.error); continue; }
+    const next = result.nextCursor;
+    if (older && next !== null && (next === state[kind + "Cursor"] || state[seen].has(next))) {
+      errors.push("codex_history_cursor_repeated");
+      continue;
+    }
+    // A busy/backgrounded thread may advance by more than one latest page.
+    // Reopen the item boundary at that page so the missing middle stays
+    // reachable; insert subsequent pages there, before retained older rows.
+    const existingKeys = kind === "items" ? new Set(state.entries.map(rowKey)) : null;
+    const gap = !older && kind === "items" && state.entries.length && result.data.length
+      && next !== null && !result.data.some(row => existingKeys.has(rowKey(row)));
+    if (gap) {
+      state.itemGapKeys ||= existingKeys;
+      state.seenItems.clear();
+    }
+    if (older && kind === "items" && (next === null || result.data.some(row => state.itemGapKeys?.has(rowKey(row))))) {
+      state.itemGapKeys = null;
+    }
+    state[rows] = mergeCodexNativeRows(state[rows], result.data, rowKey, older, kind === "items" ? state.itemsBoundary : null);
+    // Latest polling must not reset the user's older-history boundary.
+    if (older || gap || !state.initialized || state[kind + "Cursor"] === undefined) {
+      state[kind + "Cursor"] = next;
+      if (kind === "items" && result.data.length) state.itemsBoundary = rowKey(result.data.at(-1));
+      if (next !== null) state[seen].add(next);
     }
   }
-  const turns = Array.isArray(turnPage?.data) ? [...turnPage.data].reverse() : [];
-  const byTurn = new Map();
-  for (const entry of Array.isArray(itemPage?.data) ? itemPage.data : []) {
-    const turnId = typeof entry?.turnId === "string" ? entry.turnId : "";
-    const item = entry?.item;
-    if (!turnId || !item || typeof item !== "object") continue;
-    const list = byTurn.get(turnId) || [];
-    if (!list.some(existing => existing.id === item.id)) list.push(item);
-    byTurn.set(turnId, list);
-  }
-  const hydratedTurns = turns.map(turn => {
-    const loaded = [...(byTurn.get(turn.id) || [])].reverse();
-    const summary = Array.isArray(turn.items) ? [...turn.items].reverse() : [];
-    const items = [...loaded];
-    for (const item of summary) if (item && !items.some(existing => existing.id === item.id)) items.push(item);
-    return { ...turn, items, itemsView: loaded.length ? "full" : turn.itemsView };
-  });
-  return {
-    ...snapshot,
-    thread: { ...snapshot.thread, turns: hydratedTurns },
-    transcript: {
-      turnsNextCursor: turnPage?.nextCursor || null,
-      itemsNextCursor: itemPage?.nextCursor || null,
-      error: transcriptError,
-      bounded: true,
-    },
-  };
+  if (page.thread) state.thread = page.thread;
+  state.initialized = true;
+  state.error = errors.join(", ") || null;
+  state.hasMore = state.turnsCursor !== null || state.itemsCursor !== null;
 }
 
-function renderCodexNativeSnapshot(snapshot, { replace = false } = {}) {
-  if (!rpc?.nativeCodex || !snapshot?.thread) return;
-  const thread = snapshot.thread;
-  const turns = Array.isArray(thread.turns) ? thread.turns : [];
-  const revision = `${thread.updatedAt || ""}:${snapshot.transcript?.error || ""}:${turns.map(turn => `${turn.id}:${turn.status}:${(Array.isArray(turn.items) ? turn.items : []).map(codexNativeItemRevision).join("|")}`).join(",")}`;
-  if (!replace && revision === rpc.nativeRenderedRevision) return;
-  if (replace || rpc.nativeRenderedRevision) el.messages.innerHTML = "";
-  for (const turn of turns) for (const item of Array.isArray(turn?.items) ? turn.items : []) appendCodexNativeItem(item);
-  rpc.nativeRenderedRevision = revision;
+function removeCodexNativeHistoryButton() {
+  if (codexNativeHistoryButton) codexNativeHistoryButton.remove();
+  codexNativeHistoryButton = null;
+}
+
+function showCodexNativeHistoryButton() {
+  const state = rpc?.nativeCodex ? rpc.nativeTranscriptState : null;
+  if (!state?.hasMore) { removeCodexNativeHistoryButton(); return; }
+  if (!codexNativeHistoryButton) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "history-load-button";
+    button.addEventListener("click", () => void loadOlderCodexNativeHistory());
+    codexNativeHistoryButton = button;
+  }
+  const busy = state.loading || !!rpc.nativeRefreshInFlight;
+  const labelKey = busy ? "runtime.historyLoading" : state.error ? "runtime.historyRetry" : "runtime.historyOlder";
+  codexNativeHistoryButton.dataset.i18nKey = labelKey;
+  codexNativeHistoryButton.textContent = tKey(labelKey);
+  codexNativeHistoryButton.disabled = busy;
+  codexNativeHistoryButton.setAttribute("aria-busy", String(busy));
+  if (codexNativeHistoryButton.parentNode !== el.messages) el.messages.prepend(codexNativeHistoryButton);
+}
+
+async function loadCodexNativeTranscript(threadId, {
+  older = false, turnsCursor, itemsCursor, signal, isCurrent = () => true,
+} = {}) {
+  const base = apiBase;
+  const current = () => {
+    if (signal?.aborted || base !== apiBase || !isCurrent()) {
+      throw Object.assign(new Error("Aborted"), { name: "AbortError" });
+    }
+  };
+  const read = async (path, params) => {
+    current();
+    const result = await api(path + "?" + new URLSearchParams(params), { signal });
+    current();
+    return result;
+  };
+  const page = { thread: null, turns: null, items: null };
+  if (!older) page.thread = (await read("/api/codex/thread", { threadId, includeTurns: "0" })).thread;
+  for (const [kind, cursor, limit] of [["turns", turnsCursor, 20], ["items", itemsCursor, 50]]) {
+    if (older && cursor === null) continue;
+    try {
+      const params = { threadId, limit: String(limit), sortDirection: "desc" };
+      // Turn summaries are metadata; only items/list defines transcript order.
+      if (kind === "turns") params.itemsView = "summary";
+      if (cursor !== null && cursor !== undefined) params.cursor = cursor;
+      const result = await read("/api/codex/" + kind, params);
+      const validRow = row => kind === "turns"
+        ? typeof row?.id === "string" && Array.isArray(row.items)
+        : typeof row?.turnId === "string" && typeof row?.item?.id === "string" && typeof row.item.type === "string";
+      if (!Array.isArray(result?.data) || result.data.length > limit || !result.data.every(validRow)
+        || result.nextCursor !== null && (typeof result.nextCursor !== "string" || !result.nextCursor.length || result.nextCursor.length > 512)) {
+        throw new Error("codex_history_page_invalid");
+      }
+      page[kind] = { data: result.data, nextCursor: result.nextCursor };
+    } catch (error) {
+      current();
+      page[kind] = { error: String(error?.code || error?.message || "codex_history_unavailable").slice(0, 128) };
+    }
+  }
+  return page;
+}
+
+function renderCodexNativeSnapshot(connection, { preserveScroll = false } = {}) {
+  if (rpc !== connection || !connection?.nativeCodex) return;
+  const state = connection.nativeTranscriptState;
+  const rendered = connection.nativeRenderedItems ||= new Map();
+  const oldTop = el.messages.scrollTop;
+  const oldHeight = el.messages.scrollHeight;
+  const preserve = preserveScroll || !autoScrollPinned;
+  const viewport = el.messages.getBoundingClientRect();
+  const viewportTop = viewport.top;
+  let anchor = null, anchorOffset = 0;
+  if (preserve) {
+    for (const { node } of rendered.values()) {
+      if (node.parentNode === el.messages && node.getBoundingClientRect().bottom > viewportTop
+        && node.getBoundingClientRect().top < viewport.bottom) {
+        anchor = node;
+        anchorOffset = node.getBoundingClientRect().top - viewportTop;
+        break;
+      }
+    }
+  }
+  // Preserve chronological item order independently of turn-page boundaries.
+  // Summary items are not complete transcript entries and must not be mixed in.
+  let previous = null;
+  for (const entry of [...state.entries].reverse()) {
+    const key = codexNativeEntryKey(entry);
+    const revision = JSON.stringify(entry.item);
+    let row = rendered.get(key);
+    if (!row || row.revision !== revision) {
+      const staging = document.createElement("div");
+      appendCodexNativeItem(entry.item, staging);
+      const node = staging.firstChild;
+      if (!node) continue;
+      node.classList.remove("msg-in");
+      node.dataset.i18nIgnore = "";
+      if (row?.node.parentNode === el.messages) row.node.replaceWith(node);
+      row = { node, revision };
+      rendered.set(key, row);
+    }
+    const reference = previous ? previous.nextSibling : codexNativeHistoryButton?.parentNode === el.messages
+      ? codexNativeHistoryButton.nextSibling : el.messages.firstChild;
+    if (row.node !== reference) el.messages.insertBefore(row.node, reference);
+    previous = row.node;
+  }
+  connection.nativeRenderedRevision = true;
   ensureSessionUsageFooter();
   keepSessionUsageAtEnd();
-  scrollBottom();
+  showCodexNativeHistoryButton();
+  if (el.taskReplayNote) {
+    el.taskReplayNote.textContent = state.error ? tKey("runtime.historyFailed", { detail: state.error })
+      : state.itemGapKeys ? tKey("runtime.historyGap") : "";
+    el.taskReplayNote.classList.toggle("hidden", !state.error && !state.itemGapKeys);
+  }
+  if (preserve) {
+    el.messages.scrollTop = anchor?.parentNode === el.messages
+      ? el.messages.scrollTop + anchor.getBoundingClientRect().top - viewportTop - anchorOffset
+      : oldTop + (preserveScroll ? el.messages.scrollHeight - oldHeight : 0);
+    updateScrollBottomButton();
+  } else scrollBottom();
+}
+
+async function loadOlderCodexNativeHistory() {
+  const connection = rpc;
+  const state = connection?.nativeCodex ? connection.nativeTranscriptState : null;
+  if (!state || state.loading || connection.nativeRefreshInFlight || !state.hasMore) return;
+  const generation = viewGeneration;
+  const controller = new AbortController();
+  const isCurrent = () => rpc === connection && generation === viewGeneration;
+  connection.nativeHistoryRequest = controller;
+  state.loading = true;
+  showCodexNativeHistoryButton();
+  try {
+    const page = await loadCodexNativeTranscript(connection.nativeThreadId, {
+      older: true, turnsCursor: state.turnsCursor, itemsCursor: state.itemsCursor,
+      signal: controller.signal, isCurrent,
+    });
+    if (!isCurrent()) return;
+    applyCodexNativeTranscriptPage(state, page, { older: true });
+    state.olderError = state.error;
+    renderCodexNativeSnapshot(connection, { preserveScroll: true });
+  } catch (error) {
+    if (isCurrent() && error.name !== "AbortError") {
+      state.error = String(error.message).slice(0, 128);
+      toast(tKey("runtime.historyFailed", { detail: state.error }), true);
+    }
+  } finally {
+    state.loading = false;
+    if (connection.nativeHistoryRequest === controller) connection.nativeHistoryRequest = null;
+    if (isCurrent()) showCodexNativeHistoryButton();
+  }
 }
 
 function nativeCodexStatus(thread) {
@@ -4536,27 +4687,41 @@ function nativeCodexStatus(thread) {
 
 async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) {
   if (!connection || rpc !== connection || !connection.nativeCodex) return;
+  if (connection.nativeTranscriptState.loading || connection.nativeRefreshInFlight) return;
+  const generation = viewGeneration;
+  const controller = new AbortController();
+  const isCurrent = () => rpc === connection && generation === viewGeneration;
+  connection.nativeHistoryRequest = controller;
+  connection.nativeRefreshInFlight = true;
+  showCodexNativeHistoryButton();
   try {
-    const snapshot = await loadCodexNativeTranscript(connection.nativeThreadId);
-    if (rpc !== connection) return;
-    const thread = snapshot?.thread;
+    const page = await loadCodexNativeTranscript(connection.nativeThreadId, { signal: controller.signal, isCurrent });
+    if (!isCurrent()) return;
+    // Leave an older-page error visible until that page is successfully retried.
+    applyCodexNativeTranscriptPage(connection.nativeTranscriptState, page);
+    if (!initial) connection.nativeTranscriptState.error ||= connection.nativeTranscriptState.olderError;
+    const thread = page.thread;
     const status = nativeCodexStatus(thread);
     applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: "codex", nativeCodex: true,
       nativeThreadId: connection.nativeThreadId, nativeSessionId: thread?.sessionId || connection.nativeThreadId,
       name: connection.name, cwd: thread?.cwd || connection.cwd, status,
       startedAt: connection.runStartedAt, lastActivityAt: thread?.updatedAt || Date.now() });
-    renderCodexNativeSnapshot(snapshot, { replace: initial || !connection.nativeRenderedRevision });
+    renderCodexNativeSnapshot(connection);
     connection.nativeLoading = false;
     connection.connectionLost = false;
     syncGenericInputState();
     if (codexNativePollTimer) { clearInterval(codexNativePollTimer); codexNativePollTimer = null; }
     if (status === "running") codexNativePollTimer = setInterval(() => void refreshCodexNativeSnapshot(connection), 2500);
   } catch (error) {
-    if (rpc !== connection) return;
+    if (!isCurrent() || error.name === "AbortError") return;
     connection.nativeLoading = false;
     connection.connectionLost = true;
     syncGenericInputState();
     if (initial) throw error;
+  } finally {
+    connection.nativeRefreshInFlight = false;
+    if (connection.nativeHistoryRequest === controller) connection.nativeHistoryRequest = null;
+    if (isCurrent()) showCodexNativeHistoryButton();
   }
 }
 
@@ -4581,6 +4746,7 @@ async function openCodexNativeTask(task, generationOverride = null) {
   currentSessionCwd = cwd;
   historyState = null;
   removeHistoryLoadButton();
+  removeCodexNativeHistoryButton();
   autoScrollPinned = true;
   hideChatEmpty();
   setChatTitle(name);
@@ -4601,6 +4767,9 @@ async function openCodexNativeTask(task, generationOverride = null) {
     nativeThreadId,
     nativeLoading: true,
     nativeRenderedRevision: null,
+    nativeTranscriptState: createCodexNativeTranscriptState(),
+    nativeRenderedItems: new Map(),
+    nativeRefreshInFlight: false,
     genericOutputNode: null,
     genericTerminalNotice: null,
     streamReady: true,
@@ -4934,6 +5103,7 @@ function closeChat(silent) {
   if (openCodeNativePollTimer) { clearInterval(openCodeNativePollTimer); openCodeNativePollTimer = null; }
   if (codexNativePollTimer) { clearInterval(codexNativePollTimer); codexNativePollTimer = null; }
   if (rpc) {
+    rpc.nativeHistoryRequest?.abort();
     const generic = !!rpc.generic;
     rpc.streamEnded = true;
     if (rpc.reconnectTimer) clearTimeout(rpc.reconnectTimer);
@@ -4959,6 +5129,7 @@ function closeChat(silent) {
   resetTaskProgress();
   historyState = null;
   removeHistoryLoadButton();
+  removeCodexNativeHistoryButton();
   pendingImages = [];
   renderImgPreview();
   setStreaming(false);

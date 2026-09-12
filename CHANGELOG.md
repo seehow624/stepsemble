@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.0.26
+
+Make Codex native history genuinely pageable in the conversation view.
+
+- Add an accessible “載入更早的訊息” control whenever the bounded turns/items
+  pages expose a native cursor.
+- Keep independent turns/items cursors, retain already loaded older pages across
+  live polling, merge overlapping turn/item pages by stable IDs, and preserve the
+  user's scroll anchor while older content is inserted.
+- Retry a failed bounded page without discarding its cursor; the Codex surface
+  remains explicitly read-only with no send, resume, abort, or approval controls.
+- Keep missing middle pages reachable after a burst of new messages; show a
+  localized gap notice until they are loaded. Abort stale reads when changing
+  host or conversation, and reuse unchanged message nodes during polling.
+
+Validation: 1,274 Node tests passed, 2 skipped, 0 failed; eight executable frontend
+controller regressions, Codex transport cursor coverage, protocol conformance,
+JavaScript checks, and version synchronization.
+
 ## 3.0.25
 
 Add an explicit, read-only Codex app-server history adapter.
