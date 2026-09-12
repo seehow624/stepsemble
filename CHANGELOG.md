@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.22
+
+Keep the conversation catalog browser coverage aligned with a collapsed Agent Hub.
+
+- Expand the live Agent Hub preview in the conversation catalog case before
+  asserting task rows, preserving the clean default on the Sessions page.
+
+Validation: full Node suite, JavaScript checks, and rolling browser coverage.
+
 ## 3.0.21
 
 Keep the synthetic Pi session browser coverage aligned with a collapsed Agent Hub.

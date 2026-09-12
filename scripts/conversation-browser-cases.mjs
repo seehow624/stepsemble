@@ -60,6 +60,8 @@ export async function runConversationBrowserCases(browser) {
       // The main Sessions list is intentionally cross-agent now: 126 Pi
       // histories plus the five canonical task rows written above.
       await page.waitForFunction(() => document.querySelector("#session-count")?.textContent === "131");
+      const agentHubToggle = page.locator("#agent-hub-toggle");
+      if (await agentHubToggle.getAttribute("aria-expanded") !== "true") await agentHubToggle.click();
       await page.locator("#agent-task-list .agent-task-row").first().waitFor();
       stage = "catalog paging"; await page.locator("#btn-conversations").click();
       const dialog = page.locator("#conversation-catalog"), summary = dialog.locator(".conversation-summary");
