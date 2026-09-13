@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Google Antigravity">
+  <path fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" d="M14 38c4.5-16 19-25 35-20"/>
+  <path fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" d="M50 26c-4.5 16-19 25-35 20" opacity=".48"/>
+  <circle cx="16" cy="46" r="6" fill="currentColor"/>
+  <circle cx="48" cy="18" r="6" fill="currentColor"/>
+</svg>

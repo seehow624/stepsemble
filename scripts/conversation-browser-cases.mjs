@@ -25,7 +25,7 @@ export async function runConversationBrowserCases(browser) {
           { type: "message", id: "u1", timestamp, message: { role: "user", content: [{ type: "text", text: "Synthetic data only" }] } },
         ].map(row => JSON.stringify(row)).join("\n") + "\n", { mode: 0o600 });
       }
-      const tasks = ["claude-code", "codex", "opencode", "grok-build", "unknown"].map((agentId, i) => ({
+      const tasks = ["claude-code", "codex", "opencode", "grok-build", "antigravity", "unknown"].map((agentId, i) => ({
         id: `task-${i}`, agentId, name: "Same title", cwd, status: "completed", startedAt: now - 10000,
         endedAt: now - 5000, lastActivityAt: now - i, outputTail: "Synthetic terminal output only", exitCode: 0, settledNotified: true,
       }));
@@ -58,14 +58,14 @@ export async function runConversationBrowserCases(browser) {
       await page.locator("#login-onboarding-skip").click(); await page.locator("#login-token").fill(token); await page.locator("#login-form button").click();
       stage = "session summaries";
       // The main Sessions list is intentionally cross-agent now: 126 Pi
-      // histories plus the five canonical task rows written above.
-      await page.waitForFunction(() => document.querySelector("#session-count")?.textContent === "131");
+      // histories plus the six canonical task rows written above.
+      await page.waitForFunction(() => document.querySelector("#session-count")?.textContent === "132");
       const agentHubToggle = page.locator("#agent-hub-toggle");
       if (await agentHubToggle.getAttribute("aria-expanded") !== "true") await agentHubToggle.click();
       await page.locator("#agent-task-list .agent-task-row").first().waitFor();
       stage = "catalog paging"; await page.locator("#btn-conversations").click();
       const dialog = page.locator("#conversation-catalog"), summary = dialog.locator(".conversation-summary");
-      assert.match(await summary.textContent(), /131 records.*Page 1\/3/);
+      assert.match(await summary.textContent(), /132 records.*Page 1\/3/);
       assert.equal(await dialog.locator(".conversation-row").count(), 50);
       assert.equal(await dialog.locator(".conversation-rows").evaluate(node => node.scrollHeight > node.clientHeight), true);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
@@ -101,7 +101,7 @@ export async function runConversationBrowserCases(browser) {
       assert.equal(await page.locator("#btn-send").isEnabled(), false);
       assert.equal(await page.locator("#input").evaluate(node => node.readOnly), true);
       assert.deepEqual(errors, []); assert.deepEqual(forbidden, []); assert.deepEqual(mutations, []);
-      console.log(JSON.stringify({ case: `Conversation catalog (${viewport.width})`, result: "passed", sourceRecords: 131,
+      console.log(JSON.stringify({ case: `Conversation catalog (${viewport.width})`, result: "passed", sourceRecords: 132,
         boundedRows: 50, sameTitleIsolation: true, staleRecovery: true, stableRow: true, keyboardFocus: true, modelCalls: 0, pageErrors: 0 }));
     } catch (error) { throw new Error(`Conversation catalog (${viewport.width}) at ${stage}: ${error.message.replace(/\b[a-f0-9]{64}\b/gi, "[redacted-test-key]")}`); }
     finally { await context?.close(); if (child) await stopServer(child); await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }

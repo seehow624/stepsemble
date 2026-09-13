@@ -1,6 +1,6 @@
 # Agent identity in conversation chrome
 
-2026-09-08 · development candidate **3.0.7-rc.4**, not a production deployment.
+2026-09-13 · release candidate **3.0.30**, not a production deployment.
 
 ## Identity rule
 
@@ -15,6 +15,10 @@ Pi using a Claude/GPT model remains Pi; Codex using GPT remains Codex.
 | `codex` | Codex / Codex mark, distinct from the OpenAI blossom |
 | `opencode` | OpenCode / OpenCode frame |
 | `grok-build` | Grok Build / Grok mark |
+| `antigravity` | Google Antigravity / Stepsemble original orbital source mark |
+| `cline` | Cline / Stepsemble original neutral CLI mark |
+| `kilo` | Kilo Code / Stepsemble original neutral CLI mark |
+| `hermes` | Hermes Agent / Stepsemble original neutral personal-agent mark |
 | `gpt`, `chatgpt` | GPT, ChatGPT / OpenAI blossom; presentation only, no new connector |
 | anything else | neutral conversation mark |
 

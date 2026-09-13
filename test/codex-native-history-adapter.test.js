@@ -47,6 +47,22 @@ test("Codex native history adapter is disabled by default and never spawns on in
   await assert.rejects(() => adapter.listThreads(), error => error instanceof CodexNativeHistoryError && error.code === "disabled");
 });
 
+test("Codex native history refuses an unreviewed executable version before app-server launch", async () => {
+  let launches = 0;
+  const adapter = createCodexNativeHistoryAdapter({
+    enabled: true,
+    executable: "/opt/homebrew/bin/codex",
+    cwd: process.cwd(),
+    versionProbe: async () => "codex-cli 0.154.0-alpha.6.2",
+    launch: () => { launches += 1; throw new Error("must not launch"); },
+  });
+  const status = await adapter.refresh();
+  assert.equal(status.ready, false);
+  assert.equal(status.state, "degraded");
+  assert.equal(status.lastError, "unsupported_codex_native_version");
+  assert.equal(launches, 0);
+});
+
 test("Codex native history adapter exposes bounded read-only tasks and transcript methods", async t => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-native-history-"));
   t.after(async () => { fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });

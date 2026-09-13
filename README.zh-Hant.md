@@ -4,7 +4,8 @@
 
 Stepsemble 是開源、自架、手機優先的本機 coding agent 工作區。Pi Agent
 目前使用原生 session 路徑；同一個介面也可啟動主機上已安裝的 Claude Code、Codex
-CLI、Grok Build 與 OpenCode。
+CLI、Grok Build、OpenCode、Google Antigravity（`agy`）、Cline、Kilo Code 與 Hermes。
+Cline、Kilo 與 Hermes 若本機執行檔存在，會使用官方 ACP；不相容時安全回退有界通用 connector。
 
 ## 隱私與安全
 
@@ -73,11 +74,18 @@ cat ~/.config/stepsemble/token
 ## Agent Hub 連接器
 
 首頁的 **Agent Hub** 會探索本機 Pi Agent，以及已安裝的 Claude Code、Codex
-CLI、Grok Build、OpenCode。建立 **New project** 時可選擇 Agent，也可以開啟隔離
+CLI、Grok Build、OpenCode、Google Antigravity（`agy`）、Cline、Kilo Code 與 Hermes。
+建立 **New project** 時可選擇 Agent，也可以開啟隔離
 Git worktree。CLI 的 stdout／stderr 會串流到對話；macOS/Linux 會透過內附的
 `server/pty-bridge.py` 提供真正的互動式終端，Windows 或沒有 Python 的主機則安全地使用 pipe。計時器會在你瀏覽其他頁面時繼續，
 關閉瀏覽器後工作仍會留在收件匣；重新點選即可回放有限長度的輸出記錄。未安裝的
 連接器會顯示為不可選取，必須先在該主機安裝對應 CLI。
+
+Coding agents 與 Personal Agents 會在 New project 分組；首頁只顯示有界的 Agent
+Hub 預覽，完整清單仍可在「查看全部」工作中心搜尋。Cline、Kilo、Hermes 會使用
+標準 ACP 的 session/update、cancel 與 permission options；Stepsemble 不讀取私有
+credential、gateway 或 session store。可用 `STEPSEMBLE_CLINE_ACP=0`、
+`STEPSEMBLE_KILO_ACP=0`、`STEPSEMBLE_HERMES_ACP=0` 個別回退 CLI。
 
 Stepsemble 只在同一個本機使用者環境中啟動這些 CLI，不會複製、匯出、改寫或上傳
 Claude Code、Codex 等官方登入與訂閱憑證，也不會靜默把官方訂閱切成 API key 或

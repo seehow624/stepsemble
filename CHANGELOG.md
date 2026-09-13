@@ -1,5 +1,48 @@
 # Changelog
 
+## 3.0.31
+
+Promote the stable multi-agent bridge surfaces for Claude Code and ACP-based
+connectors.
+
+- Claude Code structured sessions now use the documented host-control channel
+  for native `can_use_tool` allow/deny responses, keep approval state bounded,
+  and send a native interrupt without confusing it with closing a session.
+- Cline, Kilo Code, and Hermes use a standard ACP v1 stdio adapter for session
+  creation/loading, streaming updates, permission options, cancellation, and
+  bounded reconnect state. Each connector keeps an explicit CLI fallback flag
+  when its local ACP executable is unavailable or rejects the request.
+- Keep credentials, private session databases, and vendor-owned account state
+  outside Stepsemble; upstream ACP/CLI load semantics remain the authority for
+  cross-restart history.
+- Keep Codex native mutation behind the exact reviewed app-server version gate;
+  newer alpha builds fail closed to the bounded CLI path until separately
+  reviewed.
+
+Validation: 1,296 tests passed, 3 skipped, 0 failed; syntax/session checks,
+client artifact, protocol conformance, version synchronization, diff checks,
+and a restart soak passed with cleanup confirmation.
+
+## 3.0.30
+
+Harden the multi-agent hub and add conservative connector coverage.
+
+- Reconcile Claude Code structured session status, native session IDs,
+  timestamps, terminal state, and confirmed child cleanup; task inventory keeps
+  active Claude and Antigravity sessions visible after a browser reload.
+- Keep Codex native resume bound to the exact requested thread when mutation
+  mode is explicitly enabled; read-only native history never shows a misleading
+  Stop or Send action, and reject unreviewed CLI versions before app-server IO.
+- Add allow-listed Cline, Kilo Code, and Hermes connectors with coding/personal
+  grouping, maturity metadata, local offline source marks, and safe bounded
+  fallbacks. Their private credentials and session stores remain untouched.
+- Bound the home Agent Hub connector/task preview while retaining a complete
+  searchable task center, and document the promotion gate for future native
+  adapters.
+
+Validation: 1,291 tests passed, 3 skipped, 0 failed; client artifact, syntax,
+session, protocol, version, and diff checks passed.
+
 ## 3.0.29
 
 Keep mobile launches on the Sessions home instead of reopening the last chat.

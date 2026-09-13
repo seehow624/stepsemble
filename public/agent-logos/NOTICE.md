@@ -13,12 +13,19 @@ does not grant rights to third-party trademarks.
   [Lobe Icons](https://github.com/lobehub/lobe-icons/tree/a94750e3f5f8fc33757b839d85030e742284e43a/packages/static-svg/icons),
   pinned commit `a94750e3f5f8fc33757b839d85030e742284e43a`.
   Distributed under the [included MIT license](../vendor/licenses/lobe-icons-LICENSE.md).
+- `v1/antigravity.svg`: Stepsemble's original orbital connector mark for the
+  Google Antigravity (`agy`) source. It is a source identifier, not Google's
+  official logo or an endorsement.
+- `v1/cline.svg`, `v1/kilo.svg`, `v1/hermes.svg`: Stepsemble's original
+  source-neutral marks for optional connectors. They are identifiers, not
+  official logos or endorsements.
 - `v1/agent.svg`: Stepsemble's own neutral conversation fallback, Apache-2.0.
 
 All assets are served locally and precached. Replacing artwork requires a new
 asset directory version and corresponding CSS/service-worker updates.
 
-Current IDs: `pi`, `claude-code`, `codex`, `opencode`, `grok-build`.
+Current IDs: `pi`, `claude-code`, `codex`, `opencode`, `grok-build`, `antigravity`,
+`cline`, `kilo`, `hermes`.
 Explicit `gpt` and `chatgpt` source IDs have a presentation mapping to the OpenAI
 blossom for future use; this change adds no GPT/ChatGPT connector. Model labels,
 conversation titles, unknown IDs and arbitrary URLs never choose a brand mark.

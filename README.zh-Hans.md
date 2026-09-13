@@ -4,7 +4,8 @@
 
 Stepsemble 是一个开源、自托管、移动优先的本地 coding agent 工作区。Pi Agent
 使用原生会话路径；同一界面也能启动主机上已安装的 Claude Code、Codex CLI、Grok
-Build 和 OpenCode。
+Build、OpenCode、Google Antigravity（`agy`）、Cline、Kilo Code 和 Hermes。
+Cline、Kilo 和 Hermes 在本机存在可执行文件时使用官方 ACP；不兼容时安全回退有界通用 connector。
 
 ## 隐私与安全
 
@@ -71,7 +72,8 @@ type %USERPROFILE%\.config\stepsemble\token
 ## Agent Hub 连接器
 
 首页的 **Agent Hub** 会发现本机 Pi Agent，以及已安装的 Claude Code、Codex
-CLI、Grok Build、OpenCode。创建 **New project** 时可以选择 Agent，并可选启用隔离
+CLI、Grok Build、OpenCode、Google Antigravity（`agy`）、Cline、Kilo Code 和 Hermes。
+创建 **New project** 时可以选择 Agent，并可选启用隔离
 Git worktree。CLI 的 stdout/stderr 会流式显示在对话中；macOS/Linux 使用内置
 `server/pty-bridge.py` 提供交互式终端，Windows 或没有 Python 的主机则使用安全 pipe。
 计时器会在离开页面或关闭浏览器后继续；从任务中心重新打开即可回放有限长度的输出。
@@ -79,6 +81,12 @@ Git worktree。CLI 的 stdout/stderr 会流式显示在对话中；macOS/Linux �
 通用 CLI 任务由独立的每任务监督器管理，保存在 `~/.config/stepsemble/agent-tasks.json`。
 重启 Stepsemble 网页服务后会重新接管监督器，任务计时和输出继续；如果主机或监督器本身被终止，
 任务会如实标记为已中断。Agent Hub 的“查看全部”支持搜索、状态筛选、回放和一键停止。
+
+Coding agents 和 Personal Agents 会在 New project 分组；首页只显示有界的 Agent
+Hub 预览，完整清单仍可在“查看全部”任务中心搜索。Cline、Kilo 和 Hermes 使用
+标准 ACP 的 session/update、cancel 与 permission options；Stepsemble 不读取私有
+credential、gateway 或 session store。可用 `STEPSEMBLE_CLINE_ACP=0`、
+`STEPSEMBLE_KILO_ACP=0`、`STEPSEMBLE_HERMES_ACP=0` 分别回退 CLI。
 
 ## 自动更新
 

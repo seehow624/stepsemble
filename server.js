@@ -37,7 +37,9 @@ const { createAgentTaskService, resolveCommand, CONNECTOR_DEFINITIONS } = requir
 const { createOpenCodeNativeAdapter } = require("./server/opencode-native-adapter");
 const { createCodexNativeHistoryAdapter, taskFromThread: codexTaskFromThread } = require("./server/codex-native-history-adapter");
 const { createGrokAcpAdapter } = require("./server/grok-acp-adapter");
+const { createAgentClientProtocolAdapter, readSessionRegistry, writeSessionRegistry } = require("./server/agent-client-protocol-adapter");
 const { createClaudeStructuredSession, CLAUDE_STRUCTURED_VERSION } = require("./server/claude-code-structured-adapter");
+const { createAntigravityStructuredSession, ANTIGRAVITY_STRUCTURED_VERSION } = require("./server/antigravity-cli-structured-adapter");
 const { createClaudeAuthService, handleClaudeAuthRequest } = require("./server/claude-auth");
 const { createDesktopClaudeClient } = require("./server/claude-desktop-client");
 const { loadHistoryConfig, createHistoryHost, disabledHistoryHost } = require("./server/history-host");
@@ -70,7 +72,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.29";
+const APP_VERSION = "3.0.31";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1750,16 +1752,78 @@ const grokCommand = String(process.env.STEPSEMBLE_GROK_BIN || "").trim()
   : resolveCommand(grokDefinition, { env: process.env });
 const grokAcpEnabled = new Set(["1", "true", "yes", "on"]).has(String(process.env.STEPSEMBLE_GROK_ACP || "").trim().toLowerCase());
 const grokAcp = grokAcpEnabled && grokCommand ? createGrokAcpAdapter({ command: grokCommand, cwd: APP_HOME, env: process.env }) : null;
+// Cline, Kilo Code, and Hermes all publish an ACP stdio server. Enable the bridge
+// automatically when the executable is installed; an explicit 0/false still
+// gives operators a safe rollback to the bounded CLI connector. No ACP
+// process is spawned during boot.
+function acpFlag(name, fallback) {
+  const raw = String(process.env[name] || "").trim().toLowerCase();
+  return raw ? new Set(["1", "true", "yes", "on"]).has(raw) : fallback;
+}
+const kiloDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "kilo");
+const hermesDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "hermes");
+const clineDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "cline");
+const kiloCommand = resolveCommand(kiloDefinition, { env: process.env });
+const hermesCommand = resolveCommand(hermesDefinition, { env: process.env });
+const clineCommand = resolveCommand(clineDefinition, { env: process.env });
+const kiloAcpEnabled = acpFlag("STEPSEMBLE_KILO_ACP", !!kiloCommand);
+const hermesAcpEnabled = acpFlag("STEPSEMBLE_HERMES_ACP", !!hermesCommand);
+const clineAcpEnabled = acpFlag("STEPSEMBLE_CLINE_ACP", !!clineCommand);
+const clineAcp = clineAcpEnabled && clineCommand ? createAgentClientProtocolAdapter({ command: clineCommand, args: ["--acp"], cwd: APP_HOME, env: process.env, label: "Cline", clientVersion: APP_VERSION,
+  registryFile: path.join(CONFIG_DIR, "acp-cline-sessions.json") }) : null;
+const kiloAcp = kiloAcpEnabled && kiloCommand ? createAgentClientProtocolAdapter({ command: kiloCommand, args: ["acp"], cwd: APP_HOME, env: process.env, label: "Kilo Code", clientVersion: APP_VERSION,
+  registryFile: path.join(CONFIG_DIR, "acp-kilo-sessions.json") }) : null;
+const hermesAcp = hermesAcpEnabled && hermesCommand ? createAgentClientProtocolAdapter({ command: hermesCommand, args: ["acp"], cwd: APP_HOME, env: process.env, label: "Hermes Agent", clientVersion: APP_VERSION,
+  registryFile: path.join(CONFIG_DIR, "acp-hermes-sessions.json") }) : null;
+function acpAdapterForAgent(agentId) {
+  return agentId === "cline" ? clineAcp : agentId === "kilo" ? kiloAcp : agentId === "hermes" ? hermesAcp : null;
+}
 const claudeStructuredEnabled = new Set(["1", "true", "yes", "on"]).has(String(process.env.STEPSEMBLE_CLAUDE_STRUCTURED || "").trim().toLowerCase());
 const claudeDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "claude-code");
 const claudeStructuredCommand = resolveCommand(claudeDefinition, { env: process.env });
 const claudePermissionPromptTool = String(process.env.STEPSEMBLE_CLAUDE_PERMISSION_PROMPT_TOOL || "").trim() || null;
 const claudeStructuredSessions = new Map();
+const claudeStructuredSessionRegistryFile = path.join(CONFIG_DIR, "claude-structured-sessions.json");
+const claudeStructuredKnownSessions = readSessionRegistry(claudeStructuredSessionRegistryFile);
 function claudeStructuredStatus() {
   return { adapter: CLAUDE_STRUCTURED_VERSION, version: CLAUDE_STRUCTURED_VERSION, state: claudeStructuredEnabled && claudeStructuredCommand ? "configured" : "disabled",
-    configured: claudeStructuredEnabled && !!claudeStructuredCommand, ready: claudeStructuredSessions.size > 0, approvalReady: false,
+    configured: claudeStructuredEnabled && !!claudeStructuredCommand, ready: claudeStructuredSessions.size > 0,
+    // Native host control is available unless the owner explicitly selected
+    // Claude's MCP permission-prompt-tool.  We never claim approval support
+    // when the process is disabled or the executable is missing.
+    approvalReady: !!(claudeStructuredEnabled && claudeStructuredCommand && !claudePermissionPromptTool),
+    approvalMode: claudePermissionPromptTool ? "mcp" : "host_control",
     permissionPromptToolConfigured: !!claudePermissionPromptTool,
-    sessionReady: claudeStructuredSessions.size > 0, sessionCount: claudeStructuredSessions.size, lastError: claudeStructuredEnabled && !claudeStructuredCommand ? "claude_executable_unavailable" : null };
+    sessionReady: claudeStructuredSessions.size > 0, sessionCount: claudeStructuredSessions.size,
+    persistedSessionCount: claudeStructuredKnownSessions.size,
+    lastError: claudeStructuredEnabled && !claudeStructuredCommand ? "claude_executable_unavailable" : null };
+}
+// Antigravity's stream protocol is opt-in for the same reason as the other
+// native bridges: without an explicit flag, keep the normal bounded CLI path
+// and never inspect the user's Antigravity credential/session files.
+const antigravityDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "antigravity");
+const antigravityBinOverride = String(process.env.STEPSEMBLE_ANTIGRAVITY_BIN || "").trim();
+let antigravityCommand = null;
+if (antigravityBinOverride && path.isAbsolute(antigravityBinOverride)) {
+  try {
+    const stat = fs.statSync(antigravityBinOverride);
+    fs.accessSync(antigravityBinOverride, fs.constants.X_OK);
+    if (stat.isFile()) antigravityCommand = antigravityBinOverride;
+  } catch {}
+} else if (antigravityBinOverride) {
+  antigravityCommand = resolveCommand({ ...antigravityDefinition, commands: [antigravityBinOverride] }, { env: process.env, includeKnownPaths: false });
+} else {
+  antigravityCommand = resolveCommand(antigravityDefinition, { env: process.env });
+}
+const antigravityStructuredEnabled = new Set(["1", "true", "yes", "on"]).has(String(process.env.STEPSEMBLE_ANTIGRAVITY_STRUCTURED || "").trim().toLowerCase());
+const antigravityStructuredSessions = new Map();
+function antigravityStructuredStatus() {
+  return { adapter: ANTIGRAVITY_STRUCTURED_VERSION, version: ANTIGRAVITY_STRUCTURED_VERSION,
+    state: antigravityStructuredEnabled && antigravityCommand ? "configured" : "disabled",
+    configured: antigravityStructuredEnabled && !!antigravityCommand, ready: antigravityStructuredSessions.size > 0,
+    approvalReady: false, sessionReady: antigravityStructuredSessions.size > 0,
+    sessionCount: antigravityStructuredSessions.size,
+    lastError: antigravityStructuredEnabled && !antigravityCommand ? "antigravity_executable_unavailable" : null };
 }
 // OpenCode can be started after Stepsemble (for example when the user opens
 // the OpenCode desktop app later).  Re-probe on a bounded, unref'd timer so a
@@ -1823,7 +1887,9 @@ const agentTasks = createAgentTaskService({
   nativeHistoryConfigured: configuredNativeHistoryAgents(),
   nativeAdapterStatus: (agentId) => agentId === "opencode" ? openCodeNative.status()
     : agentId === "codex" ? codexNative.status() : agentId === "grok-build" ? grokAcp?.status() || null
-      : agentId === "claude-code" ? claudeStructuredStatus() : null,
+      : agentId === "claude-code" ? claudeStructuredStatus()
+        : agentId === "antigravity" ? antigravityStructuredStatus()
+          : ["cline", "kilo", "hermes"].includes(agentId) ? acpAdapterForAgent(agentId)?.status() || { state: "disabled", configured: false, ready: false, lastError: "acp_executable_unavailable" } : null,
   hostId: selfMachineId(),
 });
 const claudeAuth = desktopClaude || createClaudeAuthService({ home: APP_HOME, env: process.env, hasActiveTasks: hasClaudeTasks });
@@ -2396,7 +2462,7 @@ function publicGrokAcpTask(session) {
     connector: "grok-build",
     nativeGrokAcp: true,
     nativeSessionId: session.id,
-    name: `Grok ${session.id.slice(0, 8)}`,
+    name: session.name || `Grok ${session.id.slice(0, 8)}`,
     cwd: session.cwd || "",
     status: session.status === "running" ? "running" : "waiting",
     isRunning: session.status === "running",
@@ -2409,10 +2475,43 @@ function publicGrokAcpTask(session) {
   };
 }
 
+function publicAgentClientProtocolTask(agentId, session) {
+  if (!session?.id || !["cline", "kilo", "hermes"].includes(agentId)) return null;
+  const cwd = projectDirectory(session.cwd) || (session.cwd === APP_HOME ? APP_HOME : null);
+  if (!cwd) return null;
+  const running = session.status === "running";
+  return {
+    id: `${agentId}:${session.id}`,
+    taskId: `${agentId}:${session.id}`,
+    agentId,
+    agent: agentId,
+    connector: agentId,
+    nativeAcp: true,
+    acpAgentId: agentId,
+    nativeSessionId: session.id,
+    needsLoad: session.loaded === false,
+    persisted: session.persisted === true,
+    name: session.name || `${agentId === "cline" ? "Cline" : agentId === "kilo" ? "Kilo Code" : "Hermes Agent"} ${session.id.slice(0, 8)}`,
+    cwd,
+    status: running ? "running" : "waiting",
+    isRunning: running,
+    startedAt: null,
+    endedAt: null,
+    lastActivityAt: Number(session.lastActivityAt) || null,
+    nativeStatus: { type: session.status || "idle", eventCount: session.eventCount || 0 },
+    history: "native_api",
+    readOnly: false,
+  };
+}
+
 function publicClaudeStructuredTask(id, session) {
   if (!id || !session) return null;
   const status = session.status();
-  const nativeSessionId = id;
+  // Keep the local task key stable while exposing Claude's real native
+  // session id for resume/history operations. Claude can emit that id only
+  // after the first JSONL frame, so callers must accept either identifier.
+  const nativeSessionId = status.nativeSessionId || id;
+  const taskStatus = status.closed ? "stopped" : status.failed ? "failed" : status.state === "running" ? "running" : "waiting";
   return {
     id: `claude-code:${id}`,
     taskId: `claude-code:${id}`,
@@ -2421,7 +2520,90 @@ function publicClaudeStructuredTask(id, session) {
     connector: "claude-code",
     nativeClaudeStructured: true,
     nativeSessionId,
-    name: `Claude Code ${(status.nativeSessionId || id).slice(0, 8)}`,
+    needsLoad: false,
+    persisted: !!nativeSessionId && claudeStructuredKnownSessions.has(nativeSessionId),
+    name: session.name || `Claude Code ${(status.nativeSessionId || id).slice(0, 8)}`,
+    cwd: session.cwd || "",
+    status: taskStatus,
+    isRunning: taskStatus === "running" || taskStatus === "waiting",
+    startedAt: Number(status.startedAt) || null,
+    endedAt: status.closed || status.failed ? Date.now() : null,
+    lastActivityAt: Number(status.lastActivityAt) || Number(status.startedAt) || null,
+    nativeStatus: status,
+    history: "native_api",
+    readOnly: false,
+  };
+}
+
+function resolveClaudeStructuredSession(value) {
+  const requested = String(value || "").replace(/^claude-code:/, "");
+  if (!requested) return null;
+  const direct = claudeStructuredSessions.get(requested);
+  if (direct) return { id: requested, session: direct };
+  for (const [id, session] of claudeStructuredSessions) {
+    try {
+      if (session.status()?.nativeSessionId === requested) return { id, session };
+    } catch {}
+  }
+  return null;
+}
+
+function rememberClaudeStructuredSession(nativeSessionId, { cwd, name = null, lastActivityAt = Date.now() } = {}) {
+  const id = String(nativeSessionId || "");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(id)) return false;
+  const safeCwd = projectDirectory(cwd) || (cwd === APP_HOME ? APP_HOME : null);
+  if (!safeCwd) return false;
+  const prior = claudeStructuredKnownSessions.get(id);
+  const next = { id, cwd: safeCwd,
+    name: typeof name === "string" && name.trim() ? name.trim().slice(0, 120) : prior?.name || null,
+    lastActivityAt: Number(lastActivityAt) || Date.now() };
+  if (prior && prior.cwd === next.cwd && prior.name === next.name) return true;
+  claudeStructuredKnownSessions.set(id, next);
+  while (claudeStructuredKnownSessions.size > 100) claudeStructuredKnownSessions.delete(claudeStructuredKnownSessions.keys().next().value);
+  writeSessionRegistry(claudeStructuredSessionRegistryFile, claudeStructuredKnownSessions);
+  return true;
+}
+
+function publicClaudeStructuredResumeTask(row) {
+  if (!row?.id) return null;
+  const cwd = projectDirectory(row.cwd) || (row.cwd === APP_HOME ? APP_HOME : null);
+  if (!cwd) return null;
+  return {
+    id: `claude-code:${row.id}`,
+    taskId: `claude-code:${row.id}`,
+    agentId: "claude-code",
+    agent: "claude-code",
+    connector: "claude-code",
+    nativeClaudeStructured: true,
+    nativeSessionId: row.id,
+    needsLoad: true,
+    persisted: true,
+    name: row.name || `Claude Code ${row.id.slice(0, 8)}`,
+    cwd,
+    status: "waiting",
+    isRunning: false,
+    startedAt: null,
+    endedAt: null,
+    lastActivityAt: Number(row.lastActivityAt) || null,
+    nativeStatus: { state: "available", nativeSessionId: row.id, persisted: true },
+    history: "native_api",
+    readOnly: false,
+  };
+}
+
+function publicAntigravityStructuredTask(id, session) {
+  if (!id || !session) return null;
+  const status = session.status();
+  return {
+    id: `antigravity:${id}`,
+    taskId: `antigravity:${id}`,
+    agentId: "antigravity",
+    agent: "antigravity",
+    connector: "antigravity",
+    nativeAntigravityStructured: true,
+    nativeSessionId: id,
+    nativeConversationId: status.nativeConversationId || null,
+    name: session.name || `Antigravity ${(status.nativeConversationId || id).slice(0, 8)}`,
     cwd: session.cwd || "",
     status: status.closed ? "stopped" : status.failed ? "failed" : "waiting",
     isRunning: !status.closed && !status.failed,
@@ -2463,8 +2645,27 @@ async function listAgentTasksWithOpenCode() {
       // Optional ACP failure must not hide other task sources.
     }
   }
+  for (const [agentId, adapter] of [["cline", clineAcp], ["kilo", kiloAcp], ["hermes", hermesAcp]]) {
+    if (!adapter?.status().configured) continue;
+    try { tasks.push(...adapter.sessions().map(session => publicAgentClientProtocolTask(agentId, session)).filter(Boolean)); }
+    catch { /* optional ACP failure must not hide other task sources */ }
+  }
   for (const [id, session] of claudeStructuredSessions) {
     const task = publicClaudeStructuredTask(id, session);
+    if (task) tasks.push(task);
+  }
+  if (claudeStructuredStatus().configured) {
+    const activeNativeIds = new Set([...claudeStructuredSessions.values()].map(session => {
+      try { return session.status()?.nativeSessionId || null; } catch { return null; }
+    }).filter(Boolean));
+    for (const row of claudeStructuredKnownSessions.values()) {
+      if (activeNativeIds.has(row.id)) continue;
+      const task = publicClaudeStructuredResumeTask(row);
+      if (task) tasks.push(task);
+    }
+  }
+  for (const [id, session] of antigravityStructuredSessions) {
+    const task = publicAntigravityStructuredTask(id, session);
     if (task) tasks.push(task);
   }
   return tasks.sort((a, b) => (Number(b.lastActivityAt || b.startedAt) || 0) - (Number(a.lastActivityAt || a.startedAt) || 0));
@@ -4614,52 +4815,164 @@ const server = http.createServer(async (req, res) => {
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "grok_permission_failed" }); }
         return;
       }
+      // Standard ACP endpoints for Kilo Code and Hermes. They intentionally
+      // mirror the Grok adapter's browser contract while sharing the protocol
+      // implementation and preserving the agent-owned session identity.
+      const acpMatch = p.match(/^\/api\/(cline|kilo|hermes)\/acp(?:\/(sessions|session|events|pending|prompt|cancel|permission))?$/);
+      if (acpMatch) {
+        const agentId = acpMatch[1];
+        const action = acpMatch[2] || "root";
+        const adapter = acpAdapterForAgent(agentId);
+        if (!adapter) { sendJSON(res, 409, { error: `${agentId}_acp_disabled` }); return; }
+        try {
+          if (action === "root" && req.method === "GET") { sendJSON(res, 200, { adapter: adapter.status(), sessions: adapter.sessions() }); return; }
+          if (action === "sessions" && req.method === "GET") { sendJSON(res, 200, { adapter: adapter.status(), sessions: adapter.sessions() }); return; }
+          if (action === "session" && req.method === "POST") {
+            const body = await readJSON(req, 64 * 1024);
+            const result = await adapter.createSession({
+              directory: nativeAgentDirectory(body?.cwd || body?.directory, agentId),
+              sessionId: typeof body?.sessionId === "string" && body.sessionId.trim() ? body.sessionId.trim() : null,
+              name: body?.name || null,
+            });
+            sendJSON(res, result.kind === "reject" ? 409 : 201, result); return;
+          }
+          if (action === "events" && req.method === "GET") {
+            const sessionId = url.searchParams.get("sessionId") || "";
+            sendJSON(res, 200, { sessionId, events: adapter.sessionEvents(sessionId), adapter: adapter.status() }); return;
+          }
+          if (action === "pending" && req.method === "GET") {
+            sendJSON(res, 200, { permissions: adapter.pendingPermissions(), adapter: adapter.status() }); return;
+          }
+          if (action === "prompt" && req.method === "POST") {
+            const body = await readJSON(req, 2 * 1024 * 1024);
+            const result = await adapter.prompt(body?.sessionId, body?.text || body?.message || "");
+            sendJSON(res, result.kind === "reject" ? 409 : 200, result); return;
+          }
+          if (action === "cancel" && req.method === "POST") {
+            const body = await readJSON(req, 64 * 1024);
+            const result = await adapter.cancel(body?.sessionId);
+            sendJSON(res, result.kind === "reject" ? 409 : 200, result); return;
+          }
+          if (action === "permission" && req.method === "POST") {
+            const body = await readJSON(req, 256 * 1024);
+            const result = adapter.respondPermission(body?.requestId, body?.result);
+            sendJSON(res, result.kind === "reject" ? 409 : 200, result); return;
+          }
+          sendJSON(res, 404, { error: "acp_route_not_found" });
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || `${agentId}_acp_failed` }); }
+        return;
+      }
       if (p === "/api/claude/structured" && req.method === "GET") {
-        sendJSON(res, 200, { adapter: claudeStructuredStatus(), sessions: [...claudeStructuredSessions].map(([id, session]) => publicClaudeStructuredTask(id, session)).filter(Boolean) });
+        const sessions = [...claudeStructuredSessions].map(([id, session]) => publicClaudeStructuredTask(id, session)).filter(Boolean);
+        const activeNativeIds = new Set(sessions.map(row => row.nativeSessionId).filter(Boolean));
+        if (claudeStructuredStatus().configured) {
+          for (const row of claudeStructuredKnownSessions.values()) {
+            if (!activeNativeIds.has(row.id)) { const task = publicClaudeStructuredResumeTask(row); if (task) sessions.push(task); }
+          }
+        }
+        sendJSON(res, 200, { adapter: claudeStructuredStatus(), sessions });
         return;
       }
       if (p === "/api/claude/structured/events" && req.method === "GET") {
-        const id = String(url.searchParams.get("sessionId") || "").replace(/^claude-code:/, "");
-        const session = claudeStructuredSessions.get(id);
-        if (!session) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return; }
-        sendJSON(res, 200, { events: session.events(), status: session.status() });
+        const resolved = resolveClaudeStructuredSession(url.searchParams.get("sessionId") || "");
+        if (!resolved) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return; }
+        sendJSON(res, 200, { events: resolved.session.events(), status: resolved.session.status() });
         return;
       }
       if (p === "/api/claude/structured/pending" && req.method === "GET") {
-        const id = String(url.searchParams.get("sessionId") || "").replace(/^claude-code:/, "");
-        const session = claudeStructuredSessions.get(id);
-        if (!session) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return; }
-        sendJSON(res, 200, { permissions: session.pendingPermissions(), status: session.status() });
+        const resolved = resolveClaudeStructuredSession(url.searchParams.get("sessionId") || "");
+        if (!resolved) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return; }
+        sendJSON(res, 200, { permissions: resolved.session.pendingPermissions(), status: resolved.session.status() });
         return;
       }
       if (p === "/api/claude/structured/prompt" && req.method === "POST") {
         try {
           const body = await readJSON(req, 2 * 1024 * 1024);
-          const id = String(body?.sessionId || "").replace(/^claude-code:/, "");
-          const session = claudeStructuredSessions.get(id);
-          if (!session) { const error = new Error("Claude structured session unavailable"); error.statusCode = 404; error.code = "claude_session_unavailable"; throw error; }
-          sendJSON(res, 200, await session.send(body?.text || body?.message || ""));
+          const resolved = resolveClaudeStructuredSession(body?.sessionId || "");
+          if (!resolved) { const error = new Error("Claude structured session unavailable"); error.statusCode = 404; error.code = "claude_session_unavailable"; throw error; }
+          sendJSON(res, 200, await resolved.session.send(body?.text || body?.message || ""));
         } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_prompt_failed" }); }
         return;
       }
       if (p === "/api/claude/structured/permission" && req.method === "POST") {
         try {
           const body = await readJSON(req, 64 * 1024);
-          const id = String(body?.sessionId || "").replace(/^claude-code:/, "");
-          const session = claudeStructuredSessions.get(id);
-          if (!session) { const error = new Error("Claude structured session unavailable"); error.statusCode = 404; error.code = "claude_session_unavailable"; throw error; }
-          sendJSON(res, 409, session.acknowledgePermission(body?.requestId, body?.decision));
+          const resolved = resolveClaudeStructuredSession(body?.sessionId || "");
+          if (!resolved) { const error = new Error("Claude structured session unavailable"); error.statusCode = 404; error.code = "claude_session_unavailable"; throw error; }
+          const result = resolved.session.acknowledgePermission(body?.requestId, body?.decision);
+          sendJSON(res, result.kind === "reject" ? 409 : 200, result);
         } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_permission_failed" }); }
+        return;
+      }
+      if (p === "/api/claude/structured/interrupt" && req.method === "POST") {
+        try {
+          const body = await readJSON(req, 64 * 1024);
+          const resolved = resolveClaudeStructuredSession(body?.sessionId || "");
+          if (!resolved) { const error = new Error("Claude structured session unavailable"); error.statusCode = 404; error.code = "claude_session_unavailable"; throw error; }
+          const result = await resolved.session.interrupt();
+          sendJSON(res, result.kind === "reject" ? 409 : 200, result);
+        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_interrupt_failed" }); }
         return;
       }
       if (p === "/api/claude/structured/close" && req.method === "POST") {
         try {
           const body = await readJSON(req, 64 * 1024);
-          const id = String(body?.sessionId || "").replace(/^claude-code:/, "");
-          const session = claudeStructuredSessions.get(id);
-          if (!session) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return; }
-          const result = await session.close(); claudeStructuredSessions.delete(id); sendJSON(res, 200, result);
+          const resolved = resolveClaudeStructuredSession(body?.sessionId || "");
+          if (!resolved) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return; }
+          const result = await resolved.session.close();
+          if (result.cleanupConfirmed) claudeStructuredSessions.delete(resolved.id);
+          sendJSON(res, result.cleanupConfirmed ? 200 : 409, result);
         } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_close_failed" }); }
+        return;
+      }
+
+      if (p === "/api/antigravity/structured" && req.method === "GET") {
+        sendJSON(res, 200, { adapter: antigravityStructuredStatus(), sessions: [...antigravityStructuredSessions]
+          .map(([id, session]) => publicAntigravityStructuredTask(id, session)).filter(Boolean) });
+        return;
+      }
+      if (p === "/api/antigravity/structured/events" && req.method === "GET") {
+        const id = String(url.searchParams.get("sessionId") || "").replace(/^antigravity:/, "");
+        const session = antigravityStructuredSessions.get(id);
+        if (!session) { sendJSON(res, 404, { error: "antigravity_session_unavailable" }); return; }
+        sendJSON(res, 200, { events: session.events(), status: session.status() });
+        return;
+      }
+      if (p === "/api/antigravity/structured/pending" && req.method === "GET") {
+        const id = String(url.searchParams.get("sessionId") || "").replace(/^antigravity:/, "");
+        const session = antigravityStructuredSessions.get(id);
+        if (!session) { sendJSON(res, 404, { error: "antigravity_session_unavailable" }); return; }
+        sendJSON(res, 200, { permissions: session.pendingPermissions(), status: session.status() });
+        return;
+      }
+      if (p === "/api/antigravity/structured/prompt" && req.method === "POST") {
+        try {
+          const body = await readJSON(req, 2 * 1024 * 1024);
+          const id = String(body?.sessionId || "").replace(/^antigravity:/, "");
+          const session = antigravityStructuredSessions.get(id);
+          if (!session) { const error = new Error("Antigravity structured session unavailable"); error.statusCode = 404; error.code = "antigravity_session_unavailable"; throw error; }
+          sendJSON(res, 200, await session.send(body?.text || body?.message || ""));
+        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "antigravity_prompt_failed" }); }
+        return;
+      }
+      if (p === "/api/antigravity/structured/permission" && req.method === "POST") {
+        try {
+          const body = await readJSON(req, 64 * 1024);
+          const id = String(body?.sessionId || "").replace(/^antigravity:/, "");
+          const session = antigravityStructuredSessions.get(id);
+          if (!session) { const error = new Error("Antigravity structured session unavailable"); error.statusCode = 404; error.code = "antigravity_session_unavailable"; throw error; }
+          sendJSON(res, 409, session.acknowledgePermission(body?.requestId, body?.decision));
+        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "antigravity_permission_failed" }); }
+        return;
+      }
+      if (p === "/api/antigravity/structured/close" && req.method === "POST") {
+        try {
+          const body = await readJSON(req, 64 * 1024);
+          const id = String(body?.sessionId || "").replace(/^antigravity:/, "");
+          const session = antigravityStructuredSessions.get(id);
+          if (!session) { sendJSON(res, 404, { error: "antigravity_session_unavailable" }); return; }
+          const result = await session.close(); antigravityStructuredSessions.delete(id); sendJSON(res, 200, result);
+        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "antigravity_close_failed" }); }
         return;
       }
 
@@ -4824,10 +5137,31 @@ const server = http.createServer(async (req, res) => {
           sendJSON(res, 200, { task, adapter: grokAcp.status() });
           return;
         }
-        if (taskId.startsWith("claude-code:") && claudeStructuredSessions.has(taskId.slice("claude-code:".length))) {
-          const id = taskId.slice("claude-code:".length);
-          const task = publicClaudeStructuredTask(id, claudeStructuredSessions.get(id));
-          sendJSON(res, 200, { task, adapter: claudeStructuredStatus() });
+        if (/^(cline|kilo|hermes):/.test(taskId)) {
+          const agentId = taskId.split(":", 1)[0];
+          const adapter = acpAdapterForAgent(agentId);
+          const sessionId = taskId.slice(agentId.length + 1);
+          const session = adapter?.sessions().find(row => row.id === sessionId);
+          const task = publicAgentClientProtocolTask(agentId, session);
+          if (!task) { sendJSON(res, 404, { error: `no such ${agentId} session` }); return; }
+          sendJSON(res, 200, { task, adapter: adapter.status() });
+          return;
+        }
+        if (taskId.startsWith("claude-code:")) {
+          const resolved = resolveClaudeStructuredSession(taskId);
+          if (resolved) {
+            const task = publicClaudeStructuredTask(resolved.id, resolved.session);
+            sendJSON(res, 200, { task, adapter: claudeStructuredStatus() });
+            return;
+          }
+          const nativeId = taskId.slice("claude-code:".length);
+          const persisted = publicClaudeStructuredResumeTask(claudeStructuredKnownSessions.get(nativeId));
+          if (persisted) { sendJSON(res, 200, { task: persisted, adapter: claudeStructuredStatus() }); return; }
+        }
+        if (taskId.startsWith("antigravity:") && antigravityStructuredSessions.has(taskId.slice("antigravity:".length))) {
+          const id = taskId.slice("antigravity:".length);
+          const task = publicAntigravityStructuredTask(id, antigravityStructuredSessions.get(id));
+          sendJSON(res, 200, { task, adapter: antigravityStructuredStatus() });
           return;
         }
         const task = agentTasks.get(taskId);
@@ -5670,26 +6004,64 @@ const server = http.createServer(async (req, res) => {
             sendJSON(res, 201, { ...publicOpenCodeNativeTask(session, status), kind: "opencode-native", agentId: "opencode",
               worktree: worktree ? { ...worktree, path: session.directory || cwd } : null });
           } else if (agentId === "grok-build" && grokAcp && !worktree) {
-            const session = await grokAcp.createSession({ directory: nativeAgentDirectory(cwd, "Grok ACP") });
+            const session = await grokAcp.createSession({ directory: nativeAgentDirectory(cwd, "Grok ACP"), name: body?.name || null });
             if (session.kind === "reject") { const error = new Error(session.code); error.statusCode = 409; throw error; }
             if (requesterGone) return;
             sendJSON(res, 201, { ...publicGrokAcpTask({ id: session.sessionId, cwd: session.cwd, status: "idle", eventCount: 0 }), kind: "grok-acp", agentId: "grok-build" });
+          } else if (["cline", "kilo", "hermes"].includes(agentId) && acpAdapterForAgent(agentId) && !worktree) {
+            const adapter = acpAdapterForAgent(agentId);
+            const session = await adapter.createSession({
+              directory: nativeAgentDirectory(cwd, agentId === "cline" ? "Cline ACP" : agentId === "kilo" ? "Kilo Code ACP" : "Hermes ACP"),
+              sessionId: typeof body?.resumeSessionId === "string" && body.resumeSessionId.trim() ? body.resumeSessionId.trim() : null,
+              name: body?.name || null,
+            });
+            if (session.kind === "reject") {
+              // ACP is an upgrade path, never a single point of failure. A
+              // missing capability, auth requirement, or protocol mismatch
+              // returns to the supervised bounded connector for the same
+              // allow-listed agent.
+              const fallback = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
+              sendJSON(res, 201, { ...fallback, kind: "cli", agentId, nativeFallback: "acp", nativeFallbackReason: session.code });
+              return;
+            }
+            if (requesterGone) return;
+            sendJSON(res, 201, { ...publicAgentClientProtocolTask(agentId, { id: session.sessionId, cwd: session.cwd, status: "idle", eventCount: 0, name: body?.name || null }), kind: "acp", agentId });
           } else if (agentId === "codex" && codexNative.status().mutationReady && !worktree) {
             const nativeCwd = nativeAgentDirectory(cwd, "Codex");
-            const started = await codexNative.startThread({ cwd: nativeCwd });
+            // Opening a project with an existing native thread must resume
+            // that exact thread; silently starting another Codex thread is a
+            // common source of duplicated sessions and mismatched names.
+            const resumeThreadId = typeof body?.resumeSessionId === "string" && body.resumeSessionId.trim()
+              ? body.resumeSessionId.trim() : typeof body?.threadId === "string" && body.threadId.trim() ? body.threadId.trim() : "";
+            const started = resumeThreadId
+              ? await codexNative.resumeThread({ threadId: resumeThreadId, ...(body?.excludeTurns === true ? { excludeTurns: true } : {}) })
+              : await codexNative.startThread({ cwd: nativeCwd });
             if (started?.kind === "reject") { const error = new Error(started.code); error.statusCode = 409; throw error; }
-            const thread = started?.response?.thread;
+            const thread = started?.response?.thread || (started?.threadId ? (await codexNative.readThread(started.threadId, { includeTurns: false })).thread : null);
             const task = thread ? codexTaskFromThread(thread) : null;
             if (!task || !started.threadId) { const error = new Error("codex_native_thread_invalid"); error.statusCode = 502; throw error; }
             if (requesterGone) return;
             sendJSON(res, 201, { ...task, mutation: "native_api", nativeCodex: true, kind: "codex-native", agentId: "codex" });
           } else if (agentId === "claude-code" && claudeStructuredEnabled && claudeStructuredCommand && !worktree) {
             const localId = crypto.randomUUID();
-            const session = createClaudeStructuredSession({ command: claudeStructuredCommand, cwd: nativeAgentDirectory(cwd, "Claude Code"), env: process.env,
-              permissionPromptTool: claudePermissionPromptTool, sessionId: body?.resumeSessionId || null });
+            const sessionCwd = nativeAgentDirectory(cwd, "Claude Code");
+            const sessionName = body?.name || null;
+            const resumeSessionId = body?.resumeSessionId || null;
+            const session = createClaudeStructuredSession({ command: claudeStructuredCommand, cwd: sessionCwd, env: process.env,
+              name: sessionName, permissionPromptTool: claudePermissionPromptTool, sessionId: resumeSessionId,
+              onEvent: event => { try { if (event?.sessionId) rememberClaudeStructuredSession(event.sessionId, { cwd: sessionCwd, name: sessionName }); } catch {} } });
+            if (resumeSessionId) rememberClaudeStructuredSession(resumeSessionId, { cwd: sessionCwd, name: sessionName });
             claudeStructuredSessions.set(localId, session);
             if (requesterGone) { void session.close(); claudeStructuredSessions.delete(localId); return; }
             sendJSON(res, 201, { ...publicClaudeStructuredTask(localId, session), kind: "claude-structured", agentId: "claude-code" });
+          } else if (agentId === "antigravity" && antigravityStructuredEnabled && antigravityCommand && !worktree) {
+            const localId = crypto.randomUUID();
+            const session = createAntigravityStructuredSession({ command: antigravityCommand, cwd: nativeAgentDirectory(cwd, "Google Antigravity"), env: process.env,
+              name: body?.name || null,
+              conversationId: body?.conversationId || body?.resumeSessionId || null });
+            antigravityStructuredSessions.set(localId, session);
+            if (requesterGone) { void session.close(); antigravityStructuredSessions.delete(localId); return; }
+            sendJSON(res, 201, { ...publicAntigravityStructuredTask(localId, session), kind: "antigravity-structured", agentId: "antigravity" });
           } else {
             const result = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
             sendJSON(res, 201, { ...result, kind: "cli", agentId });
@@ -5714,8 +6086,17 @@ const server = http.createServer(async (req, res) => {
             const message = await grokAcp.prompt(taskId.slice("grok-build:".length), body?.message);
             if (message.kind === "reject") { const error = new Error(message.code); error.statusCode = 409; throw error; }
             sendJSON(res, 200, { sent: true, taskId, message });
-          } else if (taskId.startsWith("claude-code:") && claudeStructuredSessions.has(taskId.slice("claude-code:".length))) {
-            const message = await claudeStructuredSessions.get(taskId.slice("claude-code:".length)).send(body?.message || "");
+          } else if (/^(cline|kilo|hermes):/.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {
+            const agentId = taskId.split(":", 1)[0];
+            const message = await acpAdapterForAgent(agentId).prompt(taskId.slice(agentId.length + 1), body?.message);
+            if (message.kind === "reject") { const error = new Error(message.code); error.statusCode = 409; throw error; }
+            sendJSON(res, 200, { sent: true, taskId, message });
+          } else if (taskId.startsWith("claude-code:") && resolveClaudeStructuredSession(taskId)) {
+            const message = await resolveClaudeStructuredSession(taskId).session.send(body?.message || "");
+            if (message.kind === "reject") { const error = new Error(message.code); error.statusCode = 409; throw error; }
+            sendJSON(res, 200, { sent: true, taskId, message });
+          } else if (taskId.startsWith("antigravity:") && antigravityStructuredSessions.has(taskId.slice("antigravity:".length))) {
+            const message = await antigravityStructuredSessions.get(taskId.slice("antigravity:".length)).send(body?.message || "");
             if (message.kind === "reject") { const error = new Error(message.code); error.statusCode = 409; throw error; }
             sendJSON(res, 200, { sent: true, taskId, message });
           } else sendJSON(res, 200, agentTasks.send(taskId, body?.message));
@@ -5758,12 +6139,16 @@ const server = http.createServer(async (req, res) => {
           catch { ok = false; }
         } else if (taskId.startsWith("grok-build:") && grokAcp) {
           try { ok = (await grokAcp.cancel(taskId.slice("grok-build:".length))).kind === "cancelled"; } catch { ok = false; }
-        } else if (taskId.startsWith("claude-code:") && claudeStructuredSessions.has(taskId.slice("claude-code:".length))) {
-          try { ok = (await claudeStructuredSessions.get(taskId.slice("claude-code:".length)).close()).cleanupConfirmed === true; claudeStructuredSessions.delete(taskId.slice("claude-code:".length)); } catch { ok = false; }
+        } else if (/^(kilo|hermes):/.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {
+          try { const agentId = taskId.split(":", 1)[0]; ok = (await acpAdapterForAgent(agentId).cancel(taskId.slice(agentId.length + 1))).kind === "cancelled"; } catch { ok = false; }
+        } else if (taskId.startsWith("claude-code:") && resolveClaudeStructuredSession(taskId)) {
+          try { const resolved = resolveClaudeStructuredSession(taskId); const result = await resolved.session.interrupt(); ok = result.kind === "sent"; } catch { ok = false; }
+        } else if (taskId.startsWith("antigravity:") && antigravityStructuredSessions.has(taskId.slice("antigravity:".length))) {
+          try { ok = (await antigravityStructuredSessions.get(taskId.slice("antigravity:".length)).close()).cleanupConfirmed === true; antigravityStructuredSessions.delete(taskId.slice("antigravity:".length)); } catch { ok = false; }
         } else {
           ok = await agentTasks.stop(taskId);
         }
-        const exists = taskId.startsWith("opencode:") || taskId.startsWith("grok-build:") || taskId.startsWith("claude-code:") || (!taskId.startsWith("pi:") && agentTasks.get(taskId));
+        const exists = taskId.startsWith("opencode:") || taskId.startsWith("grok-build:") || /^(cline|kilo|hermes):/.test(taskId) || resolveClaudeStructuredSession(taskId) || taskId.startsWith("antigravity:") || (!taskId.startsWith("pi:") && agentTasks.get(taskId));
         sendJSON(res, ok ? 200 : exists ? 409 : 404, ok ? { stopped: true } : { error: exists ? "Agent stop could not be confirmed; reconnect and retry" : "no such agent task" });
         return;
       }
@@ -5776,10 +6161,14 @@ const server = http.createServer(async (req, res) => {
           try { ok = (await openCodeNative.abort(taskId.slice("opencode:".length), { directory: openCodeDirectory(body?.cwd || body?.directory || null) })).aborted === true; } catch { ok = false; }
         } else if (taskId.startsWith("grok-build:") && grokAcp) {
           try { ok = (await grokAcp.cancel(taskId.slice("grok-build:".length))).kind === "cancelled"; } catch { ok = false; }
-        } else if (taskId.startsWith("claude-code:") && claudeStructuredSessions.has(taskId.slice("claude-code:".length))) {
-          try { ok = (await claudeStructuredSessions.get(taskId.slice("claude-code:".length)).close()).cleanupConfirmed === true; claudeStructuredSessions.delete(taskId.slice("claude-code:".length)); } catch { ok = false; }
+        } else if (/^(cline|kilo|hermes):/.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {
+          try { const agentId = taskId.split(":", 1)[0]; ok = (await acpAdapterForAgent(agentId).cancel(taskId.slice(agentId.length + 1))).kind === "cancelled"; } catch { ok = false; }
+        } else if (taskId.startsWith("claude-code:") && resolveClaudeStructuredSession(taskId)) {
+          try { const resolved = resolveClaudeStructuredSession(taskId); const result = await resolved.session.close(); ok = result.cleanupConfirmed === true; if (ok) claudeStructuredSessions.delete(resolved.id); } catch { ok = false; }
+        } else if (taskId.startsWith("antigravity:") && antigravityStructuredSessions.has(taskId.slice("antigravity:".length))) {
+          try { ok = (await antigravityStructuredSessions.get(taskId.slice("antigravity:".length)).close()).cleanupConfirmed === true; antigravityStructuredSessions.delete(taskId.slice("antigravity:".length)); } catch { ok = false; }
         } else ok = await agentTasks.stop(taskId);
-        const exists = taskId.startsWith("opencode:") || taskId.startsWith("grok-build:") || taskId.startsWith("claude-code:") || agentTasks.get(taskId);
+        const exists = taskId.startsWith("opencode:") || taskId.startsWith("grok-build:") || /^(cline|kilo|hermes):/.test(taskId) || resolveClaudeStructuredSession(taskId) || taskId.startsWith("antigravity:") || agentTasks.get(taskId);
         sendJSON(res, ok ? 200 : exists ? 409 : 404, ok ? { closed: true } : { error: exists ? "Agent stop could not be confirmed; reconnect and retry" : "no such agent task" });
         return;
       }
@@ -5973,17 +6362,29 @@ function shutdown(signal) {
     try { return await session.close(); }
     finally { claudeStructuredSessions.delete(id); }
   }));
+  const antigravityStructuredCleanup = Promise.all([...antigravityStructuredSessions.entries()].map(async ([id, session]) => {
+    try { return await session.close(); }
+    finally { antigravityStructuredSessions.delete(id); }
+  }));
   const historyCleanup = Promise.all([
     historyHost.shutdown(),
     codexNative.close(),
     grokAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
+    clineAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
+    kiloAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
+    hermesAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
     claudeStructuredCleanup,
-  ]).then(([historyResult, codexResult, grokResult, claudeResults]) => ({
+    antigravityStructuredCleanup,
+  ]).then(([historyResult, codexResult, grokResult, clineResult, kiloResult, hermesResult, claudeResults, antigravityResults]) => ({
     ...(historyResult || {}),
     cleanupConfirmed: historyResult?.cleanupConfirmed === true
       && codexResult?.cleanupConfirmed !== false
       && grokResult?.cleanupConfirmed !== false
-      && (!Array.isArray(claudeResults) || claudeResults.every(result => result?.cleanupConfirmed !== false)),
+      && clineResult?.cleanupConfirmed !== false
+      && kiloResult?.cleanupConfirmed !== false
+      && hermesResult?.cleanupConfirmed !== false
+      && (!Array.isArray(claudeResults) || claudeResults.every(result => result?.cleanupConfirmed !== false))
+      && (!Array.isArray(antigravityResults) || antigravityResults.every(result => result?.cleanupConfirmed !== false)),
   }));
   shutdownState = {
     signal,

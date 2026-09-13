@@ -1,7 +1,7 @@
-/* stepsemble v3.0.29 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.31 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.29";
+const CLIENT_APP_VERSION = "3.0.31";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -181,7 +181,9 @@ let agentHubTicker = null;
 let openCodeNativePollTimer = null;
 let codexNativePollTimer = null;
 let grokAcpPollTimer = null;
+let acpPollTimer = null;
 let claudeStructuredPollTimer = null;
+let antigravityStructuredPollTimer = null;
 let codexNativeHistoryButton = null;
 let agentCatalogRequest = null;
 let newAgentStartPending = false;
@@ -1721,6 +1723,14 @@ function agentTaskIsRunning(task) {
   return ["starting", "running", "reconnecting"].includes(String(task?.status || ""));
 }
 
+function agentTaskCanStop(task) {
+  // Read-only native history rows are observations of work owned by the
+  // vendor client. Showing a Stop button for them creates a guaranteed 409
+  // and makes the task center look unreliable.
+  if (task?.nativeCodex === true && task?.nativeCodexMutation !== true && task?.readOnly !== false) return false;
+  return true;
+}
+
 function agentTaskElapsed(task) {
   const start = Number(task?.startedAt);
   if (!Number.isFinite(start) || start <= 0) return "";
@@ -1770,10 +1780,15 @@ function renderAgentHub() {
   }
   if (el.agentHubConnectors) {
     el.agentHubConnectors.replaceChildren();
-    for (const connector of connectors) {
+    // The home card is a compact status preview. Show installed connectors
+    // only (and cap the row) so optional integrations cannot push Sessions
+    // below the fold; New Project still exposes the complete catalog.
+    const installedConnectors = connectors.filter((item) => item.installed);
+    const visibleConnectors = installedConnectors.slice(0, 6);
+    for (const connector of visibleConnectors) {
       const chip = document.createElement("span");
-      chip.className = "agent-connector-chip" + (connector.installed ? " installed" : "");
-      chip.title = connector.installed ? (connector.description || connector.label) : `${connector.label} · ${agentHubText("notInstalled")}`;
+      chip.className = "agent-connector-chip installed";
+      chip.title = `${connector.description || connector.label}${connector.maturity && connector.maturity !== "full" ? ` · ${connector.maturity}` : ""}`;
       const dot = document.createElement("span");
       dot.className = "dot";
       dot.setAttribute("aria-hidden", "true");
@@ -1782,6 +1797,14 @@ function renderAgentHub() {
       label.dataset.i18nIgnore = "";
       chip.append(dot, StepsembleAgentIdentity.create(document, connector.id, true), label);
       el.agentHubConnectors.appendChild(chip);
+    }
+    const hiddenCount = Math.max(0, connectors.length - visibleConnectors.length);
+    if (hiddenCount) {
+      const more = document.createElement("span");
+      more.className = "agent-connector-chip more";
+      more.textContent = `+${hiddenCount}`;
+      more.title = agentHubText("viewAll");
+      el.agentHubConnectors.appendChild(more);
     }
   }
   if (!el.agentTaskList) return;
@@ -1930,7 +1953,7 @@ function renderAgentTaskCenter() {
       activity.setAttribute("aria-label", activityLabel);
     }
     actions.appendChild(activity);
-    if (agentTaskIsRunning(task) || task.status === "waiting") {
+    if (agentTaskCanStop(task) && (agentTaskIsRunning(task) || task.status === "waiting")) {
       const stop = document.createElement("button");
       stop.type = "button";
       stop.className = "agent-task-center-stop btn ghost";
@@ -2012,13 +2035,25 @@ function renderNewAgentOptions() {
   const previous = el.newAgent.value || "pi";
   el.newAgent.replaceChildren();
   const connectors = agentCatalog;
+  const groups = new Map();
   for (const connector of connectors) {
-    const option = document.createElement("option");
-    option.value = connector.id;
-    option.textContent = connector.installed ? connector.label : `${connector.label} · ${agentHubText("notInstalled")}`;
-    option.disabled = connector.installed !== true;
-    option.dataset.i18nIgnore = "";
-    el.newAgent.appendChild(option);
+    const key = connector.category === "personal" ? "personal" : "coding";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(connector);
+  }
+  for (const [key, rows] of groups) {
+    const target = groups.size > 1 ? document.createElement("optgroup") : el.newAgent;
+    if (target !== el.newAgent) target.label = key === "personal" ? "Personal agents" : "Coding agents";
+    for (const connector of rows) {
+      const option = document.createElement("option");
+      option.value = connector.id;
+      const maturity = connector.maturity && connector.maturity !== "full" ? ` · ${connector.maturity}` : "";
+      option.textContent = connector.installed ? `${connector.label}${maturity}` : `${connector.label} · ${agentHubText("notInstalled")}`;
+      option.disabled = connector.installed !== true;
+      option.dataset.i18nIgnore = "";
+      target.appendChild(option);
+    }
+    if (target !== el.newAgent) el.newAgent.appendChild(target);
   }
   const selected = [...el.newAgent.options].find((option) => option.value === previous && !option.disabled)
     || [...el.newAgent.options].find((option) => option.value === "pi" && !option.disabled)
@@ -2193,7 +2228,9 @@ async function openAgentTaskFromHub(task) {
   }
   if (task.nativeCodex === true || task.nativeThreadId && task.agentId === "codex") return openCodexNativeTask(task);
   if (task.nativeGrokAcp === true || task.nativeSessionId && task.agentId === "grok-build") return openGrokAcpTask(task);
+  if (task.nativeAcp === true || task.nativeSessionId && ["cline", "kilo", "hermes"].includes(task.agentId)) return openAgentClientProtocolTask(task);
   if (task.nativeClaudeStructured === true || task.nativeSessionId && task.agentId === "claude-code") return openClaudeStructuredTask(task);
+  if (task.nativeAntigravityStructured === true || task.nativeSessionId && task.agentId === "antigravity") return openAntigravityStructuredTask(task);
   if (task.nativeOpenCode === true || task.nativeSessionId) return openOpenCodeNativeTask(task);
   return openGenericTask(task);
 }
@@ -4031,7 +4068,17 @@ function genericInputBlock(connection = rpc) {
     if (connection.nativeLoading || connection.connectionLost || connection.stopPending || !["running", "waiting"].includes(connection.taskStatus)) return "inputUnavailable";
     return null;
   }
+  if (connection?.nativeAntigravityStructured) {
+    if (genericTaskTerminal(connection.taskStatus)) return "taskReadOnly";
+    if (connection.nativeLoading || connection.connectionLost || connection.stopPending || !["running", "waiting"].includes(connection.taskStatus)) return "inputUnavailable";
+    return null;
+  }
   if (connection?.nativeGrokAcp) {
+    if (genericTaskTerminal(connection.taskStatus)) return "taskReadOnly";
+    if (connection.nativeLoading || connection.connectionLost || connection.stopPending || !["running", "waiting"].includes(connection.taskStatus)) return "inputUnavailable";
+    return null;
+  }
+  if (connection?.nativeAcp) {
     if (genericTaskTerminal(connection.taskStatus)) return "taskReadOnly";
     if (connection.nativeLoading || connection.connectionLost || connection.stopPending || !["running", "waiting"].includes(connection.taskStatus)) return "inputUnavailable";
     return null;
@@ -5046,7 +5093,7 @@ function renderClaudeStructuredEvents(connection, events, { replace = false } = 
 function renderClaudeStructuredPermissions(connection, permissions) {
   if (rpc !== connection || !connection?.nativeClaudeStructured) return;
   for (const permission of Array.isArray(permissions) ? permissions : []) {
-    const id = String(permission?.request_id || permission?.requestId || permission?.eventId || "");
+    const id = String(permission?.requestId || permission?.request_id || permission?.eventId || "");
     if (!id || [...(el.messages?.querySelectorAll("[data-claude-permission]") || [])]
       .some(node => node.dataset.claudePermission === id)) continue;
     const shell = makeMsgShell("assistant", connection.agentLabel || "Claude Code");
@@ -5056,14 +5103,40 @@ function renderClaudeStructuredPermissions(connection, permissions) {
     const title = document.createElement("strong");
     title.textContent = "Claude Code permission required";
     const summary = document.createElement("p");
-    summary.textContent = String(permission.message || permission.tool || permission.name || "Claude Code requested permission.").slice(0, 1000);
+    const request = permission?.request && typeof permission.request === "object" ? permission.request : permission;
+    const tool = String(request?.tool_name || request?.toolName || permission?.tool || permission?.name || "tool");
+    const description = String(request?.description || permission?.message || "Claude Code requested permission.");
+    let inputSummary = "";
+    try { inputSummary = request?.input && typeof request.input === "object" ? `\n${JSON.stringify(request.input).slice(0, 1800)}` : ""; } catch {}
+    summary.textContent = `${tool} · ${description}`.slice(0, 1000) + inputSummary;
     const state = document.createElement("small");
     state.dataset.role = "approval-state";
-    state.textContent = "Claude's public stream does not expose an approval response envelope.";
-    const note = document.createElement("p");
-    note.className = "muted";
-    note.textContent = "Configure Claude Code's permission-prompt-tool (MCP) to own this decision. Stepsemble will not fabricate an ACK.";
-    card.append(title, summary, state, note);
+    state.textContent = permission?.decision ? `Decision sent: ${permission.decision} · waiting for Claude` : "Waiting for your decision";
+    const actions = document.createElement("div");
+    actions.className = "agent-approval-actions";
+    for (const [decision, label] of [["allow", "Allow"], ["deny", "Deny"]]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = decision === "deny" ? "btn ghost" : "btn primary";
+      button.textContent = label;
+      button.disabled = !!permission?.decision;
+      button.addEventListener("click", async () => {
+        actions.querySelectorAll("button").forEach(item => { item.disabled = true; });
+        try {
+          const result = await post("/api/claude/structured/permission", {
+            sessionId: connection.nativeSessionId, requestId: id, decision,
+          });
+          permission.decision = decision;
+          state.textContent = `Decision sent: ${decision} · waiting for Claude`;
+          if (result?.kind !== "written") throw new Error("Claude did not accept the permission response");
+        } catch (error) {
+          state.textContent = error?.message || "Could not record the decision";
+          actions.querySelectorAll("button").forEach(item => { item.disabled = false; });
+        }
+      });
+      actions.appendChild(button);
+    }
+    card.append(title, summary, state, actions);
     shell.bubble.appendChild(card);
   }
 }
@@ -5078,7 +5151,27 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false } =
     if (rpc !== connection) return;
     renderClaudeStructuredEvents(connection, snapshot?.events, { replace: initial });
     renderClaudeStructuredPermissions(connection, pending?.permissions);
-    connection.nativeLoading = false; connection.connectionLost = false; syncGenericInputState();
+    connection.nativeLoading = false; connection.connectionLost = false;
+    // The structured stream is polled rather than kept as a browser-owned
+    // SSE connection. Reconcile the authoritative adapter status on every
+    // poll so a resumed/native session cannot look idle forever, and so the
+    // task center receives the real lifecycle timestamps and native id.
+    const status = snapshot?.status || {};
+    connection.taskStatus = status.closed ? "stopped" : status.failed ? "failed"
+      : status.state === "running" ? "running" : "waiting";
+    applyGenericTaskSnapshot({
+      id: connection.sid,
+      taskId: connection.sid,
+      agentId: "claude-code",
+      status: connection.taskStatus,
+      nativeClaudeStructured: true,
+      nativeSessionId: status.nativeSessionId || connection.nativeSessionId,
+      startedAt: status.startedAt,
+      lastActivityAt: status.lastActivityAt,
+      endedAt: status.closed ? (status.lastActivityAt || Date.now()) : undefined,
+      nativeStatus: status,
+    });
+    syncGenericInputState();
   } catch {
     if (rpc !== connection) return;
     connection.nativeLoading = false; connection.connectionLost = true; syncGenericInputState();
@@ -5087,9 +5180,24 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false } =
 
 async function openClaudeStructuredTask(task, generationOverride = null) {
   if (!task) return;
-  const nativeSessionId = String(task.id || task.taskId || "").replace(/^claude-code:/, "");
+  const nativeSessionId = String(task.nativeSessionId || task.id || task.taskId || "").replace(/^claude-code:/, "");
   if (!nativeSessionId) return;
   const cwd = task.cwd || ""; const name = task.name || "Claude Code";
+  if (task.needsLoad === true) {
+    const generation = generationOverride === null ? ++viewGeneration : generationOverride;
+    if (rpc) closeChat(true);
+    try {
+      const result = await post("/api/agent/open", { agentId: "claude-code", cwd, name, resumeSessionId: nativeSessionId });
+      if (result?.kind === "claude-structured" || result?.nativeClaudeStructured === true) {
+        return openClaudeStructuredTask({ ...result, needsLoad: false }, generation);
+      }
+      if (result) return openGenericTask(result);
+      throw new Error("Claude resume returned no task");
+    } catch (error) {
+      if (generation === viewGeneration) { toast(tKey("runtime.openChatFailed", { detail: error.message }), true); showList(); }
+    }
+    return;
+  }
   rememberLastAgentTask(task.id || `claude-code:${nativeSessionId}`); beginDraftScope({ cwd, name });
   const generation = generationOverride === null ? ++viewGeneration : generationOverride;
   if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
@@ -5108,6 +5216,218 @@ async function openClaudeStructuredTask(task, generationOverride = null) {
     await refreshClaudeStructuredSnapshot(connection, { initial: true });
     if (rpc !== connection || generation !== viewGeneration) return;
     claudeStructuredPollTimer = setInterval(() => void refreshClaudeStructuredSnapshot(connection), 2000); syncGenericInputState();
+  } catch (error) {
+    if (rpc === connection && generation === viewGeneration) { toast(tKey("runtime.openChatFailed", { detail: error.message }), true); closeChat(true); showList(); }
+  }
+}
+
+function acpAgentLabel(connection) {
+  return connection?.agentLabel || agentConnectorLabel(connection?.acpAgentId || "agent");
+}
+
+function renderAgentClientProtocolEvents(connection, events, { replace = false } = {}) {
+  if (rpc !== connection || !connection?.nativeAcp) return;
+  const rows = Array.isArray(events) ? events : [];
+  if (replace) { el.messages.innerHTML = ""; connection.acpEventIndex = 0; }
+  for (let index = connection.acpEventIndex || 0; index < rows.length; index += 1) {
+    const update = rows[index]?.update || {};
+    const content = update.content || {};
+    if (["agent_message_chunk", "agent_thought_chunk"].includes(update.sessionUpdate) && content.text) appendGenericOutput(String(content.text), "stdout");
+    else if (["tool_call", "tool_call_update"].includes(update.sessionUpdate)) {
+      const title = content.text || update.title || update.name || update.toolCallId || "tool";
+      appendGenericOutput(`[${String(title).slice(0, 512)}]`, "stdout");
+    }
+  }
+  connection.acpEventIndex = rows.length;
+  keepSessionUsageAtEnd(); scrollBottom();
+}
+
+function renderAgentClientProtocolPermissions(connection, permissions) {
+  if (rpc !== connection || !connection?.nativeAcp) return;
+  for (const permission of Array.isArray(permissions) ? permissions : []) {
+    const id = String(permission?.id ?? "");
+    if (!id || [...(el.messages?.querySelectorAll("[data-acp-permission]") || [])].some(node => node.dataset.acpPermission === id)) continue;
+    const shell = makeMsgShell("assistant", acpAgentLabel(connection));
+    const card = document.createElement("div");
+    card.className = "agent-approval-card";
+    card.dataset.acpPermission = id;
+    const title = document.createElement("strong"); title.textContent = `${acpAgentLabel(connection)} permission required`;
+    const toolCall = permission.params?.toolCall || {};
+    const summary = document.createElement("p"); summary.textContent = String(toolCall.title || toolCall.name || permission.params?.method || "The agent is requesting permission.").slice(0, 1000);
+    const state = document.createElement("small"); state.dataset.role = "approval-state"; state.textContent = "Waiting for your decision";
+    const actions = document.createElement("div"); actions.className = "agent-approval-actions";
+    for (const option of Array.isArray(permission.params?.options) ? permission.params.options : []) {
+      const optionId = String(option?.optionId || ""); const label = String(option?.name || optionId || "Choose").slice(0, 120);
+      if (!optionId || !label) continue;
+      const button = document.createElement("button"); button.type = "button";
+      button.className = String(option?.kind || "").startsWith("reject") ? "btn ghost" : "btn primary"; button.textContent = label;
+      button.addEventListener("click", async () => {
+        actions.querySelectorAll("button").forEach(item => { item.disabled = true; });
+        try {
+          await post(`/api/${connection.acpAgentId}/acp/permission`, { requestId: permission.id, result: { outcome: { outcome: "selected", optionId } } });
+          state.textContent = `Decision sent: ${label} · waiting for ${acpAgentLabel(connection)} confirmation`;
+        } catch (error) {
+          state.textContent = error?.message || "Could not record the decision";
+          actions.querySelectorAll("button").forEach(item => { item.disabled = false; });
+        }
+      });
+      actions.appendChild(button);
+    }
+    if (!actions.children.length) state.textContent = "No valid ACP options were provided; request is blocked.";
+    card.append(title, summary, state, actions); shell.bubble.appendChild(card);
+  }
+}
+
+async function refreshAgentClientProtocolSnapshot(connection, { initial = false } = {}) {
+  if (!connection || rpc !== connection || !connection.nativeAcp) return;
+  try {
+    const [snapshot, pending] = await Promise.all([
+      api(`/api/${connection.acpAgentId}/acp/events?sessionId=${encodeURIComponent(connection.nativeSessionId)}`),
+      api(`/api/${connection.acpAgentId}/acp/pending`),
+    ]);
+    if (rpc !== connection) return;
+    renderAgentClientProtocolEvents(connection, snapshot?.events, { replace: initial });
+    renderAgentClientProtocolPermissions(connection, pending?.permissions);
+    connection.nativeLoading = false; connection.connectionLost = false;
+    connection.taskStatus = "waiting";
+    applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: connection.acpAgentId, nativeAcp: true,
+      acpAgentId: connection.acpAgentId, nativeSessionId: connection.nativeSessionId, status: connection.taskStatus,
+      nativeStatus: snapshot?.adapter || {} });
+    syncGenericInputState();
+  } catch {
+    if (rpc !== connection) return;
+    connection.nativeLoading = false; connection.connectionLost = true; syncGenericInputState();
+  }
+}
+
+async function openAgentClientProtocolTask(task, generationOverride = null) {
+  if (!task) return;
+  const agentId = String(task.acpAgentId || task.agentId || "");
+  if (!agentId || !["cline", "kilo", "hermes"].includes(agentId)) return;
+  const nativeSessionId = String(task.nativeSessionId || task.id || task.taskId || "").replace(new RegExp(`^${agentId}:`), "");
+  if (!nativeSessionId) return;
+  const cwd = task.cwd || ""; const name = task.name || agentConnectorLabel(agentId);
+  if (task.needsLoad === true) {
+    const generation = generationOverride === null ? ++viewGeneration : generationOverride;
+    if (rpc) closeChat(true);
+    try {
+      const result = await post("/api/agent/open", { agentId, cwd, name, resumeSessionId: nativeSessionId });
+      if (result?.kind === "acp" || result?.nativeAcp === true) {
+        return openAgentClientProtocolTask({ ...result, needsLoad: false }, generation);
+      }
+      if (result) return openGenericTask(result);
+      throw new Error("ACP resume returned no task");
+    } catch (error) {
+      if (generation === viewGeneration) { toast(tKey("runtime.openChatFailed", { detail: error.message }), true); showList(); }
+    }
+    return;
+  }
+  rememberLastAgentTask(task.id || `${agentId}:${nativeSessionId}`); beginDraftScope({ cwd, name });
+  const generation = generationOverride === null ? ++viewGeneration : generationOverride;
+  if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
+  resetTaskProgress(); resetProjectChanges(); resetComposerSummary(); currentSessionFile = null;
+  currentAgentTaskId = `${agentId}:${nativeSessionId}`; updateSessionSelection(); _lastMsgDate = null; lastUserText = ""; currentSessionCwd = cwd;
+  historyState = null; removeHistoryLoadButton(); autoScrollPinned = true; hideChatEmpty(); setChatTitle(name); setChatAgent(agentId);
+  el.chatSub.dataset.base = cwd; el.chatSub.textContent = cwd; resetLiveUsage(); el.messages.innerHTML = ""; resetSessionUsage(); ensureSessionUsageFooter();
+  if (!isDesktop()) { el.viewList.classList.add("hidden"); syncSessionListPolling(); }
+  el.viewChat.classList.remove("hidden"); void refreshProjectChanges({ background: true });
+  rpc = { sid: `${agentId}:${nativeSessionId}`, generic: true, nativeAcp: true, acpAgentId: agentId, nativeSessionId,
+    nativeLoading: true, connectionLost: false, stopPending: false, streamReady: true, taskStatus: "waiting", genericOutputNode: null,
+    genericTerminalNotice: null, genericInputEchoes: [], acpEventIndex: 0, agentId, agentLabel: agentConnectorLabel(agentId), name, cwd,
+    runStartedAt: Number(task.startedAt) || Date.now(), runEndedAt: null };
+  const connection = rpc; acpPollTimer = null;
+  try {
+    await refreshAgentClientProtocolSnapshot(connection, { initial: true });
+    if (rpc !== connection || generation !== viewGeneration) return;
+    acpPollTimer = setInterval(() => void refreshAgentClientProtocolSnapshot(connection), 2000); syncGenericInputState();
+  } catch (error) {
+    if (rpc === connection && generation === viewGeneration) { toast(tKey("runtime.openChatFailed", { detail: error.message }), true); closeChat(true); showList(); }
+  }
+}
+
+function renderAntigravityStructuredEvents(connection, events, { replace = false } = {}) {
+  if (rpc !== connection || !connection?.nativeAntigravityStructured) return;
+  const rows = Array.isArray(events) ? events : [];
+  if (replace) { el.messages.innerHTML = ""; connection.antigravityEventIndex = 0; }
+  for (let index = connection.antigravityEventIndex || 0; index < rows.length; index += 1) {
+    const event = rows[index];
+    const text = event?.step_update?.text_delta || event?.step_update?.text || event?.text_delta || event?.result?.response || event?.result?.text || event?.response || event?.text || "";
+    if (text) appendGenericOutput(String(text), "stdout");
+  }
+  connection.antigravityEventIndex = rows.length;
+  keepSessionUsageAtEnd(); scrollBottom();
+}
+
+function renderAntigravityStructuredPermissions(connection, permissions) {
+  if (rpc !== connection || !connection?.nativeAntigravityStructured) return;
+  for (const permission of Array.isArray(permissions) ? permissions : []) {
+    const id = String(permission?.requestId || permission?.request_id || permission?.eventId || "");
+    if (!id || [...(el.messages?.querySelectorAll("[data-antigravity-permission]") || [])]
+      .some(node => node.dataset.antigravityPermission === id)) continue;
+    const shell = makeMsgShell("assistant", connection.agentLabel || "Google Antigravity");
+    const card = document.createElement("div");
+    card.className = "agent-approval-card";
+    card.dataset.antigravityPermission = id;
+    const title = document.createElement("strong");
+    title.textContent = "Antigravity permission observed";
+    const summary = document.createElement("p");
+    summary.textContent = String(permission.message || "Google Antigravity reported a tool that may need approval.").slice(0, 1000);
+    const state = document.createElement("small");
+    state.dataset.role = "approval-state";
+    state.textContent = "The public headless stream does not expose an approval response envelope.";
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent = "Approve this action in Antigravity's native UI; Stepsemble will not fabricate an ACK.";
+    card.append(title, summary, state, note);
+    shell.bubble.appendChild(card);
+  }
+}
+
+async function refreshAntigravityStructuredSnapshot(connection, { initial = false } = {}) {
+  if (!connection || rpc !== connection || !connection.nativeAntigravityStructured) return;
+  try {
+    const [snapshot, pending] = await Promise.all([
+      api(`/api/antigravity/structured/events?sessionId=${encodeURIComponent(connection.nativeSessionId)}`),
+      api(`/api/antigravity/structured/pending?sessionId=${encodeURIComponent(connection.nativeSessionId)}`),
+    ]);
+    if (rpc !== connection) return;
+    renderAntigravityStructuredEvents(connection, snapshot?.events, { replace: initial });
+    renderAntigravityStructuredPermissions(connection, pending?.permissions);
+    connection.nativeLoading = false; connection.connectionLost = false;
+    const status = snapshot?.status || {};
+    connection.taskStatus = status.closed ? "stopped" : status.failed ? "failed" : "waiting";
+    applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: "antigravity", status: connection.taskStatus,
+      nativeAntigravityStructured: true, nativeStatus: status });
+    syncGenericInputState();
+  } catch {
+    if (rpc !== connection) return;
+    connection.nativeLoading = false; connection.connectionLost = true; syncGenericInputState();
+  }
+}
+
+async function openAntigravityStructuredTask(task, generationOverride = null) {
+  if (!task) return;
+  const nativeSessionId = String(task.id || task.taskId || "").replace(/^antigravity:/, "");
+  if (!nativeSessionId) return;
+  const cwd = task.cwd || ""; const name = task.name || "Google Antigravity";
+  rememberLastAgentTask(task.id || `antigravity:${nativeSessionId}`); beginDraftScope({ cwd, name });
+  const generation = generationOverride === null ? ++viewGeneration : generationOverride;
+  if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
+  resetTaskProgress(); resetProjectChanges(); resetComposerSummary(); currentSessionFile = null;
+  currentAgentTaskId = `antigravity:${nativeSessionId}`; updateSessionSelection(); _lastMsgDate = null; lastUserText = ""; currentSessionCwd = cwd;
+  historyState = null; removeHistoryLoadButton(); autoScrollPinned = true; hideChatEmpty(); setChatTitle(name); setChatAgent("antigravity");
+  el.chatSub.dataset.base = cwd; el.chatSub.textContent = cwd; resetLiveUsage(); el.messages.innerHTML = ""; resetSessionUsage(); ensureSessionUsageFooter();
+  if (!isDesktop()) { el.viewList.classList.add("hidden"); syncSessionListPolling(); }
+  el.viewChat.classList.remove("hidden"); void refreshProjectChanges({ background: true });
+  rpc = { sid: `antigravity:${nativeSessionId}`, generic: true, nativeAntigravityStructured: true, nativeSessionId, nativeLoading: true,
+    connectionLost: false, stopPending: false, streamReady: true, taskStatus: "waiting", genericOutputNode: null, genericTerminalNotice: null,
+    genericInputEchoes: [], antigravityEventIndex: 0, agentId: "antigravity", agentLabel: "Google Antigravity", name, cwd,
+    runStartedAt: Number(task.startedAt) || Date.now(), runEndedAt: null };
+  const connection = rpc; antigravityStructuredPollTimer = null;
+  try {
+    await refreshAntigravityStructuredSnapshot(connection, { initial: true });
+    if (rpc !== connection || generation !== viewGeneration) return;
+    antigravityStructuredPollTimer = setInterval(() => void refreshAntigravityStructuredSnapshot(connection), 2000); syncGenericInputState();
   } catch (error) {
     if (rpc === connection && generation === viewGeneration) { toast(tKey("runtime.openChatFailed", { detail: error.message }), true); closeChat(true); showList(); }
   }
@@ -5167,6 +5487,7 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
         agentId: String(options.agentId || "pi"),
         cwd: options.cwd,
         name: options.name,
+        resumeSessionId: options.resumeSessionId,
         worktree: !!options.worktree,
       }, options.signal ? { signal: options.signal } : {});
     }
@@ -5191,8 +5512,16 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
       await openGrokAcpTask(result, generation);
       return;
     }
+    if (result?.kind === "acp" || result?.nativeAcp === true) {
+      await openAgentClientProtocolTask(result, generation);
+      return;
+    }
     if (result?.kind === "claude-structured" || result?.nativeClaudeStructured === true) {
       await openClaudeStructuredTask(result, generation);
+      return;
+    }
+    if (result?.kind === "antigravity-structured" || result?.nativeAntigravityStructured === true) {
+      await openAntigravityStructuredTask(result, generation);
       return;
     }
     if (result?.nativeCodex === true || result?.nativeThreadId && result?.agentId === "codex") {
@@ -5353,7 +5682,9 @@ function closeChat(silent) {
   if (openCodeNativePollTimer) { clearInterval(openCodeNativePollTimer); openCodeNativePollTimer = null; }
   if (codexNativePollTimer) { clearInterval(codexNativePollTimer); codexNativePollTimer = null; }
   if (grokAcpPollTimer) { clearInterval(grokAcpPollTimer); grokAcpPollTimer = null; }
+  if (acpPollTimer) { clearInterval(acpPollTimer); acpPollTimer = null; }
   if (claudeStructuredPollTimer) { clearInterval(claudeStructuredPollTimer); claudeStructuredPollTimer = null; }
+  if (antigravityStructuredPollTimer) { clearInterval(antigravityStructuredPollTimer); antigravityStructuredPollTimer = null; }
   if (rpc) {
     rpc.nativeHistoryRequest?.abort();
     const generic = !!rpc.generic;
@@ -7374,8 +7705,12 @@ async function sendCurrent() {
         ? await post("/api/opencode/message", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
         : rpc?.nativeGrokAcp
           ? await post("/api/grok/acp/prompt", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
+          : rpc?.nativeAcp
+            ? await post(`/api/${rpc.acpAgentId}/acp/prompt`, { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
           : rpc?.nativeClaudeStructured
             ? await post("/api/claude/structured/prompt", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
+            : rpc?.nativeAntigravityStructured
+              ? await post("/api/antigravity/structured/prompt", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
             : rpc?.nativeCodexMutation
               ? await post("/api/codex/mutation/turn", { threadId: rpc.nativeThreadId, cwd: rpc.cwd, text })
           : await post("/api/agent/send", { taskId: sendSid, message: text }))
@@ -7416,7 +7751,9 @@ el.btnAbort.addEventListener("click", async () => {
   try {
     if (connection.nativeOpenCode) await post("/api/opencode/abort", { sessionId: connection.nativeSessionId, cwd: connection.cwd });
     else if (connection.nativeGrokAcp) await post("/api/grok/acp/cancel", { sessionId: connection.nativeSessionId });
-    else if (connection.nativeClaudeStructured) await post("/api/agent/close", { taskId: connection.sid });
+    else if (connection.nativeAcp) await post(`/api/${connection.acpAgentId}/acp/cancel`, { sessionId: connection.nativeSessionId });
+    else if (connection.nativeClaudeStructured) await post("/api/claude/structured/interrupt", { sessionId: connection.nativeSessionId });
+    else if (connection.nativeAntigravityStructured) await post("/api/agent/close", { taskId: connection.sid });
     else if (connection.nativeCodexMutation) await post("/api/codex/mutation/interrupt", { threadId: connection.nativeThreadId });
     else if (connection.generic) await post("/api/agent/abort", { taskId: connection.sid });
     else await post("/api/abort", { sid: connection.sid });

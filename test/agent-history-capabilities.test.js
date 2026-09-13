@@ -14,6 +14,13 @@ test("history capability metadata distinguishes native, prepared read-only and b
   assert.equal(claude.journalScope, "host-local");
   assert.equal(claude.approval, "structured_ack_required");
   assert.equal(capabilityFor("claude-code", { journalAvailable: true, nativeHistoryConfigured: ["claude-code"] }).history, "native_readonly");
+  const claudeStructured = capabilityFor("claude-code", { journalAvailable: true, nativeAdapterStatus: {
+    configured: true, adapter: "claude-cli-stream-json-v1", version: "claude-cli-stream-json-v1",
+  } });
+  assert.equal(claudeStructured.mode, "structured");
+  assert.equal(claudeStructured.history, "canonical_bounded");
+  assert.equal(claudeStructured.session, "structured_cli");
+  assert.equal(claudeStructured.nativeSession, "observed");
   assert.equal(capabilityFor("codex", { nativeHistoryConfigured: ["claude-code"] }).history, "canonical_bounded");
   assert.equal(capabilityFor("opencode", { journalAvailable: false }).journal, "bounded_snapshot");
   const openCode = capabilityFor("opencode", { journalAvailable: true, nativeAdapterStatus: { ready: true, configured: true, adapter: "opencode-server-v2", version: "1.18.25" } });

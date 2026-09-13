@@ -4,12 +4,12 @@ const fs = require("node:fs"), path = require("node:path"), vm = require("node:v
 const identity = require("../public/modules/agent-identity.js");
 const root = path.resolve(__dirname, "../public");
 const read = name => fs.readFileSync(path.join(root, name), "utf8");
-const ids = ["pi", "claude-code", "codex", "opencode", "grok-build", "gpt", "chatgpt"];
+const ids = ["pi", "claude-code", "codex", "opencode", "grok-build", "antigravity", "cline", "kilo", "hermes", "gpt", "chatgpt"];
 test("every installed harness definition has an explicit mark", () => {
   const source = fs.readFileSync(path.join(__dirname, "../server/agent-connectors.js"), "utf8");
   const definitions = source.slice(source.indexOf("const CONNECTOR_DEFINITIONS"), source.indexOf("function safeConnectorId"));
   const nativeIds = [...definitions.matchAll(/id: "([a-z-]+)"/g)].map(match => match[1]);
-  assert.equal(nativeIds.length, 5);
+  assert.equal(nativeIds.length, 9);
   for (const id of nativeIds) assert.equal(identity.lookup(id).id, id);
 });
 test("canonical source IDs map independently of selected models", () => {
@@ -45,7 +45,7 @@ test("every badge uses only inert, local, offline-cached SVG assets", () => {
   const css = read("modules/agent-identity.css"), worker = read("sw.js");
   for (const id of [...ids, "agent"]) assert.ok(css.includes(`[data-agent-id="${id}"]`));
   const assets = [...new Set([...css.matchAll(/url\("([^"]+)"\)/g)].map(match => match[1]))];
-  assert.equal(assets.length, 7);
+  assert.equal(assets.length, 11);
   for (const asset of assets) {
     assert.match(asset, /^\/agent-logos\/v1\/[a-z]+\.svg$/);
     const svg = read(asset.slice(1));

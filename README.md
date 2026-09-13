@@ -26,10 +26,14 @@
 Stepsemble is an open-source, self-hosted workspace for local coding agents.
 It gives [Pi Agent](https://github.com/badlogic/pi-mono) a native session
 experience and can also launch installed Claude Code, Codex CLI, Grok Build,
-and OpenCode connectors from one desktop or phone interface.
+OpenCode, Google Antigravity, Cline, Kilo Code, and Hermes connectors from one
+desktop or phone interface. Cline, Kilo, and Hermes use bounded ACP bridges
+when their official local ACP server is installed, with a conservative CLI
+fallback for unavailable or incompatible installations; Stepsemble never reads
+their private credential or session stores.
 
 Stepsemble is an independent community project. It is not an official product
-of, or affiliated with, Pi, Anthropic, OpenAI, xAI, or OpenCode.
+of, or affiliated with, Pi, Anthropic, OpenAI, xAI, Google, or OpenCode.
 
 ## Install on macOS
 
@@ -178,7 +182,10 @@ Custom provider. Then select the visible models you want to use.
 ### Agent Hub connectors
 
 The **Agent Hub** card discovers the local Pi Agent and any installed
-allow-listed CLI connectors: Claude Code, Codex CLI, Grok Build, and OpenCode.
+allow-listed CLI connectors: Claude Code, Codex CLI, Grok Build, OpenCode,
+Google Antigravity (`agy`), Cline, Kilo Code, and Hermes. Coding agents and
+Personal Agents are grouped separately in **New project**; the home card keeps
+only a bounded preview while **View all** remains searchable and complete.
 Choose an Agent in **New project**, optionally enable an isolated Git worktree,
 and start the task. CLI stdout/stderr is streamed into the conversation. On
 macOS/Linux the bundled `server/pty-bridge.py` gives interactive CLIs a real
@@ -201,6 +208,25 @@ session is created in the folder shown in Stepsemble rather than silently
 using the server's startup directory. A failed probe safely falls back to the
 normal CLI connector. See
 [`docs/agent-capability-matrix.md`](docs/agent-capability-matrix.md).
+
+Google Antigravity has an explicit structured headless path. Set
+`STEPSEMBLE_ANTIGRAVITY_STRUCTURED=1` when the local `agy` CLI is installed and
+authenticated. Stepsemble then uses the documented stream-json contract,
+locks each task to one upstream conversation ID, and supports bounded event
+replay, prompts, and close. The public headless stream currently does not expose
+a verifiable approval response envelope, so approval observations remain
+fail-closed and must be completed in Antigravity's native UI. Without the flag,
+Stepsemble uses the normal bounded CLI connector.
+
+Cline, Kilo Code, and Hermes use their official ACP stdio modes when the local
+executable is installed (`cline --acp`, `kilo acp`, and `hermes acp`). Their
+session IDs, streamed updates, cancellation, and permission options stay
+bounded to the upstream ACP contract; Stepsemble never reads private
+credential/session stores or treats a single CLI output as complete history.
+Set `STEPSEMBLE_CLINE_ACP=0`, `STEPSEMBLE_KILO_ACP=0`, or
+`STEPSEMBLE_HERMES_ACP=0` to use the conservative bounded CLI fallback.
+Hermes remains listed under Personal Agents and stays separate from coding-agent
+history.
 
 Stepsemble launches each installed CLI inside the same local user environment.
 It does not copy, export, rewrite, or upload that CLI's OAuth tokens or

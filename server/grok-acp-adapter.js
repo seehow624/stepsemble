@@ -163,14 +163,14 @@ function createGrokAcpAdapter({
     }
     return status();
   }
-  async function createSession({ directory = cwd, sessionId = null, mcpServers = [] } = {}) {
+  async function createSession({ directory = cwd, sessionId = null, mcpServers = [], name = null } = {}) {
     const ready = await initialize(); if (ready.kind === "reject") return ready;
     if (typeof directory !== "string" || !path.isAbsolute(directory) || !Array.isArray(mcpServers) || mcpServers.length > 32
       || sessionId !== null && !safeId(sessionId)) return reject("grok_session_invalid");
     const result = await request("session/new", { cwd: directory, mcpServers, ...(sessionId ? { sessionId } : {}) });
     if (result.kind === "reject" || !safeId(result.value?.sessionId)) return reject(result.kind === "reject" ? result.code : "grok_session_invalid");
     const id = String(result.value.sessionId);
-    sessions.set(id, { id, cwd: directory, events: [], status: "idle", promptInFlight: false });
+    sessions.set(id, { id, cwd: directory, name: safeText(name, 120) || null, events: [], status: "idle", promptInFlight: false });
     while (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
     return { kind: "created", sessionId: id, cwd: directory };
   }
@@ -225,7 +225,7 @@ function createGrokAcpAdapter({
   return Object.freeze({ version: GROK_ACP_VERSION, start, initialize, createSession, loadSession, prompt, cancel, respondPermission,
     pendingPermissions: () => [...permissions.values()].map(clone), events: () => clone(events),
     sessionEvents: sessionId => clone(sessions.get(String(sessionId))?.events || []),
-    sessions: () => [...sessions.values()].map(row => ({ id: row.id, cwd: row.cwd, status: row.status, eventCount: row.events.length })), status, close });
+    sessions: () => [...sessions.values()].map(row => ({ id: row.id, cwd: row.cwd, name: row.name || null, status: row.status, eventCount: row.events.length })), status, close });
 }
 
 module.exports = { GROK_ACP_VERSION, normalizeUpdate, createGrokAcpAdapter };

@@ -9,11 +9,14 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { CONNECTOR_DEFINITIONS, resolveCommand } = require("./agent-connectors");
+const { execFile } = require("node:child_process");
+const { promisify } = require("node:util");
 const {
   CODEX_NATIVE_VERSION,
   launchCodexAppServer,
 } = require("./codex-app-server-transport");
 const crypto = require("node:crypto");
+const execFileAsync = promisify(execFile);
 
 const MAX_THREADS = 100;
 const MAX_PAGE = 100;
@@ -127,6 +130,11 @@ function resolveConfig(env = process.env, overrides = {}) {
   });
 }
 
+function parseNativeVersion(output) {
+  const match = /^codex-cli\s+(\d{1,8}\.\d{1,8}\.\d{1,8})$/.exec(String(output || "").trim());
+  return match ? match[1] : null;
+}
+
 function validThreadId(value) {
   return typeof value === "string" && value.length <= MAX_THREAD_ID && ID.test(value);
 }
@@ -226,6 +234,7 @@ function createCodexNativeHistoryAdapter({
   mutationEnabled,
   onEvent = null,
   onApprovalRequest = null,
+  versionProbe = null,
 } = {}) {
   const config = resolveConfig(env, { executable, cwd, enabled, includeKnownPaths, journalFile, mutationEnabled });
   const mutationJournal = loadMutationJournal(config.journalFile);
@@ -249,6 +258,29 @@ function createCodexNativeHistoryAdapter({
   let transport = null;
   let transportPromise = null;
   let refreshPromise = null;
+  // Tests can inject a transport or version probe. Production launches are
+  // version-gated before app-server IO so an unreviewed alpha cannot be
+  // silently treated as the pinned schema contract.
+  let versionVerified = typeof transportFactory === "function";
+
+  async function verifyExecutableVersion() {
+    if (versionVerified || typeof transportFactory === "function") return;
+    const output = typeof versionProbe === "function"
+      ? await versionProbe(config.executable, { cwd: config.cwd, env: { ...env } })
+      : (await execFileAsync(config.executable, ["--version"], {
+        cwd: config.cwd,
+        env: { ...env },
+        shell: false,
+        timeout: 5000,
+        maxBuffer: 64 * 1024,
+      })).stdout;
+    const actual = parseNativeVersion(typeof output === "string" ? output : output?.stdout || output?.version);
+    if (actual !== CODEX_NATIVE_VERSION) {
+      throw new CodexNativeHistoryError("unsupported_codex_native_version", "Codex native schema version is not reviewed", 503,
+        { nativeVersion: actual || null });
+    }
+    versionVerified = true;
+  }
 
   function writeMutationJournal() {
     mutationJournal.operations = [...mutationRows.values()].slice(-MAX_MUTATION_ROWS);
@@ -355,6 +387,7 @@ function createCodexNativeHistoryAdapter({
     transportPromise = (async () => {
       let instance;
       try {
+        await verifyExecutableVersion();
         const options = { executable: config.executable, cwd: config.cwd, nativeVersion: CODEX_NATIVE_VERSION,
           ...(config.mutationEnabled ? { authorizeNative, onEvent, onApprovalRequest } : {}) };
         if (typeof transportFactory === "function") instance = await transportFactory(options);

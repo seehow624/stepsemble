@@ -7,6 +7,10 @@ namespace StepsembleAgentIdentity {
     codex: Object.freeze({ id: "codex", label: "Codex" }),
     opencode: Object.freeze({ id: "opencode", label: "OpenCode" }),
     "grok-build": Object.freeze({ id: "grok-build", label: "Grok Build" }),
+    antigravity: Object.freeze({ id: "antigravity", label: "Google Antigravity" }),
+    cline: Object.freeze({ id: "cline", label: "Cline" }),
+    kilo: Object.freeze({ id: "kilo", label: "Kilo Code" }),
+    hermes: Object.freeze({ id: "hermes", label: "Hermes Agent" }),
     // Presentation only: this does not install or enable a ChatGPT connector.
     gpt: Object.freeze({ id: "gpt", label: "GPT" }),
     chatgpt: Object.freeze({ id: "chatgpt", label: "ChatGPT" }),

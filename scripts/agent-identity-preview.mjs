@@ -37,8 +37,8 @@ try {
       ].map(row => JSON.stringify(row)).join("\n") + "\n", { mode: 0o600 });
     }
   }
-  const names = ["檢查登入流程與錯誤提示", "調整手機版對話列表", "整理模型設定與工具", "研究專案結構", "新來源的中性圖示"];
-  const tasks = ["claude-code", "codex", "opencode", "grok-build", "unknown-source"].map((agentId, index) => ({
+  const names = ["檢查登入流程與錯誤提示", "調整手機版對話列表", "整理模型設定與工具", "研究專案結構", "串接 Antigravity stream", "新來源的中性圖示"];
+  const tasks = ["claude-code", "codex", "opencode", "grok-build", "antigravity", "unknown-source"].map((agentId, index) => ({
     id: `synthetic-icon-${index}`, agentId, name: names[index], cwd, status: "completed",
     startedAt: now - 180000 - index * 1000, endedAt: now - 120000 - index * 1000, lastActivityAt: now - index * 1000,
     outputTail: "Synthetic preview only. No model or account was used.", exitCode: 0, settledNotified: true,

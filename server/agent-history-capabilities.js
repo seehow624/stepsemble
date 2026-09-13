@@ -3,9 +3,9 @@
 // History is a capability, not a brand promise. Native Pi owns its complete
 // session store; Claude/Codex can expose a read-only native source only when
 // the operator has explicitly prepared the reviewed history configuration.
-// OpenCode can opt into its official local server API, but only after the
-// adapter has health- and session-probed the configured endpoint. Grok still
-// remains a bounded CLI connector until a reviewed native contract exists.
+// OpenCode can opt into its official local server API, while ACP agents use
+// the public Agent Client Protocol over stdio. No connector reads private
+// session databases as a substitute for an upstream session API.
 
 const CAPABILITIES = Object.freeze({
   pi: Object.freeze({ mode: "native", history: "native_full", subagents: "native", approval: "native" }),
@@ -16,6 +16,9 @@ const CAPABILITIES = Object.freeze({
   codex: Object.freeze({ mode: "compat", history: "canonical_bounded", subagents: "unavailable", approval: "structured_ack_required" }),
   opencode: Object.freeze({ mode: "compat", history: "canonical_bounded", subagents: "unavailable", approval: "structured_ack_required" }),
   "grok-build": Object.freeze({ mode: "compat", history: "canonical_bounded", subagents: "unavailable", approval: "structured_ack_required" }),
+  cline: Object.freeze({ mode: "compat", history: "canonical_bounded", subagents: "unavailable", approval: "structured_ack_required" }),
+  kilo: Object.freeze({ mode: "compat", history: "canonical_bounded", subagents: "unavailable", approval: "structured_ack_required" }),
+  hermes: Object.freeze({ mode: "compat", history: "canonical_bounded", subagents: "unavailable", approval: "structured_ack_required" }),
 });
 
 function historyConfiguredFor(agentId, configured) {
@@ -78,7 +81,7 @@ function capabilityFor(agentId, { journalAvailable = false, nativeHistoryConfigu
       journalScope: journalAvailable ? "host-local" : "unavailable",
     };
   }
-  if (id === "claude-code" && adapter?.configured === true && adapter?.adapter === "claude-cli-stream-json-v1") {
+  if (["cline", "kilo", "hermes"].includes(id) && adapter?.ready === true && adapter?.adapter === "acp-v1") {
     return {
       ...base,
       mode: "native_api",
@@ -86,10 +89,27 @@ function capabilityFor(agentId, { journalAvailable = false, nativeHistoryConfigu
       subagents: "native_observed",
       approval: "structured_ack_required",
       session: "native_api",
+      source: "agent-client-protocol-v1",
+      adapter: adapter.adapter,
+      nativeVersion: adapter.version || null,
+      readOnly: false,
+      journal,
+      journalScope: journalAvailable ? "host-local" : "unavailable",
+    };
+  }
+  if (id === "claude-code" && adapter?.configured === true && adapter?.adapter === "claude-cli-stream-json-v1") {
+    return {
+      ...base,
+      mode: "structured",
+      history: "canonical_bounded",
+      subagents: "native_observed",
+      approval: "structured_ack_required",
+      session: "structured_cli",
       source: "claude-cli-stream-json-v1",
       adapter: adapter.adapter,
       nativeVersion: adapter.version || null,
       readOnly: false,
+      nativeSession: "observed",
       journal,
       journalScope: journalAvailable ? "host-local" : "unavailable",
     };
