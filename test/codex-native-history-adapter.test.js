@@ -51,7 +51,10 @@ test("Codex native history refuses an unreviewed executable version before app-s
   let launches = 0;
   const adapter = createCodexNativeHistoryAdapter({
     enabled: true,
-    executable: "/opt/homebrew/bin/codex",
+    // Use the runner's known-good executable path; the test is about the
+    // reviewed-version gate, not whether a Homebrew Codex binary exists on
+    // the host executing the suite.
+    executable: process.execPath,
     cwd: process.cwd(),
     versionProbe: async () => "codex-cli 0.154.0-alpha.6.2",
     launch: () => { launches += 1; throw new Error("must not launch"); },
