@@ -35,7 +35,10 @@ test("harness update service checks allow-listed commands and persists owner-onl
   const result = await service.check({ id: "fake" });
   assert.equal(result.harnesses.find(item => item.id === "fake").status, "available");
   assert.deepEqual(calls.map(item => item[1]), [["--version"], ["check"]]);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  // Windows has no POSIX permission bits; ownership there comes from the
+  // inherited ACL, so only assert the mode where it is authoritative.
+  if (process.platform !== "win32") assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  else assert.ok(fs.statSync(file).isFile());
   fs.rmSync(root, { recursive: true, force: true });
 });
 

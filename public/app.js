@@ -1,7 +1,7 @@
-/* stepsemble v3.0.34 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.35 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.34";
+const CLIENT_APP_VERSION = "3.0.35";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -2138,6 +2138,9 @@ async function loadAgentCatalog() {
 
 let agentTaskRefreshRequest = null;
 let runningStateRequest = null;
+// Identity of the task rows the Sessions list is currently showing. A poll that
+// returns the same rows must not rebuild the list under the user's pointer.
+let lastAgentTaskListSignature = "";
 let conversationView = null;
 let conversationSourceState = { sessions: "loading", tasks: "loading" };
 function updateConversationCatalog() {
@@ -2177,6 +2180,7 @@ function resetAgentHub() {
   agentCatalogRequest = agentTaskRefreshRequest = null;
   agentCatalog = [];
   agentTasks = [];
+  lastAgentTaskListSignature = "";
   conversationSourceState = { sessions: "loading", tasks: "loading" };
   conversationView?.reset();
   agentCatalogError = false;
@@ -2184,6 +2188,16 @@ function resetAgentHub() {
   renderAgentHub();
   renderAgentTaskCenter();
   syncAgentTaskPolling();
+}
+
+// Identity of the task rows the Sessions list renders. Elapsed time and
+// last activity are excluded on purpose: they change on every poll and have
+// their own ticker, so including them would rebuild the list continuously.
+function agentTaskListSignature() {
+  return agentTasks
+    .map((task) => [task?.id || task?.taskId || "", task?.agentId || "", task?.status || "",
+      task?.name || "", task?.cwd || "", task?.file || ""].join("\u0001"))
+    .join("\u0002");
 }
 
 async function refreshAgentTasks() {
@@ -2204,7 +2218,14 @@ async function refreshAgentTasks() {
     // snapshot arrives; the Pi history request intentionally resolves first.
     if (typeof sessionListRecords === "function") {
       if (el.sessionCount) el.sessionCount.textContent = String(sessionListRecords().length);
-      if (typeof renderSessionList === "function") renderSessionList(el.search?.value || "");
+      // Rebuilding every row on each 5-second poll destroys the DOM node the
+      // user is interacting with and costs a full sort plus re-layout on a
+      // phone. Redraw only when the rows this list actually shows changed.
+      const signature = agentTaskListSignature();
+      if (signature !== lastAgentTaskListSignature) {
+        lastAgentTaskListSignature = signature;
+        if (typeof renderSessionList === "function") renderSessionList(el.search?.value || "");
+      }
     }
     updateConversationCatalog();
     syncAgentTaskPolling();

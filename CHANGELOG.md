@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.0.35
+
+Keep the session list stable while agent tasks are polled.
+
+- Redraw the Sessions list only when the task rows it shows actually change.
+  Every five-second poll previously rebuilt the whole list, which discarded
+  the row under the user's pointer and paid for a full sort and re-layout on
+  each tick. Elapsed time and last activity keep updating through their own
+  ticker.
+- Skip the POSIX permission-bit assertions in the two harness update tests on
+  Windows, where file access is governed by the inherited ACL instead. This
+  restores the Windows CI job.
+
+Validation: 1,317 tests passed, 3 skipped, 0 failed.
+
 ## 3.0.34
 
 Stop presenting stored OpenCode conversations as pending work.

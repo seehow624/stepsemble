@@ -52,7 +52,8 @@ test("harness watcher stores an atomic report and fails only on preflight review
     assert.equal(shouldFail(report), false);
     const stored = JSON.parse(await fs.readFile(stateFile, "utf8"));
     assert.equal(stored.harnesses[0].nativeVersion, "fake 9.9.9");
-    assert.equal((await fs.stat(stateFile)).mode & 0o077, 0);
+    // Windows has no POSIX permission bits; the report inherits its ACL there.
+    if (process.platform !== "win32") assert.equal((await fs.stat(stateFile)).mode & 0o077, 0);
   } finally {
     await fs.rm(temp, { recursive: true, force: true });
   }

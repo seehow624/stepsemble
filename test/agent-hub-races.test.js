@@ -259,3 +259,32 @@ test("an idle native conversation is not pending work and cannot offer Stop", ()
   // A stored conversation that the user reopens and runs is real active work.
   assert.equal(active({ ...stored, status: "running", isRunning: true }, "active"), true);
 });
+
+// Rebuilding the Sessions list on every 5-second poll destroys the row the
+// user is clicking and costs a full sort plus re-layout on a phone.
+test("an unchanged task poll does not rebuild the session list", () => {
+  const source = appSource();
+  const context = vm.createContext({ agentTasks: [] });
+  vm.runInContext(sourceSlice(source, "function agentTaskListSignature(", "async function refreshAgentTasks(", "task signature"), context);
+
+  const rows = [
+    { id: "opencode:a", agentId: "opencode", status: "history", name: "One", cwd: "/p" },
+    { id: "cli-b", agentId: "codex", status: "running", name: "Two", cwd: "/p" },
+  ];
+  context.agentTasks = rows;
+  const first = context.agentTaskListSignature();
+
+  // A fresh snapshot with new elapsed/activity values is the common case and
+  // must be treated as unchanged.
+  context.agentTasks = rows.map((row, index) => ({ ...row, lastActivityAt: 1000 + index, startedAt: 5 }));
+  assert.equal(context.agentTaskListSignature(), first, "volatile timestamps must not force a redraw");
+
+  context.agentTasks = [{ ...rows[0], status: "running" }, rows[1]];
+  assert.notEqual(context.agentTaskListSignature(), first, "a real status change still redraws");
+
+  context.agentTasks = [rows[0]];
+  assert.notEqual(context.agentTaskListSignature(), first, "a removed row still redraws");
+
+  context.agentTasks = [{ ...rows[0], name: "Renamed" }, rows[1]];
+  assert.notEqual(context.agentTaskListSignature(), first, "a rename still redraws");
+});
