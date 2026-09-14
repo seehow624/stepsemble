@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.0.38
+
+Correct the privacy documentation and remove two dead code paths.
+
+- The README still described native Claude Code and Codex history as an
+  opt-in development candidate that "does not scan private history". Reading
+  those transcripts is now default behavior on macOS and Linux, so the section
+  states which paths are read, how to change them, that Windows is
+  unsupported, and that the access is read-only and grants no resume,
+  approval, or model authority. The Traditional Chinese README carries the
+  same text.
+- Remove `loadUpdateStatus()`, a wrapper that only forwarded to
+  `refreshUpdateCenter()`, and `readOnboardingState()`, which had no
+  callers.
+
+Validation: 1,317 tests passed, 4 skipped, 0 failed; verified on this host
+that the default roots are in use and that only a read-only route is exposed.
+
 ## 3.0.37
 
 Correct the last stale count in the conversation catalog browser fixture. A

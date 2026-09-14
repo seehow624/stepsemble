@@ -13,6 +13,10 @@ Cline、Kilo 與 Hermes 若本機執行檔存在，會使用官方 ACP；不相�
 
 倉庫只包含應用程式碼與通用部署範本，不包含 token、工作階段記錄、專案檔案、私有網址、帳號憑證、模型使用歷史、用量統計或任何特定電腦設定。token 應保存在本機權限為 `600` 的檔案，服務預設只監聽回環位址，再透過 Tailscale Serve 或其他 HTTPS 閘道存取。
 
+Stepsemble 會讀取 Claude Code 與 Codex 已存在這台電腦上的對話記錄，讓它們和其他對話一起顯示。macOS 與 Linux 預設讀取 `~/.claude/projects` 與 `~/.codex`；若要指定其他位置，可設定 `STEPSEMBLE_CLAUDE_PROJECTS_ROOT` 或 `STEPSEMBLE_CODEX_HISTORY_ROOT`。Windows 不支援，會直接回報無法使用，不會讀取這些檔案。
+
+這些記錄是唯讀的，也不會離開本機：Stepsemble 不會寫入這些檔案、不會讀取憑證檔，只在通過驗證的請求指定某一則對話時才回傳內容。透過這個方式查看對話，不代表取得續跑、approval 或模型存取權限，這些仍然屬於各家自己的客戶端。
+
 ## 快速開始
 
 在每一台要執行 Stepsemble 的電腦上執行：

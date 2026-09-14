@@ -74,7 +74,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.37";
+const APP_VERSION = "3.0.38";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1031,7 +1031,6 @@ function readOnboardingStateDetails() {
     return { state: {}, healthy: false };
   }
 }
-function readOnboardingState() { return readOnboardingStateDetails().state; }
 const onboardingStateRead = readOnboardingStateDetails();
 let onboardingState = onboardingStateRead.state;
 let onboardingStateHealthy = onboardingStateRead.healthy;

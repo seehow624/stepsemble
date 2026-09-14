@@ -344,15 +344,19 @@ Before making substantial changes, read the accepted
 
 ## Privacy
 
-Development candidate 3.0.7-rc.3 adds an **opt-in, read-only Claude history**
-integration. It is not enabled by installing Stepsemble, does not scan private
-history, and is not session/approval/resume parity. See the
-[operator setup and verification notes](docs/history-host-integration.md).
+Stepsemble reads the Claude Code and Codex transcripts that those tools already
+store on this computer, so their past conversations appear alongside everything
+else. On macOS and Linux it reads `~/.claude/projects` and `~/.codex` by
+default; set `STEPSEMBLE_CLAUDE_PROJECTS_ROOT` or
+`STEPSEMBLE_CODEX_HISTORY_ROOT` to point elsewhere. Windows is not supported
+and reports itself as unavailable rather than reading those files.
 
-Development-only Codex capture and background parsing use the same bounded
-reader budget as Claude. They do **not** enable private Codex sources, a Web
-history adapter or final native titles. See the
-[pipeline evidence and remaining gates](docs/codex-history-pipeline.md).
+This history is read-only and stays on the host. Stepsemble never writes to
+those files, never reads credential files, and only serves a transcript to an
+authenticated request for a specific conversation. Viewing a conversation this
+way does not grant resume, approval, or model access: those remain with the
+vendor's own client. See
+[`docs/native-history-catalog.md`](docs/native-history-catalog.md).
 
 The public repository contains application code and generic templates only.
 It must never include tokens, private URLs, device names, session logs,
