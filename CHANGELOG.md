@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.0.37
+
+Correct the last stale count in the conversation catalog browser fixture. A
+title search over the 132-record fixture matches seven rows — six task
+records plus the one Pi history that shares the title — but the check still
+expected six from when the fixture held 131 records. Every count in that
+suite is now reconciled against the catalog's actual output.
+
+Validation: 1,317 tests passed, 4 skipped, 0 failed.
+
 ## 3.0.36
 
 Repair the cross-platform test matrix.

@@ -89,7 +89,9 @@ export async function runConversationBrowserCases(browser) {
       await page.waitForFunction(() => !document.querySelector(".conversation-summary")?.textContent.includes("Some sources are not current"));
       assert.equal(await page.evaluate(() => window.__catalogFixtureRow.isConnected), true);
       stage = "keyboard"; await dialog.getByLabel("Agent source", { exact: true }).selectOption("all");
-      await dialog.getByRole("searchbox").fill("Same title"); assert.equal(await dialog.locator(".conversation-row").count(), 6);
+      // Six task records plus the one Pi history that shares the title. This
+      // was also left behind when the fixture grew from 131 to 132 records.
+      await dialog.getByRole("searchbox").fill("Same title"); assert.equal(await dialog.locator(".conversation-row").count(), 7);
       // Escape closes even a populated search; no workspace command palette or
       // new-project sheet may react behind it.
       await dialog.getByRole("searchbox").press("ControlOrMeta+k"); assert.equal(await page.locator("#command-palette").isVisible(), false);
