@@ -12,6 +12,7 @@ const crypto = require("node:crypto");
 const { createLineDecoder } = require("./stream-safety");
 
 const CODEX_NATIVE_VERSION = "0.153.4";
+const CODEX_NATIVE_VERSION_RE = /^\d{1,8}\.\d{1,8}\.\d{1,8}(?:-(?:alpha|beta)(?:\.\d{1,8}){0,2})?$/;
 const CODEX_PROTOCOL_VERSION = 1;
 const MAX_FRAME_BYTES = 1024 * 1024;
 const MAX_PENDING_REQUESTS = 64;
@@ -328,6 +329,10 @@ function responseMessage(id, result) {
   return { jsonrpc: "2.0", id: typeof id === "number" ? id : String(id), result };
 }
 
+function validNativeVersion(value) {
+  return typeof value === "string" && CODEX_NATIVE_VERSION_RE.test(value);
+}
+
 function errorMessage(id, code, message) {
   return { jsonrpc: "2.0", id: typeof id === "number" ? id : String(id), error: { code, message } };
 }
@@ -357,7 +362,10 @@ function createCodexAppServerTransport({
   now = () => Date.now(),
 } = {}) {
   if (!child || !child.stdin || !child.stdout || typeof child.stdout.on !== "function") throw new TypeError("native_child_required");
-  if (nativeVersion !== CODEX_NATIVE_VERSION) throw new Error("unsupported_codex_native_version");
+  // Compatibility is decided by the adapter's schema/capability registry
+  // before this transport is launched. The transport still rejects malformed
+  // version labels, but it must not hard-code one historical release here.
+  if (!validNativeVersion(nativeVersion)) throw new Error("unsupported_codex_native_version");
   if (typeof authorizeNative !== "function") throw new TypeError("native_authorizer_required");
   const pending = new Map();
   const approvals = new Map();
@@ -828,7 +836,7 @@ function launchCodexAppServer({ executable, cwd, env = process.env, ...options }
   if (typeof cwd !== "string" || !path.isAbsolute(cwd)) throw new Error("native_cwd_absolute_required");
   // Validate constructor options before spawning.  A bad version/authorizer
   // must not leave an owned native process behind when construction throws.
-  if (options.nativeVersion !== undefined && options.nativeVersion !== CODEX_NATIVE_VERSION) throw new Error("unsupported_codex_native_version");
+  if (options.nativeVersion !== undefined && !validNativeVersion(options.nativeVersion)) throw new Error("unsupported_codex_native_version");
   if (options.authorizeNative !== undefined && typeof options.authorizeNative !== "function") throw new TypeError("native_authorizer_required");
   const child = spawn(executable, ["app-server", "--listen", "stdio://"], { cwd, env: { ...env }, shell: false, stdio: ["pipe", "pipe", "pipe"] });
   return createCodexAppServerTransport({ child, ...options });
@@ -847,4 +855,5 @@ module.exports = {
   normalizeThreadItemsResponse,
   createCodexAppServerTransport,
   launchCodexAppServer,
+  validNativeVersion,
 };

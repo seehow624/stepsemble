@@ -310,6 +310,7 @@ try {
     // A confirmed idle native history row is not pending agent work.
     if ((task?.nativeOpenCode === true || task?.nativeCodex === true)
       && task.isRunning === false && task.status === "waiting") return false;
+    if (task?.idleNativeSession === true && task.isRunning === false) return false;
     return ["starting", "running", "waiting", "reconnecting"].includes(String(task?.status || ""));
   });
   process.exit(rpcActive || taskActive ? 0 : 1);

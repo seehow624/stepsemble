@@ -1,0 +1,86 @@
+{
+  "registryVersion": 1,
+  "pollIntervalSeconds": 21600,
+  "harnesses": [
+    {
+      "id": "codex",
+      "label": "Codex CLI",
+      "kind": "codex-app-server",
+      "executableEnv": "STEPSEMBLE_CODEX_BIN",
+      "commands": ["codex"],
+      "probe": "codex-compatibility"
+    },
+    {
+      "id": "claude-code",
+      "label": "Claude Code",
+      "kind": "structured-cli",
+      "executableEnv": "STEPSEMBLE_CLAUDE_CODE_BIN",
+      "commands": ["claude"],
+      "probe": "version-only"
+    },
+    {
+      "id": "opencode",
+      "label": "OpenCode",
+      "kind": "structured-cli",
+      "executableEnv": "STEPSEMBLE_OPENCODE_BIN",
+      "commands": ["opencode"],
+      "probe": "version-only"
+    },
+    {
+      "id": "pi",
+      "label": "Pi Agent",
+      "kind": "structured-cli",
+      "executableEnv": "STEPSEMBLE_PI_BIN",
+      "commands": ["pi"],
+      "probe": "version-only"
+    },
+    {
+      "id": "hermes",
+      "label": "Hermes Agent",
+      "kind": "structured-cli",
+      "executableEnv": "STEPSEMBLE_HERMES_BIN",
+      "commands": ["hermes"],
+      "probe": "version-only"
+    },
+    {
+      "id": "gemini-cli",
+      "label": "Gemini CLI",
+      "kind": "structured-cli",
+      "executableEnv": "STEPSEMBLE_GEMINI_BIN",
+      "commands": ["gemini"],
+      "probe": "version-only"
+    },
+    {
+      "id": "cline",
+      "label": "Cline",
+      "kind": "editor-extension",
+      "executableEnv": "STEPSEMBLE_CLINE_BIN",
+      "commands": [],
+      "probe": "manual"
+    },
+    {
+      "id": "kilo",
+      "label": "Kilo Code",
+      "kind": "editor-extension",
+      "executableEnv": "STEPSEMBLE_KILO_BIN",
+      "commands": [],
+      "probe": "manual"
+    },
+    {
+      "id": "grok-build",
+      "label": "Grok Build",
+      "kind": "hosted-harness",
+      "executableEnv": "STEPSEMBLE_GROK_BUILD_BIN",
+      "commands": [],
+      "probe": "manual"
+    },
+    {
+      "id": "antigravity",
+      "label": "Google Antigravity",
+      "kind": "hosted-harness",
+      "executableEnv": "STEPSEMBLE_ANTIGRAVITY_BIN",
+      "commands": [],
+      "probe": "manual"
+    }
+  ]
+}

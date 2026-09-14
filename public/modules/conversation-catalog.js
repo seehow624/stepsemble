@@ -5,12 +5,15 @@
  * Never match sessions by title, model, cwd, timestamp or an ID from another Host. */
 var StepsembleConversations;
 (function (StepsembleConversations) {
-    StepsembleConversations.LIMITS = Object.freeze({ sessions: 10000, tasks: 256, page: 50, text: 500, reference: 4096 });
+    // The task snapshot now includes bounded native-history observations from
+    // Claude Code and Codex. Keep the modal paginated, but do not silently drop
+    // older records at the previous 256-row ceiling.
+    StepsembleConversations.LIMITS = Object.freeze({ sessions: 10000, tasks: 2048, page: 50, text: 500, reference: 4096 });
     const object = (v) => !!v && typeof v === "object" && !Array.isArray(v);
     const text = (v, max = StepsembleConversations.LIMITS.text) => typeof v === "string" ? v.slice(0, max).replace(/[\u0000-\u001f\u007f]/g, " ").trim() : "";
     const ref = (v) => typeof v === "string" && v.length > 0 && v.length <= StepsembleConversations.LIMITS.reference && !/[\u0000-\u001f\u007f]/.test(v) ? v : "";
     const timestamp = (v) => typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0;
-    const states = new Set(["starting", "running", "reconnecting", "waiting", "completed", "failed", "stopped", "detached", "orphaned"]);
+    const states = new Set(["starting", "running", "reconnecting", "waiting", "completed", "failed", "stopped", "detached", "orphaned", "history"]);
     StepsembleConversations.active = (entry) => ["starting", "running", "reconnecting", "waiting"].includes(entry.status);
     StepsembleConversations.identity = (hostId, kind, reference) => JSON.stringify([hostId, kind, reference]);
     function build(hostId, sessions, tasks) {

@@ -560,6 +560,7 @@ try {
     // A confirmed idle native history row is not pending agent work.
     if ((task?.nativeOpenCode === true || task?.nativeCodex === true)
       && task.isRunning === false && task.status === "waiting") return false;
+    if (task?.idleNativeSession === true && task.isRunning === false) return false;
     return ["starting", "running", "waiting", "reconnecting"].includes(String(task?.status || ""));
   });
   process.exit(rpcActive || taskActive ? 0 : 1);
@@ -611,7 +612,7 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 
 say ""
-say "Stepsemble 3.0.31 installer"
+say "Stepsemble 3.0.34 installer"
 say "────────────────────────"
 
 NODE_BIN="$(find_node || true)"

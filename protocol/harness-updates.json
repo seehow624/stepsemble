@@ -1,0 +1,88 @@
+{
+  "registryVersion": 1,
+  "harnesses": [
+    {
+      "id": "codex",
+      "label": "Codex CLI",
+      "commands": ["codex"],
+      "executableEnv": "STEPSEMBLE_CODEX_BIN",
+      "check": { "kind": "official-check", "args": ["update", "--check"] },
+      "update": { "kind": "command", "args": ["update"] },
+      "note": "Codex does not expose a dry-run flag on every release; Stepsemble never treats an unknown check as an automatic approval."
+    },
+    {
+      "id": "claude-code",
+      "label": "Claude Code",
+      "commands": ["claude"],
+      "executableEnv": "STEPSEMBLE_CLAUDE_CODE_BIN",
+      "check": { "kind": "official-check", "args": ["update", "--check"] },
+      "update": { "kind": "command", "args": ["update"] },
+      "note": "Claude Code's updater may only expose check-and-install on some releases; Stepsemble asks for explicit confirmation before running it."
+    },
+    {
+      "id": "opencode",
+      "label": "OpenCode",
+      "commands": ["opencode"],
+      "executableEnv": "STEPSEMBLE_OPENCODE_BIN",
+      "check": { "kind": "brew-or-official", "package": "opencode" },
+      "update": { "kind": "brew-or-command", "package": "opencode", "args": ["upgrade"] }
+    },
+    {
+      "id": "pi",
+      "label": "Pi Agent",
+      "commands": ["pi"],
+      "executableEnv": "STEPSEMBLE_PI_BIN",
+      "package": "@earendil-works/pi-coding-agent",
+      "check": { "kind": "npm-outdated" },
+      "update": { "kind": "npm-global" }
+    },
+    {
+      "id": "hermes",
+      "label": "Hermes Agent",
+      "commands": ["hermes"],
+      "executableEnv": "STEPSEMBLE_HERMES_BIN",
+      "check": { "kind": "command", "args": ["update", "--check"] },
+      "update": { "kind": "command", "args": ["update", "--yes", "--backup"] }
+    },
+    {
+      "id": "gemini-cli",
+      "label": "Gemini CLI",
+      "commands": ["gemini"],
+      "executableEnv": "STEPSEMBLE_GEMINI_BIN",
+      "check": { "kind": "version-only" },
+      "update": { "kind": "manual", "reason": "Gemini CLI update channel varies by package manager" }
+    },
+    {
+      "id": "cline",
+      "label": "Cline",
+      "commands": [],
+      "executableEnv": "STEPSEMBLE_CLINE_BIN",
+      "check": { "kind": "manual" },
+      "update": { "kind": "manual", "reason": "Cline is installed and updated by the editor extension host" }
+    },
+    {
+      "id": "kilo",
+      "label": "Kilo Code",
+      "commands": [],
+      "executableEnv": "STEPSEMBLE_KILO_BIN",
+      "check": { "kind": "manual" },
+      "update": { "kind": "manual", "reason": "Kilo Code is installed and updated by the editor extension host" }
+    },
+    {
+      "id": "grok-build",
+      "label": "Grok Build",
+      "commands": [],
+      "executableEnv": "STEPSEMBLE_GROK_BUILD_BIN",
+      "check": { "kind": "manual" },
+      "update": { "kind": "manual", "reason": "Grok Build does not expose a stable local updater contract" }
+    },
+    {
+      "id": "antigravity",
+      "label": "Google Antigravity",
+      "commands": [],
+      "executableEnv": "STEPSEMBLE_ANTIGRAVITY_BIN",
+      "check": { "kind": "manual" },
+      "update": { "kind": "manual", "reason": "Antigravity is updated by its host distribution" }
+    }
+  ]
+}

@@ -1,7 +1,7 @@
-/* stepsemble v3.0.31 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.34 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.31";
+const CLIENT_APP_VERSION = "3.0.34";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -116,6 +116,7 @@ const el = {
   setMachineName: $("set-machine-name"), setMachineHost: $("set-machine-host"), setPiVersion: $("set-pi-version"), setAppVersion: $("set-app-version"),
   btnLogout: $("btn-logout"), btnResetSettings: $("btn-reset-settings"), btnOpenOnboarding: $("btn-open-onboarding"), setupGuideTitle: $("setup-guide-title"), setupGuideSubtitle: $("setup-guide-subtitle"),
   setAutoUpdate: $("set-auto-update"), updateAutoLabel: $("update-auto-label"), updateStatusCopy: $("update-status-copy"), updateCheck: $("update-check"), updateCheckLabel: $("update-check-label"), updateCheckStatus: $("update-check-status"), updateAllDevices: $("update-all-devices"), updateCenterSummary: $("update-center-summary"), updateDeviceList: $("update-device-list"),
+  harnessUpdateTitle: $("harness-update-title"), harnessUpdateNote: $("harness-update-note"), harnessUpdateCheckAll: $("harness-update-check-all"), harnessUpdateApplyAll: $("harness-update-apply-all"), harnessUpdateSummary: $("harness-update-summary"), harnessUpdateList: $("harness-update-list"),
   syncBaseDevice: $("sync-base-device"), syncCompareDevice: $("sync-compare-device"), syncCompare: $("sync-compare"), syncCompareStatus: $("sync-compare-status"), syncResult: $("sync-result"),
   setLocale: $("set-locale"), setTheme: $("set-theme"), setDesignTheme: $("theme-choices"), setSidebarWidth: $("set-sidebar-width"), setSidebarWidthValue: $("set-sidebar-width-value"), setFontScale: $("set-font-scale"), setFontScaleValue: $("set-font-scale-value"), setCompact: $("set-compact"), setGroup: $("set-group"),
   btnImg: $("btn-img"), fileInput: $("file-input"), imgPreview: $("img-preview"),
@@ -1019,8 +1020,12 @@ function applyMachineCatalog(data) {
     resetAgentHub();
   }
   updateDeviceStatuses = new Map([...updateDeviceStatuses].filter(([id]) => machines.some((machine) => machine.id === id)));
+  harnessUpdateDataByDevice = new Map([...harnessUpdateDataByDevice].filter(([id]) => machines.some((machine) => machine.id === id)));
   updateStatusData = updateDeviceStatuses.get(selectedId)?.data || null;
   cancelUpdateCenterRequest();
+  harnessUpdateRequest += 1;
+  harnessUpdateController?.abort();
+  harnessUpdateController = null;
   if (updateAllController) updateAllController.abort();
   updateAllController = null;
   updateAllRequest += 1;
@@ -1148,6 +1153,9 @@ function switchMachine(id, silent) {
   // /api/machine response is in flight. The picker still starts no-path.
   window._piHome = "";
   updateStatusData = updateDeviceStatuses.get(id)?.data || null;
+  harnessUpdateRequest += 1;
+  harnessUpdateController?.abort();
+  harnessUpdateController = null;
   applyApiBase();
   modelCatalog = [];
   configuredProviders = [];
@@ -1662,6 +1670,7 @@ const AGENT_STATUS_LABELS = Object.freeze({
   stopped: "Stopped",
   detached: "Detached",
   orphaned: "Interrupted",
+  history: "History",
 });
 
 function agentHubText(key, vars = {}) {
@@ -1688,6 +1697,8 @@ function agentHubText(key, vars = {}) {
     taskStopping: "Stopping…",
     taskStoppedToast: "Agent task stopped",
     taskStopFailed: "Could not stop agent task",
+    taskReadOnly: "This native history is read-only.",
+    historyPartial: "Some very large records are omitted; the source file was not changed.",
     taskNoOutput: "No output yet",
     taskLastActivity: "Updated {value}",
     reconnectingNote: "Reconnecting to the supervisor…",
@@ -1709,6 +1720,7 @@ function agentHubText(key, vars = {}) {
     stopped: "Stopped",
     detached: "Detached",
     interrupted: "Interrupted",
+    history: "History",
     starting: "Starting",
   }[key] || key;
   return String(fallback).replace(/\{(\w+)\}/g, (_, name) => vars[name] ?? `{${name}}`);
@@ -1727,7 +1739,11 @@ function agentTaskCanStop(task) {
   // Read-only native history rows are observations of work owned by the
   // vendor client. Showing a Stop button for them creates a guaranteed 409
   // and makes the task center look unreliable.
-  if (task?.nativeCodex === true && task?.nativeCodexMutation !== true && task?.readOnly !== false) return false;
+  if (task?.nativeHistoryReadonly === true || task?.readOnly === true
+    || task?.nativeCodex === true && task?.nativeCodexMutation !== true && task?.readOnly !== false) return false;
+  // An idle native OpenCode session is a stored conversation. Its server
+  // rejects an abort, so a Stop button here could only ever fail.
+  if (task?.idleNativeSession === true && !agentTaskIsRunning(task)) return false;
   return true;
 }
 
@@ -1817,7 +1833,11 @@ function renderAgentHub() {
   // historical native rows out of the way when a connector exposes many
   // sessions; the All conversations sheet remains the exhaustive view.
   const previewLimit = orderedTasks.some(agentTaskIsRunning) ? 3 : 1;
-  const visible = orderedTasks.slice(0, previewLimit);
+  // Historical observations belong in Sessions/All conversations. They must
+  // never occupy the compact live Agent Hub preview when no task is running.
+  const hubTasks = orderedTasks.filter(task => agentTaskIsRunning(task)
+    || task?.nativeHistoryReadonly !== true && task?.idleNativeSession !== true);
+  const visible = hubTasks.slice(0, previewLimit);
   if (!visible.length) {
     const empty = document.createElement("p");
     empty.className = "agent-hub-empty";
@@ -1856,7 +1876,12 @@ function renderAgentHub() {
 
 function agentTaskCenterFilterMatches(task, filter) {
   const status = String(task?.status || "");
-  if (filter === "active") return agentTaskIsRunning(task) || status === "waiting";
+  if (filter === "active") {
+    if (agentTaskIsRunning(task)) return true;
+    // A stored native conversation is not pending work, so it must not inflate
+    // the active count even though its native status reads as idle/waiting.
+    return task?.nativeHistoryReadonly !== true && task?.idleNativeSession !== true && status === "waiting";
+  }
   if (filter === "all" || !filter) return true;
   return status === filter;
 }
@@ -2226,6 +2251,7 @@ async function openAgentTaskFromHub(task) {
     return openExisting(sessionsCache.find(session => session.file === file) ||
       { file, cwd: task.cwd || "", name: task.sessionName || null, firstMessage: task.firstMessage });
   }
+  if (task.nativeHistoryReadonly === true) return openNativeHistoryTask(task);
   if (task.nativeCodex === true || task.nativeThreadId && task.agentId === "codex") return openCodexNativeTask(task);
   if (task.nativeGrokAcp === true || task.nativeSessionId && task.agentId === "grok-build") return openGrokAcpTask(task);
   if (task.nativeAcp === true || task.nativeSessionId && ["cline", "kilo", "hermes"].includes(task.agentId)) return openAgentClientProtocolTask(task);
@@ -2233,6 +2259,83 @@ async function openAgentTaskFromHub(task) {
   if (task.nativeAntigravityStructured === true || task.nativeSessionId && task.agentId === "antigravity") return openAntigravityStructuredTask(task);
   if (task.nativeOpenCode === true || task.nativeSessionId) return openOpenCodeNativeTask(task);
   return openGenericTask(task);
+}
+
+function appendNativeHistoryMessage(message, agentId, container = el.messages) {
+  const role = message?.role === "user" ? "user" : "assistant";
+  const label = agentId === "claude-code" ? "Claude Code" : "Codex";
+  const { wrap, bubble } = makeMsgShell(role, role === "user" ? "你" : label, container);
+  const value = boundedDisplayText(message?.text || "", 512 * 1024);
+  if (value) bubble.appendChild(renderMarkdown(value));
+  if (role === "assistant") wrap.appendChild(msgActionsRow("assistant", () => value));
+}
+
+function boundedDisplayText(value, limit) {
+  return String(value ?? "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ").slice(0, limit);
+}
+
+async function openNativeHistoryTask(task, generationOverride = null) {
+  if (!task || task.nativeHistoryReadonly !== true) return;
+  const taskId = String(task.id || task.taskId || "");
+  if (!/^(?:claude-history|codex-history):[a-f0-9-]{36}$/i.test(taskId)) return;
+  const agentId = task.agentId === "claude-code" ? "claude-code" : "codex";
+  const name = task.name || (agentId === "claude-code" ? "Claude Code" : "Codex");
+  const cwd = task.cwd || "";
+  rememberLastAgentTask(taskId);
+  beginDraftScope({ cwd, name });
+  const generation = generationOverride === null ? ++viewGeneration : generationOverride;
+  if (rpc) closeChat(true);
+  resetTaskProgress(); resetProjectChanges(); resetComposerSummary();
+  currentSessionFile = null; currentAgentTaskId = taskId; updateSessionSelection();
+  _lastMsgDate = null; lastUserText = ""; currentSessionCwd = cwd;
+  historyState = null; removeHistoryLoadButton(); removeCodexNativeHistoryButton();
+  autoScrollPinned = true; hideChatEmpty(); setChatTitle(name); setChatAgent(agentId);
+  el.chatSub.dataset.base = cwd; el.chatSub.textContent = cwd; resetLiveUsage(); el.messages.innerHTML = "";
+  resetSessionUsage(); ensureSessionUsageFooter();
+  if (!isDesktop()) { el.viewList.classList.add("hidden"); syncSessionListPolling(); }
+  el.viewChat.classList.remove("hidden");
+  void refreshProjectChanges({ background: true });
+  rpc = { sid: taskId, generic: true, nativeHistoryReadonly: true, readOnly: true, nativeHistoryProvider: agentId,
+    nativeHistoryRequest: null, nativeLoading: true, connectionLost: false, stopPending: false, streamReady: true,
+    taskStatus: "history", genericOutputNode: null, genericTerminalNotice: null, agentId, agentLabel: agentConnectorLabel(agentId),
+    name, cwd, runStartedAt: Number(task.startedAt) || null, runEndedAt: Number(task.endedAt) || null };
+  const connection = rpc;
+  syncGenericInputState();
+  try {
+    const result = await api(`/api/native-history/session?taskId=${encodeURIComponent(taskId)}`);
+    if (rpc !== connection || generation !== viewGeneration) return;
+    if (!Array.isArray(result?.messages)) throw new Error("history_session_invalid");
+    const staging = document.createElement("div");
+    let sliceStarted = performance.now();
+    for (const message of result.messages) {
+      if (performance.now() - sliceStarted > 8) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+        if (rpc !== connection || generation !== viewGeneration) return;
+        sliceStarted = performance.now();
+      }
+      maybeDateSeparator(message.ts || message.timestamp, staging);
+      appendNativeHistoryMessage(message, agentId, staging);
+    }
+    const fragment = document.createDocumentFragment();
+    while (staging.firstChild) fragment.appendChild(staging.firstChild);
+    el.messages.appendChild(fragment);
+    const note = el.taskReplayNote;
+    if (note) {
+      if (result.truncated) note.removeAttribute("data-i18n-key");
+      else note.dataset.i18nKey = "agentHub.taskReadOnly";
+      note.textContent = result.truncated ? `${agentHubText("taskReadOnly")} ${agentHubText("historyPartial")}` : agentHubText("taskReadOnly");
+      note.classList.remove("hidden");
+    }
+    keepSessionUsageAtEnd(); scrollBottom(true);
+    connection.nativeLoading = false; connection.connectionLost = false;
+    applyGenericTaskSnapshot({ id: taskId, taskId, agentId, status: "history", nativeHistoryReadonly: true, readOnly: true,
+      name, cwd, startedAt: task.startedAt, lastActivityAt: task.lastActivityAt });
+    syncGenericInputState();
+  } catch (error) {
+    if (rpc !== connection || generation !== viewGeneration) return;
+    connection.nativeLoading = false; connection.connectionLost = true; syncGenericInputState();
+    toast(tKey("runtime.historyFailed", { detail: String(error?.message || "history unavailable").slice(0, 128) }), true);
+  }
 }
 
 el.agentHubToggle?.addEventListener("click", toggleAgentHub);
@@ -4057,6 +4160,7 @@ function genericTaskTerminal(status) {
 }
 
 function genericInputBlock(connection = rpc) {
+  if (connection?.nativeHistoryReadonly === true || connection?.readOnly === true) return "taskReadOnly";
   if (connection?.nativeCodex && !connection.nativeCodexMutation) return "taskReadOnly";
   if (connection?.nativeCodexMutation) {
     if (genericTaskTerminal(connection.taskStatus)) return "taskReadOnly";
@@ -4462,6 +4566,7 @@ async function refreshOpenCodeNativeSnapshot(connection, { initial = false } = {
   try {
     const snapshot = await post("/api/opencode/reconcile", { sessionId: connection.nativeSessionId, cwd: connection.cwd, limit: 200 });
     if (rpc !== connection) return;
+    if (snapshot?.session?.model) applyOpenCodeModel(snapshot.session.model);
     const status = nativeOpenCodeStatus(snapshot);
     applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: "opencode", nativeOpenCode: true,
       nativeSessionId: connection.nativeSessionId, name: connection.name, cwd: connection.cwd, status,
@@ -4919,6 +5024,7 @@ async function openOpenCodeNativeTask(task, generationOverride = null) {
     generic: true,
     nativeOpenCode: true,
     nativeSessionId,
+    openCodeModel: null,
     nativeLoading: true,
     nativeRenderedRevision: null,
     genericOutputNode: null,
@@ -5473,6 +5579,34 @@ async function openGenericTask(task) {
   await connectAgentTask({ taskId: currentAgentTaskId }, generation);
 }
 
+function agentOpenFailureAgentId(options = {}) {
+  const direct = String(options.agentId || "").trim();
+  if (direct) return direct;
+  const taskId = String(options.taskId || "");
+  return taskId.includes(":") ? taskId.slice(0, taskId.indexOf(":")) : "";
+}
+
+function agentOpenFailureText(error, options = {}) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "");
+  const agentId = agentOpenFailureAgentId(options);
+  if (agentId === "claude-code" && (code === "desktop_sign_in_required" || message === "desktop_sign_in_required")) {
+    return tKey("agentHub.claudeSignInRequired");
+  }
+  if (code === "project_folder_unavailable" || message === "Project folder is unavailable") {
+    return tKey("agentHub.projectFolderUnavailable");
+  }
+  return message || tKey("runtime.openChatFailed", { detail: "unknown error" });
+}
+
+function guideClaudeCodeSignIn() {
+  showSettings();
+  const disclosure = $("claude-auth");
+  if (!disclosure) return;
+  disclosure.open = true;
+  void claudeAuthClient?.refresh();
+}
+
 async function connectAgentTask(options = {}, generation = viewGeneration) {
   const baseAtStart = apiBase;
   resetGenericReplayNotice();
@@ -5671,8 +5805,12 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
     openStream(rpc.lastEventId, canonicalHistoryLoaded);
   } catch (error) {
     if (options.signal?.aborted || generation !== viewGeneration || baseAtStart !== apiBase) return;
-    toast(tKey("runtime.openChatFailed", { detail: error.message }), true);
-    showList();
+    const needsClaudeSignIn = agentOpenFailureAgentId(options) === "claude-code" && String(error?.code || "") === "desktop_sign_in_required";
+    if (needsClaudeSignIn) {
+      guideClaudeCodeSignIn();
+    }
+    toast(agentOpenFailureText(error, options), true);
+    if (!needsClaudeSignIn) showList();
   }
 }
 
@@ -7461,7 +7599,10 @@ function setStreaming(on) {
   // Interactive CLI agents accept follow-up input while they are alive, so
   // keep Send available for them. Pi's native RPC retains its queue/abort UX.
   el.btnSend.classList.toggle("hidden", on && !generic);
-  el.btnModel?.classList.toggle("hidden", generic);
+  // OpenCode's native server is also a live, model-switchable conversation.
+  // Keep the shared model control visible for it; other generic connectors do
+  // not have a safe model route and should continue hiding the control.
+  el.btnModel?.classList.toggle("hidden", generic && !rpc?.nativeOpenCode);
   el.btnImg?.classList.toggle("hidden", generic);
   el.contextDashboard?.classList.toggle("hidden", generic);
   el.btnSend.title = on ? "" : (window.stepsembleI18n?.t("Send") || "Send");
@@ -7702,7 +7843,7 @@ async function sendCurrent() {
   try {
     const result = generic
       ? (rpc?.nativeOpenCode
-        ? await post("/api/opencode/message", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
+        ? await post("/api/opencode/message", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text, model: currentOpenCodeModelPayload(rpc.openCodeModel) })
         : rpc?.nativeGrokAcp
           ? await post("/api/grok/acp/prompt", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
           : rpc?.nativeAcp
@@ -7949,6 +8090,41 @@ function modelThinkingBadge(model) {
   if (map?.xhigh) return "xhigh";
   return "high";
 }
+
+function normalizeOpenCodeModel(model) {
+  if (!model || typeof model !== "object") return null;
+  const providerID = String(model.providerID || model.providerId || model.provider || "").trim();
+  const modelID = String(model.modelID || model.modelId || model.id || "").trim();
+  if (!providerID || !modelID) return null;
+  return {
+    ...model,
+    provider: providerID,
+    id: modelID,
+    providerID,
+    modelID,
+    name: String(model.name || modelID),
+    reasoning: model.reasoning === true || model.capabilities?.reasoning === true || Array.isArray(model.variants) && model.variants.length > 0,
+    contextWindow: Number(model.contextWindow || model.limit?.context) || null,
+  };
+}
+
+function currentOpenCodeModelPayload(model = rpc?.openCodeModel) {
+  const normalized = normalizeOpenCodeModel(model);
+  if (!normalized) return null;
+  return { providerID: normalized.providerID, modelID: normalized.modelID };
+}
+
+function applyOpenCodeModel(model) {
+  if (!rpc?.nativeOpenCode) return null;
+  const normalized = normalizeOpenCodeModel(model);
+  if (!normalized) return null;
+  rpc.openCodeModel = normalized;
+  composerModelContextWindow = positiveFinite(normalized.contextWindow);
+  updateComposerSummary(normalized.name || `${normalized.providerID}/${normalized.modelID}`, undefined);
+  renderContextDashboard();
+  return normalized;
+}
+
 async function openModelSheet() {
   const expectedSid = rpc?.sid;
   if (!expectedSid) { toast("對話未開啟"); return; }
@@ -7956,6 +8132,14 @@ async function openModelSheet() {
   if (el.modelSearch) { el.modelSearch.value = ""; }
   el.modelList.innerHTML = '<p style="padding:12px 4px;color:var(--pine-soft);font-size:13.5px">讀取中…</p>';
   try {
+    if (rpc?.nativeOpenCode) {
+      const directory = rpc.cwd ? `?directory=${encodeURIComponent(rpc.cwd)}` : "";
+      const result = await api(`/api/opencode/models${directory}`);
+      if (!rpc || rpc.sid !== expectedSid) { el.modelSheet.classList.add("hidden"); return; }
+      availableModels = (Array.isArray(result?.models) ? result.models : []).map(normalizeOpenCodeModel).filter(Boolean);
+      renderModelList(rpc.openCodeModel?.modelID || null, rpc.openCodeModel?.providerID || null);
+      return;
+    }
     const [modelsRes, stateRes] = await Promise.allSettled([
       rpcCmd(expectedSid, { type: "get_available_models" }),
       rpcCmd(expectedSid, { type: "get_state" }),
@@ -8020,6 +8204,20 @@ function renderModelList(currentId, currentProvider = null) {
       const expectedSid = rpc?.sid;
       if (!expectedSid) return;
       try {
+        if (rpc?.nativeOpenCode) {
+          const model = normalizeOpenCodeModel(m);
+          const result = await post("/api/opencode/model", {
+            sessionId: rpc.nativeSessionId,
+            cwd: rpc.cwd,
+            model: currentOpenCodeModelPayload(model),
+          });
+          if (!rpc || rpc.sid !== expectedSid) return;
+          if (result?.accepted === false) throw new Error(result.error || "OpenCode rejected the model switch");
+          const selected = applyOpenCodeModel(model);
+          toast("模型：" + (selected?.name || selected?.modelID || m.id));
+          renderModelList(selected?.modelID || m.id, selected?.providerID || m.provider);
+          return;
+        }
         const result = await rpcCmd(expectedSid, { type: "set_model", provider: m.provider, modelId: m.id });
         if (!rpc || rpc.sid !== expectedSid) return;
         if (result?.success === false) throw new Error(result.error || "RPC rejected");
@@ -8946,11 +9144,15 @@ function renderThemeChoices() {
 let updateStatusData = null;
 let updateStatusRequest = 0;
 let updateDeviceStatuses = new Map();
+let harnessUpdateDataByDevice = new Map();
 let updateCenterRequest = null;
 let updateCenterAbort = null;
 let updateCenterPollTimer = null;
 let updateAllController = null;
 let updateAllRequest = 0;
+let harnessUpdateRequest = 0;
+let harnessUpdateController = null;
+const harnessUpdateInFlight = new Set();
 const updateRefreshTimers = new Set();
 let updateCenterSummary = null;
 let serviceWorkerRegistration = null;
@@ -9058,6 +9260,17 @@ async function fetchMachineUpdateStatus(machine, signal) {
     } catch {
       throw error;
     }
+  }
+}
+
+async function fetchMachineHarnessStatus(machine, signal) {
+  try {
+    const result = await requestMachineUpdate(machine, "/api/harness-updates/status", undefined, { signal, timeoutMs: 9000 });
+    if (!result.data || typeof result.data !== "object") throw updateRequestError("Harness update status was unavailable", 502, true);
+    return result.data;
+  } catch (error) {
+    if ([404, 405].includes(Number(error?.status))) return { unsupported: true, harnesses: [] };
+    throw error;
   }
 }
 
@@ -9239,6 +9452,96 @@ function renderUpdateCenter() {
   if (!el.updateDeviceList) return;
   el.updateDeviceList.innerHTML = "";
   for (const machine of machines) el.updateDeviceList.appendChild(renderUpdateDeviceRow(machine));
+  renderHarnessUpdates(harnessUpdateDataByDevice.get(currentMachine()?.id) || null);
+}
+
+function harnessUpdateStatusText(item) {
+  if (!item) return updateText("Not checked");
+  if (item.status === "available" || item.updateAvailable === true) return updateText("Update available");
+  if (item.status === "up-to-date" || item.status === "updated" || item.updateAvailable === false) return updateText("Up to date");
+  if (item.status === "manual") return updateText("Managed by host");
+  if (item.status === "not-installed") return updateText("Not installed");
+  if (item.status === "unknown") return updateText("Check managed by harness");
+  if (item.status === "error") return updateText("Check failed");
+  return updateText("Not checked");
+}
+
+function renderHarnessUpdates(data) {
+  if (!el.harnessUpdateList || !el.harnessUpdateCheckAll || !el.harnessUpdateApplyAll) return;
+  if (el.harnessUpdateTitle) el.harnessUpdateTitle.textContent = updateText("Harness updates");
+  if (el.harnessUpdateNote) el.harnessUpdateNote.textContent = updateText("Check and upgrade the coding agents installed on this device. Active sessions are protected.");
+  el.harnessUpdateCheckAll.textContent = updateText("Check all");
+  el.harnessUpdateApplyAll.textContent = updateText("Upgrade all");
+  el.harnessUpdateList.innerHTML = "";
+  if (!data) {
+    if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = updateText("Harness update status is loading…");
+    el.harnessUpdateCheckAll.disabled = true;
+    el.harnessUpdateApplyAll.disabled = true;
+    return;
+  }
+  if (data.unsupported) {
+    if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = updateText("Harness updates require a newer Stepsemble on this device");
+    el.harnessUpdateCheckAll.disabled = true;
+    el.harnessUpdateApplyAll.disabled = true;
+    return;
+  }
+  if (data.error) {
+    if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = updateText("Harness update status unavailable");
+    el.harnessUpdateCheckAll.disabled = false;
+    el.harnessUpdateApplyAll.disabled = true;
+    return;
+  }
+  const items = Array.isArray(data.harnesses) ? data.harnesses : [];
+  const installed = items.filter(item => item.installed).length;
+  const available = items.filter(item => item.updateAvailable === true).length;
+  const manual = items.filter(item => item.status === "manual").length;
+  const checkedAt = data.checkedAt ? formatUpdateTime(data.checkedAt) : "";
+  if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = checkedAt
+    ? updateText("{installed} installed · {available} update(s) available · {manual} host-managed · checked {time}", { installed, available, manual, time: checkedAt })
+    : updateText("{installed} installed · check for updates when ready", { installed });
+  const busy = data.busy === true || data.running === true;
+  el.harnessUpdateCheckAll.disabled = busy;
+  const canApply = items.some(item => item.installed && item.updateMode !== "manual");
+  el.harnessUpdateApplyAll.disabled = busy || !canApply;
+  for (const item of items) {
+    const row = document.createElement("article");
+    row.className = `harness-update-row harness-update-${item.status || "unknown"}`;
+    row.dataset.harnessId = item.id;
+    const heading = document.createElement("div");
+    heading.className = "harness-update-row-heading";
+    const name = document.createElement("strong");
+    name.textContent = item.label || item.id;
+    const state = document.createElement("span");
+    state.className = "harness-update-state";
+    state.textContent = harnessUpdateStatusText(item);
+    heading.append(name, state);
+    row.appendChild(heading);
+    const details = document.createElement("div");
+    details.className = "harness-update-row-details";
+    const version = document.createElement("span");
+    version.textContent = item.currentVersion ? updateText("Installed {version}", { version: updateVersionText(item.currentVersion) }) : updateText("Version unavailable");
+    details.appendChild(version);
+    if (item.latestVersion) {
+      const latest = document.createElement("span");
+      latest.textContent = updateText("Latest {version}", { version: updateVersionText(item.latestVersion) });
+      details.appendChild(latest);
+    }
+    row.appendChild(details);
+    if (item.note && (item.status === "manual" || item.status === "unknown")) {
+      const note = document.createElement("p");
+      note.className = "harness-update-note-inline";
+      note.textContent = item.note;
+      row.appendChild(note);
+    }
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "btn ghost harness-update-action";
+    action.dataset.harnessUpdateId = item.id;
+    action.textContent = item.status === "up-to-date" || item.status === "updated" ? updateText("Up to date") : updateText("Upgrade");
+    action.disabled = busy || harnessUpdateInFlight.has(item.id) || !item.installed || item.updateMode === "manual" || item.status === "up-to-date" || item.status === "updated";
+    row.appendChild(action);
+    el.harnessUpdateList.appendChild(row);
+  }
 }
 
 function setUpdateCenterSummary(key = "", vars = {}) {
@@ -9261,8 +9564,11 @@ async function refreshUpdateCenter(force = false) {
   const list = [...machines];
   const operation = Promise.all(list.map(async (machine) => {
     try {
-      const data = await fetchMachineUpdateStatus(machine, controller.signal);
-      return { id: machine.id, data, reachable: true };
+      const [data, harness] = await Promise.all([
+        fetchMachineUpdateStatus(machine, controller.signal),
+        fetchMachineHarnessStatus(machine, controller.signal).catch((error) => ({ error, unsupported: false })),
+      ]);
+      return { id: machine.id, data, harness, reachable: true };
     } catch (error) {
       return { id: machine.id, error, reachable: !!error?.reachable || updateErrorIsUnsupported(error) };
     }
@@ -9272,6 +9578,8 @@ async function refreshUpdateCenter(force = false) {
     const next = new Map();
     for (const result of results) {
       next.set(result.id, result);
+      if (result.harness) harnessUpdateDataByDevice.set(result.id, result.harness);
+      else harnessUpdateDataByDevice.delete(result.id);
       if (result.error) machineStatuses.set(result.id, result.reachable ? "online" : "offline");
       else machineStatuses.set(result.id, "online");
     }
@@ -9302,6 +9610,9 @@ function stopUpdateCenterPolling() {
   if (updateCenterPollTimer) clearInterval(updateCenterPollTimer);
   updateCenterPollTimer = null;
   cancelUpdateCenterRequest();
+  harnessUpdateRequest += 1;
+  harnessUpdateController?.abort();
+  harnessUpdateController = null;
   if (updateAllController) updateAllController.abort();
   updateAllController = null;
   if (el.updateAllDevices) el.updateAllDevices.disabled = false;
@@ -9317,6 +9628,95 @@ function stopUpdateCenterPolling() {
 
 async function loadUpdateStatus() {
   return refreshUpdateCenter();
+}
+
+async function runHarnessCheckAll() {
+  const machine = currentMachine();
+  if (!machine || !el.harnessUpdateCheckAll) return;
+  const generation = viewGeneration;
+  const selectedAtStart = selectedId;
+  harnessUpdateController?.abort();
+  const controller = new AbortController();
+  harnessUpdateController = controller;
+  const request = ++harnessUpdateRequest;
+  el.harnessUpdateCheckAll.disabled = true;
+  if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = updateText("Checking harnesses…");
+  try {
+    const result = await requestMachineUpdate(machine, "/api/harness-updates/check", {}, { signal: controller.signal, timeoutMs: 45_000 });
+    if (request !== harnessUpdateRequest || generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
+    harnessUpdateDataByDevice.set(machine.id, result.data);
+    renderHarnessUpdates(result.data);
+    toast(updateText("Harness update check complete"));
+  } catch (error) {
+    if (request !== harnessUpdateRequest || generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
+    const data = { error: true, unsupported: [404, 405].includes(Number(error?.status)) };
+    harnessUpdateDataByDevice.set(machine.id, data);
+    renderHarnessUpdates(data);
+    toast(updateText("Harness update check failed"), true);
+  } finally {
+    if (harnessUpdateController === controller) harnessUpdateController = null;
+    if (request === harnessUpdateRequest && generation === viewGeneration && selectedAtStart === selectedId && updateViewIsOpen()) {
+      const data = harnessUpdateDataByDevice.get(machine.id);
+      if (data) renderHarnessUpdates(data);
+    }
+  }
+}
+
+async function applyHarnessUpdate(id) {
+  const machine = currentMachine();
+  if (!machine || !id) return;
+  if (harnessUpdateInFlight.has(id)) return;
+  const item = (harnessUpdateDataByDevice.get(machine.id)?.harnesses || []).find(entry => entry.id === id);
+  const label = item?.label || id;
+  if (!confirm(updateText("Upgrade {harness}? Active sessions will be protected, but the harness process may restart.", { harness: label }))) return;
+  const generation = viewGeneration;
+  const selectedAtStart = selectedId;
+  harnessUpdateInFlight.add(id);
+  if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = updateText("Upgrading {harness}…", { harness: label });
+  try {
+    const result = await requestMachineUpdate(machine, "/api/harness-updates/apply", { id, confirm: true }, { timeoutMs: 15 * 60 * 1000 });
+    if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
+    harnessUpdateDataByDevice.set(machine.id, result.data);
+    renderHarnessUpdates(result.data);
+    toast(updateText("{harness} upgrade complete", { harness: label }));
+  } catch (error) {
+    if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
+    const data = harnessUpdateDataByDevice.get(machine.id);
+    renderHarnessUpdates(data);
+    toast(Number(error?.status) === 409 ? updateText("Active agent work must finish before upgrading {harness}", { harness: label }) : updateText("Could not upgrade {harness}", { harness: label }), true);
+  } finally {
+    harnessUpdateInFlight.delete(id);
+    if (generation === viewGeneration && selectedAtStart === selectedId && updateViewIsOpen()) {
+      renderHarnessUpdates(harnessUpdateDataByDevice.get(machine.id));
+    }
+  }
+}
+
+async function applyAllHarnessUpdates() {
+  const machine = currentMachine();
+  if (!machine || !el.harnessUpdateApplyAll) return;
+  if (!confirm(updateText("Upgrade all managed harnesses on {device}? Active sessions will be protected.", { device: updateDeviceName(machine) }))) return;
+  const generation = viewGeneration;
+  const selectedAtStart = selectedId;
+  el.harnessUpdateApplyAll.disabled = true;
+  if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = updateText("Upgrading all managed harnesses…");
+  try {
+    const result = await requestMachineUpdate(machine, "/api/harness-updates/apply-all", { confirm: true }, { timeoutMs: 30 * 60 * 1000 });
+    if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
+    harnessUpdateDataByDevice.set(machine.id, result.data);
+    renderHarnessUpdates(result.data);
+    const results = Array.isArray(result.data?.results) ? result.data.results : [];
+    const completed = results.filter(item => item.status === "updated").length;
+    const failed = results.filter(item => item.status === "failed" || item.status === "blocked").length;
+    toast(updateText("Harness upgrades complete: {completed} updated, {failed} failed.", { completed, failed }), failed > 0);
+  } catch (error) {
+    if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
+    toast(Number(error?.status) === 409 ? updateText("Active agent work must finish before upgrading harnesses") : updateText("Could not upgrade harnesses"), true);
+  } finally {
+    if (generation === viewGeneration && selectedAtStart === selectedId && updateViewIsOpen()) {
+      renderHarnessUpdates(harnessUpdateDataByDevice.get(machine.id));
+    }
+  }
 }
 
 // ===========================================================================
@@ -10924,6 +11324,13 @@ el.setThinking.addEventListener("change", () => { settings = saveSettings({ thin
 el.setAutoUpdate?.addEventListener("change", () => { void saveAutomaticUpdates(el.setAutoUpdate.checked); });
 el.updateCheck?.addEventListener("click", () => { void runUpdateCheck(); });
 el.updateAllDevices?.addEventListener("click", () => { void runUpdateAll(); });
+el.harnessUpdateCheckAll?.addEventListener("click", () => { void runHarnessCheckAll(); });
+el.harnessUpdateApplyAll?.addEventListener("click", () => { void applyAllHarnessUpdates(); });
+el.harnessUpdateList?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-harness-update-id]");
+  if (!button || button.disabled) return;
+  void applyHarnessUpdate(button.dataset.harnessUpdateId);
+});
 el.btnResetSettings?.addEventListener("click", () => {
   if (!confirm(tKey("settings.resetConfirm"))) return;
   try {

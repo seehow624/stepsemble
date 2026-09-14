@@ -48,8 +48,11 @@ var StepsembleClient;
                 let code;
                 try {
                     const body = await response.json();
-                    if (typeof body.error === "string")
+                    if (typeof body.error === "string") {
                         message = body.error;
+                        if (typeof body.code === "string")
+                            code = body.code;
+                    }
                     else if (body.error && typeof body.error.message === "string") {
                         message = body.error.message;
                         code = body.error.code;

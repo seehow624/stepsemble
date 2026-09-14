@@ -18,6 +18,7 @@ const MAX_CURSOR = 512;
 const MAX_TEXT = 1_000_000;
 const MAX_CHECKPOINTS = 256;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
+const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
 class OpenCodeNativeError extends Error {
@@ -38,6 +39,10 @@ function cleanText(value, limit = 512) {
 
 function validId(value) {
   return typeof value === "string" && ID.test(value);
+}
+
+function validModelId(value) {
+  return typeof value === "string" && MODEL_ID.test(value);
 }
 
 function validCursor(value) {
@@ -151,6 +156,29 @@ function normalizeMessage(value) {
     parentID: validId(info.parentID ?? info.parentId) ? (info.parentID ?? info.parentId) : null,
     parts: Array.isArray(value.parts) ? clone(value.parts) : [],
     info: clone(info),
+  };
+}
+
+function normalizeModel(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const providerID = String(value.providerID ?? value.providerId ?? value.provider ?? "");
+  const modelID = String(value.id ?? value.modelID ?? value.modelId ?? "");
+  if (!validId(providerID) || !validModelId(modelID)) return null;
+  const capabilities = value.capabilities && typeof value.capabilities === "object" ? value.capabilities : {};
+  const limit = value.limit && typeof value.limit === "object" ? value.limit : {};
+  const variants = value.variants && typeof value.variants === "object" && !Array.isArray(value.variants)
+    ? Object.keys(value.variants).filter(item => /^[A-Za-z0-9._:-]{1,80}$/.test(item)).slice(0, 32) : [];
+  return {
+    providerID,
+    modelID,
+    name: cleanText(value.name || modelID, 256),
+    family: cleanText(value.family || "", 128) || null,
+    reasoning: capabilities.reasoning === true || variants.length > 0,
+    attachment: capabilities.attachment === true,
+    contextWindow: Number.isSafeInteger(Number(limit.context)) && Number(limit.context) > 0 ? Number(limit.context) : null,
+    outputLimit: Number.isSafeInteger(Number(limit.output)) && Number(limit.output) > 0 ? Number(limit.output) : null,
+    variants,
+    status: cleanText(value.status || "", 64) || null,
   };
 }
 
@@ -344,6 +372,52 @@ function createOpenCodeNativeAdapter({
     if (directory !== null && safeDirectory === null) throw new OpenCodeNativeError("invalid_directory", "OpenCode directory is invalid", 400);
     const response = await request("/session/status", { query: { directory: safeDirectory } });
     return normalizeStatusMap(response.data);
+  }
+
+  async function listModels({ directory = null } = {}) {
+    const safeDirectory = directory === null ? null : normalizeDirectory(directory);
+    if (directory !== null && safeDirectory === null) throw new OpenCodeNativeError("invalid_directory", "OpenCode directory is invalid", 400);
+    let response;
+    try {
+      response = await request("/api/model", { query: { directory: safeDirectory } });
+    } catch (error) {
+      // Older OpenCode servers expose the same catalog through /provider but
+      // do not yet have the v2 /api/model endpoint.
+      if (error.code !== "upstream_http_404") throw error;
+      response = await request("/provider", { query: { directory: safeDirectory } });
+    }
+    const value = response.data;
+    const rows = Array.isArray(value) ? value
+      : Array.isArray(value?.data) ? value.data
+        : unwrapList(value, ["models", "items", "providers", "all"]);
+    if (!rows) throw new OpenCodeNativeError("models_invalid", "OpenCode model catalog was invalid", 502);
+    // /provider returns provider records containing nested models. Flatten
+    // those only for the legacy fallback; /api/model already returns models.
+    const flattened = rows.flatMap(row => {
+      if (row?.models && typeof row.models === "object" && !Array.isArray(row.models)) {
+        return Object.values(row.models).map(model => ({ ...model, providerID: model?.providerID || row.id }));
+      }
+      return [row];
+    });
+    return { models: flattened.map(normalizeModel).filter(Boolean).slice(0, 512) };
+  }
+
+  async function switchModel(sessionId, { providerID, modelID, directory = null } = {}) {
+    if (!validId(sessionId)) throw new OpenCodeNativeError("invalid_session_id", "OpenCode session id is invalid", 400);
+    if (!validId(providerID) || !validModelId(modelID)) throw new OpenCodeNativeError("invalid_model", "OpenCode model identity is invalid", 400);
+    const safeDirectory = directory === null ? null : normalizeDirectory(directory);
+    if (directory !== null && safeDirectory === null) throw new OpenCodeNativeError("invalid_directory", "OpenCode directory is invalid", 400);
+    try {
+      await request(`/api/session/${encodeURIComponent(sessionId)}/model`, {
+        method: "POST", query: { directory: safeDirectory }, body: { model: { providerID, modelID } },
+      });
+      return { accepted: true, endpoint: "session.model", model: { providerID, modelID } };
+    } catch (error) {
+      if (error.code === "upstream_http_404") {
+        throw new OpenCodeNativeError("model_switch_unsupported", "This OpenCode server does not expose session model switching", 409);
+      }
+      throw error;
+    }
   }
 
   async function children(sessionId, { directory = null } = {}) {
@@ -564,6 +638,8 @@ function createOpenCodeNativeAdapter({
     listSessions,
     getSession,
     sessionStatus,
+    listModels,
+    switchModel,
     children,
     messages,
     permissions,
@@ -583,6 +659,7 @@ module.exports = {
   createOpenCodeNativeAdapter,
   normalizeBaseUrl,
   normalizeMessage,
+  normalizeModel,
   normalizePermission,
   normalizeSession,
   resolveConfig,

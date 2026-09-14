@@ -230,3 +230,32 @@ test("returning to a mobile list clears the desktop pane and stale session ident
   assert.equal(el.chatSub.textContent, "");
   assert.equal(el.chatSub.dataset.base, "");
 });
+
+// A stored OpenCode conversation reports an idle native status. It used to be
+// published as "waiting", which made the inbox claim dozens of pending jobs,
+// offered a Stop button the native server always refuses, and let stale rows
+// block an update.
+test("an idle native conversation is not pending work and cannot offer Stop", () => {
+  const source = appSource();
+  const context = vm.createContext({});
+  vm.runInContext(sourceSlice(source, "function agentTaskIsRunning(", "function agentTaskElapsed(", "task state helpers"), context);
+
+  const stored = { id: "opencode:ses_1", agentId: "opencode", status: "history", idleNativeSession: true, isRunning: false };
+  const live = { id: "opencode:ses_2", agentId: "opencode", status: "running", idleNativeSession: false, isRunning: true };
+  const cliWaiting = { id: "cli-1", agentId: "codex", status: "waiting" };
+
+  assert.equal(context.agentTaskIsRunning(stored), false);
+  assert.equal(context.agentTaskCanStop(stored), false, "a stored conversation must not offer Stop");
+  assert.equal(context.agentTaskCanStop(live), true);
+  assert.equal(context.agentTaskCanStop(cliWaiting), true, "a real waiting CLI task keeps Stop");
+
+  const filterContext = vm.createContext({ agentTaskIsRunning: context.agentTaskIsRunning });
+  vm.runInContext(sourceSlice(source, "function agentTaskCenterFilterMatches(", "function agentTaskCenterSort(", "task filter"), filterContext);
+  const active = filterContext.agentTaskCenterFilterMatches;
+  assert.equal(active(stored, "active"), false, "stored conversations must not inflate the active count");
+  assert.equal(active(live, "active"), true);
+  assert.equal(active(cliWaiting, "active"), true);
+  assert.equal(active(stored, "all"), true, "All still lists every record");
+  // A stored conversation that the user reopens and runs is real active work.
+  assert.equal(active({ ...stored, status: "running", isRunning: true }, "active"), true);
+});

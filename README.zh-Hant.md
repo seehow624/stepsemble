@@ -7,6 +7,8 @@ Stepsemble 是開源、自架、手機優先的本機 coding agent 工作區。P
 CLI、Grok Build、OpenCode、Google Antigravity（`agy`）、Cline、Kilo Code 與 Hermes。
 Cline、Kilo 與 Hermes 若本機執行檔存在，會使用官方 ACP；不相容時安全回退有界通用 connector。
 
+設定頁也提供受保護的 Harness 更新中心，可檢查與明確升級本機的 Codex CLI、Claude Code、OpenCode、Pi Agent 與 Hermes Agent。所有命令都來自白名單，執行中的 session／Agent task 會阻擋升級，不會被強制中斷。詳細策略請看 [docs/harness-updates.md](docs/harness-updates.md)。
+
 ## 隱私與安全
 
 倉庫只包含應用程式碼與通用部署範本，不包含 token、工作階段記錄、專案檔案、私有網址、帳號憑證、模型使用歷史、用量統計或任何特定電腦設定。token 應保存在本機權限為 `600` 的檔案，服務預設只監聽回環位址，再透過 Tailscale Serve 或其他 HTTPS 閘道存取。
@@ -95,6 +97,13 @@ Pi 工作會保留原生完整工作階段歷史。通用 CLI 工作由獨立的
 `~/.config/stepsemble/agent-tasks.json`（權限 `600`）。重新啟動 Stepsemble 網頁服務時會重新
 接管監督器，計時器與輸出都會繼續；如果主機或監督器本身被終止，收件匣會如實標記為已中斷。
 首頁 Agent Hub 的「查看全部」工作中心提供搜尋、狀態篩選、回放與一鍵停止。
+
+Stepsemble 也會把既有的 Claude Code 與 Codex session 顯示成有界的**唯讀歷史觀察**。
+它只讀目前使用者的 project／rollout JSONL，不讀 provider 憑證、不啟動 CLI，也不發模型
+請求。首頁每個專案先顯示三筆；按 **Show more** 或到分頁的 **All conversations** 才查看
+其餘內容。這些歷史列不能送出、繼續、停止、核准工具或切換模型；要繼續工作請回到官方
+客戶端。完整路徑、上限與安全檢查見
+[`native-history-catalog.md`](docs/native-history-catalog.md)。
 
 目前通用 CLI 仍屬 terminal integration；可回放的 Stepsemble journal 還不等於各家
 完整原生 session、結構化 tool history 與 approval schema。這些 parity 是

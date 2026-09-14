@@ -1,4 +1,4 @@
-/* stepsemble v3.0.31 — Ink & Ivory / English-first localization */
+/* stepsemble v3.0.34 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -887,6 +887,44 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
 }
 .update-phase-deferred .update-device-phase { color: var(--warn); font-weight: 650; }
 .update-phase-available .update-device-phase { color: var(--accent); font-weight: 650; }
+
+.harness-update-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+}
+.harness-update-heading .settings-subheading { flex: 1; margin-top: 0; }
+.harness-update-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+.harness-update-actions .btn { min-height: 34px; padding: 0 9px; font-size: 11px; }
+.harness-update-note { padding-top: 6px; }
+.harness-update-summary {
+  margin: 5px 0 8px;
+  color: var(--pine-soft);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.harness-update-list { display: grid; gap: 7px; margin: 6px 0 12px; }
+.harness-update-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  padding: 10px 11px;
+  border: .5px solid var(--line);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--paper) 58%, var(--milk));
+}
+.harness-update-row-heading,
+.harness-update-row-details { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.harness-update-row-heading strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.harness-update-state { flex: 0 0 auto; color: var(--pine-soft); font-size: 10.5px; }
+.harness-update-available .harness-update-state { color: var(--accent); font-weight: 650; }
+.harness-update-up-to-date .harness-update-state,
+.harness-update-updated .harness-update-state { color: var(--ok); }
+.harness-update-row-details { justify-content: flex-start; color: var(--pine-soft); font: 10.5px var(--mono); }
+.harness-update-action { grid-column: 2; grid-row: 1 / span 2; align-self: center; min-height: 35px; padding: 0 10px; font-size: 11px; }
+.harness-update-note-inline { grid-column: 1 / -1; margin: 2px 0 0; color: var(--pine-soft); font-size: 10.5px; line-height: 1.35; }
 
 /* Resource sync (Settings): read-only inventory comparison between devices. */
 .resource-sync-result { margin-top: 10px; }

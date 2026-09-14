@@ -3,7 +3,10 @@
 /** A presentation index, not a new source reader or a resume/approval grant.
  * Never match sessions by title, model, cwd, timestamp or an ID from another Host. */
 namespace StepsembleConversations {
-  export const LIMITS = Object.freeze({ sessions: 10000, tasks: 256, page: 50, text: 500, reference: 4096 });
+  // The task snapshot now includes bounded native-history observations from
+  // Claude Code and Codex. Keep the modal paginated, but do not silently drop
+  // older records at the previous 256-row ceiling.
+  export const LIMITS = Object.freeze({ sessions: 10000, tasks: 2048, page: 50, text: 500, reference: 4096 });
   export type Kind = "pi_history" | "task_record";
   export interface Entry {
     key: string; hostId: string; reference: string; agentId: string; title: string; project: string;
@@ -14,7 +17,7 @@ namespace StepsembleConversations {
   const text = (v: unknown, max: number = LIMITS.text): string => typeof v === "string" ? v.slice(0, max).replace(/[\u0000-\u001f\u007f]/g, " ").trim() : "";
   const ref = (v: unknown): string => typeof v === "string" && v.length > 0 && v.length <= LIMITS.reference && !/[\u0000-\u001f\u007f]/.test(v) ? v : "";
   const timestamp = (v: unknown): number => typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0;
-  const states = new Set(["starting", "running", "reconnecting", "waiting", "completed", "failed", "stopped", "detached", "orphaned"]);
+  const states = new Set(["starting", "running", "reconnecting", "waiting", "completed", "failed", "stopped", "detached", "orphaned", "history"]);
   export const active = (entry: Entry): boolean => ["starting", "running", "reconnecting", "waiting"].includes(entry.status);
   export const identity = (hostId: string, kind: Kind, reference: string): string => JSON.stringify([hostId, kind, reference]);
 

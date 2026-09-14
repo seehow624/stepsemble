@@ -1,5 +1,9 @@
 # 原生對話來源探索：第一個安全增量
 
+> 歷史設計紀錄：本文保留 Rust／source-group 的早期探索，裡面的「尚未接入 Web」不
+> 代表目前版本。現在已出貨的 Claude Code／Codex 唯讀 catalog、API、UI 與實際限制
+> 請以 [`native-history-catalog.md`](native-history-catalog.md) 為準。
+
 **最新接續Plan1.52**：來源群組設定、同Hostbudget、動態registry和分頁HTTP已接線；
 原生title/summary及TS transport也通actualRust＋SDK合成Host，見[來源群組](history-source-groups.md)。
 Web來源UI及其他agents仍待。下文保留1.49/1.50當時「未接線」的歷史，不作最新待辦。

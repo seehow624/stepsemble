@@ -9,14 +9,14 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { CONNECTOR_DEFINITIONS, resolveCommand } = require("./agent-connectors");
-const { execFile } = require("node:child_process");
-const { promisify } = require("node:util");
 const {
   CODEX_NATIVE_VERSION,
   launchCodexAppServer,
 } = require("./codex-app-server-transport");
+const {
+  probeCodexCompatibility,
+} = require("./codex-compatibility");
 const crypto = require("node:crypto");
-const execFileAsync = promisify(execFile);
 
 const MAX_THREADS = 100;
 const MAX_PAGE = 100;
@@ -130,11 +130,6 @@ function resolveConfig(env = process.env, overrides = {}) {
   });
 }
 
-function parseNativeVersion(output) {
-  const match = /^codex-cli\s+(\d{1,8}\.\d{1,8}\.\d{1,8})$/.exec(String(output || "").trim());
-  return match ? match[1] : null;
-}
-
 function validThreadId(value) {
   return typeof value === "string" && value.length <= MAX_THREAD_ID && ID.test(value);
 }
@@ -235,6 +230,7 @@ function createCodexNativeHistoryAdapter({
   onEvent = null,
   onApprovalRequest = null,
   versionProbe = null,
+  schemaProbe = null,
 } = {}) {
   const config = resolveConfig(env, { executable, cwd, enabled, includeKnownPaths, journalFile, mutationEnabled });
   const mutationJournal = loadMutationJournal(config.journalFile);
@@ -242,7 +238,8 @@ function createCodexNativeHistoryAdapter({
   let mutationWriteError = null;
   let state = {
     adapter: "codex-app-server-v2",
-    nativeVersion: CODEX_NATIVE_VERSION,
+    nativeVersion: null,
+    compatibility: null,
     state: config.configured ? "configured" : config.enabled ? "unavailable" : "disabled",
     enabled: config.enabled,
     configured: config.configured,
@@ -258,28 +255,58 @@ function createCodexNativeHistoryAdapter({
   let transport = null;
   let transportPromise = null;
   let refreshPromise = null;
-  // Tests can inject a transport or version probe. Production launches are
-  // version-gated before app-server IO so an unreviewed alpha cannot be
-  // silently treated as the pinned schema contract.
+  let verifiedCompatibility = null;
+  // Tests can inject a transport or version/schema probe. Production launches
+  // are compatibility-gated before app-server IO so an unreviewed alpha or
+  // schema drift cannot be silently treated as the native contract.
   let versionVerified = typeof transportFactory === "function";
 
   async function verifyExecutableVersion() {
-    if (versionVerified || typeof transportFactory === "function") return;
-    const output = typeof versionProbe === "function"
-      ? await versionProbe(config.executable, { cwd: config.cwd, env: { ...env } })
-      : (await execFileAsync(config.executable, ["--version"], {
-        cwd: config.cwd,
-        env: { ...env },
-        shell: false,
-        timeout: 5000,
-        maxBuffer: 64 * 1024,
-      })).stdout;
-    const actual = parseNativeVersion(typeof output === "string" ? output : output?.stdout || output?.version);
-    if (actual !== CODEX_NATIVE_VERSION) {
-      throw new CodexNativeHistoryError("unsupported_codex_native_version", "Codex native schema version is not reviewed", 503,
-        { nativeVersion: actual || null });
+    if (verifiedCompatibility) return verifiedCompatibility;
+    // Injected transports are test/owned fixtures and already provide their
+    // own protocol contract. Production launches always pass through the
+    // schema/capability registry before app-server IO.
+    if (versionVerified || typeof transportFactory === "function") {
+      verifiedCompatibility = Object.freeze({
+        profileId: "injected-transport",
+        nativeVersion: state.nativeVersion || CODEX_NATIVE_VERSION,
+        channel: "stable",
+        schemaFingerprint: null,
+        verification: "injected-transport",
+        capabilities: Object.freeze({ historyRead: true, historyPages: true, sessionResume: true, turns: true, mutations: true, approvals: true }),
+        initializeParams: undefined,
+      });
+      return verifiedCompatibility;
     }
+    try {
+      verifiedCompatibility = await probeCodexCompatibility(config.executable, {
+        cwd: config.cwd,
+        env,
+        versionProbe,
+        schemaProbe,
+      });
+    } catch (error) {
+      if (error?.code === "unsupported_codex_native_version" || error?.code === "codex_schema_mismatch"
+        || error?.code === "codex_schema_incomplete" || error?.code === "codex_schema_invalid") {
+        throw new CodexNativeHistoryError(error.code, error.message, 503, {
+          nativeVersion: error.nativeVersion || null,
+          schemaFingerprint: error.schemaFingerprint || null,
+          channel: error.channel || null,
+        });
+      }
+      throw error;
+    }
+    state = { ...state,
+      nativeVersion: verifiedCompatibility.nativeVersion,
+      compatibility: {
+        profileId: verifiedCompatibility.profileId,
+        verification: verifiedCompatibility.verification,
+        schemaFingerprint: verifiedCompatibility.schemaFingerprint,
+        capabilities: { ...verifiedCompatibility.capabilities },
+      },
+    };
     versionVerified = true;
+    return verifiedCompatibility;
   }
 
   function writeMutationJournal() {
@@ -352,6 +379,7 @@ function createCodexNativeHistoryAdapter({
   function status() { return Object.freeze({ ...state }); }
 
   function capability() {
+    const compatibility = state.compatibility ? { ...state.compatibility, capabilities: { ...state.compatibility.capabilities } } : null;
     return state.ready ? {
       mode: state.mutationReady ? "native_mutation" : "native_readonly",
       history: "native_readonly",
@@ -361,6 +389,7 @@ function createCodexNativeHistoryAdapter({
       source: "codex-app-server-v2",
       adapter: state.adapter,
       nativeVersion: state.nativeVersion,
+      compatibility,
       readOnly: !state.mutationReady,
       mutationJournal: state.mutationReady ? "owner-only" : null,
     } : {
@@ -371,6 +400,8 @@ function createCodexNativeHistoryAdapter({
       session: "cli",
       source: state.enabled ? "codex-app-server-unverified" : "cli",
       adapter: state.adapter,
+      nativeVersion: state.nativeVersion,
+      compatibility,
       reason: state.lastError || "native_app_server_not_ready",
     };
   }
@@ -387,13 +418,13 @@ function createCodexNativeHistoryAdapter({
     transportPromise = (async () => {
       let instance;
       try {
-        await verifyExecutableVersion();
-        const options = { executable: config.executable, cwd: config.cwd, nativeVersion: CODEX_NATIVE_VERSION,
+        const compatibility = await verifyExecutableVersion();
+        const options = { executable: config.executable, cwd: config.cwd, nativeVersion: compatibility.nativeVersion,
           ...(config.mutationEnabled ? { authorizeNative, onEvent, onApprovalRequest } : {}) };
         if (typeof transportFactory === "function") instance = await transportFactory(options);
         else instance = launch(options);
         if (!instance || typeof instance.initialize !== "function") throw new Error("native_transport_invalid");
-        await instance.initialize();
+        await instance.initialize(compatibility.initializeParams);
         transport = instance;
         return instance;
       } catch (error) {
@@ -414,8 +445,12 @@ function createCodexNativeHistoryAdapter({
         const api = await ensureTransport();
         const probe = await api.listThreads({ limit: 1, sortKey: "updated_at", sortDirection: "desc", useStateDbOnly: true });
         if (!probe || probe.kind !== "threads" || !Array.isArray(probe.data)) throw new Error("native_response_invalid");
+        const capabilities = verifiedCompatibility?.capabilities || {};
+        const mutationAllowed = verifiedCompatibility?.verification === "injected-transport"
+          || capabilities.mutations === true;
         state = { ...state, state: "ready", ready: true, sessionReady: true,
-          mutationReady: config.mutationEnabled && !mutationWriteError, approvalReady: config.mutationEnabled && !mutationWriteError,
+          mutationReady: config.mutationEnabled && mutationAllowed && !mutationWriteError,
+          approvalReady: config.mutationEnabled && mutationAllowed && capabilities.approvals !== false && !mutationWriteError,
           lastError: null, checkedAt: clock() };
       } catch (error) {
         state = { ...state, state: "degraded", ready: false, sessionReady: false, mutationReady: false, approvalReady: false,
@@ -487,7 +522,12 @@ function createCodexNativeHistoryAdapter({
 
   function requireMutation() {
     requireReady();
-    if (!state.mutationReady || !config.mutationEnabled) throw new CodexNativeHistoryError("native_mutations_disabled", "Codex native mutations are not enabled", 409);
+    if (!state.mutationReady || !config.mutationEnabled) {
+      const code = verifiedCompatibility && verifiedCompatibility.capabilities?.mutations !== true
+        ? "native_mutations_not_reviewed"
+        : "native_mutations_disabled";
+      throw new CodexNativeHistoryError(code, "Codex native mutations are not enabled for this compatibility profile", 409);
+    }
   }
 
   async function startThread(params = {}) {

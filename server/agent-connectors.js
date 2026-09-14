@@ -1169,6 +1169,7 @@ function createAgentTaskService({
     if (!realCwd) {
       const error = new Error("Project folder is unavailable");
       error.statusCode = 400;
+      error.code = "project_folder_unavailable";
       throw error;
     }
     const id = crypto.randomUUID();

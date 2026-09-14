@@ -76,9 +76,14 @@ test("active/temporary filters do not infer work from a saved or failed session"
   assert.equal(catalog.select(snapshot).total, 3); assert.equal(catalog.select(snapshot, { includeTemporary: true }).total, 4);
   assert.equal(catalog.select(snapshot, { kind: "active" }).total, 2);
 });
+test("native history observations are saved rows, never active work", () => {
+  const snapshot = catalog.build("mini", [], [task("codex-history:one", { status: "history", nativeHistoryReadonly: true })]);
+  assert.equal(snapshot.entries[0].status, "history");
+  assert.equal(catalog.select(snapshot, { kind: "active" }).total, 0);
+});
 test("inventory caps are visible, not misrepresented as a complete empty store", () => {
-  const snapshot = catalog.build("mini", Array.from({ length: 10001 }, (_, i) => pi(`p/${i}`)), Array.from({ length: 257 }, (_, i) => task(`task${i}`)));
-  assert.equal(snapshot.entries.length, 10256); assert.equal(snapshot.omitted, 2); assert.equal(catalog.select(snapshot).entries.length, 50);
+  const snapshot = catalog.build("mini", Array.from({ length: 10001 }, (_, i) => pi(`p/${i}`)), Array.from({ length: 2049 }, (_, i) => task(`task${i}`)));
+  assert.equal(snapshot.entries.length, 12048); assert.equal(snapshot.omitted, 2); assert.equal(catalog.select(snapshot).entries.length, 50);
 });
 test("catalog runs locally and is cached; it adds no native discovery or model calls", () => {
   const source = fs.readFileSync(path.join(root, "client/conversation-catalog.ts"), "utf8");

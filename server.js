@@ -42,6 +42,8 @@ const { createClaudeStructuredSession, CLAUDE_STRUCTURED_VERSION } = require("./
 const { createAntigravityStructuredSession, ANTIGRAVITY_STRUCTURED_VERSION } = require("./server/antigravity-cli-structured-adapter");
 const { createClaudeAuthService, handleClaudeAuthRequest } = require("./server/claude-auth");
 const { createDesktopClaudeClient } = require("./server/claude-desktop-client");
+const { createNativeHistoryCatalog } = require("./server/native-history-catalog");
+const { createHarnessUpdateService, loadHarnessUpdateRegistry } = require("./server/harness-update-service");
 const { loadHistoryConfig, createHistoryHost, disabledHistoryHost } = require("./server/history-host");
 const {
   BROWSER_COOKIE,
@@ -72,7 +74,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.31";
+const APP_VERSION = "3.0.34";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -100,6 +102,12 @@ const UPDATE_SCRIPT_FILE = settingFromEnv("UPDATE_SCRIPT")
   ? path.resolve(expandHome(settingFromEnv("UPDATE_SCRIPT")))
   : path.join(APP_HOME, ".local", "share", "stepsemble-bin", "stepsemble-update.sh");
 const BUNDLED_UPDATE_SCRIPT_FILE = path.join(__dirname, "deploy", "stepsemble-update.sh");
+const HARNESS_UPDATE_REGISTRY_FILE = settingFromEnv("HARNESS_UPDATE_REGISTRY")
+  ? path.resolve(expandHome(settingFromEnv("HARNESS_UPDATE_REGISTRY")))
+  : path.join(__dirname, "protocol", "harness-updates.json");
+const HARNESS_UPDATE_STATE_FILE = settingFromEnv("HARNESS_UPDATE_STATE")
+  ? path.resolve(expandHome(settingFromEnv("HARNESS_UPDATE_STATE")))
+  : path.join(APP_HOME, ".config", "stepsemble", "harness-updates.json");
 const CONFIGURED_UPDATE_REPOSITORY = settingFromEnv("UPDATE_REPO") || "seehow624/stepsemble";
 const DEFAULT_UPDATE_REPOSITORY = CONFIGURED_UPDATE_REPOSITORY === "seehow624/pi-harbor"
   ? "seehow624/stepsemble" : CONFIGURED_UPDATE_REPOSITORY;
@@ -181,6 +189,16 @@ const BROWSE_ROOTS_FROM_ENV = String(settingFromEnv("BROWSE_ROOTS") || "")
 // Web may browse the configured user home, while launchers can explicitly add
 // shared volumes (for example `/Volumes`) through STEPSEMBLE_BROWSE_ROOTS.
 const BROWSE_ROOTS = BROWSE_ROOTS_FROM_ENV.length ? BROWSE_ROOTS_FROM_ENV : [APP_HOME];
+
+// Claude Code and Codex keep their own local transcripts.  The catalog is a
+// separate read-only observation layer: it is never used to launch either
+// harness, never reads credential files, and only becomes active when the
+// authenticated Agent Hub asks for its snapshot.
+const nativeHistoryCatalog = createNativeHistoryCatalog({
+  home: APP_HOME,
+  claudeRoot: settingFromEnv("CLAUDE_PROJECTS_ROOT") || undefined,
+  codexRoot: settingFromEnv("CODEX_HISTORY_ROOT") || undefined,
+});
 
 // Keep the independently installed updater current after an application
 // update. This is limited to devices where automatic updates are already
@@ -1892,6 +1910,32 @@ const agentTasks = createAgentTaskService({
           : ["cline", "kilo", "hermes"].includes(agentId) ? acpAdapterForAgent(agentId)?.status() || { state: "disabled", configured: false, ready: false, lastError: "acp_executable_unavailable" } : null,
   hostId: selfMachineId(),
 });
+// Harness upgrades are a separate, explicit control plane.  The service only
+// exposes commands from the checked-in registry; it never accepts a command
+// string from the browser.  A running Pi RPC stream or connector task blocks
+// mutation so an update cannot silently interrupt a session/account.
+let harnessUpdateService;
+try {
+  harnessUpdateService = createHarnessUpdateService({
+    registry: loadHarnessUpdateRegistry(HARNESS_UPDATE_REGISTRY_FILE),
+    stateFile: HARNESS_UPDATE_STATE_FILE,
+    env: { ...process.env, HOME: APP_HOME, USERPROFILE: APP_HOME },
+    home: APP_HOME,
+    busy: () => {
+      const rpc = activeRpcSessionsForUpdate();
+      const tasks = activeAgentTasksForUpdate();
+      return {
+        busy: rpc.length > 0 || tasks.length > 0,
+        reason: rpc.length > 0 ? "pi_rpc_active" : tasks.length > 0 ? "agent_task_active" : null,
+      };
+    },
+  });
+} catch (error) {
+  // A malformed local registry must not prevent the main workspace from
+  // starting. The endpoints return a truthful unavailable response instead.
+  console.warn(`[stepsemble] harness update service unavailable: ${error.message}`);
+  harnessUpdateService = null;
+}
 const claudeAuth = desktopClaude || createClaudeAuthService({ home: APP_HOME, env: process.env, hasActiveTasks: hasClaudeTasks });
 
 function revealProject(cwd) {
@@ -2432,6 +2476,10 @@ function publicOpenCodeNativeTask(session, status = null) {
   const type = String(status?.type || status?.status || "idle").toLowerCase();
   const running = ["active", "busy", "running"].includes(type);
   const failed = ["error", "failed"].includes(type);
+  // An idle native session is a stored OpenCode conversation, not queued work.
+  // Reporting it as "waiting" made the task inbox claim dozens of pending jobs
+  // and offered a Stop button that the native server always refuses.
+  const idle = !running && !failed;
   return {
     id: `opencode:${session.id}`,
     taskId: `opencode:${session.id}`,
@@ -2442,8 +2490,9 @@ function publicOpenCodeNativeTask(session, status = null) {
     nativeSessionId: session.id,
     name: session.title || `OpenCode ${session.id}`,
     cwd: session.directory || session.path || "",
-    status: failed ? "failed" : running ? "running" : "waiting",
+    status: failed ? "failed" : running ? "running" : "history",
     isRunning: running,
+    idleNativeSession: idle,
     startedAt: session.time?.created || null,
     endedAt: running ? null : session.time?.updated || null,
     lastActivityAt: session.time?.updated || session.time?.created || null,
@@ -2667,6 +2716,21 @@ async function listAgentTasksWithOpenCode() {
   for (const [id, session] of antigravityStructuredSessions) {
     const task = publicAntigravityStructuredTask(id, session);
     if (task) tasks.push(task);
+  }
+  // Local provider history is an observation, not a live task. Keep it in the
+  // same snapshot so Sessions and All conversations share one stable source,
+  // while de-duplicating a thread that is already attached to a native bridge.
+  try {
+    const observed = await nativeHistoryCatalog.listTasks();
+    const liveNative = new Set(tasks
+      .filter(task => ["claude-code", "codex"].includes(task?.agentId) && task?.nativeSessionId)
+      .map(task => `${task.agentId}:${task.nativeSessionId}`));
+    for (const task of observed) {
+      if (!liveNative.has(`${task.agentId}:${task.nativeHistorySessionId}`)) tasks.push(task);
+    }
+  } catch {
+    // A local history scan is optional. Preserve live task truth when a source
+    // is being rotated, deleted, or temporarily locked by its native client.
   }
   return tasks.sort((a, b) => (Number(b.lastActivityAt || b.startedAt) || 0) - (Number(a.lastActivityAt || a.startedAt) || 0));
 }
@@ -4703,6 +4767,28 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      if (p === "/api/opencode/models" && req.method === "GET") {
+        try {
+          const result = await openCodeNative.listModels({ directory: openCodeDirectory(url.searchParams.get("directory") || null) });
+          sendJSON(res, 200, { ...result, adapter: openCodeNative.status() });
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_models_unavailable" }); }
+        return;
+      }
+
+      if (p === "/api/opencode/model" && req.method === "POST") {
+        try {
+          const body = await readJSON(req, 64 * 1024);
+          const model = body?.model && typeof body.model === "object" ? body.model : body;
+          const result = await openCodeNative.switchModel(body?.sessionId, {
+            providerID: model?.providerID || model?.providerId || model?.provider,
+            modelID: model?.modelID || model?.modelId || model?.id,
+            directory: openCodeDirectory(body?.cwd || body?.directory || null),
+          });
+          sendJSON(res, 200, result);
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_model_switch_failed" }); }
+        return;
+      }
+
       if (p === "/api/opencode/permissions" && req.method === "GET") {
         try {
           const result = await openCodeNative.permissions({ sessionId: url.searchParams.get("sessionId") || null, directory: openCodeDirectory(url.searchParams.get("directory") || null) });
@@ -5259,6 +5345,20 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      // Claude Code/Codex transcript reads are a separate, authenticated,
+      // read-only route. The client sends an opaque catalog task id; it never
+      // supplies a filesystem path, so a browser cannot turn this into an
+      // arbitrary file reader.
+      if (p === "/api/native-history/session" && req.method === "GET") {
+        try {
+          const taskId = url.searchParams.get("taskId") || "";
+          const result = await nativeHistoryCatalog.read(taskId);
+          if (result?.kind === "native_history_transcript") sendJSON(res, 200, result);
+          else sendJSON(res, result?.code === "history_session_invalid" ? 400 : 404, { error: result?.code || "history_session_unavailable" });
+        } catch { sendJSON(res, 404, { error: "history_session_unavailable" }); }
+        return;
+      }
+
       if (p === "/api/session" && req.method === "GET") {
         const data = await readSessionActivePath(url.searchParams.get("file") || "", {
           limit: url.searchParams.get("limit"),
@@ -5436,6 +5536,57 @@ const server = http.createServer(async (req, res) => {
           sendJSON(res, 202, startUpdateCheck());
         } catch (e) {
           sendJSON(res, e.statusCode || 409, { error: e.message || "Could not start update check" });
+        }
+        return;
+      }
+
+      if (p === "/api/harness-updates/status" && req.method === "GET") {
+        if (!harnessUpdateService) {
+          sendJSON(res, 503, { error: "Harness update service unavailable" });
+          return;
+        }
+        sendJSON(res, 200, harnessUpdateService.status());
+        return;
+      }
+
+      if (p === "/api/harness-updates/check" && req.method === "POST") {
+        if (!harnessUpdateService) {
+          sendJSON(res, 503, { error: "Harness update service unavailable" });
+          return;
+        }
+        try {
+          const body = await readJSON(req, 8 * 1024);
+          sendJSON(res, 200, await harnessUpdateService.check({ id: body?.id || null }));
+        } catch (e) {
+          sendJSON(res, e.statusCode || 502, { error: e.message || "Could not check harness updates", code: e.code || null });
+        }
+        return;
+      }
+
+      if (p === "/api/harness-updates/apply" && req.method === "POST") {
+        if (!harnessUpdateService) {
+          sendJSON(res, 503, { error: "Harness update service unavailable" });
+          return;
+        }
+        try {
+          const body = await readJSON(req, 8 * 1024);
+          sendJSON(res, 200, await harnessUpdateService.update({ id: body?.id, confirm: body?.confirm === true }));
+        } catch (e) {
+          sendJSON(res, e.statusCode || 502, { error: e.message || "Could not update harness", code: e.code || null, result: e.result || undefined });
+        }
+        return;
+      }
+
+      if (p === "/api/harness-updates/apply-all" && req.method === "POST") {
+        if (!harnessUpdateService) {
+          sendJSON(res, 503, { error: "Harness update service unavailable" });
+          return;
+        }
+        try {
+          const body = await readJSON(req, 8 * 1024);
+          sendJSON(res, 200, await harnessUpdateService.updateAll({ confirm: body?.confirm === true }));
+        } catch (e) {
+          sendJSON(res, e.statusCode || 502, { error: e.message || "Could not update harnesses", code: e.code || null, result: e.result || undefined });
         }
         return;
       }
@@ -5998,11 +6149,27 @@ const server = http.createServer(async (req, res) => {
             // When the explicit OpenCode server probe is healthy, prefer its
             // native session API. Without that opt-in the existing PTY path
             // below remains unchanged and keeps working for plain `opencode`.
-            const session = await openCodeNative.createSession({ title: body?.name || "", directory: openCodeDirectory(cwd) });
-            if (requesterGone) return;
-            const status = (await openCodeNative.sessionStatus())[session.id] || { type: "idle" };
-            sendJSON(res, 201, { ...publicOpenCodeNativeTask(session, status), kind: "opencode-native", agentId: "opencode",
-              worktree: worktree ? { ...worktree, path: session.directory || cwd } : null });
+            try {
+              const session = await openCodeNative.createSession({ title: body?.name || "", directory: openCodeDirectory(cwd) });
+              if (requesterGone) return;
+              const status = (await openCodeNative.sessionStatus())[session.id] || { type: "idle" };
+              sendJSON(res, 201, { ...publicOpenCodeNativeTask(session, status), kind: "opencode-native", agentId: "opencode",
+                worktree: worktree ? { ...worktree, path: session.directory || cwd } : null });
+            } catch (error) {
+              // OpenCode's server can be healthy while a particular project
+              // directory is rejected by its project database (currently this
+              // is commonly returned as HTTP 500 for external volumes). A
+              // native session was not admitted in that case, so fall back to
+              // the supervised CLI instead of turning a connector click into
+              // a dead end. Never retry an uncertain network outcome: the
+              // request may already have created a native session.
+              const recoverable = new Set(["upstream_http_400", "upstream_http_404", "upstream_http_409", "upstream_http_500"]);
+              if (!recoverable.has(String(error?.code || "")) || requesterGone) throw error;
+              const fallback = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
+              if (requesterGone) return;
+              sendJSON(res, 201, { ...fallback, kind: "cli", agentId,
+                nativeFallback: "opencode-native", nativeFallbackReason: "project_session_unavailable" });
+            }
           } else if (agentId === "grok-build" && grokAcp && !worktree) {
             const session = await grokAcp.createSession({ directory: nativeAgentDirectory(cwd, "Grok ACP"), name: body?.name || null });
             if (session.kind === "reject") { const error = new Error(session.code); error.statusCode = 409; throw error; }
@@ -6067,7 +6234,10 @@ const server = http.createServer(async (req, res) => {
             sendJSON(res, 201, { ...result, kind: "cli", agentId });
           }
         } catch (error) {
-          if (!requesterGone) sendJSON(res, error.statusCode || 409, { error: error.message || "Could not start agent task" });
+          if (!requesterGone) sendJSON(res, error.statusCode || 409, {
+            error: error.message || "Could not start agent task",
+            ...(error?.code ? { code: String(error.code) } : {}),
+          });
         } finally {
           res.off("close", onResponseClose);
           if (reservedClaude) claudeLaunchReservations--;
@@ -6368,6 +6538,7 @@ function shutdown(signal) {
   }));
   const historyCleanup = Promise.all([
     historyHost.shutdown(),
+    nativeHistoryCatalog.shutdown(),
     codexNative.close(),
     grokAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
     clineAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
@@ -6375,9 +6546,9 @@ function shutdown(signal) {
     hermesAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
     claudeStructuredCleanup,
     antigravityStructuredCleanup,
-  ]).then(([historyResult, codexResult, grokResult, clineResult, kiloResult, hermesResult, claudeResults, antigravityResults]) => ({
+  ]).then(([historyResult, nativeHistoryResult, codexResult, grokResult, clineResult, kiloResult, hermesResult, claudeResults, antigravityResults]) => ({
     ...(historyResult || {}),
-    cleanupConfirmed: historyResult?.cleanupConfirmed === true
+    cleanupConfirmed: historyResult?.cleanupConfirmed === true && nativeHistoryResult?.cleanupConfirmed !== false
       && codexResult?.cleanupConfirmed !== false
       && grokResult?.cleanupConfirmed !== false
       && clineResult?.cleanupConfirmed !== false

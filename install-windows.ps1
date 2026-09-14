@@ -160,11 +160,15 @@ function Get-ActiveWorkState([int]$Port) {
       if ($taskStatus -ne 404) { return "unknown" }
       $tasks = $null
     }
-    $terminal = @("completed", "failed", "stopped", "orphaned", "detached")
+    # This branch excludes non-working rows, so every stored-conversation
+    # status must be listed here. A native "history" row is an observation of
+    # past work and never blocks an update.
+    $terminal = @("completed", "failed", "stopped", "orphaned", "detached", "history")
     if ($tasks -and @($tasks.tasks | Where-Object {
       $nativeIdle = ($_.nativeOpenCode -eq $true -or $_.nativeCodex -eq $true) -and
         ($_.isRunning -is [bool]) -and ($_.isRunning -eq $false) -and ($_.status -eq "waiting")
-      -not $nativeIdle -and ($terminal -notcontains ([string]$_.status))
+      $storedSession = ($_.idleNativeSession -eq $true) -and ($_.isRunning -is [bool]) -and ($_.isRunning -eq $false)
+      -not $nativeIdle -and -not $storedSession -and ($terminal -notcontains ([string]$_.status))
     }).Count -gt 0) { return "active" }
     return "idle"
   } catch { return "unknown" }

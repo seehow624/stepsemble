@@ -9,6 +9,7 @@ const {
   publicThread,
   taskFromThread,
 } = require("../server/codex-native-history-adapter");
+const { registry } = require("../server/codex-compatibility");
 
 function thread(overrides = {}) {
   return {
@@ -64,6 +65,38 @@ test("Codex native history refuses an unreviewed executable version before app-s
   assert.equal(status.state, "degraded");
   assert.equal(status.lastError, "unsupported_codex_native_version");
   assert.equal(launches, 0);
+});
+
+test("Codex native history accepts stable 0.154.0 through schema compatibility and stays read-only", async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-native-compat-"));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  const fingerprint = registry().profiles.find(profile => profile.nativeVersion === "0.154.0").schemaFingerprint;
+  const fake = {
+    async initialize(params) { assert.equal(params.capabilities.experimentalApi, true); },
+    async listThreads() { return { kind: "threads", data: [] }; },
+    async close() { return { kind: "closed", cleanupConfirmed: true }; },
+  };
+  let launchOptions;
+  const adapter = createCodexNativeHistoryAdapter({
+    enabled: true,
+    executable: process.execPath,
+    cwd: temp,
+    versionProbe: async () => "codex-cli 0.154.0",
+    schemaProbe: async () => ({ fingerprint }),
+    launch: options => { launchOptions = options; return fake; },
+    mutationEnabled: true,
+    journalFile: path.join(temp, "mutations.json"),
+  });
+  t.after(() => adapter.close());
+  const status = await adapter.refresh();
+  assert.equal(status.ready, true);
+  assert.equal(status.nativeVersion, "0.154.0");
+  assert.equal(status.compatibility.verification, "readonly-runtime-preflight");
+  assert.equal(status.mutationReady, false);
+  assert.equal(status.approvalReady, false);
+  assert.equal(launchOptions.nativeVersion, "0.154.0");
+  assert.equal(adapter.capability().mode, "native_readonly");
+  await assert.rejects(() => adapter.startThread({}), error => error.code === "native_mutations_not_reviewed");
 });
 
 test("Codex native history adapter exposes bounded read-only tasks and transcript methods", async t => {

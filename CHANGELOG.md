@@ -1,5 +1,49 @@
 # Changelog
 
+## 3.0.34
+
+Stop presenting stored OpenCode conversations as pending work.
+
+- An idle native OpenCode session is now published as history instead of
+  "waiting". On this Mac mini that changed 26 rows that each claimed to be a
+  queued task, some showing elapsed times over 100 hours.
+- Remove the Stop button from those rows. The native server refuses an abort
+  for an idle session, so the button could only ever fail.
+- Keep them out of the Agent Hub preview and the Active filter, while All
+  conversations still lists them and reopening one still allows new messages.
+- Teach the macOS, Linux, and Windows updaters that a stored conversation is
+  not active work, so old rows cannot block an update.
+
+Validation: 1,316 tests passed, 3 skipped, 0 failed, including a new
+regression that pins this behavior.
+
+## 3.0.33
+
+Make Agent Hub launches recoverable and actionable across the three most-used
+CLI harnesses.
+
+- Fall back to the supervised OpenCode CLI when its native server rejects a
+  project directory, while keeping native sessions for directories it accepts.
+- Preserve structured launch error codes through the Host and browser so
+  Claude Code sign-in and unavailable cross-device folders open the right
+  recovery path instead of showing an opaque failure.
+- Keep Claude Code's official desktop sign-in boundary intact; Stepsemble never
+  substitutes another account or silently bypasses the vendor client.
+
+Validation: 1,315 tests passed, 3 skipped, 0 failed; live Mac mini launch
+checks for OpenCode, Claude Code, and Codex completed with the expected
+capability boundaries.
+
+## 3.0.32
+
+Expose OpenCode's native model catalog and session model switching in the
+Stepsemble composer. The selected `providerID/modelID` is sent on subsequent
+prompts, and unsupported vendor check flags remain neutral instead of looking
+like failed updates.
+
+Validation: full Node test suite, client/syntax checks, protocol checks, and
+live OpenCode model-catalog verification passed.
+
 ## 3.0.31
 
 Promote the stable multi-agent bridge surfaces for Claude Code and ACP-based

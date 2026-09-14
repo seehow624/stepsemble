@@ -35,6 +35,11 @@ their private credential or session stores.
 Stepsemble is an independent community project. It is not an official product
 of, or affiliated with, Pi, Anthropic, OpenAI, xAI, Google, or OpenCode.
 
+The Settings page includes a guarded Harness update center for locally installed
+Codex CLI, Claude Code, OpenCode, Pi Agent, and Hermes Agent. Checks are
+allow-listed and upgrades require explicit confirmation; active sessions are
+never interrupted. See [docs/harness-updates.md](docs/harness-updates.md).
+
 ## Install on macOS
 
 Run this on every computer that should host Stepsemble:
@@ -242,6 +247,16 @@ reattaches to the supervisor and keeps the task timer/output alive; if the host
 or supervisor itself is killed, the journal marks the task as interrupted rather
 than claiming that it is still running. The Agent Hub **View all** task center
 provides search, status filters, replay, and one-tap stop controls.
+
+Stepsemble also shows existing Claude Code and Codex sessions as bounded,
+read-only history observations. It reads only the owner-local project/rollout
+JSONL roots, never provider credentials, and never launches a CLI or model
+request. The first three sessions per project are shown in the home preview;
+**Show more** and the paginated **All conversations** view load the rest. These
+observations cannot send, resume, stop, approve, or change models; use the
+official client to continue one. See
+[`native-history-catalog.md`](docs/native-history-catalog.md) for the exact
+paths, limits, and security checks.
 
 Claude Code, Codex CLI, and Grok Build remain terminal integrations unless their
 explicit native source/adapter gate is enabled. Their replayable Stepsemble

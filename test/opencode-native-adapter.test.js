@@ -65,6 +65,27 @@ test("OpenCode adapter keeps native history when an older server has no permissi
   assert.equal(adapter.capability().approval, "unavailable");
 });
 
+test("OpenCode adapter exposes the native model catalog and session model switch", async () => {
+  const calls = [];
+  const adapter = createOpenCodeNativeAdapter({
+    baseUrl: "http://127.0.0.1:4096",
+    fetchImpl: routeFetch([
+      { method: "GET", pathname: "/api/model", body: { location: "global", data: [
+        { id: "gpt-5", providerID: "openai", name: "GPT-5", capabilities: { reasoning: true }, limit: { context: 128000 }, variants: { high: {} } },
+        { id: "plain", providerID: "local", name: "Plain", capabilities: { reasoning: false }, limit: { context: 8192 } },
+      ] } },
+      { method: "POST", pathname: "/api/session/s1/model", status: 204, body: null },
+    ], calls),
+  });
+  const catalog = await adapter.listModels();
+  assert.deepEqual(catalog.models.map(model => [model.providerID, model.modelID]), [["openai", "gpt-5"], ["local", "plain"]]);
+  assert.equal(catalog.models[0].reasoning, true);
+  assert.equal(catalog.models[0].contextWindow, 128000);
+  const switched = await adapter.switchModel("s1", { providerID: "openai", modelID: "gpt-5" });
+  assert.equal(switched.accepted, true);
+  assert.deepEqual(calls.at(-1).body, { model: { providerID: "openai", modelID: "gpt-5" } });
+});
+
 test("OpenCode adapter reads sessions/messages/children/status, delegates approvals, and reconciles after restart", async t => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-opencode-native-"));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));

@@ -1,0 +1,63 @@
+{
+  "registryVersion": 1,
+  "schemaFiles": [
+    "ClientRequest.json",
+    "ServerRequest.json",
+    "ServerNotification.json",
+    "v1/InitializeParams.json",
+    "v1/InitializeResponse.json",
+    "v2/ThreadListParams.json",
+    "v2/ThreadListResponse.json",
+    "v2/ThreadReadParams.json",
+    "v2/ThreadReadResponse.json",
+    "v2/ThreadTurnsListParams.json",
+    "v2/ThreadTurnsListResponse.json",
+    "v2/ThreadItemsListParams.json",
+    "v2/ThreadItemsListResponse.json",
+    "v2/ThreadLoadedListParams.json",
+    "v2/ThreadLoadedListResponse.json",
+    "v2/ThreadResumeParams.json",
+    "v2/ThreadResumeResponse.json",
+    "v2/ThreadStartParams.json",
+    "v2/ThreadStartResponse.json",
+    "CommandExecutionRequestApprovalParams.json",
+    "CommandExecutionRequestApprovalResponse.json",
+    "FileChangeRequestApprovalParams.json",
+    "FileChangeRequestApprovalResponse.json",
+    "PermissionsRequestApprovalParams.json",
+    "PermissionsRequestApprovalResponse.json",
+    "v2/ServerRequestResolvedNotification.json"
+  ],
+  "profiles": [
+    {
+      "profileId": "codex-app-server-v2-0.153.4",
+      "version": "0.153.4",
+      "channel": "stable",
+      "schemaFingerprint": "74e76ce8f5fcd74847064ce23ee95af6817837d80b65c3d1c93127dc48f4744d",
+      "verification": "reviewed",
+      "capabilities": {
+        "historyRead": true,
+        "historyPages": true,
+        "sessionResume": true,
+        "turns": true,
+        "mutations": true,
+        "approvals": true
+      }
+    },
+    {
+      "profileId": "codex-app-server-v2-0.154.0",
+      "version": "0.154.0",
+      "channel": "stable",
+      "schemaFingerprint": "47c042ccd8e8b0423ff12570c3d949879e9e25632c6cf82bde8cda1448626f32",
+      "verification": "readonly-runtime-preflight",
+      "capabilities": {
+        "historyRead": true,
+        "historyPages": true,
+        "sessionResume": false,
+        "turns": true,
+        "mutations": false,
+        "approvals": false
+      }
+    }
+  ]
+}
