@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.0.36
+
+Repair the cross-platform test matrix.
+
+- Skip the native history catalog tests on Windows and assert the boundary
+  there instead. Reading provider transcripts requires POSIX ownership and
+  mode checks, so the catalog reports itself unsupported on Windows rather
+  than reading those files; the tests asserted the POSIX result everywhere.
+- Correct the conversation catalog browser fixture, which still expected 31
+  rows on its final page after the fixture grew from 131 to 132 records.
+
+Validation: 1,317 tests passed, 4 skipped, 0 failed.
+
 ## 3.0.35
 
 Keep the session list stable while agent tasks are polled.

@@ -81,7 +81,11 @@ async function startHost(t, home) {
   return { base, async request(route, options = {}) { return fetch(base + route, options); } };
 }
 
-test("catalogs Claude Code and Codex local history without launching either harness", async t => {
+// Reading provider transcripts requires POSIX ownership and mode checks, so the
+// catalog reports itself unsupported on Windows instead of reading those files.
+const posixOnly = { skip: process.platform === "win32" ? "native history catalog is POSIX-only" : false };
+
+test("catalogs Claude Code and Codex local history without launching either harness", posixOnly, async t => {
   const { home } = await fixture(t);
   const catalog = createNativeHistoryCatalog({ home });
   t.after(() => catalog.shutdown());
@@ -107,7 +111,19 @@ test("catalog rejects arbitrary paths and malformed/oversized transcript bytes",
   assert.equal(recordsFromBytes(Buffer.from("{\"ok\":true}")).kind, "source_records");
 });
 
-test("catalog refresh is bounded and cached", async t => {
+// The POSIX-only boundary must be an explicit, visible refusal rather than an
+// empty list that looks like the user simply has no saved conversations.
+test("Windows reports the catalog as unsupported instead of silently empty",
+  { skip: process.platform !== "win32" ? "Windows-only boundary" : false }, async t => {
+    const { home } = await fixture(t);
+    const catalog = createNativeHistoryCatalog({ home });
+    t.after(() => catalog.shutdown());
+    assert.deepEqual(await catalog.listTasks(), []);
+    assert.equal(catalog.status().enabled, false);
+    assert.equal(catalog.status().lastError, "platform_unsupported");
+  });
+
+test("catalog refresh is bounded and cached", posixOnly, async t => {
   const { home } = await fixture(t);
   const catalog = createNativeHistoryCatalog({ home, clock: () => 1000 });
   t.after(() => catalog.shutdown());
@@ -118,7 +134,7 @@ test("catalog refresh is bounded and cached", async t => {
   assert.equal(catalog.status().refreshing, false);
 });
 
-test("authenticated HTTP exposes native history without exposing paths or mutation", async t => {
+test("authenticated HTTP exposes native history without exposing paths or mutation", posixOnly, async t => {
   const { home } = await fixture(t);
   const host = await startHost(t, home);
   const login = await host.request("/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: "native-history-test-token" }) });

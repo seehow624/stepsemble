@@ -71,7 +71,9 @@ export async function runConversationBrowserCases(browser) {
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       assert.ok((await dialog.locator(".conversation-toolbar select").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().width))).every(width => width >= 120));
       await dialog.getByRole("button", { name: "Next", exact: true }).click(); await dialog.getByRole("button", { name: "Next", exact: true }).click();
-      assert.equal(await dialog.locator(".conversation-row").count(), 31); assert.match(await summary.textContent(), /Page 3\/3/);
+      // 132 records across 50-row pages leaves 32 on the final page. This was
+      // left at 31 when the fixture grew from 131 to 132 records.
+      assert.equal(await dialog.locator(".conversation-row").count(), 32); assert.match(await summary.textContent(), /Page 3\/3/);
       await dialog.getByLabel("Agent source", { exact: true }).selectOption("codex");
       assert.equal(await dialog.locator(".conversation-row").count(), 1);
       assert.equal(await dialog.locator('.agent-logo[data-agent-id="codex"]').count(), 1);
