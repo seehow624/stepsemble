@@ -367,7 +367,11 @@ Manifest fields：`protocolVersion=1`、id、label、kind、capabilities、event
 
 Event types：`task_started`、`output`、`status`、`input`、`task_exit`。
 
-Statuses：`starting`、`running`、`waiting`、`reconnecting`、`completed`、`failed`、`stopped`、`detached`、`orphaned`。
+Statuses：`starting`、`running`、`waiting`、`reconnecting`、`completed`、`failed`、`stopped`、`detached`、`orphaned`、`history`。
+
+`history` 代表已儲存的原生對話（例如 idle 的 OpenCode session，附帶
+`idleNativeSession: true`），不是待處理工作：不列入 Active 篩選、不顯示 Stop、
+也不會擋住 updater 的 active-work guard。使用者重新開啟後仍可繼續送訊息。
 
 Supervisor control socket 是 newline-delimited JSON：
 
