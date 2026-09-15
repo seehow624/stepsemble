@@ -253,7 +253,57 @@ function createAgentClientProtocolAdapter({
     writeSessionRegistry(registryFile, knownSessions);
     sessions.set(id, { ...metadata, events: [], status: "idle", promptInFlight: false, loaded: true });
     while (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
-    return { kind: sessionId ? "loaded" : "created", sessionId: id, cwd: directory };
+    // ACP v1 exposes model selection through session config options rather
+    // than a dedicated model API. Record whatever the agent advertised so the
+    // browser can offer the same choices the vendor's own client would.
+    const configOptions = normalizeConfigOptions(result.value?.configOptions);
+    sessions.get(id).configOptions = configOptions;
+    return { kind: sessionId ? "loaded" : "created", sessionId: id, cwd: directory, configOptions };
+  }
+
+  /** Bounded copy of the agent's advertised config options. */
+  function normalizeConfigOptions(value) {
+    if (!Array.isArray(value)) return [];
+    const options = [];
+    for (const raw of value.slice(0, 16)) {
+      if (!raw || typeof raw !== "object") continue;
+      const id = safeText(raw.id, 64);
+      if (!id) continue;
+      options.push({
+        id,
+        name: safeText(raw.name, 120) || id,
+        category: safeText(raw.category, 32) || null,
+        type: safeText(raw.type, 32) || null,
+        currentValue: safeText(raw.currentValue, 200) || null,
+        options: Array.isArray(raw.options) ? raw.options.slice(0, 200).map(choice => ({
+          value: safeText(choice?.value, 200),
+          name: safeText(choice?.name, 200) || safeText(choice?.value, 200),
+          description: safeText(choice?.description, 400) || null,
+        })).filter(choice => choice.value) : [],
+      });
+    }
+    return options;
+  }
+
+  function sessionConfigOptions(sessionId) {
+    const session = sessions.get(safeId(sessionId) || "");
+    return session ? session.configOptions || [] : [];
+  }
+
+  /** Applies one config option (model, mode, …) and stores the agent's reply. */
+  async function setConfigOption(sessionId, configId, value) {
+    const id = safeId(sessionId), option = safeText(configId, 64), next = safeText(value, 200);
+    if (!id || !option || !next) return reject("acp_config_invalid");
+    const session = sessions.get(id);
+    if (!session) return reject("acp_session_unavailable");
+    if (session.promptInFlight) return reject("acp_prompt_in_flight");
+    const result = await request("session/set_config_option", { sessionId: id, configId: option, value: next });
+    if (result.kind !== "result") return result;
+    // The response carries the complete updated list, so replace rather than
+    // merge: a stale entry would show a model the agent no longer offers.
+    const configOptions = normalizeConfigOptions(result.value?.configOptions);
+    if (configOptions.length) session.configOptions = configOptions;
+    return { kind: "configured", sessionId: id, configId: option, value: next, configOptions: session.configOptions || [] };
   }
   async function prompt(sessionId, text, { images = [] } = {}) {
     const id = safeId(sessionId), value = safeText(text);
@@ -318,6 +368,7 @@ function createAgentClientProtocolAdapter({
     return rows;
   }
   return Object.freeze({ version: ACP_VERSION, start, initialize, createSession, loadSession, prompt, cancel, respondPermission,
+    sessionConfigOptions, setConfigOption,
     pendingPermissions: () => [...permissions.values()].map(clone), events: () => clone(events),
     sessionEvents: sessionId => clone(sessions.get(String(sessionId))?.events || []),
     sessions: listSessions, status, close });

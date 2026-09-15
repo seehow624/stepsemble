@@ -1,7 +1,7 @@
-/* stepsemble v3.0.40 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.41 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.40";
+const CLIENT_APP_VERSION = "3.0.41";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -4679,6 +4679,7 @@ async function refreshOpenCodeNativeSnapshot(connection, { initial = false } = {
     if (rpc !== connection) return;
     if (snapshot?.session?.model) applyOpenCodeModel(snapshot.session.model);
     const status = nativeOpenCodeStatus(snapshot);
+    applyOpenCodeContextStats(snapshot, connection);
     applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: "opencode", nativeOpenCode: true,
       nativeSessionId: connection.nativeSessionId, name: connection.name, cwd: connection.cwd, status,
       startedAt: connection.runStartedAt, lastActivityAt: Date.now() });
@@ -6066,6 +6067,39 @@ function markContextStatsAwaiting() {
 
 function contextDashboardIdentity() {
   return { sid: rpc?.sid || null, generation: viewGeneration, base: apiBase };
+}
+
+// OpenCode reports per-message token usage and the model that produced it.
+// Feeding that into the existing dashboard keeps one context display for every
+// agent instead of a second, parallel one.
+function applyOpenCodeContextStats(snapshot, connection = rpc) {
+  if (!connection?.nativeOpenCode || rpc !== connection) return;
+  const assistant = (snapshot?.messages || []).filter((message) => message?.role === "assistant");
+  const latest = assistant.at(-1)?.info || null;
+  const tokens = latest?.tokens || null;
+  if (!tokens) return;
+  const input = finiteNonNegative(tokens.input) ?? 0;
+  const output = finiteNonNegative(tokens.output) ?? 0;
+  const reasoning = finiteNonNegative(tokens.reasoning) ?? 0;
+  const cacheRead = finiteNonNegative(tokens.cache?.read) ?? 0;
+  const cacheWrite = finiteNonNegative(tokens.cache?.write) ?? 0;
+  // OpenCode reports the turn's own total. Prefer it over a local sum so the
+  // figure always matches what the agent itself accounts for; fall back to the
+  // components only when an older server omits the field.
+  const used = finiteNonNegative(tokens.total) ?? (input + cacheRead + output + reasoning);
+  const capacity = positiveFinite(connection.openCodeModel?.contextWindow)
+    ?? positiveFinite(composerModelContextWindow);
+  contextStats = {
+    tokens: { input, output, reasoning, cacheRead, cacheWrite },
+    contextUsage: {
+      tokens: used,
+      contextWindow: capacity,
+      percent: capacity ? Math.min(100, (used / capacity) * 100) : null,
+    },
+    contextCapacity: capacity,
+  };
+  contextStatsState = "ready";
+  renderContextDashboard();
 }
 
 function contextStatsRequestIsCurrent(request) {
@@ -7713,11 +7747,15 @@ function setStreaming(on) {
   // OpenCode's native server is also a live, model-switchable conversation.
   // Keep the shared model control visible for it; other generic connectors do
   // not have a safe model route and should continue hiding the control.
-  el.btnModel?.classList.toggle("hidden", generic && !rpc?.nativeOpenCode);
+  // OpenCode has a native model API; ACP agents expose the same choice through
+  // session config options. Other connectors have no safe model route.
+  el.btnModel?.classList.toggle("hidden", generic && !rpc?.nativeOpenCode && !rpc?.nativeAcp);
   // Attachments follow the connector's wire format, not the Pi/generic split:
   // OpenCode, Claude Code and the ACP agents all carry image content blocks.
   el.btnImg?.classList.toggle("hidden", !connectorAcceptsImages(rpc));
-  el.contextDashboard?.classList.toggle("hidden", generic);
+  // The dashboard is driven by whatever usage the connector reports. OpenCode
+  // supplies per-message token counts, so it gets the same display as Pi.
+  el.contextDashboard?.classList.toggle("hidden", generic && !rpc?.nativeOpenCode);
   el.btnSend.title = on ? "" : (window.stepsembleI18n?.t("Send") || "Send");
   el.btnAbort.title = on ? (window.stepsembleI18n?.t("Stop") || "Stop") : "";
 }
@@ -8238,6 +8276,16 @@ function applyOpenCodeModel(model) {
   return normalized;
 }
 
+// ACP advertises model choice among its session config options. Pick the one
+// the agent marked as the model selector, tolerating agents that only set a
+// recognizable id.
+function acpModelOption(configOptions) {
+  const options = Array.isArray(configOptions) ? configOptions : [];
+  return options.find((option) => option?.category === "model" && option.options?.length)
+    || options.find((option) => /model/i.test(option?.id || "") && option.options?.length)
+    || null;
+}
+
 async function openModelSheet() {
   const expectedSid = rpc?.sid;
   if (!expectedSid) { toast("對話未開啟"); return; }
@@ -8251,6 +8299,29 @@ async function openModelSheet() {
       if (!rpc || rpc.sid !== expectedSid) { el.modelSheet.classList.add("hidden"); return; }
       availableModels = (Array.isArray(result?.models) ? result.models : []).map(normalizeOpenCodeModel).filter(Boolean);
       renderModelList(rpc.openCodeModel?.modelID || null, rpc.openCodeModel?.providerID || null);
+      return;
+    }
+    if (rpc?.nativeAcp) {
+      // ACP agents advertise model choice as a session config option; the
+      // option whose category is "model" is the one this sheet edits.
+      const result = await api(`/api/${rpc.acpAgentId}/acp/config?sessionId=${encodeURIComponent(rpc.nativeSessionId)}`);
+      if (!rpc || rpc.sid !== expectedSid) { el.modelSheet.classList.add("hidden"); return; }
+      const option = acpModelOption(result?.configOptions);
+      if (!option) {
+        availableModels = [];
+        el.modelList.innerHTML = "";
+        const empty = document.createElement("p");
+        empty.style.cssText = "padding:12px 4px;color:var(--pine-soft);font-size:13.5px";
+        empty.textContent = tKey("runtime.modelChoiceUnavailable");
+        el.modelList.appendChild(empty);
+        return;
+      }
+      rpc.acpModelConfigId = option.id;
+      availableModels = option.options.map((choice) => ({
+        id: choice.value, name: choice.name || choice.value, provider: rpc.acpAgentId,
+        description: choice.description || "",
+      }));
+      renderModelList(option.currentValue, rpc.acpAgentId);
       return;
     }
     const [modelsRes, stateRes] = await Promise.allSettled([
@@ -8329,6 +8400,20 @@ function renderModelList(currentId, currentProvider = null) {
           const selected = applyOpenCodeModel(model);
           toast("模型：" + (selected?.name || selected?.modelID || m.id));
           renderModelList(selected?.modelID || m.id, selected?.providerID || m.provider);
+          return;
+        }
+        if (rpc?.nativeAcp) {
+          const result = await post(`/api/${rpc.acpAgentId}/acp/config`, {
+            sessionId: rpc.nativeSessionId,
+            configId: rpc.acpModelConfigId,
+            value: m.id,
+          });
+          if (!rpc || rpc.sid !== expectedSid) return;
+          if (result?.kind === "reject") throw new Error(result.code || "model switch rejected");
+          const option = acpModelOption(result?.configOptions);
+          updateComposerSummary(m.name || m.id, undefined);
+          toast("模型：" + (m.name || m.id));
+          renderModelList(option?.currentValue || m.id, rpc.acpAgentId);
           return;
         }
         const result = await rpcCmd(expectedSid, { type: "set_model", provider: m.provider, modelId: m.id });

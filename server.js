@@ -74,7 +74,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.40";
+const APP_VERSION = "3.0.41";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -4903,7 +4903,7 @@ const server = http.createServer(async (req, res) => {
       // Standard ACP endpoints for Kilo Code and Hermes. They intentionally
       // mirror the Grok adapter's browser contract while sharing the protocol
       // implementation and preserving the agent-owned session identity.
-      const acpMatch = p.match(/^\/api\/(cline|kilo|hermes)\/acp(?:\/(sessions|session|events|pending|prompt|cancel|permission))?$/);
+      const acpMatch = p.match(/^\/api\/(cline|kilo|hermes)\/acp(?:\/(sessions|session|events|pending|prompt|cancel|permission|config))?$/);
       if (acpMatch) {
         const agentId = acpMatch[1];
         const action = acpMatch[2] || "root";
@@ -4941,6 +4941,17 @@ const server = http.createServer(async (req, res) => {
           if (action === "permission" && req.method === "POST") {
             const body = await readJSON(req, 256 * 1024);
             const result = adapter.respondPermission(body?.requestId, body?.result);
+            sendJSON(res, result.kind === "reject" ? 409 : 200, result); return;
+          }
+          // ACP v1 exposes model selection as a session config option rather
+          // than a dedicated model API.
+          if (action === "config" && req.method === "GET") {
+            const sessionId = url.searchParams.get("sessionId") || "";
+            sendJSON(res, 200, { sessionId, configOptions: adapter.sessionConfigOptions(sessionId) }); return;
+          }
+          if (action === "config" && req.method === "POST") {
+            const body = await readJSON(req, 64 * 1024);
+            const result = await adapter.setConfigOption(body?.sessionId, body?.configId, body?.value);
             sendJSON(res, result.kind === "reject" ? 409 : 200, result); return;
           }
           sendJSON(res, 404, { error: "acp_route_not_found" });

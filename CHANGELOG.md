@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.0.41
+
+Bring model choice and the context gauge to the connectors that can support
+them.
+
+- Cline, Kilo Code, and Hermes gain model selection. ACP exposes this as a
+  session config option rather than a dedicated model API, so the adapter now
+  reads the options an agent advertises and applies a change through
+  `session/set_config_option`. An agent that offers no model choice says so
+  instead of showing an empty sheet.
+- OpenCode sessions show the context gauge. The native server already reports
+  per-turn token totals and the model that produced them, so that feeds the
+  existing dashboard rather than a second, parallel one.
+- Prefer OpenCode's own reported total over a locally computed sum, so the
+  figure always matches what the agent accounts for.
+
+Validation: 1,326 tests passed, 4 skipped, 0 failed; verified against live
+OpenCode sessions that real token totals are reported and that the computed
+share matches the agent's own total.
+
 ## 3.0.40
 
 Stage files and commit them from the project changes view.

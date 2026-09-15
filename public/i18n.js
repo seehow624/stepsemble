@@ -3098,6 +3098,23 @@
       "runtime.temporaryFailure": "Errore temporaneo",
     },
   };
+  // Shown when an ACP agent does not advertise a model config option.
+  const MODEL_CHOICE_UNAVAILABLE = {
+    en: "This agent does not offer a model choice.",
+    "zh-Hant": "這個 agent 沒有提供模型選項。",
+    "zh-Hans": "这个 agent 没有提供模型选项。",
+    ja: "このエージェントはモデル選択を提供していません。",
+    ko: "이 에이전트는 모델 선택을 제공하지 않습니다.",
+    tr: "Bu aracı model seçimi sunmuyor.",
+    fr: "Cet agent ne propose pas de choix de modèle.",
+    de: "Dieser Agent bietet keine Modellauswahl an.",
+    es: "Este agente no ofrece selección de modelo.",
+    "pt-BR": "Este agente não oferece escolha de modelo.",
+    it: "Questo agent non offre la scelta del modello.",
+  };
+  for (const [id, value] of Object.entries(MODEL_CHOICE_UNAVAILABLE)) {
+    if (RUNTIME_TRANSLATIONS[id]) RUNTIME_TRANSLATIONS[id]["runtime.modelChoiceUnavailable"] = value;
+  }
   for (const [id, table] of Object.entries(RUNTIME_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], table);
 
   const DIALOG_TRANSLATIONS = {
