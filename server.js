@@ -74,7 +74,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.39";
+const APP_VERSION = "3.0.40";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -5445,6 +5445,34 @@ const server = http.createServer(async (req, res) => {
           sendJSON(res, 200, await gitChanges.overview(cwd));
         } catch (error) {
           sendJSON(res, error.statusCode || 409, { error: error.message || "could not inspect project changes" });
+        }
+        return;
+      }
+
+      // Staging and committing are the only project-changes mutations. They
+      // run against the same validated repository as the read path, so a
+      // request cannot reach a folder outside the configured project roots.
+      if (p === "/api/project-changes/stage" && req.method === "POST") {
+        try {
+          const body = await readJSON(req, 256 * 1024);
+          const cwd = projectDirectory(body?.cwd || "");
+          if (!cwd) { sendJSON(res, 400, { error: "project folder is unavailable" }); return; }
+          const paths = Array.isArray(body?.paths) ? body.paths : [body?.path];
+          sendJSON(res, 200, await gitChanges.stage(cwd, paths, { staged: body?.staged !== false }));
+        } catch (error) {
+          sendJSON(res, error.statusCode || 409, { error: error.message || "could not update the staged files" });
+        }
+        return;
+      }
+
+      if (p === "/api/project-changes/commit" && req.method === "POST") {
+        try {
+          const body = await readJSON(req, 64 * 1024);
+          const cwd = projectDirectory(body?.cwd || "");
+          if (!cwd) { sendJSON(res, 400, { error: "project folder is unavailable" }); return; }
+          sendJSON(res, 200, await gitChanges.commit(cwd, body?.message));
+        } catch (error) {
+          sendJSON(res, error.statusCode || 409, { error: error.message || "could not create the commit" });
         }
         return;
       }

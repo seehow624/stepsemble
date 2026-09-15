@@ -1,7 +1,7 @@
-/* stepsemble v3.0.39 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.40 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.39";
+const CLIENT_APP_VERSION = "3.0.40";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -87,7 +87,7 @@ const el = {
   chatHeadInfo: $("chat-head-info"), thinkingStatus: $("thinking-status"), btnChatMenu: $("btn-chat-menu"),
   runTimer: $("run-timer"),
   btnChanges: $("btn-changes"), changesBadge: $("changes-badge"), changesLayer: $("changes-layer"),
-  changesTitle: $("changes-title"), changesRepository: $("changes-repository"), changesRefresh: $("changes-refresh"), changesClose: $("changes-close"),
+  changesTitle: $("changes-title"), changesRepository: $("changes-repository"), changesRefresh: $("changes-refresh"), changesCommit: $("changes-commit"), changesClose: $("changes-close"),
   changesSummary: $("changes-summary"), changesFilesPane: $("changes-files-pane"), changesState: $("changes-state"), changesList: $("changes-list"),
   changesDiffPane: $("changes-diff-pane"), changesDetailBack: $("changes-detail-back"), changesDiffKind: $("changes-diff-kind"),
   changesDiffTitle: $("changes-diff-title"), changesDiffEmpty: $("changes-diff-empty"), changesDiff: $("changes-diff"),
@@ -332,6 +332,9 @@ let projectChangesRequest = null;
 let projectDiffRequest = null;
 let selectedChangePath = "";
 let projectChangesShouldResetScroll = true;
+// One write at a time: a second stage or commit while the first is in flight
+// would race the snapshot that replaces the list.
+let changesMutationInFlight = false;
 
 // Device discovery is deliberately independent from apiBase.  apiBase may
 // still point at a remote machine while the authoritative catalog always
@@ -3581,6 +3584,17 @@ function renderProjectChangesChrome() {
   if (eyebrow) eyebrow.textContent = changesText("project");
   el.changesRefresh.title = refreshLabel;
   el.changesRefresh.setAttribute("aria-label", refreshLabel);
+  if (el.changesCommit) {
+    const stagedCount = (projectChangesState?.data?.files || []).filter((file) => file.staged).length;
+    const commitLabel = changesText("commit");
+    el.changesCommit.textContent = commitLabel;
+    el.changesCommit.title = commitLabel;
+    el.changesCommit.setAttribute("aria-label", commitLabel);
+    // Committing nothing is never the intent, so the control stays inert until
+    // at least one file is staged.
+    el.changesCommit.disabled = changesMutationInFlight || stagedCount === 0;
+    el.changesCommit.classList.toggle("hidden", !projectChangesState?.data?.repository);
+  }
   el.changesClose.title = closeLabel;
   el.changesClose.setAttribute("aria-label", closeLabel);
   el.changesFilesPane.setAttribute("aria-label", changesText("changedFiles"));
@@ -3683,7 +3697,71 @@ function renderChangesList(files) {
     }
     button.append(status, copy, numbers);
     button.addEventListener("click", () => void loadProjectDiff(filePath));
-    el.changesList.appendChild(button);
+
+    // The file button fills the row, so the stage control is a sibling rather
+    // than a nested button, which is invalid and breaks keyboard navigation.
+    const row = document.createElement("div");
+    row.className = "changes-file-entry" + (file.staged ? " staged" : "");
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "changes-file-stage";
+    toggle.dataset.path = filePath;
+    toggle.textContent = file.staged ? "−" : "+";
+    const toggleLabel = changesText(file.staged ? "unstageFile" : "stageFile", { file: filePath });
+    toggle.title = toggleLabel;
+    toggle.setAttribute("aria-label", toggleLabel);
+    toggle.setAttribute("aria-pressed", String(!!file.staged));
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      void setChangeStaged(filePath, !file.staged, toggle);
+    });
+    row.append(button, toggle);
+    el.changesList.appendChild(row);
+  }
+}
+
+// Staging and committing are the only writes this view performs. Both resolve
+// against the project the view is currently showing, so a host or project
+// switch mid-request cannot apply the result to the wrong repository.
+async function setChangeStaged(filePath, staged, button) {
+  const cwd = projectChangesState?.cwd || currentSessionCwd;
+  if (!cwd || !filePath || changesMutationInFlight) return;
+  changesMutationInFlight = true;
+  if (button) button.disabled = true;
+  try {
+    const data = await post("/api/project-changes/stage", { cwd, paths: [filePath], staged });
+    if (projectChangesState?.cwd !== cwd) return;
+    projectChangesState = { status: "ready", cwd, data };
+    renderProjectChanges();
+  } catch (error) {
+    toast(error.message || changesText("stageFailed"), true);
+    if (button) button.disabled = false;
+  } finally {
+    changesMutationInFlight = false;
+  }
+}
+
+async function commitProjectChanges() {
+  const cwd = projectChangesState?.cwd || currentSessionCwd;
+  const staged = (projectChangesState?.data?.files || []).filter((file) => file.staged);
+  if (!cwd || changesMutationInFlight) return;
+  if (!staged.length) { toast(changesText("commitNothing"), true); return; }
+  const message = prompt(changesText("commitPrompt", { count: staged.length }));
+  if (message === null) return;
+  if (!String(message).trim()) { toast(changesText("commitEmpty"), true); return; }
+  changesMutationInFlight = true;
+  if (el.changesCommit) el.changesCommit.disabled = true;
+  try {
+    const data = await post("/api/project-changes/commit", { cwd, message });
+    if (projectChangesState?.cwd !== cwd) return;
+    projectChangesState = { status: "ready", cwd, data };
+    renderProjectChanges();
+    toast(changesText("commitDone", { commit: data?.commit || "" }));
+  } catch (error) {
+    toast(error.message || changesText("commitFailed"), true);
+  } finally {
+    changesMutationInFlight = false;
+    renderProjectChangesChrome();
   }
 }
 
@@ -3886,6 +3964,7 @@ function resetProjectChanges() {
 
 el.btnChanges?.addEventListener("click", openProjectChanges);
 el.changesRefresh?.addEventListener("click", () => void refreshProjectChanges());
+el.changesCommit?.addEventListener("click", () => void commitProjectChanges());
 el.changesClose?.addEventListener("click", closeProjectChanges);
 el.changesDetailBack?.addEventListener("click", () => el.changesLayer.classList.remove("show-detail"));
 el.changesLayer?.addEventListener("click", (event) => {

@@ -285,7 +285,7 @@ test("Sub Agent temporary sessions are opt-in in the session list", () => {
   assert.match(app, /case "agent_settled":[\s\S]{0,200}?scheduleSessionListRefresh\(\)/);
 });
 
-test("project changes inspector is read-only, scoped, and wired across the shell", () => {
+test("project changes inspector is scoped, wired across the shell, and limits its writes", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const service = fs.readFileSync(path.join(root, "server", "git-changes.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
@@ -296,14 +296,29 @@ test("project changes inspector is read-only, scoped, and wired across the shell
   assert.match(server, /createGitChangesService\(\{ validateRepository: projectDirectory \}\)/);
   assert.match(service, /GIT_OPTIONAL_LOCKS: "0"/);
   assert.match(service, /safeRelativePath/);
-  assert.doesNotMatch(service, /\b(?:add|commit|checkout|restore|reset)\b/);
+  // Staging and committing are the only mutations. A destructive command that
+  // could discard the user's work must never appear in this service.
+  assert.doesNotMatch(service, /"(?:checkout|reset|clean|stash|rebase|push|revert)"/);
+  assert.match(service, /async function stage\(/);
+  assert.match(service, /async function commit\(/);
+  // Every mutated path is resolved through the shared containment check, and
+  // arguments reach git as argv rather than a shell string.
+  assert.match(service, /const relative = safeRelativePath\(root, /);
+  assert.match(service, /\["add", "--", \.\.\.safe\]/);
+  assert.match(service, /Nothing is staged to commit/);
+  assert.match(server, /\/api\/project-changes\/stage/);
+  assert.match(server, /\/api\/project-changes\/commit/);
   assert.match(app, /function refreshProjectChanges/);
   assert.match(app, /function loadProjectDiff/);
   assert.match(app, /MAX_RENDERED_DIFF_LINES/);
+  assert.match(app, /async function setChangeStaged/);
+  assert.match(app, /async function commitProjectChanges/);
   assert.match(html, /id="btn-changes"/);
+  assert.match(html, /id="changes-commit"/);
   assert.match(html, /id="changes-layer"[^>]*role="dialog"/);
   assert.match(css, /\.changes-layer/);
   assert.match(css, /\.changes-layer\.show-detail/);
+  assert.match(css, /\.changes-file-stage/);
 });
 
 test("session action sheets close when the backdrop is clicked", () => {

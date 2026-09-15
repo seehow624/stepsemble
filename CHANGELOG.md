@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.0.40
+
+Stage files and commit them from the project changes view.
+
+- Each changed file gets a stage toggle, and the header gains a Commit action
+  that stays inert until something is staged. Reviewing a change on a phone no
+  longer has to end with walking back to the computer to run `git add`.
+- Staging and committing reuse the same repository validation as the read
+  path. Every file is resolved through the existing containment check, and
+  arguments reach git as an argv array, so a path or message never touches a
+  shell.
+- The service still holds no destructive command: there is no checkout, reset,
+  clean, stash, or push. An empty commit is refused rather than silently
+  created.
+
+Validation: 1,324 tests passed, 4 skipped, 0 failed. Verified against a live
+repository that staging, committing, and the containment and empty-commit
+refusals all behave as intended.
+
 ## 3.0.39
 
 Send image attachments to every connector whose wire format carries them.

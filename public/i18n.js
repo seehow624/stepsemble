@@ -2528,6 +2528,48 @@
       "changes.copied": "Copiato", "changes.untracked": "Non tracciato", "changes.conflicted": "In conflitto",
     },
   };
+  // Staging and committing from the changes view. Kept in their own table so
+  // the existing read-only strings above stay untouched.
+  const CHANGES_MUTATION_TRANSLATIONS = {
+    en: ["Commit", "Stage {file}", "Unstage {file}", "Could not update the staged files",
+      "Commit message for {count} staged file(s):", "Stage a file before committing.",
+      "A commit needs a message.", "Committed {commit}", "Could not create the commit"],
+    "zh-Hant": ["提交", "加入暫存：{file}", "移出暫存：{file}", "無法更新暫存檔案",
+      "為 {count} 個暫存檔案輸入提交訊息：", "請先加入暫存再提交。",
+      "提交需要訊息。", "已提交 {commit}", "無法建立提交"],
+    "zh-Hans": ["提交", "加入暂存：{file}", "移出暂存：{file}", "无法更新暂存文件",
+      "为 {count} 个暂存文件输入提交信息：", "请先加入暂存再提交。",
+      "提交需要信息。", "已提交 {commit}", "无法创建提交"],
+    ja: ["コミット", "{file} をステージ", "{file} をステージ解除", "ステージを更新できませんでした",
+      "{count} 件のステージ済みファイルのコミットメッセージ:", "先にファイルをステージしてください。",
+      "コミットにはメッセージが必要です。", "{commit} をコミットしました", "コミットを作成できませんでした"],
+    ko: ["커밋", "{file} 스테이지", "{file} 스테이지 해제", "스테이지를 업데이트할 수 없습니다",
+      "스테이지된 파일 {count}개의 커밋 메시지:", "커밋하기 전에 파일을 스테이지하세요.",
+      "커밋에는 메시지가 필요합니다.", "{commit} 커밋됨", "커밋을 만들 수 없습니다"],
+    tr: ["İşle", "{file} hazırla", "{file} hazırlığını kaldır", "Hazırlanan dosyalar güncellenemedi",
+      "{count} hazırlanan dosya için işleme mesajı:", "İşlemeden önce bir dosya hazırlayın.",
+      "İşleme bir mesaj gerektirir.", "{commit} işlendi", "İşleme oluşturulamadı"],
+    fr: ["Valider", "Indexer {file}", "Désindexer {file}", "Impossible de mettre à jour l’index",
+      "Message de validation pour {count} fichier(s) indexé(s) :", "Indexez un fichier avant de valider.",
+      "Une validation nécessite un message.", "{commit} validé", "Impossible de créer la validation"],
+    de: ["Commit", "{file} vormerken", "{file} zurücknehmen", "Vorgemerkte Dateien konnten nicht aktualisiert werden",
+      "Commit-Nachricht für {count} vorgemerkte Datei(en):", "Merken Sie eine Datei vor dem Commit vor.",
+      "Ein Commit benötigt eine Nachricht.", "{commit} committet", "Commit konnte nicht erstellt werden"],
+    es: ["Confirmar", "Preparar {file}", "Quitar {file} del área", "No se pudieron actualizar los archivos preparados",
+      "Mensaje de confirmación para {count} archivo(s) preparado(s):", "Prepara un archivo antes de confirmar.",
+      "Una confirmación necesita un mensaje.", "{commit} confirmado", "No se pudo crear la confirmación"],
+    "pt-BR": ["Confirmar", "Preparar {file}", "Remover {file} da preparação", "Não foi possível atualizar os arquivos preparados",
+      "Mensagem de commit para {count} arquivo(s) preparado(s):", "Prepare um arquivo antes de confirmar.",
+      "Um commit precisa de uma mensagem.", "{commit} confirmado", "Não foi possível criar o commit"],
+    it: ["Esegui commit", "Aggiungi {file}", "Rimuovi {file}", "Impossibile aggiornare i file in staging",
+      "Messaggio di commit per {count} file in staging:", "Aggiungi un file prima del commit.",
+      "Un commit richiede un messaggio.", "{commit} completato", "Impossibile creare il commit"],
+  };
+  const CHANGES_MUTATION_KEYS = ["commit", "stageFile", "unstageFile", "stageFailed",
+    "commitPrompt", "commitNothing", "commitEmpty", "commitDone", "commitFailed"];
+  for (const [id, values] of Object.entries(CHANGES_MUTATION_TRANSLATIONS)) {
+    CHANGES_MUTATION_KEYS.forEach((name, index) => { CHANGES_TRANSLATIONS[id][`changes.${name}`] = values[index]; });
+  }
   for (const [id, table] of Object.entries(CHANGES_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], table);
   const TASK_PROGRESS_TRANSLATIONS = {
     en: {

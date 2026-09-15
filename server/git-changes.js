@@ -7,6 +7,9 @@ const { execFile } = require("node:child_process");
 const MAX_CHANGED_FILES = 500;
 const MAX_DIFF_BYTES = 600 * 1024;
 const MAX_GIT_BUFFER = 2 * 1024 * 1024;
+// Long enough for a real commit body, short enough that a paste accident
+// cannot push an unbounded argument into the git process.
+const MAX_COMMIT_MESSAGE = 8 * 1024;
 
 function gitCommand(gitBin, cwd, args, { allowCodes = [0], timeout = 12_000 } = {}) {
   return new Promise((resolve, reject) => {
@@ -227,12 +230,56 @@ function createGitChangesService({
     return { repository: true, root: state.root, branch: state.branch, file, sections, truncated, binary, oversized };
   }
 
-  return Object.freeze({ overview, diff });
+  // Staging and committing are the only mutations this service performs. They
+  // reuse the same repository validation as the read paths, resolve every file
+  // through safeRelativePath, and pass arguments to git as an argv array, so a
+  // path or message can never reach a shell.
+  async function stage(cwd, paths, { staged = true } = {}) {
+    const root = await repositoryFor(cwd);
+    if (!root) throw Object.assign(new Error("Project folder is not a Git repository"), { statusCode: 409 });
+    const requested = Array.isArray(paths) ? paths : [paths];
+    const safe = [];
+    for (const value of requested.slice(0, MAX_CHANGED_FILES)) {
+      const relative = safeRelativePath(root, typeof value === "string" ? value : "");
+      if (!relative) throw Object.assign(new Error("File is outside the repository"), { statusCode: 400 });
+      safe.push(relative);
+    }
+    if (!safe.length) throw Object.assign(new Error("No files were selected"), { statusCode: 400 });
+    // `--` stops git from reading a leading dash as an option.
+    if (staged) await gitCommand(gitBin, root, ["add", "--", ...safe]);
+    else await gitCommand(gitBin, root, ["restore", "--staged", "--", ...safe], { allowCodes: [0, 1] });
+    return { ...(await overview(cwd)), staged: staged ? safe : [], unstaged: staged ? [] : safe };
+  }
+
+  async function commit(cwd, message) {
+    const root = await repositoryFor(cwd);
+    if (!root) throw Object.assign(new Error("Project folder is not a Git repository"), { statusCode: 409 });
+    const text = String(message ?? "").replace(/\r/g, "").trim();
+    if (!text || text.length > MAX_COMMIT_MESSAGE) {
+      throw Object.assign(new Error("Commit message is empty or too long"), { statusCode: 400 });
+    }
+    // Refuse an empty commit instead of creating a marker the user did not ask
+    // for; nothing staged almost always means the wrong files were selected.
+    const staged = await gitCommand(gitBin, root, ["diff", "--cached", "--name-only"], { allowCodes: [0, 1] });
+    if (!staged.stdout.trim()) throw Object.assign(new Error("Nothing is staged to commit"), { statusCode: 409 });
+    const result = await gitCommand(gitBin, root, ["commit", "--message", text], { allowCodes: [0, 1] });
+    if (result.code !== 0) {
+      // Surface git's own reason (hook rejection, missing identity) rather than
+      // a generic failure the user cannot act on.
+      const detail = String(result.stderr || result.stdout || "").trim().split("\n")[0].slice(0, 200);
+      throw Object.assign(new Error(detail || "Commit failed"), { statusCode: 409 });
+    }
+    const head = await gitCommand(gitBin, root, ["rev-parse", "--short", "HEAD"], { allowCodes: [0, 128] });
+    return { ...(await overview(cwd)), committed: true, commit: head.stdout.trim() || null };
+  }
+
+  return Object.freeze({ overview, diff, stage, commit });
 }
 
 module.exports = {
   MAX_CHANGED_FILES,
   MAX_DIFF_BYTES,
+  MAX_COMMIT_MESSAGE,
   parseStatusPorcelain,
   parseNumstat,
   safeRelativePath,

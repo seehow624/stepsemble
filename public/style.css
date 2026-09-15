@@ -1,4 +1,4 @@
-/* stepsemble v3.0.39 — Ink & Ivory / English-first localization */
+/* stepsemble v3.0.40 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -3628,8 +3628,30 @@ html.reduced-motion .project-group-actions { transition: none; }
 .changes-state { padding: 28px 18px; color: var(--pine-soft); font-size: .78rem; line-height: 1.55; text-align: center; }
 .changes-state strong { display: block; margin-bottom: 5px; color: var(--ink); font-size: .88rem; }
 .changes-list { min-height: 0; overflow: auto; padding: 6px; overscroll-behavior: contain; }
+/* The file button and its stage control sit side by side so neither nests
+   inside the other, which would be invalid and break keyboard navigation. */
+.changes-file-entry { display: flex; align-items: center; gap: 4px; border-radius: 10px; }
+.changes-file-entry.staged { box-shadow: inset 3px 0 0 var(--ok, #3fa46a); }
+.changes-file-stage {
+  flex: 0 0 auto;
+  width: 34px;
+  min-height: 34px;
+  margin-right: 4px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--pine-soft);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.changes-file-stage:hover { background: var(--bubble-user); color: var(--ink); }
+.changes-file-stage[aria-pressed="true"] { color: var(--ok, #3fa46a); border-color: currentColor; }
+.changes-file-stage:disabled { opacity: .5; cursor: default; }
+.changes-commit { flex: 0 0 auto; min-height: 34px; padding: 0 12px; font-size: .8rem; }
 .changes-file-row {
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   min-height: 54px;
   display: flex;
   align-items: center;
