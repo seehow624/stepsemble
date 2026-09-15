@@ -21,6 +21,17 @@ export STEPSEMBLE_HOST="127.0.0.1"
 export STEPSEMBLE_SECURE_COOKIE="1"
 export STEPSEMBLE_TOKEN_FILE
 export STEPSEMBLE_BROWSE_ROOTS="${STEPSEMBLE_BROWSE_ROOTS:-$HOME,/Volumes}"
+# Claude Code's documented stream-json mode and Codex's official app-server.
+# Both are opt-in because they change how a vendor session is driven; enabling
+# them here keeps the choice in one reviewed place instead of a manual edit
+# that the next install would overwrite. Set either to 0 to fall back to the
+# bounded terminal connector.
+export STEPSEMBLE_CLAUDE_STRUCTURED="${STEPSEMBLE_CLAUDE_STRUCTURED:-1}"
+export STEPSEMBLE_CODEX_NATIVE="${STEPSEMBLE_CODEX_NATIVE:-1}"
+# Codex keeps reading and writing on separate opt-ins. Writes are enabled here
+# because 0.154.0 is reviewed; an unreviewed release still fails closed to the
+# bounded terminal connector regardless of this value.
+export STEPSEMBLE_CODEX_NATIVE_MUTATIONS="${STEPSEMBLE_CODEX_NATIVE_MUTATIONS:-1}"
 # On a Mac mini, OpenCode may be managed by launchd while this launcher is
 # started through an SSH child.  SSH does not inherit launchd environment
 # variables, so explicitly carry the selected local OpenCode endpoint into

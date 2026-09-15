@@ -67,7 +67,7 @@ test("Codex native history refuses an unreviewed executable version before app-s
   assert.equal(launches, 0);
 });
 
-test("Codex native history accepts stable 0.154.0 through schema compatibility and stays read-only", async t => {
+test("Codex native history enables reviewed 0.154.0 writes and refuses an unreviewed schema-equivalent release", async t => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-native-compat-"));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   const fingerprint = registry().profiles.find(profile => profile.nativeVersion === "0.154.0").schemaFingerprint;
@@ -91,12 +91,29 @@ test("Codex native history accepts stable 0.154.0 through schema compatibility a
   const status = await adapter.refresh();
   assert.equal(status.ready, true);
   assert.equal(status.nativeVersion, "0.154.0");
-  assert.equal(status.compatibility.verification, "readonly-runtime-preflight");
-  assert.equal(status.mutationReady, false);
-  assert.equal(status.approvalReady, false);
+  // 0.154.0 was reviewed against the 0.153.4 baseline, so its writes are live.
+  assert.equal(status.compatibility.verification, "reviewed");
+  assert.equal(status.mutationReady, true);
   assert.equal(launchOptions.nativeVersion, "0.154.0");
-  assert.equal(adapter.capability().mode, "native_readonly");
-  await assert.rejects(() => adapter.startThread({}), error => error.code === "native_mutations_not_reviewed");
+
+  // A later release carrying the same fingerprint has not been reviewed on its
+  // own, so it must still fall back to read-only rather than inheriting writes.
+  const later = createCodexNativeHistoryAdapter({
+    enabled: true,
+    executable: process.execPath,
+    cwd: temp,
+    versionProbe: async () => "codex-cli 0.154.9",
+    schemaProbe: async () => ({ fingerprint }),
+    launch: () => fake,
+    mutationEnabled: true,
+    journalFile: path.join(temp, "mutations-later.json"),
+  });
+  t.after(() => later.close());
+  const laterStatus = await later.refresh();
+  assert.equal(laterStatus.compatibility.verification, "schema-fingerprint-readonly");
+  assert.equal(laterStatus.mutationReady, false);
+  assert.equal(later.capability().mode, "native_readonly");
+  await assert.rejects(() => later.startThread({}), error => error.code === "native_mutations_not_reviewed");
 });
 
 test("Codex native history adapter exposes bounded read-only tasks and transcript methods", async t => {

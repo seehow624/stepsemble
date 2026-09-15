@@ -25,9 +25,13 @@ test("reviewed stable Codex 0.154.0 is accepted from its schema fingerprint", as
     cache: new Map(),
   });
   assert.equal(result.nativeVersion, "0.154.0");
-  assert.equal(result.verification, "readonly-runtime-preflight");
+  assert.equal(result.verification, "reviewed");
   assert.equal(result.capabilities.historyRead, true);
-  assert.equal(result.capabilities.mutations, false);
+  // Reviewed against the 0.153.4 baseline: the approval responses Stepsemble
+  // writes are byte-identical and every request method it uses is present.
+  assert.equal(result.capabilities.mutations, true);
+  assert.equal(result.capabilities.approvals, true);
+  assert.equal(result.capabilities.sessionResume, true);
   assert.equal(result.initializeParams.capabilities.experimentalApi, true);
 });
 

@@ -49,14 +49,14 @@
       "version": "0.154.0",
       "channel": "stable",
       "schemaFingerprint": "47c042ccd8e8b0423ff12570c3d949879e9e25632c6cf82bde8cda1448626f32",
-      "verification": "readonly-runtime-preflight",
+      "verification": "reviewed",
       "capabilities": {
         "historyRead": true,
         "historyPages": true,
-        "sessionResume": false,
+        "sessionResume": true,
         "turns": true,
-        "mutations": false,
-        "approvals": false
+        "mutations": true,
+        "approvals": true
       }
     }
   ]

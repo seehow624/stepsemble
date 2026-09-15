@@ -26,12 +26,35 @@ capabilities during `initialize`. Stepsemble uses both signals.
 | Profile | History | Pages | Writes / approval |
 | --- | --- | --- | --- |
 | Codex `0.153.4` | native | native | reviewed native mutation |
-| Codex `0.154.0` | native | native | read-only until owned mutation contract |
+| Codex `0.154.0` | native | native | reviewed native mutation |
 | Future version with a known fingerprint | native read-only | native read-only | disabled |
 | Unknown schema or pre-release | bounded fallback | bounded fallback | disabled |
 
 The preflight is local and metadata-only. It does not read the user's real
 session store, sign in, call a model, or consume a subscription request.
+
+### 0.154.0 review record
+
+Reviewed by comparing the generated schema set against the `0.153.4`
+baseline. Of the 26 schema files, 14 are byte-identical and 10 differ. The
+review checked whether the differences touch anything Stepsemble writes:
+
+- The three approval responses it sends — `CommandExecutionRequestApproval`,
+  `FileChangeRequestApproval`, and `PermissionsRequestApproval` — are
+  byte-identical to the reviewed baseline.
+- `ThreadStartParams` is byte-identical.
+- `ThreadResumeParams` grew by optional properties; its only required field
+  is still `threadId`.
+- `PermissionsRequestApprovalParams` shrank, but the correlation fields the
+  approval bridge depends on (`threadId`, `turnId`, `itemId`) remain
+  required.
+- All eight request methods in use (`thread/start`, `thread/resume`,
+  `thread/read`, `thread/list`, `thread/turns/list`,
+  `thread/items/list`, `turn/start`, `turn/interrupt`) are present among
+  the 99 advertised methods.
+
+The observed fingerprint matches the registered one exactly, so the schema
+carries no unreviewed drift. `0.154.0-schema.json` records the baseline.
 
 ## Upgrade monitor
 

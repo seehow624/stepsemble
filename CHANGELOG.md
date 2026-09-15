@@ -1,5 +1,27 @@
 # Changelog
 
+## 3.0.43
+
+Turn on the native paths for Claude Code and Codex.
+
+- Enable Claude Code's documented stream-json mode and Codex's official
+  app-server by default in the launcher. Both were already implemented but
+  gated behind environment variables that no install ever set, which is why
+  Codex ran as a plain terminal connector and Claude Code asked for desktop
+  sign-in. Either can still be turned off by setting its variable to 0.
+- Promote Codex `0.154.0` from read-only to reviewed. Comparing its generated
+  schema set against the `0.153.4` baseline shows 14 of 26 files
+  byte-identical, and every difference is additive or irrelevant to what
+  Stepsemble writes: the three approval responses it sends are unchanged,
+  `ThreadStartParams` is unchanged, `ThreadResumeParams` only gained optional
+  properties, and the approval correlation fields it depends on are still
+  required. All eight request methods it uses are present.
+- Record the `0.154.0` schema baseline and the review evidence, so a later
+  release cannot inherit this decision silently. A future version carrying the
+  same fingerprint still gets read-only access until it is reviewed on its own.
+
+Validation: 1,328 tests passed, 4 skipped, 0 failed.
+
 ## 3.0.42
 
 Verify each composer control against what the connector can actually do, and
