@@ -198,6 +198,11 @@ try {
     if ((task?.nativeOpenCode === true || task?.nativeCodex === true)
       && task.isRunning === false && task.status === "waiting") return false;
     if (task?.idleNativeSession === true && task.isRunning === false) return false;
+    // Rolling update from older hosts: an unloaded persisted Claude row has
+    // no owned process or pending prompt, even when its old label is waiting.
+    if (task?.nativeClaudeStructured === true && task.persisted === true
+      && task.needsLoad === true && task.isRunning === false && task.status === "waiting"
+      && task.nativeStatus?.state === "available") return false;
     return ["starting", "running", "waiting", "reconnecting"].includes(String(task?.status || ""));
   });
   process.exit(rpcActive || taskActive ? 0 : 1);

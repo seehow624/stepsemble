@@ -78,3 +78,24 @@ test("OpenCode discovery rejects unrelated commands and invalid service ports", 
     assert.equal(env.STEPSEMBLE_OPENCODE_SERVER_URL, undefined);
   }
 });
+
+test("native defaults repair a sparse PATH for env-node CLI wrappers without overriding operator PATH", { skip: process.platform === "win32" }, t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-launch-node-path-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const emptyPath = path.join(home, "empty-path");
+  fs.mkdirSync(emptyPath, { recursive: true });
+  const wrapper = path.join(home, "codex-wrapper");
+  fs.writeFileSync(wrapper, "#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)))\n", { mode: 0o700 });
+  const sparse = { HOME: home, PATH: emptyPath };
+  assert.throws(() => execFileSync(wrapper, ["app-server"], { env: sparse, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }), error => error?.status === 127);
+
+  applyNativeLaunchConfig(sparse, { home, platform: "darwin" });
+  const runtimeDirectory = path.dirname(process.execPath);
+  assert.equal(sparse.PATH, `${emptyPath}${path.delimiter}${runtimeDirectory}`);
+  assert.deepEqual(JSON.parse(execFileSync(wrapper, ["app-server"], { env: sparse, encoding: "utf8" })), ["app-server"]);
+
+  const explicit = { HOME: home, PATH: `${runtimeDirectory}${path.delimiter}${emptyPath}` };
+  const original = explicit.PATH;
+  applyNativeLaunchConfig(explicit, { home, platform: "darwin" });
+  assert.equal(explicit.PATH, original, "an operator PATH that already resolves node is not rewritten");
+});

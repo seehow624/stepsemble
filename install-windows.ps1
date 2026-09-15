@@ -168,7 +168,12 @@ function Get-ActiveWorkState([int]$Port) {
       $nativeIdle = ($_.nativeOpenCode -eq $true -or $_.nativeCodex -eq $true) -and
         ($_.isRunning -is [bool]) -and ($_.isRunning -eq $false) -and ($_.status -eq "waiting")
       $storedSession = ($_.idleNativeSession -eq $true) -and ($_.isRunning -is [bool]) -and ($_.isRunning -eq $false)
-      -not $nativeIdle -and -not $storedSession -and ($terminal -notcontains ([string]$_.status))
+      $storedClaude = ($_.nativeClaudeStructured -is [bool]) -and ($_.nativeClaudeStructured -eq $true) -and
+        ($_.persisted -is [bool]) -and ($_.persisted -eq $true) -and
+        ($_.needsLoad -is [bool]) -and ($_.needsLoad -eq $true) -and
+        ($_.isRunning -is [bool]) -and ($_.isRunning -eq $false) -and
+        ($_.status -eq "waiting") -and ($_.nativeStatus.state -eq "available")
+      -not $nativeIdle -and -not $storedSession -and -not $storedClaude -and ($terminal -notcontains ([string]$_.status))
     }).Count -gt 0) { return "active" }
     return "idle"
   } catch { return "unknown" }

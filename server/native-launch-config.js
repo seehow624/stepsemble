@@ -6,6 +6,43 @@ const { execFileSync } = require("node:child_process");
 
 const NATIVE_FLAGS = ["STEPSEMBLE_CLAUDE_STRUCTURED", "STEPSEMBLE_CODEX_NATIVE", "STEPSEMBLE_CODEX_NATIVE_MUTATIONS"];
 
+function executableInPath(command, rawPath, { platform = process.platform, env = process.env } = {}) {
+  const extensions = platform === "win32"
+    ? String(env?.PATHEXT || ".EXE;.CMD;.BAT").split(";").filter(Boolean)
+    : [""];
+  for (const directory of String(rawPath || "").split(path.delimiter).filter(Boolean)) {
+    for (const extension of extensions) {
+      const candidate = path.resolve(directory, `${command}${extension}`);
+      try {
+        const stat = fs.statSync(candidate);
+        if (!stat.isFile()) continue;
+        if (platform !== "win32") fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      } catch {}
+    }
+  }
+  return null;
+}
+
+// launchd and other service managers may provide a sparse PATH that can find
+// the selected CLI wrapper but not the interpreter named by its shebang (for
+// example `/usr/bin/env node`). Preserve every operator-supplied PATH entry
+// and order; append only the current Node runtime directory when PATH cannot
+// resolve an executable `node`.
+function ensureNativeRuntimePath(env, { platform = process.platform, execPath = process.execPath } = {}) {
+  if (!env || typeof env !== "object") return;
+  const pathKey = platform === "win32"
+    ? Object.keys(env).find(key => key.toLowerCase() === "path") || "Path"
+    : "PATH";
+  const current = env[pathKey] === undefined ? "" : String(env[pathKey] || "");
+  if (executableInPath("node", current, { platform, env })) return;
+  const runtime = String(execPath || "").trim();
+  if (!runtime || !path.isAbsolute(runtime)) return;
+  const runtimeDirectory = path.dirname(runtime);
+  if (!runtimeDirectory || current.split(path.delimiter).includes(runtimeDirectory)) return;
+  env[pathKey] = current ? `${current}${path.delimiter}${runtimeDirectory}` : runtimeDirectory;
+}
+
 function isInstalledRuntime(directory, home) {
   return ["stepsemble", "pi-harbor", "pi-web"].some(name => path.resolve(directory) === path.join(path.resolve(home), ".local", "share", name));
 }
@@ -21,6 +58,7 @@ function parsePlist(input) {
 // native version/approval gates still decide what the adapter can actually do.
 function applyNativeLaunchConfig(env, { home, platform = process.platform, uid = process.getuid?.(), decodePlist = parsePlist } = {}) {
   for (const key of NATIVE_FLAGS) if (env[key] === undefined) env[key] = "1";
+  ensureNativeRuntimePath(env, { platform });
   if (platform !== "darwin" || !home || env.STEPSEMBLE_OPENCODE_SERVER_URL !== undefined || env.OPENCODE_SERVER_URL !== undefined) return;
 
   // Reuse the same existing launchd service that the Mini launcher supported.
@@ -61,4 +99,4 @@ function applyNativeLaunchConfig(env, { home, platform = process.platform, uid =
   }
 }
 
-module.exports = { applyNativeLaunchConfig, isInstalledRuntime };
+module.exports = { applyNativeLaunchConfig, isInstalledRuntime, ensureNativeRuntimePath };

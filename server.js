@@ -76,7 +76,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.44";
+const APP_VERSION = "3.0.45";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1758,9 +1758,9 @@ const openCodeNative = createOpenCodeNativeAdapter({
   stateFile: path.join(CONFIG_DIR, "opencode-native.json"),
 });
 void openCodeNative.refresh();
-// Codex's official app-server is opt-in (`STEPSEMBLE_CODEX_NATIVE=1`). Native
-// writes require a second explicit flag and an owner-only intent journal so a
-// normal install never changes the user's Codex session/account behavior.
+// Installed services enable Codex's official app-server; development hosts
+// opt in explicitly. Native writes still require the mutation flag, a reviewed
+// version and an owner-only intent journal, without changing account settings.
 const codexNative = createCodexNativeHistoryAdapter({
   env: process.env,
   cwd: APP_HOME,
@@ -2572,7 +2572,9 @@ function publicClaudeStructuredTask(id, session) {
   // session id for resume/history operations. Claude can emit that id only
   // after the first JSONL frame, so callers must accept either identifier.
   const nativeSessionId = status.nativeSessionId || id;
-  const taskStatus = status.closed ? "stopped" : status.failed ? "failed" : status.state === "running" ? "running" : "waiting";
+  const idle = status.state === "waiting" && typeof session.pendingPermissions === "function"
+    && session.pendingPermissions().length === 0;
+  const taskStatus = status.closed ? "stopped" : status.failed ? "failed" : status.state === "running" ? "running" : idle ? "history" : "waiting";
   return {
     id: `claude-code:${id}`,
     taskId: `claude-code:${id}`,
@@ -2587,6 +2589,7 @@ function publicClaudeStructuredTask(id, session) {
     cwd: session.cwd || "",
     status: taskStatus,
     isRunning: taskStatus === "running" || taskStatus === "waiting",
+    idleNativeSession: taskStatus === "history",
     startedAt: Number(status.startedAt) || null,
     endedAt: status.closed || status.failed ? Date.now() : null,
     lastActivityAt: Number(status.lastActivityAt) || Number(status.startedAt) || null,
@@ -2641,8 +2644,9 @@ function publicClaudeStructuredResumeTask(row) {
     persisted: true,
     name: row.name || `Claude Code ${row.id.slice(0, 8)}`,
     cwd,
-    status: "waiting",
+    status: "history",
     isRunning: false,
+    idleNativeSession: true,
     startedAt: null,
     endedAt: null,
     lastActivityAt: Number(row.lastActivityAt) || null,

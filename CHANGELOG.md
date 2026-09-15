@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.0.45
+
+Fix two deployment issues exposed by the 3.0.44 two-Mac rollout.
+
+- Installed services with a sparse PATH append their own Node runtime
+  directory only if `node` cannot already be resolved. This lets env-node CLI
+  wrappers start under launchd while preserving operator PATH precedence.
+- Persisted, unloaded Claude conversations and confirmed idle Claude
+  processes are history, not pending work. Real prompts, pending permissions
+  and unknown states remain protected from updates.
+- Rolling installers recognize the exact unloaded Claude history shape from
+  older hosts, so stale history cannot indefinitely defer a safe update.
+
+Validation: 1,358 tests passed, 4 skipped, 0 failed.
+
 ## 3.0.44
 
 Complete the native Claude Code and Codex composer, including existing installs.

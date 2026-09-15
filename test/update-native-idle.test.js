@@ -16,6 +16,19 @@ for (const native of ["nativeOpenCode", "nativeCodex"]) {
 }
 cases.push({ tasks: [{ status: "waiting", isRunning: false }], active: true },
   { tasks: [{ status: "completed" }], active: false }, { tasks: [], active: false });
+const storedClaude = { nativeClaudeStructured: true, persisted: true, needsLoad: true,
+  isRunning: false, status: "waiting", nativeStatus: { state: "available" } };
+cases.push({ tasks: [storedClaude], active: false });
+for (const field of ["nativeClaudeStructured", "persisted", "needsLoad"])
+  for (const value of ["true", 1, null, false]) cases.push({ tasks: [{ ...storedClaude, [field]: value }], active: true });
+for (const field of Object.keys(storedClaude)) {
+  const incomplete = { ...storedClaude }; delete incomplete[field];
+  if (field !== "status") cases.push({ tasks: [incomplete], active: true });
+}
+cases.push({ tasks: [{ ...storedClaude, isRunning: true }], active: true },
+  { tasks: [{ ...storedClaude, needsLoad: false }], active: true },
+  { tasks: [{ ...storedClaude, status: "running" }], active: true },
+  { tasks: [{ ...storedClaude, nativeStatus: { state: "running" } }], active: true });
 
 for (const file of ["deploy/stepsemble-update.sh", "install.sh", "install-linux.sh"]) {
   test(`${file}: only confirmed idle native history bypasses the active-work guard`, () => {
