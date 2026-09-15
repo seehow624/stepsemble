@@ -1,6 +1,21 @@
 # Agent capability matrix
 
-狀態：Stepsemble 3.0.31 release candidate。這份矩陣把「上游 harness 官方提供什麼」和「Stepsemble 在目前版本實際驗證到什麼」分開，避免把某個 CLI 的輸出捕捉誤稱成原生 session parity。
+狀態：Stepsemble 3.0.44。這份矩陣說明目前實作與其限制；安裝版本、connector 啟用、帳號登入及真實模型回覆是不同的驗收項目，不能互相替代。
+
+## 圖片、模型與上下文
+
+| Harness 路徑 | 圖片 | 模型切換 | 上下文佔比 |
+| --- | --- | --- | --- |
+| Pi RPC | 支援 | 原生 RPC | 原生用量 |
+| OpenCode server | 原生 file parts | 原生模型清單、送出時選擇 | 最新回覆用量及模型容量 |
+| Claude structured | Anthropic image blocks | initialize 模型清單、set_model 原生 ACK | 最新 assistant 輸入與 cache tokens；容量由原生 modelUsage 提供 |
+| Codex app-server | 原生 image data URL | model/list 清單、下一個 turn 的 model/effort | thread/tokenUsage/updated 的 last 與 modelContextWindow |
+| Cline / Kilo / Hermes ACP | ACP image blocks | 僅 agent 有提供 model config option 時 | 僅 agent 有回報用量與容量時 |
+| 純終端／唯讀歷史 | 不提供發送圖片 | 不提供即時模型控制 | 不推算原生 context |
+
+未知用量或容量保留未知，不以累積計費 token 冒充當前上下文。模型清單依電腦上官方 harness 的設定與帳號回傳，不寫入全域帳號／provider 設定。Codex 的舊分頁若指向另一個已開啟的原生 thread，送出／停止會拒絕並要求重新開啟正確對話。
+
+已安裝服務透過共用啟動設定預設開啟 Claude structured、Codex native 與 reviewed mutations；一般 Mac、Mini SSH、systemd 和 Windows task 使用相同預設。舊 Mac 自動更新器只替換程式也能於下次啟動套用。明確設定 `STEPSEMBLE_CLAUDE_STRUCTURED=0`、`STEPSEMBLE_CODEX_NATIVE=0` 或 `STEPSEMBLE_CODEX_NATIVE_MUTATIONS=0` 仍優先。直接執行開發 checkout 時維持明確 opt-in。
 
 ## Stepsemble 的驗證等級
 
@@ -17,9 +32,9 @@
 | Harness | 官方可驗證介面 | Stepsemble 目前能力 | 邊界 |
 | --- | --- | --- | --- |
 | Pi Agent | 原生 JSON-RPC session、stream、approval、history | `native_full` | 只對 Pi 自己的 store／RPC 做 full claim。 |
-| OpenCode | 官方 local server：health、session list/get/status、children、messages、abort、permission response、async prompt | **已完成 native adapter**；健康探測與 session probe 成功後標 `native_readonly`／`native_api`，可在 Agent Hub 開原生 session；重啟以 bounded checkpoint + reconcile 恢復 | 一般啟動模式必須明確設定 `STEPSEMBLE_OPENCODE_SERVER_URL`；macOS SSH launcher 若已有 owner-only `com.jerome.opencode-web.plist`，會把該本機服務設定帶入 child。仍不掃描隨機 port、不讀 `~/.opencode`、不寫入或公開密碼。若 server 未探測成功，仍是 `canonical_bounded` CLI。 |
-| Claude Code | 官方 CLI／SDK 支援 session ID resume、stream-json、host permission prompts，以及以 `parent_tool_use_id` 轉送 subagent 文字 | 明確 opt-in 的 `claude-cli-stream-json-v1` structured session；Stepsemble 保存 bounded JSONL event window、native session ID、resume 參數與 subagent correlation，Agent Hub 可開啟、重送、interrupt、關閉，並以 Claude 原生 `control_request`／`control_response` 完成 Allow/Deny；Host restart 後以非秘密 restart index 提供 `--resume` 入口 | 需 `STEPSEMBLE_CLAUDE_STRUCTURED=1`。若明確配置 `STEPSEMBLE_CLAUDE_PERMISSION_PROMPT_TOOL`，approval authority 仍由該 MCP tool 擁有；Stepsemble 不混用兩個 authority，也不掃描 `~/.claude`。 |
-| Codex | 官方 `codex app-server` JSON-RPC 支援 thread read/list、turn/item lifecycle 與 server-initiated approval request | Stepsemble 已接上明確 opt-in 的 app-server history adapter；第二層 mutation opt-in 後，Agent Hub 可 resume／送 turn／interrupt／回答 approval，並以 owner-only intent journal + native response 做 reconcile；唯讀模式仍可安全載入 bounded turns/items history；啟動前會驗證 CLI 版本必須是已審核的 `0.153.4` | 需 `STEPSEMBLE_CODEX_NATIVE=1`；要寫入再加 `STEPSEMBLE_CODEX_NATIVE_MUTATIONS=1`。thread/turn 的 native response 可作 bounded ACK；approval response 的 `written` 只代表已寫入 pipe，會維持 `awaiting_confirmation`，直到 native server 提供 correlated evidence。未審核版本（例如 alpha）會 fail-closed 並回到 bounded CLI，不會冒稱 native parity。 |
+| OpenCode | 官方 local server：health、session list/get/status、children、messages、abort、permission response、async prompt | 原生 session、圖片、模型選擇、permission 及 bounded checkpoint + reconcile | 已安裝 Mac 若有同使用者持有、不可由群組／其他使用者寫入的 `com.jerome.opencode-web.plist`，會沿用服務 port 與認證；明確 URL 設定優先。不掃 port、不複製或公開密碼；其餘環境需設定 `STEPSEMBLE_OPENCODE_SERVER_URL`。 |
+| Claude Code | 官方 stream-json、session resume、host permission、initialize / set_model | 圖片、模型清單與 ACK 後切換、上下文、bounded event window、native session ID、subagent correlation、resume／interrupt／Allow/Deny | 官方帳號必須在該電腦可用。若指定 permission-prompt-tool，仍由該 MCP tool 擁有授權。歷史目錄另由唯讀 catalog 掃描，不能把讀取歷史當作活躍 session 權限。 |
+| Codex | 官方 app-server JSON-RPC thread/turn/item、model/list、tokenUsage 與 approval | reviewed `0.153.4`／`0.154.0` 可原生 resume、圖片 prompt、model/effort、context、interrupt 與 approval；使用 owner-only intent journal | 原生 response 可作 bounded ACK；approval pipe `written` 仍只是 `awaiting_confirmation`。未審核版本不開原生 mutation；不能承諾未來任意版本即時相容。 |
 | Grok Build | 官方 CLI 支援 `--session-id`／`--resume`／`--continue`、`~/.grok/sessions`、streaming JSON，以及 `grok agent stdio` 的 ACP JSON-RPC；另有 permission mode、subagents、session list/search/export | 明確 opt-in 的 `grok-acp-v1` structured ACP session；Stepsemble 驗證 initialize/authenticate/session/new/session/prompt/update/cancel、permission request/response，Agent Hub 可開啟、重送、停止與顯示 ACP options | 需 `STEPSEMBLE_GROK_ACP=1` 且本機 `grok` 可執行。Stepsemble 不讀 `~/.grok/sessions`，所以 Host restart 後既有 Grok transcript 仍使用 bounded CLI／官方 resume 路徑；ACP `session/load` 只保留為明確的 best-effort route，不把失敗誤報為 history parity。 |
 | Google Antigravity | 官方 [`agy` headless CLI](https://antigravity.google/docs/cli/headless/)：`--input-format stream-json`、`--output-format stream-json`、`--conversation`；輸出 `init`／`step_update`／`result` NDJSON | 明確 opt-in 的 `antigravity-cli-stream-json-v1` structured session；Agent Hub 可開啟、重送、停止、顯示 conversation ID，bounded parser 會鎖定單一 conversation | 需 `STEPSEMBLE_ANTIGRAVITY_STRUCTURED=1` 且本機有 `agy`。公開 headless stream 沒有可安全推斷的 approval response envelope，因此只觀察明確標記的 approval，回覆固定 fail-closed；未啟用時回落 `canonical_bounded` CLI。 |
 | Cline | 官方 CLI 提供 `--acp` Agent Client Protocol 模式、session/prompt/update、permission request，以及 `--json` headless 模式 | **已完成 ACP native adapter**；若本機有 `cline`，Stepsemble 以 `cline --acp` 啟動標準 ACP，保留 upstream session ID、stream update、cancel 與 option-bound approval；Host restart 後以 bounded index 提供 resume 入口 | Stepsemble 不讀 Cline 私有資料庫；完整 transcript 仍由 upstream `session/load` 提供。可用 `STEPSEMBLE_CLINE_ACP=0` 回退 bounded CLI。 |
@@ -44,10 +59,9 @@ export STEPSEMBLE_OPENCODE_SERVER_USERNAME=opencode
 export STEPSEMBLE_OPENCODE_SERVER_PASSWORD='由本機安全管理'
 ```
 
-使用 macOS SSH launcher 的 Mac mini 若已由 launchd 管理
-`com.jerome.opencode-web.plist`，不需要把密碼複製到 Stepsemble 設定；啟動器
-只在本機 child process 中沿用該 owner-only plist 的設定。其他平台與其他
-launch mode 仍必須由管理者明確提供上述環境變數。
+已安裝的 Mac 服務（一般 launchd 或 Mini SSH）若已有
+`com.jerome.opencode-web.plist`，共用啟動設定會驗證擁有者、不可外部寫入、
+一般檔案與大小限制後沿用本機服務。其他平台或不同服務設定仍需提供上述環境變數。
 
 Stepsemble 啟動後會先呼叫 `/global/health`、`/session` 與 permission list probe；session/history 先以 health + session 成功為準，approval 只有 permission probe 成功才標成 `native_api`。瀏覽器可使用以下已驗證的 Host 路由：
 
@@ -62,7 +76,7 @@ OpenCode server 官方文件列出上述 session/message/permission 路由，並
 
 ## Structured adapter 使用方式
 
-這三個 adapter 都是 opt-in；未設定旗標時，既有 bounded CLI connector 不變，也不會讀取 agent 的私有 credential/session store。
+以下指令適用於直接啟動開發 checkout；已安裝服務的 Claude／Codex 預設如上。Grok／Antigravity 仍需明確啟用。各 adapter 不複製帳號憑證；唯讀歷史 catalog 是獨立功能。
 
 ### Claude Code
 
@@ -78,6 +92,8 @@ Agent Hub 的 Claude task 會以 public `claude -p --output-format stream-json -
 - `GET /api/claude/structured/events?sessionId=…`：bounded event window。
 - `GET /api/claude/structured/pending?sessionId=…`：pending permission request。
 - `POST /api/claude/structured/prompt`、`POST /api/claude/structured/interrupt`、`POST /api/claude/structured/close`：送出／中斷一輪／關閉。
+- `GET /api/claude/structured/models`、`POST /api/claude/structured/model`：指定 session 的模型清單與 ACK 後切換。
+- `GET /api/claude/structured/context?sessionId=…`：當前 context DTO，未知欄位為 null。
 
 在 host mode 下，`POST /api/claude/structured/permission` 只接受目前 `can_use_tool` request 的 ID，並送出官方 control response；Allow 會帶回 request 的原始 `input`，Deny 會帶回使用者拒絕訊息。未知、重複或 legacy permission frame 一律 fail-closed。若明確配置 `--permission-prompt-tool` MCP tool，Stepsemble 會停用 host response，改由 MCP tool 擁有決策。
 
@@ -108,6 +124,8 @@ export STEPSEMBLE_CODEX_NATIVE_MUTATIONS=1
 ```
 
 所有寫入先落到 `~/.config/stepsemble/codex-native-mutations.json` 的 owner-only intent journal。`thread/start`、`thread/resume`、`turn/start`、`turn/interrupt` 的 native response 可以作為 bounded evidence；approval response 的 `written` 只代表 pipe write，狀態會停留在 `awaiting_confirmation`，不會被誤報成 Codex 已核准。
+
+`GET /api/codex/models` 回傳官方模型分頁；`GET /api/codex/context?threadId=…` 回傳對應 thread 的實際用量。`POST /api/codex/mutation/turn` 接收 `threadId`、`text`、`images`、選填 `model`／`effort`；圖片只接受有界 base64，不接受任意本機路徑。`POST /api/codex/mutation/interrupt` 也必須指定 `threadId`，跨對話 stale request 不會操作目前另一個 thread。模型及 input 格式依 [官方 Codex App Server 文件](https://learn.chatgpt.com/docs/app-server)。
 
 ### Grok Build
 

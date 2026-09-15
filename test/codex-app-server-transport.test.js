@@ -276,6 +276,128 @@ test("Codex native history requests reject unsafe filters before writing to app-
   assert.equal(transport.state().failure, null);
 });
 
+test("Codex composer forwards bounded image input and reviewed model/effort overrides", async t => {
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const transport = createCodexAppServerTransport({ child, authorizeNative: async () => proof() });
+  t.after(() => transport.close());
+  let request = (await (async () => {
+    const pending = transport.initialize();
+    const init = await writes.next();
+    frame(child, { jsonrpc: "2.0", id: init.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.154.0" } });
+    await pending;
+    return writes.next();
+  })());
+  assert.equal(request.method, "initialized");
+
+  const threadStarting = transport.startThread({ cwd: "/owned/project" });
+  request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { thread: { id: "thread-composer" } } });
+  await threadStarting;
+
+  const image = "data:image/png;base64,iVBORw0KGgo=";
+  const turnStarting = transport.startTurn([
+    { type: "text", text: "describe this" },
+    { type: "image", url: image },
+  ], { model: "gpt-5-codex", effort: "high" });
+  request = await writes.next();
+  assert.equal(request.method, "turn/start");
+  assert.deepEqual(request.params, {
+    threadId: "thread-composer",
+    input: [{ type: "text", text: "describe this" }, { type: "image", url: image }],
+    model: "gpt-5-codex",
+    effort: "high",
+  });
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { turn: { id: "turn-composer", status: "inProgress", items: [] } } });
+  assert.equal((await turnStarting).turnId, "turn-composer");
+
+  const stale = await transport.startTurn([{ type: "text", text: "must not send" }], {}, null, "thread-other");
+  assert.deepEqual(stale, { kind: "reject", code: "native_thread_mismatch" });
+  assert.equal(writes.rows.length, 0, "stale composer submit does not reach another native thread");
+});
+
+test("Codex native transport scopes token usage notifications to the active thread and uses the latest breakdown", async t => {
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const events = [];
+  const transport = createCodexAppServerTransport({ child, onEvent: event => events.push(event), authorizeNative: async () => proof() });
+  t.after(() => transport.close());
+  const pending = transport.initialize();
+  let request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.154.0" } });
+  await pending;
+  await writes.next();
+  const threadStarting = transport.startThread({ cwd: "/owned/project" });
+  request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { thread: { id: "thread-usage" } } });
+  await threadStarting;
+  const turnStarting = transport.startTurn([{ type: "text", text: "usage" }]);
+  request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { turn: { id: "turn-usage", status: "inProgress", items: [] } } });
+  await turnStarting;
+  const breakdown = { cachedInputTokens: 4, inputTokens: 10, outputTokens: 6, reasoningOutputTokens: 2, totalTokens: 20, cacheWriteInputTokens: 1 };
+  frame(child, { jsonrpc: "2.0", method: "thread/tokenUsage/updated", params: {
+    threadId: "thread-usage", turnId: "turn-usage", tokenUsage: { last: breakdown, total: { ...breakdown, totalTokens: 99 }, modelContextWindow: 1000 },
+  } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(transport.tokenUsage("thread-usage").tokenUsage.last, breakdown);
+  assert.equal(transport.tokenUsage("thread-other"), null);
+  assert.deepEqual(events.at(-1), { type: "thread.tokenUsage.updated", threadId: "thread-usage", turnId: "turn-usage", tokenUsage: { last: breakdown, total: { ...breakdown, totalTokens: 99 }, modelContextWindow: 1000 } });
+  frame(child, { jsonrpc: "2.0", method: "thread/tokenUsage/updated", params: {
+    threadId: "thread-other", turnId: "turn-usage", tokenUsage: { last: breakdown, total: breakdown, modelContextWindow: null },
+  } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(transport.state().failure, "native_usage_mismatch");
+});
+
+test("Codex native model/list remains bounded and schema-shaped", async t => {
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const transport = createCodexAppServerTransport({ child });
+  t.after(() => transport.close());
+  const pending = transport.initialize();
+  let request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.154.0" } });
+  await pending;
+  await writes.next();
+  const listing = transport.listModels({ limit: 2, includeHidden: false });
+  request = await writes.next();
+  assert.equal(request.method, "model/list");
+  assert.deepEqual(request.params, { limit: 2, includeHidden: false });
+  const model = { id: "gpt-5-codex", model: "gpt-5-codex", displayName: "GPT-5 Codex", description: "fixture", hidden: false, isDefault: true,
+    defaultReasoningEffort: "high", supportedReasoningEfforts: [{ reasoningEffort: "high", description: "balanced" }], inputModalities: ["text", "image"] };
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { data: [model], nextCursor: "model-next" } });
+  assert.deepEqual(await listing, { kind: "models", data: [model], nextCursor: "model-next" });
+  assert.equal((await transport.listModels({ limit: 101 })).code, "invalid_native_params");
+});
+
+test("Codex turn lifecycle admits one bounded large item frame without widening ordinary frames", async t => {
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const events = [];
+  const transport = createCodexAppServerTransport({ child, onEvent: event => events.push(event), authorizeNative: async () => proof() });
+  t.after(() => transport.close());
+  const initializing = transport.initialize();
+  let request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.154.0" } });
+  await initializing;
+  await writes.next();
+  const threadStarting = transport.startThread({ cwd: "/owned/project" });
+  request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { thread: { id: "thread-large-frame" } } });
+  await threadStarting;
+  const turnStarting = transport.startTurn([{ type: "text", text: "large frame" }]);
+  request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { turn: { id: "turn-large-frame", status: "inProgress", items: [] } } });
+  await turnStarting;
+  frame(child, { jsonrpc: "2.0", method: "item/completed", params: {
+    threadId: "thread-large-frame", turnId: "turn-large-frame", item: { id: "item-large-frame", type: "userMessage", text: "A".repeat(1_100_000) },
+  } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(transport.state().failure, null);
+  assert.equal(events.at(-1).type, "item.completed");
+});
+
 test("Codex native approval validator rejects a command array instead of coercing it", async t => {
   const child = new FakeNativeProcess();
   const writes = readFrames(child);

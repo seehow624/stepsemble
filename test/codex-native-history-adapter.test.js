@@ -170,6 +170,53 @@ test("Codex native history adapter exposes bounded read-only tasks and transcrip
   assert.equal(closed, true);
 });
 
+test("Codex composer adapter forwards images and overrides, isolates usage by thread, and fences stale sends", async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-native-composer-"));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  const calls = [];
+  let options;
+  const first = thread({ id: "thread-a", sessionId: "session-a", model: "gpt-5-codex" });
+  const second = thread({ id: "thread-b", sessionId: "session-b", model: "gpt-5-mini" });
+  const model = { id: "gpt-5-codex", model: "gpt-5-codex", displayName: "GPT-5 Codex", description: "fixture", hidden: false, isDefault: true,
+    defaultReasoningEffort: "high", supportedReasoningEfforts: [{ reasoningEffort: "high", description: "balanced" }], inputModalities: ["text", "image"] };
+  const last = { cachedInputTokens: 4, inputTokens: 10, outputTokens: 6, reasoningOutputTokens: 2, totalTokens: 20, cacheWriteInputTokens: 1 };
+  const total = { ...last, totalTokens: 999 };
+  const fake = {
+    async initialize() {},
+    async listThreads() { return { kind: "threads", data: [first, second], nextCursor: null }; },
+    async readThread(params) { return { kind: "thread", thread: params.threadId === first.id ? first : second }; },
+    async listModels(params) { calls.push(["model/list", params]); return { kind: "models", data: [model], nextCursor: "next-model" }; },
+    state() { return { threadId: "thread-a" }; },
+    async startTurn(...args) { calls.push(["turn/start", args]); return { kind: "started", threadId: "thread-a", turnId: "turn-a" }; },
+    async close() { return { kind: "closed", cleanupConfirmed: true }; },
+  };
+  const adapter = createCodexNativeHistoryAdapter({ enabled: true, mutationEnabled: true, executable: process.execPath, cwd: temp,
+    journalFile: path.join(temp, "mutations.json"), transportFactory: async incoming => { options = incoming; return fake; } });
+  t.after(() => adapter.close());
+  assert.equal((await adapter.refresh()).ready, true);
+
+  const models = await adapter.listModels({ cursor: "cursor-1", limit: 4, includeHidden: false });
+  assert.deepEqual(models, { data: [model], nextCursor: "next-model" });
+  assert.deepEqual(calls[0], ["model/list", { cursor: "cursor-1", limit: 4, includeHidden: false }]);
+
+  options.onEvent({ type: "thread.tokenUsage.updated", threadId: "thread-a", turnId: "turn-a", tokenUsage: { last, total, modelContextWindow: 1000 } });
+  assert.deepEqual(await adapter.contextUsage("thread-a"), {
+    model: "gpt-5-codex", contextWindow: 1000, contextTokens: 20, contextPercent: 2,
+    usage: last,
+  });
+  assert.deepEqual(await adapter.contextUsage("thread-b"), {
+    model: "gpt-5-mini", contextWindow: null, contextTokens: null, contextPercent: null, usage: null,
+  });
+
+  const image = "data:image/png;base64,iVBORw0KGgo=";
+  const sent = await adapter.startTurn([{ type: "text", text: "look" }, { type: "image", url: image }], { model: "gpt-5-codex", effort: "high" }, "thread-a");
+  assert.equal(sent.kind, "started");
+  assert.deepEqual(calls[1], ["turn/start", [[{ type: "text", text: "look" }, { type: "image", url: image }], { model: "gpt-5-codex", effort: "high" }, "thread-a"]]);
+  const stale = await adapter.startTurn([{ type: "text", text: "must not cross thread" }], {}, "thread-b");
+  assert.deepEqual(stale, { kind: "reject", code: "native_thread_mismatch" });
+  assert.equal(calls.length, 2);
+});
+
 test("Codex native history retires a broken JSONL process instead of polling a dead transport", async t => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-native-retry-"));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));

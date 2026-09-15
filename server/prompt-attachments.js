@@ -68,6 +68,14 @@ function openCodeImageParts(images) {
   }));
 }
 
+/** Codex app-server user input image blocks. */
+function codexImageInputs(images) {
+  return normalizeImages(images).map(({ data, mimeType }) => ({
+    type: "image",
+    url: `data:${mimeType};base64,${data}`,
+  }));
+}
+
 module.exports = {
   MAX_IMAGES,
   MAX_BASE64_BYTES,
@@ -75,4 +83,5 @@ module.exports = {
   acpImageBlocks,
   claudeImageBlocks,
   openCodeImageParts,
+  codexImageInputs,
 };

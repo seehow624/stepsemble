@@ -273,7 +273,7 @@ try {
     Move-Item $stage $installDir
     $activated = $true
     $node = (Get-Command node).Source
-    $action = New-ScheduledTaskAction -Execute $node -Argument "`"$installDir\server.js`"" -WorkingDirectory $installDir
+    $action = New-ScheduledTaskAction -Execute $node -Argument "--require `"$installDir\server\installed-defaults.js`" `"$installDir\server.js`"" -WorkingDirectory $installDir
     $trigger = New-ScheduledTaskTrigger -AtLogOn
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Description 'Stepsemble local Agent Hub' -Force | Out-Null
     Start-ScheduledTask -TaskName $taskName

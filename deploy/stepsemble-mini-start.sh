@@ -21,31 +21,8 @@ export STEPSEMBLE_HOST="127.0.0.1"
 export STEPSEMBLE_SECURE_COOKIE="1"
 export STEPSEMBLE_TOKEN_FILE
 export STEPSEMBLE_BROWSE_ROOTS="${STEPSEMBLE_BROWSE_ROOTS:-$HOME,/Volumes}"
-# Claude Code's documented stream-json mode and Codex's official app-server.
-# Both are opt-in because they change how a vendor session is driven; enabling
-# them here keeps the choice in one reviewed place instead of a manual edit
-# that the next install would overwrite. Set either to 0 to fall back to the
-# bounded terminal connector.
-export STEPSEMBLE_CLAUDE_STRUCTURED="${STEPSEMBLE_CLAUDE_STRUCTURED:-1}"
-export STEPSEMBLE_CODEX_NATIVE="${STEPSEMBLE_CODEX_NATIVE:-1}"
-# Codex keeps reading and writing on separate opt-ins. Writes are enabled here
-# because 0.154.0 is reviewed; an unreviewed release still fails closed to the
-# bounded terminal connector regardless of this value.
-export STEPSEMBLE_CODEX_NATIVE_MUTATIONS="${STEPSEMBLE_CODEX_NATIVE_MUTATIONS:-1}"
-# On a Mac mini, OpenCode may be managed by launchd while this launcher is
-# started through an SSH child.  SSH does not inherit launchd environment
-# variables, so explicitly carry the selected local OpenCode endpoint into
-# Stepsemble when that owner-only launchd configuration exists.  The password
-# remains in the existing OpenCode plist and is never committed or exposed by
-# the Stepsemble HTTP API.
-if [[ -z "${STEPSEMBLE_OPENCODE_SERVER_URL:-}" && -f "$HOME/Library/LaunchAgents/com.jerome.opencode-web.plist" ]]; then
-  export STEPSEMBLE_OPENCODE_SERVER_URL="http://127.0.0.1:4096"
-  export STEPSEMBLE_OPENCODE_SERVER_USERNAME="${STEPSEMBLE_OPENCODE_SERVER_USERNAME:-opencode}"
-  if [[ -z "${STEPSEMBLE_OPENCODE_SERVER_PASSWORD:-}" ]]; then
-    STEPSEMBLE_OPENCODE_SERVER_PASSWORD="$(/usr/bin/plutil -extract EnvironmentVariables.OPENCODE_SERVER_PASSWORD raw "$HOME/Library/LaunchAgents/com.jerome.opencode-web.plist" 2>/dev/null || true)"
-    export STEPSEMBLE_OPENCODE_SERVER_PASSWORD
-  fi
-fi
+# All installed services share native defaults and existing OpenCode discovery
+# in the Node preload below. Explicit operator opt-outs remain authoritative.
 PI_BIN="${PI_BIN:-__PIBIN__}"
 NODE_BIN="${NODE_BIN:-__NODE__}"
 [[ -x "$PI_BIN" ]] || PI_BIN="$(command -v pi || true)"
@@ -105,4 +82,4 @@ if /usr/bin/curl -fsS --max-time 1 "http://127.0.0.1:${STEPSEMBLE_PORT}/api/heal
     done
   fi
 fi
-exec "$NODE_BIN" "$STEPSEMBLE_HOME/server.js"
+exec "$NODE_BIN" --require "$STEPSEMBLE_HOME/server/installed-defaults.js" "$STEPSEMBLE_HOME/server.js"

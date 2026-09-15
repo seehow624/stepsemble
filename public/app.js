@@ -1,7 +1,7 @@
-/* stepsemble v3.0.43 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.44 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.43";
+const CLIENT_APP_VERSION = "3.0.44";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -318,6 +318,11 @@ let contextStats = null;
 let contextStatsState = "awaiting"; // awaiting | ready | unavailable
 let contextStatsRequest = null;
 let contextStatsRequestSequence = 0;
+// Structured Claude/Codex adapters do not expose Pi's rpc_cmd. Their context
+// endpoints are still tied to the visible session, so keep an independent
+// request fence instead of letting a late response repaint the next host.
+let nativeContextRequest = null;
+let nativeContextRequestSequence = 0;
 let extensionUiRequest = null;
 const nativeDialogs = new StepsembleDialogs.Queue();
 let activityWatchdog = null;
@@ -4262,8 +4267,16 @@ function connectorAcceptsImages(connection = rpc) {
   if (!connection) return false;
   if (!connection.generic) return true; // Pi's native RPC has always taken images.
   if (connection.nativeHistoryReadonly === true || connection.readOnly === true) return false;
+  // Codex model catalogs can explicitly restrict input modalities. A missing
+  // field remains backwards-compatible (text + image), while an authoritative
+  // text-only list disables attachments before a prompt is submitted.
+  if (connection.nativeCodexMutation) {
+    const modalities = connection.codexModel?.inputModalities;
+    if (Array.isArray(modalities) && modalities.length
+      && !modalities.some(value => /image/i.test(String(value)))) return false;
+  }
   return !!(connection.nativeOpenCode || connection.nativeGrokAcp || connection.nativeAcp
-    || connection.nativeClaudeStructured);
+    || connection.nativeClaudeStructured || connection.nativeCodexMutation);
 }
 
 // Model choice and the context gauge both describe a live conversation this
@@ -4274,7 +4287,8 @@ function connectorAllowsLiveControls(connection = rpc) {
   if (!connection) return false;
   if (connection.nativeHistoryReadonly === true || connection.readOnly === true) return false;
   if (!connection.generic) return true;
-  return !!(connection.nativeOpenCode || connection.nativeAcp);
+  return !!(connection.nativeOpenCode || connection.nativeAcp || connection.nativeCodexMutation
+    || connection.nativeClaudeStructured);
 }
 
 function genericTaskTerminal(status) {
@@ -5016,6 +5030,7 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
       name: connection.name, cwd: thread?.cwd || connection.cwd, status,
       startedAt: connection.runStartedAt, lastActivityAt: thread?.updatedAt || Date.now() });
     renderCodexNativeSnapshot(connection);
+    void syncNativeContext(connection);
     connection.nativeLoading = false;
     connection.connectionLost = false;
     syncGenericInputState();
@@ -5075,6 +5090,11 @@ async function openCodexNativeTask(task, generationOverride = null) {
     nativeCodex: true,
     nativeCodexMutation: task.mutation === "native_api" || task.readOnly === false,
     nativeThreadId,
+    codexModel: null,
+    codexModelSelected: false,
+    codexModels: null,
+    codexModelsLoaded: false,
+    codexEffort: "off",
     nativeLoading: true,
     nativeRenderedRevision: null,
     nativeTranscriptState: createCodexNativeTranscriptState(),
@@ -5400,6 +5420,7 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false } =
       endedAt: status.closed ? (status.lastActivityAt || Date.now()) : undefined,
       nativeStatus: status,
     });
+    void syncNativeContext(connection);
     syncGenericInputState();
   } catch {
     if (rpc !== connection) return;
@@ -5438,7 +5459,8 @@ async function openClaudeStructuredTask(task, generationOverride = null) {
   el.viewChat.classList.remove("hidden"); void refreshProjectChanges({ background: true });
   rpc = { sid: `claude-code:${nativeSessionId}`, generic: true, nativeClaudeStructured: true, nativeSessionId, nativeLoading: true,
     connectionLost: false, stopPending: false, streamReady: true, taskStatus: "waiting", genericOutputNode: null, genericTerminalNotice: null,
-    genericInputEchoes: [], claudeEventIndex: 0, agentId: "claude-code", agentLabel: "Claude Code", name, cwd,
+    genericInputEchoes: [], claudeEventIndex: 0, claudeModel: null, claudeModelSelected: false,
+    claudeModels: null, claudeModelsLoaded: false, agentId: "claude-code", agentLabel: "Claude Code", name, cwd,
     runStartedAt: Number(task.startedAt) || Date.now(), runEndedAt: null };
   const connection = rpc; claudeStructuredPollTimer = null;
   try {
@@ -6052,6 +6074,9 @@ function addSessionUsage(u) {
 
 function resetContextDashboard() {
   contextStatsRequestSequence += 1;
+  nativeContextRequestSequence += 1;
+  if (nativeContextRequest?.controller) nativeContextRequest.controller.abort();
+  nativeContextRequest = null;
   // The old Promise cannot be cancelled through the RPC relay; dropping its
   // handle plus the sequence guard prevents it from being coalesced with the
   // next session's request.
@@ -6136,6 +6161,151 @@ function applyOpenCodeContextStats(snapshot, connection = rpc) {
   };
   contextStatsState = "ready";
   renderContextDashboard();
+}
+
+function nativeContextRecord(response) {
+  if (response && typeof response === "object" && response.data
+    && typeof response.data === "object" && !Array.isArray(response.data)) return response.data;
+  return response && typeof response === "object" && !Array.isArray(response) ? response : {};
+}
+
+function nativeContextValue(...values) {
+  return values.find(value => value !== undefined && value !== null) ?? null;
+}
+
+// Claude/Codex deliberately have a small, adapter-owned stats contract rather
+// than Pi's get_session_stats envelope. Normalize both without deriving a
+// percentage: contextPercent is authoritative and must remain unknown when a
+// provider does not report a context window or current prompt size.
+function normalizeNativeContextStats(response) {
+  const data = nativeContextRecord(response);
+  const rawContext = data.contextUsage && typeof data.contextUsage === "object" ? data.contextUsage : {};
+  const rawUsage = data.usage && typeof data.usage === "object" ? data.usage
+    : data.tokens && typeof data.tokens === "object" ? data.tokens : {};
+  const usage = normalizeWireUsage({
+    input: nativeContextValue(rawUsage.input, rawUsage.inputTokens, rawUsage.promptTokens),
+    output: nativeContextValue(rawUsage.output, rawUsage.outputTokens, rawUsage.completionTokens),
+    cacheRead: nativeContextValue(rawUsage.cacheRead, rawUsage.cacheReadTokens, rawUsage.cachedReadTokens, rawUsage.cachedInputTokens),
+    cacheWrite: nativeContextValue(rawUsage.cacheWrite, rawUsage.cacheWriteTokens, rawUsage.cachedWriteTokens, rawUsage.cacheWriteInputTokens),
+    totalTokens: nativeContextValue(rawUsage.totalTokens, rawUsage.total),
+    cost: rawUsage.cost ?? data.cost,
+  }) || {};
+  const reasoning = finiteNonNegative(nativeContextValue(
+    rawUsage.reasoningOutputTokens, rawUsage.reasoningTokens, rawUsage.reasoning,
+  ));
+  const contextTokens = finiteNonNegative(nativeContextValue(
+    data.contextTokens, data.context_tokens, rawContext.tokens, rawContext.contextTokens,
+  ));
+  const contextWindow = positiveFinite(nativeContextValue(
+    data.contextWindow, data.context_window, rawContext.contextWindow, rawContext.window,
+  ));
+  const contextPercent = finiteNonNegative(nativeContextValue(
+    data.contextPercent, data.context_percent, rawContext.percent,
+  ));
+  const model = data.model ?? data.currentModel ?? null;
+  const hasDtoFields = ["model", "contextWindow", "contextTokens", "contextPercent", "usage"]
+    .some(key => Object.prototype.hasOwnProperty.call(data, key));
+  const available = hasDtoFields || contextTokens !== null || contextWindow !== null
+    || contextPercent !== null || Object.keys(usage).length > 0 || model !== null;
+  return {
+    available,
+    model,
+    tokens: {
+      input: finiteNonNegative(usage.input),
+      output: finiteNonNegative(usage.output),
+      reasoning,
+      cacheRead: finiteNonNegative(usage.cacheRead),
+      cacheWrite: finiteNonNegative(usage.cacheWrite),
+      total: finiteNonNegative(usage.totalTokens ?? usage.total ?? usage.tokens),
+    },
+    cost: usage.cost ?? null,
+    contextUsage: { tokens: contextTokens, contextWindow, percent: contextPercent },
+    contextCapacity: contextWindow,
+  };
+}
+
+function nativeContextRequestIsCurrent(request) {
+  return !!request && rpc === request.connection && rpc?.sid === request.sid
+    && request.generation === viewGeneration && request.base === apiBase
+    && request.sequence === nativeContextRequestSequence;
+}
+
+function nativeContextPath(connection) {
+  if (connection?.nativeCodexMutation) {
+    return `/api/codex/context?threadId=${encodeURIComponent(connection.nativeThreadId)}`;
+  }
+  if (connection?.nativeClaudeStructured) {
+    return `/api/claude/structured/context?sessionId=${encodeURIComponent(connection.nativeSessionId)}`;
+  }
+  return null;
+}
+
+function applyNativeContextStats(response, connection = rpc) {
+  if (!connection || rpc !== connection) return null;
+  const normalized = normalizeNativeContextStats(response);
+  contextStats = normalized;
+  contextStatsState = normalized.available ? "ready" : "unavailable";
+  // A context response is also the first reliable model hint for resumed
+  // Claude/Codex sessions. Keep the model chip in sync without replacing a
+  // deliberately selected next-prompt Codex model with an older observation.
+  const hasExplicitModel = connection.nativeCodexMutation
+    ? connection.codexModelSelected === true
+    : connection.claudeModelSelected === true;
+  if (normalized.model !== null && !hasExplicitModel) {
+    const model = connection.nativeCodexMutation
+      ? normalizeCodexModel(normalized.model)
+      : normalizeClaudeModel(normalized.model);
+    if (model) {
+      if (connection.nativeCodexMutation) connection.codexModel = model;
+      else connection.claudeModel = model;
+      composerModelContextWindow = positiveFinite(model.contextWindow);
+      updateComposerSummary(model.name || model.id, undefined);
+    }
+  }
+  renderContextDashboard();
+  return normalized;
+}
+
+/** Fetch adapter-owned current-context stats, fenced to the visible session. */
+function syncNativeContext(connection = rpc) {
+  if (!connection || rpc !== connection) return Promise.resolve(null);
+  const path = nativeContextPath(connection);
+  if (!path) return Promise.resolve(null);
+  const identity = { connection, sid: connection.sid, generation: viewGeneration, base: apiBase };
+  const active = nativeContextRequest;
+  if (active && active.connection === connection && active.sid === connection.sid
+    && active.generation === identity.generation && active.base === identity.base) {
+    active.needsRefresh = true;
+    return active.promise;
+  }
+  const request = {
+    ...identity,
+    sequence: ++nativeContextRequestSequence,
+    controller: new AbortController(),
+    needsRefresh: false,
+    promise: null,
+  };
+  const promise = api(path, { signal: request.controller.signal })
+    .then((response) => {
+      if (!nativeContextRequestIsCurrent(request) || request.needsRefresh) return null;
+      return applyNativeContextStats(response, connection);
+    })
+    .catch((error) => {
+      if (error?.name === "AbortError" || !nativeContextRequestIsCurrent(request)) return null;
+      contextStatsState = "unavailable";
+      renderContextDashboard();
+      return null;
+    });
+  request.promise = promise;
+  nativeContextRequest = request;
+  promise.finally(() => {
+    if (nativeContextRequest !== request) return;
+    nativeContextRequest = null;
+    if (!request.needsRefresh || !nativeContextRequestIsCurrent(request)) return;
+    request.needsRefresh = false;
+    queueMicrotask(() => { if (nativeContextRequestIsCurrent(request)) void syncNativeContext(connection); });
+  }).catch(() => {});
+  return promise;
 }
 
 function contextStatsRequestIsCurrent(request) {
@@ -7780,9 +7950,10 @@ function setStreaming(on) {
   // Interactive CLI agents accept follow-up input while they are alive, so
   // keep Send available for them. Pi's native RPC retains its queue/abort UX.
   el.btnSend.classList.toggle("hidden", on && !generic);
-  // OpenCode has a native model API and ACP agents expose the same choice as a
-  // session config option. Other connectors have no safe model route, and a
-  // read-only history row must not offer to change anything.
+  // OpenCode/ACP expose a live model route; Claude owns a session-scoped model
+  // endpoint and Codex applies the selected model on its next prompt. Other
+  // connectors have no safe model route, and read-only history must not offer
+  // to change anything.
   el.btnModel?.classList.toggle("hidden", !connectorAllowsLiveControls(rpc));
   // Attachments follow the connector's wire format, not the Pi/generic split:
   // OpenCode, Claude Code and the ACP agents all carry image content blocks.
@@ -7790,6 +7961,13 @@ function setStreaming(on) {
   // The gauge is driven by whatever usage the connector reports: OpenCode
   // supplies per-turn token counts and ACP returns them on the prompt reply.
   el.contextDashboard?.classList.toggle("hidden", !connectorAllowsLiveControls(rpc));
+  if (el.thinkingSelect) {
+    const codex = !!rpc?.nativeCodexMutation;
+    const claude = !!rpc?.nativeClaudeStructured;
+    if (codex || claude) syncNativeThinkingSelect(rpc);
+    else el.thinkingSelect.disabled = false;
+    if (codex && rpc.codexEffort) el.thinkingSelect.value = rpc.codexEffort;
+  }
   el.btnSend.title = on ? "" : (window.stepsembleI18n?.t("Send") || "Send");
   el.btnAbort.title = on ? (window.stepsembleI18n?.t("Stop") || "Stop") : "";
 }
@@ -8035,16 +8213,26 @@ async function sendCurrent() {
             ? await post(`/api/${rpc.acpAgentId}/acp/prompt`, { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text, images })
           : rpc?.nativeClaudeStructured
             ? await post("/api/claude/structured/prompt", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text, images })
-            : rpc?.nativeAntigravityStructured
+          : rpc?.nativeAntigravityStructured
               ? await post("/api/antigravity/structured/prompt", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
             : rpc?.nativeCodexMutation
-              ? await post("/api/codex/mutation/turn", { threadId: rpc.nativeThreadId, cwd: rpc.cwd, text })
+              ? await post("/api/codex/mutation/turn", {
+                threadId: rpc.nativeThreadId,
+                cwd: rpc.cwd,
+                text,
+                images,
+                ...(rpc.codexModel?.id ? { model: rpc.codexModel.id } : {}),
+                ...(rpc.codexEffort && rpc.codexEffort !== "off" ? { effort: rpc.codexEffort } : {}),
+              })
           : await post("/api/agent/send", { taskId: sendSid, message: text }))
       : await post("/api/send", { sid: sendSid, message: text, images }); // /skill:xxx 等直接透傳，pi 原生處理
     removeDraftForKey(sendDraftKey);
     // ACP reports the turn's token usage on this reply, not in its event
     // stream, so the context gauge is updated from here.
     if (rpc?.nativeAcp && rpc.sid === sendSid) applyAcpContextStats(result, rpc);
+    if ((rpc?.nativeCodexMutation || rpc?.nativeClaudeStructured) && rpc.sid === sendSid) {
+      void syncNativeContext(rpc);
+    }
     if (rpc?.nativeCodexMutation && rpc.sid === sendSid && ["started", "requested"].includes(result?.kind)) {
       rpc.taskStatus = "running";
       setStreaming(true);
@@ -8135,6 +8323,16 @@ function trackCurrentSessionFile(absPath) {
 function resetComposerSummary() {
   composerModelName = "";
   composerReasoningLevel = "off";
+  availableModels = [];
+  modelSheetCurrentId = null;
+  modelSheetCurrentProvider = null;
+  if (el.thinkingSelect) {
+    captureDefaultThinkingSelectOptions();
+    restoreDefaultThinkingSelectOptions();
+    setThinkingControlVisibility(false);
+    el.thinkingSelect.value = "off";
+    el.thinkingSelect.disabled = false;
+  }
   resetContextDashboard();
   updateComposerSummary();
 }
@@ -8143,14 +8341,19 @@ function updateComposerSummary(modelName, thinkingLevel) {
   if (thinkingLevel) composerReasoningLevel = String(thinkingLevel);
   const model = composerModelName || (window.stepsembleI18n?.t("Server default") || "Server default");
   const level = composerReasoningLevel || "off";
-  const summary = `${model} · ${level}`;
+  const levelLabel = rpc?.nativeClaudeStructured ? ""
+    : rpc?.nativeCodexMutation && level === "off" ? "Default" : level;
+  const summary = levelLabel ? `${model} · ${levelLabel}` : model;
   // The chip is fixed-width: the model name truncates with an ellipsis while
   // the trailing thinking level always stays fully visible.
   if (el.composerModelNameText) {
     el.composerModelNameText.textContent = model;
     el.composerModelNameText.title = model;
   }
-  if (el.composerModelLevelText) el.composerModelLevelText.textContent = `· ${level}`;
+  if (el.composerModelLevelText) {
+    el.composerModelLevelText.textContent = levelLabel ? `· ${levelLabel}` : "";
+    el.composerModelLevelText.classList.toggle("hidden", !levelLabel);
+  }
   if (el.btnModel) {
     const label = window.stepsembleI18n?.t("Model & reasoning") || "Model & reasoning";
     el.btnModel.title = label;
@@ -8185,6 +8388,74 @@ const LEGACY_THINKING_PREFERENCE_KEYS = Object.freeze(["piHarbor.thinkingLevel",
 let composerModelKey = "";
 let thinkingLevelsForModel = new Map(); // provider/id → available levels
 let thinkingRestoreInFlight = false;
+let defaultThinkingSelectOptions = null;
+
+const CODEX_EFFORTS = Object.freeze(["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
+
+function captureDefaultThinkingSelectOptions() {
+  if (!el.thinkingSelect || defaultThinkingSelectOptions) return;
+  defaultThinkingSelectOptions = [...el.thinkingSelect.options].map(option => ({ value: option.value, label: option.textContent }));
+}
+
+function restoreDefaultThinkingSelectOptions() {
+  if (!el.thinkingSelect || !defaultThinkingSelectOptions) return;
+  const same = [...el.thinkingSelect.options].length === defaultThinkingSelectOptions.length
+    && [...el.thinkingSelect.options].every((option, index) => option.value === defaultThinkingSelectOptions[index].value
+      && option.textContent === defaultThinkingSelectOptions[index].label);
+  if (!same) {
+    el.thinkingSelect.replaceChildren(...defaultThinkingSelectOptions.map(({ value, label }) => {
+      const option = document.createElement("option"); option.value = value; option.textContent = label; return option;
+    }));
+  }
+}
+
+function setThinkingControlVisibility(hidden) {
+  const select = el.thinkingSelect;
+  if (!select) return;
+  select.hidden = !!hidden;
+  document.querySelector('label[for="thinking-select"]')?.classList.toggle("hidden", !!hidden);
+  const heading = el.modelSheet?.querySelector?.(".model-heading h2");
+  if (heading) heading.textContent = hidden ? "Model" : "Model & reasoning";
+}
+
+// Codex reasoning options are model-scoped and may include levels absent from
+// the Pi-oriented static select (for example max/ultra). Keep the static Pi
+// options intact when leaving Codex so another connector sees its normal menu.
+function syncNativeThinkingSelect(connection = rpc) {
+  const select = el.thinkingSelect;
+  if (!select) return;
+  captureDefaultThinkingSelectOptions();
+  setThinkingControlVisibility(!!connection?.nativeClaudeStructured);
+  if (!connection?.nativeCodexMutation) {
+    restoreDefaultThinkingSelectOptions();
+    select.disabled = !!connection?.nativeClaudeStructured;
+    return;
+  }
+  const model = connection.codexModel;
+  const advertised = Array.isArray(model?.supportedReasoningEfforts)
+    ? model.supportedReasoningEfforts.map(String).filter(level => CODEX_EFFORTS.includes(level))
+    : [];
+  const levels = [...new Set(["off", ...advertised])];
+  // A catalog that omits reasoning metadata keeps the familiar static menu;
+  // an explicit list is authoritative and gets its own compact select.
+  if (advertised.length || model?.reasoningEffortsDeclared === true) {
+    select.replaceChildren(...levels.map(level => {
+      const option = document.createElement("option");
+      option.value = level;
+      option.textContent = level === "off" ? "Default" : level;
+      return option;
+    }));
+  } else {
+    restoreDefaultThinkingSelectOptions();
+  }
+  const choices = new Set([...select.options].map(option => option.value));
+  const current = String(connection.codexEffort || "off");
+  const modelDefault = String(model?.defaultReasoningEffort || "").trim();
+  const next = choices.has(current) ? current : choices.has(modelDefault) ? modelDefault : "off";
+  connection.codexEffort = next;
+  select.value = next;
+  select.disabled = false;
+}
 
 function thinkingPreference() {
   try { return migratedStorageValue(localStorage, THINKING_PREFERENCE_KEY, LEGACY_THINKING_PREFERENCE_KEYS) || ""; } catch { return ""; }
@@ -8296,6 +8567,58 @@ function normalizeOpenCodeModel(model) {
   };
 }
 
+function normalizeCodexModel(model) {
+  if (typeof model === "string") {
+    const id = model.trim();
+    return id ? { id, name: id, provider: "codex", contextWindow: null, reasoning: true } : null;
+  }
+  if (!model || typeof model !== "object") return null;
+  // Official Codex Model objects carry the wire id in `model`; `id` can be a
+  // catalog row identifier and must not be sent back as the next-turn model.
+  const id = String(model.model || model.id || model.slug || model.name || "").trim();
+  if (!id) return null;
+  const limit = model.limit && typeof model.limit === "object" ? model.limit : {};
+  const reasoningEffortsDeclared = Array.isArray(model.supportedReasoningEfforts) || Array.isArray(model.reasoningEfforts);
+  const supportedEfforts = Array.isArray(model.supportedReasoningEfforts)
+    ? model.supportedReasoningEfforts.map((item) => String(item?.reasoningEffort || item?.value || item?.name || item || "").trim()).filter(Boolean)
+    : Array.isArray(model.reasoningEfforts)
+      ? model.reasoningEfforts.map((item) => String(item?.reasoningEffort || item?.value || item?.name || item || "").trim()).filter(Boolean)
+      : [];
+  return {
+    ...model,
+    id,
+    provider: "codex",
+    name: String(model.name || model.displayName || model.title || id),
+    description: String(model.description || ""),
+    reasoning: model.reasoning === true || model.supportsReasoning === true
+      || model.reasoningOutputTokens === true || supportedEfforts.length > 0,
+    supportedReasoningEfforts: supportedEfforts,
+    reasoningEffortsDeclared,
+    thinkingLevelMap: Object.fromEntries(supportedEfforts.map((effort) => [effort, true])),
+    defaultReasoningEffort: String(model.defaultReasoningEffort || "").trim() || null,
+    contextWindow: positiveFinite(model.contextWindow ?? model.context_window ?? limit.context),
+  };
+}
+
+function normalizeClaudeModel(model) {
+  if (typeof model === "string") {
+    const id = model.trim();
+    return id ? { id, name: id, provider: "claude-code", contextWindow: null, reasoning: false } : null;
+  }
+  if (!model || typeof model !== "object") return null;
+  const id = String(model.id || model.model || model.slug || model.name || "").trim();
+  if (!id) return null;
+  return {
+    ...model,
+    id,
+    provider: "claude-code",
+    name: String(model.name || model.displayName || id),
+    description: String(model.description || ""),
+    reasoning: model.reasoning === true,
+    contextWindow: positiveFinite(model.contextWindow ?? model.context_window),
+  };
+}
+
 function currentOpenCodeModelPayload(model = rpc?.openCodeModel) {
   const normalized = normalizeOpenCodeModel(model);
   if (!normalized) return null;
@@ -8324,48 +8647,110 @@ function acpModelOption(configOptions) {
 }
 
 async function openModelSheet() {
-  const expectedSid = rpc?.sid;
+  const connection = rpc;
+  const expectedSid = connection?.sid;
+  const expectedGeneration = viewGeneration;
+  const expectedBase = apiBase;
   if (!expectedSid) { toast("對話未開啟"); return; }
   el.modelSheet.classList.remove("hidden");
   if (el.modelSearch) { el.modelSearch.value = ""; }
-  el.modelList.innerHTML = '<p style="padding:12px 4px;color:var(--pine-soft);font-size:13.5px">讀取中…</p>';
+  const stillCurrent = () => rpc === connection && rpc?.sid === expectedSid
+    && viewGeneration === expectedGeneration && apiBase === expectedBase;
+  // Re-use a cached list for this session. Keeping the previous rows in place
+  // avoids a blank sheet/reflow while a host adapter refreshes its catalog.
+  if (!availableModels.length) {
+    el.modelList.innerHTML = '<p style="padding:12px 4px;color:var(--pine-soft);font-size:13.5px">讀取中…</p>';
+  }
+  const setUnavailable = (message) => {
+    if (!stillCurrent()) return;
+    el.modelList.innerHTML = "";
+    const empty = document.createElement("p");
+    empty.style.cssText = "padding:12px 4px;color:var(--pine-soft);font-size:13.5px";
+    empty.textContent = message;
+    el.modelList.appendChild(empty);
+  };
   try {
-    if (rpc?.nativeOpenCode) {
-      const directory = rpc.cwd ? `?directory=${encodeURIComponent(rpc.cwd)}` : "";
-      const result = await api(`/api/opencode/models${directory}`);
-      if (!rpc || rpc.sid !== expectedSid) { el.modelSheet.classList.add("hidden"); return; }
-      availableModels = (Array.isArray(result?.models) ? result.models : []).map(normalizeOpenCodeModel).filter(Boolean);
-      renderModelList(rpc.openCodeModel?.modelID || null, rpc.openCodeModel?.providerID || null);
+    if (connection?.nativeCodexMutation) {
+      if (Array.isArray(connection.codexModels) && connection.codexModelsLoaded) {
+        availableModels = connection.codexModels;
+        renderModelList(connection.codexModel?.id || null, "codex");
+      }
+      let cursor = null;
+      const rows = [];
+      for (let page = 0; page < 32; page += 1) {
+        if (!stillCurrent()) return;
+        const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+        const result = await api(`/api/codex/models${query}`);
+        if (!stillCurrent()) return;
+        const data = Array.isArray(result?.data) ? result.data : [];
+        rows.push(...data);
+        const next = typeof result?.nextCursor === "string" && result.nextCursor.length ? result.nextCursor : null;
+        if (!next || next === cursor) break;
+        cursor = next;
+      }
+      availableModels = rows.map(normalizeCodexModel).filter(Boolean);
+      connection.codexModels = availableModels;
+      connection.codexModelsLoaded = true;
+      const observed = availableModels.find(model => model.id === connection.codexModel?.id);
+      if (observed && !connection.codexModelSelected) connection.codexModel = observed;
+      syncNativeThinkingSelect(connection);
+      renderModelList(connection.codexModel?.id || null, "codex");
       return;
     }
-    if (rpc?.nativeAcp) {
+    if (connection?.nativeClaudeStructured) {
+      if (Array.isArray(connection.claudeModels) && connection.claudeModelsLoaded) {
+        availableModels = connection.claudeModels;
+        renderModelList(connection.claudeModel?.id || null, "claude-code");
+      }
+      const result = await api(`/api/claude/structured/models?sessionId=${encodeURIComponent(connection.nativeSessionId)}`);
+      if (!stillCurrent()) return;
+      availableModels = (Array.isArray(result?.models) ? result.models : []).map(normalizeClaudeModel).filter(Boolean);
+      connection.claudeModels = availableModels;
+      connection.claudeModelsLoaded = true;
+      if (!connection.claudeModelSelected) {
+        const current = normalizeClaudeModel(result?.currentModel);
+        if (current) {
+          connection.claudeModel = current;
+          composerModelContextWindow = positiveFinite(current.contextWindow);
+          updateComposerSummary(current.name || current.id, undefined);
+        }
+      }
+      const current = connection.claudeModel || normalizeClaudeModel(result?.currentModel);
+      renderModelList(current?.id || null, "claude-code");
+      return;
+    }
+    if (connection?.nativeOpenCode) {
+      const directory = connection.cwd ? `?directory=${encodeURIComponent(connection.cwd)}` : "";
+      const result = await api(`/api/opencode/models${directory}`);
+      if (!stillCurrent()) return;
+      availableModels = (Array.isArray(result?.models) ? result.models : []).map(normalizeOpenCodeModel).filter(Boolean);
+      renderModelList(connection.openCodeModel?.modelID || null, connection.openCodeModel?.providerID || null);
+      return;
+    }
+    if (connection?.nativeAcp) {
       // ACP agents advertise model choice as a session config option; the
       // option whose category is "model" is the one this sheet edits.
-      const result = await api(`/api/${rpc.acpAgentId}/acp/config?sessionId=${encodeURIComponent(rpc.nativeSessionId)}`);
-      if (!rpc || rpc.sid !== expectedSid) { el.modelSheet.classList.add("hidden"); return; }
+      const result = await api(`/api/${connection.acpAgentId}/acp/config?sessionId=${encodeURIComponent(connection.nativeSessionId)}`);
+      if (!stillCurrent()) return;
       const option = acpModelOption(result?.configOptions);
       if (!option) {
         availableModels = [];
-        el.modelList.innerHTML = "";
-        const empty = document.createElement("p");
-        empty.style.cssText = "padding:12px 4px;color:var(--pine-soft);font-size:13.5px";
-        empty.textContent = tKey("runtime.modelChoiceUnavailable");
-        el.modelList.appendChild(empty);
+        setUnavailable(tKey("runtime.modelChoiceUnavailable"));
         return;
       }
-      rpc.acpModelConfigId = option.id;
+      connection.acpModelConfigId = option.id;
       availableModels = option.options.map((choice) => ({
-        id: choice.value, name: choice.name || choice.value, provider: rpc.acpAgentId,
+        id: choice.value, name: choice.name || choice.value, provider: connection.acpAgentId,
         description: choice.description || "",
       }));
-      renderModelList(option.currentValue, rpc.acpAgentId);
+      renderModelList(option.currentValue, connection.acpAgentId);
       return;
     }
     const [modelsRes, stateRes] = await Promise.allSettled([
       rpcCmd(expectedSid, { type: "get_available_models" }),
       rpcCmd(expectedSid, { type: "get_state" }),
     ]);
-    if (!rpc || rpc.sid !== expectedSid) { el.modelSheet.classList.add("hidden"); return; }
+    if (!stillCurrent()) return;
     if (modelsRes.status === "fulfilled" && modelsRes.value && modelsRes.value.success) {
       availableModels = (modelsRes.value.data && modelsRes.value.data.models) || [];
     }
@@ -8379,15 +8764,28 @@ async function openModelSheet() {
     renderModelList(currentId, currentProvider);
     if (curThinking) el.thinkingSelect.value = curThinking;
   } catch (e) {
-    el.modelList.innerHTML = "";
-    const error = document.createElement("p");
-    error.className = "model-load-error";
-    error.textContent = tKey("runtime.loadFailed", { detail: e.message || "unknown error" });
-    el.modelList.appendChild(error);
+    if (stillCurrent()) {
+      if (availableModels.length) {
+        renderModelList(connection?.codexModel?.id || connection?.claudeModel?.id || modelSheetCurrentId,
+          connection?.nativeCodexMutation ? "codex" : connection?.nativeClaudeStructured ? "claude-code" : modelSheetCurrentProvider);
+      } else {
+        el.modelList.innerHTML = "";
+        const error = document.createElement("p");
+        error.className = "model-load-error";
+        error.textContent = tKey("runtime.loadFailed", { detail: e.message || "unknown error" });
+        el.modelList.appendChild(error);
+      }
+    }
   }
 }
 
 function renderModelList(currentId, currentProvider = null) {
+  const connection = rpc;
+  const expectedSid = connection?.sid;
+  const expectedGeneration = viewGeneration;
+  const expectedBase = apiBase;
+  const stillCurrent = () => rpc === connection && rpc?.sid === expectedSid
+    && viewGeneration === expectedGeneration && apiBase === expectedBase;
   modelSheetCurrentId = currentId;
   modelSheetCurrentProvider = currentProvider;
   // Selection must match on provider+id: the same model id can be offered by
@@ -8399,9 +8797,12 @@ function renderModelList(currentId, currentProvider = null) {
     && (currentProvider == null || m.provider == null || m.provider === currentProvider);
   const current = availableModels.find(matchesCurrent);
   const query = String(el.modelSearch?.value || "").trim().toLocaleLowerCase();
-  const visibleModels = availableModels.filter(isModelVisible).filter((m) => !query
+  const visibleModels = availableModels.filter((m) => m?.hidden !== true).filter(isModelVisible).filter((m) => !query
     || `${m.name || ""} ${m.id || ""} ${m.provider || ""}`.toLocaleLowerCase().includes(query));
-  updateComposerSummary(current ? (current.name || current.id) : "", undefined);
+  if (current) updateComposerSummary(current.name || current.id, undefined);
+  else if (!currentId && !connection?.nativeCodexMutation && !connection?.nativeClaudeStructured) {
+    updateComposerSummary("", undefined);
+  }
   el.modelList.innerHTML = "";
   if (!visibleModels.length) {
     // Build the node instead of interpolating: the copy is translated at
@@ -8421,40 +8822,81 @@ function renderModelList(currentId, currentProvider = null) {
     row.querySelector("strong").textContent = m.name || m.id;
     row.querySelector("small").textContent = (m.provider || "?") + (m.contextWindow ? " · " + Math.round(m.contextWindow/1000) + "k ctx" : "");
     row.querySelector(".model-thinking-badge").textContent = modelThinkingBadge(m);
+    if (m.description) row.title = m.description;
     row.addEventListener("click", async () => {
-      const expectedSid = rpc?.sid;
       if (!expectedSid) return;
       try {
-        if (rpc?.nativeOpenCode) {
+        if (!stillCurrent()) return;
+        if (connection?.nativeCodexMutation) {
+          const model = normalizeCodexModel(m);
+          if (!model) throw new Error("Invalid Codex model");
+          connection.codexModel = model;
+          connection.codexModelSelected = true;
+          // Codex selection applies to the next prompt. Keep the gauge tied to
+          // the adapter's current/last context response instead of showing the
+          // newly selected model's capacity before native readback changes.
+          composerModelContextWindow = null;
+          syncNativeThinkingSelect(connection);
+          updateComposerSummary(model.name || model.id, undefined);
+          renderContextDashboard();
+          toast("模型：" + (model.name || model.id));
+          renderModelList(model.id, "codex");
+          return;
+        }
+        if (connection?.nativeClaudeStructured) {
+          const model = normalizeClaudeModel(m);
+          if (!model) throw new Error("Invalid Claude model");
+          const result = await post("/api/claude/structured/model", {
+            sessionId: connection.nativeSessionId,
+            model: model.id,
+          });
+          if (!stillCurrent()) return;
+          if (result?.accepted === false || result?.kind === "reject" || result?.success === false) {
+            throw new Error(result.error || result.code || "Claude rejected the model switch");
+          }
+          const selected = normalizeClaudeModel(result?.model) || model;
+          connection.claudeModel = selected;
+          connection.claudeModelSelected = true;
+          // A model ACK invalidates the previous model's context capacity. The
+          // follow-up adapter readback owns the new value (which may remain
+          // unknown), so never retain a stale gauge between the two requests.
+          resetContextDashboard();
+          updateComposerSummary(selected.name || selected.id, undefined);
+          void syncNativeContext(connection);
+          toast("模型：" + (selected.name || selected.id));
+          renderModelList(selected.id, "claude-code");
+          return;
+        }
+        if (connection?.nativeOpenCode) {
           const model = normalizeOpenCodeModel(m);
           const result = await post("/api/opencode/model", {
-            sessionId: rpc.nativeSessionId,
-            cwd: rpc.cwd,
+            sessionId: connection.nativeSessionId,
+            cwd: connection.cwd,
             model: currentOpenCodeModelPayload(model),
           });
-          if (!rpc || rpc.sid !== expectedSid) return;
+          if (!stillCurrent()) return;
           if (result?.accepted === false) throw new Error(result.error || "OpenCode rejected the model switch");
           const selected = applyOpenCodeModel(model);
           toast("模型：" + (selected?.name || selected?.modelID || m.id));
           renderModelList(selected?.modelID || m.id, selected?.providerID || m.provider);
           return;
         }
-        if (rpc?.nativeAcp) {
-          const result = await post(`/api/${rpc.acpAgentId}/acp/config`, {
-            sessionId: rpc.nativeSessionId,
-            configId: rpc.acpModelConfigId,
+        if (connection?.nativeAcp) {
+          const result = await post(`/api/${connection.acpAgentId}/acp/config`, {
+            sessionId: connection.nativeSessionId,
+            configId: connection.acpModelConfigId,
             value: m.id,
           });
-          if (!rpc || rpc.sid !== expectedSid) return;
+          if (!stillCurrent()) return;
           if (result?.kind === "reject") throw new Error(result.code || "model switch rejected");
           const option = acpModelOption(result?.configOptions);
           updateComposerSummary(m.name || m.id, undefined);
           toast("模型：" + (m.name || m.id));
-          renderModelList(option?.currentValue || m.id, rpc.acpAgentId);
+          renderModelList(option?.currentValue || m.id, connection.acpAgentId);
           return;
         }
         const result = await rpcCmd(expectedSid, { type: "set_model", provider: m.provider, modelId: m.id });
-        if (!rpc || rpc.sid !== expectedSid) return;
+        if (!stillCurrent()) return;
         if (result?.success === false) throw new Error(result.error || "RPC rejected");
         // Re-read get_state for the selected model's capacity; only that
         // state response is used as the dashboard's capacity fallback.
@@ -8640,6 +9082,21 @@ el.modelSheet.addEventListener("click", (event) => {
 async function changeThinkingLevel(level) {
   const expectedSid = rpc?.sid;
   if (!expectedSid) return;
+  if (rpc?.nativeClaudeStructured) return;
+  if (rpc?.nativeCodexMutation) {
+    const connection = rpc;
+    const expectedGeneration = viewGeneration;
+    const expectedBase = apiBase;
+    const allowed = new Set([...CODEX_EFFORTS]);
+    if (!allowed.has(String(level)) || ![...el.thinkingSelect.options].some(option => option.value === String(level))) return;
+    connection.codexEffort = String(level);
+    if (rpc === connection && viewGeneration === expectedGeneration && apiBase === expectedBase) {
+      el.thinkingSelect.value = connection.codexEffort;
+      updateComposerSummary(undefined, connection.codexEffort);
+      renderContextDashboard();
+    }
+    return;
+  }
   try {
     const r = await rpcCmd(expectedSid, { type: "set_thinking_level", level });
     if (!rpc || rpc.sid !== expectedSid) return;

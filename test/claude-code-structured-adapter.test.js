@@ -17,6 +17,19 @@ function childFixture() {
   return child;
 }
 
+function observeControlWire(child, handler) {
+  let buffered = "";
+  child.stdin.on("data", chunk => {
+    buffered += chunk.toString();
+    const lines = buffered.split("\n");
+    buffered = lines.pop() || "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      handler(JSON.parse(line));
+    }
+  });
+}
+
 test("Claude structured args are explicit, resumable, and never shell-expanded", () => {
   assert.deepEqual(buildClaudeStructuredArgs({ sessionId: "session-1" }), [
     "-p", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-prompts", "host", "--resume", "session-1",
@@ -87,4 +100,239 @@ test("Claude structured session writes native permission responses and interrupt
   child.stdout.write(JSON.stringify({ type: "result", session_id: "session-2", result: "done" }) + "\n");
   assert.equal(session.status().nativeSessionId, "session-2");
   assert.equal((await session.close()).cleanupConfirmed, true);
+});
+
+test("Claude structured controls use exact initialize/set_model wire and update only after ACK", async t => {
+  const child = childFixture();
+  const requests = [];
+  let respond = null;
+  observeControlWire(child, message => {
+    if (message.type !== "control_request") return;
+    requests.push(message);
+    respond?.(message);
+  });
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 200 });
+  t.after(() => session.close());
+  respond = message => {
+    if (message.request.subtype !== "initialize") return;
+    child.stdout.write(JSON.stringify({ type: "control_response", response: {
+      subtype: "success", request_id: message.request_id,
+      response: { models: [
+        { value: "sonnet", displayName: "Claude Sonnet", description: "Balanced", supportsEffort: true },
+        { value: "opus", displayName: "Claude Opus", description: "Deep" },
+      ], model: "sonnet" },
+    } }) + "\n");
+  };
+  const catalog = await session.models();
+  assert.deepEqual(catalog, { models: [
+    { id: "sonnet", name: "Claude Sonnet", description: "Balanced", supportsEffort: true },
+    { id: "opus", name: "Claude Opus", description: "Deep" },
+  ], currentModel: "sonnet" });
+  assert.deepEqual(requests[0], { type: "control_request", request_id: requests[0].request_id, request: { subtype: "initialize" } });
+
+  let resolveModelRequest;
+  respond = message => { if (message.request.subtype === "set_model") resolveModelRequest = message; };
+  const changing = session.setModel("opus");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(resolveModelRequest.request.subtype, "set_model");
+  assert.equal(resolveModelRequest.request.model, "opus");
+  assert.equal(session.contextUsage().model, "sonnet", "selected model stays old until native ACK");
+  child.stdout.write(JSON.stringify({ type: "control_response", response: {
+    subtype: "success", request_id: resolveModelRequest.request_id, response: {},
+  } }) + "\n");
+  assert.deepEqual(await changing, { kind: "changed", model: "opus" });
+  assert.equal(session.contextUsage().model, "opus");
+});
+
+test("Claude context usage uses latest assistant input plus cache tokens and modelUsage capacity", async t => {
+  const child = childFixture();
+  observeControlWire(child, message => {
+    if (message.type !== "control_request" || message.request.subtype !== "initialize") return;
+    child.stdout.write(JSON.stringify({ type: "control_response", response: {
+      subtype: "success", request_id: message.request_id, response: { models: [], model: "sonnet" },
+    } }) + "\n");
+  });
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 200 });
+  t.after(() => session.close());
+  await session.models();
+  child.stdout.write(JSON.stringify({ type: "assistant", session_id: "session-1", message: {
+    model: "sonnet", usage: {
+      input_tokens: 120, output_tokens: 45, cache_read_input_tokens: 300, cache_creation_input_tokens: 15,
+    }, content: [{ type: "text", text: "done" }],
+  } }) + "\n");
+  child.stdout.write(JSON.stringify({ type: "result", session_id: "session-1", modelUsage: {
+    sonnet: { inputTokens: 120, outputTokens: 45, cacheReadInputTokens: 300, cacheCreationInputTokens: 15, contextWindow: 200000 },
+  }, result: "done" }) + "\n");
+  assert.deepEqual(session.contextUsage(), {
+    model: "sonnet", contextWindow: 200000, contextTokens: 435, contextPercent: 0.2175,
+    usage: { totalTokens: 480, inputTokens: 120, outputTokens: 45, cachedInputTokens: 300, cacheWriteInputTokens: 15 },
+  });
+  child.stdout.write(JSON.stringify({ type: "result", session_id: "session-1", modelUsage: {
+    sonnet: { inputTokens: 999, contextWindow: 0 },
+  }, result: "unknown capacity" }) + "\n");
+  // A later cumulative result cannot overwrite the latest assistant context;
+  // an advertised non-positive limit remains unknown rather than zero.
+  assert.equal(session.contextUsage().contextTokens, 435);
+  assert.equal(session.contextUsage().contextWindow, 200000);
+});
+
+test("Claude control correlation is bounded and timeout failures clean up", async t => {
+  const child = childFixture();
+  let firstRequest = null;
+  observeControlWire(child, message => { if (!firstRequest && message.type === "control_request") firstRequest = message; });
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 10 });
+  t.after(() => session.close());
+  const pending = session.models();
+  await new Promise(resolve => setTimeout(resolve, 2));
+  assert.ok(firstRequest);
+  child.stdout.write(JSON.stringify({ type: "control_response", response: {
+    subtype: "success", request_id: "stepsemble-ctrl-unknown", response: { models: [] },
+  } }) + "\n");
+  await assert.rejects(pending, error => error && error.code === "claude_control_timeout");
+  assert.equal(session.status().state, "failed");
+  await session.close();
+});
+
+test("Claude close rejects pending initialize without misclassifying normal cleanup", async t => {
+  const child = childFixture();
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 200 });
+  const pending = session.models();
+  const closed = await session.close();
+  assert.equal(closed.cleanupConfirmed, true);
+  await assert.rejects(pending, error => error && error.code === "claude_session_closed");
+  assert.equal(session.status().state, "closed");
+  assert.equal(session.status().failed, null);
+  t.after(() => session.close());
+});
+
+test("Claude rejects oversized image frames before marking a prompt active", async t => {
+  const child = childFixture();
+  const writes = [];
+  child.stdin.on("data", chunk => writes.push(chunk));
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child });
+  t.after(() => session.close());
+  const image = "A".repeat(7 * 1024 * 1024);
+  const result = await session.send("", { images: [
+    { data: image, mimeType: "image/png" },
+    { data: image, mimeType: "image/png" },
+  ] });
+  assert.deepEqual(result, { kind: "reject", code: "claude_input_frame_too_large" });
+  assert.equal(session.status().state, "waiting");
+  assert.equal(writes.length, 0, "oversized image prompt must not be partially written");
+});
+
+test("Claude rejects a prompt when the outbound queue is already full", async t => {
+  const child = childFixture();
+  Object.defineProperty(child.stdin, "writableLength", { configurable: true, value: 16 * 1024 * 1024 });
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child });
+  t.after(() => session.close());
+  const result = await session.send("small prompt");
+  assert.deepEqual(result, { kind: "reject", code: "claude_input_queue_full" });
+  assert.equal(session.status().state, "waiting");
+});
+
+test("Claude model switching is refused while a prompt is active", async t => {
+  const child = childFixture();
+  observeControlWire(child, message => {
+    if (message.type !== "control_request" || message.request.subtype !== "initialize") return;
+    child.stdout.write(JSON.stringify({ type: "control_response", response: {
+      subtype: "success", request_id: message.request_id, response: { models: [], model: "sonnet" },
+    } }) + "\n");
+  });
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 200 });
+  t.after(() => session.close());
+  await session.models();
+  assert.equal((await session.send("active prompt")).kind, "sent");
+  await assert.rejects(session.setModel("opus"), error => error && error.code === "claude_model_switch_active");
+});
+
+test("Claude result modelUsage exposes capacity only until assistant usage arrives", async t => {
+  const child = childFixture();
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child });
+  t.after(() => session.close());
+  child.stdout.write(JSON.stringify({ type: "result", session_id: "session-1", modelUsage: {
+    sonnet: { inputTokens: 900, outputTokens: 100, cacheReadInputTokens: 400, contextWindow: 100000 },
+  }, result: "done" }) + "\n");
+  assert.deepEqual(session.contextUsage(), {
+    model: "sonnet", contextWindow: 100000, contextTokens: null, contextPercent: null, usage: null,
+  });
+});
+
+test("Claude result errors leave the session failed instead of returning to waiting", async t => {
+  const child = childFixture();
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child });
+  t.after(() => session.close());
+  child.stdout.write(JSON.stringify({ type: "result", session_id: "session-1", subtype: "error_during_execution", is_error: true,
+    errors: ["Authentication failed: signed out"], modelUsage: {}, result: "" }) + "\n");
+  const status = session.status();
+  assert.equal(status.state, "failed");
+  assert.equal(status.failed, "claude_error_during_execution");
+  assert.deepEqual(status.result.errors, ["Authentication failed: signed out"]);
+});
+
+test("Claude parser failures carry a status code through the live session", async t => {
+  const child = childFixture();
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child });
+  t.after(() => session.close());
+  child.stdout.write(JSON.stringify({ type: "control_response", response: { subtype: "success" } }) + "\n");
+  assert.equal(session.status().state, "failed");
+  assert.equal(session.status().failed, "structured_event_invalid");
+});
+
+test("Claude model ids reject tabs and overlong values without truncation", async t => {
+  const child = childFixture();
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child });
+  t.after(() => session.close());
+  await assert.rejects(session.setModel("sonnet\tpreview"), error => error && error.code === "claude_model_invalid");
+  await assert.rejects(session.setModel("x".repeat(257)), error => error && error.code === "claude_model_invalid");
+});
+
+test("Claude model ACK errors preserve selection and successful switches clear old context", async t => {
+  const child = childFixture();
+  let respond = null;
+  observeControlWire(child, message => { if (message.type === "control_request") respond?.(message); });
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 200 });
+  t.after(() => session.close());
+  respond = message => {
+    if (message.request.subtype === "initialize") child.stdout.write(JSON.stringify({ type: "control_response", response: {
+      subtype: "success", request_id: message.request_id, response: { model: "sonnet", models: [] },
+    } }) + "\n");
+  };
+  await session.models();
+  child.stdout.write(JSON.stringify({ type: "assistant", session_id: "session-1", message: { model: "sonnet", usage: {
+    input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 25,
+  } } }) + "\n");
+  child.stdout.write(JSON.stringify({ type: "result", session_id: "session-1", modelUsage: {
+    sonnet: { contextWindow: 1000 },
+  } }) + "\n");
+  assert.equal(session.contextUsage().contextWindow, 1000);
+
+  let switchRequest;
+  respond = message => { if (message.request.subtype === "set_model") switchRequest = message; };
+  const rejected = session.setModel("opus");
+  await new Promise(resolve => setImmediate(resolve));
+  child.stdout.write(JSON.stringify({ type: "control_response", response: {
+    subtype: "error", request_id: switchRequest.request_id, error: "model unavailable",
+  } }) + "\n");
+  await assert.rejects(rejected, error => error && error.code === "claude_control_rejected");
+  assert.equal(session.contextUsage().model, "sonnet");
+  assert.equal(session.contextUsage().contextWindow, 1000);
+
+  const changing = session.setModel("opus");
+  await new Promise(resolve => setImmediate(resolve));
+  child.stdout.write(JSON.stringify({ type: "control_response", response: {
+    subtype: "success", request_id: switchRequest.request_id, response: {},
+  } }) + "\n");
+  assert.deepEqual(await changing, { kind: "changed", model: "opus" });
+  assert.deepEqual(session.contextUsage(), {
+    model: "opus", contextWindow: null, contextTokens: null, contextPercent: null, usage: null,
+  });
+  child.stdout.write(JSON.stringify({ type: "result", session_id: "session-1", modelUsage: {
+    sonnet: { inputTokens: 9999, contextWindow: 999999 },
+  } }) + "\n");
+  // A cumulative entry for the previous model must not be paired with the
+  // newly selected model or resurrect its capacity.
+  assert.deepEqual(session.contextUsage(), {
+    model: "opus", contextWindow: null, contextTokens: null, contextPercent: null, usage: null,
+  });
 });

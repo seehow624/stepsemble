@@ -27,6 +27,7 @@ jobs:
           node scripts/release-policy.mjs "$GITHUB_REF_NAME" "$version" >> "$GITHUB_OUTPUT"
           zsh -n install.sh uninstall.sh deploy/*.sh
           npm run check
+          npm run check:native:composer
           npm run check:client
           npm run check:protocol
           npm run check:protocol:conformance

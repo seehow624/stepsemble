@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/.local/share/stepsemble
-ExecStart=__NODE__ %h/.local/share/stepsemble/server.js
+ExecStart=__NODE__ --require %h/.local/share/stepsemble/server/installed-defaults.js %h/.local/share/stepsemble/server.js
 Environment=HOME=%h
 Environment=STEPSEMBLE_HOST=127.0.0.1
 Environment=STEPSEMBLE_TOKEN_FILE=%h/.config/stepsemble/token

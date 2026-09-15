@@ -10,6 +10,8 @@
   <key>ProgramArguments</key>
   <array>
     <string>__NODE__</string>
+    <string>--require</string>
+    <string>/Users/__USER__/.local/share/stepsemble/server/installed-defaults.js</string>
     <string>/Users/__USER__/.local/share/stepsemble/server.js</string>
   </array>
 

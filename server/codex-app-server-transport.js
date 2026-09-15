@@ -10,6 +10,7 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const { createLineDecoder } = require("./stream-safety");
+const { MAX_BASE64_BYTES } = require("./prompt-attachments");
 
 const CODEX_NATIVE_VERSION = "0.153.4";
 const CODEX_NATIVE_VERSION_RE = /^\d{1,8}\.\d{1,8}\.\d{1,8}(?:-(?:alpha|beta)(?:\.\d{1,8}){0,2})?$/;
@@ -19,6 +20,8 @@ const MAX_PENDING_REQUESTS = 64;
 const MAX_PENDING_APPROVALS = 32;
 const MAX_OUTBOUND_BYTES = 1024 * 1024;
 const MAX_OUTBOUND_QUEUE_BYTES = 4 * 1024 * 1024;
+const MAX_TURN_FRAME_BYTES = 12 * 1024 * 1024;
+const MAX_TURN_QUEUE_BYTES = 16 * 1024 * 1024;
 const OUTBOUND_WRITE_TIMEOUT_MS = 5000;
 const MAX_STDERR_TAIL_BYTES = 16 * 1024;
 const TERMINATE_GRACE_MS = 250;
@@ -32,11 +35,17 @@ const APPROVAL_METHODS = Object.freeze([
 ]);
 const CLIENT_METHODS = Object.freeze([
   "initialize", "thread/start", "thread/resume", "thread/read", "thread/list",
-  "thread/turns/list", "thread/items/list", "turn/start", "turn/interrupt",
+  "thread/turns/list", "thread/items/list", "model/list", "turn/start", "turn/interrupt",
 ]);
 const NATIVE_LIFECYCLE_NOTIFICATIONS = Object.freeze(new Set([
   "thread/started", "turn/started", "turn/completed", "item/started", "item/completed",
-  "serverRequest/resolved", "thread/status/changed", "thread/closed", "thread/archived",
+  "serverRequest/resolved", "thread/status/changed", "thread/tokenUsage/updated", "thread/closed", "thread/archived",
+]));
+// A turn can echo the user's image in an item notification. Keep ordinary
+// app-server frames at MAX_FRAME_BYTES, but admit only these known turn
+// lifecycle methods up to the dedicated bounded turn-frame limit.
+const LARGE_TURN_NOTIFICATIONS = Object.freeze(new Set([
+  "turn/started", "turn/completed", "item/started", "item/completed",
 ]));
 
 const reject = code => ({ kind: "reject", code });
@@ -53,6 +62,13 @@ const MAX_HISTORY_CURSOR = 512;
 const MAX_HISTORY_PAGE = 100;
 const MAX_HISTORY_REQUEST_BYTES = 128 * 1024;
 const MAX_HISTORY_RESPONSE_BYTES = 8 * 1024 * 1024;
+const MAX_MODEL_PAGE = MAX_HISTORY_PAGE;
+const MAX_MODEL_ID = 256;
+const MAX_MODEL_TEXT = 4096;
+const MAX_REASONING_EFFORT = 128;
+const MAX_TURN_INPUT_ITEMS = 64;
+const MAX_TURN_TEXT_BYTES = 1024 * 1024;
+const MAX_TURN_REQUEST_BYTES = MAX_TURN_FRAME_BYTES;
 
 function plain(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -214,6 +230,128 @@ function normalizeThreadTurnsResponse(value) {
 
 function normalizeThreadItemsResponse(value) {
   return normalizeHistoryPageResponse(value, "data", normalizeThreadItemEntry);
+}
+
+function modelText(value, limit = MAX_MODEL_TEXT) {
+  return typeof value === "string" && value.length > 0 && value.length <= limit
+    && !/[\u0000-\u001f\u007f]/.test(value) ? value : null;
+}
+
+function normalizeModel(value) {
+  if (!plain(value)) return null;
+  const result = boundedHistory(value, 4 * 1024 * 1024);
+  if (!result || !plain(result)
+    || !modelText(result.id, MAX_MODEL_ID)
+    || !modelText(result.model, MAX_MODEL_ID)
+    || !modelText(result.displayName, MAX_MODEL_TEXT)
+    || typeof result.description !== "string" || result.description.length > MAX_MODEL_TEXT
+    || /[\u0000-\u001f\u007f]/.test(result.description)
+    || typeof result.hidden !== "boolean" || typeof result.isDefault !== "boolean"
+    || !modelText(result.defaultReasoningEffort, MAX_REASONING_EFFORT)
+    || !Array.isArray(result.supportedReasoningEfforts) || result.supportedReasoningEfforts.length > 64) return null;
+  for (const option of result.supportedReasoningEfforts) {
+    if (!plain(option) || !modelText(option.reasoningEffort, MAX_REASONING_EFFORT)
+      || typeof option.description !== "string" || option.description.length > MAX_MODEL_TEXT
+      || /[\u0000-\u001f\u007f]/.test(option.description)) return null;
+  }
+  if (Object.hasOwn(result, "inputModalities")) {
+    if (!Array.isArray(result.inputModalities) || result.inputModalities.length > 8
+      || result.inputModalities.some(value => !["text", "image", "audio"].includes(value))) return null;
+  }
+  return result;
+}
+
+function normalizeModelListResponse(value) {
+  value = boundedHistory(value);
+  if (!plain(value) || !Array.isArray(value.data) || value.data.length > MAX_MODEL_PAGE) return null;
+  const data = value.data.map(normalizeModel);
+  if (data.some(row => row === null)) return null;
+  const nextCursor = historyCursor(value.nextCursor);
+  if (value.nextCursor !== undefined && nextCursor === null && value.nextCursor !== null) return null;
+  return { data, nextCursor };
+}
+
+function validModelListRequest(params) {
+  if (!plain(params) || bounded(params, MAX_HISTORY_REQUEST_BYTES) === null) return false;
+  const keys = new Set(["cursor", "includeHidden", "limit"]);
+  if (Reflect.ownKeys(params).some(key => typeof key !== "string" || !keys.has(key))) return false;
+  if (Object.hasOwn(params, "cursor") && historyCursor(params.cursor) !== params.cursor) return false;
+  if (Object.hasOwn(params, "includeHidden") && params.includeHidden !== null && typeof params.includeHidden !== "boolean") return false;
+  if (Object.hasOwn(params, "limit") && params.limit !== null && historyLimit(params.limit) === null) return false;
+  return true;
+}
+
+function tokenCount(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function normalizeTokenUsageBreakdown(value) {
+  if (!plain(value)) return null;
+  const fields = ["cachedInputTokens", "inputTokens", "outputTokens", "reasoningOutputTokens", "totalTokens"];
+  if (fields.some(field => tokenCount(value[field]) === null)) return null;
+  const cacheWrite = value.cacheWriteInputTokens === undefined ? 0 : tokenCount(value.cacheWriteInputTokens);
+  if (cacheWrite === null) return null;
+  return {
+    cachedInputTokens: value.cachedInputTokens,
+    inputTokens: value.inputTokens,
+    outputTokens: value.outputTokens,
+    reasoningOutputTokens: value.reasoningOutputTokens,
+    totalTokens: value.totalTokens,
+    cacheWriteInputTokens: cacheWrite,
+  };
+}
+
+function normalizeThreadTokenUsageUpdated(value) {
+  if (!plain(value) || !nativeId(value.threadId) || !nativeId(value.turnId) || !plain(value.tokenUsage)) return null;
+  const last = normalizeTokenUsageBreakdown(value.tokenUsage.last);
+  const total = normalizeTokenUsageBreakdown(value.tokenUsage.total);
+  if (!last || !total) return null;
+  const modelContextWindow = value.tokenUsage.modelContextWindow === null || value.tokenUsage.modelContextWindow === undefined
+    ? null : tokenCount(value.tokenUsage.modelContextWindow);
+  if (value.tokenUsage.modelContextWindow !== null && value.tokenUsage.modelContextWindow !== undefined && modelContextWindow === null) return null;
+  return { threadId: value.threadId, turnId: value.turnId, tokenUsage: { last, total, modelContextWindow } };
+}
+
+function validTurnOverride(value, limit) {
+  if (value === undefined || value === null) return true;
+  return typeof value === "string" && value.length > 0 && value.length <= limit && !/[\u0000-\u001f\u007f]/.test(value);
+}
+
+function validTurnParams(params) {
+  if (!plain(params) || bounded(params, 256 * 1024) === null) return false;
+  return validTurnOverride(params.model, MAX_MODEL_ID) && validTurnOverride(params.effort, MAX_REASONING_EFFORT);
+}
+
+const CODEX_IMAGE_URL = new RegExp(`^data:image\\/(?:jpeg|png|webp|gif);base64,[A-Za-z0-9+/=]+$`, "i");
+
+function normalizeTurnInput(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_TURN_INPUT_ITEMS) return null;
+  const result = [];
+  for (const item of value) {
+    if (!plain(item) || typeof item.type !== "string") return null;
+    if (item.type === "text") {
+      if (typeof item.text !== "string" || item.text.length > MAX_TURN_TEXT_BYTES
+        || /[\u0000-\u001f\u007f]/.test(item.text)) return null;
+      const next = { type: "text", text: item.text };
+      if (Object.hasOwn(item, "text_elements")) {
+        if (!Array.isArray(item.text_elements) || item.text_elements.length > 256 || bounded(item.text_elements, 64 * 1024) === null) return null;
+        next.text_elements = clone(item.text_elements);
+      }
+      result.push(next);
+      continue;
+    }
+    if (item.type === "image") {
+      if (typeof item.url !== "string" || item.url.length > MAX_BASE64_BYTES + 128 || !CODEX_IMAGE_URL.test(item.url)) return null;
+      if (Object.hasOwn(item, "detail") && item.detail !== null && !["auto", "low", "high", "original"].includes(item.detail)) return null;
+      result.push({ type: "image", url: item.url, ...(item.detail !== undefined ? { detail: item.detail } : {}) });
+      continue;
+    }
+    // Do not forward localImage/localAudio/path-bearing blocks from a browser
+    // composer. Codex's data-url image form is the only non-text input this
+    // bridge intentionally admits.
+    return null;
+  }
+  return result;
 }
 
 function validHistoryRequest(params, { threadId = false } = {}) {
@@ -391,6 +529,7 @@ function createCodexAppServerTransport({
   const activeWrites = new Set();
   let stderrTail = "";
   const completedTurns = new Set();
+  const usageByThread = new Map();
   let threadStartInFlight = false;
   let resumeInFlight = false;
   let turnStartInFlight = false;
@@ -465,13 +604,14 @@ function createCodexAppServerTransport({
       }
     }
   };
-  const write = value => {
+  const write = (value, { maxBytes = MAX_OUTBOUND_BYTES, maxQueueBytes = MAX_OUTBOUND_QUEUE_BYTES } = {}) => {
     ensureOpen();
     const encoded = JSON.stringify(value);
     const data = encoded + "\n", bytes = Buffer.byteLength(data, "utf8");
-    if (bytes > MAX_OUTBOUND_BYTES) throw new Error("native_frame_too_large");
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || bytes > maxBytes) throw new Error("native_frame_too_large");
     if (!child.stdin.writable || child.stdin.destroyed || child.stdin.writableEnded) throw new Error("native_transport_closed");
-    if (outboundQueueBytes + (child.stdin.writableLength || 0) + bytes > MAX_OUTBOUND_QUEUE_BYTES) {
+    if (!Number.isSafeInteger(maxQueueBytes) || maxQueueBytes < bytes
+      || outboundQueueBytes + (child.stdin.writableLength || 0) + bytes > maxQueueBytes) {
       fail("native_transport_write_backpressure");
       throw new Error("native_transport_write_backpressure");
     }
@@ -480,7 +620,8 @@ function createCodexAppServerTransport({
       outboundQueue.push(row); outboundQueueBytes += bytes; flushOutbound();
     });
   };
-  const request = (method, params, { timeoutMs = requestTimeoutMs, check = null } = {}) => {
+  const request = (method, params, { timeoutMs = requestTimeoutMs, check = null,
+    writeMaxBytes = MAX_OUTBOUND_BYTES, writeMaxQueueBytes = MAX_OUTBOUND_QUEUE_BYTES } = {}) => {
     ensureOpen();
     if (!CLIENT_METHODS.includes(method)) return Promise.reject(Object.assign(new Error("native_method_refused"), { code: "native_method_refused" }));
     if (!plain(params)) return Promise.reject(Object.assign(new Error("invalid_native_params"), { code: "invalid_native_params" }));
@@ -490,7 +631,7 @@ function createCodexAppServerTransport({
       const timer = setTimeout(() => fail("native_request_timeout"), Math.max(1, timeoutMs));
       timer.unref?.();
       pending.set(idKey(id), { id, method, resolve: value => { if (check && !check(value)) { fail("native_response_invalid"); rejectPromise(Object.assign(new Error("native_response_invalid"), { code: "native_response_invalid" })); return; } resolve(value); }, reject: rejectPromise, timer });
-      try { void write({ jsonrpc: "2.0", id, method, params }).catch(error => { clearTimeout(timer); pending.delete(idKey(id)); rejectPromise(error); }); }
+      try { void write({ jsonrpc: "2.0", id, method, params }, { maxBytes: writeMaxBytes, maxQueueBytes: writeMaxQueueBytes }).catch(error => { clearTimeout(timer); pending.delete(idKey(id)); rejectPromise(error); }); }
       catch (error) { clearTimeout(timer); pending.delete(idKey(id)); rejectPromise(error); }
     });
   };
@@ -531,6 +672,15 @@ function createCodexAppServerTransport({
     const response = await request("thread/items/list", body, { check: value => normalizeThreadItemsResponse(value) !== null });
     const result = normalizeThreadItemsResponse(response);
     return result ? { kind: "thread_items", ...result, threadId: params.threadId, turnId: params.turnId ?? null } : reject("native_response_invalid");
+  }
+
+  async function listModels(params = {}) {
+    if (!ensureInitialized()) return reject("native_lifecycle_conflict");
+    if (!validModelListRequest(params)) return reject("invalid_native_params");
+    const body = bounded(params, MAX_HISTORY_REQUEST_BYTES);
+    const response = await request("model/list", body, { check: value => normalizeModelListResponse(value) !== null });
+    const result = normalizeModelListResponse(response);
+    return result ? { kind: "models", ...result } : reject("native_response_invalid");
   }
 
   function correlation(expectedThread, expectedTurn = null) {
@@ -603,6 +753,14 @@ function createCodexAppServerTransport({
         authority: { sourceAuthenticated: trustedNative === true, approvalAcknowledged: false, resumeAllowed: false } });
       return;
     }
+    if (method === "thread/tokenUsage/updated") {
+      const usage = normalizeThreadTokenUsageUpdated(params);
+      if (!usage || !correlation(usage.threadId, usage.turnId)) { fail("native_usage_mismatch"); return; }
+      usageByThread.set(usage.threadId, clone(usage));
+      report({ type: "thread.tokenUsage.updated", threadId: usage.threadId, turnId: usage.turnId,
+        tokenUsage: clone(usage.tokenUsage) });
+      return;
+    }
     const tid = nativeId(params?.threadId);
     if (tid && !correlation(tid)) { fail("native_thread_mismatch"); return; }
     report({ type: method, threadId: tid || threadId });
@@ -633,8 +791,23 @@ function createCodexAppServerTransport({
     handleNotification(value.method, value.params);
   }
 
-  decoder = createLineDecoder({ maxBytes: MAX_FRAME_BYTES, onError: () => fail("native_frame_invalid"), onLine: line => {
-    try { handleFrame(JSON.parse(line)); } catch { fail("native_frame_invalid"); }
+  function frameWithinLimit(value, bytes) {
+    if (bytes <= MAX_FRAME_BYTES) return true;
+    if (bytes > MAX_TURN_FRAME_BYTES) return false;
+    if (value.kind === "notification") return LARGE_TURN_NOTIFICATIONS.has(value.method);
+    // Only a pending turn/start response is allowed to carry the echoed turn
+    // item. History/model/initialize responses retain their 1 MiB frame cap.
+    if (value.kind === "response") return pending.get(key(value.id))?.method === "turn/start";
+    return false;
+  }
+
+  decoder = createLineDecoder({ maxBytes: MAX_TURN_FRAME_BYTES, onError: () => fail("native_frame_invalid"), onLine: line => {
+    try {
+      const frame = JSON.parse(line);
+      const value = validateFrame(frame);
+      if (!value || !frameWithinLimit(value, Buffer.byteLength(line, "utf8"))) { fail("native_frame_invalid"); return; }
+      handleFrame(frame);
+    } catch { fail("native_frame_invalid"); }
   } });
   child.stdout.on("data", chunk => { if (!failure && !closed) decoder.push(chunk); });
   child.stdout.on("error", () => fail("native_transport_read_failed"));
@@ -720,17 +893,29 @@ function createCodexAppServerTransport({
     } finally { resumeInFlight = false; }
   }
 
-  async function startTurn(input, params = {}, authorization = null) {
+  async function startTurn(input, params = {}, authorization = null, expectedThreadId = null) {
+    if (expectedThreadId === null && typeof authorization === "string") {
+      expectedThreadId = authorization;
+      authorization = null;
+    }
+    if (expectedThreadId === null && authorization && typeof authorization === "object" && Object.hasOwn(authorization, "expectedThreadId")) {
+      expectedThreadId = authorization.expectedThreadId;
+      authorization = null;
+    }
+    if (expectedThreadId !== null && (!nativeId(expectedThreadId) || expectedThreadId !== threadId)) return reject("native_thread_mismatch");
     if (!initialized || !threadId || state !== "thread_started" || turnId || turnStartInFlight || !Array.isArray(input) || !input.length) return reject("native_lifecycle_conflict");
-    if (!plain(params)) return reject("invalid_native_params");
+    if (!validTurnParams(params)) return reject("invalid_native_params");
+    const normalizedInput = normalizeTurnInput(input);
+    if (!normalizedInput) return reject("invalid_turn_input");
     if (approvals.size) return reject("approval_pending");
-    const activeThreadId = threadId, body = { ...params, threadId: activeThreadId, input };
-    const detached = bounded(body, 256 * 1024); if (detached === null) return reject("invalid_native_params");
+    const activeThreadId = threadId, body = { ...params, threadId: activeThreadId, input: normalizedInput };
+    const detached = bounded(body, MAX_TURN_REQUEST_BYTES); if (detached === null) return reject("invalid_native_params");
     turnStartInFlight = true;
     try {
       const auth = await authorize("turn.start", { threadId: activeThreadId, params: detached }); if (auth.kind === "reject") return auth;
       if (closed || failure || !initialized || threadId !== activeThreadId || state !== "thread_started" || turnId || approvals.size) return reject("native_lifecycle_conflict");
-      const result = await request("turn/start", detached, { check: value => plain(value) && nativeId(value?.turn?.id)
+      const result = await request("turn/start", detached, { writeMaxBytes: MAX_TURN_FRAME_BYTES, writeMaxQueueBytes: MAX_TURN_QUEUE_BYTES,
+        check: value => plain(value) && nativeId(value?.turn?.id)
         && TURN_STATUSES.has(value.turn.status)
         && (!Object.hasOwn(value.turn, "threadId") || value.turn.threadId === activeThreadId) });
       if (turnId && turnId !== result.turn.id) { fail("native_turn_mismatch"); return reject("native_turn_mismatch"); }
@@ -758,7 +943,12 @@ function createCodexAppServerTransport({
     } finally { turnStartInFlight = false; }
   }
 
-  async function interruptTurn(authorization = null) {
+  async function interruptTurn(authorization = null, expectedThreadId = null) {
+    if (expectedThreadId === null && typeof authorization === "string") {
+      expectedThreadId = authorization;
+      authorization = null;
+    }
+    if (expectedThreadId !== null && (!nativeId(expectedThreadId) || expectedThreadId !== threadId)) return reject("native_thread_mismatch");
     if (!initialized || !threadId || !turnId || !["turn_running"].includes(state) || interruptInFlight) return reject("native_lifecycle_conflict");
     const activeThreadId = threadId, activeTurnId = turnId;
     interruptInFlight = true;
@@ -796,12 +986,18 @@ function createCodexAppServerTransport({
     } finally { row.resolving = false; }
   }
 
+  function tokenUsage(expectedThreadId = threadId) {
+    if (!nativeId(expectedThreadId)) return null;
+    const value = usageByThread.get(expectedThreadId);
+    return value ? clone(value) : null;
+  }
+
   async function close() {
     if (closePromise) return closePromise;
     closePromise = (async () => {
     closed = true;
     for (const row of pending.values()) { clearTimeout(row.timer); row.reject(Object.assign(new Error("native_transport_closed"), { code: "native_transport_closed" })); }
-    pending.clear(); approvals.clear();
+    pending.clear(); approvals.clear(); usageByThread.clear();
     rejectWrites("native_transport_closed");
     try { child.stdin.end?.(); } catch {}
     terminate();
@@ -820,9 +1016,11 @@ function createCodexAppServerTransport({
     readThread,
     listThreadTurns,
     listThreadItems,
+    listModels,
     startTurn,
     interruptTurn,
     respondApproval,
+    tokenUsage,
     pendingApprovals: () => [...approvals.values()].map(row => clone(row.request)),
     state: () => ({ state, threadId, turnId, turnState, initialized, failure: failure?.code || null, cleanupConfirmed }),
     nativeVersion,
@@ -847,12 +1045,20 @@ module.exports = {
   CLIENT_METHODS,
   CODEX_NATIVE_VERSION,
   MAX_FRAME_BYTES,
+  MAX_TURN_FRAME_BYTES,
   MAX_HISTORY_PAGE,
   normalizeThread,
   normalizeThreadListResponse,
   normalizeThreadReadResponse,
   normalizeThreadTurnsResponse,
   normalizeThreadItemsResponse,
+  normalizeModel,
+  normalizeModelListResponse,
+  normalizeTokenUsageBreakdown,
+  normalizeThreadTokenUsageUpdated,
+  normalizeTurnInput,
+  validModelListRequest,
+  validTurnParams,
   createCodexAppServerTransport,
   launchCodexAppServer,
   validNativeVersion,

@@ -34,6 +34,8 @@ jobs:
         run: '$null = [scriptblock]::Create((Get-Content -Raw ./install-windows.ps1))'
       - name: Check JavaScript
         run: npm run check
+      - name: Check native composer entry points
+        run: npm run check:native:composer
       - name: Check typed client and generated artifact
         run: npm run check:client
       - name: Check canonical protocol artifact

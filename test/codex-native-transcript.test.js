@@ -41,7 +41,7 @@ class Node {
 }
 
 function harness(api) {
-  const messages = new Node(), notices = [], calls = [], timers = [];
+  const messages = new Node(), notices = [], calls = [], contextCalls = [], timers = [];
   const ctx = vm.createContext({ URLSearchParams, AbortController, apiBase: "/r/owned", viewGeneration: 1,
     codexNativeHistoryButton: null, codexNativePollTimer: null, autoScrollPinned: false,
     document: { createElement: tag => new Node(tag) },
@@ -50,6 +50,7 @@ function harness(api) {
     api: async (url, opts) => { calls.push({ url, ...opts }); return api(new URL(url, "http://owned"), opts); },
     toast: msg => notices.push(msg), tKey: (key, vars = {}) => key + ":" + (vars.detail || ""),
     syncGenericInputState() {}, applyGenericTaskSnapshot() {}, ensureSessionUsageFooter() {}, keepSessionUsageAtEnd() {},
+    async syncNativeContext(connection) { contextCalls.push(connection); },
     updateScrollBottomButton() {}, scrollBottom() { messages.scrollTop = messages.scrollHeight; },
     setInterval(fn) { timers.push(fn); return timers.length; }, clearInterval() {},
     renderMarkdown(text) { const node = new Node(); node.textContent = text; return node; },
@@ -58,7 +59,7 @@ function harness(api) {
   });
   vm.runInContext(slice, ctx);
   ctx.rpc = { nativeCodex: true, nativeThreadId: "thread-a", nativeTranscriptState: ctx.createCodexNativeTranscriptState() };
-  return { ctx, calls, notices, messages, state: ctx.rpc.nativeTranscriptState, connection: ctx.rpc, timers };
+  return { ctx, calls, contextCalls, notices, messages, state: ctx.rpc.nativeTranscriptState, connection: ctx.rpc, timers };
 }
 
 test("unequal turn/item pages retain every item, scoped IDs, native ordering and EOF", async () => {
@@ -71,6 +72,7 @@ test("unequal turn/item pages retain every item, scoped IDs, native ordering and
     return page([entry("old", "before"), entry("outside-turn-page", "first")]);
   });
   await h.ctx.refreshCodexNativeSnapshot(h.connection, { initial: true });
+  assert.equal(h.contextCalls.length, 1, "a refreshed native snapshot reconciles adapter context usage");
   assert.equal(h.state.turnsCursor, null);
   await h.ctx.loadOlderCodexNativeHistory();
   assert.deepEqual(plain(h.state.entries).map(v => [v.turnId, v.item.id]), [

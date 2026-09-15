@@ -1,5 +1,29 @@
 # Changelog
 
+## 3.0.44
+
+Complete the native Claude Code and Codex composer, including existing installs.
+
+- Claude Code loads its official model list and only confirms a model switch
+  after the native control acknowledgement. Codex loads its paginated model list,
+  supports model-specific reasoning levels, and sends image attachments through
+  the official app-server input format.
+- Show native per-turn context usage when reported; leave unknown capacity
+  unknown. Clear stale Claude usage on model changes and never substitute
+  cumulative session totals for current context occupancy.
+- Scope Codex sends and interrupts to the requested thread. A stale browser
+  cannot accidentally send to or stop another active thread.
+- Apply native defaults to existing installed runtimes as well as new launchers,
+  preserving explicit opt-outs and reviewed-version safety checks. Reuse an
+  existing owned local OpenCode service configuration on macOS without copying
+  credentials into files or logs.
+- Add isolated HTTP/composer tests, a mobile UI fixture, and a real Codex
+  app-server composer check using only a local mock provider. Model discovery
+  and Claude model-switch checks require no paid inference request.
+
+Validation: 1,355 tests passed, 4 skipped, 0 failed. See
+`docs/release-3.0.44.md` for native and mobile verification boundaries.
+
 ## 3.0.43
 
 Turn on the native paths for Claude Code and Codex.

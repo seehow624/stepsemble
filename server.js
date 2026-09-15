@@ -24,6 +24,8 @@ const crypto = require("node:crypto");
 const { pathToFileURL } = require("node:url");
 const { spawn, execFile, execFileSync } = require("node:child_process");
 const { createHttpUtils } = require("./server/http-utils");
+const { createNativeComposerRoutes } = require("./server/native-composer-routes");
+const { applyNativeLaunchConfig, isInstalledRuntime } = require("./server/native-launch-config");
 const { createLineDecoder, activePathIds } = require("./server/stream-safety");
 const { createSessionDiscovery, mapLimit, readBoundedText, withDeadline: sessionReadDeadline } = require("./server/session-discovery");
 const { parsePiEvent, validPiCommand, resolvePiResponse, parsePiUiReply } = require("./server/pi-rpc-contract");
@@ -74,7 +76,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.43";
+const APP_VERSION = "3.0.44";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -82,6 +84,11 @@ function expandHome(value) {
 }
 // server 與 pi 子程序必須使用同一個 HOME，否則 PI_HOME 設定後會讀錯 sessions。
 const APP_HOME = path.resolve(expandHome(process.env.PI_HOME || os.homedir()));
+// Older automatic updaters replace application files but retain the existing
+// launchd command. Apply installed defaults here as well, so those Macs gain
+// the same native connectors on their first ordinary update. Development and
+// isolated test hosts keep their explicitly configured adapter flags.
+if (isInstalledRuntime(__dirname, os.homedir())) applyNativeLaunchConfig(process.env, { home: APP_HOME });
 // A direct v3 launch can happen before the installer replaces a v2 service.
 // Copy known private files forward without deleting the rollback source.
 const { configDir: CONFIG_DIR } = migrateLegacyConfig(APP_HOME, {
@@ -4344,6 +4351,11 @@ const historyHost = (() => {
   }
 })();
 
+const handleNativeComposerRoute = createNativeComposerRoutes({
+  codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession,
+  validateDirectory: nativeAgentDirectory, readJSON, sendJSON,
+});
+
 const server = http.createServer(async (req, res) => {
   let url;
   try { url = new URL(req.url, `http://${req.headers.host || "localhost"}`); }
@@ -4964,6 +4976,8 @@ const server = http.createServer(async (req, res) => {
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || `${agentId}_acp_failed` }); }
         return;
       }
+      if (await handleNativeComposerRoute(req, res, url)) return;
+
       if (p === "/api/claude/structured" && req.method === "GET") {
         const sessions = [...claudeStructuredSessions].map(([id, session]) => publicClaudeStructuredTask(id, session)).filter(Boolean);
         const activeNativeIds = new Set(sessions.map(row => row.nativeSessionId).filter(Boolean));
@@ -4989,10 +5003,11 @@ const server = http.createServer(async (req, res) => {
       }
       if (p === "/api/claude/structured/prompt" && req.method === "POST") {
         try {
-          const body = await readJSON(req, 2 * 1024 * 1024);
+          const body = await readJSON(req, 12 * 1024 * 1024);
           const resolved = resolveClaudeStructuredSession(body?.sessionId || "");
           if (!resolved) { const error = new Error("Claude structured session unavailable"); error.statusCode = 404; error.code = "claude_session_unavailable"; throw error; }
-          sendJSON(res, 200, await resolved.session.send(body?.text || body?.message || "", { images: body?.images }));
+          const result = await resolved.session.send(body?.text || body?.message || "", { images: body?.images });
+          sendJSON(res, result?.kind === "reject" ? 409 : 200, result);
         } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_prompt_failed" }); }
         return;
       }
@@ -5160,26 +5175,6 @@ const server = http.createServer(async (req, res) => {
           const body = await readJSON(req, 256 * 1024);
           sendJSON(res, 200, await codexNative.resumeThread({ threadId: body?.threadId, ...(body?.excludeTurns === true ? { excludeTurns: true } : {}) }));
         } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "codex_resume_failed" }); }
-        return;
-      }
-      if (p === "/api/codex/mutation/turn" && req.method === "POST") {
-        try {
-          await ensureCodexNativeProbe();
-          const body = await readJSON(req, 256 * 1024);
-          const text = typeof body?.text === "string" ? body.text.slice(0, 1024 * 1024) : "";
-          if (!text) { sendJSON(res, 400, { error: "codex_turn_input_invalid" }); return; }
-          const native = codexNative.nativeState();
-          if (!native.threadId && body?.threadId) {
-            const resumed = await codexNative.resumeThread({ threadId: body.threadId });
-            if (resumed?.kind === "reject") { sendJSON(res, 409, resumed); return; }
-          }
-          sendJSON(res, 200, await codexNative.startTurn([{ type: "text", text }], { ...(body?.cwd ? { cwd: body.cwd } : {}) }));
-        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "codex_turn_failed" }); }
-        return;
-      }
-      if (p === "/api/codex/mutation/interrupt" && req.method === "POST") {
-        try { await ensureCodexNativeProbe(); sendJSON(res, 200, await codexNative.interruptTurn()); }
-        catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "codex_interrupt_failed" }); }
         return;
       }
       if (p === "/api/codex/mutation/approval" && req.method === "POST") {

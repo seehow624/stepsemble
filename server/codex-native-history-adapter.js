@@ -16,6 +16,11 @@ const {
 const {
   probeCodexCompatibility,
 } = require("./codex-compatibility");
+const {
+  normalizeModelListResponse,
+  normalizeTokenUsageBreakdown,
+  normalizeTurnInput,
+} = require("./codex-app-server-transport");
 const crypto = require("node:crypto");
 
 const MAX_THREADS = 100;
@@ -30,6 +35,8 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const TRUTHY = new Set(["1", "true", "yes", "on"]);
 const MUTATION_OPERATIONS = new Set(["thread.start", "thread.resume", "turn.start", "turn.interrupt", "approval.resolve"]);
 const MAX_MUTATION_ROWS = 256;
+const MAX_MODEL_ID = 256;
+const MAX_REASONING_EFFORT = 128;
 
 class CodexNativeHistoryError extends Error {
   constructor(code, message, statusCode = 503, details = {}) {
@@ -132,6 +139,46 @@ function resolveConfig(env = process.env, overrides = {}) {
 
 function validThreadId(value) {
   return typeof value === "string" && value.length <= MAX_THREAD_ID && ID.test(value);
+}
+
+function validOverride(value, limit) {
+  return value === undefined || value === null
+    || typeof value === "string" && value.length > 0 && value.length <= limit && !/[\u0000-\u001f\u007f]/.test(value);
+}
+
+function validTurnOptions(value) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    && validOverride(value.model, MAX_MODEL_ID) && validOverride(value.effort, MAX_REASONING_EFFORT);
+}
+
+function nativeUsageSnapshot(value) {
+  const source = value?.tokenUsage && typeof value.tokenUsage === "object" ? value : { tokenUsage: value };
+  const tokenUsage = source.tokenUsage;
+  if (!tokenUsage || typeof tokenUsage !== "object") return null;
+  const last = normalizeTokenUsageBreakdown(tokenUsage.last);
+  if (!last) return null;
+  const contextWindow = tokenUsage.modelContextWindow === null || tokenUsage.modelContextWindow === undefined
+    ? null : Number.isSafeInteger(tokenUsage.modelContextWindow) && tokenUsage.modelContextWindow >= 0 ? tokenUsage.modelContextWindow : null;
+  if (tokenUsage.modelContextWindow !== null && tokenUsage.modelContextWindow !== undefined && contextWindow === null) return null;
+  return { threadId: validThreadId(source.threadId) ? source.threadId : null,
+    turnId: validThreadId(source.turnId) ? source.turnId : null,
+    tokenUsage: { last, modelContextWindow: contextWindow } };
+}
+
+function contextUsageDto(threadId, model, value) {
+  const snapshot = nativeUsageSnapshot(value);
+  const last = snapshot?.tokenUsage?.last || null;
+  const contextWindow = snapshot?.tokenUsage?.modelContextWindow ?? null;
+  const contextTokens = last?.totalTokens ?? null;
+  const contextPercent = contextWindow !== null && contextWindow > 0 && contextTokens !== null
+    ? (contextTokens / contextWindow) * 100 : null;
+  return {
+    model: typeof model === "string" && model.length ? model : null,
+    contextWindow,
+    contextTokens,
+    contextPercent: Number.isFinite(contextPercent) ? contextPercent : null,
+    usage: last ? { ...last } : null,
+  };
 }
 
 function epochMilliseconds(seconds) {
@@ -255,6 +302,8 @@ function createCodexNativeHistoryAdapter({
   let transport = null;
   let transportPromise = null;
   let refreshPromise = null;
+  const threadCache = new Map();
+  const usageCache = new Map();
   let verifiedCompatibility = null;
   // Tests can inject a transport or version/schema probe. Production launches
   // are compatibility-gated before app-server IO so an unreviewed alpha or
@@ -366,12 +415,29 @@ function createCodexNativeHistoryAdapter({
     return typeof transport?.state === "function" ? transport.state() : { state: "not_ready", threadId: null, turnId: null };
   }
 
+  function cacheThread(value) {
+    if (!value || !validThreadId(value.id)) return;
+    threadCache.set(value.id, value);
+  }
+
+  function observeNativeEvent(event) {
+    if (event?.type === "thread.tokenUsage.updated" && validThreadId(event.threadId)) {
+      const snapshot = nativeUsageSnapshot(event);
+      if (snapshot) usageCache.set(event.threadId, snapshot);
+    }
+    if (typeof onEvent === "function") {
+      try { onEvent(event); } catch { /* transport report owns failure semantics */ }
+    }
+  }
+
   function retireBrokenTransport(error) {
     const code = String(error?.code || "");
     if (!transport || !["native_frame_invalid", "native_transport_ended", "native_transport_read_failed",
       "native_transport_write_failed", "native_request_timeout", "native_response_invalid"].includes(code)) return;
     const instance = transport;
     transport = null;
+    usageCache.clear();
+    threadCache.clear();
     state = { ...state, state: "degraded", ready: false, sessionReady: false, mutationReady: false, approvalReady: false, lastError: code, checkedAt: clock() };
     try { void Promise.resolve(instance.close?.()).catch(() => {}); } catch {}
   }
@@ -420,7 +486,8 @@ function createCodexNativeHistoryAdapter({
       try {
         const compatibility = await verifyExecutableVersion();
         const options = { executable: config.executable, cwd: config.cwd, nativeVersion: compatibility.nativeVersion,
-          ...(config.mutationEnabled ? { authorizeNative, onEvent, onApprovalRequest } : {}) };
+          onEvent: observeNativeEvent,
+          ...(config.mutationEnabled ? { authorizeNative, onApprovalRequest } : {}) };
         if (typeof transportFactory === "function") instance = await transportFactory(options);
         else instance = launch(options);
         if (!instance || typeof instance.initialize !== "function") throw new Error("native_transport_invalid");
@@ -477,6 +544,7 @@ function createCodexNativeHistoryAdapter({
     } catch (error) { retireBrokenTransport(error); throw error; }
     if (!result || result.kind !== "threads") throw new CodexNativeHistoryError("native_response_invalid", "Codex thread list was invalid", 502);
     const threads = result.data.map(publicThread).filter(Boolean).slice(0, MAX_PAGE);
+    for (const thread of threads) cacheThread(thread);
     return { kind: "threads", threads, data: threads, nextCursor: result.nextCursor || null, backwardsCursor: result.backwardsCursor || null };
   }
 
@@ -488,6 +556,7 @@ function createCodexNativeHistoryAdapter({
     catch (error) { retireBrokenTransport(error); throw error; }
     const thread = publicThread(result?.thread);
     if (!thread) throw new CodexNativeHistoryError("native_response_invalid", "Codex thread response was invalid", 502);
+    cacheThread(thread);
     return { kind: "thread", thread };
   }
 
@@ -509,6 +578,54 @@ function createCodexNativeHistoryAdapter({
     catch (error) { retireBrokenTransport(error); throw error; }
     if (!result || result.kind !== "thread_items") throw new CodexNativeHistoryError("native_response_invalid", "Codex item page was invalid", 502);
     return { ...result, threadId };
+  }
+
+  async function listModels(params = {}) {
+    requireReady();
+    if (!params || typeof params !== "object" || Array.isArray(params)) {
+      throw new CodexNativeHistoryError("invalid_model_list_params", "Codex model list parameters are invalid", 400);
+    }
+    const request = { ...params };
+    if (Object.hasOwn(request, "limit")) {
+      if (!Number.isSafeInteger(request.limit) || request.limit < 0) {
+        throw new CodexNativeHistoryError("invalid_model_list_params", "Codex model list limit is invalid", 400);
+      }
+      request.limit = Math.min(MAX_PAGE, request.limit);
+    } else request.limit = MAX_PAGE;
+    let result;
+    try { result = await transport.listModels(request); }
+    catch (error) { retireBrokenTransport(error); throw error; }
+    if (!result || !Array.isArray(result.data)) throw new CodexNativeHistoryError("native_response_invalid", "Codex model list was invalid", 502);
+    const normalized = normalizeModelListResponse({ data: result.data, nextCursor: result.nextCursor ?? null });
+    if (!normalized) throw new CodexNativeHistoryError("native_response_invalid", "Codex model list was invalid", 502);
+    return { data: normalized.data, nextCursor: normalized.nextCursor };
+  }
+
+  async function contextUsage(threadId) {
+    requireReady();
+    if (!validThreadId(threadId)) throw new CodexNativeHistoryError("invalid_thread_id", "Codex thread id is invalid", 400);
+    let snapshot = usageCache.get(threadId) || null;
+    if (!snapshot && typeof transport?.tokenUsage === "function") {
+      try { snapshot = await transport.tokenUsage(threadId); }
+      catch (error) { retireBrokenTransport(error); throw error; }
+    }
+    if (!snapshot && typeof transport?.contextUsage === "function") {
+      try { snapshot = await transport.contextUsage(threadId); }
+      catch (error) { retireBrokenTransport(error); throw error; }
+    }
+    let cached = threadCache.get(threadId);
+    if (!cached && typeof transport?.readThread === "function") {
+      try {
+        const result = await transport.readThread({ threadId, includeTurns: false });
+        cached = publicThread(result?.thread);
+        if (cached) cacheThread(cached);
+      } catch (error) {
+        // Usage is still authoritative when a metadata-only read races a
+        // thread close. Keep the DTO scoped to the requested id and expose an
+        // unknown model instead of inventing one from a stale sibling thread.
+      }
+    }
+    return contextUsageDto(threadId, cached?.model || null, snapshot);
   }
 
   async function listTasks() {
@@ -545,17 +662,28 @@ function createCodexNativeHistoryAdapter({
     return result;
   }
 
-  async function startTurn(input, params = {}) {
+  async function startTurn(input, params = {}, expectedThreadId = null) {
     requireMutation();
     if (!Array.isArray(input) || !input.length) throw new CodexNativeHistoryError("invalid_turn_input", "Codex turn input is invalid", 400);
-    const result = await transport.startTurn(input, params);
+    const normalizedInput = normalizeTurnInput(input);
+    if (!normalizedInput) throw new CodexNativeHistoryError("invalid_turn_input", "Codex turn input is invalid", 400);
+    if (!validTurnOptions(params)) throw new CodexNativeHistoryError("invalid_turn_options", "Codex turn model or effort override is invalid", 400);
+    if (expectedThreadId !== null && !validThreadId(expectedThreadId)) return { kind: "reject", code: "native_thread_mismatch" };
+    if (expectedThreadId !== null && typeof transport?.state === "function" && transport.state().threadId !== expectedThreadId) {
+      return { kind: "reject", code: "native_thread_mismatch" };
+    }
+    const result = await transport.startTurn(normalizedInput, params, expectedThreadId);
     settleMutation(result?.dispatch, result, result?.turnId || result?.completedTurnId || "turn-started");
     return result;
   }
 
-  async function interruptTurn() {
+  async function interruptTurn(expectedThreadId = null) {
     requireMutation();
-    const result = await transport.interruptTurn();
+    if (expectedThreadId !== null && !validThreadId(expectedThreadId)) return { kind: "reject", code: "native_thread_mismatch" };
+    if (expectedThreadId !== null && typeof transport?.state === "function" && transport.state().threadId !== expectedThreadId) {
+      return { kind: "reject", code: "native_thread_mismatch" };
+    }
+    const result = await transport.interruptTurn(expectedThreadId);
     settleMutation(result?.dispatch, result, result?.completedTurnId || result?.turnId || "turn-interrupt-requested");
     return result;
   }
@@ -574,6 +702,8 @@ function createCodexNativeHistoryAdapter({
   async function close() {
     const instance = transport;
     transport = null;
+    usageCache.clear();
+    threadCache.clear();
     state = { ...state, ready: false, sessionReady: false, mutationReady: false, approvalReady: false, state: "closed" };
     if (!instance) return { kind: "closed", cleanupConfirmed: true };
     try { return await instance.close?.() || { kind: "closed", cleanupConfirmed: true }; }
@@ -588,6 +718,8 @@ function createCodexNativeHistoryAdapter({
     readThread,
     listThreadTurns,
     listThreadItems,
+    listModels,
+    contextUsage,
     listTasks,
     startThread,
     resumeThread,
