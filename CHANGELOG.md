@@ -1,5 +1,26 @@
 # Changelog
 
+## 3.0.39
+
+Send image attachments to every connector whose wire format carries them.
+
+- Claude Code, OpenCode, Grok Build, Cline, Kilo Code, and Hermes now accept
+  images. Previously the attach button was hidden for everything except Pi, so
+  the most common mobile action — screenshot a problem and ask about it — only
+  worked with one agent.
+- Each vendor receives its own documented shape: Anthropic content blocks for
+  Claude Code, ACP image blocks for the ACP agents, and file parts for
+  OpenCode. One shared module applies the same count, size, and MIME limits to
+  all of them.
+- Terminal-only CLI connectors keep the attach button hidden, because their
+  stdin takes text and an attachment there would be silently dropped.
+- A malformed attachment is dropped on its own instead of discarding the valid
+  images behind it or failing the whole prompt.
+
+Validation: 1,321 tests passed, 4 skipped, 0 failed; verified against a live
+OpenCode session that the delivered message carries both a text and a file
+part.
+
 ## 3.0.38
 
 Correct the privacy documentation and remove two dead code paths.

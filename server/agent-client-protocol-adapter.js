@@ -12,6 +12,7 @@ const fs = require("node:fs");
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { createLineDecoder } = require("./stream-safety");
+const { acpImageBlocks } = require("./prompt-attachments");
 
 const ACP_VERSION = "acp-v1";
 const MAX_FRAME_BYTES = 2 * 1024 * 1024;
@@ -254,15 +255,19 @@ function createAgentClientProtocolAdapter({
     while (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
     return { kind: sessionId ? "loaded" : "created", sessionId: id, cwd: directory };
   }
-  async function prompt(sessionId, text) {
+  async function prompt(sessionId, text, { images = [] } = {}) {
     const id = safeId(sessionId), value = safeText(text);
-    if (!id || !value) return reject("acp_prompt_invalid");
+    const blocks = acpImageBlocks(images);
+    // An image-only prompt is legitimate ("what is wrong with this screen?"),
+    // so require text only when nothing else was attached.
+    if (!id || !value && !blocks.length) return reject("acp_prompt_invalid");
     const session = sessions.get(id);
     if (!session) return reject("acp_session_unavailable");
     if (session.promptInFlight) return reject("acp_prompt_in_flight");
     session.promptInFlight = true; session.status = "running";
     try {
-      const result = await request("session/prompt", { sessionId: id, prompt: [{ type: "text", text: value }] });
+      const content = value ? [{ type: "text", text: value }, ...blocks] : blocks;
+      const result = await request("session/prompt", { sessionId: id, prompt: content });
       if (result.kind !== "result") session.status = "error";
       return result.kind === "result" ? { kind: "prompted", sessionId: id, result: result.value } : result;
     } finally { session.promptInFlight = false; }

@@ -9,6 +9,7 @@
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { createLineDecoder } = require("./stream-safety");
+const { acpImageBlocks } = require("./prompt-attachments");
 
 const GROK_ACP_VERSION = "grok-acp-v1";
 const MAX_FRAME_BYTES = 1024 * 1024;
@@ -174,15 +175,19 @@ function createGrokAcpAdapter({
     while (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
     return { kind: "created", sessionId: id, cwd: directory };
   }
-  async function prompt(sessionId, text) {
+  async function prompt(sessionId, text, { images = [] } = {}) {
     const id = safeId(sessionId), value = safeText(text);
-    if (!id || !value) return reject("grok_prompt_invalid");
+    const blocks = acpImageBlocks(images);
+    // An image-only prompt is legitimate, so text is required only when no
+    // attachment carries the question.
+    if (!id || !value && !blocks.length) return reject("grok_prompt_invalid");
     if (!sessions.has(id)) return reject("grok_session_unavailable");
     const current = sessions.get(id);
     if (!current || current.promptInFlight) return reject("grok_prompt_in_flight");
     current.promptInFlight = true; current.status = "running";
     try {
-      const result = await request("session/prompt", { sessionId: id, prompt: [{ type: "text", text: value }] });
+      const content = value ? [{ type: "text", text: value }, ...blocks] : blocks;
+      const result = await request("session/prompt", { sessionId: id, prompt: content });
       current.status = result.kind === "result" ? "idle" : "error";
       return result.kind === "result" ? { kind: "prompted", sessionId: id, result: result.value } : result;
     } finally {

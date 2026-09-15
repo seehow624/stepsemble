@@ -74,7 +74,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.38";
+const APP_VERSION = "3.0.39";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -4822,7 +4822,7 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/opencode/message" && req.method === "POST") {
         try {
           const body = await readJSON(req, 2 * 1024 * 1024);
-          sendJSON(res, 200, { message: await openCodeNative.sendMessage(body?.sessionId, body?.text, { model: body?.model, agent: body?.agent, noReply: body?.noReply === true, directory: openCodeDirectory(body?.cwd || body?.directory || null) }) });
+          sendJSON(res, 200, { message: await openCodeNative.sendMessage(body?.sessionId, body?.text, { model: body?.model, agent: body?.agent, noReply: body?.noReply === true, images: body?.images, directory: openCodeDirectory(body?.cwd || body?.directory || null) }) });
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_message_failed" }); }
         return;
       }
@@ -4867,7 +4867,7 @@ const server = http.createServer(async (req, res) => {
         try {
           if (!grokAcp) { const error = new Error("Grok ACP is disabled"); error.statusCode = 409; error.code = "grok_acp_disabled"; throw error; }
           const body = await readJSON(req, 2 * 1024 * 1024);
-          const result = await grokAcp.prompt(body?.sessionId, body?.text || body?.message || "");
+          const result = await grokAcp.prompt(body?.sessionId, body?.text || body?.message || "", { images: body?.images });
           sendJSON(res, result.kind === "reject" ? 409 : 200, result);
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "grok_prompt_failed" }); }
         return;
@@ -4930,7 +4930,7 @@ const server = http.createServer(async (req, res) => {
           }
           if (action === "prompt" && req.method === "POST") {
             const body = await readJSON(req, 2 * 1024 * 1024);
-            const result = await adapter.prompt(body?.sessionId, body?.text || body?.message || "");
+            const result = await adapter.prompt(body?.sessionId, body?.text || body?.message || "", { images: body?.images });
             sendJSON(res, result.kind === "reject" ? 409 : 200, result); return;
           }
           if (action === "cancel" && req.method === "POST") {
@@ -4975,7 +4975,7 @@ const server = http.createServer(async (req, res) => {
           const body = await readJSON(req, 2 * 1024 * 1024);
           const resolved = resolveClaudeStructuredSession(body?.sessionId || "");
           if (!resolved) { const error = new Error("Claude structured session unavailable"); error.statusCode = 404; error.code = "claude_session_unavailable"; throw error; }
-          sendJSON(res, 200, await resolved.session.send(body?.text || body?.message || ""));
+          sendJSON(res, 200, await resolved.session.send(body?.text || body?.message || "", { images: body?.images }));
         } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_prompt_failed" }); }
         return;
       }
@@ -6249,19 +6249,19 @@ const server = http.createServer(async (req, res) => {
         try {
           const taskId = String(body?.taskId || "");
           if (taskId.startsWith("opencode:")) {
-            const message = await openCodeNative.sendMessage(taskId.slice("opencode:".length), body?.message, { directory: openCodeDirectory(body?.cwd || body?.directory || null) });
+          const message = await openCodeNative.sendMessage(taskId.slice("opencode:".length), body?.message, { images: body?.images, directory: openCodeDirectory(body?.cwd || body?.directory || null) });
             sendJSON(res, 200, { sent: true, taskId, message });
           } else if (taskId.startsWith("grok-build:") && grokAcp) {
-            const message = await grokAcp.prompt(taskId.slice("grok-build:".length), body?.message);
+            const message = await grokAcp.prompt(taskId.slice("grok-build:".length), body?.message, { images: body?.images });
             if (message.kind === "reject") { const error = new Error(message.code); error.statusCode = 409; throw error; }
             sendJSON(res, 200, { sent: true, taskId, message });
           } else if (/^(cline|kilo|hermes):/.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {
             const agentId = taskId.split(":", 1)[0];
-            const message = await acpAdapterForAgent(agentId).prompt(taskId.slice(agentId.length + 1), body?.message);
+            const message = await acpAdapterForAgent(agentId).prompt(taskId.slice(agentId.length + 1), body?.message, { images: body?.images });
             if (message.kind === "reject") { const error = new Error(message.code); error.statusCode = 409; throw error; }
             sendJSON(res, 200, { sent: true, taskId, message });
           } else if (taskId.startsWith("claude-code:") && resolveClaudeStructuredSession(taskId)) {
-            const message = await resolveClaudeStructuredSession(taskId).session.send(body?.message || "");
+            const message = await resolveClaudeStructuredSession(taskId).session.send(body?.message || "", { images: body?.images });
             if (message.kind === "reject") { const error = new Error(message.code); error.statusCode = 409; throw error; }
             sendJSON(res, 200, { sent: true, taskId, message });
           } else if (taskId.startsWith("antigravity:") && antigravityStructuredSessions.has(taskId.slice("antigravity:".length))) {

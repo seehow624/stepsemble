@@ -1,7 +1,7 @@
-/* stepsemble v3.0.38 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.39 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.38";
+const CLIENT_APP_VERSION = "3.0.39";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -4176,6 +4176,17 @@ function agentConnectorLabel(agentId) {
   return agentCatalog.find((item) => item.id === id)?.label || id || "Agent";
 }
 
+// Connectors whose prompt wire format carries image attachments. Terminal-only
+// CLI connectors are excluded: their stdin takes text, so an attachment there
+// would be silently dropped rather than seen by the agent.
+function connectorAcceptsImages(connection = rpc) {
+  if (!connection) return false;
+  if (!connection.generic) return true; // Pi's native RPC has always taken images.
+  if (connection.nativeHistoryReadonly === true || connection.readOnly === true) return false;
+  return !!(connection.nativeOpenCode || connection.nativeGrokAcp || connection.nativeAcp
+    || connection.nativeClaudeStructured);
+}
+
 function genericTaskTerminal(status) {
   return ["completed", "failed", "stopped", "orphaned", "detached"].includes(String(status || ""));
 }
@@ -7624,7 +7635,9 @@ function setStreaming(on) {
   // Keep the shared model control visible for it; other generic connectors do
   // not have a safe model route and should continue hiding the control.
   el.btnModel?.classList.toggle("hidden", generic && !rpc?.nativeOpenCode);
-  el.btnImg?.classList.toggle("hidden", generic);
+  // Attachments follow the connector's wire format, not the Pi/generic split:
+  // OpenCode, Claude Code and the ACP agents all carry image content blocks.
+  el.btnImg?.classList.toggle("hidden", !connectorAcceptsImages(rpc));
   el.contextDashboard?.classList.toggle("hidden", generic);
   el.btnSend.title = on ? "" : (window.stepsembleI18n?.t("Send") || "Send");
   el.btnAbort.title = on ? (window.stepsembleI18n?.t("Stop") || "Stop") : "";
@@ -7829,7 +7842,7 @@ async function sendCurrent() {
   const generic = !!rpc.generic;
   const inputBlock = genericInputBlock();
   if (inputBlock) { toast(agentHubText(inputBlock), true); return; }
-  if (generic && pendingImages.length) {
+  if (generic && pendingImages.length && !connectorAcceptsImages(rpc)) {
     toast(agentHubText("cliTextOnly"), true);
     return;
   }
@@ -7864,13 +7877,13 @@ async function sendCurrent() {
   try {
     const result = generic
       ? (rpc?.nativeOpenCode
-        ? await post("/api/opencode/message", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text, model: currentOpenCodeModelPayload(rpc.openCodeModel) })
+        ? await post("/api/opencode/message", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text, images, model: currentOpenCodeModelPayload(rpc.openCodeModel) })
         : rpc?.nativeGrokAcp
-          ? await post("/api/grok/acp/prompt", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
+          ? await post("/api/grok/acp/prompt", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text, images })
           : rpc?.nativeAcp
-            ? await post(`/api/${rpc.acpAgentId}/acp/prompt`, { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
+            ? await post(`/api/${rpc.acpAgentId}/acp/prompt`, { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text, images })
           : rpc?.nativeClaudeStructured
-            ? await post("/api/claude/structured/prompt", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
+            ? await post("/api/claude/structured/prompt", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text, images })
             : rpc?.nativeAntigravityStructured
               ? await post("/api/antigravity/structured/prompt", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
             : rpc?.nativeCodexMutation

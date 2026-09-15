@@ -11,6 +11,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { createLineDecoder } = require("./stream-safety");
+const { claudeImageBlocks } = require("./prompt-attachments");
 
 const CLAUDE_STRUCTURED_VERSION = "claude-cli-stream-json-v1";
 const MAX_LINE_BYTES = 1024 * 1024;
@@ -258,12 +259,17 @@ function createClaudeStructuredSession({
     }));
     return writeChain;
   }
-  function sendUser(text) {
+  function sendUser(text, { images = [] } = {}) {
     const failure = ensureOpen(); if (failure) return Promise.resolve(failure);
-    const value = safeText(text, MAX_PROMPT); if (!value) return Promise.resolve(reject("claude_prompt_invalid"));
+    const value = safeText(text, MAX_PROMPT);
+    const blocks = claudeImageBlocks(images);
+    // An image-only prompt is legitimate, so require text only when nothing
+    // else carries the question.
+    if (!value && !blocks.length) return Promise.resolve(reject("claude_prompt_invalid"));
     state = "running";
     lastActivityAt = Date.now();
-    return enqueueJson({ type: "user", message: { role: "user", content: [{ type: "text", text: value }] } })
+    const content = value ? [{ type: "text", text: value }, ...blocks] : blocks;
+    return enqueueJson({ type: "user", message: { role: "user", content } })
       .then(result => result.kind === "reject" ? result : ({ ...result, kind: "sent", nativeSessionId: parser.status().sessionId || sessionId }));
   }
   function acknowledgePermission(requestId, decision) {

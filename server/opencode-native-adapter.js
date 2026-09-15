@@ -9,6 +9,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { openCodeImageParts } = require("./prompt-attachments");
 
 const DEFAULT_TIMEOUT_MS = 8_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -495,13 +496,19 @@ function createOpenCodeNativeAdapter({
     return session;
   }
 
-  async function sendMessage(sessionId, text, { model = null, agent = null, noReply = false, directory = null } = {}) {
+  async function sendMessage(sessionId, text, { model = null, agent = null, noReply = false, directory = null, images = [] } = {}) {
     if (!validId(sessionId)) throw new OpenCodeNativeError("invalid_session_id", "OpenCode session id is invalid", 400);
     const message = String(text ?? "");
-    if (!message || message.length > MAX_TEXT) throw new OpenCodeNativeError("invalid_message", "OpenCode message is empty or too large", 400);
+    const imageParts = openCodeImageParts(images);
+    // An image-only prompt is legitimate, so require text only when no
+    // attachment carries the question.
+    if (!message && !imageParts.length || message.length > MAX_TEXT) {
+      throw new OpenCodeNativeError("invalid_message", "OpenCode message is empty or too large", 400);
+    }
     const safeDirectory = directory === null ? null : normalizeDirectory(directory);
     if (directory !== null && safeDirectory === null) throw new OpenCodeNativeError("invalid_directory", "OpenCode directory is invalid", 400);
-    const body = { parts: [{ type: "text", text: message }], noReply: noReply === true };
+    const parts = message ? [{ type: "text", text: message }, ...imageParts] : imageParts;
+    const body = { parts, noReply: noReply === true };
     if (model && typeof model === "object") body.model = clone(model);
     if (agent) body.agent = cleanText(agent, 128);
     // The async prompt endpoint keeps the Web UI responsive while the native
