@@ -1,7 +1,7 @@
-/* stepsemble v3.0.41 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.42 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.41";
+const CLIENT_APP_VERSION = "3.0.42";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -4266,6 +4266,17 @@ function connectorAcceptsImages(connection = rpc) {
     || connection.nativeClaudeStructured);
 }
 
+// Model choice and the context gauge both describe a live conversation this
+// Host can still influence. A stored transcript is an observation, so these
+// controls stay hidden there even though the underlying connector supports
+// them.
+function connectorAllowsLiveControls(connection = rpc) {
+  if (!connection) return false;
+  if (connection.nativeHistoryReadonly === true || connection.readOnly === true) return false;
+  if (!connection.generic) return true;
+  return !!(connection.nativeOpenCode || connection.nativeAcp);
+}
+
 function genericTaskTerminal(status) {
   return ["completed", "failed", "stopped", "orphaned", "detached"].includes(String(status || ""));
 }
@@ -6072,6 +6083,31 @@ function contextDashboardIdentity() {
 // OpenCode reports per-message token usage and the model that produced it.
 // Feeding that into the existing dashboard keeps one context display for every
 // agent instead of a second, parallel one.
+// ACP returns the turn's token usage on the prompt reply rather than in the
+// event stream, so it is captured where the reply lands.
+function applyAcpContextStats(result, connection = rpc) {
+  if (!connection?.nativeAcp || rpc !== connection) return;
+  const usage = result?.result?.usage || result?.usage || null;
+  if (!usage) return;
+  const input = finiteNonNegative(usage.inputTokens) ?? 0;
+  const output = finiteNonNegative(usage.outputTokens) ?? 0;
+  const reasoning = finiteNonNegative(usage.thoughtTokens) ?? 0;
+  const cacheRead = finiteNonNegative(usage.cachedReadTokens) ?? 0;
+  const used = finiteNonNegative(usage.totalTokens) ?? (input + cacheRead + output + reasoning);
+  const capacity = positiveFinite(composerModelContextWindow);
+  contextStats = {
+    tokens: { input, output, reasoning, cacheRead, cacheWrite: 0 },
+    contextUsage: {
+      tokens: used,
+      contextWindow: capacity,
+      percent: capacity ? Math.min(100, (used / capacity) * 100) : null,
+    },
+    contextCapacity: capacity,
+  };
+  contextStatsState = "ready";
+  renderContextDashboard();
+}
+
 function applyOpenCodeContextStats(snapshot, connection = rpc) {
   if (!connection?.nativeOpenCode || rpc !== connection) return;
   const assistant = (snapshot?.messages || []).filter((message) => message?.role === "assistant");
@@ -7744,18 +7780,16 @@ function setStreaming(on) {
   // Interactive CLI agents accept follow-up input while they are alive, so
   // keep Send available for them. Pi's native RPC retains its queue/abort UX.
   el.btnSend.classList.toggle("hidden", on && !generic);
-  // OpenCode's native server is also a live, model-switchable conversation.
-  // Keep the shared model control visible for it; other generic connectors do
-  // not have a safe model route and should continue hiding the control.
-  // OpenCode has a native model API; ACP agents expose the same choice through
-  // session config options. Other connectors have no safe model route.
-  el.btnModel?.classList.toggle("hidden", generic && !rpc?.nativeOpenCode && !rpc?.nativeAcp);
+  // OpenCode has a native model API and ACP agents expose the same choice as a
+  // session config option. Other connectors have no safe model route, and a
+  // read-only history row must not offer to change anything.
+  el.btnModel?.classList.toggle("hidden", !connectorAllowsLiveControls(rpc));
   // Attachments follow the connector's wire format, not the Pi/generic split:
   // OpenCode, Claude Code and the ACP agents all carry image content blocks.
   el.btnImg?.classList.toggle("hidden", !connectorAcceptsImages(rpc));
-  // The dashboard is driven by whatever usage the connector reports. OpenCode
-  // supplies per-message token counts, so it gets the same display as Pi.
-  el.contextDashboard?.classList.toggle("hidden", generic && !rpc?.nativeOpenCode);
+  // The gauge is driven by whatever usage the connector reports: OpenCode
+  // supplies per-turn token counts and ACP returns them on the prompt reply.
+  el.contextDashboard?.classList.toggle("hidden", !connectorAllowsLiveControls(rpc));
   el.btnSend.title = on ? "" : (window.stepsembleI18n?.t("Send") || "Send");
   el.btnAbort.title = on ? (window.stepsembleI18n?.t("Stop") || "Stop") : "";
 }
@@ -8008,6 +8042,9 @@ async function sendCurrent() {
           : await post("/api/agent/send", { taskId: sendSid, message: text }))
       : await post("/api/send", { sid: sendSid, message: text, images }); // /skill:xxx 等直接透傳，pi 原生處理
     removeDraftForKey(sendDraftKey);
+    // ACP reports the turn's token usage on this reply, not in its event
+    // stream, so the context gauge is updated from here.
+    if (rpc?.nativeAcp && rpc.sid === sendSid) applyAcpContextStats(result, rpc);
     if (rpc?.nativeCodexMutation && rpc.sid === sendSid && ["started", "requested"].includes(result?.kind)) {
       rpc.taskStatus = "running";
       setStreaming(true);

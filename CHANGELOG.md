@@ -1,5 +1,26 @@
 # Changelog
 
+## 3.0.42
+
+Verify each composer control against what the connector can actually do.
+
+- ACP agents now feed the context gauge. Their prompt reply carries the turn's
+  token usage, which was being discarded; a live Hermes turn reports 18,450
+  tokens.
+- Fix a read-only transcript still offering model choice and a context gauge.
+  The attachment button already refused, but the other two controls did not
+  check the read-only markers.
+- Pin the capability matrix in a test, so a connector cannot silently gain a
+  control its wire format cannot honour.
+
+Verified live on this host: Hermes accepts an image prompt and replies, its
+ACP session advertises no model option and says so rather than showing an
+empty sheet, Codex opens as a terminal connector and therefore exposes none of
+the three controls, and Claude Code requires desktop sign-in before a session
+can start.
+
+Validation: 1,328 tests passed, 4 skipped, 0 failed.
+
 ## 3.0.41
 
 Bring model choice and the context gauge to the connectors that can support
