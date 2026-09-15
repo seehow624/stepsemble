@@ -2,7 +2,8 @@
 
 ## 3.0.42
 
-Verify each composer control against what the connector can actually do.
+Verify each composer control against what the connector can actually do, and
+stop idle ACP sessions from blocking updates.
 
 - ACP agents now feed the context gauge. Their prompt reply carries the turn's
   token usage, which was being discarded; a live Hermes turn reports 18,450
@@ -12,6 +13,10 @@ Verify each composer control against what the connector can actually do.
   check the read-only markers.
 - Pin the capability matrix in a test, so a connector cannot silently gain a
   control its wire format cannot honour.
+- Report an idle ACP session (Cline, Kilo Code, Hermes, Grok Build) as history
+  rather than "waiting". The same mislabelling was fixed for OpenCode in
+  3.0.34; it survived here and silently blocked an install on this host,
+  because the update guard treats a waiting task as active work.
 
 Verified live on this host: Hermes accepts an image prompt and replies, its
 ACP session advertises no model option and says so rather than showing an

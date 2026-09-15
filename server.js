@@ -2512,8 +2512,10 @@ function publicGrokAcpTask(session) {
     nativeSessionId: session.id,
     name: session.name || `Grok ${session.id.slice(0, 8)}`,
     cwd: session.cwd || "",
-    status: session.status === "running" ? "running" : "waiting",
+    // An idle ACP session is a stored conversation, not queued work.
+    status: session.status === "running" ? "running" : "history",
     isRunning: session.status === "running",
+    idleNativeSession: session.status !== "running",
     startedAt: null,
     endedAt: null,
     lastActivityAt: null,
@@ -2541,8 +2543,12 @@ function publicAgentClientProtocolTask(agentId, session) {
     persisted: session.persisted === true,
     name: session.name || `${agentId === "cline" ? "Cline" : agentId === "kilo" ? "Kilo Code" : "Hermes Agent"} ${session.id.slice(0, 8)}`,
     cwd,
-    status: running ? "running" : "waiting",
+    // An idle ACP session is a stored conversation, not queued work. Calling
+    // it "waiting" made it claim to be a pending task and, because the update
+    // guard treats waiting as active, silently blocked installs.
+    status: running ? "running" : "history",
     isRunning: running,
+    idleNativeSession: !running,
     startedAt: null,
     endedAt: null,
     lastActivityAt: Number(session.lastActivityAt) || null,
