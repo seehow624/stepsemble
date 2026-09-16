@@ -42,7 +42,9 @@ const { createOpenCodeNativeAdapter } = require("./server/opencode-native-adapte
 const { taskFromThread: codexTaskFromThread } = require("./server/codex-native-history-adapter");
 const { createGrokAcpAdapter } = require("./server/grok-acp-adapter");
 const { createAgentClientProtocolAdapter, readSessionRegistry, writeSessionRegistry } = require("./server/agent-client-protocol-adapter");
-const { createClaudeStructuredSession, CLAUDE_STRUCTURED_VERSION } = require("./server/claude-code-structured-adapter");
+const { CLAUDE_STRUCTURED_VERSION } = require("./server/claude-code-structured-adapter");
+const { launchClaudeStructuredSession } = require("./server/claude-structured-launch");
+const { createClaudeDesktopUpgradeService } = require("./server/claude-desktop-upgrade");
 const { createAntigravityStructuredSession, ANTIGRAVITY_STRUCTURED_VERSION } = require("./server/antigravity-cli-structured-adapter");
 const { createClaudeAuthService, handleClaudeAuthRequest } = require("./server/claude-auth");
 const { createDesktopClaudeClient } = require("./server/claude-desktop-client");
@@ -78,7 +80,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.47";
+const APP_VERSION = "3.0.48";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1749,6 +1751,7 @@ const piResources = createPiResourcesService({ home: APP_HOME });
 // reconnect surface.  Both are exposed through the Agent Hub task inbox.
 let claudeLaunchReservations = 0;
 let nativeWorkRequests = 0;
+let claudeDesktopUpgrade = null;
 const NATIVE_WORK_ROUTE = /^\/api\/(?:open|send|cmd|rpc-cmd|rpc-ui|agent\/(?:open|send|approval)|codex\/mutation\/(?:turn|resume|approval)|opencode\/(?:session|message|model|permission)|(?:grok|cline|kilo|hermes)\/acp\/(?:session|prompt|permission)|(?:claude|antigravity)\/structured\/(?:prompt|model|permission))$/;
 const hasClaudeTasks = () => claudeLaunchReservations > 0 || agentTasks.list().some(task => task.agentId === "claude-code" && ["starting", "running", "reconnecting", "waiting"].includes(task.status));
 const desktopClaude = process.platform === "darwin" && (process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY
@@ -1992,6 +1995,14 @@ try {
   harnessUpdateService = null;
 }
 const claudeAuth = desktopClaude || createClaudeAuthService({ home: APP_HOME, env: process.env, hasActiveTasks: hasClaudeTasks });
+claudeDesktopUpgrade = createClaudeDesktopUpgradeService({ desktopClient: desktopClaude,
+  isBusy: () => nativeWorkRequests > 0 || claudeLaunchReservations > 0 || claudeAuth.isBusy()
+    || harnessUpdateService?.isRunning() || updateProcessIsRunning() || hasClaudeTasks()
+    || [...claudeStructuredSessions.values()].some(session => {
+      const value = session.status();
+      return !value.processExited && !value.cleanupConfirmed;
+    }),
+});
 
 function revealProject(cwd) {
   const real = projectDirectory(cwd);
@@ -2477,7 +2488,7 @@ function activeAgentTasksForUpdate() {
   try {
     const tasks = agentTasks.list().filter((task) =>
       ["starting", "running", "waiting", "reconnecting"].includes(String(task?.status || "")));
-    if (nativeWorkRequests > 0 || claudeLaunchReservations > 0 || codexNative.hasActiveWork() || openCodeSetupPromise) tasks.push({ id: "native-reservation", status: "running" });
+    if (nativeWorkRequests > 0 || claudeLaunchReservations > 0 || codexNative.hasActiveWork() || openCodeSetupPromise || claudeDesktopUpgrade?.isRunning()) tasks.push({ id: "native-reservation", status: "running" });
     const native = [];
     for (const [id, session] of claudeStructuredSessions) native.push(publicClaudeStructuredTask(id, session));
     for (const [id, session] of antigravityStructuredSessions) native.push(publicAntigravityStructuredTask(id, session));
@@ -2634,7 +2645,8 @@ function publicClaudeStructuredTask(id, session) {
   const nativeSessionId = status.nativeSessionId || id;
   const idle = status.state === "waiting" && typeof session.pendingPermissions === "function"
     && session.pendingPermissions().length === 0;
-  const taskStatus = status.closed ? "stopped" : status.failed ? "failed" : status.state === "running" ? "running" : idle ? "history" : "waiting";
+  const cleanupPending = (status.closed || !!status.failed) && status.processExited === false;
+  const taskStatus = cleanupPending ? "reconnecting" : status.closed ? "stopped" : status.failed ? "failed" : status.state === "running" ? "running" : idle ? "history" : "waiting";
   return {
     id: `claude-code:${id}`,
     taskId: `claude-code:${id}`,
@@ -2648,7 +2660,8 @@ function publicClaudeStructuredTask(id, session) {
     name: session.name || `Claude Code ${(status.nativeSessionId || id).slice(0, 8)}`,
     cwd: session.cwd || "",
     status: taskStatus,
-    isRunning: taskStatus === "running" || taskStatus === "waiting",
+    isRunning: cleanupPending || taskStatus === "running" || taskStatus === "waiting",
+    cleanupPending,
     idleNativeSession: taskStatus === "history",
     startedAt: Number(status.startedAt) || null,
     endedAt: status.closed || status.failed ? Date.now() : null,
@@ -2743,7 +2756,7 @@ function publicAntigravityStructuredTask(id, session) {
 
 async function listAgentTasksWithOpenCode() {
   const tasks = listAgentTasks();
-  if (nativeWorkRequests || openCodeSetupPromise) tasks.push({ id: "native:request", taskId: "native:request",
+  if (nativeWorkRequests || openCodeSetupPromise || claudeDesktopUpgrade?.isRunning()) tasks.push({ id: "native:request", taskId: "native:request",
     name: "Native connection in progress", status: "starting", isRunning: true, readOnly: true });
   if (openCodeNative.status().ready) {
     try {
@@ -4790,7 +4803,15 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (p.startsWith("/api/claude-auth/")) {
+        if (req.method === "POST" && claudeDesktopUpgrade.isRunning()) { sendJSON(res, 409, { error: "desktop_upgrade_in_progress" }); return; }
         await handleClaudeAuthRequest({ req, res, pathname: p, auth, service: claudeAuth, machine: MACHINE_NAME, readJSON, sendJSON });
+        return;
+      }
+
+      if (p === "/api/claude/desktop/upgrade" && req.method === "POST") {
+        if (auth.mode === "browser" && !req.headers.origin) { sendJSON(res, 403, { error: "origin_required" }); return; }
+        try { sendJSON(res, 200, await claudeDesktopUpgrade.upgrade(await readJSON(req, 1024))); }
+        catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "desktop_upgrade_failed" }); }
         return;
       }
 
@@ -5113,7 +5134,7 @@ const server = http.createServer(async (req, res) => {
           const body = await readJSON(req, 64 * 1024);
           const resolved = resolveClaudeStructuredSession(body?.sessionId || "");
           if (!resolved) { const error = new Error("Claude structured session unavailable"); error.statusCode = 404; error.code = "claude_session_unavailable"; throw error; }
-          const result = resolved.session.acknowledgePermission(body?.requestId, body?.decision);
+          const result = await resolved.session.acknowledgePermission(body?.requestId, body?.decision);
           sendJSON(res, result.kind === "reject" ? 409 : 200, result);
         } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_permission_failed" }); }
         return;
@@ -6266,6 +6287,9 @@ const server = http.createServer(async (req, res) => {
         res.once("close", onResponseClose);
         try {
           const agentId = String(body?.agentId || "pi").trim().toLowerCase();
+          if (agentId === "claude-code" && claudeDesktopUpgrade.isRunning()) {
+            sendJSON(res, 409, { error: "desktop_upgrade_in_progress" }); return;
+          }
           if (agentId === "claude-code" && claudeAuth.isBusy()) {
             sendJSON(res, 409, { error: "Claude official sign-in is active; wait for it to finish", code: "claude_login_active" }); return;
           }
@@ -6354,12 +6378,17 @@ const server = http.createServer(async (req, res) => {
             const sessionCwd = nativeAgentDirectory(cwd, "Claude Code");
             const sessionName = body?.name || null;
             const resumeSessionId = body?.resumeSessionId || null;
-            const session = createClaudeStructuredSession({ command: claudeStructuredCommand, cwd: sessionCwd, env: process.env,
+            const session = await launchClaudeStructuredSession({ desktopClient: desktopClaude,
+              command: claudeStructuredCommand, cwd: sessionCwd, env: process.env,
               name: sessionName, permissionPromptTool: claudePermissionPromptTool, sessionId: resumeSessionId,
               onEvent: event => { try { if (event?.sessionId) rememberClaudeStructuredSession(event.sessionId, { cwd: sessionCwd, name: sessionName }); } catch {} } });
             if (resumeSessionId) rememberClaudeStructuredSession(resumeSessionId, { cwd: sessionCwd, name: sessionName });
             claudeStructuredSessions.set(localId, session);
-            if (requesterGone) { void session.close(); claudeStructuredSessions.delete(localId); return; }
+            if (requesterGone) {
+              const result = await session.close();
+              if (result.cleanupConfirmed) claudeStructuredSessions.delete(localId);
+              return;
+            }
             sendJSON(res, 201, { ...publicClaudeStructuredTask(localId, session), kind: "claude-structured", agentId: "claude-code" });
           } else if (agentId === "antigravity" && antigravityStructuredEnabled && antigravityCommand && !worktree) {
             const localId = crypto.randomUUID();

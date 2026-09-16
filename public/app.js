@@ -1,7 +1,7 @@
-/* stepsemble v3.0.47 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.48 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.47";
+const CLIENT_APP_VERSION = "3.0.48";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -12,6 +12,7 @@ const sessionUtils = window.stepsembleSessionUtils;
 const piSession = window.StepsemblePiSession;
 const contextUtils = window.stepsembleContextUtils;
 const openCodeContext = window.stepsembleOpenCodeContext;
+const claudeStructuredRendering = window.stepsembleClaudeStructuredRendering;
 if (!foundation || !sessionUtils || !contextUtils || !piSession) throw new Error("Stepsemble foundation modules are missing");
 const {
   SELECTED_KEY, SETTINGS_KEY, LEGACY_SETTINGS_KEY, LEGACY_SETTINGS_KEYS, SETTINGS_VERSION,
@@ -4517,10 +4518,8 @@ function updateAgentTaskCache(task) {
   syncAgentTaskPolling();
 }
 
-function appendGenericOutput(text, stream = "stdout") {
-  if (!rpc?.generic) return;
-  const clean = stripAnsi(String(text ?? ""));
-  if (!clean) return;
+function ensureGenericOutputNode(stream = "stdout") {
+  if (!rpc?.generic) return null;
   if (!rpc.genericOutputNode || rpc.genericOutputNode.dataset.stream !== stream) {
     const shell = makeMsgShell("assistant", rpc.agentLabel || "Agent");
     const pre = document.createElement("pre");
@@ -4529,7 +4528,28 @@ function appendGenericOutput(text, stream = "stdout") {
     shell.bubble.appendChild(pre);
     rpc.genericOutputNode = pre;
   }
-  rpc.genericOutputNode.textContent += clean;
+  return rpc.genericOutputNode;
+}
+
+function appendGenericOutput(text, stream = "stdout") {
+  if (!rpc?.generic) return;
+  const clean = stripAnsi(String(text ?? ""));
+  if (!clean) return;
+  const node = ensureGenericOutputNode(stream);
+  if (!node) return;
+  node.textContent += clean;
+  scrollBottom();
+}
+
+function replaceClaudeStructuredOutputTail(connection, text) {
+  if (rpc !== connection || !connection?.nativeClaudeStructured) return;
+  const clean = stripAnsi(String(text ?? ""));
+  if (!clean) return;
+  const node = ensureGenericOutputNode("stdout");
+  if (!node) return;
+  const start = Number.isSafeInteger(connection.claudeOutputStart)
+    ? Math.min(Math.max(0, connection.claudeOutputStart), node.textContent.length) : node.textContent.length;
+  node.textContent = node.textContent.slice(0, start) + clean;
   scrollBottom();
 }
 
@@ -5449,11 +5469,29 @@ async function openGrokAcpTask(task, generationOverride = null) {
 function renderClaudeStructuredEvents(connection, events, { replace = false } = {}) {
   if (rpc !== connection || !connection?.nativeClaudeStructured) return;
   const rows = Array.isArray(events) ? events : [];
-  if (replace) { el.messages.innerHTML = ""; connection.claudeEventIndex = 0; }
+  if (replace) {
+    el.messages.innerHTML = "";
+    // The output node may belong to the old detached transcript after a
+    // replace. Drop it together with the renderer so the next turn starts at
+    // a fresh, attached node.
+    rpc.genericOutputNode = null;
+    connection.claudeEventIndex = 0;
+    connection.claudeOutputStart = null;
+    connection.claudeRenderer?.reset?.();
+  }
+  const renderer = connection.claudeRenderer
+    || (claudeStructuredRendering?.createRenderer ? claudeStructuredRendering.createRenderer() : null);
+  connection.claudeRenderer = renderer;
   for (let index = connection.claudeEventIndex || 0; index < rows.length; index += 1) {
     const event = rows[index];
-    const text = event?.delta || event?.text || event?.result || event?.message?.content?.find?.(part => part?.type === "text")?.text || "";
-    if (text) appendGenericOutput(String(text), "stdout");
+    const update = renderer?.consume?.(event);
+    if (!update?.text) continue;
+    if (update.beginTurn || !Number.isSafeInteger(connection.claudeOutputStart)) {
+      const current = rpc.genericOutputNode;
+      connection.claudeOutputStart = current?.dataset?.stream === "stdout" ? current.textContent.length : 0;
+    }
+    if (update.mode === "replace") replaceClaudeStructuredOutputTail(connection, update.text);
+    else appendGenericOutput(update.text, "stdout");
   }
   connection.claudeEventIndex = rows.length;
   keepSessionUsageAtEnd(); scrollBottom();
@@ -5583,7 +5621,8 @@ async function openClaudeStructuredTask(task, generationOverride = null) {
   el.viewChat.classList.remove("hidden"); void refreshProjectChanges({ background: true });
   rpc = { sid: `claude-code:${nativeSessionId}`, generic: true, nativeClaudeStructured: true, nativeSessionId, nativeLoading: true,
     connectionLost: false, stopPending: false, streamReady: true, taskStatus: "waiting", genericOutputNode: null, genericTerminalNotice: null,
-    genericInputEchoes: [], claudeEventIndex: 0, claudeModel: null, claudeModelSelected: false,
+    genericInputEchoes: [], claudeEventIndex: 0, claudeOutputStart: null,
+    claudeRenderer: claudeStructuredRendering?.createRenderer?.() || null, claudeModel: null, claudeModelSelected: false,
     claudeModels: null, claudeModelsLoaded: false, agentId: "claude-code", agentLabel: "Claude Code", name, cwd,
     runStartedAt: Number(task.startedAt) || Date.now(), runEndedAt: null };
   const connection = rpc; claudeStructuredPollTimer = null;

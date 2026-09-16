@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.0.48
+
+Run native Claude conversations in the same macOS desktop context as sign-in.
+
+- Route Claude stream-json through the owner-only desktop helper when the
+  web host runs over SSH. Never silently retry through the SSH process after
+  an unavailable or uncertain desktop launch.
+- Preserve the native model, image, approval, interrupt and context channels
+  with bounded local transport and owned-child cleanup.
+- Add an explicit, idle-only upgrade path for an already-installed helper,
+  preserving its configuration and credentials with rollback on failure.
+- Reconcile Claude streamed text and final results per turn, so a repeated
+  final error or answer is not appended twice.
+
+See `docs/release-3.0.48.md` for validation and remaining sign-in boundaries.
+
 ## 3.0.47
 
 Make context usage visible and keep missing or historical data honest.

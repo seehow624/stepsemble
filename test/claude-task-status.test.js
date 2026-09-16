@@ -35,3 +35,14 @@ test("idle Claude process without permissions is history; real work and unknown 
   }
   assert.equal(live("owned-session", { status: () => ({ state: "waiting" }) }).isRunning, true);
 });
+test("failed or closed Claude transport is not update-idle until its child exit is confirmed", () => {
+  for (const value of [{ failed: "desktop_structured_stream_closed" }, { closed: true }]) {
+    const pending = live("owned-session", { status: () => ({ ...value, processExited: false }) });
+    assert.equal(pending.status, "reconnecting");
+    assert.equal(pending.cleanupPending, true);
+    assert.equal(pending.isRunning, true);
+    const reaped = live("owned-session", { status: () => ({ ...value, processExited: true }) });
+    assert.equal(reaped.isRunning, false);
+    assert.equal(reaped.cleanupPending, false);
+  }
+});

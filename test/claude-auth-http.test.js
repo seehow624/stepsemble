@@ -40,8 +40,14 @@ async function startHost(t) {
 test("real HTTP auth handoff requires authentication/origin and isolates login from tasks and secret journals", async t => {
   const f = await startHost(t);
   assert.equal((await f.request("/api/claude-auth/status")).status, 401);
+  assert.equal((await f.request("/api/claude/desktop/upgrade", { method: "POST", body: { confirm: true } })).status, 401);
   const login = await f.request("/api/login", { method: "POST", body: { token: "synthetic-auth-http-token" } });
   const cookie = login.headers["set-cookie"][0].split(";")[0];
+  const upgrade = (body, origin) => f.request("/api/claude/desktop/upgrade", { method: "POST", cookie, body, ...(origin === undefined ? {} : { origin }) });
+  assert.equal((await upgrade({ confirm: true }, "https://evil.invalid")).status, 403);
+  assert.equal((await upgrade({ confirm: true }, "")).status, 403);
+  assert.equal((await upgrade({ confirm: true, command: "arbitrary" })).body.error, "invalid_request");
+  assert.equal((await upgrade({ confirm: true })).body.error, "desktop_required", "repair must never auto-install an absent desktop helper");
   const post = (action, body, origin) => f.request(`/api/claude-auth/${action}`, { method: "POST", body, cookie, ...(origin === undefined ? {} : { origin }) });
   const status = await f.request("/api/claude-auth/status", { cookie });
   assert.equal(status.status, 200); assert.equal(status.body.credential.state, "signed_out"); assert.equal(status.headers["cache-control"], "no-store");

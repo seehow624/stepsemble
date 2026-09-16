@@ -702,7 +702,7 @@ function createClaudeStructuredSession({
       return { ...current, closed, failed: current.failed || processError?.code || null,
         nativeSessionId: current.sessionId || sessionId, state: current.failed || processError ? "failed" : state,
         model: selectedModel || null, contextUsage: contextUsage(),
-        startedAt, lastActivityAt, exitCode, exitSignal, cleanupConfirmed: closed && childExited };
+        startedAt, lastActivityAt, exitCode, exitSignal, processExited: childExited, cleanupConfirmed: closed && childExited };
     },
     events: () => parser.events(),
     text: () => parser.text(),
