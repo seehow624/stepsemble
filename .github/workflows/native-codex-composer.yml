@@ -1,0 +1,108 @@
+name: Native Codex composer contract
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/native-codex-composer.yml'
+      - 'scripts/check-native-codex-composer.mjs'
+      - 'scripts/check-native-codex-parallel.mjs'
+      - 'server/codex-app-server-transport.js'
+      - 'server/codex-compatibility.js'
+      - 'server/codex-native-history-adapter.js'
+      - 'server/codex-native-pool.js'
+      - 'server/codex-approval-bridge.js'
+      - 'server/prompt-attachments.js'
+      - 'server/stream-safety.js'
+      - 'protocol/native/codex/**'
+      - 'test/native-codex-*.test.js'
+  pull_request:
+    paths:
+      - '.github/workflows/native-codex-composer.yml'
+      - 'scripts/check-native-codex-composer.mjs'
+      - 'scripts/check-native-codex-parallel.mjs'
+      - 'server/codex-app-server-transport.js'
+      - 'server/codex-compatibility.js'
+      - 'server/codex-native-history-adapter.js'
+      - 'server/codex-native-pool.js'
+      - 'server/codex-approval-bridge.js'
+      - 'server/prompt-attachments.js'
+      - 'server/stream-safety.js'
+      - 'protocol/native/codex/**'
+      - 'test/native-codex-*.test.js'
+
+permissions:
+  contents: read
+
+jobs:
+  native-composer:
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Digests are the SHA-256 values published by the official
+        # openai/codex rust-v0.154.0 release API.  Keep the archive hash
+        # check before extracting its one fixed binary member.
+        include:
+          - os: macos-14
+            asset: codex-aarch64-apple-darwin.tar.gz
+            binary: codex-aarch64-apple-darwin
+            sha256: 344310a0a591c1b192e04feff304321a69907c9498baaac331ca7e16ebcef9d7
+          - os: ubuntu-24.04
+            asset: codex-x86_64-unknown-linux-musl.tar.gz
+            binary: codex-x86_64-unknown-linux-musl
+            sha256: d7e18b2597ae8f242f5f31ee9e90deef48dbc9edd634d9868fb6435d08c07f02
+          - os: windows-2025
+            asset: codex-x86_64-pc-windows-msvc.exe.tar.gz
+            binary: codex-x86_64-pc-windows-msvc.exe
+            sha256: 4e96740782869faff9d424806d4419afd2ee51ea5ece6cec462912b7098497a1
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.19.0
+          package-manager-cache: false
+      - name: Fetch and verify the pinned official Codex 0.154.0 artifact
+        id: artifact
+        shell: bash
+        env:
+          ASSET: ${{ matrix.asset }}
+          BINARY: ${{ matrix.binary }}
+          EXPECTED_SHA256: ${{ matrix.sha256 }}
+        run: |
+          artifact_root="$(mktemp -d)"
+          archive="$artifact_root/codex-0.154.0.tar.gz"
+          curl --fail --location --proto '=https' --proto-redir '=https' --max-time 120 --max-filesize 110000000 \
+            "https://github.com/openai/codex/releases/download/rust-v0.154.0/$ASSET" -o "$archive"
+          node -e 'const fs=require("node:fs"),crypto=require("node:crypto");const b=fs.readFileSync(process.argv[1]);const sha=crypto.createHash("sha256").update(b).digest("hex");if(sha!==process.env.EXPECTED_SHA256)throw Error("native_artifact_digest_mismatch");console.log(JSON.stringify({archiveSha256:sha,archiveBytes:b.length}));' "$archive"
+          # Hash checked first; extract only the fixed single member, with no
+          # install or PATH change.  Git Bash's native path is normalized for
+          # the Windows Node process before it is written to GITHUB_OUTPUT.
+          tar -xzf "$archive" -C "$artifact_root" "$BINARY"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            artifact_root="$(cygpath -m "$artifact_root")"
+          fi
+          echo "binary=$artifact_root/$BINARY" >> "$GITHUB_OUTPUT"
+      - name: Verify the extracted binary remains the reviewed 0.154.0 artifact
+        env:
+          NATIVE_BINARY: ${{ steps.artifact.outputs.binary }}
+        shell: bash
+        run: |
+          node -e 'const fs=require("node:fs"),crypto=require("node:crypto"),path=require("node:path");const p=process.env.NATIVE_BINARY;if(!path.isAbsolute(p))throw Error("native_binary_not_absolute");const b=fs.readFileSync(p);console.log(JSON.stringify({binary:path.basename(p),binarySha256:crypto.createHash("sha256").update(b).digest("hex"),bytes:b.length}));'
+      # Both oracles use Node's direct shell:false child launch and are
+      # Windows-compatible with the extracted .exe; no shell/model/provider
+      # credentials are required.  Their fixture providers listen on 127.0.0.1.
+      - name: Run the isolated native composer oracle
+        env:
+          NATIVE_BINARY: ${{ steps.artifact.outputs.binary }}
+        shell: bash
+        run: node scripts/check-native-codex-composer.mjs "$NATIVE_BINARY"
+      - name: Run the isolated parallel native pool oracle
+        env:
+          NATIVE_BINARY: ${{ steps.artifact.outputs.binary }}
+        shell: bash
+        run: node scripts/check-native-codex-parallel.mjs "$NATIVE_BINARY"

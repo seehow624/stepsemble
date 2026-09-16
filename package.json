@@ -2,7 +2,7 @@
   "name": "stepsemble",
   "private": true,
   "license": "Apache-2.0",
-  "version": "3.0.45",
+  "version": "3.0.46",
   "description": "A calm, cross-platform workspace for local coding agents",
   "type": "commonjs",
   "engines": {
@@ -28,7 +28,8 @@
     "test:rolling": "node scripts/check-rolling-clients.mjs",
     "test:native:codex:schema": "node scripts/check-native-codex-schema.mjs",
     "test:native:codex:composer": "node scripts/check-native-codex-composer.mjs",
-    "check:native:composer": "node --check server/native-composer-routes.js && node --check server/native-launch-config.js && node --check server/installed-defaults.js && node --check scripts/check-native-codex-composer.mjs",
+    "test:native:codex:parallel": "node scripts/check-native-codex-parallel.mjs",
+    "check:native:composer": "node --check server/native-composer-routes.js && node --check server/native-launch-config.js && node --check server/installed-defaults.js && node --check server/codex-native-pool.js && node --check server/opencode-managed-service.js && node --check public/modules/codex-approvals.js && node --check scripts/check-native-codex-composer.mjs && node --check scripts/check-native-codex-parallel.mjs",
     "test:native:codex:compat": "node scripts/check-codex-compatibility.mjs",
     "watch:harness": "node scripts/watch-harness-compatibility.mjs",
     "test:harness:watcher": "node --test test/harness-compatibility-watcher.test.mjs",

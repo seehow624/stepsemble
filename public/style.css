@@ -1,4 +1,4 @@
-/* stepsemble v3.0.45 — Ink & Ivory / English-first localization */
+/* stepsemble v3.0.46 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -1983,8 +1983,9 @@ html.reduced-motion .agent-task-row.running.reconnecting .agent-task-dot { anima
 .agent-approval-card strong { font-size: 12px; }
 .agent-approval-card p { margin: 0; color: var(--ink-soft); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .agent-approval-card small { color: var(--pine-soft); font-size: 10.5px; }
-.agent-approval-actions { display: flex; gap: 7px; margin-top: 2px; }
-.agent-approval-actions .btn { min-height: 29px; padding: 0 11px; font-size: 11px; }
+.agent-approval-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.agent-approval-details { max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
+.agent-approval-actions .btn { min-height: 44px; min-width: 64px; padding: 8px 14px; font-size: 13px; }
 html.reduced-motion .agent-task-center-row.running.reconnecting .agent-task-dot { animation: none; }
 
 @media (max-width: 499px) {

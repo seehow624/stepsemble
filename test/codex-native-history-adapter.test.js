@@ -77,7 +77,9 @@ test("Codex native history enables reviewed 0.154.0 writes and refuses an unrevi
     async close() { return { kind: "closed", cleanupConfirmed: true }; },
   };
   let launchOptions;
+  const isolatedEnv = { HOME: temp, USERPROFILE: temp, CODEX_HOME: path.join(temp, "owned-codex") };
   const adapter = createCodexNativeHistoryAdapter({
+    env: isolatedEnv,
     enabled: true,
     executable: process.execPath,
     cwd: temp,
@@ -95,6 +97,8 @@ test("Codex native history enables reviewed 0.154.0 writes and refuses an unrevi
   assert.equal(status.compatibility.verification, "reviewed");
   assert.equal(status.mutationReady, true);
   assert.equal(launchOptions.nativeVersion, "0.154.0");
+  assert.deepEqual(launchOptions.env, isolatedEnv, "native launch must use the same explicit environment as its probe");
+  assert.notEqual(launchOptions.env, isolatedEnv, "launcher receives a detached environment snapshot");
 
   // A later release carrying the same fingerprint has not been reviewed on its
   // own, so it must still fall back to read-only rather than inheriting writes.

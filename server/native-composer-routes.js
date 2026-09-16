@@ -59,7 +59,7 @@ function createNativeComposerRoutes({ codex, ensureCodex, resolveClaude, validat
       if (body.cwd !== undefined) params.cwd = validateDirectory(body.cwd, "Codex");
       if (body.model !== undefined) params.model = modelValue(body.model);
       if (body.effort !== undefined) params.effort = modelValue(body.effort);
-      const native = codex.nativeState();
+      const native = codex.nativeState(threadId);
       // A stale phone tab must never send to the thread another client opened.
       // The transport repeats this check across its asynchronous authorization.
       if (native.threadId && native.threadId !== threadId) {

@@ -64,6 +64,7 @@ const state = {
   claudePrompts: [],
   codexInterrupts: 0,
   claudeInterrupts: 0,
+  codexApproval: null,
 };
 
 const codexContext = () => ({
@@ -265,6 +266,17 @@ export async function createNativeComposerPreview({ port = 0 } = {}) {
       if (pathname === "/api/codex/items" && req.method === "GET") return json(res, 200, { data: codexItems(), nextCursor: null });
       if (pathname === "/api/codex/models" && req.method === "GET") return json(res, 200, { data: codexModels, nextCursor: null });
       if (pathname === "/api/codex/context" && req.method === "GET") return json(res, 200, codexContext());
+      if (pathname === "/api/codex/mutation" && req.method === "GET") return json(res, 200, { pendingApprovals: [{
+        requestId: 7, threadId: CODEX_THREAD, method: "item/commandExecution/requestApproval",
+        params: { cwd: "/synthetic-project", command: "echo synthetic-fixture-only" },
+        summary: "Synthetic permission card — no command will run.", authority: { sourceAuthenticated: true }, responseWritten: !!state.codexApproval,
+      }] });
+      if (pathname === "/api/codex/mutation/approval" && req.method === "POST") {
+        const body = await parseJsonBody(req);
+        if (body.threadId !== CODEX_THREAD || body.requestId !== 7 || state.codexApproval) return json(res, 409, { kind: "reject" });
+        state.codexApproval = body;
+        return json(res, 200, { kind: "written" });
+      }
       if (pathname === "/api/codex/mutation/turn" && req.method === "POST") {
         let body;
         try { body = await parseJsonBody(req); } catch { return json(res, 400, { error: "invalid_request" }); }

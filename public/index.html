@@ -6,14 +6,14 @@
 <title>Stepsemble</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=3.0.45">
-<link rel="icon" href="/icon-16.png?v=3.0.45" sizes="16x16" type="image/png">
-<link rel="icon" href="/icon-32.png?v=3.0.45" sizes="32x32" type="image/png">
-<link rel="icon" href="/icon-512.png?v=3.0.45" sizes="512x512" type="image/png">
-<link rel="apple-touch-icon" href="/icon-180.png?v=3.0.45">
-  <link rel="stylesheet" href="/style.css?v=3.0.45">
-  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.0.45">
-  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.0.45">
+<link rel="manifest" href="/manifest.webmanifest?v=3.0.46">
+<link rel="icon" href="/icon-16.png?v=3.0.46" sizes="16x16" type="image/png">
+<link rel="icon" href="/icon-32.png?v=3.0.46" sizes="32x32" type="image/png">
+<link rel="icon" href="/icon-512.png?v=3.0.46" sizes="512x512" type="image/png">
+<link rel="apple-touch-icon" href="/icon-180.png?v=3.0.46">
+  <link rel="stylesheet" href="/style.css?v=3.0.46">
+  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.0.46">
+  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.0.46">
 </head>
 <body>
 
@@ -329,6 +329,15 @@
           <p class="settings-note" data-i18n-key="claudeAuth.fallback">If the host browser does not open or asks for a code, cancel this attempt first, then use the command below in the official terminal on that host. Do not paste codes into Stepsemble.</p>
           <code class="claude-auth-command" data-i18n-ignore>claude auth login --claudeai</code>
         </details>
+        <details id="opencode-connection" class="claude-auth settings-disclosure">
+          <summary>OpenCode connection</summary>
+          <p id="opencode-connection-status" role="status" aria-live="polite">Check the native connection on the selected computer.</p>
+          <p class="settings-note">Start a password-protected local OpenCode service. Existing configured services are kept unchanged.</p>
+          <div class="claude-auth-actions">
+            <button id="opencode-connection-start" type="button" class="btn primary">Enable local OpenCode</button>
+            <button id="opencode-connection-refresh" type="button" class="btn ghost">Check connection</button>
+          </div>
+        </details>
       </section>
 
       <section class="settings-group">
@@ -434,7 +443,7 @@
         </div>
         <div class="settings-row">
           <span><strong>Stepsemble</strong><small data-i18n-key="agentHub.workspace">A workspace for local coding agents</small></span>
-          <span class="settings-value" id="set-app-version">v3.0.45</span>
+          <span class="settings-value" id="set-app-version">v3.0.46</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -909,17 +918,18 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=3.0.45"></script>
-<script src="/modules/app-foundation.js?v=3.0.45"></script>
-<script src="/modules/agent-identity.js?v=3.0.45"></script>
-<script src="/modules/session-utils.js?v=3.0.45"></script>
-<script src="/modules/pi-session.js?v=3.0.45"></script>
-<script src="/modules/conversation-catalog.js?v=3.0.45"></script>
-<script src="/modules/context-usage.js?v=3.0.45"></script>
-<script src="/modules/claude-auth.js?v=3.0.45"></script>
-<script src="/modules/protocol-contracts.js?v=3.0.45"></script>
-<script src="/modules/client-sdk.js?v=3.0.45"></script>
-<script src="/modules/native-dialogs.js?v=3.0.45"></script>
-<script src="/app.js?v=3.0.45"></script>
+<script src="/i18n.js?v=3.0.46"></script>
+<script src="/modules/app-foundation.js?v=3.0.46"></script>
+<script src="/modules/agent-identity.js?v=3.0.46"></script>
+<script src="/modules/session-utils.js?v=3.0.46"></script>
+<script src="/modules/pi-session.js?v=3.0.46"></script>
+<script src="/modules/conversation-catalog.js?v=3.0.46"></script>
+<script src="/modules/context-usage.js?v=3.0.46"></script>
+<script src="/modules/claude-auth.js?v=3.0.46"></script>
+<script src="/modules/codex-approvals.js?v=3.0.46"></script>
+<script src="/modules/protocol-contracts.js?v=3.0.46"></script>
+<script src="/modules/client-sdk.js?v=3.0.46"></script>
+<script src="/modules/native-dialogs.js?v=3.0.46"></script>
+<script src="/app.js?v=3.0.46"></script>
 </body>
 </html>

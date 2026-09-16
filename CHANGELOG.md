@@ -1,5 +1,28 @@
 # Changelog
 
+## 3.0.46
+
+Improve native task concurrency, reconnects, and safe local setup.
+
+- Codex uses a bounded pool of independent native app-server connections.
+  Resume, send, interrupt, approvals, and context usage are thread-scoped;
+  busy children and in-flight resumes cannot be evicted or mistaken for idle.
+- Add mobile Codex approval cards with full bounded permission details,
+  one-shot decisions, and explicit uncertain-delivery state. Never infer an
+  approval acknowledgement from a successful response write.
+- Reconcile native conversations on foreground/network recovery with
+  single-flight polling, without replaying prompts or approval decisions.
+- Add opt-in, password-protected loopback OpenCode setup in Settings.
+  Existing explicit servers remain untouched; only opt-in is persisted,
+  never the generated service password. Await owned-service shutdown.
+- Update Codex through its proven original installation source (official
+  standalone, npm, or Homebrew), then verify the resulting version. Unknown
+  wrappers are not overwritten. Native work/approval reservations block updates.
+- Add isolated real Codex composer/parallel checks to three-OS CI. These
+  checks use synthetic local providers, not subscription inference.
+
+See `docs/release-3.0.46.md` for validation and remaining device/login limits.
+
 ## 3.0.45
 
 Fix two deployment issues exposed by the 3.0.44 two-Mac rollout.

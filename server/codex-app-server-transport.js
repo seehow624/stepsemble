@@ -1021,7 +1021,7 @@ function createCodexAppServerTransport({
     interruptTurn,
     respondApproval,
     tokenUsage,
-    pendingApprovals: () => [...approvals.values()].map(row => clone(row.request)),
+    pendingApprovals: () => [...approvals.values()].map(row => ({ ...clone(row.request), responseWritten: row.responded === true })),
     state: () => ({ state, threadId, turnId, turnState, initialized, failure: failure?.code || null, cleanupConfirmed }),
     nativeVersion,
     protocolVersion: CODEX_PROTOCOL_VERSION,

@@ -10,13 +10,15 @@ Stepsemble 的「設定 → Harness updates」是 coding agent 本身的更新�
 - 升級前必須由 UI 明確確認；後端再次驗證 allow-list、安裝路徑與目前是否仍有 Pi RPC／Agent Hub 任務。
 - 任何活動中的 session 或 task 都會讓升級回傳 `409 agent_busy`，不會強行殺掉程序。
 - 更新結果只保存版本、狀態、時間與錯誤 code，不保存 stdout/stderr；狀態檔位於 `~/.config/stepsemble/harness-updates.json`，權限為 `0600`。
+- Codex 的來源辨識只接受可證明由同一個 package-owned 路徑提供的 executable：Homebrew 會比對 named `brew list` 的 package paths、npm 會比對全域 package root 與 `package.json`，standalone 會比對 `CODEX_HOME/packages/standalone`。同名但來源不明的 shim／wrapper 會保持 unknown 並拒絕寫入。
+- 升級後的 `--version` 讀取失敗會回報 verification failure；若官方 updater 正常結束但版本未變，狀態會是 `up-to-date`／`unchanged`，不會冒充已安裝新版本。
 - 「Upgrade all」會依 registry 順序逐一執行；失敗的 harness 不會讓其他已完成的結果被假裝成成功，host-managed 項目會清楚標示為手動處理。
 
 ## 檢查策略
 
 | Harness | 檢查來源 | 升級方式 | 備註 |
 | --- | --- | --- | --- |
-| Codex CLI | `codex update --check`（若目前版本支援） | `codex update` | upstream 沒有 dry-run 時，Stepsemble 顯示 unknown，不會猜測可升級狀態 |
+| Codex CLI | 依已安裝來源檢查 Homebrew／npm；官方 standalone 只讀版本 | 保留來源：Homebrew `brew upgrade codex`、npm `npm install --global @openai/codex@latest`、官方 standalone `codex update` | OpenAI 官方安裝器的更新命令是同一個 standalone installer；Codex CLI 目前沒有穩定的 `update --check`，所以 standalone 狀態顯示 unknown。升級後會重新讀取 `codex --version`；未知來源不會執行更新 |
 | Claude Code | `claude update --check`（若目前版本支援） | `claude update` | 某些版本只有 check-and-install；一定需要使用者確認 |
 | OpenCode | Homebrew `brew outdated --json=v2 opencode`；非 Homebrew 安裝時只觀察版本 | Homebrew `brew upgrade opencode` 或 `opencode upgrade` | 不會在檢查階段呼叫會改動安裝的 `upgrade` |
 | Pi Agent | `npm outdated --global --json @earendil-works/pi-coding-agent` | `npm install --global @earendil-works/pi-coding-agent@latest` | 只更新明確的 Pi package |

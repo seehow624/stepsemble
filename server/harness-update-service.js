@@ -15,8 +15,9 @@ const MAX_STATE_ENTRIES = 32;
 const MAX_OUTPUT = 2_000;
 const CHECK_TIMEOUT_MS = 20_000;
 const UPDATE_TIMEOUT_MS = 15 * 60 * 1000;
+const SOURCE_AWARE_STRATEGY = "source-aware";
 const SENSITIVE_ENV = new Set([
-  "OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_REMOTE_TOKEN", "OPENCODEX_API_AUTH_TOKEN",
+  "OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "CODEX_REMOTE_TOKEN", "OPENCODEX_API_AUTH_TOKEN",
   "ANTHROPIC_API_KEY", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
   "GEMINI_API_KEY", "GOOGLE_API_KEY", "XAI_API_KEY",
 ]);
@@ -54,8 +55,17 @@ function validateRegistry(registry) {
         throw new Error(`Invalid update arguments for ${entry.id}`);
       }
       if (strategy.kind === "command" && !Array.isArray(strategy.args)) throw new Error(`Missing command arguments for ${entry.id}`);
-      if (!["manual", "version-only", "official-check", "command", "npm-outdated", "npm-global", "brew-or-official", "brew-or-command"].includes(strategy.kind)) {
+      if (!["manual", "version-only", "official-check", "command", "npm-outdated", "npm-global", "brew-or-official", "brew-or-command", SOURCE_AWARE_STRATEGY].includes(strategy.kind)) {
         throw new Error(`Unsupported update strategy for ${entry.id}`);
+      }
+      if (strategy.package !== undefined && (typeof strategy.package !== "string" || !/^@?[a-zA-Z0-9._/-]+$/.test(strategy.package))) {
+        throw new Error(`Invalid strategy package for ${entry.id}`);
+      }
+      if (strategy.brewPackage !== undefined && (typeof strategy.brewPackage !== "string" || !/^[a-zA-Z0-9._+@/-]+$/.test(strategy.brewPackage))) {
+        throw new Error(`Invalid Homebrew package for ${entry.id}`);
+      }
+      if (strategy.verify !== undefined && typeof strategy.verify !== "boolean") {
+        throw new Error(`Invalid update verification setting for ${entry.id}`);
       }
     }
     if (entry.package !== undefined && (typeof entry.package !== "string" || !/^@?[a-zA-Z0-9._/-]+$/.test(entry.package))) {
@@ -132,6 +142,65 @@ function commandPath(name, env = process.env) {
   return null;
 }
 
+function comparablePath(file) {
+  if (!file || !path.isAbsolute(String(file))) return null;
+  const absolute = path.resolve(String(file));
+  try { return fs.realpathSync(absolute); } catch { return absolute; }
+}
+
+function pathInside(candidate, root) {
+  const child = comparablePath(candidate), parent = comparablePath(root);
+  if (!child || !parent) return false;
+  const relative = path.relative(parent, child);
+  return relative === "" || relative && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+function likelyStandalonePath(executable, env, home) {
+  const executablePath = comparablePath(executable);
+  if (!executablePath) return false;
+  // The official installer leaves a small launcher in ~/.local/bin, but that
+  // path is not evidence of provenance: npm, Homebrew, or an operator's own
+  // shim can use the same directory.  Only the immutable package directory
+  // used by the official standalone updater is a trustworthy marker.  Include
+  // CODEX_HOME explicitly for installations that deliberately relocate the
+  // Codex data directory, plus the service HOME and the process user's home
+  // for launchd/PI_HOME configurations where they differ.
+  const homes = [env?.CODEX_HOME, path.join(home, ".codex"), path.join(os.homedir(), ".codex")]
+    .filter(value => typeof value === "string" && path.isAbsolute(value))
+    .map(value => path.resolve(value));
+  const roots = [...new Set(homes)].map(value => path.join(value, "packages", "standalone"));
+  return roots.some(root => pathInside(executablePath, root));
+}
+
+function absoluteLines(output) {
+  return String(output || "").split(/\r?\n/).map(value => value.trim())
+    .filter(value => value && path.isAbsolute(value) && !/[\u0000-\u001f\u007f]/.test(value));
+}
+
+function packageSegments(packageName) {
+  const value = String(packageName || "");
+  return value.startsWith("@") ? value.split("/") : [value];
+}
+
+function npmPackageRoot(root, packageName) {
+  if (!root || !path.isAbsolute(root) || !packageName) return null;
+  const segments = packageSegments(packageName);
+  if (!segments.length || !segments.every((segment, index) => index === 0 && segment.startsWith("@")
+    ? /^@[A-Za-z0-9._-]+$/.test(segment) : /^[A-Za-z0-9._-]+$/.test(segment))) return null;
+  const candidate = path.join(root, ...segments);
+  try {
+    if (!fs.statSync(candidate).isDirectory()) return null;
+    const metadata = JSON.parse(fs.readFileSync(path.join(candidate, "package.json"), "utf8"));
+    if (!metadata || metadata.name !== packageName) return null;
+  } catch { return null; }
+  return comparablePath(candidate);
+}
+
+function npmOwnsExecutable(executable, root, packageName) {
+  const packageRoot = npmPackageRoot(root, packageName);
+  return packageRoot && pathInside(executable, packageRoot) ? packageRoot : null;
+}
+
 function execFilePromise(file, args, options = {}) {
   return new Promise((resolve, reject) => {
     execFile(file, args, { shell: false, ...options }, (error, stdout, stderr) => {
@@ -144,19 +213,28 @@ function execFilePromise(file, args, options = {}) {
 }
 
 function parseVersion(output) {
-  const text = cleanOutput(output);
-  const match = text.match(/(?:^|\s)v?(\d+(?:\.\d+){0,3}(?:[-+][0-9A-Za-z.-]+)?)(?:\s|$)/);
-  return match ? match[1] : text.slice(0, 160) || null;
+  // Version output is untrusted command output.  Never return an arbitrary
+  // error string (or the first number in a stack trace) as a version.  Keep
+  // the accepted token strict enough for semver comparisons while allowing
+  // the usual `codex-cli 0.154.0`, `Version: 0.154.0`, and bare forms.
+  const semver = "(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?";
+  const pattern = new RegExp(`^(?:version\\s*[:=]\\s*|[A-Za-z0-9@._+/-]+(?:\\s+version)?\\s+)?v?(${semver})(?=\\s|$)`, "i");
+  for (const line of String(output || "").split(/\r?\n/)) {
+    const match = cleanOutput(line).match(pattern);
+    if (match) return match[1];
+  }
+  return null;
 }
 
 function parseSemver(value) {
-  const match = String(value || "").trim().replace(/^v/i, "").match(/^(\d+)\.(\d+)(?:\.(\d+))?/);
-  return match ? [Number(match[1]), Number(match[2]), Number(match[3] || 0)] : null;
+  const match = String(value || "").trim().replace(/^v/i, "")
+    .match(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/);
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
 }
 
 function isNewer(latest, current) {
   const a = parseSemver(latest), b = parseSemver(current);
-  if (!a || !b) return Boolean(latest && current && latest !== current);
+  if (!a || !b) return false;
   for (let i = 0; i < 3; i += 1) if (a[i] !== b[i]) return a[i] > b[i];
   return false;
 }
@@ -176,6 +254,7 @@ function createHarnessUpdateService({
   clock = () => Date.now(),
   runner = execFilePromise,
   busy = () => false,
+  beforeUpdate = null,
   resolve = commandPath,
   home = String(env.HOME || os.homedir()),
 } = {}) {
@@ -184,6 +263,58 @@ function createHarnessUpdateService({
   let state = readJson(stateFile);
   if (!Array.isArray(state.entries)) state.entries = [];
   let running = null;
+
+  function strategyPackage(definition, strategy = definition.update || {}) {
+    return strategy.package || definition.package || null;
+  }
+
+  function brewPackage(definition, strategy = definition.update || {}) {
+    const packageName = strategy.brewPackage || strategyPackage(definition, strategy);
+    if (!packageName) return null;
+    // npm scoped names map to the unscoped Homebrew token only when the
+    // registry explicitly omits brewPackage. Codex supplies that mapping.
+    return String(packageName).replace(/^@[^/]+\//, "");
+  }
+
+  async function detectSource(definition, executable, strategy = definition.update || {}) {
+    const result = { kind: "unknown", executable, npmPackage: strategyPackage(definition, strategy), brewPackage: brewPackage(definition, strategy) };
+    const brew = resolve("brew", env);
+    if (brew && result.brewPackage) {
+      // `brew` may be installed even when PATH selects an npm or standalone
+      // Codex.  Version/list probes only establish that *some* package with
+      // this name exists; they do not establish that it owns the executable
+      // we resolved above.  Compare the selected real path with Homebrew's
+      // package-owned file list instead.
+      const probes = [
+        // `brew list` prints paths for a named package; --formula/--cask
+        // disambiguate when a formula and cask share a token.  There is no
+        // stable `--paths` flag across Homebrew releases.
+        ["list", result.brewPackage],
+        ["list", "--formula", result.brewPackage],
+        ["list", "--cask", result.brewPackage],
+      ];
+      for (const args of probes) {
+        const listed = await runner(brew, args, {
+          shell: false, cwd: home, env: cleanEnvironment(env), timeout: CHECK_TIMEOUT_MS, maxBuffer: 128 * 1024,
+        });
+        const owned = absoluteLines(listed.stdout).some(candidate => pathInside(executable, candidate));
+        if (listed.code === 0 && owned) return { ...result, kind: "homebrew", manager: brew };
+      }
+    }
+
+    const npm = resolve("npm", env);
+    if (npm && result.npmPackage) {
+      const probe = await runner(npm, ["root", "--global"], {
+        shell: false, cwd: home, env: cleanEnvironment(env), timeout: CHECK_TIMEOUT_MS, maxBuffer: 32 * 1024,
+      });
+      const root = absoluteLines(probe.stdout)[0] || null;
+      const packageRoot = probe.code === 0 ? npmOwnsExecutable(executable, root, result.npmPackage) : null;
+      if (packageRoot) return { ...result, kind: "npm", manager: npm, root, packageRoot };
+    }
+
+    if (likelyStandalonePath(executable, env, home)) return { ...result, kind: "official-standalone" };
+    return result;
+  }
 
   const byId = id => entries.find(entry => entry.id === safeId(id)) || null;
   const stateById = id => state.entries.find(entry => entry.id === id) || null;
@@ -202,8 +333,10 @@ function createHarnessUpdateService({
       status: observed.status || (definition.check.kind === "manual" ? "manual" : "not-checked"),
       checkMode: definition.check.kind,
       updateMode: definition.update.kind,
+      source: observed.source || null,
       checkedAt: observed.checkedAt || null,
       updatedAt: observed.updatedAt || null,
+      verification: observed.verification || null,
       error: observed.error || null,
       note: definition.note || definition.update.reason || null,
     };
@@ -250,6 +383,44 @@ function createHarnessUpdateService({
     const check = definition.check || { kind: "version-only" };
     if (check.kind === "manual" || check.kind === "version-only") {
       observed.status = check.kind === "manual" ? "manual" : "unknown";
+      observed.updateAvailable = "unknown";
+      observed.error = null;
+      return observed;
+    }
+    if (check.kind === SOURCE_AWARE_STRATEGY) {
+      const source = await detectSource(definition, executable, check);
+      observed.source = source.kind;
+      if (source.kind === "homebrew" && source.manager && source.brewPackage) {
+        const checked = await runner(source.manager, ["outdated", "--json=v2", source.brewPackage], {
+          shell: false, cwd: home, env: cleanEnvironment(env), timeout: CHECK_TIMEOUT_MS, maxBuffer: 128 * 1024,
+        });
+        let parsed = null;
+        try { parsed = JSON.parse(checked.stdout || "{}"); } catch {}
+        const rows = [...(parsed?.formulae || []), ...(parsed?.casks || [])];
+        const update = rows.find(item => item?.name === source.brewPackage || item?.full_name === source.brewPackage);
+        observed.latestVersion = update?.latest_version || update?.versioned_formula?.version || null;
+        observed.updateAvailable = Boolean(update);
+        observed.status = update ? "available" : checked.code === 0 ? "up-to-date" : "unknown";
+        observed.error = parsed || checked.code === 0 ? null : resultError(checked, "brew_check_failed");
+        return observed;
+      }
+      if (source.kind === "npm" && source.manager && source.npmPackage) {
+        const checked = await runner(source.manager, ["outdated", "--global", "--json", source.npmPackage], {
+          shell: false, cwd: home, env: cleanEnvironment(env), timeout: CHECK_TIMEOUT_MS, maxBuffer: 128 * 1024,
+        });
+        let parsed = null;
+        try { parsed = JSON.parse(checked.stdout || "{}"); } catch {}
+        const row = parsed?.[source.npmPackage] || parsed?.[source.npmPackage.replace(/^@[^/]+\//, "")] || null;
+        observed.latestVersion = row?.latest || row?.wanted || null;
+        observed.updateAvailable = Boolean(row && isNewer(row.latest || row.wanted, row.current || observed.currentVersion));
+        observed.status = observed.updateAvailable ? "available" : checked.code === 0 ? "up-to-date" : parsed ? "up-to-date" : "unknown";
+        observed.error = parsed || checked.code === 0 ? null : resultError(checked, "npm_check_failed");
+        return observed;
+      }
+      // The official standalone installer does not expose a non-mutating
+      // update probe. Keep the result neutral instead of running `update`
+      // merely to discover whether an update exists.
+      observed.status = "unknown";
       observed.updateAvailable = "unknown";
       observed.error = null;
       return observed;
@@ -376,6 +547,19 @@ function createHarnessUpdateService({
 
   async function updateCommand(definition, executable) {
     const strategy = definition.update || {};
+    if (strategy.kind === SOURCE_AWARE_STRATEGY) {
+      const source = await detectSource(definition, executable, strategy);
+      if (source.kind === "homebrew" && source.manager && source.brewPackage) {
+        return { executable: source.manager, args: ["upgrade", source.brewPackage], source };
+      }
+      if (source.kind === "npm" && source.manager && source.npmPackage) {
+        return { executable: source.manager, args: ["install", "--global", `${source.npmPackage}@latest`], source };
+      }
+      if (source.kind === "official-standalone") {
+        return { executable, args: Array.isArray(strategy.args) && strategy.args.length ? strategy.args : ["update"], source };
+      }
+      throw errorStatus("source_unknown", `${definition.label} installation source is unknown`, 422);
+    }
     if (strategy.kind === "command") return { executable, args: Array.isArray(strategy.args) ? strategy.args : [] };
     if (strategy.kind === "npm-global") {
       const npm = resolve("npm", env);
@@ -395,29 +579,84 @@ function createHarnessUpdateService({
     return null;
   }
 
+  async function readHarnessVersion(executable) {
+    if (!executable) return { version: null, status: "unavailable", error: "not-installed" };
+    let result;
+    try {
+      result = await runner(executable, ["--version"], {
+        shell: false, cwd: home, env: cleanEnvironment(env), timeout: CHECK_TIMEOUT_MS, maxBuffer: 64 * 1024,
+      });
+    } catch (error) {
+      return { version: null, status: "failed", error: String(error?.code || "version_failed").slice(0, 120) };
+    }
+    const version = parseVersion(result.stdout || result.stderr);
+    if (result.code === 0 && version) return { version, status: "verified", error: null };
+    return { version: version || null, status: "failed", error: resultError(result, "version_failed") };
+  }
+
   async function updateOne(definition, { confirm = false } = {}) {
     if (!confirm) throw errorStatus("confirmation_required", "Explicit confirmation is required", 400);
     let busyState;
     try { busyState = busy(); } catch { throw errorStatus("agent_busy", "Agent state is unavailable; try again when idle", 409); }
     if (busyState?.busy ?? busyState) throw errorStatus("agent_busy", "Wait for active agent work to finish", 409);
+    if (typeof beforeUpdate === "function") {
+      let liveState;
+      try { liveState = await beforeUpdate({ id: definition.id, label: definition.label, definition }); }
+      catch { throw errorStatus("agent_busy", "Agent state is unavailable; try again when idle", 409); }
+      if (liveState?.busy ?? liveState) throw errorStatus("agent_busy", "Wait for active agent work to finish", 409);
+    }
     const executable = definition.executableEnv && env[definition.executableEnv]
       ? resolve(env[definition.executableEnv], env) : (definition.commands || []).map(name => resolve(name, env)).find(Boolean);
     if (!executable) throw errorStatus("not_installed", `${definition.label} is not installed`, 422);
     const command = await updateCommand(definition, executable);
     if (!command) throw errorStatus("manual_update", definition.update.reason || `${definition.label} must be updated by its host`, 422);
+    const verify = definition.update?.verify === true || definition.update?.kind === SOURCE_AWARE_STRATEGY;
+    const beforeVersion = verify ? await readHarnessVersion(executable) : null;
     const startedAt = now(clock);
     const result = await runner(command.executable, command.args, {
       shell: false, cwd: home, env: cleanEnvironment(env), timeout: UPDATE_TIMEOUT_MS, maxBuffer: 512 * 1024,
     });
-    const successful = result.code === 0;
+    const afterVersion = verify && result.code === 0 ? await readHarnessVersion(executable) : null;
+    let successful = result.code === 0;
+    let error = successful ? null : resultError(result, "update_failed");
+    let verification = verify ? (result.code === 0 ? afterVersion?.status || "unavailable" : "not-run") : null;
+    let verificationError = verify && result.code === 0 ? afterVersion?.error || null : null;
+    let unchanged = false;
+    if (verify && successful && afterVersion?.status !== "verified") {
+      // A zero exit status only says that the updater process exited cleanly;
+      // it does not prove that the installed harness is still runnable.  Do
+      // not report an update when the post-update version probe failed.
+      successful = false;
+      error = "verification_failed";
+      verification = "failed";
+      verificationError ||= afterVersion?.error || "version_unavailable";
+    } else if (verify && successful && beforeVersion?.status === "verified"
+      && beforeVersion.version && beforeVersion.version === afterVersion.version) {
+      // Some official updaters exit 0 when already current.  Keep that
+      // outcome distinct from a version-changing update instead of claiming
+      // that a new release was installed.
+      unchanged = true;
+      verification = "unchanged";
+    }
     // Never persist stdout/stderr: package managers and vendor updaters may
     // print URLs, account identifiers, or other sensitive diagnostics.
     const record = { id: definition.id, label: definition.label, startedAt, finishedAt: now(clock), success: successful,
-      code: successful ? 0 : result.code, error: successful ? null : resultError(result, "update_failed") };
+      code: result.code, error,
+      ...(command.source ? { source: command.source.kind } : {}),
+      ...(verify ? { versionBefore: beforeVersion?.version || null, versionAfter: afterVersion?.version || null,
+        verification, verificationError } : {}),
+    };
     state.lastUpdate = record;
     const previous = stateById(definition.id) || { id: definition.id };
     previous.updatedAt = record.finishedAt;
-    if (successful) { previous.status = "updated"; previous.updateAvailable = false; previous.error = null; }
+    if (successful) {
+      previous.status = unchanged ? "up-to-date" : "updated"; previous.updateAvailable = false; previous.error = null;
+      if (command.source) previous.source = command.source.kind;
+      if (verify) {
+        previous.verification = verification;
+        if (afterVersion?.version) previous.currentVersion = afterVersion.version;
+      }
+    }
     else { previous.status = "error"; previous.error = record.error; }
     state.entries = [...state.entries.filter(item => item.id !== definition.id), previous];
     save();

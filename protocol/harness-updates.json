@@ -6,9 +6,10 @@
       "label": "Codex CLI",
       "commands": ["codex"],
       "executableEnv": "STEPSEMBLE_CODEX_BIN",
-      "check": { "kind": "official-check", "args": ["update", "--check"] },
-      "update": { "kind": "command", "args": ["update"] },
-      "note": "Codex does not expose a dry-run flag on every release; Stepsemble never treats an unknown check as an automatic approval."
+      "package": "@openai/codex",
+      "check": { "kind": "source-aware", "package": "@openai/codex", "brewPackage": "codex" },
+      "update": { "kind": "source-aware", "package": "@openai/codex", "brewPackage": "codex", "args": ["update"], "verify": true },
+      "note": "Codex updates must preserve a proven installed source: Homebrew uses brew upgrade, npm uses npm install --global only when the selected executable belongs to @openai/codex, and the official standalone package uses codex update. Standalone releases have no non-mutating update check, so the status remains unknown until the user confirms an update; unknown shims fail closed."
     },
     {
       "id": "claude-code",

@@ -485,7 +485,7 @@ function createCodexNativeHistoryAdapter({
       let instance;
       try {
         const compatibility = await verifyExecutableVersion();
-        const options = { executable: config.executable, cwd: config.cwd, nativeVersion: compatibility.nativeVersion,
+        const options = { executable: config.executable, cwd: config.cwd, env: { ...env }, nativeVersion: compatibility.nativeVersion,
           onEvent: observeNativeEvent,
           ...(config.mutationEnabled ? { authorizeNative, onApprovalRequest } : {}) };
         if (typeof transportFactory === "function") instance = await transportFactory(options);

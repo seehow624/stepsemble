@@ -1,7 +1,7 @@
-/* stepsemble v3.0.45 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.46 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.45";
+const CLIENT_APP_VERSION = "3.0.46";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -1140,6 +1140,7 @@ function switchMachine(id, silent) {
   claudeAuthClient?.reset();
   resetAgentHub();
   if ($("claude-auth")) $("claude-auth").open = false;
+  if ($("opencode-connection")) $("opencode-connection").open = false;
   clearDraftScopeForDeviceSwitch();
   resetProjectChanges();
   stopUpdateCenterPolling();
@@ -2412,6 +2413,33 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) claudeAuthClient?.pause();
   else if ($("claude-auth")?.open) void claudeAuthClient?.refresh();
 });
+let openCodeConnectionSequence = 0;
+async function refreshOpenCodeConnection(start = false) {
+  const status = $("opencode-connection-status"), button = $("opencode-connection-start"), refresh = $("opencode-connection-refresh");
+  if (!status || !button || !refresh) return;
+  if (start && !window.confirm(browseText("Enable a password-protected OpenCode service on the selected computer?"))) return;
+  const sequence = ++openCodeConnectionSequence, base = apiBase;
+  const current = () => sequence === openCodeConnectionSequence && base === apiBase;
+  button.disabled = true; refresh.disabled = true;
+  status.textContent = browseText(start ? "Starting local OpenCode…" : "Checking connection…");
+  try {
+    const result = start ? await post("/api/opencode/native/setup", { confirm: true }) : await api("/api/opencode/native");
+    if (!current()) return;
+    const ready = result?.adapter?.ready === true;
+    status.textContent = browseText(ready ? "OpenCode native connection is ready." : "OpenCode is not connected. Enable the local service or check your configured server.");
+    button.disabled = ready;
+    if (ready) { void loadAgentCatalog(); void refreshAgentTasks(); }
+  } catch (error) {
+    if (!current()) return;
+    status.textContent = `${browseText("OpenCode connection could not be started.")} ${String(error?.message || "").slice(0, 128)}`;
+    button.disabled = false;
+  } finally { if (current()) refresh.disabled = false; }
+}
+$("opencode-connection")?.addEventListener("toggle", () => {
+  if ($("opencode-connection").open) void refreshOpenCodeConnection();
+});
+$("opencode-connection-refresh")?.addEventListener("click", () => void refreshOpenCodeConnection());
+$("opencode-connection-start")?.addEventListener("click", () => void refreshOpenCodeConnection(true));
 el.agentTaskCenterClose?.addEventListener("click", closeAgentTaskCenter);
 el.agentTaskCenter?.addEventListener("click", (event) => { if (event.target === el.agentTaskCenter) closeAgentTaskCenter(); });
 el.agentTaskCenterSearch?.addEventListener("input", renderAgentTaskCenter);
@@ -4699,6 +4727,8 @@ function nativeOpenCodeStatus(snapshot) {
 
 async function refreshOpenCodeNativeSnapshot(connection, { initial = false } = {}) {
   if (!connection || rpc !== connection || !connection.nativeOpenCode) return;
+  if (connection.nativeRefreshInFlight) return;
+  connection.nativeRefreshInFlight = true;
   try {
     const snapshot = await post("/api/opencode/reconcile", { sessionId: connection.nativeSessionId, cwd: connection.cwd, limit: 200 });
     if (rpc !== connection) return;
@@ -4710,6 +4740,7 @@ async function refreshOpenCodeNativeSnapshot(connection, { initial = false } = {
       startedAt: connection.runStartedAt, lastActivityAt: Date.now() });
     renderOpenCodeNativeSnapshot(snapshot, { replace: initial || snapshot.changed === true || !connection.nativeRenderedRevision });
     connection.nativeLoading = false;
+    connection.connectionLost = false;
     syncGenericInputState();
   } catch (error) {
     if (rpc !== connection) return;
@@ -4717,6 +4748,8 @@ async function refreshOpenCodeNativeSnapshot(connection, { initial = false } = {
     connection.connectionLost = true;
     syncGenericInputState();
     if (initial) throw error;
+  } finally {
+    connection.nativeRefreshInFlight = false;
   }
 }
 
@@ -5008,6 +5041,55 @@ function nativeCodexStatus(thread) {
   return type === "systemError" ? "failed" : type === "active" ? "running" : "waiting";
 }
 
+function renderCodexNativeApprovals(connection, permissions) {
+  if (rpc !== connection || !connection.nativeCodexMutation || !window.stepsembleCodexApprovals) return;
+  if (!connection.codexApprovals) {
+    const base = apiBase;
+    const current = () => rpc === connection && apiBase === base;
+    const cards = new Map();
+    connection.codexApprovals = window.stepsembleCodexApprovals.createController({
+      threadId: connection.nativeThreadId, isCurrent: current,
+      request: body => {
+        if (!current()) throw new Error("native_thread_mismatch");
+        return post("/api/codex/mutation/approval", body);
+      },
+      onChange: rows => {
+        if (!current()) return;
+        for (const row of rows) {
+          let view = cards.get(row.key);
+          if (!view) {
+            const shell = makeMsgShell("assistant", "Codex CLI");
+            const card = document.createElement("div"); card.className = "agent-approval-card";
+            const title = document.createElement("strong"); title.textContent = browseText("Codex permission required");
+            const summary = document.createElement("p"); summary.textContent = row.summary;
+            const details = document.createElement("pre"); details.className = "agent-approval-details";
+            details.textContent = row.details;
+            const state = document.createElement("small"); state.setAttribute("role", "status");
+            const actions = document.createElement("div"); actions.className = "agent-approval-actions";
+            const buttons = [];
+            for (const [decision, label] of [["approved", row.scope === "run" ? "Allow for this turn" : "Allow once"], ["denied", "Reject"]]) {
+              const button = document.createElement("button"); button.type = "button"; button.className = decision === "denied" ? "btn ghost" : "btn primary";
+              button.textContent = browseText(label);
+              button.addEventListener("click", () => void connection.codexApprovals.decide(row.key, decision));
+              actions.appendChild(button); buttons.push(button);
+            }
+            card.append(title, summary, details, state, actions); shell.bubble.appendChild(card);
+            view = { state, buttons, wrap: shell.wrap }; cards.set(row.key, view);
+          }
+          const labels = { pending: "Waiting for your decision", sending: "Sending decision…", written: "Decision sent; waiting for Codex", closed: "Request closed by Codex", uncertain: "Delivery uncertain; check Codex before retrying" };
+          view.state.textContent = browseText(row.available === false ? "Approval status unavailable; reconnect to continue"
+            : !row.reviewable && row.state === "pending" ? "Full permission details unavailable; use the native client to allow" : labels[row.state] || labels.uncertain);
+          view.buttons.forEach((button, index) => { button.disabled = row.state !== "pending" || row.available === false || index === 0 && !row.reviewable; });
+        }
+        const keep = new Set(rows.map(row => row.key));
+        for (const [key, view] of cards) if (!keep.has(key)) { view.wrap?.remove(); cards.delete(key); }
+        keepSessionUsageAtEnd();
+      },
+    });
+  }
+  connection.codexApprovals.sync(permissions);
+}
+
 async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) {
   if (!connection || rpc !== connection || !connection.nativeCodex) return;
   if (connection.nativeTranscriptState.loading || connection.nativeRefreshInFlight) return;
@@ -5018,7 +5100,13 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
   connection.nativeRefreshInFlight = true;
   showCodexNativeHistoryButton();
   try {
-    const page = await loadCodexNativeTranscript(connection.nativeThreadId, { signal: controller.signal, isCurrent });
+    const [page, mutation] = await Promise.all([
+      loadCodexNativeTranscript(connection.nativeThreadId, { signal: controller.signal, isCurrent }),
+      connection.nativeCodexMutation
+        ? api(`/api/codex/mutation?threadId=${encodeURIComponent(connection.nativeThreadId)}`, { signal: controller.signal })
+          .catch(() => ({ unavailable: true }))
+        : null,
+    ]);
     if (!isCurrent()) return;
     // Leave an older-page error visible until that page is successfully retried.
     applyCodexNativeTranscriptPage(connection.nativeTranscriptState, page);
@@ -5030,12 +5118,25 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
       name: connection.name, cwd: thread?.cwd || connection.cwd, status,
       startedAt: connection.runStartedAt, lastActivityAt: thread?.updatedAt || Date.now() });
     renderCodexNativeSnapshot(connection);
+    if (connection.nativeCodexMutation) {
+      if (mutation?.unavailable) {
+        connection.codexApprovals?.unavailable();
+        if (el.taskReplayNote) {
+          el.taskReplayNote.textContent = browseText("Approval status unavailable; reconnect to continue");
+          el.taskReplayNote.classList.remove("hidden");
+        }
+      } else renderCodexNativeApprovals(connection, mutation?.pendingApprovals);
+    }
     void syncNativeContext(connection);
     connection.nativeLoading = false;
     connection.connectionLost = false;
     syncGenericInputState();
     if (codexNativePollTimer) { clearInterval(codexNativePollTimer); codexNativePollTimer = null; }
-    if (status === "running") codexNativePollTimer = setInterval(() => void refreshCodexNativeSnapshot(connection), 2500);
+    // Keep idle native chats observable too: another client can begin a turn
+    // or request approval while this phone remains on the same conversation.
+    codexNativePollTimer = setInterval(() => {
+      if (!document.hidden) void refreshCodexNativeSnapshot(connection);
+    }, status === "running" ? 2500 : 8000);
   } catch (error) {
     if (!isCurrent() || error.name === "AbortError") return;
     connection.nativeLoading = false;
@@ -5273,6 +5374,8 @@ function renderGrokAcpPermissions(connection, permissions) {
 
 async function refreshGrokAcpSnapshot(connection, { initial = false } = {}) {
   if (!connection || rpc !== connection || !connection.nativeGrokAcp) return;
+  if (connection.nativeRefreshInFlight) return;
+  connection.nativeRefreshInFlight = true;
   try {
     const [snapshot, pending] = await Promise.all([
       api(`/api/grok/acp/events?sessionId=${encodeURIComponent(connection.nativeSessionId)}`),
@@ -5290,6 +5393,8 @@ async function refreshGrokAcpSnapshot(connection, { initial = false } = {}) {
     connection.nativeLoading = false;
     connection.connectionLost = true;
     syncGenericInputState();
+  } finally {
+    connection.nativeRefreshInFlight = false;
   }
 }
 
@@ -5392,6 +5497,8 @@ function renderClaudeStructuredPermissions(connection, permissions) {
 
 async function refreshClaudeStructuredSnapshot(connection, { initial = false } = {}) {
   if (!connection || rpc !== connection || !connection.nativeClaudeStructured) return;
+  if (connection.nativeRefreshInFlight) return;
+  connection.nativeRefreshInFlight = true;
   try {
     const [snapshot, pending] = await Promise.all([
       api(`/api/claude/structured/events?sessionId=${encodeURIComponent(connection.nativeSessionId)}`),
@@ -5425,6 +5532,8 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false } =
   } catch {
     if (rpc !== connection) return;
     connection.nativeLoading = false; connection.connectionLost = true; syncGenericInputState();
+  } finally {
+    connection.nativeRefreshInFlight = false;
   }
 }
 
@@ -5531,6 +5640,8 @@ function renderAgentClientProtocolPermissions(connection, permissions) {
 
 async function refreshAgentClientProtocolSnapshot(connection, { initial = false } = {}) {
   if (!connection || rpc !== connection || !connection.nativeAcp) return;
+  if (connection.nativeRefreshInFlight) return;
+  connection.nativeRefreshInFlight = true;
   try {
     const [snapshot, pending] = await Promise.all([
       api(`/api/${connection.acpAgentId}/acp/events?sessionId=${encodeURIComponent(connection.nativeSessionId)}`),
@@ -5548,6 +5659,8 @@ async function refreshAgentClientProtocolSnapshot(connection, { initial = false 
   } catch {
     if (rpc !== connection) return;
     connection.nativeLoading = false; connection.connectionLost = true; syncGenericInputState();
+  } finally {
+    connection.nativeRefreshInFlight = false;
   }
 }
 
@@ -5636,6 +5749,8 @@ function renderAntigravityStructuredPermissions(connection, permissions) {
 
 async function refreshAntigravityStructuredSnapshot(connection, { initial = false } = {}) {
   if (!connection || rpc !== connection || !connection.nativeAntigravityStructured) return;
+  if (connection.nativeRefreshInFlight) return;
+  connection.nativeRefreshInFlight = true;
   try {
     const [snapshot, pending] = await Promise.all([
       api(`/api/antigravity/structured/events?sessionId=${encodeURIComponent(connection.nativeSessionId)}`),
@@ -5653,6 +5768,8 @@ async function refreshAntigravityStructuredSnapshot(connection, { initial = fals
   } catch {
     if (rpc !== connection) return;
     connection.nativeLoading = false; connection.connectionLost = true; syncGenericInputState();
+  } finally {
+    connection.nativeRefreshInFlight = false;
   }
 }
 
@@ -12916,6 +13033,23 @@ function lockMobilePortrait() {
   if (typeof screen.orientation?.lock !== "function") return;
   screen.orientation.lock("portrait").catch(() => {});
 }
+// Background suspension can outlive SSE/poll timers on phones. Reconcile the
+// currently selected native conversation when connectivity or visibility
+// returns, without replaying prompts or automatically answering approvals.
+function refreshVisibleNativeConversation() {
+  if (document.hidden || el.viewChat?.classList.contains("hidden")) return;
+  const connection = rpc;
+  if (!connection?.generic) return;
+  const refresh = connection.nativeCodex ? refreshCodexNativeSnapshot
+    : connection.nativeOpenCode ? refreshOpenCodeNativeSnapshot
+      : connection.nativeClaudeStructured ? refreshClaudeStructuredSnapshot
+        : connection.nativeAcp ? refreshAgentClientProtocolSnapshot
+          : connection.nativeGrokAcp ? refreshGrokAcpSnapshot
+            : connection.nativeAntigravityStructured ? refreshAntigravityStructuredSnapshot : null;
+  if (refresh) void refresh(connection).catch(() => {});
+}
+window.addEventListener("online", refreshVisibleNativeConversation);
+document.addEventListener("visibilitychange", refreshVisibleNativeConversation);
 window.addEventListener("pageshow", (event) => {
   lockMobilePortrait();
   // A mobile page can return from the back-forward cache without running

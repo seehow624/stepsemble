@@ -26,6 +26,8 @@ const { spawn, execFile, execFileSync } = require("node:child_process");
 const { createHttpUtils } = require("./server/http-utils");
 const { createNativeComposerRoutes } = require("./server/native-composer-routes");
 const { applyNativeLaunchConfig, isInstalledRuntime } = require("./server/native-launch-config");
+const { createCodexNativePool } = require("./server/codex-native-pool");
+const { createOpenCodeManagedService } = require("./server/opencode-managed-service");
 const { createLineDecoder, activePathIds } = require("./server/stream-safety");
 const { createSessionDiscovery, mapLimit, readBoundedText, withDeadline: sessionReadDeadline } = require("./server/session-discovery");
 const { parsePiEvent, validPiCommand, resolvePiResponse, parsePiUiReply } = require("./server/pi-rpc-contract");
@@ -37,7 +39,7 @@ const { createGitChangesService } = require("./server/git-changes");
 const { createPiResourcesService } = require("./server/pi-resources");
 const { createAgentTaskService, resolveCommand, CONNECTOR_DEFINITIONS } = require("./server/agent-connectors");
 const { createOpenCodeNativeAdapter } = require("./server/opencode-native-adapter");
-const { createCodexNativeHistoryAdapter, taskFromThread: codexTaskFromThread } = require("./server/codex-native-history-adapter");
+const { taskFromThread: codexTaskFromThread } = require("./server/codex-native-history-adapter");
 const { createGrokAcpAdapter } = require("./server/grok-acp-adapter");
 const { createAgentClientProtocolAdapter, readSessionRegistry, writeSessionRegistry } = require("./server/agent-client-protocol-adapter");
 const { createClaudeStructuredSession, CLAUDE_STRUCTURED_VERSION } = require("./server/claude-code-structured-adapter");
@@ -76,7 +78,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.45";
+const APP_VERSION = "3.0.46";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1746,6 +1748,8 @@ const piResources = createPiResourcesService({ home: APP_HOME });
 // agents use a bounded stdin/stdout journal with the same authenticated SSE
 // reconnect surface.  Both are exposed through the Agent Hub task inbox.
 let claudeLaunchReservations = 0;
+let nativeWorkRequests = 0;
+const NATIVE_WORK_ROUTE = /^\/api\/(?:open|send|cmd|rpc-cmd|rpc-ui|agent\/(?:open|send|approval)|codex\/mutation\/(?:turn|resume|approval)|opencode\/(?:session|message|model|permission)|(?:grok|cline|kilo|hermes)\/acp\/(?:session|prompt|permission)|(?:claude|antigravity)\/structured\/(?:prompt|model|permission))$/;
 const hasClaudeTasks = () => claudeLaunchReservations > 0 || agentTasks.list().some(task => task.agentId === "claude-code" && ["starting", "running", "reconnecting", "waiting"].includes(task.status));
 const desktopClaude = process.platform === "darwin" && (process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY
   || fs.existsSync(path.join(CONFIG_DIR, "claude-desktop", "config.json")))
@@ -1753,19 +1757,54 @@ const desktopClaude = process.platform === "darwin" && (process.env.SSH_CONNECTI
 // OpenCode's native API is opt-in through an explicit server URL. We never
 // scan random ports or private ~/.opencode files. A failed probe leaves the
 // normal PTY connector available and keeps the capability catalog bounded.
-const openCodeNative = createOpenCodeNativeAdapter({
+let openCodeNative = createOpenCodeNativeAdapter({
   env: process.env,
   stateFile: path.join(CONFIG_DIR, "opencode-native.json"),
 });
+const openCodeManaged = createOpenCodeManagedService({ env: process.env });
+const OPENCODE_MANAGED_FILE = path.join(CONFIG_DIR, "opencode-managed.json");
+let openCodeSetupPromise = null;
+function managedOpenCodeOptedIn() {
+  let fd;
+  try {
+    fd = fs.openSync(OPENCODE_MANAGED_FILE, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.size > 4096 || process.platform !== "win32" && (stat.uid !== process.getuid() || (stat.mode & 0o077))) return false;
+    const value = JSON.parse(fs.readFileSync(fd, "utf8"));
+    return value.version === 1 && value.enabled === true;
+  } catch { return false; }
+  finally { if (fd !== undefined) fs.closeSync(fd); }
+}
+async function setupManagedOpenCode({ remember = false } = {}) {
+  if (openCodeSetupPromise) return openCodeSetupPromise;
+  openCodeSetupPromise = (async () => {
+    const result = await openCodeManaged.start();
+    if (result.managed) {
+      const candidate = createOpenCodeNativeAdapter({ env: { ...process.env, ...openCodeManaged.env() },
+        stateFile: path.join(CONFIG_DIR, "opencode-native.json") });
+      const status = await candidate.refresh();
+      if (!status.ready) throw Object.assign(new Error("opencode_probe_failed"), { code: "opencode_probe_failed", statusCode: 503 });
+      openCodeNative = candidate;
+      // Persist only the user's opt-in. Service credentials stay in memory
+      // and are regenerated on each host start, never sent to the browser.
+      if (remember) writePrivateJson(OPENCODE_MANAGED_FILE, { version: 1, enabled: true }, "OpenCode setup");
+    } else await openCodeNative.refresh();
+    return { adapter: openCodeNative.status(), managed: openCodeManaged.status(), capability: openCodeNative.capability() };
+  })().finally(() => { openCodeSetupPromise = null; });
+  return openCodeSetupPromise;
+}
+if (!openCodeNative.status().configured && managedOpenCodeOptedIn()) {
+  void setupManagedOpenCode().catch(() => {});
+}
 void openCodeNative.refresh();
 // Installed services enable Codex's official app-server; development hosts
 // opt in explicitly. Native writes still require the mutation flag, a reviewed
 // version and an owner-only intent journal, without changing account settings.
-const codexNative = createCodexNativeHistoryAdapter({
+const codexNative = createCodexNativePool({ adapterOptions: {
   env: process.env,
   cwd: APP_HOME,
   journalFile: path.join(CONFIG_DIR, "codex-native-mutations.json"),
-});
+}, journalRoot: path.join(CONFIG_DIR, "codex-native-threads") });
 if (codexNative.status().configured) void codexNative.refresh();
 // Grok ACP is likewise opt-in. The process is not spawned until a session is
 // opened; without the flag the existing bounded CLI connector remains the
@@ -1927,6 +1966,16 @@ try {
     stateFile: HARNESS_UPDATE_STATE_FILE,
     env: { ...process.env, HOME: APP_HOME, USERPROFILE: APP_HOME },
     home: APP_HOME,
+    beforeUpdate: async () => {
+      if (activeRpcSessionsForUpdate().length || activeAgentTasksForUpdate().length) return { busy: true };
+      // A native OpenCode process may be managed by another client. Query its
+      // global status rather than just the first page of stored conversations.
+      if (openCodeNative.status().configured) {
+        const statuses = await openCodeNative.sessionStatus();
+        if (Object.values(statuses).some(value => !["idle", "completed", "stopped"].includes(String(value?.type || value?.status || "unknown")))) return { busy: true };
+      }
+      return { busy: activeRpcSessionsForUpdate().length > 0 || activeAgentTasksForUpdate().length > 0 };
+    },
     busy: () => {
       const rpc = activeRpcSessionsForUpdate();
       const tasks = activeAgentTasksForUpdate();
@@ -2426,8 +2475,19 @@ function activeRpcSessionsForUpdate() {
 
 function activeAgentTasksForUpdate() {
   try {
-    return agentTasks.list().filter((task) =>
+    const tasks = agentTasks.list().filter((task) =>
       ["starting", "running", "waiting", "reconnecting"].includes(String(task?.status || "")));
+    if (nativeWorkRequests > 0 || claudeLaunchReservations > 0 || codexNative.hasActiveWork() || openCodeSetupPromise) tasks.push({ id: "native-reservation", status: "running" });
+    const native = [];
+    for (const [id, session] of claudeStructuredSessions) native.push(publicClaudeStructuredTask(id, session));
+    for (const [id, session] of antigravityStructuredSessions) native.push(publicAntigravityStructuredTask(id, session));
+    for (const [agentId, adapter] of [["grok-build", grokAcp], ["cline", clineAcp], ["kilo", kiloAcp], ["hermes", hermesAcp]]) {
+      if (!adapter) continue;
+      if (adapter.pendingPermissions().length) tasks.push({ id: `${agentId}:approval`, status: "waiting" });
+      for (const session of adapter.sessions()) native.push(agentId === "grok-build" ? publicGrokAcpTask(session) : publicAgentClientProtocolTask(agentId, session));
+    }
+    tasks.push(...native.filter(task => task && (task.isRunning === true || ["starting", "running", "waiting", "reconnecting", "interrupting"].includes(String(task.status)))));
+    return tasks;
   } catch {
     // Fail closed if connector state cannot be inspected. Callbacks normally
     // run only after construction, so reaching this path means state is unsafe.
@@ -2480,7 +2540,7 @@ function listAgentTasks() {
 function publicOpenCodeNativeTask(session, status = null) {
   if (!session?.id) return null;
   const type = String(status?.type || status?.status || "idle").toLowerCase();
-  const running = ["active", "busy", "running"].includes(type);
+  const running = ["active", "busy", "running", "retry", "waiting", "reconnecting"].includes(type);
   const failed = ["error", "failed"].includes(type);
   // An idle native session is a stored OpenCode conversation, not queued work.
   // Reporting it as "waiting" made the task inbox claim dozens of pending jobs
@@ -2683,6 +2743,8 @@ function publicAntigravityStructuredTask(id, session) {
 
 async function listAgentTasksWithOpenCode() {
   const tasks = listAgentTasks();
+  if (nativeWorkRequests || openCodeSetupPromise) tasks.push({ id: "native:request", taskId: "native:request",
+    name: "Native connection in progress", status: "starting", isRunning: true, readOnly: true });
   if (openCodeNative.status().ready) {
     try {
       const [sessions, statuses] = await Promise.all([openCodeNative.listSessions({ limit: 100 }), openCodeNative.sessionStatus()]);
@@ -2690,17 +2752,26 @@ async function listAgentTasksWithOpenCode() {
         const task = publicOpenCodeNativeTask(session, statuses[session.id]);
         if (task) tasks.push(task);
       }
+      // The bounded history page is not the active-work inventory. An older
+      // conversation can still be running outside those first 100 records.
+      const visibleIds = new Set(sessions.sessions.map(session => session.id));
+      for (const [id, status] of Object.entries(statuses)) {
+        if (visibleIds.has(id)) continue;
+        const task = publicOpenCodeNativeTask({ id }, status);
+        if (task?.isRunning) tasks.push(task);
+      }
     } catch {
       // Native OpenCode is optional; a transient upstream outage must not hide
       // the already truthful Pi/generic task snapshot.
     }
   }
-  if (codexNative.status().ready) {
+  if (codexNative.status().ready || codexNative.hasActiveWork()) {
     try {
       tasks.push(...await codexNative.listTasks());
     } catch {
       // Codex native history is optional and read-only. A probe/read failure
       // must never hide Pi, generic, or OpenCode tasks from the inbox.
+      tasks.push(...codexNative.busyTasks());
     }
   }
   if (grokAcp?.status().ready) {
@@ -4697,6 +4768,18 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, 401, { error: "unauthorized" }); return;
       }
 
+      // While a confirmed harness update is running, do not start work on a
+      // binary that may be replaced. Reads and cancellation remain available.
+      if (req.method === "POST" && NATIVE_WORK_ROUTE.test(p)) {
+        if (harnessUpdateService?.isRunning()) { sendJSON(res, 409, { error: "harness_update_in_progress" }); return; }
+        // Reserve before the first body read/await, so an update cannot slip
+        // between route admission and native dispatch.
+        nativeWorkRequests++;
+        let released = false;
+        const release = () => { if (!released) { released = true; nativeWorkRequests--; } };
+        res.once("finish", release); res.once("close", release);
+      }
+
       if (p === "/api/protocol/handshake" && req.method === "POST") {
         let body;
         try { body = await readJSON(req, 16384); }
@@ -4739,7 +4822,17 @@ const server = http.createServer(async (req, res) => {
       // back to OpenCode, without copying credentials into Stepsemble.
       if (p === "/api/opencode/native" && req.method === "GET") {
         const adapter = await ensureOpenCodeNativeProbe();
-        sendJSON(res, 200, { adapter, capability: openCodeNative.capability() });
+        sendJSON(res, 200, { adapter, managed: openCodeManaged.status(), capability: openCodeNative.capability() });
+        return;
+      }
+
+      if (p === "/api/opencode/native/setup" && req.method === "POST") {
+        try {
+          const body = await readJSON(req, 4096);
+          if (body.confirm !== true) { sendJSON(res, 400, { error: "confirmation_required" }); return; }
+          if (harnessUpdateService?.isRunning()) { sendJSON(res, 409, { error: "harness_update_in_progress" }); return; }
+          sendJSON(res, 200, await setupManagedOpenCode({ remember: true }));
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_setup_failed" }); }
         return;
       }
 
@@ -5169,7 +5262,9 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/codex/mutation" && req.method === "GET") {
         try {
           await ensureCodexNativeProbe();
-          sendJSON(res, 200, { adapter: codexNative.status(), capability: codexNative.capability(), native: codexNative.nativeState(), mutation: codexNative.mutationStatus(), pendingApprovals: codexNative.pendingApprovals() });
+          const threadId = url.searchParams.get("threadId") || null;
+          if (threadId !== null && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(threadId)) { sendJSON(res, 400, { error: "invalid_thread_id" }); return; }
+          sendJSON(res, 200, { adapter: codexNative.status(), capability: codexNative.capability(), native: codexNative.nativeState(threadId), mutation: codexNative.mutationStatus(threadId), pendingApprovals: codexNative.pendingApprovals(threadId) });
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "codex_mutation_unavailable" }); }
         return;
       }
@@ -5177,7 +5272,8 @@ const server = http.createServer(async (req, res) => {
         try {
           await ensureCodexNativeProbe();
           const body = await readJSON(req, 256 * 1024);
-          sendJSON(res, 200, await codexNative.resumeThread({ threadId: body?.threadId, ...(body?.excludeTurns === true ? { excludeTurns: true } : {}) }));
+          const result = await codexNative.resumeThread({ threadId: body?.threadId, ...(body?.excludeTurns === true ? { excludeTurns: true } : {}) });
+          sendJSON(res, result?.kind === "reject" ? 409 : 200, result);
         } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "codex_resume_failed" }); }
         return;
       }
@@ -5185,7 +5281,8 @@ const server = http.createServer(async (req, res) => {
         try {
           await ensureCodexNativeProbe();
           const body = await readJSON(req, 64 * 1024);
-          sendJSON(res, 200, await codexNative.respondApproval(body?.requestId, { decision: body?.decision, scope: body?.scope }));
+          const result = await codexNative.respondApproval(body?.requestId, { decision: body?.decision, scope: body?.scope, threadId: body?.threadId });
+          sendJSON(res, result?.kind === "reject" ? 409 : 200, result);
         } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "codex_approval_failed" }); }
         return;
       }
@@ -6589,7 +6686,8 @@ function shutdown(signal) {
     hermesAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
     claudeStructuredCleanup,
     antigravityStructuredCleanup,
-  ]).then(([historyResult, nativeHistoryResult, codexResult, grokResult, clineResult, kiloResult, hermesResult, claudeResults, antigravityResults]) => ({
+    openCodeManaged.close(),
+  ]).then(([historyResult, nativeHistoryResult, codexResult, grokResult, clineResult, kiloResult, hermesResult, claudeResults, antigravityResults, openCodeResult]) => ({
     ...(historyResult || {}),
     cleanupConfirmed: historyResult?.cleanupConfirmed === true && nativeHistoryResult?.cleanupConfirmed !== false
       && codexResult?.cleanupConfirmed !== false
@@ -6597,6 +6695,7 @@ function shutdown(signal) {
       && clineResult?.cleanupConfirmed !== false
       && kiloResult?.cleanupConfirmed !== false
       && hermesResult?.cleanupConfirmed !== false
+      && openCodeResult?.cleanupConfirmed !== false
       && (!Array.isArray(claudeResults) || claudeResults.every(result => result?.cleanupConfirmed !== false))
       && (!Array.isArray(antigravityResults) || antigravityResults.every(result => result?.cleanupConfirmed !== false)),
   }));
