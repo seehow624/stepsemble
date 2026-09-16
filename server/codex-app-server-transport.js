@@ -40,6 +40,7 @@ const CLIENT_METHODS = Object.freeze([
 const NATIVE_LIFECYCLE_NOTIFICATIONS = Object.freeze(new Set([
   "thread/started", "turn/started", "turn/completed", "item/started", "item/completed",
   "serverRequest/resolved", "thread/status/changed", "thread/tokenUsage/updated", "thread/closed", "thread/archived",
+  "thread/compacted", "thread/settings/updated", "model/rerouted",
 ]));
 // A turn can echo the user's image in an item notification. Keep ordinary
 // app-server frames at MAX_FRAME_BYTES, but admit only these known turn
@@ -729,6 +730,10 @@ function createCodexAppServerTransport({
     if (["item/started", "item/completed"].includes(method)) {
       const tid = nativeId(params?.threadId), trn = nativeId(params?.turnId), item = nativeId(params?.item?.id);
       if (!item || !correlation(tid, trn)) { fail("native_item_mismatch"); return; }
+      const itemType = typeof params?.item?.type === "string" ? params.item.type : "";
+      if (["contextCompaction", "context_compaction", "context-compacted", "context_compacted"].includes(itemType)) {
+        report({ type: "context.compaction", threadId: tid, turnId: trn, itemId: item });
+      }
       report({ type: method === "item/started" ? "item.started" : "item.completed", threadId: tid, turnId: trn, itemId: item }); return;
     }
     if (method === "serverRequest/resolved") {

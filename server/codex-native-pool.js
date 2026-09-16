@@ -179,6 +179,37 @@ function createCodexNativePool({
   const idleWindow = Number.isFinite(Number(idleMs)) && Number(idleMs) >= 0
     ? Number(idleMs) : DEFAULT_IDLE_MS;
 
+  // Keep context observations in one bounded, pool-owned namespace.  Child
+  // adapters receive per-thread mutation journals, so deriving this after a
+  // child journal would strand cold snapshots when the pool is recreated.
+  const explicitJournalRoot = journalRoot || threadJournalDir || childJournalDir || null;
+  let resolvedJournalRoot = explicitJournalRoot;
+  if (!resolvedJournalRoot && typeof baseOptions.journalFile === "string" && path.isAbsolute(baseOptions.journalFile)) {
+    resolvedJournalRoot = path.join(path.dirname(baseOptions.journalFile), "threads");
+  }
+  if (!resolvedJournalRoot && typeof baseOptions.cwd === "string" && path.isAbsolute(baseOptions.cwd)) {
+    resolvedJournalRoot = path.join(baseOptions.cwd, ".stepsemble", "codex-native-threads");
+  }
+  if (!resolvedJournalRoot) resolvedJournalRoot = path.join(process.cwd(), ".stepsemble", "codex-native-threads");
+  if (!path.isAbsolute(resolvedJournalRoot)) resolvedJournalRoot = path.resolve(resolvedJournalRoot);
+  resolvedJournalRoot = path.normalize(resolvedJournalRoot);
+
+  let resolvedContextSnapshotRoot = typeof baseOptions.contextSnapshotRoot === "string" && path.isAbsolute(baseOptions.contextSnapshotRoot)
+    ? baseOptions.contextSnapshotRoot : null;
+  if (!resolvedContextSnapshotRoot && explicitJournalRoot) {
+    resolvedContextSnapshotRoot = path.join(resolvedJournalRoot, "context");
+  }
+  if (!resolvedContextSnapshotRoot && typeof baseOptions.contextSnapshotFile === "string" && path.isAbsolute(baseOptions.contextSnapshotFile)) {
+    resolvedContextSnapshotRoot = path.join(path.dirname(baseOptions.contextSnapshotFile), "codex-native-context");
+  }
+  if (!resolvedContextSnapshotRoot && typeof baseOptions.journalFile === "string" && path.isAbsolute(baseOptions.journalFile)) {
+    resolvedContextSnapshotRoot = path.join(path.dirname(baseOptions.journalFile), "codex-native-context");
+  }
+  if (!resolvedContextSnapshotRoot) resolvedContextSnapshotRoot = path.join(resolvedJournalRoot, "context");
+  if (!path.isAbsolute(resolvedContextSnapshotRoot)) resolvedContextSnapshotRoot = path.resolve(resolvedContextSnapshotRoot);
+  resolvedContextSnapshotRoot = path.normalize(resolvedContextSnapshotRoot);
+  const historyOptions = { ...baseOptions, contextSnapshotRoot: resolvedContextSnapshotRoot };
+
   const suppliedHistory = historyAdapter || adapter;
   let history = suppliedHistory;
   if (!history) {
@@ -186,8 +217,8 @@ function createCodexNativePool({
       ? createHistoryAdapter
       : typeof createAdapter === "function" ? createAdapter : null;
     history = historyFactory
-      ? historyFactory({ ...baseOptions, poolRole: "history", threadId: null })
-      : createCodexNativeHistoryAdapter(baseOptions);
+      ? historyFactory({ ...historyOptions, poolRole: "history", threadId: null })
+      : createCodexNativeHistoryAdapter(historyOptions);
   }
   if (history && typeof history.then === "function") {
     throw new TypeError("Codex native pool historyAdapter must be constructed synchronously");
@@ -204,17 +235,6 @@ function createCodexNativePool({
   // Never let children inherit one global mutation journal.  If the caller did
   // not provide a root, derive one beside the configured history journal (or
   // in the configured cwd) and use a SHA-256 filename for each thread.
-  let resolvedJournalRoot = journalRoot || threadJournalDir || childJournalDir || null;
-  if (!resolvedJournalRoot && typeof baseOptions.journalFile === "string" && path.isAbsolute(baseOptions.journalFile)) {
-    resolvedJournalRoot = path.join(path.dirname(baseOptions.journalFile), "threads");
-  }
-  if (!resolvedJournalRoot && typeof baseOptions.cwd === "string" && path.isAbsolute(baseOptions.cwd)) {
-    resolvedJournalRoot = path.join(baseOptions.cwd, ".stepsemble", "codex-native-threads");
-  }
-  if (!resolvedJournalRoot) resolvedJournalRoot = path.join(process.cwd(), ".stepsemble", "codex-native-threads");
-  if (!path.isAbsolute(resolvedJournalRoot)) resolvedJournalRoot = path.resolve(resolvedJournalRoot);
-  resolvedJournalRoot = path.normalize(resolvedJournalRoot);
-
   let closed = false;
   let sequence = 0;
   const entries = new Set();
@@ -362,6 +382,7 @@ function createCodexNativePool({
       ...baseOptions,
       poolRole: "thread",
       threadId,
+      contextSnapshotRoot: resolvedContextSnapshotRoot,
       journalFile: threadId ? journalFileFor(threadId) : path.join(resolvedJournalRoot, `${entry.key}-mutations.json`),
     };
     if (typeof baseOptions.transportFactory === "function") {

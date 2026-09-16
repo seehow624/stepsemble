@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.0.47
+
+Make context usage visible and keep missing or historical data honest.
+
+- Show a percentage beside the context ring, or localized Unknown when the
+  agent has not supplied enough data. Keep read-only usage separate from
+  permission to send messages or choose models.
+- Fix OpenCode identity-only polls clearing known model capacity. Load the
+  project-scoped catalog on open, preserve same-model metadata, account for
+  cache writes, and prevent model/session/host mismatches from painting stale
+  percentages.
+- Preserve validated Codex last usage observations across reconnects and
+  restarts, with an explicit last-reported timestamp and non-live indicator.
+  Unobserved history remains unknown; no automatic resume or probe prompt.
+- Add render, source-identity, request-race and persistence regressions;
+  verify narrow mobile layouts and translated status explanations.
+
+See `docs/release-3.0.47.md` for validation and explicit data boundaries.
+
 ## 3.0.46
 
 Improve native task concurrency, reconnects, and safe local setup.

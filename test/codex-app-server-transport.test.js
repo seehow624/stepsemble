@@ -350,6 +350,31 @@ test("Codex native transport scopes token usage notifications to the active thre
   assert.equal(transport.state().failure, "native_usage_mismatch");
 });
 
+test("Codex native transport reports raw and item context compaction lifecycle events", async t => {
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const events = [];
+  const transport = createCodexAppServerTransport({ child, onEvent: event => events.push(event), authorizeNative: async () => proof() });
+  t.after(() => transport.close());
+  const pending = transport.initialize();
+  let request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.154.0" } });
+  await pending;
+  await writes.next();
+  const started = transport.startThread({ cwd: "/owned/project" });
+  request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { thread: { id: "thread-compaction" } } });
+  await started;
+  frame(child, { jsonrpc: "2.0", method: "thread/compacted", params: { threadId: "thread-compaction" } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(events.at(-1).type, "thread/compacted");
+  frame(child, { jsonrpc: "2.0", method: "item/completed", params: {
+    threadId: "thread-compaction", turnId: null, item: { id: "item-compaction", type: "contextCompaction" },
+  } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(events.slice(-2).map(event => event.type), ["context.compaction", "item.completed"]);
+});
+
 test("Codex native model/list remains bounded and schema-shaped", async t => {
   const child = new FakeNativeProcess();
   const writes = readFrames(child);

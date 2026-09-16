@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const {
   createCodexNativeHistoryAdapter,
   CodexNativeHistoryError,
@@ -195,7 +196,8 @@ test("Codex composer adapter forwards images and overrides, isolates usage by th
     async close() { return { kind: "closed", cleanupConfirmed: true }; },
   };
   const adapter = createCodexNativeHistoryAdapter({ enabled: true, mutationEnabled: true, executable: process.execPath, cwd: temp,
-    journalFile: path.join(temp, "mutations.json"), transportFactory: async incoming => { options = incoming; return fake; } });
+    journalFile: path.join(temp, "mutations.json"), clock: () => 2_000_000_000_000,
+    transportFactory: async incoming => { options = incoming; return fake; } });
   t.after(() => adapter.close());
   assert.equal((await adapter.refresh()).ready, true);
 
@@ -206,10 +208,11 @@ test("Codex composer adapter forwards images and overrides, isolates usage by th
   options.onEvent({ type: "thread.tokenUsage.updated", threadId: "thread-a", turnId: "turn-a", tokenUsage: { last, total, modelContextWindow: 1000 } });
   assert.deepEqual(await adapter.contextUsage("thread-a"), {
     model: "gpt-5-codex", contextWindow: 1000, contextTokens: 20, contextPercent: 2,
-    usage: last,
+    usage: last, source: "live", observedAt: "2033-05-18T03:33:20.000Z", stale: false,
   });
   assert.deepEqual(await adapter.contextUsage("thread-b"), {
     model: "gpt-5-mini", contextWindow: null, contextTokens: null, contextPercent: null, usage: null,
+    source: "unknown", observedAt: null, stale: true,
   });
 
   const image = "data:image/png;base64,iVBORw0KGgo=";
@@ -219,6 +222,173 @@ test("Codex composer adapter forwards images and overrides, isolates usage by th
   const stale = await adapter.startTurn([{ type: "text", text: "must not cross thread" }], {}, "thread-b");
   assert.deepEqual(stale, { kind: "reject", code: "native_thread_mismatch" });
   assert.equal(calls.length, 2);
+});
+
+test("Codex native context snapshots restore only the exact thread after adapter recreation", async t => {
+  if (typeof process.getuid !== "function") { t.skip("Owner-only snapshot persistence requires POSIX ownership proof"); return; }
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-native-context-"));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  const clock = () => 2_000_000_000_000;
+  const firstThread = thread({ id: "thread-a", sessionId: "session-a", updatedAt: 1_000_000_000, model: "gpt-5-codex" });
+  const secondThread = thread({ id: "thread-b", sessionId: "session-b", updatedAt: 1_000_000_000, model: "gpt-5-mini" });
+  const last = { cachedInputTokens: 4, inputTokens: 10, outputTokens: 6, reasoningOutputTokens: 2, totalTokens: 20, cacheWriteInputTokens: 1 };
+  const calls = [];
+  let firstOptions;
+  const makeFake = () => ({
+    async initialize() {},
+    async listThreads() { calls.push(["list"]); return { kind: "threads", data: [firstThread, secondThread] }; },
+    async readThread(params) { calls.push(["read", params]); return { kind: "thread", thread: params.threadId === "thread-a" ? firstThread : secondThread }; },
+    async tokenUsage() { return null; },
+    async close() { return { kind: "closed", cleanupConfirmed: true }; },
+  });
+  const first = createCodexNativeHistoryAdapter({ enabled: true, executable: process.execPath, cwd: temp,
+    journalFile: path.join(temp, "mutations.json"), clock,
+    transportFactory: async options => { firstOptions = options; return makeFake(); } });
+  assert.equal((await first.refresh()).ready, true);
+  firstOptions.onEvent({ type: "thread.tokenUsage.updated", threadId: "thread-a", turnId: "turn-a",
+    tokenUsage: { last, total: last, modelContextWindow: 1000 } });
+  assert.equal((await first.contextUsage("thread-a")).source, "live");
+  await first.close();
+
+  let secondOptions;
+  const second = createCodexNativeHistoryAdapter({ enabled: true, executable: process.execPath, cwd: temp,
+    journalFile: path.join(temp, "mutations.json"), clock,
+    transportFactory: async options => { secondOptions = options; return makeFake(); } });
+  t.after(() => second.close());
+  assert.equal((await second.refresh()).ready, true);
+  const restored = await second.contextUsage("thread-a");
+  assert.equal(restored.source, "last_observed");
+  assert.equal(restored.stale, true);
+  assert.equal(restored.observedAt, "2033-05-18T03:33:20.000Z");
+  assert.equal(restored.contextTokens, 20);
+  assert.equal((await second.contextUsage("thread-b")).source, "unknown");
+  assert.equal(calls.some(row => row[0] === "read" && row[1].includeTurns === false), true);
+  assert.equal(calls.some(row => row[0] === "resume" || row[0] === "start"), false);
+  assert.equal(typeof secondOptions.onEvent, "function");
+});
+
+test("Codex native context snapshots are invalidated by compaction and missing data stays unknown", async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-native-context-invalidate-"));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  const native = thread({ id: "thread-a", sessionId: "session-a", updatedAt: 1_000_000_000 });
+  const last = { cachedInputTokens: 1, inputTokens: 2, outputTokens: 3, reasoningOutputTokens: 0, totalTokens: 6, cacheWriteInputTokens: 0 };
+  let options;
+  const fake = {
+    async initialize() {},
+    async listThreads() { return { kind: "threads", data: [native] }; },
+    async readThread() { return { kind: "thread", thread: native }; },
+    tokenUsage() { return { threadId: "thread-a", turnId: "turn-a", tokenUsage: { last, modelContextWindow: 1000 } }; },
+    async close() { return { kind: "closed", cleanupConfirmed: true }; },
+  };
+  const adapter = createCodexNativeHistoryAdapter({ enabled: true, executable: process.execPath, cwd: temp,
+    journalFile: path.join(temp, "mutations.json"), clock: () => 2_000_000_000_000,
+    transportFactory: async incoming => { options = incoming; return fake; } });
+  t.after(() => adapter.close());
+  assert.equal((await adapter.refresh()).ready, true);
+  options.onEvent({ type: "thread.tokenUsage.updated", threadId: "thread-a", turnId: "turn-a", tokenUsage: { last, modelContextWindow: 1000 } });
+  assert.equal((await adapter.contextUsage("thread-a")).source, "live");
+  options.onEvent({ type: "context.compaction", threadId: "thread-a", turnId: "turn-a" });
+  const afterCompaction = await adapter.contextUsage("thread-a");
+  assert.equal(afterCompaction.source, "unknown");
+  assert.equal(afterCompaction.contextTokens, null);
+  assert.equal((await adapter.contextUsage("thread-b")).source, "unknown");
+});
+
+test("Codex native context usage drops a live observation when native updatedAt advances", async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-native-context-freshness-"));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  const native = thread({ id: "thread-a", sessionId: "session-a", updatedAt: 1_000_000_000 });
+  const last = { cachedInputTokens: 1, inputTokens: 2, outputTokens: 3, reasoningOutputTokens: 0, totalTokens: 6, cacheWriteInputTokens: 0 };
+  let options;
+  const fake = {
+    async initialize() {},
+    async listThreads() { return { kind: "threads", data: [native] }; },
+    async readThread() { return { kind: "thread", thread: native }; },
+    tokenUsage() { return { threadId: "thread-a", turnId: "turn-a", tokenUsage: { last, modelContextWindow: 1000 } }; },
+    async close() { return { kind: "closed", cleanupConfirmed: true }; },
+  };
+  const adapter = createCodexNativeHistoryAdapter({ enabled: true, executable: process.execPath, cwd: temp,
+    journalFile: path.join(temp, "mutations.json"), clock: () => 2_000_000_000_000,
+    transportFactory: async incoming => { options = incoming; return fake; } });
+  t.after(() => adapter.close());
+  assert.equal((await adapter.refresh()).ready, true);
+  options.onEvent({ type: "thread.tokenUsage.updated", threadId: "thread-a", turnId: "turn-a", tokenUsage: { last, modelContextWindow: 1000 } });
+  assert.equal((await adapter.contextUsage("thread-a")).source, "live");
+  native.updatedAt = 3_000_000_000;
+  await adapter.readThread("thread-a", { includeTurns: false });
+  const afterOtherClient = await adapter.contextUsage("thread-a");
+  assert.equal(afterOtherClient.source, "unknown");
+  assert.equal(afterOtherClient.contextTokens, null);
+});
+
+test("Codex context snapshot persistence is owner-only, symlink-safe, and globally bounded", async t => {
+  if (typeof process.getuid !== "function") { t.skip("Owner-only snapshot persistence requires POSIX ownership proof"); return; }
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-native-context-safety-"));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  const native = thread({ id: "thread-a", sessionId: "session-a", updatedAt: 1_000_000_000 });
+  const last = { cachedInputTokens: 1, inputTokens: 2, outputTokens: 3, reasoningOutputTokens: 0, totalTokens: 6, cacheWriteInputTokens: 0 };
+  const makeAdapter = (snapshotRoot, optionsRef) => {
+    const fake = {
+      async initialize() {},
+      async listThreads() { return { kind: "threads", data: [native] }; },
+      async readThread() { return { kind: "thread", thread: native }; },
+      async close() { return { kind: "closed", cleanupConfirmed: true }; },
+    };
+    return createCodexNativeHistoryAdapter({ enabled: true, executable: process.execPath, cwd: temp,
+      journalFile: path.join(temp, `mutations-${crypto.randomUUID()}.json`), contextSnapshotRoot: snapshotRoot,
+      clock: () => 2_000_000_000_000, transportFactory: async incoming => { optionsRef.value = incoming; return fake; } });
+  };
+
+  const root = path.join(temp, "context");
+  const firstOptions = { value: null };
+  const first = makeAdapter(root, firstOptions);
+  await first.refresh();
+  firstOptions.value.onEvent({ type: "thread.tokenUsage.updated", threadId: "thread-a", turnId: "turn-a", tokenUsage: { last, modelContextWindow: 1000 } });
+  await first.close();
+  const digest = crypto.createHash("sha256").update("thread-a").digest("hex");
+  const snapshotPath = path.join(root, `${digest}.json`);
+  assert.equal((fs.statSync(snapshotPath).mode & 0o077), 0);
+
+  fs.chmodSync(snapshotPath, 0o644);
+  const insecureOptions = { value: null };
+  const insecure = makeAdapter(root, insecureOptions);
+  await insecure.refresh();
+  assert.equal((await insecure.contextUsage("thread-a")).source, "unknown");
+  await insecure.close();
+  fs.chmodSync(snapshotPath, 0o600);
+
+  const hardlink = `${snapshotPath}.hardlink`;
+  fs.linkSync(snapshotPath, hardlink);
+  const hardlinkOptions = { value: null };
+  const hardlinked = makeAdapter(root, hardlinkOptions);
+  await hardlinked.refresh();
+  assert.equal((await hardlinked.contextUsage("thread-a")).source, "unknown");
+  await hardlinked.close();
+  fs.unlinkSync(hardlink);
+
+  const external = path.join(temp, "external");
+  const symlinkParent = path.join(temp, "symlink-parent");
+  fs.mkdirSync(external, { mode: 0o700 });
+  fs.symlinkSync(external, symlinkParent, "dir");
+  const symlinkOptions = { value: null };
+  const symlinked = makeAdapter(path.join(symlinkParent, "context"), symlinkOptions);
+  await symlinked.refresh();
+  symlinkOptions.value.onEvent({ type: "thread.tokenUsage.updated", threadId: "thread-a", turnId: "turn-a", tokenUsage: { last, modelContextWindow: 1000 } });
+  await symlinked.close();
+  assert.deepEqual(fs.readdirSync(external), []);
+
+  const capped = path.join(temp, "capped");
+  fs.mkdirSync(capped, { mode: 0o700 });
+  for (let index = 0; index < 256; index += 1) {
+    const name = crypto.createHash("sha256").update(`seed-${index}`).digest("hex");
+    fs.writeFileSync(path.join(capped, `${name}.json`), "{}\n", { mode: 0o600 });
+  }
+  const cappedOptions = { value: null };
+  const bounded = makeAdapter(capped, cappedOptions);
+  await bounded.refresh();
+  cappedOptions.value.onEvent({ type: "thread.tokenUsage.updated", threadId: "thread-a", turnId: "turn-a", tokenUsage: { last, modelContextWindow: 1000 } });
+  await bounded.close();
+  assert.equal(fs.readdirSync(capped).filter(name => name.endsWith(".json")).length, 256);
 });
 
 test("Codex native history retires a broken JSONL process instead of polling a dead transport", async t => {

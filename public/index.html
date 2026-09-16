@@ -6,14 +6,14 @@
 <title>Stepsemble</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=3.0.46">
-<link rel="icon" href="/icon-16.png?v=3.0.46" sizes="16x16" type="image/png">
-<link rel="icon" href="/icon-32.png?v=3.0.46" sizes="32x32" type="image/png">
-<link rel="icon" href="/icon-512.png?v=3.0.46" sizes="512x512" type="image/png">
-<link rel="apple-touch-icon" href="/icon-180.png?v=3.0.46">
-  <link rel="stylesheet" href="/style.css?v=3.0.46">
-  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.0.46">
-  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.0.46">
+<link rel="manifest" href="/manifest.webmanifest?v=3.0.47">
+<link rel="icon" href="/icon-16.png?v=3.0.47" sizes="16x16" type="image/png">
+<link rel="icon" href="/icon-32.png?v=3.0.47" sizes="32x32" type="image/png">
+<link rel="icon" href="/icon-512.png?v=3.0.47" sizes="512x512" type="image/png">
+<link rel="apple-touch-icon" href="/icon-180.png?v=3.0.47">
+  <link rel="stylesheet" href="/style.css?v=3.0.47">
+  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.0.47">
+  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.0.47">
 </head>
 <body>
 
@@ -225,11 +225,12 @@
           <section id="context-dashboard" class="context-dashboard" role="group" aria-labelledby="context-dashboard-title">
             <strong id="context-dashboard-title" class="sr-only" data-i18n-key="contextDashboard.context">Context</strong>
             <span class="context-info-wrap">
-              <button id="context-info" class="context-ring-btn" type="button" aria-expanded="false" aria-haspopup="true" title="Usage details" aria-label="Usage details" aria-describedby="context-dashboard-summary">
+              <button id="context-info" class="context-ring-btn" type="button" aria-expanded="false" aria-haspopup="true" aria-controls="context-popover" title="Usage details" aria-label="Usage details" aria-describedby="context-dashboard-summary">
                 <svg id="context-progress" class="context-ring" viewBox="0 0 36 36" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-labelledby="context-dashboard-title">
                   <circle class="context-ring-track" cx="18" cy="18" r="15.5"/>
                   <circle id="context-progress-fill" class="context-ring-fill" cx="18" cy="18" r="15.5"/>
                 </svg>
+                <span id="context-inline-percent" class="context-inline-percent" data-i18n-ignore>Unknown</span>
               </button>
               <div id="context-popover" class="context-popover hidden" role="group" aria-labelledby="context-popover-title">
                 <h3 id="context-popover-title" data-i18n-key="contextDashboard.details">Usage details</h3>
@@ -239,7 +240,7 @@
                 <div class="context-metric"><span data-i18n-key="contextDashboard.cacheHit">Cache hit</span><strong id="context-cache-hit" data-i18n-ignore>—</strong></div>
                 <div class="context-metric"><span data-i18n-key="contextDashboard.cacheHitPercent">Hit %</span><strong id="context-cache-hit-percent" data-i18n-ignore>—</strong></div>
                 <div class="context-metric"><span data-i18n-key="contextDashboard.cacheWrite">Cache write</span><strong id="context-cache-write" data-i18n-ignore>—</strong></div>
-                <p id="context-dashboard-status" class="context-popover-status" data-i18n-key="contextDashboard.awaiting" data-i18n-ignore>Awaiting response</p>
+                <p id="context-dashboard-status" class="context-popover-status" data-i18n-ignore>The agent has not reported enough context data yet.</p>
               </div>
             </span>
             <p id="context-dashboard-summary" class="sr-only" data-i18n-ignore></p>
@@ -443,7 +444,7 @@
         </div>
         <div class="settings-row">
           <span><strong>Stepsemble</strong><small data-i18n-key="agentHub.workspace">A workspace for local coding agents</small></span>
-          <span class="settings-value" id="set-app-version">v3.0.46</span>
+          <span class="settings-value" id="set-app-version">v3.0.47</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -918,18 +919,19 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=3.0.46"></script>
-<script src="/modules/app-foundation.js?v=3.0.46"></script>
-<script src="/modules/agent-identity.js?v=3.0.46"></script>
-<script src="/modules/session-utils.js?v=3.0.46"></script>
-<script src="/modules/pi-session.js?v=3.0.46"></script>
-<script src="/modules/conversation-catalog.js?v=3.0.46"></script>
-<script src="/modules/context-usage.js?v=3.0.46"></script>
-<script src="/modules/claude-auth.js?v=3.0.46"></script>
-<script src="/modules/codex-approvals.js?v=3.0.46"></script>
-<script src="/modules/protocol-contracts.js?v=3.0.46"></script>
-<script src="/modules/client-sdk.js?v=3.0.46"></script>
-<script src="/modules/native-dialogs.js?v=3.0.46"></script>
-<script src="/app.js?v=3.0.46"></script>
+<script src="/i18n.js?v=3.0.47"></script>
+<script src="/modules/app-foundation.js?v=3.0.47"></script>
+<script src="/modules/agent-identity.js?v=3.0.47"></script>
+<script src="/modules/session-utils.js?v=3.0.47"></script>
+<script src="/modules/pi-session.js?v=3.0.47"></script>
+<script src="/modules/conversation-catalog.js?v=3.0.47"></script>
+<script src="/modules/context-usage.js?v=3.0.47"></script>
+<script src="/modules/opencode-context.js?v=3.0.47"></script>
+<script src="/modules/claude-auth.js?v=3.0.47"></script>
+<script src="/modules/codex-approvals.js?v=3.0.47"></script>
+<script src="/modules/protocol-contracts.js?v=3.0.47"></script>
+<script src="/modules/client-sdk.js?v=3.0.47"></script>
+<script src="/modules/native-dialogs.js?v=3.0.47"></script>
+<script src="/app.js?v=3.0.47"></script>
 </body>
 </html>

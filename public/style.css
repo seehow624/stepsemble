@@ -1,4 +1,4 @@
-/* stepsemble v3.0.46 — Ink & Ivory / English-first localization */
+/* stepsemble v3.0.47 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -4040,9 +4040,8 @@ body.compact #view-list .project-group-items .session-item {
   padding-bottom: 0;
 }
 
-/* Composer toolbar:: attachment, fixed model chip, circular
-   context gauge, usage-details popover with provider quotas. The gauge is
-   itself the popover trigger; numbers stay out of the bar until opened. */
+/* Composer toolbar: attachment, model chip, visible context percentage and
+   an on-demand breakdown. Unknown is explicit, never a manufactured 0%. */
 .sr-only {
   position: absolute !important;
   width: 1px !important;
@@ -4097,9 +4096,8 @@ body.compact #view-list .project-group-items .session-item {
 }
 #view-chat .composer-model-control .icon { width: 14px; height: 14px; flex: 0 0 auto; }
 
-/* Inline context gauge: a compact circular progress indicator parked hard
-   against the details button. It is the popover trigger, so the toolbar shows
-   only the gauge until the user opens it. No overflow clipping here: the
+/* Inline context gauge and percentage share a single accessible trigger.
+   No overflow clipping here: the
    popover is a child of this section and must stay visible above the bar. */
 #view-chat .context-dashboard {
   min-width: 0;
@@ -4117,12 +4115,14 @@ body.compact #view-list .project-group-items .session-item {
   display: inline-flex;
 }
 #view-chat .context-ring-btn {
-  width: 40px;
-  height: 40px;
-  min-height: 40px;
-  display: grid;
-  place-items: center;
-  padding: 0;
+  min-width: 76px;
+  height: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 5px;
   border: 0;
   border-radius: 10px;
   color: var(--pine-soft);
@@ -4132,6 +4132,12 @@ body.compact #view-list .project-group-items .session-item {
 #view-chat .context-ring-btn:hover,
 #view-chat .context-ring-btn[aria-expanded="true"] { background: var(--bubble-user); }
 #view-chat .context-ring-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#view-chat .context-inline-percent {
+  color: var(--ink);
+  font: 600 .7rem/1 var(--mono);
+  white-space: nowrap;
+}
+#view-chat .context-dashboard[data-context-state="unknown"] .context-inline-percent { color: var(--pine-soft); }
 #view-chat .context-ring {
   width: 22px;
   height: 22px;
@@ -4220,7 +4226,7 @@ html.reduced-motion #view-chat .context-ring-fill { transition: none; }
      name's ellipsis instead of pushing the send button out of the bar. */
   #view-chat .composer-model-control { flex: 0 1 auto; width: var(--composer-model-w-narrow, 200px); padding: 0 7px 0 8px; }
   #view-chat .context-dashboard { gap: 3px; }
-  #view-chat .context-ring-btn { width: 44px; height: 44px; min-height: 44px; }
+  #view-chat .context-ring-btn { min-width: 72px; }
 }
 
 @media (max-width: 360px) {

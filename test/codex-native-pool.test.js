@@ -284,3 +284,66 @@ test("listTasks does not wait for a child factory that is still reserving a thre
   releaseFactory();
   await pendingResume;
 });
+
+test("recreated pool restores a child observation through the shared history snapshot root", async t => {
+  if (typeof process.getuid !== "function") { t.skip("Owner-only snapshot persistence requires POSIX ownership proof"); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-pool-context-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  const clock = () => 2_000_000_000_000;
+  const nativeThread = thread("thread-a", {
+    sessionId: "session-a", model: "gpt-5-codex", createdAt: 100, updatedAt: 1_000_000_000,
+  });
+  const secondThread = thread("thread-b", {
+    sessionId: "session-b", model: "gpt-5-codex", createdAt: 100, updatedAt: 1_000_000_000,
+  });
+  const last = { cachedInputTokens: 2, inputTokens: 3, outputTokens: 4, reasoningOutputTokens: 1, totalTokens: 10, cacheWriteInputTokens: 0 };
+  const transportOptions = [];
+  let resumeCalls = 0;
+  let startCalls = 0;
+  const makeTransport = async options => {
+    transportOptions.push(options);
+    let nativeState = { state: "ready", threadId: null, turnId: null };
+    return {
+      async initialize() {},
+      async listThreads() { return { kind: "threads", data: [nativeThread, secondThread] }; },
+      async readThread(params) { return { kind: "thread", thread: params?.threadId === "thread-b" ? secondThread : nativeThread }; },
+      async resumeThread(params) {
+        resumeCalls += 1;
+        nativeState = { state: "thread_started", threadId: params.threadId, turnId: null };
+        return { kind: "resumed", threadId: params.threadId };
+      },
+      async startThread() { startCalls += 1; return { kind: "started", threadId: "thread-a" }; },
+      state() { return { ...nativeState }; },
+      async close() { return { kind: "closed", cleanupConfirmed: true }; },
+    };
+  };
+  const adapterOptions = {
+    enabled: true, mutationEnabled: true, executable: process.execPath, cwd: root,
+    journalFile: path.join(root, "mutations.json"), clock, transportFactory: makeTransport,
+  };
+  const first = createCodexNativePool({ adapterOptions, journalRoot: path.join(root, "threads"), maxChildren: 1, clock });
+  await first.refresh();
+  assert.equal((await first.contextUsage("thread-a")).source, "unknown");
+  await first.resumeThread({ threadId: "thread-a" });
+  const childTransport = transportOptions.find(options => options.threadId === "thread-a");
+  assert.ok(childTransport, "child transport should be created separately from history");
+  childTransport.onEvent({ type: "thread.tokenUsage.updated", threadId: "thread-a", turnId: "turn-a",
+    tokenUsage: { last, modelContextWindow: 1000 } });
+  assert.equal((await first.contextUsage("thread-a")).source, "live");
+  await first.resumeThread({ threadId: "thread-b" });
+  const samePoolHistory = await first.contextUsage("thread-a");
+  assert.equal(samePoolHistory.source, "last_observed");
+  await first.close();
+  assert.equal(fs.existsSync(path.join(root, "threads", "context", `${hashThreadId("thread-a")}.json`)), true);
+
+  const resumeBeforeCold = resumeCalls;
+  const second = createCodexNativePool({ adapterOptions, journalRoot: path.join(root, "threads"), clock });
+  t.after(() => second.close());
+  await second.refresh();
+  const restored = await second.contextUsage("thread-a");
+  assert.equal(restored.source, "last_observed");
+  assert.equal(restored.stale, true);
+  assert.equal(restored.contextTokens, 10);
+  assert.equal(resumeCalls, resumeBeforeCold, "cold context lookup must not resume the thread");
+  assert.equal(startCalls, 0, "cold context lookup must not start a thread");
+});

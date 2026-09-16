@@ -37,6 +37,16 @@ const MUTATION_OPERATIONS = new Set(["thread.start", "thread.resume", "turn.star
 const MAX_MUTATION_ROWS = 256;
 const MAX_MODEL_ID = 256;
 const MAX_REASONING_EFFORT = 128;
+// Context usage is not part of the persisted thread/read contract.  The
+// adapter therefore keeps only a small, owner-written last observation.  This
+// is deliberately a row-per-thread store (or one bounded file when used
+// directly), never a scan of Codex's private rollout files.
+const CONTEXT_SNAPSHOT_VERSION = 1;
+const MAX_CONTEXT_SNAPSHOTS = 256;
+const MAX_CONTEXT_SNAPSHOT_BYTES = 256 * 1024;
+const MAX_CONTEXT_SNAPSHOT_TEXT = 512;
+const CONTEXT_SNAPSHOT_CLOCK_SKEW_MS = 30_000;
+const CONTEXT_SNAPSHOT_FILE = "codex-native-context.json";
 
 class CodexNativeHistoryError extends Error {
   constructor(code, message, statusCode = 503, details = {}) {
@@ -60,6 +70,123 @@ function mutationFilePath(value, fallback) {
   const raw = String(value ?? fallback ?? "").trim();
   if (!raw || !path.isAbsolute(raw) || /[\u0000-\u001f\u007f]/.test(raw) || raw.length > 4096) return null;
   return path.normalize(raw);
+}
+
+function contextSnapshotPath(value, fallback) {
+  const raw = String(value ?? fallback ?? "").trim();
+  if (!raw || !path.isAbsolute(raw) || /[\u0000-\u001f\u007f]/.test(raw) || raw.length > 4096) return null;
+  return path.normalize(raw);
+}
+
+function contextSnapshotRoot(value, fallback) {
+  const result = contextSnapshotPath(value, fallback);
+  return result;
+}
+
+function validSnapshotTime(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+function snapshotHash(threadId) {
+  return crypto.createHash("sha256").update(threadId, "utf8").digest("hex");
+}
+
+function readBoundedUtf8(filename, maxBytes = MAX_CONTEXT_SNAPSHOT_BYTES) {
+  if (!filename) return null;
+  // These snapshots are owner-only state.  If this process cannot prove the
+  // file belongs to the current owner, fail closed instead of displaying it.
+  if (typeof process.getuid !== "function") return null;
+  let fd;
+  try {
+    const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0);
+    fd = fs.openSync(filename, flags);
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.size < 0 || stat.size > maxBytes || stat.nlink !== 1
+      || stat.uid !== process.getuid() || (stat.mode & 0o077) !== 0) return null;
+    const buffer = Buffer.alloc(stat.size);
+    let offset = 0;
+    while (offset < buffer.length) {
+      const read = fs.readSync(fd, buffer, offset, buffer.length - offset, offset);
+      if (!read) break;
+      offset += read;
+    }
+    if (offset !== buffer.length) return null;
+    return buffer.toString("utf8");
+  } catch { return null; }
+  finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch {} } }
+}
+
+function ensureOwnedSnapshotDirectory(directory) {
+  if (!directory || !path.isAbsolute(directory) || typeof process.getuid !== "function") return false;
+  const normalized = path.normalize(directory);
+  const parsed = path.parse(normalized);
+  if (normalized === parsed.root) return false;
+  let current = parsed.root;
+  const parts = path.relative(parsed.root, normalized).split(path.sep).filter(Boolean);
+  try {
+    for (const part of parts) {
+      current = path.join(current, part);
+      let stat;
+      try {
+        const link = fs.lstatSync(current);
+        // macOS exposes /var as a root-level compatibility symlink.  Permit
+        // that OS path only; a caller-controlled nested symlink would make the
+        // owner-only root ambiguous and is rejected.
+        if (link.isSymbolicLink()) {
+          if (path.dirname(current) !== parsed.root) return false;
+          stat = fs.statSync(current);
+          if (!stat.isDirectory()) return false;
+        } else if (!link.isDirectory()) return false;
+        if (!stat) stat = fs.statSync(current);
+      } catch (error) {
+        if (error?.code !== "ENOENT") return false;
+        fs.mkdirSync(current, { mode: 0o700 });
+        stat = fs.statSync(current);
+      }
+      const rootOwnedSticky = stat.uid === 0 && (stat.mode & 0o1000) !== 0;
+      const trustedOwner = stat.uid === process.getuid() || stat.uid === 0;
+      if (!trustedOwner || (stat.mode & 0o022) !== 0 && !rootOwnedSticky) return false;
+      if (current === normalized && (stat.uid !== process.getuid() || (stat.mode & 0o077) !== 0)) return false;
+    }
+    return true;
+  } catch { return false; }
+}
+
+function snapshotFileForRoot(root, threadId) {
+  return root && validThreadId(threadId) ? path.join(root, `${snapshotHash(threadId)}.json`) : null;
+}
+
+function boundedSnapshotFileCount(directory) {
+  if (!directory || typeof process.getuid !== "function") return null;
+  let handle;
+  let count = 0;
+  try {
+    handle = fs.opendirSync(directory);
+    for (let index = 0; index <= MAX_CONTEXT_SNAPSHOTS; index += 1) {
+      const entry = handle.readSync();
+      if (!entry) return count;
+      if (!/^[a-f0-9]{64}\.json$/.test(entry.name)) continue;
+      const filename = path.join(directory, entry.name);
+      let stat;
+      try {
+        const link = fs.lstatSync(filename);
+        if (link.isSymbolicLink()) return null;
+        stat = fs.statSync(filename);
+      } catch { return null; }
+      if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid() || (stat.mode & 0o077) !== 0) return null;
+      count += 1;
+      if (count > MAX_CONTEXT_SNAPSHOTS) return count;
+    }
+    // A full bounded directory read is not evidence that the directory is
+    // below the cap; fail closed rather than undercounting entries beyond it.
+    return MAX_CONTEXT_SNAPSHOTS + 1;
+  } catch { return null; }
+  finally { try { handle?.closeSync(); } catch {} }
+}
+
+function safeSnapshotString(value, limit = MAX_CONTEXT_SNAPSHOT_TEXT) {
+  return typeof value === "string" && value.length > 0 && value.length <= limit
+    && !/[\u0000-\u001f\u007f]/.test(value) ? value : null;
 }
 function loadMutationJournal(filename) {
   if (!filename) return { version: 1, operations: [] };
@@ -126,12 +253,22 @@ function resolveConfig(env = process.env, overrides = {}) {
   const cwd = absoluteDirectory(overrides.cwd ?? env?.STEPSEMBLE_CODEX_CWD, process.cwd());
   const journalFile = mutationFilePath(overrides.journalFile ?? env?.STEPSEMBLE_CODEX_MUTATION_JOURNAL,
     cwd ? path.join(cwd, ".stepsemble", "codex-native-mutations.json") : null);
+  const contextSnapshotFile = contextSnapshotPath(
+    overrides.contextSnapshotFile ?? env?.STEPSEMBLE_CODEX_CONTEXT_SNAPSHOT,
+    journalFile ? path.join(path.dirname(journalFile), CONTEXT_SNAPSHOT_FILE) : null,
+  );
+  const contextSnapshotRootValue = overrides.contextSnapshotRoot ?? env?.STEPSEMBLE_CODEX_CONTEXT_ROOT;
+  const contextSnapshotRootResolved = contextSnapshotRootValue
+    ? contextSnapshotRoot(contextSnapshotRootValue)
+    : null;
   return Object.freeze({
     enabled,
     mutationEnabled,
     executable,
     cwd,
     journalFile,
+    contextSnapshotFile,
+    contextSnapshotRoot: contextSnapshotRootResolved,
     configured: enabled && !!executable && !!cwd,
     error: !enabled ? "disabled" : !executable ? "codex_executable_unavailable" : !cwd ? "codex_cwd_unavailable" : null,
   });
@@ -165,8 +302,15 @@ function nativeUsageSnapshot(value) {
     tokenUsage: { last, modelContextWindow: contextWindow } };
 }
 
-function contextUsageDto(threadId, model, value) {
+function scopedNativeUsageSnapshot(threadId, value) {
   const snapshot = nativeUsageSnapshot(value);
+  if (!snapshot || snapshot.threadId && snapshot.threadId !== threadId) return null;
+  return snapshot.threadId ? snapshot : { ...snapshot, threadId };
+}
+
+function contextUsageDto(threadId, model, value, metadata = {}) {
+  const candidate = nativeUsageSnapshot(value);
+  const snapshot = candidate && (!candidate.threadId || candidate.threadId === threadId) ? candidate : null;
   const last = snapshot?.tokenUsage?.last || null;
   const contextWindow = snapshot?.tokenUsage?.modelContextWindow ?? null;
   const contextTokens = last?.totalTokens ?? null;
@@ -178,7 +322,50 @@ function contextUsageDto(threadId, model, value) {
     contextTokens,
     contextPercent: Number.isFinite(contextPercent) ? contextPercent : null,
     usage: last ? { ...last } : null,
+    source: metadata.source === "live" || metadata.source === "last_observed" ? metadata.source : "unknown",
+    observedAt: validSnapshotTime(metadata.observedAt) ? new Date(metadata.observedAt).toISOString() : null,
+    stale: metadata.source === "live" ? false : true,
   };
+}
+
+function normalizeContextSnapshotRow(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (!validThreadId(value.threadId) || !validSnapshotTime(value.observedAt)) return null;
+  const usage = nativeUsageSnapshot({ threadId: value.threadId, turnId: value.turnId, tokenUsage: value.tokenUsage });
+  if (!usage || usage.threadId !== value.threadId) return null;
+  const turnId = usage.turnId;
+  const sessionId = value.sessionId === null || value.sessionId === undefined ? null : validThreadId(value.sessionId) ? value.sessionId : null;
+  const model = value.model === null || value.model === undefined ? null : safeSnapshotString(value.model, MAX_MODEL_ID);
+  if (value.model !== null && value.model !== undefined && !model) return null;
+  const createdAt = value.createdAt === null || value.createdAt === undefined ? null : validSnapshotTime(value.createdAt) ? value.createdAt : null;
+  const threadUpdatedAt = value.threadUpdatedAt === null || value.threadUpdatedAt === undefined
+    ? null : validSnapshotTime(value.threadUpdatedAt) ? value.threadUpdatedAt : null;
+  if ((value.createdAt !== null && value.createdAt !== undefined && createdAt === null)
+    || (value.threadUpdatedAt !== null && value.threadUpdatedAt !== undefined && threadUpdatedAt === null)) return null;
+  const nativeVersion = value.nativeVersion === null || value.nativeVersion === undefined
+    ? null : safeSnapshotString(value.nativeVersion, 64);
+  const schemaFingerprint = value.schemaFingerprint === null || value.schemaFingerprint === undefined
+    ? null : safeSnapshotString(value.schemaFingerprint, 128);
+  if ((value.nativeVersion !== null && value.nativeVersion !== undefined && !nativeVersion)
+    || (value.schemaFingerprint !== null && value.schemaFingerprint !== undefined && !schemaFingerprint)) return null;
+  return {
+    threadId: value.threadId,
+    turnId,
+    sessionId,
+    model,
+    createdAt,
+    threadUpdatedAt,
+    observedAt: value.observedAt,
+    nativeVersion,
+    schemaFingerprint,
+    tokenUsage: usage.tokenUsage,
+  };
+}
+
+function contextSnapshotPayload(rows) {
+  const snapshots = [...rows.values()].slice(-MAX_CONTEXT_SNAPSHOTS);
+  const payload = JSON.stringify({ version: CONTEXT_SNAPSHOT_VERSION, snapshots }) + "\n";
+  return Buffer.byteLength(payload, "utf8") <= MAX_CONTEXT_SNAPSHOT_BYTES ? payload : null;
 }
 
 function epochMilliseconds(seconds) {
@@ -273,13 +460,15 @@ function createCodexNativeHistoryAdapter({
   transportFactory = null,
   clock = () => Date.now(),
   journalFile,
+  contextSnapshotFile,
+  contextSnapshotRoot,
   mutationEnabled,
   onEvent = null,
   onApprovalRequest = null,
   versionProbe = null,
   schemaProbe = null,
 } = {}) {
-  const config = resolveConfig(env, { executable, cwd, enabled, includeKnownPaths, journalFile, mutationEnabled });
+  const config = resolveConfig(env, { executable, cwd, enabled, includeKnownPaths, journalFile, contextSnapshotFile, contextSnapshotRoot, mutationEnabled });
   const mutationJournal = loadMutationJournal(config.journalFile);
   const mutationRows = new Map(mutationJournal.operations.map(row => [row.operationId, row]));
   let mutationWriteError = null;
@@ -304,11 +493,161 @@ function createCodexNativeHistoryAdapter({
   let refreshPromise = null;
   const threadCache = new Map();
   const usageCache = new Map();
+  const usageObservationCache = new Map();
+  const usageInvalidated = new Set();
+  const contextSnapshotRows = new Map();
+  const contextSnapshotLoaded = new Set();
+  const contextSnapshotPending = new Map();
+  let contextSnapshotWriteScheduled = null;
+  let contextSnapshotWritePromise = Promise.resolve();
+  let contextSnapshotFileLoaded = false;
   let verifiedCompatibility = null;
   // Tests can inject a transport or version/schema probe. Production launches
   // are compatibility-gated before app-server IO so an unreviewed alpha or
   // schema drift cannot be silently treated as the native contract.
   let versionVerified = typeof transportFactory === "function";
+
+  function contextSnapshotFilename(threadId) {
+    return config.contextSnapshotRoot
+      ? snapshotFileForRoot(config.contextSnapshotRoot, threadId)
+      : config.contextSnapshotFile;
+  }
+
+  function loadContextSnapshotFile() {
+    if (contextSnapshotFileLoaded || config.contextSnapshotRoot || !config.contextSnapshotFile) return;
+    contextSnapshotFileLoaded = true;
+    const raw = readBoundedUtf8(config.contextSnapshotFile);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || parsed.version !== CONTEXT_SNAPSHOT_VERSION || !Array.isArray(parsed.snapshots)
+        || parsed.snapshots.length > MAX_CONTEXT_SNAPSHOTS) return;
+      for (const candidate of parsed.snapshots) {
+        const row = normalizeContextSnapshotRow(candidate);
+        if (row) contextSnapshotRows.set(row.threadId, row);
+      }
+    } catch { /* invalid or truncated owner snapshot is fail-closed */ }
+  }
+
+  function loadContextSnapshot(threadId) {
+    if (!validThreadId(threadId)) return null;
+    if (!config.contextSnapshotRoot) {
+      loadContextSnapshotFile();
+      if (contextSnapshotLoaded.size >= MAX_CONTEXT_SNAPSHOTS && !contextSnapshotLoaded.has(threadId)) return null;
+      contextSnapshotLoaded.add(threadId);
+      return contextSnapshotRows.get(threadId) || null;
+    }
+    // A child adapter can write this exact hashed file after the history
+    // adapter has already observed a miss.  Re-read one bounded file on each
+    // cold lookup rather than permanently negative-caching that miss.
+    const raw = readBoundedUtf8(contextSnapshotFilename(threadId));
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || parsed.version !== CONTEXT_SNAPSHOT_VERSION) return null;
+      const row = normalizeContextSnapshotRow(parsed.snapshot);
+      if (!row || row.threadId !== threadId) return null;
+      contextSnapshotRows.set(threadId, row);
+      return row;
+    } catch { return null; }
+  }
+
+  async function writeContextSnapshotFile(filename, payload) {
+    if (!filename || typeof payload !== "string" || Buffer.byteLength(payload, "utf8") > MAX_CONTEXT_SNAPSHOT_BYTES) return false;
+    const directory = path.dirname(filename);
+    if (!ensureOwnedSnapshotDirectory(directory)) return false;
+    let targetExists = false;
+    try {
+      const link = fs.lstatSync(filename);
+      if (link.isSymbolicLink() || !link.isFile()) return false;
+      const stat = fs.statSync(filename);
+      if (stat.nlink !== 1 || stat.uid !== process.getuid() || (stat.mode & 0o077) !== 0) return false;
+      targetExists = true;
+    } catch (error) {
+      if (error?.code !== "ENOENT") return false;
+    }
+    if (config.contextSnapshotRoot && !targetExists) {
+      const count = boundedSnapshotFileCount(directory);
+      if (count === null || count >= MAX_CONTEXT_SNAPSHOTS) return false;
+    }
+    let temp = null;
+    try {
+      temp = `${filename}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+      await fs.promises.writeFile(temp, payload, { encoding: "utf8", mode: 0o600 });
+      try { await fs.promises.chmod(temp, 0o600); } catch {}
+      await fs.promises.rename(temp, filename);
+      temp = null;
+      try { await fs.promises.chmod(filename, 0o600); } catch {}
+      return true;
+    } catch {
+      if (temp) { try { await fs.promises.unlink(temp); } catch {} }
+      return false;
+    }
+  }
+
+  async function deleteContextSnapshotFile(filename) {
+    if (!filename) return false;
+    try { await fs.promises.unlink(filename); return true; }
+    catch (error) { return error?.code === "ENOENT"; }
+  }
+
+  function drainContextSnapshotWrites() {
+    contextSnapshotWriteScheduled = null;
+    if (!contextSnapshotPending.size) return;
+    const pending = [...contextSnapshotPending.entries()];
+    contextSnapshotPending.clear();
+    contextSnapshotWritePromise = contextSnapshotWritePromise.catch(() => {}).then(async () => {
+      for (const [threadId, action] of pending) {
+        const filename = contextSnapshotFilename(threadId);
+        if (!filename) continue;
+        if (action === "delete") {
+          if (config.contextSnapshotRoot) {
+            await deleteContextSnapshotFile(filename);
+          } else {
+            const payload = contextSnapshotPayload(contextSnapshotRows);
+            if (payload) await writeContextSnapshotFile(filename, payload);
+          }
+          continue;
+        }
+        const row = contextSnapshotRows.get(threadId);
+        if (!row) continue;
+        const payload = config.contextSnapshotRoot
+          ? JSON.stringify({ version: CONTEXT_SNAPSHOT_VERSION, snapshot: row }) + "\n"
+          : contextSnapshotPayload(contextSnapshotRows);
+        if (!payload || Buffer.byteLength(payload, "utf8") > MAX_CONTEXT_SNAPSHOT_BYTES) continue;
+        await writeContextSnapshotFile(filename, payload);
+      }
+    });
+  }
+
+  function queueContextSnapshotWrite(threadId, action = "write") {
+    if (!validThreadId(threadId) || !contextSnapshotFilename(threadId)) return;
+    contextSnapshotPending.set(threadId, action);
+    if (!contextSnapshotWriteScheduled) contextSnapshotWriteScheduled = setImmediate(drainContextSnapshotWrites);
+  }
+
+  async function flushContextSnapshotWrites() {
+    if (contextSnapshotWriteScheduled) {
+      clearImmediate(contextSnapshotWriteScheduled);
+      drainContextSnapshotWrites();
+    }
+    await contextSnapshotWritePromise.catch(() => {});
+    if (contextSnapshotPending.size) return flushContextSnapshotWrites();
+  }
+
+  function canRestoreContextSnapshot(row, cached) {
+    if (!row || !cached || row.threadId !== cached.id || !validSnapshotTime(row.observedAt)) return false;
+    const now = Number(clock());
+    if (validSnapshotTime(now) && row.observedAt > now + CONTEXT_SNAPSHOT_CLOCK_SKEW_MS) return false;
+    if (!validSnapshotTime(cached.updatedAt) || cached.updatedAt > row.observedAt + CONTEXT_SNAPSHOT_CLOCK_SKEW_MS) return false;
+    if (row.nativeVersion !== snapshotNativeVersion()) return false;
+    const currentSchema = verifiedCompatibility?.schemaFingerprint || null;
+    if (row.schemaFingerprint !== currentSchema) return false;
+    if (row.sessionId && cached.sessionId && row.sessionId !== cached.sessionId) return false;
+    if (row.createdAt !== null && cached.createdAt !== null && row.createdAt !== cached.createdAt) return false;
+    if (row.model && cached.model && row.model !== cached.model) return false;
+    return true;
+  }
 
   async function verifyExecutableVersion() {
     if (verifiedCompatibility) return verifiedCompatibility;
@@ -415,15 +754,66 @@ function createCodexNativeHistoryAdapter({
     return typeof transport?.state === "function" ? transport.state() : { state: "not_ready", threadId: null, turnId: null };
   }
 
+  function snapshotNativeVersion() {
+    return state.nativeVersion || verifiedCompatibility?.nativeVersion || CODEX_NATIVE_VERSION;
+  }
+
+  function invalidateUsage(threadId) {
+    if (!validThreadId(threadId)) return;
+    usageCache.delete(threadId);
+    usageObservationCache.delete(threadId);
+    usageInvalidated.add(threadId);
+    contextSnapshotRows.delete(threadId);
+    queueContextSnapshotWrite(threadId, "delete");
+  }
+
   function cacheThread(value) {
     if (!value || !validThreadId(value.id)) return;
+    const prior = threadCache.get(value.id);
+    const observedAt = usageObservationCache.get(value.id)?.observedAt
+      ?? contextSnapshotRows.get(value.id)?.observedAt;
+    if (prior && ((prior.model || null) !== (value.model || null)
+      || (prior.sessionId || null) !== (value.sessionId || null)
+      || (prior.createdAt ?? null) !== (value.createdAt ?? null)
+      || validSnapshotTime(value.updatedAt) && validSnapshotTime(observedAt)
+        && value.updatedAt > observedAt + CONTEXT_SNAPSHOT_CLOCK_SKEW_MS)) invalidateUsage(value.id);
     threadCache.set(value.id, value);
   }
 
   function observeNativeEvent(event) {
-    if (event?.type === "thread.tokenUsage.updated" && validThreadId(event.threadId)) {
+    const threadId = validThreadId(event?.threadId) ? event.threadId : null;
+    if (threadId && ["context.compaction", "thread.compacted", "thread/compacted", "context_compacted",
+      "thread.settings.updated", "thread/settings/updated", "model.rerouted", "model/rerouted", "turn.started"].includes(event?.type)) {
+      invalidateUsage(threadId);
+    }
+    if (event?.type === "thread.tokenUsage.updated" && threadId) {
       const snapshot = nativeUsageSnapshot(event);
-      if (snapshot) usageCache.set(event.threadId, snapshot);
+      if (snapshot) {
+        const observedAt = Number(clock());
+        usageInvalidated.delete(threadId);
+        usageCache.set(threadId, snapshot);
+        usageObservationCache.set(threadId, {
+          source: "live",
+          observedAt: validSnapshotTime(observedAt) ? observedAt : null,
+        });
+        if (validSnapshotTime(observedAt) && (contextSnapshotRows.has(threadId) || contextSnapshotRows.size < MAX_CONTEXT_SNAPSHOTS)) {
+          const cached = threadCache.get(threadId);
+          contextSnapshotRows.set(threadId, {
+            threadId,
+            turnId: snapshot.turnId,
+            sessionId: cached?.sessionId || null,
+            model: cached?.model || null,
+            createdAt: cached?.createdAt ?? null,
+            threadUpdatedAt: cached?.updatedAt ?? null,
+            observedAt,
+            nativeVersion: snapshotNativeVersion(),
+            schemaFingerprint: verifiedCompatibility?.schemaFingerprint || null,
+            tokenUsage: snapshot.tokenUsage,
+          });
+          contextSnapshotLoaded.add(threadId);
+          queueContextSnapshotWrite(threadId);
+        }
+      }
     }
     if (typeof onEvent === "function") {
       try { onEvent(event); } catch { /* transport report owns failure semantics */ }
@@ -437,6 +827,7 @@ function createCodexNativeHistoryAdapter({
     const instance = transport;
     transport = null;
     usageCache.clear();
+    usageObservationCache.clear();
     threadCache.clear();
     state = { ...state, state: "degraded", ready: false, sessionReady: false, mutationReady: false, approvalReady: false, lastError: code, checkedAt: clock() };
     try { void Promise.resolve(instance.close?.()).catch(() => {}); } catch {}
@@ -605,16 +996,31 @@ function createCodexNativeHistoryAdapter({
     requireReady();
     if (!validThreadId(threadId)) throw new CodexNativeHistoryError("invalid_thread_id", "Codex thread id is invalid", 400);
     let snapshot = usageCache.get(threadId) || null;
-    if (!snapshot && typeof transport?.tokenUsage === "function") {
+    let metadata = usageObservationCache.get(threadId) || null;
+    if (!snapshot && !usageInvalidated.has(threadId) && typeof transport?.tokenUsage === "function") {
       try { snapshot = await transport.tokenUsage(threadId); }
       catch (error) { retireBrokenTransport(error); throw error; }
+      if (snapshot) {
+        snapshot = scopedNativeUsageSnapshot(threadId, snapshot);
+        const observedAt = Number(clock());
+        metadata = { source: "live", observedAt: validSnapshotTime(observedAt) ? observedAt : null };
+      }
     }
-    if (!snapshot && typeof transport?.contextUsage === "function") {
+    if (!snapshot && !usageInvalidated.has(threadId) && typeof transport?.contextUsage === "function") {
       try { snapshot = await transport.contextUsage(threadId); }
       catch (error) { retireBrokenTransport(error); throw error; }
+      if (snapshot) {
+        snapshot = scopedNativeUsageSnapshot(threadId, snapshot);
+        const observedAt = Number(clock());
+        metadata = { source: "live", observedAt: validSnapshotTime(observedAt) ? observedAt : null };
+      }
     }
+    let restored = !snapshot && !usageInvalidated.has(threadId) ? loadContextSnapshot(threadId) : null;
     let cached = threadCache.get(threadId);
-    if (!cached && typeof transport?.readThread === "function") {
+    const needsFreshMetadata = typeof transport?.readThread === "function"
+      && (!!restored || metadata?.source === "live");
+    const requiresFreshRestoreMetadata = !!restored;
+    if ((!cached || needsFreshMetadata) && typeof transport?.readThread === "function") {
       try {
         const result = await transport.readThread({ threadId, includeTurns: false });
         cached = publicThread(result?.thread);
@@ -623,9 +1029,24 @@ function createCodexNativeHistoryAdapter({
         // Usage is still authoritative when a metadata-only read races a
         // thread close. Keep the DTO scoped to the requested id and expose an
         // unknown model instead of inventing one from a stale sibling thread.
+        if (requiresFreshRestoreMetadata) cached = null;
       }
     }
-    return contextUsageDto(threadId, cached?.model || null, snapshot);
+    if (!snapshot && !usageInvalidated.has(threadId)) {
+      if (canRestoreContextSnapshot(restored, cached)) {
+        snapshot = restored;
+        metadata = { source: "last_observed", observedAt: restored.observedAt };
+      }
+    }
+    // A fresh metadata read can discover a model/session identity change and
+    // invalidate the live observation while this async call was in flight.
+    // Never return the pre-change local snapshot in that race.
+    if (snapshot && usageInvalidated.has(threadId)) {
+      snapshot = null;
+      metadata = null;
+    }
+    if (!snapshot) metadata = null;
+    return contextUsageDto(threadId, cached?.model || null, snapshot, metadata || { source: "unknown" });
   }
 
   async function listTasks() {
@@ -703,8 +1124,11 @@ function createCodexNativeHistoryAdapter({
     const instance = transport;
     transport = null;
     usageCache.clear();
+    usageObservationCache.clear();
     threadCache.clear();
+    usageInvalidated.clear();
     state = { ...state, ready: false, sessionReady: false, mutationReady: false, approvalReady: false, state: "closed" };
+    await flushContextSnapshotWrites();
     if (!instance) return { kind: "closed", cleanupConfirmed: true };
     try { return await instance.close?.() || { kind: "closed", cleanupConfirmed: true }; }
     catch { return { kind: "closed", cleanupConfirmed: false }; }

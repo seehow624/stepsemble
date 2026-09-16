@@ -14,6 +14,10 @@ const TOKEN = "native-composer-preview";
 const MACHINE_ID = "composer-preview";
 const CODEX_THREAD = "fixture-codex-thread";
 const CLAUDE_SESSION = "fixture-claude-session";
+const OPENCODE_SESSION = "fixture-opencode-session";
+const OPENCODE_PROVIDER = "fixture-opencode-provider";
+const OPENCODE_MODEL = "fixture-opencode-model";
+const OPENCODE_DIRECTORY = "/tmp/stepsemble-native-composer";
 const startedAt = Date.now() - 90_000;
 
 const codexModels = [
@@ -65,6 +69,8 @@ const state = {
   codexInterrupts: 0,
   claudeInterrupts: 0,
   codexApproval: null,
+  openCodeCatalogReads: 0,
+  openCodeReconciles: 0,
 };
 
 const codexContext = () => ({
@@ -91,6 +97,75 @@ const claudeContext = () => ({
   contextPercent: null,
   usage: null,
 });
+
+// Reconcile intentionally returns only the OpenCode session's model identity.
+// Capacity comes from the separate directory-scoped catalog below, allowing
+// the browser to prove same-identity capacity hydration without starting a
+// vendor process or making a model call.
+const openCodeModels = [
+  {
+    providerID: OPENCODE_PROVIDER,
+    modelID: OPENCODE_MODEL,
+    name: "Fixture OpenCode",
+    limit: { context: 100_000, output: 8_000 },
+    capabilities: { reasoning: true, attachment: true },
+    variants: { high: {} },
+  },
+];
+
+function openCodeSessionPayload() {
+  return {
+    id: OPENCODE_SESSION,
+    sessionID: OPENCODE_SESSION,
+    title: "OpenCode composer fixture",
+    directory: OPENCODE_DIRECTORY,
+    model: { providerID: OPENCODE_PROVIDER, modelID: OPENCODE_MODEL },
+    time: { created: startedAt, updated: Date.now() },
+  };
+}
+
+function openCodeMessages() {
+  const model = { providerID: OPENCODE_PROVIDER, modelID: OPENCODE_MODEL };
+  return [
+    {
+      id: "fixture-opencode-user-0",
+      sessionID: OPENCODE_SESSION,
+      role: "user",
+      time: { created: startedAt + 1 },
+      parts: [{ type: "text", text: "Synthetic OpenCode prompt — fixture only." }],
+      info: { id: "fixture-opencode-user-0", sessionID: OPENCODE_SESSION, role: "user", time: { created: startedAt + 1 } },
+    },
+    {
+      id: "fixture-opencode-assistant-0",
+      sessionID: OPENCODE_SESSION,
+      role: "assistant",
+      time: { created: startedAt + 2, completed: startedAt + 3 },
+      parts: [{ type: "text", text: "Synthetic OpenCode response. No provider was called." }],
+      info: {
+        id: "fixture-opencode-assistant-0",
+        sessionID: OPENCODE_SESSION,
+        role: "assistant",
+        time: { created: startedAt + 2, completed: startedAt + 3 },
+        model,
+        tokens: { input: 45_000, output: 0, reasoning: 0, total: 45_000, cache: { read: 0, write: 0 } },
+      },
+    },
+  ];
+}
+
+function openCodeReconcilePayload() {
+  state.openCodeReconciles += 1;
+  return {
+    kind: "opencode_reconcile",
+    session: openCodeSessionPayload(),
+    status: { type: "idle" },
+    messages: openCodeMessages(),
+    permissions: [],
+    revision: "fixture-opencode-revision-1",
+    changed: false,
+    restarted: false,
+  };
+}
 
 const tasks = [
   {
@@ -124,11 +199,26 @@ const tasks = [
     nativeSessionId: CLAUDE_SESSION,
     readOnly: false,
   },
+  {
+    id: `opencode:${OPENCODE_SESSION}`,
+    taskId: `opencode:${OPENCODE_SESSION}`,
+    agentId: "opencode",
+    agent: "OpenCode",
+    name: "OpenCode composer fixture",
+    cwd: OPENCODE_DIRECTORY,
+    status: "waiting",
+    startedAt,
+    lastActivityAt: Date.now(),
+    nativeOpenCode: true,
+    nativeSessionId: OPENCODE_SESSION,
+    readOnly: false,
+  },
 ];
 
 const connectors = [
   { id: "codex", label: "Codex", installed: true, kind: "native", maturity: "full", capabilities: ["rpc", "images", "models"] },
   { id: "claude-code", label: "Claude Code", installed: true, kind: "native", maturity: "full", capabilities: ["rpc", "images", "models"] },
+  { id: "opencode", label: "OpenCode", installed: true, kind: "native", maturity: "full", capabilities: ["rpc", "images", "models"] },
 ];
 
 function json(res, status, value, extraHeaders = {}) {
@@ -303,9 +393,19 @@ export async function createNativeComposerPreview({ port = 0 } = {}) {
         return json(res, 200, { kind: "sent", nativeSessionId: CLAUDE_SESSION });
       }
       if (pathname === "/api/claude/structured/interrupt" && req.method === "POST") { state.claudeInterrupts += 1; return json(res, 200, { kind: "requested", nativeSessionId: CLAUDE_SESSION }); }
+      if (pathname === "/api/opencode/models" && req.method === "GET") {
+        if (requestUrl.searchParams.get("directory") !== OPENCODE_DIRECTORY) return json(res, 400, { error: "fixture_directory_required" });
+        state.openCodeCatalogReads += 1;
+        return json(res, 200, { models: openCodeModels, directory: OPENCODE_DIRECTORY });
+      }
+      if (pathname === "/api/opencode/reconcile" && req.method === "POST") {
+        const body = await parseJsonBody(req);
+        if (body.sessionId !== OPENCODE_SESSION || body.cwd !== OPENCODE_DIRECTORY) return json(res, 404, { error: "fixture_session_not_found" });
+        return json(res, 200, openCodeReconcilePayload());
+      }
       if (pathname === "/api/agent/abort" && req.method === "POST") return json(res, 200, { kind: "requested" });
-      if (pathname === "/__fixture/state" && req.method === "GET") return json(res, 200, { token: TOKEN, codexModel: state.codexModel, claudeModel: state.claudeModel, codexTurns: state.codexTurns, claudePrompts: state.claudePrompts, codexInterrupts: state.codexInterrupts, claudeInterrupts: state.claudeInterrupts });
-      if (pathname === "/__fixture/reset" && req.method === "POST") { state.codexTurns.length = 0; state.claudePrompts.length = 0; state.codexInterrupts = 0; state.claudeInterrupts = 0; state.codexModel = codexModels[0].id; state.claudeModel = claudeModels[0].id; return json(res, 200, { ok: true }); }
+      if (pathname === "/__fixture/state" && req.method === "GET") return json(res, 200, { token: TOKEN, codexModel: state.codexModel, claudeModel: state.claudeModel, codexTurns: state.codexTurns, claudePrompts: state.claudePrompts, codexInterrupts: state.codexInterrupts, claudeInterrupts: state.claudeInterrupts, openCodeCatalogReads: state.openCodeCatalogReads, openCodeReconciles: state.openCodeReconciles });
+      if (pathname === "/__fixture/reset" && req.method === "POST") { state.codexTurns.length = 0; state.claudePrompts.length = 0; state.codexInterrupts = 0; state.claudeInterrupts = 0; state.codexModel = codexModels[0].id; state.claudeModel = claudeModels[0].id; state.openCodeCatalogReads = 0; state.openCodeReconciles = 0; return json(res, 200, { ok: true }); }
       if (pathname.startsWith("/api/")) return json(res, 200, {});
       if (!["GET", "HEAD"].includes(req.method)) return json(res, 405, { error: "preview_method_not_allowed" });
       return serveAsset(req, res, pathname, origin);
@@ -325,7 +425,7 @@ export async function createNativeComposerPreview({ port = 0 } = {}) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const preview = await createNativeComposerPreview();
-  console.log(JSON.stringify({ kind: "native_composer_preview_ready", url: preview.origin, token: preview.token, codexSession: `codex:${CODEX_THREAD}`, claudeSession: `claude-code:${CLAUDE_SESSION}`, syntheticOnly: true, modelCalls: 0 }));
+  console.log(JSON.stringify({ kind: "native_composer_preview_ready", url: preview.origin, token: preview.token, codexSession: `codex:${CODEX_THREAD}`, claudeSession: `claude-code:${CLAUDE_SESSION}`, opencodeSession: `opencode:${OPENCODE_SESSION}`, syntheticOnly: true, modelCalls: 0 }));
   const input = readline.createInterface({ input: process.stdin });
   let stopping = false;
   const stop = async () => {

@@ -155,7 +155,7 @@ test("context sync lifecycle and responsive composer wiring are event-driven", (
   const send = html.indexOf('id="btn-send"');
   assert.ok(model > 0 && model < abort && abort < send, "model control must stay beside Send/Stop");
   assert.match(html, /id="context-dashboard"/);
-  // The ring itself is the popover trigger; numbers live only in the popover.
+  // Percentage is visible without opening details; token breakdown stays in the popover.
   assert.match(html, /id="context-info"[^>]*aria-expanded="false"/);
   assert.match(html, /id="context-info"[\s\S]*?id="context-progress"/);
   assert.doesNotMatch(html, /context-info-btn/);
@@ -163,6 +163,7 @@ test("context sync lifecycle and responsive composer wiring are event-driven", (
   const popoverAt = html.indexOf('id="context-popover"');
   const usedAt = html.indexOf('id="context-used"');
   assert.ok(popoverAt > -1 && usedAt > popoverAt, "figures live inside the popover");
+  assert.ok(html.indexOf('id="context-inline-percent"') < popoverAt, "percentage lives outside the hidden popover");
   // Fixed-width chip: name truncates, the trailing thinking level stays visible.
   assert.match(html, /id="composer-model-name"/);
   assert.match(html, /id="composer-model-level"/);

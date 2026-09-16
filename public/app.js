@@ -1,7 +1,7 @@
-/* stepsemble v3.0.46 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.47 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.46";
+const CLIENT_APP_VERSION = "3.0.47";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -11,6 +11,7 @@ const foundation = window.stepsembleFoundation;
 const sessionUtils = window.stepsembleSessionUtils;
 const piSession = window.StepsemblePiSession;
 const contextUtils = window.stepsembleContextUtils;
+const openCodeContext = window.stepsembleOpenCodeContext;
 if (!foundation || !sessionUtils || !contextUtils || !piSession) throw new Error("Stepsemble foundation modules are missing");
 const {
   SELECTED_KEY, SETTINGS_KEY, LEGACY_SETTINGS_KEY, LEGACY_SETTINGS_KEYS, SETTINGS_VERSION,
@@ -98,6 +99,7 @@ const el = {
   taskProgressCount: $("task-progress-count"),
   contextDashboard: $("context-dashboard"), contextProgress: $("context-progress"), contextProgressFill: $("context-progress-fill"),
   contextInfo: $("context-info"), contextPopover: $("context-popover"),
+  contextInlinePercent: $("context-inline-percent"),
   tokenAdd: $("token-add"), tokenCreateRow: $("token-create-row"), tokenLabel: $("token-label"),
   tokenCreate: $("token-create"), tokenCreateCancel: $("token-create-cancel"), tokenList: $("token-list"),
   tokenFormError: $("token-form-error"), tokenNewRow: $("token-new-row"), tokenNewValueText: $("token-new-value-text"),
@@ -4307,10 +4309,8 @@ function connectorAcceptsImages(connection = rpc) {
     || connection.nativeClaudeStructured || connection.nativeCodexMutation);
 }
 
-// Model choice and the context gauge both describe a live conversation this
-// Host can still influence. A stored transcript is an observation, so these
-// controls stay hidden there even though the underlying connector supports
-// them.
+// Model selection changes a conversation and requires mutation authority.
+// Context is read-only observation and is intentionally gated separately.
 function connectorAllowsLiveControls(connection = rpc) {
   if (!connection) return false;
   if (connection.nativeHistoryReadonly === true || connection.readOnly === true) return false;
@@ -4732,9 +4732,17 @@ async function refreshOpenCodeNativeSnapshot(connection, { initial = false } = {
   try {
     const snapshot = await post("/api/opencode/reconcile", { sessionId: connection.nativeSessionId, cwd: connection.cwd, limit: 200 });
     if (rpc !== connection) return;
-    if (snapshot?.session?.model) applyOpenCodeModel(snapshot.session.model);
+    connection.openCodeContextSnapshot = snapshot;
+    const latest = openCodeContext.selectLatestAssistantMessage(snapshot?.messages || []);
+    const observedModel = normalizeOpenCodeModel(snapshot?.session?.model)
+      || normalizeOpenCodeModel(latest?.info?.model || latest?.info || latest);
+    if (observedModel && (!connection.openCodeModelSelected
+      || openCodeContext.modelIdentity(observedModel) === openCodeContext.modelIdentity(connection.openCodeModel))) {
+      applyOpenCodeModel(observedModel);
+    }
     const status = nativeOpenCodeStatus(snapshot);
     applyOpenCodeContextStats(snapshot, connection);
+    void syncOpenCodeModelCatalog(connection);
     applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: "opencode", nativeOpenCode: true,
       nativeSessionId: connection.nativeSessionId, name: connection.name, cwd: connection.cwd, status,
       startedAt: connection.runStartedAt, lastActivityAt: Date.now() });
@@ -4746,6 +4754,8 @@ async function refreshOpenCodeNativeSnapshot(connection, { initial = false } = {
     if (rpc !== connection) return;
     connection.nativeLoading = false;
     connection.connectionLost = true;
+    contextStatsState = "unavailable";
+    renderContextDashboard();
     syncGenericInputState();
     if (initial) throw error;
   } finally {
@@ -5269,6 +5279,11 @@ async function openOpenCodeNativeTask(task, generationOverride = null) {
     nativeOpenCode: true,
     nativeSessionId,
     openCodeModel: null,
+    openCodeModelSelected: false,
+    openCodeModels: [],
+    openCodeModelsLoadedAt: 0,
+    openCodeModelsRequest: null,
+    openCodeContextSnapshot: null,
     nativeLoading: true,
     nativeRenderedRevision: null,
     genericOutputNode: null,
@@ -6190,6 +6205,7 @@ function addSessionUsage(u) {
 }
 
 function resetContextDashboard() {
+  setContextPopover(false);
   contextStatsRequestSequence += 1;
   nativeContextRequestSequence += 1;
   if (nativeContextRequest?.controller) nativeContextRequest.controller.abort();
@@ -6252,31 +6268,10 @@ function applyAcpContextStats(result, connection = rpc) {
 
 function applyOpenCodeContextStats(snapshot, connection = rpc) {
   if (!connection?.nativeOpenCode || rpc !== connection) return;
-  const assistant = (snapshot?.messages || []).filter((message) => message?.role === "assistant");
-  const latest = assistant.at(-1)?.info || null;
-  const tokens = latest?.tokens || null;
-  if (!tokens) return;
-  const input = finiteNonNegative(tokens.input) ?? 0;
-  const output = finiteNonNegative(tokens.output) ?? 0;
-  const reasoning = finiteNonNegative(tokens.reasoning) ?? 0;
-  const cacheRead = finiteNonNegative(tokens.cache?.read) ?? 0;
-  const cacheWrite = finiteNonNegative(tokens.cache?.write) ?? 0;
-  // OpenCode reports the turn's own total. Prefer it over a local sum so the
-  // figure always matches what the agent itself accounts for; fall back to the
-  // components only when an older server omits the field.
-  const used = finiteNonNegative(tokens.total) ?? (input + cacheRead + output + reasoning);
-  const capacity = positiveFinite(connection.openCodeModel?.contextWindow)
-    ?? positiveFinite(composerModelContextWindow);
-  contextStats = {
-    tokens: { input, output, reasoning, cacheRead, cacheWrite },
-    contextUsage: {
-      tokens: used,
-      contextWindow: capacity,
-      percent: capacity ? Math.min(100, (used / capacity) * 100) : null,
-    },
-    contextCapacity: capacity,
-  };
-  contextStatsState = "ready";
+  contextStats = openCodeContext.contextStatsFromSnapshot(snapshot, {
+    modelCatalog: connection.openCodeModels || [], selectedModel: connection.openCodeModel,
+  });
+  contextStatsState = contextStats?.contextUsage?.percent == null ? "awaiting" : "ready";
   renderContextDashboard();
 }
 
@@ -6327,6 +6322,9 @@ function normalizeNativeContextStats(response) {
   return {
     available,
     model,
+    source: data.source === "last_observed" ? "last_observed" : data.source === "live" ? "live" : "unknown",
+    observedAt: typeof data.observedAt === "string" && Number.isFinite(Date.parse(data.observedAt)) ? data.observedAt : null,
+    stale: data.stale === true,
     tokens: {
       input: finiteNonNegative(usage.input),
       output: finiteNonNegative(usage.output),
@@ -6348,7 +6346,7 @@ function nativeContextRequestIsCurrent(request) {
 }
 
 function nativeContextPath(connection) {
-  if (connection?.nativeCodexMutation) {
+  if (connection?.nativeCodex || connection?.nativeCodexMutation) {
     return `/api/codex/context?threadId=${encodeURIComponent(connection.nativeThreadId)}`;
   }
   if (connection?.nativeClaudeStructured) {
@@ -6365,15 +6363,16 @@ function applyNativeContextStats(response, connection = rpc) {
   // A context response is also the first reliable model hint for resumed
   // Claude/Codex sessions. Keep the model chip in sync without replacing a
   // deliberately selected next-prompt Codex model with an older observation.
-  const hasExplicitModel = connection.nativeCodexMutation
+  const isCodex = connection.nativeCodex || connection.nativeCodexMutation;
+  const hasExplicitModel = isCodex
     ? connection.codexModelSelected === true
     : connection.claudeModelSelected === true;
   if (normalized.model !== null && !hasExplicitModel) {
-    const model = connection.nativeCodexMutation
+    const model = isCodex
       ? normalizeCodexModel(normalized.model)
       : normalizeClaudeModel(normalized.model);
     if (model) {
-      if (connection.nativeCodexMutation) connection.codexModel = model;
+      if (isCodex) connection.codexModel = model;
       else connection.claudeModel = model;
       composerModelContextWindow = positiveFinite(model.contextWindow);
       updateComposerSummary(model.name || model.id, undefined);
@@ -6436,16 +6435,19 @@ function renderContextDashboard() {
   const usage = statsForValues?.tokens || {};
   const contextUsage = statsForValues?.contextUsage || null;
   const used = finiteNonNegative(contextUsage?.tokens);
+  const modelCapacity = contextStats?.reason === "model_mismatch" ? null : positiveFinite(composerModelContextWindow);
   const capacity = contextStatsState === "unavailable"
-    ? positiveFinite(composerModelContextWindow)
+    ? modelCapacity
       ?? positiveFinite(contextStats?.contextCapacity)
     : positiveFinite(contextUsage?.contextWindow)
       ?? positiveFinite(contextStats?.contextCapacity)
-      ?? positiveFinite(composerModelContextWindow);
+      ?? modelCapacity;
   // Pi's contextUsage.percent is authoritative. Do not derive this from the
   // cumulative token totals: those totals survive compaction and count work
   // which is no longer in the current prompt context.
   const percent = finiteNonNegative(contextUsage?.percent);
+  const lastObserved = statsForValues?.source === "last_observed" && statsForValues?.stale === true;
+  const visiblePercent = percent === null ? tKey("contextDashboard.unknown") : `${lastObserved ? "~" : ""}${formatPercent(percent)}`;
   const cacheHitPercent = computeCacheHitRate(usage);
   // Most OpenAI-compatible providers never report cache writes (their caching
   // is automatic and surfaced only as cache hits). Show an em dash instead of
@@ -6457,7 +6459,12 @@ function renderContextDashboard() {
   const setValue = (node, value) => { if (node) node.textContent = value; };
   setValue(el.contextUsed, formatTokenCount(used));
   setValue(el.contextCapacity, formatTokenCount(capacity));
-  setValue(el.contextPercent, formatPercent(percent));
+  setValue(el.contextPercent, percent === null ? "—" : visiblePercent);
+  setValue(el.contextInlinePercent, visiblePercent);
+  if (el.contextInfo) {
+    el.contextInfo.setAttribute("aria-label", `${tKey("contextDashboard.context")}: ${visiblePercent}`);
+    el.contextInfo.title = `${tKey("contextDashboard.context")}: ${visiblePercent} · ${tKey("contextDashboard.details")}`;
+  }
   setValue(el.contextInput, formatTokenCount(usage.input));
   setValue(el.contextOutput, formatTokenCount(usage.output));
   setValue(el.contextCacheHit, formatTokenCount(usage.cacheRead));
@@ -6471,7 +6478,7 @@ function renderContextDashboard() {
   const progressState = percent === null ? "unknown" : percent > 90 ? "critical" : percent > 70 ? "warning" : "normal";
   el.contextDashboard.dataset.contextState = progressState;
   if (el.contextProgress) {
-    el.contextProgress.setAttribute("aria-valuetext", formatPercent(percent));
+    el.contextProgress.setAttribute("aria-valuetext", visiblePercent);
     if (percent === null) {
       el.contextProgress.style.setProperty("--context-ring-offset", CONTEXT_RING_CIRCUMFERENCE.toFixed(2));
       el.contextProgress.removeAttribute("aria-valuenow");
@@ -6483,7 +6490,7 @@ function renderContextDashboard() {
   }
 
   const summary = tKey("contextDashboard.summary", {
-    used: formatTokenCount(used), capacity: formatTokenCount(capacity), percent: formatPercent(percent),
+    used: formatTokenCount(used), capacity: formatTokenCount(capacity), percent: visiblePercent,
     input: formatTokenCount(usage.input), output: formatTokenCount(usage.output),
     cacheHit: formatTokenCount(usage.cacheRead), cacheHitPercent: formatPercent(cacheHitPercent),
     cacheWrite: cacheWriteDisplay,
@@ -6496,8 +6503,13 @@ function renderContextDashboard() {
   if (el.contextDashboardStatus) {
     const status = contextStatsState === "unavailable"
       ? tKey("contextDashboard.unavailable")
+      : lastObserved && statsForValues?.observedAt ? tKey("contextDashboard.lastReported", {
+        time: new Date(statsForValues.observedAt).toLocaleString(),
+      })
+      : contextStats?.reason === "model_mismatch" ? tKey("contextDashboard.modelChanged")
+      : used !== null && capacity === null ? tKey("contextDashboard.capacityUnknown")
       : (!contextStats || contextStatsState === "awaiting" || used === null || percent === null
-        ? tKey("contextDashboard.awaiting") : "");
+        ? tKey("contextDashboard.notReported") : "");
     el.contextDashboardStatus.textContent = status;
     el.contextDashboardStatus.classList.toggle("hidden", !status);
   }
@@ -8077,7 +8089,7 @@ function setStreaming(on) {
   el.btnImg?.classList.toggle("hidden", !connectorAcceptsImages(rpc));
   // The gauge is driven by whatever usage the connector reports: OpenCode
   // supplies per-turn token counts and ACP returns them on the prompt reply.
-  el.contextDashboard?.classList.toggle("hidden", !connectorAllowsLiveControls(rpc));
+  el.contextDashboard?.classList.toggle("hidden", !rpc);
   if (el.thinkingSelect) {
     const codex = !!rpc?.nativeCodexMutation;
     const claude = !!rpc?.nativeClaudeStructured;
@@ -8652,7 +8664,6 @@ document.addEventListener("click", (event) => {
   if (event.target instanceof Element && event.target.closest("#context-popover, #context-info")) return;
   setContextPopover(false);
 });
-
 let availableModels = [];
 let modelSheetCurrentId = null;
 let modelSheetCurrentProvider = null;
@@ -8668,20 +8679,7 @@ function modelThinkingBadge(model) {
 }
 
 function normalizeOpenCodeModel(model) {
-  if (!model || typeof model !== "object") return null;
-  const providerID = String(model.providerID || model.providerId || model.provider || "").trim();
-  const modelID = String(model.modelID || model.modelId || model.id || "").trim();
-  if (!providerID || !modelID) return null;
-  return {
-    ...model,
-    provider: providerID,
-    id: modelID,
-    providerID,
-    modelID,
-    name: String(model.name || modelID),
-    reasoning: model.reasoning === true || model.capabilities?.reasoning === true || Array.isArray(model.variants) && model.variants.length > 0,
-    contextWindow: Number(model.contextWindow || model.limit?.context) || null,
-  };
+  return openCodeContext.normalizeModel(model);
 }
 
 function normalizeCodexModel(model) {
@@ -8744,13 +8742,49 @@ function currentOpenCodeModelPayload(model = rpc?.openCodeModel) {
 
 function applyOpenCodeModel(model) {
   if (!rpc?.nativeOpenCode) return null;
-  const normalized = normalizeOpenCodeModel(model);
+  const normalized = openCodeContext.mergeModel(rpc.openCodeModel, model);
   if (!normalized) return null;
+  const changed = openCodeContext.modelIdentity(normalized) !== openCodeContext.modelIdentity(rpc.openCodeModel);
   rpc.openCodeModel = normalized;
   composerModelContextWindow = positiveFinite(normalized.contextWindow);
+  if (changed) {
+    contextStats = null;
+    contextStatsState = "awaiting";
+  }
   updateComposerSummary(normalized.name || `${normalized.providerID}/${normalized.modelID}`, undefined);
   renderContextDashboard();
   return normalized;
+}
+
+// The provider catalog is scoped to the current project. Hydrate on open,
+// not only when the model picker is opened; one request per connection and a
+// bounded refresh interval avoid adding a provider lookup to every poll.
+function syncOpenCodeModelCatalog(connection = rpc, { force = false } = {}) {
+  if (!connection?.nativeOpenCode || rpc !== connection) return Promise.resolve(null);
+  if (connection.openCodeModelsRequest) return connection.openCodeModelsRequest;
+  const now = Date.now();
+  if (!force && connection.openCodeModelsLoadedAt && now - connection.openCodeModelsLoadedAt < 60_000) {
+    return Promise.resolve(connection.openCodeModels);
+  }
+  const generation = viewGeneration;
+  const base = apiBase;
+  const cwd = connection.cwd || "";
+  const isCurrent = () => rpc === connection && generation === viewGeneration && base === apiBase && cwd === (connection.cwd || "");
+  const directory = cwd ? `?directory=${encodeURIComponent(cwd)}` : "";
+  connection.openCodeModelsLoadedAt = now;
+  const request = api(`/api/opencode/models${directory}`).then(result => {
+    if (!isCurrent()) return null;
+    connection.openCodeModels = (Array.isArray(result?.models) ? result.models : []).map(normalizeOpenCodeModel).filter(Boolean);
+    const currentId = openCodeContext.modelIdentity(connection.openCodeModel);
+    const known = connection.openCodeModels.find(model => openCodeContext.modelIdentity(model) === currentId);
+    if (known) applyOpenCodeModel(known);
+    if (connection.openCodeContextSnapshot && !connection.connectionLost) applyOpenCodeContextStats(connection.openCodeContextSnapshot, connection);
+    return connection.openCodeModels;
+  }).catch(() => null).finally(() => {
+    if (connection.openCodeModelsRequest === request) connection.openCodeModelsRequest = null;
+  });
+  connection.openCodeModelsRequest = request;
+  return request;
 }
 
 // ACP advertises model choice among its session config options. Pick the one
@@ -8837,10 +8871,9 @@ async function openModelSheet() {
       return;
     }
     if (connection?.nativeOpenCode) {
-      const directory = connection.cwd ? `?directory=${encodeURIComponent(connection.cwd)}` : "";
-      const result = await api(`/api/opencode/models${directory}`);
+      const models = await syncOpenCodeModelCatalog(connection, { force: true });
       if (!stillCurrent()) return;
-      availableModels = (Array.isArray(result?.models) ? result.models : []).map(normalizeOpenCodeModel).filter(Boolean);
+      availableModels = models || connection.openCodeModels || [];
       renderModelList(connection.openCodeModel?.modelID || null, connection.openCodeModel?.providerID || null);
       return;
     }
@@ -8994,6 +9027,7 @@ function renderModelList(currentId, currentProvider = null) {
           if (!stillCurrent()) return;
           if (result?.accepted === false) throw new Error(result.error || "OpenCode rejected the model switch");
           const selected = applyOpenCodeModel(model);
+          connection.openCodeModelSelected = true;
           toast("模型：" + (selected?.name || selected?.modelID || m.id));
           renderModelList(selected?.modelID || m.id, selected?.providerID || m.provider);
           return;
