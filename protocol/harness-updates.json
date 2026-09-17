@@ -16,9 +16,9 @@
       "label": "Claude Code",
       "commands": ["claude"],
       "executableEnv": "STEPSEMBLE_CLAUDE_CODE_BIN",
-      "check": { "kind": "official-check", "args": ["update", "--check"] },
+      "check": { "kind": "registry-version", "package": "@anthropic-ai/claude-code" },
       "update": { "kind": "command", "args": ["update"] },
-      "note": "Claude Code's updater may only expose check-and-install on some releases; Stepsemble asks for explicit confirmation before running it."
+      "note": "Claude Code's updater installs immediately and has no dry-run flag, so the check compares the installed version with the version published to the official npm package. Reading the registry does not modify the installation, and the update still runs Claude Code's own updater after explicit confirmation."
     },
     {
       "id": "opencode",

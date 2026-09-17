@@ -42,6 +42,58 @@ test("harness update service checks allow-listed commands and persists owner-onl
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test("registry-version compares the published version without touching the install", async () => {
+  const { root, file } = tempState();
+  const calls = [];
+  const service = createHarnessUpdateService({
+    registry: { registryVersion: 1, harnesses: [{
+      id: "vendor", label: "Vendor", commands: ["vendor"],
+      check: { kind: "registry-version", package: "@vendor/cli" },
+      update: { kind: "command", args: ["update"] },
+    }] },
+    stateFile: file, env: { PATH: "/fake", HOME: root },
+    resolve: name => name === "vendor" ? "/fake/vendor" : name === "npm" ? "/fake/npm" : null,
+    runner: async (command, args) => {
+      calls.push([command, ...args]);
+      if (args[0] === "--version") return { code: 0, stdout: "vendor 1.0.0", stderr: "" };
+      if (command === "/fake/npm") return { code: 0, stdout: "1.2.0\n", stderr: "" };
+      return { code: 1, stdout: "", stderr: "unexpected" };
+    },
+    busy: () => false,
+  });
+  const entry = (await service.check({ id: "vendor" })).harnesses.find(item => item.id === "vendor");
+  assert.equal(entry.status, "available");
+  assert.equal(entry.currentVersion, "1.0.0");
+  assert.equal(entry.latestVersion, "1.2.0");
+  // Only a read of the registry may run; the updater must not be invoked.
+  assert.deepEqual(calls, [["/fake/vendor", "--version"], ["/fake/npm", "view", "@vendor/cli", "version"]]);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("registry-version stays unknown when the published version cannot be read", async () => {
+  const { root, file } = tempState();
+  const service = createHarnessUpdateService({
+    registry: { registryVersion: 1, harnesses: [{
+      id: "vendor", label: "Vendor", commands: ["vendor"],
+      check: { kind: "registry-version", package: "@vendor/cli" },
+      update: { kind: "command", args: ["update"] },
+    }] },
+    stateFile: file, env: { PATH: "/fake", HOME: root },
+    resolve: name => name === "vendor" ? "/fake/vendor" : name === "npm" ? "/fake/npm" : null,
+    runner: async (command, args) => {
+      if (args[0] === "--version") return { code: 0, stdout: "vendor 1.0.0", stderr: "" };
+      return { code: 1, stdout: "", stderr: "network unreachable" };
+    },
+    busy: () => false,
+  });
+  const entry = (await service.check({ id: "vendor" })).harnesses.find(item => item.id === "vendor");
+  // A failed lookup must not be presented as "up to date".
+  assert.equal(entry.status, "unknown");
+  assert.equal(entry.updateAvailable, "unknown");
+  assert.equal(entry.latestVersion, null);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test("updates require confirmation and are blocked while an agent is active", async () => {
   const { root, file } = tempState();
   let active = true;

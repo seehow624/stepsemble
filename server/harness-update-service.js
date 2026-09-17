@@ -55,7 +55,7 @@ function validateRegistry(registry) {
         throw new Error(`Invalid update arguments for ${entry.id}`);
       }
       if (strategy.kind === "command" && !Array.isArray(strategy.args)) throw new Error(`Missing command arguments for ${entry.id}`);
-      if (!["manual", "version-only", "official-check", "command", "npm-outdated", "npm-global", "brew-or-official", "brew-or-command", SOURCE_AWARE_STRATEGY].includes(strategy.kind)) {
+      if (!["manual", "version-only", "official-check", "command", "npm-outdated", "npm-global", "registry-version", "brew-or-official", "brew-or-command", SOURCE_AWARE_STRATEGY].includes(strategy.kind)) {
         throw new Error(`Unsupported update strategy for ${entry.id}`);
       }
       if (strategy.package !== undefined && (typeof strategy.package !== "string" || !/^@?[a-zA-Z0-9._/-]+$/.test(strategy.package))) {
@@ -421,11 +421,59 @@ function createHarnessUpdateService({
         observed.error = parsed || checked.code === 0 ? null : resultError(checked, "npm_check_failed");
         return observed;
       }
-      // The official standalone installer does not expose a non-mutating
-      // update probe. Keep the result neutral instead of running `update`
-      // merely to discover whether an update exists.
+      // The official standalone installer exposes no non-mutating update
+      // probe, so read the published version instead of running `update`
+      // merely to discover whether one exists. This only reports whether a
+      // newer version was published; it does not claim npm owns the
+      // executable, and the update still uses the proven install source.
+      // An unproven source stays neutral and continues to fail closed.
+      if (source.kind === "official-standalone" && check.package) {
+        const npm = resolve("npm", env);
+        const checked = npm ? await runner(npm, ["view", check.package, "version"], {
+          shell: false, cwd: home, env: cleanEnvironment(env), timeout: CHECK_TIMEOUT_MS, maxBuffer: 32 * 1024,
+        }) : null;
+        const latest = checked?.code === 0 ? parseVersion(checked.stdout) : null;
+        if (latest) {
+          observed.latestVersion = latest;
+          observed.updateAvailable = isNewer(latest, observed.currentVersion);
+          observed.status = observed.updateAvailable ? "available" : "up-to-date";
+          observed.error = null;
+          return observed;
+        }
+      }
       observed.status = "unknown";
       observed.updateAvailable = "unknown";
+      observed.error = null;
+      return observed;
+    }
+    if (check.kind === "registry-version") {
+      // Some vendor CLIs ship an updater that installs immediately and has no
+      // dry-run flag, so the only non-mutating way to learn whether an update
+      // exists is to read the published version. `npm view` queries the
+      // registry without touching the installation. A published version is
+      // compared against the version the installed executable reported; it is
+      // never treated as evidence that npm owns this executable, so the
+      // configured update strategy is unaffected.
+      const npm = resolve("npm", env);
+      if (!npm || !check.package) {
+        observed.status = "unknown";
+        observed.updateAvailable = "unknown";
+        observed.error = "npm_unavailable";
+        return observed;
+      }
+      const checked = await runner(npm, ["view", check.package, "version"], {
+        shell: false, cwd: home, env: cleanEnvironment(env), timeout: CHECK_TIMEOUT_MS, maxBuffer: 32 * 1024,
+      });
+      const latest = checked.code === 0 ? parseVersion(checked.stdout) : null;
+      if (!latest) {
+        observed.status = "unknown";
+        observed.updateAvailable = "unknown";
+        observed.error = resultError(checked, "registry_check_failed");
+        return observed;
+      }
+      observed.latestVersion = latest;
+      observed.updateAvailable = isNewer(latest, observed.currentVersion);
+      observed.status = observed.updateAvailable ? "available" : "up-to-date";
       observed.error = null;
       return observed;
     }

@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.0.50
+
+Check Claude Code and Codex updates from the app.
+
+- Compare the installed version with the version published to the official npm
+  package, using a registry read that does not modify the installation.
+  Claude Code's `update --check` flag no longer exists, and the Codex
+  standalone package has no dry-run probe, so neither could report an
+  available update before.
+- Reading the registry is not a provenance claim. Codex still updates only
+  through its proven install source, and an unproven source still fails closed.
+- A failed lookup reports "unknown" rather than implying the harness is
+  current.
+
 ## 3.0.49
 
 Stop reporting an unchecked harness as absent.
