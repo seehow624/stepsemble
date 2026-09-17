@@ -17,11 +17,24 @@ stays usable, and only a confirmed `false` disables it. The version line reads
 Source-aware provenance is unchanged. Codex still refuses to update an
 executable whose installed source cannot be proven.
 
+## Context percentage without a reported capacity
+
+Claude reports per-turn usage, but not every payload carries a context window.
+A real token count was then shown without a percentage. The `initialize`
+response already advertises each model's context window, so that value is now
+used when the usage payload omits one.
+
+The capacity is matched to the exact model id. Another model's window is never
+substituted, and a model absent from the advertised list still yields an
+unknown percentage rather than an invented one.
+
 ## Validation
 
-- Full local suite: 1,451 passed, 4 skipped, 0 failed (1,455 tests).
+- Full local suite: 1,452 passed, 4 skipped, 0 failed (1,456 tests).
 - New regression asserts `installed`/`executable` are `null` before a check and
   `true` after an actual observation.
+- New regression asserts a Sonnet turn uses Sonnet's advertised 200k window and
+  never borrows the larger Opus window present in the same model list.
 - Syntax, typed client and version consistency checks passed.
 
 ## Explicit boundaries
