@@ -572,7 +572,11 @@ test("unconfirmed stop stays active, never signals a stale PID, and can be retri
   assert.equal(await service.stop("missing-task"), false);
 });
 
-test("known command directories prefer user-owned locations over system package managers", () => {
+test("known command directories prefer user-owned locations over system package managers", t => {
+  // The fallback list is platform-specific: Windows searches APPDATA/npm and
+  // ProgramFiles with executable extensions, not ~/.local/bin, so this asserts
+  // the POSIX ordering that the launchd and systemd cases depend on.
+  if (process.platform === "win32") { t.skip("POSIX-specific known-directory ordering"); return; }
   // A service started by launchd has a bare PATH, so resolution falls back to
   // this list. It must select the executable the user's own shell would pick:
   // a stale copy under a system package manager previously won instead.
