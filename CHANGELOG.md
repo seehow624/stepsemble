@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.0.52
+
+Resolve the executable the user's own shell would pick.
+
+- Search user-owned locations such as `~/.local/bin` before system package
+  manager directories when `PATH` does not resolve a command. A service started
+  by launchd has a bare `PATH`, and the previous order selected a third-party
+  shim wrapping an old Codex instead of the user's official install.
+- Apply the same order in the harness update service, which kept its own copy
+  of the directory list.
+- Explicit `PATH` entries and `*_BIN` overrides keep precedence, and provenance
+  rules are unchanged.
+
 ## 3.0.51
 
 Show which executable an unproven install source selected.

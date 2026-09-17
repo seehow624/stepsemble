@@ -131,10 +131,13 @@ function commandPath(name, env = process.env) {
     if (isExecutable(candidate)) return candidate;
   }
   const home = String(env.HOME || os.homedir());
-  const extra = process.platform === "darwin"
+  // Match the connector search order: user-owned locations first, so a service
+  // started with a bare PATH resolves the same executable the user's shell
+  // does rather than a stale system-wide copy.
+  const extra = [path.join(home, ".local", "bin"), path.join(home, ".hermes", "node", "bin")];
+  extra.push(...(process.platform === "darwin"
     ? ["/opt/homebrew/bin", "/usr/local/bin"]
-    : ["/usr/local/bin", "/usr/bin"];
-  extra.push(path.join(home, ".local", "bin"), path.join(home, ".hermes", "node", "bin"));
+    : ["/usr/local/bin", "/usr/bin"]));
   for (const dir of extra) for (const ext of extensions) {
     const candidate = path.join(dir, `${name}${ext}`);
     if (isExecutable(candidate)) return candidate;

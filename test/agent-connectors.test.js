@@ -571,3 +571,21 @@ test("unconfirmed stop stays active, never signals a stale PID, and can be retri
   assert.equal(stopCalls, 2);
   assert.equal(await service.stop("missing-task"), false);
 });
+
+test("known command directories prefer user-owned locations over system package managers", () => {
+  // A service started by launchd has a bare PATH, so resolution falls back to
+  // this list. It must select the executable the user's own shell would pick:
+  // a stale copy under a system package manager previously won instead.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-known-paths-"));
+  const localBin = path.join(home, ".local", "bin");
+  fs.mkdirSync(localBin, { recursive: true });
+  const command = path.join(localBin, "codex");
+  fs.writeFileSync(command, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+
+  const definition = CONNECTOR_DEFINITIONS.find(item => item.id === "codex");
+  // An empty PATH forces the known-directory fallback.
+  const resolved = resolveCommand(definition, { env: { PATH: "", HOME: home } });
+  assert.equal(resolved, command);
+
+  fs.rmSync(home, { recursive: true, force: true });
+});

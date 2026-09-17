@@ -189,6 +189,19 @@ function resolveFromPath(command, env = process.env) {
 function knownCommandDirectories(env = process.env) {
   const home = String(env?.HOME || env?.USERPROFILE || process.env.HOME || "").trim();
   const dirs = [];
+  // User-owned locations come first. Interactive shells put ~/.local/bin and
+  // version-manager shims ahead of system package managers, so a service
+  // started by launchd with a bare PATH must resolve the same executable the
+  // user sees. Searching /opt/homebrew/bin first selected a stale or
+  // third-party command that the user's own shell would never have chosen.
+  if (home) dirs.push(
+    path.join(home, ".local", "bin"),
+    path.join(home, ".hermes", "node", "bin"),
+    path.join(home, ".volta", "bin"),
+    path.join(home, ".asdf", "shims"),
+    path.join(home, ".bun", "bin"),
+    path.join(home, ".npm-global", "bin"),
+  );
   if (process.platform === "darwin") {
     dirs.push("/opt/homebrew/bin", "/usr/local/bin");
   } else if (process.platform !== "win32") {
@@ -199,14 +212,6 @@ function knownCommandDirectories(env = process.env) {
     if (appData) dirs.push(path.join(appData, "npm"));
     if (programFiles) dirs.push(path.join(programFiles, "nodejs"));
   }
-  if (home) dirs.push(
-    path.join(home, ".local", "bin"),
-    path.join(home, ".hermes", "node", "bin"),
-    path.join(home, ".volta", "bin"),
-    path.join(home, ".asdf", "shims"),
-    path.join(home, ".bun", "bin"),
-    path.join(home, ".npm-global", "bin"),
-  );
   return [...new Set(dirs.filter(Boolean))];
 }
 
