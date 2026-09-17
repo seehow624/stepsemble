@@ -322,11 +322,15 @@ function createHarnessUpdateService({
   const errorStatus = (code, message, statusCode = 409) => Object.assign(new Error(message), { code, statusCode });
 
   function publicEntry(definition, observed = {}) {
+    // A harness that has never been checked has no observation yet. Reporting it
+    // as `installed: false` is a claim we have not verified, and it disables the
+    // control that would perform the first check. Report the unknown state.
+    const checked = typeof observed.installed === "boolean";
     const result = {
       id: definition.id,
       label: definition.label,
-      installed: observed.installed === true,
-      executable: observed.installed === true,
+      installed: checked ? observed.installed === true : null,
+      executable: checked ? observed.installed === true : null,
       currentVersion: observed.currentVersion || null,
       latestVersion: observed.latestVersion || null,
       updateAvailable: observed.updateAvailable === true ? true : observed.updateAvailable === false ? false : "unknown",

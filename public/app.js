@@ -1,7 +1,7 @@
-/* stepsemble v3.0.48 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.49 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.48";
+const CLIENT_APP_VERSION = "3.0.49";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -10401,7 +10401,9 @@ function renderHarnessUpdates(data) {
     const details = document.createElement("div");
     details.className = "harness-update-row-details";
     const version = document.createElement("span");
-    version.textContent = item.currentVersion ? updateText("Installed {version}", { version: updateVersionText(item.currentVersion) }) : updateText("Version unavailable");
+    version.textContent = item.currentVersion
+      ? updateText("Installed {version}", { version: updateVersionText(item.currentVersion) })
+      : item.installed === null ? updateText("Not checked") : updateText("Version unavailable");
     details.appendChild(version);
     if (item.latestVersion) {
       const latest = document.createElement("span");
@@ -10420,7 +10422,10 @@ function renderHarnessUpdates(data) {
     action.className = "btn ghost harness-update-action";
     action.dataset.harnessUpdateId = item.id;
     action.textContent = item.status === "up-to-date" || item.status === "updated" ? updateText("Up to date") : updateText("Upgrade");
-    action.disabled = busy || harnessUpdateInFlight.has(item.id) || !item.installed || item.updateMode === "manual" || item.status === "up-to-date" || item.status === "updated";
+    // `installed === null` means this harness has not been checked yet. Keep the
+    // control usable so the first check can run; only a confirmed absence disables it.
+    action.disabled = busy || harnessUpdateInFlight.has(item.id) || item.installed === false
+      || item.updateMode === "manual" || item.status === "up-to-date" || item.status === "updated";
     row.appendChild(action);
     el.harnessUpdateList.appendChild(row);
   }

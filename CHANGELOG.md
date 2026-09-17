@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.0.49
+
+Stop reporting an unchecked harness as absent.
+
+- Report `installed` and `executable` as `null` until a real observation
+  exists, instead of deriving `false` from a missing check. Claude Code,
+  OpenCode and Pi appeared as "not installed" on a host that had never run a
+  check, while all three were running.
+- Keep the upgrade control usable while the state is unknown, so the first
+  check can be started. Only a confirmed absence disables it.
+- Show "Not checked" rather than "Version unavailable" for that state.
+- Source-aware provenance is unchanged: Codex still refuses to update an
+  executable whose installed source cannot be proven.
+
 ## 3.0.48
 
 Run native Claude conversations in the same macOS desktop context as sign-in.

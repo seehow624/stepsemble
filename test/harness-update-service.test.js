@@ -336,3 +336,28 @@ test("version parsing is strict and never returns arbitrary command output", () 
   assert.equal(parseVersion("codex-cli 0.154"), null);
   assert.equal(isNewer("not-a-version", "0.1.0"), false);
 });
+
+test("an unchecked harness reports unknown installation instead of claiming it is absent", async () => {
+  const { root, file } = tempState();
+  const service = createHarnessUpdateService({
+    registry: registry(), stateFile: file, env: { PATH: "/fake", HOME: root },
+    resolve: name => name === "fake" ? "/fake/fake" : null,
+    runner: async () => ({ code: 0, stdout: "fake 1.2.3", stderr: "" }),
+    busy: () => false,
+  });
+
+  // Never checked: absence is unverified, so it must not be reported as false.
+  // The client keeps the upgrade control usable while this is null.
+  const initial = (await service.status()).harnesses.find(item => item.id === "fake");
+  assert.equal(initial.status, "not-checked");
+  assert.equal(initial.installed, null);
+  assert.equal(initial.executable, null);
+
+  // After an actual observation the boolean becomes authoritative.
+  await service.check({ id: "fake" });
+  const checked = (await service.status()).harnesses.find(item => item.id === "fake");
+  assert.equal(checked.installed, true);
+  assert.equal(checked.executable, true);
+
+  fs.rmSync(root, { recursive: true, force: true });
+});
