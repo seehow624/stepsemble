@@ -1,7 +1,7 @@
-/* stepsemble v3.0.50 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.51 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.50";
+const CLIENT_APP_VERSION = "3.0.51";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -10416,6 +10416,14 @@ function renderHarnessUpdates(data) {
       note.className = "harness-update-note-inline";
       note.textContent = item.note;
       row.appendChild(note);
+    }
+    // An unproven source refuses the update, so show which file was selected.
+    // Without it the row states a refusal the operator cannot act on.
+    if (item.executablePath && item.source === "unknown") {
+      const where = document.createElement("p");
+      where.className = "harness-update-note-inline";
+      where.textContent = updateText("Selected executable: {path}", { path: item.executablePath });
+      row.appendChild(where);
     }
     const action = document.createElement("button");
     action.type = "button";

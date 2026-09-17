@@ -338,6 +338,11 @@ function createHarnessUpdateService({
       checkMode: definition.check.kind,
       updateMode: definition.update.kind,
       source: observed.source || null,
+      // The resolved path is what makes an unproven source actionable: without
+      // it the operator is told an update is refused but not which file was
+      // selected. This is a local path already chosen from this host's own
+      // PATH, not a credential or remote reference.
+      executablePath: typeof observed.executable === "string" ? observed.executable : null,
       checkedAt: observed.checkedAt || null,
       updatedAt: observed.updatedAt || null,
       verification: observed.verification || null,

@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.0.51
+
+Show which executable an unproven install source selected.
+
+- Report the resolved `executablePath` in harness update status, and show it
+  on rows whose source is unknown. A refused update previously gave no
+  indication of which file was selected, leaving nothing to investigate.
+- Provenance is unchanged: showing the path does not prove a source, and an
+  unproven source still fails closed.
+
 ## 3.0.50
 
 Check Claude Code and Codex updates from the app.

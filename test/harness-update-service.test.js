@@ -94,6 +94,28 @@ test("registry-version stays unknown when the published version cannot be read",
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test("the resolved executable path is reported so an unproven source is actionable", async () => {
+  const { root, file } = tempState();
+  const service = createHarnessUpdateService({
+    registry: registry(), stateFile: file, env: { PATH: "/fake", HOME: root },
+    resolve: name => name === "fake" ? "/fake/fake" : null,
+    runner: async () => ({ code: 0, stdout: "fake 1.2.3", stderr: "" }),
+    busy: () => false,
+  });
+
+  // Before any check there is no observation, so there is no path to report.
+  assert.equal((await service.status()).harnesses.find(item => item.id === "fake").executablePath, null);
+
+  await service.check({ id: "fake" });
+  const checked = (await service.status()).harnesses.find(item => item.id === "fake");
+  assert.equal(checked.executablePath, "/fake/fake");
+
+  // A harness with no resolvable command must not invent a path.
+  assert.equal((await service.status()).harnesses.find(item => item.id === "manual").executablePath, null);
+
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test("updates require confirmation and are blocked while an agent is active", async () => {
   const { root, file } = tempState();
   let active = true;
