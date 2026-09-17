@@ -30,3 +30,11 @@ executable whose installed source cannot be proven.
   harness, and does not widen how provenance is proven.
 - The MacBook Pro's Codex remains 0.146.0 with an unproven source; that is a
   separate item requiring local evidence of its install method.
+- A Claude context percentage still requires a capacity that Claude itself
+  reports. An attempt to fall back to the model list was written and then
+  reverted: measured against Claude Code 2.1.270, the `initialize` response
+  advertises `resolvedModel`, `description` and effort levels for all six
+  models, and no context window at all. The fallback had no source to read and
+  would have been dead code implying a fix that does not exist. A turn whose
+  usage payload omits the capacity therefore reports real token counts with an
+  unknown percentage, which remains the truthful result.
