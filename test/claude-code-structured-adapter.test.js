@@ -176,40 +176,6 @@ test("Claude context usage uses latest assistant input plus cache tokens and mod
   assert.equal(session.contextUsage().contextWindow, 200000);
 });
 
-test("Claude context usage falls back to the selected model's advertised capacity", async t => {
-  const child = childFixture();
-  observeControlWire(child, message => {
-    if (message.type !== "control_request" || message.request.subtype !== "initialize") return;
-    child.stdout.write(JSON.stringify({ type: "control_response", response: {
-      subtype: "success", request_id: message.request_id, response: {
-        models: [
-          { value: "sonnet", displayName: "Sonnet", contextWindow: 200000 },
-          { value: "opus", displayName: "Opus", contextWindow: 1000000 },
-        ],
-        model: "sonnet",
-      },
-    } }) + "\n");
-  });
-  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 200 });
-  t.after(() => session.close());
-  await session.models();
-
-  // Usage without any capacity: the model's own advertised window applies, so a
-  // real token count is not stranded without a percentage.
-  child.stdout.write(JSON.stringify({ type: "assistant", session_id: "session-1", message: {
-    model: "sonnet", usage: { input_tokens: 20000 }, content: [{ type: "text", text: "done" }],
-  } }) + "\n");
-  const usage = session.contextUsage();
-  assert.equal(usage.model, "sonnet");
-  assert.equal(usage.contextTokens, 20000);
-  assert.equal(usage.contextWindow, 200000);
-  assert.equal(usage.contextPercent, 10);
-
-  // The capacity must belong to this exact model. Opus advertises a much larger
-  // window, and it must never be borrowed for a Sonnet turn.
-  assert.notEqual(session.contextUsage().contextWindow, 1000000);
-});
-
 test("Claude control correlation is bounded and timeout failures clean up", async t => {
   const child = childFixture();
   let firstRequest = null;

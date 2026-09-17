@@ -312,15 +312,6 @@ function createClaudeStructuredSession({
   let initializationResult = null;
   let availableModels = [];
   let selectedModel = null;
-  // Capacity advertised by `initialize` for one exact model id. This is the
-  // model's own declared context window, not a guess derived from another
-  // model, so it can be used when a usage payload omits the capacity.
-  function advertisedContextWindow(model) {
-    const id = modelId(model);
-    if (!id) return null;
-    const entry = availableModels.find(row => row.id === id);
-    return entry ? positiveFinite(entry.contextWindow) : null;
-  }
   let contextSnapshot = {
     model: null,
     contextWindow: null,
@@ -362,9 +353,7 @@ function createClaudeStructuredSession({
     const rawUsage = plain(message.usage) ? message.usage
       : plain(event.usage) ? event.usage
         : modelEntry.usage;
-    const resolvedModel = model || modelEntry.model;
-    const snapshot = usageSnapshot(rawUsage, resolvedModel,
-      modelEntry.usage?.contextWindow ?? advertisedContextWindow(resolvedModel));
+    const snapshot = usageSnapshot(rawUsage, model || modelEntry.model, modelEntry.usage?.contextWindow);
     if (!snapshot) return;
     haveAssistantUsage = true;
     if (snapshot.model) selectedModel = snapshot.model;
@@ -374,12 +363,7 @@ function createClaudeStructuredSession({
   function captureResultUsage(event) {
     const modelEntry = modelUsageEntry(event.modelUsage, event.model || selectedModel);
     if (modelEntry.model && !selectedModel) selectedModel = modelEntry.model;
-    // Claude does not always report a capacity alongside usage. The model list
-    // returned by `initialize` advertises each model's context window, so fall
-    // back to the capacity for this exact model rather than leaving a real
-    // token count without a percentage. Never borrow another model's capacity.
-    const contextWindow = positiveFinite(modelEntry.usage?.contextWindow)
-      ?? advertisedContextWindow(selectedModel || modelEntry.model);
+    const contextWindow = positiveFinite(modelEntry.usage?.contextWindow);
     // `modelUsage` is cumulative per model in the SDK result. It is useful as
     // a capacity source, but must not replace the latest assistant message's
     // current-context token count once that message has been observed.

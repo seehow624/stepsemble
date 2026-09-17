@@ -14,14 +14,6 @@ Stop reporting an unchecked harness as absent.
 - Source-aware provenance is unchanged: Codex still refuses to update an
   executable whose installed source cannot be proven.
 
-Show a context percentage when Claude reports usage without a capacity.
-
-- Fall back to the capacity the selected model advertises in the `initialize`
-  model list when a usage payload omits it. A real token count previously had
-  no percentage in that case.
-- The capacity must belong to that exact model; another model's window is
-  never borrowed, and an unknown model still reports an unknown percentage.
-
 ## 3.0.48
 
 Run native Claude conversations in the same macOS desktop context as sign-in.
