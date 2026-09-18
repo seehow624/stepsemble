@@ -1,4 +1,4 @@
-/* stepsemble v3.0.60 — Ink & Ivory / English-first localization */
+/* stepsemble v3.0.61 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -593,6 +593,8 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
   line-height: 1.5;
   padding: 8px 0 2px;
 }
+.settings-note.settings-scope-note { margin-top: -4px; opacity: .82; }
+.settings-navigation-row .settings-scope::before { content: " · "; }
 .settings-footer { text-align: center; color: var(--pine-soft); font-size: 12px; margin-top: 8px; }
 
 /* Stepsemble 2.0 first-run guide */

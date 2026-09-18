@@ -995,7 +995,11 @@ test("first-use help and setup guide cover token, devices, providers, and progre
   assert.match(app, /account\/OAuth sign-in/);
   assert.match(app, /local service, or Custom provider/);
   assert.match(app, /Credentials stay on the selected host/);
-  assert.match(app, /Then select the visible models/);
+  assert.match(app, /Applies to Pi Agent sessions; Claude Code, Codex, and OpenCode pick models from the composer/);
+  assert.match(i18n, /modelScope\.note/);
+  assert.match(i18n, /modelScope\.badge/);
+  assert.match(html, /data-i18n-key="modelScope\.badge"/);
+  assert.match(html, /data-i18n-key="modelScope\.note"/);
   assert.match(app, /openOnboarding\(false\)/);
   assert.match(app, /Never expose public port 3140/);
   assert.match(css, /\.onboarding-card/);

@@ -80,7 +80,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.60";
+const APP_VERSION = "3.0.61";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -3580,16 +3580,42 @@ const NOUS_AUTH_FILE = path.join(APP_HOME, ".pi", "agent", "nous-auth.json");
 function providerPackageRoot() {
   let realBin;
   try { realBin = fs.realpathSync.native(PI_BIN); } catch { realBin = PI_BIN; }
-  // Installed pi is .../pi-coding-agent/dist/cli.js; keep the derivation
-  // relative so the same code works if the bundled Node installation moves.
+  // Pi's entry file has moved across releases (dist/cli.js ->
+  // dist/bundle/cli.js), so do not derive the package root from a fixed
+  // depth. Walk upward from the resolved binary until a directory carries the
+  // pi-coding-agent package manifest; the same code keeps working when the
+  // bundled Node installation moves or Pi changes its bundle layout again.
+  let dir = path.dirname(realBin);
+  for (let depth = 0; depth < 8 && dir !== path.dirname(dir); depth += 1) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+      if (manifest?.name === "@earendil-works/pi-coding-agent") return dir;
+    } catch {}
+    dir = path.dirname(dir);
+  }
+  // PATH-resolved installs keep the package next to the bin prefix:
+  // <prefix>/bin/pi -> <prefix>/lib/node_modules/@earendil-works/pi-coding-agent.
+  const hoistedRoot = path.resolve(path.dirname(realBin), "..", "lib", "node_modules", "@earendil-works", "pi-coding-agent");
+  if (fs.existsSync(path.join(hoistedRoot, "dist", "core", "auth-storage.js"))) return hoistedRoot;
   return path.resolve(path.dirname(realBin), "..");
+}
+
+function providerAiModuleCandidates(root) {
+  const candidates = [path.join(root, "node_modules", "@earendil-works", "pi-ai", "dist", "providers", "all.js")];
+  // pi-ai can be hoisted into the npm root that contains the pi package
+  // instead of nested inside pi-coding-agent/node_modules.
+  const modulesDir = path.resolve(root, "..", "..");
+  if (path.basename(modulesDir) === "node_modules") {
+    candidates.push(path.join(modulesDir, "@earendil-works", "pi-ai", "dist", "providers", "all.js"));
+  }
+  return candidates;
 }
 
 async function getProviderAuthRuntime() {
   if (providerAuthRuntimePromise) return providerAuthRuntimePromise;
   providerAuthRuntimePromise = (async () => {
     const root = providerPackageRoot();
-    const aiModule = path.join(root, "node_modules", "@earendil-works", "pi-ai", "dist", "providers", "all.js");
+    const aiModule = providerAiModuleCandidates(root).find((candidate) => fs.existsSync(candidate)) || null;
     const authStorageModule = path.join(root, "dist", "core", "auth-storage.js");
     if (!fs.existsSync(aiModule) || !fs.existsSync(authStorageModule)) {
       throw new Error("Pi provider runtime was not found; update Pi first");

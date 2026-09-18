@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.61
+
+Restore the Pi provider catalog and clarify which agent provider settings affect.
+- Resolve the Pi provider package root by walking up from the real Pi binary path, so Pi 0.85.1's nested `dist/bundle` layout still loads the built-in provider list and auth runtime when adding a provider.
+- Prefer the first existing pi-ai module path across nested and hoisted `node_modules` locations instead of assuming a fixed depth.
+- Label Models & providers as applying to Pi Agent sessions only — a badge on the settings row, a scope note on the models page, and an updated setup-guide step, translated for all eleven locales.
+
 ## 3.0.60
 
 Keep source-based installs fast on development volumes.
