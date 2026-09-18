@@ -1,7 +1,7 @@
-/* stepsemble v3.0.53 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.56 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.53";
+const CLIENT_APP_VERSION = "3.0.56";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -1747,6 +1747,10 @@ function agentTaskIsRunning(task) {
   return ["starting", "running", "reconnecting"].includes(String(task?.status || ""));
 }
 
+function normalizedTimestampMs(value) {
+  return window.stepsembleSessionUtils?.normalizeTimestampMs?.(value) || 0;
+}
+
 function agentTaskCanStop(task) {
   // Read-only native history rows are observations of work owned by the
   // vendor client. Showing a Stop button for them creates a guaranteed 409
@@ -1760,9 +1764,9 @@ function agentTaskCanStop(task) {
 }
 
 function agentTaskElapsed(task) {
-  const start = Number(task?.startedAt);
+  const start = normalizedTimestampMs(task?.startedAt);
   if (!Number.isFinite(start) || start <= 0) return "";
-  const end = agentTaskIsRunning(task) ? Date.now() : Number(task?.endedAt) || Date.now();
+  const end = agentTaskIsRunning(task) ? Date.now() : normalizedTimestampMs(task?.endedAt) || Date.now();
   return runElapsedText(Math.max(0, end - start));
 }
 
@@ -1839,7 +1843,7 @@ function renderAgentHub() {
   el.agentTaskList.replaceChildren();
   const orderedTasks = [...agentTasks].sort((a, b) => {
     const activeOrder = Number(agentTaskIsRunning(b)) - Number(agentTaskIsRunning(a));
-    return activeOrder || (Number(b.lastActivityAt || b.startedAt) || 0) - (Number(a.lastActivityAt || a.startedAt) || 0);
+    return activeOrder || normalizedTimestampMs(b.lastActivityAt || b.startedAt) - normalizedTimestampMs(a.lastActivityAt || a.startedAt);
   });
   // Agent Hub is a live preview, not the complete conversation index. Keep
   // historical native rows out of the way when a connector exposes many
@@ -1900,7 +1904,7 @@ function agentTaskCenterFilterMatches(task, filter) {
 
 function agentTaskCenterSort(a, b) {
   const activeOrder = Number(agentTaskIsRunning(b)) - Number(agentTaskIsRunning(a));
-  return activeOrder || (Number(b.lastActivityAt || b.startedAt) || 0) - (Number(a.lastActivityAt || a.startedAt) || 0);
+  return activeOrder || normalizedTimestampMs(b.lastActivityAt || b.startedAt) - normalizedTimestampMs(a.lastActivityAt || a.startedAt);
 }
 
 function agentTaskCenterRows() {
@@ -1983,8 +1987,9 @@ function renderAgentTaskCenter() {
     const activity = document.createElement("small");
     activity.className = "agent-task-center-activity";
     activity.dataset.role = "activity";
-    const activityLabel = task.lastActivityAt ? agentHubText("taskLastActivity", { value: fmtTime(task.lastActivityAt) }) : "";
-    activity.textContent = task.lastActivityAt ? fmtTime(task.lastActivityAt) : "";
+    const activityAt = normalizedTimestampMs(task.lastActivityAt);
+    const activityLabel = activityAt ? agentHubText("taskLastActivity", { value: fmtTime(activityAt) }) : "";
+    activity.textContent = activityAt ? fmtTime(activityAt) : "";
     if (activityLabel) {
       activity.title = activityLabel;
       activity.setAttribute("aria-label", activityLabel);
@@ -2331,7 +2336,7 @@ async function openNativeHistoryTask(task, generationOverride = null) {
   rpc = { sid: taskId, generic: true, nativeHistoryReadonly: true, readOnly: true, nativeHistoryProvider: agentId,
     nativeHistoryRequest: null, nativeLoading: true, connectionLost: false, stopPending: false, streamReady: true,
     taskStatus: "history", genericOutputNode: null, genericTerminalNotice: null, agentId, agentLabel: agentConnectorLabel(agentId),
-    name, cwd, runStartedAt: Number(task.startedAt) || null, runEndedAt: Number(task.endedAt) || null };
+    name, cwd, runStartedAt: normalizedTimestampMs(task.startedAt) || null, runEndedAt: normalizedTimestampMs(task.endedAt) || null };
   const connection = rpc;
   syncGenericInputState();
   try {
@@ -2362,7 +2367,7 @@ async function openNativeHistoryTask(task, generationOverride = null) {
     keepSessionUsageAtEnd(); scrollBottom(true);
     connection.nativeLoading = false; connection.connectionLost = false;
     applyGenericTaskSnapshot({ id: taskId, taskId, agentId, status: "history", nativeHistoryReadonly: true, readOnly: true,
-      name, cwd, startedAt: task.startedAt, lastActivityAt: task.lastActivityAt });
+      name, cwd, startedAt: normalizedTimestampMs(task.startedAt), lastActivityAt: normalizedTimestampMs(task.lastActivityAt) });
     syncGenericInputState();
   } catch (error) {
     if (rpc !== connection || generation !== viewGeneration) return;
@@ -2531,7 +2536,7 @@ async function refreshRunningState() {
       const entry = live.get(session.file) || null;
       const now = !!entry;
       session.isRunning = now;
-      session.runStartedAt = entry?.runStartedAt || (now ? session.runStartedAt : null);
+      session.runStartedAt = normalizedTimestampMs(entry?.runStartedAt) || (now ? session.runStartedAt : null);
       const stuck = now ? !!entry.stuck : false;
       if (was !== now || session.runStuck !== stuck) changed = true;
       session.runStuck = stuck;
@@ -2715,7 +2720,7 @@ function currentSessionListKey() {
 }
 
 function sessionListTime(session) {
-  return Number(session?.mtimeMs || session?.lastActivityAt || session?.startedAt) || 0;
+  return normalizedTimestampMs(session?.mtimeMs || session?.lastActivityAt || session?.startedAt);
 }
 
 function sessionListTitle(session) {
@@ -2742,7 +2747,7 @@ function sessionListRecords() {
         const existing = records.find((session) => session.file === file);
         if (existing && agentTaskIsRunning(task)) {
           existing.isRunning = true;
-          existing.runStartedAt ||= task.startedAt;
+          existing.runStartedAt ||= normalizedTimestampMs(task.startedAt);
         }
         continue;
       }
@@ -2809,7 +2814,7 @@ function updateNewProjectAffordance() {
 let sessionRunTicker = null;
 
 function renderSessionRunMeta(meta, usage) {
-  const startedAt = Number(meta.dataset.runStartedAt) || 0;
+  const startedAt = normalizedTimestampMs(meta.dataset.runStartedAt);
   const stuck = meta.dataset.runStuck === "1";
   const elapsed = startedAt ? window.stepsembleSessionUtils.runElapsedText(Date.now() - startedAt) : "";
   const label = stuck
@@ -2906,7 +2911,7 @@ function renderSessionList(q) {
       dot.setAttribute("aria-hidden", "true");
       li.querySelector(".session-item-copy").prepend(dot);
       meta.classList.add("session-running-meta");
-      meta.dataset.runStartedAt = s.runStartedAt ? String(s.runStartedAt) : (s.startedAt ? String(s.startedAt) : "");
+      meta.dataset.runStartedAt = String(normalizedTimestampMs(s.runStartedAt || s.startedAt) || "");
       meta.dataset.runStuck = s.runStuck ? "1" : "";
       meta.dataset.usage = usage;
       renderSessionRunMeta(meta, usage);
@@ -4598,8 +4603,8 @@ function applyGenericTaskSnapshot(snapshot = {}) {
   if (snapshot.agentId) rpc.agentLabel = agentConnectorLabel(snapshot.agentId);
   if (snapshot.agentId) setChatAgent(snapshot.agentId);
   applyGenericReplayMetadata(snapshot);
-  if (Number.isFinite(Number(snapshot.startedAt)) && Number(snapshot.startedAt) > 0) rpc.runStartedAt = Number(snapshot.startedAt);
-  if (Number.isFinite(Number(snapshot.endedAt)) && Number(snapshot.endedAt) > 0) rpc.runEndedAt = Number(snapshot.endedAt);
+  if (normalizedTimestampMs(snapshot.startedAt)) rpc.runStartedAt = normalizedTimestampMs(snapshot.startedAt);
+  if (normalizedTimestampMs(snapshot.endedAt)) rpc.runEndedAt = normalizedTimestampMs(snapshot.endedAt);
   rpc.activityLabel = status === "waiting" ? "waiting" : "working";
   updateAgentTaskCache({ ...snapshot, id: snapshot.id || snapshot.taskId || rpc.sid, agentId: rpc.agentId, name: rpc.name, cwd: rpc.cwd });
   // Codex native history is deliberately read-only. Even an active native
@@ -4750,7 +4755,14 @@ async function refreshOpenCodeNativeSnapshot(connection, { initial = false } = {
   if (connection.nativeRefreshInFlight) return;
   connection.nativeRefreshInFlight = true;
   try {
-    const snapshot = await post("/api/opencode/reconcile", { sessionId: connection.nativeSessionId, cwd: connection.cwd, limit: 200 });
+    // Imported OpenCode history may point at a directory that is no longer
+    // one of Stepsemble's allowed project folders (for example `/`, a
+    // temporary checkout, or a folder moved since the task was created).
+    // The upstream session id is sufficient for read-only reconciliation;
+    // omitting cwd lets the configured OpenCode server resolve that session
+    // without weakening the directory guard on mutating routes.
+    const directory = connection.nativeOpenCodeReadOnly ? "" : connection.cwd;
+    const snapshot = await post("/api/opencode/reconcile", { sessionId: connection.nativeSessionId, cwd: directory, limit: 200 });
     if (rpc !== connection) return;
     connection.openCodeContextSnapshot = snapshot;
     const latest = openCodeContext.selectLatestAssistantMessage(snapshot?.messages || []);
@@ -5143,10 +5155,11 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
     if (!initial) connection.nativeTranscriptState.error ||= connection.nativeTranscriptState.olderError;
     const thread = page.thread;
     const status = nativeCodexStatus(thread);
+    const normalizeNativeTime = (value) => window.stepsembleSessionUtils?.normalizeTimestampMs?.(value) || Number(value) || 0;
     applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: "codex", nativeCodex: true, nativeCodexMutation: connection.nativeCodexMutation,
       nativeThreadId: connection.nativeThreadId, nativeSessionId: thread?.sessionId || connection.nativeThreadId,
       name: connection.name, cwd: thread?.cwd || connection.cwd, status,
-      startedAt: connection.runStartedAt, lastActivityAt: thread?.updatedAt || Date.now() });
+      startedAt: normalizeNativeTime(connection.runStartedAt), lastActivityAt: normalizeNativeTime(thread?.updatedAt) || Date.now() });
     renderCodexNativeSnapshot(connection);
     if (connection.nativeCodexMutation) {
       if (mutation?.unavailable) {
@@ -5241,8 +5254,8 @@ async function openCodexNativeTask(task, generationOverride = null) {
     agentLabel: "Codex CLI",
     name,
     cwd,
-    runStartedAt: Number(task.startedAt) || Date.now(),
-    runEndedAt: Number(task.endedAt) || null,
+    runStartedAt: normalizedTimestampMs(task.startedAt) || Date.now(),
+    runEndedAt: normalizedTimestampMs(task.endedAt) || null,
   };
   const connection = rpc;
   codexNativePollTimer = null;
@@ -5265,6 +5278,13 @@ async function openOpenCodeNativeTask(task, generationOverride = null) {
   if (!nativeSessionId) return;
   const cwd = task.cwd || "";
   const name = task.name || "OpenCode";
+  // Imported OpenCode sessions are view-only when their task is historical.
+  // They can still be reconciled by session id even if the original cwd is
+  // no longer an allowed project folder; active sessions keep live controls.
+  const nativeOpenCodeReadOnly = task.readOnly === true
+    || task.status === "history"
+    || (task.history === "native_readonly"
+      && ["completed", "failed", "stopped", "orphaned", "detached"].includes(String(task.status || "")));
   rememberLastAgentTask(task.id || `opencode:${nativeSessionId}`);
   beginDraftScope({ cwd, name });
   const generation = generationOverride === null ? ++viewGeneration : generationOverride;
@@ -5297,6 +5317,8 @@ async function openOpenCodeNativeTask(task, generationOverride = null) {
     sid: `opencode:${nativeSessionId}`,
     generic: true,
     nativeOpenCode: true,
+    nativeOpenCodeReadOnly,
+    nativeHistoryReadonly: nativeOpenCodeReadOnly,
     nativeSessionId,
     openCodeModel: null,
     openCodeModelSelected: false,
@@ -5316,7 +5338,7 @@ async function openOpenCodeNativeTask(task, generationOverride = null) {
     agentLabel: "OpenCode",
     name,
     cwd,
-    runStartedAt: Number(task.startedAt) || Date.now(),
+    runStartedAt: normalizedTimestampMs(task.startedAt) || Date.now(),
     runEndedAt: null,
   };
   const connection = rpc;
@@ -5453,7 +5475,7 @@ async function openGrokAcpTask(task, generationOverride = null) {
   rpc = { sid: `grok-build:${nativeSessionId}`, generic: true, nativeGrokAcp: true, nativeSessionId,
     nativeLoading: true, connectionLost: false, stopPending: false, streamReady: true, taskStatus: "waiting",
     genericOutputNode: null, genericTerminalNotice: null, genericInputEchoes: [], grokEventIndex: 0,
-    agentId: "grok-build", agentLabel: "Grok Build", name, cwd, runStartedAt: Number(task.startedAt) || Date.now(), runEndedAt: null };
+    agentId: "grok-build", agentLabel: "Grok Build", name, cwd, runStartedAt: normalizedTimestampMs(task.startedAt) || Date.now(), runEndedAt: null };
   const connection = rpc;
   grokAcpPollTimer = null;
   try {
@@ -5495,6 +5517,64 @@ function renderClaudeStructuredEvents(connection, events, { replace = false } = 
   }
   connection.claudeEventIndex = rows.length;
   keepSessionUsageAtEnd(); scrollBottom();
+}
+
+async function loadClaudeNativeHistory(connection) {
+  if (connection?.nativeClaudeStructured && rpc === connection) {
+    // Keep a tiny, non-sensitive diagnostic marker on the message viewport.
+    // It makes a failed history read distinguishable from an empty transcript
+    // without exposing paths, prompts, or credentials.
+    el.messages.dataset.claudeHistory = "loading";
+  }
+  // A structured Claude task can be returned as `waiting`, `history`, or
+  // `available` depending on whether the native adapter has already been
+  // hydrated. The transcript itself is the source of truth, so do not make
+  // rendering depend on one lifecycle label.
+  if (!connection?.claudeHistoryCandidate || connection.claudeHistoryLoaded || !connection.nativeSessionId) return false;
+  const taskId = `claude-history:${connection.nativeSessionId}`;
+  try {
+    const result = await api(`/api/native-history/session?taskId=${encodeURIComponent(taskId)}`);
+    if (rpc !== connection || !Array.isArray(result?.messages) || !result.messages.length) {
+      connection.claudeHistoryLoadState = "empty";
+      if (rpc === connection) el.messages.dataset.claudeHistory = "empty";
+      return false;
+    }
+    const staging = document.createElement("div");
+    let sliceStarted = performance.now();
+    for (const message of result.messages) {
+      if (performance.now() - sliceStarted > 8) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+        if (rpc !== connection) return false;
+        sliceStarted = performance.now();
+      }
+      maybeDateSeparator(message.ts || message.timestamp, staging);
+      appendNativeHistoryMessage(message, "claude-code", staging);
+    }
+    if (rpc !== connection) return false;
+    const fragment = document.createDocumentFragment();
+    while (staging.firstChild) fragment.appendChild(staging.firstChild);
+    el.messages.appendChild(fragment);
+    connection.claudeHistoryLoaded = true;
+    connection.claudeHistoryLoadState = "loaded";
+    connection.claudeHistoryMessageCount = result.messages.length;
+    el.messages.dataset.claudeHistory = "loaded";
+    el.messages.dataset.claudeHistoryCount = String(result.messages.length);
+    ensureSessionUsageFooter();
+    keepSessionUsageAtEnd();
+    scrollBottom(true);
+    return true;
+  } catch (error) {
+    // A Claude history file can be absent while the live session is still
+    // valid (for example during its first turn). Keep the native channel
+    // usable and let the structured stream remain the source of truth.
+    connection.claudeHistoryLoadState = "unavailable";
+    connection.claudeHistoryLoadError = String(error?.message || "history unavailable").slice(0, 160);
+    if (rpc === connection) {
+      el.messages.dataset.claudeHistory = "unavailable";
+      console.warn("[stepsemble] Claude native history unavailable", connection.claudeHistoryLoadError);
+    }
+    return false;
+  }
 }
 
 function renderClaudeStructuredPermissions(connection, permissions) {
@@ -5590,6 +5670,28 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false } =
   }
 }
 
+async function syncClaudeStructuredModelCatalog(connection = rpc, { force = false } = {}) {
+  if (!connection?.nativeClaudeStructured || rpc !== connection || !connection.nativeSessionId) return null;
+  if (!force && connection.claudeModelsLoaded && Array.isArray(connection.claudeModels)) return connection.claudeModels;
+  const result = await api(`/api/claude/structured/models?sessionId=${encodeURIComponent(connection.nativeSessionId)}`);
+  if (rpc !== connection) return null;
+  const models = (Array.isArray(result?.models) ? result.models : []).map(normalizeClaudeModel).filter(Boolean);
+  connection.claudeModels = models;
+  connection.claudeModelsLoaded = true;
+  const current = normalizeClaudeModel(result?.currentModel)
+    || models.find(model => model.id === "default")
+    || models[0]
+    || null;
+  if (current && !connection.claudeModelSelected) {
+    connection.claudeModel = current;
+    composerModelContextWindow = positiveFinite(current.contextWindow);
+    updateComposerSummary(current.name || current.id, undefined);
+  }
+  connection.claudeEffort = String(result?.currentEffort || connection.claudeEffort || "auto").toLowerCase();
+  syncNativeThinkingSelect(connection);
+  return models;
+}
+
 async function openClaudeStructuredTask(task, generationOverride = null) {
   if (!task) return;
   const nativeSessionId = String(task.nativeSessionId || task.id || task.taskId || "").replace(/^claude-code:/, "");
@@ -5621,13 +5723,24 @@ async function openClaudeStructuredTask(task, generationOverride = null) {
   el.viewChat.classList.remove("hidden"); void refreshProjectChanges({ background: true });
   rpc = { sid: `claude-code:${nativeSessionId}`, generic: true, nativeClaudeStructured: true, nativeSessionId, nativeLoading: true,
     connectionLost: false, stopPending: false, streamReady: true, taskStatus: "waiting", genericOutputNode: null, genericTerminalNotice: null,
-    genericInputEchoes: [], claudeEventIndex: 0, claudeOutputStart: null,
+    genericInputEchoes: [], claudeEventIndex: 0, claudeOutputStart: null, claudeEffort: "auto",
+    // Native Claude transcript discovery is independent from the live
+    // adapter lifecycle. A newly opened session may still be labelled
+    // `waiting` while its JSONL transcript already contains prior turns.
+    claudeHistoryCandidate: task.nativeHistoryReadonly !== true, claudeHistoryLoaded: false,
     claudeRenderer: claudeStructuredRendering?.createRenderer?.() || null, claudeModel: null, claudeModelSelected: false,
     claudeModels: null, claudeModelsLoaded: false, agentId: "claude-code", agentLabel: "Claude Code", name, cwd,
-    runStartedAt: Number(task.startedAt) || Date.now(), runEndedAt: null };
+    runStartedAt: normalizedTimestampMs(task.startedAt) || Date.now(), runEndedAt: null };
   const connection = rpc; claudeStructuredPollTimer = null;
   try {
     await refreshClaudeStructuredSnapshot(connection, { initial: true });
+    if (rpc !== connection || generation !== viewGeneration) return;
+    await loadClaudeNativeHistory(connection);
+    if (rpc !== connection || generation !== viewGeneration) return;
+    // Hydrate the native catalog before enabling the composer. This performs
+    // the control handshake once and exposes model/effort controls before the
+    // first prompt can be submitted.
+    await syncClaudeStructuredModelCatalog(connection);
     if (rpc !== connection || generation !== viewGeneration) return;
     claudeStructuredPollTimer = setInterval(() => void refreshClaudeStructuredSnapshot(connection), 2000); syncGenericInputState();
   } catch (error) {
@@ -5752,7 +5865,7 @@ async function openAgentClientProtocolTask(task, generationOverride = null) {
   rpc = { sid: `${agentId}:${nativeSessionId}`, generic: true, nativeAcp: true, acpAgentId: agentId, nativeSessionId,
     nativeLoading: true, connectionLost: false, stopPending: false, streamReady: true, taskStatus: "waiting", genericOutputNode: null,
     genericTerminalNotice: null, genericInputEchoes: [], acpEventIndex: 0, agentId, agentLabel: agentConnectorLabel(agentId), name, cwd,
-    runStartedAt: Number(task.startedAt) || Date.now(), runEndedAt: null };
+    runStartedAt: normalizedTimestampMs(task.startedAt) || Date.now(), runEndedAt: null };
   const connection = rpc; acpPollTimer = null;
   try {
     await refreshAgentClientProtocolSnapshot(connection, { initial: true });
@@ -5844,7 +5957,7 @@ async function openAntigravityStructuredTask(task, generationOverride = null) {
   rpc = { sid: `antigravity:${nativeSessionId}`, generic: true, nativeAntigravityStructured: true, nativeSessionId, nativeLoading: true,
     connectionLost: false, stopPending: false, streamReady: true, taskStatus: "waiting", genericOutputNode: null, genericTerminalNotice: null,
     genericInputEchoes: [], antigravityEventIndex: 0, agentId: "antigravity", agentLabel: "Google Antigravity", name, cwd,
-    runStartedAt: Number(task.startedAt) || Date.now(), runEndedAt: null };
+    runStartedAt: normalizedTimestampMs(task.startedAt) || Date.now(), runEndedAt: null };
   const connection = rpc; antigravityStructuredPollTimer = null;
   try {
     await refreshAntigravityStructuredSnapshot(connection, { initial: true });
@@ -5925,6 +6038,16 @@ function guideClaudeCodeSignIn() {
 
 async function connectAgentTask(options = {}, generation = viewGeneration) {
   const baseAtStart = apiBase;
+  // Keep timestamp handling self-contained here because this function is also
+  // exercised as an isolated browser slice in the reliability tests.
+  const taskTimestampMs = (value) => {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number <= 0) return 0;
+    if (number >= 1e17) return Math.floor(number / 1e6);
+    if (number >= 1e14) return Math.floor(number / 1e3);
+    if (number >= 1e11) return number;
+    return number * 1000;
+  };
   resetGenericReplayNotice();
   setStreaming(false);
   try {
@@ -6006,8 +6129,8 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
       agentLabel: agentConnectorLabel(result.agentId || options.agentId),
       name: result.name || options.name || "Agent task",
       cwd: result.cwd || options.cwd || currentSessionCwd || "",
-      runStartedAt: Number(result.startedAt) || null,
-      runEndedAt: Number(result.endedAt) || null,
+      runStartedAt: taskTimestampMs(result.startedAt) || null,
+      runEndedAt: taskTimestampMs(result.endedAt) || null,
     };
     const connection = rpc;
     const ownsTask = () => rpc === connection && generation === viewGeneration && baseAtStart === apiBase;
@@ -8509,8 +8632,7 @@ function updateComposerSummary(modelName, thinkingLevel) {
   if (thinkingLevel) composerReasoningLevel = String(thinkingLevel);
   const model = composerModelName || (window.stepsembleI18n?.t("Server default") || "Server default");
   const level = composerReasoningLevel || "off";
-  const levelLabel = rpc?.nativeClaudeStructured ? ""
-    : rpc?.nativeCodexMutation && level === "off" ? "Default" : level;
+  const levelLabel = (rpc?.nativeCodexMutation || rpc?.nativeClaudeStructured) && (level === "off" || level === "auto") ? "Default" : level;
   const summary = levelLabel ? `${model} · ${levelLabel}` : model;
   // The chip is fixed-width: the model name truncates with an ellipsis while
   // the trailing thinking level always stays fully visible.
@@ -8593,10 +8715,38 @@ function syncNativeThinkingSelect(connection = rpc) {
   const select = el.thinkingSelect;
   if (!select) return;
   captureDefaultThinkingSelectOptions();
-  setThinkingControlVisibility(!!connection?.nativeClaudeStructured);
+  if (connection?.nativeClaudeStructured) {
+    const model = connection.claudeModel;
+    const advertised = Array.isArray(model?.supportedEffortLevels)
+      ? model.supportedEffortLevels.map(String).filter(level => ["low", "medium", "high", "xhigh", "max"].includes(level))
+      : [];
+    const supportsEffort = model?.supportsEffort === true || advertised.length > 0;
+    if (!supportsEffort) {
+      restoreDefaultThinkingSelectOptions();
+      setThinkingControlVisibility(true);
+      select.disabled = true;
+      return;
+    }
+    setThinkingControlVisibility(false);
+    const levels = ["auto", ...new Set(advertised)];
+    select.replaceChildren(...levels.map(level => {
+      const option = document.createElement("option");
+      option.value = level;
+      option.textContent = level === "auto" ? "Default" : level;
+      return option;
+    }));
+    const choices = new Set(levels);
+    const requested = String(connection.claudeEffort || model.defaultEffort || "auto").toLowerCase();
+    connection.claudeEffort = choices.has(requested) ? requested : "auto";
+    select.value = connection.claudeEffort;
+    select.disabled = false;
+    updateComposerSummary(undefined, connection.claudeEffort);
+    return;
+  }
+  setThinkingControlVisibility(false);
   if (!connection?.nativeCodexMutation) {
     restoreDefaultThinkingSelectOptions();
-    select.disabled = !!connection?.nativeClaudeStructured;
+    select.disabled = false;
     return;
   }
   const model = connection.codexModel;
@@ -8762,13 +8912,20 @@ function normalizeClaudeModel(model) {
   if (!model || typeof model !== "object") return null;
   const id = String(model.id || model.model || model.slug || model.name || "").trim();
   if (!id) return null;
+  const supportedEffortLevels = Array.isArray(model.supportedEffortLevels)
+    ? model.supportedEffortLevels.map(value => String(value).trim().toLowerCase()).filter(value => ["low", "medium", "high", "xhigh", "max"].includes(value))
+    : [];
   return {
     ...model,
     id,
     provider: "claude-code",
     name: String(model.name || model.displayName || id),
     description: String(model.description || ""),
-    reasoning: model.reasoning === true,
+    reasoning: model.reasoning === true || model.supportsReasoning === true || model.supportsEffort === true || supportedEffortLevels.length > 0,
+    supportsEffort: model.supportsEffort === true || supportedEffortLevels.length > 0,
+    supportedEffortLevels: [...new Set(supportedEffortLevels)],
+    supportsAutoMode: model.supportsAutoMode === true,
+    defaultEffort: String(model.defaultEffort || model.default_effort || "").trim().toLowerCase() || null,
     contextWindow: positiveFinite(model.contextWindow ?? model.context_window),
   };
 }
@@ -8807,7 +8964,7 @@ function syncOpenCodeModelCatalog(connection = rpc, { force = false } = {}) {
   }
   const generation = viewGeneration;
   const base = apiBase;
-  const cwd = connection.cwd || "";
+  const cwd = connection.nativeOpenCodeReadOnly ? "" : (connection.cwd || "");
   const isCurrent = () => rpc === connection && generation === viewGeneration && base === apiBase && cwd === (connection.cwd || "");
   const directory = cwd ? `?directory=${encodeURIComponent(cwd)}` : "";
   connection.openCodeModelsLoadedAt = now;
@@ -8898,13 +9055,17 @@ async function openModelSheet() {
       connection.claudeModels = availableModels;
       connection.claudeModelsLoaded = true;
       if (!connection.claudeModelSelected) {
-        const current = normalizeClaudeModel(result?.currentModel);
+        const current = normalizeClaudeModel(result?.currentModel)
+          || availableModels.find(model => model.id === "default")
+          || availableModels[0];
         if (current) {
           connection.claudeModel = current;
           composerModelContextWindow = positiveFinite(current.contextWindow);
           updateComposerSummary(current.name || current.id, undefined);
         }
       }
+      connection.claudeEffort = String(result?.currentEffort || connection.claudeEffort || "auto").toLowerCase();
+      syncNativeThinkingSelect(connection);
       const current = connection.claudeModel || normalizeClaudeModel(result?.currentModel);
       renderModelList(current?.id || null, "claude-code");
       return;
@@ -9051,6 +9212,7 @@ function renderModelList(currentId, currentProvider = null) {
           // unknown), so never retain a stale gauge between the two requests.
           resetContextDashboard();
           updateComposerSummary(selected.name || selected.id, undefined);
+          syncNativeThinkingSelect(connection);
           void syncNativeContext(connection);
           toast("模型：" + (selected.name || selected.id));
           renderModelList(selected.id, "claude-code");
@@ -9272,7 +9434,34 @@ el.modelSheet.addEventListener("click", (event) => {
 async function changeThinkingLevel(level) {
   const expectedSid = rpc?.sid;
   if (!expectedSid) return;
-  if (rpc?.nativeClaudeStructured) return;
+  if (rpc?.nativeClaudeStructured) {
+    const connection = rpc;
+    const expectedGeneration = viewGeneration;
+    const expectedBase = apiBase;
+    const requested = String(level || "").toLowerCase();
+    const allowed = new Set(["auto", "low", "medium", "high", "xhigh", "max"]);
+    if (!allowed.has(requested) || ![...el.thinkingSelect.options].some(option => option.value === requested)) return;
+    try {
+      const result = await post("/api/claude/structured/effort", {
+        sessionId: connection.nativeSessionId,
+        effort: requested,
+      });
+      if (rpc !== connection || viewGeneration !== expectedGeneration || apiBase !== expectedBase) return;
+      if (result?.kind === "reject" || result?.success === false) throw new Error(result.error || result.code || "Claude rejected the effort change");
+      connection.claudeEffort = String(result?.effort || requested).toLowerCase();
+      rememberThinkingPreference(connection.claudeEffort);
+      syncNativeThinkingSelect(connection);
+      updateComposerSummary(undefined, connection.claudeEffort);
+      renderContextDashboard();
+      toast(tKey("runtime.thinkingLevel", { level: connection.claudeEffort === "auto" ? "Default" : connection.claudeEffort }));
+    } catch (error) {
+      if (rpc === connection && viewGeneration === expectedGeneration && apiBase === expectedBase) {
+        syncNativeThinkingSelect(connection);
+        toast(tKey("runtime.saveFailed", { detail: error.message }), true);
+      }
+    }
+    return;
+  }
   if (rpc?.nativeCodexMutation) {
     const connection = rpc;
     const expectedGeneration = viewGeneration;

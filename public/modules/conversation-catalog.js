@@ -12,7 +12,18 @@ var StepsembleConversations;
     const object = (v) => !!v && typeof v === "object" && !Array.isArray(v);
     const text = (v, max = StepsembleConversations.LIMITS.text) => typeof v === "string" ? v.slice(0, max).replace(/[\u0000-\u001f\u007f]/g, " ").trim() : "";
     const ref = (v) => typeof v === "string" && v.length > 0 && v.length <= StepsembleConversations.LIMITS.reference && !/[\u0000-\u001f\u007f]/.test(v) ? v : "";
-    const timestamp = (v) => typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0;
+    const timestamp = (v) => {
+        const number = Number(v);
+        if (!Number.isFinite(number) || number <= 0)
+            return 0;
+        if (number >= 1e17)
+            return Math.floor(number / 1e6); // nanoseconds
+        if (number >= 1e14)
+            return Math.floor(number / 1e3); // microseconds
+        if (number >= 1e11)
+            return number; // milliseconds
+        return number * 1000; // seconds
+    };
     const states = new Set(["starting", "running", "reconnecting", "waiting", "completed", "failed", "stopped", "detached", "orphaned", "history"]);
     StepsembleConversations.active = (entry) => ["starting", "running", "reconnecting", "waiting"].includes(entry.status);
     StepsembleConversations.identity = (hostId, kind, reference) => JSON.stringify([hostId, kind, reference]);

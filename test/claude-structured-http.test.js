@@ -38,9 +38,9 @@ input.on("line", raw => {
   if (frame.type === "control_request") {
     const subtype = frame.request?.subtype;
     if (subtype === "initialize") {
-      controlResponse(frame.request_id, { models: [{ value: model, displayName: "Synthetic Sonnet", contextWindow: 1000 }], model, currentModel: model });
+      controlResponse(frame.request_id, { models: [{ value: model, displayName: "Synthetic Sonnet", contextWindow: 1000, supportsEffort: true, supportedEffortLevels: ["low", "high"] }], model, currentModel: model, effort: "low" });
     } else if (subtype === "set_model") {
-      controlResponse(frame.request_id, { model: frame.request?.model || model, currentModel: frame.request?.model || model });
+      controlResponse(frame.request_id, { model: frame.request?.model || model, currentModel: frame.request?.model || model, effort: frame.request?.effort || "low" });
     } else if (subtype === "interrupt") {
       controlResponse(frame.request_id, {});
     }
@@ -172,6 +172,10 @@ test("real HTTP Claude structured session covers model/prompt/permission/context
   const model = await f.request("/api/claude/structured/model", { method: "POST", cookie, body: { sessionId, model: "synthetic-sonnet" } });
   assert.equal(model.status, 200, model.raw);
   assert.equal(model.body.kind, "ok");
+
+  const effort = await f.request("/api/claude/structured/effort", { method: "POST", cookie, body: { sessionId, effort: "high" } });
+  assert.equal(effort.status, 200, effort.raw);
+  assert.deepEqual(effort.body, { kind: "changed", effort: "high" });
 
   const prompt = await f.request("/api/claude/structured/prompt", { method: "POST", cookie, body: { sessionId, text: "hello" } });
   assert.equal(prompt.status, 200, prompt.raw);

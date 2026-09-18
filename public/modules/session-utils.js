@@ -288,12 +288,21 @@
     return Math.floor(hours / 24) + "d";
   }
 
+  function normalizeTimestampMs(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number <= 0) return null;
+    if (number >= 1e17) return Math.floor(number / 1e6); // nanoseconds
+    if (number >= 1e14) return Math.floor(number / 1e3); // microseconds
+    if (number >= 1e11) return number; // milliseconds
+    return number * 1000; // seconds
+  }
+
   global.stepsembleSessionUtils = Object.freeze({
     stripMd, fmtTime, fmtTokens, projectFolderName,
     DRAFT_ENTRY_LIMIT, DRAFT_TEXT_LIMIT, draftScopeKey, normalizeDraftEntries, updateDraftEntries, draftTextForKey,
     activityReceiptStats, computeActivityReceipt,
     stripAnsi, parseTaskProgressLines, extractTaskPlan,
-    runElapsedText, compactRelativeTime,
+    runElapsedText, compactRelativeTime, normalizeTimestampMs,
   });
   global.piHarborSessionUtils = global.stepsembleSessionUtils;
 })(window);

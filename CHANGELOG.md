@@ -1,5 +1,36 @@
 # Changelog
 
+## 3.0.56
+Make imported OpenCode conversations open reliably.
+- Reconcile read-only native history by session ID when its original working directory is no longer an allowed project folder.
+- Keep mutation routes and active OpenCode sessions behind the existing directory safety guard.
+- Bump frontend asset URLs so the service worker cannot serve the previous chat-opening code.
+
+## 3.0.55
+
+Make Claude history hydration reliable after a frontend update.
+
+- Try native transcript hydration independently of the live adapter lifecycle,
+  so a saved Claude session is not treated as empty just because its status is
+  `waiting` or `available`.
+- Record a bounded client-side load state and message count for diagnostics,
+  while keeping transcript contents and credentials out of logs.
+- Bump asset URLs so service-worker caches cannot keep an older conversation
+  renderer after an install.
+
+## 3.0.54
+
+Make native Claude and Codex conversations visible and responsive again.
+
+- Normalize Codex seconds, milliseconds, microseconds, and nanoseconds before
+  sorting or displaying sessions, so future-dated Codex rows no longer hide
+  Claude, OpenCode, or Pi conversations behind the first page.
+- Complete Claude Code's native initialization handshake before the first
+  prompt, preventing a live child with no events or response.
+- Expose Claude's supported effort levels in the composer and apply changes
+  through the native control channel, with a safe default for models that do
+  not advertise effort support.
+
 ## 3.0.53
 
 Show one Claude conversation once, and stop launching duplicate processes.

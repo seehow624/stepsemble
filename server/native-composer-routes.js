@@ -8,12 +8,18 @@ function modelValue(value) {
   if (typeof value !== "string" || !value.trim() || value.length > 256 || /[\u0000-\u001f\u007f]/.test(value)) throw invalid("model_invalid");
   return value.trim();
 }
+function effortValue(value) {
+  if (typeof value !== "string" || !value.trim() || value.length > 32 || /[\u0000-\u001f\u007f]/.test(value)) throw invalid("effort_invalid");
+  const effort = value.trim().toLowerCase();
+  if (!["auto", "low", "medium", "high", "xhigh", "max"].includes(effort)) throw invalid("effort_invalid");
+  return effort;
+}
 
 // Called only inside the main authenticated/origin-checked API block.
 function createNativeComposerRoutes({ codex, ensureCodex, resolveClaude, validateDirectory, readJSON, sendJSON }) {
   const routes = new Set([
     "GET /api/codex/models", "GET /api/codex/context", "POST /api/codex/mutation/turn", "POST /api/codex/mutation/interrupt",
-    "GET /api/claude/structured/models", "GET /api/claude/structured/context", "POST /api/claude/structured/model",
+    "GET /api/claude/structured/models", "GET /api/claude/structured/context", "POST /api/claude/structured/model", "POST /api/claude/structured/effort",
   ]);
   return async function handle(req, res, url) {
     if (!routes.has(`${req.method} ${url.pathname}`)) return false;
@@ -25,7 +31,8 @@ function createNativeComposerRoutes({ codex, ensureCodex, resolveClaude, validat
         if (!resolved) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return true; }
         const result = p.endsWith("/models") ? await resolved.session.models()
           : p.endsWith("/context") ? await resolved.session.contextUsage()
-            : await resolved.session.setModel(modelValue(body?.model));
+            : p.endsWith("/effort") ? await resolved.session.setEffort(effortValue(body?.effort))
+              : await resolved.session.setModel(modelValue(body?.model));
         sendJSON(res, result?.kind === "reject" ? 409 : 200, result);
         return true;
       }

@@ -65,6 +65,12 @@ test("Claude structured parser validates native control requests", () => {
 
 test("Claude structured session writes native permission responses and interrupts without closing", async t => {
   const child = childFixture();
+  observeControlWire(child, message => {
+    if (message.type !== "control_request" || message.request?.subtype !== "initialize") return;
+    child.stdout.write(JSON.stringify({ type: "control_response", response: {
+      subtype: "success", request_id: message.request_id, response: { models: [], model: "sonnet" },
+    } }) + "\n");
+  });
   let args;
   const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", name: "Named Claude task", spawnImpl: (file, argv, options) => { args = { file, argv, options }; return child; } });
   t.after(() => session.close());
@@ -127,7 +133,7 @@ test("Claude structured controls use exact initialize/set_model wire and update 
   assert.deepEqual(catalog, { models: [
     { id: "sonnet", name: "Claude Sonnet", description: "Balanced", supportsEffort: true },
     { id: "opus", name: "Claude Opus", description: "Deep" },
-  ], currentModel: "sonnet" });
+  ], currentModel: "sonnet", currentEffort: null });
   assert.deepEqual(requests[0], { type: "control_request", request_id: requests[0].request_id, request: { subtype: "initialize" } });
 
   let resolveModelRequest;
@@ -142,6 +148,42 @@ test("Claude structured controls use exact initialize/set_model wire and update 
   } }) + "\n");
   assert.deepEqual(await changing, { kind: "changed", model: "opus" });
   assert.equal(session.contextUsage().model, "opus");
+});
+
+test("Claude effort control uses the native set_model envelope and updates after ACK", async t => {
+  const child = childFixture();
+  const requests = [];
+  observeControlWire(child, message => {
+    if (message.type !== "control_request") return;
+    requests.push(message);
+    if (message.request?.subtype === "initialize") {
+      child.stdout.write(JSON.stringify({ type: "control_response", response: {
+        subtype: "success", request_id: message.request_id,
+        response: { models: [{ value: "sonnet", displayName: "Sonnet", supportsEffort: true, supportedEffortLevels: ["low", "high"] }], model: "sonnet", effort: "low" },
+      } }) + "\n");
+    }
+  });
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 200 });
+  t.after(() => session.close());
+  await session.models();
+  let effortRequest;
+  // Add a second observer after initialization so the ACK can be controlled
+  // without changing the initialize fixture above.
+  child.stdin.on("data", chunk => {
+    for (const raw of chunk.toString().split("\n").filter(Boolean)) {
+      const message = JSON.parse(raw);
+      if (message.type === "control_request" && message.request?.subtype === "set_model" && message.request?.effort === "high") effortRequest = message;
+    }
+  });
+  const changing = session.setEffort("high");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(effortRequest?.request?.subtype, "set_model");
+  assert.equal(effortRequest.request.effort, "high");
+  child.stdout.write(JSON.stringify({ type: "control_response", response: {
+    subtype: "success", request_id: effortRequest.request_id, response: { effort: "high" },
+  } }) + "\n");
+  assert.deepEqual(await changing, { kind: "changed", effort: "high" });
+  assert.equal(session.status().effort, "high");
 });
 
 test("Claude context usage uses latest assistant input plus cache tokens and modelUsage capacity", async t => {

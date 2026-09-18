@@ -29,6 +29,15 @@ test("native OpenCode sessions appear beside Pi history with their own identity"
   assert.equal(entries[0].title, "OpenCode session");
   assert.equal(catalog.select({ entries, omitted: 0 }, { agentId: "opencode" }).total, 1);
 });
+test("conversation catalog normalizes native timestamp units before sorting", () => {
+  const milliseconds = 1_800_000_000_000;
+  const entries = catalog.build("mini", [], [
+    task("seconds", { lastActivityAt: 1_800_000_000 }),
+    task("microseconds", { lastActivityAt: milliseconds * 1000 }),
+    task("nanoseconds", { lastActivityAt: milliseconds * 1_000_000 }),
+  ]).entries;
+  assert.deepEqual(JSON.parse(JSON.stringify(entries.map(row => row.updatedAt))), [milliseconds, milliseconds, milliseconds]);
+});
 test("deduplicates only an exact native Pi file and keeps native name/outcome", () => {
   const snapshot = catalog.build("mini", [pi()], [task("pi:abc", { agentId: "pi", file: pi().file, status: "failed", name: "2026-09-ID" }), task("same", { file: pi().file })]);
   assert.equal(snapshot.entries.length, 2);

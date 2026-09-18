@@ -19,9 +19,10 @@ async function fixture(t) {
     interruptTurn: async id => { calls.push(["interrupt", id]); return id === threadId ? { kind: "requested" } : { kind: "reject", code: "native_thread_mismatch" }; },
   };
   const session = {
-    models: async () => ({ models: [{ id: "claude-model", name: "Claude Model" }], currentModel: "claude-model" }),
+    models: async () => ({ models: [{ id: "claude-model", name: "Claude Model", supportsEffort: true, supportedEffortLevels: ["low", "high"] }], currentModel: "claude-model", currentEffort: "low" }),
     contextUsage: () => ({ ...context, model: "claude-model", contextWindow: null, contextPercent: null }),
     setModel: async model => { calls.push(["claude-model", model]); return { kind: "changed", model }; },
+    setEffort: async effort => { calls.push(["claude-effort", effort]); return { kind: "changed", effort }; },
   };
   const { readJSON, sendJSON } = createHttpUtils();
   const handle = createNativeComposerRoutes({ codex, ensureCodex: async () => {}, resolveClaude: id => id === "claude-a" ? { session } : null,
@@ -84,6 +85,9 @@ test("Claude model controls use the exact live session and preserve unknown cont
   assert.equal((await f.request("/api/claude/structured/models?sessionId=claude-a")).data.currentModel, "claude-model");
   assert.deepEqual((await f.request("/api/claude/structured/model", { sessionId: "claude-a", model: "new-model" })).data, { kind: "changed", model: "new-model" });
   assert.deepEqual(f.calls.pop(), ["claude-model", "new-model"]);
+  assert.deepEqual((await f.request("/api/claude/structured/effort", { sessionId: "claude-a", effort: "high" })).data, { kind: "changed", effort: "high" });
+  assert.deepEqual(f.calls.pop(), ["claude-effort", "high"]);
+  assert.equal((await f.request("/api/claude/structured/effort", { sessionId: "claude-a", effort: "ultra" })).status, 400);
   const context = await f.request("/api/claude/structured/context?sessionId=claude-a");
   assert.equal(context.data.contextTokens, 4500);
   assert.equal(context.data.contextPercent, null);

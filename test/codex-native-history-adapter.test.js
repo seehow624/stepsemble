@@ -422,6 +422,14 @@ test("Codex task projection keeps private native rollout paths out of the browse
   assert.equal(Object.hasOwn(task, "path"), false);
 });
 
+test("Codex task projection preserves millisecond timestamps without multiplying them", () => {
+  const milliseconds = 1_800_000_000_000;
+  const value = publicThread(thread({ createdAt: milliseconds, updatedAt: milliseconds + 2500, recencyAt: milliseconds + 2500 }));
+  assert.equal(value.createdAt, milliseconds);
+  assert.equal(value.updatedAt, milliseconds + 2500);
+  assert.equal(value.recencyAt, milliseconds + 2500);
+});
+
 test("Codex native mutations require the second opt-in and persist an intent before transport IO", async t => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-native-mutation-"));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));

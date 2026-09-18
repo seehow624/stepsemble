@@ -22,6 +22,7 @@ const MAX_PROMPT = 1024 * 1024;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const MAX_CONTROL_REQUESTS = 64;
 const MAX_MODELS = 100;
+const CLAUDE_EFFORTS = new Set(["auto", "low", "medium", "high", "xhigh", "max"]);
 // Keep a single Claude stream-json input frame and its ordered write queue
 // bounded like the Codex native transport. The HTTP prompt route admits up to
 // 12 MiB so a valid image prompt can reach this adapter; the queue has one
@@ -80,6 +81,12 @@ function modelId(value) {
   if (!value.length || value.length > 256 || /[\t\r\n]/.test(value)) return null;
   const text = safeText(value, 256);
   return text || null;
+}
+
+function effortId(value) {
+  if (typeof value !== "string") return null;
+  const id = value.trim().toLowerCase();
+  return CLAUDE_EFFORTS.has(id) ? id : null;
 }
 
 function usageNumber(raw, ...keys) {
@@ -312,6 +319,7 @@ function createClaudeStructuredSession({
   let initializationResult = null;
   let availableModels = [];
   let selectedModel = null;
+  let selectedEffort = null;
   let contextSnapshot = {
     model: null,
     contextWindow: null,
@@ -437,6 +445,7 @@ function createClaudeStructuredSession({
       availableModels = (Array.isArray(response.models) ? response.models : [])
         .slice(0, MAX_MODELS).map(normalizeModelInfo).filter(Boolean);
       selectedModel = modelId(response.currentModel || response.current_model || response.model || response.initialModel) || selectedModel;
+      selectedEffort = effortId(response.effort || response.currentEffort || response.current_effort || response.effortLevel) || selectedEffort;
       if (selectedModel) contextSnapshot = { ...contextSnapshot, model: selectedModel };
       return response;
     }).catch(error => {
@@ -570,7 +579,7 @@ function createClaudeStructuredSession({
   function enqueueJson(value, timeoutCode = "claude_input_timeout") {
     return enqueueFrame(encodeInputFrame(value), timeoutCode);
   }
-  function sendUser(text, { images = [] } = {}) {
+  async function sendUser(text, { images = [] } = {}) {
     const failure = ensureOpen(); if (failure) return Promise.resolve(failure);
     const value = safeText(text, MAX_PROMPT);
     const blocks = claudeImageBlocks(images);
@@ -583,6 +592,14 @@ function createClaudeStructuredSession({
     // Reject before changing the session to active; oversized/backpressured
     // prompts must not look like a turn was accepted or lose image blocks.
     if (frameFailure) return Promise.resolve(frameFailure);
+    // Claude's stream-json input channel is not ready for user frames until
+    // the host control handshake has completed. Sending a prompt first can
+    // leave the child alive with zero events forever. Enforce this ordering in
+    // the adapter so every caller gets the same guarantee.
+    try { await initializeNative(); }
+    catch (error) { return reject(error?.code || "claude_initialize_failed"); }
+    const afterInitialize = ensureOpen();
+    if (afterInitialize) return Promise.resolve(afterInitialize);
     state = "running";
     lastActivityAt = Date.now();
     return enqueueFrame(frame)
@@ -590,7 +607,7 @@ function createClaudeStructuredSession({
   }
   async function models() {
     await initializeNative();
-    return { models: clone(availableModels), currentModel: selectedModel || null };
+    return { models: clone(availableModels), currentModel: selectedModel || null, currentEffort: selectedEffort || null };
   }
   async function setModel(model) {
     const failure = ensureOpen();
@@ -628,6 +645,25 @@ function createClaudeStructuredSession({
       contextSnapshot = { ...contextSnapshot, model: selectedModel };
     }
     return { kind: changed ? "changed" : "ok", model: selectedModel };
+  }
+  async function setEffort(effort) {
+    const failure = ensureOpen();
+    if (failure) throw controlError(failure.code);
+    const active = ensureModelSwitchAllowed();
+    if (active) throw active;
+    const requested = effortId(effort);
+    if (!requested) throw controlError("claude_effort_invalid");
+    await initializeNative();
+    const afterInitialize = ensureOpen();
+    if (afterInitialize) throw controlError(afterInitialize.code);
+    const activeAfterInitialize = ensureModelSwitchAllowed();
+    if (activeAfterInitialize) throw activeAfterInitialize;
+    // Claude Code exposes effort through the same documented set_model
+    // control envelope. Omitting model keeps the current model unchanged.
+    const acknowledged = await requestControl("set_model", { effort: requested });
+    const response = plain(acknowledged?.response) ? acknowledged.response : {};
+    selectedEffort = effortId(response.effort || response.currentEffort || response.current_effort || response.effortLevel) || requested;
+    return { kind: "changed", effort: selectedEffort };
   }
   function contextUsage() {
     return {
@@ -692,6 +728,7 @@ function createClaudeStructuredSession({
     send: sendUser,
     models,
     setModel,
+    setEffort,
     contextUsage,
     interrupt,
     acknowledgePermission,
@@ -701,7 +738,7 @@ function createClaudeStructuredSession({
       const current = parser.status();
       return { ...current, closed, failed: current.failed || processError?.code || null,
         nativeSessionId: current.sessionId || sessionId, state: current.failed || processError ? "failed" : state,
-        model: selectedModel || null, contextUsage: contextUsage(),
+        model: selectedModel || null, effort: selectedEffort || null, contextUsage: contextUsage(),
         startedAt, lastActivityAt, exitCode, exitSignal, processExited: childExited, cleanupConfirmed: closed && childExited };
     },
     events: () => parser.events(),
@@ -712,6 +749,8 @@ function createClaudeStructuredSession({
 
 module.exports = {
   CLAUDE_STRUCTURED_VERSION,
+  CLAUDE_EFFORTS,
+  effortId,
   normalizeClaudeEvent,
   eventText,
   buildClaudeStructuredArgs,

@@ -368,8 +368,16 @@ function contextSnapshotPayload(rows) {
   return Buffer.byteLength(payload, "utf8") <= MAX_CONTEXT_SNAPSHOT_BYTES ? payload : null;
 }
 
-function epochMilliseconds(seconds) {
-  return Number.isSafeInteger(seconds) && seconds >= 0 ? seconds * 1000 : null;
+function epochMilliseconds(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return null;
+  // Codex releases have exposed all three Unix timestamp precisions. Keep the
+  // public DTO in milliseconds so one bad unit cannot move a thread into the
+  // future and hide every other agent's session.
+  if (number >= 1e17) return Math.floor(number / 1e6); // nanoseconds
+  if (number >= 1e14) return Math.floor(number / 1e3); // microseconds
+  if (number >= 1e11) return number; // milliseconds
+  return number * 1000; // seconds
 }
 
 function statusType(value) {

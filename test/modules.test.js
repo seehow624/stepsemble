@@ -214,6 +214,17 @@ test("sidebar recency is compact, unit-less, and clock-skew safe", () => {
   assert.equal(utils.compactRelativeTime(0, now), null);
 });
 
+test("session timestamps normalize seconds, milliseconds, microseconds, and nanoseconds", () => {
+  const { value: utils } = loadBrowserModule("session-utils.js");
+  const milliseconds = 1_800_000_000_000;
+  assert.equal(utils.normalizeTimestampMs(1_800_000_000), milliseconds);
+  assert.equal(utils.normalizeTimestampMs(milliseconds), milliseconds);
+  assert.equal(utils.normalizeTimestampMs(milliseconds * 1000), milliseconds);
+  assert.equal(utils.normalizeTimestampMs(milliseconds * 1_000_000), milliseconds);
+  assert.equal(utils.normalizeTimestampMs(0), null);
+  assert.equal(utils.normalizeTimestampMs("not-a-time"), null);
+});
+
 test("composer drafts stay isolated by device and session and remain bounded", () => {
   const { value: utils } = loadBrowserModule("session-utils.js");
   const sessionA = utils.draftScopeKey("mini", { file: "sessions/a.jsonl" });
