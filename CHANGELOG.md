@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.71
+
+Report thinking support per Claude Code model instead of one fixed level.
+- The badge over a Claude or gateway row now shows the levels that model actually accepts (for example `low-max`) and stays empty when the model exposes none, so Haiku no longer reads exactly like Opus.
+- Selecting a model without thinking levels disables the reasoning select, explains why, and clears the composer chip so it cannot keep advertising the level chosen for the previous model.
+- Gateway aliases keep the effort levels OpenCodex declares for the upstream provider instead of inheriting the base Claude model's full range, so the select lists only levels the provider offers.
+
 ## 3.0.70
 
 Keep Claude Code's OpenCodex model metadata after selection.

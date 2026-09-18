@@ -511,8 +511,13 @@ function createClaudeStructuredSession({
           ...gateway,
           ...model,
           contextWindow: positiveFinite(model.contextWindow) ?? gateway.contextWindow,
-          supportedEffortLevels: Array.isArray(model.supportedEffortLevels) && model.supportedEffortLevels.length
-            ? model.supportedEffortLevels : gateway.supportedEffortLevels,
+          // An alias inherits the capabilities of the base model it behaves
+          // as, so Claude's own broadcast list is only a fallback: the gateway
+          // catalog is the source that knows which levels the upstream
+          // provider really offers.
+          supportedEffortLevels: gateway.supportedEffortLevels.length
+            ? gateway.supportedEffortLevels
+            : Array.isArray(model.supportedEffortLevels) ? model.supportedEffortLevels : [],
           supportsEffort: model.supportsEffort === true || gateway.supportsEffort === true,
           reasoning: model.reasoning === true || gateway.reasoning === true,
           gateway: "opencodex",

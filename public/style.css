@@ -1,4 +1,4 @@
-/* stepsemble v3.0.70 — Ink & Ivory / English-first localization */
+/* stepsemble v3.0.71 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -431,6 +431,7 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 @keyframes sheetUp { from { transform: translateY(40%); opacity: 0.5; } }
 .sheet h2 { font-size: 17px; margin-bottom: 16px; }
 .field-label { display: block; font-size: 12.5px; color: var(--pine-soft); margin: 14px 0 6px; }
+.field-hint { margin: 6px 2px 0; color: var(--pine-soft); font-size: 12px; line-height: 1.45; }
 .preset-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .preset-row button {
   min-height: 34px;
@@ -4671,6 +4672,8 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
   font-size: .8rem;
 }
 .model-search:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+/* A model without thinking levels keeps the row in place but inert. */
+#thinking-select:disabled { opacity: .55; cursor: not-allowed; }
 .model-row .model-thinking-badge {
   flex: 0 0 auto;
   min-width: 34px;

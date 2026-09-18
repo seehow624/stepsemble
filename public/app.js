@@ -1,7 +1,7 @@
-/* stepsemble v3.0.70 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.71 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.70";
+const CLIENT_APP_VERSION = "3.0.71";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -165,7 +165,7 @@ const el = {
   projectActionCancel: $("pa-cancel"), projectActionClose: $("pa-cancel-close"),
   modelSheet: $("model-sheet"), modelList: $("model-list"), modelSearch: $("model-search"),
   commandPalette: $("command-palette"), commandInput: $("command-input"), commandResults: $("command-results"),
-  thinkingSelect: $("thinking-select"), modelClose: $("model-close"),
+  thinkingSelect: $("thinking-select"), thinkingHint: $("thinking-hint"), modelClose: $("model-close"),
   renameDialog: $("rename-dialog"), renameInput: $("rename-input"),
   renameCancel: $("rename-cancel"), renameSave: $("rename-save"),
   projectRenameDialog: $("project-rename-dialog"), projectRenameTitle: $("project-rename-title"),
@@ -8751,10 +8751,14 @@ function resetComposerSummary() {
 }
 function updateComposerSummary(modelName, thinkingLevel) {
   if (modelName !== undefined) composerModelName = String(modelName || "");
-  if (thinkingLevel) composerReasoningLevel = String(thinkingLevel);
+  // An empty level is the explicit "this model has no thinking control"
+  // signal, so it must clear the chip instead of leaving the level the
+  // previously selected model was using on screen.
+  if (thinkingLevel !== undefined) composerReasoningLevel = String(thinkingLevel || "");
   const model = composerModelName || (window.stepsembleI18n?.t("Server default") || "Server default");
   const level = composerReasoningLevel || "off";
-  const levelLabel = (rpc?.nativeCodexMutation || rpc?.nativeClaudeStructured) && (level === "off" || level === "auto") ? "Default" : level;
+  const levelLabel = !composerReasoningLevel ? ""
+    : (rpc?.nativeCodexMutation || rpc?.nativeClaudeStructured) && (level === "off" || level === "auto") ? "Default" : level;
   const summary = levelLabel ? `${model} · ${levelLabel}` : model;
   // The chip is fixed-width: the model name truncates with an ellipsis while
   // the trailing thinking level always stays fully visible.
@@ -8803,6 +8807,7 @@ let thinkingRestoreInFlight = false;
 let defaultThinkingSelectOptions = null;
 
 const CODEX_EFFORTS = Object.freeze(["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
+const THINKING_LEVEL_ORDER = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
 
 function captureDefaultThinkingSelectOptions() {
   if (!el.thinkingSelect || defaultThinkingSelectOptions) return;
@@ -8826,8 +8831,19 @@ function setThinkingControlVisibility(hidden) {
   if (!select) return;
   select.hidden = !!hidden;
   document.querySelector('label[for="thinking-select"]')?.classList.toggle("hidden", !!hidden);
+  if (hidden) setThinkingHint("");
   const heading = el.modelSheet?.querySelector?.(".model-heading h2");
   if (heading) heading.textContent = hidden ? "Model" : "Model & reasoning";
+}
+
+// The reasoning row explains itself when the selected model has no thinking
+// control at all (Claude's Haiku, for example), so a disabled select never
+// looks like a broken control.
+function setThinkingHint(text) {
+  if (!el.thinkingHint) return;
+  const message = String(text || "");
+  el.thinkingHint.textContent = message;
+  el.thinkingHint.classList.toggle("hidden", !message);
 }
 
 // Codex reasoning options are model-scoped and may include levels absent from
@@ -8837,20 +8853,33 @@ function syncNativeThinkingSelect(connection = rpc) {
   const select = el.thinkingSelect;
   if (!select) return;
   captureDefaultThinkingSelectOptions();
+  setThinkingHint("");
   if (connection?.nativeClaudeStructured) {
     const model = connection.claudeModel;
     const advertised = Array.isArray(model?.supportedEffortLevels)
-      ? model.supportedEffortLevels.map(String).filter(level => ["low", "medium", "high", "xhigh", "max"].includes(level))
+      ? model.supportedEffortLevels.map(level => String(level).trim().toLowerCase()).filter(level => THINKING_LEVEL_ORDER.includes(level))
       : [];
     const supportsEffort = model?.supportsEffort === true || advertised.length > 0;
     if (!supportsEffort) {
-      restoreDefaultThinkingSelectOptions();
-      setThinkingControlVisibility(true);
+      setThinkingControlVisibility(false);
+      const option = document.createElement("option");
+      option.value = "default";
+      option.textContent = "Default";
+      select.replaceChildren(option);
+      select.value = "default";
       select.disabled = true;
+      select.title = tKey("runtime.thinkingUnsupported");
+      setThinkingHint(tKey("runtime.thinkingUnsupported"));
+      // The model keeps running at its own default, so the chip must not keep
+      // advertising the level chosen for a different model.
+      updateComposerSummary(undefined, "");
       return;
     }
     setThinkingControlVisibility(false);
-    const levels = ["auto", ...new Set(advertised)];
+    select.disabled = false;
+    select.removeAttribute("title");
+    const choicesForModel = advertised.length ? advertised : [...THINKING_LEVEL_ORDER];
+    const levels = ["auto", ...new Set(choicesForModel)];
     select.replaceChildren(...levels.map(level => {
       const option = document.createElement("option");
       option.value = level;
@@ -8861,7 +8890,6 @@ function syncNativeThinkingSelect(connection = rpc) {
     const requested = String(connection.claudeEffort || model.defaultEffort || "auto").toLowerCase();
     connection.claudeEffort = choices.has(requested) ? requested : "auto";
     select.value = connection.claudeEffort;
-    select.disabled = false;
     updateComposerSummary(undefined, connection.claudeEffort);
     return;
   }
@@ -8978,10 +9006,22 @@ document.addEventListener("click", (event) => {
 let availableModels = [];
 let modelSheetCurrentId = null;
 let modelSheetCurrentProvider = null;
-// Mirrors pi's getSupportedThinkingLevels: standard levels through "high" are
-// available on every reasoning model; "xhigh"/"max" require a non-null map
-// entry. The badge answers "how deep can this model think" before picking it.
+// The badge answers "how deep can this model think" before picking it. Claude
+// and gateway rows declare the exact levels per model, so those show the real
+// span and nothing at all when the model offers no levels, which keeps Haiku
+// from claiming the same depth as Opus. Pi rows fall back to
+// getSupportedThinkingLevels: levels through "high" are standard, while
+// "xhigh"/"max" require a non-null thinkingLevelMap entry.
 function modelThinkingBadge(model) {
+  const declaredLevels = Array.isArray(model?.supportedEffortLevels) ? model.supportedEffortLevels : null;
+  if (declaredLevels) {
+    const levels = [...new Set(declaredLevels
+      .map(level => String(level).trim().toLowerCase())
+      .filter(level => THINKING_LEVEL_ORDER.includes(level)))]
+      .sort((a, b) => THINKING_LEVEL_ORDER.indexOf(a) - THINKING_LEVEL_ORDER.indexOf(b));
+    if (!levels.length) return "";
+    return levels.length === 1 ? levels[0] : `${levels[0]}-${levels[levels.length - 1]}`;
+  }
   if (!model?.reasoning) return "";
   const map = model.thinkingLevelMap && typeof model.thinkingLevelMap === "object" ? model.thinkingLevelMap : null;
   if (map?.max) return "max";
@@ -9305,7 +9345,10 @@ function renderModelList(currentId, currentProvider = null) {
     row.querySelector(".model-check").textContent = matchesCurrent(m) ? "✓" : "";
     row.querySelector("strong").textContent = m.name || m.id;
     row.querySelector("small").textContent = (m.provider || "?") + (m.contextWindow ? " · " + Math.round(m.contextWindow/1000) + "k ctx" : "");
-    row.querySelector(".model-thinking-badge").textContent = modelThinkingBadge(m);
+    const badge = row.querySelector(".model-thinking-badge");
+    const badgeText = modelThinkingBadge(m);
+    badge.textContent = badgeText;
+    badge.classList.toggle("hidden", !badgeText);
     if (m.description) row.title = m.description;
     row.addEventListener("click", async () => {
       if (!expectedSid) return;

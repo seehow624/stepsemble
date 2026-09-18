@@ -77,6 +77,47 @@ test("Claude structured gateway sessions expose the refreshed OpenCodex catalog 
   assert.deepEqual(args.argv.slice(-2), ["--settings", path.join(configDir, "claude-gateway-settings.json")]);
 });
 
+test("Claude gateway aliases keep the gateway's own effort levels", async t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-claude-gateway-levels-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const configDir = path.join(home, ".config", "stepsemble");
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(path.join(configDir, "claude-gateway-catalog.json"), JSON.stringify({ version: 1, baseUrl: "http://127.0.0.1:10100", models: [
+    { id: "claude-ocx-test--glm", name: "GLM", description: "OpenCodex gateway", contextWindow: 1000000, supportsEffort: true, supportedEffortLevels: ["low", "high", "max"] },
+    { id: "claude-ocx-test--free", name: "Free", description: "OpenCodex gateway", contextWindow: null, supportsEffort: false, supportedEffortLevels: [] },
+  ] }));
+  const child = childFixture();
+  observeControlWire(child, message => {
+    if (message.type !== "control_request" || message.request?.subtype !== "initialize") return;
+    child.stdout.write(JSON.stringify({ type: "control_response", response: {
+      subtype: "success", request_id: message.request_id,
+      response: {
+        // An alias row inherits the capabilities of the base model it behaves
+        // as, so every alias arrives with the full Claude range even when the
+        // upstream provider offers fewer levels.
+        models: [
+          { value: "claude-ocx-test--glm", displayName: "GLM", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
+          { value: "claude-ocx-test--free", displayName: "Free", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
+          { value: "haiku", displayName: "Haiku" },
+        ],
+        model: "claude-sonnet-5",
+      },
+    } }) + "\n");
+  });
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp",
+    env: { HOME: home, ANTHROPIC_BASE_URL: "http://127.0.0.1:10100" }, spawnImpl: () => child });
+  t.after(() => session.close());
+  const catalog = await session.models();
+  const byId = new Map(catalog.models.map(row => [row.id, row]));
+  assert.deepEqual(byId.get("claude-ocx-test--glm").supportedEffortLevels, ["low", "high", "max"]);
+  assert.equal(byId.get("claude-ocx-test--glm").contextWindow, 1000000);
+  assert.equal(byId.get("claude-ocx-test--glm").gateway, "opencodex");
+  // A gateway row that declares no levels keeps Claude's list rather than
+  // losing the control, and a plain vendor model is reported as sent.
+  assert.deepEqual(byId.get("claude-ocx-test--free").supportedEffortLevels, ["low", "medium", "high", "xhigh", "max"]);
+  assert.equal(byId.get("haiku").supportsEffort, undefined);
+});
+
 test("Claude structured parser locks the native session and preserves subagent correlation", () => {
   const events = [];
   const parser = createClaudeStructuredParser({ onEvent: event => events.push(event) });
