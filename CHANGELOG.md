@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.0.53
+
+Show one Claude conversation once, and stop launching duplicate processes.
+
+- Return the attached session when a Claude conversation is resumed. Opening
+  an already-attached conversation started another process, so several live
+  sessions shared one conversation and each received the same prompt, which
+  looked like a hang.
+- De-duplicate the task snapshot on the native conversation id rather than the
+  task id, across live sessions, the resume registry and local history, and
+  match either `nativeSessionId` or `nativeHistorySessionId`.
+
 ## 3.0.52
 
 Resolve the executable the user's own shell would pick.

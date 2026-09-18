@@ -218,3 +218,46 @@ test("real HTTP Claude structured session covers model/prompt/permission/context
   assert.equal(close.body.cleanupConfirmed, true);
   assert.equal((await f.request(`/api/claude/structured/events?sessionId=${encodeURIComponent(sessionId)}`, { cookie })).status, 404);
 });
+
+test("resuming an attached conversation reuses it instead of starting a second process", async t => {
+  const f = await startHost(t);
+  if (!f) return;
+  const login = await f.request("/api/login", { method: "POST", body: { token: "synthetic-claude-structured-http-token" } });
+  assert.ok([200, 204].includes(login.status), login.raw);
+  const cookie = login.headers["set-cookie"][0].split(";")[0];
+
+  const opened = await f.request("/api/agent/open", { method: "POST", cookie, body: { agentId: "claude-code", cwd: f.home, name: "First" } });
+  assert.equal(opened.status, 201, opened.raw);
+  // Before the first frame this is the local key; Claude reports its own id
+  // during the turn below.
+  const sessionId = opened.body.nativeSessionId;
+  assert.ok(sessionId);
+
+  // Drive one turn so the bridge has observed the native conversation id.
+  await f.request("/api/claude/structured/prompt", { method: "POST", cookie, body: { sessionId, text: "hello" } });
+  await waitFor(
+    () => f.request(`/api/claude/structured/events?sessionId=${encodeURIComponent(sessionId)}`, { cookie }),
+    response => response.status === 200 && response.body.events.some(event => event.type === "result"),
+  );
+
+  // The fixture reports "native-session" once the stream starts.
+  const listedBefore = await f.request("/api/claude/structured", { cookie });
+  const nativeId = listedBefore.body.sessions.find(row => row.id === opened.body.id)?.nativeSessionId;
+  assert.ok(nativeId, listedBefore.raw);
+
+  // Reopening the same conversation must return the attached session. A second
+  // process would duplicate the row and let both answer the same prompt.
+  const again = await f.request("/api/agent/open", { method: "POST", cookie, body: { agentId: "claude-code", cwd: f.home, name: "Second", resumeSessionId: nativeId } });
+  assert.equal(again.status, 201, again.raw);
+  assert.equal(again.body.nativeSessionId, nativeId);
+  assert.equal(again.body.id, opened.body.id, "the existing task id is returned");
+
+  const listed = await f.request("/api/claude/structured", { cookie });
+  assert.equal(listed.status, 200, listed.raw);
+  const matching = listed.body.sessions.filter(row => row.nativeSessionId === nativeId);
+  assert.equal(matching.length, 1, "one native conversation appears once");
+
+  const close = await f.request("/api/claude/structured/close", { method: "POST", cookie, body: { sessionId } });
+  assert.equal(close.status, 200, close.raw);
+  assert.equal(close.body.cleanupConfirmed, true);
+});

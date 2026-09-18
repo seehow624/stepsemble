@@ -80,7 +80,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.52";
+const APP_VERSION = "3.0.53";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2803,14 +2803,19 @@ async function listAgentTasksWithOpenCode() {
     const task = publicClaudeStructuredTask(id, session);
     if (task) tasks.push(task);
   }
+  // One native conversation must appear once. The same Claude session can be
+  // described by a live bridge, by the resume registry and by a local history
+  // scan, each under a different task id, so de-duplicate on the native
+  // conversation id rather than the task id. A live session is authoritative
+  // because it carries current state; an ended record never replaces it.
+  const claudeNativeIds = new Set(tasks
+    .filter(task => task?.agentId === "claude-code" && task?.nativeSessionId)
+    .map(task => task.nativeSessionId));
   if (claudeStructuredStatus().configured) {
-    const activeNativeIds = new Set([...claudeStructuredSessions.values()].map(session => {
-      try { return session.status()?.nativeSessionId || null; } catch { return null; }
-    }).filter(Boolean));
     for (const row of claudeStructuredKnownSessions.values()) {
-      if (activeNativeIds.has(row.id)) continue;
+      if (claudeNativeIds.has(row.id)) continue;
       const task = publicClaudeStructuredResumeTask(row);
-      if (task) tasks.push(task);
+      if (task) { tasks.push(task); claudeNativeIds.add(row.id); }
     }
   }
   for (const [id, session] of antigravityStructuredSessions) {
@@ -2822,11 +2827,21 @@ async function listAgentTasksWithOpenCode() {
   // while de-duplicating a thread that is already attached to a native bridge.
   try {
     const observed = await nativeHistoryCatalog.listTasks();
-    const liveNative = new Set(tasks
-      .filter(task => ["claude-code", "codex"].includes(task?.agentId) && task?.nativeSessionId)
-      .map(task => `${task.agentId}:${task.nativeSessionId}`));
+    // Match on either identifier: a task already in the snapshot may carry the
+    // live session id or, when it came from the resume registry, the history
+    // id. Comparing only one of them let the same conversation appear twice.
+    const seenNative = new Set();
+    for (const task of tasks) {
+      if (!["claude-code", "codex"].includes(task?.agentId)) continue;
+      for (const nativeId of [task.nativeSessionId, task.nativeHistorySessionId]) {
+        if (nativeId) seenNative.add(`${task.agentId}:${nativeId}`);
+      }
+    }
     for (const task of observed) {
-      if (!liveNative.has(`${task.agentId}:${task.nativeHistorySessionId}`)) tasks.push(task);
+      const key = `${task.agentId}:${task.nativeHistorySessionId}`;
+      if (seenNative.has(key)) continue;
+      tasks.push(task);
+      seenNative.add(key);
     }
   } catch {
     // A local history scan is optional. Preserve live task truth when a source
@@ -6378,6 +6393,24 @@ const server = http.createServer(async (req, res) => {
             const sessionCwd = nativeAgentDirectory(cwd, "Claude Code");
             const sessionName = body?.name || null;
             const resumeSessionId = body?.resumeSessionId || null;
+            // Resuming a conversation that is already attached must return the
+            // existing session. Launching a second process for the same native
+            // conversation duplicates it in the task list and lets concurrent
+            // processes answer the same prompt, which looks like a hang.
+            if (resumeSessionId) {
+              const attached = [...claudeStructuredSessions].find(([, session]) => {
+                // A caller may resume by the native conversation id or by the
+                // local key, which is what a task exposes before Claude has
+                // reported its own id. Match either.
+                try { return session.status()?.nativeSessionId === resumeSessionId; } catch { return false; }
+              });
+              const reused = attached || (claudeStructuredSessions.has(resumeSessionId)
+                ? [resumeSessionId, claudeStructuredSessions.get(resumeSessionId)] : null);
+              if (reused) {
+                sendJSON(res, 201, { ...publicClaudeStructuredTask(reused[0], reused[1]), kind: "claude-structured", agentId: "claude-code" });
+                return;
+              }
+            }
             const session = await launchClaudeStructuredSession({ desktopClient: desktopClaude,
               command: claudeStructuredCommand, cwd: sessionCwd, env: process.env,
               name: sessionName, permissionPromptTool: claudePermissionPromptTool, sessionId: resumeSessionId,
