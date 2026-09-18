@@ -70,9 +70,9 @@ test("OpenCode adapter exposes the native model catalog and session model switch
   const adapter = createOpenCodeNativeAdapter({
     baseUrl: "http://127.0.0.1:4096",
     fetchImpl: routeFetch([
-      { method: "GET", pathname: "/api/model", body: { location: "global", data: [
-        { id: "gpt-5", providerID: "openai", name: "GPT-5", capabilities: { reasoning: true }, limit: { context: 128000 }, variants: { high: {} } },
-        { id: "plain", providerID: "local", name: "Plain", capabilities: { reasoning: false }, limit: { context: 8192 } },
+      { method: "GET", pathname: "/config/providers", body: { providers: [
+        { id: "openai", models: { "gpt-5": { id: "gpt-5", providerID: "openai", name: "GPT-5", capabilities: { reasoning: true }, limit: { context: 128000 }, variants: { high: {} } } } },
+        { id: "local", models: { "plain": { id: "plain", providerID: "local", name: "Plain", capabilities: { reasoning: false }, limit: { context: 8192 } } } },
       ] } },
       { method: "POST", pathname: "/api/session/s1/model", status: 204, body: null },
     ], calls),

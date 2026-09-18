@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.63
+
+Read the OpenCode model catalog from the endpoint OpenCode 1.18 actually serves.
+- Prefer OpenCode's /config/providers route when listing models: 1.18 moved the signed-in provider catalog there, while its /api/model route ignores the directory query and the legacy /provider route can wedge the server, which froze the composer model list on stale or empty data.
+  - Keep /api/model and /provider as 404 fallbacks for older OpenCode servers.
+
 ## 3.0.62
 
 Keep Pi model catalogs fresh even when a provider has no stored credential.

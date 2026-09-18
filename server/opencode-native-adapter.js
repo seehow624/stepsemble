@@ -380,12 +380,24 @@ function createOpenCodeNativeAdapter({
     if (directory !== null && safeDirectory === null) throw new OpenCodeNativeError("invalid_directory", "OpenCode directory is invalid", 400);
     let response;
     try {
-      response = await request("/api/model", { query: { directory: safeDirectory } });
+      // OpenCode 1.18 moved the full signed-in provider catalog to
+      // /config/providers; its /api/model v2 route ignores the legacy
+      // directory query and only echoes per-project defaults, so prefer the
+      // stable config route and keep the historical endpoints as fallbacks.
+      response = await request("/config/providers", { query: { directory: safeDirectory } });
     } catch (error) {
-      // Older OpenCode servers expose the same catalog through /provider but
-      // do not yet have the v2 /api/model endpoint.
-      if (error.code !== "upstream_http_404") throw error;
-      response = await request("/provider", { query: { directory: safeDirectory } });
+      if (error.code !== "upstream_http_404") {
+        try {
+          response = await request("/api/model", { query: { directory: safeDirectory } });
+        } catch (modelError) {
+          // Older OpenCode servers expose the same catalog through /provider
+          // but do not yet have the v2 /api/model endpoint.
+          if (modelError.code !== "upstream_http_404") throw modelError;
+          response = await request("/provider", { query: { directory: safeDirectory } });
+        }
+      } else {
+        response = await request("/provider", { query: { directory: safeDirectory } });
+      }
     }
     const value = response.data;
     const rows = Array.isArray(value) ? value
