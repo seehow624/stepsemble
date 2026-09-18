@@ -1,7 +1,7 @@
-/* stepsemble v3.0.56 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.60 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.56";
+const CLIENT_APP_VERSION = "3.0.60";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -1434,7 +1434,12 @@ function showList(options = {}) {
   el.viewSettings.classList.add("hidden");
   el.viewModelSettings.classList.add("hidden");
   el.viewList.classList.remove("hidden");
-  return options?.refresh === false ? Promise.resolve() : refreshSessions();
+  if (options?.refresh === false) return Promise.resolve();
+  const refresh = refreshSessions({ refreshTasks: false });
+  sessionListReadyPromise = refresh
+    .then(() => refreshAgentTasks())
+    .catch(() => {});
+  return sessionListReadyPromise;
 }
 el.btnBack.addEventListener("click", showList);
 
@@ -2155,6 +2160,10 @@ async function loadAgentCatalog() {
 
 let agentTaskRefreshRequest = null;
 let runningStateRequest = null;
+// The list view refreshes sessions first and then hydrates the cross-agent
+// task snapshot. Keep that sequence as a promise so a row tapped immediately
+// after Back can wait for the exact redraw that produced it.
+let sessionListReadyPromise = Promise.resolve();
 // Identity of the task rows the Sessions list is currently showing. A poll that
 // returns the same rows must not rebuild the list under the user's pointer.
 let lastAgentTaskListSignature = "";
@@ -2264,6 +2273,26 @@ async function refreshAgentTasks() {
   }
 }
 
+// Returning from a conversation starts a session-list refresh and, in turn,
+// an Agent Hub refresh. A row can remain visible for a few milliseconds while
+// its closure still points at the previous task snapshot. Native rows must
+// wait for that snapshot to settle before opening; otherwise a fast tap can
+// race the redraw and leave the chat on the empty state.
+async function waitForAgentTaskSnapshot(maxMs = 2500) {
+  const deadline = Date.now() + Math.max(0, Number(maxMs) || 0);
+  await Promise.race([
+    sessionListReadyPromise,
+    new Promise(resolve => setTimeout(resolve, Math.max(0, deadline - Date.now()))),
+  ]);
+  // showList() starts the session snapshot first and that request starts the
+  // Agent Hub snapshot only after it resolves. Waiting on both prevents a
+  // fast tap from opening a row while the list is about to be replaced by
+  // the just-finished refresh (the source of the empty-chat flash).
+  while ((refreshRequest || agentTaskRefreshRequest) && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+}
+
 function syncAgentTaskPolling() {
   const listVisible = el.viewList && !el.viewList.classList.contains("hidden");
   const hasRunning = agentTasks.some(agentTaskIsRunning);
@@ -2289,6 +2318,12 @@ async function openAgentTaskFromHub(task) {
     return openExisting(sessionsCache.find(session => session.file === file) ||
       { file, cwd: task.cwd || "", name: task.sessionName || null, firstMessage: task.firstMessage });
   }
+  // OpenCode history also carries the generic `nativeHistoryReadonly` marker
+  // so it stays out of the live task preview. Route it by connector first;
+  // otherwise it would fall into the Claude/Codex transcript reader, which
+  // intentionally accepts only claude-history:/codex-history: IDs and leaves
+  // the chat on the empty state when the same row is opened again.
+  if (task.nativeOpenCode === true || task.agentId === "opencode") return openOpenCodeNativeTask(task);
   if (task.nativeHistoryReadonly === true) return openNativeHistoryTask(task);
   if (task.nativeCodex === true || task.nativeThreadId && task.agentId === "codex") return openCodexNativeTask(task);
   if (task.nativeGrokAcp === true || task.nativeSessionId && task.agentId === "grok-build") return openGrokAcpTask(task);
@@ -2969,6 +3004,18 @@ function renderSessionList(q) {
     });
     const sessionMain = li.querySelector(".session-item-main");
     if (selected) sessionMain?.setAttribute("aria-current", "true");
+    const openSessionRow = () => {
+      const open = async () => {
+        if (!isAgentTask) return openExisting(s);
+        await waitForAgentTaskSnapshot();
+        // The task snapshot may have replaced this row while the user was
+        // tapping. Resolve by its stable cross-agent key and only fall back
+        // to the closure when the refresh did not produce a row at all.
+        const fresh = sessionListRecords().find(row => sessionListKey(row) === recordKey) || s;
+        return openAgentTaskFromHub(fresh);
+      };
+      void open();
+    };
     let lpTimer = null, longPressed = false, swipeConsumed = false, touchStartX = 0, touchStartY = 0;
     if (!isAgentTask) {
       li.addEventListener("touchstart", (event) => {
@@ -3010,15 +3057,13 @@ function renderSessionList(q) {
         return;
       }
       if (!longPressed) {
-        if (isAgentTask) void openAgentTaskFromHub(s);
-        else void openExisting(s);
+        openSessionRow();
       }
     });
     sessionMain?.addEventListener("keydown", (event) => {
       if ((event.key === "Enter" || event.key === " ") && !longPressed) {
         event.preventDefault();
-        if (isAgentTask) void openAgentTaskFromHub(s);
-        else void openExisting(s);
+        openSessionRow();
       }
     });
     return li;
@@ -4772,11 +4817,17 @@ async function refreshOpenCodeNativeSnapshot(connection, { initial = false } = {
       || openCodeContext.modelIdentity(observedModel) === openCodeContext.modelIdentity(connection.openCodeModel))) {
       applyOpenCodeModel(observedModel);
     }
-    const status = nativeOpenCodeStatus(snapshot);
+    // A native idle OpenCode session is stored history, even though the
+    // server's status endpoint reports `idle`/`waiting`. Preserve that
+    // distinction in the task catalog so re-opening the same row never turns
+    // it into a live mutation task with a stale cwd.
+    const status = connection.nativeOpenCodeReadOnly ? "history" : nativeOpenCodeStatus(snapshot);
     applyOpenCodeContextStats(snapshot, connection);
     void syncOpenCodeModelCatalog(connection);
     applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: "opencode", nativeOpenCode: true,
       nativeSessionId: connection.nativeSessionId, name: connection.name, cwd: connection.cwd, status,
+      nativeHistoryReadonly: connection.nativeOpenCodeReadOnly, readOnly: connection.nativeOpenCodeReadOnly,
+      idleNativeSession: connection.nativeOpenCodeReadOnly, history: connection.nativeOpenCodeReadOnly ? "native_readonly" : "native_api",
       startedAt: connection.runStartedAt, lastActivityAt: Date.now() });
     renderOpenCodeNativeSnapshot(snapshot, { replace: initial || snapshot.changed === true || !connection.nativeRenderedRevision });
     connection.nativeLoading = false;
@@ -4985,6 +5036,36 @@ async function loadCodexNativeTranscript(threadId, {
     }
   }
   return page;
+}
+
+// The Codex app-server can still be completing its compatibility handshake
+// immediately after Stepsemble starts.  Keep that short-lived state separate
+// from a real missing-thread/auth error so the first tap does not open a chat
+// with no transcript and no composer controls.
+function isCodexNativeTransientError(error) {
+  const code = String(error?.code || error?.message || "").toLowerCase();
+  return code === "native_not_ready"
+    || code === "codex_native_not_ready"
+    || code === "codex_thread_unavailable"
+    || code === "codex_models_unavailable"
+    || code === "native_transport_starting"
+    || code.includes("native_not_ready");
+}
+
+async function retryCodexNativeTransient(operation, { attempts = 3, delays = [120, 300] } = {}) {
+  let lastError = null;
+  const count = Math.max(1, Number(attempts) || 1);
+  for (let attempt = 0; attempt < count; attempt += 1) {
+    try {
+      return await operation(attempt);
+    } catch (error) {
+      lastError = error;
+      if (error?.name === "AbortError" || !isCodexNativeTransientError(error) || attempt >= count - 1) throw error;
+      const delay = Math.max(0, Number(delays[attempt]) || 0);
+      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  throw lastError || new Error("native_not_ready");
 }
 
 function renderCodexNativeSnapshot(connection, { preserveScroll = false } = {}) {
@@ -5249,6 +5330,7 @@ async function openCodexNativeTask(task, generationOverride = null) {
     streamReady: true,
     connectionLost: false,
     stopPending: false,
+    initialRetryAttempted: false,
     taskStatus: "waiting",
     agentId: "codex",
     agentLabel: "Codex CLI",
@@ -5260,7 +5342,10 @@ async function openCodexNativeTask(task, generationOverride = null) {
   const connection = rpc;
   codexNativePollTimer = null;
   try {
-    await refreshCodexNativeSnapshot(connection, { initial: true });
+    await retryCodexNativeTransient(async (attempt) => {
+      if (attempt > 0) connection.initialRetryAttempted = true;
+      await refreshCodexNativeSnapshot(connection, { initial: true });
+    });
     if (rpc !== connection || generation !== viewGeneration) return;
     syncGenericInputState();
   } catch (error) {
@@ -5282,6 +5367,7 @@ async function openOpenCodeNativeTask(task, generationOverride = null) {
   // They can still be reconciled by session id even if the original cwd is
   // no longer an allowed project folder; active sessions keep live controls.
   const nativeOpenCodeReadOnly = task.readOnly === true
+    || task.idleNativeSession === true
     || task.status === "history"
     || (task.history === "native_readonly"
       && ["completed", "failed", "stopped", "orphaned", "detached"].includes(String(task.status || "")));
@@ -5326,6 +5412,10 @@ async function openOpenCodeNativeTask(task, generationOverride = null) {
     openCodeModelsLoadedAt: 0,
     openCodeModelsRequest: null,
     openCodeContextSnapshot: null,
+    // A fast back→reopen can arrive while the OpenCode server is finishing
+    // the previous reconcile. One bounded retry keeps a transient upstream
+    // 409/5xx from collapsing the chat back to the empty list view.
+    initialRetryAttempted: false,
     nativeLoading: true,
     nativeRenderedRevision: null,
     genericOutputNode: null,
@@ -5352,6 +5442,23 @@ async function openOpenCodeNativeTask(task, generationOverride = null) {
     if (openCodeNativePollTimer) clearInterval(openCodeNativePollTimer);
     openCodeNativePollTimer = setInterval(() => void refreshOpenCodeNativeSnapshot(connection), 2500);
   } catch (error) {
+    if (rpc === connection && generation === viewGeneration && !connection.initialRetryAttempted) {
+      connection.initialRetryAttempted = true;
+      await new Promise(resolve => setTimeout(resolve, 120));
+      if (rpc !== connection || generation !== viewGeneration) return;
+      try {
+        await refreshOpenCodeNativeSnapshot(connection, { initial: true });
+        if (rpc !== connection || generation !== viewGeneration) return;
+        connection.streamReady = true;
+        connection.connectionLost = false;
+        syncGenericInputState();
+        if (openCodeNativePollTimer) clearInterval(openCodeNativePollTimer);
+        openCodeNativePollTimer = setInterval(() => void refreshOpenCodeNativeSnapshot(connection), 2500);
+        return;
+      } catch (retryError) {
+        error = retryError;
+      }
+    }
     if (rpc === connection && generation === viewGeneration) {
       toast(tKey("runtime.openChatFailed", { detail: error.message }), true);
       closeChat(true);
@@ -9018,30 +9125,32 @@ async function openModelSheet() {
   };
   try {
     if (connection?.nativeCodexMutation) {
-      if (Array.isArray(connection.codexModels) && connection.codexModelsLoaded) {
-        availableModels = connection.codexModels;
+      await retryCodexNativeTransient(async () => {
+        if (Array.isArray(connection.codexModels) && connection.codexModelsLoaded) {
+          availableModels = connection.codexModels;
+          renderModelList(connection.codexModel?.id || null, "codex");
+        }
+        let cursor = null;
+        const rows = [];
+        for (let page = 0; page < 32; page += 1) {
+          if (!stillCurrent()) return;
+          const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+          const result = await api(`/api/codex/models${query}`);
+          if (!stillCurrent()) return;
+          const data = Array.isArray(result?.data) ? result.data : [];
+          rows.push(...data);
+          const next = typeof result?.nextCursor === "string" && result.nextCursor.length ? result.nextCursor : null;
+          if (!next || next === cursor) break;
+          cursor = next;
+        }
+        availableModels = rows.map(normalizeCodexModel).filter(Boolean);
+        connection.codexModels = availableModels;
+        connection.codexModelsLoaded = true;
+        const observed = availableModels.find(model => model.id === connection.codexModel?.id);
+        if (observed && !connection.codexModelSelected) connection.codexModel = observed;
+        syncNativeThinkingSelect(connection);
         renderModelList(connection.codexModel?.id || null, "codex");
-      }
-      let cursor = null;
-      const rows = [];
-      for (let page = 0; page < 32; page += 1) {
-        if (!stillCurrent()) return;
-        const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-        const result = await api(`/api/codex/models${query}`);
-        if (!stillCurrent()) return;
-        const data = Array.isArray(result?.data) ? result.data : [];
-        rows.push(...data);
-        const next = typeof result?.nextCursor === "string" && result.nextCursor.length ? result.nextCursor : null;
-        if (!next || next === cursor) break;
-        cursor = next;
-      }
-      availableModels = rows.map(normalizeCodexModel).filter(Boolean);
-      connection.codexModels = availableModels;
-      connection.codexModelsLoaded = true;
-      const observed = availableModels.find(model => model.id === connection.codexModel?.id);
-      if (observed && !connection.codexModelSelected) connection.codexModel = observed;
-      syncNativeThinkingSelect(connection);
-      renderModelList(connection.codexModel?.id || null, "codex");
+      });
       return;
     }
     if (connection?.nativeClaudeStructured) {

@@ -394,7 +394,10 @@ stage_release() {
   if [[ -n "$source_dir" ]]; then
     source_dir="${source_dir:A}"
     [[ -f "$source_dir/server.js" && -f "$source_dir/public/index.html" ]] || die "STEPSEMBLE_SOURCE_DIR is not a Stepsemble checkout"
-    (cd "$source_dir" && tar --exclude='./.git' --exclude='./node_modules' --exclude='./.DS_Store' --exclude='./_MEMORY-CARD.md' -cf - .) | tar -xf - -C "$STAGED_DIR"
+    # Local Rust/desktop build trees can be multi-gigabyte and are not part of
+    # the Node web release. Exclude them so a source-based update stays fast
+    # and cannot hang while walking derived files on an external volume.
+    (cd "$source_dir" && tar --exclude='./.git' --exclude='./node_modules' --exclude='./crates' --exclude='./.DS_Store' --exclude='./_MEMORY-CARD.md' -cf - .) | tar -xf - -C "$STAGED_DIR"
     return
   fi
 
@@ -617,7 +620,7 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 
 say ""
-say "Stepsemble 3.0.56 installer"
+say "Stepsemble 3.0.60 installer"
 say "────────────────────────"
 
 NODE_BIN="$(find_node || true)"

@@ -1,5 +1,32 @@
 # Changelog
 
+## 3.0.60
+
+Keep source-based installs fast on development volumes.
+- Exclude the local Rust `crates` build tree from the web release staging copy so updates do not scan multi-gigabyte derived files.
+
+## 3.0.59
+
+Stabilize Codex cold-start sessions and composer controls.
+- Retry the short native app-server handshake when opening a Codex session, so the transcript and response do not appear blank during startup.
+- Retry Codex model discovery during the same window, keeping model and thinking-level controls available without a manual refresh.
+- Add regression coverage for the startup race and bump frontend assets for the service worker.
+
+## 3.0.58
+Stabilize fast history re-opening after a list refresh.
+- Wait for the session and Agent Hub snapshots that Back started before
+  opening a cross-agent row, so rapid taps cannot land on the empty chat view.
+- Retry one transient OpenCode native reconcile failure without losing the
+  read-only conversation state.
+- Bump frontend asset URLs to invalidate the previous service-worker cache.
+
+## 3.0.57
+Keep imported OpenCode history read-only across repeated opens.
+- Preserve the idle/history marker while reconciling a native OpenCode session so it cannot be reclassified as live work.
+- Re-open historical sessions without reusing a stale working directory, while keeping active OpenCode mutation controls unchanged.
+- Route OpenCode history through its own native adapter before the shared Claude/Codex transcript reader, so repeated opens never fall back to the empty chat state.
+- Bump frontend asset URLs for the service worker.
+
 ## 3.0.56
 Make imported OpenCode conversations open reliably.
 - Reconcile read-only native history by session ID when its original working directory is no longer an allowed project folder.

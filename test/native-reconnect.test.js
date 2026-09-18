@@ -42,6 +42,31 @@ test("Codex readback survives mutation auth errors and makes approval uncertaint
     "a mutation 401 must not reject the transcript read as one Promise.all result");
 });
 
+test("Codex native open and model catalog retry a short startup handshake", () => {
+  const helperStart = app.indexOf("function isCodexNativeTransientError(");
+  const helperEnd = app.indexOf("function renderCodexNativeSnapshot(", helperStart);
+  assert.ok(helperStart >= 0 && helperEnd > helperStart, "Codex transient retry helper found");
+  const helperBody = app.slice(helperStart, helperEnd);
+  assert.match(helperBody, /native_not_ready/);
+  assert.match(helperBody, /attempts = 3/);
+
+  const openStart = app.indexOf("async function openCodexNativeTask(");
+  const openEnd = app.indexOf("async function openOpenCodeNativeTask(", openStart);
+  assert.ok(openStart >= 0 && openEnd > openStart, "Codex open source found");
+  const openBody = app.slice(openStart, openEnd);
+  assert.match(openBody, /retryCodexNativeTransient\(async \(attempt\)/,
+    "the first Codex tap retries while the native adapter is starting");
+  assert.match(openBody, /initialRetryAttempted: false/);
+
+  const sheetStart = app.indexOf("async function openModelSheet(");
+  const sheetEnd = app.indexOf("function renderModelList(", sheetStart);
+  assert.ok(sheetStart >= 0 && sheetEnd > sheetStart, "model sheet source found");
+  const sheetBody = app.slice(sheetStart, sheetEnd);
+  const codexBranch = sheetBody.slice(sheetBody.indexOf("if (connection?.nativeCodexMutation)"), sheetBody.indexOf("if (connection?.nativeClaudeStructured)"));
+  assert.match(codexBranch, /retryCodexNativeTransient\(async/,
+    "the Codex model list retries the same startup race");
+});
+
 test("Codex approval controller refuses decisions while its mutation read is unavailable", async () => {
   const { createController } = require("../public/modules/codex-approvals");
   let calls = 0;
@@ -73,4 +98,15 @@ test("OpenCode imported history omits a stale cwd while live sessions retain it"
     "historical tasks are explicitly marked read-only");
   assert.match(openBody, /nativeHistoryReadonly: nativeOpenCodeReadOnly,/,
     "historical OpenCode sessions cannot expose mutation controls");
+});
+
+test("OpenCode history is dispatched before shared native transcript history", () => {
+  const start = app.indexOf("async function openAgentTaskFromHub(");
+  const end = app.indexOf("function appendNativeHistoryMessage(", start);
+  assert.ok(start >= 0 && end > start, "agent task dispatcher source found");
+  const body = app.slice(start, end);
+  const opencode = body.indexOf("task.nativeOpenCode === true");
+  const sharedHistory = body.indexOf("task.nativeHistoryReadonly === true");
+  assert.ok(opencode >= 0 && sharedHistory > opencode,
+    "OpenCode read-only tasks must not be sent to the Claude/Codex history reader");
 });
