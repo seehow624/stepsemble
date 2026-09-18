@@ -17,6 +17,18 @@ function routingFilePath(home) {
   return path.join(home || os.homedir(), ".config", "stepsemble", "claude-gateway.json");
 }
 
+// These files are Stepsemble-owned integration state.  The Claude CLI's
+// gateway-models.json remains in ~/.claude/cache and keeps the exact schema
+// written by OpenCodex; the two helpers below let the native bridge find the
+// companion picker/catalog file without ever editing Claude's own settings.
+function gatewaySettingsPath(home) {
+  return path.join(home || os.homedir(), ".config", "stepsemble", "claude-gateway-settings.json");
+}
+
+function gatewayCatalogPath(home) {
+  return path.join(home || os.homedir(), ".config", "stepsemble", "claude-gateway-catalog.json");
+}
+
 function isLoopbackGatewayUrl(value) {
   if (typeof value !== "string") return false;
   try {
@@ -46,4 +58,12 @@ function claudeSessionEnvOverrides(home) {
   };
 }
 
-module.exports = { routingFilePath, readClaudeSessionRouting, claudeSessionEnvOverrides, isLoopbackGatewayUrl, VERSION };
+module.exports = {
+  routingFilePath,
+  gatewaySettingsPath,
+  gatewayCatalogPath,
+  readClaudeSessionRouting,
+  claudeSessionEnvOverrides,
+  isLoopbackGatewayUrl,
+  VERSION,
+};

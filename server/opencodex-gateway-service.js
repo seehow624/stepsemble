@@ -5,7 +5,12 @@ const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { execFile } = require("node:child_process");
-const { routingFilePath, readClaudeSessionRouting } = require("./claude-session-routing");
+const {
+  routingFilePath,
+  gatewaySettingsPath,
+  gatewayCatalogPath,
+  readClaudeSessionRouting,
+} = require("./claude-session-routing");
 
 // OpenCodex is an external gateway (universal provider proxy for Codex and
 // Claude Code). Stepsemble never rewrites the harness configs here: the
@@ -155,11 +160,35 @@ function createOpenCodexGatewayService({
       const value = await response.json();
       const rows = Array.isArray(value?.data) ? value.data : [];
       const usable = [];
+      const catalog = [];
       for (const row of rows) {
         if (!row || typeof row.id !== "string") continue;
-        const first = row.id.slice(0, 7).toLowerCase();
+        const id = row.id.trim().slice(0, 256);
+        if (!id) continue;
+        const first = id.slice(0, 7).toLowerCase();
         if (first !== "claude-" && first !== "anthrop") continue;
-        usable.push(typeof row.display_name === "string" ? { id: row.id, display_name: row.display_name } : { id: row.id });
+        const displayName = typeof row.display_name === "string" ? row.display_name.slice(0, 200) : null;
+        usable.push(displayName ? { id, display_name: displayName } : { id });
+        // The public Claude cache intentionally stays byte-for-byte compatible
+        // with OpenCodex.  Stepsemble keeps richer, non-secret metadata in its
+        // own catalog so the model sheet can expose context and reasoning
+        // capabilities without asking Claude to parse unknown cache fields.
+        if (/^claude-ocx-/i.test(id)) {
+          const maxInputTokens = Number(row.max_input_tokens);
+          const contextWindow = Number.isSafeInteger(maxInputTokens) && maxInputTokens > 0 ? maxInputTokens : null;
+          const effort = row.capabilities?.effort;
+          const supportedEffortLevels = effort && typeof effort === "object"
+            ? ["low", "medium", "high", "xhigh", "max"].filter(level => effort[level]?.supported === true)
+            : [];
+          catalog.push({
+            id,
+            name: displayName || id,
+            description: "OpenCodex gateway" + (displayName ? " · " + displayName : ""),
+            contextWindow,
+            supportsEffort: effort?.supported === true || supportedEffortLevels.length > 0,
+            supportedEffortLevels,
+          });
+        }
         if (usable.length >= 512) break;
       }
       if (!usable.length) return null;
@@ -169,7 +198,28 @@ function createOpenCodexGatewayService({
       const temp = file + "." + process.pid + "." + crypto.randomUUID() + ".tmp";
       fs.writeFileSync(temp, JSON.stringify({ baseUrl: wiring.baseUrl, fetchedAt: Date.now(), models: usable }), { encoding: "utf8", mode: 0o600 });
       fs.renameSync(temp, file);
-      return { file, count: usable.length, baseUrl: wiring.baseUrl };
+
+      const stepsembleDir = path.dirname(gatewaySettingsPath(appHome));
+      fs.mkdirSync(stepsembleDir, { recursive: true, mode: 0o700 });
+      const aliases = catalog.slice(0, 512).map(model => ({
+        model: model.id,
+        label: model.name,
+        description: model.description,
+        // Claude Code uses this only for local context-window/feature
+        // assumptions; the actual request still carries the OpenCodex alias.
+        // Map 1M gateway rows to Claude's known 1M catalog entry so auto
+        // compact does not incorrectly clamp them to 200k.
+        behavesAs: model.contextWindow !== null && model.contextWindow >= 1000000 ? "claude-sonnet-5[1m]" : "claude-sonnet-5",
+      }));
+      const settingsFile = gatewaySettingsPath(appHome);
+      const settingsTemp = settingsFile + "." + process.pid + "." + crypto.randomUUID() + ".tmp";
+      fs.writeFileSync(settingsTemp, JSON.stringify({ modelPicker: { options: aliases } }) + "\n", { encoding: "utf8", mode: 0o600 });
+      fs.renameSync(settingsTemp, settingsFile);
+      const catalogFile = gatewayCatalogPath(appHome);
+      const catalogTemp = catalogFile + "." + process.pid + "." + crypto.randomUUID() + ".tmp";
+      fs.writeFileSync(catalogTemp, JSON.stringify({ version: 1, baseUrl: wiring.baseUrl, fetchedAt: Date.now(), models: catalog }) + "\n", { encoding: "utf8", mode: 0o600 });
+      fs.renameSync(catalogTemp, catalogFile);
+      return { file, count: usable.length, baseUrl: wiring.baseUrl, settingsFile, catalogFile, catalogCount: catalog.length };
     } catch {
       return null;
     } finally {
@@ -303,7 +353,7 @@ function createOpenCodexGatewayService({
     setClaudeSessionRouting,
     claudeWiring,
     refreshClaudeGatewayCache,
-    paths: Object.freeze({ opencodexConfigPath: opencodexConfigPath, codexConfigPath: codexConfigPath, codexCatalogPath: codexCatalogPath, claudeSettingsPath: claudeSettingsPath }),
+    paths: Object.freeze({ opencodexConfigPath: opencodexConfigPath, codexConfigPath: codexConfigPath, codexCatalogPath: codexCatalogPath, claudeSettingsPath: claudeSettingsPath, claudeGatewaySettingsPath: gatewaySettingsPath(appHome), claudeGatewayCatalogPath: gatewayCatalogPath(appHome) }),
   };
 }
 

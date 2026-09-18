@@ -1,6 +1,9 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { PassThrough } = require("node:stream");
 const { EventEmitter } = require("node:events");
 const {
@@ -37,6 +40,38 @@ test("Claude structured args are explicit, resumable, and never shell-expanded",
   assert.deepEqual(buildClaudeStructuredArgs({ permissionPromptTool: "mcp__stepsemble__permission" }).slice(-2), ["--permission-prompt-tool", "mcp__stepsemble__permission"]);
   assert.throws(() => buildClaudeStructuredArgs({ sessionId: "../../secret" }), /invalid_claude_session_id/);
   assert.throws(() => buildClaudeStructuredArgs({ permissionPromptTool: "tool;rm" }), /invalid_permission_prompt_tool/);
+  assert.deepEqual(buildClaudeStructuredArgs({ settingsPath: "/tmp/stepsemble-claude-settings.json" }).slice(-2), ["--settings", "/tmp/stepsemble-claude-settings.json"]);
+  assert.throws(() => buildClaudeStructuredArgs({ settingsPath: "relative.json" }), /invalid_claude_settings_path/);
+});
+
+test("Claude structured gateway sessions expose the refreshed OpenCodex catalog and settings merge", async t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-claude-gateway-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const configDir = path.join(home, ".config", "stepsemble");
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(path.join(configDir, "claude-gateway-settings.json"), JSON.stringify({ modelPicker: { options: [{ model: "claude-ocx-test--glm", behavesAs: "claude-sonnet-5" }] } }));
+  fs.writeFileSync(path.join(configDir, "claude-gateway-catalog.json"), JSON.stringify({ version: 1, baseUrl: "http://127.0.0.1:10100", models: [{
+    id: "claude-ocx-test--glm", name: "GLM (OpenCodex)", description: "OpenCodex gateway", contextWindow: 1000000,
+    supportsEffort: true, supportedEffortLevels: ["low", "high"],
+  }] }));
+  const child = childFixture();
+  observeControlWire(child, message => {
+    if (message.type !== "control_request" || message.request?.subtype !== "initialize") return;
+    child.stdout.write(JSON.stringify({ type: "control_response", response: {
+      subtype: "success", request_id: message.request_id, response: { models: [], model: "claude-sonnet-5" },
+    } }) + "\n");
+  });
+  let args;
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", env: { HOME: home, ANTHROPIC_BASE_URL: "http://127.0.0.1:10100" },
+    spawnImpl: (file, argv, options) => { args = { file, argv, options }; return child; } });
+  t.after(() => session.close());
+  const catalog = await session.models();
+  assert.equal(catalog.models.length, 1);
+  assert.deepEqual(catalog.models[0], {
+    id: "claude-ocx-test--glm", name: "GLM (OpenCodex)", description: "OpenCodex gateway", contextWindow: 1000000,
+    supportsEffort: true, supportedEffortLevels: ["low", "high"], reasoning: true, gateway: "opencodex",
+  });
+  assert.deepEqual(args.argv.slice(-2), ["--settings", path.join(configDir, "claude-gateway-settings.json")]);
 });
 
 test("Claude structured parser locks the native session and preserves subagent correlation", () => {

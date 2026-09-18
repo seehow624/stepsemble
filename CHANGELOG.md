@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.68
+
+Expose the OpenCodex model catalog inside Stepsemble-launched Claude Code sessions.
+- Refresh now writes a Stepsemble-owned `modelPicker` settings overlay with `behavesAs` mappings, so aliases such as `claude-ocx-opencode-go--glm-5.3-flash` are accepted by Claude Code without unknown-model warnings while the subscription OAuth credentials remain untouched.
+- The structured Claude bridge merges the refreshed gateway catalog into its model sheet, including gateway labels, context-window capacity, and supported reasoning levels; both direct and macOS desktop-helper launches receive the same settings overlay.
+- Added an isolated adapter regression test covering the catalog merge, settings argument, and gateway model selection contract.
+
 ## 3.0.67
 
 Refresh Claude Code's gateway model list before Stepsemble-launched sessions.
