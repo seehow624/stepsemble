@@ -1,4 +1,4 @@
-/* stepsemble v3.0.63 — Ink & Ivory / English-first localization */
+/* stepsemble v3.0.64 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -1046,6 +1046,63 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
   border-radius: 0;
   background: transparent;
 }
+.model-agent-switch {
+  display: inline-flex;
+  margin-top: 10px;
+  border: 0.5px solid var(--line);
+  border-radius: 10px;
+  padding: 2px;
+  gap: 2px;
+  background: var(--paper-2);
+}
+.model-agent-tab {
+  border: none;
+  background: transparent;
+  color: var(--pine-soft);
+  font: 600 11.5px var(--sans);
+  padding: 6px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.model-agent-tab.is-active {
+  background: var(--ink);
+  color: var(--paper);
+}
+.opencode-provider-section {
+  margin: 14px 2px 6px;
+  font: 700 10px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pine-soft);
+}
+.opencode-provider-card {
+  border: 0.5px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--paper-2);
+}
+.opencode-provider-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.opencode-provider-copy { min-width: 0; display: grid; gap: 2px; }
+.opencode-provider-copy strong { color: var(--ink); font-size: 12.5px; }
+.opencode-provider-copy small { color: var(--pine-soft); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.opencode-provider-actions { display: flex; gap: 4px; flex: 0 0 auto; }
+.opencode-provider-actions .provider-row-action { padding: 4px 10px; font-size: 11px; border-radius: 8px; }
+.opencode-provider-models { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.opencode-provider-model {
+  border: 0.5px solid var(--line);
+  border-radius: 7px;
+  padding: 2px 8px;
+  color: var(--ink-soft);
+  font: 10px var(--mono);
+  white-space: nowrap;
+}
+.opencode-provider-more { color: var(--pine-soft); font: 10px var(--mono); padding: 2px 4px; }
 .model-provider-group + .model-provider-group { border-top: 0.5px solid var(--line); }
 .model-provider-heading {
   min-height: 44px;

@@ -1005,6 +1005,11 @@ test("first-use help and setup guide cover token, devices, providers, and progre
   assert.match(server, /maybeRefreshRemoteModelCatalogs/);
   assert.match(app, /\/api\/model-catalog-refresh/);
   assert.match(html, /id="model-catalog-refresh"/);
+  assert.match(server, /\/api\/opencode\/provider-catalog/);
+  assert.match(app, /\/api\/opencode\/provider-catalog/);
+  assert.match(app, /\/api\/opencode\/providers/);
+  assert.match(html, /id="model-agent-opencode"/);
+  assert.match(html, /id="opencode-provider-dialog"/);
   assert.match(app, /openOnboarding\(false\)/);
   assert.match(app, /Never expose public port 3140/);
   assert.match(css, /\.onboarding-card/);

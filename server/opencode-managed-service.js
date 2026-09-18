@@ -656,12 +656,45 @@ function createOpenCodeManagedService({
     return status();
   }
 
+  // Bounded child replacement: stop the current server and spawn a fresh one
+  // with the same credentials. Used after config-file edits so the next
+  // /config/providers request reflects the new providers without touching the
+  // terminal close() lifecycle.
+  async function restart() {
+    if (closed) throw problem("service_closed", 503);
+    if (startPromise) {
+      try { await startPromise; } catch {}
+    }
+    failStartup(problem("service_restart", 503));
+    startupAbortController?.abort();
+    const childToStop = child;
+    if (childToStop) {
+      stopOutputCapture(childToStop);
+      stopChild(childToStop);
+      if (childClosePromise) {
+        await Promise.race([childClosePromise, sleep(closeLimit)]);
+      }
+    }
+    child = null;
+    childClosePromise = null;
+    managedConfig = null;
+    managedEnv = null;
+    port = null;
+    startupResult = null;
+    state = explicit?.error ? "blocked" : explicit ? "external" : "idle";
+    lastError = null;
+    checkedAt = clock();
+    stopping = false;
+    return start();
+  }
+
   return Object.freeze({
     start,
     status,
     config,
     env: resultingEnv,
     close,
+    restart,
     resolveExecutable: async () => {
       let candidate;
       try { candidate = await resolveExecutable(); } catch { return null; }

@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.0.64
+
+Bring OpenCode provider management into the Models & providers page.
+- Add an agent switch (Pi Agent / OpenCode) to the models page: the OpenCode tab shows the live signed-in provider catalog from the managed server, the auth-backed sources, and the user's custom providers.
+  - Custom OpenCode providers are saved to the native ~/.config/opencode/opencode.json provider block (npm package, base URL, optional API key, model list with reasoning flags and context limits) so the composer and the CLI share the same truth.
+  - The managed OpenCode server restarts in place after each save/delete, then the UI re-reads the refreshed /config/providers catalog.
+  - Warn when opencode.jsonc also defines a provider block that could shadow the edits.
+
 ## 3.0.63
 
 Read the OpenCode model catalog from the endpoint OpenCode 1.18 actually serves.

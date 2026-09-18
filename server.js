@@ -28,6 +28,7 @@ const { createNativeComposerRoutes } = require("./server/native-composer-routes"
 const { applyNativeLaunchConfig, isInstalledRuntime } = require("./server/native-launch-config");
 const { createCodexNativePool } = require("./server/codex-native-pool");
 const { createOpenCodeManagedService } = require("./server/opencode-managed-service");
+const { createOpenCodeConfigService } = require("./server/opencode-config-service");
 const { createLineDecoder, activePathIds } = require("./server/stream-safety");
 const { createSessionDiscovery, mapLimit, readBoundedText, withDeadline: sessionReadDeadline } = require("./server/session-discovery");
 const { parsePiEvent, validPiCommand, resolvePiResponse, parsePiUiReply } = require("./server/pi-rpc-contract");
@@ -80,7 +81,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.63";
+const APP_VERSION = "3.0.64";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1769,6 +1770,7 @@ let openCodeNative = createOpenCodeNativeAdapter({
   stateFile: path.join(CONFIG_DIR, "opencode-native.json"),
 });
 const openCodeManaged = createOpenCodeManagedService({ env: process.env });
+const openCodeConfigService = createOpenCodeConfigService({ home: APP_HOME });
 const OPENCODE_MANAGED_FILE = path.join(CONFIG_DIR, "opencode-managed.json");
 let openCodeSetupPromise = null;
 function managedOpenCodeOptedIn() {
@@ -5083,6 +5085,52 @@ const server = http.createServer(async (req, res) => {
           });
           sendJSON(res, 200, { ...result, adapter: openCodeNative.status() });
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_messages_unavailable" }); }
+        return;
+      }
+
+      if (p === "/api/opencode/provider-catalog" && req.method === "GET") {
+        try {
+          const config = openCodeConfigService.list();
+          let runtime = { providers: [], error: null };
+          try {
+            runtime = await openCodeNative.listProviderCatalog({ directory: openCodeDirectory(url.searchParams.get("directory") || null) });
+          } catch (error) {
+            runtime = { providers: [], error: error.code || error.message || "provider_catalog_failed" };
+          }
+          sendJSON(res, 200, { ...config, runtime });
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_provider_catalog_unavailable" }); }
+        return;
+      }
+
+      if (p === "/api/opencode/providers" && req.method === "POST") {
+        const body = await readJSON(req);
+        try {
+          if (body.action === "delete") {
+            openCodeConfigService.remove(body.id);
+          } else {
+            openCodeConfigService.upsert(body);
+          }
+          // Reload the managed server so /config/providers reflects the edited
+          // opencode.json on the very next request.
+          if (openCodeManaged.status().managed) {
+            try { await openCodeManaged.restart(); } catch {}
+            const candidate = createOpenCodeNativeAdapter({
+              env: { ...process.env, ...openCodeManaged.env() },
+              stateFile: path.join(CONFIG_DIR, "opencode-native.json"),
+            });
+            const probeStatus = await candidate.refresh();
+            if (probeStatus.ready) openCodeNative = candidate;
+          }
+          let runtime = { providers: [], error: null };
+          try {
+            runtime = await openCodeNative.listProviderCatalog();
+          } catch (error) {
+            runtime = { providers: [], error: error.code || error.message || "provider_catalog_failed" };
+          }
+          sendJSON(res, 200, { ...openCodeConfigService.list(), runtime });
+        } catch (error) {
+          sendJSON(res, error.statusCode || 409, { error: error.message || "opencode_provider_save_failed" });
+        }
         return;
       }
 

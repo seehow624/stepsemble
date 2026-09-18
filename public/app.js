@@ -1,7 +1,7 @@
-/* stepsemble v3.0.63 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.64 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.63";
+const CLIENT_APP_VERSION = "3.0.64";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -126,6 +126,10 @@ const el = {
   btnImg: $("btn-img"), fileInput: $("file-input"), imgPreview: $("img-preview"),
   setReducedMotion: $("set-reduced-motion"), setThinking: $("set-thinking"),
   modelVisibilityList: $("model-visibility-list"), modelVisibilityRefresh: $("model-visibility-refresh"),
+  modelListToolbar: $("model-list-toolbar"),
+  modelAgentPi: $("model-agent-pi"), modelAgentOpencode: $("model-agent-opencode"),
+  opencodeProviderPanel: $("opencode-provider-panel"), opencodeProviderStatus: $("opencode-provider-status"),
+  opencodeProviderList: $("opencode-provider-list"),
   providerConfigExport: $("provider-config-export"), providerConfigImport: $("provider-config-import"),
   pushToggle: $("push-toggle"),
   usageSummaryCard: $("usage-summary-card"), usageSummaryRows: $("usage-summary-rows"), usageSummaryNote: $("usage-summary-note"),
@@ -134,6 +138,12 @@ const el = {
   providerApi: $("provider-api"), providerBaseUrl: $("provider-base-url"), providerApiKey: $("provider-api-key"),
   providerModels: $("provider-models"), providerFormError: $("provider-form-error"), providerSave: $("provider-save"),
   providerCancel: $("provider-cancel"), providerCancelBottom: $("provider-cancel-bottom"), providerDelete: $("provider-delete"),
+  opencodeProviderDialog: $("opencode-provider-dialog"), opencodeProviderDialogTitle: $("opencode-provider-dialog-title"),
+  opencodeProviderId: $("opencode-provider-id"), opencodeProviderName: $("opencode-provider-name"),
+  opencodeProviderBaseUrl: $("opencode-provider-base-url"), opencodeProviderApiKey: $("opencode-provider-api-key"),
+  opencodeProviderModels: $("opencode-provider-models"), opencodeProviderFormError: $("opencode-provider-form-error"),
+  opencodeProviderSave: $("opencode-provider-save"), opencodeProviderDelete: $("opencode-provider-delete"),
+  opencodeProviderCancel: $("opencode-provider-cancel"), opencodeProviderCancelBottom: $("opencode-provider-cancel-bottom"),
   providerSimpleFlow: $("provider-simple-flow"), providerPresetList: $("provider-preset-list"),
   providerFilter: $("provider-filter"),
   providerAuthOptions: $("provider-auth-options"), providerSelectedName: $("provider-selected-name"),
@@ -1617,7 +1627,8 @@ function showModelSettings() {
   el.viewModelSettings.classList.remove("hidden");
   el.viewModelSettings.classList.add("slide-in");
   setTimeout(() => el.viewModelSettings.classList.remove("slide-in"), 250);
-  void loadModelVisibility();
+  applyModelSettingsAgent();
+  if (currentModelSettingsAgent() === "pi") void loadModelVisibility();
 }
 el.modelSettingsOpen?.addEventListener("click", showModelSettings);
 el.btnModelSettingsBack?.addEventListener("click", () => {
@@ -12279,6 +12290,298 @@ el.modelCatalogRefresh?.addEventListener("click", async () => {
   }
 });
 
+// ===========================================================================
+// OpenCode providers (models & providers page, OpenCode tab)
+// ===========================================================================
+
+let modelSettingsAgent = "pi";
+let openCodeCatalogData = null;
+let openCodeCatalogLoading = false;
+let openCodeCatalogRequest = null;
+let openCodeDialogEdit = null;
+
+function currentModelSettingsAgent() {
+  return modelSettingsAgent === "opencode" ? "opencode" : "pi";
+}
+
+function applyModelSettingsAgent() {
+  const agent = currentModelSettingsAgent();
+  const pi = agent === "pi";
+  el.modelAgentPi?.classList.toggle("is-active", pi);
+  el.modelAgentPi?.setAttribute("aria-selected", pi ? "true" : "false");
+  el.modelAgentOpencode?.classList.toggle("is-active", !pi);
+  el.modelAgentOpencode?.setAttribute("aria-selected", pi ? "false" : "true");
+  // Pi-only controls: import/export plus the pi.dev catalog refresh belong to
+  // the Pi tab; the add button switches target with the tab.
+  el.providerConfigImport?.classList.toggle("hidden", !pi);
+  el.providerConfigExport?.classList.toggle("hidden", !pi);
+  if (el.modelCatalogRefresh) el.modelCatalogRefresh.classList.toggle("hidden", !pi);
+  el.modelListToolbar?.classList.toggle("hidden", !pi);
+  el.modelVisibilityList?.classList.toggle("hidden", !pi);
+  el.opencodeProviderPanel?.classList.toggle("hidden", pi);
+  const note = document.querySelector('.settings-scope-note[data-i18n-key="modelScope.note"]');
+  note?.classList.toggle("hidden", !pi);
+  if (!pi) void loadOpenCodeProviders();
+}
+
+function switchModelSettingsAgent(agent) {
+  if (agent !== "pi" && agent !== "opencode") return;
+  if (modelSettingsAgent === agent) return;
+  modelSettingsAgent = agent;
+  applyModelSettingsAgent();
+}
+
+el.modelAgentPi?.addEventListener("click", () => switchModelSettingsAgent("pi"));
+el.modelAgentOpencode?.addEventListener("click", () => switchModelSettingsAgent("opencode"));
+
+function openCodeModelLine(model) {
+  const id = String(model?.id || model?.modelID || "").trim();
+  if (!id) return "";
+  const name = String(model?.name || "").trim();
+  const reasoning = model?.reasoning === true;
+  return [id, name, reasoning ? "reasoning" : ""].filter(Boolean).join(" | ");
+}
+
+async function loadOpenCodeProviders(force = false) {
+  if (!el.opencodeProviderList) return;
+  if (openCodeCatalogLoading && !force) return;
+  if (openCodeCatalogRequest) openCodeCatalogRequest.abort();
+  const generation = viewGeneration;
+  const baseAtStart = apiBase;
+  openCodeCatalogLoading = true;
+  const request = new AbortController();
+  openCodeCatalogRequest = request;
+  if (el.opencodeProviderStatus) {
+    el.opencodeProviderStatus.textContent = "Loading OpenCode providers…";
+    el.opencodeProviderStatus.classList.remove("hidden");
+  }
+  try {
+    const result = await api("/api/opencode/provider-catalog", { signal: request.signal });
+    if (request.signal.aborted || generation !== viewGeneration || baseAtStart !== apiBase) return;
+    openCodeCatalogData = result;
+    renderOpenCodeProviders();
+  } catch (e) {
+    if (e.name === "AbortError") return;
+    if (generation === viewGeneration && baseAtStart !== apiBase) {
+      openCodeCatalogData = null;
+      if (el.opencodeProviderList) el.opencodeProviderList.innerHTML = "";
+      if (el.opencodeProviderStatus) {
+        el.opencodeProviderStatus.textContent = `OpenCode providers unavailable: ${e.message || "unknown error"}`;
+      }
+    }
+  } finally {
+    if (openCodeCatalogRequest === request) {
+      openCodeCatalogLoading = false;
+      openCodeCatalogRequest = null;
+    }
+  }
+}
+
+function openCodeModelSummary(models) {
+  const list = Array.isArray(models) ? models : [];
+  if (!list.length) return "No models";
+  const names = list.slice(0, 3).map(model => String(model?.id || model?.modelID || "")).filter(Boolean);
+  return `${list.length} models${names.length ? ` · ${names.join(", ")}${list.length > names.length ? "…" : ""}` : ""}`;
+}
+
+function renderOpenCodeProviders() {
+  const data = openCodeCatalogData;
+  if (!el.opencodeProviderList) return;
+  el.opencodeProviderList.innerHTML = "";
+  if (!data) return;
+  const runtime = Array.isArray(data.runtime?.providers) ? data.runtime.providers : [];
+  const custom = Array.isArray(data.providers) ? data.providers : [];
+  const auth = Array.isArray(data.auth) ? data.auth : [];
+  if (el.opencodeProviderStatus) {
+    const runtimeError = data.runtime?.error;
+    el.opencodeProviderStatus.textContent = runtimeError
+      ? `OpenCode server is not reachable (${runtimeError}); showing saved custom providers.`
+      : `OpenCode server reports ${runtime.length} active provider${runtime.length === 1 ? "" : "s"} · ${custom.length} custom`;
+  }
+
+  const section = (title) => {
+    const heading = document.createElement("p");
+    heading.className = "opencode-provider-section";
+    heading.textContent = title;
+    el.opencodeProviderList.appendChild(heading);
+  };
+
+  const modelChips = (models, limit = 6) => {
+    const chips = document.createElement("div");
+    chips.className = "opencode-provider-models";
+    for (const model of (Array.isArray(models) ? models : []).slice(0, limit)) {
+      const chip = document.createElement("span");
+      chip.className = "opencode-provider-model";
+      chip.textContent = String(model?.id || model?.modelID || "");
+      chips.appendChild(chip);
+    }
+    const extra = (Array.isArray(models) ? models.length : 0) - Math.min(limit, Array.isArray(models) ? models.length : 0);
+    if (extra > 0) {
+      const more = document.createElement("span");
+      more.className = "opencode-provider-more";
+      more.textContent = `+${extra} more`;
+      chips.appendChild(more);
+    }
+    return chips;
+  };
+
+  const card = ({ title, subtitle, actions, models }) => {
+    const node = document.createElement("div");
+    node.className = "opencode-provider-card";
+    const head = document.createElement("div");
+    head.className = "opencode-provider-card-head";
+    const copy = document.createElement("div");
+    copy.className = "opencode-provider-copy";
+    const strong = document.createElement("strong");
+    strong.textContent = title;
+    copy.appendChild(strong);
+    if (subtitle) {
+      const small = document.createElement("small");
+      small.textContent = subtitle;
+      copy.appendChild(small);
+    }
+    head.appendChild(copy);
+    if (actions) {
+      const bar = document.createElement("div");
+      bar.className = "opencode-provider-actions";
+      for (const action of actions) bar.appendChild(action);
+      head.appendChild(bar);
+    }
+    node.appendChild(head);
+    if (models) node.appendChild(models);
+    return node;
+  };
+
+  const smallButton = (label, onClick, kind = "ghost") => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `btn ${kind} provider-row-action`;
+    button.textContent = label;
+    button.addEventListener("click", onClick);
+    return button;
+  };
+
+  if (data.jsoncConflict) {
+    const warn = document.createElement("p");
+    warn.className = "settings-note error-text";
+    warn.textContent = "opencode.jsonc also defines providers; OpenCode may override the entries edited here.";
+    el.opencodeProviderList.appendChild(warn);
+  }
+
+  if (runtime.length) {
+    section("Signed in & built in");
+    for (const provider of runtime) {
+      el.opencodeProviderList.appendChild(card({
+        title: provider.name || provider.id,
+        subtitle: `${provider.id} · ${openCodeModelSummary(provider.models)}`,
+        models: modelChips(provider.models),
+      }));
+    }
+  }
+
+  section("Custom (opencode.json)");
+  if (custom.length) {
+    for (const provider of custom) {
+      el.opencodeProviderList.appendChild(card({
+        title: provider.name || provider.id,
+        subtitle: `${provider.id} · ${provider.baseURL || ""}${provider.hasApiKey ? " · API key saved" : " · no API key"}`,
+        models: modelChips(provider.models),
+        actions: [
+          smallButton("Edit", () => openOpenCodeProviderDialog(provider)),
+          smallButton("Delete", () => deleteOpenCodeProvider(provider), "danger-text"),
+        ],
+      }));
+    }
+  } else {
+    const empty = document.createElement("p");
+    empty.className = "settings-note model-visibility-empty";
+    empty.textContent = "No custom providers yet. Add one to route OpenCode sessions to any OpenAI-compatible endpoint.";
+    el.opencodeProviderList.appendChild(empty);
+  }
+}
+
+function openOpenCodeProviderDialog(provider = null) {
+  openCodeDialogEdit = provider;
+  if (el.opencodeProviderDialogTitle) el.opencodeProviderDialogTitle.textContent = provider ? `Edit ${provider.id}` : "Add OpenCode provider";
+  if (el.opencodeProviderId) {
+    el.opencodeProviderId.value = provider?.id || "";
+    el.opencodeProviderId.readOnly = !!provider;
+  }
+  if (el.opencodeProviderName) el.opencodeProviderName.value = provider?.name || "";
+  if (el.opencodeProviderBaseUrl) el.opencodeProviderBaseUrl.value = provider?.baseURL || "";
+  if (el.opencodeProviderApiKey) {
+    el.opencodeProviderApiKey.value = "";
+    el.opencodeProviderApiKey.placeholder = provider?.hasApiKey ? "Leave empty to keep the stored key" : "sk-…";
+  }
+  if (el.opencodeProviderModels) {
+    el.opencodeProviderModels.value = (Array.isArray(provider?.models) ? provider.models : [])
+      .map(model => [String(model?.id || ""), String(model?.name || ""), model?.reasoning === true ? "reasoning" : ""].filter(Boolean).join(" | "))
+      .join("\n");
+  }
+  if (el.opencodeProviderDelete) el.opencodeProviderDelete.classList.toggle("hidden", !provider);
+  setOpencodeProviderError();
+  el.opencodeProviderDialog?.classList.remove("hidden");
+  if (!provider) setTimeout(() => el.opencodeProviderId?.focus(), 0);
+}
+
+function closeOpenCodeProviderDialog() {
+  openCodeDialogEdit = null;
+  el.opencodeProviderDialog?.classList.add("hidden");
+  setOpencodeProviderError();
+}
+
+function setOpencodeProviderError(message = "") {
+  if (!el.opencodeProviderFormError) return;
+  el.opencodeProviderFormError.textContent = message;
+  el.opencodeProviderFormError.classList.toggle("hidden", !message);
+}
+
+async function saveOpenCodeProvider() {
+  const id = String(el.opencodeProviderId?.value || "").trim();
+  const name = String(el.opencodeProviderName?.value || "").trim();
+  const baseURL = String(el.opencodeProviderBaseUrl?.value || "").trim();
+  const apiKey = String(el.opencodeProviderApiKey?.value || "").trim();
+  const models = parseProviderModels(el.opencodeProviderModels?.value);
+  if (!id || !baseURL || !models.length) {
+    setOpencodeProviderError("Provider ID, base URL, and at least one model are required.");
+    return;
+  }
+  if (el.opencodeProviderSave) el.opencodeProviderSave.disabled = true;
+  setOpencodeProviderError();
+  try {
+    const body = { action: "save", id, models };
+    if (name) body.name = name;
+    body.baseURL = baseURL;
+    if (apiKey) body.apiKey = apiKey;
+    await post("/api/opencode/providers", body);
+    const wasEdit = !!openCodeDialogEdit;
+    closeOpenCodeProviderDialog();
+    toast(wasEdit ? "Provider updated" : "Provider added");
+    await loadOpenCodeProviders(true);
+  } catch (e) {
+    setOpencodeProviderError(e.message || "Save failed");
+  } finally {
+    if (el.opencodeProviderSave) el.opencodeProviderSave.disabled = false;
+  }
+}
+
+async function deleteOpenCodeProvider(provider) {
+  if (!provider?.id || !window.confirm(`Remove provider "${provider.id}" from opencode.json?`)) return;
+  try {
+    await post("/api/opencode/providers", { action: "delete", id: provider.id });
+    closeOpenCodeProviderDialog();
+    toast("Provider deleted");
+    await loadOpenCodeProviders(true);
+  } catch (e) {
+    toast(e.message || "Delete failed");
+  }
+}
+
+el.opencodeProviderSave?.addEventListener("click", saveOpenCodeProvider);
+el.opencodeProviderDelete?.addEventListener("click", () => deleteOpenCodeProvider(openCodeDialogEdit));
+el.opencodeProviderCancel?.addEventListener("click", closeOpenCodeProviderDialog);
+el.opencodeProviderCancelBottom?.addEventListener("click", closeOpenCodeProviderDialog);
+
 // ---- Provider config portability ----
 function downloadProviderConfig(includeSecrets) {
   const suffix = includeSecrets ? "?secrets=1" : "";
@@ -12423,7 +12726,7 @@ el.pushToggle?.addEventListener("click", () => {
 void refreshPushToggleState();
 el.modelFilter?.addEventListener("input", () => renderModelVisibility());
 el.providerFilter?.addEventListener("input", () => renderProviderPresets());
-el.providerAdd?.addEventListener("click", () => openProviderDialog());
+el.providerAdd?.addEventListener("click", () => currentModelSettingsAgent() === "opencode" ? openOpenCodeProviderDialog() : openProviderDialog());
 el.providerCancel?.addEventListener("click", closeProviderDialog);
 el.providerCancelBottom?.addEventListener("click", closeProviderDialog);
 el.providerPresetList?.addEventListener("click", (event) => {

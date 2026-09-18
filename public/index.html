@@ -6,14 +6,14 @@
 <title>Stepsemble</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=3.0.63">
-<link rel="icon" href="/icon-16.png?v=3.0.63" sizes="16x16" type="image/png">
-<link rel="icon" href="/icon-32.png?v=3.0.63" sizes="32x32" type="image/png">
-<link rel="icon" href="/icon-512.png?v=3.0.63" sizes="512x512" type="image/png">
-<link rel="apple-touch-icon" href="/icon-180.png?v=3.0.63">
-  <link rel="stylesheet" href="/style.css?v=3.0.63">
-  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.0.63">
-  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.0.63">
+<link rel="manifest" href="/manifest.webmanifest?v=3.0.64">
+<link rel="icon" href="/icon-16.png?v=3.0.64" sizes="16x16" type="image/png">
+<link rel="icon" href="/icon-32.png?v=3.0.64" sizes="32x32" type="image/png">
+<link rel="icon" href="/icon-512.png?v=3.0.64" sizes="512x512" type="image/png">
+<link rel="apple-touch-icon" href="/icon-180.png?v=3.0.64">
+  <link rel="stylesheet" href="/style.css?v=3.0.64">
+  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.0.64">
+  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.0.64">
 </head>
 <body>
 
@@ -444,7 +444,7 @@
         </div>
         <div class="settings-row">
           <span><strong>Stepsemble</strong><small data-i18n-key="agentHub.workspace">A workspace for local coding agents</small></span>
-          <span class="settings-value" id="set-app-version">v3.0.63</span>
+          <span class="settings-value" id="set-app-version">v3.0.64</span>
         </div>
         <div class="settings-row">
           <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -523,11 +523,19 @@
             <button id="model-visibility-refresh" class="icon-button-small" type="button" title="Reload models" aria-label="Reload models"><svg class="icon"><use href="#i-refresh"></use></svg></button>
           </div>
         </div>
+        <div class="model-agent-switch" role="tablist" aria-label="Agent">
+          <button id="model-agent-pi" class="model-agent-tab is-active" type="button" role="tab" aria-selected="true">Pi Agent</button>
+          <button id="model-agent-opencode" class="model-agent-tab" type="button" aria-selected="false">OpenCode</button>
+        </div>
         <div class="model-list-toolbar">
           <input id="model-filter" type="search" autocomplete="off" spellcheck="false" placeholder="Search providers or models…" aria-label="Search providers or models">
           <span id="model-list-summary" class="model-list-summary">—</span>
         </div>
         <div id="model-visibility-list" class="model-visibility-list"><p class="settings-note">Loading model list…</p></div>
+        <div id="opencode-provider-panel" class="model-visibility-list hidden">
+          <p id="opencode-provider-status" class="settings-note model-visibility-empty" role="status">Loading OpenCode providers…</p>
+          <div id="opencode-provider-list"></div>
+        </div>
       </section>
     </div>
   </main>
@@ -700,6 +708,35 @@
         <span class="sheet-actions-spacer"></span>
         <button id="provider-cancel-bottom" class="btn ghost" type="button">Cancel</button>
         <button id="provider-save" class="btn primary hidden" type="button">Save provider</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- OpenCode custom provider editor -->
+  <div id="opencode-provider-dialog" class="sheet-layer hidden">
+    <div class="sheet provider-dialog">
+      <div class="sheet-handle"></div>
+      <div class="sheet-heading-row">
+        <div><p class="eyebrow">OPENCODE PROVIDER</p><h2 id="opencode-provider-dialog-title">Add OpenCode provider</h2></div>
+        <button id="opencode-provider-cancel" class="btn ghost icon-btn" type="button" title="Close" aria-label="Close"><svg class="icon"><use href="#i-x"></use></svg></button>
+      </div>
+      <p class="settings-note provider-dialog-note">Saved to <span class="mono">~/.config/opencode/opencode.json</span> and applied to OpenCode sessions only. OpenCode reloads the server after saving.</p>
+      <label class="field-label" for="opencode-provider-id">Provider ID</label>
+      <input id="opencode-provider-id" type="text" maxlength="64" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="e.g. custom-llama">
+      <label class="field-label" for="opencode-provider-name">Display name</label>
+      <input id="opencode-provider-name" type="text" maxlength="256" autocomplete="off" spellcheck="false" placeholder="e.g. My Llama Server">
+      <label class="field-label" for="opencode-provider-base-url">Base URL</label>
+      <input id="opencode-provider-base-url" type="url" maxlength="500" autocomplete="url" spellcheck="false" placeholder="https://api.example.com/v1">
+      <label class="field-label" for="opencode-provider-api-key">API key (optional)</label>
+      <input id="opencode-provider-api-key" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" placeholder="Leave empty to keep the stored key">
+      <label class="field-label" for="opencode-provider-models">Models (one per line; <span class="mono">model-id | display name</span>; add <span class="mono">reasoning</span> for reasoning models)</label>
+      <textarea id="opencode-provider-models" rows="5" spellcheck="false" placeholder="glm-5.3 | GLM 5.3 | reasoning&#10;glm-5.3-flash | GLM 5.3 Flash"></textarea>
+      <p id="opencode-provider-form-error" class="form-error hidden" role="alert"></p>
+      <div class="sheet-actions">
+        <button id="opencode-provider-delete" class="btn ghost danger-text hidden" type="button">Delete provider</button>
+        <span class="sheet-actions-spacer"></span>
+        <button id="opencode-provider-cancel-bottom" class="btn ghost" type="button">Cancel</button>
+        <button id="opencode-provider-save" class="btn primary" type="button">Save provider</button>
       </div>
     </div>
   </div>
@@ -921,20 +958,20 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=3.0.63"></script>
-<script src="/modules/app-foundation.js?v=3.0.63"></script>
-<script src="/modules/agent-identity.js?v=3.0.63"></script>
-<script src="/modules/session-utils.js?v=3.0.63"></script>
-<script src="/modules/pi-session.js?v=3.0.63"></script>
-<script src="/modules/conversation-catalog.js?v=3.0.63"></script>
-<script src="/modules/context-usage.js?v=3.0.63"></script>
-<script src="/modules/opencode-context.js?v=3.0.63"></script>
-<script src="/modules/claude-auth.js?v=3.0.63"></script>
-<script src="/modules/claude-structured-rendering.js?v=3.0.63"></script>
-<script src="/modules/codex-approvals.js?v=3.0.63"></script>
-<script src="/modules/protocol-contracts.js?v=3.0.63"></script>
-<script src="/modules/client-sdk.js?v=3.0.63"></script>
-<script src="/modules/native-dialogs.js?v=3.0.63"></script>
-<script src="/app.js?v=3.0.63"></script>
+<script src="/i18n.js?v=3.0.64"></script>
+<script src="/modules/app-foundation.js?v=3.0.64"></script>
+<script src="/modules/agent-identity.js?v=3.0.64"></script>
+<script src="/modules/session-utils.js?v=3.0.64"></script>
+<script src="/modules/pi-session.js?v=3.0.64"></script>
+<script src="/modules/conversation-catalog.js?v=3.0.64"></script>
+<script src="/modules/context-usage.js?v=3.0.64"></script>
+<script src="/modules/opencode-context.js?v=3.0.64"></script>
+<script src="/modules/claude-auth.js?v=3.0.64"></script>
+<script src="/modules/claude-structured-rendering.js?v=3.0.64"></script>
+<script src="/modules/codex-approvals.js?v=3.0.64"></script>
+<script src="/modules/protocol-contracts.js?v=3.0.64"></script>
+<script src="/modules/client-sdk.js?v=3.0.64"></script>
+<script src="/modules/native-dialogs.js?v=3.0.64"></script>
+<script src="/app.js?v=3.0.64"></script>
 </body>
 </html>

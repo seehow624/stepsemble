@@ -415,6 +415,36 @@ function createOpenCodeNativeAdapter({
     return { models: flattened.map(normalizeModel).filter(Boolean).slice(0, 512) };
   }
 
+  // OpenCode 1.18 serves the signed-in provider catalog (providers plus their
+  // full model records) from /config/providers. Expose it verbatim enough for
+  // the provider management UI: one entry per provider with normalized models.
+  async function listProviderCatalog({ directory = null } = {}) {
+    const safeDirectory = directory === null ? null : normalizeDirectory(directory);
+    if (directory !== null && safeDirectory === null) throw new OpenCodeNativeError("invalid_directory", "OpenCode directory is invalid", 400);
+    const response = await request("/config/providers", { query: { directory: safeDirectory } });
+    const value = response.data;
+    const rows = Array.isArray(value) ? value
+      : Array.isArray(value?.data) ? value.data
+      : Array.isArray(value?.providers) ? value.providers
+      : unwrapList(value, ["providers", "items", "all"]);
+    if (!rows) throw new OpenCodeNativeError("providers_invalid", "OpenCode provider catalog was invalid", 502);
+    const providers = rows.slice(0, 256).map(row => {
+      const providerID = cleanText(row?.id ?? row?.providerID ?? row?.providerId ?? "", 128);
+      if (!validId(providerID)) return null;
+      const modelsSource = row?.models && typeof row.models === "object" && !Array.isArray(row.models)
+        ? Object.values(row.models)
+        : Array.isArray(row?.models) ? row.models
+        : Array.isArray(row) ? row
+        : [];
+      return {
+        id: providerID,
+        name: cleanText(row?.name || providerID, 256),
+        models: modelsSource.map(normalizeModel).filter(Boolean).slice(0, 512),
+      };
+    }).filter(Boolean);
+    return { providers };
+  }
+
   async function switchModel(sessionId, { providerID, modelID, directory = null } = {}) {
     if (!validId(sessionId)) throw new OpenCodeNativeError("invalid_session_id", "OpenCode session id is invalid", 400);
     if (!validId(providerID) || !validModelId(modelID)) throw new OpenCodeNativeError("invalid_model", "OpenCode model identity is invalid", 400);
@@ -658,6 +688,7 @@ function createOpenCodeNativeAdapter({
     getSession,
     sessionStatus,
     listModels,
+    listProviderCatalog,
     switchModel,
     children,
     messages,
