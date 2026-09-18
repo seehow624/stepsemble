@@ -30,6 +30,7 @@ const { createCodexNativePool } = require("./server/codex-native-pool");
 const { createOpenCodeManagedService } = require("./server/opencode-managed-service");
 const { createOpenCodeConfigService } = require("./server/opencode-config-service");
 const { createOpenCodexGatewayService } = require("./server/opencodex-gateway-service");
+const { claudeSessionEnvOverrides } = require("./server/claude-session-routing");
 const { createLineDecoder, activePathIds } = require("./server/stream-safety");
 const { createSessionDiscovery, mapLimit, readBoundedText, withDeadline: sessionReadDeadline } = require("./server/session-discovery");
 const { parsePiEvent, validPiCommand, resolvePiResponse, parsePiUiReply } = require("./server/pi-rpc-contract");
@@ -82,7 +83,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.65";
+const APP_VERSION = "3.0.67";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -5152,7 +5153,7 @@ const server = http.createServer(async (req, res) => {
           let result;
           if (action === "codex_restore_native") result = await openCodexGateway.restoreNative();
           else if (action === "codex_restore_gateway") result = await openCodexGateway.restoreGateway();
-          else if (action === "claude_bridge") result = await openCodexGateway.setClaudeBridge(body.enabled === true);
+          else if (action === "claude_session_routing") result = await openCodexGateway.setClaudeSessionRouting(body.enabled === true);
           else { sendJSON(res, 400, { error: "unknown gateway action" }); return; }
           sendJSON(res, 200, result);
         } catch (error) {
@@ -6669,8 +6670,15 @@ const server = http.createServer(async (req, res) => {
                 return;
               }
             }
+            const claudeOverrides = claudeSessionEnvOverrides(APP_HOME);
+            // Mirror the ocx claude launcher: refresh the gateway model cache
+            // before the launch so the in-session model picker lists every
+            // routed model, not a stale cache.
+            if (claudeOverrides.ANTHROPIC_BASE_URL) {
+              try { await openCodexGateway.refreshClaudeGatewayCache(); } catch {}
+            }
             const session = await launchClaudeStructuredSession({ desktopClient: desktopClaude,
-              command: claudeStructuredCommand, cwd: sessionCwd, env: process.env,
+              command: claudeStructuredCommand, cwd: sessionCwd, env: { ...process.env, ...claudeOverrides },
               name: sessionName, permissionPromptTool: claudePermissionPromptTool, sessionId: resumeSessionId,
               onEvent: event => { try { if (event?.sessionId) rememberClaudeStructuredSession(event.sessionId, { cwd: sessionCwd, name: sessionName }); } catch {} } });
             if (resumeSessionId) rememberClaudeStructuredSession(resumeSessionId, { cwd: sessionCwd, name: sessionName });

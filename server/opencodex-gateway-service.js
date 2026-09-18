@@ -3,7 +3,9 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const { execFile } = require("node:child_process");
+const { routingFilePath, readClaudeSessionRouting } = require("./claude-session-routing");
 
 // OpenCodex is an external gateway (universal provider proxy for Codex and
 // Claude Code). Stepsemble never rewrites the harness configs here: the
@@ -100,6 +102,81 @@ function createOpenCodexGatewayService({
     };
   }
 
+  // The gateway's own Claude Code integration state (config.json) plus the
+  // Stepsemble session-routing switch. Terminal wiring (ocx claude) is driven
+  // entirely by opencodex; the Stepsemble switch only affects sessions that
+  // Stepsemble itself spawns.
+  function claudeWiring() {
+    const value = readJson(opencodexConfigPath);
+    const cc = value?.claudeCode && typeof value.claudeCode === "object" ? value.claudeCode : null;
+    const port = Number(value?.port);
+    const resolvedPort = Number.isSafeInteger(port) && port >= 1024 && port <= 65535 ? port : DEFAULT_PORT;
+    return {
+      configured: !!cc,
+      enabled: cc?.enabled === true,
+      authMode: typeof cc?.authMode === "string" ? cc.authMode : null,
+      baseUrl: "http://127.0.0.1:" + resolvedPort,
+    };
+  }
+
+  function writeClaudeRouting(enabled) {
+    const file = routingFilePath(appHome);
+    const wiring = claudeWiring();
+    const payload = { version: 1, enabled: enabled === true ? true : false, baseUrl: enabled === true ? wiring.baseUrl : null };
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    const temp = file + "." + process.pid + "." + crypto.randomUUID() + ".tmp";
+    try {
+      fs.writeFileSync(temp, JSON.stringify(payload, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
+      fs.renameSync(temp, file);
+    } catch (error) {
+      try { fs.unlinkSync(temp); } catch {}
+      throw new OpenCodexGatewayError("Could not write Claude routing settings: " + (error.message || "unknown error"), 500, "claude_routing_write_failed");
+    }
+    return readClaudeSessionRouting(appHome);
+  }
+
+  // Claude Code reads its /model picker gateway section from
+  // ~/.claude/cache/gateway-models.json. With a subscription-preserving launch
+  // the CLI itself never refreshes that cache, which is why ocx claude
+  // pre-writes it before every launch. Stepsemble's own launches need the same
+  // pre-write or the picker keeps showing a stale list.
+  async function refreshClaudeGatewayCache() {
+    const wiring = claudeWiring();
+    if (!wiring.enabled) return null;
+    if (typeof fetchImpl !== "function") return null;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), probeTimeoutMs);
+    try {
+      const response = await fetchImpl(wiring.baseUrl + "/v1/models?limit=1000&ids=cli", {
+        headers: { "anthropic-version": "2023-06-01" },
+        signal: controller.signal,
+      });
+      if (!response.ok) return null;
+      const value = await response.json();
+      const rows = Array.isArray(value?.data) ? value.data : [];
+      const usable = [];
+      for (const row of rows) {
+        if (!row || typeof row.id !== "string") continue;
+        const first = row.id.slice(0, 7).toLowerCase();
+        if (first !== "claude-" && first !== "anthrop") continue;
+        usable.push(typeof row.display_name === "string" ? { id: row.id, display_name: row.display_name } : { id: row.id });
+        if (usable.length >= 512) break;
+      }
+      if (!usable.length) return null;
+      const cacheDir = path.join(appHome, ".claude", "cache");
+      const file = path.join(cacheDir, "gateway-models.json");
+      fs.mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
+      const temp = file + "." + process.pid + "." + crypto.randomUUID() + ".tmp";
+      fs.writeFileSync(temp, JSON.stringify({ baseUrl: wiring.baseUrl, fetchedAt: Date.now(), models: usable }), { encoding: "utf8", mode: 0o600 });
+      fs.renameSync(temp, file);
+      return { file, count: usable.length, baseUrl: wiring.baseUrl };
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   function codexState() {
     let text = "";
     try { text = fs.readFileSync(codexConfigPath, "utf8"); } catch {
@@ -159,6 +236,7 @@ function createOpenCodexGatewayService({
     if (!probe.reachable) probe = await probeModels(origin);
     const claudeSettings = readClaudeSettings();
     const claudeBaseUrl = claudeSettings?.baseUrl || null;
+    const wiring = claudeWiring();
     return {
       kind: "opencodex",
       origin,
@@ -173,6 +251,8 @@ function createOpenCodexGatewayService({
         baseUrl: claudeBaseUrl,
         model: claudeSettings?.model || null,
         gatewayEnabled: !!localConfig?.claudeCodeEnabled,
+        wiring,
+        sessionRouting: readClaudeSessionRouting(appHome),
       },
       catalogModels: readCodexCatalog(),
     };
@@ -205,8 +285,14 @@ function createOpenCodexGatewayService({
     return status();
   }
 
-  async function setClaudeBridge(enabled) {
-    await runAction(["debug", "claude", enabled ? "on" : "off"]);
+  async function setClaudeSessionRouting(enabled) {
+    if (enabled === true) {
+      const wiring = claudeWiring();
+      if (!wiring.enabled) {
+        throw new OpenCodexGatewayError("opencodex has Claude routing disabled; enable it there first", 409, "claude_routing_disabled_in_gateway");
+      }
+    }
+    writeClaudeRouting(enabled === true);
     return status();
   }
 
@@ -214,7 +300,9 @@ function createOpenCodexGatewayService({
     status,
     restoreNative,
     restoreGateway,
-    setClaudeBridge,
+    setClaudeSessionRouting,
+    claudeWiring,
+    refreshClaudeGatewayCache,
     paths: Object.freeze({ opencodexConfigPath: opencodexConfigPath, codexConfigPath: codexConfigPath, codexCatalogPath: codexCatalogPath, claudeSettingsPath: claudeSettingsPath }),
   };
 }

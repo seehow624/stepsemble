@@ -1,7 +1,7 @@
-/* stepsemble v3.0.65 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.67 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.65";
+const CLIENT_APP_VERSION = "3.0.67";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -12741,28 +12741,38 @@ function renderCodexGateway() {
   claudeStrong.textContent = "Claude Code";
   claudeCopy.appendChild(claudeStrong);
   const claudeSmall = document.createElement("small");
-  claudeSmall.textContent = data.claude?.mode === "gateway"
-    ? "Routed through a local endpoint (env override): " + (data.claude.baseUrl || "")
-    : "Native Anthropic routing; subscription credentials untouched";
+  const wiring = data.claude?.wiring || null;
+  const sessionRouting = data.claude?.sessionRouting || null;
+  claudeSmall.textContent = wiring?.enabled
+    ? "opencodex Claude routing is enabled" + (wiring.authMode ? " (auth mode: " + wiring.authMode + ")" : "") + "; terminal sessions use ocx claude"
+    : wiring
+      ? "opencodex Claude routing is disabled in the gateway"
+      : "opencodex is not installed";
   claudeCopy.appendChild(claudeSmall);
   claudeHead.appendChild(claudeCopy);
-  claudeHead.appendChild(codexGatewayChip(data.claude?.mode === "gateway" ? "via gateway" : "direct", data.claude?.mode === "gateway" ? "warn" : "ok"));
+  claudeHead.appendChild(codexGatewayChip(sessionRouting?.enabled ? "Stepsemble sessions: gateway" : "Stepsemble sessions: native", sessionRouting?.enabled ? "warn" : "ok"));
   claudeCard.appendChild(claudeHead);
+  const claudeDetail = document.createElement("p");
+  claudeDetail.className = "settings-note";
+  claudeDetail.textContent = sessionRouting?.enabled
+    ? "Claude Code sessions started in Stepsemble run through " + (sessionRouting.baseUrl || "the gateway") + " with gateway model discovery, so every opencodex model is selectable. Subscription OAuth stays untouched."
+    : "Claude Code sessions started in Stepsemble use Anthropic directly. Turn this on to let them use every opencodex model; the subscription login itself is never modified.";
+  claudeCard.appendChild(claudeDetail);
   const claudeActions = document.createElement("div");
   claudeActions.className = "opencode-provider-actions gateway-actions";
   const bridgeButton = document.createElement("button");
   bridgeButton.type = "button";
   bridgeButton.className = "btn ghost provider-row-action";
-  bridgeButton.textContent = data.claude?.mode === "gateway" ? "Send Claude Code back to native routing" : "Route Claude Code through opencodex";
+  bridgeButton.textContent = sessionRouting?.enabled ? "Return Stepsemble Claude sessions to native" : "Route Stepsemble Claude sessions through the gateway";
   bridgeButton.addEventListener("click", async () => {
-    const enable = data.claude?.mode !== "gateway";
+    const enable = !sessionRouting?.enabled;
     const message = enable
-      ? "Route Claude Code through opencodex? This overrides Claude Code's endpoint with a local gateway; the Anthropic subscription login stays untouched."
-      : "Return Claude Code to native Anthropic routing? The gateway stops managing it.";
+      ? "Route Claude Code sessions started in Stepsemble through the opencodex gateway? They will be able to use every opencodex model; your subscription login is not modified. Applies to sessions started after this change."
+      : "Return Claude Code sessions started in Stepsemble to native Anthropic routing? Applies to sessions started after this change.";
     if (!window.confirm(message)) return;
     bridgeButton.disabled = true;
     try {
-      await post("/api/gateway/action", { action: "claude_bridge", enabled: enable });
+      await post("/api/gateway/action", { action: "claude_session_routing", enabled: enable });
       await loadCodexGateway(true);
     } catch (e) {
       toast(e.message || "Gateway action failed");

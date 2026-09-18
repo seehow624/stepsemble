@@ -9,6 +9,7 @@ const { resolvePtyRuntime, supervisorSocketPath, supervisorMetadataPath } = requ
 const { launchAgentSupervisor } = require("./agent-supervisor-launch");
 const { UUID, failure, desktopPaths, privateDirectory, privateRead, privateWrite, exact } = require("./claude-desktop-state");
 const { buildClaudeStructuredArgs } = require("./claude-code-structured-adapter");
+const { claudeSessionEnvOverrides } = require("./claude-session-routing");
 const {
   STRUCTURED_STREAM_VERSION,
   FRAME_TYPES,
@@ -234,7 +235,10 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
   }
   async function spawnStructured(record, head = Buffer.alloc(0)) {
     if (closed) throw failure("service_closed");
-    const taskEnv = { ...env, HOME: home };
+    // Stepsemble's Claude gateway switch (claude-gateway.json) applies to the
+    // sessions launched from this desktop helper too, mirroring the direct
+    // spawn path in server.js.
+    const taskEnv = { ...env, HOME: home, ...claudeSessionEnvOverrides(home) };
     let command, args;
     try {
       command = await fs.realpath(claudeCommand);

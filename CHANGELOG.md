@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.0.67
+
+Refresh Claude Code's gateway model list before Stepsemble-launched sessions.
+- Claude Code reads the model picker's gateway section from ~/.claude/cache/gateway-models.json and, with a subscription-preserving launch, never refreshes that cache itself (the ocx claude launcher rewrites it before every launch). Stepsemble now performs the same pre-write for the sessions it starts: it pulls the anthropic-flavor catalog from the gateway and rewrites the cache in the exact on-disk schema, so every routed model is selectable and the list is never stale.
+  - The pre-write only runs when Stepsemble's Claude session routing is enabled; failures keep the previous cache untouched.
+
+## 3.0.66
+
+Route Stepsemble's Claude Code sessions through the opencodex gateway on request.
+- The Claude Code card now mirrors the real integration: terminal sessions are wired by "ocx claude" (model discovery on), and a new switch routes the sessions Stepsemble itself launches.
+  - The routed launch injects only ANTHROPIC_BASE_URL plus CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY, matching opencodex's subscription-preserving mode: the Claude subscription login is never modified, and gateway models become selectable in the session.
+  - Applies to both spawn paths: the direct session factory and the macOS desktop helper, which re-reads the routing file on every launch.
+  - The earlier panel action that toggled the gateway's inbound debug logging was removed; the correct switch is now this per-session routing setting.
+
 ## 3.0.65
 
 Add an OpenCodex gateway panel for Codex and Claude Code.
