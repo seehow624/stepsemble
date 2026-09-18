@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.70
+
+Keep Claude Code's OpenCodex model metadata after selection.
+- When a native Claude control ACK returns only a model id, the client now reattaches the loaded catalog row. Gateway aliases keep their context-window capacity, supported thinking levels, and provider label immediately after switching.
+- The current model is resolved through the same catalog path on session open and in the model sheet, so the context dashboard can show known capacity before the first assistant usage report.
+
 ## 3.0.69
 
 Keep gateway metadata when Claude Code supplies its own alias rows.

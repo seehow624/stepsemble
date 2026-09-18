@@ -1,7 +1,7 @@
-/* stepsemble v3.0.69 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.70 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.69";
+const CLIENT_APP_VERSION = "3.0.70";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -5800,7 +5800,7 @@ async function syncClaudeStructuredModelCatalog(connection = rpc, { force = fals
   const models = (Array.isArray(result?.models) ? result.models : []).map(normalizeClaudeModel).filter(Boolean);
   connection.claudeModels = models;
   connection.claudeModelsLoaded = true;
-  const current = normalizeClaudeModel(result?.currentModel)
+  const current = claudeModelFromCatalog(models, result?.currentModel)
     || models.find(model => model.id === "default")
     || models[0]
     || null;
@@ -9052,6 +9052,16 @@ function normalizeClaudeModel(model) {
   };
 }
 
+// Native Claude controls acknowledge a model switch with only its wire id.
+// Reattach the already-fetched catalog row so gateway aliases keep their
+// context capacity and reasoning metadata immediately after switching.
+function claudeModelFromCatalog(models, value) {
+  const normalized = normalizeClaudeModel(value);
+  if (!normalized) return null;
+  const row = Array.isArray(models) ? models.find(candidate => candidate?.id === normalized.id) : null;
+  return row || normalized;
+}
+
 function currentOpenCodeModelPayload(model = rpc?.openCodeModel) {
   const normalized = normalizeOpenCodeModel(model);
   if (!normalized) return null;
@@ -9179,7 +9189,7 @@ async function openModelSheet() {
       connection.claudeModels = availableModels;
       connection.claudeModelsLoaded = true;
       if (!connection.claudeModelSelected) {
-        const current = normalizeClaudeModel(result?.currentModel)
+        const current = claudeModelFromCatalog(availableModels, result?.currentModel)
           || availableModels.find(model => model.id === "default")
           || availableModels[0];
         if (current) {
@@ -9328,13 +9338,15 @@ function renderModelList(currentId, currentProvider = null) {
           if (result?.accepted === false || result?.kind === "reject" || result?.success === false) {
             throw new Error(result.error || result.code || "Claude rejected the model switch");
           }
-          const selected = normalizeClaudeModel(result?.model) || model;
+          const selected = claudeModelFromCatalog(connection.claudeModels, result?.model) || model;
           connection.claudeModel = selected;
           connection.claudeModelSelected = true;
           // A model ACK invalidates the previous model's context capacity. The
           // follow-up adapter readback owns the new value (which may remain
-          // unknown), so never retain a stale gauge between the two requests.
+          // unknown). Keep a catalog capacity when it is available, while
+          // leaving current usage/percentage unknown until native readback.
           resetContextDashboard();
+          composerModelContextWindow = positiveFinite(selected.contextWindow);
           updateComposerSummary(selected.name || selected.id, undefined);
           syncNativeThinkingSelect(connection);
           void syncNativeContext(connection);
