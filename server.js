@@ -29,6 +29,7 @@ const { applyNativeLaunchConfig, isInstalledRuntime } = require("./server/native
 const { createCodexNativePool } = require("./server/codex-native-pool");
 const { createOpenCodeManagedService } = require("./server/opencode-managed-service");
 const { createOpenCodeConfigService } = require("./server/opencode-config-service");
+const { createOpenCodexGatewayService } = require("./server/opencodex-gateway-service");
 const { createLineDecoder, activePathIds } = require("./server/stream-safety");
 const { createSessionDiscovery, mapLimit, readBoundedText, withDeadline: sessionReadDeadline } = require("./server/session-discovery");
 const { parsePiEvent, validPiCommand, resolvePiResponse, parsePiUiReply } = require("./server/pi-rpc-contract");
@@ -81,7 +82,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.64";
+const APP_VERSION = "3.0.65";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -1771,6 +1772,7 @@ let openCodeNative = createOpenCodeNativeAdapter({
 });
 const openCodeManaged = createOpenCodeManagedService({ env: process.env });
 const openCodeConfigService = createOpenCodeConfigService({ home: APP_HOME });
+const openCodexGateway = createOpenCodexGatewayService({ home: APP_HOME });
 const OPENCODE_MANAGED_FILE = path.join(CONFIG_DIR, "opencode-managed.json");
 let openCodeSetupPromise = null;
 function managedOpenCodeOptedIn() {
@@ -5130,6 +5132,31 @@ const server = http.createServer(async (req, res) => {
           sendJSON(res, 200, { ...openCodeConfigService.list(), runtime });
         } catch (error) {
           sendJSON(res, error.statusCode || 409, { error: error.message || "opencode_provider_save_failed" });
+        }
+        return;
+      }
+
+      if (p === "/api/gateway/status" && req.method === "GET") {
+        try {
+          sendJSON(res, 200, await openCodexGateway.status());
+        } catch (error) {
+          sendJSON(res, error.statusCode || 503, { error: error.code || "gateway_status_failed" });
+        }
+        return;
+      }
+
+      if (p === "/api/gateway/action" && req.method === "POST") {
+        const body = await readJSON(req);
+        const action = String(body?.action || "");
+        try {
+          let result;
+          if (action === "codex_restore_native") result = await openCodexGateway.restoreNative();
+          else if (action === "codex_restore_gateway") result = await openCodexGateway.restoreGateway();
+          else if (action === "claude_bridge") result = await openCodexGateway.setClaudeBridge(body.enabled === true);
+          else { sendJSON(res, 400, { error: "unknown gateway action" }); return; }
+          sendJSON(res, 200, result);
+        } catch (error) {
+          sendJSON(res, error.statusCode || 409, { error: error.message || "gateway_action_failed" });
         }
         return;
       }

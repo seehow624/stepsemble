@@ -1010,6 +1010,11 @@ test("first-use help and setup guide cover token, devices, providers, and progre
   assert.match(app, /\/api\/opencode\/providers/);
   assert.match(html, /id="model-agent-opencode"/);
   assert.match(html, /id="opencode-provider-dialog"/);
+  assert.match(server, /\/api\/gateway\/status/);
+  assert.match(server, /\/api\/gateway\/action/);
+  assert.match(app, /\/api\/gateway\/status/);
+  assert.match(html, /id="model-agent-codex"/);
+  assert.match(html, /id="codex-gateway-panel"/);
   assert.match(app, /openOnboarding\(false\)/);
   assert.match(app, /Never expose public port 3140/);
   assert.match(css, /\.onboarding-card/);

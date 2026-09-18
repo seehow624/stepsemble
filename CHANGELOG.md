@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.65
+
+Add an OpenCodex gateway panel for Codex and Claude Code.
+- New "Codex & Claude" tab on the models page: shows whether opencodex is reachable, which providers it exposes, and whether Codex/Claude Code are currently routed through the gateway or running natively.
+  - Routing switches invoke the opencodex CLI itself (ocx restore / restore back / debug claude on|off), so Stepsemble and the gateway never fight over config.toml, and running sessions are untouched.
+  - Codex status is read from config.toml (model, injected openai_base_url) and the gateway's /v1/models list; Claude Code status comes from settings.json env overrides.
+
 ## 3.0.64
 
 Bring OpenCode provider management into the Models & providers page.

@@ -1,7 +1,7 @@
-/* stepsemble v3.0.64 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.65 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.64";
+const CLIENT_APP_VERSION = "3.0.65";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -128,8 +128,11 @@ const el = {
   modelVisibilityList: $("model-visibility-list"), modelVisibilityRefresh: $("model-visibility-refresh"),
   modelListToolbar: $("model-list-toolbar"),
   modelAgentPi: $("model-agent-pi"), modelAgentOpencode: $("model-agent-opencode"),
+  modelAgentCodex: $("model-agent-codex"),
   opencodeProviderPanel: $("opencode-provider-panel"), opencodeProviderStatus: $("opencode-provider-status"),
   opencodeProviderList: $("opencode-provider-list"),
+  codexGatewayPanel: $("codex-gateway-panel"), codexGatewayStatus: $("codex-gateway-status"),
+  codexGatewayList: $("codex-gateway-list"),
   providerConfigExport: $("provider-config-export"), providerConfigImport: $("provider-config-import"),
   pushToggle: $("push-toggle"),
   usageSummaryCard: $("usage-summary-card"), usageSummaryRows: $("usage-summary-rows"), usageSummaryNote: $("usage-summary-note"),
@@ -12307,10 +12310,13 @@ function currentModelSettingsAgent() {
 function applyModelSettingsAgent() {
   const agent = currentModelSettingsAgent();
   const pi = agent === "pi";
+  const opencode = agent === "opencode";
   el.modelAgentPi?.classList.toggle("is-active", pi);
   el.modelAgentPi?.setAttribute("aria-selected", pi ? "true" : "false");
-  el.modelAgentOpencode?.classList.toggle("is-active", !pi);
-  el.modelAgentOpencode?.setAttribute("aria-selected", pi ? "false" : "true");
+  el.modelAgentOpencode?.classList.toggle("is-active", opencode);
+  el.modelAgentOpencode?.setAttribute("aria-selected", opencode ? "true" : "false");
+  el.modelAgentCodex?.classList.toggle("is-active", agent === "codex");
+  el.modelAgentCodex?.setAttribute("aria-selected", agent === "codex" ? "true" : "false");
   // Pi-only controls: import/export plus the pi.dev catalog refresh belong to
   // the Pi tab; the add button switches target with the tab.
   el.providerConfigImport?.classList.toggle("hidden", !pi);
@@ -12318,14 +12324,16 @@ function applyModelSettingsAgent() {
   if (el.modelCatalogRefresh) el.modelCatalogRefresh.classList.toggle("hidden", !pi);
   el.modelListToolbar?.classList.toggle("hidden", !pi);
   el.modelVisibilityList?.classList.toggle("hidden", !pi);
-  el.opencodeProviderPanel?.classList.toggle("hidden", pi);
+  el.opencodeProviderPanel?.classList.toggle("hidden", !opencode);
+  el.codexGatewayPanel?.classList.toggle("hidden", agent !== "codex");
   const note = document.querySelector('.settings-scope-note[data-i18n-key="modelScope.note"]');
   note?.classList.toggle("hidden", !pi);
-  if (!pi) void loadOpenCodeProviders();
+  if (opencode) void loadOpenCodeProviders();
+  if (agent === "codex") void loadCodexGateway();
 }
 
 function switchModelSettingsAgent(agent) {
-  if (agent !== "pi" && agent !== "opencode") return;
+  if (agent !== "pi" && agent !== "opencode" && agent !== "codex") return;
   if (modelSettingsAgent === agent) return;
   modelSettingsAgent = agent;
   applyModelSettingsAgent();
@@ -12333,6 +12341,7 @@ function switchModelSettingsAgent(agent) {
 
 el.modelAgentPi?.addEventListener("click", () => switchModelSettingsAgent("pi"));
 el.modelAgentOpencode?.addEventListener("click", () => switchModelSettingsAgent("opencode"));
+el.modelAgentCodex?.addEventListener("click", () => switchModelSettingsAgent("codex"));
 
 function openCodeModelLine(model) {
   const id = String(model?.id || model?.modelID || "").trim();
@@ -12581,6 +12590,195 @@ el.opencodeProviderSave?.addEventListener("click", saveOpenCodeProvider);
 el.opencodeProviderDelete?.addEventListener("click", () => deleteOpenCodeProvider(openCodeDialogEdit));
 el.opencodeProviderCancel?.addEventListener("click", closeOpenCodeProviderDialog);
 el.opencodeProviderCancelBottom?.addEventListener("click", closeOpenCodeProviderDialog);
+
+// ===========================================================================
+// Codex & Claude gateway panel (OpenCodex integration)
+// ===========================================================================
+
+let codexGatewayData = null;
+let codexGatewayLoading = false;
+let codexGatewayRequest = null;
+
+async function loadCodexGateway(force = false) {
+  if (!el.codexGatewayList) return;
+  if (codexGatewayLoading && !force) return;
+  if (codexGatewayRequest) codexGatewayRequest.abort();
+  const generation = viewGeneration;
+  const baseAtStart = apiBase;
+  codexGatewayLoading = true;
+  const request = new AbortController();
+  codexGatewayRequest = request;
+  if (el.codexGatewayStatus) {
+    el.codexGatewayStatus.textContent = "Checking gateway status…";
+    el.codexGatewayStatus.classList.remove("hidden");
+  }
+  try {
+    const result = await api("/api/gateway/status", { signal: request.signal });
+    if (request.signal.aborted || generation !== viewGeneration || baseAtStart !== apiBase) return;
+    codexGatewayData = result;
+    renderCodexGateway();
+  } catch (e) {
+    if (e.name === "AbortError") return;
+    if (generation === viewGeneration && baseAtStart !== apiBase) {
+      codexGatewayData = null;
+      if (el.codexGatewayList) el.codexGatewayList.innerHTML = "";
+      if (el.codexGatewayStatus) el.codexGatewayStatus.textContent = "Gateway status unavailable: " + (e.message || "unknown error");
+    }
+  } finally {
+    if (codexGatewayRequest === request) {
+      codexGatewayLoading = false;
+      codexGatewayRequest = null;
+    }
+  }
+}
+
+function codexGatewayChip(label, kind) {
+  const chip = document.createElement("span");
+  chip.className = "gateway-badge" + (kind ? " gateway-badge-" + kind : "");
+  chip.textContent = label;
+  return chip;
+}
+
+function renderCodexGateway() {
+  const data = codexGatewayData;
+  if (!el.codexGatewayList) return;
+  el.codexGatewayList.innerHTML = "";
+  if (!data) return;
+
+  const overview = document.createElement("div");
+  overview.className = "opencode-provider-card";
+  const overviewHead = document.createElement("div");
+  overviewHead.className = "gateway-row";
+  const overviewCopy = document.createElement("div");
+  overviewCopy.className = "opencode-provider-copy";
+  const strong = document.createElement("strong");
+  strong.textContent = "opencodex gateway";
+  overviewCopy.appendChild(strong);
+  const small = document.createElement("small");
+  small.textContent = data.reachable
+    ? data.origin + " · reachable · " + (data.gatewayModels?.length || 0) + " models via /v1/models"
+    : data.origin + " · not reachable";
+  overviewCopy.appendChild(small);
+  overviewHead.appendChild(overviewCopy);
+  overviewHead.appendChild(codexGatewayChip(data.reachable ? "online" : "offline", data.reachable ? "ok" : "warn"));
+  overview.appendChild(overviewHead);
+  const providerLine = document.createElement("p");
+  providerLine.className = "settings-note";
+  providerLine.textContent = "Providers on the gateway: " + (data.providerIds?.join(", ") || "(none)") + (data.defaultProvider ? " · default: " + data.defaultProvider : "");
+  overview.appendChild(providerLine);
+  el.codexGatewayList.appendChild(overview);
+
+  const codexCard = document.createElement("div");
+  codexCard.className = "opencode-provider-card";
+  const codexHead = document.createElement("div");
+  codexHead.className = "gateway-row";
+  const codexCopy = document.createElement("div");
+  codexCopy.className = "opencode-provider-copy";
+  const codexStrong = document.createElement("strong");
+  codexStrong.textContent = "Codex";
+  codexCopy.appendChild(codexStrong);
+  const codexSmall = document.createElement("small");
+  codexSmall.textContent = data.codex?.mode === "gateway"
+    ? "Routed through the gateway · current model: " + (data.codex.currentModel || "(default)")
+    : data.codex?.mode === "gateway-other"
+      ? "Routed through another endpoint · " + (data.codex.baseUrl || "")
+      : data.codex?.mode === "direct" ? "Native OpenAI routing (no gateway injected)"
+        : "config.toml not found";
+  codexCopy.appendChild(codexSmall);
+  codexHead.appendChild(codexCopy);
+  codexHead.appendChild(codexGatewayChip(data.codex?.mode === "gateway" ? "via gateway" : "direct", data.codex?.mode === "gateway" ? "warn" : "ok"));
+  codexCard.appendChild(codexHead);
+  const codexActions = document.createElement("div");
+  codexActions.className = "opencode-provider-actions gateway-actions";
+  const restoreButton = document.createElement("button");
+  restoreButton.type = "button";
+  restoreButton.className = "btn ghost provider-row-action";
+  restoreButton.textContent = data.codex?.mode === "gateway" ? "Switch Codex to native routing" : "Switch Codex back to the gateway";
+  restoreButton.addEventListener("click", async () => {
+    const toNative = data.codex?.mode === "gateway";
+    const message = toNative
+      ? "Switch Codex back to native OpenAI routing? The opencodex proxy keeps running; new Codex sessions go direct again."
+      : "Point Codex back at the opencodex gateway? Session records keep working and you can switch back anytime.";
+    if (!window.confirm(message)) return;
+    restoreButton.disabled = true;
+    try {
+      await post("/api/gateway/action", { action: toNative ? "codex_restore_native" : "codex_restore_gateway" });
+      await loadCodexGateway(true);
+    } catch (e) {
+      toast(e.message || "Gateway action failed");
+    } finally {
+      restoreButton.disabled = false;
+    }
+  });
+  codexActions.appendChild(restoreButton);
+  codexCard.appendChild(codexActions);
+  if (data.codex?.mode === "gateway" && !data.codex?.currentModel) {
+    const hint = document.createElement("p");
+    hint.className = "settings-note";
+    hint.textContent = "Gateway routing is active; no explicit model is pinned, so Codex uses the gateway default. Pick a model in Codex to pin one.";
+    codexCard.appendChild(hint);
+  }
+  if (data.catalogModels?.length) {
+    const models = document.createElement("div");
+    models.className = "opencode-provider-models";
+    for (const entry of data.catalogModels.filter(item => item.visibility === "list").slice(0, 8)) {
+      const chip = document.createElement("span");
+      chip.className = "opencode-provider-model";
+      chip.textContent = entry.slug;
+      models.appendChild(chip);
+    }
+    codexCard.appendChild(models);
+  }
+  el.codexGatewayList.appendChild(codexCard);
+
+  const claudeCard = document.createElement("div");
+  claudeCard.className = "opencode-provider-card";
+  const claudeHead = document.createElement("div");
+  claudeHead.className = "gateway-row";
+  const claudeCopy = document.createElement("div");
+  claudeCopy.className = "opencode-provider-copy";
+  const claudeStrong = document.createElement("strong");
+  claudeStrong.textContent = "Claude Code";
+  claudeCopy.appendChild(claudeStrong);
+  const claudeSmall = document.createElement("small");
+  claudeSmall.textContent = data.claude?.mode === "gateway"
+    ? "Routed through a local endpoint (env override): " + (data.claude.baseUrl || "")
+    : "Native Anthropic routing; subscription credentials untouched";
+  claudeCopy.appendChild(claudeSmall);
+  claudeHead.appendChild(claudeCopy);
+  claudeHead.appendChild(codexGatewayChip(data.claude?.mode === "gateway" ? "via gateway" : "direct", data.claude?.mode === "gateway" ? "warn" : "ok"));
+  claudeCard.appendChild(claudeHead);
+  const claudeActions = document.createElement("div");
+  claudeActions.className = "opencode-provider-actions gateway-actions";
+  const bridgeButton = document.createElement("button");
+  bridgeButton.type = "button";
+  bridgeButton.className = "btn ghost provider-row-action";
+  bridgeButton.textContent = data.claude?.mode === "gateway" ? "Send Claude Code back to native routing" : "Route Claude Code through opencodex";
+  bridgeButton.addEventListener("click", async () => {
+    const enable = data.claude?.mode !== "gateway";
+    const message = enable
+      ? "Route Claude Code through opencodex? This overrides Claude Code's endpoint with a local gateway; the Anthropic subscription login stays untouched."
+      : "Return Claude Code to native Anthropic routing? The gateway stops managing it.";
+    if (!window.confirm(message)) return;
+    bridgeButton.disabled = true;
+    try {
+      await post("/api/gateway/action", { action: "claude_bridge", enabled: enable });
+      await loadCodexGateway(true);
+    } catch (e) {
+      toast(e.message || "Gateway action failed");
+    } finally {
+      bridgeButton.disabled = false;
+    }
+  });
+  claudeActions.appendChild(bridgeButton);
+  claudeCard.appendChild(claudeActions);
+  el.codexGatewayList.appendChild(claudeCard);
+
+  const note = document.createElement("p");
+  note.className = "settings-note";
+  note.textContent = "Switches use the opencodex CLI itself, so the gateway and Stepsemble never fight over the same config. Running sessions are not interrupted; the routing applies to new turns.";
+  el.codexGatewayList.appendChild(note);
+}
 
 // ---- Provider config portability ----
 function downloadProviderConfig(includeSecrets) {
