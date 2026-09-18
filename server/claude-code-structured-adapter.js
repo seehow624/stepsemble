@@ -502,8 +502,24 @@ function createClaudeStructuredSession({
       initializationResult = response;
       const nativeModels = (Array.isArray(response.models) ? response.models : [])
         .slice(0, MAX_MODELS).map(normalizeModelInfo).filter(Boolean);
-      const seen = new Set(nativeModels.map(model => model.id));
-      availableModels = [...nativeModels, ...gatewayModelOptions(env).filter(model => {
+      const gatewayModels = gatewayModelOptions(env);
+      const gatewayById = new Map(gatewayModels.map(model => [model.id, model]));
+      const enrichedNativeModels = nativeModels.map(model => {
+        const gateway = gatewayById.get(model.id);
+        if (!gateway) return model;
+        return {
+          ...gateway,
+          ...model,
+          contextWindow: positiveFinite(model.contextWindow) ?? gateway.contextWindow,
+          supportedEffortLevels: Array.isArray(model.supportedEffortLevels) && model.supportedEffortLevels.length
+            ? model.supportedEffortLevels : gateway.supportedEffortLevels,
+          supportsEffort: model.supportsEffort === true || gateway.supportsEffort === true,
+          reasoning: model.reasoning === true || gateway.reasoning === true,
+          gateway: "opencodex",
+        };
+      });
+      const seen = new Set(enrichedNativeModels.map(model => model.id));
+      availableModels = [...enrichedNativeModels, ...gatewayModels.filter(model => {
         if (seen.has(model.id)) return false;
         seen.add(model.id);
         return true;

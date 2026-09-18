@@ -1,7 +1,7 @@
-/* stepsemble v3.0.68 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.69 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.68";
+const CLIENT_APP_VERSION = "3.0.69";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple

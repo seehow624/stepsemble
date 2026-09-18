@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.69
+
+Keep gateway metadata when Claude Code supplies its own alias rows.
+- Claude Code's initialize response now contains the OpenCodex aliases after the settings overlay is applied. Stepsemble merges those rows with its companion catalog instead of dropping the richer context-window and reasoning metadata, so the model sheet and thinking selector stay accurate.
+- Live validation covers the macOS desktop helper path, alias selection, and a clean session close.
+
 ## 3.0.68
 
 Expose the OpenCodex model catalog inside Stepsemble-launched Claude Code sessions.

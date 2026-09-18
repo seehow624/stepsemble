@@ -58,7 +58,10 @@ test("Claude structured gateway sessions expose the refreshed OpenCodex catalog 
   observeControlWire(child, message => {
     if (message.type !== "control_request" || message.request?.subtype !== "initialize") return;
     child.stdout.write(JSON.stringify({ type: "control_response", response: {
-      subtype: "success", request_id: message.request_id, response: { models: [], model: "claude-sonnet-5" },
+      subtype: "success", request_id: message.request_id, response: {
+        models: [{ value: "claude-ocx-test--glm", displayName: "GLM (Claude initialize)" }],
+        model: "claude-sonnet-5",
+      },
     } }) + "\n");
   });
   let args;
@@ -68,7 +71,7 @@ test("Claude structured gateway sessions expose the refreshed OpenCodex catalog 
   const catalog = await session.models();
   assert.equal(catalog.models.length, 1);
   assert.deepEqual(catalog.models[0], {
-    id: "claude-ocx-test--glm", name: "GLM (OpenCodex)", description: "OpenCodex gateway", contextWindow: 1000000,
+    id: "claude-ocx-test--glm", name: "GLM (Claude initialize)", description: "OpenCodex gateway", contextWindow: 1000000,
     supportsEffort: true, supportedEffortLevels: ["low", "high"], reasoning: true, gateway: "opencodex",
   });
   assert.deepEqual(args.argv.slice(-2), ["--settings", path.join(configDir, "claude-gateway-settings.json")]);
