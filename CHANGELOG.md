@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.62
+
+Keep Pi model catalogs fresh even when a provider has no stored credential.
+- Refresh the persisted pi.dev model catalog overlays (models-store.json) directly from Stepsemble, using the same entry shape, etag and Last-Modified semantics as Pi, so providers without a usable Pi credential no longer freeze on their last cached catalog.
+- Add a "Check model catalog updates" action on the Models & providers page that revalidates every persisted provider catalog and reloads the global model list; unchanged catalogs keep their cached body and validator.
+  - Revalidate provider catalogs on a four-hour window whenever the provider catalog is read, and respect PI_OFFLINE for background refreshes.
+
 ## 3.0.61
 
 Restore the Pi provider catalog and clarify which agent provider settings affect.

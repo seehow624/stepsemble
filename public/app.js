@@ -1,7 +1,7 @@
-/* stepsemble v3.0.61 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.62 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.61";
+const CLIENT_APP_VERSION = "3.0.62";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -114,6 +114,7 @@ const el = {
   sessionCount: $("session-count"), btnLayout: $("btn-layout"),
   composerModelNameText: $("composer-model-name"), composerModelLevelText: $("composer-model-level"),
   btnOpenSettings: $("btn-open-settings"), btnSettingsBack: $("btn-settings-back"), btnModelSettingsBack: $("btn-model-settings-back"), modelSettingsOpen: $("model-settings-open"), modelSettingsSummary: $("model-settings-summary"),
+  modelCatalogRefresh: $("model-catalog-refresh"),
   machineList: $("machine-list"), machineAdd: $("machine-add"), machinePair: $("machine-pair"), machineDialog: $("machine-dialog"), machineDialogTitle: $("machine-dialog-title"), machineStandardFields: $("machine-standard-fields"), machineName: $("machine-name"), machineUrl: $("machine-url"), machinePort: $("machine-port"), machinePortLabel: $("machine-port-label"), machineHost: $("machine-host"), machineStatusNote: $("machine-status-note"), machineFormError: $("machine-form-error"), machinePairArea: $("machine-pair-area"), machinePairCode: $("machine-pair-code"), machinePairJoin: $("machine-pair-join"), machinePairPreview: $("machine-pair-preview"), machinePairPreviewName: $("machine-pair-preview-name"), machinePairPreviewUrl: $("machine-pair-preview-url"), machinePairPreviewExpires: $("machine-pair-preview-expires"), machinePairPreviewVersion: $("machine-pair-preview-version"), machinePairOfferArea: $("machine-pair-offer-area"), machinePairOffer: $("machine-pair-offer"), machinePairGenerate: $("machine-pair-generate"), machineRestart: $("machine-restart"), machineSave: $("machine-save"), machineDelete: $("machine-delete"), machineTest: $("machine-test"), machineCancel: $("machine-cancel"), machineCancelBottom: $("machine-cancel-bottom"),
   authorizedDevicesStatus: $("authorized-devices-status"), authorizedDeviceList: $("authorized-device-list"),
   setMachineName: $("set-machine-name"), setMachineHost: $("set-machine-host"), setPiVersion: $("set-pi-version"), setAppVersion: $("set-app-version"),
@@ -12257,6 +12258,26 @@ async function loadModelVisibility(force = false, skipSession = false) {
 }
 
 el.modelVisibilityRefresh?.addEventListener("click", () => loadModelVisibility(true));
+
+el.modelCatalogRefresh?.addEventListener("click", async () => {
+  const button = el.modelCatalogRefresh;
+  button.disabled = true;
+  try {
+    const result = await post("/api/model-catalog-refresh");
+    const changed = Array.isArray(result?.refreshed) ? result.refreshed.filter((item) => item?.changed).length : 0;
+    const failed = Array.isArray(result?.errors) ? result.errors.length : 0;
+    // Force a global (not session-scoped) reload so the refreshed pi.dev
+    // overlay from models-store.json is what renders, even inside a chat.
+    await loadModelVisibility(true, true);
+    if (changed) toast(tKey("modelsCheck.updated", { count: changed }));
+    else if (failed && !result?.refreshed?.length) toast(tKey("modelsCheck.failed", { count: failed }));
+    else toast(tKey("modelsCheck.current"));
+  } catch (e) {
+    toast(tKey("modelsCheck.requestFailed", { detail: e?.message || "" }));
+  } finally {
+    button.disabled = false;
+  }
+});
 
 // ---- Provider config portability ----
 function downloadProviderConfig(includeSecrets) {

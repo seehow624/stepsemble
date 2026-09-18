@@ -976,6 +976,7 @@ test("first-use help and setup guide cover token, devices, providers, and progre
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   assert.match(html, /class="login-help"/);
   assert.match(html, /id="login-help-title">First time\?</);
   assert.match(html, /cat ~\/\.config\/stepsemble\/token/);
@@ -1000,6 +1001,10 @@ test("first-use help and setup guide cover token, devices, providers, and progre
   assert.match(i18n, /modelScope\.badge/);
   assert.match(html, /data-i18n-key="modelScope\.badge"/);
   assert.match(html, /data-i18n-key="modelScope\.note"/);
+  assert.match(server, /\/api\/model-catalog-refresh/);
+  assert.match(server, /maybeRefreshRemoteModelCatalogs/);
+  assert.match(app, /\/api\/model-catalog-refresh/);
+  assert.match(html, /id="model-catalog-refresh"/);
   assert.match(app, /openOnboarding\(false\)/);
   assert.match(app, /Never expose public port 3140/);
   assert.match(css, /\.onboarding-card/);

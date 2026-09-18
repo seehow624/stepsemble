@@ -80,7 +80,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.61";
+const APP_VERSION = "3.0.62";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -100,6 +100,10 @@ const { configDir: CONFIG_DIR } = migrateLegacyConfig(APP_HOME, {
 });
 const SESSIONS_DIR = path.join(APP_HOME, ".pi", "agent", "sessions");
 const MODEL_CONFIG_FILE = path.join(APP_HOME, ".pi", "agent", "models.json");
+// Pi persists remote model catalogs (pi.dev overlay) next to models.json.
+// Stepsemble refreshes the same file so providers without a stored Pi
+// credential still pick up upstream model changes.
+const MODEL_STORE_FILE = path.join(APP_HOME, ".pi", "agent", "models-store.json");
 const AUTH_CONFIG_FILE = path.join(APP_HOME, ".pi", "agent", "auth.json");
 const MACHINE_CONFIG_FILE = path.join(APP_HOME, ".pi", "agent", "machines.json");
 const DEVICE_CONFIG_FILE = path.join(APP_HOME, ".pi", "agent", "device.json");
@@ -3390,6 +3394,145 @@ function writeModelConfig(config) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Remote model catalog refresh (pi.dev overlay)
+//
+// Pi only revalidates a provider's remote catalog when that provider has a
+// usable credential; without one the cached catalog in models-store.json is
+// frozen forever, so upstream model changes never appear. The pi.dev catalog
+// endpoint is public, so Stepsemble can refresh the same persisted overlay
+// (identical entry shape, etag and Last-Modified semantics) without touching
+// credentials. Pi restores this store before its own network phase, which
+// keeps both tools consistent.
+// ---------------------------------------------------------------------------
+
+const REMOTE_CATALOG_BASE_URL = "https://pi.dev";
+const REMOTE_CATALOG_REFRESH_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const REMOTE_CATALOG_TIMEOUT_MS = 8_000;
+let remoteCatalogRefreshAt = 0;
+let remoteCatalogRefreshPromise = null;
+
+function parseRemoteCatalogModels(providerId, value) {
+  const entries = Array.isArray(value) ? value
+    : value && typeof value === "object" && Array.isArray(value.models) ? value.models
+    : value && typeof value === "object" ? Object.values(value)
+    : null;
+  if (!entries) throw new Error(`invalid model catalog payload for ${providerId}`);
+  const models = entries
+    .filter((entry) => entry && typeof entry === "object" && typeof entry.id === "string")
+    .map((entry) => ({ ...entry, provider: providerId }));
+  if (!models.length) throw new Error(`empty model catalog payload for ${providerId}`);
+  return models;
+}
+
+async function fetchRemoteCatalog(providerId, stored) {
+  const url = `${REMOTE_CATALOG_BASE_URL}/api/models/providers/${encodeURIComponent(providerId)}`;
+  const headers = {
+    accept: "application/json",
+    "user-agent": `Stepsemble/${APP_VERSION} (pi model catalog sync)`,
+  };
+  // Only revalidate when a cached body backs the validator, mirroring Pi so a
+  // 304 can never leave the overlay empty.
+  if (stored?.etag && Array.isArray(stored.models) && stored.models.length) {
+    headers["if-none-match"] = stored.etag;
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REMOTE_CATALOG_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { headers, signal: controller.signal });
+    const etag = response.headers.get("etag") || undefined;
+    const lastModified = Date.parse(response.headers.get("last-modified") || "");
+    let payload = null;
+    if (response.status === 200) payload = await response.json();
+    return { status: response.status, payload, etag, lastModified };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function writeModelStore(store) {
+  const dir = path.dirname(MODEL_STORE_FILE);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const temp = `${MODEL_STORE_FILE}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temp, JSON.stringify(store, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
+    fs.renameSync(temp, MODEL_STORE_FILE);
+    try { fs.chmodSync(MODEL_STORE_FILE, 0o600); } catch {}
+  } catch (err) {
+    throw modelConfigError(`Could not write models-store.json: ${err.message}`, 500);
+  }
+}
+
+async function refreshRemoteModelCatalogs({ force = false } = {}) {
+  if (process.env.PI_OFFLINE && !force) return { skipped: true, reason: "PI_OFFLINE" };
+  if (remoteCatalogRefreshPromise) return remoteCatalogRefreshPromise;
+  const run = (async () => {
+    if (!force) remoteCatalogRefreshAt = Date.now();
+    let store;
+    try {
+      store = JSON.parse(fs.readFileSync(MODEL_STORE_FILE, "utf8"));
+    } catch {
+      store = {};
+    }
+    if (!store || typeof store !== "object" || Array.isArray(store)) store = {};
+    const ids = Object.keys(store).filter((id) => providerId(id));
+    const refreshed = [];
+    const errors = [];
+    let storeChanged = false;
+    for (const id of ids) {
+      const stored = store[id] && typeof store[id] === "object" ? store[id] : null;
+      try {
+        const { status, payload, etag, lastModified } = await fetchRemoteCatalog(id, stored);
+        const checkedAt = Date.now();
+        if (status === 304 && stored) {
+          // Unchanged: keep the cached body and validator, move the freshness window.
+          if (stored.checkedAt !== checkedAt) {
+            store[id] = { ...stored, checkedAt };
+            storeChanged = true;
+          }
+          refreshed.push({ id, changed: false });
+        } else if (status === 404 || status === 501) {
+          // The provider has no remote catalog; remember that so later runs skip it.
+          const next = { ...(stored ?? { models: [] }), checkedAt, lastModified: 0, etag: undefined };
+          store[id] = next;
+          storeChanged = true;
+          refreshed.push({ id, changed: false, reason: "no remote catalog" });
+        } else if (status === 200) {
+          const models = parseRemoteCatalogModels(id, payload);
+          const resolvedLastModified = Number.isNaN(lastModified) ? 0 : lastModified;
+          const differs = !stored
+            || stored.etag !== etag
+            || JSON.stringify(stored.models || []) !== JSON.stringify(models);
+          store[id] = { models, checkedAt, lastModified: resolvedLastModified, etag };
+          storeChanged = true;
+          refreshed.push({ id, changed: differs, models: models.length });
+        } else {
+          // Transient failure: keep the cached body and validator for the next run.
+          errors.push({ id, error: `catalog request failed (HTTP ${status})` });
+        }
+      } catch (err) {
+        errors.push({ id, error: err?.message || String(err) });
+      }
+    }
+    if (storeChanged) {
+      writeModelStore(store);
+      modelCatalogCache = { at: 0, models: [] };
+    }
+    return { refreshed, errors, storeChanged };
+  })().catch((err) => {
+    return { refreshed: [], errors: [{ id: null, error: err?.message || String(err) }] };
+  }).finally(() => {
+    remoteCatalogRefreshPromise = null;
+  });
+  remoteCatalogRefreshPromise = run;
+  return run;
+}
+
+function maybeRefreshRemoteModelCatalogs() {
+  if (Date.now() - remoteCatalogRefreshAt < REMOTE_CATALOG_REFRESH_INTERVAL_MS) return;
+  refreshRemoteModelCatalogs().catch(() => {});
+}
+
 function upsertModelProvider(body) {
   const config = readModelConfig();
   const id = providerId(body.id);
@@ -5795,7 +5938,12 @@ const server = http.createServer(async (req, res) => {
 
       if (p === "/api/provider-catalog" && req.method === "GET") {
         try {
-          sendJSON(res, 200, await listProviderCatalog());
+          const catalog = await listProviderCatalog();
+          sendJSON(res, 200, catalog);
+          // Fire-and-forget: revalidate persisted pi.dev overlays on a 4h
+          // window so a provider without a Pi credential still tracks upstream
+          // model changes while the settings page is open.
+          maybeRefreshRemoteModelCatalogs();
         } catch (e) {
           sendJSON(res, e.statusCode || 500, { error: e.message || "Provider catalog unavailable" });
         }
@@ -5899,6 +6047,15 @@ const server = http.createServer(async (req, res) => {
           }
         } catch (e) {
           sendJSON(res, e.statusCode || 409, { error: e.message });
+        }
+        return;
+      }
+
+      if (p === "/api/model-catalog-refresh" && req.method === "POST") {
+        try {
+          sendJSON(res, 200, await refreshRemoteModelCatalogs({ force: true }));
+        } catch (e) {
+          sendJSON(res, e.statusCode || 502, { error: e.message || "Model catalog refresh failed" });
         }
         return;
       }
