@@ -1,4 +1,4 @@
-/* stepsemble v3.0.73 — Ink & Ivory / English-first localization */
+/* stepsemble v3.0.74 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -2100,6 +2100,16 @@ html.reduced-motion .agent-task-center-row.running.reconnecting .agent-task-dot 
 .new-worktree-toggle strong { font-size: 13px; }
 .new-worktree-toggle small { margin-top: 3px; color: var(--pine-soft); font-size: 11px; line-height: 1.35; }
 .new-agent-note { margin: 8px 2px 0; font-size: 11px; line-height: 1.4; }
+.new-agent-capabilities { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 2px 0; }
+.agent-capability-chip {
+  display: inline-flex; align-items: center; min-height: 24px; padding: 3px 8px;
+  border: .5px solid var(--line); border-radius: 999px;
+  background: color-mix(in srgb, var(--paper) 74%, var(--milk));
+  color: var(--pine-soft); font-size: 10px; font-weight: 650; line-height: 1.2;
+}
+.agent-capability-chip.ready { border-color: color-mix(in srgb, var(--ok) 38%, var(--line)); color: var(--ok); }
+.agent-capability-chip.limited { border-color: color-mix(in srgb, var(--warn) 42%, var(--line)); color: var(--warn); }
+.agent-capability-chip.unavailable, .agent-capability-chip.unknown { opacity: .7; }
 
 /* Generic CLI connector output stays legible on both desktop and phone. Keep
    it visually distinct from Pi's markdown bubbles while preserving terminal

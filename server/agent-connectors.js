@@ -16,6 +16,7 @@ const { CONNECTOR_PROTOCOL_VERSION, CONNECTOR_EVENT_TYPES, normalizeConnectorDef
 const { createConnectorApprovalState } = require("./connector-approval");
 const { createGenericSessionJournal } = require("./generic-session-journal");
 const { catalogCapability } = require("./agent-history-capabilities");
+const { capabilityContract } = require("./agent-capability-contract");
 
 const MAX_TASKS = 100;
 const MAX_EVENTS = 1200;
@@ -376,6 +377,21 @@ function publicDefinition(definition, options = {}) {
   const capabilities = contract.capabilities.filter(capability => definition.kind === "native"
     || options.durableJournal === true
     || !["canonical_session", "durable_journal", "approval_observation", "approval_ack_required"].includes(capability));
+  const history = catalogCapability(definition.id, options);
+  const nativeAdapter = options.nativeAdapterStatus && typeof options.nativeAdapterStatus === "object"
+    ? {
+      state: String(options.nativeAdapterStatus.state || "unknown").slice(0, 32),
+      configured: options.nativeAdapterStatus.configured === true,
+      ready: options.nativeAdapterStatus.ready === true,
+      // Do not infer authority from a missing field. Approval is advertised
+      // only after the native adapter explicitly proves that its response
+      // channel is ready.
+      approvalReady: options.nativeAdapterStatus.approvalReady === true,
+      version: options.nativeAdapterStatus.version || options.nativeAdapterStatus.nativeVersion || null,
+      reason: options.nativeAdapterStatus.lastError || null,
+    }
+    : null;
+  const installed = !!command;
   return {
     id: definition.id,
     label: definition.label,
@@ -387,22 +403,14 @@ function publicDefinition(definition, options = {}) {
     // advertise the generic connector task event protocol for that source.
     protocolVersion: definition.kind === "native" ? null : contract.protocolVersion,
     capabilities,
-    history: catalogCapability(definition.id, options),
-    nativeAdapter: options.nativeAdapterStatus && typeof options.nativeAdapterStatus === "object"
-      ? {
-        state: String(options.nativeAdapterStatus.state || "unknown").slice(0, 32),
-        configured: options.nativeAdapterStatus.configured === true,
-        ready: options.nativeAdapterStatus.ready === true,
-        approvalReady: options.nativeAdapterStatus.approvalReady !== false,
-        version: options.nativeAdapterStatus.version || options.nativeAdapterStatus.nativeVersion || null,
-        reason: options.nativeAdapterStatus.lastError || null,
-      }
-      : null,
+    history,
+    nativeAdapter,
+    featureContract: capabilityContract(definition.id, { installed, history, nativeAdapter, journalAvailable: options.durableJournal === true }),
     journalScope: options.durableJournal === true ? "host-local" : "unavailable",
     journalTransport: options.durableJournal === true ? "local+dedicated-peer-relay" : null,
     hostId: String(options.hostId || "local").slice(0, 128),
     events: definition.kind === "native" ? [] : [...contract.events],
-    installed: !!command,
+    installed,
     command: command ? path.basename(command) : null,
     transport: command ? (options.transport || (definition.kind === "native" ? "rpc" : "pipe")) : null,
     reason: command ? null : "not_installed",

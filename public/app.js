@@ -1,7 +1,7 @@
-/* stepsemble v3.0.73 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.74 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.73";
+const CLIENT_APP_VERSION = "3.0.74";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -154,7 +154,7 @@ const el = {
   providerAuthApi: $("provider-auth-api"), providerApiKeyEntry: $("provider-api-key-entry"), providerSimpleApiKey: $("provider-simple-api-key"), providerApiKeyBack: $("provider-api-key-back"), providerApiKeySave: $("provider-api-key-save"), providerFreeStart: $("provider-free-start"), providerAuthRemove: $("provider-auth-remove"), providerAuthBack: $("provider-auth-back"),
   providerSimpleStatus: $("provider-simple-status"), providerSwitchDevice: $("provider-switch-device"), providerAdvancedToggle: $("provider-advanced-toggle"),
   providerAdvancedFields: $("provider-advanced-fields"),
-  newDialog: $("new-dialog"), newCwd: $("new-cwd"), newName: $("new-name"), newAgent: $("new-agent"), newWorktree: $("new-worktree"), newAgentNote: $("new-agent-note"),
+  newDialog: $("new-dialog"), newCwd: $("new-cwd"), newName: $("new-name"), newAgent: $("new-agent"), newWorktree: $("new-worktree"), newAgentNote: $("new-agent-note"), newAgentCapabilities: $("new-agent-capabilities"),
   newCancel: $("new-cancel"), newStart: $("new-start"), newFolderUp: $("new-folder-up"),
   newFolderHome: $("new-folder-home"), newFolderPath: $("new-folder-path"), newFolderList: $("new-folder-list"),
   saSheet: $("session-action-sheet"), saTitle: $("sa-title"),
@@ -2127,6 +2127,43 @@ function renderNewAgentOptions() {
   updateNewAgentNote();
 }
 
+const PRIMARY_AGENT_FEATURES = Object.freeze(["followUp", "model", "reasoning", "images", "approval", "recovery", "history", "context"]);
+
+function agentCapabilityReason(reason) {
+  if (!reason) return "";
+  const key = `agentCapability.reason.${reason}`;
+  const translated = tKey(key);
+  if (translated !== key) return translated;
+  return String(reason).replaceAll("_", " ");
+}
+
+function renderNewAgentCapabilities(connector, unavailable = false) {
+  if (!el.newAgentCapabilities) return;
+  el.newAgentCapabilities.replaceChildren();
+  if (unavailable || !connector?.featureContract?.features) {
+    el.newAgentCapabilities.hidden = true;
+    return;
+  }
+  el.newAgentCapabilities.hidden = false;
+  el.newAgentCapabilities.dataset.contractVersion = String(connector.featureContract.version || "");
+  for (const featureId of PRIMARY_AGENT_FEATURES) {
+    const feature = connector.featureContract.features[featureId];
+    if (!feature) continue;
+    const chip = document.createElement("span");
+    const status = ["ready", "limited", "unavailable", "unknown"].includes(feature.status) ? feature.status : "unknown";
+    chip.className = `agent-capability-chip ${status}`;
+    chip.dataset.feature = featureId;
+    chip.dataset.status = status;
+    const label = tKey(`agentCapability.feature.${featureId}`);
+    const statusLabel = tKey(`agentCapability.status.${status}`);
+    chip.textContent = `${label} · ${statusLabel}`;
+    chip.title = feature.reason
+      ? `${label}: ${statusLabel} · ${agentCapabilityReason(feature.reason)}`
+      : `${label}: ${statusLabel}`;
+    el.newAgentCapabilities.appendChild(chip);
+  }
+}
+
 function updateNewAgentNote() {
   const id = el.newAgent?.value;
   const connector = agentCatalog.find((item) => item.id === id);
@@ -2145,6 +2182,7 @@ function updateNewAgentNote() {
     }
     else el.newAgentNote.textContent = connector?.description || agentHubText("cliNote");
   }
+  renderNewAgentCapabilities(connector, unavailable);
   if (el.newWorktree) el.newWorktree.disabled = connector?.capabilities?.includes("worktree") === false;
 }
 

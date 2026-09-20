@@ -114,6 +114,23 @@ function capabilityFor(agentId, { journalAvailable = false, nativeHistoryConfigu
       journalScope: journalAvailable ? "host-local" : "unavailable",
     };
   }
+  if (id === "antigravity" && adapter?.configured === true && adapter?.adapter === "antigravity-cli-stream-json-v1") {
+    return {
+      ...base,
+      mode: "structured",
+      history: "canonical_bounded",
+      subagents: "unavailable",
+      approval: "unavailable",
+      session: "structured_cli",
+      source: "antigravity-cli-stream-json-v1",
+      adapter: adapter.adapter,
+      nativeVersion: adapter.version || null,
+      readOnly: false,
+      nativeSession: "observed",
+      journal,
+      journalScope: journalAvailable ? "host-local" : "unavailable",
+    };
+  }
   if (historyConfiguredFor(id, nativeHistoryConfigured) && ["claude-code", "codex"].includes(id)) {
     return { ...base, mode: "native_readonly", history: "native_readonly", source: "history-config", subagents: "native_readonly", journal, journalScope: journalAvailable ? "host-local" : "unavailable" };
   }

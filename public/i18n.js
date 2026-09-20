@@ -3922,6 +3922,27 @@
     it: "Alcuni record molto grandi sono omessi; il file sorgente non è stato modificato.",
   };
   for (const [id, value] of Object.entries(AGENT_HISTORY_PARTIAL_TRANSLATIONS)) AGENT_HUB_TRANSLATIONS[id]["agentHub.historyPartial"] = value;
+  const AGENT_CAPABILITY_TRANSLATIONS = {
+    en: {
+      "agentCapability.feature.followUp": "Continue", "agentCapability.feature.model": "Model", "agentCapability.feature.reasoning": "Reasoning",
+      "agentCapability.feature.images": "Images", "agentCapability.feature.approval": "Approval", "agentCapability.feature.recovery": "Recovery",
+      "agentCapability.feature.history": "History", "agentCapability.feature.context": "Context",
+      "agentCapability.status.ready": "Ready", "agentCapability.status.limited": "Limited", "agentCapability.status.unavailable": "Unavailable", "agentCapability.status.unknown": "Unknown",
+    },
+    "zh-Hant": {
+      "agentCapability.feature.followUp": "接續對話", "agentCapability.feature.model": "模型", "agentCapability.feature.reasoning": "思考強度",
+      "agentCapability.feature.images": "圖片", "agentCapability.feature.approval": "授權確認", "agentCapability.feature.recovery": "中斷恢復",
+      "agentCapability.feature.history": "歷史", "agentCapability.feature.context": "上下文",
+      "agentCapability.status.ready": "可用", "agentCapability.status.limited": "有限支援", "agentCapability.status.unavailable": "不支援", "agentCapability.status.unknown": "未回報",
+    },
+    "zh-Hans": {
+      "agentCapability.feature.followUp": "继续对话", "agentCapability.feature.model": "模型", "agentCapability.feature.reasoning": "思考强度",
+      "agentCapability.feature.images": "图片", "agentCapability.feature.approval": "授权确认", "agentCapability.feature.recovery": "中断恢复",
+      "agentCapability.feature.history": "历史", "agentCapability.feature.context": "上下文",
+      "agentCapability.status.ready": "可用", "agentCapability.status.limited": "有限支持", "agentCapability.status.unavailable": "不支持", "agentCapability.status.unknown": "未报告",
+    },
+  };
+  for (const id of Object.keys(AGENT_HUB_TRANSLATIONS)) Object.assign(AGENT_HUB_TRANSLATIONS[id], AGENT_CAPABILITY_TRANSLATIONS.en, AGENT_CAPABILITY_TRANSLATIONS[id] || {});
   for (const id of Object.keys(KEYED_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], AGENT_HUB_TRANSLATIONS.en, AGENT_HUB_TRANSLATIONS[id] || {});
 
   const CONVERSATION_TRANSLATIONS = {

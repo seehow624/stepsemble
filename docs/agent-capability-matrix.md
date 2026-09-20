@@ -1,6 +1,8 @@
 # Agent capability matrix
 
-狀態：Stepsemble 3.0.45。這份矩陣說明目前實作與其限制；安裝版本、connector 啟用、帳號登入及真實模型回覆是不同的驗收項目，不能互相替代。
+狀態：Stepsemble 3.0.74。這份矩陣說明目前實作與其限制；安裝版本、connector 啟用、帳號登入及真實模型回覆是不同的驗收項目，不能互相替代。
+
+`GET /api/agents` 另提供 versioned `featureContract`，New Project 直接依這份 runtime truth 顯示可用、有限支援、不支援或未回報。它依目前實際 adapter／fallback 路徑判定，不依品牌推測；詳細規則及 release gate 見 [Agent conformance](agent-conformance.md)。
 
 ## 圖片、模型與上下文
 

@@ -111,7 +111,7 @@ test("project creation is disabled when discovery or the selected executable is 
   const source = appSource();
   const el = { newAgent: { value: "pi" }, newStart: {}, newAgentNote: {}, newWorktree: {}, newCwd: { value: "/allowed" } };
   const context = vm.createContext({ el, agentCatalog: [], agentCatalogError: false, agentHubText: key => key });
-  vm.runInContext(`let newAgentStartPending = false;\n${sourceSlice(source, "function updateNewAgentNote(", "async function loadAgentCatalog(", "new-agent note")}`, context);
+  vm.runInContext(`let newAgentStartPending = false;\n${sourceSlice(source, "const PRIMARY_AGENT_FEATURES", "async function loadAgentCatalog(", "new-agent note")}`, context);
   context.updateNewAgentNote(); assert.equal(el.newStart.disabled, true);
   context.agentCatalog = [{ id: "pi", installed: true }];
   context.updateNewAgentNote(); assert.equal(el.newStart.disabled, false);
@@ -121,6 +121,40 @@ test("project creation is disabled when discovery or the selected executable is 
   context.agentCatalogError = true;
   context.updateNewAgentNote(); assert.equal(el.newStart.disabled, true);
   assert.equal(el.newAgentNote.textContent, "unavailable");
+});
+
+test("New Project renders only the server capability contract", () => {
+  const source = appSource();
+  const capabilityRoot = {
+    children: [], dataset: {}, hidden: true,
+    replaceChildren() { this.children = []; },
+    appendChild(child) { this.children.push(child); },
+  };
+  const el = { newAgent: { value: "claude-code" }, newStart: {}, newAgentNote: {}, newWorktree: {},
+    newCwd: { value: "/allowed" }, newAgentCapabilities: capabilityRoot };
+  const features = Object.fromEntries([
+    ["followUp", "ready"], ["model", "ready"], ["reasoning", "limited"], ["images", "ready"],
+    ["approval", "unavailable"], ["recovery", "limited"], ["history", "ready"], ["context", "unknown"],
+  ].map(([id, status]) => [id, { status, authority: "fixture", reason: status === "ready" ? null : "fixture_reason" }]));
+  const context = vm.createContext({
+    el,
+    agentCatalogError: false,
+    agentCatalog: [{ id: "claude-code", installed: true, description: "Claude fixture", capabilities: [],
+      featureContract: { version: 1, features } }],
+    agentHubText: key => key,
+    tKey: key => key,
+    document: { createElement() { return { className: "", dataset: {}, textContent: "", title: "" }; } },
+  });
+  vm.runInContext(`let newAgentStartPending = false;\n${sourceSlice(source, "const PRIMARY_AGENT_FEATURES", "async function loadAgentCatalog(", "new-agent note")}`, context);
+  context.updateNewAgentNote();
+  assert.equal(capabilityRoot.hidden, false);
+  assert.equal(capabilityRoot.dataset.contractVersion, "1");
+  assert.equal(capabilityRoot.children.length, 8);
+  assert.deepEqual(capabilityRoot.children.map(chip => [chip.dataset.feature, chip.dataset.status]), [
+    ["followUp", "ready"], ["model", "ready"], ["reasoning", "limited"], ["images", "ready"],
+    ["approval", "unavailable"], ["recovery", "limited"], ["history", "ready"], ["context", "unknown"],
+  ]);
+  assert.match(capabilityRoot.children[2].title, /fixture reason/);
 });
 
 test("Pi worktree launch coalesces repeated clicks and host reset aborts the single owned request", async () => {
@@ -149,7 +183,7 @@ test("Pi worktree launch coalesces repeated clicks and host reset aborts the sin
   vm.runInContext(`let agentCatalog = [{ id: "pi", installed: true, capabilities: ["rpc", "worktree"] }];
     let agentCatalogError = false, newAgentStartPending = false, newAgentOpenRequest = null;
     let agentCatalogRequest = null, agentTasks = [], conversationSourceState = {}, settings = { removedProjects: [] };
-    ${sourceSlice(source, "function updateNewAgentNote(", "async function loadAgentCatalog(", "new-agent note")}
+    ${sourceSlice(source, "const PRIMARY_AGENT_FEATURES", "async function loadAgentCatalog(", "new-agent note")}
     ${resetSource}
     ${sourceSlice(source, 'el.newStart.addEventListener("click"', "// ---- iOS 鍵盤適配", "new-agent start handler")}
   `, context);
@@ -188,7 +222,7 @@ test("folder root bridge is navigation-only and loading cannot start the previou
   assert.ok(browseEnd >= 0, "browse path end marker");
   vm.runInContext(`let agentCatalog = [{ id: "pi", installed: true, capabilities: ["rpc", "worktree"] }];
     let agentCatalogError = false, newAgentStartPending = false;
-    ${sourceSlice(source, "function updateNewAgentNote(", "async function loadAgentCatalog(", "new-agent note")}
+    ${sourceSlice(source, "const PRIMARY_AGENT_FEATURES", "async function loadAgentCatalog(", "new-agent note")}
     let projectFolder = { path: null, parent: null }, projectFolderRequest = null, projectFolderSequence = 0;
     ${source.slice(browseStart, browseEnd)}
   `, context);

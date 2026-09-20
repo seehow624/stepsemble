@@ -43,6 +43,7 @@ const { negotiate, protocolError } = require("./server/platform-protocol");
 const { createGitChangesService } = require("./server/git-changes");
 const { createPiResourcesService } = require("./server/pi-resources");
 const { createAgentTaskService, resolveCommand, CONNECTOR_DEFINITIONS } = require("./server/agent-connectors");
+const { CONTRACT_VERSION: AGENT_CAPABILITY_CONTRACT_VERSION } = require("./server/agent-capability-contract");
 const { createOpenCodeNativeAdapter } = require("./server/opencode-native-adapter");
 const { taskFromThread: codexTaskFromThread } = require("./server/codex-native-history-adapter");
 const { createGrokAcpAdapter } = require("./server/grok-acp-adapter");
@@ -85,7 +86,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.73";
+const APP_VERSION = "3.0.74";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -5572,6 +5573,7 @@ const server = http.createServer(async (req, res) => {
           machine: MACHINE_NAME,
           platform: process.platform,
           generatedAt: Date.now(),
+          capabilityContractVersion: AGENT_CAPABILITY_CONTRACT_VERSION,
           connectors: agentTasks.catalog(),
         });
         return;

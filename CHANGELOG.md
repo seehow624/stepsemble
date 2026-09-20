@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.74
+
+- Add a versioned runtime capability contract for every Agent Hub connector. Session continuation, model/reasoning control, images, approvals, recovery, history, context, files, interrupt, and subagents are now reported from the active adapter or bounded fallback instead of inferred from the harness brand.
+- Show the primary capability states in New Project as compact Ready, Limited, Unavailable, or Unknown chips. A missing, disabled, degraded, or read-only adapter no longer inherits controls from another runtime path.
+- Add a release conformance gate covering Pi RPC, Claude structured/fallback, Codex mutation/read-only, OpenCode native, ACP, Antigravity, and missing executables. Approval is advertised only after explicit adapter proof; catalog discovery remains distinct from live-inference health.
+- Keep Stepsemble self-contained: no HarnessRouter runtime, gateway, Docker service, credential sharing, or approval bypass was added.
+
 ## 3.0.73
 
 - Prefer fixed official provider model APIs for supported Pi providers. Use Pi's public catalog for exact-model metadata and fallback, not as a gate on discovering new models. Retain the last verified official roster during outages.

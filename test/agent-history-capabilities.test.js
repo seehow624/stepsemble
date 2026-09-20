@@ -40,6 +40,15 @@ test("history capability metadata distinguishes native, prepared read-only and b
   assert.equal(codex.source, "codex-app-server-v2");
   assert.equal(codex.nativeVersion, "0.153.4");
   assert.equal(codex.readOnly, true);
+
+  const antigravity = capabilityFor("antigravity", { journalAvailable: true, nativeAdapterStatus: {
+    configured: true, ready: false, state: "configured", adapter: "antigravity-cli-stream-json-v1",
+    version: "antigravity-cli-stream-json-v1",
+  } });
+  assert.equal(antigravity.mode, "structured");
+  assert.equal(antigravity.session, "structured_cli");
+  assert.equal(antigravity.approval, "unavailable");
+  assert.equal(antigravity.source, "antigravity-cli-stream-json-v1");
 });
 
 test("connector catalog exposes the host-local relay boundary without claiming upstream ACK support", () => {
