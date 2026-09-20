@@ -4,7 +4,17 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const { createModelCatalogSync, INTERVAL_MS } = require("../server/model-catalog-sync");
+const { createModelCatalogSync, filterRetiredModels, INTERVAL_MS } = require("../server/model-catalog-sync");
+
+test("newer remote catalogs hide retired baseline models, preserving manual providers and newer builtins", () => {
+  const models = ["current", "retired"].map(id => ({ id, provider: "go", baseUrl: "https://example.com" }));
+  const store = { go: { lastModified: 200, models: [models[0]] } };
+  assert.deepEqual(filterRetiredModels(models, { store, generatedAt: 100 }), [models[0]]);
+  assert.deepEqual(filterRetiredModels(models, { store, generatedAt: 300 }), models);
+  assert.deepEqual(filterRetiredModels(models, { store, generatedAt: 100, providers: { go: { models } } }), models);
+  const extension = { id: "extension", provider: "go", baseUrl: "https://other.example" };
+  assert.deepEqual(filterRetiredModels([extension], { store, generatedAt: 100 }), [extension]);
+});
 
 function harness(initial = {}, configured = ["opencode-go"]) {
   let time = 1000, calls = [], changes = 0, responder;

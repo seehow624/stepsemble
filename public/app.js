@@ -9345,6 +9345,7 @@ function renderModelList(currentId, currentProvider = null) {
     row.innerHTML = '<span class="model-check"></span><span class="model-info"><strong></strong><small></small></span><span class="model-thinking-badge"></span>';
     row.querySelector(".model-check").textContent = matchesCurrent(m) ? "✓" : "";
     row.querySelector("strong").textContent = m.name || m.id;
+    row.querySelector("strong").dataset.i18nIgnore = "true";
     row.querySelector("small").textContent = (m.provider || "?") + (m.contextWindow ? " · " + Math.round(m.contextWindow/1000) + "k ctx" : "");
     const badge = row.querySelector(".model-thinking-badge");
     const badgeText = modelThinkingBadge(m);
@@ -11616,6 +11617,7 @@ function renderModelVisibility() {
       copy.className = "model-visibility-copy";
       const name = document.createElement("strong");
       name.textContent = model.name || model.id;
+      name.dataset.i18nIgnore = "true";
       const id = document.createElement("small");
       id.textContent = model.configuredOnly ? `${model.id} · 尚未載入` : model.id;
       copy.append(name, id);

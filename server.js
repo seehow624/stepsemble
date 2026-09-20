@@ -36,7 +36,7 @@ const { createSessionDiscovery, mapLimit, readBoundedText, withDeadline: session
 const { parsePiEvent, validPiCommand, resolvePiResponse, parsePiUiReply } = require("./server/pi-rpc-contract");
 const { createPiUiState, METHODS: PI_UI_METHODS } = require("./server/pi-ui-state");
 const { piLaunch } = require("./server/pi-launch");
-const { createModelCatalogSync, INTERVAL_MS: MODEL_SYNC_INTERVAL_MS } = require("./server/model-catalog-sync");
+const { createModelCatalogSync, filterRetiredModels, INTERVAL_MS: MODEL_SYNC_INTERVAL_MS } = require("./server/model-catalog-sync");
 const piSession = require("./public/modules/pi-session");
 const { negotiate, protocolError } = require("./server/platform-protocol");
 const { createGitChangesService } = require("./server/git-changes");
@@ -3154,9 +3154,16 @@ function rpcCommand(sid, cmd) {
 // 不送 prompt、不寫對話，收到結果後立即結束。已有 session 則優先復用它。
 let modelCatalogCache = { at: 0, models: [] };
 let modelCatalogPromise = null;
+let modelCatalogGeneratedAt;
+let modelCatalogMetadataPromise;
 
 function publicModels(models) {
-  return (Array.isArray(models) ? models : []).map((m) => {
+  let rows = Array.isArray(models) ? models : [];
+  try {
+    rows = filterRetiredModels(rows, { store: JSON.parse(fs.readFileSync(MODEL_STORE_FILE, "utf8")),
+      providers: readModelConfig().providers, generatedAt: modelCatalogGeneratedAt });
+  } catch {} // Missing/corrupt metadata cannot justify hiding a model.
+  return rows.map((m) => {
     if (!m || !m.id) return null;
     return {
       provider: String(m.provider || "unknown"),
@@ -3458,6 +3465,13 @@ const remoteCatalogSync = createModelCatalogSync({
 });
 
 async function refreshRemoteModelCatalogs(options = {}) {
+  if (!modelCatalogMetadataPromise) {
+    modelCatalogMetadataPromise = (async () => {
+      const file = providerAiModuleCandidates(providerPackageRoot()).find(candidate => fs.existsSync(candidate));
+      if (file) modelCatalogGeneratedAt = (await import(pathToFileURL(file).href)).getBuiltinModelDataGeneratedAt?.();
+    })().catch(() => {});
+  }
+  await modelCatalogMetadataPromise;
   return remoteCatalogSync.refresh(options);
 }
 

@@ -3,6 +3,24 @@
 const INTERVAL_MS = 5 * 60 * 1000;
 const RETRY_MS = 30 * 1000;
 
+// Pi deliberately merges its static baseline with the remote overlay. For a
+// newer complete catalog, hide baseline entries which upstream has retired.
+// Explicit custom providers and extension-owned endpoints remain untouched.
+function filterRetiredModels(models, { store = {}, providers = {}, generatedAt } = {}) {
+  const catalogs = new Map();
+  return models.filter(model => {
+    const entry = store[model?.provider];
+    if (!Number.isFinite(generatedAt) || !Number.isFinite(entry?.lastModified) || entry.lastModified <= generatedAt
+      || !Array.isArray(entry.models) || !entry.models.length || providers[model?.provider]) return true;
+    if (!catalogs.has(model.provider)) catalogs.set(model.provider, {
+      ids: new Set(entry.models.map(row => row.id)),
+      endpoints: new Set(entry.models.map(row => row.baseUrl).filter(Boolean)),
+    });
+    const { ids, endpoints } = catalogs.get(model.provider);
+    return ids.has(model.id) || (!!model.baseUrl && !endpoints.has(model.baseUrl));
+  });
+}
+
 function parseRemoteCatalogModels(providerId, value) {
   const entries = Array.isArray(value) ? value
     : Array.isArray(value?.models) ? value.models
@@ -98,4 +116,4 @@ function createModelCatalogSync({ readStore, writeEntry, providerIds, fetch: req
   return { refresh, status: () => ({ ...state, nextCheckAt: nextCheck }) };
 }
 
-module.exports = { createModelCatalogSync, parseRemoteCatalogModels, INTERVAL_MS };
+module.exports = { createModelCatalogSync, parseRemoteCatalogModels, filterRetiredModels, INTERVAL_MS };

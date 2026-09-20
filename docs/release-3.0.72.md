@@ -38,9 +38,16 @@ Pi's own file lock with a per-provider comparison to preserve concurrent writes.
 
 ## Verification
 
-- `npm run check`, `npm test`: 1,480 passed, 4 skipped, 0 failed.
+- `npm run check`, `npm test`: 1,481 passed, 4 skipped, 0 failed.
 - `node scripts/check-pi-catalog-refresh.mjs`: real Pi, isolated fixture,
   stale-snapshot reproduction, reload, new model selection, zero inference.
 - Regression tests cover additions/removals/renames, 304, failure retention,
   malformed catalogs, request coalescing, TTL/manual checks, offline operation,
   session/global separation, manual presets and concurrent edits.
+- Chrome UI against an isolated real-Pi host: settings and the conversation
+  picker both show DeepSeek V4.1 Flash and GLM-5.3-Flash without the old multiplier.
+  The baseline-only Omen Alpha disappears; DeepSeek V4.1 Flash can be selected
+  and becomes the composer model. No inference was sent.
+- Pi's baseline/overlay merge is reconciled only when the remote snapshot is
+  newer than Pi's bundled data; manual providers and extension endpoints are
+  preserved. Model names bypass UI translation (e.g. Qwen Plus stays Plus).

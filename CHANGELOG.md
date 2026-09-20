@@ -6,6 +6,7 @@
 - Reload the model registry inside existing Stepsemble Pi sessions through a verified extension command, with no inference or conversation restart. Keep session catalogs out of the global settings cache.
 - Refresh automatically discovered provider presets against their configured endpoints; preserve manual/imported model lists, credentials, and concurrent edits. Show failed or unsupported checks instead of claiming every catalog is current.
 - Use Pi's own storage lock for per-provider catalog commits, coalesce requests, bound network work, and retain last-good data during outages.
+- Hide retired baseline entries when a newer remote catalog omits them, and preserve official model names from UI translation.
 
 ## 3.0.71
 
