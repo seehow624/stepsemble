@@ -36,6 +36,7 @@ const { createSessionDiscovery, mapLimit, readBoundedText, withDeadline: session
 const { parsePiEvent, validPiCommand, resolvePiResponse, parsePiUiReply } = require("./server/pi-rpc-contract");
 const { createPiUiState, METHODS: PI_UI_METHODS } = require("./server/pi-ui-state");
 const { piLaunch } = require("./server/pi-launch");
+const { createModelCatalogSync, INTERVAL_MS: MODEL_SYNC_INTERVAL_MS } = require("./server/model-catalog-sync");
 const piSession = require("./public/modules/pi-session");
 const { negotiate, protocolError } = require("./server/platform-protocol");
 const { createGitChangesService } = require("./server/git-changes");
@@ -83,7 +84,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.71";
+const APP_VERSION = "3.0.72";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2964,7 +2965,8 @@ async function openRpc({ file, cwd, name }) {
     throw err;
   }
   const sid = crypto.randomUUID();
-  const args = ["--mode", "rpc"];
+  await refreshRemoteModelCatalogs();
+  const args = ["--mode", "rpc", "--extension", path.join(__dirname, "server", "pi-catalog-extension.mjs")];
   let spawnCwd = APP_HOME;
   let parsed = null;
   if (file) {
@@ -3227,14 +3229,30 @@ function queryAvailableModels() {
   return modelCatalogPromise;
 }
 
-function getAvailableModels(sid) {
+async function getAvailableModels(sid) {
+  await refreshRemoteModelCatalogs();
   const current = sid && rpcSessions.get(sid);
   if (current && !current.exited) {
+    // Verify the extension exists before sending its command. An unknown
+    // slash command must never fall through into a paid model prompt.
+    if (!current.catalogReloadVerified) {
+      const commands = await rpcCommand(sid, { type: "get_commands" });
+      current.catalogReloadVerified = commands?.success && commands.data?.commands?.some(command =>
+        command.name === "stepsemble-refresh-models" && command.source === "extension");
+    }
+    if (current.catalogReloadVerified) {
+      if (!current.catalogReloadPromise) {
+        current.catalogReloadPromise = rpcCommand(sid, { type: "prompt", message: "/stepsemble-refresh-models" })
+          .then(response => { if (!response?.success) throw new Error(response?.error || "Model catalog reload failed"); })
+          .finally(() => { current.catalogReloadPromise = null; });
+      }
+      await current.catalogReloadPromise;
+    }
     return rpcCommand(sid, { type: "get_available_models" }).then((response) => {
       if (!response?.success) throw new Error(response?.error || "failed to read model catalog");
-      const models = publicModels(response.data?.models);
-      modelCatalogCache = { at: Date.now(), models };
-      return models;
+      // Session extensions can add scoped models. Never let that snapshot
+      // replace the host-wide settings catalog.
+      return publicModels(response.data?.models);
     });
   }
   return queryAvailableModels();
@@ -3400,149 +3418,65 @@ function writeModelConfig(config) {
 }
 
 // ---------------------------------------------------------------------------
-// Remote model catalog refresh (pi.dev overlay)
-//
-// Pi only revalidates a provider's remote catalog when that provider has a
-// usable credential; without one the cached catalog in models-store.json is
-// frozen forever, so upstream model changes never appear. The pi.dev catalog
-// endpoint is public, so Stepsemble can refresh the same persisted overlay
-// (identical entry shape, etag and Last-Modified semantics) without touching
-// credentials. Pi restores this store before its own network phase, which
-// keeps both tools consistent.
+// Remote model catalog refresh. Revalidate on model reads and while the host
+// is running, then reload each session's registry through the Pi extension.
 // ---------------------------------------------------------------------------
 
-const REMOTE_CATALOG_BASE_URL = "https://pi.dev";
-const REMOTE_CATALOG_REFRESH_INTERVAL_MS = 4 * 60 * 60 * 1000;
-const REMOTE_CATALOG_TIMEOUT_MS = 8_000;
-let remoteCatalogRefreshAt = 0;
-let remoteCatalogRefreshPromise = null;
-
-function parseRemoteCatalogModels(providerId, value) {
-  const entries = Array.isArray(value) ? value
-    : value && typeof value === "object" && Array.isArray(value.models) ? value.models
-    : value && typeof value === "object" ? Object.values(value)
-    : null;
-  if (!entries) throw new Error(`invalid model catalog payload for ${providerId}`);
-  const models = entries
-    .filter((entry) => entry && typeof entry === "object" && typeof entry.id === "string")
-    .map((entry) => ({ ...entry, provider: providerId }));
-  if (!models.length) throw new Error(`empty model catalog payload for ${providerId}`);
-  return models;
+let remoteCatalogStoragePromise;
+function catalogStorage() {
+  if (!remoteCatalogStoragePromise) {
+    remoteCatalogStoragePromise = import(pathToFileURL(path.join(providerPackageRoot(), "dist", "core", "auth-storage.js")).href)
+      .then(({ FileAuthStorageBackend }) => new FileAuthStorageBackend(MODEL_STORE_FILE))
+      .catch(error => { remoteCatalogStoragePromise = null; throw error; });
+  }
+  return remoteCatalogStoragePromise;
 }
 
-async function fetchRemoteCatalog(providerId, stored) {
-  const url = `${REMOTE_CATALOG_BASE_URL}/api/models/providers/${encodeURIComponent(providerId)}`;
-  const headers = {
-    accept: "application/json",
-    "user-agent": `Stepsemble/${APP_VERSION} (pi model catalog sync)`,
-  };
-  // Only revalidate when a cached body backs the validator, mirroring Pi so a
-  // 304 can never leave the overlay empty.
-  if (stored?.etag && Array.isArray(stored.models) && stored.models.length) {
-    headers["if-none-match"] = stored.etag;
-  }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REMOTE_CATALOG_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, { headers, signal: controller.signal });
-    const etag = response.headers.get("etag") || undefined;
-    const lastModified = Date.parse(response.headers.get("last-modified") || "");
-    let payload = null;
-    if (response.status === 200) payload = await response.json();
-    return { status: response.status, payload, etag, lastModified };
-  } finally {
-    clearTimeout(timer);
-  }
-}
+const remoteCatalogSync = createModelCatalogSync({
+  version: APP_VERSION,
+  offline: () => process.env.PI_OFFLINE !== undefined,
+  readStore() {
+    try { return JSON.parse(fs.readFileSync(MODEL_STORE_FILE, "utf8")); }
+    catch (error) { if (error.code === "ENOENT") return {}; throw error; }
+  },
+  providerIds() {
+    let authenticated = [];
+    try { authenticated = Object.keys(JSON.parse(fs.readFileSync(AUTH_CONFIG_FILE, "utf8"))); } catch {}
+    return [...authenticated, ...modelCatalogCache.models.map(model => model.provider)];
+  },
+  async writeEntry(id, entry, expected) {
+    const storage = await catalogStorage();
+    return storage.withLockAsync(async content => {
+      const latest = content ? JSON.parse(content) : {};
+      if (JSON.stringify(latest[id]) !== JSON.stringify(expected)) return { result: false };
+      latest[id] = entry;
+      return { result: true, next: JSON.stringify(latest, null, 2) + "\n" };
+    });
+  },
+  onChange() { modelCatalogCache = { at: 0, models: [] }; },
+  customSources: providerCatalogSources,
+});
 
-function writeModelStore(store) {
-  const dir = path.dirname(MODEL_STORE_FILE);
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const temp = `${MODEL_STORE_FILE}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  try {
-    fs.writeFileSync(temp, JSON.stringify(store, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
-    fs.renameSync(temp, MODEL_STORE_FILE);
-    try { fs.chmodSync(MODEL_STORE_FILE, 0o600); } catch {}
-  } catch (err) {
-    throw modelConfigError(`Could not write models-store.json: ${err.message}`, 500);
-  }
-}
-
-async function refreshRemoteModelCatalogs({ force = false } = {}) {
-  if (process.env.PI_OFFLINE && !force) return { skipped: true, reason: "PI_OFFLINE" };
-  if (remoteCatalogRefreshPromise) return remoteCatalogRefreshPromise;
-  const run = (async () => {
-    if (!force) remoteCatalogRefreshAt = Date.now();
-    let store;
-    try {
-      store = JSON.parse(fs.readFileSync(MODEL_STORE_FILE, "utf8"));
-    } catch {
-      store = {};
-    }
-    if (!store || typeof store !== "object" || Array.isArray(store)) store = {};
-    const ids = Object.keys(store).filter((id) => providerId(id));
-    const refreshed = [];
-    const errors = [];
-    let storeChanged = false;
-    for (const id of ids) {
-      const stored = store[id] && typeof store[id] === "object" ? store[id] : null;
-      try {
-        const { status, payload, etag, lastModified } = await fetchRemoteCatalog(id, stored);
-        const checkedAt = Date.now();
-        if (status === 304 && stored) {
-          // Unchanged: keep the cached body and validator, move the freshness window.
-          if (stored.checkedAt !== checkedAt) {
-            store[id] = { ...stored, checkedAt };
-            storeChanged = true;
-          }
-          refreshed.push({ id, changed: false });
-        } else if (status === 404 || status === 501) {
-          // The provider has no remote catalog; remember that so later runs skip it.
-          const next = { ...(stored ?? { models: [] }), checkedAt, lastModified: 0, etag: undefined };
-          store[id] = next;
-          storeChanged = true;
-          refreshed.push({ id, changed: false, reason: "no remote catalog" });
-        } else if (status === 200) {
-          const models = parseRemoteCatalogModels(id, payload);
-          const resolvedLastModified = Number.isNaN(lastModified) ? 0 : lastModified;
-          const differs = !stored
-            || stored.etag !== etag
-            || JSON.stringify(stored.models || []) !== JSON.stringify(models);
-          store[id] = { models, checkedAt, lastModified: resolvedLastModified, etag };
-          storeChanged = true;
-          refreshed.push({ id, changed: differs, models: models.length });
-        } else {
-          // Transient failure: keep the cached body and validator for the next run.
-          errors.push({ id, error: `catalog request failed (HTTP ${status})` });
-        }
-      } catch (err) {
-        errors.push({ id, error: err?.message || String(err) });
-      }
-    }
-    if (storeChanged) {
-      writeModelStore(store);
-      modelCatalogCache = { at: 0, models: [] };
-    }
-    return { refreshed, errors, storeChanged };
-  })().catch((err) => {
-    return { refreshed: [], errors: [{ id: null, error: err?.message || String(err) }] };
-  }).finally(() => {
-    remoteCatalogRefreshPromise = null;
-  });
-  remoteCatalogRefreshPromise = run;
-  return run;
+async function refreshRemoteModelCatalogs(options = {}) {
+  return remoteCatalogSync.refresh(options);
 }
 
 function maybeRefreshRemoteModelCatalogs() {
-  if (Date.now() - remoteCatalogRefreshAt < REMOTE_CATALOG_REFRESH_INTERVAL_MS) return;
-  refreshRemoteModelCatalogs().catch(() => {});
+  void refreshRemoteModelCatalogs();
 }
 
-function upsertModelProvider(body) {
+// Periodic revalidation also covers users who never open provider settings.
+// unref keeps this housekeeping timer from holding the process open on exit.
+setInterval(maybeRefreshRemoteModelCatalogs, MODEL_SYNC_INTERVAL_MS).unref();
+
+function upsertModelProvider(body, { manual = null } = {}) {
   const config = readModelConfig();
   const id = providerId(body.id);
   const existing = id ? config.providers[id] : null;
   const next = validateProviderBody(body, existing);
+  // A user-authored list is intentional. Do not overwrite it on a later
+  // automatic discovery pass; choosing the service setup flow enables sync.
+  next.provider.catalogSync = manual === null ? existing?.catalogSync !== false : !manual;
   config.providers[next.id] = next.provider;
   writeModelConfig(config);
   modelCatalogCache = { at: 0, models: [] };
@@ -3571,6 +3505,7 @@ function importModelConfig(body) {
     }
     const existing = config.providers[id] || null;
     const next = validateProviderBody({ ...provider, id }, existing);
+    next.provider.catalogSync = false;
     config.providers[next.id] = next.provider;
     imported.push(next.id);
   }
@@ -4081,8 +4016,8 @@ function mergeExistingProviderModelMetadata(providerId, models) {
   });
 }
 
-async function fetchProviderModels(preset, apiKey) {
-  if (!preset.modelsUrl && Array.isArray(preset.models) && preset.models.length) return parseProviderModels({}, preset.models);
+async function fetchProviderModels(preset, apiKey, { strict = false, signal = null } = {}) {
+  if (!strict && !preset.modelsUrl && Array.isArray(preset.models) && preset.models.length) return parseProviderModels({}, preset.models);
   const endpoint = preset.modelsUrl || localProviderModelsEndpoint(preset.baseUrl);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 7000);
@@ -4090,30 +4025,60 @@ async function fetchProviderModels(preset, apiKey) {
   let text;
   try {
     response = await fetch(endpoint, {
-      signal: controller.signal,
+      signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
+      redirect: "error",
       headers: { Accept: "application/json", ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
     });
     text = await response.text();
   } catch (error) {
-    if (Array.isArray(preset.models) && preset.models.length) return parseProviderModels({}, preset.models);
+    if (!strict && Array.isArray(preset.models) && preset.models.length) return parseProviderModels({}, preset.models);
     throw providerAuthError(`${preset.name} could not load its model list; check the endpoint or API key`, 409);
   } finally {
     clearTimeout(timer);
   }
   if (!response.ok) {
-    if (Array.isArray(preset.models) && preset.models.length) return parseProviderModels({}, preset.models);
+    if (!strict && Array.isArray(preset.models) && preset.models.length) return parseProviderModels({}, preset.models);
     throw providerAuthError(`${preset.name} returned ${response.status}; check the API key or service endpoint`, 409);
   }
   if (text.length > 2 * 1024 * 1024) throw providerAuthError(`${preset.name} returned an oversized model list`, 409);
   let payload;
   try { payload = JSON.parse(text); } catch {
-    if (Array.isArray(preset.models) && preset.models.length) return parseProviderModels({}, preset.models);
+    if (!strict && Array.isArray(preset.models) && preset.models.length) return parseProviderModels({}, preset.models);
     throw providerAuthError(`${preset.name} returned an invalid model list`, 409);
   }
-  let models = parseProviderModels(payload, preset.models);
+  let models = parseProviderModels(payload, strict ? undefined : preset.models);
   if (!models.length) throw providerAuthError(`${preset.name} has no available models`, 409);
   if (isOllamaPreset(preset)) models = await enrichOllamaModels(models, preset, apiKey);
   return models;
+}
+
+// Presets added through automatic discovery keep following the same endpoint.
+// Hand-written providers (including model overrides) have no authoritative
+// discovery source and must remain under the user's control.
+function providerCatalogSources() {
+  const providers = readModelConfig().providers;
+  return Object.entries(providers).flatMap(([id, provider]) => {
+    const preset = [...FREE_PROVIDER_PRESETS, ...GENERIC_PROVIDER_PRESETS].find(item =>
+      item.configId === id && item.baseUrl === provider.baseUrl && (item.api || "openai-completions") === provider.api);
+    // A curated static list is not a live discovery API. Do not announce it as
+    // freshly verified or replace it with a guessed /models response.
+    if (!preset || (!preset.modelsUrl && preset.models?.length) || provider.catalogSync === false) return [];
+    if (provider.apiKey?.startsWith("!")) return [];
+    return [{ id, async refresh({ signal } = {}) {
+      const key = provider.apiKey ? (process.env[provider.apiKey] || provider.apiKey) : "";
+      const models = mergeExistingProviderModelMetadata(id, await fetchProviderModels(preset, key, { strict: true, signal }));
+      const latest = readModelConfig();
+      if (JSON.stringify(latest.providers[id]) !== JSON.stringify(provider)) {
+        throw new Error("Provider settings changed during refresh; will retry");
+      }
+      const changed = JSON.stringify(models) !== JSON.stringify(provider.models);
+      if (changed) {
+        latest.providers[id] = { ...provider, models };
+        writeModelConfig(latest);
+      }
+      return { changed, models: models.length };
+    } }];
+  });
 }
 
 function cleanProviderApiKey(value) {
@@ -4133,7 +4098,7 @@ async function setupGenericProvider(preset, apiKey) {
     baseUrl: preset.baseUrl,
     models,
     apiKey: key,
-  });
+  }, { manual: false });
   return { provider, source: "provider-api" };
 }
 
@@ -4477,7 +4442,7 @@ async function setupFreeProvider(providerId) {
     baseUrl: preset.baseUrl,
     models,
     clearApiKey: true,
-  });
+  }, { manual: false });
   return { provider, source: "local" };
 }
 
@@ -6016,9 +5981,7 @@ const server = http.createServer(async (req, res) => {
         try {
           const catalog = await listProviderCatalog();
           sendJSON(res, 200, catalog);
-          // Fire-and-forget: revalidate persisted pi.dev overlays on a 4h
-          // window so a provider without a Pi credential still tracks upstream
-          // model changes while the settings page is open.
+          // Revalidation is shared with model reads and the background timer.
           maybeRefreshRemoteModelCatalogs();
         } catch (e) {
           sendJSON(res, e.statusCode || 500, { error: e.message || "Provider catalog unavailable" });
@@ -6119,7 +6082,7 @@ const server = http.createServer(async (req, res) => {
           if (body.action === "delete") {
             sendJSON(res, 200, deleteModelProvider(body.id));
           } else {
-            sendJSON(res, 200, { provider: upsertModelProvider(body) });
+            sendJSON(res, 200, { provider: upsertModelProvider(body, { manual: true }) });
           }
         } catch (e) {
           sendJSON(res, e.statusCode || 409, { error: e.message });
@@ -6138,7 +6101,7 @@ const server = http.createServer(async (req, res) => {
 
       if (p === "/api/models" && req.method === "GET") {
         getAvailableModels(url.searchParams.get("sid") || null)
-          .then((models) => sendJSON(res, 200, { models }))
+          .then((models) => sendJSON(res, 200, { models, catalog: remoteCatalogSync.status() }))
           .catch((e) => sendJSON(res, e.statusCode || (e.message.includes("timeout") ? 504 : 409), { error: e.message }));
         return;
       }

@@ -1,7 +1,7 @@
-/* stepsemble v3.0.71 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.72 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.71";
+const CLIENT_APP_VERSION = "3.0.72";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -294,6 +294,7 @@ function promoteDraftScope(file) {
 }
 let providerCatalogMachine = null;
 let modelCatalogMachine = null;
+let modelCatalogLoadedAt = 0;
 let modelCatalogLoading = false;
 let modelCatalogRequest = null;
 const expandedModelProviders = new Set();
@@ -9165,14 +9166,14 @@ function acpModelOption(configOptions) {
     || null;
 }
 
-async function openModelSheet() {
+async function openModelSheet({ preserveSearch = false } = {}) {
   const connection = rpc;
   const expectedSid = connection?.sid;
   const expectedGeneration = viewGeneration;
   const expectedBase = apiBase;
   if (!expectedSid) { toast("對話未開啟"); return; }
   el.modelSheet.classList.remove("hidden");
-  if (el.modelSearch) { el.modelSearch.value = ""; }
+  if (el.modelSearch && !preserveSearch) { el.modelSearch.value = ""; }
   const stillCurrent = () => rpc === connection && rpc?.sid === expectedSid
     && viewGeneration === expectedGeneration && apiBase === expectedBase;
   // Re-use a cached list for this session. Keeping the previous rows in place
@@ -9271,13 +9272,13 @@ async function openModelSheet() {
       return;
     }
     const [modelsRes, stateRes] = await Promise.allSettled([
-      rpcCmd(expectedSid, { type: "get_available_models" }),
+      api(`/api/models?sid=${encodeURIComponent(expectedSid)}`),
       rpcCmd(expectedSid, { type: "get_state" }),
     ]);
     if (!stillCurrent()) return;
-    if (modelsRes.status === "fulfilled" && modelsRes.value && modelsRes.value.success) {
-      availableModels = (modelsRes.value.data && modelsRes.value.data.models) || [];
-    }
+    if (modelsRes.status === "rejected") throw modelsRes.reason;
+    availableModels = modelsRes.value?.models || [];
+    if (modelsRes.value?.catalog?.errors?.length) toast(tKey("modelsCheck.failed", { count: modelsRes.value.catalog.errors.length }));
     let currentId = null, currentProvider = null, curThinking = null;
     if (stateRes.status === "fulfilled" && stateRes.value && stateRes.value.success) {
       currentId = (stateRes.value.data && stateRes.value.data.model && stateRes.value.data.model.id) || null;
@@ -9541,12 +9542,12 @@ async function openCommandPalette() {
   el.commandInput?.focus({ preventScroll: true });
   // Models come from the live RPC; append them once the catalog answers so
   // opening the palette stays instant.
-  if (rpc?.sid) {
+  if (rpc?.sid && !rpc.generic) {
     const expectedSid = rpc.sid;
     try {
-      const r = await rpcCmd(expectedSid, { type: "get_available_models" });
-      if (rpc?.sid === expectedSid && r?.success && el.commandPalette && !el.commandPalette.classList.contains("hidden")) {
-        const models = (r.data?.models || []).filter((m) => isModelVisible(m)).slice(0, 60);
+      const r = await api(`/api/models?sid=${encodeURIComponent(expectedSid)}`);
+      if (rpc?.sid === expectedSid && Array.isArray(r?.models) && el.commandPalette && !el.commandPalette.classList.contains("hidden")) {
+        const models = r.models.filter((m) => isModelVisible(m)).slice(0, 60);
         const modelItems = models.map((m) => ({
           kind: "model",
           label: `${m.name || m.id} · ${m.provider || "?"}`,
@@ -9605,6 +9606,17 @@ el.commandResults?.addEventListener("click", (event) => {
 });
 
 function closeModelSheet() { el.modelSheet.classList.add("hidden"); }
+function refreshVisibleModelCatalogs() {
+  if (document.hidden) return;
+  if (el.modelSheet && !el.modelSheet.classList.contains("hidden") && rpc?.sid && !rpc.generic) {
+    void openModelSheet({ preserveSearch: true });
+  }
+  if (el.viewModelSettings && !el.viewModelSettings.classList.contains("hidden") && currentModelSettingsAgent() === "pi") {
+    void loadModelVisibility();
+  }
+}
+setInterval(refreshVisibleModelCatalogs, 5 * 60 * 1000);
+document.addEventListener("visibilitychange", refreshVisibleModelCatalogs);
 el.modelClose.addEventListener("click", closeModelSheet);
 el.modelSearch?.addEventListener("input", () => renderModelList(modelSheetCurrentId, modelSheetCurrentProvider));
 el.modelSheet.addEventListener("click", (event) => {
@@ -12268,7 +12280,7 @@ async function loadModelVisibility(force = false, skipSession = false) {
   if (modelCatalogLoading && !force) return;
   if (modelCatalogRequest) modelCatalogRequest.abort();
   const machine = modelMachineKey();
-  if (!force && modelCatalogMachine === machine) {
+  if (!force && modelCatalogMachine === machine && Date.now() - modelCatalogLoadedAt < 60_000) {
     renderModelVisibility();
     return;
   }
@@ -12283,7 +12295,9 @@ async function loadModelVisibility(force = false, skipSession = false) {
   renderModelSettingsSummary();
   el.modelVisibilityList.innerHTML = '<p class="settings-note model-visibility-empty">讀取模型清單中…</p>';
   try {
-    const sid = !skipSession && rpc?.sid ? `?sid=${encodeURIComponent(rpc.sid)}` : "";
+    // Settings describe host-wide provider configuration; a session may have
+    // its own extensions and a stale snapshot and is not the catalog owner.
+    const sid = "";
     const [modelsResult, providersResult] = await Promise.allSettled([
       api("/api/models" + sid, { signal: request.signal }),
       api("/api/model-providers", { signal: request.signal }),
@@ -12291,6 +12305,16 @@ async function loadModelVisibility(force = false, skipSession = false) {
     if (request.signal.aborted || generation !== viewGeneration || baseAtStart !== apiBase) return;
     if (modelsResult.status === "rejected") throw modelsResult.reason;
     modelCatalog = Array.isArray(modelsResult.value?.models) ? modelsResult.value.models : [];
+    const catalogStatus = $("model-catalog-status");
+    if (catalogStatus) {
+      delete catalogStatus.dataset.i18nKey;
+      const status = modelsResult.value?.catalog;
+      const failures = status?.errors?.length || 0;
+      catalogStatus.textContent = failures ? tKey("modelsCheck.failed", { count: failures })
+        : status?.checkedAt ? `${tKey("modelsCheck.auto")} · ${new Date(status.checkedAt).toLocaleTimeString()}`
+          : tKey("modelsCheck.auto");
+      catalogStatus.classList.toggle("error-text", failures > 0);
+    }
     if (providersResult.status === "fulfilled") {
       configuredProviders = Array.isArray(providersResult.value?.providers) ? providersResult.value.providers : [];
       modelProviderError = "";
@@ -12307,6 +12331,7 @@ async function loadModelVisibility(force = false, skipSession = false) {
       }
     }
     modelCatalogMachine = machine;
+    modelCatalogLoadedAt = Date.now();
     renderModelVisibility();
   } catch (e) {
     if (e.name === "AbortError") return;
@@ -12338,8 +12363,9 @@ el.modelCatalogRefresh?.addEventListener("click", async () => {
     // Force a global (not session-scoped) reload so the refreshed pi.dev
     // overlay from models-store.json is what renders, even inside a chat.
     await loadModelVisibility(true, true);
-    if (changed) toast(tKey("modelsCheck.updated", { count: changed }));
-    else if (failed && !result?.refreshed?.length) toast(tKey("modelsCheck.failed", { count: failed }));
+    if (failed) toast(tKey("modelsCheck.failed", { count: failed }));
+    else if (changed) toast(tKey("modelsCheck.updated", { count: changed }));
+    else if (result?.skipped || !result?.refreshed?.some(item => item.supported !== false)) toast(tKey("modelsCheck.unavailable"));
     else toast(tKey("modelsCheck.current"));
   } catch (e) {
     toast(tKey("modelsCheck.requestFailed", { detail: e?.message || "" }));
@@ -12377,6 +12403,7 @@ function applyModelSettingsAgent() {
   el.providerConfigImport?.classList.toggle("hidden", !pi);
   el.providerConfigExport?.classList.toggle("hidden", !pi);
   if (el.modelCatalogRefresh) el.modelCatalogRefresh.classList.toggle("hidden", !pi);
+  $("model-catalog-status")?.classList.toggle("hidden", !pi);
   el.modelListToolbar?.classList.toggle("hidden", !pi);
   el.modelVisibilityList?.classList.toggle("hidden", !pi);
   el.opencodeProviderPanel?.classList.toggle("hidden", !opencode);

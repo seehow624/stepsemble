@@ -156,7 +156,7 @@ test("isolated HTTP native boundary preserves responses, reconnect replay, and a
     const launched = await (await rpc(item.sid, { type: "fixture_args" })).json();
     owned.push({ sid: item.sid, pid: launched.data.pid });
     assert.ok(launched.data.args.includes("--mode"));
-    if (item === a) assert.deepEqual(launched.data.args, ["--mode", "rpc", "--name", "Synthetic name with spaces"]);
+    if (item === a) assert.deepEqual(launched.data.args, ["--mode", "rpc", "--extension", path.join(root, "server", "pi-catalog-extension.mjs"), "--name", "Synthetic name with spaces"]);
   }
   const state = await (await rpc(a.sid, { type: "get_state", id: "client-controlled" })).json();
   assert.equal(state.success, true); assert.notEqual(state.id, "client-controlled");

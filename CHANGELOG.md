@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.72
+
+- Refresh Pi model catalogs when opening the picker and every five minutes; follow added, renamed, and retired models without re-entering API keys.
+- Reload the model registry inside existing Stepsemble Pi sessions through a verified extension command, with no inference or conversation restart. Keep session catalogs out of the global settings cache.
+- Refresh automatically discovered provider presets against their configured endpoints; preserve manual/imported model lists, credentials, and concurrent edits. Show failed or unsupported checks instead of claiming every catalog is current.
+- Use Pi's own storage lock for per-provider catalog commits, coalesce requests, bound network work, and retain last-good data during outages.
+
 ## 3.0.71
 
 Report thinking support per Claude Code model instead of one fixed level.
