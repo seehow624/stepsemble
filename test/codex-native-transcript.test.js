@@ -3,6 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
+const agentTranscriptPresentation = require("../public/modules/agent-transcript-presentation.js");
 
 const source = fs.readFileSync(require.resolve("../public/app.js"), "utf8");
 const slice = source.slice(source.indexOf("function codexNativeItemText("), source.indexOf("async function openCodexNativeTask("));
@@ -43,6 +44,7 @@ class Node {
 function harness(api) {
   const messages = new Node(), notices = [], calls = [], contextCalls = [], timers = [];
   const ctx = vm.createContext({ URLSearchParams, AbortController, apiBase: "/r/owned", viewGeneration: 1,
+    agentTranscriptPresentation,
     codexNativeHistoryButton: null, codexNativePollTimer: null, autoScrollPinned: false,
     document: { createElement: tag => new Node(tag) },
     window: { stepsembleI18n: { t: value => value } },
@@ -117,6 +119,22 @@ test("repeated or cyclic cursors fail visibly without claiming EOF or applying t
     assert.equal(h.state.itemsCursor, "c2"); assert.equal(h.state.entries.length, 2);
     assert.equal(h.state.hasMore, true);
   }
+});
+
+test("one Codex turn groups reasoning and tools ahead of its final answer", () => {
+  const h = harness(() => {});
+  const rows = [
+    { turnId: "turn-a", item: { id: "answer", type: "agentMessage", text: "done" } },
+    { turnId: "turn-a", item: { id: "edit", type: "fileChange", status: "completed", changes: [{ path: "/owned/app.js" }] } },
+    { turnId: "turn-a", item: { id: "command", type: "commandExecution", status: "completed", command: "npm test", aggregatedOutput: "ok" } },
+    { turnId: "turn-a", item: { id: "reason", type: "reasoning", summary: [{ text: "checking" }] } },
+    { turnId: "turn-a", item: { id: "user", type: "userMessage", content: [{ type: "text", text: "fix it" }] } },
+  ];
+  const units = h.ctx.codexNativeRenderUnits(rows);
+  assert.deepEqual(plain(units).map(unit => [unit.kind, unit.rows?.length || 0]), [
+    ["message", 0], ["work", 3], ["message", 0],
+  ]);
+  assert.equal(units[1].key, "work:turn-a");
 });
 
 test("polling preserves old pages and their cursors, updates same-length content and keeps unchanged nodes", async () => {

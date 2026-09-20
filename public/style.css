@@ -1,4 +1,4 @@
-/* stepsemble v3.0.74 — Ink & Ivory / English-first localization */
+/* stepsemble v3.0.75 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -2124,6 +2124,13 @@ html.reduced-motion .agent-task-center-row.running.reconnecting .agent-task-dot 
   color: var(--pine-text);
 }
 .agent-terminal-output.stderr { color: var(--danger, #e0715c); }
+.agent-structured-output {
+  min-width: 0;
+  color: var(--ink);
+  font: inherit;
+}
+.agent-structured-output > .md-body > :first-child { margin-top: 0; }
+.agent-structured-output > .md-body > :last-child { margin-bottom: 0; }
 .agent-terminal-input {
   margin: 0;
   white-space: pre-wrap;

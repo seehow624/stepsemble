@@ -1,7 +1,7 @@
-/* stepsemble v3.0.74 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.75 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.74";
+const CLIENT_APP_VERSION = "3.0.75";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -13,7 +13,8 @@ const piSession = window.StepsemblePiSession;
 const contextUtils = window.stepsembleContextUtils;
 const openCodeContext = window.stepsembleOpenCodeContext;
 const claudeStructuredRendering = window.stepsembleClaudeStructuredRendering;
-if (!foundation || !sessionUtils || !contextUtils || !piSession) throw new Error("Stepsemble foundation modules are missing");
+const agentTranscriptPresentation = window.stepsembleAgentTranscriptPresentation;
+if (!foundation || !sessionUtils || !contextUtils || !piSession || !agentTranscriptPresentation) throw new Error("Stepsemble foundation modules are missing");
 const {
   SELECTED_KEY, SETTINGS_KEY, LEGACY_SETTINGS_KEY, LEGACY_SETTINGS_KEYS, SETTINGS_VERSION,
   DESIGN_THEMES, DESIGN_THEME_IDS, DEFAULT_SETTINGS,
@@ -4628,13 +4629,36 @@ function ensureGenericOutputNode(stream = "stdout") {
   if (!rpc?.generic) return null;
   if (!rpc.genericOutputNode || rpc.genericOutputNode.dataset.stream !== stream) {
     const shell = makeMsgShell("assistant", rpc.agentLabel || "Agent");
-    const pre = document.createElement("pre");
-    pre.className = `agent-terminal-output ${stream === "stderr" ? "stderr" : "stdout"}`;
-    pre.dataset.stream = stream;
-    shell.bubble.appendChild(pre);
-    rpc.genericOutputNode = pre;
+    const structured = stream === "stdout" && !!(rpc.nativeClaudeStructured || rpc.nativeGrokAcp || rpc.nativeAcp || rpc.nativeAntigravityStructured);
+    const output = document.createElement(structured ? "div" : "pre");
+    output.className = structured ? "agent-structured-output" : `agent-terminal-output ${stream === "stderr" ? "stderr" : "stdout"}`;
+    output.dataset.stream = stream;
+    output.__rawText = "";
+    shell.bubble.appendChild(output);
+    rpc.genericOutputNode = output;
   }
   return rpc.genericOutputNode;
+}
+
+function genericOutputText(node) {
+  return typeof node?.__rawText === "string" ? node.__rawText : String(node?.textContent || "");
+}
+
+function setGenericOutputText(node, value) {
+  if (!node) return;
+  const next = String(value || "");
+  node.__rawText = next;
+  if (!node.classList.contains("agent-structured-output")) {
+    node.textContent = next;
+    return;
+  }
+  if (node.__renderFrame) return;
+  node.__renderFrame = requestAnimationFrame(() => {
+    node.__renderFrame = null;
+    if (!node.isConnected) return;
+    node.replaceChildren(renderMarkdown(node.__rawText || ""));
+    scrollBottom();
+  });
 }
 
 function appendGenericOutput(text, stream = "stdout") {
@@ -4643,7 +4667,7 @@ function appendGenericOutput(text, stream = "stdout") {
   if (!clean) return;
   const node = ensureGenericOutputNode(stream);
   if (!node) return;
-  node.textContent += clean;
+  setGenericOutputText(node, genericOutputText(node) + clean);
   scrollBottom();
 }
 
@@ -4653,9 +4677,10 @@ function replaceClaudeStructuredOutputTail(connection, text) {
   if (!clean) return;
   const node = ensureGenericOutputNode("stdout");
   if (!node) return;
+  const current = genericOutputText(node);
   const start = Number.isSafeInteger(connection.claudeOutputStart)
-    ? Math.min(Math.max(0, connection.claudeOutputStart), node.textContent.length) : node.textContent.length;
-  node.textContent = node.textContent.slice(0, start) + clean;
+    ? Math.min(Math.max(0, connection.claudeOutputStart), current.length) : current.length;
+  setGenericOutputText(node, current.slice(0, start) + clean);
   scrollBottom();
 }
 
@@ -4763,20 +4788,45 @@ function handleAgentTaskEvent(ev, eventSid = rpc?.sid) {
 }
 
 function openCodeMessageText(message) {
-  const parts = Array.isArray(message?.parts) ? message.parts : [];
-  const text = parts.filter(part => part?.type === "text" && typeof part.text === "string").map(part => part.text).join("");
-  if (text) return text;
-  const fallback = parts.map(part => {
-    if (!part || typeof part !== "object") return "";
-    if (part.type === "reasoning" && typeof part.text === "string") return part.text;
-    if (part.type === "tool") {
-      const state = part.state || {};
-      return `[${part.tool || "tool"}] ${state.title || state.output || state.error || state.status || ""}`;
+  return agentTranscriptPresentation.openCodeMessage(message)?.text || "";
+}
+
+function appendNormalizedAgentMessage(view, label, container = el.messages, model = null) {
+  if (!view) return null;
+  if (view.role === "user") {
+    const { bubble } = makeMsgShell("user", "你", container);
+    if (view.text) bubble.appendChild(renderMarkdown(view.text));
+    if (!view.text && view.images) {
+      const note = document.createElement("span");
+      note.className = "image-message-fallback";
+      note.textContent = `[${view.images} 張附件]`;
+      bubble.appendChild(note);
     }
-    if (part.type === "subtask") return `[subagent] ${part.description || part.prompt || part.agent || ""}`;
-    return "";
-  }).filter(Boolean).join("\n\n");
-  return fallback.slice(0, 512 * 1024);
+    return bubble;
+  }
+  const { wrap, bubble } = makeMsgShell("assistant", model ? `${label} · ${model}` : label, container);
+  const tools = Array.isArray(view.tools) ? view.tools : [];
+  let activity = null;
+  if (view.thinking || tools.length) {
+    activity = makeActivityGroup({ running: tools.some(tool => tool.running) });
+    bubble.appendChild(activity.details);
+    if (view.thinking) activity.body.appendChild(makeThinking(view.thinking));
+    for (const tool of tools) {
+      const output = tool.output || (tool.running ? null : tool.isError ? "（沒有收到工具輸出）" : "（無輸出）");
+      const card = makeToolCard(tool.name, tool.args, output, tool.isError, tool.running);
+      card.dataset.nativeToolId = tool.id || "";
+      activity.body.appendChild(card);
+      activity.latest = toolTitle(tool.name, tool.args, tool.running);
+    }
+    updateActivityGroup(activity, {
+      running: tools.some(tool => tool.running), count: tools.length,
+      latest: activity.latest || (view.thinking ? "Thinking" : ""),
+      hasError: tools.some(tool => tool.isError),
+    });
+  }
+  if (view.text) bubble.appendChild(renderMarkdown(view.text));
+  if (view.text) wrap.appendChild(msgActionsRow("assistant", () => view.text));
+  return bubble;
 }
 
 function nativeOpenCodePermissionCard(permission) {
@@ -4836,9 +4886,10 @@ function renderOpenCodeNativeSnapshot(snapshot, { replace = false } = {}) {
   const messages = Array.isArray(snapshot.messages) ? [...snapshot.messages] : [];
   messages.sort((a, b) => (Number(a?.time?.created) || 0) - (Number(b?.time?.created) || 0));
   for (const message of messages) {
-    const role = message?.role === "user" ? "user" : message?.role === "assistant" ? "assistant" : null;
-    if (!role) continue;
-    appendHistoryMessage({ role, text: openCodeMessageText(message), model: message?.info?.model?.modelID || message?.info?.model?.modelId || null });
+    const view = agentTranscriptPresentation.openCodeMessage(message);
+    if (!view) continue;
+    appendNormalizedAgentMessage(view, "OpenCode", el.messages,
+      message?.info?.model?.modelID || message?.info?.model?.modelId || message?.info?.modelID || null);
   }
   for (const permission of Array.isArray(snapshot.permissions) ? snapshot.permissions : []) nativeOpenCodePermissionCard(permission);
   if (revision) rpc.nativeRenderedRevision = revision;
@@ -4903,61 +4954,86 @@ async function refreshOpenCodeNativeSnapshot(connection, { initial = false } = {
 }
 
 function codexNativeItemText(item) {
-  if (!item || typeof item !== "object") return "";
-  const textPart = part => {
-    if (typeof part === "string") return part;
-    if (!part || typeof part !== "object") return "";
-    if (typeof part.text === "string") return part.text;
-    if (typeof part.summary === "string") return part.summary;
-    if (typeof part.content === "string") return part.content;
-    return "";
-  };
-  if (item.type === "userMessage") {
-    return (Array.isArray(item.content) ? item.content : []).map(part => {
-      if (part?.type === "text") return textPart(part);
-      if (part?.type === "skill") return `[skill: ${part.name || part.path || ""}]`;
-      if (part?.type === "mention") return `[mention: ${part.name || part.path || ""}]`;
-      if (part?.type === "image" || part?.type === "localImage") return "[image]";
-      return "";
-    }).filter(Boolean).join("\n");
-  }
-  if (item.type === "agentMessage" || item.type === "plan") return String(item.text || "");
-  if (item.type === "reasoning") return (Array.isArray(item.summary) ? item.summary : [])
-    .concat(Array.isArray(item.content) ? item.content : []).map(textPart).filter(Boolean).join("\n");
-  if (item.type === "commandExecution") {
-    const output = item.aggregatedOutput || "";
-    return [`$ ${item.command || "command"}`, output].filter(Boolean).join("\n");
-  }
-  if (item.type === "fileChange") return `File changes · ${item.status || "observed"}`;
-  if (item.type === "functionCallOutput") {
-    const output = typeof item.output === "string" ? item.output : JSON.stringify(item.output || "");
-    return `${item.name || "function"}${output ? `\n${output}` : ""}`;
-  }
-  if (item.type === "mcpToolCall" || item.type === "dynamicToolCall" || item.type === "webSearch") {
-    return `[${item.type}] ${item.name || item.tool || item.query || item.status || "observed"}`;
-  }
-  return item.type ? `[${item.type}]` : "";
+  const view = agentTranscriptPresentation.codexItem(item);
+  return view?.text || view?.tool?.output || "";
 }
 
 function appendCodexNativeItem(item, container = el.messages) {
-  const text = codexNativeItemText(item);
-  if (!text) return;
-  if (item.type === "userMessage") {
+  const view = agentTranscriptPresentation.codexItem(item);
+  if (!view) return;
+  if (view.kind === "message" && view.role === "user") {
     const { bubble } = makeMsgShell("user", "你", container);
-    bubble.appendChild(renderMarkdown(text));
+    if (view.text) bubble.appendChild(renderMarkdown(view.text));
     return;
   }
-  if (item.type === "agentMessage" || item.type === "plan") {
+  if (view.kind === "message") {
     const { wrap, bubble } = makeMsgShell("assistant", "Codex", container);
-    bubble.appendChild(renderMarkdown(text));
-    wrap.appendChild(msgActionsRow("assistant", () => text));
+    if (view.text) bubble.appendChild(renderMarkdown(view.text));
+    if (view.text) wrap.appendChild(msgActionsRow("assistant", () => view.text));
     return;
   }
   const { bubble } = makeMsgShell("assistant", "Codex", container);
-  const pre = document.createElement("pre");
-  pre.className = "agent-terminal-output";
-  pre.textContent = text.slice(0, 512 * 1024);
-  bubble.appendChild(pre);
+  if (view.kind === "thinking") {
+    bubble.appendChild(makeThinking(view.text));
+    return;
+  }
+  if (view.kind === "tool") {
+    const tool = view.tool;
+    const output = tool.output || (tool.running ? null : tool.isError ? "（沒有收到工具輸出）" : "（無輸出）");
+    const card = makeToolCard(tool.name, tool.args, output, tool.isError, tool.running);
+    card.classList.add("native-tool-card");
+    card.dataset.nativeToolId = tool.id || "";
+    bubble.appendChild(card);
+  }
+}
+
+function codexNativeRenderUnits(entries) {
+  const units = [];
+  const workByTurn = new Map();
+  for (const entry of [...entries].reverse()) {
+    const view = agentTranscriptPresentation.codexItem(entry.item);
+    if (!view) continue;
+    if (view.kind === "tool" || view.kind === "thinking") {
+      const turnId = String(entry.turnId || "unknown-turn");
+      let unit = workByTurn.get(turnId);
+      if (!unit) {
+        unit = { key: `work:${turnId}`, kind: "work", turnId, rows: [] };
+        workByTurn.set(turnId, unit);
+        units.push(unit);
+      }
+      unit.rows.push({ item: entry.item, view });
+      continue;
+    }
+    units.push({ key: `item:${codexNativeEntryKey(entry)}`, kind: "message", item: entry.item, view });
+  }
+  return units;
+}
+
+function appendCodexNativeActivity(rows, container = el.messages) {
+  const values = Array.isArray(rows) ? rows : [];
+  if (!values.length) return;
+  const { bubble } = makeMsgShell("assistant", "Codex", container);
+  const tools = values.map(row => row.view?.tool).filter(Boolean);
+  const activity = makeActivityGroup({ running: tools.some(tool => tool.running), count: tools.length });
+  bubble.appendChild(activity.details);
+  for (const row of values) {
+    if (row.view?.kind === "thinking") {
+      activity.body.appendChild(makeThinking(row.view.text));
+      continue;
+    }
+    const tool = row.view?.tool;
+    if (!tool) continue;
+    const output = tool.output || (tool.running ? null : tool.isError ? "（沒有收到工具輸出）" : "（無輸出）");
+    const card = makeToolCard(tool.name, tool.args, output, tool.isError, tool.running);
+    card.classList.add("native-tool-card");
+    card.dataset.nativeToolId = tool.id || "";
+    activity.body.appendChild(card);
+    activity.latest = toolTitle(tool.name, tool.args, tool.running);
+  }
+  updateActivityGroup(activity, {
+    running: tools.some(tool => tool.running), count: tools.length,
+    latest: activity.latest || "Thinking", hasError: tools.some(tool => tool.isError),
+  });
 }
 
 // Cursors are independent: undefined retries the first page, null means EOF.
@@ -5147,13 +5223,16 @@ function renderCodexNativeSnapshot(connection, { preserveScroll = false } = {}) 
   // Preserve chronological item order independently of turn-page boundaries.
   // Summary items are not complete transcript entries and must not be mixed in.
   let previous = null;
-  for (const entry of [...state.entries].reverse()) {
-    const key = codexNativeEntryKey(entry);
-    const revision = JSON.stringify(entry.item);
+  const activeKeys = new Set();
+  for (const unit of codexNativeRenderUnits(state.entries)) {
+    const key = unit.key;
+    activeKeys.add(key);
+    const revision = JSON.stringify(unit.kind === "work" ? unit.rows.map(row => row.item) : unit.item);
     let row = rendered.get(key);
     if (!row || row.revision !== revision) {
       const staging = document.createElement("div");
-      appendCodexNativeItem(entry.item, staging);
+      if (unit.kind === "work") appendCodexNativeActivity(unit.rows, staging);
+      else appendCodexNativeItem(unit.item, staging);
       const node = staging.firstChild;
       if (!node) continue;
       node.classList.remove("msg-in");
@@ -5166,6 +5245,11 @@ function renderCodexNativeSnapshot(connection, { preserveScroll = false } = {}) 
       ? codexNativeHistoryButton.nextSibling : el.messages.firstChild;
     if (row.node !== reference) el.messages.insertBefore(row.node, reference);
     previous = row.node;
+  }
+  for (const [key, row] of rendered) {
+    if (activeKeys.has(key)) continue;
+    row.node?.remove?.();
+    rendered.delete(key);
   }
   connection.nativeRenderedRevision = true;
   ensureSessionUsageFooter();
@@ -5523,18 +5607,74 @@ async function openOpenCodeNativeTask(task, generationOverride = null) {
   }
 }
 
+function resetStructuredTranscriptPresentation(connection) {
+  if (!connection) return;
+  connection.structuredToolCards = new Map();
+  connection.structuredThinking = null;
+  connection.genericOutputNode = null;
+}
+
+function appendStructuredThinking(connection, value, label) {
+  const text = String(value || "");
+  if (!text) return;
+  let state = connection.structuredThinking;
+  if (!state?.block?.isConnected) {
+    const shell = makeMsgShell("assistant", label);
+    const node = makeThinking("");
+    const block = node.querySelector(".thinking-block");
+    shell.bubble.appendChild(node);
+    state = { wrap: shell.wrap, node, block };
+    connection.structuredThinking = state;
+  }
+  if (state.block) state.block.textContent += text;
+  connection.genericOutputNode = null;
+}
+
+function appendStructuredTool(connection, tool, label, fallbackKey) {
+  if (!tool) return;
+  const key = String(tool.id || fallbackKey || `tool-${connection.structuredToolCards?.size || 0}`);
+  connection.structuredToolCards ||= new Map();
+  let card = connection.structuredToolCards.get(key);
+  const output = tool.output || (tool.running ? null : tool.isError ? "（沒有收到工具輸出）" : "（無輸出）");
+  if (!card?.isConnected) {
+    const shell = makeMsgShell("assistant", label);
+    card = makeToolCard(tool.name, tool.args, output, tool.isError, tool.running);
+    card.classList.add("native-tool-card");
+    card.dataset.nativeToolId = key;
+    shell.bubble.appendChild(card);
+    connection.structuredToolCards.set(key, card);
+  } else {
+    const previous = card.__tool || {};
+    const nextName = tool.name === "tool" && previous.name ? previous.name : tool.name;
+    const nextArgs = tool.args && Object.keys(tool.args).length ? tool.args : previous.args;
+    card.__tool = { name: nextName, args: nextArgs };
+    setToolCardState(card, { running: tool.running, isError: tool.isError, text: output });
+  }
+  // Any prose emitted after this call belongs below the tool row instead of
+  // being appended to the response bubble that preceded it.
+  connection.genericOutputNode = null;
+  connection.structuredThinking = null;
+}
+
+function renderAgentProtocolUpdate(connection, update, label, fallbackKey) {
+  const view = agentTranscriptPresentation.acpUpdate(update);
+  if (!view) return;
+  if (view.kind === "message_delta") {
+    connection.structuredThinking = null;
+    appendGenericOutput(view.text, "stdout");
+  } else if (view.kind === "thinking_delta") {
+    appendStructuredThinking(connection, view.text, label);
+  } else if (view.kind === "tool") {
+    appendStructuredTool(connection, view.tool, label, fallbackKey);
+  }
+}
+
 function renderGrokAcpEvents(connection, events, { replace = false } = {}) {
   if (rpc !== connection || !connection?.nativeGrokAcp) return;
   const rows = Array.isArray(events) ? events : [];
-  if (replace) { el.messages.innerHTML = ""; connection.grokEventIndex = 0; }
+  if (replace) { el.messages.innerHTML = ""; connection.grokEventIndex = 0; resetStructuredTranscriptPresentation(connection); }
   for (let index = connection.grokEventIndex || 0; index < rows.length; index += 1) {
-    const event = rows[index];
-    const update = event?.update;
-    const content = update?.content;
-    if (update?.sessionUpdate === "agent_message_chunk" && content?.text) appendGenericOutput(String(content.text), "stdout");
-    else if (update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") {
-      appendGenericOutput(`[${String(content?.text || update.title || "tool").slice(0, 512)}]`, "stdout");
-    }
+    renderAgentProtocolUpdate(connection, rows[index]?.update, connection.agentLabel || "Grok Build", `grok-${index}`);
   }
   connection.grokEventIndex = rows.length;
   keepSessionUsageAtEnd();
@@ -5662,6 +5802,7 @@ function renderClaudeStructuredEvents(connection, events, { replace = false } = 
     rpc.genericOutputNode = null;
     connection.claudeEventIndex = 0;
     connection.claudeOutputStart = null;
+    resetStructuredTranscriptPresentation(connection);
     connection.claudeRenderer?.reset?.();
   }
   const renderer = connection.claudeRenderer
@@ -5669,11 +5810,14 @@ function renderClaudeStructuredEvents(connection, events, { replace = false } = 
   connection.claudeRenderer = renderer;
   for (let index = connection.claudeEventIndex || 0; index < rows.length; index += 1) {
     const event = rows[index];
+    for (const [activityIndex, activity] of agentTranscriptPresentation.claudeEvent(event).entries()) {
+      if (activity.kind === "tool") appendStructuredTool(connection, activity.tool, connection.agentLabel || "Claude Code", `claude-${index}-${activityIndex}`);
+    }
     const update = renderer?.consume?.(event);
     if (!update?.text) continue;
     if (update.beginTurn || !Number.isSafeInteger(connection.claudeOutputStart)) {
       const current = rpc.genericOutputNode;
-      connection.claudeOutputStart = current?.dataset?.stream === "stdout" ? current.textContent.length : 0;
+      connection.claudeOutputStart = current?.dataset?.stream === "stdout" ? genericOutputText(current).length : 0;
     }
     if (update.mode === "replace") replaceClaudeStructuredOutputTail(connection, update.text);
     else appendGenericOutput(update.text, "stdout");
@@ -5918,15 +6062,9 @@ function acpAgentLabel(connection) {
 function renderAgentClientProtocolEvents(connection, events, { replace = false } = {}) {
   if (rpc !== connection || !connection?.nativeAcp) return;
   const rows = Array.isArray(events) ? events : [];
-  if (replace) { el.messages.innerHTML = ""; connection.acpEventIndex = 0; }
+  if (replace) { el.messages.innerHTML = ""; connection.acpEventIndex = 0; resetStructuredTranscriptPresentation(connection); }
   for (let index = connection.acpEventIndex || 0; index < rows.length; index += 1) {
-    const update = rows[index]?.update || {};
-    const content = update.content || {};
-    if (["agent_message_chunk", "agent_thought_chunk"].includes(update.sessionUpdate) && content.text) appendGenericOutput(String(content.text), "stdout");
-    else if (["tool_call", "tool_call_update"].includes(update.sessionUpdate)) {
-      const title = content.text || update.title || update.name || update.toolCallId || "tool";
-      appendGenericOutput(`[${String(title).slice(0, 512)}]`, "stdout");
-    }
+    renderAgentProtocolUpdate(connection, rows[index]?.update || {}, acpAgentLabel(connection), `acp-${index}`);
   }
   connection.acpEventIndex = rows.length;
   keepSessionUsageAtEnd(); scrollBottom();

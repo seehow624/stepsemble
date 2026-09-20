@@ -140,7 +140,14 @@ function openCodeMessages() {
       sessionID: OPENCODE_SESSION,
       role: "assistant",
       time: { created: startedAt + 2, completed: startedAt + 3 },
-      parts: [{ type: "text", text: "Synthetic OpenCode response. No provider was called." }],
+      parts: [
+        { type: "reasoning", text: "Synthetic reasoning stays collapsed." },
+        { type: "tool", callID: "fixture-opencode-tool-0", tool: "read", state: {
+          status: "completed", input: { path: "/tmp/stepsemble-native-composer/SKILL.md" },
+          output: "Synthetic tool output stays behind a disclosure row.\n".repeat(30),
+        } },
+        { type: "text", text: "Synthetic OpenCode response. No provider was called." },
+      ],
       info: {
         id: "fixture-opencode-assistant-0",
         sessionID: OPENCODE_SESSION,
@@ -271,6 +278,12 @@ function codexThreadPayload() {
 function codexItems() {
   const base = [
     { turnId: "fixture-turn-0", item: { id: "fixture-user-0", type: "userMessage", content: [{ type: "text", text: "Synthetic Codex prompt — fixture only." }] } },
+    { turnId: "fixture-turn-0", item: { id: "fixture-reasoning-0", type: "reasoning", summary: [{ text: "Synthetic reasoning stays collapsed." }] } },
+    { turnId: "fixture-turn-0", item: { id: "fixture-command-0", type: "commandExecution",
+      command: "/bin/zsh -lc 'cat /tmp/stepsemble-native-composer/SKILL.md'", status: "completed", exitCode: 0,
+      aggregatedOutput: "# Synthetic skill output\n" + "Long tool content remains available only after expanding the tool row.\n".repeat(40) } },
+    { turnId: "fixture-turn-0", item: { id: "fixture-file-0", type: "fileChange", status: "completed",
+      changes: [{ path: "/tmp/stepsemble-native-composer/app.js" }], summary: "Synthetic file edit; no file was changed." } },
     { turnId: "fixture-turn-0", item: { id: "fixture-assistant-0", type: "agentMessage", text: "Synthetic Codex response. No provider was called." } },
   ];
   for (const [index, turn] of state.codexTurns.entries()) {
@@ -375,7 +388,11 @@ export async function createNativeComposerPreview({ port = 0 } = {}) {
         return json(res, 200, { kind: "started", threadId: CODEX_THREAD, turnId, status: "inProgress" });
       }
       if (pathname === "/api/codex/mutation/interrupt" && req.method === "POST") { state.codexInterrupts += 1; return json(res, 200, { kind: "requested", threadId: CODEX_THREAD }); }
-      if (pathname === "/api/claude/structured/events" && req.method === "GET") return json(res, 200, { events: [{ text: "Synthetic Claude response. No provider was called." }], status: { state: "waiting", closed: false, failed: null, nativeSessionId: CLAUDE_SESSION, startedAt, lastActivityAt: Date.now() } });
+      if (pathname === "/api/claude/structured/events" && req.method === "GET") return json(res, 200, { events: [
+        { type: "assistant", message: { id: "fixture-claude-tool", content: [{ type: "tool_use", id: "fixture-claude-call", name: "Read", input: { file_path: "/tmp/stepsemble-native-composer/SKILL.md" } }] } },
+        { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "fixture-claude-call", content: "Synthetic Claude tool output stays collapsed.\n".repeat(25) }] } },
+        { type: "assistant", message: { id: "fixture-claude-answer", content: [{ type: "text", text: "### Synthetic Claude response\n\nNo provider was called." }] } },
+      ], status: { state: "waiting", closed: false, failed: null, nativeSessionId: CLAUDE_SESSION, startedAt, lastActivityAt: Date.now() } });
       if (pathname === "/api/claude/structured/pending" && req.method === "GET") return json(res, 200, { permissions: [] });
       if (pathname === "/api/claude/structured/models" && req.method === "GET") return json(res, 200, { models: claudeModels, currentModel: state.claudeModel });
       if (pathname === "/api/claude/structured/context" && req.method === "GET") return json(res, 200, claudeContext());

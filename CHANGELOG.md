@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.75
+
+- Present structured activity from Codex, Claude Code, OpenCode, Grok Build, Hermes, Kilo Code, and Cline as compact disclosure cards instead of placing commands, reasoning, and long tool output in the main conversation.
+- Group each Codex turn's thinking, shell commands, and file changes into one collapsed work row while keeping the final answer as normal Markdown. Tool details remain available on demand, including failures and full bounded output.
+- Keep Claude Code tool requests and results correlated in one card, render structured Claude/ACP answers with normal typography, and preserve raw terminal styling only for unstructured CLI fallbacks.
+- Add a shared, bounded transcript-presentation layer, synthetic browser fixtures, and regression coverage for Codex, Claude Code, OpenCode, and ACP event shapes.
+
 ## 3.0.74
 
 - Add a versioned runtime capability contract for every Agent Hub connector. Session continuation, model/reasoning control, images, approvals, recovery, history, context, files, interrupt, and subagents are now reported from the active adapter or bounded fallback instead of inferred from the harness brand.
