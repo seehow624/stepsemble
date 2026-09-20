@@ -13,6 +13,7 @@ import { runClaudeAuthBrowserCases } from "./claude-auth-browser-cases.mjs";
 import { runPiSessionBrowserCases } from "./pi-session-browser-cases.mjs";
 import { runProjectPickerBrowserCases } from "./project-picker-browser-cases.mjs";
 import { runConversationBrowserCases } from "./conversation-browser-cases.mjs";
+import { runWebStabilityBrowserCases } from "./web-stability-browser-cases.mjs";
 import { runHistorySourcesBrowserCases } from "./history-sources-browser-cases.mjs";
 import { runCodexHistoryBrowserCases } from "./history-codex-browser-cases.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -162,6 +163,7 @@ try {
     await runPiSessionBrowserCases(browser);
     await runProjectPickerBrowserCases(browser);
     await runConversationBrowserCases(browser);
+    await runWebStabilityBrowserCases(browser);
   }
   else if (suite === "sources") await runHistorySourcesBrowserCases(browser, historyHelper);
   else await runCodexHistoryBrowserCases(browser, historyHelper);

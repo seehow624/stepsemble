@@ -636,6 +636,15 @@ durable journal、Windows原生reader與App仍待；不要將新清單稱為「�
 
 ## 當前執行狀態
 
+> **2026-09-20 Web-first 收斂**：Jerome 決定暫停原生 App 擴張，先把 Web/PWA
+> 做到穩定成熟。3.0.75 source 已新增真 Chromium rolling gate：每種桌面／手機
+> case 使用 301 sessions、41,000 messages、5,000-message 長歷史，驗證三列預覽、
+> 300＋300 分頁、讀取位置、DOM 上限、水平溢出，以及 desktop restore／mobile
+> relaunch 回 Sessions。首次本機 desktop open/page 為 286/233ms，mobile 為
+> 288/246ms，pageErrors 0、model calls 0；詳見
+> [`web-stability-gate.md`](web-stability-gate.md)。這是可重複 regression gate，
+> 不是 Core Web Vitals、Safari 真機、WAN 背景恢復或完整成熟度已通過的宣稱。
+
 | 項目 | 狀態 | 說明 |
 | --- | --- | --- |
 | Web 正式上線／品牌介面整理 | 3.0.6 已在兩台 Mac 上線並公開 | exact `331b9f0` 三OS CI／雙平台 rolling 全綠；停止確認、選取不重建及還原保護已上線，既有巢狀捲動與品牌原圖保留；兩台更新器正常。見 `agent-stop-reliability.md` |
