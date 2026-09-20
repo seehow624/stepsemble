@@ -3620,6 +3620,23 @@
   };
   for (const [id, table] of Object.entries(PROVIDER_DEVICE_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], table);
 
+  const CATALOG_SOURCE_TRANSLATIONS = {
+    en: ["Provider API", "Pi catalog", "Manual catalog", "Cached · retry pending", "Source not verified"],
+    "zh-Hant": ["Provider 官方 API", "Pi 公開目錄", "手動清單", "使用快取・等待重試", "來源尚未驗證"],
+    "zh-Hans": ["Provider 官方 API", "Pi 公开目录", "手动清单", "使用缓存・等待重试", "来源尚未验证"],
+    ja: ["プロバイダー API", "Pi カタログ", "手動リスト", "キャッシュ・再試行待ち", "取得元未確認"],
+    ko: ["공급자 API", "Pi 카탈로그", "수동 목록", "캐시 · 재시도 대기", "출처 미확인"],
+    tr: ["Sağlayıcı API", "Pi kataloğu", "Manuel liste", "Önbellek · yeniden denenecek", "Kaynak doğrulanmadı"],
+    fr: ["API fournisseur", "Catalogue Pi", "Liste manuelle", "Cache · nouvelle tentative", "Source non vérifiée"],
+    de: ["Anbieter-API", "Pi-Katalog", "Manuelle Liste", "Cache · erneuter Versuch ausstehend", "Quelle nicht geprüft"],
+    es: ["API del proveedor", "Catálogo Pi", "Lista manual", "Caché · reintento pendiente", "Fuente sin verificar"],
+    "pt-BR": ["API do provedor", "Catálogo Pi", "Lista manual", "Cache · nova tentativa pendente", "Fonte não verificada"],
+    it: ["API del fornitore", "Catalogo Pi", "Elenco manuale", "Cache · nuovo tentativo in attesa", "Fonte non verificata"],
+  };
+  for (const [id, labels] of Object.entries(CATALOG_SOURCE_TRANSLATIONS)) {
+    ["official", "pi", "manual", "cached", "unknown"].forEach((key, index) => { KEYED_TRANSLATIONS[id]["catalogSource." + key] = labels[index]; });
+  }
+
   const CLAUDE_AUTH_TRANSLATIONS = {
     en: {
       title: "Claude Code sign-in", start: "Open official sign-in", refresh: "Check status", cancel: "Cancel this sign-in",

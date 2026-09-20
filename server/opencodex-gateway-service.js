@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { boundedJson } = require("./provider-live-catalog");
 const { execFile } = require("node:child_process");
 const {
   routingFilePath,
@@ -77,12 +78,76 @@ function createOpenCodexGatewayService({
   fetchImpl = globalThis.fetch,
   execFileImpl = execFile,
   probeTimeoutMs = 4000,
+  now = Date.now,
 } = {}) {
   const appHome = home || os.homedir();
   const opencodexConfigPath = path.join(appHome, ".opencodex", "config.json");
   const codexConfigPath = path.join(appHome, ".codex", "config.toml");
   const codexCatalogPath = path.join(appHome, ".codex", "opencodex-catalog.json");
   const claudeSettingsPath = path.join(appHome, ".claude", "settings.json");
+  const catalogRequests = new Map();
+  const catalogCache = new Map();
+  async function gatewayCatalog(origin, claude = false) {
+    const key = origin + (claude ? "/claude" : "/codex");
+    const cached = catalogCache.get(key);
+    if (cached && now() < cached.nextCheckAt) return cached;
+    if (catalogRequests.has(key)) return catalogRequests.get(key);
+    const pending = (async () => {
+      try {
+        const response = await fetchImpl(origin + "/v1/models" + (claude ? "?limit=1000&ids=cli" : ""), {
+          signal: AbortSignal.timeout(probeTimeoutMs), redirect: "error",
+          headers: claude ? { "anthropic-version": "2023-06-01" } : { accept: "application/json" },
+        });
+        if (!response.ok) throw new Error("gateway unavailable");
+        const value = await boundedJson(response), rows = value?.data;
+        const seen = new Set();
+        if (!Array.isArray(rows) || rows.length > 10000 || value.has_more === true || rows.some(row => {
+          if (typeof row?.id !== "string" || !row.id.trim() || row.id.length > 256 || /[\u0000-\u001f\u007f]/.test(row.id) || seen.has(row.id)) return true;
+          seen.add(row.id); return false;
+        })) throw new Error("invalid gateway catalog");
+        const result = { rows, stale: false, checkedAt: now(), nextCheckAt: now() + 5 * 60 * 1000 };
+        catalogCache.set(key, result);
+        return result;
+      } catch {
+        if (!cached) return null;
+        const result = { ...cached, stale: true, nextCheckAt: now() + 30000 };
+        catalogCache.set(key, result);
+        return result;
+      }
+    })().finally(() => catalogRequests.delete(key));
+    catalogRequests.set(key, pending);
+    return pending;
+  }
+
+  async function codexModels(params = {}) {
+    const wiring = codexState(), config = readOpencodexConfig();
+    if (!config || wiring.mode !== "gateway") return null;
+    const origin = "http://127.0.0.1:" + config.port;
+    // Merely finding the gateway running does not authorize changing routes.
+    if (![origin, origin + "/", origin + "/v1", origin + "/v1/"].includes(wiring.baseUrl)) return null;
+    if (params.cursor && !/^ocx:\d+$/.test(params.cursor)) return null;
+    const snapshot = await gatewayCatalog(origin);
+    if (!snapshot) return null;
+    if (codexState().baseUrl !== wiring.baseUrl) return null;
+    const metadata = readJson(codexCatalogPath);
+    const known = new Map((Array.isArray(metadata?.models) ? metadata.models : []).filter(row => row && typeof row.slug === "string").map(row => [row.slug, row]));
+    const rows = snapshot.rows.filter(row => row.visibility !== "hide").map(row => {
+      const prior = known.get(row.id) || {};
+      const efforts = row.supports_reasoning_effort === false ? [] : row.reasoning_efforts || row.supported_reasoning_levels || prior.supported_reasoning_levels || [];
+      return { id: row.id, model: row.id, displayName: String(row.display_name || row.name || prior.display_name || row.id).slice(0, 256),
+        description: "OpenCodex gateway", isDefault: row.id === wiring.currentModel,
+        supportedReasoningEfforts: (Array.isArray(efforts) ? efforts : []).filter(Boolean).map(item => ({ reasoningEffort: item.value || item.effort || item.reasoningEffort || item, description: item.description || item.label || "" }))
+          .filter(item => ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].includes(item.reasoningEffort)),
+        defaultReasoningEffort: row.reasoning_effort || row.default_reasoning_level || prior.default_reasoning_level || null,
+        inputModalities: row.capabilities?.input_modalities || row.input_modalities || prior.input_modalities || ["text"],
+        contextWindow: row.context_window || prior.context_window || null,
+      };
+    });
+    const offset = params.cursor ? Number(params.cursor.slice(4)) : 0;
+    const limit = Number.isSafeInteger(params.limit) && params.limit > 0 ? Math.min(200, params.limit) : 200;
+    return { data: rows.slice(offset, offset + limit), nextCursor: offset + limit < rows.length ? `ocx:${offset + limit}` : null,
+      catalog: { source: "opencodex", checkedAt: snapshot.checkedAt, stale: snapshot.stale } };
+  }
 
   function readOpencodexConfig() {
     const value = readJson(opencodexConfigPath);
@@ -152,13 +217,15 @@ function createOpenCodexGatewayService({
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), probeTimeoutMs);
     try {
-      const response = await fetchImpl(wiring.baseUrl + "/v1/models?limit=1000&ids=cli", {
-        headers: { "anthropic-version": "2023-06-01" },
-        signal: controller.signal,
-      });
-      if (!response.ok) return null;
-      const value = await response.json();
-      const rows = Array.isArray(value?.data) ? value.data : [];
+      const snapshot = await gatewayCatalog(wiring.baseUrl, true);
+      if (!snapshot) return null;
+      const latest = claudeWiring();
+      if (!latest.enabled || latest.baseUrl !== wiring.baseUrl) return null;
+      const rows = snapshot.rows;
+      const previous = readJson(gatewayCatalogPath(appHome));
+      if (previous?.baseUrl === wiring.baseUrl && previous.fetchedAt === snapshot.checkedAt && previous.stale === snapshot.stale) {
+        return { source: "opencodex", checkedAt: snapshot.checkedAt, stale: snapshot.stale, catalogCount: previous.models?.length || 0 };
+      }
       const usable = [];
       const catalog = [];
       for (const row of rows) {
@@ -191,12 +258,12 @@ function createOpenCodexGatewayService({
         }
         if (usable.length >= 512) break;
       }
-      if (!usable.length) return null;
+      // A validated empty gateway snapshot removes retired aliases too.
       const cacheDir = path.join(appHome, ".claude", "cache");
       const file = path.join(cacheDir, "gateway-models.json");
       fs.mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
       const temp = file + "." + process.pid + "." + crypto.randomUUID() + ".tmp";
-      fs.writeFileSync(temp, JSON.stringify({ baseUrl: wiring.baseUrl, fetchedAt: Date.now(), models: usable }), { encoding: "utf8", mode: 0o600 });
+      fs.writeFileSync(temp, JSON.stringify({ baseUrl: wiring.baseUrl, fetchedAt: snapshot.checkedAt, models: usable }), { encoding: "utf8", mode: 0o600 });
       fs.renameSync(temp, file);
 
       const stepsembleDir = path.dirname(gatewaySettingsPath(appHome));
@@ -217,9 +284,10 @@ function createOpenCodexGatewayService({
       fs.renameSync(settingsTemp, settingsFile);
       const catalogFile = gatewayCatalogPath(appHome);
       const catalogTemp = catalogFile + "." + process.pid + "." + crypto.randomUUID() + ".tmp";
-      fs.writeFileSync(catalogTemp, JSON.stringify({ version: 1, baseUrl: wiring.baseUrl, fetchedAt: Date.now(), models: catalog }) + "\n", { encoding: "utf8", mode: 0o600 });
+      fs.writeFileSync(catalogTemp, JSON.stringify({ version: 1, baseUrl: wiring.baseUrl, fetchedAt: snapshot.checkedAt, stale: snapshot.stale, models: catalog }) + "\n", { encoding: "utf8", mode: 0o600 });
       fs.renameSync(catalogTemp, catalogFile);
-      return { file, count: usable.length, baseUrl: wiring.baseUrl, settingsFile, catalogFile, catalogCount: catalog.length };
+      return { file, count: usable.length, baseUrl: wiring.baseUrl, settingsFile, catalogFile, catalogCount: catalog.length,
+        source: "opencodex", checkedAt: snapshot.checkedAt, stale: snapshot.stale };
     } catch {
       return null;
     } finally {
@@ -353,6 +421,7 @@ function createOpenCodexGatewayService({
     setClaudeSessionRouting,
     claudeWiring,
     refreshClaudeGatewayCache,
+    codexModels,
     paths: Object.freeze({ opencodexConfigPath: opencodexConfigPath, codexConfigPath: codexConfigPath, codexCatalogPath: codexCatalogPath, claudeSettingsPath: claudeSettingsPath, claudeGatewaySettingsPath: gatewaySettingsPath(appHome), claudeGatewayCatalogPath: gatewayCatalogPath(appHome) }),
   };
 }

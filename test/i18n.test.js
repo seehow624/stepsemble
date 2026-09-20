@@ -152,7 +152,7 @@ test("runtime, provider, and device keys are translated in every locale", () => 
     "runtime.messageQueued", "runtime.openChatFailed", "runtime.runStopped",
     "provider.chooseMethod", "provider.apiKeyRequired", "provider.authTimeout",
     "device.testOk", "device.nameRequired", "device.restartConfirm",
-    "settings.resetConfirm",
+    "settings.resetConfirm", "catalogSource.official", "catalogSource.pi", "catalogSource.manual", "catalogSource.cached", "catalogSource.unknown",
   ];
   const vars = { detail: "boom", name: "Studio Mac", id: "groq", code: "1234", attempt: 1, total: 3, seconds: 5, activity: "working", age: "2 minutes", level: "high" };
   i18n.setLocale("en");

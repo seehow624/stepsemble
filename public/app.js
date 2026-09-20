@@ -1,7 +1,7 @@
-/* stepsemble v3.0.72 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.73 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.72";
+const CLIENT_APP_VERSION = "3.0.73";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -225,6 +225,7 @@ let activeDraftKey = "";
 let composerModelName = "";
 let composerReasoningLevel = "off";
 let modelCatalog = [];
+let modelCatalogSources = new Map();
 let configuredProviders = [];
 let providerCatalog = [];
 let providerCatalogLoading = false;
@@ -1185,6 +1186,7 @@ function switchMachine(id, silent) {
   harnessUpdateController = null;
   applyApiBase();
   modelCatalog = [];
+  modelCatalogSources.clear();
   configuredProviders = [];
   modelCatalogMachine = null;
   providerCatalog = [];
@@ -9609,7 +9611,8 @@ el.commandResults?.addEventListener("click", (event) => {
 function closeModelSheet() { el.modelSheet.classList.add("hidden"); }
 function refreshVisibleModelCatalogs() {
   if (document.hidden) return;
-  if (el.modelSheet && !el.modelSheet.classList.contains("hidden") && rpc?.sid && !rpc.generic) {
+  if (el.modelSheet && !el.modelSheet.classList.contains("hidden") && rpc?.sid
+    && (!rpc.generic || rpc.nativeCodexMutation || rpc.nativeClaudeStructured || rpc.nativeOpenCode)) {
     void openModelSheet({ preserveSearch: true });
   }
   if (el.viewModelSettings && !el.viewModelSettings.classList.contains("hidden") && currentModelSettingsAgent() === "pi") {
@@ -11581,6 +11584,16 @@ function renderModelVisibility() {
     const visible = models.filter(isModelVisible).length;
     meta.textContent = `${visible}/${models.length}${providerConfig ? " · 自訂" : ""}`;
     headingCopy.append(providerName, meta);
+    const source = modelCatalogSources.get(provider);
+    const sourceNote = document.createElement("span");
+    sourceNote.dataset.i18nIgnore = "";
+    const sourceKey = source?.source === "provider-api" ? "official" : source?.source === "pi-directory" ? "pi"
+      : providerConfig ? "manual" : "unknown";
+    sourceNote.textContent = tKey("catalogSource." + sourceKey)
+      + (source?.checkedAt ? " · " + new Date(source.checkedAt).toLocaleTimeString() : "")
+      + (source?.stale ? " · " + tKey("catalogSource.cached") : "");
+    if (source?.stale) sourceNote.classList.add("error-text");
+    headingCopy.appendChild(sourceNote);
     const chevron = document.createElement("span");
     chevron.className = "model-provider-chevron";
     chevron.textContent = "⌄";
@@ -12307,6 +12320,7 @@ async function loadModelVisibility(force = false, skipSession = false) {
     if (request.signal.aborted || generation !== viewGeneration || baseAtStart !== apiBase) return;
     if (modelsResult.status === "rejected") throw modelsResult.reason;
     modelCatalog = Array.isArray(modelsResult.value?.models) ? modelsResult.value.models : [];
+    modelCatalogSources = new Map((modelsResult.value?.catalog?.refreshed || []).map(source => [source.id, source]));
     const catalogStatus = $("model-catalog-status");
     if (catalogStatus) {
       delete catalogStatus.dataset.i18nKey;

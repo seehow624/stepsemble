@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.0.73
+
+- Prefer fixed official provider model APIs for supported Pi providers. Use Pi's public catalog for exact-model metadata and fallback, not as a gate on discovering new models. Retain the last verified official roster during outages.
+- Support bounded, credential-safe discovery with pagination for Anthropic and Gemini API keys, public OpenCode Go/Zen and OpenRouter catalogs, and common OpenAI-compatible provider APIs. Subscription OAuth and manual model lists stay with their existing owners.
+- Show each Pi provider's catalog source, last successful check, and stale-cache status. Unknown new-model capabilities do not inherit another model's reasoning, images, or context claims.
+- Use OpenCodex's live catalog when Codex is explicitly routed through the configured local gateway. Refresh Claude gateway aliases in existing conversations, including removals and capability changes, without restarting or changing the current model.
+- Preserve native direct-mode behavior, credentials, and running conversations. Add real-Pi registry/selection and official-source/gateway regression coverage.
+
 ## 3.0.72
 
 - Refresh Pi model catalogs when opening the picker and every five minutes; follow added, renamed, and retired models without re-entering API keys.

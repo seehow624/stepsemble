@@ -37,6 +37,7 @@ const { parsePiEvent, validPiCommand, resolvePiResponse, parsePiUiReply } = requ
 const { createPiUiState, METHODS: PI_UI_METHODS } = require("./server/pi-ui-state");
 const { piLaunch } = require("./server/pi-launch");
 const { createModelCatalogSync, filterRetiredModels, INTERVAL_MS: MODEL_SYNC_INTERVAL_MS } = require("./server/model-catalog-sync");
+const { createOfficialCatalogSource, POLICIES: OFFICIAL_CATALOG_POLICIES } = require("./server/provider-live-catalog");
 const piSession = require("./public/modules/pi-session");
 const { negotiate, protocolError } = require("./server/platform-protocol");
 const { createGitChangesService } = require("./server/git-changes");
@@ -84,7 +85,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.72";
+const APP_VERSION = "3.0.73";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -3169,7 +3170,7 @@ function publicModels(models) {
       provider: String(m.provider || "unknown"),
       id: String(m.id),
       name: String(m.name || m.id),
-      contextWindow: Number.isFinite(m.contextWindow) ? m.contextWindow : null,
+      contextWindow: m.catalogContextKnown === false ? null : Number.isFinite(m.contextWindow) ? m.contextWindow : null,
       reasoning: !!m.reasoning,
       thinkingLevelMap: sanitizeThinkingLevelMap(m.thinkingLevelMap) || undefined,
     };
@@ -3462,7 +3463,22 @@ const remoteCatalogSync = createModelCatalogSync({
   },
   onChange() { modelCatalogCache = { at: 0, models: [] }; },
   customSources: providerCatalogSources,
+  officialSource: officialProviderCatalogSource,
+  generatedAt: () => modelCatalogGeneratedAt,
 });
+
+async function officialProviderCatalogSource(id) {
+  if (!OFFICIAL_CATALOG_POLICIES[id] || readModelConfig().providers[id]) return null;
+  const readCredential = () => {
+    try { return JSON.parse(fs.readFileSync(AUTH_CONFIG_FILE, "utf8"))[id]; } catch { return undefined; }
+  };
+  const credential = readCredential();
+  // Commands, OAuth refresh and credential writes are deliberately absent.
+  const runtime = await getProviderAuthRuntime();
+  const baseline = runtime.models.getProvider(id)?.getModels?.() || [];
+  return createOfficialCatalogSource(id, { credential, baseline,
+    isCurrent: () => !readModelConfig().providers[id] && JSON.stringify(readCredential()) === JSON.stringify(credential) });
+}
 
 async function refreshRemoteModelCatalogs(options = {}) {
   if (!modelCatalogMetadataPromise) {
@@ -4090,7 +4106,7 @@ function providerCatalogSources() {
         latest.providers[id] = { ...provider, models };
         writeModelConfig(latest);
       }
-      return { changed, models: models.length };
+      return { changed, models: models.length, source: "provider-api", checkedAt: Date.now() };
     } }];
   });
 }
@@ -4609,7 +4625,7 @@ const historyHost = (() => {
 
 const handleNativeComposerRoute = createNativeComposerRoutes({
   codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession,
-  validateDirectory: nativeAgentDirectory, readJSON, sendJSON,
+  validateDirectory: nativeAgentDirectory, readJSON, sendJSON, gateway: openCodexGateway,
 });
 
 const server = http.createServer(async (req, res) => {

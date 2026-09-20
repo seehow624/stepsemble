@@ -16,7 +16,7 @@ function effortValue(value) {
 }
 
 // Called only inside the main authenticated/origin-checked API block.
-function createNativeComposerRoutes({ codex, ensureCodex, resolveClaude, validateDirectory, readJSON, sendJSON }) {
+function createNativeComposerRoutes({ codex, ensureCodex, resolveClaude, validateDirectory, readJSON, sendJSON, gateway }) {
   const routes = new Set([
     "GET /api/codex/models", "GET /api/codex/context", "POST /api/codex/mutation/turn", "POST /api/codex/mutation/interrupt",
     "GET /api/claude/structured/models", "GET /api/claude/structured/context", "POST /api/claude/structured/model", "POST /api/claude/structured/effort",
@@ -29,11 +29,13 @@ function createNativeComposerRoutes({ codex, ensureCodex, resolveClaude, validat
         const body = req.method === "POST" ? await readJSON(req, 4096) : null;
         const resolved = resolveClaude(body?.sessionId || url.searchParams.get("sessionId") || "");
         if (!resolved) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return true; }
+        const catalog = p.endsWith("/models") ? await gateway?.refreshClaudeGatewayCache() : null;
         const result = p.endsWith("/models") ? await resolved.session.models()
           : p.endsWith("/context") ? await resolved.session.contextUsage()
             : p.endsWith("/effort") ? await resolved.session.setEffort(effortValue(body?.effort))
               : await resolved.session.setModel(modelValue(body?.model));
-        sendJSON(res, result?.kind === "reject" ? 409 : 200, result);
+        sendJSON(res, result?.kind === "reject" ? 409 : 200, catalog && result.models?.some(model => model.gateway === "opencodex")
+          ? { ...result, catalog: { source: catalog.source, checkedAt: catalog.checkedAt, stale: catalog.stale } } : result);
         return true;
       }
       await ensureCodex();
@@ -41,7 +43,7 @@ function createNativeComposerRoutes({ codex, ensureCodex, resolveClaude, validat
         const params = {};
         if (url.searchParams.has("cursor")) params.cursor = url.searchParams.get("cursor");
         if (url.searchParams.has("limit")) params.limit = Number(url.searchParams.get("limit"));
-        sendJSON(res, 200, await codex.listModels(params));
+        sendJSON(res, 200, await gateway?.codexModels(params) || await codex.listModels(params));
         return true;
       }
       if (p === "/api/codex/context") {

@@ -71,7 +71,7 @@ test("Claude structured gateway sessions expose the refreshed OpenCodex catalog 
   const catalog = await session.models();
   assert.equal(catalog.models.length, 1);
   assert.deepEqual(catalog.models[0], {
-    id: "claude-ocx-test--glm", name: "GLM (Claude initialize)", description: "OpenCodex gateway", contextWindow: 1000000,
+    id: "claude-ocx-test--glm", name: "GLM (OpenCodex)", description: "OpenCodex gateway", contextWindow: 1000000,
     supportsEffort: true, supportedEffortLevels: ["low", "high"], reasoning: true, gateway: "opencodex",
   });
   assert.deepEqual(args.argv.slice(-2), ["--settings", path.join(configDir, "claude-gateway-settings.json")]);
@@ -112,10 +112,19 @@ test("Claude gateway aliases keep the gateway's own effort levels", async t => {
   assert.deepEqual(byId.get("claude-ocx-test--glm").supportedEffortLevels, ["low", "high", "max"]);
   assert.equal(byId.get("claude-ocx-test--glm").contextWindow, 1000000);
   assert.equal(byId.get("claude-ocx-test--glm").gateway, "opencodex");
-  // A gateway row that declares no levels keeps Claude's list rather than
-  // losing the control, and a plain vendor model is reported as sent.
-  assert.deepEqual(byId.get("claude-ocx-test--free").supportedEffortLevels, ["low", "medium", "high", "xhigh", "max"]);
+  // An explicit gateway no-effort declaration must not inherit Claude's
+  // base-model capabilities. Native vendor rows are unaffected.
+  assert.deepEqual(byId.get("claude-ocx-test--free").supportedEffortLevels, []);
+  assert.equal(byId.get("claude-ocx-test--free").supportsEffort, false);
   assert.equal(byId.get("haiku").supportsEffort, undefined);
+  fs.writeFileSync(path.join(configDir, "claude-gateway-catalog.json"), JSON.stringify({ version: 1, baseUrl: "http://127.0.0.1:10100", models: [
+    { id: "claude-ocx-test--new", name: "New upstream model", supportedEffortLevels: ["low"] },
+  ] }));
+  const refreshed = await session.models();
+  assert.deepEqual(refreshed.models.map(model => model.id), ["haiku", "claude-ocx-test--new"]);
+  assert.equal(refreshed.currentModel, catalog.currentModel, "catalog reload never changes the selected model");
+  fs.writeFileSync(path.join(configDir, "claude-gateway-catalog.json"), JSON.stringify({ version: 1, baseUrl: "http://127.0.0.1:10100", models: [] }));
+  assert.deepEqual((await session.models()).models.map(model => model.id), ["haiku"]);
 });
 
 test("Claude structured parser locks the native session and preserves subagent correlation", () => {
