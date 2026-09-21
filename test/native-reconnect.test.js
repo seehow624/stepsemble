@@ -48,7 +48,9 @@ test("Codex native open and model catalog retry a short startup handshake", () =
   assert.ok(helperStart >= 0 && helperEnd > helperStart, "Codex transient retry helper found");
   const helperBody = app.slice(helperStart, helperEnd);
   assert.match(helperBody, /native_not_ready/);
-  assert.match(helperBody, /attempts = 3/);
+  assert.match(helperBody, /attempts = 5/);
+  assert.match(helperBody, /delays = \[120, 350, 700, 1200\]/,
+    "the retry window covers a brief app-server startup without becoming unbounded");
 
   const openStart = app.indexOf("async function openCodexNativeTask(");
   const openEnd = app.indexOf("async function openOpenCodeNativeTask(", openStart);

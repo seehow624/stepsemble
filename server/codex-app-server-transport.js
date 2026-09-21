@@ -48,6 +48,9 @@ const NATIVE_LIFECYCLE_NOTIFICATIONS = Object.freeze(new Set([
 const LARGE_TURN_NOTIFICATIONS = Object.freeze(new Set([
   "turn/started", "turn/completed", "item/started", "item/completed",
 ]));
+const LARGE_HISTORY_RESPONSES = Object.freeze(new Set([
+  "thread/read", "thread/list", "thread/turns/list", "thread/items/list",
+]));
 
 const reject = code => ({ kind: "reject", code });
 const clone = value => structuredClone(value);
@@ -841,9 +844,14 @@ function createCodexAppServerTransport({
     if (bytes <= MAX_FRAME_BYTES) return true;
     if (bytes > MAX_TURN_FRAME_BYTES) return false;
     if (value.kind === "notification") return LARGE_TURN_NOTIFICATIONS.has(value.method);
-    // Only a pending turn/start response is allowed to carry the echoed turn
-    // item. History/model/initialize responses retain their 1 MiB frame cap.
-    if (value.kind === "response") return pending.get(key(value.id))?.method === "turn/start";
+    if (value.kind === "response") {
+      const method = pending.get(key(value.id))?.method;
+      if (method === "turn/start") return true;
+      // Long, legitimate histories commonly exceed the ordinary 1 MiB frame.
+      // Only known read methods get the separate 8 MiB budget; model,
+      // initialize and every unknown response remain on the strict cap.
+      return bytes <= MAX_HISTORY_RESPONSE_BYTES && LARGE_HISTORY_RESPONSES.has(method);
+    }
     return false;
   }
 

@@ -3907,21 +3907,22 @@
     AGENT_HUB_TRANSLATIONS[id]["agentHub.messagePlaceholder"] = placeholder;
   }
   const AGENT_INPUT_TRANSLATIONS = {
-    en: ["This task has ended. Its output is read-only; native resume is not connected yet.", "Waiting for the task to confirm input is available. Your draft is preserved."],
-    "zh-Hant": ["這個工作已結束，目前僅能查看輸出；原生續跑功能尚未接通。", "正在等候工作確認可以接收輸入，草稿會保留。"],
-    "zh-Hans": ["这个任务已结束，目前只能查看输出；原生继续运行功能尚未接通。", "正在等待任务确认可以接收输入，草稿会保留。"],
-    ja: ["このタスクは終了しました。出力は読み取り専用で、ネイティブ再開はまだ利用できません。", "入力可能な状態をタスクが確認するまで待機中です。下書きは保持されます。"],
-    ko: ["이 작업은 종료되었습니다. 출력은 읽기 전용이며 네이티브 재개는 아직 연결되지 않았습니다.", "작업에서 입력 가능 상태를 확인할 때까지 기다립니다. 초안은 유지됩니다."],
-    tr: ["Bu görev sona erdi. Çıktısı salt okunurdur; yerel sürdürme henüz bağlı değil.", "Görevin giriş kabul edebildiğini doğrulaması bekleniyor. Taslağınız korunuyor."],
-    fr: ["Cette tâche est terminée. Sa sortie est en lecture seule ; la reprise native n’est pas encore connectée.", "En attente de confirmation que la tâche accepte une saisie. Votre brouillon est conservé."],
-    de: ["Diese Aufgabe ist beendet. Die Ausgabe ist schreibgeschützt; natives Fortsetzen ist noch nicht angebunden.", "Die Bestätigung, dass die Aufgabe Eingaben annimmt, steht aus. Ihr Entwurf bleibt erhalten."],
-    es: ["Esta tarea ha terminado. Su salida es de solo lectura; la reanudación nativa aún no está conectada.", "Esperando a que la tarea confirme que acepta entradas. Tu borrador se conserva."],
-    "pt-BR": ["Esta tarefa terminou. A saída é somente leitura; a retomada nativa ainda não está conectada.", "Aguardando a tarefa confirmar que aceita entrada. Seu rascunho é preservado."],
-    it: ["Questa attività è terminata. L’output è di sola lettura; la ripresa nativa non è ancora collegata.", "In attesa che l’attività confermi di accettare input. La bozza viene conservata."],
+    en: ["This task has ended. Its output is read-only; native resume is not connected yet.", "Waiting for the task to confirm input is available. Your draft is preserved.", "This task is still running in another Codex client. You can monitor it here; send from that client until native control reconnects."],
+    "zh-Hant": ["這個工作已結束，目前僅能查看輸出；原生續跑功能尚未接通。", "正在等候工作確認可以接收輸入，草稿會保留。", "這個工作仍在另一個 Codex 用戶端執行；你可以在這裡監看，原生控制重新連線前請從該用戶端輸入。"],
+    "zh-Hans": ["这个任务已结束，目前只能查看输出；原生继续运行功能尚未接通。", "正在等待任务确认可以接收输入，草稿会保留。", "这个任务仍在另一个 Codex 客户端运行；你可以在这里监看，原生控制重新连接前请从该客户端输入。"],
+    ja: ["このタスクは終了しました。出力は読み取り専用で、ネイティブ再開はまだ利用できません。", "入力可能な状態をタスクが確認するまで待機中です。下書きは保持されます。", "このタスクは別の Codex クライアントで実行中です。ここで監視できます。ネイティブ制御が再接続するまでは、そのクライアントから入力してください。"],
+    ko: ["이 작업은 종료되었습니다. 출력은 읽기 전용이며 네이티브 재개는 아직 연결되지 않았습니다.", "작업에서 입력 가능 상태를 확인할 때까지 기다립니다. 초안은 유지됩니다.", "이 작업은 다른 Codex 클라이언트에서 계속 실행 중입니다. 여기서 모니터링할 수 있으며, 네이티브 제어가 다시 연결될 때까지 해당 클라이언트에서 입력하세요."],
+    tr: ["Bu görev sona erdi. Çıktısı salt okunurdur; yerel sürdürme henüz bağlı değil.", "Görevin giriş kabul edebildiğini doğrulaması bekleniyor. Taslağınız korunuyor.", "Bu görev başka bir Codex istemcisinde çalışmaya devam ediyor. Buradan izleyebilirsiniz; yerel denetim yeniden bağlanana kadar girdiyi o istemciden gönderin."],
+    fr: ["Cette tâche est terminée. Sa sortie est en lecture seule ; la reprise native n’est pas encore connectée.", "En attente de confirmation que la tâche accepte une saisie. Votre brouillon est conservé.", "Cette tâche s’exécute toujours dans un autre client Codex. Vous pouvez la surveiller ici ; envoyez vos messages depuis cet autre client jusqu’à la reconnexion du contrôle natif."],
+    de: ["Diese Aufgabe ist beendet. Die Ausgabe ist schreibgeschützt; natives Fortsetzen ist noch nicht angebunden.", "Die Bestätigung, dass die Aufgabe Eingaben annimmt, steht aus. Ihr Entwurf bleibt erhalten.", "Diese Aufgabe läuft noch in einem anderen Codex-Client. Sie können sie hier beobachten; senden Sie Eingaben dort, bis die native Steuerung wieder verbunden ist."],
+    es: ["Esta tarea ha terminado. Su salida es de solo lectura; la reanudación nativa aún no está conectada.", "Esperando a que la tarea confirme que acepta entradas. Tu borrador se conserva.", "Esta tarea sigue ejecutándose en otro cliente de Codex. Puedes supervisarla aquí; envía mensajes desde ese cliente hasta que se vuelva a conectar el control nativo."],
+    "pt-BR": ["Esta tarefa terminou. A saída é somente leitura; a retomada nativa ainda não está conectada.", "Aguardando a tarefa confirmar que aceita entrada. Seu rascunho é preservado.", "Esta tarefa ainda está em execução em outro cliente Codex. Você pode monitorá-la aqui; envie mensagens por esse cliente até o controle nativo se reconectar."],
+    it: ["Questa attività è terminata. L’output è di sola lettura; la ripresa nativa non è ancora collegata.", "In attesa che l’attività confermi di accettare input. La bozza viene conservata.", "Questa attività è ancora in esecuzione in un altro client Codex. Puoi monitorarla qui; invia i messaggi da quel client finché il controllo nativo non si riconnette."],
   };
-  for (const [id, [readOnly, unavailable]] of Object.entries(AGENT_INPUT_TRANSLATIONS)) {
+  for (const [id, [readOnly, unavailable, observedReadOnly]] of Object.entries(AGENT_INPUT_TRANSLATIONS)) {
     AGENT_HUB_TRANSLATIONS[id]["agentHub.taskReadOnly"] = readOnly;
     AGENT_HUB_TRANSLATIONS[id]["agentHub.inputUnavailable"] = unavailable;
+    AGENT_HUB_TRANSLATIONS[id]["agentHub.taskObservedReadOnly"] = observedReadOnly;
   }
   const AGENT_HISTORY_PARTIAL_TRANSLATIONS = {
     en: "Some very large records are omitted; the source file was not changed.",

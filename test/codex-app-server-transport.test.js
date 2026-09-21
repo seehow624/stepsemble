@@ -433,6 +433,28 @@ test("Codex turn lifecycle admits one bounded large item frame without widening 
   assert.equal(events.at(-1).type, "item.completed");
 });
 
+test("Codex history responses use their bounded 8 MiB budget instead of the ordinary 1 MiB frame", async t => {
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const transport = createCodexAppServerTransport({ child });
+  t.after(() => transport.close());
+  const initializing = transport.initialize();
+  let request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.154.0" } });
+  await initializing; await writes.next();
+
+  const reading = transport.listThreadItems({ threadId: "thread-large-history", limit: 1 });
+  request = await writes.next();
+  assert.equal(request.method, "thread/items/list");
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { data: [{ turnId: "turn-large-history", item: {
+    id: "item-large-history", type: "commandExecution", command: "fixture", status: "completed", aggregatedOutput: "A".repeat(1_100_000),
+  } }], nextCursor: null, backwardsCursor: null } });
+  const result = await reading;
+  assert.equal(result.kind, "thread_items");
+  assert.equal(result.data[0].item.aggregatedOutput.length, 1_100_000);
+  assert.equal(transport.state().failure, null);
+});
+
 test("Codex native approval validator rejects a command array instead of coercing it", async t => {
   const child = new FakeNativeProcess();
   const writes = readFrames(child);

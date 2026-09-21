@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.0.77
+
+- Observe Codex Desktop-owned work from Codex's own read-only persisted turn state, so Sessions and the conversation view show Working and the real elapsed start time even though Stepsemble uses an independent app-server process.
+- Recover current Codex context usage from the selected rollout's latest bounded token-count record. The context ring now shows current tokens, capacity, percentage, input/output, and cache usage instead of Unknown when the native process has no shared in-memory state.
+- Admit only known Codex history responses up to their existing 8 MiB budget. Large legitimate turn pages no longer terminate the transport as `native_frame_invalid`, and a persisted fallback keeps a conversation open while native metadata reconnects.
+- Distinguish an externally running read-only Codex task from an ended task, extend transient reconnect retries, and keep the Sessions list synchronized with persisted in-progress turns.
+- Make the composer safe for Chinese and other IMEs: Enter used to commit composition never sends the message, including Safari/macOS ordering and legacy key-code 229; the next Enter behaves normally.
+
 ## 3.0.76
 
 - Keep native Codex work visibly active beside the composer, with the current turn timer and official Goal objective/status instead of relying on a generic task row.

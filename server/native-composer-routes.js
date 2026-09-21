@@ -16,7 +16,7 @@ function effortValue(value) {
 }
 
 // Called only inside the main authenticated/origin-checked API block.
-function createNativeComposerRoutes({ codex, ensureCodex, resolveClaude, validateDirectory, readJSON, sendJSON, gateway }) {
+function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveClaude, validateDirectory, readJSON, sendJSON, gateway }) {
   const routes = new Set([
     "GET /api/codex/models", "GET /api/codex/context", "POST /api/codex/mutation/turn", "POST /api/codex/mutation/interrupt",
     "GET /api/claude/structured/models", "GET /api/claude/structured/context", "POST /api/claude/structured/model", "POST /api/claude/structured/effort",
@@ -38,18 +38,31 @@ function createNativeComposerRoutes({ codex, ensureCodex, resolveClaude, validat
           ? { ...result, catalog: { source: catalog.source, checkedAt: catalog.checkedAt, stale: catalog.stale } } : result);
         return true;
       }
+      if (p === "/api/codex/context") {
+        const threadId = url.searchParams.get("threadId");
+        if (!ID.test(threadId || "")) throw invalid("invalid_thread_id");
+        let nativeError = null;
+        try {
+          await ensureCodex();
+          const live = await codex.contextUsage(threadId);
+          if (live && (live.contextTokens !== null || live.contextWindow !== null || live.contextPercent !== null || live.usage)) {
+            sendJSON(res, 200, live);
+            return true;
+          }
+        } catch (error) { nativeError = error; }
+        const observed = await observeCodex?.(threadId);
+        if (observed?.context) {
+          sendJSON(res, 200, observed.context);
+          return true;
+        }
+        throw nativeError || Object.assign(new Error("native_context_unavailable"), { code: "native_context_unavailable", statusCode: 503 });
+      }
       await ensureCodex();
       if (p === "/api/codex/models") {
         const params = {};
         if (url.searchParams.has("cursor")) params.cursor = url.searchParams.get("cursor");
         if (url.searchParams.has("limit")) params.limit = Number(url.searchParams.get("limit"));
         sendJSON(res, 200, await gateway?.codexModels(params) || await codex.listModels(params));
-        return true;
-      }
-      if (p === "/api/codex/context") {
-        const threadId = url.searchParams.get("threadId");
-        if (!ID.test(threadId || "")) throw invalid("invalid_thread_id");
-        sendJSON(res, 200, await codex.contextUsage(threadId));
         return true;
       }
       const body = await readJSON(req, p.endsWith("/turn") ? PROMPT_BODY_BYTES : 4096);

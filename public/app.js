@@ -1,7 +1,7 @@
-/* stepsemble v3.0.76 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.77 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.76";
+const CLIENT_APP_VERSION = "3.0.77";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -4435,7 +4435,9 @@ function genericTaskTerminal(status) {
 
 function genericInputBlock(connection = rpc) {
   if (connection?.nativeHistoryReadonly === true || connection?.readOnly === true) return "taskReadOnly";
-  if (connection?.nativeCodex && !connection.nativeCodexMutation) return "taskReadOnly";
+  if (connection?.nativeCodex && !connection.nativeCodexMutation) {
+    return connection.taskStatus === "running" ? "taskObservedReadOnly" : "taskReadOnly";
+  }
   if (connection?.nativeCodexMutation) {
     if (genericTaskTerminal(connection.taskStatus)) return "taskReadOnly";
     if (connection.nativeLoading || connection.connectionLost || connection.stopPending || !["running", "waiting"].includes(connection.taskStatus)) return "inputUnavailable";
@@ -5044,7 +5046,8 @@ function createCodexNativeTranscriptState() {
   return { turnsCursor: undefined, itemsCursor: undefined, turns: [], entries: [],
     seenTurns: new Set(), seenItems: new Set(), hasMore: true, loading: false,
     initialized: false, error: null, olderError: null, thread: null,
-    itemsBoundary: null, itemGapKeys: null, goal: null, goalAvailable: null };
+    itemsBoundary: null, itemGapKeys: null, goal: null, goalAvailable: null,
+    observation: null };
 }
 
 function codexGoalTitle(status) {
@@ -5058,7 +5061,8 @@ function renderCodexNativeRunState(connection) {
   const root = el.nativeRunState;
   if (!root) return;
   const state = connection?.nativeCodex ? connection.nativeTranscriptState : null;
-  const running = connection?.taskStatus === "running" || state?.thread?.status?.type === "active";
+  const running = connection?.taskStatus === "running" || state?.thread?.status?.type === "active"
+    || state?.observation?.working === true;
   const goal = state?.goal && state.goal.status !== "complete" ? state.goal : null;
   if (!connection || !running && !goal) {
     root.classList.add("hidden");
@@ -5187,6 +5191,7 @@ async function loadCodexNativeTranscript(threadId, {
     page.thread = metadata.thread;
     page.goal = metadata.goal || null;
     page.goalAvailable = metadata.goalAvailable === true;
+    page.observation = metadata.observation || null;
   }
   for (const [kind, cursor, limit] of [["turns", turnsCursor, 20], ["items", itemsCursor, 50]]) {
     if (older && cursor === null) continue;
@@ -5226,7 +5231,7 @@ function isCodexNativeTransientError(error) {
     || code.includes("native_not_ready");
 }
 
-async function retryCodexNativeTransient(operation, { attempts = 3, delays = [120, 300] } = {}) {
+async function retryCodexNativeTransient(operation, { attempts = 5, delays = [120, 350, 700, 1200] } = {}) {
   let lastError = null;
   const count = Math.max(1, Number(attempts) || 1);
   for (let attempt = 0; attempt < count; attempt += 1) {
@@ -5341,7 +5346,8 @@ async function loadOlderCodexNativeHistory() {
   }
 }
 
-function nativeCodexStatus(thread) {
+function nativeCodexStatus(thread, observation = null) {
+  if (observation?.working === true) return "running";
   const type = String(thread?.status?.type || "idle");
   return type === "systemError" ? "failed" : type === "active" ? "running" : "waiting";
 }
@@ -5417,12 +5423,14 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
     applyCodexNativeTranscriptPage(connection.nativeTranscriptState, page);
     connection.nativeTranscriptState.goalAvailable = page.goalAvailable;
     connection.nativeTranscriptState.goal = page.goal || null;
+    connection.nativeTranscriptState.observation = page.observation || null;
     if (!initial) connection.nativeTranscriptState.error ||= connection.nativeTranscriptState.olderError;
     const thread = page.thread;
-    const status = nativeCodexStatus(thread);
+    const observation = page.observation || null;
+    const status = nativeCodexStatus(thread, observation);
     const normalizeNativeTime = (value) => window.stepsembleSessionUtils?.normalizeTimestampMs?.(value) || Number(value) || 0;
     const activeTurn = connection.nativeTranscriptState.turns.find(turn => turn?.status === "inProgress") || null;
-    const activeTurnStart = normalizeNativeTime(activeTurn?.startedAt);
+    const activeTurnStart = normalizeNativeTime(observation?.startedAt) || normalizeNativeTime(activeTurn?.startedAt);
     if (status === "running") {
       if (activeTurnStart) connection.runStartedAt = activeTurnStart;
       else if (connection.taskStatus !== "running") connection.runStartedAt = Date.now();
@@ -5434,7 +5442,7 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
       nativeThreadId: connection.nativeThreadId, nativeSessionId: thread?.sessionId || connection.nativeThreadId,
       name: connection.name, cwd: thread?.cwd || connection.cwd, status,
       startedAt: normalizeNativeTime(connection.runStartedAt), endedAt: normalizeNativeTime(connection.runEndedAt),
-      lastActivityAt: normalizeNativeTime(thread?.updatedAt) || Date.now() });
+      lastActivityAt: normalizeNativeTime(observation?.lastActivityAt) || normalizeNativeTime(thread?.updatedAt) || Date.now() });
     renderCodexNativeSnapshot(connection);
     renderCodexNativeRunState(connection);
     if (connection.nativeCodexMutation) {
@@ -6841,7 +6849,9 @@ function normalizeNativeContextStats(response) {
   return {
     available,
     model,
-    source: data.source === "last_observed" ? "last_observed" : data.source === "live" ? "live" : "unknown",
+    source: data.source === "last_observed" ? "last_observed"
+      : data.source === "persisted_live_observation" ? "persisted_live_observation"
+        : data.source === "live" ? "live" : "unknown",
     observedAt: typeof data.observedAt === "string" && Number.isFinite(Date.parse(data.observedAt)) ? data.observedAt : null,
     stale: data.stale === true,
     tokens: {
@@ -8682,7 +8692,16 @@ function setStreaming(on) {
 // ---- 送出 / 中止 ----
 el.btnSend.addEventListener("click", sendCurrent);
 el.btnModel.addEventListener("click", openModelSheet);
+const composerIme = window.stepsembleComposerIme?.createGuard();
+el.input.addEventListener("compositionstart", () => composerIme?.compositionStart());
+el.input.addEventListener("compositionend", () => composerIme?.compositionEnd());
+el.input.addEventListener("blur", () => composerIme?.blur());
 el.input.addEventListener("keydown", (e) => {
+  const imeEnter = composerIme?.classifyEnter(e) || { ime: e.key === "Enter" && e.isComposing, preventDefault: false };
+  if (imeEnter.ime) {
+    if (imeEnter.preventDefault) e.preventDefault();
+    return;
+  }
   // slash 選單鍵盤導航
   if (slashState && el.slashMenu && !el.slashMenu.classList.contains("hidden")) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -8691,7 +8710,7 @@ el.input.addEventListener("keydown", (e) => {
       [...el.slashMenu.children].forEach((c, i) => c.classList.toggle("hl", i === slashState.hl));
       return;
     }
-    if (e.key === "Tab" || (e.key === "Enter" && !e.isComposing)) {
+    if (e.key === "Tab" || e.key === "Enter") {
       e.preventDefault();
       pickSlash(slashState.items[slashState.hl]);
       return;
@@ -8700,7 +8719,7 @@ el.input.addEventListener("keydown", (e) => {
   }
   // 手機（coarse pointer）：Enter 一律換行，發送只靠按鈕；桌面 Enter 發送
   const isDesktop = matchMedia("(min-width: 980px)").matches;
-  if (e.key === "Enter" && !e.shiftKey && !e.isComposing && isDesktop) { e.preventDefault(); sendCurrent(); }
+  if (e.key === "Enter" && !e.shiftKey && isDesktop) { e.preventDefault(); sendCurrent(); }
 });
 el.input.addEventListener("input", () => {
   resizeComposerInput();

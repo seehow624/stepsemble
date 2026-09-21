@@ -56,6 +56,7 @@ const { createAntigravityStructuredSession, ANTIGRAVITY_STRUCTURED_VERSION } = r
 const { createClaudeAuthService, handleClaudeAuthRequest } = require("./server/claude-auth");
 const { createDesktopClaudeClient } = require("./server/claude-desktop-client");
 const { createNativeHistoryCatalog } = require("./server/native-history-catalog");
+const { createCodexPersistedObserver } = require("./server/codex-persisted-observer");
 const { createHarnessUpdateService, loadHarnessUpdateRegistry } = require("./server/harness-update-service");
 const { loadHistoryConfig, createHistoryHost, disabledHistoryHost } = require("./server/history-host");
 const {
@@ -87,7 +88,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.76";
+const APP_VERSION = "3.0.77";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -235,6 +236,7 @@ const nativeHistoryCatalog = createNativeHistoryCatalog({
   claudeRoot: settingFromEnv("CLAUDE_PROJECTS_ROOT") || undefined,
   codexRoot: settingFromEnv("CODEX_HISTORY_ROOT") || undefined,
 });
+const codexPersistedObserver = createCodexPersistedObserver({ home: APP_HOME });
 
 // Keep the independently installed updater current after an application
 // update. This is limited to devices where automatic updates are already
@@ -2874,7 +2876,23 @@ async function listAgentTasksWithOpenCode() {
     // A local history scan is optional. Preserve live task truth when a source
     // is being rotated, deleted, or temporarily locked by its native client.
   }
-  return tasks.sort((a, b) => (Number(b.lastActivityAt || b.startedAt) || 0) - (Number(a.lastActivityAt || a.startedAt) || 0));
+  const sorted = tasks.sort((a, b) => (Number(b.lastActivityAt || b.startedAt) || 0) - (Number(a.lastActivityAt || a.startedAt) || 0));
+  // Codex Desktop and Stepsemble use independent app-server processes. Mark
+  // recently visible Codex sessions from Codex's persisted turn state so the
+  // Sessions list does not call an externally running task “Waiting”. The
+  // heavier rollout/context read remains on-demand when the task is opened.
+  const candidates = sorted.filter(task => task?.agentId === "codex").slice(0, 64);
+  const statuses = await codexPersistedObserver.observeStatuses(candidates.map(task =>
+    task.nativeThreadId || task.nativeSessionId || task.nativeHistorySessionId,
+  )).catch(() => []);
+  for (let index = 0; index < candidates.length; index += 1) {
+    const observed = statuses[index];
+    if (!observed?.working) continue;
+    Object.assign(candidates[index], { status: "running", isRunning: true,
+      startedAt: observed.startedAt || candidates[index].startedAt || null,
+      endedAt: null, nativeObservation: observed });
+  }
+  return sorted;
 }
 
 function scheduleRpcCleanup(sid) {
@@ -4641,6 +4659,7 @@ const historyHost = (() => {
 
 const handleNativeComposerRoute = createNativeComposerRoutes({
   codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession,
+  observeCodex: threadId => codexPersistedObserver.observe(threadId),
   validateDirectory: nativeAgentDirectory, readJSON, sendJSON, gateway: openCodexGateway,
 });
 
@@ -5504,9 +5523,10 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (p === "/api/codex/thread" && req.method === "GET") {
+        const threadId = url.searchParams.get("threadId") || "";
+        const observation = await codexPersistedObserver.observe(threadId).catch(() => null);
         try {
           await ensureCodexNativeProbe();
-          const threadId = url.searchParams.get("threadId") || "";
           // Metadata-only is the safe HTTP default. Large rollout history is
           // hydrated through the bounded turns/items routes below.
           const includeTurns = url.searchParams.get("includeTurns") === "1";
@@ -5514,8 +5534,22 @@ const server = http.createServer(async (req, res) => {
             codexNative.readThread(threadId, { includeTurns }),
             codexNative.getThreadGoal(threadId).catch(() => ({ unavailable: true, goal: null })),
           ]);
-          sendJSON(res, 200, { ...thread, goal: goal.goal || null, goalAvailable: goal.unavailable !== true, adapter: codexNative.status() });
-        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "codex_thread_unavailable" }); }
+          sendJSON(res, 200, { ...thread, goal: goal.goal || observation?.goal || null,
+            goalAvailable: goal.unavailable !== true || !!observation?.goal, observation, adapter: codexNative.status() });
+        } catch (error) {
+          if (!observation) { sendJSON(res, error.statusCode || 503, { error: error.code || "codex_thread_unavailable" }); return; }
+          // A Codex Desktop-owned thread can be temporarily unavailable to
+          // Stepsemble's independent app-server after refresh. Persisted state
+          // still lets the transcript open and report truthful run/context
+          // status while native history reconnects in the background.
+          sendJSON(res, 200, {
+            kind: "thread", degraded: true,
+            thread: { id: threadId, sessionId: threadId, cwd: "", updatedAt: observation.lastActivityAt || 0,
+              status: { type: observation.working ? "active" : "notLoaded", activeFlags: [] }, turns: [] },
+            goal: observation.goal || null, goalAvailable: !!observation.goal,
+            observation, adapter: codexNative.status(),
+          });
+        }
         return;
       }
 
@@ -5627,13 +5661,24 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         if (taskId.startsWith("codex:")) {
+          const nativeThreadId = taskId.slice("codex:".length);
+          const observation = await codexPersistedObserver.observe(nativeThreadId).catch(() => null);
           try {
-            const nativeThreadId = taskId.slice("codex:".length);
             const thread = await codexNative.readThread(nativeThreadId, { includeTurns: false });
             const task = thread?.thread ? codexTaskFromThread(thread.thread) : null;
             if (!task) { sendJSON(res, 404, { error: "no such codex thread" }); return; }
-            sendJSON(res, 200, { task: { ...task, mutation: codexNative.status().mutationReady ? "native_api" : null, adapter: codexNative.status() } });
-          } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "codex_task_unavailable" }); }
+            sendJSON(res, 200, { task: { ...task,
+              ...(observation?.working ? { status: "running", isRunning: true, startedAt: observation.startedAt, endedAt: null } : {}),
+              mutation: codexNative.status().mutationReady ? "native_api" : null, adapter: codexNative.status() } });
+          } catch (error) {
+            if (!observation) { sendJSON(res, error.statusCode || 503, { error: error.code || "codex_task_unavailable" }); return; }
+            sendJSON(res, 200, { task: { id: taskId, taskId, agentId: "codex", agent: "codex", connector: "codex",
+              nativeCodex: true, nativeThreadId, nativeSessionId: nativeThreadId,
+              name: `Codex ${nativeThreadId.slice(0, 8)}`, cwd: "", status: observation.working ? "running" : "waiting",
+              isRunning: observation.working, startedAt: observation.startedAt, endedAt: observation.completedAt,
+              lastActivityAt: observation.lastActivityAt, history: "native_readonly", readOnly: true,
+              mutation: null, nativeObservation: observation, adapter: codexNative.status() } });
+          }
           return;
         }
         if (taskId.startsWith("grok-build:") && grokAcp) {
@@ -7033,6 +7078,7 @@ function shutdown(signal) {
   const historyCleanup = Promise.all([
     historyHost.shutdown(),
     nativeHistoryCatalog.shutdown(),
+    codexPersistedObserver.shutdown(),
     codexNative.close(),
     grokAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
     clineAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },

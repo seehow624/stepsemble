@@ -6,13 +6,13 @@ const { once } = require("node:events");
 const { createHttpUtils } = require("../server/http-utils");
 const { createNativeComposerRoutes, PROMPT_BODY_BYTES } = require("../server/native-composer-routes");
 
-async function fixture(t) {
+async function fixture(t, { codexContextError = null, observedContext = null } = {}) {
   const calls = [];
   let threadId = "thread-a";
   const context = { model: "model-a", contextTokens: 4500, contextWindow: 10000, contextPercent: 45, usage: { inputTokens: 4500 } };
   const codex = {
     listModels: async params => { calls.push(["models", params]); return { data: [{ model: "model-a", inputModalities: ["text", "image"] }], nextCursor: null }; },
-    contextUsage: async id => { calls.push(["context", id]); return context; },
+    contextUsage: async id => { calls.push(["context", id]); if (codexContextError) throw codexContextError; return context; },
     nativeState: () => ({ threadId }),
     resumeThread: async params => { calls.push(["resume", params]); threadId = params.threadId; return { kind: "resumed" }; },
     startTurn: async (...args) => { calls.push(["turn", ...args]); return { kind: "started" }; },
@@ -25,7 +25,8 @@ async function fixture(t) {
     setEffort: async effort => { calls.push(["claude-effort", effort]); return { kind: "changed", effort }; },
   };
   const { readJSON, sendJSON } = createHttpUtils();
-  const handle = createNativeComposerRoutes({ codex, ensureCodex: async () => {}, resolveClaude: id => id === "claude-a" ? { session } : null,
+  const handle = createNativeComposerRoutes({ codex, ensureCodex: async () => {}, observeCodex: async () => observedContext ? { context: observedContext } : null,
+    resolveClaude: id => id === "claude-a" ? { session } : null,
     validateDirectory: cwd => { if (cwd !== "/owned/project") throw Object.assign(new Error("outside"), { code: "agent_directory_invalid", statusCode: 400 }); return cwd; }, readJSON, sendJSON });
   const server = http.createServer(async (req, res) => {
     if (req.headers.authorization !== "Bearer synthetic-composer") { sendJSON(res, 401, { error: "unauthorized" }); return; }
@@ -54,6 +55,15 @@ test("native composer HTTP forwards image-only prompts, per-turn model and exact
   const context = await f.request("/api/codex/context?threadId=thread-a");
   assert.equal(context.data.contextPercent, 45);
   assert.deepEqual(f.calls.pop(), ["context", "thread-a"]);
+});
+
+test("Codex context falls back to persisted observation when the independent native process has no live state", async t => {
+  const observed = { contextTokens: 64_000, contextWindow: 128_000, contextPercent: 50,
+    usage: { input: 63_000, output: 1_000 }, source: "persisted_live_observation", stale: false };
+  const f = await fixture(t, { codexContextError: Object.assign(new Error("not loaded"), { code: "native_not_ready" }), observedContext: observed });
+  const response = await f.request("/api/codex/context?threadId=thread-a");
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.data, observed);
 });
 
 test("stale tabs cannot send or stop another Codex thread; empty runtime resumes the intended one", async t => {
