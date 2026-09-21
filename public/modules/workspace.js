@@ -153,9 +153,10 @@
         tab.append(button(ref.title, () => { n.active = key; focused = n.id; commit(tree); }, `${ref.title} · ${hostName(ref.host)}`), button("×", () => commit(L.remove(tree, ref)), t("closeTab", { title: ref.title }))); tabs.append(tab);
       }
       const tools = node("div", "", "workspace-pane-tools");
-      // Splitting, extra windows and maximize are desktop affordances. A narrow
-      // viewport shows one pane at a time, so it keeps tabs and pane switching.
-      if (!mobile()) {
+      // Layout actions need a conversation to act on, and splitting or moving to
+      // another window is a desktop affordance. An untouched pane shows only its
+      // invitation instead of controls that cannot apply to it yet.
+      if (!mobile() && n.tabs.length) {
         for (const [label, edge] of [[t("splitHorizontal"), "right"], [t("splitVertical"), "bottom"]]) tools.append(button(label, () => {
           const ref = active(n);
           if (!ref) { toast(t("openFirst")); return; }
@@ -164,17 +165,23 @@
           const empty = L.pane(); focused = empty.id; maximized = null;
           commit(L.replace(tree, n.id, { type: "split", id: crypto.randomUUID(), axis: edge === "right" ? "row" : "column", ratio: .5, first: n, second: empty }));
         }));
-        tools.append(button(t("newWindow"), () => newWindow(active(n))), button(maximized === n.id ? t("restore") : t("maximize"), () => { maximized = maximized ? null : n.id; render(); }));
+        // The header already opens an empty window; this one carries the pane's
+        // own conversation, so it must not repeat that label.
+        tools.append(button(t("moveWindow"), () => newWindow(active(n))), button(maximized === n.id ? t("restore") : t("maximize"), () => { maximized = maximized ? null : n.id; render(); }));
       }
-      tools.append(button(t("closePane"), () => { maximized = null; commit(L.closePane(tree, n.id)); }));
-      const next = button(t("nextPane"), () => { const panes = L.leaves(tree); focused = panes[(panes.findIndex(p => p.id === focused)+1)%panes.length].id; commit(tree); }, t("nextPane"), "btn ghost workspace-mobile-nav"); tools.prepend(next);
+      if (n.tabs.length || L.leaves(tree).length > 1) tools.append(button(t("closePane"), () => { maximized = null; commit(L.closePane(tree, n.id)); }));
+      if (L.leaves(tree).length > 1) tools.prepend(button(t("nextPane"), () => { const panes = L.leaves(tree); focused = panes[(panes.findIndex(p => p.id === focused)+1)%panes.length].id; commit(tree); }, t("nextPane"), "btn ghost workspace-mobile-nav"));
       const slot = node("div", n.tabs.length ? t("loadingSession") : t("selectSession"), "workspace-slot");
       if (n.active) slots.set(n.active, slot);
       const overlay = node("div", "", "workspace-drop");
       const edgeAt = e => { const r = pane.getBoundingClientRect(), x = (e.clientX-r.left)/r.width, y = (e.clientY-r.top)/r.height; return x < .22 ? "left" : x > .78 ? "right" : y < .22 ? "top" : y > .78 ? "bottom" : "center"; };
       pane.ondragover = e => { if (!Array.from(e.dataTransfer.types).includes("application/x-stepsemble-session")) return; e.preventDefault(); overlay.dataset.edge = edgeAt(e); };
       pane.ondrop = e => { e.preventDefault(); try { acceptTransfer(JSON.parse(e.dataTransfer.getData("application/x-stepsemble-session")), n.id, edgeAt(e)); } catch (error) { toast(error.message); } finally { dragEnd(); } };
-      pane.append(tabs, tools, slot, overlay); return pane;
+      // An empty pane keeps no tab strip and no toolbar, so the invitation to
+      // drag a session is the only thing in it.
+      if (n.tabs.length) pane.append(tabs);
+      if (tools.childElementCount) pane.append(tools);
+      pane.append(slot, overlay); return pane;
     }
     const shown = maximized ? L.leaves(tree).find(p => p.id === maximized) : tree;
     $("workspace-tree").append(draw(shown || tree)); requestAnimationFrame(layoutFrames); renderSidebar();
@@ -210,7 +217,12 @@
     const target = host;
     try { const data = await api("/api/workspace/usage", undefined, target); if (target !== host) return;
       usage = data; usageHost = target;
-      $("workspace-usage").textContent = data.providers.map(p => `${p.provider} ${p.windows.length ? t("remaining", { percent: Math.round(Math.min(...p.windows.map(w => w.remainingPercent))) }) : "—"}`).join(" · ");
+      // A row of bare dashes reads as a broken control. Say the limits are not
+      // available when no provider reported a window, and keep observed numbers
+      // whenever at least one did.
+      $("workspace-usage").textContent = data.providers.some(p => p.windows.length)
+        ? data.providers.map(p => `${p.provider} ${p.windows.length ? t("remaining", { percent: Math.round(Math.min(...p.windows.map(w => w.remainingPercent))) }) : "—"}`).join(" · ")
+        : t("quotaUnavailable");
     } catch { if (target === host) $("workspace-usage").textContent = t("quotaUnavailable"); }
   }
   $("workspace-usage").onclick = () => {

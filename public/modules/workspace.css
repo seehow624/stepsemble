@@ -155,7 +155,7 @@ small { color: var(--pine-soft); }
   text-transform: uppercase;
   white-space: nowrap;
 }
-.workspace-project > header .btn { width: 28px; min-width: 28px; min-height: 28px; padding: 0; border: 0; border-radius: 8px; color: var(--pine-soft); font-size: 1rem; }
+.workspace-project > header .btn { width: 32px; min-width: 32px; min-height: 32px; padding: 0; border: 0; border-radius: 8px; color: var(--pine-soft); font-size: 1rem; }
 .workspace-project > header .btn:hover { background: var(--bubble-user); color: var(--ink); }
 .workspace-project > small, #workspace-projects > p { display: block; padding: 7px 6px; color: var(--pine-soft); font-size: .78rem; }
 .workspace-session {
@@ -237,6 +237,9 @@ small { color: var(--pine-soft); }
 .workspace-pane-tools::-webkit-scrollbar { display: none; }
 .workspace-pane-tools .btn { min-height: 28px; padding: 0 8px; border: 0; border-radius: 8px; color: var(--pine-soft); font-size: .67rem; white-space: nowrap; }
 .workspace-pane-tools .btn:hover { background: var(--bubble-user); color: var(--ink); }
+/* Closing a pane discards its open tabs, so it keeps its distance from the
+   layout actions instead of sitting flush against Maximize. */
+.workspace-pane-tools .btn:last-child { margin-left: auto; }
 .workspace-slot { position: relative; flex: 1; min-height: 0; display: grid; grid-template-rows: auto auto; place-content: center; padding: 16px; color: var(--pine-soft); text-align: center; font-size: .78rem; }
 .workspace-slot::before { content: ""; width: 38px; height: 38px; margin: 0 auto 10px; background: var(--ink); opacity: .52; -webkit-mask: url("/stepsemble-glyph.svg") center / contain no-repeat; mask: url("/stepsemble-glyph.svg") center / contain no-repeat; }
 #workspace-frames { position: absolute; inset: 0; pointer-events: none; }
