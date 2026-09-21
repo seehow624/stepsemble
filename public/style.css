@@ -3963,6 +3963,12 @@ html.reduced-motion .changes-panel { animation: none; }
 }
 .project-group-trailing .project-group-count { min-width: 20px; }
 
+/* Two 32px actions separated by 2px sit well inside one thumb contact patch.
+   Touch layouts widen that gap; the capsule keeps its shape and position. */
+@media (max-width: 979px) {
+  .project-group-actions { gap: 7px; }
+}
+
 .pinned-session-header {
   min-height: 46px;
   border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
