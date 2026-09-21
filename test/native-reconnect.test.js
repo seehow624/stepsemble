@@ -112,3 +112,13 @@ test("OpenCode history is dispatched before shared native transcript history", (
   assert.ok(opencode >= 0 && sharedHistory > opencode,
     "OpenCode read-only tasks must not be sent to the Claude/Codex history reader");
 });
+
+test("Pi task open resolves runtime paths through the canonical history identity", () => {
+  const start = app.indexOf("async function openAgentTaskFromHub(");
+  const end = app.indexOf("function appendNativeHistoryMessage(", start);
+  assert.ok(start >= 0 && end > start, "agent task dispatcher source found");
+  const body = app.slice(start, end);
+  assert.match(body, /piSessionFileIdentity\(rawFile\)/);
+  assert.match(body, /normalizePiSessionFile\(rawFile\)/);
+  assert.match(body, /sessionsCache\.find\(session => piSessionFileIdentity\(session\.file\) === identity\)/);
+});

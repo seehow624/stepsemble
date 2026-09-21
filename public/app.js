@@ -1,7 +1,7 @@
-/* stepsemble v3.0.77 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.78 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.77";
+const CLIENT_APP_VERSION = "3.0.78";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -2373,8 +2373,11 @@ function syncAgentTaskPolling() {
 async function openAgentTaskFromHub(task) {
   if (!task) return;
   if (task.agentId === "pi" && (task.file || task.sessionFile)) {
-    const file = task.file || task.sessionFile;
-    return openExisting(sessionsCache.find(session => session.file === file) ||
+    const rawFile = task.file || task.sessionFile;
+    const identity = piSessionFileIdentity(rawFile);
+    const existing = sessionsCache.find(session => piSessionFileIdentity(session.file) === identity);
+    const file = existing?.file || normalizePiSessionFile(rawFile);
+    return openExisting(existing ||
       { file, cwd: task.cwd || "", name: task.sessionName || null, firstMessage: task.firstMessage });
   }
   // OpenCode history also carries the generic `nativeHistoryReadonly` marker
@@ -2793,6 +2796,38 @@ function sessionListTaskId(session) {
   return String(session?.id || session?.taskId || "").trim();
 }
 
+// Pi's live RPC layer sometimes reports an absolute session path while the
+// history endpoint intentionally exposes a path relative to the session
+// store. Treat both forms as one conversation and keep only the relative form
+// for browser requests; /api/session deliberately rejects absolute paths.
+function normalizePiSessionFile(file) {
+  let value = String(file || "").trim().replace(/\\/g, "/");
+  while (value.startsWith("./")) value = value.slice(2);
+  const marker = "/.pi/agent/sessions/";
+  const markerIndex = value.lastIndexOf(marker);
+  if (markerIndex >= 0) {
+    value = value.slice(markerIndex + marker.length);
+  } else if (/^(?:\/|[a-z]:\/)/i.test(value)) {
+    // PI_SESSIONS_DIR may be customized. Pi's relative catalog path retains
+    // its encoded cwd directory, so recover that stable suffix without
+    // exposing the host's absolute filesystem path to /api/session.
+    const parts = value.split("/").filter(Boolean);
+    let encodedDirectory = -1;
+    for (let index = parts.length - 2; index >= 0; index--) {
+      if (/^--.*--$/.test(parts[index])) { encodedDirectory = index; break; }
+    }
+    if (encodedDirectory >= 0) value = parts.slice(encodedDirectory).join("/");
+  }
+  return value;
+}
+
+function piSessionFileIdentity(file) {
+  const normalized = normalizePiSessionFile(file);
+  const name = normalized.split("/").filter(Boolean).pop() || "";
+  const uuid = name.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i)?.[1];
+  return uuid ? `pi:${uuid.toLowerCase()}` : normalized;
+}
+
 function sessionListIsAgentTask(session) {
   return String(session?.agentId || "pi") !== "pi";
 }
@@ -2824,7 +2859,11 @@ function sessionListTitle(session) {
 
 function sessionListRecords() {
   const records = [...sessionsCache];
-  const piFiles = new Set(records.map((session) => String(session?.file || "")).filter(Boolean));
+  const piRecords = new Map();
+  for (const session of records) {
+    const identity = piSessionFileIdentity(session?.file);
+    if (identity) piRecords.set(identity, session);
+  }
   const seenTaskIds = new Set();
   for (const task of agentTasks) {
     const taskId = sessionListTaskId(task);
@@ -2832,13 +2871,15 @@ function sessionListRecords() {
     const taskIdentity = `${agentId}:${taskId}`;
     if (!taskId || seenTaskIds.has(taskIdentity)) continue;
     seenTaskIds.add(taskIdentity);
-    const file = String(task?.file || task?.sessionFile || "");
+    const rawFile = String(task?.file || task?.sessionFile || "");
     if (agentId === "pi") {
       // A Pi task is already represented by its native history row. If it is
       // not there yet, keep the task visible so a just-created run is never
       // missing from the main list while the history index catches up.
-      if (file && piFiles.has(file)) {
-        const existing = records.find((session) => session.file === file);
+      const file = normalizePiSessionFile(rawFile);
+      const identity = piSessionFileIdentity(rawFile);
+      const existing = identity ? piRecords.get(identity) : null;
+      if (existing) {
         if (existing && agentTaskIsRunning(task)) {
           existing.isRunning = true;
           existing.runStartedAt ||= normalizedTimestampMs(task.startedAt);
@@ -2846,8 +2887,9 @@ function sessionListRecords() {
         continue;
       }
       if (!file) continue;
-      records.push({ ...task, id: taskId, file, agentId: "pi" });
-      piFiles.add(file);
+      const placeholder = { ...task, id: taskId, file, agentId: "pi" };
+      records.push(placeholder);
+      if (identity) piRecords.set(identity, placeholder);
       continue;
     }
     records.push({ ...task, id: taskId, taskId, agentId, __agentTask: true });

@@ -33,6 +33,32 @@ test("main session records merge native agent tasks without duplicating Pi histo
   assert.equal(context.sessionListKey(records.find(row => row.agentId === "opencode")), "agent:opencode:opencode:ses_123");
 });
 
+test("Pi history deduplicates absolute and relative references to the same session", () => {
+  const relative = "--Users-example--/2026-09-21T03-12-37-742Z_01a0c1f3-876d-77ff-8da3-135a3604b25f.jsonl";
+  const absolute = `/Users/example/.pi/agent/sessions/${relative}`;
+  const history = { file: relative, agentId: "pi", name: "Example session" };
+  const context = helperContext([history], [
+    { id: "pi:stale", agentId: "pi", file: absolute, sessionFile: absolute, status: "stopped" },
+    { id: "pi:reopened", agentId: "pi", file: relative, sessionFile: absolute, status: "waiting" },
+  ]);
+  const records = context.sessionListRecords();
+  assert.equal(records.length, 1);
+  assert.equal(records[0], history);
+  assert.equal(records[0].file, relative);
+});
+
+test("repeated Pi runtime wrappers collapse before history indexing catches up", () => {
+  const relative = "--Users-example--/2026-09-21T03-12-37-742Z_01a0c1f3-876d-77ff-8da3-135a3604b25f.jsonl";
+  const absolute = `/Volumes/custom/pi-sessions/${relative}`;
+  const context = helperContext([], [
+    { id: "pi:first", agentId: "pi", file: absolute, status: "stopped" },
+    { id: "pi:second", agentId: "pi", file: relative, status: "waiting" },
+  ]);
+  const records = context.sessionListRecords();
+  assert.equal(records.length, 1);
+  assert.equal(records[0].file, relative);
+});
+
 test("a just-created Pi task remains visible until native history catches up", () => {
   const context = helperContext([], [{ id: "pi:new", agentId: "pi", file: "/tmp/new.jsonl", status: "running" }]);
   const records = context.sessionListRecords();
