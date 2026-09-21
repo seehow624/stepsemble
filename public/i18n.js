@@ -4062,6 +4062,20 @@
   // Optional history-page dictionary. Native content never passes through it.
   const historyTables = window.StepsembleHistoryI18n?.tables;
   if (historyTables) for (const id of Object.keys(KEYED_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], historyTables[id]);
+  const WORKSPACE_UNAVAILABLE = {
+  "en": "This session ended before a resumable conversation was saved.",
+  "zh-Hant": "此工作階段已結束，尚未取得可恢復的對話檔案。",
+  "zh-Hans": "此会话已结束，尚未保存可恢复的会话文件。",
+  "ja": "再開可能な会話が保存される前に、このセッションは終了しました。",
+  "ko": "재개 가능한 대화가 저장되기 전에 세션이 종료되었습니다.",
+  "tr": "Bu oturum, devam ettirilebilir bir konuşma kaydedilmeden sona erdi.",
+  "fr": "Cette session s’est terminée avant l’enregistrement d’une conversation pouvant être reprise.",
+  "de": "Diese Sitzung wurde beendet, bevor eine fortsetzbare Unterhaltung gespeichert wurde.",
+  "es": "Esta sesión terminó antes de guardar una conversación que se pudiera reanudar.",
+  "pt-BR": "Esta sessão terminou antes de salvar uma conversa que pudesse ser retomada.",
+  "it": "Questa sessione è terminata prima di salvare una conversazione riprendibile."
+};
+  for (const [id, table] of Object.entries(KEYED_TRANSLATIONS)) table["workspace.sessionUnavailable"] = WORKSPACE_UNAVAILABLE[id];
   const KEYED_SOURCE_KEYS = Object.freeze(Object.keys(KEYED_TRANSLATIONS.en));
   const KEYED_FALLBACK_KEYS = {};
   for (const [id, table] of Object.entries(KEYED_TRANSLATIONS)) {
@@ -4169,7 +4183,7 @@
   const HAN_RE = /[\u3400-\u9fff]/;
   const ASCII_WORD_FRAGMENT_RE = /^[A-Za-z0-9_]+$/;
   const ASCII_WORD_CHAR_RE = /[A-Za-z0-9_]/;
-  const NON_CONTENT = ".md-body, .thinking-block, .tool-command, .tool-output, .code-block, .mermaid-block, .msg.user .bubble, .session-item .s-name, .project-group-copy, [data-i18n-ignore]";
+  const NON_CONTENT = "#chat-title, #chat-sub, .agent-terminal-output, .agent-terminal-input, .agent-structured-output, .md-body, .thinking-block, .tool-command, .tool-output, .code-block, .mermaid-block, .msg.user .bubble, .session-item .s-name, .project-group-copy, [data-i18n-ignore]";
   let locale = "en";
   let localizing = false;
   let localizationQueued = false;

@@ -53,7 +53,7 @@ export async function runConversationBrowserCases(browser) {
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "light", reducedMotion: true, showTemporarySessions: true }));
       });
       const page = await context.newPage(); page.setDefaultTimeout(15000); page.on("pageerror", error => errors.push(error.message));
-      stage = "login"; await page.goto(base);
+      stage = "login"; await page.goto(`${base}/index.html`);
       const token = (await fs.readFile(path.join(config, "token"), "utf8")).trim();
       await page.locator("#login-onboarding-skip").click(); await page.locator("#login-token").fill(token); await page.locator("#login-form button").click();
       stage = "session summaries";

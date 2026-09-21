@@ -932,3 +932,16 @@ test("sync and async rejected approval observations fail visibly instead of hang
     assert.equal((await transport.close()).cleanupConfirmed, true);
   });
 });
+
+test("account quota is a read-only native request without starting a thread", async t => {
+  const child = new FakeNativeProcess(), writes = readFrames(child);
+  const transport = createCodexAppServerTransport({ child }); t.after(() => transport.close());
+  const initializing = transport.initialize(), init = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: init.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.153.4" } });
+  assert.equal((await initializing).kind, "ready"); await writes.next();
+  const reading = transport.rateLimits(), request = await writes.next();
+  assert.equal(request.method, "account/rateLimits/read"); assert.deepEqual(request.params, {});
+  const value = { rateLimits: { primary: { usedPercent: 25, windowDurationMins: 300 } } };
+  frame(child, { jsonrpc: "2.0", id: request.id, result: value });
+  assert.deepEqual(await reading, value); assert.equal(transport.state().threadId, null);
+});

@@ -893,6 +893,11 @@ function createCodexNativePool({
     listThreadTurns,
     listThreadItems,
     listModels,
+    async rateLimits() {
+      const source = await getHistory();
+      if (typeof source?.rateLimits !== "function") throw new Error("quota_unavailable");
+      return source.rateLimits();
+    },
     contextUsage,
     listTasks,
     startThread,

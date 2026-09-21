@@ -84,7 +84,7 @@ export async function runWebStabilityBrowserCases(browser) {
       page.on("pageerror", error => pageErrors.push(error.message));
 
       stage = "session list";
-      await page.goto(base);
+      await page.goto(`${base}/index.html`);
       await page.waitForFunction(expected => document.querySelector("#session-count")?.textContent === String(expected), WORKLOAD.regularSessionFiles + 1);
       assert.ok(await page.locator("#session-list .session-item").count() <= 3, "grouped list must stay preview-bounded");
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

@@ -16,7 +16,8 @@ test("subscription smoke retains native home/user identity without inheriting au
     HTTP_PROXY: "private", OPENAI_BASE_URL: "private", NODE_OPTIONS: "private", DYLD_INSERT_LIBRARIES: "private" });
   assert.equal(env.HOME, home); assert.equal(env.USERPROFILE, home); assert.equal(env.USER, "synthetic"); assert.equal(env.LOGNAME, "synthetic");
   assert.deepEqual(Object.keys(env).sort(), ["HOME", "LANG", "LOGNAME", "PATH", "SHELL", "USER", "USERPROFILE"]);
-  assert.ok(!JSON.stringify(env).includes("private")); assert.ok(!env.PATH.includes("/unsafe"));
+  // macOS temporary fixtures can legitimately live under /private/var.
+  assert.ok(!Object.values(env).includes("private")); assert.ok(!env.PATH.includes("/unsafe"));
 });
 test("usage evidence preserves observed zero but never converts unknowns into zero or exports arbitrary fields", async () => {
   const { numericUsage } = await api();

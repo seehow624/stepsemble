@@ -107,7 +107,7 @@ async function runCase(host, client, viewport) {
         const body = request.postDataJSON(); effects.push({ path: new URL(request.url()).pathname, type: body?.command?.type });
       }
     });
-    await page.goto(base);
+    await page.goto(`${base}/index.html`);
     // Exercise the actual released login form, using only this fresh Host's key.
     const token = (await fs.readFile(path.join(seed.home, ".config/stepsemble/token"), "utf8")).trim();
     await page.locator("#login-onboarding-skip").click();

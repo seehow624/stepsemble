@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.1.0-rc.1
+
+- Open the managed workspace by default: only sessions created here or explicitly added appear in its sidebar; adding a project does not import history or launch an agent.
+- Keep external history behind an on-demand entry with separate preview and add actions. Adding membership does not take control of external tasks.
+- Arrange sessions as tabs and resizable split panes, move them to independent windows, and restore layouts. Closing a viewer leaves its task running.
+- Display available Codex and Claude subscription limits separately from conversation context usage; unknown limits remain unavailable instead of zero.
+- Apply saved language, light/dark appearance and text size to the workspace and synchronize open panes without reconnecting. Translate workspace chrome in all eleven locales while preserving original session titles and terminal output.
+- Version and pre-cache workspace assets with the release to prevent mixed client resources after updates.
+
 ## 3.0.79
 
 - Collapse Pi history and runtime wrappers that refer to the same conversation, including mixed absolute and relative session paths.

@@ -264,4 +264,10 @@ test("resuming an attached conversation reuses it instead of starting a second p
   const close = await f.request("/api/claude/structured/close", { method: "POST", cookie, body: { sessionId } });
   assert.equal(close.status, 200, close.raw);
   assert.equal(close.body.cleanupConfirmed, true);
+  const resumed = await Promise.all([1, 2].map(() => f.request("/api/agent/open", { method: "POST", cookie,
+    body: { agentId: "claude-code", cwd: f.home, resumeSessionId: nativeId } })));
+  assert.ok(resumed.every(row => row.status === 201));
+  assert.equal(resumed[0].body.id, resumed[1].body.id, "simultaneous windows share one resumed process");
+  assert.equal(resumed[0].body.workspaceEntry.key, opened.body.workspaceEntry.key);
+  assert.equal((await f.request("/api/workspace", { cookie })).body.entries.length, 1);
 });

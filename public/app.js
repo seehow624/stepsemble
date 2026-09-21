@@ -1,7 +1,9 @@
-/* stepsemble v3.0.79 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.1.0-rc.1 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.79";
+const CLIENT_APP_VERSION = "3.1.0-rc.1";
+const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
+if (WORKSPACE_PANE) document.documentElement.classList.add("workspace-embedded");
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -1115,6 +1117,42 @@ async function enterApp() {
     }
     el.login.classList.add("hidden");
     el.app.classList.remove("hidden");
+    const workspaceQuery = new URLSearchParams(location.search);
+    if (workspaceQuery.get("returnWorkspace") === "1") {
+      const destination = new URL("/workspace.html", location.origin);
+      for (const key of ["window", "ack", "source"]) {
+        const value = workspaceQuery.get(key);
+        if (/^[a-f0-9-]{36}$/.test(value) || key === "source" && value === "main") destination.searchParams.set(key, value);
+      }
+      location.replace(destination.href); return true;
+    }
+    if (WORKSPACE_PANE) {
+      try {
+        const pinnedHost = workspaceQuery.get("host");
+        if (!machines.some(machine => machine.id === pinnedHost)) throw new Error("Workspace host is unavailable");
+        selectedId = pinnedHost;
+        applyApiBase();
+        el.viewList.classList.add("hidden");
+        el.viewChat.classList.remove("hidden");
+        const entry = await api(`/api/workspace/entry?key=${encodeURIComponent(workspaceQuery.get("entry") || "")}`);
+        const record = entry.record;
+        if (record.agentId === "pi") {
+          if (record.file) await openExisting(record);
+          else if (record.live) {
+            currentSessionCwd = record.cwd; setChatTitle(record.name || "Pi"); setChatAgent("pi"); hideChatEmpty();
+            await connectRpc(null, viewGeneration, record.live, apiBase);
+          } else {
+            setChatTitle(record.name || "Pi"); el.chatEmpty.textContent = tKey("workspace.sessionUnavailable");
+          }
+        } else await openAgentTaskFromHub(record);
+      } catch (error) {
+        el.viewList.classList.add("hidden"); el.viewChat.classList.remove("hidden");
+        showChatEmpty();
+        el.chatEmpty.textContent = error?.message || tKey("workspace.sessionUnavailable");
+      }
+      return true;
+    }
+    if (workspaceQuery.get("settings") === "1") { showSettings(); loadVersion(); return true; }
     await showList();
     // Discover connector availability once the authenticated machine catalog
     // is ready. The list card and New Project selector then share one snapshot.
@@ -1518,6 +1556,7 @@ function hideSettings() {
   el.viewSettings.classList.add("hidden");
   el.viewModelSettings.classList.add("hidden");
   el.viewList.classList.remove("hidden");
+  if (new URLSearchParams(location.search).get("settings") === "1") location.replace("/workspace.html");
 }
 
 // ---- 本機用量統計（Settings → About）：最近 7 天的 token／成本條列。
@@ -2286,6 +2325,7 @@ function agentTaskListSignature() {
 }
 
 async function refreshAgentTasks() {
+  if (WORKSPACE_PANE) return;
   if (agentTaskRefreshRequest) agentTaskRefreshRequest.abort();
   const request = new AbortController();
   agentTaskRefreshRequest = request;
@@ -2552,6 +2592,7 @@ el.agentTaskCenterFilter?.addEventListener("change", renderAgentTaskCenter);
 el.newAgent?.addEventListener("change", updateNewAgentNote);
 
 async function refreshSessions({ refreshTasks = true } = {}) {
+  if (WORKSPACE_PANE) { parent.postMessage({ type: "workspace-refresh" }, location.origin); return; }
   const generation = viewGeneration;
   const baseAtStart = apiBase;
   const sequence = ++refreshSequence;
@@ -2734,6 +2775,7 @@ function readLastAgentTask() {
 }
 
 async function restoreLastChat() {
+  if (WORKSPACE_PANE) return;
   if (lastChatRestoreAttempted) return;
   lastChatRestoreAttempted = true;
   if (!shouldRestoreLastChat()) return;
@@ -6660,6 +6702,7 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
 }
 
 function closeChat(silent) {
+  if (WORKSPACE_PANE) silent = true;
   const awaitingNative = rpc && !rpc.generic && nativeDialogs.count(apiBase, rpc.sid) > 0;
   resetNativeDialogs();
   if (openCodeNativePollTimer) { clearInterval(openCodeNativePollTimer); openCodeNativePollTimer = null; }
@@ -14472,3 +14515,19 @@ if ("serviceWorker" in navigator) {
   });
 }
 boot();
+
+// A pane is a viewer. Unmounting it must never send stop/close to the Host.
+if (WORKSPACE_PANE) {
+  window.addEventListener("storage", event => {
+    if (event.key !== null && ![SETTINGS_KEY, ...LEGACY_SETTINGS_KEYS].includes(event.key)) return;
+    // Update presentation in place: reconnecting here could lose a live draft
+    // or attach another provider process when settings change in another window.
+    settings = loadSettings(); applyAppearance(); updateComposerSummary();
+    renderTaskProgress(); renderProjectChangesChrome(); renderChangesBadge();
+  });
+  window.addEventListener("pagehide", () => closeChat(true));
+  document.addEventListener("pointerdown", () => parent.postMessage({ type: "workspace-focus" }, location.origin), { passive: true });
+  window.addEventListener("message", event => {
+    if (event.origin === location.origin && event.source === parent && event.data?.type === "workspace-detach") closeChat(true);
+  });
+}

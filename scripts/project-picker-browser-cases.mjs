@@ -18,7 +18,7 @@ export async function runProjectPickerBrowserCases(browser) {
         const token = (await fs.readFile(f.tokenFile, 'utf8')).trim();
         const login = await context.request.post(f.base + '/api/login', { data: { token } });
         assert.equal(login.status(), 204);
-        await page.goto(f.base);
+        await page.goto(`${f.base}/index.html`);
         let unexpectedNavigations = 0;
         page.on('framenavigated', frame => { if (frame === page.mainFrame()) unexpectedNavigations++; });
         await page.locator('#btn-new-project').click();

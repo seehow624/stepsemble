@@ -44,7 +44,7 @@ function setup() {
   const calls = [];
   let restores = 0;
   const context = vm.createContext({
-    AbortController,
+    AbortController, WORKSPACE_PANE: false,
     api(url, opts) { return new Promise((resolve, reject) => calls.push({ url, ...opts, resolve, reject })); },
     renderNewAgentOptions() {}, renderAgentHub() {}, renderAgentTaskCenter() {}, syncAgentTaskPolling() {},
     restoreLastChat() { restores++; },

@@ -84,7 +84,7 @@ export async function runPiSessionBrowserCases(browser) {
         if (url.pathname === "/api/agent/stream") genericStreams.push(url.href);
         if (url.pathname === "/api/project-changes") projectChangesCwds.push(url.searchParams.get("cwd"));
       });
-      await page.goto(base);
+      await page.goto(`${base}/index.html`);
       const token = (await fs.readFile(path.join(home, ".config/stepsemble/token"), "utf8")).trim();
       await page.locator("#login-onboarding-skip").click(); await page.locator("#login-token").fill(token);
       await page.locator("#login-form button").click();

@@ -1,0 +1,6 @@
+.workspace-embedded #view-list,.workspace-embedded #btn-back,.workspace-embedded #onboarding{display:none!important}
+.workspace-embedded #app:not(.hidden){display:block!important;width:100%!important;height:100dvh!important}
+.workspace-embedded #view-chat{position:absolute!important;inset:0!important;display:flex!important;width:100%!important;max-width:none!important;height:100dvh!important;transform:none!important;border:0!important}
+.workspace-embedded #view-chat .messages{min-width:0}
+.workspace-embedded .chat-topbar{padding-left:12px}
+.workspace-embedded #view-settings{z-index:100}

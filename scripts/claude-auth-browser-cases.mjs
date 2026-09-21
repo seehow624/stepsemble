@@ -38,7 +38,7 @@ export async function runClaudeAuthBrowserCases(browser, { screenshotDirectory }
       page.on("request", request => { if (new URL(request.url()).pathname.startsWith("/api/claude-auth/")) requests.push({ url: new URL(request.url()).pathname, method: request.method() }); });
       page.on("dialog", dialog => dialog.accept());
       const state = key => page.waitForFunction(key => document.querySelector("#claude-auth-status").dataset.i18nKey === `claudeAuth.${key}`, key);
-      await page.goto(base);
+      await page.goto(`${base}/index.html`);
       const token = (await fs.readFile(path.join(home, ".config/stepsemble/token"), "utf8")).trim();
       await page.locator("#login-onboarding-skip").click();
       await page.locator("#login-token").fill(token); await page.locator("#login-form button").click();

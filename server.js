@@ -88,7 +88,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.79";
+const APP_VERSION = "3.1.0-rc.1";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -106,6 +106,7 @@ if (isInstalledRuntime(__dirname, os.homedir())) applyNativeLaunchConfig(process
 const { configDir: CONFIG_DIR } = migrateLegacyConfig(APP_HOME, {
   onMigrate: (entries) => console.log(`[stepsemble] preserved ${entries.length} legacy config item${entries.length === 1 ? "" : "s"}`),
 });
+const workspaceRegistry = require("./server/workspace-registry").createWorkspaceRegistry(path.join(CONFIG_DIR, "workspaces.json"));
 const SESSIONS_DIR = path.join(APP_HOME, ".pi", "agent", "sessions");
 const MODEL_CONFIG_FILE = path.join(APP_HOME, ".pi", "agent", "models.json");
 // Pi persists remote model catalogs (pi.dev overlay) next to models.json.
@@ -237,6 +238,10 @@ const nativeHistoryCatalog = createNativeHistoryCatalog({
   codexRoot: settingFromEnv("CODEX_HISTORY_ROOT") || undefined,
 });
 const codexPersistedObserver = createCodexPersistedObserver({ home: APP_HOME });
+const workspaceUsage = require("./server/workspace-usage").createWorkspaceUsage({
+  home: APP_HOME, allowKeychain: settingFromEnv("WORKSPACE_KEYCHAIN_USAGE") !== "0" && APP_HOME === os.homedir(),
+  codex: async () => { await ensureCodexNativeProbe(); return codexNative.rateLimits(); },
+});
 
 // Keep the independently installed updater current after an application
 // update. This is limited to devices where automatic updates are already
@@ -1878,6 +1883,7 @@ const claudeDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "claude-
 const claudeStructuredCommand = resolveCommand(claudeDefinition, { env: process.env });
 const claudePermissionPromptTool = String(process.env.STEPSEMBLE_CLAUDE_PERMISSION_PROMPT_TOOL || "").trim() || null;
 const claudeStructuredSessions = new Map();
+const claudeResumeGates = new Map();
 const claudeStructuredSessionRegistryFile = path.join(CONFIG_DIR, "claude-structured-sessions.json");
 const claudeStructuredKnownSessions = readSessionRegistry(claudeStructuredSessionRegistryFile);
 function claudeStructuredStatus() {
@@ -3088,6 +3094,15 @@ async function openRpc({ file, cwd, name }) {
       }
       if (ev.type === "response" && ev.command === "get_state" && ev.success) {
         sess.state = { ...sess.state, ...ev.data };
+        if (typeof ev.data.sessionFile === "string") {
+          const file = path.isAbsolute(ev.data.sessionFile) ? path.relative(SESSIONS_DIR, ev.data.sessionFile) : ev.data.sessionFile;
+          if (file && !file.startsWith("..") && !path.isAbsolute(file)) {
+            try {
+              const owned = workspaceRegistry.list().entries.find(row => row.record.agentId === "pi" && row.record.sid === sid);
+              if (owned && owned.record.file !== file) workspaceRegistry.remember({ ...owned.record, file });
+            } catch { /* Keep the active session alive if persistence is unavailable. */ }
+          }
+        }
         if (!sess.meta.file && typeof ev.data.sessionName === "string") sess.meta.name = ev.data.sessionName.trim() || null;
       }
       if (ev.type === "message_end" && ev.message?.role === "user" && !sess.meta.firstMessage) sess.meta.firstMessage = textOfContent(ev.message.content).trim().slice(0, 160);
@@ -5632,6 +5647,68 @@ const server = http.createServer(async (req, res) => {
       // Agent Hub inventory and task inbox.  The catalog contains only
       // allow-listed connector ids and executable availability; it never
       // exposes API keys, environment values, or arbitrary shell commands.
+      // The workspace inventory never invokes provider-wide list/discovery.
+      if (p === "/api/workspace/usage" && req.method === "GET") {
+        sendJSON(res, 200, await workspaceUsage.read()); return;
+      }
+      if (p === "/api/workspace" && req.method === "GET") {
+        const snapshot = workspaceRegistry.list();
+        const live = new Map(listAgentTasks().map(task => [task.id || task.taskId, task]));
+        for (const row of snapshot.entries) {
+          const record = row.record;
+          const current = live.get(record.id || record.taskId);
+          if (current) Object.assign(record, { status: current.status, name: current.name || record.name });
+          if (record.nativeClaudeStructured) {
+            const resolved = resolveClaudeStructuredSession(record.nativeSessionId);
+            record.status = resolved ? publicClaudeStructuredTask(resolved.id, resolved.session).status : "history";
+          } else if (record.nativeCodex && record.nativeThreadId) {
+            const state = codexNative.nativeState(record.nativeThreadId);
+            record.status = state.state === "turn_running" ? "running" : state.state === "not_ready" ? "history" : "waiting";
+          }
+          if (record.agentId === "pi") {
+            const session = rpcSessions.get(record.sid);
+            record.status = session && !session.exited ? (rpcHasWork(session) ? "running" : "waiting") : "history";
+          }
+        }
+        sendJSON(res, 200, snapshot); return;
+      }
+      if (p === "/api/workspace/entry" && req.method === "GET") {
+        const entry = workspaceRegistry.get(url.searchParams.get("key"));
+        if (!entry) { sendJSON(res, 404, { error: "workspace_entry_not_found" }); return; }
+        const record = entry.record;
+        if (record.agentId === "claude-code" && record.nativeClaudeStructured) {
+          const resolved = resolveClaudeStructuredSession(record.nativeSessionId);
+          if (resolved && !resolved.session.status().closed) Object.assign(record, publicClaudeStructuredTask(resolved.id, resolved.session));
+          else if (record.persisted) record.needsLoad = true;
+          else { sendJSON(res, 409, { error: "This session ended before a resumable identity was recorded" }); return; }
+        }
+        if (record.agentId === "pi" && record.sid) {
+          const session = rpcSessions.get(record.sid);
+          if (session && !session.exited) record.live = { sid: record.sid, cwd: session.meta.cwd,
+            reused: true, isStreaming: rpcHasWork(session), replayAfter: -1, runStartedAt: session.state.runStartedAt };
+        }
+        sendJSON(res, 200, entry); return;
+      }
+      if (p === "/api/workspace/project" && req.method === "POST") {
+        const body = await readJSON(req, 8192);
+        const cwd = projectDirectory(body.cwd);
+        if (!cwd) { sendJSON(res, 403, { error: "Project folder is unavailable" }); return; }
+        workspaceRegistry.project(cwd); sendJSON(res, 200, { cwd }); return;
+      }
+      if (p === "/api/workspace/remove" && req.method === "POST") {
+        const body = await readJSON(req, 8192);
+        workspaceRegistry.remove(body.key); sendJSON(res, 200, { removed: true }); return;
+      }
+      if (p === "/api/workspace/adopt" && req.method === "POST") {
+        const body = await readJSON(req, 8192);
+        if (!["pi_history", "task_record"].includes(body.kind)) { sendJSON(res, 400, { error: "Invalid history source" }); return; }
+        const record = body.kind === "pi_history"
+          ? (await listSessions()).find(row => row.file === body.reference)
+          : (await listAgentTasksWithOpenCode()).find(row => (row.id || row.taskId) === body.reference);
+        if (!record) { sendJSON(res, 404, { error: "Session is no longer available" }); return; }
+        sendJSON(res, 200, workspaceRegistry.remember(record, "added")); return;
+      }
+
       if (p === "/api/agents" && req.method === "GET") {
         await Promise.all([ensureOpenCodeNativeProbe(), ensureCodexNativeProbe()]);
         sendJSON(res, 200, {
@@ -6619,9 +6696,33 @@ const server = http.createServer(async (req, res) => {
       // worktree for native Pi and external CLI agents.
       if (p === "/api/agent/open" && req.method === "POST") {
         const body = await readJSON(req, 64 * 1024);
+        workspaceRegistry.list();
         await ensureOpenCodeNativeProbe();
         await ensureCodexNativeProbe();
-        let reservedClaude = false;
+        const sendWorkspaceResult = (response, status, value) => {
+          if (status < 300) {
+            try {
+              if (value.nativeClaudeStructured && value.nativeSessionId) {
+                const current = resolveClaudeStructuredSession(value.nativeSessionId);
+                if (current) Object.assign(value, publicClaudeStructuredTask(current.id, current.session));
+              }
+              if (value.agentId === "pi") {
+                const session = rpcSessions.get(value.sid);
+                value.name = body.name || session?.meta.name || "Pi";
+                const sessionFile = session?.state.sessionFile || body.file;
+                if (typeof sessionFile === "string") {
+                  const relative = path.isAbsolute(sessionFile) ? path.relative(SESSIONS_DIR, sessionFile) : sessionFile;
+                  if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) value.file = relative;
+                }
+              }
+              value.workspaceEntry = workspaceRegistry.remember(value,
+                body.file || body.resumeSessionId || body.threadId ? "added" : "created");
+            }
+            catch { value.workspaceError = "Could not save workspace membership; the agent was started. Do not retry the launch."; }
+          }
+          sendJSON(response, status, value);
+        };
+        let reservedClaude = false, releaseResume = null;
         const controller = new AbortController();
         let requesterGone = false;
         const onResponseClose = () => {
@@ -6632,6 +6733,14 @@ const server = http.createServer(async (req, res) => {
         res.once("close", onResponseClose);
         try {
           const agentId = String(body?.agentId || "pi").trim().toLowerCase();
+          if (agentId === "claude-code" && typeof body.resumeSessionId === "string" && body.resumeSessionId) {
+            const key = body.resumeSessionId, previous = claudeResumeGates.get(key);
+            let done; const gate = new Promise(resolve => { done = resolve; });
+            claudeResumeGates.set(key, gate);
+            releaseResume = () => { done(); if (claudeResumeGates.get(key) === gate) claudeResumeGates.delete(key); };
+            if (previous) await previous;
+            if (requesterGone) return;
+          }
           if (agentId === "claude-code" && claudeDesktopUpgrade.isRunning()) {
             sendJSON(res, 409, { error: "desktop_upgrade_in_progress" }); return;
           }
@@ -6652,7 +6761,7 @@ const server = http.createServer(async (req, res) => {
               if (!result.reused) await closeIdleRpc(result.sid, "view_closed");
               return;
             }
-            sendJSON(res, 200, { ...result, kind: "pi", agentId: "pi",
+            sendWorkspaceResult(res, 200, { ...result, kind: "pi", agentId: "pi",
               worktree: worktree ? { ...worktree, path: result.cwd } : null });
           } else if (agentId === "opencode" && openCodeNative.status().ready && !worktree) {
             // When the explicit OpenCode server probe is healthy, prefer its
@@ -6662,7 +6771,7 @@ const server = http.createServer(async (req, res) => {
               const session = await openCodeNative.createSession({ title: body?.name || "", directory: openCodeDirectory(cwd) });
               if (requesterGone) return;
               const status = (await openCodeNative.sessionStatus())[session.id] || { type: "idle" };
-              sendJSON(res, 201, { ...publicOpenCodeNativeTask(session, status), kind: "opencode-native", agentId: "opencode",
+              sendWorkspaceResult(res, 201, { ...publicOpenCodeNativeTask(session, status), kind: "opencode-native", agentId: "opencode",
                 worktree: worktree ? { ...worktree, path: session.directory || cwd } : null });
             } catch (error) {
               // OpenCode's server can be healthy while a particular project
@@ -6676,14 +6785,14 @@ const server = http.createServer(async (req, res) => {
               if (!recoverable.has(String(error?.code || "")) || requesterGone) throw error;
               const fallback = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
               if (requesterGone) return;
-              sendJSON(res, 201, { ...fallback, kind: "cli", agentId,
+              sendWorkspaceResult(res, 201, { ...fallback, kind: "cli", agentId,
                 nativeFallback: "opencode-native", nativeFallbackReason: "project_session_unavailable" });
             }
           } else if (agentId === "grok-build" && grokAcp && !worktree) {
             const session = await grokAcp.createSession({ directory: nativeAgentDirectory(cwd, "Grok ACP"), name: body?.name || null });
             if (session.kind === "reject") { const error = new Error(session.code); error.statusCode = 409; throw error; }
             if (requesterGone) return;
-            sendJSON(res, 201, { ...publicGrokAcpTask({ id: session.sessionId, cwd: session.cwd, status: "idle", eventCount: 0 }), kind: "grok-acp", agentId: "grok-build" });
+            sendWorkspaceResult(res, 201, { ...publicGrokAcpTask({ id: session.sessionId, cwd: session.cwd, status: "idle", eventCount: 0 }), kind: "grok-acp", agentId: "grok-build" });
           } else if (["cline", "kilo", "hermes"].includes(agentId) && acpAdapterForAgent(agentId) && !worktree) {
             const adapter = acpAdapterForAgent(agentId);
             const session = await adapter.createSession({
@@ -6697,11 +6806,11 @@ const server = http.createServer(async (req, res) => {
               // returns to the supervised bounded connector for the same
               // allow-listed agent.
               const fallback = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
-              sendJSON(res, 201, { ...fallback, kind: "cli", agentId, nativeFallback: "acp", nativeFallbackReason: session.code });
+              sendWorkspaceResult(res, 201, { ...fallback, kind: "cli", agentId, nativeFallback: "acp", nativeFallbackReason: session.code });
               return;
             }
             if (requesterGone) return;
-            sendJSON(res, 201, { ...publicAgentClientProtocolTask(agentId, { id: session.sessionId, cwd: session.cwd, status: "idle", eventCount: 0, name: body?.name || null }), kind: "acp", agentId });
+            sendWorkspaceResult(res, 201, { ...publicAgentClientProtocolTask(agentId, { id: session.sessionId, cwd: session.cwd, status: "idle", eventCount: 0, name: body?.name || null }), kind: "acp", agentId });
           } else if (agentId === "codex" && codexNative.status().mutationReady && !worktree) {
             const nativeCwd = nativeAgentDirectory(cwd, "Codex");
             // Opening a project with an existing native thread must resume
@@ -6717,7 +6826,7 @@ const server = http.createServer(async (req, res) => {
             const task = thread ? codexTaskFromThread(thread) : null;
             if (!task || !started.threadId) { const error = new Error("codex_native_thread_invalid"); error.statusCode = 502; throw error; }
             if (requesterGone) return;
-            sendJSON(res, 201, { ...task, mutation: "native_api", nativeCodex: true, kind: "codex-native", agentId: "codex" });
+            sendWorkspaceResult(res, 201, { ...task, mutation: "native_api", nativeCodex: true, kind: "codex-native", agentId: "codex" });
           } else if (agentId === "claude-code" && claudeStructuredEnabled && claudeStructuredCommand && !worktree) {
             const localId = crypto.randomUUID();
             const sessionCwd = nativeAgentDirectory(cwd, "Claude Code");
@@ -6736,8 +6845,8 @@ const server = http.createServer(async (req, res) => {
               });
               const reused = attached || (claudeStructuredSessions.has(resumeSessionId)
                 ? [resumeSessionId, claudeStructuredSessions.get(resumeSessionId)] : null);
-              if (reused) {
-                sendJSON(res, 201, { ...publicClaudeStructuredTask(reused[0], reused[1]), kind: "claude-structured", agentId: "claude-code" });
+              if (reused && !reused[1].status().closed) {
+                sendWorkspaceResult(res, 201, { ...publicClaudeStructuredTask(reused[0], reused[1]), kind: "claude-structured", agentId: "claude-code" });
                 return;
               }
             }
@@ -6751,7 +6860,11 @@ const server = http.createServer(async (req, res) => {
             const session = await launchClaudeStructuredSession({ desktopClient: desktopClaude,
               command: claudeStructuredCommand, cwd: sessionCwd, env: { ...process.env, ...claudeOverrides },
               name: sessionName, permissionPromptTool: claudePermissionPromptTool, sessionId: resumeSessionId,
-              onEvent: event => { try { if (event?.sessionId) rememberClaudeStructuredSession(event.sessionId, { cwd: sessionCwd, name: sessionName }); } catch {} } });
+              onEvent: event => { try { if (event?.sessionId) {
+                rememberClaudeStructuredSession(event.sessionId, { cwd: sessionCwd, name: sessionName });
+                const owned = workspaceRegistry.list().entries.find(row => row.record.id === `claude-code:${localId}`);
+                if (owned && owned.record.nativeSessionId !== event.sessionId) workspaceRegistry.update(owned.key, { nativeSessionId: event.sessionId, persisted: true });
+              } } catch {} } });
             if (resumeSessionId) rememberClaudeStructuredSession(resumeSessionId, { cwd: sessionCwd, name: sessionName });
             claudeStructuredSessions.set(localId, session);
             if (requesterGone) {
@@ -6759,7 +6872,7 @@ const server = http.createServer(async (req, res) => {
               if (result.cleanupConfirmed) claudeStructuredSessions.delete(localId);
               return;
             }
-            sendJSON(res, 201, { ...publicClaudeStructuredTask(localId, session), kind: "claude-structured", agentId: "claude-code" });
+            sendWorkspaceResult(res, 201, { ...publicClaudeStructuredTask(localId, session), kind: "claude-structured", agentId: "claude-code" });
           } else if (agentId === "antigravity" && antigravityStructuredEnabled && antigravityCommand && !worktree) {
             const localId = crypto.randomUUID();
             const session = createAntigravityStructuredSession({ command: antigravityCommand, cwd: nativeAgentDirectory(cwd, "Google Antigravity"), env: process.env,
@@ -6767,10 +6880,10 @@ const server = http.createServer(async (req, res) => {
               conversationId: body?.conversationId || body?.resumeSessionId || null });
             antigravityStructuredSessions.set(localId, session);
             if (requesterGone) { void session.close(); antigravityStructuredSessions.delete(localId); return; }
-            sendJSON(res, 201, { ...publicAntigravityStructuredTask(localId, session), kind: "antigravity-structured", agentId: "antigravity" });
+            sendWorkspaceResult(res, 201, { ...publicAntigravityStructuredTask(localId, session), kind: "antigravity-structured", agentId: "antigravity" });
           } else {
             const result = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
-            sendJSON(res, 201, { ...result, kind: "cli", agentId });
+            sendWorkspaceResult(res, 201, { ...result, kind: "cli", agentId });
           }
         } catch (error) {
           if (!requesterGone) sendJSON(res, error.statusCode || 409, {
@@ -6780,6 +6893,7 @@ const server = http.createServer(async (req, res) => {
         } finally {
           res.off("close", onResponseClose);
           if (reservedClaude) claudeLaunchReservations--;
+          releaseResume?.();
         }
         return;
       }
@@ -6885,7 +6999,12 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/open" && req.method === "POST") {
         const body = await readJSON(req);
         try {
+          if (!body.file) workspaceRegistry.list();
           const r = await openRpc(body);
+          if (!body.file) {
+            try { r.workspaceEntry = workspaceRegistry.remember({ ...r, agentId: "pi", name: body.name || "Pi" }); }
+            catch { r.workspaceError = "Could not save workspace membership; do not retry the launch."; }
+          }
           sendJSON(res, 200, r);
         } catch (e) {
           sendJSON(res, e.statusCode || 400, { error: e.message });
@@ -7016,13 +7135,18 @@ const server = http.createServer(async (req, res) => {
 
     // ---- 靜態檔案 ----
     if (req.method !== "GET" && req.method !== "HEAD") { send(res, 405, ""); return; }
-    let rel = p === "/" ? "index.html" : p.replace(/^\/+/, "");
+    let rel = p === "/" ? "workspace.html" : p.replace(/^\/+/, "");
     const abs = path.normalize(path.join(PUBLIC_DIR, rel));
     if (!abs.startsWith(PUBLIC_DIR + path.sep)) { send(res, 403, ""); return; }
     fs.stat(abs, (statErr, stat) => {
       if (statErr || !stat.isFile()) { send(res, 404, "not found"); return; }
       const etag = `W/\"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}\"`;
+      const paneHeaders = rel === "index.html" && url.searchParams.get("pane") === "1" ? {
+        "X-Frame-Options": "SAMEORIGIN",
+        "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'"
+      } : {};
       const commonHeaders = {
+        ...paneHeaders,
         "Content-Type": MIME[path.extname(abs)] || "application/octet-stream",
         "Cache-Control": rel === "sw.js"
           ? "no-cache, no-store, must-revalidate"

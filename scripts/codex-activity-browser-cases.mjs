@@ -33,7 +33,7 @@ export async function runCodexActivityBrowserCases(browser) {
       page.on("pageerror", error => errors.push(error.message));
 
       stage = "open Codex task";
-      await page.goto(preview.origin);
+      await page.goto(`${preview.origin}/index.html`);
       await page.locator(".session-item-main").filter({ hasText: "Codex composer fixture" }).click();
 
       stage = "active goal";

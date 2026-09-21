@@ -347,3 +347,13 @@ test("recreated pool restores a child observation through the shared history sna
   assert.equal(resumeCalls, resumeBeforeCold, "cold context lookup must not resume the thread");
   assert.equal(startCalls, 0, "cold context lookup must not start a thread");
 });
+
+test("account quota uses the history connection without allocating a session child", async t => {
+  const history = historyFixture(); let reads = 0;
+  history.rateLimits = async () => { reads++; return { rateLimits: { primary: { usedPercent: 25 } } }; };
+  const pool = createCodexNativePool({ historyAdapter: history, createThreadAdapter: () => { throw new Error("must not create a thread"); } });
+  t.after(() => pool.close());
+  assert.equal((await pool.rateLimits()).rateLimits.primary.usedPercent, 25);
+  assert.equal(reads, 1); assert.equal(pool.busyTasks().length, 0);
+  assert.ok(!history.calls.some(([method]) => method === "listTasks" || method === "listThreads"));
+});

@@ -34,7 +34,7 @@ const APPROVAL_METHODS = Object.freeze([
   "item/permissions/requestApproval",
 ]);
 const CLIENT_METHODS = Object.freeze([
-  "initialize", "thread/start", "thread/resume", "thread/read", "thread/list",
+  "initialize", "account/rateLimits/read", "thread/start", "thread/resume", "thread/read", "thread/list",
   "thread/turns/list", "thread/items/list", "thread/goal/get", "model/list", "turn/start", "turn/interrupt",
 ]);
 const NATIVE_LIFECYCLE_NOTIFICATIONS = Object.freeze(new Set([
@@ -1072,6 +1072,10 @@ function createCodexAppServerTransport({
     listThreadItems,
     getThreadGoal,
     listModels,
+    async rateLimits() {
+      if (!ensureInitialized()) return reject("native_lifecycle_conflict");
+      return request("account/rateLimits/read", {}, { check: value => plain(value) });
+    },
     startTurn,
     interruptTurn,
     respondApproval,

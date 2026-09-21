@@ -450,3 +450,24 @@ test("already localized Traditional Chinese chrome is idempotent", () => {
   assert.doesNotMatch(i18n.translate("工作階段"), /work階段/i);
   assert.equal(i18n.translate("更多專案操作"), "More project actions");
 });
+
+test("locale switches preserve exact terminal output and conversation titles", () => {
+  const protectedSelectors = [".agent-terminal-output", ".agent-terminal-input", ".agent-structured-output", "#chat-title", "#chat-sub"];
+  const nodes = protectedSelectors.map(selector => ({ nodeType: 3, nodeValue: "設定 開啟 中文內容", parentElement: {
+    closest: query => query.split(",").map(s => s.trim()).includes(selector) ? {} : null,
+  } }));
+  const chrome = { nodeType: 3, nodeValue: "設定", parentElement: { closest: () => null } };
+  nodes.push(chrome);
+  const body = { nodeType: 1, querySelectorAll: () => [] };
+  const document = { documentElement: {}, body, getElementById: () => null,
+    createTreeWalker() { let index = 0; return { nextNode: () => nodes[index++] || null }; } };
+  const context = { window: {}, document, Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 }, NodeFilter: { SHOW_TEXT: 4 },
+    MutationObserver: class { observe() {} }, localStorage: { getItem: () => null } };
+  vm.runInNewContext(fs.readFileSync(path.join(root, "public/i18n.js"), "utf8"), context);
+  for (const locale of ["en", "ja", "zh-Hant"]) {
+    context.window.stepsembleI18n.setLocale(locale);
+    for (const node of nodes.slice(0, -1)) assert.equal(node.nodeValue, "設定 開啟 中文內容");
+  }
+  context.window.stepsembleI18n.setLocale("en");
+  assert.equal(chrome.nodeValue, "Settings");
+});

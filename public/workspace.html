@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Stepsemble · Workspace</title><link rel="icon" href="/icon-32.png?v=3.1.0-rc.1"><link rel="stylesheet" href="/modules/workspace.css?v=3.1.0-rc.1"><link rel="manifest" href="/manifest.webmanifest?v=3.1.0-rc.1">
+</head>
+<body>
+<aside id="workspace-sidebar">
+  <header><strong>Stepsemble</strong><button id="workspace-sidebar-close" class="workspace-mobile-nav" aria-label="Hide workspace list" data-workspace-aria-label="hideSidebar">×</button><button id="workspace-settings" title="Settings" aria-label="Settings" data-workspace-title="settings" data-workspace-aria-label="settings">⚙</button></header>
+  <label class="host-label"><span data-workspace-i18n="host">Host</span><select id="workspace-host" aria-label="Host" data-workspace-aria-label="host"></select></label>
+  <button id="workspace-add" class="primary">＋ <span data-workspace-i18n="addProject">Add project</span></button>
+  <input id="workspace-search" type="search" placeholder="Search workspace sessions" aria-label="Search workspace sessions" data-workspace-placeholder="searchWorkspace" data-workspace-aria-label="searchWorkspace">
+  <div id="workspace-projects"></div>
+  <footer><button id="workspace-history" data-workspace-i18n="history">History from other apps</button><button id="workspace-refresh" data-workspace-i18n="refresh">Refresh</button><button id="workspace-usage" title="Subscription limits" data-workspace-title="quota" data-workspace-i18n="loadingQuota">Loading limits…</button><p id="workspace-connection" role="status"></p></footer>
+</aside>
+<main id="workspace-main"><header class="workspace-heading"><button id="workspace-sidebar-toggle" aria-label="Toggle workspace list" data-workspace-aria-label="toggleSidebar">☰</button><div><strong data-workspace-i18n="workspace">Workspace</strong><small data-workspace-i18n="hint">Drag sessions to an edge to split, or to the center to add a tab</small></div><button id="workspace-new-window" data-workspace-i18n="newWindow">New window</button></header><div id="workspace-stage"><div id="workspace-tree"></div><div id="workspace-frames"></div></div></main>
+<dialog id="workspace-dialog"><header><h2 id="workspace-dialog-title"></h2><button id="workspace-dialog-close" aria-label="Close" data-workspace-aria-label="close">×</button></header><div id="workspace-dialog-body"></div></dialog>
+<p id="workspace-toast" role="status" hidden></p>
+<script src="/modules/workspace-i18n.js?v=3.1.0-rc.1"></script><script src="/modules/workspace-layout.js?v=3.1.0-rc.1"></script><script src="/modules/workspace.js?v=3.1.0-rc.1"></script>
+</body></html>

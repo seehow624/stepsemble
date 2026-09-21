@@ -34,7 +34,7 @@ export async function runHistorySourcesBrowserCases(browser, helperPath) {
             return route.continue();
           });
           const page = await context.newPage(); page.setDefaultTimeout(15000); page.on("pageerror", error => errors.push(error.message));
-          await page.goto(host.origin); await page.locator("#login-onboarding-skip").click();
+          await page.goto(`${host.origin}/index.html`); await page.locator("#login-onboarding-skip").click();
           await page.locator("#login-token").fill(host.token); await page.locator("#login-form button").click();
           await page.locator("#agent-hub-history").waitFor(); await page.goto(`${host.origin}/history.html`);
           await page.locator("#history-language").selectOption("zh-Hant");

@@ -22,7 +22,7 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
           return route.continue();
         });
         page = await context.newPage(); page.setDefaultTimeout(15000); page.on("pageerror", e => errors.push(e.message));
-        await page.goto(host.origin); await page.locator("#login-onboarding-skip").click();
+        await page.goto(`${host.origin}/index.html`); await page.locator("#login-onboarding-skip").click();
         await page.locator("#login-token").fill(host.token); await page.locator("#login-form button").click();
         await page.locator("#agent-hub-history").waitFor();
         assert.equal(await page.locator("#agent-hub-history").getAttribute("title"), "Open read-only native history in a separate tab");

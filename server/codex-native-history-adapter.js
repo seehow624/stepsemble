@@ -1167,6 +1167,7 @@ function createCodexNativeHistoryAdapter({
     listThreadItems,
     getThreadGoal,
     listModels,
+    async rateLimits() { requireReady(); if (typeof transport?.rateLimits !== "function") throw new Error("quota_unavailable"); return transport.rateLimits(); },
     contextUsage,
     listTasks,
     startThread,
