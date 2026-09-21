@@ -3,6 +3,7 @@ const SHELL = [
   "/",
   "/index.html",
   "/workspace.html",
+  "/modules/workspace-mobile.js?v=3.1.0-rc.3",
   "/modules/workspace.js?v=3.1.0-rc.3",
   "/modules/workspace-i18n.js?v=3.1.0-rc.3",
   "/modules/workspace-layout.js?v=3.1.0-rc.3",

@@ -153,15 +153,20 @@
         tab.append(button(ref.title, () => { n.active = key; focused = n.id; commit(tree); }, `${ref.title} · ${hostName(ref.host)}`), button("×", () => commit(L.remove(tree, ref)), t("closeTab", { title: ref.title }))); tabs.append(tab);
       }
       const tools = node("div", "", "workspace-pane-tools");
-      for (const [label, edge] of [[t("splitHorizontal"), "right"], [t("splitVertical"), "bottom"]]) tools.append(button(label, () => {
-        const ref = active(n);
-        if (!ref) { toast(t("openFirst")); return; }
-        // Split with an empty destination, preserving the current conversation.
-        if (L.leaves(tree).length >= 8) { toast(t("paneLimit")); return; }
-        const empty = L.pane(); focused = empty.id; maximized = null;
-        commit(L.replace(tree, n.id, { type: "split", id: crypto.randomUUID(), axis: edge === "right" ? "row" : "column", ratio: .5, first: n, second: empty }));
-      }));
-      tools.append(button(t("newWindow"), () => newWindow(active(n))), button(maximized === n.id ? t("restore") : t("maximize"), () => { maximized = maximized ? null : n.id; render(); }), button(t("closePane"), () => { maximized = null; commit(L.closePane(tree, n.id)); }));
+      // Splitting, extra windows and maximize are desktop affordances. A narrow
+      // viewport shows one pane at a time, so it keeps tabs and pane switching.
+      if (!mobile()) {
+        for (const [label, edge] of [[t("splitHorizontal"), "right"], [t("splitVertical"), "bottom"]]) tools.append(button(label, () => {
+          const ref = active(n);
+          if (!ref) { toast(t("openFirst")); return; }
+          // Split with an empty destination, preserving the current conversation.
+          if (L.leaves(tree).length >= 8) { toast(t("paneLimit")); return; }
+          const empty = L.pane(); focused = empty.id; maximized = null;
+          commit(L.replace(tree, n.id, { type: "split", id: crypto.randomUUID(), axis: edge === "right" ? "row" : "column", ratio: .5, first: n, second: empty }));
+        }));
+        tools.append(button(t("newWindow"), () => newWindow(active(n))), button(maximized === n.id ? t("restore") : t("maximize"), () => { maximized = maximized ? null : n.id; render(); }));
+      }
+      tools.append(button(t("closePane"), () => { maximized = null; commit(L.closePane(tree, n.id)); }));
       const next = button(t("nextPane"), () => { const panes = L.leaves(tree); focused = panes[(panes.findIndex(p => p.id === focused)+1)%panes.length].id; commit(tree); }, t("nextPane"), "btn ghost workspace-mobile-nav"); tools.prepend(next);
       const slot = node("div", n.tabs.length ? t("loadingSession") : t("selectSession"), "workspace-slot");
       if (n.active) slots.set(n.active, slot);

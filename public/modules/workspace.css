@@ -279,6 +279,7 @@ body.compact .workspace-session small { font-size: .61rem; }
   .workspace-mobile-nav { display: inline-flex; }
   .workspace-heading { min-height: 58px; padding: 8px 10px; }
   .workspace-heading small { display: none; }
+  #workspace-new-window { display: none; }
   #workspace-tree { inset: 8px; }
   .workspace-split { display: contents; }
   .workspace-branch { display: contents !important; }

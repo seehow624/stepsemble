@@ -4,6 +4,7 @@
 
 - Refine the workspace shell around the Stepsemble conversation layout: paper background, branded identity, project card, flat session rows, quieter pane borders, and a branded empty state.
 - Keep host connectivity visible in the workspace header and leave the managed session, split pane, and multi-window behavior unchanged.
+- Open phones in the original single-column conversation view instead of the split-pane shell, and remove split, extra-window and maximize controls from narrow layouts.
 
 ## 3.1.0-rc.2
 
