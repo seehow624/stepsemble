@@ -33,6 +33,17 @@ test("Codex reasoning, file edits and failures retain structure and status", () 
   assert.equal(failed.tool.isError, true);
 });
 
+test("Codex image views retain only server-issued preview handles", () => {
+  const preview = { url: "/api/codex/image?token=abcdefghijklmnopqrstuvwxyz012345", mimeType: "image/png", name: "crop.png" };
+  const value = presentation.codexItem({ id: "image-1", type: "imageView", path: "/owned/private/crop.png", preview });
+  assert.equal(value.kind, "tool");
+  assert.equal(value.tool.name, "view_image");
+  assert.deepEqual(value.tool.preview, preview);
+  const rejected = presentation.codexItem({ id: "image-2", type: "imageView", path: "/owned/private/crop.png",
+    preview: { url: "file:///owned/private/crop.png", mimeType: "image/png", name: "crop.png" } });
+  assert.equal(rejected.tool.preview, null);
+});
+
 test("OpenCode messages keep prose, reasoning and tool output in separate channels", () => {
   const value = presentation.openCodeMessage({ role: "assistant", parts: [
     { type: "reasoning", text: "checking" },

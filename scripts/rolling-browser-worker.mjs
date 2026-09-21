@@ -16,6 +16,7 @@ import { runConversationBrowserCases } from "./conversation-browser-cases.mjs";
 import { runWebStabilityBrowserCases } from "./web-stability-browser-cases.mjs";
 import { runHistorySourcesBrowserCases } from "./history-sources-browser-cases.mjs";
 import { runCodexHistoryBrowserCases } from "./history-codex-browser-cases.mjs";
+import { runCodexActivityBrowserCases } from "./codex-activity-browser-cases.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url), exec = promisify(execFile);
 const pins = require("../protocol/rolling-releases.json").releases;
@@ -164,6 +165,7 @@ try {
     await runProjectPickerBrowserCases(browser);
     await runConversationBrowserCases(browser);
     await runWebStabilityBrowserCases(browser);
+    await runCodexActivityBrowserCases(browser);
   }
   else if (suite === "sources") await runHistorySourcesBrowserCases(browser, historyHelper);
   else await runCodexHistoryBrowserCases(browser, historyHelper);

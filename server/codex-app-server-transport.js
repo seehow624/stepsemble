@@ -35,7 +35,7 @@ const APPROVAL_METHODS = Object.freeze([
 ]);
 const CLIENT_METHODS = Object.freeze([
   "initialize", "thread/start", "thread/resume", "thread/read", "thread/list",
-  "thread/turns/list", "thread/items/list", "model/list", "turn/start", "turn/interrupt",
+  "thread/turns/list", "thread/items/list", "thread/goal/get", "model/list", "turn/start", "turn/interrupt",
 ]);
 const NATIVE_LIFECYCLE_NOTIFICATIONS = Object.freeze(new Set([
   "thread/started", "turn/started", "turn/completed", "item/started", "item/completed",
@@ -231,6 +231,37 @@ function normalizeThreadTurnsResponse(value) {
 
 function normalizeThreadItemsResponse(value) {
   return normalizeHistoryPageResponse(value, "data", normalizeThreadItemEntry);
+}
+
+const THREAD_GOAL_STATUSES = new Set(["active", "paused", "blocked", "usageLimited", "budgetLimited", "complete"]);
+
+function normalizeThreadGoal(value) {
+  if (!plain(value) || !nativeId(value.threadId) || typeof value.objective !== "string"
+    || value.objective.length < 1 || value.objective.length > 16 * 1024
+    || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value.objective)
+    || !THREAD_GOAL_STATUSES.has(value.status)
+    || value.tokenBudget !== null && (!Number.isSafeInteger(value.tokenBudget) || value.tokenBudget < 1)
+    || !Number.isSafeInteger(value.tokensUsed) || value.tokensUsed < 0
+    || !Number.isSafeInteger(value.timeUsedSeconds) || value.timeUsedSeconds < 0
+    || !Number.isSafeInteger(value.createdAt) || value.createdAt < 0
+    || !Number.isSafeInteger(value.updatedAt) || value.updatedAt < 0) return null;
+  return {
+    threadId: value.threadId,
+    objective: value.objective,
+    status: value.status,
+    tokenBudget: value.tokenBudget,
+    tokensUsed: value.tokensUsed,
+    timeUsedSeconds: value.timeUsedSeconds,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+  };
+}
+
+function normalizeThreadGoalResponse(value) {
+  if (!plain(value) || !Object.hasOwn(value, "goal")) return null;
+  if (value.goal === null) return { goal: null };
+  const goal = normalizeThreadGoal(value.goal);
+  return goal ? { goal } : null;
 }
 
 function modelText(value, limit = MAX_MODEL_TEXT) {
@@ -675,6 +706,16 @@ function createCodexAppServerTransport({
     return result ? { kind: "thread_items", ...result, threadId: params.threadId, turnId: params.turnId ?? null } : reject("native_response_invalid");
   }
 
+  async function getThreadGoal(params = {}) {
+    if (!ensureInitialized()) return reject("native_lifecycle_conflict");
+    if (!plain(params) || !nativeId(params.threadId) || Reflect.ownKeys(params).length !== 1) return reject("invalid_native_params");
+    const response = await request("thread/goal/get", { threadId: params.threadId }, {
+      check: value => normalizeThreadGoalResponse(value) !== null,
+    });
+    const result = normalizeThreadGoalResponse(response);
+    return result ? { kind: "thread_goal", ...result } : reject("native_response_invalid");
+  }
+
   async function listModels(params = {}) {
     if (!ensureInitialized()) return reject("native_lifecycle_conflict");
     if (!validModelListRequest(params)) return reject("invalid_native_params");
@@ -1021,6 +1062,7 @@ function createCodexAppServerTransport({
     readThread,
     listThreadTurns,
     listThreadItems,
+    getThreadGoal,
     listModels,
     startTurn,
     interruptTurn,
@@ -1057,6 +1099,8 @@ module.exports = {
   normalizeThreadReadResponse,
   normalizeThreadTurnsResponse,
   normalizeThreadItemsResponse,
+  normalizeThreadGoal,
+  normalizeThreadGoalResponse,
   normalizeModel,
   normalizeModelListResponse,
   normalizeTokenUsageBreakdown,

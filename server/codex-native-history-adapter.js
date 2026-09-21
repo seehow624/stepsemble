@@ -979,6 +979,21 @@ function createCodexNativeHistoryAdapter({
     return { ...result, threadId };
   }
 
+  async function getThreadGoal(threadId) {
+    requireReady();
+    if (!validThreadId(threadId)) throw new CodexNativeHistoryError("invalid_thread_id", "Codex thread id is invalid", 400);
+    if (typeof transport?.getThreadGoal !== "function") {
+      throw new CodexNativeHistoryError("native_goal_unavailable", "Codex goal state is unavailable", 503);
+    }
+    let result;
+    try { result = await transport.getThreadGoal({ threadId }); }
+    catch (error) { retireBrokenTransport(error); throw error; }
+    if (!result || result.kind !== "thread_goal" || result.goal && result.goal.threadId !== threadId) {
+      throw new CodexNativeHistoryError("native_response_invalid", "Codex goal response was invalid", 502);
+    }
+    return { kind: "thread_goal", threadId, goal: result.goal || null };
+  }
+
   async function listModels(params = {}) {
     requireReady();
     if (!params || typeof params !== "object" || Array.isArray(params)) {
@@ -1150,6 +1165,7 @@ function createCodexNativeHistoryAdapter({
     readThread,
     listThreadTurns,
     listThreadItems,
+    getThreadGoal,
     listModels,
     contextUsage,
     listTasks,

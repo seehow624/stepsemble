@@ -27,6 +27,7 @@ const { createHttpUtils } = require("./server/http-utils");
 const { createNativeComposerRoutes } = require("./server/native-composer-routes");
 const { applyNativeLaunchConfig, isInstalledRuntime } = require("./server/native-launch-config");
 const { createCodexNativePool } = require("./server/codex-native-pool");
+const { createCodexImagePreviewRegistry } = require("./server/codex-image-preview");
 const { createOpenCodeManagedService } = require("./server/opencode-managed-service");
 const { createOpenCodeConfigService } = require("./server/opencode-config-service");
 const { createOpenCodexGatewayService } = require("./server/opencodex-gateway-service");
@@ -86,7 +87,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.0.75";
+const APP_VERSION = "3.0.76";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -210,6 +211,20 @@ const BROWSE_ROOTS_FROM_ENV = String(settingFromEnv("BROWSE_ROOTS") || "")
 // Web may browse the configured user home, while launchers can explicitly add
 // shared volumes (for example `/Volumes`) through STEPSEMBLE_BROWSE_ROOTS.
 const BROWSE_ROOTS = BROWSE_ROOTS_FROM_ENV.length ? BROWSE_ROOTS_FROM_ENV : [APP_HOME];
+const codexImagePreviews = createCodexImagePreviewRegistry({ roots: BROWSE_ROOTS });
+
+function exposeCodexImagePreviews(result) {
+  if (!result || !Array.isArray(result.data)) return result;
+  return {
+    ...result,
+    data: result.data.map(row => {
+      const item = row?.item;
+      if (!item || item.type !== "imageView" || typeof item.path !== "string") return row;
+      const preview = codexImagePreviews.register(item.path, `${row.turnId}:${item.id}`);
+      return preview ? { ...row, item: { ...item, preview } } : row;
+    }),
+  };
+}
 
 // Claude Code and Codex keep their own local transcripts.  The catalog is a
 // separate read-only observation layer: it is never used to launch either
@@ -5495,7 +5510,11 @@ const server = http.createServer(async (req, res) => {
           // Metadata-only is the safe HTTP default. Large rollout history is
           // hydrated through the bounded turns/items routes below.
           const includeTurns = url.searchParams.get("includeTurns") === "1";
-          sendJSON(res, 200, { ...(await codexNative.readThread(threadId, { includeTurns })), adapter: codexNative.status() });
+          const [thread, goal] = await Promise.all([
+            codexNative.readThread(threadId, { includeTurns }),
+            codexNative.getThreadGoal(threadId).catch(() => ({ unavailable: true, goal: null })),
+          ]);
+          sendJSON(res, 200, { ...thread, goal: goal.goal || null, goalAvailable: goal.unavailable !== true, adapter: codexNative.status() });
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "codex_thread_unavailable" }); }
         return;
       }
@@ -5531,8 +5550,20 @@ const server = http.createServer(async (req, res) => {
           if (turnId !== null) params.turnId = turnId;
           if (sortDirection !== null) params.sortDirection = sortDirection;
           if (itemsView !== null) params.itemsView = itemsView;
-          sendJSON(res, 200, { ...await codexNative.listThreadItems(url.searchParams.get("threadId") || "", params), adapter: codexNative.status() });
+          const result = exposeCodexImagePreviews(await codexNative.listThreadItems(url.searchParams.get("threadId") || "", params));
+          sendJSON(res, 200, { ...result, adapter: codexNative.status() });
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "codex_items_unavailable" }); }
+        return;
+      }
+
+      if (p === "/api/codex/image" && req.method === "GET") {
+        const image = await codexImagePreviews.read(url.searchParams.get("token") || "");
+        if (image.status !== 200) { send(res, image.status, ""); return; }
+        send(res, 200, image.data, {
+          "Content-Type": image.mimeType,
+          "Cache-Control": "private, no-store",
+          "Content-Disposition": "inline",
+        });
         return;
       }
 

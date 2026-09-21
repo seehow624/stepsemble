@@ -1127,6 +1127,21 @@
   };
   for (const [id, table] of Object.entries(SIMPLIFIED_UI_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
 
+  const CODEX_ACTIVITY_TRANSLATIONS = {
+    en: { "Pursuing goal": "Pursuing goal", "Goal paused": "Goal paused", "Goal blocked": "Goal blocked", "Goal limit reached": "Goal limit reached", "Codex is still working on this conversation": "Codex is still working on this conversation", "Viewed an image": "Viewed an image", "Viewed {count} images": "Viewed {count} images" },
+    "zh-Hant": { "Pursuing goal": "正在追蹤 Goal", "Goal paused": "Goal 已暫停", "Goal blocked": "Goal 需要處理", "Goal limit reached": "Goal 已達限制", "Codex is still working on this conversation": "Codex 仍在處理這個對話", "Viewed an image": "查看了一張圖片", "Viewed {count} images": "查看了 {count} 張圖片" },
+    "zh-Hans": { "Pursuing goal": "正在追踪 Goal", "Goal paused": "Goal 已暂停", "Goal blocked": "Goal 需要处理", "Goal limit reached": "Goal 已达限制", "Codex is still working on this conversation": "Codex 仍在处理这个对话", "Viewed an image": "查看了一张图片", "Viewed {count} images": "查看了 {count} 张图片" },
+    ja: { "Pursuing goal": "Goal を追跡中", "Goal paused": "Goal は一時停止中", "Goal blocked": "Goal は対応が必要です", "Goal limit reached": "Goal の上限に達しました", "Codex is still working on this conversation": "Codex はこの会話を処理中です", "Viewed an image": "画像を確認しました", "Viewed {count} images": "{count} 枚の画像を確認しました" },
+    ko: { "Pursuing goal": "Goal 진행 중", "Goal paused": "Goal 일시 중지", "Goal blocked": "Goal 확인 필요", "Goal limit reached": "Goal 한도 도달", "Codex is still working on this conversation": "Codex가 이 대화를 계속 처리하고 있습니다", "Viewed an image": "이미지를 확인함", "Viewed {count} images": "이미지 {count}개를 확인함" },
+    tr: { "Pursuing goal": "Hedef sürdürülüyor", "Goal paused": "Hedef duraklatıldı", "Goal blocked": "Hedef engellendi", "Goal limit reached": "Hedef sınırına ulaşıldı", "Codex is still working on this conversation": "Codex bu konuşma üzerinde çalışmaya devam ediyor", "Viewed an image": "Bir görüntü incelendi", "Viewed {count} images": "{count} görüntü incelendi" },
+    fr: { "Pursuing goal": "Objectif en cours", "Goal paused": "Objectif en pause", "Goal blocked": "Objectif bloqué", "Goal limit reached": "Limite de l’objectif atteinte", "Codex is still working on this conversation": "Codex traite toujours cette conversation", "Viewed an image": "Image consultée", "Viewed {count} images": "{count} images consultées" },
+    de: { "Pursuing goal": "Ziel wird verfolgt", "Goal paused": "Ziel pausiert", "Goal blocked": "Ziel blockiert", "Goal limit reached": "Ziellimit erreicht", "Codex is still working on this conversation": "Codex arbeitet noch an dieser Unterhaltung", "Viewed an image": "Bild angesehen", "Viewed {count} images": "{count} Bilder angesehen" },
+    es: { "Pursuing goal": "Objetivo en curso", "Goal paused": "Objetivo en pausa", "Goal blocked": "Objetivo bloqueado", "Goal limit reached": "Límite del objetivo alcanzado", "Codex is still working on this conversation": "Codex sigue trabajando en esta conversación", "Viewed an image": "Imagen revisada", "Viewed {count} images": "{count} imágenes revisadas" },
+    "pt-BR": { "Pursuing goal": "Objetivo em andamento", "Goal paused": "Objetivo pausado", "Goal blocked": "Objetivo bloqueado", "Goal limit reached": "Limite do objetivo atingido", "Codex is still working on this conversation": "O Codex ainda está trabalhando nesta conversa", "Viewed an image": "Imagem visualizada", "Viewed {count} images": "{count} imagens visualizadas" },
+    it: { "Pursuing goal": "Obiettivo in corso", "Goal paused": "Obiettivo in pausa", "Goal blocked": "Obiettivo bloccato", "Goal limit reached": "Limite dell’obiettivo raggiunto", "Codex is still working on this conversation": "Codex sta ancora elaborando questa conversazione", "Viewed an image": "Immagine visualizzata", "Viewed {count} images": "{count} immagini visualizzate" },
+  };
+  for (const [id, table] of Object.entries(CODEX_ACTIVITY_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
+
   // Update center copy is kept as a complete per-locale table because it is
   // rendered dynamically for every configured device. This prevents a status
   // row, timestamp label, or partial-success summary from falling back to

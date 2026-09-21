@@ -19,6 +19,8 @@ const OPENCODE_PROVIDER = "fixture-opencode-provider";
 const OPENCODE_MODEL = "fixture-opencode-model";
 const OPENCODE_DIRECTORY = "/tmp/stepsemble-native-composer";
 const startedAt = Date.now() - 90_000;
+const CODEX_IMAGE_TOKEN = "fixture_codex_image_token_123456";
+const CODEX_IMAGE = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 
 const codexModels = [
   {
@@ -271,7 +273,7 @@ function codexThreadPayload() {
     sessionId: CODEX_THREAD,
     cwd: tasks[0].cwd,
     updatedAt: Date.now(),
-    status: { type: "idle" },
+    status: { type: "active", activeFlags: [] },
   };
 }
 
@@ -284,6 +286,8 @@ function codexItems() {
       aggregatedOutput: "# Synthetic skill output\n" + "Long tool content remains available only after expanding the tool row.\n".repeat(40) } },
     { turnId: "fixture-turn-0", item: { id: "fixture-file-0", type: "fileChange", status: "completed",
       changes: [{ path: "/tmp/stepsemble-native-composer/app.js" }], summary: "Synthetic file edit; no file was changed." } },
+    { turnId: "fixture-turn-0", item: { id: "fixture-image-0", type: "imageView", path: "/tmp/stepsemble-native-composer/crop.png",
+      preview: { url: `/api/codex/image?token=${CODEX_IMAGE_TOKEN}`, mimeType: "image/png", name: "crop.png" } } },
     { turnId: "fixture-turn-0", item: { id: "fixture-assistant-0", type: "agentMessage", text: "Synthetic Codex response. No provider was called." } },
   ];
   for (const [index, turn] of state.codexTurns.entries()) {
@@ -298,7 +302,7 @@ function codexTurns() {
   for (const [index, turn] of state.codexTurns.entries()) {
     rows.push({ id: turn.turnId || `fixture-turn-${index + 1}`, items: [] });
   }
-  rows.push({ id: "fixture-turn-0", items: [] });
+  rows.push({ id: "fixture-turn-0", status: "inProgress", startedAt, completedAt: null, items: [] });
   return rows.reverse();
 }
 
@@ -364,9 +368,20 @@ export async function createNativeComposerPreview({ port = 0 } = {}) {
       if (pathname === "/api/project-changes" && req.method === "GET") return json(res, 200, { cwd: requestUrl.searchParams.get("cwd") || "", files: [], additions: 0, deletions: 0, changed: 0 });
       if (pathname === "/api/provider-catalog" && req.method === "GET") return json(res, 200, { providers: [] });
       if (pathname === "/api/access-tokens" && req.method === "GET") return json(res, 200, { tokens: [] });
-      if (pathname === "/api/codex/thread" && req.method === "GET") return json(res, 200, { thread: codexThreadPayload() });
+      if (pathname === "/api/codex/thread" && req.method === "GET") return json(res, 200, {
+        thread: codexThreadPayload(), goalAvailable: true, goal: {
+          threadId: CODEX_THREAD, objective: "Keep the synthetic Codex task moving until browser parity is verified",
+          status: "active", tokenBudget: null, tokensUsed: 12_345, timeUsedSeconds: 90,
+          createdAt: startedAt, updatedAt: Date.now(),
+        },
+      });
       if (pathname === "/api/codex/turns" && req.method === "GET") return json(res, 200, { data: codexTurns(), nextCursor: null });
       if (pathname === "/api/codex/items" && req.method === "GET") return json(res, 200, { data: codexItems(), nextCursor: null });
+      if (pathname === "/api/codex/image" && req.method === "GET") {
+        if (requestUrl.searchParams.get("token") !== CODEX_IMAGE_TOKEN) return json(res, 404, { error: "preview_not_found" });
+        res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "private, no-store", "Content-Length": CODEX_IMAGE.length });
+        return res.end(CODEX_IMAGE);
+      }
       if (pathname === "/api/codex/models" && req.method === "GET") return json(res, 200, { data: codexModels, nextCursor: null });
       if (pathname === "/api/codex/context" && req.method === "GET") return json(res, 200, codexContext());
       if (pathname === "/api/codex/mutation" && req.method === "GET") return json(res, 200, { pendingApprovals: [{

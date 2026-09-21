@@ -133,6 +133,10 @@ test("Codex native history adapter exposes bounded read-only tasks and transcrip
     async readThread(params) { calls.push(["thread/read", params]); return { kind: "thread", thread: nativeThread }; },
     async listThreadTurns(params) { calls.push(["thread/turns/list", params]); return { kind: "thread_turns", threadId: params.threadId, data: nativeThread.turns, nextCursor: null, backwardsCursor: null }; },
     async listThreadItems(params) { calls.push(["thread/items/list", params]); return { kind: "thread_items", threadId: params.threadId, turnId: params.turnId || null, data: [], nextCursor: null, backwardsCursor: null }; },
+    async getThreadGoal(params) { calls.push(["thread/goal/get", params]); return { kind: "thread_goal", goal: {
+      threadId: params.threadId, objective: "Complete native web parity", status: "active", tokenBudget: null,
+      tokensUsed: 123, timeUsedSeconds: 45, createdAt: 100, updatedAt: 200,
+    } }; },
     async close() { closed = true; return { kind: "closed", cleanupConfirmed: true }; },
   };
   const adapter = createCodexNativeHistoryAdapter({
@@ -165,12 +169,14 @@ test("Codex native history adapter exposes bounded read-only tasks and transcrip
   assert.equal((await adapter.readThread("thread-1")).thread.turns[0].id, "turn-1");
   assert.equal((await adapter.listThreadTurns("thread-1")).data[0].id, "turn-1");
   assert.equal((await adapter.listThreadItems("thread-1", { turnId: "turn-1" })).threadId, "thread-1");
+  assert.equal((await adapter.getThreadGoal("thread-1")).goal.objective, "Complete native web parity");
   await assert.rejects(() => adapter.readThread("../secret"), error => error instanceof CodexNativeHistoryError && error.code === "invalid_thread_id");
   assert.equal(calls[0], "initialize");
   assert.equal(calls.some(row => Array.isArray(row) && row[0] === "thread/list" && row[1].limit === 100), true);
   assert.equal(calls.some(row => Array.isArray(row) && row[0] === "thread/read" && row[1].includeTurns === true), true);
   assert.equal(calls.some(row => Array.isArray(row) && row[0] === "thread/turns/list" && row[1].limit === 20), true);
   assert.equal(calls.some(row => Array.isArray(row) && row[0] === "thread/items/list" && row[1].limit === 50), true);
+  assert.equal(calls.some(row => Array.isArray(row) && row[0] === "thread/goal/get" && row[1].threadId === "thread-1"), true);
   assert.equal((await adapter.close()).cleanupConfirmed, true);
   assert.equal(closed, true);
 });

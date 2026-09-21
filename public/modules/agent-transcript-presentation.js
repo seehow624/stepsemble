@@ -34,7 +34,16 @@
     return text(value, 64).toLowerCase().replace(/[\s_-]+/g, "");
   }
 
-  function toolView({ id = "", name = "tool", args = null, output = "", state = "", isError = false, running = false } = {}) {
+  function imagePreview(value) {
+    if (!plain(value)) return null;
+    const url = text(value.url, 512);
+    if (!/^\/api\/codex\/image\?token=[A-Za-z0-9_%=-]{24,160}$/.test(url)) return null;
+    const mimeType = text(value.mimeType, 64).toLowerCase();
+    if (!/^image\/(?:jpeg|png|webp|gif)$/.test(mimeType)) return null;
+    return { url, mimeType, name: text(value.name, 255) || "image" };
+  }
+
+  function toolView({ id = "", name = "tool", args = null, output = "", state = "", isError = false, running = false, preview = null } = {}) {
     const normalized = status(state);
     const failed = isError === true || ["failed", "error", "rejected", "denied", "cancelled", "canceled"].includes(normalized);
     const active = running === true || ["pending", "running", "inprogress", "started"].includes(normalized);
@@ -45,6 +54,7 @@
       output: encoded(output),
       isError: failed,
       running: active && !failed,
+      preview: imagePreview(preview),
     };
   }
 
@@ -104,7 +114,8 @@
     }
     if (item.type === "imageView" || item.type === "imageGeneration") {
       return { kind: "tool", tool: toolView({ id: item.id, name: item.type === "imageView" ? "view_image" : "image_generation",
-        args: { path: text(item.path || item.imagePath || item.prompt || "", 8192) }, output: item.status || "", state: item.status }) };
+        args: { path: text(item.path || item.imagePath || item.prompt || "", 8192) }, output: item.status || "", state: item.status,
+        preview: item.preview }) };
     }
     if (item.type === "sleep") {
       return { kind: "tool", tool: toolView({ id: item.id, name: "wait", args: { value: item.duration || item.reason || "" }, state: item.status }) };

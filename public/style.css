@@ -1,4 +1,4 @@
-/* stepsemble v3.0.75 — Ink & Ivory / English-first localization */
+/* stepsemble v3.0.76 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -385,6 +385,50 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
   font-size: 12px;
   line-height: 1.4;
 }
+
+/* Native Codex state stays adjacent to the composer: it remains visible while
+   the transcript is scrolled, without competing with the conversation title. */
+#view-chat .native-run-state {
+  width: min(900px, calc(100% - 20px));
+  min-height: 54px;
+  margin: 0 auto 8px;
+  padding: 9px 12px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  border-radius: 16px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 5%, var(--paper));
+  box-shadow: 0 7px 20px color-mix(in srgb, var(--ink) 7%, transparent);
+}
+#view-chat .native-run-indicator {
+  width: 10px;
+  height: 10px;
+  justify-self: center;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+#view-chat .native-run-state.running .native-run-indicator { animation: session-running-pulse 1.8s ease-in-out infinite; }
+#view-chat .native-run-copy { min-width: 0; display: grid; gap: 2px; }
+#view-chat .native-run-copy strong { font-size: .78rem; line-height: 1.25; }
+#view-chat .native-run-copy > span {
+  overflow: hidden;
+  color: var(--pine-soft);
+  font-size: .72rem;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#view-chat .native-run-meta {
+  color: var(--pine-soft);
+  font: 600 .66rem/1.2 var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+html.reduced-motion #view-chat .native-run-state.running .native-run-indicator { animation: none; }
 
 /* ---- 輸入區 ---- */
 .composer {
@@ -2982,7 +3026,68 @@ html[data-design-theme="etoile"][data-theme="light"] {
 /* Codex-style: the reasoning body is completely quiet until the user opens it. */
 #view-chat .thinking-block:not(.open) { display: none; }
 
+#view-chat .native-image-views { margin: 4px 0 7px; }
+#view-chat .native-image-views-heading {
+  margin-bottom: 7px;
+  color: var(--pine-soft);
+  font: 600 .76rem/1.25 var(--mono);
+}
+#view-chat .native-image-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 190px));
+  gap: 8px;
+}
+#view-chat .native-image-card {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  color: var(--pine-soft);
+  background: var(--milk);
+  text-align: left;
+  cursor: zoom-in;
+}
+#view-chat .native-image-card img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: contain;
+  background: color-mix(in srgb, var(--ink) 5%, var(--paper));
+}
+#view-chat .native-image-card > span {
+  display: block;
+  padding: 7px 9px;
+  overflow: hidden;
+  font: .67rem/1.25 var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#view-chat .native-image-card:hover,
+#view-chat .native-image-card:focus-visible { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+#view-chat .native-image-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#view-chat .native-image-card.unavailable { cursor: default; }
+#view-chat .native-image-card.unavailable::before {
+  content: "◫";
+  min-height: 76px;
+  display: grid;
+  place-items: center;
+  color: var(--pine-soft);
+  font-size: 1.2rem;
+  background: color-mix(in srgb, var(--ink) 4%, var(--paper));
+}
+#view-chat .native-image-card.unavailable img { display: none; }
+
 @media (max-width: 600px) {
+  #view-chat .native-run-state {
+    width: calc(100% - 14px);
+    margin-bottom: 6px;
+    grid-template-columns: 16px minmax(0, 1fr);
+    padding: 8px 10px;
+    border-radius: 14px;
+  }
+  #view-chat .native-run-meta { grid-column: 2; }
+  #view-chat .native-image-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .theme-choices { flex-basis: 100%; }
   .range-control input { width: 96px; }
   #view-chat .tool-body { margin-left: 38px; padding: 12px 13px; border-radius: 15px; }

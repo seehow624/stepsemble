@@ -255,6 +255,15 @@ test("Codex native transport reads bounded thread history through the official a
   assert.equal(items.kind, "thread_items");
   assert.equal(items.turnId, turn.id);
   assert.equal(items.data[0].item.type, "userMessage");
+
+  const goalReading = transport.getThreadGoal({ threadId: thread.id });
+  request = await writes.next();
+  assert.equal(request.method, "thread/goal/get");
+  assert.deepEqual(request.params, { threadId: thread.id });
+  const goal = { threadId: thread.id, objective: "Ship a stable web client", status: "active", tokenBudget: 50_000,
+    tokensUsed: 12_345, timeUsedSeconds: 678, createdAt: 1, updatedAt: 2 };
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { goal } });
+  assert.deepEqual(await goalReading, { kind: "thread_goal", goal });
   assert.equal(transport.state().failure, null);
 });
 
@@ -271,6 +280,7 @@ test("Codex native history requests reject unsafe filters before writing to app-
   assert.equal((await transport.readThread({ threadId: "../escape" })).code, "invalid_native_params");
   assert.equal((await transport.listThreadTurns({ threadId: "thread-history", itemsView: "unknown" })).code, "invalid_native_params");
   assert.equal((await transport.listThreadItems({ threadId: "thread-history", turnId: "bad id" })).code, "invalid_native_params");
+  assert.equal((await transport.getThreadGoal({ threadId: "../escape" })).code, "invalid_native_params");
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(writes.rows.length, 0, "rejected history requests do not reach the native process");
   assert.equal(transport.state().failure, null);

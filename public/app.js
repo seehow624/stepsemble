@@ -1,7 +1,7 @@
-/* stepsemble v3.0.75 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.0.76 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.0.75";
+const CLIENT_APP_VERSION = "3.0.76";
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -95,6 +95,8 @@ const el = {
   changesDiffPane: $("changes-diff-pane"), changesDetailBack: $("changes-detail-back"), changesDiffKind: $("changes-diff-kind"),
   changesDiffTitle: $("changes-diff-title"), changesDiffEmpty: $("changes-diff-empty"), changesDiff: $("changes-diff"),
   messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"), taskReplayNote: $("task-replay-note"),
+  nativeRunState: $("native-run-state"), nativeRunIndicator: $("native-run-indicator"), nativeRunTitle: $("native-run-title"),
+  nativeRunDetail: $("native-run-detail"), nativeRunMeta: $("native-run-meta"),
   taskProgress: $("task-progress"), taskProgressPanel: $("task-progress-panel"), taskProgressHeading: $("task-progress-heading"),
   taskProgressState: $("task-progress-state"), taskProgressList: $("task-progress-list"), taskProgressDetail: $("task-progress-detail"),
   taskProgressNotes: $("task-progress-notes"), taskProgressToggle: $("task-progress-toggle"), taskProgressIndicator: $("task-progress-indicator"),
@@ -5013,16 +5015,17 @@ function appendCodexNativeActivity(rows, container = el.messages) {
   const values = Array.isArray(rows) ? rows : [];
   if (!values.length) return;
   const { bubble } = makeMsgShell("assistant", "Codex", container);
-  const tools = values.map(row => row.view?.tool).filter(Boolean);
+  const thinking = values.filter(row => row.view?.kind === "thinking");
+  const images = values.map(row => row.view?.tool).filter(tool => tool?.name === "view_image");
+  const tools = values.map(row => row.view?.tool).filter(tool => tool && tool.name !== "view_image");
+  for (const row of thinking) bubble.appendChild(makeThinking(row.view.text));
+  if (images.length) bubble.appendChild(makeCodexImageViews(images));
+  if (!tools.length) return;
   const activity = makeActivityGroup({ running: tools.some(tool => tool.running), count: tools.length });
   bubble.appendChild(activity.details);
   for (const row of values) {
-    if (row.view?.kind === "thinking") {
-      activity.body.appendChild(makeThinking(row.view.text));
-      continue;
-    }
     const tool = row.view?.tool;
-    if (!tool) continue;
+    if (!tool || tool.name === "view_image") continue;
     const output = tool.output || (tool.running ? null : tool.isError ? "（沒有收到工具輸出）" : "（無輸出）");
     const card = makeToolCard(tool.name, tool.args, output, tool.isError, tool.running);
     card.classList.add("native-tool-card");
@@ -5041,7 +5044,41 @@ function createCodexNativeTranscriptState() {
   return { turnsCursor: undefined, itemsCursor: undefined, turns: [], entries: [],
     seenTurns: new Set(), seenItems: new Set(), hasMore: true, loading: false,
     initialized: false, error: null, olderError: null, thread: null,
-    itemsBoundary: null, itemGapKeys: null };
+    itemsBoundary: null, itemGapKeys: null, goal: null, goalAvailable: null };
+}
+
+function codexGoalTitle(status) {
+  if (status === "paused") return window.stepsembleI18n?.t("Goal paused") || "Goal paused";
+  if (status === "blocked") return window.stepsembleI18n?.t("Goal blocked") || "Goal blocked";
+  if (status === "usageLimited" || status === "budgetLimited") return window.stepsembleI18n?.t("Goal limit reached") || "Goal limit reached";
+  return window.stepsembleI18n?.t("Pursuing goal") || "Pursuing goal";
+}
+
+function renderCodexNativeRunState(connection) {
+  const root = el.nativeRunState;
+  if (!root) return;
+  const state = connection?.nativeCodex ? connection.nativeTranscriptState : null;
+  const running = connection?.taskStatus === "running" || state?.thread?.status?.type === "active";
+  const goal = state?.goal && state.goal.status !== "complete" ? state.goal : null;
+  if (!connection || !running && !goal) {
+    root.classList.add("hidden");
+    root.classList.remove("running", "has-goal");
+    return;
+  }
+  const elapsed = running && connection.runStartedAt
+    ? runElapsedText(Date.now() - connection.runStartedAt)
+    : goal ? runElapsedText(Math.max(0, Number(goal.timeUsedSeconds) || 0) * 1000) : "";
+  root.classList.remove("hidden");
+  root.classList.toggle("running", running);
+  root.classList.toggle("has-goal", !!goal);
+  const title = goal ? codexGoalTitle(goal.status)
+    : (window.stepsembleI18n?.t("Working…") || "Working…");
+  root.setAttribute("aria-label", title);
+  el.nativeRunTitle.textContent = title;
+  el.nativeRunDetail.textContent = goal?.objective
+    || (window.stepsembleI18n?.t("Codex is still working on this conversation") || "Codex is still working on this conversation");
+  el.nativeRunMeta.textContent = [running ? (window.stepsembleI18n?.t("Working…") || "Working…") : "", elapsed]
+    .filter(Boolean).join(" · ");
 }
 
 function codexNativeEntryKey(entry) {
@@ -5145,7 +5182,12 @@ async function loadCodexNativeTranscript(threadId, {
     return result;
   };
   const page = { thread: null, turns: null, items: null };
-  if (!older) page.thread = (await read("/api/codex/thread", { threadId, includeTurns: "0" })).thread;
+  if (!older) {
+    const metadata = await read("/api/codex/thread", { threadId, includeTurns: "0" });
+    page.thread = metadata.thread;
+    page.goal = metadata.goal || null;
+    page.goalAvailable = metadata.goalAvailable === true;
+  }
   for (const [kind, cursor, limit] of [["turns", turnsCursor, 20], ["items", itemsCursor, 50]]) {
     if (older && cursor === null) continue;
     try {
@@ -5373,15 +5415,28 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
     if (!isCurrent()) return;
     // Leave an older-page error visible until that page is successfully retried.
     applyCodexNativeTranscriptPage(connection.nativeTranscriptState, page);
+    connection.nativeTranscriptState.goalAvailable = page.goalAvailable;
+    connection.nativeTranscriptState.goal = page.goal || null;
     if (!initial) connection.nativeTranscriptState.error ||= connection.nativeTranscriptState.olderError;
     const thread = page.thread;
     const status = nativeCodexStatus(thread);
     const normalizeNativeTime = (value) => window.stepsembleSessionUtils?.normalizeTimestampMs?.(value) || Number(value) || 0;
+    const activeTurn = connection.nativeTranscriptState.turns.find(turn => turn?.status === "inProgress") || null;
+    const activeTurnStart = normalizeNativeTime(activeTurn?.startedAt);
+    if (status === "running") {
+      if (activeTurnStart) connection.runStartedAt = activeTurnStart;
+      else if (connection.taskStatus !== "running") connection.runStartedAt = Date.now();
+      connection.runEndedAt = null;
+    } else if (connection.taskStatus === "running" && !connection.runEndedAt) {
+      connection.runEndedAt = normalizeNativeTime(activeTurn?.completedAt) || Date.now();
+    }
     applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: "codex", nativeCodex: true, nativeCodexMutation: connection.nativeCodexMutation,
       nativeThreadId: connection.nativeThreadId, nativeSessionId: thread?.sessionId || connection.nativeThreadId,
       name: connection.name, cwd: thread?.cwd || connection.cwd, status,
-      startedAt: normalizeNativeTime(connection.runStartedAt), lastActivityAt: normalizeNativeTime(thread?.updatedAt) || Date.now() });
+      startedAt: normalizeNativeTime(connection.runStartedAt), endedAt: normalizeNativeTime(connection.runEndedAt),
+      lastActivityAt: normalizeNativeTime(thread?.updatedAt) || Date.now() });
     renderCodexNativeSnapshot(connection);
+    renderCodexNativeRunState(connection);
     if (connection.nativeCodexMutation) {
       if (mutation?.unavailable) {
         connection.codexApprovals?.unavailable();
@@ -6582,6 +6637,7 @@ function closeChat(silent) {
   // Leaving the conversation clears its timer; the next session starts fresh.
   if (runTimerInterval) { clearInterval(runTimerInterval); runTimerInterval = null; }
   if (el.runTimer) { el.runTimer.classList.add("hidden"); el.runTimer.textContent = ""; }
+  renderCodexNativeRunState(null);
   delete el.queueNote.dataset.connection;
   pendingAssistant = null;
   liveToolCards = new Map();
@@ -7136,6 +7192,64 @@ function appendImageGallery(target, attachments, expectedCount = 0) {
   }
   target.appendChild(gallery);
   return images.length;
+}
+
+function codexImagePreviewSrc(preview) {
+  const value = preview && typeof preview === "object" ? String(preview.url || "") : "";
+  if (!/^\/api\/codex\/image\?token=[A-Za-z0-9_%=-]{24,160}$/.test(value)) return "";
+  return `${apiBase}${value}`;
+}
+
+function openCodexImageLightbox(src, alt, trigger) {
+  if (!src || !el.imageLightbox || !el.imageLightboxImg) return;
+  imageLightboxTrigger = trigger;
+  el.imageLightboxImg.src = src;
+  el.imageLightboxImg.alt = alt;
+  if (el.imageLightboxCaption) el.imageLightboxCaption.textContent = alt;
+  el.imageLightbox.classList.remove("hidden");
+  document.body.classList.add("image-lightbox-open");
+  el.imageLightboxClose?.focus({ preventScroll: true });
+}
+
+function makeCodexImageViews(tools) {
+  const section = document.createElement("section");
+  section.className = "native-image-views";
+  const heading = document.createElement("div");
+  heading.className = "native-image-views-heading";
+  const count = Math.max(1, tools.length);
+  heading.textContent = count === 1
+    ? (window.stepsembleI18n?.t("Viewed an image") || "Viewed an image")
+    : (window.stepsembleI18n?.t("Viewed {count} images", { count }) || `Viewed ${count} images`);
+  section.appendChild(heading);
+  const gallery = document.createElement("div");
+  gallery.className = "native-image-gallery";
+  for (const tool of tools) {
+    const preview = tool.preview;
+    const src = codexImagePreviewSrc(preview);
+    const rawPath = String(tool.args?.path || "");
+    const fallbackName = rawPath.split(/[\\/]/).filter(Boolean).at(-1) || "image";
+    const label = String(preview?.name || fallbackName).slice(0, 255);
+    const card = document.createElement(src ? "button" : "div");
+    if (src) card.type = "button";
+    card.className = "native-image-card" + (src ? "" : " unavailable");
+    if (src) {
+      const img = document.createElement("img");
+      img.src = src;
+      img.alt = label;
+      img.loading = "lazy";
+      img.decoding = "async";
+      img.addEventListener("error", () => card.classList.add("unavailable"), { once: true });
+      card.appendChild(img);
+      card.addEventListener("click", () => openCodexImageLightbox(src, label, card));
+      card.setAttribute("aria-label", `${window.stepsembleI18n?.t("Viewed an image") || "Viewed an image"}: ${label}`);
+    }
+    const caption = document.createElement("span");
+    caption.textContent = label;
+    card.appendChild(caption);
+    gallery.appendChild(card);
+  }
+  section.appendChild(gallery);
+  return section;
 }
 
 el.imageLightboxClose?.addEventListener("click", closeImageLightbox);
@@ -7949,6 +8063,7 @@ function renderRunTimer() {
   el.runTimer.textContent = runElapsedText(endedAt - startedAt);
   el.runTimer.classList.remove("hidden");
   el.runTimer.classList.toggle("running", !!rpc?.streaming);
+  if (rpc?.nativeCodex) renderCodexNativeRunState(rpc);
 }
 
 function startRunTimer(startedAt = Date.now()) {

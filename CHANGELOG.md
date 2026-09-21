@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.76
+
+- Keep native Codex work visibly active beside the composer, with the current turn timer and official Goal objective/status instead of relying on a generic task row.
+- Present Codex thinking as its own disclosure and viewed images as visible thumbnails with a lightbox; keep shell commands, file changes, and long output in the compact tool disclosure.
+- Read Goal state through Codex's official `thread/goal/get` method and expose only observed image files through short-lived, authenticated, path-free preview handles.
+- Add desktop and mobile browser coverage for working state, Goal mode, thinking, image previews, progressive tool disclosure, overflow, and page errors without making a provider or model call.
+
 ## 3.0.75
 
 - Present structured activity from Codex, Claude Code, OpenCode, Grok Build, Hermes, Kilo Code, and Cline as compact disclosure cards instead of placing commands, reasoning, and long tool output in the main conversation.
