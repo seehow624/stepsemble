@@ -196,8 +196,9 @@
   }
   async function refresh() {
     const epoch = ++refreshEpoch, target = host;
-    try { const data = await api("/api/workspace", undefined, target); if (epoch !== refreshEpoch || target !== host) return; if (JSON.stringify(data) !== JSON.stringify(snapshot)) { snapshot = data; if (!document.body.classList.contains("workspace-dragging")) renderSidebar(); } $("workspace-connection").textContent = `${hostName(host)} · ${t("connected")}`; }
-    catch (error) { if (epoch === refreshEpoch) $("workspace-connection").textContent = error.message; }
+    const statusDot = document.querySelector(".workspace-status-dot");
+    try { const data = await api("/api/workspace", undefined, target); if (epoch !== refreshEpoch || target !== host) return; if (JSON.stringify(data) !== JSON.stringify(snapshot)) { snapshot = data; if (!document.body.classList.contains("workspace-dragging")) renderSidebar(); } $("workspace-connection").textContent = `${hostName(host)} · ${t("connected")}`; if (statusDot) statusDot.dataset.state = "online"; }
+    catch (error) { if (epoch === refreshEpoch) { $("workspace-connection").textContent = error.message; if (statusDot) statusDot.dataset.state = "offline"; } }
   }
   let usage = null, usageHost = null;
   async function refreshUsage() {

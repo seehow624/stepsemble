@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.1.0-rc.3
+
+- Refine the workspace shell around the Stepsemble conversation layout: paper background, branded identity, project card, flat session rows, quieter pane borders, and a branded empty state.
+- Keep host connectivity visible in the workspace header and leave the managed session, split pane, and multi-window behavior unchanged.
+
 ## 3.1.0-rc.2
 
 - Open the managed workspace by default: only sessions created here or explicitly added appear in its sidebar; adding a project does not import history or launch an agent.
