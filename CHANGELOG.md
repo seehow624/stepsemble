@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.79
+
+- Collapse Pi history and runtime wrappers that refer to the same conversation, including mixed absolute and relative session paths.
+- Open duplicate-prone Pi task entries through the canonical history identity so stale runtime records no longer lead to an unavailable conversation.
+- Preserve a newly created Pi task in Sessions until history indexing catches up, while merging repeated wrappers by the session UUID.
+
 ## 3.0.77
 
 - Observe Codex Desktop-owned work from Codex's own read-only persisted turn state, so Sessions and the conversation view show Working and the real elapsed start time even though Stepsemble uses an independent app-server process.
