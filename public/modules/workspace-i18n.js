@@ -862,16 +862,33 @@
     const source = tables[normalizeLocale(locale)][key] ?? tables.en[key] ?? key;
     return source.replace(/\{(\w+)\}/g, (match, name) => Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : match);
   }
-  function preferences(storage) {
+  /* Mirrors app-foundation so the shell renders with the same palette, type
+     scale, density and sidebar width the conversation views already use. */
+  const DESIGN_THEME_IDS = new Set(["pine-milk", "warm-paper", "graphite", "ink-ivory", "plum-milk", "ocean-ivory", "cloud-jet", "cloud-smog", "etoile"]);
+  const DEFAULT_DESIGN_THEME = "ink-ivory";
+  function clampNumber(value, fallback, min, max) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return fallback;
+    return Math.min(max, Math.max(min, number));
+  }
+  function preferences(storage, { prefersDark = false } = {}) {
     const keys = ["stepsemble.settings.v2", "piharbor.settings.v2", "piharbor.settings.v1", "piweb.settings.v2", "piweb.settings.v1", "stepsemble.settings.v1"];
     let settings = {};
     for (const key of keys) {
       try { const saved = storage.getItem(key); if (saved) { settings = JSON.parse(saved) || {}; break; } } catch {}
     }
-    return { locale: normalizeLocale(settings.locale), theme: ["light", "dark"].includes(settings.theme) ? settings.theme : "auto",
-      fontScale: Math.max(90, Math.min(125, Number(settings.fontScale) || 100)) };
+    const theme = ["light", "dark"].includes(settings.theme) ? settings.theme : "auto";
+    return {
+      locale: normalizeLocale(settings.locale),
+      theme,
+      resolvedTheme: theme === "auto" ? (prefersDark ? "dark" : "light") : theme,
+      designTheme: DESIGN_THEME_IDS.has(settings.designTheme) ? settings.designTheme : DEFAULT_DESIGN_THEME,
+      fontScale: clampNumber(settings.fontScale, 100, 90, 125),
+      compact: settings.compact === true,
+      sidebarWidth: clampNumber(settings.sidebarWidth, 336, 280, 440),
+    };
   }
-  const api = Object.freeze({ tables, t, normalizeLocale, preferences });
+  const api = Object.freeze({ tables, t, normalizeLocale, preferences, designThemes: Object.freeze([...DESIGN_THEME_IDS]), defaultDesignTheme: DEFAULT_DESIGN_THEME });
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.StepsembleWorkspaceI18n = api;
 })(typeof window !== "undefined" ? window : globalThis);

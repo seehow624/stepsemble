@@ -2,14 +2,25 @@
 "use strict";
 (() => {
   const L = window.StepsembleLayout, I = window.StepsembleWorkspaceI18n, $ = id => document.getElementById(id);
-  let prefs;
-  try { prefs = I.preferences(localStorage); } catch { prefs = I.preferences({ getItem: () => null }); }
+  const prefersDark = () => matchMedia("(prefers-color-scheme: dark)").matches;
+  const readPreferences = () => {
+    try { return I.preferences(localStorage, { prefersDark: prefersDark() }); }
+    catch { return I.preferences({ getItem: () => null }, { prefersDark: prefersDark() }); }
+  };
+  let prefs = readPreferences();
   const t = (key, vars) => I.t(key, vars, prefs.locale);
   const date = value => new Date(value).toLocaleString(prefs.locale);
   function applyPreferences() {
-    document.documentElement.lang = prefs.locale;
-    document.documentElement.dataset.theme = prefs.theme;
-    document.documentElement.style.fontSize = `${14 * prefs.fontScale / 100}px`;
+    // Same presentation contract as the conversation views: resolved theme,
+    // design palette, type scale, density and sidebar width all come from the
+    // user's saved preferences so the shell never looks like another product.
+    const root = document.documentElement;
+    root.lang = prefs.locale;
+    root.dataset.theme = prefs.resolvedTheme;
+    root.dataset.designTheme = prefs.designTheme;
+    root.style.fontSize = `${prefs.fontScale}%`;
+    root.style.setProperty("--workspace-sidebar-width", `${prefs.sidebarWidth}px`);
+    document.body.classList.toggle("compact", prefs.compact);
     document.title = `Stepsemble · ${t("workspace")}`;
     for (const element of document.querySelectorAll("[data-workspace-i18n]")) element.textContent = t(element.dataset.workspaceI18n);
     for (const attr of ["aria-label", "title", "placeholder"]) for (const element of document.querySelectorAll(`[data-workspace-${attr}]`)) element.setAttribute(attr, t(element.getAttribute(`data-workspace-${attr}`)));
@@ -31,7 +42,7 @@
   const mobile = () => matchMedia("(max-width:760px)").matches;
   if (mobile()) document.body.classList.add("sidebar-hidden");
   const node = (tag, text, className) => { const e = document.createElement(tag); if (text) e.textContent = text; if (className) e.className = className; return e; };
-  function button(text, action, label = text) { const b = node("button", text); b.type = "button"; b.title = label; b.setAttribute("aria-label", label); b.onclick = action; return b; }
+  function button(text, action, label = text, className = "btn") { const b = node("button", text, className); b.type = "button"; b.title = label; b.setAttribute("aria-label", label); b.onclick = action; return b; }
   function toast(text) { $("workspace-toast").textContent = text; $("workspace-toast").hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $("workspace-toast").hidden = true, 6000); }
   function save(next = tree) {
     // Validate and persist before acknowledging a cross-window move. A storage
@@ -151,7 +162,7 @@
         commit(L.replace(tree, n.id, { type: "split", id: crypto.randomUUID(), axis: edge === "right" ? "row" : "column", ratio: .5, first: n, second: empty }));
       }));
       tools.append(button(t("newWindow"), () => newWindow(active(n))), button(maximized === n.id ? t("restore") : t("maximize"), () => { maximized = maximized ? null : n.id; render(); }), button(t("closePane"), () => { maximized = null; commit(L.closePane(tree, n.id)); }));
-      const next = button(t("nextPane"), () => { const panes = L.leaves(tree); focused = panes[(panes.findIndex(p => p.id === focused)+1)%panes.length].id; commit(tree); }); next.className = "workspace-mobile-nav"; tools.prepend(next);
+      const next = button(t("nextPane"), () => { const panes = L.leaves(tree); focused = panes[(panes.findIndex(p => p.id === focused)+1)%panes.length].id; commit(tree); }, t("nextPane"), "btn ghost workspace-mobile-nav"); tools.prepend(next);
       const slot = node("div", n.tabs.length ? t("loadingSession") : t("selectSession"), "workspace-slot");
       if (n.active) slots.set(n.active, slot);
       const overlay = node("div", "", "workspace-drop");
@@ -173,7 +184,7 @@
       const title = node("strong", cwd.split(/[\\/]/).filter(Boolean).pop() || t("ungrouped")); title.title = cwd;
       header.append(title, button("＋", () => newSession(cwd), t("newSession"))); section.append(header);
       for (const entry of rows) {
-        const ref = refOf(entry), b = button("", () => open(ref)); b.className = "workspace-session"; b.dataset.open = String(openKeys.has(L.identity(ref))); b.draggable = true;
+        const ref = refOf(entry), b = button("", () => open(ref), ref.title, "workspace-session"); b.dataset.open = String(openKeys.has(L.identity(ref))); b.draggable = true;
         b.append(node("strong", ref.title), node("small", `${entry.record.agentId} · ${entry.record.status || "history"}${entry.origin === "added" ? ` · ${t("added")}` : ""}`));
         b.ondragstart = e => dragStart(e, ref, false); b.ondragend = dragEnd;
         b.oncontextmenu = e => { e.preventDefault(); const body = dialog(ref.title); body.append(button(t("moveWindow"), () => { newWindow(ref); closeDialog(); }), button(t("remove"), async () => { try { await api("/api/workspace/remove", { key: entry.key }); closeDialog(); await refresh(); } catch (error) { toast(error.message); } })); };
@@ -215,7 +226,7 @@
       if (epoch !== dialogEpoch) return;
       body.append(node("p", data.path));
       if (data.parent) body.append(button(t("parent"), () => addProject(data.parent)));
-      const select = button(t("addFolder"), async () => { select.disabled = true; try { await api("/api/workspace/project", { cwd: data.path }, target); closeDialog(); await refresh(); } catch (error) { toast(error.message); select.disabled = false; } });
+      const select = button(t("addFolder"), async () => { select.disabled = true; try { await api("/api/workspace/project", { cwd: data.path }, target); closeDialog(); await refresh(); } catch (error) { toast(error.message); select.disabled = false; } }, t("addFolder"), "btn primary");
       select.disabled = data.selectable === false; body.append(select);
       for (const entry of data.entries || []) body.append(button(entry.name, () => addProject(entry.path || `${data.path}/${entry.name}`)));
     } catch (error) { if (epoch === dialogEpoch) body.append(node("p", error.message)); }
@@ -233,7 +244,7 @@
         closeDialog(); const entry = data.workspaceEntry;
         open({ host: target, key: entry.key, title: entry.record.name || select.value }); await refresh();
       } catch (error) { toast(error.message); start.disabled = !(error.status >= 400 && error.status < 500); if (start.disabled) body.append(node("p", t("createUncertain"))); }
-    }); start.disabled = true; body.append(name, select, start);
+    }, t("create"), "btn primary"); start.disabled = true; body.append(name, select, start);
     try { const data = await api("/api/agents", undefined, target); if (epoch !== dialogEpoch) return; for (const agent of data.connectors || []) if (agent.installed) { const opt = node("option", agent.label || agent.name || agent.id); opt.value = agent.id; select.append(opt); } start.disabled = !select.options.length; if (!select.options.length) body.append(node("p", t("noAgents"))); }
     catch (error) { if (epoch === dialogEpoch) body.append(node("p", error.message)); }
   }
@@ -307,9 +318,14 @@
   window.addEventListener("dragend", dragEnd); window.addEventListener("drop", dragEnd);
   window.addEventListener("storage", event => {
     if (event.key !== null && !/^(stepsemble|piharbor|piweb)\.settings\./.test(event.key)) return;
-    const next = I.preferences(localStorage);
+    const next = readPreferences();
     if (JSON.stringify(next) === JSON.stringify(prefs)) return;
     prefs = next; applyPreferences(); closeDialog(); render(); void refresh(); void refreshUsage();
+  });
+  // "Follow system" has to follow the system while the shell stays open.
+  matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => {
+    if (prefs.theme !== "auto") return;
+    prefs = readPreferences(); applyPreferences();
   });
   let wasMobile = mobile();
   window.addEventListener("resize", () => {
