@@ -1,6 +1,6 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict");
-const { createWorkspaceUsage, windowUsage, codexWindows, claudeWindows, currentWindows, keychainHome } = require("../server/workspace-usage");
+const { createWorkspaceUsage, windowUsage, codexWindows, claudeWindows, currentWindows, keychainHome, opencodexProviders } = require("../server/workspace-usage");
 test("quota preserves observed zero, separates windows and rejects unknown values", () => {
   assert.equal(windowUsage(0, 1700000000, "five").remainingPercent, 100);
   for (const value of [undefined, null, "0", -1, 101, NaN]) assert.equal(windowUsage(value, null, "x"), null);
@@ -69,4 +69,23 @@ test("the keychain is read only for the console user's own home", () => {
   // that user's own credentials.
   assert.equal(keychainHome("/tmp/preview/home", { osHome, realpath: p => p.replace("/tmp/preview/home", osHome) }), true);
   assert.equal(keychainHome("", { osHome }), false);
+});
+
+test("opencodex allowances become providers without duplicating the ones read directly", () => {
+  const now = 1_700_000_000_000;
+  const rows = opencodexProviders([
+    { provider: "anthropic", label: "Anthropic Claude", quota: { fiveHourPercent: 0, weeklyPercent: 28 } },
+    { provider: "openai", label: "OpenAI (Codex login)", quota: { weeklyPercent: 98 } },
+    { provider: "opencode-go", label: "opencode go", quota: { fiveHourPercent: 12, fiveHourResetAt: 1_700_500_000_000,
+      weeklyPercent: 10, weeklyResetAt: 1_700_900_000_000, monthlyPercent: 43, monthlyResetAt: 1_701_000_000_000 } },
+    { provider: "minimax", label: "MiniMax", quota: {} },
+  ], now);
+  assert.deepEqual(rows.map(r => r.provider), ["OpenCode Go"]);
+  assert.deepEqual(rows[0].windows.map(w => w.windowDurationMins), [300, 10080, 43200]);
+  assert.deepEqual(rows[0].windows.map(w => w.remainingPercent), [88, 90, 57]);
+  // opencodex reports millisecond timestamps; reading them as seconds would
+  // place every reset decades into the past.
+  assert.deepEqual(rows[0].windows.map(w => w.resetsAt), [1_700_500_000_000, 1_700_900_000_000, 1_701_000_000_000]);
+  // An allowance whose reset already passed is dropped here too.
+  assert.deepEqual(opencodexProviders([{ provider: "opencode-go", quota: { weeklyPercent: 5, weeklyResetAt: 1_600_000_000_000 } }], now), []);
 });

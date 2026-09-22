@@ -264,8 +264,44 @@
     track.append(fill);
     return track;
   }
+  // Compact, language-neutral durations: "3d 19h", "2h 15m", "28m".
+  function shortDuration(ms) {
+    const total = Math.max(0, Math.round(ms / 60000));
+    const days = Math.floor(total / 1440), hours = Math.floor((total % 1440) / 60);
+    return days ? `${days}d ${hours}h` : hours ? `${hours}h ${total % 60}m` : `${total}m`;
+  }
+  const windowShape = w => shortWindow(w.windowDurationMins) || w.label;
+  // Hovering a provider explains its allowances without leaving the sidebar.
+  let usageTip = null;
+  function closeUsageTip() { usageTip?.remove(); usageTip = null; }
+  function showUsageTip(anchor, provider) {
+    closeUsageTip();
+    const tip = node("div", "", "workspace-tip");
+    tip.append(node("strong", provider.provider, "workspace-tip-title"));
+    for (const w of provider.windows) {
+      const line = node("span", "", "workspace-tip-row");
+      line.append(node("span", windowShape(w), "workspace-tip-key"),
+        node("span", t("remaining", { percent: Math.round(w.remainingPercent) }), "workspace-tip-value"));
+      tip.append(line);
+      if (w.resetsAt) {
+        tip.append(node("span", t("resetsIn", { duration: shortDuration(w.resetsAt - Date.now()) }), "workspace-tip-note"));
+        tip.append(node("span", date(w.resetsAt), "workspace-tip-note workspace-tip-exact"));
+      }
+    }
+    if (provider.status === "cached" && provider.observedAt) tip.append(node("span", t("checked", { date: date(provider.observedAt) }), "workspace-tip-note"));
+    document.body.append(tip);
+    const box = anchor.getBoundingClientRect(), width = tip.offsetWidth, height = tip.offsetHeight;
+    const left = Math.min(Math.max(8, box.left), Math.max(8, innerWidth - width - 8));
+    const above = box.top - height - 6;
+    tip.style.left = `${Math.round(left)}px`;
+    tip.style.top = `${Math.round(above >= 8 ? above : Math.min(box.bottom + 6, innerHeight - height - 8))}px`;
+    usageTip = tip;
+  }
+  addEventListener("resize", closeUsageTip);
+  addEventListener("scroll", closeUsageTip, true);
   function renderUsage(data) {
     const box = $("workspace-usage");
+    closeUsageTip();
     box.replaceChildren();
     if (!data || !data.providers.some(p => p.windows.length)) {
       const note = data ? t("quotaUnavailable") : t("loadingQuota");
@@ -285,34 +321,24 @@
       }
       const head = node("span", "", "workspace-limit-head");
       head.append(node("span", provider.provider, "workspace-limit-name"));
-      if (windows.length === 1) {
-        // One allowance reads best as a single full-width bar with its number
-        // beside the provider name.
-        const only = windows[0], value = t("remaining", { percent: Math.round(only.remainingPercent) });
-        row.dataset.level = remainingLevel(only.remainingPercent);
-        head.append(node("span", value, "workspace-limit-value"));
-        row.append(head, meter(only));
-        spoken.push(`${provider.provider} ${value}`);
-      } else {
-        // Several allowances share the row instead of stacking another provider
-        // line; each half carries its own window label and number.
-        row.append(head);
-        const cells = node("span", "", "workspace-limit-windows");
-        for (const w of windows) {
-          const shape = shortWindow(w.windowDurationMins) || w.label;
-          const value = t("remaining", { percent: Math.round(w.remainingPercent) });
-          const cell = node("span", "", "workspace-limit-cell");
-          cell.dataset.level = remainingLevel(w.remainingPercent);
-          cell.title = `${shape} · ${value}${w.resetsAt ? ` · ${t("resetAt", { date: date(w.resetsAt) })}` : ""}`;
-          const cellHead = node("span", "", "workspace-limit-cell-head");
-          cellHead.append(node("span", shape, "workspace-limit-cell-label"),
-            node("span", `${Math.round(w.remainingPercent)}%`, "workspace-limit-cell-value"));
-          cell.append(cellHead, meter(w));
-          cells.append(cell);
-          spoken.push(`${shape} ${value}`);
-        }
-        row.append(cells);
+      // Every allowance gets the same shape whether a provider reports one or
+      // three, so a single weekly limit still reads as "7d" beside its meter.
+      row.append(head);
+      const cells = node("span", "", "workspace-limit-windows");
+      for (const w of windows) {
+        const shape = windowShape(w), value = t("remaining", { percent: Math.round(w.remainingPercent) });
+        const cell = node("span", "", "workspace-limit-cell");
+        cell.dataset.level = remainingLevel(w.remainingPercent);
+        const cellHead = node("span", "", "workspace-limit-cell-head");
+        cellHead.append(node("span", shape, "workspace-limit-cell-label"),
+          node("span", `${Math.round(w.remainingPercent)}%`, "workspace-limit-cell-value"));
+        cell.append(cellHead, meter(w));
+        cells.append(cell);
+        spoken.push(`${shape} ${value}`);
       }
+      row.append(cells);
+      row.addEventListener("pointerenter", () => showUsageTip(row, { ...provider, windows }));
+      row.addEventListener("pointerleave", closeUsageTip);
       box.append(row);
     }
     box.setAttribute("aria-label", `${t("quota")} · ${spoken.join(" · ")}`);
@@ -329,7 +355,8 @@
     if (usageHost === host && usage) for (const p of usage.providers) {
       body.append(node("strong", p.provider));
       if (!p.windows.length) body.append(node("p", t("unknownQuota")));
-      for (const w of p.windows) body.append(node("p", `${usageLabel(w)} · ${t("remaining", { percent: Math.round(w.remainingPercent) })}${w.resetsAt ? ` · ${t("resetAt", { date: date(w.resetsAt) })}` : ""}`));
+      for (const w of p.windows) body.append(node("p", `${usageLabel(w)} · ${t("remaining", { percent: Math.round(w.remainingPercent) })}`
+        + (w.resetsAt ? ` · ${t("resetsIn", { duration: shortDuration(w.resetsAt - Date.now()) })} · ${t("resetAt", { date: date(w.resetsAt) })}` : "")));
       // Each provider carries its own observation time: a cached reading is as
       // old as its file, a live one is as old as this collection.
       body.append(node("small", t("checked", { date: date(p.observedAt || usage.updatedAt) })));

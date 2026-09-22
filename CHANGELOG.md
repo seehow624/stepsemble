@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.1.0-rc.7
+
+- Give every allowance the same shape, so a provider reporting a single weekly limit still shows its 7d label and number beside the meter.
+- Explain a provider on hover: each allowance, how long until it resets, and the exact local reset time.
+- Read allowances that have no local CLI of their own from the opencodex management API, which adds OpenCode Go with its rolling, weekly and monthly windows without duplicating provider credentials.
+
 ## 3.1.0-rc.6
 
 - Split a provider's meter across its allowances instead of reporting only the tightest one, so a 5-hour and a weekly limit are labelled and measured side by side.

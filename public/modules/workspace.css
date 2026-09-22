@@ -228,6 +228,27 @@ small { color: var(--pine-soft); }
 .workspace-limit[data-stale=true] .workspace-limit-fill { opacity: .5; }
 .workspace-limit[data-stale=true] .workspace-limit-name { color: var(--pine-soft); }
 html.reduced-motion .workspace-limit-fill { transition: none; }
+/* Hovering a provider answers the follow-up questions in place: which window,
+   how long until it resets, and the exact local time that happens. */
+.workspace-tip {
+  position: fixed;
+  z-index: 70;
+  max-width: min(280px, 90vw);
+  display: grid;
+  gap: 3px;
+  padding: 9px 11px;
+  border: .5px solid var(--line);
+  border-radius: 12px;
+  background: var(--milk);
+  box-shadow: 0 12px 32px rgb(0 0 0 / .22);
+  pointer-events: none;
+}
+.workspace-tip-title { color: var(--ink); font-size: .76rem; font-weight: 680; }
+.workspace-tip-row { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.workspace-tip-key { flex: 0 0 auto; color: var(--pine-soft); font: .68rem var(--mono); }
+.workspace-tip-value { min-width: 0; flex: 1 1 auto; color: var(--ink); font-size: .72rem; text-align: right; white-space: nowrap; }
+.workspace-tip-note { color: var(--pine-soft); font-size: .68rem; }
+.workspace-tip-exact { font-family: var(--mono); font-size: .66rem; }
 #workspace-connection { margin: 2px 7px 0; overflow-wrap: anywhere; color: var(--pine-soft); font-size: .64rem; }
 
 #workspace-main { display: flex; flex: 1; min-width: 0; flex-direction: column; background: var(--paper); }

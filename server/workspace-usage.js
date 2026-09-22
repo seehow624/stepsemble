@@ -1,6 +1,15 @@
 "use strict";
 const fs = require("node:fs/promises"), fss = require("node:fs"), os = require("node:os"), path = require("node:path");
 const { execFile } = require("node:child_process");
+// opencodex already probes every provider it routes and publishes the results on
+// its loopback management API. Reading that endpoint keeps provider credentials
+// and probes out of Stepsemble, and it is the only source for allowances that
+// have no local CLI of their own, such as an OpenCode Go subscription.
+const OPENCODEX_PORT = 10100;
+const OPENCODEX_WINDOWS = Object.freeze([["fiveHour", 300], ["weekly", 10080], ["monthly", 43200]]);
+const OPENCODEX_NAMES = Object.freeze({ "opencode-go": "OpenCode Go", "opencode-free": "OpenCode Zen", "minimax": "MiniMax", "minimax-cn": "MiniMax" });
+// Providers Stepsemble reads directly keep that fresher source instead.
+const OPENCODEX_HANDLED_ELSEWHERE = new Set(["anthropic", "openai"]);
 function windowUsage(used, reset, label, windowDurationMins = null, bucket = null) {
   if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || used > 100) return null;
   const resetMs = typeof reset === "number" ? reset * 1000 : Date.parse(reset);
@@ -53,9 +62,53 @@ async function claudeToken(home, allowKeychain) {
     try { resolve(JSON.parse(stdout)?.claudeAiOauth?.accessToken || null); } catch { resolve(null); }
   }));
 }
+// The management API needs the admin token and the port the service actually
+// bound, both of which live beside the user's opencodex configuration.
+async function opencodexQuotas({ home, fetchImpl = fetch, osHome = os.homedir(), env = process.env } = {}) {
+  const directories = [env.OPENCODEX_HOME, path.join(osHome, ".opencodex"), home && path.join(home, ".opencodex")].filter(Boolean);
+  let directory = null, token = null;
+  for (const candidate of directories) {
+    try {
+      const value = (await fs.readFile(path.join(candidate, "admin-api-token"), "utf8")).trim();
+      if (value) { directory = candidate; token = value; break; }
+    } catch {}
+  }
+  if (!token) return [];
+  let port = OPENCODEX_PORT;
+  try {
+    const bound = JSON.parse(await fs.readFile(path.join(directory, "runtime-port.json"), "utf8"))?.port;
+    if (Number.isInteger(bound) && bound > 0 && bound < 65536) port = bound;
+  } catch {}
+  const res = await fetchImpl(`http://127.0.0.1:${port}/api/provider-quotas`, {
+    headers: { Accept: "application/json", Authorization: `Bearer ${token}` }, redirect: "error", signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error("unavailable");
+  const reports = (await res.json())?.reports;
+  return Array.isArray(reports) ? reports : [];
+}
+// One row per provider opencodex knows about that Stepsemble cannot read itself.
+function opencodexProviders(reports, now) {
+  return reports.flatMap(report => {
+    const id = report?.provider;
+    if (typeof id !== "string" || OPENCODEX_HANDLED_ELSEWHERE.has(id)) return [];
+    const quota = report.quota || {};
+    const windows = currentWindows(OPENCODEX_WINDOWS
+      .map(([key, minutes]) => windowUsage(quota[`${key}Percent`], asSecondsValue(quota[`${key}ResetAt`]), null, minutes, null))
+      .filter(Boolean), now);
+    if (!windows.length) return [];
+    return [{ provider: OPENCODEX_NAMES[id] || report.label || id, status: "ready", observedAt: null, windows }];
+  });
+}
+function asSecondsValue(value) { return typeof value === "number" && Number.isFinite(value) ? Math.floor(value / 1000) : value; }
 function createWorkspaceUsage({ home, codex, allowKeychain = false, fetchImpl = fetch, readClaudeToken = () => claudeToken(home, allowKeychain),
-  readClaudeCache = () => claudeCache(home, now()), now = Date.now }) {
+  readClaudeCache = () => claudeCache(home, now()), readOpenCodex = () => opencodexQuotas({ home, fetchImpl }), now = Date.now }) {
   let cached = null, flight = null, expires = 0;
+  function providerRow(provider, settled, observedAt = null) {
+    const windows = settled.status === "fulfilled" ? (settled.value?.windows || []) : [];
+    const observed = settled.status === "fulfilled" && typeof settled.value?.observedAt === "number" ? settled.value.observedAt : observedAt;
+    return { provider, status: !windows.length ? "unavailable" : observed ? "cached" : "ready",
+      observedAt: windows.length ? observed : null, windows };
+  }
   async function collect() {
     const sources = await Promise.allSettled([
       Promise.resolve().then(codex).then(codexWindows).then(windows => ({ windows, observedAt: null })),
@@ -76,14 +129,10 @@ function createWorkspaceUsage({ home, codex, allowKeychain = false, fetchImpl = 
         if (fallback) return fallback;
         throw new Error("unavailable");
       })(),
+      Promise.resolve().then(readOpenCodex).then(reports => opencodexProviders(reports, now())),
     ]);
-    const providers = sources.map((result, index) => {
-      const value = result.status === "fulfilled" ? result.value : null;
-      const windows = value?.windows || [];
-      const observedAt = windows.length && typeof value.observedAt === "number" ? value.observedAt : null;
-      return { provider: index === 0 ? "Codex" : "Claude",
-        status: !windows.length ? "unavailable" : observedAt ? "cached" : "ready", observedAt, windows };
-    });
+    const providers = [providerRow("Codex", sources[0]), providerRow("Claude", sources[1]),
+      ...(sources[2].status === "fulfilled" ? sources[2].value : [])];
     cached = { updatedAt: now(), providers };
     // A reading that came from a cache is retried sooner than a live one.
     expires = now() + (providers.every(p => p.status === "ready") ? 300000 : 60000);
@@ -91,4 +140,4 @@ function createWorkspaceUsage({ home, codex, allowKeychain = false, fetchImpl = 
   }
   return { read() { if (cached && now() < expires) return Promise.resolve(cached); if (!flight) flight = collect().finally(() => flight = null); return flight; } };
 }
-module.exports = { createWorkspaceUsage, windowUsage, codexWindows, claudeWindows, currentWindows, keychainHome };
+module.exports = { createWorkspaceUsage, windowUsage, codexWindows, claudeWindows, currentWindows, keychainHome, opencodexProviders, opencodexQuotas };
