@@ -88,7 +88,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.1.0-rc.5";
+const APP_VERSION = "3.1.0-rc.6";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -238,8 +238,9 @@ const nativeHistoryCatalog = createNativeHistoryCatalog({
   codexRoot: settingFromEnv("CODEX_HISTORY_ROOT") || undefined,
 });
 const codexPersistedObserver = createCodexPersistedObserver({ home: APP_HOME });
-const workspaceUsage = require("./server/workspace-usage").createWorkspaceUsage({
-  home: APP_HOME, allowKeychain: settingFromEnv("WORKSPACE_KEYCHAIN_USAGE") !== "0" && APP_HOME === os.homedir(),
+const workspaceUsageModule = require("./server/workspace-usage");
+const workspaceUsage = workspaceUsageModule.createWorkspaceUsage({
+  home: APP_HOME, allowKeychain: settingFromEnv("WORKSPACE_KEYCHAIN_USAGE") !== "0" && workspaceUsageModule.keychainHome(APP_HOME),
   codex: async () => { await ensureCodexNativeProbe(); return codexNative.rateLimits(); },
 });
 

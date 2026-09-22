@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.1.0-rc.6
+
+- Split a provider's meter across its allowances instead of reporting only the tightest one, so a 5-hour and a weekly limit are labelled and measured side by side.
+- Drop an allowance whose reset time has already passed, so a stale snapshot can no longer report a number for a window that has started over.
+- Read the console user's keychain when the configured home resolves to that user's own `.claude`, which restores live Claude limits for isolated preview hosts.
+
 ## 3.1.0-rc.5
 
 - Collapse the pane layout actions into one overflow control on the tab strip, so each pane gives its height to the conversation instead of a permanent row of buttons.

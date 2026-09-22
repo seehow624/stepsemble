@@ -249,10 +249,20 @@
     catch (error) { if (epoch === refreshEpoch) { $("workspace-connection").textContent = error.message; if (statusDot) statusDot.dataset.state = "offline"; } }
   }
   let usage = null, usageHost = null;
-  // The window closest to running out decides the row: a weekly allowance at
-  // 2% matters more than a five-hour window still at 80%.
-  function tightestWindow(windows) {
-    return windows.reduce((low, w) => low && low.remainingPercent <= w.remainingPercent ? low : w, null);
+  const remainingLevel = percent => percent <= 10 ? "critical" : percent <= 25 ? "low" : "ok";
+  // Numeric window abbreviations stay readable in every locale, and a plan may
+  // report any combination of a 5-hour, weekly or monthly allowance.
+  function shortWindow(minutes) {
+    if (!Number.isFinite(minutes) || minutes <= 0) return null;
+    if (minutes % 1440 === 0) return `${minutes / 1440}d`;
+    if (minutes % 60 === 0) return `${minutes / 60}h`;
+    return `${minutes}m`;
+  }
+  function meter(w) {
+    const track = node("span", "", "workspace-limit-meter"), fill = node("span", "", "workspace-limit-fill");
+    fill.style.width = `${Math.max(0, Math.min(100, Math.round(w.usedPercent)))}%`;
+    track.append(fill);
+    return track;
   }
   function renderUsage(data) {
     const box = $("workspace-usage");
@@ -265,11 +275,8 @@
     }
     const spoken = [];
     for (const provider of data.providers) {
-      const tightest = tightestWindow(provider.windows);
-      const value = tightest ? t("remaining", { percent: Math.round(tightest.remainingPercent) }) : t("quotaUnavailable");
+      const windows = [...provider.windows].sort((a, b) => (a.windowDurationMins ?? Infinity) - (b.windowDurationMins ?? Infinity));
       const row = node("span", "", "workspace-limit");
-      row.dataset.level = !tightest ? "unknown"
-        : tightest.remainingPercent <= 10 ? "critical" : tightest.remainingPercent <= 25 ? "low" : "ok";
       // A reading taken from a local cache carries the time it was observed
       // instead of being presented as the current number.
       if (provider.status === "cached") {
@@ -277,13 +284,36 @@
         if (provider.observedAt) row.title = t("checked", { date: date(provider.observedAt) });
       }
       const head = node("span", "", "workspace-limit-head");
-      head.append(node("span", provider.provider, "workspace-limit-name"), node("span", value, "workspace-limit-value"));
-      const meter = node("span", "", "workspace-limit-meter"), fill = node("span", "", "workspace-limit-fill");
-      if (tightest) fill.style.width = `${Math.max(0, Math.min(100, Math.round(tightest.usedPercent)))}%`;
-      meter.append(fill);
-      row.append(head, meter);
+      head.append(node("span", provider.provider, "workspace-limit-name"));
+      if (windows.length === 1) {
+        // One allowance reads best as a single full-width bar with its number
+        // beside the provider name.
+        const only = windows[0], value = t("remaining", { percent: Math.round(only.remainingPercent) });
+        row.dataset.level = remainingLevel(only.remainingPercent);
+        head.append(node("span", value, "workspace-limit-value"));
+        row.append(head, meter(only));
+        spoken.push(`${provider.provider} ${value}`);
+      } else {
+        // Several allowances share the row instead of stacking another provider
+        // line; each half carries its own window label and number.
+        row.append(head);
+        const cells = node("span", "", "workspace-limit-windows");
+        for (const w of windows) {
+          const shape = shortWindow(w.windowDurationMins) || w.label;
+          const value = t("remaining", { percent: Math.round(w.remainingPercent) });
+          const cell = node("span", "", "workspace-limit-cell");
+          cell.dataset.level = remainingLevel(w.remainingPercent);
+          cell.title = `${shape} · ${value}${w.resetsAt ? ` · ${t("resetAt", { date: date(w.resetsAt) })}` : ""}`;
+          const cellHead = node("span", "", "workspace-limit-cell-head");
+          cellHead.append(node("span", shape, "workspace-limit-cell-label"),
+            node("span", `${Math.round(w.remainingPercent)}%`, "workspace-limit-cell-value"));
+          cell.append(cellHead, meter(w));
+          cells.append(cell);
+          spoken.push(`${shape} ${value}`);
+        }
+        row.append(cells);
+      }
       box.append(row);
-      spoken.push(`${provider.provider} ${value}`);
     }
     box.setAttribute("aria-label", `${t("quota")} · ${spoken.join(" · ")}`);
   }

@@ -1,6 +1,6 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict");
-const { createWorkspaceUsage, windowUsage, codexWindows, claudeWindows } = require("../server/workspace-usage");
+const { createWorkspaceUsage, windowUsage, codexWindows, claudeWindows, currentWindows, keychainHome } = require("../server/workspace-usage");
 test("quota preserves observed zero, separates windows and rejects unknown values", () => {
   assert.equal(windowUsage(0, 1700000000, "five").remainingPercent, 100);
   for (const value of [undefined, null, "0", -1, 101, NaN]) assert.equal(windowUsage(value, null, "x"), null);
@@ -47,4 +47,26 @@ test("a cached Claude reading is reported with the time it was observed, never a
   assert.equal(claude.status, "cached");
   assert.equal(claude.observedAt, 123);
   assert.deepEqual(claude.windows.map(w => w.remainingPercent), [88, 20]);
+});
+
+test("a window whose allowance already reset is dropped instead of reporting its old number", () => {
+  const now = 1_700_000_000_000;
+  const windows = [
+    windowUsage(100, 1_699_000_000, "5 hours", 300, null),
+    windowUsage(28, 1_700_500_000, "Weekly", 10080, null),
+  ];
+  const kept = currentWindows(windows, now);
+  assert.deepEqual(kept.map(w => w.windowDurationMins), [10080]);
+  // A window without a parseable reset time cannot be judged and is retained.
+  assert.equal(currentWindows([windowUsage(5, null, "x")], now).length, 1);
+});
+
+test("the keychain is read only for the console user's own home", () => {
+  const osHome = "/Users/synthetic";
+  assert.equal(keychainHome(osHome, { osHome }), true);
+  assert.equal(keychainHome("/Users/other", { osHome, realpath: () => { throw new Error("missing"); } }), false);
+  // An isolated preview home that links .claude at the same directory is still
+  // that user's own credentials.
+  assert.equal(keychainHome("/tmp/preview/home", { osHome, realpath: p => p.replace("/tmp/preview/home", osHome) }), true);
+  assert.equal(keychainHome("", { osHome }), false);
 });

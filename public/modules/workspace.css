@@ -213,9 +213,16 @@ small { color: var(--pine-soft); }
 .workspace-limit-meter { height: 3px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--pine-soft) 24%, transparent); }
 .workspace-limit-fill { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--pine-soft); transition: width .3s ease; }
 .workspace-limit[data-level=ok] .workspace-limit-fill { background: var(--ok); }
-.workspace-limit[data-level=low] .workspace-limit-fill { background: var(--warn); }
-.workspace-limit[data-level=critical] .workspace-limit-fill { background: var(--err); }
-.workspace-limit[data-level=unknown] .workspace-limit-value { font-family: inherit; }
+.workspace-limit[data-level=low] .workspace-limit-fill, .workspace-limit-cell[data-level=low] .workspace-limit-fill { background: var(--warn); }
+.workspace-limit[data-level=critical] .workspace-limit-fill, .workspace-limit-cell[data-level=critical] .workspace-limit-fill { background: var(--err); }
+/* One allowance keeps the full-width meter; several share the row, each half
+   labelled with the window it measures so a 5-hour and a weekly limit are
+   never mistaken for one another. */
+.workspace-limit-windows { min-width: 0; display: flex; gap: 7px; }
+.workspace-limit-cell { min-width: 0; flex: 1 1 0; display: grid; gap: 3px; }
+.workspace-limit-cell-head { min-width: 0; display: flex; align-items: baseline; gap: 4px; }
+.workspace-limit-cell-label { flex: 0 0 auto; color: var(--pine-soft); font: .6rem var(--mono); }
+.workspace-limit-cell-value { min-width: 0; flex: 1 1 auto; overflow: hidden; color: var(--pine-soft); font: .6rem var(--mono); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 /* A cached reading is drawn hollow so it never reads as a live number. */
 .workspace-limit[data-stale=true] .workspace-limit-meter { background: transparent; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pine-soft) 40%, transparent); }
 .workspace-limit[data-stale=true] .workspace-limit-fill { opacity: .5; }

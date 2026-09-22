@@ -1,5 +1,5 @@
 "use strict";
-const fs = require("node:fs/promises"), path = require("node:path");
+const fs = require("node:fs/promises"), fss = require("node:fs"), os = require("node:os"), path = require("node:path");
 const { execFile } = require("node:child_process");
 function windowUsage(used, reset, label, windowDurationMins = null, bucket = null) {
   if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || used > 100) return null;
@@ -11,6 +11,23 @@ function codexWindows(data) {
   return buckets.flatMap(([name, b]) => [b?.primary, b?.secondary].map(w => windowUsage(w?.usedPercent, w?.resetsAt,
     `${name} · ${w?.windowDurationMins || "?"} minutes`, w?.windowDurationMins ?? null, name))).filter(Boolean);
 }
+// A window whose reset time has already passed is no longer described by the
+// reading it came from: its allowance started over. Keeping such a window is
+// how a day-old snapshot ends up presenting 100% remaining for a window that is
+// in fact exhausted.
+function currentWindows(windows, now) {
+  return windows.filter(w => w.resetsAt === null || w.resetsAt > now);
+}
+// The keychain belongs to the console user, so it is only read for that user's
+// home - directly, or through a symlink such as an isolated preview home that
+// resolves to the same .claude directory.
+function keychainHome(home, { osHome = os.homedir(), realpath = fss.realpathSync } = {}) {
+  if (!home || !osHome) return false;
+  if (path.resolve(home) === path.resolve(osHome)) return true;
+  try {
+    return realpath(path.join(path.resolve(home), ".claude")) === realpath(path.join(path.resolve(osHome), ".claude"));
+  } catch { return false; }
+}
 function claudeWindows(data) {
   return [windowUsage(data?.five_hour?.utilization ?? data?.five_hour?.used_percentage, data?.five_hour?.resets_at, "5 hours", 300),
     windowUsage(data?.seven_day?.utilization ?? data?.seven_day?.used_percentage, data?.seven_day?.resets_at, "Weekly", 10080)].filter(Boolean);
@@ -18,12 +35,12 @@ function claudeWindows(data) {
 // Claude Code caches its own utilization snapshot next to its settings. Reading
 // that file needs no credential and no keychain prompt, but it is only as
 // current as its own timestamp, so it travels with the time it was observed.
-async function claudeCache(home) {
+async function claudeCache(home, now) {
   if (!home) return null;
   try {
     const raw = await fs.readFile(path.join(home, ".claude.json"), "utf8");
     const cache = JSON.parse(raw)?.cachedUsageUtilization;
-    const windows = claudeWindows(cache?.utilization);
+    const windows = currentWindows(claudeWindows(cache?.utilization), now);
     if (!windows.length) return null;
     return { windows, observedAt: typeof cache?.fetchedAtMs === "number" ? cache.fetchedAtMs : null };
   } catch { return null; }
@@ -37,7 +54,7 @@ async function claudeToken(home, allowKeychain) {
   }));
 }
 function createWorkspaceUsage({ home, codex, allowKeychain = false, fetchImpl = fetch, readClaudeToken = () => claudeToken(home, allowKeychain),
-  readClaudeCache = () => claudeCache(home), now = Date.now }) {
+  readClaudeCache = () => claudeCache(home, now()), now = Date.now }) {
   let cached = null, flight = null, expires = 0;
   async function collect() {
     const sources = await Promise.allSettled([
@@ -74,4 +91,4 @@ function createWorkspaceUsage({ home, codex, allowKeychain = false, fetchImpl = 
   }
   return { read() { if (cached && now() < expires) return Promise.resolve(cached); if (!flight) flight = collect().finally(() => flight = null); return flight; } };
 }
-module.exports = { createWorkspaceUsage, windowUsage, codexWindows, claudeWindows };
+module.exports = { createWorkspaceUsage, windowUsage, codexWindows, claudeWindows, currentWindows, keychainHome };
