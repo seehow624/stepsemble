@@ -188,6 +188,39 @@ small { color: var(--pine-soft); }
   text-align: left;
 }
 #workspace-sidebar footer .btn:hover { background: var(--bubble-user); color: var(--ink); }
+
+/* Provider limits close the sidebar: one row per provider carrying the window
+   closest to running out, with every window listed on click. The meter fills
+   as the allowance is consumed, so a nearly exhausted plan reads at a glance. */
+#workspace-sidebar footer .workspace-section-label { margin-top: 8px; padding-left: 9px; }
+/* The footer's shared button rule is more specific than a single id plus
+   class, so this selector has to out-rank it to stack the provider rows. */
+#workspace-sidebar footer #workspace-usage.workspace-limits {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  min-height: 0;
+  padding: 7px 9px 9px;
+  border: 0;
+  border-radius: 10px;
+  text-align: left;
+}
+.workspace-limits-note { color: var(--pine-soft); font-size: .71rem; }
+.workspace-limit { min-width: 0; display: grid; gap: 4px; }
+.workspace-limit-head { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.workspace-limit-name { min-width: 0; flex: 1 1 auto; overflow: hidden; color: var(--ink); font-size: .73rem; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-limit-value { flex: 0 0 auto; color: var(--pine-soft); font: .66rem var(--mono); }
+.workspace-limit-meter { height: 3px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--pine-soft) 24%, transparent); }
+.workspace-limit-fill { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--pine-soft); transition: width .3s ease; }
+.workspace-limit[data-level=ok] .workspace-limit-fill { background: var(--ok); }
+.workspace-limit[data-level=low] .workspace-limit-fill { background: var(--warn); }
+.workspace-limit[data-level=critical] .workspace-limit-fill { background: var(--err); }
+.workspace-limit[data-level=unknown] .workspace-limit-value { font-family: inherit; }
+/* A cached reading is drawn hollow so it never reads as a live number. */
+.workspace-limit[data-stale=true] .workspace-limit-meter { background: transparent; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pine-soft) 40%, transparent); }
+.workspace-limit[data-stale=true] .workspace-limit-fill { opacity: .5; }
+.workspace-limit[data-stale=true] .workspace-limit-name { color: var(--pine-soft); }
+html.reduced-motion .workspace-limit-fill { transition: none; }
 #workspace-connection { margin: 2px 7px 0; overflow-wrap: anywhere; color: var(--pine-soft); font-size: .64rem; }
 
 #workspace-main { display: flex; flex: 1; min-width: 0; flex-direction: column; background: var(--paper); }

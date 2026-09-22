@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.1.0-rc.4
+
+- Show provider subscription limits at the bottom of the workspace sidebar: one row per provider carrying the window closest to running out, a meter that fills as the allowance is consumed, and every window on click.
+- Read Claude's own cached utilization snapshot when a live account reading is unavailable, and report it with the time it was observed rather than as a current number.
+
 ## 3.1.0-rc.3
 
 - Refine the workspace shell around the Stepsemble conversation layout: paper background, branded identity, project card, flat session rows, quieter pane borders, and a branded empty state.

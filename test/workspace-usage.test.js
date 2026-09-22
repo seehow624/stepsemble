@@ -1,6 +1,6 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict");
-const { createWorkspaceUsage, windowUsage, codexWindows } = require("../server/workspace-usage");
+const { createWorkspaceUsage, windowUsage, codexWindows, claudeWindows } = require("../server/workspace-usage");
 test("quota preserves observed zero, separates windows and rejects unknown values", () => {
   assert.equal(windowUsage(0, 1700000000, "five").remainingPercent, 100);
   for (const value of [undefined, null, "0", -1, 101, NaN]) assert.equal(windowUsage(value, null, "x"), null);
@@ -30,4 +30,21 @@ test("missing quota is unavailable rather than zero and provider failure is isol
   const result = await service.read();
   assert.ok(result.providers.every(p => p.status === "unavailable" && p.windows.length === 0));
   assert.ok(!JSON.stringify(result).includes("private"));
+});
+
+test("a cached Claude reading is reported with the time it was observed, never as live", async () => {
+  const service = createWorkspaceUsage({
+    now: () => 500,
+    codex: async () => ({ rateLimits: { primary: { usedPercent: 40, windowDurationMins: 10080 } } }),
+    readClaudeToken: async () => null,
+    fetchImpl: () => { throw new Error("must not fetch without a token"); },
+    readClaudeCache: async () => ({ windows: claudeWindows({ five_hour: { utilization: 12 }, seven_day: { utilization: 80 } }), observedAt: 123 }),
+  });
+  const result = await service.read();
+  const [codex, claude] = result.providers;
+  assert.equal(codex.status, "ready");
+  assert.equal(codex.observedAt, null);
+  assert.equal(claude.status, "cached");
+  assert.equal(claude.observedAt, 123);
+  assert.deepEqual(claude.windows.map(w => w.remainingPercent), [88, 20]);
 });

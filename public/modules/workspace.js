@@ -213,17 +213,50 @@
     catch (error) { if (epoch === refreshEpoch) { $("workspace-connection").textContent = error.message; if (statusDot) statusDot.dataset.state = "offline"; } }
   }
   let usage = null, usageHost = null;
+  // The window closest to running out decides the row: a weekly allowance at
+  // 2% matters more than a five-hour window still at 80%.
+  function tightestWindow(windows) {
+    return windows.reduce((low, w) => low && low.remainingPercent <= w.remainingPercent ? low : w, null);
+  }
+  function renderUsage(data) {
+    const box = $("workspace-usage");
+    box.replaceChildren();
+    if (!data || !data.providers.some(p => p.windows.length)) {
+      const note = data ? t("quotaUnavailable") : t("loadingQuota");
+      box.append(node("span", note, "workspace-limits-note"));
+      box.setAttribute("aria-label", `${t("quota")} · ${note}`);
+      return;
+    }
+    const spoken = [];
+    for (const provider of data.providers) {
+      const tightest = tightestWindow(provider.windows);
+      const value = tightest ? t("remaining", { percent: Math.round(tightest.remainingPercent) }) : t("quotaUnavailable");
+      const row = node("span", "", "workspace-limit");
+      row.dataset.level = !tightest ? "unknown"
+        : tightest.remainingPercent <= 10 ? "critical" : tightest.remainingPercent <= 25 ? "low" : "ok";
+      // A reading taken from a local cache carries the time it was observed
+      // instead of being presented as the current number.
+      if (provider.status === "cached") {
+        row.dataset.stale = "true";
+        if (provider.observedAt) row.title = t("checked", { date: date(provider.observedAt) });
+      }
+      const head = node("span", "", "workspace-limit-head");
+      head.append(node("span", provider.provider, "workspace-limit-name"), node("span", value, "workspace-limit-value"));
+      const meter = node("span", "", "workspace-limit-meter"), fill = node("span", "", "workspace-limit-fill");
+      if (tightest) fill.style.width = `${Math.max(0, Math.min(100, Math.round(tightest.usedPercent)))}%`;
+      meter.append(fill);
+      row.append(head, meter);
+      box.append(row);
+      spoken.push(`${provider.provider} ${value}`);
+    }
+    box.setAttribute("aria-label", `${t("quota")} · ${spoken.join(" · ")}`);
+  }
   async function refreshUsage() {
     const target = host;
     try { const data = await api("/api/workspace/usage", undefined, target); if (target !== host) return;
       usage = data; usageHost = target;
-      // A row of bare dashes reads as a broken control. Say the limits are not
-      // available when no provider reported a window, and keep observed numbers
-      // whenever at least one did.
-      $("workspace-usage").textContent = data.providers.some(p => p.windows.length)
-        ? data.providers.map(p => `${p.provider} ${p.windows.length ? t("remaining", { percent: Math.round(Math.min(...p.windows.map(w => w.remainingPercent))) }) : "—"}`).join(" · ")
-        : t("quotaUnavailable");
-    } catch { if (target === host) $("workspace-usage").textContent = t("quotaUnavailable"); }
+      renderUsage(data);
+    } catch { if (target === host) renderUsage({ providers: [] }); }
   }
   $("workspace-usage").onclick = () => {
     const body = dialog(t("quota")); body.append(node("p", t("quotaInfo")));
@@ -231,8 +264,10 @@
       body.append(node("strong", p.provider));
       if (!p.windows.length) body.append(node("p", t("unknownQuota")));
       for (const w of p.windows) body.append(node("p", `${usageLabel(w)} · ${t("remaining", { percent: Math.round(w.remainingPercent) })}${w.resetsAt ? ` · ${t("resetAt", { date: date(w.resetsAt) })}` : ""}`));
+      // Each provider carries its own observation time: a cached reading is as
+      // old as its file, a live one is as old as this collection.
+      body.append(node("small", t("checked", { date: date(p.observedAt || usage.updatedAt) })));
     }
-    if (usageHost === host && usage) body.append(node("small", t("checked", { date: date(usage.updatedAt) })));
   };
   function closeDialog() { dialogEpoch++; $("workspace-dialog").close(); $("workspace-dialog-body").replaceChildren(); }
   function dialog(title) { dialogEpoch++; $("workspace-dialog-title").textContent = title; const body = $("workspace-dialog-body"); body.replaceChildren(); if (!$("workspace-dialog").open) $("workspace-dialog").showModal(); return body; }
@@ -330,7 +365,7 @@
   $("workspace-search").oninput = renderSidebar;
   $("workspace-new-window").onclick = () => newWindow();
   $("workspace-sidebar-toggle").onclick = () => { document.body.classList.toggle("sidebar-hidden"); requestAnimationFrame(layoutFrames); };
-  $("workspace-host").onchange = () => { host = $("workspace-host").value; snapshot = { projects: [], entries: [] }; usage = null; $("workspace-usage").textContent = t("loadingQuota"); renderSidebar(); void refresh(); void refreshUsage(); };
+  $("workspace-host").onchange = () => { host = $("workspace-host").value; snapshot = { projects: [], entries: [] }; usage = null; renderUsage(null); renderSidebar(); void refresh(); void refreshUsage(); };
   $("workspace-sidebar-close").onclick = () => { document.body.classList.add("sidebar-hidden"); requestAnimationFrame(layoutFrames); };
   $("workspace-settings").onclick = () => { window.open("/index.html?settings=1", "stepsemble-settings"); };
   window.addEventListener("dragend", dragEnd); window.addEventListener("drop", dragEnd);
