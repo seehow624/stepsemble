@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.1.0-rc.5
+
+- Collapse the pane layout actions into one overflow control on the tab strip, so each pane gives its height to the conversation instead of a permanent row of buttons.
+
 ## 3.1.0-rc.4
 
 - Show provider subscription limits at the bottom of the workspace sidebar: one row per provider carrying the window closest to running out, a meter that fills as the allowance is consumed, and every window on click.

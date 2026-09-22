@@ -44,6 +44,35 @@
   const node = (tag, text, className) => { const e = document.createElement(tag); if (text) e.textContent = text; if (className) e.className = className; return e; };
   function button(text, action, label = text, className = "btn") { const b = node("button", text, className); b.type = "button"; b.title = label; b.setAttribute("aria-label", label); b.onclick = action; return b; }
   function toast(text) { $("workspace-toast").textContent = text; $("workspace-toast").hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $("workspace-toast").hidden = true, 6000); }
+  // The pane overflow menu lives on the document, not inside the pane: the
+  // conversation frames sit in their own layer above the pane tree, so a menu
+  // rendered inside a pane would be painted underneath the frame it belongs to.
+  let paneMenu = null;
+  function closePaneMenu() { paneMenu?.element.remove(); paneMenu = null; }
+  function openPaneMenu(anchor, actions) {
+    const reopening = paneMenu?.anchor === anchor;
+    closePaneMenu();
+    if (reopening) return;
+    const element = node("div", "", "workspace-menu");
+    element.setAttribute("role", "menu");
+    for (const [label, run] of actions) {
+      const item = button(label, () => { closePaneMenu(); run(); }, label, "btn workspace-menu-item");
+      item.setAttribute("role", "menuitem");
+      element.append(item);
+    }
+    document.body.append(element);
+    const box = anchor.getBoundingClientRect(), width = element.offsetWidth;
+    element.style.top = `${Math.round(box.bottom + 5)}px`;
+    element.style.left = `${Math.round(Math.min(Math.max(8, box.right - width), Math.max(8, innerWidth - width - 8)))}px`;
+    paneMenu = { element, anchor };
+    element.querySelector("button")?.focus();
+  }
+  addEventListener("pointerdown", event => {
+    if (!paneMenu || paneMenu.element.contains(event.target) || paneMenu.anchor.contains(event.target)) return;
+    closePaneMenu();
+  }, true);
+  addEventListener("keydown", event => { if (event.key === "Escape" && paneMenu) { const anchor = paneMenu.anchor; closePaneMenu(); anchor.focus(); } });
+  addEventListener("resize", closePaneMenu);
   function save(next = tree) {
     // Validate and persist before acknowledging a cross-window move. A storage
     // failure must never make the source discard the user's only visible tab.
@@ -116,6 +145,7 @@
   }
   const resize = new ResizeObserver(layoutFrames); resize.observe($("workspace-stage"));
   function render() {
+    closePaneMenu();
     slots.clear(); $("workspace-tree").replaceChildren();
     if (!L.leaves(tree).some(p => p.id === focused)) focused = L.leaves(tree)[0].id;
     const wanted = new Set(allRefs().map(L.identity));
@@ -146,41 +176,47 @@
       }
       const pane = node("section", "", "workspace-pane"); pane.dataset.focused = String(n.id === focused); pane.dataset.pane = n.id;
       pane.onpointerdown = () => { if (focused !== n.id) { focused = n.id; for (const p of document.querySelectorAll(".workspace-pane")) p.dataset.focused = String(p.dataset.pane === focused); } };
-      const tabs = node("div", "", "workspace-tabs"); tabs.setAttribute("role", "tablist");
+      const tabs = node("div", "", "workspace-tabs");
+      const tablist = node("div", "", "workspace-tablist"); tablist.setAttribute("role", "tablist");
       for (const ref of n.tabs) {
         const key = L.identity(ref), tab = node("div", "", "workspace-tab"); tab.setAttribute("aria-selected", String(n.active === key)); tab.draggable = true;
         tab.ondragstart = e => dragStart(e, ref, true); tab.ondragend = dragEnd;
-        tab.append(button(ref.title, () => { n.active = key; focused = n.id; commit(tree); }, `${ref.title} · ${hostName(ref.host)}`), button("×", () => commit(L.remove(tree, ref)), t("closeTab", { title: ref.title }))); tabs.append(tab);
+        tab.append(button(ref.title, () => { n.active = key; focused = n.id; commit(tree); }, `${ref.title} · ${hostName(ref.host)}`), button("×", () => commit(L.remove(tree, ref)), t("closeTab", { title: ref.title }))); tablist.append(tab);
       }
-      const tools = node("div", "", "workspace-pane-tools");
-      // Layout actions need a conversation to act on, and splitting or moving to
-      // another window is a desktop affordance. An untouched pane shows only its
-      // invitation instead of controls that cannot apply to it yet.
+      tabs.append(tablist);
+      // Layout actions collapse into one overflow control. A permanent row of
+      // buttons costs every pane a strip of height that belongs to the
+      // conversation, and these actions are occasional.
+      const actions = [];
       if (!mobile() && n.tabs.length) {
-        for (const [label, edge] of [[t("splitHorizontal"), "right"], [t("splitVertical"), "bottom"]]) tools.append(button(label, () => {
-          const ref = active(n);
-          if (!ref) { toast(t("openFirst")); return; }
+        for (const [label, edge] of [[t("splitHorizontal"), "right"], [t("splitVertical"), "bottom"]]) actions.push([label, () => {
+          if (!active(n)) { toast(t("openFirst")); return; }
           // Split with an empty destination, preserving the current conversation.
           if (L.leaves(tree).length >= 8) { toast(t("paneLimit")); return; }
           const empty = L.pane(); focused = empty.id; maximized = null;
           commit(L.replace(tree, n.id, { type: "split", id: crypto.randomUUID(), axis: edge === "right" ? "row" : "column", ratio: .5, first: n, second: empty }));
-        }));
+        }]);
         // The header already opens an empty window; this one carries the pane's
         // own conversation, so it must not repeat that label.
-        tools.append(button(t("moveWindow"), () => newWindow(active(n))), button(maximized === n.id ? t("restore") : t("maximize"), () => { maximized = maximized ? null : n.id; render(); }));
+        actions.push([t("moveWindow"), () => newWindow(active(n))]);
+        actions.push([maximized === n.id ? t("restore") : t("maximize"), () => { maximized = maximized ? null : n.id; render(); }]);
       }
-      if (n.tabs.length || L.leaves(tree).length > 1) tools.append(button(t("closePane"), () => { maximized = null; commit(L.closePane(tree, n.id)); }));
-      if (L.leaves(tree).length > 1) tools.prepend(button(t("nextPane"), () => { const panes = L.leaves(tree); focused = panes[(panes.findIndex(p => p.id === focused)+1)%panes.length].id; commit(tree); }, t("nextPane"), "btn ghost workspace-mobile-nav"));
+      if (mobile() && L.leaves(tree).length > 1) actions.push([t("nextPane"), () => { const panes = L.leaves(tree); focused = panes[(panes.findIndex(p => p.id === focused)+1)%panes.length].id; commit(tree); }]);
+      if (n.tabs.length || L.leaves(tree).length > 1) actions.push([t("closePane"), () => { maximized = null; commit(L.closePane(tree, n.id)); }]);
+      if (actions.length) {
+        const overflow = button("⋯", () => openPaneMenu(overflow, actions), t("paneActions"), "btn workspace-pane-menu");
+        overflow.setAttribute("aria-haspopup", "menu");
+        tabs.append(overflow);
+      }
       const slot = node("div", n.tabs.length ? t("loadingSession") : t("selectSession"), "workspace-slot");
       if (n.active) slots.set(n.active, slot);
       const overlay = node("div", "", "workspace-drop");
       const edgeAt = e => { const r = pane.getBoundingClientRect(), x = (e.clientX-r.left)/r.width, y = (e.clientY-r.top)/r.height; return x < .22 ? "left" : x > .78 ? "right" : y < .22 ? "top" : y > .78 ? "bottom" : "center"; };
       pane.ondragover = e => { if (!Array.from(e.dataTransfer.types).includes("application/x-stepsemble-session")) return; e.preventDefault(); overlay.dataset.edge = edgeAt(e); };
       pane.ondrop = e => { e.preventDefault(); try { acceptTransfer(JSON.parse(e.dataTransfer.getData("application/x-stepsemble-session")), n.id, edgeAt(e)); } catch (error) { toast(error.message); } finally { dragEnd(); } };
-      // An empty pane keeps no tab strip and no toolbar, so the invitation to
+      // A single untouched pane keeps no strip at all, so the invitation to
       // drag a session is the only thing in it.
-      if (n.tabs.length) pane.append(tabs);
-      if (tools.childElementCount) pane.append(tools);
+      if (n.tabs.length || actions.length) pane.append(tabs);
       pane.append(slot, overlay); return pane;
     }
     const shown = maximized ? L.leaves(tree).find(p => p.id === maximized) : tree;
