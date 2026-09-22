@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.1.0-rc.9
+
+- Show a provider's allowance as soon as it is configured, by selecting the usage probe from the provider's canonical destination rather than requiring a built-in entry.
+
+- Add MiniMax, which reports a rolling and a weekly allowance per model; the row keeps whichever model is closest to running out.
+
 ## 3.1.0-rc.8
 
 - Read the OpenCode Go allowance from its own usage endpoint with the key already configured for that provider, so the number no longer depends on another application's management API.
