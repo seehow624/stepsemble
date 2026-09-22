@@ -1,7 +1,7 @@
-/* stepsemble v3.1.0-rc.7 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.1.0-rc.8 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.1.0-rc.7";
+const CLIENT_APP_VERSION = "3.1.0-rc.8";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 if (WORKSPACE_PANE) document.documentElement.classList.add("workspace-embedded");
 

@@ -26,7 +26,8 @@
     for (const attr of ["aria-label", "title", "placeholder"]) for (const element of document.querySelectorAll(`[data-workspace-${attr}]`)) element.setAttribute(attr, t(element.getAttribute(`data-workspace-${attr}`)));
   }
   function usageLabel(w) {
-    const period = w.windowDurationMins === 300 ? t("fiveHours") : w.windowDurationMins === 10080 ? t("weekly") : t("minutes", { minutes: w.windowDurationMins || "?" });
+    const period = w.windowDurationMins === 300 ? t("fiveHours") : w.windowDurationMins === 10080 ? t("weekly")
+      : w.windowDurationMins === 43200 ? t("monthly") : t("minutes", { minutes: w.windowDurationMins || "?" });
     return w.bucket ? `${w.bucket} · ${period}` : period;
   }
   applyPreferences();
@@ -354,6 +355,9 @@
     const body = dialog(t("quota")); body.append(node("p", t("quotaInfo")));
     if (usageHost === host && usage) for (const p of usage.providers) {
       body.append(node("strong", p.provider));
+      // Say where a borrowed number came from, so a dependency on another app
+      // is visible at the point the user reads the value.
+      if (p.source === "opencodex") body.append(node("small", t("viaOpencodex")));
       if (!p.windows.length) body.append(node("p", t("unknownQuota")));
       for (const w of p.windows) body.append(node("p", `${usageLabel(w)} · ${t("remaining", { percent: Math.round(w.remainingPercent) })}`
         + (w.resetsAt ? ` · ${t("resetsIn", { duration: shortDuration(w.resetsAt - Date.now()) })} · ${t("resetAt", { date: date(w.resetsAt) })}` : "")));

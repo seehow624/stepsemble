@@ -1,6 +1,6 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict");
-const { createWorkspaceUsage, windowUsage, codexWindows, claudeWindows, currentWindows, keychainHome, opencodexProviders } = require("../server/workspace-usage");
+const { createWorkspaceUsage, windowUsage, codexWindows, claudeWindows, currentWindows, keychainHome, opencodexProviders, opencodeGoKey, opencodeGoQuota } = require("../server/workspace-usage");
 test("quota preserves observed zero, separates windows and rejects unknown values", () => {
   assert.equal(windowUsage(0, 1700000000, "five").remainingPercent, 100);
   for (const value of [undefined, null, "0", -1, 101, NaN]) assert.equal(windowUsage(value, null, "x"), null);
@@ -88,4 +88,34 @@ test("opencodex allowances become providers without duplicating the ones read di
   assert.deepEqual(rows[0].windows.map(w => w.resetsAt), [1_700_500_000_000, 1_700_900_000_000, 1_701_000_000_000]);
   // An allowance whose reset already passed is dropped here too.
   assert.deepEqual(opencodexProviders([{ provider: "opencode-go", quota: { weeklyPercent: 5, weeklyResetAt: 1_600_000_000_000 } }], now), []);
+});
+
+test("OpenCode Go is read from its own endpoint instead of another app's API", async () => {
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-go-"));
+  fs.mkdirSync(path.join(dir, ".pi", "agent"), { recursive: true });
+  const write = providers => fs.writeFileSync(path.join(dir, ".pi", "agent", "models.json"), JSON.stringify({ providers }));
+  try {
+    // An unrelated provider must not lend its key to the Go endpoint.
+    write({ other: { baseUrl: "https://api.example.com/v1", apiKey: "sk-other" } });
+    assert.equal(await opencodeGoKey(dir, "/nonexistent"), null);
+    // Nor may an unresolved environment or command reference be sent upstream.
+    write({ go: { baseUrl: "https://opencode.ai/zen/go/v1", apiKey: "$OPENCODE_GO_KEY" } });
+    assert.equal(await opencodeGoKey(dir, "/nonexistent"), null);
+    write({ go: { baseUrl: "https://opencode.ai/zen/go/v1/", apiKey: "sk-live" } });
+    assert.equal(await opencodeGoKey(dir, "/nonexistent"), "sk-live");
+
+    let seen = null;
+    const quota = await opencodeGoQuota({
+      home: dir, osHome: "/nonexistent",
+      fetchImpl: async (url, options) => {
+        seen = { url, auth: options.headers.Authorization };
+        return { ok: true, json: async () => ({ usage: { rolling: { percent: 12, resetsAt: "2026-09-22T07:40:04.919Z" }, weekly: { percent: 10 }, monthly: { percent: 43 } } }) };
+      },
+    });
+    assert.equal(seen.url, "https://opencode.ai/zen/go/v1/usage");
+    assert.equal(seen.auth, "Bearer sk-live");
+    assert.deepEqual(quota.windows.map(w => w.windowDurationMins), [300, 10080, 43200]);
+    assert.deepEqual(quota.windows.map(w => w.remainingPercent), [88, 90, 57]);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

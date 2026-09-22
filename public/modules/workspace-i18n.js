@@ -51,6 +51,7 @@
     "unknownQuota": "Unavailable does not mean zero remaining.",
     "resetAt": "Resets {date}",
     "resetsIn": "Resets in {duration}",
+    "viaOpencodex": "via opencodex",
     "checked": "Last checked: {date}",
     "projectInfo": "Adds only the folder. Does not import history or start an agent.",
     "parent": "↑ Parent folder",
@@ -79,6 +80,7 @@
     "notAdded": "This session is outside the workspace. View it in history.",
     "fiveHours": "5 hours",
     "weekly": "Weekly",
+    "monthly": "Monthly",
     "minutes": "{minutes} minutes"
   },
   "zh-Hant": {
@@ -130,6 +132,7 @@
     "unknownQuota": "目前無法取得；不代表額度為零。",
     "resetAt": "{date} 重置",
     "resetsIn": "{duration} 後重置",
+    "viaOpencodex": "經由 opencodex 讀取",
     "checked": "最後確認：{date}",
     "projectInfo": "只加入資料夾，不會匯入舊對話或啟動 Agent。",
     "parent": "↑ 上一層",
@@ -158,6 +161,7 @@
     "notAdded": "此對話尚未加入工作區，可從歷史入口查看。",
     "fiveHours": "5 小時",
     "weekly": "每週",
+    "monthly": "每月",
     "minutes": "{minutes} 分鐘"
   },
   "zh-Hans": {
@@ -209,6 +213,7 @@
     "unknownQuota": "目前无法获取；不代表额度为零。",
     "resetAt": "{date} 重置",
     "resetsIn": "{duration} 后重置",
+    "viaOpencodex": "经由 opencodex 读取",
     "checked": "最后确认：{date}",
     "projectInfo": "只添加文件夹，不会导入旧会话或启动 Agent。",
     "parent": "↑ 上一级",
@@ -237,6 +242,7 @@
     "notAdded": "此会话尚未加入工作区，可从历史入口查看。",
     "fiveHours": "5 小时",
     "weekly": "每周",
+    "monthly": "每月",
     "minutes": "{minutes} 分钟"
   },
   "ja": {
@@ -288,6 +294,7 @@
     "unknownQuota": "取得できない場合も、残りがゼロとは限りません。",
     "resetAt": "{date} にリセット",
     "resetsIn": "{duration} 後にリセット",
+    "viaOpencodex": "opencodex 経由",
     "checked": "最終確認：{date}",
     "projectInfo": "フォルダのみ追加します。履歴の取り込みやエージェントの起動は行いません。",
     "parent": "↑ 親フォルダ",
@@ -316,6 +323,7 @@
     "notAdded": "この会話はワークスペース外です。履歴で確認できます。",
     "fiveHours": "5時間",
     "weekly": "週間",
+    "monthly": "月間",
     "minutes": "{minutes}分"
   },
   "ko": {
@@ -367,6 +375,7 @@
     "unknownQuota": "확인 불가는 잔여 한도가 0이라는 뜻이 아닙니다.",
     "resetAt": "{date}에 초기화",
     "resetsIn": "{duration} 후 초기화",
+    "viaOpencodex": "opencodex 경유",
     "checked": "마지막 확인: {date}",
     "projectInfo": "폴더만 추가합니다. 기록을 가져오거나 에이전트를 시작하지 않습니다.",
     "parent": "↑ 상위 폴더",
@@ -395,6 +404,7 @@
     "notAdded": "이 세션은 작업 공간에 없습니다. 기록에서 확인하세요.",
     "fiveHours": "5시간",
     "weekly": "주간",
+    "monthly": "월간",
     "minutes": "{minutes}분"
   },
   "tr": {
@@ -446,6 +456,7 @@
     "unknownQuota": "Kullanılamıyor olması kalan limitin sıfır olduğu anlamına gelmez.",
     "resetAt": "{date} tarihinde sıfırlanır",
     "resetsIn": "{duration} sonra sıfırlanır",
+    "viaOpencodex": "opencodex üzerinden",
     "checked": "Son kontrol: {date}",
     "projectInfo": "Yalnızca klasörü ekler. Geçmişi içe aktarmaz veya aracı başlatmaz.",
     "parent": "↑ Üst klasör",
@@ -474,6 +485,7 @@
     "notAdded": "Bu oturum çalışma alanı dışında. Geçmişten görüntüleyin.",
     "fiveHours": "5 saat",
     "weekly": "Haftalık",
+    "monthly": "Aylık",
     "minutes": "{minutes} dakika"
   },
   "fr": {
@@ -525,6 +537,7 @@
     "unknownQuota": "Indisponible ne signifie pas qu’il ne reste rien.",
     "resetAt": "Réinitialisation : {date}",
     "resetsIn": "Réinitialisation dans {duration}",
+    "viaOpencodex": "via opencodex",
     "checked": "Dernière vérification : {date}",
     "projectInfo": "Ajoute uniquement le dossier, sans importer l’historique ni démarrer d’agent.",
     "parent": "↑ Dossier parent",
@@ -553,6 +566,7 @@
     "notAdded": "Cette session est hors de l’espace. Consultez-la dans l’historique.",
     "fiveHours": "5 heures",
     "weekly": "Hebdomadaire",
+    "monthly": "Mensuel",
     "minutes": "{minutes} minutes"
   },
   "de": {
@@ -604,6 +618,7 @@
     "unknownQuota": "Nicht verfügbar bedeutet nicht, dass nichts übrig ist.",
     "resetAt": "Zurücksetzung: {date}",
     "resetsIn": "Zurücksetzung in {duration}",
+    "viaOpencodex": "über opencodex",
     "checked": "Zuletzt geprüft: {date}",
     "projectInfo": "Fügt nur den Ordner hinzu. Importiert keinen Verlauf und startet keinen Agenten.",
     "parent": "↑ Übergeordneter Ordner",
@@ -632,6 +647,7 @@
     "notAdded": "Diese Sitzung liegt außerhalb des Arbeitsbereichs. Im Verlauf anzeigen.",
     "fiveHours": "5 Stunden",
     "weekly": "Wöchentlich",
+    "monthly": "Monatlich",
     "minutes": "{minutes} Minuten"
   },
   "es": {
@@ -683,6 +699,7 @@
     "unknownQuota": "No disponible no significa que no quede cuota.",
     "resetAt": "Se restablece: {date}",
     "resetsIn": "Se restablece en {duration}",
+    "viaOpencodex": "vía opencodex",
     "checked": "Última comprobación: {date}",
     "projectInfo": "Solo añade la carpeta. No importa el historial ni inicia un agente.",
     "parent": "↑ Carpeta superior",
@@ -711,6 +728,7 @@
     "notAdded": "Esta sesión está fuera del espacio. Consúltala en el historial.",
     "fiveHours": "5 horas",
     "weekly": "Semanal",
+    "monthly": "Mensual",
     "minutes": "{minutes} minutos"
   },
   "pt-BR": {
@@ -762,6 +780,7 @@
     "unknownQuota": "Indisponível não significa que o saldo seja zero.",
     "resetAt": "Redefinição: {date}",
     "resetsIn": "Redefine em {duration}",
+    "viaOpencodex": "via opencodex",
     "checked": "Última verificação: {date}",
     "projectInfo": "Adiciona apenas a pasta. Não importa o histórico nem inicia um agente.",
     "parent": "↑ Pasta superior",
@@ -790,6 +809,7 @@
     "notAdded": "Esta sessão está fora do espaço. Consulte o histórico.",
     "fiveHours": "5 horas",
     "weekly": "Semanal",
+    "monthly": "Mensal",
     "minutes": "{minutes} minutos"
   },
   "it": {
@@ -841,6 +861,7 @@
     "unknownQuota": "Non disponibile non significa che il limite sia esaurito.",
     "resetAt": "Ripristino: {date}",
     "resetsIn": "Si azzera tra {duration}",
+    "viaOpencodex": "tramite opencodex",
     "checked": "Ultimo controllo: {date}",
     "projectInfo": "Aggiunge solo la cartella. Non importa la cronologia né avvia un agente.",
     "parent": "↑ Cartella superiore",
@@ -869,6 +890,7 @@
     "notAdded": "Questa sessione è fuori dall’area. Consultala nella cronologia.",
     "fiveHours": "5 ore",
     "weekly": "Settimanale",
+    "monthly": "Mensile",
     "minutes": "{minutes} minuti"
   }
 };

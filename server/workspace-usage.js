@@ -10,6 +10,47 @@ const OPENCODEX_WINDOWS = Object.freeze([["fiveHour", 300], ["weekly", 10080], [
 const OPENCODEX_NAMES = Object.freeze({ "opencode-go": "OpenCode Go", "opencode-free": "OpenCode Zen", "minimax": "MiniMax", "minimax-cn": "MiniMax" });
 // Providers Stepsemble reads directly keep that fresher source instead.
 const OPENCODEX_HANDLED_ELSEWHERE = new Set(["anthropic", "openai"]);
+const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
+const OPENCODE_GO_WINDOWS = Object.freeze([["rolling", 300], ["weekly", 10080], ["monthly", 43200]]);
+// A provider pointed at the OpenCode Go endpoint already carries the key needed
+// to read that subscription's allowance. Probing it here keeps the number
+// working when another app's management API changes shape or is not running,
+// and only its configuration file - not its private HTTP surface - is borrowed.
+async function opencodeGoKey(home, osHome) {
+  const files = [home && path.join(home, ".pi", "agent", "models.json"),
+    osHome && path.join(osHome, ".opencodex", "config.json")];
+  for (const file of files) {
+    if (!file) continue;
+    try {
+      const providers = JSON.parse(await fs.readFile(file, "utf8"))?.providers || {};
+      for (const provider of Object.values(providers)) {
+        if (!provider || typeof provider !== "object") continue;
+        const base = typeof provider.baseUrl === "string" ? provider.baseUrl.replace(/\/+$/, "") : "";
+        if (base !== OPENCODE_GO_BASE_URL) continue;
+        const key = typeof provider.apiKey === "string" ? provider.apiKey.trim() : "";
+        // Environment and command references are resolved by their owning app.
+        if (key && !key.startsWith("$") && !key.startsWith("!")) return key;
+      }
+    } catch {}
+  }
+  return null;
+}
+function opencodeGoWindows(usage) {
+  return OPENCODE_GO_WINDOWS
+    .map(([key, minutes]) => windowUsage(usage?.[key]?.percent, usage?.[key]?.resetsAt, null, minutes, null))
+    .filter(Boolean);
+}
+async function opencodeGoQuota({ home, fetchImpl = fetch, osHome = os.homedir() } = {}) {
+  const key = await opencodeGoKey(home, osHome);
+  if (!key) return null;
+  const res = await fetchImpl(OPENCODE_GO_BASE_URL + "/usage", {
+    headers: { Accept: "application/json", Authorization: `Bearer ${key}` },
+    redirect: "error", signal: AbortSignal.timeout(12000),
+  });
+  if (!res.ok) throw new Error("unavailable");
+  const windows = opencodeGoWindows((await res.json())?.usage);
+  return windows.length ? { windows, observedAt: null } : null;
+}
 function windowUsage(used, reset, label, windowDurationMins = null, bucket = null) {
   if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || used > 100) return null;
   const resetMs = typeof reset === "number" ? reset * 1000 : Date.parse(reset);
@@ -87,27 +128,28 @@ async function opencodexQuotas({ home, fetchImpl = fetch, osHome = os.homedir(),
   return Array.isArray(reports) ? reports : [];
 }
 // One row per provider opencodex knows about that Stepsemble cannot read itself.
-function opencodexProviders(reports, now) {
+function opencodexProviders(reports, now, skip = new Set()) {
   return reports.flatMap(report => {
     const id = report?.provider;
-    if (typeof id !== "string" || OPENCODEX_HANDLED_ELSEWHERE.has(id)) return [];
+    if (typeof id !== "string" || OPENCODEX_HANDLED_ELSEWHERE.has(id) || skip.has(id)) return [];
     const quota = report.quota || {};
     const windows = currentWindows(OPENCODEX_WINDOWS
       .map(([key, minutes]) => windowUsage(quota[`${key}Percent`], asSecondsValue(quota[`${key}ResetAt`]), null, minutes, null))
       .filter(Boolean), now);
     if (!windows.length) return [];
-    return [{ provider: OPENCODEX_NAMES[id] || report.label || id, status: "ready", observedAt: null, windows }];
+    return [{ provider: OPENCODEX_NAMES[id] || report.label || id, status: "ready", observedAt: null, source: "opencodex", windows }];
   });
 }
 function asSecondsValue(value) { return typeof value === "number" && Number.isFinite(value) ? Math.floor(value / 1000) : value; }
 function createWorkspaceUsage({ home, codex, allowKeychain = false, fetchImpl = fetch, readClaudeToken = () => claudeToken(home, allowKeychain),
-  readClaudeCache = () => claudeCache(home, now()), readOpenCodex = () => opencodexQuotas({ home, fetchImpl }), now = Date.now }) {
+  readClaudeCache = () => claudeCache(home, now()), readOpenCodeGo = () => opencodeGoQuota({ home, fetchImpl }),
+  readOpenCodex = () => opencodexQuotas({ home, fetchImpl }), now = Date.now }) {
   let cached = null, flight = null, expires = 0;
-  function providerRow(provider, settled, observedAt = null) {
+  function providerRow(provider, settled, observedAt = null, source = null) {
     const windows = settled.status === "fulfilled" ? (settled.value?.windows || []) : [];
     const observed = settled.status === "fulfilled" && typeof settled.value?.observedAt === "number" ? settled.value.observedAt : observedAt;
     return { provider, status: !windows.length ? "unavailable" : observed ? "cached" : "ready",
-      observedAt: windows.length ? observed : null, windows };
+      observedAt: windows.length ? observed : null, source: windows.length ? source : null, windows };
   }
   async function collect() {
     const sources = await Promise.allSettled([
@@ -129,10 +171,17 @@ function createWorkspaceUsage({ home, codex, allowKeychain = false, fetchImpl = 
         if (fallback) return fallback;
         throw new Error("unavailable");
       })(),
-      Promise.resolve().then(readOpenCodex).then(reports => opencodexProviders(reports, now())),
+      Promise.resolve().then(readOpenCodeGo),
+      Promise.resolve().then(readOpenCodex),
     ]);
-    const providers = [providerRow("Codex", sources[0]), providerRow("Claude", sources[1]),
-      ...(sources[2].status === "fulfilled" ? sources[2].value : [])];
+    // A direct reading wins over the borrowed one, so the same allowance is
+    // never listed twice and the row does not depend on another app being up.
+    const direct = providerRow("OpenCode Go", sources[2], null, "direct");
+    const borrowed = sources[3].status === "fulfilled" ? sources[3].value : [];
+    const skip = direct.windows.length ? new Set(["opencode-go"]) : new Set();
+    const providers = [providerRow("Codex", sources[0], null, "native"), providerRow("Claude", sources[1], null, "native"),
+      ...(direct.windows.length ? [direct] : []),
+      ...opencodexProviders(borrowed, now(), skip)];
     cached = { updatedAt: now(), providers };
     // A reading that came from a cache is retried sooner than a live one.
     expires = now() + (providers.every(p => p.status === "ready") ? 300000 : 60000);
@@ -140,4 +189,4 @@ function createWorkspaceUsage({ home, codex, allowKeychain = false, fetchImpl = 
   }
   return { read() { if (cached && now() < expires) return Promise.resolve(cached); if (!flight) flight = collect().finally(() => flight = null); return flight; } };
 }
-module.exports = { createWorkspaceUsage, windowUsage, codexWindows, claudeWindows, currentWindows, keychainHome, opencodexProviders, opencodexQuotas };
+module.exports = { createWorkspaceUsage, windowUsage, codexWindows, claudeWindows, currentWindows, keychainHome, opencodexProviders, opencodexQuotas, opencodeGoQuota, opencodeGoKey, opencodeGoWindows };

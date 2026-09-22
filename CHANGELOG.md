@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.1.0-rc.8
+
+- Read the OpenCode Go allowance from its own usage endpoint with the key already configured for that provider, so the number no longer depends on another application's management API.
+
+- Keep opencodex as the fallback for allowances Stepsemble cannot read itself, and label those rows as coming through it instead of leaving the dependency invisible.
+
 ## 3.1.0-rc.7
 
 - Give every allowance the same shape, so a provider reporting a single weekly limit still shows its 7d label and number beside the meter.
