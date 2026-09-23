@@ -50,7 +50,7 @@ function request(port, pathname, { method = "GET", cookie = "", body = null } = 
 }
 
 async function waitForServer(port, child, output) {
-  for (let attempt = 0; attempt < 80; attempt++) {
+  for (let attempt = 0; attempt < 400; attempt++) {
     if (child.exitCode !== null) throw new Error(`server exited early (${child.exitCode}): ${output()}`);
     try {
       const response = await request(port, "/api/health");

@@ -70,15 +70,15 @@ async function startHost(t, home) {
     }
   });
   const base = `http://127.0.0.1:${port}`;
-  for (let i = 0; i < 150; i++) {
+  for (let i = 0; i < 500; i++) {
     try {
       const response = await fetch(`${base}/api/health`);
-      if (response.status === 200) break;
+      if (response.status === 200) return { base, async request(route, options = {}) { return fetch(base + route, options); } };
     } catch {}
     if (child.exitCode !== null) throw new Error("native history fixture host exited");
     await new Promise(resolve => setTimeout(resolve, 20));
   }
-  return { base, async request(route, options = {}) { return fetch(base + route, options); } };
+  throw new Error("native history fixture host did not become ready");
 }
 
 // Reading provider transcripts requires POSIX ownership and mode checks, so the

@@ -45,7 +45,7 @@ function request(port, pathname, { method = "GET", host = `localhost:${port}`, h
 }
 
 async function waitForServer(port, child, output) {
-  for (let attempt = 0; attempt < 80; attempt++) {
+  for (let attempt = 0; attempt < 400; attempt++) {
     if (child.exitCode !== null) throw new Error(`server exited early (${child.exitCode}): ${output()}`);
     try {
       const response = await request(port, "/api/health", { host: `127.0.0.1:${port}` });

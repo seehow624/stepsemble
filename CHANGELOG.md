@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.1.0
+
+- Add a managed Workspace that lists projects and sessions added to Stepsemble, keeps external history separate, and supports tabs, split panes, and independent windows. Phones retain a single-column session view.
+- Show subscription allowances in the Workspace sidebar, with per-window detail and reset times. Read available Claude, Codex, OpenCode Go, and configured provider limits without presenting unknown usage as zero.
+- Refine project browsing and Workspace navigation, including collapsible project groups, removal from Workspace, compact pane actions, and clearer agent identities.
+- Keep the Workspace appearance aligned with Stepsemble's existing design system and correct mobile navigation and quota progress presentation.
+
 ## 3.1.0-rc.11
 
 - Carry the approved artwork into the empty workspace pane as well, matching the conversation view's empty state instead of a silhouette of the glyph.

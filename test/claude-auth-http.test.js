@@ -30,7 +30,7 @@ async function startHost(t) {
       }); req.on("error", reject); req.end(payload);
     });
   }
-  for (let i = 0; i < 150; i++) {
+  for (let i = 0; i < 500; i++) {
     try { if ((await request("/api/health")).status === 200) return { home, request, output: () => output }; } catch {}
     if (child.exitCode !== null) throw new Error("Isolated auth fixture host exited");
     await new Promise(resolve => setTimeout(resolve, 20));

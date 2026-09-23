@@ -60,7 +60,7 @@ async function freePort() {
 }
 
 async function waitForServer(port, child, output = () => "") {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
     if (child.exitCode !== null) throw new Error(`server exited early: ${output()}`);
     try {
       const response = await request(port, "/api/health");

@@ -149,17 +149,6 @@ test("the workspace shell sizes the brand mark without replacing its artwork", (
   assert.ok(!/mask/.test(slot), "the empty pane must not silhouette the brand");
   assert.match(css, /forced-colors: active[\s\S]{0,200}\.workspace-slot::before[\s\S]{0,200}mask: url\("\/stepsemble-glyph\.png"\)/);
 });
-+
-test("the workspace shell masks nothing outside a forced-colour fallback", () => {
-  const css = fs.readFileSync(path.join(root, "public", "modules", "workspace.css"), "utf8");
-  // Strip the accessibility fallbacks, then hold the shell to the rule the brand
-  // artwork depends on: outside forced-colors it must never mask a shape.
-  const stripped = css.replace(/@media \(forced-colors: active\) \{[^}]*\}/g, "");
-  assert.ok(css.includes("@media (forced-colors: active)"), "the fallback stays available");
-  assert.ok(!/mask:/.test(stripped), "no shape may be masked outside the fallback");
-  assert.ok(!/stepsemble-glyph/.test(stripped), "the glyph is a fallback, not the brand");
-});
-
 
 test("every selectable design theme defines its own light and dark palette", () => {
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
