@@ -88,7 +88,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.1.0-rc.14";
+const APP_VERSION = "3.1.0-rc.16";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -5695,6 +5695,15 @@ const server = http.createServer(async (req, res) => {
         const cwd = projectDirectory(body.cwd);
         if (!cwd) { sendJSON(res, 403, { error: "Project folder is unavailable" }); return; }
         workspaceRegistry.project(cwd); sendJSON(res, 200, { cwd }); return;
+      }
+      if (p === "/api/workspace/project/remove" && req.method === "POST") {
+        const body = await readJSON(req, 8192);
+        if (typeof body?.cwd !== "string" || !path.isAbsolute(body.cwd)) { sendJSON(res, 400, { error: "Absolute project path required" }); return; }
+        // Remove only exact workspace membership. The folder and native tasks
+        // remain on disk, including when the folder itself no longer exists.
+        const keys = workspaceRegistry.removeProject(body.cwd);
+        if (!keys) { sendJSON(res, 404, { error: "Workspace project not found" }); return; }
+        sendJSON(res, 200, { removed: true, keys }); return;
       }
       if (p === "/api/workspace/remove" && req.method === "POST") {
         const body = await readJSON(req, 8192);

@@ -50,6 +50,13 @@ test("workspace HTTP isolates membership, history, project registration and pane
   assert.equal((await (await request(`/api/workspace/entry?key=${adopted.key}`)).json()).record.file, external.file);
   assert.equal((await request("/api/workspace/remove", { key: adopted.key })).status, 200);
   assert.equal((await request(`/api/workspace/entry?key=${adopted.key}`)).status, 404);
+  const project = path.join(home, "Projects", "Demo");
+  assert.equal((await request("/api/workspace/project/remove", { cwd: "relative" })).status, 400);
+  const removedProject = await request("/api/workspace/project/remove", { cwd: project });
+  assert.equal(removedProject.status, 200);
+  assert.equal((await removedProject.json()).keys.length, 2);
+  assert.equal((await (await request("/api/workspace")).json()).entries.length, 0);
+  assert.equal((await request("/api/workspace/project/remove", { cwd: project })).status, 404);
   assert.equal(await fs.readFile(taskFile, "utf8"), tasksBefore, "project/history/view operations never launch or stop a task");
   assert.ok(await fs.stat(path.join(home, ".pi/agent/sessions", external.file)));
   assert.match(await (await request("/")).text(), /workspace-stage/);

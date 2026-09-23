@@ -36,6 +36,18 @@
   let storageKey = `stepsemble.workspace.layout.v1.${windowId}`;
   let tree = L.pane(), focused = tree.id, maximized = null, machines = [], host = "", self = "";
   let snapshot = { projects: [], entries: [] }, refreshEpoch = 0, toastTimer, dialogEpoch = 0;
+  const collapsedProjects = new Map();
+  function collapsedFor(target = host) {
+    if (!collapsedProjects.has(target)) {
+      let paths = [];
+      try { paths = JSON.parse(localStorage.getItem(`stepsemble.workspace.collapsed.v1.${target}`)); } catch {}
+      collapsedProjects.set(target, new Set(Array.isArray(paths) ? paths.filter(path => typeof path === "string") : []));
+    }
+    return collapsedProjects.get(target);
+  }
+  function saveCollapsed(target = host) {
+    try { localStorage.setItem(`stepsemble.workspace.collapsed.v1.${target}`, JSON.stringify([...collapsedFor(target)])); } catch {}
+  }
   const frames = new Map(), slots = new Map(), pendingTransfers = new Map();
   let channel;
   try { channel = new BroadcastChannel("stepsemble.workspace.v1"); } catch {}
@@ -93,6 +105,15 @@
   function allRefs() { return L.leaves(tree).flatMap(p => p.tabs); }
   function active(p) { return p.tabs.find(r => L.identity(r) === p.active); }
   function commit(next) { try { save(next); render(); return true; } catch (error) { toast(error.message); return false; } }
+  function untrackMembership(target, keys, broadcast = true) {
+    if (!machines.some(machine => machine.id === target) || !Array.isArray(keys)) return;
+    const valid = keys.filter(key => typeof key === "string" && /^[a-f0-9-]{36}$/.test(key));
+    let next = tree;
+    for (const key of valid) next = L.remove(next, { host: target, key });
+    if (JSON.stringify(next) !== JSON.stringify(tree)) commit(next);
+    if (broadcast) channel?.postMessage({ type: "untracked", host: target, keys: valid });
+    void refresh();
+  }
   function open(ref, paneId = focused, edge = "center") {
     try {
       const next = L.insert(tree, paneId, ref, edge);
@@ -227,26 +248,67 @@
     const box = $("workspace-projects"); box.replaceChildren(); const search = $("workspace-search").value.trim().toLowerCase();
     const openKeys = new Set(allRefs().map(L.identity));
     for (const cwd of [...new Set([...snapshot.projects, ...snapshot.entries.map(e => e.record.cwd || "")])]) {
-      const rows = snapshot.entries.filter(e => (e.record.cwd || "") === cwd && (!search || `${e.record.name} ${e.record.agentId} ${cwd}`.toLowerCase().includes(search)));
-      if (search && !rows.length) continue;
+      const matchesProject = !!search && cwd.toLowerCase().includes(search);
+      const rows = snapshot.entries.filter(e => (e.record.cwd || "") === cwd && (!search || matchesProject || `${e.record.name} ${e.record.agentId}`.toLowerCase().includes(search)));
+      if (search && !matchesProject && !rows.length) continue;
       const section = node("section", "", "workspace-project"), header = node("header");
-      const title = node("strong", cwd.split(/[\\/]/).filter(Boolean).pop() || t("ungrouped")); title.title = cwd;
-      header.append(title, button("＋", () => newSession(cwd), t("newSession"))); section.append(header);
+      const title = cwd.split(/[\\/]/).filter(Boolean).pop() || t("ungrouped");
+      const toggle = button("", () => {
+        const collapsed = collapsedFor();
+        if (collapsed.has(cwd)) collapsed.delete(cwd); else collapsed.add(cwd);
+        saveCollapsed();
+        const hidden = collapsed.has(cwd) && !search;
+        section.dataset.collapsed = String(hidden); toggle.setAttribute("aria-expanded", String(!hidden)); contents.hidden = hidden;
+      }, cwd || title, "btn workspace-project-toggle");
+      const copy = node("span", "", "workspace-project-copy");
+      copy.append(node("strong", title)); if (cwd) copy.append(node("small", cwd));
+      toggle.append(node("span", "⌄", "workspace-project-chevron"), copy);
+      const contents = node("div", "", "workspace-project-sessions");
+      const hidden = !search && collapsedFor().has(cwd);
+      section.dataset.collapsed = String(hidden); contents.hidden = hidden; toggle.setAttribute("aria-expanded", String(!hidden));
+      header.append(toggle, button("＋", () => newSession(cwd), t("newSession"), "btn workspace-project-add"));
+      if (cwd) {
+        const actions = button("⋯", () => openPaneMenu(actions, [[t("removeProject"), async () => {
+          const target = host; actions.disabled = true;
+          try {
+            const result = await api("/api/workspace/project/remove", { cwd }, target);
+            collapsedFor(target).delete(cwd); saveCollapsed(target);
+            untrackMembership(target, result.keys);
+          } catch (error) { toast(error.message); actions.disabled = false; }
+        }]]), t("projectActions"), "btn workspace-project-menu");
+        actions.setAttribute("aria-haspopup", "menu"); header.append(actions);
+      }
+      section.append(header, contents);
       for (const entry of rows) {
-        const ref = refOf(entry), b = button("", () => open(ref), ref.title, "workspace-session"); b.dataset.open = String(openKeys.has(L.identity(ref))); b.draggable = true;
+        const ref = refOf(entry), row = node("div", "", "workspace-session-row"), b = button("", () => open(ref), ref.title, "btn workspace-session"); b.dataset.open = String(openKeys.has(L.identity(ref))); b.draggable = true;
         b.append(node("strong", ref.title), node("small", `${entry.record.agentId} · ${entry.record.status || "history"}${entry.origin === "added" ? ` · ${t("added")}` : ""}`));
         b.ondragstart = e => dragStart(e, ref, false); b.ondragend = dragEnd;
-        b.oncontextmenu = e => { e.preventDefault(); const body = dialog(ref.title); body.append(button(t("moveWindow"), () => { newWindow(ref); closeDialog(); }), button(t("remove"), async () => { try { await api("/api/workspace/remove", { key: entry.key }); closeDialog(); await refresh(); } catch (error) { toast(error.message); } })); };
-        section.append(b);
+        const actions = button("⋯", () => openPaneMenu(actions, [
+          [t("moveWindow"), () => newWindow(ref)],
+          [t("remove"), async () => {
+            const target = ref.host; actions.disabled = true;
+            try { await api("/api/workspace/remove", { key: entry.key }, target); untrackMembership(target, [entry.key]); }
+            catch (error) { toast(error.message); actions.disabled = false; }
+          }],
+        ]), t("sessionActions"), "btn workspace-session-menu");
+        actions.setAttribute("aria-haspopup", "menu");
+        b.oncontextmenu = e => { e.preventDefault(); actions.click(); };
+        row.append(b, actions); contents.append(row);
       }
-      if (!rows.length) section.append(node("small", t("noSessions"))); box.append(section);
+      if (!rows.length) contents.append(node("small", t("noSessions"))); box.append(section);
     }
     if (!snapshot.projects.length && !snapshot.entries.length) box.append(node("p", t("empty")));
   }
   async function refresh() {
     const epoch = ++refreshEpoch, target = host;
     const statusDot = document.querySelector(".workspace-status-dot");
-    try { const data = await api("/api/workspace", undefined, target); if (epoch !== refreshEpoch || target !== host) return; if (JSON.stringify(data) !== JSON.stringify(snapshot)) { snapshot = data; if (!document.body.classList.contains("workspace-dragging")) renderSidebar(); } $("workspace-connection").textContent = `${hostName(host)} · ${t("connected")}`; if (statusDot) statusDot.dataset.state = "online"; }
+    try { const data = await api("/api/workspace", undefined, target); if (epoch !== refreshEpoch || target !== host) return; if (JSON.stringify(data) !== JSON.stringify(snapshot)) { snapshot = data; if (!document.body.classList.contains("workspace-dragging")) renderSidebar(); }
+      // A closed window can retain an old tab in its saved layout. Reconcile
+      // against membership when it opens again, without touching other hosts.
+      const available = new Set(data.entries.map(entry => entry.key));
+      const stale = allRefs().filter(ref => ref.host === target && !available.has(ref.key));
+      if (stale.length) { let next = tree; for (const ref of stale) next = L.remove(next, ref); commit(next); }
+      $("workspace-connection").textContent = `${hostName(host)} · ${t("connected")}`; if (statusDot) statusDot.dataset.state = "online"; }
     catch (error) { if (epoch === refreshEpoch) { $("workspace-connection").textContent = error.message; if (statusDot) statusDot.dataset.state = "offline"; } }
   }
   let usage = null, usageHost = null;
@@ -375,11 +437,17 @@
     pathLabel.htmlFor = "workspace-folder-path";
     const pathRow = node("div", "", "workspace-folder-path-row");
     const pathInput = node("input"); pathInput.id = "workspace-folder-path"; pathInput.type = "text"; pathInput.autocomplete = "off"; pathInput.spellcheck = false;
-    const up = button("←", () => { if (current?.parent) void navigate(current.parent); }, t("parent"), "btn ghost workspace-folder-nav");
-    const go = button("→", () => { void navigate(pathInput.value); }, t("goToFolder"), "btn ghost workspace-folder-nav");
-    pathInput.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); void navigate(pathInput.value); } });
-    pathInput.addEventListener("input", () => { select.disabled = !current || pathInput.value !== current.path || current.selectable === false; });
-    pathRow.append(up, pathInput, go);
+    let current = null, sequence = 0, historyPaths = [], historyIndex = -1;
+    const back = button("←", () => { if (historyIndex > 0) void navigate(historyPaths[historyIndex - 1], historyIndex - 1); }, t("backFolder"), "btn workspace-folder-nav");
+    const forward = button("→", () => { if (historyIndex < historyPaths.length - 1) void navigate(historyPaths[historyIndex + 1], historyIndex + 1); }, t("forwardFolder"), "btn workspace-folder-nav");
+    const up = button("↑", () => { if (current?.parent && current.parent !== current.path) void navigate(current.parent); }, t("parent"), "btn workspace-folder-nav");
+    const go = button(t("go"), () => { if (pathInput.value.trim()) void navigate(pathInput.value); }, t("goToFolder"), "btn workspace-folder-go");
+    pathInput.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); if (pathInput.value.trim()) void navigate(pathInput.value); } });
+    pathInput.addEventListener("input", () => {
+      select.disabled = !current || pathInput.value !== current.path || current.selectable === false;
+      go.disabled = !pathInput.value.trim() || pathInput.value === current?.path;
+    });
+    pathRow.append(back, forward, up, pathInput, go);
     const browseHead = node("div", "", "workspace-folder-browse-head");
     browseHead.append(node("strong", t("foldersHere")));
     const search = node("input"); search.type = "search"; search.placeholder = t("filterFolders"); search.setAttribute("aria-label", t("filterFolders"));
@@ -388,7 +456,6 @@
     list.setAttribute("role", "region"); list.setAttribute("aria-label", t("foldersHere"));
     const footer = node("div", "", "workspace-folder-footer");
     footer.append(node("small", t("projectInfo")));
-    let current = null, sequence = 0;
     const select = button(t("addFolder"), async () => {
       if (!current || select.disabled) return;
       const chosen = current.path; select.disabled = true;
@@ -411,22 +478,31 @@
       }
     }
     search.addEventListener("input", renderEntries);
-    async function navigate(path) {
+    function updateNavigation() {
+      back.disabled = historyIndex <= 0;
+      forward.disabled = historyIndex < 0 || historyIndex >= historyPaths.length - 1;
+      up.disabled = !current?.parent || current.parent === current.path;
+      go.disabled = !pathInput.value.trim() || pathInput.value === current?.path;
+    }
+    async function navigate(path, historyTarget = null) {
+      if (historyTarget === null && path && path === current?.path) return;
       const request = ++sequence;
-      select.disabled = true; up.disabled = true; go.disabled = true; search.disabled = true;
+      select.disabled = true; back.disabled = true; forward.disabled = true; up.disabled = true; go.disabled = true; search.disabled = true;
       list.replaceChildren(node("p", t("loading"), "workspace-folder-empty"));
       try {
         const data = await api(`/api/browse${path ? `?path=${encodeURIComponent(path)}` : ""}`, undefined, target);
         if (epoch !== dialogEpoch || request !== sequence) return;
+        if (historyTarget !== null) { historyIndex = historyTarget; historyPaths[historyIndex] = data.path; }
+        else if (historyPaths[historyIndex] !== data.path) {
+          historyPaths = [...historyPaths.slice(0, historyIndex + 1), data.path]; historyIndex++;
+        }
         current = data; pathInput.value = data.path; pathInput.scrollLeft = pathInput.scrollWidth; search.value = "";
-        up.disabled = !data.parent || data.parent === data.path;
         select.disabled = data.selectable === false;
-        go.disabled = false; search.disabled = false;
+        search.disabled = false; updateNavigation();
         renderEntries();
       } catch (error) {
         if (epoch !== dialogEpoch || request !== sequence) return;
-        up.disabled = !current?.parent || current.parent === current.path;
-        go.disabled = false;
+        updateNavigation();
         list.replaceChildren(node("p", error.message, "workspace-folder-empty workspace-folder-error"));
       }
     }
@@ -497,6 +573,7 @@
         if (pending?.drag && L.identity(pending.ref) === L.identity(L.reference(data.ref))) { pendingTransfers.delete(data.transfer); commit(L.remove(tree, pending.ref)); }
       }
       if (data.type === "window-ready" && data.source === windowId) { const pending = pendingTransfers.get(data.token); if (pending?.target === data.target) { pendingTransfers.delete(data.token); commit(L.remove(tree, pending.ref)); } }
+      if (data.type === "untracked") untrackMembership(data.host, data.keys, false);
       if (data.type === "refresh") void refresh();
     } catch {}
   };

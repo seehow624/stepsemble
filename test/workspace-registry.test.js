@@ -15,6 +15,15 @@ test("workspace membership persists without importing provider histories", t => 
   assert.ok(!fs.readFileSync(file, "utf8").includes("private transcript"));
   registry.remove(imported.key); assert.equal(registry.list().entries.length, 1);
 });
+test("removing one project removes only its workspace memberships", t => {
+  const file = fixture(t), registry = createWorkspaceRegistry(file);
+  const one = registry.remember({ id: "codex:one", agentId: "codex", cwd: "/home/Projects" });
+  const two = registry.remember({ id: "codex:two", agentId: "codex", cwd: "/volumes/Projects" });
+  assert.deepEqual(registry.removeProject("/home/Projects"), [one.key]);
+  assert.deepEqual(createWorkspaceRegistry(file).list().projects, ["/volumes/Projects"]);
+  assert.deepEqual(registry.list().entries.map(row => row.key), [two.key]);
+  assert.equal(registry.removeProject("/home/Projects"), null);
+});
 test("Pi learns its durable file without creating a second membership", t => {
   const file = fixture(t), registry = createWorkspaceRegistry(file);
   const first = registry.remember({ sid: "rpc-1", agentId: "pi", cwd: "/project" });

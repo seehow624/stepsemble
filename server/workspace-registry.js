@@ -72,6 +72,13 @@ function createWorkspaceRegistry(filename) {
     },
     project(cwd) { if (!state.projects.includes(cwd)) write({ ...state, projects: [...state.projects, cwd] }); },
     remove(key) { write({ ...state, entries: state.entries.filter(row => row.key !== key) }); },
+    removeProject(cwd) {
+      const entries = state.entries.filter(row => row.record.cwd === cwd);
+      if (!state.projects.includes(cwd) && !entries.length) return null;
+      write({ ...state, projects: state.projects.filter(project => project !== cwd),
+        entries: state.entries.filter(row => row.record.cwd !== cwd) });
+      return entries.map(row => row.key);
+    },
   };
 }
 module.exports = { createWorkspaceRegistry };
