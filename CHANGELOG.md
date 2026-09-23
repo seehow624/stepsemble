@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.1.0-rc.11
+
+- Carry the approved artwork into the empty workspace pane as well, matching the conversation view's empty state instead of a silhouette of the glyph.
+
 ## 3.1.0-rc.10
 
 - Draw the workspace brand mark with the approved artwork again: the shell had replaced it with a monochrome silhouette, which dropped the connectors' colour and merged the four modules into one shape.
