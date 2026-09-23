@@ -29,9 +29,14 @@ cases.push({ tasks: [{ ...storedClaude, isRunning: true }], active: true },
   { tasks: [{ ...storedClaude, needsLoad: false }], active: true },
   { tasks: [{ ...storedClaude, status: "running" }], active: true },
   { tasks: [{ ...storedClaude, nativeStatus: { state: "running" } }], active: true });
+const externalHistory = { nativeHistoryReadonly: true, readOnly: true, status: "running", isRunning: true };
+cases.push({ tasks: [externalHistory], active: false },
+  { tasks: [{ ...externalHistory, nativeHistoryReadonly: false }], active: true },
+  { tasks: [{ ...externalHistory, readOnly: false }], active: true },
+  { tasks: [externalHistory, { status: "running" }], active: true });
 
 for (const file of ["deploy/stepsemble-update.sh", "install.sh", "install-linux.sh"]) {
-  test(`${file}: only confirmed idle native history bypasses the active-work guard`, () => {
+  test(`${file}: only external read-only history and confirmed idle sessions bypass the active-work guard`, () => {
     const source = fs.readFileSync(path.join(root, file), "utf8");
     const start = source.indexOf("  const taskActive ="), end = source.indexOf("  process.exit(rpcActive", start);
     assert.ok(start > 0 && end > start);
@@ -40,7 +45,7 @@ for (const file of ["deploy/stepsemble-update.sh", "install.sh", "install-linux.
   });
 }
 
-test("Windows installer uses the same strict idle-history exception", { skip: process.platform !== "win32" }, () => {
+test("Windows installer uses the same strict history exceptions", { skip: process.platform !== "win32" }, () => {
   const source = fs.readFileSync(path.join(root, "install-windows.ps1"), "utf8");
   const start = source.indexOf('    $terminal = @('), end = source.indexOf('  } catch { return "unknown" }', start);
   assert.ok(start > 0 && end > start);

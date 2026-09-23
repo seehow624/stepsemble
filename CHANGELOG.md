@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.1.1
+
+- Let an update proceed when an external, read-only history observation still carries a stale running label. Stepsemble-owned agent work and live RPC streams continue to block installation.
+
 ## 3.1.0
 
 - Add a managed Workspace that lists projects and sessions added to Stepsemble, keeps external history separate, and supports tabs, split panes, and independent windows. Phones retain a single-column session view.

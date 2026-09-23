@@ -165,6 +165,8 @@ function Get-ActiveWorkState([int]$Port) {
     # past work and never blocks an update.
     $terminal = @("completed", "failed", "stopped", "orphaned", "detached", "history")
     if ($tasks -and @($tasks.tasks | Where-Object {
+      $externalHistory = ($_.nativeHistoryReadonly -is [bool]) -and ($_.nativeHistoryReadonly -eq $true) -and
+        ($_.readOnly -is [bool]) -and ($_.readOnly -eq $true)
       $nativeIdle = ($_.nativeOpenCode -eq $true -or $_.nativeCodex -eq $true) -and
         ($_.isRunning -is [bool]) -and ($_.isRunning -eq $false) -and ($_.status -eq "waiting")
       $storedSession = ($_.idleNativeSession -eq $true) -and ($_.isRunning -is [bool]) -and ($_.isRunning -eq $false)
@@ -173,7 +175,7 @@ function Get-ActiveWorkState([int]$Port) {
         ($_.needsLoad -is [bool]) -and ($_.needsLoad -eq $true) -and
         ($_.isRunning -is [bool]) -and ($_.isRunning -eq $false) -and
         ($_.status -eq "waiting") -and ($_.nativeStatus.state -eq "available")
-      -not $nativeIdle -and -not $storedSession -and -not $storedClaude -and ($terminal -notcontains ([string]$_.status))
+      -not $externalHistory -and -not $nativeIdle -and -not $storedSession -and -not $storedClaude -and ($terminal -notcontains ([string]$_.status))
     }).Count -gt 0) { return "active" }
     return "idle"
   } catch { return "unknown" }

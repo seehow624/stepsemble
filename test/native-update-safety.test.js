@@ -44,6 +44,7 @@ test("native mutation routes are allow-listed and reserved before the first body
 test("the asynchronous update guard observes native request reservations", () => {
   const active = section("function activeAgentTasksForUpdate()", "// The inbox uses one task shape");
   assert.match(active, /nativeWorkRequests\s*>\s*0/);
+  assert.match(active, /nativeHistoryReadonly === true && task\?\.readOnly === true/);
   const service = section("beforeUpdate: async", "busy: () =>");
   assert.match(service, /activeAgentTasksForUpdate\(\)\.length/);
   assert.match(server, /if \(harnessUpdateService\?\.isRunning\(\)\) \{ sendJSON\(res, 409, \{ error: "harness_update_in_progress" \}\); return; \}/);

@@ -88,7 +88,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.1.0";
+const APP_VERSION = "3.1.1";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2523,7 +2523,10 @@ function activeRpcSessionsForUpdate() {
 function activeAgentTasksForUpdate() {
   try {
     const tasks = agentTasks.list().filter((task) =>
-      ["starting", "running", "waiting", "reconnecting"].includes(String(task?.status || "")));
+      // External history is observed read-only; restarting Stepsemble cannot
+      // interrupt its owner, even if an old rollout still says "running".
+      !(task?.nativeHistoryReadonly === true && task?.readOnly === true)
+      && ["starting", "running", "waiting", "reconnecting"].includes(String(task?.status || "")));
     if (nativeWorkRequests > 0 || claudeLaunchReservations > 0 || codexNative.hasActiveWork() || openCodeSetupPromise || claudeDesktopUpgrade?.isRunning()) tasks.push({ id: "native-reservation", status: "running" });
     const native = [];
     for (const [id, session] of claudeStructuredSessions) native.push(publicClaudeStructuredTask(id, session));

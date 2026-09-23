@@ -560,6 +560,8 @@ try {
   if (!Array.isArray(rpcs.rpcs)) process.exit(2);
   const rpcActive = rpcs.rpcs.some((rpc) => rpc?.isStreaming === true);
   const taskActive = Array.isArray(tasks.tasks) && tasks.tasks.some((task) => {
+    // A read-only observation has no Stepsemble-owned process to interrupt.
+    if (task?.nativeHistoryReadonly === true && task?.readOnly === true) return false;
     // A confirmed idle native history row is not pending agent work.
     if ((task?.nativeOpenCode === true || task?.nativeCodex === true)
       && task.isRunning === false && task.status === "waiting") return false;
@@ -620,7 +622,7 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 
 say ""
-say "Stepsemble 3.1.0 installer"
+say "Stepsemble 3.1.1 installer"
 say "────────────────────────"
 
 NODE_BIN="$(find_node || true)"

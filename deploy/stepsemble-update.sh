@@ -307,6 +307,8 @@ try {
   if (!Array.isArray(rpcs.rpcs)) process.exit(0);
   const rpcActive = rpcs.rpcs.some((rpc) => rpc?.isStreaming === true && rpc?.stuck !== true);
   const taskActive = Array.isArray(tasks.tasks) && tasks.tasks.some((task) => {
+    // A read-only observation has no Stepsemble-owned process to interrupt.
+    if (task?.nativeHistoryReadonly === true && task?.readOnly === true) return false;
     // A confirmed idle native history row is not pending agent work.
     if ((task?.nativeOpenCode === true || task?.nativeCodex === true)
       && task.isRunning === false && task.status === "waiting") return false;
