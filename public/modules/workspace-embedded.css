@@ -4,3 +4,4 @@
 .workspace-embedded #view-chat .messages{min-width:0}
 .workspace-embedded .chat-topbar{padding-left:12px}
 .workspace-embedded #view-settings{z-index:100}
+.workspace-embedded.workspace-mobile-pane #btn-back{display:inline-flex!important}

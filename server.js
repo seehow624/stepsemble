@@ -88,7 +88,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.1.0-rc.16";
+const APP_VERSION = "3.1.0-rc.19";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;

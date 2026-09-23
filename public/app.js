@@ -1,9 +1,18 @@
-/* stepsemble v3.1.0-rc.16 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.1.0-rc.19 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.1.0-rc.16";
+const CLIENT_APP_VERSION = "3.1.0-rc.19";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
-if (WORKSPACE_PANE) document.documentElement.classList.add("workspace-embedded");
+if (WORKSPACE_PANE) {
+  document.documentElement.classList.add("workspace-embedded");
+  // A split pane can be narrow on a desktop. Use the outer workspace viewport
+  // for the chat Back button, rather than this iframe's own width.
+  try {
+    const outerMobile = parent.matchMedia("(max-width: 760px)");
+    const update = () => document.documentElement.classList.toggle("workspace-mobile-pane", outerMobile.matches);
+    update(); outerMobile.addEventListener?.("change", update);
+  } catch {}
+}
 
 // The browser remains buildless, but feature-independent foundations live in
 // small files loaded before this controller. This keeps deployment as simple
@@ -1499,7 +1508,10 @@ function showList(options = {}) {
     .catch(() => {});
   return sessionListReadyPromise;
 }
-el.btnBack.addEventListener("click", showList);
+el.btnBack.addEventListener("click", () => {
+  if (WORKSPACE_PANE) { parent.postMessage({ type: "workspace-show-list" }, location.origin); return; }
+  showList();
+});
 
 function showChatEmpty() {
   setChatAgent(null);

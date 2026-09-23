@@ -53,9 +53,15 @@
   try { channel = new BroadcastChannel("stepsemble.workspace.v1"); } catch {}
   try { const saved = JSON.parse(localStorage.getItem(storageKey)); if (saved) { tree = L.normalize(saved.tree); focused = L.leaves(tree).some(p => p.id === saved.focused) ? saved.focused : L.leaves(tree)[0].id; } } catch {}
   const mobile = () => matchMedia("(max-width:760px)").matches;
-  if (mobile()) document.body.classList.add("sidebar-hidden");
   const node = (tag, text, className) => { const e = document.createElement(tag); if (text) e.textContent = text; if (className) e.className = className; return e; };
   function button(text, action, label = text, className = "btn") { const b = node("button", text, className); b.type = "button"; b.title = label; b.setAttribute("aria-label", label); b.onclick = action; return b; }
+  function icon(path, className = "") {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("aria-hidden", "true");
+    if (className) svg.setAttribute("class", className);
+    const stroke = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    stroke.setAttribute("d", path); svg.append(stroke); return svg;
+  }
   function toast(text) { $("workspace-toast").textContent = text; $("workspace-toast").hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $("workspace-toast").hidden = true, 6000); }
   // The pane overflow menu lives on the document, not inside the pane: the
   // conversation frames sit in their own layer above the pane tree, so a menu
@@ -120,7 +126,11 @@
       focused = L.leaves(next).find(p => p.tabs.some(r => L.identity(r) === L.identity(ref))).id;
       maximized = null;
       if (!commit(next)) return false;
-      if (mobile()) document.body.classList.add("sidebar-hidden");
+      if (mobile()) {
+        if (!document.body.classList.contains("sidebar-hidden")) window.history.pushState({ stepsembleWorkspaceView: "session" }, "", location.href);
+        document.body.classList.add("sidebar-hidden");
+        requestAnimationFrame(layoutFrames);
+      }
       return true;
     } catch (error) { toast(error.message); return false; }
   }
@@ -246,7 +256,8 @@
   }
   function renderSidebar() {
     const box = $("workspace-projects"); box.replaceChildren(); const search = $("workspace-search").value.trim().toLowerCase();
-    const openKeys = new Set(allRefs().map(L.identity));
+    const selectedRefs = mobile() ? [active(L.leaves(tree).find(p => p.id === focused) || L.leaves(tree)[0])].filter(Boolean) : L.leaves(tree).map(active).filter(Boolean);
+    const openKeys = new Set(selectedRefs.map(L.identity));
     for (const cwd of [...new Set([...snapshot.projects, ...snapshot.entries.map(e => e.record.cwd || "")])]) {
       const matchesProject = !!search && cwd.toLowerCase().includes(search);
       const rows = snapshot.entries.filter(e => (e.record.cwd || "") === cwd && (!search || matchesProject || `${e.record.name} ${e.record.agentId}`.toLowerCase().includes(search)));
@@ -262,11 +273,12 @@
       }, cwd || title, "btn workspace-project-toggle");
       const copy = node("span", "", "workspace-project-copy");
       copy.append(node("strong", title)); if (cwd) copy.append(node("small", cwd));
-      toggle.append(node("span", "⌄", "workspace-project-chevron"), copy);
+      toggle.append(icon("m6 9 6 6 6-6", "workspace-project-chevron"), copy);
       const contents = node("div", "", "workspace-project-sessions");
       const hidden = !search && collapsedFor().has(cwd);
       section.dataset.collapsed = String(hidden); contents.hidden = hidden; toggle.setAttribute("aria-expanded", String(!hidden));
-      header.append(toggle, button("＋", () => newSession(cwd), t("newSession"), "btn workspace-project-add"));
+      const add = button("", () => newSession(cwd), t("newSession"), "btn workspace-project-add");
+      add.append(icon("M12 5v14M5 12h14")); header.append(toggle, add);
       if (cwd) {
         const actions = button("⋯", () => openPaneMenu(actions, [[t("removeProject"), async () => {
           const target = host; actions.disabled = true;
@@ -280,8 +292,12 @@
       }
       section.append(header, contents);
       for (const entry of rows) {
-        const ref = refOf(entry), row = node("div", "", "workspace-session-row"), b = button("", () => open(ref), ref.title, "btn workspace-session"); b.dataset.open = String(openKeys.has(L.identity(ref))); b.draggable = true;
-        b.append(node("strong", ref.title), node("small", `${entry.record.agentId} · ${entry.record.status || "history"}${entry.origin === "added" ? ` · ${t("added")}` : ""}`));
+        const ref = refOf(entry), identity = window.StepsembleAgentIdentity.lookup(entry.record.agentId);
+        const displayTitle = ref.title.replace(/^>\s*/, "").trim() || ref.title;
+        const row = node("div", "", "workspace-session-row");
+        const b = button("", () => open(ref), `${identity.label}: ${displayTitle}`, "btn workspace-session");
+        b.dataset.open = String(openKeys.has(L.identity(ref))); b.draggable = true;
+        b.append(window.StepsembleAgentIdentity.create(document, entry.record.agentId, true), node("strong", displayTitle));
         b.ondragstart = e => dragStart(e, ref, false); b.ondragend = dragEnd;
         const actions = button("⋯", () => openPaneMenu(actions, [
           [t("moveWindow"), () => newWindow(ref)],
@@ -428,7 +444,7 @@
       body.append(node("small", t("checked", { date: date(p.observedAt || usage.updatedAt) })));
     }
   };
-  function closeDialog() { dialogEpoch++; $("workspace-dialog").close(); $("workspace-dialog").classList.remove("workspace-project-dialog"); $("workspace-dialog-body").replaceChildren(); }
+  function closeDialog() { dialogEpoch++; if ($("workspace-dialog").open) $("workspace-dialog").close(); $("workspace-dialog").classList.remove("workspace-project-dialog"); $("workspace-dialog-body").replaceChildren(); }
   function dialog(title) { dialogEpoch++; const modal = $("workspace-dialog"); modal.classList.remove("workspace-project-dialog"); $("workspace-dialog-title").textContent = title; const body = $("workspace-dialog-body"); body.replaceChildren(); if (!modal.open) modal.showModal(); return body; }
   function addProject() {
     const body = dialog(t("addProject")), epoch = dialogEpoch, target = host;
@@ -438,9 +454,12 @@
     const pathRow = node("div", "", "workspace-folder-path-row");
     const pathInput = node("input"); pathInput.id = "workspace-folder-path"; pathInput.type = "text"; pathInput.autocomplete = "off"; pathInput.spellcheck = false;
     let current = null, sequence = 0, historyPaths = [], historyIndex = -1;
-    const back = button("←", () => { if (historyIndex > 0) void navigate(historyPaths[historyIndex - 1], historyIndex - 1); }, t("backFolder"), "btn workspace-folder-nav");
-    const forward = button("→", () => { if (historyIndex < historyPaths.length - 1) void navigate(historyPaths[historyIndex + 1], historyIndex + 1); }, t("forwardFolder"), "btn workspace-folder-nav");
-    const up = button("↑", () => { if (current?.parent && current.parent !== current.path) void navigate(current.parent); }, t("parent"), "btn workspace-folder-nav");
+    const back = button("", () => { if (historyIndex > 0) void navigate(historyPaths[historyIndex - 1], historyIndex - 1); }, t("backFolder"), "btn workspace-folder-nav");
+    const forward = button("", () => { if (historyIndex < historyPaths.length - 1) void navigate(historyPaths[historyIndex + 1], historyIndex + 1); }, t("forwardFolder"), "btn workspace-folder-nav");
+    const up = button("", () => { if (current?.parent && current.parent !== current.path) void navigate(current.parent); }, t("parent"), "btn workspace-folder-nav");
+    back.append(icon("M19 12H5m6-6-6 6 6 6"));
+    forward.append(icon("M5 12h14m-6-6 6 6-6 6"));
+    up.append(icon("M12 19V5m-6 6 6-6 6 6"));
     const go = button(t("go"), () => { if (pathInput.value.trim()) void navigate(pathInput.value); }, t("goToFolder"), "btn workspace-folder-go");
     pathInput.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); if (pathInput.value.trim()) void navigate(pathInput.value); } });
     pathInput.addEventListener("input", () => {
@@ -473,7 +492,7 @@
       }
       for (const entry of entries) {
         const row = button("", () => { void navigate(entry.path || `${current.path}/${entry.name}`); }, entry.name, "btn workspace-folder-row");
-        row.append(node("span", "", "workspace-folder-icon"), node("span", entry.name, "workspace-folder-name"), node("span", "›", "workspace-folder-chevron"));
+        row.append(node("span", "", "workspace-folder-icon"), node("span", entry.name, "workspace-folder-name"), icon("m9 5 7 7-7 7", "workspace-folder-chevron"));
         list.append(row);
       }
     }
@@ -582,10 +601,26 @@
     const item = [...frames.values()].find(item => item.frame.contentWindow === event.source);
     if (!item) return;
     if (event.data?.type === "workspace-focus") { const p = L.leaves(tree).find(p => p.tabs.some(r => L.identity(r) === L.identity(item.ref))); if (p) { focused = p.id; for (const pane of document.querySelectorAll(".workspace-pane")) pane.dataset.focused = String(pane.dataset.pane === focused); } }
+    if (event.data?.type === "workspace-show-list" && mobile()) {
+      if (window.history.state?.stepsembleWorkspaceView === "session") window.history.back();
+      else showMobileList();
+    }
     if (event.data?.type === "workspace-refresh") { void refresh(); channel?.postMessage({ type: "refresh" }); }
   });
+  function showMobileList() {
+    if (!mobile()) return;
+    document.body.classList.remove("sidebar-hidden");
+    renderSidebar();
+    requestAnimationFrame(layoutFrames);
+    void refresh();
+  }
+  window.addEventListener("popstate", showMobileList);
   $("workspace-dialog-close").onclick = closeDialog;
-  $("workspace-dialog").addEventListener("cancel", () => { dialogEpoch++; });
+  $("workspace-dialog").addEventListener("cancel", event => { event.preventDefault(); closeDialog(); });
+  $("workspace-dialog").addEventListener("click", event => {
+    const modal = $("workspace-dialog"), rect = modal.getBoundingClientRect();
+    if (event.target === modal && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) closeDialog();
+  });
   $("workspace-add").onclick = () => addProject(); $("workspace-history").onclick = history; $("workspace-refresh").onclick = refresh;
   $("workspace-search").oninput = renderSidebar;
   $("workspace-new-window").onclick = () => newWindow();
@@ -607,7 +642,7 @@
   });
   let wasMobile = mobile();
   window.addEventListener("resize", () => {
-    if (mobile() !== wasMobile) { wasMobile = mobile(); if (wasMobile) document.body.classList.add("sidebar-hidden"); render(); }
+    if (mobile() !== wasMobile) { wasMobile = mobile(); document.body.classList.remove("sidebar-hidden"); render(); }
     else layoutFrames();
   });
   window.addEventListener("pagehide", () => { try { save(); } catch {} });

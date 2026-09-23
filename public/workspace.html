@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Stepsemble · Workspace</title><script src="/modules/workspace-mobile.js?v=3.1.0-rc.16"></script><link rel="icon" href="/icon-32.png?v=3.1.0-rc.16"><link rel="stylesheet" href="/style.css?v=3.1.0-rc.16"><link rel="stylesheet" href="/modules/workspace.css?v=3.1.0-rc.16"><link rel="manifest" href="/manifest.webmanifest?v=3.1.0-rc.16">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content"><title>Stepsemble · Workspace</title><link rel="icon" href="/icon-32.png?v=3.1.0-rc.19"><link rel="stylesheet" href="/style.css?v=3.1.0-rc.19"><link rel="stylesheet" href="/modules/agent-identity.css?v=3.1.0-rc.19"><link rel="stylesheet" href="/modules/workspace.css?v=3.1.0-rc.19"><link rel="manifest" href="/manifest.webmanifest?v=3.1.0-rc.19">
 </head>
 <body>
 <aside id="workspace-sidebar">
@@ -12,12 +12,10 @@
     <div class="workspace-section-label"><span data-workspace-i18n="host">Host</span><span class="workspace-status-dot" aria-hidden="true"></span></div>
     <label class="host-label"><select id="workspace-host" aria-label="Host" data-workspace-aria-label="host"></select></label>
   </section>
-  <button id="workspace-add" class="btn workspace-add-card" type="button">
-    <span class="workspace-add-icon" aria-hidden="true">＋</span>
-    <span class="workspace-add-copy"><strong data-workspace-i18n="addProject">Add project</strong></span>
-    <span class="workspace-add-arrow" aria-hidden="true">→</span>
-  </button>
-  <label class="workspace-search-wrap"><span aria-hidden="true">⌕</span><input id="workspace-search" type="search" placeholder="Search workspace sessions" aria-label="Search workspace sessions" data-workspace-placeholder="searchWorkspace" data-workspace-aria-label="searchWorkspace"></label>
+  <div class="workspace-search-row">
+    <label class="workspace-search-wrap"><span aria-hidden="true">⌕</span><input id="workspace-search" type="search" placeholder="Search workspace sessions" aria-label="Search workspace sessions" data-workspace-placeholder="searchWorkspace" data-workspace-aria-label="searchWorkspace"></label>
+    <button id="workspace-add" class="btn workspace-add-compact" type="button" title="Add project" aria-label="Add project" data-workspace-title="addProject" data-workspace-aria-label="addProject"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+  </div>
   <div id="workspace-projects"></div>
   <footer>
     <button id="workspace-history" class="btn ghost" data-workspace-i18n="history">History from other apps</button>
@@ -30,5 +28,5 @@
 <main id="workspace-main"><header class="workspace-heading"><button id="workspace-sidebar-toggle" class="btn ghost workspace-icon-btn" aria-label="Toggle workspace list" data-workspace-aria-label="toggleSidebar">☰</button><div><strong data-workspace-i18n="workspace">Workspace</strong><small data-workspace-i18n="hint">Drag sessions to an edge to split, or to the center to add a tab</small></div><button id="workspace-new-window" class="btn ghost" data-workspace-i18n="newWindow">New window</button></header><div id="workspace-stage"><div id="workspace-tree"></div><div id="workspace-frames"></div></div></main>
 <dialog id="workspace-dialog"><header><h2 id="workspace-dialog-title"></h2><button id="workspace-dialog-close" class="btn ghost" aria-label="Close" data-workspace-aria-label="close">×</button></header><div id="workspace-dialog-body"></div></dialog>
 <p id="workspace-toast" role="status" hidden></p>
-<script src="/modules/workspace-i18n.js?v=3.1.0-rc.16"></script><script src="/modules/workspace-layout.js?v=3.1.0-rc.16"></script><script src="/modules/workspace.js?v=3.1.0-rc.16"></script>
+<script src="/modules/workspace-i18n.js?v=3.1.0-rc.19"></script><script src="/modules/workspace-layout.js?v=3.1.0-rc.19"></script><script src="/modules/agent-identity.js?v=3.1.0-rc.19"></script><script src="/modules/workspace.js?v=3.1.0-rc.19"></script>
 </body></html>
