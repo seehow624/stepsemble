@@ -1,5 +1,5 @@
 "use strict";
-const test = require("node:test"), assert = require("node:assert/strict");
+const test = require("node:test"), assert = require("node:assert/strict"), path = require("node:path");
 const { createWorkspaceUsage, windowUsage, codexWindows, claudeWindows, currentWindows, keychainHome, opencodexProviders, configuredProviderQuotas } = require("../server/workspace-usage");
 test("quota preserves observed zero, separates windows and rejects unknown values", () => {
   assert.equal(windowUsage(0, 1700000000, "five").remainingPercent, 100);
@@ -62,12 +62,14 @@ test("a window whose allowance already reset is dropped instead of reporting its
 });
 
 test("the keychain is read only for the console user's own home", () => {
-  const osHome = "/Users/synthetic";
+  const osHome = path.resolve("synthetic-user-home");
+  const previewHome = path.resolve("synthetic-preview-home");
   assert.equal(keychainHome(osHome, { osHome }), true);
-  assert.equal(keychainHome("/Users/other", { osHome, realpath: () => { throw new Error("missing"); } }), false);
+  assert.equal(keychainHome(path.resolve("other-user-home"), { osHome, realpath: () => { throw new Error("missing"); } }), false);
   // An isolated preview home that links .claude at the same directory is still
   // that user's own credentials.
-  assert.equal(keychainHome("/tmp/preview/home", { osHome, realpath: p => p.replace("/tmp/preview/home", osHome) }), true);
+  assert.equal(keychainHome(previewHome, { osHome, realpath: p => p === path.join(previewHome, ".claude")
+    ? path.join(osHome, ".claude") : p }), true);
   assert.equal(keychainHome("", { osHome }), false);
 });
 
