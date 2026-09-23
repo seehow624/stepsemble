@@ -489,10 +489,11 @@
             node("small", t("resetAt", { date: date(w.resetsAt) })));
           main.append(quotaRing(w), copy);
           const bar = node("div", "", "workspace-quota-bar");
+          const used = Math.max(0, Math.min(100, Number.isFinite(w.usedPercent) ? w.usedPercent : 100 - w.remainingPercent));
           bar.setAttribute("role", "progressbar"); bar.setAttribute("aria-valuemin", "0"); bar.setAttribute("aria-valuemax", "100");
-          bar.setAttribute("aria-valuenow", String(Math.round(w.remainingPercent)));
-          bar.setAttribute("aria-label", `${usageLabel(w)} · ${t("remaining", { percent: Math.round(w.remainingPercent) })}`);
-          const fill = node("span"); fill.style.width = `${Math.max(0, Math.min(100, w.remainingPercent))}%`;
+          bar.setAttribute("aria-valuenow", String(Math.round(used)));
+          bar.setAttribute("aria-label", `${usageLabel(w)} · ${t("used", { percent: Math.round(used) })}`);
+          const fill = node("span"); fill.style.width = `${used}%`;
           bar.append(fill); card.append(main, bar); windows.append(card);
         }
         section.append(windows);
