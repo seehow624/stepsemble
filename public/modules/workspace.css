@@ -434,12 +434,12 @@ dialog header .btn { min-width: 34px; min-height: 34px; padding: 0; border: 0; c
 .workspace-folder-label { margin: 6px 0 7px; color: var(--pine-soft); font-size: .69rem; font-weight: 680; }
 .workspace-folder-path-row { min-width: 0; display: flex; align-items: stretch; min-height: 44px; overflow: hidden; border: .5px solid var(--line); border-radius: 11px; background: var(--milk); }
 .workspace-folder-path-row:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
-#workspace-dialog-body .workspace-folder-nav { width: 34px; min-width: 34px; min-height: 42px; display: grid; place-items: center; padding: 0; border: 0; border-right: .5px solid var(--line); border-radius: 0; }
+#workspace-dialog-body .workspace-folder-nav { width: 34px; min-width: 34px; min-height: 42px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; border-right: .5px solid var(--line); border-radius: 0; }
 #workspace-dialog-body .workspace-folder-nav svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 #workspace-dialog-body .workspace-folder-nav:hover:not(:disabled) { background: var(--bubble-user); }
 #workspace-folder-path { min-width: 0; flex: 1; height: 42px; padding: 0 12px; border: 0; border-radius: 0; outline: 0; background: transparent; font: .75rem var(--mono); }
 #workspace-folder-path:focus { outline: 0; }
-#workspace-dialog-body .workspace-folder-go { min-width: 46px; min-height: 42px; display: grid; place-items: center; padding: 0 10px; border: 0; border-left: .5px solid var(--line); border-radius: 0; font-size: .72rem; text-align: center; }
+#workspace-dialog-body .workspace-folder-go { min-width: 46px; min-height: 42px; display: flex; align-items: center; justify-content: center; padding: 0 10px; border: 0; border-left: .5px solid var(--line); border-radius: 0; font-size: .72rem; text-align: center; }
 #workspace-dialog-body .workspace-folder-go:hover:not(:disabled) { background: var(--bubble-user); }
 #workspace-dialog-body .workspace-folder-nav:disabled { opacity: .4; cursor: default; }
 #workspace-dialog-body .workspace-folder-go:disabled { opacity: .4; cursor: default; }
