@@ -365,6 +365,35 @@ dialog header .btn { min-width: 34px; min-height: 34px; padding: 0; border: 0; c
 #workspace-dialog-body p { color: var(--pine-soft); font-size: .82rem; }
 #workspace-dialog-body .btn { min-height: 40px; justify-content: flex-start; overflow-wrap: anywhere; text-align: left; }
 #workspace-dialog-body .btn.primary { justify-content: center; }
+/* Folder selection has its own hierarchy: location stays visible, the directory
+   list alone scrolls, and the action never disappears below a long home folder. */
+#workspace-dialog.workspace-project-dialog[open] { display: flex; flex-direction: column; width: min(620px, calc(100vw - 24px)); max-height: min(640px, calc(100dvh - 32px)); padding: 0; overflow: hidden; }
+.workspace-project-dialog > header { flex: 0 0 auto; padding: 20px 24px 10px; }
+.workspace-project-dialog > header h2 { font-size: 1.1rem; letter-spacing: -.02em; }
+.workspace-project-dialog > header .btn { border: .5px solid var(--line); border-radius: 10px; }
+#workspace-dialog.workspace-project-dialog #workspace-dialog-body { min-height: 0; display: flex; flex-direction: column; gap: 0; padding: 0 24px 20px; overflow: hidden; }
+.workspace-folder-label { margin: 6px 0 7px; color: var(--pine-soft); font-size: .69rem; font-weight: 680; }
+.workspace-folder-path-row { display: flex; align-items: center; gap: 8px; }
+#workspace-dialog-body .workspace-folder-nav { width: 42px; min-width: 42px; min-height: 42px; padding: 0; border-radius: 11px; font-size: 1.05rem; }
+#workspace-folder-path { min-width: 0; flex: 1; height: 42px; padding: 0 12px; border-radius: 11px; font: .75rem var(--mono); }
+#workspace-dialog-body .workspace-folder-nav:disabled { opacity: .4; cursor: default; }
+.workspace-folder-browse-head { display: flex; align-items: center; gap: 12px; margin: 20px 0 9px; }
+.workspace-folder-browse-head strong { flex: 1; color: var(--pine-soft); font-size: .73rem; font-weight: 670; }
+.workspace-folder-browse-head input { width: min(220px, 52%); min-height: 36px; padding: 6px 10px; font-size: .73rem; }
+.workspace-folder-list { min-height: 86px; max-height: min(340px, 42dvh); overflow: auto; border: .5px solid var(--line); border-radius: 13px; background: var(--paper); overscroll-behavior: contain; }
+#workspace-dialog-body .workspace-folder-row { width: 100%; min-height: 46px; display: flex; align-items: center; gap: 11px; padding: 0 14px; border: 0; border-radius: 0; font-size: .79rem; text-align: left; }
+.workspace-folder-row + .workspace-folder-row { border-top: .5px solid var(--line) !important; }
+.workspace-folder-row:hover, .workspace-folder-row:focus-visible { background: var(--bubble-user); outline: 0; }
+.workspace-folder-icon { position: relative; width: 17px; height: 13px; flex: 0 0 17px; margin-top: 3px; border: 1.5px solid var(--pine-soft); border-radius: 3px; }
+.workspace-folder-icon::before { content: ""; position: absolute; top: -5px; left: -1.5px; width: 8px; height: 4px; border: 1.5px solid var(--pine-soft); border-bottom: 0; border-radius: 3px 3px 0 0; }
+.workspace-folder-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-folder-chevron { color: var(--pine-soft); font-size: 1.2rem; }
+#workspace-dialog-body .workspace-folder-empty { padding: 18px 14px; color: var(--pine-soft); font-size: .76rem; }
+#workspace-dialog-body .workspace-folder-error { color: var(--err); }
+.workspace-folder-footer { display: flex; align-items: center; gap: 18px; margin-top: 16px; padding-top: 16px; border-top: .5px solid var(--line); }
+.workspace-folder-footer small { min-width: 0; flex: 1; font-size: .69rem; line-height: 1.4; }
+#workspace-dialog-body .workspace-folder-add { flex: 0 0 auto; min-height: 42px; padding: 0 17px; font-size: .77rem; text-align: center; }
+#workspace-dialog-body .workspace-folder-add:disabled { opacity: .42; cursor: default; }
 .workspace-history-row { display: flex; align-items: center; gap: 8px; padding: 12px; border: .5px solid var(--line); border-radius: 14px; background: var(--paper); }
 .workspace-history-row div { min-width: 0; flex: 1; }
 .workspace-history-row strong { display: block; overflow-wrap: anywhere; font-size: .84rem; font-weight: 550; }
@@ -381,6 +410,12 @@ body.compact .workspace-session strong { font-size: .78rem; }
 body.compact .workspace-session small { font-size: .61rem; }
 
 @media (max-width: 760px) {
+  .workspace-project-dialog > header { padding: 16px 16px 8px; }
+  #workspace-dialog.workspace-project-dialog #workspace-dialog-body { padding: 0 16px 16px; }
+  .workspace-folder-browse-head { align-items: stretch; flex-direction: column; gap: 7px; margin-top: 15px; }
+  .workspace-folder-browse-head input { width: 100%; }
+  .workspace-folder-footer { align-items: stretch; flex-direction: column; gap: 10px; }
+  #workspace-dialog-body .workspace-folder-add { width: 100%; }
   #workspace-sidebar { position: absolute; inset: 0 auto 0 0; z-index: 20; width: min(300px, 85vw); box-shadow: 8px 0 28px rgb(0 0 0 / .18); }
   .workspace-mobile-nav { display: inline-flex; }
   .workspace-heading { min-height: 58px; padding: 8px 10px; }

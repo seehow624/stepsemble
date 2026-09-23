@@ -366,20 +366,71 @@
       body.append(node("small", t("checked", { date: date(p.observedAt || usage.updatedAt) })));
     }
   };
-  function closeDialog() { dialogEpoch++; $("workspace-dialog").close(); $("workspace-dialog-body").replaceChildren(); }
-  function dialog(title) { dialogEpoch++; $("workspace-dialog-title").textContent = title; const body = $("workspace-dialog-body"); body.replaceChildren(); if (!$("workspace-dialog").open) $("workspace-dialog").showModal(); return body; }
-  async function addProject(path) {
+  function closeDialog() { dialogEpoch++; $("workspace-dialog").close(); $("workspace-dialog").classList.remove("workspace-project-dialog"); $("workspace-dialog-body").replaceChildren(); }
+  function dialog(title) { dialogEpoch++; const modal = $("workspace-dialog"); modal.classList.remove("workspace-project-dialog"); $("workspace-dialog-title").textContent = title; const body = $("workspace-dialog-body"); body.replaceChildren(); if (!modal.open) modal.showModal(); return body; }
+  function addProject() {
     const body = dialog(t("addProject")), epoch = dialogEpoch, target = host;
-    body.append(node("p", t("projectInfo")));
-    try {
-      const data = await api(`/api/browse${path ? `?path=${encodeURIComponent(path)}` : ""}`, undefined, target);
-      if (epoch !== dialogEpoch) return;
-      body.append(node("p", data.path));
-      if (data.parent) body.append(button(t("parent"), () => addProject(data.parent)));
-      const select = button(t("addFolder"), async () => { select.disabled = true; try { await api("/api/workspace/project", { cwd: data.path }, target); closeDialog(); await refresh(); } catch (error) { toast(error.message); select.disabled = false; } }, t("addFolder"), "btn primary");
-      select.disabled = data.selectable === false; body.append(select);
-      for (const entry of data.entries || []) body.append(button(entry.name, () => addProject(entry.path || `${data.path}/${entry.name}`)));
-    } catch (error) { if (epoch === dialogEpoch) body.append(node("p", error.message)); }
+    $("workspace-dialog").classList.add("workspace-project-dialog");
+    const pathLabel = node("label", t("folderPath"), "workspace-folder-label");
+    pathLabel.htmlFor = "workspace-folder-path";
+    const pathRow = node("div", "", "workspace-folder-path-row");
+    const pathInput = node("input"); pathInput.id = "workspace-folder-path"; pathInput.type = "text"; pathInput.autocomplete = "off"; pathInput.spellcheck = false;
+    const up = button("←", () => { if (current?.parent) void navigate(current.parent); }, t("parent"), "btn ghost workspace-folder-nav");
+    const go = button("→", () => { void navigate(pathInput.value); }, t("goToFolder"), "btn ghost workspace-folder-nav");
+    pathInput.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); void navigate(pathInput.value); } });
+    pathInput.addEventListener("input", () => { select.disabled = !current || pathInput.value !== current.path || current.selectable === false; });
+    pathRow.append(up, pathInput, go);
+    const browseHead = node("div", "", "workspace-folder-browse-head");
+    browseHead.append(node("strong", t("foldersHere")));
+    const search = node("input"); search.type = "search"; search.placeholder = t("filterFolders"); search.setAttribute("aria-label", t("filterFolders"));
+    browseHead.append(search);
+    const list = node("div", "", "workspace-folder-list");
+    list.setAttribute("role", "region"); list.setAttribute("aria-label", t("foldersHere"));
+    const footer = node("div", "", "workspace-folder-footer");
+    footer.append(node("small", t("projectInfo")));
+    let current = null, sequence = 0;
+    const select = button(t("addFolder"), async () => {
+      if (!current || select.disabled) return;
+      const chosen = current.path; select.disabled = true;
+      try { await api("/api/workspace/project", { cwd: chosen }, target); closeDialog(); await refresh(); }
+      catch (error) { toast(error.message); select.disabled = !current || pathInput.value !== current.path || current.selectable === false; }
+    }, t("addFolder"), "btn primary workspace-folder-add");
+    select.disabled = true; footer.append(select);
+    body.append(pathLabel, pathRow, browseHead, list, footer);
+    function renderEntries() {
+      list.replaceChildren();
+      const entries = (current?.entries || []).filter(entry => entry.name.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase()));
+      if (!entries.length) {
+        list.append(node("p", search.value.trim() ? t("noFolderMatches") : t("noFolders"), "workspace-folder-empty"));
+        return;
+      }
+      for (const entry of entries) {
+        const row = button("", () => { void navigate(entry.path || `${current.path}/${entry.name}`); }, entry.name, "btn workspace-folder-row");
+        row.append(node("span", "", "workspace-folder-icon"), node("span", entry.name, "workspace-folder-name"), node("span", "›", "workspace-folder-chevron"));
+        list.append(row);
+      }
+    }
+    search.addEventListener("input", renderEntries);
+    async function navigate(path) {
+      const request = ++sequence;
+      select.disabled = true; up.disabled = true; go.disabled = true; search.disabled = true;
+      list.replaceChildren(node("p", t("loading"), "workspace-folder-empty"));
+      try {
+        const data = await api(`/api/browse${path ? `?path=${encodeURIComponent(path)}` : ""}`, undefined, target);
+        if (epoch !== dialogEpoch || request !== sequence) return;
+        current = data; pathInput.value = data.path; pathInput.scrollLeft = pathInput.scrollWidth; search.value = "";
+        up.disabled = !data.parent || data.parent === data.path;
+        select.disabled = data.selectable === false;
+        go.disabled = false; search.disabled = false;
+        renderEntries();
+      } catch (error) {
+        if (epoch !== dialogEpoch || request !== sequence) return;
+        up.disabled = !current?.parent || current.parent === current.path;
+        go.disabled = false;
+        list.replaceChildren(node("p", error.message, "workspace-folder-empty workspace-folder-error"));
+      }
+    }
+    void navigate();
   }
   async function newSession(cwd) {
     const body = dialog(t("newSession")), epoch = dialogEpoch, target = host;
