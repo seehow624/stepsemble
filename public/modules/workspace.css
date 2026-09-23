@@ -181,60 +181,105 @@ small { color: var(--pine-soft); }
 .workspace-session-row:hover .workspace-session-menu, .workspace-session-menu:hover, .workspace-session-menu:focus-visible { background: var(--bubble-user); color: var(--ink); }
 
 #workspace-sidebar footer { display: grid; gap: 3px; padding: 0 2px; }
-#workspace-sidebar footer .btn {
-  min-height: 34px;
+.workspace-tools { min-width: 0; display: flex; align-items: stretch; gap: 6px; }
+#workspace-sidebar footer .workspace-tool-button {
+  flex: 0 0 43px;
+  width: 43px;
+  height: 50px;
+  min-height: 50px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: .5px solid var(--line);
+  border-radius: 12px;
+  background: var(--milk);
+  color: var(--pine-soft);
+}
+#workspace-sidebar footer .workspace-tool-button:hover,
+#workspace-sidebar footer .workspace-tool-button:focus-visible { background: var(--bubble-user); color: var(--ink); outline: 0; }
+.workspace-tool-button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+#workspace-usage.workspace-limits {
+  min-width: 0;
+  flex: 1 1 auto;
+  height: 50px;
+  overflow: hidden;
+  border: .5px solid var(--line);
+  border-radius: 12px;
+  background: var(--milk);
+}
+.workspace-limits-note { display: flex; align-items: center; height: 100%; padding: 0 10px; color: var(--pine-soft); font-size: .68rem; }
+.workspace-limits-track {
+  height: 100%;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+.workspace-limits-track::-webkit-scrollbar { display: none; }
+.workspace-limit {
+  min-width: 0;
+  flex: 0 0 min(153px, 100%);
+  height: 100%;
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
-  padding: 0 9px;
-  border: 0;
-  border-radius: 9px;
-  color: var(--pine-soft);
-  font-size: .73rem;
+  gap: 6px;
+  padding: 4px 8px;
+  border-right: .5px solid var(--line);
+  scroll-snap-align: start;
   text-align: left;
 }
-#workspace-sidebar footer .btn:hover { background: var(--bubble-user); color: var(--ink); }
+.workspace-limits-track[data-count="1"] .workspace-limit { flex-basis: 100%; border-right: 0; }
+.workspace-limit:hover, .workspace-limit:focus-visible { background: var(--bubble-user); outline: 0; }
+.workspace-limit-copy { min-width: 0; display: grid; gap: 3px; }
+.workspace-limit-head { min-width: 0; display: flex; align-items: center; gap: 4px; }
+.workspace-limit-name { min-width: 0; overflow: hidden; color: var(--ink); font-size: .67rem; font-weight: 670; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-limit-period { color: var(--pine-soft); font: .62rem var(--mono); white-space: nowrap; }
+.workspace-limit[data-stale=true] .workspace-limit-period { text-decoration: underline dotted; text-underline-offset: 3px; }
+.workspace-provider-logo { width: 16px; height: 16px; flex: 0 0 16px; display: grid; place-items: center; color: var(--ink); font-size: .56rem; font-weight: 800; }
+.workspace-provider-logo::before { content: ""; width: 100%; height: 100%; background: currentColor; -webkit-mask: var(--workspace-provider-mark) center / contain no-repeat; mask: var(--workspace-provider-mark) center / contain no-repeat; }
+.workspace-provider-logo[data-logo="openai"] { --workspace-provider-mark: url("/agent-logos/v1/openai.svg"); }
+.workspace-provider-logo[data-logo="claude"] { --workspace-provider-mark: url("/agent-logos/v1/claude.svg"); color: #c66b45; }
+.workspace-provider-logo[data-logo="opencode"] { --workspace-provider-mark: url("/agent-logos/v1/opencode.svg"); }
+.workspace-provider-logo[data-logo="grok"] { --workspace-provider-mark: url("/agent-logos/v1/grok.svg"); }
+.workspace-provider-logo[data-logo="minimax"]::before { background: url("/agent-logos/v1/minimax.png") center / contain no-repeat; -webkit-mask: none; mask: none; }
+.workspace-provider-logo[data-logo="unknown"]::before { display: none; }
+.workspace-quota-ring { position: relative; flex: 0 0 36px; width: 36px; height: 36px; display: grid; place-items: center; color: var(--ink); }
+.workspace-quota-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.workspace-quota-ring circle { fill: none; stroke-width: 4; }
+.workspace-quota-ring .quota-ring-track { stroke: color-mix(in srgb, var(--pine-soft) 22%, transparent); }
+.workspace-quota-ring .quota-ring-progress { stroke: var(--quota-color, var(--ok)); stroke-linecap: round; transition: stroke-dashoffset .35s ease; }
+.workspace-quota-ring > span { position: absolute; font: 700 .59rem var(--mono); letter-spacing: -.06em; }
+.workspace-limit[data-level="ok"], .workspace-quota-window[data-level="ok"] { --quota-color: var(--ok); }
+.workspace-limit[data-level="low"], .workspace-quota-window[data-level="low"] { --quota-color: var(--warn); }
+.workspace-limit[data-level="critical"], .workspace-quota-window[data-level="critical"] { --quota-color: var(--err); }
+.workspace-limit[data-stale=true] .quota-ring-progress { opacity: .5; }
+.workspace-limit[data-stale=true] .quota-ring-track { stroke-dasharray: 2 2; }
+html.reduced-motion .quota-ring-progress { transition: none; }
 
-/* Provider limits close the sidebar: one row per provider carrying the window
-   closest to running out, with every window listed on click. The meter fills
-   as the allowance is consumed, so a nearly exhausted plan reads at a glance. */
-#workspace-sidebar footer .workspace-section-label { margin-top: 8px; padding-left: 9px; }
-/* The footer's shared button rule is more specific than a single id plus
-   class, so this selector has to out-rank it to stack the provider rows. */
-#workspace-sidebar footer #workspace-usage.workspace-limits {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
-  min-height: 0;
-  padding: 7px 9px 9px;
-  border: 0;
-  border-radius: 10px;
-  text-align: left;
-}
-.workspace-limits-note { color: var(--pine-soft); font-size: .71rem; }
-.workspace-limit { min-width: 0; display: grid; gap: 4px; }
-.workspace-limit-head { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
-.workspace-limit-name { min-width: 0; flex: 1 1 auto; overflow: hidden; color: var(--ink); font-size: .73rem; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-limit-value { flex: 0 0 auto; color: var(--pine-soft); font: .66rem var(--mono); }
-.workspace-limit-meter { height: 3px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--pine-soft) 24%, transparent); }
-.workspace-limit-fill { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--pine-soft); transition: width .3s ease; }
-.workspace-limit[data-level=ok] .workspace-limit-fill { background: var(--ok); }
-.workspace-limit[data-level=low] .workspace-limit-fill, .workspace-limit-cell[data-level=low] .workspace-limit-fill { background: var(--warn); }
-.workspace-limit[data-level=critical] .workspace-limit-fill, .workspace-limit-cell[data-level=critical] .workspace-limit-fill { background: var(--err); }
-/* One allowance keeps the full-width meter; several share the row, each half
-   labelled with the window it measures so a 5-hour and a weekly limit are
-   never mistaken for one another. */
-.workspace-limit-windows { min-width: 0; display: flex; gap: 7px; }
-.workspace-limit-cell { min-width: 0; flex: 1 1 0; display: grid; gap: 3px; }
-.workspace-limit-cell-head { min-width: 0; display: flex; align-items: baseline; gap: 4px; }
-.workspace-limit-cell-label { flex: 0 0 auto; color: var(--pine-soft); font: .6rem var(--mono); }
-.workspace-limit-cell-value { min-width: 0; flex: 1 1 auto; overflow: hidden; color: var(--pine-soft); font: .6rem var(--mono); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-/* A cached reading is drawn hollow so it never reads as a live number. */
-.workspace-limit[data-stale=true] .workspace-limit-meter { background: transparent; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pine-soft) 40%, transparent); }
-.workspace-limit[data-stale=true] .workspace-limit-fill { opacity: .5; }
-.workspace-limit[data-stale=true] .workspace-limit-name { color: var(--pine-soft); }
-html.reduced-motion .workspace-limit-fill { transition: none; }
+.workspace-quota-dialog { box-sizing: border-box; width: min(650px, calc(100vw - 24px)); max-height: min(780px, calc(100dvh - 24px)); overflow: auto; padding: 16px; }
+.workspace-quota-intro { margin: 0 0 5px; }
+.workspace-quota-provider { display: grid; gap: 10px; padding: 14px; border: .5px solid var(--line); border-radius: 16px; background: var(--paper); }
+.workspace-quota-provider-head { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.workspace-quota-provider-head .workspace-provider-logo { width: 25px; height: 25px; flex-basis: 25px; }
+.workspace-quota-provider-head strong { min-width: 0; flex: 1; overflow: hidden; font-size: .88rem; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-quota-source { color: var(--pine-soft); font-size: .65rem; }
+.workspace-quota-windows { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 235px), 1fr)); gap: 9px; }
+.workspace-quota-window { min-width: 0; display: grid; gap: 10px; padding: 12px; border: .5px solid var(--line); border-radius: 13px; background: var(--milk); }
+.workspace-quota-window-main { min-width: 0; display: flex; align-items: center; gap: 11px; }
+.workspace-quota-window .workspace-quota-ring { width: 54px; height: 54px; flex-basis: 54px; }
+.workspace-quota-window .workspace-quota-ring circle { stroke-width: 3.5; }
+.workspace-quota-window .workspace-quota-ring > span { font-size: .76rem; }
+.workspace-quota-window-copy { min-width: 0; display: grid; gap: 4px; }
+.workspace-quota-window-copy strong { font-size: .79rem; font-weight: 680; }
+.workspace-quota-window-copy small { font-size: .65rem; line-height: 1.35; overflow-wrap: anywhere; }
+.workspace-quota-bar { height: 5px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--pine-soft) 20%, transparent); }
+.workspace-quota-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--quota-color, var(--ok)); transition: width .35s ease; }
+.workspace-quota-window[data-stale=true] .quota-ring-progress,
+.workspace-quota-window[data-stale=true] .workspace-quota-bar > span { opacity: .5; }
+.workspace-quota-observed { margin: 0; color: var(--pine-soft); font-size: .63rem; }
+html.reduced-motion .workspace-quota-bar > span { transition: none; }
 /* Hovering a provider answers the follow-up questions in place: which window,
    how long until it resets, and the exact local time that happens. */
 .workspace-tip {
