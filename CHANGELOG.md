@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.1.0-rc.10
+
+- Draw the workspace brand mark with the approved artwork again: the shell had replaced it with a monochrome silhouette, which dropped the connectors' colour and merged the four modules into one shape.
+
 ## 3.1.0-rc.9
 
 - Show a provider's allowance as soon as it is configured, by selecting the usage probe from the provider's canonical destination rather than requiring a built-in entry.

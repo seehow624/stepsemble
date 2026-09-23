@@ -127,6 +127,19 @@ test("the in-app brand uses approved colour artwork with a forced-colour fallbac
   assert.match(html, /class="brand-glyph" role="img" aria-label="Stepsemble"/);
 });
 
+test("the workspace shell sizes the brand mark without replacing its artwork", () => {
+  const css = fs.readFileSync(path.join(root, "public", "modules", "workspace.css"), "utf8");
+  const start = css.indexOf(".workspace-logo {");
+  assert.ok(start > -1, "the shell sizes the brand mark");
+  const block = css.slice(start, css.indexOf("}", start));
+  // The monochrome mask is a forced-colour fallback owned by the product
+  // stylesheet. A silhouette here drops the brand colour and merges the four
+  // connectors into the modules, which is how the mark turned into a blob.
+  assert.ok(!/mask/.test(block), "the shell must not mask the brand mark");
+  assert.ok(!/background/.test(block), "the shell must not replace the brand artwork");
+  assert.match(block, /width: 30px/);
+});
+
 test("every selectable design theme defines its own light and dark palette", () => {
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   const foundation = fs.readFileSync(path.join(root, "public", "modules", "app-foundation.js"), "utf8");
