@@ -2,7 +2,7 @@
   "name": "stepsemble",
   "private": true,
   "license": "Apache-2.0",
-  "version": "3.2.3",
+  "version": "3.2.4",
   "description": "A calm, cross-platform workspace for local coding agents",
   "type": "commonjs",
   "engines": {

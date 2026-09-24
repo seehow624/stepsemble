@@ -94,7 +94,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.2.3";
+const APP_VERSION = "3.2.4";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -259,9 +259,27 @@ const nativeHistoryCatalog = createNativeHistoryCatalog({
 const codexPersistedObserver = createCodexPersistedObserver({ home: APP_HOME });
 const workspaceUsageModule = require("./server/workspace-usage");
 const workspaceUsage = workspaceUsageModule.createWorkspaceUsage({
-  home: APP_HOME, allowKeychain: settingFromEnv("WORKSPACE_KEYCHAIN_USAGE") !== "0" && workspaceUsageModule.keychainHome(APP_HOME),
+  home: APP_HOME, env: process.env,
+  allowKeychain: settingFromEnv("WORKSPACE_KEYCHAIN_USAGE") !== "0" && workspaceUsageModule.keychainHome(APP_HOME),
   codex: async () => { await ensureCodexNativeProbe(); return codexNative.rateLimits(); },
+  readSignIn: readSignInForUsage,
 });
+
+// Allowances can also come from the ChatGPT and Claude accounts signed in under
+// Settings. Those sign-ins are Pi credentials, so a token close to expiry is
+// renewed by Pi's own locked refresh, the same way a Pi run renews it. Saved
+// API keys are read as stored.
+async function readSignInForUsage(providerId) {
+  const saved = await workspaceUsageModule.storedSignIn(APP_HOME, providerId);
+  if (saved?.type !== "oauth") return saved;
+  try {
+    const runtime = await getProviderAuthRuntime();
+    const resolved = typeof runtime.models?.getAuth === "function" ? await runtime.models.getAuth(providerId) : null;
+    const secret = resolved?.source === "OAuth" ? resolved.auth?.apiKey : null;
+    if (typeof secret === "string" && secret) return { type: "oauth", secret, accountId: saved.accountId, expiresAt: null };
+  } catch {}
+  return saved;
+}
 
 // Keep the independently installed updater current after an application
 // update. This is limited to devices where automatic updates are already

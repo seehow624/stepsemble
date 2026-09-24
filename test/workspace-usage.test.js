@@ -1,6 +1,8 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict"), path = require("node:path");
-const { createWorkspaceUsage, windowUsage, codexWindows, claudeWindows, currentWindows, keychainHome, opencodexProviders, configuredProviderQuotas } = require("../server/workspace-usage");
+const { createWorkspaceUsage, windowUsage, codexWindows, chatgptWindows, claudeWindows, currentWindows, keychainHome, opencodexProviders,
+  configuredProviderQuotas, storedSignIn } = require("../server/workspace-usage");
+const jwt = claims => `header.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`;
 test("quota preserves observed zero, separates windows and rejects unknown values", () => {
   assert.equal(windowUsage(0, 1700000000, "five").remainingPercent, 100);
   for (const value of [undefined, null, "0", -1, 101, NaN]) assert.equal(windowUsage(value, null, "x"), null);
@@ -137,5 +139,109 @@ test("a configured provider is probed by its destination, not by its name", asyn
     assert.deepEqual(mini.windows.map(w => w.remainingPercent), [30, 55]);
     assert.deepEqual(mini.windows.map(w => w.resetsAt), [1_700_000_000_000, 1_700_600_000_000]);
     assert.deepEqual(mini.windows.map(w => w.windowDurationMins), [300, 10080]);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("ChatGPT usage keeps each Codex window and separately metered limit", () => {
+  const windows = chatgptWindows({ plan_type: "pro", rate_limit: { allowed: true,
+    primary_window: { used_percent: 54, limit_window_seconds: 604800, reset_after_seconds: 1, reset_at: 1_700_600_000 }, secondary_window: null },
+  additional_rate_limits: [
+    { limit_name: "Spark", metered_feature: "codex_spark", rate_limit: { primary_window: { used_percent: 10, limit_window_seconds: 18000, reset_at: 1_700_010_000 } } },
+    { limit_name: "", rate_limit: { primary_window: { used_percent: 5 } } },
+    { metered_feature: "codex_other", rate_limit: { primary_window: { used_percent: 180 } } },
+  ] });
+  assert.deepEqual(windows.map(w => [w.bucket, w.windowDurationMins, w.remainingPercent, w.resetsAt]),
+    [["codex", 10080, 46, 1_700_600_000_000], ["codex_spark", 300, 90, 1_700_010_000_000]]);
+  assert.deepEqual(chatgptWindows(null), []);
+});
+
+test("Codex's allowance is read from ChatGPT when its app-server cannot answer", async () => {
+  const fs = require("node:fs"), os = require("node:os");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-quota-"));
+  const now = 1_700_000_000_000, live = now / 1000 + 3600, expired = now / 1000 - 60;
+  const writeCodexSignIn = token => {
+    fs.mkdirSync(path.join(dir, ".codex"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".codex", "auth.json"), JSON.stringify({ auth_mode: "chatgpt", tokens: { access_token: token, account_id: "acct-cli" } }));
+  };
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    calls.push([url, options.headers.Authorization, options.headers["ChatGPT-Account-Id"]]);
+    return { ok: true, json: async () => ({ rate_limit: { primary_window: { used_percent: 54, limit_window_seconds: 604800, reset_at: 1_700_600_000 } } }) };
+  };
+  const quiet = { now: () => now, fetchImpl, readClaudeToken: async () => null, readClaudeCache: async () => null,
+    readProviderQuotas: async () => [], readOpenCodex: async () => [] };
+  try {
+    // The account the Codex CLI is signed in to comes first.
+    const cliToken = jwt({ exp: live });
+    writeCodexSignIn(cliToken);
+    const first = await createWorkspaceUsage({ ...quiet, home: dir, codex: async () => { throw new Error("codex_schema_mismatch"); },
+      readSignIn: async () => { throw new Error("the Codex CLI sign-in answered first"); } }).read();
+    assert.deepEqual([first.providers[0].status, first.providers[0].source], ["ready", "account"]);
+    assert.deepEqual(first.providers[0].windows.map(w => [w.bucket, w.windowDurationMins, w.remainingPercent]), [["codex", 10080, 46]]);
+    assert.deepEqual(calls, [["https://chatgpt.com/backend-api/wham/usage", `Bearer ${cliToken}`, "acct-cli"]]);
+    assert.ok(!JSON.stringify(first).includes(cliToken));
+
+    // An expired CLI token is not sent; the ChatGPT account signed in under
+    // Settings answers instead, with the account named inside its token.
+    calls.length = 0;
+    writeCodexSignIn(jwt({ exp: expired }));
+    const settingsToken = jwt({ exp: live, "https://api.openai.com/auth": { chatgpt_account_id: "acct-settings" } });
+    const second = await createWorkspaceUsage({ ...quiet, home: dir, codex: async () => ({ rateLimits: null }),
+      readSignIn: async id => id === "openai-codex" ? { type: "oauth", secret: settingsToken, expiresAt: null } : null }).read();
+    assert.deepEqual([second.providers[0].status, second.providers[0].source], ["ready", "signin"]);
+    assert.deepEqual(calls, [["https://chatgpt.com/backend-api/wham/usage", `Bearer ${settingsToken}`, "acct-settings"]]);
+
+    // With no live sign-in nothing is sent and the row stays unavailable.
+    calls.length = 0;
+    const none = await createWorkspaceUsage({ ...quiet, home: dir, codex: async () => { throw new Error("offline"); },
+      readSignIn: async () => ({ type: "oauth", secret: "opaque", expiresAt: now - 1 }) }).read();
+    assert.deepEqual([none.providers[0].status, calls.length], ["unavailable", 0]);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("Claude's allowance can come from the Claude account signed in under Settings", async () => {
+  const calls = [];
+  const quiet = { now: () => 1000, codex: async () => ({}), readCodexSignIn: async () => null, readClaudeToken: async () => null,
+    readProviderQuotas: async () => [], readOpenCodex: async () => [],
+    fetchImpl: async (url, options) => { calls.push([url, options.headers.Authorization]);
+      return { ok: true, json: async () => ({ five_hour: { utilization: 30 }, seven_day: { utilization: 5 } }) }; } };
+  const signedIn = await createWorkspaceUsage({ ...quiet, readClaudeCache: async () => { throw new Error("a live reading comes first"); },
+    readSignIn: async id => id === "anthropic" ? { type: "oauth", secret: "settings-claude", expiresAt: 2000 } : null }).read();
+  assert.deepEqual([signedIn.providers[1].status, signedIn.providers[1].source], ["ready", "signin"]);
+  assert.deepEqual(signedIn.providers[1].windows.map(w => w.remainingPercent), [70, 95]);
+  assert.deepEqual(calls, [["https://api.anthropic.com/api/oauth/usage", "Bearer settings-claude"]]);
+  // An Anthropic API key cannot read subscription usage and is never sent there.
+  calls.length = 0;
+  const keyOnly = await createWorkspaceUsage({ ...quiet, readClaudeCache: async () => null,
+    readSignIn: async id => id === "anthropic" ? { type: "api_key", secret: "sk-ant-api" } : null }).read();
+  assert.deepEqual([keyOnly.providers[1].status, calls.length], ["unavailable", 0]);
+});
+
+test("API keys saved under Settings are probed on their own platform's host", async () => {
+  const fs = require("node:fs"), os = require("node:os");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-quota-"));
+  fs.mkdirSync(path.join(dir, ".pi", "agent"), { recursive: true });
+  const writeSignIns = value => fs.writeFileSync(path.join(dir, ".pi", "agent", "auth.json"), JSON.stringify(value));
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    calls.push([url, options.headers.Authorization]);
+    return { ok: true, json: async () => url.endsWith("/usage")
+      ? { usage: { rolling: { percent: 12 }, weekly: { percent: 10 }, monthly: { percent: 43 } } }
+      : { model_remains: [{ current_interval_remaining_percent: 80, current_weekly_remaining_percent: 60 }] } };
+  };
+  try {
+    // A key that runs a command or names an environment variable is Pi's to
+    // resolve; it is never run or sent from here, and OAuth is not an API key.
+    writeSignIns({ "opencode-go": { type: "api_key", key: "!security find-generic-password -w" },
+      minimax: { type: "api_key", key: "$MINIMAX_API_KEY" }, "minimax-cn": { type: "oauth", access: "a", refresh: "r", expires: 1 } });
+    assert.deepEqual(await configuredProviderQuotas({ home: dir, osHome: "/nonexistent", fetchImpl }), []);
+    assert.equal(calls.length, 0);
+
+    writeSignIns({ "opencode-go": { type: "api_key", key: " sk-go " }, "minimax-cn": { type: "api_key", key: "cn-key" },
+      "openai-codex": { type: "oauth", access: "chatgpt", refresh: "r", expires: 5 } });
+    const rows = await configuredProviderQuotas({ home: dir, osHome: "/nonexistent", fetchImpl });
+    assert.deepEqual(rows.map(r => r.provider), ["OpenCode Go", "MiniMax (China)"]);
+    assert.deepEqual(calls.sort(), [["https://api.minimaxi.com/v1/token_plan/remains", "Bearer cn-key"], ["https://opencode.ai/zen/go/v1/usage", "Bearer sk-go"]]);
+    assert.deepEqual(await storedSignIn(dir, "openai-codex"), { type: "oauth", secret: "chatgpt", accountId: null, expiresAt: 5 });
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

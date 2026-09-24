@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.2.4
+
+- Keep the Codex allowance visible when the installed Codex CLI is newer than this release has reviewed. The limits strip showed a dash because the allowance was only read through Codex's app-server, which stops at an unreviewed schema; Stepsemble now reads the same allowance from ChatGPT with the account the Codex CLI is signed in to, or with the ChatGPT account signed in under Settings. The Codex CLI's token is only read, never renewed, and an expired token is never sent.
+- Read allowances with the accounts and keys saved in Settings. A Claude account signed in under Models & providers now shows its limits when Claude Code is not signed in, and OpenCode Go and MiniMax API keys saved there are probed without another app's configuration. A MiniMax China key is checked on the China host.
+- The limits dialog says where to sign in or add a key and opens Settings from a button.
+
 ## 3.2.3
 
 - Add Update now for a device whose update is waiting on running agent work. The confirmation lists that work first: turns in Codex, Claude Code, Pi and the other native sessions stop (the conversation is kept, so ask the agent to continue after the update), while supervised CLI tasks keep running through the restart. Cancelling leaves the install to run automatically once the work finishes.

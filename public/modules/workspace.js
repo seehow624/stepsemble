@@ -517,12 +517,19 @@
       renderUsage(data);
     } catch { if (target === host) { usage = null; usageHost = null; renderUsage({ providers: [] }); } }
   }
+  // Where the readings come from, with a way into Settings to add one.
+  function quotaSources() {
+    const box = node("div", "", "workspace-quota-sources");
+    box.append(node("p", t("quotaSources")),
+      button(t("settings"), () => { closeDialog(); $("workspace-settings").click(); }, t("settings"), "btn ghost workspace-quota-settings"));
+    return box;
+  }
   function showQuotaDialog() {
     closeUsageTip();
     const body = dialog(t("quota"));
     $("workspace-dialog").classList.add("workspace-quota-dialog");
     body.append(node("p", t("quotaInfo"), "workspace-quota-intro"));
-    if (usageHost !== host || !usage?.providers?.length) { body.append(node("p", t("quotaUnavailable"))); return; }
+    if (usageHost !== host || !usage?.providers?.length) { body.append(node("p", t("quotaUnavailable")), quotaSources()); return; }
     for (const provider of usage.providers) {
       const section = node("section", "", "workspace-quota-provider");
       const head = node("div", "", "workspace-quota-provider-head");
@@ -556,6 +563,7 @@
       if (provider.observedAt || usage.updatedAt) section.append(node("small", t("checked", { date: date(provider.observedAt || usage.updatedAt) }), "workspace-quota-observed"));
       body.append(section);
     }
+    body.append(quotaSources());
   }
   function closeDialog() { dialogEpoch++; if ($("workspace-dialog").open) $("workspace-dialog").close(); $("workspace-dialog").classList.remove("workspace-project-dialog", "workspace-quota-dialog"); $("workspace-dialog-body").replaceChildren(); }
   function dialog(title) { dialogEpoch++; const modal = $("workspace-dialog"); modal.classList.remove("workspace-project-dialog", "workspace-quota-dialog"); $("workspace-dialog-title").textContent = title; const body = $("workspace-dialog-body"); body.replaceChildren(); if (!modal.open) modal.showModal(); return body; }
