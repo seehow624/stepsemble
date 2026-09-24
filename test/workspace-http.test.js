@@ -106,9 +106,13 @@ test("workspace HTTP isolates membership, history, project registration and pane
   assert.equal((await wire("/app.js?v=3.1.3", { "Accept-Encoding": "br", "If-None-Match": brotliAsset.headers.etag })).status, 304);
   assert.equal((await wire("/app.js?v=3.1.3", { "If-None-Match": brotliAsset.headers.etag })).status, 200, "a validator must not answer for another encoding");
   assert.match((await wire("/modules/workspace.js", { "Accept-Encoding": "br" })).headers["cache-control"], /max-age=86400/, "an unversioned asset keeps the short cache");
-  const plainJSON = await wire("/api/sessions?includeTemporary=1", { "Accept-Encoding": "identity" });
-  const gzipJSON = await wire("/api/sessions?includeTemporary=1", { "Accept-Encoding": "gzip" });
-  assert.ok(plainJSON.bytes.length >= 1024, "this fixture is expected to carry a compressible session list");
+  // The fixture ships one transcript above the threshold; fixture paths alone
+  // are too short on Linux to make a response compressible.
+  const transcript = `/api/session?file=${encodeURIComponent("demo/padding.jsonl")}&limit=300`;
+  const plainJSON = await wire(transcript, { "Accept-Encoding": "identity" });
+  const gzipJSON = await wire(transcript, { "Accept-Encoding": "gzip" });
+  assert.equal(plainJSON.status, 200);
+  assert.ok(plainJSON.bytes.length >= 1024, "the padded transcript must exceed the compression threshold");
   assert.equal(gzipJSON.headers["content-encoding"], "gzip");
   assert.ok(gzipJSON.bytes.length < plainJSON.bytes.length);
   assert.deepEqual(JSON.parse(zlib.gunzipSync(gzipJSON.bytes)), JSON.parse(plainJSON.bytes));
