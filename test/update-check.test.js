@@ -23,16 +23,18 @@ function extract(name) {
   throw new Error("unterminated " + name);
 }
 
-function statusFor({ state = {}, check = null, config = {}, running = false, version = "3.1.2" } = {}) {
+function statusFor({ state = {}, check = null, config = {}, running = false, version = "3.1.2", installed = true, interruptible = false, work = [] } = {}) {
   const context = {
     APP_VERSION: version,
     UPDATE_SCRIPT_FILE: "/updater.sh",
     UPDATE_CHECK_FILE: "/update-check.json",
-    fs: { statSync: () => ({ isFile: () => true }) },
+    fs: { statSync: () => { if (!installed) throw new Error("missing"); return { isFile: () => true }; } },
     readUpdateConfig: () => ({ enabled: false, repository: "owner/app", ref: "stable", intervalMinutes: 60, ...config }),
     readUpdateState: () => state,
     readPrivateJson: () => check || {},
     updateProcessIsRunning: () => running,
+    updaterSupportsInterrupt: () => interruptible,
+    updateWorkSummary: () => work,
   };
   vm.runInNewContext(["safeUpdateVersion", "safeUpdateMarker", "updateStateIsPending", "updatePhase", "releaseIsNewer", "readUpdateCheck", "publicUpdateStatus"]
     .map(extract).join("\n") + "\nthis.publicUpdateStatus = publicUpdateStatus; this.updateStateIsPending = updateStateIsPending; this.releaseIsNewer = releaseIsNewer;", context);
@@ -86,6 +88,22 @@ test("a failed check is reported, and a running install is marked as installing"
   const installing = statusFor({ running: true }).publicUpdateStatus();
   assert.equal(installing.updater.phase, "checking");
   assert.equal(installing.updater.activity, "installing");
+});
+
+test("Update now is offered only by an installed updater that can interrupt, with the running work listed", () => {
+  const state = { phase: "deferred", deferredReason: "active_rpc_running", lastCheckedAt: "2026-09-24T10:00:00.000Z", latestVersion: "3.2.3" };
+  const work = [{ agent: "codex", name: "Fix the login page", effect: "interrupted" }];
+  const busy = statusFor({ state, interruptible: true, work }).publicUpdateStatus();
+  assert.equal(busy.updater.phase, "deferred");
+  assert.equal(busy.updater.interruptible, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(busy.updater.activeWork)), work);
+  const idle = statusFor({ state, interruptible: true }).publicUpdateStatus();
+  assert.equal(idle.updater.interruptible, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(idle.updater, "activeWork"), false);
+  const older = statusFor({ state, work }).publicUpdateStatus();
+  assert.equal(Object.prototype.hasOwnProperty.call(older.updater, "interruptible"), false);
+  const missing = statusFor({ state, installed: false, interruptible: true, work }).publicUpdateStatus();
+  assert.equal(Object.prototype.hasOwnProperty.call(missing.updater, "interruptible"), false);
 });
 
 test("release comparison matches the shell updater", () => {
