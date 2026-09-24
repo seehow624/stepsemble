@@ -19,6 +19,7 @@ const http = require("node:http");
 const { Readable, pipeline } = require("node:stream");
 const fs = require("node:fs");
 const path = require("node:path");
+const zlib = require("node:zlib");
 const os = require("node:os");
 const crypto = require("node:crypto");
 const { pathToFileURL } = require("node:url");
@@ -88,7 +89,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.1.3";
+const APP_VERSION = "3.1.4";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -4769,6 +4770,50 @@ const MIME = {
   ".png": "image/png", ".svg": "image/svg+xml", ".ico": "image/x-icon",
 };
 
+// A phone loading the Workspace shell plus one conversation pane asks for more
+// than two megabytes of JavaScript and CSS. Serve those files compressed and
+// let a versioned URL stay in the browser cache, so a cold open and every
+// release cost a fraction of the uncompressed transfer.
+const COMPRESSIBLE_EXTENSIONS = new Set([".html", ".js", ".mjs", ".css", ".json", ".webmanifest", ".svg", ".txt", ".map"]);
+const COMPRESSED_ASSET_LIMIT = 256, COMPRESSION_MIN_BYTES = 1024;
+const compressedAssets = new Map();
+function acceptsEncoding(header, name) {
+  let quality = null;
+  for (const part of String(header || "").split(",")) {
+    const [rawToken, ...params] = part.split(";");
+    const token = rawToken.trim().toLowerCase();
+    if (!token) continue;
+    let q = 1;
+    for (const param of params) {
+      const match = /^\s*q\s*=\s*([0-9.]+)\s*$/i.exec(param);
+      if (match) q = Number(match[1]);
+    }
+    if (token === name) quality = Number.isFinite(q) ? q : 1;
+    else if (token === "*" && quality === null) quality = Number.isFinite(q) ? q : 1;
+  }
+  return quality !== null && quality > 0;
+}
+function compressedAsset(abs, stat, data) {
+  const revision = `${stat.size}-${Math.floor(stat.mtimeMs)}`;
+  const cached = compressedAssets.get(abs);
+  if (cached && cached.revision === revision) return cached;
+  const record = { revision, br: null, gzip: null };
+  if (data.length >= COMPRESSION_MIN_BYTES) {
+    try {
+      record.br = zlib.brotliCompressSync(data, { params: {
+        [zlib.constants.BROTLI_PARAM_QUALITY]: 5,
+        [zlib.constants.BROTLI_PARAM_SIZE_HINT]: data.length,
+      } });
+    } catch { record.br = null; }
+    try { record.gzip = zlib.gzipSync(data, { level: 6 }); } catch { record.gzip = null; }
+  }
+  if (compressedAssets.size >= COMPRESSED_ASSET_LIMIT && !compressedAssets.has(abs)) {
+    compressedAssets.delete(compressedAssets.keys().next().value);
+  }
+  compressedAssets.set(abs, record);
+  return record;
+}
+
 // Keep HTTP framing, security headers, cookies, and body parsing in one
 // dependency-free module so route handlers can stay focused on agent behavior.
 const {
@@ -7307,32 +7352,44 @@ const server = http.createServer(async (req, res) => {
     if (!abs.startsWith(PUBLIC_DIR + path.sep)) { send(res, 403, ""); return; }
     fs.stat(abs, (statErr, stat) => {
       if (statErr || !stat.isFile()) { send(res, 404, "not found"); return; }
-      const etag = `W/\"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}\"`;
+      const extension = path.extname(abs);
+      // A versioned URL is content-addressed by the release that shipped it, so
+      // it can stay cached for a year; unversioned preview pages keep the short
+      // cache because nothing invalidates them by name.
+      const versioned = extension !== ".html" && rel !== "sw.js" && url.searchParams.has("v");
       const paneHeaders = rel === "index.html" && url.searchParams.get("pane") === "1" ? {
         "X-Frame-Options": "SAMEORIGIN",
         "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'"
       } : {};
-      const commonHeaders = {
-        ...paneHeaders,
-        "Content-Type": MIME[path.extname(abs)] || "application/octet-stream",
-        "Cache-Control": rel === "sw.js"
-          ? "no-cache, no-store, must-revalidate"
-          : path.extname(rel) === ".html" ? "no-cache" : "public, max-age=86400",
-        "ETag": etag,
-        "Last-Modified": stat.mtime.toUTCString(),
-      };
-      if (req.headers["if-none-match"] === etag) {
-        res.writeHead(304, commonHeaders);
-        res.end();
-        return;
-      }
       fs.readFile(abs, (err, data) => {
         if (err) { send(res, 404, "not found"); return; }
+        const compressible = COMPRESSIBLE_EXTENSIONS.has(extension);
+        const variants = compressible ? compressedAsset(abs, stat, data) : null;
+        let body = data, encoding = null;
+        if (variants && variants.br && acceptsEncoding(req.headers["accept-encoding"], "br")) { body = variants.br; encoding = "br"; }
+        else if (variants && variants.gzip && acceptsEncoding(req.headers["accept-encoding"], "gzip")) { body = variants.gzip; encoding = "gzip"; }
+        const etag = `W/\"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}${encoding ? `-${encoding}` : ""}\"`;
+        const commonHeaders = {
+          ...paneHeaders,
+          "Content-Type": MIME[extension] || "application/octet-stream",
+          "Cache-Control": rel === "sw.js"
+            ? "no-cache, no-store, must-revalidate"
+            : extension === ".html" ? "no-cache" : versioned ? "public, max-age=31536000, immutable" : "public, max-age=86400",
+          "ETag": etag,
+          "Last-Modified": stat.mtime.toUTCString(),
+          ...(compressible ? { "Vary": "Accept-Encoding" } : {}),
+          ...(encoding ? { "Content-Encoding": encoding } : {}),
+        };
+        if (req.headers["if-none-match"] === etag) {
+          res.writeHead(304, commonHeaders);
+          res.end();
+          return;
+        }
         if (req.method === "HEAD") {
-          res.writeHead(200, { ...commonHeaders, "Content-Length": data.length });
+          res.writeHead(200, { ...commonHeaders, "Content-Length": body.length });
           res.end();
         } else {
-          send(res, 200, data, commonHeaders);
+          send(res, 200, body, commonHeaders);
         }
       });
     });

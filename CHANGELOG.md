@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.1.4
+
+- Serve the web client compressed. Opening the Workspace shell and one conversation used to transfer about 2.1 MB of JavaScript and CSS on every cold load; brotli brings that to roughly 450 KB, and long session payloads are gzipped above 1 KB. This is what made Stepsemble feel slow on a phone, especially over Tailscale.
+- Keep a versioned asset in the browser cache for a year instead of revalidating it daily. Each release already changes the `?v=` on every asset, so the URL identifies its own content.
+- Negotiate encodings correctly: brotli and gzip fall back to identity, each representation carries its own ETag, and unversioned preview pages keep the short cache.
+
 ## 3.1.3
 
 - Update Workspace session rows and pane tabs when a conversation gains or changes its title. Pi sessions use their explicit name or first user message, including older entries previously shown only as "Pi"; the first-message text stays out of the workspace membership file.

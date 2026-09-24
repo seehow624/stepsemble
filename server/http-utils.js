@@ -1,5 +1,28 @@
 "use strict";
 const { writeBounded } = require("./stream-safety");
+const zlib = require("node:zlib");
+
+// Long conversations travel as JSON: one opened session can carry hundreds of
+// kilobytes of messages, which matters most on a phone over Tailscale. Gzip is
+// used for these one-off payloads because it costs a fraction of brotli's CPU
+// while JSON still compresses to roughly a quarter of its size.
+const JSON_COMPRESSION_MIN_BYTES = 1024;
+function acceptsEncoding(header, name) {
+  let quality = null;
+  for (const part of String(header || "").split(",")) {
+    const [rawToken, ...params] = part.split(";");
+    const token = rawToken.trim().toLowerCase();
+    if (!token) continue;
+    let q = 1;
+    for (const param of params) {
+      const match = /^\s*q\s*=\s*([0-9.]+)\s*$/i.exec(param);
+      if (match) q = Number(match[1]);
+    }
+    if (token === name) quality = Number.isFinite(q) ? q : 1;
+    else if (token === "*" && quality === null) quality = Number.isFinite(q) ? q : 1;
+  }
+  return quality !== null && quality > 0;
+}
 
 /**
  * HTTP/SSE primitives shared by Stepsemble's route handlers.
@@ -51,10 +74,21 @@ function createHttpUtils({
   }
 
   function sendJSON(res, status, obj) {
-    send(res, status, JSON.stringify(obj), {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
-    });
+    const payload = JSON.stringify(obj);
+    const headers = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
+    // `res.req` is the request this response belongs to; a caller without one
+    // (tests, internal probes) simply receives the uncompressed payload.
+    if (payload.length >= JSON_COMPRESSION_MIN_BYTES && acceptsEncoding(res?.req?.headers?.["accept-encoding"], "gzip")) {
+      let gzip = null;
+      try { gzip = zlib.gzipSync(payload, { level: 6 }); } catch { gzip = null; }
+      if (gzip && gzip.length < payload.length) {
+        headers["Content-Encoding"] = "gzip";
+        headers.Vary = "Accept-Encoding";
+        send(res, status, gzip, headers);
+        return;
+      }
+    }
+    send(res, status, payload, headers);
   }
 
   function getCookie(req, key) {
