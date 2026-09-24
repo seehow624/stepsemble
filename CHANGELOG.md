@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.2
+
+- Stop an open Pi conversation that is only waiting for input from holding back automatic updates. The updater skipped idle Pi streams but still counted the same session's task row as pending work, so a tab left open could defer every release for hours. Such a session now reports itself idle, reopens from its saved session file after the update, no longer offers a Stop button that has nothing to stop, and no longer counts as active work. Streaming, compaction, queued messages, tool work and pending dialogs still block installation.
+
 ## 3.2.1
 
 - Give the Workspace stage the full window height. The header row with the title and drag hint is gone; the list toggle now sits at the start of the top-left pane's tab strip and New window, as an icon, at the end of the top-right one, so both stay in the corners in any split or maximized layout.

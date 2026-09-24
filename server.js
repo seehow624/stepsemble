@@ -94,7 +94,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.2.1";
+const APP_VERSION = "3.2.2";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2711,6 +2711,11 @@ function publicPiAgentTask(sid, session) {
     status,
     closeReason: session.closeReason || null,
     isRunning: running,
+    // An open Pi session with no stream, queued message, compaction, pending
+    // tool work or pending dialog is a saved conversation waiting for input.
+    // Marking it idle lets the updater install instead of deferring for as long
+    // as the tab stays open; restarting only reopens it from its session file.
+    idleNativeSession: !session.exited && !running,
     startedAt: session.state.runStartedAt || session.meta.openedAt || null,
     endedAt: session.state.runEndedAt || null,
     lastActivityAt: session.meta.lastActivityAt || null,

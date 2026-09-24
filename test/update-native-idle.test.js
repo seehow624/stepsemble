@@ -34,6 +34,13 @@ cases.push({ tasks: [externalHistory], active: false },
   { tasks: [{ ...externalHistory, nativeHistoryReadonly: false }], active: true },
   { tasks: [{ ...externalHistory, readOnly: false }], active: true },
   { tasks: [externalHistory, { status: "running" }], active: true });
+// An open Pi session that is only waiting for input must not hold back an
+// update; one with a stream, queued message or pending dialog reports running.
+const idlePi = { id: "pi:owned", agentId: "pi", status: "waiting", isRunning: false, idleNativeSession: true };
+cases.push({ tasks: [idlePi], active: false },
+  { tasks: [{ ...idlePi, status: "running", isRunning: true, idleNativeSession: false }], active: true },
+  { tasks: [{ ...idlePi, isRunning: "false" }], active: true },
+  { tasks: [idlePi, { status: "waiting" }], active: true });
 
 for (const file of ["deploy/stepsemble-update.sh", "install.sh", "install-linux.sh"]) {
   test(`${file}: only external read-only history and confirmed idle sessions bypass the active-work guard`, () => {
