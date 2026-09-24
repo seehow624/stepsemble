@@ -1073,6 +1073,7 @@
       fontScale: clampNumber(settings.fontScale, 100, 90, 125),
       compact: settings.compact === true,
       sidebarWidth: clampNumber(settings.sidebarWidth, 336, 280, 440),
+      showTemporarySessions: settings.showTemporarySessions === true,
     };
   }
   const api = Object.freeze({ tables, t, normalizeLocale, preferences, designThemes: Object.freeze([...DESIGN_THEME_IDS]), defaultDesignTheme: DEFAULT_DESIGN_THEME });

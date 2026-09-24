@@ -307,7 +307,8 @@ Generic connector 的「可啟動、可串流、server restart 可重新 attach�
 | `GET /api/version` | Web/update fallback | B/P | 無 | Pi version、app version、machine | Static UI |
 | `GET /api/update/status` | Web | B/P | 無 | updater install/config/phase metadata | Static update suite |
 | `POST /api/update/settings` | Web | B/P | enabled/repository/ref/15–10080 min | atomic updater config | Static update suite |
-| `POST /api/update/run` | Web | B/P | 空 | 202 detached updater；duplicate 409 | Static update suite |
+| `POST /api/update/run` | Web | B/P | 空 | 202 detached updater（檢查後安裝）；duplicate 409；UI 只在使用者確認安裝時呼叫 | Static update suite |
+| `POST /api/update/check` | Web | B/P | 空 | 只讀取 GitHub 已發布版本並寫入 `update-check.json`；不下載、不安裝、不觸發 pending apply | `test/update-check.test.js` |
 | `GET /api/pi-resources` | Settings compare | B/P | 無 | read-only extension/skill/package hashes | Live integration |
 
 ### 4.6 Static files

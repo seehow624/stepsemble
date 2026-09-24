@@ -6,15 +6,15 @@
 <title>Stepsemble</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=3.1.1">
-<link rel="icon" href="/icon-16.png?v=3.1.1" sizes="16x16" type="image/png">
-<link rel="icon" href="/icon-32.png?v=3.1.1" sizes="32x32" type="image/png">
-<link rel="icon" href="/icon-512.png?v=3.1.1" sizes="512x512" type="image/png">
-<link rel="apple-touch-icon" href="/icon-180.png?v=3.1.1">
-  <link rel="stylesheet" href="/style.css?v=3.1.1">
-  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.1.1">
-  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.1.1">
-<link rel="stylesheet" href="/modules/workspace-embedded.css?v=3.1.1">
+<link rel="manifest" href="/manifest.webmanifest?v=3.1.2">
+<link rel="icon" href="/icon-16.png?v=3.1.2" sizes="16x16" type="image/png">
+<link rel="icon" href="/icon-32.png?v=3.1.2" sizes="32x32" type="image/png">
+<link rel="icon" href="/icon-512.png?v=3.1.2" sizes="512x512" type="image/png">
+<link rel="apple-touch-icon" href="/icon-180.png?v=3.1.2">
+  <link rel="stylesheet" href="/style.css?v=3.1.2">
+  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.1.2">
+  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.1.2">
+<link rel="stylesheet" href="/modules/workspace-embedded.css?v=3.1.2">
 </head>
 <body>
 
@@ -45,6 +45,11 @@
   <symbol id="i-archive" viewBox="0 0 24 24"><path d="M4 7h16v12.5A1.5 1.5 0 0 1 18.5 21h-13A1.5 1.5 0 0 1 4 19.5zM3 3h18v4H3zM9 12h6"/></symbol>
   <symbol id="i-pin" viewBox="0 0 24 24"><path d="M8 3h8l-1 5 3 3v2h-5v4l-1 4-1-4v-4H6v-2l3-3zM12 17v4"/></symbol>
   <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5h.01"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 0 17c1 0 1.7-.8 1.7-1.7 0-.5-.2-.9-.5-1.2a1.7 1.7 0 0 1 1.3-2.8h2A4 4 0 0 0 20.5 11c0-4.2-3.8-7.5-8.5-7.5Z"/><circle cx="7.6" cy="11.4" r="1.1"/><circle cx="10.2" cy="7.6" r="1.1"/><circle cx="14.6" cy="7.8" r="1.1"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2.5"/><path d="M10 3.5v3M14 3.5v3M10 17.5v3M14 17.5v3M3.5 10h3M3.5 14h3M17.5 10h3M17.5 14h3M10 10h4v4h-4z"/></symbol>
+  <symbol id="i-devices" viewBox="0 0 24 24"><rect x="2.5" y="4.5" width="14" height="10" rx="2"/><path d="M1.5 18h11M18.5 8.5h1.5a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-1.5A1.5 1.5 0 0 1 17 18v-8a1.5 1.5 0 0 1 1.5-1.5Z"/></symbol>
+  <symbol id="i-update" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.35-5.65M20 4.5V8.5h-4M12 8v6.5M9.2 11.8 12 14.6l2.8-2.8"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h8.5M16.5 7H20M4 17h3.5M11.5 17H20"/><circle cx="14.5" cy="7" r="2"/><circle cx="9.5" cy="17" r="2"/></symbol>
 </svg>
 
 <!-- Login -->
@@ -263,249 +268,303 @@
   </main>
 
   <!-- ===== View: Settings ===== -->
-  <main id="view-settings" class="view overlay-view hidden">
+  <main id="view-settings" class="view overlay-view hidden" data-settings-view="home">
     <header class="topbar">
       <button id="btn-settings-back" class="btn ghost icon-btn" title="Back" aria-label="Back"><svg class="icon"><use href="#i-arrow-left"></use></svg></button>
-      <span class="topbar-title">Settings</span>
+      <span id="settings-title" class="topbar-title">Settings</span>
       <span class="topbar-spacer"></span>
     </header>
     <div class="settings-scroll">
-
-      <section class="settings-group" data-settings-target="devices">
-        <div class="settings-group-heading machine-settings-heading">
-          <h3 class="group-title">Devices</h3>
-          <div class="machine-heading-actions">
-            <button id="machine-pair" class="icon-button-small" type="button" title="Join with pairing code" aria-label="Join with pairing code"><svg class="icon"><use href="#i-link"></use></svg></button>
-            <button id="machine-add" class="icon-button-small" type="button" title="Add device" aria-label="Add device"><svg class="icon"><use href="#i-plus"></use></svg></button>
+      <div class="settings-layout">
+        <nav id="settings-nav" class="settings-nav" aria-label="Settings sections">
+          <button id="settings-host-card" class="settings-host-card" type="button" data-settings-open="devices">
+            <span id="settings-host-dot" class="settings-host-dot" aria-hidden="true"></span>
+            <span class="settings-host-copy"><small>Selected host</small><strong id="set-machine-name" data-i18n-ignore>Loading…</strong></span>
+            <span id="set-machine-host" class="settings-host-status">—</span>
+            <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
+          </button>
+          <div class="settings-nav-list">
+            <button class="settings-nav-item" type="button" data-settings-open="appearance">
+              <span class="settings-nav-icon" aria-hidden="true"><svg class="icon"><use href="#i-palette"></use></svg></span>
+              <span class="settings-nav-copy"><strong>Appearance</strong><small id="settings-summary-appearance" data-i18n-ignore></small></span>
+              <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
+            </button>
+            <button class="settings-nav-item" type="button" data-settings-open="agents">
+              <span class="settings-nav-icon" aria-hidden="true"><svg class="icon"><use href="#i-cpu"></use></svg></span>
+              <span class="settings-nav-copy"><strong>Agents &amp; models</strong><small id="settings-summary-agents">Models, sign-in and notifications</small></span>
+              <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
+            </button>
+            <button class="settings-nav-item" type="button" data-settings-open="devices">
+              <span class="settings-nav-icon" aria-hidden="true"><svg class="icon"><use href="#i-devices"></use></svg></span>
+              <span class="settings-nav-copy"><strong>Devices &amp; access</strong><small id="settings-summary-devices" data-i18n-ignore></small></span>
+              <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
+            </button>
+            <button class="settings-nav-item" type="button" data-settings-open="updates">
+              <span class="settings-nav-icon" aria-hidden="true"><svg class="icon"><use href="#i-update"></use></svg></span>
+              <span class="settings-nav-copy"><strong>Updates</strong><small id="settings-summary-updates" data-i18n-ignore></small></span>
+              <span id="settings-updates-badge" class="settings-nav-badge hidden" aria-hidden="true"></span>
+              <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
+            </button>
+            <button class="settings-nav-item" type="button" data-settings-open="advanced">
+              <span class="settings-nav-icon" aria-hidden="true"><svg class="icon"><use href="#i-sliders"></use></svg></span>
+              <span class="settings-nav-copy"><strong>Advanced</strong><small id="settings-summary-advanced" data-i18n-ignore></small></span>
+              <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
+            </button>
           </div>
-        </div>
-        <div id="machine-list" class="machine-list"></div>
-        <p class="settings-note" data-i18n-key="deviceTrust.pairingNote">One-time pairing creates an independent, revocable device credential. Manual URL entry remains the legacy shared Web-token path.</p>
-        <section class="device-trust-panel" aria-labelledby="authorized-devices-title">
-          <h4 id="authorized-devices-title" data-i18n-key="deviceTrust.authorizedTitle">Authorized devices</h4>
-          <p id="authorized-devices-status" class="settings-note" role="status" aria-live="polite"></p>
-          <div id="authorized-device-list" class="authorized-device-list"></div>
-        </section>
-      </section>
-
-      <section class="settings-group" data-settings-target="tokens">
-        <div class="settings-group-heading">
-          <h3 class="group-title" data-i18n-key="tokens.title">Access tokens</h3>
-          <button id="token-add" class="icon-button-small" type="button" data-i18n-title-key="tokens.create" data-i18n-aria-key="tokens.create" title="Create token" aria-label="Create token"><svg class="icon"><use href="#i-plus"></use></svg></button>
-        </div>
-        <p class="settings-note" data-i18n-key="tokens.note">Issue one token per device or person. Revoking a token ends its access immediately; the installer token always keeps working.</p>
-        <div id="token-create-row" class="token-create-row hidden">
-          <input id="token-label" type="text" maxlength="40" autocomplete="off" data-i18n-placeholder-key="tokens.labelPlaceholder" placeholder="e.g. MacBook">
-          <button id="token-create" class="btn primary" type="button" data-i18n-key="tokens.create">Create</button>
-          <button id="token-create-cancel" class="btn ghost" type="button" data-i18n-key="tokens.cancel">Cancel</button>
-        </div>
-        <p id="token-form-error" class="form-error hidden" role="alert"></p>
-        <div id="token-new-row" class="token-new-row hidden">
-          <p class="settings-note" data-i18n-key="tokens.showOnce">Copy this token now — it will not be shown again.</p>
-          <div class="token-new-value">
-            <code id="token-new-value-text" class="mono" data-i18n-ignore></code>
-            <button id="token-new-copy" class="btn ghost" type="button" data-i18n-key="tokens.copy">Copy</button>
-            <button id="token-new-done" class="btn primary" type="button" data-i18n-key="tokens.done">Done</button>
+          <div class="settings-account-action">
+            <button id="btn-logout" class="settings-row settings-button-row danger-text" type="button">
+              <span><strong>Sign out</strong><small>Clear this browser's sign-in state</small></span>
+              <span class="row-chevron" aria-hidden="true">→</span>
+            </button>
           </div>
-        </div>
-        <div id="token-list" class="token-list"></div>
-      </section>
+          <p class="settings-footer">Stepsemble · self-hosted on your tailnet</p>
+        </nav>
 
-      <section class="settings-group" data-settings-target="connection">
-        <h3 class="group-title">Connection</h3>
-        <div class="settings-row">
-          <span><strong>This device</strong><small id="set-machine-name">Loading…</small></span>
-          <span class="settings-value" id="set-machine-host">—</span>
-        </div>
-        <button id="model-settings-open" class="settings-navigation-row" type="button">
-          <span><strong>Models &amp; providers</strong><small><span id="model-settings-summary">Manage visible models and custom providers</span><span class="settings-scope" data-i18n-key="modelScope.badge">Pi Agent only</span></small></span>
-          <span class="row-chevron" aria-hidden="true">→</span>
-        </button>
-      </section>
+        <div class="settings-content">
+          <h2 id="settings-content-title" class="settings-content-title"></h2>
 
-      <section class="settings-group" data-settings-target="agent-auth">
-        <h3 class="group-title">Agent sign-in</h3>
-        <p class="settings-note">Official agent sign-in is kept here so the Sessions page stays focused.</p>
-        <details id="claude-auth" class="claude-auth settings-disclosure">
-          <summary data-i18n-key="claudeAuth.title">Claude Code sign-in</summary>
-          <p id="claude-auth-status" role="status" aria-live="polite" data-i18n-key="claudeAuth.unchecked">Sign-in status has not been checked.</p>
-          <p id="claude-auth-credential" class="hidden"></p>
-          <p id="claude-auth-note" class="settings-note" data-i18n-ignore></p>
-          <div class="claude-auth-actions">
-            <button id="claude-auth-start" type="button" class="btn primary" data-i18n-key="claudeAuth.start" disabled>Open official sign-in</button>
-            <button id="claude-auth-refresh" type="button" class="btn ghost" data-i18n-key="claudeAuth.refresh">Check status</button>
-            <button id="claude-auth-cancel" type="button" class="btn ghost hidden" data-i18n-key="claudeAuth.cancel">Cancel this sign-in</button>
-          </div>
-          <p class="settings-note" data-i18n-key="claudeAuth.fallback">If the host browser does not open or asks for a code, cancel this attempt first, then use the command below in the official terminal on that host. Do not paste codes into Stepsemble.</p>
-          <code class="claude-auth-command" data-i18n-ignore>claude auth login --claudeai</code>
-        </details>
-        <details id="opencode-connection" class="claude-auth settings-disclosure">
-          <summary>OpenCode connection</summary>
-          <p id="opencode-connection-status" role="status" aria-live="polite">Check the native connection on the selected computer.</p>
-          <p class="settings-note">Start a password-protected local OpenCode service. Existing configured services are kept unchanged.</p>
-          <div class="claude-auth-actions">
-            <button id="opencode-connection-start" type="button" class="btn primary">Enable local OpenCode</button>
-            <button id="opencode-connection-refresh" type="button" class="btn ghost">Check connection</button>
-          </div>
-        </details>
-      </section>
+          <!-- Appearance -->
+          <section class="settings-group" data-settings-category="appearance" data-settings-target="appearance">
+            <h3 class="group-title">Appearance</h3>
+            <label class="settings-row settings-select-row">
+              <span><strong>Language</strong><small>Choose the language used by Stepsemble</small></span>
+              <select id="set-locale" aria-label="Language" data-i18n-ignore>
+                <option value="en">English</option>
+                <option value="zh-Hans">简体中文</option>
+                <option value="zh-Hant">繁體中文</option>
+                <option value="ja">日本語</option>
+                <option value="ko">한국어</option>
+                <option value="tr">Türkçe</option>
+                <option value="fr">Français</option>
+                <option value="de">Deutsch</option>
+                <option value="es">Español</option>
+                <option value="pt-BR">Português (Brasil)</option>
+                <option value="it">Italiano</option>
+              </select>
+            </label>
+            <label class="settings-row settings-select-row">
+              <span><strong>Appearance</strong><small>Light, dark, or follow system</small></span>
+              <select id="set-theme">
+                <option value="auto">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
+            <div class="settings-row settings-theme-row">
+              <span><strong>Design theme</strong><small>Choose a complete colour system</small></span>
+              <button id="theme-choices-toggle" class="theme-current" type="button" aria-expanded="false" aria-controls="theme-choices">
+                <span id="theme-current-swatches" class="theme-swatches" aria-hidden="true"><i class="theme-swatch light"></i><i class="theme-swatch dark"></i></span>
+                <span id="theme-current-name" class="theme-current-name" data-i18n-ignore></span>
+                <svg class="icon theme-current-chevron" aria-hidden="true"><use href="#i-chevron-down"></use></svg>
+              </button>
+              <div id="theme-choices" class="theme-choices" role="radiogroup" aria-label="Design theme" hidden></div>
+            </div>
+            <label class="settings-row settings-range-row">
+              <span><strong>Text size</strong><small>Adjust interface text for readability</small></span>
+              <span class="range-control"><input id="set-font-scale" type="range" min="90" max="125" step="5"><output id="set-font-scale-value">100%</output></span>
+            </label>
+          </section>
 
-      <section class="settings-group">
-        <h3 class="group-title">Resource sync</h3>
-        <p class="settings-note">Compare global Pi extensions, skills, and packages between two devices. Read-only; nothing is installed.</p>
-        <label class="settings-row settings-select-row">
-          <span><strong>Compare</strong><small>Inventory source device</small></span>
-          <select id="sync-base-device" aria-label="Inventory source device" data-i18n-ignore></select>
-        </label>
-        <label class="settings-row settings-select-row">
-          <span><strong>With</strong><small>Comparison target device</small></span>
-          <select id="sync-compare-device" aria-label="Comparison target device" data-i18n-ignore></select>
-        </label>
-        <button id="sync-compare" class="settings-row settings-button-row" type="button">
-          <span><strong>Compare resources</strong><small id="sync-compare-status" role="status" aria-live="polite"></small></span>
-          <span class="row-chevron" aria-hidden="true">→</span>
-        </button>
-        <div id="sync-result" class="resource-sync-result" data-i18n-ignore="true"></div>
-      </section>
+          <section class="settings-group" data-settings-category="appearance">
+            <h3 class="group-title">Behavior</h3>
+            <label class="settings-row settings-toggle-row">
+              <span><strong>Compact list</strong><small>Show workspace sessions with less spacing</small></span>
+              <span class="toggle"><input id="set-compact" type="checkbox"><span class="toggle-track"></span></span>
+            </label>
+            <label class="settings-row settings-select-row">
+              <span><strong>Thinking blocks</strong><small>Default state for assistant thinking blocks</small></span>
+              <select id="set-thinking">
+                <option value="collapsed">Collapsed</option>
+                <option value="open">Expanded</option>
+              </select>
+            </label>
+            <label class="settings-row settings-toggle-row">
+              <span><strong>Reduce motion</strong><small>Reduce transitions and scrolling animations</small></span>
+              <span class="toggle"><input id="set-reduced-motion" type="checkbox"><span class="toggle-track"></span></span>
+            </label>
+            <label id="setting-sidebar-width-row" class="settings-row settings-range-row">
+              <span><strong>Desktop sidebar width</strong><small>Desktop only; mobile always uses full width</small></span>
+              <span class="range-control"><input id="set-sidebar-width" type="range" min="280" max="440" step="8"><output id="set-sidebar-width-value">336px</output></span>
+            </label>
+          </section>
 
-      <section class="settings-group" data-settings-target="appearance">
-        <h3 class="group-title">Appearance</h3>
-        <label class="settings-row settings-select-row">
-          <span><strong>Language</strong><small>Choose the language used by Stepsemble</small></span>
-          <select id="set-locale" aria-label="Language" data-i18n-ignore>
-            <option value="en">English</option>
-            <option value="zh-Hans">简体中文</option>
-            <option value="zh-Hant">繁體中文</option>
-            <option value="ja">日本語</option>
-            <option value="ko">한국어</option>
-            <option value="tr">Türkçe</option>
-            <option value="fr">Français</option>
-            <option value="de">Deutsch</option>
-            <option value="es">Español</option>
-            <option value="pt-BR">Português (Brasil)</option>
-            <option value="it">Italiano</option>
-          </select>
-        </label>
-        <label class="settings-row settings-select-row">
-          <span><strong>Appearance</strong><small>Light, dark, or follow system</small></span>
-          <select id="set-theme">
-            <option value="auto">System</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
-        </label>
-        <div class="settings-row settings-theme-row">
-          <span><strong>Design theme</strong><small>Choose a complete colour system</small></span>
-          <div id="theme-choices" class="theme-choices" role="radiogroup" aria-label="Design theme"></div>
-        </div>
-        <label class="settings-row settings-range-row">
-          <span><strong>Text size</strong><small>Adjust interface text for readability</small></span>
-          <span class="range-control"><input id="set-font-scale" type="range" min="90" max="125" step="5"><output id="set-font-scale-value">100%</output></span>
-        </label>
-      </section>
+          <!-- Agents & models -->
+          <section class="settings-group" data-settings-category="agents" data-settings-target="connection">
+            <h3 class="group-title" data-i18n-key="settings.modelsTitle">Models</h3>
+            <button id="model-settings-open" class="settings-navigation-row" type="button">
+              <span><strong>Models &amp; providers</strong><small><span id="model-settings-summary">Manage visible models and custom providers</span><span class="settings-scope" data-i18n-key="modelScope.badge">Pi Agent only</span></small></span>
+              <span class="row-chevron" aria-hidden="true">→</span>
+            </button>
+          </section>
 
-      <section class="settings-group">
-        <h3 class="group-title">Behavior</h3>
-        <label class="settings-row settings-toggle-row">
-          <span><strong>Compact list</strong><small>Show sessions with less spacing</small></span>
-          <span class="toggle"><input id="set-compact" type="checkbox"><span class="toggle-track"></span></span>
-        </label>
-        <label class="settings-row settings-toggle-row">
-          <span><strong>Group by project</strong><small>Group sessions by working directory</small></span>
-          <span class="toggle"><input id="set-group" type="checkbox"><span class="toggle-track"></span></span>
-        </label>
-        <label class="settings-row settings-toggle-row">
-          <span><strong>Sub Agent sessions</strong><small id="set-show-temporary-sessions-note">Hidden by default</small></span>
-          <span class="toggle"><input id="set-show-temporary-sessions" type="checkbox"><span class="toggle-track"></span></span>
-        </label>
-        <label class="settings-row settings-select-row">
-          <span><strong>Thinking blocks</strong><small>Default state for assistant thinking blocks</small></span>
-          <select id="set-thinking">
-            <option value="collapsed">Collapsed</option>
-            <option value="open">Expanded</option>
-          </select>
-        </label>
-        <label class="settings-row settings-toggle-row">
-          <span><strong>Reduce motion</strong><small>Reduce transitions and scrolling animations</small></span>
-          <span class="toggle"><input id="set-reduced-motion" type="checkbox"><span class="toggle-track"></span></span>
-        </label>
-        <label id="setting-sidebar-width-row" class="settings-row settings-range-row">
-          <span><strong>Desktop sidebar width</strong><small>Desktop only; mobile always uses full width</small></span>
-          <span class="range-control"><input id="set-sidebar-width" type="range" min="280" max="440" step="8"><output id="set-sidebar-width-value">336px</output></span>
-        </label>
-      </section>
+          <section class="settings-group" data-settings-category="agents" data-settings-target="agent-auth">
+            <h3 class="group-title">Agent sign-in</h3>
+            <p class="settings-note">Sign in with each agent's official account on the selected host.</p>
+            <details id="claude-auth" class="claude-auth settings-disclosure">
+              <summary data-i18n-key="claudeAuth.title">Claude Code sign-in</summary>
+              <p id="claude-auth-status" role="status" aria-live="polite" data-i18n-key="claudeAuth.unchecked">Sign-in status has not been checked.</p>
+              <p id="claude-auth-credential" class="hidden"></p>
+              <p id="claude-auth-note" class="settings-note" data-i18n-ignore></p>
+              <div class="claude-auth-actions">
+                <button id="claude-auth-start" type="button" class="btn primary" data-i18n-key="claudeAuth.start" disabled>Open official sign-in</button>
+                <button id="claude-auth-refresh" type="button" class="btn ghost" data-i18n-key="claudeAuth.refresh">Check status</button>
+                <button id="claude-auth-cancel" type="button" class="btn ghost hidden" data-i18n-key="claudeAuth.cancel">Cancel this sign-in</button>
+              </div>
+              <p class="settings-note" data-i18n-key="claudeAuth.fallback">If the host browser does not open or asks for a code, cancel this attempt first, then use the command below in the official terminal on that host. Do not paste codes into Stepsemble.</p>
+              <code class="claude-auth-command" data-i18n-ignore>claude auth login --claudeai</code>
+            </details>
+            <details id="opencode-connection" class="claude-auth settings-disclosure">
+              <summary>OpenCode connection</summary>
+              <p id="opencode-connection-status" role="status" aria-live="polite">Check the native connection on the selected computer.</p>
+              <p class="settings-note">Start a password-protected local OpenCode service. Existing configured services are kept unchanged.</p>
+              <div class="claude-auth-actions">
+                <button id="opencode-connection-start" type="button" class="btn primary">Enable local OpenCode</button>
+                <button id="opencode-connection-refresh" type="button" class="btn ghost">Check connection</button>
+              </div>
+            </details>
+          </section>
 
-      <section class="settings-group settings-about-group" data-settings-target="about">
-        <h3 class="group-title">About</h3>
-        <div id="usage-summary-card" class="usage-summary hidden">
-          <div class="usage-summary-heading">
-            <strong id="usage-summary-title" data-i18n-key="usage.title">Usage · last 7 days</strong>
-            <span id="usage-summary-note" class="usage-summary-note"></span>
-          </div>
-          <div id="usage-summary-rows" class="usage-summary-rows" role="list"></div>
-        </div>
-        <div class="settings-row" id="push-notifications-row">
-          <span>
-            <strong>Notifications</strong>
-            <small>Ping this device when a run finishes without a browser attached</small>
-          </span>
-          <button id="push-toggle" class="settings-action-btn" type="button">Enable</button>
-        </div>
-        <div class="settings-row">
-          <span><strong>Stepsemble</strong><small data-i18n-key="agentHub.workspace">A workspace for local coding agents</small></span>
-          <span class="settings-value" id="set-app-version">v3.1.1</span>
-        </div>
-        <div class="settings-row">
-          <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
-          <span class="settings-value mono" id="set-pi-version">—</span>
-        </div>
-        <div class="update-center-heading">
-          <div class="settings-subheading" role="heading" aria-level="4">Updates</div>
-          <button id="update-all-devices" class="btn ghost update-all-button" type="button">Update all devices</button>
-        </div>
-        <p class="settings-note update-center-note">Update settings are independent for each configured device.</p>
-        <div id="update-center-summary" class="update-center-summary" role="status" aria-live="polite" aria-atomic="true"></div>
-        <div id="update-device-list" class="update-device-list"></div>
-        <label class="settings-row settings-toggle-row">
-          <span><strong id="update-auto-label">Automatic updates</strong><small id="update-status-copy">Check GitHub and update this device periodically</small></span>
-          <span class="toggle"><input id="set-auto-update" type="checkbox"><span class="toggle-track"></span></span>
-        </label>
-        <button id="update-check" class="settings-row settings-button-row" type="button">
-          <span><strong id="update-check-label">Check for updates</strong><small id="update-check-status" role="status" aria-live="polite">Checking updater status…</small></span>
-          <span class="row-chevron" aria-hidden="true">→</span>
-        </button>
-        <div class="harness-update-heading">
-          <div id="harness-update-title" class="settings-subheading" role="heading" aria-level="4">Harness updates</div>
-          <div class="harness-update-actions">
-            <button id="harness-update-check-all" class="btn ghost" type="button">Check all</button>
-            <button id="harness-update-apply-all" class="btn ghost" type="button">Upgrade all</button>
-          </div>
-        </div>
-        <p id="harness-update-note" class="settings-note harness-update-note">Check and upgrade the coding agents installed on this device. Active sessions are protected.</p>
-        <div id="harness-update-summary" class="harness-update-summary" role="status" aria-live="polite" aria-atomic="true"></div>
-        <div id="harness-update-list" class="harness-update-list"></div>
-        <button id="btn-open-onboarding" class="settings-row settings-button-row" type="button">
-          <span><strong id="setup-guide-title">Setup guide</strong><small id="setup-guide-subtitle">Review the essentials for this device</small></span>
-          <span class="row-chevron" aria-hidden="true">→</span>
-        </button>
-      </section>
+          <section class="settings-group" data-settings-category="agents">
+            <h3 class="group-title" data-i18n-key="settings.notificationsTitle">Notifications</h3>
+            <div class="settings-row" id="push-notifications-row">
+              <span>
+                <strong data-i18n-key="settings.pushTitle">Push notifications</strong>
+                <small>Ping this device when a run finishes without a browser attached</small>
+              </span>
+              <button id="push-toggle" class="settings-action-btn" type="button">Enable</button>
+            </div>
+          </section>
 
-      <section class="settings-group settings-advanced-group">
-        <h3 class="group-title">Advanced</h3>
-        <button id="btn-reset-settings" class="settings-row settings-button-row" type="button">
-          <span><strong>Restore interface defaults</strong><small>Clear theme, density, and model visibility preferences</small></span>
-          <span class="row-chevron" aria-hidden="true">↺</span>
-        </button>
-      </section>
+          <section class="settings-group" data-settings-category="agents">
+            <h3 class="group-title" data-i18n-key="settings.historyTitle">History</h3>
+            <label class="settings-row settings-toggle-row">
+              <span><strong>Sub Agent sessions</strong><small id="set-show-temporary-sessions-note">Hidden by default</small></span>
+              <span class="toggle"><input id="set-show-temporary-sessions" type="checkbox"><span class="toggle-track"></span></span>
+            </label>
+          </section>
 
-      <div class="settings-account-action">
-        <button id="btn-logout" class="settings-row settings-button-row danger-text" type="button">
-          <span><strong>Sign out</strong><small>Clear this browser's sign-in state</small></span>
-          <span class="row-chevron" aria-hidden="true">→</span>
-        </button>
+          <!-- Devices & access -->
+          <section class="settings-group" data-settings-category="devices" data-settings-target="devices">
+            <div class="settings-group-heading machine-settings-heading">
+              <h3 class="group-title">Devices</h3>
+              <div class="machine-heading-actions">
+                <button id="machine-pair" class="icon-button-small" type="button" title="Join with pairing code" aria-label="Join with pairing code"><svg class="icon"><use href="#i-link"></use></svg></button>
+                <button id="machine-add" class="icon-button-small" type="button" title="Add device" aria-label="Add device"><svg class="icon"><use href="#i-plus"></use></svg></button>
+              </div>
+            </div>
+            <div id="machine-list" class="machine-list"></div>
+            <p class="settings-note" data-i18n-key="deviceTrust.pairingNote">One-time pairing creates an independent, revocable device credential. Manual URL entry remains the legacy shared Web-token path.</p>
+            <section class="device-trust-panel" aria-labelledby="authorized-devices-title">
+              <h4 id="authorized-devices-title" data-i18n-key="deviceTrust.authorizedTitle">Authorized devices</h4>
+              <p id="authorized-devices-status" class="settings-note" role="status" aria-live="polite"></p>
+              <div id="authorized-device-list" class="authorized-device-list"></div>
+            </section>
+          </section>
+
+          <section class="settings-group" data-settings-category="devices" data-settings-target="tokens">
+            <div class="settings-group-heading">
+              <h3 class="group-title" data-i18n-key="tokens.title">Access tokens</h3>
+              <button id="token-add" class="icon-button-small" type="button" data-i18n-title-key="tokens.create" data-i18n-aria-key="tokens.create" title="Create token" aria-label="Create token"><svg class="icon"><use href="#i-plus"></use></svg></button>
+            </div>
+            <p class="settings-note" data-i18n-key="tokens.note">Issue one token per device or person. Revoking a token ends its access immediately; the installer token always keeps working.</p>
+            <div id="token-create-row" class="token-create-row hidden">
+              <input id="token-label" type="text" maxlength="40" autocomplete="off" data-i18n-placeholder-key="tokens.labelPlaceholder" placeholder="e.g. MacBook">
+              <button id="token-create" class="btn primary" type="button" data-i18n-key="tokens.create">Create</button>
+              <button id="token-create-cancel" class="btn ghost" type="button" data-i18n-key="tokens.cancel">Cancel</button>
+            </div>
+            <p id="token-form-error" class="form-error hidden" role="alert"></p>
+            <div id="token-new-row" class="token-new-row hidden">
+              <p class="settings-note" data-i18n-key="tokens.showOnce">Copy this token now — it will not be shown again.</p>
+              <div class="token-new-value">
+                <code id="token-new-value-text" class="mono" data-i18n-ignore></code>
+                <button id="token-new-copy" class="btn ghost" type="button" data-i18n-key="tokens.copy">Copy</button>
+                <button id="token-new-done" class="btn primary" type="button" data-i18n-key="tokens.done">Done</button>
+              </div>
+            </div>
+            <div id="token-list" class="token-list"></div>
+          </section>
+
+          <section class="settings-group" data-settings-category="devices">
+            <h3 class="group-title">Resource sync</h3>
+            <p class="settings-note">Compare global Pi extensions, skills, and packages between two devices. Read-only; nothing is installed.</p>
+            <label class="settings-row settings-select-row settings-select-row-stack">
+              <span><strong>Compare</strong><small>Inventory source device</small></span>
+              <select id="sync-base-device" aria-label="Inventory source device" data-i18n-ignore></select>
+            </label>
+            <label class="settings-row settings-select-row settings-select-row-stack">
+              <span><strong>With</strong><small>Comparison target device</small></span>
+              <select id="sync-compare-device" aria-label="Comparison target device" data-i18n-ignore></select>
+            </label>
+            <button id="sync-compare" class="settings-row settings-button-row" type="button">
+              <span><strong>Compare resources</strong><small id="sync-compare-status" role="status" aria-live="polite"></small></span>
+              <span class="row-chevron" aria-hidden="true">→</span>
+            </button>
+            <div id="sync-result" class="resource-sync-result" data-i18n-ignore="true"></div>
+          </section>
+
+          <!-- Updates -->
+          <section class="settings-group settings-update-group" data-settings-category="updates" data-settings-target="updates">
+            <div class="settings-group-heading update-center-heading">
+              <div>
+                <h3 class="group-title">Stepsemble</h3>
+                <p class="settings-note update-center-note">Update settings are independent for each configured device.</p>
+              </div>
+              <button id="update-all-devices" class="btn ghost update-all-button" type="button">Check all devices</button>
+            </div>
+            <div id="update-center-summary" class="update-center-summary hidden" role="status" aria-live="polite" aria-atomic="true"></div>
+            <div id="update-device-list" class="update-device-list"></div>
+            <button id="update-install-all" class="btn primary update-install-all hidden" type="button"></button>
+          </section>
+
+          <section class="settings-group settings-harness-group" data-settings-category="updates">
+            <div class="settings-group-heading harness-update-heading">
+              <div>
+                <h3 id="harness-update-title" class="group-title">Coding agents</h3>
+                <p id="harness-update-note" class="settings-note harness-update-note"></p>
+              </div>
+              <div class="harness-update-actions">
+                <button id="harness-update-check-all" class="btn ghost" type="button">Check now</button>
+                <button id="harness-update-apply-all" class="btn primary hidden" type="button">Upgrade all</button>
+              </div>
+            </div>
+            <div id="harness-update-summary" class="harness-update-summary" role="status" aria-live="polite" aria-atomic="true"></div>
+            <div id="harness-update-list" class="harness-update-list"></div>
+            <p id="harness-update-missing" class="settings-note harness-update-missing hidden"></p>
+          </section>
+
+          <!-- Advanced -->
+          <section class="settings-group settings-about-group" data-settings-category="advanced" data-settings-target="about">
+            <h3 class="group-title">About</h3>
+            <div id="usage-summary-card" class="usage-summary hidden">
+              <div class="usage-summary-heading">
+                <strong id="usage-summary-title" data-i18n-key="usage.title">Usage · last 7 days</strong>
+                <span id="usage-summary-note" class="usage-summary-note"></span>
+              </div>
+              <div id="usage-summary-rows" class="usage-summary-rows" role="list"></div>
+            </div>
+            <div class="settings-row">
+              <span><strong>Stepsemble</strong><small data-i18n-key="agentHub.workspace">A workspace for local coding agents</small></span>
+              <span class="settings-value" id="set-app-version">v3.1.2</span>
+            </div>
+            <div class="settings-row">
+              <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
+              <span class="settings-value mono" id="set-pi-version">—</span>
+            </div>
+            <button id="btn-open-onboarding" class="settings-row settings-button-row" type="button">
+              <span><strong id="setup-guide-title">Setup guide</strong><small id="setup-guide-subtitle">Review the essentials for this device</small></span>
+              <span class="row-chevron" aria-hidden="true">→</span>
+            </button>
+          </section>
+
+          <section class="settings-group settings-advanced-group" data-settings-category="advanced">
+            <h3 class="group-title">Advanced</h3>
+            <button id="btn-reset-settings" class="settings-row settings-button-row" type="button">
+              <span><strong>Restore interface defaults</strong><small>Resets theme, text size, density and model visibility. Language and projects are kept.</small></span>
+              <span class="row-chevron" aria-hidden="true">↺</span>
+            </button>
+          </section>
+        </div>
       </div>
-
-      <p class="settings-footer">Stepsemble · self-hosted on your tailnet</p>
     </div>
   </main>
 
@@ -538,7 +597,7 @@
           <button id="model-agent-codex" class="model-agent-tab" type="button" aria-selected="false">Codex &amp; Claude</button>
         </div>
         <p id="model-catalog-status" class="settings-note" aria-live="polite" data-i18n-key="modelsCheck.auto">Automatic model catalogs refresh every 5 minutes. Hand-written model lists stay manual.</p>
-        <div class="model-list-toolbar">
+        <div id="model-list-toolbar" class="model-list-toolbar">
           <input id="model-filter" type="search" autocomplete="off" spellcheck="false" placeholder="Search providers or models…" aria-label="Search providers or models">
           <span id="model-list-summary" class="model-list-summary">—</span>
         </div>
@@ -975,22 +1034,22 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=3.1.1"></script>
-<script src="/modules/app-foundation.js?v=3.1.1"></script>
-<script src="/modules/agent-identity.js?v=3.1.1"></script>
-<script src="/modules/session-utils.js?v=3.1.1"></script>
-<script src="/modules/pi-session.js?v=3.1.1"></script>
-<script src="/modules/conversation-catalog.js?v=3.1.1"></script>
-<script src="/modules/context-usage.js?v=3.1.1"></script>
-<script src="/modules/opencode-context.js?v=3.1.1"></script>
-<script src="/modules/claude-auth.js?v=3.1.1"></script>
-<script src="/modules/claude-structured-rendering.js?v=3.1.1"></script>
-<script src="/modules/agent-transcript-presentation.js?v=3.1.1"></script>
-<script src="/modules/codex-approvals.js?v=3.1.1"></script>
-<script src="/modules/protocol-contracts.js?v=3.1.1"></script>
-<script src="/modules/client-sdk.js?v=3.1.1"></script>
-<script src="/modules/native-dialogs.js?v=3.1.1"></script>
-<script src="/modules/composer-ime.js?v=3.1.1"></script>
-<script src="/app.js?v=3.1.1"></script>
+<script src="/i18n.js?v=3.1.2"></script>
+<script src="/modules/app-foundation.js?v=3.1.2"></script>
+<script src="/modules/agent-identity.js?v=3.1.2"></script>
+<script src="/modules/session-utils.js?v=3.1.2"></script>
+<script src="/modules/pi-session.js?v=3.1.2"></script>
+<script src="/modules/conversation-catalog.js?v=3.1.2"></script>
+<script src="/modules/context-usage.js?v=3.1.2"></script>
+<script src="/modules/opencode-context.js?v=3.1.2"></script>
+<script src="/modules/claude-auth.js?v=3.1.2"></script>
+<script src="/modules/claude-structured-rendering.js?v=3.1.2"></script>
+<script src="/modules/agent-transcript-presentation.js?v=3.1.2"></script>
+<script src="/modules/codex-approvals.js?v=3.1.2"></script>
+<script src="/modules/protocol-contracts.js?v=3.1.2"></script>
+<script src="/modules/client-sdk.js?v=3.1.2"></script>
+<script src="/modules/native-dialogs.js?v=3.1.2"></script>
+<script src="/modules/composer-ime.js?v=3.1.2"></script>
+<script src="/app.js?v=3.1.2"></script>
 </body>
 </html>

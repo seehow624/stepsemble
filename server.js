@@ -88,7 +88,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.1.1";
+const APP_VERSION = "3.1.2";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -122,6 +122,10 @@ const UPDATE_CONFIG_FILE = settingFromEnv("UPDATE_CONFIG")
 const UPDATE_STATE_FILE = settingFromEnv("UPDATE_STATE")
   ? path.resolve(expandHome(settingFromEnv("UPDATE_STATE")))
   : path.join(APP_HOME, ".config", "stepsemble", "update-state.json");
+// A user-requested "check" only reads the published release. Its result is
+// kept apart from the updater's state so it can never be mistaken for an
+// install request by the pending-update scheduler.
+const UPDATE_CHECK_FILE = path.join(path.dirname(UPDATE_STATE_FILE), "update-check.json");
 const UPDATE_SCRIPT_FILE = settingFromEnv("UPDATE_SCRIPT")
   ? path.resolve(expandHome(settingFromEnv("UPDATE_SCRIPT")))
   : path.join(APP_HOME, ".local", "share", "stepsemble-bin", "stepsemble-update.sh");
@@ -514,22 +518,117 @@ function updatePhase(config, state, installed) {
   return state.lastCheckedAt ? (config.enabled ? "up_to_date" : "disabled") : "idle";
 }
 
+const RELEASE_TAG_RE = /^v\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.]+)?$/;
+
+// Mirrors release_is_newer in deploy/stepsemble-update.sh so a manual check
+// and the updater always agree on whether a release is an upgrade.
+function releaseIsNewer(current, latest) {
+  const parts = (value) => {
+    const match = String(value || "").trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-.]([A-Za-z0-9.-]+))?$/);
+    return match ? { numbers: match.slice(1, 4).map(Number), pre: match[4] || "" } : null;
+  };
+  const installed = parts(current);
+  const published = parts(latest);
+  if (!published) return false;
+  if (!installed) return true;
+  for (let index = 0; index < 3; index += 1) {
+    if (published.numbers[index] > installed.numbers[index]) return true;
+    if (published.numbers[index] < installed.numbers[index]) return false;
+  }
+  return !published.pre && !!installed.pre;
+}
+
+function readUpdateCheck(config = readUpdateConfig()) {
+  const value = readPrivateJson(UPDATE_CHECK_FILE);
+  // A result for another repository or channel says nothing about this one.
+  if (value.repository !== config.repository || value.ref !== config.ref) return null;
+  const checkedAt = typeof value.checkedAt === "string" && Number.isFinite(Date.parse(value.checkedAt)) ? value.checkedAt : null;
+  if (!checkedAt) return null;
+  return {
+    checkedAt,
+    latestVersion: safeUpdateVersion(value.latestVersion),
+    error: typeof value.error === "string" && value.error ? "update_check_failed" : null,
+  };
+}
+
+async function fetchPublishedReleaseTag({ repository, ref }) {
+  const stable = ref === "stable";
+  if (!stable && !RELEASE_TAG_RE.test(ref)) throw Object.assign(new Error("Updates require the stable channel or an exact release tag"), { statusCode: 409 });
+  const headers = { "User-Agent": `Stepsemble/${APP_VERSION}` };
+  try {
+    const response = await fetch(stable
+      ? `https://api.github.com/repos/${repository}/releases/latest`
+      : `https://api.github.com/repos/${repository}/releases/tags/${ref}`, {
+      headers: { ...headers, Accept: "application/vnd.github+json" },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (response.ok) {
+      const release = await response.json();
+      if (RELEASE_TAG_RE.test(String(release?.tag_name || ""))) return release.tag_name;
+    } else {
+      try { await response.body?.cancel(); } catch {}
+    }
+  } catch {}
+  // The unauthenticated API is rate limited per public IP. The release page
+  // redirects to the published tag, which is the same fallback the updater uses.
+  const page = await fetch(stable
+    ? `https://github.com/${repository}/releases/latest`
+    : `https://github.com/${repository}/releases/tag/${ref}`, {
+    headers, redirect: "follow", signal: AbortSignal.timeout(15000),
+  });
+  try { await page.body?.cancel(); } catch {}
+  const finalUrl = String(page.url || "").split("?")[0];
+  const tag = finalUrl.slice(finalUrl.lastIndexOf("/") + 1);
+  if (!page.ok || !RELEASE_TAG_RE.test(tag)) throw new Error("The latest release could not be read");
+  return tag;
+}
+
+let manualUpdateCheck = null;
+
+// Reads the published release and records the answer. This never downloads,
+// stages, or installs anything; installing stays an explicit /api/update/run.
+function runManualUpdateCheck() {
+  if (manualUpdateCheck) return manualUpdateCheck;
+  manualUpdateCheck = (async () => {
+    const config = readUpdateConfig();
+    const base = { repository: config.repository, ref: config.ref };
+    try {
+      const tag = await fetchPublishedReleaseTag(config);
+      writePrivateJson(UPDATE_CHECK_FILE, { ...base, checkedAt: new Date().toISOString(), latestVersion: safeUpdateVersion(tag) }, "check");
+    } catch (error) {
+      if (error?.statusCode === 409) throw error;
+      writePrivateJson(UPDATE_CHECK_FILE, { ...base, checkedAt: new Date().toISOString(), error: "update_check_failed" }, "check");
+    }
+    return publicUpdateStatus();
+  })().finally(() => { manualUpdateCheck = null; });
+  return manualUpdateCheck;
+}
+
 function publicUpdateStatus() {
   const config = readUpdateConfig();
   const state = readUpdateState();
+  const check = readUpdateCheck(config);
   let installed = false;
   try { installed = fs.statSync(UPDATE_SCRIPT_FILE).isFile(); } catch {}
-  const lastCheckedAt = state.lastCheckedAt && Number.isFinite(Date.parse(state.lastCheckedAt))
+  const lastRunAt = state.lastCheckedAt && Number.isFinite(Date.parse(state.lastCheckedAt))
     ? state.lastCheckedAt : null;
-  const nextCheckAt = config.enabled && installed && lastCheckedAt
-    ? new Date(Date.parse(lastCheckedAt) + config.intervalMinutes * 60 * 1000).toISOString()
+  const nextCheckAt = config.enabled && installed && lastRunAt
+    ? new Date(Date.parse(lastRunAt) + config.intervalMinutes * 60 * 1000).toISOString()
     : null;
-  const latestVersion = safeUpdateVersion(state.latestVersion);
+  // A disabled scheduled run records its time without contacting GitHub, so
+  // it is not evidence about the published release.
+  const updaterCheckedAt = state.phase === "disabled" ? null : lastRunAt;
+  const useCheck = !!check && (!updaterCheckedAt || Date.parse(check.checkedAt) > Date.parse(updaterCheckedAt));
+  const lastCheckedAt = useCheck ? check.checkedAt : updaterCheckedAt;
+  const latestVersion = useCheck ? check.latestVersion : state.phase === "disabled" ? null : safeUpdateVersion(state.latestVersion);
   const currentSha = safeUpdateMarker(state.currentSha);
   const latestSha = safeUpdateMarker(state.latestSha);
   const lastUpdatedAt = state.lastUpdatedAt && Number.isFinite(Date.parse(state.lastUpdatedAt))
     ? state.lastUpdatedAt : null;
-  const phase = updatePhase(config, state, installed);
+  let phase = updatePhase(config, state, installed);
+  if (useCheck && phase !== "checking" && phase !== "deferred") {
+    phase = check.error ? "error" : releaseIsNewer(APP_VERSION, check.latestVersion) ? "available" : "up_to_date";
+  }
   return {
     appVersion: APP_VERSION,
     currentVersion: APP_VERSION,
@@ -546,11 +645,14 @@ function publicUpdateStatus() {
       nextCheckAt,
       phase,
       pending: phase === "deferred" || phase === "available",
+      // Clients use this to offer a check that cannot install anything.
+      checkOnly: true,
+      ...(updateProcessIsRunning() ? { activity: "installing" } : {}),
       ...(currentSha ? { currentSha } : {}),
       ...(latestSha ? { latestSha } : {}),
       ...(lastUpdatedAt ? { lastUpdatedAt } : {}),
       ...(phase === "deferred" && state.deferredReason === "active_rpc_running" ? { deferredReason: state.deferredReason } : {}),
-      ...(state.error ? { error: "update_check_failed" } : {}),
+      ...(phase === "error" ? { error: "update_check_failed" } : {}),
     },
   };
 }
@@ -6124,6 +6226,15 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      if (p === "/api/update/check" && req.method === "POST") {
+        try {
+          sendJSON(res, 200, await runManualUpdateCheck());
+        } catch (e) {
+          sendJSON(res, e.statusCode || 502, { error: e.message || "Could not check for updates" });
+        }
+        return;
+      }
+
       if (p === "/api/harness-updates/status" && req.method === "GET") {
         if (!harnessUpdateService) {
           sendJSON(res, 503, { error: "Harness update service unavailable" });
@@ -6168,7 +6279,8 @@ const server = http.createServer(async (req, res) => {
         }
         try {
           const body = await readJSON(req, 8 * 1024);
-          sendJSON(res, 200, await harnessUpdateService.updateAll({ confirm: body?.confirm === true }));
+          const ids = Array.isArray(body?.ids) ? body.ids.slice(0, 32).filter(id => typeof id === "string") : null;
+          sendJSON(res, 200, await harnessUpdateService.updateAll({ confirm: body?.confirm === true, ids }));
         } catch (e) {
           sendJSON(res, e.statusCode || 502, { error: e.message || "Could not update harnesses", code: e.code || null, result: e.result || undefined });
         }

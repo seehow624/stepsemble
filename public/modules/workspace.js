@@ -618,7 +618,7 @@
       }
     }
     search.oninput = () => { limit = 50; show(); };
-    const results = await Promise.allSettled([api("/api/sessions?includeTemporary=1", undefined, target), api("/api/agent-tasks", undefined, target)]);
+    const results = await Promise.allSettled([api(`/api/sessions?includeTemporary=${prefs.showTemporarySessions ? 1 : 0}`, undefined, target), api("/api/agent-tasks", undefined, target)]);
     if (epoch !== dialogEpoch) return;
     const [pi, agents] = results;
     rows = [...(pi.status === "fulfilled" ? pi.value.sessions.map(record => ({ kind: "pi_history", reference: record.file, record })) : []), ...(agents.status === "fulfilled" ? agents.value.tasks.filter(r => r.agentId !== "pi").map(record => ({ kind: "task_record", reference: record.id || record.taskId, record })) : [])];

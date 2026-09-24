@@ -1,7 +1,7 @@
-/* stepsemble v3.1.1 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.1.2 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.1.1";
+const CLIENT_APP_VERSION = "3.1.2";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 if (WORKSPACE_PANE) {
   document.documentElement.classList.add("workspace-embedded");
@@ -128,15 +128,20 @@ const el = {
   sessionCount: $("session-count"), btnLayout: $("btn-layout"),
   composerModelNameText: $("composer-model-name"), composerModelLevelText: $("composer-model-level"),
   btnOpenSettings: $("btn-open-settings"), btnSettingsBack: $("btn-settings-back"), btnModelSettingsBack: $("btn-model-settings-back"), modelSettingsOpen: $("model-settings-open"), modelSettingsSummary: $("model-settings-summary"),
+  settingsTitle: $("settings-title"), settingsNav: $("settings-nav"), settingsContentTitle: $("settings-content-title"),
+  settingsHostDot: $("settings-host-dot"), settingsUpdatesBadge: $("settings-updates-badge"),
+  settingsSummaryAppearance: $("settings-summary-appearance"), settingsSummaryDevices: $("settings-summary-devices"),
+  settingsSummaryUpdates: $("settings-summary-updates"), settingsSummaryAdvanced: $("settings-summary-advanced"),
+  themeChoicesToggle: $("theme-choices-toggle"), themeCurrentName: $("theme-current-name"), themeCurrentSwatches: $("theme-current-swatches"),
   modelCatalogRefresh: $("model-catalog-refresh"),
   machineList: $("machine-list"), machineAdd: $("machine-add"), machinePair: $("machine-pair"), machineDialog: $("machine-dialog"), machineDialogTitle: $("machine-dialog-title"), machineStandardFields: $("machine-standard-fields"), machineName: $("machine-name"), machineUrl: $("machine-url"), machinePort: $("machine-port"), machinePortLabel: $("machine-port-label"), machineHost: $("machine-host"), machineStatusNote: $("machine-status-note"), machineFormError: $("machine-form-error"), machinePairArea: $("machine-pair-area"), machinePairCode: $("machine-pair-code"), machinePairJoin: $("machine-pair-join"), machinePairPreview: $("machine-pair-preview"), machinePairPreviewName: $("machine-pair-preview-name"), machinePairPreviewUrl: $("machine-pair-preview-url"), machinePairPreviewExpires: $("machine-pair-preview-expires"), machinePairPreviewVersion: $("machine-pair-preview-version"), machinePairOfferArea: $("machine-pair-offer-area"), machinePairOffer: $("machine-pair-offer"), machinePairGenerate: $("machine-pair-generate"), machineRestart: $("machine-restart"), machineSave: $("machine-save"), machineDelete: $("machine-delete"), machineTest: $("machine-test"), machineCancel: $("machine-cancel"), machineCancelBottom: $("machine-cancel-bottom"),
   authorizedDevicesStatus: $("authorized-devices-status"), authorizedDeviceList: $("authorized-device-list"),
   setMachineName: $("set-machine-name"), setMachineHost: $("set-machine-host"), setPiVersion: $("set-pi-version"), setAppVersion: $("set-app-version"),
   btnLogout: $("btn-logout"), btnResetSettings: $("btn-reset-settings"), btnOpenOnboarding: $("btn-open-onboarding"), setupGuideTitle: $("setup-guide-title"), setupGuideSubtitle: $("setup-guide-subtitle"),
-  setAutoUpdate: $("set-auto-update"), updateAutoLabel: $("update-auto-label"), updateStatusCopy: $("update-status-copy"), updateCheck: $("update-check"), updateCheckLabel: $("update-check-label"), updateCheckStatus: $("update-check-status"), updateAllDevices: $("update-all-devices"), updateCenterSummary: $("update-center-summary"), updateDeviceList: $("update-device-list"),
-  harnessUpdateTitle: $("harness-update-title"), harnessUpdateNote: $("harness-update-note"), harnessUpdateCheckAll: $("harness-update-check-all"), harnessUpdateApplyAll: $("harness-update-apply-all"), harnessUpdateSummary: $("harness-update-summary"), harnessUpdateList: $("harness-update-list"),
+  updateAllDevices: $("update-all-devices"), updateInstallAll: $("update-install-all"), updateCenterSummary: $("update-center-summary"), updateDeviceList: $("update-device-list"),
+  harnessUpdateTitle: $("harness-update-title"), harnessUpdateNote: $("harness-update-note"), harnessUpdateCheckAll: $("harness-update-check-all"), harnessUpdateApplyAll: $("harness-update-apply-all"), harnessUpdateSummary: $("harness-update-summary"), harnessUpdateList: $("harness-update-list"), harnessUpdateMissing: $("harness-update-missing"),
   syncBaseDevice: $("sync-base-device"), syncCompareDevice: $("sync-compare-device"), syncCompare: $("sync-compare"), syncCompareStatus: $("sync-compare-status"), syncResult: $("sync-result"),
-  setLocale: $("set-locale"), setTheme: $("set-theme"), setDesignTheme: $("theme-choices"), setSidebarWidth: $("set-sidebar-width"), setSidebarWidthValue: $("set-sidebar-width-value"), setFontScale: $("set-font-scale"), setFontScaleValue: $("set-font-scale-value"), setCompact: $("set-compact"), setGroup: $("set-group"),
+  setLocale: $("set-locale"), setTheme: $("set-theme"), setDesignTheme: $("theme-choices"), setSidebarWidth: $("set-sidebar-width"), setSidebarWidthValue: $("set-sidebar-width-value"), setFontScale: $("set-font-scale"), setFontScaleValue: $("set-font-scale-value"), setCompact: $("set-compact"),
   btnImg: $("btn-img"), fileInput: $("file-input"), imgPreview: $("img-preview"),
   setReducedMotion: $("set-reduced-motion"), setThinking: $("set-thinking"),
   modelVisibilityList: $("model-visibility-list"), modelVisibilityRefresh: $("model-visibility-refresh"),
@@ -1647,6 +1652,9 @@ async function renderUsageSummary() {
 function showSettings() {
   void loadTokens(true);
   resetSettingsOverlay();
+  // Phones open on the section list; wide layouts keep the last section.
+  settingsCategory = null;
+  if (el.setDesignTheme) el.setDesignTheme.hidden = true;
   el.viewModelSettings.classList.add("hidden");
   el.viewList.classList.remove("hidden");
   // Render after the settings view is visible so remote trust/status loaders
@@ -1663,7 +1671,68 @@ function showSettings() {
   startUpdateCenterPolling();
 }
 el.btnOpenSettings.addEventListener("click", showSettings);
-el.btnSettingsBack.addEventListener("click", hideSettings);
+
+// Settings is grouped into a few sections. Phones show the section list first
+// and one section at a time; wide layouts keep the list beside the section.
+const SETTINGS_CATEGORIES = Object.freeze(["appearance", "agents", "devices", "updates", "advanced"]);
+const SETTINGS_CATEGORY_LABELS = Object.freeze({
+  appearance: "Appearance", agents: "Agents & models", devices: "Devices & access", updates: "Updates", advanced: "Advanced",
+});
+const SETTINGS_TARGET_CATEGORIES = Object.freeze({
+  devices: "devices", tokens: "devices", connection: "agents", "agent-auth": "agents",
+  appearance: "appearance", updates: "updates", about: "advanced",
+});
+const settingsSplitQuery = window.matchMedia?.("(min-width: 900px)") || null;
+let settingsCategory = null;
+let lastSettingsCategory = "appearance";
+
+function settingsSplitLayout() { return !!settingsSplitQuery?.matches; }
+function activeSettingsCategory() { return settingsCategory || (settingsSplitLayout() ? lastSettingsCategory : null); }
+
+function applySettingsCategory() {
+  if (!el.viewSettings) return;
+  const category = activeSettingsCategory();
+  const split = settingsSplitLayout();
+  el.viewSettings.dataset.settingsView = category || "home";
+  const label = category ? updateText(SETTINGS_CATEGORY_LABELS[category]) : "";
+  if (el.settingsTitle) el.settingsTitle.textContent = category && !split ? label : updateText("Settings");
+  if (el.settingsContentTitle) el.settingsContentTitle.textContent = label;
+  for (const item of el.settingsNav?.querySelectorAll(".settings-nav-item") || []) {
+    const active = item.dataset.settingsOpen === category;
+    item.classList.toggle("is-active", active);
+    if (active) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
+  }
+  const back = updateText(category && !split ? "Back to settings" : "Back");
+  el.btnSettingsBack?.setAttribute("aria-label", back);
+  el.btnSettingsBack?.setAttribute("title", back);
+}
+
+function showSettingsCategory(category) {
+  settingsCategory = SETTINGS_CATEGORIES.includes(category) ? category : null;
+  if (settingsCategory) lastSettingsCategory = settingsCategory;
+  applySettingsCategory();
+  const scroll = el.viewSettings?.querySelector(".settings-scroll");
+  if (scroll) scroll.scrollTop = 0;
+  if (activeSettingsCategory() === "updates") maybeAutoCheckHarnesses();
+}
+
+// The toolbar back button and the edge gesture leave a section first on
+// phones, then close Settings.
+function settingsGoBack() {
+  if (settingsCategory && !settingsSplitLayout()) {
+    showSettingsCategory(null);
+    return;
+  }
+  hideSettings();
+}
+
+el.btnSettingsBack.addEventListener("click", settingsGoBack);
+el.settingsNav?.addEventListener("click", (event) => {
+  const target = event.target.closest?.("[data-settings-open]");
+  if (target) showSettingsCategory(target.dataset.settingsOpen);
+});
+settingsSplitQuery?.addEventListener?.("change", () => { if (updateViewIsOpen()) applySettingsCategory(); });
 el.syncCompare?.addEventListener("click", () => { void compareResources(); });
 
 // The settings content owns the scroll position, but the fixed top bar is
@@ -1695,6 +1764,8 @@ el.btnModelSettingsBack?.addEventListener("click", () => {
   el.viewModelSettings.classList.add("hidden");
   el.viewSettings.classList.remove("hidden");
   renderSettings();
+  // Models & providers is opened from the Agents section; return there.
+  showSettingsCategory("agents");
   startUpdateCenterPolling();
 });
 
@@ -2836,8 +2907,8 @@ function renderTemporarySessionFilter(count = temporarySessionCount) {
   if (el.setShowTemporarySessions) el.setShowTemporarySessions.checked = !!settings.showTemporarySessions;
   const note = el.setShowTemporarySessionsNote;
   if (note) {
-    const state = window.stepsembleI18n?.t(settings.showTemporarySessions ? "Showing" : "Hidden by default")
-      || (settings.showTemporarySessions ? "Showing" : "Hidden by default");
+    // The setting applies to History from other apps in the Workspace.
+    const state = updateText(settings.showTemporarySessions ? "Shown in History from other apps" : "Hidden from History from other apps");
     note.textContent = total > 0 ? `${state} · ${total}` : state;
   }
 }
@@ -6490,6 +6561,7 @@ function agentOpenFailureText(error, options = {}) {
 
 function guideClaudeCodeSignIn() {
   showSettings();
+  showSettingsCategory("agents");
   const disclosure = $("claude-auth");
   if (!disclosure) return;
   disclosure.open = true;
@@ -9991,6 +10063,7 @@ function toggleCommandPalette() {
 // a phone user can reach Providers without scrolling through Devices.
 function openSettingsSection(target) {
   showSettings();
+  showSettingsCategory(SETTINGS_TARGET_CATEGORIES[target] || null);
   setTimeout(() => {
     document.querySelector('[data-settings-target="' + String(target).replace(/"/g, "") + '"]')
       ?.scrollIntoView({ behavior: settings.reducedMotion ? "auto" : "smooth", block: "start" });
@@ -10444,6 +10517,18 @@ function maybeDateSeparator(ts, container = el.messages) {
     const velocity = current.dx / elapsed;
     const fast = current.dx > 40 && (elapsed < 260 || velocity >= 0.65);
     if (!cancelled && (current.dx > DIST || fast)) {
+      // Inside a section the gesture returns to the section list, like the
+      // toolbar back button, instead of closing Settings entirely.
+      if (settingsCategory && !settingsSplitLayout()) {
+        el.viewSettings.classList.add("snap-back");
+        el.viewSettings.style.transform = "";
+        showSettingsCategory(null);
+        settingsSwipeTimer = setTimeout(() => {
+          settingsSwipeTimer = null;
+          el.viewSettings.classList.remove("snap-back");
+        }, reducedMotion() ? 0 : 260);
+        return;
+      }
       if (reducedMotion()) {
         hideSettings();
         return;
@@ -10799,6 +10884,7 @@ function renderThemeChoices() {
     button.type = "button";
     button.className = "theme-choice" + (settings.designTheme === theme.id ? " selected" : "");
     button.dataset.theme = theme.id;
+    button.dataset.themeSwatch = theme.id;
     button.setAttribute("role", "radio");
     button.setAttribute("aria-checked", String(settings.designTheme === theme.id));
     button.setAttribute("aria-label", theme.label);
@@ -10812,7 +10898,18 @@ function renderThemeChoices() {
     button.append(swatches, label, check);
     el.setDesignTheme.appendChild(button);
   }
+  // The row shows the current theme; the full palette opens on demand so it
+  // does not take a whole phone screen.
+  const current = DESIGN_THEMES.find((theme) => theme.id === settings.designTheme) || DESIGN_THEMES[0];
+  if (el.themeCurrentName) el.themeCurrentName.textContent = current?.label || "";
+  if (el.themeCurrentSwatches && current) el.themeCurrentSwatches.dataset.themeSwatch = current.id;
+  el.themeChoicesToggle?.setAttribute("aria-expanded", String(!el.setDesignTheme.hidden));
 }
+el.themeChoicesToggle?.addEventListener("click", () => {
+  if (!el.setDesignTheme) return;
+  el.setDesignTheme.hidden = !el.setDesignTheme.hidden;
+  renderThemeChoices();
+});
 
 let updateStatusData = null;
 let updateStatusRequest = 0;
@@ -10990,12 +11087,6 @@ function updatePhaseText(data, machine, error = null) {
   return updateText("Ready to check {device} for updates", { device });
 }
 
-function updateDeviceStateText(entry) {
-  if (!entry) return updateText("Checking");
-  if (!entry.error) return updateText("Online");
-  return entry.reachable || updateErrorIsUnsupported(entry.error) ? updateText("Online") : updateText("Unavailable");
-}
-
 function updateNextCheckAt(updater) {
   if (updater?.nextCheckAt) return updater.nextCheckAt;
   if (!updater?.enabled || updater.installed === false || !updater?.lastCheckedAt) return null;
@@ -11004,238 +11095,372 @@ function updateNextCheckAt(updater) {
   return Number.isFinite(checked) ? new Date(checked + interval * 60 * 1000).toISOString() : null;
 }
 
-function updateMetric(label, value) {
-  const item = document.createElement("div");
-  item.className = "update-device-metric";
-  const name = document.createElement("span");
-  name.textContent = label;
-  const content = document.createElement("strong");
-  content.textContent = value;
-  item.append(name, content);
-  return item;
+// Mirrors the Host's release comparison for display only; the Host decides.
+function updateReleaseIsNewer(current, latest) {
+  const parts = (value) => {
+    const match = String(value || "").trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-.]([A-Za-z0-9.-]+))?$/);
+    return match ? { numbers: match.slice(1, 4).map(Number), pre: match[4] || "" } : null;
+  };
+  const installed = parts(current);
+  const published = parts(latest);
+  if (!published || !installed) return false;
+  for (let index = 0; index < 3; index += 1) {
+    if (published.numbers[index] !== installed.numbers[index]) return published.numbers[index] > installed.numbers[index];
+  }
+  return !published.pre && !!installed.pre;
 }
 
-function renderUpdateDeviceRow(machine) {
+const updateInstallInFlight = new Set();
+const updateAutoInFlight = new Set();
+let updateInstallAllRunning = false;
+
+// One place decides what a device row says and which actions it offers, so
+// the row, the "install on all" button and the section summary never disagree.
+function updateDeviceView(machine) {
   const entry = updateEntryFor(machine);
   const data = entry?.data;
   const updater = data?.updater;
+  const current = String(data?.appVersion || data?.currentVersion || updater?.currentVersion || "");
+  const latest = String(updater?.latestVersion || data?.latestVersion || "");
+  const view = { entry, updater, current, latest, tone: "muted", text: "", install: false, legacyInstall: false, auto: null, checked: false };
+  if (!entry) {
+    view.text = updateText("Checking status…");
+    return view;
+  }
+  if (entry.error) {
+    view.tone = "error";
+    if (entry.error.remote) view.text = updatePhaseText(null, machine, entry.error);
+    else if ([404, 405].includes(Number(entry.error.status))) view.text = updateText("Update controls need a newer Stepsemble on this device");
+    else view.text = updateText("Can't reach this device");
+    return view;
+  }
+  if (data?.updateUnsupported || !updater) {
+    view.text = updateText("Update controls need a newer Stepsemble on this device");
+    return view;
+  }
+  view.auto = { enabled: updater.enabled === true, available: updater.installed === true };
+  const version = updateVersionText(latest);
+  const checkedAt = updater.lastCheckedAt ? formatUpdateTime(updater.lastCheckedAt) : "";
+  if (updater.activity === "installing" || updateInstallInFlight.has(machine.id)) {
+    view.tone = "accent";
+    view.text = latest && updateReleaseIsNewer(current, latest)
+      ? updateText("Installing {version}…", { version })
+      : updateText("Installing the latest release…");
+    return view;
+  }
+  switch (updater.phase) {
+    case "checking":
+      view.text = updateText("Checking for updates…");
+      break;
+    case "deferred":
+      view.tone = "warn";
+      view.text = updateText("{version} installs when agent work finishes", { version });
+      break;
+    case "available":
+      view.tone = "accent";
+      view.checked = true;
+      view.install = updater.installed === true;
+      view.text = view.install
+        ? updateText("{version} available", { version })
+        : updateText("{version} available · the updater is not installed on this device", { version });
+      break;
+    case "error":
+      view.tone = "error";
+      view.text = updateText("Last check failed");
+      break;
+    case "unavailable":
+      view.text = updateText("The updater is not installed on this device");
+      break;
+    case "disabled":
+    case "idle":
+      view.text = updateText("No check yet");
+      break;
+    default:
+      view.tone = "ok";
+      view.checked = true;
+      view.text = checkedAt ? updateText("Up to date · checked {time}", { time: checkedAt }) : updateText("Up to date");
+  }
+  // Hosts older than the check-only API can only check by installing.
+  view.legacyInstall = updater.checkOnly !== true && updater.installed === true && !view.install
+    && !["checking", "deferred"].includes(updater.phase);
+  return view;
+}
+
+function renderUpdateDeviceRow(machine) {
+  const view = updateDeviceView(machine);
   const row = document.createElement("article");
-  row.className = "update-device-row";
+  row.className = "update-device-row update-tone-" + view.tone;
   row.dataset.deviceId = machine.id;
   row.dataset.i18nIgnore = "true";
-  row.classList.add(entry?.error ? "update-device-error" : "update-device-ready");
-  if (updater?.phase) row.classList.add(`update-phase-${updater.phase}`);
 
-  const heading = document.createElement("div");
-  heading.className = "update-device-heading";
+  const main = document.createElement("div");
+  main.className = "update-device-main";
+  const copy = document.createElement("div");
+  copy.className = "update-device-copy";
+  const title = document.createElement("div");
+  title.className = "update-device-title";
   const name = document.createElement("strong");
   name.textContent = updateDeviceName(machine);
-  const state = document.createElement("span");
-  state.className = "update-device-state";
-  state.textContent = updateDeviceStateText(entry);
-  heading.append(name, state);
-  row.appendChild(heading);
-
-  const versions = document.createElement("div");
-  versions.className = "update-device-metrics";
-  versions.append(
-    updateMetric(updateText("Current version"), updateVersionText(data?.appVersion || data?.currentVersion || updater?.currentVersion)),
-    updateMetric(updateText("Latest version"), updateVersionText(updater?.latestVersion || data?.latestVersion)),
-  );
-  row.appendChild(versions);
-
-  const phase = document.createElement("p");
-  phase.className = "update-device-phase";
-  phase.setAttribute("role", "status");
-  phase.textContent = updatePhaseText(data, machine, entry?.error || null);
-  row.appendChild(phase);
-
-  const times = document.createElement("div");
-  times.className = "update-device-times";
-  const last = updater?.lastCheckedAt && formatUpdateTime(updater.lastCheckedAt)
-    ? updateText("Last check: {time}", { time: formatUpdateTime(updater.lastCheckedAt) })
-    : updateText("No check yet");
-  let next = updateText("Automatic checks are off");
-  if (updater?.enabled && updater.installed !== false) {
-    const nextCheckAt = updateNextCheckAt(updater);
-    next = nextCheckAt && formatUpdateTime(nextCheckAt)
-      ? updateText("Next automatic check: {time}", { time: formatUpdateTime(nextCheckAt) })
-      : updateText("Next automatic check will appear after the first check");
+  title.appendChild(name);
+  if (view.current) {
+    const version = document.createElement("span");
+    version.className = "update-device-version";
+    version.textContent = updateVersionText(view.current);
+    title.appendChild(version);
   }
-  const lastLine = document.createElement("span");
-  lastLine.textContent = last;
-  const nextLine = document.createElement("span");
-  nextLine.textContent = next;
-  times.append(lastLine, nextLine);
-  row.appendChild(times);
+  const status = document.createElement("small");
+  status.className = "update-device-status";
+  status.textContent = view.text;
+  copy.append(title, status);
+  main.appendChild(copy);
+
+  if (view.install || view.legacyInstall) {
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "btn " + (view.install ? "primary" : "ghost") + " update-device-install";
+    action.dataset.updateInstall = machine.id;
+    action.textContent = view.install ? updateText("Install update") : updateText("Install latest");
+    action.disabled = updateInstallInFlight.has(machine.id) || updateInstallAllRunning;
+    main.appendChild(action);
+  }
+  row.appendChild(main);
+
+  if (view.auto) {
+    const auto = document.createElement("label");
+    auto.className = "update-device-auto";
+    const label = document.createElement("span");
+    label.textContent = view.auto.available
+      ? updateText("Automatic updates")
+      : updateText("Automatic updates need the Stepsemble updater");
+    const toggle = document.createElement("span");
+    toggle.className = "toggle";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.dataset.updateAuto = machine.id;
+    input.checked = view.auto.enabled;
+    input.disabled = !view.auto.available || updateAutoInFlight.has(machine.id);
+    input.setAttribute("aria-label", updateText("Automatic updates for {device}", { device: updateDeviceName(machine) }));
+    const track = document.createElement("span");
+    track.className = "toggle-track";
+    toggle.append(input, track);
+    auto.append(label, toggle);
+    row.appendChild(auto);
+  }
   return row;
 }
 
-function renderUpdateStatus(data = updateStatusData) {
-  const machine = currentMachine();
-  const device = updateDeviceName(machine);
-  const entry = updateEntryFor(machine);
-  const statusData = entry ? entry.data : data;
-  const error = entry?.error || null;
-  const updater = statusData?.updater;
-  if (el.updateAutoLabel) el.updateAutoLabel.textContent = updateText("Automatic updates for {device}", { device });
-  if (el.updateCheckLabel) el.updateCheckLabel.textContent = updateText("Check {device} for updates", { device });
-  if (!el.setAutoUpdate || !el.updateStatusCopy || !el.updateCheckStatus) return;
-
-  if (!entry && !data) {
-    el.setAutoUpdate.checked = false;
-    el.setAutoUpdate.disabled = true;
-    el.updateCheck.disabled = true;
-    el.updateStatusCopy.textContent = updateText("Checking {device} for updates…", { device });
-    el.updateCheckStatus.textContent = updateText("Checking {device} for updates…", { device });
-    return;
+function renderUpdateCenter() {
+  if (el.updateCenterSummary) {
+    const text = updateCenterSummaryText();
+    el.updateCenterSummary.textContent = text;
+    el.updateCenterSummary.classList.toggle("hidden", !text);
   }
-  if (error || !updater) {
-    el.setAutoUpdate.checked = false;
-    el.setAutoUpdate.disabled = true;
-    el.updateCheck.disabled = true;
-    el.updateStatusCopy.textContent = updateText("Update status unavailable on {device}", { device });
-    el.updateCheckStatus.textContent = updatePhaseText(statusData, machine, error);
-    return;
+  if (el.updateDeviceList) {
+    el.updateDeviceList.innerHTML = "";
+    for (const machine of machines) el.updateDeviceList.appendChild(renderUpdateDeviceRow(machine));
   }
-
-  const installed = updater.installed === true;
-  el.setAutoUpdate.checked = updater.enabled === true;
-  el.setAutoUpdate.disabled = !installed;
-  el.updateCheck.disabled = !installed;
-  if (!installed) {
-    el.updateStatusCopy.textContent = updateText("Install the Stepsemble updater on {device} to enable automatic updates", { device });
-    el.updateCheckStatus.textContent = updateText("Updater service is not installed on {device}", { device });
-    return;
+  if (el.updateAllDevices) {
+    el.updateAllDevices.textContent = machines.length > 1 ? updateText("Check all devices") : updateText("Check for updates");
+    el.updateAllDevices.disabled = !!updateAllController || !machines.length;
   }
-  el.updateStatusCopy.textContent = updater.enabled
-    ? updateText("Checks GitHub every {minutes} minutes on {device}", { minutes: updater.intervalMinutes || 60, device })
-    : updateText("Automatic updates are off on {device}", { device });
-  el.updateCheckStatus.textContent = updatePhaseText(statusData, machine);
+  if (el.updateInstallAll) {
+    const installable = machines.filter((machine) => updateDeviceView(machine).install);
+    el.updateInstallAll.classList.toggle("hidden", installable.length < 2);
+    el.updateInstallAll.textContent = updateText("Install on {count} devices", { count: installable.length });
+    el.updateInstallAll.disabled = updateInstallAllRunning || installable.some((machine) => updateInstallInFlight.has(machine.id));
+  }
+  renderHarnessUpdates(harnessUpdateDataByDevice.get(currentMachine()?.id) || null);
+  renderSettingsNavigation();
 }
 
-function renderUpdateCenter() {
-  renderUpdateStatus();
-  if (el.updateCenterSummary) {
-    el.updateCenterSummary.textContent = updateCenterSummary
-      ? updateText(updateCenterSummary.key, updateCenterSummary.vars)
-      : "";
-    el.updateCenterSummary.classList.toggle("hidden", !updateCenterSummary);
+// ---- Coding agent (harness) updates ----
+function harnessVersionIsNewer(latest, current) {
+  const parse = (value) => {
+    const match = String(value || "").trim().match(/^v?(\d+)\.(\d+)\.(\d+)/);
+    return match ? match.slice(1, 4).map(Number) : null;
+  };
+  const published = parse(latest);
+  const installed = parse(current);
+  if (!published || !installed) return false;
+  for (let index = 0; index < 3; index += 1) {
+    if (published[index] !== installed[index]) return published[index] > installed[index];
   }
-  if (!el.updateDeviceList) return;
-  el.updateDeviceList.innerHTML = "";
-  for (const machine of machines) el.updateDeviceList.appendChild(renderUpdateDeviceRow(machine));
-  renderHarnessUpdates(harnessUpdateDataByDevice.get(currentMachine()?.id) || null);
+  return false;
+}
+
+// Absence and host ownership are decided before freshness: a harness that is
+// missing or updated elsewhere must never read as "Up to date".
+function harnessUpdateKind(item) {
+  if (!item) return "unchecked";
+  if (item.installed === false || item.status === "not-installed") return "missing";
+  if (item.updateMode === "manual" || item.status === "manual") return "manual";
+  if (item.status === "available" || item.updateAvailable === true || harnessVersionIsNewer(item.latestVersion, item.currentVersion)) return "available";
+  if (item.status === "error") return "error";
+  if (item.status === "up-to-date" || item.status === "updated" || item.updateAvailable === false) return "current";
+  if (item.status === "not-checked" || item.installed == null) return "unchecked";
+  return "unknown";
 }
 
 function harnessUpdateStatusText(item) {
-  if (!item) return updateText("Not checked");
-  if (item.status === "available" || item.updateAvailable === true) return updateText("Update available");
-  if (item.status === "up-to-date" || item.status === "updated" || item.updateAvailable === false) return updateText("Up to date");
-  if (item.status === "manual") return updateText("Managed by host");
-  if (item.status === "not-installed") return updateText("Not installed");
-  if (item.status === "unknown") return updateText("Check managed by harness");
-  if (item.status === "error") return updateText("Check failed");
-  return updateText("Not checked");
+  if (harnessUpgradeBlocked(item)) return updateText("Update it where it was installed");
+  switch (harnessUpdateKind(item)) {
+    case "missing": return updateText("Not installed");
+    case "manual": return updateText("Managed by host");
+    case "available": return updateText("Update available");
+    case "error": return updateText("Check failed");
+    case "current": return updateText("Up to date");
+    case "unchecked": return updateText("Not checked");
+    default: return updateText("Can't check automatically");
+  }
+}
+
+// A source-aware updater refuses an executable whose install source it cannot
+// prove, so offering the button would only lead to a failure.
+function harnessUpgradeBlocked(item) {
+  return item?.updateMode === "source-aware" && item?.source === "unknown";
+}
+
+function harnessUpgradeable(item) {
+  const kind = harnessUpdateKind(item);
+  return item?.installed !== false && item?.updateMode !== "manual" && !harnessUpgradeBlocked(item)
+    && (kind === "available" || kind === "unknown");
+}
+
+function formatUpdateAge(value) {
+  const timestamp = Date.parse(String(value || ""));
+  if (!Number.isFinite(timestamp)) return "";
+  const minutes = Math.max(0, Math.round((Date.now() - timestamp) / 60000));
+  if (minutes < 1) return updateText("just now");
+  if (minutes < 60) return updateText("{count} min ago", { count: minutes });
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return updateText("{count} h ago", { count: hours });
+  return updateText("{count} d ago", { count: Math.round(hours / 24) });
 }
 
 function renderHarnessUpdates(data) {
   if (!el.harnessUpdateList || !el.harnessUpdateCheckAll || !el.harnessUpdateApplyAll) return;
-  if (el.harnessUpdateTitle) el.harnessUpdateTitle.textContent = updateText("Harness updates");
-  if (el.harnessUpdateNote) el.harnessUpdateNote.textContent = updateText("Check and upgrade the coding agents installed on this device. Active sessions are protected.");
-  el.harnessUpdateCheckAll.textContent = updateText("Check all");
-  el.harnessUpdateApplyAll.textContent = updateText("Upgrade all");
+  const machine = currentMachine();
+  const device = updateDeviceName(machine);
+  if (el.harnessUpdateTitle) el.harnessUpdateTitle.textContent = updateText("Coding agents");
+  if (el.harnessUpdateNote) el.harnessUpdateNote.textContent = updateText("On {device}. Upgrades run only while no agent is working.", { device });
+  el.harnessUpdateCheckAll.textContent = harnessCheckRunning ? updateText("Checking…") : updateText("Check now");
   el.harnessUpdateList.innerHTML = "";
-  if (!data) {
-    if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = updateText("Harness update status is loading…");
-    el.harnessUpdateCheckAll.disabled = true;
+  el.harnessUpdateMissing?.classList.add("hidden");
+  const hideApplyAll = () => {
+    el.harnessUpdateApplyAll.classList.add("hidden");
     el.harnessUpdateApplyAll.disabled = true;
+  };
+  if (!data) {
+    if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = updateText("Loading agent versions…");
+    el.harnessUpdateCheckAll.disabled = true;
+    hideApplyAll();
     return;
   }
   if (data.unsupported) {
-    if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = updateText("Harness updates require a newer Stepsemble on this device");
+    if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = updateText("Agent updates need a newer Stepsemble on this device");
     el.harnessUpdateCheckAll.disabled = true;
-    el.harnessUpdateApplyAll.disabled = true;
+    hideApplyAll();
     return;
   }
   if (data.error) {
-    if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = updateText("Harness update status unavailable");
-    el.harnessUpdateCheckAll.disabled = false;
-    el.harnessUpdateApplyAll.disabled = true;
+    if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = updateText("Agent versions are unavailable right now");
+    el.harnessUpdateCheckAll.disabled = harnessCheckRunning;
+    hideApplyAll();
     return;
   }
   const items = Array.isArray(data.harnesses) ? data.harnesses : [];
-  const installed = items.filter(item => item.installed).length;
-  const available = items.filter(item => item.updateAvailable === true).length;
-  const manual = items.filter(item => item.status === "manual").length;
-  const checkedAt = data.checkedAt ? formatUpdateTime(data.checkedAt) : "";
-  if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = checkedAt
-    ? updateText("{installed} installed · {available} update(s) available · {manual} host-managed · checked {time}", { installed, available, manual, time: checkedAt })
-    : updateText("{installed} installed · check for updates when ready", { installed });
+  const shown = items.filter((item) => harnessUpdateKind(item) !== "missing");
+  const missing = items.filter((item) => harnessUpdateKind(item) === "missing");
+  const outdated = shown.filter((item) => harnessUpdateKind(item) === "available" && harnessUpgradeable(item));
   const busy = data.busy === true || data.running === true;
-  el.harnessUpdateCheckAll.disabled = busy;
-  const canApply = items.some(item => item.installed && item.updateMode !== "manual");
-  el.harnessUpdateApplyAll.disabled = busy || !canApply;
-  for (const item of items) {
+  const parts = [];
+  const installedCount = shown.filter((item) => item.installed === true).length;
+  if (installedCount) parts.push(updateText("{count} installed", { count: installedCount }));
+  parts.push(outdated.length
+    ? updateText(outdated.length === 1 ? "1 update available" : "{count} updates available", { count: outdated.length })
+    : updateText("No updates found"));
+  parts.push(data.checkedAt ? updateText("checked {time}", { time: formatUpdateAge(data.checkedAt) }) : updateText("No check yet"));
+  if (busy) parts.push(updateText("an agent is working"));
+  if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = harnessCheckRunning ? updateText("Checking agent versions…") : parts.join(" · ");
+  el.harnessUpdateCheckAll.disabled = busy || harnessCheckRunning;
+  el.harnessUpdateApplyAll.classList.toggle("hidden", outdated.length < 2);
+  el.harnessUpdateApplyAll.textContent = updateText("Upgrade all ({count})", { count: outdated.length });
+  el.harnessUpdateApplyAll.disabled = busy || harnessCheckRunning || harnessUpdateInFlight.size > 0 || outdated.length < 2;
+
+  for (const item of shown) {
+    const kind = harnessUpdateKind(item);
     const row = document.createElement("article");
-    row.className = `harness-update-row harness-update-${item.status || "unknown"}`;
+    row.className = "harness-update-row harness-kind-" + kind;
     row.dataset.harnessId = item.id;
-    const heading = document.createElement("div");
-    heading.className = "harness-update-row-heading";
+    row.dataset.i18nIgnore = "true";
+    const copy = document.createElement("div");
+    copy.className = "harness-update-copy";
     const name = document.createElement("strong");
     name.textContent = item.label || item.id;
-    const state = document.createElement("span");
-    state.className = "harness-update-state";
-    state.textContent = harnessUpdateStatusText(item);
-    heading.append(name, state);
-    row.appendChild(heading);
-    const details = document.createElement("div");
-    details.className = "harness-update-row-details";
-    const version = document.createElement("span");
-    version.textContent = item.currentVersion
-      ? updateText("Installed {version}", { version: updateVersionText(item.currentVersion) })
-      : item.installed === null ? updateText("Not checked") : updateText("Version unavailable");
-    details.appendChild(version);
-    if (item.latestVersion) {
-      const latest = document.createElement("span");
-      latest.textContent = updateText("Latest {version}", { version: updateVersionText(item.latestVersion) });
-      details.appendChild(latest);
-    }
-    row.appendChild(details);
-    if (item.note && (item.status === "manual" || item.status === "unknown")) {
+    const detail = document.createElement("small");
+    detail.className = "harness-update-version";
+    const currentVersion = item.currentVersion ? updateVersionText(item.currentVersion) : "";
+    if (kind === "available" && currentVersion && item.latestVersion) detail.textContent = currentVersion + " → " + updateVersionText(item.latestVersion);
+    else if (kind === "unknown") detail.textContent = [currentVersion, updateText("Can't check automatically")].filter(Boolean).join(" · ");
+    else if (kind !== "unchecked") detail.textContent = currentVersion || updateText("Version unavailable");
+    copy.append(name);
+    if (detail.textContent) copy.appendChild(detail);
+    const notes = [];
+    if (item.lastUpdateUnchanged) notes.push(updateText("The last upgrade did not change the installed version."));
+    if (kind === "manual" && item.note) notes.push(item.note);
+    // An unproven source refuses the update, so show which file was selected.
+    if (item.executablePath && item.source === "unknown") notes.push(updateText("Selected executable: {path}", { path: item.executablePath }));
+    for (const text of notes) {
       const note = document.createElement("p");
       note.className = "harness-update-note-inline";
-      note.textContent = item.note;
-      row.appendChild(note);
+      note.textContent = text;
+      copy.appendChild(note);
     }
-    // An unproven source refuses the update, so show which file was selected.
-    // Without it the row states a refusal the operator cannot act on.
-    if (item.executablePath && item.source === "unknown") {
-      const where = document.createElement("p");
-      where.className = "harness-update-note-inline";
-      where.textContent = updateText("Selected executable: {path}", { path: item.executablePath });
-      row.appendChild(where);
+    row.appendChild(copy);
+    if (harnessUpgradeable(item)) {
+      const action = document.createElement("button");
+      action.type = "button";
+      action.className = "btn " + (kind === "available" ? "primary" : "ghost") + " harness-update-action";
+      action.dataset.harnessUpdateId = item.id;
+      const running = harnessUpdateInFlight.has(item.id);
+      action.textContent = running ? updateText("Upgrading…") : updateText("Upgrade");
+      action.disabled = busy || running || harnessCheckRunning;
+      row.appendChild(action);
+    } else {
+      const state = document.createElement("span");
+      state.className = "harness-update-state";
+      state.textContent = harnessUpdateStatusText(item);
+      row.appendChild(state);
     }
-    const action = document.createElement("button");
-    action.type = "button";
-    action.className = "btn ghost harness-update-action";
-    action.dataset.harnessUpdateId = item.id;
-    action.textContent = item.status === "up-to-date" || item.status === "updated" ? updateText("Up to date") : updateText("Upgrade");
-    // `installed === null` means this harness has not been checked yet. Keep the
-    // control usable so the first check can run; only a confirmed absence disables it.
-    action.disabled = busy || harnessUpdateInFlight.has(item.id) || item.installed === false
-      || item.updateMode === "manual" || item.status === "up-to-date" || item.status === "updated";
-    row.appendChild(action);
     el.harnessUpdateList.appendChild(row);
+  }
+  if (el.harnessUpdateMissing && missing.length) {
+    el.harnessUpdateMissing.textContent = updateText("Not installed: {names}", { names: missing.map((item) => item.label || item.id).join(", ") });
+    el.harnessUpdateMissing.classList.remove("hidden");
   }
 }
 
+// Summary parts are stored as keys so a language switch re-renders them.
 function setUpdateCenterSummary(key = "", vars = {}) {
-  updateCenterSummary = key ? { key, vars } : null;
-  if (el.updateCenterSummary) {
-    el.updateCenterSummary.textContent = updateCenterSummary ? updateText(key, vars) : "";
-    el.updateCenterSummary.classList.toggle("hidden", !updateCenterSummary);
-  }
+  updateCenterSummary = key ? { parts: [[key, vars]] } : null;
+  renderUpdateCenterSummary();
+}
+
+function setUpdateCenterSummaryParts(parts = []) {
+  updateCenterSummary = parts.length ? { parts } : null;
+  renderUpdateCenterSummary();
+}
+
+function updateCenterSummaryText() {
+  if (!updateCenterSummary?.parts?.length) return "";
+  return updateCenterSummary.parts.map(([key, vars]) => updateText(key, vars)).join(" · ");
+}
+
+function renderUpdateCenterSummary() {
+  if (!el.updateCenterSummary) return;
+  const text = updateCenterSummaryText();
+  el.updateCenterSummary.textContent = text;
+  el.updateCenterSummary.classList.toggle("hidden", !text);
 }
 
 async function refreshUpdateCenter(force = false) {
@@ -11264,14 +11489,19 @@ async function refreshUpdateCenter(force = false) {
     const next = new Map();
     for (const result of results) {
       next.set(result.id, result);
-      if (result.harness) harnessUpdateDataByDevice.set(result.id, result.harness);
-      else harnessUpdateDataByDevice.delete(result.id);
+      // A check that is still running owns the freshest agent data; a status
+      // read taken halfway through it would show a partial list.
+      if (!(harnessCheckRunning && result.id === currentMachine()?.id)) {
+        if (result.harness) harnessUpdateDataByDevice.set(result.id, result.harness);
+        else harnessUpdateDataByDevice.delete(result.id);
+      }
       if (result.error) machineStatuses.set(result.id, result.reachable ? "online" : "offline");
       else machineStatuses.set(result.id, "online");
     }
     updateDeviceStatuses = next;
     updateStatusData = next.get(selectedId)?.data || null;
     renderUpdateCenter();
+    maybeAutoCheckHarnesses();
     return next;
   }).finally(() => {
     if (updateCenterRequest === operation) updateCenterRequest = null;
@@ -11299,6 +11529,7 @@ function stopUpdateCenterPolling() {
   harnessUpdateRequest += 1;
   harnessUpdateController?.abort();
   harnessUpdateController = null;
+  harnessCheckRunning = false;
   if (updateAllController) updateAllController.abort();
   updateAllController = null;
   if (el.updateAllDevices) el.updateAllDevices.disabled = false;
@@ -11312,93 +11543,170 @@ function stopUpdateCenterPolling() {
   }
 }
 
-async function runHarnessCheckAll() {
+// Agent versions are read when the Updates section is shown and the last
+// check is old, so a stale "checked six days ago" answer is refreshed once.
+const HARNESS_STALE_MS = 12 * 60 * 60 * 1000;
+const harnessAutoChecked = new Set();
+let harnessCheckRunning = false;
+
+function maybeAutoCheckHarnesses() {
   const machine = currentMachine();
-  if (!machine || !el.harnessUpdateCheckAll) return;
+  if (!machine || !updateViewIsOpen() || activeSettingsCategory() !== "updates" || harnessCheckRunning) return;
+  const data = harnessUpdateDataByDevice.get(machine.id);
+  if (!data || data.unsupported || data.error || data.busy || data.running || harnessUpdateInFlight.size) return;
+  if (harnessAutoChecked.has(machine.id)) return;
+  const checked = Date.parse(String(data.checkedAt || ""));
+  if (Number.isFinite(checked) && Date.now() - checked < HARNESS_STALE_MS) return;
+  harnessAutoChecked.add(machine.id);
+  void runHarnessCheckAll({ quiet: true });
+}
+
+// A single-harness check returns only that entry; merge it into the list.
+function mergeHarnessStatus(previous, next) {
+  if (!next || !Array.isArray(next.harnesses)) return next || previous;
+  if (!previous || !Array.isArray(previous.harnesses) || next.harnesses.length >= previous.harnesses.length) return next;
+  const replacements = new Map(next.harnesses.map((item) => [item.id, item]));
+  return { ...previous, ...next, harnesses: previous.harnesses.map((item) => replacements.get(item.id) || item) };
+}
+
+async function runHarnessCheckAll({ quiet = false } = {}) {
+  const machine = currentMachine();
+  if (!machine || !el.harnessUpdateCheckAll || harnessCheckRunning) return;
   const generation = viewGeneration;
   const selectedAtStart = selectedId;
   harnessUpdateController?.abort();
   const controller = new AbortController();
   harnessUpdateController = controller;
   const request = ++harnessUpdateRequest;
-  el.harnessUpdateCheckAll.disabled = true;
-  if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = updateText("Checking harnesses…");
+  harnessCheckRunning = true;
+  renderHarnessUpdates(harnessUpdateDataByDevice.get(machine.id) || null);
+  const current = () => request === harnessUpdateRequest && generation === viewGeneration && selectedAtStart === selectedId && updateViewIsOpen();
   try {
-    const result = await requestMachineUpdate(machine, "/api/harness-updates/check", {}, { signal: controller.signal, timeoutMs: 45_000 });
-    if (request !== harnessUpdateRequest || generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
+    const result = await requestMachineUpdate(machine, "/api/harness-updates/check", {}, { signal: controller.signal, timeoutMs: 120_000 });
+    if (!current()) return;
     harnessUpdateDataByDevice.set(machine.id, result.data);
-    renderHarnessUpdates(result.data);
-    toast(updateText("Harness update check complete"));
+    if (!quiet) toast(updateText("Agent versions checked"));
   } catch (error) {
-    if (request !== harnessUpdateRequest || generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
-    const data = { error: true, unsupported: [404, 405].includes(Number(error?.status)) };
-    harnessUpdateDataByDevice.set(machine.id, data);
-    renderHarnessUpdates(data);
-    toast(updateText("Harness update check failed"), true);
+    if (!current()) return;
+    if ([404, 405].includes(Number(error?.status))) harnessUpdateDataByDevice.set(machine.id, { unsupported: true, harnesses: [] });
+    if (!quiet) toast(updateText("Could not check agent versions"), true);
   } finally {
     if (harnessUpdateController === controller) harnessUpdateController = null;
-    if (request === harnessUpdateRequest && generation === viewGeneration && selectedAtStart === selectedId && updateViewIsOpen()) {
-      const data = harnessUpdateDataByDevice.get(machine.id);
-      if (data) renderHarnessUpdates(data);
-    }
+    if (request === harnessUpdateRequest) harnessCheckRunning = false;
+    if (current()) renderUpdateCenter();
   }
+}
+
+// Upgrading one harness re-reads its version afterwards, so a vendor updater
+// that exits cleanly without installing the published release stays visible.
+async function upgradeHarness(machine, item) {
+  const id = item.id;
+  harnessUpdateInFlight.add(id);
+  renderHarnessUpdates(harnessUpdateDataByDevice.get(machine.id));
+  try {
+    const result = await requestMachineUpdate(machine, "/api/harness-updates/apply", { id, confirm: true }, { timeoutMs: 15 * 60 * 1000 });
+    let data = result.data;
+    try {
+      const checked = await requestMachineUpdate(machine, "/api/harness-updates/check", { id }, { timeoutMs: 60_000 });
+      data = mergeHarnessStatus(data, checked.data);
+    } catch {}
+    harnessUpdateDataByDevice.set(machine.id, data);
+    return { ok: true, data };
+  } catch (error) {
+    return { ok: false, error };
+  } finally {
+    harnessUpdateInFlight.delete(id);
+  }
+}
+
+function harnessUpgradeResultText(machine, item, outcome) {
+  const harness = item.label || item.id;
+  if (outcome.ok) {
+    const entry = (outcome.data?.harnesses || []).find((candidate) => candidate.id === item.id);
+    return harnessUpdateKind(entry) === "available"
+      ? updateText("{harness} upgrade finished, but a newer version is still available", { harness })
+      : updateText("{harness} upgrade complete", { harness });
+  }
+  return Number(outcome.error?.status) === 409
+    ? updateText("Active agent work must finish before upgrading {harness}", { harness })
+    : updateText("Could not upgrade {harness}", { harness });
 }
 
 async function applyHarnessUpdate(id) {
   const machine = currentMachine();
-  if (!machine || !id) return;
-  if (harnessUpdateInFlight.has(id)) return;
-  const item = (harnessUpdateDataByDevice.get(machine.id)?.harnesses || []).find(entry => entry.id === id);
-  const label = item?.label || id;
-  if (!confirm(updateText("Upgrade {harness}? Active sessions will be protected, but the harness process may restart.", { harness: label }))) return;
+  if (!machine || !id || harnessUpdateInFlight.has(id)) return;
+  const item = (harnessUpdateDataByDevice.get(machine.id)?.harnesses || []).find(entry => entry.id === id) || { id, label: id };
+  const harness = item.label || id;
+  const target = item.latestVersion && harnessUpdateKind(item) === "available" ? updateVersionText(item.latestVersion) : "";
+  const question = target
+    ? updateText("Upgrade {harness} to {version} on {device}? Running agents are not interrupted; the upgrade is refused while one is working.", { harness, version: target, device: updateDeviceName(machine) })
+    : updateText("Run the official updater for {harness} on {device}? Running agents are not interrupted; the upgrade is refused while one is working.", { harness, device: updateDeviceName(machine) });
+  if (!confirm(question)) return;
   const generation = viewGeneration;
   const selectedAtStart = selectedId;
-  harnessUpdateInFlight.add(id);
-  if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = updateText("Upgrading {harness}…", { harness: label });
-  try {
-    const result = await requestMachineUpdate(machine, "/api/harness-updates/apply", { id, confirm: true }, { timeoutMs: 15 * 60 * 1000 });
-    if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
-    harnessUpdateDataByDevice.set(machine.id, result.data);
-    renderHarnessUpdates(result.data);
-    toast(updateText("{harness} upgrade complete", { harness: label }));
-  } catch (error) {
-    if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
-    const data = harnessUpdateDataByDevice.get(machine.id);
-    renderHarnessUpdates(data);
-    toast(Number(error?.status) === 409 ? updateText("Active agent work must finish before upgrading {harness}", { harness: label }) : updateText("Could not upgrade {harness}", { harness: label }), true);
-  } finally {
-    harnessUpdateInFlight.delete(id);
-    if (generation === viewGeneration && selectedAtStart === selectedId && updateViewIsOpen()) {
-      renderHarnessUpdates(harnessUpdateDataByDevice.get(machine.id));
-    }
-  }
+  const outcome = await upgradeHarness(machine, item);
+  if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
+  renderUpdateCenter();
+  const message = harnessUpgradeResultText(machine, item, outcome);
+  toast(message, !outcome.ok);
 }
 
 async function applyAllHarnessUpdates() {
   const machine = currentMachine();
-  if (!machine || !el.harnessUpdateApplyAll) return;
-  if (!confirm(updateText("Upgrade all managed harnesses on {device}? Active sessions will be protected.", { device: updateDeviceName(machine) }))) return;
+  if (!machine || !el.harnessUpdateApplyAll || harnessUpdateInFlight.size) return;
+  const items = (harnessUpdateDataByDevice.get(machine.id)?.harnesses || [])
+    .filter((item) => harnessUpdateKind(item) === "available" && harnessUpgradeable(item));
+  if (!items.length) return;
+  const lines = items.map((item) => "• " + (item.label || item.id) + (item.latestVersion ? " → " + updateVersionText(item.latestVersion) : "")).join("\n");
+  if (!confirm(updateText("Upgrade these agents on {device}? Running agents are not interrupted; an upgrade is refused while one is working.", { device: updateDeviceName(machine) }) + "\n\n" + lines)) return;
   const generation = viewGeneration;
   const selectedAtStart = selectedId;
-  el.harnessUpdateApplyAll.disabled = true;
-  if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = updateText("Upgrading all managed harnesses…");
-  try {
-    const result = await requestMachineUpdate(machine, "/api/harness-updates/apply-all", { confirm: true }, { timeoutMs: 30 * 60 * 1000 });
+  let completed = 0;
+  let failed = 0;
+  for (const item of items) {
+    const outcome = await upgradeHarness(machine, item);
     if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
-    harnessUpdateDataByDevice.set(machine.id, result.data);
-    renderHarnessUpdates(result.data);
-    const results = Array.isArray(result.data?.results) ? result.data.results : [];
-    const completed = results.filter(item => item.status === "updated").length;
-    const failed = results.filter(item => item.status === "failed" || item.status === "blocked").length;
-    toast(updateText("Harness upgrades complete: {completed} updated, {failed} failed.", { completed, failed }), failed > 0);
-  } catch (error) {
-    if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
-    toast(Number(error?.status) === 409 ? updateText("Active agent work must finish before upgrading harnesses") : updateText("Could not upgrade harnesses"), true);
-  } finally {
-    if (generation === viewGeneration && selectedAtStart === selectedId && updateViewIsOpen()) {
-      renderHarnessUpdates(harnessUpdateDataByDevice.get(machine.id));
-    }
+    if (outcome.ok) completed += 1;
+    else failed += 1;
+    renderHarnessUpdates(harnessUpdateDataByDevice.get(machine.id));
+    if (!outcome.ok && Number(outcome.error?.status) === 409) break;
   }
+  renderUpdateCenter();
+  toast(updateText("Harness upgrades complete: {completed} updated, {failed} failed.", { completed, failed }), failed > 0);
+}
+
+// ---- Settings section list ----
+function setSettingsSummary(element, value) {
+  if (element && element.textContent !== value) element.textContent = value;
+}
+
+function updatesSectionSummary() {
+  const views = machines.map((machine) => updateDeviceView(machine));
+  const harness = harnessUpdateDataByDevice.get(currentMachine()?.id);
+  const agentUpdates = Array.isArray(harness?.harnesses)
+    ? harness.harnesses.filter((item) => harnessUpdateKind(item) === "available" && harnessUpgradeable(item)).length : 0;
+  const appUpdates = views.filter((view) => view.install || view.tone === "warn" || (view.updater?.phase === "available")).length;
+  const total = agentUpdates + appUpdates;
+  if (total > 0) return { text: updateText(total === 1 ? "1 update available" : "{count} updates available", { count: total }), attention: true };
+  if (views.length && views.every((view) => !view.entry) && !harness) return { text: updateText("Checking status…"), attention: false };
+  if (views.some((view) => view.checked)) return { text: updateText("Up to date"), attention: false };
+  return { text: updateText("Stepsemble and coding agents"), attention: false };
+}
+
+function renderSettingsNavigation() {
+  const machine = currentMachine();
+  const status = machineStatuses.get(machine?.id) || "unknown";
+  if (el.setMachineName) el.setMachineName.textContent = machineDisplayName(machine) || machineDisplayName(currentHost) || "—";
+  if (el.setMachineHost) el.setMachineHost.textContent = machineStatusText(status);
+  if (el.settingsHostDot) el.settingsHostDot.className = "settings-host-dot machine-status-" + status;
+  const theme = DESIGN_THEMES.find((item) => item.id === settings.designTheme)?.label || "";
+  const language = window.stepsembleI18n?.locales?.find((item) => item.id === (settings.locale || "en"))?.label || "English";
+  setSettingsSummary(el.settingsSummaryAppearance, [theme, language].filter(Boolean).join(" · "));
+  setSettingsSummary(el.settingsSummaryDevices, updateText(machines.length === 1 ? "1 device" : "{count} devices", { count: machines.length }));
+  const updates = updatesSectionSummary();
+  setSettingsSummary(el.settingsSummaryUpdates, updates.text);
+  el.settingsUpdatesBadge?.classList.toggle("hidden", !updates.attention);
+  setSettingsSummary(el.settingsSummaryAdvanced, "Stepsemble v" + (window._appVersion || CLIENT_APP_VERSION));
 }
 
 // ===========================================================================
@@ -11686,56 +11994,32 @@ function scheduleUpdateRefreshes(machineId = null) {
   }
 }
 
-async function saveAutomaticUpdates(enabled) {
-  const machine = currentMachine();
-  if (!el.setAutoUpdate || !machine) return;
+async function saveAutomaticUpdates(machineId, enabled) {
+  const machine = machines.find((item) => item.id === machineId);
+  if (!machine || updateAutoInFlight.has(machine.id)) return;
   const generation = viewGeneration;
-  const selectedAtStart = selectedId;
-  cancelUpdateCenterRequest();
-  el.setAutoUpdate.disabled = true;
+  const device = updateDeviceName(machine);
+  updateAutoInFlight.add(machine.id);
+  renderUpdateCenter();
   try {
     const result = await requestMachineUpdate(machine, "/api/update/settings", { enabled });
-    if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
-    updateDeviceStatuses.set(machine.id, { id: machine.id, data: result.data, reachable: true });
-    updateStatusData = result.data;
-    renderUpdateCenter();
-    toast(updateText(enabled ? "Automatic updates enabled for {device}" : "Automatic updates disabled for {device}", { device: updateDeviceName(machine) }));
+    if (generation !== viewGeneration || !updateViewIsOpen()) return;
+    const previous = updateDeviceStatuses.get(machine.id) || {};
+    updateDeviceStatuses.set(machine.id, { ...previous, id: machine.id, data: result.data, reachable: true, error: undefined });
+    if (machine.id === selectedId) updateStatusData = result.data;
+    toast(updateText(enabled ? "Automatic updates enabled for {device}" : "Automatic updates disabled for {device}", { device }));
   } catch (error) {
-    if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
-    renderUpdateStatus(updateStatusData);
-    toast(updateText("Could not save update settings on {device}", { device: updateDeviceName(machine) }), true);
-  }
-}
-
-async function runUpdateCheck() {
-  const machine = currentMachine();
-  if (!el.updateCheck || !machine) return;
-  const generation = viewGeneration;
-  const selectedAtStart = selectedId;
-  const device = updateDeviceName(machine);
-  let started = false;
-  cancelUpdateCenterRequest();
-  el.updateCheck.disabled = true;
-  if (el.updateCheckStatus) el.updateCheckStatus.textContent = updateText("Checking {device} for updates…", { device });
-  try {
-    await requestMachineUpdate(machine, "/api/update/run", {});
-    if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
-    started = true;
-    if (el.updateCheckStatus) el.updateCheckStatus.textContent = updateText("Update check started on {device}", { device });
-    toast(updateText("Update check started on {device}", { device }));
-    scheduleUpdateRefreshes(machine.id);
-  } catch (error) {
-    if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
-    renderUpdateStatus(updateStatusData);
-    toast(updateText("Could not start an update check on {device}", { device }), true);
+    if (generation !== viewGeneration || !updateViewIsOpen()) return;
+    toast(updateText("Could not save update settings on {device}", { device }), true);
   } finally {
-    if (generation === viewGeneration && selectedAtStart === selectedId && updateViewIsOpen()) {
-      if (started) el.updateCheck.disabled = false;
-      else renderUpdateStatus(updateStatusData);
-    }
+    updateAutoInFlight.delete(machine.id);
+    if (generation === viewGeneration && updateViewIsOpen()) renderUpdateCenter();
   }
 }
 
+// Checks every device for a newer release. A check never installs anything;
+// Hosts that predate the check-only API are reported instead of being asked
+// to run their updater.
 async function runUpdateAll() {
   if (!el.updateAllDevices || updateAllController || !machines.length) return;
   const request = ++updateAllRequest;
@@ -11745,30 +12029,106 @@ async function runUpdateAll() {
   cancelUpdateCenterRequest();
   updateAllController = controller;
   el.updateAllDevices.disabled = true;
-  setUpdateCenterSummary("Asking {count} devices to check for updates…", { count: list.length });
-  const counts = { started: 0, skipped: 0, failed: 0 };
+  setUpdateCenterSummary(list.length === 1 ? "Checking for updates…" : "Checking {count} devices for updates…", { count: list.length });
+  const counts = { checked: 0, available: 0, skipped: 0, failed: 0 };
   try {
     await Promise.all(list.map(async (machine) => {
       try {
-        const result = await requestMachineUpdate(machine, "/api/update/run", {}, { signal: controller.signal });
-        if (result.data?.started !== false) counts.started += 1;
-        else counts.skipped += 1;
+        const result = await requestMachineUpdate(machine, "/api/update/check", {}, { signal: controller.signal, timeoutMs: 40_000 });
+        counts.checked += 1;
+        if (result.data?.updater?.phase === "available") counts.available += 1;
+        const previous = updateDeviceStatuses.get(machine.id) || {};
+        updateDeviceStatuses.set(machine.id, { ...previous, id: machine.id, data: result.data, reachable: true, error: undefined });
       } catch (error) {
-        if (updateErrorIsUnsupported(error)) counts.skipped += 1;
+        if (controller.signal.aborted) return;
+        if ([404, 405].includes(Number(error?.status))) counts.skipped += 1;
         else counts.failed += 1;
       }
     }));
     if (request !== updateAllRequest || generation !== viewGeneration || !updateViewIsOpen()) return;
-    setUpdateCenterSummary("Update all complete: {started} started, {skipped} skipped, {failed} failed.", counts);
-    // Coalesce the delayed follow-up work into one timer set for the whole
-    // center instead of scheduling the same three timers once per device.
-    scheduleUpdateRefreshes();
+    const parts = [];
+    if (counts.checked) {
+      parts.push(counts.available
+        ? [counts.available === 1 ? "1 device has an update" : "{available} devices have an update", counts]
+        : [counts.checked === 1 ? "Up to date" : "All {checked} devices are up to date", counts]);
+    }
+    if (counts.skipped) parts.push(["{skipped} need a newer Stepsemble to check", counts]);
+    if (counts.failed) parts.push(["{failed} could not be reached", counts]);
+    setUpdateCenterSummaryParts(parts);
+    renderUpdateCenter();
     await refreshUpdateCenter(true);
   } finally {
     if (updateAllController === controller) updateAllController = null;
     if (request === updateAllRequest && generation === viewGeneration && updateViewIsOpen()) {
       el.updateAllDevices.disabled = false;
+      renderUpdateCenter();
     }
+  }
+}
+
+// Installing is always a separate, confirmed action per device.
+async function installDeviceUpdate(machineId) {
+  const machine = machines.find((item) => item.id === machineId);
+  if (!machine || updateInstallInFlight.has(machine.id) || updateInstallAllRunning) return;
+  const view = updateDeviceView(machine);
+  const device = updateDeviceName(machine);
+  const question = view.install
+    ? updateText("Install Stepsemble {version} on {device}? Stepsemble restarts after installing. If an agent is working, the install waits until it finishes.", { version: updateVersionText(view.latest), device })
+    : updateText("{device} runs an older Stepsemble that can only check for updates by installing them. Install the latest release now?", { device });
+  if (!confirm(question)) return;
+  const generation = viewGeneration;
+  updateInstallInFlight.add(machine.id);
+  renderUpdateCenter();
+  try {
+    await requestMachineUpdate(machine, "/api/update/run", {});
+    if (generation !== viewGeneration || !updateViewIsOpen()) return;
+    toast(updateText("Installing Stepsemble on {device}…", { device }));
+    scheduleUpdateRefreshes();
+  } catch (error) {
+    if (generation !== viewGeneration || !updateViewIsOpen()) return;
+    toast(updateText("Could not start the update on {device}", { device }), true);
+  } finally {
+    // The Host reports its own progress from here; keep the row in its
+    // installing state until the next status refresh replaces it.
+    setTimeout(() => {
+      updateInstallInFlight.delete(machine.id);
+      if (updateViewIsOpen()) renderUpdateCenter();
+    }, 2500);
+  }
+}
+
+async function installAllDeviceUpdates() {
+  if (updateInstallAllRunning) return;
+  const targets = machines.filter((machine) => updateDeviceView(machine).install);
+  if (!targets.length) return;
+  const lines = targets.map((machine) => "• " + updateDeviceName(machine) + " → " + updateVersionText(updateDeviceView(machine).latest)).join("\n");
+  if (!confirm(updateText("Install Stepsemble updates on these devices? Each device restarts Stepsemble after installing and waits for running agent work first.") + "\n\n" + lines)) return;
+  const generation = viewGeneration;
+  updateInstallAllRunning = true;
+  for (const machine of targets) updateInstallInFlight.add(machine.id);
+  renderUpdateCenter();
+  const counts = { started: 0, failed: 0 };
+  try {
+    await Promise.all(targets.map(async (machine) => {
+      try {
+        await requestMachineUpdate(machine, "/api/update/run", {});
+        counts.started += 1;
+      } catch {
+        counts.failed += 1;
+      }
+    }));
+    if (generation !== viewGeneration || !updateViewIsOpen()) return;
+    setUpdateCenterSummaryParts([
+      ["Installing on {started} devices", counts],
+      ...(counts.failed ? [["{failed} could not start", counts]] : []),
+    ]);
+    scheduleUpdateRefreshes();
+  } finally {
+    updateInstallAllRunning = false;
+    setTimeout(() => {
+      for (const machine of targets) updateInstallInFlight.delete(machine.id);
+      if (updateViewIsOpen()) renderUpdateCenter();
+    }, 2500);
   }
 }
 
@@ -11801,9 +12161,6 @@ async function checkForClientUpdate() {
 }
 
 function renderSettings() {
-  const selectedMachine = currentMachine();
-  el.setMachineName.textContent = machineDisplayName(selectedMachine) || machineDisplayName(currentHost) || "—";
-  el.setMachineHost.textContent = machineDisplayHost(selectedMachine) || "—";
   el.setPiVersion.textContent = window._piVersion || "…";
   if (el.setAppVersion) el.setAppVersion.textContent = `v${window._appVersion || CLIENT_APP_VERSION}`;
   if (el.setLocale) el.setLocale.value = settings.locale || "en";
@@ -11814,7 +12171,6 @@ function renderSettings() {
   if (el.setFontScale) el.setFontScale.value = settings.fontScale;
   if (el.setFontScaleValue) el.setFontScaleValue.textContent = `${settings.fontScale}%`;
   el.setCompact.checked = !!settings.compact;
-  el.setGroup.checked = !!settings.groupByProject;
   el.setReducedMotion.checked = !!settings.reducedMotion;
   el.setThinking.value = settings.thinking;
   renderTemporarySessionFilter(temporarySessionCount);
@@ -11827,6 +12183,7 @@ function renderSettings() {
   void refreshMachineStatuses();
   void refreshIncomingGrants();
   renderUpdateCenter();
+  applySettingsCategory();
 }
 
 function modelMachineKey() { return selectedId || selfId || "local"; }
@@ -12774,7 +13131,12 @@ async function loadModelVisibility(force = false, skipSession = false) {
   }
 }
 
-el.modelVisibilityRefresh?.addEventListener("click", () => loadModelVisibility(true));
+el.modelVisibilityRefresh?.addEventListener("click", () => {
+  const agent = currentModelSettingsAgent();
+  if (agent === "codex") void loadCodexGateway(true);
+  else if (agent === "opencode") void loadOpenCodeProviders(true);
+  else void loadModelVisibility(true);
+});
 
 el.modelCatalogRefresh?.addEventListener("click", async () => {
   const button = el.modelCatalogRefresh;
@@ -12808,7 +13170,8 @@ let openCodeCatalogRequest = null;
 let openCodeDialogEdit = null;
 
 function currentModelSettingsAgent() {
-  return modelSettingsAgent === "opencode" ? "opencode" : "pi";
+  // Each tab owns its panel; an unknown value falls back to Pi.
+  return modelSettingsAgent === "opencode" || modelSettingsAgent === "codex" ? modelSettingsAgent : "pi";
 }
 
 function applyModelSettingsAgent() {
@@ -12824,6 +13187,8 @@ function applyModelSettingsAgent() {
   // Pi-only controls: import/export plus the pi.dev catalog refresh belong to
   // the Pi tab; the add button switches target with the tab.
   el.providerConfigImport?.classList.toggle("hidden", !pi);
+  // The Codex & Claude tab switches gateway routing; it has no provider form.
+  el.providerAdd?.classList.toggle("hidden", agent === "codex");
   el.providerConfigExport?.classList.toggle("hidden", !pi);
   if (el.modelCatalogRefresh) el.modelCatalogRefresh.classList.toggle("hidden", !pi);
   $("model-catalog-status")?.classList.toggle("hidden", !pi);
@@ -13121,6 +13486,7 @@ async function loadCodexGateway(force = false) {
     const result = await api("/api/gateway/status", { signal: request.signal });
     if (request.signal.aborted || generation !== viewGeneration || baseAtStart !== apiBase) return;
     codexGatewayData = result;
+    el.codexGatewayStatus?.classList.add("hidden");
     renderCodexGateway();
   } catch (e) {
     if (e.name === "AbortError") return;
@@ -13544,12 +13910,18 @@ el.setFontScale?.addEventListener("input", () => {
 });
 el.setTheme.addEventListener("change", () => { settings = saveSettings({ theme: el.setTheme.value }); applyAppearance(); });
 el.setCompact.addEventListener("change", () => { settings = saveSettings({ compact: el.setCompact.checked }); applyAppearance(); });
-el.setGroup.addEventListener("change", () => { settings = saveSettings({ groupByProject: el.setGroup.checked }); renderSessionList(el.search.value); });
 el.setReducedMotion.addEventListener("change", () => { settings = saveSettings({ reducedMotion: el.setReducedMotion.checked }); applyAppearance(); });
 el.setThinking.addEventListener("change", () => { settings = saveSettings({ thinking: el.setThinking.value }); });
-el.setAutoUpdate?.addEventListener("change", () => { void saveAutomaticUpdates(el.setAutoUpdate.checked); });
-el.updateCheck?.addEventListener("click", () => { void runUpdateCheck(); });
 el.updateAllDevices?.addEventListener("click", () => { void runUpdateAll(); });
+el.updateInstallAll?.addEventListener("click", () => { void installAllDeviceUpdates(); });
+el.updateDeviceList?.addEventListener("click", (event) => {
+  const button = event.target.closest?.("[data-update-install]");
+  if (button && !button.disabled) void installDeviceUpdate(button.dataset.updateInstall);
+});
+el.updateDeviceList?.addEventListener("change", (event) => {
+  const input = event.target.closest?.("[data-update-auto]");
+  if (input && !input.disabled) void saveAutomaticUpdates(input.dataset.updateAuto, input.checked);
+});
 el.harnessUpdateCheckAll?.addEventListener("click", () => { void runHarnessCheckAll(); });
 el.harnessUpdateApplyAll?.addEventListener("click", () => { void applyAllHarnessUpdates(); });
 el.harnessUpdateList?.addEventListener("click", (event) => {
@@ -13557,17 +13929,22 @@ el.harnessUpdateList?.addEventListener("click", (event) => {
   if (!button || button.disabled) return;
   void applyHarnessUpdate(button.dataset.harnessUpdateId);
 });
+// Restores presentation preferences only. The language and the user's own
+// project organisation (pins, aliases, removed projects, pinned sessions) are
+// data, not interface defaults, so they survive a reset.
+const RESET_KEEPS_SETTINGS = Object.freeze(["locale", "projectPins", "projectAliases", "removedProjects", "sessionPins"]);
 el.btnResetSettings?.addEventListener("click", () => {
   if (!confirm(tKey("settings.resetConfirm"))) return;
+  const kept = Object.fromEntries(RESET_KEEPS_SETTINGS.map((key) => [key, settings[key]]).filter(([, value]) => value !== undefined));
   try {
     localStorage.removeItem(SETTINGS_KEY);
     for (const key of LEGACY_SETTINGS_KEYS || [LEGACY_SETTINGS_KEY]) localStorage.removeItem(key);
   } catch {}
-  settings = { ...DEFAULT_SETTINGS };
+  settings = saveSettings(kept);
   applyAppearance();
   renderSettings();
   renderSessionList(el.search.value);
-  toast("介面設定已恢復預設");
+  toast(updateText("Interface settings restored"));
 });
 
 function renderMachineList() {
@@ -13588,28 +13965,18 @@ function renderMachineList() {
     row.querySelector("strong").textContent = displayName;
     const statusLabel = machineStatusText(status);
     row.querySelector(".m-dot").title = statusLabel;
-    // Hostnames are implementation details; the row only needs the state.
-    row.querySelector("small").textContent = m.id === selectedId
-      ? tKey("deviceTrust.inUse", { status: statusLabel }) : statusLabel;
-    const auth = document.createElement("span");
-    auth.className = "m-auth";
-    auth.textContent = machineAuthText(m);
-    row.querySelector(".m-info").appendChild(auth);
+    // Hostnames are implementation details; the row only needs the state
+    // and how this browser reaches the device, on one line.
+    const state = m.id === selectedId ? tKey("deviceTrust.inUse", { status: statusLabel }) : statusLabel;
+    row.querySelector("small").textContent = state + " · " + machineAuthText(m);
     const actions = row.querySelector(".machine-row-actions");
     const edit = document.createElement("button");
     edit.type = "button"; edit.className = "icon-button-small machine-row-action";
     edit.title = `編輯 ${displayName}`; edit.setAttribute("aria-label", `編輯 ${displayName}`);
     edit.innerHTML = '<svg class="icon"><use href="#i-pencil"></use></svg>';
     edit.addEventListener("click", (event) => { event.stopPropagation(); void openMachineDialog(m); });
+    // Removing a device lives in the same dialog as editing it.
     actions.appendChild(edit);
-    if (m.managed) {
-      const remove = document.createElement("button");
-      remove.type = "button"; remove.className = "icon-button-small machine-row-action danger-text";
-      remove.title = `刪除 ${displayName}`; remove.setAttribute("aria-label", `刪除 ${displayName}`);
-      remove.innerHTML = '<svg class="icon"><use href="#i-x"></use></svg>';
-      remove.addEventListener("click", (event) => { event.stopPropagation(); void openMachineDialog(m); });
-      actions.appendChild(remove);
-    }
     row.addEventListener("click", () => {
       if (m.id === selectedId) { toast("已在這台設備上"); return; }
       switchMachine(m.id);
@@ -13618,6 +13985,7 @@ function renderMachineList() {
     });
     el.machineList.appendChild(row);
   }
+  if (updateViewIsOpen()) renderSettingsNavigation();
 }
 
 function resetIncomingGrants() {

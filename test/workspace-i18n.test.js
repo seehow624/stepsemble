@@ -18,11 +18,12 @@ test("workspace locales cover every key and preserve interpolation variables", (
 test("workspace preferences preserve saved locale/theme, migrate aliases and tolerate inaccessible storage", () => {
   const storage = value => ({ getItem: key => key === "stepsemble.settings.v2" ? JSON.stringify(value) : null });
   assert.deepEqual(I.preferences(storage({ locale: "zh-TW", theme: "dark", fontScale: 110 })), { locale: "zh-Hant", theme: "dark", resolvedTheme: "dark",
-    designTheme: "ink-ivory", fontScale: 110, compact: false, sidebarWidth: 336 });
+    designTheme: "ink-ivory", fontScale: 110, compact: false, sidebarWidth: 336, showTemporarySessions: false });
   assert.deepEqual(I.preferences({ getItem: () => { throw new Error("denied"); } }), { locale: "en", theme: "auto", resolvedTheme: "light",
-    designTheme: "ink-ivory", fontScale: 100, compact: false, sidebarWidth: 336 });
+    designTheme: "ink-ivory", fontScale: 100, compact: false, sidebarWidth: 336, showTemporarySessions: false });
   assert.equal(I.preferences(storage({ locale: "pt-PT", fontScale: 1000 })).fontScale, 125);
   assert.equal(I.preferences(storage({ locale: "pt-PT" })).locale, "pt-BR");
+  assert.equal(I.preferences(storage({ showTemporarySessions: true })).showTemporarySessions, true);
   assert.equal(I.preferences({ getItem: key => key === "piweb.settings.v1" ? '{"locale":"ja","theme":"light"}' : null }).locale, "ja");
 });
 

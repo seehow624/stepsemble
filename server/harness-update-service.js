@@ -349,6 +349,9 @@ function createHarnessUpdateService({
       checkedAt: observed.checkedAt || null,
       updatedAt: observed.updatedAt || null,
       verification: observed.verification || null,
+      // The last upgrade finished but a newer published version is still
+      // known, so the row must not claim the harness is current.
+      lastUpdateUnchanged: observed.lastUpdateUnchanged === true,
       error: observed.error || null,
       note: definition.note || definition.update.reason || null,
     };
@@ -369,6 +372,14 @@ function createHarnessUpdateService({
   }
 
   async function observe(definition) {
+    const observed = await observeInstalled(definition);
+    // Once a check no longer finds a newer release, the note about an
+    // earlier upgrade that left the version unchanged is obsolete.
+    if (observed.updateAvailable !== true) observed.lastUpdateUnchanged = false;
+    return observed;
+  }
+
+  async function observeInstalled(definition) {
     const previous = stateById(definition.id) || {};
     const executable = definition.executableEnv && env[definition.executableEnv]
       ? resolve(env[definition.executableEnv], env) : (definition.commands || []).map(name => resolve(name, env)).find(Boolean);
@@ -677,6 +688,10 @@ function createHarnessUpdateService({
       shell: false, cwd: home, env: cleanEnvironment(env), timeout: UPDATE_TIMEOUT_MS, maxBuffer: 512 * 1024,
     });
     const afterVersion = verify && result.code === 0 ? await readHarnessVersion(executable) : null;
+    // Strategies without mandatory verification still get a best-effort
+    // version read, so the row reflects what is installed now instead of the
+    // version seen before the upgrade. An unreadable version is not a failure.
+    const observedAfter = !verify && result.code === 0 ? await readHarnessVersion(executable) : null;
     let successful = result.code === 0;
     let error = successful ? null : resultError(result, "update_failed");
     let verification = verify ? (result.code === 0 ? afterVersion?.status || "unavailable" : "not-run") : null;
@@ -710,11 +725,19 @@ function createHarnessUpdateService({
     const previous = stateById(definition.id) || { id: definition.id };
     previous.updatedAt = record.finishedAt;
     if (successful) {
-      previous.status = unchanged ? "up-to-date" : "updated"; previous.updateAvailable = false; previous.error = null;
+      previous.error = null;
       if (command.source) previous.source = command.source.kind;
       if (verify) {
         previous.verification = verification;
         if (afterVersion?.version) previous.currentVersion = afterVersion.version;
+      } else if (observedAfter?.status === "verified") {
+        previous.currentVersion = observedAfter.version;
+      }
+      const stillBehind = !!previous.latestVersion && !!previous.currentVersion && isNewer(previous.latestVersion, previous.currentVersion);
+      if (stillBehind) {
+        previous.status = "available"; previous.updateAvailable = true; previous.lastUpdateUnchanged = true;
+      } else {
+        previous.status = unchanged ? "up-to-date" : "updated"; previous.updateAvailable = false; previous.lastUpdateUnchanged = false;
       }
     }
     else { previous.status = "error"; previous.error = record.error; }
@@ -732,12 +755,16 @@ function createHarnessUpdateService({
     return running;
   }
 
-  async function updateAll({ confirm = false } = {}) {
+  async function updateAll({ confirm = false, ids = null } = {}) {
     if (!confirm) throw errorStatus("confirmation_required", "Explicit confirmation is required", 400);
     if (running) throw errorStatus("update_in_progress", "Another harness update is already running", 409);
+    // An explicit list limits the run to harnesses the caller saw as outdated;
+    // re-running every vendor updater would restart current harnesses too.
+    const selected = Array.isArray(ids) ? new Set(ids.map(safeId).filter(Boolean)) : null;
     running = (async () => {
       const results = [];
       for (const definition of entries) {
+        if (selected && !selected.has(definition.id)) continue;
         if (definition.update?.kind === "manual") {
           results.push({ id: definition.id, label: definition.label, status: "manual", reason: definition.update.reason || null });
           continue;

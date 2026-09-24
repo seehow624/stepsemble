@@ -615,7 +615,10 @@ test("Settings has a guarded left-edge back gesture with shared cleanup", () => 
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   assert.match(app, /function hideSettings\(\)/);
-  assert.match(app, /el\.btnSettingsBack\.addEventListener\("click", hideSettings\)/);
+  assert.match(app, /el\.btnSettingsBack\.addEventListener\("click", settingsGoBack\)/);
+  // Inside a section the toolbar and the edge gesture return to the section
+  // list first; only the list itself closes Settings.
+  assert.match(app, /function settingsGoBack\(\) \{[\s\S]{0,220}showSettingsCategory\(null\)[\s\S]{0,80}hideSettings\(\);/);
   assert.match(app, /settingsSwipeCancel\?\.\(\)/);
   assert.match(app, /el\.viewSettings\.addEventListener\("touchstart"/);
   assert.match(app, /input, select, textarea, button, a/);
@@ -775,13 +778,17 @@ test("simplified mobile UI keeps one project action, one model control, and port
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "public", "manifest.webmanifest"), "utf8"));
 
-  const connection = html.indexOf('<h3 class="group-title">Connection</h3>');
-  const models = html.indexOf('id="model-settings-open"');
+  // Settings is split into sections; each group names the section it belongs to.
   const appearance = html.indexOf('<h3 class="group-title">Appearance</h3>');
+  const agents = html.indexOf('data-settings-category="agents"');
+  const models = html.indexOf('id="model-settings-open"');
+  const updates = html.indexOf('data-settings-category="updates"');
   const about = html.indexOf('<h3 class="group-title">About</h3>');
-  const updates = html.indexOf('class="settings-subheading"');
-  assert.ok(connection >= 0 && connection < models && models < appearance);
-  assert.ok(about >= 0 && about < updates);
+  assert.ok(appearance >= 0 && appearance < agents && agents < models && models < updates && updates < about);
+  for (const section of ["appearance", "agents", "devices", "updates", "advanced"]) {
+    assert.match(html, new RegExp('data-settings-open="' + section + '"'));
+    assert.match(css, new RegExp('\\[data-settings-view="' + section + '"\\] \\.settings-group\\[data-settings-category="' + section + '"\\]'));
+  }
   assert.doesNotMatch(html, /id="composer-thinking"|id="stream-dot"|id="fab-new"|id="set-session-count"/);
   assert.match(html, /id="btn-model"[^>]*title="Model &amp; reasoning"/);
   assert.match(app, /function updateNewProjectAffordance\(\)/);
@@ -893,10 +900,18 @@ test("2.1.0 update center covers per-device state, idle apply, and partial updat
   const updater = fs.readFileSync(path.join(root, "deploy", "stepsemble-update.sh"), "utf8");
   const about = html.indexOf('<h3 class="group-title">About</h3>');
   const advanced = html.indexOf('<h3 class="group-title">Advanced</h3>');
+  const nav = html.indexOf('id="settings-nav"');
   const signOut = html.indexOf('id="btn-logout"');
-  assert.ok(about >= 0 && about < advanced && advanced < signOut, "Settings order should be About, Advanced, Sign out");
+  const content = html.indexOf('class="settings-content"');
+  assert.ok(about >= 0 && about < advanced, "Settings order should be About, then Advanced");
+  assert.ok(nav >= 0 && nav < signOut && signOut < content, "Sign out belongs to the section list");
   assert.match(html, /id="update-device-list"/);
-  assert.match(html, /id="update-all-devices"[^>]*>Update all devices/);
+  // Checking and installing are separate actions: the section-wide button only
+  // checks, and each device offers its own confirmed install.
+  assert.match(html, /id="update-all-devices"[^>]*>Check all devices/);
+  assert.match(app, /requestMachineUpdate\(machine, "\/api\/update\/check"/);
+  assert.match(app, /async function installDeviceUpdate\(machineId\)[\s\S]{0,900}if \(!confirm\(question\)\) return;[\s\S]{0,400}"\/api\/update\/run"/);
+  assert.match(server, /if \(p === "\/api\/update\/check" && req\.method === "POST"\)/);
   assert.match(html, /id="update-center-summary"[^>]*aria-live="polite"/);
   assert.match(app, /function refreshUpdateCenter\(force = false\)/);
   assert.match(app, /fetchMachineUpdateStatus\(machine/);
@@ -1074,8 +1089,9 @@ test("automatic updates use a public GitHub source and launchd without touching 
   assert.match(server, /syncBundledUpdater/);
   assert.match(app, /function refreshUpdateCenter/);
   assert.match(app, /Automatic updates/);
-  assert.match(html, /id="set-auto-update"/);
-  assert.match(html, /id="update-check"/);
+  // Each device row carries its own automatic-update switch.
+  assert.match(app, /input\.dataset\.updateAuto = machine\.id/);
+  assert.match(app, /requestMachineUpdate\(machine, "\/api\/update\/settings", \{ enabled \}\)/);
   assert.match(updater, /api\.github\.com\/repos/);
   assert.match(updater, /releases\/latest/);
   assert.match(updater, /fetch_release_metadata\(\)/);

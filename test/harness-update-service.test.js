@@ -131,7 +131,81 @@ test("updates require confirmation and are blocked while an agent is active", as
   active = false;
   const updated = await service.update({ id: "fake", confirm: true });
   assert.equal(updated.updated.success, true);
-  assert.deepEqual(calls.at(-1), ["/fake/fake", ["update"]]);
+  // The updater runs once; only a read-only version probe may follow it.
+  const updateCalls = calls.filter(([, args]) => args[0] === "update");
+  assert.deepEqual(updateCalls, [["/fake/fake", ["update"]]]);
+  assert.ok(calls.slice(calls.findIndex(([, args]) => args[0] === "update") + 1).every(([, args]) => args[0] === "--version"));
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("an upgrade that leaves an older version installed keeps the update visible", async () => {
+  const { root, file } = tempState();
+  const service = createHarnessUpdateService({
+    registry: { registryVersion: 1, harnesses: [{
+      id: "vendor", label: "Vendor", commands: ["vendor"],
+      check: { kind: "registry-version", package: "@vendor/cli" },
+      update: { kind: "command", args: ["update"] },
+    }] },
+    stateFile: file, env: { PATH: "/fake", HOME: root },
+    resolve: name => name === "vendor" ? "/fake/vendor" : name === "npm" ? "/fake/npm" : null,
+    // The vendor updater exits 0 but stays on its own release channel.
+    runner: async (command, args) => {
+      if (args[0] === "--version") return { code: 0, stdout: "vendor 2.1.270", stderr: "" };
+      if (command === "/fake/npm") return { code: 0, stdout: "2.1.274\n", stderr: "" };
+      return { code: 0, stdout: "already up to date", stderr: "" };
+    },
+    busy: () => false,
+  });
+  await service.check({ id: "vendor" });
+  const result = await service.update({ id: "vendor", confirm: true });
+  const entry = result.harnesses.find(item => item.id === "vendor");
+  assert.equal(result.updated.success, true);
+  assert.equal(entry.status, "available");
+  assert.equal(entry.updateAvailable, true);
+  assert.equal(entry.currentVersion, "2.1.270");
+  assert.equal(entry.lastUpdateUnchanged, true);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("an upgrade that installs the published version reports the new version", async () => {
+  const { root, file } = tempState();
+  let version = "2.1.270";
+  const service = createHarnessUpdateService({
+    registry: { registryVersion: 1, harnesses: [{
+      id: "vendor", label: "Vendor", commands: ["vendor"],
+      check: { kind: "registry-version", package: "@vendor/cli" },
+      update: { kind: "command", args: ["update"] },
+    }] },
+    stateFile: file, env: { PATH: "/fake", HOME: root },
+    resolve: name => name === "vendor" ? "/fake/vendor" : name === "npm" ? "/fake/npm" : null,
+    runner: async (command, args) => {
+      if (args[0] === "--version") return { code: 0, stdout: `vendor ${version}`, stderr: "" };
+      if (command === "/fake/npm") return { code: 0, stdout: "2.1.274\n", stderr: "" };
+      version = "2.1.274";
+      return { code: 0, stdout: "updated", stderr: "" };
+    },
+    busy: () => false,
+  });
+  await service.check({ id: "vendor" });
+  const entry = (await service.update({ id: "vendor", confirm: true })).harnesses.find(item => item.id === "vendor");
+  assert.equal(entry.status, "updated");
+  assert.equal(entry.currentVersion, "2.1.274");
+  assert.equal(entry.lastUpdateUnchanged, false);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("update all can be limited to the harnesses the caller saw as outdated", async () => {
+  const { root, file } = tempState();
+  const calls = [];
+  const service = createHarnessUpdateService({
+    registry: registry(), stateFile: file, env: { PATH: "/fake", HOME: root },
+    resolve: name => name === "fake" ? "/fake/fake" : null,
+    runner: async (command, args) => { calls.push(args[0]); return { code: 0, stdout: "fake 1.0.0", stderr: "" }; },
+    busy: () => false,
+  });
+  const result = await service.updateAll({ confirm: true, ids: ["manual"] });
+  assert.deepEqual(result.results.map(item => item.id), ["manual"]);
+  assert.equal(calls.includes("update"), false);
   fs.rmSync(root, { recursive: true, force: true });
 });
 

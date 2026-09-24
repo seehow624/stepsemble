@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.1.2
+
+- Split Settings into five sections (Appearance, Agents & models, Devices & access, Updates, Advanced). Phones open on a short section list with the selected host at the top; wide windows keep the list beside the open section.
+- Make "Check for updates" read the published release only. Installing is a separate, confirmed action per device, each device has its own automatic-update switch, and a check can no longer be picked up by the pending-install scheduler.
+- Show coding-agent versions honestly: a newer published version stays visible after an upgrade that did not change the installed version, missing agents collapse into one line, host-managed agents have no upgrade button, "Upgrade all" only runs the outdated ones, and a stale check refreshes when the Updates section opens.
+- Collapse the nine design themes behind the current one, stack device pickers on phones, apply the Sub Agent setting to History from other apps, and keep language and project organisation when restoring interface defaults.
+- Fix the Codex & Claude tab in Models & providers, which fell back to the Pi Agent list.
+
 ## 3.1.1
 
 - Let an update proceed when an external, read-only history observation still carries a stale running label. Stepsemble-owned agent work and live RPC streams continue to block installation.
