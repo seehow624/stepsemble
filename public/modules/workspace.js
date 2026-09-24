@@ -109,6 +109,20 @@
   const hostName = value => machines.find(m => m.id === value)?.name || value;
   const refOf = entry => ({ host, key: entry.key, title: entry.record.name || entry.record.agentId || "Session" });
   function allRefs() { return L.leaves(tree).flatMap(p => p.tabs); }
+  function setRefTitle(ref, value) {
+    const title = String(value || "").replace(/\s+/g, " ").trim().slice(0, 160);
+    if (!title) return;
+    const key = L.identity(ref);
+    let changed = false;
+    for (const tab of allRefs()) if (L.identity(tab) === key && tab.title !== title) { tab.title = title; changed = true; }
+    if (!changed) return;
+    const entry = ref.host === host && snapshot.entries.find(row => row.key === ref.key);
+    if (entry) entry.record.name = title;
+    const frame = frames.get(key);
+    if (frame) { frame.ref.title = title; frame.frame.title = `${title} · ${hostName(ref.host)}`; }
+    try { save(); } catch (error) { toast(error.message); }
+    render();
+  }
   function active(p) { return p.tabs.find(r => L.identity(r) === p.active); }
   function commit(next) { try { save(next); render(); return true; } catch (error) { toast(error.message); return false; } }
   function untrackMembership(target, keys, broadcast = true) {
@@ -186,7 +200,8 @@
     // Reparenting an iframe reloads its browsing context on older browsers.
     const visibleRefs = L.leaves(tree).filter(p => (!mobile() || p.id === focused) && (!maximized || p.id === maximized)).map(active).filter(Boolean);
     for (const ref of visibleRefs) {
-      const key = L.identity(ref); if (frames.has(key)) continue;
+      const key = L.identity(ref);
+      if (frames.has(key)) { frames.get(key).frame.title = `${ref.title} · ${hostName(ref.host)}`; continue; }
       const frame = node("iframe", "", "workspace-frame"); frame.title = `${ref.title} · ${hostName(ref.host)}`;
       const url = new URL("/index.html", location.origin); url.searchParams.set("pane", "1"); url.searchParams.set("host", ref.host); url.searchParams.set("entry", ref.key);
       frame.src = url.href; frames.set(key, { frame, ref }); $("workspace-frames").append(frame);
@@ -319,6 +334,10 @@
     const epoch = ++refreshEpoch, target = host;
     const statusDot = document.querySelector(".workspace-status-dot");
     try { const data = await api("/api/workspace", undefined, target); if (epoch !== refreshEpoch || target !== host) return; if (JSON.stringify(data) !== JSON.stringify(snapshot)) { snapshot = data; if (!document.body.classList.contains("workspace-dragging")) renderSidebar(); }
+      if (!document.body.classList.contains("workspace-dragging")) for (const entry of data.entries) {
+        const ref = { host: target, key: entry.key };
+        if (allRefs().some(tab => L.identity(tab) === L.identity(ref))) setRefTitle(ref, refOf(entry).title);
+      }
       // A closed window can retain an old tab in its saved layout. Reconcile
       // against membership when it opens again, without touching other hosts.
       const available = new Set(data.entries.map(entry => entry.key));
@@ -659,6 +678,7 @@
     const item = [...frames.values()].find(item => item.frame.contentWindow === event.source);
     if (!item) return;
     if (event.data?.type === "workspace-focus") { const p = L.leaves(tree).find(p => p.tabs.some(r => L.identity(r) === L.identity(item.ref))); if (p) { focused = p.id; for (const pane of document.querySelectorAll(".workspace-pane")) pane.dataset.focused = String(pane.dataset.pane === focused); } }
+    if (event.data?.type === "workspace-title") setRefTitle(item.ref, event.data.title);
     if (event.data?.type === "workspace-show-list" && mobile()) {
       if (window.history.state?.stepsembleWorkspaceView === "session") window.history.back();
       else showMobileList();

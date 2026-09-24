@@ -1,7 +1,7 @@
-/* stepsemble v3.1.2 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.1.3 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.1.2";
+const CLIENT_APP_VERSION = "3.1.3";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 if (WORKSPACE_PANE) {
   document.documentElement.classList.add("workspace-embedded");
@@ -3786,6 +3786,7 @@ function setChatTitle(title) {
   const value = String(title || "").trim();
   el.chatTitle.textContent = value || (window.stepsembleI18n?.t("New conversation") || "New conversation");
   el.chatTitle.toggleAttribute("data-i18n-ignore", !!value);
+  if (WORKSPACE_PANE && value) parent.postMessage({ type: "workspace-title", title: value }, location.origin);
 }
 
 async function openExisting(s) {

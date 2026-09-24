@@ -88,7 +88,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.1.2";
+const APP_VERSION = "3.1.3";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -107,6 +107,15 @@ const { configDir: CONFIG_DIR } = migrateLegacyConfig(APP_HOME, {
   onMigrate: (entries) => console.log(`[stepsemble] preserved ${entries.length} legacy config item${entries.length === 1 ? "" : "s"}`),
 });
 const workspaceRegistry = require("./server/workspace-registry").createWorkspaceRegistry(path.join(CONFIG_DIR, "workspaces.json"));
+function syncWorkspacePiName({ sid, file, name }) {
+  if (typeof name !== "string") return;
+  const title = name.replace(/\s+/g, " ").trim().slice(0, 120);
+  try {
+    const entry = workspaceRegistry.list().entries.find(row => row.record.agentId === "pi"
+      && (sid && row.record.sid === sid || file && row.record.file === file));
+    if (entry && entry.record.name !== title) workspaceRegistry.update(entry.key, { name: title });
+  } catch { /* A name update must never interrupt the session or its transcript. */ }
+}
 const SESSIONS_DIR = path.join(APP_HOME, ".pi", "agent", "sessions");
 const MODEL_CONFIG_FILE = path.join(APP_HOME, ".pi", "agent", "models.json");
 // Pi persists remote model catalogs (pi.dev overlay) next to models.json.
@@ -1457,6 +1466,26 @@ async function scanSessionSummaries() {
   }
   results.sort((a, b) => b.mtimeMs - a.mtimeMs);
   return results;
+}
+
+async function workspacePiSummary(file) {
+  const abs = safeSessionPath(file);
+  if (!abs) return null;
+  const stat = await fs.promises.stat(abs).catch(() => null);
+  if (!stat) return null;
+  const cached = scanCache.get(file);
+  const keys = ["mtimeMs", "size", "ctimeMs", "ino", "dev"];
+  if (cached && keys.every(key => cached[key] === stat[key])) return cached.info;
+  try {
+    const info = await parseSessionFile(abs, { deadline: Date.now() + 1500 });
+    if (!info?.id) return null;
+    const after = await fs.promises.stat(abs).catch(() => null);
+    if (after && keys.every(key => after[key] === stat[key])) {
+      if (scanCache.size >= MAX_SESSION_SCAN_CACHE && !scanCache.has(file)) scanCache.delete(scanCache.keys().next().value);
+      scanCache.set(file, { ...Object.fromEntries(keys.map(key => [key, stat[key]])), info });
+    }
+    return info;
+  } catch { return null; }
 }
 
 // ---- 跨 session 全文搜尋（bounded）：只掃最近修改的檔案、每檔上限 8MB、
@@ -3194,6 +3223,7 @@ async function openRpc({ file, cwd, name }) {
           if (pending.type === "set_session_name" && ev.success) {
             sess.meta.name = typeof pending.name === "string" ? pending.name.trim() || null : null;
             if (sess.meta.file) scanCache.delete(sess.meta.file);
+            syncWorkspacePiName({ sid, file: sess.meta.file, name: sess.meta.name || "" });
           }
           if (pending.type === "prompt" && !ev.success && !sess.state.isStreaming) sess.state.runOutcome = "failed";
         }
@@ -3211,7 +3241,9 @@ async function openRpc({ file, cwd, name }) {
         }
         if (!sess.meta.file && typeof ev.data.sessionName === "string") sess.meta.name = ev.data.sessionName.trim() || null;
       }
-      if (ev.type === "message_end" && ev.message?.role === "user" && !sess.meta.firstMessage) sess.meta.firstMessage = textOfContent(ev.message.content).trim().slice(0, 160);
+      if (ev.type === "message_end" && ev.message?.role === "user" && !sess.meta.firstMessage) {
+        sess.meta.firstMessage = textOfContent(ev.message.content).trim().slice(0, 160);
+      }
       broadcast(sid, ev);
       scheduleRpcCleanup(sid);
     },
@@ -5774,6 +5806,14 @@ const server = http.createServer(async (req, res) => {
           if (record.agentId === "pi") {
             const session = rpcSessions.get(record.sid);
             record.status = session && !session.exited ? (rpcHasWork(session) ? "running" : "waiting") : "history";
+            if (session?.meta) {
+              const title = piSession.title(session.meta, "").replace(/\s+/g, " ").trim().slice(0, 160);
+              if (title) record.name = title;
+            } else if (record.file && (!record.name || record.name === "Pi" || scanCache.has(record.file))) {
+              const summary = await workspacePiSummary(record.file);
+              const title = summary && piSession.title(summary, "").replace(/\s+/g, " ").trim().slice(0, 160);
+              if (title) record.name = title;
+            }
           }
         }
         sendJSON(res, 200, snapshot); return;
@@ -6023,6 +6063,7 @@ const server = http.createServer(async (req, res) => {
           before: url.searchParams.get("before"),
         });
         if (!data) { sendJSON(res, 404, { error: "session not found" }); return; }
+        syncWorkspacePiName({ file: url.searchParams.get("file"), name: data.name || "" });
         sendJSON(res, 200, data);
         return;
       }
@@ -6030,6 +6071,7 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/rename" && req.method === "POST") {
         const body = await readJSON(req);
         const ok = renameSession(body.file, body.name);
+        if (ok) syncWorkspacePiName({ file: body.file, name: body.name });
         sendJSON(res, ok ? 200 : 400, ok ? {} : { error: "rename failed" });
         return;
       }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.1.3
+
+- Update Workspace session rows and pane tabs when a conversation gains or changes its title. Pi sessions use their explicit name or first user message, including older entries previously shown only as "Pi"; the first-message text stays out of the workspace membership file.
+- Replace the Workspace Settings emoji with the same centered SVG icon used by the main app.
+
 ## 3.1.2
 
 - Split Settings into five sections (Appearance, Agents & models, Devices & access, Updates, Advanced). Phones open on a short section list with the selected host at the top; wide windows keep the list beside the open section.

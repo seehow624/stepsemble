@@ -26,6 +26,8 @@ for (const task of tasks.slice(0, 2)) registry.remember(task);
 const piDir = path.join(home, '.pi/agent/sessions/demo'); await fs.mkdir(piDir, { recursive: true });
 await fs.writeFile(path.join(piDir, 'external.jsonl'), [ { type: 'session', id: 'external-pi', cwd: project, timestamp: new Date().toISOString() },
   { type: 'session_info', name: '外部 Pi 對話' }, { type: 'message', id: 'external-message', parentId: null, message: { role: 'user', content: [{ type: 'text', text: 'External history should stay outside the workspace until added.' }] } } ].map(r => JSON.stringify(r)).join('\n')+'\n');
+await fs.writeFile(path.join(piDir, 'untitled.jsonl'), [ { type: 'session', id: 'untitled-pi', cwd: project, timestamp: new Date().toISOString() },
+  { type: 'message', id: 'first-message', parentId: null, message: { role: 'user', content: [{ type: 'text', text: 'Plan the dashboard layout' }] } } ].map(r => JSON.stringify(r)).join('\n')+'\n');
 const port = await freePort();
 const child = spawn(process.execPath, [path.join(root, 'server.js')], { cwd: home, stdio: ['ignore','pipe','pipe'], env: { ...cleanEnvironment(home), PATH: '/usr/bin:/bin', PI_HOME: home, PI_BIN: path.join(home, 'no-pi'), STEPSEMBLE_WORKSPACE_KEYCHAIN_USAGE: '0', STEPSEMBLE_HOST: '127.0.0.1', STEPSEMBLE_PORT: String(port), STEPSEMBLE_ORPHAN_EXIT: '0' } });
 child.stderr.on('data', () => {});
