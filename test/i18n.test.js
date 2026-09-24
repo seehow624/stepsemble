@@ -270,6 +270,13 @@ test("update center phrases are translated in every supported locale", () => {
     "Next automatic check: {time}",
     "Update all complete: {started} started, {skipped} skipped, {failed} failed.",
     "Stepsemble update ready; reload after the current work finishes",
+    "Update now",
+    "Update {device} now? Stepsemble restarts, which affects the work running there:",
+    "stops; ask it to continue after the update",
+    "keeps running",
+    "Conversations are kept.",
+    "If you cancel, it installs automatically when the work finishes.",
+    "Agent work",
   ];
   const values = { device: "MacBook Pro", time: "09:00", started: 1, skipped: 2, failed: 3 };
   for (const locale of i18n.locales.map((item) => item.id).filter((id) => id !== "en")) {

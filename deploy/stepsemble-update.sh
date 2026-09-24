@@ -36,6 +36,9 @@ case "$INSTALL_DIR" in
 esac
 readonly SERVICE_LABEL="${STEPSEMBLE_SERVICE_LABEL:-${PI_HARBOR_SERVICE_LABEL:-${PI_WEB_SERVICE_LABEL:-$DEFAULT_SERVICE_LABEL}}}"
 readonly FORCE_UPDATE="${STEPSEMBLE_UPDATE_FORCE:-${PI_HARBOR_UPDATE_FORCE:-${PI_WEB_UPDATE_FORCE:-0}}}"
+# Set only when the user confirms "Update now" in the app. Scheduled and
+# deferred runs never install past running agent work.
+readonly INTERRUPT_UPDATE="${STEPSEMBLE_UPDATE_INTERRUPT:-0}"
 
 log() { print -u2 -r -- "[stepsemble-update] $*"; }
 die() {
@@ -418,10 +421,13 @@ if ! release_is_newer "$installed_version" "$latest_version"; then
   exit 0
 fi
 
-if active_rpc_running; then
+if [[ "$INTERRUPT_UPDATE" != "1" ]] && active_rpc_running; then
   write_state "" "$now" "$latest_version" "$installed_version" "" "deferred" "active_rpc_running"
   log "$latest_version is available; update deferred until the current agent work finishes"
   exit 0
+fi
+if [[ "$INTERRUPT_UPDATE" == "1" ]]; then
+  log "installing $latest_version now at the user's request; running agent work may be interrupted"
 fi
 
 archive="$work_dir/stepsemble.tar.gz"
@@ -454,7 +460,7 @@ mkdir -p "$stage_dir" || die "could not create the release staging directory"
 cp -a "$source_dir"/. "$stage_dir"/ || die "could not stage the verified release"
 # This is the final safety gate immediately before replacing the live install.
 # The server-side hook also schedules this check only after all RPCs settle.
-if active_rpc_running; then
+if [[ "$INTERRUPT_UPDATE" != "1" ]] && active_rpc_running; then
   write_state "" "$now" "$latest_version" "$installed_version" "" "deferred" "active_rpc_running"
   log "$latest_version is available; update deferred until the current agent work finishes"
   exit 0

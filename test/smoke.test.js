@@ -910,7 +910,10 @@ test("2.1.0 update center covers per-device state, idle apply, and partial updat
   // checks, and each device offers its own confirmed install.
   assert.match(html, /id="update-all-devices"[^>]*>Check all devices/);
   assert.match(app, /requestMachineUpdate\(machine, "\/api\/update\/check"/);
-  assert.match(app, /async function installDeviceUpdate\(machineId\)[\s\S]{0,900}if \(!confirm\(question\)\) return;[\s\S]{0,400}"\/api\/update\/run"/);
+  // The device is asked what is running before the confirmation, and an
+  // interrupting install is only requested after the user confirms.
+  assert.match(app, /async function installDeviceUpdate\(machineId\)[\s\S]{0,1800}if \(!confirm\(question\)\) return;[\s\S]{0,400}"\/api\/update\/run", interrupt \? \{ interrupt: true \} : \{\}/);
+  assert.doesNotMatch(app.slice(0, app.indexOf("if (!confirm(question)) return;")), /interrupt: true/);
   assert.match(server, /if \(p === "\/api\/update\/check" && req\.method === "POST"\)/);
   assert.match(html, /id="update-center-summary"[^>]*aria-live="polite"/);
   assert.match(app, /function refreshUpdateCenter\(force = false\)/);

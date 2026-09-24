@@ -1,7 +1,7 @@
-/* stepsemble v3.2.2 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.2.3 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.2.2";
+const CLIENT_APP_VERSION = "3.2.3";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 if (WORKSPACE_PANE) {
   document.documentElement.classList.add("workspace-embedded");
@@ -11884,7 +11884,7 @@ function updateDeviceView(machine) {
   const updater = data?.updater;
   const current = String(data?.appVersion || data?.currentVersion || updater?.currentVersion || "");
   const latest = String(updater?.latestVersion || data?.latestVersion || "");
-  const view = { entry, updater, current, latest, tone: "muted", text: "", install: false, legacyInstall: false, auto: null, checked: false };
+  const view = { entry, updater, current, latest, tone: "muted", text: "", install: false, legacyInstall: false, interrupt: false, auto: null, checked: false };
   if (!entry) {
     view.text = updateText("Checking status…");
     return view;
@@ -11917,6 +11917,8 @@ function updateDeviceView(machine) {
     case "deferred":
       view.tone = "warn";
       view.text = updateText("{version} installs when agent work finishes", { version });
+      // A newer Host can install past the running work once the user confirms.
+      view.interrupt = updater.interruptible === true && updater.installed === true;
       break;
     case "available":
       view.tone = "accent";
@@ -11976,12 +11978,12 @@ function renderUpdateDeviceRow(machine) {
   copy.append(title, status);
   main.appendChild(copy);
 
-  if (view.install || view.legacyInstall) {
+  if (view.install || view.legacyInstall || view.interrupt) {
     const action = document.createElement("button");
     action.type = "button";
     action.className = "btn " + (view.install ? "primary" : "ghost") + " update-device-install";
     action.dataset.updateInstall = machine.id;
-    action.textContent = view.install ? updateText("Install update") : updateText("Install latest");
+    action.textContent = view.install ? updateText("Install update") : view.interrupt ? updateText("Update now") : updateText("Install latest");
     action.disabled = updateInstallInFlight.has(machine.id) || updateInstallAllRunning;
     main.appendChild(action);
   }
@@ -12828,21 +12830,47 @@ async function runUpdateAll() {
   }
 }
 
-// Installing is always a separate, confirmed action per device.
+// Lists what an immediate install would do to the work running on a device:
+// which turns stop (the conversation stays and can be continued) and which
+// supervised tasks keep running through the restart.
+function updateInterruptQuestion(device, work, automatic) {
+  const ordered = [...work.filter(item => item?.effect !== "continues"), ...work.filter(item => item?.effect === "continues")];
+  const lines = ordered.slice(0, 8).map((item) => {
+    // Settings may open before the connector catalog loads, so prefer the
+    // built-in identity names over the raw connector id.
+    const identity = item?.agent ? window.StepsembleAgentIdentity?.lookup?.(item.agent) : null;
+    const agent = item?.agent ? (identity?.label && identity.id !== "agent" ? identity.label : agentConnectorLabel(item.agent)) : updateText("Agent work");
+    const effect = item?.effect === "continues" ? updateText("keeps running") : updateText("stops; ask it to continue after the update");
+    return "• " + agent + (item?.name ? " · " + item.name : "") + " — " + effect;
+  });
+  return [updateText("Update {device} now? Stepsemble restarts, which affects the work running there:", { device }), "", ...lines, "",
+    updateText("Conversations are kept."), ...(automatic ? [updateText("If you cancel, it installs automatically when the work finishes.")] : [])].join("\n");
+}
+
+// Installing is always a separate, confirmed action per device. When agent
+// work is running, the confirmation says what an immediate install interrupts.
 async function installDeviceUpdate(machineId) {
   const machine = machines.find((item) => item.id === machineId);
   if (!machine || updateInstallInFlight.has(machine.id) || updateInstallAllRunning) return;
   const view = updateDeviceView(machine);
   const device = updateDeviceName(machine);
-  const question = view.install
-    ? updateText("Install Stepsemble {version} on {device}? Stepsemble restarts after installing. If an agent is working, the install waits until it finishes.", { version: updateVersionText(view.latest), device })
-    : updateText("{device} runs an older Stepsemble that can only check for updates by installing them. Install the latest release now?", { device });
-  if (!confirm(question)) return;
   const generation = viewGeneration;
+  // Ask the device what is running now; the row may predate newly started work.
+  let live = null;
+  try { live = (await requestMachineUpdate(machine, "/api/update/status"))?.data?.updater || null; } catch {}
+  if (generation !== viewGeneration || !updateViewIsOpen() || updateInstallInFlight.has(machine.id) || updateInstallAllRunning) return;
+  const work = Array.isArray(live?.activeWork) ? live.activeWork : [];
+  const interrupt = live?.interruptible === true && work.length > 0;
+  const question = interrupt
+    ? updateInterruptQuestion(device, work, live.enabled === true)
+    : view.install || view.interrupt
+      ? updateText("Install Stepsemble {version} on {device}? Stepsemble restarts after installing. If an agent is working, the install waits until it finishes.", { version: updateVersionText(view.latest), device })
+      : updateText("{device} runs an older Stepsemble that can only check for updates by installing them. Install the latest release now?", { device });
+  if (!confirm(question)) return;
   updateInstallInFlight.add(machine.id);
   renderUpdateCenter();
   try {
-    await requestMachineUpdate(machine, "/api/update/run", {});
+    await requestMachineUpdate(machine, "/api/update/run", interrupt ? { interrupt: true } : {});
     if (generation !== viewGeneration || !updateViewIsOpen()) return;
     toast(updateText("Installing Stepsemble on {device}…", { device }));
     scheduleUpdateRefreshes();

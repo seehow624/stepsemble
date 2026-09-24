@@ -94,7 +94,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.2.2";
+const APP_VERSION = "3.2.3";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -644,6 +644,10 @@ function publicUpdateStatus() {
   if (useCheck && phase !== "checking" && phase !== "deferred") {
     phase = check.error ? "error" : releaseIsNewer(APP_VERSION, check.latestVersion) ? "available" : "up_to_date";
   }
+  // "Update now" needs an updater that can install past running work, and
+  // something running to warn about; otherwise the app keeps waiting.
+  const interruptible = installed && updaterSupportsInterrupt();
+  const activeWork = updateWorkSummary();
   return {
     appVersion: APP_VERSION,
     currentVersion: APP_VERSION,
@@ -662,6 +666,8 @@ function publicUpdateStatus() {
       pending: phase === "deferred" || phase === "available",
       // Clients use this to offer a check that cannot install anything.
       checkOnly: true,
+      ...(interruptible ? { interruptible: true } : {}),
+      ...(activeWork.length ? { activeWork } : {}),
       ...(updateProcessIsRunning() ? { activity: "installing" } : {}),
       ...(currentSha ? { currentSha } : {}),
       ...(latestSha ? { latestSha } : {}),
@@ -704,7 +710,48 @@ function updateStateKey(state) {
     .map((key) => state?.[key] || "").join("\u0000");
 }
 
-function startUpdateCheck() {
+function updaterSupportsInterrupt() {
+  try { return fs.readFileSync(UPDATE_SCRIPT_FILE, "utf8").includes("STEPSEMBLE_UPDATE_INTERRUPT"); }
+  catch { return false; }
+}
+
+// What installing right now would touch, so the "Update now" confirmation can
+// say which running work stops and which carries on. Pi runs get the shutdown
+// grace period and are then stopped; Codex, Claude and the other native
+// adapters close with the Host; supervised CLI tasks reattach afterwards.
+function updateWorkSummary() {
+  const items = [];
+  const label = value => typeof value === "string" && value.trim() ? value.replace(/\s+/g, " ").trim().slice(0, 80) : null;
+  try {
+    for (const session of activeRpcSessionsForUpdate()) items.push({ agent: "pi", name: label(piSession.title(session.meta)), effect: "interrupted" });
+    const codex = typeof codexNative.busyTasks === "function" ? codexNative.busyTasks() : [];
+    if (codex.length) {
+      const names = new Map();
+      for (const { record } of workspaceRegistry.list().entries) {
+        if (record?.agentId !== "codex") continue;
+        for (const id of [record.nativeThreadId, record.nativeSessionId, String(record.id || record.taskId || "").replace(/^codex:/, "")]) {
+          if (id) names.set(String(id), record.name);
+        }
+      }
+      for (const task of codex) items.push({ agent: "codex", name: label(names.get(task.nativeThreadId)), effect: "interrupted" });
+    }
+    for (const task of activeAgentTasksForUpdate()) {
+      const id = String(task?.id || "");
+      // The reservation stands for native work that is already listed; show it
+      // only when nothing else explains why the install would wait.
+      if (id === "native-reservation") { if (!codex.length) items.push({ agent: null, name: null, effect: "interrupted" }); continue; }
+      const native = task.nativeClaudeStructured === true || task.nativeAcp === true || task.nativeGrokAcp === true
+        || task.nativeAntigravityStructured === true || id.endsWith(":approval") || id === "unavailable";
+      const agent = task.agentId || (id.includes(":") ? id.split(":")[0] : null);
+      items.push({ agent: agent || null, name: label(task.name), effect: native ? "interrupted" : "continues" });
+    }
+  } catch {
+    items.push({ agent: null, name: null, effect: "interrupted" });
+  }
+  return items.slice(0, 12);
+}
+
+function startUpdateCheck({ interrupt = false } = {}) {
   let stat;
   try { stat = fs.statSync(UPDATE_SCRIPT_FILE); } catch { stat = null; }
   if (!stat?.isFile()) {
@@ -720,7 +767,7 @@ function startUpdateCheck() {
   const updateEnv = { ...process.env };
   for (const key of ["STEPSEMBLE_TOKEN", "STEPSEMBLE_TOKEN_FILE", "STEPSEMBLE_MACHINES",
     "PI_HARBOR_TOKEN", "PI_HARBOR_TOKEN_FILE", "PI_HARBOR_MACHINES",
-    "PI_WEB_TOKEN", "PI_WEB_TOKEN_FILE", "PI_WEB_MACHINES"]) delete updateEnv[key];
+    "PI_WEB_TOKEN", "PI_WEB_TOKEN_FILE", "PI_WEB_MACHINES", "STEPSEMBLE_UPDATE_INTERRUPT"]) delete updateEnv[key];
   const child = spawn("/bin/zsh", [UPDATE_SCRIPT_FILE], {
     detached: true,
     stdio: "ignore",
@@ -728,6 +775,9 @@ function startUpdateCheck() {
       ...updateEnv,
       HOME: APP_HOME,
       STEPSEMBLE_UPDATE_FORCE: "1",
+      // Only an explicit "Update now" confirmation installs past running
+      // agent work; deferred and scheduled runs keep waiting for it.
+      ...(interrupt === true ? { STEPSEMBLE_UPDATE_INTERRUPT: "1" } : {}),
       STEPSEMBLE_UPDATE_CONFIG: UPDATE_CONFIG_FILE,
       STEPSEMBLE_UPDATE_STATE: UPDATE_STATE_FILE,
       ...(TOKEN_FILE ? { STEPSEMBLE_UPDATE_TOKEN_FILE: TOKEN_FILE } : {}),
@@ -6318,7 +6368,8 @@ const server = http.createServer(async (req, res) => {
 
       if (p === "/api/update/run" && req.method === "POST") {
         try {
-          sendJSON(res, 202, startUpdateCheck());
+          const body = await readJSON(req, 4096);
+          sendJSON(res, 202, startUpdateCheck({ interrupt: body?.interrupt === true }));
         } catch (e) {
           sendJSON(res, e.statusCode || 409, { error: e.message || "Could not start update check" });
         }

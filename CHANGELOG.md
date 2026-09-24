@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.2.3
+
+- Add Update now for a device whose update is waiting on running agent work. The confirmation lists that work first: turns in Codex, Claude Code, Pi and the other native sessions stop (the conversation is kept, so ask the agent to continue after the update), while supervised CLI tasks keep running through the restart. Cancelling leaves the install to run automatically once the work finishes.
+- Installing an available update on a busy device asks the same question before restarting. Scheduled and deferred updates never interrupt running work; only an explicit confirmation from the app does.
+
 ## 3.2.2
 
 - Stop an open Pi conversation that is only waiting for input from holding back automatic updates. The updater skipped idle Pi streams but still counted the same session's task row as pending work, so a tab left open could defer every release for hours. Such a session now reports itself idle, reopens from its saved session file after the update, no longer offers a Stop button that has nothing to stop, and no longer counts as active work. Streaming, compaction, queued messages, tool work and pending dialogs still block installation.
