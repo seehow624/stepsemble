@@ -52,6 +52,9 @@ function harness(api) {
     api: async (url, opts) => { calls.push({ url, ...opts }); return api(new URL(url, "http://owned"), opts); },
     toast: msg => notices.push(msg), tKey: (key, vars = {}) => key + ":" + (vars.detail || ""),
     syncGenericInputState() {}, applyGenericTaskSnapshot() {}, ensureSessionUsageFooter() {}, keepSessionUsageAtEnd() {},
+    // This slice exercises native ordering and anchor preservation; the
+    // presentation pass runs in the browser and has its own interaction tests.
+    layoutWorkLog() {},
     async syncNativeContext(connection) { contextCalls.push(connection); },
     updateScrollBottomButton() {}, scrollBottom() { messages.scrollTop = messages.scrollHeight; },
     setInterval(fn) { timers.push(fn); return timers.length; }, clearInterval() {},
@@ -134,7 +137,7 @@ test("one Codex turn groups reasoning and tools ahead of its final answer", () =
   assert.deepEqual(plain(units).map(unit => [unit.kind, unit.rows?.length || 0]), [
     ["message", 0], ["work", 3], ["message", 0],
   ]);
-  assert.equal(units[1].key, "work:turn-a");
+  assert.equal(units[1].key, "work:turn-a:reason");
 });
 
 test("polling preserves old pages and their cursors, updates same-length content and keeps unchanged nodes", async () => {
