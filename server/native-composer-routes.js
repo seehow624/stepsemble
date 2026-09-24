@@ -1,7 +1,8 @@
 "use strict";
 
 const { codexImageInputs } = require("./prompt-attachments");
-const PROMPT_BODY_BYTES = 12 * 1024 * 1024;
+// Matches the Codex turn frame: 24 MiB of images plus the text allowance.
+const PROMPT_BODY_BYTES = 28 * 1024 * 1024;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 function invalid(code) { return Object.assign(new Error(code), { code, statusCode: 400 }); }
 function modelValue(value) {

@@ -6,15 +6,15 @@
 <title>Stepsemble</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=3.1.4">
-<link rel="icon" href="/icon-16.png?v=3.1.4" sizes="16x16" type="image/png">
-<link rel="icon" href="/icon-32.png?v=3.1.4" sizes="32x32" type="image/png">
-<link rel="icon" href="/icon-512.png?v=3.1.4" sizes="512x512" type="image/png">
-<link rel="apple-touch-icon" href="/icon-180.png?v=3.1.4">
-  <link rel="stylesheet" href="/style.css?v=3.1.4">
-  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.1.4">
-  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.1.4">
-<link rel="stylesheet" href="/modules/workspace-embedded.css?v=3.1.4">
+<link rel="manifest" href="/manifest.webmanifest?v=3.2.0">
+<link rel="icon" href="/icon-16.png?v=3.2.0" sizes="16x16" type="image/png">
+<link rel="icon" href="/icon-32.png?v=3.2.0" sizes="32x32" type="image/png">
+<link rel="icon" href="/icon-512.png?v=3.2.0" sizes="512x512" type="image/png">
+<link rel="apple-touch-icon" href="/icon-180.png?v=3.2.0">
+  <link rel="stylesheet" href="/style.css?v=3.2.0">
+  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.2.0">
+  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.2.0">
+<link rel="stylesheet" href="/modules/workspace-embedded.css?v=3.2.0">
 </head>
 <body>
 
@@ -50,6 +50,15 @@
   <symbol id="i-devices" viewBox="0 0 24 24"><rect x="2.5" y="4.5" width="14" height="10" rx="2"/><path d="M1.5 18h11M18.5 8.5h1.5a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-1.5A1.5 1.5 0 0 1 17 18v-8a1.5 1.5 0 0 1 1.5-1.5Z"/></symbol>
   <symbol id="i-update" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.35-5.65M20 4.5V8.5h-4M12 8v6.5M9.2 11.8 12 14.6l2.8-2.8"/></symbol>
   <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h8.5M16.5 7H20M4 17h3.5M11.5 17H20"/><circle cx="14.5" cy="7" r="2"/><circle cx="9.5" cy="17" r="2"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.3"/><path d="m20 20-4.7-4.7"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.3 2.4 3.4 5.2 3.4 8.5s-1.1 6.1-3.4 8.5c-2.3-2.4-3.4-5.2-3.4-8.5s1.1-6.1 3.4-8.5Z"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="9" cy="10" r="1.7"/><path d="m20.5 16.5-4.9-4.9-7.8 7.9"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3.5 13.8 9a2 2 0 0 0 1.2 1.2l5.5 1.8-5.5 1.8a2 2 0 0 0-1.2 1.2L12 20.5 10.2 15A2 2 0 0 0 9 13.8L3.5 12 9 10.2A2 2 0 0 0 10.2 9Z"/></symbol>
+  <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.6 6.4a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.1-3.1a5.5 5.5 0 0 1-7.3 7.3l-6.5 6.5a2.1 2.1 0 0 1-3-3l6.5-6.5a5.5 5.5 0 0 1 7.3-7.3Z"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M10 6.5h10M10 12h10M10 17.5h10M4 6.5l1.2 1.2L7.5 5.3M4 12l1.2 1.2 2.3-2.4M4 17.5l1.2 1.2 2.3-2.4"/></symbol>
+  <symbol id="i-compress" viewBox="0 0 24 24"><path d="M4 9.5h16M4 14.5h16M9 3.5l3 3 3-3M9 20.5l3-3 3 3"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+  <symbol id="i-diff" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3.5"/><path d="M12 7.8v5M9.5 10.3h5M9.5 16.2h5"/></symbol>
 </svg>
 
 <!-- Login -->
@@ -544,7 +553,7 @@
             </div>
             <div class="settings-row">
               <span><strong>Stepsemble</strong><small data-i18n-key="agentHub.workspace">A workspace for local coding agents</small></span>
-              <span class="settings-value" id="set-app-version">v3.1.4</span>
+              <span class="settings-value" id="set-app-version">v3.2.0</span>
             </div>
             <div class="settings-row">
               <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -1034,22 +1043,22 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=3.1.4"></script>
-<script src="/modules/app-foundation.js?v=3.1.4"></script>
-<script src="/modules/agent-identity.js?v=3.1.4"></script>
-<script src="/modules/session-utils.js?v=3.1.4"></script>
-<script src="/modules/pi-session.js?v=3.1.4"></script>
-<script src="/modules/conversation-catalog.js?v=3.1.4"></script>
-<script src="/modules/context-usage.js?v=3.1.4"></script>
-<script src="/modules/opencode-context.js?v=3.1.4"></script>
-<script src="/modules/claude-auth.js?v=3.1.4"></script>
-<script src="/modules/claude-structured-rendering.js?v=3.1.4"></script>
-<script src="/modules/agent-transcript-presentation.js?v=3.1.4"></script>
-<script src="/modules/codex-approvals.js?v=3.1.4"></script>
-<script src="/modules/protocol-contracts.js?v=3.1.4"></script>
-<script src="/modules/client-sdk.js?v=3.1.4"></script>
-<script src="/modules/native-dialogs.js?v=3.1.4"></script>
-<script src="/modules/composer-ime.js?v=3.1.4"></script>
-<script src="/app.js?v=3.1.4"></script>
+<script src="/i18n.js?v=3.2.0"></script>
+<script src="/modules/app-foundation.js?v=3.2.0"></script>
+<script src="/modules/agent-identity.js?v=3.2.0"></script>
+<script src="/modules/session-utils.js?v=3.2.0"></script>
+<script src="/modules/pi-session.js?v=3.2.0"></script>
+<script src="/modules/conversation-catalog.js?v=3.2.0"></script>
+<script src="/modules/context-usage.js?v=3.2.0"></script>
+<script src="/modules/opencode-context.js?v=3.2.0"></script>
+<script src="/modules/claude-auth.js?v=3.2.0"></script>
+<script src="/modules/claude-structured-rendering.js?v=3.2.0"></script>
+<script src="/modules/agent-transcript-presentation.js?v=3.2.0"></script>
+<script src="/modules/codex-approvals.js?v=3.2.0"></script>
+<script src="/modules/protocol-contracts.js?v=3.2.0"></script>
+<script src="/modules/client-sdk.js?v=3.2.0"></script>
+<script src="/modules/native-dialogs.js?v=3.2.0"></script>
+<script src="/modules/composer-ime.js?v=3.2.0"></script>
+<script src="/app.js?v=3.2.0"></script>
 </body>
 </html>

@@ -28,10 +28,10 @@ const MAX_MODELS = 100;
 const CLAUDE_EFFORTS = new Set(["auto", "low", "medium", "high", "xhigh", "max"]);
 // Keep a single Claude stream-json input frame and its ordered write queue
 // bounded like the Codex native transport. The HTTP prompt route admits up to
-// 12 MiB so a valid image prompt can reach this adapter; the queue has one
-// additional frame's worth of headroom for backpressure.
-const MAX_INPUT_FRAME_BYTES = 12 * 1024 * 1024;
-const MAX_INPUT_QUEUE_BYTES = 16 * 1024 * 1024;
+// 28 MiB so a prompt with its full 24 MiB image budget can reach this adapter;
+// the queue keeps headroom for control frames behind it.
+const MAX_INPUT_FRAME_BYTES = 28 * 1024 * 1024;
+const MAX_INPUT_QUEUE_BYTES = 32 * 1024 * 1024;
 const TYPES = new Set([
   "system", "user", "assistant", "result", "tool_use", "tool_result",
   "stream_event", "rate_limit_event", "error", "progress", "permission_request",

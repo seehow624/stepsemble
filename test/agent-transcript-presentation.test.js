@@ -33,6 +33,18 @@ test("Codex reasoning, file edits and failures retain structure and status", () 
   assert.equal(failed.tool.isError, true);
 });
 
+test("Codex file changes carry paths and line totals into the review card", () => {
+  const result = presentation.codexItem({ type: "fileChange", status: "completed", changes: [
+    { path: "/project/src/a.js", kind: "update", diff: "--- a/src/a.js\n+++ b/src/a.js\n@@\n-old\n+new\n context" },
+    { path: "/project/src/b.js", kind: "add", diff: "first\nsecond\n" },
+  ] });
+  assert.deepEqual(result.tool.args.changes, [
+    { path: "/project/src/a.js", added: 1, removed: 1 },
+    { path: "/project/src/b.js", added: 2, removed: 0 },
+  ]);
+  assert.match(result.tool.output, /src\/a\.js/);
+});
+
 test("Codex image views retain only server-issued preview handles", () => {
   const preview = { url: "/api/codex/image?token=abcdefghijklmnopqrstuvwxyz012345", mimeType: "image/png", name: "crop.png" };
   const value = presentation.codexItem({ id: "image-1", type: "imageView", path: "/owned/private/crop.png", preview });
@@ -55,6 +67,7 @@ test("OpenCode messages keep prose, reasoning and tool output in separate channe
   assert.equal(value.tools.length, 1);
   assert.deepEqual(value.tools[0].args, { path: "/owned/file" });
   assert.equal(value.tools[0].output, "contents");
+  assert.deepEqual(value.sequence.map(part => part.kind), ["thinking", "tool", "text"]);
 });
 
 test("ACP agents map thought, answer and tool updates without bracketed terminal noise", () => {

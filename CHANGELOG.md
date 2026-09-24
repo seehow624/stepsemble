@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.2.0
+
+- Group each agent turn into a timed work log. While it runs, the current step subtly sweeps to show activity; after completion, the steps fold under the elapsed time while the final answer stays visible. Open a step to read its tools, reasoning, and intermediate commentary in order. This works for Pi and the supported native agent transcripts on desktop and phone.
+- Show edited files with added and removed line counts below completed work. Expand the file list or open the project changes inspector to review current diffs.
+- Let unsent image thumbnails open in the existing full-size viewer, with Escape, backdrop click, and close-button dismissal. Raise the four-image composer limit to a bounded per-agent allowance: up to 100 for Claude and 20 for other supported agents, subject to each prompt's size budget.
+- Remove the stale "Still working" warning from active conversations, and keep waiting-for-approval states distinct from the thinking animation.
+
 ## 3.1.4
 
 - Serve the web client compressed. Opening the Workspace shell and one conversation used to transfer about 2.1 MB of JavaScript and CSS on every cold load; brotli brings that to roughly 450 KB, and long session payloads are gzipped above 1 KB. This is what made Stepsemble feel slow on a phone, especially over Tailscale.

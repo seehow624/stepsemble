@@ -1,7 +1,7 @@
-/* stepsemble v3.1.4 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.2.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.1.4";
+const CLIENT_APP_VERSION = "3.2.0";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 if (WORKSPACE_PANE) {
   document.documentElement.classList.add("workspace-embedded");
@@ -789,6 +789,7 @@ function rpcCmd(sid, command) {
 // 主題 / 外觀
 // ===========================================================================
 
+let workLogLocale = null;
 function applyAppearance() {
   const html = document.documentElement;
   const resolvedTheme = settings.theme === "auto"
@@ -802,6 +803,11 @@ function applyAppearance() {
   document.body.classList.toggle("compact", !!settings.compact);
   html.classList.toggle("reduced-motion", !!settings.reducedMotion);
   window.stepsembleI18n?.setLocale(settings.locale || "en");
+  // Work-log labels are composed from keyed strings, so a language change
+  // rebuilds them once the new locale is active.
+  const workLocale = settings.locale || "en";
+  if (workLogLocale !== null && workLogLocale !== workLocale) queueMicrotask(() => relabelWorkLog());
+  workLogLocale = workLocale;
   if (claudeAuthClient) renderClaudeAuth(claudeAuthClient.snapshot());
   renderContextDashboard();
 }
@@ -2523,6 +2529,7 @@ function appendNativeHistoryMessage(message, agentId, container = el.messages) {
   const role = message?.role === "user" ? "user" : "assistant";
   const label = agentId === "claude-code" ? "Claude Code" : "Codex";
   const { wrap, bubble } = makeMsgShell(role, role === "user" ? "你" : label, container);
+  stampMessageTime(wrap, message?.ts || message?.timestamp);
   const value = boundedDisplayText(message?.text || "", 512 * 1024);
   if (value) bubble.appendChild(renderMarkdown(value));
   if (role === "assistant") wrap.appendChild(msgActionsRow("assistant", () => value));
@@ -3846,6 +3853,7 @@ async function openExisting(s) {
     while (staging.firstChild) fragment.appendChild(staging.firstChild);
     el.messages.appendChild(fragment);
     keepSessionUsageAtEnd();
+    layoutWorkLog();
     historyState.before = detail.nextBefore;
     historyState.hasMore = !!detail.hasMore;
     showHistoryLoadButton();
@@ -4246,8 +4254,9 @@ function openProjectChanges() {
   el.changesLayer.classList.remove("hidden");
   el.changesLayer.classList.remove("show-detail");
   renderProjectChanges();
-  void refreshProjectChanges({ background: true });
+  const refresh = refreshProjectChanges({ background: true });
   requestAnimationFrame(() => el.changesClose?.focus());
+  return refresh;
 }
 
 function closeProjectChanges() {
@@ -4330,6 +4339,7 @@ async function loadOlderHistory(button) {
     historyLoadButton = null;
     el.messages.prepend(fragment);
     mergeAdjacentWorkMessages();
+    layoutWorkLog({ keepScroll: true });
     state.before = detail.nextBefore;
     state.hasMore = !!detail.hasMore;
     showHistoryLoadButton();
@@ -4978,25 +4988,46 @@ function appendNormalizedAgentMessage(view, label, container = el.messages, mode
   }
   const { wrap, bubble } = makeMsgShell("assistant", model ? `${label} · ${model}` : label, container);
   const tools = Array.isArray(view.tools) ? view.tools : [];
+  // Render parts in the order the agent produced them; older presentations
+  // without a sequence show reasoning, prose and then tools.
+  const sequence = Array.isArray(view.sequence) && view.sequence.length ? view.sequence : [
+    ...(view.thinking ? [{ kind: "thinking", text: view.thinking }] : []),
+    ...(view.text ? [{ kind: "text", text: view.text }] : []),
+    ...tools.map(tool => ({ kind: "tool", tool })),
+  ];
   let activity = null;
-  if (view.thinking || tools.length) {
-    activity = makeActivityGroup({ running: tools.some(tool => tool.running) });
-    bubble.appendChild(activity.details);
-    if (view.thinking) activity.body.appendChild(makeThinking(view.thinking));
-    for (const tool of tools) {
+  const finishActivity = () => {
+    if (!activity) return;
+    const cards = activityCards(activity);
+    updateActivityGroup(activity, {
+      running: cards.some(card => card.classList.contains("running")), count: cards.length,
+      latest: activity.latest || "Thinking", hasError: cards.some(card => card.classList.contains("err")),
+    });
+    activity = null;
+  };
+  const workGroup = () => {
+    if (!activity) {
+      activity = makeActivityGroup({ running: false });
+      bubble.appendChild(activity.details);
+    }
+    return activity;
+  };
+  for (const part of sequence) {
+    if (part.kind === "text") {
+      finishActivity();
+      if (part.text) bubble.appendChild(renderMarkdown(part.text));
+    } else if (part.kind === "thinking") {
+      if (part.text) workGroup().body.appendChild(makeThinking(part.text));
+    } else if (part.kind === "tool" && part.tool) {
+      const tool = part.tool;
       const output = tool.output || (tool.running ? null : tool.isError ? "（沒有收到工具輸出）" : "（無輸出）");
       const card = makeToolCard(tool.name, tool.args, output, tool.isError, tool.running);
       card.dataset.nativeToolId = tool.id || "";
-      activity.body.appendChild(card);
+      workGroup().body.appendChild(card);
       activity.latest = toolTitle(tool.name, tool.args, tool.running);
     }
-    updateActivityGroup(activity, {
-      running: tools.some(tool => tool.running), count: tools.length,
-      latest: activity.latest || (view.thinking ? "Thinking" : ""),
-      hasError: tools.some(tool => tool.isError),
-    });
   }
-  if (view.text) bubble.appendChild(renderMarkdown(view.text));
+  finishActivity();
   if (view.text) wrap.appendChild(msgActionsRow("assistant", () => view.text));
   return bubble;
 }
@@ -5060,8 +5091,10 @@ function renderOpenCodeNativeSnapshot(snapshot, { replace = false } = {}) {
   for (const message of messages) {
     const view = agentTranscriptPresentation.openCodeMessage(message);
     if (!view) continue;
-    appendNormalizedAgentMessage(view, "OpenCode", el.messages,
+    const bubble = appendNormalizedAgentMessage(view, "OpenCode", el.messages,
       message?.info?.model?.modelID || message?.info?.model?.modelId || message?.info?.modelID || null);
+    stampMessageTime(bubble?.parentNode, message?.time?.completed || message?.info?.time?.completed
+      || message?.time?.created || message?.info?.time?.created);
   }
   for (const permission of Array.isArray(snapshot.permissions) ? snapshot.permissions : []) nativeOpenCodePermissionCard(permission);
   if (revision) rpc.nativeRenderedRevision = revision;
@@ -5161,41 +5194,53 @@ function appendCodexNativeItem(item, container = el.messages) {
 
 function codexNativeRenderUnits(entries) {
   const units = [];
-  const workByTurn = new Map();
+  // Consecutive tool and reasoning items form one unit; an assistant message
+  // closes it, so commentary and work keep their order within a turn.
+  const openWork = new Map();
   for (const entry of [...entries].reverse()) {
     const view = agentTranscriptPresentation.codexItem(entry.item);
     if (!view) continue;
+    const turnId = String(entry.turnId || "unknown-turn");
     if (view.kind === "tool" || view.kind === "thinking") {
-      const turnId = String(entry.turnId || "unknown-turn");
-      let unit = workByTurn.get(turnId);
+      let unit = openWork.get(turnId);
       if (!unit) {
-        unit = { key: `work:${turnId}`, kind: "work", turnId, rows: [] };
-        workByTurn.set(turnId, unit);
+        unit = { key: `work:${turnId}:${entry.item.id}`, kind: "work", turnId, rows: [] };
+        openWork.set(turnId, unit);
         units.push(unit);
       }
       unit.rows.push({ item: entry.item, view });
       continue;
     }
-    units.push({ key: `item:${codexNativeEntryKey(entry)}`, kind: "message", item: entry.item, view });
+    openWork.delete(turnId);
+    units.push({ key: `item:${codexNativeEntryKey(entry)}`, kind: "message", item: entry.item, view, turnId });
   }
   return units;
 }
 
-function appendCodexNativeActivity(rows, container = el.messages) {
+function appendCodexNativeActivity(rows, container = el.messages, key = "") {
   const values = Array.isArray(rows) ? rows : [];
   if (!values.length) return;
   const { bubble } = makeMsgShell("assistant", "Codex", container);
-  const thinking = values.filter(row => row.view?.kind === "thinking");
-  const images = values.map(row => row.view?.tool).filter(tool => tool?.name === "view_image");
   const tools = values.map(row => row.view?.tool).filter(tool => tool && tool.name !== "view_image");
-  for (const row of thinking) bubble.appendChild(makeThinking(row.view.text));
-  if (images.length) bubble.appendChild(makeCodexImageViews(images));
-  if (!tools.length) return;
   const activity = makeActivityGroup({ running: tools.some(tool => tool.running), count: tools.length });
+  if (key) activity.details.dataset.workKey = key;
   bubble.appendChild(activity.details);
+  // Reasoning, image views and tools stay in the order Codex produced them.
+  let images = [];
+  const flushImages = () => {
+    if (images.length) activity.body.appendChild(makeCodexImageViews(images));
+    images = [];
+  };
   for (const row of values) {
+    if (row.view?.kind === "thinking") {
+      flushImages();
+      activity.body.appendChild(makeThinking(row.view.text));
+      continue;
+    }
     const tool = row.view?.tool;
-    if (!tool || tool.name === "view_image") continue;
+    if (!tool) continue;
+    if (tool.name === "view_image") { images.push(tool); continue; }
+    flushImages();
     const output = tool.output || (tool.running ? null : tool.isError ? "（沒有收到工具輸出）" : "（無輸出）");
     const card = makeToolCard(tool.name, tool.args, output, tool.isError, tool.running);
     card.classList.add("native-tool-card");
@@ -5203,6 +5248,7 @@ function appendCodexNativeActivity(rows, container = el.messages) {
     activity.body.appendChild(card);
     activity.latest = toolTitle(tool.name, tool.args, tool.running);
   }
+  flushImages();
   updateActivityGroup(activity, {
     running: tools.some(tool => tool.running), count: tools.length,
     latest: activity.latest || "Thinking", hasError: tools.some(tool => tool.isError),
@@ -5232,7 +5278,9 @@ function renderCodexNativeRunState(connection) {
   const running = connection?.taskStatus === "running" || state?.thread?.status?.type === "active"
     || state?.observation?.working === true;
   const goal = state?.goal && state.goal.status !== "complete" ? state.goal : null;
-  if (!connection || !running && !goal) {
+  // Plain work is shown in the conversation's own "Working for …" header;
+  // this banner remains only for a Codex goal, which spans several turns.
+  if (!connection || !goal) {
     root.classList.add("hidden");
     root.classList.remove("running", "has-goal");
     return;
@@ -5247,8 +5295,7 @@ function renderCodexNativeRunState(connection) {
     : (window.stepsembleI18n?.t("Working…") || "Working…");
   root.setAttribute("aria-label", title);
   el.nativeRunTitle.textContent = title;
-  el.nativeRunDetail.textContent = goal?.objective
-    || (window.stepsembleI18n?.t("Codex is still working on this conversation") || "Codex is still working on this conversation");
+  el.nativeRunDetail.textContent = goal.objective;
   el.nativeRunMeta.textContent = [running ? (window.stepsembleI18n?.t("Working…") || "Working…") : "", elapsed]
     .filter(Boolean).join(" · ");
 }
@@ -5439,6 +5486,7 @@ function renderCodexNativeSnapshot(connection, { preserveScroll = false } = {}) 
   // Summary items are not complete transcript entries and must not be mixed in.
   let previous = null;
   const activeKeys = new Set();
+  const turnTimes = new Map((state.turns || []).map(turn => [String(turn?.id || ""), turn]));
   for (const unit of codexNativeRenderUnits(state.entries)) {
     const key = unit.key;
     activeKeys.add(key);
@@ -5446,7 +5494,7 @@ function renderCodexNativeSnapshot(connection, { preserveScroll = false } = {}) 
     let row = rendered.get(key);
     if (!row || row.revision !== revision) {
       const staging = document.createElement("div");
-      if (unit.kind === "work") appendCodexNativeActivity(unit.rows, staging);
+      if (unit.kind === "work") appendCodexNativeActivity(unit.rows, staging, unit.key);
       else appendCodexNativeItem(unit.item, staging);
       const node = staging.firstChild;
       if (!node) continue;
@@ -5460,6 +5508,14 @@ function renderCodexNativeSnapshot(connection, { preserveScroll = false } = {}) 
       ? codexNativeHistoryButton.nextSibling : el.messages.firstChild;
     if (row.node !== reference) el.messages.insertBefore(row.node, reference);
     previous = row.node;
+    // The work log measures a turn from Codex's own start/completion times.
+    if (unit.kind === "message" && unit.view?.role === "user") {
+      const record = turnTimes.get(String(unit.turnId || ""));
+      const started = normalizedTimestampMs(record?.startedAt);
+      const completed = normalizedTimestampMs(record?.completedAt);
+      if (started) row.node.dataset.wlStart = String(started);
+      if (completed) row.node.dataset.wlEnd = String(completed);
+    }
   }
   for (const [key, row] of rendered) {
     if (activeKeys.has(key)) continue;
@@ -5470,6 +5526,7 @@ function renderCodexNativeSnapshot(connection, { preserveScroll = false } = {}) 
   ensureSessionUsageFooter();
   keepSessionUsageAtEnd();
   showCodexNativeHistoryButton();
+  layoutWorkLog({ keepScroll: true });
   if (el.taskReplayNote) {
     el.taskReplayNote.textContent = state.error ? tKey("runtime.historyFailed", { detail: state.error })
       : state.itemGapKeys ? tKey("runtime.historyGap") : "";
@@ -7443,7 +7500,8 @@ function makeThinking(text) {
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "thinking-toggle";
-  toggle.textContent = window.stepsembleI18n?.t("Thinking blocks") || "Thinking blocks";
+  toggle.dataset.i18nIgnore = "";
+  toggle.textContent = tKey("work.item.thinking");
   const pre = document.createElement("div");
   // 長思考永遠先收合；即使使用者偏好展開，也要點擊後才佔滿畫面。
   const autoOpen = settings.thinking === "open" && text.length > 0 && text.length < 800;
@@ -7473,16 +7531,51 @@ function toolTargetShort(args) {
   return target.split(/[\\/]/).filter(Boolean).pop() || target;
 }
 function toolTitle(name, args, running) {
-  const key = toolKey(name);
   const target = toolTarget(args);
   const short = toolTargetShort(args);
-  if (key.includes("bash") || key.includes("shell") || key.includes("terminal") || key === "exec") {
-    return `${running ? "Running " : ""}bash${target ? " " + target : ""}`;
-  }
-  if (key.includes("read") || key.includes("cat") || key.includes("glob")) return `${running ? "Reading " : "Read "}${short || "file"}`;
-  if (key.includes("write") || key.includes("edit") || key.includes("patch")) return `${running ? "Writing " : "Edit "}${short || "file"}`;
-  if (key.includes("search") || key.includes("grep") || key.includes("find")) return `${running ? "Searching " : "Search "}${target || "files"}`;
-  return `${running ? "Running " : ""}${String(name || "tool")}${target ? " " + target : ""}`;
+  // Codex-style action lines: "Ran npm test", "Edited app.js", "Read log".
+  const state = running ? "active" : "done";
+  const category = window.stepsembleSessionUtils.workCategory(name, args);
+  const label = String(name || "tool");
+  const file = short || target || label;
+  const title = category === "run" ? tKey(`work.item.run.${state}`, { target: target || label })
+    : category === "read" ? tKey(`work.item.read.${state}`, { target: file })
+    : category === "edit" ? tKey(`work.item.edit.${state}`, { target: workEditTarget(args) || file })
+    : category === "search" ? tKey(`work.item.search.${state}`, { target: target || label })
+    : category === "web" ? tKey(`work.item.web.${state}`, { target: target || label })
+    : category === "image" ? tKey(`work.item.image.${state}`, { target: file })
+    : category === "agent" ? tKey(`work.item.agent.${state}`, { target: target || label })
+    : ["plan", "context", "wait"].includes(category) ? tKey(`work.item.${category}.${state}`)
+    : tKey(`work.item.tool.${state}`, { name: label, target: target ? ` ${target}` : "" });
+  return title.replace(/\s+/g, " ").trim();
+}
+// A multi-file change names every file; one file shows its base name.
+function workEditTarget(args) {
+  const changes = window.stepsembleSessionUtils.toolEditChanges("edit", args);
+  if (changes.length > 1) return changes.map(change => change.path.split(/[\\/]/).filter(Boolean).pop() || change.path).join(", ");
+  const path = changes[0]?.path || "";
+  return path.split(/[\\/]/).filter(Boolean).pop() || path;
+}
+function toolEditTotals(name, args) {
+  const changes = window.stepsembleSessionUtils.toolEditChanges(name, args);
+  if (!changes.length) return null;
+  return changes.reduce((sum, change) => ({ added: sum.added + change.added, removed: sum.removed + change.removed }), { added: 0, removed: 0 });
+}
+function renderToolStat(card) {
+  const stat = card?.querySelector(".tool-stat");
+  if (!stat) return;
+  const meta = card.__tool || {};
+  const totals = card.classList.contains("err") ? null : toolEditTotals(meta.name, meta.args);
+  stat.replaceChildren();
+  stat.hidden = !totals || (!totals.added && !totals.removed);
+  if (stat.hidden) return;
+  const added = document.createElement("span");
+  added.className = "wl-add";
+  added.textContent = `+${totals.added}`;
+  const removed = document.createElement("span");
+  removed.className = "wl-del";
+  removed.textContent = `-${totals.removed}`;
+  stat.append(added, removed);
 }
 function isEditTool(name) {
   const key = toolKey(name);
@@ -7746,9 +7839,13 @@ function makeToolCard(name, args, resultText, isError, running) {
   info.className = "tool-info";
   const title = document.createElement("span");
   title.className = "tool-name";
+  title.dataset.i18nIgnore = "";
   title.textContent = toolTitle(name, args, running);
   title.title = toolTitle(name, args, false);
-  info.append(title);
+  const stat = document.createElement("span");
+  stat.className = "tool-stat";
+  stat.dataset.i18nIgnore = "";
+  info.append(title, stat);
   const chevron = document.createElement("span");
   chevron.className = "tool-chevron";
   chevron.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-chevron-right"></use></svg>';
@@ -7766,21 +7863,12 @@ function makeToolCard(name, args, resultText, isError, running) {
   output.textContent = resultText || "（執行中…）";
   body.append(command, label, output);
   details.append(summary, body);
+  renderToolStat(details);
   return details;
 }
 function ensureActivityGroup({ bubble = null, running = true } = {}) {
-  if (pendingAssistant?.activity) {
-    liveActivity = pendingAssistant.activity;
-    registerRunActivity(liveActivity);
-    updateActivityGroup(liveActivity, { running: running || liveActivity.running });
-    return liveActivity;
-  }
-  if (liveActivity && (!bubble || liveActivity.details.parentElement === bubble)) {
-    registerRunActivity(liveActivity);
-    updateActivityGroup(liveActivity, { running: running || liveActivity.running });
-    return liveActivity;
-  }
   let target = bubble;
+  if (!target) target = pendingAssistant?.bubble || liveActivity?.details?.parentElement || null;
   if (!target) {
     const assistants = el.messages.querySelectorAll(".msg.assistant .bubble");
     target = assistants[assistants.length - 1] || null;
@@ -7790,13 +7878,48 @@ function ensureActivityGroup({ bubble = null, running = true } = {}) {
     target = pendingAssistant?.bubble || null;
   }
   if (!target) return null;
+  // Work is shown in the order it happened. The current group keeps growing
+  // only while nothing has been written after it; once prose follows it, the
+  // next tool call starts a new group below that prose.
+  for (const candidate of [pendingAssistant?.activity, liveActivity]) {
+    if (!candidate?.details || candidate.details.parentElement !== target || lastWorkChild(target) !== candidate.details) continue;
+    liveActivity = candidate;
+    if (pendingAssistant?.bubble === target) pendingAssistant.activity = candidate;
+    registerRunActivity(candidate);
+    updateActivityGroup(candidate, { running: running || candidate.running });
+    return candidate;
+  }
   const activity = makeActivityGroup({ running });
-  if (pendingAssistant) pendingAssistant.activity = activity;
-  if (pendingAssistant?.textEl?.parentNode === target) target.insertBefore(activity.details, pendingAssistant.textEl);
+  const pendingText = pendingAssistant?.bubble === target ? pendingAssistant.textEl : null;
+  // Thinking that starts before any prose stays above the streaming text.
+  if (pendingText?.parentNode === target && !pendingTextPresent(pendingText)) target.insertBefore(activity.details, pendingText);
   else target.appendChild(activity.details);
+  if (pendingAssistant?.bubble === target) pendingAssistant.activity = activity;
   liveActivity = activity;
   registerRunActivity(activity);
   return activity;
+}
+function pendingTextPresent(node) {
+  if (!node) return false;
+  return !!String(node.textContent || "").trim() || (pendingAssistant?.textEl === node && !!String(pendingAssistant.textBuffer || "").trim());
+}
+// The last child that carries content: work-log chrome, the streaming
+// placeholder and empty text nodes do not count.
+function lastWorkChild(bubble) {
+  for (let node = bubble?.lastChild; node; node = node.previousSibling) {
+    if (node.nodeType === Node.TEXT_NODE) { if (pendingTextPresent(node)) return node; continue; }
+    if (node.nodeType !== Node.ELEMENT_NODE || workOwned(node) || node.classList.contains("thinking-shimmer")) continue;
+    return node;
+  }
+  return null;
+}
+function firstWorkChild(bubble) {
+  for (let node = bubble?.firstChild; node; node = node.nextSibling) {
+    if (node.nodeType === Node.TEXT_NODE) { if (pendingTextPresent(node)) return node; continue; }
+    if (node.nodeType !== Node.ELEMENT_NODE || workOwned(node) || node.classList.contains("thinking-shimmer")) continue;
+    return node;
+  }
+  return null;
 }
 function setToolCardState(card, { running = false, isError = false, text = null } = {}) {
   if (!card) return;
@@ -7818,6 +7941,7 @@ function setToolCardState(card, { running = false, isError = false, text = null 
     status.setAttribute("aria-label", running ? "working" : (isError ? "error" : "success"));
   }
   if (text !== null && output) output.textContent = text || (isError ? "（沒有收到工具輸出）" : "（無輸出）");
+  renderToolStat(card);
   updateRunToolError(card, !!isError);
   const activity = card.closest(".activity-group")?.__activity;
   if (activity) {
@@ -7828,6 +7952,7 @@ function setToolCardState(card, { running = false, isError = false, text = null 
       hasError: cards.some((item) => item.classList.contains("err")),
     });
   }
+  scheduleWorkLog(workTopLevel(card) || "tail");
 }
 function appendLiveToolCard(toolCallId, name, args) {
   let card = toolCallId ? liveToolCards.get(toolCallId) : null;
@@ -7865,7 +7990,8 @@ function summarizeArgs(args) {
 }
 function appendHistoryMessage(m, container = el.messages, options = {}) {
   if (m.role === "user") {
-    const { bubble } = makeMsgShell("user", "你", container);
+    const { wrap, bubble } = makeMsgShell("user", "你", container);
+    stampMessageTime(wrap, m.ts || m.timestamp);
     if (m.text) bubble.appendChild(renderMarkdown(m.text));
     const rendered = appendImageGallery(bubble, m.imageAttachments, m.images || 0);
     if (!m.text && !rendered && m.images) {
@@ -7880,19 +8006,31 @@ function appendHistoryMessage(m, container = el.messages, options = {}) {
     // still recover one when the first page did not contain any plan text.
     if (options.latest || container === el.messages || !taskProgress) updateTaskProgressFromAssistant(m.text, { running: false });
     const { wrap, bubble } = makeMsgShell("assistant", m.model ? `pi · ${m.model}` : "pi", container);
+    stampMessageTime(wrap, m.ts || m.timestamp);
     const calls = Array.isArray(m.toolCalls) ? m.toolCalls : [];
+    // Pi stores thinking, then prose, then tool calls: keep that order so the
+    // work log reads as it happened.
     let activity = null;
-    if (m.thinking || calls.length) {
-      activity = makeActivityGroup({ running: false, count: calls.length });
+    if (m.thinking) {
+      activity = makeActivityGroup({ running: false });
       bubble.appendChild(activity.details);
-      if (m.thinking) activity.body.appendChild(makeThinking(m.thinking));
+      activity.body.appendChild(makeThinking(m.thinking));
+      updateActivityGroup(activity, { running: false });
+    }
+    if (m.text) bubble.appendChild(renderMarkdown(m.text));
+    if (calls.length) {
+      if (!activity || m.text) {
+        activity = makeActivityGroup({ running: false, count: calls.length });
+        bubble.appendChild(activity.details);
+      }
       for (const tc of calls) {
-        activity.body.appendChild(makeToolCard(tc.name, tc.args, null));
+        const card = makeToolCard(tc.name, tc.args, null);
+        if (tc.id) card.dataset.toolCallId = tc.id;
+        activity.body.appendChild(card);
         activity.latest = toolTitle(tc.name, tc.args, false);
       }
       updateActivityGroup(activity, { running: false, count: calls.length, latest: activity.latest });
     }
-    if (m.text) bubble.appendChild(renderMarkdown(m.text));
     if (isFailureMessage(m)) {
       if (activity) updateActivityGroup(activity, { running: false, hasError: true });
       appendRunError(bubble, m);
@@ -7900,7 +8038,7 @@ function appendHistoryMessage(m, container = el.messages, options = {}) {
     wrap.appendChild(msgActionsRow("assistant", () => m.text || m.errorMessage || ""));
     if (m.usage) attachMessageUsage(wrap, m.usage, activity);
   } else if (m.role === "toolResult") {
-    attachToolResult(m.toolName, m.isError, m.text, container);
+    attachToolResult(m.toolName, m.isError, m.text, container, m.toolCallId);
   }
   if (container === el.messages) {
     keepSessionUsageAtEnd();
@@ -7956,56 +8094,46 @@ function mergeAssistantPair(target, source) {
   const targetBubble = directMessageBubble(target);
   const sourceBubble = directMessageBubble(source);
   if (!targetBubble || !sourceBubble) return false;
-  const targetDetails = directActivityDetails(targetBubble);
-  const sourceDetails = directActivityDetails(sourceBubble);
-  let targetActivity = targetDetails?.__activity || null;
-  const sourceActivity = sourceDetails?.__activity || null;
-
-  if (sourceActivity) {
-    if (activeActivityRun?.activities?.has(sourceActivity) && targetActivity) {
-      activeActivityRun.activities.add(targetActivity);
-    }
-    if (targetActivity) {
-      for (const child of [...sourceActivity.body.children]) targetActivity.body.appendChild(child);
-      updateActivityGroup(targetActivity, {
-        running: targetActivity.running || sourceActivity.running,
-        latest: sourceActivity.latest || targetActivity.latest,
-        count: activityCards(targetActivity).length,
-        hasError: targetActivity.hasError || sourceActivity.hasError,
-      });
-      if (sourceDetails.open) targetDetails.open = true;
-      sourceDetails.remove();
-    } else {
-      targetBubble.appendChild(sourceDetails);
-      targetDetails && (targetActivity = sourceActivity);
-    }
-    if (activeActivityRun?.activities?.has(sourceActivity)) {
-      activeActivityRun.activities.add(targetActivity || sourceActivity);
-    }
+  // Work-log chrome is rebuilt for the merged turn; never carry it along.
+  for (const node of [...sourceBubble.childNodes]) if (workOwned(node)) node.remove();
+  // Messages join in order. Work at the end of one message and at the start
+  // of the next is one uninterrupted step, so those two groups become one.
+  const tail = lastWorkChild(targetBubble);
+  const head = firstWorkChild(sourceBubble);
+  const tailActivity = tail?.classList?.contains("activity-group") ? tail.__activity : null;
+  const headActivity = head?.classList?.contains("activity-group") ? head.__activity : null;
+  if (tailActivity && headActivity) {
+    for (const child of [...headActivity.body.children]) tailActivity.body.appendChild(child);
+    updateActivityGroup(tailActivity, {
+      running: tailActivity.running || headActivity.running,
+      latest: headActivity.latest || tailActivity.latest,
+      count: activityCards(tailActivity).length,
+      hasError: tailActivity.hasError || headActivity.hasError,
+    });
+    if (head.open) tail.open = true;
+    head.remove();
+    if (activeActivityRun?.activities?.has(headActivity)) activeActivityRun.activities.add(tailActivity);
+    if (liveActivity === headActivity) liveActivity = tailActivity;
+    if (pendingAssistant?.activity === headActivity) pendingAssistant.activity = tailActivity;
   }
+  for (const child of [...sourceBubble.childNodes]) targetBubble.appendChild(child);
 
-  for (const child of [...sourceBubble.childNodes]) {
-    if (child === sourceDetails) continue;
-    targetBubble.appendChild(child);
-  }
-
-  // Keep one copy/retry row for the whole work group; usage rows remain
-  // available when the consolidated activity group is opened.
+  // One copy/retry row serves the merged turn. Keep the newest message's row
+  // so Copy returns the latest reply, and keep it after the usage rows.
+  const sourceActions = [...source.children].filter(child => child.classList.contains("msg-actions"));
+  if (sourceActions.length) for (const row of [...target.children]) if (row.classList.contains("msg-actions")) row.remove();
   for (const child of [...source.children]) {
-    if (child.classList.contains("msg-actions")) {
-      child.remove();
-      continue;
-    }
     if (child.classList.contains("message-usage")) {
       target.appendChild(child);
-      bindMessageUsage(child, targetActivity);
+      bindMessageUsage(child, lastWorkActivity(targetBubble));
     }
   }
-  if (liveActivity && sourceDetails && liveActivity.details === sourceDetails) liveActivity = targetActivity;
+  for (const row of sourceActions) target.appendChild(row);
+  const sourceTime = Number(source.dataset.ts) || 0;
+  if (sourceTime > (Number(target.dataset.ts) || 0)) target.dataset.ts = String(sourceTime);
   if (pendingAssistant?.wrap === source) {
     pendingAssistant.wrap = target;
     pendingAssistant.bubble = targetBubble;
-    pendingAssistant.activity = targetActivity;
   }
   source.remove();
   return true;
@@ -8022,7 +8150,20 @@ function mergeAdjacentWorkMessages(container = el.messages) {
     target = source;
   }
 }
-function attachToolResult(toolName, isError, text, container = el.messages) {
+function lastWorkActivity(bubble) {
+  const groups = [...(bubble?.children || [])].filter(child => child.classList.contains("activity-group"));
+  return groups[groups.length - 1]?.__activity || null;
+}
+function attachToolResult(toolName, isError, text, container = el.messages, toolCallId = null) {
+  // Parallel calls finish in their own order; match a result to its call
+  // when the history names it.
+  if (toolCallId) {
+    const matched = [...container.querySelectorAll(".tool-card")].reverse().find(card => card.dataset.toolCallId === toolCallId);
+    if (matched) {
+      setToolCardState(matched, { running: false, isError: !!isError, text });
+      return;
+    }
+  }
   const cards = container.querySelectorAll(".tool-card");
   for (let i = cards.length - 1; i >= 0; i--) {
     const body = cards[i].querySelector(".tool-output");
@@ -8032,6 +8173,589 @@ function attachToolResult(toolName, isError, text, container = el.messages) {
     }
   }
 }
+
+// ===========================================================================
+// Work log: Codex-style turns
+// ===========================================================================
+// Every agent renderer appends its own message shells in the order things
+// happened. This layer only annotates that DOM and never moves a renderer's
+// node, so streaming text, live tool cards and keyed Codex rows keep their
+// references. Per turn it adds a header ("Working for 3m 12s", "Worked for
+// 19m 44s"), one row per uninterrupted run of work ("Edited files, read
+// files, ran commands") and a card of edited files. A finished turn folds
+// down to its final answer until its header is opened.
+
+const WORK_BLOCK_SELECTOR = ".activity-group, .tool-card, .thinking-wrap, .native-image-views";
+const WORK_NOTICE_SELECTOR = ".run-error, .agent-approval-card, .agent-terminal-status";
+const WORK_SUMMARY_ORDER = Object.freeze(["edit", "read", "search", "web", "run", "image", "agent", "tool", "plan", "context", "wait"]);
+const WORK_ICONS = Object.freeze({
+  edit: "#i-pencil", read: "#i-book", search: "#i-search", web: "#i-globe", run: "#i-terminal",
+  image: "#i-image", agent: "#i-cpu", tool: "#i-wrench", plan: "#i-list", context: "#i-compress",
+  wait: "#i-clock", think: "#i-sparkle",
+});
+const WORK_FILES_PREVIEW = 3;
+const workLogState = { turns: new Map(), segments: new Map(), ids: new WeakMap(), sequence: 0, generation: -1,
+  frame: null, scope: null, observer: null };
+
+function workOwned(node) { return node?.nodeType === Node.ELEMENT_NODE && node.classList.contains("wl-own"); }
+function workNodeId(node) {
+  let id = workLogState.ids.get(node);
+  if (!id) { id = "n" + (++workLogState.sequence); workLogState.ids.set(node, id); }
+  return id;
+}
+function workTopLevel(node) {
+  let current = node;
+  while (current?.parentNode && current.parentNode !== el.messages) current = current.parentNode;
+  return current?.parentNode === el.messages ? current : null;
+}
+function stampMessageTime(wrap, value) {
+  if (!wrap || value === undefined || value === null || value === "") return;
+  const text = String(value).trim();
+  const ms = /^\d+(?:\.\d+)?$/.test(text) ? normalizedTimestampMs(Number(text)) : Date.parse(text);
+  if (Number.isFinite(ms) && ms > 0) wrap.dataset.ts = String(Math.floor(ms));
+}
+// A finished live run knows its real end; history falls back to timestamps.
+function stampWorkTurnEnd() {
+  const endedAt = Number(rpc?.runEndedAt) || Date.now();
+  const user = [...(el.messages?.children || [])].filter(node => node.classList.contains("msg") && node.classList.contains("user")).pop();
+  if (!user) return;
+  const sentAt = Number(user.dataset.ts) || 0;
+  if (sentAt && sentAt > endedAt) return;
+  if (!sentAt && !user.dataset.wlStart && Number(rpc?.runStartedAt)) user.dataset.wlStart = String(rpc.runStartedAt);
+  user.dataset.wlEnd = String(endedAt);
+}
+
+function workLogRunState() {
+  const connection = rpc;
+  if (!connection) return { running: false, startedAt: null };
+  let running = !!connection.streaming;
+  if (connection.nativeCodex) {
+    const state = connection.nativeTranscriptState;
+    running = running || connection.taskStatus === "running" || state?.thread?.status?.type === "active"
+      || state?.observation?.working === true;
+  } else if (connection.generic && !connection.nativeHistoryReadonly) {
+    running = running || connection.taskStatus === "running";
+  }
+  return { running, startedAt: Number(connection.runStartedAt) || null };
+}
+function workDurationText(ms) {
+  const parts = window.stepsembleSessionUtils.workDurationParts(ms);
+  return tKey("work.duration." + parts.form, parts);
+}
+function workHeadText(running, duration) {
+  if (running) return duration === null ? tKey("work.working") : tKey("work.workingFor", { time: workDurationText(duration) });
+  return duration === null ? tKey("work.worked") : tKey("work.workedFor", { time: workDurationText(duration) });
+}
+function workTurnDuration(turn) {
+  const user = turn.user;
+  const start = Number(user?.dataset.wlStart) || Number(user?.dataset.ts) || 0;
+  let end = Number(user?.dataset.wlEnd) || 0;
+  if (!end) for (const node of turn.nodes) end = Math.max(end, Number(node.dataset?.ts) || 0);
+  return start && end && end >= start ? end - start : null;
+}
+
+function workTurns() {
+  const turns = [];
+  let turn = null;
+  for (const node of el.messages?.children || []) {
+    const message = node.classList.contains("msg");
+    if (message && node.classList.contains("user")) { turn = { user: node, nodes: [] }; turns.push(turn); continue; }
+    if (!(message && node.classList.contains("assistant")) && !node.classList.contains("context-divider")) continue;
+    if (!turn) { turn = { user: null, nodes: [] }; turns.push(turn); }
+    turn.nodes.push(node);
+  }
+  return turns;
+}
+function workTurnKey(turn, index, seen) {
+  const user = turn.user;
+  if (user?.dataset.ts) {
+    const base = "ts:" + user.dataset.ts;
+    const count = (seen.get(base) || 0) + 1;
+    seen.set(base, count);
+    return base + "#" + count;
+  }
+  if (user) {
+    const base = "u:" + String(directMessageBubble(user)?.textContent || "").trim().slice(0, 160);
+    const count = (seen.get(base) || 0) + 1;
+    seen.set(base, count);
+    return base + "#" + count;
+  }
+  return turn.nodes[0] ? "n:" + workNodeId(turn.nodes[0]) : "i:" + index;
+}
+function workBlockKind(node) {
+  if (node.nodeType === Node.TEXT_NODE) return String(node.textContent || "").trim() ? "text" : null;
+  if (node.nodeType !== Node.ELEMENT_NODE || workOwned(node)) return null;
+  if (node.classList.contains("thinking-shimmer")) return "pulse";
+  if (node.matches(WORK_BLOCK_SELECTOR)) {
+    return node.matches(".activity-group") && !node.querySelector(".tool-card, .thinking-wrap, .native-image-views") ? "empty" : "work";
+  }
+  if (node.matches(WORK_NOTICE_SELECTOR)) return "notice";
+  if (!String(node.textContent || "").trim() && !node.querySelector("img, svg, canvas, video")) return null;
+  return "text";
+}
+function workTurnBlocks(turn) {
+  const blocks = [];
+  for (const node of turn.nodes) {
+    if (node.classList.contains("context-divider")) { blocks.push({ node, kind: "divider", shell: null }); continue; }
+    const bubble = directMessageBubble(node);
+    if (!bubble) continue;
+    for (const child of [...bubble.childNodes]) {
+      const kind = workBlockKind(child);
+      if (kind) blocks.push({ node: child, kind, shell: node });
+    }
+  }
+  return blocks;
+}
+function workSegments(blocks) {
+  const segments = [];
+  let current = null;
+  for (const block of blocks) {
+    if (block.kind === "empty") continue;
+    if (block.kind !== "work") { current = null; continue; }
+    if (!current) { current = { blocks: [] }; segments.push(current); }
+    current.blocks.push(block);
+  }
+  return segments;
+}
+function workSegmentKey(segment) {
+  const first = segment.blocks[0].node;
+  if (first.dataset?.workKey) return "k:" + first.dataset.workKey;
+  const card = first.matches(".tool-card") ? first : first.querySelector(".tool-card");
+  const id = card?.dataset.toolCallId || card?.dataset.nativeToolId;
+  return id ? "t:" + id : "n:" + workNodeId(first);
+}
+function workSegmentItems(segment) {
+  const cards = [];
+  let thinking = 0, images = 0;
+  for (const { node } of segment.blocks) {
+    if (node.matches(".tool-card")) cards.push(node);
+    else cards.push(...node.querySelectorAll(".tool-card"));
+    thinking += node.matches(".thinking-wrap") ? 1 : node.querySelectorAll(".thinking-wrap").length;
+    images += node.matches(".native-image-views") ? node.querySelectorAll(".native-image-card").length
+      : node.querySelectorAll(".native-image-views .native-image-card").length;
+  }
+  return { cards, thinking, images };
+}
+function workSegmentSummary(items) {
+  const counts = new Map();
+  for (const card of items.cards) {
+    const category = window.stepsembleSessionUtils.workCategory(card.__tool?.name, card.__tool?.args);
+    counts.set(category, (counts.get(category) || 0) + 1);
+  }
+  if (items.images) counts.set("image", (counts.get("image") || 0) + items.images);
+  const present = WORK_SUMMARY_ORDER.filter(category => counts.get(category));
+  if (!present.length) {
+    return { text: tKey(items.thinking ? "work.thought" : "work.worked"), icon: items.thinking ? WORK_ICONS.think : WORK_ICONS.tool };
+  }
+  const text = present.map(category => tKey("work.part." + category + "." + (counts.get(category) === 1 ? "one" : "many"),
+    { count: counts.get(category) })).join(tKey("work.partJoin"));
+  const locale = window.stepsembleI18n?.getLocale?.() || "en";
+  return { text: text.charAt(0).toLocaleUpperCase(locale) + text.slice(1), icon: WORK_ICONS[present[0]] || WORK_ICONS.tool };
+}
+function setWorkIcon(box, href) {
+  if (!box || box.dataset.icon === href) return;
+  box.dataset.icon = href;
+  box.innerHTML = '<svg class="icon"><use href="' + href + '"></use></svg>';
+}
+function workChevron(icon = "#i-chevron-right") {
+  const chevron = document.createElement("span");
+  chevron.className = "wl-chev";
+  chevron.setAttribute("aria-hidden", "true");
+  chevron.innerHTML = '<svg class="icon"><use href="' + icon + '"></use></svg>';
+  return chevron;
+}
+// Keep the control the user touched in place while content above it opens.
+function layoutWorkLogAround(anchor) {
+  const before = anchor.getBoundingClientRect().top;
+  layoutWorkLog({ from: workTopLevel(anchor), keepScroll: true });
+  if (anchor.isConnected) el.messages.scrollTop += anchor.getBoundingClientRect().top - before;
+}
+function makeWorkHead() {
+  const head = document.createElement("button");
+  head.type = "button";
+  head.className = "wl-own wl-head";
+  head.dataset.i18nIgnore = "";
+  const label = document.createElement("span");
+  label.className = "wl-head-label";
+  head.append(label, workChevron());
+  head.addEventListener("click", () => {
+    if (head.dataset.running === "true") return;
+    const state = workLogState.turns.get(head.dataset.key);
+    if (!state) return;
+    state.expanded = !state.expanded;
+    layoutWorkLogAround(head);
+  });
+  return head;
+}
+function makeWorkRow() {
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = "wl-own wl-row";
+  row.dataset.i18nIgnore = "";
+  const icon = document.createElement("span");
+  icon.className = "wl-icon";
+  icon.setAttribute("aria-hidden", "true");
+  const label = document.createElement("span");
+  label.className = "wl-label";
+  row.append(icon, label, workChevron());
+  row.addEventListener("click", () => {
+    const key = row.dataset.key;
+    if (!key) return;
+    workLogState.segments.set(key, workLogState.segments.get(key) !== true);
+    layoutWorkLogAround(row);
+  });
+  return row;
+}
+function makeWorkPulse() {
+  const pulse = document.createElement("div");
+  pulse.className = "wl-own wl-pulse";
+  pulse.dataset.i18nIgnore = "";
+  pulse.setAttribute("role", "status");
+  return pulse;
+}
+function makeWorkFiles() {
+  const card = document.createElement("section");
+  card.className = "wl-own wl-files";
+  card.dataset.i18nIgnore = "";
+  return card;
+}
+function workStat(className, text) {
+  const span = document.createElement("span");
+  span.className = className;
+  span.textContent = text;
+  return span;
+}
+function workTurnFiles(turn) {
+  const files = new Map();
+  for (const node of turn.nodes) {
+    if (!node.classList.contains("msg")) continue;
+    for (const card of node.querySelectorAll(".tool-card")) {
+      if (card.classList.contains("err") || card.classList.contains("running")) continue;
+      for (const change of window.stepsembleSessionUtils.toolEditChanges(card.__tool?.name, card.__tool?.args)) {
+        const entry = files.get(change.path) || { path: change.path, added: 0, removed: 0 };
+        entry.added += change.added;
+        entry.removed += change.removed;
+        files.set(change.path, entry);
+      }
+    }
+  }
+  return [...files.values()];
+}
+function workFileParts(path) {
+  const cwd = String(currentSessionCwd || rpc?.cwd || "").replace(/[\\/]+$/, "");
+  let value = String(path || "");
+  if (cwd && (value.startsWith(cwd + "/") || value.startsWith(cwd + "\\"))) value = value.slice(cwd.length + 1);
+  const cut = Math.max(value.lastIndexOf("/"), value.lastIndexOf("\\"));
+  return { dir: cut >= 0 ? value.slice(0, cut + 1) : "", name: cut >= 0 ? value.slice(cut + 1) : value, relative: value };
+}
+async function openWorkFile(path) {
+  if (!currentSessionCwd) return;
+  const cwd = currentSessionCwd;
+  const { relative } = workFileParts(path);
+  await openProjectChanges();
+  if (cwd !== currentSessionCwd || !projectChangesOpen()) return;
+  const match = (projectChangesState?.data?.files || []).find(file => file.path === relative
+    || relative.endsWith("/" + file.path) || file.path.endsWith("/" + relative));
+  if (match) void loadProjectDiff(match.path);
+}
+function updateWorkFiles(card, files, state, turnKey) {
+  const expanded = state.filesExpanded === true;
+  const signature = JSON.stringify([files, expanded, turnKey, window.stepsembleI18n?.getLocale?.() || "en", !!currentSessionCwd]);
+  if (card.dataset.signature === signature) return;
+  card.dataset.signature = signature;
+  const totals = files.reduce((sum, file) => ({ added: sum.added + file.added, removed: sum.removed + file.removed }), { added: 0, removed: 0 });
+  const head = document.createElement("div");
+  head.className = "wl-files-head";
+  const icon = document.createElement("span");
+  icon.className = "wl-files-icon";
+  setWorkIcon(icon, "#i-diff");
+  const copy = document.createElement("div");
+  copy.className = "wl-files-copy";
+  const title = document.createElement("strong");
+  title.textContent = tKey(files.length === 1 ? "work.files.one" : "work.files.many", { count: files.length });
+  const stat = document.createElement("span");
+  stat.className = "wl-files-stat";
+  stat.append(workStat("wl-add", "+" + totals.added), workStat("wl-del", "-" + totals.removed));
+  copy.append(title, stat);
+  head.append(icon, copy);
+  if (currentSessionCwd) {
+    const review = document.createElement("button");
+    review.type = "button";
+    review.className = "btn wl-files-review";
+    review.textContent = tKey("work.files.review");
+    review.addEventListener("click", () => openProjectChanges());
+    head.appendChild(review);
+  }
+  const list = document.createElement("ul");
+  list.className = "wl-files-list";
+  for (const file of expanded ? files : files.slice(0, WORK_FILES_PREVIEW)) {
+    const item = document.createElement("li");
+    const row = document.createElement(currentSessionCwd ? "button" : "div");
+    row.className = "wl-file";
+    row.title = file.path;
+    if (currentSessionCwd) {
+      row.type = "button";
+      row.addEventListener("click", () => openWorkFile(file.path));
+    }
+    const parts = workFileParts(file.path);
+    const name = document.createElement("span");
+    name.className = "wl-file-path";
+    name.append(workStat("wl-file-dir", parts.dir), workStat("wl-file-name", parts.name));
+    const fileStat = document.createElement("span");
+    fileStat.className = "wl-file-stat";
+    fileStat.append(workStat("wl-add", "+" + file.added), workStat("wl-del", "-" + file.removed));
+    row.append(name, fileStat);
+    item.appendChild(row);
+    list.appendChild(item);
+  }
+  card.replaceChildren(head, list);
+  const hidden = files.length - WORK_FILES_PREVIEW;
+  if (hidden > 0) {
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "wl-files-more";
+    more.setAttribute("aria-expanded", String(expanded));
+    const label = document.createElement("span");
+    label.textContent = expanded ? tKey("work.files.less")
+      : tKey(hidden === 1 ? "work.files.more.one" : "work.files.more.many", { count: hidden });
+    more.append(label, workChevron("#i-chevron-down"));
+    more.addEventListener("click", () => {
+      state.filesExpanded = !expanded;
+      layoutWorkLogAround(more);
+    });
+    card.appendChild(more);
+  }
+}
+function workSetHidden(block, hide) {
+  if (block.node.nodeType === Node.ELEMENT_NODE) { block.node.classList.toggle("wl-hide", hide); return; }
+  if (!hide || pendingAssistant?.textEl === block.node || !block.node.parentNode) return;
+  // A reply cut off mid-stream stays a bare text node; wrap it so it can fold.
+  const wrapper = document.createElement("div");
+  wrapper.className = "md-body wl-hide";
+  block.node.parentNode.insertBefore(wrapper, block.node);
+  wrapper.appendChild(block.node);
+}
+
+function layoutWorkTurn(turn, key, { running = false, startedAt = null } = {}) {
+  let state = workLogState.turns.get(key);
+  if (!state) { state = { expanded: false, filesExpanded: false }; workLogState.turns.set(key, state); }
+  const shells = turn.nodes.filter(node => node.classList.contains("msg") && directMessageBubble(node));
+  const owned = [];
+  for (const shell of shells) for (const node of directMessageBubble(shell).childNodes) if (workOwned(node)) owned.push(node);
+  const used = new Set();
+  const take = (className, create) => {
+    const found = owned.find(node => node.classList.contains(className) && !used.has(node)) || create();
+    used.add(found);
+    return found;
+  };
+  const blocks = workTurnBlocks(turn);
+  const segments = workSegments(blocks);
+  let finalIndex = -1;
+  if (!running) {
+    for (let index = blocks.length - 1; index >= 0; index -= 1) {
+      const kind = blocks[index].kind;
+      if (kind === "text") { finalIndex = index; break; }
+      if (kind === "work" || kind === "divider") break;
+    }
+  }
+  const final = finalIndex >= 0 ? blocks[finalIndex] : null;
+  const foldable = blocks.some((block, index) => index !== finalIndex && ["work", "divider", "text"].includes(block.kind));
+  const showHead = shells.length > 0 && (running || foldable);
+  const collapsed = !running && foldable && state.expanded !== true;
+
+  if (showHead) {
+    const head = take("wl-head", makeWorkHead);
+    const bubble = directMessageBubble(shells[0]);
+    if (bubble.firstChild !== head) bubble.insertBefore(head, bubble.firstChild);
+    const started = running ? (startedAt || Number(turn.user?.dataset.wlStart) || Number(turn.user?.dataset.ts) || 0) : 0;
+    const duration = running ? (started ? Math.max(0, Date.now() - started) : null) : workTurnDuration(turn);
+    head.dataset.key = key;
+    head.dataset.running = String(running);
+    head.dataset.startedAt = started ? String(started) : "";
+    head.classList.toggle("wl-running", running);
+    head.classList.toggle("wl-collapsed", collapsed);
+    if (running) { head.removeAttribute("aria-expanded"); head.tabIndex = -1; }
+    else { head.setAttribute("aria-expanded", String(!collapsed)); head.tabIndex = 0; }
+    const label = head.querySelector(".wl-head-label");
+    const text = workHeadText(running, duration);
+    if (label.textContent !== text) label.textContent = text;
+  }
+
+  const lastSegment = segments[segments.length - 1] || null;
+  const lastBlock = blocks.filter(block => block.kind !== "empty" && block.kind !== "pulse").pop();
+  const tailIsWork = !!lastSegment && lastBlock === lastSegment.blocks[lastSegment.blocks.length - 1];
+  let liveCard = null;
+  for (const segment of segments) {
+    const segmentKey = key + ":" + workSegmentKey(segment);
+    const expanded = workLogState.segments.get(segmentKey) === true;
+    const first = segment.blocks[0].node;
+    let row = first.previousSibling;
+    if (!(workOwned(row) && row.classList.contains("wl-row") && !used.has(row))) {
+      row = owned.find(node => node.classList.contains("wl-row") && node.dataset.key === segmentKey && !used.has(node)) || makeWorkRow();
+      first.parentNode.insertBefore(row, first);
+    }
+    used.add(row);
+    const items = workSegmentItems(segment);
+    const live = running && segment === lastSegment && tailIsWork
+      ? items.cards.find(card => card.classList.contains("running")) || null : null;
+    if (live) liveCard = live;
+    const summary = workSegmentSummary(items);
+    const text = live ? toolTitle(live.__tool?.name, live.__tool?.args, true) : summary.text;
+    row.dataset.key = segmentKey;
+    row.setAttribute("aria-expanded", String(expanded));
+    row.classList.toggle("wl-live", !!live);
+    row.classList.toggle("wl-error", items.cards.some(card => card.classList.contains("err")));
+    row.classList.toggle("wl-hide", collapsed);
+    const label = row.querySelector(".wl-label");
+    if (label.textContent !== text) label.textContent = text;
+    row.title = text;
+    setWorkIcon(row.querySelector(".wl-icon"), live
+      ? WORK_ICONS[window.stepsembleSessionUtils.workCategory(live.__tool?.name, live.__tool?.args)] || WORK_ICONS.tool
+      : summary.icon);
+    for (const { node } of segment.blocks) {
+      node.classList.add("wl-seg");
+      if (node.matches(".activity-group") && !node.open) node.open = true;
+      node.classList.toggle("wl-hide", collapsed || !expanded);
+    }
+  }
+
+  for (const [index, block] of blocks.entries()) {
+    if (block.kind === "work") continue;
+    if (block.kind === "empty") { block.node.classList.add("wl-hide"); continue; }
+    workSetHidden(block, collapsed && index !== finalIndex && (block.kind === "text" || block.kind === "divider"));
+  }
+
+  if (running && !liveCard && shells.length && !blocks.some(block => block.kind === "pulse"
+    || block.kind === "notice" && block.node.matches?.(".agent-approval-card"))) {
+    const pulse = take("wl-pulse", makeWorkPulse);
+    const bubble = directMessageBubble(shells[shells.length - 1]);
+    if (bubble.lastChild !== pulse) bubble.appendChild(pulse);
+    const text = tKey("work.thinking");
+    if (pulse.textContent !== text) pulse.textContent = text;
+  }
+
+  if (!running && shells.length) {
+    const files = workTurnFiles(turn);
+    if (files.length) {
+      const card = take("wl-files", makeWorkFiles);
+      const anchor = final?.node || null;
+      const parent = anchor?.parentNode || directMessageBubble(shells[shells.length - 1]);
+      if (anchor ? card.previousSibling !== anchor || card.parentNode !== parent : parent.lastChild !== card) {
+        parent.insertBefore(card, anchor ? anchor.nextSibling : null);
+      }
+      updateWorkFiles(card, files, state, key);
+    }
+  }
+  for (const node of owned) if (!used.has(node)) node.remove();
+
+  for (const shell of shells) {
+    const bubble = directMessageBubble(shell);
+    const visible = [...bubble.childNodes].some(child => child.nodeType === Node.TEXT_NODE
+      ? !!String(child.textContent || "").trim()
+      : child.nodeType === Node.ELEMENT_NODE && !child.classList.contains("wl-hide") && !child.classList.contains("hidden"));
+    shell.classList.toggle("wl-hide", !visible);
+    shell.classList.toggle("wl-turn", showHead);
+    for (const child of shell.children) {
+      if (child.classList.contains("msg-actions")) child.classList.toggle("wl-hide", showHead && (running || final?.shell !== shell));
+      else if (child.classList.contains("message-usage")) child.classList.toggle("wl-hide", showHead);
+    }
+  }
+}
+
+function layoutWorkLog({ from = null, tail = false, keepScroll = false } = {}) {
+  if (!el.messages) return;
+  if (workLogState.generation !== viewGeneration) {
+    workLogState.generation = viewGeneration;
+    workLogState.turns.clear();
+    workLogState.segments.clear();
+    workLogState.ids = new WeakMap();
+    workLogState.sequence = 0;
+    from = null;
+    tail = false;
+  }
+  const turns = workTurns();
+  const run = workLogRunState();
+  const seen = new Map();
+  turns.forEach((turn, index) => {
+    const key = workTurnKey(turn, index, seen);
+    const last = index === turns.length - 1;
+    const start = turn.user || turn.nodes[0];
+    const include = (!from && !tail) || (tail && last) || (!!from && (turn.user === from || turn.nodes.includes(from)
+      || !!start && !!(from.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING)));
+    if (include) layoutWorkTurn(turn, key, { running: run.running && last, startedAt: run.startedAt });
+  });
+  workLogState.observer?.takeRecords();
+  if (!keepScroll && autoScrollPinned) el.messages.scrollTop = el.messages.scrollHeight;
+}
+
+// Renderer changes arrive as DOM mutations; batch them into one layout per
+// frame and only revisit the turns they touched.
+function scheduleWorkLog(scope = null) {
+  if (!el.messages) return;
+  const pending = workLogState.scope || (workLogState.scope = { all: false, tail: false, from: null });
+  if (scope === "tail") pending.tail = true;
+  else if (scope?.nodeType) {
+    if (!pending.from || !pending.from.isConnected
+      || (scope.compareDocumentPosition(pending.from) & Node.DOCUMENT_POSITION_FOLLOWING)) pending.from = scope;
+  } else pending.all = true;
+  if (workLogState.frame) return;
+  workLogState.frame = requestAnimationFrame(() => {
+    workLogState.frame = null;
+    const next = workLogState.scope;
+    workLogState.scope = null;
+    if (!next) return;
+    if (next.all || (next.from && !next.from.isConnected)) layoutWorkLog();
+    else if (next.from) layoutWorkLog({ from: next.from });
+    else if (next.tail) layoutWorkLog({ tail: true });
+  });
+}
+function updateWorkLogClock() {
+  for (const head of el.messages?.querySelectorAll?.(".wl-head.wl-running") || []) {
+    const startedAt = Number(head.dataset.startedAt) || 0;
+    const label = head.querySelector(".wl-head-label");
+    const text = workHeadText(true, startedAt ? Math.max(0, Date.now() - startedAt) : null);
+    if (label && label.textContent !== text) label.textContent = text;
+  }
+}
+function relabelWorkLog() {
+  for (const card of el.messages?.querySelectorAll?.(".tool-card") || []) {
+    const meta = card.__tool || {};
+    const title = card.querySelector(".tool-name");
+    if (!title) continue;
+    title.textContent = toolTitle(meta.name, meta.args, card.classList.contains("running"));
+    title.title = toolTitle(meta.name, meta.args, false);
+  }
+  for (const toggle of el.messages?.querySelectorAll?.(".thinking-toggle") || []) toggle.textContent = tKey("work.item.thinking");
+  for (const card of el.messages?.querySelectorAll?.(".wl-files") || []) delete card.dataset.signature;
+  layoutWorkLog({ keepScroll: true });
+}
+function observeWorkLog() {
+  if (workLogState.observer || !el.messages || typeof MutationObserver !== "function") return;
+  workLogState.observer = new MutationObserver(records => {
+    for (const record of records) {
+      const changed = [...record.addedNodes, ...record.removedNodes].filter(node => !workOwned(node));
+      if (!changed.length) continue;
+      const target = record.target;
+      if (target === el.messages) {
+        for (const node of changed) {
+          if (node.nodeType !== Node.ELEMENT_NODE || !(node.classList.contains("msg") || node.classList.contains("context-divider"))) continue;
+          if (node.isConnected) scheduleWorkLog(node);
+          else if (record.previousSibling?.isConnected) scheduleWorkLog(record.previousSibling);
+          else if (record.nextSibling?.isConnected) scheduleWorkLog(record.nextSibling);
+          else scheduleWorkLog();
+        }
+        continue;
+      }
+      if (target.nodeType !== Node.ELEMENT_NODE
+        || !(target.classList.contains("bubble") || target.classList.contains("activity-body") || target.classList.contains("msg"))) continue;
+      const top = workTopLevel(target);
+      if (top) scheduleWorkLog(top);
+    }
+  });
+  workLogState.observer.observe(el.messages, { childList: true, subtree: true });
+}
+observeWorkLog();
+
 
 function dismissNativeDialog(request) {
   if (extensionUiRequest !== request) return;
@@ -8210,13 +8934,13 @@ function clearActivityNote() {
   delete el.queueNote.dataset.persistent;
 }
 function updateActivityWatchdog() {
-  if (!rpc?.streaming || !rpc.lastEventAt) return;
-  const idle = Date.now() - rpc.lastEventAt;
-  if (idle < ACTIVITY_STALE_MS) return;
-  el.queueNote.dataset.persistent = "stale";
-  el.queueNote.textContent = tKey("runtime.stillWorking", { activity: activityStatusText(rpc.activityLabel || "working").replace(/[…\u2026]$/, ""), age: activityAgeText(idle) });
-  el.queueNote.classList.add("stale");
-  el.queueNote.classList.remove("hidden");
+  // A quiet stretch is normal for long commands and slow models. The live
+  // work row keeps shimmering while the run is alive, so no text warning is
+  // shown here; clear one left by an older client instead.
+  if (el.queueNote?.dataset.persistent === "stale") {
+    clearActivityNote();
+    el.queueNote.classList.add("hidden");
+  }
 }
 function markRpcActivity() {
   if (rpc) rpc.lastEventAt = Date.now();
@@ -8244,6 +8968,7 @@ function renderRunTimer() {
   el.runTimer.classList.remove("hidden");
   el.runTimer.classList.toggle("running", !!rpc?.streaming);
   if (rpc?.nativeCodex) renderCodexNativeRunState(rpc);
+  updateWorkLogClock();
 }
 
 function startRunTimer(startedAt = Date.now()) {
@@ -8451,16 +9176,14 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
         flushPendingText(current);
         const { wrap, bubble } = current || makeMsgShell("assistant", "pi");
         if (current) current.activity = null;
+        stampMessageTime(wrap, m.timestamp || Date.now());
         bubble.innerHTML = "";
         // The streamed preview is replaced by the authoritative message_end
         // snapshot; discard detached card references before rebuilding it.
         liveToolCards = new Map();
         liveActivity = null;
-        let activity = null;
-        if (full.thinking || full.toolCalls.length) {
-          activity = ensureActivityGroup({ bubble, running: full.toolCalls.length > 0 });
-          if (full.thinking && activity) activity.body.appendChild(makeThinking(full.thinking));
-        }
+        // Thinking, then prose, then tool calls — the order Pi produced them.
+        if (full.thinking) ensureActivityGroup({ bubble, running: false })?.body.appendChild(makeThinking(full.thinking));
         if (full.text) bubble.appendChild(renderMarkdown(full.text));
         // Pi emits message_end before tool_execution_start. Keep tool rows in
         // the running state so the next execution events can update them.
@@ -8469,7 +9192,7 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
           if (card) card.dataset.toolCallId = tc.id || "";
         }
         if (full.usage) {
-          attachMessageUsage(wrap, full.usage, activity);
+          attachMessageUsage(wrap, full.usage, lastWorkActivity(bubble));
           addSessionUsage(full.usage);
         }
         wrap.appendChild(msgActionsRow("assistant", () => full.text));
@@ -8815,6 +9538,7 @@ function updateLiveUsage(u) {
   el.chatSub.textContent = base;
 }
 function setStreaming(on) {
+  const wasStreaming = !!rpc?.streaming;
   el.btnAbort.disabled = !!rpc?.stopPending;
   syncGenericInputState();
   if (rpc) rpc.streaming = on;
@@ -8831,6 +9555,8 @@ function setStreaming(on) {
     clearActivityNote();
   }
   if (!on) stopRunTimer();
+  if (!on && wasStreaming) stampWorkTurnEnd();
+  scheduleWorkLog("tail");
   el.thinkingStatus?.classList.toggle("hidden", !on);
   el.thinkingStatus?.classList.toggle("running", !!on && rpc?.activityLabel !== "waiting");
   el.btnAbort.classList.toggle("hidden", !on);
@@ -8899,8 +9625,23 @@ el.input.addEventListener("input", () => {
 
 // ---- 圖片附件（手機拍照／相冊／剪貼簿貼上 → base64）----
 let pendingImages = []; // [{data, mimeType}]
-const MAX_PENDING_IMAGES = 4;
 const MAX_IMAGE_FILE_BYTES = 24 * 1024 * 1024;
+// Mirrors server/prompt-attachments.js. Claude's API documents 100 images per
+// request; the other agents publish no number and share 20. ACP agents read a
+// prompt as one stdin line, so their total image budget is smaller.
+const COMPOSER_IMAGE_BUDGETS = Object.freeze({
+  claude: Object.freeze({ count: 100, bytes: 24 * 1024 * 1024 }),
+  acp: Object.freeze({ count: 20, bytes: 10 * 1024 * 1024 }),
+  standard: Object.freeze({ count: 20, bytes: 24 * 1024 * 1024 }),
+});
+function composerImageBudget(connection = rpc) {
+  if (connection?.nativeClaudeStructured) return COMPOSER_IMAGE_BUDGETS.claude;
+  if (connection?.nativeAcp || connection?.nativeGrokAcp) return COMPOSER_IMAGE_BUDGETS.acp;
+  return COMPOSER_IMAGE_BUDGETS.standard;
+}
+function imageDataBytes(image) {
+  return String(image?.data || "").replace(/^data:[^,]*,/, "").length;
+}
 
 function imageFileToDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -8946,19 +9687,26 @@ function imageFileToDataUrl(file) {
 }
 
 async function addImageFiles(files) {
+  const budget = composerImageBudget();
   let added = 0;
+  let limit = null;
   for (const file of Array.from(files || [])) {
-    if (pendingImages.length >= MAX_PENDING_IMAGES) { toast("最多 4 張圖片", true); break; }
     if (!file?.type?.startsWith("image/")) continue;
+    if (pendingImages.length >= budget.count) { limit = "count"; break; }
     try {
-      pendingImages.push(await imageFileToDataUrl(file));
+      const image = await imageFileToDataUrl(file);
+      const used = pendingImages.reduce((sum, item) => sum + imageDataBytes(item), 0);
+      if (used + imageDataBytes(image) > budget.bytes) { limit = "bytes"; break; }
+      pendingImages.push(image);
       added++;
       renderImgPreview();
     } catch (error) {
       toast(error.message || "圖片處理失敗", true);
     }
   }
-  if (added) toast(`${added} 張圖片已加入`);
+  if (limit === "count") toast(tKey("composer.imageLimit", { count: budget.count }), true);
+  else if (limit === "bytes") toast(tKey("composer.imageBytesLimit", { size: Math.round(budget.bytes / 1024 / 1024) }), true);
+  else if (added) toast(`${added} 張圖片已加入`);
 }
 
 el.btnImg.addEventListener("click", () => el.fileInput.click());
@@ -8995,7 +9743,7 @@ async function clipboardApiImages() {
 async function clipboardHtmlImages(html) {
   const urls = [...String(html || "").matchAll(/<img[^>]+src=["'](data:image\/[^"']+)["']/gi)].map((match) => match[1]);
   const files = [];
-  for (const dataUrl of urls.slice(0, MAX_PENDING_IMAGES)) {
+  for (const dataUrl of urls.slice(0, composerImageBudget().count)) {
     try {
       const blob = await (await fetch(dataUrl)).blob();
       files.push(new File([blob], "clipboard-image", { type: blob.type || "image/png" }));
@@ -9047,8 +9795,19 @@ function renderImgPreview() {
   pendingImages.forEach((im, i) => {
     const wrap = document.createElement("div");
     wrap.className = "img-thumb";
+    // The thumbnail opens the same viewer as a sent image: close with ×,
+    // a click outside the image, or Escape.
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "img-thumb-open";
+    const label = tKey("composer.previewImage", { index: i + 1 });
+    open.title = label;
+    open.setAttribute("aria-label", label);
     const img = document.createElement("img");
     img.src = im.data;
+    img.alt = "";
+    open.appendChild(img);
+    open.addEventListener("click", () => openImageLightbox({ data: im.data, mimeType: im.mimeType }, label, open));
     const x = document.createElement("button");
     x.className = "img-x";
     x.type = "button";
@@ -9056,7 +9815,7 @@ function renderImgPreview() {
     x.setAttribute("aria-label", "移除圖片");
     x.textContent = "×";
     x.addEventListener("click", () => { pendingImages.splice(i, 1); renderImgPreview(); });
-    wrap.appendChild(img); wrap.appendChild(x);
+    wrap.appendChild(open); wrap.appendChild(x);
     el.imgPreview.appendChild(wrap);
   });
 }
@@ -9087,7 +9846,8 @@ async function sendCurrent() {
 
   maybeDateSeparator(Date.now());
   lastUserText = text;
-  const { bubble } = makeMsgShell("user", "你");
+  const { wrap: userShell, bubble } = makeMsgShell("user", "你");
+  userShell.dataset.ts = String(Date.now());
   if (text) bubble.appendChild(renderMarkdown(text));
   if (pendingImages.length) appendImageGallery(bubble, pendingImages, pendingImages.length);
   if (generic && !rpc.nativeOpenCode && text && Array.isArray(rpc.genericInputEchoes)) {
@@ -9148,7 +9908,7 @@ async function sendCurrent() {
       el.input.value = text;
       resizeComposerInput();
       saveDraftForKey(sendDraftKey, text);
-      pendingImages = images.concat(pendingImages).slice(0, 4);
+      pendingImages = images.concat(pendingImages).slice(0, composerImageBudget().count);
       renderImgPreview();
       toast(tKey("runtime.messageNotSent"), true);
     }
@@ -10373,7 +11133,8 @@ function msgActionsRow(role, getText) {
     retry.textContent = "↻ 重試";
     retry.addEventListener("click", () => {
       if (!rpc) return;
-      const { bubble } = makeMsgShell("user", "你");
+      const { wrap, bubble } = makeMsgShell("user", "你");
+      wrap.dataset.ts = String(Date.now());
       bubble.textContent = lastUserText;
       scrollBottom();
       post("/api/send", { sid: rpc.sid, message: lastUserText }).catch(() => toast("送出失敗", true));

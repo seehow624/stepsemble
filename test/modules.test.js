@@ -195,6 +195,22 @@ test("run elapsed time reads as a clock and never goes negative", () => {
   assert.equal(utils.runElapsedText(undefined), "0s");
 });
 
+test("work log counts edited lines without treating a whole file as changed", () => {
+  const { value: utils } = loadBrowserModule("session-utils.js");
+  const edit = utils.toolEditChanges("str_replace", {
+    path: "/project/app.js", old_string: "alpha\nshared\nomega", new_string: "alpha\nupdated\nomega",
+  });
+  assert.deepEqual(Array.from(edit, item => ({ ...item })), [{ path: "/project/app.js", added: 1, removed: 1 }]);
+  const patch = utils.toolEditChanges("apply_patch", { patch: "*** Begin Patch\n*** Update File: /project/a.js\n@@\n-old\n+new\n*** Add File: /project/b.js\n+added\n*** End Patch" });
+  assert.deepEqual(Array.from(patch, item => ({ ...item })), [
+    { path: "/project/a.js", added: 1, removed: 1 },
+    { path: "/project/b.js", added: 1, removed: 0 },
+  ]);
+  assert.deepEqual(Array.from(utils.toolEditChanges("read", { path: "/project/app.js" })), []);
+  assert.deepEqual({ ...utils.workDurationParts(19 * 60_000 + 44_000) }, { form: "ms", m: 19, s: 44 });
+  assert.deepEqual({ ...utils.workDurationParts(3) }, { form: "s", s: 1 });
+});
+
 test("sidebar recency is compact, unit-less, and clock-skew safe", () => {
   const { value: utils } = loadBrowserModule("session-utils.js");
   const now = 1_800_000_000_000;

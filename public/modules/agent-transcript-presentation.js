@@ -75,6 +75,42 @@
     return changes.map(change => text(change?.path || change?.filePath || "", 4096)).filter(Boolean).join(", ");
   }
 
+  // Line counts for one Codex file change. An update carries a unified diff;
+  // an added or deleted file may carry its whole content without +/- marks.
+  function codexChangeCounts(change) {
+    const diff = typeof change?.diff === "string" ? change.diff : "";
+    const kind = status(typeof change?.kind === "string" ? change.kind : change?.kind?.type);
+    let added = 0, removed = 0, marked = false;
+    for (const line of diff.split(/\r?\n/)) {
+      if (line.startsWith("+++") || line.startsWith("---")) continue;
+      if (line.startsWith("+")) { added += 1; marked = true; }
+      else if (line.startsWith("-")) { removed += 1; marked = true; }
+    }
+    if (!marked && diff) {
+      const lines = diff.split(/\r?\n/).filter((line, index, all) => index < all.length - 1 || line !== "").length;
+      if (kind === "add") added = lines;
+      else if (kind === "delete") removed = lines;
+    }
+    return { added, removed };
+  }
+
+  function codexFileChanges(item) {
+    const changes = Array.isArray(item?.changes) ? item.changes.slice(0, 200) : [];
+    return changes.map(change => {
+      const path = text(change?.path || change?.filePath || "", 4096);
+      return path ? { path, ...codexChangeCounts(change) } : null;
+    }).filter(Boolean);
+  }
+
+  function codexFileChangeOutput(item) {
+    if (typeof item?.diff === "string" && item.diff) return item.diff;
+    if (typeof item?.patch === "string" && item.patch) return item.patch;
+    const diffs = (Array.isArray(item?.changes) ? item.changes : [])
+      .filter(change => typeof change?.diff === "string" && change.diff)
+      .map(change => `${text(change.path || "", 4096)}\n${change.diff}`);
+    return diffs.length ? diffs.join("\n\n") : item?.summary || item?.status || "";
+  }
+
   function codexItem(item) {
     if (!plain(item)) return null;
     if (item.type === "userMessage") return { kind: "message", role: "user", text: codexUserText(item) };
@@ -96,8 +132,10 @@
     }
     if (item.type === "fileChange") {
       const target = codexFileTarget(item);
-      return { kind: "tool", tool: toolView({ id: item.id, name: "edit", args: { path: target || "files" },
-        output: item.diff || item.patch || item.summary || item.status || "", state: item.status }) };
+      const changes = codexFileChanges(item);
+      return { kind: "tool", tool: toolView({ id: item.id, name: "edit",
+        args: { path: target || "files", ...(changes.length ? { changes } : {}) },
+        output: codexFileChangeOutput(item), state: item.status }) };
     }
     if (item.type === "functionCallOutput") {
       return { kind: "tool", tool: toolView({ id: item.id || item.callId, name: item.name || "function",
@@ -134,26 +172,37 @@
     const role = message.role === "user" ? "user" : message.role === "assistant" ? "assistant" : null;
     if (!role) return null;
     const parts = Array.isArray(message.parts) ? message.parts : [];
-    const response = { role, text: "", thinking: "", tools: [], images: 0 };
+    // `sequence` keeps the parts in the order the agent produced them, so a
+    // reply written after its tool calls is shown after them.
+    const response = { role, text: "", thinking: "", tools: [], images: 0, sequence: [] };
     const prose = [], thinking = [];
+    const push = (kind, value) => {
+      const last = response.sequence[response.sequence.length - 1];
+      if (kind !== "tool" && last?.kind === kind) last.text += kind === "text" ? value : `\n${value}`;
+      else response.sequence.push(kind === "tool" ? { kind, tool: value } : { kind, text: value });
+    };
     for (const part of parts) {
       if (!plain(part)) continue;
-      if (part.type === "text" && typeof part.text === "string") prose.push(text(part.text));
-      else if (part.type === "reasoning" && typeof part.text === "string") thinking.push(text(part.text));
+      if (part.type === "text" && typeof part.text === "string") { prose.push(text(part.text)); push("text", text(part.text)); }
+      else if (part.type === "reasoning" && typeof part.text === "string") { thinking.push(text(part.text)); push("thinking", text(part.text)); }
       else if (part.type === "image" || part.type === "file") response.images += 1;
       else if (part.type === "tool") {
         const stateValue = plain(part.state) ? part.state : {};
-        response.tools.push(toolView({
+        const tool = toolView({
           id: part.callID || part.callId || part.id,
           name: part.tool || part.name || "tool",
           args: stateValue.input || part.input || {},
           output: stateValue.output ?? stateValue.error ?? "",
           state: stateValue.status || part.status,
           isError: !!stateValue.error,
-        }));
+        });
+        response.tools.push(tool);
+        push("tool", tool);
       } else if (part.type === "subtask") {
-        response.tools.push(toolView({ id: part.id, name: "subagent", args: { prompt: part.description || part.prompt || part.agent || "" },
-          output: part.result || part.status || "", state: part.status }));
+        const tool = toolView({ id: part.id, name: "subagent", args: { prompt: part.description || part.prompt || part.agent || "" },
+          output: part.result || part.status || "", state: part.status });
+        response.tools.push(tool);
+        push("tool", tool);
       }
     }
     response.text = prose.join("");

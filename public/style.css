@@ -1,4 +1,4 @@
-/* stepsemble v3.1.4 — Ink & Ivory / English-first localization */
+/* stepsemble v3.2.0 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -5228,3 +5228,295 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
 @media (max-width: 420px) {
   .model-agent-tab { padding: 6px 6px; font-size: 12px; }
 }
+
+
+/* ==========================================================================
+   v3.2 — Codex-style work log. A turn opens with "Working for …", keeps
+   commentary and work rows in order, and folds to its final answer with an
+   edited-files card once it finishes.
+   ========================================================================== */
+#view-chat .wl-hide { display: none !important; }
+
+#view-chat .wl-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 44px;
+  margin: 0 0 12px;
+  padding: 4px 0 10px;
+  border: 0;
+  border-bottom: .5px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--pine-soft);
+  font: 500 .86rem/1.3 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+#view-chat .wl-head.wl-running { cursor: default; }
+#view-chat .wl-head.wl-running .wl-chev { display: none; }
+#view-chat .wl-head:not(.wl-running):hover,
+#view-chat .wl-head:focus-visible { color: var(--ink); outline: none; }
+#view-chat .wl-head-label { font-variant-numeric: tabular-nums; }
+#view-chat .wl-chev {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  transition: transform .16s ease, opacity .16s ease;
+}
+#view-chat .wl-chev .icon { width: 15px; height: 15px; }
+#view-chat .wl-head[aria-expanded="true"] .wl-chev { transform: rotate(90deg); }
+
+#view-chat .wl-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  padding: 5px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--pine-soft);
+  font: 500 .88rem/1.3 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+#view-chat .wl-row:hover,
+#view-chat .wl-row:focus-visible,
+#view-chat .wl-row[aria-expanded="true"] { color: var(--ink); outline: none; }
+#view-chat .wl-icon {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 20px;
+}
+#view-chat .wl-icon .icon { width: 19px; height: 19px; }
+#view-chat .wl-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#view-chat .wl-row .wl-chev { opacity: 0; }
+#view-chat .wl-row:hover .wl-chev,
+#view-chat .wl-row:focus-visible .wl-chev,
+#view-chat .wl-row[aria-expanded="true"] .wl-chev { opacity: 1; }
+#view-chat .wl-row[aria-expanded="true"] .wl-chev { transform: rotate(90deg); }
+#view-chat .msg.assistant.wl-turn > .role-tag { display: none; }
+#view-chat .msg.assistant.wl-turn .activity-usage { display: none; }
+@media (hover: none) {
+  #view-chat .wl-row .wl-chev { opacity: .5; }
+}
+
+/* A work group inside the log is a plain list: its own summary is replaced
+   by the log row above it. */
+#view-chat .activity-group.wl-seg { margin: 0; }
+#view-chat .activity-group.wl-seg > summary { display: none; }
+#view-chat .activity-group.wl-seg > .activity-body { display: block; margin: 0; padding: 0 0 2px; }
+#view-chat .wl-seg + .wl-row { margin-top: 2px; }
+#view-chat .tool-card .tool-info {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+}
+#view-chat .tool-card .tool-name { flex: 0 1 auto; }
+#view-chat .tool-stat {
+  display: inline-flex;
+  gap: 6px;
+  flex: 0 0 auto;
+  font: 500 .78rem/1.3 var(--mono);
+  white-space: nowrap;
+}
+#view-chat .tool-stat[hidden] { display: none; }
+#view-chat .wl-add { color: var(--ok); }
+#view-chat .wl-del { color: var(--err); }
+
+/* The current step: a light sweep passes over it every few seconds. */
+@keyframes wl-sweep {
+  0% { background-position: 150% 0; }
+  55%, 100% { background-position: -50% 0; }
+}
+#view-chat .wl-pulse {
+  display: block;
+  width: fit-content;
+  min-height: 34px;
+  margin: 2px 0;
+  padding: 7px 0;
+  font: 500 .88rem/1.3 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+}
+#view-chat .wl-row.wl-live .wl-label,
+#view-chat .wl-pulse,
+#view-chat .thinking-shimmer .thinking-label {
+  color: transparent;
+  background: linear-gradient(100deg, var(--pine-soft) 0%, var(--pine-soft) 40%, var(--ink) 50%, var(--pine-soft) 60%, var(--pine-soft) 100%);
+  background-size: 250% 100%;
+  background-position: 150% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: wl-sweep 2.8s ease-in-out infinite;
+}
+#view-chat .thinking-shimmer .thinking-label { font-weight: 500; letter-spacing: 0; }
+@media (prefers-reduced-motion: reduce) {
+  #view-chat .wl-row.wl-live .wl-label,
+  #view-chat .wl-pulse,
+  #view-chat .thinking-shimmer .thinking-label {
+    animation: none;
+    color: var(--pine-soft);
+    background: none;
+    -webkit-text-fill-color: currentColor;
+  }
+}
+html.reduced-motion #view-chat .wl-row.wl-live .wl-label,
+html.reduced-motion #view-chat .wl-pulse,
+html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
+  animation: none;
+  color: var(--pine-soft);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+
+#view-chat .wl-files {
+  margin: 16px 0 6px;
+  border: .5px solid var(--line);
+  border-radius: 16px;
+  background: var(--milk);
+  overflow: hidden;
+}
+#view-chat .wl-files-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+#view-chat .wl-files-icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 40px;
+  border-radius: 11px;
+  background: var(--bubble-user);
+  color: var(--pine-soft);
+}
+#view-chat .wl-files-icon .icon { width: 20px; height: 20px; }
+#view-chat .wl-files-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: grid;
+  gap: 3px;
+}
+#view-chat .wl-files-copy strong { color: var(--ink); font-size: .95rem; font-weight: 600; }
+#view-chat .wl-files-stat,
+#view-chat .wl-file-stat {
+  display: inline-flex;
+  gap: 6px;
+  font: 500 .84rem/1.2 var(--mono);
+  white-space: nowrap;
+}
+#view-chat .wl-files-review {
+  flex: 0 0 auto;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 12px;
+  font-size: .86rem;
+}
+#view-chat .wl-files-list {
+  margin: 0;
+  padding: 0 0 4px;
+  list-style: none;
+  border-top: .5px solid var(--line);
+}
+#view-chat .wl-file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font: .9rem/1.3 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+  text-align: left;
+}
+#view-chat button.wl-file { cursor: pointer; }
+#view-chat button.wl-file:hover,
+#view-chat button.wl-file:focus-visible { background: var(--bubble-user); outline: none; }
+#view-chat .wl-file-path {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#view-chat .wl-file-dir { color: var(--pine-soft); }
+#view-chat .wl-files-more {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 0;
+  border-top: .5px solid var(--line);
+  border-radius: 0;
+  background: var(--bubble-ai);
+  color: var(--ink);
+  font: 500 .9rem/1.3 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+#view-chat .wl-files-more[aria-expanded="true"] .wl-chev { transform: rotate(180deg); }
+
+@media (max-width: 600px) {
+  #view-chat .wl-head { font-size: .84rem; }
+  #view-chat .wl-row { font-size: .86rem; }
+  #view-chat .wl-files-head { padding: 11px 12px; gap: 10px; }
+  #view-chat .wl-files-icon { width: 36px; height: 36px; flex-basis: 36px; }
+  #view-chat .wl-file { padding: 8px 12px; }
+  #view-chat .wl-files-more { padding: 8px 12px; }
+}
+
+/* Composer thumbnails open the image viewer. The remove badge sits on the
+   corner, outside the picture, so a tap anywhere on the picture opens it
+   and never removes it. */
+.img-preview { gap: 12px; padding: 10px 14px 2px; }
+.img-thumb { overflow: visible; }
+.img-thumb-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: transparent;
+  cursor: zoom-in;
+}
+.img-thumb-open img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.img-thumb .img-x {
+  top: -7px;
+  right: -7px;
+  z-index: 1;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  background: rgba(20, 20, 20, .86);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .24);
+}
+.img-thumb .img-x::before { inset: -8px -5px -8px -8px; }

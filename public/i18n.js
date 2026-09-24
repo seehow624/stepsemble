@@ -5018,6 +5018,82 @@
   for (const [key, values] of Object.entries(SETTINGS_KEYED_TITLES)) {
     for (const [id, table] of Object.entries(KEYED_TRANSLATIONS)) table[key] = values[id] ?? values.en;
   }
+  // Work log (Codex-style turns) and composer image limits. Values follow
+  // the LOCALES order below; a keyed string is never rewritten by the DOM
+  // phrase translator, so tool titles and counts stay intact.
+  const WORK_LOG_LOCALE_ORDER = ["en", "zh-Hans", "zh-Hant", "ja", "ko", "tr", "fr", "de", "es", "pt-BR", "it"];
+  const WORK_LOG_KEYED = {
+    "composer.imageBytesLimit": ["Images in one message can total up to {size} MB","一条消息的图片总大小上限为 {size} MB","一則訊息的圖片總大小上限為 {size} MB","1 件のメッセージの画像は合計 {size} MB までです","메시지 하나의 이미지는 합계 최대 {size}MB입니다","Bir mesajdaki görüntüler toplam en fazla {size} MB olabilir","Les images d’un message ne peuvent dépasser {size} Mo au total","Bilder einer Nachricht dürfen zusammen höchstens {size} MB groß sein","Las imágenes de un mensaje pueden sumar hasta {size} MB","As imagens de uma mensagem podem somar até {size} MB","Le immagini di un messaggio possono arrivare a {size} MB in totale"],
+    "composer.imageLimit": ["One message can carry up to {count} images","一条消息最多可附 {count} 张图片","一則訊息最多可附 {count} 張圖片","1 件のメッセージに添付できる画像は {count} 枚までです","메시지 하나에 이미지를 최대 {count}개까지 첨부할 수 있습니다","Bir mesaja en fazla {count} görüntü eklenebilir","Un message peut contenir jusqu’à {count} images","Eine Nachricht kann bis zu {count} Bilder enthalten","Un mensaje puede llevar hasta {count} imágenes","Uma mensagem pode ter até {count} imagens","Un messaggio può contenere fino a {count} immagini"],
+    "composer.previewImage": ["View image {index}","查看图片 {index}","查看圖片 {index}","画像 {index} を表示","이미지 {index} 보기","{index}. görüntüyü aç","Voir l’image {index}","Bild {index} ansehen","Ver imagen {index}","Ver imagem {index}","Visualizza immagine {index}"],
+    "work.duration.h": ["{h}h","{h} 小时","{h} 小時","{h}時間","{h}시간","{h} sa","{h} h","{h} Std.","{h} h","{h} h","{h} h"],
+    "work.duration.hm": ["{h}h {m}m","{h} 小时 {m} 分","{h} 小時 {m} 分","{h}時間{m}分","{h}시간 {m}분","{h} sa {m} dk","{h} h {m} min","{h} Std. {m} Min.","{h} h {m} min","{h} h {m} min","{h} h {m} min"],
+    "work.duration.m": ["{m}m","{m} 分","{m} 分","{m}分","{m}분","{m} dk","{m} min","{m} Min.","{m} min","{m} min","{m} min"],
+    "work.duration.ms": ["{m}m {s}s","{m} 分 {s} 秒","{m} 分 {s} 秒","{m}分{s}秒","{m}분 {s}초","{m} dk {s} sn","{m} min {s} s","{m} Min. {s} s","{m} min {s} s","{m} min {s} s","{m} min {s} s"],
+    "work.duration.s": ["{s}s","{s} 秒","{s} 秒","{s}秒","{s}초","{s} sn","{s} s","{s} s","{s} s","{s} s","{s} s"],
+    "work.files.less": ["Show fewer files","收起文件","收起檔案","ファイルを折りたたむ","파일 접기","Daha az dosya göster","Afficher moins de fichiers","Weniger Dateien anzeigen","Mostrar menos archivos","Mostrar menos arquivos","Mostra meno file"],
+    "work.files.many": ["Edited {count} files","编辑了 {count} 个文件","編輯了 {count} 個檔案","{count} 件のファイルを編集","파일 {count}개 편집함","{count} dosya düzenlendi","{count} fichiers modifiés","{count} Dateien bearbeitet","{count} archivos editados","{count} arquivos editados","{count} file modificati"],
+    "work.files.more.many": ["Show {count} more files","再显示 {count} 个文件","再顯示 {count} 個檔案","さらに {count} 件を表示","파일 {count}개 더 보기","{count} dosya daha göster","Afficher {count} fichiers de plus","{count} weitere Dateien anzeigen","Mostrar {count} archivos más","Mostrar mais {count} arquivos","Mostra altri {count} file"],
+    "work.files.more.one": ["Show {count} more file","再显示 {count} 个文件","再顯示 {count} 個檔案","さらに {count} 件を表示","파일 {count}개 더 보기","{count} dosya daha göster","Afficher {count} fichier de plus","{count} weitere Datei anzeigen","Mostrar {count} archivo más","Mostrar mais {count} arquivo","Mostra {count} altro file"],
+    "work.files.one": ["Edited {count} file","编辑了 {count} 个文件","編輯了 {count} 個檔案","{count} 件のファイルを編集","파일 {count}개 편집함","{count} dosya düzenlendi","{count} fichier modifié","{count} Datei bearbeitet","{count} archivo editado","{count} arquivo editado","{count} file modificato"],
+    "work.files.review": ["Review","查看更改","檢視變更","変更を確認","변경 사항 보기","İncele","Examiner","Prüfen","Revisar","Revisar","Rivedi"],
+    "work.item.agent.active": ["Running subagent {target}","子代理运行中：{target}","子代理執行中：{target}","サブエージェント実行中: {target}","서브에이전트 실행 중: {target}","Alt ajan çalışıyor: {target}","Sous-agent en cours : {target}","Sub-Agent läuft: {target}","Subagente en curso: {target}","Subagente em execução: {target}","Subagente in esecuzione: {target}"],
+    "work.item.agent.done": ["Ran subagent {target}","子代理：{target}","子代理：{target}","サブエージェント: {target}","서브에이전트: {target}","Alt ajan: {target}","Sous-agent : {target}","Sub-Agent: {target}","Subagente: {target}","Subagente: {target}","Subagente: {target}"],
+    "work.item.context.active": ["Compacting the context","正在压缩上下文","正在壓縮上下文","コンテキストを圧縮中","컨텍스트 압축 중","Bağlam sıkıştırılıyor","Compactage du contexte","Komprimiere den Kontext","Compactando el contexto","Compactando o contexto","Compattazione del contesto"],
+    "work.item.context.done": ["Compacted the context","压缩了上下文","壓縮了上下文","コンテキストを圧縮","컨텍스트 압축함","Bağlam sıkıştırıldı","Contexte compacté","Kontext komprimiert","Compactó el contexto","Compactou o contexto","Contesto compattato"],
+    "work.item.edit.active": ["Editing {target}","正在编辑 {target}","正在編輯 {target}","{target} を編集中","{target} 편집 중","{target} düzenleniyor","Modification de {target}","Bearbeite {target}","Editando {target}","Editando {target}","Modifica di {target}"],
+    "work.item.edit.done": ["Edited {target}","编辑 {target}","編輯 {target}","{target} を編集","{target} 편집함","{target} düzenlendi","Modifié : {target}","Bearbeitet: {target}","Editó {target}","Editou {target}","Modificato {target}"],
+    "work.item.image.active": ["Viewing {target}","正在查看 {target}","正在查看 {target}","{target} を確認中","{target} 확인 중","{target} inceleniyor","Affichage de {target}","Sehe an: {target}","Viendo {target}","Visualizando {target}","Visualizzazione di {target}"],
+    "work.item.image.done": ["Viewed {target}","查看 {target}","查看 {target}","{target} を確認","{target} 확인함","{target} incelendi","Consulté : {target}","Angesehen: {target}","Vio {target}","Visualizou {target}","Visualizzato {target}"],
+    "work.item.plan.active": ["Updating the plan","正在更新计划","正在更新計畫","計画を更新中","계획 업데이트 중","Plan güncelleniyor","Mise à jour du plan","Aktualisiere den Plan","Actualizando el plan","Atualizando o plano","Aggiornamento del piano"],
+    "work.item.plan.done": ["Updated the plan","更新了计划","更新了計畫","計画を更新","계획 업데이트함","Plan güncellendi","Plan mis à jour","Plan aktualisiert","Actualizó el plan","Atualizou o plano","Piano aggiornato"],
+    "work.item.read.active": ["Reading {target}","正在读取 {target}","正在讀取 {target}","{target} を読み込み中","{target} 읽는 중","{target} okunuyor","Lecture de {target}","Lese {target}","Leyendo {target}","Lendo {target}","Lettura di {target}"],
+    "work.item.read.done": ["Read {target}","读取 {target}","讀取 {target}","{target} を読み込み","{target} 읽음","{target} okundu","Lu : {target}","Gelesen: {target}","Leyó {target}","Leu {target}","Letto {target}"],
+    "work.item.run.active": ["Running {target}","正在执行 {target}","正在執行 {target}","{target} を実行中","{target} 실행 중","{target} çalıştırılıyor","Exécution : {target}","Führe aus: {target}","Ejecutando {target}","Executando {target}","Esecuzione di {target}"],
+    "work.item.run.done": ["Ran {target}","执行 {target}","執行 {target}","{target} を実行","{target} 실행함","{target} çalıştırıldı","Exécuté : {target}","Ausgeführt: {target}","Ejecutó {target}","Executou {target}","Eseguito {target}"],
+    "work.item.search.active": ["Searching for {target}","正在搜索 {target}","正在搜尋 {target}","{target} を検索中","{target} 검색 중","{target} aranıyor","Recherche de {target}","Suche nach {target}","Buscando {target}","Pesquisando {target}","Ricerca di {target}"],
+    "work.item.search.done": ["Searched for {target}","搜索 {target}","搜尋 {target}","{target} を検索","{target} 검색함","{target} arandı","Recherché : {target}","Gesucht: {target}","Buscó {target}","Pesquisou {target}","Cercato {target}"],
+    "work.item.thinking": ["Thinking","思考内容","思考內容","思考内容","생각 내용","Düşünce","Réflexion","Gedanken","Razonamiento","Raciocínio","Ragionamento"],
+    "work.item.tool.active": ["Running {name}{target}","正在使用 {name}{target}","正在使用 {name}{target}","{name}{target} を使用中","{name}{target} 사용 중","{name}{target} kullanılıyor","Utilisation de {name}{target}","Verwende {name}{target}","Usando {name}{target}","Usando {name}{target}","Uso di {name}{target}"],
+    "work.item.tool.done": ["Used {name}{target}","使用 {name}{target}","使用 {name}{target}","{name}{target} を使用","{name}{target} 사용함","{name}{target} kullanıldı","Utilisé : {name}{target}","Verwendet: {name}{target}","Usó {name}{target}","Usou {name}{target}","Usato {name}{target}"],
+    "work.item.wait.active": ["Waiting","等待中","等待中","待機中","대기 중","Bekleniyor","En attente","Warte","Esperando","Aguardando","In attesa"],
+    "work.item.wait.done": ["Waited","已等待","已等待","待機しました","대기함","Beklendi","Attente terminée","Gewartet","Esperó","Aguardou","Atteso"],
+    "work.item.web.active": ["Searching the web for {target}","正在搜索网络：{target}","正在搜尋網路：{target}","Web で {target} を検索中","웹에서 {target} 검색 중","Web'de {target} aranıyor","Recherche web : {target}","Websuche: {target}","Buscando en la web: {target}","Pesquisando na web: {target}","Ricerca web: {target}"],
+    "work.item.web.done": ["Searched the web for {target}","搜索网络：{target}","搜尋網路：{target}","Web で {target} を検索","웹에서 {target} 검색함","Web'de {target} arandı","Recherche web effectuée : {target}","Im Web gesucht: {target}","Buscó en la web: {target}","Pesquisou na web: {target}","Cercato sul web: {target}"],
+    "work.part.agent.many": ["ran {count} subagents","运行了 {count} 个子代理","執行了 {count} 個子代理","{count} 件のサブエージェントを実行","서브에이전트 {count}개 실행","{count} alt ajan çalıştırıldı","{count} sous-agents lancés","{count} Sub-Agents gestartet","{count} subagentes ejecutados","{count} subagentes executados","{count} subagenti avviati"],
+    "work.part.agent.one": ["ran a subagent","运行了一个子代理","執行了一個子代理","サブエージェントを実行","서브에이전트 실행","alt ajan çalıştırıldı","sous-agent lancé","Sub-Agent gestartet","subagente ejecutado","subagente executado","subagente avviato"],
+    "work.part.context.many": ["compacted the context","压缩了上下文","壓縮了上下文","コンテキストを圧縮","컨텍스트 압축","bağlam sıkıştırıldı","contexte compacté","Kontext komprimiert","contexto compactado","contexto compactado","contesto compattato"],
+    "work.part.context.one": ["compacted the context","压缩了上下文","壓縮了上下文","コンテキストを圧縮","컨텍스트 압축","bağlam sıkıştırıldı","contexte compacté","Kontext komprimiert","contexto compactado","contexto compactado","contesto compattato"],
+    "work.part.edit.many": ["edited files","编辑了文件","編輯了檔案","ファイルを編集","파일 편집","dosyalar düzenlendi","fichiers modifiés","Dateien bearbeitet","archivos editados","arquivos editados","file modificati"],
+    "work.part.edit.one": ["edited a file","编辑了一个文件","編輯了一個檔案","ファイルを編集","파일 편집","dosya düzenlendi","fichier modifié","Datei bearbeitet","archivo editado","arquivo editado","file modificato"],
+    "work.part.image.many": ["viewed {count} images","查看了 {count} 张图片","查看了 {count} 張圖片","{count} 枚の画像を確認","이미지 {count}개 확인","{count} görüntü incelendi","{count} images consultées","{count} Bilder angesehen","{count} imágenes revisadas","{count} imagens visualizadas","{count} immagini visualizzate"],
+    "work.part.image.one": ["viewed an image","查看了一张图片","查看了一張圖片","画像を確認","이미지 확인","görüntü incelendi","image consultée","Bild angesehen","imagen revisada","imagem visualizada","immagine visualizzata"],
+    "work.part.plan.many": ["updated the plan","更新了计划","更新了計畫","計画を更新","계획 업데이트","plan güncellendi","plan mis à jour","Plan aktualisiert","plan actualizado","plano atualizado","piano aggiornato"],
+    "work.part.plan.one": ["updated the plan","更新了计划","更新了計畫","計画を更新","계획 업데이트","plan güncellendi","plan mis à jour","Plan aktualisiert","plan actualizado","plano atualizado","piano aggiornato"],
+    "work.part.read.many": ["read files","读取了文件","讀取了檔案","ファイルを読み込み","파일 읽기","dosyalar okundu","fichiers lus","Dateien gelesen","archivos leídos","arquivos lidos","file letti"],
+    "work.part.read.one": ["read a file","读取了一个文件","讀取了一個檔案","ファイルを読み込み","파일 읽기","dosya okundu","fichier lu","Datei gelesen","archivo leído","arquivo lido","file letto"],
+    "work.part.run.many": ["ran commands","执行了命令","執行了指令","コマンドを実行","명령 실행","komutlar çalıştırıldı","commandes exécutées","Befehle ausgeführt","comandos ejecutados","comandos executados","comandi eseguiti"],
+    "work.part.run.one": ["ran a command","执行了一个命令","執行了一個指令","コマンドを実行","명령 실행","komut çalıştırıldı","commande exécutée","Befehl ausgeführt","comando ejecutado","comando executado","comando eseguito"],
+    "work.part.search.many": ["searched files","搜索了文件","搜尋了檔案","ファイルを検索","파일 검색","dosyalarda arandı","recherche dans les fichiers","Dateien durchsucht","búsqueda en archivos","pesquisa em arquivos","ricerca nei file"],
+    "work.part.search.one": ["searched files","搜索了文件","搜尋了檔案","ファイルを検索","파일 검색","dosyalarda arandı","recherche dans les fichiers","Dateien durchsucht","búsqueda en archivos","pesquisa em arquivos","ricerca nei file"],
+    "work.part.tool.many": ["used {count} tools","使用了 {count} 个工具","使用了 {count} 個工具","{count} 個のツールを使用","도구 {count}개 사용","{count} araç kullanıldı","{count} outils utilisés","{count} Tools verwendet","{count} herramientas usadas","{count} ferramentas usadas","{count} strumenti usati"],
+    "work.part.tool.one": ["used a tool","使用了一个工具","使用了一個工具","ツールを使用","도구 사용","araç kullanıldı","outil utilisé","Tool verwendet","herramienta usada","ferramenta usada","strumento usato"],
+    "work.part.wait.many": ["waited","等待了一段时间","等待了一段時間","待機","대기","beklendi","attente","gewartet","espera","espera","attesa"],
+    "work.part.wait.one": ["waited","等待了一段时间","等待了一段時間","待機","대기","beklendi","attente","gewartet","espera","espera","attesa"],
+    "work.part.web.many": ["searched the web","搜索了网络","搜尋了網路","Web を検索","웹 검색","web'de arandı","recherche sur le web","im Web gesucht","búsqueda web","pesquisa na web","ricerca sul web"],
+    "work.part.web.one": ["searched the web","搜索了网络","搜尋了網路","Web を検索","웹 검색","web'de arandı","recherche sur le web","im Web gesucht","búsqueda web","pesquisa na web","ricerca sul web"],
+    "work.partJoin": [", ","、","、","、",", ",", ",", ",", ",", ",", ",", "],
+    "work.thinking": ["Thinking","思考中","思考中","考え中","생각 중","Düşünüyor","Réflexion en cours","Denkt nach","Pensando","Pensando","Sta pensando"],
+    "work.thought": ["Thought","思考过程","思考過程","思考","생각함","Düşündü","Réflexion","Nachgedacht","Razonamiento","Raciocínio","Ragionamento"],
+    "work.worked": ["Worked","工作过程","工作過程","作業内容","작업 내용","Çalışma adımları","Travail effectué","Arbeitsschritte","Trabajo realizado","Trabalho realizado","Lavoro svolto"],
+    "work.workedFor": ["Worked for {time}","工作了 {time}","工作了 {time}","{time} 作業しました","{time} 동안 작업함","{time} çalıştı","A travaillé {time}","{time} gearbeitet","Trabajó durante {time}","Trabalhou por {time}","Ha lavorato per {time}"],
+    "work.working": ["Working","工作中","工作中","作業中","작업 중","Çalışıyor","En cours","Arbeitet","Trabajando","Trabalhando","Al lavoro"],
+    "work.workingFor": ["Working for {time}","正在工作 {time}","正在工作 {time}","作業中 · {time}","작업 중 · {time}","{time} süredir çalışıyor","En cours depuis {time}","Arbeitet seit {time}","Trabajando durante {time}","Trabalhando há {time}","Al lavoro da {time}"],
+  };
+  for (const [key, values] of Object.entries(WORK_LOG_KEYED)) {
+    WORK_LOG_LOCALE_ORDER.forEach((id, index) => { if (KEYED_TRANSLATIONS[id]) KEYED_TRANSLATIONS[id][key] = values[index] ?? values[0]; });
+  }
+
   const KEYED_SOURCE_KEYS = Object.freeze(Object.keys(KEYED_TRANSLATIONS.en));
   const KEYED_FALLBACK_KEYS = {};
   for (const [id, table] of Object.entries(KEYED_TRANSLATIONS)) {

@@ -335,25 +335,32 @@ test("Claude close rejects pending initialize without misclassifying normal clea
   t.after(() => session.close());
 });
 
-test("Claude rejects oversized image frames before marking a prompt active", async t => {
+test("Claude keeps an image prompt inside its budget and writes it whole", async t => {
   const child = childFixture();
-  const writes = [];
-  child.stdin.on("data", chunk => writes.push(chunk));
-  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child });
+  let userFrame = null;
+  observeControlWire(child, message => {
+    if (message.type === "user") { userFrame = message; return; }
+    if (message.type !== "control_request" || message.request.subtype !== "initialize") return;
+    child.stdout.write(JSON.stringify({ type: "control_response", response: {
+      subtype: "success", request_id: message.request_id, response: { models: [], model: "sonnet" },
+    } }) + "\n");
+  });
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 5000 });
   t.after(() => session.close());
+  await session.models();
   const image = "A".repeat(7 * 1024 * 1024);
-  const result = await session.send("", { images: [
-    { data: image, mimeType: "image/png" },
-    { data: image, mimeType: "image/png" },
-  ] });
-  assert.deepEqual(result, { kind: "reject", code: "claude_input_frame_too_large" });
-  assert.equal(session.status().state, "waiting");
-  assert.equal(writes.length, 0, "oversized image prompt must not be partially written");
+  const result = await session.send("", { images: Array.from({ length: 5 }, () => ({ data: image, mimeType: "image/png" })) });
+  assert.equal(result.kind, "sent");
+  for (let attempt = 0; attempt < 50 && !userFrame; attempt += 1) await new Promise(resolve => setTimeout(resolve, 20));
+  // Five 7 MiB images exceed the 24 MiB prompt budget: the first three are
+  // written in one frame instead of the prompt being refused or cut mid-frame.
+  assert.equal(userFrame?.message?.content?.length, 3);
+  assert.ok(userFrame.message.content.every(block => block.type === "image" && block.source.data.length === image.length));
 });
 
 test("Claude rejects a prompt when the outbound queue is already full", async t => {
   const child = childFixture();
-  Object.defineProperty(child.stdin, "writableLength", { configurable: true, value: 16 * 1024 * 1024 });
+  Object.defineProperty(child.stdin, "writableLength", { configurable: true, value: 32 * 1024 * 1024 });
   const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child });
   t.after(() => session.close());
   const result = await session.send("small prompt");

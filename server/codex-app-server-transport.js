@@ -20,8 +20,10 @@ const MAX_PENDING_REQUESTS = 64;
 const MAX_PENDING_APPROVALS = 32;
 const MAX_OUTBOUND_BYTES = 1024 * 1024;
 const MAX_OUTBOUND_QUEUE_BYTES = 4 * 1024 * 1024;
-const MAX_TURN_FRAME_BYTES = 12 * 1024 * 1024;
-const MAX_TURN_QUEUE_BYTES = 16 * 1024 * 1024;
+// A turn carries up to 24 MiB of image data (prompt-attachments) plus 1 MiB of
+// text, and Codex echoes the same input back in its item notifications.
+const MAX_TURN_FRAME_BYTES = 28 * 1024 * 1024;
+const MAX_TURN_QUEUE_BYTES = 32 * 1024 * 1024;
 const OUTBOUND_WRITE_TIMEOUT_MS = 5000;
 const MAX_STDERR_TAIL_BYTES = 16 * 1024;
 const TERMINATE_GRACE_MS = 250;

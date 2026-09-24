@@ -297,12 +297,184 @@
     return number * 1000; // seconds
   }
 
+  // ---- Work log: Codex-style turn summaries -----------------------------
+  // Pure helpers for the chat's work log. They classify what an agent did
+  // and size each edit, so the view can say "Edited files, ran commands"
+  // and "Edited 3 files +12 -4" without a DOM or a git call.
+
+  function splitLines(value) {
+    const text = String(value ?? "");
+    if (!text) return [];
+    const lines = text.split(/\r?\n/);
+    if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+    return lines;
+  }
+
+  function commonLineCount(a, b) {
+    let previous = new Uint32Array(b.length + 1);
+    let current = new Uint32Array(b.length + 1);
+    for (let i = 1; i <= a.length; i += 1) {
+      for (let j = 1; j <= b.length; j += 1) {
+        current[j] = a[i - 1] === b[j - 1] ? previous[j - 1] + 1 : Math.max(previous[j], current[j - 1]);
+      }
+      [previous, current] = [current, previous];
+      current.fill(0);
+    }
+    return previous[b.length];
+  }
+
+  // Lines added and removed by replacing oldText with newText. Shared leading
+  // and trailing lines are removed first; a small middle is measured exactly
+  // and a very large one counts as fully replaced, which keeps a pathological
+  // edit from blocking the page.
+  const LINE_DIFF_CELL_LIMIT = 250000;
+  function lineDiffStats(oldText, newText) {
+    const a = splitLines(oldText);
+    const b = splitLines(newText);
+    let start = 0;
+    while (start < a.length && start < b.length && a[start] === b[start]) start += 1;
+    let endA = a.length;
+    let endB = b.length;
+    while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) { endA -= 1; endB -= 1; }
+    const removed = endA - start;
+    const added = endB - start;
+    if (!removed || !added || removed * added > LINE_DIFF_CELL_LIMIT) return { added, removed };
+    const common = commonLineCount(a.slice(start, endA), b.slice(start, endB));
+    return { added: added - common, removed: removed - common };
+  }
+
+  function unifiedDiffStats(diff) {
+    let added = 0;
+    let removed = 0;
+    for (const line of String(diff ?? "").split(/\r?\n/)) {
+      if (line.startsWith("+++") || line.startsWith("---")) continue;
+      if (line.startsWith("+")) added += 1;
+      else if (line.startsWith("-")) removed += 1;
+    }
+    return { added, removed };
+  }
+
+  // The apply_patch envelope used by Codex and several ACP agents.
+  function applyPatchStats(patch) {
+    const files = new Map();
+    let current = null;
+    for (const line of String(patch ?? "").split(/\r?\n/)) {
+      const header = /^\*\*\* (Add|Update|Delete) File: (.+)$/.exec(line);
+      if (header) {
+        const path = header[2].trim();
+        current = files.get(path) || { path, added: 0, removed: 0 };
+        files.set(path, current);
+        continue;
+      }
+      if (!current || line.startsWith("***") || line.startsWith("@@")) continue;
+      if (line.startsWith("+")) current.added += 1;
+      else if (line.startsWith("-")) current.removed += 1;
+    }
+    return [...files.values()];
+  }
+
+  function toolKeyName(name) {
+    return String(name || "").toLowerCase().replace(/[^a-z0-9_]/g, "");
+  }
+
+  function isEditToolName(name) {
+    const key = toolKeyName(name);
+    if (!key || /todo|stdin|memory|plan|notify/.test(key)) return false;
+    return /edit|write|patch|str_?replace|create_?file|notebook/.test(key);
+  }
+
+  function firstString(...values) {
+    for (const value of values) if (typeof value === "string") return value;
+    return null;
+  }
+
+  function editPairStats(value) {
+    if (!value || typeof value !== "object") return null;
+    const oldText = firstString(value.oldText, value.old_string, value.oldString, value.old_str, value.old);
+    const newText = firstString(value.newText, value.new_string, value.newString, value.new_str, value.new);
+    if (oldText === null && newText === null) return null;
+    return lineDiffStats(oldText || "", newText || "");
+  }
+
+  function count(value) {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+  }
+
+  /**
+   * Files one tool call changed, with line counts where the arguments carry
+   * them: [{ path, added, removed }]. Reads, commands and failed shapes return
+   * an empty list; an edit whose shape is unknown still names its file.
+   */
+  function toolEditChanges(name, args) {
+    const value = args && typeof args === "object" ? args : {};
+    if (Array.isArray(value.changes) && value.changes.length) {
+      return value.changes
+        .map(change => ({ path: String(change?.path || "").trim(), added: count(change?.added), removed: count(change?.removed) }))
+        .filter(change => change.path);
+    }
+    const patch = firstString(value.patch, value.patchText, value.patch_text, value.input, typeof args === "string" ? args : null);
+    if (patch && /^\*\*\* (?:Begin Patch|Add File:|Update File:|Delete File:)/m.test(patch)) return applyPatchStats(patch);
+    if (!isEditToolName(name)) return [];
+    const path = firstString(value.path, value.file_path, value.filePath, value.file, value.filename, value.target_file, value.notebook_path);
+    if (!path || !path.trim()) return [];
+    let stats = null;
+    if (Array.isArray(value.edits) && value.edits.length) {
+      stats = { added: 0, removed: 0 };
+      for (const edit of value.edits.slice(0, 200)) {
+        const part = editPairStats(edit);
+        if (part) { stats.added += part.added; stats.removed += part.removed; }
+      }
+    }
+    stats ||= editPairStats(value);
+    if (!stats) {
+      const content = firstString(value.content, value.contents, value.file_text, value.text);
+      stats = content === null ? { added: 0, removed: 0 } : { added: splitLines(content).length, removed: 0 };
+    }
+    return [{ path: path.trim(), added: stats.added, removed: stats.removed }];
+  }
+
+  // One stable category per tool call. The chat groups a run of calls into a
+  // single line ("Edited files, read files, ran commands"), so the category
+  // is what the user did, not the tool's vendor name.
+  function workCategory(name, args) {
+    const key = toolKeyName(name);
+    const value = args && typeof args === "object" ? args : {};
+    if (!key) return "tool";
+    if (/view_?image|imageview|screenshot/.test(key)) return "image";
+    if (/todo|update_?plan|^plan$/.test(key)) return "plan";
+    if (key === "context" || /compact/.test(key)) return "context";
+    if (/^(wait|sleep)$/.test(key)) return "wait";
+    if (/subagent|^task$|^agent$|spawn_?agent|delegate/.test(key)) return "agent";
+    if (isEditToolName(key) || toolEditChanges(name, value).length) return "edit";
+    if (/web_?search|web_?fetch|fetch_?url|^fetch$|browse/.test(key)) return "web";
+    if (key === "search" && !firstString(value.path, value.file_path, value.filePath)) return "web";
+    if (/grep|glob|^find|search|^ls$|^list$|list_?dir|listdir/.test(key)) return "search";
+    if (/read|^cat$|^view$|open_?file|get_?file/.test(key)) return "read";
+    if (/bash|shell|exec|terminal|command|^run|powershell|stdin/.test(key)) return "run";
+    return "tool";
+  }
+
+  // Duration parts for "Worked for 19m 44s"; the caller localizes the units.
+  function workDurationParts(ms) {
+    const duration = Math.max(0, Number(ms) || 0);
+    const total = duration > 0 ? Math.max(1, Math.round(duration / 1000)) : 0;
+    if (total < 60) return { form: "s", s: total };
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    if (minutes < 60) return seconds ? { form: "ms", m: minutes, s: seconds } : { form: "m", m: minutes };
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    return rest ? { form: "hm", h: hours, m: rest } : { form: "h", h: hours };
+  }
+
   global.stepsembleSessionUtils = Object.freeze({
     stripMd, fmtTime, fmtTokens, projectFolderName,
     DRAFT_ENTRY_LIMIT, DRAFT_TEXT_LIMIT, draftScopeKey, normalizeDraftEntries, updateDraftEntries, draftTextForKey,
     activityReceiptStats, computeActivityReceipt,
     stripAnsi, parseTaskProgressLines, extractTaskPlan,
     runElapsedText, compactRelativeTime, normalizeTimestampMs,
+    lineDiffStats, unifiedDiffStats, applyPatchStats, toolEditChanges, isEditToolName, workCategory, workDurationParts,
   });
   global.piHarborSessionUtils = global.stepsembleSessionUtils;
 })(window);

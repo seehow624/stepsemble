@@ -45,6 +45,19 @@ export async function runCodexActivityBrowserCases(browser) {
       assert.equal(await state.getAttribute("aria-label"), "Pursuing goal");
       assert.equal((await state.locator("#native-run-meta").textContent()).includes("Working"), true);
 
+      stage = "work log and progressive detail";
+      const workHead = page.locator("#messages .wl-head").first();
+      await workHead.waitFor();
+      assert.match(await workHead.textContent(), /^Working for /);
+      const workRow = page.locator("#messages .wl-row").first();
+      await workRow.waitFor();
+      assert.equal(await workRow.getAttribute("aria-expanded"), "false");
+      const activity = page.locator("#messages details.activity-group").first();
+      assert.equal(await activity.isVisible(), false);
+      await workRow.click();
+      assert.equal(await workRow.getAttribute("aria-expanded"), "true");
+      await activity.waitFor({ state: "visible" });
+
       stage = "thinking and image";
       const thinking = page.locator("#messages .thinking-toggle").first();
       await thinking.waitFor();
@@ -58,11 +71,8 @@ export async function runCodexActivityBrowserCases(browser) {
       assert.equal(await page.getByText("Viewed an image", { exact: true }).count(), 1);
 
       stage = "progressive tool detail";
-      const activity = page.locator("#messages details.activity-group").first();
-      await activity.waitFor();
-      assert.equal(await activity.getAttribute("open"), null);
+      assert.equal(await activity.getAttribute("open"), "");
       assert.equal(await activity.locator(".tool-output").first().isVisible(), false);
-      await activity.locator(":scope > summary").click();
       const tool = activity.locator("details.tool-card").first();
       assert.equal(await tool.getAttribute("open"), null);
       await tool.locator(":scope > summary").click();

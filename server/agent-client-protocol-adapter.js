@@ -16,6 +16,8 @@ const { acpImageBlocks } = require("./prompt-attachments");
 
 const ACP_VERSION = "acp-v1";
 const MAX_FRAME_BYTES = 2 * 1024 * 1024;
+// Only a prompt may carry images; its frame admits the ACP image budget.
+const MAX_PROMPT_FRAME_BYTES = 12 * 1024 * 1024;
 const MAX_EVENTS = 2048;
 const MAX_SESSIONS = 100;
 const MAX_TEXT = 1024 * 1024;
@@ -135,23 +137,23 @@ function createAgentClientProtocolAdapter({
     pending.clear();
     try { child?.kill?.(); } catch {}
   }
-  function write(message) {
+  function write(message, limit = MAX_FRAME_BYTES) {
     if (!child?.stdin?.writable || closed || error) return reject("acp_unavailable");
     const encoded = JSON.stringify(message);
-    if (Buffer.byteLength(encoded) > MAX_FRAME_BYTES) return reject("acp_frame_too_large");
+    if (Buffer.byteLength(encoded) > limit) return reject("acp_frame_too_large");
     try { child.stdin.write(encoded + "\n"); return { kind: "written" }; }
     catch { fail("acp_write_failed"); return reject("acp_write_failed"); }
   }
-  function request(method, params = {}) {
+  function request(method, params = {}, { maxBytes = MAX_FRAME_BYTES } = {}) {
     if (!validRequestId(++nextId)) return Promise.resolve(reject("acp_id_exhausted"));
     const id = nextId;
-    const frame = { jsonrpc: "2.0", id, method, params: bounded(params) };
+    const frame = { jsonrpc: "2.0", id, method, params: bounded(params, maxBytes) };
     if (frame.params === null) return Promise.resolve(reject("acp_params_invalid"));
     const result = new Promise(resolve => {
       const timer = setTimeout(() => { pending.delete(id); resolve(reject("acp_timeout")); }, requestTimeoutMs);
       pending.set(id, { resolve, timer });
     });
-    const written = write(frame);
+    const written = write(frame, maxBytes);
     if (written.kind === "reject") {
       const row = pending.get(id);
       if (row) { clearTimeout(row.timer); pending.delete(id); row.resolve(written); }
@@ -317,7 +319,7 @@ function createAgentClientProtocolAdapter({
     session.promptInFlight = true; session.status = "running";
     try {
       const content = value ? [{ type: "text", text: value }, ...blocks] : blocks;
-      const result = await request("session/prompt", { sessionId: id, prompt: content });
+      const result = await request("session/prompt", { sessionId: id, prompt: content }, { maxBytes: MAX_PROMPT_FRAME_BYTES });
       if (result.kind !== "result") session.status = "error";
       return result.kind === "result" ? { kind: "prompted", sessionId: id, result: result.value } : result;
     } finally { session.promptInFlight = false; }

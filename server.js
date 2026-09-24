@@ -25,6 +25,11 @@ const crypto = require("node:crypto");
 const { pathToFileURL } = require("node:url");
 const { spawn, execFile, execFileSync } = require("node:child_process");
 const { createHttpUtils } = require("./server/http-utils");
+const { piImageInputs } = require("./server/prompt-attachments");
+// Image-carrying prompt routes admit a full 24 MiB image budget plus text;
+// ACP agents read a prompt as one stdin line, so theirs is kept smaller.
+const PROMPT_ROUTE_BYTES = 28 * 1024 * 1024;
+const ACP_PROMPT_ROUTE_BYTES = 12 * 1024 * 1024;
 const { createNativeComposerRoutes } = require("./server/native-composer-routes");
 const { applyNativeLaunchConfig, isInstalledRuntime } = require("./server/native-launch-config");
 const { createCodexNativePool } = require("./server/codex-native-pool");
@@ -89,7 +94,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.1.4";
+const APP_VERSION = "3.2.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2485,6 +2490,8 @@ function entryToWire(e) {
     if (attachments.length) wire.imageAttachments = attachments;
   } else if (m.role === "toolResult") {
     wire.toolName = m.toolName || null;
+    // Parallel calls finish in any order; the id pairs a result with its call.
+    if (typeof m.toolCallId === "string" && m.toolCallId.length <= 256) wire.toolCallId = m.toolCallId;
     wire.isError = !!m.isError;
     wire.text = textOfContent(m.content).slice(0, 4000);
   } else {
@@ -5445,7 +5452,7 @@ const server = http.createServer(async (req, res) => {
 
       if (p === "/api/opencode/message" && req.method === "POST") {
         try {
-          const body = await readJSON(req, 2 * 1024 * 1024);
+          const body = await readJSON(req, PROMPT_ROUTE_BYTES);
           sendJSON(res, 200, { message: await openCodeNative.sendMessage(body?.sessionId, body?.text, { model: body?.model, agent: body?.agent, noReply: body?.noReply === true, images: body?.images, directory: openCodeDirectory(body?.cwd || body?.directory || null) }) });
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_message_failed" }); }
         return;
@@ -5490,7 +5497,7 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/grok/acp/prompt" && req.method === "POST") {
         try {
           if (!grokAcp) { const error = new Error("Grok ACP is disabled"); error.statusCode = 409; error.code = "grok_acp_disabled"; throw error; }
-          const body = await readJSON(req, 2 * 1024 * 1024);
+          const body = await readJSON(req, ACP_PROMPT_ROUTE_BYTES);
           const result = await grokAcp.prompt(body?.sessionId, body?.text || body?.message || "", { images: body?.images });
           sendJSON(res, result.kind === "reject" ? 409 : 200, result);
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "grok_prompt_failed" }); }
@@ -5553,7 +5560,7 @@ const server = http.createServer(async (req, res) => {
             sendJSON(res, 200, { permissions: adapter.pendingPermissions(), adapter: adapter.status() }); return;
           }
           if (action === "prompt" && req.method === "POST") {
-            const body = await readJSON(req, 2 * 1024 * 1024);
+            const body = await readJSON(req, ACP_PROMPT_ROUTE_BYTES);
             const result = await adapter.prompt(body?.sessionId, body?.text || body?.message || "", { images: body?.images });
             sendJSON(res, result.kind === "reject" ? 409 : 200, result); return;
           }
@@ -5609,7 +5616,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (p === "/api/claude/structured/prompt" && req.method === "POST") {
         try {
-          const body = await readJSON(req, 12 * 1024 * 1024);
+          const body = await readJSON(req, PROMPT_ROUTE_BYTES);
           const resolved = resolveClaudeStructuredSession(body?.sessionId || "");
           if (!resolved) { const error = new Error("Claude structured session unavailable"); error.statusCode = 404; error.code = "claude_session_unavailable"; throw error; }
           const result = await resolved.session.send(body?.text || body?.message || "", { images: body?.images });
@@ -7111,7 +7118,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (p === "/api/agent/send" && req.method === "POST") {
-        const body = await readJSON(req, 1_100_000);
+        const body = await readJSON(req, PROMPT_ROUTE_BYTES);
         try {
           const taskId = String(body?.taskId || "");
           if (taskId.startsWith("opencode:")) {
@@ -7225,26 +7232,16 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (p === "/api/send" && req.method === "POST") {
-        const body = await readJSON(req);
+        const body = await readJSON(req, PROMPT_ROUTE_BYTES);
         if (typeof body.sid !== "string") { sendJSON(res, 400, { error: "sid required" }); return; }
         const message = String(body.message ?? "");
         if (message.length > 1_000_000) { sendJSON(res, 413, { error: "message too large" }); return; }
         const s = rpcSessions.get(body.sid);
         if (!s) { sendJSON(res, 404, { error: "no such rpc session" }); return; }
         const cmd = { type: "prompt", message };
-        // 圖片附件（手機拍照/相冊）：[{type:"image", data:base64, mimeType}]，上限 4 張
-        if (Array.isArray(body.images) && body.images.length) {
-          cmd.images = body.images.slice(0, 4).map((im) => {
-            if (!im || typeof im !== "object") return null;
-            const mimeType = typeof im.mimeType === "string" && /^image\/(jpeg|png|webp|gif)$/i.test(im.mimeType)
-              ? im.mimeType : "image/jpeg";
-            return {
-              type: "image",
-              data: String(im.data || "").replace(/^data:[^,]+,/, ""),
-              mimeType,
-            };
-          }).filter((im) => im && im.data.length > 0 && im.data.length < 8 * 1024 * 1024);
-        }
+        // 圖片附件：[{type:"image", data:base64, mimeType}]，張數與總大小依 Pi 的預算
+        const images = piImageInputs(body.images);
+        if (images.length) cmd.images = images;
         if (s.state.isStreaming) cmd.streamingBehavior = "followUp"; // streaming 中自動排隊
         const ok = rpcWrite(body.sid, cmd);
         sendJSON(res, ok ? 200 : 409, ok ? { queued: s.state.isStreaming } : { error: "process gone" });
