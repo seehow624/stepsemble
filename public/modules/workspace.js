@@ -62,6 +62,25 @@
     const stroke = document.createElementNS("http://www.w3.org/2000/svg", "path");
     stroke.setAttribute("d", path); svg.append(stroke); return svg;
   }
+  function stripButton(label, path, action, edge) {
+    const control = button("", action, label, "btn workspace-strip-button");
+    control.dataset.edge = edge; control.append(icon(path)); return control;
+  }
+  function sidebarToggle() {
+    const sync = () => control.setAttribute("aria-expanded", String(!document.body.classList.contains("sidebar-hidden")));
+    const control = stripButton(t("toggleSidebar"), "M4 7h16M4 12h16M4 17h16", () => {
+      document.body.classList.toggle("sidebar-hidden"); sync(); requestAnimationFrame(layoutFrames);
+    }, "start");
+    control.setAttribute("aria-controls", "workspace-sidebar"); sync(); return control;
+  }
+  // Corners of the drawn layout. The first leaf is top-left; top-right follows
+  // the right side of side-by-side splits and the upper side of stacked ones.
+  function cornerPanes(root) {
+    let start = root, end = root;
+    while (start.type === "split") start = start.first;
+    while (end.type === "split") end = end.axis === "row" ? end.second : end.first;
+    return { start: start.id, end: end.id };
+  }
   function toast(text) { $("workspace-toast").textContent = text; $("workspace-toast").hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $("workspace-toast").hidden = true, 6000); }
   // The pane overflow menu lives on the document, not inside the pane: the
   // conversation frames sit in their own layer above the pane tree, so a menu
@@ -206,6 +225,8 @@
       const url = new URL("/index.html", location.origin); url.searchParams.set("pane", "1"); url.searchParams.set("host", ref.host); url.searchParams.set("entry", ref.key);
       frame.src = url.href; frames.set(key, { frame, ref }); $("workspace-frames").append(frame);
     }
+    const shown = (maximized && L.leaves(tree).find(p => p.id === maximized)) || tree;
+    const corners = cornerPanes(shown);
     function draw(n) {
       if (n.type === "split") {
         const split = node("div", "", "workspace-split"); split.dataset.axis = n.axis;
@@ -243,8 +264,8 @@
           const empty = L.pane(); focused = empty.id; maximized = null;
           commit(L.replace(tree, n.id, { type: "split", id: crypto.randomUUID(), axis: edge === "right" ? "row" : "column", ratio: .5, first: n, second: empty }));
         }]);
-        // The header already opens an empty window; this one carries the pane's
-        // own conversation, so it must not repeat that label.
+        // The strip's window button opens an empty window; this one carries the
+        // pane's own conversation, so it must not repeat that label.
         actions.push([t("moveWindow"), () => newWindow(active(n))]);
         actions.push([maximized === n.id ? t("restore") : t("maximize"), () => { maximized = maximized ? null : n.id; render(); }]);
       }
@@ -255,19 +276,24 @@
         overflow.setAttribute("aria-haspopup", "menu");
         tabs.append(overflow);
       }
+      // The workspace has no header row. The list toggle opens the top-left
+      // pane's strip and New window closes the top-right one, so both stay in
+      // the corners of the stage however the panes are split.
+      const corner = !mobile() && (n.id === corners.start || n.id === corners.end);
+      if (corner && n.id === corners.start) tabs.prepend(sidebarToggle());
+      if (corner && n.id === corners.end) tabs.append(stripButton(t("newWindow"), "M14 4h6v6M20 4l-9 9M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4", () => newWindow(), "end"));
       const slot = node("div", n.tabs.length ? t("loadingSession") : t("selectSession"), "workspace-slot");
       if (n.active) slots.set(n.active, slot);
       const overlay = node("div", "", "workspace-drop");
       const edgeAt = e => { const r = pane.getBoundingClientRect(), x = (e.clientX-r.left)/r.width, y = (e.clientY-r.top)/r.height; return x < .22 ? "left" : x > .78 ? "right" : y < .22 ? "top" : y > .78 ? "bottom" : "center"; };
       pane.ondragover = e => { if (!Array.from(e.dataTransfer.types).includes("application/x-stepsemble-session")) return; e.preventDefault(); overlay.dataset.edge = edgeAt(e); };
       pane.ondrop = e => { e.preventDefault(); try { acceptTransfer(JSON.parse(e.dataTransfer.getData("application/x-stepsemble-session")), n.id, edgeAt(e)); } catch (error) { toast(error.message); } finally { dragEnd(); } };
-      // A single untouched pane keeps no strip at all, so the invitation to
-      // drag a session is the only thing in it.
-      if (n.tabs.length || actions.length) pane.append(tabs);
+      // A pane with no tabs, actions or corner controls keeps no strip, so the
+      // invitation to drag a session is the only thing in it.
+      if (n.tabs.length || actions.length || corner) pane.append(tabs);
       pane.append(slot, overlay); return pane;
     }
-    const shown = maximized ? L.leaves(tree).find(p => p.id === maximized) : tree;
-    $("workspace-tree").append(draw(shown || tree)); requestAnimationFrame(layoutFrames); renderSidebar();
+    $("workspace-tree").append(draw(shown)); requestAnimationFrame(layoutFrames); renderSidebar();
   }
   function renderSidebar() {
     const box = $("workspace-projects"); box.replaceChildren(); const search = $("workspace-search").value.trim().toLowerCase();
@@ -330,9 +356,19 @@
     }
     if (!snapshot.projects.length && !snapshot.entries.length) box.append(node("p", t("empty")));
   }
+  let connectionNotice = "";
+  // The HOST dot carries the connection state. Its reason is spoken and shown
+  // on hover, and a new failure is raised once instead of on every poll.
+  function setConnection(online, message) {
+    const dot = document.querySelector(".workspace-status-dot");
+    if (dot) { dot.dataset.state = online ? "online" : "offline"; dot.parentElement.title = message; }
+    const status = $("workspace-connection");
+    if (status.textContent !== message) status.textContent = message;
+    if (!online && message !== connectionNotice) toast(message);
+    connectionNotice = online ? "" : message;
+  }
   async function refresh() {
     const epoch = ++refreshEpoch, target = host;
-    const statusDot = document.querySelector(".workspace-status-dot");
     try { const data = await api("/api/workspace", undefined, target); if (epoch !== refreshEpoch || target !== host) return; if (JSON.stringify(data) !== JSON.stringify(snapshot)) { snapshot = data; if (!document.body.classList.contains("workspace-dragging")) renderSidebar(); }
       if (!document.body.classList.contains("workspace-dragging")) for (const entry of data.entries) {
         const ref = { host: target, key: entry.key };
@@ -343,8 +379,8 @@
       const available = new Set(data.entries.map(entry => entry.key));
       const stale = allRefs().filter(ref => ref.host === target && !available.has(ref.key));
       if (stale.length) { let next = tree; for (const ref of stale) next = L.remove(next, ref); commit(next); }
-      $("workspace-connection").textContent = `${hostName(host)} · ${t("connected")}`; if (statusDot) statusDot.dataset.state = "online"; }
-    catch (error) { if (epoch === refreshEpoch) { $("workspace-connection").textContent = error.message; if (statusDot) statusDot.dataset.state = "offline"; } }
+      setConnection(true, `${hostName(host)} · ${t("connected")}`); }
+    catch (error) { if (epoch === refreshEpoch) setConnection(false, error.message); }
   }
   let usage = null, usageHost = null;
   const remainingLevel = percent => percent <= 10 ? "critical" : percent <= 25 ? "low" : "ok";
@@ -443,7 +479,8 @@
     }, { passive: false });
     track.addEventListener("keydown", event => {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-      track.scrollBy({ left: event.key === "ArrowRight" ? 153 : -153, behavior: "smooth" });
+      const step = track.firstElementChild?.offsetWidth || 80;
+      track.scrollBy({ left: event.key === "ArrowRight" ? step : -step, behavior: "smooth" });
       event.preventDefault();
     });
     for (const provider of data.providers) {
@@ -452,16 +489,15 @@
       const primary = windows[0] || null;
       const row = button("", showQuotaDialog, provider.provider, "workspace-limit");
       if (primary) row.dataset.level = remainingLevel(primary.remainingPercent);
-      // A reading taken from a local cache carries the time it was observed
-      // instead of being presented as the current number.
-      if (provider.status === "cached") {
-        row.dataset.stale = "true";
-        if (provider.observedAt) row.title = t("checked", { date: date(provider.observedAt) });
-      }
+      // A cached reading is marked stale; the hover card says when it was taken.
+      if (provider.status === "cached") row.dataset.stale = "true";
+      // Rows with a reading explain themselves in the hover card; a row without
+      // one keeps the provider name as its tooltip so the bare logo stays legible.
+      if (primary) row.removeAttribute("title");
+      // In the strip the logo names the provider; the hover card, the dialog and
+      // the spoken label carry the full name.
       const copy = node("span", "", "workspace-limit-copy");
-      const head = node("span", "", "workspace-limit-head");
-      head.append(providerLogo(provider.provider), node("span", provider.provider, "workspace-limit-name"));
-      copy.append(head, node("span", primary ? windowShape(primary) || "—" : "—", "workspace-limit-period"));
+      copy.append(providerLogo(provider.provider), node("span", primary ? windowShape(primary) || "—" : "—", "workspace-limit-period"));
       row.append(quotaRing(primary), copy);
       const summary = primary ? `${usageLabel(primary)} · ${t("remaining", { percent: Math.round(primary.remainingPercent) })}` : t("quotaUnavailable");
       row.setAttribute("aria-label", `${provider.provider} · ${summary}` + (provider.status === "cached" && provider.observedAt ? ` · ${t("checked", { date: date(provider.observedAt) })}` : ""));
@@ -699,10 +735,21 @@
     const modal = $("workspace-dialog"), rect = modal.getBoundingClientRect();
     if (event.target === modal && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) closeDialog();
   });
-  $("workspace-add").onclick = () => addProject(); $("workspace-history").onclick = history; $("workspace-refresh").onclick = refresh;
+  $("workspace-add").onclick = () => addProject(); $("workspace-history").onclick = history;
+  // Refresh reloads the list and the allowances together. The Host caches
+  // provider readings, so repeated clicks do not reach the providers again.
+  $("workspace-refresh").onclick = async () => {
+    const control = $("workspace-refresh");
+    if (control.dataset.busy === "true") return;
+    control.dataset.busy = "true"; control.setAttribute("aria-busy", "true");
+    const started = performance.now();
+    try { await Promise.all([refresh(), refreshUsage()]); }
+    finally {
+      // A fast Host still shows one visible turn, so the click reads as done.
+      setTimeout(() => { delete control.dataset.busy; control.removeAttribute("aria-busy"); }, Math.max(0, 450 - (performance.now() - started)));
+    }
+  };
   $("workspace-search").oninput = renderSidebar;
-  $("workspace-new-window").onclick = () => newWindow();
-  $("workspace-sidebar-toggle").onclick = () => { document.body.classList.toggle("sidebar-hidden"); requestAnimationFrame(layoutFrames); };
   $("workspace-host").onchange = () => { host = $("workspace-host").value; snapshot = { projects: [], entries: [] }; usage = null; renderUsage(null); renderSidebar(); void refresh(); void refreshUsage(); };
   $("workspace-sidebar-close").onclick = () => { document.body.classList.add("sidebar-hidden"); requestAnimationFrame(layoutFrames); };
   $("workspace-settings").onclick = () => { window.open("/index.html?settings=1", "stepsemble-settings"); };
@@ -744,7 +791,7 @@
       $("workspace-host").value = host;
       await refresh(); render(); void refreshUsage();
       if (params.get("ack") && params.get("source")) { save(); channel?.postMessage({ type: "window-ready", source: params.get("source"), target: windowId, token: params.get("ack") }); }
-    } catch (error) { toast(error.message); $("workspace-connection").textContent = error.message; }
+    } catch (error) { setConnection(false, error.message); }
   }
   if ("serviceWorker" in navigator) {
     void navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch(() => {});

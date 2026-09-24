@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.2.1
+
+- Give the Workspace stage the full window height. The header row with the title and drag hint is gone; the list toggle now sits at the start of the top-left pane's tab strip and New window, as an icon, at the end of the top-right one, so both stay in the corners in any split or maximized layout.
+- Tidy the Workspace sidebar. Refresh sits beside Settings and now reloads the session list and subscription allowances together; History from other apps sits between the search field and Add project; the footer holds only the allowances.
+- Show each provider allowance as its logo, shortest window and remaining ring, so four providers fit side by side. Hovering a provider still shows its name, every window and the reset times.
+- Remove the "Connected" line from the sidebar footer. The HOST dot shows the connection state, hovering it names the host or the error, screen readers still hear it, and a new connection failure appears once as a notice.
+
 ## 3.2.0
 
 - Group each agent turn into a timed work log. While it runs, the current step subtly sweeps to show activity; after completion, the steps fold under the elapsed time while the final answer stays visible. Open a step to read its tools, reasoning, and intermediate commentary in order. This works for Pi and the supported native agent transcripts on desktop and phone.
