@@ -83,6 +83,7 @@
     "loading": "Loading…",
     "more": "Show more",
     "count": "Sessions: {count}",
+    "showSubAgents": "Show Sub Agent sessions ({count})",
     "addWorkspace": "Add to workspace",
     "view": "View",
     "partialFailure": "Some sources failed to load. Close and try again.",
@@ -179,6 +180,7 @@
     "loading": "讀取中…",
     "more": "顯示更多",
     "count": "{count} 個對話",
+    "showSubAgents": "顯示 Sub Agent 對話（{count}）",
     "addWorkspace": "加入工作區",
     "view": "查看",
     "partialFailure": "部分來源讀取失敗，可關閉後重試",
@@ -275,6 +277,7 @@
     "loading": "正在读取…",
     "more": "显示更多",
     "count": "{count} 个会话",
+    "showSubAgents": "显示 Sub Agent 会话（{count}）",
     "addWorkspace": "加入工作区",
     "view": "查看",
     "partialFailure": "部分来源读取失败，可关闭后重试",
@@ -371,6 +374,7 @@
     "loading": "読み込み中…",
     "more": "さらに表示",
     "count": "会話数：{count}",
+    "showSubAgents": "Sub Agent の会話を表示（{count}）",
     "addWorkspace": "ワークスペースに追加",
     "view": "表示",
     "partialFailure": "一部の読み込みに失敗しました。閉じて再試行してください。",
@@ -467,6 +471,7 @@
     "loading": "불러오는 중…",
     "more": "더 보기",
     "count": "세션 수: {count}",
+    "showSubAgents": "Sub Agent 세션 표시 ({count})",
     "addWorkspace": "작업 공간에 추가",
     "view": "보기",
     "partialFailure": "일부 소스를 불러오지 못했습니다. 닫은 후 다시 시도하세요.",
@@ -563,6 +568,7 @@
     "loading": "Yükleniyor…",
     "more": "Daha fazla göster",
     "count": "Oturumlar: {count}",
+    "showSubAgents": "Sub Agent oturumlarını göster ({count})",
     "addWorkspace": "Çalışma alanına ekle",
     "view": "Görüntüle",
     "partialFailure": "Bazı kaynaklar yüklenemedi. Kapatıp yeniden deneyin.",
@@ -659,6 +665,7 @@
     "loading": "Chargement…",
     "more": "Afficher plus",
     "count": "Sessions : {count}",
+    "showSubAgents": "Afficher les sessions des Sub Agent ({count})",
     "addWorkspace": "Ajouter à l’espace",
     "view": "Consulter",
     "partialFailure": "Certaines sources n’ont pas chargé. Fermez puis réessayez.",
@@ -755,6 +762,7 @@
     "loading": "Wird geladen…",
     "more": "Mehr anzeigen",
     "count": "Sitzungen: {count}",
+    "showSubAgents": "Sub-Agent-Sitzungen anzeigen ({count})",
     "addWorkspace": "Zum Arbeitsbereich hinzufügen",
     "view": "Anzeigen",
     "partialFailure": "Einige Quellen konnten nicht geladen werden. Schließen und erneut versuchen.",
@@ -851,6 +859,7 @@
     "loading": "Cargando…",
     "more": "Mostrar más",
     "count": "Sesiones: {count}",
+    "showSubAgents": "Mostrar sesiones de Sub Agent ({count})",
     "addWorkspace": "Añadir al espacio",
     "view": "Ver",
     "partialFailure": "No se cargaron algunas fuentes. Cierra y vuelve a intentarlo.",
@@ -947,6 +956,7 @@
     "loading": "Carregando…",
     "more": "Mostrar mais",
     "count": "Sessões: {count}",
+    "showSubAgents": "Mostrar sessões do Sub Agent ({count})",
     "addWorkspace": "Adicionar ao espaço",
     "view": "Visualizar",
     "partialFailure": "Algumas fontes não carregaram. Feche e tente novamente.",
@@ -1043,6 +1053,7 @@
     "loading": "Caricamento…",
     "more": "Mostra altro",
     "count": "Sessioni: {count}",
+    "showSubAgents": "Mostra le sessioni dei Sub Agent ({count})",
     "addWorkspace": "Aggiungi all’area",
     "view": "Visualizza",
     "partialFailure": "Alcune fonti non sono state caricate. Chiudi e riprova.",
@@ -1080,12 +1091,15 @@
     if (!Number.isFinite(number)) return fallback;
     return Math.min(max, Math.max(min, number));
   }
-  function preferences(storage, { prefersDark = false } = {}) {
-    const keys = ["stepsemble.settings.v2", "piharbor.settings.v2", "piharbor.settings.v1", "piweb.settings.v2", "piweb.settings.v1", "stepsemble.settings.v1"];
-    let settings = {};
-    for (const key of keys) {
-      try { const saved = storage.getItem(key); if (saved) { settings = JSON.parse(saved) || {}; break; } } catch {}
+  const SETTINGS_KEYS = ["stepsemble.settings.v2", "piharbor.settings.v2", "piharbor.settings.v1", "piweb.settings.v2", "piweb.settings.v1", "stepsemble.settings.v1"];
+  function savedSettings(storage) {
+    for (const key of SETTINGS_KEYS) {
+      try { const saved = storage.getItem(key); if (saved) return JSON.parse(saved) || {}; } catch {}
     }
+    return {};
+  }
+  function preferences(storage, { prefersDark = false } = {}) {
+    const settings = savedSettings(storage);
     const theme = ["light", "dark"].includes(settings.theme) ? settings.theme : "auto";
     return {
       locale: normalizeLocale(settings.locale),
@@ -1098,7 +1112,14 @@
       showTemporarySessions: settings.showTemporarySessions === true,
     };
   }
-  const api = Object.freeze({ tables, t, normalizeLocale, preferences, designThemes: Object.freeze([...DESIGN_THEME_IDS]), defaultDesignTheme: DEFAULT_DESIGN_THEME });
+  // The shell changes one preference (the Sub Agent filter) in the settings
+  // record the rest of the app reads, keeping every other saved field.
+  function savePreference(storage, patch) {
+    const next = { ...savedSettings(storage), ...patch };
+    storage.setItem(SETTINGS_KEYS[0], JSON.stringify(next));
+    return next;
+  }
+  const api = Object.freeze({ tables, t, normalizeLocale, preferences, savePreference, designThemes: Object.freeze([...DESIGN_THEME_IDS]), defaultDesignTheme: DEFAULT_DESIGN_THEME });
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.StepsembleWorkspaceI18n = api;
 })(typeof window !== "undefined" ? window : globalThis);

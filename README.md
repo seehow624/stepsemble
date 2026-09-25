@@ -190,12 +190,17 @@ account sign-in or an API key.
 
 **Settings → Agents & models → Models & providers** lists every agent installed
 on the host. Each agent's page says how to sign in and shows the models it
-offers, plus its own settings: Pi's model visibility and Custom provider editor,
-OpenCode's providers and local server, and the OpenCodex routing for Codex and
-Claude Code. **Quota sources** in the same section chooses where subscription and
+offers, plus its own settings: Pi's model visibility, Custom provider editor and
+token use for the last 7 days, OpenCode's providers and local server, and the
+OpenCodex routing for Codex and Claude Code. **Quota sources** in the same section chooses where subscription and
 API limits come from: each agent's own sign-in, Pi's sign-ins and keys,
 OpenCodex, or CodexBar's CLI. Turn sources on or off, and pick one for a service
 that several sources can read.
+
+**Settings → Notifications** turns on push alerts for the device you are using.
+An alert arrives when an agent finishes, fails or is stopped while that
+conversation is not open on any screen. **Settings → About** shows the
+Stepsemble version; agent versions are under **Settings → Updates**.
 
 ### Agent Hub connectors
 
@@ -280,8 +285,8 @@ parity is an explicit, contract-tested milestone in the
 [cross-platform plan](docs/platform-plan.md), not a brand-level promise.
 
 Device aliases only affect the interface. They do not rename the operating
-system computer. Temporary Sub Agent sessions are hidden by default and can be
-revealed from the session list when needed.
+system computer. Temporary Sub Agent sessions are hidden by default; **History
+from other apps** has a switch to show them.
 
 ## What is included
 

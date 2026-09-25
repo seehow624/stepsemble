@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.5.0
+
+- Split Settings into six sections: Appearance, Notifications, Agents & models, Devices & access, Updates and About. Advanced is gone, and each option now sits with the options it belongs to.
+- Give push notifications their own Notifications section. It says when an alert is sent: an agent finishes, fails or is stopped while that conversation is not open on any screen. The section list shows whether this device receives alerts, and a browser that cannot receive them explains how to add Stepsemble to the Home Screen on iPhone or iPad.
+- Move the Sub Agent sessions switch from Settings into History from other apps, next to the list it filters. The switch shows how many Sub Agent sessions there are and keeps its choice. On a phone, each history row now gives the session title its own line.
+- Show Pi's token use for the last 7 days on Pi's page in Models & providers, since it only counts Pi sessions. About no longer repeats the Pi version; Updates lists every agent's version, Pi included.
+- Move Restore interface defaults to the bottom of Appearance. It now resets only the options on that page and keeps the language, projects, model visibility and the Sub Agent switch.
+- Rename Resource sync to Pi resource sync, since it compares Pi's extensions, skills and packages, and describe Agents & models as models, providers and quota sources.
+
 ## 3.4.0
 
 - Leave Settings one level at a time. Settings, a section, Models & providers and an agent's page are now steps in the browser history, so Safari's edge swipe, Android's back gesture, the back button and the in-app swipe return to the level above instead of jumping to the main page. Models & providers gets the same edge swipe as the rest of Settings, and a swipe can start on a row.

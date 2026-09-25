@@ -108,12 +108,21 @@ export async function runAgentTerminalBrowserCases(browser, { screenshotDirector
         await page.locator("#model-settings-open").click();
         await page.locator('#model-agent-list [data-model-agent="codex"]').click();
         await page.locator("#model-agent-signin").waitFor();
+        assert.ok(await page.locator("#pi-usage-panel").isHidden(), "Pi usage stays on Pi's page");
         assert.equal(await page.evaluate(() => history.state?.stepsembleSettingsNav?.level), "models:codex");
         for (const expected of ["models", "settings:agents", "settings"]) {
           await page.goBack();
           await page.waitForFunction(value => (history.state?.stepsembleSettingsNav?.level || null) === value, expected);
         }
         assert.ok(await page.locator('.settings-nav-item[data-settings-open="agents"]').isVisible(), "Back returns to the Settings list");
+        // Notifications and About are sections of their own.
+        for (const [section, control] of [["notifications", "#push-toggle"], ["about", "#set-app-version"]]) {
+          await page.locator('.settings-nav-item[data-settings-open="' + section + '"]').click();
+          await page.locator(control).waitFor();
+          assert.equal(await page.evaluate(() => history.state?.stepsembleSettingsNav?.level), "settings:" + section);
+          await page.goBack();
+          await page.waitForFunction(() => (history.state?.stepsembleSettingsNav?.level || null) === "settings");
+        }
       }
       assert.deepEqual(errors, []); assert.deepEqual(foreign, []);
       console.log(JSON.stringify({ case: "Agent terminal (" + viewport.width + ")", result: "passed", syntheticOnly: true, columns, linkAndCode: true, maskedInput: true, horizontalOverflow: false, pageErrors: 0 }));

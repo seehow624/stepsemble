@@ -27,6 +27,16 @@ test("workspace preferences preserve saved locale/theme, migrate aliases and tol
   assert.equal(I.preferences({ getItem: key => key === "piweb.settings.v1" ? '{"locale":"ja","theme":"light"}' : null }).locale, "ja");
 });
 
+test("the workspace saves one preference without dropping the rest of the saved settings", () => {
+  const store = new Map([["piharbor.settings.v2", JSON.stringify({ locale: "ja", theme: "dark", modelVisibility: { mini: ["a/b"] } })]]);
+  const storage = { getItem: key => store.get(key) ?? null, setItem: (key, value) => store.set(key, value) };
+  I.savePreference(storage, { showTemporarySessions: true });
+  assert.deepEqual(JSON.parse(store.get("stepsemble.settings.v2")), { locale: "ja", theme: "dark", modelVisibility: { mini: ["a/b"] }, showTemporarySessions: true });
+  I.savePreference(storage, { showTemporarySessions: false });
+  assert.equal(I.preferences(storage).showTemporarySessions, false);
+  assert.equal(I.preferences(storage).locale, "ja");
+});
+
 test("workspace shell reuses the app design system instead of its own palette", () => {
   const root = path.join(__dirname, "..");
   const html = fs.readFileSync(path.join(root, "public/workspace.html"), "utf8");

@@ -6,15 +6,15 @@
 <title>Stepsemble</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=3.4.0">
-<link rel="icon" href="/icon-16.png?v=3.4.0" sizes="16x16" type="image/png">
-<link rel="icon" href="/icon-32.png?v=3.4.0" sizes="32x32" type="image/png">
-<link rel="icon" href="/icon-512.png?v=3.4.0" sizes="512x512" type="image/png">
-<link rel="apple-touch-icon" href="/icon-180.png?v=3.4.0">
-  <link rel="stylesheet" href="/style.css?v=3.4.0">
-  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.4.0">
-  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.4.0">
-<link rel="stylesheet" href="/modules/workspace-embedded.css?v=3.4.0">
+<link rel="manifest" href="/manifest.webmanifest?v=3.5.0">
+<link rel="icon" href="/icon-16.png?v=3.5.0" sizes="16x16" type="image/png">
+<link rel="icon" href="/icon-32.png?v=3.5.0" sizes="32x32" type="image/png">
+<link rel="icon" href="/icon-512.png?v=3.5.0" sizes="512x512" type="image/png">
+<link rel="apple-touch-icon" href="/icon-180.png?v=3.5.0">
+  <link rel="stylesheet" href="/style.css?v=3.5.0">
+  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.5.0">
+  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.5.0">
+<link rel="stylesheet" href="/modules/workspace-embedded.css?v=3.5.0">
 </head>
 <body>
 
@@ -51,6 +51,8 @@
   <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2.5"/><path d="M10 3.5v3M14 3.5v3M10 17.5v3M14 17.5v3M3.5 10h3M3.5 14h3M17.5 10h3M17.5 14h3M10 10h4v4h-4z"/></symbol>
   <symbol id="i-devices" viewBox="0 0 24 24"><rect x="2.5" y="4.5" width="14" height="10" rx="2"/><path d="M1.5 18h11M18.5 8.5h1.5a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-1.5A1.5 1.5 0 0 1 17 18v-8a1.5 1.5 0 0 1 1.5-1.5Z"/></symbol>
   <symbol id="i-update" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.35-5.65M20 4.5V8.5h-4M12 8v6.5M9.2 11.8 12 14.6l2.8-2.8"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 2H5zM10 20.5a2.2 2.2 0 0 0 4 0"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.8h.01"/></symbol>
   <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h8.5M16.5 7H20M4 17h3.5M11.5 17H20"/><circle cx="14.5" cy="7" r="2"/><circle cx="9.5" cy="17" r="2"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.3"/><path d="m20 20-4.7-4.7"/></symbol>
   <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.3 2.4 3.4 5.2 3.4 8.5s-1.1 6.1-3.4 8.5c-2.3-2.4-3.4-5.2-3.4-8.5s1.1-6.1 3.4-8.5Z"/></symbol>
@@ -300,9 +302,14 @@
               <span class="settings-nav-copy"><strong>Appearance</strong><small id="settings-summary-appearance" data-i18n-ignore></small></span>
               <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
             </button>
+            <button class="settings-nav-item" type="button" data-settings-open="notifications">
+              <span class="settings-nav-icon" aria-hidden="true"><svg class="icon"><use href="#i-bell"></use></svg></span>
+              <span class="settings-nav-copy"><strong data-i18n-key="settings.notificationsTitle">Notifications</strong><small id="settings-summary-notifications" data-i18n-ignore></small></span>
+              <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
+            </button>
             <button class="settings-nav-item" type="button" data-settings-open="agents">
               <span class="settings-nav-icon" aria-hidden="true"><svg class="icon"><use href="#i-cpu"></use></svg></span>
-              <span class="settings-nav-copy"><strong>Agents &amp; models</strong><small id="settings-summary-agents">Models, sign-in and notifications</small></span>
+              <span class="settings-nav-copy"><strong>Agents &amp; models</strong><small id="settings-summary-agents" data-i18n-key="settings.summaryAgents">Models, providers and quota sources</small></span>
               <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
             </button>
             <button class="settings-nav-item" type="button" data-settings-open="devices">
@@ -316,9 +323,9 @@
               <span id="settings-updates-badge" class="settings-nav-badge hidden" aria-hidden="true"></span>
               <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
             </button>
-            <button class="settings-nav-item" type="button" data-settings-open="advanced">
-              <span class="settings-nav-icon" aria-hidden="true"><svg class="icon"><use href="#i-sliders"></use></svg></span>
-              <span class="settings-nav-copy"><strong>Advanced</strong><small id="settings-summary-advanced" data-i18n-ignore></small></span>
+            <button class="settings-nav-item" type="button" data-settings-open="about">
+              <span class="settings-nav-icon" aria-hidden="true"><svg class="icon"><use href="#i-info"></use></svg></span>
+              <span class="settings-nav-copy"><strong>About</strong><small id="settings-summary-about" data-i18n-ignore></small></span>
               <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
             </button>
           </div>
@@ -399,6 +406,26 @@
             </label>
           </section>
 
+          <section class="settings-group settings-reset-group" data-settings-category="appearance">
+            <button id="btn-reset-settings" class="settings-row settings-button-row" type="button">
+              <span><strong>Restore interface defaults</strong><small data-i18n-key="settings.resetNote">Resets everything on this page except Language.</small></span>
+              <span class="row-chevron" aria-hidden="true">↺</span>
+            </button>
+          </section>
+
+          <!-- Notifications -->
+          <section class="settings-group" data-settings-category="notifications" data-settings-target="notifications">
+            <div class="settings-row" id="push-notifications-row">
+              <span>
+                <strong data-i18n-key="settings.pushTitle">Push notifications</strong>
+                <small data-i18n-key="notifications.pushNote">Alert this device when an agent finishes, fails or is stopped</small>
+              </span>
+              <button id="push-toggle" class="settings-action-btn" type="button">Enable</button>
+            </div>
+            <p id="push-unsupported-note" class="settings-note hidden" data-i18n-key="notifications.unsupported">This browser can't receive notifications. On iPhone or iPad, add Stepsemble to the Home Screen, then open it from there.</p>
+            <p class="settings-note" data-i18n-key="notifications.when">Alerts are sent only when that conversation is not open on any screen. Turn them on separately on each device.</p>
+          </section>
+
           <!-- Agents & models -->
           <section class="settings-group" data-settings-category="agents" data-settings-target="connection">
             <h3 class="group-title" data-i18n-key="settings.modelsTitle">Models</h3>
@@ -415,25 +442,6 @@
             </div>
             <p class="settings-note" data-i18n-key="quotaSources.note">Limits come from each agent's own sign-in and from quota services on the selected host, such as OpenCodex.</p>
             <div id="quota-sources-list" class="quota-sources-list" role="status" aria-live="polite"></div>
-          </section>
-
-          <section class="settings-group" data-settings-category="agents">
-            <h3 class="group-title" data-i18n-key="settings.notificationsTitle">Notifications</h3>
-            <div class="settings-row" id="push-notifications-row">
-              <span>
-                <strong data-i18n-key="settings.pushTitle">Push notifications</strong>
-                <small>Ping this device when a run finishes without a browser attached</small>
-              </span>
-              <button id="push-toggle" class="settings-action-btn" type="button">Enable</button>
-            </div>
-          </section>
-
-          <section class="settings-group" data-settings-category="agents">
-            <h3 class="group-title" data-i18n-key="settings.historyTitle">History</h3>
-            <label class="settings-row settings-toggle-row">
-              <span><strong>Sub Agent sessions</strong><small id="set-show-temporary-sessions-note">Hidden by default</small></span>
-              <span class="toggle"><input id="set-show-temporary-sessions" type="checkbox"><span class="toggle-track"></span></span>
-            </label>
           </section>
 
           <!-- Devices & access -->
@@ -478,7 +486,7 @@
           </section>
 
           <section class="settings-group" data-settings-category="devices">
-            <h3 class="group-title">Resource sync</h3>
+            <h3 class="group-title" data-i18n-key="settings.piResourceSync">Pi resource sync</h3>
             <p class="settings-note">Compare global Pi extensions, skills, and packages between two devices. Read-only; nothing is installed.</p>
             <label class="settings-row settings-select-row settings-select-row-stack">
               <span><strong>Compare</strong><small>Inventory source device</small></span>
@@ -525,35 +533,15 @@
             <p id="harness-update-missing" class="settings-note harness-update-missing hidden"></p>
           </section>
 
-          <!-- Advanced -->
-          <section class="settings-group settings-about-group" data-settings-category="advanced" data-settings-target="about">
-            <h3 class="group-title">About</h3>
-            <div id="usage-summary-card" class="usage-summary hidden">
-              <div class="usage-summary-heading">
-                <strong id="usage-summary-title" data-i18n-key="usage.title">Usage · last 7 days</strong>
-                <span id="usage-summary-note" class="usage-summary-note"></span>
-              </div>
-              <div id="usage-summary-rows" class="usage-summary-rows" role="list"></div>
-            </div>
+          <!-- About -->
+          <section class="settings-group settings-about-group" data-settings-category="about" data-settings-target="about">
             <div class="settings-row">
               <span><strong>Stepsemble</strong><small data-i18n-key="agentHub.workspace">A workspace for local coding agents</small></span>
-              <span class="settings-value" id="set-app-version">v3.4.0</span>
-            </div>
-            <div class="settings-row">
-              <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
-              <span class="settings-value mono" id="set-pi-version">—</span>
+              <span class="settings-value" id="set-app-version">v3.5.0</span>
             </div>
             <button id="btn-open-onboarding" class="settings-row settings-button-row" type="button">
               <span><strong id="setup-guide-title">Setup guide</strong><small id="setup-guide-subtitle">Review the essentials for this device</small></span>
               <span class="row-chevron" aria-hidden="true">→</span>
-            </button>
-          </section>
-
-          <section class="settings-group settings-advanced-group" data-settings-category="advanced">
-            <h3 class="group-title">Advanced</h3>
-            <button id="btn-reset-settings" class="settings-row settings-button-row" type="button">
-              <span><strong>Restore interface defaults</strong><small>Resets theme, text size, density and model visibility. Language and projects are kept.</small></span>
-              <span class="row-chevron" aria-hidden="true">↺</span>
             </button>
           </section>
         </div>
@@ -587,6 +575,15 @@
         <div id="model-agent-signin" class="model-agent-signin hidden">
           <p id="model-agent-signin-text" class="settings-note" data-i18n-ignore></p>
           <button id="model-agent-status" class="btn ghost" type="button" data-i18n-key="modelAgents.checkStatus">Check sign-in</button>
+        </div>
+        <div id="pi-usage-panel" class="pi-usage-panel hidden">
+          <div id="usage-summary-card" class="usage-summary hidden">
+            <div class="usage-summary-heading">
+              <strong id="usage-summary-title" data-i18n-key="usage.title">Usage · last 7 days</strong>
+              <span id="usage-summary-note" class="usage-summary-note"></span>
+            </div>
+            <div id="usage-summary-rows" class="usage-summary-rows" role="list"></div>
+          </div>
         </div>
         <p id="model-catalog-status" class="settings-note" aria-live="polite" data-i18n-key="modelsCheck.auto">Automatic model catalogs refresh every 5 minutes. Hand-written model lists stay manual.</p>
         <div id="model-list-toolbar" class="model-list-toolbar">
@@ -1038,22 +1035,22 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=3.4.0"></script>
-<script src="/modules/app-foundation.js?v=3.4.0"></script>
-<script src="/modules/agent-identity.js?v=3.4.0"></script>
-<script src="/modules/session-utils.js?v=3.4.0"></script>
-<script src="/modules/pi-session.js?v=3.4.0"></script>
-<script src="/modules/conversation-catalog.js?v=3.4.0"></script>
-<script src="/modules/context-usage.js?v=3.4.0"></script>
-<script src="/modules/opencode-context.js?v=3.4.0"></script>
-<script src="/modules/agent-terminal.js?v=3.4.0"></script>
-<script src="/modules/claude-structured-rendering.js?v=3.4.0"></script>
-<script src="/modules/agent-transcript-presentation.js?v=3.4.0"></script>
-<script src="/modules/codex-approvals.js?v=3.4.0"></script>
-<script src="/modules/protocol-contracts.js?v=3.4.0"></script>
-<script src="/modules/client-sdk.js?v=3.4.0"></script>
-<script src="/modules/native-dialogs.js?v=3.4.0"></script>
-<script src="/modules/composer-ime.js?v=3.4.0"></script>
-<script src="/app.js?v=3.4.0"></script>
+<script src="/i18n.js?v=3.5.0"></script>
+<script src="/modules/app-foundation.js?v=3.5.0"></script>
+<script src="/modules/agent-identity.js?v=3.5.0"></script>
+<script src="/modules/session-utils.js?v=3.5.0"></script>
+<script src="/modules/pi-session.js?v=3.5.0"></script>
+<script src="/modules/conversation-catalog.js?v=3.5.0"></script>
+<script src="/modules/context-usage.js?v=3.5.0"></script>
+<script src="/modules/opencode-context.js?v=3.5.0"></script>
+<script src="/modules/agent-terminal.js?v=3.5.0"></script>
+<script src="/modules/claude-structured-rendering.js?v=3.5.0"></script>
+<script src="/modules/agent-transcript-presentation.js?v=3.5.0"></script>
+<script src="/modules/codex-approvals.js?v=3.5.0"></script>
+<script src="/modules/protocol-contracts.js?v=3.5.0"></script>
+<script src="/modules/client-sdk.js?v=3.5.0"></script>
+<script src="/modules/native-dialogs.js?v=3.5.0"></script>
+<script src="/modules/composer-ime.js?v=3.5.0"></script>
+<script src="/app.js?v=3.5.0"></script>
 </body>
 </html>

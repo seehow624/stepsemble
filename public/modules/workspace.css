@@ -458,6 +458,9 @@ dialog header .btn { min-width: 34px; min-height: 34px; padding: 0; border: 0; c
 .workspace-folder-footer small { min-width: 0; flex: 1; font-size: .69rem; line-height: 1.4; }
 #workspace-dialog-body .workspace-folder-add { flex: 0 0 auto; min-height: 42px; padding: 0 17px; font-size: .77rem; text-align: center; }
 #workspace-dialog-body .workspace-folder-add:disabled { opacity: .42; cursor: default; }
+.workspace-history-filter { display: flex; align-items: center; gap: 9px; min-height: 36px; color: var(--pine-soft); font-size: .8rem; cursor: pointer; }
+.workspace-history-filter[hidden] { display: none; }
+.workspace-history-filter input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--accent); }
 .workspace-history-row { display: flex; align-items: center; gap: 8px; padding: 12px; border: .5px solid var(--line); border-radius: 14px; background: var(--paper); }
 .workspace-history-row div { min-width: 0; flex: 1; }
 .workspace-history-row strong { display: block; overflow-wrap: anywhere; font-size: .84rem; font-weight: 550; }
@@ -491,4 +494,7 @@ body.compact .workspace-session strong { font-size: .78rem; }
   .workspace-tabs { display: none; }
   .workspace-frame { border-radius: 0; }
   .workspace-history-row { flex-wrap: wrap; }
+  /* On a phone the title gets its own line; the two actions share the next. */
+  .workspace-history-row div { flex: 1 1 100%; }
+  #workspace-dialog-body .workspace-history-row .btn { flex: 1 1 0; justify-content: center; text-align: center; }
 }

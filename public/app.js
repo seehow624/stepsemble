@@ -1,7 +1,7 @@
-/* stepsemble v3.4.0 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.5.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.4.0";
+const CLIENT_APP_VERSION = "3.5.0";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 if (WORKSPACE_PANE) {
   document.documentElement.classList.add("workspace-embedded");
@@ -27,7 +27,7 @@ const claudeStructuredRendering = window.stepsembleClaudeStructuredRendering;
 const agentTranscriptPresentation = window.stepsembleAgentTranscriptPresentation;
 if (!foundation || !sessionUtils || !contextUtils || !piSession || !agentTranscriptPresentation) throw new Error("Stepsemble foundation modules are missing");
 const {
-  SELECTED_KEY, SETTINGS_KEY, LEGACY_SETTINGS_KEY, LEGACY_SETTINGS_KEYS, SETTINGS_VERSION,
+  SELECTED_KEY, SETTINGS_KEY, LEGACY_SETTINGS_KEYS, SETTINGS_VERSION,
   DESIGN_THEMES, DESIGN_THEME_IDS, DEFAULT_SETTINGS,
   loadSelected, saveSelected, loadSettings, saveSettings,
   currentMachine: currentMachineFromList,
@@ -91,7 +91,6 @@ const el = {
   search: $("search"), btnRefresh: $("btn-refresh"),
   sessionList: $("session-list"), listEmpty: $("list-empty"),
   stuckSessions: $("stuck-sessions"),
-  setShowTemporarySessions: $("set-show-temporary-sessions"), setShowTemporarySessionsNote: $("set-show-temporary-sessions-note"),
   btnNew: $("btn-new"), btnNewProject: $("btn-new-project"), pullIndicator: $("pull-indicator"),
   agentHubCard: $("agent-hub-card"), agentHubTitle: $("agent-hub-title"), agentHubSummary: $("agent-hub-summary"), agentHubToggle: $("agent-hub-toggle"), agentHubBody: $("agent-hub-body"), agentHubRefresh: $("agent-hub-refresh"), agentHubOpenCenter: $("agent-hub-open-center"), agentHubConnectors: $("agent-hub-connectors"), agentTaskList: $("agent-task-list"),
   agentTaskCenter: $("agent-task-center"), agentTaskCenterClose: $("agent-task-center-close"), agentTaskCenterTitle: $("agent-task-center-title"), agentTaskCenterSummary: $("agent-task-center-summary"), agentTaskCenterSearch: $("agent-task-center-search"), agentTaskCenterFilter: $("agent-task-center-filter"), agentTaskCenterList: $("agent-task-center-list"), agentTaskCenterEmpty: $("agent-task-center-empty"),
@@ -131,12 +130,13 @@ const el = {
   settingsTitle: $("settings-title"), settingsNav: $("settings-nav"), settingsContentTitle: $("settings-content-title"),
   settingsHostDot: $("settings-host-dot"), settingsUpdatesBadge: $("settings-updates-badge"),
   settingsSummaryAppearance: $("settings-summary-appearance"), settingsSummaryDevices: $("settings-summary-devices"),
-  settingsSummaryUpdates: $("settings-summary-updates"), settingsSummaryAdvanced: $("settings-summary-advanced"),
+  settingsSummaryUpdates: $("settings-summary-updates"), settingsSummaryAbout: $("settings-summary-about"),
+  settingsSummaryNotifications: $("settings-summary-notifications"),
   themeChoicesToggle: $("theme-choices-toggle"), themeCurrentName: $("theme-current-name"), themeCurrentSwatches: $("theme-current-swatches"),
   modelCatalogRefresh: $("model-catalog-refresh"),
   machineList: $("machine-list"), machineAdd: $("machine-add"), machinePair: $("machine-pair"), machineDialog: $("machine-dialog"), machineDialogTitle: $("machine-dialog-title"), machineStandardFields: $("machine-standard-fields"), machineName: $("machine-name"), machineUrl: $("machine-url"), machinePort: $("machine-port"), machinePortLabel: $("machine-port-label"), machineHost: $("machine-host"), machineStatusNote: $("machine-status-note"), machineFormError: $("machine-form-error"), machinePairArea: $("machine-pair-area"), machinePairCode: $("machine-pair-code"), machinePairJoin: $("machine-pair-join"), machinePairPreview: $("machine-pair-preview"), machinePairPreviewName: $("machine-pair-preview-name"), machinePairPreviewUrl: $("machine-pair-preview-url"), machinePairPreviewExpires: $("machine-pair-preview-expires"), machinePairPreviewVersion: $("machine-pair-preview-version"), machinePairOfferArea: $("machine-pair-offer-area"), machinePairOffer: $("machine-pair-offer"), machinePairGenerate: $("machine-pair-generate"), machineRestart: $("machine-restart"), machineSave: $("machine-save"), machineDelete: $("machine-delete"), machineTest: $("machine-test"), machineCancel: $("machine-cancel"), machineCancelBottom: $("machine-cancel-bottom"),
   authorizedDevicesStatus: $("authorized-devices-status"), authorizedDeviceList: $("authorized-device-list"),
-  setMachineName: $("set-machine-name"), setMachineHost: $("set-machine-host"), setPiVersion: $("set-pi-version"), setAppVersion: $("set-app-version"),
+  setMachineName: $("set-machine-name"), setMachineHost: $("set-machine-host"), setAppVersion: $("set-app-version"),
   btnLogout: $("btn-logout"), btnResetSettings: $("btn-reset-settings"), btnOpenOnboarding: $("btn-open-onboarding"), setupGuideTitle: $("setup-guide-title"), setupGuideSubtitle: $("setup-guide-subtitle"),
   updateAllDevices: $("update-all-devices"), updateInstallAll: $("update-install-all"), updateCenterSummary: $("update-center-summary"), updateDeviceList: $("update-device-list"),
   harnessUpdateTitle: $("harness-update-title"), harnessUpdateNote: $("harness-update-note"), harnessUpdateCheckAll: $("harness-update-check-all"), harnessUpdateApplyAll: $("harness-update-apply-all"), harnessUpdateSummary: $("harness-update-summary"), harnessUpdateList: $("harness-update-list"), harnessUpdateMissing: $("harness-update-missing"),
@@ -155,8 +155,8 @@ const el = {
   codexGatewayPanel: $("codex-gateway-panel"), codexGatewayStatus: $("codex-gateway-status"),
   codexGatewayList: $("codex-gateway-list"),
   providerConfigExport: $("provider-config-export"), providerConfigImport: $("provider-config-import"),
-  pushToggle: $("push-toggle"),
-  usageSummaryCard: $("usage-summary-card"), usageSummaryRows: $("usage-summary-rows"), usageSummaryNote: $("usage-summary-note"),
+  pushToggle: $("push-toggle"), pushUnsupportedNote: $("push-unsupported-note"),
+  piUsagePanel: $("pi-usage-panel"), usageSummaryCard: $("usage-summary-card"), usageSummaryRows: $("usage-summary-rows"), usageSummaryNote: $("usage-summary-note"),
   modelFilter: $("model-filter"), modelListSummary: $("model-list-summary"), providerAdd: $("provider-add"),
   providerDialog: $("provider-dialog"), providerDialogTitle: $("provider-dialog-title"), providerId: $("provider-id"),
   providerApi: $("provider-api"), providerBaseUrl: $("provider-base-url"), providerApiKey: $("provider-api-key"),
@@ -210,7 +210,6 @@ const el = {
 
 let sessionsCache = [];
 let sessionRenderLimit = 120;
-let temporarySessionCount = 0;
 let agentCatalog = [];
 let agentCatalogError = false;
 let agentTasks = [];
@@ -1183,10 +1182,8 @@ el.machineCatalogRetry?.addEventListener("click", () => { void enterApp().catch(
 function loadVersion() {
   const generation = viewGeneration;
   const baseAtStart = apiBase;
-  window._piVersion = "…";
   api("/api/version").then(v => {
     if (generation !== viewGeneration || baseAtStart !== apiBase) return;
-    window._piVersion = v.version;
     window._appVersion = v.appVersion || CLIENT_APP_VERSION;
     if (!el.viewSettings.classList.contains("hidden")) renderSettings();
   }).catch(() => {});
@@ -1253,8 +1250,6 @@ function switchMachine(id, silent) {
   renderTokenList();
   resetComposerSummary();
   updateNewProjectAffordance();
-  temporarySessionCount = 0;
-  renderTemporarySessionFilter(0);
   renderMachineSwitch();
   showListSilent();
   void generation;
@@ -1651,7 +1646,6 @@ function showSettings() {
   el.viewSettings.classList.remove("hidden");
   renderSettings();
   void loadModelVisibility();
-  void renderUsageSummary();
   void loadQuotaSources();
   el.viewSettings.classList.add("slide-in");
   settingsSlideTimer = setTimeout(() => {
@@ -1664,14 +1658,20 @@ el.btnOpenSettings.addEventListener("click", () => { showSettings(); syncSetting
 
 // Settings is grouped into a few sections. Phones show the section list first
 // and one section at a time; wide layouts keep the list beside the section.
-const SETTINGS_CATEGORIES = Object.freeze(["appearance", "agents", "devices", "updates", "advanced"]);
+const SETTINGS_CATEGORIES = Object.freeze(["appearance", "notifications", "agents", "devices", "updates", "about"]);
 const SETTINGS_CATEGORY_LABELS = Object.freeze({
-  appearance: "Appearance", agents: "Agents & models", devices: "Devices & access", updates: "Updates", advanced: "Advanced",
+  appearance: "Appearance", agents: "Agents & models", devices: "Devices & access", updates: "Updates", about: "About",
 });
+// Titles the phrase dictionary does not carry use keyed translations.
+const SETTINGS_CATEGORY_KEYS = Object.freeze({ notifications: "settings.notificationsTitle" });
 const SETTINGS_TARGET_CATEGORIES = Object.freeze({
   devices: "devices", tokens: "devices", connection: "agents", "quota-sources": "agents",
-  appearance: "appearance", updates: "updates", about: "advanced",
+  appearance: "appearance", notifications: "notifications", updates: "updates", about: "about",
 });
+function settingsCategoryLabel(category) {
+  if (!category) return "";
+  return SETTINGS_CATEGORY_KEYS[category] ? tKey(SETTINGS_CATEGORY_KEYS[category]) : updateText(SETTINGS_CATEGORY_LABELS[category]);
+}
 const settingsSplitQuery = window.matchMedia?.("(min-width: 900px)") || null;
 let settingsCategory = null;
 let lastSettingsCategory = "appearance";
@@ -1684,7 +1684,7 @@ function applySettingsCategory() {
   const category = activeSettingsCategory();
   const split = settingsSplitLayout();
   el.viewSettings.dataset.settingsView = category || "home";
-  const label = category ? updateText(SETTINGS_CATEGORY_LABELS[category]) : "";
+  const label = settingsCategoryLabel(category);
   if (el.settingsTitle) el.settingsTitle.textContent = category && !split ? label : updateText("Settings");
   if (el.settingsContentTitle) el.settingsContentTitle.textContent = label;
   for (const item of el.settingsNav?.querySelectorAll(".settings-nav-item") || []) {
@@ -2732,9 +2732,7 @@ async function refreshSessions({ refreshTasks = true } = {}) {
     conversationSourceState.sessions = "ready";
     const currentSummary = sessionsCache.find(session => session.file === currentSessionFile);
     if (currentSummary && !el.viewChat.classList.contains("hidden")) setChatTitle(sessionDisplayTitle(currentSummary));
-    temporarySessionCount = Math.max(0, Number(data.temporarySessionCount) || 0);
     if (el.sessionCount) el.sessionCount.textContent = String(typeof sessionListRecords === "function" ? sessionListRecords().length : sessionsCache.length);
-    renderTemporarySessionFilter(temporarySessionCount);
     renderSessionList(el.search.value);
     syncSessionListPolling();
     void refreshStuckSessions();
@@ -2942,17 +2940,6 @@ function saveProjectListSettings(patch) {
   settings = saveSettings(patch);
   applyAppearance();
   renderSessionList(el.search?.value || "");
-}
-
-function renderTemporarySessionFilter(count = temporarySessionCount) {
-  const total = Math.max(0, Number(count) || 0);
-  if (el.setShowTemporarySessions) el.setShowTemporarySessions.checked = !!settings.showTemporarySessions;
-  const note = el.setShowTemporarySessionsNote;
-  if (note) {
-    // The setting applies to History from other apps in the Workspace.
-    const state = updateText(settings.showTemporarySessions ? "Shown in History from other apps" : "Hidden from History from other apps");
-    note.textContent = total > 0 ? `${state} · ${total}` : state;
-  }
 }
 
 // The main Sessions list is a cross-agent index. Pi history still comes from
@@ -3548,14 +3535,6 @@ async function runFullTextSearch(query) {
 el.search.addEventListener("input", () => { sessionRenderLimit = 120; renderSessionList(el.search.value); });
 el.btnRefresh.addEventListener("click", refreshSessions);
 $("btn-conversations")?.addEventListener("click", openConversationCatalog);
-el.setShowTemporarySessions?.addEventListener("change", () => {
-  settings = saveSettings({ showTemporarySessions: el.setShowTemporarySessions.checked });
-  if (!settings.showTemporarySessions) sessionsCache = sessionsCache.filter((session) => !session.isTemporary);
-  if (el.sessionCount) el.sessionCount.textContent = String(sessionListRecords().length);
-  renderTemporarySessionFilter(temporarySessionCount);
-  renderSessionList(el.search.value);
-  void refreshSessions();
-});
 el.btnLayout?.addEventListener("click", () => {
   settings = saveSettings({ groupByProject: !settings.groupByProject });
   renderSessionList(el.search.value);
@@ -10785,7 +10764,7 @@ function buildCommandItems() {
   items.push({ kind: "action", tag: "⌘", label: settings.showTemporarySessions
     ? (window.stepsembleI18n?.t("Hide Sub Agent sessions") || "Hide Sub Agent sessions")
     : (window.stepsembleI18n?.t("Show Sub Agent sessions") || "Show Sub Agent sessions"),
-    run: () => { settings = saveSettings({ showTemporarySessions: !settings.showTemporarySessions }); renderTemporarySessionFilter(temporarySessionCount); refreshSessions(); } });
+    run: () => { settings = saveSettings({ showTemporarySessions: !settings.showTemporarySessions }); refreshSessions(); } });
   const sessions = [...sessionsCache]
     .sort((a, b) => (Number(b.mtimeMs) || 0) - (Number(a.mtimeMs) || 0))
     .slice(0, 30);
@@ -13612,7 +13591,18 @@ function renderSettingsNavigation() {
   const updates = updatesSectionSummary();
   setSettingsSummary(el.settingsSummaryUpdates, updates.text);
   el.settingsUpdatesBadge?.classList.toggle("hidden", !updates.attention);
-  setSettingsSummary(el.settingsSummaryAdvanced, "Stepsemble v" + (window._appVersion || CLIENT_APP_VERSION));
+  setSettingsSummary(el.settingsSummaryAbout, "Stepsemble v" + (window._appVersion || CLIENT_APP_VERSION));
+  renderNotificationsSummary();
+}
+
+// The Notifications row in the section list shows whether this device gets alerts.
+function renderNotificationsSummary() {
+  const state = el.pushToggle?.dataset.pushState;
+  const text = state === "on" ? tKey("notifications.summaryOn")
+    : state === "enable" ? tKey("notifications.summaryOff")
+      : state === "unsupported" ? updateText("Not available")
+        : state === "denied" ? updateText("Blocked in browser settings") : null;
+  if (text !== null) setSettingsSummary(el.settingsSummaryNotifications, text);
 }
 
 // ===========================================================================
@@ -14093,7 +14083,6 @@ async function checkForClientUpdate() {
 }
 
 function renderSettings() {
-  el.setPiVersion.textContent = window._piVersion || "…";
   if (el.setAppVersion) el.setAppVersion.textContent = `v${window._appVersion || CLIENT_APP_VERSION}`;
   if (el.setLocale) el.setLocale.value = settings.locale || "en";
   el.setTheme.value = settings.theme;
@@ -14105,7 +14094,6 @@ function renderSettings() {
   el.setCompact.checked = !!settings.compact;
   el.setReducedMotion.checked = !!settings.reducedMotion;
   el.setThinking.value = settings.thinking;
-  renderTemporarySessionFilter(temporarySessionCount);
   const setupCopy = onboardingCopy();
   if (el.setupGuideTitle) el.setupGuideTitle.textContent = setupCopy.guideTitle;
   if (el.setupGuideSubtitle) el.setupGuideSubtitle.textContent = setupCopy.guideSubtitle;
@@ -14610,8 +14598,10 @@ function applyModelSettingsAgent() {
   el.opencodeProviderPanel?.classList.toggle("hidden", !opencode);
   el.codexGatewayPanel?.classList.toggle("hidden", !routed);
   el.agentModelPanel?.classList.toggle("hidden", !listed);
+  // Usage is read from Pi's own session files, so it belongs on Pi's page.
+  el.piUsagePanel?.classList.toggle("hidden", !pi);
   if (!agent) { void renderModelAgentList(); return; }
-  if (pi) void loadModelVisibility();
+  if (pi) { void loadModelVisibility(); void renderUsageSummary(); }
   if (opencode) void loadOpenCodeProviders();
   if (routed) { if (codexGatewayData) renderCodexGateway(); void loadCodexGateway(); }
   if (listed) void loadAgentModelList(agent);
@@ -15252,6 +15242,8 @@ function setPushToggleState(state) {
   el.pushToggle.textContent = labels[state] || labels.enable;
   el.pushToggle.dataset.pushState = state;
   el.pushToggle.disabled = state === "unsupported" || state === "denied";
+  el.pushUnsupportedNote?.classList.toggle("hidden", state !== "unsupported");
+  renderNotificationsSummary();
 }
 
 async function refreshPushToggleState() {
@@ -15357,7 +15349,7 @@ el.setLocale?.addEventListener("change", () => {
   if (projectChangesOpen()) renderProjectChanges();
   if (rpc?.streaming) setActivityLabel(rpc.activityLabel || "thinking");
   refreshActivityReceipts();
-  renderTemporarySessionFilter(temporarySessionCount);
+  renderNotificationsSummary();
   if (!el.onboarding?.classList.contains("hidden")) renderOnboarding();
   if (!el.viewModelSettings.classList.contains("hidden")) renderModelVisibility();
   if (agentTerminal) renderAgentTerminal();
@@ -15399,15 +15391,12 @@ el.harnessUpdateList?.addEventListener("click", (event) => {
 // Restores presentation preferences only. The language and the user's own
 // project organisation (pins, aliases, removed projects, pinned sessions) are
 // data, not interface defaults, so they survive a reset.
-const RESET_KEEPS_SETTINGS = Object.freeze(["locale", "projectPins", "projectAliases", "removedProjects", "sessionPins"]);
+// The reset sits on the Appearance page and resets that page's options only.
+// Language, projects, model choices and list filters are kept.
+const RESET_APPEARANCE_SETTINGS = Object.freeze(["theme", "designTheme", "fontScale", "compact", "thinking", "reducedMotion", "sidebarWidth"]);
 el.btnResetSettings?.addEventListener("click", () => {
   if (!confirm(tKey("settings.resetConfirm"))) return;
-  const kept = Object.fromEntries(RESET_KEEPS_SETTINGS.map((key) => [key, settings[key]]).filter(([, value]) => value !== undefined));
-  try {
-    localStorage.removeItem(SETTINGS_KEY);
-    for (const key of LEGACY_SETTINGS_KEYS || [LEGACY_SETTINGS_KEY]) localStorage.removeItem(key);
-  } catch {}
-  settings = saveSettings(kept);
+  settings = saveSettings(Object.fromEntries(RESET_APPEARANCE_SETTINGS.map((key) => [key, DEFAULT_SETTINGS[key]])));
   applyAppearance();
   renderSettings();
   renderSessionList(el.search.value);

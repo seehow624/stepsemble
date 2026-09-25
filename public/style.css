@@ -1,4 +1,4 @@
-/* stepsemble v3.4.0 — Ink & Ivory / English-first localization */
+/* stepsemble v3.5.0 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -4910,7 +4910,7 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
   -webkit-box-orient: vertical;
 }
 
-/* Local usage summary card (Settings → About): per-day token bars, no cloud. */
+/* Pi's local usage card (Models & providers → Pi): per-day token bars, no cloud. */
 .usage-summary {
   display: grid;
   gap: 9px;
@@ -4995,10 +4995,14 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
 #view-settings .settings-content-title { display: none; }
 #view-settings .settings-group[data-settings-category] { display: none; }
 #view-settings[data-settings-view="appearance"] .settings-group[data-settings-category="appearance"],
+#view-settings[data-settings-view="notifications"] .settings-group[data-settings-category="notifications"],
 #view-settings[data-settings-view="agents"] .settings-group[data-settings-category="agents"],
 #view-settings[data-settings-view="devices"] .settings-group[data-settings-category="devices"],
 #view-settings[data-settings-view="updates"] .settings-group[data-settings-category="updates"],
-#view-settings[data-settings-view="advanced"] .settings-group[data-settings-category="advanced"] { display: block; }
+#view-settings[data-settings-view="about"] .settings-group[data-settings-category="about"] { display: block; }
+/* Groups without a heading hold a single action or fact; keep their row tight. */
+#view-settings .settings-reset-group,
+#view-settings .settings-about-group { padding-top: 6px; padding-bottom: 6px; }
 
 .settings-nav { display: flex; flex-direction: column; gap: 12px; }
 .settings-host-card,
@@ -5622,6 +5626,7 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
 .model-agent-signin { display: flex; align-items: center; justify-content: space-between; gap: 10px 12px; flex-wrap: wrap; margin: 2px 0 12px; }
 .model-agent-signin .settings-note { margin: 0; flex: 1 1 220px; }
 .model-agent-signin .btn { min-height: 40px; }
+.pi-usage-panel .usage-summary { margin: 0 0 12px; }
 .agent-model-title { margin: 4px 0 6px; font-size: 13px; font-weight: 600; color: var(--ink); }
 .agent-model-list { display: flex; flex-direction: column; gap: 6px; }
 .agent-model-row { display: flex; flex-direction: column; gap: 2px; padding: 9px 12px; border: .5px solid var(--line); border-radius: 10px; background: var(--milk); min-width: 0; }

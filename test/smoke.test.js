@@ -286,28 +286,27 @@ test("folder browsing is restricted to the user home unless roots are explicitly
   assert.match(readme, /defaults to the user home; add `\/Volumes`/);
 });
 
-test("Sub Agent temporary sessions are opt-in in the session list", () => {
+test("Sub Agent sessions stay hidden until History from other apps shows them", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8").replace(/\r\n/g, "\n");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
-  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  const workspace = fs.readFileSync(path.join(root, "public", "modules", "workspace.js"), "utf8");
   const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");
   assert.match(server, /const TEMP_SESSION_ROOTS/);
   assert.match(server, /function isTemporarySessionCwd\(/);
   assert.match(server, /includeTemporary/);
   assert.match(server, /temporarySessionCount/);
-  assert.match(app, /showTemporarySessions/);
+  // The switch sits next to the list it filters; Settings keeps no copy.
+  assert.doesNotMatch(html, /id="set-show-temporary-sessions/);
+  assert.doesNotMatch(app, /setShowTemporarySessions|renderTemporarySessionFilter/);
+  assert.match(workspace, /api\("\/api\/sessions\?includeTemporary=1"/);
+  assert.match(workspace, /prefs\.showTemporarySessions \|\| !r\.record\.isTemporary/);
+  assert.match(workspace, /I\.savePreference\(localStorage, \{ showTemporarySessions: subAgentsBox\.checked \}\)/);
+  assert.match(workspace, /subAgents\.hidden = temporary === 0/);
+  // The older session list and the command palette follow the same choice.
   assert.match(app, /includeTemporary=\$\{includeTemporary\}/);
-  assert.match(app, /setShowTemporarySessions/);
-  assert.match(html, /id="set-show-temporary-sessions"/);
-  assert.match(html, /id="set-show-temporary-sessions-note"/);
-  assert.doesNotMatch(html, /id="temporary-session-filter"/);
-  assert.doesNotMatch(html, /id="show-temporary-sessions"/);
-  assert.doesNotMatch(css, /\.temporary-session-filter/);
+  assert.match(app, /saveSettings\(\{ showTemporarySessions: !settings\.showTemporarySessions \}\)/);
   assert.match(i18n, /Show Sub Agent sessions/);
-  assert.match(i18n, /Temporary workspaces are hidden by default/);
-  assert.match(app, /renderTemporarySessionFilter\(temporarySessionCount\)/);
-  assert.match(app, /renderSettings\(\)/);
   // New sessions surface in the sidebar without a manual reload: user message
   // starts and settled runs schedule a coalesced list refresh.
   assert.match(app, /function scheduleSessionListRefresh/);
@@ -762,12 +761,14 @@ test("simplified mobile UI keeps one project action, one model control, and port
 
   // Settings is split into sections; each group names the section it belongs to.
   const appearance = html.indexOf('<h3 class="group-title">Appearance</h3>');
+  const notifications = html.indexOf('data-settings-category="notifications"');
   const agents = html.indexOf('data-settings-category="agents"');
   const models = html.indexOf('id="model-settings-open"');
   const updates = html.indexOf('data-settings-category="updates"');
-  const about = html.indexOf('<h3 class="group-title">About</h3>');
-  assert.ok(appearance >= 0 && appearance < agents && agents < models && models < updates && updates < about);
-  for (const section of ["appearance", "agents", "devices", "updates", "advanced"]) {
+  const about = html.indexOf('data-settings-category="about"');
+  assert.ok(appearance >= 0 && appearance < notifications && notifications < agents && agents < models && models < updates && updates < about);
+  assert.doesNotMatch(html, /data-settings-(?:open|category)="advanced"/);
+  for (const section of ["appearance", "notifications", "agents", "devices", "updates", "about"]) {
     assert.match(html, new RegExp('data-settings-open="' + section + '"'));
     assert.match(css, new RegExp('\\[data-settings-view="' + section + '"\\] \\.settings-group\\[data-settings-category="' + section + '"\\]'));
   }
@@ -880,12 +881,9 @@ test("2.1.0 update center covers per-device state, idle apply, and partial updat
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   const i18n = fs.readFileSync(path.join(root, "public", "i18n.js"), "utf8");
   const updater = fs.readFileSync(path.join(root, "deploy", "stepsemble-update.sh"), "utf8");
-  const about = html.indexOf('<h3 class="group-title">About</h3>');
-  const advanced = html.indexOf('<h3 class="group-title">Advanced</h3>');
   const nav = html.indexOf('id="settings-nav"');
   const signOut = html.indexOf('id="btn-logout"');
   const content = html.indexOf('class="settings-content"');
-  assert.ok(about >= 0 && about < advanced, "Settings order should be About, then Advanced");
   assert.ok(nav >= 0 && nav < signOut && signOut < content, "Sign out belongs to the section list");
   assert.match(html, /id="update-device-list"/);
   // Checking and installing are separate actions: the section-wide button only
@@ -1258,7 +1256,7 @@ test("desktop Settings scrolls from anywhere while its content stays centered", 
   assert.match(app, /addEventListener\("wheel", forwardSettingsWheel, \{ passive: false \}\)/);
 });
 
-test("About usage summary keeps translated copy and quiet empty days", () => {
+test("Pi usage summary keeps translated copy and quiet empty days", () => {
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
@@ -1353,6 +1351,32 @@ test("single-key shortcuts stay out of text fields and dialogs", () => {
   assert.match(app, /const paletteOpen = el\.commandPalette && !el\.commandPalette\.classList\.contains\("hidden"\)/);
   assert.match(app, /!!document\.querySelector\("\.sheet-layer:not\(\.hidden\)"\)/);
   assert.match(app, /\(el\.onboarding && !el\.onboarding\.classList\.contains\("hidden"\)\)/);
+});
+
+test("Settings keeps each option in the section it belongs to", () => {
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const settingsView = html.slice(html.indexOf('id="view-settings"'), html.indexOf('id="view-model-settings"'));
+  const categoryOf = (id) => {
+    const at = settingsView.indexOf('id="' + id + '"');
+    assert.ok(at >= 0, id + " is in Settings");
+    return [...settingsView.slice(0, at).matchAll(/data-settings-category="([a-z]+)"/g)].at(-1)?.[1];
+  };
+  assert.equal(categoryOf("btn-reset-settings"), "appearance");
+  assert.equal(categoryOf("push-toggle"), "notifications");
+  assert.equal(categoryOf("model-settings-open"), "agents");
+  assert.equal(categoryOf("quota-sources-list"), "agents");
+  assert.equal(categoryOf("sync-compare"), "devices");
+  assert.equal(categoryOf("set-app-version"), "about");
+  assert.equal(categoryOf("btn-open-onboarding"), "about");
+  // Updates lists every agent's version, Pi included, so About does not repeat Pi's.
+  assert.doesNotMatch(html, /id="set-pi-version"/);
+  // Usage is counted from Pi's sessions only, so it is shown on Pi's page.
+  assert.doesNotMatch(settingsView, /id="usage-summary-card"/);
+  assert.match(html, /id="pi-usage-panel"[^>]*>\s*<div id="usage-summary-card"/);
+  assert.match(app, /el\.piUsagePanel\?\.classList\.toggle\("hidden", !pi\)/);
+  assert.match(html, /id="settings-summary-agents" data-i18n-key="settings\.summaryAgents"/);
+  assert.match(html, /id="settings-summary-notifications"/);
 });
 
 test("the command palette jumps into long Settings pages", () => {

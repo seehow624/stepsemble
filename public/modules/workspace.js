@@ -670,10 +670,19 @@
     const body = dialog(t("history")), epoch = dialogEpoch, target = host;
     body.append(node("p", t("historyInfo")));
     const search = node("input"); search.type = "search"; search.placeholder = t("historyPlaceholder"); search.setAttribute("aria-label", t("searchHistory"));
+    // Sub Agent sessions run in temporary folders and stay hidden until asked for.
+    // The choice is saved with the other settings.
+    const subAgents = node("label", "", "workspace-history-filter"), subAgentsBox = node("input"), subAgentsText = node("span");
+    subAgentsBox.type = "checkbox"; subAgentsBox.checked = prefs.showTemporarySessions; subAgents.append(subAgentsBox, subAgentsText); subAgents.hidden = true;
+    subAgentsBox.onchange = () => {
+      try { I.savePreference(localStorage, { showTemporarySessions: subAgentsBox.checked }); } catch {}
+      prefs = { ...prefs, showTemporarySessions: subAgentsBox.checked }; limit = 50; show();
+    };
     const status = node("p", t("loading")), list = node("div"), more = button(t("more"), () => { limit += 50; show(); });
-    let rows = [], limit = 50; body.append(search, status, list, more); more.hidden = true;
+    let rows = [], limit = 50; body.append(search, subAgents, status, list, more); more.hidden = true;
     function show() {
-      const query = search.value.trim().toLowerCase(), filtered = rows.filter(r => `${r.record.name} ${r.record.agentId} ${r.record.cwd}`.toLowerCase().includes(query));
+      const query = search.value.trim().toLowerCase(), filtered = rows.filter(r => (prefs.showTemporarySessions || !r.record.isTemporary)
+        && `${r.record.name} ${r.record.agentId} ${r.record.cwd}`.toLowerCase().includes(query));
       list.replaceChildren(); status.textContent = t("count", { count: filtered.length }); more.hidden = limit >= filtered.length;
       for (const row of filtered.slice(0, limit)) {
         const item = node("article", "", "workspace-history-row"), copy = node("div"); copy.append(node("strong", row.record.name || row.record.firstMessage || row.record.agentId || "Pi"), node("small", `${row.record.agentId || "pi"} · ${row.record.cwd || ""}`));
@@ -682,7 +691,7 @@
       }
     }
     search.oninput = () => { limit = 50; show(); };
-    const results = await Promise.allSettled([api(`/api/sessions?includeTemporary=${prefs.showTemporarySessions ? 1 : 0}`, undefined, target), api("/api/agent-tasks", undefined, target)]);
+    const results = await Promise.allSettled([api("/api/sessions?includeTemporary=1", undefined, target), api("/api/agent-tasks", undefined, target)]);
     if (epoch !== dialogEpoch) return;
     const [pi, agents] = results;
     rows = [...(pi.status === "fulfilled" ? pi.value.sessions.map(record => ({ kind: "pi_history", reference: record.file, record })) : []), ...(agents.status === "fulfilled" ? agents.value.tasks.filter(r => r.agentId !== "pi").map(record => ({ kind: "task_record", reference: record.id || record.taskId, record })) : [])];
@@ -691,6 +700,8 @@
       : (entry.record.id || entry.record.taskId) === row.reference
         || (entry.record.agentId === row.record.agentId && row.record.nativeHistorySessionId
           && [entry.record.nativeSessionId, entry.record.nativeThreadId].includes(row.record.nativeHistorySessionId))));
+    const temporary = rows.filter(row => row.record.isTemporary === true).length;
+    subAgentsText.textContent = t("showSubAgents", { count: temporary }); subAgents.hidden = temporary === 0;
     show(); if (results.some(r => r.status === "rejected")) status.textContent += ` · ${t("partialFailure")}`;
   }
   async function previewHistory(row, target) {
