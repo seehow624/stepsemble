@@ -1143,6 +1143,23 @@ function createCodexNativeHistoryAdapter({
     return typeof transport?.pendingApprovals === "function" ? transport.pendingApprovals() : [];
   }
 
+  // Codex reads its sign-in when its app-server starts. After /login or
+  // /logout, start a fresh app-server so reads use the current account. A
+  // connection with an open approval is left alone.
+  async function recycleTransport() {
+    if (!transport || transportPromise) return { recycled: false };
+    if (typeof transport.pendingApprovals === "function" && transport.pendingApprovals().length) return { recycled: false };
+    const instance = transport;
+    transport = null;
+    usageCache.clear();
+    usageObservationCache.clear();
+    threadCache.clear();
+    state = { ...state, ready: false, sessionReady: false, mutationReady: false, approvalReady: false, state: "configured" };
+    try { await instance.close?.(); } catch {}
+    await refresh();
+    return { recycled: true };
+  }
+
   async function close() {
     const instance = transport;
     transport = null;
@@ -1161,6 +1178,7 @@ function createCodexNativeHistoryAdapter({
     status,
     capability,
     refresh,
+    recycleTransport,
     listThreads,
     readThread,
     listThreadTurns,

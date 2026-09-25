@@ -175,6 +175,28 @@ test("capacity evicts only proven-idle children and never evicts a busy or appro
   assert.equal(pool.status().childCount, 2);
 });
 
+test("after a sign-in change, recycleIdle closes idle children, keeps a running turn, and restarts the shared reader", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-pool-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+  const history = historyFixture();
+  history.recycleTransport = async () => { history.calls.push(["recycleTransport"]); return { recycled: true }; };
+  const harness = childFactoryHarness();
+  const pool = createCodexNativePool({ historyAdapter: history, createThreadAdapter: harness.factory, maxChildren: 4, journalRoot: root });
+  t.after(() => pool.close());
+  await pool.resumeThread({ threadId: "thread-a" });
+  await pool.resumeThread({ threadId: "thread-b" });
+  await pool.startTurn([{ type: "text", text: "busy" }], {}, "thread-b");
+
+  assert.deepEqual(await pool.recycleIdle(), { closed: 1, busy: 1 });
+  assert.deepEqual(harness.calls.filter(row => row[0] === "close").map(row => row[1]), ["thread-a"]);
+  assert.equal(history.calls.filter(row => row[0] === "recycleTransport").length, 1);
+  assert.equal(pool.status().childCount, 1);
+  assert.equal(pool.nativeState("thread-b").turnId, "turn-thread-b");
+  // The next message to the closed thread starts a fresh child.
+  await pool.resumeThread({ threadId: "thread-a" });
+  assert.equal(harness.created.filter(child => child.options.threadId === "thread-a").length, 2);
+});
+
 test("factory failures are fail-closed, capacity is atomic, and close invalidates pending reservations", async t => {
   const history = historyFixture();
   let creates = 0;

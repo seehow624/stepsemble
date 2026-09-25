@@ -254,17 +254,21 @@ test("Task center keeps the mobile inbox compact, searchable, and independently 
   assert.match(app, /stop\.setAttribute\("aria-label"/);
 });
 
-test("Claude sign-in lives in Settings instead of the Sessions hub", () => {
+test("agents sign in from the conversation terminal, not from a Settings form", () => {
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
-  const hubStart = html.indexOf('id="agent-hub-card"');
-  const settingsStart = html.indexOf('id="view-settings"');
-  const auth = html.indexOf('id="claude-auth"');
-  assert.ok(hubStart >= 0 && settingsStart > hubStart && auth > settingsStart);
-  assert.doesNotMatch(html.slice(hubStart, settingsStart), /id="claude-auth"/);
-  assert.match(html, /data-settings-target="agent-auth"/);
-  assert.match(app, /isVisible:\s*\(\)\s*=>[^\n]*viewSettings[^\n]*classList\.contains\("hidden"\)/);
-  assert.match(app, /function hideSettings\(\)[\s\S]{0,320}claudeAuthClient\?\.pause\(\)/);
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  assert.doesNotMatch(html, /id="claude-auth"/);
+  assert.doesNotMatch(html, /id="provider-preset-list"|id="provider-auth-account"|id="provider-simple-api-key"/);
+  assert.match(html, /data-settings-target="agent-auth"[\s\S]{0,300}agentTerminal\.settingsNote/);
+  assert.match(html, /id="agent-terminal"/);
+  assert.match(html, /data-settings-target="quota-sources"/);
+  assert.match(app, /function openAgentTerminal\(/);
+  assert.match(app, /agentTerminalApi\?\.parseCommand\(text\)/);
+  assert.match(app, /function agentTerminalSlashItems\(/);
+  assert.match(server, /\/api\/agent-auth\/stream/);
+  assert.match(server, /\/api\/agent-auth\/catalog/);
+  assert.match(server, /\/api\/quota-sources/);
 });
 
 test("folder browsing is restricted to the user home unless roots are explicitly added", () => {
@@ -396,13 +400,8 @@ test("thinking level survives model and session switches", () => {
   assert.match(app, /function syncThinkingLevelSupport/);
   assert.match(app, /\{model\} does not support \{level\} thinking; using \{actual\}/);
   assert.match(i18n, /\"\{model\} does not support \{level\} thinking; using \{actual\}\"/);
-  // Ollama exposes thinking through /api/show, not the /api/tags model list;
-  // preserve the provider-specific map so Ollama's max level is registered.
-  assert.match(server, /function enrichOllamaModels\(models, preset, apiKey = \"\"\)/);
-  assert.match(server, /new URL\("\/api\/show", preset\.modelsUrl \|\| preset\.baseUrl\)/);
-  assert.match(server, /capabilities\.includes\("thinking"\)/);
-  assert.match(server, /thinkingLevelMap/);
-  assert.match(server, /max: \"max\"/);
+  // Custom providers keep their per-model thinking maps.
+  assert.match(server, /sanitizeThinkingLevelMap/);
 });
 
 test("resource sync compares device inventories read-only", () => {
@@ -452,7 +451,7 @@ test("task progress mirrors Pi widgets and plan markers with a reconnect-safe sn
   assert.match(css, /task-progress-step\.active/);
 });
 
-test("model settings expose a unified provider list without returning secrets", () => {
+test("model settings keep model visibility and custom providers without returning secrets", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
@@ -460,40 +459,20 @@ test("model settings expose a unified provider list without returning secrets", 
   assert.match(server, /\/api\/model-providers/);
   assert.match(server, /hasApiKey/);
   assert.match(server, /deleteModelProvider/);
-  assert.match(server, /PROVIDER_PRESETS/);
-  assert.match(server, /FREE_PROVIDER_PRESETS/);
-  assert.match(server, /GENERIC_PROVIDER_PRESETS/);
-  assert.match(server, /NOUS_PORTAL_BASE_URL/);
-  assert.match(server, /loginNousProvider/);
+  // Stepsemble adds no providers of its own; Pi's /login lists Pi's.
+  assert.doesNotMatch(server, /FREE_PROVIDER_PRESETS|GENERIC_PROVIDER_PRESETS|NOUS_PORTAL_BASE_URL|loginNousProvider|\/api\/provider-free\/setup/);
+  assert.match(server, /runtime\.models\.getProviders\(\)/);
   assert.match(server, /\/api\/provider-auth\/start/);
   assert.match(server, /\/api\/provider-auth\/delete/);
-  assert.match(server, /\/api\/provider-free\/setup/);
   assert.match(server, /AuthStorage\.create/);
   assert.match(app, /function openProviderDialog/);
-  assert.match(app, /providerCatalogReadOnly/);
-  assert.match(app, /older Stepsemble/);
-  assert.match(app, /Provider management requires Stepsemble 1\.10\.5/);
-  assert.match(app, /function beginProviderAuth/);
-  assert.match(app, /function renderProviderPresets/);
-  assert.match(app, /PROVIDER_CATEGORY_META/);
-  assert.match(app, /providerFilter/);
-  assert.match(app, /找不到/);
-  assert.match(app, /function beginFreeProvider/);
+  assert.doesNotMatch(app, /function renderProviderPresets|function beginProviderAuth|function beginFreeProvider|PROVIDER_CATEGORY_META/);
   assert.match(app, /function renderModelVisibility/);
   assert.match(app, /function showModelSettings/);
   assert.match(html, /id="provider-add"/);
   assert.match(html, /id="model-filter"/);
   assert.match(html, /id="provider-dialog"/);
-  assert.match(html, /id="provider-preset-list"/);
-  assert.match(html, /id="provider-filter"/);
-  assert.match(html, /id="provider-auth-account"/);
-  assert.match(html, /id="provider-auth-api"/);
-  assert.match(html, /id="provider-free-start"/);
-  assert.match(html, /id="provider-auth-remove"/);
-  assert.match(html, /id="provider-switch-device"/);
-  assert.match(app, /providerSwitchDevice/);
-  assert.match(app, /switchMachine\(selfId, true\)/);
-  assert.match(html, /id="provider-advanced-toggle"/);
+  assert.match(html, /id="provider-advanced-fields"/);
   assert.match(html, /id="view-model-settings"/);
   assert.match(html, /id="model-settings-open"/);
 });
@@ -502,7 +481,7 @@ test("provider auth retries cancel abandoned native OAuth runs", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   assert.match(server, /function cancelActiveProviderAuth\(providerId\)/);
-  assert.match(server, /await cancelActiveProviderAuth\(preset\.id\)/);
+  assert.match(server, /await cancelActiveProviderAuth\(id\)/);
   assert.match(server, /EADDRINUSE/);
   assert.match(server, /terminal\?\.type === "error"/);
   assert.match(server, /Sign-in already completed/);
@@ -511,8 +490,9 @@ test("provider auth retries cancel abandoned native OAuth runs", () => {
   assert.match(server, /cancelledReason = "timeout"/);
   assert.match(server, /reason: run\.cancelledReason/);
   assert.match(server, /cancelProviderAuth\(run\.id, "replaced"\)/);
-  assert.match(app, /providerAuthUrl/);
-  assert.match(app, /Open official sign-in page/);
+  // Pi's /login in the conversation terminal shows the sign-in link and code.
+  assert.match(app, /function handlePiLoginEvent\(/);
+  assert.match(app, /event\.type === "device_code"/);
 });
 
 test("device dialog includes an accessible setup guide", () => {
@@ -732,24 +712,16 @@ test("project groups expose Codex-style actions without nesting buttons", () => 
   // the search box and Sub Agent filter above it in every scrollbar mode.
   assert.match(css, /#view-list \.session-list \{[\s\S]*?scrollbar-width: none/);
   assert.match(css, /#view-list \.session-list::-webkit-scrollbar \{ display: none; \}/);
-  assert.doesNotMatch(css, /#view-list \.session-list \{[\s\S]*?scrollbar-gutter: stable/);
+  assert.doesNotMatch(css, /#view-list \.session-list \{[^}]*scrollbar-gutter: stable/);
 });
 
-test("provider catalog keeps MiniMax regions separate and exposes a direct API key form", () => {
+test("custom provider editor keeps its own API key field and styles", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
-  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
-  assert.match(server, /id: "minimax".*api\.minimax\.io/);
-  assert.match(server, /id: "minimax-cn".*api\.minimaxi\.com/);
   assert.match(server, /cleanProviderApiKey/);
   assert.match(server, /suppliedApiKey/);
-  assert.match(app, /function showProviderApiKeyEntry/);
-  assert.match(app, /function saveProviderApiKey/);
-  assert.match(html, /id="provider-simple-api-key"/);
-  assert.match(html, /provider-advanced-entry/);
-  assert.match(css, /provider-simple-status\.is-readonly/);
-  assert.match(css, /provider-auth-back::before/);
+  assert.match(html, /id="provider-api-key"/);
   assert.match(css, /max-height: 10000px/);
 });
 

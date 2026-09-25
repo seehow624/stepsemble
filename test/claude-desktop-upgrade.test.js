@@ -36,7 +36,7 @@ test("upgrade accepts signed-out Aqua auth but requires structured stream v1 aft
   const { validateUpgradePreflight, validateUpgradedHelper } = await installer;
   assert.equal(validateUpgradePreflight({ status: status(), health: health() }).credentialState, "signed_out");
   assert.throws(() => validateUpgradedHelper({ status: status(), health: health() }), error => error.code === "upgrade_structured_stream_unsupported");
-  assert.equal(validateUpgradedHelper({ status: status(), health: health({ structuredStreamVersion: 1, activeStructured: 0 }) }).activeStructured, 0);
+  assert.equal(validateUpgradedHelper({ status: status(), health: health({ structuredStreamVersion: 1, terminalVersion: 1, activeStructured: 0 }) }).activeStructured, 0);
 });
 
 async function fixture(t, { brokenAfterBootstrap = false } = {}) {
@@ -63,7 +63,7 @@ async function fixture(t, { brokenAfterBootstrap = false } = {}) {
     if (file === "/bin/launchctl" && args[0] === "bootstrap") { loaded = true; bootstrapCount++; phase = brokenAfterBootstrap && bootstrapCount === 1 ? "broken" : bootstrapCount > 1 ? "old" : "new"; }
     return undefined;
   };
-  const clientFactory = () => ({ status: async () => status(), health: async () => phase === "old" ? health() : health({ structuredStreamVersion: phase === "broken" ? 0 : 1, activeStructured: 0 }), close() {} });
+  const clientFactory = () => ({ status: async () => status(), health: async () => phase === "old" ? health() : health({ structuredStreamVersion: phase === "broken" ? 0 : 1, terminalVersion: 1, activeStructured: 0 }), close() {} });
   const stageRuntime = async ({ runtimeRoot: root }) => { const release = await fs.mkdtemp(path.join(root, "candidate-test-")); await fs.mkdir(path.join(release, "server"), { mode: 0o700 }); await fs.writeFile(path.join(release, "server", "claude-desktop-entry.js"), "new", { mode: 0o700 }); return release; };
   t.after(() => fs.rm(home, { recursive: true, force: true }));
   return { home, configDir, configFile, plistFile, runtimeRoot, oldPlist, originalConfig, originalKey, originalPlist, calls, runImpl, clientFactory, stageRuntime };
@@ -99,7 +99,7 @@ test("current helper maintenance lease is used only when advertised by health", 
   const runImpl = async (file, args, options) => { const value = await f.runImpl(file, args, options); if (file === "/bin/launchctl" && args[0] === "bootstrap") upgraded = true; return value; };
   const clientFactory = () => ({
     status: async () => status(),
-    health: async () => upgraded ? health({ structuredStreamVersion: 1, activeStructured: 0 }) : health({ maintenanceVersion: 1, maintenance: { active: locked, expiresAt: locked ? Date.now() + 30000 : null } }),
+    health: async () => upgraded ? health({ structuredStreamVersion: 1, terminalVersion: 1, activeStructured: 0 }) : health({ maintenanceVersion: 1, maintenance: { active: locked, expiresAt: locked ? Date.now() + 30000 : null } }),
     prepareUpgrade: async () => { prepares++; locked = true; return { token: uuid, instance: uuid, expiresAt: Date.now() + 30000, maintenanceVersion: 1 }; },
     cancelUpgrade: async () => { cancels++; locked = false; return health({ maintenanceVersion: 1, maintenance: { active: false, expiresAt: null } }); },
     close() {},

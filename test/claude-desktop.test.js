@@ -159,3 +159,35 @@ test("missing helper and unsafe socket/key permissions fail closed without a loc
   await assert.rejects(f.client.launchTask(f.task()));
   assert.equal(await fs.readFile(path.join(f.home, "task-attempts"), "utf8").catch(() => ""), "");
 });
+
+test("the desktop terminal runs only Claude's fixed auth commands and pauses task launches while signing in", unix, async t => {
+  const f = await fixture(t);
+  const health = await f.client.health();
+  assert.equal(health.terminalVersion, 1);
+  assert.equal(await f.client.terminalSupported(), true);
+  assert.equal((await f.raw("terminal/start", { action: "login", choice: "subscription", cols: 80, rows: 24, command: "/bin/sh" })).body.code, "invalid_request");
+  assert.equal((await f.raw("terminal/start", { action: "exec", choice: "default", cols: 80, rows: 24 })).body.code, "invalid_request");
+  assert.equal((await f.raw("terminal/start", { action: "login", choice: "shell", cols: 80, rows: 24 })).body.code, "action_unsupported");
+  const started = await f.client.terminalStart({ action: "login", choice: "subscription", cols: 80, rows: 24 });
+  await assert.rejects(f.client.terminalStart({ action: "status", choice: "default", cols: 80, rows: 24 }), error => error.code === "auth_run_active");
+  assert.equal((await f.raw("task/prepare", f.task())).body.code, "claude_login_active");
+  let after = 0, text = "";
+  const drain = async () => {
+    const page = await f.client.terminalRead({ id: started.id, after });
+    for (const event of page.events) { after = event.seq; text += Buffer.from(event.data, "base64").toString("utf8"); }
+    return page;
+  };
+  await until(async () => { await drain(); return text.includes("Paste code here"); });
+  assert.match(text, /https:\/\/example\.invalid/);
+  await f.client.terminalInput({ id: started.id, data: "synthetic-desktop-code\r", secret: true });
+  let page;
+  await until(async () => { page = await drain(); return page.done; });
+  assert.equal(page.state, "completed");
+  assert.match(text, /Login successful/);
+  assert.ok(!text.includes("synthetic-desktop-code"), "the pasted code is masked in the relayed output");
+  const status = await f.client.terminalStart({ action: "status", choice: "default", cols: 80, rows: 24 });
+  after = 0; text = "";
+  await until(async () => { page = await f.client.terminalRead({ id: status.id, after }); for (const event of page.events) { after = event.seq; text += Buffer.from(event.data, "base64").toString("utf8"); } return page.done; });
+  assert.match(text, /synthetic Claude account/);
+});
+

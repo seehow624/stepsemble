@@ -24,7 +24,7 @@ function createDesktopClaudeClient({ configDir, timeoutMs = 45000, hasActiveTask
   const paths = desktopPaths(configDir), requests = new Set(), upgradedSockets = new Set();
   let cached = null, closed = false;
   function offline(state = "desktop_required") { return { credential: { state, checkedAt: null, liveVerified: false }, canStart: false, blockedReason: null, login: null }; }
-  async function call(op, body = {}) {
+  async function call(op, body = {}, { maxBytes = 8192 } = {}) {
     if (closed) throw failure("service_closed");
     await privateDirectory(paths.directory); await privateDirectory(paths.socketDirectory);
     const key = (await privateRead(paths.key, 128)).trim(), socket = await fs.lstat(paths.socket);
@@ -34,12 +34,13 @@ function createDesktopClaudeClient({ configDir, timeoutMs = 45000, hasActiveTask
       const req = http.request({ socketPath: paths.socket, method: "POST", path: `/v1/${op}`, agent: false,
         headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "connection": "close" } }, res => {
         let bytes = 0, chunks = [];
-        res.on("data", chunk => { bytes += chunk.length; if (bytes > 8192) req.destroy(failure("desktop_required", sent)); else chunks.push(chunk); });
+        res.on("data", chunk => { bytes += chunk.length; if (bytes > maxBytes) req.destroy(failure("desktop_required", sent)); else chunks.push(chunk); });
         res.on("error", () => req.destroy(failure("desktop_required", sent)));
         res.on("end", () => {
           let value; try { value = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { reject(failure("desktop_required", sent)); return; }
           if (res.statusCode !== 200) {
-            const codes = ["invalid_request", "stale_intent", "active_tasks", "other_auth", "login_unavailable", "service_closed", "claude_login_active", "desktop_recovery_required", "desktop_workspace_denied", "desktop_capacity", "desktop_sign_in_required", "desktop_launch_uncertain", "desktop_structured_unavailable", "desktop_structured_launch_uncertain", "desktop_structured_stream_failed", "desktop_structured_stream_closed"];
+            const codes = ["invalid_request", "stale_intent", "active_tasks", "other_auth", "login_unavailable", "service_closed", "claude_login_active", "desktop_recovery_required", "desktop_workspace_denied", "desktop_capacity", "desktop_sign_in_required", "desktop_launch_uncertain", "desktop_structured_unavailable", "desktop_structured_launch_uncertain", "desktop_structured_stream_failed", "desktop_structured_stream_closed",
+              "auth_run_active", "run_not_found", "run_ended", "secret_required", "action_unsupported"];
             reject(failure(codes.includes(value.code) ? value.code : "desktop_required", value.uncertain === true)); return;
           }
           resolve(value);
@@ -301,9 +302,41 @@ function createDesktopClaudeClient({ configDir, timeoutMs = 45000, hasActiveTask
     if (value.maintenanceVersion !== 1 || !UUID.test(value.instance)) throw failure("desktop_required");
     return value;
   }
+  // Conversation terminal (/login, /logout, /status) for Claude. Older
+  // helpers do not report terminalVersion; callers then keep the host-browser
+  // sign-in and offer the helper update.
+  let terminalCheck = null;
+  async function terminalSupported() {
+    if (terminalCheck && Date.now() - terminalCheck.at < 30000) return terminalCheck.value;
+    let value = false;
+    try { const health = await call("health"); value = health?.context === "Aqua" && health.terminalVersion === 1; } catch {}
+    terminalCheck = { at: Date.now(), value };
+    return value;
+  }
+  async function terminalStart({ action, choice, cols, rows }) {
+    const value = await call("terminal/start", { action, choice, cols, rows });
+    if (!UUID.test(value?.id)) throw failure("desktop_required");
+    return { id: value.id, state: value.state };
+  }
+  async function terminalRead({ id, after }) {
+    if (!UUID.test(id)) throw failure("invalid_request");
+    const value = await call("terminal/read", { id, after }, { maxBytes: 128 * 1024 });
+    if (value?.id !== id || !Array.isArray(value.events)) throw failure("desktop_required");
+    return value;
+  }
+  async function terminalInput({ id, data, key, secret }) {
+    if (!UUID.test(id)) throw failure("invalid_request");
+    return call("terminal/input", { id, ...(typeof key === "string" ? { key } : { data }), ...(secret === true ? { secret: true } : {}) });
+  }
+  async function terminalCancel({ id }) {
+    if (!UUID.test(id)) throw failure("invalid_request");
+    return call("terminal/cancel", { id });
+  }
   return Object.freeze({ status, health: () => call("health"), prepare: () => authAction("prepare"), start: id => authAction("start", id), cancel: id => authAction("cancel", id), launchTask,
     launchStructured,
     prepareUpgrade, cancelUpgrade,
+    terminalSupported, terminalStart, terminalRead, terminalInput, terminalCancel,
+    resetTerminalCheck: () => { terminalCheck = null; },
     snapshot: () => cached || offline(), isBusy: () => ["prepared", "starting", "waiting", "verifying", "cancelling"].includes(cached?.login?.state),
     close() { closed = true; for (const req of requests) req.destroy(); for (const socket of upgradedSockets) { try { socket.destroy(); } catch {} } } });
 }

@@ -1,5 +1,28 @@
 # Claude Code 官方登入入口
 
+> **3.3.0（2026-09-25）**：設定頁的 Claude Code 登入面板已移除。登入改在 Claude Code
+> 對話輸入 `/login`、`/logout`、`/status`，由對話終端機執行官方指令。下方「3.3.0」一節
+> 之後的內容，是 3.0.4–3.2.x 設定頁入口的歷史紀錄。
+
+## 3.3.0：對話終端機
+
+- 指令固定為 `--safe-mode auth status --text`、`--safe-mode auth login --claudeai`（訂閱）
+  或 `--console`（Console 帳號）、`--safe-mode auth logout`，不接受其他參數。
+  其他 Agent（Codex、OpenCode、Kilo、Hermes、Grok Build、Cline、Antigravity）用同一個
+  終端機執行各自的指令，清單在 `server/agent-auth.js`；Pi 經自己的 runtime 列出服務商。
+- macOS 以 SSH 啟動的主機仍經桌面助手在 Aqua 執行（`terminal/*` IPC，見
+  [`claude-desktop-runner.md`](claude-desktop-runner.md)）。舊助手沒有 `terminalVersion`，
+  介面會提供「更新助手」，或退回原本在主機瀏覽器開啟的登入（`/api/claude-auth/*` 保留）。
+- 邊界改變：舊入口不讀登入輸出，也要求不要把授權碼貼進 Stepsemble。新入口為了讓手機
+  也能完成登入，會把官方 CLI 的輸出（包括 OAuth 連結）顯示在終端機，並把使用者貼上的
+  授權碼寫進該 CLI 的 stdin。隱藏的輸入在輸出中以圓點取代、執行結束就丟棄；沒有隱藏的
+  輸入會像一般終端機一樣回顯。輸出只在主機記憶體保留到結束後 5 分鐘，不寫 journal、
+  localStorage 或日誌。
+- 登入與登出要等助手上沒有 Claude 工作才能開始；登入進行中也會暫停新的 Claude 工作。
+- 驗證：`test/agent-auth.test.js`、`test/claude-desktop.test.js` 使用合成 CLI 與隔離 HOME；
+  `scripts/agent-terminal-browser-cases.mjs` 在 1440／390px 檢查連結、代碼、遮蔽輸入、
+  欄寬與版面，取代原本的設定頁登入瀏覽器案例。還沒有用真實帳號從手機完成整個登入。
+
 最新狀態（2026-09-06 22:44 MYT）：Mini／MBP 正式為 3.0.6。Jerome 回報已完成
 瀏覽器登入，Mini 桌面助手回 `completed`／`detected`；另獲同意的單次直接 Aqua
 Claude 2.1.259 模型／串流／新 session 歷史讀回通過。metadata API 仍保留

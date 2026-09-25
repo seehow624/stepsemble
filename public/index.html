@@ -6,15 +6,15 @@
 <title>Stepsemble</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=3.2.4">
-<link rel="icon" href="/icon-16.png?v=3.2.4" sizes="16x16" type="image/png">
-<link rel="icon" href="/icon-32.png?v=3.2.4" sizes="32x32" type="image/png">
-<link rel="icon" href="/icon-512.png?v=3.2.4" sizes="512x512" type="image/png">
-<link rel="apple-touch-icon" href="/icon-180.png?v=3.2.4">
-  <link rel="stylesheet" href="/style.css?v=3.2.4">
-  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.2.4">
-  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.2.4">
-<link rel="stylesheet" href="/modules/workspace-embedded.css?v=3.2.4">
+<link rel="manifest" href="/manifest.webmanifest?v=3.3.0">
+<link rel="icon" href="/icon-16.png?v=3.3.0" sizes="16x16" type="image/png">
+<link rel="icon" href="/icon-32.png?v=3.3.0" sizes="32x32" type="image/png">
+<link rel="icon" href="/icon-512.png?v=3.3.0" sizes="512x512" type="image/png">
+<link rel="apple-touch-icon" href="/icon-180.png?v=3.3.0">
+  <link rel="stylesheet" href="/style.css?v=3.3.0">
+  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.3.0">
+  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.3.0">
+<link rel="stylesheet" href="/modules/workspace-embedded.css?v=3.3.0">
 </head>
 <body>
 
@@ -34,6 +34,8 @@
   <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11a2 2 0 0 1 2 2v15a2 2 0 0 0-2-2H6.5A2.5 2.5 0 0 0 4 20.5zM20 5.5A2.5 2.5 0 0 0 17.5 3H13v15a2 2 0 0 1 2-2h2.5A2.5 2.5 0 0 1 20 18.5z"/></symbol>
   <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M12.5 15H17"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M4 4l16 16M9.9 5.8A9.6 9.6 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-3 3.7M6.3 7.8A17.3 17.3 0 0 0 2.5 12S6 18.5 12 18.5a9.3 9.3 0 0 0 4.2-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></symbol>
   <symbol id="i-folder-filled" viewBox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2h6.5A2.5 2.5 0 0 1 21 8.5v8A3.5 3.5 0 0 1 17.5 20h-12A2.5 2.5 0 0 1 3 17.5z"/></symbol>
   <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
   <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"/></symbol>
@@ -408,20 +410,7 @@
 
           <section class="settings-group" data-settings-category="agents" data-settings-target="agent-auth">
             <h3 class="group-title">Agent sign-in</h3>
-            <p class="settings-note">Sign in with each agent's official account on the selected host.</p>
-            <details id="claude-auth" class="claude-auth settings-disclosure">
-              <summary data-i18n-key="claudeAuth.title">Claude Code sign-in</summary>
-              <p id="claude-auth-status" role="status" aria-live="polite" data-i18n-key="claudeAuth.unchecked">Sign-in status has not been checked.</p>
-              <p id="claude-auth-credential" class="hidden"></p>
-              <p id="claude-auth-note" class="settings-note" data-i18n-ignore></p>
-              <div class="claude-auth-actions">
-                <button id="claude-auth-start" type="button" class="btn primary" data-i18n-key="claudeAuth.start" disabled>Open official sign-in</button>
-                <button id="claude-auth-refresh" type="button" class="btn ghost" data-i18n-key="claudeAuth.refresh">Check status</button>
-                <button id="claude-auth-cancel" type="button" class="btn ghost hidden" data-i18n-key="claudeAuth.cancel">Cancel this sign-in</button>
-              </div>
-              <p class="settings-note" data-i18n-key="claudeAuth.fallback">If the host browser does not open or asks for a code, cancel this attempt first, then use the command below in the official terminal on that host. Do not paste codes into Stepsemble.</p>
-              <code class="claude-auth-command" data-i18n-ignore>claude auth login --claudeai</code>
-            </details>
+            <p class="settings-note" data-i18n-key="agentTerminal.settingsNote">Each agent signs in with its own commands. Open a conversation with the agent and type /login, /logout or /status.</p>
             <details id="opencode-connection" class="claude-auth settings-disclosure">
               <summary>OpenCode connection</summary>
               <p id="opencode-connection-status" role="status" aria-live="polite">Check the native connection on the selected computer.</p>
@@ -431,6 +420,15 @@
                 <button id="opencode-connection-refresh" type="button" class="btn ghost">Check connection</button>
               </div>
             </details>
+          </section>
+
+          <section class="settings-group" data-settings-category="agents" data-settings-target="quota-sources">
+            <div class="settings-group-heading">
+              <h3 class="group-title" data-i18n-key="quotaSources.title">Quota sources</h3>
+              <button id="quota-sources-refresh" class="icon-button-small" type="button" data-i18n-title-key="quotaSources.refresh" data-i18n-aria-key="quotaSources.refresh" title="Refresh" aria-label="Refresh"><svg class="icon"><use href="#i-refresh"></use></svg></button>
+            </div>
+            <p class="settings-note" data-i18n-key="quotaSources.note">Limits come from each agent's own sign-in and from quota services on the selected host, such as OpenCodex.</p>
+            <div id="quota-sources-list" class="quota-sources-list" role="status" aria-live="polite"></div>
           </section>
 
           <section class="settings-group" data-settings-category="agents">
@@ -553,7 +551,7 @@
             </div>
             <div class="settings-row">
               <span><strong>Stepsemble</strong><small data-i18n-key="agentHub.workspace">A workspace for local coding agents</small></span>
-              <span class="settings-value" id="set-app-version">v3.2.4</span>
+              <span class="settings-value" id="set-app-version">v3.3.0</span>
             </div>
             <div class="settings-row">
               <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -720,55 +718,11 @@
     <div class="sheet provider-dialog">
       <div class="sheet-handle"></div>
       <div class="sheet-heading-row">
-        <div><p class="eyebrow">MODEL PROVIDER</p><h2 id="provider-dialog-title">Add provider</h2></div>
+        <div><p class="eyebrow">MODEL PROVIDER</p><h2 id="provider-dialog-title">Custom provider</h2></div>
         <button id="provider-cancel" class="btn ghost icon-btn" type="button" title="Close" aria-label="Close"><svg class="icon"><use href="#i-x"></use></svg></button>
       </div>
-      <div id="provider-simple-flow">
-        <p class="settings-note provider-dialog-note">Choose a service, then sign in or provide an API key. Pi handles the technical setup.</p>
-        <input id="provider-filter" class="provider-filter" type="search" autocomplete="off" spellcheck="false" placeholder="Search providers…" aria-label="Search providers">
-        <div id="provider-preset-list" class="provider-preset-list" role="listbox" aria-label="Provider list">
-          <p class="settings-note">Loading provider list…</p>
-        </div>
-        <div id="provider-auth-options" class="provider-auth-options hidden">
-          <div class="provider-selected-copy">
-            <strong id="provider-selected-name">Choose a service</strong>
-            <span id="provider-selected-description"></span>
-          </div>
-          <button id="provider-auth-account" class="settings-navigation-row hidden" type="button">
-            <span><strong>Sign in with an account</strong><small>Open the official sign-in flow; credentials stay on this device</small></span>
-            <span class="row-chevron">→</span>
-          </button>
-          <button id="provider-auth-api" class="settings-navigation-row hidden" type="button">
-            <span><strong>Use an API key</strong><small>Paste a key from this service and Pi will configure it</small></span>
-            <span class="row-chevron">→</span>
-          </button>
-          <div id="provider-api-key-entry" class="provider-api-key-entry hidden">
-            <label class="field-label" for="provider-simple-api-key">API key</label>
-            <input id="provider-simple-api-key" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" placeholder="Paste API key">
-            <p class="settings-note">The key is stored only on this device. Pi will validate it and load available models.</p>
-            <div class="provider-key-actions">
-              <button id="provider-api-key-back" class="btn ghost" type="button">Back</button>
-              <button id="provider-api-key-save" class="btn primary" type="button">Save and check</button>
-            </div>
-          </div>
-          <button id="provider-free-start" class="settings-navigation-row hidden" type="button">
-            <span><strong>Use directly</strong><small>No account or API key required; Pi reads local models</small></span>
-            <span class="row-chevron">→</span>
-          </button>
-          <button id="provider-auth-remove" class="btn ghost danger-text hidden" type="button">Remove sign-in</button>
-          <button id="provider-auth-back" class="btn ghost provider-auth-back" type="button">Back to provider list</button>
-        </div>
-        <p id="provider-simple-status" class="settings-note provider-simple-status" role="status"></p>
-        <button id="provider-switch-device" class="btn ghost provider-switch-device hidden" type="button">Switch device</button>
-        <button id="provider-advanced-toggle" class="provider-advanced-entry" type="button">
-          <span class="provider-advanced-icon"><svg class="icon"><use href="#i-settings"></use></svg></span>
-          <span class="provider-advanced-copy"><strong>Custom provider</strong><small>For self-hosted endpoints or special APIs</small></span>
-          <span class="row-chevron">→</span>
-        </button>
-      </div>
-
-      <div id="provider-advanced-fields" class="hidden">
-        <p class="settings-note provider-dialog-note">Advanced settings are saved in <span class="mono">~/.pi/agent/models.json</span>. For regular services, go back and choose one instead.</p>
+      <div id="provider-advanced-fields">
+        <p class="settings-note provider-dialog-note" data-i18n-key="provider.customNote">For self-hosted endpoints and other OpenAI-compatible services. Saved in ~/.pi/agent/models.json. To sign in to a service Pi knows, type /login in a Pi conversation.</p>
         <label class="field-label" for="provider-id">Provider ID</label>
         <input id="provider-id" type="text" maxlength="64" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="e.g. ollama-local">
         <label class="field-label" for="provider-api">API type</label>
@@ -790,7 +744,7 @@
         <button id="provider-delete" class="btn ghost danger-text hidden" type="button">Delete provider</button>
         <span class="sheet-actions-spacer"></span>
         <button id="provider-cancel-bottom" class="btn ghost" type="button">Cancel</button>
-        <button id="provider-save" class="btn primary hidden" type="button">Save provider</button>
+        <button id="provider-save" class="btn primary" type="button">Save provider</button>
       </div>
     </div>
   </div>
@@ -974,6 +928,48 @@
     </div>
   </div>
 
+  <!-- Conversation terminal: each agent's own /login, /logout and /status,
+       run on the selected host and shown the way a terminal would show it. -->
+  <div id="agent-terminal" class="sheet-layer hidden">
+    <div class="sheet agent-terminal-sheet" role="dialog" aria-modal="true" aria-labelledby="agent-terminal-title">
+      <div class="sheet-handle"></div>
+      <div class="sheet-heading-row agent-terminal-heading">
+        <div class="agent-terminal-heading-copy">
+          <p id="agent-terminal-host" class="eyebrow" data-i18n-ignore></p>
+          <h2 id="agent-terminal-title" data-i18n-ignore></h2>
+        </div>
+        <button id="agent-terminal-close" class="btn ghost icon-btn" type="button" data-i18n-title-key="agentTerminal.close" data-i18n-aria-key="agentTerminal.close" title="Close" aria-label="Close"><svg class="icon"><use href="#i-x"></use></svg></button>
+      </div>
+      <div id="agent-terminal-choices" class="agent-terminal-choices hidden"></div>
+      <div id="agent-terminal-links" class="agent-terminal-links hidden"></div>
+      <div id="agent-terminal-screen" class="agent-terminal-screen" role="log" aria-live="polite" tabindex="0" data-i18n-ignore></div>
+      <p id="agent-terminal-status" class="agent-terminal-status" role="status" aria-live="polite" data-i18n-ignore></p>
+      <div id="agent-terminal-keys" class="agent-terminal-keys hidden" role="group" data-i18n-aria-key="agentTerminal.keys" aria-label="Terminal keys">
+        <button type="button" data-terminal-key="up" aria-label="Up" data-i18n-ignore>↑</button>
+        <button type="button" data-terminal-key="down" aria-label="Down" data-i18n-ignore>↓</button>
+        <button type="button" data-terminal-key="left" aria-label="Left" data-i18n-ignore>←</button>
+        <button type="button" data-terminal-key="right" aria-label="Right" data-i18n-ignore>→</button>
+        <button type="button" data-terminal-key="tab" data-i18n-ignore>Tab</button>
+        <button type="button" data-terminal-key="space" data-i18n-ignore>Space</button>
+        <button type="button" data-terminal-key="escape" data-i18n-ignore>Esc</button>
+        <button type="button" data-terminal-key="backspace" aria-label="Backspace" data-i18n-ignore>⌫</button>
+        <button type="button" data-terminal-key="enter" data-i18n-ignore>Enter</button>
+        <button type="button" data-terminal-key="ctrl-c" data-i18n-ignore>Ctrl-C</button>
+      </div>
+      <form id="agent-terminal-form" class="agent-terminal-input-row hidden" autocomplete="off">
+        <input id="agent-terminal-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send" data-i18n-aria-key="agentTerminal.inputLabel" aria-label="Terminal input">
+        <button id="agent-terminal-secret" class="btn ghost icon-btn" type="button" aria-pressed="false" data-i18n-title-key="agentTerminal.hideInput" data-i18n-aria-key="agentTerminal.hideInput" title="Hide what I type" aria-label="Hide what I type"><svg class="icon"><use href="#i-eye"></use></svg></button>
+        <button id="agent-terminal-send" class="btn primary" type="submit" data-i18n-key="agentTerminal.send">Send</button>
+      </form>
+      <div class="sheet-actions agent-terminal-actions">
+        <button id="agent-terminal-stop" class="btn ghost danger-text hidden" type="button" data-i18n-key="agentTerminal.stop">Stop</button>
+        <span class="sheet-actions-spacer"></span>
+        <button id="agent-terminal-status-button" class="btn ghost hidden" type="button" data-i18n-key="agentTerminal.checkStatus">Check status</button>
+        <button id="agent-terminal-done" class="btn primary" type="button" data-i18n-key="agentTerminal.close">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Rename dialog -->
   <div id="rename-dialog" class="sheet-layer hidden">
     <div class="sheet">
@@ -1043,22 +1039,22 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=3.2.4"></script>
-<script src="/modules/app-foundation.js?v=3.2.4"></script>
-<script src="/modules/agent-identity.js?v=3.2.4"></script>
-<script src="/modules/session-utils.js?v=3.2.4"></script>
-<script src="/modules/pi-session.js?v=3.2.4"></script>
-<script src="/modules/conversation-catalog.js?v=3.2.4"></script>
-<script src="/modules/context-usage.js?v=3.2.4"></script>
-<script src="/modules/opencode-context.js?v=3.2.4"></script>
-<script src="/modules/claude-auth.js?v=3.2.4"></script>
-<script src="/modules/claude-structured-rendering.js?v=3.2.4"></script>
-<script src="/modules/agent-transcript-presentation.js?v=3.2.4"></script>
-<script src="/modules/codex-approvals.js?v=3.2.4"></script>
-<script src="/modules/protocol-contracts.js?v=3.2.4"></script>
-<script src="/modules/client-sdk.js?v=3.2.4"></script>
-<script src="/modules/native-dialogs.js?v=3.2.4"></script>
-<script src="/modules/composer-ime.js?v=3.2.4"></script>
-<script src="/app.js?v=3.2.4"></script>
+<script src="/i18n.js?v=3.3.0"></script>
+<script src="/modules/app-foundation.js?v=3.3.0"></script>
+<script src="/modules/agent-identity.js?v=3.3.0"></script>
+<script src="/modules/session-utils.js?v=3.3.0"></script>
+<script src="/modules/pi-session.js?v=3.3.0"></script>
+<script src="/modules/conversation-catalog.js?v=3.3.0"></script>
+<script src="/modules/context-usage.js?v=3.3.0"></script>
+<script src="/modules/opencode-context.js?v=3.3.0"></script>
+<script src="/modules/agent-terminal.js?v=3.3.0"></script>
+<script src="/modules/claude-structured-rendering.js?v=3.3.0"></script>
+<script src="/modules/agent-transcript-presentation.js?v=3.3.0"></script>
+<script src="/modules/codex-approvals.js?v=3.3.0"></script>
+<script src="/modules/protocol-contracts.js?v=3.3.0"></script>
+<script src="/modules/client-sdk.js?v=3.3.0"></script>
+<script src="/modules/native-dialogs.js?v=3.3.0"></script>
+<script src="/modules/composer-ime.js?v=3.3.0"></script>
+<script src="/app.js?v=3.3.0"></script>
 </body>
 </html>

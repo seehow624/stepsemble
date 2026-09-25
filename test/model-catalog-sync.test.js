@@ -130,27 +130,3 @@ test("session catalog reload happens before reading, without polluting the globa
   await ctx.getAvailableModels("sid");
 });
 
-test("provider discovery updates automatic presets but keeps manual and concurrently edited lists", async () => {
-  const source = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
-  const body = source.slice(source.indexOf("function providerCatalogSources()"), source.indexOf("function cleanProviderApiKey"));
-  let config = { providers: {
-    auto: { api: "openai-completions", baseUrl: "https://example.com/v1", apiKey: "secret", models: [{ id: "retired" }] },
-    manual: { api: "openai-completions", baseUrl: "https://example.com/v1", catalogSync: false, models: [{ id: "custom" }] },
-  } };
-  const ctx = { process: { env: {} }, FREE_PROVIDER_PRESETS: [],
-    GENERIC_PROVIDER_PRESETS: ["auto", "manual"].map(id => ({ configId: id, baseUrl: "https://example.com/v1" })),
-    readModelConfig: () => structuredClone(config), writeModelConfig: value => { config = value; },
-    fetchProviderModels: async (_preset, key, options) => {
-      assert.equal(key, "secret"); assert.equal(options.strict, true); return [{ id: "new", name: "New" }];
-    }, mergeExistingProviderModelMetadata: (_id, models) => models };
-  vm.runInNewContext(body, ctx);
-  const sources = ctx.providerCatalogSources();
-  assert.deepEqual(Array.from(sources, item => item.id), ["auto"]);
-  assert.equal((await sources[0].refresh()).changed, true);
-  assert.equal(config.providers.auto.models[0].id, "new");
-  assert.equal(config.providers.auto.apiKey, "secret");
-  const [pending] = ctx.providerCatalogSources();
-  config.providers.auto.models = [{ id: "user-edited" }];
-  await assert.rejects(pending.refresh(), /settings changed/);
-  assert.equal(config.providers.auto.models[0].id, "user-edited");
-});

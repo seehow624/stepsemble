@@ -76,3 +76,32 @@ test("Grok ACP keeps permission requests pending until an explicit response", as
   assert.equal(adapter.respondPermission(99, { outcome: { outcome: "selected", optionId: "reject-once" } }).kind, "written");
   assert.equal(adapter.pendingPermissions().length, 0);
 });
+
+test("a Grok process started while signed out is replaced once Grok is signed in", async t => {
+  let signedIn = false, spawned = 0;
+  const spawnImpl = () => {
+    spawned++;
+    const child = childFixture();
+    const write = child.stdout.write.bind(child.stdout);
+    // The fixture answers initialize with cached_token; while signed out Grok
+    // offers only methods Stepsemble does not use without a key.
+    child.stdout.write = chunk => {
+      const text = String(chunk);
+      if (!signedIn && text.includes("authMethods")) return write(text.replace('[{"id":"cached_token"}]', '[{"id":"xai.api_key"}]'));
+      return write(chunk);
+    };
+    return child;
+  };
+  const adapter = createGrokAcpAdapter({ command: "/usr/local/bin/grok", cwd: "/tmp", env: {}, spawnImpl });
+  t.after(() => adapter.close());
+  const first = await adapter.createSession({ directory: "/tmp" });
+  assert.equal(first.kind, "reject");
+  assert.equal(first.code, "grok_auth_required");
+  assert.notEqual(adapter.status().state, "degraded", "a signed-out start does not break the adapter");
+  signedIn = true;
+  const second = await adapter.createSession({ directory: "/tmp" });
+  assert.equal(second.kind, "created");
+  assert.equal(spawned, 2, "the retry starts a fresh Grok process");
+  assert.equal(adapter.status().ready, true);
+});
+

@@ -18,7 +18,7 @@ function ui(api = async () => ({ sent: true })) {
   const el = Object.fromEntries(["Sheet", "Kind", "Title", "Message", "Options", "Input", "Editor", "Submit", "Cancel", "Status"].map(key => ["extensionUi" + key, node()]));
   const errors = [], sends = [];
   const context = vm.createContext({ TextEncoder, AbortSignal, setTimeout, clearTimeout, nativeDialogs: queue(), extensionUiRequest: null, providerAuthRun: null, providerAuthStream: null, providerAuthRequest: null, providerAuthNotice: "", providerAuthUrl: "", apiBase: "", rpc: { sid: "a" }, el, document: { createElement: node }, window: {}, markRpcActivity() {}, resetGenericReplayNotice() {}, tKey: (key, vars) => `${key}:${vars?.count ?? ""}`, toast: message => errors.push(message), api: (...args) => { sends.push(args); return api(...args); }, post: (...args) => { sends.push(args); return api(...args); } });
-  for (const name of ["dismissNativeDialog", "resetNativeDialogs", "suspendNativeDialog", "refreshNativeDialogControls", "reconcileNativeDialogs", "connectRpc", "connectAgentTask", "renderNextNativeDialog", "finishExtensionUi", "showExtensionUi", "renderNativeDialog", "handleRpcEvent", "resetProviderDialogControls", "showProviderAuthPrompt", "showProviderAuthNotify", "closeProviderAuthClient", "cancelProviderAuth"]) {
+  for (const name of ["dismissNativeDialog", "resetNativeDialogs", "suspendNativeDialog", "refreshNativeDialogControls", "reconcileNativeDialogs", "connectRpc", "connectAgentTask", "renderNextNativeDialog", "finishExtensionUi", "showExtensionUi", "renderNativeDialog", "handleRpcEvent"]) {
     let start = appSource.indexOf(`function ${name}(`); assert.ok(start >= 0, name);
     if (appSource.slice(start - 6, start) === "async ") start -= 6;
     const end = appSource.indexOf("\n}\n", start) + 2;
@@ -95,19 +95,6 @@ test("queued expiry and known stale reply remove only that request", async () =>
   c.handleRpcEvent({ type: "extension_ui_closed", id: "two" }, "a");
   await c.finishExtensionUi({ cancelled: true }); assert.equal(c.extensionUiRequest.id, "three");
 });
-test("provider prompt suspends native input without replacing its queue or leaking its draft", async () => {
-  const { context: c, el } = ui();
-  c.showExtensionUi(event("one"), "a"); el.extensionUiInput.value = "native draft";
-  c.providerAuthRun = { runId: "auth", hostBase: "", providerName: "Synthetic provider" };
-  const prompt = { id: "code", type: "secret" };
-  c.showProviderAuthPrompt(prompt, c.providerAuthRun); assert.equal(el.extensionUiInput.value, "");
-  el.extensionUiInput.value = "synthetic-secret";
-  c.showProviderAuthPrompt(prompt, c.providerAuthRun); assert.equal(el.extensionUiInput.value, "synthetic-secret");
-  c.showExtensionUi(event("two"), "a"); assert.equal(c.extensionUiRequest.kind, "provider-auth");
-  c.closeProviderAuthClient(); assert.equal(c.extensionUiRequest.id, "one");
-  assert.equal(el.extensionUiInput.value, "native draft"); assert.equal(el.extensionUiInput.type, "text");
-  await c.finishExtensionUi({ cancelled: true }); assert.equal(c.extensionUiRequest.id, "two");
-});
 test("host/session changes cannot retarget old replies or resurrect cleared dialogs", async () => {
   let resolve;
   const { context: c, el, sends } = ui(() => new Promise(done => { resolve = done; }));
@@ -146,7 +133,7 @@ test("malformed or oversized full snapshots never partially clear state or input
   assert.throws(() => q.reconcile("", "a\n", snapshot([], "a\n")));
   assert.throws(() => q.reconcile("x".repeat(513), "a", snapshot([])));
 });
-test("UI snapshot reconciliation preserves current drafts and provider secrets, removes only obsolete input", async () => {
+test("UI snapshot reconciliation preserves current drafts and removes only obsolete input", async () => {
   const { context: c, el, sends } = ui();
   c.showExtensionUi(event("one"), "a"); el.extensionUiInput.value = "keep my draft";
   assert.equal(c.reconcileNativeDialogs(snapshot([event("one"), event("two")]), "a"), true);
@@ -158,10 +145,6 @@ test("UI snapshot reconciliation preserves current drafts and provider secrets, 
   // Reordered authoritative requests suspend, rather than erase, a retained draft.
   c.reconcileNativeDialogs(snapshot([event("two"), event("one")]), "a"); assert.equal(c.extensionUiRequest.id, "two");
   await c.finishExtensionUi({ cancelled: true }); assert.equal(el.extensionUiInput.value, "keep my draft");
-  c.providerAuthRun = { runId: "auth", hostBase: "", providerName: "Synthetic" };
-  c.showProviderAuthPrompt({ id: "secret", type: "secret" }, c.providerAuthRun); el.extensionUiInput.value = "synthetic secret";
-  c.reconcileNativeDialogs(snapshot([]), "a"); assert.equal(c.extensionUiRequest.kind, "provider-auth"); assert.equal(el.extensionUiInput.value, "synthetic secret");
-  c.closeProviderAuthClient(); assert.equal(c.extensionUiRequest, null); assert.equal(el.extensionUiInput.value, "");
 });
 test("authoritative removal wins over an in-flight HTTP result without touching the next request", async () => {
   for (const fails of [false, true]) {

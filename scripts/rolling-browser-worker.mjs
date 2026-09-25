@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { freePort, waitForServer, stopServer } from "./host-performance-baseline.mjs";
 import { cleanEnvironment } from "./check-rolling-clients.mjs";
-import { runClaudeAuthBrowserCases } from "./claude-auth-browser-cases.mjs";
+import { runAgentTerminalBrowserCases } from "./agent-terminal-browser-cases.mjs";
 import { runPiSessionBrowserCases } from "./pi-session-browser-cases.mjs";
 import { runProjectPickerBrowserCases } from "./project-picker-browser-cases.mjs";
 import { runConversationBrowserCases } from "./conversation-browser-cases.mjs";
@@ -160,7 +160,7 @@ try {
       }
     }
     console.log("Rolling browser compatibility: 8 real-source pair/viewport cases passed; synthetic Pi only, no service-worker or physical-device claim.");
-    await runClaudeAuthBrowserCases(browser);
+    await runAgentTerminalBrowserCases(browser);
     await runPiSessionBrowserCases(browser);
     await runProjectPickerBrowserCases(browser);
     await runConversationBrowserCases(browser);

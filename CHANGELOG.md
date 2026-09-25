@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.3.0
+
+- Sign in with each agent's own commands. Type `/login`, `/logout` or `/status` in a conversation with Pi, Codex, Claude Code, OpenCode, Kilo Code, Hermes, Grok Build, Cline or Antigravity, and Stepsemble runs that agent's command on the conversation's host in a terminal sheet. Sign-in links open as buttons, one-time codes can be copied, and what you type goes back to the command. Entries for keys, tokens and passwords are hidden and masked in the output. The command palette lists `/login` and `/status` for each installed agent.
+- Keep a sign-in running when you switch hosts. Typing `/login` on that host again, from the same or another device, shows the same run with its link and code.
+- Warn before a Codex sign-in that it replaces the current account: `codex login` signs out first, even if the new sign-in is never finished.
+- In a Pi conversation, `/login` lists every provider Pi supports, with account sign-in before an API key, and `/logout` lists the providers that are signed in.
+- On a Mac where Stepsemble runs over SSH, Claude Code's commands run through the desktop helper. A helper from an earlier release offers Update the helper, or the previous sign-in in the host's browser.
+- Remove the sign-in forms from Settings, together with the free-provider list, local model scanning (Ollama, LM Studio, vLLM), the Nous integration and the preset services Stepsemble added on top of Pi. Models & providers keeps model visibility and the Custom provider editor. Entries already in `models.json` stay as custom providers, and Stepsemble no longer refreshes a Nous token.
+- Add Settings → Agents & models → Quota sources. It reads subscription and API limits from OpenCodex on the selected host with OpenCodex's local admin token, which never leaves the host, and links to its dashboard. The limits dialog points there.
+- Use a new sign-in right away. After Codex signs in or out, idle Codex app-servers restart while a running turn is left alone; OpenCode reloads its providers when idle; a Grok Build process that reported a missing sign-in is replaced on the next attempt.
+- Hold automatic updates while a sign-in is running.
+
 ## 3.2.4
 
 - Keep the Codex allowance visible when the installed Codex CLI is newer than this release has reviewed. The limits strip showed a dash because the allowance was only read through Codex's app-server, which stops at an unreviewed schema; Stepsemble now reads the same allowance from ChatGPT with the account the Codex CLI is signed in to, or with the ChatGPT account signed in under Settings. The Codex CLI's token is only read, never renewed, and an expired token is never sent.

@@ -27,7 +27,7 @@ test("Host page query accepts one machine identifier and never selects a source 
     assert.throws(() => view.hostRoute(query), /history_route_invalid/);
 });
 test("workspace history link tracks the current machine and rejects arbitrary prefixes", () => {
-  const source = fs.readFileSync(require.resolve("../public/app.js"), "utf8"), start = source.indexOf("function syncHistoryLink() {"), end = source.indexOf("\nfunction renderClaudeAuth", start);
+  const source = fs.readFileSync(require.resolve("../public/app.js"), "utf8"), start = source.indexOf("function syncHistoryLink() {"), end = source.indexOf("\nlet openCodeConnectionSequence", start);
   assert.ok(start > 0 && end > start);
   const link = { href: "", setAttribute(k, v) { this[k] = v; }, removeAttribute(k) { delete this[k]; } };
   const context = vm.createContext({ $: () => link, apiBase: "", encodeURIComponent });

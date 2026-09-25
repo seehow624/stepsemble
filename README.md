@@ -180,9 +180,18 @@ the token-authenticated `PIHARBOR2` transition format from older hosts. Older
 clients must update before they can read a new `STEPSEMBLE3` code.
 Keep port `3140` private and do not expose it to an untrusted network.
 
-To add an LLM provider, open **Settings → Connection → Models & providers**.
-Choose a catalog service, account/OAuth sign-in, API key, local service, or
-Custom provider. Then select the visible models you want to use.
+To sign in to an agent, type `/login` in a conversation with that agent;
+`/logout` and `/status` work the same way. Stepsemble runs the agent's own
+command on the conversation's host and shows it as a terminal: sign-in links
+open as buttons, one-time codes can be copied, and what you type goes back to
+the command. Entries for keys, tokens and passwords are hidden and masked in the
+output. In a Pi conversation, `/login` lists the providers Pi supports, with
+account sign-in or an API key.
+
+**Settings → Agents & models → Models & providers** keeps model visibility and
+the Custom provider editor for self-hosted and other OpenAI-compatible
+endpoints. To show subscription and API quota from a service such as OpenCodex,
+open **Settings → Agents & models → Quota sources**.
 
 ### Agent Hub connectors
 
@@ -280,8 +289,9 @@ revealed from the session list when needed.
 - Resilient same-origin SSE streaming and visible failure states.
 - Collapsed tool summaries with per-tool details, token use, and cost.
 - Image paste/upload, inline preview, and lightbox viewing.
-- Searchable provider catalog, account sign-in, API keys, custom endpoints,
-  model visibility, region-specific services, and optional independent access tokens.
+- `/login`, `/logout` and `/status` in every agent's conversation, run through
+  the agent's own commands; custom endpoints, model visibility, quota sources
+  such as OpenCodex, and optional independent access tokens.
 - Multiple-device aliases, health checks, port settings, external-drive folder
   browsing, private HTTPS relay, independent peer credentials with revocation,
   and one-time pairing.

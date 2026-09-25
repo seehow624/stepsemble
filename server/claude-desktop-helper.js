@@ -5,6 +5,7 @@ const fs = require("node:fs/promises"), path = require("node:path"), crypto = re
 const http = require("node:http"), net = require("node:net");
 const { execFile, spawn } = require("node:child_process");
 const { createClaudeAuthService } = require("./claude-auth");
+const { AUTH_TERMINAL_VERSION, createTerminalRunRegistry, findChoice, commandArgs } = require("./agent-auth");
 const { resolvePtyRuntime, supervisorSocketPath, supervisorMetadataPath } = require("./agent-connectors");
 const { launchAgentSupervisor } = require("./agent-supervisor-launch");
 const { UUID, failure, desktopPaths, privateDirectory, privateRead, privateWrite, exact } = require("./claude-desktop-state");
@@ -67,7 +68,14 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
   let maintenance = null;
   const taskEnv = { ...env, HOME: home };
   const auth = authFactory({ home, env: taskEnv, resolveExecutable: () => claudeCommand,
-    hasActiveTasks: () => recoveryRequired || launching || activeTasks || structuredChildren.size > 0 || structuredLaunching > 0 });
+    hasActiveTasks: () => recoveryRequired || launching || activeTasks || structuredChildren.size > 0 || structuredLaunching > 0 || terminalAuthBusy() });
+  // The conversation terminal's Claude commands (/login, /logout, /status).
+  // They run here, in the desktop session, because Claude keeps its sign-in in
+  // the login keychain that an SSH-started Web host cannot reach. Only the
+  // fixed Claude auth commands can run; output is read back in bounded pages.
+  const terminal = createTerminalRunRegistry({ ptyRuntime: resolvePtyRuntime({ env: taskEnv }), env: taskEnv, home });
+  let terminalAction = null;
+  function terminalAuthBusy() { return terminal.busy() && terminalAction !== "status"; }
   async function save() { try { await privateWrite(paths.state, state); } catch { recoveryRequired = true; throw failure("desktop_recovery_required"); } }
   async function refreshTasks() {
     activeTasks = structuredChildren.size > 0 || structuredLaunching > 0;
@@ -320,17 +328,19 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
   }
   async function dispatch(op, body) {
     if (closed) throw failure("service_closed");
+    if (op.startsWith("terminal/")) return terminalDispatch(op, body);
     if (!exact(body, op === "task/prepare" ? ["id", "name", "cwd", "startedAt"] : op === "task/launch" ? ["ticket", "instance"]
       : op === "structured/prepare" ? ["cwd", "sessionId", "permissionPromptTool", "startedAt"]
         : op === "maintenance/cancel" ? ["token", "instance"]
           : op === "auth/start" || op === "auth/cancel" ? ["id"] : [])) throw failure("invalid_request");
     if (maintenance && maintenance.expiresAt <= now()) maintenance = null;
     const maintenanceSummary = { maintenanceVersion: 1, maintenance: maintenance ? { active: true, expiresAt: maintenance.expiresAt } : { active: false, expiresAt: null } };
-    if (op === "health") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary };
+    if (op === "health") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION,
+      activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary };
     await reconcileAuth();
     await refreshTasks();
     if (closed) throw failure("service_closed");
-    if (op === "status") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary,
+    if (op === "status") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary,
       ...(recoveryRequired ? unavailable() : await auth.status()) };
     if (op === "maintenance/cancel") {
       if (!maintenance || maintenance.instance !== body.instance || maintenance.token !== body.token || maintenance.expiresAt <= now()) throw failure("stale_intent");
@@ -338,7 +348,7 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
       return { version: 1, instance, context: "Aqua", maintenanceVersion: 1, maintenance: { active: false, expiresAt: null } };
     }
     if (op === "maintenance/prepare") {
-      if (maintenance || recoveryRequired || launching || activeTasks || auth.isBusy() || structuredChildren.size || structuredLaunching || structuredConnections.size) throw failure("active_tasks");
+      if (maintenance || recoveryRequired || launching || activeTasks || auth.isBusy() || terminal.busy() || structuredChildren.size || structuredLaunching || structuredConnections.size) throw failure("active_tasks");
       structuredTickets.clear();
       maintenance = { token: crypto.randomUUID(), instance, expiresAt: now() + 60000 };
       return { version: 1, instance, context: "Aqua", maintenanceVersion: 1, token: maintenance.token, expiresAt: maintenance.expiresAt,
@@ -356,7 +366,7 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
     }
     if (op === "auth/cancel") return auth.cancel(body.id);
     if (op === "task/prepare") {
-      if (auth.isBusy()) throw failure("claude_login_active");
+      if (auth.isBusy() || terminalAuthBusy()) throw failure("claude_login_active");
       for (const [ticket, item] of tickets) if (item.expires <= now()) tickets.delete(ticket);
       if (tickets.size >= 32 || state.launches.length >= 32) throw failure("desktop_capacity");
       const task = await validatedTask(body);
@@ -367,7 +377,7 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
       return { ticket, instance };
     }
     if (op === "structured/prepare") {
-      if (auth.isBusy()) throw failure("claude_login_active");
+      if (auth.isBusy() || terminalAuthBusy()) throw failure("claude_login_active");
       for (const [ticket, item] of structuredTickets) if (item.expires <= now()) structuredTickets.delete(ticket);
       if (structuredTickets.size >= MAX_STRUCTURED_TICKETS || structuredChildren.size + structuredLaunching >= MAX_STRUCTURED_CHILDREN) throw failure("desktop_capacity");
       const request = await validatedStructured(body);
@@ -381,7 +391,7 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
       const item = tickets.get(body.ticket);
       tickets.delete(body.ticket); // Consumed even if the caller loses the reply.
       if (body.instance !== instance || !item || item.expires <= now()) throw failure("stale_intent");
-      if (auth.isBusy()) throw failure("claude_login_active");
+      if (auth.isBusy() || terminalAuthBusy()) throw failure("claude_login_active");
       if (state.launches.length >= 32) throw failure("desktop_capacity");
       launching = true;
       try {
@@ -401,16 +411,57 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
     }
     throw failure("invalid_request");
   }
+  async function terminalDispatch(op, body) {
+    if (maintenance && maintenance.expiresAt <= now()) maintenance = null;
+    if (op === "terminal/start") {
+      if (!exact(body, ["action", "choice", "cols", "rows"]) || !["status", "login", "logout"].includes(body.action)) throw failure("invalid_request");
+      const choice = findChoice("claude-code", body.action, body.choice);
+      const args = commandArgs(choice);
+      if (!choice || !args) throw failure("action_unsupported");
+      if (maintenance) throw failure("active_tasks");
+      if (recoveryRequired) throw failure("desktop_recovery_required");
+      if (body.action !== "status") {
+        // Changing the account while Claude runs here would pull it out from
+        // under that work, so login and logout wait for an idle helper.
+        await reconcileAuth(); await refreshTasks();
+        if (launching || activeTasks || structuredChildren.size || structuredLaunching || structuredConnections.size || auth.isBusy()) throw failure("active_tasks");
+      }
+      if (terminal.busy()) throw failure("auth_run_active");
+      const cols = Number.isInteger(body.cols) && body.cols >= 40 && body.cols <= 200 ? body.cols : 100;
+      const rows = Number.isInteger(body.rows) && body.rows >= 10 && body.rows <= 80 ? body.rows : 30;
+      let command;
+      try { command = await fs.realpath(claudeCommand); } catch { throw failure("desktop_structured_unavailable"); }
+      if (closed) throw failure("service_closed");
+      terminalAction = body.action;
+      return terminal.start({ command, args, action: body.action, stdinSecret: choice.stdinSecret === true, cols, rows });
+    }
+    if (op === "terminal/read") {
+      if (!exact(body, ["id", "after"]) || !Number.isSafeInteger(body.after) || body.after < 0) throw failure("invalid_request");
+      return terminal.read(body);
+    }
+    if (op === "terminal/input") {
+      if (!body || typeof body !== "object" || Array.isArray(body) || typeof body.id !== "string"
+        || Object.keys(body).some(key => !["id", "data", "key", "secret"].includes(key))) throw failure("invalid_request");
+      return terminal.input(body);
+    }
+    if (op === "terminal/cancel") {
+      if (!exact(body, ["id"])) throw failure("invalid_request");
+      return terminal.cancel(body);
+    }
+    throw failure("invalid_request");
+  }
   const errors = new Set(["invalid_request", "stale_intent", "active_tasks", "other_auth", "login_unavailable", "service_closed", "claude_login_active",
     "desktop_recovery_required", "desktop_workspace_denied", "desktop_capacity", "desktop_sign_in_required", "desktop_launch_uncertain",
-    "desktop_structured_unavailable", "desktop_structured_launch_uncertain", "desktop_structured_stream_failed", "desktop_structured_stream_closed"]);
+    "desktop_structured_unavailable", "desktop_structured_launch_uncertain", "desktop_structured_stream_failed", "desktop_structured_stream_closed",
+    "auth_run_active", "run_not_found", "run_ended", "secret_required", "action_unsupported"]);
   let inFlight = 0;
   const server = http.createServer({ maxHeaderSize: 2048 }, (req, res) => {
     const reply = (status, value) => { if (!res.destroyed) { res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store", "Connection": "close" }); res.end(JSON.stringify(value)); } };
     const supplied = String(req.headers.authorization || "");
     if (req.headers.origin || Buffer.byteLength(supplied) !== 71 || !crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(`Bearer ${key}`))) { reply(403, { code: "desktop_denied" }); req.resume(); return; }
     const op = req.url?.slice("/v1/".length);
-    if (!req.url?.startsWith("/v1/") || !["health", "status", "auth/prepare", "auth/start", "auth/cancel", "task/prepare", "task/launch", "structured/prepare", "maintenance/prepare", "maintenance/cancel"].includes(op) || req.method !== "POST") { reply(404, { code: "invalid_request" }); req.resume(); return; }
+    if (!req.url?.startsWith("/v1/") || !["health", "status", "auth/prepare", "auth/start", "auth/cancel", "task/prepare", "task/launch", "structured/prepare", "maintenance/prepare", "maintenance/cancel",
+      "terminal/start", "terminal/read", "terminal/input", "terminal/cancel"].includes(op) || req.method !== "POST") { reply(404, { code: "invalid_request" }); req.resume(); return; }
     if (inFlight >= 8) { reply(429, { code: "desktop_capacity" }); req.resume(); return; }
     inFlight++;
     let size = 0, chunks = [], released = false;
@@ -444,8 +495,8 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
     if (!UUID.test(ticket) || suppliedInstance !== instance || !item || item.expires <= now()) {
       failUpgrade(409, "stale_intent"); return;
     }
-    if (closed || recoveryRequired || auth.isBusy() || structuredChildren.size + structuredLaunching >= MAX_STRUCTURED_CHILDREN) {
-      failUpgrade(409, auth.isBusy() ? "claude_login_active" : "desktop_capacity"); return;
+    if (closed || recoveryRequired || auth.isBusy() || terminalAuthBusy() || structuredChildren.size + structuredLaunching >= MAX_STRUCTURED_CHILDREN) {
+      failUpgrade(409, auth.isBusy() || terminalAuthBusy() ? "claude_login_active" : "desktop_capacity"); return;
     }
     structuredLaunching++;
     structuredConnections.add(socket);
@@ -490,6 +541,7 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
     // before shutdown so a confirmed cancellation is not a false crash alarm.
     await reconcileAuth();
     auth.close();
+    terminal.close();
     // Structured streams are owned by this helper connection. Unlike legacy
     // detached supervisors they must be reaped before the Aqua broker exits;
     // no unrelated task is signalled here.

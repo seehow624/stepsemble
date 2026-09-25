@@ -137,17 +137,33 @@ function createGrokAcpAdapter({
   function start() {
     if (child) return status();
     if (closed) return status();
+    let current;
     try {
-      child = spawnImpl(command, ["--no-auto-update", "agent", "stdio"], { cwd, env: { ...env }, shell: false, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      current = spawnImpl(command, ["--no-auto-update", "agent", "stdio"], { cwd, env: { ...env }, shell: false, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      child = current;
     } catch (cause) { fail(cause); return status(); }
-    decoder = createLineDecoder({ maxBytes: MAX_FRAME_BYTES, onError: () => fail("grok_acp_frame_invalid"), onLine: line => {
+    // Events from a process that was set aside (see stopUnauthenticated)
+    // no longer describe this adapter.
+    const own = () => child === current;
+    const lines = createLineDecoder({ maxBytes: MAX_FRAME_BYTES, onError: () => { if (own()) fail("grok_acp_frame_invalid"); }, onLine: line => {
+      if (!own()) return;
       try { handleFrame(JSON.parse(line)); } catch { fail("grok_acp_frame_invalid"); }
     } });
-    child.stdout?.on?.("data", chunk => decoder.push(chunk));
-    child.stdout?.on?.("end", () => { decoder.end(); if (!closed) fail("grok_acp_ended"); });
-    child.stderr?.on?.("data", () => {});
-    child.on?.("error", fail); child.on?.("close", () => { if (!closed && !error) fail("grok_acp_ended"); });
+    decoder = lines;
+    current.stdout?.on?.("data", chunk => lines.push(chunk));
+    current.stdout?.on?.("end", () => { lines.end(); if (own() && !closed) fail("grok_acp_ended"); });
+    current.stderr?.on?.("data", () => {});
+    current.on?.("error", cause => { if (own()) fail(cause); });
+    current.on?.("close", () => { if (own() && !closed && !error) fail("grok_acp_ended"); });
     return status();
+  }
+  // Grok reads its sign-in when its process starts. A process started while
+  // signed out is stopped, so the next conversation starts a fresh one that
+  // sees a sign-in made in the meantime (for example with /login).
+  function stopUnauthenticated() {
+    const previous = child;
+    child = null; decoder = null; initialized = false; authenticated = false;
+    try { previous?.stdin?.end?.(); previous?.kill?.(); } catch {}
   }
   async function initialize() {
     if (!child) start();
@@ -159,7 +175,7 @@ function createGrokAcpAdapter({
       const methods = Array.isArray(result.value?.authMethods) ? result.value.authMethods : [];
       const preferred = env.XAI_API_KEY && methods.some(item => item?.id === "xai.api_key") ? "xai.api_key"
         : methods.some(item => item?.id === "cached_token") ? "cached_token" : null;
-      if (!preferred) return reject("grok_auth_required");
+      if (!preferred) { stopUnauthenticated(); return reject("grok_auth_required"); }
       const auth = await request("authenticate", { methodId: preferred, _meta: { headless: true } });
       if (auth.kind === "reject") return auth;
       authenticated = true;

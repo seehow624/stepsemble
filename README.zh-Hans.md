@@ -67,7 +67,9 @@ type %USERPROFILE%\.config\stepsemble\token
 
 每台电脑都运行自己的 Stepsemble 实例。在每台额外电脑上安装并启动 Stepsemble，然后在 **Settings → Devices → Add device** 添加 Tailscale 或 HTTPS 地址。手动输入网址仍是旧版共享 Web token 路径，要求两台主机使用相同 token。更推荐使用五分钟有效、只能使用一次的 `STEPSEMBLE3` 配对码：确认候选设备资料后，会创建独立且可撤销的对等凭证，不会把共享 token 发给候选地址。可在设备设置中查看并撤销已授权设备，撤销会立即生效。Stepsemble 3 可接受旧版主机的 `PIHARBOR2` / `PIHARBOR3` 配对码；旧客户端必须先更新才能使用 `STEPSEMBLE3`。不要将公共 3140 端口暴露给不受信任的网络。
 
-添加 LLM 服务商：打开 **Settings → Connection → Models & providers**，选择目录服务、账号/OAuth 登录、API key、本地服务或自定义 Provider，然后选择要显示的模型。
+登录 Agent：在该 Agent 的对话输入 `/login`；`/logout` 和 `/status` 用法相同。Stepsemble 会在对话所在的主机运行该 Agent 自己的指令，并以终端画面呈现：登录链接变成按钮、一次性代码可以复制，输入的内容会送回指令；API key、token、密码这类输入会自动隐藏，也会在输出中遮蔽。在 Pi 对话输入 `/login`，会列出 Pi 支持的服务商，可用账号登录或 API key。
+
+**Settings → Agents & models → Models & providers** 保留模型显示设置，以及给自托管端点和其他 OpenAI 兼容服务用的自定义 Provider。要查看 OpenCodex 这类服务提供的订阅与 API 额度，请打开 **Settings → Agents & models → Quota sources**。
 
 ## Agent Hub 连接器
 

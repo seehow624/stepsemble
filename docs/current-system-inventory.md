@@ -275,7 +275,13 @@ Generic connector 的「可啟動、可串流、server restart 可重新 attach�
 | `POST /api/provider-auth/respond` | Web | B/P | runId/requestId/value ≤16 KiB | 回覆 pending prompt | Static lifecycle |
 | `POST /api/provider-auth/cancel` | Web | B/P | runId | abort auth run | Static lifecycle |
 | `POST /api/provider-auth/delete` | Web | B/P | providerId | 刪除對應 native credential/config | Static UI only |
-| `POST /api/provider-free/setup` | Web | B/P | providerId | 設定 allow-listed free provider | Static UI only |
+| `GET /api/agent-auth/catalog` | Web | B/P | 無 | 3.3.0：各 Agent 的 /login、/logout、/status 選項與安裝狀態，不回秘密 | Unit + synthetic browser |
+| `GET /api/agent-auth/active?agentId` | Web | B/P | agentId | 進行中的登入 run，讓另一台裝置接續顯示 | Unit |
+| `GET /api/agent-auth/stream?runId` | Web/relay | B/P | cursor 或 `Last-Event-ID` | SSE 終端輸出；隱藏輸入已遮蔽；結束後保留 5 min | Unit + synthetic browser |
+| `POST /api/agent-auth/start` | Web | B/P | agentId/action/choice/provider/cols/rows；browser 需 Origin | PTY 執行固定指令；每個 Agent 同時只有一個登入／登出 run；status 45 s、其他 20 min | Unit + synthetic browser |
+| `POST /api/agent-auth/input` | Web | B/P | runId + data ≤8192 字元或 key；secret 旗標 | 寫入 run 的 stdin；secret 在輸出中遮蔽 | Unit + synthetic browser |
+| `POST /api/agent-auth/cancel` | Web | B/P | runId | 停止 run，不是登出 | Unit |
+| `GET /api/quota-sources` | Web | B/P | 無 | 3.3.0：讀取本機 OpenCodex 的額度；admin token 不回傳 | Unit |
 | `GET /api/model-providers` | Web | B/P | 無 | sanitized `models.json` provider list | Static security/UI |
 | `POST /api/model-providers` | Web | B/P | upsert/delete validated provider | atomic write `models.json` | Static security/UI |
 | `GET /api/model-config/export?secrets` | Web | B/P | `secrets=1` 明確 opt-in | portable provider config；預設移除 apiKey/oauth | Static source inspection only |
@@ -452,7 +458,7 @@ macOS updater 在下載前及 activation 前各檢查 active non-stuck Pi RPC；
 | `.pi/agent/sessions/.archive/<archiveId>/...` | Stepsemble | 可復原 session snapshot | 全數 restore 成功才移除 archive dir | Rust migration 不可刪除未驗證 archive |
 | `.pi/agent/models.json` | Pi + Stepsemble provider editor | Provider/model config，可能含 API key；Stepsemble atomic 0600 write | Import 前驗證；沒有版本化歷史 | 不進 journal/log；Model Source 層不得靜默改寫 |
 | `.pi/agent/auth.json` | Pi auth storage，Stepsemble 經 Pi runtime 使用 | Native provider OAuth/API auth | 由 provider delete flow 處理 | 不複製到 Stepsemble DB、Client 或跨裝置同步 |
-| `.pi/agent/nous-auth.json` | Stepsemble provider integration | Nous access/refresh secret；0600 atomic | refresh/update/delete | 同上，秘密留 Host |
+| `.pi/agent/nous-auth.json` | 3.2.x 以前的 Stepsemble Nous 整合；3.3.0 起不再讀寫 | Nous access/refresh secret；0600 | 既有檔案留在磁碟，不自動刪除 | 同上，秘密留 Host |
 | `.pi/agent/machines.json` | Stepsemble | managed machine catalog；0600 atomic | mutation 失敗回復 in-memory map並嘗試落回 | 長期移至 Stepsemble state 時需雙讀與 rollback |
 | `.pi/agent/device.json` | Stepsemble | local id/name/port/publicUrl；0600 atomic | write failure 回復 memory；port 重啟後生效 | Installer/updater也讀 port，需跨版兼容 |
 | `.pi/worktrees/<repo>/<stamp-suffix>` | Git + Stepsemble | permanent Git worktree | create failure遞迴清除 target | 不自動刪 user work；需明確 ownership metadata |

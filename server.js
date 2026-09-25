@@ -49,7 +49,10 @@ const piSession = require("./public/modules/pi-session");
 const { negotiate, protocolError } = require("./server/platform-protocol");
 const { createGitChangesService } = require("./server/git-changes");
 const { createPiResourcesService } = require("./server/pi-resources");
-const { createAgentTaskService, resolveCommand, CONNECTOR_DEFINITIONS } = require("./server/agent-connectors");
+const { createAgentTaskService, resolveCommand, resolvePtyRuntime, CONNECTOR_DEFINITIONS } = require("./server/agent-connectors");
+const { createAgentAuthService } = require("./server/agent-auth");
+const { windowsLaunch } = require("./server/windows-launch");
+const { listQuotaSources } = require("./server/quota-sources");
 const { CONTRACT_VERSION: AGENT_CAPABILITY_CONTRACT_VERSION } = require("./server/agent-capability-contract");
 const { createOpenCodeNativeAdapter } = require("./server/opencode-native-adapter");
 const { taskFromThread: codexTaskFromThread } = require("./server/codex-native-history-adapter");
@@ -94,7 +97,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.2.4";
+const APP_VERSION = "3.3.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2236,6 +2239,67 @@ try {
   harnessUpdateService = null;
 }
 const claudeAuth = desktopClaude || createClaudeAuthService({ home: APP_HOME, env: process.env, hasActiveTasks: hasClaudeTasks });
+// The conversation terminal (/login, /logout, /status). Each agent's own
+// commands run on this host; on a macOS host reached over SSH, Claude's run in
+// the desktop helper, where its keychain sign-in lives.
+const agentAuth = createAgentAuthService({
+  home: APP_HOME,
+  env: process.env,
+  ptyRuntime: resolvePtyRuntime({ env: process.env }),
+  windowsLaunch,
+  resolveExecutable: agentId => {
+    const definition = CONNECTOR_DEFINITIONS.find(item => item.id === agentId);
+    return definition ? resolveCommand(definition, { env: process.env }) : null;
+  },
+  hasActiveWork: agentHasActiveWork,
+  onAuthChanged: agentId => {
+    if (agentId === "codex") return codexNative.recycleIdle?.();
+    if (agentId === "opencode") return reloadManagedOpenCode({ onlyWhenIdle: true });
+    return null;
+  },
+  remoteAgents: desktopClaude ? { "claude-code": {
+    available: () => true,
+    supported: () => desktopClaude.terminalSupported(),
+    start: options => desktopClaude.terminalStart(options),
+    read: options => desktopClaude.terminalRead(options),
+    input: options => desktopClaude.terminalInput(options),
+    cancel: options => desktopClaude.terminalCancel(options),
+  } } : {},
+});
+
+// True while the agent is doing work that a sign-in change would disrupt.
+// An open conversation that is only waiting for input does not count, so the
+// user can sign in from the conversation that needs it.
+function agentHasActiveWork(agentId) {
+  try {
+    if (agentId === "pi") return activeRpcSessionsForUpdate().some(session => rpcHasWork(session));
+    if (agentId === "codex" && codexNative.hasActiveWork()) return true;
+    if (agentId === "claude-code" && claudeLaunchReservations > 0) return true;
+    return activeAgentTasksForUpdate().some(task => String(task?.agentId || task?.agent || "") === agentId
+      && (task.isRunning === true || ["running", "starting", "reconnecting", "interrupting"].includes(String(task.status || ""))));
+  } catch { return true; }
+}
+
+// The OpenCode service Stepsemble manages reads opencode.json and its sign-in
+// when it starts. Restart it so a changed provider or /login applies to the
+// next request; with onlyWhenIdle it waits for running sessions instead.
+async function reloadManagedOpenCode({ onlyWhenIdle = false } = {}) {
+  if (!openCodeManaged.status().managed) return false;
+  if (onlyWhenIdle) {
+    try {
+      const statuses = await openCodeNative.sessionStatus();
+      if (Object.values(statuses || {}).some(value => !["idle", "completed", "stopped"].includes(String(value?.type || value?.status || "unknown")))) return false;
+    } catch { return false; }
+  }
+  try { await openCodeManaged.restart(); } catch {}
+  const candidate = createOpenCodeNativeAdapter({
+    env: { ...process.env, ...openCodeManaged.env() },
+    stateFile: path.join(CONFIG_DIR, "opencode-native.json"),
+  });
+  const probeStatus = await candidate.refresh();
+  if (probeStatus.ready) openCodeNative = candidate;
+  return probeStatus.ready === true;
+}
 claudeDesktopUpgrade = createClaudeDesktopUpgradeService({ desktopClient: desktopClaude,
   isBusy: () => nativeWorkRequests > 0 || claudeLaunchReservations > 0 || claudeAuth.isBusy()
     || harnessUpdateService?.isRunning() || updateProcessIsRunning() || hasClaudeTasks()
@@ -2735,6 +2799,8 @@ function activeAgentTasksForUpdate() {
       !(task?.nativeHistoryReadonly === true && task?.readOnly === true)
       && ["starting", "running", "waiting", "reconnecting"].includes(String(task?.status || "")));
     if (nativeWorkRequests > 0 || claudeLaunchReservations > 0 || codexNative.hasActiveWork() || openCodeSetupPromise || claudeDesktopUpgrade?.isRunning()) tasks.push({ id: "native-reservation", status: "running" });
+    // A sign-in in progress would be cut off by a restart.
+    if (agentAuth?.isBusy()) tasks.push({ id: "agent-auth", status: "running" });
     const native = [];
     for (const [id, session] of claudeStructuredSessions) native.push(publicClaudeStructuredTask(id, session));
     for (const [id, session] of antigravityStructuredSessions) native.push(publicAntigravityStructuredTask(id, session));
@@ -3210,9 +3276,6 @@ async function openRpc({ file, cwd, name }) {
       throw error;
     }
   }
-  // Nous Portal access JWT 有效期有限；在新 RPC 啟動前懶惰更新，確保模型
-  // 讀到的是最新 access token，而不在背景同時刷新 single-use token。
-  await ensureNousAuthFresh();
   const reused = reusableRpc(file);
   if (reused) return reused;
   const activeRpcCount = [...rpcSessions.values()].filter((session) => !session.exited).length;
@@ -3730,7 +3793,6 @@ const remoteCatalogSync = createModelCatalogSync({
     });
   },
   onChange() { modelCatalogCache = { at: 0, models: [] }; },
-  customSources: providerCatalogSources,
   officialSource: officialProviderCatalogSource,
   generatedAt: () => modelCatalogGeneratedAt,
 });
@@ -3826,118 +3888,13 @@ function deleteModelProvider(idValue) {
 }
 
 // ---------------------------------------------------------------------------
-// 友善的內建 Provider 登入（~/.pi/agent/auth.json）
+// Pi sign-in (~/.pi/agent/auth.json) for the conversation terminal's /login
 //
-// models.json 是給進階自訂端點用的；一般使用者只需要選服務，再選帳號登入
-// 或 API key。這裡直接呼叫 Pi 內建的 provider auth flow，讓 OAuth、API key
-// 驗證與 auth.json 的寫入都沿用 Pi 官方實作，不在 web 層複製 credential 格式。
+// Pi has no sign-in command line, so Pi's /login and /logout call the same
+// runtime Pi's own /login uses: its provider list, its OAuth and API-key flows
+// and its credential store. Stepsemble adds no providers of its own.
 // ---------------------------------------------------------------------------
 
-const PROVIDER_PRESETS = Object.freeze([
-  { id: "openai-codex", name: "ChatGPT / Codex", description: "Sign in with a ChatGPT Plus or Pro account", category: "account", authTypes: ["oauth"] },
-  { id: "anthropic", name: "Claude", description: "Claude Pro / Max account, or an Anthropic API key", category: "account", authTypes: ["oauth", "api_key"] },
-  { id: "github-copilot", name: "GitHub Copilot", description: "Sign in with GitHub, or paste a Copilot token", category: "account", authTypes: ["oauth", "api_key"] },
-  { id: "openrouter", name: "OpenRouter", description: "Use an OpenRouter account or API key", category: "account", authTypes: ["oauth", "api_key"] },
-  { id: "xai", name: "xAI / Grok", description: "xAI account or API key", category: "account", authTypes: ["oauth", "api_key"] },
-  { id: "kimi-coding", name: "Kimi Code", description: "Kimi Coding Plan account or API key", category: "account", authTypes: ["oauth", "api_key"] },
-  { id: "radius", name: "Radius", description: "Radius account or API key", category: "account", authTypes: ["oauth", "api_key"] },
-  { id: "openai", name: "OpenAI API", description: "Paste an OpenAI API key", category: "paid", authTypes: ["api_key"] },
-  { id: "google", name: "Google Gemini", description: "Paste a Gemini API key", category: "paid", authTypes: ["api_key"] },
-  { id: "deepseek", name: "DeepSeek", description: "Paste a DeepSeek API key", category: "paid", authTypes: ["api_key"] },
-  { id: "mistral", name: "Mistral", description: "Paste a Mistral API key", category: "paid", authTypes: ["api_key"] },
-  { id: "groq", name: "Groq", description: "Paste a Groq API key", category: "paid", authTypes: ["api_key"] },
-  { id: "opencode", name: "OpenCode Zen", description: "Paste an OpenCode API key", category: "paid", authTypes: ["api_key"] },
-  { id: "opencode-go", name: "OpenCode Go", description: "Paste an OpenCode Go API key", category: "paid", authTypes: ["api_key"] },
-  { id: "zai", name: "Zhipu GLM", description: "Paste a Z.ai API key", category: "paid", authTypes: ["api_key"] },
-  // MiniMax 的國際版與中國版使用不同的 host，也必須搭配各自平台簽發的
-  // API key；兩者不能混用。Pi runtime 本身已提供 minimax / minimax-cn。
-  { id: "minimax", name: "MiniMax (International)", description: "International API key · api.minimax.io", category: "paid", authTypes: ["api_key"] },
-  { id: "minimax-cn", name: "MiniMax (China)", description: "China API key · api.minimaxi.com", category: "paid", authTypes: ["api_key"] },
-  { id: "moonshotai", name: "Moonshot / Kimi", description: "Paste a Moonshot API key", category: "paid", authTypes: ["api_key"] },
-  { id: "qwen-token-plan", name: "Qwen Token Plan", description: "Paste a Qwen Token Plan API key", category: "paid", authTypes: ["api_key"] },
-  { id: "cerebras", name: "Cerebras", description: "Paste a Cerebras API key", category: "paid", authTypes: ["api_key"] },
-  { id: "fireworks", name: "Fireworks AI", description: "Paste a Fireworks API key", category: "paid", authTypes: ["api_key"] },
-  { id: "together", name: "Together AI", description: "Paste a Together API key", category: "paid", authTypes: ["api_key"] },
-  { id: "huggingface", name: "Hugging Face", description: "Paste a Hugging Face token", category: "paid", authTypes: ["api_key"] },
-  { id: "nvidia", name: "NVIDIA NIM", description: "Paste an NVIDIA API key", category: "paid", authTypes: ["api_key"] },
-]);
-const FREE_PROVIDER_PRESETS = Object.freeze([
-  { id: "opencode-free", configId: "opencode-free", name: "OpenCode Free Models", description: "Use free models directly; no API key required (usage limits apply)", category: "free", kind: "free", remote: true, api: "openai-completions", baseUrl: "https://opencode.ai/zen/v1" },
-  { id: "ollama-local", configId: "ollama-local", name: "Ollama (Local)", description: "Local free models; no account or API key required", category: "free", kind: "free", api: "openai-completions", baseUrl: "http://127.0.0.1:11434/v1" },
-  { id: "lmstudio-local", configId: "lmstudio-local", name: "LM Studio (Local)", description: "Local models; no account or API key required", category: "free", kind: "free", api: "openai-completions", baseUrl: "http://127.0.0.1:1234/v1" },
-  { id: "vllm-local", configId: "vllm-local", name: "vLLM (Local)", description: "Local OpenAI-compatible service; no account or API key required", category: "free", kind: "free", api: "openai-completions", baseUrl: "http://127.0.0.1:8000/v1" },
-]);
-
-// OpenCodex 的 provider 目錄有大量 OpenAI 相容端點。這些服務不一定由 Pi
-// 內建 runtime 綁定，因此由 web 層以同一個簡單流程寫入 models.json；不把
-// 未知的 consumer-web cookie／反爬登入混進來，只收錄有公開 API 根網址的服務。
-function genericOpenAIProvider(id, name, baseUrl, options = {}) {
-  return {
-    id, configId: id, name,
-    description: options.description || `${name} API key · model list loaded automatically`,
-    category: options.category || "paid", kind: "generic", authTypes: ["api_key"],
-    api: options.api || "openai-completions", baseUrl,
-    ...(options.modelsUrl ? { modelsUrl: options.modelsUrl } : {}),
-    ...(Array.isArray(options.models) ? { models: options.models } : {}),
-  };
-}
-
-const GENERIC_PROVIDER_PRESETS = Object.freeze([
-  // Nous 是 OpenCodex／Hermes 使用的 Portal 訂閱入口：帳號登入走裝置碼，
-  // API key 仍保留給已有 Nous key 的使用者。
-  {
-    id: "nous", configId: "nous", name: "Nous Research", category: "account", kind: "nous",
-    description: "Sign in to Nous Portal for Hermes and :free models; an API key also works",
-    authTypes: ["oauth", "api_key"], api: "openai-completions",
-    baseUrl: "https://inference-api.nousresearch.com/v1",
-    modelsUrl: "https://inference-api.nousresearch.com/v1/models",
-    models: ["Hermes-4-405B", "Hermes-4-70B", "tencent/hy3:free", "stepfun/step-3.7-flash:free"],
-    portalUrl: "https://portal.nousresearch.com",
-  },
-  genericOpenAIProvider("ai21", "AI21", "https://api.ai21.com/studio/v1"),
-  genericOpenAIProvider("ai-horde", "AI Horde", "https://oai.aihorde.net/v1", { modelsUrl: "https://oai.aihorde.net/v1/models" }),
-  genericOpenAIProvider("agentrouter", "AgentRouter", "https://agentrouter.org", { modelsUrl: "https://agentrouter.org/v1/models" }),
-  genericOpenAIProvider("arcee-ai", "Arcee AI", "https://conductor.arcee.ai/v1"),
-  genericOpenAIProvider("baichuan", "Baichuan", "https://api.baichuan-ai.com/v1"),
-  genericOpenAIProvider("baidu", "Baidu Qianfan", "https://qianfan.baidubce.com/v2", { models: ["ernie-5.1", "ernie-5.0", "ernie-4.5-turbo-128k"] }),
-  genericOpenAIProvider("baseten", "Baseten", "https://inference.baseten.co/v1", { modelsUrl: "https://inference.baseten.co/v1/models" }),
-  genericOpenAIProvider("bytez", "Bytez", "https://api.bytez.com/models/v2/openai/v1", { models: ["meta-llama/Llama-3.3-70B-Instruct", "mistralai/Mistral-7B-Instruct-v0.3", "Qwen/Qwen2.5-72B-Instruct"] }),
-  genericOpenAIProvider("cloudflare-ai", "Cloudflare Workers AI", "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1", { models: ["@cf/meta/llama-3.3-70b-instruct-fp8-fast", "@cf/qwen/qwq-32b"] }),
-  genericOpenAIProvider("cohere", "Cohere", "https://api.cohere.com/compatibility/v1", { modelsUrl: "https://api.cohere.com/compatibility/v1/models" }),
-  genericOpenAIProvider("deepinfra", "DeepInfra", "https://api.deepinfra.com/v1/openai"),
-  genericOpenAIProvider("doubao", "Doubao / Volcengine Ark", "https://ark.cn-beijing.volces.com/api/v3"),
-  genericOpenAIProvider("fireworks-generic", "Fireworks AI (catalog)", "https://api.fireworks.ai/inference/v1", { modelsUrl: "https://api.fireworks.ai/v1/accounts/fireworks/models?filter=supports_serverless=true" }),
-  genericOpenAIProvider("friendliai", "FriendliAI", "https://api.friendli.ai/serverless/v1", { modelsUrl: "https://api.friendli.ai/serverless/v1/models" }),
-  genericOpenAIProvider("freemodel-dev", "FreeModel.dev", "https://api.freemodel.dev/v1", { modelsUrl: "https://api.freemodel.dev/v1/models" }),
-  genericOpenAIProvider("github-models", "GitHub Models", "https://models.github.ai/inference", { models: ["openai/gpt-4.1", "meta/llama-4-scout-17b-16e-instruct"] }),
-  genericOpenAIProvider("glm-cn", "BigModel GLM (China)", "https://open.bigmodel.cn/api/coding/paas/v4", { models: ["glm-4.5-flash"] }),
-  genericOpenAIProvider("hackclub", "Hack Club AI", "https://ai.hackclub.com/proxy/v1", { modelsUrl: "https://ai.hackclub.com/proxy/v1/models" }),
-  genericOpenAIProvider("hyperbolic", "Hyperbolic", "https://api.hyperbolic.xyz/v1"),
-  genericOpenAIProvider("iflytek", "iFlytek Spark", "https://spark-api-open.xf-yun.com/v1"),
-  genericOpenAIProvider("kilo-gateway", "Kilo Gateway", "https://api.kilo.ai/api/gateway", { modelsUrl: "https://api.kilo.ai/api/gateway/models" }),
-  genericOpenAIProvider("liquid", "Liquid AI", "https://inference.liquid.ai/v1", { modelsUrl: "https://inference.liquid.ai/v1/models" }),
-  genericOpenAIProvider("longcat", "LongCat", "https://api.longcat.chat/openai/v1", { models: ["LongCat-2.0"] }),
-  genericOpenAIProvider("monsterapi", "MonsterAPI", "https://api.monsterapi.ai/v1"),
-  genericOpenAIProvider("nebius", "Nebius Token Factory", "https://api.tokenfactory.nebius.com/v1", { modelsUrl: "https://api.tokenfactory.nebius.com/v1/models?verbose=true" }),
-  genericOpenAIProvider("novita", "Novita AI", "https://api.novita.ai/openai/v1", { modelsUrl: "https://api.novita.ai/openai/v1/models" }),
-  genericOpenAIProvider("nscale", "Nscale", "https://inference.api.nscale.com/v1", { modelsUrl: "https://inference.api.nscale.com/v1/models" }),
-  genericOpenAIProvider("ollama-cloud", "Ollama Cloud", "https://ollama.com/v1", { modelsUrl: "https://ollama.com/api/tags" }),
-  genericOpenAIProvider("opencode-zen", "OpenCode Zen (catalog)", "https://opencode.ai/zen/v1", { modelsUrl: "https://opencode.ai/zen/v1/models" }),
-  genericOpenAIProvider("ovhcloud", "OVHcloud AI Endpoints", "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", { modelsUrl: "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/models" }),
-  genericOpenAIProvider("pollinations", "Pollinations", "https://gen.pollinations.ai/v1", { description: "API key optional; some models can be used directly" }),
-  genericOpenAIProvider("publicai", "PublicAI", "https://api.publicai.co/v1"),
-  genericOpenAIProvider("reka", "Reka", "https://api.reka.ai/v1"),
-  genericOpenAIProvider("requesty", "Requesty", "https://router.requesty.ai/v1", { modelsUrl: "https://router.requesty.ai/v1/models" }),
-  genericOpenAIProvider("routeway", "Routeway", "https://api.routeway.ai/v1", { modelsUrl: "https://api.routeway.ai/v1/models" }),
-  genericOpenAIProvider("sambanova", "SambaNova Cloud", "https://api.sambanova.ai/v1", { modelsUrl: "https://api.sambanova.ai/v1/models" }),
-  genericOpenAIProvider("scaleway", "Scaleway Generative API", "https://api.scaleway.ai/v1", { modelsUrl: "https://api.scaleway.ai/v1/models" }),
-  genericOpenAIProvider("sealion", "SEA-LION", "https://api.sea-lion.ai/v1", { models: ["aisingapore/Llama-SEA-LION-v3.5-70B-R", "aisingapore/Gemma-SEA-LION-v4-27B-IT"] }),
-  genericOpenAIProvider("sensenova", "SenseNova", "https://token.sensenova.cn/v1"),
-  genericOpenAIProvider("siliconflow", "SiliconFlow", "https://api.siliconflow.cn/v1", { modelsUrl: "https://api.siliconflow.cn/v1/models" }),
-  genericOpenAIProvider("stepfun", "StepFun", "https://api.stepfun.com/v1"),
-  genericOpenAIProvider("tencent", "Tencent Hunyuan", "https://api.hunyuan.cloud.tencent.com/v1", { models: ["hunyuan-turbos-latest", "hunyuan-t1-latest", "hunyuan-pro", "hunyuan-lite"] }),
-  genericOpenAIProvider("vertex", "Google Vertex AI（Express key）", "https://aiplatform.googleapis.com", { models: ["gemini-3.1-pro-preview", "gemini-3.1-flash-lite", "gemini-3-flash-preview"] }),
-]);
 const PROVIDER_AUTH_TYPES = new Set(["api_key", "oauth"]);
 const providerAuthRuns = new Map();
 const MAX_PROVIDER_AUTH_RUNS = 4;
@@ -3952,11 +3909,6 @@ const PROVIDER_AUTH_TIMEOUT_MS = 30 * 60 * 1000;
 // environments that need a different loopback address.
 if (!process.env.PI_OAUTH_CALLBACK_HOST) process.env.PI_OAUTH_CALLBACK_HOST = "::1";
 let providerAuthRuntimePromise = null;
-const NOUS_PORTAL_BASE_URL = "https://portal.nousresearch.com";
-const NOUS_INFERENCE_BASE_URL = "https://inference-api.nousresearch.com/v1";
-const NOUS_OAUTH_CLIENT_ID = "hermes-cli";
-const NOUS_OAUTH_SCOPE = "inference:invoke";
-const NOUS_AUTH_FILE = path.join(APP_HOME, ".pi", "agent", "nous-auth.json");
 
 function providerPackageRoot() {
   let realBin;
@@ -4013,10 +3965,6 @@ async function getProviderAuthRuntime() {
     throw error;
   });
   return providerAuthRuntimePromise;
-}
-
-function providerPreset(id) {
-  return [...PROVIDER_PRESETS, ...FREE_PROVIDER_PRESETS, ...GENERIC_PROVIDER_PRESETS].find((preset) => preset.id === id) || null;
 }
 
 function providerAuthMethod(provider, authType) {
@@ -4171,24 +4119,6 @@ function finishProviderAuthRun(run) {
 }
 
 const THINKING_LEVEL_KEYS = Object.freeze(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
-const OLLAMA_THINKING_LEVEL_MAP = Object.freeze({
-  off: "none",
-  minimal: null,
-  low: "low",
-  medium: "medium",
-  high: "high",
-  xhigh: null,
-  max: "max",
-});
-const OLLAMA_GPT_OSS_THINKING_LEVEL_MAP = Object.freeze({
-  off: null,
-  minimal: null,
-  low: "low",
-  medium: "medium",
-  high: "high",
-  xhigh: null,
-  max: null,
-});
 
 function sanitizeThinkingLevelMap(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -4202,183 +4132,6 @@ function sanitizeThinkingLevelMap(value) {
   return Object.keys(map).length ? map : null;
 }
 
-function isOllamaPreset(preset) {
-  return preset?.id === "ollama-cloud" || preset?.configId === "ollama-local";
-}
-
-function ollamaThinkingLevelMap(modelId) {
-  return /^gpt-oss(?::|$)/i.test(String(modelId || ""))
-    ? OLLAMA_GPT_OSS_THINKING_LEVEL_MAP
-    : OLLAMA_THINKING_LEVEL_MAP;
-}
-
-function providerModelFromRow(row) {
-  const object = row && typeof row === "object" && !Array.isArray(row) ? row : null;
-  const id = typeof row === "string"
-    ? row.trim()
-    : String(object?.id || object?.name || object?.model || "").trim();
-  if (!id) return null;
-  const name = object ? String(object.name || object.id || object.model || "").trim() : id;
-  const capabilities = Array.isArray(object?.capabilities) ? object.capabilities.map(String) : null;
-  const reasoning = typeof object?.reasoning === "boolean"
-    ? object.reasoning
-    : typeof object?.thinking === "boolean"
-      ? object.thinking
-      : capabilities ? capabilities.includes("thinking") : undefined;
-  const thinkingLevelMap = sanitizeThinkingLevelMap(object?.thinkingLevelMap);
-  return {
-    id,
-    ...(name && name !== id ? { name } : {}),
-    ...(reasoning !== undefined ? { reasoning } : {}),
-    ...(thinkingLevelMap ? { thinkingLevelMap } : {}),
-  };
-}
-
-function parseProviderModels(payload, fallback = []) {
-  const rows = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [];
-  const models = rows.map(providerModelFromRow).filter(Boolean);
-  const source = models.length
-    ? models
-    : (Array.isArray(fallback) ? fallback : []).map(providerModelFromRow).filter(Boolean);
-  return source.filter((row, index, all) => row && all.findIndex((other) => other?.id === row.id) === index).slice(0, 100);
-}
-
-async function enrichOllamaModels(models, preset, apiKey = "") {
-  if (!isOllamaPreset(preset) || !models.length) return models;
-  let endpoint;
-  try { endpoint = new URL("/api/show", preset.modelsUrl || preset.baseUrl).href; }
-  catch { return models; }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 7000);
-  const enriched = models.map((model) => ({ ...model }));
-  let cursor = 0;
-  async function worker() {
-    while (!controller.signal.aborted) {
-      const index = cursor++;
-      if (index >= enriched.length) return;
-      const model = enriched[index];
-      try {
-        const response = await fetch(endpoint, {
-          method: "POST",
-          signal: controller.signal,
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-            ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-          },
-          body: JSON.stringify({ name: model.id }),
-        });
-        if (!response.ok) continue;
-        const text = await response.text();
-        if (text.length > 512 * 1024) continue;
-        let details;
-        try { details = JSON.parse(text); } catch { continue; }
-        if (!Array.isArray(details?.capabilities)) continue;
-        const capabilities = details.capabilities.map(String);
-        const reasoning = capabilities.includes("thinking");
-        const next = { ...model, reasoning };
-        if (reasoning) next.thinkingLevelMap = ollamaThinkingLevelMap(model.id);
-        else delete next.thinkingLevelMap;
-        enriched[index] = next;
-      } catch {
-        // Metadata is best-effort. The model list remains usable if /api/show
-        // is unavailable, and setup preserves metadata from the prior config.
-      }
-    }
-  }
-  try {
-    await Promise.all(Array.from({ length: Math.min(6, enriched.length) }, () => worker()));
-  } finally {
-    clearTimeout(timer);
-  }
-  return enriched;
-}
-
-function mergeExistingProviderModelMetadata(providerId, models) {
-  const previous = readModelConfig().providers[providerId];
-  const previousById = new Map(
-    (Array.isArray(previous?.models) ? previous.models : [])
-      .filter((model) => model && typeof model === "object" && typeof model.id === "string")
-      .map((model) => [model.id, model]),
-  );
-  return models.map((model) => {
-    const old = previousById.get(model.id);
-    if (!old) return model;
-    const next = { ...model };
-    if (next.reasoning === undefined && typeof old.reasoning === "boolean") next.reasoning = old.reasoning;
-    if (next.reasoning !== false && next.thinkingLevelMap === undefined) {
-      const map = sanitizeThinkingLevelMap(old.thinkingLevelMap);
-      if (map) next.thinkingLevelMap = map;
-    }
-    return next;
-  });
-}
-
-async function fetchProviderModels(preset, apiKey, { strict = false, signal = null } = {}) {
-  if (!strict && !preset.modelsUrl && Array.isArray(preset.models) && preset.models.length) return parseProviderModels({}, preset.models);
-  const endpoint = preset.modelsUrl || localProviderModelsEndpoint(preset.baseUrl);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 7000);
-  let response;
-  let text;
-  try {
-    response = await fetch(endpoint, {
-      signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
-      redirect: "error",
-      headers: { Accept: "application/json", ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
-    });
-    text = await response.text();
-  } catch (error) {
-    if (!strict && Array.isArray(preset.models) && preset.models.length) return parseProviderModels({}, preset.models);
-    throw providerAuthError(`${preset.name} could not load its model list; check the endpoint or API key`, 409);
-  } finally {
-    clearTimeout(timer);
-  }
-  if (!response.ok) {
-    if (!strict && Array.isArray(preset.models) && preset.models.length) return parseProviderModels({}, preset.models);
-    throw providerAuthError(`${preset.name} returned ${response.status}; check the API key or service endpoint`, 409);
-  }
-  if (text.length > 2 * 1024 * 1024) throw providerAuthError(`${preset.name} returned an oversized model list`, 409);
-  let payload;
-  try { payload = JSON.parse(text); } catch {
-    if (!strict && Array.isArray(preset.models) && preset.models.length) return parseProviderModels({}, preset.models);
-    throw providerAuthError(`${preset.name} returned an invalid model list`, 409);
-  }
-  let models = parseProviderModels(payload, strict ? undefined : preset.models);
-  if (!models.length) throw providerAuthError(`${preset.name} has no available models`, 409);
-  if (isOllamaPreset(preset)) models = await enrichOllamaModels(models, preset, apiKey);
-  return models;
-}
-
-// Presets added through automatic discovery keep following the same endpoint.
-// Hand-written providers (including model overrides) have no authoritative
-// discovery source and must remain under the user's control.
-function providerCatalogSources() {
-  const providers = readModelConfig().providers;
-  return Object.entries(providers).flatMap(([id, provider]) => {
-    const preset = [...FREE_PROVIDER_PRESETS, ...GENERIC_PROVIDER_PRESETS].find(item =>
-      item.configId === id && item.baseUrl === provider.baseUrl && (item.api || "openai-completions") === provider.api);
-    // A curated static list is not a live discovery API. Do not announce it as
-    // freshly verified or replace it with a guessed /models response.
-    if (!preset || (!preset.modelsUrl && preset.models?.length) || provider.catalogSync === false) return [];
-    if (provider.apiKey?.startsWith("!")) return [];
-    return [{ id, async refresh({ signal } = {}) {
-      const key = provider.apiKey ? (process.env[provider.apiKey] || provider.apiKey) : "";
-      const models = mergeExistingProviderModelMetadata(id, await fetchProviderModels(preset, key, { strict: true, signal }));
-      const latest = readModelConfig();
-      if (JSON.stringify(latest.providers[id]) !== JSON.stringify(provider)) {
-        throw new Error("Provider settings changed during refresh; will retry");
-      }
-      const changed = JSON.stringify(models) !== JSON.stringify(provider.models);
-      if (changed) {
-        latest.providers[id] = { ...provider, models };
-        writeModelConfig(latest);
-      }
-      return { changed, models: models.length, source: "provider-api", checkedAt: Date.now() };
-    } }];
-  });
-}
-
 function cleanProviderApiKey(value) {
   const key = typeof value === "string" ? value.trim() : "";
   if (!key || key.length > 4096 || /[\r\n\u0000]/.test(key)) {
@@ -4387,221 +4140,50 @@ function cleanProviderApiKey(value) {
   return key;
 }
 
-async function setupGenericProvider(preset, apiKey) {
-  const key = cleanProviderApiKey(apiKey);
-  const models = mergeExistingProviderModelMetadata(preset.configId, await fetchProviderModels(preset, key));
-  const provider = upsertModelProvider({
-    id: preset.configId,
-    api: preset.api || "openai-completions",
-    baseUrl: preset.baseUrl,
-    models,
-    apiKey: key,
-  }, { manual: false });
-  return { provider, source: "provider-api" };
+// A provider Pi can sign in to, as Pi's own /login lists it.
+function piLoginProvider(runtime, id) {
+  const provider = typeof id === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id) ? runtime.models.getProvider(id) : null;
+  if (!provider) return null;
+  // Account sign-in first, as Pi's own /login offers it.
+  const authTypes = ["oauth", "api_key"].filter((type) => !!providerAuthMethod(provider, type)?.login);
+  return authTypes.length ? { provider, authTypes } : null;
 }
 
-function readNousAuth() {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(NOUS_AUTH_FILE, "utf8"));
-    if (!parsed || typeof parsed !== "object" || typeof parsed.accessToken !== "string" || typeof parsed.refreshToken !== "string") return null;
-    return {
-      accessToken: parsed.accessToken,
-      refreshToken: parsed.refreshToken,
-      expiresAt: Number.isFinite(parsed.expiresAt) ? parsed.expiresAt : 0,
-    };
-  } catch { return null; }
-}
-
-function writeNousAuth(auth) {
-  const dir = path.dirname(NOUS_AUTH_FILE);
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const temp = `${NOUS_AUTH_FILE}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  fs.writeFileSync(temp, JSON.stringify(auth) + "\n", { encoding: "utf8", mode: 0o600 });
-  fs.renameSync(temp, NOUS_AUTH_FILE);
-  try { fs.chmodSync(NOUS_AUTH_FILE, 0o600); } catch {}
-}
-
-function deleteNousAuth() {
-  try { fs.unlinkSync(NOUS_AUTH_FILE); } catch (error) { if (error.code !== "ENOENT") throw error; }
-}
-
-let nousRefreshPromise = null;
-
-function syncNousModelToken(accessToken) {
-  const current = readModelConfig().providers.nous;
-  if (!current || current.apiKey === accessToken) return;
-  upsertModelProvider({
-    id: "nous",
-    api: current.api || "openai-completions",
-    baseUrl: current.baseUrl || NOUS_INFERENCE_BASE_URL,
-    models: Array.isArray(current.models) ? current.models : GENERIC_PROVIDER_PRESETS.find((item) => item.id === "nous").models,
-    apiKey: accessToken,
-  });
-}
-
-async function ensureNousAuthFresh() {
-  const auth = readNousAuth();
-  if (!auth) return;
-  if (auth.expiresAt > Date.now() + 120_000) {
-    syncNousModelToken(auth.accessToken);
-    return;
-  }
-  if (nousRefreshPromise) return nousRefreshPromise;
-  nousRefreshPromise = (async () => {
-    const result = await nousJson("/api/oauth/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "x-nous-refresh-token": auth.refreshToken,
-      },
-      body: new URLSearchParams({ client_id: NOUS_OAUTH_CLIENT_ID, grant_type: "refresh_token" }),
-      timeoutMs: 30_000,
-    });
-    if (!result.response.ok || !result.payload?.access_token || !result.payload?.refresh_token) {
-      throw new Error("Nous sign-in expired; sign in again in Provider settings");
-    }
-    const next = {
-      accessToken: String(result.payload.access_token),
-      refreshToken: String(result.payload.refresh_token),
-      expiresAt: Date.now() + Math.max(60_000, Number(result.payload.expires_in || 12 * 60 * 60) * 1000) - 120_000,
-    };
-    // 先把旋轉後的 refresh token 落盤，再更新 models.json；避免服務重啟時
-    // 拿舊 token 重放而觸發 Nous 的 single-use refresh 防重放機制。
-    writeNousAuth(next);
-    syncNousModelToken(next.accessToken);
-  })().finally(() => { nousRefreshPromise = null; });
-  return nousRefreshPromise;
-}
-
-async function nousJson(pathname, options = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), options.timeoutMs || 30_000);
-  try {
-    const response = await fetch(`${NOUS_PORTAL_BASE_URL}${pathname}`, {
-      ...options,
-      signal: controller.signal,
-      headers: { Accept: "application/json", ...(options.headers || {}) },
-    });
-    const text = await response.text();
-    let payload = {};
-    try { payload = JSON.parse(text); } catch {}
-    return { response, payload };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function nousSleep(ms, signal) {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) { reject(new Error("Sign-in canceled")); return; }
-    const timer = setTimeout(() => { signal?.removeEventListener("abort", onAbort); resolve(); }, ms);
-    const onAbort = () => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); reject(new Error("Sign-in canceled")); };
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
-}
-
-async function loginNousProvider(run, preset) {
-  const device = await nousJson("/api/oauth/device/code", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: NOUS_OAUTH_CLIENT_ID, scope: NOUS_OAUTH_SCOPE }),
-    timeoutMs: 30_000,
-  });
-  if (!device.response.ok || !device.payload?.device_code || !device.payload?.user_code || !(device.payload?.verification_uri_complete || device.payload?.verification_uri)) {
-    throw new Error(`Nous Portal could not start sign-in (${device.response.status})`);
-  }
-  const verificationUri = String(device.payload.verification_uri_complete || device.payload.verification_uri);
-  const userCode = String(device.payload.user_code);
-  const expiresInMs = Math.min(15 * 60 * 1000, Math.max(60_000, Number(device.payload.expires_in || 900) * 1000));
-  let intervalMs = Math.min(30_000, Math.max(1_000, Number(device.payload.interval || 5) * 1000));
-  providerAuthEmit(run, { type: "notify", event: publicProviderAuthEvent({ type: "device_code", userCode, verificationUri, intervalSeconds: intervalMs / 1000, expiresInSeconds: expiresInMs / 1000 }) });
-  const deadline = Date.now() + expiresInMs;
-  while (Date.now() < deadline) {
-    await nousSleep(intervalMs, run.controller.signal);
-    const token = await nousJson("/api/oauth/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ client_id: NOUS_OAUTH_CLIENT_ID, device_code: String(device.payload.device_code), grant_type: "urn:ietf:params:oauth:grant-type:device_code" }),
-      timeoutMs: 30_000,
-    });
-    if (token.response.ok && token.payload?.access_token && token.payload?.refresh_token) {
-      const expiresAt = Date.now() + Math.max(60_000, Number(token.payload.expires_in || 12 * 60 * 60) * 1000) - 120_000;
-      writeNousAuth({ accessToken: String(token.payload.access_token), refreshToken: String(token.payload.refresh_token), expiresAt });
-      await setupGenericProvider(preset, String(token.payload.access_token));
-      return;
-    }
-    const error = String(token.payload?.error || "");
-    if (error === "authorization_pending") continue;
-    if (error === "slow_down") { intervalMs = Math.min(30_000, intervalMs + 5_000); continue; }
-    if (error === "expired_token") throw new Error("Nous Portal sign-in code expired; start again");
-    if (error === "access_denied") throw new Error("Nous Portal sign-in was denied");
-    if (error) throw new Error(`Nous Portal sign-in failed: ${error}`);
-    throw new Error(`Nous Portal sign-in failed (${token.response.status})`);
-  }
-  throw new Error("Nous Portal sign-in timed out; start again");
-}
-
-async function startCustomProviderAuth(preset, authType, suppliedApiKey = "") {
-  const run = createProviderAuthRun(preset, authType);
-  void (async () => {
-    try {
-      if (preset.kind === "nous" && authType === "oauth") {
-        await loginNousProvider(run, preset);
-      } else {
-        const key = suppliedApiKey || await providerAuthPrompt(run, {
-          type: "secret",
-          message: `Paste the ${preset.name} API key. It is stored only in this Mac's models.json.`,
-          placeholder: "API key",
-        });
-        const result = await setupGenericProvider(preset, key);
-        if (preset.kind === "nous") deleteNousAuth();
-        void result;
-      }
-      if (!run.cancelled) providerAuthEmit(run, { type: "success", providerId: preset.id, providerName: preset.name, authType });
-    } catch (error) {
-      if (!run.cancelled) providerAuthEmit(run, { type: "error", message: String(error?.message || error || "Sign-in failed").slice(0, 2000) });
-    } finally {
-      finishProviderAuthRun(run);
-    }
-  })();
-  return { runId: run.id, provider: { id: preset.id, name: preset.name }, replayAfter: -1 };
+function piProviderName(provider, authType = null) {
+  const method = authType ? providerAuthMethod(provider, authType) : null;
+  return String(method?.name || provider?.name || provider?.id || "Provider").slice(0, 120);
 }
 
 async function startProviderAuth(body) {
   const id = typeof body?.providerId === "string" ? body.providerId.trim() : "";
   const authType = typeof body?.authType === "string" ? body.authType : "";
-  const preset = providerPreset(id);
-  if (!preset || preset.kind === "free" || !PROVIDER_AUTH_TYPES.has(authType) || !preset.authTypes.includes(authType)) {
-    throw providerAuthError("Choose a supported provider and sign-in method first", 400);
-  }
+  if (!PROVIDER_AUTH_TYPES.has(authType)) throw providerAuthError("Choose a supported provider and sign-in method first", 400);
   const suppliedApiKey = Object.prototype.hasOwnProperty.call(body || {}, "apiKey")
     ? cleanProviderApiKey(body.apiKey) : "";
   if (suppliedApiKey && authType !== "api_key") {
     throw providerAuthError("An API key can only be used with the API key sign-in flow", 400);
   }
+  const runtime = await getProviderAuthRuntime();
+  const entry = piLoginProvider(runtime, id);
+  if (!entry || !entry.authTypes.includes(authType)) throw providerAuthError("Choose a supported provider and sign-in method first", 400);
+  const name = piProviderName(entry.provider, authType);
   // Make retrying a provider login deterministic. In particular, an
   // interrupted Claude subscription login can otherwise keep port 53692
   // occupied until its ten-minute timeout.
-  await cancelActiveProviderAuth(preset.id);
-  if (preset.kind === "generic" || preset.kind === "nous") return startCustomProviderAuth(preset, authType, suppliedApiKey);
-  const runtime = await getProviderAuthRuntime();
-  const provider = runtime.models.getProvider(id);
-  if (!provider || !providerAuthMethod(provider, authType)?.login) {
-    throw providerAuthError(`${preset.name} does not support this sign-in method`, 409);
-  }
-  const run = createProviderAuthRun(preset, authType);
+  await cancelActiveProviderAuth(id);
+  const run = createProviderAuthRun({ id, name }, authType);
   void runtime.models.login(id, authType, {
     signal: run.controller.signal,
     prompt: suppliedApiKey ? async () => suppliedApiKey : (prompt) => providerAuthPrompt(run, prompt),
     notify: (event) => providerAuthEmit(run, { type: "notify", event: publicProviderAuthEvent(event) }),
   }).then(() => {
-    if (!run.cancelled) providerAuthEmit(run, { type: "success", providerId: id, providerName: preset.name, authType });
+    if (!run.cancelled) providerAuthEmit(run, { type: "success", providerId: id, providerName: name, authType });
   }).catch((error) => {
     if (!run.cancelled) providerAuthEmit(run, { type: "error", message: String(error?.message || error || "Sign-in failed").slice(0, 2000) });
   }).finally(() => {
     finishProviderAuthRun(run);
   });
-  return { runId: run.id, provider: { id, name: preset.name }, replayAfter: -1 };
+  return { runId: run.id, provider: { id, name }, replayAfter: -1 };
 }
 
 function respondProviderAuth(body) {
@@ -4680,121 +4262,91 @@ async function cancelActiveProviderAuth(providerId) {
 
 async function deleteProviderAuth(providerId) {
   const id = typeof providerId === "string" ? providerId.trim() : "";
-  const preset = providerPreset(id);
-  if (!preset) throw providerAuthError("Built-in provider not found", 404);
-  if (preset.kind === "free") {
-    const result = deleteModelProvider(preset.configId);
-    return { ...result, provider: { id: preset.id, name: preset.name } };
-  }
-  if (preset.kind === "generic" || preset.kind === "nous") {
-    for (const run of providerAuthRuns.values()) {
-      if (run.providerId === id && !run.done && !run.closed) cancelProviderAuth(run.id);
-    }
-    let deleted = false;
-    try { deleteModelProvider(preset.configId); deleted = true; } catch (error) { if (error.statusCode !== 404) throw error; }
-    if (preset.kind === "nous") deleteNousAuth();
-    return { deleted, provider: { id: preset.id, name: preset.name } };
-  }
   const runtime = await getProviderAuthRuntime();
-  if (!runtime.models.getProvider(id)) throw providerAuthError(`${preset.name} is currently unavailable`, 409);
+  const provider = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id) ? runtime.models.getProvider(id) : null;
+  if (!provider) throw providerAuthError("Provider not found", 404);
   for (const run of providerAuthRuns.values()) {
     if (run.providerId === id && !run.done && !run.closed) cancelProviderAuth(run.id);
   }
-  await runtime.credentials.delete(id);
-  return { deleted: true, provider: { id, name: preset.name } };
+  if (typeof runtime.models.logout === "function") await runtime.models.logout(id);
+  else await runtime.credentials.delete(id);
+  return { deleted: true, provider: { id, name: piProviderName(provider) } };
 }
 
-function localProviderModelsEndpoint(baseUrl) {
-  return new URL("models", `${baseUrl.replace(/\/+$/, "")}/`).href;
-}
-
-async function setupFreeProvider(providerId) {
-  const preset = FREE_PROVIDER_PRESETS.find((item) => item.id === providerId);
-  if (!preset) throw providerAuthError("Free provider not found", 404);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 4000);
-  let response;
-  let body;
-  try {
-    response = await fetch(localProviderModelsEndpoint(preset.baseUrl), {
-      signal: controller.signal,
-      headers: { Accept: "application/json" },
-    });
-    body = await response.text();
-  } catch (error) {
-    throw providerAuthError(preset.remote ? `${preset.name} is temporarily unreachable; try again later` : `${preset.name} is not running; start the service on this Mac first`, 409);
-  } finally {
-    clearTimeout(timer);
-  }
-  if (!response.ok) throw providerAuthError(`${preset.name} returned ${response.status}; models are temporarily unavailable`, 409);
-  if (body.length > 2 * 1024 * 1024) throw providerAuthError(`${preset.name} returned an oversized model list`, 409);
-  let parsed;
-  try { parsed = JSON.parse(body); } catch { throw providerAuthError(`${preset.name} returned an invalid model list`, 409); }
-  let models = parseProviderModels(parsed);
-  if (!models.length) throw providerAuthError(`${preset.name} has no available models`, 409);
-  if (isOllamaPreset(preset)) models = await enrichOllamaModels(models, preset);
-  models = mergeExistingProviderModelMetadata(preset.configId, models);
-  const provider = upsertModelProvider({
-    id: preset.configId,
-    api: preset.api,
-    baseUrl: preset.baseUrl,
-    models,
-    clearApiKey: true,
-  }, { manual: false });
-  return { provider, source: "local" };
-}
-
+// Pi's /login list: every provider Pi can sign in to, and whether it is
+// signed in now.
 async function listProviderCatalog() {
   const runtime = await getProviderAuthRuntime();
-  const customConfig = readModelConfig();
+  const rows = typeof runtime.models.getProviders === "function" ? runtime.models.getProviders() : [];
   const providers = [];
-  for (const preset of FREE_PROVIDER_PRESETS) {
+  for (const provider of Array.isArray(rows) ? rows : []) {
+    const entry = piLoginProvider(runtime, provider?.id);
+    if (!entry) continue;
+    let status = null;
+    try { status = await runtime.models.checkAuth(provider.id); } catch {}
     providers.push({
-      id: preset.id,
-      name: preset.name,
-      description: preset.description,
-      category: preset.category,
-      kind: preset.kind,
-      authTypes: [],
-      configured: !!customConfig.providers[preset.configId],
-      configuredType: customConfig.providers[preset.configId] ? "local" : null,
-    });
-  }
-  for (const preset of PROVIDER_PRESETS) {
-    const provider = runtime.models.getProvider(preset.id);
-    if (!provider) continue;
-    const authTypes = preset.authTypes.filter((type) => !!providerAuthMethod(provider, type)?.login);
-    if (!authTypes.length) continue;
-    let status;
-    try { status = await runtime.models.checkAuth(preset.id); } catch {}
-    providers.push({
-      id: preset.id,
-      name: preset.name,
-      description: preset.description,
-      category: preset.category,
-      kind: "native",
-      authTypes,
+      id: provider.id,
+      name: piProviderName(provider),
+      authTypes: entry.authTypes,
+      oauthName: entry.authTypes.includes("oauth") ? piProviderName(provider, "oauth") : null,
+      apiKeyName: entry.authTypes.includes("api_key") ? piProviderName(provider, "api_key") : null,
       configured: !!status,
       configuredType: status?.type || null,
     });
   }
-  const nousAuth = readNousAuth();
-  for (const preset of GENERIC_PROVIDER_PRESETS) {
-    const configured = preset.kind === "nous"
-      ? !!nousAuth || !!customConfig.providers[preset.configId]
-      : !!customConfig.providers[preset.configId];
-    providers.push({
-      id: preset.id,
-      name: preset.name,
-      description: preset.description,
-      category: preset.category,
-      kind: preset.kind,
-      authTypes: preset.authTypes,
-      configured,
-      configuredType: configured ? (preset.kind === "nous" && nousAuth ? "oauth" : "api_key") : null,
-    });
-  }
+  providers.sort((a, b) => a.name.localeCompare(b.name));
   return { providers };
+}
+
+// The conversation terminal's catalog. Pi signs in through its own runtime
+// (the providers it lists in its /login), so it has no command table here.
+async function agentAuthCatalog() {
+  const catalog = agentAuth.catalog();
+  const agents = { ...catalog.agents, pi: { id: "pi", installed: !!PI_BIN, remote: false, runtime: "pi", status: true,
+    login: [{ id: "provider", provider: true }], logout: [{ id: "provider", provider: true }] } };
+  if (desktopClaude && agents["claude-code"]) {
+    let terminal = false;
+    try { terminal = await desktopClaude.terminalSupported(); } catch {}
+    agents["claude-code"] = { ...agents["claude-code"], desktop: true, terminal };
+  }
+  return { machine: MACHINE_NAME, version: catalog.version, pty: catalog.pty, agents };
+}
+
+function agentAuthStream(req, res, url) {
+  const runId = String(url.searchParams.get("runId") || "");
+  let snapshot;
+  try { snapshot = agentAuth.snapshot(runId); }
+  catch { sendJSON(res, 404, { error: "run_not_found", code: "run_not_found" }); return; }
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-store",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+  });
+  if (typeof res.flushHeaders === "function") res.flushHeaders();
+  const parsedAfter = Number(url.searchParams.get("after"));
+  const parsedLastId = Number(req.headers["last-event-id"]);
+  const after = Math.max(Number.isFinite(parsedAfter) ? parsedAfter : -1, Number.isFinite(parsedLastId) ? parsedLastId : -1);
+  let cleaned = false, ping = null, unsubscribe = () => {};
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    if (ping) clearInterval(ping);
+    unsubscribe();
+  };
+  const end = () => { cleanup(); try { res.end(); } catch {} };
+  if (!trySseWrite(res, sseFrame({ type: "connected", ...snapshot, replayGap: after >= 0 && after < snapshot.replayFloor - 1 }, "connected"))) { end(); return; }
+  unsubscribe = agentAuth.subscribe(runId, after, packet => {
+    if (!trySseWrite(res, sseFrame(packet.event, null, packet.seq))) end();
+  }, () => setImmediate(end));
+  if (cleaned) return;
+  ping = setInterval(() => { trySseWrite(res, ": ping\n\n"); }, 15000);
+  req.on("aborted", cleanup);
+  req.on("close", cleanup);
+  res.on("close", cleanup);
+  res.on("error", cleanup);
 }
 
 function providerAuthStream(req, res, url) {
@@ -5087,6 +4639,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- SSE 流（必須在 /api/ 通配之前）----
+    if (p === "/api/agent-auth/stream" && req.method === "GET") {
+      if (!authenticate(req)) { sendJSON(res, 401, { error: "unauthorized" }); return; }
+      agentAuthStream(req, res, url);
+      return;
+    }
+
     if (p === "/api/provider-auth/stream" && req.method === "GET") {
       if (!authenticate(req)) { sendJSON(res, 401, { error: "unauthorized" }); return; }
       providerAuthStream(req, res, url);
@@ -5305,6 +4863,34 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      // Conversation terminal: /login, /logout and /status for every agent.
+      if (p === "/api/agent-auth/catalog" && req.method === "GET") {
+        sendJSON(res, 200, await agentAuthCatalog());
+        return;
+      }
+      if (p === "/api/agent-auth/active" && req.method === "GET") {
+        sendJSON(res, 200, { run: agentAuth.active(String(url.searchParams.get("agentId") || "")) });
+        return;
+      }
+      if (["/api/agent-auth/start", "/api/agent-auth/input", "/api/agent-auth/cancel"].includes(p) && req.method === "POST") {
+        if (auth.mode === "browser" && !req.headers.origin) { sendJSON(res, 403, { error: "origin_required", code: "origin_required" }); return; }
+        if (p === "/api/agent-auth/start" && claudeDesktopUpgrade.isRunning()) { sendJSON(res, 409, { error: "desktop_upgrade_in_progress", code: "desktop_upgrade_in_progress" }); return; }
+        try {
+          const body = await readJSON(req, 32 * 1024);
+          const action = p.slice("/api/agent-auth/".length);
+          sendJSON(res, 200, await agentAuth[action](body));
+        } catch (error) {
+          const code = typeof error?.code === "string" && /^[a-z_]{3,64}$/.test(error.code) ? error.code : "agent_auth_failed";
+          sendJSON(res, [400, 403, 404, 409, 413, 429, 503].includes(error?.statusCode) ? error.statusCode : 409,
+            { error: code, code, ...(error?.run ? { run: error.run } : {}) });
+        }
+        return;
+      }
+      if (p === "/api/quota-sources" && req.method === "GET") {
+        sendJSON(res, 200, await listQuotaSources({ home: APP_HOME, env: process.env }));
+        return;
+      }
+
       if (p === "/api/claude/desktop/upgrade" && req.method === "POST") {
         if (auth.mode === "browser" && !req.headers.origin) { sendJSON(res, 403, { error: "origin_required" }); return; }
         try { sendJSON(res, 200, await claudeDesktopUpgrade.upgrade(await readJSON(req, 1024))); }
@@ -5423,15 +5009,7 @@ const server = http.createServer(async (req, res) => {
           }
           // Reload the managed server so /config/providers reflects the edited
           // opencode.json on the very next request.
-          if (openCodeManaged.status().managed) {
-            try { await openCodeManaged.restart(); } catch {}
-            const candidate = createOpenCodeNativeAdapter({
-              env: { ...process.env, ...openCodeManaged.env() },
-              stateFile: path.join(CONFIG_DIR, "opencode-native.json"),
-            });
-            const probeStatus = await candidate.refresh();
-            if (probeStatus.ready) openCodeNative = candidate;
-          }
+          await reloadManagedOpenCode();
           let runtime = { providers: [], error: null };
           try {
             runtime = await openCodeNative.listProviderCatalog();
@@ -6507,16 +6085,6 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      if (p === "/api/provider-free/setup" && req.method === "POST") {
-        const body = await readJSON(req);
-        try {
-          sendJSON(res, 200, await setupFreeProvider(body?.providerId));
-        } catch (e) {
-          sendJSON(res, e.statusCode || 409, { error: e.message || "Could not configure free provider" });
-        }
-        return;
-      }
-
       if (p === "/api/model-providers" && req.method === "GET") {
         sendJSON(res, 200, listModelProviders());
         return;
@@ -7473,6 +7041,7 @@ function shutdown(signal) {
   clearInterval(openCodeNativeRetryTimer);
   clearInterval(codexNativeRetryTimer);
   claudeAuth.close(); // Only its dedicated auth children, never normal agent tasks.
+  agentAuth.close(); // Stops sign-in commands still waiting in the conversation terminal.
   if (shutdownState) {
     // A second signal means the caller is no longer willing to wait.  Kill
     // the remaining RPC groups and let the normal drain timer finish.

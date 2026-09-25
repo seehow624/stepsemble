@@ -521,7 +521,7 @@
   function quotaSources() {
     const box = node("div", "", "workspace-quota-sources");
     box.append(node("p", t("quotaSources")),
-      button(t("settings"), () => { closeDialog(); $("workspace-settings").click(); }, t("settings"), "btn ghost workspace-quota-settings"));
+      button(t("settings"), () => { closeDialog(); window.open("/index.html?settings=1&section=quota-sources", "stepsemble-settings"); }, t("settings"), "btn ghost workspace-quota-settings"));
     return box;
   }
   function showQuotaDialog() {

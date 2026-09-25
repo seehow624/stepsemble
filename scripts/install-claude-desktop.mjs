@@ -16,6 +16,7 @@ import connectors from "../server/agent-connectors.js";
 const run = promisify(execFile);
 export const DESKTOP_HELPER_LABEL = "com.stepsemble.claude-desktop";
 export const STRUCTURED_STREAM_VERSION = 1;
+export const TERMINAL_VERSION = 1;
 const label = DESKTOP_HELPER_LABEL;
 const ACTIVE_LOGIN_STATES = new Set(["prepared", "starting", "waiting", "verifying", "cancelling"]);
 const TERMINAL_LOGIN_STATES = new Set(["completed", "failed", "cancelled", "unconfirmed", "interrupted", "expired", "blocked"]);
@@ -25,7 +26,7 @@ const SAFE_UPGRADE_CODES = new Set([
   "upgrade_helper_unavailable", "upgrade_helper_recovery_required", "upgrade_active_login",
   "upgrade_active_tasks", "upgrade_active_structured", "upgrade_structured_stream_unsupported",
   "upgrade_launchctl", "upgrade_stage_failed", "upgrade_plist_failed", "upgrade_bootstrap_failed",
-  "upgrade_verify_failed", "upgrade_rollback_failed", "upgrade_failed",
+  "upgrade_verify_failed", "upgrade_rollback_failed", "upgrade_failed", "upgrade_terminal_unsupported",
 ]);
 
 const xml = value => String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[char]);
@@ -185,6 +186,7 @@ export function validateUpgradePreflight({ status, health, allowMaintenance = fa
 export function validateUpgradedHelper({ status, health } = {}) {
   const result = validateUpgradePreflight({ status, health });
   if (health.structuredStreamVersion !== STRUCTURED_STREAM_VERSION) throw upgradeError("upgrade_structured_stream_unsupported");
+  if (health.terminalVersion !== TERMINAL_VERSION) throw upgradeError("upgrade_terminal_unsupported");
   if (!own(health, "activeStructured") || health.activeStructured !== 0) throw upgradeError("upgrade_active_structured");
   return result;
 }

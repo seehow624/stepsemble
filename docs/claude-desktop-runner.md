@@ -1,5 +1,12 @@
 # macOS Claude 桌面執行元件
 
+> 3.3.0（2026-09-25）：助手新增 `terminal/start`、`terminal/read`、`terminal/input`、
+> `terminal/cancel`，讓 Claude Code 對話的 `/login`、`/logout`、`/status` 在 Aqua 執行固定的
+> 官方 auth 指令並把輸出送回對話終端機。health／status 回報 `terminalVersion: 1`；
+> 沒有這個欄位的舊助手由 Web 端「更新助手」升級（`server/claude-desktop-upgrade.js`），
+> 升級後會再次確認版本。邊界的變化寫在下面「安全與失敗處理」與
+> [`claude-sign-in.md`](claude-sign-in.md)。
+
 > 2026-09-06 22:44 MYT，Mini 桌面助手已啟用，正式 Web 為 3.0.6。使用者完成瀏覽器登入後，助手為 completed／detected；另行同意的直接 Aqua CLI 單次模型／串流／新 history 讀回已通過。助手未被測試重啟，不是 Web task supervisor／原生 session／approval adapter 全部驗收。
 
 ## 決策與範圍
@@ -37,13 +44,23 @@ Web/PWA → 已認證的既有 SSH Web Host
   Claude 路徑 fail closed，不退回 SSH。其他 harness 不改執行位置。
 - 使用 owner-only 0700 目錄、0600 Unix socket 與獨立 32-byte 隨機 IPC key。
   這把 key **不是** Claude／OAuth／Web master token。沒有 TCP listener、CORS 或 HTTP relay。
-- IPC 固定版本與操作：health、status、auth prepare/start/cancel、task prepare/launch。
-  不接受 command、argv、env、OAuth URL/code/token、任意輸出路徑或其他 agent ID。
-- Request 8 KiB、response 8 KiB、header 2 KiB，最多 16 connections／8 個已認證處理要求。
+- IPC 固定版本與操作：health、status、auth prepare/start/cancel、task prepare/launch，
+  以及 3.3.0 的 terminal start/read/input/cancel。不接受 command、argv、env、
+  任意輸出路徑或其他 agent ID；`terminal/start` 只接受 action／choice／cols／rows，
+  對應 `server/agent-auth.js` 表中固定的 Claude auth 指令。
+- 3.3.0 起的邊界變化：`terminal/read` 會回傳官方 CLI 的輸出（包括 OAuth 連結），
+  `terminal/input` 會把使用者輸入（例如貼上的授權碼）寫進該 CLI。標記為隱藏的輸入
+  （至少 6 字元）在輸出中以圓點取代，執行結束就丟棄；輸出只在記憶體保留到結束後
+  5 分鐘、上限 2 MiB，不寫 journal 或日誌。舊的 `auth/*` 入口仍是 discard-only。
+- Request 8 KiB、response 8 KiB（`terminal/read` 每頁最多 24 KiB 原始輸出，Web 端
+  接受 128 KiB）、header 2 KiB，最多 16 connections／8 個已認證處理要求。
   有限 serial admission lane 保證登入與任務啟動互斥；readiness／metadata／IPC 均有 deadline。
+  終端機的 login／logout 只在助手沒有 Claude 工作時開始，進行中也會擋住新的 task、
+  structured 與維護操作；status 不受限制。
 - Claude executable、HOME、PATH 與 workspace roots 由本機 owner 安裝設定，不由 Web 傳入。
   Workspace 用 realpath 再確認 roots，拒絕 symlink 導出。沿用原生設定，沒有改 provider route。
-- 官方登入沿用 `claude-auth.js` 的固定參數、能力檢查與 discard-only stdout/stderr。
+- 舊的 `auth/*` 登入沿用 `claude-auth.js` 的固定參數、能力檢查與 discard-only stdout/stderr；
+  3.3.0 的 `terminal/*` 使用相同的固定參數，但會顯示輸出（見上）。
   metadata detected 不代表模型連通；沒有自建 OAuth、憑證搬移、Keychain ACL／unlock。
 - Task prepare 只簽發 process-instance-bound、60 秒、單次 ticket；launch 消耗後不重新建立。
   助手重啟後舊 ticket 不可用，已存在 task ID 不可重新 prepare。最多32張票／32筆未清理啟動紀錄。

@@ -14,8 +14,14 @@ else if (args.join(" ") === "--safe-mode auth status --json") console.log(JSON.s
 else if (args.join(" ") === "--safe-mode auth login --claudeai") {
   fs.appendFileSync(path.join(home, "auth-attempts"), "attempt\n");
   console.log("https://example.invalid/?code=SYNTHETIC_SECRET");
+  // The conversation terminal answers the prompt; the older host-browser
+  // sign-in never writes to standard input and keeps waiting.
+  process.stdout.write("Paste code here if prompted > ");
+  if (process.stdin.readable) readline.createInterface({ input: process.stdin }).once("line", () => { console.log("Login successful."); process.exit(0); });
   setInterval(() => {}, 1000);
-} else if (!args.length) {
+} else if (args.join(" ") === "--safe-mode auth status --text") console.log("Signed in with a synthetic Claude account");
+else if (args.join(" ") === "--safe-mode auth logout") console.log("Successfully logged out from your Anthropic account.");
+else if (!args.length) {
   fs.appendFileSync(path.join(home, "task-attempts"), "attempt\n");
   console.log(`desktop-fixture-ready:${process.env.DESKTOP_FIXTURE_CONTEXT || "missing"}`);
   readline.createInterface({ input: process.stdin }).on("line", line => {

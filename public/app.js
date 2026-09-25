@@ -1,7 +1,7 @@
-/* stepsemble v3.2.4 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.3.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.2.4";
+const CLIENT_APP_VERSION = "3.3.0";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 if (WORKSPACE_PANE) {
   document.documentElement.classList.add("workspace-embedded");
@@ -166,12 +166,6 @@ const el = {
   opencodeProviderModels: $("opencode-provider-models"), opencodeProviderFormError: $("opencode-provider-form-error"),
   opencodeProviderSave: $("opencode-provider-save"), opencodeProviderDelete: $("opencode-provider-delete"),
   opencodeProviderCancel: $("opencode-provider-cancel"), opencodeProviderCancelBottom: $("opencode-provider-cancel-bottom"),
-  providerSimpleFlow: $("provider-simple-flow"), providerPresetList: $("provider-preset-list"),
-  providerFilter: $("provider-filter"),
-  providerAuthOptions: $("provider-auth-options"), providerSelectedName: $("provider-selected-name"),
-  providerSelectedDescription: $("provider-selected-description"), providerAuthAccount: $("provider-auth-account"),
-  providerAuthApi: $("provider-auth-api"), providerApiKeyEntry: $("provider-api-key-entry"), providerSimpleApiKey: $("provider-simple-api-key"), providerApiKeyBack: $("provider-api-key-back"), providerApiKeySave: $("provider-api-key-save"), providerFreeStart: $("provider-free-start"), providerAuthRemove: $("provider-auth-remove"), providerAuthBack: $("provider-auth-back"),
-  providerSimpleStatus: $("provider-simple-status"), providerSwitchDevice: $("provider-switch-device"), providerAdvancedToggle: $("provider-advanced-toggle"),
   providerAdvancedFields: $("provider-advanced-fields"),
   newDialog: $("new-dialog"), newCwd: $("new-cwd"), newName: $("new-name"), newAgent: $("new-agent"), newWorktree: $("new-worktree"), newAgentNote: $("new-agent-note"), newAgentCapabilities: $("new-agent-capabilities"),
   newCancel: $("new-cancel"), newStart: $("new-start"), newFolderUp: $("new-folder-up"),
@@ -200,6 +194,12 @@ const el = {
   imageLightboxCaption: $("image-lightbox-caption"), imageLightboxClose: $("image-lightbox-close"),
   onboarding: $("onboarding"), onboardingClose: $("onboarding-close"), onboardingEyebrow: $("onboarding-eyebrow"), onboardingTitle: $("onboarding-title"), onboardingBody: $("onboarding-body"), onboardingPoints: $("onboarding-points"), onboardingProgress: document.querySelectorAll("#onboarding .onboarding-progress span"), onboardingPreferences: $("onboarding-preferences"), onboardingLanguage: $("onboarding-language"), onboardingLanguageLabel: $("onboarding-language-label"), onboardingAppearance: $("onboarding-appearance"), onboardingAppearanceLabel: $("onboarding-appearance-label"), onboardingBack: $("onboarding-back"), onboardingSkip: $("onboarding-skip"), onboardingNext: $("onboarding-next"),
   toastWrap: $("toast-wrap"),
+  agentTerminal: $("agent-terminal"), agentTerminalHost: $("agent-terminal-host"), agentTerminalTitle: $("agent-terminal-title"),
+  agentTerminalClose: $("agent-terminal-close"), agentTerminalChoices: $("agent-terminal-choices"), agentTerminalLinks: $("agent-terminal-links"),
+  agentTerminalScreen: $("agent-terminal-screen"), agentTerminalStatus: $("agent-terminal-status"), agentTerminalKeys: $("agent-terminal-keys"),
+  agentTerminalForm: $("agent-terminal-form"), agentTerminalInput: $("agent-terminal-input"), agentTerminalSecret: $("agent-terminal-secret"),
+  agentTerminalStop: $("agent-terminal-stop"), agentTerminalStatusButton: $("agent-terminal-status-button"), agentTerminalDone: $("agent-terminal-done"),
+  quotaSourcesList: $("quota-sources-list"), quotaSourcesRefresh: $("quota-sources-refresh"),
 };
 
 // ===========================================================================
@@ -211,7 +211,6 @@ let sessionRenderLimit = 120;
 let temporarySessionCount = 0;
 let agentCatalog = [];
 let agentCatalogError = false;
-let claudeAuthClient = null;
 let agentTasks = [];
 let agentTaskPollTimer = null;
 let agentHubTicker = null;
@@ -246,11 +245,6 @@ let composerReasoningLevel = "off";
 let modelCatalog = [];
 let modelCatalogSources = new Map();
 let configuredProviders = [];
-let providerCatalog = [];
-let providerCatalogLoading = false;
-let providerCatalogRequest = null;
-let providerCatalogReadOnly = false;
-let providerCatalogNotice = "";
 
 function readDraftEntries() {
   try { return normalizeDraftEntries(migratedStorageValue(localStorage, DRAFT_STORAGE_KEY, LEGACY_DRAFT_STORAGE_KEYS)); }
@@ -312,16 +306,13 @@ function promoteDraftScope(file) {
   removeDraftForKey(previousKey);
   if (text.trim()) saveDraftForKey(nextKey, text);
 }
-let providerCatalogMachine = null;
 let modelCatalogMachine = null;
 let modelCatalogLoadedAt = 0;
 let modelCatalogLoading = false;
 let modelCatalogRequest = null;
 const expandedModelProviders = new Set();
-const collapsedProviderCategories = new Set(["free", "paid", "account"]);
 let providerDialogMode = "add";
 let providerDialogExisting = null;
-let providerDialogPreset = null;
 let machineDialogExisting = null;
 let machineStatuses = new Map();
 let machineDialogDeviceSettings = null;
@@ -337,11 +328,6 @@ let incomingGrantsRequest = null;
 let incomingGrantsAbort = null;
 let incomingGrantsRefreshAt = 0;
 let incomingGrantsState = "idle";
-let providerAuthRun = null;
-let providerAuthStream = null;
-let providerAuthRequest = null;
-let providerAuthNotice = "";
-let providerAuthUrl = "";
 let viewGeneration = 0; // 防止快速切換 session 時，舊 request／SSE 回寫到新畫面
 let refreshRequest = null;
 let refreshSequence = 0;
@@ -808,7 +794,6 @@ function applyAppearance() {
   const workLocale = settings.locale || "en";
   if (workLogLocale !== null && workLogLocale !== workLocale) queueMicrotask(() => relabelWorkLog());
   workLogLocale = workLocale;
-  if (claudeAuthClient) renderClaudeAuth(claudeAuthClient.snapshot());
   renderContextDashboard();
 }
 
@@ -821,12 +806,11 @@ matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", () => {
 // ===========================================================================
 
 function showLogin() {
-  claudeAuthClient?.reset();
   resetAgentHub();
   protocolConnections.reset();
   stopUpdateCenterPolling();
   closeChat(true);
-  closeProviderAuthClient();
+  closeAgentTerminal({ silent: true, detach: true });
   el.app.classList.add("hidden");
   el.login.classList.remove("hidden");
   void initLoginOnboarding();
@@ -1172,7 +1156,13 @@ async function enterApp() {
       }
       return true;
     }
-    if (workspaceQuery.get("settings") === "1") { showSettings(); loadVersion(); return true; }
+    if (workspaceQuery.get("settings") === "1") {
+      const section = workspaceQuery.get("section");
+      if (section && Object.hasOwn(SETTINGS_TARGET_CATEGORIES, section)) openSettingsSection(section);
+      else showSettings();
+      loadVersion();
+      return true;
+    }
     await showList();
     // Discover connector availability once the authenticated machine catalog
     // is ready. The list card and New Project selector then share one snapshot.
@@ -1217,9 +1207,10 @@ function applyApiBase() {
 
 function switchMachine(id, silent) {
   if (!machines.some(m => m.id === id)) return;
-  claudeAuthClient?.reset();
   resetAgentHub();
-  if ($("claude-auth")) $("claude-auth").open = false;
+  // Detach only: a sign-in left running on the old host (a device code being
+  // approved on a phone, say) keeps going, and /login there attaches to it.
+  closeAgentTerminal({ silent: true, detach: true });
   if ($("opencode-connection")) $("opencode-connection").open = false;
   clearDraftScopeForDeviceSwitch();
   resetProjectChanges();
@@ -1229,7 +1220,6 @@ function switchMachine(id, silent) {
   const wasChatOpen = !el.viewChat.classList.contains("hidden");
   const preserveRunning = !!(rpc && (rpc.streaming || rpc.connectionLost));
   closeChat(preserveRunning); // 切機器時不殺正在執行的工作，閒置 RPC 則正常關閉
-  closeProviderAuthClient(); // Detach locally; never retarget the old Host's login.
   el.viewChat.classList.add("hidden");
   el.viewChat.style.transform = "";
   resetSettingsOverlay();
@@ -1250,12 +1240,6 @@ function switchMachine(id, silent) {
   modelCatalogSources.clear();
   configuredProviders = [];
   modelCatalogMachine = null;
-  providerCatalog = [];
-  providerCatalogReadOnly = false;
-  providerCatalogNotice = "";
-  providerCatalogMachine = null;
-  providerCatalogRequest = null;
-  providerCatalogLoading = false;
   renderModelSettingsSummary();
   cancelModelVisibilityRequest();
   currentSessionFile = null;
@@ -1569,9 +1553,6 @@ function cancelModelVisibilityRequest() {
 function hideSettings() {
   settingsSwipeCancel?.();
   stopUpdateCenterPolling();
-  const claudeAuth = $("claude-auth");
-  if (claudeAuth?.open) claudeAuth.open = false;
-  claudeAuthClient?.pause();
   cancelModelVisibilityRequest();
   resetIncomingGrants();
   resetResourceSync();
@@ -1669,6 +1650,7 @@ function showSettings() {
   renderSettings();
   void loadModelVisibility();
   void renderUsageSummary();
+  void loadQuotaSources();
   el.viewSettings.classList.add("slide-in");
   settingsSlideTimer = setTimeout(() => {
     settingsSlideTimer = null;
@@ -1685,7 +1667,7 @@ const SETTINGS_CATEGORY_LABELS = Object.freeze({
   appearance: "Appearance", agents: "Agents & models", devices: "Devices & access", updates: "Updates", advanced: "Advanced",
 });
 const SETTINGS_TARGET_CATEGORIES = Object.freeze({
-  devices: "devices", tokens: "devices", connection: "agents", "agent-auth": "agents",
+  devices: "devices", tokens: "devices", connection: "agents", "agent-auth": "agents", "quota-sources": "agents",
   appearance: "appearance", updates: "updates", about: "advanced",
 });
 const settingsSplitQuery = window.matchMedia?.("(min-width: 900px)") || null;
@@ -2616,38 +2598,6 @@ function syncHistoryLink() {
   link.href = `/history.html${match ? `?machine=${encodeURIComponent(match[1])}` : ""}`;
 }
 
-function renderClaudeAuth({ data, error, pending }) {
-  const status = $("claude-auth-status"), start = $("claude-auth-start"), cancel = $("claude-auth-cancel"), refresh = $("claude-auth-refresh");
-  if (!status || !start || !cancel || !refresh) return;
-  const key = error || data?.blockedReason || (data?.login ? `login_${data.login.state}` : data?.credential?.state) || "unchecked";
-  status.dataset.i18nKey = `claudeAuth.${key}`;
-  status.textContent = tKey(`claudeAuth.${key}`);
-  $("claude-auth-note").textContent = tKey("claudeAuth.note", { machine: machineName(selectedId) });
-  start.disabled = pending || !!error || data?.canStart !== true;
-  refresh.disabled = pending;
-  const active = ["prepared", "starting", "waiting", "verifying", "cancelling"].includes(data?.login?.state);
-  // A previous completed/cancelled attempt must not hide a later sign-out.
-  const credential = $("claude-auth-credential");
-  credential.classList.toggle("hidden", !data?.login || active);
-  credential.dataset.i18nKey = `claudeAuth.${data?.credential?.state || "unchecked"}`;
-  credential.textContent = tKey(credential.dataset.i18nKey);
-  cancel.classList.toggle("hidden", !active);
-  cancel.disabled = pending || data?.login?.state === "cancelling";
-}
-claudeAuthClient = window.stepsembleClaudeAuth?.createController({ request: api, render: renderClaudeAuth,
-  scope: () => apiBase, isVisible: () => !!$("claude-auth")?.open && !!el.viewSettings && !el.viewSettings.classList.contains("hidden") && !document.hidden });
-$("claude-auth")?.addEventListener("toggle", () => {
-  if ($("claude-auth").open) void claudeAuthClient?.refresh(); else claudeAuthClient?.pause();
-});
-$("claude-auth-refresh")?.addEventListener("click", () => void claudeAuthClient?.refresh());
-$("claude-auth-start")?.addEventListener("click", () => {
-  if (window.confirm(tKey("claudeAuth.confirm", { machine: machineName(selectedId) }))) void claudeAuthClient?.start();
-});
-$("claude-auth-cancel")?.addEventListener("click", () => void claudeAuthClient?.cancel());
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) claudeAuthClient?.pause();
-  else if ($("claude-auth")?.open) void claudeAuthClient?.refresh();
-});
 let openCodeConnectionSequence = 0;
 async function refreshOpenCodeConnection(start = false) {
   const status = $("opencode-connection-status"), button = $("opencode-connection-start"), refresh = $("opencode-connection-refresh");
@@ -6618,12 +6568,7 @@ function agentOpenFailureText(error, options = {}) {
 }
 
 function guideClaudeCodeSignIn() {
-  showSettings();
-  showSettingsCategory("agents");
-  const disclosure = $("claude-auth");
-  if (!disclosure) return;
-  disclosure.open = true;
-  void claudeAuthClient?.refresh();
+  void openAgentTerminal({ agentId: "claude-code", action: "login" });
 }
 
 async function connectAgentTask(options = {}, generation = viewGeneration) {
@@ -6838,7 +6783,10 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
     if (needsClaudeSignIn) {
       guideClaudeCodeSignIn();
     }
-    toast(agentOpenFailureText(error, options), true);
+    const failedAgent = agentOpenFailureAgentId(options);
+    const offerSignIn = !needsClaudeSignIn && failedAgent && agentSignInError(error);
+    toast(agentOpenFailureText(error, options), true, offerSignIn
+      ? { label: tKey("agentTerminal.signInAction"), run: () => void openAgentTerminal({ agentId: failedAgent, action: "login" }) } : null);
     if (!needsClaudeSignIn) showList();
   }
 }
@@ -8795,7 +8743,7 @@ function reconcileNativeDialogs(snapshot, sid) {
   return true;
 }
 function renderNextNativeDialog() {
-  if (providerAuthRun || !rpc?.sid || rpc.generic) return;
+  if (!rpc?.sid || rpc.generic) return;
   if (extensionUiRequest) { refreshNativeDialogControls(); return; }
   const next = nativeDialogs.next(apiBase, rpc.sid);
   if (next) renderNativeDialog(next);
@@ -8803,18 +8751,6 @@ function renderNextNativeDialog() {
 async function finishExtensionUi(response, expected = extensionUiRequest) {
   const request = extensionUiRequest;
   if (!request || request !== expected) return;
-  if (request.kind === "provider-notice") { if (response.cancelled) await cancelProviderAuth(); return; }
-  if (request.kind === "provider-auth") {
-    if (request.hostBase !== apiBase || providerAuthRun?.runId !== request.runId) return;
-    extensionUiRequest = null;
-    el.extensionUiSheet.classList.add("hidden");
-    el.extensionUiInput.type = "text";
-    providerAuthRequest = null;
-    el.extensionUiInput.value = "";
-    await post("/api/provider-auth/respond", { runId: request.runId, requestId: request.id, ...response })
-      .catch((e) => toast(tKey("runtime.providerReplyFailed", { detail: e.message }), true));
-    return;
-  }
   if (request.hostBase !== apiBase || request.sid !== rpc?.sid) {
     nativeDialogs.complete(request); dismissNativeDialog(request); return;
   }
@@ -8920,7 +8856,6 @@ function renderNativeDialog(request) {
 el.extensionUiCancel.addEventListener("click", event => {
   if (event.detail >= 2) return;
   if (extensionUiRequest) finishExtensionUi({ cancelled: true });
-  else if (providerAuthRun) void cancelProviderAuth();
 });
 
 // ---- RPC 事件 ----
@@ -9822,6 +9757,19 @@ function renderImgPreview() {
 
 async function sendCurrent() {
   let text = el.input.value.trim();
+  // /login, /logout and /status run the agent's own commands in the
+  // conversation terminal, even when the conversation cannot take input.
+  const terminalCommand = agentTerminalApi?.parseCommand(text);
+  const terminalAgent = terminalCommand && !pendingImages.length ? conversationAgentId() : null;
+  if (terminalCommand && terminalAgent) {
+    el.input.value = "";
+    el.input.style.height = "auto";
+    el.slashMenu.classList.add("hidden");
+    slashState = null;
+    removeDraftForKey(activeDraftKey);
+    void openAgentTerminal({ agentId: terminalAgent, action: terminalCommand.action, argument: terminalCommand.argument });
+    return;
+  }
   if ((!text && !pendingImages.length) || !rpc) return;
   const generic = !!rpc.generic;
   const inputBlock = genericInputBlock();
@@ -10783,6 +10731,20 @@ async function openCommandPalette() {
   renderCommandResults();
   el.commandPalette.classList.remove("hidden");
   el.commandInput?.focus({ preventScroll: true });
+  // Each installed agent's own sign-in commands, for agents that cannot open
+  // a conversation until they are signed in.
+  void loadAgentAuthCatalog().then(catalog => {
+    if (!catalog?.agents || !el.commandPalette || el.commandPalette.classList.contains("hidden")) return;
+    const items = [];
+    for (const [agentId, entry] of Object.entries(catalog.agents)) {
+      if (!entry?.installed) continue;
+      const label = agentTerminalLabel(agentId);
+      items.push({ kind: "action", tag: "›", label: label + " · /login", run: () => void openAgentTerminal({ agentId, action: "login" }) });
+      if (entry.status) items.push({ kind: "action", tag: "›", label: label + " · /status", run: () => void openAgentTerminal({ agentId, action: "status" }) });
+    }
+    commandItems = [...commandItems, ...items];
+    renderCommandResults();
+  }).catch(() => {});
   // Models come from the live RPC; append them once the catalog answers so
   // opening the palette stays instant.
   if (rpc?.sid && !rpc.generic) {
@@ -11059,9 +11021,14 @@ async function refreshCommands(expectedSid = rpc?.sid) {
 function updateSlashMenu() {
   const v = el.input.value;
   const m = v.match(/^\/([a-z0-9:_-]*)$/i); // 只在「純指令」時提示
-  if (!m || !rpc || !availableCommands.length) { el.slashMenu.classList.add("hidden"); slashState = null; return; }
+  // Every agent gets its own /login, /logout and /status; Pi also lists the
+  // commands its RPC reports.
+  const terminalItems = agentTerminalSlashItems(conversationAgentId());
+  const nativeItems = rpc && !rpc.generic ? availableCommands.filter(c => !AGENT_TERMINAL_ACTIONS.includes(String(c.name).toLowerCase())) : [];
+  const commands = [...terminalItems, ...nativeItems];
+  if (!m || !rpc || !commands.length) { el.slashMenu.classList.add("hidden"); slashState = null; return; }
   const q = m[1].toLowerCase();
-  const items = availableCommands.filter(c => c.name.toLowerCase().includes(q)).slice(0, 8);
+  const items = commands.filter(c => c.name.toLowerCase().includes(q)).slice(0, 8);
   if (!items.length) { el.slashMenu.classList.add("hidden"); slashState = null; return; }
   slashState = { items, hl: 0 };
   el.slashMenu.innerHTML = "";
@@ -11077,12 +11044,960 @@ function updateSlashMenu() {
   el.slashMenu.classList.remove("hidden");
 }
 function pickSlash(c) {
+  if (c?.source === "terminal") {
+    el.input.value = "";
+    el.slashMenu.classList.add("hidden");
+    slashState = null;
+    el.input.dispatchEvent(new Event("input", { bubbles: true }));
+    void openAgentTerminal({ agentId: conversationAgentId(), action: c.name });
+    return;
+  }
   el.input.value = "/" + c.name + " ";
   el.slashMenu.classList.add("hidden");
   slashState = null;
   el.input.dispatchEvent(new Event("input", { bubbles: true }));
   el.input.focus();
 }
+
+// ===========================================================================
+// Conversation terminal: each agent's own /login, /logout and /status
+// ===========================================================================
+//
+// Typing /login, /logout or /status in any conversation runs that agent's own
+// command on the conversation's host, in a terminal, and shows it here the way
+// a terminal would: sign-in links become buttons, one-time codes can be
+// copied, and anything the command asks for is typed back into it. Pi has no
+// sign-in command line, so its three commands use Pi's own sign-in runtime.
+
+const agentTerminalApi = window.stepsembleAgentTerminal || null;
+const AGENT_TERMINAL_ACTIONS = Object.freeze(["login", "logout", "status"]);
+const AGENT_TERMINAL_DONE = new Set(["completed", "failed", "cancelled", "timed_out"]);
+const HERMES_PROVIDER_SUGGESTIONS = Object.freeze(["openai-codex", "anthropic", "nous", "openrouter", "xai-oauth", "minimax", "opencode-go", "gemini", "deepseek", "zai"]);
+let agentTerminal = null;
+let agentTerminalSequence = 0;
+let agentAuthCatalogState = { base: null, at: 0, data: null, request: null };
+
+function agentTerminalText(key, vars = {}) { return tKey("agentTerminal." + key, vars); }
+
+// The agent behind a conversation, whatever transport the conversation uses.
+function conversationAgentId(connection = rpc) {
+  if (!connection) return null;
+  if (!connection.generic) return "pi";
+  if (connection.nativeCodex) return "codex";
+  if (connection.nativeOpenCode) return "opencode";
+  if (connection.nativeGrokAcp) return "grok-build";
+  if (connection.nativeAcp) return connection.acpAgentId || null;
+  if (connection.nativeClaudeStructured) return "claude-code";
+  if (connection.nativeAntigravityStructured) return "antigravity";
+  return connection.agentId || connection.nativeHistoryProvider || null;
+}
+
+function agentTerminalSlashItems(agentId) {
+  if (!agentId || !agentTerminalApi) return [];
+  return AGENT_TERMINAL_ACTIONS.map(action => ({ name: action, description: agentTerminalText("slash." + action), source: "terminal" }));
+}
+
+async function loadAgentAuthCatalog(force = false) {
+  const base = apiBase, state = agentAuthCatalogState;
+  if (!force && state.base === base && state.data && Date.now() - state.at < 60000) return state.data;
+  if (!force && state.base === base && state.request) return state.request;
+  const request = api("/api/agent-auth/catalog").then(data => {
+    if (agentAuthCatalogState.request === request) agentAuthCatalogState = { base, at: Date.now(), data, request: null };
+    return data;
+  }, error => {
+    if (agentAuthCatalogState.request === request) agentAuthCatalogState = { ...agentAuthCatalogState, request: null };
+    throw error;
+  });
+  agentAuthCatalogState = { base, at: state.base === base ? state.at : 0, data: state.base === base ? state.data : null, request };
+  return request;
+}
+
+function agentTerminalHostName(base = apiBase) {
+  const id = base ? base.replace(/^\/r\//, "") : (selfId || selectedId);
+  return machineName(id) || id || "";
+}
+
+function agentTerminalLabel(agentId) {
+  return agentId === "claude-code" ? "Claude Code" : agentConnectorLabel(agentId);
+}
+
+// Columns that fit the sheet, so sign-in commands wrap where the screen does.
+// The screen stays hidden until there is output, so it is shown for the
+// moment it takes to measure; the class comes back before the next paint.
+function agentTerminalSize() {
+  const screen = el.agentTerminalScreen;
+  let charWidth = 7.2, width = 340;
+  if (screen) {
+    const hidden = screen.classList.contains("hidden");
+    if (hidden) screen.classList.remove("hidden");
+    const probe = document.createElement("span");
+    probe.textContent = "0000000000";
+    probe.style.visibility = "hidden";
+    probe.style.position = "absolute";
+    screen.appendChild(probe);
+    charWidth = probe.getBoundingClientRect().width / 10 || charWidth;
+    probe.remove();
+    const style = getComputedStyle(screen);
+    const padding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+    if (screen.clientWidth) width = screen.clientWidth - padding;
+    if (hidden) screen.classList.add("hidden");
+  }
+  return { cols: Math.max(40, Math.min(140, Math.floor(width / charWidth))), rows: 24 };
+}
+
+function agentTerminalWrite(term, text) {
+  if (!term?.screen || !text) return;
+  term.screen.write(text);
+  term.raw = (term.raw + text).slice(-65536);
+  term.links = agentTerminalApi.extractLinks(term.raw, term.screen.links);
+  term.codes = agentTerminalApi.extractCodes(term.raw);
+  // A prompt for a key, token or password hides what is typed next. It only
+  // switches on as the prompt appears, so showing the entry again sticks.
+  if (term.mode === "pty" && !term.done && term.action !== "status") {
+    const secretPrompt = agentTerminalApi.looksSecretPrompt(term.screen.textRows({ includeHistory: false }));
+    if (secretPrompt && !term.secretPrompt) term.secret = true;
+    term.secretPrompt = secretPrompt;
+  }
+  scheduleAgentTerminalRender(term);
+}
+
+function agentTerminalLine(term, text, tone = "") {
+  const color = tone === "dim" ? "\x1b[2m" : tone === "ok" ? "\x1b[32m" : tone === "error" ? "\x1b[31m" : tone === "warn" ? "\x1b[33m" : "";
+  agentTerminalWrite(term, (color ? color + text + "\x1b[0m" : text) + "\r\n");
+}
+
+function newAgentTerminalScreen(term) {
+  const size = agentTerminalSize();
+  term.cols = size.cols; term.rows = size.rows;
+  term.screen = agentTerminalApi.createScreen({ cols: size.cols, rows: size.rows, scrollback: 600 });
+  term.raw = ""; term.links = []; term.codes = [];
+}
+
+async function openAgentTerminal({ agentId, action = "login", argument = "" } = {}) {
+  if (!agentTerminalApi || !el.agentTerminal || !agentId || !AGENT_TERMINAL_ACTIONS.includes(action)) return;
+  closeAgentTerminal({ silent: true });
+  const term = {
+    id: ++agentTerminalSequence, agentId, action, argument: String(argument || "").trim(), hostBase: apiBase,
+    phase: "preparing", controls: [], notes: [], runId: null, es: null, lastEventId: -1, reconnectTimer: null, reconnectAttempt: 0,
+    state: null, exitCode: null, done: false, secret: false, pi: null, legacyTimer: null, renderFrame: null, followOutput: true,
+  };
+  agentTerminal = term;
+  el.agentTerminal.classList.remove("hidden");
+  newAgentTerminalScreen(term);
+  renderAgentTerminal();
+  try { await prepareAgentTerminal(term); }
+  catch (error) {
+    if (agentTerminal !== term) return;
+    agentTerminalLine(term, agentTerminalText("failed", { detail: error.message || "unknown error" }), "error");
+    finishAgentTerminal(term, "failed");
+  }
+}
+
+function closeAgentTerminal({ silent = false, detach = false } = {}) {
+  const term = agentTerminal;
+  if (!term) { el.agentTerminal?.classList.add("hidden"); return; }
+  agentTerminal = null;
+  if (term.reconnectTimer) clearTimeout(term.reconnectTimer);
+  if (term.legacyTimer) clearTimeout(term.legacyTimer);
+  if (term.renderFrame) cancelAnimationFrame(term.renderFrame);
+  try { term.es?.close(); } catch {}
+  // Closing stops the sign-in, except where it carries on without this sheet:
+  // a detached terminal run (/login attaches to it again) and the older
+  // host-browser Claude sign-in, which finishes on the host by itself.
+  if (!term.done && term.hostBase === apiBase) {
+    if (term.mode === "pi" && term.pi?.runId) void post("/api/provider-auth/cancel", { runId: term.pi.runId }).catch(() => {});
+    else if (term.mode === "pty" && term.runId && !detach) void post("/api/agent-auth/cancel", { runId: term.runId }).catch(() => {});
+  }
+  el.agentTerminal?.classList.add("hidden");
+  if (el.agentTerminalInput) { el.agentTerminalInput.value = ""; el.agentTerminalInput.type = "text"; }
+  if (!silent) el.input?.focus({ preventScroll: true });
+}
+
+function requestCloseAgentTerminal() {
+  const term = agentTerminal;
+  if (term && !term.done && term.runId && term.mode !== "legacy" && term.action !== "status" && !window.confirm(agentTerminalText("stopConfirm"))) return;
+  closeAgentTerminal();
+}
+
+function finishAgentTerminal(term, state, code = null) {
+  if (!term || term.done) return;
+  term.done = true; term.state = state; term.exitCode = Number.isInteger(code) ? code : null;
+  term.phase = "done"; term.secret = false;
+  try { term.es?.close(); } catch {}
+  term.es = null;
+  if (term.reconnectTimer) { clearTimeout(term.reconnectTimer); term.reconnectTimer = null; }
+  if (term.legacyTimer) { clearTimeout(term.legacyTimer); term.legacyTimer = null; }
+  if (state === "completed" && term.action !== "status") {
+    // A new sign-in changes which models and limits the agent can use.
+    agentAuthCatalogState = { base: null, at: 0, data: null, request: null };
+    if (term.agentId === "pi") void loadModelVisibility(true, true);
+  }
+  renderAgentTerminal();
+}
+
+async function prepareAgentTerminal(term) {
+  const label = agentTerminalLabel(term.agentId), host = agentTerminalHostName(term.hostBase);
+  let catalog;
+  try { catalog = await loadAgentAuthCatalog(true); }
+  catch (error) {
+    // A host on an earlier Stepsemble has no terminal routes yet.
+    if (agentTerminal !== term || Number(error?.status) !== 404) throw error;
+    agentTerminalLine(term, agentTerminalText("olderHost", { host }), "warn");
+    finishAgentTerminal(term, "failed");
+    return;
+  }
+  if (agentTerminal !== term) return;
+  const entry = catalog?.agents?.[term.agentId];
+  if (!entry || !entry.installed) {
+    agentTerminalLine(term, agentTerminalText("notInstalled", { agent: label, host }), "warn");
+    finishAgentTerminal(term, "failed");
+    return;
+  }
+  if (entry.runtime === "pi") { term.mode = "pi"; await preparePiTerminal(term); return; }
+  term.mode = "pty";
+  if (term.agentId === "claude-code" && entry.desktop && !entry.terminal) { prepareLegacyClaudeTerminal(term); return; }
+  if (term.action !== "status") {
+    // Another device may already be running a sign-in for this agent.
+    try {
+      const active = await api("/api/agent-auth/active?agentId=" + encodeURIComponent(term.agentId));
+      if (agentTerminal !== term) return;
+      if (active?.run?.runId) {
+        term.notes = [{ tone: "info", text: agentTerminalText("attached") }];
+        attachAgentTerminalRun(term, active.run);
+        return;
+      }
+    } catch {}
+  }
+  if (term.action === "status") {
+    if (!entry.status) { agentTerminalLine(term, agentTerminalText("unsupported.status", { agent: label }), "warn"); finishAgentTerminal(term, "failed"); return; }
+    await startAgentTerminalRun(term, { choice: "default" });
+    return;
+  }
+  const choices = Array.isArray(entry[term.action]) ? entry[term.action] : [];
+  if (!choices.length) {
+    agentTerminalLine(term, agentTerminalText("unsupported." + term.action, { agent: label }), "warn");
+    finishAgentTerminal(term, "failed");
+    return;
+  }
+  term.phase = "choose";
+  const notes = [];
+  if (choices.every(choice => choice.replaces)) notes.push({ tone: "warn", text: agentTerminalText("replacesWarning", { agent: label }) });
+  if (choices.some(choice => choice.inApp)) notes.push({ tone: "info", text: agentTerminalText("inAppHint", { agent: label, command: "/" + term.action }) });
+  term.notes = notes;
+  const needsProvider = choices.some(choice => choice.provider);
+  const start = (choice, provider = "") => void startAgentTerminalRun(term, { choice: choice.id, provider });
+  if (needsProvider) {
+    term.controls = [{ type: "provider", choices, value: term.argument, suggestions: HERMES_PROVIDER_SUGGESTIONS, onSubmit: start }];
+  } else if (term.action === "logout") {
+    term.controls = [{ type: "button", primary: true, danger: true, label: agentTerminalText("logoutButton", { agent: label, host }), onClick: () => start(choices[0]) }];
+  } else if (choices.length > 1) {
+    term.controls = choices.map((choice, index) => ({ type: "button", primary: index === 0, label: agentTerminalChoiceLabel(term.agentId, choice.id, host),
+      description: choice.hostBrowser ? agentTerminalText("hint.hostBrowser", { host }) : choice.secret ? agentTerminalText("hint.secret") : choice.id === "device" ? agentTerminalText("hint.device") : "",
+      onClick: () => start(choice) }));
+  } else if (choices[0].replaces) {
+    term.controls = [{ type: "button", primary: true, label: agentTerminalText("startButton"), onClick: () => start(choices[0]) }];
+  } else {
+    await startAgentTerminalRun(term, { choice: choices[0].id });
+    return;
+  }
+  renderAgentTerminal();
+}
+
+function agentTerminalChoiceLabel(agentId, choiceId, host) {
+  const specific = "choice." + agentId + "." + choiceId;
+  const translated = agentTerminalText(specific, { host });
+  return translated && translated !== "agentTerminal." + specific ? translated : agentTerminalText("choice." + choiceId, { host });
+}
+
+async function startAgentTerminalRun(term, { choice, provider = "" } = {}) {
+  if (agentTerminal !== term) return;
+  term.phase = "running"; term.controls = []; term.state = "starting"; term.done = false; term.exitCode = null; term.secret = false; term.secretPrompt = false;
+  renderAgentTerminal();
+  let result;
+  try {
+    result = await post("/api/agent-auth/start", { agentId: term.agentId, action: term.action, choice, ...(provider ? { provider } : {}), cols: term.cols, rows: term.rows });
+  } catch (error) {
+    if (agentTerminal !== term) return;
+    const label = agentTerminalLabel(term.agentId), host = agentTerminalHostName(term.hostBase);
+    const code = String(error?.code || error?.message || "");
+    if (code === "desktop_terminal_unavailable") { agentAuthCatalogState = { base: null, at: 0, data: null, request: null }; prepareLegacyClaudeTerminal(term); return; }
+    if (code === "auth_run_active") {
+      try {
+        const active = await api("/api/agent-auth/active?agentId=" + encodeURIComponent(term.agentId));
+        if (agentTerminal === term && active?.run?.runId) { term.notes = [{ tone: "info", text: agentTerminalText("attached") }]; attachAgentTerminalRun(term, active.run); return; }
+      } catch {}
+    }
+    const known = { agent_busy: "busy", active_tasks: "busy", claude_login_active: "busy", agent_not_installed: "notInstalled", too_many_runs: "tooMany",
+      desktop_unreachable: "desktopUnreachable", desktop_required: "desktopUnreachable", auth_run_active: "runActive" }[code];
+    agentTerminalLine(term, known ? agentTerminalText(known, { agent: label, host }) : agentTerminalText("failed", { detail: error?.message || code || "unknown error" }), "error");
+    finishAgentTerminal(term, "failed");
+    return;
+  }
+  if (agentTerminal !== term) { if (result?.runId && !result.attached) void post("/api/agent-auth/cancel", { runId: result.runId }).catch(() => {}); return; }
+  attachAgentTerminalRun(term, result);
+}
+
+function attachAgentTerminalRun(term, run) {
+  term.runId = run.runId; term.command = run.command; term.state = run.state || "running"; term.phase = "running";
+  term.done = false; term.lastEventId = -1; term.controls = [];
+  agentTerminalLine(term, "$ " + (run.command || term.action), "dim");
+  if (run.state === "awaiting_secret") term.secret = true;
+  openAgentTerminalStream(term);
+  renderAgentTerminal();
+  if (term.secret) setTimeout(() => el.agentTerminalInput?.focus(), 0);
+}
+
+function openAgentTerminalStream(term) {
+  if (agentTerminal !== term || !term.runId || term.done) return;
+  const url = term.hostBase + "/api/agent-auth/stream?runId=" + encodeURIComponent(term.runId) + "&after=" + encodeURIComponent(term.lastEventId);
+  const es = new EventSource(url);
+  term.es = es;
+  es.addEventListener("connected", event => {
+    if (agentTerminal !== term) { es.close(); return; }
+    term.reconnectAttempt = 0; term.reconnecting = false;
+    let snapshot = null;
+    try { snapshot = JSON.parse(event.data); } catch {}
+    if (snapshot?.replayGap) agentTerminalLine(term, agentTerminalText("streamGap"), "dim");
+    renderAgentTerminal();
+  });
+  es.onmessage = event => {
+    if (agentTerminal !== term) { es.close(); return; }
+    const id = Number(event.lastEventId);
+    if (Number.isFinite(id)) term.lastEventId = Math.max(term.lastEventId, id);
+    let data;
+    try { data = JSON.parse(event.data); } catch { return; }
+    if (data?.type === "output" && typeof data.data === "string") agentTerminalWrite(term, data.data);
+    else if (data?.type === "state") {
+      term.state = data.state;
+      if (AGENT_TERMINAL_DONE.has(data.state)) { finishAgentTerminal(term, data.state, data.code); return; }
+      if (data.state === "awaiting_secret") { term.secret = true; setTimeout(() => el.agentTerminalInput?.focus(), 0); }
+      renderAgentTerminal();
+    }
+  };
+  es.onerror = () => {
+    try { es.close(); } catch {}
+    if (term.es === es) term.es = null;
+    if (agentTerminal !== term || term.done) return;
+    if (term.reconnectAttempt >= 6) {
+      agentTerminalLine(term, agentTerminalText("lostConnection"), "error");
+      finishAgentTerminal(term, "failed");
+      return;
+    }
+    term.reconnecting = true;
+    const delay = Math.min(8000, 500 * 2 ** term.reconnectAttempt++);
+    term.reconnectTimer = setTimeout(() => { term.reconnectTimer = null; openAgentTerminalStream(term); }, delay);
+    renderAgentTerminal();
+  };
+}
+
+async function sendAgentTerminalInput(term, payload) {
+  if (!term || term.done || term.hostBase !== apiBase) return false;
+  try {
+    if (term.mode === "pi") {
+      const request = term.pi?.request;
+      if (!request || !term.pi?.runId) return false;
+      term.pi.request = null; term.controls = []; term.secret = false;
+      renderAgentTerminal();
+      await post("/api/provider-auth/respond", { runId: term.pi.runId, requestId: request.id, value: payload.data ?? "" });
+      return true;
+    }
+    if (!term.runId) return false;
+    await post("/api/agent-auth/input", { runId: term.runId, ...payload });
+    return true;
+  } catch (error) {
+    if (agentTerminal === term) toast(agentTerminalText("inputFailed", { detail: error.message || "unknown error" }), true);
+    return false;
+  }
+}
+
+function submitAgentTerminalInput() {
+  const term = agentTerminal, input = el.agentTerminalInput;
+  if (!term || !input) return;
+  const value = input.value;
+  const secret = term.secret || input.type === "password";
+  if (term.mode === "pi") {
+    if (!term.pi?.request) return;
+    input.value = "";
+    agentTerminalLine(term, "> " + (secret ? "•".repeat(Math.min(value.length, 12)) : value), "dim");
+    void sendAgentTerminalInput(term, { data: value });
+    return;
+  }
+  input.value = "";
+  if (term.state === "awaiting_secret") { if (value) void sendAgentTerminalInput(term, { data: value, secret: true }); return; }
+  if (!value) { void sendAgentTerminalInput(term, { key: "enter" }); return; }
+  void sendAgentTerminalInput(term, { data: value + "\r", ...(secret ? { secret: true } : {}) });
+}
+
+// Terminal keys typed straight into the focused screen, like a terminal.
+const AGENT_TERMINAL_KEYMAP = Object.freeze({ ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Enter: "enter", Tab: "tab", Escape: "escape", Backspace: "backspace" });
+function handleAgentTerminalScreenKey(event) {
+  const term = agentTerminal;
+  if (!term || term.mode !== "pty" || term.done || !term.runId || event.isComposing) return;
+  if (event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === "c") { event.preventDefault(); void sendAgentTerminalInput(term, { key: "ctrl-c" }); return; }
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  const key = AGENT_TERMINAL_KEYMAP[event.key];
+  if (key) { event.preventDefault(); if (key === "escape" && event.shiftKey) return; void sendAgentTerminalInput(term, { key }); return; }
+  if (event.key.length === 1) { event.preventDefault(); void sendAgentTerminalInput(term, { data: event.key }); }
+}
+
+function scheduleAgentTerminalRender(term) {
+  if (term.renderFrame) return;
+  term.renderFrame = requestAnimationFrame(() => { term.renderFrame = null; if (agentTerminal === term) renderAgentTerminal(); });
+}
+
+function agentTerminalStatusText(term) {
+  if (term.reconnecting) return agentTerminalText("reconnecting");
+  if (term.phase === "preparing") return agentTerminalText("state.starting");
+  if (term.phase === "choose") return term.action === "logout" ? agentTerminalText("confirmLogout") : agentTerminalText("chooseMethod");
+  if (term.state === "completed") return agentTerminalText("state.completed");
+  if (term.state === "failed") return Number.isInteger(term.exitCode) ? agentTerminalText("state.failedCode", { code: term.exitCode }) : agentTerminalText("state.failed");
+  if (term.state && ["cancelled", "timed_out", "awaiting_secret", "starting", "running"].includes(term.state)) return agentTerminalText("state." + term.state);
+  return "";
+}
+
+function renderAgentTerminalScreen(term) {
+  const screen = el.agentTerminalScreen;
+  if (!screen || !term.screen) return;
+  const nearBottom = screen.scrollHeight - screen.scrollTop - screen.clientHeight < 24;
+  const fragment = document.createDocumentFragment();
+  for (const runs of term.screen.styledRows()) {
+    const line = document.createElement("div");
+    line.className = "agent-terminal-line";
+    for (const run of runs) {
+      const text = run.text.replace(/\s+$/, run === runs[runs.length - 1] ? "" : "$&");
+      if (!text) continue;
+      const attr = run.attr || {};
+      if (!attr.fg && !attr.bg && !attr.bold && !attr.dim && !attr.inverse && !attr.underline && !attr.italic) { line.appendChild(document.createTextNode(text)); continue; }
+      const span = document.createElement("span");
+      span.textContent = text;
+      const fg = attr.inverse ? (attr.bg || "var(--paper)") : attr.fg;
+      const bg = attr.inverse ? (attr.fg || "var(--ink)") : attr.bg;
+      if (fg) span.style.color = fg;
+      if (bg) span.style.backgroundColor = bg;
+      if (attr.bold) span.style.fontWeight = "700";
+      if (attr.dim) span.style.opacity = "0.62";
+      if (attr.italic) span.style.fontStyle = "italic";
+      if (attr.underline) span.style.textDecoration = "underline";
+      line.appendChild(span);
+    }
+    if (!line.childNodes.length) line.appendChild(document.createTextNode("\u00a0"));
+    fragment.appendChild(line);
+  }
+  screen.replaceChildren(fragment);
+  if (nearBottom || term.followOutput) { screen.scrollTop = screen.scrollHeight; term.followOutput = false; }
+}
+
+function renderAgentTerminalLinks(term) {
+  const box = el.agentTerminalLinks;
+  if (!box) return;
+  box.replaceChildren();
+  const links = (term.links || []).slice(-3).reverse(), codes = (term.codes || []).slice(-2).reverse();
+  for (const code of codes) {
+    const row = document.createElement("div");
+    row.className = "agent-terminal-code";
+    const label = document.createElement("span");
+    label.textContent = agentTerminalText("code");
+    const value = document.createElement("strong");
+    value.textContent = code;
+    value.dataset.i18nIgnore = "";
+    const copy = document.createElement("button");
+    copy.type = "button"; copy.className = "btn ghost agent-terminal-copy";
+    copy.textContent = agentTerminalText("copy");
+    copy.addEventListener("click", async () => { try { await copyText(code); toast(agentTerminalText("copied")); } catch {} });
+    row.append(label, value, copy);
+    box.appendChild(row);
+  }
+  links.forEach((link, index) => {
+    let host = "";
+    try { host = new URL(link).host; } catch {}
+    const row = document.createElement("div");
+    row.className = "agent-terminal-link";
+    const open = document.createElement("a");
+    open.className = "btn " + (index === 0 ? "primary" : "ghost") + " agent-terminal-open";
+    open.href = link; open.target = "_blank"; open.rel = "noopener noreferrer";
+    open.textContent = index === 0 ? agentTerminalText("openLink", { host }) : host;
+    const copy = document.createElement("button");
+    copy.type = "button"; copy.className = "btn ghost agent-terminal-copy";
+    copy.textContent = agentTerminalText("copy");
+    copy.addEventListener("click", async () => { try { await copyText(link); toast(agentTerminalText("copied")); } catch {} });
+    row.append(open, copy);
+    box.appendChild(row);
+  });
+  box.classList.toggle("hidden", !box.childNodes.length);
+}
+
+function renderAgentTerminalControls(term) {
+  const box = el.agentTerminalChoices;
+  if (!box) return;
+  box.replaceChildren();
+  for (const note of term.notes || []) {
+    const p = document.createElement("p");
+    p.className = "agent-terminal-note" + (note.tone === "warn" ? " is-warning" : "");
+    p.textContent = note.text;
+    box.appendChild(p);
+  }
+  for (const control of term.controls || []) {
+    if (control.type === "button") {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "agent-terminal-choice" + (control.primary ? " is-primary" : "") + (control.danger ? " is-danger" : "");
+      const strong = document.createElement("strong");
+      strong.textContent = control.label;
+      button.appendChild(strong);
+      if (control.description) { const small = document.createElement("small"); small.textContent = control.description; button.appendChild(small); }
+      button.addEventListener("click", event => { if (event.detail < 2) control.onClick(); });
+      box.appendChild(button);
+    } else if (control.type === "provider") {
+      const form = document.createElement("form");
+      form.className = "agent-terminal-provider";
+      const label = document.createElement("label");
+      label.className = "field-label";
+      label.textContent = agentTerminalText("providerLabel");
+      const input = document.createElement("input");
+      input.type = "text"; input.autocapitalize = "off"; input.spellcheck = false; input.autocomplete = "off";
+      input.placeholder = agentTerminalText("providerPlaceholder");
+      input.value = control.value || "";
+      input.id = "agent-terminal-provider-input"; label.htmlFor = input.id;
+      const listId = "agent-terminal-provider-list";
+      const list = document.createElement("datalist");
+      list.id = listId;
+      for (const item of control.suggestions || []) { const option = document.createElement("option"); option.value = item; list.appendChild(option); }
+      input.setAttribute("list", listId);
+      form.append(label, input, list);
+      const buttons = document.createElement("div");
+      buttons.className = "agent-terminal-provider-actions";
+      for (const choice of control.choices) {
+        const button = document.createElement("button");
+        button.type = "submit"; button.className = "btn " + (choice === control.choices[0] ? "primary" : "ghost");
+        button.dataset.choice = choice.id;
+        button.textContent = agentTerminal.action === "logout" ? agentTerminalText("logoutShort") : agentTerminalChoiceLabel(agentTerminal.agentId, choice.id, agentTerminalHostName(agentTerminal.hostBase));
+        buttons.appendChild(button);
+      }
+      form.appendChild(buttons);
+      form.addEventListener("submit", event => {
+        event.preventDefault();
+        const provider = input.value.trim();
+        if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(provider)) { input.focus(); input.setCustomValidity(agentTerminalText("providerInvalid")); input.reportValidity(); return; }
+        input.setCustomValidity("");
+        const choice = control.choices.find(item => item.id === event.submitter?.dataset.choice) || control.choices[0];
+        control.onSubmit(choice, provider);
+      });
+      box.appendChild(form);
+    } else if (control.type === "list") {
+      const wrap = document.createElement("div");
+      wrap.className = "agent-terminal-list";
+      if (control.filter) {
+        const filter = document.createElement("input");
+        filter.type = "search"; filter.placeholder = control.filterPlaceholder || ""; filter.className = "agent-terminal-filter";
+        filter.value = control.query || "";
+        filter.setAttribute("aria-label", control.filterPlaceholder || "");
+        filter.addEventListener("input", () => { control.query = filter.value; renderItems(); });
+        wrap.appendChild(filter);
+      }
+      const items = document.createElement("div");
+      items.className = "agent-terminal-list-items";
+      const renderItems = () => {
+        items.replaceChildren();
+        const query = String(control.query || "").trim().toLocaleLowerCase();
+        const matches = control.items.filter(item => !query || [item.label, item.id, item.description].some(value => String(value || "").toLocaleLowerCase().includes(query)));
+        for (const item of matches) {
+          const button = document.createElement("button");
+          button.type = "button"; button.className = "agent-terminal-choice";
+          const strong = document.createElement("strong"); strong.textContent = item.label; strong.dataset.i18nIgnore = "";
+          button.appendChild(strong);
+          if (item.description) { const small = document.createElement("small"); small.textContent = item.description; button.appendChild(small); }
+          if (item.badge) { const badge = document.createElement("span"); badge.className = "agent-terminal-badge"; badge.textContent = item.badge; button.appendChild(badge); }
+          button.addEventListener("click", event => { if (event.detail < 2) control.onPick(item); });
+          items.appendChild(button);
+        }
+        if (!matches.length) { const empty = document.createElement("p"); empty.className = "agent-terminal-note"; empty.textContent = control.emptyText || ""; items.appendChild(empty); }
+      };
+      renderItems();
+      wrap.appendChild(items);
+      box.appendChild(wrap);
+    }
+  }
+  box.classList.toggle("hidden", !box.childNodes.length);
+}
+
+function renderAgentTerminal() {
+  const term = agentTerminal;
+  if (!term || !el.agentTerminal) return;
+  const label = agentTerminalLabel(term.agentId), host = agentTerminalHostName(term.hostBase);
+  el.agentTerminalHost.textContent = agentTerminalText("eyebrow", { host });
+  el.agentTerminalTitle.textContent = label + "  /" + term.action;
+  renderAgentTerminalControls(term);
+  // The screen appears once there is something to show, so choosing a
+  // method or provider gets the whole sheet.
+  el.agentTerminalScreen.classList.toggle("hidden", !term.raw);
+  renderAgentTerminalScreen(term);
+  renderAgentTerminalLinks(term);
+  el.agentTerminalStatus.textContent = agentTerminalStatusText(term);
+  el.agentTerminalStatus.dataset.state = term.done ? term.state || "" : term.phase;
+  const running = !term.done && term.phase === "running";
+  const piPrompt = term.mode === "pi" && !!term.pi?.request && term.pi.request.type !== "select";
+  const acceptsInput = running && (term.mode === "pty" ? term.action !== "status" : piPrompt);
+  el.agentTerminalForm.classList.toggle("hidden", !acceptsInput);
+  el.agentTerminalKeys.classList.toggle("hidden", !(running && term.mode === "pty" && term.action !== "status" && term.state !== "awaiting_secret"));
+  const hidden = term.secret || term.state === "awaiting_secret";
+  el.agentTerminalInput.type = hidden ? "password" : "text";
+  el.agentTerminalInput.placeholder = term.state === "awaiting_secret" ? agentTerminalText("secretPlaceholder") : piPrompt && term.pi.request.placeholder ? term.pi.request.placeholder : agentTerminalText("inputPlaceholder");
+  el.agentTerminalSecret.setAttribute("aria-pressed", String(hidden));
+  el.agentTerminalSecret.querySelector("use")?.setAttribute("href", hidden ? "#i-eye-off" : "#i-eye");
+  el.agentTerminalSecret.classList.toggle("hidden", term.state === "awaiting_secret");
+  el.agentTerminalStop.classList.toggle("hidden", !(running && term.action !== "status"));
+  el.agentTerminalStatusButton.classList.toggle("hidden", !(term.done && term.action !== "status" && term.agentId));
+}
+
+// ---- Pi: the same three commands, through Pi's own sign-in runtime ----
+
+async function preparePiTerminal(term) {
+  const catalog = await api("/api/provider-catalog");
+  if (agentTerminal !== term) return;
+  const providers = Array.isArray(catalog?.providers) ? catalog.providers : [];
+  const signedIn = providers.filter(provider => provider.configured);
+  if (term.action === "status") {
+    agentTerminalLine(term, "$ pi /status", "dim");
+    if (!signedIn.length) agentTerminalLine(term, agentTerminalText("pi.none"));
+    for (const provider of signedIn) agentTerminalLine(term, agentTerminalText("pi.statusLine", { name: provider.name, id: provider.id, type: provider.configuredType || "—" }));
+    finishAgentTerminal(term, "completed");
+    return;
+  }
+  const argument = term.argument.toLowerCase();
+  const pick = provider => term.action === "logout" ? confirmPiLogout(term, provider) : choosePiLoginMethod(term, provider);
+  const preset = argument ? providers.find(provider => provider.id.toLowerCase() === argument) : null;
+  if (preset && (term.action === "login" || preset.configured)) { pick(preset); return; }
+  const items = (term.action === "logout" ? signedIn : providers).map(provider => ({ id: provider.id, label: provider.name, description: provider.id,
+    badge: provider.configured ? agentTerminalText("pi.signedIn") : "", provider }));
+  if (!items.length) { agentTerminalLine(term, agentTerminalText(term.action === "logout" ? "pi.noSignedIn" : "pi.none")); finishAgentTerminal(term, "completed"); return; }
+  term.phase = "choose";
+  term.controls = [{ type: "list", filter: items.length > 8, filterPlaceholder: agentTerminalText("pi.search"), query: term.argument, items,
+    emptyText: agentTerminalText("pi.noMatch"), onPick: item => pick(item.provider) }];
+  term.notes = [{ tone: "info", text: agentTerminalText(term.action === "logout" ? "pi.chooseSignedIn" : "pi.chooseProvider") }];
+  renderAgentTerminal();
+}
+
+function choosePiLoginMethod(term, provider) {
+  const types = Array.isArray(provider.authTypes) ? provider.authTypes : [];
+  if (types.length === 1) { void startPiLogin(term, provider, types[0]); return; }
+  term.phase = "choose"; term.notes = [];
+  term.controls = types.map((type, index) => ({ type: "button", primary: index === 0,
+    label: agentTerminalText("pi.method." + type), description: type === "oauth" ? provider.oauthName || provider.name : provider.apiKeyName || "",
+    onClick: () => void startPiLogin(term, provider, type) }));
+  renderAgentTerminal();
+}
+
+async function startPiLogin(term, provider, authType) {
+  if (agentTerminal !== term) return;
+  term.phase = "running"; term.controls = []; term.notes = []; term.state = "running"; term.runId = "pi";
+  agentTerminalLine(term, "$ pi /login " + provider.id, "dim");
+  renderAgentTerminal();
+  let result;
+  try { result = await post("/api/provider-auth/start", { providerId: provider.id, authType }); }
+  catch (error) {
+    if (agentTerminal !== term) return;
+    agentTerminalLine(term, agentTerminalText("failed", { detail: error.message || "unknown error" }), "error");
+    finishAgentTerminal(term, "failed");
+    return;
+  }
+  if (agentTerminal !== term) { void post("/api/provider-auth/cancel", { runId: result.runId }).catch(() => {}); return; }
+  term.pi = { runId: result.runId, name: result.provider?.name || provider.name, request: null, lastEventId: -1 };
+  openPiLoginStream(term);
+}
+
+function openPiLoginStream(term) {
+  if (agentTerminal !== term || term.done || !term.pi?.runId) return;
+  const es = new EventSource(term.hostBase + "/api/provider-auth/stream?runId=" + encodeURIComponent(term.pi.runId) + "&after=" + encodeURIComponent(term.pi.lastEventId));
+  term.es = es;
+  es.addEventListener("connected", () => { term.reconnectAttempt = 0; term.reconnecting = false; renderAgentTerminal(); });
+  es.onmessage = event => {
+    if (agentTerminal !== term) { es.close(); return; }
+    const id = Number(event.lastEventId);
+    if (Number.isFinite(id)) term.pi.lastEventId = Math.max(term.pi.lastEventId, id);
+    let data;
+    try { data = JSON.parse(event.data); } catch { return; }
+    handlePiLoginEvent(term, data);
+  };
+  es.onerror = () => {
+    try { es.close(); } catch {}
+    if (term.es === es) term.es = null;
+    if (agentTerminal !== term || term.done) return;
+    if (term.reconnectAttempt >= 6) { agentTerminalLine(term, agentTerminalText("lostConnection"), "error"); finishAgentTerminal(term, "failed"); return; }
+    term.reconnecting = true;
+    const delay = Math.min(8000, 500 * 2 ** term.reconnectAttempt++);
+    term.reconnectTimer = setTimeout(() => { term.reconnectTimer = null; openPiLoginStream(term); }, delay);
+    renderAgentTerminal();
+  };
+}
+
+function handlePiLoginEvent(term, data) {
+  if (!data || typeof data !== "object") return;
+  if (data.type === "notify") {
+    const event = data.event || {};
+    if (event.type === "auth_url") {
+      if (event.instructions) agentTerminalLine(term, event.instructions);
+      if (event.url) agentTerminalLine(term, event.url);
+    } else if (event.type === "device_code") {
+      if (event.verificationUrl) agentTerminalLine(term, agentTerminalText("pi.openLink", { url: event.verificationUrl }));
+      if (event.userCode) agentTerminalLine(term, agentTerminalText("pi.enterCode", { code: event.userCode }));
+    } else if (event.message) agentTerminalLine(term, event.message, "dim");
+  } else if (data.type === "prompt") {
+    const request = data.request || {};
+    term.pi.request = request;
+    if (request.message) agentTerminalLine(term, request.message);
+    term.secret = request.type === "secret";
+    term.controls = request.type === "select" ? (Array.isArray(request.options) ? request.options : []).map((option, index) => ({ type: "button", primary: index === 0,
+      label: option.label || option.id, description: option.description || "",
+      onClick: () => { agentTerminalLine(term, "> " + (option.label || option.id), "dim"); void sendAgentTerminalInput(term, { data: option.id }); } })) : [];
+    renderAgentTerminal();
+    if (request.type !== "select") setTimeout(() => el.agentTerminalInput?.focus(), 0);
+  } else if (data.type === "success") {
+    agentTerminalLine(term, agentTerminalText("pi.success", { name: data.providerName || term.pi?.name || "" }), "ok");
+    finishAgentTerminal(term, "completed");
+  } else if (data.type === "error") {
+    agentTerminalLine(term, data.message || agentTerminalText("state.failed"), "error");
+    finishAgentTerminal(term, "failed");
+  } else if (data.type === "cancelled") {
+    agentTerminalLine(term, agentTerminalText(data.reason === "timeout" ? "state.timed_out" : "state.cancelled"), "warn");
+    finishAgentTerminal(term, data.reason === "timeout" ? "timed_out" : "cancelled");
+  }
+}
+
+function confirmPiLogout(term, provider) {
+  term.phase = "choose"; term.notes = [];
+  term.controls = [{ type: "button", primary: true, danger: true, label: agentTerminalText("pi.logoutButton", { name: provider.name }),
+    onClick: async () => {
+      if (agentTerminal !== term) return;
+      term.controls = []; term.phase = "running"; term.state = "running";
+      agentTerminalLine(term, "$ pi /logout " + provider.id, "dim");
+      renderAgentTerminal();
+      try {
+        await post("/api/provider-auth/delete", { providerId: provider.id });
+        if (agentTerminal !== term) return;
+        agentTerminalLine(term, agentTerminalText("pi.signedOut", { name: provider.name }), "ok");
+        finishAgentTerminal(term, "completed");
+      } catch (error) {
+        if (agentTerminal !== term) return;
+        agentTerminalLine(term, agentTerminalText("failed", { detail: error.message || "unknown error" }), "error");
+        finishAgentTerminal(term, "failed");
+      }
+    } }];
+  renderAgentTerminal();
+}
+
+// ---- Claude on a host whose desktop helper predates the terminal ----
+
+function prepareLegacyClaudeTerminal(term) {
+  const host = agentTerminalHostName(term.hostBase);
+  term.mode = "legacy"; term.phase = "choose";
+  term.notes = [{ tone: "warn", text: agentTerminalText("desktopHelperOld", { host }) }];
+  term.controls = [{ type: "button", primary: true, label: agentTerminalText("updateHelper"), description: agentTerminalText("updateHelperHint"), onClick: () => void upgradeClaudeDesktopHelper(term) }];
+  if (term.action === "login") term.controls.push({ type: "button", label: agentTerminalText("hostBrowserSignIn", { host }), onClick: () => void legacyClaudeSignIn(term) });
+  if (term.action === "status") term.controls.push({ type: "button", label: agentTerminalText("checkStatus"), onClick: () => void legacyClaudeStatus(term) });
+  renderAgentTerminal();
+}
+
+async function upgradeClaudeDesktopHelper(term) {
+  term.controls = []; term.notes = []; term.phase = "running"; term.state = "running";
+  agentTerminalLine(term, agentTerminalText("helperUpdating"), "dim");
+  renderAgentTerminal();
+  try {
+    await post("/api/claude/desktop/upgrade", { confirm: true });
+    if (agentTerminal !== term) return;
+    agentTerminalLine(term, agentTerminalText("helperUpdated"), "ok");
+    agentAuthCatalogState = { base: null, at: 0, data: null, request: null };
+    term.mode = "pty"; term.state = null; term.phase = "preparing";
+    await prepareAgentTerminal(term);
+  } catch (error) {
+    if (agentTerminal !== term) return;
+    const code = String(error?.code || error?.message || "");
+    agentTerminalLine(term, code === "active_tasks" ? agentTerminalText("busy", { agent: "Claude Code", host: agentTerminalHostName(term.hostBase) })
+      : agentTerminalText("helperUpdateFailed", { detail: error?.message || code }), "error");
+    finishAgentTerminal(term, "failed");
+  }
+}
+
+async function legacyClaudeStatus(term) {
+  term.controls = []; term.notes = []; term.phase = "running"; term.state = "running";
+  renderAgentTerminal();
+  try {
+    const status = await api("/api/claude-auth/status");
+    if (agentTerminal !== term) return;
+    agentTerminalLine(term, agentTerminalText("legacyState." + (status?.credential?.state || "unknown")));
+    finishAgentTerminal(term, "completed");
+  } catch (error) {
+    if (agentTerminal !== term) return;
+    agentTerminalLine(term, agentTerminalText("failed", { detail: error.message || "unknown error" }), "error");
+    finishAgentTerminal(term, "failed");
+  }
+}
+
+async function legacyClaudeSignIn(term) {
+  const host = agentTerminalHostName(term.hostBase);
+  term.controls = []; term.notes = []; term.phase = "running"; term.state = "running";
+  renderAgentTerminal();
+  try {
+    let status = await post("/api/claude-auth/prepare", { confirm: true });
+    if (status?.login?.state === "prepared") status = await post("/api/claude-auth/start", { id: status.login.id });
+    if (agentTerminal !== term) return;
+    term.runId = "legacy"; term.legacyLogin = status?.login?.id || null;
+    agentTerminalLine(term, agentTerminalText("legacyWaiting", { host }));
+    const poll = async () => {
+      term.legacyTimer = null;
+      if (agentTerminal !== term || term.done) return;
+      try {
+        const current = await api("/api/claude-auth/status");
+        if (agentTerminal !== term) return;
+        const state = current?.login?.state;
+        if (["completed", "failed", "cancelled", "timed_out", "unconfirmed", "blocked", "expired", "interrupted"].includes(state)) {
+          agentTerminalLine(term, agentTerminalText("legacyLogin." + state), state === "completed" ? "ok" : "warn");
+          finishAgentTerminal(term, state === "completed" ? "completed" : state === "cancelled" ? "cancelled" : "failed");
+          return;
+        }
+      } catch {}
+      term.legacyTimer = setTimeout(poll, 2000);
+    };
+    term.legacyTimer = setTimeout(poll, 2000);
+  } catch (error) {
+    if (agentTerminal !== term) return;
+    agentTerminalLine(term, agentTerminalText("failed", { detail: error.message || "unknown error" }), "error");
+    finishAgentTerminal(term, "failed");
+  }
+}
+
+async function stopAgentTerminal() {
+  const term = agentTerminal;
+  if (!term || term.done) return;
+  if (term.mode === "pi" && term.pi?.runId) { try { await post("/api/provider-auth/cancel", { runId: term.pi.runId }); } catch {} return; }
+  if (term.mode === "legacy" && term.legacyLogin) { try { await post("/api/claude-auth/cancel", { id: term.legacyLogin }); } catch {} return; }
+  if (term.runId && term.mode === "pty") { try { await post("/api/agent-auth/cancel", { runId: term.runId }); } catch {} }
+}
+
+el.agentTerminalClose?.addEventListener("click", requestCloseAgentTerminal);
+el.agentTerminalDone?.addEventListener("click", requestCloseAgentTerminal);
+el.agentTerminalStop?.addEventListener("click", () => void stopAgentTerminal());
+el.agentTerminalStatusButton?.addEventListener("click", () => { const term = agentTerminal; if (term) void openAgentTerminal({ agentId: term.agentId, action: "status" }); });
+el.agentTerminalForm?.addEventListener("submit", event => { event.preventDefault(); submitAgentTerminalInput(); });
+el.agentTerminalSecret?.addEventListener("click", () => {
+  const term = agentTerminal;
+  if (!term) return;
+  term.secret = !term.secret;
+  renderAgentTerminal();
+  el.agentTerminalInput?.focus();
+});
+el.agentTerminalKeys?.addEventListener("click", event => {
+  const button = event.target.closest?.("[data-terminal-key]");
+  const term = agentTerminal;
+  if (!button || !term) return;
+  void sendAgentTerminalInput(term, { key: button.dataset.terminalKey });
+});
+el.agentTerminalScreen?.addEventListener("keydown", handleAgentTerminalScreenKey);
+el.agentTerminalScreen?.addEventListener("paste", event => {
+  const term = agentTerminal, value = event.clipboardData?.getData("text") || "";
+  if (!term || term.mode !== "pty" || term.done || !value) return;
+  event.preventDefault();
+  void sendAgentTerminalInput(term, { data: value.slice(0, 8000) });
+});
+
+// Offers the agent's own sign-in when a conversation could not start
+// because the agent is signed out.
+function agentSignInError(error) {
+  const code = String(error?.code || ""), message = String(error?.message || "");
+  return /sign_in_required|auth_required|login_required|not_signed_in|unauthenticated/.test(code)
+    || /\b(?:sign in|signed in|log in|logged in|login|authenticat|unauthori[sz]ed|credential)/i.test(message);
+}
+
+// ---- Settings → Quota sources ----
+
+let quotaSourcesState = { base: null, data: null, loading: false, error: null, at: 0 };
+
+async function loadQuotaSources(force = false) {
+  const base = apiBase;
+  if (quotaSourcesState.loading && quotaSourcesState.base === base) return;
+  if (!force && quotaSourcesState.base === base && quotaSourcesState.data && Date.now() - quotaSourcesState.at < 30000) { renderQuotaSources(); return; }
+  quotaSourcesState = { ...quotaSourcesState, base, loading: true, error: null, ...(quotaSourcesState.base === base ? {} : { data: null }) };
+  renderQuotaSources();
+  try {
+    const data = await api("/api/quota-sources");
+    if (apiBase !== base) return;
+    quotaSourcesState = { base, data, loading: false, error: null, at: Date.now() };
+  } catch (error) {
+    if (apiBase !== base) return;
+    quotaSourcesState = { base, data: null, loading: false, error: error?.status === 404 ? "old" : error?.message || "unavailable", at: Date.now() };
+  }
+  renderQuotaSources();
+}
+
+function quotaWindowLabel(window) {
+  if (window.key === "custom") return window.label || "";
+  return tKey("quotaSources.window." + window.key);
+}
+
+function renderQuotaSources() {
+  const list = el.quotaSourcesList;
+  if (!list) return;
+  const state = quotaSourcesState, host = agentTerminalHostName();
+  list.replaceChildren();
+  const note = text => { const p = document.createElement("p"); p.className = "settings-note"; p.textContent = text; list.appendChild(p); };
+  if (state.loading && !state.data) { note(tKey("quotaSources.loading")); return; }
+  if (state.error) { note(state.error === "old" ? tKey("quotaSources.oldHost", { host }) : tKey("quotaSources.unavailable")); return; }
+  for (const source of state.data?.sources || []) {
+    const card = document.createElement("div");
+    card.className = "quota-source-card";
+    const head = document.createElement("div");
+    head.className = "quota-source-head";
+    const copy = document.createElement("div");
+    copy.className = "quota-source-copy";
+    const name = document.createElement("strong");
+    name.textContent = source.name; name.dataset.i18nIgnore = "";
+    const status = document.createElement("small");
+    status.textContent = !source.installed ? tKey("quotaSources.notInstalled", { host })
+      : !source.running ? tKey("quotaSources.stopped", { host })
+        : source.reason === "token_missing" || source.reason === "token_rejected" ? tKey("quotaSources.tokenMissing", { port: source.port })
+          : tKey("quotaSources.running", { port: source.port });
+    copy.append(name, status);
+    const chip = document.createElement("span");
+    chip.className = "gateway-badge " + (source.running ? "gateway-badge-ok" : "gateway-badge-warn");
+    chip.textContent = tKey(source.running ? "quotaSources.online" : "quotaSources.offline");
+    head.append(copy, chip);
+    card.appendChild(head);
+    if (source.running && Array.isArray(source.providers)) {
+      if (!source.providers.length) { const p = document.createElement("p"); p.className = "settings-note"; p.textContent = tKey("quotaSources.noProviders"); card.appendChild(p); }
+      for (const provider of source.providers) {
+        const row = document.createElement("div");
+        row.className = "quota-source-provider";
+        const label = document.createElement("span");
+        label.textContent = provider.label; label.dataset.i18nIgnore = "";
+        const windows = document.createElement("span");
+        windows.className = "quota-source-windows";
+        const parts = (provider.windows || []).map(window => quotaWindowLabel(window) + " " + tKey("quotaSources.left", { percent: Math.round(100 - window.usedPercent) }));
+        windows.textContent = parts.length ? parts.join(" · ") : tKey("quotaSources.noReading");
+        row.append(label, windows);
+        card.appendChild(row);
+      }
+    }
+    // The dashboard listens on the host's loopback address, so it opens only
+    // in a browser on that computer.
+    const sameComputer = !apiBase && ["localhost", "127.0.0.1", "::1", "[::1]"].includes(location.hostname);
+    if (source.installed && source.dashboardUrl) {
+      if (sameComputer && source.running) {
+        const open = document.createElement("a");
+        open.className = "btn ghost quota-source-open";
+        open.href = source.dashboardUrl; open.target = "_blank"; open.rel = "noopener noreferrer";
+        open.textContent = tKey("quotaSources.open", { name: source.name });
+        card.appendChild(open);
+      } else {
+        const p = document.createElement("p");
+        p.className = "settings-note";
+        p.textContent = tKey("quotaSources.openOnHost", { url: source.dashboardUrl, host });
+        card.appendChild(p);
+      }
+    }
+    list.appendChild(card);
+  }
+}
+el.quotaSourcesRefresh?.addEventListener("click", () => void loadQuotaSources(true));
+
 
 /** 內建 TUI 指令映射：/compact 等 RPC 專屬命令 */
 const BUILTIN_SLASH = {
@@ -11623,7 +12538,6 @@ el.onboardingNext?.addEventListener("click", () => {
 el.onboardingLanguage?.addEventListener("change", () => {
   settings = saveSettings({ locale: window.stepsembleI18n?.normalizeLocale(el.onboardingLanguage.value) || "en" });
   window.stepsembleI18n?.setLocale(settings.locale);
-  if (claudeAuthClient) renderClaudeAuth(claudeAuthClient.snapshot());
   renderOnboarding();
   renderSettings();
   renderContextDashboard();
@@ -13238,233 +14152,16 @@ function setProviderFormError(message = "") {
 function closeProviderDialog() {
   el.providerDialog?.classList.add("hidden");
   providerDialogExisting = null;
-  providerDialogPreset = null;
-  if (el.providerFilter) el.providerFilter.value = "";
-  if (el.providerSimpleApiKey) el.providerSimpleApiKey.value = "";
-  el.providerApiKeyEntry?.classList.add("hidden");
-  el.providerSwitchDevice?.classList.add("hidden");
-  el.providerSimpleStatus?.classList.remove("is-readonly");
   setProviderFormError();
 }
 
-function providerAuthTypeLabel(type) {
-  return window.stepsembleI18n?.t(type === "oauth" ? "Sign in with an account" : "Use an API key") || (type === "oauth" ? "Sign in with an account" : "Use an API key");
-}
-
-const PROVIDER_CATEGORY_META = Object.freeze({
-  free: { label: "免費／免帳戶", note: tKey("provider.localService") },
-  paid: { label: "API key／付費服務", note: tKey("provider.apiKeyNote") },
-  account: { label: "帳戶登入", note: tKey("provider.accountNote") },
-});
-
-function renderProviderPresets() {
-  if (!el.providerPresetList) return;
-  el.providerPresetList.innerHTML = "";
-  if (providerCatalogLoading) {
-    el.providerPresetList.innerHTML = '<p class="settings-note">讀取 Provider 清單中…</p>';
-    return;
-  }
-  if (!providerCatalog.length) {
-    el.providerPresetList.innerHTML = '<p class="settings-note error-text">目前無法讀取可用 Provider，請稍後再試。</p>';
-    return;
-  }
-  if (providerCatalogNotice) {
-    const notice = document.createElement("p");
-    notice.className = "settings-note provider-compat-note";
-    notice.textContent = providerCatalogNotice;
-    el.providerPresetList.appendChild(notice);
-  }
-  const query = String(el.providerFilter?.value || "").trim().toLocaleLowerCase();
-  const matches = (provider) => {
-    if (!query) return true;
-    const category = PROVIDER_CATEGORY_META[provider.category || "paid"]?.label || "";
-    return [provider.id, provider.name, provider.description, category]
-      .filter(Boolean).some((value) => String(value).toLocaleLowerCase().includes(query));
-  };
-  const order = ["free", "paid", "account"];
-  let visibleCount = 0;
-  for (const category of order) {
-    const providers = providerCatalog
-      .filter((provider) => (provider.category || "paid") === category && matches(provider))
-      .sort((a, b) => {
-        // Nous Research 是使用者特別需要的入口，放在帳戶分類最前面，
-        // 但仍保留完整搜尋與分類結構。
-        if (category === "account" && a.id === "nous") return -1;
-        if (category === "account" && b.id === "nous") return 1;
-        return String(a.name || a.id).localeCompare(String(b.name || b.id));
-      });
-    if (!providers.length) continue;
-    visibleCount += providers.length;
-    const meta = PROVIDER_CATEGORY_META[category] || PROVIDER_CATEGORY_META.paid;
-    const section = document.createElement("section");
-    section.className = `provider-preset-section provider-preset-section-${category}`;
-    const searching = !!query;
-    const collapsed = !searching && collapsedProviderCategories.has(category);
-    const heading = document.createElement("button");
-    heading.type = "button";
-    heading.className = "provider-preset-heading" + (collapsed ? " collapsed" : "");
-    heading.dataset.providerCategory = category;
-    heading.setAttribute("aria-expanded", String(!collapsed));
-    const title = document.createElement("strong");
-    title.textContent = window.stepsembleI18n?.t(meta.label) || meta.label;
-    const note = document.createElement("small");
-    note.textContent = `${providers.length}${window.stepsembleI18n?.t("個服務") || " service(s)"} · ${window.stepsembleI18n?.t(meta.note) || meta.note}`;
-    const chevron = document.createElement("span");
-    chevron.className = "provider-preset-chevron";
-    chevron.textContent = "⌄";
-    heading.append(title, note, chevron);
-    const list = document.createElement("div");
-    list.className = "provider-preset-group" + (collapsed ? " collapsed" : "");
-    for (const provider of providers) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "provider-preset" + (providerDialogPreset?.id === provider.id ? " selected" : "");
-      button.dataset.providerId = provider.id;
-      button.setAttribute("role", "option");
-      button.setAttribute("aria-selected", providerDialogPreset?.id === provider.id ? "true" : "false");
-      const copy = document.createElement("span");
-      copy.className = "provider-preset-copy";
-      const name = document.createElement("strong");
-      name.textContent = window.stepsembleI18n?.providerName(provider) || provider.name;
-      const description = document.createElement("small");
-      description.textContent = window.stepsembleI18n?.providerDescription(provider) || provider.description;
-      copy.append(name, description);
-      const status = document.createElement("span");
-      status.className = "provider-preset-status";
-      status.textContent = provider.configured ? (window.stepsembleI18n?.t("已設定") || "Configured") : "";
-      const chevron = document.createElement("span");
-      chevron.className = "row-chevron";
-      chevron.textContent = "→";
-      button.append(copy, status, chevron);
-      list.appendChild(button);
-    }
-    section.append(heading, list);
-    el.providerPresetList.appendChild(section);
-  }
-  if (!visibleCount) {
-    const empty = document.createElement("p");
-    empty.className = "settings-note";
-    empty.textContent = `找不到「${String(el.providerFilter?.value || "").trim()}」；可以試試服務商名稱或 Provider ID。`;
-    el.providerPresetList.appendChild(empty);
-  }
-}
-
-function selectProviderPreset(provider) {
-  providerDialogPreset = provider;
-  collapsedProviderCategories.delete(provider.category || "paid");
-  renderProviderPresets();
-  if (el.providerSelectedName) el.providerSelectedName.textContent = window.stepsembleI18n?.providerName(provider) || provider.name;
-  if (el.providerSelectedDescription) el.providerSelectedDescription.textContent = window.stepsembleI18n?.providerDescription(provider) || provider.description || "";
-  const isFree = provider.kind === "free";
-  const authTypes = new Set(provider.authTypes || []);
-  el.providerAuthOptions?.classList.remove("hidden");
-  el.providerApiKeyEntry?.classList.add("hidden");
-  if (el.providerSimpleApiKey) el.providerSimpleApiKey.value = "";
-  el.providerAuthBack?.classList.remove("hidden");
-  if (providerCatalogReadOnly) {
-    el.providerAuthAccount?.classList.add("hidden");
-    el.providerAuthApi?.classList.add("hidden");
-    el.providerFreeStart?.classList.add("hidden");
-    el.providerAuthRemove?.classList.add("hidden");
-    const canSwitchDevice = !!selfId && selectedId !== selfId && machines.length > 1;
-    el.providerSwitchDevice?.classList.toggle("hidden", !canSwitchDevice);
-    if (canSwitchDevice && el.providerSwitchDevice) {
-      el.providerSwitchDevice.textContent = window.stepsembleI18n?.t("Switch device") || "Switch device";
-    }
-    if (el.providerSimpleStatus) {
-      el.providerSimpleStatus.textContent = updateText("Update Stepsemble on this device to add or change provider credentials.");
-      el.providerSimpleStatus.classList.add("is-readonly");
-    }
-    el.providerAuthOptions?.scrollIntoView({ block: "nearest", behavior: settings.reducedMotion ? "auto" : "smooth" });
-    return;
-  }
-  el.providerAuthAccount?.classList.toggle("hidden", !authTypes.has("oauth"));
-  el.providerAuthApi?.classList.toggle("hidden", !authTypes.has("api_key"));
-  el.providerFreeStart?.classList.toggle("hidden", !isFree);
-  el.providerAuthRemove?.classList.toggle("hidden", !provider.configured);
-  el.providerSwitchDevice?.classList.add("hidden");
-  el.providerSimpleStatus?.classList.remove("is-readonly");
-  if (el.providerAuthRemove) el.providerAuthRemove.textContent = isFree ? "移除這個 Provider" : "移除這個登入設定";
-  el.providerSimpleStatus.textContent = isFree
-    ? (provider.configured ? tKey("provider.added", { name: provider.name }) : "Scan this computer for local models.")
-    : (provider.configured ? tKey("provider.alreadySignedIn", { name: provider.name }) : tKey("provider.chooseMethod"));
-  el.providerAuthOptions?.scrollIntoView({ block: "nearest", behavior: settings.reducedMotion ? "auto" : "smooth" });
-}
-
-async function loadProviderCatalog(force = false) {
-  if (providerCatalogLoading && !force) return providerCatalogRequest;
-  const machine = modelMachineKey();
-  if (providerCatalog.length && !force && providerCatalogMachine === machine) {
-    renderProviderPresets();
-    return providerCatalog;
-  }
-  providerCatalogLoading = true;
-  renderProviderPresets();
-  const machineAtStart = machine;
-  const request = api("/api/provider-catalog");
-  providerCatalogRequest = request;
-  try {
-    const result = await request;
-    if (machineAtStart !== modelMachineKey()) return providerCatalog;
-    providerCatalog = Array.isArray(result?.providers) ? result.providers : [];
-    providerCatalogReadOnly = false;
-    providerCatalogNotice = "";
-    providerCatalogMachine = machineAtStart;
-    el.providerAdvancedToggle?.classList.toggle("hidden", !!providerDialogExisting);
-    return providerCatalog;
-  } catch (error) {
-    // A remote device running an older Stepsemble can still use /api/models, but
-    // it does not know the provider catalog/configuration endpoints. The
-    // gateway owns the same static catalog, so show it read-only instead of
-    // exposing a raw 404 or an empty picker.
-    if (error?.status === 404 && apiBase) {
-      try {
-        const fallbackResponse = await fetch("/api/provider-catalog", { credentials: "same-origin", cache: "no-store" });
-        if (!fallbackResponse.ok) throw new Error(`gateway provider catalog ${fallbackResponse.status}`);
-        const fallback = await fallbackResponse.json();
-        if (machineAtStart !== modelMachineKey()) return providerCatalog;
-        providerCatalog = Array.isArray(fallback?.providers)
-          ? fallback.providers.map((provider) => ({ ...provider, configured: false, configuredType: null }))
-          : [];
-        providerCatalogReadOnly = true;
-        providerCatalogNotice = "This device is running an older Stepsemble. The catalog is view-only until it is updated.";
-        providerCatalogMachine = machineAtStart;
-        el.providerAdvancedToggle?.classList.add("hidden");
-        setProviderFormError();
-        return providerCatalog;
-      } catch {}
-    }
-    providerCatalog = [];
-    providerCatalogReadOnly = false;
-    providerCatalogNotice = "";
-    providerCatalogMachine = machineAtStart;
-    setProviderFormError(error.message || "無法讀取 Provider 清單");
-    return [];
-  } finally {
-    if (providerCatalogRequest === request) {
-      providerCatalogRequest = null;
-      providerCatalogLoading = false;
-      renderProviderPresets();
-    }
-  }
-}
-
-function showProviderAdvancedFields() {
-  el.providerSimpleFlow?.classList.add("hidden");
-  el.providerAdvancedFields?.classList.remove("hidden");
-  el.providerAdvancedToggle?.classList.add("hidden");
-  el.providerSave?.classList.remove("hidden");
-  setTimeout(() => el.providerId?.focus(), 0);
-}
-
+// Custom providers are Pi's models.json entries for self-hosted or other
+// OpenAI-compatible endpoints. Services Pi can sign in to are added with
+// /login in a Pi conversation instead.
 function openProviderDialog(provider = null) {
   providerDialogMode = provider ? "edit" : "add";
   providerDialogExisting = provider;
-  providerDialogPreset = null;
-  collapsedProviderCategories.clear();
-  for (const category of ["free", "paid", "account"]) collapsedProviderCategories.add(category);
-  if (el.providerFilter) el.providerFilter.value = "";
-  if (el.providerDialogTitle) el.providerDialogTitle.textContent = provider ? `編輯 ${provider.id}` : "新增 Provider";
+  if (el.providerDialogTitle) el.providerDialogTitle.textContent = provider ? tKey("provider.editTitle", { id: provider.id }) : tKey("provider.customTitle");
   if (el.providerId) {
     el.providerId.value = provider?.id || "";
     el.providerId.readOnly = !!provider;
@@ -13477,333 +14174,9 @@ function openProviderDialog(provider = null) {
   }
   if (el.providerModels) el.providerModels.value = providerModelLines(provider);
   if (el.providerDelete) el.providerDelete.classList.toggle("hidden", !provider);
-  el.providerSimpleFlow?.classList.toggle("hidden", !!provider);
-  el.providerAdvancedFields?.classList.toggle("hidden", !provider);
-  el.providerAdvancedToggle?.classList.toggle("hidden", !!provider);
-  el.providerSave?.classList.toggle("hidden", !provider);
-  el.providerAuthOptions?.classList.add("hidden");
-  el.providerApiKeyEntry?.classList.add("hidden");
-  if (el.providerSimpleApiKey) el.providerSimpleApiKey.value = "";
-  el.providerAuthBack?.classList.remove("hidden");
-  el.providerFreeStart?.classList.add("hidden");
-  el.providerAuthRemove?.classList.add("hidden");
-  if (el.providerAuthRemove) el.providerAuthRemove.textContent = "移除這個登入設定";
-  if (el.providerSimpleStatus) {
-    el.providerSimpleStatus.textContent = "";
-    el.providerSimpleStatus.classList.remove("is-readonly");
-  }
-  el.providerSwitchDevice?.classList.add("hidden");
-  renderProviderPresets();
   setProviderFormError();
   el.providerDialog?.classList.remove("hidden");
-  if (!provider) void loadProviderCatalog();
-  else setTimeout(() => el.providerId?.focus(), 0);
-}
-
-function closeProviderAuthClient() {
-  if (providerAuthRun) providerAuthRun.streamEnded = true;
-  if (providerAuthRun?.reconnectTimer) clearTimeout(providerAuthRun.reconnectTimer);
-  providerAuthRun = null;
-  try { providerAuthStream?.close(); } catch {}
-  providerAuthStream = null;
-  providerAuthRequest = null;
-  const hadProviderSheet = !!extensionUiRequest?.kind;
-  if (hadProviderSheet) extensionUiRequest = null;
-  providerAuthNotice = "";
-  providerAuthUrl = "";
-  if (hadProviderSheet) {
-    el.extensionUiSheet?.classList.add("hidden");
-    el.extensionUiInput.value = "";
-    el.extensionUiEditor.value = "";
-    el.extensionUiInput.type = "text";
-    el.extensionUiStatus.textContent = "";
-  }
-  renderNextNativeDialog();
-}
-
-function resetProviderDialogControls() {
-  for (const control of [el.extensionUiSubmit, el.extensionUiCancel, el.extensionUiInput, el.extensionUiEditor]) control.disabled = false;
-  el.extensionUiStatus.textContent = "";
-}
-
-function showProviderAuthPrompt(request, run) {
-  if (!request || !run || run.hostBase !== apiBase) return;
-  if (extensionUiRequest?.kind === "provider-auth" && extensionUiRequest.runId === run.runId && extensionUiRequest.id === request.id) return;
-  suspendNativeDialog();
-  providerAuthNotice = providerAuthNotice || "";
-  providerAuthRequest = request;
-  extensionUiRequest = { kind: "provider-auth", runId: run.runId, id: request.id, method: request.type, hostBase: run.hostBase };
-  const renderedRequest = extensionUiRequest;
-  resetProviderDialogControls();
-  el.extensionUiKind.textContent = "PROVIDER LOGIN";
-  el.extensionUiTitle.textContent = `登入 ${run.providerName || "Provider"}`;
-  el.extensionUiMessage.textContent = [providerAuthNotice, request.message].filter(Boolean).join("\n\n");
-  el.extensionUiOptions.innerHTML = "";
-  el.extensionUiInput.classList.add("hidden");
-  el.extensionUiEditor.classList.add("hidden");
-  el.extensionUiSubmit.classList.add("hidden");
-  el.extensionUiInput.type = request.type === "secret" ? "password" : "text";
-
-  // OAuth flows emit an authorization URL immediately before asking for a
-  // manual code. Keep that URL visible in the prompt so remote/mobile users
-  // can open the official login page without losing it between SSE events.
-  if (providerAuthUrl) {
-    const link = document.createElement("button");
-    link.type = "button";
-    link.className = "action-row extension-ui-option";
-    link.textContent = window.stepsembleI18n?.t("Open official sign-in page") || "Open official sign-in page";
-    link.addEventListener("click", () => window.open(providerAuthUrl, "_blank", "noopener,noreferrer"));
-    el.extensionUiOptions.appendChild(link);
-  }
-
-  if (request.type === "select") {
-    for (const option of Array.isArray(request.options) ? request.options : []) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "action-row extension-ui-option";
-      button.textContent = option.description ? `${option.label} · ${option.description}` : option.label;
-      button.addEventListener("click", event => { if (event.detail < 2) void finishExtensionUi({ value: option.id }, renderedRequest); });
-      el.extensionUiOptions.appendChild(button);
-    }
-  } else {
-    el.extensionUiInput.placeholder = request.placeholder || (request.type === "secret" ? "貼上 API key" : "輸入內容");
-    el.extensionUiInput.value = "";
-    el.extensionUiInput.classList.remove("hidden");
-    el.extensionUiSubmit.textContent = "送出";
-    el.extensionUiSubmit.classList.remove("hidden");
-    el.extensionUiSubmit.onclick = event => { if (event.detail < 2) void finishExtensionUi({ value: el.extensionUiInput.value }, renderedRequest); };
-  }
-  el.extensionUiSheet.classList.remove("hidden");
-  if (request.type !== "select") el.extensionUiInput.focus();
-}
-
-function showProviderAuthNotify(event, run) {
-  if (!event || !run || run.hostBase !== apiBase) return;
-  suspendNativeDialog();
-  extensionUiRequest = { kind: "provider-notice", runId: run.runId, hostBase: run.hostBase };
-  resetProviderDialogControls();
-  const message = event.instructions || event.message || "請依畫面完成登入";
-  providerAuthNotice = message;
-  providerAuthUrl = event.url || event.verificationUrl || "";
-  el.extensionUiKind.textContent = "PROVIDER LOGIN";
-  el.extensionUiTitle.textContent = `登入 ${run.providerName || "Provider"}`;
-  el.extensionUiMessage.textContent = message;
-  el.extensionUiOptions.innerHTML = "";
-  el.extensionUiInput.classList.add("hidden");
-  el.extensionUiEditor.classList.add("hidden");
-  el.extensionUiSubmit.classList.add("hidden");
-  const verificationUrl = providerAuthUrl;
-  if (verificationUrl) {
-    const link = document.createElement("button");
-    link.type = "button";
-    link.className = "action-row extension-ui-option";
-    link.textContent = event.type === "device_code" ? "開啟官方驗證頁面" : "開啟官方登入頁面";
-    link.addEventListener("click", () => window.open(verificationUrl, "_blank", "noopener,noreferrer"));
-    el.extensionUiOptions.appendChild(link);
-  }
-  if (event.type === "device_code" && event.userCode) {
-    const code = document.createElement("p");
-    code.className = "settings-note provider-auth-code";
-    code.textContent = tKey("provider.verificationCode", { code: event.userCode });
-    el.extensionUiOptions.appendChild(code);
-  }
-  el.extensionUiSheet.classList.remove("hidden");
-}
-
-function handleProviderAuthEvent(event) {
-  const run = providerAuthRun;
-  if (!run || !event) return;
-  if (event.type === "prompt") {
-    showProviderAuthPrompt(event.request, run);
-  } else if (event.type === "notify") {
-    showProviderAuthNotify(event.event, run);
-  } else if (event.type === "success") {
-    const name = event.providerName || run.providerName || "Provider";
-    closeProviderAuthClient();
-    toast(`${name} 已設定`);
-    void loadProviderCatalog(true);
-    void loadModelVisibility(true, true);
-  } else if (event.type === "error") {
-    const message = event.message || "Provider 登入失敗";
-    closeProviderAuthClient();
-    toast(message, true);
-  } else if (event.type === "cancelled") {
-    closeProviderAuthClient();
-    const message = event.reason === "timeout"
-      ? tKey("provider.authTimeout")
-      : event.reason === "replaced"
-        ? tKey("provider.authSuperseded")
-        : "已取消 Provider 登入";
-    toast(message, event.reason === "timeout" || event.reason === "replaced");
-  }
-}
-
-function showProviderApiKeyEntry() {
-  if (!providerDialogPreset || !el.providerApiKeyEntry) return;
-  el.providerApiKeyEntry.classList.remove("hidden");
-  el.providerAuthAccount?.classList.add("hidden");
-  el.providerAuthApi?.classList.add("hidden");
-  el.providerFreeStart?.classList.add("hidden");
-  el.providerAuthRemove?.classList.add("hidden");
-  el.providerAuthBack?.classList.add("hidden");
-  if (el.providerSimpleStatus) el.providerSimpleStatus.textContent = tKey("provider.apiKeyLocal", { name: providerDialogPreset.name });
-  el.providerApiKeyEntry.scrollIntoView({ block: "nearest", behavior: settings.reducedMotion ? "auto" : "smooth" });
-  setTimeout(() => el.providerSimpleApiKey?.focus(), 0);
-}
-
-function hideProviderApiKeyEntry() {
-  el.providerApiKeyEntry?.classList.add("hidden");
-  if (el.providerSimpleApiKey) el.providerSimpleApiKey.value = "";
-  if (!providerDialogPreset) return;
-  const authTypes = new Set(providerDialogPreset.authTypes || []);
-  const isFree = providerDialogPreset.kind === "free";
-  el.providerAuthAccount?.classList.toggle("hidden", !authTypes.has("oauth"));
-  el.providerAuthApi?.classList.toggle("hidden", !authTypes.has("api_key"));
-  el.providerFreeStart?.classList.toggle("hidden", !isFree);
-  el.providerAuthRemove?.classList.toggle("hidden", !providerDialogPreset.configured);
-  el.providerAuthBack?.classList.remove("hidden");
-  if (el.providerSimpleStatus) el.providerSimpleStatus.textContent = isFree
-    ? (providerDialogPreset.configured ? tKey("provider.added", { name: providerDialogPreset.name }) : "Scan this computer for local models.")
-    : (providerDialogPreset.configured ? tKey("provider.alreadySignedIn", { name: providerDialogPreset.name }) : tKey("provider.chooseMethod"));
-}
-
-function openProviderAuthStream(after = -1) {
-  const run = providerAuthRun;
-  if (!run || run.streamEnded || run.hostBase !== apiBase) return;
-  const baseAtStart = run.hostBase;
-  const stream = new EventSource(baseAtStart + "/api/provider-auth/stream?runId=" + encodeURIComponent(run.runId) + "&after=" + encodeURIComponent(after));
-  providerAuthStream = stream;
-  stream.onopen = () => { run.reconnectAttempt = 0; run.streamReady = true; };
-  stream.addEventListener("connected", () => {
-    if (providerAuthRun === run) {
-      run.streamReady = true;
-      run.reconnectAttempt = 0;
-    }
-  });
-  stream.onmessage = (event) => {
-    if (providerAuthRun !== run) { try { stream.close(); } catch {} return; }
-    const eventId = Number(event.lastEventId);
-    if (Number.isFinite(eventId)) run.lastEventId = Math.max(run.lastEventId, eventId);
-    let data;
-    try { data = JSON.parse(event.data); } catch { return; }
-    handleProviderAuthEvent(data);
-  };
-  stream.onerror = () => {
-    if (providerAuthRun !== run || run.streamEnded) return;
-    if (baseAtStart) showRemoteAuthorizationState(baseAtStart);
-    try { stream.close(); } catch {}
-    if (providerAuthStream === stream) providerAuthStream = null;
-    if (run.reconnectTimer) return;
-    const delay = Math.min(15_000, 700 * (2 ** Math.min(run.reconnectAttempt++, 5)));
-    run.reconnectTimer = setTimeout(() => {
-      run.reconnectTimer = null;
-      openProviderAuthStream(Math.max(-1, Number(run.lastEventId) || -1));
-    }, delay);
-  };
-}
-
-function watchProviderAuth(result, provider) {
-  providerAuthNotice = "";
-  providerAuthUrl = "";
-  providerAuthRun = {
-    hostBase: apiBase,
-    runId: result.runId,
-    providerName: provider.name,
-    lastEventId: -1,
-    reconnectAttempt: 0,
-    reconnectTimer: null,
-    streamReady: false,
-    streamEnded: false,
-  };
-  openProviderAuthStream();
-}
-
-async function beginProviderAuth(authType) {
-  const provider = providerDialogPreset;
-  if (!provider) {
-    setProviderFormError("請先選擇一個 Provider。");
-    return;
-  }
-  const baseAtStart = apiBase;
-  try {
-    const result = await post("/api/provider-auth/start", { providerId: provider.id, authType });
-    if (baseAtStart !== apiBase) return;
-    closeProviderDialog();
-    watchProviderAuth(result, provider);
-  } catch (error) {
-    setProviderFormError(error.message || `${providerAuthTypeLabel(authType)}失敗`);
-  }
-}
-
-async function saveProviderApiKey() {
-  const provider = providerDialogPreset;
-  const apiKey = String(el.providerSimpleApiKey?.value || "").trim();
-  if (!provider) { setProviderFormError("請先選擇一個 Provider。"); return; }
-  if (!apiKey) {
-    setProviderFormError(tKey("provider.apiKeyRequired"));
-    el.providerSimpleApiKey?.focus();
-    return;
-  }
-  if (el.providerApiKeySave) el.providerApiKeySave.disabled = true;
-  setProviderFormError();
-  if (el.providerSimpleStatus) el.providerSimpleStatus.textContent = "正在儲存並檢查 API key…";
-  try {
-    const result = await post("/api/provider-auth/start", { providerId: provider.id, authType: "api_key", apiKey });
-    closeProviderDialog();
-    watchProviderAuth(result, provider);
-  } catch (error) {
-    setProviderFormError(error.message || "API key 設定失敗");
-    if (el.providerSimpleStatus) el.providerSimpleStatus.textContent = tKey("provider.apiKeyRejected");
-  } finally {
-    if (el.providerApiKeySave) el.providerApiKeySave.disabled = false;
-  }
-}
-
-async function beginFreeProvider() {
-  const provider = providerDialogPreset;
-  if (!provider || provider.kind !== "free") return;
-  if (el.providerFreeStart) el.providerFreeStart.disabled = true;
-  try {
-    await post("/api/provider-free/setup", { providerId: provider.id });
-    closeProviderDialog();
-    await loadProviderCatalog(true);
-    await loadModelVisibility(true, true);
-    toast(tKey("provider.addedWithModels", { name: provider.name }));
-  } catch (error) {
-    setProviderFormError(error.message || "免費 Provider 設定失敗");
-  } finally {
-    if (el.providerFreeStart) el.providerFreeStart.disabled = false;
-  }
-}
-
-async function cancelProviderAuth() {
-  const run = providerAuthRun;
-  if (!run) return;
-  closeProviderAuthClient();
-  if (run.hostBase !== apiBase) return;
-  try { await post("/api/provider-auth/cancel", { runId: run.runId }); } catch {}
-}
-
-async function removeProviderAuth() {
-  const provider = providerDialogPreset;
-  if (!provider?.configured) return;
-  const isFree = provider.kind === "free";
-  const confirmText = isFree
-    ? `確定移除「${provider.name}」？\n之後仍可從免費清單重新加入。`
-    : tKey("provider.removeAuthConfirm", { name: provider.name });
-  if (!window.confirm(confirmText)) return;
-  if (el.providerAuthRemove) el.providerAuthRemove.disabled = true;
-  try {
-    await post("/api/provider-auth/delete", { providerId: provider.id });
-    closeProviderDialog();
-    await loadProviderCatalog(true);
-    await loadModelVisibility(true, true);
-    toast(isFree ? `${provider.name} 已移除` : `${provider.name} 登入設定已移除`);
-  } catch (error) {
-    setProviderFormError(error.message || "移除登入設定失敗");
-  } finally {
-    if (el.providerAuthRemove) el.providerAuthRemove.disabled = false;
-  }
+  setTimeout(() => el.providerId?.focus(), 0);
 }
 
 async function saveProvider() {
@@ -14594,49 +14967,9 @@ el.pushToggle?.addEventListener("click", () => {
 });
 void refreshPushToggleState();
 el.modelFilter?.addEventListener("input", () => renderModelVisibility());
-el.providerFilter?.addEventListener("input", () => renderProviderPresets());
 el.providerAdd?.addEventListener("click", () => currentModelSettingsAgent() === "opencode" ? openOpenCodeProviderDialog() : openProviderDialog());
 el.providerCancel?.addEventListener("click", closeProviderDialog);
 el.providerCancelBottom?.addEventListener("click", closeProviderDialog);
-el.providerPresetList?.addEventListener("click", (event) => {
-  const heading = event.target.closest("[data-provider-category]");
-  if (heading) {
-    const category = heading.dataset.providerCategory;
-    if (collapsedProviderCategories.has(category)) collapsedProviderCategories.delete(category);
-    else collapsedProviderCategories.add(category);
-    renderProviderPresets();
-    return;
-  }
-  const button = event.target.closest("[data-provider-id]");
-  if (!button) return;
-  const provider = providerCatalog.find((item) => item.id === button.dataset.providerId);
-  if (provider) selectProviderPreset(provider);
-});
-el.providerAuthAccount?.addEventListener("click", () => void beginProviderAuth("oauth"));
-el.providerAuthApi?.addEventListener("click", showProviderApiKeyEntry);
-el.providerApiKeyBack?.addEventListener("click", hideProviderApiKeyEntry);
-el.providerApiKeySave?.addEventListener("click", () => void saveProviderApiKey());
-el.providerFreeStart?.addEventListener("click", () => void beginFreeProvider());
-el.providerAuthRemove?.addEventListener("click", () => void removeProviderAuth());
-el.providerSwitchDevice?.addEventListener("click", () => {
-  if (!selfId || selectedId === selfId) return;
-  closeProviderDialog();
-  switchMachine(selfId, true);
-  showSettings();
-  showModelSettings();
-});
-el.providerAuthBack?.addEventListener("click", () => {
-  hideProviderApiKeyEntry();
-  providerDialogPreset = null;
-  el.providerAuthOptions?.classList.add("hidden");
-  if (el.providerSimpleStatus) {
-    el.providerSimpleStatus.textContent = "";
-    el.providerSimpleStatus.classList.remove("is-readonly");
-  }
-  el.providerSwitchDevice?.classList.add("hidden");
-  renderProviderPresets();
-});
-el.providerAdvancedToggle?.addEventListener("click", showProviderAdvancedFields);
 el.providerSave?.addEventListener("click", saveProvider);
 el.providerDelete?.addEventListener("click", () => deleteProvider(providerDialogExisting));
 el.modelVisibilityList?.addEventListener("click", (event) => {
@@ -14665,7 +14998,6 @@ el.setDesignTheme?.addEventListener("click", (event) => {
 el.setLocale?.addEventListener("change", () => {
   settings = saveSettings({ locale: window.stepsembleI18n?.normalizeLocale(el.setLocale.value) || "en" });
   window.stepsembleI18n?.setLocale(settings.locale);
-  if (claudeAuthClient) renderClaudeAuth(claudeAuthClient.snapshot());
   renderSettings();
   renderAgentHubDisclosure();
   renderSessionList(el.search?.value || "");
@@ -14681,10 +15013,9 @@ el.setLocale?.addEventListener("change", () => {
   refreshActivityReceipts();
   renderTemporarySessionFilter(temporarySessionCount);
   if (!el.onboarding?.classList.contains("hidden")) renderOnboarding();
-  if (!el.viewModelSettings.classList.contains("hidden")) {
-    renderModelVisibility();
-    renderProviderPresets();
-  }
+  if (!el.viewModelSettings.classList.contains("hidden")) renderModelVisibility();
+  if (agentTerminal) renderAgentTerminal();
+  renderQuotaSources();
 });
 el.setSidebarWidth?.addEventListener("input", () => {
   const width = Math.min(440, Math.max(280, Number(el.setSidebarWidth.value) || 336));
@@ -15476,6 +15807,7 @@ el.newCancel.addEventListener("click", () => {
 function dismissableLayers() {
   return [
     { element: el.imageLightbox, close: closeImageLightbox },
+    { element: el.agentTerminal, close: requestCloseAgentTerminal },
     { element: el.agentTaskCenter, close: closeAgentTaskCenter },
     { element: el.commandPalette, close: closeCommandPalette },
     { element: el.onboarding, close: () => void completeOnboarding() },

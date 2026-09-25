@@ -67,7 +67,7 @@ test("invalid or foreign connected frames cannot enable input", async () => {
 });
 test("send guard does not clear a draft or contact the Host while input is unavailable", async () => {
   const f = setup(); await f.context.connectAgentTask({ taskId: "same-id" }); f.streams[0].connected("stopped");
-  f.context.pendingImages = [];
+  f.context.pendingImages = []; f.context.agentTerminalApi = null;
   vm.runInContext(source.slice(source.indexOf("async function sendCurrent("), source.indexOf('el.btnAbort.addEventListener("click"')), f.context);
   await f.context.sendCurrent(); assert.equal(f.el.input.value, "preserved draft");
   assert.equal(f.context.genericInputBlock({ generic: false }), null);
