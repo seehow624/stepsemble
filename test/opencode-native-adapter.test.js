@@ -97,11 +97,12 @@ test("OpenCode adapter lists its agents for the approval mode picker", async () 
       { name: "../bad", mode: "primary" },
     ] }], calls),
   });
-  const agents = await adapter.agents({ directory: "/tmp" });
+  const directory = path.resolve("/tmp");
+  const agents = await adapter.agents({ directory });
   assert.deepEqual(agents.map(agent => [agent.name, agent.mode, agent.hidden]), [["build", "primary", false], ["plan", "primary", false], ["title", "primary", true]]);
   assert.equal(agents[1].description, "Plan mode. Disallows all edit tools.");
   assert.equal(Object.hasOwn(agents[2], "prompt"), false, "agent prompts are not copied");
-  assert.equal(calls[0].query.get("directory"), "/tmp");
+  assert.equal(calls[0].query.get("directory"), directory);
 });
 
 test("OpenCode adapter reads sessions/messages/children/status, delegates approvals, and reconciles after restart", async t => {
