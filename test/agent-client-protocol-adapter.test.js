@@ -54,11 +54,36 @@ test("ACP adapter initializes, creates, prompts, and cancels through standard me
   const session = await adapter.createSession({ directory: "/tmp" });
   assert.equal(session.kind, "created");
   assert.equal(adapter.status().ready, true);
-  const prompted = await adapter.prompt(session.sessionId, "hello");
+  const pending = adapter.prompt(session.sessionId, "hello");
+  assert.equal(adapter.sessionWorking(session.sessionId), true, "working while the prompt is answered");
+  const prompted = await pending;
   assert.equal(prompted.kind, "prompted");
+  assert.equal(adapter.sessionWorking(session.sessionId), false);
+  assert.equal(adapter.sessions().find(row => row.id === session.sessionId).status, "idle", "a finished turn leaves the session idle");
   assert.equal(updates[0].update.content.text, "hello");
   assert.equal(adapter.sessionEvents(session.sessionId)[0].type, "session.update");
   assert.equal((await adapter.cancel(session.sessionId)).kind, "cancelled");
+});
+
+test("an ACP turn outlasts the request time limit", async t => {
+  const child = new EventEmitter();
+  child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+  child.kill = () => child.emit("close", 0, null);
+  child.stdin.on("data", chunk => {
+    for (const line of chunk.toString().split(/\n/).filter(Boolean)) {
+      const frame = JSON.parse(line);
+      const reply = result => child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: frame.id, result }) + "\n");
+      if (frame.method === "initialize") reply({ agentCapabilities: {} });
+      else if (frame.method === "session/new") reply({ sessionId: "session-1" });
+      else if (frame.method === "session/prompt") setTimeout(() => reply({ stopReason: "end_turn" }), 80);
+    }
+  });
+  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/kilo", args: ["acp"], cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 20 });
+  t.after(() => adapter.close());
+  const session = await adapter.createSession({ directory: "/tmp" });
+  const result = await adapter.prompt(session.sessionId, "a long task");
+  assert.equal(result.kind, "prompted", "a turn is not cut off by the 30-second request limit");
+  assert.equal(result.result.stopReason, "end_turn");
 });
 
 test("ACP prompts carry image attachments beside their text", async t => {

@@ -1,7 +1,7 @@
-/* stepsemble v3.6.2 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.6.3 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.6.2";
+const CLIENT_APP_VERSION = "3.6.3";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -6158,7 +6158,12 @@ async function refreshGrokAcpSnapshot(connection, { initial = false } = {}) {
     renderGrokAcpPermissions(connection, pending?.permissions);
     connection.nativeLoading = false;
     connection.connectionLost = false;
-    connection.taskStatus = snapshot?.adapter?.sessionReady ? "waiting" : connection.taskStatus;
+    // Working while Grok answers a prompt, whether this page sent it or the
+    // page was reloaded meanwhile.
+    const working = snapshot?.working === true || !!connection.acpPromptInFlight;
+    connection.taskStatus = working ? "running" : "waiting";
+    connection.activityLabel = "working";
+    if (!!connection.streaming !== working) setStreaming(working);
     syncGenericInputState();
   } catch {
     if (rpc !== connection) return;
@@ -6538,7 +6543,9 @@ async function refreshAgentClientProtocolSnapshot(connection, { initial = false 
     renderAgentClientProtocolEvents(connection, snapshot?.events, { replace: initial });
     renderAgentClientProtocolPermissions(connection, pending?.permissions);
     connection.nativeLoading = false; connection.connectionLost = false;
-    connection.taskStatus = "waiting";
+    // Working while the agent answers a prompt, whether this page sent it or
+    // the page was reloaded meanwhile.
+    connection.taskStatus = snapshot?.working === true || connection.acpPromptInFlight ? "running" : "waiting";
     applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: connection.acpAgentId, nativeAcp: true,
       acpAgentId: connection.acpAgentId, nativeSessionId: connection.nativeSessionId, status: connection.taskStatus,
       nativeStatus: snapshot?.adapter || {} });
@@ -7128,7 +7135,7 @@ function contextDashboardIdentity() {
 // ACP returns the turn's token usage on the prompt reply rather than in the
 // event stream, so it is captured where the reply lands.
 function applyAcpContextStats(result, connection = rpc) {
-  if (!connection?.nativeAcp || rpc !== connection) return;
+  if (!(connection?.nativeAcp || connection?.nativeGrokAcp) || rpc !== connection) return;
   const usage = result?.result?.usage || result?.usage || null;
   if (!usage) return;
   const input = finiteNonNegative(usage.inputTokens) ?? 0;
@@ -9682,8 +9689,10 @@ function setStreaming(on) {
   el.thinkingStatus?.classList.toggle("running", !!on && rpc?.activityLabel !== "waiting");
   el.btnAbort.classList.toggle("hidden", !on);
   // Interactive CLI agents accept follow-up input while they are alive, so
-  // keep Send available for them. Pi's native RPC retains its queue/abort UX.
-  el.btnSend.classList.toggle("hidden", on && !generic);
+  // keep Send available for them. Pi's native RPC retains its queue/abort UX,
+  // and an ACP agent answers one prompt at a time, so Send becomes Stop.
+  const oneTurnAtATime = !!(rpc?.nativeAcp || rpc?.nativeGrokAcp);
+  el.btnSend.classList.toggle("hidden", on && (!generic || oneTurnAtATime));
   // OpenCode/ACP expose a live model route; Claude owns a session-scoped model
   // endpoint and Codex applies the selected model on its next prompt. Other
   // connectors have no safe model route, and read-only history must not offer
@@ -10002,6 +10011,13 @@ async function sendCurrent() {
   const images = pendingImages.slice();
   pendingImages = [];
   renderImgPreview();
+  // An ACP agent answers a prompt within this one request. Show it working,
+  // with Stop in place of Send and the run timer, until the request returns.
+  const acpTurn = generic && (rpc.nativeAcp || rpc.nativeGrokAcp) ? rpc : null;
+  if (acpTurn) {
+    acpTurn.acpPromptInFlight = true; acpTurn.taskStatus = "running"; acpTurn.activityLabel = "working";
+    acpTurn.runStartedAt = Date.now(); setStreaming(true); syncGenericInputState();
+  }
   try {
     const result = generic
       ? (rpc?.nativeOpenCode
@@ -10033,7 +10049,7 @@ async function sendCurrent() {
     if (rpc?.sid === sendSid && !rpc.approval && approvalTarget(rpc)) void loadApprovalModes(rpc);
     // ACP reports the turn's token usage on this reply, not in its event
     // stream, so the context gauge is updated from here.
-    if (rpc?.nativeAcp && rpc.sid === sendSid) applyAcpContextStats(result, rpc);
+    if ((rpc?.nativeAcp || rpc?.nativeGrokAcp) && rpc.sid === sendSid) applyAcpContextStats(result, rpc);
     if ((rpc?.nativeCodexMutation || rpc?.nativeClaudeStructured) && rpc.sid === sendSid) {
       void syncNativeContext(rpc);
     }
@@ -10061,6 +10077,11 @@ async function sendCurrent() {
       pendingImages = images.concat(pendingImages).slice(0, composerImageBudget().count);
       renderImgPreview();
       toast(tKey("runtime.messageNotSent"), true);
+    }
+  } finally {
+    if (acpTurn) {
+      acpTurn.acpPromptInFlight = false;
+      if (rpc === acpTurn) { acpTurn.taskStatus = "waiting"; setStreaming(false); syncGenericInputState(); }
     }
   }
 }

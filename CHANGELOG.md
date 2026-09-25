@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.6.3
+
+- Show when Grok Build, Kilo, Cline or Hermes is answering. Send turns into Stop and the run timer and "Working" appear until the answer ends, also after the page is reloaded meanwhile; before, nothing showed that the agent was still working.
+- Stop a Grok Build answer with Stop. Stepsemble sent the cancel as a request, which Grok answers with "Method not found" while it keeps working; it is now the notification ACP defines, and Grok stops at once.
+- Let an answer from Grok Build, Kilo, Cline or Hermes take longer than 30 seconds. A longer turn was reported as not sent and its text put back in the message box while the agent kept working.
+- Attach images in Grok Build conversations. Grok 1.0.41 reports that it takes no images, but it passes them to the model; this was checked with real images and Grok's own models.
+
 ## 3.6.2
 
 - Choose a Grok Build conversation's model and reasoning level. The model button was hidden for Grok, although Grok lists its own models and every model set up in `~/.grok/config.toml`, such as the OpenCodex ones. The sheet now offers them, and its reasoning menu shows the levels the chosen model supports.

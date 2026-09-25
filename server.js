@@ -100,7 +100,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.6.2";
+const APP_VERSION = "3.6.3";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -5277,7 +5277,8 @@ const server = http.createServer(async (req, res) => {
       }
       if (p === "/api/grok/acp/events" && req.method === "GET") {
         if (!grokAcp) { sendJSON(res, 409, { error: "grok_acp_disabled" }); return; }
-        sendJSON(res, 200, { sessionId: url.searchParams.get("sessionId") || "", events: grokAcp.sessionEvents(url.searchParams.get("sessionId") || ""), adapter: grokAcp.status() });
+        const sessionId = url.searchParams.get("sessionId") || "";
+        sendJSON(res, 200, { sessionId, events: grokAcp.sessionEvents(sessionId), working: grokAcp.sessionWorking(sessionId), adapter: grokAcp.status() });
         return;
       }
       if (p === "/api/grok/acp/pending" && req.method === "GET") {
@@ -5346,7 +5347,7 @@ const server = http.createServer(async (req, res) => {
           }
           if (action === "events" && req.method === "GET") {
             const sessionId = url.searchParams.get("sessionId") || "";
-            sendJSON(res, 200, { sessionId, events: adapter.sessionEvents(sessionId), adapter: adapter.status() }); return;
+            sendJSON(res, 200, { sessionId, events: adapter.sessionEvents(sessionId), working: adapter.sessionWorking?.(sessionId) === true, adapter: adapter.status() }); return;
           }
           if (action === "pending" && req.method === "GET") {
             sendJSON(res, 200, { permissions: adapter.pendingPermissions(), adapter: adapter.status() }); return;

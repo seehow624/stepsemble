@@ -175,6 +175,10 @@ function createAgentClientProtocolAdapter({
   clientVersion = "0.0.0",
   spawnImpl = spawn,
   requestTimeoutMs = 30000,
+  // A turn lasts as long as the agent works on it; it ends when the agent
+  // answers, the person stops it or the process exits. This only guards a
+  // lost reply.
+  promptTimeoutMs = 6 * 60 * 60 * 1000,
   onUpdate = null,
   onPermission = null,
   registryFile = null,
@@ -211,13 +215,13 @@ function createAgentClientProtocolAdapter({
     try { child.stdin.write(encoded + "\n"); return { kind: "written" }; }
     catch { fail("acp_write_failed"); return reject("acp_write_failed"); }
   }
-  function request(method, params = {}, { maxBytes = MAX_FRAME_BYTES } = {}) {
+  function request(method, params = {}, { maxBytes = MAX_FRAME_BYTES, timeoutMs = requestTimeoutMs } = {}) {
     if (!validRequestId(++nextId)) return Promise.resolve(reject("acp_id_exhausted"));
     const id = nextId;
     const frame = { jsonrpc: "2.0", id, method, params: bounded(params, maxBytes) };
     if (frame.params === null) return Promise.resolve(reject("acp_params_invalid"));
     const result = new Promise(resolve => {
-      const timer = setTimeout(() => { pending.delete(id); resolve(reject("acp_timeout")); }, requestTimeoutMs);
+      const timer = setTimeout(() => { pending.delete(id); resolve(reject("acp_timeout")); }, timeoutMs);
       pending.set(id, { resolve, timer });
     });
     const written = write(frame, maxBytes);
@@ -377,8 +381,9 @@ function createAgentClientProtocolAdapter({
     session.promptInFlight = true; session.status = "running";
     try {
       const content = value ? [{ type: "text", text: value }, ...blocks] : blocks;
-      const result = await request("session/prompt", { sessionId: id, prompt: content }, { maxBytes: MAX_PROMPT_FRAME_BYTES });
-      if (result.kind !== "result") session.status = "error";
+      const result = await request("session/prompt", { sessionId: id, prompt: content }, { maxBytes: MAX_PROMPT_FRAME_BYTES, timeoutMs: promptTimeoutMs });
+      // A finished turn leaves the session idle; it used to stay "running".
+      session.status = result.kind === "result" ? "idle" : "error";
       return result.kind === "result" ? { kind: "prompted", sessionId: id, result: result.value } : result;
     } finally { session.promptInFlight = false; }
   }
@@ -431,6 +436,8 @@ function createAgentClientProtocolAdapter({
     sessionConfigOptions, setConfigOption,
     pendingPermissions: () => [...permissions.values()].map(clone), events: () => clone(events),
     sessionEvents: sessionId => clone(sessions.get(String(sessionId))?.events || []),
+    // True only while a prompt is being answered: the browser shows Stop then.
+    sessionWorking: sessionId => sessions.get(String(sessionId))?.promptInFlight === true,
     sessions: listSessions, status, close });
 }
 

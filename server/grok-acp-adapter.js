@@ -66,6 +66,9 @@ function createGrokAcpAdapter({
   env = process.env,
   spawnImpl = spawn,
   requestTimeoutMs = 30000,
+  // A turn lasts as long as Grok works on it; it ends when Grok answers, the
+  // person stops it or the process exits. This only guards a lost reply.
+  promptTimeoutMs = 6 * 60 * 60 * 1000,
   onUpdate = null,
   onPermission = null,
 } = {}) {
@@ -96,13 +99,13 @@ function createGrokAcpAdapter({
     if (Buffer.byteLength(encoded) > limit) return reject("grok_acp_frame_too_large");
     try { child.stdin.write(encoded + "\n"); return { kind: "written" }; } catch { fail("grok_acp_write_failed"); return reject("grok_acp_write_failed"); }
   }
-  function request(method, params = {}, { maxBytes = MAX_FRAME_BYTES } = {}) {
+  function request(method, params = {}, { maxBytes = MAX_FRAME_BYTES, timeoutMs = requestTimeoutMs } = {}) {
     if (!requestId(++nextId)) return Promise.resolve(reject("grok_acp_id_exhausted"));
     const id = nextId;
     const frame = { jsonrpc: "2.0", id, method, params: bounded(params, maxBytes) };
     if (frame.params === null) return Promise.resolve(reject("grok_acp_params_invalid"));
     const result = new Promise(resolve => {
-      const timer = setTimeout(() => { pending.delete(id); resolve(reject("grok_acp_timeout")); }, requestTimeoutMs);
+      const timer = setTimeout(() => { pending.delete(id); resolve(reject("grok_acp_timeout")); }, timeoutMs);
       pending.set(id, { resolve, reject: resolve, timer });
     });
     const written = write(frame, maxBytes);
@@ -223,7 +226,7 @@ function createGrokAcpAdapter({
     current.promptInFlight = true; current.status = "running";
     try {
       const content = value ? [{ type: "text", text: value }, ...blocks] : blocks;
-      const result = await request("session/prompt", { sessionId: id, prompt: content }, { maxBytes: MAX_PROMPT_FRAME_BYTES });
+      const result = await request("session/prompt", { sessionId: id, prompt: content }, { maxBytes: MAX_PROMPT_FRAME_BYTES, timeoutMs: promptTimeoutMs });
       current.status = result.kind === "result" ? "idle" : "error";
       return result.kind === "result" ? { kind: "prompted", sessionId: id, result: result.value } : result;
     } finally {
@@ -272,8 +275,11 @@ function createGrokAcpAdapter({
   }
   async function cancel(sessionId) {
     const id = safeId(sessionId); if (!id || !sessions.has(id)) return reject("grok_session_unavailable");
-    const result = await request("session/cancel", { sessionId: id });
-    return result.kind === "result" ? { kind: "cancelled", sessionId: id } : result;
+    // session/cancel is an ACP notification. Grok 1.0.41 answers the request
+    // form with "Method not found" and keeps working; the notification stops
+    // the turn at once and it ends with stopReason "cancelled".
+    const written = write({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: id } });
+    return written.kind === "reject" ? written : { kind: "cancelled", sessionId: id };
   }
   function respondPermission(requestValue, result) {
     const id = safeId(requestValue); const row = id ? permissions.get(id) : null;
@@ -298,6 +304,8 @@ function createGrokAcpAdapter({
     sessionConfigOptions, setConfigOption,
     pendingPermissions: () => [...permissions.values()].map(clone), events: () => clone(events),
     sessionEvents: sessionId => clone(sessions.get(String(sessionId))?.events || []),
+    // True only while a prompt is being answered: the browser shows Stop then.
+    sessionWorking: sessionId => sessions.get(String(sessionId))?.promptInFlight === true,
     sessions: () => [...sessions.values()].map(row => ({ id: row.id, cwd: row.cwd, name: row.name || null, status: row.status, eventCount: row.events.length })), status, close });
 }
 

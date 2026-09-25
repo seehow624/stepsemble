@@ -41,8 +41,11 @@ test("Grok ACP performs initialize/authenticate/session/prompt through JSON-RPC"
   const session = await adapter.createSession({ directory: "/tmp" });
   assert.equal(session.kind, "created");
   assert.equal(adapter.status().ready, true);
-  const prompted = await adapter.prompt(session.sessionId, "hello");
+  const pending = adapter.prompt(session.sessionId, "hello");
+  assert.equal(adapter.sessionWorking(session.sessionId), true, "working while Grok answers");
+  const prompted = await pending;
   assert.equal(prompted.kind, "prompted");
+  assert.equal(adapter.sessionWorking(session.sessionId), false);
   assert.equal(updates[0].update.content.text, "hello");
   assert.equal(adapter.sessionEvents(session.sessionId)[0].type, "session.update");
   assert.equal((await adapter.close()).cleanupConfirmed, true);
@@ -165,6 +168,39 @@ test("Grok ACP keeps the models and reasoning levels Grok lists and changes them
   assert.equal(after.find(option => option.category === "mode").currentValue, "default", "the added modes survive Grok's reply");
   // A model Grok did not list is never sent.
   assert.equal((await adapter.setConfigOption(session.sessionId, "model", "not-listed")).code, "grok_config_invalid");
+});
+
+test("a Grok turn outlasts the request time limit and Stop sends session/cancel as a notification", async t => {
+  const child = new EventEmitter();
+  child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+  child.kill = () => child.emit("close", 0, null);
+  const sent = []; let promptId = null;
+  child.stdin.on("data", chunk => {
+    for (const line of chunk.toString().split(/\n/).filter(Boolean)) {
+      const frame = JSON.parse(line); sent.push(frame);
+      const reply = result => child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: frame.id, result }) + "\n");
+      if (frame.method === "initialize") reply({ authMethods: [{ id: "cached_token" }] });
+      else if (frame.method === "authenticate") reply({});
+      else if (frame.method === "session/new") reply({ sessionId: "session-1" });
+      else if (frame.method === "session/prompt") promptId = frame.id; // answered only when cancelled
+      else if (frame.method === "session/cancel" && !Object.hasOwn(frame, "id") && promptId !== null) {
+        child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: promptId, result: { stopReason: "cancelled" } }) + "\n");
+      } else if (Object.hasOwn(frame, "id")) child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: frame.id, error: { code: -32601, message: "Method not found" } }) + "\n");
+    }
+  });
+  const adapter = createGrokAcpAdapter({ command: "/usr/local/bin/grok", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 20 });
+  t.after(() => adapter.close());
+  const session = await adapter.createSession({ directory: "/tmp" });
+  const turn = adapter.prompt(session.sessionId, "count for a long time");
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(adapter.sessionWorking(session.sessionId), true, "still working after the request time limit");
+  assert.equal((await adapter.cancel(session.sessionId)).kind, "cancelled");
+  const result = await turn;
+  assert.equal(result.kind, "prompted");
+  assert.equal(result.result.stopReason, "cancelled");
+  const cancel = sent.find(frame => frame.method === "session/cancel");
+  assert.equal(Object.hasOwn(cancel, "id"), false, "session/cancel is a notification");
+  assert.equal(adapter.sessionWorking(session.sessionId), false);
 });
 
 test("Grok ACP loads a stored conversation with the history Grok replays and keeps its name", async t => {
