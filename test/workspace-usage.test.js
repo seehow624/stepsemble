@@ -245,3 +245,45 @@ test("API keys saved under Settings are probed on their own platform's host", as
     assert.deepEqual(await storedSignIn(dir, "openai-codex"), { type: "oauth", secret: "chatgpt", accountId: null, expiresAt: 5 });
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("a source that is off is never read, and a preferred source answers first", async () => {
+  const now = 1_700_000_000_000;
+  const reports = [{ provider: "openai", label: "OpenAI (Codex login)", quota: { weeklyPercent: 80, weeklyResetAt: now + 86_400_000 } },
+    { provider: "anthropic", quota: { fiveHourPercent: 29, fiveHourResetAt: now + 3_600_000 } }];
+  let codexCalls = 0, openCodexCalls = 0, barCalls = 0;
+  const base = { home: "/nonexistent", now: () => now, fetchImpl: async () => { throw new Error("no network in this test"); },
+    codex: async () => { codexCalls += 1; return { rateLimits: { primary: { usedPercent: 10, windowDurationMins: 300, resetsAt: now / 1000 + 600 } } }; },
+    readClaudeToken: async () => null, readClaudeCache: async () => null, readCodexSignIn: async () => null, readSignIn: async () => null,
+    readProviderQuotas: async () => [], readOpenCodex: async () => { openCodexCalls += 1; return reports; },
+    readCodexBar: async () => { barCalls += 1; return { installed: true, reports: [] }; } };
+  // By default the agent's own reading wins, OpenCodex fills in Claude, and CodexBar stays off.
+  const first = await createWorkspaceUsage({ ...base, readConfig: async () => null }).read();
+  assert.deepEqual(first.providers.slice(0, 2).map(p => [p.service, p.sourceId, p.windows[0]?.remainingPercent]), [["codex", "agents", 90], ["claude", "opencodex", 71]]);
+  assert.equal(barCalls, 0);
+  // Preferring OpenCodex for Codex skips the app-server; turning OpenCodex off stops its reads.
+  codexCalls = 0;
+  const preferred = await createWorkspaceUsage({ ...base, readConfig: async () => ({ prefer: { codex: "opencodex" } }) }).read();
+  assert.deepEqual([preferred.providers[0].sourceId, preferred.providers[0].windows[0].remainingPercent, codexCalls], ["opencodex", 20, 0]);
+  openCodexCalls = 0;
+  const off = await createWorkspaceUsage({ ...base, readConfig: async () => ({ sources: { opencodex: false }, prefer: { codex: "opencodex" } }) }).read();
+  assert.deepEqual([off.providers[0].sourceId, off.providers[1].status, openCodexCalls], ["agents", "unavailable", 0]);
+});
+
+test("Settings reads every source that is on, and CodexBar readings join the list", async () => {
+  const now = 1_700_000_000_000;
+  const usage = createWorkspaceUsage({ home: "/nonexistent", now: () => now, fetchImpl: async () => { throw new Error("offline"); },
+    codex: async () => ({ rateLimits: { primary: { usedPercent: 40, windowDurationMins: 300, resetsAt: now / 1000 + 600 } } }),
+    readClaudeToken: async () => null, readClaudeCache: async () => null, readCodexSignIn: async () => null, readSignIn: async () => null,
+    readProviderQuotas: async () => [], readOpenCodex: async () => [],
+    readConfig: async () => ({ sources: { codexbar: true } }),
+    readCodexBar: async () => ({ installed: true, reports: [
+      { id: "codex", label: "Codex", updatedAt: now, windows: [{ key: "primary", windowDurationMins: 300, usedPercent: 25, resetsAt: now + 600_000 }] },
+      { id: "cursor", label: "Cursor", updatedAt: now - 3_600_000, windows: [{ key: "primary", windowDurationMins: 43200, usedPercent: 12, resetsAt: now + 86_400_000 }] }] }) });
+  const full = await usage.read({ full: true });
+  assert.deepEqual(full.sources.agents.services.map(s => s.service), ["codex"]);
+  assert.deepEqual(full.sources.codexbar.services.map(s => s.service), ["codex", "cursor"]);
+  const cursor = full.providers.find(p => p.service === "cursor");
+  // CodexBar's own old reading keeps the time it was taken.
+  assert.deepEqual([cursor.sourceId, cursor.status, cursor.observedAt, cursor.source], ["codexbar", "cached", now - 3_600_000, "codexbar"]);
+  assert.equal(full.providers.find(p => p.service === "codex").sourceId, "agents");
+});

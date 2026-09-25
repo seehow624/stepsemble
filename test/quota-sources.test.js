@@ -55,3 +55,46 @@ test("provider rows ignore malformed readings", () => {
   assert.deepEqual(providerRow({ provider: "x", quota: { fiveHourPercent: "n/a", weeklyPercent: 250 } }).windows.map(window => window.usedPercent), [100]);
 });
 
+
+const { normalizeQuotaConfig, readQuotaConfig, writeQuotaConfig, codexbarReports, createCodexBarReader } = require("../server/quota-sources");
+
+test("quota settings start with CodexBar off and keep only known sources and choices", async () => {
+  assert.deepEqual(normalizeQuotaConfig(null).sources, { agents: true, pi: true, opencodex: true, codexbar: false });
+  const dir = home();
+  try {
+    assert.deepEqual((await readQuotaConfig(dir)).prefer, {});
+    await writeQuotaConfig(dir, { sources: { codexbar: true, evil: true, pi: "yes" }, prefer: { codex: "opencodex", claude: "nowhere", "../x": "pi" } });
+    const saved = await readQuotaConfig(dir);
+    assert.deepEqual([saved.sources.codexbar, saved.sources.pi, saved.prefer], [true, true, { codex: "opencodex" }]);
+    assert.equal(fs.statSync(path.join(dir, "quota-sources.json")).mode & 0o777, 0o600);
+    await writeQuotaConfig(dir, { prefer: { codex: null } });
+    assert.deepEqual((await readQuotaConfig(dir)).prefer, {});
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("CodexBar's JSON becomes windows per provider, skipping failed providers", () => {
+  const reports = codexbarReports([
+    { provider: "codex", usage: { primary: { usedPercent: 28, windowMinutes: 300, resetsAt: "2025-12-04T19:15:00Z" },
+      secondary: { usedPercent: 59, windowMinutes: 10080, resetsAt: "2025-12-05T17:00:00Z" }, tertiary: null, updatedAt: "2025-12-04T18:10:22Z" } },
+    { provider: "claude", error: { message: "signed out" } },
+    { provider: "Cursor", usage: { primary: { usedPercent: "n/a" } } },
+    { provider: "../etc", usage: { primary: { usedPercent: 1 } } },
+  ]);
+  assert.deepEqual(reports.map(r => [r.id, r.label, r.windows.map(w => [w.key, w.windowDurationMins, w.usedPercent])]),
+    [["codex", "Codex", [["primary", 300, 28], ["secondary", 10080, 59]]]]);
+  assert.equal(reports[0].windows[0].resetsAt, Date.parse("2025-12-04T19:15:00Z"));
+  assert.deepEqual(codexbarReports({ provider: "grok", usage: { primary: { usedPercent: 5, windowMinutes: 10080 } } }).map(r => r.id), ["grok"]);
+});
+
+test("CodexBar's CLI runs at most once per five minutes", async () => {
+  let clock = 0, runs = 0;
+  const reader = createCodexBarReader({ now: () => clock, find: async () => "/opt/homebrew/bin/codexbar",
+    run: async () => { runs += 1; return { ok: true, reason: null, reports: [{ id: "codex" }] }; } });
+  await Promise.all([reader.read(), reader.read()]);
+  clock = 4 * 60 * 1000; await reader.read();
+  assert.equal(runs, 1);
+  clock = 6 * 60 * 1000; await reader.read();
+  assert.equal(runs, 2);
+  const missing = await createCodexBarReader({ find: async () => null, run: async () => { throw new Error("never runs"); } }).read();
+  assert.deepEqual([missing.installed, missing.reason], [false, "not_installed"]);
+});

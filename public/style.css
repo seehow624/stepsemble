@@ -1,4 +1,4 @@
-/* stepsemble v3.3.0 — Ink & Ivory / English-first localization */
+/* stepsemble v3.4.0 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -278,8 +278,8 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
   background: var(--paper);
   will-change: transform;
 }
-#view-chat.dragging, #view-settings.dragging { transition: none !important; }
-#view-chat.snap-back, #view-settings.snap-back { transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.3, 1); }
+#view-chat.dragging, #view-settings.dragging, #view-model-settings.dragging { transition: none !important; }
+#view-chat.snap-back, #view-settings.snap-back, #view-model-settings.snap-back { transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.3, 1); }
 #view-chat.slide-out, #view-settings.slide-out { transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.3, 1); }
 #view-settings.slide-in { animation: settingsIn 0.22s cubic-bezier(0.2, 0.8, 0.3, 1); }
 @keyframes settingsIn { from { transform: translateX(30%); opacity: 0.4; } to { transform: none; opacity: 1; } }
@@ -5615,3 +5615,24 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
 .quota-source-provider span:first-child { flex: 1 1 9em; min-width: 0; overflow-wrap: anywhere; }
 .quota-source-windows { flex: 0 1 auto; margin-left: auto; color: var(--pine-soft); font: 11.5px var(--mono); text-align: right; }
 .quota-source-open { align-self: flex-start; min-height: 40px; text-decoration: none; display: inline-flex; align-items: center; }
+/* ---- Models & providers: one page per agent ---- */
+.model-agent-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.model-agent-list .settings-navigation-row { width: 100%; }
+.model-agent-list-empty { margin: 4px 0; }
+.model-agent-signin { display: flex; align-items: center; justify-content: space-between; gap: 10px 12px; flex-wrap: wrap; margin: 2px 0 12px; }
+.model-agent-signin .settings-note { margin: 0; flex: 1 1 220px; }
+.model-agent-signin .btn { min-height: 40px; }
+.agent-model-title { margin: 4px 0 6px; font-size: 13px; font-weight: 600; color: var(--ink); }
+.agent-model-list { display: flex; flex-direction: column; gap: 6px; }
+.agent-model-row { display: flex; flex-direction: column; gap: 2px; padding: 9px 12px; border: .5px solid var(--line); border-radius: 10px; background: var(--milk); min-width: 0; }
+.agent-model-row strong { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.agent-model-row small { color: var(--pine-soft); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+#opencode-connection { margin-bottom: 12px; }
+.quota-source-card.is-off { opacity: .74; }
+.quota-source-head .toggle { flex: 0 0 auto; margin-top: 2px; }
+.quota-source-inuse { font-style: normal; font-size: 11px; color: var(--ok); white-space: nowrap; }
+.quota-source-prefer { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: .5px solid var(--line); border-radius: var(--oc-radius, 12px); background: var(--milk); }
+.quota-source-prefer strong { font-size: 13px; }
+.quota-source-prefer-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; min-width: 0; }
+.quota-source-prefer-row span { min-width: 0; overflow-wrap: anywhere; }
+.quota-source-prefer-row select { flex: 0 1 auto; min-width: 8em; max-width: 62%; min-height: 36px; }

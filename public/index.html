@@ -6,15 +6,15 @@
 <title>Stepsemble</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=3.3.0">
-<link rel="icon" href="/icon-16.png?v=3.3.0" sizes="16x16" type="image/png">
-<link rel="icon" href="/icon-32.png?v=3.3.0" sizes="32x32" type="image/png">
-<link rel="icon" href="/icon-512.png?v=3.3.0" sizes="512x512" type="image/png">
-<link rel="apple-touch-icon" href="/icon-180.png?v=3.3.0">
-  <link rel="stylesheet" href="/style.css?v=3.3.0">
-  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.3.0">
-  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.3.0">
-<link rel="stylesheet" href="/modules/workspace-embedded.css?v=3.3.0">
+<link rel="manifest" href="/manifest.webmanifest?v=3.4.0">
+<link rel="icon" href="/icon-16.png?v=3.4.0" sizes="16x16" type="image/png">
+<link rel="icon" href="/icon-32.png?v=3.4.0" sizes="32x32" type="image/png">
+<link rel="icon" href="/icon-512.png?v=3.4.0" sizes="512x512" type="image/png">
+<link rel="apple-touch-icon" href="/icon-180.png?v=3.4.0">
+  <link rel="stylesheet" href="/style.css?v=3.4.0">
+  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.4.0">
+  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.4.0">
+<link rel="stylesheet" href="/modules/workspace-embedded.css?v=3.4.0">
 </head>
 <body>
 
@@ -403,23 +403,9 @@
           <section class="settings-group" data-settings-category="agents" data-settings-target="connection">
             <h3 class="group-title" data-i18n-key="settings.modelsTitle">Models</h3>
             <button id="model-settings-open" class="settings-navigation-row" type="button">
-              <span><strong>Models &amp; providers</strong><small><span id="model-settings-summary">Manage visible models and custom providers</span><span class="settings-scope" data-i18n-key="modelScope.badge">Pi Agent only</span></small></span>
+              <span><strong>Models &amp; providers</strong><small><span id="model-settings-summary" data-i18n-ignore></span></small></span>
               <span class="row-chevron" aria-hidden="true">→</span>
             </button>
-          </section>
-
-          <section class="settings-group" data-settings-category="agents" data-settings-target="agent-auth">
-            <h3 class="group-title">Agent sign-in</h3>
-            <p class="settings-note" data-i18n-key="agentTerminal.settingsNote">Each agent signs in with its own commands. Open a conversation with the agent and type /login, /logout or /status.</p>
-            <details id="opencode-connection" class="claude-auth settings-disclosure">
-              <summary>OpenCode connection</summary>
-              <p id="opencode-connection-status" role="status" aria-live="polite">Check the native connection on the selected computer.</p>
-              <p class="settings-note">Start a password-protected local OpenCode service. Existing configured services are kept unchanged.</p>
-              <div class="claude-auth-actions">
-                <button id="opencode-connection-start" type="button" class="btn primary">Enable local OpenCode</button>
-                <button id="opencode-connection-refresh" type="button" class="btn ghost">Check connection</button>
-              </div>
-            </details>
           </section>
 
           <section class="settings-group" data-settings-category="agents" data-settings-target="quota-sources">
@@ -551,7 +537,7 @@
             </div>
             <div class="settings-row">
               <span><strong>Stepsemble</strong><small data-i18n-key="agentHub.workspace">A workspace for local coding agents</small></span>
-              <span class="settings-value" id="set-app-version">v3.3.0</span>
+              <span class="settings-value" id="set-app-version">v3.4.0</span>
             </div>
             <div class="settings-row">
               <span><strong>Pi version</strong><small>Pi coding agent installed on this device</small></span>
@@ -579,16 +565,15 @@
   <main id="view-model-settings" class="view overlay-view hidden">
     <header class="topbar">
       <button id="btn-model-settings-back" class="btn ghost icon-btn" title="Back to settings" aria-label="Back to settings"><svg class="icon"><use href="#i-arrow-left"></use></svg></button>
-      <span class="topbar-title">Models &amp; providers</span>
+      <span id="model-settings-topbar-title" class="topbar-title">Models &amp; providers</span>
       <span class="topbar-spacer"></span>
     </header>
     <div class="settings-scroll model-settings-scroll">
       <section class="settings-group model-settings-group model-settings-detail">
         <div class="settings-group-heading">
           <div>
-            <h3 class="group-title">Models &amp; providers</h3>
-            <p class="settings-note">Manage visible models and custom providers in one list.</p>
-            <p class="settings-note settings-scope-note" data-i18n-key="modelScope.note">Applies to Pi Agent sessions only; other agents pick models from the composer's model button.</p>
+            <h3 id="model-settings-heading" class="group-title" data-i18n-ignore>Models &amp; providers</h3>
+            <p id="model-settings-intro" class="settings-note" data-i18n-key="modelAgents.intro">Each agent's models, providers and settings on this host.</p>
           </div>
           <div class="settings-heading-actions">
             <button id="provider-config-import" class="icon-button-small" type="button" title="Import provider config" aria-label="Import provider config"><svg class="icon"><use href="#i-download"></use></svg></button>
@@ -598,10 +583,10 @@
             <button id="model-visibility-refresh" class="icon-button-small" type="button" title="Reload models" aria-label="Reload models"><svg class="icon"><use href="#i-refresh"></use></svg></button>
           </div>
         </div>
-        <div class="model-agent-switch" role="tablist" aria-label="Agent">
-          <button id="model-agent-pi" class="model-agent-tab is-active" type="button" role="tab" aria-selected="true">Pi Agent</button>
-          <button id="model-agent-opencode" class="model-agent-tab" type="button" aria-selected="false">OpenCode</button>
-          <button id="model-agent-codex" class="model-agent-tab" type="button" aria-selected="false">Codex &amp; Claude</button>
+        <div id="model-agent-list" class="model-agent-list" data-i18n-ignore></div>
+        <div id="model-agent-signin" class="model-agent-signin hidden">
+          <p id="model-agent-signin-text" class="settings-note" data-i18n-ignore></p>
+          <button id="model-agent-status" class="btn ghost" type="button" data-i18n-key="modelAgents.checkStatus">Check sign-in</button>
         </div>
         <p id="model-catalog-status" class="settings-note" aria-live="polite" data-i18n-key="modelsCheck.auto">Automatic model catalogs refresh every 5 minutes. Hand-written model lists stay manual.</p>
         <div id="model-list-toolbar" class="model-list-toolbar">
@@ -610,12 +595,26 @@
         </div>
         <div id="model-visibility-list" class="model-visibility-list"><p class="settings-note">Loading model list…</p></div>
         <div id="opencode-provider-panel" class="model-visibility-list hidden">
+          <details id="opencode-connection" class="claude-auth settings-disclosure">
+            <summary data-i18n-key="opencodeServer.title">Local OpenCode server</summary>
+            <p class="settings-note" data-i18n-key="opencodeServer.note">Stepsemble works with OpenCode conversations through OpenCode's own local server. Start one here if this host has none; a server you already run is used as it is.</p>
+            <p id="opencode-connection-status" role="status" aria-live="polite">Check the native connection on the selected computer.</p>
+            <div class="claude-auth-actions">
+              <button id="opencode-connection-start" type="button" class="btn primary">Enable local OpenCode</button>
+              <button id="opencode-connection-refresh" type="button" class="btn ghost">Check connection</button>
+            </div>
+          </details>
           <p id="opencode-provider-status" class="settings-note model-visibility-empty" role="status">Loading OpenCode providers…</p>
           <div id="opencode-provider-list"></div>
         </div>
         <div id="codex-gateway-panel" class="model-visibility-list hidden">
           <p id="codex-gateway-status" class="settings-note model-visibility-empty" role="status">Checking gateway status…</p>
           <div id="codex-gateway-list"></div>
+        </div>
+        <div id="agent-model-panel" class="model-visibility-list hidden">
+          <h4 class="agent-model-title" data-i18n-key="modelAgents.modelsTitle">Models</h4>
+          <p id="agent-model-status" class="settings-note model-visibility-empty" role="status" data-i18n-ignore></p>
+          <div id="agent-model-list" class="agent-model-list" data-i18n-ignore></div>
         </div>
       </section>
     </div>
@@ -1039,22 +1038,22 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=3.3.0"></script>
-<script src="/modules/app-foundation.js?v=3.3.0"></script>
-<script src="/modules/agent-identity.js?v=3.3.0"></script>
-<script src="/modules/session-utils.js?v=3.3.0"></script>
-<script src="/modules/pi-session.js?v=3.3.0"></script>
-<script src="/modules/conversation-catalog.js?v=3.3.0"></script>
-<script src="/modules/context-usage.js?v=3.3.0"></script>
-<script src="/modules/opencode-context.js?v=3.3.0"></script>
-<script src="/modules/agent-terminal.js?v=3.3.0"></script>
-<script src="/modules/claude-structured-rendering.js?v=3.3.0"></script>
-<script src="/modules/agent-transcript-presentation.js?v=3.3.0"></script>
-<script src="/modules/codex-approvals.js?v=3.3.0"></script>
-<script src="/modules/protocol-contracts.js?v=3.3.0"></script>
-<script src="/modules/client-sdk.js?v=3.3.0"></script>
-<script src="/modules/native-dialogs.js?v=3.3.0"></script>
-<script src="/modules/composer-ime.js?v=3.3.0"></script>
-<script src="/app.js?v=3.3.0"></script>
+<script src="/i18n.js?v=3.4.0"></script>
+<script src="/modules/app-foundation.js?v=3.4.0"></script>
+<script src="/modules/agent-identity.js?v=3.4.0"></script>
+<script src="/modules/session-utils.js?v=3.4.0"></script>
+<script src="/modules/pi-session.js?v=3.4.0"></script>
+<script src="/modules/conversation-catalog.js?v=3.4.0"></script>
+<script src="/modules/context-usage.js?v=3.4.0"></script>
+<script src="/modules/opencode-context.js?v=3.4.0"></script>
+<script src="/modules/agent-terminal.js?v=3.4.0"></script>
+<script src="/modules/claude-structured-rendering.js?v=3.4.0"></script>
+<script src="/modules/agent-transcript-presentation.js?v=3.4.0"></script>
+<script src="/modules/codex-approvals.js?v=3.4.0"></script>
+<script src="/modules/protocol-contracts.js?v=3.4.0"></script>
+<script src="/modules/client-sdk.js?v=3.4.0"></script>
+<script src="/modules/native-dialogs.js?v=3.4.0"></script>
+<script src="/modules/composer-ime.js?v=3.4.0"></script>
+<script src="/app.js?v=3.4.0"></script>
 </body>
 </html>

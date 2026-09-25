@@ -52,7 +52,8 @@ const { createPiResourcesService } = require("./server/pi-resources");
 const { createAgentTaskService, resolveCommand, resolvePtyRuntime, CONNECTOR_DEFINITIONS } = require("./server/agent-connectors");
 const { createAgentAuthService } = require("./server/agent-auth");
 const { windowsLaunch } = require("./server/windows-launch");
-const { listQuotaSources } = require("./server/quota-sources");
+const { opencodexSource, readQuotaConfig, writeQuotaConfig, findCodexBar, createCodexBarReader } = require("./server/quota-sources");
+const { createAgentModelCache, acpModelChoices } = require("./server/agent-model-cache");
 const { CONTRACT_VERSION: AGENT_CAPABILITY_CONTRACT_VERSION } = require("./server/agent-capability-contract");
 const { createOpenCodeNativeAdapter } = require("./server/opencode-native-adapter");
 const { taskFromThread: codexTaskFromThread } = require("./server/codex-native-history-adapter");
@@ -97,7 +98,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.3.0";
+const APP_VERSION = "3.4.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -261,12 +262,45 @@ const nativeHistoryCatalog = createNativeHistoryCatalog({
 });
 const codexPersistedObserver = createCodexPersistedObserver({ home: APP_HOME });
 const workspaceUsageModule = require("./server/workspace-usage");
+// CodexBar's CLI only runs when Quota sources has it turned on.
+const codexBarReader = createCodexBarReader({ env: process.env });
 const workspaceUsage = workspaceUsageModule.createWorkspaceUsage({
   home: APP_HOME, env: process.env,
   allowKeychain: settingFromEnv("WORKSPACE_KEYCHAIN_USAGE") !== "0" && workspaceUsageModule.keychainHome(APP_HOME),
   codex: async () => { await ensureCodexNativeProbe(); return codexNative.rateLimits(); },
   readSignIn: readSignInForUsage,
+  readConfig: () => readQuotaConfig(CONFIG_DIR),
+  readCodexBar: () => codexBarReader.read(),
 });
+
+// Settings → Quota sources: each source, whether it is on and what it reads,
+// and which source each service uses now.
+async function quotaSourcesPayload() {
+  const config = await readQuotaConfig(CONFIG_DIR);
+  const [usage, opencodex, codexbar] = await Promise.all([
+    workspaceUsage.read({ full: true }).catch(() => null),
+    opencodexSource({ home: APP_HOME, env: process.env, probe: config.sources.opencodex }).catch(() => null),
+    findCodexBar({ env: process.env }).catch(() => null),
+  ]);
+  const services = id => usage?.sources?.[id]?.services || [];
+  const sources = [
+    { id: "agents", builtin: true, installed: true, enabled: config.sources.agents, services: services("agents") },
+    { id: "pi", builtin: true, installed: true, enabled: config.sources.pi, services: services("pi") },
+    { id: "opencodex", installed: !!opencodex?.installed, running: !!opencodex?.running, port: opencodex?.port ?? null,
+      dashboardUrl: opencodex?.dashboardUrl ?? null, enabled: config.sources.opencodex, reason: opencodex?.reason || null,
+      providers: config.sources.opencodex ? opencodex?.providers || [] : [], services: services("opencodex") },
+    { id: "codexbar", installed: !!codexbar, enabled: config.sources.codexbar,
+      reason: codexbar ? usage?.sources?.codexbar?.reason || null : "not_installed", services: services("codexbar") },
+  ];
+  const byService = new Map();
+  for (const source of sources) for (const row of source.services) {
+    if (!byService.has(row.service)) byService.set(row.service, { id: row.service, label: row.label, sources: [] });
+    byService.get(row.service).sources.push(source.id);
+  }
+  const active = new Map((usage?.providers || []).map(row => [row.service, row.sourceId]));
+  return { sources, updatedAt: usage?.updatedAt || Date.now(),
+    services: [...byService.values()].map(row => ({ ...row, preferred: config.prefer[row.id] || null, active: active.get(row.id) || null })) };
+}
 
 // Allowances can also come from the ChatGPT and Claude accounts signed in under
 // Settings. Those sign-ins are Pi credentials, so a token close to expiry is
@@ -2084,6 +2118,9 @@ const kiloAcp = kiloAcpEnabled && kiloCommand ? createAgentClientProtocolAdapter
   registryFile: path.join(CONFIG_DIR, "acp-kilo-sessions.json") }) : null;
 const hermesAcp = hermesAcpEnabled && hermesCommand ? createAgentClientProtocolAdapter({ command: hermesCommand, args: ["acp"], cwd: APP_HOME, env: process.env, label: "Hermes Agent", clientVersion: APP_VERSION,
   registryFile: path.join(CONFIG_DIR, "acp-hermes-sessions.json") }) : null;
+// Models that Claude Code and the ACP agents offered in their last conversation,
+// for Settings → Models & providers.
+const agentModelCache = createAgentModelCache({ file: path.join(CONFIG_DIR, "agent-models.json") });
 function acpAdapterForAgent(agentId) {
   return agentId === "cline" ? clineAcp : agentId === "kilo" ? kiloAcp : agentId === "hermes" ? hermesAcp : null;
 }
@@ -4491,6 +4528,7 @@ const handleNativeComposerRoute = createNativeComposerRoutes({
   codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession,
   observeCodex: threadId => codexPersistedObserver.observe(threadId),
   validateDirectory: nativeAgentDirectory, readJSON, sendJSON, gateway: openCodexGateway,
+  onModels: (agentId, models) => agentModelCache.record(agentId, models),
 });
 
 const server = http.createServer(async (req, res) => {
@@ -4868,6 +4906,10 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, 200, await agentAuthCatalog());
         return;
       }
+      if (p === "/api/agent-models" && req.method === "GET") {
+        sendJSON(res, 200, agentModelCache.get(String(url.searchParams.get("agentId") || "")));
+        return;
+      }
       if (p === "/api/agent-auth/active" && req.method === "GET") {
         sendJSON(res, 200, { run: agentAuth.active(String(url.searchParams.get("agentId") || "")) });
         return;
@@ -4887,7 +4929,18 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (p === "/api/quota-sources" && req.method === "GET") {
-        sendJSON(res, 200, await listQuotaSources({ home: APP_HOME, env: process.env }));
+        sendJSON(res, 200, await quotaSourcesPayload());
+        return;
+      }
+      if (p === "/api/quota-sources" && req.method === "POST") {
+        if (auth.mode === "browser" && !req.headers.origin) { sendJSON(res, 403, { error: "origin_required", code: "origin_required" }); return; }
+        let body;
+        try { body = await readJSON(req, 8 * 1024); } catch { sendJSON(res, 400, { error: "invalid_request" }); return; }
+        try { await writeQuotaConfig(CONFIG_DIR, { sources: body?.sources, prefer: body?.prefer }); }
+        catch { sendJSON(res, 500, { error: "quota_config_unwritable" }); return; }
+        workspaceUsage.invalidate();
+        if (body?.sources?.codexbar === true) codexBarReader.reset();
+        sendJSON(res, 200, await quotaSourcesPayload());
         return;
       }
 
@@ -5229,7 +5282,9 @@ const server = http.createServer(async (req, res) => {
           // than a dedicated model API.
           if (action === "config" && req.method === "GET") {
             const sessionId = url.searchParams.get("sessionId") || "";
-            sendJSON(res, 200, { sessionId, configOptions: adapter.sessionConfigOptions(sessionId) }); return;
+            const configOptions = adapter.sessionConfigOptions(sessionId);
+            agentModelCache.record(agentId, acpModelChoices(configOptions));
+            sendJSON(res, 200, { sessionId, configOptions }); return;
           }
           if (action === "config" && req.method === "POST") {
             const body = await readJSON(req, 64 * 1024);

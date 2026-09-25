@@ -282,6 +282,8 @@ Generic connector 的「可啟動、可串流、server restart 可重新 attach�
 | `POST /api/agent-auth/input` | Web | B/P | runId + data ≤8192 字元或 key；secret 旗標 | 寫入 run 的 stdin；secret 在輸出中遮蔽 | Unit + synthetic browser |
 | `POST /api/agent-auth/cancel` | Web | B/P | runId | 停止 run，不是登出 | Unit |
 | `GET /api/quota-sources` | Web | B/P | 無 | 3.3.0：讀取本機 OpenCodex 的額度；admin token 不回傳 | Unit |
+| `POST /api/quota-sources` | Web | B/P | sources 開關／prefer 各服務來源；browser 需 Origin | 3.4.0：寫 `quota-sources.json`（0600），清掉額度快取；GET 同時列出各 Agent 登入、Pi、OpenCodex、CodexBar 讀到的額度 | Unit + synthetic browser |
+| `GET /api/agent-models?agentId` | Web | B/P | agentId | 3.4.0：Claude Code、Kilo、Hermes、Cline 上次對話提供的模型（只有 id／名稱） | Unit + synthetic browser |
 | `GET /api/model-providers` | Web | B/P | 無 | sanitized `models.json` provider list | Static security/UI |
 | `POST /api/model-providers` | Web | B/P | upsert/delete validated provider | atomic write `models.json` | Static security/UI |
 | `GET /api/model-config/export?secrets` | Web | B/P | `secrets=1` 明確 opt-in | portable provider config；預設移除 apiKey/oauth | Static source inspection only |
@@ -468,6 +470,8 @@ macOS updater 在下載前及 activation 前各檢查 active non-stuck Pi RPC；
 | Path | Owner／writer | 內容與權限 | 備份／回滾語意 | 遷移限制 |
 | --- | --- | --- | --- | --- |
 | `.config/stepsemble/token` | installer/Host | 32-byte random master token；0600 | Install 保留既有；read failure 可暫用不顯示的 ephemeral token | 不進 DB、log、export；支援 custom file path |
+| `.config/stepsemble/quota-sources.json` | Host（Settings → Quota sources） | 3.4.0：各額度來源開關與各服務偏好來源；0600 atomic；不含憑證 | 缺檔或損壞即回到預設（CodexBar 關閉） | 只存來源 id 與服務 id |
+| `.config/stepsemble/agent-models.json` | Host | 3.4.0：Claude Code 與 ACP Agent 上次對話提供的模型 id／名稱；每個 Agent 最多 200 筆；0600 | 可刪除，下次對話會重建 | 不含 prompt、對話或憑證 |
 | `.config/stepsemble/tokens.json` | Host | 最多 20 個額外 access-token hash/label/timestamps；0600 atomic | 寫入失敗回復 memory | 明文只回一次，migration 只搬 hash |
 | `.config/stepsemble/onboarding.json` | Host | tokenHash + confirmedAt；0600 atomic | 損壞 fail closed，不重新顯示 token | 必須保持 one-time 語意 |
 | `.config/stepsemble/device-trust.json` | device-trust module | incoming credential hash、outgoing raw dedicated credential、device metadata；≤2 MiB、0600 atomic | malformed/unreadable fail closed；mutation有 rollback ordering | outgoing secret 只可 Host-local；不可回 Browser |

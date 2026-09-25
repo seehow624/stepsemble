@@ -17,7 +17,7 @@ function effortValue(value) {
 }
 
 // Called only inside the main authenticated/origin-checked API block.
-function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveClaude, validateDirectory, readJSON, sendJSON, gateway }) {
+function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveClaude, validateDirectory, readJSON, sendJSON, gateway, onModels = null }) {
   const routes = new Set([
     "GET /api/codex/models", "GET /api/codex/context", "POST /api/codex/mutation/turn", "POST /api/codex/mutation/interrupt",
     "GET /api/claude/structured/models", "GET /api/claude/structured/context", "POST /api/claude/structured/model", "POST /api/claude/structured/effort",
@@ -35,6 +35,7 @@ function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveC
           : p.endsWith("/context") ? await resolved.session.contextUsage()
             : p.endsWith("/effort") ? await resolved.session.setEffort(effortValue(body?.effort))
               : await resolved.session.setModel(modelValue(body?.model));
+        if (p.endsWith("/models") && result?.kind !== "reject") { try { onModels?.("claude-code", result?.models); } catch {} }
         sendJSON(res, result?.kind === "reject" ? 409 : 200, catalog && result.models?.some(model => model.gateway === "opencodex")
           ? { ...result, catalog: { source: catalog.source, checkedAt: catalog.checkedAt, stale: catalog.stale } } : result);
         return true;

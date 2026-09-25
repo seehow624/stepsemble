@@ -260,7 +260,10 @@ test("agents sign in from the conversation terminal, not from a Settings form", 
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   assert.doesNotMatch(html, /id="claude-auth"/);
   assert.doesNotMatch(html, /id="provider-preset-list"|id="provider-auth-account"|id="provider-simple-api-key"/);
-  assert.match(html, /data-settings-target="agent-auth"[\s\S]{0,300}agentTerminal\.settingsNote/);
+  // Settings keeps no sign-in group; each agent's page says to type /login.
+  assert.doesNotMatch(html, /data-settings-target="agent-auth"/);
+  assert.match(html, /id="model-agent-signin"[\s\S]{0,400}id="model-agent-status"/);
+  assert.match(app, /modelAgentText\("signIn", \{ agent: title \}\)/);
   assert.match(html, /id="agent-terminal"/);
   assert.match(html, /data-settings-target="quota-sources"/);
   assert.match(app, /function openAgentTerminal\(/);
@@ -601,7 +604,7 @@ test("Settings has a guarded left-edge back gesture with shared cleanup", () => 
   assert.match(app, /function settingsGoBack\(\) \{[\s\S]{0,220}showSettingsCategory\(null\)[\s\S]{0,80}hideSettings\(\);/);
   assert.match(app, /settingsSwipeCancel\?\.\(\)/);
   assert.match(app, /el\.viewSettings\.addEventListener\("touchstart"/);
-  assert.match(app, /input, select, textarea, button, a/);
+  assert.match(app, /input, select, textarea, \[contenteditable/);
   assert.match(app, /el\.viewSettings\.addEventListener\("touchmove"/);
   assert.match(app, /event\.preventDefault\(\)/);
   assert.match(app, /const velocity = current\.dx \/ elapsed/);
@@ -613,6 +616,13 @@ test("Settings has a guarded left-edge back gesture with shared cleanup", () => 
   assert.match(css, /#view-settings\.snap-back/);
   assert.match(css, /#view-settings\.slide-out/);
   assert.match(css, /html\.reduced-motion/);
+  // Every level is a history entry, so Safari's edge swipe and Android's back
+  // leave one level; Models & providers has the same in-app edge swipe.
+  assert.match(app, /history\.pushState\(\{ \[SETTINGS_NAV_KEY\]: \{ level, pushed: true \} \}/);
+  assert.match(app, /window\.addEventListener\("popstate"/);
+  assert.match(app, /function settingsNavBack\(fallback\)/);
+  assert.match(app, /const view = el\.viewModelSettings;[\s\S]{0,300}view\.addEventListener\("touchstart"/);
+  assert.match(css, /#view-model-settings\.dragging/);
 });
 
 test("New project browsing starts with a selected-host no-path request", () => {
@@ -1005,15 +1015,14 @@ test("first-use help and setup guide cover token, devices, providers, and progre
   assert.match(app, /Prefer one-time pairing for an independent, revocable credential/);
   assert.match(app, /only manual URL entry requires the same Web token/);
   assert.doesNotMatch(app, /Use the same Web token on both computers; device credentials stay/);
-  assert.match(app, /Settings → Connection → Models & providers/);
-  assert.match(app, /account\/OAuth sign-in/);
-  assert.match(app, /local service, or Custom provider/);
-  assert.match(app, /Credentials stay on the selected host/);
-  assert.match(app, /Applies to Pi Agent sessions; Claude Code, Codex, and OpenCode pick models from the composer/);
-  assert.match(i18n, /modelScope\.note/);
-  assert.match(i18n, /modelScope\.badge/);
-  assert.match(html, /data-i18n-key="modelScope\.badge"/);
-  assert.match(html, /data-i18n-key="modelScope\.note"/);
+  assert.match(app, /Settings → Agents & models → Models & providers/);
+  assert.match(app, /Type \/login in a conversation with any agent/);
+  assert.match(app, /Credentials stay with each agent on the selected host/);
+  assert.match(app, /Models & providers shows each agent's models and settings/);
+  assert.doesNotMatch(app, /account\/OAuth sign-in|Settings → Connection → Models & providers/);
+  assert.match(i18n, /modelAgents\.intro/);
+  assert.match(html, /data-i18n-key="modelAgents\.intro"/);
+  assert.doesNotMatch(html, /modelScope\.badge/);
   assert.match(server, /\/api\/model-catalog-refresh/);
   assert.match(server, /maybeRefreshRemoteModelCatalogs/);
   assert.match(app, /\/api\/model-catalog-refresh/);
@@ -1021,12 +1030,16 @@ test("first-use help and setup guide cover token, devices, providers, and progre
   assert.match(server, /\/api\/opencode\/provider-catalog/);
   assert.match(app, /\/api\/opencode\/provider-catalog/);
   assert.match(app, /\/api\/opencode\/providers/);
-  assert.match(html, /id="model-agent-opencode"/);
+  // Models & providers lists every installed agent; OpenCode's page holds its
+  // providers and the local server, Codex's and Claude's the OpenCodex routing.
+  assert.match(html, /id="model-agent-list"/);
+  assert.match(html, /id="opencode-provider-panel"[\s\S]{0,200}id="opencode-connection"/);
   assert.match(html, /id="opencode-provider-dialog"/);
   assert.match(server, /\/api\/gateway\/status/);
   assert.match(server, /\/api\/gateway\/action/);
   assert.match(app, /\/api\/gateway\/status/);
-  assert.match(html, /id="model-agent-codex"/);
+  assert.match(html, /id="agent-model-panel"/);
+  assert.match(server, /\/api\/agent-models/);
   assert.match(html, /id="codex-gateway-panel"/);
   assert.match(app, /openOnboarding\(false\)/);
   assert.match(app, /Never expose public port 3140/);
@@ -1345,7 +1358,7 @@ test("single-key shortcuts stay out of text fields and dialogs", () => {
 test("the command palette jumps into long Settings pages", () => {
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
-  assert.match(app, /function openSettingsSection\(target\)/);
+  assert.match(app, /function openSettingsSection\(target, \{ root = false \} = \{\}\)/);
   for (const target of ["devices", "tokens", "connection", "appearance", "about"]) {
     assert.match(html, new RegExp('data-settings-target="' + target + '"'));
   }

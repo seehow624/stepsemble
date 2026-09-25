@@ -188,10 +188,14 @@ the command. Entries for keys, tokens and passwords are hidden and masked in the
 output. In a Pi conversation, `/login` lists the providers Pi supports, with
 account sign-in or an API key.
 
-**Settings → Agents & models → Models & providers** keeps model visibility and
-the Custom provider editor for self-hosted and other OpenAI-compatible
-endpoints. To show subscription and API quota from a service such as OpenCodex,
-open **Settings → Agents & models → Quota sources**.
+**Settings → Agents & models → Models & providers** lists every agent installed
+on the host. Each agent's page says how to sign in and shows the models it
+offers, plus its own settings: Pi's model visibility and Custom provider editor,
+OpenCode's providers and local server, and the OpenCodex routing for Codex and
+Claude Code. **Quota sources** in the same section chooses where subscription and
+API limits come from: each agent's own sign-in, Pi's sign-ins and keys,
+OpenCodex, or CodexBar's CLI. Turn sources on or off, and pick one for a service
+that several sources can read.
 
 ### Agent Hub connectors
 
@@ -290,8 +294,9 @@ revealed from the session list when needed.
 - Collapsed tool summaries with per-tool details, token use, and cost.
 - Image paste/upload, inline preview, and lightbox viewing.
 - `/login`, `/logout` and `/status` in every agent's conversation, run through
-  the agent's own commands; custom endpoints, model visibility, quota sources
-  such as OpenCodex, and optional independent access tokens.
+  the agent's own commands; a page per agent for its models and settings,
+  custom endpoints, quota sources such as OpenCodex and CodexBar, and optional
+  independent access tokens.
 - Multiple-device aliases, health checks, port settings, external-drive folder
   browsing, private HTTPS relay, independent peer credentials with revocation,
   and one-time pairing.

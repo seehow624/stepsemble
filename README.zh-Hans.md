@@ -69,7 +69,7 @@ type %USERPROFILE%\.config\stepsemble\token
 
 登录 Agent：在该 Agent 的对话输入 `/login`；`/logout` 和 `/status` 用法相同。Stepsemble 会在对话所在的主机运行该 Agent 自己的指令，并以终端画面呈现：登录链接变成按钮、一次性代码可以复制，输入的内容会送回指令；API key、token、密码这类输入会自动隐藏，也会在输出中遮蔽。在 Pi 对话输入 `/login`，会列出 Pi 支持的服务商，可用账号登录或 API key。
 
-**Settings → Agents & models → Models & providers** 保留模型显示设置，以及给自托管端点和其他 OpenAI 兼容服务用的自定义 Provider。要查看 OpenCodex 这类服务提供的订阅与 API 额度，请打开 **Settings → Agents & models → Quota sources**。
+**Settings → Agents & models → Models & providers** 会列出主机上安装的每个 Agent。每个 Agent 的页面会说明怎么登录、列出它提供的模型，以及它自己的设置：Pi 的模型显示与自定义 Provider、OpenCode 的服务商与本机服务器，还有 Codex 与 Claude Code 的 OpenCodex 转发。同一区的 **Quota sources** 用来选择订阅与 API 额度从哪里读取：各 Agent 自己的登录、Pi 的登录与 key、OpenCodex，或 CodexBar 的 CLI。每个来源都能开关；同一个服务有多个来源时，也能指定要用哪一个。
 
 ## Agent Hub 连接器
 

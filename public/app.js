@@ -1,7 +1,7 @@
-/* stepsemble v3.3.0 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.4.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.3.0";
+const CLIENT_APP_VERSION = "3.4.0";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 if (WORKSPACE_PANE) {
   document.documentElement.classList.add("workspace-embedded");
@@ -146,8 +146,10 @@ const el = {
   setReducedMotion: $("set-reduced-motion"), setThinking: $("set-thinking"),
   modelVisibilityList: $("model-visibility-list"), modelVisibilityRefresh: $("model-visibility-refresh"),
   modelListToolbar: $("model-list-toolbar"),
-  modelAgentPi: $("model-agent-pi"), modelAgentOpencode: $("model-agent-opencode"),
-  modelAgentCodex: $("model-agent-codex"),
+  modelAgentList: $("model-agent-list"), modelAgentSignin: $("model-agent-signin"), modelAgentSigninText: $("model-agent-signin-text"),
+  modelAgentStatus: $("model-agent-status"), agentModelPanel: $("agent-model-panel"), agentModelStatus: $("agent-model-status"),
+  agentModelList: $("agent-model-list"), modelSettingsTopbarTitle: $("model-settings-topbar-title"),
+  modelSettingsHeading: $("model-settings-heading"), modelSettingsIntro: $("model-settings-intro"),
   opencodeProviderPanel: $("opencode-provider-panel"), opencodeProviderStatus: $("opencode-provider-status"),
   opencodeProviderList: $("opencode-provider-list"),
   codexGatewayPanel: $("codex-gateway-panel"), codexGatewayStatus: $("codex-gateway-status"),
@@ -1158,8 +1160,8 @@ async function enterApp() {
     }
     if (workspaceQuery.get("settings") === "1") {
       const section = workspaceQuery.get("section");
-      if (section && Object.hasOwn(SETTINGS_TARGET_CATEGORIES, section)) openSettingsSection(section);
-      else showSettings();
+      if (section && Object.hasOwn(SETTINGS_TARGET_CATEGORIES, section)) openSettingsSection(section, { root: true });
+      else { showSettings(); syncSettingsNav({ root: true }); }
       loadVersion();
       return true;
     }
@@ -1658,7 +1660,7 @@ function showSettings() {
   }, 250);
   startUpdateCenterPolling();
 }
-el.btnOpenSettings.addEventListener("click", showSettings);
+el.btnOpenSettings.addEventListener("click", () => { showSettings(); syncSettingsNav(); });
 
 // Settings is grouped into a few sections. Phones show the section list first
 // and one section at a time; wide layouts keep the list beside the section.
@@ -1667,7 +1669,7 @@ const SETTINGS_CATEGORY_LABELS = Object.freeze({
   appearance: "Appearance", agents: "Agents & models", devices: "Devices & access", updates: "Updates", advanced: "Advanced",
 });
 const SETTINGS_TARGET_CATEGORIES = Object.freeze({
-  devices: "devices", tokens: "devices", connection: "agents", "agent-auth": "agents", "quota-sources": "agents",
+  devices: "devices", tokens: "devices", connection: "agents", "quota-sources": "agents",
   appearance: "appearance", updates: "updates", about: "advanced",
 });
 const settingsSplitQuery = window.matchMedia?.("(min-width: 900px)") || null;
@@ -1708,17 +1710,95 @@ function showSettingsCategory(category) {
 // The toolbar back button and the edge gesture leave a section first on
 // phones, then close Settings.
 function settingsGoBack() {
-  if (settingsCategory && !settingsSplitLayout()) {
-    showSettingsCategory(null);
-    return;
-  }
-  hideSettings();
+  settingsNavBack(() => {
+    if (settingsCategory && !settingsSplitLayout()) { showSettingsCategory(null); return; }
+    hideSettings();
+  });
 }
 
 el.btnSettingsBack.addEventListener("click", settingsGoBack);
 el.settingsNav?.addEventListener("click", (event) => {
   const target = event.target.closest?.("[data-settings-open]");
-  if (target) showSettingsCategory(target.dataset.settingsOpen);
+  if (!target) return;
+  showSettingsCategory(target.dataset.settingsOpen);
+  syncSettingsNav();
+});
+
+// ---- Settings levels as history entries ----
+// On a phone, Settings, a section, Models & providers and one agent's page are
+// stacked levels. Each level gets a history entry, so Safari's edge swipe,
+// Android's back gesture, the toolbar back button and the in-app swipe all
+// leave one level at a time. Only the top window owns history: a Workspace
+// pane is an iframe and must not add entries to the Workspace's history.
+const SETTINGS_NAV_KEY = "stepsembleSettingsNav";
+let settingsNavRestoring = false;
+function settingsHistoryEnabled() {
+  try { return window.top === window && typeof history.pushState === "function"; } catch { return false; }
+}
+function settingsNavState() {
+  const value = history.state?.[SETTINGS_NAV_KEY];
+  return value && typeof value.level === "string" ? value : null;
+}
+function settingsNavLevel() {
+  if (!el.viewModelSettings.classList.contains("hidden")) return modelSettingsAgent ? "models:" + modelSettingsAgent : "models";
+  if (!el.viewSettings.classList.contains("hidden")) return settingsCategory && !settingsSplitLayout() ? "settings:" + settingsCategory : "settings";
+  return null;
+}
+function settingsNavPath(level) {
+  if (!level) return [];
+  const path = ["settings"];
+  if (level.startsWith("settings:")) path.push(level);
+  if (level.startsWith("models")) {
+    // Models & providers is opened from the Agents section.
+    if (!settingsSplitLayout()) path.push("settings:agents");
+    path.push("models");
+    if (level !== "models") path.push(level);
+  }
+  return path;
+}
+// After moving forward, add entries for the levels between the current
+// history entry and the one now on screen. `root` turns the page's own entry
+// into the first level, for Settings opened as its own page from the Workspace.
+function syncSettingsNav({ root = false } = {}) {
+  if (!settingsHistoryEnabled() || settingsNavRestoring) return;
+  const path = settingsNavPath(settingsNavLevel());
+  if (!path.length) return;
+  let start;
+  if (root) {
+    history.replaceState({ ...(history.state || {}), [SETTINGS_NAV_KEY]: { level: path[0], root: true } }, "");
+    start = 1;
+  } else {
+    const current = settingsNavState()?.level;
+    const index = current ? path.indexOf(current) : -1;
+    if (current && index < 0) return; // Out of step with the history; leave it alone.
+    start = index + 1;
+  }
+  for (const level of path.slice(start)) history.pushState({ [SETTINGS_NAV_KEY]: { level, pushed: true } }, "");
+}
+// Leave one level. A level with its own history entry goes back through the
+// history so the browser and the app stay in step; anything else uses `fallback`.
+function settingsNavBack(fallback) {
+  const state = settingsNavState();
+  if (settingsHistoryEnabled() && state?.pushed && state.level === settingsNavLevel()) { history.back(); return; }
+  fallback();
+}
+function applySettingsNavLevel(level) {
+  if (!level) { hideSettings(); return; }
+  if (level.startsWith("models")) {
+    const agent = level.startsWith("models:") ? level.slice(7) : null;
+    if (el.viewModelSettings.classList.contains("hidden")) showModelSettings({ agent, sync: false });
+    else setModelSettingsAgent(agent, { sync: false });
+    return;
+  }
+  if (!el.viewModelSettings.classList.contains("hidden")) leaveModelSettings();
+  else if (el.viewSettings.classList.contains("hidden")) showSettings();
+  showSettingsCategory(level.startsWith("settings:") ? level.slice(9) : null);
+}
+window.addEventListener("popstate", (event) => {
+  if (!settingsNavLevel()) return; // Settings is closed; nothing of ours to unwind.
+  settingsNavRestoring = true;
+  try { applySettingsNavLevel(event.state?.[SETTINGS_NAV_KEY]?.level || null); }
+  finally { settingsNavRestoring = false; }
 });
 settingsSplitQuery?.addEventListener?.("change", () => { if (updateViewIsOpen()) applySettingsCategory(); });
 el.syncCompare?.addEventListener("click", () => { void compareResources(); });
@@ -1738,24 +1818,29 @@ function forwardSettingsWheel(event) {
 }
 el.viewSettings?.addEventListener("wheel", forwardSettingsWheel, { passive: false });
 el.viewModelSettings?.addEventListener("wheel", forwardSettingsWheel, { passive: false });
-function showModelSettings() {
+function showModelSettings({ agent = null, sync = true } = {}) {
   stopUpdateCenterPolling();
   el.viewSettings.classList.add("hidden");
   el.viewModelSettings.classList.remove("hidden");
   el.viewModelSettings.classList.add("slide-in");
   setTimeout(() => el.viewModelSettings.classList.remove("slide-in"), 250);
-  applyModelSettingsAgent();
-  if (currentModelSettingsAgent() === "pi") void loadModelVisibility();
+  setModelSettingsAgent(agent, { sync: false });
+  if (sync) syncSettingsNav();
 }
-el.modelSettingsOpen?.addEventListener("click", showModelSettings);
-el.btnModelSettingsBack?.addEventListener("click", () => {
+el.modelSettingsOpen?.addEventListener("click", () => showModelSettings());
+function leaveModelSettings() {
   el.viewModelSettings.classList.add("hidden");
   el.viewSettings.classList.remove("hidden");
   renderSettings();
-  // Models & providers is opened from the Agents section; return there.
-  showSettingsCategory("agents");
   startUpdateCenterPolling();
-});
+}
+// An agent's page returns to the agent list; the list returns to the Agents
+// section it was opened from.
+el.btnModelSettingsBack?.addEventListener("click", () => settingsNavBack(() => {
+  if (modelSettingsAgent) { setModelSettingsAgent(null, { sync: false }); return; }
+  leaveModelSettings();
+  showSettingsCategory("agents");
+}));
 
 // ===========================================================================
 // Session 列表 + 下拉刷新 + 長按動作
@@ -10696,7 +10781,7 @@ function moveCommandSelection(delta) {
 function buildCommandItems() {
   const items = [];
   items.push({ kind: "action", tag: "⌘", label: window.stepsembleI18n?.t("New session") || "New session", run: () => { if (!el.newDialog.classList.contains("hidden")) return; if (sessionsCache.length) el.btnNew?.click(); else el.btnNewProject?.click(); } });
-  items.push({ kind: "action", tag: "⌘", label: window.stepsembleI18n?.t("Open Settings") || "Open Settings", run: () => showSettings() });
+  items.push({ kind: "action", tag: "⌘", label: window.stepsembleI18n?.t("Open Settings") || "Open Settings", run: () => { showSettings(); syncSettingsNav(); } });
   items.push({ kind: "action", tag: "⌘", label: settings.showTemporarySessions
     ? (window.stepsembleI18n?.t("Hide Sub Agent sessions") || "Hide Sub Agent sessions")
     : (window.stepsembleI18n?.t("Show Sub Agent sessions") || "Show Sub Agent sessions"),
@@ -10784,9 +10869,10 @@ function toggleCommandPalette() {
 
 // Settings is one long page on purpose; the palette gives it jump targets so
 // a phone user can reach Providers without scrolling through Devices.
-function openSettingsSection(target) {
+function openSettingsSection(target, { root = false } = {}) {
   showSettings();
   showSettingsCategory(SETTINGS_TARGET_CATEGORIES[target] || null);
+  syncSettingsNav({ root });
   setTimeout(() => {
     document.querySelector('[data-settings-target="' + String(target).replace(/"/g, "") + '"]')
       ?.scrollIntoView({ behavior: settings.reducedMotion ? "auto" : "smooth", block: "start" });
@@ -11118,7 +11204,11 @@ function agentTerminalHostName(base = apiBase) {
 }
 
 function agentTerminalLabel(agentId) {
-  return agentId === "claude-code" ? "Claude Code" : agentConnectorLabel(agentId);
+  // Settings opened on its own page has no connector catalog loaded yet.
+  const names = { pi: "Pi Agent", codex: "Codex", "claude-code": "Claude Code", opencode: "OpenCode", kilo: "Kilo Code",
+    hermes: "Hermes", "grok-build": "Grok Build", cline: "Cline", antigravity: "Antigravity" };
+  const label = agentConnectorLabel(agentId);
+  return label && label !== agentId ? label : names[agentId] || label;
 }
 
 // Columns that fit the sheet, so sign-in commands wrap where the screen does.
@@ -11930,71 +12020,162 @@ async function loadQuotaSources(force = false) {
 
 function quotaWindowLabel(window) {
   if (window.key === "custom") return window.label || "";
-  return tKey("quotaSources.window." + window.key);
+  if (window.key && !["primary", "secondary", "tertiary"].includes(window.key)) return tKey("quotaSources.window." + window.key);
+  const minutes = Number(window.windowDurationMins);
+  if (minutes === 300) return tKey("quotaSources.window.fiveHour");
+  if (minutes === 10080) return tKey("quotaSources.window.weekly");
+  if (minutes === 43200) return tKey("quotaSources.window.monthly");
+  if (Number.isFinite(minutes) && minutes > 0) return minutes % 1440 === 0 ? minutes / 1440 + "d" : Math.max(1, Math.round(minutes / 60)) + "h";
+  return window.label || "";
 }
 
+function quotaWindowRemaining(window) {
+  const value = Number.isFinite(window.remainingPercent) ? window.remainingPercent : 100 - Number(window.usedPercent);
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function quotaSourceName(source) {
+  return source.id === "agents" ? tKey("quotaSources.source.agents") : source.id === "pi" ? tKey("quotaSources.source.pi")
+    : source.id === "codexbar" ? "CodexBar" : "OpenCodex";
+}
+
+function quotaSourceStatus(source, host) {
+  if (source.id === "agents") return tKey("quotaSources.agentsNote", { host });
+  if (source.id === "pi") return tKey("quotaSources.piNote", { host });
+  if (source.id === "codexbar") {
+    if (!source.installed) return tKey("quotaSources.codexbarMissing", { host });
+    if (!source.enabled) return tKey("quotaSources.codexbarOff", { host });
+    return source.services?.length ? tKey("quotaSources.codexbarOn", { host }) : tKey("quotaSources.codexbarFailed");
+  }
+  if (!source.installed) return tKey("quotaSources.notInstalled", { host });
+  if (!source.enabled) return tKey("quotaSources.off");
+  if (!source.running) return tKey("quotaSources.stopped", { host });
+  if (source.reason === "token_missing" || source.reason === "token_rejected") return tKey("quotaSources.tokenMissing", { port: source.port });
+  return tKey("quotaSources.running", { port: source.port });
+}
+
+let quotaSourcesSaving = false;
+async function saveQuotaSources(update) {
+  const base = apiBase;
+  if (quotaSourcesSaving) return;
+  quotaSourcesSaving = true;
+  renderQuotaSources();
+  try {
+    const data = await post("/api/quota-sources", update);
+    if (apiBase === base) quotaSourcesState = { base, data, loading: false, error: null, at: Date.now() };
+  } catch (error) {
+    if (apiBase === base) toast(tKey("quotaSources.saveFailed", { detail: error?.message || "unknown error" }), true);
+  } finally {
+    quotaSourcesSaving = false;
+    renderQuotaSources();
+  }
+}
+
+// Each source is a card with its own switch and what it reads now; a service
+// that several sources can read gets a choice of source below the cards.
 function renderQuotaSources() {
   const list = el.quotaSourcesList;
   if (!list) return;
   const state = quotaSourcesState, host = agentTerminalHostName();
   list.replaceChildren();
-  const note = text => { const p = document.createElement("p"); p.className = "settings-note"; p.textContent = text; list.appendChild(p); };
+  const note = (text, parent = list) => { const p = document.createElement("p"); p.className = "settings-note"; p.textContent = text; parent.appendChild(p); return p; };
   if (state.loading && !state.data) { note(tKey("quotaSources.loading")); return; }
   if (state.error) { note(state.error === "old" ? tKey("quotaSources.oldHost", { host }) : tKey("quotaSources.unavailable")); return; }
+  const active = new Map((state.data?.services || []).map(row => [row.id, row.active]));
+  const sameComputer = !apiBase && ["localhost", "127.0.0.1", "::1", "[::1]"].includes(location.hostname);
   for (const source of state.data?.sources || []) {
     const card = document.createElement("div");
-    card.className = "quota-source-card";
+    card.className = "quota-source-card" + (source.enabled ? "" : " is-off");
+    card.dataset.quotaSource = source.id;
     const head = document.createElement("div");
     head.className = "quota-source-head";
     const copy = document.createElement("div");
     copy.className = "quota-source-copy";
     const name = document.createElement("strong");
-    name.textContent = source.name; name.dataset.i18nIgnore = "";
+    name.textContent = quotaSourceName(source); name.dataset.i18nIgnore = "";
     const status = document.createElement("small");
-    status.textContent = !source.installed ? tKey("quotaSources.notInstalled", { host })
-      : !source.running ? tKey("quotaSources.stopped", { host })
-        : source.reason === "token_missing" || source.reason === "token_rejected" ? tKey("quotaSources.tokenMissing", { port: source.port })
-          : tKey("quotaSources.running", { port: source.port });
+    status.textContent = quotaSourceStatus(source, host);
     copy.append(name, status);
-    const chip = document.createElement("span");
-    chip.className = "gateway-badge " + (source.running ? "gateway-badge-ok" : "gateway-badge-warn");
-    chip.textContent = tKey(source.running ? "quotaSources.online" : "quotaSources.offline");
-    head.append(copy, chip);
+    const toggle = document.createElement("label");
+    toggle.className = "toggle";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = !!source.enabled;
+    input.disabled = quotaSourcesSaving || (!source.installed && !source.enabled);
+    input.setAttribute("aria-label", tKey("quotaSources.use", { name: quotaSourceName(source) }));
+    input.addEventListener("change", () => void saveQuotaSources({ sources: { [source.id]: input.checked } }));
+    const track = document.createElement("span");
+    track.className = "toggle-track";
+    toggle.append(input, track);
+    head.append(copy, toggle);
     card.appendChild(head);
-    if (source.running && Array.isArray(source.providers)) {
-      if (!source.providers.length) { const p = document.createElement("p"); p.className = "settings-note"; p.textContent = tKey("quotaSources.noProviders"); card.appendChild(p); }
-      for (const provider of source.providers) {
-        const row = document.createElement("div");
-        row.className = "quota-source-provider";
+    // OpenCodex's own rows keep its extra windows; the others use what was read.
+    const rows = source.id === "opencodex" && source.providers?.length
+      ? source.providers.map(row => ({ id: row.id === "anthropic" ? "claude" : row.id === "openai" ? "codex" : row.id, label: row.label, windows: row.windows }))
+      : (source.services || []).map(row => ({ id: row.service, label: row.label, windows: row.windows }));
+    if (source.enabled && source.installed) {
+      if (!rows.length && source.id !== "codexbar") note(tKey("quotaSources.nothing"), card);
+      for (const row of rows) {
+        const line = document.createElement("div");
+        line.className = "quota-source-provider";
         const label = document.createElement("span");
-        label.textContent = provider.label; label.dataset.i18nIgnore = "";
+        label.textContent = row.label; label.dataset.i18nIgnore = "";
+        if (active.get(row.id) === source.id) {
+          const tag = document.createElement("em");
+          tag.className = "quota-source-inuse";
+          tag.textContent = tKey("quotaSources.inUse");
+          label.append(" ", tag);
+        }
         const windows = document.createElement("span");
         windows.className = "quota-source-windows";
-        const parts = (provider.windows || []).map(window => quotaWindowLabel(window) + " " + tKey("quotaSources.left", { percent: Math.round(100 - window.usedPercent) }));
+        const parts = (row.windows || []).map(window => (quotaWindowLabel(window) + " " + tKey("quotaSources.left", { percent: quotaWindowRemaining(window) })).trim());
         windows.textContent = parts.length ? parts.join(" · ") : tKey("quotaSources.noReading");
-        row.append(label, windows);
-        card.appendChild(row);
+        line.append(label, windows);
+        card.appendChild(line);
       }
     }
-    // The dashboard listens on the host's loopback address, so it opens only
-    // in a browser on that computer.
-    const sameComputer = !apiBase && ["localhost", "127.0.0.1", "::1", "[::1]"].includes(location.hostname);
-    if (source.installed && source.dashboardUrl) {
+    // OpenCodex's dashboard listens on the host's loopback address, so it
+    // opens only in a browser on that computer.
+    if (source.id === "opencodex" && source.enabled && source.installed && source.dashboardUrl) {
       if (sameComputer && source.running) {
         const open = document.createElement("a");
         open.className = "btn ghost quota-source-open";
         open.href = source.dashboardUrl; open.target = "_blank"; open.rel = "noopener noreferrer";
-        open.textContent = tKey("quotaSources.open", { name: source.name });
+        open.textContent = tKey("quotaSources.open", { name: "OpenCodex" });
         card.appendChild(open);
-      } else {
-        const p = document.createElement("p");
-        p.className = "settings-note";
-        p.textContent = tKey("quotaSources.openOnHost", { url: source.dashboardUrl, host });
-        card.appendChild(p);
-      }
+      } else note(tKey("quotaSources.openOnHost", { url: source.dashboardUrl, host }), card);
     }
     list.appendChild(card);
   }
+  const shared = (state.data?.services || []).filter(row => row.sources.length > 1 || row.preferred);
+  if (!shared.length) return;
+  const names = Object.fromEntries((state.data?.sources || []).map(source => [source.id, quotaSourceName(source)]));
+  const group = document.createElement("div");
+  group.className = "quota-source-prefer";
+  const title = document.createElement("strong");
+  title.textContent = tKey("quotaSources.preferTitle");
+  group.appendChild(title);
+  for (const row of shared) {
+    const line = document.createElement("label");
+    line.className = "quota-source-prefer-row";
+    const label = document.createElement("span");
+    label.textContent = row.label; label.dataset.i18nIgnore = "";
+    const select = document.createElement("select");
+    select.disabled = quotaSourcesSaving;
+    const auto = document.createElement("option");
+    auto.value = ""; auto.textContent = tKey("quotaSources.auto");
+    select.appendChild(auto);
+    for (const id of new Set([...row.sources, ...(row.preferred ? [row.preferred] : [])])) {
+      const option = document.createElement("option");
+      option.value = id; option.textContent = names[id] || id;
+      select.appendChild(option);
+    }
+    select.value = row.preferred || "";
+    select.addEventListener("change", () => void saveQuotaSources({ prefer: { [row.id]: select.value || null } }));
+    line.append(label, select);
+    group.appendChild(line);
+  }
+  list.appendChild(group);
 }
 el.quotaSourcesRefresh?.addEventListener("click", () => void loadQuotaSources(true));
 
@@ -12146,7 +12327,8 @@ function maybeDateSeparator(ts, container = el.messages) {
   el.viewSettings.addEventListener("touchstart", (event) => {
     if (el.viewSettings.classList.contains("hidden") || event.touches.length !== 1) return;
     const target = event.target;
-    if (target.closest?.("input, select, textarea, button, a, label, summary, [contenteditable=\"true\"], option")) return;
+    // A swipe may start on a row button; only text and choice controls keep it.
+    if (target.closest?.("input, select, textarea, [contenteditable=\"true\"], option")) return;
     const touch = event.touches[0];
     if (touch.clientX > EDGE) return;
     if (settingsSwipeTimer) clearTimeout(settingsSwipeTimer);
@@ -12199,7 +12381,7 @@ function maybeDateSeparator(ts, container = el.messages) {
       if (settingsCategory && !settingsSplitLayout()) {
         el.viewSettings.classList.add("snap-back");
         el.viewSettings.style.transform = "";
-        showSettingsCategory(null);
+        settingsNavBack(() => showSettingsCategory(null));
         settingsSwipeTimer = setTimeout(() => {
           settingsSwipeTimer = null;
           el.viewSettings.classList.remove("snap-back");
@@ -12214,7 +12396,7 @@ function maybeDateSeparator(ts, container = el.messages) {
       el.viewSettings.style.transform = "translateX(100%)";
       settingsSwipeTimer = setTimeout(() => {
         settingsSwipeTimer = null;
-        hideSettings();
+        settingsNavBack(() => hideSettings());
       }, 230);
       return;
     }
@@ -12234,6 +12416,52 @@ function maybeDateSeparator(ts, container = el.messages) {
   el.viewSettings.addEventListener("touchcancel", () => finish(true));
 })();
 
+// The same edge swipe on Models & providers leaves one level: an agent's page
+// returns to the agent list, the list to the Agents section.
+(() => {
+  const view = el.viewModelSettings;
+  if (!view) return;
+  let gesture = null;
+  const reset = () => { view.classList.remove("dragging"); view.style.transform = ""; };
+  view.addEventListener("touchstart", (event) => {
+    if (view.classList.contains("hidden") || event.touches.length !== 1) return;
+    if (event.target.closest?.("input, select, textarea, [contenteditable=\"true\"], option")) return;
+    const touch = event.touches[0];
+    if (touch.clientX > 36) return;
+    view.classList.remove("snap-back");
+    gesture = { x0: touch.clientX, y0: touch.clientY, t0: Date.now(), dx: 0, active: false };
+  }, { passive: true });
+  view.addEventListener("touchmove", (event) => {
+    if (!gesture) return;
+    if (event.touches.length !== 1) { gesture = null; reset(); return; }
+    const touch = event.touches[0];
+    const dx = touch.clientX - gesture.x0, dy = touch.clientY - gesture.y0;
+    if (!gesture.active) {
+      if (dx > 12 && Math.abs(dx) > Math.abs(dy) * 1.6) { gesture.active = true; view.classList.add("dragging"); }
+      else if (Math.abs(dy) > 14) { gesture = null; return; }
+    }
+    if (gesture.active) {
+      event.preventDefault();
+      gesture.dx = Math.max(0, dx);
+      view.style.transform = `translateX(${gesture.dx}px)`;
+    }
+  }, { passive: false });
+  const finish = (cancelled) => {
+    const current = gesture;
+    gesture = null;
+    if (!current?.active) return;
+    const elapsed = Math.max(1, Date.now() - current.t0);
+    const back = !cancelled && (current.dx > 90 || (current.dx > 40 && (elapsed < 260 || current.dx / elapsed >= 0.65)));
+    view.classList.remove("dragging");
+    view.classList.add("snap-back");
+    view.style.transform = "";
+    setTimeout(() => view.classList.remove("snap-back"), 260);
+    if (back) el.btnModelSettingsBack?.click();
+  };
+  view.addEventListener("touchend", () => finish(false));
+  view.addEventListener("touchcancel", () => finish(true));
+})();
+
 // ===========================================================================
 // 首次啟動導覽
 // ===========================================================================
@@ -12244,7 +12472,7 @@ const ONBOARDING_COPY = {
     steps: [
       { eyebrow: "WELCOME", title: "Welcome aboard", body: "Stepsemble gives your local Pi Agent a calm, focused home on desktop and mobile.", points: ["Choose your language and appearance now; both can be changed later.", "Ink & Ivory is the default Stepsemble theme."] },
       { eyebrow: "LOCAL FIRST", title: "Your computer stays in charge", body: "Stepsemble is an interface for the Pi Agent installed on this computer. Sessions, credentials, and project files remain on the host.", points: ["Stepsemble listens on this computer and does not move your projects to a hosted cloud.", "Every additional computer needs its own Stepsemble installation."] },
-      { eyebrow: "MAKE IT YOURS", title: "Models and projects", body: "Add a provider or sign in to an account from Settings, then choose a project folder to start a session.", points: ["Models & providers keeps services and model visibility in one place.", "New project can open your home folder or an allowed external drive."] },
+      { eyebrow: "MAKE IT YOURS", title: "Models and projects", body: "Type /login in a conversation to sign in to that agent, then choose a project folder to start a session.", points: ["Models & providers shows each agent's models and settings.", "New project can open your home folder or an allowed external drive."] },
       { eyebrow: "REMOTE ACCESS", title: "Connect securely", body: "For another computer or phone, keep the Node service on loopback and open Stepsemble through a private HTTPS address such as Tailscale Serve.", points: ["Use one-time pairing for an independent, revocable device credential; manual URL entry requires the same Web token.", "Never expose port 3140 directly to an untrusted network."] },
     ],
   },
@@ -12253,7 +12481,7 @@ const ONBOARDING_COPY = {
     steps: [
       { eyebrow: "欢迎", title: "欢迎登船", body: "Stepsemble 为本机的 Pi Agent 提供一个简洁、专注，并同时适合电脑与手机的操作界面。", points: ["先选择语言与外观，之后仍可随时更改。", "Stepsemble 默认使用 Ink & Ivory 主题。"] },
       { eyebrow: "本机优先", title: "电脑仍是核心", body: "Stepsemble 是这台电脑上 Pi Agent 的操作界面。工作阶段、凭证与项目文件都会留在主机上。", points: ["Stepsemble 不会把你的项目搬到托管云端。", "每一台要使用的电脑都需要各自安装 Stepsemble。"] },
-      { eyebrow: "开始配置", title: "模型与项目", body: "在设置中添加 Provider 或登录账号，然后选择项目文件夹来开始工作阶段。", points: ["“模型与 Provider”会集中管理服务与模型显示。", "“新建项目”可以打开主文件夹或允许访问的外接硬盘。"] },
+      { eyebrow: "开始配置", title: "模型与项目", body: "在对话输入 /login 登录该 Agent，然后选择项目文件夹来开始工作阶段。", points: ["“模型与 Provider”会显示每个 Agent 的模型与设置。", "“新建项目”可以打开主文件夹或允许访问的外接硬盘。"] },
       { eyebrow: "远程访问", title: "安全连接", body: "要从其他电脑或手机使用，请让 Node 服务只监听本机，并通过 Tailscale Serve 等私有 HTTPS 地址打开 Stepsemble。", points: ["使用一次性配对可取得独立且可撤销的设备凭证；手动输入网址仍要求两台电脑使用相同的 Web token。", "不要把 3140 端口直接开放到不受信任的网络。"] },
     ],
   },
@@ -12262,7 +12490,7 @@ const ONBOARDING_COPY = {
     steps: [
       { eyebrow: "歡迎", title: "歡迎登船", body: "Stepsemble 為本機的 Pi Agent 提供一個簡潔、專注，並同時適合電腦與手機的操作介面。", points: ["先選擇語言與外觀，之後仍可隨時更改。", "Stepsemble 預設使用 Ink & Ivory 主題。"] },
       { eyebrow: "本機優先", title: "電腦仍是核心", body: "Stepsemble 是這台電腦上 Pi Agent 的操作介面。工作階段、憑證與專案檔案都會留在主機上。", points: ["Stepsemble 不會把你的專案搬到託管雲端。", "每一台要使用的電腦都需要各自安裝 Stepsemble。"] },
-      { eyebrow: "開始設定", title: "模型與專案", body: "在設定中加入 Provider 或登入帳號，然後選擇專案資料夾來開始工作階段。", points: ["「模型與 Provider」會集中管理服務與模型顯示。", "「新增專案」可以開啟家目錄或允許存取的外接硬碟。"] },
+      { eyebrow: "開始設定", title: "模型與專案", body: "在對話輸入 /login 登入該 Agent，然後選擇專案資料夾來開始工作階段。", points: ["「模型與 Provider」會顯示每個 Agent 的模型與設定。", "「新增專案」可以開啟家目錄或允許存取的外接硬碟。"] },
       { eyebrow: "遠端存取", title: "安全連線", body: "要從其他電腦或手機使用，請讓 Node 服務只監聽本機，並透過 Tailscale Serve 等私有 HTTPS 位址開啟 Stepsemble。", points: ["使用一次性配對可取得獨立且可撤銷的裝置憑證；手動輸入網址仍要求兩台電腦使用相同的 Web token。", "不要把 3140 port 直接開放到不受信任的網路。"] },
     ],
   },
@@ -12271,7 +12499,7 @@ const ONBOARDING_COPY = {
     steps: [
       { eyebrow: "ようこそ", title: "Stepsemble へようこそ", body: "Stepsemble は、このMac上の Pi Agent をデスクトップでもモバイルでも快適に操作できる、落ち着いたインターフェイスです。", points: ["言語と外観は後からいつでも変更できます。", "既定のテーマは Ink & Ivory です。"] },
       { eyebrow: "ローカル優先", title: "主役はこのコンピュータ", body: "Stepsemble はこのコンピュータにある Pi Agent の操作画面です。セッション、認証情報、プロジェクトファイルはホストに残ります。", points: ["プロジェクトを外部のホスティング環境へ移動しません。", "利用する各コンピュータに Stepsemble のインストールが必要です。"] },
-      { eyebrow: "準備", title: "モデルとプロジェクト", body: "設定からプロバイダーを追加するかアカウントにサインインし、プロジェクトフォルダを選んでセッションを始めます。", points: ["モデルとプロバイダーは一つの画面で管理できます。", "新規プロジェクトからホームまたは許可済みの外部ドライブを開けます。"] },
+      { eyebrow: "準備", title: "モデルとプロジェクト", body: "会話で /login と入力してそのエージェントにサインインし、プロジェクトフォルダを選んでセッションを始めます。", points: ["モデルとプロバイダーで、各エージェントのモデルと設定を確認できます。", "新規プロジェクトからホームまたは許可済みの外部ドライブを開けます。"] },
       { eyebrow: "リモートアクセス", title: "安全に接続", body: "別のコンピュータやスマートフォンから使う場合は、Node サービスをループバックのままにし、Tailscale Serve などのプライベート HTTPS 経由で開きます。", points: ["ワンタイムペアリングでは独立して取り消せる認証情報が作成され、同じ Web トークンが必要なのは URL を手動入力する場合だけです。", "ポート 3140 を信頼できないネットワークへ直接公開しないでください。"] },
     ],
   },
@@ -12280,7 +12508,7 @@ const ONBOARDING_COPY = {
     steps: [
       { eyebrow: "환영합니다", title: "Stepsemble에 오신 것을 환영합니다", body: "Stepsemble는 이 컴퓨터의 Pi Agent를 데스크톱과 모바일에서 편안하게 사용할 수 있는 깔끔한 인터페이스입니다.", points: ["언어와 화면 모드는 나중에도 언제든 바꿀 수 있습니다.", "기본 테마는 Ink & Ivory입니다."] },
       { eyebrow: "로컬 우선", title: "컴퓨터가 중심입니다", body: "Stepsemble는 이 컴퓨터에 설치된 Pi Agent의 인터페이스입니다. 세션, 자격 증명, 프로젝트 파일은 호스트에 남습니다.", points: ["프로젝트를 외부 호스팅 클라우드로 옮기지 않습니다.", "사용할 컴퓨터마다 Stepsemble를 설치해야 합니다."] },
-      { eyebrow: "설정", title: "모델과 프로젝트", body: "설정에서 제공자를 추가하거나 계정에 로그인한 뒤 프로젝트 폴더를 선택해 세션을 시작하세요.", points: ["모델 및 제공자 화면에서 서비스와 모델 표시 여부를 함께 관리합니다.", "새 프로젝트에서 홈 폴더 또는 허용된 외장 드라이브를 열 수 있습니다."] },
+      { eyebrow: "설정", title: "모델과 프로젝트", body: "대화에서 /login을 입력해 그 에이전트에 로그인한 뒤 프로젝트 폴더를 선택해 세션을 시작하세요.", points: ["모델 및 Provider 화면에서 각 에이전트의 모델과 설정을 볼 수 있습니다.", "새 프로젝트에서 홈 폴더 또는 허용된 외장 드라이브를 열 수 있습니다."] },
       { eyebrow: "원격 접속", title: "안전하게 연결하세요", body: "다른 컴퓨터나 휴대폰에서 사용할 때는 Node 서비스를 로컬에만 두고 Tailscale Serve 같은 비공개 HTTPS 주소로 Stepsemble를 여세요.", points: ["일회용 페어링은 독립적으로 취소할 수 있는 인증 정보를 만들며, 같은 Web 토큰은 URL을 수동으로 입력할 때만 필요합니다.", "3140 포트를 신뢰할 수 없는 네트워크에 직접 공개하지 마세요."] },
     ],
   },
@@ -12353,77 +12581,77 @@ const ONBOARDING_ACTIONABLE_STEPS = {
     { eyebrow: "WELCOME", title: "Welcome aboard", body: "Stepsemble keeps the Pi Agent, sessions, credentials, and projects on the selected computer.", points: ["Choose your language and appearance now; both can be changed later."] },
     { eyebrow: "TOKEN & SIGN-IN", title: "Find your Web token", body: "The installer creates a private Web token on the computer running Stepsemble. On that computer, open Terminal and run cat ~/.config/stepsemble/token, then paste it here. From another device, retrieve it securely from that host.", points: ["Never share the token in chat, screenshots, repositories, or logs.", "If STEPSEMBLE_TOKEN_FILE is configured, use that file instead of the default path."] },
     { eyebrow: "DEVICES", title: "Connect another computer", body: "Install and run Stepsemble on each additional computer. Use Tailscale or HTTPS, then open Settings → Devices → Add device, or use a five-minute pairing code.", points: ["Prefer one-time pairing for an independent, revocable credential; only manual URL entry requires the same Web token.", "Never expose public port 3140 to an untrusted network."] },
-    { eyebrow: "MODELS & PROVIDERS", title: "Add an LLM provider", body: "Open Settings → Connection → Models & providers. Choose a catalog service, account/OAuth sign-in, API key, local service, or Custom provider.", points: ["Credentials stay on the selected host.", "Applies to Pi Agent sessions; Claude Code, Codex, and OpenCode pick models from the composer."] },
+    { eyebrow: "MODELS & SIGN-IN", title: "Sign in and choose models", body: "Type /login in a conversation with any agent; it runs that agent's own sign-in on the host. Settings → Agents & models → Models & providers shows each agent's models and settings.", points: ["Credentials stay with each agent on the selected host.", "Quota sources show subscription and API limits, including from OpenCodex."] },
     { eyebrow: "PROJECT", title: "Choose a folder and start", body: "Open New project, choose a folder on this host, optionally name the session, and select Start here.", points: ["The folder picker starts at the host home when allowed, otherwise at an allowed root.", "You can return to this guide from Settings → About → Setup guide."] },
   ],
   "zh-Hans": [
     { eyebrow: "欢迎", title: "欢迎使用", body: "Stepsemble 会将 Pi Agent、会话、凭证和项目保留在选定的电脑上。", points: ["现在选择语言和外观，之后都可以更改。"] },
     { eyebrow: "TOKEN 与登录", title: "找到 Web token", body: "安装程序会在运行 Stepsemble 的电脑上创建私密 Web token。在那台电脑打开终端并运行 cat ~/.config/stepsemble/token，然后将结果粘贴到这里。在其他设备上，请从该主机安全地取得 token。", points: ["绝不要在聊天、截图、代码仓库或日志中分享 token。", "如果配置了 STEPSEMBLE_TOKEN_FILE，请使用该文件，而不是默认路径。"] },
     { eyebrow: "设备", title: "连接另一台电脑", body: "在每台额外的电脑上安装并运行 Stepsemble。使用 Tailscale 或 HTTPS，然后打开“设置 → 设备 → 添加设备”，也可以使用五分钟有效的一次性配对码。", points: ["优先使用一次性配对来取得独立且可撤销的凭证；只有手动输入网址时才需要相同的 Web token。", "不要将公共 3140 端口暴露给不受信任的网络。"] },
-    { eyebrow: "模型与服务", title: "添加 LLM 服务商", body: "打开“设置 → 连接 → 模型与 Provider”。选择目录服务、账号/OAuth 登录、API key、本地服务或自定义 Provider。", points: ["凭证保留在选定的主机上。", "仅适用于 Pi Agent 会话；Claude Code、Codex 与 OpenCode 在输入栏选择模型。"] },
+    { eyebrow: "模型与登录", title: "登录并选择模型", body: "在任何 Agent 的对话输入 /login，会在主机上运行该 Agent 自己的登录。“设置 → Agent 与模型 → 模型与 Provider”会显示每个 Agent 的模型与设置。", points: ["凭证留在所选主机上各 Agent 自己那里。", "“额度来源”会显示订阅与 API 额度，包括来自 OpenCodex 的数据。"] },
     { eyebrow: "项目", title: "选择文件夹并开始", body: "打开“新建项目”，选择这台主机上的文件夹，可选填写会话名称，然后选择“从这里开始”。", points: ["文件夹选择器会在获准时从主机主目录开始，否则从获准的根目录开始。", "以后可以从“设置 → 关于 → 设置导览”再次打开本指南。"] },
   ],
   "zh-Hant": [
     { eyebrow: "歡迎", title: "歡迎使用", body: "Stepsemble 會將 Pi Agent、工作階段、憑證與專案保留在選定的電腦上。", points: ["現在選擇語言與外觀，之後都可以更改。"] },
     { eyebrow: "TOKEN 與登入", title: "找到 Web token", body: "安裝程式會在執行 Stepsemble 的電腦上建立私密 Web token。在該電腦開啟終端機並執行 cat ~/.config/stepsemble/token，然後將結果貼到這裡。在其他裝置上，請從該主機安全地取得 token。", points: ["絕不要在聊天、截圖、程式碼儲存庫或日誌中分享 token。", "如果設定了 STEPSEMBLE_TOKEN_FILE，請使用該檔案，不要使用預設路徑。"] },
     { eyebrow: "裝置", title: "連接另一台電腦", body: "在每台額外的電腦上安裝並執行 Stepsemble。使用 Tailscale 或 HTTPS，然後開啟「設定 → 設備 → 新增設備」，也可以使用五分鐘有效的一次性配對碼。", points: ["優先使用一次性配對來取得獨立且可撤銷的憑證；只有手動輸入網址時才需要相同的 Web token。", "不要將公開的 3140 port 暴露給不受信任的網路。"] },
-    { eyebrow: "模型與服務", title: "加入 LLM 服務商", body: "開啟「設定 → 連線 → 模型與 Provider」。選擇目錄服務、帳號／OAuth 登入、API key、本機服務或自訂 Provider。", points: ["憑證會保留在選定的主機上。", "僅適用於 Pi Agent 工作階段；Claude Code、Codex 與 OpenCode 在輸入列選擇模型。"] },
+    { eyebrow: "模型與登入", title: "登入並選擇模型", body: "在任何 Agent 的對話輸入 /login，會在主機上執行該 Agent 自己的登入。「設定 → Agent 與模型 → 模型與 Provider」會顯示每個 Agent 的模型與設定。", points: ["憑證留在所選主機上各 Agent 自己那裡。", "「額度來源」會顯示訂閱與 API 額度，包括來自 OpenCodex 的資料。"] },
     { eyebrow: "專案", title: "選擇資料夾並開始", body: "開啟「新增專案」，選擇這台主機上的資料夾，可選填寫工作階段名稱，然後選擇「在這裡開始」。", points: ["資料夾選擇器會在獲准時從主機家目錄開始，否則從獲准的根目錄開始。", "之後可以從「設定 → 關於 → 設定導覽」再次開啟本指南。"] },
   ],
   ja: [
     { eyebrow: "ようこそ", title: "Stepsemble へようこそ", body: "Stepsemble は Pi Agent、セッション、認証情報、プロジェクトを選択したコンピューターに保管します。", points: ["言語と外観は今選択でき、後から変更できます。"] },
     { eyebrow: "トークンとサインイン", title: "Web トークンを確認", body: "インストーラーは Stepsemble を実行するコンピューターに非公開の Web トークンを作成します。そのコンピューターでターミナルを開き、cat ~/.config/stepsemble/token を実行して、結果をここに貼り付けます。別のデバイスでは、そのホストから安全にトークンを取得してください。", points: ["トークンをチャット、スクリーンショット、リポジトリ、ログで共有しないでください。", "カスタムの STEPSEMBLE_TOKEN_FILE を設定している場合は、既定のパスではなくそのファイルを使います。"] },
     { eyebrow: "デバイス", title: "別のコンピューターを接続", body: "追加する各コンピューターに Stepsemble をインストールして実行します。Tailscale または HTTPS を使い、「設定 → デバイス → デバイスを追加」を開くか、5 分間有効なペアリングコードを使います。", points: ["独立して取り消せる認証情報にはワンタイムペアリングを使います。同じ Web トークンが必要なのは URL を手動入力する場合だけです。", "公開ポート 3140 を信頼できないネットワークに公開しないでください。"] },
-    { eyebrow: "モデルとプロバイダー", title: "LLM プロバイダーを追加", body: "「設定 → 接続 → モデルとプロバイダー」を開きます。カタログサービス、アカウント／OAuth サインイン、API キー、ローカルサービス、またはカスタムプロバイダーを選択します。", points: ["認証情報は選択したホストに保管されます。", "Pi Agent のセッションのみに適用されます。Claude Code、Codex、OpenCode は入力欄でモデルを選択します。"] },
+    { eyebrow: "モデルとサインイン", title: "サインインしてモデルを選ぶ", body: "どのエージェントでも、会話で /login と入力すると、ホスト上でそのエージェント自身のサインインが動きます。「設定 → エージェントとモデル → モデルとプロバイダー」に各エージェントのモデルと設定があります。", points: ["認証情報は、選択したホスト上の各エージェントに残ります。", "「利用枠の取得元」で、OpenCodex などからのサブスクリプションと API の上限を確認できます。"] },
     { eyebrow: "プロジェクト", title: "フォルダーを選んで開始", body: "「新しいプロジェクト」を開き、このホストのフォルダーを選び、必要ならセッション名を入力して「ここから開始」を選択します。", points: ["フォルダー選択は、許可されていればホストのホームから、それ以外は許可されたルートから始まります。", "後で「設定 → 概要 → セットアップガイド」から再び開けます。"] },
   ],
   ko: [
     { eyebrow: "환영합니다", title: "Stepsemble에 오신 것을 환영합니다", body: "Stepsemble는 Pi Agent, 세션, 자격 증명과 프로젝트를 선택한 컴퓨터에 보관합니다.", points: ["지금 언어와 화면 모드를 선택할 수 있으며 나중에 변경할 수 있습니다."] },
     { eyebrow: "토큰 및 로그인", title: "Web 토큰 찾기", body: "설치 프로그램이 Stepsemble를 실행하는 컴퓨터에 비공개 Web 토큰을 만듭니다. 해당 컴퓨터에서 터미널을 열고 cat ~/.config/stepsemble/token을 실행한 뒤 결과를 여기에 붙여넣으세요. 다른 기기에서는 해당 호스트에서 토큰을 안전하게 가져오세요.", points: ["토큰을 채팅, 스크린샷, 저장소 또는 로그에 절대 공유하지 마세요.", "사용자 지정 STEPSEMBLE_TOKEN_FILE을 설정했다면 기본 경로 대신 해당 파일을 사용하세요."] },
     { eyebrow: "기기", title: "다른 컴퓨터 연결", body: "추가할 각 컴퓨터에 Stepsemble를 설치하고 실행하세요. Tailscale 또는 HTTPS를 사용한 뒤 ‘설정 → 기기 → 기기 추가’를 열거나 5분 동안 유효한 페어링 코드를 사용하세요.", points: ["독립적으로 취소할 수 있는 인증 정보에는 일회용 페어링을 사용하세요. 같은 Web 토큰은 URL을 수동으로 입력할 때만 필요합니다.", "공개 포트 3140을 신뢰할 수 없는 네트워크에 노출하지 마세요."] },
-    { eyebrow: "모델 및 제공자", title: "LLM 제공자 추가", body: "‘설정 → 연결 → 모델 및 제공자’를 여세요. 카탈로그 서비스, 계정/OAuth 로그인, API 키, 로컬 서비스 또는 사용자 지정 제공자를 선택하세요.", points: ["인증 정보는 선택한 호스트에만 저장됩니다.", "Pi Agent 세션에만 적용됩니다. Claude Code, Codex, OpenCode는 입력창에서 모델을 선택하세요."] },
+    { eyebrow: "모델 및 로그인", title: "로그인하고 모델 선택", body: "어떤 에이전트든 대화에서 /login을 입력하면 호스트에서 그 에이전트 자체의 로그인이 실행됩니다. ‘설정 → 에이전트와 모델 → 모델 및 Provider’에서 각 에이전트의 모델과 설정을 볼 수 있습니다.", points: ["자격 증명은 선택한 호스트의 각 에이전트에 남습니다.", "‘한도 출처’에서 OpenCodex 등의 구독 및 API 한도를 볼 수 있습니다."] },
     { eyebrow: "프로젝트", title: "폴더를 선택하고 시작", body: "‘새 프로젝트’를 열고 이 호스트의 폴더를 선택한 다음 세션 이름을 입력하고 ‘여기서 시작’을 누르세요.", points: ["폴더 선택기는 허용된 경우 호스트 홈에서, 그렇지 않으면 허용된 루트에서 시작합니다.", "나중에 ‘설정 → 정보 → 설정 안내’에서 이 안내를 다시 열 수 있습니다."] },
   ],
   tr: [
     { eyebrow: "HOŞ GELDİNİZ", title: "Stepsemble'a hoş geldiniz", body: "Stepsemble; Pi Agent'ı, oturumları, kimlik bilgilerini ve projeleri seçtiğiniz bilgisayarda tutar.", points: ["Dil ve görünümü şimdi seçebilirsiniz; daha sonra da değiştirebilirsiniz."] },
     { eyebrow: "TOKEN VE GİRİŞ", title: "Web token'ını bulun", body: "Yükleyici, Stepsemble'ı çalıştıran bilgisayarda özel bir Web token'ı oluşturur. Bu bilgisayarda Terminal'i açıp cat ~/.config/stepsemble/token komutunu çalıştırın ve sonucu buraya yapıştırın. Başka bir cihazda token'ı bu ana bilgisayardan güvenli şekilde alın.", points: ["Token'ı sohbetlerde, ekran görüntülerinde, depolarda veya günlüklerde asla paylaşmayın.", "Özel bir STEPSEMBLE_TOKEN_FILE yapılandırıldıysa varsayılan yol yerine bu dosyayı kullanın."] },
     { eyebrow: "CİHAZLAR", title: "Başka bir bilgisayarı bağlayın", body: "Eklediğiniz her bilgisayara Stepsemble'i yükleyip çalıştırın. Tailscale veya HTTPS kullanın; ardından Ayarlar → Cihazlar → Cihaz ekle yolunu açın ya da beş dakika geçerli bir eşleştirme kodu kullanın.", points: ["Bağımsız ve iptal edilebilir kimlik bilgisi için tek kullanımlık eşleştirmeyi tercih edin; aynı Web token'ı yalnızca URL elle girildiğinde gerekir.", "3140 numaralı genel bağlantı noktasını güvenilmeyen bir ağa açmayın."] },
-    { eyebrow: "MODELLER VE SAĞLAYICILAR", title: "Bir LLM sağlayıcısı ekleyin", body: "Ayarlar → Bağlantı → Modeller ve sağlayıcılar bölümünü açın. Bir katalog hizmeti, hesap/OAuth girişi, API anahtarı, yerel hizmet veya Özel sağlayıcı seçin.", points: ["Kimlik bilgileri seçilen ana bilgisayarda kalır.", "Yalnızca Pi Agent oturumları için geçerlidir; Claude Code, Codex ve OpenCode modeli giriş alanında seçer."] },
+    { eyebrow: "MODELLER VE OTURUM", title: "Oturum açın ve model seçin", body: "Herhangi bir ajanla sohbette /login yazın; ana makinede o ajanın kendi oturum açma komutu çalışır. Ayarlar → Ajanlar ve modeller → Modeller ve sağlayıcılar her ajanın modellerini ve ayarlarını gösterir.", points: ["Kimlik bilgileri seçili ana makinede her ajanın kendisinde kalır.", "Kota kaynakları, OpenCodex dahil abonelik ve API sınırlarını gösterir."] },
     { eyebrow: "PROJE", title: "Klasör seçip başlayın", body: "Yeni proje'yi açın, bu ana bilgisayardaki bir klasörü seçin, isteğe bağlı oturum adını yazın ve Buradan başla'yı seçin.", points: ["Klasör seçici izin verilmişse ana bilgisayarın ana klasöründe, aksi halde izin verilen bir kökte başlar.", "Bu rehberi daha sonra Ayarlar → Hakkında → Kurulum rehberi bölümünden açabilirsiniz."] },
   ],
   fr: [
     { eyebrow: "BIENVENUE", title: "Bienvenue sur Stepsemble", body: "Stepsemble conserve l’agent Pi, les sessions, les identifiants et les projets sur l’ordinateur sélectionné.", points: ["Choisissez la langue et l’apparence maintenant ; vous pourrez les modifier plus tard."] },
     { eyebrow: "JETON ET CONNEXION", title: "Trouver votre jeton Web", body: "L’installeur crée un jeton Web privé sur l’ordinateur qui exécute Stepsemble. Sur cet ordinateur, ouvrez le Terminal et exécutez cat ~/.config/stepsemble/token, puis collez le résultat ici. Depuis un autre appareil, récupérez le jeton en toute sécurité sur cet hôte.", points: ["Ne partagez jamais le jeton dans un chat, une capture d’écran, un dépôt ou un journal.", "Si un STEPSEMBLE_TOKEN_FILE personnalisé est configuré, utilisez ce fichier plutôt que le chemin par défaut."] },
     { eyebrow: "APPAREILS", title: "Connecter un autre ordinateur", body: "Installez et lancez Stepsemble sur chaque ordinateur supplémentaire. Utilisez Tailscale ou HTTPS, puis ouvrez Réglages → Appareils → Ajouter un appareil, ou utilisez un code d’association valable cinq minutes.", points: ["Préférez l’association à usage unique pour un identifiant indépendant et révocable ; le même jeton Web n’est requis que pour la saisie manuelle d’une URL.", "N’exposez jamais le port public 3140 à un réseau non fiable."] },
-    { eyebrow: "MODÈLES ET FOURNISSEURS", title: "Ajouter un fournisseur LLM", body: "Ouvrez Réglages → Connexion → Modèles et fournisseurs. Choisissez un service du catalogue, une connexion par compte/OAuth, une clé API, un service local ou un fournisseur personnalisé.", points: ["Les identifiants restent sur l’hôte sélectionné.", "S’applique uniquement aux sessions Pi Agent ; Claude Code, Codex et OpenCode choisissent leur modèle dans le composeur."] },
+    { eyebrow: "MODÈLES ET CONNEXION", title: "Se connecter et choisir les modèles", body: "Tapez /login dans une conversation avec n’importe quel agent : la connexion propre à cet agent s’exécute sur l’hôte. Réglages → Agents et modèles → Modèles et fournisseurs affiche les modèles et réglages de chaque agent.", points: ["Les identifiants restent auprès de chaque agent sur l’hôte sélectionné.", "Les sources des quotas affichent les limites d’abonnement et d’API, y compris depuis OpenCodex."] },
     { eyebrow: "PROJET", title: "Choisir un dossier et commencer", body: "Ouvrez Nouveau projet, choisissez un dossier sur cet hôte, indiquez éventuellement le nom de la session, puis sélectionnez Commencer ici.", points: ["Le sélecteur commence dans le dossier personnel de l’hôte s’il est autorisé, sinon dans une racine autorisée.", "Vous pourrez rouvrir ce guide dans Réglages → À propos → Guide de configuration."] },
   ],
   de: [
     { eyebrow: "WILLKOMMEN", title: "Willkommen bei Stepsemble", body: "Stepsemble bewahrt Pi Agent, Sitzungen, Zugangsdaten und Projekte auf dem ausgewählten Computer auf.", points: ["Wählen Sie Sprache und Darstellung jetzt aus; beides lässt sich später ändern."] },
     { eyebrow: "TOKEN UND ANMELDUNG", title: "Web-Token finden", body: "Das Installationsprogramm erstellt ein privates Web-Token auf dem Computer, auf dem Stepsemble läuft. Öffnen Sie dort das Terminal und führen Sie cat ~/.config/stepsemble/token aus. Fügen Sie das Ergebnis hier ein. Rufen Sie das Token auf einem anderen Gerät sicher von diesem Host ab.", points: ["Teilen Sie das Token niemals in Chats, Screenshots, Repositories oder Protokollen.", "Wenn ein eigenes STEPSEMBLE_TOKEN_FILE konfiguriert ist, verwenden Sie diese Datei statt des Standardpfads."] },
     { eyebrow: "GERÄTE", title: "Anderen Computer verbinden", body: "Installieren und starten Sie Stepsemble auf jedem weiteren Computer. Verwenden Sie Tailscale oder HTTPS und öffnen Sie Einstellungen → Geräte → Gerät hinzufügen oder verwenden Sie einen fünf Minuten gültigen Kopplungscode.", points: ["Bevorzugen Sie die einmalige Kopplung für eine unabhängige, widerrufbare Anmeldung; dasselbe Web-Token ist nur bei manueller URL-Eingabe erforderlich.", "Geben Sie den öffentlichen Port 3140 nie in einem nicht vertrauenswürdigen Netzwerk frei."] },
-    { eyebrow: "MODELLE UND ANBIETER", title: "LLM-Anbieter hinzufügen", body: "Öffnen Sie Einstellungen → Verbindung → Modelle und Anbieter. Wählen Sie einen Katalogdienst, die Konto-/OAuth-Anmeldung, einen API-Schlüssel, einen lokalen Dienst oder einen benutzerdefinierten Anbieter.", points: ["Zugangsdaten bleiben auf dem ausgewählten Host.", "Gilt nur für Pi-Agent-Sitzungen; Claude Code, Codex und OpenCode wählen Modelle im Eingabebereich."] },
+    { eyebrow: "MODELLE UND ANMELDUNG", title: "Anmelden und Modelle wählen", body: "Geben Sie in einer Unterhaltung mit einem beliebigen Agenten /login ein; auf dem Host läuft dann dessen eigene Anmeldung. Einstellungen → Agenten & Modelle → Modelle und Anbieter zeigt Modelle und Einstellungen jedes Agenten.", points: ["Zugangsdaten bleiben beim jeweiligen Agenten auf dem ausgewählten Host.", "Kontingentquellen zeigen Abo- und API-Limits, auch aus OpenCodex."] },
     { eyebrow: "PROJEKT", title: "Ordner auswählen und starten", body: "Öffnen Sie Neues Projekt, wählen Sie einen Ordner auf diesem Host, geben Sie optional einen Sitzungsnamen ein und wählen Sie Hier starten.", points: ["Die Ordnerauswahl beginnt im Home-Ordner des Hosts, wenn er erlaubt ist, andernfalls in einer erlaubten Wurzel.", "Sie können den Assistenten später unter Einstellungen → Über → Einrichtungsassistent erneut öffnen."] },
   ],
   es: [
     { eyebrow: "BIENVENIDA", title: "Bienvenido a Stepsemble", body: "Stepsemble conserva el agente Pi, las sesiones, las credenciales y los proyectos en el ordenador seleccionado.", points: ["Elige ahora el idioma y la apariencia; podrás cambiarlos más adelante."] },
     { eyebrow: "TOKEN E INICIO DE SESIÓN", title: "Encuentra tu token web", body: "El instalador crea un token web privado en el ordenador que ejecuta Stepsemble. En ese ordenador, abre Terminal y ejecuta cat ~/.config/stepsemble/token; después pega el resultado aquí. Desde otro dispositivo, recupera el token de forma segura en ese equipo anfitrión.", points: ["Nunca compartas el token en chats, capturas de pantalla, repositorios ni registros.", "Si se ha configurado un STEPSEMBLE_TOKEN_FILE personalizado, usa ese archivo en lugar de la ruta predeterminada."] },
     { eyebrow: "DISPOSITIVOS", title: "Conecta otro ordenador", body: "Instala y ejecuta Stepsemble en cada ordenador adicional. Usa Tailscale o HTTPS y abre Ajustes → Dispositivos → Añadir dispositivo, o utiliza un código de emparejamiento válido durante cinco minutos.", points: ["Prefiere el emparejamiento de un solo uso para obtener una credencial independiente y revocable; el mismo token web solo se necesita al introducir la URL manualmente.", "No expongas el puerto público 3140 directamente a una red que no sea de confianza."] },
-    { eyebrow: "MODELOS Y PROVEEDORES", title: "Añade un proveedor LLM", body: "Abre Ajustes → Conexión → Modelos y proveedores. Elige un servicio del catálogo, inicio de sesión con cuenta/OAuth, una clave API, un servicio local o un proveedor personalizado.", points: ["Las credenciales permanecen en el equipo anfitrión seleccionado.", "Se aplica solo a las sesiones de Pi Agent; Claude Code, Codex y OpenCode eligen el modelo en el compositor."] },
+    { eyebrow: "MODELOS E INICIO DE SESIÓN", title: "Inicia sesión y elige modelos", body: "Escribe /login en una conversación con cualquier agente; en el equipo se ejecuta el inicio de sesión propio de ese agente. Ajustes → Agentes y modelos → Modelos y proveedores muestra los modelos y ajustes de cada agente.", points: ["Las credenciales quedan con cada agente en el equipo seleccionado.", "Las fuentes de cuota muestran los límites de suscripción y de API, también desde OpenCodex."] },
     { eyebrow: "PROYECTO", title: "Elige una carpeta y empieza", body: "Abre Nuevo proyecto, elige una carpeta en este equipo anfitrión, escribe opcionalmente el nombre de la sesión y selecciona Empezar aquí.", points: ["El selector empieza en la carpeta personal del equipo si está permitida; de lo contrario, en una raíz permitida.", "Puedes volver a abrir esta guía desde Ajustes → Acerca de → Guía de configuración."] },
   ],
   "pt-BR": [
     { eyebrow: "BOAS-VINDAS", title: "Bem-vindo ao Stepsemble", body: "O Stepsemble mantém o Pi Agent, as sessões, as credenciais e os projetos no computador selecionado.", points: ["Escolha o idioma e a aparência agora; ambos podem ser alterados depois."] },
     { eyebrow: "TOKEN E LOGIN", title: "Encontre seu token Web", body: "O instalador cria um token Web privado no computador que executa o Stepsemble. Nesse computador, abra o Terminal e execute cat ~/.config/stepsemble/token; depois cole o resultado aqui. Em outro dispositivo, obtenha o token com segurança nesse host.", points: ["Nunca compartilhe o token em chats, capturas de tela, repositórios ou logs.", "Se um STEPSEMBLE_TOKEN_FILE personalizado estiver configurado, use esse arquivo em vez do caminho padrão."] },
     { eyebrow: "DISPOSITIVOS", title: "Conecte outro computador", body: "Instale e execute o Stepsemble em cada computador adicional. Use Tailscale ou HTTPS e abra Configurações → Dispositivos → Adicionar dispositivo, ou use um código de pareamento válido por cinco minutos.", points: ["Prefira o pareamento de uso único para obter uma credencial independente e revogável; o mesmo token Web só é necessário ao informar a URL manualmente.", "Não exponha a porta pública 3140 diretamente a uma rede não confiável."] },
-    { eyebrow: "MODELOS E PROVEDORES", title: "Adicione um provedor de LLM", body: "Abra Configurações → Conexão → Modelos e provedores. Escolha um serviço do catálogo, login com conta/OAuth, uma chave de API, um serviço local ou um provedor personalizado.", points: ["As credenciais permanecem no host selecionado.", "Aplica-se apenas às sessões do Pi Agent; Claude Code, Codex e OpenCode escolhem o modelo no compositor."] },
+    { eyebrow: "MODELOS E LOGIN", title: "Entre e escolha os modelos", body: "Digite /login em uma conversa com qualquer agente; o login do próprio agente roda no host. Configurações → Agentes e modelos → Modelos e provedores mostra os modelos e as configurações de cada agente.", points: ["As credenciais ficam com cada agente no host selecionado.", "As fontes de cota mostram os limites de assinatura e de API, inclusive do OpenCodex."] },
     { eyebrow: "PROJETO", title: "Escolha uma pasta e comece", body: "Abra Novo projeto, escolha uma pasta neste host, informe opcionalmente o nome da sessão e selecione Começar aqui.", points: ["O seletor começa na pasta pessoal do host quando ela é permitida; caso contrário, em uma raiz permitida.", "Você pode reabrir este guia em Configurações → Sobre → Guia de configuração."] },
   ],
   it: [
     { eyebrow: "BENVENUTO", title: "Benvenuto in Stepsemble", body: "Stepsemble conserva Pi Agent, sessioni, credenziali e progetti sul computer selezionato.", points: ["Scegli ora lingua e aspetto; potrai modificarli in seguito."] },
     { eyebrow: "TOKEN E ACCESSO", title: "Trova il token Web", body: "Il programma di installazione crea un token Web privato sul computer che esegue Stepsemble. Su quel computer apri Terminale ed esegui cat ~/.config/stepsemble/token, quindi incolla il risultato qui. Da un altro dispositivo, recupera il token in modo sicuro da quell’host.", points: ["Non condividere mai il token in chat, schermate, repository o log.", "Se è configurato un STEPSEMBLE_TOKEN_FILE personalizzato, usa quel file invece del percorso predefinito."] },
     { eyebrow: "DISPOSITIVI", title: "Collega un altro computer", body: "Installa e avvia Stepsemble su ogni computer aggiuntivo. Usa Tailscale o HTTPS, quindi apri Impostazioni → Dispositivi → Aggiungi dispositivo oppure usa un codice di abbinamento valido cinque minuti.", points: ["Preferisci l’abbinamento una tantum per una credenziale indipendente e revocabile; lo stesso token Web serve solo quando inserisci manualmente l’URL.", "Non esporre la porta pubblica 3140 a una rete non attendibile."] },
-    { eyebrow: "MODELLI E PROVIDER", title: "Aggiungi un provider LLM", body: "Apri Impostazioni → Connessione → Modelli e provider. Scegli un servizio del catalogo, l’accesso con account/OAuth, una chiave API, un servizio locale o un provider personalizzato.", points: ["Le credenziali restano sull’host selezionato.", "Si applica solo alle sessioni di Pi Agent; Claude Code, Codex e OpenCode scelgono il modello nel composer."] },
+    { eyebrow: "MODELLI E ACCESSO", title: "Accedi e scegli i modelli", body: "Digita /login in una conversazione con qualsiasi agent: sull’host si avvia l’accesso proprio di quell’agent. Impostazioni → Agenti e modelli → Modelli e provider mostra i modelli e le impostazioni di ogni agent.", points: ["Le credenziali restano presso ciascun agent sull’host selezionato.", "Le fonti delle quote mostrano i limiti di abbonamento e API, anche da OpenCodex."] },
     { eyebrow: "PROGETTO", title: "Scegli una cartella e inizia", body: "Apri Nuovo progetto, scegli una cartella su questo host, inserisci facoltativamente il nome della sessione e seleziona Inizia qui.", points: ["Il selettore parte dalla cartella home dell’host se autorizzata, altrimenti da una radice autorizzata.", "Puoi riaprire questa guida da Impostazioni → Informazioni → Guida alla configurazione."] },
   ],
 };
@@ -13957,12 +14185,8 @@ function setModelVisible(model, visible) {
 let modelProviderError = "";
 let modelProviderNotice = "";
 
-function renderModelSettingsSummary() {
-  if (!el.modelSettingsSummary) return;
-  if (modelCatalogLoading && modelCatalogMachine == null) {
-    el.modelSettingsSummary.textContent = "讀取模型與 Provider…";
-    return;
-  }
+function piModelSummaryText() {
+  if (modelCatalogLoading && modelCatalogMachine == null) return "";
   const providers = new Set(modelCatalog.map((model) => model?.provider || "unknown"));
   const modelKeys = new Set(modelCatalog.map((model) => `${model?.provider || "unknown"}::${model?.id || ""}`));
   for (const provider of configuredProviders) {
@@ -13970,9 +14194,22 @@ function renderModelSettingsSummary() {
     for (const model of provider.models || []) modelKeys.add(`${provider.id}::${model.id}`);
   }
   const suffix = modelProviderError ? " · 設定需檢查" : "";
-  el.modelSettingsSummary.textContent = providers.size || modelKeys.size
-    ? `${providers.size} Provider · ${modelKeys.size} 模型${suffix}`
-    : `管理模型顯示與自訂 Provider${suffix}`;
+  return providers.size || modelKeys.size ? `${providers.size} Provider · ${modelKeys.size} 模型${suffix}` : "";
+}
+
+let modelSettingsSummaryBase;
+function renderModelSettingsSummary() {
+  if (!el.modelSettingsSummary) return;
+  const catalog = agentAuthCatalogState.base === apiBase ? agentAuthCatalogState.data : null;
+  const names = catalog ? modelSettingsAgentIds().filter(id => catalog.agents?.[id]?.installed).map(agentTerminalLabel) : [];
+  el.modelSettingsSummary.textContent = names.length
+    ? (names.length > 4 ? names.slice(0, 4).join(", ") + " +" + (names.length - 4) : names.join(", "))
+    : modelAgentText("rowSummary");
+  // Load the agent list once per host, then name the agents in the row.
+  if (!catalog && modelSettingsSummaryBase !== apiBase) {
+    modelSettingsSummaryBase = apiBase;
+    loadAgentAuthCatalog().then(() => { if (agentAuthCatalogState.base === apiBase && agentAuthCatalogState.data) renderModelSettingsSummary(); }).catch(() => {});
+  }
 }
 
 function providerModelLines(provider) {
@@ -14296,9 +14533,10 @@ async function loadModelVisibility(force = false, skipSession = false) {
 
 el.modelVisibilityRefresh?.addEventListener("click", () => {
   const agent = currentModelSettingsAgent();
-  if (agent === "codex") void loadCodexGateway(true);
+  if (agent === "pi") void loadModelVisibility(true);
   else if (agent === "opencode") void loadOpenCodeProviders(true);
-  else void loadModelVisibility(true);
+  else if (agent) { if (isRoutedModelAgent(agent)) void loadCodexGateway(true); void loadAgentModelList(agent); }
+  else void renderModelAgentList();
 });
 
 el.modelCatalogRefresh?.addEventListener("click", async () => {
@@ -14326,55 +14564,163 @@ el.modelCatalogRefresh?.addEventListener("click", async () => {
 // OpenCode providers (models & providers page, OpenCode tab)
 // ===========================================================================
 
-let modelSettingsAgent = "pi";
+let modelSettingsAgent = null;
 let openCodeCatalogData = null;
 let openCodeCatalogLoading = false;
 let openCodeCatalogRequest = null;
 let openCodeDialogEdit = null;
 
-function currentModelSettingsAgent() {
-  // Each tab owns its panel; an unknown value falls back to Pi.
-  return modelSettingsAgent === "opencode" || modelSettingsAgent === "codex" ? modelSettingsAgent : "pi";
+// Models & providers lists every agent installed on the host. Each agent's page
+// says how to sign in and shows the models it offers and its own settings:
+// Pi's visible models and custom providers, OpenCode's providers and local
+// server, and the OpenCodex routing for Codex and Claude Code.
+function modelSettingsAgentIds() { return ["pi", "codex", "claude-code", "opencode", "kilo", "hermes", "grok-build", "cline", "antigravity"]; }
+function isRoutedModelAgent(agent) { return agent === "codex" || agent === "claude-code"; }
+function currentModelSettingsAgent() { return modelSettingsAgent; }
+function modelAgentText(key, vars = {}) { return tKey("modelAgents." + key, vars); }
+
+function setModelSettingsAgent(agent, { sync = true } = {}) {
+  modelSettingsAgent = modelSettingsAgentIds().includes(agent) ? agent : null;
+  applyModelSettingsAgent();
+  const scroll = el.viewModelSettings?.querySelector(".settings-scroll");
+  if (scroll) scroll.scrollTop = 0;
+  if (sync) syncSettingsNav();
 }
 
 function applyModelSettingsAgent() {
-  const agent = currentModelSettingsAgent();
-  const pi = agent === "pi";
-  const opencode = agent === "opencode";
-  el.modelAgentPi?.classList.toggle("is-active", pi);
-  el.modelAgentPi?.setAttribute("aria-selected", pi ? "true" : "false");
-  el.modelAgentOpencode?.classList.toggle("is-active", opencode);
-  el.modelAgentOpencode?.setAttribute("aria-selected", opencode ? "true" : "false");
-  el.modelAgentCodex?.classList.toggle("is-active", agent === "codex");
-  el.modelAgentCodex?.setAttribute("aria-selected", agent === "codex" ? "true" : "false");
-  // Pi-only controls: import/export plus the pi.dev catalog refresh belong to
-  // the Pi tab; the add button switches target with the tab.
+  const agent = modelSettingsAgent;
+  const pi = agent === "pi", opencode = agent === "opencode", routed = isRoutedModelAgent(agent);
+  const listed = !!agent && !pi && !opencode;
+  const title = agent ? agentTerminalLabel(agent) : updateText("Models & providers");
+  if (el.modelSettingsTopbarTitle) el.modelSettingsTopbarTitle.textContent = title;
+  if (el.modelSettingsHeading) el.modelSettingsHeading.textContent = title;
+  el.modelSettingsIntro?.classList.toggle("hidden", !!agent);
+  el.modelAgentList?.classList.toggle("hidden", !!agent);
+  el.modelAgentSignin?.classList.toggle("hidden", !agent);
+  if (agent && el.modelAgentSigninText) el.modelAgentSigninText.textContent = modelAgentText("signIn", { agent: title });
+  // Pi's own controls: import/export, the pi.dev catalog refresh and its list.
   el.providerConfigImport?.classList.toggle("hidden", !pi);
-  // The Codex & Claude tab switches gateway routing; it has no provider form.
-  el.providerAdd?.classList.toggle("hidden", agent === "codex");
   el.providerConfigExport?.classList.toggle("hidden", !pi);
-  if (el.modelCatalogRefresh) el.modelCatalogRefresh.classList.toggle("hidden", !pi);
+  el.providerAdd?.classList.toggle("hidden", !(pi || opencode));
+  el.modelCatalogRefresh?.classList.toggle("hidden", !pi);
+  el.modelVisibilityRefresh?.classList.toggle("hidden", !agent);
   $("model-catalog-status")?.classList.toggle("hidden", !pi);
   el.modelListToolbar?.classList.toggle("hidden", !pi);
   el.modelVisibilityList?.classList.toggle("hidden", !pi);
   el.opencodeProviderPanel?.classList.toggle("hidden", !opencode);
-  el.codexGatewayPanel?.classList.toggle("hidden", agent !== "codex");
-  const note = document.querySelector('.settings-scope-note[data-i18n-key="modelScope.note"]');
-  note?.classList.toggle("hidden", !pi);
+  el.codexGatewayPanel?.classList.toggle("hidden", !routed);
+  el.agentModelPanel?.classList.toggle("hidden", !listed);
+  if (!agent) { void renderModelAgentList(); return; }
+  if (pi) void loadModelVisibility();
   if (opencode) void loadOpenCodeProviders();
-  if (agent === "codex") void loadCodexGateway();
+  if (routed) { if (codexGatewayData) renderCodexGateway(); void loadCodexGateway(); }
+  if (listed) void loadAgentModelList(agent);
 }
 
-function switchModelSettingsAgent(agent) {
-  if (agent !== "pi" && agent !== "opencode" && agent !== "codex") return;
-  if (modelSettingsAgent === agent) return;
-  modelSettingsAgent = agent;
-  applyModelSettingsAgent();
+function modelAgentSummary(id) {
+  if (id === "pi") return piModelSummaryText() || modelAgentText("summary.pi");
+  if (isRoutedModelAgent(id)) return modelAgentText("summary.routed");
+  if (id === "opencode") return modelAgentText("summary.opencode");
+  return modelAgentText("summary.models");
 }
 
-el.modelAgentPi?.addEventListener("click", () => switchModelSettingsAgent("pi"));
-el.modelAgentOpencode?.addEventListener("click", () => switchModelSettingsAgent("opencode"));
-el.modelAgentCodex?.addEventListener("click", () => switchModelSettingsAgent("codex"));
+let modelAgentListRequest = 0;
+async function renderModelAgentList() {
+  const box = el.modelAgentList;
+  if (!box) return;
+  const sequence = ++modelAgentListRequest, base = apiBase;
+  let catalog = null;
+  try { catalog = await loadAgentAuthCatalog(); } catch {}
+  if (sequence !== modelAgentListRequest || base !== apiBase || modelSettingsAgent) return;
+  const installed = modelSettingsAgentIds().filter(id => catalog ? catalog.agents?.[id]?.installed : id === "pi");
+  box.replaceChildren();
+  if (!installed.length) {
+    const empty = document.createElement("p");
+    empty.className = "settings-note model-agent-list-empty";
+    empty.textContent = modelAgentText("none");
+    box.appendChild(empty);
+    return;
+  }
+  for (const id of installed) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "settings-navigation-row";
+    row.dataset.modelAgent = id;
+    const copy = document.createElement("span");
+    const name = document.createElement("strong");
+    name.textContent = agentTerminalLabel(id);
+    const detail = document.createElement("small");
+    detail.textContent = modelAgentSummary(id);
+    copy.append(name, detail);
+    const chevron = document.createElement("span");
+    chevron.className = "row-chevron";
+    chevron.setAttribute("aria-hidden", "true");
+    chevron.textContent = "→";
+    row.append(copy, chevron);
+    row.addEventListener("click", () => setModelSettingsAgent(id));
+    box.appendChild(row);
+  }
+}
+
+// Codex lists its models live. Claude Code and the ACP agents only report them
+// inside a conversation, so their page shows the list from the last one.
+let agentModelRequest = 0;
+async function loadAgentModelList(agentId) {
+  const box = el.agentModelList, status = el.agentModelStatus;
+  if (!box || !status) return;
+  const sequence = ++agentModelRequest, base = apiBase;
+  const current = () => sequence === agentModelRequest && base === apiBase && modelSettingsAgent === agentId;
+  box.replaceChildren();
+  status.textContent = modelAgentText("loading");
+  status.classList.remove("hidden");
+  try {
+    let models = [], observedAt = null, supported = true;
+    if (agentId === "codex") {
+      let cursor = null;
+      for (let page = 0; page < 32; page += 1) {
+        const result = await api("/api/codex/models" + (cursor ? "?cursor=" + encodeURIComponent(cursor) : ""));
+        if (!current()) return;
+        models.push(...(Array.isArray(result?.data) ? result.data : []).map(normalizeCodexModel).filter(Boolean));
+        const next = typeof result?.nextCursor === "string" && result.nextCursor ? result.nextCursor : null;
+        if (!next || next === cursor) break;
+        cursor = next;
+      }
+    } else {
+      const result = await api("/api/agent-models?agentId=" + encodeURIComponent(agentId));
+      if (!current()) return;
+      models = Array.isArray(result?.models) ? result.models : [];
+      observedAt = Number.isFinite(result?.observedAt) ? result.observedAt : null;
+      supported = result?.supported !== false;
+    }
+    if (!current()) return;
+    const label = agentTerminalLabel(agentId);
+    for (const model of models) {
+      const row = document.createElement("div");
+      row.className = "agent-model-row";
+      const name = document.createElement("strong");
+      name.textContent = model.name || model.id;
+      row.appendChild(name);
+      const detail = [model.name && model.name !== model.id ? model.id : "", model.description || ""].filter(Boolean).join(" · ");
+      if (detail) {
+        const small = document.createElement("small");
+        small.textContent = detail;
+        row.appendChild(small);
+      }
+      box.appendChild(row);
+    }
+    status.textContent = !supported ? modelAgentText("unsupported", { agent: label })
+      : !models.length ? modelAgentText("empty", { agent: label })
+        : observedAt ? modelAgentText("seen", { time: new Date(observedAt).toLocaleString(document.documentElement.lang || undefined) }) : "";
+    status.classList.toggle("hidden", !status.textContent);
+  } catch (error) {
+    if (!current()) return;
+    status.textContent = modelAgentText("failed", { detail: String(error?.message || "unknown error").slice(0, 160) });
+  }
+}
+
+el.modelAgentStatus?.addEventListener("click", () => {
+  if (modelSettingsAgent) void openAgentTerminal({ agentId: modelSettingsAgent, action: "status" });
+});
 
 function openCodeModelLine(model) {
   const id = String(model?.id || model?.modelID || "").trim();
@@ -14763,7 +15109,7 @@ function renderCodexGateway() {
     }
     codexCard.appendChild(models);
   }
-  el.codexGatewayList.appendChild(codexCard);
+  if (modelSettingsAgent !== "claude-code") el.codexGatewayList.appendChild(codexCard);
 
   const claudeCard = document.createElement("div");
   claudeCard.className = "opencode-provider-card";
@@ -14816,7 +15162,7 @@ function renderCodexGateway() {
   });
   claudeActions.appendChild(bridgeButton);
   claudeCard.appendChild(claudeActions);
-  el.codexGatewayList.appendChild(claudeCard);
+  if (modelSettingsAgent !== "codex") el.codexGatewayList.appendChild(claudeCard);
 
   const note = document.createElement("p");
   note.className = "settings-note";

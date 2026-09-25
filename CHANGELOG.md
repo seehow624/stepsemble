@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.4.0
+
+- Leave Settings one level at a time. Settings, a section, Models & providers and an agent's page are now steps in the browser history, so Safari's edge swipe, Android's back gesture, the back button and the in-app swipe return to the level above instead of jumping to the main page. Models & providers gets the same edge swipe as the rest of Settings, and a swipe can start on a row.
+- List every installed agent under Models & providers. Each agent's page says how to sign in, can check its sign-in status, and shows the models it offers: Codex and OpenCode list theirs live, while Claude Code, Kilo Code, Hermes and Cline show the models from their last conversation. Pi keeps model visibility and the Custom provider editor, OpenCode its providers, and Codex and Claude Code their OpenCodex routing.
+- Move the local OpenCode server setting to OpenCode's page, with a note on what it does, and drop the Agent sign-in group from Settings.
+- Choose where limits come from. Quota sources lists each agent's own sign-in, Pi's sign-ins and keys, OpenCodex and CodexBar, each with a switch; a service that several sources can read can use a chosen one, and the list marks which source is in use. CodexBar's CLI runs only after it is turned on, at most every five minutes. OpenCodex's OpenAI and Anthropic readings now fill the Codex and Claude rings when no sign-in answers.
+- Teach sign-in with /login in the setup guide and help.
+
 ## 3.3.0
 
 - Sign in with each agent's own commands. Type `/login`, `/logout` or `/status` in a conversation with Pi, Codex, Claude Code, OpenCode, Kilo Code, Hermes, Grok Build, Cline or Antigravity, and Stepsemble runs that agent's command on the conversation's host in a terminal sheet. Sign-in links open as buttons, one-time codes can be copied, and what you type goes back to the command. Entries for keys, tokens and passwords are hidden and masked in the output. The command palette lists `/login` and `/status` for each installed agent.

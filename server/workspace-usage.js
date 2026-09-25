@@ -1,4 +1,5 @@
 "use strict";
+const { normalizeQuotaConfig } = require("./quota-sources");
 const fs = require("node:fs/promises"), fss = require("node:fs"), os = require("node:os"), path = require("node:path");
 const { execFile } = require("node:child_process");
 // opencodex already probes every provider it routes and publishes the results on
@@ -274,8 +275,8 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
   readClaudeCache = () => claudeCache(home, now()), readCodexSignIn = () => codexSignIn(home, env),
   readSignIn = providerId => storedSignIn(home, providerId),
   readProviderQuotas = () => configuredProviderQuotas({ home, fetchImpl, readSignIn }),
-  readOpenCodex = () => opencodexQuotas({ home, fetchImpl }), now = Date.now }) {
-  let cached = null, flight = null, expires = 0;
+  readOpenCodex = () => opencodexQuotas({ home, fetchImpl }), readConfig = async () => null, readCodexBar = async () => null, now = Date.now }) {
+  let cached = null, expires = 0;
   function providerRow(provider, settled) {
     const value = settled.status === "fulfilled" ? settled.value : null;
     const windows = value?.windows || [];
@@ -297,63 +298,139 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
     const res = await fetchImpl(ANTHROPIC_USAGE_URL, { headers: { Authorization: `Bearer ${token}`, "anthropic-beta": "oauth-2025-04-20" }, signal: AbortSignal.timeout(10000) });
     return res.ok ? claudeWindows(await res.json()) : [];
   }
-  // Codex's own app-server answers whenever this release has reviewed the
-  // installed CLI's schema. Otherwise the same allowance is read from ChatGPT,
-  // first with the account the Codex CLI is signed in to, then with the
-  // ChatGPT account signed in under Settings.
-  async function codexReading() {
-    try {
-      const windows = codexWindows(await codex());
-      if (windows.length) return { windows, observedAt: null, source: "native" };
-    } catch {}
-    for (const [source, read] of [["account", readCodexSignIn], ["signin", () => readSignIn("openai-codex")]]) {
-      const credential = await signIn(read);
-      if (!liveToken(credential, now())) continue;
-      try {
-        const windows = await chatgptUsage(credential);
-        if (windows.length) return { windows, observedAt: null, source };
-      } catch {}
-    }
-    throw new Error("unavailable");
+  // Where each service's allowance comes from. Sources are tried in this order
+  // unless Settings prefers one for a service; a source that is off is never read.
+  const DEFAULT_ORDER = ["agents", "pi", "opencodex", "codexbar"];
+  const SERVICE_LABELS = { codex: "Codex", claude: "Claude", "opencode-go": "OpenCode Go", "opencode-free": "OpenCode Zen", minimax: "MiniMax", "minimax-cn": "MiniMax (China)" };
+  const OPENCODEX_SERVICES = { anthropic: "claude", openai: "codex" };
+  function sourceOrder(service, config) {
+    const preferred = config.prefer[service];
+    return preferred ? [preferred, ...DEFAULT_ORDER.filter(id => id !== preferred)] : DEFAULT_ORDER;
   }
-  // Prefer a live account reading: Claude Code's own sign-in, then the Claude
-  // account signed in under Settings. Claude's cache still reports something it
-  // observed on a host that has neither.
-  async function claudeReading() {
-    const readers = [["native", async () => ({ type: "oauth", secret: await readClaudeToken(), expiresAt: null })],
-      ["signin", () => readSignIn("anthropic")]];
-    for (const [source, read] of readers) {
-      const credential = await signIn(read);
-      if (!liveToken(credential, now())) continue;
-      try {
-        const windows = await claudeUsage(credential.secret);
-        if (windows.length) return { windows, observedAt: null, source };
-      } catch {}
-    }
-    const fallback = await readClaudeCache();
-    if (fallback) return { ...fallback, source: "native" };
-    throw new Error("unavailable");
+  async function chatgptReading(read, source) {
+    const credential = await signIn(read);
+    if (!liveToken(credential, now())) return null;
+    try { const windows = await chatgptUsage(credential); return windows.length ? { windows, observedAt: null, source } : null; } catch { return null; }
   }
-  async function collect() {
-    const sources = await Promise.allSettled([
-      codexReading(),
-      claudeReading(),
-      Promise.resolve().then(readProviderQuotas),
-      Promise.resolve().then(readOpenCodex),
+  async function claudeTokenReading(read, source) {
+    const credential = await signIn(read);
+    if (!liveToken(credential, now())) return null;
+    try { const windows = await claudeUsage(credential.secret); return windows.length ? { windows, observedAt: null, source } : null; } catch { return null; }
+  }
+  // Codex: its own app-server when this release has reviewed the installed
+  // CLI's schema, otherwise ChatGPT with the account the Codex CLI is signed in
+  // to ("agents"), or with the ChatGPT account signed in through Pi ("pi").
+  // Claude: Claude Code's own sign-in, or the Claude account signed in through Pi.
+  async function signInReading(sourceId, service) {
+    if (service === "codex") {
+      if (sourceId === "pi") return chatgptReading(() => readSignIn("openai-codex"), "signin");
+      try {
+        const windows = codexWindows(await codex());
+        if (windows.length) return { windows, observedAt: null, source: "native" };
+      } catch {}
+      return chatgptReading(readCodexSignIn, "account");
+    }
+    if (sourceId === "pi") return claudeTokenReading(() => readSignIn("anthropic"), "signin");
+    return claudeTokenReading(async () => ({ type: "oauth", secret: await readClaudeToken(), expiresAt: null }), "native");
+  }
+  // `full` reads every source that is on, for Settings to compare them; the
+  // limits strip stops at the first source that answers.
+  async function collect(full) {
+    let config;
+    try { config = normalizeQuotaConfig(await readConfig()); } catch { config = normalizeQuotaConfig(null); }
+    const on = id => config.sources[id] !== false;
+    const readings = { agents: new Map(), pi: new Map(), opencodex: new Map(), codexbar: new Map() };
+    const labels = new Map();
+    const [probed, borrowed, bar] = await Promise.allSettled([
+      on("pi") ? Promise.resolve().then(readProviderQuotas) : [],
+      on("opencodex") ? Promise.resolve().then(readOpenCodex) : [],
+      on("codexbar") ? Promise.resolve().then(readCodexBar) : null,
     ]);
-    // A probed allowance wins over a borrowed one, so the same provider is never
-    // listed twice and the row does not depend on another app being up.
-    const probed = sources[2].status === "fulfilled" ? sources[2].value : [];
-    const borrowed = sources[3].status === "fulfilled" ? sources[3].value : [];
-    const providers = [providerRow("Codex", sources[0]), providerRow("Claude", sources[1]),
-      ...probed.map(({ ids, ...row }) => row),
-      ...opencodexProviders(borrowed, now(), new Set(probed.flatMap(row => row.ids || [])))];
-    cached = { updatedAt: now(), providers };
+    for (const row of probed.status === "fulfilled" && Array.isArray(probed.value) ? probed.value : []) {
+      const service = Array.isArray(row?.ids) && typeof row.ids[0] === "string" ? row.ids[0] : null;
+      if (!service || !row.windows?.length) continue;
+      readings.pi.set(service, { windows: row.windows, observedAt: row.observedAt ?? null, source: row.source || "signin" });
+      labels.set(service, row.provider);
+    }
+    for (const report of borrowed.status === "fulfilled" && Array.isArray(borrowed.value) ? borrowed.value : []) {
+      const id = typeof report?.provider === "string" ? report.provider : "";
+      if (!id) continue;
+      const service = OPENCODEX_SERVICES[id] || id, quota = report.quota || {};
+      const windows = currentWindows(OPENCODEX_WINDOWS
+        .map(([key, minutes]) => windowUsage(quota[`${key}Percent`], asSecondsValue(quota[`${key}ResetAt`]), null, minutes, null))
+        .filter(Boolean), now());
+      if (!windows.length) continue;
+      readings.opencodex.set(service, { windows, observedAt: null, source: "opencodex" });
+      if (!labels.has(service)) labels.set(service, OPENCODEX_NAMES[id] || report.label || id);
+    }
+    const codexbar = bar.status === "fulfilled" ? bar.value : null;
+    for (const report of Array.isArray(codexbar?.reports) ? codexbar.reports : []) {
+      const windows = currentWindows((report.windows || [])
+        .map(w => windowUsage(w.usedPercent, Number.isFinite(w.resetsAt) ? Math.floor(w.resetsAt / 1000) : null, null, w.windowDurationMins, null))
+        .filter(Boolean), now());
+      if (!windows.length) continue;
+      // CodexBar keeps its own cache; an old reading says when it was taken.
+      const stale = Number.isFinite(report.updatedAt) && now() - report.updatedAt > 15 * 60 * 1000;
+      readings.codexbar.set(report.id, { windows, observedAt: stale ? report.updatedAt : null, source: "codexbar" });
+      if (!labels.has(report.id)) labels.set(report.id, report.label || report.id);
+    }
+    for (const service of ["codex", "claude"]) {
+      for (const sourceId of sourceOrder(service, config)) {
+        if (!on(sourceId)) continue;
+        if (sourceId === "agents" || sourceId === "pi") {
+          const reading = await signInReading(sourceId, service);
+          if (reading) readings[sourceId].set(service, reading);
+        }
+        if (!full && readings[sourceId].has(service)) break;
+      }
+    }
+    // Claude Code caches what it last observed; that still reports something
+    // when no source can read Claude live.
+    if (on("agents") && !DEFAULT_ORDER.some(id => on(id) && readings[id].has("claude"))) {
+      try {
+        const cache = await readClaudeCache();
+        if (cache?.windows?.length) readings.agents.set("claude", { windows: cache.windows, observedAt: cache.observedAt ?? null, source: "native" });
+      } catch {}
+    }
+    const label = service => SERVICE_LABELS[service] || labels.get(service) || service;
+    const services = ["codex", "claude"];
+    for (const id of DEFAULT_ORDER) for (const service of readings[id].keys()) if (!services.includes(service)) services.push(service);
+    const providers = [];
+    for (const service of services) {
+      const sourceId = sourceOrder(service, config).find(id => on(id) && readings[id].has(service)) || null;
+      const reading = sourceId ? readings[sourceId].get(service) : null;
+      if (!reading && service !== "codex" && service !== "claude") continue;
+      const windows = reading?.windows || [];
+      const observed = typeof reading?.observedAt === "number" ? reading.observedAt : null;
+      providers.push({ provider: label(service), service, sourceId, status: !windows.length ? "unavailable" : observed ? "cached" : "ready",
+        observedAt: windows.length ? observed : null, source: windows.length ? reading.source || null : null, windows });
+    }
+    const sources = {};
+    for (const id of DEFAULT_ORDER) {
+      sources[id] = { enabled: on(id), services: [...readings[id].entries()].map(([service, reading]) => ({ service, label: label(service),
+        windows: reading.windows, observedAt: reading.observedAt ?? null })) };
+    }
+    if (codexbar) sources.codexbar.reason = codexbar.reason || null;
+    const result = { updatedAt: now(), providers, sources, prefer: config.prefer };
+    if (full) { cachedFull = result; expiresFull = now() + 60000; }
+    cached = result;
     // A reading that came from a cache is retried sooner than a live one.
     expires = now() + (providers.every(p => p.status === "ready") ? 300000 : 60000);
-    return cached;
+    return result;
   }
-  return { read() { if (cached && now() < expires) return Promise.resolve(cached); if (!flight) flight = collect().finally(() => flight = null); return flight; } };
+  let cachedFull = null, expiresFull = 0;
+  const flights = { fast: null, full: null };
+  return {
+    read(options = {}) {
+      const full = options?.full === true, key = full ? "full" : "fast";
+      if (!full && cached && now() < expires) return Promise.resolve(cached);
+      if (full && cachedFull && now() < expiresFull) return Promise.resolve(cachedFull);
+      if (!flights[key]) flights[key] = collect(full).finally(() => { flights[key] = null; });
+      return flights[key];
+    },
+    // A changed source or preference applies to the next read.
+    invalidate() { cached = null; cachedFull = null; expires = 0; expiresFull = 0; },
+  };
 }
 module.exports = { createWorkspaceUsage, windowUsage, codexWindows, chatgptWindows, claudeWindows, currentWindows, keychainHome, opencodexProviders, opencodexQuotas,
   configuredProviderQuotas, providerCredentials, storedSignIn, codexSignIn, QUOTA_PROBES };

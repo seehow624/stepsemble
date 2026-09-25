@@ -100,6 +100,21 @@ export async function runAgentTerminalBrowserCases(browser, { screenshotDirector
       await page.waitForFunction(() => /Not logged in/.test(document.querySelector("#agent-terminal-screen")?.textContent || ""));
       await page.locator("#agent-terminal-done").click();
       await sheet.waitFor({ state: "hidden" });
+      if (viewport.width < 800) {
+        // Each Settings level is a history entry, so the system back gesture
+        // (Safari's edge swipe, Android's back) leaves one level at a time.
+        await page.locator("#btn-open-settings").click();
+        await page.locator('.settings-nav-item[data-settings-open="agents"]').click();
+        await page.locator("#model-settings-open").click();
+        await page.locator('#model-agent-list [data-model-agent="codex"]').click();
+        await page.locator("#model-agent-signin").waitFor();
+        assert.equal(await page.evaluate(() => history.state?.stepsembleSettingsNav?.level), "models:codex");
+        for (const expected of ["models", "settings:agents", "settings"]) {
+          await page.goBack();
+          await page.waitForFunction(value => (history.state?.stepsembleSettingsNav?.level || null) === value, expected);
+        }
+        assert.ok(await page.locator('.settings-nav-item[data-settings-open="agents"]').isVisible(), "Back returns to the Settings list");
+      }
       assert.deepEqual(errors, []); assert.deepEqual(foreign, []);
       console.log(JSON.stringify({ case: "Agent terminal (" + viewport.width + ")", result: "passed", syntheticOnly: true, columns, linkAndCode: true, maskedInput: true, horizontalOverflow: false, pageErrors: 0 }));
     } catch (error) {

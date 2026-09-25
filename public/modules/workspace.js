@@ -535,6 +535,7 @@
       const head = node("div", "", "workspace-quota-provider-head");
       head.append(providerLogo(provider.provider), node("strong", provider.provider));
       if (provider.source === "opencodex") head.append(node("small", t("viaOpencodex"), "workspace-quota-source"));
+      else if (provider.source === "codexbar") head.append(node("small", t("viaCodexbar"), "workspace-quota-source"));
       section.append(head);
       if (!provider.windows?.length) section.append(node("p", t("unknownQuota")));
       else {
