@@ -14,7 +14,7 @@ test("the last models an agent offered are kept, bounded and owner-only", () => 
     const choices = acpModelChoices([{ id: "mode", options: [{ value: "ask" }] },
       { id: "model", category: "model", options: [{ value: "anthropic/sonnet", name: "Sonnet" }, { value: "anthropic/sonnet" }, { value: "" }, { value: "openai/luna", description: "fast\nmodel" }] }]);
     assert.equal(cache.record("hermes", choices), true);
-    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    if (process.platform !== "win32") assert.equal(fs.statSync(file).mode & 0o777, 0o600);
     assert.deepEqual(createAgentModelCache({ file }).get("hermes"), { agentId: "hermes", supported: true, observedAt: 1_000,
       models: [{ id: "anthropic/sonnet", name: "Sonnet" }, { id: "openai/luna", description: "fast model" }] });
     // The same list is not rewritten until an hour has passed.
