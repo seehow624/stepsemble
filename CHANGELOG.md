@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.6.1
+
+- Sign an agent in on another computer from the Workspace. With another computer chosen as the host, starting a sign-in did nothing on computers added before device pairing: the relay left out the page's origin, so the other computer refused it. The relay now vouches for a page this computer has already checked, which also lets quota sources be saved and the Claude helper be updated on such a computer. A request without an origin is still refused.
+- Keep a sign-in that fails in New session on screen with its reason until you close its terminal. It used to disappear at once and leave the Sign in button, as if nothing had happened.
+- Fit New session's sign-in terminal on the screen. The dialog takes the screen's height and the terminal fills what is left, so its code, links and keys are no longer cut off at the bottom on a phone.
+- Start each folder in Add project at its top, even when the previous folder was still scrolling after End or a flick.
+
 ## 3.6.0
 
 - Lay out the message box like Codex's: attachments and Approval on the left; the context ring, the model with its reasoning level and a smaller round Send button on the right. Tap the ring for the context numbers. On a phone the arrows are dropped to save room, and the model label uses the chosen language until the conversation reports its model.

@@ -100,7 +100,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.6.0";
+const APP_VERSION = "3.6.1";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -4857,6 +4857,12 @@ const server = http.createServer(async (req, res) => {
         // the credential value is the same non-reversible token hash.
         headers.cookie = [BROWSER_COOKIE, ...LEGACY_BROWSER_COOKIES]
           .map((name) => `${name}=${TOKEN_HASH}`).join("; ");
+        // The shared token signs the relay in as a browser, and a browser
+        // sign-in must name the page behind a change (agent sign-in, quota
+        // sources, the Claude helper update). This machine has already
+        // checked that page came from itself, so it names the remote's own
+        // origin; a request without an Origin still reaches it without one.
+        if (req.headers.origin && req.method !== "GET" && req.method !== "HEAD") headers.origin = upstream.origin;
       }
       if (req.headers["last-event-id"]) headers["last-event-id"] = req.headers["last-event-id"];
       if (req.method === "POST") headers["content-type"] = req.headers["content-type"] || "application/json";

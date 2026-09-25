@@ -436,6 +436,12 @@ dialog header .btn { min-width: 34px; min-height: 34px; padding: 0; border: 0; c
 .workspace-signin[hidden] { display: none; }
 #workspace-dialog-body .workspace-signin .btn { justify-self: start; min-height: 38px; padding: 0 18px; justify-content: center; }
 .workspace-signin-frame { width: 100%; height: min(620px, 66dvh); border: .5px solid var(--line); border-radius: 12px; background: var(--paper); }
+/* While an agent signs in, the dialog fills the screen's height and the
+   terminal takes whatever the fields above it leave, so nothing is cut off. */
+#workspace-dialog.workspace-signing-in[open] { display: flex; flex-direction: column; height: min(780px, calc(100dvh - 32px)); max-height: calc(100dvh - 32px); overflow: hidden; }
+#workspace-dialog.workspace-signing-in #workspace-dialog-body { flex: 1 1 auto; min-height: 0; grid-template-rows: auto auto auto minmax(0, 1fr); }
+#workspace-dialog.workspace-signing-in .workspace-signin { min-height: 0; grid-template-rows: minmax(0, 1fr); }
+#workspace-dialog.workspace-signing-in .workspace-signin-frame { height: 100%; min-height: 0; }
 @media (max-width: 340px) {
   .workspace-new-session-fields { flex-direction: column; }
   .workspace-new-session-fields select { flex: none; max-width: none; }

@@ -511,6 +511,15 @@ test("legacy configured machines still use the shared-token relay without exposi
   assert.doesNotMatch(catalog.text, /credential|secretHash|device-trust\.json/i);
   const relayed = await request(port, "/r/legacy/api/sessions", { cookie });
   assert.equal(relayed.status, 200, relayed.text);
+  // A change made from this machine's page reaches the remote as a browser
+  // change from its own page, so agent sign-in works on the other computer.
+  const signIn = { agentId: "no-such-agent", action: "login" };
+  const fromPage = await request(port, "/r/legacy/api/agent-auth/start", { method: "POST", cookie, body: signIn, headers: { Origin: `http://localhost:${port}` } });
+  assert.equal(fromPage.status, 400, fromPage.text);
+  assert.equal(fromPage.body.error, "invalid_request");
+  const withoutPage = await request(port, "/r/legacy/api/agent-auth/start", { method: "POST", cookie, body: signIn });
+  assert.equal(withoutPage.status, 403, withoutPage.text);
+  assert.equal(withoutPage.body.error, "origin_required");
   const trustFile = path.join(home, ".config", "stepsemble", "device-trust.json");
   assert.equal(fs.existsSync(trustFile), false, "legacy relay must not create a peer grant store");
 });

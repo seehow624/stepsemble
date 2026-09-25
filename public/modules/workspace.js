@@ -570,8 +570,8 @@
     }
     body.append(quotaSources());
   }
-  function closeDialog() { dialogEpoch++; if ($("workspace-dialog").open) $("workspace-dialog").close(); $("workspace-dialog").classList.remove("workspace-project-dialog", "workspace-quota-dialog"); $("workspace-dialog-body").replaceChildren(); }
-  function dialog(title) { dialogEpoch++; const modal = $("workspace-dialog"); modal.classList.remove("workspace-project-dialog", "workspace-quota-dialog", "workspace-new-session-dialog"); $("workspace-dialog-title").textContent = title; const body = $("workspace-dialog-body"); body.replaceChildren(); if (!modal.open) modal.showModal(); return body; }
+  function closeDialog() { dialogEpoch++; if ($("workspace-dialog").open) $("workspace-dialog").close(); $("workspace-dialog").classList.remove("workspace-project-dialog", "workspace-quota-dialog", "workspace-signing-in"); $("workspace-dialog-body").replaceChildren(); }
+  function dialog(title) { dialogEpoch++; const modal = $("workspace-dialog"); modal.classList.remove("workspace-project-dialog", "workspace-quota-dialog", "workspace-new-session-dialog", "workspace-signing-in"); $("workspace-dialog-title").textContent = title; const body = $("workspace-dialog-body"); body.replaceChildren(); if (!modal.open) modal.showModal(); return body; }
   function addProject() {
     const body = dialog(t("addProject")), epoch = dialogEpoch, target = host;
     $("workspace-dialog").classList.add("workspace-project-dialog");
@@ -692,6 +692,7 @@
       || /\b(?:sign in|signed in|log in|logged in|authenticat|unauthori[sz]ed)/i.test(String(error?.message || ""));
     function offerSignIn(agentId) {
       const label = [...select.options].find(option => option.value === agentId)?.textContent || agentId;
+      $("workspace-dialog").classList.remove("workspace-signing-in");
       notice.replaceChildren(node("p", t("signInNeeded", { agent: label, host: hostName(target) })),
         button(t("signIn"), () => startSignIn(agentId), t("signIn"), "btn primary workspace-signin-start"));
       notice.hidden = false;
@@ -700,14 +701,20 @@
       const url = new URL("/index.html", location.origin);
       url.searchParams.set("pane", "1"); url.searchParams.set("host", target); url.searchParams.set("signin", agentId);
       signInFrame = node("iframe", "", "workspace-signin-frame"); signInFrame.title = t("signIn"); signInFrame.src = url.href;
+      // The sign-in terminal takes all the room the dialog has.
+      $("workspace-dialog").classList.add("workspace-signing-in");
       notice.replaceChildren(signInFrame);
     }
     function onSignIn(event) {
       if (epoch !== dialogEpoch) { window.removeEventListener("message", onSignIn); return; }
       if (event.origin !== location.origin || !signInFrame || event.source !== signInFrame.contentWindow || event.data?.type !== "workspace-signin") return;
       const agentId = String(event.data.agentId || select.value);
+      const completed = event.data.state === "completed" || event.data.completed === true;
+      // A sign-in that failed stays on screen with its message until the
+      // person closes that terminal; only then is Sign in offered again.
+      if (!completed && event.data.state !== "closed") return;
       signInFrame = null;
-      if (event.data.state === "completed" || event.data.completed === true) { notice.replaceChildren(node("p", t("signedIn"))); if (!start.disabled) start.click(); }
+      if (completed) { $("workspace-dialog").classList.remove("workspace-signing-in"); notice.replaceChildren(node("p", t("signedIn"))); if (!start.disabled) start.click(); }
       else offerSignIn(agentId);
     }
     window.addEventListener("message", onSignIn);
