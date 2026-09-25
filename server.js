@@ -1997,6 +1997,13 @@ function projectDirectory(cwd) {
 // Native adapters accept the host's selected project only when it is an
 // explicitly valid, allowed folder. An omitted cwd means the configured app
 // home; an invalid non-empty cwd must never silently fall back to that home.
+// The name typed for a new Codex conversation: one trimmed line of at most
+// 256 characters, the limit the Codex transport accepts.
+function codexThreadName(value) {
+  if (typeof value !== "string") return "";
+  const line = value.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+  return Array.from(line).slice(0, 256).join("").trim();
+}
 function nativeAgentDirectory(cwd, label = "Agent") {
   if (cwd === null || cwd === undefined || String(cwd).trim() === "") return APP_HOME;
   const real = projectDirectory(cwd);
@@ -6766,7 +6773,15 @@ const server = http.createServer(async (req, res) => {
               ? await codexNative.resumeThread({ threadId: resumeThreadId, ...(body?.excludeTurns === true ? { excludeTurns: true } : {}) })
               : await codexNative.startThread({ cwd: nativeCwd });
             if (started?.kind === "reject") { const error = new Error(started.code); error.statusCode = 409; throw error; }
-            const thread = started?.response?.thread || (started?.threadId ? (await codexNative.readThread(started.threadId, { includeTurns: false })).thread : null);
+            let thread = started?.response?.thread || (started?.threadId ? (await codexNative.readThread(started.threadId, { includeTurns: false })).thread : null);
+            // A name typed for a new conversation becomes the Codex thread's own
+            // name, so Codex's apps show it too. The conversation opens even if
+            // naming fails; it then keeps Codex's default title.
+            const requestedName = resumeThreadId ? "" : codexThreadName(body?.name);
+            if (thread && requestedName && started?.threadId) {
+              const named = await codexNative.setThreadName(started.threadId, requestedName).catch(() => null);
+              if (named?.kind === "named") thread = { ...thread, name: named.name };
+            }
             const task = thread ? codexTaskFromThread(thread) : null;
             if (!task || !started.threadId) { const error = new Error("codex_native_thread_invalid"); error.statusCode = 502; throw error; }
             if (requesterGone) return;

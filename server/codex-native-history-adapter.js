@@ -968,7 +968,9 @@ function createCodexNativeHistoryAdapter({
     let result;
     try { result = await transport.listThreadTurns({ ...params, threadId, limit: Math.min(MAX_PAGE, Number.isSafeInteger(params.limit) ? params.limit : DEFAULT_TURN_PAGE) }); }
     catch (error) {
-      if (error?.threadUnmaterialized === true) return { kind: "thread_turns", ...emptyHistoryPage(), threadId };
+      if (error?.threadUnmaterialized === true || error?.code === "native_request_rejected" && firstTurnPending(threadId)) {
+        return { kind: "thread_turns", ...emptyHistoryPage(), threadId };
+      }
       retireBrokenTransport(error); throw error;
     }
     if (!result || result.kind !== "thread_turns") throw new CodexNativeHistoryError("native_response_invalid", "Codex turn page was invalid", 502);
@@ -983,7 +985,7 @@ function createCodexNativeHistoryAdapter({
     catch (error) {
       // items/list gives no reason for a new thread ("not supported yet"),
       // so ask turns/list, which names the unmaterialized state.
-      if (error?.code === "native_request_rejected" && await threadUnmaterialized(threadId)) {
+      if (error?.code === "native_request_rejected" && (firstTurnPending(threadId) || await threadUnmaterialized(threadId))) {
         return { kind: "thread_items", ...emptyHistoryPage(), threadId, turnId: params.turnId ?? null };
       }
       retireBrokenTransport(error); throw error;
@@ -995,6 +997,16 @@ function createCodexNativeHistoryAdapter({
   async function threadUnmaterialized(threadId) {
     try { await transport?.listThreadTurns({ threadId, limit: 1 }); return false; }
     catch (error) { return error?.threadUnmaterialized === true; }
+  }
+
+  // This process started the thread and no turn has run, so there is no
+  // history yet. A named thread is refused with a different reason than an
+  // unnamed one, so the transport's own record decides.
+  function firstTurnPending(threadId) {
+    try {
+      const current = transport?.state?.();
+      return current?.threadId === threadId && current.firstTurnPending === true;
+    } catch { return false; }
   }
 
   async function getThreadGoal(threadId) {
@@ -1124,6 +1136,21 @@ function createCodexNativeHistoryAdapter({
     return result;
   }
 
+  // Gives the thread its own Codex name, as typed for a new conversation.
+  async function setThreadName(threadId, name) {
+    requireMutation();
+    if (!validThreadId(threadId)) throw new CodexNativeHistoryError("invalid_thread_id", "Codex thread id is invalid", 400);
+    if (typeof transport?.setThreadName !== "function") {
+      throw new CodexNativeHistoryError("native_thread_name_unavailable", "Codex thread naming is unavailable", 503);
+    }
+    let result;
+    try { result = await transport.setThreadName({ threadId, name }); }
+    catch (error) { retireBrokenTransport(error); throw error; }
+    const cached = threadCache.get(threadId);
+    if (result?.kind === "named" && cached) threadCache.set(threadId, { ...cached, name: result.name });
+    return result;
+  }
+
   async function startTurn(input, params = {}, expectedThreadId = null) {
     requireMutation();
     if (!Array.isArray(input) || !input.length) throw new CodexNativeHistoryError("invalid_turn_input", "Codex turn input is invalid", 400);
@@ -1208,6 +1235,7 @@ function createCodexNativeHistoryAdapter({
     listTasks,
     startThread,
     resumeThread,
+    setThreadName,
     startTurn,
     interruptTurn,
     respondApproval,

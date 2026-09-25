@@ -89,6 +89,7 @@ function childFactoryHarness({ delayResume = 0, onCreate = null } = {}) {
       },
       async readThread(threadId) { calls.push(["read", id, threadId]); return { kind: "thread", thread: thread(threadId, { status: { type: "active" } }) }; },
       async getThreadGoal(threadId) { calls.push(["goal", id, threadId]); return { kind: "thread_goal", goal: { threadId, objective: "live goal" } }; },
+      async setThreadName(threadId, name) { calls.push(["name", id, threadId, name]); return { kind: "named", threadId, name }; },
       async listThreadTurns(threadId) { calls.push(["turns", id, threadId]); return { kind: "thread_turns", threadId, data: [{ id: `live-turn-${id}` }] }; },
       async listThreadItems(threadId) { calls.push(["items", id, threadId]); return { kind: "thread_items", threadId, data: [{ id: `live-item-${id}` }] }; },
       async contextUsage(threadId) { calls.push(["usage", id, threadId]); return { model: `live-${threadId}` }; },
@@ -159,6 +160,20 @@ test("pool reads a thread goal from the thread's own child, else from history", 
   assert.deepEqual(harness.calls.filter(row => row[0] === "goal"), [["goal", "thread-a", "thread-a"]]);
   assert.equal((await pool.getThreadGoal("thread-b")).goal, null);
   assert.deepEqual(history.calls.filter(row => row[0] === "getThreadGoal"), [["getThreadGoal", "thread-b"]]);
+});
+
+test("pool names a thread through the child that owns it", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-pool-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+  const history = historyFixture();
+  const harness = childFactoryHarness();
+  const pool = createCodexNativePool({ historyAdapter: history, createThreadAdapter: harness.factory, journalRoot: root });
+  t.after(() => pool.close());
+  await assert.rejects(pool.setThreadName("../escape", "Plan"), error => error.code === "invalid_thread_id");
+  assert.equal((await pool.setThreadName("thread-created", "Plan")).code, "native_thread_not_loaded");
+  await pool.startThread({ cwd: "/tmp/project" });
+  assert.deepEqual(await pool.setThreadName("thread-created", "Plan"), { kind: "named", threadId: "thread-created", name: "Plan" });
+  assert.deepEqual(harness.calls.filter(row => row[0] === "name").map(row => row.slice(2)), [["thread-created", "Plan"]]);
 });
 
 test("approval and usage calls are isolated by explicit thread id and reject ambiguous writes", async t => {

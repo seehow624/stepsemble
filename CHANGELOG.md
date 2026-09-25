@@ -9,6 +9,9 @@
 - Open a new Codex conversation on the first try. Reading its goal was not routed, so opening failed, and before the first message it showed a history error; a Codex conversation without messages now opens empty.
 - Show a sent Codex message once. It appeared twice, with a date line between the copies, after Codex returned it.
 - Keep the Workspace on screen when its computer can't be reached for a moment, such as while the computer wakes up, Wi-Fi or a VPN reconnects, or Stepsemble restarts after an update. The offline page used to be the old single-conversation screen and stayed until you reloaded; the Workspace now reconnects by itself. A pane that can't reach its computer says so and opens once it answers, and signing in from the Workspace returns there even when the device list is slow.
+- Go back to the Workspace list when you swipe from the left edge of a conversation on a phone. The swipe used to close the conversation and leave an empty pane, and an empty pane no longer offers the old New project button.
+- Keep the name you type for a new Codex conversation. It becomes the Codex thread's own name, so Codex's apps show it too; the conversation used to appear as Codex followed by part of its id.
+- Keep the model's full name and reasoning level beside the Send button. A usage update replaced them with the bare model id, so a Claude Code conversation could lose its level.
 
 ## 3.5.0
 

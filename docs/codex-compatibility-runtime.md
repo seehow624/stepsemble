@@ -69,8 +69,8 @@ URL or file id) or reword descriptions:
   unchanged.
 - Every request method in use (`thread/start`, `thread/resume`,
   `thread/read`, `thread/list`, `thread/turns/list`, `thread/items/list`,
-  `thread/goal/get`, `model/list`, `turn/start`, `turn/interrupt`,
-  `account/rateLimits/read`) is still present.
+  `thread/goal/get`, `thread/name/set`, `model/list`, `turn/start`,
+  `turn/interrupt`, `account/rateLimits/read`) is still present.
 - `thread/rollback` was removed. Stepsemble never calls it.
 
 The Approval control sends turn overrides limited to a plain `approvalPolicy`
@@ -84,6 +84,14 @@ Before a thread's first message, both releases refuse history reads:
 `thread/turns/list` reports that the thread is not materialized yet, and
 `thread/items/list` reports that it is not supported. Stepsemble reads that
 state as an empty history instead of a failure.
+
+`thread/name/set` has byte-identical parameters and response in 0.154.0 and
+0.156.1, and both releases accept it before the first message. Stepsemble uses
+it once, for the name typed for a new conversation, through the process that
+owns the thread. A named thread without a first message is refused with
+`missing source rollout` instead, and Codex's own thread list leaves it out
+until that message. Stepsemble therefore records that it started the thread
+and reads it as empty until its first turn, whatever reason Codex gives.
 
 ## Upgrade monitor
 

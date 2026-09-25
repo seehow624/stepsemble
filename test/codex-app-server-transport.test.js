@@ -297,6 +297,38 @@ test("Codex native history requests reject unsafe filters before writing to app-
   assert.equal(transport.state().failure, null);
 });
 
+test("Codex names only the thread its process owns, with one bounded line", async t => {
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const transport = createCodexAppServerTransport({ child, authorizeNative: async () => proof() });
+  t.after(() => transport.close());
+  const initializing = transport.initialize();
+  let request = await writes.next();
+  frame(child, { id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.153.4" } });
+  await initializing; await writes.next();
+  assert.equal((await transport.setThreadName({ threadId: "thread-named", name: "Plan" })).code, "native_lifecycle_conflict");
+  const starting = transport.startThread({ cwd: "/owned" }); request = await writes.next();
+  frame(child, { id: request.id, result: { thread: { id: "thread-named" } } }); await starting;
+  for (const name of ["", " padded ", "two\nlines", "x".repeat(257), 42]) {
+    assert.equal((await transport.setThreadName({ threadId: "thread-named", name })).code, "invalid_native_params");
+  }
+  assert.equal((await transport.setThreadName({ threadId: "thread-other", name: "Plan" })).code, "native_thread_mismatch");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(writes.rows.length, 0, "a refused name never reaches Codex");
+  const naming = transport.setThreadName({ threadId: "thread-named", name: "Codex 對話" });
+  request = await writes.next();
+  assert.equal(request.method, "thread/name/set");
+  assert.deepEqual(request.params, { threadId: "thread-named", name: "Codex 對話" });
+  frame(child, { id: request.id, result: {} });
+  assert.deepEqual(await naming, { kind: "named", threadId: "thread-named", name: "Codex 對話" });
+  // The thread has no history until its first turn starts.
+  assert.equal(transport.state().firstTurnPending, true);
+  const turning = transport.startTurn([{ type: "text", text: "first" }]); request = await writes.next();
+  frame(child, { id: request.id, result: { turn: { id: "turn-named", status: "inProgress", items: [] } } }); await turning;
+  assert.equal(transport.state().firstTurnPending, false);
+  assert.equal(transport.state().failure, null);
+});
+
 test("Codex marks only the history rejection of a thread with no first message yet", async t => {
   const child = new FakeNativeProcess();
   const writes = readFrames(child);

@@ -450,6 +450,33 @@ test("Codex native history reads a thread with no first message as empty", async
   assert.equal(adapter.status().ready, true);
 });
 
+test("Codex native history reads a thread it started as empty until the first turn, whatever reason Codex gives", async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-native-first-turn-"));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  let pending = true;
+  // A named new thread is refused as "missing source rollout", not as unmaterialized.
+  const rejected = () => Object.assign(new Error("native_request_rejected"), { code: "native_request_rejected" });
+  const fake = {
+    async initialize() {},
+    async listThreads() { return { kind: "threads", data: [thread()] }; },
+    async listThreadTurns() { throw rejected(); },
+    async listThreadItems() { throw rejected(); },
+    state: () => ({ threadId: "thread-1", firstTurnPending: pending }),
+    async close() { return { kind: "closed", cleanupConfirmed: true }; },
+  };
+  const adapter = createCodexNativeHistoryAdapter({
+    enabled: true, executable: process.execPath, cwd: temp, transportFactory: async () => fake,
+  });
+  t.after(() => adapter.close());
+  assert.equal((await adapter.refresh()).ready, true);
+  assert.deepEqual((await adapter.listThreadTurns("thread-1")).data, []);
+  assert.deepEqual((await adapter.listThreadItems("thread-1")).data, []);
+  await assert.rejects(() => adapter.listThreadTurns("thread-2"), error => error.code === "native_request_rejected");
+  pending = false;
+  await assert.rejects(() => adapter.listThreadItems("thread-1"), error => error.code === "native_request_rejected");
+  assert.equal(adapter.status().ready, true);
+});
+
 test("Codex task projection keeps private native rollout paths out of the browser DTO", () => {
   const value = publicThread(thread({ path: "/Users/private/.codex/sessions/secret.jsonl" }));
   assert.ok(value);

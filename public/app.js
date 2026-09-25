@@ -1539,10 +1539,13 @@ function showList(options = {}) {
     .catch(() => {});
   return sessionListReadyPromise;
 }
-el.btnBack.addEventListener("click", () => {
+// Back from a conversation. A Workspace pane has no list of its own: its list
+// is the Workspace sidebar, so it asks for that and keeps its conversation.
+function goBackToList() {
   if (WORKSPACE_PANE) { parent.postMessage({ type: "workspace-show-list" }, location.origin); return; }
   showList();
-});
+}
+el.btnBack.addEventListener("click", goBackToList);
 
 function showChatEmpty() {
   setChatAgent(null);
@@ -7216,9 +7219,13 @@ function applyNativeContextStats(response, connection = rpc) {
     ? connection.codexModelSelected === true
     : connection.claudeModelSelected === true;
   if (normalized.model !== null && !hasExplicitModel) {
+    // A context response only names the model. The catalog entry for the same
+    // model carries its display name and reasoning levels, so use that; the
+    // bare name used to replace it and hide the level beside the model.
+    const observed = isCodex ? normalizeCodexModel(normalized.model) : null;
     const model = isCodex
-      ? normalizeCodexModel(normalized.model)
-      : normalizeClaudeModel(normalized.model);
+      ? observed && (Array.isArray(connection.codexModels) && connection.codexModels.find(row => row?.id === observed.id) || observed)
+      : claudeModelFromCatalog(connection.claudeModels, normalized.model);
     if (model) {
       if (isCodex) connection.codexModel = model;
       else connection.claudeModel = model;
@@ -12564,7 +12571,7 @@ function maybeDateSeparator(ts, container = el.messages) {
       el.viewChat.style.transform = "translateX(100%)";
       setTimeout(() => {
         el.viewChat.classList.remove("slide-out");
-        showList();
+        goBackToList();
       }, 210);
     } else {
       el.viewChat.classList.add("snap-back");
@@ -16589,6 +16596,8 @@ window.addEventListener("pageshow", (event) => {
   // boot() again. Treat that as a fresh app launch and return to Sessions;
   // otherwise the old chat remains visually restored even though no explicit
   // conversation was opened by the user.
+  // A pane belongs to the Workspace, which reloads itself after such a return.
+  if (WORKSPACE_PANE) return;
   if (!event.persisted || shouldRestoreLastChat() || el.viewChat?.classList.contains("hidden")) return;
   showList({ refresh: false });
 });

@@ -591,6 +591,14 @@ function createCodexNativePool({
 
   async function listModels(params = {}) { return historyCall("listModels", [params]); }
 
+  // A name is written by the process that owns the thread, like a turn.
+  async function setThreadName(threadId, name) {
+    if (!validThreadId(threadId)) throw poolError("invalid_thread_id", "Codex thread id is invalid", 400);
+    const entry = byThread.get(threadId);
+    if (!entry || entry.closeRequested) return { kind: "reject", code: "native_thread_not_loaded" };
+    return invokeEntry(entry, "setThreadName", [threadId, name]);
+  }
+
   async function knownThread(threadId) {
     if (!validThreadId(threadId)) return { kind: "reject", code: "invalid_thread_id" };
     const source = await getHistory();
@@ -938,6 +946,7 @@ function createCodexNativePool({
     listThreads,
     readThread,
     getThreadGoal,
+    setThreadName,
     listThreadTurns,
     listThreadItems,
     listModels,

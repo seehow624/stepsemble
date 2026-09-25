@@ -37,7 +37,7 @@ const APPROVAL_METHODS = Object.freeze([
 ]);
 const CLIENT_METHODS = Object.freeze([
   "initialize", "account/rateLimits/read", "thread/start", "thread/resume", "thread/read", "thread/list",
-  "thread/turns/list", "thread/items/list", "thread/goal/get", "model/list", "turn/start", "turn/interrupt",
+  "thread/turns/list", "thread/items/list", "thread/goal/get", "thread/name/set", "model/list", "turn/start", "turn/interrupt",
 ]);
 const NATIVE_LIFECYCLE_NOTIFICATIONS = Object.freeze(new Set([
   "thread/started", "turn/started", "turn/completed", "item/started", "item/completed",
@@ -56,6 +56,10 @@ const LARGE_HISTORY_RESPONSES = Object.freeze(new Set([
 
 const reject = code => ({ kind: "reject", code });
 const clone = value => structuredClone(value);
+// A thread name Stepsemble sends: one trimmed line of at most 256 characters.
+const MAX_THREAD_NAME = 256;
+const validThreadName = value => typeof value === "string" && value.length > 0 && value === value.trim()
+  && Array.from(value).length <= MAX_THREAD_NAME && !/[\u0000-\u001f\u007f]/.test(value);
 const THREAD_STATUS_TYPES = new Set(["notLoaded", "idle", "systemError", "active"]);
 const THREAD_ACTIVE_FLAGS = new Set(["waitingOnApproval", "waitingOnUserInput"]);
 const TURN_STATUSES = new Set(["completed", "interrupted", "failed", "inProgress"]);
@@ -561,6 +565,9 @@ function createCodexAppServerTransport({
   let state = "new";
   let threadId = null;
   let turnId = null;
+  // A thread this process started has no history until its first turn, and
+  // Codex refuses history reads for it with reasons that vary by state.
+  let firstTurnPending = false;
   let turnState = null;
   let closed = false;
   let failure = null;
@@ -932,10 +939,23 @@ function createCodexAppServerTransport({
       if (closed || failure || !initialized || state !== "ready" || threadId) return reject("native_lifecycle_conflict");
       const result = await request("thread/start", detached, { check: value => nativeId(value?.thread?.id) });
       if (threadId && threadId !== result.thread.id) { fail("native_thread_mismatch"); return reject("native_thread_mismatch"); }
-      threadId = result.thread.id; state = "thread_started";
+      threadId = result.thread.id; state = "thread_started"; firstTurnPending = true;
       report({ type: "thread.started", threadId, authorization: auth });
       return { kind: "started", threadId, response: clone(result), dispatch: auth };
     } finally { threadStartInFlight = false; }
+  }
+
+  // Names the thread this process owns. Codex accepts a name before the first
+  // message and shows it in its own thread list. Setting a name is
+  // idempotent, so it is sent directly instead of through the intent journal.
+  async function setThreadName(params = {}) {
+    if (!plain(params) || Reflect.ownKeys(params).length !== 2 || !nativeId(params.threadId) || !validThreadName(params.name)) {
+      return reject("invalid_native_params");
+    }
+    if (!initialized || closed || failure || !threadId || !["thread_started", "turn_running"].includes(state)) return reject("native_lifecycle_conflict");
+    if (params.threadId !== threadId) return reject("native_thread_mismatch");
+    await request("thread/name/set", { threadId: params.threadId, name: params.name }, { check: value => plain(value) });
+    return { kind: "named", threadId: params.threadId, name: params.name };
   }
 
   async function resumeThread(resumeParams, authorization = null) {
@@ -952,7 +972,7 @@ function createCodexAppServerTransport({
         && Array.isArray(value.thread.turns) && value.thread.turns.every(turn => plain(turn) && nativeId(turn.id) && typeof turn.status === "string") });
       const status = nativeThreadStatus(result.thread.status);
       const active = result.thread.turns.filter(turn => turn.status === "inProgress");
-      threadId = requested; completedTurns.clear(); turnId = null; turnState = null;
+      threadId = requested; completedTurns.clear(); turnId = null; turnState = null; firstTurnPending = false;
       // `excludeTurns` deliberately returns no reconstructed turn list.  A
       // thread status alone cannot prove that a live turn is absent, so do not
       // permit a new turn until the owner reconciles it via turns/list/read.
@@ -994,6 +1014,7 @@ function createCodexAppServerTransport({
         check: value => plain(value) && nativeId(value?.turn?.id)
         && TURN_STATUSES.has(value.turn.status)
         && (!Object.hasOwn(value.turn, "threadId") || value.turn.threadId === activeThreadId) });
+      firstTurnPending = false;
       if (turnId && turnId !== result.turn.id) { fail("native_turn_mismatch"); return reject("native_turn_mismatch"); }
       // stdout can contain the RPC response and lifecycle notifications in a
       // single decoder turn.  If `turn/completed` was processed before this
@@ -1088,6 +1109,7 @@ function createCodexAppServerTransport({
     initialize,
     startThread,
     resumeThread,
+    setThreadName,
     listThreads,
     readThread,
     listThreadTurns,
@@ -1103,7 +1125,7 @@ function createCodexAppServerTransport({
     respondApproval,
     tokenUsage,
     pendingApprovals: () => [...approvals.values()].map(row => ({ ...clone(row.request), responseWritten: row.responded === true })),
-    state: () => ({ state, threadId, turnId, turnState, initialized, failure: failure?.code || null, cleanupConfirmed }),
+    state: () => ({ state, threadId, turnId, turnState, initialized, failure: failure?.code || null, cleanupConfirmed, firstTurnPending }),
     nativeVersion,
     protocolVersion: CODEX_PROTOCOL_VERSION,
   });
