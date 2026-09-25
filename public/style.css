@@ -1,6 +1,9 @@
 /* stepsemble v3.6.3 — Ink & Ivory / English-first localization */
 
 :root {
+  /* The status bar inset. A Workspace pane sets it to 0: the Workspace keeps
+     the pane below the status bar itself. */
+  --safe-top: env(safe-area-inset-top, 0px);
   --paper: #FAF7F0;
   --ink: #1C1C1C;
   --pine: #1A1A1A;
@@ -101,7 +104,7 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
   background: var(--paper);
   display: flex; align-items: center; justify-content: center;
   z-index: 50;
-  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  padding: max(24px, var(--safe-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
   overflow-y: auto;
 }
 .login-card { width: min(360px, 100%); text-align: center; }
@@ -224,7 +227,7 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .login-onboarding-actions .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ---- 頂欄 ---- */
-.view { height: calc(100dvh - env(safe-area-inset-top)); display: flex; flex-direction: column; }
+.view { height: calc(100dvh - var(--safe-top)); display: flex; flex-direction: column; }
 #view-list {
   min-width: 0;
   min-height: 0;
@@ -233,7 +236,7 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .topbar {
   display: flex; align-items: center; gap: 8px;
   height: 56px;
-  padding: env(safe-area-inset-top) 12px 0;
+  padding: var(--safe-top) 12px 0;
   background: var(--paper);
   border-bottom: 0.5px solid var(--line);
   flex-shrink: 0;
@@ -649,7 +652,7 @@ html.reduced-motion #view-chat .native-run-state.running .native-run-indicator {
   inset: 0;
   display: grid;
   place-items: center;
-  padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  padding: max(20px, var(--safe-top)) max(16px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   background: color-mix(in srgb, #000 68%, transparent);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -690,7 +693,7 @@ html.reduced-motion #view-chat .native-run-state.running .native-run-indicator {
 
 @media (max-width: 620px) {
   .onboarding-layer { align-items: end; padding: 0; }
-  .onboarding-card { width: 100%; max-height: calc(100dvh - max(18px, env(safe-area-inset-top))); border-radius: 28px 28px 0 0; }
+  .onboarding-card { width: 100%; max-height: calc(100dvh - max(18px, var(--safe-top))); border-radius: 28px 28px 0 0; }
   .onboarding-scroll { padding: 26px 22px 20px; }
   .onboarding-preferences { grid-template-columns: 1fr; }
   .onboarding-actions { margin: 0; padding: 14px 22px calc(14px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: color-mix(in srgb, var(--milk) 96%, transparent); }
@@ -1611,7 +1614,7 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: calc(48px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));
+  padding: calc(48px + var(--safe-top)) 16px calc(24px + env(safe-area-inset-bottom));
   background: rgba(0, 0, 0, .82);
   overscroll-behavior: contain;
 }
@@ -1627,14 +1630,14 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
 .image-lightbox-img {
   display: block;
   max-width: min(94vw, 1100px);
-  max-height: calc(100dvh - 112px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  max-height: calc(100dvh - 112px - var(--safe-top) - env(safe-area-inset-bottom));
   border-radius: 12px;
   object-fit: contain;
   box-shadow: 0 16px 60px rgba(0, 0, 0, .4);
 }
 .image-lightbox-close {
   position: absolute;
-  top: calc(12px + env(safe-area-inset-top));
+  top: calc(12px + var(--safe-top));
   right: calc(12px + env(safe-area-inset-right));
   display: grid;
   width: 42px;
@@ -2340,9 +2343,9 @@ html.reduced-motion .agent-task-center-row.running.reconnecting .agent-task-dot 
 
 /* Sidebar header / project / Sessions heading */
 #view-list .topbar {
-  height: calc(70px + env(safe-area-inset-top));
-  min-height: calc(70px + env(safe-area-inset-top));
-  padding: env(safe-area-inset-top) 14px 0 18px;
+  height: calc(70px + var(--safe-top));
+  min-height: calc(70px + var(--safe-top));
+  padding: var(--safe-top) 14px 0 18px;
 }
 #view-list .topbar .icon-btn {
   width: 44px;
@@ -2459,9 +2462,9 @@ html.reduced-motion .agent-task-center-row.running.reconnecting .agent-task-dot 
 
 /* Workspace proportions */
 #view-chat .chat-topbar {
-  height: calc(70px + env(safe-area-inset-top));
-  min-height: calc(70px + env(safe-area-inset-top));
-  padding: env(safe-area-inset-top) 16px 0;
+  height: calc(70px + var(--safe-top));
+  min-height: calc(70px + var(--safe-top));
+  padding: var(--safe-top) 16px 0;
 }
 #view-chat .chat-head-info { text-align: center; }
 #view-chat .messages {
@@ -2535,8 +2538,8 @@ html.reduced-motion .agent-task-center-row.running.reconnecting .agent-task-dot 
 }
 @media (max-width: 979px) {
   #view-list .topbar, #view-chat .chat-topbar {
-    height: calc(58px + env(safe-area-inset-top));
-    min-height: calc(58px + env(safe-area-inset-top));
+    height: calc(58px + var(--safe-top));
+    min-height: calc(58px + var(--safe-top));
   }
   #view-chat .chat-head-info { text-align: left; }
   .session-item { min-height: 60px; padding-top: 9px; padding-bottom: 9px; }
@@ -2776,7 +2779,7 @@ html.reduced-motion .session-running-dot { animation: none; }
   gap: 4px 6px;
   height: auto;
   min-height: auto;
-  padding: calc(12px + env(safe-area-inset-top)) 14px 8px;
+  padding: calc(12px + var(--safe-top)) 14px 8px;
 }
 .workspace-identity { display: flex; align-items: center; min-width: 0; gap: 9px; }
 .workspace-logo { width: 36px; height: 36px; flex: none; }
@@ -3796,11 +3799,11 @@ html.reduced-motion .project-group-actions { transition: none; }
 @keyframes changes-panel-in { from { transform: translateX(34px); opacity: .6; } }
 .changes-header {
   flex: 0 0 auto;
-  min-height: calc(72px + env(safe-area-inset-top));
+  min-height: calc(72px + var(--safe-top));
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: env(safe-area-inset-top) 14px 0 18px;
+  padding: var(--safe-top) 14px 0 18px;
   border-bottom: 1px solid var(--line);
 }
 .changes-heading-copy { min-width: 0; flex: 1 1 auto; }
@@ -4372,6 +4375,7 @@ body.compact #view-list .project-group-items .session-item {
   bottom: calc(100% + 10px);
   z-index: 30;
   width: 232px;
+  max-width: calc(100vw - 16px);
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 7px;

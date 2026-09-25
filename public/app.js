@@ -10615,7 +10615,22 @@ document.addEventListener("click", (event) => {
 function setContextPopover(open) {
   el.contextPopover?.classList.toggle("hidden", !open);
   el.contextInfo?.setAttribute("aria-expanded", String(!!open));
+  placeContextPopover();
 }
+// The details open from the context ring. On a phone the ring sits near the
+// middle of the composer, so the panel is moved sideways to stay on screen.
+function placeContextPopover() {
+  const panel = el.contextPopover;
+  if (!panel) return;
+  panel.style.transform = "";
+  if (panel.classList.contains("hidden")) return;
+  const margin = 8, width = document.documentElement.clientWidth, rect = panel.getBoundingClientRect();
+  let shift = 0;
+  if (rect.left < margin) shift = margin - rect.left;
+  else if (rect.right > width - margin) shift = Math.max(margin - rect.left, width - margin - rect.right);
+  if (shift) panel.style.transform = `translateX(${Math.round(shift)}px)`;
+}
+window.addEventListener("resize", placeContextPopover);
 
 el.contextInfo?.addEventListener("click", (event) => {
   event.stopPropagation();
@@ -10711,7 +10726,11 @@ function normalizeClaudeModel(model) {
     supportedEffortLevels: [...new Set(supportedEffortLevels)],
     supportsAutoMode: model.supportsAutoMode === true,
     defaultEffort: String(model.defaultEffort || model.default_effort || "").trim().toLowerCase() || null,
-    contextWindow: positiveFinite(model.contextWindow ?? model.context_window),
+    // Claude's catalog gives no capacity; its "[1m]" aliases are the 1M
+    // context models ("opus[1m]", "Opus (1M context)"). Claude's own usage
+    // report replaces this once a turn has run.
+    contextWindow: positiveFinite(model.contextWindow ?? model.context_window)
+      ?? (/\[1m\]$/i.test(id) || /\b1M context\b/i.test(String(model.name || model.displayName || "")) ? 1_000_000 : null),
   };
 }
 

@@ -130,10 +130,26 @@ function normalizeModelInfo(value) {
   return out;
 }
 
+// Claude names a run with the 1M context "<model>[1m]" in its init event and
+// in the result's modelUsage (which also gives canonicalModel), but its
+// assistant messages carry the bare "<model>". Both are the same model.
+function modelBase(value) { return String(modelId(value) || "").replace(/\[[^\]]*\]$/, ""); }
+function sameModel(a, b) { return !!modelId(a) && !!modelId(b) && modelBase(a) === modelBase(b); }
+// The more specific name of the same model, so "[1m]" is not lost.
+function specificModel(reported, known) {
+  const a = modelId(reported), b = modelId(known);
+  return a && b && sameModel(a, b) && b.length > a.length ? b : a || b || null;
+}
+
 function modelUsageEntry(modelUsage, preferredModel = null) {
   if (!plain(modelUsage)) return { model: modelId(preferredModel), usage: null };
   const preferred = modelId(preferredModel);
   if (preferred && plain(modelUsage[preferred])) return { model: preferred, usage: modelUsage[preferred] };
+  if (preferred) {
+    const variant = Object.entries(modelUsage).find(([key, value]) => plain(value)
+      && (sameModel(key, preferred) || modelBase(value.canonicalModel) === modelBase(preferred)));
+    if (variant) return { model: modelId(variant[0]), usage: variant[1] };
+  }
   // Once a model is known, never pair a different (usually prior-turn)
   // modelUsage entry with it. The result map is cumulative and may retain
   // entries for models selected earlier in the same session.
@@ -468,18 +484,24 @@ function createClaudeStructuredSession({
 
   function updateContextSnapshot(snapshot, { preserveUsage = false } = {}) {
     if (!snapshot) return;
+    // A new turn's first usage has no capacity yet; the same model keeps the
+    // capacity its last result reported.
+    const model = snapshot.model || selectedModel || null;
+    const knownWindow = sameModel(model, contextSnapshot.model) ? contextSnapshot.contextWindow ?? null : null;
+    const contextWindow = snapshot.contextWindow ?? knownWindow;
     contextSnapshot = {
-      model: snapshot.model || selectedModel || null,
-      contextWindow: snapshot.contextWindow ?? null,
+      model,
+      contextWindow,
       contextTokens: snapshot.contextTokens ?? null,
-      contextPercent: snapshot.contextPercent ?? null,
+      contextPercent: snapshot.contextPercent ?? (contextWindow && snapshot.contextTokens !== null && snapshot.contextTokens !== undefined
+        ? Number(Math.min(100, (snapshot.contextTokens / contextWindow) * 100).toFixed(6)) : null),
       usage: preserveUsage && contextSnapshot.usage ? clone(contextSnapshot.usage) : snapshot.usage ? clone(snapshot.usage) : null,
     };
   }
 
   function captureAssistantUsage(event) {
     const message = plain(event.message) ? event.message : {};
-    const model = modelId(message.model || event.model || selectedModel);
+    const model = specificModel(message.model || event.model || selectedModel, selectedModel);
     const modelEntry = modelUsageEntry(event.modelUsage, model);
     const rawUsage = plain(message.usage) ? message.usage
       : plain(event.usage) ? event.usage
@@ -664,6 +686,8 @@ function createClaudeStructuredSession({
       // init and status events report the mode, including changes Claude
       // makes itself, such as leaving plan mode once a plan is approved.
       if (event.type === "system" && event.permissionMode !== undefined) permissionMode = permissionModeId(event.permissionMode) || permissionMode;
+      // init names the running model in full, such as "claude-opus-5-5[1m]".
+      if (event.type === "system" && event.subtype === "init" && modelId(event.model)) selectedModel = modelId(event.model);
       if (event.type === "result") state = "waiting";
       else if (["assistant", "stream_event", "tool_use", "progress", "permission_request"].includes(event.type)) state = "running";
       if (event.type === "assistant") captureAssistantUsage(event);

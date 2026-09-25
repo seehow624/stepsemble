@@ -5,3 +5,8 @@
 .workspace-embedded .chat-topbar{padding-left:12px}
 .workspace-embedded #view-settings{z-index:100}
 .workspace-embedded.workspace-mobile-pane #btn-back{display:inline-flex!important;align-items:center;justify-content:center;flex:0 0 44px;width:44px;height:44px;padding:0}
+/* The Workspace keeps a pane below the status bar, so the pane reserves none
+   of its own; iOS reports the inset inside the frame as well. On a phone the
+   title row sits a little lower, clear of iOS's blur at the top edge. */
+html.workspace-embedded{--safe-top:0px}
+html.workspace-embedded.workspace-mobile-pane #view-chat .chat-topbar{padding-top:6px;height:64px;min-height:64px}

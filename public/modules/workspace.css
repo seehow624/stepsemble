@@ -298,7 +298,8 @@ html.reduced-motion .workspace-quota-bar > span { transition: none; }
 
 #workspace-main { display: flex; flex: 1; min-width: 0; flex-direction: column; background: var(--paper); }
 #workspace-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--paper); }
-#workspace-tree { position: absolute; inset: 14px; display: flex; }
+/* iPad and other wide screens keep the panes below the status bar as well. */
+#workspace-tree { position: absolute; inset: max(14px, env(safe-area-inset-top)) 14px 14px; display: flex; }
 .workspace-split { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .workspace-split[data-axis=column] { flex-direction: column; }
 .workspace-branch { display: flex; min-width: 0; min-height: 0; padding: 0 5px; }
@@ -514,7 +515,9 @@ body.compact .workspace-session strong { font-size: .78rem; }
   #workspace-sidebar { width: 100%; flex: 1 1 100%; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); border-right: 0; }
   body:not(.sidebar-hidden) #workspace-main { display: none; }
   .workspace-mobile-nav { display: none; }
-  #workspace-tree { inset: 0; }
+  /* A pane starts below the status bar; the Workspace's own background fills
+     the status bar, so no pane content sits under iOS's blur at the top. */
+  #workspace-tree { inset: env(safe-area-inset-top) 0 0; }
   .workspace-split { display: contents; }
   .workspace-branch { display: contents !important; }
   .workspace-divider { display: none; }

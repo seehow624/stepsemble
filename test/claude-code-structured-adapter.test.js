@@ -437,6 +437,32 @@ test("Claude model switching is refused while a prompt is active", async t => {
   await assert.rejects(session.setModel("opus"), error => error && error.code === "claude_model_switch_active");
 });
 
+test("Claude's 1M context model keeps its capacity although assistant messages name the bare model", async t => {
+  // Shapes from a real Claude Code 2.1.281 run with Opus (1M context).
+  const child = childFixture();
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child });
+  t.after(() => session.close());
+  child.stdout.write(JSON.stringify({ type: "system", subtype: "init", session_id: "session-1", model: "claude-opus-5-5[1m]" }) + "\n");
+  const assistant = input => JSON.stringify({ type: "assistant", session_id: "session-1", message: {
+    model: "claude-opus-5-5", usage: { input_tokens: 2, output_tokens: 3, cache_read_input_tokens: 0, cache_creation_input_tokens: input },
+    content: [{ type: "text", text: "hi" }] } }) + "\n";
+  child.stdout.write(assistant(158826));
+  child.stdout.write(JSON.stringify({ type: "result", session_id: "session-1", modelUsage: {
+    "claude-opus-5-5[1m]": { inputTokens: 2, outputTokens: 81, cacheCreationInputTokens: 158826, contextWindow: 1000000, canonicalModel: "claude-opus-5-5" },
+  }, result: "hi" }) + "\n");
+  await new Promise(resolve => setImmediate(resolve));
+  let usage = session.contextUsage();
+  assert.equal(usage.model, "claude-opus-5-5[1m]", "the full name from init is kept");
+  assert.equal(usage.contextWindow, 1000000);
+  assert.equal(usage.contextTokens, 158828);
+  // The next turn's first usage keeps the capacity of the same model.
+  child.stdout.write(assistant(160000));
+  await new Promise(resolve => setImmediate(resolve));
+  usage = session.contextUsage();
+  assert.equal(usage.contextWindow, 1000000);
+  assert.equal(usage.contextPercent, 16.0002);
+});
+
 test("Claude result modelUsage exposes capacity only until assistant usage arrives", async t => {
   const child = childFixture();
   const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child });

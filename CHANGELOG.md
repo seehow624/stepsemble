@@ -6,6 +6,9 @@
 - Stop a Grok Build answer with Stop. Stepsemble sent the cancel as a request, which Grok answers with "Method not found" while it keeps working; it is now the notification ACP defines, and Grok stops at once.
 - Let an answer from Grok Build, Kilo, Cline or Hermes take longer than 30 seconds. A longer turn was reported as not sent and its text put back in the message box while the agent kept working.
 - Attach images in Grok Build conversations. Grok 1.0.41 reports that it takes no images, but it passes them to the model; this was checked with real images and Grok's own models.
+- Keep the usage details on screen on a phone. They opened from the context ring toward the left, and with the ring in the middle of the message box they were cut off at the left edge; they now move to stay on screen and are never wider than it.
+- Keep a conversation's title row clear of the status bar on a phone. The Workspace now starts a conversation below the status bar and fills that strip itself, so no pane content sits under iOS's blur at the top, and the title row sits a little lower.
+- Show the capacity of Claude's 1M context models, such as Opus (1M context). Claude reports the capacity under the model's full name, "claude-opus-5-5[1m]", while its replies name "claude-opus-5-5", so the two were not matched and the usage details showed no capacity; the capacity is now kept from one turn to the next as well.
 
 ## 3.6.2
 
