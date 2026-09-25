@@ -880,9 +880,19 @@ function createClaudeStructuredSession({
     if (afterInitialize) throw controlError(afterInitialize.code);
     const activeAfterInitialize = ensureModelSwitchAllowed();
     if (activeAfterInitialize) throw activeAfterInitialize;
-    // Claude Code exposes effort through the same documented set_model
-    // control envelope. Omitting model keeps the current model unchanged.
-    const acknowledged = await requestControl("set_model", { effort: requested });
+    // Claude Code changes effort through its flag settings; "auto" clears the
+    // setting so Claude's own default applies again. Its set_model control
+    // reads only a model, and one without a model switches to the default
+    // model, so an effort change must never be sent as set_model alone.
+    let acknowledged;
+    try {
+      acknowledged = await requestControl("apply_flag_settings", { settings: { effortLevel: requested === "auto" ? null : requested } });
+    } catch (error) {
+      // A Claude without flag settings gets the effort together with the
+      // model it runs now, so the model stays as it is.
+      if (error?.code !== "claude_control_rejected" || !selectedModel) throw error;
+      acknowledged = await requestControl("set_model", { model: selectedModel, effort: requested });
+    }
     const response = plain(acknowledged?.response) ? acknowledged.response : {};
     selectedEffort = effortId(response.effort || response.currentEffort || response.current_effort || response.effortLevel) || requested;
     return { kind: "changed", effort: selectedEffort };

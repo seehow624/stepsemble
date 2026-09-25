@@ -36,7 +36,19 @@ const out = value => process.stdout.write(JSON.stringify(value) + "\n");
 let permissionMode = process.env.FIXTURE_PERMISSION_MODE || "default";
 const bypassAllowed = args.includes("--allow-dangerously-skip-permissions") || args.includes("--dangerously-skip-permissions");
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
-let sessionId = "session-structured-fixture";
+// FIXTURE_CLAUDE_STREAM=1 answers like Claude Code 2.1 does: a session with a
+// UUID, replies streamed under a message id, and a JSONL history in
+// ~/.claude/projects that Stepsemble reads when the conversation reopens.
+const streaming = process.env.FIXTURE_CLAUDE_STREAM === "1";
+const resumeAt = args.indexOf("--resume");
+let sessionId = streaming ? (resumeAt >= 0 && args[resumeAt + 1]) || "7f3c2a10-5b6e-4c1d-9a8b-0e1f2a3b4c5d" : "session-structured-fixture";
+const historyFile = streaming ? path.join(home, ".claude", "projects", process.cwd().replace(/[^A-Za-z0-9]/g, "-"), sessionId + ".jsonl") : null;
+if (historyFile) fs.mkdirSync(path.dirname(historyFile), { recursive: true });
+let replies = historyFile && fs.existsSync(historyFile)
+  ? fs.readFileSync(historyFile, "utf8").split("\n").filter(line => line.includes('"assistant"')).length : 0;
+function history(row) {
+  if (historyFile) fs.appendFileSync(historyFile, JSON.stringify({ ...row, sessionId, cwd: process.cwd(), timestamp: new Date().toISOString() }) + "\n");
+}
 out({ type: "system", session_id: sessionId, uuid: "system-fixture" });
 if (process.env.DESKTOP_STRUCTURED_EXIT_IMMEDIATELY === "1") process.exit(0);
 rl.on("line", line => {
@@ -48,8 +60,11 @@ rl.on("line", line => {
       out({ type: "control_response", response: { subtype: "success", request_id: value.request_id,
         response: { models: [{ value: "sonnet", displayName: "Claude Sonnet", supportsEffort: true }, { value: "opus", displayName: "Claude Opus" }], model: "sonnet", current_permission_mode: permissionMode } } });
     } else if (request.subtype === "set_model") {
+      // Like Claude Code 2.1: only the model is read, and none means default.
       out({ type: "control_response", response: { subtype: "success", request_id: value.request_id,
         response: { model: request.model || "sonnet" } } });
+    } else if (request.subtype === "apply_flag_settings") {
+      out({ type: "control_response", response: { subtype: "success", request_id: value.request_id } });
     } else if (request.subtype === "set_permission_mode") {
       const valid = ["default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"];
       if (!valid.includes(request.mode)) {
@@ -71,6 +86,23 @@ rl.on("line", line => {
   const text = content.filter(part => part?.type === "text").map(part => part.text).join("");
   if (text.includes("approve")) {
     out({ type: "control_request", request_id: "perm-fixture", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "printf fixture" }, description: "fixture" } });
+  }
+  if (streaming) {
+    const id = "msg_fixture_" + (++replies), reply = `fixture:${text}`;
+    const event = value => out({ type: "stream_event", event: value, session_id: sessionId });
+    history({ type: "user", message: { role: "user", content: text } });
+    out({ type: "system", subtype: "init", session_id: sessionId, model: "claude-sonnet-5" });
+    event({ type: "message_start", message: { id, type: "message", role: "assistant", model: "claude-sonnet-5", content: [], usage: { input_tokens: 12, output_tokens: 1 } } });
+    event({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
+    event({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: reply.slice(0, 9) } });
+    event({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: reply.slice(9) } });
+    const message = { id, type: "message", role: "assistant", model: "claude-sonnet-5", content: [{ type: "text", text: reply }], usage: { input_tokens: 12, output_tokens: 3 } };
+    out({ type: "assistant", session_id: sessionId, message });
+    history({ type: "assistant", message });
+    event({ type: "content_block_stop", index: 0 });
+    event({ type: "message_stop" });
+    out({ type: "result", subtype: "success", session_id: sessionId, modelUsage: { "claude-sonnet-5": { contextWindow: 200000, inputTokens: 12, outputTokens: 3 } }, result: reply });
+    return;
   }
   out({ type: "assistant", session_id: sessionId, message: { model: "sonnet", usage: { input_tokens: 12, output_tokens: 3 }, content: [{ type: "text", text: `fixture:${text}` }] } });
   out({ type: "result", session_id: sessionId, modelUsage: { sonnet: { contextWindow: 200000, inputTokens: 12, outputTokens: 3 } }, result: `fixture:${text}` });

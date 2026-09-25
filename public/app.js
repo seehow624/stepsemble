@@ -1,7 +1,7 @@
-/* stepsemble v3.6.3 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.6.4 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.6.3";
+const CLIENT_APP_VERSION = "3.6.4";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -6219,27 +6219,48 @@ function renderClaudeStructuredEvents(connection, events, { replace = false } = 
   if (rpc !== connection || !connection?.nativeClaudeStructured) return;
   const rows = Array.isArray(events) ? events : [];
   if (replace) {
-    el.messages.innerHTML = "";
-    // The output node may belong to the old detached transcript after a
-    // replace. Drop it together with the renderer so the next turn starts at
-    // a fresh, attached node.
+    // The events are drawn again from the start, below Claude's history
+    // that is already on screen. Drop the output node together with the
+    // renderer so the next reply starts at a fresh node.
     rpc.genericOutputNode = null;
     connection.claudeEventIndex = 0;
     connection.claudeOutputStart = null;
+    connection.claudeSkipMessage = false;
+    connection.claudeSkippedTools = new Set();
     resetStructuredTranscriptPresentation(connection);
     connection.claudeRenderer?.reset?.();
   }
   const renderer = connection.claudeRenderer
     || (claudeStructuredRendering?.createRenderer ? claudeStructuredRendering.createRenderer() : null);
   connection.claudeRenderer = renderer;
+  connection.claudeSkippedTools ||= new Set();
+  const shownInHistory = connection.claudeHistoryMessageIds;
   for (let index = connection.claudeEventIndex || 0; index < rows.length; index += 1) {
     const event = rows[index];
+    // A message Claude's history already shows is followed but not drawn a
+    // second time. Its id comes with its first event; the events after it
+    // belong to the same message until the next one starts.
+    const identity = event?.type === "assistant" || event?.type === "stream_event"
+      ? claudeStructuredRendering?.messageIdentity?.(event) : null;
+    if (identity) connection.claudeSkipMessage = !!shownInHistory?.has(identity);
+    const skip = connection.claudeSkipMessage === true;
     for (const [activityIndex, activity] of agentTranscriptPresentation.claudeEvent(event).entries()) {
-      if (activity.kind === "tool") appendStructuredTool(connection, activity.tool, connection.agentLabel || "Claude Code", `claude-${index}-${activityIndex}`);
+      if (activity.kind !== "tool") continue;
+      const toolId = String(activity.tool?.id || "");
+      if (toolId && (skip || connection.claudeSkippedTools.has(toolId))) {
+        connection.claudeSkippedTools.add(toolId);
+        continue;
+      }
+      appendStructuredTool(connection, activity.tool, connection.agentLabel || "Claude Code", `claude-${index}-${activityIndex}`);
     }
     const update = renderer?.consume?.(event);
-    if (!update?.text) continue;
-    if (update.beginTurn || !Number.isSafeInteger(connection.claudeOutputStart)) {
+    if (!update?.text || skip) continue;
+    if (update.beginTurn) {
+      // Each reply gets its own bubble below what came before it, such as
+      // the message it answers.
+      rpc.genericOutputNode = null;
+      connection.claudeOutputStart = 0;
+    } else if (!Number.isSafeInteger(connection.claudeOutputStart)) {
       const current = rpc.genericOutputNode;
       connection.claudeOutputStart = current?.dataset?.stream === "stdout" ? genericOutputText(current).length : 0;
     }
@@ -6286,6 +6307,9 @@ async function loadClaudeNativeHistory(connection) {
     while (staging.firstChild) fragment.appendChild(staging.firstChild);
     el.messages.appendChild(fragment);
     connection.claudeHistoryLoaded = true;
+    connection.claudeHistoryMessageIds = new Set(result.messages
+      .filter(message => message?.role === "assistant" && typeof message.id === "string" && message.id)
+      .map(message => message.id));
     connection.claudeHistoryLoadState = "loaded";
     connection.claudeHistoryMessageCount = result.messages.length;
     el.messages.dataset.claudeHistory = "loaded";
@@ -6464,9 +6488,11 @@ async function openClaudeStructuredTask(task, generationOverride = null) {
     runStartedAt: normalizedTimestampMs(task.startedAt) || Date.now(), runEndedAt: null };
   const connection = rpc; claudeStructuredPollTimer = null;
   try {
-    await refreshClaudeStructuredSnapshot(connection, { initial: true });
-    if (rpc !== connection || generation !== viewGeneration) return;
+    // Claude's history is the conversation so far. The live events come
+    // after it and add only the replies it does not show yet.
     await loadClaudeNativeHistory(connection);
+    if (rpc !== connection || generation !== viewGeneration) return;
+    await refreshClaudeStructuredSnapshot(connection, { initial: true });
     if (rpc !== connection || generation !== viewGeneration) return;
     // Hydrate the native catalog before enabling the composer. This performs
     // the control handshake once and exposes model/effort controls before the
@@ -10002,6 +10028,13 @@ async function sendCurrent() {
   if (text) bubble.appendChild(renderMarkdown(text));
   if (pendingImages.length) appendImageGallery(bubble, pendingImages, pendingImages.length);
   const codexEcho = codexNativeSend ? trackCodexNativeEcho(codexNativeSend, userShell, text) : null;
+  // The reply to this message goes below it in a new bubble, never into the
+  // reply bubble above it.
+  if (generic && (rpc.nativeClaudeStructured || rpc.nativeGrokAcp || rpc.nativeAcp || rpc.nativeAntigravityStructured)) {
+    rpc.genericOutputNode = null;
+    rpc.structuredThinking = null;
+    rpc.claudeOutputStart = null;
+  }
   if (generic && !rpc.nativeOpenCode && text && Array.isArray(rpc.genericInputEchoes)) {
     rpc.genericInputEchoes.push({ text, at: Date.now() });
     if (rpc.genericInputEchoes.length > 32) rpc.genericInputEchoes.shift();

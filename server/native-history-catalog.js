@@ -310,7 +310,10 @@ function claudeMessages(records) {
     if (!value) continue;
     if (value.length < raw.length) truncated = true;
     const role = row.type === "user" ? "user" : "assistant";
-    messages.push({ role, text: value, timestamp: timestamp(row.timestamp), ts: timestamp(row.timestamp), model: text(row.message?.model, 128) || undefined });
+    // An assistant message's id lets a live view skip what this history
+    // already shows.
+    messages.push({ role, text: value, timestamp: timestamp(row.timestamp), ts: timestamp(row.timestamp), model: text(row.message?.model, 128) || undefined,
+      id: role === "assistant" ? text(row.message?.id, 256) || undefined : undefined });
     totalBytes += Buffer.byteLength(value);
     if (messages.length >= MAX_MESSAGES) { truncated = true; break; }
   }

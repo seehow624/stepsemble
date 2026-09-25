@@ -22,7 +22,7 @@ async function fixture(t) {
   await fs.writeFile(path.join(home, ".claude", "projects", "-Users-test", `${CLAUDE_ID}.jsonl`), [
     { type: "user", sessionId: CLAUDE_ID, timestamp: "2026-09-13T10:00:00.000Z", cwd: "/Users/test", message: { role: "user", content: "Fix the widget" } },
     { type: "ai-title", sessionId: CLAUDE_ID, aiTitle: "Widget repair" },
-    { type: "assistant", sessionId: CLAUDE_ID, timestamp: "2026-09-13T10:00:01.000Z", message: { role: "assistant", model: "claude-test", content: [{ type: "text", text: "I will inspect it." }] } },
+    { type: "assistant", sessionId: CLAUDE_ID, timestamp: "2026-09-13T10:00:01.000Z", message: { id: "msg_widget_1", role: "assistant", model: "claude-test", content: [{ type: "text", text: "I will inspect it." }] } },
   ].map(row => JSON.stringify(row)).join("\n") + "\n", { mode: 0o600 });
   const codexFile = path.join(home, ".codex", "sessions", "2026", "09", "13", `rollout-2026-09-13T18-00-00-${CODEX_ID}.jsonl`);
   await fs.writeFile(codexFile, [
@@ -98,6 +98,9 @@ test("catalogs Claude Code and Codex local history without launching either harn
   const claude = await catalog.read(`claude-history:${CLAUDE_ID}`);
   assert.equal(claude.kind, "native_history_transcript");
   assert.equal(claude.messages[0].text, "Fix the widget");
+  // A live view skips the replies this history already shows by their id.
+  assert.equal(claude.messages[0].id, undefined);
+  assert.equal(claude.messages.at(-1).id, "msg_widget_1");
   const codex = await catalog.read(`codex-history:${CODEX_ID}`);
   assert.equal(codex.messages.at(-1).text, "The widget is ready.");
 });

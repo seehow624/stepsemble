@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.6.4
+
+- Keep the Claude Code model you choose when you change its reasoning level. Stepsemble sent the level as a model change without a model, which Claude Code takes as "switch to the default model", so choosing Sonnet and then a level quietly went back to Opus while the button still showed Sonnet. Claude Code also ignored the level itself. The level now goes through Claude Code's own setting for it, and the model stays as chosen; this was checked against Claude Code 2.1.281.
+- Show each reply below the message it answers. Claude Code, Grok Build, Kilo, Cline, Hermes and Antigravity added a new answer to the reply above your latest message, so a conversation showed one long reply followed by your later questions.
+- Show a Claude Code conversation once when it is opened again while it is still running, for example after a reload or on another device. Its replies appeared twice, once merged into one block at the top and again in the conversation below; the conversation now shows Claude's history with only the newer replies after it.
+
 ## 3.6.3
 
 - Show when Grok Build, Kilo, Cline or Hermes is answering. Send turns into Stop and the run timer and "Working" appear until the answer ends, also after the page is reloaded meanwhile; before, nothing showed that the agent was still working.

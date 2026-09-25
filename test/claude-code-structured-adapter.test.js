@@ -292,7 +292,7 @@ test("Claude structured controls use exact initialize/set_model wire and update 
   assert.equal(session.contextUsage().model, "opus");
 });
 
-test("Claude effort control uses the native set_model envelope and updates after ACK", async t => {
+test("Claude effort changes through flag settings and never resets the model", async t => {
   const child = childFixture();
   const requests = [];
   observeControlWire(child, message => {
@@ -314,18 +314,59 @@ test("Claude effort control uses the native set_model envelope and updates after
   child.stdin.on("data", chunk => {
     for (const raw of chunk.toString().split("\n").filter(Boolean)) {
       const message = JSON.parse(raw);
-      if (message.type === "control_request" && message.request?.subtype === "set_model" && message.request?.effort === "high") effortRequest = message;
+      if (message.type === "control_request" && message.request?.subtype === "apply_flag_settings") effortRequest = message;
     }
   });
   const changing = session.setEffort("high");
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(effortRequest?.request?.subtype, "set_model");
-  assert.equal(effortRequest.request.effort, "high");
+  assert.deepEqual(effortRequest?.request, { subtype: "apply_flag_settings", settings: { effortLevel: "high" } });
+  // Claude Code reads only the model from set_model, and one without a
+  // model switches to the default model.
+  assert.equal(requests.some(message => message.request?.subtype === "set_model"), false);
   child.stdout.write(JSON.stringify({ type: "control_response", response: {
-    subtype: "success", request_id: effortRequest.request_id, response: { effort: "high" },
+    subtype: "success", request_id: effortRequest.request_id,
   } }) + "\n");
   assert.deepEqual(await changing, { kind: "changed", effort: "high" });
   assert.equal(session.status().effort, "high");
+  assert.equal(session.status().model, "sonnet");
+
+  // Default effort clears the flag so Claude's own default applies again.
+  const clearing = session.setEffort("auto");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(effortRequest.request, { subtype: "apply_flag_settings", settings: { effortLevel: null } });
+  child.stdout.write(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: effortRequest.request_id } }) + "\n");
+  assert.deepEqual(await clearing, { kind: "changed", effort: "auto" });
+});
+
+test("Claude without flag settings gets the effort with its current model", async t => {
+  const child = childFixture();
+  const requests = [];
+  observeControlWire(child, message => {
+    if (message.type !== "control_request") return;
+    requests.push(message.request);
+    const subtype = message.request?.subtype;
+    const respond = (body, ok = true) => child.stdout.write(JSON.stringify({ type: "control_response", response: ok
+      ? { subtype: "success", request_id: message.request_id, response: body }
+      : { subtype: "error", request_id: message.request_id, error: "Unsupported control request subtype: " + subtype } }) + "\n");
+    if (subtype === "initialize") respond({ models: [{ value: "sonnet" }, { value: "opus" }] });
+    else if (subtype === "apply_flag_settings") respond(null, false);
+    else respond({});
+  });
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 200 });
+  t.after(() => session.close());
+  await session.models();
+  // With no known model, a set_model would switch to the default model.
+  await assert.rejects(session.setEffort("high"), error => error.code === "claude_control_rejected");
+  assert.equal(requests.some(request => request.subtype === "set_model"), false);
+
+  await session.setModel("opus");
+  requests.length = 0;
+  assert.deepEqual(await session.setEffort("high"), { kind: "changed", effort: "high" });
+  assert.deepEqual(requests, [
+    { subtype: "apply_flag_settings", settings: { effortLevel: "high" } },
+    { subtype: "set_model", model: "opus", effort: "high" },
+  ]);
+  assert.equal(session.status().model, "opus");
 });
 
 test("Claude context usage uses latest assistant input plus cache tokens and modelUsage capacity", async t => {

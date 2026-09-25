@@ -40,7 +40,9 @@ input.on("line", raw => {
     if (subtype === "initialize") {
       controlResponse(frame.request_id, { models: [{ value: model, displayName: "Synthetic Sonnet", contextWindow: 1000, supportsEffort: true, supportedEffortLevels: ["low", "high"] }], model, currentModel: model, effort: "low" });
     } else if (subtype === "set_model") {
-      controlResponse(frame.request_id, { model: frame.request?.model || model, currentModel: frame.request?.model || model, effort: frame.request?.effort || "low" });
+      controlResponse(frame.request_id, { model: frame.request?.model || model, currentModel: frame.request?.model || model });
+    } else if (subtype === "apply_flag_settings") {
+      controlResponse(frame.request_id, {});
     } else if (subtype === "interrupt") {
       controlResponse(frame.request_id, {});
     }
