@@ -100,7 +100,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.6.1";
+const APP_VERSION = "3.6.2";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -5251,10 +5251,18 @@ const server = http.createServer(async (req, res) => {
         try {
           if (!grokAcp) { const error = new Error("Grok ACP is disabled"); error.statusCode = 409; error.code = "grok_acp_disabled"; throw error; }
           const body = await readJSON(req, 64 * 1024);
-          const result = await grokAcp.createSession({ directory: nativeAgentDirectory(body?.cwd || body?.directory, "Grok ACP"), sessionId: body?.sessionId || null, mcpServers: [] });
+          const directory = nativeAgentDirectory(body?.cwd || body?.directory, "Grok ACP");
+          const sessionId = typeof body?.sessionId === "string" && body.sessionId.trim() ? body.sessionId.trim() : null;
+          const name = typeof body?.name === "string" ? body.name : null;
+          // An existing conversation is loaded from Grok once, with its
+          // history, after Stepsemble or Grok restarted; a new one is created.
+          const known = sessionId ? grokAcp.sessions().find(row => row.id === sessionId) : null;
+          const result = known ? { kind: "loaded", sessionId, cwd: known.cwd, name: known.name }
+            : sessionId ? await grokAcp.loadSession(sessionId, directory, { name })
+            : await grokAcp.createSession({ directory, mcpServers: [], name });
           // Reopening a conversation puts back the mode chosen for it earlier.
-          if (body?.sessionId && result?.kind !== "reject") await restoreAcpMode("grok-build", grokAcp, result.sessionId);
-          sendJSON(res, 201, result);
+          if (sessionId && !known && result?.kind !== "reject") await restoreAcpMode("grok-build", grokAcp, result.sessionId);
+          sendJSON(res, result?.kind === "reject" ? 409 : 201, result);
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "grok_session_failed" }); }
         return;
       }
@@ -5293,6 +5301,25 @@ const server = http.createServer(async (req, res) => {
           const result = grokAcp.respondPermission(body?.requestId, body?.result);
           sendJSON(res, result.kind === "reject" ? 409 : 200, result);
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "grok_permission_failed" }); }
+        return;
+      }
+      // Grok lists its models and reasoning levels as session config options,
+      // as the other ACP agents do; the same browser model sheet edits them.
+      if (p === "/api/grok/acp/config" && req.method === "GET") {
+        if (!grokAcp) { sendJSON(res, 409, { error: "grok_acp_disabled" }); return; }
+        const sessionId = url.searchParams.get("sessionId") || "";
+        const configOptions = grokAcp.sessionConfigOptions(sessionId);
+        agentModelCache.record("grok-build", acpModelChoices(configOptions));
+        sendJSON(res, 200, { sessionId, configOptions });
+        return;
+      }
+      if (p === "/api/grok/acp/config" && req.method === "POST") {
+        try {
+          if (!grokAcp) { const error = new Error("Grok ACP is disabled"); error.statusCode = 409; error.code = "grok_acp_disabled"; throw error; }
+          const body = await readJSON(req, 64 * 1024);
+          const result = await grokAcp.setConfigOption(body?.sessionId, body?.configId, body?.value);
+          sendJSON(res, result.kind === "reject" ? 409 : 200, result);
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "grok_config_failed" }); }
         return;
       }
       // Standard ACP endpoints for Kilo Code and Hermes. They intentionally
@@ -5648,6 +5675,10 @@ const server = http.createServer(async (req, res) => {
           else if (record.persisted) record.needsLoad = true;
           else { sendJSON(res, 409, { error: "This session ended before a resumable identity was recorded" }); return; }
         }
+        // Grok keeps its conversations; one Stepsemble has not opened since it
+        // started is loaded from Grok before the pane shows it.
+        if (record.agentId === "grok-build" && record.nativeGrokAcp && record.nativeSessionId && grokAcp
+          && !grokAcp.sessions().some(row => row.id === record.nativeSessionId)) record.needsLoad = true;
         if (record.agentId === "pi" && record.sid) {
           const session = rpcSessions.get(record.sid);
           if (session && !session.exited) record.live = { sid: record.sid, cwd: session.meta.cwd,
@@ -6770,7 +6801,7 @@ const server = http.createServer(async (req, res) => {
             const session = await grokAcp.createSession({ directory: nativeAgentDirectory(cwd, "Grok ACP"), name: body?.name || null });
             if (session.kind === "reject") { const error = new Error(session.code); error.statusCode = 409; throw error; }
             if (requesterGone) return;
-            sendWorkspaceResult(res, 201, { ...publicGrokAcpTask({ id: session.sessionId, cwd: session.cwd, status: "idle", eventCount: 0 }), kind: "grok-acp", agentId: "grok-build" });
+            sendWorkspaceResult(res, 201, { ...publicGrokAcpTask({ id: session.sessionId, cwd: session.cwd, name: session.name, status: "idle", eventCount: 0 }), kind: "grok-acp", agentId: "grok-build" });
           } else if (["cline", "kilo", "hermes"].includes(agentId) && acpAdapterForAgent(agentId) && !worktree) {
             const adapter = acpAdapterForAgent(agentId);
             const session = await adapter.createSession({

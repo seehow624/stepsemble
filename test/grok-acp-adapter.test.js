@@ -122,3 +122,75 @@ test("Grok ACP offers Default and Plan, the modes Grok confirms, and switches th
   // A mode Grok would accept without applying is never sent.
   assert.equal((await adapter.setConfigOption(session.sessionId, mode.id, "bypassPermissions")).code, "grok_config_invalid");
 });
+
+test("Grok ACP keeps the models and reasoning levels Grok lists and changes them with session/set_config_option", async t => {
+  // Grok 1.0.41's session/new: a model option (Grok's own and the OpenCodex
+  // models in ~/.grok/config.toml), a reasoning option and no modes.
+  let configOptions = [
+    { id: "model", name: "Model", category: "model", type: "select", currentValue: "grok-4.7",
+      options: [{ value: "grok-4.7", name: "Grok 4.7" }, { value: "ocx-gpt-6-astra", name: "OCX gpt-6-astra" }] },
+    { id: "reasoning_effort", name: "Reasoning", category: "thought_level", type: "select", currentValue: "high",
+      options: [{ value: "xhigh", name: "Extra High" }, { value: "high", name: "High" }, { value: "low", name: "Low" }] },
+  ];
+  const child = new EventEmitter();
+  child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+  child.kill = () => child.emit("close", 0, null);
+  const sent = [];
+  child.stdin.on("data", chunk => {
+    for (const line of chunk.toString().split(/\n/).filter(Boolean)) {
+      const frame = JSON.parse(line); sent.push(frame);
+      let result = {};
+      if (frame.method === "initialize") result = { authMethods: [{ id: "cached_token" }] };
+      else if (frame.method === "session/new") result = { sessionId: "session-1", configOptions };
+      else if (frame.method === "session/set_config_option") {
+        configOptions = configOptions.map(option => option.id === frame.params.configId ? { ...option, currentValue: frame.params.value } : option);
+        result = { configOptions };
+      }
+      child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: frame.id, result }) + "\n");
+    }
+  });
+  const adapter = createGrokAcpAdapter({ command: "/usr/local/bin/grok", cwd: "/tmp", spawnImpl: () => child });
+  t.after(() => adapter.close());
+  const session = await adapter.createSession({ directory: "/tmp" });
+  const listed = adapter.sessionConfigOptions(session.sessionId);
+  assert.deepEqual(listed.map(option => option.category), ["model", "thought_level", "mode"], "Grok's options stay and Default/Plan are added");
+  assert.deepEqual(listed[0].options.map(choice => choice.value), ["grok-4.7", "ocx-gpt-6-astra"]);
+  assert.equal((await adapter.setConfigOption(session.sessionId, "model", "ocx-gpt-6-astra")).kind, "configured");
+  assert.equal((await adapter.setConfigOption(session.sessionId, "reasoning_effort", "low")).kind, "configured");
+  assert.deepEqual(sent.filter(frame => frame.method === "session/set_config_option").map(frame => [frame.params.configId, frame.params.value]),
+    [["model", "ocx-gpt-6-astra"], ["reasoning_effort", "low"]]);
+  const after = adapter.sessionConfigOptions(session.sessionId);
+  assert.equal(after.find(option => option.id === "model").currentValue, "ocx-gpt-6-astra");
+  assert.equal(after.find(option => option.id === "reasoning_effort").currentValue, "low");
+  assert.equal(after.find(option => option.category === "mode").currentValue, "default", "the added modes survive Grok's reply");
+  // A model Grok did not list is never sent.
+  assert.equal((await adapter.setConfigOption(session.sessionId, "model", "not-listed")).code, "grok_config_invalid");
+});
+
+test("Grok ACP loads a stored conversation with the history Grok replays and keeps its name", async t => {
+  const child = new EventEmitter();
+  child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+  child.kill = () => child.emit("close", 0, null);
+  child.stdin.on("data", chunk => {
+    for (const line of chunk.toString().split(/\n/).filter(Boolean)) {
+      const frame = JSON.parse(line);
+      let result = {};
+      if (frame.method === "initialize") result = { authMethods: [{ id: "cached_token" }] };
+      else if (frame.method === "session/load") {
+        // Grok sends the stored turns before it answers.
+        for (const [kind, text] of [["user_message_chunk", "earlier question"], ["agent_message_chunk", "earlier answer"]]) {
+          child.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: { sessionId: frame.params.sessionId, update: { sessionUpdate: kind, content: { type: "text", text } } } }) + "\n");
+        }
+        result = { configOptions: [{ id: "model", name: "Model", category: "model", type: "select", currentValue: "grok-4.7", options: [{ value: "grok-4.7", name: "Grok 4.7" }] }] };
+      }
+      child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: frame.id, result }) + "\n");
+    }
+  });
+  const adapter = createGrokAcpAdapter({ command: "/usr/local/bin/grok", cwd: "/tmp", spawnImpl: () => child });
+  t.after(() => adapter.close());
+  const loaded = await adapter.loadSession("stored-1", "/tmp", { name: "Grok models" });
+  assert.deepEqual([loaded.kind, loaded.sessionId, loaded.name], ["loaded", "stored-1", "Grok models"]);
+  assert.deepEqual(adapter.sessionEvents("stored-1").map(row => row.update.content.text), ["earlier question", "earlier answer"]);
+  assert.equal(adapter.sessions().find(row => row.id === "stored-1").name, "Grok models");
+  assert.equal(adapter.sessionConfigOptions("stored-1").find(option => option.category === "model").currentValue, "grok-4.7");
+});

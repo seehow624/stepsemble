@@ -209,7 +209,7 @@ function createGrokAcpAdapter({
     sessions.set(id, { id, cwd: directory, name: safeText(name, 120) || null, events: [], status: "idle", promptInFlight: false,
       configOptions: sessionOptions(result.value) });
     while (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
-    return { kind: "created", sessionId: id, cwd: directory };
+    return { kind: "created", sessionId: id, cwd: directory, name: sessions.get(id)?.name || null };
   }
   async function prompt(sessionId, text, { images = [] } = {}) {
     const id = safeId(sessionId), value = safeText(text);
@@ -230,14 +230,24 @@ function createGrokAcpAdapter({
       current.promptInFlight = false;
     }
   }
-  async function loadSession(sessionId, directory = cwd) {
+  async function loadSession(sessionId, directory = cwd, { name = null } = {}) {
     const id = safeId(sessionId);
     if (!id || typeof directory !== "string" || !path.isAbsolute(directory)) return reject("grok_session_invalid");
     const ready = await initialize(); if (ready.kind === "reject") return ready;
+    // Grok replays the conversation as session/update notifications before it
+    // answers session/load, so the session is listed first to keep them.
+    const prior = sessions.get(id);
+    const session = { id, cwd: directory, name: safeText(name, 120) || prior?.name || null, events: [], status: "idle",
+      promptInFlight: false, configOptions: prior?.configOptions || [] };
+    sessions.set(id, session);
     const result = await request("session/load", { sessionId: id, cwd: directory, mcpServers: [] });
-    if (result.kind === "reject") return result;
-    sessions.set(id, { id, cwd: directory, events: [], status: "idle", promptInFlight: false, configOptions: sessionOptions(result.value) });
-    return { kind: "loaded", sessionId: id, cwd: directory };
+    if (result.kind === "reject") {
+      if (sessions.get(id) === session) { if (prior) sessions.set(id, prior); else sessions.delete(id); }
+      return result;
+    }
+    session.configOptions = sessionOptions(result.value);
+    while (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
+    return { kind: "loaded", sessionId: id, cwd: directory, name: session.name };
   }
   function sessionConfigOptions(sessionId) {
     const session = sessions.get(safeId(sessionId) || "");

@@ -1,7 +1,7 @@
-/* stepsemble v3.6.1 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.6.2 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.6.1";
+const CLIENT_APP_VERSION = "3.6.2";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -4686,7 +4686,7 @@ function connectorAllowsLiveControls(connection = rpc) {
   if (!connection) return false;
   if (connection.nativeHistoryReadonly === true || connection.readOnly === true) return false;
   if (!connection.generic) return true;
-  return !!(connection.nativeOpenCode || connection.nativeAcp || connection.nativeCodexMutation
+  return !!(connection.nativeOpenCode || connection.nativeAcp || connection.nativeGrokAcp || connection.nativeCodexMutation
     || connection.nativeClaudeStructured);
 }
 
@@ -6194,10 +6194,17 @@ async function openGrokAcpTask(task, generationOverride = null) {
   const connection = rpc;
   grokAcpPollTimer = null;
   try {
+    // A conversation Stepsemble has not opened since it started is loaded
+    // from Grok first, with its history.
+    if (task.needsLoad === true) {
+      await post("/api/grok/acp/session", { sessionId: nativeSessionId, cwd, name });
+      if (rpc !== connection || generation !== viewGeneration) return;
+    }
     await refreshGrokAcpSnapshot(connection, { initial: true });
     if (rpc !== connection || generation !== viewGeneration) return;
     grokAcpPollTimer = setInterval(() => void refreshGrokAcpSnapshot(connection), 2000);
     syncGenericInputState();
+    void syncAcpConfig(connection);
   } catch (error) {
     if (rpc === connection && generation === viewGeneration) { toast(tKey("runtime.openChatFailed", { detail: error.message }), true); closeChat(true); showList(); }
   }
@@ -6584,6 +6591,7 @@ async function openAgentClientProtocolTask(task, generationOverride = null) {
     await refreshAgentClientProtocolSnapshot(connection, { initial: true });
     if (rpc !== connection || generation !== viewGeneration) return;
     acpPollTimer = setInterval(() => void refreshAgentClientProtocolSnapshot(connection), 2000); syncGenericInputState();
+    void syncAcpConfig(connection);
   } catch (error) {
     if (rpc === connection && generation === viewGeneration) { toast(tKey("runtime.openChatFailed", { detail: error.message }), true); closeChat(true); showList(); }
   }
@@ -9690,7 +9698,8 @@ function setStreaming(on) {
   if (el.thinkingSelect) {
     const codex = !!rpc?.nativeCodexMutation;
     const claude = !!rpc?.nativeClaudeStructured;
-    if (codex || claude) syncNativeThinkingSelect(rpc);
+    const acp = !!(rpc?.nativeAcp || rpc?.nativeGrokAcp);
+    if (codex || claude || acp) syncNativeThinkingSelect(rpc);
     else el.thinkingSelect.disabled = false;
     if (codex && rpc.codexEffort) el.thinkingSelect.value = rpc.codexEffort;
   }
@@ -10285,6 +10294,22 @@ function syncNativeThinkingSelect(connection = rpc) {
     updateComposerSummary(undefined, connection.claudeEffort);
     return;
   }
+  // An ACP agent lists its own reasoning levels (Grok: Extra high to Low);
+  // one that lists none has no level to choose.
+  if (connection?.nativeAcp || connection?.nativeGrokAcp) {
+    const thought = acpThoughtOption(connection.acpConfigOptions);
+    if (!thought) { setThinkingControlVisibility(true); select.disabled = true; return; }
+    setThinkingControlVisibility(false);
+    select.replaceChildren(...thought.options.map(choice => {
+      const option = document.createElement("option");
+      option.value = choice.value;
+      option.textContent = choice.name || reasoningLevelText(choice.value);
+      return option;
+    }));
+    select.value = String(thought.currentValue || "");
+    select.disabled = false;
+    return;
+  }
   setThinkingControlVisibility(false);
   if (!connection?.nativeCodexMutation) {
     restoreDefaultThinkingSelectOptions();
@@ -10741,6 +10766,38 @@ function acpModelOption(configOptions) {
     || options.find((option) => /model/i.test(option?.id || "") && option.options?.length)
     || null;
 }
+function acpThoughtOption(configOptions) {
+  const options = Array.isArray(configOptions) ? configOptions : [];
+  return options.find((option) => option?.category === "thought_level" && option.options?.length) || null;
+}
+// Kilo, Cline and Hermes share one ACP route and Grok has its own; both read
+// and change the same session config options.
+function acpConfigPath(connection) {
+  if (connection?.nativeGrokAcp) return "/api/grok/acp/config";
+  if (connection?.nativeAcp && connection.acpAgentId) return `/api/${connection.acpAgentId}/acp/config`;
+  return null;
+}
+function acpAgentOf(connection) { return connection?.nativeGrokAcp ? "grok-build" : String(connection?.acpAgentId || ""); }
+// Shows the conversation's model and reasoning level beside Send, as the
+// agent reports them, and keeps the reasoning menu in step.
+function applyAcpConfig(connection, configOptions) {
+  if (rpc !== connection) return;
+  const options = Array.isArray(configOptions) ? configOptions : [];
+  connection.acpConfigOptions = options;
+  const model = acpModelOption(options), thought = acpThoughtOption(options);
+  if (model) connection.acpModelConfigId = model.id;
+  const current = model?.options.find((choice) => choice.value === model.currentValue);
+  updateComposerSummary(model ? (current?.name || model.currentValue || "") : undefined, thought ? String(thought.currentValue || "") : "");
+  syncNativeThinkingSelect(connection);
+}
+async function syncAcpConfig(connection) {
+  const path = acpConfigPath(connection);
+  if (!path || !connection?.nativeSessionId) return;
+  try {
+    const result = await api(`${path}?sessionId=${encodeURIComponent(connection.nativeSessionId)}`);
+    applyAcpConfig(connection, result?.configOptions);
+  } catch {}
+}
 
 async function openModelSheet({ preserveSearch = false } = {}) {
   const connection = rpc;
@@ -10828,11 +10885,12 @@ async function openModelSheet({ preserveSearch = false } = {}) {
       renderModelList(connection.openCodeModel?.modelID || null, connection.openCodeModel?.providerID || null);
       return;
     }
-    if (connection?.nativeAcp) {
+    if (connection?.nativeAcp || connection?.nativeGrokAcp) {
       // ACP agents advertise model choice as a session config option; the
       // option whose category is "model" is the one this sheet edits.
-      const result = await api(`/api/${connection.acpAgentId}/acp/config?sessionId=${encodeURIComponent(connection.nativeSessionId)}`);
+      const result = await api(`${acpConfigPath(connection)}?sessionId=${encodeURIComponent(connection.nativeSessionId)}`);
       if (!stillCurrent()) return;
+      applyAcpConfig(connection, result?.configOptions);
       const option = acpModelOption(result?.configOptions);
       if (!option) {
         availableModels = [];
@@ -10841,10 +10899,10 @@ async function openModelSheet({ preserveSearch = false } = {}) {
       }
       connection.acpModelConfigId = option.id;
       availableModels = option.options.map((choice) => ({
-        id: choice.value, name: choice.name || choice.value, provider: connection.acpAgentId,
+        id: choice.value, name: choice.name || choice.value, provider: acpAgentOf(connection),
         description: choice.description || "",
       }));
-      renderModelList(option.currentValue, connection.acpAgentId);
+      renderModelList(option.currentValue, acpAgentOf(connection));
       return;
     }
     const [modelsRes, stateRes] = await Promise.allSettled([
@@ -10990,8 +11048,8 @@ function renderModelList(currentId, currentProvider = null) {
           renderModelList(selected?.modelID || m.id, selected?.providerID || m.provider);
           return;
         }
-        if (connection?.nativeAcp) {
-          const result = await post(`/api/${connection.acpAgentId}/acp/config`, {
+        if (connection?.nativeAcp || connection?.nativeGrokAcp) {
+          const result = await post(acpConfigPath(connection), {
             sessionId: connection.nativeSessionId,
             configId: connection.acpModelConfigId,
             value: m.id,
@@ -10999,9 +11057,10 @@ function renderModelList(currentId, currentProvider = null) {
           if (!stillCurrent()) return;
           if (result?.kind === "reject") throw new Error(result.code || "model switch rejected");
           const option = acpModelOption(result?.configOptions);
-          updateComposerSummary(m.name || m.id, undefined);
+          applyAcpConfig(connection, result?.configOptions);
+          if (!option) updateComposerSummary(m.name || m.id, undefined);
           toast("模型：" + (m.name || m.id));
-          renderModelList(option?.currentValue || m.id, connection.acpAgentId);
+          renderModelList(option?.currentValue || m.id, acpAgentOf(connection));
           return;
         }
         const result = await rpcCmd(expectedSid, { type: "set_model", provider: m.provider, modelId: m.id });
@@ -11245,6 +11304,21 @@ async function changeThinkingLevel(level) {
         syncNativeThinkingSelect(connection);
         toast(tKey("runtime.saveFailed", { detail: error.message }), true);
       }
+    }
+    return;
+  }
+  if (rpc?.nativeAcp || rpc?.nativeGrokAcp) {
+    const connection = rpc, path = acpConfigPath(connection), thought = acpThoughtOption(connection.acpConfigOptions);
+    const requested = String(level || "");
+    if (!path || !thought || !thought.options.some(choice => choice.value === requested)) return;
+    try {
+      const result = await post(path, { sessionId: connection.nativeSessionId, configId: thought.id, value: requested });
+      if (rpc !== connection) return;
+      if (result?.kind === "reject") throw new Error(result.code || "reasoning change rejected");
+      applyAcpConfig(connection, result?.configOptions);
+      toast(tKey("runtime.thinkingLevel", { level: reasoningLevelText(requested) }));
+    } catch (error) {
+      if (rpc === connection) { syncNativeThinkingSelect(connection); toast(tKey("runtime.saveFailed", { detail: error.message }), true); }
     }
     return;
   }

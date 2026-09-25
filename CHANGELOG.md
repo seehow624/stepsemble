@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.6.2
+
+- Choose a Grok Build conversation's model and reasoning level. The model button was hidden for Grok, although Grok lists its own models and every model set up in `~/.grok/config.toml`, such as the OpenCodex ones. The sheet now offers them, and its reasoning menu shows the levels the chosen model supports.
+- Show every ACP conversation's model and reasoning level beside Send as soon as it opens, for Kilo, Cline and Hermes as well as Grok. The reasoning menu lists the agent's own levels and is hidden for an agent that has none, instead of offering levels that did nothing.
+- Keep the name typed in New session for a Grok conversation; it used to become Grok followed by part of its id.
+- Open a Grok conversation again after Stepsemble restarts, for example after an update. It is loaded from Grok with its history, model and mode; before, it opened empty and could not be continued.
+
 ## 3.6.1
 
 - Sign an agent in on another computer from the Workspace. With another computer chosen as the host, starting a sign-in did nothing on computers added before device pairing: the relay left out the page's origin, so the other computer refused it. The relay now vouches for a page this computer has already checked, which also lets quota sources be saved and the Claude helper be updated on such a computer. A request without an origin is still refused.

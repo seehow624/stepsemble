@@ -29,7 +29,8 @@ test("composer controls match what each connector can actually do", () => {
     ["opencode", { generic: true, nativeOpenCode: true }, { image: true, live: true }],
     // ACP agents carry image blocks, config-option model choice and usage.
     ["acp", { generic: true, nativeAcp: true }, { image: true, live: true }],
-    ["grok acp", { generic: true, nativeGrokAcp: true }, { image: true, live: false }],
+    // Grok lists its models and reasoning levels as the same config options.
+    ["grok acp", { generic: true, nativeGrokAcp: true }, { image: true, live: true }],
     // Claude Code exposes image blocks plus session-scoped model/context APIs.
     ["claude", { generic: true, nativeClaudeStructured: true }, { image: true, live: true }],
     // Codex native mutation carries images and next-prompt model/effort.
