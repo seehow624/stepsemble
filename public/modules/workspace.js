@@ -612,6 +612,9 @@
     body.append(pathLabel, pathRow, browseHead, list, footer);
     function renderEntries() {
       list.replaceChildren();
+      // Setting the position also stops a scroll still animating from End or
+      // a flick, so a new listing always starts at its top.
+      list.scrollTop = 0;
       const entries = (current?.entries || []).filter(entry => entry.name.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase()));
       if (!entries.length) {
         list.append(node("p", search.value.trim() ? t("noFolderMatches") : t("noFolders"), "workspace-folder-empty"));
@@ -635,6 +638,7 @@
       const request = ++sequence;
       select.disabled = true; back.disabled = true; forward.disabled = true; up.disabled = true; go.disabled = true; search.disabled = true;
       list.replaceChildren(node("p", t("loading"), "workspace-folder-empty"));
+      list.scrollTop = 0;
       try {
         const data = await api(`/api/browse${path ? `?path=${encodeURIComponent(path)}` : ""}`, undefined, target);
         if (epoch !== dialogEpoch || request !== sequence) return;
