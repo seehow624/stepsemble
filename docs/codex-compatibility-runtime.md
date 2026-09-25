@@ -27,6 +27,7 @@ capabilities during `initialize`. Stepsemble uses both signals.
 | --- | --- | --- | --- |
 | Codex `0.153.4` | native | native | reviewed native mutation |
 | Codex `0.154.0` | native | native | reviewed native mutation |
+| Codex `0.156.1` | native | native | reviewed native mutation |
 | Future version with a known fingerprint | native read-only | native read-only | disabled |
 | Unknown schema or pre-release | bounded fallback | bounded fallback | disabled |
 
@@ -55,6 +56,34 @@ review checked whether the differences touch anything Stepsemble writes:
 
 The observed fingerprint matches the registered one exactly, so the schema
 carries no unreviewed drift. `0.154.0-schema.json` records the baseline.
+
+### 0.156.1 review record
+
+Reviewed against the `0.154.0` baseline. Of the 26 contract files, 16 are
+byte-identical, including every approval request and response and
+`ServerRequest`. The other 10 add optional fields or methods (thread
+attachments, MCP app UI, collaboration mode, disabled plugin ids, image input by
+URL or file id) or reword descriptions:
+
+- The approval responses Stepsemble sends and `ThreadStartParams` are
+  unchanged.
+- Every request method in use (`thread/start`, `thread/resume`,
+  `thread/read`, `thread/list`, `thread/turns/list`, `thread/items/list`,
+  `thread/goal/get`, `model/list`, `turn/start`, `turn/interrupt`,
+  `account/rateLimits/read`) is still present.
+- `thread/rollback` was removed. Stepsemble never calls it.
+
+The Approval control sends turn overrides limited to a plain `approvalPolicy`
+and a `sandboxPolicy` of `{type}` from Stepsemble's three presets (read only,
+default and full access). The composer, parallel-pool and approval oracles
+passed against the real 0.156.1 binary locally, including a turn override of
+`on-request` with `workspaceWrite`. CI keeps using the pinned official
+`0.154.0` artifact. `0.156.1-schema.json` records the baseline.
+
+Before a thread's first message, both releases refuse history reads:
+`thread/turns/list` reports that the thread is not materialized yet, and
+`thread/items/list` reports that it is not supported. Stepsemble reads that
+state as an empty history instead of a failure.
 
 ## Upgrade monitor
 

@@ -792,12 +792,21 @@
   });
   window.addEventListener("pagehide", () => { try { save(); } catch {} });
   window.addEventListener("pageshow", event => { if (event.persisted) location.reload(); });
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) void refresh(); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) return; if (booted) void refresh(); else retryBoot(); });
+  window.addEventListener("online", () => { if (booted) void refresh(); else retryBoot(); });
   setInterval(() => { if (!document.hidden && host) void refresh(); }, 10000);
   setInterval(() => { if (!document.hidden && host) void refreshUsage(); }, 300000);
+  // A Workspace opened while its host cannot be reached keeps trying, so it
+  // connects by itself once the host answers instead of needing a reload.
+  let booted = false, booting = false, bootTimer = 0, bootAttempt = 0;
+  function retryBoot() { clearTimeout(bootTimer); bootTimer = 0; void boot(); }
   async function boot() {
+    if (booted || booting) return;
+    booting = true;
     try {
-      const res = await fetch("/api/machines", { credentials: "same-origin", cache: "no-store" });
+      let res;
+      try { res = await fetch("/api/machines", { credentials: "same-origin", cache: "no-store" }); }
+      catch { throw new Error(t("hostsFailed")); }
       if (res.status === 401) {
         const login = new URL("/index.html", location.origin); login.searchParams.set("returnWorkspace", "1");
         for (const key of ["window", "ack", "source"]) if (params.has(key)) login.searchParams.set(key, params.get(key));
@@ -807,11 +816,16 @@
       const data = await res.json(); machines = data.machines; self = data.current || data.selfId || machines.find(m => m.self)?.id;
       host = self || machines[0]?.id;
       if (!host) throw new Error(t("noHosts"));
+      $("workspace-host").replaceChildren();
       for (const m of machines) { const option = node("option", m.name || m.id); option.value = m.id; $("workspace-host").append(option); }
       $("workspace-host").value = host;
+      booted = true;
       await refresh(); render(); void refreshUsage();
       if (params.get("ack") && params.get("source")) { save(); channel?.postMessage({ type: "window-ready", source: params.get("source"), target: windowId, token: params.get("ack") }); }
-    } catch (error) { setConnection(false, error.message); }
+    } catch (error) {
+      setConnection(false, error.message);
+      if (!booted) bootTimer = setTimeout(retryBoot, Math.min(10000, 1000 * 2 ** bootAttempt++));
+    } finally { booting = false; }
   }
   if ("serviceWorker" in navigator) {
     void navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch(() => {});

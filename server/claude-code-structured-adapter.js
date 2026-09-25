@@ -43,6 +43,15 @@ const TYPES = new Set([
 const reject = code => ({ kind: "reject", code });
 const clone = value => structuredClone(value);
 
+// Claude Code's permission modes, as its set_permission_mode control request
+// names them. The CLI flag calls "default" "manual"; both mean the same mode.
+const CLAUDE_PERMISSION_MODES = Object.freeze(["default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"]);
+function permissionModeId(value) {
+  const mode = typeof value === "string" ? value.trim() : "";
+  if (mode === "manual") return "default";
+  return CLAUDE_PERMISSION_MODES.includes(mode) ? mode : null;
+}
+
 function plain(value) { return !!value && typeof value === "object" && !Array.isArray(value); }
 function safeId(value) { return typeof value === "string" && value.length <= MAX_SESSION_ID && ID.test(value) ? value : null; }
 function bounded(value, limit = MAX_EVENT_BYTES) {
@@ -269,11 +278,63 @@ function gatewayModelOptions(env = process.env) {
   } catch { return []; }
 }
 
-function buildClaudeStructuredArgs({ sessionId = null, permissionPromptTool = null, permissionPrompts = "host", includePartialMessages = true, settingsPath = null } = {}) {
+// Older Claude CLIs stop on options they do not know, so the Bypass opt-in is
+// passed only when this executable's --help lists it. The answer is kept per
+// binary (path, size, modification time), so an updated CLI is asked again.
+const BYPASS_OPTION = "--allow-dangerously-skip-permissions";
+const bypassSupport = new Map();
+
+async function claudeSupportsBypass(command, { env = process.env, spawnImpl = spawn, timeoutMs = 5000 } = {}) {
+  let key;
+  try {
+    const real = await fs.promises.realpath(command);
+    const stat = await fs.promises.stat(real);
+    key = `${real}\u0000${stat.size}\u0000${stat.mtimeMs}`;
+  } catch { return false; }
+  if (!bypassSupport.has(key)) {
+    const probe = helpListsBypass(command, { env, spawnImpl, timeoutMs });
+    bypassSupport.set(key, probe);
+    if (bypassSupport.size > 8) bypassSupport.delete(bypassSupport.keys().next().value);
+    // A probe that failed or timed out is asked again next time.
+    void probe.then(result => { if (result === null && bypassSupport.get(key) === probe) bypassSupport.delete(key); });
+  }
+  return (await bypassSupport.get(key)) === true;
+}
+
+function helpListsBypass(command, { env, spawnImpl, timeoutMs }) {
+  return new Promise(resolve => {
+    let output = "", settled = false, child = null, timer = null;
+    const finish = value => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { child?.kill?.("SIGKILL"); } catch {}
+      resolve(value);
+    };
+    try {
+      child = spawnImpl(command, ["--help"], { env: { ...env }, shell: false, stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+    } catch { finish(null); return; }
+    timer = setTimeout(() => finish(null), timeoutMs);
+    child.stdout?.setEncoding?.("utf8");
+    child.stdout?.on?.("data", chunk => {
+      output += chunk;
+      if (output.includes(BYPASS_OPTION)) finish(true);
+      else if (output.length > 256 * 1024) finish(false);
+    });
+    child.once?.("error", () => finish(null));
+    child.once?.("close", code => finish(code === 0 ? output.includes(BYPASS_OPTION) : null));
+  });
+}
+
+function buildClaudeStructuredArgs({ sessionId = null, permissionPromptTool = null, permissionPrompts = "host", includePartialMessages = true, settingsPath = null, allowBypass = false } = {}) {
   const resume = sessionId === null || sessionId === undefined ? null : safeId(sessionId);
   if (sessionId !== null && sessionId !== undefined && !resume) throw new TypeError("invalid_claude_session_id");
   const args = ["-p", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose"];
   if (includePartialMessages) args.push("--include-partial-messages");
+  // Lets the person choose Bypass permissions later without turning it on:
+  // the session still starts in the mode Claude's own settings choose. Only
+  // for a CLI that lists the option (claudeSupportsBypass).
+  if (allowBypass === true) args.push(BYPASS_OPTION);
   // Host mode is the native control-request channel.  An explicitly
   // configured MCP permission-prompt-tool remains an opt-in escape hatch and
   // must not be combined with host mode because Claude treats them as two
@@ -354,11 +415,14 @@ function createClaudeStructuredSession({
   requestTimeoutMs = 120000,
   onEvent = null,
   onPermission = null,
+  initialPermissionMode = null,
+  allowBypass = false,
 } = {}) {
   if (typeof command !== "string" || !path.isAbsolute(command)) throw new TypeError("claude_command_absolute_required");
   if (typeof cwd !== "string" || !path.isAbsolute(cwd)) throw new TypeError("claude_cwd_absolute_required");
+  const rememberedPermissionMode = permissionModeId(initialPermissionMode);
   if (onEvent !== null && typeof onEvent !== "function" || onPermission !== null && typeof onPermission !== "function") throw new TypeError("session_callback_required");
-  const child = spawnImpl(command, buildClaudeStructuredArgs({ sessionId, permissionPromptTool, permissionPrompts, settingsPath: existingGatewaySettingsPath(env) }), {
+  const child = spawnImpl(command, buildClaudeStructuredArgs({ sessionId, permissionPromptTool, permissionPrompts, allowBypass, settingsPath: existingGatewaySettingsPath(env) }), {
     cwd, env: { ...env }, shell: false, stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
   });
   let closed = false, writeChain = Promise.resolve(), queuedInputBytes = 0, processError = null;
@@ -378,6 +442,7 @@ function createClaudeStructuredSession({
   let availableModels = [];
   let selectedModel = null;
   let selectedEffort = null;
+  let permissionMode = null;
   let contextSnapshot = {
     model: null,
     contextWindow: null,
@@ -535,11 +600,21 @@ function createClaudeStructuredSession({
     if (initializationPromise) return initializationPromise;
     initializationPromise = requestControl("initialize").then(result => {
       const response = plain(result?.response) ? clone(result.response) : {};
-      initializationResult = response;
       refreshAvailableModels(response);
       selectedModel = modelId(response.currentModel || response.current_model || response.model || response.initialModel) || selectedModel;
       selectedEffort = effortId(response.effort || response.currentEffort || response.current_effort || response.effortLevel) || selectedEffort;
+      permissionMode = permissionModeId(response.current_permission_mode ?? response.currentPermissionMode) || permissionMode;
       if (selectedModel) contextSnapshot = { ...contextSnapshot, model: selectedModel };
+      return response;
+    }).then(async response => {
+      // A mode chosen before a restart is put back; the relaunched process
+      // would otherwise start in the mode Claude's settings choose.
+      if (rememberedPermissionMode && rememberedPermissionMode !== permissionMode) {
+        try { await applyPermissionMode(rememberedPermissionMode); } catch {}
+      }
+      // Set last, so a caller that finds the session initialized also finds
+      // the remembered mode in place.
+      initializationResult = response;
       return response;
     }).catch(error => {
       // Closing a session intentionally rejects any pending control request;
@@ -557,9 +632,38 @@ function createClaudeStructuredSession({
     if (["running", "interrupting"].includes(state)) return controlError("claude_model_switch_active");
     return null;
   }
+  async function applyPermissionMode(requested) {
+    let acknowledged;
+    try { acknowledged = await requestControl("set_permission_mode", { mode: requested }); }
+    catch (error) {
+      // Claude allows Bypass permissions only in a session started with it allowed.
+      if (/dangerously-skip-permissions/i.test(String(error?.message || ""))) throw controlError("claude_bypass_unavailable", error.message);
+      throw error;
+    }
+    const response = plain(acknowledged?.response) ? acknowledged.response : {};
+    permissionMode = permissionModeId(response.mode) || requested;
+    return permissionMode;
+  }
+  async function setPermissionMode(mode) {
+    const requested = permissionModeId(mode);
+    if (!requested) throw controlError("claude_permission_mode_invalid");
+    const failure = ensureOpen();
+    if (failure) throw controlError(failure.code);
+    await initializeNative();
+    const afterInitialize = ensureOpen();
+    if (afterInitialize) throw controlError(afterInitialize.code);
+    return { kind: "changed", permissionMode: await applyPermissionMode(requested) };
+  }
+  async function permissionState() {
+    await initializeNative();
+    return { permissionMode: permissionMode || null };
+  }
   const parser = createClaudeStructuredParser({
     onEvent(event) {
       lastActivityAt = Date.now();
+      // init and status events report the mode, including changes Claude
+      // makes itself, such as leaving plan mode once a plan is approved.
+      if (event.type === "system" && event.permissionMode !== undefined) permissionMode = permissionModeId(event.permissionMode) || permissionMode;
       if (event.type === "result") state = "waiting";
       else if (["assistant", "stream_event", "tool_use", "progress", "permission_request"].includes(event.type)) state = "running";
       if (event.type === "assistant") captureAssistantUsage(event);
@@ -823,6 +927,8 @@ function createClaudeStructuredSession({
     models,
     setModel,
     setEffort,
+    setPermissionMode,
+    permissionState,
     contextUsage,
     interrupt,
     acknowledgePermission,
@@ -832,7 +938,7 @@ function createClaudeStructuredSession({
       const current = parser.status();
       return { ...current, closed, failed: current.failed || processError?.code || null,
         nativeSessionId: current.sessionId || sessionId, state: current.failed || processError ? "failed" : state,
-        model: selectedModel || null, effort: selectedEffort || null, contextUsage: contextUsage(),
+        model: selectedModel || null, effort: selectedEffort || null, permissionMode: permissionMode || null, contextUsage: contextUsage(),
         startedAt, lastActivityAt, exitCode, exitSignal, processExited: childExited, cleanupConfirmed: closed && childExited };
     },
     events: () => parser.events(),
@@ -844,12 +950,15 @@ function createClaudeStructuredSession({
 module.exports = {
   CLAUDE_STRUCTURED_VERSION,
   CLAUDE_EFFORTS,
+  CLAUDE_PERMISSION_MODES,
+  permissionModeId,
   effortId,
   normalizeClaudeEvent,
   eventText,
   existingGatewaySettingsPath,
   gatewayModelOptions,
   buildClaudeStructuredArgs,
+  claudeSupportsBypass,
   createClaudeStructuredParser,
   createClaudeStructuredSession,
 };

@@ -58,6 +58,21 @@
         "mutations": true,
         "approvals": true
       }
+    },
+    {
+      "profileId": "codex-app-server-v2-0.156.1",
+      "version": "0.156.1",
+      "channel": "stable",
+      "schemaFingerprint": "d37d3526d6d37d1f09afd0bbd23ee96e2039a122de6a2ab5aedd8b2b4d17f1f6",
+      "verification": "reviewed",
+      "capabilities": {
+        "historyRead": true,
+        "historyPages": true,
+        "sessionResume": true,
+        "turns": true,
+        "mutations": true,
+        "approvals": true
+      }
     }
   ]
 }

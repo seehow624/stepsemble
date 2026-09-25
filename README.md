@@ -188,6 +188,17 @@ the command. Entries for keys, tokens and passwords are hidden and masked in the
 output. In a Pi conversation, `/login` lists the providers Pi supports, with
 account sign-in or an API key.
 
+The message box follows Codex's layout: attachments and **Approval** on the
+left, then the context ring, the model and a round Send button on the right.
+**Approval** offers the permission modes of the conversation's own agent: Read
+only, Default and Full access for Codex; Manual, Accept edits, Plan, Auto,
+Don't ask and Bypass permissions for Claude Code; Build and Plan for OpenCode;
+and the modes that Hermes, Kilo, Cline and Grok Build report. Pi and
+Antigravity have no such modes, so the control is hidden for them. Each
+conversation remembers its choice. Codex applies it from your next message; the
+other agents apply it at once. Claude Code offers Bypass permissions only when
+its CLI supports the option.
+
 **Settings → Agents & models → Models & providers** lists every agent installed
 on the host. Each agent's page says how to sign in and shows the models it
 offers, plus its own settings: Pi's model visibility, Custom provider editor and
@@ -302,6 +313,8 @@ from other apps** has a switch to show them.
   the agent's own commands; a page per agent for its models and settings,
   custom endpoints, quota sources such as OpenCodex and CodexBar, and optional
   independent access tokens.
+- A Codex-style message box with each agent's own Approval modes, remembered
+  per conversation.
 - Multiple-device aliases, health checks, port settings, external-drive folder
   browsing, private HTTPS relay, independent peer credentials with revocation,
   and one-time pairing.

@@ -9,7 +9,7 @@ const { AUTH_TERMINAL_VERSION, createTerminalRunRegistry, findChoice, commandArg
 const { resolvePtyRuntime, supervisorSocketPath, supervisorMetadataPath } = require("./agent-connectors");
 const { launchAgentSupervisor } = require("./agent-supervisor-launch");
 const { UUID, failure, desktopPaths, privateDirectory, privateRead, privateWrite, exact } = require("./claude-desktop-state");
-const { buildClaudeStructuredArgs, existingGatewaySettingsPath } = require("./claude-code-structured-adapter");
+const { buildClaudeStructuredArgs, claudeSupportsBypass, existingGatewaySettingsPath } = require("./claude-code-structured-adapter");
 const { claudeSessionEnvOverrides } = require("./claude-session-routing");
 const {
   STRUCTURED_STREAM_VERSION,
@@ -250,7 +250,8 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
     let command, args;
     try {
       command = await fs.realpath(claudeCommand);
-      args = buildClaudeStructuredArgs({ sessionId: record.request.sessionId, permissionPromptTool: record.request.permissionPromptTool, permissionPrompts: "host", settingsPath: existingGatewaySettingsPath(taskEnv) });
+      const allowBypass = await claudeSupportsBypass(command, { env: taskEnv });
+      args = buildClaudeStructuredArgs({ sessionId: record.request.sessionId, permissionPromptTool: record.request.permissionPromptTool, permissionPrompts: "host", allowBypass, settingsPath: existingGatewaySettingsPath(taskEnv) });
     } catch { throw failure("desktop_structured_unavailable"); }
     if (closed) throw failure("service_closed");
     let child;

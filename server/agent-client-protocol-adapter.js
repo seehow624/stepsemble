@@ -86,6 +86,73 @@ function bounded(value, limit = MAX_FRAME_BYTES) {
 function validRequestId(value) {
   return Number.isSafeInteger(value) && value >= 0 || !!safeId(value);
 }
+
+// A session's mode is either a config option in the "mode" category or, in
+// the older form some agents still use (Hermes 0.21, for one), a "modes"
+// object that session/set_mode changes. Both become one select option here,
+// so the browser offers either the same way.
+const LEGACY_MODE_OPTION = "acp.mode";
+
+/** Bounded copy of the config options an agent advertises. */
+function normalizeConfigOptions(value) {
+  if (!Array.isArray(value)) return [];
+  const options = [];
+  for (const raw of value.slice(0, 16)) {
+    if (!raw || typeof raw !== "object") continue;
+    const id = safeText(raw.id, 64);
+    if (!id || id === LEGACY_MODE_OPTION) continue;
+    options.push({
+      id,
+      name: safeText(raw.name, 120) || id,
+      category: safeText(raw.category, 32) || null,
+      type: safeText(raw.type, 32) || null,
+      currentValue: safeText(raw.currentValue, 200) || null,
+      options: Array.isArray(raw.options) ? raw.options.slice(0, 200).map(choice => ({
+        value: safeText(choice?.value, 200),
+        name: safeText(choice?.name, 200) || safeText(choice?.value, 200),
+        description: safeText(choice?.description, 400) || null,
+      })).filter(choice => choice.value) : [],
+    });
+  }
+  return options;
+}
+
+function legacyModeOption(modes) {
+  if (!plain(modes) || !Array.isArray(modes.availableModes)) return null;
+  const choices = modes.availableModes.slice(0, 64).map(mode => ({
+    value: safeText(typeof mode?.id === "string" ? mode.id : "", 200),
+    name: safeText(mode?.name, 200) || safeText(mode?.id, 200),
+    description: safeText(mode?.description, 400) || null,
+  })).filter(choice => choice.value);
+  if (!choices.length) return null;
+  const current = safeText(modes.currentModeId, 200);
+  return { id: LEGACY_MODE_OPTION, name: "Mode", category: "mode", type: "select", legacy: true,
+    currentValue: choices.some(choice => choice.value === current) ? current : null, options: choices };
+}
+
+/** Options from a session/new or session/load reply, modes included. */
+function configOptionsFromSession(value) {
+  const options = normalizeConfigOptions(value?.configOptions);
+  const legacy = options.some(option => option.category === "mode") ? null : legacyModeOption(value?.modes);
+  return legacy ? [...options, legacy] : options;
+}
+
+// Keeps the options current when the agent changes them itself, for example
+// when it leaves plan mode after the user approves a plan.
+function applyConfigUpdate(options, update) {
+  const current = Array.isArray(options) ? options : [];
+  const kind = String(update?.sessionUpdate || "");
+  if (kind === "config_option_update" && Array.isArray(update.configOptions)) {
+    const next = normalizeConfigOptions(update.configOptions);
+    const legacy = next.some(option => option.category === "mode") ? null : current.find(option => option.legacy);
+    return legacy ? [...next, legacy] : next;
+  }
+  if (kind === "current_mode_update") {
+    const mode = safeText(update.currentModeId ?? update.modeId, 200);
+    return current.map(option => option.legacy && option.options.some(choice => choice.value === mode) ? { ...option, currentValue: mode } : option);
+  }
+  return current;
+}
 function requestKey(value) { return typeof value === "number" ? value : String(value); }
 
 function normalizeUpdate(params) {
@@ -188,6 +255,7 @@ function createAgentClientProtocolAdapter({
       if (kind === "agent_thought_chunk" || kind === "agent_message_chunk" || kind === "tool_call") session.status = "running";
       if (kind === "agent_message" || kind === "agent_thought" || kind === "current_mode_update" || kind === "config_option_update") session.status = "running";
       if (kind === "plan" && row.update?.entries?.some?.(entry => entry?.status === "completed")) session.status = "idle";
+      if (kind === "config_option_update" || kind === "current_mode_update") session.configOptions = applyConfigUpdate(session.configOptions, row.update);
     }
     try { onUpdate?.(clone(row)); } catch {}
   }
@@ -258,33 +326,9 @@ function createAgentClientProtocolAdapter({
     // ACP v1 exposes model selection through session config options rather
     // than a dedicated model API. Record whatever the agent advertised so the
     // browser can offer the same choices the vendor's own client would.
-    const configOptions = normalizeConfigOptions(result.value?.configOptions);
+    const configOptions = configOptionsFromSession(result.value);
     sessions.get(id).configOptions = configOptions;
     return { kind: sessionId ? "loaded" : "created", sessionId: id, cwd: directory, configOptions };
-  }
-
-  /** Bounded copy of the agent's advertised config options. */
-  function normalizeConfigOptions(value) {
-    if (!Array.isArray(value)) return [];
-    const options = [];
-    for (const raw of value.slice(0, 16)) {
-      if (!raw || typeof raw !== "object") continue;
-      const id = safeText(raw.id, 64);
-      if (!id) continue;
-      options.push({
-        id,
-        name: safeText(raw.name, 120) || id,
-        category: safeText(raw.category, 32) || null,
-        type: safeText(raw.type, 32) || null,
-        currentValue: safeText(raw.currentValue, 200) || null,
-        options: Array.isArray(raw.options) ? raw.options.slice(0, 200).map(choice => ({
-          value: safeText(choice?.value, 200),
-          name: safeText(choice?.name, 200) || safeText(choice?.value, 200),
-          description: safeText(choice?.description, 400) || null,
-        })).filter(choice => choice.value) : [],
-      });
-    }
-    return options;
   }
 
   function sessionConfigOptions(sessionId) {
@@ -299,12 +343,22 @@ function createAgentClientProtocolAdapter({
     const session = sessions.get(id);
     if (!session) return reject("acp_session_unavailable");
     if (session.promptInFlight) return reject("acp_prompt_in_flight");
+    const known = (session.configOptions || []).find(row => row.id === option);
+    if (known?.legacy) {
+      // The older modes form: session/set_mode answers with an empty result.
+      if (!known.options.some(choice => choice.value === next)) return reject("acp_config_invalid");
+      const result = await request("session/set_mode", { sessionId: id, modeId: next });
+      if (result.kind !== "result") return result;
+      session.configOptions = applyConfigUpdate(session.configOptions, { sessionUpdate: "current_mode_update", currentModeId: next });
+      return { kind: "configured", sessionId: id, configId: option, value: next, configOptions: session.configOptions || [] };
+    }
     const result = await request("session/set_config_option", { sessionId: id, configId: option, value: next });
     if (result.kind !== "result") return result;
     // The response carries the complete updated list, so replace rather than
     // merge: a stale entry would show a model the agent no longer offers.
-    const configOptions = normalizeConfigOptions(result.value?.configOptions);
-    if (configOptions.length) session.configOptions = configOptions;
+    if (normalizeConfigOptions(result.value?.configOptions).length) {
+      session.configOptions = applyConfigUpdate(session.configOptions, { sessionUpdate: "config_option_update", configOptions: result.value.configOptions });
+    }
     return { kind: "configured", sessionId: id, configId: option, value: next, configOptions: session.configOptions || [] };
   }
   async function prompt(sessionId, text, { images = [] } = {}) {
@@ -376,4 +430,5 @@ function createAgentClientProtocolAdapter({
     sessions: listSessions, status, close });
 }
 
-module.exports = { ACP_VERSION, normalizeUpdate, createAgentClientProtocolAdapter, readSessionRegistry, writeSessionRegistry };
+module.exports = { ACP_VERSION, LEGACY_MODE_OPTION, normalizeUpdate, normalizeConfigOptions, legacyModeOption, configOptionsFromSession, applyConfigUpdate,
+  createAgentClientProtocolAdapter, readSessionRegistry, writeSessionRegistry };

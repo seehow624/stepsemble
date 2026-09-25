@@ -31,6 +31,8 @@ const { piImageInputs } = require("./server/prompt-attachments");
 const PROMPT_ROUTE_BYTES = 28 * 1024 * 1024;
 const ACP_PROMPT_ROUTE_BYTES = 12 * 1024 * 1024;
 const { createNativeComposerRoutes } = require("./server/native-composer-routes");
+const { createAgentModeStore } = require("./server/agent-mode-store");
+const { createAgentModeRoutes, codexTurnPermissions, modeOption } = require("./server/agent-mode-routes");
 const { applyNativeLaunchConfig, isInstalledRuntime } = require("./server/native-launch-config");
 const { createCodexNativePool } = require("./server/codex-native-pool");
 const { createCodexImagePreviewRegistry } = require("./server/codex-image-preview");
@@ -59,7 +61,7 @@ const { createOpenCodeNativeAdapter } = require("./server/opencode-native-adapte
 const { taskFromThread: codexTaskFromThread } = require("./server/codex-native-history-adapter");
 const { createGrokAcpAdapter } = require("./server/grok-acp-adapter");
 const { createAgentClientProtocolAdapter, readSessionRegistry, writeSessionRegistry } = require("./server/agent-client-protocol-adapter");
-const { CLAUDE_STRUCTURED_VERSION } = require("./server/claude-code-structured-adapter");
+const { CLAUDE_STRUCTURED_VERSION, claudeSupportsBypass } = require("./server/claude-code-structured-adapter");
 const { launchClaudeStructuredSession } = require("./server/claude-structured-launch");
 const { createClaudeDesktopUpgradeService } = require("./server/claude-desktop-upgrade");
 const { createAntigravityStructuredSession, ANTIGRAVITY_STRUCTURED_VERSION } = require("./server/antigravity-cli-structured-adapter");
@@ -98,7 +100,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.5.0";
+const APP_VERSION = "3.6.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2121,12 +2123,17 @@ const hermesAcp = hermesAcpEnabled && hermesCommand ? createAgentClientProtocolA
 // Models that Claude Code and the ACP agents offered in their last conversation,
 // for Settings → Models & providers.
 const agentModelCache = createAgentModelCache({ file: path.join(CONFIG_DIR, "agent-models.json") });
+// The approval mode chosen for each conversation (see agent-mode-routes).
+const agentModes = createAgentModeStore({ file: path.join(CONFIG_DIR, "agent-modes.json") });
 function acpAdapterForAgent(agentId) {
   return agentId === "cline" ? clineAcp : agentId === "kilo" ? kiloAcp : agentId === "hermes" ? hermesAcp : null;
 }
 const claudeStructuredEnabled = new Set(["1", "true", "yes", "on"]).has(String(process.env.STEPSEMBLE_CLAUDE_STRUCTURED || "").trim().toLowerCase());
 const claudeDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "claude-code");
 const claudeStructuredCommand = resolveCommand(claudeDefinition, { env: process.env });
+// Ask the Claude CLI once in the background, so the first conversation does
+// not wait to learn whether it can offer Bypass permissions.
+if (claudeStructuredEnabled && claudeStructuredCommand) void claudeSupportsBypass(claudeStructuredCommand);
 const claudePermissionPromptTool = String(process.env.STEPSEMBLE_CLAUDE_PERMISSION_PROMPT_TOOL || "").trim() || null;
 const claudeStructuredSessions = new Map();
 const claudeResumeGates = new Map();
@@ -4526,10 +4533,26 @@ const historyHost = (() => {
 
 const handleNativeComposerRoute = createNativeComposerRoutes({
   codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession,
+  codexPermissions: threadId => codexTurnPermissions(agentModes.get("codex", threadId)),
   observeCodex: threadId => codexPersistedObserver.observe(threadId),
   validateDirectory: nativeAgentDirectory, readJSON, sendJSON, gateway: openCodexGateway,
   onModels: (agentId, models) => agentModelCache.record(agentId, models),
 });
+const handleAgentModeRoute = createAgentModeRoutes({
+  store: agentModes, codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession,
+  openCode: openCodeNative, openCodeDirectory,
+  acpAdapterForAgent: agentId => agentId === "grok-build" ? grokAcp : acpAdapterForAgent(agentId),
+  readJSON, sendJSON,
+});
+
+// A mode chosen earlier is put back when an ACP conversation is loaded again;
+// the agent would otherwise start it in its own default mode.
+async function restoreAcpMode(agentId, adapter, sessionId) {
+  const remembered = agentModes.get(agentId, sessionId);
+  const option = remembered ? modeOption(adapter.sessionConfigOptions(sessionId)) : null;
+  if (!option || option.currentValue === remembered || !option.options.some(choice => choice.value === remembered)) return;
+  try { await adapter.setConfigOption(sessionId, option.id, remembered); } catch {}
+}
 
 const server = http.createServer(async (req, res) => {
   let url;
@@ -5157,7 +5180,9 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/opencode/message" && req.method === "POST") {
         try {
           const body = await readJSON(req, PROMPT_ROUTE_BYTES);
-          sendJSON(res, 200, { message: await openCodeNative.sendMessage(body?.sessionId, body?.text, { model: body?.model, agent: body?.agent, noReply: body?.noReply === true, images: body?.images, directory: openCodeDirectory(body?.cwd || body?.directory || null) }) });
+          // The agent (Build, Plan…) chosen for this session, unless the request names one.
+          const agent = body?.agent || agentModes.get("opencode", String(body?.sessionId || "")) || null;
+          sendJSON(res, 200, { message: await openCodeNative.sendMessage(body?.sessionId, body?.text, { model: body?.model, agent, noReply: body?.noReply === true, images: body?.images, directory: openCodeDirectory(body?.cwd || body?.directory || null) }) });
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_message_failed" }); }
         return;
       }
@@ -5254,6 +5279,7 @@ const server = http.createServer(async (req, res) => {
               sessionId: typeof body?.sessionId === "string" && body.sessionId.trim() ? body.sessionId.trim() : null,
               name: body?.name || null,
             });
+            if (result.kind === "loaded") await restoreAcpMode(agentId, adapter, result.sessionId);
             sendJSON(res, result.kind === "reject" ? 409 : 201, result); return;
           }
           if (action === "events" && req.method === "GET") {
@@ -5296,6 +5322,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (await handleNativeComposerRoute(req, res, url)) return;
+      if (await handleAgentModeRoute(req, res, url)) return;
 
       if (p === "/api/claude/structured" && req.method === "GET") {
         const sessions = [...claudeStructuredSessions].map(([id, session]) => publicClaudeStructuredTask(id, session)).filter(Boolean);
@@ -6725,6 +6752,7 @@ const server = http.createServer(async (req, res) => {
               sendWorkspaceResult(res, 201, { ...fallback, kind: "cli", agentId, nativeFallback: "acp", nativeFallbackReason: session.code });
               return;
             }
+            if (session.kind === "loaded") await restoreAcpMode(agentId, adapter, session.sessionId);
             if (requesterGone) return;
             sendWorkspaceResult(res, 201, { ...publicAgentClientProtocolTask(agentId, { id: session.sessionId, cwd: session.cwd, status: "idle", eventCount: 0, name: body?.name || null }), kind: "acp", agentId });
           } else if (agentId === "codex" && codexNative.status().mutationReady && !worktree) {
@@ -6775,6 +6803,9 @@ const server = http.createServer(async (req, res) => {
             }
             const session = await launchClaudeStructuredSession({ desktopClient: desktopClaude,
               command: claudeStructuredCommand, cwd: sessionCwd, env: { ...process.env, ...claudeOverrides },
+              // The desktop helper asks its own Claude CLI the same question.
+              allowBypass: desktopClaude ? false : await claudeSupportsBypass(claudeStructuredCommand, { env: { ...process.env, ...claudeOverrides } }),
+              initialPermissionMode: resumeSessionId ? agentModes.get("claude-code", resumeSessionId) : null,
               name: sessionName, permissionPromptTool: claudePermissionPromptTool, sessionId: resumeSessionId,
               onEvent: event => { try { if (event?.sessionId) {
                 rememberClaudeStructuredSession(event.sessionId, { cwd: sessionCwd, name: sessionName });

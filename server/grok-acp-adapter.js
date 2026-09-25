@@ -10,6 +10,7 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { createLineDecoder } = require("./stream-safety");
 const { acpImageBlocks } = require("./prompt-attachments");
+const { configOptionsFromSession, applyConfigUpdate } = require("./agent-client-protocol-adapter");
 
 const GROK_ACP_VERSION = "grok-acp-v1";
 const MAX_FRAME_BYTES = 1024 * 1024;
@@ -115,7 +116,12 @@ function createGrokAcpAdapter({
       if (!value) { fail("grok_acp_update_invalid"); return; }
       const row = { type: "session.update", ...value, at: Date.now() };
       events.push(row); while (events.length > MAX_EVENTS) events.shift();
-      const session = sessions.get(value.sessionId); if (session) session.events.push(row);
+      const session = sessions.get(value.sessionId);
+      if (session) {
+        session.events.push(row);
+        const kind = String(value.update?.sessionUpdate || "");
+        if (kind === "config_option_update" || kind === "current_mode_update") session.configOptions = applyConfigUpdate(session.configOptions, value.update);
+      }
       try { onUpdate?.(clone(row)); } catch {}
       return;
     }
@@ -189,7 +195,8 @@ function createGrokAcpAdapter({
     const result = await request("session/new", { cwd: directory, mcpServers, ...(sessionId ? { sessionId } : {}) });
     if (result.kind === "reject" || !safeId(result.value?.sessionId)) return reject(result.kind === "reject" ? result.code : "grok_session_invalid");
     const id = String(result.value.sessionId);
-    sessions.set(id, { id, cwd: directory, name: safeText(name, 120) || null, events: [], status: "idle", promptInFlight: false });
+    sessions.set(id, { id, cwd: directory, name: safeText(name, 120) || null, events: [], status: "idle", promptInFlight: false,
+      configOptions: configOptionsFromSession(result.value) });
     while (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
     return { kind: "created", sessionId: id, cwd: directory };
   }
@@ -218,8 +225,29 @@ function createGrokAcpAdapter({
     const ready = await initialize(); if (ready.kind === "reject") return ready;
     const result = await request("session/load", { sessionId: id, cwd: directory, mcpServers: [] });
     if (result.kind === "reject") return result;
-    sessions.set(id, { id, cwd: directory, events: [], status: "idle", promptInFlight: false });
+    sessions.set(id, { id, cwd: directory, events: [], status: "idle", promptInFlight: false, configOptions: configOptionsFromSession(result.value) });
     return { kind: "loaded", sessionId: id, cwd: directory };
+  }
+  function sessionConfigOptions(sessionId) {
+    const session = sessions.get(safeId(sessionId) || "");
+    return session ? clone(session.configOptions || []) : [];
+  }
+  /** Changes one advertised option, such as the session mode. */
+  async function setConfigOption(sessionId, configId, value) {
+    const id = safeId(sessionId), option = safeText(configId, 64), next = safeText(value, 200);
+    const session = id ? sessions.get(id) : null;
+    if (!session || !option || !next) return reject("grok_config_invalid");
+    if (session.promptInFlight) return reject("grok_prompt_in_flight");
+    const known = (session.configOptions || []).find(row => row.id === option);
+    if (!known || !known.options.some(choice => choice.value === next)) return reject("grok_config_invalid");
+    const result = known.legacy
+      ? await request("session/set_mode", { sessionId: id, modeId: next })
+      : await request("session/set_config_option", { sessionId: id, configId: option, value: next });
+    if (result.kind !== "result") return result;
+    if (known.legacy) session.configOptions = applyConfigUpdate(session.configOptions, { sessionUpdate: "current_mode_update", currentModeId: next });
+    else if (Array.isArray(result.value?.configOptions)) session.configOptions = applyConfigUpdate(session.configOptions, { sessionUpdate: "config_option_update", configOptions: result.value.configOptions });
+    else session.configOptions = session.configOptions.map(row => row.id === option ? { ...row, currentValue: next } : row);
+    return { kind: "configured", sessionId: id, configId: option, value: next, configOptions: clone(session.configOptions) };
   }
   async function cancel(sessionId) {
     const id = safeId(sessionId); if (!id || !sessions.has(id)) return reject("grok_session_unavailable");
@@ -246,6 +274,7 @@ function createGrokAcpAdapter({
     return closePromise;
   }
   return Object.freeze({ version: GROK_ACP_VERSION, start, initialize, createSession, loadSession, prompt, cancel, respondPermission,
+    sessionConfigOptions, setConfigOption,
     pendingPermissions: () => [...permissions.values()].map(clone), events: () => clone(events),
     sessionEvents: sessionId => clone(sessions.get(String(sessionId))?.events || []),
     sessions: () => [...sessions.values()].map(row => ({ id: row.id, cwd: row.cwd, name: row.name || null, status: row.status, eventCount: row.events.length })), status, close });

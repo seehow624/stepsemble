@@ -6,7 +6,7 @@ const { once } = require("node:events");
 const { createHttpUtils } = require("../server/http-utils");
 const { createNativeComposerRoutes, PROMPT_BODY_BYTES } = require("../server/native-composer-routes");
 
-async function fixture(t, { codexContextError = null, observedContext = null } = {}) {
+async function fixture(t, { codexContextError = null, observedContext = null, codexPermissions = null } = {}) {
   const calls = [];
   let threadId = "thread-a";
   const context = { model: "model-a", contextTokens: 4500, contextWindow: 10000, contextPercent: 45, usage: { inputTokens: 4500 } };
@@ -26,7 +26,7 @@ async function fixture(t, { codexContextError = null, observedContext = null } =
   };
   const { readJSON, sendJSON } = createHttpUtils();
   const handle = createNativeComposerRoutes({ codex, ensureCodex: async () => {}, observeCodex: async () => observedContext ? { context: observedContext } : null,
-    resolveClaude: id => id === "claude-a" ? { session } : null,
+    resolveClaude: id => id === "claude-a" ? { session } : null, codexPermissions,
     validateDirectory: cwd => { if (cwd !== "/owned/project") throw Object.assign(new Error("outside"), { code: "agent_directory_invalid", statusCode: 400 }); return cwd; }, readJSON, sendJSON });
   const server = http.createServer(async (req, res) => {
     if (req.headers.authorization !== "Bearer synthetic-composer") { sendJSON(res, 401, { error: "unauthorized" }); return; }
@@ -55,6 +55,13 @@ test("native composer HTTP forwards image-only prompts, per-turn model and exact
   const context = await f.request("/api/codex/context?threadId=thread-a");
   assert.equal(context.data.contextPercent, 45);
   assert.deepEqual(f.calls.pop(), ["context", "thread-a"]);
+});
+
+test("the approval mode chosen for a Codex thread travels with each turn", async t => {
+  const f = await fixture(t, { codexPermissions: id => id === "thread-a" ? { approvalPolicy: "on-request", sandboxPolicy: { type: "readOnly" } } : null });
+  const response = await f.request("/api/codex/mutation/turn", { threadId: "thread-a", text: "plan it" });
+  assert.equal(response.status, 200);
+  assert.deepEqual(f.calls.pop(), ["turn", [{ type: "text", text: "plan it" }], { approvalPolicy: "on-request", sandboxPolicy: { type: "readOnly" } }, "thread-a"]);
 });
 
 test("Codex context falls back to persisted observation when the independent native process has no live state", async t => {

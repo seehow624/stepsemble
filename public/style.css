@@ -1,4 +1,4 @@
-/* stepsemble v3.5.0 — Ink & Ivory / English-first localization */
+/* stepsemble v3.6.0 — Ink & Ivory / English-first localization */
 
 :root {
   --paper: #FAF7F0;
@@ -5641,3 +5641,165 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
 .quota-source-prefer-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; min-width: 0; }
 .quota-source-prefer-row span { min-width: 0; overflow-wrap: anywhere; }
 .quota-source-prefer-row select { flex: 0 1 auto; min-width: 8em; max-width: 62%; min-height: 36px; }
+
+/* v3.6.0 — Codex-style composer bar. Attachments and the approval mode sit on
+   the left; the context ring, the model and a small round Send sit on the
+   right. Hit areas stay about 44px through the ::after margins. */
+#view-chat .composer-toolbar { min-height: 40px; gap: 4px; padding: 2px 0 0; }
+#view-chat .composer-toolbar .composer-icon-btn {
+  position: relative;
+  width: 36px; height: 36px; min-height: 36px;
+  border-radius: 50%;
+}
+#view-chat .composer-toolbar .composer-icon-btn .icon { width: 20px; height: 20px; }
+#view-chat .composer-toolbar .composer-icon-btn::after,
+#view-chat .composer-send::after,
+#view-chat .context-ring-btn::after { content: ""; position: absolute; inset: -4px; }
+
+#view-chat .approval-control { position: relative; min-width: 0; flex: 0 1 auto; display: flex; }
+#view-chat .approval-control.hidden { display: none; }
+#view-chat .composer-approval {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--pine-soft);
+  background: transparent;
+  font: inherit;
+  font-size: .8rem;
+  font-weight: 560;
+  cursor: pointer;
+}
+#view-chat .composer-approval::after { content: ""; position: absolute; inset: -4px 0; }
+#view-chat .composer-approval:hover,
+#view-chat .composer-approval[aria-expanded="true"] { color: var(--ink); background: var(--bubble-user); }
+#view-chat .composer-approval:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#view-chat .composer-approval .icon { width: 16px; height: 16px; flex: 0 0 auto; }
+#view-chat .composer-approval .composer-approval-chevron { width: 12px; height: 12px; opacity: .7; }
+#view-chat .composer-approval-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#view-chat .approval-control[data-tone="warn"] .composer-approval { color: var(--warn); }
+
+#view-chat .approval-menu {
+  position: absolute;
+  left: -4px;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  width: min(320px, calc(100vw - 28px));
+  max-height: min(60vh, 460px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  gap: 2px;
+  padding: 10px 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+  box-shadow: 0 16px 40px rgba(0,0,0,.28);
+}
+#view-chat .approval-menu.hidden { display: none; }
+#view-chat .approval-menu h3 {
+  margin: 0 8px 4px;
+  color: var(--pine-soft);
+  font-size: .62rem;
+  font-weight: 760;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+#view-chat .approval-options { display: grid; gap: 2px; }
+#view-chat .approval-option {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: 2px 8px;
+  padding: 8px 10px 8px 8px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+#view-chat .approval-option:hover,
+#view-chat .approval-option:focus-visible { background: var(--bubble-user); outline: none; }
+#view-chat .approval-option:disabled { cursor: default; opacity: .6; }
+#view-chat .approval-option .icon { grid-row: 1 / span 2; width: 16px; height: 16px; margin-top: 1px; color: var(--accent); visibility: hidden; }
+#view-chat .approval-option[aria-checked="true"] .icon { visibility: visible; }
+#view-chat .approval-option strong { min-width: 0; font-size: .82rem; font-weight: 620; overflow-wrap: anywhere; }
+#view-chat .approval-option small { grid-column: 2; min-width: 0; color: var(--pine-soft); font-size: .7rem; line-height: 1.35; overflow-wrap: anywhere; }
+#view-chat .approval-option[data-tone="warn"] strong { color: var(--warn); }
+#view-chat .approval-menu-note { margin: 4px 8px 0; color: var(--pine-soft); font-size: .66rem; }
+#view-chat .approval-menu-note.hidden { display: none; }
+
+/* Right side: a ring-only context gauge (details on tap), the model as plain
+   text and a small round Send or Stop. */
+#view-chat .context-dashboard { margin-left: auto; gap: 0; }
+#view-chat .context-ring-btn {
+  position: relative;
+  width: 32px; min-width: 32px; height: 36px; min-height: 36px;
+  padding: 0;
+  border-radius: 50%;
+}
+#view-chat .context-ring { width: 18px; height: 18px; }
+#view-chat .context-inline-percent {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+#view-chat .composer-model-control {
+  width: auto;
+  max-width: min(44vw, 320px);
+  min-width: 0;
+  flex: 0 1 auto;
+  height: 36px;
+  min-height: 36px;
+  gap: 4px;
+  padding: 0 6px 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  font-size: .82rem;
+}
+#view-chat .composer-model-control:hover { background: var(--bubble-user); }
+#view-chat .composer-model-copy { gap: 5px; }
+#view-chat .composer-model-name { color: var(--ink); font-weight: 560; }
+#view-chat .composer-model-level { color: var(--pine-soft); font-weight: 480; }
+#view-chat .composer-model-control .icon { width: 12px; height: 12px; opacity: .7; }
+#view-chat .composer-send {
+  position: relative;
+  width: 34px; height: 34px; min-height: 34px;
+  flex: 0 0 auto;
+  margin-left: 2px;
+  padding: 0;
+  border-radius: 50%;
+}
+#view-chat .composer-send .icon { width: 17px; height: 17px; }
+#view-chat .composer-send.composer-stop .icon { width: 13px; height: 13px; }
+
+@media (max-width: 979px) {
+  #view-chat .composer-toolbar { gap: 2px; }
+  #view-chat .composer-model-control { max-width: 40vw; padding: 0 4px 0 6px; }
+  #view-chat .composer-approval { padding: 0 6px; }
+  #view-chat .composer-approval-label { max-width: 28vw; }
+  #view-chat .composer-send { width: 36px; height: 36px; min-height: 36px; }
+}
+@media (max-width: 360px) {
+  #view-chat .composer-model-control { max-width: 36vw; }
+  #view-chat .composer-approval-label { max-width: 22vw; }
+}
+@media (max-width: 480px) {
+  /* A narrow phone keeps the words and drops the chevrons. */
+  #view-chat .composer-approval .composer-approval-chevron,
+  #view-chat .composer-model-control .icon { display: none; }
+  #view-chat .composer-approval { gap: 5px; padding: 0 5px; font-size: .78rem; }
+  #view-chat .composer-model-control { max-width: 44vw; padding: 0 4px; font-size: .78rem; }
+}

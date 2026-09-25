@@ -77,6 +77,8 @@ cat ~/.config/stepsemble/token
 
 登入 Agent：在該 Agent 的對話輸入 `/login`；`/logout` 和 `/status` 用法相同。Stepsemble 會在對話所在的主機執行該 Agent 自己的指令，並以終端機畫面呈現：登入連結變成按鈕、一次性代碼可以複製，輸入的內容會送回指令；API key、token、密碼這類輸入會自動隱藏，也會在輸出中遮蔽。在 Pi 對話輸入 `/login`，會列出 Pi 支援的服務商，可用帳號登入或 API key。
 
+輸入框採用 Codex 的排版：左邊是附件和**核准模式**，右邊依序是 context 圓環、模型和圓形送出鍵。**核准模式**列出這個對話所用 Agent 自己的權限模式：Codex 是唯讀、預設、完整權限；Claude Code 是手動確認、自動接受編輯、規劃、自動、不詢問、略過權限；OpenCode 是 Build 和 Plan；Hermes、Kilo、Cline、Grok Build 則列出它們回報的模式。Pi 和 Antigravity 沒有這類模式，所以不會顯示。每個對話會記住自己的選擇；Codex 從下一則訊息開始套用，其他 Agent 立即生效。Claude Code 的 CLI 支援時，才會提供略過權限。
+
 **Settings → Agents & models → Models & providers** 會列出主機上安裝的每個 Agent。每個 Agent 的頁面會說明怎麼登入、列出它提供的模型，以及它自己的設定：Pi 的模型顯示、自訂 Provider 與最近 7 天用量、OpenCode 的服務商與本機伺服器，還有 Codex 與 Claude Code 的 OpenCodex 轉送。同一區的 **Quota sources** 用來選擇訂閱與 API 額度從哪裡讀取：各 Agent 自己的登入、Pi 的登入與 key、OpenCodex，或 CodexBar 的 CLI。每個來源都能開關；同一個服務有多個來源時，也能指定要用哪一個。
 
 **Settings → Notifications** 為目前這台設備開啟推播。Agent 完成、失敗或被停止，而該對話沒有在任何畫面開著時，就會收到通知。**Settings → About** 顯示 Stepsemble 版本；各 Agent 的版本在 **Settings → Updates**。暫存資料夾裡的 Sub Agent 對話預設隱藏，可在「其他 App 的歷史」打開顯示。

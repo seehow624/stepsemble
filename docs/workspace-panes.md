@@ -11,6 +11,7 @@ Implementation branch: `codex/workspace-panes`. This changes source only; the in
 - Closing a tab/pane/window detaches its viewer. It does not issue a stop/close command to the Host. Stop remains an explicit action inside the conversation.
 - Layouts persist per browser window identity, independently of the Host's session registry. A simultaneous second copy of a window URL receives a new identity when Web Locks are supported. On mobile, one focused pane is shown with **Next pane** for navigation.
 - Codex/Claude subscription windows appear in the footer when available. Missing data is `—`, never zero. The detail dialog includes reset times and last confirmation.
+- When the Host cannot be reached (a computer waking up, Wi-Fi or a VPN reconnecting, Stepsemble restarting after an update), the Workspace stays on screen and reconnects by itself. Offline, the service worker answers a Workspace URL with the cached Workspace, never with the single-conversation page. A pane that cannot reach its Host says so and opens its conversation once the Host answers; a sign-in started from the Workspace returns to it even if the device list is briefly unavailable.
 
 ## State and runtime boundaries
 

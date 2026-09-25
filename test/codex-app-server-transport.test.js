@@ -9,7 +9,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
-const { createCodexAppServerTransport } = require("../server/codex-app-server-transport");
+const { createCodexAppServerTransport, validTurnParams } = require("../server/codex-app-server-transport");
 const { createSessionJournalClient } = require("../server/session-journal-client");
 const tx = require("../protocol/transaction-state");
 const { createValidator } = require("../protocol/validator");
@@ -135,6 +135,17 @@ async function makeJournal(t, options = {}) {
 function context(extra = {}) {
   return { now, authenticatedDeviceId: "device-1", receiptId: "receipt-1", eventIds: ["native-event-1"], ...extra };
 }
+
+test("Codex turn overrides accept only its own approval presets", () => {
+  assert.equal(validTurnParams({ approvalPolicy: "on-request", sandboxPolicy: { type: "readOnly" } }), true);
+  assert.equal(validTurnParams({ approvalPolicy: "never", sandboxPolicy: { type: "dangerFullAccess" } }), true);
+  assert.equal(validTurnParams({ approvalPolicy: "always" }), false);
+  assert.equal(validTurnParams({ approvalPolicy: { granular: { rules: true } } }), false);
+  // Extra roots or network flags are never sent from a browser request.
+  assert.equal(validTurnParams({ sandboxPolicy: { type: "workspaceWrite", writableRoots: ["/"] } }), false);
+  assert.equal(validTurnParams({ sandboxPolicy: { type: "externalSandbox" } }), false);
+  assert.equal(validTurnParams({ model: "m", effort: "high" }), true);
+});
 
 test("Codex native transport correlates lifecycle and approval JSON-RPC without synthetic stdout events", async t => {
   const child = new FakeNativeProcess();
@@ -283,6 +294,29 @@ test("Codex native history requests reject unsafe filters before writing to app-
   assert.equal((await transport.getThreadGoal({ threadId: "../escape" })).code, "invalid_native_params");
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(writes.rows.length, 0, "rejected history requests do not reach the native process");
+  assert.equal(transport.state().failure, null);
+});
+
+test("Codex marks only the history rejection of a thread with no first message yet", async t => {
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const transport = createCodexAppServerTransport({ child });
+  t.after(() => transport.close());
+  const initializing = transport.initialize();
+  let request = await writes.next();
+  frame(child, { id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.153.4" } });
+  await initializing; await writes.next();
+
+  const turns = transport.listThreadTurns({ threadId: "thread-new", limit: 5 });
+  request = await writes.next();
+  frame(child, { id: request.id, error: { code: -32600, message: "thread thread-new is not materialized yet; thread/turns/list is unavailable before first user message" } });
+  await assert.rejects(turns, error => error.code === "native_request_rejected" && error.threadUnmaterialized === true
+    && error.message === "native_request_rejected");
+
+  const items = transport.listThreadItems({ threadId: "thread-new", limit: 5 });
+  request = await writes.next();
+  frame(child, { id: request.id, error: { code: -32601, message: "thread/items/list is not supported yet" } });
+  await assert.rejects(items, error => error.code === "native_request_rejected" && !Object.hasOwn(error, "threadUnmaterialized"));
   assert.equal(transport.state().failure, null);
 });
 

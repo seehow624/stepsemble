@@ -160,6 +160,21 @@ function normalizeMessage(value) {
   };
 }
 
+// OpenCode's agents (Build, Plan and any the user defines). The primary ones
+// are the modes a person switches between in OpenCode's own client.
+function normalizeAgent(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const name = cleanText(value.name || "", 64);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) return null;
+  return {
+    name,
+    description: cleanText(value.description || "", 400) || null,
+    mode: ["primary", "subagent", "all"].includes(value.mode) ? value.mode : null,
+    hidden: value.hidden === true,
+    native: value.native === true,
+  };
+}
+
 function normalizeModel(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const providerID = String(value.providerID ?? value.providerId ?? value.provider ?? "");
@@ -488,6 +503,15 @@ function createOpenCodeNativeAdapter({
     };
   }
 
+  async function agents({ directory = null } = {}) {
+    const safeDirectory = directory === null ? null : normalizeDirectory(directory);
+    if (directory !== null && safeDirectory === null) throw new OpenCodeNativeError("invalid_directory", "OpenCode directory is invalid", 400);
+    const response = await request("/agent", { query: { directory: safeDirectory } });
+    const rows = unwrapList(response.data, ["agents", "items"]);
+    if (!rows) throw new OpenCodeNativeError("agents_invalid", "OpenCode agent response was invalid", 502);
+    return rows.slice(0, 64).map(normalizeAgent).filter(Boolean);
+  }
+
   async function permissions({ sessionId = null, directory = null } = {}) {
     if (sessionId !== null && !validId(sessionId)) throw new OpenCodeNativeError("invalid_session_id", "OpenCode session id is invalid", 400);
     const safeDirectory = directory === null ? null : normalizeDirectory(directory);
@@ -692,6 +716,7 @@ function createOpenCodeNativeAdapter({
     switchModel,
     children,
     messages,
+    agents,
     permissions,
     respondPermission,
     createSession,
@@ -708,6 +733,7 @@ module.exports = {
   OpenCodeNativeError,
   createOpenCodeNativeAdapter,
   normalizeBaseUrl,
+  normalizeAgent,
   normalizeMessage,
   normalizeModel,
   normalizePermission,

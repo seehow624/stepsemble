@@ -8,6 +8,7 @@ const { PassThrough } = require("node:stream");
 const { EventEmitter } = require("node:events");
 const {
   buildClaudeStructuredArgs,
+  claudeSupportsBypass,
   normalizeClaudeEvent,
   createClaudeStructuredParser,
   createClaudeStructuredSession,
@@ -35,13 +36,66 @@ function observeControlWire(child, handler) {
 
 test("Claude structured args are explicit, resumable, and never shell-expanded", () => {
   assert.deepEqual(buildClaudeStructuredArgs({ sessionId: "session-1" }), [
-    "-p", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-prompts", "host", "--resume", "session-1",
+    "-p", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose", "--include-partial-messages",
+    "--permission-prompts", "host", "--resume", "session-1",
   ]);
+  assert.deepEqual(buildClaudeStructuredArgs({ allowBypass: true }).slice(6, 9), [
+    "--include-partial-messages", "--allow-dangerously-skip-permissions", "--permission-prompts",
+  ]);
+  // Bypass permissions can be chosen later, but the session never starts in it.
+  assert.equal(buildClaudeStructuredArgs({ allowBypass: true }).includes("--dangerously-skip-permissions"), false);
+  assert.equal(buildClaudeStructuredArgs({ allowBypass: true }).includes("--permission-mode"), false);
   assert.deepEqual(buildClaudeStructuredArgs({ permissionPromptTool: "mcp__stepsemble__permission" }).slice(-2), ["--permission-prompt-tool", "mcp__stepsemble__permission"]);
   assert.throws(() => buildClaudeStructuredArgs({ sessionId: "../../secret" }), /invalid_claude_session_id/);
   assert.throws(() => buildClaudeStructuredArgs({ permissionPromptTool: "tool;rm" }), /invalid_permission_prompt_tool/);
   assert.deepEqual(buildClaudeStructuredArgs({ settingsPath: "/tmp/stepsemble-claude-settings.json" }).slice(-2), ["--settings", "/tmp/stepsemble-claude-settings.json"]);
   assert.throws(() => buildClaudeStructuredArgs({ settingsPath: "relative.json" }), /invalid_claude_settings_path/);
+});
+
+test("Bypass permissions is offered only by a Claude CLI that lists the option", { skip: process.platform === "win32" }, async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-claude-help-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const cli = (name, help) => {
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, "#!/bin/sh\necho '" + help + "'\n", { mode: 0o755 });
+    return file;
+  };
+  assert.equal(await claudeSupportsBypass(cli("claude-current", "  --allow-dangerously-skip-permissions  Enable bypassing all permission checks")), true);
+  assert.equal(await claudeSupportsBypass(cli("claude-older", "  --dangerously-skip-permissions  Bypass all permission checks")), false);
+  assert.equal(await claudeSupportsBypass(path.join(dir, "missing")), false);
+});
+
+test("Claude permission modes are read from Claude, changed live and put back after a relaunch", async () => {
+  const child = childFixture();
+  const requests = [];
+  observeControlWire(child, message => {
+    if (message.type !== "control_request") return;
+    requests.push(message.request);
+    const reply = response => child.stdout.write(JSON.stringify({ type: "control_response", response }) + "\n");
+    if (message.request.subtype === "initialize") reply({ subtype: "success", request_id: message.request_id, response: { current_permission_mode: "bypassPermissions" } });
+    if (message.request.subtype !== "set_permission_mode") return;
+    if (message.request.mode === "auto") {
+      reply({ subtype: "error", request_id: message.request_id, error: "Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions" });
+      return;
+    }
+    reply({ subtype: "success", request_id: message.request_id, response: { mode: message.request.mode } });
+  });
+  // A mode chosen before a restart is put back once Claude has initialized.
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 500, initialPermissionMode: "plan" });
+  assert.deepEqual(await session.permissionState(), { permissionMode: "plan" });
+  assert.deepEqual(requests.map(request => [request.subtype, request.mode || null]), [["initialize", null], ["set_permission_mode", "plan"]]);
+  assert.deepEqual(await session.setPermissionMode("acceptEdits"), { kind: "changed", permissionMode: "acceptEdits" });
+  // The CLI flag calls the ask-first mode "manual"; the control request calls it "default".
+  assert.deepEqual(await session.setPermissionMode("manual"), { kind: "changed", permissionMode: "default" });
+  assert.equal(requests.at(-1).mode, "default");
+  await assert.rejects(session.setPermissionMode("everything"), error => error.code === "claude_permission_mode_invalid");
+  await assert.rejects(session.setPermissionMode("auto"), error => error.code === "claude_bypass_unavailable");
+  assert.equal(session.status().permissionMode, "default");
+  // Claude reports its own changes, such as leaving plan mode.
+  child.stdout.write(JSON.stringify({ type: "system", subtype: "status", status: null, permissionMode: "plan", uuid: "u-1", session_id: "claude-mode-session" }) + "\n");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(session.status().permissionMode, "plan");
+  await session.close();
 });
 
 test("Claude structured gateway sessions expose the refreshed OpenCodex catalog and settings merge", async t => {

@@ -17,7 +17,8 @@ function effortValue(value) {
 }
 
 // Called only inside the main authenticated/origin-checked API block.
-function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveClaude, validateDirectory, readJSON, sendJSON, gateway, onModels = null }) {
+function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveClaude, validateDirectory, readJSON, sendJSON, gateway, onModels = null,
+  codexPermissions = null }) {
   const routes = new Set([
     "GET /api/codex/models", "GET /api/codex/context", "POST /api/codex/mutation/turn", "POST /api/codex/mutation/interrupt",
     "GET /api/claude/structured/models", "GET /api/claude/structured/context", "POST /api/claude/structured/model", "POST /api/claude/structured/effort",
@@ -83,6 +84,9 @@ function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveC
       if (body.cwd !== undefined) params.cwd = validateDirectory(body.cwd, "Codex");
       if (body.model !== undefined) params.model = modelValue(body.model);
       if (body.effort !== undefined) params.effort = modelValue(body.effort);
+      // The approval mode chosen for this thread travels with every turn, so
+      // it holds even after Codex resumes the thread with its config defaults.
+      Object.assign(params, codexPermissions?.(threadId) || {});
       const native = codex.nativeState(threadId);
       // A stale phone tab must never send to the thread another client opened.
       // The transport repeats this check across its asynchronous authorization.

@@ -419,6 +419,37 @@ test("Codex native history retires a broken JSONL process instead of polling a d
   assert.equal(closed, 1);
 });
 
+test("Codex native history reads a thread with no first message as empty", async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-native-new-"));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  let materialized = false;
+  const rejected = unmaterialized => Object.assign(new Error("native_request_rejected"),
+    { code: "native_request_rejected" }, unmaterialized ? { threadUnmaterialized: true } : {});
+  const fake = {
+    async initialize() {},
+    async listThreads() { return { kind: "threads", data: [thread()] }; },
+    async listThreadTurns(params) {
+      if (!materialized) throw rejected(true);
+      return { kind: "thread_turns", threadId: params.threadId, data: [], nextCursor: null, backwardsCursor: null };
+    },
+    async listThreadItems() { throw rejected(false); },
+    async close() { return { kind: "closed", cleanupConfirmed: true }; },
+  };
+  const adapter = createCodexNativeHistoryAdapter({
+    enabled: true, executable: process.execPath, cwd: temp, transportFactory: async () => fake,
+  });
+  t.after(() => adapter.close());
+  assert.equal((await adapter.refresh()).ready, true);
+  assert.deepEqual(await adapter.listThreadTurns("thread-1"),
+    { kind: "thread_turns", data: [], nextCursor: null, backwardsCursor: null, threadId: "thread-1" });
+  assert.deepEqual(await adapter.listThreadItems("thread-1"),
+    { kind: "thread_items", data: [], nextCursor: null, backwardsCursor: null, threadId: "thread-1", turnId: null });
+  // After the first message an items failure is a real error again.
+  materialized = true;
+  await assert.rejects(() => adapter.listThreadItems("thread-1"), error => error.code === "native_request_rejected");
+  assert.equal(adapter.status().ready, true);
+});
+
 test("Codex task projection keeps private native rollout paths out of the browser DTO", () => {
   const value = publicThread(thread({ path: "/Users/private/.codex/sessions/secret.jsonl" }));
   assert.ok(value);

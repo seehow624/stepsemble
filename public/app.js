@@ -1,7 +1,7 @@
-/* stepsemble v3.5.0 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.6.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.5.0";
+const CLIENT_APP_VERSION = "3.6.0";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 if (WORKSPACE_PANE) {
   document.documentElement.classList.add("workspace-embedded");
@@ -126,6 +126,8 @@ const el = {
   input: $("input"), btnSend: $("btn-send"), btnAbort: $("btn-abort"), btnModel: $("btn-model"),
   sessionCount: $("session-count"), btnLayout: $("btn-layout"),
   composerModelNameText: $("composer-model-name"), composerModelLevelText: $("composer-model-level"),
+  approvalControl: $("approval-control"), btnApproval: $("btn-approval"), approvalLabel: $("approval-label"),
+  approvalMenu: $("approval-menu"), approvalOptions: $("approval-options"), approvalMenuNote: $("approval-menu-note"),
   btnOpenSettings: $("btn-open-settings"), btnSettingsBack: $("btn-settings-back"), btnModelSettingsBack: $("btn-model-settings-back"), modelSettingsOpen: $("model-settings-open"), modelSettingsSummary: $("model-settings-summary"),
   settingsTitle: $("settings-title"), settingsNav: $("settings-nav"), settingsContentTitle: $("settings-content-title"),
   settingsHostDot: $("settings-host-dot"), settingsUpdatesBadge: $("settings-updates-badge"),
@@ -956,6 +958,9 @@ document.querySelectorAll("[data-token-os]").forEach((tab) => {
 
 async function boot() {
   applyAppearance();
+  // The model label starts as English markup; render it in the chosen
+  // language before any conversation reports its model.
+  updateComposerSummary();
   // Machine discovery is protected, so determine auth state first.  In
   // particular, do not let a pre-auth 401 leave an empty catalog behind.
   try {
@@ -967,7 +972,10 @@ async function boot() {
     window._piHome = m.home || "";
     selectTokenHelpOs(tokenHelpOsFromPlatform(m.platform));
     if (m.authed) { await enterApp(); return; }
-  } catch {}
+  } catch (error) {
+    // A pane waits for a computer it cannot reach instead of asking to sign in.
+    if (WORKSPACE_PANE && !(error?.status === 401 || error?.message === "unauthorized")) { waitForPaneHost(); return; }
+  }
   showLogin();
 }
 
@@ -1105,6 +1113,40 @@ async function hydrateMachineCatalog({ retry = true } = {}) {
 }
 
 let enterAppRequest = null;
+// A sign-in reached from the Workspace returns there once it succeeds.
+function returnToWorkspace() {
+  const query = new URLSearchParams(location.search);
+  if (query.get("returnWorkspace") !== "1") return false;
+  const destination = new URL("/workspace.html", location.origin);
+  for (const key of ["window", "ack", "source"]) {
+    const value = query.get(key);
+    if (/^[a-f0-9-]{36}$/.test(value) || key === "source" && value === "main") destination.searchParams.set(key, value);
+  }
+  location.replace(destination.href);
+  return true;
+}
+
+// A Workspace pane never falls back to the conversation list or a sign-in
+// form while its computer is briefly unreachable. It says so and opens the
+// conversation by itself once the computer answers.
+let paneRetryTimer = 0, paneRetryAttempt = 0;
+function waitForPaneHost() {
+  el.login.classList.add("hidden");
+  el.app.classList.remove("hidden");
+  el.viewList.classList.add("hidden");
+  el.viewChat.classList.remove("hidden");
+  showChatEmpty();
+  el.chatEmpty.textContent = tKey("workspace.hostWaiting");
+  clearTimeout(paneRetryTimer);
+  paneRetryTimer = setTimeout(retryPaneHost, Math.min(10000, 1000 * 2 ** paneRetryAttempt++));
+}
+function retryPaneHost() {
+  clearTimeout(paneRetryTimer);
+  paneRetryTimer = 0;
+  void boot();
+}
+if (WORKSPACE_PANE) window.addEventListener("online", () => { if (paneRetryTimer) retryPaneHost(); });
+
 async function enterApp() {
   if (enterAppRequest) return enterAppRequest;
   enterAppRequest = (async () => {
@@ -1113,6 +1155,10 @@ async function enterApp() {
       await hydrateMachineCatalog();
     } catch (error) {
       if (error?.status === 401 || error?.message === "unauthorized") throw error;
+      // Signed in, but the device list failed. The Workspace loads its own
+      // list and keeps retrying, so a sign-in from there returns to it.
+      if (returnToWorkspace()) return true;
+      if (WORKSPACE_PANE) { waitForPaneHost(); return false; }
       // Keep the app usable enough to expose the explicit retry path.  Do not
       // pretend that an empty catalog is a successful first-login state.
       el.login.classList.add("hidden");
@@ -1122,15 +1168,8 @@ async function enterApp() {
     }
     el.login.classList.add("hidden");
     el.app.classList.remove("hidden");
+    if (returnToWorkspace()) return true;
     const workspaceQuery = new URLSearchParams(location.search);
-    if (workspaceQuery.get("returnWorkspace") === "1") {
-      const destination = new URL("/workspace.html", location.origin);
-      for (const key of ["window", "ack", "source"]) {
-        const value = workspaceQuery.get(key);
-        if (/^[a-f0-9-]{36}$/.test(value) || key === "source" && value === "main") destination.searchParams.set(key, value);
-      }
-      location.replace(destination.href); return true;
-    }
     if (WORKSPACE_PANE) {
       try {
         const pinnedHost = workspaceQuery.get("host");
@@ -4798,6 +4837,7 @@ async function loadGenericCanonicalHistory(snapshot, taskId, connection) {
 }
 
 function syncGenericInputState() {
+  syncApprovalControl();
   const reason = genericInputBlock();
   el.input.readOnly = !!reason;
   el.btnSend.disabled = !!reason;
@@ -5476,6 +5516,44 @@ async function retryCodexNativeTransient(operation, { attempts = 5, delays = [12
   throw lastError || new Error("native_not_ready");
 }
 
+// The composer shows a sent message at once. Codex then returns the same
+// message as its own item, which takes the echo's place: matched by turn id
+// once the send reply names the turn, and by text before that.
+function codexNativeEchoText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function trackCodexNativeEcho(connection, node, message) {
+  const echo = { node, text: codexNativeEchoText(message), turnId: null,
+    knownKeys: new Set(connection.nativeRenderedItems?.keys() || []) };
+  (connection.codexNativeEchoes ||= []).push(echo);
+  return echo;
+}
+
+function dropCodexNativeEcho(connection, echo) {
+  echo.node?.remove?.();
+  if (Array.isArray(connection?.codexNativeEchoes)) {
+    connection.codexNativeEchoes = connection.codexNativeEchoes.filter(row => row !== echo);
+  }
+}
+
+function reconcileCodexNativeEchoes(connection) {
+  const echoes = connection?.codexNativeEchoes;
+  if (!Array.isArray(echoes) || !echoes.length) return;
+  const users = [];
+  for (const [key, row] of connection.nativeRenderedItems || []) if (row.user) users.push({ key, ...row.user });
+  const claimed = new Set();
+  connection.codexNativeEchoes = echoes.filter(echo => {
+    if (!echo.node?.isConnected) return false;
+    const match = users.find(user => !claimed.has(user.key) && !echo.knownKeys.has(user.key)
+      && (echo.turnId ? user.turnId === echo.turnId : !!echo.text && user.text === echo.text));
+    if (!match) return true;
+    claimed.add(match.key);
+    echo.node.remove();
+    return false;
+  });
+}
+
 function renderCodexNativeSnapshot(connection, { preserveScroll = false } = {}) {
   if (rpc !== connection || !connection?.nativeCodex) return;
   const state = connection.nativeTranscriptState;
@@ -5524,6 +5602,7 @@ function renderCodexNativeSnapshot(connection, { preserveScroll = false } = {}) 
     previous = row.node;
     // The work log measures a turn from Codex's own start/completion times.
     if (unit.kind === "message" && unit.view?.role === "user") {
+      row.user = { turnId: String(unit.turnId || ""), text: codexNativeEchoText(unit.view.text) };
       const record = turnTimes.get(String(unit.turnId || ""));
       const started = normalizedTimestampMs(record?.startedAt);
       const completed = normalizedTimestampMs(record?.completedAt);
@@ -5536,6 +5615,7 @@ function renderCodexNativeSnapshot(connection, { preserveScroll = false } = {}) 
     row.node?.remove?.();
     rendered.delete(key);
   }
+  reconcileCodexNativeEchoes(connection);
   connection.nativeRenderedRevision = true;
   ensureSessionUsageFooter();
   keepSessionUsageAtEnd();
@@ -9582,6 +9662,10 @@ function setStreaming(on) {
   }
   el.btnSend.title = on ? "" : (window.stepsembleI18n?.t("Send") || "Send");
   el.btnAbort.title = on ? (window.stepsembleI18n?.t("Stop") || "Stop") : "";
+  // An agent can change its own mode during a turn (Claude leaves plan mode
+  // once a plan is approved), so read it again when a turn ends.
+  if (!on && wasStreaming && rpc && approvalTarget(rpc)) void loadApprovalModes(rpc);
+  syncApprovalControl();
 }
 
 // ---- 送出 / 中止 ----
@@ -9856,12 +9940,16 @@ async function sendCurrent() {
     if (cmd === "clear") { removeDraftForKey(sendDraftKey); showList(); return; }
   }
 
-  maybeDateSeparator(Date.now());
+  // Codex's own item replaces this echo (reconcileCodexNativeEchoes) and its
+  // transcript has no date lines, so native Codex skips the separator.
+  const codexNativeSend = rpc.nativeCodexMutation ? rpc : null;
+  if (!codexNativeSend) maybeDateSeparator(Date.now());
   lastUserText = text;
   const { wrap: userShell, bubble } = makeMsgShell("user", "你");
   userShell.dataset.ts = String(Date.now());
   if (text) bubble.appendChild(renderMarkdown(text));
   if (pendingImages.length) appendImageGallery(bubble, pendingImages, pendingImages.length);
+  const codexEcho = codexNativeSend ? trackCodexNativeEcho(codexNativeSend, userShell, text) : null;
   if (generic && !rpc.nativeOpenCode && text && Array.isArray(rpc.genericInputEchoes)) {
     rpc.genericInputEchoes.push({ text, at: Date.now() });
     if (rpc.genericInputEchoes.length > 32) rpc.genericInputEchoes.shift();
@@ -9895,6 +9983,11 @@ async function sendCurrent() {
           : await post("/api/agent/send", { taskId: sendSid, message: text }))
       : await post("/api/send", { sid: sendSid, message: text, images }); // /skill:xxx 等直接透傳，pi 原生處理
     removeDraftForKey(sendDraftKey);
+    if (codexEcho) {
+      codexEcho.turnId = result?.turnId || result?.completedTurnId || null;
+      reconcileCodexNativeEchoes(codexNativeSend);
+    }
+    if (rpc?.sid === sendSid && !rpc.approval && approvalTarget(rpc)) void loadApprovalModes(rpc);
     // ACP reports the turn's token usage on this reply, not in its event
     // stream, so the context gauge is updated from here.
     if (rpc?.nativeAcp && rpc.sid === sendSid) applyAcpContextStats(result, rpc);
@@ -9912,6 +10005,8 @@ async function sendCurrent() {
       el.queueNote.classList.remove("hidden");
     }
   } catch (e) {
+    // The text goes back to the composer, so the echo would be a duplicate.
+    if (codexEcho) dropCodexNativeEcho(codexNativeSend, codexEcho);
     if (rpc?.sid === sendSid) {
       if (generic && Array.isArray(rpc.genericInputEchoes)) {
         const echoIndex = rpc.genericInputEchoes.findIndex(item => item.text === text);
@@ -9989,6 +10084,8 @@ function trackCurrentSessionFile(absPath) {
 
 // ---- ⋯ 菜單：模型與推理入口 ----
 function resetComposerSummary() {
+  setApprovalMenu(false);
+  el.approvalControl?.classList.add("hidden");
   composerModelName = "";
   composerReasoningLevel = "off";
   availableModels = [];
@@ -10022,7 +10119,7 @@ function updateComposerSummary(modelName, thinkingLevel) {
     el.composerModelNameText.title = model;
   }
   if (el.composerModelLevelText) {
-    el.composerModelLevelText.textContent = levelLabel ? `· ${levelLabel}` : "";
+    el.composerModelLevelText.textContent = levelLabel ? reasoningLevelText(levelLabel) : "";
     el.composerModelLevelText.classList.toggle("hidden", !levelLabel);
   }
   if (el.btnModel) {
@@ -10030,6 +10127,12 @@ function updateComposerSummary(modelName, thinkingLevel) {
     el.btnModel.title = label;
     el.btnModel.setAttribute("aria-label", `${label}: ${summary}`);
   }
+}
+// Levels read the way Codex shows them beside the model: "Medium", "Max".
+function reasoningLevelText(level) {
+  const value = String(level || "");
+  if (value === "xhigh") return "Extra high";
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 function applyComposerState(data) {
   const model = data?.model;
@@ -10241,6 +10344,189 @@ async function syncComposerState(expectedSid = rpc?.sid) {
 el.saModel.addEventListener("click", () => {
   closeSessionActions();
   openModelSheet();
+});
+
+// ---- Approval mode (composer) ----
+// Each agent's own approval modes, beside the attachment button as in Codex.
+// The Host reports the modes the agent offers and the one in use, and applies
+// a change the way that agent expects. Pi and terminal sessions have none.
+function approvalTarget(connection = rpc) {
+  if (!connection || connection.readOnly === true || connection.nativeHistoryReadonly === true) return null;
+  if (connection.nativeCodexMutation && connection.nativeThreadId) return { agentId: "codex", sessionId: connection.nativeThreadId };
+  if (connection.nativeClaudeStructured && connection.nativeSessionId) return { agentId: "claude-code", sessionId: connection.nativeSessionId };
+  if (connection.nativeOpenCode && connection.nativeSessionId) return { agentId: "opencode", sessionId: connection.nativeSessionId };
+  if (connection.nativeAcp && connection.acpAgentId && connection.nativeSessionId) return { agentId: connection.acpAgentId, sessionId: connection.nativeSessionId };
+  if (connection.nativeGrokAcp && connection.nativeSessionId) return { agentId: "grok-build", sessionId: connection.nativeSessionId };
+  return null;
+}
+
+// Codex and Claude Code modes use Stepsemble's translated names; OpenCode and
+// the ACP agents name their own modes.
+function approvalModeText(agentId, mode) {
+  const keys = agentId === "codex"
+    ? { "read-only": "codex.readOnly", workspace: "codex.workspace", "full-access": "codex.fullAccess", custom: "codex.custom" }
+    : agentId === "claude-code"
+      ? { default: "claude.manual", acceptEdits: "claude.acceptEdits", plan: "claude.plan", auto: "claude.auto", dontAsk: "claude.dontAsk", bypassPermissions: "claude.bypass" }
+      : {};
+  const key = Object.hasOwn(keys, mode?.id) ? keys[mode.id] : null;
+  // Claude Code's own short titles keep the chip readable on a phone.
+  const short = key === "claude.acceptEdits" || key === "claude.bypass" ? tKey("approval." + key + ".short") : null;
+  if (key) return { label: tKey("approval." + key), short: short || tKey("approval." + key), description: tKey("approval." + key + ".note") };
+  const label = String(mode?.label || mode?.id || "");
+  return { label: label.charAt(0).toUpperCase() + label.slice(1), description: String(mode?.description || "") };
+}
+
+function approvalModeTone(agentId, id) {
+  if (agentId === "codex") return id === "full-access" ? "warn" : "";
+  if (agentId === "claude-code") return id === "bypassPermissions" ? "warn" : "";
+  return /bypass|yolo|full[-_ ]?access|danger|skip[-_ ]?permission/i.test(String(id || "")) ? "warn" : "";
+}
+
+async function loadApprovalModes(connection = rpc) {
+  if (!connection) return;
+  const target = approvalTarget(connection);
+  if (!target) { connection.approval = null; if (connection === rpc) renderApprovalControl(); return; }
+  const base = apiBase, sequence = (connection.approvalRequest || 0) + 1;
+  connection.approvalRequest = sequence;
+  let approval = null;
+  try {
+    const query = new URLSearchParams({ agentId: target.agentId, sessionId: target.sessionId });
+    if (connection.cwd) query.set("cwd", connection.cwd);
+    const data = await api("/api/agent-mode?" + query.toString());
+    approval = data?.supported && Array.isArray(data.modes) && data.modes.length ? { ...data, target } : null;
+  } catch {}
+  if (connection.approvalRequest !== sequence || apiBase !== base) return;
+  connection.approval = approval;
+  if (connection === rpc) renderApprovalControl();
+}
+
+function syncApprovalControl() {
+  const connection = rpc;
+  if (connection && !connection.approvalLoaded && approvalTarget(connection)) {
+    connection.approvalLoaded = true;
+    void loadApprovalModes(connection);
+  }
+  renderApprovalControl();
+}
+
+function renderApprovalControl() {
+  if (!el.approvalControl || !el.btnApproval) return;
+  const approval = rpc?.approval;
+  const visible = !!approval && connectorAllowsLiveControls(rpc);
+  el.approvalControl.classList.toggle("hidden", !visible);
+  if (!visible) { setApprovalMenu(false); return; }
+  const current = approval.modes.find(mode => mode.id === approval.current) || (approval.current ? { id: approval.current } : null);
+  const text = current ? approvalModeText(approval.agentId, current) : { label: tKey("approval.title"), description: "" };
+  const tone = current ? approvalModeTone(approval.agentId, current.id) : "";
+  el.approvalControl.dataset.tone = tone;
+  el.approvalLabel.textContent = window.matchMedia?.("(max-width: 600px)")?.matches ? text.short || text.label : text.label;
+  el.btnApproval.querySelector("use")?.setAttribute("href", tone === "warn" ? "#i-shield-alert" : "#i-shield");
+  const label = tKey("approval.title") + ": " + text.label;
+  el.btnApproval.title = label;
+  el.btnApproval.setAttribute("aria-label", label);
+  el.btnApproval.disabled = !!approval.pending;
+  if (!el.approvalMenu.classList.contains("hidden")) renderApprovalMenu();
+}
+
+function renderApprovalMenu() {
+  const approval = rpc?.approval;
+  if (!approval || !el.approvalOptions) return;
+  const known = new Set(approval.modes.map(mode => mode.id));
+  // A mode set outside Stepsemble (Codex's config.toml, say) is listed too.
+  const modes = approval.current && !known.has(approval.current) ? [...approval.modes, { id: approval.current }] : approval.modes;
+  el.approvalOptions.replaceChildren(...modes.map(mode => {
+    const text = approvalModeText(approval.agentId, mode);
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "approval-option";
+    option.setAttribute("role", "menuitemradio");
+    option.setAttribute("aria-checked", String(mode.id === approval.current));
+    option.dataset.mode = mode.id;
+    const tone = approvalModeTone(approval.agentId, mode.id);
+    if (tone) option.dataset.tone = tone;
+    option.disabled = !!approval.pending || !known.has(mode.id);
+    const check = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    check.setAttribute("class", "icon");
+    check.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", "#i-check");
+    check.appendChild(use);
+    const name = document.createElement("strong");
+    name.textContent = text.label;
+    option.append(check, name);
+    if (text.description) {
+      const note = document.createElement("small");
+      note.textContent = text.description;
+      option.appendChild(note);
+    }
+    option.addEventListener("click", () => void chooseApprovalMode(mode.id));
+    return option;
+  }));
+  el.approvalMenuNote?.classList.toggle("hidden", !approval.appliesNextTurn);
+}
+
+function setApprovalMenu(open) {
+  if (!el.approvalMenu || !el.btnApproval) return;
+  const show = !!open && !!rpc?.approval;
+  if (show) renderApprovalMenu();
+  el.approvalMenu.classList.toggle("hidden", !show);
+  el.btnApproval.setAttribute("aria-expanded", String(show));
+  if (show) (el.approvalOptions.querySelector('[aria-checked="true"]:not(:disabled)') || el.approvalOptions.querySelector("button:not(:disabled)"))?.focus({ preventScroll: true });
+}
+
+function approvalErrorText(error) {
+  const code = String(error?.code || error?.message || "");
+  if (code === "claude_bypass_unavailable") return tKey("approval.bypassUnavailable");
+  if (/prompt_in_flight|model_switch_active/.test(code)) return tKey("approval.busy");
+  return tKey("approval.failed", { detail: code || "unknown error" });
+}
+
+async function chooseApprovalMode(id) {
+  const connection = rpc, approval = connection?.approval, base = apiBase;
+  if (!approval || approval.pending) return;
+  if (approval.current === id) { setApprovalMenu(false); el.btnApproval?.focus(); return; }
+  approval.pending = true;
+  renderApprovalControl();
+  try {
+    const data = await post("/api/agent-mode", { ...approval.target, mode: id, ...(connection.cwd ? { cwd: connection.cwd } : {}) });
+    if (rpc !== connection || apiBase !== base) return;
+    if (data?.supported && Array.isArray(data.modes) && data.modes.length) connection.approval = { ...data, target: approval.target };
+    setApprovalMenu(false);
+    el.btnApproval?.focus();
+  } catch (error) {
+    if (rpc === connection && apiBase === base) toast(approvalErrorText(error), true);
+  } finally {
+    approval.pending = false;
+    if (connection.approval) connection.approval.pending = false;
+    if (rpc === connection) renderApprovalControl();
+  }
+}
+
+window.matchMedia?.("(max-width: 600px)")?.addEventListener?.("change", () => renderApprovalControl());
+el.btnApproval?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  setApprovalMenu(el.approvalMenu?.classList.contains("hidden"));
+});
+el.approvalMenu?.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    setApprovalMenu(false);
+    el.btnApproval?.focus();
+    return;
+  }
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  const options = [...el.approvalOptions.querySelectorAll("button:not(:disabled)")];
+  if (!options.length) return;
+  event.preventDefault();
+  const index = options.indexOf(document.activeElement);
+  const next = event.key === "ArrowDown" ? (index + 1) % options.length : (index <= 0 ? options.length - 1 : index - 1);
+  options[next].focus({ preventScroll: true });
+});
+document.addEventListener("click", (event) => {
+  if (!el.approvalMenu || el.approvalMenu.classList.contains("hidden")) return;
+  if (event.target instanceof Element && event.target.closest("#approval-menu, #btn-approval")) return;
+  setApprovalMenu(false);
 });
 
 // ---- Context details popover ----
@@ -15354,6 +15640,7 @@ el.setLocale?.addEventListener("change", () => {
   if (!el.viewModelSettings.classList.contains("hidden")) renderModelVisibility();
   if (agentTerminal) renderAgentTerminal();
   renderQuotaSources();
+  renderApprovalControl();
 });
 el.setSidebarWidth?.addEventListener("input", () => {
   const width = Math.min(440, Math.max(280, Number(el.setSidebarWidth.value) || 336));

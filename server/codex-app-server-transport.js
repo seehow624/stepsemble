@@ -354,9 +354,22 @@ function validTurnOverride(value, limit) {
   return typeof value === "string" && value.length > 0 && value.length <= limit && !/[\u0000-\u001f\u007f]/.test(value);
 }
 
+// Stepsemble only sends Codex's own presets: a plain approval policy and a
+// sandbox type with no extra roots or network flags.
+const TURN_APPROVAL_POLICIES = new Set(["untrusted", "on-request", "never"]);
+const TURN_SANDBOX_TYPES = new Set(["readOnly", "workspaceWrite", "dangerFullAccess"]);
+function validPermissionOverride(params) {
+  if (!plain(params)) return false;
+  if (params.approvalPolicy !== undefined && params.approvalPolicy !== null && !TURN_APPROVAL_POLICIES.has(params.approvalPolicy)) return false;
+  const sandbox = params.sandboxPolicy;
+  if (sandbox === undefined || sandbox === null) return true;
+  return plain(sandbox) && TURN_SANDBOX_TYPES.has(sandbox.type) && Object.keys(sandbox).every(name => name === "type");
+}
+
 function validTurnParams(params) {
   if (!plain(params) || bounded(params, 256 * 1024) === null) return false;
-  return validTurnOverride(params.model, MAX_MODEL_ID) && validTurnOverride(params.effort, MAX_REASONING_EFFORT);
+  return validTurnOverride(params.model, MAX_MODEL_ID) && validTurnOverride(params.effort, MAX_REASONING_EFFORT)
+    && validPermissionOverride(params);
 }
 
 const CODEX_IMAGE_URL = new RegExp(`^data:image\\/(?:jpeg|png|webp|gif);base64,[A-Za-z0-9+/=]+$`, "i");
@@ -824,7 +837,14 @@ function createCodexAppServerTransport({
       const row = pending.get(key(value.id));
       if (!row) { fail("native_response_unmatched"); return; }
       pending.delete(key(value.id)); clearTimeout(row.timer);
-      if (value.error) { const error = new Error("native_request_rejected"); error.code = "native_request_rejected"; row.reject(error); return; }
+      if (value.error) {
+        const error = new Error("native_request_rejected"); error.code = "native_request_rejected";
+        // Codex refuses history reads for a thread whose first message has
+        // not been sent. Keep only that fact; the upstream text stays here.
+        const message = typeof value.error.message === "string" ? value.error.message.slice(0, 1024) : "";
+        if (/\bnot materialized\b/i.test(message)) error.threadUnmaterialized = true;
+        row.reject(error); return;
+      }
       row.resolve(value.result); return;
     }
     if (value.kind === "request") {
@@ -1121,6 +1141,7 @@ module.exports = {
   normalizeThreadTokenUsageUpdated,
   normalizeTurnInput,
   validModelListRequest,
+  validPermissionOverride,
   validTurnParams,
   createCodexAppServerTransport,
   launchCodexAppServer,

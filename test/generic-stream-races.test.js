@@ -17,7 +17,7 @@ function setup() {
     setTimeout(fn) { const id = ++nextTimer; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
     $: () => null, agentHubText: key => key, tKey: key => key, agentConnectorLabel: id => id, updateAgentTaskCache() {}, resetGenericReplayNotice() {},
     agentTaskIsRunning: task => ["starting", "running", "reconnecting"].includes(task.status),
-    toast() {}, showList() {}, showRemoteAuthorizationState() {} });
+    toast() {}, showList() {}, showRemoteAuthorizationState() {}, syncApprovalControl() {} });
   vm.runInContext(source.slice(source.indexOf("function genericTaskTerminal("), source.indexOf("function updateAgentTaskCache(")), context);
   context.setStreaming = on => { if (context.rpc) context.rpc.streaming = on; context.syncGenericInputState(); };
   context.applyGenericTaskSnapshot = snapshot => { context.applyGenericReplayMetadata(snapshot); context.rpc.taskStatus = snapshot.status; seen.push(snapshot.status); context.syncGenericInputState(); };

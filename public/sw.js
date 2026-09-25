@@ -1,20 +1,20 @@
-const CACHE_NAME = "stepsemble-shell-v3.5.0";
+const CACHE_NAME = "stepsemble-shell-v3.6.0";
 const SHELL = [
   "/",
   "/index.html",
   "/workspace.html",
-  "/modules/workspace.js?v=3.5.0",
-  "/modules/workspace-i18n.js?v=3.5.0",
-  "/modules/workspace-layout.js?v=3.5.0",
-  "/modules/workspace.css?v=3.5.0",
-  "/modules/workspace-embedded.css?v=3.5.0",
-  "/style.css?v=3.5.0",
-  "/i18n.js?v=3.5.0",
-  "/modules/app-foundation.js?v=3.5.0",
-  "/modules/agent-identity.js?v=3.5.0",
-  "/modules/agent-identity.css?v=3.5.0",
-  "/modules/conversation-catalog.css?v=3.5.0",
-  "/modules/conversation-catalog.js?v=3.5.0",
+  "/modules/workspace.js?v=3.6.0",
+  "/modules/workspace-i18n.js?v=3.6.0",
+  "/modules/workspace-layout.js?v=3.6.0",
+  "/modules/workspace.css?v=3.6.0",
+  "/modules/workspace-embedded.css?v=3.6.0",
+  "/style.css?v=3.6.0",
+  "/i18n.js?v=3.6.0",
+  "/modules/app-foundation.js?v=3.6.0",
+  "/modules/agent-identity.js?v=3.6.0",
+  "/modules/agent-identity.css?v=3.6.0",
+  "/modules/conversation-catalog.css?v=3.6.0",
+  "/modules/conversation-catalog.js?v=3.6.0",
   "/agent-logos/v1/pi.svg",
   "/agent-logos/v1/claude.svg",
   "/agent-logos/v1/codex.svg",
@@ -27,27 +27,27 @@ const SHELL = [
   "/agent-logos/v1/openai.svg",
   "/agent-logos/v1/minimax.png",
   "/agent-logos/v1/agent.svg",
-  "/modules/session-utils.js?v=3.5.0",
-  "/modules/pi-session.js?v=3.5.0",
-  "/modules/context-usage.js?v=3.5.0",
-  "/modules/opencode-context.js?v=3.5.0",
-  "/modules/agent-terminal.js?v=3.5.0",
-  "/modules/claude-structured-rendering.js?v=3.5.0",
-  "/modules/agent-transcript-presentation.js?v=3.5.0",
-  "/modules/codex-approvals.js?v=3.5.0",
-  "/modules/protocol-contracts.js?v=3.5.0",
-  "/modules/client-sdk.js?v=3.5.0",
-  "/modules/native-dialogs.js?v=3.5.0",
-  "/modules/composer-ime.js?v=3.5.0",
-  "/app.js?v=3.5.0",
-  "/manifest.webmanifest?v=3.5.0",
+  "/modules/session-utils.js?v=3.6.0",
+  "/modules/pi-session.js?v=3.6.0",
+  "/modules/context-usage.js?v=3.6.0",
+  "/modules/opencode-context.js?v=3.6.0",
+  "/modules/agent-terminal.js?v=3.6.0",
+  "/modules/claude-structured-rendering.js?v=3.6.0",
+  "/modules/agent-transcript-presentation.js?v=3.6.0",
+  "/modules/codex-approvals.js?v=3.6.0",
+  "/modules/protocol-contracts.js?v=3.6.0",
+  "/modules/client-sdk.js?v=3.6.0",
+  "/modules/native-dialogs.js?v=3.6.0",
+  "/modules/composer-ime.js?v=3.6.0",
+  "/app.js?v=3.6.0",
+  "/manifest.webmanifest?v=3.6.0",
   "/stepsemble-glyph.png",
   "/icon-512.png",
-  "/icon-16.png?v=3.5.0",
-  "/icon-32.png?v=3.5.0",
-  "/icon-180.png?v=3.5.0",
-  "/icon-512.png?v=3.5.0",
-  "/icon-maskable-512.png?v=3.5.0",
+  "/icon-16.png?v=3.6.0",
+  "/icon-32.png?v=3.6.0",
+  "/icon-180.png?v=3.6.0",
+  "/icon-512.png?v=3.6.0",
+  "/icon-maskable-512.png?v=3.6.0",
   "/vendor/marked.min.js",
   "/vendor/purify.min.js",
   "/vendor/mermaid.min.js",
@@ -68,6 +68,16 @@ async function cacheShell(cache) {
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then(cacheShell).then(() => self.skipWaiting()));
 });
+
+// "/" is the Workspace; index.html is the conversation page its panes embed.
+// When the host cannot be reached (a computer waking up, Wi-Fi or VPN
+// reconnecting, Stepsemble restarting after an update), a navigation gets the
+// cached copy of the page it asked for. Answering a Workspace URL with
+// index.html showed the single-conversation page until a manual reload.
+async function offlinePage(url) {
+  const page = url.pathname === "/index.html" ? "/index.html" : "/workspace.html";
+  return (await caches.match(page)) || Response.error();
+}
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
@@ -125,7 +135,7 @@ self.addEventListener("fetch", (event) => {
   if (request.mode === "navigate") {
     // Reload the document on every navigation/reload. This is the important
     // path for users who left an old PWA tab open while a release went out.
-    event.respondWith(fetch(new Request(request, { cache: "reload" })).catch(() => caches.match("/index.html")));
+    event.respondWith(fetch(new Request(request, { cache: "reload" })).catch(() => offlinePage(url)));
     return;
   }
 

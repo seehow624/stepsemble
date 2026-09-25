@@ -20,6 +20,7 @@ const {
   normalizeModelListResponse,
   normalizeTokenUsageBreakdown,
   normalizeTurnInput,
+  validPermissionOverride,
 } = require("./codex-app-server-transport");
 const crypto = require("node:crypto");
 
@@ -30,6 +31,7 @@ const MAX_PAGE = 100;
 // callers may request a larger page up to MAX_PAGE when they have measured it.
 const DEFAULT_TURN_PAGE = 20;
 const DEFAULT_ITEM_PAGE = 50;
+const emptyHistoryPage = () => ({ data: [], nextCursor: null, backwardsCursor: null });
 const MAX_THREAD_ID = 256;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const TRUTHY = new Set(["1", "true", "yes", "on"]);
@@ -285,7 +287,8 @@ function validOverride(value, limit) {
 
 function validTurnOptions(value) {
   return value && typeof value === "object" && !Array.isArray(value)
-    && validOverride(value.model, MAX_MODEL_ID) && validOverride(value.effort, MAX_REASONING_EFFORT);
+    && validOverride(value.model, MAX_MODEL_ID) && validOverride(value.effort, MAX_REASONING_EFFORT)
+    && validPermissionOverride(value);
 }
 
 function nativeUsageSnapshot(value) {
@@ -964,7 +967,10 @@ function createCodexNativeHistoryAdapter({
     if (!validThreadId(threadId)) throw new CodexNativeHistoryError("invalid_thread_id", "Codex thread id is invalid", 400);
     let result;
     try { result = await transport.listThreadTurns({ ...params, threadId, limit: Math.min(MAX_PAGE, Number.isSafeInteger(params.limit) ? params.limit : DEFAULT_TURN_PAGE) }); }
-    catch (error) { retireBrokenTransport(error); throw error; }
+    catch (error) {
+      if (error?.threadUnmaterialized === true) return { kind: "thread_turns", ...emptyHistoryPage(), threadId };
+      retireBrokenTransport(error); throw error;
+    }
     if (!result || result.kind !== "thread_turns") throw new CodexNativeHistoryError("native_response_invalid", "Codex turn page was invalid", 502);
     return { ...result, threadId };
   }
@@ -974,9 +980,21 @@ function createCodexNativeHistoryAdapter({
     if (!validThreadId(threadId)) throw new CodexNativeHistoryError("invalid_thread_id", "Codex thread id is invalid", 400);
     let result;
     try { result = await transport.listThreadItems({ ...params, threadId, limit: Math.min(MAX_PAGE, Number.isSafeInteger(params.limit) ? params.limit : DEFAULT_ITEM_PAGE) }); }
-    catch (error) { retireBrokenTransport(error); throw error; }
+    catch (error) {
+      // items/list gives no reason for a new thread ("not supported yet"),
+      // so ask turns/list, which names the unmaterialized state.
+      if (error?.code === "native_request_rejected" && await threadUnmaterialized(threadId)) {
+        return { kind: "thread_items", ...emptyHistoryPage(), threadId, turnId: params.turnId ?? null };
+      }
+      retireBrokenTransport(error); throw error;
+    }
     if (!result || result.kind !== "thread_items") throw new CodexNativeHistoryError("native_response_invalid", "Codex item page was invalid", 502);
     return { ...result, threadId };
+  }
+
+  async function threadUnmaterialized(threadId) {
+    try { await transport?.listThreadTurns({ threadId, limit: 1 }); return false; }
+    catch (error) { return error?.threadUnmaterialized === true; }
   }
 
   async function getThreadGoal(threadId) {
@@ -1111,7 +1129,7 @@ function createCodexNativeHistoryAdapter({
     if (!Array.isArray(input) || !input.length) throw new CodexNativeHistoryError("invalid_turn_input", "Codex turn input is invalid", 400);
     const normalizedInput = normalizeTurnInput(input);
     if (!normalizedInput) throw new CodexNativeHistoryError("invalid_turn_input", "Codex turn input is invalid", 400);
-    if (!validTurnOptions(params)) throw new CodexNativeHistoryError("invalid_turn_options", "Codex turn model or effort override is invalid", 400);
+    if (!validTurnOptions(params)) throw new CodexNativeHistoryError("invalid_turn_options", "Codex turn model, effort or permission override is invalid", 400);
     if (expectedThreadId !== null && !validThreadId(expectedThreadId)) return { kind: "reject", code: "native_thread_mismatch" };
     if (expectedThreadId !== null && typeof transport?.state === "function" && transport.state().threadId !== expectedThreadId) {
       return { kind: "reject", code: "native_thread_mismatch" };

@@ -20,7 +20,11 @@ if (process.env.DESKTOP_STRUCTURED_MARKER) {
 
 const args = process.argv.slice(2);
 if (args.includes("--version")) { console.log("2.1.270 (Claude Code)"); process.exit(0); }
-if (args.includes("--help")) { console.log("--safe-mode --claudeai --permission-prompts host"); process.exit(0); }
+// FIXTURE_NO_BYPASS_FLAG plays a Claude CLI too old to offer Bypass permissions.
+if (args.includes("--help")) {
+  console.log("--safe-mode --claudeai --permission-prompts host" + (process.env.FIXTURE_NO_BYPASS_FLAG === "1" ? "" : " --allow-dangerously-skip-permissions"));
+  process.exit(0);
+}
 if (args.join(" ") === "--safe-mode auth login --claudeai") { setInterval(() => {}, 1000); }
 if (args.join(" ") === "--safe-mode auth status --json") {
   console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", token: "SYNTHETIC_SECRET", email: "private@example.invalid" }));
@@ -28,6 +32,9 @@ if (args.join(" ") === "--safe-mode auth status --json") {
 }
 
 const out = value => process.stdout.write(JSON.stringify(value) + "\n");
+// Permission modes as Claude Code 2.1 reports and changes them.
+let permissionMode = process.env.FIXTURE_PERMISSION_MODE || "default";
+const bypassAllowed = args.includes("--allow-dangerously-skip-permissions") || args.includes("--dangerously-skip-permissions");
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 let sessionId = "session-structured-fixture";
 out({ type: "system", session_id: sessionId, uuid: "system-fixture" });
@@ -39,10 +46,21 @@ rl.on("line", line => {
     const request = value.request || {};
     if (request.subtype === "initialize") {
       out({ type: "control_response", response: { subtype: "success", request_id: value.request_id,
-        response: { models: [{ value: "sonnet", displayName: "Claude Sonnet", supportsEffort: true }, { value: "opus", displayName: "Claude Opus" }], model: "sonnet" } } });
+        response: { models: [{ value: "sonnet", displayName: "Claude Sonnet", supportsEffort: true }, { value: "opus", displayName: "Claude Opus" }], model: "sonnet", current_permission_mode: permissionMode } } });
     } else if (request.subtype === "set_model") {
       out({ type: "control_response", response: { subtype: "success", request_id: value.request_id,
         response: { model: request.model || "sonnet" } } });
+    } else if (request.subtype === "set_permission_mode") {
+      const valid = ["default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"];
+      if (!valid.includes(request.mode)) {
+        out({ type: "control_response", response: { subtype: "error", request_id: value.request_id, error: "Cannot set permission mode: must be one of " + valid.join(", "), error_code: "invalid_mode" } });
+      } else if (request.mode === "bypassPermissions" && !bypassAllowed) {
+        out({ type: "control_response", response: { subtype: "error", request_id: value.request_id, error: "Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions" } });
+      } else {
+        permissionMode = request.mode;
+        out({ type: "control_response", response: { subtype: "success", request_id: value.request_id, response: { mode: permissionMode } } });
+        out({ type: "system", subtype: "status", status: null, permissionMode, uuid: "status-fixture", session_id: sessionId });
+      }
     } else if (request.subtype === "interrupt") {
       out({ type: "control_response", response: { subtype: "success", request_id: value.request_id, response: {} } });
     }

@@ -115,7 +115,8 @@ test("a restored model lists exactly its own levels and brings the chip back", (
   assert.equal(el.thinkingSelect.title, "");
   assert.equal(hint.textContent, "");
   assert.equal(hint.classList.contains("hidden"), true);
-  assert.equal(el.composerModelLevelText.textContent, "· max");
+  // Codex-style label: the level follows the model name without a separator.
+  assert.equal(el.composerModelLevelText.textContent, "Max");
   // A level the model does not offer falls back to its own default.
   connection.claudeModel = { id: "deepseek", supportsEffort: true, supportedEffortLevels: ["low", "max"] };
   connection.claudeEffort = "high";

@@ -566,6 +566,15 @@ function createCodexNativePool({
     return historyCall("readThread", [threadId, options]);
   }
 
+  // Routed like readThread. Without it the thread route failed before any
+  // read, so a new thread (no rollout on disk yet) could not be opened.
+  async function getThreadGoal(threadId) {
+    if (!validThreadId(threadId)) return historyCall("getThreadGoal", [threadId]);
+    const entry = byThread.get(threadId);
+    if (entry && !entry.closeRequested) return invokeEntry(entry, "getThreadGoal", [threadId]);
+    return historyCall("getThreadGoal", [threadId]);
+  }
+
   async function listThreadTurns(threadId, params = {}) {
     if (!validThreadId(threadId)) return historyCall("listThreadTurns", [threadId, params]);
     const entry = byThread.get(threadId);
@@ -620,6 +629,7 @@ function createCodexNativePool({
       const threadId = extractThreadId(result);
       if (!threadId) throw poolError("native_thread_invalid", "Codex child did not return a thread id", 502);
       bindEntry(entry, threadId);
+      rememberPermissions(threadId, result?.response);
       return result;
     } catch (error) {
       await releaseEntry(entry);
@@ -649,6 +659,7 @@ function createCodexNativePool({
           return reject("native_thread_ambiguous", { threadId });
         }
         bindEntry(entry, threadId);
+        rememberPermissions(threadId, result?.response);
         return result;
       } catch (error) {
         if (reservation.created) await releaseEntry(entry);
@@ -671,6 +682,10 @@ function createCodexNativePool({
     }
     const result = await invokeEntry(entry, "startTurn", [input, params, expectedThreadId]);
     if (result?.threadId && result.threadId !== expectedThreadId) return reject("native_thread_mismatch", { threadId: expectedThreadId });
+    // A turn's overrides also apply to the turns after it.
+    if (result?.kind !== "reject" && (params?.approvalPolicy || params?.sandboxPolicy)) {
+      rememberPermissions(expectedThreadId, { approvalPolicy: params.approvalPolicy, sandbox: params.sandboxPolicy });
+    }
     return result;
   }
 
@@ -740,6 +755,24 @@ function createCodexNativePool({
     const base = typeof history?.mutationStatus === "function" ? (() => { try { return history.mutationStatus(); } catch { return {}; } })() : {};
     return { enabled: base.enabled === true || rows.length > 0, ready: base.ready === true || rows.length > 0,
       journalFile: base.journalFile || (rows.length ? "owner-only" : null), lastError: base.lastError || null, operations: rows.slice(-128) };
+  }
+
+  // The approval and sandbox policy each thread last reported or was given,
+  // so the browser can show which mode a thread runs in. Kept apart from
+  // the child entries, which are recycled when idle.
+  const permissionsByThread = new Map();
+  function rememberPermissions(threadId, value) {
+    if (!validThreadId(threadId) || !value || typeof value !== "object") return;
+    const approvalPolicy = typeof value.approvalPolicy === "string" ? value.approvalPolicy : null;
+    const sandbox = typeof value.sandbox === "string" ? value.sandbox
+      : typeof value.sandbox?.type === "string" ? value.sandbox.type : null;
+    if (!approvalPolicy && !sandbox) return;
+    permissionsByThread.delete(threadId);
+    permissionsByThread.set(threadId, Object.freeze({ approvalPolicy, sandbox }));
+    while (permissionsByThread.size > 256) permissionsByThread.delete(permissionsByThread.keys().next().value);
+  }
+  function permissionState(threadId) {
+    return validThreadId(threadId) ? permissionsByThread.get(threadId) || null : null;
   }
 
   function nativeState(threadId = null) {
@@ -904,6 +937,7 @@ function createCodexNativePool({
     recycleIdle,
     listThreads,
     readThread,
+    getThreadGoal,
     listThreadTurns,
     listThreadItems,
     listModels,
@@ -922,6 +956,7 @@ function createCodexNativePool({
     pendingApprovals,
     mutationStatus,
     nativeState,
+    permissionState,
     busyTasks,
     hasActiveWork,
     close,

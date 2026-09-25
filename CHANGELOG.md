@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.6.0
+
+- Lay out the message box like Codex's: attachments and Approval on the left; the context ring, the model with its reasoning level and a smaller round Send button on the right. Tap the ring for the context numbers. On a phone the arrows are dropped to save room, and the model label uses the chosen language until the conversation reports its model.
+- Add Approval to the message box. It offers the modes of the conversation's own agent: Read only, Default and Full access for Codex; Manual, Accept edits, Plan, Auto, Don't ask and Bypass permissions for Claude Code; Build and Plan for OpenCode; and the modes Hermes, Kilo Code, Cline and Grok Build report. Pi and Antigravity have none, so it stays hidden there. Each conversation remembers its choice and gets it back when reopened. Codex applies a change from the next message and the others at once. Full access and Bypass permissions are shown in orange.
+- Let a Claude Code conversation switch to Bypass permissions. A session still starts in the mode Claude's own settings choose, and the option is passed only to a Claude Code CLI that lists it, so an older CLI keeps starting normally.
+- Support Codex CLI 0.156.1 natively again. Codex conversations had fallen back to a reduced mode since the CLI updated; 0.156.1 was reviewed against 0.154.0 and passed the composer, parallel and approval checks.
+- Open a new Codex conversation on the first try. Reading its goal was not routed, so opening failed, and before the first message it showed a history error; a Codex conversation without messages now opens empty.
+- Show a sent Codex message once. It appeared twice, with a date line between the copies, after Codex returned it.
+- Keep the Workspace on screen when its computer can't be reached for a moment, such as while the computer wakes up, Wi-Fi or a VPN reconnects, or Stepsemble restarts after an update. The offline page used to be the old single-conversation screen and stayed until you reloaded; the Workspace now reconnects by itself. A pane that can't reach its computer says so and opens once it answers, and signing in from the Workspace returns there even when the device list is slow.
+
 ## 3.5.0
 
 - Split Settings into six sections: Appearance, Notifications, Agents & models, Devices & access, Updates and About. Advanced is gone, and each option now sits with the options it belongs to.

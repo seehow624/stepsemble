@@ -29,6 +29,7 @@ function historyFixture(ids = ["thread-a", "thread-b", "thread-c"]) {
     async refresh() { calls.push(["refresh"]); return this.status(); },
     async listThreads(params) { calls.push(["listThreads", params]); const data = [...threads.values()]; return { kind: "threads", threads: data, data }; },
     async readThread(id, params) { calls.push(["readThread", id, params]); return { kind: "thread", thread: threads.get(id) || null }; },
+    async getThreadGoal(id) { calls.push(["getThreadGoal", id]); return { kind: "thread_goal", goal: null }; },
     async listThreadTurns(id, params) { calls.push(["listThreadTurns", id, params]); return { kind: "thread_turns", threadId: id, data: [{ id: `history-turn-${id}` }] }; },
     async listThreadItems(id, params) { calls.push(["listThreadItems", id, params]); return { kind: "thread_items", threadId: id, data: [{ id: `history-item-${id}` }] }; },
     async listModels(params) { calls.push(["listModels", params]); return { kind: "models", data: [{ id: "model-history" }] }; },
@@ -58,7 +59,7 @@ function childFactoryHarness({ delayResume = 0, onCreate = null } = {}) {
         if (delayResume) await new Promise(resolve => setTimeout(resolve, delayResume));
         state.state = "thread_started";
         state.threadId = params.threadId;
-        return { kind: "resumed", threadId: params.threadId };
+        return { kind: "resumed", threadId: params.threadId, response: { approvalPolicy: "never", sandbox: { type: "dangerFullAccess", networkAccess: false } } };
       },
       async startThread() {
         calls.push(["start", id]);
@@ -87,6 +88,7 @@ function childFactoryHarness({ delayResume = 0, onCreate = null } = {}) {
         return { kind: "written", requestId };
       },
       async readThread(threadId) { calls.push(["read", id, threadId]); return { kind: "thread", thread: thread(threadId, { status: { type: "active" } }) }; },
+      async getThreadGoal(threadId) { calls.push(["goal", id, threadId]); return { kind: "thread_goal", goal: { threadId, objective: "live goal" } }; },
       async listThreadTurns(threadId) { calls.push(["turns", id, threadId]); return { kind: "thread_turns", threadId, data: [{ id: `live-turn-${id}` }] }; },
       async listThreadItems(threadId) { calls.push(["items", id, threadId]); return { kind: "thread_items", threadId, data: [{ id: `live-item-${id}` }] }; },
       async contextUsage(threadId) { calls.push(["usage", id, threadId]); return { model: `live-${threadId}` }; },
@@ -130,6 +132,33 @@ test("pool keeps one child per thread, deduplicates concurrent resume, and route
   assert.equal((await pool.readThread("thread-c")).thread.status.type, "idle");
   assert.equal((await pool.listThreadTurns("thread-a")).data[0].id, "live-turn-thread-a");
   assert.equal((await pool.listThreadItems("thread-c")).data[0].id, "history-item-thread-c");
+});
+
+test("pool reports the approval and sandbox policy a thread runs in, including turn overrides", async t => {
+  const history = historyFixture();
+  const harness = childFactoryHarness();
+  const pool = createCodexNativePool({ historyAdapter: history, createThreadAdapter: harness.factory, journalRoot: fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-pool-")) });
+  t.after(() => pool.close());
+  assert.equal(pool.permissionState("thread-a"), null);
+  await pool.resumeThread({ threadId: "thread-a" });
+  assert.deepEqual(pool.permissionState("thread-a"), { approvalPolicy: "never", sandbox: "dangerFullAccess" });
+  await pool.startTurn([{ type: "text", text: "hi" }], { approvalPolicy: "on-request", sandboxPolicy: { type: "readOnly" } }, "thread-a");
+  assert.deepEqual(pool.permissionState("thread-a"), { approvalPolicy: "on-request", sandbox: "readOnly" });
+  assert.deepEqual(harness.calls.find(row => row[0] === "turn")[3], { approvalPolicy: "on-request", sandboxPolicy: { type: "readOnly" } });
+});
+
+test("pool reads a thread goal from the thread's own child, else from history", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-pool-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+  const history = historyFixture();
+  const harness = childFactoryHarness();
+  const pool = createCodexNativePool({ historyAdapter: history, createThreadAdapter: harness.factory, journalRoot: root });
+  t.after(() => pool.close());
+  await pool.resumeThread({ threadId: "thread-a" });
+  assert.equal((await pool.getThreadGoal("thread-a")).goal.objective, "live goal");
+  assert.deepEqual(harness.calls.filter(row => row[0] === "goal"), [["goal", "thread-a", "thread-a"]]);
+  assert.equal((await pool.getThreadGoal("thread-b")).goal, null);
+  assert.deepEqual(history.calls.filter(row => row[0] === "getThreadGoal"), [["getThreadGoal", "thread-b"]]);
 });
 
 test("approval and usage calls are isolated by explicit thread id and reject ambiguous writes", async t => {

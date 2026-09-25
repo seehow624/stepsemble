@@ -86,6 +86,24 @@ test("OpenCode adapter exposes the native model catalog and session model switch
   assert.deepEqual(calls.at(-1).body, { model: { providerID: "openai", modelID: "gpt-5" } });
 });
 
+test("OpenCode adapter lists its agents for the approval mode picker", async () => {
+  const calls = [];
+  const adapter = createOpenCodeNativeAdapter({
+    baseUrl: "http://127.0.0.1:4096",
+    fetchImpl: routeFetch([{ method: "GET", pathname: "/agent", body: [
+      { name: "build", description: "The default agent.", mode: "primary", native: true, permission: [{ permission: "*", action: "allow" }] },
+      { name: "plan", description: "Plan mode. Disallows all edit tools.", mode: "primary", native: true },
+      { name: "title", mode: "primary", hidden: true, prompt: "secret prompt text" },
+      { name: "../bad", mode: "primary" },
+    ] }], calls),
+  });
+  const agents = await adapter.agents({ directory: "/tmp" });
+  assert.deepEqual(agents.map(agent => [agent.name, agent.mode, agent.hidden]), [["build", "primary", false], ["plan", "primary", false], ["title", "primary", true]]);
+  assert.equal(agents[1].description, "Plan mode. Disallows all edit tools.");
+  assert.equal(Object.hasOwn(agents[2], "prompt"), false, "agent prompts are not copied");
+  assert.equal(calls[0].query.get("directory"), "/tmp");
+});
+
 test("OpenCode adapter reads sessions/messages/children/status, delegates approvals, and reconciles after restart", async t => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-opencode-native-"));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));

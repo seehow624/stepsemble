@@ -6,9 +6,9 @@ const os = require("node:os");
 const path = require("node:path");
 const { PassThrough } = require("node:stream");
 const { EventEmitter } = require("node:events");
-const { normalizeUpdate, createAgentClientProtocolAdapter } = require("../server/agent-client-protocol-adapter");
+const { normalizeUpdate, createAgentClientProtocolAdapter, LEGACY_MODE_OPTION, configOptionsFromSession, applyConfigUpdate } = require("../server/agent-client-protocol-adapter");
 
-function childFixture({ configOptions = null } = {}) {
+function childFixture({ configOptions = null, modes = null } = {}) {
   const child = new EventEmitter();
   child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
   child.kill = () => child.emit("close", 0, null);
@@ -19,7 +19,10 @@ function childFixture({ configOptions = null } = {}) {
       let result = {};
       if (frame.method === "initialize") result = { agentCapabilities: { loadSession: true } };
       else if (frame.method === "session/new" || frame.method === "session/load") {
-        result = { sessionId: "session-1", ...(configOptions ? { configOptions } : {}) };
+        result = { sessionId: "session-1", ...(configOptions ? { configOptions } : {}), ...(modes ? { modes } : {}) };
+      }
+      else if (frame.method === "session/set_mode") {
+        child.modeRequests = [...(child.modeRequests || []), frame.params];
       }
       else if (frame.method === "session/set_config_option") {
         result = { configOptions: (configOptions || []).map(option => option.id === frame.params.configId
@@ -104,6 +107,42 @@ test("ACP model choice is read and applied through session config options", asyn
 
   assert.equal((await adapter.setConfigOption(session.sessionId, "", "deep")).code, "acp_config_invalid");
   assert.equal((await adapter.setConfigOption("missing", "model", "deep")).code, "acp_session_unavailable");
+});
+
+test("ACP modes in the older modes form are offered as one option and changed with session/set_mode", async t => {
+  // Hermes 0.21 answers session/new with modes rather than config options.
+  const child = childFixture({ modes: { currentModeId: "default", availableModes: [
+    { id: "default", name: "Default", description: "Ask before edits." },
+    { id: "accept_edits", name: "Accept Edits", description: "Auto-allow workspace and temp-dir edits; still asks for sensitive paths." },
+    { id: "dont_ask", name: "Don't Ask", description: "Auto-allow file edits for this session except sensitive paths." },
+  ] } });
+  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/hermes", args: ["acp"], cwd: "/tmp", spawnImpl: () => child });
+  t.after(() => adapter.close());
+  const session = await adapter.createSession({ directory: "/tmp" });
+  const mode = session.configOptions.find(option => option.category === "mode");
+  assert.equal(mode.id, LEGACY_MODE_OPTION);
+  assert.equal(mode.currentValue, "default");
+  assert.deepEqual(mode.options.map(option => option.value), ["default", "accept_edits", "dont_ask"]);
+  const changed = await adapter.setConfigOption(session.sessionId, LEGACY_MODE_OPTION, "accept_edits");
+  assert.equal(changed.kind, "configured");
+  assert.deepEqual(child.modeRequests, [{ sessionId: "session-1", modeId: "accept_edits" }]);
+  assert.equal(adapter.sessionConfigOptions(session.sessionId).find(option => option.category === "mode").currentValue, "accept_edits");
+  assert.equal((await adapter.setConfigOption(session.sessionId, LEGACY_MODE_OPTION, "yolo")).code, "acp_config_invalid");
+  // The agent may change the mode itself; its update is followed.
+  child.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "session-1", update: { sessionUpdate: "current_mode_update", currentModeId: "dont_ask" } } }) + "\n");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(adapter.sessionConfigOptions(session.sessionId).find(option => option.category === "mode").currentValue, "dont_ask");
+});
+
+test("ACP config option updates replace the options and keep the mode current", () => {
+  const model = { id: "model", name: "Model", category: "model", type: "select", currentValue: "a", options: [{ value: "a" }, { value: "b" }] };
+  const mode = { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: "code", options: [{ value: "code", name: "Code" }, { value: "plan", name: "Plan" }] };
+  const options = configOptionsFromSession({ configOptions: [model, mode], modes: { currentModeId: "x", availableModes: [{ id: "x" }] } });
+  // A "mode" config option wins; the older modes form is not added beside it.
+  assert.deepEqual(options.map(option => option.id), ["model", "mode"]);
+  const updated = applyConfigUpdate(options, { sessionUpdate: "config_option_update", configOptions: [model, { ...mode, currentValue: "plan" }] });
+  assert.equal(updated.find(option => option.id === "mode").currentValue, "plan");
+  assert.equal(applyConfigUpdate(updated, { sessionUpdate: "agent_message_chunk" }), updated);
 });
 
 test("ACP permissions remain pending until a valid offered option is selected", async t => {
