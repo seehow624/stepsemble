@@ -28,6 +28,7 @@ capabilities during `initialize`. Stepsemble uses both signals.
 | Codex `0.153.4` | native | native | reviewed native mutation |
 | Codex `0.154.0` | native | native | reviewed native mutation |
 | Codex `0.156.1` | native | native | reviewed native mutation |
+| Codex `0.157.0` | native | native | reviewed native mutation |
 | Future version with a known fingerprint | native read-only | native read-only | disabled |
 | Unknown schema or pre-release | bounded fallback | bounded fallback | disabled |
 
@@ -92,6 +93,33 @@ owns the thread. A named thread without a first message is refused with
 `missing source rollout` instead, and Codex's own thread list leaves it out
 until that message. Stepsemble therefore records that it started the thread
 and reads it as empty until its first turn, whatever reason Codex gives.
+
+### 0.157.0 review record
+
+Reviewed against the `0.156.1` baseline. 22 of the 26 contract files are
+byte-identical, including every approval request and response,
+`ServerRequest`, and the thread start, resume, read, list and turns-list
+schemas. The four that differ only add optional fields or methods:
+
+- `ClientRequest.json`: three gateway OAuth methods
+  (`account/gatewayOAuth/read`, `login` and `cancel`), an optional
+  `explicitGatewayOauth` initialize capability and an optional `target` for
+  MCP resource reads.
+- `ServerNotification.json`: a gateway OAuth status notification, which
+  Stepsemble ignores.
+- `v1/InitializeParams.json`: the same optional capability. Stepsemble does
+  not send it.
+- `v2/ThreadItemsListResponse.json`: optional `startedAtMs` and
+  `completedAtMs` on each item entry. Stepsemble reads only `turnId` and
+  `item`.
+
+Every request method in use is still present. The composer, parallel-pool
+and approval oracles passed against the official 0.157.0 macOS arm64
+artifact (archive SHA-256 `0f1522362bf8c8bbb58bf2fa8a3c600a0b723f1d4e3405ab831afeda32438909`,
+matching the digest GitHub publishes for the release), including a turn
+override of `on-request` with `workspaceWrite`. Naming a thread, the
+history refusals before a first message and the thread list behave as in
+0.156.1. `0.157.0-schema.json` records the baseline.
 
 ## Upgrade monitor
 

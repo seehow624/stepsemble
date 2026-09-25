@@ -357,6 +357,8 @@ function createOpenCodexGatewayService({
     const wiring = claudeWiring();
     return {
       kind: "opencodex",
+      // Settings shows the OpenCodex cards only where OpenCodex is present.
+      installed: installed(localConfig),
       origin,
       port,
       reachable: probe.reachable,
@@ -377,7 +379,7 @@ function createOpenCodexGatewayService({
   }
 
   function runAction(args) {
-    const binary = findOpencodexBinary();
+    const binary = findOpencodexBinary(process.env);
     if (!binary) return Promise.reject(new OpenCodexGatewayError("opencodex CLI is not installed", 404, "opencodex_missing"));
     return new Promise((resolve, reject) => {
       execFileImpl(binary, args, { timeout: 60000, encoding: "utf8", windowsHide: true }, (error, stdout, stderr) => {
@@ -414,8 +416,15 @@ function createOpenCodexGatewayService({
     return status();
   }
 
+  // OpenCodex counts as present when its settings or its CLI are on this
+  // computer, the same places runAction and status read.
+  function installed(localConfig = readOpencodexConfig()) {
+    return !!localConfig || !!findOpencodexBinary(process.env);
+  }
+
   return {
     status,
+    installed: () => installed(),
     restoreNative,
     restoreGateway,
     setClaudeSessionRouting,

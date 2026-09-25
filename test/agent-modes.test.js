@@ -40,7 +40,7 @@ test("Codex presets map both ways between Stepsemble and Codex's own policies", 
   assert.equal(codexPresetFor(null), null);
 });
 
-async function fixture(t) {
+async function fixture(t, { claudeHelperOutdated } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-agent-mode-routes-"));
   const store = createAgentModeStore({ file: path.join(dir, "agent-modes.json") });
   const calls = [];
@@ -75,7 +75,7 @@ async function fixture(t) {
     permissionState: id => id === "thread-1" ? { approvalPolicy: "never", sandbox: "dangerFullAccess" } : null,
   };
   const { readJSON, sendJSON } = createHttpUtils();
-  const handle = createAgentModeRoutes({ store, codex, resolveClaude: id => id === "claude-local-1" || id === "claude-native-1" ? { session: claude } : null,
+  const handle = createAgentModeRoutes({ store, codex, claudeHelperOutdated, resolveClaude: id => id === "claude-local-1" || id === "claude-native-1" ? { session: claude } : null,
     openCode, openCodeDirectory: cwd => cwd, acpAdapterForAgent: id => id === "hermes" ? hermes : null, readJSON, sendJSON });
   const server = http.createServer(async (req, res) => {
     if (!await handle(req, res, new URL(req.url, "http://localhost"))) sendJSON(res, 404, { error: "not_found" });
@@ -138,4 +138,13 @@ test("changing a mode applies it the agent's way and remembers it for the conver
   assert.deepEqual(f.calls.at(-1), ["hermes", "hermes-1", "acp.mode", "accept_edits"]);
   assert.equal(f.store.get("hermes", "hermes-1"), "accept_edits");
   assert.equal((await f.post({ agentId: "pi", sessionId: "anything", mode: "x" })).status, 409);
+});
+
+test("a Bypass refusal from an old desktop helper says the helper needs the update", async t => {
+  const f = await fixture(t, { claudeHelperOutdated: async () => true });
+  const refused = await f.post({ agentId: "claude-code", sessionId: "claude-local-1", mode: "bypassPermissions" });
+  assert.equal(refused.status, 409);
+  assert.equal(refused.data.error, "claude_bypass_helper_outdated");
+  // Other modes still change through the same helper.
+  assert.equal((await f.post({ agentId: "claude-code", sessionId: "claude-local-1", mode: "plan" })).data.current, "plan");
 });

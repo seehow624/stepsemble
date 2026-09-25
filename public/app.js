@@ -150,6 +150,7 @@ const el = {
   modelListToolbar: $("model-list-toolbar"),
   modelAgentList: $("model-agent-list"), modelAgentSignin: $("model-agent-signin"), modelAgentSigninText: $("model-agent-signin-text"),
   modelAgentStatus: $("model-agent-status"), agentModelPanel: $("agent-model-panel"), agentModelStatus: $("agent-model-status"),
+  claudeHelperPanel: $("claude-helper-panel"), claudeHelperText: $("claude-helper-text"), claudeHelperUpdate: $("claude-helper-update"),
   agentModelList: $("agent-model-list"), modelSettingsTopbarTitle: $("model-settings-topbar-title"),
   modelSettingsHeading: $("model-settings-heading"), modelSettingsIntro: $("model-settings-intro"),
   opencodeProviderPanel: $("opencode-provider-panel"), opencodeProviderStatus: $("opencode-provider-status"),
@@ -1146,6 +1147,20 @@ function retryPaneHost() {
   void boot();
 }
 if (WORKSPACE_PANE) window.addEventListener("online", () => { if (paneRetryTimer) retryPaneHost(); });
+// A pane's computer can be another machine that is asleep or offline: the
+// relay answers 502/504, or the browser cannot reach this host at all. Other
+// failures are reported as they are.
+function paneHostUnreachable(error) {
+  if (error?.status === 502 && error.message === "machine unreachable") return true;
+  if (error?.status === 504 && error.message === "machine timeout") return true;
+  return error instanceof TypeError && /Failed to fetch|Load failed|NetworkError/i.test(error.message || "");
+}
+function paneOpenErrorText(error) {
+  const message = String(error?.message || "");
+  if (message === "workspace_entry_not_found") return tKey("workspace.entryMissing");
+  if (message === "workspace_host_missing") return tKey("workspace.hostMissing");
+  return message || tKey("workspace.sessionUnavailable");
+}
 
 async function enterApp() {
   if (enterAppRequest) return enterAppRequest;
@@ -1173,7 +1188,7 @@ async function enterApp() {
     if (WORKSPACE_PANE) {
       try {
         const pinnedHost = workspaceQuery.get("host");
-        if (!machines.some(machine => machine.id === pinnedHost)) throw new Error("Workspace host is unavailable");
+        if (!machines.some(machine => machine.id === pinnedHost)) throw new Error("workspace_host_missing");
         selectedId = pinnedHost;
         applyApiBase();
         el.viewList.classList.add("hidden");
@@ -1190,9 +1205,10 @@ async function enterApp() {
           }
         } else await openAgentTaskFromHub(record);
       } catch (error) {
+        if (paneHostUnreachable(error)) { waitForPaneHost(); return false; }
         el.viewList.classList.add("hidden"); el.viewChat.classList.remove("hidden");
         showChatEmpty();
-        el.chatEmpty.textContent = error?.message || tKey("workspace.sessionUnavailable");
+        el.chatEmpty.textContent = paneOpenErrorText(error);
       }
       return true;
     }
@@ -10484,6 +10500,7 @@ function setApprovalMenu(open) {
 function approvalErrorText(error) {
   const code = String(error?.code || error?.message || "");
   if (code === "claude_bypass_unavailable") return tKey("approval.bypassUnavailable");
+  if (code === "claude_bypass_helper_outdated") return tKey("approval.bypassHelperOutdated");
   if (/prompt_in_flight|model_switch_active/.test(code)) return tKey("approval.busy");
   return tKey("approval.failed", { detail: code || "unknown error" });
 }
@@ -14889,20 +14906,63 @@ function applyModelSettingsAgent() {
   el.modelListToolbar?.classList.toggle("hidden", !pi);
   el.modelVisibilityList?.classList.toggle("hidden", !pi);
   el.opencodeProviderPanel?.classList.toggle("hidden", !opencode);
-  el.codexGatewayPanel?.classList.toggle("hidden", !routed);
+  el.codexGatewayPanel?.classList.toggle("hidden", !codexGatewayVisible());
   el.agentModelPanel?.classList.toggle("hidden", !listed);
   // Usage is read from Pi's own session files, so it belongs on Pi's page.
   el.piUsagePanel?.classList.toggle("hidden", !pi);
+  el.claudeHelperPanel?.classList.add("hidden");
   if (!agent) { void renderModelAgentList(); return; }
   if (pi) { void loadModelVisibility(); void renderUsageSummary(); }
   if (opencode) void loadOpenCodeProviders();
-  if (routed) { if (codexGatewayData) renderCodexGateway(); void loadCodexGateway(); }
+  if (routed) { renderCodexGateway(); void loadCodexGateway(); }
   if (listed) void loadAgentModelList(agent);
+  if (agent === "claude-code") void renderClaudeHelperPanel();
 }
 
-function modelAgentSummary(id) {
+// Claude Code on a Mac can start through Stepsemble's desktop helper, which
+// only changes when the person updates it. An earlier helper cannot sign in
+// from conversations or offer Bypass permissions, so its page offers the update.
+let claudeHelperRequest = 0;
+async function renderClaudeHelperPanel({ note = "" } = {}) {
+  const panel = el.claudeHelperPanel;
+  if (!panel || !el.claudeHelperText || !el.claudeHelperUpdate) return;
+  const sequence = ++claudeHelperRequest, base = apiBase;
+  let entry = null;
+  try { entry = (await loadAgentAuthCatalog())?.agents?.["claude-code"] || null; } catch {}
+  if (sequence !== claudeHelperRequest || base !== apiBase || modelSettingsAgent !== "claude-code") return;
+  const desktop = entry?.desktop === true;
+  panel.classList.toggle("hidden", !desktop);
+  if (!desktop) return;
+  const current = entry.terminal === true && entry.bypass === true;
+  const host = agentTerminalHostName(base);
+  el.claudeHelperText.textContent = note || modelAgentText(current ? "helperCurrent" : "helperOutdated", { host });
+  el.claudeHelperUpdate.textContent = agentTerminalText("updateHelper");
+  el.claudeHelperUpdate.title = agentTerminalText("updateHelperHint");
+  el.claudeHelperUpdate.classList.toggle("hidden", current);
+  el.claudeHelperUpdate.disabled = false;
+}
+el.claudeHelperUpdate?.addEventListener("click", async () => {
+  const base = apiBase, host = agentTerminalHostName(base);
+  el.claudeHelperUpdate.disabled = true;
+  el.claudeHelperText.textContent = agentTerminalText("helperUpdating");
+  let note;
+  try {
+    await post("/api/claude/desktop/upgrade", { confirm: true });
+    note = agentTerminalText("helperUpdated");
+  } catch (error) {
+    const code = String(error?.code || error?.message || "");
+    note = code === "active_tasks" ? modelAgentText("helperBusy", { host })
+      : agentTerminalText("helperUpdateFailed", { detail: error?.message || code || "unknown error" });
+  }
+  if (base !== apiBase) return;
+  agentAuthCatalogState = { base: null, at: 0, data: null, request: null };
+  await renderClaudeHelperPanel({ note });
+});
+
+function modelAgentSummary(id, catalog = null) {
   if (id === "pi") return piModelSummaryText() || modelAgentText("summary.pi");
-  if (isRoutedModelAgent(id)) return modelAgentText("summary.routed");
+  // OpenCodex routing is mentioned only where the host has OpenCodex.
+  if (isRoutedModelAgent(id)) return modelAgentText(catalog?.opencodex === false ? "summary.models" : "summary.routed");
   if (id === "opencode") return modelAgentText("summary.opencode");
   return modelAgentText("summary.models");
 }
@@ -14933,7 +14993,7 @@ async function renderModelAgentList() {
     const name = document.createElement("strong");
     name.textContent = agentTerminalLabel(id);
     const detail = document.createElement("small");
-    detail.textContent = modelAgentSummary(id);
+    detail.textContent = modelAgentSummary(id, catalog);
     copy.append(name, detail);
     const chevron = document.createElement("span");
     chevron.className = "row-chevron";
@@ -15258,39 +15318,54 @@ el.opencodeProviderCancelBottom?.addEventListener("click", closeOpenCodeProvider
 // ===========================================================================
 
 let codexGatewayData = null;
+// The host codexGatewayData came from; another host's cards are never shown.
+let codexGatewayBase = null;
 let codexGatewayLoading = false;
 let codexGatewayRequest = null;
+let codexGatewayRequestBase = null;
+
+function gatewayText(key, vars = {}) { return tKey("gateway." + key, vars); }
+
+// The OpenCodex cards appear once the selected host says OpenCodex is there.
+// A host from before that field keeps showing them.
+function codexGatewayVisible() {
+  return isRoutedModelAgent(modelSettingsAgent) && codexGatewayBase === apiBase
+    && !!codexGatewayData && codexGatewayData.installed !== false;
+}
 
 async function loadCodexGateway(force = false) {
   if (!el.codexGatewayList) return;
-  if (codexGatewayLoading && !force) return;
+  if (codexGatewayLoading && !force && codexGatewayRequestBase === apiBase) return;
   if (codexGatewayRequest) codexGatewayRequest.abort();
   const generation = viewGeneration;
   const baseAtStart = apiBase;
   codexGatewayLoading = true;
   const request = new AbortController();
   codexGatewayRequest = request;
+  codexGatewayRequestBase = baseAtStart;
   if (el.codexGatewayStatus) {
-    el.codexGatewayStatus.textContent = "Checking gateway status…";
+    el.codexGatewayStatus.textContent = gatewayText("checking");
     el.codexGatewayStatus.classList.remove("hidden");
   }
   try {
     const result = await api("/api/gateway/status", { signal: request.signal });
     if (request.signal.aborted || generation !== viewGeneration || baseAtStart !== apiBase) return;
     codexGatewayData = result;
+    codexGatewayBase = baseAtStart;
     el.codexGatewayStatus?.classList.add("hidden");
     renderCodexGateway();
   } catch (e) {
     if (e.name === "AbortError") return;
-    if (generation === viewGeneration && baseAtStart !== apiBase) {
-      codexGatewayData = null;
-      if (el.codexGatewayList) el.codexGatewayList.innerHTML = "";
-      if (el.codexGatewayStatus) el.codexGatewayStatus.textContent = "Gateway status unavailable: " + (e.message || "unknown error");
+    // Only an answer about the host on screen may change what it shows.
+    if (generation === viewGeneration && baseAtStart === apiBase) {
+      el.codexGatewayList.replaceChildren();
+      if (el.codexGatewayStatus) el.codexGatewayStatus.textContent = gatewayText("unavailable", { detail: e.message || "unknown error" });
     }
   } finally {
     if (codexGatewayRequest === request) {
       codexGatewayLoading = false;
       codexGatewayRequest = null;
+      codexGatewayRequestBase = null;
     }
   }
 }
@@ -15302,155 +15377,118 @@ function codexGatewayChip(label, kind) {
   return chip;
 }
 
-function renderCodexGateway() {
-  const data = codexGatewayData;
-  if (!el.codexGatewayList) return;
-  el.codexGatewayList.innerHTML = "";
-  if (!data) return;
-
-  const overview = document.createElement("div");
-  overview.className = "opencode-provider-card";
-  const overviewHead = document.createElement("div");
-  overviewHead.className = "gateway-row";
-  const overviewCopy = document.createElement("div");
-  overviewCopy.className = "opencode-provider-copy";
+function codexGatewayCard(title, detail, chip = null) {
+  const card = document.createElement("div");
+  card.className = "opencode-provider-card";
+  const head = document.createElement("div");
+  head.className = "gateway-row";
+  const copy = document.createElement("div");
+  copy.className = "opencode-provider-copy";
   const strong = document.createElement("strong");
-  strong.textContent = "opencodex gateway";
-  overviewCopy.appendChild(strong);
+  strong.textContent = title;
   const small = document.createElement("small");
-  small.textContent = data.reachable
-    ? data.origin + " · reachable · " + (data.gatewayModels?.length || 0) + " models via /v1/models"
-    : data.origin + " · not reachable";
-  overviewCopy.appendChild(small);
-  overviewHead.appendChild(overviewCopy);
-  overviewHead.appendChild(codexGatewayChip(data.reachable ? "online" : "offline", data.reachable ? "ok" : "warn"));
-  overview.appendChild(overviewHead);
-  const providerLine = document.createElement("p");
-  providerLine.className = "settings-note";
-  providerLine.textContent = "Providers on the gateway: " + (data.providerIds?.join(", ") || "(none)") + (data.defaultProvider ? " · default: " + data.defaultProvider : "");
-  overview.appendChild(providerLine);
-  el.codexGatewayList.appendChild(overview);
+  small.textContent = detail;
+  copy.append(strong, small);
+  head.appendChild(copy);
+  if (chip) head.appendChild(codexGatewayChip(chip.label, chip.kind));
+  card.appendChild(head);
+  return card;
+}
 
-  const codexCard = document.createElement("div");
-  codexCard.className = "opencode-provider-card";
-  const codexHead = document.createElement("div");
-  codexHead.className = "gateway-row";
-  const codexCopy = document.createElement("div");
-  codexCopy.className = "opencode-provider-copy";
-  const codexStrong = document.createElement("strong");
-  codexStrong.textContent = "Codex";
-  codexCopy.appendChild(codexStrong);
-  const codexSmall = document.createElement("small");
-  codexSmall.textContent = data.codex?.mode === "gateway"
-    ? "Routed through the gateway · current model: " + (data.codex.currentModel || "(default)")
-    : data.codex?.mode === "gateway-other"
-      ? "Routed through another endpoint · " + (data.codex.baseUrl || "")
-      : data.codex?.mode === "direct" ? "Native OpenAI routing (no gateway injected)"
-        : "config.toml not found";
-  codexCopy.appendChild(codexSmall);
-  codexHead.appendChild(codexCopy);
-  codexHead.appendChild(codexGatewayChip(data.codex?.mode === "gateway" ? "via gateway" : "direct", data.codex?.mode === "gateway" ? "warn" : "ok"));
-  codexCard.appendChild(codexHead);
-  const codexActions = document.createElement("div");
-  codexActions.className = "opencode-provider-actions gateway-actions";
-  const restoreButton = document.createElement("button");
-  restoreButton.type = "button";
-  restoreButton.className = "btn ghost provider-row-action";
-  restoreButton.textContent = data.codex?.mode === "gateway" ? "Switch Codex to native routing" : "Switch Codex back to the gateway";
-  restoreButton.addEventListener("click", async () => {
-    const toNative = data.codex?.mode === "gateway";
-    const message = toNative
-      ? "Switch Codex back to native OpenAI routing? The opencodex proxy keeps running; new Codex sessions go direct again."
-      : "Point Codex back at the opencodex gateway? Session records keep working and you can switch back anytime.";
-    if (!window.confirm(message)) return;
-    restoreButton.disabled = true;
-    try {
-      await post("/api/gateway/action", { action: toNative ? "codex_restore_native" : "codex_restore_gateway" });
-      await loadCodexGateway(true);
-    } catch (e) {
-      toast(e.message || "Gateway action failed");
-    } finally {
-      restoreButton.disabled = false;
-    }
-  });
-  codexActions.appendChild(restoreButton);
-  codexCard.appendChild(codexActions);
-  if (data.codex?.mode === "gateway" && !data.codex?.currentModel) {
-    const hint = document.createElement("p");
-    hint.className = "settings-note";
-    hint.textContent = "Gateway routing is active; no explicit model is pinned, so Codex uses the gateway default. Pick a model in Codex to pin one.";
-    codexCard.appendChild(hint);
-  }
-  if (data.catalogModels?.length) {
-    const models = document.createElement("div");
-    models.className = "opencode-provider-models";
-    for (const entry of data.catalogModels.filter(item => item.visibility === "list").slice(0, 8)) {
-      const chip = document.createElement("span");
-      chip.className = "opencode-provider-model";
-      chip.textContent = entry.slug;
-      models.appendChild(chip);
-    }
-    codexCard.appendChild(models);
-  }
-  if (modelSettingsAgent !== "claude-code") el.codexGatewayList.appendChild(codexCard);
-
-  const claudeCard = document.createElement("div");
-  claudeCard.className = "opencode-provider-card";
-  const claudeHead = document.createElement("div");
-  claudeHead.className = "gateway-row";
-  const claudeCopy = document.createElement("div");
-  claudeCopy.className = "opencode-provider-copy";
-  const claudeStrong = document.createElement("strong");
-  claudeStrong.textContent = "Claude Code";
-  claudeCopy.appendChild(claudeStrong);
-  const claudeSmall = document.createElement("small");
-  const wiring = data.claude?.wiring || null;
-  const sessionRouting = data.claude?.sessionRouting || null;
-  claudeSmall.textContent = wiring?.enabled
-    ? "opencodex Claude routing is enabled" + (wiring.authMode ? " (auth mode: " + wiring.authMode + ")" : "") + "; terminal sessions use ocx claude"
-    : wiring
-      ? "opencodex Claude routing is disabled in the gateway"
-      : "opencodex is not installed";
-  claudeCopy.appendChild(claudeSmall);
-  claudeHead.appendChild(claudeCopy);
-  claudeHead.appendChild(codexGatewayChip(sessionRouting?.enabled ? "Stepsemble sessions: gateway" : "Stepsemble sessions: native", sessionRouting?.enabled ? "warn" : "ok"));
-  claudeCard.appendChild(claudeHead);
-  const claudeDetail = document.createElement("p");
-  claudeDetail.className = "settings-note";
-  claudeDetail.textContent = sessionRouting?.enabled
-    ? "Claude Code sessions started in Stepsemble run through " + (sessionRouting.baseUrl || "the gateway") + " with gateway model discovery, so every opencodex model is selectable. Subscription OAuth stays untouched."
-    : "Claude Code sessions started in Stepsemble use Anthropic directly. Turn this on to let them use every opencodex model; the subscription login itself is never modified.";
-  claudeCard.appendChild(claudeDetail);
-  const claudeActions = document.createElement("div");
-  claudeActions.className = "opencode-provider-actions gateway-actions";
-  const bridgeButton = document.createElement("button");
-  bridgeButton.type = "button";
-  bridgeButton.className = "btn ghost provider-row-action";
-  bridgeButton.textContent = sessionRouting?.enabled ? "Return Stepsemble Claude sessions to native" : "Route Stepsemble Claude sessions through the gateway";
-  bridgeButton.addEventListener("click", async () => {
-    const enable = !sessionRouting?.enabled;
-    const message = enable
-      ? "Route Claude Code sessions started in Stepsemble through the opencodex gateway? They will be able to use every opencodex model; your subscription login is not modified. Applies to sessions started after this change."
-      : "Return Claude Code sessions started in Stepsemble to native Anthropic routing? Applies to sessions started after this change.";
-    if (!window.confirm(message)) return;
-    bridgeButton.disabled = true;
-    try {
-      await post("/api/gateway/action", { action: "claude_session_routing", enabled: enable });
-      await loadCodexGateway(true);
-    } catch (e) {
-      toast(e.message || "Gateway action failed");
-    } finally {
-      bridgeButton.disabled = false;
-    }
-  });
-  claudeActions.appendChild(bridgeButton);
-  claudeCard.appendChild(claudeActions);
-  if (modelSettingsAgent !== "codex") el.codexGatewayList.appendChild(claudeCard);
-
+function codexGatewayNote(value) {
   const note = document.createElement("p");
   note.className = "settings-note";
-  note.textContent = "Switches use the opencodex CLI itself, so the gateway and Stepsemble never fight over the same config. Running sessions are not interrupted; the routing applies to new turns.";
-  el.codexGatewayList.appendChild(note);
+  note.textContent = value;
+  return note;
+}
+
+function gatewayActionError(error) {
+  const code = String(error?.code || "");
+  if (code === "opencodex_missing") return gatewayText("error.missing");
+  if (code === "claude_routing_disabled_in_gateway") return gatewayText("error.claudeOff");
+  return gatewayText("error.failed", { detail: error?.message || code || "unknown error" });
+}
+
+// A switch that asks first, runs OpenCodex's own command on the host and then
+// reads the state back.
+function codexGatewayAction(label, question, body) {
+  const actions = document.createElement("div");
+  actions.className = "opencode-provider-actions gateway-actions";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "btn ghost provider-row-action";
+  button.textContent = label;
+  button.addEventListener("click", async () => {
+    if (!window.confirm(question)) return;
+    button.disabled = true;
+    try {
+      await post("/api/gateway/action", body);
+      await loadCodexGateway(true);
+    } catch (error) {
+      toast(gatewayActionError(error), true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  actions.appendChild(button);
+  return actions;
+}
+
+function renderCodexGateway() {
+  if (!el.codexGatewayList) return;
+  const visible = codexGatewayVisible();
+  el.codexGatewayPanel?.classList.toggle("hidden", !visible);
+  el.codexGatewayList.replaceChildren();
+  if (!visible) return;
+  const data = codexGatewayData;
+
+  const providers = (data.providerIds || []).join(", ");
+  const overview = codexGatewayCard("OpenCodex",
+    data.reachable ? gatewayText("reachable", { origin: data.origin, count: data.gatewayModels?.length || 0 })
+      : gatewayText("unreachable", { origin: data.origin }),
+    data.reachable ? { label: tKey("quotaSources.online"), kind: "ok" } : { label: tKey("quotaSources.offline"), kind: "warn" });
+  overview.appendChild(codexGatewayNote(!providers ? gatewayText("noProviders")
+    : data.defaultProvider ? gatewayText("providersDefault", { list: providers, provider: data.defaultProvider })
+      : gatewayText("providers", { list: providers })));
+  el.codexGatewayList.appendChild(overview);
+
+  if (modelSettingsAgent === "codex") {
+    const mode = data.codex?.mode, model = data.codex?.currentModel || "";
+    const detail = mode === "gateway" ? (model ? gatewayText("codex.gateway", { model }) : gatewayText("codex.gatewayDefault"))
+      : mode === "gateway-other" ? gatewayText("codex.other", { url: data.codex?.baseUrl || "" })
+        : mode === "direct" ? gatewayText("codex.direct") : gatewayText("codex.unknown");
+    const card = codexGatewayCard("Codex", detail);
+    const toNative = mode === "gateway";
+    card.appendChild(codexGatewayAction(gatewayText(toNative ? "codex.toNative" : "codex.toGateway"),
+      gatewayText(toNative ? "codex.confirmNative" : "codex.confirmGateway"),
+      { action: toNative ? "codex_restore_native" : "codex_restore_gateway" }));
+    if (mode === "gateway" && !model) card.appendChild(codexGatewayNote(gatewayText("codex.noModel")));
+    const listed = (data.catalogModels || []).filter(item => item.visibility === "list").slice(0, 8);
+    if (listed.length) {
+      const models = document.createElement("div");
+      models.className = "opencode-provider-models";
+      for (const entry of listed) {
+        const chipEl = document.createElement("span");
+        chipEl.className = "opencode-provider-model";
+        chipEl.textContent = entry.slug;
+        models.appendChild(chipEl);
+      }
+      card.appendChild(models);
+    }
+    el.codexGatewayList.appendChild(card);
+    el.codexGatewayList.appendChild(codexGatewayNote(gatewayText("codex.note")));
+  } else {
+    const wiring = data.claude?.wiring || null, routing = data.claude?.sessionRouting || null;
+    const card = codexGatewayCard("Claude Code", gatewayText(wiring?.enabled ? "claude.enabled" : "claude.disabled"));
+    card.appendChild(codexGatewayNote(routing?.enabled
+      ? gatewayText("claude.detailGateway", { url: routing.baseUrl || data.origin })
+      : gatewayText("claude.detailNative")));
+    const enable = !routing?.enabled;
+    card.appendChild(codexGatewayAction(gatewayText(enable ? "claude.toGateway" : "claude.toNative"),
+      gatewayText(enable ? "claude.confirmGateway" : "claude.confirmNative"),
+      { action: "claude_session_routing", enabled: enable }));
+    el.codexGatewayList.appendChild(card);
+  }
 }
 
 // ---- Provider config portability ----
@@ -15648,6 +15686,8 @@ el.setLocale?.addEventListener("change", () => {
   if (agentTerminal) renderAgentTerminal();
   renderQuotaSources();
   renderApprovalControl();
+  if (modelSettingsAgent === "claude-code") void renderClaudeHelperPanel();
+  if (isRoutedModelAgent(modelSettingsAgent)) renderCodexGateway();
 });
 el.setSidebarWidth?.addEventListener("input", () => {
   const width = Math.min(440, Math.max(280, Number(el.setSidebarWidth.value) || 336));

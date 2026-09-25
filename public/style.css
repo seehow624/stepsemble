@@ -1149,6 +1149,8 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
 }
 .opencode-provider-more { color: var(--pine-soft); font: 10px var(--mono); padding: 2px 4px; }
 .gateway-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+/* OpenCodex card details are sentences and addresses; let them wrap. */
+.gateway-row .opencode-provider-copy small { white-space: normal; overflow-wrap: anywhere; }
 .gateway-actions { margin-top: 9px; }
 .gateway-badge {
   border: 0.5px solid var(--line);

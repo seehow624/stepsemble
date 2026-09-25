@@ -49,6 +49,21 @@ test("reviewed stable Codex 0.156.1 is accepted with native writes and approvals
   assert.notEqual(fingerprint, CURRENT_FINGERPRINT, "0.156.1 has its own reviewed schema");
 });
 
+test("reviewed stable Codex 0.157.0 is accepted with native writes and approvals", async () => {
+  const profiles = registry().profiles;
+  const fingerprint = profiles.find(profile => profile.nativeVersion === "0.157.0").schemaFingerprint;
+  const result = await probeCodexCompatibility(process.execPath, {
+    versionOutput: "codex-cli 0.157.0",
+    schemaProbe: async () => ({ fingerprint }),
+    cache: new Map(),
+  });
+  assert.equal(result.nativeVersion, "0.157.0");
+  assert.equal(result.verification, "reviewed");
+  assert.equal(result.capabilities.mutations, true);
+  assert.equal(result.capabilities.approvals, true);
+  assert.notEqual(fingerprint, profiles.find(profile => profile.nativeVersion === "0.156.1").schemaFingerprint, "0.157.0 has its own reviewed schema");
+});
+
 test("a future version with the same schema gets read-only compatibility automatically", async () => {
   const result = await probeCodexCompatibility(process.execPath, {
     versionOutput: "codex-cli 0.154.1",

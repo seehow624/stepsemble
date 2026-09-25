@@ -302,17 +302,24 @@ function createDesktopClaudeClient({ configDir, timeoutMs = 45000, hasActiveTask
     if (value.maintenanceVersion !== 1 || !UUID.test(value.instance)) throw failure("desktop_required");
     return value;
   }
-  // Conversation terminal (/login, /logout, /status) for Claude. Older
-  // helpers do not report terminalVersion; callers then keep the host-browser
-  // sign-in and offer the helper update.
-  let terminalCheck = null;
-  async function terminalSupported() {
-    if (terminalCheck && Date.now() - terminalCheck.at < 30000) return terminalCheck.value;
-    let value = false;
-    try { const health = await call("health"); value = health?.context === "Aqua" && health.terminalVersion === 1; } catch {}
-    terminalCheck = { at: Date.now(), value };
+  // What this helper can do. Older helpers do not report terminalVersion (the
+  // conversation terminal for /login, /logout and /status) or bypassVersion
+  // (offering Bypass permissions); callers then keep the host-browser sign-in
+  // and offer the helper update.
+  let featureCheck = null;
+  async function helperFeatures() {
+    if (featureCheck && Date.now() - featureCheck.at < 30000) return featureCheck.value;
+    let value = { terminal: false, bypass: false };
+    try {
+      const health = await call("health");
+      const aqua = health?.context === "Aqua";
+      value = { terminal: aqua && health.terminalVersion === 1, bypass: aqua && health.bypassVersion === 1 };
+    } catch {}
+    featureCheck = { at: Date.now(), value };
     return value;
   }
+  async function terminalSupported() { return (await helperFeatures()).terminal; }
+  async function bypassSupported() { return (await helperFeatures()).bypass; }
   async function terminalStart({ action, choice, cols, rows }) {
     const value = await call("terminal/start", { action, choice, cols, rows });
     if (!UUID.test(value?.id)) throw failure("desktop_required");
@@ -335,8 +342,8 @@ function createDesktopClaudeClient({ configDir, timeoutMs = 45000, hasActiveTask
   return Object.freeze({ status, health: () => call("health"), prepare: () => authAction("prepare"), start: id => authAction("start", id), cancel: id => authAction("cancel", id), launchTask,
     launchStructured,
     prepareUpgrade, cancelUpgrade,
-    terminalSupported, terminalStart, terminalRead, terminalInput, terminalCancel,
-    resetTerminalCheck: () => { terminalCheck = null; },
+    terminalSupported, bypassSupported, terminalStart, terminalRead, terminalInput, terminalCancel,
+    resetTerminalCheck: () => { featureCheck = null; },
     snapshot: () => cached || offline(), isBusy: () => ["prepared", "starting", "waiting", "verifying", "cancelling"].includes(cached?.login?.state),
     close() { closed = true; for (const req of requests) req.destroy(); for (const socket of upgradedSockets) { try { socket.destroy(); } catch {} } } });
 }

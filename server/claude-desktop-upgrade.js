@@ -27,14 +27,16 @@ function createClaudeDesktopUpgradeService({ desktopClient, isBusy = () => false
         || !AUTH_STATES.has(status.credential?.state)) throw failure("desktop_required");
       if (isBusy() || status.blockedReason || status.canStart !== true
         || health.activeStructured !== undefined && health.activeStructured !== 0) throw failure("active_tasks");
-      // Older helpers lack the structured stream or the sign-in terminal;
-      // either one is a reason to install the current helper runtime.
-      const outdated = health.structuredStreamVersion !== 1 || health.terminalVersion !== 1;
+      // Older helpers lack the structured stream, the sign-in terminal or the
+      // Bypass permissions option; any one is a reason to install the current
+      // helper runtime.
+      const outdated = health.structuredStreamVersion !== 1 || health.terminalVersion !== 1 || health.bypassVersion !== 1;
       if (outdated) await runUpgrade();
       const verified = await desktopClient.health();
-      if (verified.context !== "Aqua" || verified.structuredStreamVersion !== 1 || verified.terminalVersion !== 1) throw failure("desktop_upgrade_unconfirmed");
+      if (verified.context !== "Aqua" || verified.structuredStreamVersion !== 1 || verified.terminalVersion !== 1
+        || verified.bypassVersion !== 1) throw failure("desktop_upgrade_unconfirmed");
       desktopClient.resetTerminalCheck?.();
-      return { upgraded: outdated, context: "Aqua", structuredStreamVersion: 1, terminalVersion: 1 };
+      return { upgraded: outdated, context: "Aqua", structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1 };
     } finally { running = false; }
   }
   return Object.freeze({ upgrade, isRunning: () => running });

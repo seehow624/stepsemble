@@ -4356,11 +4356,13 @@ async function agentAuthCatalog() {
   const agents = { ...catalog.agents, pi: { id: "pi", installed: !!PI_BIN, remote: false, runtime: "pi", status: true,
     login: [{ id: "provider", provider: true }], logout: [{ id: "provider", provider: true }] } };
   if (desktopClaude && agents["claude-code"]) {
-    let terminal = false;
-    try { terminal = await desktopClaude.terminalSupported(); } catch {}
-    agents["claude-code"] = { ...agents["claude-code"], desktop: true, terminal };
+    let terminal = false, bypass = false;
+    try { [terminal, bypass] = await Promise.all([desktopClaude.terminalSupported(), desktopClaude.bypassSupported()]); } catch {}
+    agents["claude-code"] = { ...agents["claude-code"], desktop: true, terminal, bypass };
   }
-  return { machine: MACHINE_NAME, version: catalog.version, pty: catalog.pty, agents };
+  let opencodex = false;
+  try { opencodex = openCodexGateway.installed(); } catch {}
+  return { machine: MACHINE_NAME, version: catalog.version, pty: catalog.pty, agents, opencodex };
 }
 
 function agentAuthStream(req, res, url) {
@@ -4547,6 +4549,9 @@ const handleNativeComposerRoute = createNativeComposerRoutes({
 });
 const handleAgentModeRoute = createAgentModeRoutes({
   store: agentModes, codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession,
+  // Claude conversations launched through a desktop helper from before 3.6.0
+  // cannot enter Bypass permissions until the helper is updated.
+  claudeHelperOutdated: async () => !!desktopClaude && !(await desktopClaude.bypassSupported().catch(() => false)),
   openCode: openCodeNative, openCodeDirectory,
   acpAdapterForAgent: agentId => agentId === "grok-build" ? grokAcp : acpAdapterForAgent(agentId),
   readJSON, sendJSON,
@@ -5126,7 +5131,8 @@ const server = http.createServer(async (req, res) => {
           else { sendJSON(res, 400, { error: "unknown gateway action" }); return; }
           sendJSON(res, 200, result);
         } catch (error) {
-          sendJSON(res, error.statusCode || 409, { error: error.message || "gateway_action_failed" });
+          sendJSON(res, error.statusCode || 409, { error: error.message || "gateway_action_failed",
+            ...(typeof error.code === "string" ? { code: error.code } : {}) });
         }
         return;
       }
@@ -5226,7 +5232,10 @@ const server = http.createServer(async (req, res) => {
         try {
           if (!grokAcp) { const error = new Error("Grok ACP is disabled; set STEPSEMBLE_GROK_ACP=1"); error.statusCode = 409; error.code = "grok_acp_disabled"; throw error; }
           const body = await readJSON(req, 64 * 1024);
-          sendJSON(res, 201, await grokAcp.createSession({ directory: nativeAgentDirectory(body?.cwd || body?.directory, "Grok ACP"), sessionId: body?.sessionId || null, mcpServers: [] }));
+          const result = await grokAcp.createSession({ directory: nativeAgentDirectory(body?.cwd || body?.directory, "Grok ACP"), sessionId: body?.sessionId || null, mcpServers: [] });
+          // Reopening a conversation puts back the mode chosen for it earlier.
+          if (body?.sessionId && result?.kind !== "reject") await restoreAcpMode("grok-build", grokAcp, result.sessionId);
+          sendJSON(res, 201, result);
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "grok_session_failed" }); }
         return;
       }

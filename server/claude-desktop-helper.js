@@ -10,6 +10,9 @@ const { resolvePtyRuntime, supervisorSocketPath, supervisorMetadataPath } = requ
 const { launchAgentSupervisor } = require("./agent-supervisor-launch");
 const { UUID, failure, desktopPaths, privateDirectory, privateRead, privateWrite, exact } = require("./claude-desktop-state");
 const { buildClaudeStructuredArgs, claudeSupportsBypass, existingGatewaySettingsPath } = require("./claude-code-structured-adapter");
+// This helper offers Bypass permissions to the conversations it launches when
+// the Claude CLI lists the option; older helpers never pass it.
+const BYPASS_VERSION = 1;
 const { claudeSessionEnvOverrides } = require("./claude-session-routing");
 const {
   STRUCTURED_STREAM_VERSION,
@@ -336,12 +339,12 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
           : op === "auth/start" || op === "auth/cancel" ? ["id"] : [])) throw failure("invalid_request");
     if (maintenance && maintenance.expiresAt <= now()) maintenance = null;
     const maintenanceSummary = { maintenanceVersion: 1, maintenance: maintenance ? { active: true, expiresAt: maintenance.expiresAt } : { active: false, expiresAt: null } };
-    if (op === "health") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION,
+    if (op === "health") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION,
       activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary };
     await reconcileAuth();
     await refreshTasks();
     if (closed) throw failure("service_closed");
-    if (op === "status") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary,
+    if (op === "status") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary,
       ...(recoveryRequired ? unavailable() : await auth.status()) };
     if (op === "maintenance/cancel") {
       if (!maintenance || maintenance.instance !== body.instance || maintenance.token !== body.token || maintenance.expiresAt <= now()) throw failure("stale_intent");

@@ -196,14 +196,16 @@ Don't ask and Bypass permissions for Claude Code; Build and Plan for OpenCode;
 and the modes that Hermes, Kilo, Cline and Grok Build report. Pi and
 Antigravity have no such modes, so the control is hidden for them. Each
 conversation remembers its choice. Codex applies it from your next message; the
-other agents apply it at once. Claude Code offers Bypass permissions only when
-its CLI supports the option.
+other agents apply it at once. Bypass permissions needs a Claude Code CLI that
+supports it. On a Mac where Claude Code starts through Stepsemble's desktop
+helper, the helper must be current too; Claude Code's page in Settings shows
+it and can update it.
 
 **Settings → Agents & models → Models & providers** lists every agent installed
 on the host. Each agent's page says how to sign in and shows the models it
 offers, plus its own settings: Pi's model visibility, Custom provider editor and
 token use for the last 7 days, OpenCode's providers and local server, and the
-OpenCodex routing for Codex and Claude Code. **Quota sources** in the same section chooses where subscription and
+OpenCodex routing for Codex and Claude Code when the host has OpenCodex. **Quota sources** in the same section chooses where subscription and
 API limits come from: each agent's own sign-in, Pi's sign-ins and keys,
 OpenCodex, or CodexBar's CLI. Turn sources on or off, and pick one for a service
 that several sources can read.

@@ -45,6 +45,7 @@ function createAgentModeRoutes({
   codex = null,
   ensureCodex = async () => {},
   resolveClaude = () => null,
+  claudeHelperOutdated = async () => false,
   openCode = null,
   openCodeDirectory = value => value || null,
   acpAdapterForAgent = () => null,
@@ -123,7 +124,14 @@ function createAgentModeRoutes({
     if (agentId === "claude-code") {
       const resolved = resolveClaude(sessionId);
       if (!resolved) throw failure("claude_session_unavailable", 404);
-      const result = await resolved.session.setPermissionMode(mode);
+      let result;
+      try { result = await resolved.session.setPermissionMode(mode); }
+      catch (error) {
+        // An old desktop helper launched this session without the option, so a
+        // new conversation alone would not help; the helper needs the update.
+        if (error?.code === "claude_bypass_unavailable" && await claudeHelperOutdated()) throw failure("claude_bypass_helper_outdated", 409);
+        throw error;
+      }
       const nativeSessionId = resolved.session.status()?.nativeSessionId;
       if (nativeSessionId) store.set("claude-code", nativeSessionId, result.permissionMode);
       return claudeState(sessionId);

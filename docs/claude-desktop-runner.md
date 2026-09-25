@@ -1,5 +1,12 @@
 # macOS Claude 桌面執行元件
 
+> 3.6.0（2026-09-25）：health／status 另外回報 `bypassVersion: 1`，表示助手啟動 Claude Code
+> 時，會替列出 `--allow-dangerously-skip-permissions` 的 CLI 加上這個選項，讓對話之後能切換到
+> 略過權限（Bypass permissions）；對話仍以 Claude 自己設定的模式開始。沒有這個欄位的舊助手
+> 會拒絕切換，Web 端回 409 `claude_bypass_helper_outdated`。設定 → Agents & models →
+> Models & providers → Claude Code 會顯示助手是否為新版，並提供「更新助手」；有 Claude 對話
+> 開著時不會更新（`active_tasks`）。升級流程同下方 3.3.0，驗證時三個版本欄位都要是 1。
+
 > 3.3.0（2026-09-25）：助手新增 `terminal/start`、`terminal/read`、`terminal/input`、
 > `terminal/cancel`，讓 Claude Code 對話的 `/login`、`/logout`、`/status` 在 Aqua 執行固定的
 > 官方 auth 指令並把輸出送回對話終端機。health／status 回報 `terminalVersion: 1`；

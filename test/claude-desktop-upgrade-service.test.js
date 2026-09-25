@@ -6,16 +6,24 @@ function fixture(extra = {}) {
   const status = { context: "Aqua", instance: "same-helper", credential: { state: "signed_out" }, canStart: true };
   const health = { context: "Aqua", instance: "same-helper" };
   const service = createClaudeDesktopUpgradeService({ platform: "darwin",
-    desktopClient: { status: async () => status, health: async () => ({ ...health, ...(upgraded ? { structuredStreamVersion: 1, terminalVersion: 1 } : {}) }) },
+    desktopClient: { status: async () => status, health: async () => ({ ...health, ...(upgraded ? { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1 } : {}) }) },
     runUpgrade: async () => { attempts++; upgraded = true; }, ...extra });
   return { service, status, health, attempts: () => attempts };
 }
 test("explicit helper repair accepts signed-out metadata without starting a login", async () => {
   const f = fixture();
-  assert.deepEqual(await f.service.upgrade({ confirm: true }), { upgraded: true, context: "Aqua", structuredStreamVersion: 1, terminalVersion: 1 });
+  assert.deepEqual(await f.service.upgrade({ confirm: true }), { upgraded: true, context: "Aqua", structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1 });
   assert.equal(f.attempts(), 1); assert.equal(f.service.isRunning(), false);
   assert.equal((await f.service.upgrade({ confirm: true })).upgraded, false);
   assert.equal(f.attempts(), 1);
+});
+test("a helper without Bypass permissions is updated and a current helper is left alone", async () => {
+  const withoutBypass = fixture(); Object.assign(withoutBypass.health, { structuredStreamVersion: 1, terminalVersion: 1 });
+  assert.equal((await withoutBypass.service.upgrade({ confirm: true })).upgraded, true);
+  assert.equal(withoutBypass.attempts(), 1);
+  const current = fixture(); Object.assign(current.health, { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1 });
+  assert.equal((await current.service.upgrade({ confirm: true })).upgraded, false);
+  assert.equal(current.attempts(), 0);
 });
 test("helper repair rejects missing authority, ambiguous state and active work before installer", async () => {
   for (const mutate of [

@@ -164,7 +164,9 @@ test("the desktop terminal runs only Claude's fixed auth commands and pauses tas
   const f = await fixture(t);
   const health = await f.client.health();
   assert.equal(health.terminalVersion, 1);
+  assert.equal(health.bypassVersion, 1);
   assert.equal(await f.client.terminalSupported(), true);
+  assert.equal(await f.client.bypassSupported(), true);
   assert.equal((await f.raw("terminal/start", { action: "login", choice: "subscription", cols: 80, rows: 24, command: "/bin/sh" })).body.code, "invalid_request");
   assert.equal((await f.raw("terminal/start", { action: "exec", choice: "default", cols: 80, rows: 24 })).body.code, "invalid_request");
   assert.equal((await f.raw("terminal/start", { action: "login", choice: "shell", cols: 80, rows: 24 })).body.code, "action_unsupported");
