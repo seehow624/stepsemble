@@ -77,24 +77,23 @@ cat ~/.config/stepsemble/token
 
 登入 Agent：在該 Agent 的對話輸入 `/login`；`/logout` 和 `/status` 用法相同。Stepsemble 會在對話所在的主機執行該 Agent 自己的指令，並以終端機畫面呈現：登入連結變成按鈕、一次性代碼可以複製，輸入的內容會送回指令；API key、token、密碼這類輸入會自動隱藏，也會在輸出中遮蔽。在 Pi 對話輸入 `/login`，會列出 Pi 支援的服務商，可用帳號登入或 API key。
 
-輸入框採用 Codex 的排版：左邊是附件和**核准模式**，右邊依序是 context 圓環、模型和圓形送出鍵。**核准模式**列出這個對話所用 Agent 自己的權限模式：Codex 是唯讀、預設、完整權限；Claude Code 是手動確認、自動接受編輯、規劃、自動、不詢問、略過權限；OpenCode 是 Build 和 Plan；Hermes、Kilo、Cline、Grok Build 則列出它們回報的模式。Pi 和 Antigravity 沒有這類模式，所以不會顯示。每個對話會記住自己的選擇；Codex 從下一則訊息開始套用，其他 Agent 立即生效。略過權限需要 Claude Code 的 CLI 支援；如果這台 Mac 透過 Stepsemble 的 Claude 桌面助手啟動 Claude Code，助手也要是新版，可在設定的 Claude Code 頁面查看並更新。
+輸入框採用 Codex 的排版：左邊是附件和**核准模式**，右邊依序是 context 圓環、模型和圓形送出鍵。**核准模式**列出這個對話所用 Agent 自己的權限模式：Codex 是唯讀、預設、完整權限；Claude Code 是手動確認、自動接受編輯、規劃、自動、不詢問、略過權限；OpenCode 是 Build 和 Plan；Hermes、Kilo、Cline 列出它們回報的模式；Grok Build 是預設和規劃，這是它實際會套用的兩種。Pi 和 Antigravity 沒有這類模式，所以不會顯示。每個對話會記住自己的選擇；Codex 從下一則訊息開始套用，其他 Agent 立即生效。略過權限需要 Claude Code 的 CLI 支援；如果這台 Mac 透過 Stepsemble 的 Claude 桌面助手啟動 Claude Code，助手也要是新版，可在設定的 Claude Code 頁面查看並更新。
 
 **Settings → Agents & models → Models & providers** 會列出主機上安裝的每個 Agent。每個 Agent 的頁面會說明怎麼登入、列出它提供的模型，以及它自己的設定：Pi 的模型顯示、自訂 Provider 與最近 7 天用量、OpenCode 的服務商與本機伺服器，還有主機裝有 OpenCodex 時，Codex 與 Claude Code 的 OpenCodex 轉送。同一區的 **Quota sources** 用來選擇訂閱與 API 額度從哪裡讀取：各 Agent 自己的登入、Pi 的登入與 key、OpenCodex，或 CodexBar 的 CLI。每個來源都能開關；同一個服務有多個來源時，也能指定要用哪一個。
 
 **Settings → Notifications** 為目前這台設備開啟推播。Agent 完成、失敗或被停止，而該對話沒有在任何畫面開著時，就會收到通知。**Settings → About** 顯示 Stepsemble 版本；各 Agent 的版本在 **Settings → Updates**。暫存資料夾裡的 Sub Agent 對話預設隱藏，可在「其他 App 的歷史」打開顯示。
 
-## Agent Hub 連接器
+## Workspace 裡的 Agent
 
-首頁的 **Agent Hub** 會探索本機 Pi Agent，以及已安裝的 Claude Code、Codex
+Workspace 的**新增對話**會列出本機 Pi Agent，以及已安裝的 Claude Code、Codex
 CLI、Grok Build、OpenCode、Google Antigravity（`agy`）、Cline、Kilo Code 與 Hermes。
-建立 **New project** 時可選擇 Agent，也可以開啟隔離
-Git worktree。CLI 的 stdout／stderr 會串流到對話；macOS/Linux 會透過內附的
+選好 Agent 後可以勾選隔離 Git worktree。Agent 還沒登入時，同一個視窗會先提供它自己的登入，
+登入完成就建立對話。CLI 的 stdout／stderr 會串流到對話；macOS/Linux 會透過內附的
 `server/pty-bridge.py` 提供真正的互動式終端，Windows 或沒有 Python 的主機則安全地使用 pipe。計時器會在你瀏覽其他頁面時繼續，
-關閉瀏覽器後工作仍會留在收件匣；重新點選即可回放有限長度的輸出記錄。未安裝的
-連接器會顯示為不可選取，必須先在該主機安裝對應 CLI。
+關閉瀏覽器後工作仍會留在 Workspace；重新點選即可回放有限長度的輸出記錄。未安裝的
+連接器不會列出，必須先在該主機安裝對應 CLI。
 
-Coding agents 與 Personal Agents 會在 New project 分組；首頁只顯示有界的 Agent
-Hub 預覽，完整清單仍可在「查看全部」工作中心搜尋。Cline、Kilo、Hermes 會使用
+Workspace 側邊列表會顯示每個對話的狀態，**其他 App 的歷史**可以搜尋主機上的所有對話，也能開啟唯讀的歷史閱讀器。Grok Build 只要裝了 `grok` 就使用 ACP（`STEPSEMBLE_GROK_ACP=0` 可改回終端機方式）。Cline、Kilo、Hermes 會使用
 標準 ACP 的 session/update、cancel 與 permission options；Stepsemble 不讀取私有
 credential、gateway 或 session store。可用 `STEPSEMBLE_CLINE_ACP=0`、
 `STEPSEMBLE_KILO_ACP=0`、`STEPSEMBLE_HERMES_ACP=0` 個別回退 CLI。

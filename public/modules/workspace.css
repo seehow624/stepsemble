@@ -415,8 +415,31 @@ dialog h2 { flex: 1; font-size: 1rem; font-weight: 650; }
 dialog header .btn { min-width: 34px; min-height: 34px; padding: 0; border: 0; color: var(--pine-soft); font-size: 1.1rem; }
 #workspace-dialog-body { display: grid; gap: 10px; }
 #workspace-dialog-body p { color: var(--pine-soft); font-size: .82rem; }
+.workspace-history-reader { justify-self: start; color: var(--accent); font-size: .82rem; }
 #workspace-dialog-body .btn { min-height: 40px; justify-content: flex-start; overflow-wrap: anywhere; text-align: left; }
 #workspace-dialog-body .btn.primary { justify-content: center; }
+/* New session: the agent and the name share one row and one height; the
+   action is as wide as its words. */
+#workspace-dialog.workspace-new-session-dialog { width: min(560px, 94vw); }
+/* A long folder path wraps anywhere instead of widening the dialog. */
+.workspace-new-session-dialog #workspace-dialog-body { grid-template-columns: minmax(0, 1fr); }
+.workspace-new-session-dialog #workspace-dialog-body > small { overflow-wrap: anywhere; color: var(--pine-soft); }
+.workspace-new-session-fields { display: flex; gap: 8px; min-width: 0; }
+.workspace-new-session-fields select { flex: 0 0 40%; max-width: 40%; min-width: 0; text-overflow: ellipsis; padding-right: 30px; }
+.workspace-new-session-fields input { flex: 1 1 auto; min-width: 0; }
+.workspace-new-session-actions { display: flex; align-items: center; gap: 12px; }
+#workspace-dialog-body .workspace-new-session-create { min-height: 38px; margin-left: auto; padding: 0 18px; justify-content: center; }
+.workspace-new-session-worktree { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--pine-soft); font-size: .8rem; cursor: pointer; }
+.workspace-new-session-worktree[hidden] { display: none; }
+.workspace-new-session-worktree input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.workspace-signin { display: grid; gap: 10px; padding-top: 4px; border-top: .5px solid var(--line); }
+.workspace-signin[hidden] { display: none; }
+#workspace-dialog-body .workspace-signin .btn { justify-self: start; min-height: 38px; padding: 0 18px; justify-content: center; }
+.workspace-signin-frame { width: 100%; height: min(620px, 66dvh); border: .5px solid var(--line); border-radius: 12px; background: var(--paper); }
+@media (max-width: 340px) {
+  .workspace-new-session-fields { flex-direction: column; }
+  .workspace-new-session-fields select { flex: none; max-width: none; }
+}
 /* Scroll only the quota contents; the opaque header must never reveal cards
    through the dialog's top padding while the list moves underneath it. */
 #workspace-dialog.workspace-quota-dialog[open] { display: flex; flex-direction: column; overflow: hidden; padding: 0; }

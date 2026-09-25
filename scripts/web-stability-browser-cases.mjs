@@ -8,6 +8,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { cleanEnvironment } from "./check-rolling-clients.mjs";
 import { createFixture, freePort, stopServer, waitForServer, WORKLOAD } from "./host-performance-baseline.mjs";
+import { workspaceReady, openFromSidebar, paneFrame } from "./workspace-browser-helpers.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
@@ -83,65 +84,76 @@ export async function runWebStabilityBrowserCases(browser) {
       const pageErrors = [];
       page.on("pageerror", error => pageErrors.push(error.message));
 
-      stage = "session list";
-      await page.goto(`${base}/index.html`);
-      await page.waitForFunction(expected => document.querySelector("#session-count")?.textContent === String(expected), WORKLOAD.regularSessionFiles + 1);
-      assert.ok(await page.locator("#session-list .session-item").count() <= 3, "grouped list must stay preview-bounded");
+      stage = "history list";
+      // Every conversation on the Host is listed in the Workspace's History,
+      // fifty at a time.
+      await page.goto(base + "/");
+      await workspaceReady(page);
+      const sessions = WORKLOAD.regularSessionFiles + 1;
+      const listStarted = Date.now();
+      await page.locator("#workspace-history").click();
+      const dialog = page.locator("#workspace-dialog"), rows = dialog.locator(".workspace-history-row");
+      await dialog.getByText("Sessions: " + sessions, { exact: true }).waitFor();
+      const listMs = Date.now() - listStarted;
+      boundedTiming(listMs, viewport.openBudgetMs, viewport.name + "_history_list");
+      assert.equal(await rows.count(), 50, "the list stays bounded");
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
 
       stage = "long history open";
-      await page.locator("#search").fill("Synthetic long history");
-      const row = page.locator("#session-list .session-item-main").filter({ hasText: "Synthetic long history" });
-      await row.waitFor();
-      const openedAt = await page.evaluate(() => {
-        window.__stepsembleLongTasks.length = 0;
-        return performance.now();
-      });
-      await row.click();
-      await page.waitForFunction(() => document.querySelectorAll("#messages .msg").length === 300);
-      const opened = await page.evaluate(started => ({
-        elapsedMs: performance.now() - started,
+      await dialog.getByRole("searchbox").fill("Synthetic long history");
+      const longRow = rows.filter({ hasText: "Synthetic long history" }).first();
+      await longRow.getByRole("button", { name: "Add to workspace", exact: true }).click();
+      await longRow.getByRole("button", { name: "Added", exact: true }).waitFor();
+      await page.keyboard.press("Escape"); await dialog.waitFor({ state: "hidden" });
+      const openedAt = Date.now();
+      let pane = await openFromSidebar(page, "Synthetic long history");
+      await pane.waitForFunction(() => document.querySelectorAll("#messages .msg").length === 300);
+      const openMs = Date.now() - openedAt;
+      const opened = await pane.evaluate(() => ({
         domNodes: document.getElementsByTagName("*").length,
         messageRows: document.querySelectorAll("#messages .msg").length,
         horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
         longTasks: [...(window.__stepsembleLongTasks || [])],
-      }), openedAt);
-      boundedTiming(opened.elapsedMs, viewport.openBudgetMs, `${viewport.name}_long_history_open`);
+      }));
+      boundedTiming(openMs, viewport.openBudgetMs, viewport.name + "_long_history_open");
       assert.equal(opened.messageRows, 300);
-      assert.ok(opened.domNodes < 10_000, `initial history DOM is unbounded: ${opened.domNodes}`);
+      assert.ok(opened.domNodes < 10_000, "initial history DOM is unbounded: " + opened.domNodes);
       assert.equal(opened.horizontalOverflow, false);
       assert.ok(Math.max(0, ...opened.longTasks) < 2_000, "one browser task blocked for at least two seconds");
 
       stage = "older history page";
-      const load = page.locator(".history-load-button");
+      const load = pane.locator(".history-load-button");
       await load.waitFor();
-      const before = await page.locator("#messages").evaluate(node => {
+      const before = await pane.locator("#messages").evaluate(node => {
         node.scrollTop = 0;
         return { height: node.scrollHeight, top: node.scrollTop, started: performance.now() };
       });
       await load.evaluate(node => node.click());
-      await page.waitForFunction(() => document.querySelectorAll("#messages .msg").length === 600);
-      const paged = await page.locator("#messages").evaluate((node, prior) => ({
+      await pane.waitForFunction(() => document.querySelectorAll("#messages .msg").length === 600);
+      const paged = await pane.locator("#messages").evaluate((node, prior) => ({
         elapsedMs: performance.now() - prior.started,
         addedHeight: node.scrollHeight - prior.height,
         top: node.scrollTop,
         domNodes: document.getElementsByTagName("*").length,
         horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
       }), before);
-      boundedTiming(paged.elapsedMs, viewport.pageBudgetMs, `${viewport.name}_older_history_page`);
+      boundedTiming(paged.elapsedMs, viewport.pageBudgetMs, viewport.name + "_older_history_page");
       assert.ok(Math.abs(paged.top - paged.addedHeight) < 16, "older history changed the visible reading position");
-      assert.ok(paged.domNodes < 19_000, `paged history DOM is unbounded: ${paged.domNodes}`);
+      assert.ok(paged.domNodes < 19_000, "paged history DOM is unbounded: " + paged.domNodes);
       assert.equal(paged.horizontalOverflow, false);
 
       stage = "reload policy";
       await page.reload();
+      await workspaceReady(page);
+      pane = await paneFrame(page, "Synthetic long history");
+      await pane.waitForFunction(() => document.querySelectorAll("#messages .msg").length === 300);
+      const frameVisible = await page.locator("iframe.workspace-frame").first().isVisible();
       if (viewport.name === "mobile") {
-        await page.locator("#view-list").waitFor({ state: "visible" });
-        assert.equal(await page.locator("#view-chat").isVisible(), false, "mobile relaunch must return to Sessions");
-      } else {
-        await page.waitForFunction(() => document.querySelectorAll("#messages .msg").length === 300);
-        assert.equal(await page.locator("#view-chat").isVisible(), true, "desktop reload should restore the conversation");
-      }
+        // A phone relaunch shows the Workspace list; the pane waits behind it.
+        assert.equal(await page.locator("#workspace-sidebar").isVisible(), true, "mobile relaunch shows the list");
+        assert.equal(frameVisible, false);
+      } else assert.equal(frameVisible, true, "desktop reload restores the conversation");
+      const opened_ = { ...opened, elapsedMs: openMs };
       assert.deepEqual(pageErrors, []);
       assert.deepEqual(forbiddenRequests, []);
       console.log(JSON.stringify({
@@ -153,10 +165,11 @@ export async function runWebStabilityBrowserCases(browser) {
         initialDomNodes: opened.domNodes,
         pagedRows: 600,
         pagedDomNodes: paged.domNodes,
-        openMs: Math.round(opened.elapsedMs),
+        historyListMs: listMs,
+        openMs: Math.round(opened_.elapsedMs),
         olderPageMs: Math.round(paged.elapsedMs),
         maxLongTaskMs: Math.round(Math.max(0, ...opened.longTasks)),
-        reloadPolicy: viewport.name === "mobile" ? "sessions" : "conversation",
+        reloadPolicy: viewport.name === "mobile" ? "workspace list" : "conversation",
         modelCalls: 0,
         pageErrors: 0,
       }));

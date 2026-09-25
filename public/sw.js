@@ -69,13 +69,13 @@ self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then(cacheShell).then(() => self.skipWaiting()));
 });
 
-// "/" is the Workspace; index.html is the conversation page its panes embed.
-// When the host cannot be reached (a computer waking up, Wi-Fi or VPN
-// reconnecting, Stepsemble restarting after an update), a navigation gets the
-// cached copy of the page it asked for. Answering a Workspace URL with
-// index.html showed the single-conversation page until a manual reload.
+// "/" is the Workspace; index.html is only a pane, the Settings window or the
+// sign-in page. When the host cannot be reached (a computer waking up, Wi-Fi
+// or VPN reconnecting, Stepsemble restarting after an update), those three get
+// the cached index.html and everything else the cached Workspace.
 async function offlinePage(url) {
-  const page = url.pathname === "/index.html" ? "/index.html" : "/workspace.html";
+  const ownPage = url.pathname === "/index.html" && ["pane", "settings", "returnWorkspace"].some(key => url.searchParams.get(key) === "1");
+  const page = ownPage ? "/index.html" : "/workspace.html";
   return (await caches.match(page)) || Response.error();
 }
 

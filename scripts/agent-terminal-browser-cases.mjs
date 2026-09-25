@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { freePort, waitForServer, stopServer } from "./host-performance-baseline.mjs";
 import { cleanEnvironment } from "./check-rolling-clients.mjs";
+import { signInToWorkspace, addWorkspaceProject, newWorkspaceSession } from "./workspace-browser-helpers.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 // The conversation terminal: /login runs the agent's own command, shows the
@@ -19,13 +20,13 @@ export async function runAgentTerminalBrowserCases(browser, { screenshotDirector
       const bin = path.join(home, "bin"); await fs.mkdir(bin);
       const quote = value => "'" + value.replace(/'/g, "'\\''") + "'";
       await fs.writeFile(path.join(bin, "codex"), "#!/bin/sh\nexec " + quote(process.execPath) + " " + quote(path.join(root, "test-support/fake-agent-auth.cjs")) + " \"$@\"\n", { mode: 0o700 });
-      // A second device that is never reachable, only for switching hosts.
-      await fs.mkdir(path.join(home, ".pi/agent"), { recursive: true });
-      await fs.writeFile(path.join(home, ".pi/agent/machines.json"), JSON.stringify({ "other-mac": { name: "Other Mac", host: "other.example.test", url: "http://127.0.0.1:9" } }), { mode: 0o600 });
+      const project = path.join(home, "Projects", "terminal"); await fs.mkdir(project, { recursive: true });
+      // The conversations here are synthetic Pi sessions; the fixture must be executable.
+      const piBin = path.join(bin, "pi"); await fs.copyFile(path.join(root, "test-support/rolling-pi.cjs"), piBin); await fs.chmod(piBin, 0o700);
       const port = await freePort(), base = "http://127.0.0.1:" + port;
       child = spawn(process.execPath, [path.join(root, "server.js")], { cwd: root,
         env: { ...cleanEnvironment(home), PATH: bin + path.delimiter + path.dirname(process.execPath) + path.delimiter + "/usr/bin:/bin",
-          PI_HOME: home, PI_BIN: path.join(root, "test-support/rolling-pi.cjs"), STEPSEMBLE_PORT: String(port), STEPSEMBLE_HOST: "127.0.0.1", STEPSEMBLE_ORPHAN_EXIT: "0" },
+          PI_HOME: home, PI_BIN: piBin, STEPSEMBLE_PORT: String(port), STEPSEMBLE_HOST: "127.0.0.1", STEPSEMBLE_ORPHAN_EXIT: "0" },
         stdio: ["ignore", "pipe", "pipe"] });
       await waitForServer(child); child.stdout.resume(); child.stderr.resume();
       context = await browser.newContext({ viewport, serviceWorkers: "block", locale: "zh-TW", reducedMotion: "reduce" });
@@ -46,64 +47,66 @@ export async function runAgentTerminalBrowserCases(browser, { screenshotDirector
         if (request.method() === "POST" && new URL(request.url()).pathname === "/api/agent-auth/start") starts.push(request.postDataJSON());
         if (new URL(request.url()).pathname.endsWith("/api/agent-auth/cancel")) cancels.push(request.url());
       });
-      await page.goto(base + "/index.html");
       const token = (await fs.readFile(path.join(home, ".config/stepsemble/token"), "utf8")).trim();
-      await page.locator("#login-onboarding-skip").click();
-      await page.locator("#login-token").fill(token); await page.locator("#login-form button").click();
-      await page.locator("#btn-open-settings").waitFor({ state: "visible" });
-      // Settings keeps no sign-in form; it points to /login instead.
-      assert.equal(await page.locator("#claude-auth").count(), 0);
-      const openCodexLogin = async () => {
+      await signInToWorkspace(page, base, token);
+      await addWorkspaceProject(page, project);
+      // /login runs in a conversation's pane; the command palette reaches any agent.
+      let pane = await newWorkspaceSession(page, { agentId: "pi", name: "Terminal check" });
+      await pane.locator("#input").waitFor();
+      const openCodexLogin = async frame => {
+        await frame.locator("#input").click();
         await page.keyboard.press(process.platform === "darwin" ? "Meta+k" : "Control+k");
-        await page.locator("#command-input").fill("/login");
-        await page.locator(".command-row", { hasText: "Codex" }).first().click();
+        await frame.locator("#command-input").fill("/login");
+        await frame.locator(".command-row", { hasText: "Codex" }).first().click();
       };
-      await openCodexLogin();
-      const sheet = page.locator("#agent-terminal");
+      await openCodexLogin(pane);
+      let sheet = pane.locator("#agent-terminal");
       await sheet.waitFor({ state: "visible" });
-      await page.locator(".agent-terminal-note.is-warning").waitFor();
-      await page.locator(".agent-terminal-choice").first().click();
-      await page.locator(".agent-terminal-code strong", { hasText: "ABCD-12345" }).waitFor();
+      await pane.locator(".agent-terminal-note.is-warning").waitFor();
+      await pane.locator(".agent-terminal-choice").first().click();
+      await pane.locator(".agent-terminal-code strong", { hasText: "ABCD-12345" }).waitFor();
       // The command gets as many columns as the sheet shows, so its output
       // wraps where the screen does.
       const columns = starts.at(-1)?.cols || 0;
       assert.ok(columns >= (viewport.width >= 800 ? 70 : 40) && columns <= 140, "Terminal columns fit the sheet (got " + columns + ")");
-      const link = page.locator(".agent-terminal-open").first();
+      const link = pane.locator(".agent-terminal-open").first();
       assert.equal(await link.getAttribute("href"), "https://auth.example.test/device");
       assert.equal(await link.getAttribute("rel"), "noopener noreferrer");
       if (viewport.width >= 800) {
-        // Switching hosts leaves the sign-in running on this host, and /login
-        // here attaches to it again with the same one-time code.
-        const self = await page.locator("#machine-switch").inputValue();
-        await page.locator("#machine-switch").selectOption("other-mac");
-        await sheet.waitFor({ state: "hidden" });
-        await page.locator("#machine-switch").selectOption(self);
-        await openCodexLogin();
-        await page.locator(".agent-terminal-code strong", { hasText: "ABCD-12345" }).waitFor();
-        await page.locator(".agent-terminal-note").first().waitFor();
+        // The sign-in keeps running on the host: /login in another pane
+        // attaches to it with the same one-time code.
+        pane = await newWorkspaceSession(page, { agentId: "pi", name: "Second pane" });
+        await pane.locator("#input").waitFor();
+        await openCodexLogin(pane);
+        sheet = pane.locator("#agent-terminal");
+        await pane.locator(".agent-terminal-code strong", { hasText: "ABCD-12345" }).waitFor();
+        await pane.locator(".agent-terminal-note").first().waitFor();
         assert.deepEqual(cancels, [], "Switching hosts does not cancel the sign-in");
       }
-      await page.locator("#agent-terminal-input").fill("synthetic-browser-code");
-      await page.locator("#agent-terminal-secret").click();
-      assert.equal(await page.locator("#agent-terminal-input").getAttribute("type"), "password");
-      await page.locator("#agent-terminal-send").click();
-      await page.waitForFunction(() => document.querySelector("#agent-terminal-status")?.dataset.state === "completed");
-      const screen = await page.locator("#agent-terminal-screen").textContent();
+      await pane.locator("#agent-terminal-input").fill("synthetic-browser-code");
+      await pane.locator("#agent-terminal-secret").click();
+      assert.equal(await pane.locator("#agent-terminal-input").getAttribute("type"), "password");
+      await pane.locator("#agent-terminal-send").click();
+      await pane.waitForFunction(() => document.querySelector("#agent-terminal-status")?.dataset.state === "completed");
+      const screen = await pane.locator("#agent-terminal-screen").textContent();
       assert.match(screen, /Successfully logged in/);
       assert.ok(!screen.includes("synthetic-browser-code"), "a hidden entry is masked in the terminal");
-      const geometry = await page.locator(".agent-terminal-sheet").evaluate(panel => ({ width: panel.clientWidth, scrollWidth: panel.scrollWidth,
+      const geometry = await pane.locator(".agent-terminal-sheet").evaluate(panel => ({ width: panel.clientWidth, scrollWidth: panel.scrollWidth,
         buttons: [...panel.querySelectorAll(".sheet-actions button:not(.hidden)")].map(button => ({ height: button.getBoundingClientRect().height, right: button.getBoundingClientRect().right })) }));
       assert.ok(geometry.scrollWidth <= geometry.width + 1, "The terminal sheet must not overflow horizontally");
       assert.ok(geometry.buttons.every(button => button.height >= 40 && button.right <= viewport.width), "Visible buttons fit on screen");
       if (screenshotDirectory) await page.screenshot({ path: path.join(screenshotDirectory, "agent-terminal-" + viewport.width + ".png"), fullPage: true });
-      await page.locator("#agent-terminal-status-button").click();
-      await page.waitForFunction(() => /Not logged in/.test(document.querySelector("#agent-terminal-screen")?.textContent || ""));
-      await page.locator("#agent-terminal-done").click();
+      await pane.locator("#agent-terminal-status-button").click();
+      await pane.waitForFunction(() => /Not logged in/.test(document.querySelector("#agent-terminal-screen")?.textContent || ""));
+      await pane.locator("#agent-terminal-done").click();
       await sheet.waitFor({ state: "hidden" });
       if (viewport.width < 800) {
         // Each Settings level is a history entry, so the system back gesture
         // (Safari's edge swipe, Android's back) leaves one level at a time.
-        await page.locator("#btn-open-settings").click();
+        await page.goto(base + "/index.html?settings=1");
+        await page.locator("#view-settings:not(.hidden)").waitFor();
+        // Settings keeps no sign-in form; it points to /login instead.
+        assert.equal(await page.locator("#claude-auth").count(), 0);
         await page.locator('.settings-nav-item[data-settings-open="agents"]').click();
         await page.locator("#model-settings-open").click();
         await page.locator('#model-agent-list [data-model-agent="codex"]').click();

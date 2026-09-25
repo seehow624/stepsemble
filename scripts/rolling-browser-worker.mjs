@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { freePort, waitForServer, stopServer } from "./host-performance-baseline.mjs";
 import { cleanEnvironment } from "./check-rolling-clients.mjs";
+import { signInToWorkspace, adoptIntoWorkspace, openFromSidebar, paneFrame } from "./workspace-browser-helpers.mjs";
 import { runAgentTerminalBrowserCases } from "./agent-terminal-browser-cases.mjs";
 import { runPiSessionBrowserCases } from "./pi-session-browser-cases.mjs";
 import { runProjectPickerBrowserCases } from "./project-picker-browser-cases.mjs";
@@ -84,7 +85,8 @@ async function runCase(host, client, viewport) {
       const url = new URL(route.request().url());
       if (url.origin !== base) { forbiddenRequests.push(url.origin); return route.abort(); }
       if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/r/")) return route.continue();
-      const relative = decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname);
+      // "/" is the Workspace in every pinned release and in development.
+      const relative = decodeURIComponent(url.pathname === "/" ? "/workspace.html" : url.pathname);
       const publicRoot = path.join(client.directory, "public"), filename = path.resolve(publicRoot, "." + relative);
       if (!filename.startsWith(publicRoot + path.sep)) return route.abort();
       try { await route.fulfill({ status: 200, contentType: types[path.extname(filename)] || "application/octet-stream", body: await fs.readFile(filename) }); }
@@ -107,35 +109,41 @@ async function runCase(host, client, viewport) {
         const body = request.postDataJSON(); effects.push({ path: new URL(request.url()).pathname, type: body?.command?.type });
       }
     });
-    await page.goto(`${base}/index.html`);
-    // Exercise the actual released login form, using only this fresh Host's key.
+    // Exercise the actual released sign-in and Workspace, using only this fresh
+    // Host's key, then drive the conversation in its Workspace pane.
     const token = (await fs.readFile(path.join(seed.home, ".config/stepsemble/token"), "utf8")).trim();
-    await page.locator("#login-onboarding-skip").click();
-    await page.locator("#login-token").fill(token); await page.locator("#login-form button").click();
-    await page.locator(".session-item-main").filter({ hasText: "Rolling compatibility fixture" }).click();
-    await page.locator("#messages").getByText("Synthetic history answer，🐾", { exact: true }).waitFor();
-    await page.waitForFunction(() => !document.querySelector("#btn-send").disabled);
-    await page.locator("#input").fill("Synthetic streaming"); await page.locator("#btn-send").click();
-    await page.waitForFunction(() => document.querySelector("#messages").textContent.includes("Synthetic rolling chunk 3."));
-    await page.locator("#btn-abort").click();
-    await page.locator("#btn-send").waitFor({ state: "visible" });
-    await page.locator("#input").fill("Synthetic approval"); await page.locator("#btn-send").click();
-    await page.locator("#extension-ui-title").filter({ hasText: "Synthetic permission" }).waitFor();
-    await page.locator("#extension-ui-cancel").click();
-    await page.waitForFunction(() => document.querySelector("#messages").textContent.includes("Synthetic decision: denied"));
+    await signInToWorkspace(page, base, token);
+    const listed = await page.evaluate(async () => (await (await fetch("/api/sessions?includeTemporary=1", { credentials: "same-origin" })).json()).sessions);
+    const history = listed.find(row => row.name === "Rolling compatibility fixture");
+    assert.ok(history?.file, "Fixture history is listed");
+    await adoptIntoWorkspace(page, "pi_history", history.file);
+    let pane = await openFromSidebar(page, "Rolling compatibility fixture");
+    await pane.locator("#messages").getByText("Synthetic history answer，🐾", { exact: true }).waitFor();
+    await pane.waitForFunction(() => !document.querySelector("#btn-send").disabled);
+    await pane.locator("#input").fill("Synthetic streaming"); await pane.locator("#btn-send").click();
+    await pane.waitForFunction(() => document.querySelector("#messages").textContent.includes("Synthetic rolling chunk 3."));
+    await pane.locator("#btn-abort").click();
+    await pane.locator("#btn-send").waitFor({ state: "visible" });
+    await pane.locator("#input").fill("Synthetic approval"); await pane.locator("#btn-send").click();
+    await pane.locator("#extension-ui-title").filter({ hasText: "Synthetic permission" }).waitFor();
+    await pane.locator("#extension-ui-cancel").click();
+    await pane.waitForFunction(() => document.querySelector("#messages").textContent.includes("Synthetic decision: denied"));
     assert.ok(sid, "Actual open response contains session ID");
-    const counts = await page.evaluate(async sid => {
+    const counts = await pane.evaluate(async sid => {
       const result = await fetch("/api/rpc-cmd", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sid, command: { type: "fixture_counts" } }) });
       if (!result.ok) throw new Error("Synthetic count request failed"); return result.json();
     }, sid);
     assert.deepEqual(counts.data, { prompts: 2, replies: 1, aborts: 1 }, label);
     assert.equal(effects.filter(row => row.path === "/api/rpc-ui").length, 1, "One manual denial only");
-    // Reload the exact same client assets; all pinned releases restore the last
-    // chat automatically. On mobile the list is intentionally hidden by restore.
+    // Reload the exact same client assets; the Workspace restores its pane and
+    // the pane its conversation.
     await page.reload();
-    await page.locator("#messages").getByText("Synthetic history answer，🐾", { exact: true }).waitFor();
-    if (client.name === "development") { assert.ok(handshakes.length > 0); assert.ok(handshakes.every(status => status === 404), "Only a real missing endpoint permits legacy fallback"); }
-    else assert.deepEqual(handshakes, [], "Released clients do not know the reserved handshake");
+    pane = await paneFrame(page, "Rolling compatibility fixture");
+    await pane.waitForFunction(() => document.querySelector("#messages")?.textContent.includes("Synthetic history answer，🐾"));
+    // Every pinned release and development negotiate the protocol; none may
+    // fall back to the unnegotiated path.
+    assert.ok(handshakes.length > 0, "Protocol handshake ran");
+    assert.ok(handshakes.every(status => status >= 200 && status < 300), "Handshake accepted: " + JSON.stringify(handshakes));
     assert.deepEqual(errors, [], label); assert.deepEqual(forbiddenRequests, [], "No external browser requests");
     console.log(JSON.stringify({ case: label, result: "passed", browser: browser.version(), hostCommit: host.commit, clientCommit: client.commit,
       history: true, login: true, streamStop: true, manualDeny: true, reload: true, nativeEffects: counts.data, handshakeStatuses: handshakes, pageErrors: 0 }));

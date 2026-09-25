@@ -25,6 +25,17 @@ const reject = code => ({ kind: "reject", code });
 const clone = value => structuredClone(value);
 
 function plain(value) { return !!value && typeof value === "object" && !Array.isArray(value); }
+
+// Grok answers session/set_mode but lists no modes in session/new. Grok 1.0.41
+// reports a change back only for these two; other names, such as the
+// --permission-mode values, are accepted over ACP without taking effect, so
+// they are not offered.
+const GROK_SESSION_MODES = Object.freeze({ currentModeId: "default", availableModes: Object.freeze([
+  Object.freeze({ id: "default", name: "Default" }), Object.freeze({ id: "plan", name: "Plan" })]) });
+function sessionOptions(value) {
+  const listed = plain(value?.modes) || Array.isArray(value?.configOptions) && value.configOptions.some(option => option?.category === "mode");
+  return configOptionsFromSession(listed ? value : { ...(plain(value) ? value : {}), modes: GROK_SESSION_MODES });
+}
 function safeId(value) { return (typeof value === "string" || typeof value === "number") && ID.test(String(value)) ? String(value) : null; }
 function bounded(value, limit = MAX_FRAME_BYTES) {
   try {
@@ -196,7 +207,7 @@ function createGrokAcpAdapter({
     if (result.kind === "reject" || !safeId(result.value?.sessionId)) return reject(result.kind === "reject" ? result.code : "grok_session_invalid");
     const id = String(result.value.sessionId);
     sessions.set(id, { id, cwd: directory, name: safeText(name, 120) || null, events: [], status: "idle", promptInFlight: false,
-      configOptions: configOptionsFromSession(result.value) });
+      configOptions: sessionOptions(result.value) });
     while (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
     return { kind: "created", sessionId: id, cwd: directory };
   }
@@ -225,7 +236,7 @@ function createGrokAcpAdapter({
     const ready = await initialize(); if (ready.kind === "reject") return ready;
     const result = await request("session/load", { sessionId: id, cwd: directory, mcpServers: [] });
     if (result.kind === "reject") return result;
-    sessions.set(id, { id, cwd: directory, events: [], status: "idle", promptInFlight: false, configOptions: configOptionsFromSession(result.value) });
+    sessions.set(id, { id, cwd: directory, events: [], status: "idle", promptInFlight: false, configOptions: sessionOptions(result.value) });
     return { kind: "loaded", sessionId: id, cwd: directory };
   }
   function sessionConfigOptions(sessionId) {

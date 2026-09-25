@@ -193,7 +193,8 @@ left, then the context ring, the model and a round Send button on the right.
 **Approval** offers the permission modes of the conversation's own agent: Read
 only, Default and Full access for Codex; Manual, Accept edits, Plan, Auto,
 Don't ask and Bypass permissions for Claude Code; Build and Plan for OpenCode;
-and the modes that Hermes, Kilo, Cline and Grok Build report. Pi and
+the modes that Hermes, Kilo and Cline report; and Default and Plan for Grok
+Build, the two it confirms. Pi and
 Antigravity have no such modes, so the control is hidden for them. Each
 conversation remembers its choice. Codex applies it from your next message; the
 other agents apply it at once. Bypass permissions needs a Claude Code CLI that
@@ -215,21 +216,20 @@ An alert arrives when an agent finishes, fails or is stopped while that
 conversation is not open on any screen. **Settings → About** shows the
 Stepsemble version; agent versions are under **Settings → Updates**.
 
-### Agent Hub connectors
+### Agents in the Workspace
 
-The **Agent Hub** card discovers the local Pi Agent and any installed
+**New session** in the Workspace lists the local Pi Agent and any installed
 allow-listed CLI connectors: Claude Code, Codex CLI, Grok Build, OpenCode,
-Google Antigravity (`agy`), Cline, Kilo Code, and Hermes. Coding agents and
-Personal Agents are grouped separately in **New project**; the home card keeps
-only a bounded preview while **View all** remains searchable and complete.
-Choose an Agent in **New project**, optionally enable an isolated Git worktree,
-and start the task. CLI stdout/stderr is streamed into the conversation. On
+Google Antigravity (`agy`), Cline, Kilo Code, and Hermes. Choose an agent,
+optionally start in an isolated Git worktree, and create the session. An agent
+that is not signed in yet offers its own sign-in in the same dialog, and the
+session starts once it succeeds. CLI stdout/stderr is streamed into the conversation. On
 macOS/Linux the bundled `server/pty-bridge.py` gives interactive CLIs a real
 terminal; Windows and hosts without Python use the safe pipe transport. The
 elapsed timer continues while you browse elsewhere, and the task remains in the
-inbox after the browser is closed. Select it again to replay the bounded output
-journal. CLI connectors must already be installed on the selected host; an
-uninstalled connector is shown but cannot be selected.
+Workspace after the browser is closed. Select it again to replay the bounded
+output journal. CLI connectors must already be installed on the selected host;
+an uninstalled connector is not listed.
 
 OpenCode also has an opt-in native-server path. Start `opencode serve` on
 loopback and set `STEPSEMBLE_OPENCODE_SERVER_URL` (plus the optional Basic Auth
@@ -237,7 +237,7 @@ variables) before launching Stepsemble. On the macOS SSH launcher, an existing
 owner-only `com.jerome.opencode-web.plist` is carried into the Stepsemble child
 automatically; other launch modes keep using explicit environment variables.
 After a health/session probe passes,
-New project and the task center use OpenCode's native sessions, messages,
+New session uses OpenCode's native sessions, messages,
 child sessions, status, and permission response API. The selected project
 folder is passed through OpenCode's directory-scoped API, so the native
 session is created in the folder shown in Stepsemble rather than silently
@@ -276,21 +276,24 @@ by an independent per-task process and stored as a private journal in
 `~/.config/stepsemble/agent-tasks.json`. Restarting the Stepsemble web service
 reattaches to the supervisor and keeps the task timer/output alive; if the host
 or supervisor itself is killed, the journal marks the task as interrupted rather
-than claiming that it is still running. The Agent Hub **View all** task center
-provides search, status filters, replay, and one-tap stop controls.
+than claiming that it is still running. The Workspace sidebar shows each
+session's status, each pane has its own stop control, and **History** searches
+every session on the host.
 
 Stepsemble also shows existing Claude Code and Codex sessions as bounded,
 read-only history observations. It reads only the owner-local project/rollout
 JSONL roots, never provider credentials, and never launches a CLI or model
-request. The first three sessions per project are shown in the home preview;
-**Show more** and the paginated **All conversations** view load the rest. These
+request. The Workspace's **History** lists them fifty at a time and opens the
+read-only history reader in its own tab. These
 observations cannot send, resume, stop, approve, or change models; use the
 official client to continue one. See
 [`native-history-catalog.md`](docs/native-history-catalog.md) for the exact
 paths, limits, and security checks.
 
-Claude Code, Codex CLI, and Grok Build remain terminal integrations unless their
-explicit native source/adapter gate is enabled. Their replayable Stepsemble
+Claude Code and Codex CLI remain terminal integrations unless their explicit
+native source/adapter gate is enabled. Grok Build uses its ACP server whenever
+`grok` is installed; `STEPSEMBLE_GROK_ACP=0` returns it to the terminal
+integration. Their replayable Stepsemble
 journal is not silently presented as each vendor's full native session or
 approval/resume parity. OpenCode's native path is separately gated by the
 official server probe and still uses reconcile evidence after restart. Full

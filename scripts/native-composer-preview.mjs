@@ -306,6 +306,13 @@ function codexTurns() {
   return rows.reverse();
 }
 
+
+// Every fixture task is already in the Workspace, as if created there.
+function workspaceEntries() {
+  return tasks.map((task, index) => ({ key: "00000000-0000-4000-8000-" + String(index + 1).padStart(12, "0"),
+    origin: "created", addedAt: startedAt, record: { ...task } }));
+}
+
 function staticMime(file) {
   const ext = path.extname(file).toLowerCase();
   return ({ ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8", ".webmanifest": "application/manifest+json; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon", ".webp": "image/webp", ".woff2": "font/woff2" })[ext] || "application/octet-stream";
@@ -315,7 +322,8 @@ async function serveAsset(req, res, pathname, origin) {
   // The production shell registers /sw.js, but a throwaway fixture must never
   // install a long-lived worker that can serve stale app.js across UI checks.
   if (pathname === "/sw.js") return json(res, 404, { error: "preview_service_worker_disabled" });
-  const relative = pathname === "/" ? "index.html" : decodeURIComponent(pathname.slice(1));
+  // "/" is the Workspace; each fixture task opens in one of its panes.
+  const relative = pathname === "/" ? "workspace.html" : decodeURIComponent(pathname.slice(1));
   const candidate = path.resolve(publicRoot, relative);
   if (candidate !== publicRoot && !candidate.startsWith(`${publicRoot}${path.sep}`)) return json(res, 403, { error: "preview_path_rejected" });
   try {
@@ -363,6 +371,12 @@ export async function createNativeComposerPreview({ port = 0 } = {}) {
       if (pathname === "/api/sessions" && req.method === "GET") return json(res, 200, { sessions: [], temporarySessionCount: 0 });
       if (pathname === "/api/agents" && req.method === "GET") return json(res, 200, { connectors });
       if (pathname === "/api/agent-tasks" && req.method === "GET") return json(res, 200, { tasks: tasks.map(task => ({ ...task })) });
+      if (pathname === "/api/workspace" && req.method === "GET") return json(res, 200, { entries: workspaceEntries(), projects: [...new Set(tasks.map(task => task.cwd))] });
+      if (pathname === "/api/workspace/entry" && req.method === "GET") {
+        const entry = workspaceEntries().find(row => row.key === requestUrl.searchParams.get("key"));
+        return entry ? json(res, 200, entry) : json(res, 404, { error: "workspace_entry_not_found" });
+      }
+      if (pathname === "/api/workspace/usage" && req.method === "GET") return json(res, 200, { providers: [] });
       if (pathname === "/api/version" && req.method === "GET") return json(res, 200, { version: "native-composer-preview", appVersion: "3.0.43" });
       if (pathname === "/api/rpcs" && req.method === "GET") return json(res, 200, { rpcs: [] });
       if (pathname === "/api/project-changes" && req.method === "GET") return json(res, 200, { cwd: requestUrl.searchParams.get("cwd") || "", files: [], additions: 0, deletions: 0, changed: 0 });

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { withDownloadedSdk } from "./check-native-claude-history.mjs";
 import { startSyntheticHistoryHost } from "./history-host-synthetic.mjs";
 import { createBrowserRequestBarrier } from "./browser-request-barrier.mjs";
+import { signInToWorkspace } from "./workspace-browser-helpers.mjs";
 
 export async function runHistorySourcesBrowserCases(browser, helperPath) {
   await withDownloadedSdk(async sdkPath => {
@@ -34,9 +35,7 @@ export async function runHistorySourcesBrowserCases(browser, helperPath) {
             return route.continue();
           });
           const page = await context.newPage(); page.setDefaultTimeout(15000); page.on("pageerror", error => errors.push(error.message));
-          await page.goto(`${host.origin}/index.html`); await page.locator("#login-onboarding-skip").click();
-          await page.locator("#login-token").fill(host.token); await page.locator("#login-form button").click();
-          await page.locator("#agent-hub-history").waitFor(); await page.goto(`${host.origin}/history.html`);
+          await signInToWorkspace(page, host.origin, host.token); await page.goto(`${host.origin}/history.html`);
           await page.locator("#history-language").selectOption("zh-Hant");
           stage = "no implicit inventory";
           const refresh = page.getByRole("button", { name: "重新整理來源", exact: true });

@@ -271,7 +271,11 @@ function createAgentClientProtocolAdapter({
       const key = requestKey(frame.id), row = pending.get(key);
       if (!row) return;
       pending.delete(key); clearTimeout(row.timer);
-      if (Object.hasOwn(frame, "error")) row.resolve(reject("acp_request_rejected"));
+      // ACP reserves -32000 for "authentication required"; some agents also
+      // say so only in the message. Either one means the agent needs its own
+      // sign-in first, which the browser can offer.
+      if (Object.hasOwn(frame, "error")) row.resolve(reject(frame.error?.code === -32000
+        || /\bauthenticat(?:e|ion) (?:is )?required|call authenticate\b/i.test(String(frame.error?.message || "")) ? "acp_auth_required" : "acp_request_rejected"));
       else row.resolve({ kind: "result", value: bounded(frame.result) });
       return;
     }

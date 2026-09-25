@@ -1,5 +1,7 @@
 // CI-only Playwright suite; local GUI verification uses Codex Computer Use.
 // Owned synthetic histories/tasks, no native agent or credential source.
+// The Workspace's History lists every conversation on the Host across agents;
+// it replaced the single-conversation page's All conversations.
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +10,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { freePort, waitForServer, stopServer } from "./host-performance-baseline.mjs";
 import { cleanEnvironment } from "./check-rolling-clients.mjs";
+import { signInToWorkspace, openFromSidebar } from "./workspace-browser-helpers.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 export async function runConversationBrowserCases(browser) {
   for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }, { width: 320, height: 780 }]) {
@@ -40,9 +43,10 @@ export async function runConversationBrowserCases(browser) {
       await context.route("**/*", route => {
         const request = route.request(), url = new URL(request.url());
         if (url.origin !== base) { forbidden.push("foreign"); return route.abort(); }
-        if (sourceFailure && ["/api/sessions", "/api/agent-tasks"].includes(url.pathname))
+        // One source fails; the other keeps answering.
+        if (sourceFailure && url.pathname === "/api/sessions")
           return route.fulfill({ status: 503, contentType: "application/json", body: '{"error":"synthetic unavailable"}' });
-        if (request.method() === "POST" && ["/api/open", "/api/send", "/api/agent-tasks", "/api/rpc-ui"].includes(url.pathname)) mutations.push(url.pathname);
+        if (request.method() === "POST" && ["/api/open", "/api/send", "/api/agent-tasks", "/api/rpc-ui", "/api/agent/open"].includes(url.pathname)) mutations.push(url.pathname);
         return route.continue();
       });
       await context.addInitScript(() => {
@@ -53,61 +57,60 @@ export async function runConversationBrowserCases(browser) {
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "light", reducedMotion: true, showTemporarySessions: true }));
       });
       const page = await context.newPage(); page.setDefaultTimeout(15000); page.on("pageerror", error => errors.push(error.message));
-      stage = "login"; await page.goto(`${base}/index.html`);
+      stage = "login";
       const token = (await fs.readFile(path.join(config, "token"), "utf8")).trim();
-      await page.locator("#login-onboarding-skip").click(); await page.locator("#login-token").fill(token); await page.locator("#login-form button").click();
-      stage = "session summaries";
-      // The main Sessions list is intentionally cross-agent now: 126 Pi
-      // histories plus the six canonical task rows written above.
-      await page.waitForFunction(() => document.querySelector("#session-count")?.textContent === "132");
-      const agentHubToggle = page.locator("#agent-hub-toggle");
-      if (await agentHubToggle.getAttribute("aria-expanded") !== "true") await agentHubToggle.click();
-      await page.locator("#agent-task-list .agent-task-row").first().waitFor();
-      stage = "catalog paging"; await page.locator("#btn-conversations").click();
-      const dialog = page.locator("#conversation-catalog"), summary = dialog.locator(".conversation-summary");
-      assert.match(await summary.textContent(), /132 records.*Page 1\/3/);
-      assert.equal(await dialog.locator(".conversation-row").count(), 50);
-      assert.equal(await dialog.locator(".conversation-rows").evaluate(node => node.scrollHeight > node.clientHeight), true);
+      await signInToWorkspace(page, base, token);
+      stage = "history paging";
+      const dialog = page.locator("#workspace-dialog"), status = dialog.locator("#workspace-dialog-body > p").nth(1);
+      const rows = dialog.locator(".workspace-history-row"), more = dialog.getByRole("button", { name: "Show more", exact: true });
+      await page.locator("#workspace-history").click();
+      // 126 Pi histories plus the six canonical task rows written above.
+      await dialog.getByText("Sessions: 132", { exact: true }).waitFor();
+      assert.equal(await rows.count(), 50);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-      assert.ok((await dialog.locator(".conversation-toolbar select").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().width))).every(width => width >= 120));
-      await dialog.getByRole("button", { name: "Next", exact: true }).click(); await dialog.getByRole("button", { name: "Next", exact: true }).click();
-      // 132 records across 50-row pages leaves 32 on the final page. This was
-      // left at 31 when the fixture grew from 131 to 132 records.
-      assert.equal(await dialog.locator(".conversation-row").count(), 32); assert.match(await summary.textContent(), /Page 3\/3/);
-      await dialog.getByLabel("Agent source", { exact: true }).selectOption("codex");
-      assert.equal(await dialog.locator(".conversation-row").count(), 1);
-      assert.equal(await dialog.locator('.agent-logo[data-agent-id="codex"]').count(), 1);
-      assert.match(await summary.textContent(), /1 records.*Page 1\/1/);
-      // Explicit refresh must retain row identity (and focus/scroll), while a
-      // failed source remains visibly stale instead of becoming an empty store.
-      await dialog.locator(".conversation-row").evaluate(node => { window.__catalogFixtureRow = node; });
-      stage = "source failure"; sourceFailure = true; await dialog.getByRole("button", { name: "Refresh", exact: true }).click();
-      await page.waitForFunction(() => document.querySelector(".conversation-summary")?.textContent.includes("Some sources are not current"));
-      assert.equal(await dialog.locator(".conversation-row").count(), 1);
-      assert.equal(await page.evaluate(() => window.__catalogFixtureRow.isConnected), true);
-      stage = "source recovery"; sourceFailure = false; await dialog.getByRole("button", { name: "Refresh", exact: true }).click();
-      await page.waitForFunction(() => !document.querySelector(".conversation-summary")?.textContent.includes("Some sources are not current"));
-      assert.equal(await page.evaluate(() => window.__catalogFixtureRow.isConnected), true);
-      stage = "keyboard"; await dialog.getByLabel("Agent source", { exact: true }).selectOption("all");
-      // Six task records plus the one Pi history that shares the title. This
-      // was also left behind when the fixture grew from 131 to 132 records.
-      await dialog.getByRole("searchbox").fill("Same title"); assert.equal(await dialog.locator(".conversation-row").count(), 7);
-      // Escape closes even a populated search; no workspace command palette or
-      // new-project sheet may react behind it.
-      await dialog.getByRole("searchbox").press("ControlOrMeta+k"); assert.equal(await page.locator("#command-palette").isVisible(), false);
-      await dialog.getByRole("searchbox").press("Escape"); await dialog.waitFor({ state: "hidden" });
-      assert.equal(await page.locator("#btn-conversations").evaluate(node => node === document.activeElement), true);
-      stage = "completed task"; await page.locator("#btn-conversations").click(); await dialog.getByLabel("Agent source", { exact: true }).selectOption("codex");
-      await dialog.locator(".conversation-open").click();
-      await page.locator("#chat-title").getByText("Same title", { exact: true }).waitFor();
-      assert.equal(await page.locator('#chat-agent-logo .agent-logo[data-agent-id="codex"]').count(), 1);
-      await page.locator("#agent-input-note").getByText(/This task has ended/).waitFor();
-      assert.equal(await page.locator("#btn-send").isEnabled(), false);
-      assert.equal(await page.locator("#input").evaluate(node => node.readOnly), true);
+      await more.click(); assert.equal(await rows.count(), 100);
+      await more.click(); assert.equal(await rows.count(), 132);
+      assert.equal(await more.isVisible(), false);
+      stage = "same title";
+      // Six task records plus the one Pi history that shares the title.
+      await dialog.getByRole("searchbox").fill("Same title");
+      await dialog.getByText("Sessions: 7", { exact: true }).waitFor();
+      assert.equal(await rows.count(), 7);
+      const agents = (await rows.locator("small").allTextContents()).map(text => text.split(" · ")[0]).sort();
+      assert.deepEqual(agents, ["antigravity", "claude-code", "codex", "grok-build", "opencode", "pi", "unknown"]);
+      stage = "preview";
+      await rows.filter({ hasText: "pi · " }).getByRole("button", { name: "View", exact: true }).click();
+      await dialog.getByText(/Synthetic data only/).waitFor();
+      await dialog.getByRole("button", { name: "← Back to history", exact: true }).click();
+      stage = "source failure"; sourceFailure = true;
+      await dialog.getByText("Sessions: 132", { exact: true }).or(dialog.getByText(/Sessions: \d+/)).first().waitFor();
+      await page.keyboard.press("Escape"); await dialog.waitFor({ state: "hidden" });
+      await page.locator("#workspace-history").click();
+      await dialog.getByText(/Some sources failed to load/).waitFor();
+      // The task source still answers; its six rows stay listed.
+      assert.equal(await rows.count(), 6);
+      stage = "source recovery"; sourceFailure = false;
+      await page.keyboard.press("Escape"); await dialog.waitFor({ state: "hidden" });
+      await page.locator("#workspace-history").click();
+      await dialog.getByText("Sessions: 132", { exact: true }).waitFor();
+      assert.equal(await dialog.getByText(/Some sources failed to load/).count(), 0);
+      stage = "completed task";
+      await dialog.getByRole("searchbox").fill("Same title");
+      const codex = rows.filter({ hasText: "codex · " });
+      await codex.getByRole("button", { name: "Add to workspace", exact: true }).click();
+      await codex.getByRole("button", { name: "Added", exact: true }).waitFor();
+      await page.keyboard.press("Escape"); await dialog.waitFor({ state: "hidden" });
+      if (viewport.width < 800) assert.equal(await page.locator("#workspace-sidebar").isVisible(), true);
+      const pane = await openFromSidebar(page, "Same title");
+      await pane.locator("#chat-title").getByText("Same title", { exact: true }).waitFor();
+      assert.equal(await pane.locator('#chat-agent-logo .agent-logo[data-agent-id="codex"]').count(), 1);
+      await pane.locator("#agent-input-note").getByText(/This task has ended/).waitFor();
+      assert.equal(await pane.locator("#btn-send").isEnabled(), false);
+      assert.equal(await pane.locator("#input").evaluate(node => node.readOnly), true);
       assert.deepEqual(errors, []); assert.deepEqual(forbidden, []); assert.deepEqual(mutations, []);
-      console.log(JSON.stringify({ case: `Conversation catalog (${viewport.width})`, result: "passed", sourceRecords: 132,
-        boundedRows: 50, sameTitleIsolation: true, staleRecovery: true, stableRow: true, keyboardFocus: true, modelCalls: 0, pageErrors: 0 }));
-    } catch (error) { throw new Error(`Conversation catalog (${viewport.width}) at ${stage}: ${error.message.replace(/\b[a-f0-9]{64}\b/gi, "[redacted-test-key]")}`); }
+      console.log(JSON.stringify({ case: `Workspace history (${viewport.width})`, result: "passed", sourceRecords: 132,
+        pagedRows: 50, sameTitleIsolation: true, partialFailure: true, recovery: true, preview: true, endedTaskReadOnly: true, modelCalls: 0, pageErrors: 0 }));
+    } catch (error) { throw new Error(`Workspace history (${viewport.width}) at ${stage}: ${error.message.replace(/\b[a-f0-9]{64}\b/gi, "[redacted-test-key]")}`); }
     finally { await context?.close(); if (child) await stopServer(child); await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
   }
 }

@@ -247,15 +247,17 @@ test("folder root bridge is navigation-only and loading cannot start the previou
   assert.equal(el.newStart.disabled, true);
 });
 
-test("returning to a mobile list clears the desktop pane and stale session identity", async () => {
+test("leaving a conversation empties a pane and never shows the old session list", async () => {
   const source = appSource();
-  const element = () => ({ classList: { add() {}, remove() {} }, style: {}, dataset: {}, textContent: "old session" });
-  const el = { viewChat: element(), viewList: element(), viewSettings: element(), viewModelSettings: element(),
-    chatTitle: element(), chatSub: element(), messages: { innerHTML: "private old chat" } };
-  const context = vm.createContext({ el, isDesktop: () => false, saveActiveDraft() {}, resetProjectChanges() {},
+  const shown = [];
+  const element = name => ({ classList: { add() {}, remove(value) { if (value === "hidden") shown.push(name); } }, style: {}, dataset: {}, textContent: "old session" });
+  const el = { viewChat: element("chat"), viewList: element("list"), viewSettings: element("settings"), viewModelSettings: element("models"),
+    chatTitle: element("title"), chatSub: element("sub"), messages: { innerHTML: "private old chat" } };
+  const replaced = [];
+  const context = vm.createContext({ el, WORKSPACE_PANE: true, location: { replace: url => replaced.push(url) }, saveActiveDraft() {}, resetProjectChanges() {},
     stopUpdateCenterPolling() {}, closeChat() {}, resetSettingsOverlay() {}, resetSessionUsage() {},
     refreshSessions: async () => {}, rpc: null, viewGeneration: 0, currentSessionCwd: "old" });
-  vm.runInContext(sourceSlice(source, "function showList(options", 'el.btnBack.addEventListener', "show list"), context);
+  vm.runInContext(sourceSlice(source, "function showList(", 'el.btnBack.addEventListener', "show list"), context);
   vm.runInContext(sourceSlice(source, "function showChatEmpty(", "function hideChatEmpty(", "empty chat"), context);
   vm.runInContext(sourceSlice(source, "function setChatAgent(", "function setChatTitle(", "chat agent"), context);
   await context.showList();
@@ -263,6 +265,13 @@ test("returning to a mobile list clears the desktop pane and stale session ident
   assert.equal(el.chatTitle.textContent, "Stepsemble");
   assert.equal(el.chatSub.textContent, "");
   assert.equal(el.chatSub.dataset.base, "");
+  assert.ok(!shown.includes("list"), "the old session list stays hidden");
+  assert.deepEqual(replaced, [], "a pane stays in the Workspace");
+  // Any other page goes to the Workspace instead of a list of its own.
+  vm.runInContext("WORKSPACE_PANE = false", context);
+  await context.showList();
+  assert.deepEqual(replaced, ["/workspace.html"]);
+  assert.ok(!shown.includes("list"));
 });
 
 // A stored OpenCode conversation reports an idle native status. It used to be

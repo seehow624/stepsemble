@@ -53,3 +53,36 @@ test("installer success without the new Aqua native feature is not reported as s
   const f = fixture({ runUpgrade: async () => {} });
   await assert.rejects(f.service.upgrade({ confirm: true }), /desktop_upgrade_unconfirmed/);
 });
+
+test("after an update the helper is brought current once, waiting while Claude is busy", async () => {
+  const { createClaudeHelperAutoUpdate } = require("../server/claude-desktop-upgrade");
+  const timers = [], logs = [];
+  let current = false, busy = true, upgrades = 0;
+  const auto = createClaudeHelperAutoUpdate({
+    desktopClient: { terminalSupported: async () => current, bypassSupported: async () => current, resetTerminalCheck() {} },
+    upgradeService: { upgrade: async body => { assert.deepEqual(body, { confirm: true }); if (busy) throw Object.assign(new Error("active_tasks"), { code: "active_tasks" }); upgrades++; current = true; } },
+    setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimer: () => {}, log: (...event) => logs.push(event.join(":")),
+  });
+  auto.schedule(60000);
+  assert.equal(timers.at(-1).ms, 60000);
+  await timers.at(-1).fn();                       // a Claude conversation is open
+  assert.equal(upgrades, 0); assert.equal(timers.at(-1).ms, 10 * 60 * 1000);
+  busy = false; await timers.at(-1).fn();         // idle ten minutes later
+  assert.equal(upgrades, 1); assert.deepEqual(logs, ["updated"]);
+  const count = timers.length; auto.schedule(1); assert.equal(timers.length, count, "done after one update");
+});
+
+test("a current helper is left alone and repeated failures stop after six tries", async () => {
+  const { createClaudeHelperAutoUpdate } = require("../server/claude-desktop-upgrade");
+  let upgrades = 0;
+  const currentAuto = createClaudeHelperAutoUpdate({ desktopClient: { terminalSupported: async () => true, bypassSupported: async () => true },
+    upgradeService: { upgrade: async () => { upgrades++; } }, setTimer: () => 1, clearTimer: () => {} });
+  await currentAuto.run(); assert.equal(upgrades, 0);
+  const timers = [];
+  const failing = createClaudeHelperAutoUpdate({ desktopClient: { terminalSupported: async () => false, bypassSupported: async () => false },
+    upgradeService: { upgrade: async () => { throw Object.assign(new Error("desktop_required"), { code: "desktop_required" }); } },
+    setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimer: () => {} });
+  await failing.run();
+  while (timers.length && timers.length < 20) { const next = timers.shift(); assert.equal(next.ms, 60 * 60 * 1000); await next.fn(); }
+  assert.equal(timers.length, 0);
+});

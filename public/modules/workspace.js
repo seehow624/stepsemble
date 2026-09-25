@@ -9,6 +9,10 @@
   };
   let prefs = readPreferences();
   const t = (key, vars) => I.t(key, vars, prefs.locale);
+  // The conversation page's plain-text rule for titles, so a first message
+  // such as "**Fix** the build" reads the same in the sidebar, tab and pane.
+  const plainTitle = value => String(value || "").replace(/[#*_`~>\[\]]/g, "").replace(/\((https?:\/\/)[^)]*\)/g, "")
+    .replace(/[\r\n]+/g, " ").replace(/\s{2,}/g, " ").trim();
   const date = value => new Date(value).toLocaleString(prefs.locale);
   function applyPreferences() {
     // Same presentation contract as the conversation views: resolved theme,
@@ -126,7 +130,7 @@
     const data = await res.json(); if (!res.ok) throw Object.assign(new Error(data.error || t("loadFailed")), { status: res.status }); return data;
   }
   const hostName = value => machines.find(m => m.id === value)?.name || value;
-  const refOf = entry => ({ host, key: entry.key, title: entry.record.name || entry.record.agentId || "Session" });
+  const refOf = entry => ({ host, key: entry.key, title: plainTitle(entry.record.name) || entry.record.agentId || "Session" });
   function allRefs() { return L.leaves(tree).flatMap(p => p.tabs); }
   function setRefTitle(ref, value) {
     const title = String(value || "").replace(/\s+/g, " ").trim().slice(0, 160);
@@ -334,7 +338,7 @@
       section.append(header, contents);
       for (const entry of rows) {
         const ref = refOf(entry), identity = window.StepsembleAgentIdentity.lookup(entry.record.agentId);
-        const displayTitle = ref.title.replace(/^>\s*/, "").trim() || ref.title;
+        const displayTitle = plainTitle(ref.title) || ref.title;
         const row = node("div", "", "workspace-session-row");
         const b = button("", () => open(ref), `${identity.label}: ${displayTitle}`, "btn workspace-session");
         b.dataset.open = String(openKeys.has(L.identity(ref))); b.draggable = true;
@@ -567,7 +571,7 @@
     body.append(quotaSources());
   }
   function closeDialog() { dialogEpoch++; if ($("workspace-dialog").open) $("workspace-dialog").close(); $("workspace-dialog").classList.remove("workspace-project-dialog", "workspace-quota-dialog"); $("workspace-dialog-body").replaceChildren(); }
-  function dialog(title) { dialogEpoch++; const modal = $("workspace-dialog"); modal.classList.remove("workspace-project-dialog", "workspace-quota-dialog"); $("workspace-dialog-title").textContent = title; const body = $("workspace-dialog-body"); body.replaceChildren(); if (!modal.open) modal.showModal(); return body; }
+  function dialog(title) { dialogEpoch++; const modal = $("workspace-dialog"); modal.classList.remove("workspace-project-dialog", "workspace-quota-dialog", "workspace-new-session-dialog"); $("workspace-dialog-title").textContent = title; const body = $("workspace-dialog-body"); body.replaceChildren(); if (!modal.open) modal.showModal(); return body; }
   function addProject() {
     const body = dialog(t("addProject")), epoch = dialogEpoch, target = host;
     $("workspace-dialog").classList.add("workspace-project-dialog");
@@ -594,7 +598,8 @@
     const search = node("input"); search.type = "search"; search.placeholder = t("filterFolders"); search.setAttribute("aria-label", t("filterFolders"));
     browseHead.append(search);
     const list = node("div", "", "workspace-folder-list");
-    list.setAttribute("role", "region"); list.setAttribute("aria-label", t("foldersHere"));
+    // A scrolling region takes focus so Home, End and the arrow keys move it.
+    list.setAttribute("role", "region"); list.setAttribute("aria-label", t("foldersHere")); list.tabIndex = 0;
     const footer = node("div", "", "workspace-folder-footer");
     footer.append(node("small", t("projectInfo")));
     const select = button(t("addFolder"), async () => {
@@ -651,24 +656,76 @@
   }
   async function newSession(cwd) {
     const body = dialog(t("newSession")), epoch = dialogEpoch, target = host;
+    $("workspace-dialog").classList.add("workspace-new-session-dialog");
     body.append(node("small", `${hostName(target)} · ${cwd}`));
-    const name = node("input"); name.placeholder = t("optionalName"); name.setAttribute("aria-label", t("sessionName"));
+    // The agent and the name share one row; the action sits on its own, compact.
+    const fields = node("div", "", "workspace-new-session-fields"), actions = node("div", "", "workspace-new-session-actions");
+    const name = node("input"); name.type = "text"; name.autocomplete = "off"; name.placeholder = t("optionalName"); name.setAttribute("aria-label", t("sessionName"));
     const select = node("select"); select.setAttribute("aria-label", "Agent");
+    // An agent that can work in its own Git worktree offers it here, as the
+    // conversation page's New project did.
+    const worktreeBox = node("input"); worktreeBox.type = "checkbox"; worktreeBox.id = "workspace-new-worktree";
+    const worktree = node("label", "", "workspace-new-session-worktree"); worktree.htmlFor = worktreeBox.id; worktree.title = t("worktreeNote");
+    worktree.append(worktreeBox, node("span", t("worktree"))); worktree.hidden = true;
+    const capabilities = new Map();
+    const syncWorktree = () => {
+      const listed = capabilities.get(select.value), allowed = !Array.isArray(listed) || listed.includes("worktree");
+      worktree.hidden = !allowed; if (!allowed) worktreeBox.checked = false;
+    };
+    select.addEventListener("change", syncWorktree);
+    // An agent that is not signed in yet is offered its own sign-in here, in
+    // a pane that runs that agent's sign-in command; the session then starts.
+    const notice = node("div", "", "workspace-signin"); notice.hidden = true;
+    let signInFrame = null;
+    const signInError = error => /_auth_required|sign_in_required|login_required|not_signed_in|unauthenticated/.test(`${error?.code || ""} ${error?.message || ""}`)
+      || /\b(?:sign in|signed in|log in|logged in|authenticat|unauthori[sz]ed)/i.test(String(error?.message || ""));
+    function offerSignIn(agentId) {
+      const label = [...select.options].find(option => option.value === agentId)?.textContent || agentId;
+      notice.replaceChildren(node("p", t("signInNeeded", { agent: label, host: hostName(target) })),
+        button(t("signIn"), () => startSignIn(agentId), t("signIn"), "btn primary workspace-signin-start"));
+      notice.hidden = false;
+    }
+    function startSignIn(agentId) {
+      const url = new URL("/index.html", location.origin);
+      url.searchParams.set("pane", "1"); url.searchParams.set("host", target); url.searchParams.set("signin", agentId);
+      signInFrame = node("iframe", "", "workspace-signin-frame"); signInFrame.title = t("signIn"); signInFrame.src = url.href;
+      notice.replaceChildren(signInFrame);
+    }
+    function onSignIn(event) {
+      if (epoch !== dialogEpoch) { window.removeEventListener("message", onSignIn); return; }
+      if (event.origin !== location.origin || !signInFrame || event.source !== signInFrame.contentWindow || event.data?.type !== "workspace-signin") return;
+      const agentId = String(event.data.agentId || select.value);
+      signInFrame = null;
+      if (event.data.state === "completed" || event.data.completed === true) { notice.replaceChildren(node("p", t("signedIn"))); if (!start.disabled) start.click(); }
+      else offerSignIn(agentId);
+    }
+    window.addEventListener("message", onSignIn);
     const start = button(t("create"), async () => {
       start.disabled = true;
       try {
-        const data = await api("/api/agent/open", { agentId: select.value, cwd, name: name.value.trim() || null }, target);
+        const data = await api("/api/agent/open", { agentId: select.value, cwd, name: name.value.trim() || null, ...(worktreeBox.checked && !worktree.hidden ? { worktree: true } : {}) }, target);
         if (!data.workspaceEntry) throw new Error(data.workspaceError || t("createdUntracked"));
         closeDialog(); const entry = data.workspaceEntry;
-        open({ host: target, key: entry.key, title: entry.record.name || select.value }); await refresh();
-      } catch (error) { toast(error.message); start.disabled = !(error.status >= 400 && error.status < 500); if (start.disabled) body.append(node("p", t("createUncertain"))); }
-    }, t("create"), "btn primary"); start.disabled = true; body.append(name, select, start);
-    try { const data = await api("/api/agents", undefined, target); if (epoch !== dialogEpoch) return; for (const agent of data.connectors || []) if (agent.installed) { const opt = node("option", agent.label || agent.name || agent.id); opt.value = agent.id; select.append(opt); } start.disabled = !select.options.length; if (!select.options.length) body.append(node("p", t("noAgents"))); }
+        open({ host: target, key: entry.key, title: plainTitle(entry.record.name) || select.value }); await refresh();
+      } catch (error) {
+        if (signInError(error)) { start.disabled = false; offerSignIn(select.value); return; }
+        toast(error.message); start.disabled = !(error.status >= 400 && error.status < 500); if (start.disabled) body.append(node("p", t("createUncertain")));
+      }
+    }, t("create"), "btn primary workspace-new-session-create"); start.disabled = true;
+    name.addEventListener("keydown", event => { if (event.key === "Enter" && !event.isComposing && !start.disabled) { event.preventDefault(); start.click(); } });
+    select.addEventListener("change", () => { if (!signInFrame) notice.hidden = true; });
+    fields.append(select, name); actions.append(worktree, start); body.append(fields, actions, notice);
+    try { const data = await api("/api/agents", undefined, target); if (epoch !== dialogEpoch) return; for (const agent of data.connectors || []) if (agent.installed) { const opt = node("option", agent.label || agent.name || agent.id); opt.value = agent.id; select.append(opt); capabilities.set(agent.id, agent.capabilities); } syncWorktree(); start.disabled = !select.options.length; if (!select.options.length) body.append(node("p", t("noAgents"))); }
     catch (error) { if (epoch === dialogEpoch) body.append(node("p", error.message)); }
   }
   async function history() {
     const body = dialog(t("history")), epoch = dialogEpoch, target = host;
     body.append(node("p", t("historyInfo")));
+    // Each agent's own history, read only, in a tab of its own.
+    const reader = node("a", t("historyReader"), "workspace-history-reader");
+    reader.href = target === self ? "/history.html" : `/history.html?machine=${encodeURIComponent(target)}`;
+    reader.target = "_blank"; reader.rel = "noopener noreferrer";
+    body.append(reader);
     const search = node("input"); search.type = "search"; search.placeholder = t("historyPlaceholder"); search.setAttribute("aria-label", t("searchHistory"));
     // Sub Agent sessions run in temporary folders and stay hidden until asked for.
     // The choice is saved with the other settings.
@@ -686,7 +743,7 @@
       list.replaceChildren(); status.textContent = t("count", { count: filtered.length }); more.hidden = limit >= filtered.length;
       for (const row of filtered.slice(0, limit)) {
         const item = node("article", "", "workspace-history-row"), copy = node("div"); copy.append(node("strong", row.record.name || row.record.firstMessage || row.record.agentId || "Pi"), node("small", `${row.record.agentId || "pi"} · ${row.record.cwd || ""}`));
-        const add = button(t("addWorkspace"), async () => { add.disabled = true; try { await api("/api/workspace/adopt", { kind: row.kind, reference: row.reference }, target); add.textContent = t("added"); await refresh(); } catch (error) { toast(error.message); add.disabled = false; } });
+        const add = button(t("addWorkspace"), async () => { add.disabled = true; try { await api("/api/workspace/adopt", { kind: row.kind, reference: row.reference }, target); add.textContent = t("added"); add.title = t("added"); add.setAttribute("aria-label", t("added")); await refresh(); } catch (error) { toast(error.message); add.disabled = false; } });
         item.append(copy, button(t("view"), () => previewHistory(row, target)), add); list.append(item);
       }
     }
@@ -836,7 +893,7 @@
         const local = await api("/api/workspace", undefined, self);
         const entry = local.entries.find(row => (data.taskId && [row.record.id, row.record.taskId].includes(data.taskId))
           || (data.file && row.record.agentId === "pi" && row.record.file === data.file));
-        if (entry) open({ host: self, key: entry.key, title: entry.record.name || entry.record.agentId });
+        if (entry) open({ host: self, key: entry.key, title: plainTitle(entry.record.name) || entry.record.agentId });
         else toast(t("notAdded"));
       } catch (error) { toast(error.message); }
     });

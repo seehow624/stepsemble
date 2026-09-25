@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { freePort, waitForServer, stopServer } from "./host-performance-baseline.mjs";
 import { cleanEnvironment } from "./check-rolling-clients.mjs";
+import { signInToWorkspace, addWorkspaceProject, adoptPiHistory, openFromSidebar, paneFrame } from "./workspace-browser-helpers.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const execFileAsync = promisify(execFile);
 async function knownGitBinary() {
@@ -62,6 +63,8 @@ export async function runPiSessionBrowserCases(browser) {
         return route.continue();
       });
       await context.addInitScript(() => {
+        // about:blank, used to leave the Workspace, has no storage of its own.
+        if (location.protocol !== "http:") return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", showTemporarySessions: true, reducedMotion: true }));
       });
@@ -84,25 +87,25 @@ export async function runPiSessionBrowserCases(browser) {
         if (url.pathname === "/api/agent/stream") genericStreams.push(url.href);
         if (url.pathname === "/api/project-changes") projectChangesCwds.push(url.searchParams.get("cwd"));
       });
-      await page.goto(`${base}/index.html`);
       const token = (await fs.readFile(path.join(home, ".config/stepsemble/token"), "utf8")).trim();
-      await page.locator("#login-onboarding-skip").click(); await page.locator("#login-token").fill(token);
-      await page.locator("#login-form button").click();
+      await signInToWorkspace(page, base, token);
       const title = "First question 貓掌🐾";
-      await page.locator('.session-item-main .agent-logo[data-agent-id="pi"]').waitFor();
-      assert.equal(await page.locator('.session-item-main .agent-logo[data-agent-id="pi"]').count(), 1);
-      await page.locator(".session-item-main").filter({ hasText: title }).evaluate(node => { window.__selectionFixtureRow = node; });
-      await page.locator(".session-item-main").filter({ hasText: title }).click();
-      await page.locator("#messages").getByText("Different last assistant answer", { exact: true }).waitFor();
-      assert.equal(await page.locator("#chat-title").textContent(), title);
-      assert.equal(await page.locator('#chat-agent-logo [role="img"][aria-label="Pi Agent"]').count(), 1);
-      assert.equal(await page.evaluate(() => window.__selectionFixtureRow.isConnected), true, "opening history preserves the selected row DOM");
-      assert.equal(await page.locator(".session-item-main[aria-current=true]").count(), 1);
-      await page.waitForFunction(() => !document.querySelector("#btn-send").disabled);
-      await page.locator("#btn-back").click();
-      // SSE cancellation and POST /close can arrive in either order. A still
-      // connected idle peer must be preserved. Wait for detachment, then drive
-      // the same safe close boundary as the idle reaper (never a model action).
+      // The history joins the Workspace the way History does, then opens in a pane.
+      await adoptPiHistory(page, path.basename(filename));
+      let pane = await openFromSidebar(page, title);
+      const row = page.locator("button.workspace-session").filter({ hasText: title }).first();
+      assert.match(await row.getAttribute("aria-label"), /^Pi Agent: /);
+      await pane.locator("#messages").getByText("Different last assistant answer", { exact: true }).waitFor();
+      assert.equal(await pane.locator("#chat-title").textContent(), title);
+      assert.equal(await pane.locator('#chat-agent-logo [role="img"][aria-label="Pi Agent"]').count(), 1);
+      assert.equal(await row.getAttribute("data-open"), "true", "the sidebar marks the open conversation");
+      await pane.waitForFunction(() => !document.querySelector("#btn-send").disabled);
+      // Leaving the Workspace detaches the viewer. SSE cancellation and POST
+      // /close can arrive in either order; a still-connected idle peer must be
+      // preserved. Wait for detachment, then drive the same safe close boundary
+      // as the idle reaper (never a model action).
+      const workspaceUrl = page.url();
+      await page.goto("about:blank");
       const waitTasks = async predicate => {
         for (let i = 0; i < 100; i++) {
           const tasks = (await (await context.request.get(base + "/api/agent-tasks")).json()).tasks;
@@ -116,68 +119,48 @@ export async function runPiSessionBrowserCases(browser) {
       for (const task of detached.filter(task => task.status === "waiting")) {
         await context.request.post(base + "/api/close", { data: { sid: task.id.slice(3) } });
       }
-      const agentHubToggle = page.locator("#agent-hub-toggle");
-      if (await agentHubToggle.getAttribute("aria-expanded") !== "true") await agentHubToggle.click();
       await waitTasks(tasks => tasks.some(task => task.status === "stopped"));
-      await page.locator("#agent-hub-refresh").click();
-      await page.locator("#agent-task-list .agent-task-row.stopped").waitFor();
-      assert.equal(await page.locator('#agent-task-list .agent-logo[data-agent-id="pi"] .agent-task-dot').count(), 1);
-      assert.equal(await page.locator("#agent-task-list .agent-task-copy strong").first().textContent(), title);
-      assert.equal(await page.locator("#agent-task-list .agent-task-row.failed").count(), 0);
-      await page.locator("#agent-task-list .agent-task-row.stopped").click();
-      await page.locator("#messages").getByText("Different last assistant answer", { exact: true }).waitFor();
-      assert.equal(await page.locator("#chat-title").textContent(), title, "Hub reopen uses the same title");
-      await page.reload(); await page.locator("#messages").getByText("Different last assistant answer", { exact: true }).waitFor();
-      assert.equal(await page.locator("#chat-title").textContent(), title);
-      await page.locator("#btn-back").click();
-      await page.locator("#btn-new:visible, #btn-new-project:visible").first().click();
-      await page.locator("#new-dialog:not(.hidden)").waitFor();
-      const browseHome = await fs.realpath(home), filesystemRoot = path.parse(browseHome).root;
-      await page.waitForFunction(expected => document.querySelector("#new-cwd")?.value === expected, browseHome);
-      const piOption = page.locator('#new-agent option[value="pi"]');
-      await piOption.waitFor({ state: "attached" });
-      await page.waitForFunction(() => {
-        const option = document.querySelector('#new-agent option[value="pi"]');
-        const worktree = document.querySelector("#new-worktree");
-        return option && !option.disabled && worktree && !worktree.disabled;
-      });
-      await page.waitForFunction(() => document.querySelector("#new-start")?.disabled === false);
-      await page.locator("#new-folder-up").click();
-      await page.waitForFunction(expected => {
-        const cwd = document.querySelector("#new-cwd");
-        const start = document.querySelector("#new-start");
-        const pathLabel = document.querySelector("#new-folder-path");
-        return cwd?.value === "" && start?.disabled === true && pathLabel?.textContent?.trim() === expected;
-      }, filesystemRoot);
-      await page.locator("#new-folder-home").click();
-      await page.waitForFunction(expected => document.querySelector("#new-cwd")?.value === expected, browseHome);
-      await page.locator("#new-folder-list .project-folder-row").filter({ hasText: "Projects" }).waitFor();
-      await page.locator("#new-folder-list .project-folder-row").filter({ hasText: "Projects" }).click();
-      await page.locator("#new-folder-list .project-folder-row").filter({ hasText: "fixture" }).click();
+      // The same Workspace window restores its pane, which reopens the history.
+      await page.goto(workspaceUrl);
+      pane = await paneFrame(page, title);
+      await pane.locator("#messages").getByText("Different last assistant answer", { exact: true }).waitFor({ state: "attached" });
+      assert.equal(await pane.locator("#chat-title").textContent(), title, "Reopen uses the same title");
+      await page.reload();
+      pane = await paneFrame(page, title);
+      await pane.locator("#messages").getByText("Different last assistant answer", { exact: true }).waitFor({ state: "attached" });
+      assert.equal(await pane.locator("#chat-title").textContent(), title);
+      // A new Pi conversation in its own Git worktree, from New session.
       const repositoryCwd = await fs.realpath(cwd);
-      await page.waitForFunction(expected => document.querySelector("#new-cwd")?.value === expected, repositoryCwd);
+      await addWorkspaceProject(page, repositoryCwd);
+      if (viewport.width < 800) await page.evaluate(() => document.body.classList.remove("sidebar-hidden"));
+      await page.locator("#workspace-refresh").click();
+      const project = page.locator(".workspace-project").filter({ hasText: path.basename(repositoryCwd) }).first();
+      await project.locator(".workspace-project-add").click();
+      const dialog = page.locator("#workspace-dialog-body");
+      await dialog.locator("select option[value='pi']").waitFor({ state: "attached" });
+      await dialog.locator("select").selectOption("pi");
       const worktreeTitle = `Owned Pi worktree ${viewport.width}`;
-      await page.locator("#new-name").fill(worktreeTitle);
-      await page.locator("#new-agent").selectOption("pi");
-      await page.waitForFunction(() => document.querySelector("#new-worktree")?.disabled === false);
-      // The visual switch covers the native checkbox. Use its visible label,
-      // as a pointer user does, without forcing a click through the track.
-      await page.locator('label[for="new-worktree"]').click();
-      await page.waitForFunction(() => document.querySelector("#new-worktree")?.checked === true);
+      await dialog.locator("input[type=text]").fill(worktreeTitle);
+      await dialog.locator(".workspace-new-session-worktree").waitFor();
+      await dialog.locator(".workspace-new-session-worktree").click();
+      assert.equal(await dialog.locator("#workspace-new-worktree").isChecked(), true);
       const genericBefore = genericStreams.length, nativeBefore = nativeStreams.length;
-      await page.locator("#new-start").click();
-      await page.waitForFunction(() => !document.querySelector("#btn-send")?.disabled);
+      await dialog.locator(".workspace-new-session-create").click();
+      pane = await paneFrame(page, worktreeTitle);
+      await pane.waitForFunction(() => !document.querySelector("#btn-send")?.disabled);
       for (let i = 0; i < 100 && !worktreeOpen; i++) await new Promise(resolve => setTimeout(resolve, 20));
       assert.ok(worktreeOpen, "Pi worktree open response is observed");
       assert.equal(worktreeOpen.kind, "pi"); assert.equal(worktreeOpen.agentId, "pi");
       assert.equal(worktreeOpen.cwd, worktreeOpen.worktree.path);
-      assert.equal(await page.locator("#chat-title").textContent(), worktreeTitle);
-      assert.equal(await page.locator("#chat-sub").textContent(), worktreeOpen.cwd);
+      assert.notEqual(worktreeOpen.cwd, repositoryCwd, "the conversation runs in its own worktree");
+      assert.equal(await pane.locator("#chat-title").textContent(), worktreeTitle);
+      assert.equal(await pane.locator("#chat-sub").textContent(), worktreeOpen.cwd);
+      for (let i = 0; i < 100 && !nativeStreams.slice(nativeBefore).some(value => new URL(value).searchParams.get("sid") === worktreeOpen.sid); i++) await new Promise(resolve => setTimeout(resolve, 20));
       assert.ok(nativeStreams.slice(nativeBefore).some(value => new URL(value).searchParams.get("sid") === worktreeOpen.sid));
       assert.equal(genericStreams.length, genericBefore, "native Pi never opens the generic task stream");
       for (let i = 0; i < 100 && !projectChangesCwds.includes(worktreeOpen.cwd); i++) await new Promise(resolve => setTimeout(resolve, 20));
       assert.ok(projectChangesCwds.includes(worktreeOpen.cwd), "changes inspector follows the actual worktree cwd");
-      await page.locator("#btn-back").click();
+      await page.goto("about:blank");
       const worktreeDetached = await waitTasks(tasks => tasks.some(task => task.id === `pi:${worktreeOpen.sid}` && task.clients === 0));
       const worktreeTask = worktreeDetached.find(task => task.id === `pi:${worktreeOpen.sid}`);
       if (worktreeTask.status === "waiting") await context.request.post(base + "/api/close", { data: { sid: worktreeOpen.sid } });
@@ -190,7 +173,7 @@ export async function runPiSessionBrowserCases(browser) {
       assert.equal(await fs.readFile(filename, "utf8"), history);
       assert.deepEqual(errors, []); assert.deepEqual(foreign, []); assert.deepEqual(prompts, []);
       console.log(JSON.stringify({ case: `Pi session UI (${viewport.width})`, result: "passed", syntheticOnly: true,
-        native143Close: true, listHubChatTitle: true, reload: true, historyUnchanged: true, piWorktree: true, modelCalls: 0, pageErrors: 0 }));
+        native143Close: true, sidebarPaneTitle: true, reload: true, historyUnchanged: true, piWorktree: true, modelCalls: 0, pageErrors: 0 }));
     } catch (error) { throw new Error(`Pi session UI (${viewport.width}): ${error.message.replace(/\b[a-f0-9]{64}\b/gi, "[redacted-test-key]")}`); }
     finally {
       await context?.close(); if (child) await stopServer(child);

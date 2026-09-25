@@ -63,7 +63,7 @@ const { createGrokAcpAdapter } = require("./server/grok-acp-adapter");
 const { createAgentClientProtocolAdapter, readSessionRegistry, writeSessionRegistry } = require("./server/agent-client-protocol-adapter");
 const { CLAUDE_STRUCTURED_VERSION, claudeSupportsBypass } = require("./server/claude-code-structured-adapter");
 const { launchClaudeStructuredSession } = require("./server/claude-structured-launch");
-const { createClaudeDesktopUpgradeService } = require("./server/claude-desktop-upgrade");
+const { createClaudeDesktopUpgradeService, createClaudeHelperAutoUpdate } = require("./server/claude-desktop-upgrade");
 const { createAntigravityStructuredSession, ANTIGRAVITY_STRUCTURED_VERSION } = require("./server/antigravity-cli-structured-adapter");
 const { createClaudeAuthService, handleClaudeAuthRequest } = require("./server/claude-auth");
 const { createDesktopClaudeClient } = require("./server/claude-desktop-client");
@@ -2102,8 +2102,6 @@ const grokDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "grok-buil
 const grokCommand = String(process.env.STEPSEMBLE_GROK_BIN || "").trim()
   ? resolveCommand({ ...grokDefinition, commands: [String(process.env.STEPSEMBLE_GROK_BIN).trim()] }, { env: process.env, includeKnownPaths: false })
   : resolveCommand(grokDefinition, { env: process.env });
-const grokAcpEnabled = new Set(["1", "true", "yes", "on"]).has(String(process.env.STEPSEMBLE_GROK_ACP || "").trim().toLowerCase());
-const grokAcp = grokAcpEnabled && grokCommand ? createGrokAcpAdapter({ command: grokCommand, cwd: APP_HOME, env: process.env }) : null;
 // Cline, Kilo Code, and Hermes all publish an ACP stdio server. Enable the bridge
 // automatically when the executable is installed; an explicit 0/false still
 // gives operators a safe rollback to the bounded CLI connector. No ACP
@@ -2112,6 +2110,10 @@ function acpFlag(name, fallback) {
   const raw = String(process.env[name] || "").trim().toLowerCase();
   return raw ? new Set(["1", "true", "yes", "on"]).has(raw) : fallback;
 }
+// Grok Build's ACP server (grok agent stdio) is used whenever grok is
+// installed, like the other ACP agents; STEPSEMBLE_GROK_ACP=0 turns it off.
+const grokAcpEnabled = acpFlag("STEPSEMBLE_GROK_ACP", !!grokCommand);
+const grokAcp = grokAcpEnabled && grokCommand ? createGrokAcpAdapter({ command: grokCommand, cwd: APP_HOME, env: process.env }) : null;
 const kiloDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "kilo");
 const hermesDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "hermes");
 const clineDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "cline");
@@ -2359,6 +2361,17 @@ claudeDesktopUpgrade = createClaudeDesktopUpgradeService({ desktopClient: deskto
       return !value.processExited && !value.cleanupConfirmed;
     }),
 });
+
+// After Stepsemble updates itself, bring the Claude desktop helper up to date
+// as well, through the same checked upgrade as the button in Settings. It runs
+// only while no Claude conversation, sign-in or update is in progress; a busy
+// helper is tried again later. STEPSEMBLE_CLAUDE_HELPER_AUTO_UPDATE=0 leaves
+// the helper to the button.
+const claudeHelperAutoUpdate = acpFlag("STEPSEMBLE_CLAUDE_HELPER_AUTO_UPDATE", true) && process.platform === "darwin" && desktopClaude
+  ? createClaudeHelperAutoUpdate({ desktopClient: desktopClaude, upgradeService: claudeDesktopUpgrade, stopped: () => !!shutdownState,
+    log: (event, code) => console.log(event === "updated" ? "[stepsemble] Claude desktop helper updated to this version"
+      : `[stepsemble] Claude desktop helper update did not run (${code})`) })
+  : null;
 
 function revealProject(cwd) {
   const real = projectDirectory(cwd);
@@ -5230,7 +5243,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (p === "/api/grok/acp/session" && req.method === "POST") {
         try {
-          if (!grokAcp) { const error = new Error("Grok ACP is disabled; set STEPSEMBLE_GROK_ACP=1"); error.statusCode = 409; error.code = "grok_acp_disabled"; throw error; }
+          if (!grokAcp) { const error = new Error("Grok ACP is disabled"); error.statusCode = 409; error.code = "grok_acp_disabled"; throw error; }
           const body = await readJSON(req, 64 * 1024);
           const result = await grokAcp.createSession({ directory: nativeAgentDirectory(body?.cwd || body?.directory, "Grok ACP"), sessionId: body?.sessionId || null, mcpServers: [] });
           // Reopening a conversation puts back the mode chosen for it earlier.
@@ -6760,10 +6773,12 @@ const server = http.createServer(async (req, res) => {
               name: body?.name || null,
             });
             if (session.kind === "reject") {
+              // An agent that is not signed in yet gets its sign-in offered;
+              // its terminal program would stop at the same sign-in.
+              if (session.code === "acp_auth_required") throw Object.assign(new Error(`${agentId}_auth_required`), { statusCode: 409, code: `${agentId}_auth_required` });
               // ACP is an upgrade path, never a single point of failure. A
-              // missing capability, auth requirement, or protocol mismatch
-              // returns to the supervised bounded connector for the same
-              // allow-listed agent.
+              // missing capability or protocol mismatch returns to the
+              // supervised bounded connector for the same allow-listed agent.
               const fallback = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
               sendWorkspaceResult(res, 201, { ...fallback, kind: "cli", agentId, nativeFallback: "acp", nativeFallbackReason: session.code });
               return;
@@ -7097,6 +7112,16 @@ const server = http.createServer(async (req, res) => {
     // ---- 靜態檔案 ----
     if (req.method !== "GET" && req.method !== "HEAD") { send(res, 405, ""); return; }
     let rel = p === "/" ? "workspace.html" : p.replace(/^\/+/, "");
+    // The single-conversation page is gone. A browser that opens index.html by
+    // itself (typed, bookmarked, an old home-screen icon, a pane outside the
+    // Workspace) gets the Workspace; panes load in iframes, and the Settings
+    // window and the sign-in page the Workspace sends to are the other uses.
+    if (rel === "index.html" && req.headers["sec-fetch-dest"] === "document"
+      && url.searchParams.get("settings") !== "1" && url.searchParams.get("returnWorkspace") !== "1") {
+      res.writeHead(302, { Location: "/", "Cache-Control": "no-store" });
+      res.end();
+      return;
+    }
     const abs = path.normalize(path.join(PUBLIC_DIR, rel));
     if (!abs.startsWith(PUBLIC_DIR + path.sep)) { send(res, 403, ""); return; }
     fs.stat(abs, (statErr, stat) => {
@@ -7291,6 +7316,8 @@ if (settingFromEnv("ORPHAN_EXIT") !== "0" && process.ppid > 1) {
 syncBundledUpdater();
 server.listen(PORT, HOST, () => {
   console.log(`[stepsemble] ${MACHINE_NAME} listening on http://${HOST}:${PORT} (pi: ${PI_BIN})`);
+  // Give a restart after an update a minute to settle before the helper check.
+  claudeHelperAutoUpdate?.schedule(60 * 1000);
   if (HOST !== "127.0.0.1" && HOST !== "::1" && !SECURE_COOKIE) {
     console.warn("[stepsemble] warning: listening beyond loopback without Secure cookies; prefer Tailscale Serve/HTTPS or set STEPSEMBLE_HOST=127.0.0.1");
   }

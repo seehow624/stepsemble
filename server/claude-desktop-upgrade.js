@@ -42,4 +42,39 @@ function createClaudeDesktopUpgradeService({ desktopClient, isBusy = () => false
   return Object.freeze({ upgrade, isRunning: () => running });
 }
 
-module.exports = { createClaudeDesktopUpgradeService };
+// After Stepsemble updates itself, the helper is brought up to date through
+// the same checked upgrade. A busy helper (a Claude conversation, sign-in or
+// update in progress) is tried again later; other failures are tried a few
+// more times, an hour apart.
+const BUSY_RETRY_MS = 10 * 60 * 1000, FAILURE_RETRY_MS = 60 * 60 * 1000, MAX_FAILURES = 6;
+function createClaudeHelperAutoUpdate({ desktopClient, upgradeService, setTimer = setTimeout, clearTimer = clearTimeout,
+  log = () => {}, stopped = () => false } = {}) {
+  let timer = null, failures = 0, done = false;
+  function schedule(delayMs) {
+    if (!desktopClient || !upgradeService || done) return;
+    clearTimer(timer);
+    // run() settles every failure itself; returning it lets a caller await it.
+    timer = setTimer(() => { timer = null; return run(); }, delayMs);
+    timer?.unref?.();
+  }
+  async function run() {
+    if (done || stopped()) return;
+    try {
+      desktopClient.resetTerminalCheck?.();
+      const [terminal, bypass] = await Promise.all([desktopClient.terminalSupported(), desktopClient.bypassSupported()]);
+      if (terminal && bypass) { done = true; return; }
+      await upgradeService.upgrade({ confirm: true });
+      done = true;
+      log("updated");
+    } catch (error) {
+      const code = error?.code || error?.message || "unknown";
+      if (code === "active_tasks") { schedule(BUSY_RETRY_MS); return; }
+      failures += 1;
+      log("failed", code);
+      if (failures < MAX_FAILURES) schedule(FAILURE_RETRY_MS);
+    }
+  }
+  return Object.freeze({ schedule, run, stop: () => { done = true; clearTimer(timer); timer = null; } });
+}
+
+module.exports = { createClaudeDesktopUpgradeService, createClaudeHelperAutoUpdate };

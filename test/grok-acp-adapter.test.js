@@ -105,3 +105,20 @@ test("a Grok process started while signed out is replaced once Grok is signed in
   assert.equal(adapter.status().ready, true);
 });
 
+
+test("Grok ACP offers Default and Plan, the modes Grok confirms, and switches them with session/set_mode", async t => {
+  const child = childFixture();
+  const sent = [];
+  child.stdin.on("data", chunk => { for (const line of chunk.toString().split(/\n/).filter(Boolean)) sent.push(JSON.parse(line)); });
+  const adapter = createGrokAcpAdapter({ command: "/usr/local/bin/grok", cwd: "/tmp", env: { XAI_API_KEY: "fixture" }, spawnImpl: () => child });
+  t.after(() => adapter.close());
+  const session = await adapter.createSession({ directory: "/tmp" });
+  const mode = adapter.sessionConfigOptions(session.sessionId).find(option => option.category === "mode");
+  assert.deepEqual(mode.options.map(choice => choice.value), ["default", "plan"]);
+  assert.equal(mode.currentValue, "default");
+  assert.equal((await adapter.setConfigOption(session.sessionId, mode.id, "plan")).value, "plan");
+  assert.deepEqual(sent.filter(frame => frame.method === "session/set_mode").map(frame => frame.params.modeId), ["plan"]);
+  assert.equal(adapter.sessionConfigOptions(session.sessionId).find(option => option.category === "mode").currentValue, "plan");
+  // A mode Grok would accept without applying is never sent.
+  assert.equal((await adapter.setConfigOption(session.sessionId, mode.id, "bypassPermissions")).code, "grok_config_invalid");
+});

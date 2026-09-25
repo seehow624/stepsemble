@@ -2,6 +2,7 @@
 // process, provider credential, or model call is used by this browser case.
 import assert from "node:assert/strict";
 import { createNativeComposerPreview } from "./native-composer-preview.mjs";
+import { workspaceReady, openFromSidebar } from "./workspace-browser-helpers.mjs";
 
 export async function runCodexActivityBrowserCases(browser) {
   for (const viewport of [{ name: "desktop", width: 1440, height: 1000 }, { name: "mobile", width: 390, height: 844 }]) {
@@ -33,11 +34,12 @@ export async function runCodexActivityBrowserCases(browser) {
       page.on("pageerror", error => errors.push(error.message));
 
       stage = "open Codex task";
-      await page.goto(`${preview.origin}/index.html`);
-      await page.locator(".session-item-main").filter({ hasText: "Codex composer fixture" }).click();
+      await page.goto(`${preview.origin}/`);
+      await workspaceReady(page);
+      const pane = await openFromSidebar(page, "Codex composer fixture");
 
       stage = "active goal";
-      const state = page.locator("#native-run-state");
+      const state = pane.locator("#native-run-state");
       await state.waitFor();
       await assert.doesNotReject(() => state.getByText("Pursuing goal", { exact: true }).waitFor());
       await assert.doesNotReject(() => state.getByText("Keep the synthetic Codex task moving", { exact: false }).waitFor());
@@ -46,29 +48,29 @@ export async function runCodexActivityBrowserCases(browser) {
       assert.equal((await state.locator("#native-run-meta").textContent()).includes("Working"), true);
 
       stage = "work log and progressive detail";
-      const workHead = page.locator("#messages .wl-head").first();
+      const workHead = pane.locator("#messages .wl-head").first();
       await workHead.waitFor();
       assert.match(await workHead.textContent(), /^Working for /);
-      const workRow = page.locator("#messages .wl-row").first();
+      const workRow = pane.locator("#messages .wl-row").first();
       await workRow.waitFor();
       assert.equal(await workRow.getAttribute("aria-expanded"), "false");
-      const activity = page.locator("#messages details.activity-group").first();
+      const activity = pane.locator("#messages details.activity-group").first();
       assert.equal(await activity.isVisible(), false);
       await workRow.click();
       assert.equal(await workRow.getAttribute("aria-expanded"), "true");
       await activity.waitFor({ state: "visible" });
 
       stage = "thinking and image";
-      const thinking = page.locator("#messages .thinking-toggle").first();
+      const thinking = pane.locator("#messages .thinking-toggle").first();
       await thinking.waitFor();
       assert.equal(await thinking.getAttribute("aria-expanded"), "false");
       await thinking.click();
       assert.equal(await thinking.getAttribute("aria-expanded"), "true");
-      await page.getByText("Synthetic reasoning stays collapsed.", { exact: true }).waitFor();
-      const image = page.locator("#messages .native-image-card img").first();
+      await pane.getByText("Synthetic reasoning stays collapsed.", { exact: true }).waitFor();
+      const image = pane.locator("#messages .native-image-card img").first();
       await image.waitFor();
-      await page.waitForFunction(() => document.querySelector("#messages .native-image-card img")?.naturalWidth > 0);
-      assert.equal(await page.getByText("Viewed an image", { exact: true }).count(), 1);
+      await pane.waitForFunction(() => document.querySelector("#messages .native-image-card img")?.naturalWidth > 0);
+      assert.equal(await pane.getByText("Viewed an image", { exact: true }).count(), 1);
 
       stage = "progressive tool detail";
       assert.equal(await activity.getAttribute("open"), "");
@@ -77,6 +79,7 @@ export async function runCodexActivityBrowserCases(browser) {
       assert.equal(await tool.getAttribute("open"), null);
       await tool.locator(":scope > summary").click();
       await activity.locator(".tool-output").first().waitFor();
+      assert.equal(await pane.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       assert.deepEqual(errors, []);
       assert.deepEqual(foreign, []);

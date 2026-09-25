@@ -2,9 +2,8 @@
 
 `npm run test:rolling` runs actual browser code and actual Node Hosts from the
 two immutable releases in `rolling-releases.json`, paired in both directions
-with the current development tree. At this pre-release point these are v3.0.3
-and v3.0.2, the latest two **shipped** versions before the next release; the
-development tree still retains the 3.0.3 package version. Tags are verified against
+with the current development tree. At this pre-release point these are v3.5.0
+and v3.4.0, the latest two **shipped** versions before 3.6.0. Tags are verified against
 full commit IDs, then Git archives are extracted into disposable local folders.
 Nothing is checked out over the worktree. Update the pins explicitly at release
 time; do not float tags or substitute current sources for a historical Client.
@@ -21,15 +20,16 @@ Later source changes require their own passing run; this evidence is not floatin
 There are eight cases: two release versions × two directions × desktop
 1440×1000 and mobile-sized 390×844 viewports. Each starts a fresh loopback Host,
 isolated HOME/PI_HOME/config/project/history, a fresh Chromium context and an
-entirely synthetic Pi protocol process. It exercises the real login form,
-session list, Unicode history, streamed text, manual stop, a permission dialog
+entirely synthetic Pi protocol process. It exercises the real sign-in, the
+Workspace (the history is added to it and opened in a pane), Unicode history, streamed text, manual stop, a permission dialog
 answered by cancellation, and page reload with cookie authentication/history.
 The synthetic peer counts exactly two prompts, one stop and one denied response.
 The browser must issue one UI response, not duplicate the side effect.
 
-Current Client → historical Host observes an actual 404 from the absent protocol
-handshake endpoint and follows the legacy path. Historical Clients never send a
-handshake they do not implement. Separate `platform-protocol.test.js` tests ensure
+Both pinned releases implement the protocol handshake, so every case must see
+it accepted in both directions; none may fall back to the unnegotiated path.
+(Before 3.6.0 the pins were v3.0.3 and v3.0.2, which had no handshake and no
+Workspace.) Separate `platform-protocol.test.js` tests ensure
 401, 426, malformed responses, failures and timeout do not silently downgrade.
 This does not imply that a released Client understands the reserved journal API.
 

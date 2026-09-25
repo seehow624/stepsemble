@@ -6,6 +6,8 @@
 > 會拒絕切換，Web 端回 409 `claude_bypass_helper_outdated`。設定 → Agents & models →
 > Models & providers → Claude Code 會顯示助手是否為新版，並提供「更新助手」；有 Claude 對話
 > 開著時不會更新（`active_tasks`）。升級流程同下方 3.3.0，驗證時三個版本欄位都要是 1。
+> Web 端啟動 1 分鐘後也會用同一個升級服務自動更新舊助手（`createClaudeHelperAutoUpdate`）：有 Claude 工作時每 10 分鐘再試，
+> 其他失敗每小時再試、最多 6 次；`STEPSEMBLE_CLAUDE_HELPER_AUTO_UPDATE=0` 可關閉，只留設定頁按鈕。
 
 > 3.3.0（2026-09-25）：助手新增 `terminal/start`、`terminal/read`、`terminal/input`、
 > `terminal/cancel`，讓 Claude Code 對話的 `/login`、`/logout`、`/status` 在 Aqua 執行固定的

@@ -3,6 +3,16 @@
 
 const CLIENT_APP_VERSION = "3.6.0";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
+// index.html is a Workspace pane, the Settings window, or the sign-in page the
+// Workspace sends to. Opened any other way (a typed address, an old bookmark
+// or home-screen icon, a pane outside the Workspace) it goes to the Workspace:
+// the single-conversation page with its own session list no longer exists.
+const PAGE_QUERY = new URLSearchParams(location.search);
+const SETTINGS_WINDOW = !WORKSPACE_PANE && PAGE_QUERY.get("settings") === "1";
+const SIGN_IN_PAGE = !WORKSPACE_PANE && !SETTINGS_WINDOW && PAGE_QUERY.get("returnWorkspace") === "1";
+const PAGE_EMBEDDED = (() => { try { return window.top !== window.self; } catch { return true; } })();
+const LEAVING_FOR_WORKSPACE = WORKSPACE_PANE ? !PAGE_EMBEDDED : !SETTINGS_WINDOW && !SIGN_IN_PAGE;
+if (LEAVING_FOR_WORKSPACE) location.replace("/");
 if (WORKSPACE_PANE) {
   document.documentElement.classList.add("workspace-embedded");
   // A split pane can be narrow on a desktop. Use the outer workspace viewport
@@ -958,6 +968,7 @@ document.querySelectorAll("[data-token-os]").forEach((tab) => {
 });
 
 async function boot() {
+  if (LEAVING_FOR_WORKSPACE) return;
   applyAppearance();
   // The model label starts as English markup; render it in the chosen
   // language before any conversation reports its model.
@@ -1114,16 +1125,23 @@ async function hydrateMachineCatalog({ retry = true } = {}) {
 }
 
 let enterAppRequest = null;
-// A sign-in reached from the Workspace returns there once it succeeds.
-function returnToWorkspace() {
-  const query = new URLSearchParams(location.search);
-  if (query.get("returnWorkspace") !== "1") return false;
+// A sign-in reached from the Workspace returns there once it succeeds. The
+// first sign-in on a device shows the setup guide first; the Workspace follows.
+let workspaceAfterGuide = false;
+function workspaceDestination() {
   const destination = new URL("/workspace.html", location.origin);
   for (const key of ["window", "ack", "source"]) {
-    const value = query.get(key);
+    const value = PAGE_QUERY.get(key);
     if (/^[a-f0-9-]{36}$/.test(value) || key === "source" && value === "main") destination.searchParams.set(key, value);
   }
-  location.replace(destination.href);
+  return destination.href;
+}
+function returnToWorkspace() {
+  if (!SIGN_IN_PAGE) return false;
+  workspaceAfterGuide = true;
+  openOnboarding(false);
+  if (el.onboarding && !el.onboarding.classList.contains("hidden")) return true;
+  location.replace(workspaceDestination());
   return true;
 }
 
@@ -1174,11 +1192,10 @@ async function enterApp() {
       // list and keeps retrying, so a sign-in from there returns to it.
       if (returnToWorkspace()) return true;
       if (WORKSPACE_PANE) { waitForPaneHost(); return false; }
-      // Keep the app usable enough to expose the explicit retry path.  Do not
-      // pretend that an empty catalog is a successful first-login state.
+      // The Settings window still opens; its device list shows what failed.
       el.login.classList.add("hidden");
       el.app.classList.remove("hidden");
-      showListSilent();
+      openSettingsWindow();
       return false;
     }
     el.login.classList.add("hidden");
@@ -1193,6 +1210,15 @@ async function enterApp() {
         applyApiBase();
         el.viewList.classList.add("hidden");
         el.viewChat.classList.remove("hidden");
+        // New session in the Workspace asks an agent that is not signed in yet
+        // to sign in here, with that agent's own command in its terminal.
+        const signInAgent = PAGE_QUERY.get("signin");
+        if (signInAgent !== null) {
+          if (!/^[a-z0-9-]{1,40}$/.test(signInAgent)) throw new Error("workspace_entry_not_found");
+          showChatEmpty(); el.chatEmpty.textContent = "";
+          await openAgentTerminal({ agentId: signInAgent, action: "login" });
+          return true;
+        }
         const entry = await api(`/api/workspace/entry?key=${encodeURIComponent(workspaceQuery.get("entry") || "")}`);
         const record = entry.record;
         if (record.agentId === "pi") {
@@ -1212,24 +1238,18 @@ async function enterApp() {
       }
       return true;
     }
-    if (workspaceQuery.get("settings") === "1") {
-      const section = workspaceQuery.get("section");
-      if (section && Object.hasOwn(SETTINGS_TARGET_CATEGORIES, section)) openSettingsSection(section, { root: true });
-      else { showSettings(); syncSettingsNav({ root: true }); }
-      loadVersion();
-      return true;
-    }
-    await showList();
-    // Discover connector availability once the authenticated machine catalog
-    // is ready. The list card and New Project selector then share one snapshot.
-    void loadAgentCatalog();
-    void refreshAgentTasks();
-    void refreshMachineStatuses();
-    loadVersion();
-    setTimeout(() => openOnboarding(false), 350);
+    if (SETTINGS_WINDOW) { openSettingsWindow(); return true; }
+    location.replace("/workspace.html");
     return true;
   })().finally(() => { enterAppRequest = null; });
   return enterAppRequest;
+}
+
+function openSettingsWindow() {
+  const section = PAGE_QUERY.get("section");
+  if (section && Object.hasOwn(SETTINGS_TARGET_CATEGORIES, section)) openSettingsSection(section, { root: true });
+  else { showSettings(); syncSettingsNav({ root: true }); }
+  loadVersion();
 }
 
 el.machineCatalogRetry?.addEventListener("click", () => { void enterApp().catch(() => {}); });
@@ -1260,7 +1280,8 @@ function applyApiBase() {
 }
 
 function switchMachine(id, silent) {
-  if (!machines.some(m => m.id === id)) return;
+  // A pane belongs to one computer; the Workspace picks it.
+  if (WORKSPACE_PANE || !machines.some(m => m.id === id)) return;
   resetAgentHub();
   // Detach only: a sign-in left running on the old host (a device code being
   // approved on a phone, say) keeps going, and /login there attaches to it.
@@ -1276,9 +1297,12 @@ function switchMachine(id, silent) {
   closeChat(preserveRunning); // 切機器時不殺正在執行的工作，閒置 RPC 則正常關閉
   el.viewChat.classList.add("hidden");
   el.viewChat.style.transform = "";
-  resetSettingsOverlay();
-  el.viewSettings.classList.add("hidden");
-  el.viewModelSettings.classList.add("hidden");
+  // The Settings window stays open and shows the chosen device's settings.
+  if (!SETTINGS_WINDOW) {
+    resetSettingsOverlay();
+    el.viewSettings.classList.add("hidden");
+    el.viewModelSettings.classList.add("hidden");
+  }
   selectedId = id;
   resetIncomingGrants();
   saveSelected(id);
@@ -1306,21 +1330,13 @@ function switchMachine(id, silent) {
   resetComposerSummary();
   updateNewProjectAffordance();
   renderMachineSwitch();
-  showListSilent();
+  showChatEmpty();
   void generation;
-  refreshSessions();
   void loadAgentCatalog();
   void refreshMachineStatuses();
   loadVersion();
   if (!silent) toast(`已切換到 ${machineName(id)}`);
   void wasChatOpen;
-}
-
-function showListSilent() {
-  el.viewList.classList.remove("hidden");
-  el.viewSettings.classList.add("hidden");
-  el.viewModelSettings.classList.add("hidden");
-  showChatEmpty();
 }
 
 // ---- 頂欄機器切換下拉 ----
@@ -1533,7 +1549,9 @@ el.tokenNewDone?.addEventListener("click", () => {
 
 function isDesktop() { return matchMedia("(min-width: 980px)").matches; }
 
-function showList(options = {}) {
+// The session list is the Workspace sidebar. Leaving a conversation in a pane
+// empties the pane; any other page goes to the Workspace.
+function showList() {
   saveActiveDraft();
   resetProjectChanges();
   currentSessionCwd = null;
@@ -1542,18 +1560,13 @@ function showList(options = {}) {
   const wasStreaming = !!(rpc && (rpc.streaming || rpc.connectionLost));
   closeChat(wasStreaming); // streaming 中保留進程繼續跑；閒置對話離開時關閉
   showChatEmpty();
-  if (!isDesktop()) el.viewChat.classList.add("hidden");
   el.viewChat.style.transform = "";
   resetSettingsOverlay();
   el.viewSettings.classList.add("hidden");
   el.viewModelSettings.classList.add("hidden");
-  el.viewList.classList.remove("hidden");
-  if (options?.refresh === false) return Promise.resolve();
-  const refresh = refreshSessions({ refreshTasks: false });
-  sessionListReadyPromise = refresh
-    .then(() => refreshAgentTasks())
-    .catch(() => {});
-  return sessionListReadyPromise;
+  if (WORKSPACE_PANE) el.viewChat.classList.remove("hidden");
+  else location.replace("/workspace.html");
+  return Promise.resolve();
 }
 // Back from a conversation. A Workspace pane has no list of its own: its list
 // is the Workspace sidebar, so it asks for that and keeps its conversation.
@@ -1614,8 +1627,7 @@ function hideSettings() {
   resetSettingsOverlay();
   el.viewSettings.classList.add("hidden");
   el.viewModelSettings.classList.add("hidden");
-  el.viewList.classList.remove("hidden");
-  if (new URLSearchParams(location.search).get("settings") === "1") location.replace("/workspace.html");
+  if (SETTINGS_WINDOW) location.replace("/workspace.html");
 }
 
 // ---- 本機用量統計（Settings → About）：最近 7 天的 token／成本條列。
@@ -1698,7 +1710,6 @@ function showSettings() {
   settingsCategory = null;
   if (el.setDesignTheme) el.setDesignTheme.hidden = true;
   el.viewModelSettings.classList.add("hidden");
-  el.viewList.classList.remove("hidden");
   // Render after the settings view is visible so remote trust/status loaders
   // are not discarded by their visibility guard on the first open.
   el.viewSettings.classList.remove("hidden");
@@ -10390,7 +10401,8 @@ function approvalModeText(agentId, mode) {
     ? { "read-only": "codex.readOnly", workspace: "codex.workspace", "full-access": "codex.fullAccess", custom: "codex.custom" }
     : agentId === "claude-code"
       ? { default: "claude.manual", acceptEdits: "claude.acceptEdits", plan: "claude.plan", auto: "claude.auto", dontAsk: "claude.dontAsk", bypassPermissions: "claude.bypass" }
-      : {};
+      // Grok Build's two modes mean the same as Claude Code's.
+      : agentId === "grok-build" ? { default: "claude.manual", plan: "claude.plan" } : {};
   const key = Object.hasOwn(keys, mode?.id) ? keys[mode.id] : null;
   // Claude Code's own short titles keep the chip readable on a phone.
   const short = key === "claude.acceptEdits" || key === "claude.bypass" ? tKey("approval." + key + ".short") : null;
@@ -11082,7 +11094,8 @@ function buildCommandItems() {
     const name = sessionDisplayTitle(s).slice(0, 70);
     items.push({ kind: "session", label: name, run: () => openExisting(s) });
   }
-  for (const m of machines) {
+  // A pane belongs to one computer, so it offers no computer switch.
+  for (const m of WORKSPACE_PANE ? [] : machines) {
     items.push({ kind: "machine", tag: "⇄", label: m.name || m.id || m.host || String(m.id || ""), run: () => switchMachine(m.id) });
   }
   // Long-page jump targets: Settings has 12 groups, so a phone user should not
@@ -11589,7 +11602,14 @@ function closeAgentTerminal({ silent = false, detach = false } = {}) {
   }
   el.agentTerminal?.classList.add("hidden");
   if (el.agentTerminalInput) { el.agentTerminalInput.value = ""; el.agentTerminalInput.type = "text"; }
+  notifyWorkspaceSignIn(term, "closed");
   if (!silent) el.input?.focus({ preventScroll: true });
+}
+
+// A sign-in opened from the Workspace's New session reports back to it.
+function notifyWorkspaceSignIn(term, state) {
+  if (!WORKSPACE_PANE || term?.action !== "login" || PAGE_QUERY.get("signin") !== term.agentId) return;
+  parent.postMessage({ type: "workspace-signin", agentId: term.agentId, state, completed: term.state === "completed" }, location.origin);
 }
 
 function requestCloseAgentTerminal() {
@@ -11612,6 +11632,7 @@ function finishAgentTerminal(term, state, code = null) {
     if (term.agentId === "pi") void loadModelVisibility(true, true);
   }
   renderAgentTerminal();
+  notifyWorkspaceSignIn(term, state);
 }
 
 async function prepareAgentTerminal(term) {
@@ -12871,77 +12892,77 @@ const ONBOARDING_ACTIONABLE_STEPS = {
     { eyebrow: "TOKEN & SIGN-IN", title: "Find your Web token", body: "The installer creates a private Web token on the computer running Stepsemble. On that computer, open Terminal and run cat ~/.config/stepsemble/token, then paste it here. From another device, retrieve it securely from that host.", points: ["Never share the token in chat, screenshots, repositories, or logs.", "If STEPSEMBLE_TOKEN_FILE is configured, use that file instead of the default path."] },
     { eyebrow: "DEVICES", title: "Connect another computer", body: "Install and run Stepsemble on each additional computer. Use Tailscale or HTTPS, then open Settings → Devices → Add device, or use a five-minute pairing code.", points: ["Prefer one-time pairing for an independent, revocable credential; only manual URL entry requires the same Web token.", "Never expose public port 3140 to an untrusted network."] },
     { eyebrow: "MODELS & SIGN-IN", title: "Sign in and choose models", body: "Type /login in a conversation with any agent; it runs that agent's own sign-in on the host. Settings → Agents & models → Models & providers shows each agent's models and settings.", points: ["Credentials stay with each agent on the selected host.", "Quota sources show subscription and API limits, including from OpenCodex."] },
-    { eyebrow: "PROJECT", title: "Choose a folder and start", body: "Open New project, choose a folder on this host, optionally name the session, and select Start here.", points: ["The folder picker starts at the host home when allowed, otherwise at an allowed root.", "You can return to this guide from Settings → About → Setup guide."] },
+    { eyebrow: "PROJECT", title: "Choose a folder and start", body: "In the Workspace, choose Add project and pick a folder on this host. Then choose New session in that project, pick an agent, optionally name it, and create it.", points: ["The folder picker starts at the host home when allowed, otherwise at an allowed root.", "You can return to this guide from Settings → About → Setup guide."] },
   ],
   "zh-Hans": [
     { eyebrow: "欢迎", title: "欢迎使用", body: "Stepsemble 会将 Pi Agent、会话、凭证和项目保留在选定的电脑上。", points: ["现在选择语言和外观，之后都可以更改。"] },
     { eyebrow: "TOKEN 与登录", title: "找到 Web token", body: "安装程序会在运行 Stepsemble 的电脑上创建私密 Web token。在那台电脑打开终端并运行 cat ~/.config/stepsemble/token，然后将结果粘贴到这里。在其他设备上，请从该主机安全地取得 token。", points: ["绝不要在聊天、截图、代码仓库或日志中分享 token。", "如果配置了 STEPSEMBLE_TOKEN_FILE，请使用该文件，而不是默认路径。"] },
     { eyebrow: "设备", title: "连接另一台电脑", body: "在每台额外的电脑上安装并运行 Stepsemble。使用 Tailscale 或 HTTPS，然后打开“设置 → 设备 → 添加设备”，也可以使用五分钟有效的一次性配对码。", points: ["优先使用一次性配对来取得独立且可撤销的凭证；只有手动输入网址时才需要相同的 Web token。", "不要将公共 3140 端口暴露给不受信任的网络。"] },
     { eyebrow: "模型与登录", title: "登录并选择模型", body: "在任何 Agent 的对话输入 /login，会在主机上运行该 Agent 自己的登录。“设置 → Agent 与模型 → 模型与 Provider”会显示每个 Agent 的模型与设置。", points: ["凭证留在所选主机上各 Agent 自己那里。", "“额度来源”会显示订阅与 API 额度，包括来自 OpenCodex 的数据。"] },
-    { eyebrow: "项目", title: "选择文件夹并开始", body: "打开“新建项目”，选择这台主机上的文件夹，可选填写会话名称，然后选择“从这里开始”。", points: ["文件夹选择器会在获准时从主机主目录开始，否则从获准的根目录开始。", "以后可以从“设置 → 关于 → 设置导览”再次打开本指南。"] },
+    { eyebrow: "项目", title: "选择文件夹并开始", body: "在 Workspace 选择“添加项目”并选好这台主机上的文件夹，再在该项目中选择“新建会话”，选好 Agent、可选填写名称，然后创建。", points: ["文件夹选择器会在获准时从主机主目录开始，否则从获准的根目录开始。", "以后可以从“设置 → 关于 → 设置导览”再次打开本指南。"] },
   ],
   "zh-Hant": [
     { eyebrow: "歡迎", title: "歡迎使用", body: "Stepsemble 會將 Pi Agent、工作階段、憑證與專案保留在選定的電腦上。", points: ["現在選擇語言與外觀，之後都可以更改。"] },
     { eyebrow: "TOKEN 與登入", title: "找到 Web token", body: "安裝程式會在執行 Stepsemble 的電腦上建立私密 Web token。在該電腦開啟終端機並執行 cat ~/.config/stepsemble/token，然後將結果貼到這裡。在其他裝置上，請從該主機安全地取得 token。", points: ["絕不要在聊天、截圖、程式碼儲存庫或日誌中分享 token。", "如果設定了 STEPSEMBLE_TOKEN_FILE，請使用該檔案，不要使用預設路徑。"] },
     { eyebrow: "裝置", title: "連接另一台電腦", body: "在每台額外的電腦上安裝並執行 Stepsemble。使用 Tailscale 或 HTTPS，然後開啟「設定 → 設備 → 新增設備」，也可以使用五分鐘有效的一次性配對碼。", points: ["優先使用一次性配對來取得獨立且可撤銷的憑證；只有手動輸入網址時才需要相同的 Web token。", "不要將公開的 3140 port 暴露給不受信任的網路。"] },
     { eyebrow: "模型與登入", title: "登入並選擇模型", body: "在任何 Agent 的對話輸入 /login，會在主機上執行該 Agent 自己的登入。「設定 → Agent 與模型 → 模型與 Provider」會顯示每個 Agent 的模型與設定。", points: ["憑證留在所選主機上各 Agent 自己那裡。", "「額度來源」會顯示訂閱與 API 額度，包括來自 OpenCodex 的資料。"] },
-    { eyebrow: "專案", title: "選擇資料夾並開始", body: "開啟「新增專案」，選擇這台主機上的資料夾，可選填寫工作階段名稱，然後選擇「在這裡開始」。", points: ["資料夾選擇器會在獲准時從主機家目錄開始，否則從獲准的根目錄開始。", "之後可以從「設定 → 關於 → 設定導覽」再次開啟本指南。"] },
+    { eyebrow: "專案", title: "選擇資料夾並開始", body: "在 Workspace 選擇「新增專案」並選好這台主機上的資料夾，再在該專案中選擇「新增對話」，選好 Agent、可選填寫名稱，然後建立。", points: ["資料夾選擇器會在獲准時從主機家目錄開始，否則從獲准的根目錄開始。", "之後可以從「設定 → 關於 → 設定導覽」再次開啟本指南。"] },
   ],
   ja: [
     { eyebrow: "ようこそ", title: "Stepsemble へようこそ", body: "Stepsemble は Pi Agent、セッション、認証情報、プロジェクトを選択したコンピューターに保管します。", points: ["言語と外観は今選択でき、後から変更できます。"] },
     { eyebrow: "トークンとサインイン", title: "Web トークンを確認", body: "インストーラーは Stepsemble を実行するコンピューターに非公開の Web トークンを作成します。そのコンピューターでターミナルを開き、cat ~/.config/stepsemble/token を実行して、結果をここに貼り付けます。別のデバイスでは、そのホストから安全にトークンを取得してください。", points: ["トークンをチャット、スクリーンショット、リポジトリ、ログで共有しないでください。", "カスタムの STEPSEMBLE_TOKEN_FILE を設定している場合は、既定のパスではなくそのファイルを使います。"] },
     { eyebrow: "デバイス", title: "別のコンピューターを接続", body: "追加する各コンピューターに Stepsemble をインストールして実行します。Tailscale または HTTPS を使い、「設定 → デバイス → デバイスを追加」を開くか、5 分間有効なペアリングコードを使います。", points: ["独立して取り消せる認証情報にはワンタイムペアリングを使います。同じ Web トークンが必要なのは URL を手動入力する場合だけです。", "公開ポート 3140 を信頼できないネットワークに公開しないでください。"] },
     { eyebrow: "モデルとサインイン", title: "サインインしてモデルを選ぶ", body: "どのエージェントでも、会話で /login と入力すると、ホスト上でそのエージェント自身のサインインが動きます。「設定 → エージェントとモデル → モデルとプロバイダー」に各エージェントのモデルと設定があります。", points: ["認証情報は、選択したホスト上の各エージェントに残ります。", "「利用枠の取得元」で、OpenCodex などからのサブスクリプションと API の上限を確認できます。"] },
-    { eyebrow: "プロジェクト", title: "フォルダーを選んで開始", body: "「新しいプロジェクト」を開き、このホストのフォルダーを選び、必要ならセッション名を入力して「ここから開始」を選択します。", points: ["フォルダー選択は、許可されていればホストのホームから、それ以外は許可されたルートから始まります。", "後で「設定 → 概要 → セットアップガイド」から再び開けます。"] },
+    { eyebrow: "プロジェクト", title: "フォルダーを選んで開始", body: "Workspace で「プロジェクトを追加」を選び、このホストのフォルダーを選びます。次にそのプロジェクトで「新しい会話」を選び、エージェントを選んで、必要なら名前を入力して作成します。", points: ["フォルダー選択は、許可されていればホストのホームから、それ以外は許可されたルートから始まります。", "後で「設定 → 概要 → セットアップガイド」から再び開けます。"] },
   ],
   ko: [
     { eyebrow: "환영합니다", title: "Stepsemble에 오신 것을 환영합니다", body: "Stepsemble는 Pi Agent, 세션, 자격 증명과 프로젝트를 선택한 컴퓨터에 보관합니다.", points: ["지금 언어와 화면 모드를 선택할 수 있으며 나중에 변경할 수 있습니다."] },
     { eyebrow: "토큰 및 로그인", title: "Web 토큰 찾기", body: "설치 프로그램이 Stepsemble를 실행하는 컴퓨터에 비공개 Web 토큰을 만듭니다. 해당 컴퓨터에서 터미널을 열고 cat ~/.config/stepsemble/token을 실행한 뒤 결과를 여기에 붙여넣으세요. 다른 기기에서는 해당 호스트에서 토큰을 안전하게 가져오세요.", points: ["토큰을 채팅, 스크린샷, 저장소 또는 로그에 절대 공유하지 마세요.", "사용자 지정 STEPSEMBLE_TOKEN_FILE을 설정했다면 기본 경로 대신 해당 파일을 사용하세요."] },
     { eyebrow: "기기", title: "다른 컴퓨터 연결", body: "추가할 각 컴퓨터에 Stepsemble를 설치하고 실행하세요. Tailscale 또는 HTTPS를 사용한 뒤 ‘설정 → 기기 → 기기 추가’를 열거나 5분 동안 유효한 페어링 코드를 사용하세요.", points: ["독립적으로 취소할 수 있는 인증 정보에는 일회용 페어링을 사용하세요. 같은 Web 토큰은 URL을 수동으로 입력할 때만 필요합니다.", "공개 포트 3140을 신뢰할 수 없는 네트워크에 노출하지 마세요."] },
     { eyebrow: "모델 및 로그인", title: "로그인하고 모델 선택", body: "어떤 에이전트든 대화에서 /login을 입력하면 호스트에서 그 에이전트 자체의 로그인이 실행됩니다. ‘설정 → 에이전트와 모델 → 모델 및 Provider’에서 각 에이전트의 모델과 설정을 볼 수 있습니다.", points: ["자격 증명은 선택한 호스트의 각 에이전트에 남습니다.", "‘한도 출처’에서 OpenCodex 등의 구독 및 API 한도를 볼 수 있습니다."] },
-    { eyebrow: "프로젝트", title: "폴더를 선택하고 시작", body: "‘새 프로젝트’를 열고 이 호스트의 폴더를 선택한 다음 세션 이름을 입력하고 ‘여기서 시작’을 누르세요.", points: ["폴더 선택기는 허용된 경우 호스트 홈에서, 그렇지 않으면 허용된 루트에서 시작합니다.", "나중에 ‘설정 → 정보 → 설정 안내’에서 이 안내를 다시 열 수 있습니다."] },
+    { eyebrow: "프로젝트", title: "폴더를 선택하고 시작", body: "Workspace에서 ‘프로젝트 추가’를 선택해 이 호스트의 폴더를 고르세요. 그런 다음 그 프로젝트에서 ‘새 세션’을 선택하고 에이전트를 고른 뒤, 필요하면 이름을 입력해 만드세요.", points: ["폴더 선택기는 허용된 경우 호스트 홈에서, 그렇지 않으면 허용된 루트에서 시작합니다.", "나중에 ‘설정 → 정보 → 설정 안내’에서 이 안내를 다시 열 수 있습니다."] },
   ],
   tr: [
     { eyebrow: "HOŞ GELDİNİZ", title: "Stepsemble'a hoş geldiniz", body: "Stepsemble; Pi Agent'ı, oturumları, kimlik bilgilerini ve projeleri seçtiğiniz bilgisayarda tutar.", points: ["Dil ve görünümü şimdi seçebilirsiniz; daha sonra da değiştirebilirsiniz."] },
     { eyebrow: "TOKEN VE GİRİŞ", title: "Web token'ını bulun", body: "Yükleyici, Stepsemble'ı çalıştıran bilgisayarda özel bir Web token'ı oluşturur. Bu bilgisayarda Terminal'i açıp cat ~/.config/stepsemble/token komutunu çalıştırın ve sonucu buraya yapıştırın. Başka bir cihazda token'ı bu ana bilgisayardan güvenli şekilde alın.", points: ["Token'ı sohbetlerde, ekran görüntülerinde, depolarda veya günlüklerde asla paylaşmayın.", "Özel bir STEPSEMBLE_TOKEN_FILE yapılandırıldıysa varsayılan yol yerine bu dosyayı kullanın."] },
     { eyebrow: "CİHAZLAR", title: "Başka bir bilgisayarı bağlayın", body: "Eklediğiniz her bilgisayara Stepsemble'i yükleyip çalıştırın. Tailscale veya HTTPS kullanın; ardından Ayarlar → Cihazlar → Cihaz ekle yolunu açın ya da beş dakika geçerli bir eşleştirme kodu kullanın.", points: ["Bağımsız ve iptal edilebilir kimlik bilgisi için tek kullanımlık eşleştirmeyi tercih edin; aynı Web token'ı yalnızca URL elle girildiğinde gerekir.", "3140 numaralı genel bağlantı noktasını güvenilmeyen bir ağa açmayın."] },
     { eyebrow: "MODELLER VE OTURUM", title: "Oturum açın ve model seçin", body: "Herhangi bir ajanla sohbette /login yazın; ana makinede o ajanın kendi oturum açma komutu çalışır. Ayarlar → Ajanlar ve modeller → Modeller ve sağlayıcılar her ajanın modellerini ve ayarlarını gösterir.", points: ["Kimlik bilgileri seçili ana makinede her ajanın kendisinde kalır.", "Kota kaynakları, OpenCodex dahil abonelik ve API sınırlarını gösterir."] },
-    { eyebrow: "PROJE", title: "Klasör seçip başlayın", body: "Yeni proje'yi açın, bu ana bilgisayardaki bir klasörü seçin, isteğe bağlı oturum adını yazın ve Buradan başla'yı seçin.", points: ["Klasör seçici izin verilmişse ana bilgisayarın ana klasöründe, aksi halde izin verilen bir kökte başlar.", "Bu rehberi daha sonra Ayarlar → Hakkında → Kurulum rehberi bölümünden açabilirsiniz."] },
+    { eyebrow: "PROJE", title: "Klasör seçip başlayın", body: "Workspace'te Proje ekle'yi seçip bu ana bilgisayardaki bir klasörü seçin. Ardından o projede Yeni oturum'u seçin, bir ajan seçin, isterseniz ad verin ve oluşturun.", points: ["Klasör seçici izin verilmişse ana bilgisayarın ana klasöründe, aksi halde izin verilen bir kökte başlar.", "Bu rehberi daha sonra Ayarlar → Hakkında → Kurulum rehberi bölümünden açabilirsiniz."] },
   ],
   fr: [
     { eyebrow: "BIENVENUE", title: "Bienvenue sur Stepsemble", body: "Stepsemble conserve l’agent Pi, les sessions, les identifiants et les projets sur l’ordinateur sélectionné.", points: ["Choisissez la langue et l’apparence maintenant ; vous pourrez les modifier plus tard."] },
     { eyebrow: "JETON ET CONNEXION", title: "Trouver votre jeton Web", body: "L’installeur crée un jeton Web privé sur l’ordinateur qui exécute Stepsemble. Sur cet ordinateur, ouvrez le Terminal et exécutez cat ~/.config/stepsemble/token, puis collez le résultat ici. Depuis un autre appareil, récupérez le jeton en toute sécurité sur cet hôte.", points: ["Ne partagez jamais le jeton dans un chat, une capture d’écran, un dépôt ou un journal.", "Si un STEPSEMBLE_TOKEN_FILE personnalisé est configuré, utilisez ce fichier plutôt que le chemin par défaut."] },
     { eyebrow: "APPAREILS", title: "Connecter un autre ordinateur", body: "Installez et lancez Stepsemble sur chaque ordinateur supplémentaire. Utilisez Tailscale ou HTTPS, puis ouvrez Réglages → Appareils → Ajouter un appareil, ou utilisez un code d’association valable cinq minutes.", points: ["Préférez l’association à usage unique pour un identifiant indépendant et révocable ; le même jeton Web n’est requis que pour la saisie manuelle d’une URL.", "N’exposez jamais le port public 3140 à un réseau non fiable."] },
     { eyebrow: "MODÈLES ET CONNEXION", title: "Se connecter et choisir les modèles", body: "Tapez /login dans une conversation avec n’importe quel agent : la connexion propre à cet agent s’exécute sur l’hôte. Réglages → Agents et modèles → Modèles et fournisseurs affiche les modèles et réglages de chaque agent.", points: ["Les identifiants restent auprès de chaque agent sur l’hôte sélectionné.", "Les sources des quotas affichent les limites d’abonnement et d’API, y compris depuis OpenCodex."] },
-    { eyebrow: "PROJET", title: "Choisir un dossier et commencer", body: "Ouvrez Nouveau projet, choisissez un dossier sur cet hôte, indiquez éventuellement le nom de la session, puis sélectionnez Commencer ici.", points: ["Le sélecteur commence dans le dossier personnel de l’hôte s’il est autorisé, sinon dans une racine autorisée.", "Vous pourrez rouvrir ce guide dans Réglages → À propos → Guide de configuration."] },
+    { eyebrow: "PROJET", title: "Choisir un dossier et commencer", body: "Dans le Workspace, choisissez Ajouter un projet et un dossier sur cet hôte. Ensuite, dans ce projet, choisissez Nouvelle session, un agent, éventuellement un nom, puis créez-la.", points: ["Le sélecteur commence dans le dossier personnel de l’hôte s’il est autorisé, sinon dans une racine autorisée.", "Vous pourrez rouvrir ce guide dans Réglages → À propos → Guide de configuration."] },
   ],
   de: [
     { eyebrow: "WILLKOMMEN", title: "Willkommen bei Stepsemble", body: "Stepsemble bewahrt Pi Agent, Sitzungen, Zugangsdaten und Projekte auf dem ausgewählten Computer auf.", points: ["Wählen Sie Sprache und Darstellung jetzt aus; beides lässt sich später ändern."] },
     { eyebrow: "TOKEN UND ANMELDUNG", title: "Web-Token finden", body: "Das Installationsprogramm erstellt ein privates Web-Token auf dem Computer, auf dem Stepsemble läuft. Öffnen Sie dort das Terminal und führen Sie cat ~/.config/stepsemble/token aus. Fügen Sie das Ergebnis hier ein. Rufen Sie das Token auf einem anderen Gerät sicher von diesem Host ab.", points: ["Teilen Sie das Token niemals in Chats, Screenshots, Repositories oder Protokollen.", "Wenn ein eigenes STEPSEMBLE_TOKEN_FILE konfiguriert ist, verwenden Sie diese Datei statt des Standardpfads."] },
     { eyebrow: "GERÄTE", title: "Anderen Computer verbinden", body: "Installieren und starten Sie Stepsemble auf jedem weiteren Computer. Verwenden Sie Tailscale oder HTTPS und öffnen Sie Einstellungen → Geräte → Gerät hinzufügen oder verwenden Sie einen fünf Minuten gültigen Kopplungscode.", points: ["Bevorzugen Sie die einmalige Kopplung für eine unabhängige, widerrufbare Anmeldung; dasselbe Web-Token ist nur bei manueller URL-Eingabe erforderlich.", "Geben Sie den öffentlichen Port 3140 nie in einem nicht vertrauenswürdigen Netzwerk frei."] },
     { eyebrow: "MODELLE UND ANMELDUNG", title: "Anmelden und Modelle wählen", body: "Geben Sie in einer Unterhaltung mit einem beliebigen Agenten /login ein; auf dem Host läuft dann dessen eigene Anmeldung. Einstellungen → Agenten & Modelle → Modelle und Anbieter zeigt Modelle und Einstellungen jedes Agenten.", points: ["Zugangsdaten bleiben beim jeweiligen Agenten auf dem ausgewählten Host.", "Kontingentquellen zeigen Abo- und API-Limits, auch aus OpenCodex."] },
-    { eyebrow: "PROJEKT", title: "Ordner auswählen und starten", body: "Öffnen Sie Neues Projekt, wählen Sie einen Ordner auf diesem Host, geben Sie optional einen Sitzungsnamen ein und wählen Sie Hier starten.", points: ["Die Ordnerauswahl beginnt im Home-Ordner des Hosts, wenn er erlaubt ist, andernfalls in einer erlaubten Wurzel.", "Sie können den Assistenten später unter Einstellungen → Über → Einrichtungsassistent erneut öffnen."] },
+    { eyebrow: "PROJEKT", title: "Ordner auswählen und starten", body: "Wählen Sie im Workspace Projekt hinzufügen und einen Ordner auf diesem Host. Wählen Sie dann in diesem Projekt Neue Sitzung, einen Agenten und optional einen Namen, und erstellen Sie sie.", points: ["Die Ordnerauswahl beginnt im Home-Ordner des Hosts, wenn er erlaubt ist, andernfalls in einer erlaubten Wurzel.", "Sie können den Assistenten später unter Einstellungen → Über → Einrichtungsassistent erneut öffnen."] },
   ],
   es: [
     { eyebrow: "BIENVENIDA", title: "Bienvenido a Stepsemble", body: "Stepsemble conserva el agente Pi, las sesiones, las credenciales y los proyectos en el ordenador seleccionado.", points: ["Elige ahora el idioma y la apariencia; podrás cambiarlos más adelante."] },
     { eyebrow: "TOKEN E INICIO DE SESIÓN", title: "Encuentra tu token web", body: "El instalador crea un token web privado en el ordenador que ejecuta Stepsemble. En ese ordenador, abre Terminal y ejecuta cat ~/.config/stepsemble/token; después pega el resultado aquí. Desde otro dispositivo, recupera el token de forma segura en ese equipo anfitrión.", points: ["Nunca compartas el token en chats, capturas de pantalla, repositorios ni registros.", "Si se ha configurado un STEPSEMBLE_TOKEN_FILE personalizado, usa ese archivo en lugar de la ruta predeterminada."] },
     { eyebrow: "DISPOSITIVOS", title: "Conecta otro ordenador", body: "Instala y ejecuta Stepsemble en cada ordenador adicional. Usa Tailscale o HTTPS y abre Ajustes → Dispositivos → Añadir dispositivo, o utiliza un código de emparejamiento válido durante cinco minutos.", points: ["Prefiere el emparejamiento de un solo uso para obtener una credencial independiente y revocable; el mismo token web solo se necesita al introducir la URL manualmente.", "No expongas el puerto público 3140 directamente a una red que no sea de confianza."] },
     { eyebrow: "MODELOS E INICIO DE SESIÓN", title: "Inicia sesión y elige modelos", body: "Escribe /login en una conversación con cualquier agente; en el equipo se ejecuta el inicio de sesión propio de ese agente. Ajustes → Agentes y modelos → Modelos y proveedores muestra los modelos y ajustes de cada agente.", points: ["Las credenciales quedan con cada agente en el equipo seleccionado.", "Las fuentes de cuota muestran los límites de suscripción y de API, también desde OpenCodex."] },
-    { eyebrow: "PROYECTO", title: "Elige una carpeta y empieza", body: "Abre Nuevo proyecto, elige una carpeta en este equipo anfitrión, escribe opcionalmente el nombre de la sesión y selecciona Empezar aquí.", points: ["El selector empieza en la carpeta personal del equipo si está permitida; de lo contrario, en una raíz permitida.", "Puedes volver a abrir esta guía desde Ajustes → Acerca de → Guía de configuración."] },
+    { eyebrow: "PROYECTO", title: "Elige una carpeta y empieza", body: "En el Workspace, elige Añadir proyecto y una carpeta de este equipo anfitrión. Después, en ese proyecto, elige Nueva sesión, un agente y, si quieres, un nombre, y créala.", points: ["El selector empieza en la carpeta personal del equipo si está permitida; de lo contrario, en una raíz permitida.", "Puedes volver a abrir esta guía desde Ajustes → Acerca de → Guía de configuración."] },
   ],
   "pt-BR": [
     { eyebrow: "BOAS-VINDAS", title: "Bem-vindo ao Stepsemble", body: "O Stepsemble mantém o Pi Agent, as sessões, as credenciais e os projetos no computador selecionado.", points: ["Escolha o idioma e a aparência agora; ambos podem ser alterados depois."] },
     { eyebrow: "TOKEN E LOGIN", title: "Encontre seu token Web", body: "O instalador cria um token Web privado no computador que executa o Stepsemble. Nesse computador, abra o Terminal e execute cat ~/.config/stepsemble/token; depois cole o resultado aqui. Em outro dispositivo, obtenha o token com segurança nesse host.", points: ["Nunca compartilhe o token em chats, capturas de tela, repositórios ou logs.", "Se um STEPSEMBLE_TOKEN_FILE personalizado estiver configurado, use esse arquivo em vez do caminho padrão."] },
     { eyebrow: "DISPOSITIVOS", title: "Conecte outro computador", body: "Instale e execute o Stepsemble em cada computador adicional. Use Tailscale ou HTTPS e abra Configurações → Dispositivos → Adicionar dispositivo, ou use um código de pareamento válido por cinco minutos.", points: ["Prefira o pareamento de uso único para obter uma credencial independente e revogável; o mesmo token Web só é necessário ao informar a URL manualmente.", "Não exponha a porta pública 3140 diretamente a uma rede não confiável."] },
     { eyebrow: "MODELOS E LOGIN", title: "Entre e escolha os modelos", body: "Digite /login em uma conversa com qualquer agente; o login do próprio agente roda no host. Configurações → Agentes e modelos → Modelos e provedores mostra os modelos e as configurações de cada agente.", points: ["As credenciais ficam com cada agente no host selecionado.", "As fontes de cota mostram os limites de assinatura e de API, inclusive do OpenCodex."] },
-    { eyebrow: "PROJETO", title: "Escolha uma pasta e comece", body: "Abra Novo projeto, escolha uma pasta neste host, informe opcionalmente o nome da sessão e selecione Começar aqui.", points: ["O seletor começa na pasta pessoal do host quando ela é permitida; caso contrário, em uma raiz permitida.", "Você pode reabrir este guia em Configurações → Sobre → Guia de configuração."] },
+    { eyebrow: "PROJETO", title: "Escolha uma pasta e comece", body: "No Workspace, escolha Adicionar projeto e uma pasta neste host. Depois, nesse projeto, escolha Nova sessão, um agente e, se quiser, um nome, e crie a sessão.", points: ["O seletor começa na pasta pessoal do host quando ela é permitida; caso contrário, em uma raiz permitida.", "Você pode reabrir este guia em Configurações → Sobre → Guia de configuração."] },
   ],
   it: [
     { eyebrow: "BENVENUTO", title: "Benvenuto in Stepsemble", body: "Stepsemble conserva Pi Agent, sessioni, credenziali e progetti sul computer selezionato.", points: ["Scegli ora lingua e aspetto; potrai modificarli in seguito."] },
     { eyebrow: "TOKEN E ACCESSO", title: "Trova il token Web", body: "Il programma di installazione crea un token Web privato sul computer che esegue Stepsemble. Su quel computer apri Terminale ed esegui cat ~/.config/stepsemble/token, quindi incolla il risultato qui. Da un altro dispositivo, recupera il token in modo sicuro da quell’host.", points: ["Non condividere mai il token in chat, schermate, repository o log.", "Se è configurato un STEPSEMBLE_TOKEN_FILE personalizzato, usa quel file invece del percorso predefinito."] },
     { eyebrow: "DISPOSITIVI", title: "Collega un altro computer", body: "Installa e avvia Stepsemble su ogni computer aggiuntivo. Usa Tailscale o HTTPS, quindi apri Impostazioni → Dispositivi → Aggiungi dispositivo oppure usa un codice di abbinamento valido cinque minuti.", points: ["Preferisci l’abbinamento una tantum per una credenziale indipendente e revocabile; lo stesso token Web serve solo quando inserisci manualmente l’URL.", "Non esporre la porta pubblica 3140 a una rete non attendibile."] },
     { eyebrow: "MODELLI E ACCESSO", title: "Accedi e scegli i modelli", body: "Digita /login in una conversazione con qualsiasi agent: sull’host si avvia l’accesso proprio di quell’agent. Impostazioni → Agenti e modelli → Modelli e provider mostra i modelli e le impostazioni di ogni agent.", points: ["Le credenziali restano presso ciascun agent sull’host selezionato.", "Le fonti delle quote mostrano i limiti di abbonamento e API, anche da OpenCodex."] },
-    { eyebrow: "PROGETTO", title: "Scegli una cartella e inizia", body: "Apri Nuovo progetto, scegli una cartella su questo host, inserisci facoltativamente il nome della sessione e seleziona Inizia qui.", points: ["Il selettore parte dalla cartella home dell’host se autorizzata, altrimenti da una radice autorizzata.", "Puoi riaprire questa guida da Impostazioni → Informazioni → Guida alla configurazione."] },
+    { eyebrow: "PROGETTO", title: "Scegli una cartella e inizia", body: "Nel Workspace scegli Aggiungi progetto e una cartella su questo host. Poi, in quel progetto, scegli Nuova sessione, un agent e, se vuoi, un nome, e creala.", points: ["Il selettore parte dalla cartella home dell’host se autorizzata, altrimenti da una radice autorizzata.", "Puoi riaprire questa guida da Impostazioni → Informazioni → Guida alla configurazione."] },
   ],
 };
 for (const [locale, steps] of Object.entries(ONBOARDING_ACTIONABLE_STEPS)) {
@@ -12952,17 +12973,17 @@ for (const [locale, steps] of Object.entries(ONBOARDING_ACTIONABLE_STEPS)) {
 // Keep it localized here because onboarding copy is intentionally rendered
 // outside the generic DOM translator.
 const ONBOARDING_GESTURE_TIPS = {
-  en: "Pull down to refresh; swipe from the left edge in a conversation or Settings to go back; long-press a session to rename or delete",
-  "zh-Hans": "下拉刷新；在对话或设置中从左侧边缘向右滑返回；长按会话可重命名或删除。",
-  "zh-Hant": "下拉重新整理；在對話或設定中從左側邊緣向右滑可返回；長按工作階段可重新命名或刪除。",
-  ja: "下に引いて更新、会話または設定で左端からスワイプして戻り、セッションを長押しして名前変更や削除ができます。",
-  ko: "세션 목록을 아래로 당겨 새로 고치고, 대화나 설정에서는 왼쪽 가장자리에서 밀어 뒤로 가며, 세션을 길게 눌러 이름을 바꾸거나 삭제할 수 있습니다.",
-  tr: "Yenilemek için aşağı çekin; konuşma veya Ayarlar'dan geri dönmek için sol kenardan kaydırın; bir oturumu yeniden adlandırmak veya silmek için uzun basın.",
-  fr: "Tirez vers le bas pour actualiser ; dans une conversation ou les réglages, balayez depuis le bord gauche pour revenir ; appuyez longuement sur une session pour la renommer ou la supprimer.",
-  de: "Zum Aktualisieren nach unten ziehen; in einer Unterhaltung oder den Einstellungen vom linken Rand wischen, um zurückzugehen; eine Sitzung zum Umbenennen oder Löschen gedrückt halten.",
-  es: "Desliza hacia abajo para actualizar; en una conversación o en Ajustes, desliza desde el borde izquierdo para volver; mantén pulsada una sesión para cambiarle el nombre o eliminarla.",
-  "pt-BR": "Puxe para baixo para atualizar; em uma conversa ou nas configurações, deslize da borda esquerda para voltar; mantenha uma sessão pressionada para renomeá-la ou excluí-la.",
-  it: "Trascina verso il basso per aggiornare; in una conversazione o nelle impostazioni, scorri dal bordo sinistro per tornare indietro; tieni premuta una sessione per rinominarla o eliminarla.",
+  en: "Swipe from the left edge in a conversation or Settings to go back; rename, export or delete a conversation from its ⋯ menu",
+  "zh-Hans": "在对话或设置中从左侧边缘向右滑可返回；在对话的 ⋯ 菜单中可重命名、导出或删除。",
+  "zh-Hant": "在對話或設定中從左側邊緣向右滑可返回；在對話的 ⋯ 選單中可重新命名、匯出或刪除。",
+  ja: "会話または設定で左端からスワイプすると戻ります。会話の ⋯ メニューから名前変更、書き出し、削除ができます。",
+  ko: "대화나 설정에서 왼쪽 가장자리에서 밀면 뒤로 갑니다. 대화의 ⋯ 메뉴에서 이름 바꾸기, 내보내기, 삭제를 할 수 있습니다.",
+  tr: "Konuşma veya Ayarlar'dan geri dönmek için sol kenardan kaydırın; bir konuşmayı ⋯ menüsünden yeniden adlandırın, dışa aktarın veya silin.",
+  fr: "Dans une conversation ou les réglages, balayez depuis le bord gauche pour revenir ; renommez, exportez ou supprimez une conversation depuis son menu ⋯.",
+  de: "In einer Unterhaltung oder den Einstellungen vom linken Rand wischen, um zurückzugehen; eine Unterhaltung über ihr ⋯-Menü umbenennen, exportieren oder löschen.",
+  es: "En una conversación o en Ajustes, desliza desde el borde izquierdo para volver; cambia el nombre, exporta o elimina una conversación desde su menú ⋯.",
+  "pt-BR": "Em uma conversa ou nas configurações, deslize da borda esquerda para voltar; renomeie, exporte ou exclua uma conversa pelo menu ⋯.",
+  it: "In una conversazione o nelle impostazioni, scorri dal bordo sinistro per tornare indietro; rinomina, esporta o elimina una conversazione dal suo menu ⋯.",
 };
 for (const [locale, tip] of Object.entries(ONBOARDING_GESTURE_TIPS)) {
   if (ONBOARDING_COPY[locale]?.steps?.[0]) ONBOARDING_COPY[locale].steps[0].points.push(tip);
@@ -13007,7 +13028,7 @@ async function completeOnboarding() {
   // A first-login catalog request can still be settling when the user taps
   // Skip/Close.  Hydrate once more in that case, then refresh the list before
   // dismissing the guide so the app never lands on an unexplained blank view.
-  if (!machines.length) {
+  if (!machines.length && !workspaceAfterGuide) {
     try {
       await hydrateMachineCatalog();
       if (machines.length) await refreshSessions();
@@ -13021,6 +13042,7 @@ async function completeOnboarding() {
   // hydrated, closing the guide must not trigger another network load.
   try { localStorage.setItem(ONBOARDING_KEY, "complete"); } catch {}
   el.onboarding?.classList.add("hidden");
+  if (workspaceAfterGuide) location.replace(workspaceDestination());
 }
 
 function openOnboarding(force = false) {
@@ -16632,14 +16654,9 @@ window.addEventListener("online", refreshVisibleNativeConversation);
 document.addEventListener("visibilitychange", refreshVisibleNativeConversation);
 window.addEventListener("pageshow", (event) => {
   lockMobilePortrait();
-  // A mobile page can return from the back-forward cache without running
-  // boot() again. Treat that as a fresh app launch and return to Sessions;
-  // otherwise the old chat remains visually restored even though no explicit
-  // conversation was opened by the user.
-  // A pane belongs to the Workspace, which reloads itself after such a return.
-  if (WORKSPACE_PANE) return;
-  if (!event.persisted || shouldRestoreLastChat() || el.viewChat?.classList.contains("hidden")) return;
-  showList({ refresh: false });
+  // A pane belongs to the Workspace, which reloads itself after a return from
+  // the back-forward cache; the Settings window and sign-in keep their view.
+  void event;
 });
 
 // ===========================================================================

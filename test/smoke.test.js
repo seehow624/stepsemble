@@ -586,7 +586,9 @@ test("first-login device hydration is awaited, bounded, and retryable", () => {
   assert.match(app, /await hydrateMachineCatalog\(\)/);
   assert.match(app, /function shouldRetryMachineCatalog\(error\)/);
   assert.match(app, /shouldRetry: shouldRetryMachineCatalog/);
-  assert.match(app, /if \(!machines\.length\)/);
+  // Closing the setup guide hydrates a missing device list, except on the
+  // sign-in page, which goes on to the Workspace.
+  assert.match(app, /if \(!machines\.length && !workspaceAfterGuide\)/);
   assert.match(app, /machineCatalogRetry/);
   assert.match(app, /await enterApp\(\)/);
   assert.match(html, /id="machine-catalog-status"/);
@@ -734,7 +736,7 @@ test("custom provider editor keeps its own API key field and styles", () => {
   assert.match(css, /max-height: 10000px/);
 });
 
-test("desktop empty chat hides the composer and offers a New project action", () => {
+test("desktop empty chat hides the composer and a pane never offers the old New project", () => {
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
@@ -742,9 +744,13 @@ test("desktop empty chat hides the composer and offers a New project action", ()
   assert.match(app, /function hideChatEmpty\(\)\s*\{[\s\S]*?el\.viewChat\.classList\.remove\("chat-is-empty"\)/);
   // Viewport-independent cleanup is executed in agent-hub-races.test.js.
   // Mobile must clear the pane too, before it can become visible on resize.
-  const showList = app.slice(app.indexOf("function showList(options"), app.indexOf('el.btnBack.addEventListener'));
-  assert.match(showList, /showChatEmpty\(\);\s*if \(!isDesktop\(\)\) el\.viewChat\.classList\.add\("hidden"\)/);
-  assert.match(app, /el\.chatEmptyNewProject\?\.addEventListener\("click", openNewDialog\)/);
+  // The session list is the Workspace sidebar; nothing reveals the old one.
+  const showList = app.slice(app.indexOf("function showList("), app.indexOf('el.btnBack.addEventListener'));
+  assert.match(showList, /showChatEmpty\(\);/);
+  assert.doesNotMatch(app, /viewList\.classList\.remove\("hidden"\)/);
+  assert.match(html, /<main id="view-list" class="view hidden"/);
+  const embedded = fs.readFileSync(path.join(root, "public", "modules", "workspace-embedded.css"), "utf8");
+  assert.match(embedded, /\.workspace-embedded #chat-empty-new-project/);
   assert.match(html, /<main id="view-chat" class="[^"]*chat-is-empty[^"]*">/);
   assert.match(html, /<button id="chat-empty-new-project"[^>]*type="button"[^>]*title="New project"[^>]*aria-label="New project"[^>]*>New project<\/button>/);
   assert.match(html, /<button id="btn-send"[^>]*title="Send"[^>]*aria-label="Send"[^>]*>[\s\S]*?<svg[^>]*aria-hidden="true"/);
@@ -1139,7 +1145,7 @@ test("sign-in help explains how to read the token on macOS, Linux, and Windows",
   assert.match(app, /selectTokenHelpOs\(tokenHelpOsFromPlatform\(m\.platform\)\)/);
 });
 
-test("desktop reload restores a chat while mobile launches stay on Sessions", () => {
+test("the last chat is remembered and a return from the back-forward cache keeps its view", () => {
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   // The last chat is remembered per device at every point the file becomes
   // known: opening an existing session and a new chat's first persisted file.
@@ -1164,7 +1170,7 @@ test("desktop reload restores a chat while mobile launches stay on Sessions", ()
   assert.match(app, /if \(lastChatRestoreAttempted\) return;/);
   assert.match(app, /if \(el\.onboarding && !el\.onboarding\.classList\.contains\("hidden"\)\) return;/);
   assert.match(app, /window\.addEventListener\("pageshow", \(event\) => \{/);
-  assert.match(app, /if \(!event\.persisted \|\| shouldRestoreLastChat\(\) \|\| el\.viewChat\?\.classList\.contains\("hidden"\)\) return;/);
+  assert.doesNotMatch(app, /showList\(\{ refresh: false \}\)/, "no page falls back to the old session list");
   // Machine-scoped: the same browser can point at two different devices.
   assert.match(app, /raw\[lastChatMachineKey\(\)\] = String\(file\)/);
 });

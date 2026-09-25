@@ -1,6 +1,7 @@
 // CI browser regression only. Local GUI verification uses Codex Computer Use.
 import assert from "node:assert/strict";
 import { startSyntheticCodexHistoryHost } from "./history-codex-host-synthetic.mjs";
+import { signInToWorkspace } from "./workspace-browser-helpers.mjs";
 
 export async function runCodexHistoryBrowserCases(browser, helperPath) {
   for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }, { width: 320, height: 740 }]) {
@@ -22,10 +23,12 @@ export async function runCodexHistoryBrowserCases(browser, helperPath) {
           return route.continue();
         });
         page = await context.newPage(); page.setDefaultTimeout(15000); page.on("pageerror", e => errors.push(e.message));
-        await page.goto(`${host.origin}/index.html`); await page.locator("#login-onboarding-skip").click();
-        await page.locator("#login-token").fill(host.token); await page.locator("#login-form button").click();
-        await page.locator("#agent-hub-history").waitFor();
-        assert.equal(await page.locator("#agent-hub-history").getAttribute("title"), "Open read-only native history in a separate tab");
+        await signInToWorkspace(page, host.origin, host.token);
+        // The Workspace's History links to the read-only reader in its own tab.
+        await page.locator("#workspace-history").click();
+        const reader = page.locator("#workspace-dialog .workspace-history-reader");
+        assert.equal(await reader.getAttribute("href"), "/history.html"); assert.equal(await reader.getAttribute("target"), "_blank");
+        await page.keyboard.press("Escape");
         await page.goto(`${host.origin}/history.html`); await page.locator("#history-language").selectOption("zh-Hant");
         stage = "explicit source scan";
         await page.waitForFunction(() => document.querySelector(".source-browser")?.getAttribute("aria-busy") === "false");
