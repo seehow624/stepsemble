@@ -597,9 +597,17 @@
     browseHead.append(node("strong", t("foldersHere")));
     const search = node("input"); search.type = "search"; search.placeholder = t("filterFolders"); search.setAttribute("aria-label", t("filterFolders"));
     browseHead.append(search);
-    const list = node("div", "", "workspace-folder-list");
+    let list = node("div", "", "workspace-folder-list");
     // A scrolling region takes focus so Home, End and the arrow keys move it.
     list.setAttribute("role", "region"); list.setAttribute("aria-label", t("foldersHere")); list.tabIndex = 0;
+    // Each folder gets a new scrolling region. A scroll still animating in
+    // the old one (after End or a flick) would otherwise carry on in the new
+    // listing; some browsers keep it going even when the position is set.
+    function freshList() {
+      const next = list.cloneNode(false), focused = document.activeElement === list;
+      list.replaceWith(next); list = next;
+      if (focused) next.focus({ preventScroll: true });
+    }
     const footer = node("div", "", "workspace-folder-footer");
     footer.append(node("small", t("projectInfo")));
     const select = button(t("addFolder"), async () => {
@@ -612,8 +620,7 @@
     body.append(pathLabel, pathRow, browseHead, list, footer);
     function renderEntries() {
       list.replaceChildren();
-      // Setting the position also stops a scroll still animating from End or
-      // a flick, so a new listing always starts at its top.
+      // A filtered listing starts at its top.
       list.scrollTop = 0;
       const entries = (current?.entries || []).filter(entry => entry.name.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase()));
       if (!entries.length) {
@@ -637,8 +644,8 @@
       if (historyTarget === null && path && path === current?.path) return;
       const request = ++sequence;
       select.disabled = true; back.disabled = true; forward.disabled = true; up.disabled = true; go.disabled = true; search.disabled = true;
+      freshList();
       list.replaceChildren(node("p", t("loading"), "workspace-folder-empty"));
-      list.scrollTop = 0;
       try {
         const data = await api(`/api/browse${path ? `?path=${encodeURIComponent(path)}` : ""}`, undefined, target);
         if (epoch !== dialogEpoch || request !== sequence) return;
