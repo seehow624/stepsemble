@@ -27,6 +27,8 @@ const MAX_CONTROL_REQUESTS = 64;
 const MAX_MODELS = 100;
 // How long Claude gets to exit when asked before it is forced to.
 const FORCE_KILL_AFTER_MS = 3000;
+// How long to wait for Claude to report the model and level it runs with.
+const SETTINGS_READ_TIMEOUT_MS = 3000;
 const CLAUDE_EFFORTS = new Set(["auto", "low", "medium", "high", "xhigh", "max"]);
 // Keep a single Claude stream-json input frame and its ordered write queue
 // bounded like the Codex native transport. The HTTP prompt route admits up to
@@ -435,11 +437,17 @@ function createClaudeStructuredSession({
   onEvent = null,
   onPermission = null,
   initialPermissionMode = null,
+  initialModel = null,
+  initialEffort = null,
   allowBypass = false,
 } = {}) {
   if (typeof command !== "string" || !path.isAbsolute(command)) throw new TypeError("claude_command_absolute_required");
   if (typeof cwd !== "string" || !path.isAbsolute(cwd)) throw new TypeError("claude_cwd_absolute_required");
   const rememberedPermissionMode = permissionModeId(initialPermissionMode);
+  // The model and level chosen last, put back once Claude is ready: a new or
+  // relaunched Claude process starts with the ones its settings choose.
+  const rememberedModel = modelId(initialModel);
+  const rememberedEffort = effortId(initialEffort);
   if (onEvent !== null && typeof onEvent !== "function" || onPermission !== null && typeof onPermission !== "function") throw new TypeError("session_callback_required");
   const child = spawnImpl(command, buildClaudeStructuredArgs({ sessionId, permissionPromptTool, permissionPrompts, allowBypass, settingsPath: existingGatewaySettingsPath(env) }), {
     cwd, env: { ...env }, shell: false, stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
@@ -590,14 +598,14 @@ function createClaudeStructuredSession({
     forceTimer.unref?.();
   }
 
-  function requestControl(subtype, fields = {}) {
+  function requestControl(subtype, fields = {}, { timeoutMs = requestTimeoutMs } = {}) {
     const failure = ensureOpen();
     if (failure) return Promise.reject(controlError(failure.code));
     if (pendingControls.size >= MAX_CONTROL_REQUESTS) return Promise.reject(controlError("claude_control_limit"));
     const requestId = `stepsemble-ctrl-${crypto.randomUUID()}`;
     const payload = { type: "control_request", request_id: requestId, request: { subtype, ...fields } };
     return new Promise((resolve, rejectPromise) => {
-      const timer = setTimeout(() => settleControl(requestId, controlError("claude_control_timeout")), requestTimeoutMs);
+      const timer = setTimeout(() => settleControl(requestId, controlError("claude_control_timeout")), timeoutMs);
       pendingControls.set(requestId, { resolve, reject: rejectPromise, timer, subtype });
       enqueueJson(payload).then(result => {
         if (result?.kind === "reject") settleControl(requestId, controlError(result.code));
@@ -638,7 +646,62 @@ function createClaudeStructuredSession({
         if (seen.has(model.id)) return false;
         seen.add(model.id);
         return true;
-      })].slice(0, MAX_MODELS);
+      })].filter(model => model.id !== "default").slice(0, MAX_MODELS);
+      // "default" stands for another entry (Claude's "Default (recommended)"
+      // is Opus with 1M context); the list shows that entry by its own name.
+  }
+
+  // The catalog entry for a model Claude names in full, such as
+  // "claude-opus-5-5[1m]" for the entry "opus[1m]".
+  function catalogModelId(value) {
+    const id = modelId(value);
+    if (!id) return null;
+    const exact = availableModels.find(model => model.id === id)
+      || availableModels.find(model => modelId(model.resolvedModel) === id)
+      || availableModels.find(model => modelBase(model.resolvedModel) === modelBase(id) && /\[1m\]$/.test(model.id) === /\[1m\]$/.test(id))
+      || availableModels.find(model => modelBase(model.id) === modelBase(id));
+    return exact ? exact.id : null;
+  }
+
+  function effortSupported(model, effort) {
+    const row = availableModels.find(item => item.id === model);
+    if (!row) return true;
+    const levels = Array.isArray(row.supportedEffortLevels) ? row.supportedEffortLevels.map(level => String(level).toLowerCase()) : [];
+    return row.supportsEffort === true || levels.length ? !levels.length || levels.includes(effort) : false;
+  }
+
+  // Claude reports the model and level it really runs with; the initialize
+  // reply names neither when its settings choose them.
+  async function readAppliedSettings() {
+    try {
+      // An older Claude may not answer this; the session works without it.
+      const acknowledged = await requestControl("get_settings", {}, { timeoutMs: Math.min(requestTimeoutMs, SETTINGS_READ_TIMEOUT_MS) });
+      const applied = plain(acknowledged?.response?.applied) ? acknowledged.response.applied : null;
+      if (!applied) return;
+      const model = catalogModelId(applied.model) || modelId(applied.model);
+      if (model && (!selectedModel || selectedModel === "default" || !catalogModelId(selectedModel))) selectedModel = model;
+      const effort = effortId(applied.effort);
+      if (effort && effort !== "auto") selectedEffort = effort;
+      if (selectedModel) contextSnapshot = { ...contextSnapshot, model: contextSnapshot.model || selectedModel };
+    } catch {}
+  }
+
+  async function applyRememberedChoice() {
+    const model = rememberedModel ? catalogModelId(rememberedModel) : null;
+    if (model && model !== catalogModelId(selectedModel)) {
+      try {
+        const acknowledged = await requestControl("set_model", { model });
+        const response = plain(acknowledged?.response) ? acknowledged.response : {};
+        selectedModel = catalogModelId(response.model || response.currentModel || response.current_model) || model;
+      } catch {}
+    }
+    const target = model || catalogModelId(selectedModel);
+    if (rememberedEffort && rememberedEffort !== "auto" && (!target || effortSupported(target, rememberedEffort))) {
+      try {
+        await requestControl("apply_flag_settings", { settings: { effortLevel: rememberedEffort } });
+        selectedEffort = rememberedEffort;
+      } catch {}
+    }
   }
 
   async function initializeNative() {
@@ -658,6 +721,8 @@ function createClaudeStructuredSession({
       if (rememberedPermissionMode && rememberedPermissionMode !== permissionMode) {
         try { await applyPermissionMode(rememberedPermissionMode); } catch {}
       }
+      await applyRememberedChoice();
+      await readAppliedSettings();
       // Set last, so a caller that finds the session initialized also finds
       // the remembered mode in place.
       initializationResult = response;
@@ -900,7 +965,9 @@ function createClaudeStructuredSession({
     } else {
       contextSnapshot = { ...contextSnapshot, model: selectedModel };
     }
-    return { kind: changed ? "changed" : "ok", model: selectedModel };
+    // The level Claude now runs with can differ by model.
+    await readAppliedSettings();
+    return { kind: changed ? "changed" : "ok", model: selectedModel, effort: selectedEffort || null };
   }
   async function setEffort(effort) {
     const failure = ensureOpen();

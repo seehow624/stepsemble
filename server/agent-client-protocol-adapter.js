@@ -92,6 +92,9 @@ function validRequestId(value) {
 // object that session/set_mode changes. Both become one select option here,
 // so the browser offers either the same way.
 const LEGACY_MODE_OPTION = "acp.mode";
+// Agents such as Hermes list their models in the session's "models" field and
+// switch them with session/set_model, outside the config options.
+const LEGACY_MODEL_OPTION = "acp.model";
 
 /** Bounded copy of the config options an agent advertises. */
 function normalizeConfigOptions(value) {
@@ -100,7 +103,7 @@ function normalizeConfigOptions(value) {
   for (const raw of value.slice(0, 16)) {
     if (!raw || typeof raw !== "object") continue;
     const id = safeText(raw.id, 64);
-    if (!id || id === LEGACY_MODE_OPTION) continue;
+    if (!id || id === LEGACY_MODE_OPTION || id === LEGACY_MODEL_OPTION) continue;
     options.push({
       id,
       name: safeText(raw.name, 120) || id,
@@ -130,11 +133,25 @@ function legacyModeOption(modes) {
     currentValue: choices.some(choice => choice.value === current) ? current : null, options: choices };
 }
 
+function legacyModelOption(models) {
+  if (!plain(models) || !Array.isArray(models.availableModels)) return null;
+  const choices = models.availableModels.slice(0, 200).map(model => ({
+    value: safeText(typeof model?.modelId === "string" ? model.modelId : "", 200),
+    name: safeText(model?.name, 200) || safeText(model?.modelId, 200),
+    description: safeText(model?.description, 400) || null,
+  })).filter(choice => choice.value);
+  if (!choices.length) return null;
+  const current = safeText(models.currentModelId, 200);
+  return { id: LEGACY_MODEL_OPTION, name: "Model", category: "model", type: "select", legacyModel: true,
+    currentValue: choices.some(choice => choice.value === current) ? current : null, options: choices };
+}
+
 /** Options from a session/new or session/load reply, modes included. */
 function configOptionsFromSession(value) {
   const options = normalizeConfigOptions(value?.configOptions);
   const legacy = options.some(option => option.category === "mode") ? null : legacyModeOption(value?.modes);
-  return legacy ? [...options, legacy] : options;
+  const model = options.some(option => option.category === "model") ? null : legacyModelOption(value?.models);
+  return [...options, ...(legacy ? [legacy] : []), ...(model ? [model] : [])];
 }
 
 // Keeps the options current when the agent changes them itself, for example
@@ -145,11 +162,16 @@ function applyConfigUpdate(options, update) {
   if (kind === "config_option_update" && Array.isArray(update.configOptions)) {
     const next = normalizeConfigOptions(update.configOptions);
     const legacy = next.some(option => option.category === "mode") ? null : current.find(option => option.legacy);
-    return legacy ? [...next, legacy] : next;
+    const model = next.some(option => option.category === "model") ? null : current.find(option => option.legacyModel);
+    return [...next, ...(legacy ? [legacy] : []), ...(model ? [model] : [])];
   }
   if (kind === "current_mode_update") {
     const mode = safeText(update.currentModeId ?? update.modeId, 200);
     return current.map(option => option.legacy && option.options.some(choice => choice.value === mode) ? { ...option, currentValue: mode } : option);
+  }
+  if (kind === "current_model_update") {
+    const model = safeText(update.currentModelId ?? update.modelId, 200);
+    return current.map(option => option.legacyModel && option.options.some(choice => choice.value === model) ? { ...option, currentValue: model } : option);
   }
   return current;
 }
@@ -368,6 +390,14 @@ function createAgentClientProtocolAdapter({
     if (!session) return reject("acp_session_unavailable");
     if (session.promptInFlight) return reject("acp_prompt_in_flight");
     const known = (session.configOptions || []).find(row => row.id === option);
+    if (known?.legacyModel) {
+      // The models form: session/set_model answers with an empty result.
+      if (!known.options.some(choice => choice.value === next)) return reject("acp_config_invalid");
+      const result = await request("session/set_model", { sessionId: id, modelId: next });
+      if (result.kind !== "result") return result;
+      session.configOptions = applyConfigUpdate(session.configOptions, { sessionUpdate: "current_model_update", currentModelId: next });
+      return { kind: "configured", sessionId: id, configId: option, value: next, configOptions: session.configOptions || [] };
+    }
     if (known?.legacy) {
       // The older modes form: session/set_mode answers with an empty result.
       if (!known.options.some(choice => choice.value === next)) return reject("acp_config_invalid");
@@ -461,5 +491,6 @@ function createAgentClientProtocolAdapter({
     sessions: listSessions, status, close });
 }
 
-module.exports = { ACP_VERSION, LEGACY_MODE_OPTION, normalizeUpdate, normalizeConfigOptions, legacyModeOption, configOptionsFromSession, applyConfigUpdate,
+module.exports = { ACP_VERSION, LEGACY_MODE_OPTION, LEGACY_MODEL_OPTION, normalizeUpdate, normalizeConfigOptions, legacyModeOption, legacyModelOption,
+  configOptionsFromSession, applyConfigUpdate,
   createAgentClientProtocolAdapter, readSessionRegistry, writeSessionRegistry };

@@ -18,7 +18,7 @@ function effortValue(value) {
 
 // Called only inside the main authenticated/origin-checked API block.
 function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveClaude, validateDirectory, readJSON, sendJSON, gateway, onModels = null,
-  codexPermissions = null }) {
+  codexPermissions = null, onChoice = null }) {
   const routes = new Set([
     "GET /api/codex/models", "GET /api/codex/context", "POST /api/codex/mutation/turn", "POST /api/codex/mutation/interrupt",
     "GET /api/claude/structured/models", "GET /api/claude/structured/context", "POST /api/claude/structured/model", "POST /api/claude/structured/effort",
@@ -37,6 +37,15 @@ function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveC
             : p.endsWith("/effort") ? await resolved.session.setEffort(effortValue(body?.effort))
               : await resolved.session.setModel(modelValue(body?.model));
         if (p.endsWith("/models") && result?.kind !== "reject") { try { onModels?.("claude-code", result?.models); } catch {} }
+        // A model or level the person picks becomes the one the next
+        // conversation starts with, and this conversation keeps it.
+        if ((p.endsWith("/model") || p.endsWith("/effort")) && result?.kind !== "reject") {
+          try {
+            const nativeSessionId = resolved.session.status()?.nativeSessionId || null;
+            const choice = p.endsWith("/model") ? { model: modelValue(body?.model) } : { effort: result?.effort || effortValue(body?.effort) };
+            if (choice.effort !== "auto") onChoice?.("claude-code", nativeSessionId, choice);
+          } catch {}
+        }
         sendJSON(res, result?.kind === "reject" ? 409 : 200, catalog && result.models?.some(model => model.gateway === "opencodex")
           ? { ...result, catalog: { source: catalog.source, checkedAt: catalog.checkedAt, stale: catalog.stale } } : result);
         return true;

@@ -277,11 +277,14 @@ function createGrokAcpAdapter({
     if (session.promptInFlight) return reject("grok_prompt_in_flight");
     const known = (session.configOptions || []).find(row => row.id === option);
     if (!known || !known.options.some(choice => choice.value === next)) return reject("grok_config_invalid");
-    const result = known.legacy
-      ? await request("session/set_mode", { sessionId: id, modeId: next })
-      : await request("session/set_config_option", { sessionId: id, configId: option, value: next });
+    const result = known.legacyModel
+      ? await request("session/set_model", { sessionId: id, modelId: next })
+      : known.legacy
+        ? await request("session/set_mode", { sessionId: id, modeId: next })
+        : await request("session/set_config_option", { sessionId: id, configId: option, value: next });
     if (result.kind !== "result") return result;
-    if (known.legacy) session.configOptions = applyConfigUpdate(session.configOptions, { sessionUpdate: "current_mode_update", currentModeId: next });
+    if (known.legacyModel) session.configOptions = applyConfigUpdate(session.configOptions, { sessionUpdate: "current_model_update", currentModelId: next });
+    else if (known.legacy) session.configOptions = applyConfigUpdate(session.configOptions, { sessionUpdate: "current_mode_update", currentModeId: next });
     else if (Array.isArray(result.value?.configOptions)) session.configOptions = applyConfigUpdate(session.configOptions, { sessionUpdate: "config_option_update", configOptions: result.value.configOptions });
     else session.configOptions = session.configOptions.map(row => row.id === option ? { ...row, currentValue: next } : row);
     return { kind: "configured", sessionId: id, configId: option, value: next, configOptions: clone(session.configOptions) };

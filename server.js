@@ -32,6 +32,7 @@ const PROMPT_ROUTE_BYTES = 28 * 1024 * 1024;
 const ACP_PROMPT_ROUTE_BYTES = 12 * 1024 * 1024;
 const { createNativeComposerRoutes } = require("./server/native-composer-routes");
 const { createAgentModeStore } = require("./server/agent-mode-store");
+const { createAgentChoiceStore } = require("./server/agent-choice-store");
 const { createAgentModeRoutes, codexTurnPermissions, modeOption } = require("./server/agent-mode-routes");
 const { applyNativeLaunchConfig, isInstalledRuntime } = require("./server/native-launch-config");
 const { createCodexNativePool } = require("./server/codex-native-pool");
@@ -100,7 +101,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.7.2";
+const APP_VERSION = "3.8.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2135,6 +2136,17 @@ const hermesAcp = hermesAcpEnabled && hermesCommand ? createAgentClientProtocolA
 const agentModelCache = createAgentModelCache({ file: path.join(CONFIG_DIR, "agent-models.json") });
 // The approval mode chosen for each conversation (see agent-mode-routes).
 const agentModes = createAgentModeStore({ file: path.join(CONFIG_DIR, "agent-modes.json") });
+// The model and reasoning level last chosen for each agent and conversation:
+// a new conversation starts with the agent's last choice.
+const agentChoices = createAgentChoiceStore({ file: path.join(CONFIG_DIR, "agent-choices.json") });
+// A conversation opened again keeps its own choice; one from before choices
+// were kept takes the agent's last choice.
+function choiceForSession(agentId, sessionId) {
+  const last = agentChoices.last(agentId) || {};
+  const own = sessionId ? agentChoices.session(agentId, sessionId) || {} : {};
+  const choice = { ...last, ...own };
+  return Object.keys(choice).length ? choice : null;
+}
 function acpAdapterForAgent(agentId) {
   return agentId === "cline" ? clineAcp : agentId === "kilo" ? kiloAcp : agentId === "hermes" ? hermesAcp : null;
 }
@@ -4570,6 +4582,7 @@ const handleNativeComposerRoute = createNativeComposerRoutes({
   observeCodex: threadId => codexPersistedObserver.observe(threadId),
   validateDirectory: nativeAgentDirectory, readJSON, sendJSON, gateway: openCodexGateway,
   onModels: (agentId, models) => agentModelCache.record(agentId, models),
+  onChoice: (agentId, sessionId, choice) => agentChoices.record(agentId, sessionId, choice),
 });
 const handleAgentModeRoute = createAgentModeRoutes({
   store: agentModes, codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession,
@@ -4588,6 +4601,44 @@ async function restoreAcpMode(agentId, adapter, sessionId) {
   const option = remembered ? modeOption(adapter.sessionConfigOptions(sessionId)) : null;
   if (!option || option.currentValue === remembered || !option.options.some(choice => choice.value === remembered)) return;
   try { await adapter.setConfigOption(sessionId, option.id, remembered); } catch {}
+}
+
+// ACP agents list the model and the reasoning level among a conversation's
+// config options, as the browser's model sheet reads them.
+function acpChoiceOptions(options) {
+  const rows = Array.isArray(options) ? options : [];
+  return {
+    model: rows.find(option => option?.category === "model" && option.options?.length)
+      || rows.find(option => /model/i.test(option?.id || "") && option.options?.length) || null,
+    effort: rows.find(option => option?.category === "thought_level" && option.options?.length) || null,
+  };
+}
+
+// A new ACP conversation is set to the agent's last model and level, and keeps
+// them as its own. One loaded again gets its own back if the agent lost them.
+async function applyAcpChoice(agentId, adapter, sessionId, { loaded = false } = {}) {
+  try {
+    const choice = loaded ? agentChoices.session(agentId, sessionId) : agentChoices.last(agentId);
+    for (const key of ["model", "effort"]) {
+      const option = acpChoiceOptions(adapter.sessionConfigOptions(sessionId))[key];
+      const value = choice?.[key];
+      if (!option || !value || option.currentValue === value || !option.options.some(row => row.value === value)) continue;
+      try { await adapter.setConfigOption(sessionId, option.id, value); } catch {}
+    }
+    if (!loaded) {
+      const now = acpChoiceOptions(adapter.sessionConfigOptions(sessionId));
+      agentChoices.record(agentId, sessionId, { model: now.model?.currentValue, effort: now.effort?.currentValue }, { agent: false });
+    }
+  } catch {}
+}
+
+// A model or level the person picks in an ACP conversation.
+function recordAcpChoice(agentId, adapter, sessionId, configId, value) {
+  try {
+    const options = acpChoiceOptions(adapter.sessionConfigOptions(sessionId));
+    if (options.model && options.model.id === configId) agentChoices.record(agentId, sessionId, { model: value });
+    else if (options.effort && options.effort.id === configId) agentChoices.record(agentId, sessionId, { effort: value });
+  } catch {}
 }
 
 const server = http.createServer(async (req, res) => {
@@ -5169,8 +5220,11 @@ const server = http.createServer(async (req, res) => {
 
       if (p === "/api/opencode/models" && req.method === "GET") {
         try {
-          const result = await openCodeNative.listModels({ directory: openCodeDirectory(url.searchParams.get("directory") || null) });
-          sendJSON(res, 200, { ...result, adapter: openCodeNative.status() });
+          const directory = openCodeDirectory(url.searchParams.get("directory") || null);
+          const result = await openCodeNative.listModels({ directory });
+          // The model a conversation uses until one is picked for it.
+          const configured = await openCodeNative.configuredModel({ directory }).catch(() => null);
+          sendJSON(res, 200, { ...result, configuredModel: configured, adapter: openCodeNative.status() });
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_models_unavailable" }); }
         return;
       }
@@ -5184,6 +5238,7 @@ const server = http.createServer(async (req, res) => {
             modelID: model?.modelID || model?.modelId || model?.id,
             directory: openCodeDirectory(body?.cwd || body?.directory || null),
           });
+          if (result?.accepted) agentChoices.record("opencode", body?.sessionId, { model: result.model.providerID + "/" + result.model.modelID });
           sendJSON(res, 200, result);
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_model_switch_failed" }); }
         return;
@@ -5273,6 +5328,8 @@ const server = http.createServer(async (req, res) => {
             : await grokAcp.createSession({ directory, mcpServers: [], name });
           // Reopening a conversation puts back the mode chosen for it earlier.
           if (sessionId && !known && result?.kind !== "reject") await restoreAcpMode("grok-build", grokAcp, result.sessionId);
+          if (sessionId && !known && result?.kind !== "reject") await applyAcpChoice("grok-build", grokAcp, result.sessionId, { loaded: true });
+          if (!sessionId && result?.kind !== "reject" && result?.sessionId) await applyAcpChoice("grok-build", grokAcp, result.sessionId);
           sendJSON(res, result?.kind === "reject" ? 409 : 201, result);
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "grok_session_failed" }); }
         return;
@@ -5330,6 +5387,7 @@ const server = http.createServer(async (req, res) => {
           if (!grokAcp) { const error = new Error("Grok ACP is disabled"); error.statusCode = 409; error.code = "grok_acp_disabled"; throw error; }
           const body = await readJSON(req, 64 * 1024);
           const result = await grokAcp.setConfigOption(body?.sessionId, body?.configId, body?.value);
+          if (result.kind !== "reject") recordAcpChoice("grok-build", grokAcp, body?.sessionId, body?.configId, body?.value);
           sendJSON(res, result.kind === "reject" ? 409 : 200, result);
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "grok_config_failed" }); }
         return;
@@ -5354,6 +5412,7 @@ const server = http.createServer(async (req, res) => {
               name: body?.name || null,
             });
             if (result.kind === "loaded") await restoreAcpMode(agentId, adapter, result.sessionId);
+            if (result.kind === "loaded" || result.kind === "created") await applyAcpChoice(agentId, adapter, result.sessionId, { loaded: result.kind === "loaded" });
             sendJSON(res, result.kind === "reject" ? 409 : 201, result); return;
           }
           if (action === "events" && req.method === "GET") {
@@ -5389,6 +5448,7 @@ const server = http.createServer(async (req, res) => {
           if (action === "config" && req.method === "POST") {
             const body = await readJSON(req, 64 * 1024);
             const result = await adapter.setConfigOption(body?.sessionId, body?.configId, body?.value);
+            if (result.kind !== "reject") recordAcpChoice(agentId, adapter, body?.sessionId, body?.configId, body?.value);
             sendJSON(res, result.kind === "reject" ? 409 : 200, result); return;
           }
           sendJSON(res, 404, { error: "acp_route_not_found" });
@@ -5397,6 +5457,19 @@ const server = http.createServer(async (req, res) => {
       }
       if (await handleNativeComposerRoute(req, res, url)) return;
       if (await handleAgentModeRoute(req, res, url)) return;
+      // The model and level last chosen for an agent. Codex applies a choice
+      // with its next message, so its page records the choice here.
+      if (p === "/api/agent-choice" && (req.method === "GET" || req.method === "POST")) {
+        const source = req.method === "POST" ? await readJSON(req, 8 * 1024) : Object.fromEntries(url.searchParams);
+        const agentId = String(source?.agentId || "").trim().toLowerCase();
+        if (!/^[a-z0-9][a-z0-9-]{0,47}$/.test(agentId)) { sendJSON(res, 400, { error: "invalid_agent" }); return; }
+        if (req.method === "POST") {
+          const sessionId = typeof source.sessionId === "string" && source.sessionId ? source.sessionId : null;
+          if (!agentChoices.record(agentId, sessionId, { model: source.model, effort: source.effort })) { sendJSON(res, 400, { error: "invalid_choice" }); return; }
+        }
+        sendJSON(res, 200, { agentId, choice: agentChoices.last(agentId) });
+        return;
+      }
 
       if (p === "/api/claude/structured" && req.method === "GET") {
         const sessions = [...claudeStructuredSessions].map(([id, session]) => publicClaudeStructuredTask(id, session)).filter(Boolean);
@@ -6849,6 +6922,7 @@ const server = http.createServer(async (req, res) => {
           } else if (agentId === "grok-build" && grokAcp && !worktree) {
             const session = await grokAcp.createSession({ directory: nativeAgentDirectory(cwd, "Grok ACP"), name: body?.name || null });
             if (session.kind === "reject") { const error = new Error(session.code); error.statusCode = 409; throw error; }
+            await applyAcpChoice("grok-build", grokAcp, session.sessionId);
             if (requesterGone) return;
             sendWorkspaceResult(res, 201, { ...publicGrokAcpTask({ id: session.sessionId, cwd: session.cwd, name: session.name, status: "idle", eventCount: 0 }), kind: "grok-acp", agentId: "grok-build" });
           } else if (["cline", "kilo", "hermes"].includes(agentId) && acpAdapterForAgent(agentId) && !worktree) {
@@ -6875,6 +6949,7 @@ const server = http.createServer(async (req, res) => {
               return;
             }
             if (session.kind === "loaded") await restoreAcpMode(agentId, adapter, session.sessionId);
+            await applyAcpChoice(agentId, adapter, session.sessionId, { loaded: session.kind === "loaded" });
             if (requesterGone) return;
             sendWorkspaceResult(res, 201, { ...publicAgentClientProtocolTask(agentId, { id: session.sessionId, cwd: session.cwd, status: "idle", eventCount: 0, name: body?.name || null }), kind: "acp", agentId });
           } else if (agentId === "codex" && codexNative.status().mutationReady && !worktree) {
@@ -6884,9 +6959,14 @@ const server = http.createServer(async (req, res) => {
             // common source of duplicated sessions and mismatched names.
             const resumeThreadId = typeof body?.resumeSessionId === "string" && body.resumeSessionId.trim()
               ? body.resumeSessionId.trim() : typeof body?.threadId === "string" && body.threadId.trim() ? body.threadId.trim() : "";
+            // A new thread starts with the model and level chosen last; Codex
+            // keeps each thread's own afterwards.
+            const codexChoice = resumeThreadId ? null : agentChoices.last("codex");
             const started = resumeThreadId
               ? await codexNative.resumeThread({ threadId: resumeThreadId, ...(body?.excludeTurns === true ? { excludeTurns: true } : {}) })
-              : await codexNative.startThread({ cwd: nativeCwd });
+              : await codexNative.startThread({ cwd: nativeCwd,
+                ...(codexChoice?.model ? { model: codexChoice.model } : {}),
+                ...(codexChoice?.effort ? { config: { model_reasoning_effort: codexChoice.effort } } : {}) });
             if (started?.kind === "reject") { const error = new Error(started.code); error.statusCode = 409; throw error; }
             let thread = started?.response?.thread || (started?.threadId ? (await codexNative.readThread(started.threadId, { includeTurns: false })).thread : null);
             // A name typed for a new conversation becomes the Codex thread's own
@@ -6931,17 +7011,29 @@ const server = http.createServer(async (req, res) => {
             if (claudeOverrides.ANTHROPIC_BASE_URL) {
               try { await openCodexGateway.refreshClaudeGatewayCache(); } catch {}
             }
+            // A new conversation starts with the model and level chosen last; one
+            // opened again keeps its own.
+            const claudeChoice = choiceForSession("claude-code", resumeSessionId);
+            let launchedClaude = null;
             const session = await launchClaudeStructuredSession({ desktopClient: desktopClaude,
               command: claudeStructuredCommand, cwd: sessionCwd, env: { ...process.env, ...claudeOverrides },
               // The desktop helper asks its own Claude CLI the same question.
               allowBypass: desktopClaude ? false : await claudeSupportsBypass(claudeStructuredCommand, { env: { ...process.env, ...claudeOverrides } }),
               initialPermissionMode: resumeSessionId ? agentModes.get("claude-code", resumeSessionId) : null,
+              initialModel: claudeChoice?.model || null, initialEffort: claudeChoice?.effort || null,
               name: sessionName, permissionPromptTool: claudePermissionPromptTool, sessionId: resumeSessionId,
               onEvent: event => { try { if (event?.sessionId) {
                 rememberClaudeStructuredSession(event.sessionId, { cwd: sessionCwd, name: sessionName });
                 const owned = workspaceRegistry.list().entries.find(row => row.record.id === `claude-code:${localId}`);
                 if (owned && owned.record.nativeSessionId !== event.sessionId) workspaceRegistry.update(owned.key, { nativeSessionId: event.sessionId, persisted: true });
+                // Claude names a new conversation with its first message; from
+                // then on the conversation keeps the model and level it runs with.
+                if (launchedClaude && !agentChoices.session("claude-code", event.sessionId)) {
+                  const status = launchedClaude.status();
+                  agentChoices.record("claude-code", event.sessionId, { model: status.model, effort: status.effort }, { agent: false });
+                }
               } } catch {} } });
+            launchedClaude = session;
             if (resumeSessionId) rememberClaudeStructuredSession(resumeSessionId, { cwd: sessionCwd, name: sessionName });
             claudeStructuredSessions.set(localId, session);
             if (requesterGone) {

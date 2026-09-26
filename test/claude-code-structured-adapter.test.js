@@ -83,7 +83,7 @@ test("Claude permission modes are read from Claude, changed live and put back af
   // A mode chosen before a restart is put back once Claude has initialized.
   const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 500, initialPermissionMode: "plan" });
   assert.deepEqual(await session.permissionState(), { permissionMode: "plan" });
-  assert.deepEqual(requests.map(request => [request.subtype, request.mode || null]), [["initialize", null], ["set_permission_mode", "plan"]]);
+  assert.deepEqual(requests.map(request => [request.subtype, request.mode || null]), [["initialize", null], ["set_permission_mode", "plan"], ["get_settings", null]]);
   assert.deepEqual(await session.setPermissionMode("acceptEdits"), { kind: "changed", permissionMode: "acceptEdits" });
   // The CLI flag calls the ask-first mode "manual"; the control request calls it "default".
   assert.deepEqual(await session.setPermissionMode("manual"), { kind: "changed", permissionMode: "default" });
@@ -288,7 +288,7 @@ test("Claude structured controls use exact initialize/set_model wire and update 
   child.stdout.write(JSON.stringify({ type: "control_response", response: {
     subtype: "success", request_id: resolveModelRequest.request_id, response: {},
   } }) + "\n");
-  assert.deepEqual(await changing, { kind: "changed", model: "opus" });
+  assert.deepEqual(await changing, { kind: "changed", model: "opus", effort: null });
   assert.equal(session.contextUsage().model, "opus");
 });
 
@@ -565,6 +565,78 @@ test("Claude parser failures carry a status code through the live session", asyn
   assert.equal(session.status().failed, "structured_event_invalid");
 });
 
+// Claude 2.1.281 lists "default" beside the model it stands for, and names
+// neither the model nor the level in its initialize reply.
+function claude2181(child, { applied = { model: "claude-opus-5-5[1m]", effort: "medium" } } = {}) {
+  const requests = [];
+  observeControlWire(child, message => {
+    if (message.type !== "control_request") return;
+    requests.push(message.request);
+    const reply = response => child.stdout.write(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response } }) + "\n");
+    const subtype = message.request.subtype;
+    if (subtype === "initialize") reply({ models: [
+      { value: "default", resolvedModel: "claude-opus-5-5[1m]", displayName: "Default (recommended)", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
+      { value: "opus[1m]", resolvedModel: "claude-opus-5-5[1m]", displayName: "Opus (1M context)", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
+      { value: "sonnet", resolvedModel: "claude-sonnet-5", displayName: "Sonnet", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
+      { value: "haiku", resolvedModel: "claude-haiku-4-5-20251001", displayName: "Haiku" },
+    ] });
+    else if (subtype === "set_model") { applied = { ...applied, model: message.request.model === "sonnet" ? "claude-sonnet-5" : message.request.model }; reply({}); }
+    else if (subtype === "apply_flag_settings") { applied = { ...applied, effort: message.request.settings.effortLevel || "high" }; reply({}); }
+    else if (subtype === "get_settings") reply({ applied });
+  });
+  return requests;
+}
+
+test("Claude lists each model once and reports the model and level it really runs with", async t => {
+  const child = childFixture();
+  claude2181(child);
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 500 });
+  t.after(() => session.close());
+  const catalog = await session.models();
+  assert.deepEqual(catalog.models.map(model => model.id), ["opus[1m]", "sonnet", "haiku"]);
+  assert.equal(catalog.currentModel, "opus[1m]");
+  assert.equal(catalog.currentEffort, "medium");
+  // Switching reads the level Claude runs with for the new model.
+  assert.deepEqual(await session.setModel("sonnet"), { kind: "changed", model: "sonnet", effort: "medium" });
+});
+
+test("Claude starts with the model and level chosen last", async t => {
+  const child = childFixture();
+  const requests = claude2181(child);
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 500,
+    initialModel: "sonnet", initialEffort: "max" });
+  t.after(() => session.close());
+  const catalog = await session.models();
+  assert.equal(catalog.currentModel, "sonnet");
+  assert.equal(catalog.currentEffort, "max");
+  assert.deepEqual(requests.map(request => request.subtype), ["initialize", "set_model", "apply_flag_settings", "get_settings"]);
+  assert.equal(requests[1].model, "sonnet");
+  assert.deepEqual(requests[2].settings, { effortLevel: "max" });
+});
+
+test("Claude skips a remembered model it no longer offers and a level the model lacks", async t => {
+  const child = childFixture();
+  const requests = claude2181(child);
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 500,
+    initialModel: "claude-ocx-gone", initialEffort: "max" });
+  t.after(() => session.close());
+  const catalog = await session.models();
+  assert.equal(catalog.currentModel, "opus[1m]");
+  assert.equal(catalog.currentEffort, "max");
+  assert.equal(requests.some(request => request.subtype === "set_model"), false);
+
+  const haikuChild = childFixture();
+  const haikuRequests = claude2181(haikuChild, { applied: { model: "claude-haiku-4-5-20251001", effort: null } });
+  const haiku = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => haikuChild, requestTimeoutMs: 500,
+    initialModel: "haiku", initialEffort: "max" });
+  t.after(() => haiku.close());
+  const haikuCatalog = await haiku.models();
+  assert.equal(haikuCatalog.currentModel, "haiku");
+  assert.equal(haikuCatalog.currentEffort, null);
+  assert.equal(haikuRequests.some(request => request.subtype === "apply_flag_settings"), false);
+});
+
+
 // A process that ignores the polite request and exits only when forced.
 function stubbornChild() {
   const child = new EventEmitter();
@@ -646,7 +718,7 @@ test("Claude model ACK errors preserve selection and successful switches clear o
   child.stdout.write(JSON.stringify({ type: "control_response", response: {
     subtype: "success", request_id: switchRequest.request_id, response: {},
   } }) + "\n");
-  assert.deepEqual(await changing, { kind: "changed", model: "opus" });
+  assert.deepEqual(await changing, { kind: "changed", model: "opus", effort: null });
   assert.deepEqual(session.contextUsage(), {
     model: "opus", contextWindow: null, contextTokens: null, contextPercent: null, usage: null,
   });

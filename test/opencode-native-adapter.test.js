@@ -83,7 +83,8 @@ test("OpenCode adapter exposes the native model catalog and session model switch
   assert.equal(catalog.models[0].contextWindow, 128000);
   const switched = await adapter.switchModel("s1", { providerID: "openai", modelID: "gpt-5" });
   assert.equal(switched.accepted, true);
-  assert.deepEqual(calls.at(-1).body, { model: { providerID: "openai", modelID: "gpt-5" } });
+  // OpenCode 1.18's ModelRef: { id, providerID }; any other field is refused.
+  assert.deepEqual(calls.at(-1).body, { model: { providerID: "openai", id: "gpt-5" } });
 });
 
 test("OpenCode adapter lists its agents for the approval mode picker", async () => {

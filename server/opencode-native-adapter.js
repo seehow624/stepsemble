@@ -460,14 +460,29 @@ function createOpenCodeNativeAdapter({
     return { providers };
   }
 
+  // The model OpenCode's own configuration names ("provider/model"), which a
+  // conversation uses until one is picked for it.
+  async function configuredModel({ directory = null } = {}) {
+    const safeDirectory = directory === null ? null : normalizeDirectory(directory);
+    if (directory !== null && safeDirectory === null) throw new OpenCodeNativeError("invalid_directory", "OpenCode directory is invalid", 400);
+    const response = await request("/config", { query: { directory: safeDirectory } });
+    const value = typeof response.data?.model === "string" ? response.data.model.trim() : "";
+    const slash = value.indexOf("/");
+    if (slash < 1 || slash === value.length - 1) return null;
+    const providerID = value.slice(0, slash), modelID = value.slice(slash + 1);
+    return validId(providerID) && validModelId(modelID) ? { providerID, modelID } : null;
+  }
+
   async function switchModel(sessionId, { providerID, modelID, directory = null } = {}) {
     if (!validId(sessionId)) throw new OpenCodeNativeError("invalid_session_id", "OpenCode session id is invalid", 400);
     if (!validId(providerID) || !validModelId(modelID)) throw new OpenCodeNativeError("invalid_model", "OpenCode model identity is invalid", 400);
     const safeDirectory = directory === null ? null : normalizeDirectory(directory);
     if (directory !== null && safeDirectory === null) throw new OpenCodeNativeError("invalid_directory", "OpenCode directory is invalid", 400);
     try {
+      // OpenCode's v2 route names the model "id" (its ModelRef) and refuses
+      // any other field.
       await request(`/api/session/${encodeURIComponent(sessionId)}/model`, {
-        method: "POST", query: { directory: safeDirectory }, body: { model: { providerID, modelID } },
+        method: "POST", query: { directory: safeDirectory }, body: { model: { providerID, id: modelID } },
       });
       return { accepted: true, endpoint: "session.model", model: { providerID, modelID } };
     } catch (error) {
@@ -713,6 +728,7 @@ function createOpenCodeNativeAdapter({
     sessionStatus,
     listModels,
     listProviderCatalog,
+    configuredModel,
     switchModel,
     children,
     messages,

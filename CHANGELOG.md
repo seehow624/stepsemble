@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.8.0
+
+- Start each new conversation with the model and thinking level you chose last for that agent, and keep each conversation's own choice when it is opened again, for example after an update. The Host keeps the choice, so the phone and the computer start new conversations the same way. This covers Claude Code, Codex, OpenCode, Grok Build, Kilo, Cline and Hermes; Pi already keeps its own.
+- Show the model and thinking level an agent really uses, and offer no "Default" in either list. Claude Code's "Default (recommended)" is left out because it is the same model as Opus (1M context); Claude and Codex now show the level they run with, where they used to show "Default"; the model button says "Choose model" until the agent names its model.
+- Choose Hermes's model in Stepsemble. Hermes lists its models apart from its other settings; the model button now shows the one it uses and switches it, where it used to say "Server default" and offer no choice.
+- Switch the model of an OpenCode conversation again. OpenCode 1.18 refused the request because Stepsemble named the model with a field it no longer accepts.
+- Hide the thinking level for OpenCode, which takes none from Stepsemble; choosing one there only showed an error.
+
 ## 3.7.2
 
 - Stop a Claude Code conversation that failed from keeping its Claude process running. The process stayed open with nothing to do, so the conversation kept counting as work in progress, and Update now said an agent was working until Stepsemble restarted. A failed conversation now ends its process, and a Claude process that does not exit when asked, on a failure or on Close, is ended after 3 seconds.

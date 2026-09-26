@@ -6,9 +6,9 @@ const os = require("node:os");
 const path = require("node:path");
 const { PassThrough } = require("node:stream");
 const { EventEmitter } = require("node:events");
-const { normalizeUpdate, createAgentClientProtocolAdapter, LEGACY_MODE_OPTION, configOptionsFromSession, applyConfigUpdate } = require("../server/agent-client-protocol-adapter");
+const { normalizeUpdate, createAgentClientProtocolAdapter, LEGACY_MODE_OPTION, LEGACY_MODEL_OPTION, configOptionsFromSession, applyConfigUpdate } = require("../server/agent-client-protocol-adapter");
 
-function childFixture({ configOptions = null, modes = null } = {}) {
+function childFixture({ configOptions = null, modes = null, models = null } = {}) {
   const child = new EventEmitter();
   child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
   child.kill = () => child.emit("close", 0, null);
@@ -19,10 +19,13 @@ function childFixture({ configOptions = null, modes = null } = {}) {
       let result = {};
       if (frame.method === "initialize") result = { agentCapabilities: { loadSession: true } };
       else if (frame.method === "session/new" || frame.method === "session/load") {
-        result = { sessionId: "session-1", ...(configOptions ? { configOptions } : {}), ...(modes ? { modes } : {}) };
+        result = { sessionId: "session-1", ...(configOptions ? { configOptions } : {}), ...(modes ? { modes } : {}), ...(models ? { models } : {}) };
       }
       else if (frame.method === "session/set_mode") {
         child.modeRequests = [...(child.modeRequests || []), frame.params];
+      }
+      else if (frame.method === "session/set_model") {
+        child.modelRequests = [...(child.modelRequests || []), frame.params];
       }
       else if (frame.method === "session/set_config_option") {
         result = { configOptions: (configOptions || []).map(option => option.id === frame.params.configId
@@ -157,6 +160,30 @@ test("ACP modes in the older modes form are offered as one option and changed wi
   child.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "session-1", update: { sessionUpdate: "current_mode_update", currentModeId: "dont_ask" } } }) + "\n");
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(adapter.sessionConfigOptions(session.sessionId).find(option => option.category === "mode").currentValue, "dont_ask");
+});
+
+test("ACP models in the models form are offered as the model option and changed with session/set_model", async t => {
+  // Hermes 0.21 lists its models in "models" and switches them with session/set_model.
+  const child = childFixture({ models: { currentModelId: "openai-codex:gpt-6-luna", availableModels: [
+    { modelId: "openai-codex:gpt-6-luna", name: "OpenAI Codex · gpt-6-luna", description: "Provider: OpenAI Codex" },
+    { modelId: "openrouter:anthropic/claude-sonnet-5", name: "OpenRouter · anthropic/claude-sonnet-5" },
+  ] } });
+  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/hermes", args: ["acp"], cwd: "/tmp", spawnImpl: () => child });
+  t.after(() => adapter.close());
+  const session = await adapter.createSession({ directory: "/tmp" });
+  const model = session.configOptions.find(option => option.category === "model");
+  assert.equal(model.id, LEGACY_MODEL_OPTION);
+  assert.equal(model.currentValue, "openai-codex:gpt-6-luna");
+  assert.deepEqual(model.options.map(option => option.name), ["OpenAI Codex · gpt-6-luna", "OpenRouter · anthropic/claude-sonnet-5"]);
+  const changed = await adapter.setConfigOption(session.sessionId, LEGACY_MODEL_OPTION, "openrouter:anthropic/claude-sonnet-5");
+  assert.equal(changed.kind, "configured");
+  assert.deepEqual(child.modelRequests, [{ sessionId: "session-1", modelId: "openrouter:anthropic/claude-sonnet-5" }]);
+  assert.equal(adapter.sessionConfigOptions(session.sessionId).find(option => option.category === "model").currentValue, "openrouter:anthropic/claude-sonnet-5");
+  assert.equal((await adapter.setConfigOption(session.sessionId, LEGACY_MODEL_OPTION, "unknown")).code, "acp_config_invalid");
+  // A model config option wins; the models form is not added beside it.
+  const both = configOptionsFromSession({ configOptions: [{ id: "model", category: "model", currentValue: "a", options: [{ value: "a" }] }],
+    models: { currentModelId: "b", availableModels: [{ modelId: "b" }] } });
+  assert.deepEqual(both.map(option => option.id), ["model"]);
 });
 
 test("ACP config option updates replace the options and keep the mode current", () => {

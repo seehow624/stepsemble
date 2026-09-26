@@ -93,7 +93,9 @@ test("a Claude model without thinking levels disables its control and says why",
     claudeModel: { id: "haiku", name: "Haiku", supportsEffort: false, supportedEffortLevels: [] } };
   context.syncNativeThinkingSelect(connection);
   assert.equal(el.thinkingSelect.disabled, true);
-  assert.deepEqual(el.thinkingSelect.options.map(option => option.value), ["default"]);
+  // No level to pick, and no "Default" standing in for one.
+  assert.deepEqual(el.thinkingSelect.options.map(option => option.value), []);
+  assert.equal(el.thinkingSelect.hidden, true);
   assert.equal(el.thinkingSelect.title, "No thinking levels");
   assert.equal(hint.textContent, "No thinking levels");
   assert.equal(hint.classList.contains("hidden"), false);
@@ -110,17 +112,52 @@ test("a restored model lists exactly its own levels and brings the chip back", (
     claudeModel: { id: "glm", name: "GLM", supportsEffort: true, supportedEffortLevels: ["low", "high", "max"] } };
   context.syncNativeThinkingSelect(connection);
   assert.equal(el.thinkingSelect.disabled, false);
-  assert.deepEqual(el.thinkingSelect.options.map(option => option.value), ["auto", "low", "high", "max"]);
+  assert.deepEqual(el.thinkingSelect.options.map(option => option.value), ["low", "high", "max"]);
   assert.equal(el.thinkingSelect.value, "max");
   assert.equal(el.thinkingSelect.title, "");
   assert.equal(hint.textContent, "");
   assert.equal(hint.classList.contains("hidden"), true);
   // Codex-style label: the level follows the model name without a separator.
   assert.equal(el.composerModelLevelText.textContent, "Max");
-  // A level the model does not offer falls back to its own default.
+  // A level the model does not offer is shown as unknown until Claude reports
+  // the level it runs with; it is never shown as "Default".
   connection.claudeModel = { id: "deepseek", supportsEffort: true, supportedEffortLevels: ["low", "max"] };
   connection.claudeEffort = "high";
   context.syncNativeThinkingSelect(connection);
-  assert.deepEqual(el.thinkingSelect.options.map(option => option.value), ["auto", "low", "max"]);
-  assert.equal(el.thinkingSelect.value, "auto");
+  assert.deepEqual(el.thinkingSelect.options.map(option => option.value), ["", "low", "max"]);
+  assert.equal(el.thinkingSelect.value, "");
+  assert.equal(el.composerModelLevelText.classList.contains("hidden"), true);
+  // The model's own level, when Claude's list names one, is used instead.
+  connection.claudeModel = { id: "deepseek", supportsEffort: true, supportedEffortLevels: ["low", "max"], defaultEffort: "max" };
+  connection.claudeEffort = "high";
+  context.syncNativeThinkingSelect(connection);
+  assert.deepEqual(el.thinkingSelect.options.map(option => option.value), ["low", "max"]);
+  assert.equal(el.thinkingSelect.value, "max");
+});
+
+test("Codex shows the thread's own level and offers no Default", () => {
+  const { context, el } = harness();
+  context.rpc = { nativeCodexMutation: true };
+  const model = { id: "gpt-6-luna", supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"], defaultReasoningEffort: "medium" };
+  const connection = { nativeCodexMutation: true, codexModel: model, codexEffort: null, codexThreadEffort: "max" };
+  context.syncNativeThinkingSelect(connection);
+  assert.deepEqual(el.thinkingSelect.options.map(option => option.value), ["low", "medium", "high", "xhigh", "max"]);
+  assert.equal(el.thinkingSelect.value, "max");
+  assert.equal(connection.codexEffort, "max");
+  assert.equal(el.composerModelLevelText.textContent, "Max");
+  // A model without the chosen level takes the model's own level.
+  connection.codexModel = { id: "glm", supportedReasoningEfforts: ["low", "high"], defaultReasoningEffort: "high" };
+  context.syncNativeThinkingSelect(connection);
+  assert.deepEqual(el.thinkingSelect.options.map(option => option.value), ["low", "high"]);
+  assert.equal(connection.codexEffort, "high");
+});
+
+test("the model chip never shows a default model or level", () => {
+  const { context, el } = harness();
+  context.updateComposerSummary("", "auto");
+  assert.equal(el.composerModelNameText.textContent, "Choose model");
+  assert.equal(el.composerModelLevelText.classList.contains("hidden"), true);
+  context.updateComposerSummary("Opus (1M context)", "max");
+  assert.equal(el.composerModelNameText.textContent, "Opus (1M context)");
+  assert.equal(el.composerModelLevelText.textContent, "Max");
 });

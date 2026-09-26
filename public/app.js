@@ -1,7 +1,7 @@
-/* stepsemble v3.7.2 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.7.2";
+const CLIENT_APP_VERSION = "3.8.0";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -5295,7 +5295,7 @@ async function refreshOpenCodeNativeSnapshot(connection, { initial = false } = {
     // it into a live mutation task with a stale cwd.
     const status = connection.nativeOpenCodeReadOnly ? "history" : nativeOpenCodeStatus(snapshot);
     applyOpenCodeContextStats(snapshot, connection);
-    void syncOpenCodeModelCatalog(connection);
+    void syncOpenCodeModelCatalog(connection).then(() => applyOpenCodeStartingModel(connection)).catch(() => {});
     applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: "opencode", nativeOpenCode: true,
       nativeSessionId: connection.nativeSessionId, name: connection.name, cwd: connection.cwd, status,
       nativeHistoryReadonly: connection.nativeOpenCodeReadOnly, readOnly: connection.nativeOpenCodeReadOnly,
@@ -5852,6 +5852,7 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
     if (!initial) connection.nativeTranscriptState.error ||= connection.nativeTranscriptState.olderError;
     const thread = page.thread;
     const observation = page.observation || null;
+    if (connection.nativeCodexMutation) applyCodexThreadChoice(connection, thread);
     const status = nativeCodexStatus(thread, observation);
     const normalizeNativeTime = (value) => window.stepsembleSessionUtils?.normalizeTimestampMs?.(value) || Number(value) || 0;
     const activeTurn = connection.nativeTranscriptState.turns.find(turn => turn?.status === "inProgress") || null;
@@ -5902,6 +5903,45 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
   }
 }
 
+// Codex's model list, all pages of it. A model the thread already runs with
+// takes its catalog entry, which has the display name and reasoning levels.
+async function loadCodexModelCatalog(connection, isCurrent = () => rpc === connection) {
+  let cursor = null;
+  const rows = [];
+  for (let page = 0; page < 32; page += 1) {
+    if (!isCurrent()) return null;
+    const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+    const result = await api(`/api/codex/models${query}`);
+    if (!isCurrent()) return null;
+    rows.push(...(Array.isArray(result?.data) ? result.data : []));
+    const next = typeof result?.nextCursor === "string" && result.nextCursor.length ? result.nextCursor : null;
+    if (!next || next === cursor) break;
+    cursor = next;
+  }
+  const models = rows.map(normalizeCodexModel).filter(Boolean);
+  connection.codexModels = models;
+  connection.codexModelsLoaded = true;
+  const observed = models.find(model => model.id === connection.codexModel?.id);
+  if (observed && !connection.codexModelSelected) connection.codexModel = observed;
+  return models;
+}
+
+// A Codex thread runs with its own model and level, which Codex reports with
+// the thread. They are shown, and sent, until the person picks others.
+function applyCodexThreadChoice(connection, thread) {
+  if (!connection || !thread) return;
+  if (typeof thread.reasoningEffort === "string" && thread.reasoningEffort) connection.codexThreadEffort = thread.reasoningEffort;
+  if (typeof thread.model === "string" && thread.model && !connection.codexModelSelected) {
+    const observed = normalizeCodexModel(thread.model);
+    const known = observed && Array.isArray(connection.codexModels) ? connection.codexModels.find(row => row?.id === observed.id) : null;
+    if (observed && (!connection.codexModel || connection.codexModel.id !== observed.id || known)) connection.codexModel = known || observed;
+  }
+  if (!connection.codexEffortSelected && connection.codexThreadEffort) connection.codexEffort = connection.codexThreadEffort;
+  if (rpc !== connection) return;
+  if (connection.codexModel) updateComposerSummary(connection.codexModel.name || connection.codexModel.id, undefined);
+  syncNativeThinkingSelect(connection);
+}
+
 async function openCodexNativeTask(task, generationOverride = null) {
   if (!task) return;
   const nativeThreadId = String(task.nativeThreadId || task.nativeSessionId || task.id || "").replace(/^codex:/, "");
@@ -5947,7 +5987,10 @@ async function openCodexNativeTask(task, generationOverride = null) {
     codexModelSelected: false,
     codexModels: null,
     codexModelsLoaded: false,
-    codexEffort: "off",
+    // The thread's own level until one is picked; Codex reports it with the thread.
+    codexEffort: null,
+    codexThreadEffort: null,
+    codexEffortSelected: false,
     nativeLoading: true,
     nativeRenderedRevision: null,
     nativeTranscriptState: createCodexNativeTranscriptState(),
@@ -5979,6 +6022,16 @@ async function openCodexNativeTask(task, generationOverride = null) {
     });
     if (rpc !== connection || generation !== viewGeneration) return;
     syncGenericInputState();
+    // The catalog names the thread's model and lists its levels.
+    if (connection.nativeCodexMutation) {
+      void loadCodexModelCatalog(connection).then(models => {
+        if (!models || rpc !== connection) return;
+        const known = connection.codexModel && models.find(model => model.id === connection.codexModel.id);
+        if (known && !connection.codexModelSelected) connection.codexModel = known;
+        if (connection.codexModel) updateComposerSummary(connection.codexModel.name || connection.codexModel.id, undefined);
+        syncNativeThinkingSelect(connection);
+      }).catch(() => {});
+    }
   } catch (error) {
     if (rpc === connection && generation === viewGeneration) {
       toast(tKey("runtime.openChatFailed", { detail: error.message }), true);
@@ -6561,15 +6614,13 @@ async function syncClaudeStructuredModelCatalog(connection = rpc, { force = fals
   connection.claudeModels = models;
   connection.claudeModelsLoaded = true;
   const current = claudeModelFromCatalog(models, result?.currentModel)
-    || models.find(model => model.id === "default")
-    || models[0]
     || null;
   if (current && !connection.claudeModelSelected) {
     connection.claudeModel = current;
     composerModelContextWindow = positiveFinite(current.contextWindow);
     updateComposerSummary(current.name || current.id, undefined);
   }
-  connection.claudeEffort = String(result?.currentEffort || connection.claudeEffort || "auto").toLowerCase();
+  connection.claudeEffort = String(result?.currentEffort || connection.claudeEffort || "").toLowerCase() || null;
   syncNativeThinkingSelect(connection);
   return models;
 }
@@ -9870,7 +9921,7 @@ function setStreaming(on) {
     const codex = !!rpc?.nativeCodexMutation;
     const claude = !!rpc?.nativeClaudeStructured;
     const acp = !!(rpc?.nativeAcp || rpc?.nativeGrokAcp);
-    if (codex || claude || acp) syncNativeThinkingSelect(rpc);
+    if (codex || claude || acp || rpc?.nativeOpenCode) syncNativeThinkingSelect(rpc);
     else el.thinkingSelect.disabled = false;
     if (codex && rpc.codexEffort) el.thinkingSelect.value = rpc.codexEffort;
   }
@@ -10350,10 +10401,13 @@ function updateComposerSummary(modelName, thinkingLevel) {
   // signal, so it must clear the chip instead of leaving the level the
   // previously selected model was using on screen.
   if (thinkingLevel !== undefined) composerReasoningLevel = String(thinkingLevel || "");
-  const model = composerModelName || (window.stepsembleI18n?.t("Server default") || "Server default");
-  const level = composerReasoningLevel || "off";
+  // Until the agent names its model, the chip invites a choice; it never
+  // shows a "default" that hides which model will answer.
+  const model = composerModelName || (window.stepsembleI18n?.t("Choose model") || "Choose model");
+  // Codex and Claude have no "off" or "auto" level to show: an unknown level
+  // is left out rather than shown as a default.
   const levelLabel = !composerReasoningLevel ? ""
-    : (rpc?.nativeCodexMutation || rpc?.nativeClaudeStructured) && (level === "off" || level === "auto") ? "Default" : level;
+    : (rpc?.nativeCodexMutation || rpc?.nativeClaudeStructured) && ["off", "auto"].includes(composerReasoningLevel) ? "" : composerReasoningLevel;
   const summary = levelLabel ? `${model} · ${levelLabel}` : model;
   // The chip is fixed-width: the model name truncates with an ellipsis while
   // the trailing thinking level always stays fully visible.
@@ -10376,6 +10430,11 @@ function reasoningLevelText(level) {
   const value = String(level || "");
   if (value === "xhigh") return "Extra high";
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+// The Host keeps the model and level last chosen for an agent, so its next
+// conversation starts with them, on every device.
+function rememberAgentChoice(agentId, sessionId, choice) {
+  void post("/api/agent-choice", { agentId, sessionId: sessionId || null, ...choice }).catch(() => {});
 }
 function applyComposerState(data) {
   const model = data?.model;
@@ -10455,6 +10514,12 @@ function syncNativeThinkingSelect(connection = rpc) {
   if (!select) return;
   captureDefaultThinkingSelectOptions();
   setThinkingHint("");
+  // OpenCode takes no thinking level from Stepsemble, so it offers none.
+  if (connection?.nativeOpenCode) {
+    setThinkingControlVisibility(true); select.disabled = true;
+    if (rpc === connection) updateComposerSummary(undefined, "");
+    return;
+  }
   if (connection?.nativeClaudeStructured) {
     const model = connection.claudeModel;
     const advertised = Array.isArray(model?.supportedEffortLevels)
@@ -10462,36 +10527,30 @@ function syncNativeThinkingSelect(connection = rpc) {
       : [];
     const supportsEffort = model?.supportsEffort === true || advertised.length > 0;
     if (!supportsEffort) {
-      setThinkingControlVisibility(false);
-      const option = document.createElement("option");
-      option.value = "default";
-      option.textContent = "Default";
-      select.replaceChildren(option);
-      select.value = "default";
+      // A model without a thinking level (Claude's Haiku): no level to pick,
+      // and the hint says why.
+      setThinkingControlVisibility(true);
+      select.replaceChildren();
       select.disabled = true;
       select.title = tKey("runtime.thinkingUnsupported");
       setThinkingHint(tKey("runtime.thinkingUnsupported"));
-      // The model keeps running at its own default, so the chip must not keep
-      // advertising the level chosen for a different model.
+      // The chip must not keep showing the level of a different model.
       updateComposerSummary(undefined, "");
       return;
     }
     setThinkingControlVisibility(false);
     select.disabled = false;
     select.removeAttribute("title");
-    const choicesForModel = advertised.length ? advertised : [...THINKING_LEVEL_ORDER];
-    const levels = ["auto", ...new Set(choicesForModel)];
-    select.replaceChildren(...levels.map(level => {
-      const option = document.createElement("option");
-      option.value = level;
-      option.textContent = level === "auto" ? "Default" : level;
-      return option;
-    }));
+    const levels = [...new Set(advertised.length ? advertised : [...THINKING_LEVEL_ORDER])];
     const choices = new Set(levels);
-    const requested = String(connection.claudeEffort || model.defaultEffort || "auto").toLowerCase();
-    connection.claudeEffort = choices.has(requested) ? requested : "auto";
-    select.value = connection.claudeEffort;
-    updateComposerSummary(undefined, connection.claudeEffort);
+    // Claude reports the level it runs with; one it has not reported yet is
+    // shown as unknown rather than as a default.
+    connection.claudeEffort = [connection.claudeEffort, model.defaultEffort]
+      .map(value => String(value || "").toLowerCase()).find(value => choices.has(value)) || null;
+    select.replaceChildren(...(connection.claudeEffort ? [] : [Object.assign(document.createElement("option"), { value: "", textContent: "—", disabled: true })]),
+      ...levels.map(level => Object.assign(document.createElement("option"), { value: level, textContent: level })));
+    select.value = connection.claudeEffort || "";
+    updateComposerSummary(undefined, connection.claudeEffort || "");
     return;
   }
   // An ACP agent lists its own reasoning levels (Grok: Extra high to Low);
@@ -10518,28 +10577,22 @@ function syncNativeThinkingSelect(connection = rpc) {
   }
   const model = connection.codexModel;
   const advertised = Array.isArray(model?.supportedReasoningEfforts)
-    ? model.supportedReasoningEfforts.map(String).filter(level => CODEX_EFFORTS.includes(level))
+    ? model.supportedReasoningEfforts.map(String).filter(level => CODEX_EFFORTS.includes(level) && level !== "off")
     : [];
-  const levels = [...new Set(["off", ...advertised])];
-  // A catalog that omits reasoning metadata keeps the familiar static menu;
-  // an explicit list is authoritative and gets its own compact select.
-  if (advertised.length || model?.reasoningEffortsDeclared === true) {
-    select.replaceChildren(...levels.map(level => {
-      const option = document.createElement("option");
-      option.value = level;
-      option.textContent = level === "off" ? "Default" : level;
-      return option;
-    }));
-  } else {
-    restoreDefaultThinkingSelectOptions();
-  }
-  const choices = new Set([...select.options].map(option => option.value));
-  const current = String(connection.codexEffort || "off");
+  // The model's own list when Codex gives one; otherwise every Codex level.
+  // Codex always runs a thread at a real level, so there is no "default".
+  const levels = [...new Set(advertised.length ? advertised : CODEX_EFFORTS.filter(level => level !== "off"))];
+  select.replaceChildren(...levels.map(level => Object.assign(document.createElement("option"), { value: level, textContent: level })));
+  const choices = new Set(levels);
+  const current = String(connection.codexEffort || "");
+  const threadLevel = String(connection.codexThreadEffort || "");
   const modelDefault = String(model?.defaultReasoningEffort || "").trim();
-  const next = choices.has(current) ? current : choices.has(modelDefault) ? modelDefault : "off";
+  const next = choices.has(current) ? current : choices.has(threadLevel) ? threadLevel
+    : choices.has(modelDefault) ? modelDefault : levels.includes("medium") ? "medium" : levels[0] || null;
   connection.codexEffort = next;
-  select.value = next;
+  select.value = next || "";
   select.disabled = false;
+  updateComposerSummary(undefined, next || "");
 }
 
 function thinkingPreference() {
@@ -10919,7 +10972,15 @@ function normalizeClaudeModel(model) {
 function claudeModelFromCatalog(models, value) {
   const normalized = normalizeClaudeModel(value);
   if (!normalized) return null;
-  const row = Array.isArray(models) ? models.find(candidate => candidate?.id === normalized.id) : null;
+  // Claude names a running model in full ("claude-opus-5-5[1m]"); its list
+  // names the same model "opus[1m]", with the full name as resolvedModel.
+  const rows = Array.isArray(models) ? models : [];
+  const base = id => String(id || "").replace(/\[[^\]]*\]$/, "");
+  const wide = id => /\[1m\]$/i.test(String(id || ""));
+  const row = rows.find(candidate => candidate?.id === normalized.id)
+    || rows.find(candidate => candidate?.resolvedModel === normalized.id)
+    || rows.find(candidate => candidate?.resolvedModel && base(candidate.resolvedModel) === base(normalized.id) && wide(candidate.id) === wide(normalized.id))
+    || rows.find(candidate => base(candidate?.id) === base(normalized.id));
   return row || normalized;
 }
 
@@ -10964,6 +11025,7 @@ function syncOpenCodeModelCatalog(connection = rpc, { force = false } = {}) {
   const request = api(`/api/opencode/models${directory}`).then(result => {
     if (!isCurrent()) return null;
     connection.openCodeModels = (Array.isArray(result?.models) ? result.models : []).map(normalizeOpenCodeModel).filter(Boolean);
+    connection.openCodeConfiguredModel = result?.configuredModel || null;
     const currentId = openCodeContext.modelIdentity(connection.openCodeModel);
     const known = connection.openCodeModels.find(model => openCodeContext.modelIdentity(model) === currentId);
     if (known) applyOpenCodeModel(known);
@@ -10974,6 +11036,21 @@ function syncOpenCodeModelCatalog(connection = rpc, { force = false } = {}) {
   });
   connection.openCodeModelsRequest = request;
   return request;
+}
+
+// A conversation that has not used a model yet takes the one chosen last for
+// OpenCode, or else the one OpenCode's own configuration names, so the chip
+// shows the model that will answer and the message is sent with it.
+async function applyOpenCodeStartingModel(connection) {
+  if (!connection || rpc !== connection || connection.openCodeModel || connection.openCodeModelSelected || connection.openCodeStartingModelChecked) return;
+  connection.openCodeStartingModelChecked = true;
+  const choice = await api("/api/agent-choice?agentId=opencode").catch(() => null);
+  if (rpc !== connection || connection.openCodeModel || connection.openCodeModelSelected) return;
+  const models = Array.isArray(connection.openCodeModels) ? connection.openCodeModels : [];
+  const configured = connection.openCodeConfiguredModel;
+  const wanted = [choice?.choice?.model, configured ? `${configured.providerID}/${configured.modelID}` : null].filter(Boolean);
+  const found = wanted.map(id => models.find(model => `${model.providerID}/${model.modelID}` === id)).find(Boolean);
+  if (found) applyOpenCodeModel(found);
 }
 
 // ACP advertises model choice among its session config options. Pick the one
@@ -11048,24 +11125,9 @@ async function openModelSheet({ preserveSearch = false } = {}) {
           availableModels = connection.codexModels;
           renderModelList(connection.codexModel?.id || null, "codex");
         }
-        let cursor = null;
-        const rows = [];
-        for (let page = 0; page < 32; page += 1) {
-          if (!stillCurrent()) return;
-          const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-          const result = await api(`/api/codex/models${query}`);
-          if (!stillCurrent()) return;
-          const data = Array.isArray(result?.data) ? result.data : [];
-          rows.push(...data);
-          const next = typeof result?.nextCursor === "string" && result.nextCursor.length ? result.nextCursor : null;
-          if (!next || next === cursor) break;
-          cursor = next;
-        }
-        availableModels = rows.map(normalizeCodexModel).filter(Boolean);
-        connection.codexModels = availableModels;
-        connection.codexModelsLoaded = true;
-        const observed = availableModels.find(model => model.id === connection.codexModel?.id);
-        if (observed && !connection.codexModelSelected) connection.codexModel = observed;
+        const models = await loadCodexModelCatalog(connection, stillCurrent);
+        if (!models || !stillCurrent()) return;
+        availableModels = models;
         syncNativeThinkingSelect(connection);
         renderModelList(connection.codexModel?.id || null, "codex");
       });
@@ -11082,16 +11144,14 @@ async function openModelSheet({ preserveSearch = false } = {}) {
       connection.claudeModels = availableModels;
       connection.claudeModelsLoaded = true;
       if (!connection.claudeModelSelected) {
-        const current = claudeModelFromCatalog(availableModels, result?.currentModel)
-          || availableModels.find(model => model.id === "default")
-          || availableModels[0];
+        const current = claudeModelFromCatalog(availableModels, result?.currentModel);
         if (current) {
           connection.claudeModel = current;
           composerModelContextWindow = positiveFinite(current.contextWindow);
           updateComposerSummary(current.name || current.id, undefined);
         }
       }
-      connection.claudeEffort = String(result?.currentEffort || connection.claudeEffort || "auto").toLowerCase();
+      connection.claudeEffort = String(result?.currentEffort || connection.claudeEffort || "").toLowerCase() || null;
       syncNativeThinkingSelect(connection);
       const current = connection.claudeModel || normalizeClaudeModel(result?.currentModel);
       renderModelList(current?.id || null, "claude-code");
@@ -11100,6 +11160,7 @@ async function openModelSheet({ preserveSearch = false } = {}) {
     if (connection?.nativeOpenCode) {
       const models = await syncOpenCodeModelCatalog(connection, { force: true });
       if (!stillCurrent()) return;
+      syncNativeThinkingSelect(connection);
       availableModels = models || connection.openCodeModels || [];
       renderModelList(connection.openCodeModel?.modelID || null, connection.openCodeModel?.providerID || null);
       return;
@@ -11219,6 +11280,7 @@ function renderModelList(currentId, currentProvider = null) {
           // newly selected model's capacity before native readback changes.
           composerModelContextWindow = null;
           syncNativeThinkingSelect(connection);
+          rememberAgentChoice("codex", connection.nativeThreadId, { model: model.id, ...(connection.codexEffort ? { effort: connection.codexEffort } : {}) });
           updateComposerSummary(model.name || model.id, undefined);
           renderContextDashboard();
           toast("模型：" + (model.name || model.id));
@@ -11239,6 +11301,8 @@ function renderModelList(currentId, currentProvider = null) {
           const selected = claudeModelFromCatalog(connection.claudeModels, result?.model) || model;
           connection.claudeModel = selected;
           connection.claudeModelSelected = true;
+          // Claude reports the level it runs with on the new model.
+          if (typeof result?.effort === "string" && result.effort) connection.claudeEffort = result.effort.toLowerCase();
           // A model ACK invalidates the previous model's context capacity. The
           // follow-up adapter readback owns the new value (which may remain
           // unknown). Keep a catalog capacity when it is available, while
@@ -11503,7 +11567,7 @@ async function changeThinkingLevel(level) {
     const expectedGeneration = viewGeneration;
     const expectedBase = apiBase;
     const requested = String(level || "").toLowerCase();
-    const allowed = new Set(["auto", "low", "medium", "high", "xhigh", "max"]);
+    const allowed = new Set(["low", "medium", "high", "xhigh", "max"]);
     if (!allowed.has(requested) || ![...el.thinkingSelect.options].some(option => option.value === requested)) return;
     try {
       const result = await post("/api/claude/structured/effort", {
@@ -11517,7 +11581,7 @@ async function changeThinkingLevel(level) {
       syncNativeThinkingSelect(connection);
       updateComposerSummary(undefined, connection.claudeEffort);
       renderContextDashboard();
-      toast(tKey("runtime.thinkingLevel", { level: connection.claudeEffort === "auto" ? "Default" : connection.claudeEffort }));
+      toast(tKey("runtime.thinkingLevel", { level: reasoningLevelText(connection.claudeEffort) }));
     } catch (error) {
       if (rpc === connection && viewGeneration === expectedGeneration && apiBase === expectedBase) {
         syncNativeThinkingSelect(connection);
@@ -11548,6 +11612,10 @@ async function changeThinkingLevel(level) {
     const allowed = new Set([...CODEX_EFFORTS]);
     if (!allowed.has(String(level)) || ![...el.thinkingSelect.options].some(option => option.value === String(level))) return;
     connection.codexEffort = String(level);
+    connection.codexEffortSelected = true;
+    // Codex applies the level with the next message; the Host keeps it as the
+    // level the next conversation starts with.
+    rememberAgentChoice("codex", connection.nativeThreadId, { effort: connection.codexEffort });
     if (rpc === connection && viewGeneration === expectedGeneration && apiBase === expectedBase) {
       el.thinkingSelect.value = connection.codexEffort;
       updateComposerSummary(undefined, connection.codexEffort);
