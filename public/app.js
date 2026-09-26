@@ -6610,10 +6610,10 @@ async function syncClaudeStructuredModelCatalog(connection = rpc, { force = fals
   if (!force && connection.claudeModelsLoaded && Array.isArray(connection.claudeModels)) return connection.claudeModels;
   const result = await api(`/api/claude/structured/models?sessionId=${encodeURIComponent(connection.nativeSessionId)}`);
   if (rpc !== connection) return null;
-  const models = (Array.isArray(result?.models) ? result.models : []).map(normalizeClaudeModel).filter(Boolean);
+  const { models, current: currentModel } = claudeCatalogFrom(result);
   connection.claudeModels = models;
   connection.claudeModelsLoaded = true;
-  const current = claudeModelFromCatalog(models, result?.currentModel)
+  const current = claudeModelFromCatalog(models, currentModel)
     || null;
   if (current && !connection.claudeModelSelected) {
     connection.claudeModel = current;
@@ -10486,6 +10486,17 @@ function restoreDefaultThinkingSelectOptions() {
   }
 }
 
+// Replaces a select's options only when they change. Conversations refresh
+// every few seconds, and rebuilding the options each time would close or
+// reset a menu the person has open.
+function setSelectOptions(select, entries) {
+  const current = [...select.options];
+  const same = current.length === entries.length && current.every((option, index) => option.value === entries[index].value
+    && option.textContent === entries[index].label && !!option.disabled === !!entries[index].disabled);
+  if (same) return;
+  select.replaceChildren(...entries.map(({ value, label, disabled }) => Object.assign(document.createElement("option"), { value, textContent: label, disabled: !!disabled })));
+}
+
 function setThinkingControlVisibility(hidden) {
   const select = el.thinkingSelect;
   if (!select) return;
@@ -10547,8 +10558,8 @@ function syncNativeThinkingSelect(connection = rpc) {
     // shown as unknown rather than as a default.
     connection.claudeEffort = [connection.claudeEffort, model.defaultEffort]
       .map(value => String(value || "").toLowerCase()).find(value => choices.has(value)) || null;
-    select.replaceChildren(...(connection.claudeEffort ? [] : [Object.assign(document.createElement("option"), { value: "", textContent: "—", disabled: true })]),
-      ...levels.map(level => Object.assign(document.createElement("option"), { value: level, textContent: level })));
+    setSelectOptions(select, [...(connection.claudeEffort ? [] : [{ value: "", label: "—", disabled: true }]),
+      ...levels.map(level => ({ value: level, label: level }))]);
     select.value = connection.claudeEffort || "";
     updateComposerSummary(undefined, connection.claudeEffort || "");
     return;
@@ -10559,12 +10570,7 @@ function syncNativeThinkingSelect(connection = rpc) {
     const thought = acpThoughtOption(connection.acpConfigOptions);
     if (!thought) { setThinkingControlVisibility(true); select.disabled = true; return; }
     setThinkingControlVisibility(false);
-    select.replaceChildren(...thought.options.map(choice => {
-      const option = document.createElement("option");
-      option.value = choice.value;
-      option.textContent = choice.name || reasoningLevelText(choice.value);
-      return option;
-    }));
+    setSelectOptions(select, thought.options.map(choice => ({ value: choice.value, label: choice.name || reasoningLevelText(choice.value) })));
     select.value = String(thought.currentValue || "");
     select.disabled = false;
     return;
@@ -10582,14 +10588,16 @@ function syncNativeThinkingSelect(connection = rpc) {
   // The model's own list when Codex gives one; otherwise every Codex level.
   // Codex always runs a thread at a real level, so there is no "default".
   const levels = [...new Set(advertised.length ? advertised : CODEX_EFFORTS.filter(level => level !== "off"))];
-  select.replaceChildren(...levels.map(level => Object.assign(document.createElement("option"), { value: level, textContent: level })));
   const choices = new Set(levels);
   const current = String(connection.codexEffort || "");
   const threadLevel = String(connection.codexThreadEffort || "");
   const modelDefault = String(model?.defaultReasoningEffort || "").trim();
+  // The level the thread or its model really uses. None is guessed: until
+  // Codex reports one, the level stays unknown and none is sent.
   const next = choices.has(current) ? current : choices.has(threadLevel) ? threadLevel
-    : choices.has(modelDefault) ? modelDefault : levels.includes("medium") ? "medium" : levels[0] || null;
+    : choices.has(modelDefault) ? modelDefault : null;
   connection.codexEffort = next;
+  setSelectOptions(select, [...(next ? [] : [{ value: "", label: "—", disabled: true }]), ...levels.map(level => ({ value: level, label: level }))]);
   select.value = next || "";
   select.disabled = false;
   updateComposerSummary(undefined, next || "");
@@ -10980,8 +10988,22 @@ function claudeModelFromCatalog(models, value) {
   const row = rows.find(candidate => candidate?.id === normalized.id)
     || rows.find(candidate => candidate?.resolvedModel === normalized.id)
     || rows.find(candidate => candidate?.resolvedModel && base(candidate.resolvedModel) === base(normalized.id) && wide(candidate.id) === wide(normalized.id))
+    // Claude's transcript and usage name the model bare ("claude-opus-5-5"),
+    // also when it runs with 1M context.
+    || rows.find(candidate => candidate?.resolvedModel && base(candidate.resolvedModel) === base(normalized.id))
     || rows.find(candidate => base(candidate?.id) === base(normalized.id));
   return row || normalized;
+}
+
+// Claude's list without its "default" entry, which an older Host still sends
+// beside the model it stands for; a current model named "default" is that
+// model.
+function claudeCatalogFrom(result) {
+  const rows = (Array.isArray(result?.models) ? result.models : []).map(normalizeClaudeModel).filter(Boolean);
+  const alias = rows.find(model => model.id === "default");
+  const models = rows.filter(model => model.id !== "default");
+  const current = result?.currentModel === "default" && alias?.resolvedModel ? alias.resolvedModel : result?.currentModel;
+  return { models, current };
 }
 
 function currentOpenCodeModelPayload(model = rpc?.openCodeModel) {
@@ -11140,11 +11162,12 @@ async function openModelSheet({ preserveSearch = false } = {}) {
       }
       const result = await api(`/api/claude/structured/models?sessionId=${encodeURIComponent(connection.nativeSessionId)}`);
       if (!stillCurrent()) return;
-      availableModels = (Array.isArray(result?.models) ? result.models : []).map(normalizeClaudeModel).filter(Boolean);
+      const catalog = claudeCatalogFrom(result);
+      availableModels = catalog.models;
       connection.claudeModels = availableModels;
       connection.claudeModelsLoaded = true;
       if (!connection.claudeModelSelected) {
-        const current = claudeModelFromCatalog(availableModels, result?.currentModel);
+        const current = claudeModelFromCatalog(availableModels, catalog.current);
         if (current) {
           connection.claudeModel = current;
           composerModelContextWindow = positiveFinite(current.contextWindow);
@@ -11153,7 +11176,7 @@ async function openModelSheet({ preserveSearch = false } = {}) {
       }
       connection.claudeEffort = String(result?.currentEffort || connection.claudeEffort || "").toLowerCase() || null;
       syncNativeThinkingSelect(connection);
-      const current = connection.claudeModel || normalizeClaudeModel(result?.currentModel);
+      const current = connection.claudeModel || normalizeClaudeModel(catalog.current);
       renderModelList(current?.id || null, "claude-code");
       return;
     }

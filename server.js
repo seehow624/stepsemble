@@ -2150,6 +2150,36 @@ function choiceForSession(agentId, sessionId) {
 function acpAdapterForAgent(agentId) {
   return agentId === "cline" ? clineAcp : agentId === "kilo" ? kiloAcp : agentId === "hermes" ? hermesAcp : null;
 }
+
+// The model a Claude conversation last answered with, read from the end of
+// Claude's own transcript. A conversation from before choices were kept is
+// reopened with it rather than with whatever was chosen last elsewhere.
+function claudeTranscriptModel(nativeSessionId, cwd) {
+  const id = String(nativeSessionId || "");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(id) || typeof cwd !== "string" || !path.isAbsolute(cwd)) return null;
+  const configDir = process.env.CLAUDE_CONFIG_DIR && path.isAbsolute(process.env.CLAUDE_CONFIG_DIR)
+    ? process.env.CLAUDE_CONFIG_DIR : path.join(process.env.HOME || os.homedir(), ".claude");
+  // Claude names a project's folder after its path, every other character a dash.
+  const file = path.join(configDir, "projects", cwd.replace(/[^A-Za-z0-9]/g, "-"), id + ".jsonl");
+  let fd;
+  try {
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile()) return null;
+    const length = Math.min(stat.size, 512 * 1024);
+    const buffer = Buffer.alloc(length);
+    fs.readSync(fd, buffer, 0, length, stat.size - length);
+    const lines = buffer.toString("utf8").split("\n");
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      const line = lines[index];
+      if (!line.includes('"assistant"') || !line.includes('"model"')) continue;
+      let row; try { row = JSON.parse(line); } catch { continue; }
+      const model = row?.type === "assistant" ? row.message?.model : null;
+      if (typeof model === "string" && model !== "<synthetic>" && /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,255}$/.test(model)) return model;
+    }
+  } catch {} finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch {} } }
+  return null;
+}
 const claudeStructuredEnabled = new Set(["1", "true", "yes", "on"]).has(String(process.env.STEPSEMBLE_CLAUDE_STRUCTURED || "").trim().toLowerCase());
 const claudeDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "claude-code");
 const claudeStructuredCommand = resolveCommand(claudeDefinition, { env: process.env });
@@ -7014,13 +7044,17 @@ const server = http.createServer(async (req, res) => {
             // A new conversation starts with the model and level chosen last; one
             // opened again keeps its own.
             const claudeChoice = choiceForSession("claude-code", resumeSessionId);
+            // A conversation from before choices were kept has none of its own;
+            // it keeps the model it last answered with.
+            const transcriptModel = resumeSessionId && !agentChoices.session("claude-code", resumeSessionId)?.model
+              ? claudeTranscriptModel(resumeSessionId, sessionCwd) : null;
             let launchedClaude = null;
             const session = await launchClaudeStructuredSession({ desktopClient: desktopClaude,
               command: claudeStructuredCommand, cwd: sessionCwd, env: { ...process.env, ...claudeOverrides },
               // The desktop helper asks its own Claude CLI the same question.
               allowBypass: desktopClaude ? false : await claudeSupportsBypass(claudeStructuredCommand, { env: { ...process.env, ...claudeOverrides } }),
               initialPermissionMode: resumeSessionId ? agentModes.get("claude-code", resumeSessionId) : null,
-              initialModel: claudeChoice?.model || null, initialEffort: claudeChoice?.effort || null,
+              initialModel: transcriptModel || claudeChoice?.model || null, initialEffort: claudeChoice?.effort || null,
               name: sessionName, permissionPromptTool: claudePermissionPromptTool, sessionId: resumeSessionId,
               onEvent: event => { try { if (event?.sessionId) {
                 rememberClaudeStructuredSession(event.sessionId, { cwd: sessionCwd, name: sessionName });

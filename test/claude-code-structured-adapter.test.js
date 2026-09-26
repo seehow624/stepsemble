@@ -587,6 +587,17 @@ function claude2181(child, { applied = { model: "claude-opus-5-5[1m]", effort: "
   return requests;
 }
 
+test("Claude reopens with the bare model name its transcript records", async t => {
+  // Claude's transcript names Opus with 1M context "claude-opus-5-5".
+  const child = childFixture();
+  const requests = claude2181(child);
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 500,
+    initialModel: "claude-opus-5-5" });
+  t.after(() => session.close());
+  assert.equal((await session.models()).currentModel, "opus[1m]");
+  assert.equal(requests.find(request => request.subtype === "set_model").model, "opus[1m]");
+});
+
 test("Claude runs at the level its own settings name when none was picked in Stepsemble", async t => {
   // Claude 2.1.281 run with stream-json answers at Medium even though its
   // settings say xhigh; get_settings shows both.

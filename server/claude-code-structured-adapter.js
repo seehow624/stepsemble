@@ -659,6 +659,8 @@ function createClaudeStructuredSession({
     const exact = availableModels.find(model => model.id === id)
       || availableModels.find(model => modelId(model.resolvedModel) === id)
       || availableModels.find(model => modelBase(model.resolvedModel) === modelBase(id) && /\[1m\]$/.test(model.id) === /\[1m\]$/.test(id))
+      // Claude's transcript names the model bare, also with 1M context.
+      || availableModels.find(model => model.resolvedModel && modelBase(model.resolvedModel) === modelBase(id))
       || availableModels.find(model => modelBase(model.id) === modelBase(id));
     return exact ? exact.id : null;
   }

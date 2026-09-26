@@ -35,8 +35,8 @@ function element() {
 function selectStub(levels) {
   return {
     options: levels.map(value => ({ value, textContent: value })),
-    value: "off", disabled: false, hidden: false, title: "",
-    replaceChildren(...nodes) { this.options = nodes.map(node => ({ value: node.value, textContent: node.textContent })); },
+    value: "off", disabled: false, hidden: false, title: "", rebuilds: 0,
+    replaceChildren(...nodes) { this.rebuilds += 1; this.options = nodes.map(node => ({ value: node.value, textContent: node.textContent, disabled: !!node.disabled })); },
     removeAttribute(name) { if (name === "title") this.title = ""; },
   };
 }
@@ -150,6 +150,46 @@ test("Codex shows the thread's own level and offers no Default", () => {
   context.syncNativeThinkingSelect(connection);
   assert.deepEqual(el.thinkingSelect.options.map(option => option.value), ["low", "high"]);
   assert.equal(connection.codexEffort, "high");
+});
+
+test("Codex guesses no level before Codex reports one, and a refresh keeps an open menu", () => {
+  const { context, el } = harness();
+  context.rpc = { nativeCodexMutation: true };
+  // The thread has not been read yet: no model, no level.
+  const connection = { nativeCodexMutation: true, codexModel: null, codexEffort: null, codexThreadEffort: null };
+  context.syncNativeThinkingSelect(connection);
+  assert.equal(connection.codexEffort, null);
+  assert.equal(el.thinkingSelect.value, "");
+  assert.equal(el.thinkingSelect.options[0].value, "");
+  assert.equal(el.composerModelLevelText.classList.contains("hidden"), true);
+  // Codex reports the thread's model; its own level is used, not a guess.
+  connection.codexModel = { id: "gpt-6-luna", supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"], defaultReasoningEffort: "high" };
+  context.syncNativeThinkingSelect(connection);
+  assert.equal(connection.codexEffort, "high");
+  // The same options on the next refresh leave the menu alone.
+  const rebuilds = el.thinkingSelect.rebuilds;
+  context.syncNativeThinkingSelect(connection);
+  context.syncNativeThinkingSelect(connection);
+  assert.equal(el.thinkingSelect.rebuilds, rebuilds);
+});
+
+test("Claude's list drops the default alias and names a bare transcript model", () => {
+  const start = appSource.indexOf("function normalizeClaudeModel(");
+  const end = appSource.indexOf("function currentOpenCodeModelPayload(", start);
+  assert.ok(start >= 0 && end > start);
+  const context = vm.createContext({ positiveFinite: value => (Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : null) });
+  vm.runInContext(appSource.slice(start, end), context, { filename: "public/app.js" });
+  const { claudeCatalogFrom, claudeModelFromCatalog } = context;
+  const catalog = claudeCatalogFrom({ currentModel: "default", models: [
+    { id: "default", name: "Default (recommended)", resolvedModel: "claude-opus-5-5[1m]" },
+    { id: "opus[1m]", name: "Opus (1M context)", resolvedModel: "claude-opus-5-5[1m]" },
+    { id: "sonnet", name: "Sonnet", resolvedModel: "claude-sonnet-5" },
+  ] });
+  assert.deepEqual(catalog.models.map(model => model.id), ["opus[1m]", "sonnet"]);
+  assert.equal(claudeModelFromCatalog(catalog.models, catalog.current).name, "Opus (1M context)");
+  assert.equal(claudeModelFromCatalog(catalog.models, "claude-opus-5-5").name, "Opus (1M context)");
+  assert.equal(claudeModelFromCatalog(catalog.models, "claude-opus-5-5[1m]").name, "Opus (1M context)");
+  assert.equal(claudeModelFromCatalog(catalog.models, "claude-sonnet-5").name, "Sonnet");
 });
 
 test("the model chip never shows a default model or level", () => {
