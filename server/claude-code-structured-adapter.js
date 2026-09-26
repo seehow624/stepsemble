@@ -25,6 +25,8 @@ const MAX_PROMPT = 1024 * 1024;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const MAX_CONTROL_REQUESTS = 64;
 const MAX_MODELS = 100;
+// How long Claude gets to exit when asked before it is forced to.
+const FORCE_KILL_AFTER_MS = 3000;
 const CLAUDE_EFFORTS = new Set(["auto", "low", "medium", "high", "xhigh", "max"]);
 // Keep a single Claude stream-json input frame and its ordered write queue
 // bounded like the Codex native transport. The HTTP prompt route admits up to
@@ -429,6 +431,7 @@ function createClaudeStructuredSession({
   permissionPrompts = "host",
   spawnImpl = spawn,
   requestTimeoutMs = 120000,
+  forceKillAfterMs = FORCE_KILL_AFTER_MS,
   onEvent = null,
   onPermission = null,
   initialPermissionMode = null,
@@ -569,6 +572,22 @@ function createClaudeStructuredSession({
   function setNativeFailure(code, message = code) {
     processError ||= controlError(code, message);
     state = "failed";
+    endProcess();
+  }
+
+  // A failed session takes no more messages, so its process has nothing left
+  // to do. End it, and force it if it ignores the request, so it neither keeps
+  // running nor keeps counting as work an update would interrupt.
+  let endingProcess = false;
+  function endProcess() {
+    if (childExited || endingProcess) return;
+    endingProcess = true;
+    try { child.stdin?.end?.(); } catch {}
+    try { child.kill?.(); } catch {}
+    const forceTimer = setTimeout(() => {
+      if (!childExited) { try { child.kill?.("SIGKILL"); } catch {} }
+    }, forceKillAfterMs);
+    forceTimer.unref?.();
   }
 
   function requestControl(subtype, fields = {}) {
@@ -756,13 +775,14 @@ function createClaudeStructuredSession({
     onError(code) {
       processError ||= controlError(code, code);
       state = "failed";
+      endProcess();
     },
   });
   child.stdout?.on?.("data", chunk => parser.push(chunk));
   child.stdout?.on?.("end", () => parser.end());
   child.stderr?.on?.("data", () => {}); // drain without exposing credentials/diagnostics
-  child.on?.("error", error => { processError ||= error instanceof Error ? error : new Error("claude_process_error"); });
-  child.stdin?.on?.("error", () => { processError ||= Object.assign(new Error("claude_input_unavailable"), { code: "claude_input_unavailable" }); });
+  child.on?.("error", error => { processError ||= error instanceof Error ? error : new Error("claude_process_error"); endProcess(); });
+  child.stdin?.on?.("error", () => { processError ||= Object.assign(new Error("claude_input_unavailable"), { code: "claude_input_unavailable" }); endProcess(); });
   child.on?.("close", (code, signal) => {
     childExited = true;
     exitCode = Number.isInteger(code) ? code : null;
@@ -953,13 +973,12 @@ function createClaudeStructuredSession({
     state = "closed";
     rejectControls(controlError("claude_session_closed"));
     pendingPermissions.clear(); pendingInterrupts.clear();
-    try { child.stdin?.end?.(); } catch {}
-    try { child.kill?.(); } catch {}
+    endProcess();
     let cleanupConfirmed = false;
     let cleanupTimer;
     try {
       await Promise.race([childClosed, new Promise(resolve => {
-        cleanupTimer = setTimeout(resolve, 3000);
+        cleanupTimer = setTimeout(resolve, forceKillAfterMs + 1000);
         cleanupTimer.unref?.();
       })]);
       cleanupConfirmed = childExited;

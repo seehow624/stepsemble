@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.7.2
+
+- Stop a Claude Code conversation that failed from keeping its Claude process running. The process stayed open with nothing to do, so the conversation kept counting as work in progress, and Update now said an agent was working until Stepsemble restarted. A failed conversation now ends its process, and a Claude process that does not exit when asked, on a failure or on Close, is ended after 3 seconds.
+
 ## 3.7.1
 
 - Continue a Codex conversation after Stepsemble restarts, for example after an update. Codex 0.156 reports a conversation's status before it answers the request that reopens it, and the last turn's usage right after; Stepsemble took both for another conversation's and dropped the connection, so every message to a conversation opened before the restart was not sent. Checked with Codex 0.156.1 on the conversation that failed.

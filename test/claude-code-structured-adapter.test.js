@@ -565,6 +565,43 @@ test("Claude parser failures carry a status code through the live session", asyn
   assert.equal(session.status().failed, "structured_event_invalid");
 });
 
+// A process that ignores the polite request and exits only when forced.
+function stubbornChild() {
+  const child = new EventEmitter();
+  child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+  child.signals = [];
+  child.kill = signal => {
+    child.signals.push(signal || "SIGTERM");
+    if (signal === "SIGKILL") child.emit("close", null, "SIGKILL");
+  };
+  return child;
+}
+
+test("a failed Claude session ends its process, so it stops counting as work", async () => {
+  const child = stubbornChild();
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, forceKillAfterMs: 10 });
+  child.stdout.write(JSON.stringify({ type: "error", error: "stream broke" }) + "\n");
+  assert.equal(session.status().failed, "claude_native_error");
+  assert.deepEqual(child.signals, ["SIGTERM"]);
+  await new Promise(resolve => setTimeout(resolve, 40));
+  assert.deepEqual(child.signals, ["SIGTERM", "SIGKILL"]);
+  const status = session.status();
+  assert.equal(status.state, "failed");
+  assert.equal(status.processExited, true);
+});
+
+test("closing Claude forces a process that ignores the request to exit", async () => {
+  const child = stubbornChild();
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, forceKillAfterMs: 10 });
+  // The session's timers do not hold the Host open; this test must.
+  const hold = setTimeout(() => {}, 1000);
+  const closed = await session.close();
+  clearTimeout(hold);
+  assert.equal(closed.cleanupConfirmed, true);
+  assert.deepEqual(child.signals, ["SIGTERM", "SIGKILL"]);
+  assert.equal(session.status().state, "closed");
+});
+
 test("Claude model ids reject tabs and overlong values without truncation", async t => {
   const child = childFixture();
   const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child });
