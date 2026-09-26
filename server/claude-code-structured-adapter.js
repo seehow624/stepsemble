@@ -467,6 +467,11 @@ function createClaudeStructuredSession({
     usage: null,
   };
   let haveAssistantUsage = false;
+  // Stop was pressed during the turn now running; see the result handling.
+  let interruptRequested = false;
+  // The last turn Claude ended with an error, shown in the conversation. The
+  // session stays usable: Claude takes the next message as usual.
+  let turnError = null;
 
   function settleControl(requestId, error = null, value = null) {
     const pending = pendingControls.get(requestId);
@@ -697,7 +702,15 @@ function createClaudeStructuredSession({
       } else if (event.type === "result") {
         captureResultUsage(event);
         const failure = resultFailure(event);
-        if (failure) setNativeFailure(failure.code, failure.message);
+        // A turn that ends in an error leaves Claude ready for the next
+        // message; only its process or protocol failing ends the session.
+        // A turn Stop ended reports an error too ("aborted_streaming"), which
+        // is not one. An error Claude writes as its reply is shown as such.
+        const aborted = interruptRequested || /^aborted/.test(String(event.terminal_reason || ""));
+        if (failure && !aborted && String(event.subtype || "").startsWith("error_")) {
+          turnError = { code: failure.code, message: failure.message, at: Date.now() };
+        }
+        interruptRequested = false;
       }
       if (event.type === "error") {
         const message = safeText(event.error || event.message || event.result || "claude_native_error", 512) || "claude_native_error";
@@ -821,6 +834,7 @@ function createClaudeStructuredSession({
     catch (error) { return reject(error?.code || "claude_initialize_failed"); }
     const afterInitialize = ensureOpen();
     if (afterInitialize) return Promise.resolve(afterInitialize);
+    interruptRequested = false;
     state = "running";
     lastActivityAt = Date.now();
     return enqueueFrame(frame)
@@ -927,6 +941,7 @@ function createClaudeStructuredSession({
     const failure = ensureOpen(); if (failure) return Promise.resolve(failure);
     const requestId = `stepsemble-int-${crypto.randomUUID()}`;
     pendingInterrupts.add(requestId);
+    interruptRequested = true;
     state = "interrupting";
     lastActivityAt = Date.now();
     return enqueueJson({ type: "control_request", request_id: requestId, request: { subtype: "interrupt" } })
@@ -973,6 +988,7 @@ function createClaudeStructuredSession({
       return { ...current, closed, failed: current.failed || processError?.code || null,
         nativeSessionId: current.sessionId || sessionId, state: current.failed || processError ? "failed" : state,
         model: selectedModel || null, effort: selectedEffort || null, permissionMode: permissionMode || null, contextUsage: contextUsage(),
+        turnError: turnError ? { ...turnError } : null,
         startedAt, lastActivityAt, exitCode, exitSignal, processExited: childExited, cleanupConfirmed: closed && childExited };
     },
     events: () => parser.events(),

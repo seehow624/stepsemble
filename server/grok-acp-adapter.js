@@ -144,7 +144,12 @@ function createGrokAcpAdapter({
       const row = pending.get(Number(frame.id) || String(frame.id));
       if (!row) return;
       pending.delete(Number(frame.id) || String(frame.id)); clearTimeout(row.timer);
-      if (Object.hasOwn(frame, "error")) row.resolve(reject("grok_acp_request_rejected"));
+      // Grok's own reason, such as a sign-in or model error, is shown to the
+      // person instead of a bare "not sent".
+      if (Object.hasOwn(frame, "error")) {
+        const message = safeText(frame.error?.message, 500);
+        row.resolve({ ...reject("grok_acp_request_rejected"), ...(message ? { error: message } : {}) });
+      }
       else row.resolve({ kind: "result", value: bounded(frame.result) });
       return;
     }
@@ -225,6 +230,14 @@ function createGrokAcpAdapter({
     if (!current || current.promptInFlight) return reject("grok_prompt_in_flight");
     current.promptInFlight = true; current.status = "running";
     try {
+      // Grok does not repeat the person's message while it answers. It is
+      // kept with the conversation's updates, so a reloaded page shows it
+      // above the answer, as Grok's own replay of a conversation does.
+      if (value) {
+        const echo = { type: "session.update", sessionId: id, update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: value } }, at: Date.now(), local: true };
+        events.push(echo); while (events.length > MAX_EVENTS) events.shift();
+        current.events.push(echo);
+      }
       const content = value ? [{ type: "text", text: value }, ...blocks] : blocks;
       const result = await request("session/prompt", { sessionId: id, prompt: content }, { maxBytes: MAX_PROMPT_FRAME_BYTES, timeoutMs: promptTimeoutMs });
       current.status = result.kind === "result" ? "idle" : "error";

@@ -207,6 +207,14 @@
     }
     response.text = prose.join("");
     response.thinking = thinking.join("\n");
+    // A reply that failed, for example "You need to sign in to use this
+    // model", carries its reason instead of any text.
+    const info = plain(message.info) ? message.info : {};
+    const failure = plain(info.error) ? info.error : plain(message.error) ? message.error : null;
+    if (role === "assistant" && failure) {
+      const data = plain(failure.data) ? failure.data : {};
+      response.error = text(data.message || failure.message || failure.name || "");
+    }
     return response;
   }
 
@@ -214,6 +222,11 @@
     if (!plain(update)) return null;
     const kind = text(update.sessionUpdate, 128);
     const content = plain(update.content) ? update.content : {};
+    // The person's own message: an agent's replay of a conversation, or the
+    // copy the Host keeps of a message sent from Stepsemble.
+    if (kind === "user_message_chunk" && typeof content.text === "string") {
+      return { kind: "user_delta", text: text(content.text) };
+    }
     if ((kind === "agent_message_chunk" || kind === "agent_message") && typeof content.text === "string") {
       return { kind: "message_delta", text: text(content.text) };
     }

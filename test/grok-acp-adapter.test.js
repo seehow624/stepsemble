@@ -230,3 +230,32 @@ test("Grok ACP loads a stored conversation with the history Grok replays and kee
   assert.equal(adapter.sessions().find(row => row.id === "stored-1").name, "Grok models");
   assert.equal(adapter.sessionConfigOptions("stored-1").find(option => option.category === "model").currentValue, "grok-4.7");
 });
+
+test("a Grok message is kept with the conversation's updates, and a refusal keeps Grok's reason", async t => {
+  const child = new EventEmitter();
+  child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+  child.kill = () => child.emit("close", 0, null);
+  child.stdin.on("data", chunk => {
+    for (const line of chunk.toString().split(/\n/).filter(Boolean)) {
+      const frame = JSON.parse(line);
+      const reply = value => child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: frame.id, ...value }) + "\n");
+      if (frame.method === "initialize") reply({ result: { authMethods: [{ id: "cached_token" }] } });
+      else if (frame.method === "authenticate") reply({ result: {} });
+      else if (frame.method === "session/new") reply({ result: { sessionId: "session-1" } });
+      else if (frame.method === "session/prompt" && frame.params.prompt[0].text === "refused") reply({ error: { code: -32603, message: "Model is not available on your plan." } });
+      else if (frame.method === "session/prompt") {
+        child.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "session-1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hi" } } } }) + "\n");
+        reply({ result: { stopReason: "end_turn" } });
+      }
+    }
+  });
+  const adapter = createGrokAcpAdapter({ command: "/usr/local/bin/grok", cwd: "/tmp", env: { XAI_API_KEY: "fixture" }, spawnImpl: () => child });
+  t.after(() => adapter.close());
+  await adapter.createSession({ directory: "/tmp" });
+  assert.equal((await adapter.prompt("session-1", "hello there")).kind, "prompted");
+  assert.deepEqual(adapter.sessionEvents("session-1").map(row => [row.update.sessionUpdate, row.update.content.text]),
+    [["user_message_chunk", "hello there"], ["agent_message_chunk", "hi"]]);
+  const refused = await adapter.prompt("session-1", "refused");
+  assert.equal(refused.code, "grok_acp_request_rejected");
+  assert.equal(refused.error, "Model is not available on your plan.");
+});

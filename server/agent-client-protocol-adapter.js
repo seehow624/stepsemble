@@ -278,8 +278,14 @@ function createAgentClientProtocolAdapter({
       // ACP reserves -32000 for "authentication required"; some agents also
       // say so only in the message. Either one means the agent needs its own
       // sign-in first, which the browser can offer.
-      if (Object.hasOwn(frame, "error")) row.resolve(reject(frame.error?.code === -32000
-        || /\bauthenticat(?:e|ion) (?:is )?required|call authenticate\b/i.test(String(frame.error?.message || "")) ? "acp_auth_required" : "acp_request_rejected"));
+      // The agent's own reason, such as "You need to sign in to use this
+      // model", is shown to the person instead of a bare "not sent".
+      if (Object.hasOwn(frame, "error")) {
+        const message = safeText(frame.error?.message, 500);
+        row.resolve({ ...reject(frame.error?.code === -32000
+          || /\bauthenticat(?:e|ion) (?:is )?required|call authenticate\b/i.test(String(frame.error?.message || "")) ? "acp_auth_required" : "acp_request_rejected"),
+          ...(message ? { error: message } : {}) });
+      }
       else row.resolve({ kind: "result", value: bounded(frame.result) });
       return;
     }
@@ -320,21 +326,31 @@ function createAgentClientProtocolAdapter({
     const ready = await initialize(); if (ready.kind === "reject") return ready;
     if (typeof directory !== "string" || !path.isAbsolute(directory) || !Array.isArray(mcpServers) || mcpServers.length > 32 || sessionId !== null && !safeId(sessionId)) return reject("acp_session_invalid");
     const method = sessionId ? "session/load" : "session/new";
+    // An agent replays a loaded conversation as updates before it answers
+    // session/load, so the session is listed first to keep them; the replay
+    // is the whole conversation, so it starts from no updates.
+    const before = sessionId ? sessions.get(sessionId) : null;
+    if (sessionId) sessions.set(sessionId, { id: sessionId, cwd: directory, name: knownSessions.get(sessionId)?.name || null,
+      lastActivityAt: Date.now(), events: [], status: "idle", promptInFlight: false, loaded: false, configOptions: before?.configOptions || [] });
+    const restore = () => { if (!sessionId) return; if (before) sessions.set(sessionId, before); else sessions.delete(sessionId); };
     const result = await request(method, { cwd: directory, mcpServers, ...(sessionId ? { sessionId } : {}) });
-    if (result.kind === "reject" || !safeId(result.value?.sessionId)) return reject(result.kind === "reject" ? result.code : "acp_session_invalid");
-    const id = String(result.value.sessionId);
+    if (result.kind === "reject") { restore(); return result; }
+    // The answer to session/load carries no session id: it is the one asked for.
+    const answered = result.value?.sessionId;
+    const id = String(sessionId && (answered === undefined || answered === null) ? sessionId : answered ?? "");
+    if (!safeId(id) || sessionId && id !== sessionId) { restore(); return reject("acp_session_invalid"); }
     const prior = knownSessions.get(id);
     const sessionName = safeText(name, 120) || prior?.name || null;
     const metadata = { id, cwd: directory, name: sessionName, lastActivityAt: Date.now() };
     knownSessions.set(id, metadata);
     while (knownSessions.size > MAX_SESSIONS) knownSessions.delete(knownSessions.keys().next().value);
     writeSessionRegistry(registryFile, knownSessions);
-    sessions.set(id, { ...metadata, events: [], status: "idle", promptInFlight: false, loaded: true });
+    sessions.set(id, { ...metadata, events: sessionId ? sessions.get(id)?.events || [] : [], status: "idle", promptInFlight: false, loaded: true });
     while (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
     // ACP v1 exposes model selection through session config options rather
     // than a dedicated model API. Record whatever the agent advertised so the
     // browser can offer the same choices the vendor's own client would.
-    const configOptions = configOptionsFromSession(result.value);
+    const configOptions = plain(result.value) ? configOptionsFromSession(result.value) : [];
     sessions.get(id).configOptions = configOptions;
     return { kind: sessionId ? "loaded" : "created", sessionId: id, cwd: directory, configOptions };
   }
@@ -380,6 +396,10 @@ function createAgentClientProtocolAdapter({
     if (session.promptInFlight) return reject("acp_prompt_in_flight");
     session.promptInFlight = true; session.status = "running";
     try {
+      // Agents do not repeat the person's message while they answer. It is
+      // kept with the conversation's updates, so a reloaded page shows it
+      // above the answer, as an agent's own replay of a conversation does.
+      if (value) recordEvent({ type: "session.update", sessionId: id, update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: value } }, at: Date.now(), local: true });
       const content = value ? [{ type: "text", text: value }, ...blocks] : blocks;
       const result = await request("session/prompt", { sessionId: id, prompt: content }, { maxBytes: MAX_PROMPT_FRAME_BYTES, timeoutMs: promptTimeoutMs });
       // A finished turn leaves the session idle; it used to stay "running".

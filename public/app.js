@@ -5007,6 +5007,25 @@ function appendGenericInput(text, truncated = false) {
   scrollBottom();
 }
 
+// A turn that ended in an error, in a conversation that goes on.
+function appendTurnErrorNotice(connection, message) {
+  if (rpc !== connection) return;
+  const label = connection.agentLabel || "Agent";
+  const shell = makeMsgShell("assistant", label);
+  const box = document.createElement("div");
+  box.className = "run-error";
+  const title = document.createElement("div");
+  title.className = "run-error-title";
+  title.textContent = `${label} · ${agentStatusText("failed")}`;
+  const detail = document.createElement("div");
+  detail.className = "run-error-message";
+  detail.textContent = String(message || "").slice(0, 2000);
+  box.append(title, detail);
+  shell.bubble.appendChild(box);
+  connection.genericOutputNode = null;
+  scrollBottom();
+}
+
 function appendGenericTerminalNotice(status, event = {}) {
   if (!rpc?.generic || rpc.genericTerminalNotice) return;
   const terminal = String(status || "completed");
@@ -5222,6 +5241,18 @@ function renderOpenCodeNativeSnapshot(snapshot, { replace = false } = {}) {
     if (!view) continue;
     const bubble = appendNormalizedAgentMessage(view, "OpenCode", el.messages,
       message?.info?.model?.modelID || message?.info?.model?.modelId || message?.info?.modelID || null);
+    if (view.error && bubble) {
+      const box = document.createElement("div");
+      box.className = "run-error";
+      const title = document.createElement("div");
+      title.className = "run-error-title";
+      title.textContent = `OpenCode · ${agentStatusText("failed")}`;
+      const detail = document.createElement("div");
+      detail.className = "run-error-message";
+      detail.textContent = view.error.slice(0, 2000);
+      box.append(title, detail);
+      bubble.appendChild(box);
+    }
     stampMessageTime(bubble?.parentNode, message?.time?.completed || message?.info?.time?.completed
       || message?.time?.created || message?.info?.time?.created);
   }
@@ -5937,6 +5968,9 @@ async function openCodexNativeTask(task, generationOverride = null) {
     runEndedAt: normalizedTimestampMs(task.endedAt) || null,
   };
   const connection = rpc;
+  // The message box stays read-only until the conversation has loaded; a
+  // message sent before then would be refused.
+  syncGenericInputState();
   codexNativePollTimer = null;
   try {
     await retryCodexNativeTransient(async (attempt) => {
@@ -5963,11 +5997,13 @@ async function openOpenCodeNativeTask(task, generationOverride = null) {
   // Imported OpenCode sessions are view-only when their task is historical.
   // They can still be reconciled by session id even if the original cwd is
   // no longer an allowed project folder; active sessions keep live controls.
-  const nativeOpenCodeReadOnly = task.readOnly === true
-    || task.idleNativeSession === true
-    || task.status === "history"
-    || (task.history === "native_readonly"
-      && ["completed", "failed", "stopped", "orphaned", "detached"].includes(String(task.status || "")));
+  // A session in the Workspace goes on: OpenCode keeps every session, and an
+  // idle one, including one just created, takes the next message.
+  const nativeOpenCodeReadOnly = task.readOnly === true || task.nativeHistoryReadonly === true
+    || !WORKSPACE_ENTRY_KEY && (task.idleNativeSession === true
+      || task.status === "history"
+      || (task.history === "native_readonly"
+        && ["completed", "failed", "stopped", "orphaned", "detached"].includes(String(task.status || ""))));
   rememberLastAgentTask(task.id || `opencode:${nativeSessionId}`);
   beginDraftScope({ cwd, name });
   const generation = generationOverride === null ? ++viewGeneration : generationOverride;
@@ -6029,6 +6065,9 @@ async function openOpenCodeNativeTask(task, generationOverride = null) {
     runEndedAt: null,
   };
   const connection = rpc;
+  // The message box stays read-only until the conversation has loaded; a
+  // message sent before then would be refused.
+  syncGenericInputState();
   openCodeNativePollTimer = null;
   try {
     await refreshOpenCodeNativeSnapshot(connection, { initial: true });
@@ -6069,6 +6108,7 @@ function resetStructuredTranscriptPresentation(connection) {
   connection.structuredToolCards = new Map();
   connection.structuredThinking = null;
   connection.genericOutputNode = null;
+  connection.structuredUserNode = null;
 }
 
 function appendStructuredThinking(connection, value, label) {
@@ -6113,9 +6153,40 @@ function appendStructuredTool(connection, tool, label, fallbackKey) {
   connection.structuredThinking = null;
 }
 
+// The person's message in an ACP conversation. An agent replays it in parts,
+// which join into one bubble; the copy of a message this page just sent is
+// already on screen and is not drawn again. The agent's answer that follows
+// goes into a new bubble below it.
+function appendStructuredUserText(connection, value) {
+  if (rpc !== connection) return;
+  const text = String(value || "");
+  if (!text) return;
+  connection.genericOutputNode = null;
+  connection.structuredThinking = null;
+  const same = item => String(item.text || "").replace(/\s+/g, " ").trim() === text.replace(/\s+/g, " ").trim();
+  const echoes = Array.isArray(connection.genericInputEchoes) ? connection.genericInputEchoes : [];
+  const echoIndex = connection.structuredUserNode ? -1 : echoes.findIndex(same);
+  if (echoIndex >= 0) { echoes.splice(echoIndex, 1); return; }
+  let state = connection.structuredUserNode;
+  if (!state?.bubble?.isConnected) {
+    const { bubble } = makeMsgShell("user", "你");
+    state = { bubble, text: "" };
+    connection.structuredUserNode = state;
+  }
+  state.text += text;
+  state.bubble.replaceChildren(renderMarkdown(state.text));
+  scrollBottom();
+}
+
 function renderAgentProtocolUpdate(connection, update, label, fallbackKey) {
   const view = agentTranscriptPresentation.acpUpdate(update);
   if (!view) return;
+  if (view.kind === "user_delta") {
+    appendStructuredUserText(connection, view.text);
+    return;
+  }
+  // Whatever the agent writes next ends the person's message above it.
+  connection.structuredUserNode = null;
   if (view.kind === "message_delta") {
     connection.structuredThinking = null;
     appendGenericOutput(view.text, "stdout");
@@ -6242,6 +6313,9 @@ async function openGrokAcpTask(task, generationOverride = null) {
     genericOutputNode: null, genericTerminalNotice: null, genericInputEchoes: [], grokEventIndex: 0,
     agentId: "grok-build", agentLabel: "Grok Build", name, cwd, runStartedAt: normalizedTimestampMs(task.startedAt) || Date.now(), runEndedAt: null };
   const connection = rpc;
+  // The message box stays read-only until the conversation has loaded; a
+  // message sent before then would be refused.
+  syncGenericInputState();
   grokAcpPollTimer = null;
   try {
     // A conversation Stepsemble has not opened since it started is loaded
@@ -6448,6 +6522,14 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false } =
     const status = snapshot?.status || {};
     connection.taskStatus = status.closed ? "stopped" : status.failed ? "failed"
       : status.state === "running" ? "running" : "waiting";
+    // A turn Claude ended with an error is shown once, below that turn; the
+    // conversation goes on. One from before this view opened is not repeated.
+    const turnError = status.turnError;
+    if (initial) connection.claudeTurnErrorAt = turnError?.at || 0;
+    else if (turnError?.at && turnError.at !== connection.claudeTurnErrorAt) {
+      connection.claudeTurnErrorAt = turnError.at;
+      appendTurnErrorNotice(connection, turnError.message);
+    }
     applyGenericTaskSnapshot({
       id: connection.sid,
       taskId: connection.sid,
@@ -6532,6 +6614,9 @@ async function openClaudeStructuredTask(task, generationOverride = null) {
     claudeModels: null, claudeModelsLoaded: false, agentId: "claude-code", agentLabel: "Claude Code", name, cwd,
     runStartedAt: normalizedTimestampMs(task.startedAt) || Date.now(), runEndedAt: null };
   const connection = rpc; claudeStructuredPollTimer = null;
+  // The message box stays read-only until the conversation has loaded; a
+  // message sent before then would be refused.
+  syncGenericInputState();
   try {
     // Claude's history is the conversation so far. The live events come
     // after it and add only the replies it does not show yet.
@@ -6665,6 +6750,9 @@ async function openAgentClientProtocolTask(task, generationOverride = null) {
     genericTerminalNotice: null, genericInputEchoes: [], acpEventIndex: 0, agentId, agentLabel: agentConnectorLabel(agentId), name, cwd,
     runStartedAt: normalizedTimestampMs(task.startedAt) || Date.now(), runEndedAt: null };
   const connection = rpc; acpPollTimer = null;
+  // The message box stays read-only until the conversation has loaded; a
+  // message sent before then would be refused.
+  syncGenericInputState();
   try {
     await refreshAgentClientProtocolSnapshot(connection, { initial: true });
     if (rpc !== connection || generation !== viewGeneration) return;
@@ -6758,6 +6846,9 @@ async function openAntigravityStructuredTask(task, generationOverride = null) {
     genericInputEchoes: [], antigravityEventIndex: 0, agentId: "antigravity", agentLabel: "Google Antigravity", name, cwd,
     runStartedAt: normalizedTimestampMs(task.startedAt) || Date.now(), runEndedAt: null };
   const connection = rpc; antigravityStructuredPollTimer = null;
+  // The message box stays read-only until the conversation has loaded; a
+  // message sent before then would be refused.
+  syncGenericInputState();
   try {
     await refreshAntigravityStructuredSnapshot(connection, { initial: true });
     if (rpc !== connection || generation !== viewGeneration) return;
@@ -10158,7 +10249,10 @@ async function sendCurrent() {
       saveDraftForKey(sendDraftKey, text);
       pendingImages = images.concat(pendingImages).slice(0, composerImageBudget().count);
       renderImgPreview();
-      toast(tKey("runtime.messageNotSent"), true);
+      // The agent's own reason, such as "You need to sign in to use this
+      // model", follows when the Host passed one on with its code.
+      const reason = e?.code && typeof e.message === "string" && e.message !== e.code && /\s/.test(e.message) ? e.message.slice(0, 300) : "";
+      toast(reason ? `${tKey("runtime.messageNotSent")} · ${reason}` : tKey("runtime.messageNotSent"), true);
     }
   } finally {
     if (acpTurn) {

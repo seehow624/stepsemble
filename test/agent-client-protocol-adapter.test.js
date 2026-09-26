@@ -201,3 +201,65 @@ test("ACP restart index preserves upstream session identity without private hist
   assert.equal((await second.loadSession("session-1", "/tmp")).kind, "loaded");
   assert.equal(second.sessions().find(row => row.id === "session-1").loaded, true);
 });
+
+test("an ACP message is kept with the conversation's updates, and a refusal keeps the agent's reason", async t => {
+  const child = new EventEmitter();
+  child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+  child.kill = () => child.emit("close", 0, null);
+  child.stdin.on("data", chunk => {
+    for (const line of chunk.toString().split(/\n/).filter(Boolean)) {
+      const frame = JSON.parse(line);
+      const reply = value => child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: frame.id, ...value }) + "\n");
+      if (frame.method === "initialize") reply({ result: { agentCapabilities: {} } });
+      else if (frame.method === "session/new") reply({ result: { sessionId: "session-1" } });
+      else if (frame.method === "session/prompt" && frame.params.prompt[0].text === "refused") {
+        reply({ error: { code: -32603, message: "Internal error: You need to sign in to use this model." } });
+      } else if (frame.method === "session/prompt") {
+        child.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "session-1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hi" } } } }) + "\n");
+        reply({ result: { stopReason: "end_turn" } });
+      }
+    }
+  });
+  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/kilo", args: ["acp"], cwd: "/tmp", spawnImpl: () => child });
+  t.after(() => adapter.close());
+  await adapter.createSession({ directory: "/tmp" });
+  assert.equal((await adapter.prompt("session-1", "hello there")).kind, "prompted");
+  // Agents do not repeat the person's message while they answer; a reloaded
+  // page shows it above the answer from the kept copy.
+  assert.deepEqual(adapter.sessionEvents("session-1").map(row => [row.update.sessionUpdate, row.update.content.text]),
+    [["user_message_chunk", "hello there"], ["agent_message_chunk", "hi"]]);
+  const refused = await adapter.prompt("session-1", "refused");
+  assert.equal(refused.kind, "reject");
+  assert.equal(refused.code, "acp_request_rejected");
+  assert.equal(refused.error, "Internal error: You need to sign in to use this model.");
+});
+
+test("loading an ACP conversation keeps the agent's replay and takes the id asked for", async t => {
+  const child = new EventEmitter();
+  child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+  child.kill = () => child.emit("close", 0, null);
+  child.stdin.on("data", chunk => {
+    for (const line of chunk.toString().split(/\n/).filter(Boolean)) {
+      const frame = JSON.parse(line);
+      const reply = result => child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: frame.id, result }) + "\n");
+      const update = value => child.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "saved-1", update: value } }) + "\n");
+      if (frame.method === "initialize") reply({ agentCapabilities: { loadSession: true } });
+      else if (frame.method === "session/load") {
+        // ACP: the conversation is replayed first, and the answer to
+        // session/load names no session.
+        update({ sessionUpdate: "user_message_chunk", content: { type: "text", text: "earlier question" } });
+        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "earlier answer" } });
+        reply({});
+      }
+    }
+  });
+  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/hermes", args: ["acp"], cwd: "/tmp", spawnImpl: () => child });
+  t.after(() => adapter.close());
+  const loaded = await adapter.createSession({ directory: "/tmp", sessionId: "saved-1" });
+  assert.equal(loaded.kind, "loaded");
+  assert.equal(loaded.sessionId, "saved-1");
+  assert.deepEqual(adapter.sessionEvents("saved-1").map(row => row.update.content.text), ["earlier question", "earlier answer"]);
+  const row = adapter.sessions().find(session => session.id === "saved-1");
+  assert.equal(row.loaded, true);
+  assert.equal(row.status, "idle");
+});

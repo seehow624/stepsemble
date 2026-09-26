@@ -516,16 +516,44 @@ test("Claude result modelUsage exposes capacity only until assistant usage arriv
   });
 });
 
-test("Claude result errors leave the session failed instead of returning to waiting", async t => {
+test("Claude result errors end the turn with the error and keep the session usable", async t => {
   const child = childFixture();
   const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child });
   t.after(() => session.close());
   child.stdout.write(JSON.stringify({ type: "result", session_id: "session-1", subtype: "error_during_execution", is_error: true,
     errors: ["Authentication failed: signed out"], modelUsage: {}, result: "" }) + "\n");
   const status = session.status();
-  assert.equal(status.state, "failed");
-  assert.equal(status.failed, "claude_error_during_execution");
+  // Claude takes the next message as usual, for example after /login.
+  assert.equal(status.state, "waiting");
+  assert.equal(status.failed, null);
+  assert.equal(status.turnError.code, "claude_error_during_execution");
+  assert.equal(status.turnError.message, "Authentication failed: signed out");
   assert.deepEqual(status.result.errors, ["Authentication failed: signed out"]);
+});
+
+test("Claude treats the turn Stop ended as ended, not as an error", async t => {
+  const child = childFixture();
+  const writes = [];
+  observeControlWire(child, message => writes.push(message));
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child });
+  t.after(() => session.close());
+  const sent = await session.interrupt();
+  assert.equal(sent.kind, "sent");
+  await new Promise(resolve => setImmediate(resolve));
+  const request = writes.find(message => message.request?.subtype === "interrupt");
+  // Claude 2.1.281 answers the interrupt, then ends the turn with an error.
+  child.stdout.write(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: request.request_id, response: { still_queued: [] } } }) + "\n");
+  child.stdout.write(JSON.stringify({ type: "user", session_id: "session-1", message: { role: "user", content: [{ type: "text", text: "[Request interrupted by user]" }] } }) + "\n");
+  child.stdout.write(JSON.stringify({ type: "result", session_id: "session-1", subtype: "error_during_execution", is_error: true,
+    terminal_reason: "aborted_streaming", errors: ["[ede_diagnostic] result_type=user"], modelUsage: {}, result: "" }) + "\n");
+  const status = session.status();
+  assert.equal(status.state, "waiting");
+  assert.equal(status.failed, null);
+  assert.equal(status.turnError, null);
+  // Stopped by another client too: the terminal reason alone says so.
+  child.stdout.write(JSON.stringify({ type: "result", session_id: "session-1", subtype: "error_during_execution", is_error: true,
+    terminal_reason: "aborted_tools", modelUsage: {}, result: "" }) + "\n");
+  assert.equal(session.status().turnError, null);
 });
 
 test("Claude parser failures carry a status code through the live session", async t => {

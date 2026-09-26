@@ -2180,6 +2180,16 @@ if (antigravityBinOverride && path.isAbsolute(antigravityBinOverride)) {
   antigravityCommand = resolveCommand(antigravityDefinition, { env: process.env });
 }
 const antigravityStructuredEnabled = new Set(["1", "true", "yes", "on"]).has(String(process.env.STEPSEMBLE_ANTIGRAVITY_STRUCTURED || "").trim().toLowerCase());
+// Antigravity signed out waits at its own sign-in screen, and a conversation
+// with it then shows nothing at all. `agy models` says so within a second;
+// only that answer blocks a new conversation, never a slow or failed check.
+function antigravityNeedsSignIn() {
+  if (!antigravityCommand) return Promise.resolve(false);
+  return new Promise(resolve => {
+    execFile(antigravityCommand, ["models"], { cwd: APP_HOME, env: process.env, timeout: 8000, maxBuffer: 256 * 1024, windowsHide: true },
+      (_error, stdout, stderr) => resolve(/please sign in|sign in to|authentication required|not signed in|log in/i.test(`${stdout || ""}\n${stderr || ""}`)));
+  });
+}
 const antigravityStructuredSessions = new Map();
 function antigravityStructuredStatus() {
   return { adapter: ANTIGRAVITY_STRUCTURED_VERSION, version: ANTIGRAVITY_STRUCTURED_VERSION,
@@ -5687,6 +5697,10 @@ const server = http.createServer(async (req, res) => {
         // started is loaded from Grok before the pane shows it.
         if (record.agentId === "grok-build" && record.nativeGrokAcp && record.nativeSessionId && grokAcp
           && !grokAcp.sessions().some(row => row.id === record.nativeSessionId)) record.needsLoad = true;
+        // So do Kilo, Cline and Hermes: after a restart, for example an
+        // update, their conversation is loaded again before it takes a message.
+        const acpAdapter = record.nativeAcp && record.nativeSessionId ? acpAdapterForAgent(record.agentId) : null;
+        if (acpAdapter && !acpAdapter.sessions().some(row => row.id === record.nativeSessionId && row.loaded !== false)) record.needsLoad = true;
         if (record.agentId === "pi" && record.sid) {
           const session = rpcSessions.get(record.sid);
           if (session && !session.exited) record.live = { sid: record.sid, cwd: session.meta.cwd,
@@ -6848,6 +6862,11 @@ const server = http.createServer(async (req, res) => {
               // An agent that is not signed in yet gets its sign-in offered;
               // its terminal program would stop at the same sign-in.
               if (session.code === "acp_auth_required") throw Object.assign(new Error(`${agentId}_auth_required`), { statusCode: 409, code: `${agentId}_auth_required` });
+              // Opening a conversation again never starts a different one in
+              // its place: the person sees why it could not be loaded.
+              if (typeof body?.resumeSessionId === "string" && body.resumeSessionId.trim()) {
+                throw Object.assign(new Error(session.error || "This conversation could not be opened again"), { statusCode: 409, code: session.code });
+              }
               // ACP is an upgrade path, never a single point of failure. A
               // missing capability or protocol mismatch returns to the
               // supervised bounded connector for the same allow-listed agent.
@@ -6931,6 +6950,9 @@ const server = http.createServer(async (req, res) => {
               return;
             }
             sendWorkspaceResult(res, 201, { ...publicClaudeStructuredTask(localId, session), kind: "claude-structured", agentId: "claude-code" });
+          } else if (agentId === "antigravity" && await antigravityNeedsSignIn()) {
+            // New session offers Antigravity's own sign-in in its place.
+            throw Object.assign(new Error("Google Antigravity is not signed in"), { statusCode: 409, code: "antigravity_auth_required" });
           } else if (agentId === "antigravity" && antigravityStructuredEnabled && antigravityCommand && !worktree) {
             const localId = crypto.randomUUID();
             const session = createAntigravityStructuredSession({ command: antigravityCommand, cwd: nativeAgentDirectory(cwd, "Google Antigravity"), env: process.env,

@@ -4,6 +4,13 @@
 
 - Continue a Codex conversation after Stepsemble restarts, for example after an update. Codex 0.156 reports a conversation's status before it answers the request that reopens it, and the last turn's usage right after; Stepsemble took both for another conversation's and dropped the connection, so every message to a conversation opened before the restart was not sent. Checked with Codex 0.156.1 on the conversation that failed.
 - Remove the blur that iOS 26 and later draw over the top of Stepsemble opened from the Home Screen, which made the title row look out of focus. iOS draws it when the page offers no color for the status bar; Stepsemble now offers its background color, which iOS paints there in place of the blur.
+- Send the first message in a conversation that is still opening. The message box looked ready while Claude Code, Codex, OpenCode, Grok Build, Kilo, Cline, Hermes or Antigravity was still loading, and a message sent then was refused with "Waiting for the task to confirm input is available". The box now stays read-only until the conversation has loaded.
+- Keep a Claude Code conversation going after Stop. Claude ends a stopped answer with an error, which Stepsemble took for the whole conversation failing: it showed "Failed" and could not be continued, even after a reload. A turn that ends in an error now shows that error, and the conversation goes on.
+- Continue OpenCode conversations in the Workspace, including new ones. Every OpenCode session that was not answering at that moment opened read-only, as history.
+- Show your own messages in Grok Build, Kilo, Cline and Hermes conversations after a reload, each above its answer. They were missing, and the answers to several messages could run together in one bubble.
+- Continue a Kilo, Cline or Hermes conversation after Stepsemble restarts, for example after an update. Loading it again failed on the agent's answer, which by the protocol names no conversation, and a new terminal session was started in its place. The conversation now opens again with its earlier messages.
+- Show why an agent did not answer, for example "You need to sign in to use this model" from Kilo or OpenCode, instead of only "The message was not sent" or no reply at all.
+- Offer Google Antigravity's sign-in in New session when it is signed out. The conversation used to start and then wait without a word, while Antigravity waited at its own sign-in screen.
 
 ## 3.7.0
 

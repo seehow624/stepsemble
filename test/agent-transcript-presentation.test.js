@@ -85,6 +85,18 @@ test("ACP agents map thought, answer and tool updates without bracketed terminal
   assert.equal(tool.tool.running, false);
 });
 
+test("ACP replays of the person's message and OpenCode's failed replies are shown", () => {
+  // An agent's replay of a conversation, and the Host's copy of a message
+  // sent from Stepsemble, are the person's own words.
+  assert.deepEqual(presentation.acpUpdate({ sessionUpdate: "user_message_chunk", content: { type: "text", text: "question" } }), {
+    kind: "user_delta", text: "question",
+  });
+  const failed = presentation.openCodeMessage({ role: "assistant", parts: [],
+    info: { role: "assistant", error: { name: "APIError", data: { message: "You need to sign in to use this model.", statusCode: 401 } } } });
+  assert.equal(failed.error, "You need to sign in to use this model.");
+  assert.equal(presentation.openCodeMessage({ role: "assistant", parts: [{ type: "text", text: "fine" }] }).error, undefined);
+});
+
 test("Claude tool requests and results reconcile through their native call id", () => {
   const request = presentation.claudeEvent({ type: "assistant", message: { content: [
     { type: "tool_use", id: "call-1", name: "Read", input: { file_path: "/owned/SKILL.md" } },
