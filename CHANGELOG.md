@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.7.1
+
+- Continue a Codex conversation after Stepsemble restarts, for example after an update. Codex 0.156 reports a conversation's status before it answers the request that reopens it, and the last turn's usage right after; Stepsemble took both for another conversation's and dropped the connection, so every message to a conversation opened before the restart was not sent. Checked with Codex 0.156.1 on the conversation that failed.
+- Remove the blur that iOS 26 and later draw over the top of Stepsemble opened from the Home Screen, which made the title row look out of focus. iOS draws it when the page offers no color for the status bar; Stepsemble now offers its background color, which iOS paints there in place of the blur.
+
 ## 3.7.0
 
 - Name a session that was started without a name after the first message sent in it, for every agent; Pi already names its sessions this way. The name is the message's first line, up to about 48 letters or 24 Chinese characters. A command such as /login names nothing, a name typed in New session is kept, and a session is named this way only once.

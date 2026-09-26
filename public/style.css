@@ -1,4 +1,4 @@
-/* stepsemble v3.7.0 — Ink & Ivory / English-first localization */
+/* stepsemble v3.7.1 — Ink & Ivory / English-first localization */
 
 :root {
   /* The status bar inset. A Workspace pane sets it to 0: the Workspace keeps
@@ -5808,4 +5808,25 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
   #view-chat .composer-model-control .icon { display: none; }
   #view-chat .composer-approval { gap: 5px; padding: 0 5px; font-size: .78rem; }
   #view-chat .composer-model-control { max-width: 44vw; padding: 0 4px; font-size: .78rem; }
+}
+
+/* iOS 26 and later blur the top of a Home Screen web app, over the status
+   bar and the title row below it, unless the page offers a color for that
+   strip. WebKit samples the fixed element at the top center of the page and
+   paints the status bar with its background color in place of the blur. This
+   strip declares the page's color there and paints nothing: the element is
+   empty, and background-clip: text leaves it no pixels. It is 11px high and
+   the full width because WebKit takes no edge from an element 10px high or
+   narrower than 90% of the screen. A Workspace pane is inside the page and
+   has no status bar of its own. */
+.ios-status-strip { display: none; }
+@supports (-webkit-touch-callout: none) {
+  @media (display-mode: standalone) {
+    html:not(.workspace-embedded) .ios-status-strip {
+      display: block; position: fixed; top: 0; left: 0; right: 0; height: 11px;
+      z-index: 2147483647; pointer-events: none;
+      background-color: var(--paper);
+      -webkit-background-clip: text; background-clip: text;
+    }
+  }
 }

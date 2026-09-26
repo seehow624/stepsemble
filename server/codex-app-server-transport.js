@@ -589,6 +589,12 @@ function createCodexAppServerTransport({
   const usageByThread = new Map();
   let threadStartInFlight = false;
   let resumeInFlight = false;
+  // The thread a resume in progress asks for; see correlation().
+  let resumingThreadId = null;
+  // The turns Codex lists in its answer to a resume, known as soon as the
+  // answer is read: a notification read with it, such as the last turn's
+  // usage, is handled before resumeThread() continues.
+  let resumingTurns = new Set();
   let turnStartInFlight = false;
   let interruptInFlight = false;
 
@@ -751,8 +757,12 @@ function createCodexAppServerTransport({
   }
 
   function correlation(expectedThread, expectedTurn = null) {
-    if (!nativeId(expectedThread) || expectedThread !== threadId) return false;
-    return expectedTurn === null || nativeId(expectedTurn) && (expectedTurn === turnId || completedTurns.has(expectedTurn));
+    // Codex reports a thread's status while it resumes the thread, before it
+    // answers the resume; the thread being resumed is this process's thread.
+    const current = threadId || resumingThreadId;
+    if (!nativeId(expectedThread) || expectedThread !== current) return false;
+    return expectedTurn === null || nativeId(expectedTurn) && (expectedTurn === turnId || completedTurns.has(expectedTurn)
+      || !threadId && resumingTurns.has(expectedTurn));
   }
 
   function handleApproval(id, method, params) {
@@ -967,12 +977,20 @@ function createCodexAppServerTransport({
     try {
       const auth = await authorize("thread.resume", { threadId: requested, params: detached }); if (auth.kind === "reject") return auth;
       if (closed || failure || !initialized || !["ready", "thread_started"].includes(state) || turnId || threadId && threadId !== requested) return reject("native_lifecycle_conflict");
-      const result = await request("thread/resume", detached, { check: value => nativeId(value?.thread?.id) && value.thread.id === requested
-        && plain(value.thread.status) && typeof value.thread.status.type === "string"
-        && Array.isArray(value.thread.turns) && value.thread.turns.every(turn => plain(turn) && nativeId(turn.id) && typeof turn.status === "string") });
+      resumingThreadId = requested;
+      const result = await request("thread/resume", detached, { check: value => {
+        const valid = nativeId(value?.thread?.id) && value.thread.id === requested
+          && plain(value.thread.status) && typeof value.thread.status.type === "string"
+          && Array.isArray(value.thread.turns) && value.thread.turns.every(turn => plain(turn) && nativeId(turn.id) && typeof turn.status === "string");
+        if (valid) resumingTurns = new Set(value.thread.turns.slice(-32).map(turn => turn.id));
+        return valid;
+      } });
       const status = nativeThreadStatus(result.thread.status);
       const active = result.thread.turns.filter(turn => turn.status === "inProgress");
       threadId = requested; completedTurns.clear(); turnId = null; turnState = null; firstTurnPending = false;
+      // Codex reports the last turn's usage right after the resume; the turns
+      // it lists as finished are this thread's own.
+      for (const turn of result.thread.turns.filter(row => TURN_TERMINAL_STATUSES.has(row.status)).slice(-32)) completedTurns.add(turn.id);
       // `excludeTurns` deliberately returns no reconstructed turn list.  A
       // thread status alone cannot prove that a live turn is absent, so do not
       // permit a new turn until the owner reconciles it via turns/list/read.
@@ -986,7 +1004,7 @@ function createCodexAppServerTransport({
       else { turnId = null; turnState = null; state = "thread_started"; }
       report({ type: "thread.resumed", threadId, activeTurnId: turnId, authorization: auth, authority: { sourceAuthenticated: trustedNative === true, approvalAcknowledged: false, resumeAllowed: false } });
       return { kind: "resumed", threadId, turnId, response: clone(result), dispatch: auth };
-    } finally { resumeInFlight = false; }
+    } finally { resumeInFlight = false; resumingThreadId = null; resumingTurns = new Set(); }
   }
 
   async function startTurn(input, params = {}, authorization = null, expectedThreadId = null) {
