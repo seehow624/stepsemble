@@ -677,12 +677,28 @@ function createClaudeStructuredSession({
       // An older Claude may not answer this; the session works without it.
       const acknowledged = await requestControl("get_settings", {}, { timeoutMs: Math.min(requestTimeoutMs, SETTINGS_READ_TIMEOUT_MS) });
       const applied = plain(acknowledged?.response?.applied) ? acknowledged.response.applied : null;
-      if (!applied) return;
+      if (!applied) return null;
       const model = catalogModelId(applied.model) || modelId(applied.model);
       if (model && (!selectedModel || selectedModel === "default" || !catalogModelId(selectedModel))) selectedModel = model;
       const effort = effortId(applied.effort);
       if (effort && effort !== "auto") selectedEffort = effort;
       if (selectedModel) contextSnapshot = { ...contextSnapshot, model: contextSnapshot.model || selectedModel };
+      const effective = plain(acknowledged.response.effective) ? acknowledged.response.effective : {};
+      return { appliedEffort: effort, configuredEffort: effortId(effective.effortLevel) };
+    } catch { return null; }
+  }
+
+  // Claude run this way ignores the level its own settings name and answers
+  // at its built-in level (Medium for Opus). Without a level picked in
+  // Stepsemble, the one in Claude's settings is applied, so it really is used.
+  async function applyConfiguredEffort(settings) {
+    const configured = settings?.configuredEffort;
+    if (rememberedEffort || !configured || configured === "auto" || configured === settings.appliedEffort) return;
+    const model = catalogModelId(selectedModel);
+    if (model && !effortSupported(model, configured)) return;
+    try {
+      await requestControl("apply_flag_settings", { settings: { effortLevel: configured } });
+      selectedEffort = configured;
     } catch {}
   }
 
@@ -722,7 +738,7 @@ function createClaudeStructuredSession({
         try { await applyPermissionMode(rememberedPermissionMode); } catch {}
       }
       await applyRememberedChoice();
-      await readAppliedSettings();
+      await applyConfiguredEffort(await readAppliedSettings());
       // Set last, so a caller that finds the session initialized also finds
       // the remembered mode in place.
       initializationResult = response;

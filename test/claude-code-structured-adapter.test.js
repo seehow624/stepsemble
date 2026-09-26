@@ -567,7 +567,7 @@ test("Claude parser failures carry a status code through the live session", asyn
 
 // Claude 2.1.281 lists "default" beside the model it stands for, and names
 // neither the model nor the level in its initialize reply.
-function claude2181(child, { applied = { model: "claude-opus-5-5[1m]", effort: "medium" } } = {}) {
+function claude2181(child, { applied = { model: "claude-opus-5-5[1m]", effort: "medium" }, effective = {} } = {}) {
   const requests = [];
   observeControlWire(child, message => {
     if (message.type !== "control_request") return;
@@ -582,10 +582,31 @@ function claude2181(child, { applied = { model: "claude-opus-5-5[1m]", effort: "
     ] });
     else if (subtype === "set_model") { applied = { ...applied, model: message.request.model === "sonnet" ? "claude-sonnet-5" : message.request.model }; reply({}); }
     else if (subtype === "apply_flag_settings") { applied = { ...applied, effort: message.request.settings.effortLevel || "high" }; reply({}); }
-    else if (subtype === "get_settings") reply({ applied });
+    else if (subtype === "get_settings") reply({ applied, effective });
   });
   return requests;
 }
+
+test("Claude runs at the level its own settings name when none was picked in Stepsemble", async t => {
+  // Claude 2.1.281 run with stream-json answers at Medium even though its
+  // settings say xhigh; get_settings shows both.
+  const child = childFixture();
+  const requests = claude2181(child, { effective: { model: "opus[1m]", effortLevel: "xhigh" } });
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 500 });
+  t.after(() => session.close());
+  const catalog = await session.models();
+  assert.equal(catalog.currentEffort, "xhigh");
+  assert.deepEqual(requests.map(request => request.subtype), ["initialize", "get_settings", "apply_flag_settings"]);
+  assert.deepEqual(requests[2].settings, { effortLevel: "xhigh" });
+
+  // A level picked in Stepsemble wins over Claude's settings.
+  const picked = childFixture();
+  const pickedRequests = claude2181(picked, { effective: { effortLevel: "xhigh" } });
+  const chosen = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => picked, requestTimeoutMs: 500, initialEffort: "max" });
+  t.after(() => chosen.close());
+  assert.equal((await chosen.models()).currentEffort, "max");
+  assert.deepEqual(pickedRequests.filter(request => request.subtype === "apply_flag_settings").map(request => request.settings.effortLevel), ["max"]);
+});
 
 test("Claude lists each model once and reports the model and level it really runs with", async t => {
   const child = childFixture();
