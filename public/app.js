@@ -1,13 +1,15 @@
-/* stepsemble v3.6.4 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.7.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.6.4";
+const CLIENT_APP_VERSION = "3.7.0";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
 // or home-screen icon, a pane outside the Workspace) it goes to the Workspace:
 // the single-conversation page with its own session list no longer exists.
 const PAGE_QUERY = new URLSearchParams(location.search);
+// The Workspace entry a pane shows; it names and renames the session.
+const WORKSPACE_ENTRY_KEY = WORKSPACE_PANE ? PAGE_QUERY.get("entry") || "" : "";
 const SETTINGS_WINDOW = !WORKSPACE_PANE && PAGE_QUERY.get("settings") === "1";
 const SIGN_IN_PAGE = !WORKSPACE_PANE && !SETTINGS_WINDOW && PAGE_QUERY.get("returnWorkspace") === "1";
 const PAGE_EMBEDDED = (() => { try { return window.top !== window.self; } catch { return true; } })();
@@ -3709,21 +3711,64 @@ el.saDelete.addEventListener("click", async () => {
 el.saRename.addEventListener("click", () => {
   const target = actionTarget;
   closeSessionActions();
-  el.renameInput.value = target?.name || "";
-  el.renameDialog.classList.remove("hidden");
+  openRenameDialog(target);
 });
 document.getElementById("rename-save").addEventListener("click", doRename);
-el.renameCancel.addEventListener("click", () => el.renameDialog.classList.add("hidden"));
-el.renameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") doRename(); });
+el.renameCancel.addEventListener("click", () => { el.renameDialog.classList.add("hidden"); renameTarget = null; });
+el.renameInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) doRename(); });
+// The session being renamed. It is kept apart from actionTarget, which the
+// action sheet clears as it closes.
+let renameTarget = null;
+function openRenameDialog(target) {
+  renameTarget = target || null;
+  el.renameInput.value = target?.name || "";
+  el.renameDialog.classList.remove("hidden");
+  setTimeout(() => { el.renameInput.focus(); el.renameInput.select(); }, 0);
+}
 async function doRename() {
   const name = el.renameInput.value.trim();
+  const target = renameTarget;
   el.renameDialog.classList.add("hidden");
-  if (!actionTarget || !name) return;
+  renameTarget = null;
+  if (!target || !name) return;
   try {
-    await post("/api/rename", { file: actionTarget.file, name });
-    toast("已重新命名");
-    refreshSessions();
+    if (WORKSPACE_ENTRY_KEY) {
+      // In the Workspace the Host keeps the name, for every agent; it also
+      // becomes Pi's and Codex's own name for the session.
+      const result = await post("/api/workspace/rename", { key: WORKSPACE_ENTRY_KEY, name });
+      const title = result?.name || name;
+      if (rpc) rpc.name = title;
+      setChatTitle(title);
+      parent.postMessage({ type: "workspace-refresh" }, location.origin);
+    } else {
+      await post("/api/rename", { file: target.file, name });
+      refreshSessions();
+    }
   } catch (e) { toast(tKey("runtime.renameFailed", { detail: e.message }), true); }
+}
+
+// A Workspace session started without a name is named after the first
+// message sent in it. The Host checks that nobody has named it yet.
+function nameFromFirstMessage(connection, text) {
+  if (!WORKSPACE_ENTRY_KEY || !connection || connection.autoNameRequested) return;
+  const value = String(text || "").trim();
+  if (!value || value.startsWith("/")) return;
+  connection.autoNameRequested = true;
+  post("/api/workspace/rename", { key: WORKSPACE_ENTRY_KEY, name: value.slice(0, 2000), auto: true }).then(result => {
+    if (!result?.renamed || !result.name || rpc !== connection) return;
+    connection.name = result.name;
+    setChatTitle(result.name);
+  }).catch(() => { connection.autoNameRequested = false; });
+}
+
+// A name given in the Workspace, here or in another window, replaces the
+// conversation's title.
+function applyWorkspaceName(value) {
+  const title = String(value || "").replace(/\s+/g, " ").trim().slice(0, 160);
+  if (!title || title === el.chatTitle.textContent) return;
+  if (rpc) rpc.name = title;
+  el.chatTitle.textContent = title;
+  el.chatTitle.toggleAttribute("data-i18n-ignore", true);
 }
 
 // ---- Project folder actions (Codex-style group menu) ----
@@ -10051,6 +10096,10 @@ async function sendCurrent() {
     acpTurn.acpPromptInFlight = true; acpTurn.taskStatus = "running"; acpTurn.activityLabel = "working";
     acpTurn.runStartedAt = Date.now(); setStreaming(true); syncGenericInputState();
   }
+  // An unnamed session takes its name from this message as it is sent; an
+  // ACP agent answers within the send request, which can take minutes. Pi
+  // names a session after its first message itself.
+  if (generic) nameFromFirstMessage(rpc, text);
   try {
     const result = generic
       ? (rpc?.nativeOpenCode
@@ -10143,8 +10192,11 @@ el.btnAbort.addEventListener("click", async () => {
 });
 
 // ---- chat ⋯ menu：重命名目前 session / 返回列表 ----
+// A Workspace pane renames its session for every agent; Pi's saved
+// sessions also keep their other actions.
 el.btnChatMenu.addEventListener("click", () => {
   if (currentSessionFile) { openSessionActions({ ...actionStubFrom(currentSessionFile) }); }
+  else if (WORKSPACE_ENTRY_KEY && rpc) openRenameDialog({ name: el.chatTitle.textContent });
   else toast(tKey("runtime.newChatNeedsMessage"));
 });
 let currentSessionFile = null;
@@ -16865,6 +16917,8 @@ if (WORKSPACE_PANE) {
   window.addEventListener("pagehide", () => closeChat(true));
   document.addEventListener("pointerdown", () => parent.postMessage({ type: "workspace-focus" }, location.origin), { passive: true });
   window.addEventListener("message", event => {
-    if (event.origin === location.origin && event.source === parent && event.data?.type === "workspace-detach") closeChat(true);
+    if (event.origin !== location.origin || event.source !== parent) return;
+    if (event.data?.type === "workspace-detach") closeChat(true);
+    if (event.data?.type === "workspace-renamed") applyWorkspaceName(event.data.title);
   });
 }

@@ -5,11 +5,15 @@ const crypto = require("node:crypto");
 
 // Membership is an explicit product record, never inferred from a directory,
 // provider inventory, or a process we happen to observe. No credentials or
-// transcript bodies belong in this file.
+// transcript bodies belong in this file; a session's name, typed or taken
+// from the first line of its first message, is the only conversation text.
 const FIELDS = ["id", "taskId", "agentId", "name", "cwd", "file", "nativeSessionId", "nativeThreadId",
   "nativeHistorySessionId", "nativeConversationId", "mutation", "status", "kind", "sid",
   "nativeCodex", "nativeOpenCode", "nativeHistoryReadonly", "nativeClaudeStructured", "nativeGrokAcp",
-  "nativeAcp", "nativeAntigravityStructured", "readOnly", "needsLoad", "persisted"];
+  "nativeAcp", "nativeAntigravityStructured", "readOnly", "needsLoad", "persisted",
+  // named: the person chose this name, when creating the session or later.
+  // autoNamed: Stepsemble named an unnamed session after its first message.
+  "named", "autoNamed"];
 function clean(value) {
   const out = {};
   for (const key of FIELDS) {

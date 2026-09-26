@@ -100,7 +100,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.6.4";
+const APP_VERSION = "3.7.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -118,6 +118,7 @@ if (isInstalledRuntime(__dirname, os.homedir())) applyNativeLaunchConfig(process
 const { configDir: CONFIG_DIR } = migrateLegacyConfig(APP_HOME, {
   onMigrate: (entries) => console.log(`[stepsemble] preserved ${entries.length} legacy config item${entries.length === 1 ? "" : "s"}`),
 });
+const { workspaceSessionName, workspaceAutoName, workspaceMayAutoName } = require("./server/workspace-names");
 const workspaceRegistry = require("./server/workspace-registry").createWorkspaceRegistry(path.join(CONFIG_DIR, "workspaces.json"));
 function syncWorkspacePiName({ sid, file, name }) {
   if (typeof name !== "string") return;
@@ -5643,7 +5644,10 @@ const server = http.createServer(async (req, res) => {
         for (const row of snapshot.entries) {
           const record = row.record;
           const current = live.get(record.id || record.taskId);
-          if (current) Object.assign(record, { status: current.status, name: current.name || record.name });
+          // A name the person chose, or the one taken from the first message,
+          // stays; otherwise the agent's own current name is shown.
+          const keepName = record.named === true || record.autoNamed === true;
+          if (current) Object.assign(record, { status: current.status, ...(keepName ? {} : { name: current.name || record.name }) });
           if (record.nativeClaudeStructured) {
             const resolved = resolveClaudeStructuredSession(record.nativeSessionId);
             record.status = resolved ? publicClaudeStructuredTask(resolved.id, resolved.session).status : "history";
@@ -5654,10 +5658,12 @@ const server = http.createServer(async (req, res) => {
           if (record.agentId === "pi") {
             const session = rpcSessions.get(record.sid);
             record.status = session && !session.exited ? (rpcHasWork(session) ? "running" : "waiting") : "history";
-            if (session?.meta) {
+            // A chosen name is written to Pi's session as well, so Pi's own
+            // title is read only for a session nobody named.
+            if (!keepName && session?.meta) {
               const title = piSession.title(session.meta, "").replace(/\s+/g, " ").trim().slice(0, 160);
               if (title) record.name = title;
-            } else if (record.file && (!record.name || record.name === "Pi" || scanCache.has(record.file))) {
+            } else if (!keepName && record.file && (!record.name || record.name === "Pi" || scanCache.has(record.file))) {
               const summary = await workspacePiSummary(record.file);
               const title = summary && piSession.title(summary, "").replace(/\s+/g, " ").trim().slice(0, 160);
               if (title) record.name = title;
@@ -5670,6 +5676,7 @@ const server = http.createServer(async (req, res) => {
         const entry = workspaceRegistry.get(url.searchParams.get("key"));
         if (!entry) { sendJSON(res, 404, { error: "workspace_entry_not_found" }); return; }
         const record = entry.record;
+        const chosenName = record.named === true || record.autoNamed === true ? record.name : null;
         if (record.agentId === "claude-code" && record.nativeClaudeStructured) {
           const resolved = resolveClaudeStructuredSession(record.nativeSessionId);
           if (resolved && !resolved.session.status().closed) Object.assign(record, publicClaudeStructuredTask(resolved.id, resolved.session));
@@ -5685,6 +5692,8 @@ const server = http.createServer(async (req, res) => {
           if (session && !session.exited) record.live = { sid: record.sid, cwd: session.meta.cwd,
             reused: true, isStreaming: rpcHasWork(session), replayAfter: -1, runStartedAt: session.state.runStartedAt };
         }
+        // The live session may still carry the name it started with.
+        if (chosenName) record.name = chosenName;
         sendJSON(res, 200, entry); return;
       }
       if (p === "/api/workspace/project" && req.method === "POST") {
@@ -5705,6 +5714,28 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/workspace/remove" && req.method === "POST") {
         const body = await readJSON(req, 8192);
         workspaceRegistry.remove(body.key); sendJSON(res, 200, { removed: true }); return;
+      }
+      // Renames a session in the Workspace, for every agent. With auto, only a
+      // session nobody named gets its first message as its name, once.
+      if (p === "/api/workspace/rename" && req.method === "POST") {
+        const body = await readJSON(req, 16384);
+        const entry = typeof body?.key === "string" ? workspaceRegistry.get(body.key) : null;
+        if (!entry) { sendJSON(res, 404, { error: "workspace_entry_not_found" }); return; }
+        const auto = body.auto === true;
+        const name = auto ? workspaceAutoName(body.name) : workspaceSessionName(body.name);
+        if (!name) { sendJSON(res, 400, { error: "workspace_name_invalid" }); return; }
+        const record = entry.record;
+        if (auto && !workspaceMayAutoName(record)) { sendJSON(res, 200, { renamed: false, name: record.name || "" }); return; }
+        const next = workspaceRegistry.update(entry.key, auto ? { name, autoNamed: true } : { name, named: true });
+        if (!auto) {
+          // Pi and Codex keep a name of their own; it follows, so their own
+          // apps show the same name.
+          if (record.agentId === "pi" && record.file) renameSession(record.file, name);
+          if (record.nativeCodex && record.nativeThreadId) {
+            void ensureCodexNativeProbe().then(() => codexNative.setThreadName(record.nativeThreadId, codexThreadName(name))).catch(() => {});
+          }
+        }
+        sendJSON(res, 200, { renamed: true, name: next.record.name, entry: next }); return;
       }
       if (p === "/api/workspace/adopt" && req.method === "POST") {
         const body = await readJSON(req, 8192);
@@ -6725,8 +6756,11 @@ const server = http.createServer(async (req, res) => {
                   if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) value.file = relative;
                 }
               }
-              value.workspaceEntry = workspaceRegistry.remember(value,
-                body.file || body.resumeSessionId || body.threadId ? "added" : "created");
+              const origin = body.file || body.resumeSessionId || body.threadId ? "added" : "created";
+              // A new session without a typed name is named after its first
+              // message (POST /api/workspace/rename with auto).
+              if (origin === "created") value.named = !!workspaceSessionName(body.name);
+              value.workspaceEntry = workspaceRegistry.remember(value, origin);
             }
             catch { value.workspaceError = "Could not save workspace membership; the agent was started. Do not retry the launch."; }
           }

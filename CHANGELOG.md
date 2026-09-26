@@ -1,7 +1,10 @@
 # Changelog
 
-## 3.6.4
+## 3.7.0
 
+- Name a session that was started without a name after the first message sent in it, for every agent; Pi already names its sessions this way. The name is the message's first line, up to about 48 letters or 24 Chinese characters. A command such as /login names nothing, a name typed in New session is kept, and a session is named this way only once.
+- Rename any session: Rename is in a session's ⋯ in the Workspace list, in a pane's ⋯ and in the conversation's own ⋯ at the top. The Host keeps the name, so every device shows it, and the agent's own name for the session no longer replaces it. For Pi and Codex it also becomes the session's own name, which their own apps show.
+- Rename a saved Pi session from its actions again; the dialog closed without renaming it.
 - Keep the Claude Code model you choose when you change its reasoning level. Stepsemble sent the level as a model change without a model, which Claude Code takes as "switch to the default model", so choosing Sonnet and then a level quietly went back to Opus while the button still showed Sonnet. Claude Code also ignored the level itself. The level now goes through Claude Code's own setting for it, and the model stays as chosen; this was checked against Claude Code 2.1.281.
 - Show each reply below the message it answers. Claude Code, Grok Build, Kilo, Cline, Hermes and Antigravity added a new answer to the reply above your latest message, so a conversation showed one long reply followed by your later questions.
 - Show a Claude Code conversation once when it is opened again while it is still running, for example after a reload or on another device. Its replies appeared twice, once merged into one block at the top and again in the conversation below; the conversation now shows Claude's history with only the newer replies after it.

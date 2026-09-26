@@ -72,6 +72,34 @@ test("workspace HTTP isolates membership, history, project registration and pane
   assert.equal((await (await request("/api/workspace")).json()).entries.find(row => row.key === plain.key).record.name, "Plan the dashboard layout");
   assert.equal((await request("/api/rename", { file: untitled.file, name: "Dashboard plan" })).status, 200);
   assert.equal((await (await request(`/api/workspace/entry?key=${plain.key}`)).json()).record.name, "Dashboard plan");
+
+  // Any session can be renamed. The Host keeps the name over the agent's own,
+  // and a Pi session's own name follows.
+  const typed = before.entries.find(row => row.record.name === "API 開發"); assert.ok(typed);
+  assert.equal((await request("/api/workspace/rename", { key: typed.key, name: "API 設計" }, "https://evil.invalid")).status, 403);
+  assert.equal((await request("/api/workspace/rename", { key: typed.key, name: "   " })).status, 400);
+  assert.equal((await request("/api/workspace/rename", { key: "00000000-0000-0000-0000-000000000000", name: "x" })).status, 404);
+  assert.deepEqual(await (await request("/api/workspace/rename", { key: typed.key, name: "Not a chosen name", auto: true })).json(),
+    { renamed: false, name: "API 開發" }, "a typed name is never replaced by a first message");
+  assert.equal((await (await request("/api/workspace/rename", { key: typed.key, name: "  API\n設計 " })).json()).name, "API 設計");
+  // The task list still names it API 開發; the chosen name stays.
+  assert.equal((await (await request("/api/workspace")).json()).entries.find(row => row.key === typed.key).record.name, "API 設計");
+  assert.equal((await (await request(`/api/workspace/entry?key=${typed.key}`)).json()).record.name, "API 設計");
+  assert.equal((await (await request("/api/workspace/rename", { key: plain.key, name: "First", auto: true })).json()).renamed, false, "Pi names itself");
+  assert.equal((await (await request("/api/workspace/rename", { key: plain.key, name: "Dashboard layout" })).json()).name, "Dashboard layout");
+  assert.equal((await (await request(`/api/session?file=${encodeURIComponent(untitled.file)}`)).json()).name, "Dashboard layout");
+  assert.equal((await (await request("/api/workspace")).json()).entries.find(row => row.key === plain.key).record.name, "Dashboard layout");
+  // A session nobody named takes its first message as its name, once; a
+  // command does not name it.
+  const unnamed = await (await request("/api/workspace/adopt", { kind: "task_record", reference: "workspace-fixture-3" })).json();
+  assert.equal(unnamed.record.name, "Claude Code 1a2b3c4d");
+  assert.equal((await request("/api/workspace/rename", { key: unnamed.key, name: "/model sonnet", auto: true })).status, 400);
+  const first = await (await request("/api/workspace/rename", { key: unnamed.key, name: "你現在是什麼模型呢\n請說明", auto: true })).json();
+  assert.deepEqual([first.renamed, first.name], [true, "你現在是什麼模型呢"]);
+  assert.equal((await (await request("/api/workspace/rename", { key: unnamed.key, name: "Second message", auto: true })).json()).renamed, false);
+  assert.equal((await (await request("/api/workspace")).json()).entries.find(row => row.key === unnamed.key).record.name, "你現在是什麼模型呢");
+  assert.equal((await request("/api/workspace/remove", { key: unnamed.key })).status, 200);
+
   const project = path.join(home, "Projects", "Demo");
   assert.equal((await request("/api/workspace/project/remove", { cwd: "relative" })).status, 400);
   const removedProject = await request("/api/workspace/project/remove", { cwd: project });

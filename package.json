@@ -2,7 +2,7 @@
   "name": "stepsemble",
   "private": true,
   "license": "Apache-2.0",
-  "version": "3.6.4",
+  "version": "3.7.0",
   "description": "A calm, cross-platform workspace for local coding agents",
   "type": "commonjs",
   "engines": {
@@ -38,7 +38,7 @@
     "test:native:codex:history": "node scripts/check-native-codex-history.mjs",
     "version:check": "node scripts/version.mjs check",
     "version:set": "node scripts/version.mjs set",
-    "check:workspace": "node --check server/workspace-registry.js && node --check server/workspace-usage.js && node --check public/modules/workspace-layout.js && node --check public/modules/workspace.js && node --check scripts/workspace-preview.mjs && node --check public/modules/workspace-i18n.js",
+    "check:workspace": "node --check server/workspace-registry.js && node --check server/workspace-names.js && node --check server/workspace-usage.js && node --check public/modules/workspace-layout.js && node --check public/modules/workspace.js && node --check scripts/workspace-preview.mjs && node --check public/modules/workspace-i18n.js",
     "preview:workspace": "node scripts/workspace-preview.mjs"
   }
 }

@@ -20,6 +20,9 @@ const tasks = ['網站設計', 'API 開發', '回歸檢查'].map((name, i) => ({
 // Use generic completed tasks for the conversation viewers; real native adapters
 // have their own fixtures and are not launched by this visual test.
 tasks[2].agentId = 'codex';
+// A session nobody named, under the name its agent gives it.
+tasks.push({ id: 'workspace-fixture-3', agentId: 'claude-code', name: 'Claude Code 1a2b3c4d', cwd: project, status: 'completed',
+  startedAt: Date.now()-5000, endedAt: Date.now()-2000, outputTail: 'Synthetic unnamed session. No model was called.', settledNotified: true });
 await fs.writeFile(path.join(config, 'agent-tasks.json'), JSON.stringify({ tasks }));
 const registry = createWorkspaceRegistry(path.join(config, 'workspaces.json'));
 for (const task of tasks.slice(0, 2)) registry.remember(task);

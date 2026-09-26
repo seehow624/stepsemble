@@ -142,9 +142,37 @@
     const entry = ref.host === host && snapshot.entries.find(row => row.key === ref.key);
     if (entry) entry.record.name = title;
     const frame = frames.get(key);
-    if (frame) { frame.ref.title = title; frame.frame.title = `${title} · ${hostName(ref.host)}`; }
+    if (frame) {
+      frame.ref.title = title; frame.frame.title = `${title} · ${hostName(ref.host)}`;
+      // The conversation's own title row shows the same name.
+      frame.frame.contentWindow?.postMessage({ type: "workspace-renamed", title }, location.origin);
+    }
     try { save(); } catch (error) { toast(error.message); }
     render();
+  }
+  // Renames a session of any agent; the Host keeps the name.
+  function renameSession(ref) {
+    const body = dialog(t("renameSession")), epoch = dialogEpoch;
+    const entry = ref.host === host ? snapshot.entries.find(row => row.key === ref.key) : null;
+    const input = node("input"); input.type = "text"; input.autocomplete = "off"; input.maxLength = 120;
+    input.value = plainTitle(entry?.record.name || ref.title) || ""; input.setAttribute("aria-label", t("sessionName"));
+    const save = button(t("save"), async () => {
+      const name = input.value.replace(/\s+/g, " ").trim();
+      if (!name) { input.focus(); return; }
+      save.disabled = true;
+      try {
+        const data = await api("/api/workspace/rename", { key: ref.key, name }, ref.host);
+        if (epoch !== dialogEpoch) return;
+        closeDialog();
+        const title = data.name || name, listed = ref.host === host && snapshot.entries.find(row => row.key === ref.key);
+        if (listed) listed.record.name = title;
+        setRefTitle(ref, title); renderSidebar();
+        channel?.postMessage({ type: "refresh" });
+      } catch (error) { toast(error.message); save.disabled = false; }
+    }, t("save"), "btn primary workspace-rename-save");
+    input.addEventListener("keydown", event => { if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); save.click(); } });
+    const fields = node("div", "", "workspace-rename-fields"); fields.append(input, save); body.append(fields);
+    requestAnimationFrame(() => { input.focus(); input.select(); });
   }
   function active(p) { return p.tabs.find(r => L.identity(r) === p.active); }
   function commit(next) { try { save(next); render(); return true; } catch (error) { toast(error.message); return false; } }
@@ -260,6 +288,7 @@
       // buttons costs every pane a strip of height that belongs to the
       // conversation, and these actions are occasional.
       const actions = [];
+      if (active(n)) actions.push([t("rename"), () => renameSession(active(n))]);
       if (!mobile() && n.tabs.length) {
         for (const [label, edge] of [[t("splitHorizontal"), "right"], [t("splitVertical"), "bottom"]]) actions.push([label, () => {
           if (!active(n)) { toast(t("openFirst")); return; }
@@ -345,6 +374,7 @@
         b.append(window.StepsembleAgentIdentity.create(document, entry.record.agentId, true), node("strong", displayTitle));
         b.ondragstart = e => dragStart(e, ref, false); b.ondragend = dragEnd;
         const actions = button("⋯", () => openPaneMenu(actions, [
+          [t("rename"), () => renameSession(ref)],
           [t("moveWindow"), () => newWindow(ref)],
           [t("remove"), async () => {
             const target = ref.host; actions.disabled = true;

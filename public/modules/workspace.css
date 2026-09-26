@@ -429,6 +429,9 @@ dialog header .btn { min-width: 34px; min-height: 34px; padding: 0; border: 0; c
 .workspace-new-session-fields select { flex: 0 0 40%; max-width: 40%; min-width: 0; text-overflow: ellipsis; padding-right: 30px; }
 .workspace-new-session-fields input { flex: 1 1 auto; min-width: 0; }
 .workspace-new-session-actions { display: flex; align-items: center; gap: 12px; }
+.workspace-rename-fields { display: flex; gap: 8px; min-width: 0; }
+.workspace-rename-fields input { flex: 1 1 auto; min-width: 0; }
+.workspace-rename-fields .btn { flex: none; }
 #workspace-dialog-body .workspace-new-session-create { min-height: 38px; margin-left: auto; padding: 0 18px; justify-content: center; }
 .workspace-new-session-worktree { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--pine-soft); font-size: .8rem; cursor: pointer; }
 .workspace-new-session-worktree[hidden] { display: none; }
