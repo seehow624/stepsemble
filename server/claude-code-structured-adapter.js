@@ -15,6 +15,7 @@ const { spawn } = require("node:child_process");
 const { createLineDecoder } = require("./stream-safety");
 const { claudeImageBlocks } = require("./prompt-attachments");
 const { gatewaySettingsPath, gatewayCatalogPath } = require("./claude-session-routing");
+const { createEventWindow } = require("./structured-event-window");
 
 const CLAUDE_STRUCTURED_VERSION = "claude-cli-stream-json-v1";
 const MAX_LINE_BYTES = 1024 * 1024;
@@ -379,8 +380,17 @@ function buildClaudeStructuredArgs({ sessionId = null, permissionPromptTool = nu
 
 function createClaudeStructuredParser({ onEvent = null, onError = null, maxEvents = MAX_EVENTS } = {}) {
   if (onEvent !== null && typeof onEvent !== "function" || onError !== null && typeof onError !== "function") throw new TypeError("parser_callback_required");
-  let closed = false, failed = null, eventCount = 0, sessionId = null, result = null, bytes = 0;
-  const events = [];
+  let closed = false, failed = null, sessionId = null, result = null;
+  // A long answer streams thousands of deltas; the conversation goes on
+  // however many there are. With --include-partial-messages Claude sends each
+  // piece and then the complete message, so the pieces before a complete
+  // message are the first to go when the window is full, then the pieces the
+  // page never draws: a tool's input as Claude writes it, and its thinking.
+  const window = createEventWindow({ maxEvents, superseded: {
+    complete: event => event.type === "assistant" || event.type === "result",
+    partial: event => event.type === "stream_event",
+  }, quiet: event => event.type === "stream_event" && event.event?.type === "content_block_delta"
+    && !!event.event.delta && event.event.delta.type !== "text_delta" });
   const fail = code => {
     if (!failed) failed = String(code || "structured_event_invalid").slice(0, 128);
     try { onError?.(failed); } catch {}
@@ -388,19 +398,14 @@ function createClaudeStructuredParser({ onEvent = null, onError = null, maxEvent
   const emit = value => {
     if (closed || failed) return false;
     const normalized = normalizeClaudeEvent(value);
-    if (!normalized || eventCount >= maxEvents) { fail(!normalized ? "structured_event_invalid" : "structured_event_limit"); return false; }
-    const encoded = JSON.stringify(normalized);
-    bytes += Buffer.byteLength(encoded);
-    if (bytes > MAX_EVENTS * MAX_EVENT_BYTES) { fail("structured_event_capacity"); return false; }
+    if (!normalized) { fail("structured_event_invalid"); return false; }
     if (normalized.sessionId) {
       if (sessionId && sessionId !== normalized.sessionId) { fail("claude_session_mismatch"); return false; }
       sessionId = normalized.sessionId;
     }
     if (normalized.type === "result") result = clone(normalized);
-    eventCount += 1;
-    events.push(normalized);
-    if (events.length > maxEvents) events.shift();
-    try { onEvent?.(clone(normalized)); } catch { fail("structured_event_callback_failed"); return false; }
+    const stamped = window.push(normalized);
+    try { onEvent?.(clone(stamped)); } catch { fail("structured_event_callback_failed"); return false; }
     return true;
   };
   const decoder = createLineDecoder({
@@ -417,9 +422,12 @@ function createClaudeStructuredParser({ onEvent = null, onError = null, maxEvent
     push(chunk) { if (!closed && !failed) decoder.push(chunk); },
     end() { if (!closed && !failed) decoder.end(); },
     close() { closed = true; },
-    status() { return Object.freeze({ closed, failed, eventCount, sessionId, result: result ? clone(result) : null, bytes, retainedEvents: events.length }); },
-    events() { return clone(events); },
-    text() { return events.map(eventText).filter(Boolean).join("").slice(-MAX_EVENT_BYTES); },
+    status() {
+      const kept = window.status();
+      return Object.freeze({ closed, failed, eventCount: kept.total, sessionId, result: result ? clone(result) : null, bytes: kept.bytes, retainedEvents: kept.retained });
+    },
+    events() { return clone(window.events()); },
+    text() { return window.events().map(eventText).filter(Boolean).join("").slice(-MAX_EVENT_BYTES); },
   });
 }
 

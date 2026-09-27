@@ -9,6 +9,7 @@
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { createLineDecoder } = require("./stream-safety");
+const { createEventWindow } = require("./structured-event-window");
 
 const ANTIGRAVITY_STRUCTURED_VERSION = "antigravity-cli-stream-json-v1";
 const MAX_LINE_BYTES = 1024 * 1024;
@@ -86,8 +87,9 @@ function buildAntigravityStructuredArgs({ conversationId = null } = {}) {
 
 function createAntigravityStructuredParser({ onEvent = null, onError = null, maxEvents = MAX_EVENTS } = {}) {
   if (onEvent !== null && typeof onEvent !== "function" || onError !== null && typeof onError !== "function") throw new TypeError("parser_callback_required");
-  let closed = false, failed = null, eventCount = 0, conversationId = null, result = null, bytes = 0;
-  const events = [];
+  let closed = false, failed = null, conversationId = null, result = null;
+  // A long answer never ends the conversation; the oldest events go first.
+  const window = createEventWindow({ maxEvents });
   const fail = code => {
     if (!failed) failed = String(code || "structured_event_invalid").slice(0, 128);
     try { onError?.(failed); } catch {}
@@ -95,18 +97,14 @@ function createAntigravityStructuredParser({ onEvent = null, onError = null, max
   const emit = value => {
     if (closed || failed) return false;
     const normalized = normalizeAntigravityEvent(value);
-    if (!normalized || eventCount >= maxEvents) { fail(!normalized ? "structured_event_invalid" : "structured_event_limit"); return false; }
-    bytes += Buffer.byteLength(JSON.stringify(normalized));
-    if (bytes > MAX_EVENTS * MAX_EVENT_BYTES) { fail("structured_event_capacity"); return false; }
+    if (!normalized) { fail("structured_event_invalid"); return false; }
     if (normalized.conversationId) {
       if (conversationId && conversationId !== normalized.conversationId) { fail("antigravity_conversation_mismatch"); return false; }
       conversationId = normalized.conversationId;
     }
     if (normalized.type === "result") result = clone(normalized);
-    eventCount += 1;
-    events.push(normalized);
-    if (events.length > maxEvents) events.shift();
-    try { onEvent?.(clone(normalized)); } catch { fail("structured_event_callback_failed"); return false; }
+    const stamped = window.push(normalized);
+    try { onEvent?.(clone(stamped)); } catch { fail("structured_event_callback_failed"); return false; }
     return true;
   };
   const decoder = createLineDecoder({
@@ -123,9 +121,12 @@ function createAntigravityStructuredParser({ onEvent = null, onError = null, max
     push(chunk) { if (!closed && !failed) decoder.push(chunk); },
     end() { if (!closed && !failed) decoder.end(); },
     close() { closed = true; },
-    status() { return Object.freeze({ closed, failed, eventCount, conversationId, result: result ? clone(result) : null, bytes }); },
-    events() { return clone(events); },
-    text() { return events.map(eventText).filter(Boolean).join("").slice(-MAX_EVENT_BYTES); },
+    status() {
+      const kept = window.status();
+      return Object.freeze({ closed, failed, eventCount: kept.total, conversationId, result: result ? clone(result) : null, bytes: kept.bytes });
+    },
+    events() { return clone(window.events()); },
+    text() { return window.events().map(eventText).filter(Boolean).join("").slice(-MAX_EVENT_BYTES); },
   });
 }
 

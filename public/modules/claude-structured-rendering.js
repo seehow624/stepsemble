@@ -156,7 +156,10 @@
       // assistant message/content block can never erase the first one.
       if (text === previous || text === turn.finalText || previous.startsWith(text)) return null;
       const partial = turn.partialText;
-      if (!turn.trackedTruncated && partial && text.startsWith(partial)) {
+      // A page that opened, or read slowly, during a long answer may hold only
+      // the later pieces; they are part of the complete text all the same.
+      const onlyPieces = !turn.finalText && partial && previous === partial;
+      if (!turn.trackedTruncated && partial && (text.startsWith(partial) || onlyPieces && text.includes(partial))) {
         turn.text = text;
         turn.finalText = text;
         return { mode: "replace", text, beginTurn: false, turnKey: turn.key, phase };

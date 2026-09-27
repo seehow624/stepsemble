@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.8.7
+
+- Keep a long Claude Code task going. Stepsemble ended a Claude Code conversation once Claude had sent 2,048 streamed pieces since it started, and stopped Claude with it: the StepSay task failed after 7 minutes, while Claude wrote a long CLAUDE.md whose text alone arrived in 1,866 pieces. There is no such limit now. The pieces of a message go once Claude sends the complete message, so a page loads less on each check; when a single message is longer than the window, the pieces the page never draws go first, such as a file's text as a tool writes it.
+- Draw a long answer once after a reload or a slow connection. The conversation page now reads on from the last event it drew by number, and a page that holds only the later pieces of an answer shows the complete answer in their place, where it used to show both. Checked with answers of 600 pieces at a typing pace and of 5,000 and 12,000 pieces at once: every word shown once, live and after a reload, and the conversation carried on. Google Antigravity conversations get the same fix.
+
 ## 3.8.6
 
 - Make a folder for a new project from Add project. New folder, beside the filter, asks for a name, makes the folder inside the one shown and opens it, ready to add; it works on every Host. It makes one folder at a time, only where the dialog may browse, never over an existing folder or file, and not with a name that holds / \\ or :, or starts with a dot.

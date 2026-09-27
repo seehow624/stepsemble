@@ -1,7 +1,7 @@
-/* stepsemble v3.8.6 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.7 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.6";
+const CLIENT_APP_VERSION = "3.8.7";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -6397,6 +6397,7 @@ function renderClaudeStructuredEvents(connection, events, { replace = false } = 
     // renderer so the next reply starts at a fresh node.
     rpc.genericOutputNode = null;
     connection.claudeEventIndex = 0;
+    connection.claudeEventSeq = 0;
     connection.claudeOutputStart = null;
     connection.claudeSkipMessage = false;
     connection.claudeSkippedTools = new Set();
@@ -6408,8 +6409,17 @@ function renderClaudeStructuredEvents(connection, events, { replace = false } = 
   connection.claudeRenderer = renderer;
   connection.claudeSkippedTools ||= new Set();
   const shownInHistory = connection.claudeHistoryMessageIds;
-  for (let index = connection.claudeEventIndex || 0; index < rows.length; index += 1) {
+  // A Host numbers each event and may let old ones go during a long answer,
+  // so the page reads on from the last number it drew. An older Host sends no
+  // numbers and keeps every event, and is read by position.
+  const numbered = rows.length > 0 && Number.isSafeInteger(rows[0]?.hostSeq);
+  for (let index = numbered ? 0 : connection.claudeEventIndex || 0; index < rows.length; index += 1) {
     const event = rows[index];
+    if (numbered) {
+      if (!Number.isSafeInteger(event?.hostSeq) || event.hostSeq < (connection.claudeEventSeq || 0)) continue;
+      connection.claudeEventSeq = event.hostSeq + 1;
+    }
+    const position = numbered ? event.hostSeq : index;
     // A message Claude's history already shows is followed but not drawn a
     // second time. Its id comes with its first event; the events after it
     // belong to the same message until the next one starts.
@@ -6424,7 +6434,7 @@ function renderClaudeStructuredEvents(connection, events, { replace = false } = 
         connection.claudeSkippedTools.add(toolId);
         continue;
       }
-      appendStructuredTool(connection, activity.tool, connection.agentLabel || "Claude Code", `claude-${index}-${activityIndex}`);
+      appendStructuredTool(connection, activity.tool, connection.agentLabel || "Claude Code", `claude-${position}-${activityIndex}`);
     }
     const update = renderer?.consume?.(event);
     if (!update?.text || skip) continue;
@@ -6818,9 +6828,15 @@ async function openAgentClientProtocolTask(task, generationOverride = null) {
 function renderAntigravityStructuredEvents(connection, events, { replace = false } = {}) {
   if (rpc !== connection || !connection?.nativeAntigravityStructured) return;
   const rows = Array.isArray(events) ? events : [];
-  if (replace) { el.messages.innerHTML = ""; connection.antigravityEventIndex = 0; }
-  for (let index = connection.antigravityEventIndex || 0; index < rows.length; index += 1) {
+  if (replace) { el.messages.innerHTML = ""; connection.antigravityEventIndex = 0; connection.antigravityEventSeq = 0; }
+  // Numbered events are read on from the last number drawn, as for Claude.
+  const numbered = rows.length > 0 && Number.isSafeInteger(rows[0]?.hostSeq);
+  for (let index = numbered ? 0 : connection.antigravityEventIndex || 0; index < rows.length; index += 1) {
     const event = rows[index];
+    if (numbered) {
+      if (!Number.isSafeInteger(event?.hostSeq) || event.hostSeq < (connection.antigravityEventSeq || 0)) continue;
+      connection.antigravityEventSeq = event.hostSeq + 1;
+    }
     const text = event?.step_update?.text_delta || event?.step_update?.text || event?.text_delta || event?.result?.response || event?.result?.text || event?.response || event?.text || "";
     if (text) appendGenericOutput(String(text), "stdout");
   }
