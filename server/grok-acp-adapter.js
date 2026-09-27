@@ -11,6 +11,7 @@ const { spawn } = require("node:child_process");
 const { createLineDecoder } = require("./stream-safety");
 const { acpImageBlocks } = require("./prompt-attachments");
 const { configOptionsFromSession, applyConfigUpdate, consumeUserEcho, squashText } = require("./agent-client-protocol-adapter");
+const { effortCatalog, replyEffort, notifiedEffort, withEffortOption } = require("./grok-reasoning-effort");
 
 const GROK_ACP_VERSION = "grok-acp-v1";
 const MAX_FRAME_BYTES = 1024 * 1024;
@@ -137,7 +138,9 @@ function createGrokAcpAdapter({
       if (session) {
         session.events.push(row);
         const kind = String(value.update?.sessionUpdate || "");
-        if (kind === "config_option_update" || kind === "current_mode_update") session.configOptions = applyConfigUpdate(session.configOptions, value.update);
+        if (kind === "config_option_update" || kind === "current_mode_update") {
+          session.configOptions = withEffortOption(applyConfigUpdate(session.configOptions, value.update), session.efforts, session.effort);
+        }
       }
       try { onUpdate?.(clone(row)); } catch {}
       return;
@@ -158,6 +161,18 @@ function createGrokAcpAdapter({
     }
     // Unknown notifications are observations, not fatal protocol failures.
     if (typeof frame.method === "string" && frame.method.length <= 128) {
+      // Grok reports the session's model and reasoning effort on its own
+      // channel, on load and after a switch.
+      if (frame.method === "_x.ai/session_notification" && plain(frame.params) && plain(frame.params.update)
+        && frame.params.update.sessionUpdate === "model_changed") {
+        const session = sessions.get(safeId(frame.params.sessionId) || "");
+        if (session) {
+          const effort = notifiedEffort(frame.params.update), model = safeText(frame.params.update.model_id, 200);
+          if (effort) session.effort = effort;
+          const options = model ? applyConfigUpdate(session.configOptions, { sessionUpdate: "current_model_update", currentModelId: model }) : session.configOptions;
+          session.configOptions = withEffortOption(options, session.efforts, session.effort);
+        }
+      }
       events.push({ type: "protocol.notification", method: frame.method, params: bounded(frame.params, 128 * 1024), at: Date.now() });
       while (events.length > MAX_EVENTS) events.shift();
     }
@@ -217,8 +232,9 @@ function createGrokAcpAdapter({
     const result = await request("session/new", { cwd: directory, mcpServers, ...(sessionId ? { sessionId } : {}) });
     if (result.kind === "reject" || !safeId(result.value?.sessionId)) return reject(result.kind === "reject" ? result.code : "grok_session_invalid");
     const id = String(result.value.sessionId);
+    const efforts = effortCatalog(result.value), effort = replyEffort(result.value);
     sessions.set(id, { id, cwd: directory, name: safeText(name, 120) || null, events: [], status: "idle", promptInFlight: false,
-      configOptions: sessionOptions(result.value) });
+      efforts, effort, configOptions: withEffortOption(sessionOptions(result.value), efforts, effort) });
     while (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
     return { kind: "created", sessionId: id, cwd: directory, name: sessions.get(id)?.name || null };
   }
@@ -260,14 +276,17 @@ function createGrokAcpAdapter({
     // answers session/load, so the session is listed first to keep them.
     const prior = sessions.get(id);
     const session = { id, cwd: directory, name: safeText(name, 120) || prior?.name || null, events: [], status: "idle",
-      promptInFlight: false, configOptions: prior?.configOptions || [] };
+      promptInFlight: false, configOptions: prior?.configOptions || [], efforts: prior?.efforts || null, effort: null };
     sessions.set(id, session);
     const result = await request("session/load", { sessionId: id, cwd: directory, mcpServers: [] });
     if (result.kind === "reject") {
       if (sessions.get(id) === session) { if (prior) sessions.set(id, prior); else sessions.delete(id); }
       return result;
     }
-    session.configOptions = sessionOptions(result.value);
+    // A level Grok reported while it loaded is the newest; the reply's own comes next.
+    session.efforts = effortCatalog(result.value);
+    session.effort = session.effort || replyEffort(result.value);
+    session.configOptions = withEffortOption(sessionOptions(result.value), session.efforts, session.effort);
     while (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
     return { kind: "loaded", sessionId: id, cwd: directory, name: session.name };
   }
@@ -283,13 +302,20 @@ function createGrokAcpAdapter({
     if (session.promptInFlight) return reject("grok_prompt_in_flight");
     const known = (session.configOptions || []).find(row => row.id === option);
     if (!known || !known.options.some(choice => choice.value === next)) return reject("grok_config_invalid");
-    const result = known.legacyModel
+    // A Grok that lists no reasoning option takes the effort with a model
+    // switch to the current model, as its own /effort command sends it.
+    const model = (session.configOptions || []).find(row => row.category === "model")?.currentValue;
+    if (known.legacyEffort && !model) return reject("grok_config_invalid");
+    const result = known.legacyEffort
+      ? await request("session/set_model", { sessionId: id, modelId: model, _meta: { reasoningEffort: next } })
+      : known.legacyModel
       ? await request("session/set_model", { sessionId: id, modelId: next })
       : known.legacy
         ? await request("session/set_mode", { sessionId: id, modeId: next })
         : await request("session/set_config_option", { sessionId: id, configId: option, value: next });
     if (result.kind !== "result") return result;
-    if (known.legacyModel) session.configOptions = applyConfigUpdate(session.configOptions, { sessionUpdate: "current_model_update", currentModelId: next });
+    if (known.legacyEffort) { session.effort = next; session.configOptions = withEffortOption(session.configOptions, session.efforts, next); }
+    else if (known.legacyModel) session.configOptions = withEffortOption(applyConfigUpdate(session.configOptions, { sessionUpdate: "current_model_update", currentModelId: next }), session.efforts, session.effort);
     else if (known.legacy) session.configOptions = applyConfigUpdate(session.configOptions, { sessionUpdate: "current_mode_update", currentModeId: next });
     else if (Array.isArray(result.value?.configOptions)) session.configOptions = applyConfigUpdate(session.configOptions, { sessionUpdate: "config_option_update", configOptions: result.value.configOptions });
     else session.configOptions = session.configOptions.map(row => row.id === option ? { ...row, currentValue: next } : row);

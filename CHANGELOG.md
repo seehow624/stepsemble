@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.8.6
+
+- Choose Grok Build's thinking level with a Grok that lists no reasoning option, as the one on the MacBook Pro does. That Grok lists only its models, so the model list showed no thinking level. Each model states the levels it takes; Stepsemble now offers them and sets the one you choose the way Grok's own /effort command does, with a model switch that names the level, and shows the level Grok reports when a conversation is opened again. Checked on Grok's own records: turns sent at Low and Extra High were answered at low and xhigh.
+
 ## 3.8.5
 
 - Name each model by the model and put the provider that serves it on the line below, for every agent. The line under a model repeated the agent ("claude-code" under every Claude Code model, "codex", "grok-build"); it now reads Anthropic, OpenAI, ChatGPT, xAI, OpenCodex · MiniMax, OpenRouter · Anthropic or Kilo Gateway · Anthropic, as the case may be.
