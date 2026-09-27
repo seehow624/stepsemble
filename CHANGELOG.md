@@ -2,6 +2,7 @@
 
 ## 3.8.6
 
+- Make a folder for a new project from Add project. New folder, beside the filter, asks for a name, makes the folder inside the one shown and opens it, ready to add; it works on every Host. It makes one folder at a time, only where the dialog may browse, never over an existing folder or file, and not with a name that holds / \\ or :, or starts with a dot.
 - Choose Grok Build's thinking level with a Grok that lists no reasoning option, as the one on the MacBook Pro does. That Grok lists only its models, so the model list showed no thinking level. Each model states the levels it takes; Stepsemble now offers them and sets the one you choose the way Grok's own /effort command does, with a model switch that names the level, and shows the level Grok reports when a conversation is opened again. Checked on Grok's own records: turns sent at Low and Extra High were answered at low and xhigh.
 
 ## 3.8.5

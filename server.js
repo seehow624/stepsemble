@@ -34,6 +34,7 @@ const { createNativeComposerRoutes } = require("./server/native-composer-routes"
 const { createAgentModeStore } = require("./server/agent-mode-store");
 const { createAgentChoiceStore } = require("./server/agent-choice-store");
 const { createPiChoice } = require("./server/pi-choice");
+const { createProjectFolder } = require("./server/project-folders");
 const { createAgentModeRoutes, codexTurnPermissions, modeOption } = require("./server/agent-mode-routes");
 const { applyNativeLaunchConfig, isInstalledRuntime } = require("./server/native-launch-config");
 const { createCodexNativePool } = require("./server/codex-native-pool");
@@ -7273,6 +7274,16 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      // A new folder for a project, made from the Add project dialog inside
+      // the folder it shows. Only where browsing is allowed; never over an
+      // existing entry.
+      if (p === "/api/browse/folder" && req.method === "POST") {
+        const body = await readJSON(req, 8192);
+        const result = createProjectFolder({ parent: body?.parent, name: body?.name, isAllowed: isBrowseAllowed });
+        if (result.kind === "created") sendJSON(res, 201, { path: result.path });
+        else sendJSON(res, result.status, { error: result.code });
+        return;
+      }
       if (p === "/api/browse" && req.method === "GET") {
         // Directory browsing is read-only and defaults to the selected host's
         // allowed HOME or first explicit root. Missing, empty, and whitespace-

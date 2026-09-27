@@ -674,7 +674,13 @@
     const browseHead = node("div", "", "workspace-folder-browse-head");
     browseHead.append(node("strong", t("foldersHere")));
     const search = node("input"); search.type = "search"; search.placeholder = t("filterFolders"); search.setAttribute("aria-label", t("filterFolders"));
-    browseHead.append(search);
+    // A new project often needs a folder of its own: made here, inside the
+    // folder shown, then opened so it can be added.
+    const newFolder = button("", () => openNewFolder(), t("newFolder"), "btn workspace-folder-new");
+    newFolder.append(icon("M12 5v14M5 12h14"), node("span", t("newFolder")));
+    newFolder.disabled = true;
+    browseHead.append(search, newFolder);
+    let creating = null;
     let list = node("div", "", "workspace-folder-list");
     // A scrolling region takes focus so Home, End and the arrow keys move it.
     list.setAttribute("role", "region"); list.setAttribute("aria-label", t("foldersHere")); list.tabIndex = 0;
@@ -700,8 +706,10 @@
       list.replaceChildren();
       // A filtered listing starts at its top.
       list.scrollTop = 0;
+      if (creating) list.append(creating);
       const entries = (current?.entries || []).filter(entry => entry.name.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase()));
       if (!entries.length) {
+        if (creating && !search.value.trim()) return;
         list.append(node("p", search.value.trim() ? t("noFolderMatches") : t("noFolders"), "workspace-folder-empty"));
         return;
       }
@@ -712,6 +720,44 @@
       }
     }
     search.addEventListener("input", renderEntries);
+    const folderError = error => error?.status === 409 ? t("folderExists")
+      : error?.message === "name_invalid" ? t("folderNameInvalid")
+      : error?.status === 404 && error?.message === "not found" ? t("folderOldHost")
+      : error?.status === 403 ? t("folderNotAllowed") : t("folderCreateFailed");
+    function closeNewFolder() { creating?.remove(); creating = null; renderEntries(); newFolder.focus(); }
+    function openNewFolder() {
+      if (!current || current.selectable === false) return;
+      if (creating) { creating.querySelector("input")?.focus(); return; }
+      const form = node("form", "", "workspace-folder-create");
+      const input = node("input"); input.type = "text"; input.autocomplete = "off"; input.spellcheck = false; input.maxLength = 200;
+      input.placeholder = t("folderName"); input.setAttribute("aria-label", t("folderName"));
+      const make = button(t("createFolder"), null, t("createFolder"), "btn primary workspace-folder-create-go"); make.type = "submit";
+      const cancel = button(t("cancel"), () => closeNewFolder(), t("cancel"), "btn ghost workspace-folder-create-cancel");
+      const note = node("p", "", "workspace-folder-create-error"); note.hidden = true; note.setAttribute("role", "alert");
+      form.append(node("span", "", "workspace-folder-icon"), input, make, cancel, note);
+      input.addEventListener("keydown", event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeNewFolder(); } });
+      form.addEventListener("submit", async event => {
+        event.preventDefault();
+        const name = input.value.trim(), parent = current?.path;
+        if (!name || !parent) { input.focus(); return; }
+        make.disabled = true; input.disabled = true; note.hidden = true;
+        try {
+          const made = await api("/api/browse/folder", { parent, name }, target);
+          if (epoch !== dialogEpoch) return;
+          creating = null;
+          await navigate(made.path);
+        } catch (error) {
+          if (epoch !== dialogEpoch || creating !== form) return;
+          make.disabled = false; input.disabled = false;
+          note.textContent = folderError(error); note.hidden = false;
+          input.focus(); input.select();
+        }
+      });
+      creating = form;
+      search.value = "";
+      renderEntries();
+      input.focus();
+    }
     function updateNavigation() {
       back.disabled = historyIndex <= 0;
       forward.disabled = historyIndex < 0 || historyIndex >= historyPaths.length - 1;
@@ -721,7 +767,8 @@
     async function navigate(path, historyTarget = null) {
       if (historyTarget === null && path && path === current?.path) return;
       const request = ++sequence;
-      select.disabled = true; back.disabled = true; forward.disabled = true; up.disabled = true; go.disabled = true; search.disabled = true;
+      select.disabled = true; back.disabled = true; forward.disabled = true; up.disabled = true; go.disabled = true; search.disabled = true; newFolder.disabled = true;
+      creating = null;
       freshList();
       list.replaceChildren(node("p", t("loading"), "workspace-folder-empty"));
       try {
@@ -733,6 +780,7 @@
         }
         current = data; pathInput.value = data.path; pathInput.scrollLeft = pathInput.scrollWidth; search.value = "";
         select.disabled = data.selectable === false;
+        newFolder.disabled = data.selectable === false;
         search.disabled = false; updateNavigation();
         renderEntries();
       } catch (error) {

@@ -491,6 +491,18 @@ dialog header .btn { min-width: 34px; min-height: 34px; padding: 0; border: 0; c
 .workspace-folder-browse-head { display: flex; align-items: center; gap: 12px; margin: 20px 0 9px; }
 .workspace-folder-browse-head strong { flex: 1; color: var(--pine-soft); font-size: .73rem; font-weight: 670; }
 .workspace-folder-browse-head input { width: min(220px, 52%); min-height: 36px; padding: 6px 10px; font-size: .73rem; }
+/* New folder: a compact button beside the filter, and a row at the top of the
+   list where the name is typed. */
+#workspace-dialog-body .workspace-folder-new { flex: none; min-height: 36px; display: flex; align-items: center; gap: 5px; padding: 0 11px; font-size: .73rem; white-space: nowrap; }
+#workspace-dialog-body .workspace-folder-new svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+#workspace-dialog-body .workspace-folder-new:hover:not(:disabled) { background: var(--bubble-user); }
+#workspace-dialog-body .workspace-folder-new:disabled { opacity: .4; cursor: default; }
+.workspace-folder-create { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 9px 12px 9px 14px; border-bottom: .5px solid var(--line); background: var(--bubble-user); }
+#workspace-dialog-body .workspace-folder-create input { min-width: 0; flex: 1 1 140px; min-height: 34px; padding: 5px 10px; font-size: .79rem; }
+#workspace-dialog-body .workspace-folder-create .btn { flex: none; min-height: 34px; padding: 0 12px; font-size: .74rem; }
+#workspace-dialog-body .workspace-folder-create .btn:disabled { opacity: .45; cursor: default; }
+#workspace-dialog-body .workspace-folder-create-error { flex: 1 1 100%; margin: 0; color: var(--err); font-size: .72rem; line-height: 1.4; }
+#workspace-dialog-body .workspace-folder-create-error[hidden] { display: none; }
 .workspace-folder-list { min-height: 86px; max-height: min(340px, 42dvh); overflow: auto; border: .5px solid var(--line); border-radius: 13px; background: var(--paper); overscroll-behavior: contain; }
 #workspace-dialog-body .workspace-folder-row { width: 100%; min-height: 46px; display: flex; align-items: center; gap: 11px; padding: 0 14px; border: 0; border-radius: 0; font-size: .79rem; text-align: left; }
 .workspace-folder-row + .workspace-folder-row { border-top: .5px solid var(--line) !important; }
@@ -527,6 +539,7 @@ body.compact .workspace-session strong { font-size: .78rem; }
   #workspace-dialog.workspace-project-dialog #workspace-dialog-body { padding: 0 16px 16px; }
   .workspace-folder-browse-head { align-items: stretch; flex-direction: column; gap: 7px; margin-top: 15px; }
   .workspace-folder-browse-head input { width: 100%; }
+  #workspace-dialog-body .workspace-folder-new { align-self: flex-start; }
   .workspace-folder-footer { align-items: stretch; flex-direction: column; gap: 10px; }
   #workspace-dialog-body .workspace-folder-add { width: 100%; }
   #workspace-sidebar { width: 100%; flex: 1 1 100%; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); border-right: 0; }
