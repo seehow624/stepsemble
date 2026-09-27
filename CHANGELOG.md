@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.8.2
+
+- Make the Subscription limits page, opened from the limits strip, short and plain: one card per provider and one line per allowance, with what is left, a thin bar of it and when it resets. It showed each allowance in its own large card with a ring, the same percentage written out, and a bar of what was used, so the ring and the bar ran opposite ways; a phone needed about half as much scrolling for the same four providers.
+- Colour an allowance only when it runs low, amber at a quarter or less and red at a tenth or less, and list a provider close to a limit first.
+- Show reset times without seconds, as the time alone today, the weekday this week and the date after that, and show when the limits were checked once at the foot of the page. A bucket that repeats the provider's name ("codex" under Codex) is left out.
+
 ## 3.8.1
 
 - Keep the limits strip at the foot of the session list quiet: while every allowance is comfortable it shows "Limits are fine" and each provider's own logo, where it showed four large rings that were full most of the time. A provider down to a quarter or less gets a chip with what is left, amber, or red at a tenth or less; tapping the strip still opens the details, and hovering a logo or chip still shows each window and when it resets.

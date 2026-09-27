@@ -250,39 +250,31 @@ small { color: var(--pine-soft); }
 .workspace-provider-logo[data-logo="grok"] { --workspace-provider-mark: url("/agent-logos/v1/grok.svg"); }
 .workspace-provider-logo[data-logo="minimax"]::before { background: url("/agent-logos/v1/minimax.png") center / contain no-repeat; -webkit-mask: none; mask: none; }
 .workspace-provider-logo[data-logo="unknown"]::before { display: none; }
-.workspace-quota-ring { position: relative; flex: 0 0 36px; width: 36px; height: 36px; display: grid; place-items: center; color: var(--ink); }
-.workspace-quota-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.workspace-quota-ring circle { fill: none; stroke-width: 4; }
-.workspace-quota-ring .quota-ring-track { stroke: color-mix(in srgb, var(--pine-soft) 22%, transparent); }
-.workspace-quota-ring .quota-ring-progress { stroke: var(--quota-color, var(--ok)); stroke-linecap: round; transition: stroke-dashoffset .35s ease; }
-.workspace-quota-ring > span { position: absolute; font: 700 .59rem var(--mono); letter-spacing: -.06em; }
-.workspace-quota-window[data-level="ok"] { --quota-color: var(--ok); }
-.workspace-quota-window[data-level="low"] { --quota-color: var(--warn); }
-.workspace-quota-window[data-level="critical"] { --quota-color: var(--err); }
-html.reduced-motion .quota-ring-progress { transition: none; }
-
-.workspace-quota-dialog { box-sizing: border-box; width: min(650px, calc(100vw - 24px)); max-height: min(780px, calc(100dvh - 24px)); }
-.workspace-quota-intro { margin: 0 0 5px; }
-.workspace-quota-provider { display: grid; gap: 10px; padding: 14px; border: .5px solid var(--line); border-radius: 16px; background: var(--paper); }
-.workspace-quota-provider-head { display: flex; align-items: center; gap: 9px; min-width: 0; }
-.workspace-quota-provider-head .workspace-provider-logo { width: 25px; height: 25px; flex-basis: 25px; }
-.workspace-quota-provider-head strong { min-width: 0; flex: 1; overflow: hidden; font-size: .88rem; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-quota-source { color: var(--pine-soft); font-size: .65rem; }
-.workspace-quota-windows { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 235px), 1fr)); gap: 9px; }
-.workspace-quota-window { min-width: 0; display: grid; gap: 10px; padding: 12px; border: .5px solid var(--line); border-radius: 13px; background: var(--milk); }
-.workspace-quota-window-main { min-width: 0; display: flex; align-items: center; gap: 11px; }
-.workspace-quota-window .workspace-quota-ring { width: 54px; height: 54px; flex-basis: 54px; }
-.workspace-quota-window .workspace-quota-ring circle { stroke-width: 3.5; }
-.workspace-quota-window .workspace-quota-ring > span { font-size: .76rem; }
-.workspace-quota-window-copy { min-width: 0; display: grid; gap: 4px; }
-.workspace-quota-window-copy strong { font-size: .79rem; font-weight: 680; }
-.workspace-quota-window-copy small { font-size: .65rem; line-height: 1.35; overflow-wrap: anywhere; }
-.workspace-quota-bar { height: 5px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--pine-soft) 20%, transparent); }
-.workspace-quota-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--ok); transition: width .35s ease; }
-.workspace-quota-window[data-level="critical"] .workspace-quota-bar > span { background: var(--err); }
-.workspace-quota-window[data-stale=true] .quota-ring-progress,
-.workspace-quota-window[data-stale=true] .workspace-quota-bar > span { opacity: .5; }
-.workspace-quota-observed { margin: 0; color: var(--pine-soft); font-size: .63rem; }
+/* One card per provider, one line per allowance. Colour appears only where an
+   allowance runs low, as in the strip that opens the page. */
+.workspace-quota-dialog { box-sizing: border-box; width: min(540px, calc(100vw - 24px)); max-height: min(780px, calc(100dvh - 24px)); }
+.workspace-quota-intro { margin: 0 0 4px; color: var(--pine-soft); font-size: .76rem; line-height: 1.45; }
+.workspace-quota-provider { display: grid; gap: 4px; padding: 12px 14px 6px; border: .5px solid var(--line); border-radius: 14px; background: var(--paper); }
+.workspace-quota-provider-head { display: flex; align-items: center; gap: 9px; min-width: 0; padding-bottom: 4px; }
+.workspace-quota-provider-head .workspace-provider-logo { width: 20px; height: 20px; flex-basis: 20px; }
+.workspace-quota-provider-head strong { min-width: 0; flex: 1; overflow: hidden; font-size: .86rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-quota-source { color: var(--pine-soft); font-size: .66rem; white-space: nowrap; }
+.workspace-quota-unknown { margin: 0 0 8px; color: var(--pine-soft); font-size: .74rem; }
+.workspace-quota-rows { margin: 0; padding: 0; list-style: none; }
+.workspace-quota-row { --level: color-mix(in srgb, var(--ink) 55%, transparent); display: grid; gap: 6px; padding: 10px 0; }
+.workspace-quota-row + .workspace-quota-row { border-top: .5px solid var(--line); }
+.workspace-quota-row[data-level="low"] { --level: var(--warn); }
+.workspace-quota-row[data-level="critical"] { --level: var(--err); }
+.workspace-quota-row-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.workspace-quota-row-name { min-width: 0; font-size: .8rem; }
+.workspace-quota-row-value { font-size: .8rem; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.workspace-quota-row:not([data-level="ok"]) .workspace-quota-row-value { color: var(--level); }
+.workspace-quota-bar { height: 4px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--pine-soft) 18%, transparent); }
+.workspace-quota-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--level); transition: width .35s ease; }
+.workspace-quota-provider[data-stale=true] .workspace-quota-bar > span { opacity: .5; }
+.workspace-quota-row-reset { color: var(--pine-soft); font-size: .68rem; font-variant-numeric: tabular-nums; }
+.workspace-quota-observed { margin: 0 0 6px; color: var(--pine-soft); font-size: .66rem; }
+.workspace-quota-updated { margin: 0; padding: 0 2px; }
 .workspace-quota-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 2px 2px 0; }
 .workspace-quota-sources p { flex: 1 1 220px; min-width: 0; margin: 0; color: var(--pine-soft); font-size: .7rem; line-height: 1.45; }
 #workspace-dialog-body .workspace-quota-settings { flex: none; min-height: 38px; justify-content: center; padding: 0 14px; font-size: .78rem; }

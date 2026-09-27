@@ -29,10 +29,13 @@
     for (const element of document.querySelectorAll("[data-workspace-i18n]")) element.textContent = t(element.dataset.workspaceI18n);
     for (const attr of ["aria-label", "title", "placeholder"]) for (const element of document.querySelectorAll(`[data-workspace-${attr}]`)) element.setAttribute(attr, t(element.getAttribute(`data-workspace-${attr}`)));
   }
-  function usageLabel(w) {
+  // A bucket that only repeats the provider's name ("codex" under Codex) is
+  // left out of the label.
+  function usageLabel(w, provider = null) {
     const period = w.windowDurationMins === 300 ? t("fiveHours") : w.windowDurationMins === 10080 ? t("weekly")
       : w.windowDurationMins === 43200 ? t("monthly") : t("minutes", { minutes: w.windowDurationMins || "?" });
-    return w.bucket ? `${w.bucket} · ${period}` : period;
+    const same = value => String(value || "").toLowerCase() === String(w.bucket || "").toLowerCase();
+    return w.bucket && !same(provider?.provider) && !same(provider?.service) ? w.bucket + " · " + period : period;
   }
   applyPreferences();
   const params = new URLSearchParams(location.search);
@@ -438,25 +441,6 @@
     logo.setAttribute("aria-hidden", "true");
     return logo;
   }
-  function quotaRing(w) {
-    const ring = node("span", "", "workspace-quota-ring");
-    const remaining = w && Number.isFinite(w.remainingPercent) ? Math.max(0, Math.min(100, w.remainingPercent)) : null;
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 48 48"); svg.setAttribute("aria-hidden", "true");
-    for (const className of ["quota-ring-track", "quota-ring-progress"]) {
-      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      circle.setAttribute("cx", "24"); circle.setAttribute("cy", "24"); circle.setAttribute("r", "19");
-      circle.setAttribute("pathLength", "100"); circle.setAttribute("class", className);
-      if (className === "quota-ring-progress") {
-        circle.style.strokeDasharray = "100";
-        circle.style.strokeDashoffset = String(100 - (remaining ?? 0));
-      }
-      svg.append(circle);
-    }
-    ring.append(svg, node("span", remaining === null ? "—" : `${Math.round(remaining)}%`));
-    ring.setAttribute("aria-hidden", "true");
-    return ring;
-  }
   // Compact, language-neutral durations: "3d 19h", "2h 15m", "28m".
   function shortDuration(ms) {
     const total = Math.max(0, Math.round(ms / 60000));
@@ -518,7 +502,7 @@
       anchor.addEventListener("pointerleave", closeUsageTip);
     };
     const spoken = rows.map(row => {
-      const summary = row.tightest ? `${usageLabel(row.tightest)} · ${t("remaining", { percent: Math.round(row.tightest.remainingPercent) })}` : t("quotaUnavailable");
+      const summary = row.tightest ? `${usageLabel(row.tightest, row.provider)} · ${t("remaining", { percent: Math.round(row.tightest.remainingPercent) })}` : t("quotaUnavailable");
       return `${row.provider.provider} · ${summary}` + (row.provider.status === "cached" && row.provider.observedAt ? ` · ${t("checked", { date: date(row.provider.observedAt) })}` : "");
     });
     const label = `${t("quota")} · ${spoken.join(" · ")}`;
@@ -571,46 +555,64 @@
       button(t("settings"), () => { closeDialog(); window.open("/index.html?settings=1&section=quota-sources", "stepsemble-settings"); }, t("settings"), "btn ghost workspace-quota-settings"));
     return box;
   }
+  // When a window resets, in the person's own clock: the time alone today,
+  // the weekday this week, the date after that. No seconds.
+  function resetClock(ms) {
+    const at = new Date(ms), time = { hour: "numeric", minute: "2-digit" };
+    const options = at.toDateString() === new Date().toDateString() ? time
+      : ms - Date.now() < 6 * 86400000 ? { weekday: "short", ...time } : { month: "numeric", day: "numeric", ...time };
+    try { return new Intl.DateTimeFormat(prefs.locale, options).format(at); } catch { return at.toLocaleString(); }
+  }
+  // One card per provider and one line per allowance: what is left, a bar of
+  // it, and when it resets. Colour appears only where an allowance runs low,
+  // as in the strip that opens this.
   function showQuotaDialog() {
     closeUsageTip();
     const body = dialog(t("quota"));
     $("workspace-dialog").classList.add("workspace-quota-dialog");
     body.append(node("p", t("quotaInfo"), "workspace-quota-intro"));
     if (usageHost !== host || !usage?.providers?.length) { body.append(node("p", t("quotaUnavailable")), quotaSources()); return; }
-    for (const provider of usage.providers) {
+    // A provider close to a limit comes first; the others keep their order.
+    const lowest = provider => Math.min(...(provider.windows || []).map(w => w.remainingPercent).filter(Number.isFinite), 100);
+    const order = usage.providers.map((provider, index) => ({ provider, index, low: remainingLevel(lowest(provider)) !== "ok" }))
+      .sort((a, b) => (b.low - a.low) || (a.low && b.low ? lowest(a.provider) - lowest(b.provider) : 0) || a.index - b.index);
+    for (const { provider } of order) {
       const section = node("section", "", "workspace-quota-provider");
+      if (provider.status === "cached") section.dataset.stale = "true";
       const head = node("div", "", "workspace-quota-provider-head");
       head.append(providerLogo(provider.provider), node("strong", provider.provider));
       if (provider.source === "opencodex") head.append(node("small", t("viaOpencodex"), "workspace-quota-source"));
       else if (provider.source === "codexbar") head.append(node("small", t("viaCodexbar"), "workspace-quota-source"));
       section.append(head);
-      if (!provider.windows?.length) section.append(node("p", t("unknownQuota")));
+      if (!provider.windows?.length) section.append(node("p", t("unknownQuota"), "workspace-quota-unknown"));
       else {
-        const windows = node("div", "", "workspace-quota-windows");
+        const list = node("ul", "", "workspace-quota-rows");
         for (const w of [...provider.windows].sort((a, b) => (a.windowDurationMins ?? Infinity) - (b.windowDurationMins ?? Infinity))) {
-          const card = node("div", "", "workspace-quota-window");
-          card.dataset.level = remainingLevel(w.remainingPercent);
-          if (provider.status === "cached") card.dataset.stale = "true";
-          const main = node("div", "", "workspace-quota-window-main");
-          const copy = node("div", "", "workspace-quota-window-copy");
-          copy.append(node("strong", usageLabel(w)),
-            node("small", t("remaining", { percent: Math.round(w.remainingPercent) })));
-          if (w.resetsAt) copy.append(node("small", t("resetsIn", { duration: shortDuration(w.resetsAt - Date.now()) })),
-            node("small", t("resetAt", { date: date(w.resetsAt) })));
-          main.append(quotaRing(w), copy);
+          const remaining = Math.max(0, Math.min(100, Math.round(w.remainingPercent)));
+          const label = usageLabel(w, provider);
+          const row = node("li", "", "workspace-quota-row");
+          row.dataset.level = remainingLevel(remaining);
+          const top = node("div", "", "workspace-quota-row-top");
+          top.append(node("span", label, "workspace-quota-row-name"), node("span", t("remaining", { percent: remaining }), "workspace-quota-row-value"));
+          // The bar shows what is left, the same way round as the strip.
           const bar = node("div", "", "workspace-quota-bar");
-          const used = Math.max(0, Math.min(100, Number.isFinite(w.usedPercent) ? w.usedPercent : 100 - w.remainingPercent));
           bar.setAttribute("role", "progressbar"); bar.setAttribute("aria-valuemin", "0"); bar.setAttribute("aria-valuemax", "100");
-          bar.setAttribute("aria-valuenow", String(Math.round(used)));
-          bar.setAttribute("aria-label", `${usageLabel(w)} · ${t("used", { percent: Math.round(used) })}`);
-          const fill = node("span"); fill.style.width = `${used}%`;
-          bar.append(fill); card.append(main, bar); windows.append(card);
+          bar.setAttribute("aria-valuenow", String(remaining));
+          bar.setAttribute("aria-label", `${label} · ${t("remaining", { percent: remaining })}`);
+          const fill = node("span"); fill.style.width = `${remaining}%`;
+          bar.append(fill);
+          row.append(top, bar);
+          if (w.resetsAt) row.append(node("small", `${t("resetsIn", { duration: shortDuration(w.resetsAt - Date.now()) })} · ${resetClock(w.resetsAt)}`, "workspace-quota-row-reset"));
+          list.append(row);
         }
-        section.append(windows);
+        section.append(list);
       }
-      if (provider.observedAt || usage.updatedAt) section.append(node("small", t("checked", { date: date(provider.observedAt || usage.updatedAt) }), "workspace-quota-observed"));
+      // A reading kept from earlier says when it was taken; current ones share
+      // the one time at the foot of the page.
+      if (provider.status === "cached" && provider.observedAt) section.append(node("small", t("checked", { date: date(provider.observedAt) }), "workspace-quota-observed"));
       body.append(section);
     }
+    if (usage.updatedAt) body.append(node("small", t("checked", { date: date(usage.updatedAt) }), "workspace-quota-observed workspace-quota-updated"));
     body.append(quotaSources());
   }
   function closeDialog() { dialogEpoch++; if ($("workspace-dialog").open) $("workspace-dialog").close(); $("workspace-dialog").classList.remove("workspace-project-dialog", "workspace-quota-dialog", "workspace-signing-in"); $("workspace-dialog-body").replaceChildren(); }
