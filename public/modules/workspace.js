@@ -492,9 +492,11 @@
   }
   addEventListener("resize", closeUsageTip);
   addEventListener("scroll", closeUsageTip, true);
+  // The strip stays quiet while every allowance is comfortable: one line and
+  // the providers' own logos. A provider close to its limit gets a chip with
+  // what is left of its tightest window. Tapping anywhere opens the details.
   function renderUsage(data) {
     const box = $("workspace-usage");
-    const previousScroll = box.querySelector(".workspace-limits-track")?.scrollLeft || 0;
     closeUsageTip();
     box.replaceChildren();
     if (!data || !data.providers?.length) {
@@ -503,46 +505,57 @@
       box.setAttribute("aria-label", `${t("quota")} · ${note}`);
       return;
     }
-    const spoken = [];
-    const track = node("div", "", "workspace-limits-track");
-    track.dataset.count = String(data.providers.length);
-    track.addEventListener("wheel", event => {
-      if (track.scrollWidth <= track.clientWidth || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
-      track.scrollLeft += event.deltaY;
-      event.preventDefault();
-    }, { passive: false });
-    track.addEventListener("keydown", event => {
-      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-      const step = track.firstElementChild?.offsetWidth || 80;
-      track.scrollBy({ left: event.key === "ArrowRight" ? step : -step, behavior: "smooth" });
-      event.preventDefault();
-    });
-    for (const provider of data.providers) {
+    const rows = data.providers.map(provider => {
       const windows = [...(provider.windows || [])].sort((a, b) =>
         (a.windowDurationMins ?? Infinity) - (b.windowDurationMins ?? Infinity) || a.remainingPercent - b.remainingPercent);
-      const primary = windows[0] || null;
-      const row = button("", showQuotaDialog, provider.provider, "workspace-limit");
-      if (primary) row.dataset.level = remainingLevel(primary.remainingPercent);
-      // A cached reading is marked stale; the hover card says when it was taken.
-      if (provider.status === "cached") row.dataset.stale = "true";
-      // Rows with a reading explain themselves in the hover card; a row without
-      // one keeps the provider name as its tooltip so the bare logo stays legible.
-      if (primary) row.removeAttribute("title");
-      // In the strip the logo names the provider; the hover card, the dialog and
-      // the spoken label carry the full name.
-      const copy = node("span", "", "workspace-limit-copy");
-      copy.append(providerLogo(provider.provider), node("span", primary ? windowShape(primary) || "—" : "—", "workspace-limit-period"));
-      row.append(quotaRing(primary), copy);
-      const summary = primary ? `${usageLabel(primary)} · ${t("remaining", { percent: Math.round(primary.remainingPercent) })}` : t("quotaUnavailable");
-      row.setAttribute("aria-label", `${provider.provider} · ${summary}` + (provider.status === "cached" && provider.observedAt ? ` · ${t("checked", { date: date(provider.observedAt) })}` : ""));
-      if (primary) row.addEventListener("pointerenter", () => showUsageTip(row, { ...provider, windows }));
-      row.addEventListener("pointerleave", closeUsageTip);
-      track.append(row);
-      spoken.push(`${provider.provider} ${summary}`);
+      // The window with the least left is the one that stops work first.
+      const tightest = windows.filter(w => Number.isFinite(w.remainingPercent))
+        .sort((a, b) => a.remainingPercent - b.remainingPercent)[0] || null;
+      return { provider, windows, tightest, level: tightest ? remainingLevel(tightest.remainingPercent) : null };
+    });
+    const hover = (anchor, row) => {
+      if (row.tightest) anchor.addEventListener("pointerenter", () => showUsageTip(anchor, { ...row.provider, windows: row.windows }));
+      anchor.addEventListener("pointerleave", closeUsageTip);
+    };
+    const spoken = rows.map(row => {
+      const summary = row.tightest ? `${usageLabel(row.tightest)} · ${t("remaining", { percent: Math.round(row.tightest.remainingPercent) })}` : t("quotaUnavailable");
+      return `${row.provider.provider} · ${summary}` + (row.provider.status === "cached" && row.provider.observedAt ? ` · ${t("checked", { date: date(row.provider.observedAt) })}` : "");
+    });
+    const label = `${t("quota")} · ${spoken.join(" · ")}`;
+    const strip = button("", showQuotaDialog, label, "workspace-limits-strip");
+    strip.removeAttribute("title");
+    const alerts = rows.filter(row => row.level === "low" || row.level === "critical");
+    const lead = node("span", "", "workspace-limits-lead");
+    if (alerts.length) {
+      strip.dataset.state = "alert";
+      if (alerts.length > 2) lead.classList.add("workspace-limits-compact");
+      for (const row of alerts) {
+        const chip = node("span", "", "workspace-limit-alert");
+        chip.dataset.level = row.level;
+        if (row.provider.status === "cached") chip.dataset.stale = "true";
+        chip.append(providerLogo(row.provider.provider), node("span", `${Math.round(row.tightest.remainingPercent)}%`, "workspace-limit-percent"),
+          node("span", windowShape(row.tightest) || "", "workspace-limit-period"));
+        hover(chip, row);
+        lead.append(chip);
+      }
+    } else {
+      strip.dataset.state = "ok";
+      const known = rows.every(row => row.tightest);
+      lead.append(node("span", "", "workspace-limits-dot"), node("span", t(known ? "quotaAllGood" : "quotaKnownGood"), "workspace-limits-summary"));
     }
-    box.append(track);
-    if (previousScroll) requestAnimationFrame(() => { if (track.isConnected) track.scrollLeft = previousScroll; });
-    box.setAttribute("aria-label", `${t("quota")} · ${spoken.join(" · ")}`);
+    const marks = node("span", "", "workspace-limits-marks");
+    for (const row of rows) {
+      if (alerts.includes(row)) continue;
+      const mark = node("span", "", "workspace-limit-mark");
+      mark.append(providerLogo(row.provider.provider));
+      if (!row.tightest) mark.dataset.unknown = "true";
+      if (row.provider.status === "cached") mark.dataset.stale = "true";
+      hover(mark, row);
+      marks.append(mark);
+    }
+    strip.append(lead, marks);
+    box.append(strip);
+    box.setAttribute("aria-label", label);
   }
   async function refreshUsage() {
     const target = host;

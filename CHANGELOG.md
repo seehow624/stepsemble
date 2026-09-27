@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.8.1
+
+- Keep the limits strip at the foot of the session list quiet: while every allowance is comfortable it shows "Limits are fine" and each provider's own logo, where it showed four large rings that were full most of the time. A provider down to a quarter or less gets a chip with what is left, amber, or red at a tenth or less; tapping the strip still opens the details, and hovering a logo or chip still shows each window and when it resets.
+- Judge each provider by the window with the least left, where the strip showed its shortest window: OpenCode Go read 100% for its 5 hours while its month was at 40%.
+
 ## 3.8.0
 
 - Start each new conversation with the model and thinking level you chose last for that agent, and keep each conversation's own choice when it is opened again, for example after an update. The Host keeps the choice, so the phone and the computer start new conversations the same way. This covers Claude Code, Codex, OpenCode, Grok Build, Kilo, Cline and Hermes; Pi already keeps its own. A Claude Code conversation from an earlier version reopens with the model it last answered with, as its transcript records it.

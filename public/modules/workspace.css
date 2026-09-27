@@ -185,8 +185,8 @@ small { color: var(--pine-soft); }
 #workspace-projects .workspace-session-menu { width: 28px; min-width: 28px; min-height: 32px; padding: 0; border: 0; border-radius: 8px; color: var(--pine-soft); font-size: .9rem; }
 .workspace-session-row:hover .workspace-session-menu, .workspace-session-menu:hover, .workspace-session-menu:focus-visible { background: var(--bubble-user); color: var(--ink); }
 
-/* The footer holds only the allowances: each provider is its logo, its
-   shortest window and a ring of what remains. */
+/* The footer holds only the allowances: the providers' logos, and what is
+   left for any provider close to its limit. */
 #workspace-sidebar footer { display: grid; padding: 0 2px; }
 #workspace-usage.workspace-limits {
   min-width: 0;
@@ -197,35 +197,51 @@ small { color: var(--pine-soft); }
   background: var(--milk);
 }
 .workspace-limits-note { display: flex; align-items: center; height: 100%; padding: 0 10px; color: var(--pine-soft); font-size: .68rem; }
-.workspace-limits-track {
+/* One quiet line while every allowance is comfortable; a chip for each
+   provider close to its limit. The whole strip opens the details. */
+.workspace-limits-strip {
+  width: 100%;
   height: 100%;
-  display: flex;
-  overflow-x: auto;
-  overflow-y: hidden;
-  overscroll-behavior-inline: contain;
-  scroll-snap-type: x mandatory;
-  scrollbar-width: none;
-}
-.workspace-limits-track::-webkit-scrollbar { display: none; }
-.workspace-limit {
   min-width: 0;
-  flex: 1 0 74px;
-  height: 100%;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 4px 6px;
-  border-right: .5px solid var(--line);
-  scroll-snap-align: start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
   text-align: left;
+  cursor: pointer;
 }
-.workspace-limit:last-child { border-right: 0; }
-.workspace-limit:hover, .workspace-limit:focus-visible { background: var(--bubble-user); outline: 0; }
-.workspace-limit-copy { min-width: 0; display: grid; justify-items: center; gap: 4px; }
-.workspace-limit .workspace-provider-logo { width: 17px; height: 17px; flex-basis: 17px; }
-.workspace-limit-period { color: var(--pine-soft); font: .62rem var(--mono); white-space: nowrap; }
-.workspace-limit[data-stale=true] .workspace-limit-period { text-decoration: underline dotted; text-underline-offset: 3px; }
+.workspace-limits-strip:hover, .workspace-limits-strip:focus-visible { background: var(--bubble-user); outline: 0; }
+.workspace-limits-lead { min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; }
+.workspace-limits-dot { flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.workspace-limits-summary { min-width: 0; overflow: hidden; color: var(--pine-soft); font-size: .76rem; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-limits-marks { flex: none; display: flex; align-items: center; gap: 10px; }
+.workspace-limit-mark { display: grid; place-items: center; opacity: .7; }
+.workspace-limit-mark[data-unknown=true] { opacity: .3; }
+.workspace-limit-mark[data-stale=true] .workspace-provider-logo { opacity: .75; }
+.workspace-limit-mark .workspace-provider-logo { width: 16px; height: 16px; flex-basis: 16px; }
+.workspace-limit-alert {
+  --level: var(--warn);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--level) 15%, transparent);
+  white-space: nowrap;
+}
+.workspace-limit-alert[data-level="critical"] { --level: var(--err); }
+.workspace-limit-alert .workspace-provider-logo { width: 15px; height: 15px; flex-basis: 15px; }
+.workspace-limit-percent { color: var(--level); font-size: .78rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+.workspace-limit-period { color: var(--pine-soft); font-size: .68rem; }
+.workspace-limit-alert[data-stale=true] .workspace-limit-period { text-decoration: underline dotted; text-underline-offset: 3px; }
+.workspace-limits-compact .workspace-limit-period { display: none; }
 .workspace-provider-logo { width: 16px; height: 16px; flex: 0 0 16px; display: grid; place-items: center; color: var(--ink); font-size: .56rem; font-weight: 800; }
 .workspace-provider-logo::before { content: ""; width: 100%; height: 100%; background: currentColor; -webkit-mask: var(--workspace-provider-mark) center / contain no-repeat; mask: var(--workspace-provider-mark) center / contain no-repeat; }
 .workspace-provider-logo[data-logo="openai"] { --workspace-provider-mark: url("/agent-logos/v1/openai.svg"); }
@@ -240,11 +256,9 @@ small { color: var(--pine-soft); }
 .workspace-quota-ring .quota-ring-track { stroke: color-mix(in srgb, var(--pine-soft) 22%, transparent); }
 .workspace-quota-ring .quota-ring-progress { stroke: var(--quota-color, var(--ok)); stroke-linecap: round; transition: stroke-dashoffset .35s ease; }
 .workspace-quota-ring > span { position: absolute; font: 700 .59rem var(--mono); letter-spacing: -.06em; }
-.workspace-limit[data-level="ok"], .workspace-quota-window[data-level="ok"] { --quota-color: var(--ok); }
-.workspace-limit[data-level="low"], .workspace-quota-window[data-level="low"] { --quota-color: var(--warn); }
-.workspace-limit[data-level="critical"], .workspace-quota-window[data-level="critical"] { --quota-color: var(--err); }
-.workspace-limit[data-stale=true] .quota-ring-progress { opacity: .5; }
-.workspace-limit[data-stale=true] .quota-ring-track { stroke-dasharray: 2 2; }
+.workspace-quota-window[data-level="ok"] { --quota-color: var(--ok); }
+.workspace-quota-window[data-level="low"] { --quota-color: var(--warn); }
+.workspace-quota-window[data-level="critical"] { --quota-color: var(--err); }
 html.reduced-motion .quota-ring-progress { transition: none; }
 
 .workspace-quota-dialog { box-sizing: border-box; width: min(650px, calc(100vw - 24px)); max-height: min(780px, calc(100dvh - 24px)); }
