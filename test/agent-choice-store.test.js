@@ -26,7 +26,8 @@ test("the last choice for an agent is kept across restarts, and each conversatio
   const reopened = createAgentChoiceStore({ file });
   assert.deepEqual(reopened.last("claude-code"), { model: "sonnet", effort: "max" });
   assert.deepEqual(reopened.session("claude-code", "session-a"), { model: "opus[1m]", effort: "max" });
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  // Owner-only where the file system has POSIX modes.
+  if (process.platform !== "win32") assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
 
 test("choices hold model and level ids only, within bounds", () => {
