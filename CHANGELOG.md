@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.8.5
+
+- Name each model by the model and put the provider that serves it on the line below, for every agent. The line under a model repeated the agent ("claude-code" under every Claude Code model, "codex", "grok-build"); it now reads Anthropic, OpenAI, ChatGPT, xAI, OpenCodex · MiniMax, OpenRouter · Anthropic or Kilo Gateway · Anthropic, as the case may be.
+- Show Claude Code's models with their version: "Opus 5.5 · 1M", "Sonnet 5", "Haiku 4.5", where the list said "Opus (1M context)", "Sonnet" and "Haiku".
+- Leave brackets and prefixes out of model names: "claude-fable-5-1 (anthropic)", "OCX anthropic/claude-opus-5-5", "OpenRouter · anthropic/claude-sonnet-5" and "Kilo Gateway/Anthropic: Claude Opus 5.5 (new)" read claude-fable-5-1, claude-opus-5-5, claude-sonnet-5 and Claude Opus 5.5, with the provider and notes such as "new" or "$$" on the line below. The model button beside Send uses the same names.
+
 ## 3.8.4
 
 - Start a new Pi conversation with the model and thinking level you chose last, on any device, as the other agents do. Pi run by Stepsemble records a choice only in the conversation it was made in, so a new conversation went back to the model in Pi's own settings; the level came from whichever browser opened it, and choosing a Claude Code level changed it too. The Host now keeps Pi's choice with the others.

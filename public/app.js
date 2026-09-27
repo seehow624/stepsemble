@@ -1,7 +1,7 @@
-/* stepsemble v3.8.4 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.5 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.4";
+const CLIENT_APP_VERSION = "3.8.5";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -35,6 +35,7 @@ const sessionUtils = window.stepsembleSessionUtils;
 const piSession = window.StepsemblePiSession;
 const contextUtils = window.stepsembleContextUtils;
 const openCodeContext = window.stepsembleOpenCodeContext;
+const modelPresentation = window.stepsembleModelPresentation;
 const claudeStructuredRendering = window.stepsembleClaudeStructuredRendering;
 const agentTranscriptPresentation = window.stepsembleAgentTranscriptPresentation;
 if (!foundation || !sessionUtils || !contextUtils || !piSession || !agentTranscriptPresentation) throw new Error("Stepsemble foundation modules are missing");
@@ -5938,7 +5939,7 @@ function applyCodexThreadChoice(connection, thread) {
   }
   if (!connection.codexEffortSelected && connection.codexThreadEffort) connection.codexEffort = connection.codexThreadEffort;
   if (rpc !== connection) return;
-  if (connection.codexModel) updateComposerSummary(connection.codexModel.name || connection.codexModel.id, undefined);
+  if (connection.codexModel) updateComposerSummary(modelTitle(connection.codexModel, connection), undefined);
   syncNativeThinkingSelect(connection);
 }
 
@@ -6028,7 +6029,7 @@ async function openCodexNativeTask(task, generationOverride = null) {
         if (!models || rpc !== connection) return;
         const known = connection.codexModel && models.find(model => model.id === connection.codexModel.id);
         if (known && !connection.codexModelSelected) connection.codexModel = known;
-        if (connection.codexModel) updateComposerSummary(connection.codexModel.name || connection.codexModel.id, undefined);
+        if (connection.codexModel) updateComposerSummary(modelTitle(connection.codexModel, connection), undefined);
         syncNativeThinkingSelect(connection);
       }).catch(() => {});
     }
@@ -6618,7 +6619,7 @@ async function syncClaudeStructuredModelCatalog(connection = rpc, { force = fals
   if (current && !connection.claudeModelSelected) {
     connection.claudeModel = current;
     composerModelContextWindow = positiveFinite(current.contextWindow);
-    updateComposerSummary(current.name || current.id, undefined);
+    updateComposerSummary(modelTitle(current, connection), undefined);
   }
   connection.claudeEffort = String(result?.currentEffort || connection.claudeEffort || "").toLowerCase() || null;
   syncNativeThinkingSelect(connection);
@@ -7485,7 +7486,7 @@ function applyNativeContextStats(response, connection = rpc) {
       if (isCodex) connection.codexModel = model;
       else connection.claudeModel = model;
       composerModelContextWindow = positiveFinite(model.contextWindow);
-      updateComposerSummary(model.name || model.id, undefined);
+      updateComposerSummary(modelTitle(model, connection), undefined);
     }
   }
   renderContextDashboard();
@@ -10441,7 +10442,7 @@ function rememberAgentChoice(agentId, sessionId, choice) {
 }
 function applyComposerState(data) {
   const model = data?.model;
-  const modelName = model?.name || model?.id || "";
+  const modelName = modelTitle(model);
   const level = data?.thinkingLevel || "off";
   if (data && Object.prototype.hasOwnProperty.call(data, "model")) {
     composerModelContextWindow = positiveFinite(model?.contextWindow);
@@ -10998,7 +10999,7 @@ function applyOpenCodeModel(model) {
     contextStats = null;
     contextStatsState = "awaiting";
   }
-  updateComposerSummary(normalized.name || `${normalized.providerID}/${normalized.modelID}`, undefined);
+  updateComposerSummary(modelTitle({ ...normalized, id: normalized.modelID }, connection) || `${normalized.providerID}/${normalized.modelID}`, undefined);
   renderContextDashboard();
   return normalized;
 }
@@ -11071,6 +11072,22 @@ function acpConfigPath(connection) {
   return null;
 }
 function acpAgentOf(connection) { return connection?.nativeGrokAcp ? "grok-build" : String(connection?.acpAgentId || ""); }
+// Which agent a conversation runs, for naming its models.
+function connectionAgentId(connection = rpc) {
+  if (!connection) return "";
+  if (connection.nativeCodexMutation || connection.nativeCodex) return "codex";
+  if (connection.nativeClaudeStructured) return "claude-code";
+  if (connection.nativeOpenCode) return "opencode";
+  if (connection.nativeAntigravityStructured) return "antigravity";
+  if (connection.nativeAcp || connection.nativeGrokAcp) return acpAgentOf(connection);
+  return "pi";
+}
+// A model as the list and the model button name it: its own name with its
+// version and no brackets. The provider serving it is on the list's second line.
+function modelTitle(model, connection = rpc) {
+  if (!model) return "";
+  return modelPresentation?.present(model, connectionAgentId(connection)).name || String(model.name || model.id || "");
+}
 // Shows the conversation's model and reasoning level beside Send, as the
 // agent reports them, and keeps the reasoning menu in step.
 function applyAcpConfig(connection, configOptions) {
@@ -11080,7 +11097,7 @@ function applyAcpConfig(connection, configOptions) {
   const model = acpModelOption(options), thought = acpThoughtOption(options);
   if (model) connection.acpModelConfigId = model.id;
   const current = model?.options.find((choice) => choice.value === model.currentValue);
-  updateComposerSummary(model ? (current?.name || model.currentValue || "") : undefined, thought ? String(thought.currentValue || "") : "");
+  updateComposerSummary(model ? modelTitle({ id: model.currentValue, name: current?.name || model.currentValue || "" }, connection) : undefined, thought ? String(thought.currentValue || "") : "");
   syncNativeThinkingSelect(connection);
 }
 async function syncAcpConfig(connection) {
@@ -11146,7 +11163,7 @@ async function openModelSheet({ preserveSearch = false } = {}) {
         if (current) {
           connection.claudeModel = current;
           composerModelContextWindow = positiveFinite(current.contextWindow);
-          updateComposerSummary(current.name || current.id, undefined);
+          updateComposerSummary(modelTitle(current, connection), undefined);
         }
       }
       connection.claudeEffort = String(result?.currentEffort || connection.claudeEffort || "").toLowerCase() || null;
@@ -11234,9 +11251,11 @@ function renderModelList(currentId, currentProvider = null) {
     && (currentProvider == null || m.provider == null || m.provider === currentProvider);
   const current = availableModels.find(matchesCurrent);
   const query = String(el.modelSearch?.value || "").trim().toLocaleLowerCase();
+  const agentId = connectionAgentId(connection);
+  const shown = (m) => modelPresentation?.present(m, agentId) || { name: m.name || m.id, provider: m.provider || "" };
   const visibleModels = availableModels.filter((m) => m?.hidden !== true).filter(isModelVisible).filter((m) => !query
-    || `${m.name || ""} ${m.id || ""} ${m.provider || ""}`.toLocaleLowerCase().includes(query));
-  if (current) updateComposerSummary(current.name || current.id, undefined);
+    || `${m.name || ""} ${m.id || ""} ${m.provider || ""} ${shown(m).name} ${shown(m).provider}`.toLocaleLowerCase().includes(query));
+  if (current) updateComposerSummary(shown(current).name, undefined);
   else if (!currentId && !connection?.nativeCodexMutation && !connection?.nativeClaudeStructured) {
     updateComposerSummary("", undefined);
   }
@@ -11256,9 +11275,12 @@ function renderModelList(currentId, currentProvider = null) {
     row.type = "button";
     row.innerHTML = '<span class="model-check"></span><span class="model-info"><strong></strong><small></small></span><span class="model-thinking-badge"></span>';
     row.querySelector(".model-check").textContent = matchesCurrent(m) ? "✓" : "";
-    row.querySelector("strong").textContent = m.name || m.id;
+    // The model's own name, then the provider serving it; the agent is the
+    // conversation's, so it is not repeated on every row.
+    row.querySelector("strong").textContent = shown(m).name;
     row.querySelector("strong").dataset.i18nIgnore = "true";
-    row.querySelector("small").textContent = (m.provider || "?") + (m.contextWindow ? " · " + Math.round(m.contextWindow/1000) + "k ctx" : "");
+    row.querySelector("small").textContent = modelPresentation?.detailLine(m, agentId) || "";
+    row.querySelector("small").dataset.i18nIgnore = "true";
     const badge = row.querySelector(".model-thinking-badge");
     const badgeText = modelThinkingBadge(m);
     badge.textContent = badgeText;
@@ -11279,9 +11301,9 @@ function renderModelList(currentId, currentProvider = null) {
           composerModelContextWindow = null;
           syncNativeThinkingSelect(connection);
           rememberAgentChoice("codex", connection.nativeThreadId, { model: model.id, ...(connection.codexEffort ? { effort: connection.codexEffort } : {}) });
-          updateComposerSummary(model.name || model.id, undefined);
+          updateComposerSummary(shown(model).name, undefined);
           renderContextDashboard();
-          toast("模型：" + (model.name || model.id));
+          toast("模型：" + shown(model).name);
           renderModelList(model.id, "codex");
           return;
         }
@@ -11307,10 +11329,10 @@ function renderModelList(currentId, currentProvider = null) {
           // leaving current usage/percentage unknown until native readback.
           resetContextDashboard();
           composerModelContextWindow = positiveFinite(selected.contextWindow);
-          updateComposerSummary(selected.name || selected.id, undefined);
+          updateComposerSummary(shown(selected).name, undefined);
           syncNativeThinkingSelect(connection);
           void syncNativeContext(connection);
-          toast("模型：" + (selected.name || selected.id));
+          toast("模型：" + shown(selected).name);
           renderModelList(selected.id, "claude-code");
           return;
         }
@@ -11339,8 +11361,8 @@ function renderModelList(currentId, currentProvider = null) {
           if (result?.kind === "reject") throw new Error(result.code || "model switch rejected");
           const option = acpModelOption(result?.configOptions);
           applyAcpConfig(connection, result?.configOptions);
-          if (!option) updateComposerSummary(m.name || m.id, undefined);
-          toast("模型：" + (m.name || m.id));
+          if (!option) updateComposerSummary(shown(m).name, undefined);
+          toast("模型：" + shown(m).name);
           renderModelList(option?.currentValue || m.id, acpAgentOf(connection));
           return;
         }
@@ -11351,11 +11373,11 @@ function renderModelList(currentId, currentProvider = null) {
         // state response is used as the dashboard's capacity fallback.
         void syncComposerState(expectedSid);
         void syncSessionStats(expectedSid);
-        toast("模型：" + (m.name || m.id));
-        updateComposerSummary(m.name || m.id, undefined);
+        toast("模型：" + shown(m).name);
+        updateComposerSummary(shown(m).name, undefined);
         renderModelList(m.id, m.provider);
         // 頂部 sub 同步
-        el.chatSub.dataset.base = currentSessionCwd + " · " + (m.name || m.id); updateLiveUsage(null);
+        el.chatSub.dataset.base = currentSessionCwd + " · " + shown(m).name; updateLiveUsage(null);
       } catch (e) { toast(tKey("runtime.switchFailed", { detail: e.message }), true); }
     });
     el.modelList.appendChild(row);
@@ -11482,12 +11504,12 @@ async function openCommandPalette() {
         const models = r.models.filter((m) => isModelVisible(m)).slice(0, 60);
         const modelItems = models.map((m) => ({
           kind: "model",
-          label: `${m.name || m.id} · ${m.provider || "?"}`,
+          label: `${modelTitle(m)} · ${modelPresentation?.present(m, "pi").provider || m.provider || "?"}`,
           run: () => {
             const expected = rpc?.sid;
             if (!expected) return;
             rpcCmd(expected, { type: "set_model", provider: m.provider, modelId: m.id })
-              .then(() => { toast("模型：" + (m.name || m.id)); void syncComposerState(expected); })
+              .then(() => { toast("模型：" + modelTitle(m)); void syncComposerState(expected); })
               .catch((error) => toast(tKey("runtime.switchFailed", { detail: error.message || "" }), true));
           },
         }));
