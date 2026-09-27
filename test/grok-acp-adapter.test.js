@@ -259,3 +259,39 @@ test("a Grok message is kept with the conversation's updates, and a refusal keep
   assert.equal(refused.code, "grok_acp_request_rejected");
   assert.equal(refused.error, "Model is not available on your plan.");
 });
+
+test("Grok ACP shows the person's message once when Grok sends it back", async t => {
+  // A Grok newer than 1.0.41 repeats the prompt as user_message_chunk, with
+  // _meta, before it answers. The copy kept as the message was sent stays.
+  const child = new EventEmitter();
+  child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+  child.kill = () => child.emit("close", 0, null);
+  const update = value => child.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "session-1", update: value } }) + "\n");
+  child.stdin.on("data", chunk => {
+    for (const line of chunk.toString().split(/\n/).filter(Boolean)) {
+      const frame = JSON.parse(line);
+      const reply = value => child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: frame.id, ...value }) + "\n");
+      if (frame.method === "initialize") reply({ result: { authMethods: [{ id: "cached_token" }] } });
+      else if (frame.method === "authenticate") reply({ result: {} });
+      else if (frame.method === "session/new") reply({ result: { sessionId: "session-1" } });
+      else if (frame.method === "session/prompt") {
+        const text = frame.params.prompt[0].text;
+        if (text === "我是谁") {
+          update({ sessionUpdate: "user_message_chunk", content: { type: "text", text: "我是" }, _meta: { modelId: "grok-4.7", promptIndex: 1 } });
+          update({ sessionUpdate: "user_message_chunk", content: { type: "text", text: "谁" }, _meta: { modelId: "grok-4.7", promptIndex: 1 } });
+        } else update({ sessionUpdate: "user_message_chunk", content: { type: "text", text: "something else" } });
+        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "answer" } });
+        reply({ result: { stopReason: "end_turn" } });
+      }
+    }
+  });
+  const adapter = createGrokAcpAdapter({ command: "/usr/local/bin/grok", cwd: "/tmp", env: { XAI_API_KEY: "fixture" }, spawnImpl: () => child });
+  t.after(() => adapter.close());
+  await adapter.createSession({ directory: "/tmp" });
+  await adapter.prompt("session-1", "我是谁");
+  assert.deepEqual(adapter.sessionEvents("session-1").map(row => [row.update.sessionUpdate, row.update.content.text]),
+    [["user_message_chunk", "我是谁"], ["agent_message_chunk", "answer"]]);
+  // A user chunk that is not the message just sent is kept.
+  await adapter.prompt("session-1", "hello");
+  assert.deepEqual(adapter.sessionEvents("session-1").slice(2).map(row => row.update.content.text), ["hello", "something else", "answer"]);
+});

@@ -290,3 +290,31 @@ test("loading an ACP conversation keeps the agent's replay and takes the id aske
   assert.equal(row.loaded, true);
   assert.equal(row.status, "idle");
 });
+
+test("ACP shows the person's message once when the agent sends it back", async t => {
+  const child = new EventEmitter();
+  child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+  child.kill = () => child.emit("close", 0, null);
+  const update = value => child.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "session-1", update: value } }) + "\n");
+  child.stdin.on("data", chunk => {
+    for (const line of chunk.toString().split(/\n/).filter(Boolean)) {
+      const frame = JSON.parse(line);
+      const reply = value => child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: frame.id, ...value }) + "\n");
+      if (frame.method === "initialize") reply({ result: { agentCapabilities: {} } });
+      else if (frame.method === "session/new") reply({ result: { sessionId: "session-1" } });
+      else if (frame.method === "session/prompt") {
+        // The agent's copy may be trimmed or split differently.
+        update({ sessionUpdate: "user_message_chunk", content: { type: "text", text: "two " } });
+        update({ sessionUpdate: "user_message_chunk", content: { type: "text", text: "lines\nhere" } });
+        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "ok" } });
+        reply({ result: { stopReason: "end_turn" } });
+      }
+    }
+  });
+  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/hermes", args: ["acp"], cwd: "/tmp", spawnImpl: () => child });
+  t.after(() => adapter.close());
+  await adapter.createSession({ directory: "/tmp" });
+  await adapter.prompt("session-1", "two lines\nhere ");
+  assert.deepEqual(adapter.sessionEvents("session-1").map(row => [row.update.sessionUpdate, row.update.content.text]),
+    [["user_message_chunk", "two lines\nhere "], ["agent_message_chunk", "ok"]]);
+});

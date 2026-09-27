@@ -10,7 +10,7 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { createLineDecoder } = require("./stream-safety");
 const { acpImageBlocks } = require("./prompt-attachments");
-const { configOptionsFromSession, applyConfigUpdate } = require("./agent-client-protocol-adapter");
+const { configOptionsFromSession, applyConfigUpdate, consumeUserEcho, squashText } = require("./agent-client-protocol-adapter");
 
 const GROK_ACP_VERSION = "grok-acp-v1";
 const MAX_FRAME_BYTES = 1024 * 1024;
@@ -128,6 +128,9 @@ function createGrokAcpAdapter({
     if (frame.method === "session/update") {
       const value = normalizeUpdate(frame.params);
       if (!value) { fail("grok_acp_update_invalid"); return; }
+      // A Grok newer than 1.0.41 sends the person's message back while it
+      // answers; the copy recorded as it was sent is kept and Grok's dropped.
+      if (consumeUserEcho(sessions.get(value.sessionId), value.update)) return;
       const row = { type: "session.update", ...value, at: Date.now() };
       events.push(row); while (events.length > MAX_EVENTS) events.shift();
       const session = sessions.get(value.sessionId);
@@ -230,20 +233,23 @@ function createGrokAcpAdapter({
     if (!current || current.promptInFlight) return reject("grok_prompt_in_flight");
     current.promptInFlight = true; current.status = "running";
     try {
-      // Grok does not repeat the person's message while it answers. It is
-      // kept with the conversation's updates, so a reloaded page shows it
-      // above the answer, as Grok's own replay of a conversation does.
+      // The person's message is kept with the conversation's updates, so a
+      // reloaded page shows it above the answer, as Grok's own replay of a
+      // conversation does. Grok 1.0.41 does not repeat it while it answers;
+      // newer releases do, and that copy is dropped as it arrives.
       if (value) {
         const echo = { type: "session.update", sessionId: id, update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: value } }, at: Date.now(), local: true };
         events.push(echo); while (events.length > MAX_EVENTS) events.shift();
         current.events.push(echo);
       }
+      current.pendingEcho = value ? squashText(value) : null;
       const content = value ? [{ type: "text", text: value }, ...blocks] : blocks;
       const result = await request("session/prompt", { sessionId: id, prompt: content }, { maxBytes: MAX_PROMPT_FRAME_BYTES, timeoutMs: promptTimeoutMs });
       current.status = result.kind === "result" ? "idle" : "error";
       return result.kind === "result" ? { kind: "prompted", sessionId: id, result: result.value } : result;
     } finally {
       current.promptInFlight = false;
+      current.pendingEcho = null;
     }
   }
   async function loadSession(sessionId, directory = cwd, { name = null } = {}) {

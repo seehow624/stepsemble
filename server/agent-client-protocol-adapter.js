@@ -177,6 +177,21 @@ function applyConfigUpdate(options, update) {
 }
 function requestKey(value) { return typeof value === "number" ? value : String(value); }
 
+// The person's message is recorded as it is sent, since most agents do not
+// repeat it. An agent that does (a Grok newer than 1.0.41) sends the same text
+// back while the turn runs; that copy is dropped so it shows once. Whitespace is
+// ignored because an agent may split or trim its copy.
+const squashText = value => String(value || "").replace(/\s+/g, "");
+function consumeUserEcho(session, update) {
+  if (!session?.pendingEcho || String(update?.sessionUpdate || "") !== "user_message_chunk") return false;
+  const content = update.content;
+  if (!content || content.type !== "text" || typeof content.text !== "string") return false;
+  const chunk = squashText(content.text);
+  if (!session.pendingEcho.startsWith(chunk)) { session.pendingEcho = null; return false; }
+  session.pendingEcho = session.pendingEcho.slice(chunk.length) || null;
+  return true;
+}
+
 function normalizeUpdate(params) {
   if (!plain(params) || !safeId(params.sessionId) || !plain(params.update)) return null;
   const update = bounded(params.update, 512 * 1024);
@@ -290,6 +305,7 @@ function createAgentClientProtocolAdapter({
     if (frame.method === "session/update") {
       const value = normalizeUpdate(frame.params);
       if (!value) { fail("acp_update_invalid"); return; }
+      if (consumeUserEcho(sessions.get(value.sessionId), value.update)) return;
       recordEvent({ type: "session.update", ...value, at: Date.now() }); return;
     }
     if (frame.method === "session/request_permission" && Object.hasOwn(frame, "id")) { handlePermission(frame); return; }
@@ -430,12 +446,13 @@ function createAgentClientProtocolAdapter({
       // kept with the conversation's updates, so a reloaded page shows it
       // above the answer, as an agent's own replay of a conversation does.
       if (value) recordEvent({ type: "session.update", sessionId: id, update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: value } }, at: Date.now(), local: true });
+      session.pendingEcho = value ? squashText(value) : null;
       const content = value ? [{ type: "text", text: value }, ...blocks] : blocks;
       const result = await request("session/prompt", { sessionId: id, prompt: content }, { maxBytes: MAX_PROMPT_FRAME_BYTES, timeoutMs: promptTimeoutMs });
       // A finished turn leaves the session idle; it used to stay "running".
       session.status = result.kind === "result" ? "idle" : "error";
       return result.kind === "result" ? { kind: "prompted", sessionId: id, result: result.value } : result;
-    } finally { session.promptInFlight = false; }
+    } finally { session.promptInFlight = false; session.pendingEcho = null; }
   }
   async function loadSession(sessionId, directory = cwd) {
     return createSession({ sessionId, directory });
@@ -492,5 +509,5 @@ function createAgentClientProtocolAdapter({
 }
 
 module.exports = { ACP_VERSION, LEGACY_MODE_OPTION, LEGACY_MODEL_OPTION, normalizeUpdate, normalizeConfigOptions, legacyModeOption, legacyModelOption,
-  configOptionsFromSession, applyConfigUpdate,
+  configOptionsFromSession, applyConfigUpdate, consumeUserEcho, squashText,
   createAgentClientProtocolAdapter, readSessionRegistry, writeSessionRegistry };

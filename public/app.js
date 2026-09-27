@@ -1,7 +1,7 @@
-/* stepsemble v3.8.2 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.3 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.2";
+const CLIENT_APP_VERSION = "3.8.3";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -9961,10 +9961,13 @@ el.input.addEventListener("keydown", (e) => {
     }
     if (e.key === "Escape") { el.slashMenu.classList.add("hidden"); slashState = null; return; }
   }
-  // 手機（coarse pointer）：Enter 一律換行，發送只靠按鈕；桌面 Enter 發送
-  const isDesktop = matchMedia("(min-width: 980px)").matches;
-  if (e.key === "Enter" && !e.shiftKey && isDesktop) { e.preventDefault(); sendCurrent(); }
+  // With a mouse or trackpad, Enter sends and Shift+Enter starts a new line.
+  // A touch keyboard keeps Enter for new lines and sends with the button.
+  // The device decides, not the width: a Workspace pane on a computer is
+  // often narrower than the phone breakpoint.
+  if (e.key === "Enter" && !e.shiftKey && enterSendsMessage()) { e.preventDefault(); sendCurrent(); }
 });
+function enterSendsMessage() { return matchMedia("(hover: hover) and (pointer: fine)").matches; }
 el.input.addEventListener("input", () => {
   resizeComposerInput();
   saveActiveDraft();

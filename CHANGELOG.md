@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.8.3
+
+- Show each of your messages once in Grok Build conversations. A Grok newer than 1.0.41 sends your message back while it answers, and Stepsemble also keeps the copy it records as the message is sent, so every message appeared twice. The copy the agent sends back is now dropped as it arrives; this covers Kilo, Cline and Hermes too, should they start doing the same.
+- Send with Enter and start a new line with Shift+Enter on a computer, in every Workspace pane. Stepsemble told a computer from a phone by the page's width, and a pane is often narrower than that breakpoint, so Enter only started a new line there. It now asks whether there is a mouse or trackpad; on a phone, Enter still starts a new line and the button sends.
+
 ## 3.8.2
 
 - Make the Subscription limits page, opened from the limits strip, short and plain: one card per provider and one line per allowance, with what is left, a thin bar of it and when it resets. It showed each allowance in its own large card with a ring, the same percentage written out, and a bar of what was used, so the ring and the bar ran opposite ways; a phone needed about half as much scrolling for the same four providers.
