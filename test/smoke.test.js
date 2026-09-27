@@ -395,10 +395,12 @@ test("thinking level survives model and session switches", () => {
   assert.match(app, /\/\^\(thinking\|reasoning\|思考\)\$\/i/);
   assert.match(app, /parts\.push\("thinking"\)/);
   assert.match(html, /for reasoning models/);
-  // The composer re-reads the clamped level, remembers the user's choice, and
-  // restores it when a session or model switch drops it.
+  // The composer re-reads the clamped level. The Host remembers Pi's model and
+  // level, so no browser keeps a level of its own for every agent.
   assert.match(app, /get_available_thinking_levels/);
-  assert.match(app, /function rememberThinkingPreference/);
+  assert.doesNotMatch(app, /stepsemble\.thinkingLevel/);
+  assert.match(server, /piChoice\.applyLast\(sid\)/);
+  assert.match(server, /piChoice\.afterCommand\(/);
   assert.match(app, /function syncThinkingLevelSupport/);
   assert.match(app, /\{model\} does not support \{level\} thinking; using \{actual\}/);
   assert.match(i18n, /\"\{model\} does not support \{level\} thinking; using \{actual\}\"/);

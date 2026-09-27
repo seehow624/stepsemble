@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.8.4
+
+- Start a new Pi conversation with the model and thinking level you chose last, on any device, as the other agents do. Pi run by Stepsemble records a choice only in the conversation it was made in, so a new conversation went back to the model in Pi's own settings; the level came from whichever browser opened it, and choosing a Claude Code level changed it too. The Host now keeps Pi's choice with the others.
+- Keep a Pi conversation's thinking level when you switch its model. Pi reset the level to the default in its settings, Max on this Mac, so choosing another model at Low quietly answered at Max. A model that offers less still lowers it, and switching back restores the level you chose.
+- Open the limits from the strip at the foot of the session list in place: the box grows upward over the list and shows every allowance on one line, with a thin bar of what is left, the percentage and how long until it resets, and when the limits were checked. Tap the strip again, tap elsewhere or press Escape to close it. It replaces the Subscription limits dialog.
+- Checked on each agent's own records that the model and level chosen in Stepsemble are the ones used, when a conversation starts, after a change and in the next new conversation: Claude Code (the request it sends), Codex, Grok Build, Hermes, OpenCode and Pi.
+
 ## 3.8.3
 
 - Show each of your messages once in Grok Build conversations. A Grok newer than 1.0.41 sends your message back while it answers, and Stepsemble also keeps the copy it records as the message is sent, so every message appeared twice. The copy the agent sends back is now dropped as it arrives; this covers Kilo, Cline and Hermes too, should they start doing the same.

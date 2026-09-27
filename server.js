@@ -33,6 +33,7 @@ const ACP_PROMPT_ROUTE_BYTES = 12 * 1024 * 1024;
 const { createNativeComposerRoutes } = require("./server/native-composer-routes");
 const { createAgentModeStore } = require("./server/agent-mode-store");
 const { createAgentChoiceStore } = require("./server/agent-choice-store");
+const { createPiChoice } = require("./server/pi-choice");
 const { createAgentModeRoutes, codexTurnPermissions, modeOption } = require("./server/agent-mode-routes");
 const { applyNativeLaunchConfig, isInstalledRuntime } = require("./server/native-launch-config");
 const { createCodexNativePool } = require("./server/codex-native-pool");
@@ -101,7 +102,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.3";
+const APP_VERSION = "3.8.4";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2139,6 +2140,9 @@ const agentModes = createAgentModeStore({ file: path.join(CONFIG_DIR, "agent-mod
 // The model and reasoning level last chosen for each agent and conversation:
 // a new conversation starts with the agent's last choice.
 const agentChoices = createAgentChoiceStore({ file: path.join(CONFIG_DIR, "agent-choices.json") });
+// Pi saves no choice as its default when Stepsemble runs it, so the Host keeps
+// Pi's model and level the same way.
+const piChoice = createPiChoice({ choices: agentChoices, command: (sid, cmd) => rpcCommand(sid, cmd) });
 // A conversation opened again keeps its own choice; one from before choices
 // were kept takes the agent's last choice.
 function choiceForSession(agentId, sessionId) {
@@ -3549,6 +3553,9 @@ async function openRpc({ file, cwd, name }) {
     setTimeout(() => rpcSessions.delete(sid), 10 * 60 * 1000); // 10 分鐘後清理
   });
 
+  // A new conversation starts with the model and level chosen last; one opened
+  // again has its own back from Pi's session file.
+  if (!file) await piChoice.applyLast(sid);
   rpcWrite(sid, { type: "get_state" });
   scheduleRpcCleanup(sid);
   return { sid, pid: proc.pid, cwd: spawnCwd, reused: false, isStreaming: false, replayAfter: -1 };
@@ -6833,8 +6840,12 @@ const server = http.createServer(async (req, res) => {
 
       if (p === "/api/rpc-cmd" && req.method === "POST") {
         const body = await readJSON(req);
+        const before = rpcSessions.get(body.sid)?.state || {};
         rpcCommand(body.sid, body.command)
-          .then((r) => sendJSON(res, 200, r))
+          .then(async (r) => {
+            await piChoice.afterCommand(body.sid, body.command, r, { sessionId: before.sessionId || null, levelBefore: before.thinkingLevel || null });
+            sendJSON(res, 200, r);
+          })
           .catch((e) => sendJSON(res, e.statusCode || (e.message.includes("timeout") ? 504 : 409), { error: e.message }));
         return;
       }

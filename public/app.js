@@ -1,7 +1,7 @@
-/* stepsemble v3.8.3 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.4 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.3";
+const CLIENT_APP_VERSION = "3.8.4";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -10460,13 +10460,10 @@ function applyComposerState(data) {
 
 // Thinking levels are clamped per model in Pi: a model without the reasoning
 // flag only ever reports "off", and set_thinking_level silently clamps to it.
-// Track what each model supports, grey out unsupported options, and restore
-// the user's last chosen level when a session or model switch drops it.
-const THINKING_PREFERENCE_KEY = "stepsemble.thinkingLevel";
-const LEGACY_THINKING_PREFERENCE_KEYS = Object.freeze(["piHarbor.thinkingLevel", "piWeb.thinkingLevel"]);
+// Track what each model supports and grey out unsupported options. The Host
+// keeps the level chosen last and sets it again after a model switch.
 let composerModelKey = "";
 let thinkingLevelsForModel = new Map(); // provider/id → available levels
-let thinkingRestoreInFlight = false;
 let defaultThinkingSelectOptions = null;
 
 const CODEX_EFFORTS = Object.freeze(["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
@@ -10606,14 +10603,6 @@ function syncNativeThinkingSelect(connection = rpc) {
   updateComposerSummary(undefined, next || "");
 }
 
-function thinkingPreference() {
-  try { return migratedStorageValue(localStorage, THINKING_PREFERENCE_KEY, LEGACY_THINKING_PREFERENCE_KEYS) || ""; } catch { return ""; }
-}
-
-function rememberThinkingPreference(level) {
-  try { localStorage.setItem(THINKING_PREFERENCE_KEY, String(level)); } catch {}
-}
-
 function updateThinkingSelectOptions() {
   if (!el.thinkingSelect) return;
   const levels = thinkingLevelsForModel.get(composerModelKey) || null;
@@ -10639,23 +10628,6 @@ async function syncThinkingLevelSupport(model, reportedLevel) {
     updateThinkingSelectOptions();
     if (reportedLevel) el.thinkingSelect.value = reportedLevel;
   }
-  // Pi drops the level whenever the session restarts on a model that does not
-  // advertise the stored level (new session, model switch, RPC respawn). Re-
-  // apply the user's last deliberate choice when the model still supports it.
-  const stored = thinkingPreference();
-  if (!stored || thinkingRestoreInFlight || reportedLevel === stored) return;
-  const levels = thinkingLevelsForModel.get(key);
-  if (!levels || !levels.includes(stored)) return;
-  const expectedSid = rpc?.sid;
-  thinkingRestoreInFlight = true;
-  try {
-    const r = await rpcCmd(expectedSid, { type: "set_thinking_level", level: stored });
-    if (rpc?.sid === expectedSid && r?.success !== false) {
-      el.thinkingSelect.value = stored;
-      updateComposerSummary(undefined, stored);
-    }
-  } catch {}
-  finally { thinkingRestoreInFlight = false; }
 }
 async function syncComposerState(expectedSid = rpc?.sid) {
   if (!expectedSid || !rpc || rpc.sid !== expectedSid) return;
@@ -11603,7 +11575,6 @@ async function changeThinkingLevel(level) {
       if (rpc !== connection || viewGeneration !== expectedGeneration || apiBase !== expectedBase) return;
       if (result?.kind === "reject" || result?.success === false) throw new Error(result.error || result.code || "Claude rejected the effort change");
       connection.claudeEffort = String(result?.effort || requested).toLowerCase();
-      rememberThinkingPreference(connection.claudeEffort);
       syncNativeThinkingSelect(connection);
       updateComposerSummary(undefined, connection.claudeEffort);
       renderContextDashboard();
@@ -11653,7 +11624,6 @@ async function changeThinkingLevel(level) {
     const r = await rpcCmd(expectedSid, { type: "set_thinking_level", level });
     if (!rpc || rpc.sid !== expectedSid) return;
     if (r && r.success === false) throw new Error(r.error || "RPC rejected");
-    rememberThinkingPreference(level);
     // Pi clamps the level to the model's capabilities, so re-read the state
     // instead of trusting the requested value in the UI.
     const state = await rpcCmd(expectedSid, { type: "get_state" });

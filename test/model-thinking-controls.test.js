@@ -61,7 +61,7 @@ function harness() {
   });
   const source = [
     'let defaultThinkingSelectOptions = null;',
-    slice("const CODEX_EFFORTS", "\nfunction thinkingPreference()"),
+    slice("const CODEX_EFFORTS", "\nfunction updateThinkingSelectOptions()"),
     slice("function modelThinkingBadge(model) {", "\nfunction normalizeOpenCodeModel"),
     'let composerModelName = "";\nlet composerReasoningLevel = "off";',
     slice("function updateComposerSummary(modelName, thinkingLevel) {", "\nfunction applyComposerState("),
