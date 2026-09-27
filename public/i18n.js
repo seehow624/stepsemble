@@ -4891,6 +4891,20 @@
     it: "Alcuni record molto grandi sono omessi; il file sorgente non è stato modificato.",
   };
   for (const [id, value] of Object.entries(AGENT_HISTORY_PARTIAL_TRANSLATIONS)) AGENT_HUB_TRANSLATIONS[id]["agentHub.historyPartial"] = value;
+  const CLAUDE_STOPPED_TRANSLATIONS = {
+    en: "Claude Code stopped. Send a message to continue this conversation.",
+    "zh-Hant": "Claude Code 已停止。傳送訊息即可接著這個對話繼續。",
+    "zh-Hans": "Claude Code 已停止。发送消息即可接着这个对话继续。",
+    ja: "Claude Code が停止しました。メッセージを送ると、この会話の続きから再開します。",
+    ko: "Claude Code가 중지되었습니다. 메시지를 보내면 이 대화를 이어서 계속합니다.",
+    tr: "Claude Code durdu. Bu konuşmaya devam etmek için bir mesaj gönderin.",
+    fr: "Claude Code s’est arrêté. Envoyez un message pour poursuivre cette conversation.",
+    de: "Claude Code wurde beendet. Senden Sie eine Nachricht, um dieses Gespräch fortzusetzen.",
+    es: "Claude Code se detuvo. Envía un mensaje para continuar esta conversación.",
+    "pt-BR": "O Claude Code parou. Envie uma mensagem para continuar esta conversa.",
+    it: "Claude Code si è fermato. Invia un messaggio per continuare questa conversazione.",
+  };
+  for (const [id, value] of Object.entries(CLAUDE_STOPPED_TRANSLATIONS)) AGENT_HUB_TRANSLATIONS[id]["agentHub.claudeStopped"] = value;
   const AGENT_CAPABILITY_TRANSLATIONS = {
     en: {
       "agentCapability.feature.followUp": "Continue", "agentCapability.feature.model": "Model", "agentCapability.feature.reasoning": "Reasoning",

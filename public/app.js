@@ -1,7 +1,7 @@
-/* stepsemble v3.8.7 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.8 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.7";
+const CLIENT_APP_VERSION = "3.8.8";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -2678,6 +2678,47 @@ function boundedDisplayText(value, limit) {
   return String(value ?? "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ").slice(0, limit);
 }
 
+// A tool call from an agent's own history, drawn like the live tool rows so
+// the work log folds it into "Worked for …".
+function appendNativeHistoryTool(tool, agentId, container = el.messages) {
+  if (!tool || typeof tool !== "object") return;
+  const label = agentId === "claude-code" ? "Claude Code" : "Codex";
+  const { wrap, bubble } = makeMsgShell("assistant", label, container);
+  stampMessageTime(wrap, tool.endedAt || tool.ts);
+  const args = tool.input && typeof tool.input === "object" && !Array.isArray(tool.input) ? tool.input : {};
+  const output = boundedDisplayText(tool.output || "", 64 * 1024) || (tool.isError === true ? "（沒有收到工具輸出）" : "（無輸出）");
+  const card = makeToolCard(boundedDisplayText(tool.name || "tool", 128) || "tool", args, output, tool.isError === true, false);
+  card.classList.add("native-tool-card");
+  if (tool.id) card.dataset.nativeToolId = boundedDisplayText(tool.id, 256);
+  bubble.appendChild(card);
+}
+
+// An agent's history into `container`: its messages, each tool call before
+// the message at its `after` index. Yields now and then so a long history
+// does not hold the page; stops when `current()` turns false.
+async function renderNativeHistory(result, agentId, container, current) {
+  const tools = Array.isArray(result?.tools) ? result.tools : [];
+  let toolIndex = 0, sliceStarted = performance.now();
+  const toolsBefore = index => {
+    while (toolIndex < tools.length && !(Number(tools[toolIndex]?.after) > index)) {
+      appendNativeHistoryTool(tools[toolIndex], agentId, container);
+      toolIndex += 1;
+    }
+  };
+  for (const [index, message] of result.messages.entries()) {
+    if (performance.now() - sliceStarted > 8) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+      if (!current()) return false;
+      sliceStarted = performance.now();
+    }
+    toolsBefore(index);
+    maybeDateSeparator(message.ts || message.timestamp, container);
+    appendNativeHistoryMessage(message, agentId, container);
+  }
+  toolsBefore(Infinity);
+  return current();
+}
+
 async function openNativeHistoryTask(task, generationOverride = null) {
   if (!task || task.nativeHistoryReadonly !== true) return;
   const taskId = String(task.id || task.taskId || "");
@@ -2710,16 +2751,7 @@ async function openNativeHistoryTask(task, generationOverride = null) {
     if (rpc !== connection || generation !== viewGeneration) return;
     if (!Array.isArray(result?.messages)) throw new Error("history_session_invalid");
     const staging = document.createElement("div");
-    let sliceStarted = performance.now();
-    for (const message of result.messages) {
-      if (performance.now() - sliceStarted > 8) {
-        await new Promise(resolve => setTimeout(resolve, 0));
-        if (rpc !== connection || generation !== viewGeneration) return;
-        sliceStarted = performance.now();
-      }
-      maybeDateSeparator(message.ts || message.timestamp, staging);
-      appendNativeHistoryMessage(message, agentId, staging);
-    }
+    if (!await renderNativeHistory(result, agentId, staging, () => rpc === connection && generation === viewGeneration)) return;
     const fragment = document.createDocumentFragment();
     while (staging.firstChild) fragment.appendChild(staging.firstChild);
     el.messages.appendChild(fragment);
@@ -4704,7 +4736,10 @@ async function connectRpc(opts, generation = viewGeneration, openedResult = null
 function agentConnectorLabel(agentId) {
   const id = String(agentId || "");
   if (id === "pi") return "Pi Agent";
-  return agentCatalog.find((item) => item.id === id)?.label || id || "Agent";
+  // Before the agent list has loaded, as on a phone that just opened a
+  // conversation, the agent's own name is shown in place of its id.
+  const known = window.StepsembleAgentIdentity?.lookup?.(id);
+  return agentCatalog.find((item) => item.id === id)?.label || (known && known.id !== "agent" ? known.label : "") || id || "Agent";
 }
 
 // Connectors whose prompt wire format carries image attachments. Terminal-only
@@ -4740,6 +4775,39 @@ function genericTaskTerminal(status) {
   return ["completed", "failed", "stopped", "orphaned", "detached"].includes(String(status || ""));
 }
 
+// A Claude Code conversation whose process stopped, for example after an
+// error, goes on in a new Claude that resumes it.
+function claudeResumable(connection = rpc) {
+  return !!connection?.nativeClaudeStructured && !!connection.nativeSessionId
+    && ["failed", "stopped"].includes(String(connection.taskStatus || ""));
+}
+
+// Starts Claude again on a conversation whose process stopped and opens it
+// in this view; the message is then sent to it as usual.
+async function resumeStoppedClaude(connection, text, images) {
+  if (connection.claudeResuming) return false;
+  connection.claudeResuming = true;
+  connection.nativeLoading = true; syncGenericInputState();
+  try {
+    const task = await post("/api/agent/open", { agentId: "claude-code", cwd: connection.cwd, name: connection.name,
+      resumeSessionId: connection.claudeNativeSessionId || connection.nativeSessionId });
+    if (rpc !== connection) return false;
+    if (!(task?.kind === "claude-structured" || task?.nativeClaudeStructured === true)) throw new Error("Claude resume returned no task");
+    await openClaudeStructuredTask({ ...task, name: connection.name, needsLoad: false });
+  } catch (error) {
+    if (rpc === connection) {
+      connection.claudeResuming = false; connection.nativeLoading = false; syncGenericInputState();
+      toast(tKey("runtime.openChatFailed", { detail: String(error?.message || "resume failed").slice(0, 160) }), true);
+    }
+    return false;
+  }
+  if (!rpc?.nativeClaudeStructured || rpc === connection || claudeResumable(rpc)) return false;
+  el.input.value = text;
+  pendingImages = images;
+  renderImgPreview();
+  return true;
+}
+
 function genericInputBlock(connection = rpc) {
   if (connection?.nativeHistoryReadonly === true || connection?.readOnly === true) return "taskReadOnly";
   if (connection?.nativeCodex && !connection.nativeCodexMutation) {
@@ -4751,8 +4819,12 @@ function genericInputBlock(connection = rpc) {
     return null;
   }
   if (connection?.nativeClaudeStructured) {
-    if (genericTaskTerminal(connection.taskStatus)) return "taskReadOnly";
-    if (connection.nativeLoading || connection.connectionLost || connection.stopPending || !["running", "waiting"].includes(connection.taskStatus)) return "inputUnavailable";
+    // A Claude that stopped takes the next message by starting again on this
+    // conversation (sendCurrent).
+    const resumable = claudeResumable(connection);
+    if (genericTaskTerminal(connection.taskStatus) && !resumable) return "taskReadOnly";
+    if (connection.nativeLoading || connection.connectionLost || connection.stopPending
+      || !(resumable || ["running", "waiting"].includes(connection.taskStatus))) return "inputUnavailable";
     return null;
   }
   if (connection?.nativeAntigravityStructured) {
@@ -6475,24 +6547,17 @@ async function loadClaudeNativeHistory(connection) {
       return false;
     }
     const staging = document.createElement("div");
-    let sliceStarted = performance.now();
-    for (const message of result.messages) {
-      if (performance.now() - sliceStarted > 8) {
-        await new Promise(resolve => setTimeout(resolve, 0));
-        if (rpc !== connection) return false;
-        sliceStarted = performance.now();
-      }
-      maybeDateSeparator(message.ts || message.timestamp, staging);
-      appendNativeHistoryMessage(message, "claude-code", staging);
-    }
-    if (rpc !== connection) return false;
+    if (!await renderNativeHistory(result, "claude-code", staging, () => rpc === connection)) return false;
     const fragment = document.createDocumentFragment();
     while (staging.firstChild) fragment.appendChild(staging.firstChild);
     el.messages.appendChild(fragment);
     connection.claudeHistoryLoaded = true;
-    connection.claudeHistoryMessageIds = new Set(result.messages
-      .filter(message => message?.role === "assistant" && typeof message.id === "string" && message.id)
-      .map(message => message.id));
+    // Claude's messages this history shows, including those that only called
+    // a tool, which a live view then does not draw again.
+    connection.claudeHistoryMessageIds = new Set([
+      ...result.messages.filter(message => message?.role === "assistant").map(message => message.id),
+      ...(Array.isArray(result.tools) ? result.tools.map(tool => tool?.messageId) : []),
+    ].filter(id => typeof id === "string" && id));
     connection.claudeHistoryLoadState = "loaded";
     connection.claudeHistoryMessageCount = result.messages.length;
     el.messages.dataset.claudeHistory = "loaded";
@@ -6571,8 +6636,12 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false } =
   if (connection.nativeRefreshInFlight) return;
   connection.nativeRefreshInFlight = true;
   try {
+    // After the first read, only the events not drawn yet (a Host from before
+    // this sends them all, and the page reads on the same way).
+    const after = !initial && Number.isSafeInteger(connection.claudeEventSeq) && connection.claudeEventSeq > 0
+      ? `&after=${connection.claudeEventSeq}` : "";
     const [snapshot, pending] = await Promise.all([
-      api(`/api/claude/structured/events?sessionId=${encodeURIComponent(connection.nativeSessionId)}`),
+      api(`/api/claude/structured/events?sessionId=${encodeURIComponent(connection.nativeSessionId)}${after}`),
       api(`/api/claude/structured/pending?sessionId=${encodeURIComponent(connection.nativeSessionId)}`),
     ]);
     if (rpc !== connection) return;
@@ -6584,6 +6653,9 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false } =
     // poll so a resumed/native session cannot look idle forever, and so the
     // task center receives the real lifecycle timestamps and native id.
     const status = snapshot?.status || {};
+    // Claude's own id for the conversation, which it reports after the
+    // Host's local key; resuming uses it.
+    if (typeof status.nativeSessionId === "string" && status.nativeSessionId) connection.claudeNativeSessionId = status.nativeSessionId;
     connection.taskStatus = status.closed ? "stopped" : status.failed ? "failed"
       : status.state === "running" ? "running" : "waiting";
     // A turn Claude ended with an error is shown once, below that turn; the
@@ -6605,6 +6677,8 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false } =
       lastActivityAt: status.lastActivityAt,
       endedAt: status.closed ? (status.lastActivityAt || Date.now()) : undefined,
       nativeStatus: status,
+      // Said once, below the turn it ended.
+      ...(connection.taskStatus === "failed" ? { error: agentHubText("claudeStopped") } : {}),
     });
     void syncNativeContext(connection);
     syncGenericInputState();
@@ -10209,6 +10283,12 @@ async function sendCurrent() {
   if (inputBlock) { toast(agentHubText(inputBlock), true); return; }
   if (generic && pendingImages.length && !connectorAcceptsImages(rpc)) {
     toast(agentHubText("cliTextOnly"), true);
+    return;
+  }
+  // Claude stopped: it starts again on this conversation, then takes the
+  // message like any other.
+  if (generic && claudeResumable(rpc)) {
+    if (await resumeStoppedClaude(rpc, el.input.value, pendingImages.slice())) return sendCurrent();
     return;
   }
   const sendDraftKey = activeDraftKey;

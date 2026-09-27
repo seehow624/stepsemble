@@ -26,6 +26,12 @@ const MAX_RECORDS = 50_000;
 const MAX_MESSAGES = 4_000;
 const MAX_MESSAGE_TEXT = 256 * 1024;
 const MAX_TOTAL_MESSAGE_BYTES = 8 * 1024 * 1024;
+// Claude's tool calls, shown as tool rows beside the messages.
+const MAX_TOOLS = 4_000;
+const MAX_TOOL_INPUT_BYTES = 64 * 1024;
+const MAX_TOOL_FIELD_TEXT = 4 * 1024;
+const MAX_TOOL_OUTPUT_TEXT = 32 * 1024;
+const MAX_TOTAL_TOOL_BYTES = 8 * 1024 * 1024;
 const MAX_TITLE = 160;
 const REFRESH_MS = 15_000;
 const REFRESH_DEADLINE_MS = 4_000;
@@ -296,28 +302,119 @@ function codexSessionMeta(records, fallbackId, stat, filename, historyTitles) {
     source: filename.includes(`${path.sep}archived_sessions${path.sep}`) ? "codex-archived-rollout" : "codex-rollout", cliVersion: text(payload.cli_version, 128) };
 }
 
+// The words of a Claude record: its text parts. Tool calls and their results
+// are kept apart (claudeMessages), and a reminder Claude adds to a message is
+// not part of what anyone wrote.
+function claudeProse(content) {
+  const parts = typeof content === "string" ? [content]
+    : Array.isArray(content) ? content.map(part => typeof part === "string" ? part : part?.type === "text" ? part.text : "") : [];
+  return parts.filter(part => typeof part === "string" && part)
+    .map(part => part.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "").trim()).filter(Boolean).join("\n");
+}
+
+// A slash command the person typed, which Claude records as tagged text.
+function claudeCommand(raw) {
+  const name = /<command-name>([\s\S]*?)<\/command-name>/.exec(raw)?.[1]?.trim();
+  if (!name) return null;
+  const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(raw)?.[1]?.trim();
+  return args ? `${name} ${args}` : name;
+}
+
+// What a slash command printed, which Claude also records as the person's.
+function claudeCommandOutput(raw) {
+  const match = /^<local-command-(?:stdout|stderr)>([\s\S]*?)<\/local-command-(?:stdout|stderr)>$/.exec(raw);
+  return match ? match[1].trim() : null;
+}
+
+function claudeToolInput(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  let whole;
+  try { whole = JSON.stringify(input); } catch { return {}; }
+  if (typeof whole === "string" && Buffer.byteLength(whole) <= MAX_TOOL_INPUT_BYTES) return JSON.parse(whole);
+  // A large input, such as a whole file Claude writes, keeps its short
+  // fields and the start of its long ones.
+  const kept = {};
+  let size = 0;
+  for (const [key, value] of Object.entries(input).slice(0, 32)) {
+    const next = typeof value === "string" ? boundedText(value, MAX_TOOL_FIELD_TEXT) : value;
+    let encoded;
+    try { encoded = JSON.stringify(next); } catch { continue; }
+    if (typeof encoded !== "string") continue;
+    if (typeof next !== "string" && Buffer.byteLength(encoded) > MAX_TOOL_FIELD_TEXT) continue;
+    if (size + Buffer.byteLength(encoded) > MAX_TOOL_INPUT_BYTES) break;
+    kept[text(key, 128)] = next; size += Buffer.byteLength(encoded);
+  }
+  return kept;
+}
+
+function claudeToolOutput(content) {
+  if (typeof content === "string") return boundedText(content, MAX_TOOL_OUTPUT_TEXT);
+  if (!Array.isArray(content)) return "";
+  return boundedText(content.map(part => typeof part === "string" ? part
+    : part?.type === "text" ? part.text || "" : part?.type === "image" ? "[image]" : "").filter(Boolean).join("\n"), MAX_TOOL_OUTPUT_TEXT);
+}
+
+// Claude's conversation as the person saw it: what they wrote, Claude's
+// replies, and each tool call with its result as a tool row. Claude stores a
+// tool's result, a background task's notice and the notes it adds for itself
+// as records of the person; none of those is shown as something they wrote.
+// messages holds the text; tools holds the calls, each placed before the
+// message at index `after`.
 function claudeMessages(records) {
-  const messages = [];
-  let totalBytes = 0;
+  const messages = [], tools = [], calls = new Map();
+  let totalBytes = 0, toolBytes = 0;
   let truncated = false;
-  for (const row of records) {
-    if (!row || !["user", "assistant"].includes(row.type)) continue;
-    const raw = claudeRecordText(row);
-    if (!raw) continue;
+  const push = (role, raw, row) => {
     const remaining = MAX_TOTAL_MESSAGE_BYTES - totalBytes;
-    if (remaining <= 0) { truncated = true; break; }
+    if (remaining <= 0) { truncated = true; return false; }
     const value = boundedText(raw, Math.min(MAX_MESSAGE_TEXT, remaining));
-    if (!value) continue;
+    if (!value) return true;
     if (value.length < raw.length) truncated = true;
-    const role = row.type === "user" ? "user" : "assistant";
     // An assistant message's id lets a live view skip what this history
     // already shows.
     messages.push({ role, text: value, timestamp: timestamp(row.timestamp), ts: timestamp(row.timestamp), model: text(row.message?.model, 128) || undefined,
       id: role === "assistant" ? text(row.message?.id, 256) || undefined : undefined });
     totalBytes += Buffer.byteLength(value);
-    if (messages.length >= MAX_MESSAGES) { truncated = true; break; }
+    if (messages.length >= MAX_MESSAGES) { truncated = true; return false; }
+    return true;
+  };
+  for (const row of records) {
+    if (!row || !["user", "assistant"].includes(row.type)) continue;
+    const content = row.message?.content ?? row.content ?? row.text;
+    for (const part of Array.isArray(content) ? content : []) {
+      if (part?.type === "tool_use" && row.type === "assistant") {
+        if (tools.length >= MAX_TOOLS || toolBytes >= MAX_TOTAL_TOOL_BYTES) { truncated = true; continue; }
+        const tool = { id: text(part.id, 256) || undefined, name: text(part.name, 128) || "tool", input: claudeToolInput(part.input),
+          output: "", isError: false, after: messages.length, ts: timestamp(row.timestamp),
+          messageId: text(row.message?.id, 256) || undefined };
+        toolBytes += Buffer.byteLength(JSON.stringify(tool.input));
+        tools.push(tool);
+        if (tool.id) calls.set(tool.id, tool);
+      } else if (part?.type === "tool_result" && row.type === "user") {
+        const tool = calls.get(text(part.tool_use_id, 256));
+        if (!tool) continue;
+        tool.output = claudeToolOutput(part.content);
+        tool.isError = part.is_error === true;
+        tool.endedAt = timestamp(row.timestamp);
+        toolBytes += Buffer.byteLength(tool.output);
+      }
+    }
+    if (row.isMeta === true) continue;
+    const raw = claudeProse(content);
+    if (!raw) continue;
+    let ok = true;
+    // Claude's placeholder for a turn that was cut off, added when the
+    // conversation is resumed; its other notes, such as an API error, stay.
+    if (row.type === "assistant" && row.message?.model === "<synthetic>" && raw === "No response requested.") continue;
+    if (row.type === "assistant") ok = push("assistant", raw, row);
+    else if (/^<task-notification>/.test(raw)) continue;
+    else if (claudeCommand(raw)) ok = push("user", claudeCommand(raw), row);
+    else if (claudeCommandOutput(raw) !== null) { const output = claudeCommandOutput(raw); if (output) ok = push("assistant", output, row); }
+    else ok = push("user", raw, row);
+    if (!ok) break;
   }
   Object.defineProperty(messages, "truncated", { value: truncated, enumerable: false });
+  Object.defineProperty(messages, "tools", { value: tools.filter(tool => tool.after <= messages.length), enumerable: false });
   return messages;
 }
 
@@ -521,7 +618,7 @@ function createNativeHistoryCatalog({ home = process.env.PI_HOME || require("nod
     const messages = provider === "claude-code" ? claudeMessages(parsed.records) : codexMessages(parsed.records);
     const partial = stable.truncated === true || parsed.omittedRecords > 0 || messages.truncated === true;
     return { kind: "native_history_transcript", agentId: provider, sessionId: meta.sessionId, cwd: meta.cwd || "", name: meta.title || taskFromMeta(meta).name,
-      messages, hasMore: partial, truncated: partial, omittedRecords: parsed.omittedRecords || 0,
+      messages, ...(Array.isArray(messages.tools) ? { tools: messages.tools } : {}), hasMore: partial, truncated: partial, omittedRecords: parsed.omittedRecords || 0,
       source: "native_readonly", readOnly: true, updatedAt: meta.updatedAt || null };
   }
 

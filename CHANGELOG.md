@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.8.8
+
+- Keep Claude Code going while a long command runs. Claude Code 2.1.281 reports that a command is still running once it has run for 30 seconds, and Stepsemble stopped Claude at that report because it did not know the kind: the StepSay task was stopped 30 seconds into waiting for Xcode to install (the command ended with exit code 137). Stepsemble now passes on every kind of event Claude sends and draws the ones it knows. An event it cannot read, a line that is not an event, or one larger than 8 MB is left out and the conversation goes on; only a permission or control request Claude waits an answer to still ends it. Google Antigravity gets the same treatment. Checked with Claude Code 2.1.281 running a 40-second command.
+- Go on with a Claude Code conversation that stopped. The message box used to turn read-only ("native resume is not connected yet") until the Host restarted. Write your next message and send it: Claude starts again on the same conversation, and the message goes to it. A stopped conversation opened from the list opens ready to go on in the same way.
+- Show a Claude Code conversation that stopped as stopped. When Claude's process ended in the middle of a later turn, the conversation kept showing it as working.
+- Show Claude Code's tool calls as tool rows when a conversation is opened again. Each command appeared as "[Bash]" and each result as a message of yours ("[tool result] Exit code 137"); they now fold into "Worked for …" like a live conversation. Background task notices, notes Claude adds for itself and its "No response requested." are no longer shown, and a slash command appears as you typed it, such as "/model sonnet", with its output below.
+- Keep less for each Claude Code conversation and send the page less. An image a tool reads, such as a screenshot, and Claude's own copy of a tool's result are no longer kept with the conversation's events (a 2.4 MB image read took 700 KB before), and the page asks only for the events it has not drawn yet instead of all of them every two seconds.
+- Name Claude Code as "Claude Code" on a stopped conversation's notice, where a phone that had not loaded the agent list showed "claude-code".
+
 ## 3.8.7
 
 - Keep a long Claude Code task going. Stepsemble ended a Claude Code conversation once Claude had sent 2,048 streamed pieces since it started, and stopped Claude with it: the StepSay task failed after 7 minutes, while Claude wrote a long CLAUDE.md whose text alone arrived in 1,866 pieces. There is no such limit now. The pieces of a message go once Claude sends the complete message, so a page loads less on each check; when a single message is longer than the window, the pieces the page never draws go first, such as a file's text as a tool writes it.

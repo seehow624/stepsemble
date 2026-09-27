@@ -103,7 +103,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.7";
+const APP_VERSION = "3.8.8";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -5523,7 +5523,12 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/claude/structured/events" && req.method === "GET") {
         const resolved = resolveClaudeStructuredSession(url.searchParams.get("sessionId") || "");
         if (!resolved) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return; }
-        sendJSON(res, 200, { events: resolved.session.events(), status: resolved.session.status() });
+        // A page reading on asks only for the events from the number it has
+        // not drawn yet.
+        const after = Number(url.searchParams.get("after"));
+        const events = resolved.session.events();
+        sendJSON(res, 200, { events: Number.isSafeInteger(after) && after > 0 ? events.filter(event => !(event.hostSeq < after)) : events,
+          status: resolved.session.status() });
         return;
       }
       if (p === "/api/claude/structured/pending" && req.method === "GET") {
@@ -5800,8 +5805,11 @@ const server = http.createServer(async (req, res) => {
         const chosenName = record.named === true || record.autoNamed === true ? record.name : null;
         if (record.agentId === "claude-code" && record.nativeClaudeStructured) {
           const resolved = resolveClaudeStructuredSession(record.nativeSessionId);
-          if (resolved && !resolved.session.status().closed) Object.assign(record, publicClaudeStructuredTask(resolved.id, resolved.session));
-          else if (record.persisted) record.needsLoad = true;
+          const live = resolved ? resolved.session.status() : null;
+          // One whose Claude stopped opens as a conversation to go on with:
+          // the page starts Claude again on it.
+          if (resolved && !live.closed && live.state !== "failed") Object.assign(record, publicClaudeStructuredTask(resolved.id, resolved.session));
+          else if (record.persisted) { record.needsLoad = true; record.status = "history"; }
           else { sendJSON(res, 409, { error: "This session ended before a resumable identity was recorded" }); return; }
         }
         // Grok keeps its conversations; one Stepsemble has not opened since it
@@ -7027,7 +7035,7 @@ const server = http.createServer(async (req, res) => {
             const localId = crypto.randomUUID();
             const sessionCwd = nativeAgentDirectory(cwd, "Claude Code");
             const sessionName = body?.name || null;
-            const resumeSessionId = body?.resumeSessionId || null;
+            let resumeSessionId = body?.resumeSessionId || null;
             // Resuming a conversation that is already attached must return the
             // existing session. Launching a second process for the same native
             // conversation duplicates it in the task list and lets concurrent
@@ -7041,9 +7049,21 @@ const server = http.createServer(async (req, res) => {
               });
               const reused = attached || (claudeStructuredSessions.has(resumeSessionId)
                 ? [resumeSessionId, claudeStructuredSessions.get(resumeSessionId)] : null);
-              if (reused && !reused[1].status().closed) {
+              // A Claude that stopped, for example because its process ended,
+              // takes no more messages; the conversation goes on in a new
+              // process that resumes it.
+              const reusedStatus = reused ? reused[1].status() : null;
+              if (reused && !reusedStatus.closed && reusedStatus.state !== "failed") {
                 sendWorkspaceResult(res, 201, { ...publicClaudeStructuredTask(reused[0], reused[1]), kind: "claude-structured", agentId: "claude-code" });
                 return;
+              }
+              if (reused) {
+                const ended = await reused[1].close().catch(() => ({ cleanupConfirmed: false }));
+                if (!ended.cleanupConfirmed) throw Object.assign(new Error("Claude Code is still stopping; try again in a moment"), { statusCode: 409, code: "claude_session_ending" });
+                claudeStructuredSessions.delete(reused[0]);
+                // A caller may name the conversation by the local key; Claude
+                // resumes it by its own id.
+                if (reusedStatus.nativeSessionId && reusedStatus.nativeSessionId !== reused[0]) resumeSessionId = reusedStatus.nativeSessionId;
               }
             }
             const claudeOverrides = claudeSessionEnvOverrides(APP_HOME);

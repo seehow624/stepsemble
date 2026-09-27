@@ -62,7 +62,18 @@ input.on("line", raw => {
     ? frame.message.content.find(part => part?.type === "text")?.text || ""
     : "";
   write({ type: "user", message: frame.message });
-  if (prompt === "ask permission") {
+  if (prompt === "long command") {
+    // A command that runs a while: Claude reports it is still running, sums
+    // it up, and may print a line that is not an event.
+    write({ type: "assistant", message: { id: "assistant-tool", role: "assistant", model, content: [{ type: "tool_use", id: "toolu_wait", name: "Bash", input: { command: "sleep 60" } }] } });
+    write({ type: "tool_progress", tool_use_id: "toolu_wait", tool_name: "Bash", parent_tool_use_id: null, elapsed_time_seconds: 30, heartbeat: true, uuid: "00000000-0000-4000-8000-000000000030" });
+    process.stdout.write("warning: not an event\n");
+    write({ type: "tool_use_summary", summary: "Waited for a command", preceding_tool_use_ids: ["toolu_wait"], uuid: "00000000-0000-4000-8000-000000000031" });
+    write({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_wait", content: [{ type: "text", text: "done" }, { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgoAAAANSUhEUg==" } }] }] } });
+    reply("command finished");
+  } else if (prompt === "crash") {
+    process.exit(3);
+  } else if (prompt === "ask permission") {
     permissionPending = true;
     write({ type: "control_request", request_id: "permission-1", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "printf synthetic" }, description: "Synthetic permission" } });
   } else reply("synthetic reply");
@@ -271,5 +282,71 @@ test("resuming an attached conversation reuses it instead of starting a second p
   assert.ok(resumed.every(row => row.status === 201));
   assert.equal(resumed[0].body.id, resumed[1].body.id, "simultaneous windows share one resumed process");
   assert.equal(resumed[0].body.workspaceEntry.key, opened.body.workspaceEntry.key);
+  assert.equal((await f.request("/api/workspace", { cookie })).body.entries.length, 1);
+});
+
+test("a long command's progress events keep Claude going, and a Claude that stopped goes on in a new process", async t => {
+  const f = await startHost(t);
+  if (!f) return;
+  const login = await f.request("/api/login", { method: "POST", body: { token: "synthetic-claude-structured-http-token" } });
+  assert.ok([200, 204].includes(login.status), login.raw);
+  const cookie = login.headers["set-cookie"][0].split(";")[0];
+
+  const opened = await f.request("/api/agent/open", { method: "POST", cookie, body: { agentId: "claude-code", cwd: f.home, name: "Long command" } });
+  assert.equal(opened.status, 201, opened.raw);
+  const sessionId = opened.body.nativeSessionId;
+  const events = route => f.request(`/api/claude/structured/events?sessionId=${encodeURIComponent(sessionId)}${route}`, { cookie });
+
+  // Claude 2.1.281 sends tool_progress while a command runs; an event of a
+  // kind this Host does not know, or a line that is not JSON, never ends it.
+  assert.equal((await f.request("/api/claude/structured/prompt", { method: "POST", cookie, body: { sessionId, text: "long command" } })).status, 200);
+  const done = await waitFor(() => events(""), response => response.status === 200 && response.body.events.some(event => event.result === "command finished"));
+  assert.ok(done.body.events.some(event => event.result === "command finished"), done.raw);
+  assert.equal(done.body.status.failed, null);
+  assert.equal(done.body.status.state, "waiting");
+  assert.ok(done.body.events.some(event => event.type === "tool_progress" && event.heartbeat === true));
+  assert.ok(done.body.events.some(event => event.type === "tool_use_summary"));
+  assert.equal(done.body.status.skippedEvents, 1, "the line that is not JSON is left out");
+  // The image a tool returned is not kept.
+  const result = done.body.events.find(event => event.type === "user" && event.message?.content?.[0]?.type === "tool_result");
+  assert.deepEqual(result.message.content[0].content[1].source, { type: "base64", media_type: "image/png", data: "", omitted: true });
+
+  // A page reading on gets only what it has not drawn.
+  const last = Math.max(...done.body.events.map(event => event.hostSeq));
+  assert.deepEqual((await events(`&after=${last + 1}`)).body.events, []);
+  assert.deepEqual((await events(`&after=${last}`)).body.events.map(event => event.hostSeq), [last]);
+
+  const listed = await f.request("/api/claude/structured", { cookie });
+  const nativeId = listed.body.sessions.find(row => row.id === opened.body.id)?.nativeSessionId;
+  assert.equal(nativeId, "native-session");
+
+  // Claude's process ends in the middle of a turn.
+  await f.request("/api/claude/structured/prompt", { method: "POST", cookie, body: { sessionId, text: "crash" } });
+  const failed = await waitFor(() => events(""), response => response.body?.status?.state === "failed" && response.body.status.processExited === true);
+  assert.equal(failed.body.status.state, "failed", failed.raw);
+  const refused = await f.request("/api/claude/structured/prompt", { method: "POST", cookie, body: { sessionId: nativeId, text: "hello" } });
+  assert.equal(refused.status, 409);
+
+  // Opened again, the conversation opens to go on with...
+  const entry = await f.request(`/api/workspace/entry?key=${encodeURIComponent(opened.body.workspaceEntry.key)}`, { cookie });
+  assert.equal(entry.status, 200, entry.raw);
+  assert.equal(entry.body.record.needsLoad, true);
+  assert.equal(entry.body.record.status, "history");
+  // ...and a new Claude resumes it in place of the one that stopped, by
+  // Claude's own id even when the page names it by the local key.
+  assert.notEqual(sessionId, nativeId);
+  const resumed = await f.request("/api/agent/open", { method: "POST", cookie, body: { agentId: "claude-code", cwd: f.home, name: "Long command", resumeSessionId: sessionId } });
+  assert.equal(resumed.status, 201, resumed.raw);
+  assert.notEqual(resumed.body.id, opened.body.id);
+  assert.equal(resumed.body.nativeSessionId, nativeId);
+  assert.equal(resumed.body.status === "failed", false);
+  const sessions = (await f.request("/api/claude/structured", { cookie })).body.sessions.filter(row => row.nativeSessionId === nativeId);
+  assert.equal(sessions.length, 1, "the stopped process is gone");
+  assert.equal((await f.request("/api/claude/structured/prompt", { method: "POST", cookie, body: { sessionId: nativeId, text: "hello" } })).status, 200);
+  const answered = await waitFor(
+    () => f.request(`/api/claude/structured/events?sessionId=${encodeURIComponent(nativeId)}`, { cookie }),
+    response => response.status === 200 && response.body.events.some(event => event.result === "synthetic reply"),
+  );
+  assert.ok(answered.body.events.some(event => event.result === "synthetic reply"), answered.raw);
   assert.equal((await f.request("/api/workspace", { cookie })).body.entries.length, 1);
 });

@@ -12,13 +12,17 @@ const { createLineDecoder } = require("./stream-safety");
 const { createEventWindow } = require("./structured-event-window");
 
 const ANTIGRAVITY_STRUCTURED_VERSION = "antigravity-cli-stream-json-v1";
-const MAX_LINE_BYTES = 1024 * 1024;
+// A longer line is let go of and the conversation goes on.
+const MAX_LINE_BYTES = 8 * 1024 * 1024;
 const MAX_EVENTS = 2048;
-const MAX_EVENT_BYTES = 2 * 1024 * 1024;
+const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 const MAX_CONVERSATION_ID = 256;
 const MAX_PROMPT = 1024 * 1024;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const TYPES = new Set(["init", "step_update", "result", "error"]);
+// A kind of event a newer Antigravity sends is passed along like the others;
+// the page draws the kinds it knows.
+const EVENT_TYPE = /^[a-z][a-z0-9_]{0,63}$/;
 const RESULT_STATUSES = new Set(["SUCCESS", "ERROR", "CANCELED", "INTERRUPTED", "INVALID", "WAITING", "RUNNING"]);
 const reject = code => ({ kind: "reject", code });
 const clone = value => structuredClone(value);
@@ -39,16 +43,16 @@ function safeText(value, limit = 64 * 1024) {
 
 function normalizeAntigravityEvent(value) {
   const event = bounded(value);
-  if (!plain(event) || typeof event.type !== "string" || !TYPES.has(event.type)) return null;
+  if (!plain(event) || typeof event.type !== "string" || !(TYPES.has(event.type) || EVENT_TYPE.test(event.type))) return null;
   const conversationId = event.conversation_id === undefined
     ? null : safeId(event.conversation_id);
   if (event.conversation_id !== undefined && !conversationId) return null;
   const eventIdValue = event.event_id ?? event.eventId ?? event.id;
   const eventId = eventIdValue === undefined || eventIdValue === null ? null : safeId(eventIdValue);
   if (eventIdValue !== undefined && eventIdValue !== null && !eventId) return null;
-  const resultStatus = event.type === "result" && event.status !== undefined
-    ? String(event.status).toUpperCase() : null;
-  if (event.type === "result" && resultStatus && !RESULT_STATUSES.has(resultStatus)) return null;
+  // A status this Host does not know reads as a plain result.
+  const status = event.type === "result" && event.status !== undefined ? String(event.status).toUpperCase() : null;
+  const resultStatus = status && RESULT_STATUSES.has(status) ? status : null;
   return {
     ...event,
     type: event.type,
@@ -87,7 +91,7 @@ function buildAntigravityStructuredArgs({ conversationId = null } = {}) {
 
 function createAntigravityStructuredParser({ onEvent = null, onError = null, maxEvents = MAX_EVENTS } = {}) {
   if (onEvent !== null && typeof onEvent !== "function" || onError !== null && typeof onError !== "function") throw new TypeError("parser_callback_required");
-  let closed = false, failed = null, conversationId = null, result = null;
+  let closed = false, failed = null, conversationId = null, result = null, skipped = 0;
   // A long answer never ends the conversation; the oldest events go first.
   const window = createEventWindow({ maxEvents });
   const fail = code => {
@@ -97,7 +101,8 @@ function createAntigravityStructuredParser({ onEvent = null, onError = null, max
   const emit = value => {
     if (closed || failed) return false;
     const normalized = normalizeAntigravityEvent(value);
-    if (!normalized) { fail("structured_event_invalid"); return false; }
+    // One event the Host cannot read is left out; the conversation goes on.
+    if (!normalized) { skipped += 1; return true; }
     if (normalized.conversationId) {
       if (conversationId && conversationId !== normalized.conversationId) { fail("antigravity_conversation_mismatch"); return false; }
       conversationId = normalized.conversationId;
@@ -110,10 +115,11 @@ function createAntigravityStructuredParser({ onEvent = null, onError = null, max
   const decoder = createLineDecoder({
     maxBytes: MAX_LINE_BYTES,
     onError: () => fail("structured_line_invalid"),
+    onOversized: () => { skipped += 1; },
     onLine: line => {
       if (closed || failed) return;
       let value;
-      try { value = JSON.parse(line); } catch { fail("structured_json_invalid"); return; }
+      try { value = JSON.parse(line); } catch { skipped += 1; return; }
       emit(value);
     },
   });
@@ -123,7 +129,7 @@ function createAntigravityStructuredParser({ onEvent = null, onError = null, max
     close() { closed = true; },
     status() {
       const kept = window.status();
-      return Object.freeze({ closed, failed, eventCount: kept.total, conversationId, result: result ? clone(result) : null, bytes: kept.bytes });
+      return Object.freeze({ closed, failed, eventCount: kept.total, conversationId, result: result ? clone(result) : null, bytes: kept.bytes, skippedEvents: skipped });
     },
     events() { return clone(window.events()); },
     text() { return window.events().map(eventText).filter(Boolean).join("").slice(-MAX_EVENT_BYTES); },

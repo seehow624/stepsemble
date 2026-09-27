@@ -250,6 +250,11 @@
   function claudeEvent(event) {
     if (!plain(event)) return [];
     const values = [];
+    // A tool result is text, or parts of text and images.
+    const resultText = value => Array.isArray(value)
+      ? value.map(part => typeof part === "string" ? text(part) : plain(part) && part.type === "text" ? text(part.text)
+        : plain(part) && part.type === "image" ? "[image]" : encoded(part)).filter(Boolean).join("\n")
+      : value;
     const message = plain(event.message) ? event.message : null;
     const blocks = Array.isArray(message?.content) ? [...message.content] : [];
     const nested = event.type === "stream_event" && plain(event.event) ? event.event : null;
@@ -265,7 +270,7 @@
           args: block.input || {}, state: "running" }) });
       } else if (block.type === "tool_result") {
         values.push({ kind: "tool", tool: toolView({ id: block.tool_use_id || block.toolUseId || block.id,
-          name: "tool", output: block.content ?? block.output ?? "", state: block.is_error || block.isError ? "failed" : "completed",
+          name: "tool", output: resultText(block.content ?? block.output ?? ""), state: block.is_error || block.isError ? "failed" : "completed",
           isError: block.is_error || block.isError }) });
       }
     }

@@ -1,8 +1,10 @@
 "use strict";
 
 // Frame bytes before decoding: UTF-8 characters may span any number of reads.
-function createLineDecoder({ maxBytes = 16 * 1024 * 1024, onLine, onError }) {
-  let parts = [], size = 0, failed = false;
+// onOversized: a line longer than maxBytes is let go of up to its end and the
+// lines after it are read as usual; without it such a line ends the stream.
+function createLineDecoder({ maxBytes = 16 * 1024 * 1024, onLine, onError, onOversized = null }) {
+  let parts = [], size = 0, failed = false, skipping = false;
   const fail = () => {
     if (failed) return;
     failed = true; parts = []; size = 0;
@@ -16,8 +18,18 @@ function createLineDecoder({ maxBytes = 16 * 1024 * 1024, onLine, onError }) {
       while (offset < chunk.length && !failed) {
         const newline = chunk.indexOf(10, offset);
         const end = newline < 0 ? chunk.length : newline;
+        if (skipping) {
+          if (newline < 0) return;
+          skipping = false; offset = newline + 1; continue;
+        }
         const piece = chunk.subarray(offset, end);
-        if (size + piece.length > maxBytes) { fail(); return; }
+        if (size + piece.length > maxBytes) {
+          if (typeof onOversized !== "function") { fail(); return; }
+          parts = []; size = 0;
+          try { onOversized(); } catch {}
+          if (newline < 0) { skipping = true; return; }
+          offset = newline + 1; continue;
+        }
         if (piece.length) { parts.push(piece); size += piece.length; }
         if (newline < 0) return;
         let line = Buffer.concat(parts, size).toString("utf8");
@@ -28,6 +40,7 @@ function createLineDecoder({ maxBytes = 16 * 1024 * 1024, onLine, onError }) {
       }
     },
     end({ allowPartial = false } = {}) {
+      if (skipping) { skipping = false; return; }
       if (!size || failed) return;
       if (!allowPartial) { fail(); return; }
       let line = Buffer.concat(parts, size).toString("utf8");

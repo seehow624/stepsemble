@@ -18,9 +18,12 @@ const { gatewaySettingsPath, gatewayCatalogPath } = require("./claude-session-ro
 const { createEventWindow } = require("./structured-event-window");
 
 const CLAUDE_STRUCTURED_VERSION = "claude-cli-stream-json-v1";
-const MAX_LINE_BYTES = 1024 * 1024;
+// One line is one event. A tool result can carry an image and a complete
+// message the whole of a file Claude writes, so a line may be several MiB; a
+// longer one is let go of and the conversation goes on.
+const MAX_LINE_BYTES = 8 * 1024 * 1024;
 const MAX_EVENTS = 2048;
-const MAX_EVENT_BYTES = 2 * 1024 * 1024;
+const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 const MAX_SESSION_ID = 256;
 const MAX_PROMPT = 1024 * 1024;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
@@ -45,6 +48,13 @@ const TYPES = new Set([
   // permission response can be correlated to the exact native request.
   "control_request", "control_response", "control_cancel_request", "keep_alive",
 ]);
+// Claude adds kinds of events over time, such as tool_progress while a
+// command runs, tool_use_summary or prompt_suggestion. One this Host does not
+// know is passed along like the others; the page draws the kinds it knows.
+const EVENT_TYPE = /^[a-z][a-z0-9_]{0,63}$/;
+// Claude waits for an answer to these; one that cannot be read ends the
+// session instead of leaving Claude waiting.
+const CONTROL_TYPES = new Set(["control_request", "control_response", "control_cancel_request", "permission_request"]);
 const reject = code => ({ kind: "reject", code });
 const clone = value => structuredClone(value);
 
@@ -198,9 +208,31 @@ function usageSnapshot(raw, model = null, contextWindow = null) {
   };
 }
 
+// A tool that returns an image, such as Read on a screenshot, sends it back
+// as base64, and Claude adds its own record of what a tool did
+// (tool_use_result: the image again, or a whole file an Edit changed). The
+// page shows neither and Claude keeps its own copy, so the bytes are not kept
+// here; a short record is.
+const MAX_TOOL_RECORD_BYTES = 16 * 1024;
+function withoutImageData(value) {
+  if (!plain(value) || value.type !== "user") return value;
+  if (value.tool_use_result !== undefined) {
+    let size = Infinity;
+    try { size = Buffer.byteLength(JSON.stringify(value.tool_use_result) || ""); } catch {}
+    if (size > MAX_TOOL_RECORD_BYTES) value = { ...value, tool_use_result: { omitted: true, bytes: Number.isFinite(size) ? size : null } };
+  }
+  if (!plain(value.message) || !Array.isArray(value.message.content)) return value;
+  const strip = block => plain(block) && block.type === "image" && plain(block.source) && typeof block.source.data === "string"
+    ? { ...block, source: { ...block.source, data: "", omitted: true } } : block;
+  return { ...value, message: { ...value.message, content: value.message.content.map(block => {
+    if (plain(block) && block.type === "tool_result" && Array.isArray(block.content)) return { ...block, content: block.content.map(strip) };
+    return strip(block);
+  }) } };
+}
+
 function normalizeClaudeEvent(value) {
-  const event = bounded(value);
-  if (!plain(event) || typeof event.type !== "string" || !TYPES.has(event.type)) return null;
+  const event = bounded(withoutImageData(value));
+  if (!plain(event) || typeof event.type !== "string" || !(TYPES.has(event.type) || EVENT_TYPE.test(event.type))) return null;
   const sessionId = event.session_id === undefined ? null : safeId(event.session_id);
   if (event.session_id !== undefined && !sessionId) return null;
   const parent = event.parent_tool_use_id === null || event.parent_tool_use_id === undefined
@@ -380,7 +412,7 @@ function buildClaudeStructuredArgs({ sessionId = null, permissionPromptTool = nu
 
 function createClaudeStructuredParser({ onEvent = null, onError = null, maxEvents = MAX_EVENTS } = {}) {
   if (onEvent !== null && typeof onEvent !== "function" || onError !== null && typeof onError !== "function") throw new TypeError("parser_callback_required");
-  let closed = false, failed = null, sessionId = null, result = null;
+  let closed = false, failed = null, sessionId = null, result = null, skipped = 0;
   // A long answer streams thousands of deltas; the conversation goes on
   // however many there are. With --include-partial-messages Claude sends each
   // piece and then the complete message, so the pieces before a complete
@@ -389,7 +421,7 @@ function createClaudeStructuredParser({ onEvent = null, onError = null, maxEvent
   const window = createEventWindow({ maxEvents, superseded: {
     complete: event => event.type === "assistant" || event.type === "result",
     partial: event => event.type === "stream_event",
-  }, quiet: event => event.type === "stream_event" && event.event?.type === "content_block_delta"
+  }, quiet: event => !TYPES.has(event.type) || event.type === "stream_event" && event.event?.type === "content_block_delta"
     && !!event.event.delta && event.event.delta.type !== "text_delta" });
   const fail = code => {
     if (!failed) failed = String(code || "structured_event_invalid").slice(0, 128);
@@ -398,7 +430,13 @@ function createClaudeStructuredParser({ onEvent = null, onError = null, maxEvent
   const emit = value => {
     if (closed || failed) return false;
     const normalized = normalizeClaudeEvent(value);
-    if (!normalized) { fail("structured_event_invalid"); return false; }
+    if (!normalized) {
+      // One event the Host cannot read is left out and Claude goes on;
+      // only one Claude waits an answer to ends the session.
+      if (plain(value) && CONTROL_TYPES.has(value.type)) { fail("structured_event_invalid"); return false; }
+      skipped += 1;
+      return true;
+    }
     if (normalized.sessionId) {
       if (sessionId && sessionId !== normalized.sessionId) { fail("claude_session_mismatch"); return false; }
       sessionId = normalized.sessionId;
@@ -411,10 +449,13 @@ function createClaudeStructuredParser({ onEvent = null, onError = null, maxEvent
   const decoder = createLineDecoder({
     maxBytes: MAX_LINE_BYTES,
     onError: () => fail("structured_line_invalid"),
+    onOversized: () => { skipped += 1; },
     onLine: line => {
       if (closed || failed) return;
       let value;
-      try { value = JSON.parse(line); } catch { fail("structured_json_invalid"); return; }
+      // A line that is not JSON, such as a warning printed to stdout, is not
+      // an event.
+      try { value = JSON.parse(line); } catch { skipped += 1; return; }
       emit(value);
     },
   });
@@ -424,7 +465,7 @@ function createClaudeStructuredParser({ onEvent = null, onError = null, maxEvent
     close() { closed = true; },
     status() {
       const kept = window.status();
-      return Object.freeze({ closed, failed, eventCount: kept.total, sessionId, result: result ? clone(result) : null, bytes: kept.bytes, retainedEvents: kept.retained });
+      return Object.freeze({ closed, failed, eventCount: kept.total, sessionId, result: result ? clone(result) : null, bytes: kept.bytes, retainedEvents: kept.retained, skippedEvents: skipped });
     },
     events() { return clone(window.events()); },
     text() { return window.events().map(eventText).filter(Boolean).join("").slice(-MAX_EVENT_BYTES); },
@@ -880,7 +921,9 @@ function createClaudeStructuredSession({
     exitSignal = typeof signal === "string" ? signal : null;
     rejectControls(processError || controlError("claude_process_ended"));
     resolveClosed?.();
-    if (!closed && !processError && !parser.status().result) processError = Object.assign(new Error("claude_process_ended"), { code: "claude_process_ended" });
+    // Claude reads messages until it is asked to stop; one whose process
+    // ended on its own, even after answering earlier turns, takes no more.
+    if (!closed && !processError) processError = Object.assign(new Error("claude_process_ended"), { code: "claude_process_ended" });
     if (!closed && processError) state = "failed";
   });
   function ensureOpen() {
