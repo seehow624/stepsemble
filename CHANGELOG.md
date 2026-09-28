@@ -7,6 +7,9 @@
 - On a phone, a swipe from the left edge over a table that is scrolled sideways scrolls the table back; at its first column the swipe goes back to the list as before.
 - The time under a reply reads the same in Safari as elsewhere: "Sep 28, 1:42 PM", where Safari wrote "Sep 28 at 1:42 PM".
 - Checked with the table from the StepSay reply, on a 390-pixel phone in Chromium and WebKit, dark and light: every header and first-column cell on one line, long columns 214 pixels wide and at most three lines, the table 653 pixels wide in a 364-pixel view.
+- Support Codex 0.158.0. Stepsemble works only with Codex releases whose app-server contract it has reviewed; after updating Codex to 0.158.0 a Host would have refused Codex conversations the next time it started. Against 0.157.0 the contract adds an error kind and a plan type and changes nothing Stepsemble sends. Sending with a model, level and image, two conversations at once, approvals and branching were run against the real 0.158.0 with a local model.
+- Claude Code 2.1.283 needs no change: new conversations, branching, a command of 40 seconds, going on after Claude is stopped, the model and level sent, and the usage details were run against it with a local model.
+- Branching a Claude Code conversation begun in the last few seconds opened an empty branch that did not take a message. The branch reads the conversation it comes from, which Stepsemble's history had not found yet; a conversation that is asked for and not found now makes Stepsemble look again, at most once a second.
 
 ## 3.8.10
 

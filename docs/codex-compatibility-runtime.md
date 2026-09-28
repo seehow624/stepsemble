@@ -29,6 +29,7 @@ capabilities during `initialize`. Stepsemble uses both signals.
 | Codex `0.154.0` | native | native | reviewed native mutation |
 | Codex `0.156.1` | native | native | reviewed native mutation |
 | Codex `0.157.0` | native | native | reviewed native mutation |
+| Codex `0.158.0` | native | native | reviewed native mutation |
 | Future version with a known fingerprint | native read-only | native read-only | disabled |
 | Unknown schema or pre-release | bounded fallback | bounded fallback | disabled |
 
@@ -120,6 +121,29 @@ matching the digest GitHub publishes for the release), including a turn
 override of `on-request` with `workspaceWrite`. Naming a thread, the
 history refusals before a first message and the thread list behave as in
 0.156.1. `0.157.0-schema.json` records the baseline.
+
+### 0.158.0 review record
+
+Reviewed against the `0.157.0` baseline, generated from the official npm
+artifacts of both releases for macOS arm64 (the 0.157.0 build reproduces the
+recorded fingerprint). 20 of the 26 contract files are byte-identical,
+including `ClientRequest`, `ServerRequest`, every approval request and
+response, and the thread start, resume, read and list parameters. The six
+that differ (`ServerNotification` and the thread list, read, turns-list,
+resume and start responses) share two enum additions and nothing else:
+
+- `CodexErrorInfo` gains `flexUnavailable`. Stepsemble does not match on
+  error kinds.
+- `PlanType` gains `promax`. Stepsemble does not read the plan type.
+
+The composer, parallel-pool and approval oracles passed against the official
+0.158.0 artifact (npm `@openai/codex@0.158.0-darwin-arm64`, archive SHA-256
+`7849f8aa87c3956823cef082d83b538980a0ced6e468cca4f39c1cf606ea8dae`), with
+the version pins of the scripts changed only for that run. An owned branch
+run passed as well: a thread named and answered twice, `thread/fork` through
+the first turn, the branch resumed, named and answered with the first turn
+and without the second, and the original unchanged. `0.158.0-schema.json`
+records the baseline.
 
 ## Upgrade monitor
 

@@ -35,6 +35,10 @@ const MAX_TOTAL_TOOL_BYTES = 8 * 1024 * 1024;
 const MAX_TITLE = 160;
 const REFRESH_MS = 15_000;
 const REFRESH_DEADLINE_MS = 4_000;
+// A conversation asked for by its id but not in the catalog may be newer than
+// the last scan (a branch of a Claude conversation begun seconds ago): look
+// once more, at most this often.
+const MISS_REFRESH_MS = 1_000;
 const POSIX = process.platform === "darwin" || process.platform === "linux";
 
 const O_NOFOLLOW = fs.constants.O_NOFOLLOW || 0;
@@ -589,11 +593,15 @@ function createNativeHistoryCatalog({ home = process.env.PI_HOME || require("nod
 
   async function ensureFresh() {
     if (!entries.size || Number(clock()) - lastRefresh >= REFRESH_MS) {
-      let timer;
-      try {
-        await Promise.race([refresh(), new Promise(resolve => { timer = setTimeout(resolve, REFRESH_DEADLINE_MS); })]);
-      } finally { if (timer) clearTimeout(timer); }
+      await boundedRefresh();
     }
+  }
+
+  async function boundedRefresh() {
+    let timer;
+    try {
+      await Promise.race([refresh(), new Promise(resolve => { timer = setTimeout(resolve, REFRESH_DEADLINE_MS); })]);
+    } finally { if (timer) clearTimeout(timer); }
   }
 
   async function listTasks() {
@@ -609,7 +617,12 @@ function createNativeHistoryCatalog({ home = process.env.PI_HOME || require("nod
     const match = /^(claude-history|codex-history):([a-f0-9-]{36})$/i.exec(raw);
     if (!match) return { kind: "source_unavailable", code: "history_session_invalid" };
     const provider = match[1] === "claude-history" ? "claude-code" : "codex";
-    const meta = entries.get(`${provider}:${match[2]}`);
+    const key = `${provider}:${match[2]}`;
+    let meta = entries.get(key);
+    if (!meta && Number(clock()) - lastRefresh >= MISS_REFRESH_MS) {
+      await boundedRefresh();
+      meta = entries.get(key);
+    }
     if (!meta || !contained(roots[provider === "claude-code" ? "claude" : "codex"], meta.filename)) return { kind: "source_unavailable", code: "history_session_unavailable" };
     const stable = await readStableFile(meta.filename);
     if (stable.kind !== "source_bytes" && stable.kind !== "source_chunks") return stable;

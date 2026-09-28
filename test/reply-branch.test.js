@@ -115,3 +115,32 @@ test("a Claude branch's history, until it has its own, is the conversation it co
   assert.equal((await catalog.read("claude-history:" + id)).messages.length, 4);
   assert.equal((await catalog.read("claude-history:" + id, { through: "missing" })).kind, "source_unavailable");
 });
+
+test("a Claude conversation begun after the last scan is found when it is asked for", { skip: process.platform === "win32" ? "native history catalog is POSIX-only" : false }, async t => {
+  // Branching a conversation begun seconds before read its history from a
+  // catalog scanned before that conversation existed: the branch opened empty.
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-branch-late-"));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  const directory = path.join(home, ".claude", "projects", "-Users-test");
+  await fs.mkdir(directory, { recursive: true, mode: 0o755 });
+  const row = (type, uuid, sessionId, content) => JSON.stringify({ type, uuid, sessionId, cwd: "/Users/test", timestamp: "2026-09-28T02:00:00.000Z",
+    message: { role: type, content, ...(type === "assistant" ? { id: "msg_" + uuid } : {}) } });
+  const first = "22222222-2222-4222-8222-222222222222", late = "33333333-3333-4333-8333-333333333333";
+  await fs.writeFile(path.join(directory, first + ".jsonl"), [row("user", "f1", first, "earlier"), row("assistant", "f2", first, [{ type: "text", text: "ok" }])].join("\n") + "\n", { mode: 0o600 });
+  let now = 100000;
+  const catalog = createNativeHistoryCatalog({ home, clock: () => now });
+  t.after(() => catalog.shutdown());
+  assert.equal((await catalog.read("claude-history:" + first)).kind, "native_history_transcript");
+  await fs.writeFile(path.join(directory, late + ".jsonl"), [row("user", "l1", late, "Reply with exactly: ALPHA"), row("assistant", "l2", late, [{ type: "text", text: "ALPHA" }]),
+    row("user", "l3", late, "Reply with exactly: BETA")].join("\n") + "\n", { mode: 0o600 });
+  now += 2000;
+  const cut = await catalog.read("claude-history:" + late, { through: "l2" });
+  assert.equal(cut.kind, "native_history_transcript");
+  assert.deepEqual(cut.messages.map(message => message.text), ["Reply with exactly: ALPHA", "ALPHA"]);
+  // An id that is nowhere does not rescan on every request.
+  const missing = "44444444-4444-4444-8444-444444444444";
+  assert.equal((await catalog.read("claude-history:" + missing)).kind, "source_unavailable");
+  const scanned = catalog.status().lastRefresh;
+  assert.equal((await catalog.read("claude-history:" + missing)).kind, "source_unavailable");
+  assert.equal(catalog.status().lastRefresh, scanned);
+});
