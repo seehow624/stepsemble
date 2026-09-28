@@ -1,7 +1,7 @@
-/* stepsemble v3.8.8 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.9 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.8";
+const CLIENT_APP_VERSION = "3.8.9";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -133,7 +133,7 @@ const el = {
   tokenNewCopy: $("token-new-copy"), tokenNewDone: $("token-new-done"),
   contextUsed: $("context-used"), contextCapacity: $("context-capacity"), contextPercent: $("context-percent"),
   contextInput: $("context-input"), contextOutput: $("context-output"), contextCacheHit: $("context-cache-hit"),
-  contextCacheHitPercent: $("context-cache-hit-percent"), contextCacheWrite: $("context-cache-write"),
+  contextCacheHitPercent: $("context-cache-hit-percent"), contextCacheWrite: $("context-cache-write"), contextScope: $("context-scope"),
   contextDashboardStatus: $("context-dashboard-status"), contextDashboardSummary: $("context-dashboard-summary"),
   chatEmpty: $("chat-empty"), chatEmptyNewProject: $("chat-empty-new-project"), slashMenu: $("slash-menu"),
   input: $("input"), btnSend: $("btn-send"), btnAbort: $("btn-abort"), btnModel: $("btn-model"),
@@ -6397,6 +6397,7 @@ async function refreshGrokAcpSnapshot(connection, { initial = false } = {}) {
     ]);
     if (rpc !== connection) return;
     renderGrokAcpEvents(connection, snapshot?.events, { replace: initial });
+    noteAcpContextReport(connection, snapshot?.events);
     renderGrokAcpPermissions(connection, pending?.permissions);
     connection.nativeLoading = false;
     connection.connectionLost = false;
@@ -6833,6 +6834,7 @@ async function refreshAgentClientProtocolSnapshot(connection, { initial = false 
     ]);
     if (rpc !== connection) return;
     renderAgentClientProtocolEvents(connection, snapshot?.events, { replace: initial });
+    noteAcpContextReport(connection, snapshot?.events);
     renderAgentClientProtocolPermissions(connection, pending?.permissions);
     connection.nativeLoading = false; connection.connectionLost = false;
     // Working while the agent answers a prompt, whether this page sent it or
@@ -7437,26 +7439,37 @@ function contextDashboardIdentity() {
 // Feeding that into the existing dashboard keeps one context display for every
 // agent instead of a second, parallel one.
 // ACP returns the turn's token usage on the prompt reply rather than in the
-// event stream, so it is captured where the reply lands.
+// event stream, so it is captured where the reply lands; the context an
+// agent reports of itself arrives as a usage_update event.
 function applyAcpContextStats(result, connection = rpc) {
   if (!(connection?.nativeAcp || connection?.nativeGrokAcp) || rpc !== connection) return;
-  const usage = result?.result?.usage || result?.usage || null;
-  if (!usage) return;
-  const input = finiteNonNegative(usage.inputTokens) ?? 0;
-  const output = finiteNonNegative(usage.outputTokens) ?? 0;
-  const reasoning = finiteNonNegative(usage.thoughtTokens) ?? 0;
-  const cacheRead = finiteNonNegative(usage.cachedReadTokens) ?? 0;
-  const used = finiteNonNegative(usage.totalTokens) ?? (input + cacheRead + output + reasoning);
-  const capacity = positiveFinite(composerModelContextWindow);
-  contextStats = {
-    tokens: { input, output, reasoning, cacheRead, cacheWrite: 0 },
-    contextUsage: {
-      tokens: used,
-      contextWindow: capacity,
-      percent: capacity ? Math.min(100, (used / capacity) * 100) : null,
-    },
-    contextCapacity: capacity,
-  };
+  if (!contextUtils.acpUsageStats(result)) return;
+  connection.acpLastReply = result;
+  renderAcpUsage(connection);
+}
+
+function noteAcpContextReport(connection, events) {
+  if (rpc !== connection) return;
+  const rows = Array.isArray(events) ? events : [];
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const update = rows[index]?.update || rows[index];
+    if (update?.sessionUpdate !== "usage_update") continue;
+    const used = finiteNonNegative(update.used), size = positiveFinite(update.size);
+    if (used === null) return;
+    const previous = connection.acpContextReport;
+    if (previous?.used === used && previous?.size === size) return;
+    connection.acpContextReport = { used, size };
+    renderAcpUsage(connection);
+    return;
+  }
+}
+
+function renderAcpUsage(connection) {
+  if (rpc !== connection) return;
+  const stats = contextUtils.acpUsageStats(connection.acpLastReply || null, connection.acpContextReport || null,
+    { capacity: composerModelContextWindow });
+  if (!stats) return;
+  contextStats = stats;
   contextStatsState = "ready";
   renderContextDashboard();
 }
@@ -7484,7 +7497,10 @@ function nativeContextValue(...values) {
 // than Pi's get_session_stats envelope. Normalize both without deriving a
 // percentage: contextPercent is authoritative and must remain unknown when a
 // provider does not report a context window or current prompt size.
-function normalizeNativeContextStats(response) {
+// inputIncludesCache: OpenAI's input count, which Codex reports, includes the
+// tokens read from or written to the cache; Anthropic's does not. Input here
+// is what the cache did not supply, as for Claude.
+function normalizeNativeContextStats(response, { inputIncludesCache = false } = {}) {
   const data = nativeContextRecord(response);
   const rawContext = data.contextUsage && typeof data.contextUsage === "object" ? data.contextUsage : {};
   const rawUsage = data.usage && typeof data.usage === "object" ? data.usage
@@ -7510,6 +7526,10 @@ function normalizeNativeContextStats(response) {
     data.contextPercent, data.context_percent, rawContext.percent,
   ));
   const model = data.model ?? data.currentModel ?? null;
+  const cacheRead = finiteNonNegative(usage.cacheRead);
+  const cacheWrite = finiteNonNegative(usage.cacheWrite);
+  let input = finiteNonNegative(usage.input);
+  if (inputIncludesCache && input !== null) input = Math.max(0, input - (cacheRead ?? 0) - (cacheWrite ?? 0));
   const hasDtoFields = ["model", "contextWindow", "contextTokens", "contextPercent", "usage"]
     .some(key => Object.prototype.hasOwnProperty.call(data, key));
   const available = hasDtoFields || contextTokens !== null || contextWindow !== null
@@ -7522,12 +7542,14 @@ function normalizeNativeContextStats(response) {
         : data.source === "live" ? "live" : "unknown",
     observedAt: typeof data.observedAt === "string" && Number.isFinite(Date.parse(data.observedAt)) ? data.observedAt : null,
     stale: data.stale === true,
+    // The last model call: what it was sent and what it wrote.
+    scope: "call",
     tokens: {
-      input: finiteNonNegative(usage.input),
+      input,
       output: finiteNonNegative(usage.output),
       reasoning,
-      cacheRead: finiteNonNegative(usage.cacheRead),
-      cacheWrite: finiteNonNegative(usage.cacheWrite),
+      cacheRead,
+      cacheWrite,
       total: finiteNonNegative(usage.totalTokens ?? usage.total ?? usage.tokens),
     },
     cost: usage.cost ?? null,
@@ -7554,13 +7576,13 @@ function nativeContextPath(connection) {
 
 function applyNativeContextStats(response, connection = rpc) {
   if (!connection || rpc !== connection) return null;
-  const normalized = normalizeNativeContextStats(response);
+  const isCodex = connection.nativeCodex || connection.nativeCodexMutation;
+  const normalized = normalizeNativeContextStats(response, { inputIncludesCache: !!isCodex });
   contextStats = normalized;
   contextStatsState = normalized.available ? "ready" : "unavailable";
   // A context response is also the first reliable model hint for resumed
   // Claude/Codex sessions. Keep the model chip in sync without replacing a
   // deliberately selected next-prompt Codex model with an older observation.
-  const isCodex = connection.nativeCodex || connection.nativeCodexMutation;
   const hasExplicitModel = isCodex
     ? connection.codexModelSelected === true
     : connection.claudeModelSelected === true;
@@ -7671,6 +7693,12 @@ function renderContextDashboard() {
   setValue(el.contextCacheHit, formatTokenCount(usage.cacheRead));
   setValue(el.contextCacheHitPercent, formatPercent(cacheHitPercent));
   setValue(el.contextCacheWrite, cacheWriteDisplay);
+  // Agents report their counts over different spans; say which one these are.
+  if (el.contextScope) {
+    const scope = ["call", "turn", "conversation"].includes(statsForValues?.scope) ? statsForValues.scope : null;
+    el.contextScope.textContent = scope ? tKey("contextDashboard.scope." + scope) : "";
+    el.contextScope.classList.toggle("hidden", !scope);
+  }
   if (el.contextCacheWrite) {
     el.contextCacheWrite.title = cacheWriteValue !== null && cacheWriteValue > 0
       ? "" : tKey("contextDashboard.cacheWriteNone");
@@ -7746,7 +7774,8 @@ function syncSessionStats(expectedSid = rpc?.sid) {
         return null;
       }
       const normalized = normalizeSessionStats(response.data, composerModelContextWindow);
-      contextStats = normalized;
+      // Pi's totals cover every message of the conversation.
+      contextStats = { ...normalized, scope: "conversation" };
       contextStatsState = normalized.available ? "ready" : "unavailable";
       renderContextDashboard();
       return normalized;

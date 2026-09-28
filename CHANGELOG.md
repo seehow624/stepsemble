@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.8.9
+
+- Show what Claude Code wrote in the usage details. Output showed the few tokens Claude had written when it began a reply (8 on the StepSay answer) and never the count it reports when the reply ends (1,043, as Claude's own record says). The Host now reads that end count, and the turn's result where there is none.
+- Show Codex's input and cache hit rate the way they are for Claude. Codex counts the tokens the cache supplied inside its input, so Input showed them twice and the hit rate came out far too low: 48% for a call whose cache supplied 93% of the input. Input now counts only what the cache did not supply.
+- Show Grok Build's usage at all. Grok reports it where the protocol has no usage; the details stayed empty. They now show Grok's last model call.
+- Show the real context for Hermes and Kilo, which report it themselves, and count Hermes's usage for what it is: the sum of every model call in the turn. The details used that sum as the context size, 39,639 tokens where Hermes reported 23,128. Where an agent counts its cached tokens or its thinking apart, Input and Output now read the same as for the others, and cache writes are shown when reported.
+- Count thinking in OpenCode's and Kilo's Output, as Claude Code, Codex and Grok count it: an OpenCode reply of 401 tokens and 254 of thinking showed 401.
+- Say which span the counts cover, under Context: the last model call, all model calls of the last turn, or the whole conversation (Pi).
+- Checked each against the agent's own records on this Mac: Claude Code (Output 777 where the reply began at 1), Codex (Input 11,654 of 18,566, 37% cached), Grok Build (129 new, 24,064 cached, 99%), Hermes (context 27,250 of 272,000) and Kilo (18,461 new, 2,176 cached, Output 12).
+
 ## 3.8.8
 
 - Keep Claude Code going while a long command runs. Claude Code 2.1.281 reports that a command is still running once it has run for 30 seconds, and Stepsemble stopped Claude at that report because it did not know the kind: the StepSay task was stopped 30 seconds into waiting for Xcode to install (the command ended with exit code 137). Stepsemble now passes on every kind of event Claude sends and draws the ones it knows. An event it cannot read, a line that is not an event, or one larger than 8 MB is left out and the conversation goes on; only a permission or control request Claude waits an answer to still ends it. Google Antigravity gets the same treatment. Checked with Claude Code 2.1.281 running a 40-second command.

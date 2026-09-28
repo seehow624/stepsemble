@@ -1,4 +1,4 @@
-/* stepsemble v3.8.8 — Ink & Ivory / English-first localization */
+/* stepsemble v3.8.9 — Ink & Ivory / English-first localization */
 
 :root {
   /* The status bar inset. A Workspace pane sets it to 0: the Workspace keeps
@@ -4425,6 +4425,16 @@ body.compact #view-list .project-group-items .session-item {
   margin: 2px 0 0;
   color: var(--pine-soft);
   font-size: .62rem;
+}
+/* What the counts below the context cover: the last model call, the last
+   turn or the whole conversation. */
+#view-chat .context-popover .context-scope {
+  margin: 3px 0 -1px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  color: var(--pine-soft);
+  font-size: .6rem;
+  letter-spacing: .02em;
 }
 html.reduced-motion #view-chat .context-ring-fill { transition: none; }
 

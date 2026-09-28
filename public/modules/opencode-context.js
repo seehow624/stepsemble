@@ -418,9 +418,13 @@
       state: usage.state,
       reason,
       usage,
+      // One assistant message is one model call.
+      scope: "call",
       tokens: {
         input: usage.input,
-        output: usage.output,
+        // OpenCode counts thinking apart from what the model wrote; Output
+        // is both, as Claude and Codex report it.
+        output: usage.output === null ? null : usage.output + (usage.reasoning ?? 0),
         reasoning: usage.reasoning,
         cacheRead: usage.cacheRead,
         cacheWrite: usage.cacheWrite,

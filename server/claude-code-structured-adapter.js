@@ -527,6 +527,10 @@ function createClaudeStructuredSession({
     usage: null,
   };
   let haveAssistantUsage = false;
+  // Claude reports a message's usage twice: as it starts, when it has written
+  // only a few tokens, and as it ends (message_delta). The message whose end
+  // was read keeps it; its complete events repeat the start.
+  let streamingMessageId = null, endedMessageId = null, startUsage = null;
   // Stop was pressed during the turn now running; see the result handling.
   let interruptRequested = false;
   // The last turn Claude ended with an error, shown in the conversation. The
@@ -566,6 +570,7 @@ function createClaudeStructuredSession({
 
   function captureAssistantUsage(event) {
     const message = plain(event.message) ? event.message : {};
+    if (typeof message.id === "string" && message.id && message.id === endedMessageId) return;
     const model = specificModel(message.model || event.model || selectedModel, selectedModel);
     const modelEntry = modelUsageEntry(event.modelUsage, model);
     const rawUsage = plain(message.usage) ? message.usage
@@ -574,14 +579,31 @@ function createClaudeStructuredSession({
     const snapshot = usageSnapshot(rawUsage, model || modelEntry.model, modelEntry.usage?.contextWindow);
     if (!snapshot) return;
     haveAssistantUsage = true;
+    startUsage = plain(rawUsage) ? clone(rawUsage) : null;
     if (snapshot.model) selectedModel = snapshot.model;
     updateContextSnapshot(snapshot);
+  }
+
+  // The usage a message ends with. A message_delta may carry only the
+  // output; the rest stays as the message started.
+  function captureEndedUsage(rawUsage) {
+    if (!plain(rawUsage) || !startUsage) return;
+    const snapshot = usageSnapshot({ ...startUsage, ...rawUsage }, selectedModel);
+    if (!snapshot) return;
+    updateContextSnapshot(snapshot);
+    endedMessageId = streamingMessageId;
   }
 
   function captureResultUsage(event) {
     const modelEntry = modelUsageEntry(event.modelUsage, event.model || selectedModel);
     if (modelEntry.model && !selectedModel) selectedModel = modelEntry.model;
     const contextWindow = positiveFinite(modelEntry.usage?.contextWindow);
+    // The turn's last call as the result reports it, with what it wrote in
+    // full, for a Claude that sent no message_delta.
+    const iterations = Array.isArray(event.usage?.iterations) ? event.usage.iterations : [];
+    const lastCall = haveAssistantUsage && iterations.length ? usageSnapshot(iterations[iterations.length - 1], selectedModel) : null;
+    if (lastCall && lastCall.contextTokens === contextSnapshot.contextTokens
+      && (lastCall.usage?.outputTokens ?? 0) > (contextSnapshot.usage?.outputTokens ?? 0)) updateContextSnapshot(lastCall);
     // `modelUsage` is cumulative per model in the SDK result. It is useful as
     // a capacity source, but must not replace the latest assistant message's
     // current-context token count once that message has been observed.
@@ -849,7 +871,9 @@ function createClaudeStructuredSession({
       if (event.type === "assistant") captureAssistantUsage(event);
       else if (event.type === "stream_event") {
         const streamEvent = plain(event.event) ? event.event : {};
+        if (streamEvent.type === "message_start") streamingMessageId = plain(streamEvent.message) && typeof streamEvent.message.id === "string" ? streamEvent.message.id : null;
         if (plain(streamEvent.message) && plain(streamEvent.message.usage)) captureAssistantUsage({ ...event, ...streamEvent });
+        if (streamEvent.type === "message_delta") captureEndedUsage(streamEvent.usage);
       } else if (event.type === "result") {
         captureResultUsage(event);
         const failure = resultFailure(event);

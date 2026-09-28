@@ -3299,6 +3299,24 @@
     },
   };
   for (const [id, table] of Object.entries(CONTEXT_DASHBOARD_TRANSLATIONS)) Object.assign(KEYED_TRANSLATIONS[id], table);
+  // The span the usage counts cover, shown between the context and them.
+  const CONTEXT_SCOPE_TRANSLATIONS = {
+    en: ["Below: the last model call", "Below: all model calls of the last turn", "Below: the whole conversation"],
+    "zh-Hant": ["以下為最後一次模型呼叫", "以下為上一輪所有模型呼叫的合計", "以下為整段對話的合計"],
+    "zh-Hans": ["以下为最后一次模型调用", "以下为上一轮所有模型调用的合计", "以下为整段对话的合计"],
+    ja: ["以下は直近1回のモデル呼び出し", "以下は直前のターンの全モデル呼び出しの合計", "以下は会話全体の合計"],
+    ko: ["아래는 마지막 모델 호출", "아래는 직전 턴의 모든 모델 호출 합계", "아래는 대화 전체 합계"],
+    tr: ["Aşağıdakiler: son model çağrısı", "Aşağıdakiler: son turdaki tüm model çağrılarının toplamı", "Aşağıdakiler: tüm konuşmanın toplamı"],
+    fr: ["Ci-dessous : le dernier appel au modèle", "Ci-dessous : tous les appels au modèle du dernier tour", "Ci-dessous : toute la conversation"],
+    de: ["Unten: der letzte Modellaufruf", "Unten: alle Modellaufrufe der letzten Runde zusammen", "Unten: das ganze Gespräch"],
+    es: ["Abajo: la última llamada al modelo", "Abajo: todas las llamadas al modelo del último turno", "Abajo: toda la conversación"],
+    "pt-BR": ["Abaixo: a última chamada ao modelo", "Abaixo: todas as chamadas ao modelo do último turno", "Abaixo: toda a conversa"],
+    it: ["Sotto: l’ultima chiamata al modello", "Sotto: tutte le chiamate al modello dell’ultimo turno", "Sotto: l’intera conversazione"],
+  };
+  for (const [id, [call, turn, conversation]] of Object.entries(CONTEXT_SCOPE_TRANSLATIONS)) {
+    Object.assign(KEYED_TRANSLATIONS[id], { "contextDashboard.scope.call": call, "contextDashboard.scope.turn": turn,
+      "contextDashboard.scope.conversation": conversation });
+  }
   const TOKENS_TRANSLATIONS = {
     en: {
       "tokens.title": "Access tokens", "tokens.note": "Issue one token per device or person. Revoking a token ends its access immediately; the installer token always keeps working.",

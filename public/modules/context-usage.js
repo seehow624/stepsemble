@@ -185,6 +185,56 @@
     return denominator > 0 ? (cacheRead / denominator) * 100 : null;
   }
 
+  // Usage from an agent speaking ACP (Grok Build, Kilo, Cline, Hermes), in
+  // the dashboard's terms: Input is what the cache did not supply and Output
+  // includes thinking, as Claude reports them.
+  // - reply: the answer to a prompt. Grok names the turn's last model call in
+  //   result._meta (and the turn's sum under _meta.usage); the protocol's
+  //   result.usage is the turn's sum, though Kilo gives its last call.
+  // - report: the agent's own usage_update, { used, size }: the tokens now in
+  //   its context and the context's size.
+  // Agents count cached tokens inside input, or apart from it, and thinking
+  // inside output or apart; how the counts add up to totalTokens tells which.
+  function acpUsageStats(reply, report = null, { capacity = null } = {}) {
+    const result = isRecord(reply?.result) ? reply.result : isRecord(reply) ? reply : {};
+    const meta = isRecord(result._meta) ? result._meta : {};
+    const fromMeta = finiteNonNegative(meta.inputTokens) !== null;
+    const raw = fromMeta
+      ? { inputTokens: meta.inputTokens, outputTokens: meta.outputTokens, totalTokens: meta.totalTokens, cachedReadTokens: meta.cachedReadTokens,
+        cachedWriteTokens: meta.cachedWriteTokens ?? meta.cacheCreationTokens, thoughtTokens: meta.thoughtTokens ?? meta.reasoningTokens }
+      : isRecord(result.usage) ? result.usage : isRecord(reply?.usage) ? reply.usage : null;
+    const used = finiteNonNegative(report?.used);
+    const size = positiveFinite(report?.size) ?? positiveFinite(capacity);
+    const context = (tokens, window) => ({ tokens, contextWindow: window,
+      percent: tokens !== null && window ? Math.min(100, (tokens / window) * 100) : null });
+    const input = raw ? finiteNonNegative(raw.inputTokens) : null;
+    const output = raw ? finiteNonNegative(raw.outputTokens) : null;
+    if (input === null && output === null) {
+      if (used === null) return null;
+      return { available: true, scope: null, tokens: {}, contextUsage: context(used, size), contextCapacity: size };
+    }
+    const i = input ?? 0, o = output ?? 0;
+    const cacheRead = finiteNonNegative(raw.cachedReadTokens) ?? 0;
+    const cacheWrite = finiteNonNegative(raw.cachedWriteTokens ?? raw.cacheCreationTokens) ?? 0;
+    const thought = finiteNonNegative(raw.thoughtTokens ?? raw.reasoningTokens) ?? 0;
+    const total = finiteNonNegative(raw.totalTokens);
+    const cached = cacheRead + cacheWrite;
+    const cacheApart = cached > 0 && (total !== null
+      ? [i + cached + o, i + cached + o + thought].includes(total)
+      : i < cached);
+    const thoughtApart = thought > 0 && total !== null
+      && (cacheApart ? total === i + cached + o + thought : total === i + o + thought);
+    const fresh = cacheApart ? i : Math.max(0, i - cached);
+    const written = thoughtApart ? o + thought : o;
+    const sent = fresh + cached;
+    // One call's tokens sent are the context it had; a turn's sum of several
+    // calls is more than any context.
+    const scope = fromMeta ? "call" : used !== null && sent <= used * 1.02 + 16 ? "call" : "turn";
+    const tokens = { input: fresh, output: written, reasoning: thought || null, cacheRead, cacheWrite, total: sent + written };
+    const contextTokens = used !== null ? used : scope === "call" ? sent + written : null;
+    return { available: true, scope, tokens, contextUsage: context(contextTokens, size), contextCapacity: size };
+  }
+
   function formatTokenCount(value) {
     const number = finiteNonNegative(value);
     if (number === null) return "—";
@@ -311,6 +361,7 @@
     normalizeSessionStats,
     mergeContextCapacity,
     computeCacheHitRate,
+    acpUsageStats,
     formatTokenCount,
     formatPercent,
     createUsageTotals,
