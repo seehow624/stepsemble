@@ -103,7 +103,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.9";
+const APP_VERSION = "3.8.10";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -4544,9 +4544,12 @@ async function agentAuthCatalog() {
   const agents = { ...catalog.agents, pi: { id: "pi", installed: !!PI_BIN, remote: false, runtime: "pi", status: true,
     login: [{ id: "provider", provider: true }], logout: [{ id: "provider", provider: true }] } };
   if (desktopClaude && agents["claude-code"]) {
-    let terminal = false, bypass = false;
-    try { [terminal, bypass] = await Promise.all([desktopClaude.terminalSupported(), desktopClaude.bypassSupported()]); } catch {}
-    agents["claude-code"] = { ...agents["claude-code"], desktop: true, terminal, bypass };
+    let terminal = false, bypass = false, fork = false;
+    try {
+      [terminal, bypass, fork] = await Promise.all([desktopClaude.terminalSupported(), desktopClaude.bypassSupported(),
+        desktopClaude.forkSupported()]);
+    } catch {}
+    agents["claude-code"] = { ...agents["claude-code"], desktop: true, terminal, bypass, fork };
   }
   let opencodex = false;
   try { opencodex = openCodexGateway.installed(); } catch {}

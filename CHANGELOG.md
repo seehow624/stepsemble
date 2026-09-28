@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.8.10
+
+- Bring Stepsemble's Claude Code helper on the Mac up to date so it can branch a conversation. 3.8.9 checked whether the helper could branch before updating it, but the update itself looked only at the older features, found nothing to do, and reported the helper as updated. Branching a Claude Code reply then kept saying the helper was updating. The update now installs the current helper when it cannot branch and confirms afterwards that it can.
+- Settings offers the helper update when the helper cannot branch.
+- Checked on the Mac Mini: its helper reported no branching before and branching after one update, with no Claude conversation running.
+
 ## 3.8.9
 
 - Show what Claude Code wrote in the usage details. Output showed the few tokens Claude had written when it began a reply (8 on the StepSay answer) and never the count it reports when the reply ends (1,043, as Claude's own record says). The Host now reads that end count, and the turn's result where there is none.

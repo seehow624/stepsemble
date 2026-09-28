@@ -1,7 +1,7 @@
-/* stepsemble v3.8.9 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.10 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.9";
+const CLIENT_APP_VERSION = "3.8.10";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -15619,7 +15619,8 @@ async function renderClaudeHelperPanel({ note = "" } = {}) {
   const desktop = entry?.desktop === true;
   panel.classList.toggle("hidden", !desktop);
   if (!desktop) return;
-  const current = entry.terminal === true && entry.bypass === true;
+  // A Host from before 3.8.9 sends no fork flag and cannot branch at all.
+  const current = entry.terminal === true && entry.bypass === true && entry.fork !== false;
   const host = agentTerminalHostName(base);
   el.claudeHelperText.textContent = note || modelAgentText(current ? "helperCurrent" : "helperOutdated", { host });
   el.claudeHelperUpdate.textContent = agentTerminalText("updateHelper");
