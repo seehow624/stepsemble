@@ -2186,6 +2186,118 @@ function claudeTranscriptModel(nativeSessionId, cwd) {
   return null;
 }
 const claudeStructuredEnabled = new Set(["1", "true", "yes", "on"]).has(String(process.env.STEPSEMBLE_CLAUDE_STRUCTURED || "").trim().toLowerCase());
+
+// ---------------------------------------------------------------------------
+// Branching a conversation in a new one (the branch icon under a reply).
+// Each agent branches with its own means; the one it comes from is kept.
+// ---------------------------------------------------------------------------
+const FORK_FIELDS = new Set(["sessionId", "threadId", "turnId", "messageId", "entryId", "file", "sid", "timestamp"]);
+function forkRequest(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const request = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (!FORK_FIELDS.has(key)) return null;
+    if (key === "timestamp") { if (!Number.isFinite(raw)) return null; request.timestamp = raw; continue; }
+    if (raw === null) { request[key] = null; continue; }
+    if (typeof raw !== "string" || !raw || raw.length > 4096 || /[\u0000-\u001f]/.test(raw)) return null;
+    request[key] = raw;
+  }
+  return request;
+}
+const forkFailure = (code, message, statusCode = 409) => Object.assign(new Error(message), { code, statusCode });
+
+// The Claude entry a branch ends at: the last one of the turn the reply
+// belongs to, before the person's next message, so a tool call keeps its result.
+function claudeForkPoint(nativeSessionId, messageId, cwd) {
+  const id = String(nativeSessionId || "");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(id) || typeof messageId !== "string" || !messageId || typeof cwd !== "string" || !path.isAbsolute(cwd)) return null;
+  const configDir = process.env.CLAUDE_CONFIG_DIR && path.isAbsolute(process.env.CLAUDE_CONFIG_DIR)
+    ? process.env.CLAUDE_CONFIG_DIR : path.join(process.env.HOME || os.homedir(), ".claude");
+  const file = path.join(configDir, "projects", cwd.replace(/[^A-Za-z0-9]/g, "-"), id + ".jsonl");
+  let rows;
+  try {
+    const stat = fs.statSync(file);
+    if (!stat.isFile() || stat.size > 128 * 1024 * 1024) return null;
+    rows = fs.readFileSync(file, "utf8").split("\n").map(line => { try { return JSON.parse(line); } catch { return null; } })
+      .filter(row => row && typeof row.uuid === "string" && (row.type === "user" || row.type === "assistant"));
+  } catch { return null; }
+  const personWrote = row => {
+    if (row.type !== "user" || row.isMeta === true) return false;
+    const content = row.message?.content;
+    const text = typeof content === "string" ? content
+      : Array.isArray(content) ? content.filter(part => part?.type === "text").map(part => part.text || "").join("") : "";
+    return !!text.trim() && !/^\s*<(task-notification|local-command-)/.test(text);
+  };
+  let at = -1;
+  rows.forEach((row, index) => { if (row.type === "assistant" && row.message?.id === messageId) at = index; });
+  if (at < 0) return null;
+  let end = at;
+  for (let index = at + 1; index < rows.length && !personWrote(rows[index]); index += 1) end = index;
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(rows[end].uuid) ? rows[end].uuid : null;
+}
+
+// Pi's package, found from its command, for the branch script.
+function piPackageEntry() {
+  let directory;
+  try { directory = path.dirname(fs.realpathSync(PI_BIN)); } catch { return null; }
+  for (let depth = 0; depth < 6; depth += 1) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(directory, "package.json"), "utf8"));
+      const entry = pkg?.exports?.["."]?.import || pkg?.main;
+      if (/pi-coding-agent$/.test(String(pkg?.name || "")) && typeof entry === "string") return path.join(directory, entry);
+    } catch {}
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  return null;
+}
+
+// A Pi session file relative to the sessions folder, as the Host names them;
+// Pi itself, and a page that learned it from Pi, give the full path.
+function piRelativeSessionFile(file) {
+  if (typeof file !== "string" || !file) return null;
+  let relative = file;
+  if (path.isAbsolute(file)) {
+    try { relative = path.relative(fs.realpathSync(SESSIONS_DIR), fs.realpathSync(file)); } catch { return null; }
+  }
+  return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative.split(path.sep).join("/") : null;
+}
+
+// The file a live Pi conversation writes: a new conversation's page may not
+// know it yet, its Pi does.
+async function piSessionFileOf(sid) {
+  const session = typeof sid === "string" ? rpcSessions.get(sid) : null;
+  if (!session || session.exited) return null;
+  let file = session.meta.file || session.state.sessionFile || null;
+  if (!file) {
+    try { const response = await rpcCommand(sid, { type: "get_state" }); file = response?.success ? response.data?.sessionFile || null : null; } catch {}
+  }
+  return piRelativeSessionFile(file);
+}
+
+// A new Pi session file: the conversation up to the end of the reply's turn.
+// Returns it relative to the sessions folder, as the page names Pi sessions.
+// The reply is named by its entry id (a reply read from the file) or by the
+// time Pi gave the message (one that just arrived).
+async function branchPiSession(file, { entryId = null, timestamp = null } = {}) {
+  const source = safeSessionPath(file);
+  const reply = entryId && /^[A-Za-z0-9._:-]{1,256}$/.test(entryId) ? `id:${entryId}` : Number.isFinite(timestamp) ? `ts:${timestamp}` : null;
+  if (!source || !reply) throw forkFailure("pi_fork_invalid", "This Pi conversation cannot be branched", 400);
+  const entry = piPackageEntry();
+  if (!entry) throw forkFailure("pi_fork_unavailable", "This Pi cannot branch a conversation");
+  const output = await new Promise(resolve => {
+    execFile(process.execPath, [path.join(__dirname, "server", "pi-branch.mjs"), entry, source, reply],
+      { timeout: 30000, maxBuffer: 64 * 1024, env: { ...process.env, HOME: APP_HOME } }, (error, stdout) => resolve(String(stdout || "")));
+  });
+  let result = null;
+  try { result = JSON.parse(output.trim().split("\n").pop()); } catch {}
+  if (!result?.file) throw forkFailure("pi_fork_failed", result?.error === "pi_branch_reply_missing" ? "Pi no longer has this reply" : "Pi could not branch this conversation");
+  const created = fs.realpathSync(result.file);
+  const relative = path.relative(fs.realpathSync(SESSIONS_DIR), created);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) throw forkFailure("pi_fork_failed", "Pi could not branch this conversation");
+  return relative.split(path.sep).join("/");
+}
 const claudeDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "claude-code");
 const claudeStructuredCommand = resolveCommand(claudeDefinition, { env: process.env });
 // Ask the Claude CLI once in the background, so the first conversation does
@@ -3124,16 +3236,18 @@ function resolveClaudeStructuredSession(value) {
   return null;
 }
 
-function rememberClaudeStructuredSession(nativeSessionId, { cwd, name = null, lastActivityAt = Date.now() } = {}) {
+function rememberClaudeStructuredSession(nativeSessionId, { cwd, name = null, lastActivityAt = Date.now(), fork = null } = {}) {
   const id = String(nativeSessionId || "");
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(id)) return false;
   const safeCwd = projectDirectory(cwd) || (cwd === APP_HOME ? APP_HOME : null);
   if (!safeCwd) return false;
   const prior = claudeStructuredKnownSessions.get(id);
+  // A branch keeps where it comes from: its history until Claude writes its own.
+  const origin = fork ? { forkedFrom: fork.from, forkAt: fork.at } : prior?.forkedFrom ? { forkedFrom: prior.forkedFrom, forkAt: prior.forkAt } : {};
   const next = { id, cwd: safeCwd,
     name: typeof name === "string" && name.trim() ? name.trim().slice(0, 120) : prior?.name || null,
-    lastActivityAt: Number(lastActivityAt) || Date.now() };
-  if (prior && prior.cwd === next.cwd && prior.name === next.name) return true;
+    lastActivityAt: Number(lastActivityAt) || Date.now(), ...origin };
+  if (prior && prior.cwd === next.cwd && prior.name === next.name && prior.forkedFrom === next.forkedFrom) return true;
   claudeStructuredKnownSessions.set(id, next);
   while (claudeStructuredKnownSessions.size > 100) claudeStructuredKnownSessions.delete(claudeStructuredKnownSessions.keys().next().value);
   writeSessionRegistry(claudeStructuredSessionRegistryFile, claudeStructuredKnownSessions);
@@ -6066,7 +6180,15 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/native-history/session" && req.method === "GET") {
         try {
           const taskId = url.searchParams.get("taskId") || "";
-          const result = await nativeHistoryCatalog.read(taskId);
+          let result = await nativeHistoryCatalog.read(taskId);
+          // A Claude branch has no record of its own until its first message:
+          // its history is the conversation it comes from, up to the branch.
+          const branch = result?.kind !== "native_history_transcript" && /^claude-history:/.test(taskId)
+            ? claudeStructuredKnownSessions.get(taskId.slice("claude-history:".length)) : null;
+          if (branch?.forkedFrom && branch.forkAt) {
+            const origin = await nativeHistoryCatalog.read(`claude-history:${branch.forkedFrom}`, { through: branch.forkAt });
+            if (origin?.kind === "native_history_transcript") result = { ...origin, sessionId: branch.id, name: branch.name || origin.name, branchOf: branch.forkedFrom };
+          }
           if (result?.kind === "native_history_transcript") sendJSON(res, 200, result);
           else sendJSON(res, result?.code === "history_session_invalid" ? 400 : 404, { error: result?.code || "history_session_unavailable" });
         } catch { sendJSON(res, 404, { error: "history_session_unavailable" }); }
@@ -6893,7 +7015,8 @@ const server = http.createServer(async (req, res) => {
                   if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) value.file = relative;
                 }
               }
-              const origin = body.file || body.resumeSessionId || body.threadId ? "added" : "created";
+              // A branch is a new conversation, with the name the page gives it.
+              const origin = body.fork ? "created" : body.file || body.resumeSessionId || body.threadId ? "added" : "created";
               // A new session without a typed name is named after its first
               // message (POST /api/workspace/rename with auto).
               if (origin === "created") value.named = !!workspaceSessionName(body.name);
@@ -6936,8 +7059,54 @@ const server = http.createServer(async (req, res) => {
             cwd = worktree.path;
           }
           if (requesterGone) return;
+          // A branch: the agent makes the new conversation, which then opens
+          // like one it already had. Claude's is made as it starts, below.
+          let claudeFork = null;
+          if (body?.fork !== undefined) {
+            const fork = forkRequest(body.fork);
+            if (!fork || worktree) throw forkFailure("fork_invalid", "This conversation cannot be branched", 400);
+            body.fork = fork;
+            if (agentId === "pi") {
+              const source = piRelativeSessionFile(fork.file) || await piSessionFileOf(fork.sid);
+              if (!source) throw forkFailure("pi_fork_unsaved", "Pi has not saved this conversation yet");
+              body.file = await branchPiSession(source, { entryId: fork.entryId || null, timestamp: fork.timestamp ?? null });
+            } else if (agentId === "codex") {
+              if (!codexNative.status().mutationReady || !fork.threadId) throw forkFailure("codex_fork_unavailable", "Codex cannot branch this conversation here");
+              const forked = await codexNative.forkThread({ threadId: fork.threadId, lastTurnId: fork.turnId || null });
+              body.resumeSessionId = forked.threadId;
+            } else if (["cline", "kilo", "hermes"].includes(agentId) && acpAdapterForAgent(agentId)) {
+              const adapter = acpAdapterForAgent(agentId);
+              const forked = await adapter.forkSession(fork.sessionId, { directory: nativeAgentDirectory(cwd, agentId === "cline" ? "Cline ACP" : agentId === "kilo" ? "Kilo Code ACP" : "Hermes ACP"), name: body?.name || null });
+              if (forked.kind === "reject") throw forkFailure(forked.code, forked.code === "acp_fork_unsupported" ? "This agent cannot branch a conversation" : forked.error || "The agent could not branch this conversation");
+              body.resumeSessionId = forked.sessionId;
+            } else if (agentId === "opencode" && openCodeNative.status().ready) {
+              let session = await openCodeNative.forkSession(fork.sessionId, { messageID: fork.messageId || null, directory: openCodeDirectory(cwd) });
+              if (typeof body.name === "string" && body.name.trim()) {
+                session = await openCodeNative.renameSession(session.id, body.name, { directory: openCodeDirectory(cwd) }).catch(() => null) || { ...session, title: body.name.trim() };
+              }
+              if (requesterGone) return;
+              const status = (await openCodeNative.sessionStatus())[session.id] || { type: "idle" };
+              sendWorkspaceResult(res, 201, { ...publicOpenCodeNativeTask(session, status), kind: "opencode-native", agentId: "opencode" });
+              return;
+            } else if (agentId === "claude-code" && claudeStructuredEnabled && claudeStructuredCommand) {
+              if (desktopClaude && !(await desktopClaude.forkSupported().catch(() => false))) {
+                throw forkFailure("claude_helper_update_required", "Stepsemble's Claude Code helper is updating; try branching again in a moment");
+              }
+              const at = claudeForkPoint(fork.sessionId, fork.messageId, nativeAgentDirectory(cwd, "Claude Code"));
+              if (!at) throw forkFailure("claude_fork_point_missing", "Claude Code does not have this reply in its record yet");
+              claudeFork = { from: fork.sessionId, at, sessionId: crypto.randomUUID() };
+            } else {
+              throw forkFailure("fork_unsupported", "This agent cannot branch a conversation");
+            }
+            if (requesterGone) return;
+          }
           if (agentId === "pi") {
             const result = await openRpc({ file: body?.file, cwd, name: body?.name });
+            // A branch carries the name of the conversation it comes from;
+            // Pi keeps the branch's own, as the list shows it.
+            if (body.fork && typeof body.name === "string" && body.name.trim() && !result.reused) {
+              rpcWrite(result.sid, { type: "set_session_name", name: body.name.trim().slice(0, 120) });
+            }
             if (requesterGone) {
               if (!result.reused) await closeIdleRpc(result.sid, "view_closed");
               return;
@@ -7022,7 +7191,7 @@ const server = http.createServer(async (req, res) => {
             // A name typed for a new conversation becomes the Codex thread's own
             // name, so Codex's apps show it too. The conversation opens even if
             // naming fails; it then keeps Codex's default title.
-            const requestedName = resumeThreadId ? "" : codexThreadName(body?.name);
+            const requestedName = resumeThreadId && !body.fork ? "" : codexThreadName(body?.name);
             if (thread && requestedName && started?.threadId) {
               const named = await codexNative.setThreadName(started.threadId, requestedName).catch(() => null);
               if (named?.kind === "named") thread = { ...thread, name: named.name };
@@ -7035,12 +7204,13 @@ const server = http.createServer(async (req, res) => {
             const localId = crypto.randomUUID();
             const sessionCwd = nativeAgentDirectory(cwd, "Claude Code");
             const sessionName = body?.name || null;
-            let resumeSessionId = body?.resumeSessionId || null;
+            // A branch starts from the conversation it comes from, as a new one.
+            let resumeSessionId = claudeFork ? claudeFork.from : body?.resumeSessionId || null;
             // Resuming a conversation that is already attached must return the
             // existing session. Launching a second process for the same native
             // conversation duplicates it in the task list and lets concurrent
             // processes answer the same prompt, which looks like a hang.
-            if (resumeSessionId) {
+            if (resumeSessionId && !claudeFork) {
               const attached = [...claudeStructuredSessions].find(([, session]) => {
                 // A caller may resume by the native conversation id or by the
                 // local key, which is what a task exposes before Claude has
@@ -7088,6 +7258,7 @@ const server = http.createServer(async (req, res) => {
               initialPermissionMode: resumeSessionId ? agentModes.get("claude-code", resumeSessionId) : null,
               initialModel: transcriptModel || claudeChoice?.model || null, initialEffort: claudeChoice?.effort || null,
               name: sessionName, permissionPromptTool: claudePermissionPromptTool, sessionId: resumeSessionId,
+              fork: claudeFork ? { at: claudeFork.at, sessionId: claudeFork.sessionId } : null,
               onEvent: event => { try { if (event?.sessionId) {
                 rememberClaudeStructuredSession(event.sessionId, { cwd: sessionCwd, name: sessionName });
                 const owned = workspaceRegistry.list().entries.find(row => row.record.id === `claude-code:${localId}`);
@@ -7100,7 +7271,10 @@ const server = http.createServer(async (req, res) => {
                 }
               } } catch {} } });
             launchedClaude = session;
-            if (resumeSessionId) rememberClaudeStructuredSession(resumeSessionId, { cwd: sessionCwd, name: sessionName });
+            // The branch is known by its own id from the start; the conversation
+            // it comes from keeps its name.
+            if (claudeFork) rememberClaudeStructuredSession(claudeFork.sessionId, { cwd: sessionCwd, name: sessionName, fork: { from: claudeFork.from, at: claudeFork.at } });
+            else if (resumeSessionId) rememberClaudeStructuredSession(resumeSessionId, { cwd: sessionCwd, name: sessionName });
             claudeStructuredSessions.set(localId, session);
             if (requesterGone) {
               const result = await session.close();

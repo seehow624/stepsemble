@@ -9,6 +9,11 @@
 - Count thinking in OpenCode's and Kilo's Output, as Claude Code, Codex and Grok count it: an OpenCode reply of 401 tokens and 254 of thinking showed 401.
 - Say which span the counts cover, under Context: the last model call, all model calls of the last turn, or the whole conversation (Pi).
 - Checked each against the agent's own records on this Mac: Claude Code (Output 777 where the reply began at 1), Codex (Input 11,654 of 18,566, 37% cached), Grok Build (129 new, 24,064 cached, 99%), Hermes (context 27,250 of 272,000) and Kilo (18,461 new, 2,176 cached, Output 12).
+- Under each reply, as in Codex: a Copy icon, a Branch in new chat icon, and the reply's date and time. Retry is gone; it only worked for Pi. Copy shows a check for a moment once the reply is on the clipboard.
+- Branch in new chat starts a new conversation that holds everything up to that reply and nothing after it, named "… · branch", and opens it as a tab beside the original. The original is never changed.
+- Claude Code, Codex, Pi and OpenCode branch at any finished reply. Kilo and Hermes copy the whole conversation, so the icon is under their latest reply only, once they are idle. Grok Build and Cline cannot branch a conversation, so their replies show Copy and the time.
+- Stepsemble's Claude Code helper on the Mac updates itself to branch conversations. Until it has, branching a Claude Code reply says the helper is updating.
+- Checked on this Mac: a branch at the first of two replies held the first and not the second, and answered a new message, for Claude Code, Codex and Pi; Hermes and Kilo copied the whole conversation and answered; OpenCode branched before the next message through its API.
 
 ## 3.8.8
 

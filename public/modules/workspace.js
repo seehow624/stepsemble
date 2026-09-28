@@ -941,6 +941,13 @@
       else showMobileList();
     }
     if (event.data?.type === "workspace-refresh") { void refresh(); channel?.postMessage({ type: "refresh" }); }
+    // A conversation this one made (Branch in new chat), on the same Host,
+    // opens as a tab of the pane beside it.
+    if (event.data?.type === "workspace-open" && typeof event.data.key === "string" && event.data.key && event.data.key.length <= 256) {
+      const pane = L.leaves(tree).find(p => p.tabs.some(r => L.identity(r) === L.identity(item.ref)));
+      open({ host: item.ref.host, key: event.data.key, title: String(event.data.title || "").slice(0, 160) }, pane?.id || focused);
+      void refresh();
+    }
   });
   function showMobileList() {
     if (!mobile()) return;

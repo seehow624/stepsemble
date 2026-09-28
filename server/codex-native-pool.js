@@ -558,6 +558,8 @@ function createCodexNativePool({
   }
 
   async function listThreads(params = {}) { return historyCall("listThreads", [params]); }
+  // A branch is a new thread; the thread it comes from stays as it is.
+  async function forkThread(params = {}) { return historyCall("forkThread", [params]); }
 
   async function readThread(threadId, options = {}) {
     if (!validThreadId(threadId)) return historyCall("readThread", [threadId, options]);
@@ -959,6 +961,7 @@ function createCodexNativePool({
     listTasks,
     startThread,
     resumeThread,
+    forkThread,
     startTurn,
     interruptTurn,
     respondApproval,

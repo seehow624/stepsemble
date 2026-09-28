@@ -98,6 +98,22 @@ test("Aqua structured upgrade uses fixed helper environment and full adapter con
   assert.equal(health.activeStructured, 0);
 });
 
+test("a branch reaches Claude through the helper: the conversation resumed as a new one up to the entry", unix, async t => {
+  const f = await fixture(t);
+  assert.equal(await f.client.forkSupported(), true);
+  const child = await f.client.launchStructured({ cwd: f.project, sessionId: "origin-1", permissionPromptTool: null, fork: { at: "entry-7", sessionId: "branch-1" } });
+  const session = createClaudeStructuredSession({ command: f.command, cwd: f.project, sessionId: "origin-1", fork: { at: "entry-7", sessionId: "branch-1" }, spawnImpl: () => child, requestTimeoutMs: 1000 });
+  assert.equal(session.status().nativeSessionId, "branch-1");
+  assert.equal((await session.models()).currentModel, "sonnet");
+  await until(async () => (await fs.readFile(path.join(f.home, "structured-context.jsonl"), "utf8").catch(() => "")).includes("--fork-session"));
+  const marker = (await fs.readFile(path.join(f.home, "structured-context.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line)).find(row => row.args?.includes("--fork-session"));
+  const at = marker.args.indexOf("--resume");
+  assert.deepEqual(marker.args.slice(at, at + 7), ["--resume", "origin-1", "--fork-session", "--session-id", "branch-1", "--resume-session-at", "entry-7"]);
+  assert.equal((await session.close()).cleanupConfirmed, true);
+  // A branch needs the conversation it comes from, and a new id of its own.
+  await assert.rejects(f.client.launchStructured({ cwd: f.project, sessionId: null, fork: { at: "entry-7", sessionId: "branch-1" } }), /invalid_request|desktop_structured_unavailable/);
+});
+
 test("structured tickets are one-use, bounded to roots and never fall back locally", unix, async t => {
   const f = await fixture(t);
   const outside = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-outside-"));

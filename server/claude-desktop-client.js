@@ -114,13 +114,15 @@ function createDesktopClaudeClient({ configDir, timeoutMs = 45000, hasActiveTask
     });
   }
   function timeoutMsDefault() { return Math.min(Math.max(Number(timeoutMs) || 45000, 1000), 45000); }
-  function launchStructured({ cwd, sessionId = null, permissionPromptTool = null } = {}) {
+  function launchStructured({ cwd, sessionId = null, permissionPromptTool = null, fork = null } = {}) {
     if (closed) return Promise.reject(failure("service_closed"));
     if (typeof cwd !== "string" || !cwd.trim() || !path.isAbsolute(cwd) || cwd.length > 4096) return Promise.reject(failure("invalid_request"));
     if (!(sessionId === null || typeof sessionId === "string" && sessionId.length <= 256 && SESSION_ID.test(sessionId))) return Promise.reject(failure("invalid_request"));
     if (!(permissionPromptTool === null || typeof permissionPromptTool === "string" && PERMISSION_TOOL.test(permissionPromptTool))) return Promise.reject(failure("invalid_request"));
     const startedAt = Date.now();
-    return call("structured/prepare", { cwd, sessionId, permissionPromptTool, startedAt }).then(async prepared => {
+    // A branch is sent only when asked for: a helper from before branches
+    // accepts every other launch as it did.
+    return call("structured/prepare", { cwd, sessionId, permissionPromptTool, startedAt, ...(fork ? { fork: { at: fork.at, sessionId: fork.sessionId } } : {}) }).then(async prepared => {
       if (!UUID.test(prepared.ticket) || !UUID.test(prepared.instance) || prepared.structuredStreamVersion !== STRUCTURED_STREAM_VERSION) throw failure("desktop_structured_unavailable");
       let key;
       try { key = (await privateRead(paths.key, 128)).trim(); } catch { throw failure("desktop_required"); }
@@ -303,23 +305,24 @@ function createDesktopClaudeClient({ configDir, timeoutMs = 45000, hasActiveTask
     return value;
   }
   // What this helper can do. Older helpers do not report terminalVersion (the
-  // conversation terminal for /login, /logout and /status) or bypassVersion
-  // (offering Bypass permissions); callers then keep the host-browser sign-in
-  // and offer the helper update.
+  // conversation terminal for /login, /logout and /status), bypassVersion
+  // (offering Bypass permissions) or forkVersion (branching a conversation);
+  // callers then keep the host-browser sign-in and offer the helper update.
   let featureCheck = null;
   async function helperFeatures() {
     if (featureCheck && Date.now() - featureCheck.at < 30000) return featureCheck.value;
-    let value = { terminal: false, bypass: false };
+    let value = { terminal: false, bypass: false, fork: false };
     try {
       const health = await call("health");
       const aqua = health?.context === "Aqua";
-      value = { terminal: aqua && health.terminalVersion === 1, bypass: aqua && health.bypassVersion === 1 };
+      value = { terminal: aqua && health.terminalVersion === 1, bypass: aqua && health.bypassVersion === 1, fork: aqua && health.forkVersion === 1 };
     } catch {}
     featureCheck = { at: Date.now(), value };
     return value;
   }
   async function terminalSupported() { return (await helperFeatures()).terminal; }
   async function bypassSupported() { return (await helperFeatures()).bypass; }
+  async function forkSupported() { return (await helperFeatures()).fork; }
   async function terminalStart({ action, choice, cols, rows }) {
     const value = await call("terminal/start", { action, choice, cols, rows });
     if (!UUID.test(value?.id)) throw failure("desktop_required");
@@ -342,7 +345,7 @@ function createDesktopClaudeClient({ configDir, timeoutMs = 45000, hasActiveTask
   return Object.freeze({ status, health: () => call("health"), prepare: () => authAction("prepare"), start: id => authAction("start", id), cancel: id => authAction("cancel", id), launchTask,
     launchStructured,
     prepareUpgrade, cancelUpgrade,
-    terminalSupported, bypassSupported, terminalStart, terminalRead, terminalInput, terminalCancel,
+    terminalSupported, bypassSupported, forkSupported, terminalStart, terminalRead, terminalInput, terminalCancel,
     resetTerminalCheck: () => { featureCheck = null; },
     snapshot: () => cached || offline(), isBusy: () => ["prepared", "starting", "waiting", "verifying", "cancelling"].includes(cached?.login?.state),
     close() { closed = true; for (const req of requests) req.destroy(); for (const socket of upgradedSockets) { try { socket.destroy(); } catch {} } } });

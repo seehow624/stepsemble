@@ -14,7 +14,7 @@ async function launchClaudeStructuredSession({ desktopClient = null, platform = 
   }
   if (typeof desktopClient.launchStructured !== "function") throw failure("desktop_upgrade_required");
   const child = await desktopClient.launchStructured({ cwd: options.cwd,
-    sessionId: options.sessionId || null, permissionPromptTool: options.permissionPromptTool || null });
+    sessionId: options.sessionId || null, permissionPromptTool: options.permissionPromptTool || null, ...(options.fork ? { fork: options.fork } : {}) });
   try {
     return sessionFactory({ ...options, spawnImpl: () => child });
   } catch (error) {

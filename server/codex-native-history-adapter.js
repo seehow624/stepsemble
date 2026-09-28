@@ -23,6 +23,7 @@ const {
   validPermissionOverride,
 } = require("./codex-app-server-transport");
 const crypto = require("node:crypto");
+const { forkCodexThread } = require("./codex-thread-fork");
 
 const MAX_THREADS = 100;
 const MAX_PAGE = 100;
@@ -1151,6 +1152,16 @@ function createCodexNativeHistoryAdapter({
     return result;
   }
 
+  // Branches the thread into a new one through the turn given (all of it
+  // without one), with a Codex app-server of its own.
+  async function forkThread({ threadId, lastTurnId = null } = {}) {
+    requireMutation();
+    if (!validThreadId(threadId) || lastTurnId !== null && !validThreadId(lastTurnId)) {
+      throw new CodexNativeHistoryError("invalid_thread_id", "Codex thread id is invalid", 400);
+    }
+    return forkCodexThread({ executable: config.executable, cwd: config.cwd, env, threadId, lastTurnId });
+  }
+
   async function startTurn(input, params = {}, expectedThreadId = null) {
     requireMutation();
     if (!Array.isArray(input) || !input.length) throw new CodexNativeHistoryError("invalid_turn_input", "Codex turn input is invalid", 400);
@@ -1236,6 +1247,7 @@ function createCodexNativeHistoryAdapter({
     startThread,
     resumeThread,
     setThreadName,
+    forkThread,
     startTurn,
     interruptTurn,
     respondApproval,

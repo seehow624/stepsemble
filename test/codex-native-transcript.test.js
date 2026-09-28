@@ -60,6 +60,8 @@ function harness(api) {
     setInterval(fn) { timers.push(fn); return timers.length; }, clearInterval() {},
     renderMarkdown(text) { const node = new Node(); node.textContent = text; return node; },
     msgActionsRow() { return new Node(); },
+    // Branch in new chat is exercised with the page's own row tests.
+    codexReplyFork() { return null; },
     makeMsgShell(role, label, container) { const wrap = new Node(), bubble = new Node(); wrap.appendChild(bubble); container.appendChild(wrap); return { wrap, bubble }; },
   });
   vm.runInContext(slice, ctx);

@@ -61,8 +61,9 @@ function createClaudeHelperAutoUpdate({ desktopClient, upgradeService, setTimer 
     if (done || stopped()) return;
     try {
       desktopClient.resetTerminalCheck?.();
-      const [terminal, bypass] = await Promise.all([desktopClient.terminalSupported(), desktopClient.bypassSupported()]);
-      if (terminal && bypass) { done = true; return; }
+      const [terminal, bypass, fork] = await Promise.all([desktopClient.terminalSupported(), desktopClient.bypassSupported(),
+        typeof desktopClient.forkSupported === "function" ? desktopClient.forkSupported() : true]);
+      if (terminal && bypass && fork) { done = true; return; }
       await upgradeService.upgrade({ confirm: true });
       done = true;
       log("updated");

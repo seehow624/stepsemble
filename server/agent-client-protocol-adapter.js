@@ -52,7 +52,10 @@ function readSessionRegistry(file) {
       const id = safeId(row?.id);
       const cwd = typeof row?.cwd === "string" && path.isAbsolute(row.cwd) ? row.cwd : "";
       if (!id || !cwd) continue;
-      result.set(id, { id, cwd, name: safeText(row?.name, 120) || null, lastActivityAt: Number(row?.lastActivityAt) || null });
+      // A branch names the conversation and the entry it comes from.
+      const forkedFrom = safeId(row?.forkedFrom), forkAt = safeId(row?.forkAt);
+      result.set(id, { id, cwd, name: safeText(row?.name, 120) || null, lastActivityAt: Number(row?.lastActivityAt) || null,
+        ...(forkedFrom && forkAt ? { forkedFrom, forkAt } : {}) });
     }
   } catch {}
   return result;
@@ -65,6 +68,7 @@ function writeSessionRegistry(file, sessions) {
     cwd: row.cwd,
     name: row.name || null,
     lastActivityAt: Number(row.lastActivityAt) || null,
+    ...(row.forkedFrom && row.forkAt ? { forkedFrom: row.forkedFrom, forkAt: row.forkAt } : {}),
   })) };
   try {
     const directory = path.dirname(file);
@@ -227,6 +231,7 @@ function createAgentClientProtocolAdapter({
   if (onUpdate !== null && typeof onUpdate !== "function" || onPermission !== null && typeof onPermission !== "function") throw new TypeError("acp_callback_required");
 
   let child = null, decoder = null, closed = false, initialized = false, error = null, nextId = 0, closePromise = null;
+  let agentCapabilities = null;
   const pending = new Map(), permissions = new Map(), sessions = new Map(), events = [], knownSessions = readSessionRegistry(registryFile);
 
   function status() {
@@ -236,6 +241,8 @@ function createAgentClientProtocolAdapter({
       configured: true, ready: !!child && initialized && !error && !closed,
       sessionReady: sessions.size > 0, approvalReady: !!child && initialized && !error && !closed,
       lastError: error?.code || error?.message || null, sessionCount: sessions.size, persistedSessionCount: knownSessions.size,
+      // The agent branches a conversation (session/fork), as it said when it started.
+      forkable: plain(agentCapabilities?.sessionCapabilities) && plain(agentCapabilities.sessionCapabilities.fork),
     });
   }
   function fail(reason) {
@@ -357,6 +364,7 @@ function createAgentClientProtocolAdapter({
     });
     if (result.kind === "reject") return result;
     if (!plain(result.value)) return reject("acp_initialize_invalid");
+    agentCapabilities = plain(result.value.agentCapabilities) ? result.value.agentCapabilities : null;
     initialized = true;
     return status();
   }
@@ -391,6 +399,25 @@ function createAgentClientProtocolAdapter({
     const configOptions = plain(result.value) ? configOptionsFromSession(result.value) : [];
     sessions.get(id).configOptions = configOptions;
     return { kind: sessionId ? "loaded" : "created", sessionId: id, cwd: directory, configOptions };
+  }
+
+  // A new conversation holding all of this one, when the agent branches
+  // conversations. The caller loads it (createSession with its id), so the
+  // agent replays what it holds.
+  async function forkSession(sessionId, { directory = cwd, name = null } = {}) {
+    const ready = await initialize(); if (ready.kind === "reject") return ready;
+    const id = safeId(sessionId);
+    if (!id || typeof directory !== "string" || !path.isAbsolute(directory)) return reject("acp_session_invalid");
+    if (!status().forkable) return reject("acp_fork_unsupported");
+    if (sessions.get(id)?.promptInFlight) return reject("acp_prompt_in_flight");
+    const result = await request("session/fork", { sessionId: id, cwd: directory, mcpServers: [] });
+    if (result.kind === "reject") return result;
+    const forked = safeId(result.value?.sessionId);
+    if (!forked || forked === id) return reject("acp_fork_invalid");
+    knownSessions.set(forked, { id: forked, cwd: directory, name: safeText(name, 120) || null, lastActivityAt: Date.now() });
+    while (knownSessions.size > MAX_SESSIONS) knownSessions.delete(knownSessions.keys().next().value);
+    writeSessionRegistry(registryFile, knownSessions);
+    return { kind: "forked", sessionId: forked, cwd: directory };
   }
 
   function sessionConfigOptions(sessionId) {
@@ -499,7 +526,7 @@ function createAgentClientProtocolAdapter({
     }
     return rows;
   }
-  return Object.freeze({ version: ACP_VERSION, start, initialize, createSession, loadSession, prompt, cancel, respondPermission,
+  return Object.freeze({ version: ACP_VERSION, start, initialize, createSession, forkSession, loadSession, prompt, cancel, respondPermission,
     sessionConfigOptions, setConfigOption,
     pendingPermissions: () => [...permissions.values()].map(clone), events: () => clone(events),
     sessionEvents: sessionId => clone(sessions.get(String(sessionId))?.events || []),

@@ -13,6 +13,8 @@ const { buildClaudeStructuredArgs, claudeSupportsBypass, existingGatewaySettings
 // This helper offers Bypass permissions to the conversations it launches when
 // the Claude CLI lists the option; older helpers never pass it.
 const BYPASS_VERSION = 1;
+// Branching a conversation (structured/prepare with fork).
+const FORK_VERSION = 1;
 const { claudeSessionEnvOverrides } = require("./claude-session-routing");
 const {
   STRUCTURED_STREAM_VERSION,
@@ -132,7 +134,14 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
   async function validatedStructured(value) {
     if (!value || typeof value !== "object" || Array.isArray(value)) throw failure("invalid_request");
     const keys = Object.keys(value).sort();
-    if (keys.join("|") !== ["cwd", "permissionPromptTool", "sessionId", "startedAt"].sort().join("|")) throw failure("invalid_request");
+    // fork is present only for a branch of the conversation being resumed.
+    const expected = ["cwd", "permissionPromptTool", "sessionId", "startedAt", ...(Object.hasOwn(value, "fork") ? ["fork"] : [])];
+    if (keys.join("|") !== expected.sort().join("|")) throw failure("invalid_request");
+    if (Object.hasOwn(value, "fork")) {
+      const fork = value.fork;
+      if (!fork || typeof fork !== "object" || Array.isArray(fork) || Object.keys(fork).sort().join("|") !== "at|sessionId"
+        || typeof value.sessionId !== "string" || ![fork.at, fork.sessionId].every(id => typeof id === "string" && id.length <= 256 && SESSION_ID.test(id))) throw failure("invalid_request");
+    }
     if (typeof value.cwd !== "string" || value.cwd.length > 4096 || !path.isAbsolute(value.cwd) || value.cwd.includes("\0")) throw failure("invalid_request");
     if (!(value.sessionId === null || typeof value.sessionId === "string" && value.sessionId.length <= 256 && SESSION_ID.test(value.sessionId))) throw failure("invalid_request");
     if (!(value.permissionPromptTool === null || typeof value.permissionPromptTool === "string" && PERMISSION_TOOL.test(value.permissionPromptTool))) throw failure("invalid_request");
@@ -254,7 +263,8 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
     try {
       command = await fs.realpath(claudeCommand);
       const allowBypass = await claudeSupportsBypass(command, { env: taskEnv });
-      args = buildClaudeStructuredArgs({ sessionId: record.request.sessionId, permissionPromptTool: record.request.permissionPromptTool, permissionPrompts: "host", allowBypass, settingsPath: existingGatewaySettingsPath(taskEnv) });
+      args = buildClaudeStructuredArgs({ sessionId: record.request.sessionId, permissionPromptTool: record.request.permissionPromptTool, permissionPrompts: "host", allowBypass,
+        fork: record.request.fork || null, settingsPath: existingGatewaySettingsPath(taskEnv) });
     } catch { throw failure("desktop_structured_unavailable"); }
     if (closed) throw failure("service_closed");
     let child;
@@ -334,17 +344,17 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
     if (closed) throw failure("service_closed");
     if (op.startsWith("terminal/")) return terminalDispatch(op, body);
     if (!exact(body, op === "task/prepare" ? ["id", "name", "cwd", "startedAt"] : op === "task/launch" ? ["ticket", "instance"]
-      : op === "structured/prepare" ? ["cwd", "sessionId", "permissionPromptTool", "startedAt"]
+      : op === "structured/prepare" ? ["cwd", "sessionId", "permissionPromptTool", "startedAt", ...(body && typeof body === "object" && Object.hasOwn(body, "fork") ? ["fork"] : [])]
         : op === "maintenance/cancel" ? ["token", "instance"]
           : op === "auth/start" || op === "auth/cancel" ? ["id"] : [])) throw failure("invalid_request");
     if (maintenance && maintenance.expiresAt <= now()) maintenance = null;
     const maintenanceSummary = { maintenanceVersion: 1, maintenance: maintenance ? { active: true, expiresAt: maintenance.expiresAt } : { active: false, expiresAt: null } };
-    if (op === "health") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION,
+    if (op === "health") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, forkVersion: FORK_VERSION,
       activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary };
     await reconcileAuth();
     await refreshTasks();
     if (closed) throw failure("service_closed");
-    if (op === "status") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary,
+    if (op === "status") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, forkVersion: FORK_VERSION, activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary,
       ...(recoveryRequired ? unavailable() : await auth.status()) };
     if (op === "maintenance/cancel") {
       if (!maintenance || maintenance.instance !== body.instance || maintenance.token !== body.token || maintenance.expiresAt <= now()) throw failure("stale_intent");

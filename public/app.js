@@ -2664,14 +2664,14 @@ async function openAgentTaskFromHub(task) {
   return openGenericTask(task);
 }
 
-function appendNativeHistoryMessage(message, agentId, container = el.messages) {
+function appendNativeHistoryMessage(message, agentId, container = el.messages, { fork = null } = {}) {
   const role = message?.role === "user" ? "user" : "assistant";
   const label = agentId === "claude-code" ? "Claude Code" : "Codex";
   const { wrap, bubble } = makeMsgShell(role, role === "user" ? "你" : label, container);
   stampMessageTime(wrap, message?.ts || message?.timestamp);
   const value = boundedDisplayText(message?.text || "", 512 * 1024);
   if (value) bubble.appendChild(renderMarkdown(value));
-  if (role === "assistant") wrap.appendChild(msgActionsRow("assistant", () => value));
+  if (role === "assistant") wrap.appendChild(msgActionsRow("assistant", () => value, { fork }));
 }
 
 function boundedDisplayText(value, limit) {
@@ -2696,7 +2696,7 @@ function appendNativeHistoryTool(tool, agentId, container = el.messages) {
 // An agent's history into `container`: its messages, each tool call before
 // the message at its `after` index. Yields now and then so a long history
 // does not hold the page; stops when `current()` turns false.
-async function renderNativeHistory(result, agentId, container, current) {
+async function renderNativeHistory(result, agentId, container, current, { forkFor = null } = {}) {
   const tools = Array.isArray(result?.tools) ? result.tools : [];
   let toolIndex = 0, sliceStarted = performance.now();
   const toolsBefore = index => {
@@ -2713,7 +2713,7 @@ async function renderNativeHistory(result, agentId, container, current) {
     }
     toolsBefore(index);
     maybeDateSeparator(message.ts || message.timestamp, container);
-    appendNativeHistoryMessage(message, agentId, container);
+    appendNativeHistoryMessage(message, agentId, container, { fork: typeof forkFor === "function" ? forkFor(message) : null });
   }
   toolsBefore(Infinity);
   return current();
@@ -5194,7 +5194,7 @@ function openCodeMessageText(message) {
   return agentTranscriptPresentation.openCodeMessage(message)?.text || "";
 }
 
-function appendNormalizedAgentMessage(view, label, container = el.messages, model = null) {
+function appendNormalizedAgentMessage(view, label, container = el.messages, model = null, { fork = null, ts = undefined } = {}) {
   if (!view) return null;
   if (view.role === "user") {
     const { bubble } = makeMsgShell("user", "你", container);
@@ -5249,7 +5249,7 @@ function appendNormalizedAgentMessage(view, label, container = el.messages, mode
     }
   }
   finishActivity();
-  if (view.text) wrap.appendChild(msgActionsRow("assistant", () => view.text));
+  if (view.text) wrap.appendChild(msgActionsRow("assistant", () => view.text, { fork, ts }));
   return bubble;
 }
 
@@ -5309,11 +5309,17 @@ function renderOpenCodeNativeSnapshot(snapshot, { replace = false } = {}) {
   if (!replace) el.messages.innerHTML = "";
   const messages = Array.isArray(snapshot.messages) ? [...snapshot.messages] : [];
   messages.sort((a, b) => (Number(a?.time?.created) || 0) - (Number(b?.time?.created) || 0));
-  for (const message of messages) {
+  const messageId = message => String(message?.info?.id || message?.id || "") || null;
+  for (const [index, message] of messages.entries()) {
     const view = agentTranscriptPresentation.openCodeMessage(message);
     if (!view) continue;
+    // A finished reply can be branched: OpenCode keeps the messages before
+    // the one that followed it.
+    const info = message?.info || message || {};
+    const finished = !!(info.time?.completed || info.finish || index < messages.length - 1);
     const bubble = appendNormalizedAgentMessage(view, "OpenCode", el.messages,
-      message?.info?.model?.modelID || message?.info?.model?.modelId || message?.info?.modelID || null);
+      message?.info?.model?.modelID || message?.info?.model?.modelId || message?.info?.modelID || null,
+      { fork: finished ? openCodeReplyFork(rpc, messageId(messages[index + 1])) : null, ts: normalizedTimestampMs(info.time?.completed || info.time?.created) || null });
     if (view.error && bubble) {
       const box = document.createElement("div");
       box.className = "run-error";
@@ -5396,7 +5402,7 @@ function codexNativeItemText(item) {
   return view?.text || view?.tool?.output || "";
 }
 
-function appendCodexNativeItem(item, container = el.messages) {
+function appendCodexNativeItem(item, container = el.messages, { fork = null, ts = undefined } = {}) {
   const view = agentTranscriptPresentation.codexItem(item);
   if (!view) return;
   if (view.kind === "message" && view.role === "user") {
@@ -5407,7 +5413,7 @@ function appendCodexNativeItem(item, container = el.messages) {
   if (view.kind === "message") {
     const { wrap, bubble } = makeMsgShell("assistant", "Codex", container);
     if (view.text) bubble.appendChild(renderMarkdown(view.text));
-    if (view.text) wrap.appendChild(msgActionsRow("assistant", () => view.text));
+    if (view.text) wrap.appendChild(msgActionsRow("assistant", () => view.text, { fork, ts }));
     return;
   }
   const { bubble } = makeMsgShell("assistant", "Codex", container);
@@ -5761,12 +5767,15 @@ function renderCodexNativeSnapshot(connection, { preserveScroll = false } = {}) 
   for (const unit of codexNativeRenderUnits(state.entries)) {
     const key = unit.key;
     activeKeys.add(key);
-    const revision = JSON.stringify(unit.kind === "work" ? unit.rows.map(row => row.item) : unit.item);
+    // A reply is drawn again when its turn finishes: it can then be branched.
+    const turn = turnTimes.get(String(unit.turnId || ""));
+    const revision = JSON.stringify(unit.kind === "work" ? unit.rows.map(row => row.item) : unit.item) + "|" + (turn?.status || "") + "|" + (turn?.completedAt || "");
     let row = rendered.get(key);
     if (!row || row.revision !== revision) {
       const staging = document.createElement("div");
       if (unit.kind === "work") appendCodexNativeActivity(unit.rows, staging, unit.key);
-      else appendCodexNativeItem(unit.item, staging);
+      else appendCodexNativeItem(unit.item, staging, { fork: codexReplyFork(connection, String(unit.turnId || ""), turn?.status || null),
+        ts: turn?.completedAt ? normalizedTimestampMs(turn.completedAt) || null : null });
       const node = staging.firstChild;
       if (!node) continue;
       node.classList.remove("msg-in");
@@ -6407,6 +6416,7 @@ async function refreshGrokAcpSnapshot(connection, { initial = false } = {}) {
     connection.taskStatus = working ? "running" : "waiting";
     connection.activityLabel = "working";
     if (!!connection.streaming !== working) setStreaming(working);
+    if (!working) attachAcpReplyActions(connection, { live: !initial });
     syncGenericInputState();
   } catch {
     if (rpc !== connection) return;
@@ -6474,6 +6484,7 @@ function renderClaudeStructuredEvents(connection, events, { replace = false } = 
     connection.claudeOutputStart = null;
     connection.claudeSkipMessage = false;
     connection.claudeSkippedTools = new Set();
+    connection.claudeCurrentMessageId = null; connection.claudeReplyNode = null; connection.claudeReplyMessageId = null;
     resetStructuredTranscriptPresentation(connection);
     connection.claudeRenderer?.reset?.();
   }
@@ -6498,7 +6509,7 @@ function renderClaudeStructuredEvents(connection, events, { replace = false } = 
     // belong to the same message until the next one starts.
     const identity = event?.type === "assistant" || event?.type === "stream_event"
       ? claudeStructuredRendering?.messageIdentity?.(event) : null;
-    if (identity) connection.claudeSkipMessage = !!shownInHistory?.has(identity);
+    if (identity) { connection.claudeSkipMessage = !!shownInHistory?.has(identity); connection.claudeCurrentMessageId = identity; }
     const skip = connection.claudeSkipMessage === true;
     for (const [activityIndex, activity] of agentTranscriptPresentation.claudeEvent(event).entries()) {
       if (activity.kind !== "tool") continue;
@@ -6510,21 +6521,37 @@ function renderClaudeStructuredEvents(connection, events, { replace = false } = 
       appendStructuredTool(connection, activity.tool, connection.agentLabel || "Claude Code", `claude-${position}-${activityIndex}`);
     }
     const update = renderer?.consume?.(event);
-    if (!update?.text || skip) continue;
-    if (update.beginTurn) {
-      // Each reply gets its own bubble below what came before it, such as
-      // the message it answers.
-      rpc.genericOutputNode = null;
-      connection.claudeOutputStart = 0;
-    } else if (!Number.isSafeInteger(connection.claudeOutputStart)) {
-      const current = rpc.genericOutputNode;
-      connection.claudeOutputStart = current?.dataset?.stream === "stdout" ? genericOutputText(current).length : 0;
+    if (update?.text && !skip) {
+      if (update.beginTurn) {
+        // Each reply gets its own bubble below what came before it, such as
+        // the message it answers.
+        rpc.genericOutputNode = null;
+        connection.claudeOutputStart = 0;
+      } else if (!Number.isSafeInteger(connection.claudeOutputStart)) {
+        const current = rpc.genericOutputNode;
+        connection.claudeOutputStart = current?.dataset?.stream === "stdout" ? genericOutputText(current).length : 0;
+      }
+      if (update.mode === "replace") replaceClaudeStructuredOutputTail(connection, update.text);
+      else appendGenericOutput(update.text, "stdout");
+      // The reply's text so far, and the message it belongs to, for the row
+      // put under it when the turn ends.
+      connection.claudeReplyNode = rpc.genericOutputNode;
+      if (connection.claudeCurrentMessageId) connection.claudeReplyMessageId = connection.claudeCurrentMessageId;
     }
-    if (update.mode === "replace") replaceClaudeStructuredOutputTail(connection, update.text);
-    else appendGenericOutput(update.text, "stdout");
+    if (event?.type === "result" && !skip) finishClaudeReply(connection, !replace);
   }
   connection.claudeEventIndex = rows.length;
   keepSessionUsageAtEnd(); scrollBottom();
+}
+
+// Copy and Branch under a Claude reply once its turn has ended.
+function finishClaudeReply(connection, live) {
+  const node = connection.claudeReplyNode, messageId = connection.claudeReplyMessageId || null;
+  connection.claudeReplyNode = null;
+  connection.claudeReplyMessageId = null;
+  const wrap = node?.isConnected ? node.closest(".msg") : null;
+  if (!wrap || [...wrap.children].some(child => child.classList.contains("msg-actions"))) return;
+  wrap.appendChild(msgActionsRow("assistant", () => genericOutputText(node), { ts: live ? Date.now() : null, fork: claudeReplyFork(connection, messageId) }));
 }
 
 async function loadClaudeNativeHistory(connection) {
@@ -6548,7 +6575,8 @@ async function loadClaudeNativeHistory(connection) {
       return false;
     }
     const staging = document.createElement("div");
-    if (!await renderNativeHistory(result, "claude-code", staging, () => rpc === connection)) return false;
+    if (!await renderNativeHistory(result, "claude-code", staging, () => rpc === connection,
+      { forkFor: message => message?.role === "assistant" ? claudeReplyFork(connection, message.id) : null })) return false;
     const fragment = document.createDocumentFragment();
     while (staging.firstChild) fragment.appendChild(staging.firstChild);
     el.messages.appendChild(fragment);
@@ -6840,6 +6868,8 @@ async function refreshAgentClientProtocolSnapshot(connection, { initial = false 
     // Working while the agent answers a prompt, whether this page sent it or
     // the page was reloaded meanwhile.
     connection.taskStatus = snapshot?.working === true || connection.acpPromptInFlight ? "running" : "waiting";
+    connection.acpForkable = snapshot?.adapter?.forkable === true;
+    if (connection.taskStatus !== "running") attachAcpReplyActions(connection, { live: !initial });
     applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: connection.acpAgentId, nativeAcp: true,
       acpAgentId: connection.acpAgentId, nativeSessionId: connection.nativeSessionId, status: connection.taskStatus,
       nativeStatus: snapshot?.adapter || {} });
@@ -8509,7 +8539,7 @@ function appendHistoryMessage(m, container = el.messages, options = {}) {
       if (activity) updateActivityGroup(activity, { running: false, hasError: true });
       appendRunError(bubble, m);
     }
-    wrap.appendChild(msgActionsRow("assistant", () => m.text || m.errorMessage || ""));
+    wrap.appendChild(msgActionsRow("assistant", () => m.text || m.errorMessage || "", { fork: piReplyFork({ entryId: m.id }) }));
     if (m.usage) attachMessageUsage(wrap, m.usage, activity);
   } else if (m.role === "toolResult") {
     attachToolResult(m.toolName, m.isError, m.text, container, m.toolCallId);
@@ -9656,7 +9686,7 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
           attachMessageUsage(wrap, full.usage, lastWorkActivity(bubble));
           addSessionUsage(full.usage);
         }
-        wrap.appendChild(msgActionsRow("assistant", () => full.text));
+        wrap.appendChild(msgActionsRow("assistant", () => full.text, { ts: Number(m.timestamp) || Date.now(), fork: piReplyFork({ timestamp: Number(m.timestamp) }) }));
         mergeAdjacentWorkMessages();
         if (full.toolCalls.length) {
           if (current?.shimmer) current.shimmer.remove();
@@ -10437,7 +10467,7 @@ async function sendCurrent() {
   } finally {
     if (acpTurn) {
       acpTurn.acpPromptInFlight = false;
-      if (rpc === acpTurn) { acpTurn.taskStatus = "waiting"; setStreaming(false); syncGenericInputState(); }
+      if (rpc === acpTurn) { acpTurn.taskStatus = "waiting"; setStreaming(false); syncGenericInputState(); attachAcpReplyActions(acpTurn, { live: true }); }
     }
   }
 }
@@ -13026,32 +13056,162 @@ async function copyText(text) {
   if (!ok) throw new Error("copy failed");
 }
 
-function msgActionsRow(role, getText) {
+// Under a reply, as Codex has it: Copy, Branch in new chat where the agent
+// can branch the conversation there, and when the reply was written.
+// ts: the reply's time; without it the time stamped on its message is used.
+// fork: branches the conversation after this reply.
+function msgActionsRow(role, getText, { ts = undefined, fork = null } = {}) {
   const row = document.createElement("div");
   row.className = "msg-actions";
-  const copy = document.createElement("button");
-  copy.type = "button";
-  copy.textContent = "⧉ 複製";
+  const copy = replyActionButton("i-msg-copy", "reply.copy");
   copy.addEventListener("click", async () => {
-    try { await copyText(getText() || ""); toast("已複製"); }
-    catch { toast("複製失敗", true); }
+    try {
+      await copyText(getText() || "");
+      copy.classList.add("done"); copy.querySelector("use")?.setAttribute("href", "#i-check"); labelReplyAction(copy, "reply.copied");
+      clearTimeout(copy.__restore);
+      copy.__restore = setTimeout(() => {
+        copy.classList.remove("done"); copy.querySelector("use")?.setAttribute("href", "#i-msg-copy"); labelReplyAction(copy, "reply.copy");
+      }, 1500);
+    } catch { toast(tKey("reply.copyFailed"), true); }
   });
   row.appendChild(copy);
-  if (role === "assistant" && lastUserText) {
-    const retry = document.createElement("button");
-    retry.type = "button";
-    retry.textContent = "↻ 重試";
-    retry.addEventListener("click", () => {
-      if (!rpc) return;
-      const { wrap, bubble } = makeMsgShell("user", "你");
-      wrap.dataset.ts = String(Date.now());
-      bubble.textContent = lastUserText;
-      scrollBottom();
-      post("/api/send", { sid: rpc.sid, message: lastUserText }).catch(() => toast("送出失敗", true));
-    });
-    row.appendChild(retry);
-  }
+  if (role === "assistant" && typeof fork === "function") row.appendChild(branchAction(fork));
+  const time = document.createElement("time");
+  time.className = "msg-time";
+  time.dataset.i18nIgnore = "";
+  row.appendChild(time);
+  // The row is put under its message right after this returns.
+  queueMicrotask(() => setReplyTime(row, ts !== undefined ? ts : row.closest(".msg")?.dataset.ts ?? null));
   return row;
+}
+
+function labelReplyAction(button, key) {
+  const label = tKey(key);
+  button.title = label;
+  button.setAttribute("aria-label", label);
+}
+
+function replyActionButton(icon, key) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "msg-action";
+  button.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#' + icon + '"></use></svg>';
+  labelReplyAction(button, key);
+  return button;
+}
+
+function branchAction(fork) {
+  const branch = replyActionButton("i-msg-branch", "reply.branch");
+  branch.classList.add("msg-action-branch");
+  branch.addEventListener("click", async () => {
+    if (branch.disabled) return;
+    branch.disabled = true;
+    try { await fork(); } finally { branch.disabled = false; }
+  });
+  return branch;
+}
+
+// Gives a reply's row its Branch button, or takes it away (an agent that
+// branches only the whole conversation offers it under the latest reply).
+function setReplyBranch(row, fork) {
+  if (!row) return;
+  const current = row.querySelector(".msg-action-branch");
+  if (typeof fork !== "function") { current?.remove(); return; }
+  if (current) return;
+  row.insertBefore(branchAction(fork), row.querySelector(".msg-time"));
+}
+
+function setReplyTime(row, value) {
+  const time = row?.querySelector?.(".msg-time");
+  if (!time) return;
+  const text = value === null || value === undefined ? "" : String(value).trim();
+  const ms = typeof value === "number" ? normalizedTimestampMs(value)
+    : /^\d+(?:\.\d+)?$/.test(text) ? normalizedTimestampMs(Number(text)) : text ? Date.parse(text) : NaN;
+  if (!Number.isFinite(ms) || ms <= 0) { time.textContent = ""; time.removeAttribute("datetime"); time.removeAttribute("title"); return; }
+  const date = new Date(ms);
+  const locale = window.stepsembleI18n?.getLocale?.() || undefined;
+  time.dateTime = date.toISOString();
+  try {
+    time.textContent = new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
+    time.title = new Intl.DateTimeFormat(locale, { dateStyle: "full", timeStyle: "short" }).format(date);
+  } catch { time.textContent = date.toLocaleString(); }
+}
+
+// Branch in new chat: the agent makes a new conversation holding this one up
+// to the reply; it opens in a new tab beside this one.
+async function branchConversation(agentId, fork) {
+  const connection = rpc;
+  if (!connection) return;
+  const base = String(connection.name || el.chatTitle?.textContent || agentConnectorLabel(agentId)).trim().slice(0, 100);
+  const name = tKey("reply.branchName", { name: base });
+  toast(tKey("reply.branching"));
+  try {
+    const result = await post("/api/agent/open", { agentId, cwd: connection.cwd || currentSessionCwd || "", name, fork });
+    const key = result?.workspaceEntry?.key;
+    if (!key) throw new Error(result?.workspaceError || "no conversation");
+    if (WORKSPACE_PANE) parent.postMessage({ type: "workspace-open", key, title: name }, location.origin);
+    else location.href = "/workspace.html";
+  } catch (error) {
+    toast(tKey("reply.branchFailed", { detail: String(error?.message || "").slice(0, 200) }), true);
+  }
+}
+
+// Claude Code branches at a reply named by its message id.
+function claudeReplyFork(connection, messageId) {
+  if (!connection?.nativeClaudeStructured || typeof messageId !== "string" || !messageId) return null;
+  return () => branchConversation("claude-code", { sessionId: connection.claudeNativeSessionId || connection.nativeSessionId, messageId });
+}
+
+// Pi branches the session file this view shows, at a reply named by its entry
+// (read from the file) or by the time Pi gave it (one that just arrived).
+function piReplyFork(reply) {
+  if (!rpc || rpc.generic) return null;
+  const entryId = typeof reply?.entryId === "string" && reply.entryId ? reply.entryId : null;
+  const timestamp = Number.isFinite(reply?.timestamp) && reply.timestamp > 0 ? reply.timestamp : null;
+  if (!entryId && timestamp === null) return null;
+  return () => {
+    // A new conversation's file is known to its Pi: the Host asks it.
+    const source = currentSessionFile ? { file: currentSessionFile } : rpc?.sid ? { sid: rpc.sid } : null;
+    if (!source) { toast(tKey("reply.branchFailed", { detail: "Pi has not saved this conversation yet" }), true); return undefined; }
+    return branchConversation("pi", { ...source, ...(entryId ? { entryId } : { timestamp }) });
+  };
+}
+
+// Codex branches through a finished turn of the thread this view writes to.
+function codexReplyFork(connection, turnId, turnStatus) {
+  if (!connection?.nativeCodexMutation || !connection.nativeThreadId || typeof turnId !== "string" || !turnId || turnStatus === "inProgress") return null;
+  return () => branchConversation("codex", { threadId: connection.nativeThreadId, turnId });
+}
+
+// OpenCode branches before a message: the one after the reply, or none to
+// branch all of it.
+function openCodeReplyFork(connection, nextMessageId) {
+  if (!connection?.nativeOpenCode || !connection.nativeSessionId) return null;
+  return () => branchConversation("opencode", { sessionId: connection.nativeSessionId, messageId: nextMessageId || null });
+}
+
+// An agent speaking ACP branches the whole conversation (session/fork), so
+// Branch is offered under its latest reply once that reply is complete.
+function attachAcpReplyActions(connection, { live = false } = {}) {
+  if (rpc !== connection || !(connection?.nativeAcp || connection?.nativeGrokAcp)) return;
+  const outputs = [...el.messages.querySelectorAll(".msg.assistant .agent-structured-output")];
+  let latest = null;
+  for (const node of outputs) {
+    const wrap = node.closest(".msg");
+    if (!wrap || !genericOutputText(node).trim()) continue;
+    let row = [...wrap.children].find(child => child.classList.contains("msg-actions"));
+    if (!row) {
+      row = msgActionsRow("assistant", () => genericOutputText(node), { ts: null });
+      wrap.appendChild(row);
+      if (live && node === outputs[outputs.length - 1]) queueMicrotask(() => setReplyTime(row, Date.now()));
+    }
+    latest = row;
+    setReplyBranch(row, null);
+  }
+  const agentId = connection.acpAgentId || (connection.nativeGrokAcp ? "grok-build" : "");
+  if (latest && connection.acpForkable === true && !connection.acpPromptInFlight && agentId) {
+    setReplyBranch(latest, () => branchConversation(agentId, { sessionId: connection.nativeSessionId }));
+  }
 }
 
 let _lastMsgDate = null; let lastUserText = "";

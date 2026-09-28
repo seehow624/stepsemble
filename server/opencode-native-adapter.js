@@ -577,6 +577,28 @@ function createOpenCodeNativeAdapter({
     return session;
   }
 
+  // A new session holding the messages before messageID, or all of them.
+  async function forkSession(sessionId, { messageID = null, directory = null } = {}) {
+    if (!validId(sessionId)) throw new OpenCodeNativeError("invalid_session_id", "OpenCode session id is invalid", 400);
+    if (messageID !== null && !validId(messageID)) throw new OpenCodeNativeError("invalid_message_id", "OpenCode message id is invalid", 400);
+    const safeDirectory = directory === null ? null : normalizeDirectory(directory);
+    if (directory !== null && safeDirectory === null) throw new OpenCodeNativeError("invalid_directory", "OpenCode directory is invalid", 400);
+    const result = await request(`/session/${encodeURIComponent(sessionId)}/fork`, { method: "POST", query: { directory: safeDirectory },
+      body: messageID ? { messageID } : {} });
+    const session = normalizeSession(result.data);
+    if (!session || session.id === sessionId) throw new OpenCodeNativeError("session_invalid", "OpenCode fork response was invalid", 502);
+    return session;
+  }
+
+  // Names a session, as a branch is named after the conversation it comes from.
+  async function renameSession(sessionId, title, { directory = null } = {}) {
+    const safeTitle = cleanText(title, 512);
+    if (!validId(sessionId) || !safeTitle) throw new OpenCodeNativeError("invalid_session_title", "OpenCode session title is invalid", 400);
+    const safeDirectory = directory === null ? null : normalizeDirectory(directory);
+    const result = await request(`/session/${encodeURIComponent(sessionId)}`, { method: "PATCH", query: { directory: safeDirectory }, body: { title: safeTitle } });
+    return normalizeSession(result.data);
+  }
+
   async function sendMessage(sessionId, text, { model = null, agent = null, noReply = false, directory = null, images = [] } = {}) {
     if (!validId(sessionId)) throw new OpenCodeNativeError("invalid_session_id", "OpenCode session id is invalid", 400);
     const message = String(text ?? "");
@@ -736,6 +758,8 @@ function createOpenCodeNativeAdapter({
     permissions,
     respondPermission,
     createSession,
+    forkSession,
+    renameSession,
     sendMessage,
     abort,
     reconcile,

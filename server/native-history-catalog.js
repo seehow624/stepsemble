@@ -601,7 +601,9 @@ function createNativeHistoryCatalog({ home = process.env.PI_HOME || require("nod
     return [...entries.values()].map(taskFromMeta).sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0) || a.id.localeCompare(b.id));
   }
 
-  async function read(taskId) {
+  // through: a Claude entry id; the transcript is read up to and including
+  // it (a branch's history before the branch has a record of its own).
+  async function read(taskId, { through = null } = {}) {
     await ensureFresh();
     const raw = String(taskId || "");
     const match = /^(claude-history|codex-history):([a-f0-9-]{36})$/i.exec(raw);
@@ -615,7 +617,13 @@ function createNativeHistoryCatalog({ home = process.env.PI_HOME || require("nod
       ? recordsFromChunks(stable.chunks)
       : recordsFromBytes(stable.bytes);
     if (parsed.kind !== "source_records") return parsed;
-    const messages = provider === "claude-code" ? claudeMessages(parsed.records) : codexMessages(parsed.records);
+    let records = parsed.records;
+    if (through !== null) {
+      const end = provider === "claude-code" ? records.findIndex(row => row?.uuid === through) : -1;
+      if (end < 0) return { kind: "source_unavailable", code: "history_session_unavailable" };
+      records = records.slice(0, end + 1);
+    }
+    const messages = provider === "claude-code" ? claudeMessages(records) : codexMessages(records);
     const partial = stable.truncated === true || parsed.omittedRecords > 0 || messages.truncated === true;
     return { kind: "native_history_transcript", agentId: provider, sessionId: meta.sessionId, cwd: meta.cwd || "", name: meta.title || taskFromMeta(meta).name,
       messages, ...(Array.isArray(messages.tools) ? { tools: messages.tools } : {}), hasMore: partial, truncated: partial, omittedRecords: parsed.omittedRecords || 0,

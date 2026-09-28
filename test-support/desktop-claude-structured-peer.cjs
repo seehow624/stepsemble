@@ -15,6 +15,8 @@ if (process.env.DESKTOP_STRUCTURED_MARKER) {
     home,
     ssh: process.env.SSH_CONNECTION || null,
     fixture: process.env.DESKTOP_FIXTURE_CONTEXT || null,
+    // The launch arguments, such as a branch's --fork-session.
+    args: process.argv.slice(2),
   }) + "\n");
 }
 

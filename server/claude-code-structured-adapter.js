@@ -379,7 +379,9 @@ function helpListsBypass(command, { env, spawnImpl, timeoutMs }) {
   });
 }
 
-function buildClaudeStructuredArgs({ sessionId = null, permissionPromptTool = null, permissionPrompts = "host", includePartialMessages = true, settingsPath = null, allowBypass = false } = {}) {
+// fork: a branch of the conversation being resumed, as a new conversation
+// { sessionId } holding its messages up to and including the entry { at }.
+function buildClaudeStructuredArgs({ sessionId = null, permissionPromptTool = null, permissionPrompts = "host", includePartialMessages = true, settingsPath = null, allowBypass = false, fork = null } = {}) {
   const resume = sessionId === null || sessionId === undefined ? null : safeId(sessionId);
   if (sessionId !== null && sessionId !== undefined && !resume) throw new TypeError("invalid_claude_session_id");
   const args = ["-p", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose"];
@@ -407,6 +409,11 @@ function buildClaudeStructuredArgs({ sessionId = null, permissionPromptTool = nu
     args.push("--settings", settingsPath);
   }
   if (resume) args.push("--resume", resume);
+  if (fork !== null && fork !== undefined) {
+    const at = safeId(fork?.at), id = safeId(fork?.sessionId);
+    if (!resume || !at || !id || id === resume) throw new TypeError("invalid_claude_fork");
+    args.push("--fork-session", "--session-id", id, "--resume-session-at", at);
+  }
   return Object.freeze(args);
 }
 
@@ -489,6 +496,7 @@ function createClaudeStructuredSession({
   initialModel = null,
   initialEffort = null,
   allowBypass = false,
+  fork = null,
 } = {}) {
   if (typeof command !== "string" || !path.isAbsolute(command)) throw new TypeError("claude_command_absolute_required");
   if (typeof cwd !== "string" || !path.isAbsolute(cwd)) throw new TypeError("claude_cwd_absolute_required");
@@ -498,7 +506,7 @@ function createClaudeStructuredSession({
   const rememberedModel = modelId(initialModel);
   const rememberedEffort = effortId(initialEffort);
   if (onEvent !== null && typeof onEvent !== "function" || onPermission !== null && typeof onPermission !== "function") throw new TypeError("session_callback_required");
-  const child = spawnImpl(command, buildClaudeStructuredArgs({ sessionId, permissionPromptTool, permissionPrompts, allowBypass, settingsPath: existingGatewaySettingsPath(env) }), {
+  const child = spawnImpl(command, buildClaudeStructuredArgs({ sessionId, permissionPromptTool, permissionPrompts, allowBypass, fork, settingsPath: existingGatewaySettingsPath(env) }), {
     cwd, env: { ...env }, shell: false, stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
   });
   let closed = false, writeChain = Promise.resolve(), queuedInputBytes = 0, processError = null;
@@ -1016,7 +1024,7 @@ function createClaudeStructuredSession({
     state = "running";
     lastActivityAt = Date.now();
     return enqueueFrame(frame)
-      .then(result => result.kind === "reject" ? result : ({ ...result, kind: "sent", nativeSessionId: parser.status().sessionId || sessionId }));
+      .then(result => result.kind === "reject" ? result : ({ ...result, kind: "sent", nativeSessionId: parser.status().sessionId || (fork ? fork.sessionId : sessionId) }));
   }
   async function models() {
     await initializeNative();
@@ -1165,7 +1173,8 @@ function createClaudeStructuredSession({
     status: () => {
       const current = parser.status();
       return { ...current, closed, failed: current.failed || processError?.code || null,
-        nativeSessionId: current.sessionId || sessionId, state: current.failed || processError ? "failed" : state,
+        // A branch is its own conversation from the start.
+        nativeSessionId: current.sessionId || (fork ? fork.sessionId : sessionId), state: current.failed || processError ? "failed" : state,
         model: selectedModel || null, effort: selectedEffort || null, permissionMode: permissionMode || null, contextUsage: contextUsage(),
         turnError: turnError ? { ...turnError } : null,
         startedAt, lastActivityAt, exitCode, exitSignal, processExited: childExited, cleanupConfirmed: closed && childExited };

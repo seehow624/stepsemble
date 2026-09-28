@@ -3317,6 +3317,24 @@
     Object.assign(KEYED_TRANSLATIONS[id], { "contextDashboard.scope.call": call, "contextDashboard.scope.turn": turn,
       "contextDashboard.scope.conversation": conversation });
   }
+  // Under a reply: Copy and Branch in new chat.
+  const REPLY_ACTION_TRANSLATIONS = {
+    en: ["Copy", "Copied", "Could not copy", "Branch in new chat", "Branching…", "Could not branch: {detail}", "{name} · branch"],
+    "zh-Hant": ["複製", "已複製", "無法複製", "在新對話中分支", "正在分支…", "無法分支：{detail}", "{name}・分支"],
+    "zh-Hans": ["复制", "已复制", "无法复制", "在新对话中分支", "正在分支…", "无法分支：{detail}", "{name}・分支"],
+    ja: ["コピー", "コピーしました", "コピーできませんでした", "新しいチャットで分岐", "分岐しています…", "分岐できませんでした：{detail}", "{name}・分岐"],
+    ko: ["복사", "복사됨", "복사할 수 없습니다", "새 채팅에서 분기", "분기하는 중…", "분기할 수 없습니다: {detail}", "{name} · 분기"],
+    tr: ["Kopyala", "Kopyalandı", "Kopyalanamadı", "Yeni sohbette dallandır", "Dallandırılıyor…", "Dallandırılamadı: {detail}", "{name} · dal"],
+    fr: ["Copier", "Copié", "Impossible de copier", "Créer une branche dans une nouvelle conversation", "Création de la branche…", "Impossible de créer la branche : {detail}", "{name} · branche"],
+    de: ["Kopieren", "Kopiert", "Kopieren nicht möglich", "In neuem Chat abzweigen", "Wird abgezweigt…", "Abzweigen nicht möglich: {detail}", "{name} · Abzweig"],
+    es: ["Copiar", "Copiado", "No se pudo copiar", "Ramificar en un chat nuevo", "Ramificando…", "No se pudo ramificar: {detail}", "{name} · rama"],
+    "pt-BR": ["Copiar", "Copiado", "Não foi possível copiar", "Ramificar em um novo chat", "Ramificando…", "Não foi possível ramificar: {detail}", "{name} · ramo"],
+    it: ["Copia", "Copiato", "Impossibile copiare", "Dirama in una nuova chat", "Diramazione in corso…", "Impossibile diramare: {detail}", "{name} · ramo"],
+  };
+  for (const [id, [copy, copied, copyFailed, branch, branching, branchFailed, branchName]] of Object.entries(REPLY_ACTION_TRANSLATIONS)) {
+    Object.assign(KEYED_TRANSLATIONS[id], { "reply.copy": copy, "reply.copied": copied, "reply.copyFailed": copyFailed, "reply.branch": branch,
+      "reply.branching": branching, "reply.branchFailed": branchFailed, "reply.branchName": branchName });
+  }
   const TOKENS_TRANSLATIONS = {
     en: {
       "tokens.title": "Access tokens", "tokens.note": "Issue one token per device or person. Revoking a token ends its access immediately; the installer token always keeps working.",
