@@ -1,4 +1,4 @@
-/* stepsemble v3.8.10 — Ink & Ivory / English-first localization */
+/* stepsemble v3.8.11 — Ink & Ivory / English-first localization */
 
 :root {
   /* The status bar inset. A Workspace pane sets it to 0: the Workspace keeps
@@ -1492,20 +1492,76 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
   font-size: 13px;
 }
 .md-body pre code { background: none; padding: 0; font-size: inherit; }
-.md-body table {
-  border-collapse: collapse;
-  margin: 10px 0;
-  font-size: 13.5px;
-  display: block;
-  overflow-x: auto;
+/* Tables: each column keeps a reading width and a table wider than the reply
+   scrolls sideways (renderMarkdown wraps it in .md-table and each cell's
+   content in .md-cell). */
+.md-body .md-table {
+  position: relative;
+  width: fit-content;
   max-width: 100%;
+  margin: 10px 0;
+}
+.md-body .md-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  border: 0.5px solid var(--line);
+  border-radius: 10px;
+  scrollbar-width: thin;
+}
+.md-body table {
+  width: max-content;
+  margin: 0;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  line-height: 1.5;
 }
 .md-body th, .md-body td {
-  border: 0.5px solid var(--line);
-  padding: 6px 10px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 0.5px solid var(--line);
   text-align: left;
+  vertical-align: top;
 }
-.md-body th { background: var(--milk); font-weight: 600; }
+.md-body th + th, .md-body td + td { border-left: 0.5px solid var(--line); }
+.md-body tbody tr:last-child td { border-bottom: 0; }
+.md-body th { background: var(--milk); font-weight: 600; vertical-align: bottom; }
+.md-body th[align="center"], .md-body td[align="center"] { text-align: center; }
+.md-body th[align="right"], .md-body td[align="right"] { text-align: right; }
+.md-body .md-cell {
+  max-width: 18em;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+@media (max-width: 600px) {
+  .md-body .md-cell { max-width: 14em; }
+}
+.md-body .md-table::before,
+.md-body .md-table::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  width: 28px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+.md-body .md-table::before {
+  left: 1px;
+  border-radius: 10px 0 0 10px;
+  background: linear-gradient(to right, var(--md-table-fade, var(--paper)), transparent);
+}
+.md-body .md-table::after {
+  right: 1px;
+  border-radius: 0 10px 10px 0;
+  background: linear-gradient(to left, var(--md-table-fade, var(--paper)), transparent);
+}
+.md-body .md-table.more-left::before,
+.md-body .md-table.more-right::after { opacity: 1; }
+.msg.user .md-body .md-table { --md-table-fade: var(--bubble-user); }
 .md-body hr { border: none; border-top: 0.5px solid var(--line); margin: 12px 0; }
 .msg.user .md-body p { margin: 0; }
 

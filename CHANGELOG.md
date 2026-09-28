@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.8.11
+
+- Tables in replies scroll sideways and show every column in full. A table was squeezed into the width of the reply, so on a phone a column of Chinese text broke one character per line ("需要幾把 key" took seven lines). Each column now takes the width its content needs, up to a reading width (14em on a phone, 18em wider), headers and short cells stay on one line, and a table wider than the reply scrolls. A fade at an edge shows there is more on that side.
+- While a reply is still being written, a table keeps the place it was scrolled to.
+- On a phone, a swipe from the left edge over a table that is scrolled sideways scrolls the table back; at its first column the swipe goes back to the list as before.
+- The time under a reply reads the same in Safari as elsewhere: "Sep 28, 1:42 PM", where Safari wrote "Sep 28 at 1:42 PM".
+- Checked with the table from the StepSay reply, on a 390-pixel phone in Chromium and WebKit, dark and light: every header and first-column cell on one line, long columns 214 pixels wide and at most three lines, the table 653 pixels wide in a 364-pixel view.
+
 ## 3.8.10
 
 - Bring Stepsemble's Claude Code helper on the Mac up to date so it can branch a conversation. 3.8.9 checked whether the helper could branch before updating it, but the update itself looked only at the older features, found nothing to do, and reported the helper as updated. Branching a Claude Code reply then kept saying the helper was updating. The update now installs the current helper when it cannot branch and confirms afterwards that it can.

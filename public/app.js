@@ -1,7 +1,7 @@
-/* stepsemble v3.8.10 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.11 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.10";
+const CLIENT_APP_VERSION = "3.8.11";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -11920,8 +11920,67 @@ function renderMarkdown(text) {
       });
     });
   }
+  enhanceTables(d);
   enhanceCodeBlocks(d);
   return d;
+}
+
+// Tables keep every column readable and scroll sideways when they are wider
+// than the reply. Each cell's content is capped at a reading width instead of
+// being squeezed to fit, which broke Chinese text one character per line on a
+// phone. Fades at the edges show there is more to either side.
+const tableScrollPositions = new Map();
+const tableResizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver((entries) => {
+  for (const { target } of entries) {
+    if (!target.isConnected) { tableResizeObserver.unobserve(target); continue; }
+    const scroller = target.classList.contains("md-table-scroll") ? target : target.parentElement;
+    if (!scroller?.classList.contains("md-table-scroll")) continue;
+    // A reply that is still being written is drawn again with every piece;
+    // the new table picks up where the reader had scrolled the last one.
+    if (!scroller.__tablePlaced) {
+      scroller.__tablePlaced = true;
+      const left = tableScrollPositions.get(scroller.__tableKey);
+      if (left) scroller.scrollLeft = left;
+    }
+    updateTableEdges(scroller);
+  }
+}) : null;
+
+function updateTableEdges(scroller) {
+  const frame = scroller.parentElement;
+  if (!frame) return;
+  const hidden = scroller.scrollWidth - scroller.clientWidth;
+  frame.classList.toggle("more-left", scroller.scrollLeft > 1);
+  frame.classList.toggle("more-right", hidden - scroller.scrollLeft > 1);
+}
+
+function enhanceTables(root) {
+  for (const table of root.querySelectorAll("table")) {
+    if (table.parentElement?.classList.contains("md-table-scroll")) continue;
+    const frame = document.createElement("div");
+    frame.className = "md-table";
+    const scroller = document.createElement("div");
+    scroller.className = "md-table-scroll";
+    table.replaceWith(frame);
+    frame.appendChild(scroller);
+    scroller.appendChild(table);
+    for (const cell of table.querySelectorAll("th, td")) {
+      const content = document.createElement("div");
+      content.className = "md-cell";
+      content.append(...cell.childNodes);
+      cell.appendChild(content);
+    }
+    scroller.__tableKey = (table.rows[0]?.textContent || "").replace(/\s+/g, " ").trim().slice(0, 200);
+    scroller.addEventListener("scroll", () => {
+      updateTableEdges(scroller);
+      if (!scroller.__tableKey) return;
+      tableScrollPositions.delete(scroller.__tableKey);
+      if (scroller.scrollLeft > 0) tableScrollPositions.set(scroller.__tableKey, scroller.scrollLeft);
+      if (tableScrollPositions.size > 40) tableScrollPositions.delete(tableScrollPositions.keys().next().value);
+    }, { passive: true });
+    tableResizeObserver?.observe(scroller);
+    tableResizeObserver?.observe(table);
+  }
 }
 
 // ===========================================================================
@@ -13132,7 +13191,12 @@ function setReplyTime(row, value) {
   const locale = window.stepsembleI18n?.getLocale?.() || undefined;
   time.dateTime = date.toISOString();
   try {
-    time.textContent = new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
+    // Date and time are formatted apart and joined here: Safari writes
+    // "Sep 28 at 1:42 PM" for the combined format, Chrome "Sep 28, 1:42 PM".
+    const day = new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(date);
+    const clock = new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }).format(date);
+    const language = new Intl.DateTimeFormat(locale).resolvedOptions().locale;
+    time.textContent = /^(zh|ja|ko)\b/i.test(language) ? day + " " + clock : day + ", " + clock;
     time.title = new Intl.DateTimeFormat(locale, { dateStyle: "full", timeStyle: "short" }).format(date);
   } catch { time.textContent = date.toLocaleString(); }
 }
@@ -13241,6 +13305,8 @@ function maybeDateSeparator(ts, container = el.messages) {
     const t = e.touches[0];
     if (t.clientX > EDGE) return;
     if (e.target.closest("textarea")) return;
+    // A table scrolled sideways takes the swipe back to its first column.
+    if (e.target.closest(".md-table-scroll")?.scrollLeft > 0) return;
     g = { x0: t.clientX, y0: t.clientY, t0: Date.now(), dx: 0, active: false };
   }, { passive: true });
 
