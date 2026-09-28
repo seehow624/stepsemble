@@ -13,6 +13,7 @@ const { promisify } = require("node:util");
 
 const execFileAsync = promisify(execFile);
 const REGISTRY = require("../protocol/native/codex/compatibility.json");
+const { CONTRACT_FILES, compareCodexContracts } = require("./codex-schema-compat");
 const VERSION_RE = /^codex-cli\s+(\d{1,8}\.\d{1,8}\.\d{1,8})(?:-(alpha|beta)(?:\.\d{1,8}){0,2})?$/;
 const MAX_SCHEMA_BYTES = 16 * 1024 * 1024;
 const MAX_SCHEMA_FILES = 128;
@@ -130,7 +131,16 @@ async function captureSchemaFingerprint(executable, { cwd = process.cwd(), env =
       rows.push({ file, bytes: bytes.length, sha256: crypto.createHash("sha256").update(bytes).digest("hex") });
     }
     if (rows.length > MAX_SCHEMA_FILES) throw compatibilityError("codex_schema_limit", "Codex schema file count exceeded the safety limit");
-    return Object.freeze({ fingerprint: schemaFingerprint(rows), schemas: rows });
+    // The contract documents, for a release whose fingerprint is not
+    // reviewed: it may still only add to the latest reviewed one.
+    const documents = {};
+    for (const file of CONTRACT_FILES) {
+      const filename = path.join(out, file);
+      const stat = await fs.stat(filename).catch(() => null);
+      if (!stat || !stat.isFile() || stat.size > MAX_SCHEMA_BYTES) continue;
+      try { documents[file] = JSON.parse(await fs.readFile(filename, "utf8")); } catch {}
+    }
+    return Object.freeze({ fingerprint: schemaFingerprint(rows), schemas: rows, documents });
   } finally {
     await fs.rm(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 }).catch(() => {});
   }
@@ -159,6 +169,7 @@ async function probeCodexCompatibility(executable, {
   versionProbe = null,
   schemaProbe = null,
   cache = compatibilityCache,
+  baseline = null,
 } = {}) {
   const output = versionOutput !== null && versionOutput !== undefined
     ? versionOutput
@@ -197,28 +208,47 @@ async function probeCodexCompatibility(executable, {
   }
   const exact = profileForVersion(parsed.version);
   const matched = profileForFingerprint(fingerprint);
-  if (!matched || exact && exact.schemaFingerprint !== fingerprint) {
+  if (exact && exact.schemaFingerprint !== fingerprint) {
     throw compatibilityError("codex_schema_mismatch", "Codex app-server schema is not reviewed by Stepsemble", {
       nativeVersion: parsed.version,
       schemaFingerprint: fingerprint,
     });
   }
-
-  const source = exact || matched;
-  const isExactProfile = source.version === parsed.version;
-  const capabilities = {
-    ...source.capabilities,
-    // A schema-equivalent future release is safe for bounded reads, but its
-    // writes remain disabled until the exact release has passed the owned
-    // approval contract.
-    ...(isExactProfile ? {} : { sessionResume: false, mutations: false, approvals: false }),
-  };
+  // A release with a reviewed contract is used as reviewed. One whose
+  // contract is the same as a reviewed one, or only adds to the latest
+  // reviewed one (new methods, optional fields, enum values; nothing
+  // Stepsemble sends or reads removed or changed), gets the same abilities.
+  // Anything else stays out until it is reviewed.
+  let source = exact || matched;
+  let verification = source ? (source.version === parsed.version ? source.verification : "schema-identical") : null;
+  let breaking = null;
+  if (!source) {
+    const documents = observed && typeof observed === "object" ? observed.documents : null;
+    let contract = null;
+    try {
+      contract = typeof baseline === "function" ? baseline() : baseline || require("./codex-contract-baseline").loadContractBaseline();
+    } catch {}
+    const comparison = documents && contract ? compareCodexContracts(contract.documents, documents) : null;
+    if (comparison?.compatible) {
+      source = PROFILES.find(profile => profile.profileId === contract.profile.profileId) || null;
+      verification = "additive";
+    } else breaking = comparison ? comparison.breaking.slice(0, 5) : null;
+  }
+  if (!source) {
+    throw compatibilityError("codex_schema_mismatch", "Codex app-server schema is not reviewed by Stepsemble", {
+      nativeVersion: parsed.version,
+      schemaFingerprint: fingerprint,
+      ...(breaking ? { breaking } : {}),
+    });
+  }
+  const capabilities = { ...source.capabilities };
   const result = Object.freeze({
     ...publicProfile({ ...source, capabilities }, {
       nativeVersion: parsed.version,
       observedFingerprint: fingerprint,
-      verification: isExactProfile ? source.verification : "schema-fingerprint-readonly",
+      verification,
     }),
+    ...(source.version !== parsed.version ? { basedOn: source.version } : {}),
     initializeParams: initializeParams({ ...source, capabilities }),
     schemas: Array.isArray(observed?.schemas) ? observed.schemas : null,
   });

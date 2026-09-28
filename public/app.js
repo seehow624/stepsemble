@@ -1,7 +1,7 @@
-/* stepsemble v3.8.11 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.9.0 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.11";
+const CLIENT_APP_VERSION = "3.9.0";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -13944,7 +13944,10 @@ async function requestMachineUpdate(machine, endpoint, body, { signal, timeoutMs
     }
     if (!response.ok) {
       const reachable = response.status !== 502 && response.status !== 504;
-      throw updateRequestError("Update request was not accepted", response.status, reachable);
+      const error = updateRequestError("Update request was not accepted", response.status, reachable);
+      error.code = typeof result?.code === "string" ? result.code : null;
+      error.compatibility = result?.compatibility || null;
+      throw error;
     }
     return { data: result, status: response.status };
   } catch (error) {
@@ -14250,6 +14253,9 @@ function harnessUpdateKind(item) {
 
 function harnessUpdateStatusText(item) {
   if (harnessUpgradeBlocked(item)) return updateText("Update it where it was installed");
+  const support = harnessReleaseSupport(item);
+  if (support === "unsupported") return updateText("Waiting for Stepsemble");
+  if (support === "unknown") return updateText("Support not checked");
   switch (harnessUpdateKind(item)) {
     case "missing": return updateText("Not installed");
     case "manual": return updateText("Managed by host");
@@ -14267,8 +14273,18 @@ function harnessUpgradeBlocked(item) {
   return item?.updateMode === "source-aware" && item?.source === "unknown";
 }
 
+// Codex is upgraded only to a release Stepsemble supports; the Host checks the
+// release before offering it.
+function harnessReleaseSupport(item) {
+  const state = item?.compatibility?.state;
+  if (harnessUpdateKind(item) !== "available" || !state) return null;
+  return ["supported", "unsupported", "unknown"].includes(state) ? state : "unknown";
+}
+
 function harnessUpgradeable(item) {
   const kind = harnessUpdateKind(item);
+  const support = harnessReleaseSupport(item);
+  if (support === "unsupported" || support === "unknown") return false;
   return item?.installed !== false && item?.updateMode !== "manual" && !harnessUpgradeBlocked(item)
     && (kind === "available" || kind === "unknown");
 }
@@ -14326,6 +14342,8 @@ function renderHarnessUpdates(data) {
   parts.push(outdated.length
     ? updateText(outdated.length === 1 ? "1 update available" : "{count} updates available", { count: outdated.length })
     : updateText("No updates found"));
+  const waiting = shown.filter((item) => harnessReleaseSupport(item) === "unsupported" || harnessReleaseSupport(item) === "unknown").length;
+  if (waiting) parts.push(updateText("{count} waiting for Stepsemble", { count: waiting }));
   parts.push(data.checkedAt ? updateText("checked {time}", { time: formatUpdateAge(data.checkedAt) }) : updateText("No check yet"));
   if (busy) parts.push(updateText("an agent is working"));
   if (el.harnessUpdateSummary) el.harnessUpdateSummary.textContent = harnessCheckRunning ? updateText("Checking agent versions…") : parts.join(" · ");
@@ -14354,6 +14372,11 @@ function renderHarnessUpdates(data) {
     if (detail.textContent) copy.appendChild(detail);
     const notes = [];
     if (item.lastUpdateUnchanged) notes.push(updateText("The last upgrade did not change the installed version."));
+    const support = harnessReleaseSupport(item);
+    const release = { harness: item.label || item.id, version: updateVersionText(item.compatibility?.version || item.latestVersion || "") };
+    if (support === "unsupported") notes.push(updateText("{harness} {version} changes something Stepsemble uses, so the upgrade waits until Stepsemble supports it.", release));
+    else if (support === "unknown") notes.push(updateText("Stepsemble could not check whether it supports {harness} {version}. Check again later.", release));
+    else if (support === "supported") notes.push(updateText("Checked: Stepsemble supports {harness} {version}.", release));
     if (kind === "manual" && item.note) notes.push(item.note);
     // An unproven source refuses the update, so show which file was selected.
     if (item.executablePath && item.source === "unknown") notes.push(updateText("Selected executable: {path}", { path: item.executablePath }));
@@ -14560,6 +14583,13 @@ async function upgradeHarness(machine, item) {
     harnessUpdateDataByDevice.set(machine.id, data);
     return { ok: true, data };
   } catch (error) {
+    // A refused release was checked on the way; show what the Host found.
+    if (/^release_/.test(String(error?.code || ""))) {
+      try {
+        const status = await requestMachineUpdate(machine, "/api/harness-updates/status", undefined, { timeoutMs: 9000 });
+        if (status.data) harnessUpdateDataByDevice.set(machine.id, mergeHarnessStatus(harnessUpdateDataByDevice.get(machine.id), status.data));
+      } catch {}
+    }
     return { ok: false, error };
   } finally {
     harnessUpdateInFlight.delete(id);
@@ -14573,6 +14603,11 @@ function harnessUpgradeResultText(machine, item, outcome) {
     return harnessUpdateKind(entry) === "available"
       ? updateText("{harness} upgrade finished, but a newer version is still available", { harness })
       : updateText("{harness} upgrade complete", { harness });
+  }
+  const version = updateVersionText(outcome.error?.compatibility?.version || item.latestVersion || "");
+  if (outcome.error?.code === "release_unsupported") return updateText("Stepsemble does not support {harness} {version} yet, so it was not upgraded", { harness, version });
+  if (outcome.error?.code === "release_unchecked" || outcome.error?.code === "release_unknown") {
+    return updateText("Stepsemble could not check {harness} {version}; it was not upgraded. Try again later", { harness, version });
   }
   return Number(outcome.error?.status) === 409
     ? updateText("Active agent work must finish before upgrading {harness}", { harness })

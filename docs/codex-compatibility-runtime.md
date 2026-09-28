@@ -12,11 +12,11 @@ capabilities during `initialize`. Stepsemble uses both signals.
 3. In an isolated temporary `HOME`/`CODEX_HOME`, run
    `codex app-server generate-json-schema` and hash the bounded contract files.
 4. Match the fingerprint against `protocol/native/codex/compatibility.json`.
-5. Start app-server only for a reviewed profile, passing the profile's
-   capability negotiation parameters.
-6. Keep writes and approvals behind a separate exact-profile gate. A
-   schema-equivalent future release is read-only until its owned approval
-   contract has passed.
+5. A release whose fingerprint is not reviewed is compared with the latest
+   reviewed contract (`contract-baseline.json.gz`, see below). It is used like
+   that profile when it only adds to it.
+6. Start app-server only for a reviewed, identical or additive profile,
+   passing the profile's capability negotiation parameters.
 7. If the profile is unknown or the schema drifts, keep the regular bounded
    CLI connector available and report a degraded native capability instead of
    failing the whole agent.
@@ -30,11 +30,65 @@ capabilities during `initialize`. Stepsemble uses both signals.
 | Codex `0.156.1` | native | native | reviewed native mutation |
 | Codex `0.157.0` | native | native | reviewed native mutation |
 | Codex `0.158.0` | native | native | reviewed native mutation |
-| Future version with a known fingerprint | native read-only | native read-only | disabled |
-| Unknown schema or pre-release | bounded fallback | bounded fallback | disabled |
+| Future version with a reviewed fingerprint (`schema-identical`) | native | native | native mutation |
+| Future version that only adds to the latest reviewed contract (`additive`) | native | native | native mutation |
+| Any other schema, or a pre-release | bounded fallback | bounded fallback | disabled |
 
 The preflight is local and metadata-only. It does not read the user's real
 session store, sign in, call a model, or consume a subscription request.
+
+## Additive releases
+
+Codex publishes a release every few days, and most of them only add to the
+app-server contract. Waiting for a Stepsemble release each time left Codex
+conversations unable to send after every Codex update, so a release is
+compared with the latest reviewed contract instead (`server/codex-schema-compat.js`).
+It is accepted when nothing Stepsemble sends or reads is removed or changed:
+
+- The documents compared are the 26 fingerprinted contract files and the
+  responses of the other methods Stepsemble calls (model list, fork, set
+  name, goal, rate limits, turn start and interrupt), 33 in all.
+- What Stepsemble sends (request parameters of the methods it uses,
+  initialize, approval responses) may gain optional fields and accepted
+  values, and a sent shape may become one member of a union. A new required
+  field, a removed field or accepted value, or a narrower type is a change.
+- What Stepsemble reads (responses, notifications, server requests) may gain
+  fields, enum values and union members. A removed field, notification,
+  union member or enum value, a field that is no longer always present, or a
+  different type is a change.
+- Request methods Stepsemble does not use may change or go away. A
+  definition may be renamed when its shape still fits.
+- Anything the comparison cannot classify is a change.
+
+Run against the published contracts of every stable release from 0.151.0 to
+0.158.0, each release after the one before: 14 of 15 only add, and 0.156.0 is
+refused because it removed the `url` field of an image input, which
+Stepsemble sends. Removing a field Stepsemble reads, making a sent field
+required, removing `turn/completed`, `turn/start` or an approval decision,
+and changing a type are each refused (`test/codex-schema-compat.test.js`).
+
+`protocol/native/codex/contract-baseline.json.gz` holds the documents of the
+latest reviewed release. It is checked against that profile's hashes when it
+is read, and a test requires it to be the newest reviewed profile: after
+reviewing a release, add its profile and run
+`node scripts/codex-contract-baseline.mjs <version>`.
+
+## Before an update
+
+The Updates page updates Codex only to a release Stepsemble supports
+(`server/codex-release-check.js`). The official repository publishes each
+release's contract documents under `codex-rs/app-server-protocol/schema/json`
+at tag `rust-v<version>`; they are byte-identical to what the executable
+generates (checked for 0.156.1, 0.157.0 and 0.158.0, and for all 33 documents
+of 0.158.0) and about 1 MB, where the release is 70 to 100 MB. A reviewed
+release needs no download; any other is read and compared as above. The
+verdict is kept per release in `~/.config/stepsemble/codex-release-checks.json`;
+one that could not reach GitHub is tried again after ten minutes and refuses
+the update meanwhile. An npm installation is updated to exactly the checked
+release; Homebrew and the standalone updater install the newest one, so a
+newer release installed in the meantime is checked again afterwards. After an
+update, idle Codex app-servers are started again from the executable now
+installed, which the runtime policy above checks before use.
 
 ### 0.154.0 review record
 

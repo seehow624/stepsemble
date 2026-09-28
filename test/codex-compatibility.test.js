@@ -79,17 +79,55 @@ test("reviewed stable Codex 0.158.0 is accepted with native writes and approvals
   assert.notEqual(fingerprint, profiles.find(profile => profile.nativeVersion === "0.157.0").schemaFingerprint, "0.158.0 has its own reviewed schema");
 });
 
-test("a future version with the same schema gets read-only compatibility automatically", async () => {
+test("a future version with the same schema as a reviewed one is used the same way", async () => {
   const result = await probeCodexCompatibility(process.execPath, {
     versionOutput: "codex-cli 0.154.1",
     schemaProbe: async () => ({ fingerprint: CURRENT_FINGERPRINT }),
     cache: new Map(),
   });
   assert.equal(result.nativeVersion, "0.154.1");
-  assert.equal(result.verification, "schema-fingerprint-readonly");
+  assert.equal(result.verification, "schema-identical");
+  assert.equal(result.basedOn, "0.154.0");
   assert.equal(result.capabilities.historyRead, true);
-  assert.equal(result.capabilities.sessionResume, false);
-  assert.equal(result.capabilities.mutations, false);
+  assert.equal(result.capabilities.sessionResume, true);
+  assert.equal(result.capabilities.mutations, true);
+  assert.equal(result.capabilities.approvals, true);
+});
+
+test("a future version that only adds to the latest reviewed contract is used in full", async () => {
+  const { loadContractBaseline } = require("../server/codex-contract-baseline");
+  const baseline = loadContractBaseline();
+  const documents = JSON.parse(JSON.stringify(baseline.documents));
+  documents["v2/ThreadStartParams.json"].properties.somethingNew = { type: ["string", "null"] };
+  documents["ServerNotification.json"].definitions.PlanType.enum.push("ultra");
+  const result = await probeCodexCompatibility(process.execPath, {
+    versionOutput: "codex-cli 0.159.0",
+    schemaProbe: async () => ({ fingerprint: "a".repeat(64), documents }),
+    cache: new Map(),
+  });
+  assert.equal(result.nativeVersion, "0.159.0");
+  assert.equal(result.verification, "additive");
+  assert.equal(result.basedOn, baseline.nativeVersion);
+  assert.equal(result.capabilities.mutations, true);
+  assert.equal(result.capabilities.approvals, true);
+});
+
+test("a future version that changes what Stepsemble sends or reads stays out", async () => {
+  const { loadContractBaseline } = require("../server/codex-contract-baseline");
+  const documents = JSON.parse(JSON.stringify(loadContractBaseline().documents));
+  const notifications = documents["ServerNotification.json"];
+  notifications.oneOf = notifications.oneOf.filter(variant => variant.properties?.method?.enum?.[0] !== "turn/completed");
+  await assert.rejects(() => probeCodexCompatibility(process.execPath, {
+    versionOutput: "codex-cli 0.159.0",
+    schemaProbe: async () => ({ fingerprint: "b".repeat(64), documents }),
+    cache: new Map(),
+  }), error => error.code === "codex_schema_mismatch" && error.breaking?.[0]?.reason === "union member removed");
+  // Without the documents there is nothing to compare: out, as before.
+  await assert.rejects(() => probeCodexCompatibility(process.execPath, {
+    versionOutput: "codex-cli 0.159.0",
+    schemaProbe: async () => ({ fingerprint: "c".repeat(64) }),
+    cache: new Map(),
+  }), error => error.code === "codex_schema_mismatch");
 });
 
 test("alpha and schema-drifted Codex releases fail before native startup", async () => {

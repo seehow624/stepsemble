@@ -366,6 +366,89 @@ test("Codex npm and Homebrew installations keep their package-manager source", a
   fs.rmSync(brewState.root, { recursive: true, force: true });
 });
 
+test("Codex is updated only to a release Stepsemble supports, and the update is announced", async () => {
+  const { root, file } = tempState();
+  const executable = path.join(root, ".codex", "packages", "standalone", "current", "bin", "codex");
+  const calls = [];
+  let version = "0.158.0";
+  const verdicts = { "0.159.0": { state: "unsupported", version: "0.159.0", reason: "contract_changed", breaking: [{ file: "ServerNotification.json", path: ".oneOf", reason: "union member removed" }] } };
+  const asked = [];
+  const updated = [];
+  const codex = { id: "codex", label: "Codex CLI", commands: ["codex"], package: "@openai/codex",
+    check: { kind: "source-aware", package: "@openai/codex", brewPackage: "codex" },
+    update: { kind: "source-aware", package: "@openai/codex", brewPackage: "codex", args: ["update"], verify: true } };
+  const service = createHarnessUpdateService({
+    registry: { registryVersion: 1, harnesses: [codex] },
+    stateFile: file, env: { PATH: "/fake", HOME: root },
+    resolve: name => name === "codex" ? executable : name === "npm" ? "/fake/npm" : null,
+    runner: async (command, args) => {
+      calls.push([command, args]);
+      if (args[0] === "--version") return { code: 0, stdout: `codex-cli ${version}`, stderr: "" };
+      if (command === "/fake/npm" && args[0] === "view") return { code: 0, stdout: "0.159.0\n", stderr: "" };
+      if (args[0] === "update") { version = "0.159.0"; return { code: 0, stdout: "updated", stderr: "" }; }
+      return { code: 1, stdout: "", stderr: "unexpected" };
+    },
+    releaseChecks: { codex: async target => { asked.push(target); return verdicts[target] || { state: "unknown", version: target, reason: "network" }; } },
+    afterUpdate: async ({ id }) => { updated.push(id); },
+    busy: () => false,
+  });
+  const checked = (await service.check({ id: "codex" })).harnesses[0];
+  assert.equal(checked.updateAvailable, true);
+  assert.equal(checked.compatibility.state, "unsupported");
+  assert.equal(checked.compatibility.breaking[0].reason, "union member removed");
+  await assert.rejects(() => service.update({ id: "codex", confirm: true }), error => error.code === "release_unsupported" && error.statusCode === 422
+    && error.compatibility.state === "unsupported");
+  assert.equal(calls.some(([, args]) => args[0] === "update"), false, "an unsupported release is never installed");
+  const all = await service.updateAll({ confirm: true, ids: ["codex"] });
+  assert.equal(all.results[0].status, "unsupported");
+  // GitHub could not be reached: still no update.
+  verdicts["0.159.0"] = undefined;
+  await assert.rejects(() => service.update({ id: "codex", confirm: true }), error => error.code === "release_unchecked");
+  assert.equal(calls.some(([, args]) => args[0] === "update"), false);
+  // Once Stepsemble supports the release, it is installed and announced.
+  verdicts["0.159.0"] = { state: "supported", version: "0.159.0", how: "additive" };
+  const result = await service.update({ id: "codex", confirm: true });
+  assert.equal(result.updated.success, true);
+  assert.equal(result.updated.versionAfter, "0.159.0");
+  assert.deepEqual(updated, ["codex"]);
+  assert.equal(result.harnesses[0].compatibility, null, "nothing left to check once current");
+  assert.ok(asked.every(target => target === "0.159.0"));
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("a Codex npm installation is updated to exactly the release that was checked", async () => {
+  const state = tempState();
+  const npmRoot = path.join(state.root, "prefix", "lib", "node_modules");
+  const packageRoot = path.join(npmRoot, "@openai", "codex");
+  fs.mkdirSync(path.join(packageRoot, "bin"), { recursive: true });
+  fs.writeFileSync(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@openai/codex", version: "0.158.0" }));
+  const executable = path.join(packageRoot, "bin", "codex");
+  fs.writeFileSync(executable, "#!/bin/sh\n");
+  const calls = [];
+  const service = createHarnessUpdateService({
+    registry: { registryVersion: 1, harnesses: [
+      { id: "codex", label: "Codex CLI", commands: ["codex"], package: "@openai/codex",
+        check: { kind: "source-aware", package: "@openai/codex", brewPackage: "codex" },
+        update: { kind: "source-aware", package: "@openai/codex", brewPackage: "codex", args: ["update"], verify: true } },
+    ] },
+    stateFile: state.file, env: { PATH: "/fake", HOME: state.root },
+    resolve: name => name === "codex" ? executable : name === "npm" ? "/npm/bin/npm" : null,
+    runner: async (command, args) => {
+      calls.push([command, args]);
+      if (command.endsWith("npm") && args[0] === "root") return { code: 0, stdout: `${npmRoot}\n`, stderr: "" };
+      if (command.endsWith("npm") && args[0] === "outdated") return { code: 1, stdout: JSON.stringify({ "@openai/codex": { current: "0.158.0", latest: "0.159.0" } }), stderr: "" };
+      if (command.endsWith("npm") && args[0] === "install") return { code: 0, stdout: "installed", stderr: "" };
+      return { code: 0, stdout: "codex-cli 0.158.0", stderr: "" };
+    },
+    releaseChecks: { codex: async target => ({ state: "supported", version: target, how: "additive" }) },
+    busy: () => false,
+  });
+  await service.check({ id: "codex" });
+  await service.update({ id: "codex", confirm: true });
+  assert.deepEqual(calls.find(item => item[1][0] === "install"), ["/npm/bin/npm", ["install", "--global", "@openai/codex@0.159.0"]]);
+  fs.rmSync(state.root, { recursive: true, force: true });
+});
+
 test("unknown Codex installation sources fail closed and live update guards are awaited", async () => {
   const { root, file } = tempState();
   const service = createHarnessUpdateService({

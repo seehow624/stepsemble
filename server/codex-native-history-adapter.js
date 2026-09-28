@@ -480,7 +480,8 @@ function createCodexNativeHistoryAdapter({
   versionProbe = null,
   schemaProbe = null,
 } = {}) {
-  const config = resolveConfig(env, { executable, cwd, enabled, includeKnownPaths, journalFile, contextSnapshotFile, contextSnapshotRoot, mutationEnabled });
+  const configInput = { executable, cwd, enabled, includeKnownPaths, journalFile, contextSnapshotFile, contextSnapshotRoot, mutationEnabled };
+  let config = resolveConfig(env, configInput);
   const mutationJournal = loadMutationJournal(config.journalFile);
   const mutationRows = new Map(mutationJournal.operations.map(row => [row.operationId, row]));
   let mutationWriteError = null;
@@ -1202,9 +1203,23 @@ function createCodexNativeHistoryAdapter({
   // Codex reads its sign-in when its app-server starts. After /login or
   // /logout, start a fresh app-server so reads use the current account. A
   // connection with an open approval is left alone.
-  async function recycleTransport() {
-    if (!transport || transportPromise) return { recycled: false };
-    if (typeof transport.pendingApprovals === "function" && transport.pendingApprovals().length) return { recycled: false };
+  // recheck: Codex was updated. Resolve the executable again (an updater may
+  // install beside the old release or replace it in place) and check the one
+  // found before it is used.
+  async function recycleTransport({ recheck = false } = {}) {
+    if (transportPromise) return { recycled: false };
+    if (transport && typeof transport.pendingApprovals === "function" && transport.pendingApprovals().length) return { recycled: false };
+    if (recheck && typeof transportFactory !== "function") {
+      config = resolveConfig(env, configInput);
+      verifiedCompatibility = null;
+      versionVerified = false;
+      state = { ...state, nativeVersion: null, compatibility: null, configured: config.configured, lastError: config.error };
+      if (!transport) {
+        if (config.configured) await refresh();
+        return { recycled: false, rechecked: true };
+      }
+    }
+    if (!transport) return { recycled: false };
     const instance = transport;
     transport = null;
     usageCache.clear();

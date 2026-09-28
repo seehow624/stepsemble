@@ -1780,6 +1780,31 @@
     },
   };
   for (const [id, table] of Object.entries(UPDATE_CLIENT_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
+  // Codex upgrades wait for a release Stepsemble supports.
+  const CODEX_SUPPORT_KEYS = [
+      "Waiting for Stepsemble",
+      "Support not checked",
+      "{harness} {version} changes something Stepsemble uses, so the upgrade waits until Stepsemble supports it.",
+      "Stepsemble could not check whether it supports {harness} {version}. Check again later.",
+      "Checked: Stepsemble supports {harness} {version}.",
+      "Stepsemble does not support {harness} {version} yet, so it was not upgraded",
+      "Stepsemble could not check {harness} {version}; it was not upgraded. Try again later",
+      "{count} waiting for Stepsemble"
+  ];
+  const CODEX_SUPPORT_TRANSLATIONS = {
+    "zh-Hant": ["等待 Stepsemble 支援","尚未確認支援","{harness} {version} 改動了 Stepsemble 會用到的部分，要等 Stepsemble 支援後才能升級。","Stepsemble 無法確認是否支援 {harness} {version}，請稍後再檢查。","已確認：Stepsemble 支援 {harness} {version}。","Stepsemble 尚未支援 {harness} {version}，所以沒有升級","Stepsemble 無法確認 {harness} {version}，沒有升級，請稍後再試","{count} 個等待 Stepsemble 支援"],
+    "zh-Hans": ["等待 Stepsemble 支持","尚未确认支持","{harness} {version} 改动了 Stepsemble 会用到的部分，要等 Stepsemble 支持后才能升级。","Stepsemble 无法确认是否支持 {harness} {version}，请稍后再检查。","已确认：Stepsemble 支持 {harness} {version}。","Stepsemble 尚未支持 {harness} {version}，所以没有升级","Stepsemble 无法确认 {harness} {version}，没有升级，请稍后再试","{count} 个等待 Stepsemble 支持"],
+    "ja": ["Stepsemble の対応待ち","対応を未確認","{harness} {version} は Stepsemble が使う部分を変更しているため、Stepsemble が対応するまでアップグレードを待ちます。","Stepsemble が {harness} {version} に対応しているか確認できませんでした。後でもう一度確認してください。","確認済み：Stepsemble は {harness} {version} に対応しています。","Stepsemble はまだ {harness} {version} に対応していないため、アップグレードしませんでした","Stepsemble は {harness} {version} を確認できなかったため、アップグレードしませんでした。後でもう一度お試しください","{count} 件が Stepsemble の対応待ち"],
+    "ko": ["Stepsemble 지원 대기 중","지원 여부 미확인","{harness} {version}은(는) Stepsemble이 사용하는 부분을 바꾸므로 Stepsemble이 지원할 때까지 업그레이드를 기다립니다.","Stepsemble이 {harness} {version}을(를) 지원하는지 확인하지 못했습니다. 나중에 다시 확인하세요.","확인됨: Stepsemble이 {harness} {version}을(를) 지원합니다.","Stepsemble이 아직 {harness} {version}을(를) 지원하지 않아 업그레이드하지 않았습니다","Stepsemble이 {harness} {version}을(를) 확인하지 못해 업그레이드하지 않았습니다. 나중에 다시 시도하세요","{count}개 Stepsemble 지원 대기 중"],
+    "tr": ["Stepsemble desteği bekleniyor","Destek kontrol edilmedi","{harness} {version}, Stepsemble'ın kullandığı bir şeyi değiştiriyor; yükseltme Stepsemble destekleyene kadar bekler.","Stepsemble, {harness} {version} sürümünü destekleyip desteklemediğini kontrol edemedi. Daha sonra yeniden kontrol edin.","Kontrol edildi: Stepsemble {harness} {version} sürümünü destekliyor.","Stepsemble henüz {harness} {version} sürümünü desteklemediği için yükseltilmedi","Stepsemble {harness} {version} sürümünü kontrol edemedi; yükseltilmedi. Daha sonra yeniden deneyin","{count} tanesi Stepsemble desteğini bekliyor"],
+    "fr": ["En attente de Stepsemble","Prise en charge non vérifiée","{harness} {version} modifie quelque chose qu’utilise Stepsemble ; la mise à niveau attend que Stepsemble le prenne en charge.","Stepsemble n’a pas pu vérifier s’il prend en charge {harness} {version}. Vérifiez plus tard.","Vérifié : Stepsemble prend en charge {harness} {version}.","Stepsemble ne prend pas encore en charge {harness} {version} ; la mise à niveau n’a pas été faite","Stepsemble n’a pas pu vérifier {harness} {version} ; la mise à niveau n’a pas été faite. Réessayez plus tard","{count} en attente de Stepsemble"],
+    "de": ["Wartet auf Stepsemble","Unterstützung nicht geprüft","{harness} {version} ändert etwas, das Stepsemble nutzt; das Upgrade wartet, bis Stepsemble es unterstützt.","Stepsemble konnte nicht prüfen, ob es {harness} {version} unterstützt. Später erneut prüfen.","Geprüft: Stepsemble unterstützt {harness} {version}.","Stepsemble unterstützt {harness} {version} noch nicht, daher wurde nicht aktualisiert","Stepsemble konnte {harness} {version} nicht prüfen; es wurde nicht aktualisiert. Später erneut versuchen","{count} warten auf Stepsemble"],
+    "es": ["Esperando a Stepsemble","Compatibilidad sin comprobar","{harness} {version} cambia algo que usa Stepsemble; la actualización espera hasta que Stepsemble lo admita.","Stepsemble no pudo comprobar si admite {harness} {version}. Vuelve a comprobarlo más tarde.","Comprobado: Stepsemble admite {harness} {version}.","Stepsemble aún no admite {harness} {version}, así que no se actualizó","Stepsemble no pudo comprobar {harness} {version}; no se actualizó. Inténtalo más tarde","{count} esperando a Stepsemble"],
+    "pt-BR": ["Aguardando o Stepsemble","Compatibilidade não verificada","{harness} {version} muda algo que o Stepsemble usa; a atualização aguarda até o Stepsemble ser compatível.","O Stepsemble não conseguiu verificar se é compatível com {harness} {version}. Verifique mais tarde.","Verificado: o Stepsemble é compatível com {harness} {version}.","O Stepsemble ainda não é compatível com {harness} {version}, então não foi atualizado","O Stepsemble não conseguiu verificar {harness} {version}; não foi atualizado. Tente mais tarde","{count} aguardando o Stepsemble"],
+    "it": ["In attesa di Stepsemble","Supporto non verificato","{harness} {version} cambia qualcosa che Stepsemble usa; l’aggiornamento attende finché Stepsemble non lo supporta.","Stepsemble non è riuscito a verificare se supporta {harness} {version}. Ricontrolla più tardi.","Verificato: Stepsemble supporta {harness} {version}.","Stepsemble non supporta ancora {harness} {version}, quindi non è stato aggiornato","Stepsemble non è riuscito a verificare {harness} {version}; non è stato aggiornato. Riprova più tardi","{count} in attesa di Stepsemble"],
+  };
+  for (const key of CODEX_SUPPORT_KEYS) TRANSLATIONS.en[key] = key;
+  for (const [id, list] of Object.entries(CODEX_SUPPORT_TRANSLATIONS)) CODEX_SUPPORT_KEYS.forEach((key, index) => { TRANSLATIONS[id][key] = list[index]; });
 
   // Settings sections, check-only Stepsemble updates and coding-agent rows.
   // Keyed by the English source like the other chrome tables.

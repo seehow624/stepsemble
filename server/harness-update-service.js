@@ -258,6 +258,11 @@ function createHarnessUpdateService({
   runner = execFilePromise,
   busy = () => false,
   beforeUpdate = null,
+  afterUpdate = null,
+  // Per harness id: (version) => { state: "supported" | "unsupported" |
+  // "unknown", ... }. A harness listed here is only updated to a release that
+  // is reported as supported.
+  releaseChecks = {},
   resolve = commandPath,
   home = String(env.HOME || os.homedir()),
 } = {}) {
@@ -352,10 +357,34 @@ function createHarnessUpdateService({
       // The last upgrade finished but a newer published version is still
       // known, so the row must not claim the harness is current.
       lastUpdateUnchanged: observed.lastUpdateUnchanged === true,
+      // Whether Stepsemble supports the release an update would install.
+      compatibility: publicCompatibility(observed.compatibility),
       error: observed.error || null,
       note: definition.note || definition.update.reason || null,
     };
     return result;
+  }
+
+  function publicCompatibility(value) {
+    if (!value || typeof value !== "object" || !["supported", "unsupported", "unknown"].includes(value.state)) return null;
+    return {
+      state: value.state,
+      version: typeof value.version === "string" ? value.version.slice(0, 32) : null,
+      how: typeof value.how === "string" ? value.how.slice(0, 32) : null,
+      reason: typeof value.reason === "string" ? value.reason.slice(0, 64) : null,
+      basedOn: typeof value.basedOn === "string" ? value.basedOn.slice(0, 32) : null,
+      breaking: Array.isArray(value.breaking) ? value.breaking.slice(0, 5).map(row => ({
+        file: String(row?.file || "").slice(0, 80), path: String(row?.path || "").slice(0, 160), reason: String(row?.reason || "").slice(0, 80),
+      })) : null,
+      checkedAt: typeof value.checkedAt === "string" ? value.checkedAt : null,
+    };
+  }
+
+  async function releaseVerdict(definition, version) {
+    const gate = releaseChecks?.[definition.id];
+    if (typeof gate !== "function") return null;
+    try { return publicCompatibility(await gate(version)) || { state: "unknown", version, reason: "check_failed" }; }
+    catch { return { state: "unknown", version, reason: "check_failed" }; }
   }
 
   function publicStatus() {
@@ -376,6 +405,10 @@ function createHarnessUpdateService({
     // Once a check no longer finds a newer release, the note about an
     // earlier upgrade that left the version unchanged is obsolete.
     if (observed.updateAvailable !== true) observed.lastUpdateUnchanged = false;
+    if (typeof releaseChecks?.[definition.id] === "function") {
+      if (observed.updateAvailable === true && observed.latestVersion) observed.compatibility = await releaseVerdict(definition, observed.latestVersion);
+      else delete observed.compatibility;
+    }
     return observed;
   }
 
@@ -616,7 +649,7 @@ function createHarnessUpdateService({
     return status;
   }
 
-  async function updateCommand(definition, executable) {
+  async function updateCommand(definition, executable, { target = null } = {}) {
     const strategy = definition.update || {};
     if (strategy.kind === SOURCE_AWARE_STRATEGY) {
       const source = await detectSource(definition, executable, strategy);
@@ -624,7 +657,8 @@ function createHarnessUpdateService({
         return { executable: source.manager, args: ["upgrade", source.brewPackage], source };
       }
       if (source.kind === "npm" && source.manager && source.npmPackage) {
-        return { executable: source.manager, args: ["install", "--global", `${source.npmPackage}@latest`], source };
+        // npm can install exactly the release that was checked.
+        return { executable: source.manager, args: ["install", "--global", `${source.npmPackage}@${target || "latest"}`], source };
       }
       if (source.kind === "official-standalone") {
         return { executable, args: Array.isArray(strategy.args) && strategy.args.length ? strategy.args : ["update"], source };
@@ -679,7 +713,30 @@ function createHarnessUpdateService({
     const executable = definition.executableEnv && env[definition.executableEnv]
       ? resolve(env[definition.executableEnv], env) : (definition.commands || []).map(name => resolve(name, env)).find(Boolean);
     if (!executable) throw errorStatus("not_installed", `${definition.label} is not installed`, 422);
-    const command = await updateCommand(definition, executable);
+    // A harness Stepsemble only runs in releases it supports is updated only
+    // to a release reported as supported.
+    let target = null;
+    if (typeof releaseChecks?.[definition.id] === "function") {
+      let known = stateById(definition.id) || {};
+      if (!known.latestVersion || known.updateAvailable !== true) {
+        known = await observe(definition);
+        state.entries = [...state.entries.filter(item => item.id !== definition.id), known];
+        save();
+      }
+      target = known.updateAvailable === true ? known.latestVersion || null : null;
+      if (!target) throw errorStatus("release_unknown", `The ${definition.label} release to install is not known; check again`, 422);
+      const verdict = await releaseVerdict(definition, target);
+      const previous = stateById(definition.id) || { id: definition.id };
+      previous.compatibility = verdict;
+      state.entries = [...state.entries.filter(item => item.id !== definition.id), previous];
+      save();
+      if (verdict?.state !== "supported") {
+        throw Object.assign(errorStatus(verdict?.state === "unsupported" ? "release_unsupported" : "release_unchecked",
+          verdict?.state === "unsupported" ? `Stepsemble does not support ${definition.label} ${target} yet`
+            : `Stepsemble could not check ${definition.label} ${target}; try again later`, 422), { compatibility: verdict });
+      }
+    }
+    const command = await updateCommand(definition, executable, { target });
     if (!command) throw errorStatus("manual_update", definition.update.reason || `${definition.label} must be updated by its host`, 422);
     const verify = definition.update?.verify === true || definition.update?.kind === SOURCE_AWARE_STRATEGY;
     const beforeVersion = verify ? await readHarnessVersion(executable) : null;
@@ -739,11 +796,18 @@ function createHarnessUpdateService({
       } else {
         previous.status = unchanged ? "up-to-date" : "updated"; previous.updateAvailable = false; previous.lastUpdateUnchanged = false;
       }
+      // An updater that installs the newest release may install a newer one
+      // than was checked; say whether Stepsemble supports what it installed.
+      if (target && afterVersion?.version && afterVersion.version !== target) previous.compatibility = await releaseVerdict(definition, afterVersion.version);
+      else if (target && !stillBehind) delete previous.compatibility;
     }
     else { previous.status = "error"; previous.error = record.error; }
     state.entries = [...state.entries.filter(item => item.id !== definition.id), previous];
     save();
     if (!successful) throw Object.assign(new Error(record.error || "Harness update failed"), { statusCode: 502, code: record.error, result: record });
+    if (typeof afterUpdate === "function") {
+      try { await afterUpdate({ id: definition.id, record }); } catch {}
+    }
     return { ...publicStatus(), updated: record };
   }
 
@@ -773,7 +837,8 @@ function createHarnessUpdateService({
           const result = await updateOne(definition, { confirm: true });
           results.push({ id: definition.id, label: definition.label, status: "updated", result: result.updated });
         } catch (error) {
-          const status = error.code === "agent_busy" ? "blocked" : error.code === "not_installed" ? "not-installed" : "failed";
+          const status = error.code === "agent_busy" ? "blocked" : error.code === "not_installed" ? "not-installed"
+            : error.code === "release_unsupported" ? "unsupported" : error.code === "release_unchecked" || error.code === "release_unknown" ? "unchecked" : "failed";
           results.push({ id: definition.id, label: definition.label, status,
             code: error.code || null, error: String(error.message || error).slice(0, 200) });
           if (error.code === "agent_busy") break;

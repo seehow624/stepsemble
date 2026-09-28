@@ -68,7 +68,7 @@ test("Codex native history refuses an unreviewed executable version before app-s
   assert.equal(launches, 0);
 });
 
-test("Codex native history enables reviewed 0.154.0 writes and refuses an unreviewed schema-equivalent release", async t => {
+test("Codex native history enables reviewed 0.154.0 writes and those of a later release with the same contract", async t => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-native-compat-"));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   const fingerprint = registry().profiles.find(profile => profile.nativeVersion === "0.154.0").schemaFingerprint;
@@ -101,8 +101,7 @@ test("Codex native history enables reviewed 0.154.0 writes and refuses an unrevi
   assert.deepEqual(launchOptions.env, isolatedEnv, "native launch must use the same explicit environment as its probe");
   assert.notEqual(launchOptions.env, isolatedEnv, "launcher receives a detached environment snapshot");
 
-  // A later release carrying the same fingerprint has not been reviewed on its
-  // own, so it must still fall back to read-only rather than inheriting writes.
+  // A later release with the same contract works as the reviewed one does.
   const later = createCodexNativeHistoryAdapter({
     enabled: true,
     executable: process.execPath,
@@ -115,10 +114,47 @@ test("Codex native history enables reviewed 0.154.0 writes and refuses an unrevi
   });
   t.after(() => later.close());
   const laterStatus = await later.refresh();
-  assert.equal(laterStatus.compatibility.verification, "schema-fingerprint-readonly");
-  assert.equal(laterStatus.mutationReady, false);
-  assert.equal(later.capability().mode, "native_readonly");
-  await assert.rejects(() => later.startThread({}), error => error.code === "native_mutations_not_reviewed");
+  assert.equal(laterStatus.compatibility.verification, "schema-identical");
+  assert.equal(laterStatus.nativeVersion, "0.154.9");
+  assert.equal(laterStatus.mutationReady, true);
+});
+
+test("after Codex is updated the shared reader finds and checks the executable now installed", { skip: process.platform === "win32" ? "uses a symbolic link as the updaters do" : false }, async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-recheck-"));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
+  const releases = path.join(temp, "releases");
+  fs.mkdirSync(releases);
+  for (const name of ["old", "new"]) fs.writeFileSync(path.join(releases, name), "#!/bin/sh\n", { mode: 0o755 });
+  const link = path.join(temp, "codex");
+  fs.symlinkSync(path.join(releases, "old"), link);
+  const profiles = registry().profiles;
+  const versionOf = executable => executable.endsWith("old") ? "0.157.0" : "0.158.0";
+  const probed = [];
+  const fake = {
+    async initialize() {},
+    async listThreads() { return { kind: "threads", data: [] }; },
+    async close() { return { kind: "closed", cleanupConfirmed: true }; },
+  };
+  const adapter = createCodexNativeHistoryAdapter({
+    enabled: true, executable: link, cwd: temp, mutationEnabled: true, journalFile: path.join(temp, "mutations.json"),
+    versionProbe: async executable => { probed.push(path.basename(executable)); return "codex-cli " + versionOf(executable); },
+    schemaProbe: async (executable, { version }) => ({ fingerprint: profiles.find(profile => profile.nativeVersion === version).schemaFingerprint }),
+    launch: () => fake,
+  });
+  t.after(() => adapter.close());
+  assert.equal((await adapter.refresh()).nativeVersion, "0.157.0");
+  // The updater points the command at the new release; the old one stays.
+  fs.unlinkSync(link);
+  fs.symlinkSync(path.join(releases, "new"), link);
+  await adapter.recycleTransport();
+  assert.equal(adapter.status().nativeVersion, "0.157.0", "a sign-in recycle keeps the executable");
+  const result = await adapter.recycleTransport({ recheck: true });
+  assert.equal(result.recycled, true);
+  const status = adapter.status();
+  assert.equal(status.nativeVersion, "0.158.0");
+  assert.equal(status.compatibility.verification, "reviewed");
+  assert.equal(status.mutationReady, true);
+  assert.deepEqual(probed, ["old", "new"]);
 });
 
 test("Codex native history adapter exposes bounded read-only tasks and transcript methods", async t => {

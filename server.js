@@ -73,6 +73,7 @@ const { createDesktopClaudeClient } = require("./server/claude-desktop-client");
 const { createNativeHistoryCatalog } = require("./server/native-history-catalog");
 const { createCodexPersistedObserver } = require("./server/codex-persisted-observer");
 const { createHarnessUpdateService, loadHarnessUpdateRegistry } = require("./server/harness-update-service");
+const { createCodexReleaseCheck } = require("./server/codex-release-check");
 const { loadHistoryConfig, createHistoryHost, disabledHistoryHost } = require("./server/history-host");
 const {
   BROWSER_COOKIE,
@@ -103,7 +104,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.11";
+const APP_VERSION = "3.9.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2431,11 +2432,18 @@ const agentTasks = createAgentTaskService({
 // mutation so an update cannot silently interrupt a session/account.
 let harnessUpdateService;
 try {
+  // Codex is updated only to a release this Stepsemble supports; the verdict
+  // for each release is kept beside the update state.
+  const codexReleases = createCodexReleaseCheck({ cacheFile: path.join(path.dirname(HARNESS_UPDATE_STATE_FILE), "codex-release-checks.json") });
   harnessUpdateService = createHarnessUpdateService({
     registry: loadHarnessUpdateRegistry(HARNESS_UPDATE_REGISTRY_FILE),
     stateFile: HARNESS_UPDATE_STATE_FILE,
     env: { ...process.env, HOME: APP_HOME, USERPROFILE: APP_HOME },
     home: APP_HOME,
+    releaseChecks: { codex: version => codexReleases.check(version) },
+    // After Codex is updated, idle Codex app-servers are started again from
+    // the executable now installed, which is checked before use.
+    afterUpdate: ({ id }) => id === "codex" ? codexNative.recycleIdle?.({ recheck: true }) : null,
     beforeUpdate: async () => {
       if (activeRpcSessionsForUpdate().length || activeAgentTasksForUpdate().length) return { busy: true };
       // A native OpenCode process may be managed by another client. Query its
@@ -6451,7 +6459,8 @@ const server = http.createServer(async (req, res) => {
           const body = await readJSON(req, 8 * 1024);
           sendJSON(res, 200, await harnessUpdateService.update({ id: body?.id, confirm: body?.confirm === true }));
         } catch (e) {
-          sendJSON(res, e.statusCode || 502, { error: e.message || "Could not update harness", code: e.code || null, result: e.result || undefined });
+          sendJSON(res, e.statusCode || 502, { error: e.message || "Could not update harness", code: e.code || null, result: e.result || undefined,
+            compatibility: e.compatibility || undefined });
         }
         return;
       }

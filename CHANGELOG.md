@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.9.0
+
+- Use a new Codex release without waiting for a Stepsemble release when it only adds to the Codex that Stepsemble supports. Codex publishes a release every few days; until now each one had to be added to Stepsemble by hand, and in the meantime Codex conversations could not send after Codex was updated. Stepsemble now compares the new release's app-server contract with the latest one it has reviewed. New methods, optional fields and values are accepted; a release that removes or changes something Stepsemble sends or reads is kept out until it is reviewed. A release with the same contract as a reviewed one is used in full too, where it was read-only.
+- The Updates page updates Codex only to a release Stepsemble supports. It reads the release's contract from the official Codex repository (about 1 MB, not the 70 to 100 MB release) and compares it before offering the update. A release Stepsemble does not support shows "Waiting for Stepsemble" with the reason and no Upgrade button; one that could not be checked asks to check again later; a supported one says so. An npm installation is updated to exactly the checked release.
+- After Codex is updated, Stepsemble starts its idle Codex app-servers again from the executable now installed and checks it. Before, it kept using the release it had started with until Stepsemble itself restarted.
+- Checked against the published contracts of every stable Codex release from 0.151.0 to 0.158.0: 14 of 15 updates only add; 0.156.0 is kept out because it removed the image field Stepsemble sends. Removing a field Stepsemble reads, requiring a new field Stepsemble sends, removing `turn/completed`, `turn/start` or an approval decision, and changing a type are each kept out. On a Host with a stand-in Codex 0.157.0, the Updates page checked 0.157.1 against GitHub in about 5 seconds, found it supported and installed it, and refused a release with no published contract without installing anything.
+
 ## 3.8.11
 
 - Tables in replies scroll sideways and show every column in full. A table was squeezed into the width of the reply, so on a phone a column of Chinese text broke one character per line ("需要幾把 key" took seven lines). Each column now takes the width its content needs, up to a reading width (14em on a phone, 18em wider), headers and short cells stay on one line, and a table wider than the reply scrolls. A fade at an edge shows there is more on that side.

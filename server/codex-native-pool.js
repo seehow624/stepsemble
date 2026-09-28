@@ -908,13 +908,15 @@ function createCodexNativePool({
   // After the Codex sign-in changes, idle app-servers still hold the old
   // credentials. Close the idle ones (the next conversation starts a fresh
   // one) and restart the shared reader. Busy children are left running.
-  async function recycleIdle() {
+  // recheck: the Codex executable was updated; the shared reader resolves and
+  // checks it again, and later children start from it.
+  async function recycleIdle({ recheck = false } = {}) {
     if (closed) return { closed: 0, busy: 0 };
     const idle = [...entries].filter(entry => !entry.closeRequested && childIsBusy(entry) === false);
     const busy = [...entries].filter(entry => !entry.closeRequested && childIsBusy(entry) !== false).length;
     for (const entry of idle) removeEntry(entry);
     await Promise.allSettled(idle.map(entry => closeEntry(entry)));
-    try { if (typeof history?.recycleTransport === "function") await history.recycleTransport(); } catch {}
+    try { if (typeof history?.recycleTransport === "function") await history.recycleTransport({ recheck }); } catch {}
     return { closed: idle.length, busy };
   }
 

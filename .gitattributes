@@ -4,3 +4,5 @@ client/protocol-types.d.ts text eol=lf
 # Native Windows DDL uses CRLF; keep the canonical fixture LF and check both
 # explicitly instead of allowing Git checkout configuration to change its pin.
 protocol/native/codex/*.sql text eol=lf
+# The Codex contract baseline is compressed; its hashes are checked on read.
+protocol/native/codex/*.gz binary
