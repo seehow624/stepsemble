@@ -1,4 +1,4 @@
-/* stepsemble v3.8.12 — Ink & Ivory / English-first localization */
+/* stepsemble v3.8.13 — Ink & Ivory / English-first localization */
 
 :root {
   /* The status bar inset. A Workspace pane sets it to 0: the Workspace keeps
@@ -1638,7 +1638,48 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
   padding: 0;
   cursor: pointer;
 }
-.msg-thumbs { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+/* Pictures sent with a message: small square thumbnails above its text, as in
+   Codex (appendImageGallery). The text keeps its own width beneath them. */
+.msg.msg-with-images { display: flex; flex-direction: column; align-items: flex-end; }
+.msg.assistant.msg-with-images { align-items: flex-start; }
+.msg.msg-with-images > .bubble { max-width: 100%; }
+.msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 100%;
+  margin-bottom: 6px;
+}
+.msg.assistant .msg-attachments { justify-content: flex-start; }
+.msg-attachments .msg-image-button,
+.msg-image-missing {
+  flex: none;
+  width: 140px;
+  height: 140px;
+  min-height: 0;
+  border-radius: 14px;
+}
+.msg-attachments .msg-image-button img {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: cover;
+}
+.msg-image-missing {
+  display: grid;
+  place-items: center;
+  border: 0.5px solid var(--line);
+  background: var(--milk);
+  color: var(--pine-soft);
+}
+.msg-image-missing .icon { width: 30px; height: 30px; }
+.bubble.bubble-empty { display: none; }
+@media (max-width: 600px) {
+  .msg-attachments .msg-image-button,
+  .msg-image-missing { width: 112px; height: 112px; }
+}
 .msg-image-button {
   display: block;
   max-width: min(260px, 100%);
@@ -1657,11 +1698,6 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
   max-width: 260px;
   max-height: 220px;
   object-fit: contain;
-}
-.msg-image-note, .image-message-fallback {
-  align-self: center;
-  color: var(--pine-soft);
-  font-size: .72rem;
 }
 .image-lightbox {
   position: fixed;

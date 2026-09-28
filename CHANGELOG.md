@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.8.13
+
+- Pictures sent with a message are shown as in Codex: small square thumbnails above the text, on the same side, with the text in its own bubble below. A tap opens the picture. They were inside the bubble at full width, and a message of pictures alone had an empty bubble; it now has none.
+- Reopened conversations keep the pictures: Claude Code's history now reads them from its record (a message of pictures alone was left out altogether), and Codex and OpenCode show the pictures their records hold. After a Codex reply, Codex's own copy of the message used to replace the pictures with "[image]". A picture an agent keeps only as a file, or past 16 MB of pictures in one history, keeps its place as an image tile.
+- Grok Build, Kilo, Hermes and Cline show the pictures in their own replay of a conversation.
+- Checked on a Host with a local Claude and a local model for Codex, at 1280 and 390 pixels: two pictures with text and a picture alone, sent and reopened, each thumbnail 140 pixels (112 on a phone) above its text and none inside the bubble; a Pi history with pictures the same; a thumbnail opens the picture full size.
+
 ## 3.8.12
 
 - Use a new Codex release without waiting for a Stepsemble release when it only adds to the Codex that Stepsemble supports. Codex publishes a release every few days; until now each one had to be added to Stepsemble by hand, and in the meantime Codex conversations could not send after Codex was updated. Stepsemble now compares the new release's app-server contract with the latest one it has reviewed. New methods, optional fields and values are accepted; a release that removes or changes something Stepsemble sends or reads is kept out until it is reviewed. A release with the same contract as a reviewed one is used in full too, where it was read-only.

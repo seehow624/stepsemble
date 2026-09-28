@@ -32,6 +32,11 @@ const MAX_TOOL_INPUT_BYTES = 64 * 1024;
 const MAX_TOOL_FIELD_TEXT = 4 * 1024;
 const MAX_TOOL_OUTPUT_TEXT = 32 * 1024;
 const MAX_TOTAL_TOOL_BYTES = 8 * 1024 * 1024;
+// Pictures the person sent, shown beside their message. Past this budget a
+// picture is counted and shown as one the page cannot display.
+const MAX_IMAGE_URL_BYTES = 8 * 1024 * 1024;
+const MAX_TOTAL_IMAGE_BYTES = 16 * 1024 * 1024;
+const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 const MAX_TITLE = 160;
 const REFRESH_MS = 15_000;
 const REFRESH_DEADLINE_MS = 4_000;
@@ -366,21 +371,36 @@ function claudeToolOutput(content) {
 // message at index `after`.
 function claudeMessages(records) {
   const messages = [], tools = [], calls = new Map();
-  let totalBytes = 0, toolBytes = 0;
+  let totalBytes = 0, toolBytes = 0, imageBytes = 0;
   let truncated = false;
-  const push = (role, raw, row) => {
+  const push = (role, raw, row, pictures = null) => {
     const remaining = MAX_TOTAL_MESSAGE_BYTES - totalBytes;
     if (remaining <= 0) { truncated = true; return false; }
-    const value = boundedText(raw, Math.min(MAX_MESSAGE_TEXT, remaining));
-    if (!value) return true;
+    const value = raw ? boundedText(raw, Math.min(MAX_MESSAGE_TEXT, remaining)) : "";
+    if (!value && !pictures?.images) return true;
     if (value.length < raw.length) truncated = true;
     // An assistant message's id lets a live view skip what this history
     // already shows.
     messages.push({ role, text: value, timestamp: timestamp(row.timestamp), ts: timestamp(row.timestamp), model: text(row.message?.model, 128) || undefined,
-      id: role === "assistant" ? text(row.message?.id, 256) || undefined : undefined });
+      id: role === "assistant" ? text(row.message?.id, 256) || undefined : undefined,
+      ...(pictures?.images ? { images: pictures.images, imageAttachments: pictures.imageAttachments } : {}) });
     totalBytes += Buffer.byteLength(value);
     if (messages.length >= MAX_MESSAGES) { truncated = true; return false; }
     return true;
+  };
+  const pictures = content => {
+    const parts = (Array.isArray(content) ? content : []).filter(part => part?.type === "image");
+    const imageAttachments = [];
+    for (const part of parts) {
+      const source = part.source && typeof part.source === "object" ? part.source : {};
+      const type = String(source.media_type || "").toLowerCase();
+      if (source.type !== "base64" || !IMAGE_TYPES.has(type) || typeof source.data !== "string") continue;
+      const url = `data:${type};base64,${source.data}`;
+      if (url.length > MAX_IMAGE_URL_BYTES || imageBytes + url.length > MAX_TOTAL_IMAGE_BYTES) continue;
+      imageBytes += url.length;
+      imageAttachments.push({ data: url, mimeType: type });
+    }
+    return parts.length ? { images: parts.length, imageAttachments } : null;
   };
   for (const row of records) {
     if (!row || !["user", "assistant"].includes(row.type)) continue;
@@ -405,7 +425,8 @@ function claudeMessages(records) {
     }
     if (row.isMeta === true) continue;
     const raw = claudeProse(content);
-    if (!raw) continue;
+    const sent = row.type === "user" ? pictures(content) : null;
+    if (!raw && !sent) continue;
     let ok = true;
     // Claude's placeholder for a turn that was cut off, added when the
     // conversation is resumed; its other notes, such as an API error, stay.
@@ -414,7 +435,7 @@ function claudeMessages(records) {
     else if (/^<task-notification>/.test(raw)) continue;
     else if (claudeCommand(raw)) ok = push("user", claudeCommand(raw), row);
     else if (claudeCommandOutput(raw) !== null) { const output = claudeCommandOutput(raw); if (output) ok = push("assistant", output, row); }
-    else ok = push("user", raw, row);
+    else ok = push("user", raw, row, sent);
     if (!ok) break;
   }
   Object.defineProperty(messages, "truncated", { value: truncated, enumerable: false });

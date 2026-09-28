@@ -1,7 +1,7 @@
-/* stepsemble v3.8.12 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.13 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.12";
+const CLIENT_APP_VERSION = "3.8.13";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -2671,6 +2671,7 @@ function appendNativeHistoryMessage(message, agentId, container = el.messages, {
   stampMessageTime(wrap, message?.ts || message?.timestamp);
   const value = boundedDisplayText(message?.text || "", 512 * 1024);
   if (value) bubble.appendChild(renderMarkdown(value));
+  if (role === "user") appendImageGallery(wrap, bubble, message?.imageAttachments, message?.images || 0);
   if (role === "assistant") wrap.appendChild(msgActionsRow("assistant", () => value, { fork }));
 }
 
@@ -5197,14 +5198,9 @@ function openCodeMessageText(message) {
 function appendNormalizedAgentMessage(view, label, container = el.messages, model = null, { fork = null, ts = undefined } = {}) {
   if (!view) return null;
   if (view.role === "user") {
-    const { bubble } = makeMsgShell("user", "你", container);
+    const { wrap, bubble } = makeMsgShell("user", "你", container);
     if (view.text) bubble.appendChild(renderMarkdown(view.text));
-    if (!view.text && view.images) {
-      const note = document.createElement("span");
-      note.className = "image-message-fallback";
-      note.textContent = `[${view.images} 張附件]`;
-      bubble.appendChild(note);
-    }
+    appendImageGallery(wrap, bubble, view.imageAttachments, view.images || 0);
     return bubble;
   }
   const { wrap, bubble } = makeMsgShell("assistant", model ? `${label} · ${model}` : label, container);
@@ -5406,8 +5402,9 @@ function appendCodexNativeItem(item, container = el.messages, { fork = null, ts 
   const view = agentTranscriptPresentation.codexItem(item);
   if (!view) return;
   if (view.kind === "message" && view.role === "user") {
-    const { bubble } = makeMsgShell("user", "你", container);
+    const { wrap, bubble } = makeMsgShell("user", "你", container);
     if (view.text) bubble.appendChild(renderMarkdown(view.text));
+    appendImageGallery(wrap, bubble, view.imageAttachments, view.images || 0);
     return;
   }
   if (view.kind === "message") {
@@ -6304,12 +6301,28 @@ function appendStructuredUserText(connection, value) {
   if (echoIndex >= 0) { echoes.splice(echoIndex, 1); return; }
   let state = connection.structuredUserNode;
   if (!state?.bubble?.isConnected) {
-    const { bubble } = makeMsgShell("user", "你");
-    state = { bubble, text: "" };
+    const { wrap, bubble } = makeMsgShell("user", "你");
+    state = { wrap, bubble, text: "" };
     connection.structuredUserNode = state;
   }
   state.text += text;
   state.bubble.replaceChildren(renderMarkdown(state.text));
+  syncBubbleEmpty(state.bubble);
+  scrollBottom();
+}
+
+// A picture in the person's message, from an agent's replay of a conversation.
+function appendStructuredUserImage(connection, image) {
+  if (rpc !== connection) return;
+  connection.genericOutputNode = null;
+  connection.structuredThinking = null;
+  let state = connection.structuredUserNode;
+  if (!state?.bubble?.isConnected) {
+    const { wrap, bubble } = makeMsgShell("user", "你");
+    state = { wrap, bubble, text: "" };
+    connection.structuredUserNode = state;
+  }
+  appendImageGallery(state.wrap || state.bubble.parentElement, state.bubble, image ? [image] : [], 1);
   scrollBottom();
 }
 
@@ -6318,6 +6331,10 @@ function renderAgentProtocolUpdate(connection, update, label, fallbackKey) {
   if (!view) return;
   if (view.kind === "user_delta") {
     appendStructuredUserText(connection, view.text);
+    return;
+  }
+  if (view.kind === "user_image") {
+    appendStructuredUserImage(connection, view.image);
     return;
   }
   // Whatever the agent writes next ends the person's message above it.
@@ -7903,13 +7920,24 @@ function openImageLightbox(image, alt = "圖片", trigger = null) {
   el.imageLightboxClose?.focus({ preventScroll: true });
 }
 
-function appendImageGallery(target, attachments, expectedCount = 0) {
-  if (!target || !Array.isArray(attachments)) return 0;
-  const images = attachments.map(normalizeImageAttachment).filter(Boolean);
-  if (!images.length) return 0;
-  const gallery = document.createElement("div");
-  gallery.className = "msg-thumbs";
-  images.forEach((image, index) => {
+// Pictures sent with a message sit above its text as small thumbnails, as in
+// Codex; a tap opens the picture. One a record no longer holds keeps its place
+// as an empty tile. A message of pictures alone has no empty bubble.
+function appendImageGallery(wrap, bubble, attachments, expectedCount = 0) {
+  if (!wrap || !bubble) return 0;
+  const images = (Array.isArray(attachments) ? attachments : []).map(normalizeImageAttachment).filter(Boolean);
+  const missing = Math.max(0, Math.min(12, Number(expectedCount) || 0) - images.length);
+  if (!images.length && !missing) return 0;
+  let gallery = wrap.querySelector(":scope > .msg-attachments");
+  if (!gallery) {
+    gallery = document.createElement("div");
+    gallery.className = "msg-attachments";
+    wrap.insertBefore(gallery, bubble);
+    wrap.classList.add("msg-with-images");
+  }
+  const offset = gallery.children.length;
+  images.forEach((image, position) => {
+    const index = offset + position;
     const button = document.createElement("button");
     button.type = "button";
     button.className = "msg-image-button";
@@ -7924,15 +7952,20 @@ function appendImageGallery(target, attachments, expectedCount = 0) {
     button.addEventListener("click", () => openImageLightbox(image, img.alt, button));
     gallery.appendChild(button);
   });
-  const omitted = Math.max(0, Number(expectedCount) - images.length);
-  if (omitted) {
-    const note = document.createElement("span");
-    note.className = "msg-image-note";
-    note.textContent = `另有 ${omitted} 張圖片無法預覽`;
-    gallery.appendChild(note);
+  for (let position = 0; position < missing; position += 1) {
+    const tile = document.createElement("span");
+    tile.className = "msg-image-missing";
+    tile.setAttribute("role", "img");
+    tile.setAttribute("aria-label", "圖片");
+    tile.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-image"/></svg>';
+    gallery.appendChild(tile);
   }
-  target.appendChild(gallery);
+  syncBubbleEmpty(bubble);
   return images.length;
+}
+
+function syncBubbleEmpty(bubble) {
+  bubble?.classList.toggle("bubble-empty", !String(bubble.textContent || "").trim() && !bubble.querySelector("img, svg, pre, table"));
 }
 
 function codexImagePreviewSrc(preview) {
@@ -8497,13 +8530,7 @@ function appendHistoryMessage(m, container = el.messages, options = {}) {
     const { wrap, bubble } = makeMsgShell("user", "你", container);
     stampMessageTime(wrap, m.ts || m.timestamp);
     if (m.text) bubble.appendChild(renderMarkdown(m.text));
-    const rendered = appendImageGallery(bubble, m.imageAttachments, m.images || 0);
-    if (!m.text && !rendered && m.images) {
-      const note = document.createElement("span");
-      note.className = "image-message-fallback";
-      note.textContent = `[${m.images} 張圖片]`;
-      bubble.appendChild(note);
-    }
+    appendImageGallery(wrap, bubble, m.imageAttachments, m.images || 0);
   } else if (m.role === "assistant") {
     // Older-history pages are prepended after the latest plan has already
     // been rendered. Do not let an obsolete plan replace the current one;
@@ -10372,7 +10399,7 @@ async function sendCurrent() {
   const { wrap: userShell, bubble } = makeMsgShell("user", "你");
   userShell.dataset.ts = String(Date.now());
   if (text) bubble.appendChild(renderMarkdown(text));
-  if (pendingImages.length) appendImageGallery(bubble, pendingImages, pendingImages.length);
+  if (pendingImages.length) appendImageGallery(userShell, bubble, pendingImages, pendingImages.length);
   const codexEcho = codexNativeSend ? trackCodexNativeEcho(codexNativeSend, userShell, text) : null;
   // The reply to this message goes below it in a new bubble, never into the
   // reply bubble above it.

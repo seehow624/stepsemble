@@ -30,6 +30,15 @@
     return text(part.text || part.summary || part.content || part.value || "");
   }
 
+  // A picture the person sent, when the record holds it as a data URL. The
+  // page checks the URL again before showing it.
+  const IMAGE_DATA_URL = /^data:image\/(?:jpeg|png|webp|gif);base64,/i;
+  const MAX_IMAGE_URL = 8 * 1024 * 1024;
+  function imageAttachment(url, mimeType = "") {
+    if (typeof url !== "string" || url.length > MAX_IMAGE_URL || !IMAGE_DATA_URL.test(url)) return null;
+    return { src: url, mimeType: text(mimeType, 64) };
+  }
+
   function status(value) {
     return text(value, 64).toLowerCase().replace(/[\s_-]+/g, "");
   }
@@ -63,9 +72,15 @@
       if (part?.type === "text" || typeof part === "string") return partText(part);
       if (part?.type === "skill") return `[skill: ${text(part.name || part.path || "", MAX_LABEL)}]`;
       if (part?.type === "mention") return `[mention: ${text(part.name || part.path || "", MAX_LABEL)}]`;
-      if (part?.type === "image" || part?.type === "localImage") return "[image]";
       return "";
     }).filter(Boolean).join("\n");
+  }
+
+  // Pictures are shown beside the message; a picture Codex keeps as a file
+  // path (localImage) is counted and shown as a picture it cannot display.
+  function codexUserImages(item) {
+    const parts = (Array.isArray(item?.content) ? item.content : []).filter(part => part?.type === "image" || part?.type === "localImage");
+    return { images: parts.length, imageAttachments: parts.map(part => part.type === "image" ? imageAttachment(part.url) : null).filter(Boolean) };
   }
 
   function codexFileTarget(item) {
@@ -113,7 +128,7 @@
 
   function codexItem(item) {
     if (!plain(item)) return null;
-    if (item.type === "userMessage") return { kind: "message", role: "user", text: codexUserText(item) };
+    if (item.type === "userMessage") return { kind: "message", role: "user", text: codexUserText(item), ...codexUserImages(item) };
     if (item.type === "agentMessage" || item.type === "plan") {
       return { kind: "message", role: "assistant", text: text(item.text || "") };
     }
@@ -174,7 +189,7 @@
     const parts = Array.isArray(message.parts) ? message.parts : [];
     // `sequence` keeps the parts in the order the agent produced them, so a
     // reply written after its tool calls is shown after them.
-    const response = { role, text: "", thinking: "", tools: [], images: 0, sequence: [] };
+    const response = { role, text: "", thinking: "", tools: [], images: 0, imageAttachments: [], sequence: [] };
     const prose = [], thinking = [];
     const push = (kind, value) => {
       const last = response.sequence[response.sequence.length - 1];
@@ -185,7 +200,11 @@
       if (!plain(part)) continue;
       if (part.type === "text" && typeof part.text === "string") { prose.push(text(part.text)); push("text", text(part.text)); }
       else if (part.type === "reasoning" && typeof part.text === "string") { thinking.push(text(part.text)); push("thinking", text(part.text)); }
-      else if (part.type === "image" || part.type === "file") response.images += 1;
+      else if (part.type === "image" || part.type === "file") {
+        response.images += 1;
+        const picture = imageAttachment(part.url, part.mime || part.mimeType);
+        if (picture) response.imageAttachments.push(picture);
+      }
       else if (part.type === "tool") {
         const stateValue = plain(part.state) ? part.state : {};
         const tool = toolView({
@@ -226,6 +245,10 @@
     // copy the Host keeps of a message sent from Stepsemble.
     if (kind === "user_message_chunk" && typeof content.text === "string") {
       return { kind: "user_delta", text: text(content.text) };
+    }
+    if (kind === "user_message_chunk" && content.type === "image") {
+      const mimeType = text(content.mimeType, 64);
+      return { kind: "user_image", image: typeof content.data === "string" ? imageAttachment(`data:${mimeType};base64,${content.data}`, mimeType) : null };
     }
     if ((kind === "agent_message_chunk" || kind === "agent_message") && typeof content.text === "string") {
       return { kind: "message_delta", text: text(content.text) };
