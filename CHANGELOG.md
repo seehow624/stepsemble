@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.9.0
+## 3.8.12
 
 - Use a new Codex release without waiting for a Stepsemble release when it only adds to the Codex that Stepsemble supports. Codex publishes a release every few days; until now each one had to be added to Stepsemble by hand, and in the meantime Codex conversations could not send after Codex was updated. Stepsemble now compares the new release's app-server contract with the latest one it has reviewed. New methods, optional fields and values are accepted; a release that removes or changes something Stepsemble sends or reads is kept out until it is reviewed. A release with the same contract as a reviewed one is used in full too, where it was read-only.
 - The Updates page updates Codex only to a release Stepsemble supports. It reads the release's contract from the official Codex repository (about 1 MB, not the 70 to 100 MB release) and compares it before offering the update. A release Stepsemble does not support shows "Waiting for Stepsemble" with the reason and no Upgrade button; one that could not be checked asks to check again later; a supported one says so. An npm installation is updated to exactly the checked release.
