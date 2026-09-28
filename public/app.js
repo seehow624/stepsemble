@@ -1,7 +1,7 @@
-/* stepsemble v3.8.13 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.14 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.13";
+const CLIENT_APP_VERSION = "3.8.14";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -8726,7 +8726,11 @@ const WORK_ICONS = Object.freeze({
 });
 const WORK_FILES_PREVIEW = 3;
 const workLogState = { turns: new Map(), segments: new Map(), ids: new WeakMap(), sequence: 0, generation: -1,
-  frame: null, scope: null, observer: null };
+  frame: null, scope: null, observer: null, placeholder: null, clock: null };
+// A message sent while the agent is idle shows "Working for …" and "Thinking"
+// below it at once, before the agent's first event arrives. A send the agent
+// never starts a run for stops counting after this long.
+const PENDING_TURN_LIMIT_MS = 10 * 60_000;
 
 function workOwned(node) { return node?.nodeType === Node.ELEMENT_NODE && node.classList.contains("wl-own"); }
 function workNodeId(node) {
@@ -8767,7 +8771,23 @@ function workLogRunState() {
   } else if (connection.generic && !connection.nativeHistoryReadonly) {
     running = running || connection.taskStatus === "running";
   }
-  return { running, startedAt: Number(connection.runStartedAt) || null };
+  const pending = connection.pendingTurn;
+  running = running || (!!pending && !pending.sawRun && Date.now() - pending.at < PENDING_TURN_LIMIT_MS);
+  let startedAt = Number(connection.runStartedAt) || null;
+  // The turn is timed from the moment it was sent, as Codex does. Until its
+  // run starts, the start time on record is the previous run's.
+  if (running && pending) startedAt = pending.sawRun && startedAt ? Math.min(startedAt, pending.at) : pending.at;
+  return { running, startedAt };
+}
+function beginPendingTurn(connection) {
+  if (!connection) return null;
+  const pending = { at: Date.now(), sawRun: false, settled: false };
+  connection.pendingTurn = pending;
+  return pending;
+}
+function endPendingTurn(connection, pending) {
+  if (connection && pending && connection.pendingTurn === pending) connection.pendingTurn = null;
+  scheduleWorkLog("tail");
 }
 function workDurationText(ms) {
   const parts = window.stepsembleSessionUtils.workDurationParts(ms);
@@ -8789,6 +8809,7 @@ function workTurns() {
   const turns = [];
   let turn = null;
   for (const node of el.messages?.children || []) {
+    if (workOwned(node)) continue;
     const message = node.classList.contains("msg");
     if (message && node.classList.contains("user")) { turn = { user: node, nodes: [] }; turns.push(turn); continue; }
     if (!(message && node.classList.contains("assistant")) && !node.classList.contains("context-divider")) continue;
@@ -8943,6 +8964,19 @@ function makeWorkPulse() {
   pulse.dataset.i18nIgnore = "";
   pulse.setAttribute("role", "status");
   return pulse;
+}
+// Stands in for the reply until the agent's first output. It is not an
+// assistant message, so no renderer ever writes into it.
+function makeWorkPlaceholder() {
+  const holder = document.createElement("div");
+  holder.className = "wl-own wl-placeholder";
+  holder.dataset.i18nIgnore = "";
+  const head = makeWorkHead();
+  head.classList.add("wl-running");
+  head.dataset.running = "true";
+  head.tabIndex = -1;
+  holder.append(head, makeWorkPulse());
+  return holder;
 }
 function makeWorkFiles() {
   const card = document.createElement("section");
@@ -9205,6 +9239,10 @@ function layoutWorkLog({ from = null, tail = false, keepScroll = false } = {}) {
     tail = false;
   }
   const turns = workTurns();
+  const lastTurn = turns[turns.length - 1] || null;
+  // An agent that shows its reply without ever reporting a run has answered.
+  const pending = rpc?.pendingTurn;
+  if (pending && !pending.sawRun && pending.settled && workTurnHasReply(lastTurn)) rpc.pendingTurn = null;
   const run = workLogRunState();
   const seen = new Map();
   turns.forEach((turn, index) => {
@@ -9215,8 +9253,40 @@ function layoutWorkLog({ from = null, tail = false, keepScroll = false } = {}) {
       || !!start && !!(from.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING)));
     if (include) layoutWorkTurn(turn, key, { running: run.running && last, startedAt: run.startedAt });
   });
+  syncWorkPlaceholder(lastTurn, run);
+  syncWorkLogClock();
   workLogState.observer?.takeRecords();
   if (!keepScroll && autoScrollPinned) el.messages.scrollTop = el.messages.scrollHeight;
+}
+function workTurnHasReply(turn) {
+  return !!turn?.nodes.some(node => node.classList.contains("msg") && directMessageBubble(node));
+}
+// Until the agent writes anything, "Working for …" and "Thinking" sit right
+// below the message that started the turn.
+function syncWorkPlaceholder(turn, run) {
+  const user = turn?.user || null;
+  const show = !!user && run.running && !user.dataset.wlQueued && !workTurnHasReply(turn);
+  let holder = workLogState.placeholder;
+  if (!show) { holder?.remove(); return; }
+  if (!holder) holder = workLogState.placeholder = makeWorkPlaceholder();
+  const anchor = turn.nodes[turn.nodes.length - 1] || user;
+  if (anchor.nextSibling !== holder) anchor.after(holder);
+  const started = run.startedAt || Number(user.dataset.wlStart) || Number(user.dataset.ts) || 0;
+  const head = holder.querySelector(".wl-head");
+  head.dataset.startedAt = started ? String(started) : "";
+  const label = head.querySelector(".wl-head-label");
+  const text = workHeadText(true, started ? Math.max(0, Date.now() - started) : null);
+  if (label.textContent !== text) label.textContent = text;
+  const pulse = holder.querySelector(".wl-pulse");
+  const thinking = tKey("work.thinking");
+  if (pulse.textContent !== thinking) pulse.textContent = thinking;
+}
+// The run timer ticks only once a run has started; a turn still waiting for
+// its first event keeps its own clock.
+function syncWorkLogClock() {
+  const ticking = !!el.messages?.querySelector(".wl-head.wl-running");
+  if (ticking && !workLogState.clock) workLogState.clock = setInterval(updateWorkLogClock, 1000);
+  else if (!ticking && workLogState.clock) { clearInterval(workLogState.clock); workLogState.clock = null; }
 }
 
 // Renderer changes arrive as DOM mutations; batch them into one layout per
@@ -9241,6 +9311,7 @@ function scheduleWorkLog(scope = null) {
   });
 }
 function updateWorkLogClock() {
+  if (workLogState.placeholder?.isConnected && !workLogRunState().running) scheduleWorkLog("tail");
   for (const head of el.messages?.querySelectorAll?.(".wl-head.wl-running") || []) {
     const startedAt = Number(head.dataset.startedAt) || 0;
     const label = head.querySelector(".wl-head-label");
@@ -10060,6 +10131,13 @@ function setStreaming(on) {
   el.btnAbort.disabled = !!rpc?.stopPending;
   syncGenericInputState();
   if (rpc) rpc.streaming = on;
+  // The run a sent message started is timed from the send, and it ends that
+  // message's wait.
+  const pending = rpc?.pendingTurn;
+  if (on && pending && !pending.sawRun) {
+    pending.sawRun = true;
+    if (!wasStreaming) rpc.runStartedAt = pending.at;
+  } else if (!on && wasStreaming && pending?.sawRun) rpc.pendingTurn = null;
   const generic = !!rpc?.generic;
   setTaskProgressRunState(!!on);
   if (on) {
@@ -10396,8 +10474,14 @@ async function sendCurrent() {
   const codexNativeSend = rpc.nativeCodexMutation ? rpc : null;
   if (!codexNativeSend) maybeDateSeparator(Date.now());
   lastUserText = text;
+  // Sent while the agent is idle, the message starts a turn that shows it is
+  // being worked on at once; sent during a run, it waits its turn.
+  const sendConnection = rpc;
+  const queuedSend = workLogRunState().running && !(rpc.pendingTurn && !rpc.pendingTurn.sawRun);
+  const pendingTurn = queuedSend ? null : beginPendingTurn(sendConnection);
   const { wrap: userShell, bubble } = makeMsgShell("user", "你");
   userShell.dataset.ts = String(Date.now());
+  if (queuedSend) userShell.dataset.wlQueued = "1";
   if (text) bubble.appendChild(renderMarkdown(text));
   if (pendingImages.length) appendImageGallery(userShell, bubble, pendingImages, pendingImages.length);
   const codexEcho = codexNativeSend ? trackCodexNativeEcho(codexNativeSend, userShell, text) : null;
@@ -10452,6 +10536,11 @@ async function sendCurrent() {
           : await post("/api/agent/send", { taskId: sendSid, message: text }))
       : await post("/api/send", { sid: sendSid, message: text, images }); // /skill:xxx 等直接透傳，pi 原生處理
     removeDraftForKey(sendDraftKey);
+    if (pendingTurn) {
+      pendingTurn.settled = true;
+      if (result?.queued) { userShell.dataset.wlQueued = "1"; endPendingTurn(sendConnection, pendingTurn); }
+      else scheduleWorkLog("tail");
+    }
     if (codexEcho) {
       codexEcho.turnId = result?.turnId || result?.completedTurnId || null;
       reconcileCodexNativeEchoes(codexNativeSend);
@@ -10474,6 +10563,7 @@ async function sendCurrent() {
       el.queueNote.classList.remove("hidden");
     }
   } catch (e) {
+    if (pendingTurn) endPendingTurn(sendConnection, pendingTurn);
     // The text goes back to the composer, so the echo would be a duplicate.
     if (codexEcho) dropCodexNativeEcho(codexNativeSend, codexEcho);
     if (rpc?.sid === sendSid) {
@@ -13887,6 +13977,7 @@ let updateStatusData = null;
 let updateStatusRequest = 0;
 let updateDeviceStatuses = new Map();
 let harnessUpdateDataByDevice = new Map();
+const harnessAutoInFlight = new Set();
 let updateCenterRequest = null;
 let updateCenterAbort = null;
 let updateCenterPollTimer = null;
@@ -14407,6 +14498,9 @@ function renderHarnessUpdates(data) {
     if (kind === "manual" && item.note) notes.push(item.note);
     // An unproven source refuses the update, so show which file was selected.
     if (item.executablePath && item.source === "unknown") notes.push(updateText("Selected executable: {path}", { path: item.executablePath }));
+    const auto = item.id === "codex" && item.installed === true && data.autoUpgrade?.codex ? data.autoUpgrade.codex : null;
+    const autoNote = auto ? harnessAutoNote(item, auto) : "";
+    if (autoNote) notes.push(autoNote);
     for (const text of notes) {
       const note = document.createElement("p");
       note.className = "harness-update-note-inline";
@@ -14429,11 +14523,78 @@ function renderHarnessUpdates(data) {
       state.textContent = harnessUpdateStatusText(item);
       row.appendChild(state);
     }
+    if (auto) {
+      row.classList.add("has-auto");
+      row.appendChild(harnessAutoToggle(item, auto, device));
+    }
     el.harnessUpdateList.appendChild(row);
   }
   if (el.harnessUpdateMissing && missing.length) {
     el.harnessUpdateMissing.textContent = updateText("Not installed: {names}", { names: missing.map((item) => item.label || item.id).join(", ") });
     el.harnessUpdateMissing.classList.remove("hidden");
+  }
+}
+
+// Codex upgrades itself on this device when the switch is on: about once an
+// hour, to a release Stepsemble supports, while no agent is working.
+function harnessAutoToggle(item, auto, device) {
+  const label = document.createElement("label");
+  label.className = "harness-update-auto";
+  const copy = document.createElement("span");
+  copy.className = "harness-update-auto-copy";
+  const title = document.createElement("span");
+  title.textContent = updateText("Upgrade automatically");
+  const hint = document.createElement("small");
+  hint.textContent = updateText("Checked about once an hour. Upgrades only to a release Stepsemble supports, while no agent is working.");
+  copy.append(title, hint);
+  const toggle = document.createElement("span");
+  toggle.className = "toggle";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.dataset.harnessAuto = item.id;
+  input.checked = auto.enabled === true;
+  input.disabled = harnessAutoInFlight.has(item.id);
+  input.setAttribute("aria-label", updateText("Upgrade {harness} automatically on {device}", { harness: item.label || item.id, device }));
+  const track = document.createElement("span");
+  track.className = "toggle-track";
+  toggle.append(input, track);
+  label.append(copy, toggle);
+  return label;
+}
+function harnessAutoNote(item, auto) {
+  const last = auto?.last;
+  if (!last?.version) return "";
+  const version = updateVersionText(last.version);
+  if (last.outcome === "updated" && (!item.currentVersion || item.currentVersion === last.version)) {
+    return updateText("Upgraded automatically to {version} · {time}", { version, time: formatUpdateAge(last.at) });
+  }
+  if (last.outcome === "failed" && item.updateAvailable === true && item.latestVersion === last.version) {
+    return updateText("The automatic upgrade to {version} failed ({code})", { version, code: last.error || "error" });
+  }
+  return "";
+}
+async function saveHarnessAutoUpgrade(id, enabled) {
+  const machine = currentMachine();
+  if (!machine || harnessAutoInFlight.has(id)) return;
+  const generation = viewGeneration;
+  const device = updateDeviceName(machine);
+  const item = (harnessUpdateDataByDevice.get(machine.id)?.harnesses || []).find(entry => entry.id === id) || { id, label: id };
+  const harness = item.label || id;
+  harnessAutoInFlight.add(id);
+  renderHarnessUpdates(harnessUpdateDataByDevice.get(machine.id) || null);
+  try {
+    const result = await requestMachineUpdate(machine, "/api/harness-updates/auto", { id, enabled });
+    harnessUpdateDataByDevice.set(machine.id, mergeHarnessStatus(harnessUpdateDataByDevice.get(machine.id), result.data));
+    if (generation === viewGeneration && updateViewIsOpen()) {
+      toast(updateText(enabled ? "{harness} upgrades automatically on {device}" : "{harness} no longer upgrades automatically on {device}", { harness, device }));
+    }
+  } catch {
+    if (generation === viewGeneration && updateViewIsOpen()) toast(updateText("Could not change automatic upgrades on {device}", { device }), true);
+  } finally {
+    harnessAutoInFlight.delete(id);
+    if (generation === viewGeneration && updateViewIsOpen() && currentMachine()?.id === machine.id) {
+      renderHarnessUpdates(harnessUpdateDataByDevice.get(machine.id) || null);
+    }
   }
 }
 
@@ -16536,6 +16697,10 @@ el.harnessUpdateList?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-harness-update-id]");
   if (!button || button.disabled) return;
   void applyHarnessUpdate(button.dataset.harnessUpdateId);
+});
+el.harnessUpdateList?.addEventListener("change", (event) => {
+  const input = event.target.closest?.("[data-harness-auto]");
+  if (input && !input.disabled) void saveHarnessAutoUpgrade(input.dataset.harnessAuto, input.checked);
 });
 // Restores presentation preferences only. The language and the user's own
 // project organisation (pins, aliases, removed projects, pinned sessions) are

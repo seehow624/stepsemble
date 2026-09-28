@@ -12,6 +12,8 @@ import { probeEnvironment } from "./check-native-codex-schema.mjs";
 const binary = process.argv[2];
 assert(binary && path.isAbsolute(binary), "absolute official Codex executable required");
 const executable = await fs.realpath(binary);
+// CI pins 0.154.0; a release under review names its own version.
+const NATIVE_VERSION = process.env.STEPSEMBLE_ORACLE_CODEX_VERSION || "0.154.0";
 const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-codex-parallel-owned-")));
 let pool, server;
 const responses = new Map();
@@ -68,7 +70,7 @@ shell_tool = false
   journalRoot: path.join(home, "journal", "threads"), maxChildren: 2 });
   const status = await pool.refresh();
   assert.equal(status.ready, true);
-  assert.equal(status.nativeVersion, "0.154.0");
+  assert.equal(status.nativeVersion, NATIVE_VERSION);
   const options = { model: "mock-model", modelProvider: "owned_fixture", cwd: home, approvalPolicy: "never", sandbox: "read-only" };
   const [a, b] = await Promise.all([pool.startThread(options), pool.startThread(options)]);
   assert.equal(a.kind, "started"); assert.equal(b.kind, "started"); assert.notEqual(a.threadId, b.threadId);
@@ -94,7 +96,7 @@ shell_tool = false
   assert.equal(requests, 2);
   const close = await pool.close();
   assert.equal(close.cleanupConfirmed, true, JSON.stringify(close));
-  console.log(JSON.stringify({ result: "passed", nativeVersion: "0.154.0", concurrentThreads: 2, interruptIsolated: true,
+  console.log(JSON.stringify({ result: "passed", nativeVersion: NATIVE_VERSION, concurrentThreads: 2, interruptIsolated: true,
     contextIsolated: true, localModelRequests: requests, paidModelRequests: 0, cleanupConfirmed: true }));
 } finally {
   if (pool) await pool.close();

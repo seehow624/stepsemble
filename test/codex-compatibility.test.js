@@ -79,6 +79,32 @@ test("reviewed stable Codex 0.158.0 is accepted with native writes and approvals
   assert.notEqual(fingerprint, profiles.find(profile => profile.nativeVersion === "0.157.0").schemaFingerprint, "0.158.0 has its own reviewed schema");
 });
 
+// A release recorded by scripts/review-codex-release.mjs needs no test of its
+// own: every reviewed profile must match its recorded schema and be accepted.
+test("every reviewed Codex release matches its recorded schema and is accepted with native writes", async () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const reviewed = registry().profiles.filter(profile => profile.verification === "reviewed");
+  assert(reviewed.length >= 5);
+  const seen = new Set();
+  for (const profile of reviewed) {
+    assert(!seen.has(profile.schemaFingerprint), profile.nativeVersion + " repeats a reviewed schema");
+    seen.add(profile.schemaFingerprint);
+    const recorded = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "protocol", "native", "codex", profile.nativeVersion + "-schema.json"), "utf8"));
+    assert.equal(recorded.nativeVersion, profile.nativeVersion);
+    if (recorded.fingerprint) assert.equal(recorded.fingerprint, profile.schemaFingerprint, profile.nativeVersion);
+    const result = await probeCodexCompatibility(process.execPath, {
+      versionOutput: "codex-cli " + profile.nativeVersion,
+      schemaProbe: async () => ({ fingerprint: profile.schemaFingerprint }),
+      cache: new Map(),
+    });
+    assert.equal(result.nativeVersion, profile.nativeVersion);
+    assert.equal(result.verification, "reviewed");
+    assert.equal(result.capabilities.mutations, true, profile.nativeVersion);
+    assert.equal(result.capabilities.approvals, true, profile.nativeVersion);
+  }
+});
+
 test("a future version with the same schema as a reviewed one is used the same way", async () => {
   const result = await probeCodexCompatibility(process.execPath, {
     versionOutput: "codex-cli 0.154.1",

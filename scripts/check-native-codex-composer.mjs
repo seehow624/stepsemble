@@ -21,7 +21,8 @@ import { probeEnvironment } from "./check-native-codex-schema.mjs";
 const require = createRequire(import.meta.url);
 const execFileAsync = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const NATIVE_VERSION = "0.154.0";
+// CI pins 0.154.0; a release under review names its own version.
+const NATIVE_VERSION = process.env.STEPSEMBLE_ORACLE_CODEX_VERSION || "0.154.0";
 function crc32(value) {
   let crc = 0xffffffff;
   for (const byte of value) {

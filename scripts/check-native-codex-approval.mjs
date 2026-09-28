@@ -38,6 +38,16 @@ async function ownedView(request) {
   return require("../protocol/transaction-state").initialView(result.state, { storeId: "owned-store", storeGeneration: "owned-generation" }).state;
 }
 
+// The binary must be the release named and generate the schema recorded for it.
+async function releaseUnderReview(binary, version) {
+  const executable = await fs.realpath(binary);
+  const printed = require("node:child_process").execFileSync(executable, ["--version"], { encoding: "utf8", timeout: 20000 }).trim();
+  assert.equal(printed, "codex-cli " + version);
+  const recorded = JSON.parse(await fs.readFile(new URL("../protocol/native/codex/" + version + "-schema.json", import.meta.url), "utf8"));
+  const { captureSchemaFingerprint } = require("../server/codex-compatibility.js");
+  assert.equal((await captureSchemaFingerprint(executable)).fingerprint, recorded.fingerprint, "schema differs from the one recorded for " + version);
+  return { nativeVersion: version };
+}
 function deadline(promise, ms, label) {
   let timer;
   return Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(label)), ms); })]).finally(() => clearTimeout(timer));
@@ -47,8 +57,12 @@ function sse(events) { return events.map(event => `event: ${event.type}\ndata: $
 export async function checkNativeApproval(binary, { journalDenial = false } = {}) {
   assert(path.isAbsolute(binary), "absolute official native executable required");
   if (journalDenial && process.platform === "win32") return { result: "unsupported", scope: "owned_native_journal_denial", reason: "journal_owner_acl_not_implemented" };
-  const metadata = await capture(binary); await verifyCapture(metadata);
-  assert.equal(metadata.nativeVersion, "0.153.4");
+  // CI pins 0.153.4 and its recorded metadata; a release under review is
+  // held to the schema fingerprint recorded for it.
+  const reviewing = process.env.STEPSEMBLE_ORACLE_CODEX_VERSION || null;
+  const metadata = reviewing ? await releaseUnderReview(binary, reviewing) : await capture(binary);
+  if (!reviewing) await verifyCapture(metadata);
+  assert.equal(metadata.nativeVersion, reviewing || "0.153.4");
   const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-native-approval-owned-")));
   let child, transport, journal, bridge, journalSessionId, journalReceipt, childClosed, modelRequests = 0, terminal, resolved, requested, stderr = "";
   const events = [];

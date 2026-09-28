@@ -199,6 +199,38 @@ the first turn, the branch resumed, named and answered with the first turn
 and without the second, and the original unchanged. `0.158.0-schema.json`
 records the baseline.
 
+## Automatic Codex upgrades
+
+Each Host has an "Upgrade automatically" switch on the Codex row of the
+Updates page (off until turned on; `POST /api/harness-updates/auto`,
+stored in `~/.config/stepsemble/codex-auto-upgrade.json`). With it on, the Host
+checks about once an hour, and two minutes after it starts, whether a newer
+Codex is published, and installs it through the same checked upgrade as the
+Upgrade button: only to a release this Stepsemble supports (reviewed, the same
+contract as a reviewed one, or one that only adds to the latest reviewed one),
+and only while no agent is working (tried again ten minutes later). A release
+it cannot support waits; once a Stepsemble update supports it, the next check
+installs it. A release whose install fails three times is left alone until the
+switch is turned on again. Codex's own updater may install a release first;
+the runtime check then decides, as for any installed Codex.
+
+## Reviewing a new Codex release
+
+`npm run -s watch:codex` says whether the newest Codex on npm needs anything:
+`none` (reviewed), `upgrade` (supported as it is; Hosts upgrade by themselves),
+`adapt` (it changes something Stepsemble uses) or `wait` (not checkable yet).
+
+`node scripts/review-codex-release.mjs <version> --write` reviews a release from
+the official npm artifact: it compares its contract with the latest reviewed
+one, records the schema file, the reviewed profile, the contract baseline and
+a review record here, and requires the composer, parallel, approval and
+branch oracles to pass against the artifact first (a local fake model; no
+account or paid request). A release that changes something Stepsemble uses
+stops with exit code 2 and the list of changes; after Stepsemble has been
+changed for them, `--write --adapted` records it. The oracles take the
+version under review from `STEPSEMBLE_ORACLE_CODEX_VERSION`; without it they keep
+their CI pins.
+
 ## Upgrade monitor
 
 The first watcher is now shipped as `npm run watch:harness`. It observes the

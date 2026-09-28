@@ -74,6 +74,7 @@ const { createNativeHistoryCatalog } = require("./server/native-history-catalog"
 const { createCodexPersistedObserver } = require("./server/codex-persisted-observer");
 const { createHarnessUpdateService, loadHarnessUpdateRegistry } = require("./server/harness-update-service");
 const { createCodexReleaseCheck } = require("./server/codex-release-check");
+const { createCodexAutoUpgrade } = require("./server/codex-auto-upgrade");
 const { loadHistoryConfig, createHistoryHost, disabledHistoryHost } = require("./server/history-host");
 const {
   BROWSER_COOKIE,
@@ -104,7 +105,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.13";
+const APP_VERSION = "3.8.14";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2468,6 +2469,20 @@ try {
   // starting. The endpoints return a truthful unavailable response instead.
   console.warn(`[stepsemble] harness update service unavailable: ${error.message}`);
   harnessUpdateService = null;
+}
+// Keeps Codex on this Host current when its switch on the Updates page is on:
+// an hourly check installs a newer Codex once Stepsemble supports it and no
+// agent is working.
+const codexAutoUpgrade = harnessUpdateService ? createCodexAutoUpgrade({
+  service: harnessUpdateService,
+  settingsFile: path.join(path.dirname(HARNESS_UPDATE_STATE_FILE), "codex-auto-upgrade.json"),
+  stopped: () => !!shutdownState,
+  log: (event, detail) => console.log(event === "updated" ? `[stepsemble] Codex upgraded automatically to ${detail}`
+    : event === "waiting" ? `[stepsemble] Codex ${detail} waits for a Stepsemble that supports it`
+      : `[stepsemble] automatic Codex upgrade: ${event} (${detail || ""})`),
+}) : null;
+function harnessStatusWithAuto(data) {
+  return { ...data, autoUpgrade: codexAutoUpgrade ? { codex: codexAutoUpgrade.status() } : {} };
 }
 const claudeAuth = desktopClaude || createClaudeAuthService({ home: APP_HOME, env: process.env, hasActiveTasks: hasClaudeTasks });
 // The conversation terminal (/login, /logout, /status). Each agent's own
@@ -6432,7 +6447,7 @@ const server = http.createServer(async (req, res) => {
           sendJSON(res, 503, { error: "Harness update service unavailable" });
           return;
         }
-        sendJSON(res, 200, harnessUpdateService.status());
+        sendJSON(res, 200, harnessStatusWithAuto(harnessUpdateService.status()));
         return;
       }
 
@@ -6443,7 +6458,7 @@ const server = http.createServer(async (req, res) => {
         }
         try {
           const body = await readJSON(req, 8 * 1024);
-          sendJSON(res, 200, await harnessUpdateService.check({ id: body?.id || null }));
+          sendJSON(res, 200, harnessStatusWithAuto(await harnessUpdateService.check({ id: body?.id || null })));
         } catch (e) {
           sendJSON(res, e.statusCode || 502, { error: e.message || "Could not check harness updates", code: e.code || null });
         }
@@ -6457,7 +6472,7 @@ const server = http.createServer(async (req, res) => {
         }
         try {
           const body = await readJSON(req, 8 * 1024);
-          sendJSON(res, 200, await harnessUpdateService.update({ id: body?.id, confirm: body?.confirm === true }));
+          sendJSON(res, 200, harnessStatusWithAuto(await harnessUpdateService.update({ id: body?.id, confirm: body?.confirm === true })));
         } catch (e) {
           sendJSON(res, e.statusCode || 502, { error: e.message || "Could not update harness", code: e.code || null, result: e.result || undefined,
             compatibility: e.compatibility || undefined });
@@ -6473,9 +6488,26 @@ const server = http.createServer(async (req, res) => {
         try {
           const body = await readJSON(req, 8 * 1024);
           const ids = Array.isArray(body?.ids) ? body.ids.slice(0, 32).filter(id => typeof id === "string") : null;
-          sendJSON(res, 200, await harnessUpdateService.updateAll({ confirm: body?.confirm === true, ids }));
+          sendJSON(res, 200, harnessStatusWithAuto(await harnessUpdateService.updateAll({ confirm: body?.confirm === true, ids })));
         } catch (e) {
           sendJSON(res, e.statusCode || 502, { error: e.message || "Could not update harnesses", code: e.code || null, result: e.result || undefined });
+        }
+        return;
+      }
+
+      // The per-Host switch for upgrading Codex automatically.
+      if (p === "/api/harness-updates/auto" && req.method === "POST") {
+        if (!harnessUpdateService || !codexAutoUpgrade) {
+          sendJSON(res, 503, { error: "Harness update service unavailable" });
+          return;
+        }
+        try {
+          const body = await readJSON(req, 1024);
+          if (body?.id !== "codex" || typeof body?.enabled !== "boolean") { sendJSON(res, 400, { error: "invalid_request", code: "invalid_request" }); return; }
+          codexAutoUpgrade.setEnabled(body.enabled);
+          sendJSON(res, 200, harnessStatusWithAuto(harnessUpdateService.status()));
+        } catch (e) {
+          sendJSON(res, e.statusCode || 500, { error: e.message || "Could not save the setting", code: e.code || null });
         }
         return;
       }
@@ -7766,6 +7798,8 @@ server.listen(PORT, HOST, () => {
   console.log(`[stepsemble] ${MACHINE_NAME} listening on http://${HOST}:${PORT} (pi: ${PI_BIN})`);
   // Give a restart after an update a minute to settle before the helper check.
   claudeHelperAutoUpdate?.schedule(60 * 1000);
+  // A restart after a Stepsemble update may bring support for a newer Codex.
+  codexAutoUpgrade?.schedule(2 * 60 * 1000);
   if (HOST !== "127.0.0.1" && HOST !== "::1" && !SECURE_COOKIE) {
     console.warn("[stepsemble] warning: listening beyond loopback without Secure cookies; prefer Tailscale Serve/HTTPS or set STEPSEMBLE_HOST=127.0.0.1");
   }

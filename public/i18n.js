@@ -1806,6 +1806,32 @@
   for (const key of CODEX_SUPPORT_KEYS) TRANSLATIONS.en[key] = key;
   for (const [id, list] of Object.entries(CODEX_SUPPORT_TRANSLATIONS)) CODEX_SUPPORT_KEYS.forEach((key, index) => { TRANSLATIONS[id][key] = list[index]; });
 
+  // The per-device switch that upgrades Codex automatically.
+  const CODEX_AUTO_KEYS = [
+      "Upgrade automatically",
+      "Checked about once an hour. Upgrades only to a release Stepsemble supports, while no agent is working.",
+      "Upgrade {harness} automatically on {device}",
+      "Upgraded automatically to {version} · {time}",
+      "The automatic upgrade to {version} failed ({code})",
+      "{harness} upgrades automatically on {device}",
+      "{harness} no longer upgrades automatically on {device}",
+      "Could not change automatic upgrades on {device}"
+  ];
+  const CODEX_AUTO_TRANSLATIONS = {
+    "zh-Hant": ["自動升級","大約每小時檢查一次。只升級到 Stepsemble 支援的版本，而且只在沒有 agent 工作時進行。","在 {device} 上自動升級 {harness}","已自動升級到 {version} · {time}","自動升級到 {version} 沒有成功（{code}）","{harness} 會在 {device} 上自動升級","{harness} 不再在 {device} 上自動升級","無法變更 {device} 的自動升級設定"],
+    "zh-Hans": ["自动升级","大约每小时检查一次。只升级到 Stepsemble 支持的版本，而且只在没有 agent 工作时进行。","在 {device} 上自动升级 {harness}","已自动升级到 {version} · {time}","自动升级到 {version} 没有成功（{code}）","{harness} 会在 {device} 上自动升级","{harness} 不再在 {device} 上自动升级","无法更改 {device} 的自动升级设置"],
+    "ja": ["自動でアップグレード","約 1 時間ごとに確認します。Stepsemble が対応しているリリースにだけ、エージェントが作業していないときにアップグレードします。","{device} で {harness} を自動でアップグレード","{version} に自動でアップグレードしました · {time}","{version} への自動アップグレードに失敗しました（{code}）","{harness} は {device} で自動でアップグレードされます","{harness} は {device} で自動アップグレードされなくなりました","{device} の自動アップグレード設定を変更できませんでした"],
+    "ko": ["자동으로 업그레이드","약 1시간마다 확인합니다. Stepsemble이 지원하는 릴리스로만, 에이전트가 작업 중이 아닐 때 업그레이드합니다.","{device}에서 {harness} 자동 업그레이드","{version}(으)로 자동 업그레이드됨 · {time}","{version}(으)로 자동 업그레이드하지 못했습니다({code})","{harness}이(가) {device}에서 자동으로 업그레이드됩니다","{harness}이(가) {device}에서 더 이상 자동으로 업그레이드되지 않습니다","{device}의 자동 업그레이드 설정을 바꾸지 못했습니다"],
+    "tr": ["Otomatik yükselt","Yaklaşık saatte bir kontrol edilir. Yalnızca Stepsemble'ın desteklediği bir sürüme ve hiçbir ajan çalışmıyorken yükseltir.","{harness} {device} üzerinde otomatik yükseltilsin","Otomatik olarak {version} sürümüne yükseltildi · {time}","{version} sürümüne otomatik yükseltme başarısız oldu ({code})","{harness} {device} üzerinde otomatik yükseltilecek","{harness} artık {device} üzerinde otomatik yükseltilmeyecek","{device} için otomatik yükseltme ayarı değiştirilemedi"],
+    "fr": ["Mettre à niveau automatiquement","Vérifié environ une fois par heure. Met à niveau uniquement vers une version prise en charge par Stepsemble, quand aucun agent ne travaille.","Mettre à niveau {harness} automatiquement sur {device}","Mis à niveau automatiquement vers {version} · {time}","La mise à niveau automatique vers {version} a échoué ({code})","{harness} se met à niveau automatiquement sur {device}","{harness} ne se met plus à niveau automatiquement sur {device}","Impossible de modifier les mises à niveau automatiques sur {device}"],
+    "de": ["Automatisch aktualisieren","Etwa einmal pro Stunde geprüft. Aktualisiert nur auf eine Version, die Stepsemble unterstützt, und nur, wenn kein Agent arbeitet.","{harness} auf {device} automatisch aktualisieren","Automatisch auf {version} aktualisiert · {time}","Die automatische Aktualisierung auf {version} ist fehlgeschlagen ({code})","{harness} wird auf {device} automatisch aktualisiert","{harness} wird auf {device} nicht mehr automatisch aktualisiert","Automatische Aktualisierungen auf {device} konnten nicht geändert werden"],
+    "es": ["Actualizar automáticamente","Se comprueba aproximadamente cada hora. Solo actualiza a una versión que Stepsemble admite y cuando ningún agente está trabajando.","Actualizar {harness} automáticamente en {device}","Actualizado automáticamente a {version} · {time}","La actualización automática a {version} falló ({code})","{harness} se actualiza automáticamente en {device}","{harness} ya no se actualiza automáticamente en {device}","No se pudieron cambiar las actualizaciones automáticas en {device}"],
+    "pt-BR": ["Atualizar automaticamente","Verificado cerca de uma vez por hora. Atualiza só para uma versão compatível com o Stepsemble e quando nenhum agente está trabalhando.","Atualizar {harness} automaticamente em {device}","Atualizado automaticamente para {version} · {time}","A atualização automática para {version} falhou ({code})","{harness} é atualizado automaticamente em {device}","{harness} não é mais atualizado automaticamente em {device}","Não foi possível alterar as atualizações automáticas em {device}"],
+    "it": ["Aggiorna automaticamente","Controllato circa una volta all'ora. Aggiorna solo a una versione supportata da Stepsemble e quando nessun agente sta lavorando.","Aggiorna {harness} automaticamente su {device}","Aggiornato automaticamente a {version} · {time}","L'aggiornamento automatico a {version} non è riuscito ({code})","{harness} si aggiorna automaticamente su {device}","{harness} non si aggiorna più automaticamente su {device}","Impossibile modificare gli aggiornamenti automatici su {device}"],
+  };
+  for (const key of CODEX_AUTO_KEYS) TRANSLATIONS.en[key] = key;
+  for (const [id, list] of Object.entries(CODEX_AUTO_TRANSLATIONS)) CODEX_AUTO_KEYS.forEach((key, index) => { TRANSLATIONS[id][key] = list[index]; });
+
   // Settings sections, check-only Stepsemble updates and coding-agent rows.
   // Keyed by the English source like the other chrome tables.
   const SETTINGS_SECTION_TRANSLATIONS = {
