@@ -23,6 +23,11 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const quote = value => "'" + String(value).replace(/'/g, "'\\''") + "'";
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR42mP8z8BQz0AEYBxVSF8FAP5FDvcfRYWgAAAAAElFTkSuQmCC", "base64");
 const seconds = text => Number((/(\d+)s\b/.exec(text || "") || [])[1]);
+// The header timer reads "5s", "1:05" or "1:02:56".
+const clock = text => {
+  const match = /(?:(\d+):)?(\d+):(\d+)/.exec(text || "");
+  return match ? Number(match[1] || 0) * 3600 + Number(match[2]) * 60 + Number(match[3]) : seconds(text);
+};
 // The conversation has connected, as Send itself tells (sendOnceConnected in
 // public/app.js); before that a message waits for the connection.
 const connected = () => typeof rpc !== "undefined" && !!rpc && !rpc.nativeLoading && !genericInputBlock()
@@ -58,9 +63,14 @@ async function pendingTurn(page, ui, context, route, question, replyText, out, k
     assert.equal(first.afterUser, true, "the placeholder sits below the message");
     assert(seconds(later.head) > seconds(first.head), "Working for counts up: " + first.head + " → " + later.head);
     assert.equal(later.timerRunning, true, "the header timer runs while waiting");
-    assert(Math.abs(seconds(later.timer) - seconds(later.head)) <= 1, "header " + later.timer + " vs " + later.head);
+    assert(Math.abs(clock(later.timer) - seconds(later.head)) <= 1, "header " + later.timer + " vs " + later.head);
     await ui.waitForFunction(text => [...document.querySelectorAll("#messages .msg.assistant")].some(node => node.textContent.includes(text)), replyText, { timeout: 20000 });
     await ui.waitForFunction(() => !document.querySelector("#messages .wl-placeholder"), null, { timeout: 5000 });
+    // The run is timed from the send, never from before it.
+    await ui.waitForTimeout(1200);
+    const took = Math.ceil((Date.now() - started) / 1000);
+    const finished = await read();
+    assert(clock(finished.timer) <= took + 1, "header " + finished.timer + " after " + took + "s");
     out[key] = { appearedMs, head: later.head, timer: later.timer };
   } finally { await context.unroute(route); }
 }
@@ -179,6 +189,9 @@ export async function runConversationUxBrowserCases(browser) {
       stage = "Claude Code: working at once";
       ui = await newWorkspaceSession(page, { agentId: "claude-code", name: "UX Claude" });
       await ui.waitForFunction(connected, null, { timeout: 20000 });
+      // Claude has been open a while when the message goes, as in a
+      // conversation opened earlier: the turn is still timed from the send.
+      await ui.waitForTimeout(6000);
       await pendingTurn(page, ui, context, "**/api/claude/structured/prompt", "held back for Claude", "fixture:held back for Claude", out, "claude");
 
       stage = "Claude Code: a table scrolls sideways";

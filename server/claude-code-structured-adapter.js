@@ -513,6 +513,18 @@ function createClaudeStructuredSession({
   const startedAt = Date.now();
   let lastActivityAt = startedAt;
   let state = "waiting";
+  // When the turn now running, or the last one, started and ended. startedAt
+  // is when the process started, that is when the conversation was opened,
+  // which can be hours before the message being answered.
+  let turnStartedAt = null, turnEndedAt = null;
+  const beginTurn = () => {
+    if (state === "waiting" || turnStartedAt === null) { turnStartedAt = Date.now(); turnEndedAt = null; }
+    state = "running";
+  };
+  const endTurn = () => {
+    if (turnStartedAt !== null && turnEndedAt === null) turnEndedAt = Date.now();
+    state = "waiting";
+  };
   let exitCode = null;
   let exitSignal = null;
   let childExited = false;
@@ -874,8 +886,8 @@ function createClaudeStructuredSession({
       if (event.type === "system" && event.permissionMode !== undefined) permissionMode = permissionModeId(event.permissionMode) || permissionMode;
       // init names the running model in full, such as "claude-opus-5-5[1m]".
       if (event.type === "system" && event.subtype === "init" && modelId(event.model)) selectedModel = modelId(event.model);
-      if (event.type === "result") state = "waiting";
-      else if (["assistant", "stream_event", "tool_use", "progress", "permission_request"].includes(event.type)) state = "running";
+      if (event.type === "result") endTurn();
+      else if (["assistant", "stream_event", "tool_use", "progress", "permission_request"].includes(event.type)) beginTurn();
       if (event.type === "assistant") captureAssistantUsage(event);
       else if (event.type === "stream_event") {
         const streamEvent = plain(event.event) ? event.event : {};
@@ -901,7 +913,7 @@ function createClaudeStructuredSession({
       }
       else if (event.type === "control_request") {
         const subtype = String(event.request?.subtype || "");
-        if (subtype === "can_use_tool") state = "running";
+        if (subtype === "can_use_tool") beginTurn();
         if (subtype === "interrupt") state = "interrupting";
       } else if (event.type === "control_response") {
         const response = event.response || {};
@@ -912,7 +924,7 @@ function createClaudeStructuredSession({
         }
         if (responseId && pendingInterrupts.has(responseId)) {
           pendingInterrupts.delete(responseId);
-          if (response.subtype === "success") state = "waiting";
+          if (response.subtype === "success") endTurn();
         }
         if (responseId && pendingPermissions.has(responseId) && response.subtype === "success") {
           const pending = pendingPermissions.get(responseId);
@@ -1021,7 +1033,7 @@ function createClaudeStructuredSession({
     const afterInitialize = ensureOpen();
     if (afterInitialize) return Promise.resolve(afterInitialize);
     interruptRequested = false;
-    state = "running";
+    beginTurn();
     lastActivityAt = Date.now();
     return enqueueFrame(frame)
       .then(result => result.kind === "reject" ? result : ({ ...result, kind: "sent", nativeSessionId: parser.status().sessionId || (fork ? fork.sessionId : sessionId) }));
@@ -1177,7 +1189,7 @@ function createClaudeStructuredSession({
         nativeSessionId: current.sessionId || (fork ? fork.sessionId : sessionId), state: current.failed || processError ? "failed" : state,
         model: selectedModel || null, effort: selectedEffort || null, permissionMode: permissionMode || null, contextUsage: contextUsage(),
         turnError: turnError ? { ...turnError } : null,
-        startedAt, lastActivityAt, exitCode, exitSignal, processExited: childExited, cleanupConfirmed: closed && childExited };
+        startedAt, turnStartedAt, turnEndedAt, lastActivityAt, exitCode, exitSignal, processExited: childExited, cleanupConfirmed: closed && childExited };
     },
     events: () => parser.events(),
     text: () => parser.text(),

@@ -106,7 +106,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.16";
+const APP_VERSION = "3.8.17";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -3220,7 +3220,8 @@ function publicClaudeStructuredTask(id, session) {
     isRunning: cleanupPending || taskStatus === "running" || taskStatus === "waiting",
     cleanupPending,
     idleNativeSession: taskStatus === "history",
-    startedAt: Number(status.startedAt) || null,
+    // The turn's start: the process's is when the conversation was opened.
+    startedAt: Number(status.turnStartedAt) || Number(status.startedAt) || null,
     endedAt: status.closed || status.failed ? Date.now() : null,
     lastActivityAt: Number(status.lastActivityAt) || Number(status.startedAt) || null,
     nativeStatus: status,

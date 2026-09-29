@@ -1,7 +1,7 @@
-/* stepsemble v3.8.16 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.17 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.16";
+const CLIENT_APP_VERSION = "3.8.17";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -5133,8 +5133,13 @@ function applyGenericTaskSnapshot(snapshot = {}) {
   if (snapshot.agentId) rpc.agentLabel = agentConnectorLabel(snapshot.agentId);
   if (snapshot.agentId) setChatAgent(snapshot.agentId);
   applyGenericReplayMetadata(snapshot);
-  if (normalizedTimestampMs(snapshot.startedAt)) rpc.runStartedAt = normalizedTimestampMs(snapshot.startedAt);
-  if (normalizedTimestampMs(snapshot.endedAt)) rpc.runEndedAt = normalizedTimestampMs(snapshot.endedAt);
+  // A message sent while the agent was idle starts a new run: a start or end
+  // on record from before the send belongs to an earlier one.
+  const pending = rpc.pendingTurn;
+  const beforeSend = value => !!pending && !pending.whileRunning && value < pending.at;
+  const reportedStart = normalizedTimestampMs(snapshot.startedAt), reportedEnd = normalizedTimestampMs(snapshot.endedAt);
+  if (reportedStart && !beforeSend(reportedStart)) rpc.runStartedAt = reportedStart;
+  if (reportedEnd && !beforeSend(reportedEnd)) rpc.runEndedAt = reportedEnd;
   rpc.activityLabel = status === "waiting" ? "waiting" : "working";
   updateAgentTaskCache({ ...snapshot, id: snapshot.id || snapshot.taskId || rpc.sid, agentId: rpc.agentId, name: rpc.name, cwd: rpc.cwd });
   // Codex native history is deliberately read-only. Even an active native
@@ -5938,9 +5943,11 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
     const activeTurnStart = normalizeNativeTime(observation?.startedAt) || normalizeNativeTime(activeTurn?.startedAt);
     if (status === "running") {
       // A turn sent from here is timed from the send, which Codex reports a
-      // moment later as the turn's start.
-      const sentAt = Number(connection.pendingTurn?.at) || 0;
-      if (activeTurnStart) connection.runStartedAt = sentAt ? Math.min(activeTurnStart, sentAt) : activeTurnStart;
+      // moment later as the turn's start. One sent while Codex was already
+      // working joins that turn.
+      const pending = connection.pendingTurn;
+      const sentAt = Number(pending?.at) || 0;
+      if (activeTurnStart) connection.runStartedAt = sentAt ? (pending.whileRunning ? Math.min(activeTurnStart, sentAt) : sentAt) : activeTurnStart;
       else if (connection.taskStatus !== "running") connection.runStartedAt = sentAt || Date.now();
       connection.runEndedAt = null;
     } else if (connection.taskStatus === "running" && !connection.runEndedAt) {
@@ -6722,9 +6729,11 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false } =
       status: connection.taskStatus,
       nativeClaudeStructured: true,
       nativeSessionId: status.nativeSessionId || connection.nativeSessionId,
-      startedAt: status.startedAt,
+      // The turn's own start and end; Claude's process started when the
+      // conversation was opened, which can be hours before this turn.
+      startedAt: status.turnStartedAt,
       lastActivityAt: status.lastActivityAt,
-      endedAt: status.closed ? (status.lastActivityAt || Date.now()) : undefined,
+      endedAt: status.closed ? (status.lastActivityAt || Date.now()) : status.state !== "running" ? status.turnEndedAt : undefined,
       nativeStatus: status,
       // Said once, below the turn it ended.
       ...(connection.taskStatus === "failed" ? { error: agentHubText("claudeStopped") } : {}),
@@ -8804,15 +8813,16 @@ function workLogRunState() {
   running = running || (!!pending && !pending.sawRun && Date.now() - pending.at < PENDING_TURN_LIMIT_MS);
   let startedAt = Number(connection.runStartedAt) || null;
   // The turn is timed from the moment it was sent, as Codex does. Until its
-  // run starts, the start time on record is the previous run's.
-  if (running && pending) startedAt = pending.sawRun && startedAt ? Math.min(startedAt, pending.at) : pending.at;
+  // run starts, the start time on record is the previous run's. A message
+  // sent while the agent was already working joins the run in progress.
+  if (running && pending) startedAt = pending.whileRunning && pending.sawRun && startedAt ? Math.min(startedAt, pending.at) : pending.at;
   return { running, startedAt };
 }
 function beginPendingTurn(connection) {
   if (!connection) return null;
   // The header's run timer counts from the send too; what it showed before
   // comes back if the message is not sent.
-  const pending = { at: Date.now(), sawRun: false, settled: false,
+  const pending = { at: Date.now(), sawRun: false, settled: false, whileRunning: !!connection.streaming,
     previousRun: { startedAt: connection.runStartedAt ?? null, endedAt: connection.runEndedAt ?? null } };
   connection.pendingTurn = pending;
   if (rpc === connection) startRunTimer(pending.at);

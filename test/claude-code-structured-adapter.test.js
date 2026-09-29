@@ -556,6 +556,36 @@ test("Claude treats the turn Stop ended as ended, not as an error", async t => {
   assert.equal(session.status().turnError, null);
 });
 
+test("Claude reports when each turn started and ended, apart from when its process started", async t => {
+  const child = childFixture();
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child });
+  t.after(() => session.close());
+  const pause = () => new Promise(resolve => setTimeout(resolve, 25));
+  const say = (id, text) => child.stdout.write(JSON.stringify({ type: "assistant", session_id: "session-1",
+    message: { id, role: "assistant", model: "claude-sonnet-5", content: [{ type: "text", text }] } }) + "\n");
+  const end = () => child.stdout.write(JSON.stringify({ type: "result", session_id: "session-1", subtype: "success", is_error: false, modelUsage: {}, result: "" }) + "\n");
+  const opened = session.status();
+  assert.deepEqual([opened.turnStartedAt, opened.turnEndedAt], [null, null]);
+  await pause();
+  say("m1", "first");
+  const first = session.status();
+  assert.equal(first.state, "running");
+  assert(first.turnStartedAt >= opened.startedAt + 20, "the turn starts when Claude answers, not when its process started");
+  await pause();
+  say("m2", "still the first turn");
+  assert.equal(session.status().turnStartedAt, first.turnStartedAt);
+  end();
+  const done = session.status();
+  assert.equal(done.state, "waiting");
+  assert(done.turnEndedAt >= first.turnStartedAt + 20);
+  await pause();
+  say("m3", "second");
+  const second = session.status();
+  assert(second.turnStartedAt >= done.turnEndedAt + 20, "a new turn starts its own clock");
+  assert.equal(second.turnEndedAt, null);
+  assert.equal(second.startedAt, opened.startedAt);
+});
+
 test("Claude parser failures carry a status code through the live session", async t => {
   const child = childFixture();
   const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child });

@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.8.17
+
+- In a Claude Code conversation, "Working for" and the timer at the top now count from the message you just sent. Before, they counted from when the conversation was opened in Stepsemble. A message sent an hour after opening the conversation showed "Working for 1h 2m" the moment it was sent. Stepsemble had taken the time Claude's process started as the start of the reply. Claude now reports when each reply starts and ends. A message sent while the agent is already working still joins the reply in progress, as in Codex. The same rule protects every agent: after a message sent while the agent is idle, any start time from before the send is ignored.
+- Checked in Chromium at phone and desktop sizes. A Claude conversation left open for 6 seconds before the message showed "Working for 2s" and 2s at the top, and afterwards a total no longer than the time actually taken. With the old page, the same check failed with 8s at the top against "Working for 2s". This check now runs on every release.
+
 ## 3.8.16
 
 - The Updates page now shows OpenCode's newest version on the MacBook Pro as well. OpenCode there is 1.18.31, newer than Homebrew's own formula (1.18.30), so it most likely came from OpenCode's Homebrew tap (`anomalyco/tap`). After 3.8.15 it still showed "unknown". Homebrew reports the newest version as `current_version`, exits with code 1 when a package has a newer version, and gives a tap formula's full name. Stepsemble read `latest_version`, treated exit code 1 as a failure, and looked only for the short name. It now reads Homebrew's answer in that form for OpenCode. The same fix covers Codex installed through Homebrew, whose Update row never showed the version it would update to. When a check really fails, the reason is kept instead of being dropped.
