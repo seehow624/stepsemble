@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.8.15
+
+- A message sent before a conversation has finished opening is sent as soon as it has. Send did nothing at that moment, with no word, and the message just stayed in the box. Now Stepsemble says it is connecting and sends the message once the conversation is ready; after 30 seconds without a connection it says so, and the message is still in the box. The same applies while Claude Code or Codex are still loading a conversation.
+- The run timer at the top counts from the moment a message is sent, like the "Working for" line under the message. It showed 0s until the agent reported its run, which for Claude Code and Codex can take a few seconds. A message that is not sent puts back the time shown before.
+- Claude Code releases are now checked as Codex releases are. `npm run -s check:claude-release` downloads the newest Claude Code and runs the real program against what Stepsemble relies on: the model and effort it sends, the usage it reports, a picture, a command running past 30 seconds, Stop and going on, resuming a closed conversation, branching one, and reading its transcript back. It uses a local model and no account, and keeps the result so each release is checked once. Claude Code 2.1.284, published today, passed all eight checks, as did 2.1.283.
+- A newer Codex that has waited two days for a Stepsemble that supports it is reported once, to the devices that turned on notifications: the daily review that adapts Stepsemble may not be running.
+- Where a branch of a Claude Code conversation ends is now worked out by one module, shared by the Host and the release check.
+- Checked in Chromium at 390 and 1280 pixels: the run timer and "Working for" read the same seconds for Pi, Claude Code and an ACP agent while the send was held back. With a conversation not connected for 2.5 seconds, Send said it was connecting and the message went once when it connected; not connected for 36 seconds, it said so after 30 and the message stayed in the box.
+
 ## 3.8.14
 
 - A message shows at once that the agent is working on it: "Working for 3s" and "Thinking" appear right below it, as in Codex, and the time counts up until the reply begins. Before, nothing showed until the agent's first output, which for Claude Code or a Codex that has to start first could take several seconds. The time runs from the moment the message was sent. A message sent while the agent is still busy waits its turn and gets no second "Working" line.

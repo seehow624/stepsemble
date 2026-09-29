@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { createCodexAutoUpgrade, MAX_FAILURES_PER_RELEASE } = require("../server/codex-auto-upgrade");
+const { createCodexAutoUpgrade, MAX_FAILURES_PER_RELEASE, WAIT_ALERT_MS } = require("../server/codex-auto-upgrade");
 
 const HOUR = 60 * 60 * 1000, BUSY = 10 * 60 * 1000;
 
@@ -91,6 +91,36 @@ test("a release Stepsemble does not support waits and is noted once", async () =
   entry = current();
   assert.equal((await auto.run()).outcome, "current");
   assert.equal(auto.status().last, null);
+});
+
+test("a release waiting two days for Stepsemble is reported once, and the report ends with the wait", async () => {
+  const clock = timers();
+  let now = Date.parse("2026-10-01T00:00:00Z");
+  const alerts = [];
+  let entry = available("unsupported");
+  const svc = service({ entry: () => entry, update: () => ({ updated: { versionBefore: "0.158.0", versionAfter: "0.159.0" } }) });
+  const file = settingsFile();
+  const auto = createCodexAutoUpgrade({ service: svc, settingsFile: file, setTimer: clock.setTimer, clearTimer: clock.clearTimer,
+    clock: () => now, notify: info => alerts.push(info) });
+  auto.setEnabled(true);
+  await auto.run();
+  assert.equal(auto.status().waiting.version, "0.159.0");
+  now += WAIT_ALERT_MS - 60 * 1000;
+  await auto.run();
+  assert.equal(alerts.length, 0);
+  now += 2 * 60 * 1000;
+  await auto.run();
+  await auto.run();
+  assert.deepEqual(alerts, [{ version: "0.159.0", since: "2026-10-01T00:00:00.000Z", reason: "unsupported", current: "0.158.0" }]);
+  // The wait survives a restart without a second report.
+  const again = createCodexAutoUpgrade({ service: svc, settingsFile: file, setTimer: clock.setTimer, clearTimer: clock.clearTimer,
+    clock: () => now, notify: info => alerts.push(info) });
+  await again.run();
+  assert.equal(alerts.length, 1);
+  // Supported at last: installed, and the wait is over.
+  entry = available("supported");
+  assert.equal((await again.run()).outcome, "updated");
+  assert.equal(again.status().waiting, null);
 });
 
 test("working agents put the upgrade off for ten minutes", async () => {

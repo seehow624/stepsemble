@@ -1,7 +1,7 @@
-/* stepsemble v3.8.14 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.15 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.14";
+const CLIENT_APP_VERSION = "3.8.15";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -5937,8 +5937,11 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
     const activeTurn = connection.nativeTranscriptState.turns.find(turn => turn?.status === "inProgress") || null;
     const activeTurnStart = normalizeNativeTime(observation?.startedAt) || normalizeNativeTime(activeTurn?.startedAt);
     if (status === "running") {
-      if (activeTurnStart) connection.runStartedAt = activeTurnStart;
-      else if (connection.taskStatus !== "running") connection.runStartedAt = Date.now();
+      // A turn sent from here is timed from the send, which Codex reports a
+      // moment later as the turn's start.
+      const sentAt = Number(connection.pendingTurn?.at) || 0;
+      if (activeTurnStart) connection.runStartedAt = sentAt ? Math.min(activeTurnStart, sentAt) : activeTurnStart;
+      else if (connection.taskStatus !== "running") connection.runStartedAt = sentAt || Date.now();
       connection.runEndedAt = null;
     } else if (connection.taskStatus === "running" && !connection.runEndedAt) {
       connection.runEndedAt = normalizeNativeTime(activeTurn?.completedAt) || Date.now();
@@ -8807,13 +8810,28 @@ function workLogRunState() {
 }
 function beginPendingTurn(connection) {
   if (!connection) return null;
-  const pending = { at: Date.now(), sawRun: false, settled: false };
+  // The header's run timer counts from the send too; what it showed before
+  // comes back if the message is not sent.
+  const pending = { at: Date.now(), sawRun: false, settled: false,
+    previousRun: { startedAt: connection.runStartedAt ?? null, endedAt: connection.runEndedAt ?? null } };
   connection.pendingTurn = pending;
+  if (rpc === connection) startRunTimer(pending.at);
   return pending;
 }
 function endPendingTurn(connection, pending) {
-  if (connection && pending && connection.pendingTurn === pending) connection.pendingTurn = null;
+  if (connection && pending && connection.pendingTurn === pending) {
+    connection.pendingTurn = null;
+    if (!pending.sawRun && !connection.streaming) {
+      connection.runStartedAt = pending.previousRun.startedAt;
+      connection.runEndedAt = pending.previousRun.endedAt;
+      if (rpc === connection) stopRunTimer();
+    }
+  }
   scheduleWorkLog("tail");
+}
+function pendingTurnWaiting(connection) {
+  const pending = connection?.pendingTurn;
+  return !!pending && !pending.sawRun && Date.now() - pending.at < PENDING_TURN_LIMIT_MS;
 }
 function workDurationText(ms) {
   const parts = window.stepsembleSessionUtils.workDurationParts(ms);
@@ -9266,9 +9284,13 @@ function layoutWorkLog({ from = null, tail = false, keepScroll = false } = {}) {
   }
   const turns = workTurns();
   const lastTurn = turns[turns.length - 1] || null;
-  // An agent that shows its reply without ever reporting a run has answered.
+  // An agent that shows its reply without ever reporting a run has answered;
+  // a send that never started a run stops counting.
   const pending = rpc?.pendingTurn;
-  if (pending && !pending.sawRun && pending.settled && workTurnHasReply(lastTurn)) rpc.pendingTurn = null;
+  if (pending && !pending.sawRun && (pending.settled && workTurnHasReply(lastTurn) || !pendingTurnWaiting(rpc))) {
+    rpc.pendingTurn = null;
+    if (!rpc.streaming) stopRunTimer();
+  }
   const run = workLogRunState();
   const seen = new Map();
   turns.forEach((turn, index) => {
@@ -9582,7 +9604,7 @@ function renderRunTimer() {
   const endedAt = rpc?.streaming ? Date.now() : (rpc?.runEndedAt || Date.now());
   el.runTimer.textContent = runElapsedText(endedAt - startedAt);
   el.runTimer.classList.remove("hidden");
-  el.runTimer.classList.toggle("running", !!rpc?.streaming);
+  el.runTimer.classList.toggle("running", !!rpc?.streaming || pendingTurnWaiting(rpc));
   if (rpc?.nativeCodex) renderCodexNativeRunState(rpc);
   updateWorkLogClock();
 }
@@ -10177,7 +10199,8 @@ function setStreaming(on) {
     activityWatchdog = null;
     clearActivityNote();
   }
-  if (!on) stopRunTimer();
+  // A sent message whose run has not started yet keeps its clock running.
+  if (!on && !pendingTurnWaiting(rpc)) stopRunTimer();
   if (!on && wasStreaming) stampWorkTurnEnd();
   scheduleWorkLog("tail");
   el.thinkingStatus?.classList.toggle("hidden", !on);
@@ -10453,6 +10476,23 @@ function renderImgPreview() {
   });
 }
 
+// A conversation opens its session in the background (Pi starts its process
+// first), and Send works before that is done. The message stays in the box
+// and is sent once the conversation is ready; after 30 seconds without a
+// connection the person is told, and the message is still there.
+let sendOnceConnectedTimer = null;
+function sendOnceConnected() {
+  if (sendOnceConnectedTimer || el.viewChat?.classList.contains("hidden")) return;
+  const generation = viewGeneration;
+  const startedAt = Date.now();
+  toast(tKey("runtime.sendWhenConnected"));
+  const stop = () => { clearInterval(sendOnceConnectedTimer); sendOnceConnectedTimer = null; };
+  sendOnceConnectedTimer = setInterval(() => {
+    if (generation !== viewGeneration) { stop(); return; }
+    if (rpc && !rpc.nativeLoading && !genericInputBlock()) { stop(); void sendCurrent(); return; }
+    if (Date.now() - startedAt > 30_000) { stop(); toast(tKey("runtime.connectFailedDraftKept"), true); }
+  }, 200);
+}
 async function sendCurrent() {
   let text = el.input.value.trim();
   // /login, /logout and /status run the agent's own commands in the
@@ -10468,9 +10508,13 @@ async function sendCurrent() {
     void openAgentTerminal({ agentId: terminalAgent, action: terminalCommand.action, argument: terminalCommand.argument });
     return;
   }
-  if ((!text && !pendingImages.length) || !rpc) return;
+  if (!text && !pendingImages.length) return;
+  // Sent before the conversation has connected: it goes as soon as it has.
+  if (!rpc) { sendOnceConnected(); return; }
   const generic = !!rpc.generic;
   const inputBlock = genericInputBlock();
+  // Claude or Codex still opening the conversation: the same wait as above.
+  if (inputBlock === "inputUnavailable" && rpc.nativeLoading && !rpc.connectionLost) { sendOnceConnected(); return; }
   if (inputBlock) { toast(agentHubText(inputBlock), true); return; }
   if (generic && pendingImages.length && !connectorAcceptsImages(rpc)) {
     toast(agentHubText("cliTextOnly"), true);

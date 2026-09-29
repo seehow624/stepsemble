@@ -75,6 +75,7 @@ const { createCodexPersistedObserver } = require("./server/codex-persisted-obser
 const { createHarnessUpdateService, loadHarnessUpdateRegistry } = require("./server/harness-update-service");
 const { createCodexReleaseCheck } = require("./server/codex-release-check");
 const { createCodexAutoUpgrade } = require("./server/codex-auto-upgrade");
+const { claudeForkPoint: claudeForkPointAt, claudeConfigDir } = require("./server/claude-fork-point");
 const { loadHistoryConfig, createHistoryHost, disabledHistoryHost } = require("./server/history-host");
 const {
   BROWSER_COOKIE,
@@ -105,7 +106,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.14";
+const APP_VERSION = "3.8.15";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2208,34 +2209,9 @@ function forkRequest(value) {
 }
 const forkFailure = (code, message, statusCode = 409) => Object.assign(new Error(message), { code, statusCode });
 
-// The Claude entry a branch ends at: the last one of the turn the reply
-// belongs to, before the person's next message, so a tool call keeps its result.
+// The Claude entry a branch ends at (server/claude-fork-point.js).
 function claudeForkPoint(nativeSessionId, messageId, cwd) {
-  const id = String(nativeSessionId || "");
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(id) || typeof messageId !== "string" || !messageId || typeof cwd !== "string" || !path.isAbsolute(cwd)) return null;
-  const configDir = process.env.CLAUDE_CONFIG_DIR && path.isAbsolute(process.env.CLAUDE_CONFIG_DIR)
-    ? process.env.CLAUDE_CONFIG_DIR : path.join(process.env.HOME || os.homedir(), ".claude");
-  const file = path.join(configDir, "projects", cwd.replace(/[^A-Za-z0-9]/g, "-"), id + ".jsonl");
-  let rows;
-  try {
-    const stat = fs.statSync(file);
-    if (!stat.isFile() || stat.size > 128 * 1024 * 1024) return null;
-    rows = fs.readFileSync(file, "utf8").split("\n").map(line => { try { return JSON.parse(line); } catch { return null; } })
-      .filter(row => row && typeof row.uuid === "string" && (row.type === "user" || row.type === "assistant"));
-  } catch { return null; }
-  const personWrote = row => {
-    if (row.type !== "user" || row.isMeta === true) return false;
-    const content = row.message?.content;
-    const text = typeof content === "string" ? content
-      : Array.isArray(content) ? content.filter(part => part?.type === "text").map(part => part.text || "").join("") : "";
-    return !!text.trim() && !/^\s*<(task-notification|local-command-)/.test(text);
-  };
-  let at = -1;
-  rows.forEach((row, index) => { if (row.type === "assistant" && row.message?.id === messageId) at = index; });
-  if (at < 0) return null;
-  let end = at;
-  for (let index = at + 1; index < rows.length && !personWrote(rows[index]); index += 1) end = index;
-  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(rows[end].uuid) ? rows[end].uuid : null;
+  return claudeForkPointAt(nativeSessionId, messageId, cwd, { configDir: claudeConfigDir(process.env) });
 }
 
 // Pi's package, found from its command, for the branch script.
@@ -2477,6 +2453,13 @@ const codexAutoUpgrade = harnessUpdateService ? createCodexAutoUpgrade({
   service: harnessUpdateService,
   settingsFile: path.join(path.dirname(HARNESS_UPDATE_STATE_FILE), "codex-auto-upgrade.json"),
   stopped: () => !!shutdownState,
+  // Two days without a Stepsemble that supports the newest Codex: the devices
+  // that turned on notifications are told once for that release.
+  notify: ({ version, current }) => {
+    if (!readPushSubscriptions().length) return;
+    void deliverPushNotification(null, `Codex ${version} is waiting for Stepsemble`,
+      `${MACHINE_NAME} has waited two days for a Stepsemble that supports it; Codex stays at ${current || "its current version"} until then.`);
+  },
   log: (event, detail) => console.log(event === "updated" ? `[stepsemble] Codex upgraded automatically to ${detail}`
     : event === "waiting" ? `[stepsemble] Codex ${detail} waits for a Stepsemble that supports it`
       : `[stepsemble] automatic Codex upgrade: ${event} (${detail || ""})`),

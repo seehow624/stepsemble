@@ -17,6 +17,9 @@ const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const BUSY_RETRY_MS = 10 * 60 * 1000;
 // A release whose install keeps failing is not retried every hour forever.
 const MAX_FAILURES_PER_RELEASE = 3;
+// A release still waiting for a Stepsemble that supports it after this long is
+// reported once: the review that adapts Stepsemble has not happened.
+const WAIT_ALERT_MS = 48 * 60 * 60 * 1000;
 const BUSY_CODES = new Set(["agent_busy", "update_in_progress"]);
 const OUTCOMES = new Set(["updated", "waiting", "failed"]);
 
@@ -44,9 +47,13 @@ function readSettings(file) {
     if (!value || typeof value !== "object" || Array.isArray(value)) return {};
     const failures = value.failures && typeof value.failures === "object" && cleanVersion(value.failures.version)
       ? { version: cleanVersion(value.failures.version), count: Math.max(0, Math.min(99, Number(value.failures.count) || 0)) } : null;
+    const waiting = value.waiting && typeof value.waiting === "object" && cleanVersion(value.waiting.version)
+      && Number.isFinite(Date.parse(value.waiting.since))
+      ? { version: cleanVersion(value.waiting.version), since: value.waiting.since,
+        ...(Number.isFinite(Date.parse(value.waiting.alertedAt)) ? { alertedAt: value.waiting.alertedAt } : {}) } : null;
     return { enabled: value.enabled === true, last: cleanLast(value.last),
       checkedAt: typeof value.checkedAt === "string" && Number.isFinite(Date.parse(value.checkedAt)) ? value.checkedAt : null,
-      ...(failures ? { failures } : {}) };
+      ...(failures ? { failures } : {}), ...(waiting ? { waiting } : {}) };
   } catch { return {}; }
 }
 function writeSettings(file, value) {
@@ -62,8 +69,8 @@ function writeSettings(file, value) {
 }
 
 function createCodexAutoUpgrade({ service, settingsFile, id = "codex", setTimer = setTimeout, clearTimer = clearTimeout,
-  clock = () => Date.now(), log = () => {}, stopped = () => false,
-  intervalMs = CHECK_INTERVAL_MS, busyRetryMs = BUSY_RETRY_MS } = {}) {
+  clock = () => Date.now(), log = () => {}, stopped = () => false, notify = () => {},
+  intervalMs = CHECK_INTERVAL_MS, busyRetryMs = BUSY_RETRY_MS, waitAlertMs = WAIT_ALERT_MS } = {}) {
   let settings = settingsFile ? readSettings(settingsFile) : {};
   let timer = null, running = null, closed = false;
   const iso = () => new Date(clock()).toISOString();
@@ -75,7 +82,7 @@ function createCodexAutoUpgrade({ service, settingsFile, id = "codex", setTimer 
 
   function status() {
     return { enabled: settings.enabled === true, checkedAt: settings.checkedAt || null, last: settings.last || null,
-      intervalMinutes: Math.round(intervalMs / 60000) };
+      waiting: settings.waiting ? { ...settings.waiting } : null, intervalMinutes: Math.round(intervalMs / 60000) };
   }
   function schedule(delayMs) {
     if (closed || !service) return;
@@ -111,8 +118,8 @@ function createCodexAutoUpgrade({ service, settingsFile, id = "codex", setTimer 
     if (entry.updateAvailable !== true) {
       // Upgraded meanwhile, by hand or by Codex itself: an old wait or failure
       // no longer applies.
-      if (settings.last && settings.last.outcome !== "updated" || settings.failures) {
-        const { failures, ...rest } = settings;
+      if (settings.last && settings.last.outcome !== "updated" || settings.failures || settings.waiting) {
+        const { failures, waiting, ...rest } = settings;
         settings = { ...rest, last: settings.last?.outcome === "updated" ? settings.last : null };
         save();
       }
@@ -126,6 +133,14 @@ function createCodexAutoUpgrade({ service, settingsFile, id = "codex", setTimer 
         remember({ outcome: "waiting", version: target, reason: support });
         log("waiting", target);
       }
+      if (settings.waiting?.version !== target) { settings = { ...settings, waiting: { version: target, since: iso() } }; save(); }
+      const since = Date.parse(settings.waiting.since);
+      if (!settings.waiting.alertedAt && clock() - since >= waitAlertMs) {
+        settings = { ...settings, waiting: { ...settings.waiting, alertedAt: iso() } };
+        save();
+        try { notify({ version: target, since: settings.waiting.since, reason: support, current: cleanVersion(entry.currentVersion) }); } catch {}
+        log("waiting_alert", target);
+      }
       return { outcome: "waiting", version: target, next: intervalMs };
     }
     const failures = settings.failures?.version === target ? settings.failures.count : 0;
@@ -134,7 +149,8 @@ function createCodexAutoUpgrade({ service, settingsFile, id = "codex", setTimer 
       const result = await service.update({ id, confirm: true });
       const record = result?.updated || {};
       const version = cleanVersion(record.versionAfter) || target;
-      delete settings.failures;
+      const { failures: _failures, waiting: _waiting, ...rest } = settings;
+      settings = rest;
       remember({ outcome: "updated", version, from: cleanVersion(record.versionBefore) || cleanVersion(entry.currentVersion) });
       log("updated", version);
       return { outcome: "updated", version, next: intervalMs };
@@ -166,4 +182,4 @@ function createCodexAutoUpgrade({ service, settingsFile, id = "codex", setTimer 
     stop: () => { closed = true; clearTimer(timer); timer = null; } });
 }
 
-module.exports = { createCodexAutoUpgrade, CHECK_INTERVAL_MS, BUSY_RETRY_MS, MAX_FAILURES_PER_RELEASE };
+module.exports = { createCodexAutoUpgrade, CHECK_INTERVAL_MS, BUSY_RETRY_MS, MAX_FAILURES_PER_RELEASE, WAIT_ALERT_MS };
