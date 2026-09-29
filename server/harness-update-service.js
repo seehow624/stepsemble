@@ -55,8 +55,12 @@ function validateRegistry(registry) {
         throw new Error(`Invalid update arguments for ${entry.id}`);
       }
       if (strategy.kind === "command" && !Array.isArray(strategy.args)) throw new Error(`Missing command arguments for ${entry.id}`);
-      if (!["manual", "version-only", "official-check", "command", "npm-outdated", "npm-global", "registry-version", "brew-or-official", "brew-or-command", SOURCE_AWARE_STRATEGY].includes(strategy.kind)) {
+      if (strategy.kind === "command-json" && !Array.isArray(strategy.args)) throw new Error(`Missing command arguments for ${entry.id}`);
+      if (!["manual", "version-only", "official-check", "command", "command-json", "npm-outdated", "npm-global", "registry-version", "brew-or-official", "brew-or-command", SOURCE_AWARE_STRATEGY].includes(strategy.kind)) {
         throw new Error(`Unsupported update strategy for ${entry.id}`);
+      }
+      if (strategy.timeoutMs !== undefined && (!Number.isInteger(strategy.timeoutMs) || strategy.timeoutMs < 1000 || strategy.timeoutMs > 120_000)) {
+        throw new Error(`Invalid check time limit for ${entry.id}`);
       }
       if (strategy.package !== undefined && (typeof strategy.package !== "string" || !/^@?[a-zA-Z0-9._/-]+$/.test(strategy.package))) {
         throw new Error(`Invalid strategy package for ${entry.id}`);
@@ -207,6 +211,22 @@ function npmOwnsExecutable(executable, root, packageName) {
   return packageRoot && pathInside(executable, packageRoot) ? packageRoot : null;
 }
 
+// An npm project folder of its own owns the executable: installed with
+// `npm install --prefix <folder> <package>`, as the agent CLIs kept under
+// /Volumes/devkit/Tools/agent-clis are. The global npm folder is not one
+// (it has no package.json above its node_modules).
+function npmPrefixOwning(executable, packageName) {
+  const real = comparablePath(executable);
+  if (!real || !packageSegments(packageName).length) return null;
+  const marker = path.sep + "node_modules" + path.sep + packageSegments(packageName).join(path.sep) + path.sep;
+  const index = real.lastIndexOf(marker);
+  if (index <= 0) return null;
+  const prefix = real.slice(0, index);
+  const packageRoot = npmPackageRoot(path.join(prefix, "node_modules"), packageName);
+  try { if (!fs.statSync(path.join(prefix, "package.json")).isFile()) return null; } catch { return null; }
+  return packageRoot ? { prefix, packageRoot } : null;
+}
+
 function execFilePromise(file, args, options = {}) {
   return new Promise((resolve, reject) => {
     execFile(file, args, { shell: false, ...options }, (error, stdout, stderr) => {
@@ -222,9 +242,10 @@ function parseVersion(output) {
   // Version output is untrusted command output.  Never return an arbitrary
   // error string (or the first number in a stack trace) as a version.  Keep
   // the accepted token strict enough for semver comparisons while allowing
-  // the usual `codex-cli 0.154.0`, `Version: 0.154.0`, and bare forms.
+  // the usual `codex-cli 0.154.0`, `Version: 0.154.0`, and bare forms, and
+  // a name of up to three words (`Hermes Agent v0.21.5 (2026.9.24)`).
   const semver = "(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?";
-  const pattern = new RegExp(`^(?:version\\s*[:=]\\s*|[A-Za-z0-9@._+/-]+(?:\\s+version)?\\s+)?v?(${semver})(?=\\s|$)`, "i");
+  const pattern = new RegExp(`^(?:version\\s*[:=]\\s*|(?:[A-Za-z0-9@._+/-]+\\s+){1,3})?v?(${semver})(?=\\s|$)`, "i");
   for (const line of String(output || "").split(/\r?\n/)) {
     const match = cleanOutput(line).match(pattern);
     if (match) return match[1];
@@ -250,6 +271,10 @@ function resultError(result, fallback = "command_failed") {
   if (result.code === "timeout") return "timeout";
   if (result.error?.code === "ENOENT") return "not-installed";
   return `exit-${result.code ?? "unknown"}`;
+}
+
+function checkTimeout(strategy) {
+  return Number.isInteger(strategy?.timeoutMs) ? strategy.timeoutMs : CHECK_TIMEOUT_MS;
 }
 
 // What `brew outdated --json=v2 <package>` says of one package. Homebrew
@@ -336,6 +361,8 @@ function createHarnessUpdateService({
       const root = absoluteLines(probe.stdout)[0] || null;
       const packageRoot = probe.code === 0 ? npmOwnsExecutable(executable, root, result.npmPackage) : null;
       if (packageRoot) return { ...result, kind: "npm", manager: npm, root, packageRoot };
+      const owning = npmPrefixOwning(executable, result.npmPackage);
+      if (owning) return { ...result, kind: "npm-prefix", manager: npm, ...owning };
     }
 
     if (likelyStandalonePath(executable, env, home)) return { ...result, kind: "official-standalone" };
@@ -515,6 +542,9 @@ function createHarnessUpdateService({
         observed.error = parsed || checked.code === 0 ? null : resultError(checked, "npm_check_failed");
         return observed;
       }
+      // An npm project folder of its own: the version published to npm is
+      // the one an update there installs.
+      if (source.kind === "npm-prefix" && source.npmPackage) return observeRegistryVersion(observed, source.npmPackage);
       // The official standalone installer exposes no non-mutating update
       // probe, so read the published version instead of running `update`
       // merely to discover whether one exists. This only reports whether a
@@ -608,9 +638,32 @@ function createHarnessUpdateService({
         return observed;
       }
     }
+    // An updater that can check without installing and answers in JSON, as
+    // `grok update --check --json` does: { currentVersion, latestVersion,
+    // updateAvailable, error }.
+    if (check.kind === "command-json") {
+      const checked = await runner(executable, check.args, {
+        shell: false, cwd: home, env: cleanEnvironment(env), timeout: checkTimeout(check), maxBuffer: 128 * 1024,
+      });
+      let parsed = null;
+      try { parsed = JSON.parse(String(checked.stdout || "").trim().split(/\r?\n/).filter(Boolean).pop() || ""); } catch {}
+      const latest = parsed && typeof parsed === "object" ? parseVersion(String(parsed.latestVersion ?? parsed.latest ?? "")) : null;
+      const available = typeof parsed?.updateAvailable === "boolean" ? parsed.updateAvailable : latest ? isNewer(latest, observed.currentVersion) : null;
+      if (checked.code !== 0 || !parsed || parsed.error || available === null) {
+        observed.status = "unknown";
+        observed.updateAvailable = "unknown";
+        observed.error = checked.code !== 0 ? resultError(checked, "json_check_failed") : "json_check_unreadable";
+        return observed;
+      }
+      observed.latestVersion = latest || (available ? null : observed.currentVersion || null);
+      observed.updateAvailable = available;
+      observed.status = available ? "available" : "up-to-date";
+      observed.error = null;
+      return observed;
+    }
     if (check.kind === "official-check" || check.kind === "command") {
       const checked = await runner(executable, Array.isArray(check.args) ? check.args : [], {
-        shell: false, cwd: home, env: cleanEnvironment(env), timeout: CHECK_TIMEOUT_MS, maxBuffer: 128 * 1024,
+        shell: false, cwd: home, env: cleanEnvironment(env), timeout: checkTimeout(check), maxBuffer: 128 * 1024,
       });
       const output = cleanOutput(`${checked.stdout}\n${checked.stderr}`);
       // Several vendor CLIs ship an updater but no stable dry-run flag. Treat
@@ -682,6 +735,11 @@ function createHarnessUpdateService({
       if (source.kind === "npm" && source.manager && source.npmPackage) {
         // npm can install exactly the release that was checked.
         return { executable: source.manager, args: ["install", "--global", `${source.npmPackage}@${target || "latest"}`], source };
+      }
+      if (source.kind === "npm-prefix" && source.manager && source.npmPackage && source.prefix) {
+        // Updated where it is installed; a global install would leave the
+        // copy in use as it was.
+        return { executable: source.manager, args: ["install", "--prefix", source.prefix, "--no-audit", "--no-fund", `${source.npmPackage}@${target || "latest"}`], source };
       }
       if (source.kind === "official-standalone") {
         return { executable, args: Array.isArray(strategy.args) && strategy.args.length ? strategy.args : ["update"], source };

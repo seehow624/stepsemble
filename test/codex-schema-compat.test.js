@@ -98,3 +98,31 @@ test("a definition renamed with the same shape and a sent shape that became a un
   const renamedOnly = JSON.parse(JSON.stringify(next["x.json"])); renamedOnly.properties.params = { type: "null" };
   assert.equal(compareCodexContracts(base, { "x.json": renamedOnly }, { files: ["x.json"] }).compatible, true);
 });
+
+test("the same values written another way still fit, shape by shape", () => {
+  // Codex 0.159.0: the thread/items/list cursor, a string or null, became a
+  // union of a string or an item anchor, behind a reference, or null.
+  const widenCursor = (documents, members) => {
+    const params = documents["v2/ThreadItemsListParams.json"];
+    params.definitions.ThreadItemsListAnchor = { oneOf: [{ type: "object", properties: { type: { enum: ["item"], type: "string" }, itemId: { type: "string" } }, required: ["itemId", "type"] }] };
+    params.definitions.ThreadItemsListCursor = { anyOf: members, description: "Starting position for an item-history page." };
+    params.properties.cursor = { anyOf: [{ $ref: "#/definitions/ThreadItemsListCursor" }, { type: "null" }], description: "cursor or anchor" };
+  };
+  const string = { type: "string" }, anchor = { $ref: "#/definitions/ThreadItemsListAnchor" };
+  assert.deepEqual(check(documents => widenCursor(documents, [string, anchor])).breaking, []);
+  // Without the string Stepsemble sends, or without null, it no longer fits.
+  assert.equal(check(documents => widenCursor(documents, [anchor])).compatible, false);
+  assert.equal(check(documents => {
+    widenCursor(documents, [string, anchor]);
+    documents["v2/ThreadItemsListParams.json"].properties.cursor.anyOf.pop();
+  }).compatible, false);
+  // What Stepsemble reads: a string or null, written as a union behind a
+  // reference, still fits; one that may now be an object does not.
+  const readName = members => documents => {
+    const response = documents["v2/ThreadReadResponse.json"];
+    response.definitions.ThreadTitle = { anyOf: members };
+    response.definitions.Thread.properties.name = { anyOf: [{ $ref: "#/definitions/ThreadTitle" }, { type: "null" }] };
+  };
+  assert.deepEqual(check(readName([string])).breaking, []);
+  assert.equal(check(readName([string, { type: "object" }])).compatible, false);
+});

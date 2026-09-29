@@ -1,0 +1,138 @@
+{
+  "fixtureVersion": 1,
+  "nativeVersion": "0.159.0",
+  "scope": "Official CLI generated schema metadata only; no app-server startup, model, account, thread or approval execution",
+  "fingerprint": "edb5d09cb0e3fc1c85278c96a1ea9ef1674f212c0631947c16d813e80eb145d8",
+  "schemas": [
+    {
+      "file": "ClientRequest.json",
+      "bytes": 207447,
+      "sha256": "1c7fec8758deb95ffe967060130e8d1ddb7a0a5a437ee9b64086dddbed8f5831"
+    },
+    {
+      "file": "ServerRequest.json",
+      "bytes": 49887,
+      "sha256": "f339be472737a0003efa25fba2e6e6c9237e621cd065b6d6995c51256e9dc1fb"
+    },
+    {
+      "file": "ServerNotification.json",
+      "bytes": 206667,
+      "sha256": "d3479ecf59ca421a8b052d3d15e8196d23d297a0bd85ae5a270a34ddd9c865c9"
+    },
+    {
+      "file": "v1/InitializeParams.json",
+      "bytes": 2401,
+      "sha256": "b55124e7c0f36a1789396daa5578217a92be67f053903696236686e59f6f212e"
+    },
+    {
+      "file": "v1/InitializeResponse.json",
+      "bytes": 1286,
+      "sha256": "62ad689c2cb6379913c1d72749cfd8de5089d35760214123518eb92eef11acc9"
+    },
+    {
+      "file": "v2/ThreadListParams.json",
+      "bytes": 3991,
+      "sha256": "bf5abcb5363c177f8d6b60e6193c76ad8807d6452b67a73ee2f1d77dfe427ac9"
+    },
+    {
+      "file": "v2/ThreadListResponse.json",
+      "bytes": 71414,
+      "sha256": "bb5721fb42f3b95b4b66ba5a114665e58b221eef5308a9e20890dda26b3894fb"
+    },
+    {
+      "file": "v2/ThreadReadParams.json",
+      "bytes": 502,
+      "sha256": "dfe040c6ac71d30795b8be3f3ff232e66f362a37f883b491e5d1ea367f470db4"
+    },
+    {
+      "file": "v2/ThreadReadResponse.json",
+      "bytes": 70750,
+      "sha256": "3a0aaf9cff80796d07130b85723ca825f9203796d15c878f452083cf9f9a6f0a"
+    },
+    {
+      "file": "v2/ThreadTurnsListParams.json",
+      "bytes": 1889,
+      "sha256": "2a8b93d7d4437cc25e16a1dde16d8db3c338d39e16c5eece2a56e943a21577d7"
+    },
+    {
+      "file": "v2/ThreadTurnsListResponse.json",
+      "bytes": 57474,
+      "sha256": "8db83d38553204a223cf349680c59b0cc674ba95a4637e1995bfeabd73c80219"
+    },
+    {
+      "file": "v2/ThreadItemsListParams.json",
+      "bytes": 2291,
+      "sha256": "d5cf9784413f1d1abba756e04e48b273a9d12ab2c5675442e91b6a4ee55e19f0"
+    },
+    {
+      "file": "v2/ThreadItemsListResponse.json",
+      "bytes": 49071,
+      "sha256": "bc8a8dcb9a48d9ca38b0a5faa89b80ec2fd57398cd3a8dcc15097776153f6c74"
+    },
+    {
+      "file": "v2/ThreadLoadedListParams.json",
+      "bytes": 489,
+      "sha256": "42c2d124ab2b2998d84f0126daae2d32b0bf9c5a7ea7266e3a0814e5e37cf00d"
+    },
+    {
+      "file": "v2/ThreadLoadedListResponse.json",
+      "bytes": 565,
+      "sha256": "1ea02c4710083e552b2a3a89b931b9049d5bf05b7db46278b8352cf9fd80cd52"
+    },
+    {
+      "file": "v2/ThreadResumeParams.json",
+      "bytes": 40510,
+      "sha256": "c818e26d830ac4430791eab7d4a872d2384fa6006b14c505d8caf46e7e093527"
+    },
+    {
+      "file": "v2/ThreadResumeResponse.json",
+      "bytes": 80584,
+      "sha256": "e7751c8dba039fa5f55971307e89e8b8541f2853840650ea8968bad8c23698d6"
+    },
+    {
+      "file": "v2/ThreadStartParams.json",
+      "bytes": 10358,
+      "sha256": "e9c6d3cc18d049bfbc0249add3808fb8e5a27e1a0b5a423767aafbc3859a9428"
+    },
+    {
+      "file": "v2/ThreadStartResponse.json",
+      "bytes": 78043,
+      "sha256": "70d9c9a3a064edb76662ec7cd066d142ed9252b768272bc3a7d00788386755c0"
+    },
+    {
+      "file": "CommandExecutionRequestApprovalParams.json",
+      "bytes": 15559,
+      "sha256": "16a71816c2d66e319c2c4aa83dd636dfdc43c61e72b6d5475e421ce08d8e6558"
+    },
+    {
+      "file": "CommandExecutionRequestApprovalResponse.json",
+      "bytes": 3202,
+      "sha256": "6d0767113e22f311381809b6b236b0dde2b99b01992879c26bf7b1ea0e003cb7"
+    },
+    {
+      "file": "FileChangeRequestApprovalParams.json",
+      "bytes": 968,
+      "sha256": "13848b26814c286ad6425a20d01c1691c86790e1f9e2529399677a8a22fe0d18"
+    },
+    {
+      "file": "FileChangeRequestApprovalResponse.json",
+      "bytes": 1158,
+      "sha256": "b95b03ee6be674e25cee2e863cc135a28620e1070addd2f34685aadee27cde08"
+    },
+    {
+      "file": "PermissionsRequestApprovalParams.json",
+      "bytes": 7286,
+      "sha256": "c11fbe632472ab0923aba5c0a53da3d6d86929bcd5c78e7c13c51c6b2db508ff"
+    },
+    {
+      "file": "PermissionsRequestApprovalResponse.json",
+      "bytes": 7068,
+      "sha256": "23f3f24e9dbf35db3e0b85703f0d934da5a1cff3cbb611fba8bcd41f3b4a04b0"
+    },
+    {
+      "file": "v2/ServerRequestResolvedNotification.json",
+      "bytes": 514,
+      "sha256": "4f03d586a5af04edd912cad08cc97eceb658e7e06744565e6d41a93e04a55966"
+    }
+  ]
+}

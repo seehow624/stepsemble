@@ -21,12 +21,13 @@ Stepsemble 的「設定 → 更新 → Coding agents」是 coding agent 本身�
 | --- | --- | --- | --- |
 | Codex CLI | 依已安裝來源檢查 Homebrew／npm；官方 standalone 只讀版本 | 保留來源：Homebrew `brew upgrade codex`、npm `npm install --global @openai/codex@latest`、官方 standalone `codex update` | OpenAI 官方安裝器的更新命令是同一個 standalone installer；Codex CLI 目前沒有穩定的 `update --check`，所以 standalone 狀態顯示 unknown。升級後會重新讀取 `codex --version`；未知來源不會執行更新 |
 | Claude Code | `npm view @anthropic-ai/claude-code version`（只讀發佈版本） | `claude update` | 官方 updater 沒有 dry-run；升級後重新讀取版本，若仍落後會繼續顯示可更新 |
-| OpenCode | Homebrew `brew outdated --json=v2 opencode`；非 Homebrew 安裝時只觀察版本 | Homebrew `brew upgrade opencode` 或 `opencode upgrade` | 不會在檢查階段呼叫會改動安裝的 `upgrade` |
+| OpenCode | Homebrew `brew outdated --json=v2 opencode`（讀 `current_version`、接受 tap 全名如 `anomalyco/tap/opencode`、有新版時 exit 1 仍是正常回答）；非 Homebrew 安裝時比對 npm `opencode-ai` 的發佈版本 | Homebrew `brew upgrade opencode` 或 `opencode upgrade` | 不會在檢查階段呼叫會改動安裝的 `upgrade` |
 | Pi Agent | `npm outdated --global --json @earendil-works/pi-coding-agent` | `npm install --global @earendil-works/pi-coding-agent@latest` | 只更新明確的 Pi package |
-| Hermes Agent | `hermes update --check` | `hermes update --yes --backup` | Hermes 自己的備份旗標會保留 rollback 資料 |
+| Hermes Agent | `hermes update --check`（會 git fetch，時間上限 55 秒） | `hermes update --yes --backup` | Hermes 自己的備份旗標會保留 rollback 資料；版本從「Hermes Agent v0.21.5」這種多字名稱讀出 |
 | Gemini CLI | 版本觀察 | 手動 | 套件管理器依安裝方式而異，尚未有單一安全通道 |
-| Cline / Kilo Code | 手動 | 手動 | 由 VS Code／編輯器 extension host 管理 |
-| Grok Build / Antigravity | 手動 | 手動 | 目前沒有穩定、可驗證的本機 updater contract |
+| Cline / Kilo Code | 依安裝來源：Homebrew、npm 全域，或自己的 npm 資料夾（`npm install --prefix <資料夾>`，如 `/Volumes/devkit/Tools/agent-clis/kilo`）時比對 npm 發佈版本（`cline`、`@kilocode/cli`） | 保留來源：`brew upgrade`、`npm install --global`，或 `npm install --prefix <資料夾> <package>@latest` | 它們自己的 updater（`cline update`、`kilo upgrade`）可能裝到別處，留下正在用的那份沒更新，所以不用；來源不明拒絕更新；升級後重新讀取版本 |
+| Grok Build | `grok update --check --json`（只檢查、JSON 回答） | `grok update` | 穩定版通道；Stepsemble 以 `--no-auto-update` 啟動 Grok，所以在這裡或 Grok 自己更新；升級後重新讀取版本 |
+| Antigravity | 手動 | 手動 | 由它自己的發行版更新 |
 
 ## API
 

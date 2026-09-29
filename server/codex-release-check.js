@@ -16,7 +16,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { registry, schemaFingerprint, SCHEMA_FILES } = require("./codex-compatibility");
-const { CONTRACT_FILES, compareCodexContracts } = require("./codex-schema-compat");
+const { CONTRACT_FILES, COMPARISON_VERSION, compareCodexContracts } = require("./codex-schema-compat");
 const { loadContractBaseline } = require("./codex-contract-baseline");
 
 const SOURCE_ROOT = "https://raw.githubusercontent.com/openai/codex/";
@@ -115,21 +115,22 @@ function createCodexReleaseCheck({
   }
 
   // The verdict for a stable release version. A decided verdict is kept (it
-  // cannot change for that release and this Stepsemble); one that could not be
-  // reached is tried again after a while.
+  // cannot change for that release, baseline and comparison); one that could
+  // not be reached is tried again after a while.
   async function check(version) {
     const value = String(version || "").trim();
     if (!VERSION.test(value)) return verdict(value, "unknown", { reason: "version_unrecognized" });
     const baselineVersion = (() => { try { return baseline().nativeVersion; } catch { return null; } })();
     const cached = releases[value];
-    if (cached && cached.baselineVersion === baselineVersion && (cached.state !== "unknown" || clock() - Date.parse(cached.checkedAt) < RETRY_UNKNOWN_MS)) {
+    if (cached && cached.baselineVersion === baselineVersion && cached.comparison === COMPARISON_VERSION
+      && (cached.state !== "unknown" || clock() - Date.parse(cached.checkedAt) < RETRY_UNKNOWN_MS)) {
       return Object.freeze({ ...cached });
     }
     if (pending.has(value)) return pending.get(value);
     const work = (async () => {
       const result = await evaluate(value);
       if (result.how !== "reviewed") {
-        releases = { ...releases, [value]: { ...result, baselineVersion } };
+        releases = { ...releases, [value]: { ...result, baselineVersion, comparison: COMPARISON_VERSION } };
         const names = Object.keys(releases);
         if (names.length > MAX_CACHED) for (const name of names.slice(0, names.length - MAX_CACHED)) delete releases[name];
         writeCache(cacheFile, releases);

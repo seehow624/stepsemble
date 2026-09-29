@@ -30,6 +30,7 @@ capabilities during `initialize`. Stepsemble uses both signals.
 | Codex `0.156.1` | native | native | reviewed native mutation |
 | Codex `0.157.0` | native | native | reviewed native mutation |
 | Codex `0.158.0` | native | native | reviewed native mutation |
+| Codex `0.159.0` | native | native | reviewed native mutation |
 | Future version with a reviewed fingerprint (`schema-identical`) | native | native | native mutation |
 | Future version that only adds to the latest reviewed contract (`additive`) | native | native | native mutation |
 | Any other schema, or a pre-release | bounded fallback | bounded fallback | disabled |
@@ -61,11 +62,16 @@ It is accepted when nothing Stepsemble sends or reads is removed or changed:
 - Anything the comparison cannot classify is a change.
 
 Run against the published contracts of every stable release from 0.151.0 to
-0.158.0, each release after the one before: 14 of 15 only add, and 0.156.0 is
+0.159.0, each release after the one before: 15 of 16 only add, and 0.156.0 is
 refused because it removed the `url` field of an image input, which
 Stepsemble sends. Removing a field Stepsemble reads, making a sent field
 required, removing `turn/completed`, `turn/start` or an approval decision,
 and changing a type are each refused (`test/codex-schema-compat.test.js`).
+The same values written another way (a list of types as a union, or a union
+moved behind a reference, as 0.159.0 did) are compared shape by shape: each
+shape Stepsemble sends must still be accepted, and each shape it reads must be
+one it knew. A verdict kept per release is made again when the comparison
+changes (`COMPARISON_VERSION`).
 
 `protocol/native/codex/contract-baseline.json.gz` holds the documents of the
 latest reviewed release. It is checked against that profile's hashes when it
@@ -198,6 +204,44 @@ run passed as well: a thread named and answered twice, `thread/fork` through
 the first turn, the branch resumed, named and answered with the first turn
 and without the second, and the original unchanged. `0.158.0-schema.json`
 records the baseline.
+
+### 0.159.0 review record
+
+Reviewed with `scripts/review-codex-release.mjs` against the `0.158.0`
+baseline, from the official npm artifact
+(`@openai/codex@0.159.0-darwin-arm64`, archive SHA-256
+`36034ef21c4fd7992e3ca4d041dff869dbf8c5d742b68e5c9fad0c3636cf61ce`). 23 of the
+33 contract files are identical; the others are `ClientRequest.json`,
+`ServerNotification.json`, `v2/ThreadListResponse.json`,
+`v2/ThreadReadResponse.json`, `v2/ThreadTurnsListResponse.json`,
+`v2/ThreadItemsListParams.json`, `v2/ThreadResumeResponse.json`,
+`v2/ThreadStartResponse.json`, `v2/ThreadForkResponse.json`,
+`v2/TurnStartResponse.json`. None of the changes removes or alters anything
+Stepsemble sends or reads. The composer, parallel-pool, approval and branch
+oracles passed against that artifact with a local model. `0.159.0-schema.json`
+records the baseline.
+
+What changed, file by file:
+
+- `thread/items/list` takes an item anchor as well as a string cursor:
+  `cursor`, a string or null, became a union of `ThreadItemsListCursor` (a
+  string, or `{ type: "item", itemId }`) and null. Stepsemble sends the string
+  Codex returned, which is still accepted. The comparison first refused it
+  ("values restricted"), since the same values were written another way: a
+  list of types became a union behind a reference. It now compares such a
+  rewrite shape by shape (`form` and `shapes` in
+  `server/codex-schema-compat.js`): every shape Stepsemble may send must
+  still be accepted by one of the new shapes, and every shape it may read
+  must be one it knew. Run again on the published contracts of every stable
+  release from 0.151.0 to 0.159.0, only 0.156.0 is refused, for the same
+  reason as before (`test/codex-schema-compat.test.js` covers the rewrite
+  and the cases that must stay refused).
+- `CodexErrorInfo` gains `tooManyDenials`; Stepsemble does not match on error
+  kinds. A turn's `error` is now described as "a failed or interrupted
+  turn"; Stepsemble reads an interrupted turn from its `status` and does not
+  read `Turn.error`.
+- MCP resource discovery gains an optional `serverName`; Stepsemble does not
+  call it. The other files differ only in descriptions.
 
 ## Automatic Codex upgrades
 

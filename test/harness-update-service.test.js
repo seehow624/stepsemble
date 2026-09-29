@@ -313,6 +313,104 @@ test("Homebrew's outdated answer reads as brew gives it: exit 1, the tap's full 
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test("Grok Build is checked with its own JSON check and updated by its updater", async () => {
+  const { root, file } = tempState();
+  const calls = [];
+  let installed = "1.0.41", check;
+  const registry = JSON.parse(fs.readFileSync(path.join(__dirname, "../protocol/harness-updates.json"), "utf8"));
+  const service = createHarnessUpdateService({
+    registry: { ...registry, harnesses: registry.harnesses.filter(item => item.id === "grok-build") },
+    stateFile: file, env: { PATH: "/fake", HOME: root },
+    resolve: name => name === "grok" ? "/fake/grok" : null,
+    runner: async (command, args) => {
+      calls.push(args.join(" "));
+      if (args[0] === "--version") return { code: 0, stdout: "grok " + installed + " (4220f3b224a6) [stable]", stderr: "" };
+      if (args.join(" ") === "update --check --json") return check;
+      if (args.join(" ") === "update") { installed = "1.0.44"; return { code: 0, stdout: "Updated", stderr: "" }; }
+      return { code: 1, stdout: "", stderr: "" };
+    },
+    busy: () => false,
+  });
+  check = { code: 0, stdout: JSON.stringify({ currentVersion: "1.0.41", latestVersion: "1.0.44", updateAvailable: true, installer: "internal", channel: "stable", autoUpdate: null, error: null }), stderr: "" };
+  let row = (await service.check({ id: "grok-build" })).harnesses[0];
+  assert.deepEqual([row.currentVersion, row.latestVersion, row.status, row.error], ["1.0.41", "1.0.44", "available", null]);
+  row = (await service.update({ id: "grok-build", confirm: true })).harnesses[0];
+  assert.equal(row.currentVersion, "1.0.44");
+  assert(calls.includes("update"));
+  check = { code: 0, stdout: JSON.stringify({ currentVersion: "1.0.44", latestVersion: "1.0.44", updateAvailable: false, error: null }), stderr: "" };
+  row = (await service.check({ id: "grok-build" })).harnesses[0];
+  assert.deepEqual([row.latestVersion, row.status], ["1.0.44", "up-to-date"]);
+  // An answer it cannot read, or an error it reports, is no verdict.
+  check = { code: 0, stdout: JSON.stringify({ currentVersion: "1.0.44", latestVersion: null, updateAvailable: null, error: "offline" }), stderr: "" };
+  row = (await service.check({ id: "grok-build" })).harnesses[0];
+  assert.deepEqual([row.status, row.error], ["unknown", "json_check_unreadable"]);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("an agent CLI in an npm folder of its own is checked against npm and updated in that folder", { skip: process.platform === "win32" }, async () => {
+  const { root, file } = tempState();
+  // /Volumes/devkit/Tools/agent-clis/kilo, as npm install --prefix leaves it.
+  const prefix = path.join(root, "agent-clis", "kilo");
+  const packageRoot = path.join(prefix, "node_modules", "@kilocode", "cli");
+  fs.mkdirSync(path.join(packageRoot, "bin"), { recursive: true });
+  fs.writeFileSync(path.join(prefix, "package.json"), JSON.stringify({ dependencies: { "@kilocode/cli": "^7.7.9" } }));
+  fs.writeFileSync(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@kilocode/cli", version: "7.7.9" }));
+  fs.writeFileSync(path.join(packageRoot, "bin", "kilo"), "#!/bin/sh\n", { mode: 0o755 });
+  fs.mkdirSync(path.join(root, "bin"));
+  fs.symlinkSync(path.join(packageRoot, "bin", "kilo"), path.join(root, "bin", "kilo"));
+  const calls = [];
+  let installed = "7.7.9";
+  const registry = JSON.parse(fs.readFileSync(path.join(__dirname, "../protocol/harness-updates.json"), "utf8"));
+  const service = createHarnessUpdateService({
+    registry: { ...registry, harnesses: registry.harnesses.filter(item => item.id === "kilo") },
+    stateFile: file, env: { PATH: "/fake", HOME: root },
+    resolve: name => ({ kilo: path.join(root, "bin", "kilo"), npm: "/fake/npm" })[name] || null,
+    runner: async (command, args) => {
+      calls.push([command, args]);
+      if (args[0] === "--version") return { code: 0, stdout: installed + "\n", stderr: "" };
+      if (args.join(" ") === "root --global") return { code: 0, stdout: path.join(root, "global", "lib", "node_modules") + "\n", stderr: "" };
+      if (args.join(" ") === "view @kilocode/cli version") return { code: 0, stdout: "7.8.1\n", stderr: "" };
+      if (args[0] === "install") { installed = "7.8.1"; return { code: 0, stdout: "", stderr: "" }; }
+      return { code: 1, stdout: "", stderr: "" };
+    },
+    busy: () => false,
+  });
+  let row = (await service.check({ id: "kilo" })).harnesses[0];
+  assert.deepEqual([row.source, row.currentVersion, row.latestVersion, row.status], ["npm-prefix", "7.7.9", "7.8.1", "available"]);
+  row = (await service.update({ id: "kilo", confirm: true })).harnesses[0];
+  assert.deepEqual(calls.find(call => call[1][0] === "install"),
+    ["/fake/npm", ["install", "--prefix", fs.realpathSync(prefix), "--no-audit", "--no-fund", "@kilocode/cli@latest"]]);
+  assert.equal(row.currentVersion, "7.8.1");
+  // Anywhere else nothing proves who installed it, and it is not updated.
+  fs.rmSync(path.join(prefix, "package.json"));
+  await assert.rejects(() => service.update({ id: "kilo", confirm: true }), error => error.code === "source_unknown");
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("Hermes reads its version and gets the time its update check needs", async () => {
+  assert.equal(parseVersion("Hermes Agent v0.21.5 (2026.9.24) · upstream 7728574a\nInstall directory: /x"), "0.21.5");
+  assert.equal(parseVersion("something went wrong: 1.2.3"), null);
+  const { root, file } = tempState();
+  const timeouts = {};
+  const registry = JSON.parse(fs.readFileSync(path.join(__dirname, "../protocol/harness-updates.json"), "utf8"));
+  const service = createHarnessUpdateService({
+    registry: { ...registry, harnesses: registry.harnesses.filter(item => item.id === "hermes") },
+    stateFile: file, env: { PATH: "/fake", HOME: root },
+    resolve: name => name === "hermes" ? "/fake/hermes" : null,
+    runner: async (command, args, options) => {
+      timeouts[args.join(" ")] = options.timeout;
+      if (args[0] === "--version") return { code: 0, stdout: "Hermes Agent v0.21.5 (2026.9.24) · upstream 7728574a", stderr: "" };
+      return { code: 0, stdout: "→ Fetching from origin...\n☤ Update available: 12 commits behind origin/main.", stderr: "" };
+    },
+    busy: () => false,
+  });
+  const row = (await service.check({ id: "hermes" })).harnesses[0];
+  assert.deepEqual([row.currentVersion, row.status], ["0.21.5", "available"]);
+  assert.equal(timeouts["update --check"], 55_000);
+  assert.equal(timeouts["--version"], 20_000);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test("unsupported vendor check flags stay neutral instead of becoming update failures", async () => {
   const { root, file } = tempState();
   const service = createHarnessUpdateService({

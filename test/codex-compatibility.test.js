@@ -127,11 +127,11 @@ test("a future version that only adds to the latest reviewed contract is used in
   documents["v2/ThreadStartParams.json"].properties.somethingNew = { type: ["string", "null"] };
   documents["ServerNotification.json"].definitions.PlanType.enum.push("ultra");
   const result = await probeCodexCompatibility(process.execPath, {
-    versionOutput: "codex-cli 0.159.0",
+    versionOutput: "codex-cli 0.160.0",
     schemaProbe: async () => ({ fingerprint: "a".repeat(64), documents }),
     cache: new Map(),
   });
-  assert.equal(result.nativeVersion, "0.159.0");
+  assert.equal(result.nativeVersion, "0.160.0");
   assert.equal(result.verification, "additive");
   assert.equal(result.basedOn, baseline.nativeVersion);
   assert.equal(result.capabilities.mutations, true);
@@ -144,13 +144,13 @@ test("a future version that changes what Stepsemble sends or reads stays out", a
   const notifications = documents["ServerNotification.json"];
   notifications.oneOf = notifications.oneOf.filter(variant => variant.properties?.method?.enum?.[0] !== "turn/completed");
   await assert.rejects(() => probeCodexCompatibility(process.execPath, {
-    versionOutput: "codex-cli 0.159.0",
+    versionOutput: "codex-cli 0.160.0",
     schemaProbe: async () => ({ fingerprint: "b".repeat(64), documents }),
     cache: new Map(),
   }), error => error.code === "codex_schema_mismatch" && error.breaking?.[0]?.reason === "union member removed");
   // Without the documents there is nothing to compare: out, as before.
   await assert.rejects(() => probeCodexCompatibility(process.execPath, {
-    versionOutput: "codex-cli 0.159.0",
+    versionOutput: "codex-cli 0.160.0",
     schemaProbe: async () => ({ fingerprint: "c".repeat(64) }),
     cache: new Map(),
   }), error => error.code === "codex_schema_mismatch");

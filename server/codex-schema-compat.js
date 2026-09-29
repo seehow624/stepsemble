@@ -38,6 +38,10 @@ const USED_CLIENT_METHODS = Object.freeze([
 
 const IGNORED_KEYS = new Set(["description", "title", "examples", "default", "$schema", "$comment", "markdownDescription"]);
 const MAX_PROBLEMS = 40;
+// Raised whenever the comparison changes, so a verdict it made before is
+// made again (server/codex-release-check.js keeps verdicts per release).
+// 2: the same values written another way are compared shape by shape.
+const COMPARISON_VERSION = 2;
 
 // Documents Stepsemble writes are checked so that what it sends stays valid;
 // the others so that what it reads keeps its shape.
@@ -106,6 +110,29 @@ function keyedVariants(list) {
   return keyed;
 }
 
+// How a schema lists the values it allows: through a reference, a union, a
+// list of types, or as one shape.
+function form(schema) {
+  if (!isObject(schema)) return "value";
+  const keys = Object.keys(schema).filter(key => !IGNORED_KEYS.has(key));
+  if (keys.length === 1 && typeof schema.$ref === "string") return "ref";
+  if (keys.length === 1 && (Array.isArray(schema.anyOf) || Array.isArray(schema.oneOf))) return "union";
+  if (Array.isArray(schema.type) && schema.type.length > 1) return "types";
+  return "single";
+}
+
+// The shapes a schema allows: one per member of a union and per type in a
+// list of types, with references followed. Any other schema is one shape.
+function shapes(schema, definitions, seen = new Set(), depth = 0) {
+  const kind = form(schema);
+  if (depth > 8 || kind === "single" || kind === "value") return [schema];
+  if (kind === "types") return schema.type.map(type => ({ ...schema, type }));
+  if (kind === "union") return (schema.anyOf || schema.oneOf).flatMap(member => shapes(member, definitions, seen, depth + 1));
+  const name = refName(schema.$ref);
+  if (!name || seen.has(name) || !isObject(definitions[name])) return [schema];
+  return shapes(definitions[name], definitions, new Set([...seen, name]), depth + 1);
+}
+
 function createComparison(baseDocument, candidateDocument) {
   const baseDefinitions = baseDocument?.definitions || baseDocument?.$defs || {};
   const candidateDefinitions = candidateDocument?.definitions || candidateDocument?.$defs || {};
@@ -129,9 +156,9 @@ function createComparison(baseDocument, candidateDocument) {
 
   // Runs a comparison without recording what it finds; true when it finds
   // nothing. Used to ask whether a shape is still one of a union's members.
-  function fits(base, candidate, mode) {
+  function fits(base, candidate, mode, whole = false) {
     const savedTotal = total, savedProblems = problems.length, savedVisited = new Set(visited);
-    compare(base, candidate, "", mode);
+    compare(base, candidate, "", mode, whole);
     const clean = total === savedTotal;
     total = savedTotal;
     problems.length = savedProblems;
@@ -194,9 +221,23 @@ function createComparison(baseDocument, candidateDocument) {
     for (const value of base.enum) if (!after.has(JSON.stringify(value))) note(path, "value removed: " + JSON.stringify(value));
   }
 
-  function compare(base, candidate, path, mode) {
+  function compare(base, candidate, path, mode, whole = false) {
     if (settled(base, candidate)) return;
     if (!isObject(base) || !isObject(candidate)) { note(path, "changed"); return; }
+    // The same values may be written another way: a list of types as a
+    // union, or a union moved behind a reference (Codex 0.159.0's
+    // thread/items/list cursor). Then each shape is compared on its own:
+    // every shape Stepsemble may send must still be accepted by one, and
+    // every shape it may read must be one it knew.
+    if (!whole && form(base) !== form(candidate)) {
+      const before = shapes(base, baseDefinitions), after = shapes(candidate, candidateDefinitions);
+      if (before.length > 1 || after.length > 1) {
+        const covered = mode === "send"
+          ? before.every(shape => after.some(member => fits(shape, member, mode, true)))
+          : after.every(shape => before.some(member => fits(member, shape, mode, true)));
+        if (covered) return;
+      }
+    }
     // A shape that became a union still fits when it is one of the members:
     // what Stepsemble sends is still accepted. What it reads may now take
     // other shapes, so that stays a change.
@@ -284,4 +325,4 @@ function compareCodexContracts(baseline, candidate, { files = CONTRACT_FILES, us
   return Object.freeze({ compatible: breakingCount === 0, breakingCount, breaking: Object.freeze(breaking) });
 }
 
-module.exports = { CONTRACT_FILES, EXTRA_READ_FILES, USED_CLIENT_METHODS, compareCodexContracts, modeFor };
+module.exports = { CONTRACT_FILES, EXTRA_READ_FILES, USED_CLIENT_METHODS, COMPARISON_VERSION, compareCodexContracts, modeFor };

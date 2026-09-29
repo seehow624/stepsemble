@@ -47,21 +47,30 @@ test("a reviewed release needs no download", async () => {
 test("a release with the reviewed contract, or one that only adds to it, is supported and remembered", async t => {
   const cacheFile = temp(t);
   const same = github();
-  assert.equal((await createCodexReleaseCheck({ fetchImpl: same.fetchImpl }).check("0.158.1")).how, "identical");
-  assert.ok(same.requests.every(url => url.startsWith(SOURCE_ROOT + "rust-v0.158.1" + SCHEMA_DIRECTORY)));
+  assert.equal((await createCodexReleaseCheck({ fetchImpl: same.fetchImpl }).check("0.159.1")).how, "identical");
+  assert.ok(same.requests.every(url => url.startsWith(SOURCE_ROOT + "rust-v0.159.1" + SCHEMA_DIRECTORY)));
   const added = github({ edit: { "v2/ThreadStartParams.json": document => { document.properties.optionalNew = { type: ["string", "null"] }; } } });
   const check = createCodexReleaseCheck({ fetchImpl: added.fetchImpl, cacheFile });
-  const result = await check.check("0.159.0");
+  const result = await check.check("0.164.0");
   assert.equal(result.state, "supported");
   assert.equal(result.how, "additive");
   assert.equal(result.basedOn, baseline.nativeVersion);
   const count = added.requests.length;
-  assert.equal((await check.check("0.159.0")).how, "additive");
+  assert.equal((await check.check("0.164.0")).how, "additive");
   assert.equal(added.requests.length, count, "the verdict is kept");
   const later = createCodexReleaseCheck({ fetchImpl: added.fetchImpl, cacheFile });
-  assert.equal((await later.check("0.159.0")).how, "additive");
+  assert.equal((await later.check("0.164.0")).how, "additive");
   assert.equal(added.requests.length, count, "and survives a restart");
   if (process.platform !== "win32") assert.equal(fs.statSync(cacheFile).mode & 0o777, 0o600);
+  // A verdict an earlier comparison made is made again: Stepsemble 3.8.16
+  // kept 0.159.0 as unsupported, which a later comparison accepts.
+  const kept = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
+  kept.releases["0.164.0"] = { ...kept.releases["0.164.0"], state: "unsupported", how: null, reason: "contract_changed" };
+  delete kept.releases["0.164.0"].comparison;
+  fs.writeFileSync(cacheFile, JSON.stringify(kept));
+  const upgraded = createCodexReleaseCheck({ fetchImpl: added.fetchImpl, cacheFile });
+  assert.equal((await upgraded.check("0.164.0")).how, "additive");
+  assert.ok(added.requests.length > count, "checked again");
 });
 
 test("a release that changes what Stepsemble uses is not supported", async () => {
