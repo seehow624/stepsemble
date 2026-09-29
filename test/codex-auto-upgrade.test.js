@@ -67,7 +67,8 @@ test("a newer Codex that Stepsemble supports is installed and remembered", async
   const again = createCodexAutoUpgrade({ service: svc, settingsFile: file });
   assert.equal(again.status().enabled, true);
   assert.deepEqual(again.status().last, { at: "2026-09-29T01:00:00.000Z", outcome: "updated", version: "0.159.0", from: "0.158.0" });
-  assert.equal((fs.statSync(file).mode & 0o777).toString(8), "600");
+  // Owner-only on POSIX; Windows has no such file modes.
+  if (process.platform !== "win32") assert.equal((fs.statSync(file).mode & 0o777).toString(8), "600");
 });
 
 test("a release Stepsemble does not support waits and is noted once", async () => {
