@@ -7385,6 +7385,11 @@ function updateScrollBottomButton() {
   if (!el.scrollBottomBtn) return;
   const distance = messageDistanceFromBottom();
   el.scrollBottomBtn.classList.toggle("hidden", distance < 180 || el.messages.scrollHeight <= el.messages.clientHeight + 40);
+  syncScrollBottomWorking();
+}
+// While the agent is working the arrow gives way to "•••", as in Codex.
+function syncScrollBottomWorking() {
+  el.scrollBottomBtn?.classList.toggle("is-working", !!rpc && workLogRunState().running);
 }
 function scrollBottom(force = false) {
   if (!force && !autoScrollPinned) {
@@ -7851,13 +7856,34 @@ function syncSessionStats(expectedSid = rpc?.sid) {
 }
 el.messages.addEventListener("scroll", () => {
   const distance = messageDistanceFromBottom();
+  // A tap on the jump control keeps following the reply while it scrolls,
+  // even as the reply grows under it.
+  if (Date.now() < jumpToLatestUntil) {
+    if (distance < 80) jumpToLatestUntil = 0;
+    updateScrollBottomButton();
+    return;
+  }
   if (distance < 80) autoScrollPinned = true;
   else if (!scrollFrame) autoScrollPinned = false;
   updateScrollBottomButton();
 }, { passive: true });
+let jumpToLatestUntil = 0;
+// The user's own scrolling ends a jump at once.
+for (const type of ["wheel", "touchstart", "pointerdown", "keydown"]) {
+  el.messages.addEventListener(type, () => { jumpToLatestUntil = 0; }, { passive: true });
+}
 el.scrollBottomBtn?.addEventListener("click", () => {
   autoScrollPinned = true;
-  el.messages.scrollTo({ top: el.messages.scrollHeight, behavior: settings.reducedMotion ? "auto" : "smooth" });
+  const smooth = !settings.reducedMotion;
+  jumpToLatestUntil = smooth ? Date.now() + 1500 : 0;
+  el.messages.scrollTo({ top: el.messages.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+  if (smooth) {
+    setTimeout(() => {
+      jumpToLatestUntil = 0;
+      if (autoScrollPinned && messageDistanceFromBottom() >= 80) el.messages.scrollTop = el.messages.scrollHeight;
+      updateScrollBottomButton();
+    }, 1500);
+  }
 });
 function makeMsgShell(role, tagText, container = el.messages) {
   const wrap = document.createElement("div");
@@ -9255,6 +9281,7 @@ function layoutWorkLog({ from = null, tail = false, keepScroll = false } = {}) {
   });
   syncWorkPlaceholder(lastTurn, run);
   syncWorkLogClock();
+  el.scrollBottomBtn?.classList.toggle("is-working", run.running);
   workLogState.observer?.takeRecords();
   if (!keepScroll && autoScrollPinned) el.messages.scrollTop = el.messages.scrollHeight;
 }

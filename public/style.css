@@ -3302,36 +3302,58 @@ html[data-design-theme="etoile"][data-theme="light"] {
 
 /* The jump-to-latest control belongs to the composer, so it stays above the
    typing surface when the viewport/keyboard changes instead of floating in
-   the message column. */
+   the message column. As in Codex it is a circle centred above the composer:
+   an arrow, or "•••" while the agent is working. */
 #view-chat #scroll-bottom-btn {
   position: absolute;
-  right: 10px;
-  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 10px);
   z-index: 15;
-  width: auto;
-  min-width: 58px;
-  height: 31px;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
+  margin: 0 auto;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 0 9px;
   border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--pine-soft);
+  border-radius: 50%;
+  color: var(--ink);
   background: var(--milk);
   box-shadow: 0 6px 18px rgba(0,0,0,.16);
-  font: 650 .68rem/1 var(--mono);
   cursor: pointer;
   animation: message-in .2s cubic-bezier(.22,.9,.18,1);
+  -webkit-tap-highlight-color: transparent;
 }
-#view-chat #scroll-bottom-btn .icon { width: 15px; height: 15px; }
+/* A 48-pixel touch target around the 40-pixel circle. */
+#view-chat #scroll-bottom-btn::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; }
+#view-chat #scroll-bottom-btn .icon { width: 18px; height: 18px; }
 #view-chat #scroll-bottom-btn:active { transform: scale(.94); }
+#view-chat #scroll-bottom-btn .scroll-bottom-dots { display: none; align-items: center; gap: 3px; }
+#view-chat #scroll-bottom-btn .scroll-bottom-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: scroll-bottom-dot 1.2s ease-in-out infinite;
+}
+#view-chat #scroll-bottom-btn .scroll-bottom-dots i:nth-child(2) { animation-delay: .15s; }
+#view-chat #scroll-bottom-btn .scroll-bottom-dots i:nth-child(3) { animation-delay: .3s; }
+#view-chat #scroll-bottom-btn.is-working .scroll-bottom-arrow { display: none; }
+#view-chat #scroll-bottom-btn.is-working .scroll-bottom-dots { display: inline-flex; }
+@keyframes scroll-bottom-dot { 0%, 60%, 100% { opacity: .35; } 30% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  #view-chat #scroll-bottom-btn .scroll-bottom-dots i { animation: none; opacity: .8; }
+}
+html.reduced-motion #view-chat #scroll-bottom-btn .scroll-bottom-dots i { animation: none; opacity: .8; }
 
 @media (max-width: 600px) {
   #view-chat .activity-body > .tool-card { margin-left: 8px; }
   #view-chat .activity-body > .thinking-wrap { margin-left: 8px; }
-  #view-chat #scroll-bottom-btn { right: 8px; bottom: calc(100% + 7px); }
+  #view-chat #scroll-bottom-btn { bottom: calc(100% + 8px); }
 }
 @media (prefers-reduced-motion: reduce) {
   #view-chat .activity-group.running .activity-icon,
@@ -4286,8 +4308,8 @@ html.reduced-motion .session-item-actions { transition: none; }
   min-height: 44px;
 }
 #view-chat #scroll-bottom-btn {
-  min-height: 44px;
-  height: 44px;
+  min-height: 40px;
+  height: 40px;
 }
 .model-dialog .sheet-close,
 .image-lightbox-close,
