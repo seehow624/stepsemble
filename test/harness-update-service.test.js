@@ -282,6 +282,37 @@ test("OpenCode installed another way reads its published version; an up-to-date 
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test("Homebrew's outdated answer reads as brew gives it: exit 1, the tap's full name, current_version", async () => {
+  const { root, file } = tempState();
+  let outdated;
+  const service = createHarnessUpdateService({
+    registry: { registryVersion: 1, harnesses: [
+      { id: "opencode", label: "OpenCode", commands: ["opencode"],
+        check: { kind: "brew-or-official", package: "opencode", registryPackage: "opencode-ai" },
+        update: { kind: "brew-or-command", package: "opencode", args: ["upgrade"] } },
+    ] },
+    stateFile: file, env: { PATH: "/fake", HOME: root },
+    resolve: name => ({ opencode: "/fake/opencode", brew: "/fake/brew", npm: "/fake/npm" })[name] || null,
+    runner: async (command, args) => {
+      if (command.endsWith("opencode")) return { code: 0, stdout: "1.18.31", stderr: "" };
+      if (args[0] === "list") return { code: 0, stdout: "opencode 1.18.31", stderr: "" };
+      if (args[0] === "outdated") return outdated;
+      return { code: 1, stdout: "", stderr: "" };
+    },
+    busy: () => false,
+  });
+  // OpenCode from its own tap, as Homebrew 4 answers for it.
+  outdated = { code: 1, stdout: JSON.stringify({ formulae: [{ name: "anomalyco/tap/opencode", installed_versions: ["1.18.31"],
+    current_version: "1.18.33", pinned: false, pinned_version: null }], casks: [] }), stderr: "" };
+  let row = (await service.check({ id: "opencode" })).harnesses[0];
+  assert.deepEqual([row.status, row.updateAvailable, row.latestVersion, row.error], ["available", true, "1.18.33", null]);
+  // A check that fails says so, and names no version.
+  outdated = { code: 1, stdout: "", stderr: "Error: No available formula" };
+  row = (await service.check({ id: "opencode" })).harnesses[0];
+  assert.deepEqual([row.status, row.updateAvailable, row.latestVersion, row.error], ["unknown", "unknown", null, "exit-1"]);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test("unsupported vendor check flags stay neutral instead of becoming update failures", async () => {
   const { root, file } = tempState();
   const service = createHarnessUpdateService({

@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.8.16
+
+- The Updates page now shows OpenCode's newest version on the MacBook Pro as well. OpenCode there is 1.18.31, newer than Homebrew's own formula (1.18.30), so it most likely came from OpenCode's Homebrew tap (`anomalyco/tap`). After 3.8.15 it still showed "unknown". Homebrew reports the newest version as `current_version`, exits with code 1 when a package has a newer version, and gives a tap formula's full name. Stepsemble read `latest_version`, treated exit code 1 as a failure, and looked only for the short name. It now reads Homebrew's answer in that form for OpenCode. The same fix covers Codex installed through Homebrew, whose Update row never showed the version it would update to. When a check really fails, the reason is kept instead of being dropped.
+- Checked against Homebrew on the Mac mini. OpenCode from Homebrew's own formulas reads up to date at 1.18.30. The same package named through `anomalyco/tap` reads 1.18.33 available: Homebrew exits with code 1 and lists the full name, as it does for a copy installed from the tap.
+
 ## 3.8.15
 
 - A message sent before a conversation has finished opening is sent as soon as it has. Send did nothing at that moment, with no word, and the message just stayed in the box. Now Stepsemble says it is connecting and sends the message once the conversation is ready; after 30 seconds without a connection it says so, and the message is still in the box. The same applies while Claude Code or Codex are still loading a conversation.

@@ -252,6 +252,21 @@ function resultError(result, fallback = "command_failed") {
   return `exit-${result.code ?? "unknown"}`;
 }
 
+// What `brew outdated --json=v2 <package>` says of one package. Homebrew
+// names the newest version current_version, exits 1 when it lists anything
+// outdated, and names a formula from a tap in full (anomalyco/tap/opencode
+// for the opencode keg). No row with exit 0 means the package is up to date.
+function brewOutdated(result, packageName) {
+  let parsed = null;
+  try { parsed = JSON.parse(String(result?.stdout || "")); } catch {}
+  const rows = parsed && typeof parsed === "object" ? [...(parsed.formulae || []), ...(parsed.casks || [])] : [];
+  const row = rows.find(item => item?.name === packageName || item?.full_name === packageName
+    || String(item?.name || "").split("/").pop() === packageName) || null;
+  if (row) return { state: "available", latestVersion: row.current_version || row.latest_version || row.versioned_formula?.version || null };
+  if (parsed && result.code === 0) return { state: "up-to-date", latestVersion: null };
+  return { state: "unknown", latestVersion: null, error: resultError(result, "brew_check_failed") };
+}
+
 function createHarnessUpdateService({
   registry,
   registryFile,
@@ -480,14 +495,11 @@ function createHarnessUpdateService({
         const checked = await runner(source.manager, ["outdated", "--json=v2", source.brewPackage], {
           shell: false, cwd: home, env: cleanEnvironment(env), timeout: CHECK_TIMEOUT_MS, maxBuffer: 128 * 1024,
         });
-        let parsed = null;
-        try { parsed = JSON.parse(checked.stdout || "{}"); } catch {}
-        const rows = [...(parsed?.formulae || []), ...(parsed?.casks || [])];
-        const update = rows.find(item => item?.name === source.brewPackage || item?.full_name === source.brewPackage);
-        observed.latestVersion = update?.latest_version || update?.versioned_formula?.version || null;
-        observed.updateAvailable = Boolean(update);
-        observed.status = update ? "available" : checked.code === 0 ? "up-to-date" : "unknown";
-        observed.error = parsed || checked.code === 0 ? null : resultError(checked, "brew_check_failed");
+        const outdated = brewOutdated(checked, source.brewPackage);
+        observed.latestVersion = outdated.latestVersion;
+        observed.updateAvailable = outdated.state === "available" ? true : outdated.state === "up-to-date" ? false : "unknown";
+        observed.status = outdated.state;
+        observed.error = outdated.error || null;
         return observed;
       }
       if (source.kind === "npm" && source.manager && source.npmPackage) {
@@ -571,15 +583,12 @@ function createHarnessUpdateService({
         const checked = await runner(brew, ["outdated", "--json=v2", check.package], {
           shell: false, cwd: home, env: cleanEnvironment(env), timeout: CHECK_TIMEOUT_MS, maxBuffer: 128 * 1024,
         });
-        let parsed = null;
-        try { parsed = JSON.parse(checked.stdout || "{}"); } catch {}
-        const formula = [...(parsed?.formulae || []), ...(parsed?.casks || [])].find(item => item.name === check.package);
+        const outdated = brewOutdated(checked, check.package);
         // Up to date means the installed version is Homebrew's newest.
-        observed.latestVersion = formula?.latest_version || formula?.versioned_formula?.version
-          || (!formula && checked.code === 0 ? observed.currentVersion || null : null);
-        observed.updateAvailable = Boolean(formula);
-        observed.status = formula ? "available" : checked.code === 0 ? "up-to-date" : "unknown";
-        observed.error = parsed || checked.code === 0 ? null : resultError(checked, "brew_check_failed");
+        observed.latestVersion = outdated.state === "up-to-date" ? observed.currentVersion || null : outdated.latestVersion;
+        observed.updateAvailable = outdated.state === "available" ? true : outdated.state === "up-to-date" ? false : "unknown";
+        observed.status = outdated.state;
+        observed.error = outdated.error || null;
         return observed;
       }
       // Installed another way (npm or the vendor's installer): the version
