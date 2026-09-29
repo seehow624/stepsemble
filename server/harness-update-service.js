@@ -61,6 +61,9 @@ function validateRegistry(registry) {
       if (strategy.package !== undefined && (typeof strategy.package !== "string" || !/^@?[a-zA-Z0-9._/-]+$/.test(strategy.package))) {
         throw new Error(`Invalid strategy package for ${entry.id}`);
       }
+      if (strategy.registryPackage !== undefined && (typeof strategy.registryPackage !== "string" || !/^@?[a-zA-Z0-9._/-]+$/.test(strategy.registryPackage))) {
+        throw new Error(`Invalid registry package for ${entry.id}`);
+      }
       if (strategy.brewPackage !== undefined && (typeof strategy.brewPackage !== "string" || !/^[a-zA-Z0-9._+@/-]+$/.test(strategy.brewPackage))) {
         throw new Error(`Invalid Homebrew package for ${entry.id}`);
       }
@@ -412,6 +415,33 @@ function createHarnessUpdateService({
     return observed;
   }
 
+  // The version published to npm, read without touching the installation and
+  // compared with the version the installed executable reported.
+  async function observeRegistryVersion(observed, packageName) {
+    const npm = resolve("npm", env);
+    if (!npm || !packageName) {
+      observed.status = "unknown";
+      observed.updateAvailable = "unknown";
+      observed.error = "npm_unavailable";
+      return observed;
+    }
+    const checked = await runner(npm, ["view", packageName, "version"], {
+      shell: false, cwd: home, env: cleanEnvironment(env), timeout: CHECK_TIMEOUT_MS, maxBuffer: 32 * 1024,
+    });
+    const latest = checked.code === 0 ? parseVersion(checked.stdout) : null;
+    if (!latest) {
+      observed.status = "unknown";
+      observed.updateAvailable = "unknown";
+      observed.error = resultError(checked, "registry_check_failed");
+      return observed;
+    }
+    observed.latestVersion = latest;
+    observed.updateAvailable = isNewer(latest, observed.currentVersion);
+    observed.status = observed.updateAvailable ? "available" : "up-to-date";
+    observed.error = null;
+    return observed;
+  }
+
   async function observeInstalled(definition) {
     const previous = stateById(definition.id) || {};
     const executable = definition.executableEnv && env[definition.executableEnv]
@@ -506,28 +536,7 @@ function createHarnessUpdateService({
       // compared against the version the installed executable reported; it is
       // never treated as evidence that npm owns this executable, so the
       // configured update strategy is unaffected.
-      const npm = resolve("npm", env);
-      if (!npm || !check.package) {
-        observed.status = "unknown";
-        observed.updateAvailable = "unknown";
-        observed.error = "npm_unavailable";
-        return observed;
-      }
-      const checked = await runner(npm, ["view", check.package, "version"], {
-        shell: false, cwd: home, env: cleanEnvironment(env), timeout: CHECK_TIMEOUT_MS, maxBuffer: 32 * 1024,
-      });
-      const latest = checked.code === 0 ? parseVersion(checked.stdout) : null;
-      if (!latest) {
-        observed.status = "unknown";
-        observed.updateAvailable = "unknown";
-        observed.error = resultError(checked, "registry_check_failed");
-        return observed;
-      }
-      observed.latestVersion = latest;
-      observed.updateAvailable = isNewer(latest, observed.currentVersion);
-      observed.status = observed.updateAvailable ? "available" : "up-to-date";
-      observed.error = null;
-      return observed;
+      return observeRegistryVersion(observed, check.package);
     }
     if (check.kind === "npm-outdated") {
       const npm = resolve("npm", env);
@@ -565,12 +574,17 @@ function createHarnessUpdateService({
         let parsed = null;
         try { parsed = JSON.parse(checked.stdout || "{}"); } catch {}
         const formula = [...(parsed?.formulae || []), ...(parsed?.casks || [])].find(item => item.name === check.package);
-        observed.latestVersion = formula?.latest_version || formula?.versioned_formula?.version || null;
+        // Up to date means the installed version is Homebrew's newest.
+        observed.latestVersion = formula?.latest_version || formula?.versioned_formula?.version
+          || (!formula && checked.code === 0 ? observed.currentVersion || null : null);
         observed.updateAvailable = Boolean(formula);
         observed.status = formula ? "available" : checked.code === 0 ? "up-to-date" : "unknown";
         observed.error = parsed || checked.code === 0 ? null : resultError(checked, "brew_check_failed");
         return observed;
       }
+      // Installed another way (npm or the vendor's installer): the version
+      // published to npm says whether the vendor's updater has anything newer.
+      if (check.registryPackage) return observeRegistryVersion(observed, check.registryPackage);
       // Homebrew is preferred because it can check without mutating. When a
       // binary is not brew-managed, fall back to its own check flag only if it
       // is explicitly supported by the harness.

@@ -20,7 +20,6 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { createServer } from "node:http";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 
@@ -28,6 +27,7 @@ const require = createRequire(import.meta.url);
 const { createClaudeStructuredSession, claudeSupportsBypass } = require("../server/claude-code-structured-adapter.js");
 const { claudeForkPoint, claudeTranscriptFile } = require("../server/claude-fork-point.js");
 const { recordsFromBytes, claudeMessages } = require("../server/native-history-catalog.js");
+import { startFakeAnthropic, PNG_32PX as PNG } from "../test-support/fake-anthropic-api.mjs";
 
 const binary = process.argv[2];
 assert(binary && path.isAbsolute(binary), "absolute Claude Code executable required");
@@ -35,82 +35,10 @@ const executable = await fs.realpath(binary);
 const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-claude-release-")));
 const project = path.join(home, "project");
 await fs.mkdir(project);
-const requests = [];
+let requests = [];
 const report = { result: "failed", version: null, checks: {} };
 const sessions = [];
-let server;
-
-const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-const userTexts = body => (Array.isArray(body.messages) ? body.messages : []).filter(message => message.role === "user")
-  .flatMap(message => typeof message.content === "string" ? [message.content] : (message.content || []).filter(part => part?.type === "text").map(part => part.text || ""));
-const hasImage = body => (Array.isArray(body.messages) ? body.messages : []).some(message => Array.isArray(message.content) && message.content.some(part => part?.type === "image"));
-// Claude may add a system message after the person's or the tool's.
-const lastMessage = body => (Array.isArray(body.messages) ? body.messages : []).filter(message => message.role !== "system").slice(-1)[0] || null;
-const toolResultOf = message => Array.isArray(message?.content) ? message.content.find(part => part?.type === "tool_result") || null : null;
-const lastUserText = body => {
-  const messages = Array.isArray(body.messages) ? body.messages : [];
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index].role !== "user") continue;
-    const content = messages[index].content;
-    const text = typeof content === "string" ? content : (content || []).filter(part => part?.type === "text").map(part => part.text).join("\n");
-    if (text.trim()) return text;
-  }
-  return "";
-};
-const marker = text => (/Reply with exactly:\s*([A-Za-z0-9-]+)/.exec(text) || [])[1] || null;
-
-function answer(req, res, body) {
-  const last = lastUserText(body);
-  const finished = toolResultOf(lastMessage(body));
-  requests.push({ model: body.model, effort: body.output_config?.effort ?? null, stream: !!body.stream, marker: marker(last),
-    last: last.slice(0, 120), texts: userTexts(body), image: hasImage(body), toolResult: !!finished,
-    shape: (Array.isArray(body.messages) ? body.messages : []).slice(-3).map(message => message.role + "[" + (typeof message.content === "string" ? "text:" + message.content.slice(0, 60)
-      : (message.content || []).map(part => part.type + (part.type === "text" ? ":" + String(part.text).slice(0, 60) : part.type === "tool_result" ? ":" + JSON.stringify(part.content).slice(0, 80) : "")).join(",")) + "]") });
-  const id = "msg_oracle_" + crypto.randomUUID().replaceAll("-", "");
-  const usage = /USAGE-TEST/.test(last) && !finished
-    ? { input_tokens: 2, cache_read_input_tokens: 5000, cache_creation_input_tokens: 100, output_tokens: 1 }
-    : { input_tokens: 12, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 1 };
-  const reply = finished ? "command-finished" : marker(last) || "OK";
-  if (!body.stream) {
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ id, type: "message", role: "assistant", model: body.model, content: [{ type: "text", text: reply }], stop_reason: "end_turn", stop_sequence: null, usage }));
-    return;
-  }
-  res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
-  const send = (name, data) => res.write("event: " + name + "\ndata: " + JSON.stringify(data) + "\n\n");
-  send("message_start", { type: "message_start", message: { id, type: "message", role: "assistant", model: body.model, content: [], stop_reason: null, stop_sequence: null, usage } });
-  if (/TOOL-SLEEP/.test(last) && !finished) {
-    send("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "toolu_oracle_" + Date.now(), name: "Bash", input: {} } });
-    send("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify({ command: "sleep 36; echo waited", description: "Wait 36 seconds", timeout: 120000 }) } });
-    send("content_block_stop", { type: "content_block_stop", index: 0 });
-    send("message_delta", { type: "message_delta", delta: { stop_reason: "tool_use", stop_sequence: null }, usage: { output_tokens: 5 } });
-    send("message_stop", { type: "message_stop" });
-    res.end();
-    return;
-  }
-  send("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
-  const end = output => {
-    send("content_block_stop", { type: "content_block_stop", index: 0 });
-    send("message_delta", { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: output } });
-    send("message_stop", { type: "message_stop" });
-    res.end();
-  };
-  const slow = /SLOW-(\d+)/.exec(last);
-  if (slow && !finished) {
-    let index = 0;
-    const total = Math.min(4000, Number(slow[1]));
-    const tick = () => {
-      if (res.destroyed || res.writableEnded) return;
-      if (index >= total) { end(total); return; }
-      send("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "w" + (index += 1) + " " } });
-      setTimeout(tick, 15);
-    };
-    tick();
-    return;
-  }
-  send("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: reply } });
-  end(/USAGE-TEST/.test(last) && !finished ? 777 : 1);
-}
+let fake;
 
 async function until(check, label, timeout = 30000) {
   const deadline = Date.now() + timeout;
@@ -147,21 +75,10 @@ const modelMatches = (sent, chosen) => !!sent && !!chosen && (sent === chosen ||
 let env, allowBypass;
 try {
   report.version = execFileSync(executable, ["--version"], { encoding: "utf8", timeout: 20000, env: { HOME: home, PATH: "/usr/bin:/bin" } }).trim();
-  server = createServer((req, res) => {
-    let raw = "";
-    req.setEncoding("utf8");
-    req.on("data", chunk => { raw += chunk; if (raw.length > 32 * 1024 * 1024) req.destroy(); });
-    req.on("end", () => {
-      let body = null;
-      try { body = JSON.parse(raw); } catch {}
-      if (req.url.startsWith("/v1/messages/count_tokens")) { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ input_tokens: 12 })); return; }
-      if (req.method !== "POST" || !req.url.startsWith("/v1/messages") || !body) { res.writeHead(404, { "content-type": "application/json" }); res.end(JSON.stringify({ type: "error", error: { type: "not_found_error", message: "fixture" } })); return; }
-      answer(req, res, body);
-    });
-  });
-  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
+  fake = await startFakeAnthropic();
+  requests = fake.requests;
   env = { HOME: home, CLAUDE_CONFIG_DIR: path.join(home, ".claude"), PATH: path.dirname(process.execPath) + path.delimiter + "/usr/bin:/bin:/usr/sbin:/sbin",
-    TMPDIR: os.tmpdir(), LANG: "en_US.UTF-8", ANTHROPIC_BASE_URL: "http://127.0.0.1:" + server.address().port,
+    TMPDIR: os.tmpdir(), LANG: "en_US.UTF-8", ANTHROPIC_BASE_URL: fake.url,
     ANTHROPIC_API_KEY: "sk-ant-oracle-fixture-only", CLAUDE_CODE_MAX_RETRIES: "0", DISABLE_AUTOUPDATER: "1", DISABLE_TELEMETRY: "1",
     DISABLE_ERROR_REPORTING: "1", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" };
   allowBypass = await claudeSupportsBypass(executable, { env });
@@ -271,13 +188,13 @@ try {
     report.debug = { state: status.state, failed: status.failed, permissionMode: status.permissionMode,
       pending: live.pendingPermissions().map(row => ({ id: row.requestId, tool: row.request?.tool_name, protocol: row.approvalProtocol, decision: row.decision })),
       lastEvents: live.events().slice(-14).map(event => [event.type, event.subtype || event.request?.subtype || event.event?.type || ""].join(":")),
-      lastRequests: requests.slice(-5).map(row => ({ stream: row.stream, last: row.last.slice(0, 40), toolResult: row.toolResult, shape: row.shape })) };
+      lastRequests: requests.slice(-5).map(row => ({ stream: row.stream, last: row.last.slice(0, 40), toolResult: row.toolResult })) };
   }
 } finally {
   for (const session of sessions) await session.close().catch(() => {});
   report.modelRequests = requests.length;
   report.paidModelRequests = 0;
-  if (server) { server.closeAllConnections?.(); await new Promise(resolve => server.close(resolve)); }
+  await fake?.close();
   await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
   console.log(JSON.stringify(report));
   process.exit(report.result === "passed" ? 0 : 1);

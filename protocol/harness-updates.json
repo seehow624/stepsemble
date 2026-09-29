@@ -25,7 +25,7 @@
       "label": "OpenCode",
       "commands": ["opencode"],
       "executableEnv": "STEPSEMBLE_OPENCODE_BIN",
-      "check": { "kind": "brew-or-official", "package": "opencode" },
+      "check": { "kind": "brew-or-official", "package": "opencode", "registryPackage": "opencode-ai" },
       "update": { "kind": "brew-or-command", "package": "opencode", "args": ["upgrade"] }
     },
     {

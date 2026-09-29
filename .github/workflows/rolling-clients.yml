@@ -16,6 +16,7 @@ on:
       - 'scripts/codex-activity-browser-cases.mjs'
       - 'scripts/native-composer-preview.mjs'
       - 'scripts/conversation-browser-cases.mjs'
+      - 'scripts/conversation-ux-browser-cases.mjs'
       - 'scripts/history-sources-browser-cases.mjs'
       - 'scripts/history-codex-browser-cases.mjs'
       - 'scripts/history-codex-host-synthetic.mjs'
@@ -38,6 +39,8 @@ on:
       - 'scripts/browser-test-runtime/**'
       - 'scripts/host-performance-baseline.mjs'
       - 'test-support/rolling-pi.cjs'
+      - 'test-support/desktop-claude-structured-peer.cjs'
+      - 'test-support/fake-acp-agent.cjs'
       - 'package.json'
   pull_request:
     paths:
@@ -53,6 +56,7 @@ on:
       - 'scripts/codex-activity-browser-cases.mjs'
       - 'scripts/native-composer-preview.mjs'
       - 'scripts/conversation-browser-cases.mjs'
+      - 'scripts/conversation-ux-browser-cases.mjs'
       - 'scripts/history-sources-browser-cases.mjs'
       - 'scripts/history-codex-browser-cases.mjs'
       - 'scripts/history-codex-host-synthetic.mjs'
@@ -75,6 +79,8 @@ on:
       - 'scripts/browser-test-runtime/**'
       - 'scripts/host-performance-baseline.mjs'
       - 'test-support/rolling-pi.cjs'
+      - 'test-support/desktop-claude-structured-peer.cjs'
+      - 'test-support/fake-acp-agent.cjs'
       - 'package.json'
   workflow_dispatch:
 

@@ -92,6 +92,17 @@ test("ACP agents' usage reads the same whichever way each agent counts", () => {
   assert.deepEqual([grok.tokens.input, grok.tokens.output, grok.tokens.cacheRead], [1023, 215, 21248]);
   assert.equal(grok.contextUsage.tokens, 22486);
   assert.equal(Math.round(context.computeCacheHitRate(grok.tokens)), 95);
+  // A turn of one call: its cache writes are named only in the turn's sum
+  // (Grok 1.0.41 with a Messages API model).
+  const grokOne = context.acpUsageStats({ result: { stopReason: "end_turn", _meta: { totalTokens: 5879, inputTokens: 5102, outputTokens: 777,
+    cachedReadTokens: 5000, reasoningTokens: 0, usage: { inputTokens: 5102, outputTokens: 777, totalTokens: 5879, cachedReadTokens: 5000,
+      cacheCreationTokens: 100, reasoningTokens: 0, modelCalls: 1 } } } });
+  assert.deepEqual([grokOne.tokens.input, grokOne.tokens.output, grokOne.tokens.cacheRead, grokOne.tokens.cacheWrite], [2, 777, 5000, 100]);
+  assert.equal(grokOne.contextUsage.tokens, 5879);
+  // Of two calls the sum's writes are not the last call's.
+  const grokTwo = context.acpUsageStats({ result: { _meta: { inputTokens: 12, outputTokens: 1, totalTokens: 13, cachedReadTokens: 0,
+    usage: { inputTokens: 5114, outputTokens: 6, cachedReadTokens: 5000, cacheCreationTokens: 100, modelCalls: 2 } } } });
+  assert.deepEqual([grokTwo.tokens.input, grokTwo.tokens.cacheWrite], [12, 0]);
   // Hermes: the turn's sum, cached inside input and thinking inside output;
   // its usage_update gives the context.
   const hermesReply = { result: { stopReason: "end_turn", usage: { cachedReadTokens: 15872, inputTokens: 38270, outputTokens: 1369, thoughtTokens: 1126, totalTokens: 39639 } } };

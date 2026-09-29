@@ -199,9 +199,13 @@
     const result = isRecord(reply?.result) ? reply.result : isRecord(reply) ? reply : {};
     const meta = isRecord(result._meta) ? result._meta : {};
     const fromMeta = finiteNonNegative(meta.inputTokens) !== null;
+    // Grok names a call's cache writes only in the turn's sum; a turn of a
+    // single call is that call, so its figure is the call's own.
+    const turnSum = isRecord(meta.usage) ? meta.usage : null;
+    const turnWrite = turnSum && Number(turnSum.modelCalls) === 1 ? turnSum.cachedWriteTokens ?? turnSum.cacheCreationTokens : undefined;
     const raw = fromMeta
       ? { inputTokens: meta.inputTokens, outputTokens: meta.outputTokens, totalTokens: meta.totalTokens, cachedReadTokens: meta.cachedReadTokens,
-        cachedWriteTokens: meta.cachedWriteTokens ?? meta.cacheCreationTokens, thoughtTokens: meta.thoughtTokens ?? meta.reasoningTokens }
+        cachedWriteTokens: meta.cachedWriteTokens ?? meta.cacheCreationTokens ?? turnWrite, thoughtTokens: meta.thoughtTokens ?? meta.reasoningTokens }
       : isRecord(result.usage) ? result.usage : isRecord(reply?.usage) ? reply.usage : null;
     const used = finiteNonNegative(report?.used);
     const size = positiveFinite(report?.size) ?? positiveFinite(capacity);

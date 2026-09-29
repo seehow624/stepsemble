@@ -31,6 +31,7 @@ is found in it (`server/claude-fork-point.js`, shared with the Host).
 
 It prints one JSON object: `action: "none"` when the release passed, `"adapt"` with
 the failed check when it did not (exit code 2), `"wait"` when it could not be
-checked. The fake model answers by marker (`Reply with exactly: X`, `USAGE-TEST`,
-`SLOW-n`, `TOOL-SLEEP`) and skips the system messages Claude inserts in the
-conversation.
+checked. The fake model (`test-support/fake-anthropic-api.mjs`, shared with the
+Grok Build and Pi checks) answers by marker (`Reply with exactly: X`,
+`USAGE-TEST`, `SLOW-n`, `TOOL-SLEEP`, `TOOL-ECHO`, `TOOL-WRITE`) and skips the
+system messages an agent inserts in the conversation.
