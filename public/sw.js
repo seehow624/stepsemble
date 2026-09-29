@@ -1,20 +1,20 @@
-const CACHE_NAME = "stepsemble-shell-v3.8.17";
+const CACHE_NAME = "stepsemble-shell-v3.8.18";
 const SHELL = [
   "/",
   "/index.html",
   "/workspace.html",
-  "/modules/workspace.js?v=3.8.17",
-  "/modules/workspace-i18n.js?v=3.8.17",
-  "/modules/workspace-layout.js?v=3.8.17",
-  "/modules/workspace.css?v=3.8.17",
-  "/modules/workspace-embedded.css?v=3.8.17",
-  "/style.css?v=3.8.17",
-  "/i18n.js?v=3.8.17",
-  "/modules/app-foundation.js?v=3.8.17",
-  "/modules/agent-identity.js?v=3.8.17",
-  "/modules/agent-identity.css?v=3.8.17",
-  "/modules/conversation-catalog.css?v=3.8.17",
-  "/modules/conversation-catalog.js?v=3.8.17",
+  "/modules/workspace.js?v=3.8.18",
+  "/modules/workspace-i18n.js?v=3.8.18",
+  "/modules/workspace-layout.js?v=3.8.18",
+  "/modules/workspace.css?v=3.8.18",
+  "/modules/workspace-embedded.css?v=3.8.18",
+  "/style.css?v=3.8.18",
+  "/i18n.js?v=3.8.18",
+  "/modules/app-foundation.js?v=3.8.18",
+  "/modules/agent-identity.js?v=3.8.18",
+  "/modules/agent-identity.css?v=3.8.18",
+  "/modules/conversation-catalog.css?v=3.8.18",
+  "/modules/conversation-catalog.js?v=3.8.18",
   "/agent-logos/v1/pi.svg",
   "/agent-logos/v1/claude.svg",
   "/agent-logos/v1/codex.svg",
@@ -27,28 +27,28 @@ const SHELL = [
   "/agent-logos/v1/openai.svg",
   "/agent-logos/v1/minimax.png",
   "/agent-logos/v1/agent.svg",
-  "/modules/session-utils.js?v=3.8.17",
-  "/modules/pi-session.js?v=3.8.17",
-  "/modules/context-usage.js?v=3.8.17",
-  "/modules/opencode-context.js?v=3.8.17",
-  "/modules/model-presentation.js?v=3.8.17",
-  "/modules/agent-terminal.js?v=3.8.17",
-  "/modules/claude-structured-rendering.js?v=3.8.17",
-  "/modules/agent-transcript-presentation.js?v=3.8.17",
-  "/modules/codex-approvals.js?v=3.8.17",
-  "/modules/protocol-contracts.js?v=3.8.17",
-  "/modules/client-sdk.js?v=3.8.17",
-  "/modules/native-dialogs.js?v=3.8.17",
-  "/modules/composer-ime.js?v=3.8.17",
-  "/app.js?v=3.8.17",
-  "/manifest.webmanifest?v=3.8.17",
+  "/modules/session-utils.js?v=3.8.18",
+  "/modules/pi-session.js?v=3.8.18",
+  "/modules/context-usage.js?v=3.8.18",
+  "/modules/opencode-context.js?v=3.8.18",
+  "/modules/model-presentation.js?v=3.8.18",
+  "/modules/agent-terminal.js?v=3.8.18",
+  "/modules/claude-structured-rendering.js?v=3.8.18",
+  "/modules/agent-transcript-presentation.js?v=3.8.18",
+  "/modules/codex-approvals.js?v=3.8.18",
+  "/modules/protocol-contracts.js?v=3.8.18",
+  "/modules/client-sdk.js?v=3.8.18",
+  "/modules/native-dialogs.js?v=3.8.18",
+  "/modules/composer-ime.js?v=3.8.18",
+  "/app.js?v=3.8.18",
+  "/manifest.webmanifest?v=3.8.18",
   "/stepsemble-glyph.png",
   "/icon-512.png",
-  "/icon-16.png?v=3.8.17",
-  "/icon-32.png?v=3.8.17",
-  "/icon-180.png?v=3.8.17",
-  "/icon-512.png?v=3.8.17",
-  "/icon-maskable-512.png?v=3.8.17",
+  "/icon-16.png?v=3.8.18",
+  "/icon-32.png?v=3.8.18",
+  "/icon-180.png?v=3.8.18",
+  "/icon-512.png?v=3.8.18",
+  "/icon-maskable-512.png?v=3.8.18",
   "/vendor/marked.min.js",
   "/vendor/purify.min.js",
   "/vendor/mermaid.min.js",
@@ -77,7 +77,18 @@ self.addEventListener("install", (event) => {
 async function offlinePage(url) {
   const ownPage = url.pathname === "/index.html" && ["pane", "settings", "returnWorkspace"].some(key => url.searchParams.get(key) === "1");
   const page = ownPage ? "/index.html" : "/workspace.html";
-  return (await caches.match(page)) || Response.error();
+  const cached = await caches.match(page);
+  if (!cached) return Response.error();
+  // A pane and Settings are shown in a frame of the Workspace. The cached
+  // index.html was fetched on its own, whose headers forbid any frame, so
+  // they get the headers the Host gives them: framed by this origin only.
+  const framed = ownPage && ["pane", "settings"].some(key => url.searchParams.get(key) === "1");
+  if (!framed) return cached;
+  const headers = new Headers(cached.headers);
+  headers.set("X-Frame-Options", "SAMEORIGIN");
+  const policy = headers.get("Content-Security-Policy");
+  if (policy) headers.set("Content-Security-Policy", policy.replace(/frame-ancestors [^;]*/, "frame-ancestors 'self'"));
+  return new Response(await cached.blob(), { status: cached.status, statusText: cached.statusText, headers });
 }
 
 self.addEventListener("activate", (event) => {

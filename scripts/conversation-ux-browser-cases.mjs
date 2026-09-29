@@ -215,6 +215,50 @@ export async function runConversationUxBrowserCases(browser) {
       await pendingTurn(page, ui, context, "**/api/hermes/acp/prompt", "held back for ACP", "held back for ACP", out, "acp");
       await ui.waitForFunction(() => document.querySelectorAll("#messages .msg.assistant").length > 0);
 
+      stage = "Settings open in the same window";
+      // On a phone the list, with the Settings button, is behind the open conversation.
+      if (viewport.mobile) {
+        await ui.evaluate(() => parent.postMessage({ type: "workspace-show-list" }, location.origin));
+        await page.waitForFunction(() => !document.body.classList.contains("sidebar-hidden"));
+      }
+      await ui.evaluate(() => { window.__paneKept = true; });
+      const pagesBefore = context.pages().length;
+      const settingsLayer = async () => {
+        await page.locator("#workspace-settings").click();
+        await page.waitForSelector(".workspace-settings-layer iframe");
+        const frame = await (await page.$(".workspace-settings-layer iframe")).contentFrame();
+        await frame.waitForFunction(() => {
+          const view = document.querySelector("#view-settings");
+          return !!view && !view.classList.contains("hidden") && view.getBoundingClientRect().height > 200;
+        }, null, { timeout: 20000 }).catch(async error => {
+          const seen = await frame.evaluate(() => ({ url: location.href, views: [...document.querySelectorAll("main, .view, #onboarding, #login")].map(node => (node.id || node.className) + ":" + (node.classList.contains("hidden") ? "hidden" : Math.round(node.getBoundingClientRect().height))) })).catch(() => null);
+          await page.screenshot({ path: path.join(os.tmpdir(), "stepsemble-settings-layer-" + viewport.name + ".png") }).catch(() => {});
+          throw new Error(error.message + " " + JSON.stringify(seen));
+        });
+        return frame;
+      };
+      let settings = await settingsLayer();
+      if (process.env.STEPSEMBLE_UX_SHOTS) {
+        await page.waitForTimeout(700);
+        await page.screenshot({ path: path.join(process.env.STEPSEMBLE_UX_SHOTS, "settings-same-window-" + viewport.name + ".png") });
+      }
+      const shown = await page.evaluate(() => {
+        const layer = document.querySelector(".workspace-settings-layer").getBoundingClientRect();
+        return { url: location.pathname, width: Math.round(layer.width), height: Math.round(layer.height), inert: document.querySelector("#workspace-main").inert };
+      });
+      assert.deepEqual([shown.url, shown.width, shown.height, shown.inert], ["/workspace.html", viewport.width, viewport.height, true]);
+      assert.equal(context.pages().length, pagesBefore, "no second window");
+      await settings.locator("#btn-settings-back").click();
+      await page.waitForFunction(() => !document.querySelector(".workspace-settings-layer"), null, { timeout: 5000 });
+      settings = await settingsLayer();
+      await settings.locator("#view-settings").press("Escape");
+      await page.waitForFunction(() => !document.querySelector(".workspace-settings-layer"), null, { timeout: 5000 });
+      assert.equal(context.pages().length, pagesBefore, "no second window");
+      assert.equal(page.url().includes("/workspace.html"), true);
+      assert.equal(await page.evaluate(() => document.querySelector("#workspace-main").inert), false);
+      assert.equal(await ui.evaluate(() => window.__paneKept === true), true, "the conversation pane was not reloaded");
+      out.settings = "same window";
+
       assert.deepEqual(errors, []);
       assert.deepEqual(foreign, []);
       console.log(JSON.stringify({ case: "Conversation UX " + viewport.name, result: "passed", ...out, modelCalls: 0, pageErrors: 0 }));

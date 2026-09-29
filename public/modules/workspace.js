@@ -627,7 +627,7 @@
     }
     const foot = node("div", "", "workspace-limits-foot");
     foot.append(node("small", data.updatedAt ? t("checked", { date: clockTime(data.updatedAt) }) : ""),
-      button(t("quotaSourcesLink"), () => { setLimitsOpen(false); window.open("/index.html?settings=1&section=quota-sources", "stepsemble-settings"); }, t("quotaSourcesLink"), "workspace-limits-sources"));
+      button(t("quotaSourcesLink"), () => { setLimitsOpen(false); openSettings("quota-sources"); }, t("quotaSourcesLink"), "workspace-limits-sources"));
     scroll.append(grid, foot);
     details.append(scroll);
     details.inert = true;
@@ -932,6 +932,10 @@
   };
   window.addEventListener("message", event => {
     if (event.origin !== location.origin) return;
+    if (settingsLayer && event.source === settingsLayer.querySelector("iframe")?.contentWindow) {
+      if (event.data?.type === "workspace-settings-close") closeSettings();
+      return;
+    }
     const item = [...frames.values()].find(item => item.frame.contentWindow === event.source);
     if (!item) return;
     if (event.data?.type === "workspace-focus") { const p = L.leaves(tree).find(p => p.tabs.some(r => L.identity(r) === L.identity(item.ref))); if (p) { focused = p.id; for (const pane of document.querySelectorAll(".workspace-pane")) pane.dataset.focused = String(pane.dataset.pane === focused); } }
@@ -955,6 +959,31 @@
     renderSidebar();
     requestAnimationFrame(layoutFrames);
     void refresh();
+  }
+  // Settings open over the Workspace, in this window. Closing them (Back at
+  // their top level, Escape or the edge swipe) comes back to the panes as
+  // they were: they are not reloaded. They used to open in a second window,
+  // which on closing loaded a second Workspace.
+  let settingsLayer = null;
+  let settingsCovered = [];
+  function openSettings(section = null) {
+    if (settingsLayer) return;
+    const url = new URL("/index.html", location.origin); url.searchParams.set("settings", "1");
+    if (section) url.searchParams.set("section", section);
+    const frame = node("iframe", "", "workspace-settings-frame"); frame.title = t("settings"); frame.src = url.href;
+    settingsLayer = node("div", "", "workspace-settings-layer"); settingsLayer.append(frame);
+    settingsCovered = [...document.body.children].filter(child => !child.inert);
+    for (const child of settingsCovered) child.inert = true;
+    document.body.append(settingsLayer);
+    frame.addEventListener("load", () => { try { frame.contentWindow.focus(); } catch {} }, { once: true });
+  }
+  function closeSettings() {
+    if (!settingsLayer) return;
+    settingsLayer.remove(); settingsLayer = null;
+    for (const child of settingsCovered) child.inert = false;
+    settingsCovered = [];
+    renderSidebar(); requestAnimationFrame(layoutFrames);
+    void refresh(); void refreshUsage();
   }
   window.addEventListener("popstate", showMobileList);
   $("workspace-dialog-close").onclick = closeDialog;
@@ -980,7 +1009,7 @@
   $("workspace-search").oninput = renderSidebar;
   $("workspace-host").onchange = () => { host = $("workspace-host").value; snapshot = { projects: [], entries: [] }; usage = null; renderUsage(null); renderSidebar(); void refresh(); void refreshUsage(); };
   $("workspace-sidebar-close").onclick = () => { document.body.classList.add("sidebar-hidden"); requestAnimationFrame(layoutFrames); };
-  $("workspace-settings").onclick = () => { window.open("/index.html?settings=1", "stepsemble-settings"); };
+  $("workspace-settings").onclick = () => openSettings();
   window.addEventListener("dragend", dragEnd); window.addEventListener("drop", dragEnd);
   window.addEventListener("storage", event => {
     if (event.key !== null && !/^(stepsemble|piharbor|piweb)\.settings\./.test(event.key)) return;

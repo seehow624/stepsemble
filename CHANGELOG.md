@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.8.18
+
+- Settings now open in the same window. They used to open a second window, and closing them loaded a second Workspace there. The gear, and "Quota sources" in the limits panel, now open Settings over the Workspace. Back at the top level, Escape or the edge swipe closes them, and the open conversations are as they were, without reloading. Signing out, an update or a restart from Settings reloads the whole window.
+- When the Host cannot be reached, a conversation pane or Settings gets the saved copy of the page. The saved copy's headers had forbidden showing it inside the Workspace, so the pane showed a browser error instead.
+- Checked in Chromium and WebKit at phone and desktop sizes. The gear opened no second window, Settings filled the Workspace, Back and Escape closed them, and the conversation pane behind was not reloaded. This now runs on every release.
+
 ## 3.8.17
 
 - In a Claude Code conversation, "Working for" and the timer at the top now count from the message you just sent. Before, they counted from when the conversation was opened in Stepsemble. A message sent an hour after opening the conversation showed "Working for 1h 2m" the moment it was sent. Stepsemble had taken the time Claude's process started as the start of the reply. Claude now reports when each reply starts and ends. A message sent while the agent is already working still joins the reply in progress, as in Codex. The same rule protects every agent: after a message sent while the agent is idle, any start time from before the send is ignored.

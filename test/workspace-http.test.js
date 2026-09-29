@@ -114,6 +114,10 @@ test("workspace HTTP isolates membership, history, project registration and pane
   const pane = await request("/index.html?pane=1");
   assert.equal(pane.headers.get("x-frame-options"), "SAMEORIGIN");
   assert.match(pane.headers.get("content-security-policy"), /frame-ancestors 'self'/);
+  // Settings open in a frame over the Workspace as well.
+  const settings = await request("/index.html?settings=1");
+  assert.equal(settings.headers.get("x-frame-options"), "SAMEORIGIN");
+  assert.match(settings.headers.get("content-security-policy"), /frame-ancestors 'self'/);
 
   // A phone pays for every uncompressed byte of the client bundle, so the
   // assets are served compressed, kept for the release's own URL, and never

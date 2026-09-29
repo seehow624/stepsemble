@@ -106,7 +106,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.17";
+const APP_VERSION = "3.8.18";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -7595,7 +7595,10 @@ const server = http.createServer(async (req, res) => {
       // it can stay cached for a year; unversioned preview pages keep the short
       // cache because nothing invalidates them by name.
       const versioned = extension !== ".html" && rel !== "sw.js" && url.searchParams.has("v");
-      const paneHeaders = rel === "index.html" && url.searchParams.get("pane") === "1" ? {
+      // A pane and Settings are shown in a frame of the Workspace, on this
+      // origin only; any other page stays unframeable.
+      const framed = rel === "index.html" && (url.searchParams.get("pane") === "1" || url.searchParams.get("settings") === "1");
+      const paneHeaders = framed ? {
         "X-Frame-Options": "SAMEORIGIN",
         "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'"
       } : {};

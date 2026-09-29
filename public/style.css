@@ -1,4 +1,4 @@
-/* stepsemble v3.8.17 — Ink & Ivory / English-first localization */
+/* stepsemble v3.8.18 — Ink & Ivory / English-first localization */
 
 :root {
   /* The status bar inset. A Workspace pane sets it to 0: the Workspace keeps
@@ -286,6 +286,7 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 #view-chat.slide-out, #view-settings.slide-out { transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.3, 1); }
 #view-settings.slide-in { animation: settingsIn 0.22s cubic-bezier(0.2, 0.8, 0.3, 1); }
 @keyframes settingsIn { from { transform: translateX(30%); opacity: 0.4; } to { transform: none; opacity: 1; } }
+html.settings-over-workspace #view-list, html.settings-over-workspace #view-chat { visibility: hidden; }
 
 /* ---- 列表 ---- */
 .list-toolbar { display: flex; gap: 8px; padding: 12px; flex-shrink: 0; }

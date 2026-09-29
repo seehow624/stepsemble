@@ -1,7 +1,7 @@
-/* stepsemble v3.8.17 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.18 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.17";
+const CLIENT_APP_VERSION = "3.8.18";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -15,6 +15,17 @@ const SIGN_IN_PAGE = !WORKSPACE_PANE && !SETTINGS_WINDOW && PAGE_QUERY.get("retu
 const PAGE_EMBEDDED = (() => { try { return window.top !== window.self; } catch { return true; } })();
 const LEAVING_FOR_WORKSPACE = WORKSPACE_PANE ? !PAGE_EMBEDDED : !SETTINGS_WINDOW && !SIGN_IN_PAGE;
 if (LEAVING_FOR_WORKSPACE) location.replace("/");
+// Settings shown over the Workspace (an iframe of it) reload the whole
+// window, not just themselves: after signing out, an update or a restart the
+// Workspace underneath must change too.
+const SETTINGS_OVER_WORKSPACE = SETTINGS_WINDOW && PAGE_EMBEDDED;
+// Over the Workspace nothing but Settings shows: not this page's own list or
+// empty conversation beneath them while they slide in.
+if (SETTINGS_OVER_WORKSPACE) document.documentElement.classList.add("settings-over-workspace");
+function reloadWindow() {
+  if (SETTINGS_OVER_WORKSPACE) { try { window.top.location.reload(); return; } catch {} }
+  location.reload();
+}
 if (WORKSPACE_PANE) {
   document.documentElement.classList.add("workspace-embedded");
   // A split pane can be narrow on a desktop. Use the outer workspace viewport
@@ -1381,7 +1392,7 @@ el.machineSwitch?.addEventListener("change", () => {
 
 async function logout() {
   try { await post("/api/logout", {}); } catch {}
-  location.reload();
+  reloadWindow();
 }
 el.btnLogout.addEventListener("click", logout);
 
@@ -1630,7 +1641,10 @@ function hideSettings() {
   resetSettingsOverlay();
   el.viewSettings.classList.add("hidden");
   el.viewModelSettings.classList.add("hidden");
-  if (SETTINGS_WINDOW) location.replace("/workspace.html");
+  // Over the Workspace, closing Settings hands back to it; opened on their
+  // own (an older Workspace, a bookmark), they go to the Workspace.
+  if (SETTINGS_OVER_WORKSPACE) parent.postMessage({ type: "workspace-settings-close" }, location.origin);
+  else if (SETTINGS_WINDOW) location.replace("/workspace.html");
 }
 
 // ---- 本機用量統計（Settings → About）：最近 7 天的 token／成本條列。
@@ -15444,7 +15458,7 @@ async function checkForClientUpdate() {
     const previousAttempt = Number(migratedStorageValue(sessionStorage, reloadAttemptKey, legacyReloadAttemptKeys)) || 0;
     if (Date.now() - previousAttempt < 15_000) return;
     sessionStorage.setItem(reloadAttemptKey, String(Date.now()));
-    location.reload();
+    reloadWindow();
   } catch {}
 }
 
@@ -17352,7 +17366,7 @@ async function restartMachineWeb() {
   try {
     await post("/api/device-restart", {});
     toast("Stepsemble 正在重新啟動");
-    setTimeout(() => location.reload(), 1200);
+    setTimeout(reloadWindow, 1200);
   } catch (error) {
     el.machineRestart.disabled = false;
     setMachineFormError(error.message || "無法重新啟動 Stepsemble");
@@ -17727,7 +17741,7 @@ if ("serviceWorker" in navigator) {
       return;
     }
     toast(updateText("Stepsemble updated; reloading…"), false);
-    setTimeout(() => location.reload(), 900);
+    setTimeout(reloadWindow, 900);
   });
   (async () => {
     try {

@@ -40,6 +40,34 @@ test("API and remote-host traffic never enter the service-worker cache", () => {
   }
 });
 
+test("offline, a pane or Settings gets the cached page framed by this origin only", async () => {
+  const handlers = {};
+  const policy = "default-src 'self'; frame-ancestors 'none'";
+  const shell = () => new Response("<html>shell</html>", { headers: { "X-Frame-Options": "DENY", "Content-Security-Policy": policy, "Content-Type": "text/html" } });
+  const sandbox = vm.createContext({
+    self: { location: { origin: "http://localhost" }, addEventListener(name, fn) { handlers[name] = fn; }, skipWaiting: async () => {}, clients: { claim: async () => {}, matchAll: async () => [] } },
+    Request: class { constructor(url, options) { this.url = typeof url === "string" ? url : url.url; Object.assign(this, options); } },
+    URL, Headers, Response,
+    fetch: async () => { throw new TypeError("offline"); },
+    caches: { match: async page => page === "/index.html" || page === "/workspace.html" ? shell() : undefined, open: async () => ({ put: async () => {} }), keys: async () => [] },
+  });
+  vm.runInContext(fs.readFileSync(require.resolve("../public/sw.js"), "utf8"), sandbox);
+  const navigate = async route => {
+    let answer;
+    handlers.fetch({ request: { method: "GET", mode: "navigate", url: "http://localhost" + route }, respondWith(promise) { answer = promise; } });
+    return answer;
+  };
+  for (const route of ["/index.html?pane=1&host=mini&entry=a", "/index.html?settings=1&section=quota-sources"]) {
+    const response = await navigate(route);
+    assert.equal(response.headers.get("X-Frame-Options"), "SAMEORIGIN", route);
+    assert.match(response.headers.get("Content-Security-Policy"), /frame-ancestors 'self'/);
+    assert.equal(await response.text(), "<html>shell</html>");
+  }
+  // The sign-in page and the Workspace are never framed.
+  assert.equal((await navigate("/index.html?returnWorkspace=1")).headers.get("X-Frame-Options"), "DENY");
+  assert.equal((await navigate("/")).headers.get("X-Frame-Options"), "DENY");
+});
+
 test("same-version worker activation does not reload an already-current client", () => {
   const source = fs.readFileSync(require.resolve("../public/app.js"), "utf8");
   const start = source.indexOf('navigator.serviceWorker.addEventListener("message",');
@@ -51,7 +79,7 @@ test("same-version worker activation does not reload an already-current client",
     navigator: { serviceWorker: { controller: {}, addEventListener(name, fn) { assert.equal(name, "message"); handler = fn; } } },
     CLIENT_APP_VERSION: version, rpc: null,
     toast: message => messages.push(message), updateText: text => text,
-    setTimeout: callback => timers.push(callback), location: { reload() {} },
+    setTimeout: callback => timers.push(callback), location: { reload() {} }, reloadWindow() {},
   });
   vm.runInContext(source.slice(start, end), sandbox);
   for (const type of ["PI_HARBOR_UPDATED", "STEPSEMBLE_UPDATED"]) {
