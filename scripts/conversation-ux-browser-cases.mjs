@@ -259,6 +259,25 @@ export async function runConversationUxBrowserCases(browser) {
       assert.equal(await ui.evaluate(() => window.__paneKept === true), true, "the conversation pane was not reloaded");
       out.settings = "same window";
 
+      stage = "A provider switched off in Settings leaves every model menu";
+      settings = await settingsLayer();
+      await settings.evaluate(() => showModelSettings({ agent: "pi" }));
+      const providerSwitch = settings.locator('[data-provider-visibility="synthetic"]');
+      await providerSwitch.waitFor({ state: "attached", timeout: 20000 });
+      assert.equal(await providerSwitch.isChecked(), true);
+      await providerSwitch.click({ force: true });
+      await settings.waitForFunction(() => document.querySelector('[data-provider-visibility="synthetic"]')?.closest(".model-provider-group")?.classList.contains("provider-hidden"));
+      const kept = async () => (await (await context.request.get(base + "/api/model-visibility")).json()).hidden;
+      for (let tries = 0; tries < 20 && !(await kept()).includes("synthetic::*"); tries += 1) await page.waitForTimeout(100);
+      assert.deepEqual(await kept(), ["synthetic::*"], "kept on the Host");
+      // A pane reads the Host's list, as another device does.
+      assert.equal(await ui.evaluate(async () => { await loadHostModelVisibility(); return isModelVisible({ provider: "synthetic", id: "baseline" }); }), false);
+      await providerSwitch.click({ force: true });
+      for (let tries = 0; tries < 20 && (await kept()).length; tries += 1) await page.waitForTimeout(100);
+      assert.deepEqual(await kept(), []);
+      await settings.locator("#view-settings").press("Escape");
+      out.providers = "hidden on the Host";
+
       assert.deepEqual(errors, []);
       assert.deepEqual(foreign, []);
       console.log(JSON.stringify({ case: "Conversation UX " + viewport.name, result: "passed", ...out, modelCalls: 0, pageErrors: 0 }));

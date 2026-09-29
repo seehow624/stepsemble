@@ -119,6 +119,17 @@ test("workspace HTTP isolates membership, history, project registration and pane
   assert.equal(settings.headers.get("x-frame-options"), "SAMEORIGIN");
   assert.match(settings.headers.get("content-security-policy"), /frame-ancestors 'self'/);
 
+  // The model menu's hidden models and providers live on the Host, so every
+  // device that uses it shows the same menu.
+  assert.deepEqual(await (await request("/api/model-visibility")).json(), { saved: false, hidden: [], updatedAt: null });
+  const hidden = await request("/api/model-visibility", { hide: ["synthetic::*", "synthetic::baseline"] });
+  assert.equal(hidden.status, 200);
+  assert.deepEqual((await hidden.json()).hidden, ["synthetic::*", "synthetic::baseline"]);
+  assert.deepEqual((await (await request("/api/model-visibility", { show: ["synthetic::*"] })).json()).hidden, ["synthetic::baseline"]);
+  assert.equal((await request("/api/model-visibility", { hide: ["not a key"] })).status, 400);
+  assert.equal((await request("/api/model-visibility", { hide: ["synthetic::*"] }, "https://elsewhere.example")).status, 403);
+  assert.deepEqual((await (await request("/api/model-visibility")).json()).hidden, ["synthetic::baseline"]);
+
   // A phone pays for every uncompressed byte of the client bundle, so the
   // assets are served compressed, kept for the release's own URL, and never
   // answered across encodings with one shared validator.

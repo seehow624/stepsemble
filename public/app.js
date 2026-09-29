@@ -1,7 +1,7 @@
-/* stepsemble v3.8.18 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.19 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.18";
+const CLIENT_APP_VERSION = "3.8.19";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -273,6 +273,9 @@ let composerReasoningLevel = "off";
 let modelCatalog = [];
 let modelCatalogSources = new Map();
 let configuredProviders = [];
+// Providers Pi lists because they are signed in there: id → { type, env },
+// env naming the environment variable a key comes from.
+let piProviderSignIns = new Map();
 
 function readDraftEntries() {
   try { return normalizeDraftEntries(migratedStorageValue(localStorage, DRAFT_STORAGE_KEY, LEGACY_DRAFT_STORAGE_KEYS)); }
@@ -11486,6 +11489,11 @@ async function openModelSheet({ preserveSearch = false } = {}) {
   if (el.modelSearch && !preserveSearch) { el.modelSearch.value = ""; }
   const stillCurrent = () => rpc === connection && rpc?.sid === expectedSid
     && viewGeneration === expectedGeneration && apiBase === expectedBase;
+  // What is hidden may have changed on another device; once the Host has
+  // answered, the list is drawn again with its answer.
+  void loadHostModelVisibility().then(() => {
+    if (stillCurrent() && !el.modelSheet.classList.contains("hidden") && availableModels.length) renderModelList(modelSheetCurrentId, modelSheetCurrentProvider);
+  });
   // Re-use a cached list for this session. Keeping the previous rows in place
   // avoids a blank sheet/reflow while a host adapter refreshes its catalog.
   if (!availableModels.length) {
@@ -11866,7 +11874,7 @@ async function openCommandPalette() {
   if (rpc?.sid && !rpc.generic) {
     const expectedSid = rpc.sid;
     try {
-      const r = await api(`/api/models?sid=${encodeURIComponent(expectedSid)}`);
+      const [r] = await Promise.all([api(`/api/models?sid=${encodeURIComponent(expectedSid)}`), loadHostModelVisibility()]);
       if (rpc?.sid === expectedSid && Array.isArray(r?.models) && el.commandPalette && !el.commandPalette.classList.contains("hidden")) {
         const models = r.models.filter((m) => isModelVisible(m)).slice(0, 60);
         const modelItems = models.map((m) => ({
@@ -15528,13 +15536,73 @@ function resolvedModelVisibilityKey(map, machine = modelMachineKey()) {
 function modelVisibilityKey(model) {
   return `${model?.provider || "unknown"}::${model?.id || ""}`;
 }
-function hiddenModelSet(machine = modelMachineKey()) {
+// A whole provider, including models it offers later.
+function providerVisibilityKey(provider) {
+  return `${provider || "unknown"}::*`;
+}
+// This browser's own list, as kept before the Host kept it, and for a Host
+// older than 3.8.19.
+function localHiddenModelSet(machine = modelMachineKey()) {
   const map = settings.modelVisibility && typeof settings.modelVisibility === "object" ? settings.modelVisibility : {};
   const key = resolvedModelVisibilityKey(map, machine);
   return new Set(Array.isArray(map[key]) ? map[key] : []);
 }
-function isModelVisible(model) { return !hiddenModelSet().has(modelVisibilityKey(model)); }
-function setModelVisible(model, visible) {
+// The list the Host keeps, the same on every device that uses it.
+let hostModelVisibility = null;
+function hiddenModelSet(machine = modelMachineKey()) {
+  if (hostModelVisibility && hostModelVisibility.base === apiBase) return hostModelVisibility.hidden;
+  return localHiddenModelSet(machine);
+}
+function isModelVisible(model) {
+  const hidden = hiddenModelSet();
+  return !hidden.has(modelVisibilityKey(model)) && !hidden.has(providerVisibilityKey(model?.provider));
+}
+function isProviderVisible(provider) { return !hiddenModelSet().has(providerVisibilityKey(provider)); }
+async function loadHostModelVisibility() {
+  const base = apiBase, machine = modelMachineKey();
+  try {
+    const result = await api("/api/model-visibility");
+    if (base !== apiBase) return;
+    let hidden = Array.isArray(result?.hidden) ? result.hidden : [];
+    // What this browser hid before the Host kept the list moves to it once;
+    // the first device to arrive sets it, and later ones add to it.
+    const local = [...localHiddenModelSet(machine)];
+    if (local.length) {
+      const moved = await post("/api/model-visibility", { hide: local });
+      if (base !== apiBase) return;
+      hidden = Array.isArray(moved?.hidden) ? moved.hidden : [...new Set([...hidden, ...local])];
+      clearLocalModelVisibility(machine);
+    }
+    hostModelVisibility = { base, hidden: new Set(hidden) };
+  } catch (error) {
+    // A Host older than 3.8.19 keeps no list: this browser keeps its own.
+    if (base === apiBase && error?.status === 404) hostModelVisibility = null;
+  }
+}
+function clearLocalModelVisibility(machine) {
+  const map = settings.modelVisibility && typeof settings.modelVisibility === "object" ? { ...settings.modelVisibility } : {};
+  delete map[resolvedModelVisibilityKey(map, machine)];
+  delete map[machine];
+  settings = saveSettings({ modelVisibility: map });
+}
+function setModelVisible(model, visible) { changeModelVisibility(modelVisibilityKey(model), !visible); }
+function setProviderVisible(provider, visible) { changeModelVisibility(providerVisibilityKey(provider), !visible); }
+function changeModelVisibility(key, hide) {
+  const store = hostModelVisibility && hostModelVisibility.base === apiBase ? hostModelVisibility : null;
+  if (store) {
+    const before = store.hidden.has(key);
+    if (hide) store.hidden.add(key); else store.hidden.delete(key);
+    void post("/api/model-visibility", hide ? { hide: [key] } : { show: [key] }).catch((error) => {
+      if (hostModelVisibility !== store) return;
+      if (before) store.hidden.add(key); else store.hidden.delete(key);
+      toast(tKey("provider.visibilityFailed", { detail: error?.message || "" }), true);
+      if (!el.viewModelSettings?.classList.contains("hidden")) renderModelVisibility();
+    });
+    return;
+  }
+  setLocalModelVisible(key, hide);
+}
+function setLocalModelVisible(key, hide) {
   const machine = modelMachineKey();
   const map = settings.modelVisibility && typeof settings.modelVisibility === "object"
     ? { ...settings.modelVisibility } : {};
@@ -15542,9 +15610,8 @@ function setModelVisible(model, visible) {
   // forward instead of leaving two half-truths behind.
   const resolved = resolvedModelVisibilityKey(map, machine);
   if (resolved !== machine) delete map[resolved];
-  const hidden = hiddenModelSet(machine);
-  const key = modelVisibilityKey(model);
-  if (visible) hidden.delete(key); else hidden.add(key);
+  const hidden = localHiddenModelSet(machine);
+  if (hide) hidden.add(key); else hidden.delete(key);
   if (hidden.size) map[machine] = [...hidden];
   else delete map[machine];
   settings = saveSettings({ modelVisibility: map });
@@ -15654,8 +15721,11 @@ function renderModelVisibility() {
     providerName.textContent = provider;
     const meta = document.createElement("span");
     const providerConfig = configured.get(provider);
-    const visible = models.filter(isModelVisible).length;
-    meta.textContent = `${visible}/${models.length}${providerConfig ? " · 自訂" : ""}`;
+    const providerShown = isProviderVisible(provider);
+    const metaText = () => `${models.filter(isModelVisible).length}/${models.length}${providerConfig ? " · 自訂" : ""}`
+      + (isProviderVisible(provider) ? "" : " · " + tKey("provider.hidden"));
+    meta.textContent = metaText();
+    group.classList.toggle("provider-hidden", !providerShown);
     headingCopy.append(providerName, meta);
     const source = modelCatalogSources.get(provider);
     const sourceNote = document.createElement("span");
@@ -15672,9 +15742,23 @@ function renderModelVisibility() {
     chevron.textContent = "⌄";
     headingToggle.append(headingCopy, chevron);
     heading.appendChild(headingToggle);
+    const actions = document.createElement("div");
+    actions.className = "model-provider-actions";
+    // The whole provider in or out of the model menu, on every device that
+    // uses this Host. Its sign-in and configuration stay as they are.
+    const shownSwitch = document.createElement("label");
+    shownSwitch.className = "toggle model-provider-switch";
+    shownSwitch.title = tKey("provider.showInMenu", { id: provider });
+    const shownInput = document.createElement("input");
+    shownInput.type = "checkbox"; shownInput.setAttribute("role", "switch");
+    shownInput.checked = providerShown;
+    shownInput.dataset.providerVisibility = provider;
+    shownInput.setAttribute("aria-label", tKey("provider.showInMenu", { id: provider }));
+    const shownTrack = document.createElement("span");
+    shownTrack.className = "toggle-track";
+    shownSwitch.append(shownInput, shownTrack);
+    actions.appendChild(shownSwitch);
     if (providerConfig) {
-      const actions = document.createElement("div");
-      actions.className = "model-provider-actions";
       const edit = document.createElement("button");
       edit.type = "button"; edit.className = "icon-button-small provider-action";
       edit.dataset.providerAction = "edit"; edit.dataset.providerId = provider;
@@ -15686,18 +15770,29 @@ function renderModelVisibility() {
       remove.title = `刪除 ${provider}`; remove.setAttribute("aria-label", `刪除 ${provider}`);
       remove.innerHTML = '<svg class="icon"><use href="#i-x"></use></svg>';
       actions.append(edit, remove);
-      heading.appendChild(actions);
     }
+    heading.appendChild(actions);
     group.appendChild(heading);
+    // A provider Pi lists because it is signed in there: it is removed with
+    // Pi's own /logout, as it was added with /login.
+    const signedIn = piProviderSignIns.get(provider);
+    if (!providerConfig && signedIn) {
+      const note = document.createElement("p");
+      note.className = "model-provider-note settings-note";
+      note.textContent = signedIn.env ? tKey("provider.fromPiEnvironment", { id: provider, env: signedIn.env })
+        : tKey("provider.fromPiSignIn", { id: provider, how: tKey(signedIn.type === "oauth" ? "provider.signInAccount" : "provider.signInApiKey") });
+      group.appendChild(note);
+    }
     for (const model of visibleModels) {
       const row = document.createElement("label");
       row.className = "model-visibility-row" + (model.configuredOnly ? " configured-only" : "");
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
-      checkbox.checked = isModelVisible(model);
+      checkbox.checked = !hiddenModelSet().has(modelVisibilityKey(model));
+      checkbox.disabled = !providerShown;
       checkbox.addEventListener("change", () => {
         setModelVisible(model, checkbox.checked);
-        meta.textContent = `${models.filter(isModelVisible).length}/${models.length}${providerConfig ? " · 自訂" : ""}`;
+        meta.textContent = metaText();
       });
       const copy = document.createElement("span");
       copy.className = "model-visibility-copy";
@@ -15845,13 +15940,20 @@ async function loadModelVisibility(force = false, skipSession = false) {
     // Settings describe host-wide provider configuration; a session may have
     // its own extensions and a stale snapshot and is not the catalog owner.
     const sid = "";
-    const [modelsResult, providersResult] = await Promise.allSettled([
+    const [modelsResult, providersResult, signInsResult] = await Promise.allSettled([
       api("/api/models" + sid, { signal: request.signal }),
       api("/api/model-providers", { signal: request.signal }),
+      api("/api/provider-catalog", { signal: request.signal }),
+      loadHostModelVisibility(),
     ]);
     if (request.signal.aborted || generation !== viewGeneration || baseAtStart !== apiBase) return;
     if (modelsResult.status === "rejected") throw modelsResult.reason;
     modelCatalog = Array.isArray(modelsResult.value?.models) ? modelsResult.value.models : [];
+    piProviderSignIns = new Map(signInsResult.status === "fulfilled" && Array.isArray(signInsResult.value?.providers)
+      ? signInsResult.value.providers.filter(item => item?.configured && typeof item.id === "string").map(item => [item.id, {
+        type: item.configuredType || "api_key",
+        env: typeof item.configuredSource === "string" && /^[A-Z][A-Z0-9_]{1,79}$/.test(item.configuredSource) ? item.configuredSource : null }])
+      : []);
     modelCatalogSources = new Map((modelsResult.value?.catalog?.refreshed || []).map(source => [source.id, source]));
     const catalogStatus = $("model-catalog-status");
     if (catalogStatus) {
@@ -16712,6 +16814,12 @@ el.providerCancel?.addEventListener("click", closeProviderDialog);
 el.providerCancelBottom?.addEventListener("click", closeProviderDialog);
 el.providerSave?.addEventListener("click", saveProvider);
 el.providerDelete?.addEventListener("click", () => deleteProvider(providerDialogExisting));
+el.modelVisibilityList?.addEventListener("change", (event) => {
+  const input = event.target.closest?.("[data-provider-visibility]");
+  if (!input) return;
+  setProviderVisible(input.dataset.providerVisibility, input.checked);
+  renderModelVisibility();
+});
 el.modelVisibilityList?.addEventListener("click", (event) => {
   const toggle = event.target.closest("[data-model-provider-toggle]");
   if (toggle) {

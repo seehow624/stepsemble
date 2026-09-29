@@ -73,6 +73,7 @@ const { createDesktopClaudeClient } = require("./server/claude-desktop-client");
 const { createNativeHistoryCatalog } = require("./server/native-history-catalog");
 const { createCodexPersistedObserver } = require("./server/codex-persisted-observer");
 const { createHarnessUpdateService, loadHarnessUpdateRegistry } = require("./server/harness-update-service");
+const { createModelVisibilityStore } = require("./server/model-visibility-store");
 const { createCodexReleaseCheck } = require("./server/codex-release-check");
 const { createCodexAutoUpgrade } = require("./server/codex-auto-upgrade");
 const { claudeForkPoint: claudeForkPointAt, claudeConfigDir } = require("./server/claude-fork-point");
@@ -106,7 +107,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.18";
+const APP_VERSION = "3.8.19";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -164,6 +165,9 @@ const HARNESS_UPDATE_REGISTRY_FILE = settingFromEnv("HARNESS_UPDATE_REGISTRY")
 const HARNESS_UPDATE_STATE_FILE = settingFromEnv("HARNESS_UPDATE_STATE")
   ? path.resolve(expandHome(settingFromEnv("HARNESS_UPDATE_STATE")))
   : path.join(APP_HOME, ".config", "stepsemble", "harness-updates.json");
+// The models and providers hidden from the model menu, the same on every
+// device that uses this Host.
+const modelVisibility = createModelVisibilityStore({ file: path.join(APP_HOME, ".config", "stepsemble", "model-visibility.json") });
 const CONFIGURED_UPDATE_REPOSITORY = settingFromEnv("UPDATE_REPO") || "seehow624/stepsemble";
 const DEFAULT_UPDATE_REPOSITORY = CONFIGURED_UPDATE_REPOSITORY === "seehow624/pi-harbor"
   ? "seehow624/stepsemble" : CONFIGURED_UPDATE_REPOSITORY;
@@ -4538,6 +4542,10 @@ async function listProviderCatalog() {
       apiKeyName: entry.authTypes.includes("api_key") ? piProviderName(provider, "api_key") : null,
       configured: !!status,
       configuredType: status?.type || null,
+      // Where the sign-in comes from: Pi's own store ("stored credential"),
+      // "OAuth", or the environment variable holding the key. /logout only
+      // removes the first two.
+      configuredSource: typeof status?.source === "string" ? status.source.slice(0, 80) : null,
     });
   }
   providers.sort((a, b) => a.name.localeCompare(b.name));
@@ -6612,6 +6620,21 @@ const server = http.createServer(async (req, res) => {
         getAvailableModels(url.searchParams.get("sid") || null)
           .then((models) => sendJSON(res, 200, { models, catalog: remoteCatalogSync.status() }))
           .catch((e) => sendJSON(res, e.statusCode || (e.message.includes("timeout") ? 504 : 409), { error: e.message }));
+        return;
+      }
+
+      if (p === "/api/model-visibility" && req.method === "GET") {
+        sendJSON(res, 200, modelVisibility.read());
+        return;
+      }
+
+      if (p === "/api/model-visibility" && req.method === "POST") {
+        try {
+          const body = await readJSON(req, 512 * 1024);
+          sendJSON(res, 200, modelVisibility.change({ hide: body?.hide, show: body?.show }));
+        } catch (e) {
+          sendJSON(res, e.statusCode || 500, { error: e.statusCode ? e.message : "Could not save the model menu" });
+        }
         return;
       }
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.8.19
+
+- Every provider in Settings → Agents & models → Pi Agent now has a switch that takes it out of the model menu, including those Pi lists because you signed in to them there, such as minimax or openai-codex. Before, only providers you added yourself could be removed, and the others could only be hidden one model at a time. A provider switched off stays out with any model it adds later, and switching it on again brings back your choices for its models. Its sign-in is untouched.
+- What is hidden from the model menu is now kept on the Host, so every device that uses it shows the same menu. It was kept in each browser, so a model hidden on the computer still showed on the phone. The first time each browser opens this version, what it had hidden moves to the Host. A Host older than this version still keeps the list in each browser.
+- A provider Pi lists because of a sign-in says so when you open it, with how to remove it: type /logout followed by its name in a conversation with Pi. One whose key comes from an environment variable names that variable instead, since /logout cannot remove it.
+- The button that checks the model catalogs for updates used the same download icon as Import; it now uses the Updates icon. On a phone a provider's name is no longer cut short.
+- Checked with the real Pi 0.87.1 and test sign-ins, with no model calls. minimax (API key), openai-codex (account) and deepseek (environment variable) each showed the right note. Switching off minimax on one device hid it on a second device with separate browser storage, and switching it back on there showed it again on the Host. A list saved in the browser moved to the Host and was cleared from the browser. The browser check that runs on every release switches a provider off and on at phone and desktop sizes.
+
 ## 3.8.18
 
 - Settings now open in the same window. They used to open a second window, and closing them loaded a second Workspace there. The gear, and "Quota sources" in the limits panel, now open Settings over the Workspace. Back at the top level, Escape or the edge swipe closes them, and the open conversations are as they were, without reloading. Signing out, an update or a restart from Settings reloads the whole window.

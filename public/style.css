@@ -1,4 +1,4 @@
-/* stepsemble v3.8.18 — Ink & Ivory / English-first localization */
+/* stepsemble v3.8.19 — Ink & Ivory / English-first localization */
 
 :root {
   /* The status bar inset. A Workspace pane sets it to 0: the Workspace keeps
@@ -3724,6 +3724,17 @@ html.reduced-motion #view-chat #scroll-bottom-btn .scroll-bottom-dots i { animat
   opacity: 0;
   pointer-events: none;
 }
+/* The whole provider in or out of the model menu. */
+.model-provider-actions .model-provider-switch { align-self: center; margin: 0 6px 0 4px; transform: scale(.82); transform-origin: center; }
+.model-provider-group.provider-hidden .model-provider-heading-copy { opacity: .55; }
+.model-provider-group.provider-hidden .model-visibility-row { opacity: .5; }
+.model-provider-group.provider-hidden.collapsed .model-visibility-row { opacity: 0; }
+.model-provider-note { margin: 0; padding: 4px 2px 8px; font-size: 12px; line-height: 1.45; }
+.model-provider-group.collapsed .model-provider-note { display: none; }
+/* The provider's name stays whole; its counts and catalog source move to a
+   second line when the row is narrow, as on a phone beside the switch. */
+.model-provider-heading-copy { flex-wrap: wrap; row-gap: 2px; }
+.model-provider-heading-copy > strong { flex: 0 0 auto; max-width: 100%; }
 .provider-preset-heading {
   width: 100%;
   grid-template-columns: minmax(0, 1fr) auto;
