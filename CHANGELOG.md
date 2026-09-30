@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.8.24
+
+- New Pi conversations open. Pi writes a conversation's file with its first message, and Stepsemble kept the file Pi said it would write. Opening the conversation in a tab before that, on a phone or after coming back to it, asked for a file that was not there yet and failed with "Could not open the conversation: invalid session path". A tab now joins the Pi that is running, and opening the file once it is written joins the same Pi rather than starting a second one on it. A conversation whose Pi ended before its first message, as an update ends them, starts Pi again in the same folder and the same tab; one archived since is left to be brought back.
+- Claude Code starts in every folder a project can be chosen from. Its helper on the Mac gets the folders it may work in when it is installed; the MacBook Pro's had only the home folder, so a project on /Volumes, such as StepFlow, was refused with "desktop_workspace_denied" while every other agent ran there. After an update, when no Claude conversation is running, the helper is given the folders this Host lets a project be chosen from. It restarts in a few seconds; its sign-in and key stay as they are. A conversation refused for such a folder now says so in words and brings that update forward instead of waiting for the next start.
+- Checked with the synthetic Pi on a test Host: a new conversation opened in a tab before and after its file exists joins the running Pi, one whose Pi ended starts again in the same tab and Workspace entry, and an archived one is not replaced. With the change removed, the ended conversation fails again. The helper installer, run on test folders, adds a folder the helper does not hold, skips one it holds or one that is gone, keeps the key, and brings back the old folders when the new helper fails its check.
+
 ## 3.8.23
 
 - Typing in the message box no longer moves the conversation above it. To find how tall the box should be, Stepsemble collapsed it for an instant with each change; at the end of a conversation the list followed, so every new line in the box pushed the conversation up by a line, most visibly on a phone. The conversation now stays where it is while the box grows or shrinks.

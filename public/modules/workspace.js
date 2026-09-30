@@ -130,7 +130,7 @@
     const prefix = target === self ? "" : `/r/${encodeURIComponent(target)}`;
     const res = await fetch(prefix + path, { credentials: "same-origin", cache: "no-store", ...(body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
     if (res.status === 401) throw new Error(t("expired"));
-    const data = await res.json(); if (!res.ok) throw Object.assign(new Error(data.error || t("loadFailed")), { status: res.status }); return data;
+    const data = await res.json(); if (!res.ok) throw Object.assign(new Error(data.error || t("loadFailed")), { status: res.status, ...(typeof data.code === "string" ? { code: data.code } : {}) }); return data;
   }
   const hostName = value => machines.find(m => m.id === value)?.name || value;
   const refOf = entry => ({ host, key: entry.key, title: plainTitle(entry.record.name) || entry.record.agentId || "Session",
@@ -890,7 +890,9 @@
         open({ host: target, key: entry.key, title: plainTitle(entry.record.name) || select.value }); await refresh();
       } catch (error) {
         if (signInError(error)) { start.disabled = false; offerSignIn(select.value); return; }
-        toast(error.message); start.disabled = !(error.status >= 400 && error.status < 500); if (start.disabled) body.append(node("p", t("createUncertain")));
+        // Claude Code refuses a folder its helper does not hold yet.
+        const folder = { claude_folder_pending: "claudeFolderPending", desktop_workspace_denied: "claudeFolderDenied" }[error.code || error.message];
+        toast(folder ? t(folder) : error.message); start.disabled = !(error.status >= 400 && error.status < 500); if (start.disabled) body.append(node("p", t("createUncertain")));
       }
     }, t("create"), "btn primary workspace-new-session-create"); start.disabled = true;
     name.addEventListener("keydown", event => { if (event.key === "Enter" && !event.isComposing && !start.disabled) { event.preventDefault(); start.click(); } });

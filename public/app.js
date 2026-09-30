@@ -1,7 +1,7 @@
-/* stepsemble v3.8.23 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.24 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.23";
+const CLIENT_APP_VERSION = "3.8.24";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -1248,6 +1248,12 @@ async function enterApp() {
           else if (record.live) {
             currentSessionCwd = record.cwd; setChatTitle(record.name || "Pi"); setChatAgent("pi"); hideChatEmpty();
             await connectRpc(null, viewGeneration, record.live, apiBase);
+          } else if (record.emptyEnded) {
+            // Its Pi ended before the first message; Pi starts again here.
+            currentSessionCwd = record.cwd; setChatTitle(record.name || "Pi"); setChatAgent("pi"); hideChatEmpty();
+            const generation = viewGeneration, base = apiBase;
+            const opened = await post("/api/open", { workspaceKey: workspaceQuery.get("entry") || "" });
+            await connectRpc(null, generation, opened, base);
           } else {
             setChatTitle(record.name || "Pi"); el.chatEmpty.textContent = tKey("workspace.sessionUnavailable");
           }
@@ -7140,6 +7146,8 @@ function agentOpenFailureText(error, options = {}) {
   if (code === "project_folder_unavailable" || message === "Project folder is unavailable") {
     return tKey("agentHub.projectFolderUnavailable");
   }
+  if (code === "claude_folder_pending") return tKey("agentHub.claudeFolderPending");
+  if (code === "desktop_workspace_denied" || message === "desktop_workspace_denied") return tKey("agentHub.claudeFolderDenied");
   return message || tKey("runtime.openChatFailed", { detail: "unknown error" });
 }
 

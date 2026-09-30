@@ -67,6 +67,7 @@ const { createAgentClientProtocolAdapter, readSessionRegistry, writeSessionRegis
 const { CLAUDE_STRUCTURED_VERSION, claudeSupportsBypass } = require("./server/claude-code-structured-adapter");
 const { launchClaudeStructuredSession } = require("./server/claude-structured-launch");
 const { createClaudeDesktopUpgradeService, createClaudeHelperAutoUpdate } = require("./server/claude-desktop-upgrade");
+const { desktopPaths } = require("./server/claude-desktop-state");
 const { createAntigravityStructuredSession, ANTIGRAVITY_STRUCTURED_VERSION } = require("./server/antigravity-cli-structured-adapter");
 const { createClaudeAuthService, handleClaudeAuthRequest } = require("./server/claude-auth");
 const { createDesktopClaudeClient } = require("./server/claude-desktop-client");
@@ -107,7 +108,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.23";
+const APP_VERSION = "3.8.24";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2540,6 +2541,13 @@ claudeDesktopUpgrade = createClaudeDesktopUpgradeService({ desktopClient: deskto
       const value = session.status();
       return !value.processExited && !value.cleanupConfirmed;
     }),
+  // The helper holds the folders a Claude conversation may run in; it gets
+  // the ones this Host lets a project be chosen from.
+  helperRoots: () => {
+    const config = JSON.parse(fs.readFileSync(path.join(desktopPaths(CONFIG_DIR).directory, "config.json"), "utf8"));
+    return Array.isArray(config?.roots) ? config.roots : null;
+  },
+  wantedRoots: () => BROWSE_ROOTS_FROM_ENV,
 });
 
 // After Stepsemble updates itself, bring the Claude desktop helper up to date
@@ -2552,6 +2560,20 @@ const claudeHelperAutoUpdate = acpFlag("STEPSEMBLE_CLAUDE_HELPER_AUTO_UPDATE", t
     log: (event, code) => console.log(event === "updated" ? "[stepsemble] Claude desktop helper updated to this version"
       : `[stepsemble] Claude desktop helper update did not run (${code})`) })
   : null;
+
+// The helper refuses a folder it was not installed with. When this Host lets
+// that folder be chosen, the helper is updated with it now rather than at the
+// next start, and the person is told to try again in a minute.
+function claudeFolderFailure(error) {
+  if (error?.code !== "desktop_workspace_denied") return error;
+  let missing = [];
+  try { missing = claudeDesktopUpgrade?.missingRoots?.() || []; } catch {}
+  if (!missing.length || !claudeHelperAutoUpdate) {
+    return Object.assign(new Error("Claude Code is not allowed to work in this folder on this computer"), { statusCode: 403, code: "desktop_workspace_denied" });
+  }
+  claudeHelperAutoUpdate.retry();
+  return Object.assign(new Error("Claude Code cannot use this folder yet; Stepsemble is adding it. Try again in a minute."), { statusCode: 409, code: "claude_folder_pending" });
+}
 
 function revealProject(cwd) {
   const real = projectDirectory(cwd);
@@ -2897,6 +2919,8 @@ function entryToWire(e) {
 
 /** sid → {proc, clients:Set<res>, events:[], state:{}, meta:{}, stderrTail, exited} */
 const rpcSessions = new Map();
+// Workspace entries whose Pi is being started again, one start at a time.
+const piRestarting = new Set();
 const MAX_BUFFERED_EVENTS = 8000;
 const RPC_IDLE_CLEANUP_MS = 5 * 60 * 1000;
 let shutdownState = null;
@@ -3487,10 +3511,32 @@ function trackStreaming(sid, event) {
   }
 }
 
+// The file a running Pi writes, relative to the session store. A conversation
+// started here has none in meta.file: Pi reports it, and writes it with the
+// first message.
+function rpcSessionFileOf(session) {
+  const file = session?.state?.sessionFile;
+  if (typeof file !== "string" || !file) return null;
+  const relative = path.isAbsolute(file) ? path.relative(SESSIONS_DIR, file) : file;
+  return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative : null;
+}
+
+// A Pi conversation that ended before its first message has no file: not in
+// the session store and not in an archive, where Stepsemble moves one it
+// archives or deletes.
+function piSessionNeverWritten(rel) {
+  if (typeof rel !== "string" || !rel || safeSessionPath(rel) || !safeSessionPath(rel, true)) return false;
+  const archive = path.join(SESSIONS_DIR, ".archive");
+  let ids = [];
+  try { ids = fs.readdirSync(archive); } catch {}
+  return !ids.some(id => { try { return fs.statSync(path.join(archive, id, rel)).isFile(); } catch { return false; } });
+}
+
+// A second Pi on the file a running one writes would make two writers.
 function reusableRpc(file) {
   if (file) {
     for (const [existingSid, existing] of rpcSessions) {
-      if (existing.exited || existing.meta.file !== file) continue;
+      if (existing.exited || existing.meta.file !== file && rpcSessionFileOf(existing) !== file) continue;
       if (existing.closeReason) {
         const error = new Error("Session process is closing; reopen it after it exits");
         error.statusCode = 409; throw error;
@@ -5954,8 +6000,18 @@ const server = http.createServer(async (req, res) => {
         if (acpAdapter && !acpAdapter.sessions().some(row => row.id === record.nativeSessionId && row.loaded !== false)) record.needsLoad = true;
         if (record.agentId === "pi" && record.sid) {
           const session = rpcSessions.get(record.sid);
-          if (session && !session.exited) record.live = { sid: record.sid, cwd: session.meta.cwd,
-            reused: true, isStreaming: rpcHasWork(session), replayAfter: -1, runStartedAt: session.state.runStartedAt };
+          if (session && !session.exited) {
+            record.live = { sid: record.sid, cwd: session.meta.cwd,
+              reused: true, isStreaming: rpcHasWork(session), replayAfter: -1, runStartedAt: session.state.runStartedAt };
+            // Pi writes a new conversation's file with its first message. Until
+            // then the pane joins the running Pi; opening the file it will
+            // write failed with "invalid session path".
+            if (record.file && !safeSessionPath(record.file)) delete record.file;
+          } else if (!record.file || piSessionNeverWritten(record.file)) {
+            // Its Pi ended (an update restarts them) before the first message,
+            // so there is nothing to open: the pane starts Pi again in its place.
+            delete record.file; record.emptyEnded = true;
+          }
         }
         // The live session may still carry the name it started with.
         if (chosenName) record.name = chosenName;
@@ -7320,7 +7376,7 @@ const server = http.createServer(async (req, res) => {
                   const status = launchedClaude.status();
                   agentChoices.record("claude-code", event.sessionId, { model: status.model, effort: status.effort }, { agent: false });
                 }
-              } } catch {} } });
+              } } catch {} } }).catch(error => { throw claudeFolderFailure(error); });
             launchedClaude = session;
             // The branch is known by its own id from the start; the conversation
             // it comes from keeps its name.
@@ -7461,17 +7517,33 @@ const server = http.createServer(async (req, res) => {
 
       if (p === "/api/open" && req.method === "POST") {
         const body = await readJSON(req);
+        let restartKey = null;
         try {
           if (!body.file) workspaceRegistry.list();
-          const r = await openRpc(body);
+          // The pane of a Pi conversation that ended before its first message
+          // starts Pi again in the same folder and keeps its place.
+          let restart = null;
+          if (body.workspaceKey !== undefined) {
+            restart = workspaceRegistry.get(String(body.workspaceKey));
+            const running = restart?.record.sid ? rpcSessions.get(restart.record.sid) : null;
+            if (!restart || restart.record.agentId !== "pi" || body.file || running && !running.exited
+              || restart.record.file && !piSessionNeverWritten(restart.record.file) || piRestarting.has(restart.key)) {
+              sendJSON(res, 409, { error: "This conversation cannot be started again", code: "workspace_entry_not_restartable" }); return;
+            }
+            restartKey = restart.key; piRestarting.add(restartKey);
+          }
+          const r = await openRpc(restart ? { cwd: restart.record.cwd, name: restart.record.named ? restart.record.name : undefined } : body);
           if (!body.file) {
-            try { r.workspaceEntry = workspaceRegistry.remember({ ...r, agentId: "pi", name: body.name || "Pi" }); }
+            try {
+              r.workspaceEntry = restart ? workspaceRegistry.update(restart.key, { sid: r.sid, file: undefined })
+                : workspaceRegistry.remember({ ...r, agentId: "pi", name: body.name || "Pi" });
+            }
             catch { r.workspaceError = "Could not save workspace membership; do not retry the launch."; }
           }
           sendJSON(res, 200, r);
         } catch (e) {
           sendJSON(res, e.statusCode || 400, { error: e.message });
-        }
+        } finally { if (restartKey) piRestarting.delete(restartKey); }
         return;
       }
 

@@ -12,7 +12,7 @@ function fixture(extra = {}) {
 }
 test("explicit helper repair accepts signed-out metadata without starting a login", async () => {
   const f = fixture();
-  assert.deepEqual(await f.service.upgrade({ confirm: true }), { upgraded: true, context: "Aqua", structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1 });
+  assert.deepEqual(await f.service.upgrade({ confirm: true }), { upgraded: true, rootsAdded: 0, context: "Aqua", structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1 });
   assert.equal(f.attempts(), 1); assert.equal(f.service.isRunning(), false);
   assert.equal((await f.service.upgrade({ confirm: true })).upgraded, false);
   assert.equal(f.attempts(), 1);
@@ -95,4 +95,60 @@ test("a current helper is left alone and repeated failures stop after six tries"
   await failing.run();
   while (timers.length && timers.length < 20) { const next = timers.shift(); assert.equal(next.ms, 60 * 60 * 1000); await next.fn(); }
   assert.equal(timers.length, 0);
+});
+
+test("a current helper without a folder this Host allows is installed again with it", async t => {
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-helper-roots-")));
+  const volumes = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-helper-volumes-")));
+  t.after(() => { fs.rmSync(home, { recursive: true, force: true }); fs.rmSync(volumes, { recursive: true, force: true }); });
+  let held = [home], received = null;
+  const f = fixture({ helperRoots: () => held, wantedRoots: () => [home, volumes],
+    runUpgrade: async roots => { received = roots; held = [...held, ...roots]; } });
+  Object.assign(f.health, { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1 });
+  assert.deepEqual(f.service.missingRoots(), [volumes]);
+  const result = await f.service.upgrade({ confirm: true });
+  assert.deepEqual(received, [volumes]);
+  assert.equal(result.upgraded, true); assert.equal(result.rootsAdded, 1);
+  assert.deepEqual(f.service.missingRoots(), []);
+  // Once it holds the folder, nothing is installed again.
+  received = null;
+  assert.equal((await f.service.upgrade({ confirm: true })).upgraded, false);
+  assert.equal(received, null);
+  // An installer that did not add the folder is not reported as done.
+  const stuck = fixture({ helperRoots: () => [home], wantedRoots: () => [volumes], runUpgrade: async () => {} });
+  Object.assign(stuck.health, { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1 });
+  await assert.rejects(stuck.service.upgrade({ confirm: true }), /desktop_upgrade_unconfirmed/);
+});
+
+test("folders the helper already holds, missing folders and files are not added", t => {
+  const { missingRoots } = require("../server/claude-desktop-upgrade");
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-helper-missing-")));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const projects = path.join(base, "Projects"), inside = path.join(projects, "App"), file = path.join(base, "file.txt");
+  fs.mkdirSync(inside, { recursive: true }); fs.writeFileSync(file, "x");
+  assert.deepEqual(missingRoots([projects], [inside, path.join(base, "gone"), file, "relative/path"]), []);
+  // The shared volume itself is wider than the one folder the helper holds.
+  assert.deepEqual(missingRoots([projects], [base, base]), [base]);
+  assert.deepEqual(missingRoots(null, [base]), []);
+});
+
+test("a helper missing a folder is updated after a start, and a refused folder brings the update forward", async () => {
+  const { createClaudeHelperAutoUpdate } = require("../server/claude-desktop-upgrade");
+  const timers = [];
+  let missing = ["/Volumes"], upgrades = 0;
+  const auto = createClaudeHelperAutoUpdate({
+    desktopClient: { terminalSupported: async () => true, bypassSupported: async () => true, forkSupported: async () => true },
+    upgradeService: { missingRoots: () => missing, upgrade: async () => { upgrades++; missing = []; return { upgraded: true }; } },
+    setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimer: () => {},
+  });
+  await auto.run();
+  assert.equal(upgrades, 1);
+  await auto.run(); assert.equal(upgrades, 1, "done");
+  // A later refusal (another folder) schedules the update again soon.
+  missing = ["/Volumes"]; auto.retry();
+  assert.ok(timers.at(-1).ms <= 5000);
+  await timers.at(-1).fn();
+  assert.equal(upgrades, 2);
 });

@@ -142,3 +142,31 @@ test("upgrade waits for launchd removal and rollback waits for restored helper r
   assert.ok(restoredReads >= 3);
   assert.deepEqual(await fs.readFile(f.plistFile), f.originalPlist);
 });
+
+test("--upgrade accepts folders to add and nothing else", async () => {
+  const { parseInstallerArguments } = await installer;
+  assert.deepEqual(parseInstallerArguments(["--upgrade", "--root", "/Volumes", "--existing-only"]), { mode: "--upgrade", roots: ["/Volumes"], existingOnly: true });
+  assert.deepEqual(parseInstallerArguments(["--upgrade"]).roots, []);
+  for (const argv of [["--upgrade", "--root", "relative"], ["--upgrade", "--root"], ["--upgrade", "--command", "/bin/sh"]]) assert.throws(() => parseInstallerArguments(argv));
+});
+
+test("an upgrade with a new folder adds it to the helper's folders and nothing else", posixFixture, async t => {
+  const f = await fixture(t), { upgradeDesktop } = await installer;
+  const volumes = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-desktop-volumes-")));
+  t.after(() => fs.rm(volumes, { recursive: true, force: true }));
+  const project = path.join(f.home, "project");
+  const result = await upgradeDesktop(["--upgrade", "--root", volumes, "--root", project, "--root", path.join(volumes, "gone")], { platform: "darwin", uid: process.getuid(), home: f.home, configDir: f.configDir, readPlist: async () => f.oldPlist, stageRuntime: f.stageRuntime, runImpl: f.runImpl, clientFactory: f.clientFactory, nodePath: process.execPath });
+  assert.equal(result.upgraded, true); assert.equal(result.rootsAdded, 1);
+  const before = JSON.parse(f.originalConfig), after = JSON.parse(await fs.readFile(f.configFile, "utf8"));
+  assert.deepEqual(after, { ...before, roots: [...before.roots, volumes] });
+  assert.equal((await fs.stat(f.configFile)).mode & 0o777, 0o600);
+  assert.deepEqual(await fs.readFile(require("../server/claude-desktop-state.js").desktopPaths(f.configDir).key), f.originalKey);
+});
+
+test("a failed upgrade with a new folder brings back the old folders", posixFixture, async t => {
+  const f = await fixture(t, { brokenAfterBootstrap: true }), { upgradeDesktop } = await installer;
+  const volumes = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-desktop-volumes-")));
+  t.after(() => fs.rm(volumes, { recursive: true, force: true }));
+  await assert.rejects(upgradeDesktop(["--upgrade", "--root", volumes], { platform: "darwin", uid: process.getuid(), home: f.home, configDir: f.configDir, readPlist: async () => f.oldPlist, stageRuntime: f.stageRuntime, runImpl: f.runImpl, clientFactory: f.clientFactory, nodePath: process.execPath, verifyTimeoutMs: 5 }), error => error.code === "upgrade_verify_failed" && error.rollback === "verified");
+  assert.deepEqual(await fs.readFile(f.configFile), f.originalConfig); assert.deepEqual(await fs.readFile(f.plistFile), f.originalPlist);
+});

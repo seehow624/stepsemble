@@ -54,8 +54,15 @@ export function parseInstallerArguments(argv = []) {
     return { mode, roots: [], existingOnly: false };
   }
   if (mode === "--upgrade") {
-    if (argv.slice(1).some(value => value !== "--existing-only")) throw new Error("--upgrade accepts only --existing-only.");
-    return { mode, roots: [], existingOnly: true };
+    // --root adds a folder conversations may run in to the ones the helper
+    // was installed with; nothing else about the installation changes.
+    const roots = [];
+    for (let i = 1; i < argv.length; i += 1) {
+      if (argv[i] === "--existing-only") continue;
+      if (argv[i] === "--root" && argv[i + 1] && path.isAbsolute(argv[i + 1]) && !argv[i + 1].includes("\0") && roots.length < 15) { roots.push(argv[i + 1]); i += 1; continue; }
+      throw new Error("--upgrade accepts only --existing-only and --root /absolute/path.");
+    }
+    return { mode, roots, existingOnly: true };
   }
   if (mode !== "--install") throw new Error("Usage: node scripts/install-claude-desktop.mjs --install [--root /absolute/project-root] | --upgrade [--existing-only] | --check");
   const roots = [];
@@ -412,6 +419,7 @@ export async function upgradeDesktop(argvOrOptions = ["--upgrade"], maybeOptions
   const stageRuntime = options.stageRuntime ?? stageLocalRuntime;
   const operation = crypto.randomUUID();
   let candidate, temporary, oldClient, newClient, maintenance, oldPlistBytes, oldConfigText, oldKeyText, newPlistText, replaced = false, bootedOut = false, newBootstrapped = false;
+  let newConfigText = null, configReplaced = false, addedRoots = [];
   let rollback = "not_attempted";
   try {
     await privateDirectory(configDir, { uid }); await privateDirectory(paths.directory, { uid });
@@ -420,6 +428,18 @@ export async function upgradeDesktop(argvOrOptions = ["--upgrade"], maybeOptions
     oldConfigText = await privateRead(configFile, { uid, maxBytes: 16384 });
     let config; try { config = JSON.parse(oldConfigText); } catch (error) { throw upgradeError("upgrade_invalid_installation", { cause: error }); }
     validateExistingConfig(config, { home, configDir });
+    // A folder asked for is added unless one of the helper's folders already
+    // holds it; one that no longer exists adds nothing.
+    const covering = await Promise.all(config.roots.map(root => fs.realpath(root).catch(() => root)));
+    for (const root of parsed.roots) {
+      const real = await fs.realpath(root).catch(() => null);
+      const stat = real ? await fs.stat(real).catch(() => null) : null;
+      if (!stat?.isDirectory() || !isAbsoluteClean(real)) continue;
+      if ([...covering, ...addedRoots].some(held => real === held || real.startsWith(held + path.sep))) continue;
+      addedRoots.push(real);
+    }
+    if (config.roots.length + addedRoots.length > 16) throw upgradeError("upgrade_invalid_installation");
+    if (addedRoots.length) newConfigText = JSON.stringify({ ...config, roots: [...config.roots, ...addedRoots] });
     oldKeyText = await privateRead(paths.key, { uid, maxBytes: 128 });
     if (!/^[a-f0-9]{64}$/.test(oldKeyText.trim())) throw upgradeError("upgrade_invalid_installation");
     await privateStat(plistFile, { uid, maxBytes: 256 * 1024 });
@@ -467,12 +487,17 @@ export async function upgradeDesktop(argvOrOptions = ["--upgrade"], maybeOptions
     oldClient.close(); oldClient = null;
     await atomicInstallFile(temporary, plistFile); temporary = null; replaced = true;
     await lintPlist(plistFile, runImpl);
+    if (newConfigText) {
+      const nextConfig = `${configFile}.upgrade-${operation}.tmp`;
+      await fs.writeFile(nextConfig, newConfigText, { mode: 0o600, flag: "wx" }); await fs.chmod(nextConfig, 0o600);
+      await atomicInstallFile(nextConfig, configFile); configReplaced = true;
+    }
     await launchctl("bootstrap", [`gui/${uid}`, plistFile], runImpl, "upgrade_bootstrap_failed"); newBootstrapped = true;
     newClient = createClient(clientFactory, configDir, options.timeoutMs ?? 45000);
     const verified = await upgradedState(newClient, options.verifyTimeoutMs ?? 45000);
     newClient.close(); newClient = null;
     maintenance = null; // bootout consumed the helper-owned lease.
-    return { upgraded: true, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, activeStructured: 0, credential: verified.status.credential.state, webHostChanged: false };
+    return { upgraded: true, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, activeStructured: 0, credential: verified.status.credential.state, webHostChanged: false, rootsAdded: addedRoots.length };
   } catch (error) {
     newClient?.close(); newClient = null;
     if (!bootedOut) await cancelMaintenance(oldClient, maintenance);
@@ -497,6 +522,14 @@ export async function upgradeDesktop(argvOrOptions = ["--upgrade"], maybeOptions
           // replacement and rollback. Leave it in place for manual recovery.
           if (!newPlistText || current.toString() !== newPlistText) throw upgradeError("upgrade_rollback_failed");
           await fs.rename(plistFile, `${plistFile}.failed-${operation}`);
+        }
+        if (configReplaced) {
+          // The old folders come back with the old helper. A config changed by
+          // someone else since is left in place for manual recovery.
+          if (await fs.readFile(configFile, "utf8").catch(() => null) !== newConfigText) throw upgradeError("upgrade_rollback_failed");
+          const restoreConfig = `${configFile}.restore-${operation}.tmp`;
+          await fs.writeFile(restoreConfig, oldConfigText, { mode: 0o600, flag: "wx" }); await fs.chmod(restoreConfig, 0o600);
+          await atomicInstallFile(restoreConfig, configFile);
         }
         const restore = `${plistFile}.restore-${operation}.tmp`;
         await fs.writeFile(restore, oldPlistBytes, { mode: 0o600, flag: "wx" }); await fs.chmod(restore, 0o600); await atomicInstallFile(restore, plistFile);

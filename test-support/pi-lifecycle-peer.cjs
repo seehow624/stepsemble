@@ -5,7 +5,14 @@ if (process.argv.includes("--version")) { console.log("synthetic-lifecycle"); pr
 const emit = value => process.stdout.write(JSON.stringify(value) + "\n");
 const reply = (cmd, data = {}) => emit({ type: "response", command: cmd.type, id: cmd.id, success: true, data });
 let running = false, pending, holdState = false, snapshots = [];
-const state = () => ({ isStreaming: running, isCompacting: false });
+// Like Pi, a conversation opened from a file reports that file, and a new one
+// reports the file it will write with its first message (only when asked, so
+// the other fixtures keep their exact state).
+const sessionArg = process.argv.indexOf("--session");
+const sessionFile = sessionArg > 0 ? process.argv[sessionArg + 1]
+  : process.env.STEPSEMBLE_FIXTURE_PI_SESSION_FILE === "1"
+    ? require("node:path").join(process.env.HOME || "", ".pi", "agent", "sessions", "synthetic-new", `${Date.now()}_${process.pid}.jsonl`) : null;
+const state = () => ({ isStreaming: running, isCompacting: false, ...(process.env.STEPSEMBLE_FIXTURE_PI_SESSION_FILE === "1" && sessionFile ? { sessionFile } : {}) });
 function finish(outcome = "completed") {
   if (pending) { reply(pending); pending = null; }
   const message = { role: "assistant", content: [{ type: "text", text: "Synthetic final answer" }],
