@@ -755,3 +755,64 @@ test("an unchecked harness reports unknown installation instead of claiming it i
 
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test("Codex behind an OpenCodex wrapper is updated through the launcher the wrapper saved", { skip: process.platform === "win32" }, async () => {
+  const { root, file } = tempState();
+  const standalone = path.join(root, ".codex", "packages", "standalone");
+  const release = path.join(standalone, "releases", "0.159.0");
+  fs.mkdirSync(path.join(release, "bin"), { recursive: true });
+  fs.writeFileSync(path.join(release, "bin", "codex"), "#!/bin/sh\n", { mode: 0o755 });
+  fs.symlinkSync(release, path.join(standalone, "current"));
+  const bin = path.join(root, ".local", "bin");
+  fs.mkdirSync(bin, { recursive: true });
+  const wrapper = path.join(bin, "codex"), saved = path.join(bin, "codex.opencodex-real");
+  fs.symlinkSync(path.join(standalone, "current", "bin", "codex"), saved);
+  // The shape OpenCodex writes: a marked shell script whose last step execs
+  // the launcher it saved, with update and --version passed straight through.
+  const shim = target => "#!/usr/bin/env sh\n# opencodex codex autostart shim\n# opencodex unix codex shim revision 3\n"
+    + "case \"$1\" in update|--version) ;; *) ocx ensure ;; esac\n" + "exec '" + target + "' \"$@\"\n";
+  fs.writeFileSync(wrapper, shim(saved), { mode: 0o755 });
+  const calls = [];
+  let installed = "0.159.0";
+  const service = () => createHarnessUpdateService({
+    registry: { registryVersion: 1, harnesses: [
+      { id: "codex", label: "Codex CLI", commands: ["codex"], package: "@openai/codex",
+        check: { kind: "source-aware", package: "@openai/codex", brewPackage: "codex" },
+        update: { kind: "source-aware", package: "@openai/codex", brewPackage: "codex", args: ["update"], verify: true } },
+    ] },
+    stateFile: file, env: { PATH: "/synthetic", HOME: root },
+    resolve: name => name === "codex" ? wrapper : name === "npm" ? "/synthetic/npm" : null,
+    runner: async (command, args) => {
+      calls.push([command, args]);
+      if (args[0] === "--version") return { code: 0, stdout: "codex-cli " + installed, stderr: "" };
+      if (command === "/synthetic/npm" && args[0] === "view") return { code: 0, stdout: "0.159.2\n", stderr: "" };
+      if (command === saved && args[0] === "update") { installed = "0.159.2"; return { code: 0, stdout: "", stderr: "" }; }
+      return { code: 1, stdout: "", stderr: "" };
+    },
+    busy: () => false,
+  });
+  const checked = (await service().check({ id: "codex" })).harnesses[0];
+  assert.equal(checked.source, "official-standalone");
+  assert.equal(checked.latestVersion, "0.159.2");
+  assert.equal(checked.updateAvailable, true);
+  const result = await service().update({ id: "codex", confirm: true });
+  assert.deepEqual(calls.find(([, args]) => args[0] === "update"), [saved, ["update"]]);
+  assert.equal(result.updated.versionAfter, "0.159.2");
+  assert.equal(result.harnesses[0].status, "updated");
+  // Stepsemble leaves the wrapper to OpenCodex.
+  assert.equal(fs.readFileSync(wrapper, "utf8"), shim(saved));
+
+  // A wrapper that hands off anywhere but its own saved launcher stays unproven.
+  fs.writeFileSync(wrapper, shim(path.join(root, "elsewhere", "codex")), { mode: 0o755 });
+  assert.equal((await service().check({ id: "codex" })).harnesses[0].source, "unknown");
+  // So does a saved launcher that belongs to a desktop app, as on the MacBook Pro.
+  fs.writeFileSync(wrapper, shim(saved), { mode: 0o755 });
+  const bundled = path.join(root, "ChatGPT.app", "Contents", "Resources");
+  fs.mkdirSync(bundled, { recursive: true });
+  fs.writeFileSync(path.join(bundled, "codex"), "#!/bin/sh\n", { mode: 0o755 });
+  fs.rmSync(saved);
+  fs.symlinkSync(path.join(bundled, "codex"), saved);
+  assert.equal((await service().check({ id: "codex" })).harnesses[0].source, "unknown");
+  await assert.rejects(() => service().update({ id: "codex", confirm: true }), error => error.code === "source_unknown");
+  fs.rmSync(root, { recursive: true, force: true });
+});

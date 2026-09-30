@@ -3,7 +3,7 @@
 > 狀態：已接受（Accepted）
 > 計畫版本：2.04（cross-harness structured adapters／native mutation safety；native parity 仍分開驗收）
 > 最後更新：2026-09-12
-> 當前產品基線：Stepsemble 3.0.27（由 Pi Harbor 2.13.2 相容遷移）
+> 當前產品基線：Stepsemble 3.0.27（由舊版 2.13.2 相容遷移）
 > Mini／MacBook Pro：Mini 以正常 updater 驗證；MBP 的 Tailscale peer 可見但本輪無法以 SSH／3140 完成遠端健康驗證，不能把 GitHub release 視為已更新
 > 當前實作：Node.js 22.19+ ＋無建置步驟的 JavaScript PWA
 > 長期目標：Rust Host Core ＋ TypeScript 跨平台 Client ＋ Tauri 2 App Shell
@@ -826,7 +826,7 @@ Tauri App 不得繞過公開 Host API 直接呼叫私有商業邏輯。原生 IP
 - 名稱來自 **step + ensemble**：不同 coding agent 以一致步伐協作，不綁定單一 harness 或 model。
 - Step Mosaic 由四個等權模組組成：錯落旋轉代表 step-by-step handoff，四個相同藍紫內緣代表每個 agent 都接入同一個 Stepsemble coordination layer，中央負空間代表共同 workspace。Jerome於2026-09-07在舊版／A／B／D／B+與實際尺寸對照後確認B+；`public/stepsemble-mark.svg`（SHA-256 `79dc722c0b8369bc69bc175bd6b1c7af386d9844569f5851a3b41aa1f67829a1`）為新母版，1254×1254 `public/stepsemble-mark.png`（SHA-256 `22b33509d2028eaba8fa1f24494cb0122f19549f52976be2c6468ef08d0f2f09`）是其正式派生。四個module與connector必須由同一path精確旋轉，不再手調四塊；候選驗收見`brand-refresh-3.0.7-rc.2.md`。
 - 核心品牌禁止使用 provider logo 或把 Claude、Codex 等供應商代表色固定分配給任一模組；provider identity 只在有文字標籤的產品 UI 中出現。
-- v3 保留 Pi Harbor／Pi Web 的設定路徑、cookie、環境變數、配對碼與 Release asset 讀取相容；舊來源只複製、不刪除，健康檢查成功前不封存舊程式。
+- v3 保留舊版本 的設定路徑、cookie、環境變數、配對碼與 Release asset 讀取相容；舊來源只複製、不刪除，健康檢查成功前不封存舊程式。
 - 2026-09-04 的初步 exact-name 網路、常見 package registry、GitHub、App Store 與主要網域檢查未發現明顯同名產品；這不是正式商標法律意見，公開商業發佈前仍需做目標市場商標檢索。
 
 ## 二、產品目標與非目標
@@ -1646,7 +1646,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 | D-007 | 2026-09-04 | Accepted | 官方登入/訂閱不複製，實際 auth/billing source 必須明示，無靜默 fallback |
 | D-008 | 2026-09-04 | Accepted | OpenCodex/CC Switch 屬 Model Source/Profile 層，不是 Coding Agent |
 | D-009 | 2026-09-04 | Accepted | Web 與原生 App 使用同一個版本化 Stepsemble Protocol |
-| D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留 Pi Harbor/Pi Web 相容 |
+| D-010 | 2026-09-04 | Accepted | 產品名定案 Stepsemble；Step Mosaic 以四個等權 agent 模組與共用 coordination layer 為識別；v3 以 additive migration 保留舊版本 相容 |
 
 ## 變更記錄
 
@@ -2094,7 +2094,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 
 ### 2026-09-04 — Plan 1.3
 
-- Mac Mini 已由 Pi Harbor 2.13.2 原地部署為 Stepsemble 3.0.0；保留 SSH localhost 啟動模式，舊 app/plist 可回復封存，舊 config/bin 保留。
+- Mac Mini 已由舊版 2.13.2 原地部署為 Stepsemble 3.0.0；保留 SSH localhost 啟動模式，舊 app/plist 可回復封存，舊 config/bin 保留。
 - 升級前後可見 session 8、原生 session 25 files／58,696,776 bytes、Web token hash 完全一致；`com.piharbor.cua-driver` PID 636 未受影響。
 - Updater 增加 canonical repo 發佈空窗的 read-only legacy stable fallback，semantic version gate 實測不會由 3.0.0 降回 2.13.2。
 - Mini launcher 的 restart gate 擴大到 generic agent task；檢查失敗採 fail-closed，token JSON 由 `jq` 正確編碼。
@@ -2105,7 +2105,7 @@ ADR 必須包含：背景、決策、替代方案、取捨、資料影響、安�
 
 - 產品名正式定案為 Stepsemble，補上語意、視覺識別、初步名稱碰撞檢查與正式商標檢索門檻。
 - 將產品版本提升為 3.0.0；新增 `STEPSEMBLE_*`、新路徑、cookie、service label、PWA cache 與 `STEPSEMBLE3` pairing identity。
-- 建立 Pi Harbor/Pi Web additive migration：private config、task snapshot、瀏覽器偏好、舊 cookie、環境變數與配對碼雙讀；新寫只用 Stepsemble；舊來源不刪除。
+- 建立舊版本 additive migration：private config、task snapshot、瀏覽器偏好、舊 cookie、環境變數與配對碼雙讀；新寫只用 Stepsemble；舊來源不刪除。
 - macOS、Linux、Windows 安裝器加入舊服務辨識、active-work gate、健康驗證與可回復切換；v3 Release 保留舊 asset alias 供 v2 updater 跨版。
 - 新增品牌／遷移回歸測試，當前完整測試為 127/127。
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.8.20
+
+- Signing in to Google Antigravity from a conversation opens the whole Google sign-in page again. The sign-in sheet put a shortened copy of the link first, cut where Antigravity's own screen breaks the line, and Google refused it with "Required parameter is missing: response_type". Links are now read from the screen as Antigravity draws it, and a shortened copy of a link Antigravity also sent in full is left out. After signing in on a phone, paste the code the page shows into the sheet and press Enter; Antigravity finishes the sign-in on the Host.
+- Codex upgrades itself again on a Mac where OpenCodex wraps Codex. OpenCodex replaces the `codex` command with a small script and keeps the launcher it replaced beside it as `codex.opencodex-real`. Stepsemble could not tell where that script came from, so on the Mac mini it stopped upgrading Codex after 0.159.0 and showed no newer version. It now follows such a script to the launcher it keeps and upgrades Codex when that launcher is the official install. OpenCodex wraps the new Codex again, as it does after any Codex update. A wrapped Codex that belongs to the ChatGPT app, as on the MacBook Pro, is still left alone.
+- The documentation, the change log and the German translation use the name Stepsemble throughout; the German text still said Pi Harbor in a few places.
+- Checked by replaying the real sign-in screen of the Antigravity CLI 1.2.14 from the Mac mini: the sheet offers only the full Google address, with its response type, redirect and state, where the old sheet also offered the shortened one. A read-only check against the Mac mini's real OpenCodex wrapper now reports the official install, with 0.159.0 installed and 0.159.2 available; before, it reported an unknown source. Tests cover a wrapped Codex being upgraded through the launcher OpenCodex keeps, and a wrapper that points elsewhere or to an app's Codex being refused.
+
 ## 3.8.19
 
 - Every provider in Settings → Agents & models → Pi Agent now has a switch that takes it out of the model menu, including those Pi lists because you signed in to them there, such as minimax or openai-codex. Before, only providers you added yourself could be removed, and the others could only be hidden one model at a time. A provider switched off stays out with any model it adds later, and switching it on again brings back your choices for its models. Its sign-in is untouched.
@@ -1595,9 +1602,9 @@ Development candidate; not activated or published as a stable release.
 
 ## 3.0.0
 
-- Renamed Pi Harbor to Stepsemble, with a new cat-paw-and-terminal identity
+- Adopted the Stepsemble name, with a new cat-paw-and-terminal identity
   for a workspace that coordinates multiple coding agents.
-- Preserved existing Pi Harbor and Pi Web state through an additive migration:
+- Preserved existing legacy state through an additive migration:
   private configuration, tokens, device trust, task journals, browser
   preferences, cookies, environment variables, and pairing codes remain
   readable while all new writes use Stepsemble names.
@@ -1625,7 +1632,7 @@ Development candidate; not activated or published as a stable release.
 ## 2.13.0
 
 - Generic Agent Hub tasks now run under an independent per-task supervisor,
-  reconnect after a Pi Harbor service restart, preserve elapsed time/output,
+  reconnect after a Stepsemble service restart, preserve elapsed time/output,
   and are marked interrupted when the supervisor is truly gone.
 - Added a searchable Agent Hub task center with status filters, replay, native
   Pi stop controls, automatic reopen of the last generic task, and push
@@ -1641,7 +1648,7 @@ Development candidate; not activated or published as a stable release.
 
 - Agent discovery now checks the common Homebrew, user-bin, npm, Volta,
   asdf, Bun, and Hermes paths in addition to launchd's PATH. Installed Codex,
-  Claude Code, and OpenCode CLIs therefore remain selectable when Pi Harbor is
+  Claude Code, and OpenCode CLIs therefore remain selectable when Stepsemble is
   started as a background service.
 
 ## 2.12.0
@@ -1668,7 +1675,7 @@ Development candidate; not activated or published as a stable release.
 
 ## 2.11.1
 
-- macOS devices now use the system ComputerName as the default Pi Harbor
+- macOS devices now use the system ComputerName as the default Stepsemble
   label, while retaining the network hostname for connectivity. A hostname
   such as `Mac.lan` no longer replaces a friendly device name in the UI.
 
@@ -1694,7 +1701,7 @@ Development candidate; not activated or published as a stable release.
 
 ## 2.10.0
 
-- Reloading Pi Harbor now returns to the conversation the user had open
+- Reloading Stepsemble now returns to the conversation the user had open
   instead of the session list, including a run that is still in flight: the
   chat reattaches to the live process and the elapsed timer continues. The
   last chat is remembered per device.
@@ -1707,7 +1714,7 @@ Development candidate; not activated or published as a stable release.
 
 ## 2.9.0
 
-- Closing and reopening Pi Harbor mid-run now shows what is still working. The
+- Closing and reopening Stepsemble mid-run now shows what is still working. The
   session list marks a running conversation with a pulsing dot and its elapsed
   time ("Running for 27s"), so the first screen after reopening answers whether
   the host is still busy instead of looking idle.
@@ -1743,7 +1750,7 @@ Development candidate; not activated or published as a stable release.
 ## 2.7.1
 
 - A supervised server no longer outlives the process that started it. A script
-  that spawned Pi Harbor and then failed before its own cleanup left the server
+  that spawned Stepsemble and then failed before its own cleanup left the server
   holding a port and an open stdio pipe, which kept the caller's event loop
   alive: both sides waited for each other and the calling Agent run appeared
   frozen with no output for hours. The server now notices that it has been
@@ -1889,12 +1896,12 @@ Development candidate; not activated or published as a stable release.
 
 - Fixed a localization feedback loop introduced by the new access-token
   controls. Keyed `title`, `aria-label`, and `placeholder` attributes are now
-  rewritten only when their translated value changes, so opening Pi Harbor no
+  rewritten only when their translated value changes, so opening Stepsemble no
   longer pins the browser renderer at 100% CPU.
 
 ## 2.4.0
 
-- Vendored Mermaid 11.12.1 and load it lazily from the Pi Harbor host, so
+- Vendored Mermaid 11.12.1 and load it lazily from the Stepsemble host, so
   diagram sources stay private and Mermaid rendering works offline. The CSP
   no longer permits jsdelivr; upstream license notices are included beside
   the bundle.
@@ -2118,12 +2125,12 @@ Development candidate; not activated or published as a stable release.
 ## 2.0.8
 
 - Prevented browsers from caching the service worker for 24 hours, which could
-  leave an installed mobile PWA displaying the previous Pi Harbor release.
+  leave an installed mobile PWA displaying the previous Stepsemble release.
 - Rechecked the service worker when the app is opened or returns to the
   foreground, bypassing the HTTP cache for update checks.
 - Compared the loaded client with the origin server after a manual update and
   reloaded automatically when a newer application bundle is ready.
-- Displayed the selected device's live Pi Harbor version in About instead of
+- Displayed the selected device's live Stepsemble version in About instead of
   relying only on the version baked into the original HTML.
 
 ## 2.0.7
@@ -2162,7 +2169,7 @@ Development candidate; not activated or published as a stable release.
 
 - Made first sign-in wait for the authoritative device catalog before loading
   sessions or opening the setup guide, so devices appear immediately without
-  closing and reopening Pi Harbor.
+  closing and reopening Stepsemble.
 - Added bounded retries and a visible retry action for temporary device-list
   failures without retrying expired authentication.
 - Kept the selected local or remote device stable while refreshing the catalog,
@@ -2193,7 +2200,7 @@ Development candidate; not activated or published as a stable release.
 ## 2.0.0
 
 - Renamed the complete product, runtime paths, service labels, storage keys,
-  pairing format, and deployment assets to Pi Harbor.
+  pairing format, and deployment assets under the v2 product identity.
 - Introduced the original Terminal Dock logo and application icon.
 - Added a macOS one-click installer and recoverable uninstaller, with optional
   official Pi Agent installation.

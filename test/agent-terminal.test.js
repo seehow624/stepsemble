@@ -3,6 +3,7 @@
 // full-screen menus read correctly, then finds the links and codes in it.
 const test = require("node:test"), assert = require("node:assert/strict");
 const terminal = require("../public/modules/agent-terminal");
+const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
 
 test("plain lines, colours and carriage returns land where a terminal puts them", () => {
   const screen = terminal.createScreen({ cols: 40, rows: 6 });
@@ -37,6 +38,38 @@ test("long sign-in links are joined across wrapped rows and OSC 8 links are kept
   assert.deepEqual(terminal.extractLinks("see https://a.example/x). and javascript:alert(1)"), ["https://a.example/x"]);
 });
 
+test("OAuth targets keep their parameters when a terminal prints a shortened link label", () => {
+  const target = "https://accounts.google.com/o/oauth2/auth?client_id=synthetic&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A9876%2Fcallback&state=synthetic";
+  const label = "https://accounts.google.com/o/oauth2/auth";
+  const other = "https://docs.example.test/sign-in";
+  const output = "\x1b]8;;" + target + "\x1b\\" + label + "\x1b]8;;\x1b\\\r\n" + other;
+  assert.deepEqual(terminal.extractLinks(output, [target]), [target, other]);
+  // Explicit targets are separate links even when one prefixes another.
+  assert.deepEqual(terminal.extractLinks("", [label, target]), [label, target]);
+});
+
+test("the conversation login buttons use the redrawn screen and preserve complete OAuth URLs", () => {
+  const app = fs.readFileSync(path.join(__dirname, "../public/app.js"), "utf8");
+  const writeFunction = app.slice(app.indexOf("function agentTerminalWrite("), app.indexOf("function agentTerminalLine("));
+  const context = vm.createContext({ agentTerminalApi: terminal, scheduleAgentTerminalRender() {} });
+  vm.runInContext(writeFunction, context);
+  const target = "https://accounts.google.com/o/oauth2/auth?client_id=synthetic&code_challenge=synthetic&response_type=code&scope=openid%20email&state=synthetic";
+  for (const cols of [40, 100]) {
+    const term = { screen: terminal.createScreen({ cols, rows: 24 }), raw: "", mode: "pty", action: "login" };
+    // Antigravity's hyperlink target arrives first; its displayed label then
+    // wraps and is redrawn. The old raw-output parser kept the short label as
+    // the newest link, which the UI promoted to its primary Open button.
+    const output = "\x1b]8;;" + target + "\x1b\\https://accounts.google.com/o/oauth2/auth\x1b]8;;\x1b\\\r\n";
+    for (const chunk of [output.slice(0, 25), output.slice(25, 92), output.slice(92)]) context.agentTerminalWrite(term, chunk);
+    assert.deepEqual(term.links, [target]);
+    const primary = new URL(term.links.at(-1));
+    assert.equal(primary.searchParams.get("response_type"), "code");
+    assert.equal(primary.searchParams.get("state"), "synthetic");
+    context.agentTerminalWrite(term, "\x1b[2J\x1b[Hhttps://auth.example.test/device\r\n");
+    assert.equal(term.links.at(-1), "https://auth.example.test/device");
+  }
+});
+
 test("one-time codes are found only next to the word code", () => {
   assert.deepEqual(terminal.extractCodes("2. Enter this one-time code (expires in 15 minutes)\r\n   VLG2-J3I1T\r\n"), ["VLG2-J3I1T"]);
   assert.deepEqual(terminal.extractCodes("Released 2026-0925 and ABCD-EFGH with no hint"), []);
@@ -67,4 +100,3 @@ test("an escape sequence split between writes is still understood", () => {
   screen.write("\\done");
   assert.equal(screen.textRows()[0], "   xyzdone");
 });
-

@@ -1,7 +1,7 @@
-/* stepsemble v3.8.19 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.20 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.19";
+const CLIENT_APP_VERSION = "3.8.20";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -12354,7 +12354,7 @@ function agentTerminalWrite(term, text) {
   if (!term?.screen || !text) return;
   term.screen.write(text);
   term.raw = (term.raw + text).slice(-65536);
-  term.links = agentTerminalApi.extractLinks(term.raw, term.screen.links);
+  term.links = agentTerminalApi.extractLinks(term.screen.logicalText(), term.screen.links);
   term.codes = agentTerminalApi.extractCodes(term.raw);
   // A prompt for a key, token or password hides what is typed next. It only
   // switches on as the prompt appears, so showing the entry again sticks.

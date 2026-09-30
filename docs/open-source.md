@@ -9,7 +9,7 @@ with project attributions in [`NOTICE`](../NOTICE) and SPDX identifier
 
 The complete license text comes from the
 [Apache Software Foundation](https://www.apache.org/licenses/LICENSE-2.0.txt).
-Original MIT notices for Stepsemble, Pi Harbor, and Pi Web are retained in
+Original MIT notices for Stepsemble and its earlier product names are retained in
 [`licenses/legacy-MIT.txt`](../licenses/legacy-MIT.txt). Previously distributed
 MIT versions remain available under their original terms; existing tags and
 release archives are not rewritten. Vendored code retains its upstream

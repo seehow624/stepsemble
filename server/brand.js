@@ -3,7 +3,7 @@
 /**
  * Stepsemble identity and compatibility boundary.
  *
- * Public names moved from Pi Harbor to Stepsemble in v3. Existing installs
+ * Public names moved to Stepsemble in v3. Existing installs
  * may still be launched by older service files and may still hold private
  * state under the former directories. Keep every legacy read explicit here;
  * new writes always use Stepsemble names.

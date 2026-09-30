@@ -330,13 +330,20 @@
   // Sign-in links in the order they appeared, newest last.
   function extractLinks(text, extra = []) {
     const found = [];
-    const add = value => {
+    const explicit = [];
+    const add = (value, isExplicit = false) => {
       try {
         const parsed = new URL(value);
-        if ((parsed.protocol === "https:" || parsed.protocol === "http:") && !found.includes(parsed.href)) found.push(parsed.href);
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return;
+        // OSC 8 carries the actual target. Its visible label can itself look
+        // like a URL, shortened while a CLI redraws the line. Never turn that
+        // label into a second sign-in link with missing OAuth parameters.
+        if (!isExplicit && explicit.some(target => target.startsWith(parsed.href))) return;
+        if (isExplicit && !explicit.includes(parsed.href)) explicit.push(parsed.href);
+        if (!found.includes(parsed.href)) found.push(parsed.href);
       } catch {}
     };
-    for (const link of extra) add(link);
+    for (const link of extra) add(link, true);
     const plain = stripAnsi(text);
     for (const match of plain.matchAll(/https?:\/\/[^\s"'<>\x07\x1b│|]+/g)) add(trimLink(match[0]));
     return found.slice(-6);

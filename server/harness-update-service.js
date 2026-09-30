@@ -187,6 +187,29 @@ function absoluteLines(output) {
     .filter(value => value && path.isAbsolute(value) && !/[\u0000-\u001f\u007f]/.test(value));
 }
 
+const OPENCODEX_SHIM_MARKER = "# opencodex codex autostart shim";
+
+// OpenCodex can wrap the Codex launcher in a small shell script and keep the
+// launcher it replaced beside it as `<name>.opencodex-real`. The wrapper hands
+// `update` and `--version` straight to that launcher, and OpenCodex wraps the
+// launcher again after Codex updates itself. The installation to prove and to
+// update is therefore the saved launcher. Only a wrapper that execs exactly
+// its own sibling is followed; anything else stays unproven.
+function openCodexSavedLauncher(executable, platform = process.platform) {
+  if (platform === "win32" || !executable || !path.isAbsolute(executable)) return null;
+  let text;
+  try {
+    const stat = fs.statSync(executable);
+    if (!stat.isFile() || stat.size > 64 * 1024) return null;
+    text = fs.readFileSync(executable, "utf8");
+  } catch { return null; }
+  if (!text.startsWith("#!") || !text.includes(OPENCODEX_SHIM_MARKER)) return null;
+  const saved = `${executable}.opencodex-real`;
+  const quoted = "'" + saved.replace(/'/g, "'\\''") + "'";
+  if (!text.split(/\r?\n/).some(line => line.trim() === `exec ${quoted} "$@"`)) return null;
+  return isExecutable(saved) ? saved : null;
+}
+
 function packageSegments(packageName) {
   const value = String(packageName || "");
   return value.startsWith("@") ? value.split("/") : [value];
@@ -328,6 +351,15 @@ function createHarnessUpdateService({
   }
 
   async function detectSource(definition, executable, strategy = definition.update || {}) {
+    const saved = openCodexSavedLauncher(executable);
+    if (!saved) return detectInstalledSource(definition, executable, strategy);
+    const inner = await detectInstalledSource(definition, saved, strategy);
+    // Report the wrapper the user runs when the saved launcher is unproven
+    // too, e.g. a launcher bundled inside a desktop app.
+    return inner.kind === "unknown" ? { ...inner, executable } : { ...inner, wrapper: "opencodex" };
+  }
+
+  async function detectInstalledSource(definition, executable, strategy = definition.update || {}) {
     const result = { kind: "unknown", executable, npmPackage: strategyPackage(definition, strategy), brewPackage: brewPackage(definition, strategy) };
     const brew = resolve("brew", env);
     if (brew && result.brewPackage) {
@@ -742,7 +774,8 @@ function createHarnessUpdateService({
         return { executable: source.manager, args: ["install", "--prefix", source.prefix, "--no-audit", "--no-fund", `${source.npmPackage}@${target || "latest"}`], source };
       }
       if (source.kind === "official-standalone") {
-        return { executable, args: Array.isArray(strategy.args) && strategy.args.length ? strategy.args : ["update"], source };
+        // Through a wrapper, the saved launcher is the installation itself.
+        return { executable: source.executable || executable, args: Array.isArray(strategy.args) && strategy.args.length ? strategy.args : ["update"], source };
       }
       throw errorStatus("source_unknown", `${definition.label} installation source is unknown`, 422);
     }

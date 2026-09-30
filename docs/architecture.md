@@ -310,7 +310,7 @@ explicit input/output boundary before adding more state to the controllers.
   cannot silently downgrade a `STEPSEMBLE3` offer and must update.
 - Product-state migration is additive. New writes use `~/.config/stepsemble`,
   the `stepsemble` cookie, `STEPSEMBLE_*` variables, and Stepsemble service
-  labels. Reads also accept the former Pi Harbor/Pi Web paths, cookies,
+  labels. Reads also accept the legacy paths, cookies,
   variables, and pairing prefixes for a bounded compatibility window. The
   installer archives former application/service files only after a matching
   v3 health check; native agent state and projects are never moved.

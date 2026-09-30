@@ -44,7 +44,7 @@ powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
 
 Linux 與 Windows 都需要 Node.js 22.19 以上；服務預設只監聽本機回環位址。
 
-## 從 Pi Harbor 升級
+## 從舊版本升級
 
 v3 把改名視為「只增加、不破壞」的遷移：只有在 Stepsemble 對應檔案不存在時，
 才會從 `~/.config/pi-harbor` 或 `~/.config/pi-web` 複製 token、裝置信任、工作記錄與

@@ -92,7 +92,7 @@ test("frontend foundation migrates pre-Harbor preferences without renaming user 
   assert.deepEqual(Array.from(foundation.loadSettings().projectPins), ["/existing/project"]);
 });
 
-test("frontend foundation migrates Pi Harbor preferences and keeps a rolling global alias", () => {
+test("frontend foundation migrates legacy preferences and keeps a rolling global alias", () => {
   const storage = {
     values: new Map([
       ["piharbor.selected.v1", "harbor-device"],

@@ -40,7 +40,7 @@ jobs:
           shasum -a 256 "$archive" > "$archive.sha256"
           # v2 updaters search for the former asset name first. Publish an
           # identical, independently checksummed alias throughout v3 so an
-          # installed Pi Harbor host can cross the rename in one update.
+          # installed v2 host can cross the rename in one update.
           legacy_archive="pi-harbor-${GITHUB_REF_NAME}.tar.gz"
           cp "$archive" "$legacy_archive"
           shasum -a 256 "$legacy_archive" > "$legacy_archive.sha256"

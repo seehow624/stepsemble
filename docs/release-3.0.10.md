@@ -27,4 +27,4 @@ Local Node 22.22.3 verification:
 
 The three-OS CI and release workflow for the final commit/tag are the release
 authority; the published GitHub assets include both Stepsemble and legacy
-Pi Harbor archive names.
+`pi-harbor-*` archive names.

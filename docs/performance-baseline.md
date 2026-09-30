@@ -1,6 +1,6 @@
 # Stepsemble Host performance baselines
 
-> Baseline A：Pi Harbor 2.13.2（改名前）
+> Baseline A：Stepsemble 2.13.2（改名前）
 > Baseline B：Stepsemble 3.0.0（相容遷移、本機部署與 clean source commit 後）
 > Date：2026-09-04
 > Host：Darwin 25.6.0、arm64、10 logical CPUs、Node.js v22.22.3
@@ -36,7 +36,7 @@ npm run benchmark:host
 
 總 synthetic history 為 41,000 個 message entries，另有 header/session-info entries。Session list明確帶 `includeTemporary=1`，並斷言回傳301個檔案；這避免 temp fixture被產品的Sub Agent filter正確隱藏後，誤留下空資料基線。
 
-## Baseline A：Pi Harbor 2.13.2
+## Baseline A：Stepsemble 2.13.2
 
 | Metric | Result |
 | --- | ---: |

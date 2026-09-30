@@ -455,7 +455,7 @@ if (( systemd_ready )); then
 else
   rollback_armed=0
   note "A systemd user session was not available; start Stepsemble with: $node_bin $INSTALL_DIR/server.js"
-  note "Former Pi Harbor files were retained until the new service can be verified."
+  note "Former installation files were retained until the new service can be verified."
 fi
 say "Stepsemble $latest_version is installed."
 note "Token: $TOKEN_FILE"

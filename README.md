@@ -55,7 +55,7 @@ The installer:
 - installs a private Node.js runtime only when Node 22.19 or newer is missing;
 - downloads the latest GitHub Release and verifies its SHA-256 checksum;
 - creates a local Web token at `~/.config/stepsemble/token`, a launchd service, and an hourly stable-release updater;
-- migrates Pi Harbor and Pi Web installations without changing native agent
+- migrates earlier installations without changing native agent
   sessions, project files, provider credentials, approvals, or the existing
   Web token.
 
@@ -92,7 +92,7 @@ remote access.
 Stepsemble binds to `127.0.0.1:3140` by default. The first launch opens a short
 setup guide for sign-in, devices, providers, projects, and remote access.
 
-### Upgrading from Pi Harbor
+### Upgrading earlier installations
 
 The v3 installer treats the rename as an additive migration. It copies known
 private state from `~/.config/pi-harbor` or `~/.config/pi-web` only when the

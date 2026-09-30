@@ -60,3 +60,20 @@ standalone version with source `official-standalone`.
 - `codex.opencodex-real` and `~/.opencodex/codex-shim.json` are left untouched,
   so `ocx codex-shim uninstall` still works if you later want to remove the
   shim.
+
+## When OpenCodex wraps the official install
+
+OpenCodex may also wrap the official install itself, as it did on the Mac Mini
+after Codex 0.159.0 was installed: `~/.local/bin/codex` became the shim and
+`~/.local/bin/codex.opencodex-real` points to
+`~/.codex/packages/standalone/current/bin/codex`.
+
+From 3.8.20 Stepsemble follows a shim marked `# opencodex codex autostart
+shim` whose handoff is exactly `exec '<shim>.opencodex-real' "$@"`, and proves
+the source of that saved launcher instead. When it is the official standalone
+install, Stepsemble checks for and installs updates with that launcher's own
+`codex update`. The updater replaces `~/.local/bin/codex` with its own link;
+OpenCodex's automatic shim repair wraps it again, as it does after any Codex
+update. A shim that hands off anywhere else, or whose saved launcher is the
+ChatGPT app's bundled Codex (the MacBook Pro's `/opt/homebrew/bin/codex`), is
+still reported as unknown and never updated.
