@@ -99,8 +99,8 @@ test("a current helper is left alone and repeated failures stop after six tries"
 
 test("a current helper without a folder this Host allows is installed again with it", async t => {
   const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-helper-roots-")));
-  const volumes = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-helper-volumes-")));
+  const home = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-helper-roots-")));
+  const volumes = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-helper-volumes-")));
   t.after(() => { fs.rmSync(home, { recursive: true, force: true }); fs.rmSync(volumes, { recursive: true, force: true }); });
   let held = [home], received = null;
   const f = fixture({ helperRoots: () => held, wantedRoots: () => [home, volumes],
@@ -124,7 +124,7 @@ test("a current helper without a folder this Host allows is installed again with
 test("folders the helper already holds, missing folders and files are not added", t => {
   const { missingRoots } = require("../server/claude-desktop-upgrade");
   const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-helper-missing-")));
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-helper-missing-")));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
   const projects = path.join(base, "Projects"), inside = path.join(projects, "App"), file = path.join(base, "file.txt");
   fs.mkdirSync(inside, { recursive: true }); fs.writeFileSync(file, "x");
