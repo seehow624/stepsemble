@@ -143,15 +143,19 @@ export async function runConversationUxBrowserCases(browser) {
       const scrollUp = async () => { for (let index = 0; index < 8; index += 1) { await ui.evaluate(() => { const list = document.querySelector("#messages"); list.scrollTop = 0; list.dispatchEvent(new Event("scroll")); }); await ui.waitForTimeout(60); } };
       const jump = () => ui.evaluate(() => {
         const button = document.querySelector("#scroll-bottom-btn"), composer = document.querySelector(".composer-inner") || document.querySelector(".composer");
-        const box = button.getBoundingClientRect(), under = composer.getBoundingClientRect();
+        const box = button.getBoundingClientRect(), under = composer.getBoundingClientRect(), list = document.querySelector("#messages");
         return { visible: !button.classList.contains("hidden") && box.width > 0, working: button.classList.contains("is-working"),
           dots: getComputedStyle(button.querySelector(".scroll-bottom-dots")).display !== "none", arrow: getComputedStyle(button.querySelector(".scroll-bottom-arrow")).display !== "none",
-          size: Math.round(box.width) + "x" + Math.round(box.height), centre: Math.round(box.left + box.width / 2 - (under.left + under.width / 2)), above: Math.round(under.top - box.bottom) };
+          size: Math.round(box.width) + "x" + Math.round(box.height), centre: Math.round(box.left + box.width / 2 - (under.left + under.width / 2)), above: Math.round(under.top - box.bottom),
+          // For a failure message: where the list is and whether a reply is running.
+          scroll: [list.scrollTop, list.clientHeight, list.scrollHeight].map(Math.round), running: !document.querySelector("#btn-abort")?.classList.contains("hidden") };
       });
       const atBottom = () => ui.waitForFunction(() => { const list = document.querySelector("#messages"); return list.scrollHeight - list.scrollTop - list.clientHeight < 80; }, null, { timeout: 6000 });
       await scrollUp();
       const working = await jump();
-      assert.equal(working.visible, true); assert.equal(working.working, true); assert.equal(working.dots, true); assert.equal(working.arrow, false);
+      const seen = JSON.stringify(working);
+      assert.equal(working.visible, true, "visible " + seen); assert.equal(working.working, true, "working " + seen);
+      assert.equal(working.dots, true, "dots " + seen); assert.equal(working.arrow, false, "arrow " + seen);
       assert.equal(working.size, "40x40"); assert(Math.abs(working.centre) <= 2, "centred: " + working.centre); assert(working.above >= 4);
       await ui.locator("#scroll-bottom-btn").click();
       await atBottom();
