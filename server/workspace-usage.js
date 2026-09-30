@@ -7,6 +7,10 @@ const { execFile } = require("node:child_process");
 // and probes out of Stepsemble, and it is the only source for allowances that
 // have no local CLI of their own, such as an OpenCode Go subscription.
 const OPENCODEX_PORT = 10100;
+// How long a live reading of the allowances is kept, and how recent one must
+// be to answer a request for a fresh reading (Refresh).
+const USAGE_TTL_MS = 2 * 60 * 1000;
+const FRESH_FLOOR_MS = 15 * 1000;
 const OPENCODEX_WINDOWS = Object.freeze([["fiveHour", 300], ["weekly", 10080], ["monthly", 43200]]);
 const OPENCODEX_NAMES = Object.freeze({ "opencode-go": "OpenCode Go", "opencode-free": "OpenCode Zen", "minimax": "MiniMax", "minimax-cn": "MiniMax (China)" });
 // Providers Stepsemble reads directly keep that fresher source instead.
@@ -415,7 +419,8 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
     if (full) { cachedFull = result; expiresFull = now() + 60000; }
     cached = result;
     // A reading that came from a cache is retried sooner than a live one.
-    expires = now() + (providers.every(p => p.status === "ready") ? 300000 : 60000);
+    // Allowances move while agents work, so a live reading is kept two minutes.
+    expires = now() + (providers.every(p => p.status === "ready") ? USAGE_TTL_MS : 60000);
     return result;
   }
   let cachedFull = null, expiresFull = 0;
@@ -423,8 +428,13 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
   return {
     read(options = {}) {
       const full = options?.full === true, key = full ? "full" : "fast";
-      if (!full && cached && now() < expires) return Promise.resolve(cached);
-      if (full && cachedFull && now() < expiresFull) return Promise.resolve(cachedFull);
+      // Refresh asks for a new reading; one taken moments ago still answers,
+      // so repeated clicks or several devices do not reach the providers again.
+      const fresh = options?.fresh === true;
+      const recent = reading => reading && now() - reading.updatedAt < FRESH_FLOOR_MS;
+      if (!full && cached && now() < expires && (!fresh || recent(cached))) return Promise.resolve(cached);
+      if (full && fresh && recent(cachedFull)) return Promise.resolve(cachedFull);
+      if (full && !fresh && cachedFull && now() < expiresFull) return Promise.resolve(cachedFull);
       if (!flights[key]) flights[key] = collect(full).finally(() => { flights[key] = null; });
       return flights[key];
     },

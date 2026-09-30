@@ -215,6 +215,35 @@ export async function runConversationUxBrowserCases(browser) {
       await pendingTurn(page, ui, context, "**/api/hermes/acp/prompt", "held back for ACP", "held back for ACP", out, "acp");
       await ui.waitForFunction(() => document.querySelectorAll("#messages .msg.assistant").length > 0);
 
+      stage = "Tabs: one width, the agent's logo, no title row";
+      if (viewport.mobile) {
+        const head = await ui.evaluate(() => ({ title: getComputedStyle(document.querySelector("#chat-head-info")).display !== "none",
+          back: getComputedStyle(document.querySelector("#btn-back")).display !== "none" }));
+        assert.deepEqual(head, { title: true, back: true }, "a phone keeps the title row with Back");
+        out.tabs = "phone title row";
+      } else {
+        const tabs = await page.evaluate(() => [...document.querySelectorAll(".workspace-tab")].map(tab => ({
+          width: Math.round(tab.getBoundingClientRect().width), agent: tab.querySelector(".agent-logo")?.dataset.agentId || null })));
+        assert.deepEqual(tabs.map(tab => tab.agent), ["pi", "claude-code", "hermes"], JSON.stringify(tabs));
+        assert.equal(new Set(tabs.map(tab => tab.width)).size, 1, "every tab has one width: " + JSON.stringify(tabs));
+        const pane = await ui.evaluate(() => {
+          const shown = selector => { const node = document.querySelector(selector); return !!node && getComputedStyle(node).display !== "none" && node.getBoundingClientRect().width > 0; };
+          const menu = document.querySelector("#btn-chat-menu").getBoundingClientRect();
+          return { title: shown("#chat-head-info"), path: shown("#chat-sub"), timer: shown("#run-timer"), menu: shown("#btn-chat-menu"),
+            corner: menu.top < 60 && innerWidth - menu.right < 40, messagesTop: Math.round(document.querySelector("#messages").getBoundingClientRect().top) };
+        });
+        assert.deepEqual({ title: pane.title, path: pane.path, timer: pane.timer, menu: pane.menu, corner: pane.corner },
+          { title: false, path: false, timer: false, menu: true, corner: true }, JSON.stringify(pane));
+        assert(pane.messagesTop <= 2, "the conversation starts at the top of the pane: " + pane.messagesTop);
+        out.tabs = tabs[0].width + "px with logos";
+
+        stage = "Refresh reads the allowances again";
+        const asked = page.waitForRequest(request => { const url = new URL(request.url()); return url.pathname === "/api/workspace/usage" && url.searchParams.get("fresh") === "1"; });
+        await page.locator("#workspace-refresh").click();
+        await asked;
+        out.limits = "fresh on Refresh";
+      }
+
       stage = "Settings open in the same window";
       // On a phone the list, with the Settings button, is behind the open conversation.
       if (viewport.mobile) {

@@ -5,7 +5,11 @@
   const identity = ref => JSON.stringify([ref.host, ref.key]);
   function reference(raw) {
     if (!raw || !/^[A-Za-z0-9_.:-]{1,128}$/.test(raw.host) || !/^[a-f0-9-]{36}$/.test(raw.key)) throw new Error("Invalid session reference");
-    return { host: raw.host, key: raw.key, title: String(raw.title || "Session").slice(0, 160) };
+    const ref = { host: raw.host, key: raw.key, title: String(raw.title || "Session").slice(0, 160) };
+    // The agent, for the tab's logo. Tabs saved before it was kept have none
+    // until the Host's session list names it.
+    if (typeof raw.agentId === "string" && /^[a-z0-9][a-z0-9-]{0,31}$/.test(raw.agentId)) ref.agentId = raw.agentId;
+    return ref;
   }
   const pane = () => ({ type: "pane", id: id(), tabs: [], active: null });
   function leaves(node) { return node.type === "pane" ? [node] : [...leaves(node.first), ...leaves(node.second)]; }

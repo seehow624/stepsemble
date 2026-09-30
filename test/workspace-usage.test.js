@@ -287,3 +287,29 @@ test("Settings reads every source that is on, and CodexBar readings join the lis
   assert.deepEqual([cursor.sourceId, cursor.status, cursor.observedAt, cursor.source], ["codexbar", "cached", now - 3_600_000, "codexbar"]);
   assert.equal(full.providers.find(p => p.service === "codex").sourceId, "agents");
 });
+
+test("a live reading is kept two minutes, and Refresh reads the providers again once 15 seconds have passed", async () => {
+  let calls = 0, time = 1_000_000;
+  const service = createWorkspaceUsage({ home: "/synthetic", now: () => time,
+    codex: async () => { calls++; return { rateLimits: { primary: { usedPercent: 20 } } }; },
+    readClaudeToken: async () => "synthetic-secret",
+    fetchImpl: async () => ({ ok: true, json: async () => ({ five_hour: { utilization: 0 }, seven_day: { utilization: 90 } }) }),
+  });
+  const first = await service.read();
+  assert.equal(calls, 1);
+  // Refresh right after a reading is answered with it: repeated clicks, or
+  // several devices at once, do not reach the providers again.
+  time += 10_000;
+  assert.equal((await service.read({ fresh: true })).updatedAt, first.updatedAt);
+  assert.equal(calls, 1);
+  time += 10_000;
+  assert.equal((await service.read({ fresh: true })).updatedAt, time);
+  assert.equal(calls, 2);
+  time += 119_000; await service.read(); assert.equal(calls, 2);
+  time += 2_000; await service.read(); assert.equal(calls, 3);
+  // Settings asks for the full reading the same way.
+  await service.read({ full: true });
+  const afterFull = calls;
+  time += 5_000; await service.read({ full: true, fresh: true }); assert.equal(calls, afterFull);
+  time += 15_000; await service.read({ full: true, fresh: true }); assert.ok(calls > afterFull);
+});

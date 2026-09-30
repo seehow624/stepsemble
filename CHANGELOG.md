@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.8.22
+
+- Workspace tabs are all one width, however long their titles, and each starts with its agent's logo. When many are open they narrow together before the strip scrolls. A tab opened before this version gets its logo once the session list names its agent.
+- On a desktop a conversation no longer has a title row. The tab already names it and shows its agent, and the path is in the session list, so the name, path and timer are gone from the top of the conversation, which now starts at the top of its pane. Changes and More float over the pane's top-right corner. A phone shows no tabs and keeps the title row, with Back.
+- Subscription limits are current. The Host kept a reading for five minutes, the Workspace asked for one every five minutes, and Refresh got the same kept reading, so a number could be close to ten minutes old. Refresh, in the sidebar or next to the time in the limits panel, now has the Host read the providers again; a reading taken in the last 15 seconds still answers, so repeated clicks or several devices do not reach the providers again. The Workspace asks every two minutes, the Host keeps a reading two minutes, and coming back to the Workspace after a minute away reads them again. Refresh in Settings → Quota sources reads them again too.
+- Checked on a synthetic Host at 1440 and 390 pixels: two tabs 188 pixels wide with the Codex and Claude Code logos; on a desktop the conversation shows no name, path or timer and starts at the top, with Changes and More at the top right; on a phone the title row and Back remain. The browser check that runs on every release now opens Pi, Claude Code and an ACP agent as tabs, checks their one width and logos, the missing title row on a desktop and the kept one on a phone, and that Refresh asks for a new reading. Tests cover a reading kept two minutes, Refresh within and after 15 seconds, and a tab keeping its agent.
+
 ## 3.8.21
 
 - The first-run pages of Google Antigravity show in full in the sign-in terminal, with their buttons. Stepsemble told sign-in programs the terminal had 24 rows, and a full-screen program draws only that many: Antigravity's Terms of Service page stopped at its consent checkbox, and the Previous and Done buttons below it, with the hint for moving to them, were cut off. Enter on the checkbox only switches it, so the sign-in could not go on. The terminal now has 40 rows. The screen scrolls, and blank rows below a page are not shown, now also when a program parks its hidden cursor on the last row.

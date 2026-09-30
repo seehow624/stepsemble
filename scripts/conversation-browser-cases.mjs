@@ -102,8 +102,15 @@ export async function runConversationBrowserCases(browser) {
       await page.keyboard.press("Escape"); await dialog.waitFor({ state: "hidden" });
       if (viewport.width < 800) assert.equal(await page.locator("#workspace-sidebar").isVisible(), true);
       const pane = await openFromSidebar(page, "Same title");
-      await pane.locator("#chat-title").getByText("Same title", { exact: true }).waitFor();
-      assert.equal(await pane.locator('#chat-agent-logo .agent-logo[data-agent-id="codex"]').count(), 1);
+      if (viewport.width < 800) {
+        await pane.locator("#chat-title").getByText("Same title", { exact: true }).waitFor();
+        assert.equal(await pane.locator('#chat-agent-logo .agent-logo[data-agent-id="codex"]').count(), 1);
+      } else {
+        // On a desktop the tab names the conversation and shows its agent.
+        const selected = page.locator('.workspace-tab[aria-selected="true"]');
+        await selected.locator(".workspace-tab-title").getByText("Same title", { exact: true }).waitFor();
+        assert.equal(await selected.locator('.agent-logo[data-agent-id="codex"]').count(), 1);
+      }
       await pane.locator("#agent-input-note").getByText(/This task has ended/).waitFor();
       assert.equal(await pane.locator("#btn-send").isEnabled(), false);
       assert.equal(await pane.locator("#input").evaluate(node => node.readOnly), true);

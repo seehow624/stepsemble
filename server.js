@@ -107,7 +107,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.21";
+const APP_VERSION = "3.8.22";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -288,10 +288,10 @@ const workspaceUsage = workspaceUsageModule.createWorkspaceUsage({
 
 // Settings → Quota sources: each source, whether it is on and what it reads,
 // and which source each service uses now.
-async function quotaSourcesPayload() {
+async function quotaSourcesPayload({ fresh = false } = {}) {
   const config = await readQuotaConfig(CONFIG_DIR);
   const [usage, opencodex, codexbar] = await Promise.all([
-    workspaceUsage.read({ full: true }).catch(() => null),
+    workspaceUsage.read({ full: true, fresh }).catch(() => null),
     opencodexSource({ home: APP_HOME, env: process.env, probe: config.sources.opencodex }).catch(() => null),
     findCodexBar({ env: process.env }).catch(() => null),
   ]);
@@ -5215,7 +5215,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (p === "/api/quota-sources" && req.method === "GET") {
-        sendJSON(res, 200, await quotaSourcesPayload());
+        sendJSON(res, 200, await quotaSourcesPayload({ fresh: url.searchParams.get("fresh") === "1" }));
         return;
       }
       if (p === "/api/quota-sources" && req.method === "POST") {
@@ -5894,7 +5894,7 @@ const server = http.createServer(async (req, res) => {
       // exposes API keys, environment values, or arbitrary shell commands.
       // The workspace inventory never invokes provider-wide list/discovery.
       if (p === "/api/workspace/usage" && req.method === "GET") {
-        sendJSON(res, 200, await workspaceUsage.read()); return;
+        sendJSON(res, 200, await workspaceUsage.read({ fresh: url.searchParams.get("fresh") === "1" })); return;
       }
       if (p === "/api/workspace" && req.method === "GET") {
         const snapshot = workspaceRegistry.list();

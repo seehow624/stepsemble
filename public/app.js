@@ -1,7 +1,7 @@
-/* stepsemble v3.8.21 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.22 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.21";
+const CLIENT_APP_VERSION = "3.8.22";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -13137,7 +13137,8 @@ async function loadQuotaSources(force = false) {
   quotaSourcesState = { ...quotaSourcesState, base, loading: true, error: null, ...(quotaSourcesState.base === base ? {} : { data: null }) };
   renderQuotaSources();
   try {
-    const data = await api("/api/quota-sources");
+    // Refresh reads the providers again rather than the Host's last reading.
+    const data = await api(force ? "/api/quota-sources?fresh=1" : "/api/quota-sources");
     if (apiBase !== base) return;
     quotaSourcesState = { base, data, loading: false, error: null, at: Date.now() };
   } catch (error) {

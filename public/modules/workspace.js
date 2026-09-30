@@ -133,8 +133,19 @@
     const data = await res.json(); if (!res.ok) throw Object.assign(new Error(data.error || t("loadFailed")), { status: res.status }); return data;
   }
   const hostName = value => machines.find(m => m.id === value)?.name || value;
-  const refOf = entry => ({ host, key: entry.key, title: plainTitle(entry.record.name) || entry.record.agentId || "Session" });
+  const refOf = entry => ({ host, key: entry.key, title: plainTitle(entry.record.name) || entry.record.agentId || "Session",
+    ...(entry.record.agentId ? { agentId: entry.record.agentId } : {}) });
   function allRefs() { return L.leaves(tree).flatMap(p => p.tabs); }
+  // A tab saved before its agent was kept gets its logo once the list names it.
+  function setRefAgent(ref, agentId) {
+    if (typeof agentId !== "string" || !/^[a-z0-9][a-z0-9-]{0,31}$/.test(agentId)) return;
+    const key = L.identity(ref);
+    let changed = false;
+    for (const tab of allRefs()) if (L.identity(tab) === key && tab.agentId !== agentId) { tab.agentId = agentId; changed = true; }
+    if (!changed) return;
+    try { save(); } catch (error) { toast(error.message); }
+    render();
+  }
   function setRefTitle(ref, value) {
     const title = String(value || "").replace(/\s+/g, " ").trim().slice(0, 160);
     if (!title) return;
@@ -284,7 +295,11 @@
       for (const ref of n.tabs) {
         const key = L.identity(ref), tab = node("div", "", "workspace-tab"); tab.setAttribute("aria-selected", String(n.active === key)); tab.draggable = true;
         tab.ondragstart = e => dragStart(e, ref, true); tab.ondragend = dragEnd;
-        tab.append(button(ref.title, () => { n.active = key; focused = n.id; commit(tree); }, `${ref.title} · ${hostName(ref.host)}`), button("×", () => commit(L.remove(tree, ref)), t("closeTab", { title: ref.title }))); tablist.append(tab);
+        // Every tab is the same width and starts with its agent's logo; the
+        // conversation below it shows no title row of its own.
+        const label = button("", () => { n.active = key; focused = n.id; commit(tree); }, `${ref.title} · ${hostName(ref.host)}`, "btn workspace-tab-label");
+        label.append(window.StepsembleAgentIdentity.create(document, ref.agentId || "", true), node("span", ref.title, "workspace-tab-title"));
+        tab.append(label, button("×", () => commit(L.remove(tree, ref)), t("closeTab", { title: ref.title }))); tablist.append(tab);
       }
       tabs.append(tablist);
       // Layout actions collapse into one overflow control. A permanent row of
@@ -409,7 +424,7 @@
     try { const data = await api("/api/workspace", undefined, target); if (epoch !== refreshEpoch || target !== host) return; if (JSON.stringify(data) !== JSON.stringify(snapshot)) { snapshot = data; if (!document.body.classList.contains("workspace-dragging")) renderSidebar(); }
       if (!document.body.classList.contains("workspace-dragging")) for (const entry of data.entries) {
         const ref = { host: target, key: entry.key };
-        if (allRefs().some(tab => L.identity(tab) === L.identity(ref))) setRefTitle(ref, refOf(entry).title);
+        if (allRefs().some(tab => L.identity(tab) === L.identity(ref))) { setRefAgent(ref, entry.record.agentId); setRefTitle(ref, refOf(entry).title); }
       }
       // A closed window can retain an old tab in its saved layout. Reconcile
       // against membership when it opens again, without touching other hosts.
@@ -626,19 +641,41 @@
       }
     }
     const foot = node("div", "", "workspace-limits-foot");
-    foot.append(node("small", data.updatedAt ? t("checked", { date: clockTime(data.updatedAt) }) : ""),
+    // Refresh beside the time of the reading asks the providers again.
+    const checked = node("span", "", "workspace-limits-checked");
+    const again = button("", () => void refreshLimitsNow(again), t("refresh"), "btn ghost workspace-limits-refresh");
+    again.append(icon("M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4"));
+    checked.append(node("small", data.updatedAt ? t("checked", { date: clockTime(data.updatedAt) }) : ""), again);
+    foot.append(checked,
       button(t("quotaSourcesLink"), () => { setLimitsOpen(false); openSettings("quota-sources"); }, t("quotaSourcesLink"), "workspace-limits-sources"));
     scroll.append(grid, foot);
     details.append(scroll);
     details.inert = true;
     return details;
   }
-  async function refreshUsage() {
+  // Allowances change while agents work. The Host keeps a reading for up to
+  // two minutes, which is also how often this asks; Refresh, here or in the
+  // limits panel, has the Host read the providers again.
+  let usageReadAt = 0;
+  async function refreshUsage({ fresh = false } = {}) {
     const target = host;
-    try { const data = await api("/api/workspace/usage", undefined, target); if (target !== host) return;
+    usageReadAt = Date.now();
+    try { const data = await api(fresh ? "/api/workspace/usage?fresh=1" : "/api/workspace/usage", undefined, target); if (target !== host) return;
       usage = data; usageHost = target;
       renderUsage(data);
     } catch { if (target === host) { usage = null; usageHost = null; renderUsage({ providers: [] }); } }
+  }
+  async function refreshLimitsNow(control) {
+    if (control.dataset.busy === "true") return;
+    const hadFocus = document.activeElement === control;
+    control.dataset.busy = "true"; control.setAttribute("aria-busy", "true");
+    try { await refreshUsage({ fresh: true }); }
+    finally {
+      // The panel is drawn again with the new reading; focus follows it.
+      const next = document.querySelector(".workspace-limits-refresh");
+      if (next && next !== control) { if (hadFocus) next.focus({ preventScroll: true }); }
+      else { delete control.dataset.busy; control.removeAttribute("aria-busy"); }
+    }
   }
   // A time in the person's own clock: the time alone today, the weekday within
   // a week either way, the date beyond that. No seconds.
@@ -993,14 +1030,15 @@
     if (event.target === modal && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) closeDialog();
   });
   $("workspace-add").onclick = () => addProject(); $("workspace-history").onclick = history;
-  // Refresh reloads the list and the allowances together. The Host caches
-  // provider readings, so repeated clicks do not reach the providers again.
+  // Refresh reloads the list and the allowances together. The allowances are
+  // read from the providers again; the Host answers repeated clicks within
+  // 15 seconds with the reading it just took.
   $("workspace-refresh").onclick = async () => {
     const control = $("workspace-refresh");
     if (control.dataset.busy === "true") return;
     control.dataset.busy = "true"; control.setAttribute("aria-busy", "true");
     const started = performance.now();
-    try { await Promise.all([refresh(), refreshUsage()]); }
+    try { await Promise.all([refresh(), refreshUsage({ fresh: true })]); }
     finally {
       // A fast Host still shows one visible turn, so the click reads as done.
       setTimeout(() => { delete control.dataset.busy; control.removeAttribute("aria-busy"); }, Math.max(0, 450 - (performance.now() - started)));
@@ -1029,10 +1067,12 @@
   });
   window.addEventListener("pagehide", () => { try { save(); } catch {} });
   window.addEventListener("pageshow", event => { if (event.persisted) location.reload(); });
-  document.addEventListener("visibilitychange", () => { if (document.hidden) return; if (booted) void refresh(); else retryBoot(); });
+  // Coming back to the Workspace (another app, a locked phone) shows current
+  // allowances, not the ones from before it was left.
+  document.addEventListener("visibilitychange", () => { if (document.hidden) return; if (booted) { void refresh(); if (Date.now() - usageReadAt > 60000) void refreshUsage(); } else retryBoot(); });
   window.addEventListener("online", () => { if (booted) void refresh(); else retryBoot(); });
   setInterval(() => { if (!document.hidden && host) void refresh(); }, 10000);
-  setInterval(() => { if (!document.hidden && host) void refreshUsage(); }, 300000);
+  setInterval(() => { if (!document.hidden && host) void refreshUsage(); }, 120000);
   // A Workspace opened while its host cannot be reached keeps trying, so it
   // connects by itself once the host answers instead of needing a reload.
   let booted = false, booting = false, bootTimer = 0, bootAttempt = 0;

@@ -28,3 +28,12 @@ test("malformed or excessive persisted layouts are rejected", () => {
   assert.throws(() => L.insert(tree, L.leaves(tree)[0].id, ref(), "bottom"), /8/);
   assert.throws(() => L.insert(tree, "missing", ref()), /no longer/);
 });
+
+test("a tab keeps its agent for the logo, and a tab saved without one still loads", () => {
+  const key = crypto.randomUUID();
+  assert.equal(L.reference({ host: "local", key, title: "T", agentId: "claude-code" }).agentId, "claude-code");
+  assert.equal("agentId" in L.reference({ host: "local", key, title: "T", agentId: "../../other" }), false);
+  assert.equal("agentId" in L.reference({ host: "local", key, title: "T" }), false);
+  let tree = L.pane(); tree = L.insert(tree, tree.id, { host: "local", key, title: "T", agentId: "codex" });
+  assert.equal(L.normalize(JSON.parse(JSON.stringify(tree))).tabs[0].agentId, "codex");
+});

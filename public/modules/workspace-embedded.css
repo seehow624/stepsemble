@@ -10,3 +10,10 @@
    title row sits a little lower, clear of iOS's blur at the top edge. */
 html.workspace-embedded{--safe-top:0px}
 html.workspace-embedded.workspace-mobile-pane #view-chat .chat-topbar{padding-top:6px;height:64px;min-height:64px}
+/* On a desktop the Workspace tab names the conversation and shows its agent,
+   so the pane has no title row: Changes and More float over its top-right
+   corner. A phone has no tabs and keeps the row, with Back. */
+html.workspace-embedded:not(.workspace-mobile-pane) #view-chat .chat-topbar{position:absolute;top:10px;right:14px;z-index:6;width:auto;height:auto;min-height:0;padding:0;gap:6px;background:none;border:0;pointer-events:none}
+html.workspace-embedded:not(.workspace-mobile-pane) #view-chat .chat-topbar>:not(#btn-changes):not(#btn-chat-menu){display:none!important}
+html.workspace-embedded:not(.workspace-mobile-pane) #view-chat .chat-topbar>.icon-btn{pointer-events:auto;width:36px;min-width:36px;height:36px;min-height:36px;border:.5px solid var(--line);border-radius:12px;background:color-mix(in srgb,var(--paper) 82%,transparent);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+html.workspace-embedded:not(.workspace-mobile-pane) #view-chat .chat-topbar>.icon-btn:hover{background:var(--bubble-user)}
