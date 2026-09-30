@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.8.23
+
+- Typing in the message box no longer moves the conversation above it. To find how tall the box should be, Stepsemble collapsed it for an instant with each change; at the end of a conversation the list followed, so every new line in the box pushed the conversation up by a line, most visibly on a phone. The conversation now stays where it is while the box grows or shrinks.
+- On an iPhone, the latest message is brought back into view when the keyboard comes up or goes down, and no longer each time iOS nudges the page while text is typed.
+- Checked in Chromium and WebKit at phone and desktop sizes, at the end of a long reply just received, typing five lines (60 keystrokes): the latest reply did not move. With the previous version, at phone size in Chromium, it moved up by one line with each new line, 72 pixels in all. The browser check that runs on every release now types four lines in that position and fails on the previous version; it also sends the viewport events iOS sends while typing and checks that the conversation stays put.
+
 ## 3.8.22
 
 - Workspace tabs are all one width, however long their titles, and each starts with its agent's logo. When many are open they narrow together before the strip scrolls. A tab opened before this version gets its logo once the session list names its agent.

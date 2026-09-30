@@ -1,7 +1,7 @@
-/* stepsemble v3.8.22 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.23 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.22";
+const CLIENT_APP_VERSION = "3.8.23";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -305,8 +305,13 @@ function saveActiveDraft() {
 }
 
 function resizeComposerInput() {
+  // Measuring collapses the box for an instant. A conversation scrolled to its
+  // end is pulled down by that and would not come back, so it jumped with each
+  // new line. It is put back where it was: typing never moves the conversation.
+  const list = el.messages, top = list ? list.scrollTop : 0;
   el.input.style.height = "auto";
   if (el.input.value) el.input.style.height = Math.min(el.input.scrollHeight, 120) + "px";
+  if (list && list.scrollTop !== top) list.scrollTop = top;
 }
 
 function beginDraftScope(scope) {
@@ -17786,10 +17791,16 @@ el.newStart.addEventListener("click", async () => {
 (() => {
   const vv = window.visualViewport;
   if (!vv) return;
+  // The keyboard coming up or going down brings the latest message back into
+  // view. iOS also nudges the visual viewport while text is typed or a line is
+  // added; that must not move the conversation.
+  let keyboardHeight = null;
   const apply = () => {
     const overlap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
     document.documentElement.style.setProperty("--kb", overlap + "px");
-    if (!el.viewChat.classList.contains("hidden")) scrollBottom();
+    const height = Math.round(vv.height), keyboardMoved = keyboardHeight === null || Math.abs(height - keyboardHeight) > 80;
+    keyboardHeight = height;
+    if (keyboardMoved && !el.viewChat.classList.contains("hidden")) scrollBottom();
   };
   vv.addEventListener("resize", apply);
   vv.addEventListener("scroll", apply);

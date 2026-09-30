@@ -190,6 +190,45 @@ export async function runConversationUxBrowserCases(browser) {
       await ui.locator("#btn-abort").click();
       out.picture = pictured.size;
 
+      stage = "Pi: typing does not move the conversation";
+      // At the end of a long reply that has just come in, as when answering it.
+      const typer = await newWorkspaceSession(page, { agentId: "pi", name: "UX Typing" });
+      await typer.waitForFunction(() => typeof rpc !== "undefined" && !!rpc?.es && rpc.streamReady === true);
+      await typer.locator("#input").fill("Synthetic streaming"); await typer.locator("#btn-send").click();
+      await typer.waitForFunction(() => (document.querySelector("#messages")?.textContent || "").includes("Synthetic rolling chunk 250"), null, { timeout: 30000 });
+      await typer.locator("#btn-abort").click();
+      await typer.waitForFunction(() => document.querySelector("#btn-abort")?.classList.contains("hidden"), null, { timeout: 10000 });
+      await typer.evaluate(() => { const list = document.querySelector("#messages"); list.scrollTop = list.scrollHeight; });
+      await typer.waitForTimeout(300);
+      // Where the latest reply sits on screen, and how tall the box is.
+      const place = () => typer.evaluate(() => { const list = document.querySelector("#messages");
+        return { anchor: Math.round([...list.querySelectorAll(".msg")].at(-1).getBoundingClientRect().top),
+          box: Math.round(document.querySelector("#input").getBoundingClientRect().height), end: Math.round(list.scrollHeight - list.scrollTop - list.clientHeight) }; });
+      const typing = { start: await place(), steps: [] };
+      await typer.locator("#input").click();
+      for (const line of ["first line of text", "second line", "third line", "fourth line"]) {
+        await typer.locator("#input").pressSequentially(line, { delay: 5 });
+        await typer.locator("#input").press("Shift+Enter");
+        typing.steps.push(await place());
+      }
+      assert(typing.steps.at(-1).box > typing.start.box, "the box grew: " + JSON.stringify(typing));
+      assert(typing.steps.every(step => Math.abs(step.anchor - typing.start.anchor) <= 1), "the conversation stayed where it was: " + JSON.stringify(typing));
+      // iOS nudges the visual viewport as lines are added; only the keyboard
+      // coming or going brings the latest message back.
+      const nudge = await typer.evaluate(async () => {
+        const list = document.querySelector("#messages");
+        list.scrollTop -= 40;
+        await new Promise(resolve => setTimeout(resolve, 60));
+        const before = list.scrollTop;
+        window.visualViewport?.dispatchEvent(new Event("scroll"));
+        window.visualViewport?.dispatchEvent(new Event("resize"));
+        await new Promise(resolve => setTimeout(resolve, 120));
+        return { before, after: list.scrollTop };
+      });
+      assert(Math.abs(nudge.after - nudge.before) <= 1, "a viewport nudge left the conversation alone: " + JSON.stringify(nudge));
+      await typer.locator("#input").fill("");
+      out.typing = { grew: typing.steps.at(-1).box - typing.start.box, moved: Math.max(...typing.steps.map(step => Math.abs(step.anchor - typing.start.anchor))) };
+
       stage = "Claude Code: working at once";
       ui = await newWorkspaceSession(page, { agentId: "claude-code", name: "UX Claude" });
       await ui.waitForFunction(connected, null, { timeout: 20000 });
@@ -228,7 +267,7 @@ export async function runConversationUxBrowserCases(browser) {
       } else {
         const tabs = await page.evaluate(() => [...document.querySelectorAll(".workspace-tab")].map(tab => ({
           width: Math.round(tab.getBoundingClientRect().width), agent: tab.querySelector(".agent-logo")?.dataset.agentId || null })));
-        assert.deepEqual(tabs.map(tab => tab.agent), ["pi", "claude-code", "hermes"], JSON.stringify(tabs));
+        assert.deepEqual(tabs.map(tab => tab.agent), ["pi", "pi", "claude-code", "hermes"], JSON.stringify(tabs));
         assert.equal(new Set(tabs.map(tab => tab.width)).size, 1, "every tab has one width: " + JSON.stringify(tabs));
         const pane = await ui.evaluate(() => {
           const shown = selector => { const node = document.querySelector(selector); return !!node && getComputedStyle(node).display !== "none" && node.getBoundingClientRect().width > 0; };
