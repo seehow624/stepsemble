@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.8.21
+
+- The first-run pages of Google Antigravity show in full in the sign-in terminal, with their buttons. Stepsemble told sign-in programs the terminal had 24 rows, and a full-screen program draws only that many: Antigravity's Terms of Service page stopped at its consent checkbox, and the Previous and Done buttons below it, with the hint for moving to them, were cut off. Enter on the checkbox only switches it, so the sign-in could not go on. The terminal now has 40 rows. The screen scrolls, and blank rows below a page are not shown, now also when a program parks its hidden cursor on the last row.
+- Checked with the real Antigravity CLI 1.2.14 on the Mac mini at phone width (49 columns), without accepting anything: at 24 rows its Terms page shows 23 lines with no Done button and no hint; at 40 rows it shows all 33 lines, down to Previous, Done and "↑/↓ Navigate · enter Toggle". A sign-in already on that page can finish with ↓, then →, then Enter.
+
 ## 3.8.20
 
 - Signing in to Google Antigravity from a conversation opens the whole Google sign-in page again. The sign-in sheet put a shortened copy of the link first, cut where Antigravity's own screen breaks the line, and Google refused it with "Required parameter is missing: response_type". Links are now read from the screen as Antigravity draws it, and a shortened copy of a link Antigravity also sent in full is left out. After signing in on a phone, paste the code the page shows into the sheet and press Enter; Antigravity finishes the sign-in on the Host.

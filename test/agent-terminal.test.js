@@ -100,3 +100,18 @@ test("an escape sequence split between writes is still understood", () => {
   screen.write("\\done");
   assert.equal(screen.textRows()[0], "   xyzdone");
 });
+
+test("a full-screen page in a taller terminal shows through its last line, without the blank rows below", () => {
+  // A first-run page like Antigravity's Terms: text, then its buttons last.
+  const screen = terminal.createScreen({ cols: 49, rows: 40 });
+  const page = ["Terms of Service & Data Use", ""];
+  for (let i = 0; i < 26; i++) page.push("line " + i);
+  page.push("", "    [Previous]      [Done]", "", "  \u2191/\u2193 Navigate \u00b7 enter Confirm");
+  screen.write("\x1b[?1049h\x1b[?25l\x1b[H" + page.join("\r\n") + "\x1b[40;1H");
+  const shown = screen.styledRows().map(runs => runs.map(run => run.text).join("").trimEnd());
+  assert.equal(shown.length, page.length);
+  assert.equal(shown.at(-3), "    [Previous]      [Done]");
+  // A visible cursor below the page keeps the rows down to where typing appears.
+  screen.write("\x1b[?25h\x1b[36;1H");
+  assert.equal(screen.styledRows().length, 36);
+});

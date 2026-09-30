@@ -1,7 +1,7 @@
-/* stepsemble v3.8.20 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.21 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.20";
+const CLIENT_APP_VERSION = "3.8.21";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -12329,6 +12329,12 @@ function agentTerminalLabel(agentId) {
 // Columns that fit the sheet, so sign-in commands wrap where the screen does.
 // The screen stays hidden until there is output, so it is shown for the
 // moment it takes to measure; the class comes back before the next paint.
+// Rows are not what the sheet shows: a full-screen program draws only as many
+// rows as it is told it has, and cuts off the rest of its page. Antigravity's
+// first-run Terms page needs 33 rows at phone width, and its buttons are the
+// last thing on it. The screen scrolls, and blank rows below the page are not
+// shown, so a taller terminal costs nothing.
+const AGENT_TERMINAL_ROWS = 40;
 function agentTerminalSize() {
   const screen = el.agentTerminalScreen;
   let charWidth = 7.2, width = 340;
@@ -12347,7 +12353,7 @@ function agentTerminalSize() {
     if (screen.clientWidth) width = screen.clientWidth - padding;
     if (hidden) screen.classList.add("hidden");
   }
-  return { cols: Math.max(40, Math.min(140, Math.floor(width / charWidth))), rows: 24 };
+  return { cols: Math.max(40, Math.min(140, Math.floor(width / charWidth))), rows: AGENT_TERMINAL_ROWS };
 }
 
 function agentTerminalWrite(term, text) {

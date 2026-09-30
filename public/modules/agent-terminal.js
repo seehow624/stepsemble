@@ -278,7 +278,9 @@
     function styledRows({ includeHistory = true } = {}) {
       const source = includeHistory && lines === primary ? history.concat(lines) : lines;
       let last = source.length - 1;
-      const cursorRow = (includeHistory && lines === primary ? history.length : 0) + cursor.y;
+      // Blank rows are kept down to a visible cursor, where typing appears. A
+      // hidden cursor is often parked on the last row of a taller screen.
+      const cursorRow = cursorVisible ? (includeHistory && lines === primary ? history.length : 0) + cursor.y : -1;
       while (last > cursorRow && source[last].every(cell => cell.ch === " " && !cell.attr.bg && !cell.attr.inverse)) last--;
       return source.slice(0, last + 1).map(row => {
         const runs = [];
