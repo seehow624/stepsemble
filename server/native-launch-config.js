@@ -1,8 +1,10 @@
 "use strict";
 
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const { applyBrowseRootDefaults } = require("./browse-roots");
 
 const NATIVE_FLAGS = ["STEPSEMBLE_CLAUDE_STRUCTURED", "STEPSEMBLE_CODEX_NATIVE", "STEPSEMBLE_CODEX_NATIVE_MUTATIONS"];
 
@@ -54,11 +56,18 @@ function parsePlist(input) {
   }));
 }
 
+function currentUsername() {
+  try { return os.userInfo().username; } catch { return process.env.USER || process.env.USERNAME || ""; }
+}
+
 // Installed launchers share defaults. Explicit values (including 0) win;
 // native version/approval gates still decide what the adapter can actually do.
-function applyNativeLaunchConfig(env, { home, platform = process.platform, uid = process.getuid?.(), decodePlist = parsePlist } = {}) {
+function applyNativeLaunchConfig(env, { home, platform = process.platform, uid = process.getuid?.(), decodePlist = parsePlist, username = currentUsername() } = {}) {
   for (const key of NATIVE_FLAGS) if (env[key] === undefined) env[key] = "1";
   ensureNativeRuntimePath(env, { platform });
+  // Linux and Windows services can browse other drives as well as HOME; an
+  // explicit STEPSEMBLE_BROWSE_ROOTS (or a legacy name) is kept as it is.
+  applyBrowseRootDefaults(env, { platform, home, username });
   if (platform !== "darwin" || !home || env.STEPSEMBLE_OPENCODE_SERVER_URL !== undefined || env.OPENCODE_SERVER_URL !== undefined) return;
 
   // Reuse the same existing launchd service that the Mini launcher supported.

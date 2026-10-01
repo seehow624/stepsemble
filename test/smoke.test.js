@@ -283,7 +283,8 @@ test("folder browsing is restricted to the user home unless roots are explicitly
   assert.match(server, /fs\.openSync\(TOKEN_FILE, "wx", 0o600\)/);
   assert.doesNotMatch(server, /\/api\/token/);
   assert.doesNotMatch(server, /\/api\/browse is unrestricted/);
-  assert.match(readme, /defaults to the user home; add `\/Volumes`/);
+  assert.match(readme, /A manually started server browses only\s+the home folder/);
+  assert.match(readme, /Setting `STEPSEMBLE_BROWSE_ROOTS` replaces these defaults/);
 });
 
 test("Sub Agent sessions stay hidden until History from other apps shows them", () => {
@@ -673,7 +674,7 @@ test("New project picker keeps outer controls reachable and bounds the nested fo
 test("project folder browsing can move from a home root to configured volumes", () => {
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
   const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
-  assert.match(server, /function browseRootEntries/);
+  assert.match(server, /async function browsePlaces/);
   assert.match(server, /const isRootPicker = BROWSE_ROOTS\.length > 0/);
   assert.match(server, /isConfiguredBrowseRoot\(dir\) \? filesystemRoot/);
   assert.match(server, /browse\s+roots/);

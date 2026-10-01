@@ -16,6 +16,21 @@ test("old updater launch commands also receive defaults without enabling develop
   assert.match(fs.readFileSync(path.join(root, "server.js"), "utf8"), /if \(isInstalledRuntime\(__dirname, os\.homedir\(\)\)\) applyNativeLaunchConfig/);
 });
 
+test("installed Linux and Windows services browse other drives unless roots are already set", () => {
+  const linux = { PATH: "/usr/bin" };
+  applyNativeLaunchConfig(linux, { home: "/home/jo", platform: "linux", username: "jo" });
+  assert.equal(linux.STEPSEMBLE_BROWSE_ROOTS, "/home/jo,/media,/mnt,/run/media/jo");
+  const windows = { Path: "C:\\Windows" };
+  applyNativeLaunchConfig(windows, { home: "C:\\Users\\jo", platform: "win32", username: "jo" });
+  assert.equal(windows.STEPSEMBLE_BROWSE_ROOTS, "C:\\Users\\jo,*:\\");
+  const legacy = { PATH: "/usr/bin", PI_WEB_BROWSE_ROOTS: "/srv/code" };
+  applyNativeLaunchConfig(legacy, { home: "/home/jo", platform: "linux", username: "jo" });
+  assert.equal(legacy.STEPSEMBLE_BROWSE_ROOTS, undefined, "an older name for the setting is still honoured");
+  const mac = { PATH: "/usr/bin", STEPSEMBLE_OPENCODE_SERVER_URL: "" };
+  applyNativeLaunchConfig(mac, { home: "/Users/jo", platform: "darwin", username: "jo" });
+  assert.equal(mac.STEPSEMBLE_BROWSE_ROOTS, undefined, "macOS launchers set their own roots");
+});
+
 test("installed service preload enables native connectors and preserves explicit opt-outs", () => {
   const env = { ...process.env, STEPSEMBLE_OPENCODE_SERVER_URL: "" };
   for (const key of ["STEPSEMBLE_CLAUDE_STRUCTURED", "STEPSEMBLE_CODEX_NATIVE", "STEPSEMBLE_CODEX_NATIVE_MUTATIONS"]) delete env[key];

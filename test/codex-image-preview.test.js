@@ -71,3 +71,14 @@ test("Codex image handles fail closed when the file changes or escapes through a
   assert.equal(registry.register(image, "oversized"), null);
   assert.equal(imageMime(Buffer.from("not an image")), null);
 });
+
+test("an image follows the Host's folder rule, and a filesystem root contains its images", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-image-rule-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const image = path.join(root, "rule.png");
+  fs.writeFileSync(image, png());
+  const real = fs.realpathSync.native(image);
+  assert.ok(createCodexImagePreviewRegistry({ roots: [], isAllowed: candidate => candidate === real }).register(image, "rule"));
+  assert.equal(createCodexImagePreviewRegistry({ roots: [root], isAllowed: () => false }).register(image, "rule"), null, "the rule decides, not the roots");
+  assert.ok(createCodexImagePreviewRegistry({ roots: [path.parse(real).root] }).register(image, "rule"), "a root such as / or C:\\ contains the image");
+});

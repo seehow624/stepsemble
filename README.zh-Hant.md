@@ -44,6 +44,17 @@ powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
 
 Linux 與 Windows 都需要 Node.js 22.19 以上；服務預設只監聽本機回環位址。
 
+Linux 安裝程式會為你的帳號開啟一次 systemd linger，登出後 Stepsemble 仍會繼續運行，
+手機也連得上。不想要可以加上 `--no-linger`；之後用 `loginctl disable-linger` 關掉，
+也會維持關閉。Windows 如果開啟了「受控制資料夾存取」，安裝程式會說明如何允許 Node.js；
+允許之前，Agent 無法修改文件、桌面等受保護資料夾裡的檔案。
+
+「Add project」可以瀏覽的位置：macOS 是家目錄與 `/Volumes`；Linux 另外包含 `/media`、
+`/mnt` 與 `/run/media/<使用者>`；Windows 是所有磁碟機。設定 `STEPSEMBLE_BROWSE_ROOTS`
+會取代這些預設值。macOS 上的文件、桌面、下載項目、iCloud 雲碟與外接磁碟，還需要 macOS
+允許執行 Stepsemble 的 Node.js；資料夾被擋下時，「Add project」會顯示那個 Node.js，
+並可在那台 Mac 上打開「完整磁碟取用權限」。
+
 ## 從舊版本升級
 
 v3 把改名視為「只增加、不破壞」的遷移：只有在 Stepsemble 對應檔案不存在時，

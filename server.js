@@ -35,6 +35,9 @@ const { createAgentModeStore } = require("./server/agent-mode-store");
 const { createAgentChoiceStore } = require("./server/agent-choice-store");
 const { createPiChoice } = require("./server/pi-choice");
 const { createProjectFolder } = require("./server/project-folders");
+const {
+  parseBrowseRoots, isWithin, onAnyDrive, driveRootLabel, createDriveProbe, createFolderReader, folderReadFailure,
+} = require("./server/browse-roots");
 const { createAgentModeRoutes, codexTurnPermissions, modeOption } = require("./server/agent-mode-routes");
 const { applyNativeLaunchConfig, isInstalledRuntime } = require("./server/native-launch-config");
 const { createCodexNativePool } = require("./server/codex-native-pool");
@@ -108,7 +111,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.24";
+const APP_VERSION = "3.8.25";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -244,13 +247,19 @@ const MAX_SESSION_FILE_BYTES = 128 * 1024 * 1024;
 // 歷史訊息只傳常見、可安全內嵌的圖片格式；避免一次讀取 session 時把任意大型附件灌進瀏覽器。
 const MAX_WIRE_IMAGE_DATA_LENGTH = 8 * 1024 * 1024;
 const SAFE_IMAGE_MIME = /^image\/(?:jpeg|png|webp|gif)$/i;
-const BROWSE_ROOTS_FROM_ENV = String(settingFromEnv("BROWSE_ROOTS") || "")
-  .split(",").map((value) => expandHome(value.trim())).filter((value) => value && path.isAbsolute(value));
+const BROWSE_CONFIG = parseBrowseRoots(settingFromEnv("BROWSE_ROOTS"), { platform: process.platform, expandHome });
+const BROWSE_ROOTS_FROM_ENV = BROWSE_CONFIG.roots;
+// "*:\" on Windows: every drive letter, and the network share a mapped drive
+// leads to. Installed Windows services browse this way; see browse-roots.js.
+const BROWSE_ALL_DRIVES = BROWSE_CONFIG.allDrives;
 // Folder browsing is deliberately deny-by-default.  A manually started Pi
 // Web may browse the configured user home, while launchers can explicitly add
 // shared volumes (for example `/Volumes`) through STEPSEMBLE_BROWSE_ROOTS.
 const BROWSE_ROOTS = BROWSE_ROOTS_FROM_ENV.length ? BROWSE_ROOTS_FROM_ENV : [APP_HOME];
-const codexImagePreviews = createCodexImagePreviewRegistry({ roots: BROWSE_ROOTS });
+const browseDrives = createDriveProbe();
+const browseFolders = createFolderReader();
+const codexImagePreviews = createCodexImagePreviewRegistry({ roots: BROWSE_ROOTS, isAllowed: real => isRealBrowseAllowed(real) });
+const FULL_DISK_ACCESS_SETTINGS = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles";
 
 function exposeCodexImagePreviews(result) {
   if (!result || !Array.isArray(result.data)) return result;
@@ -355,6 +364,10 @@ function realBrowsePath(value) {
   try { return fs.realpathSync.native(value); } catch { return null; }
 }
 
+function realBrowsePathAsync(value) {
+  return new Promise((resolve, reject) => fs.realpath.native(value, (error, real) => (error ? reject(error) : resolve(real))));
+}
+
 function isConfiguredBrowseRoot(dir) {
   if (!BROWSE_ROOTS.length) return false;
   const realDir = realBrowsePath(dir);
@@ -362,27 +375,35 @@ function isConfiguredBrowseRoot(dir) {
   return BROWSE_ROOTS.some((root) => realDir === realBrowsePath(root));
 }
 
-function browseRootEntries() {
+// The places above every browse root: each configured root and, with "*:\"
+// on Windows, each drive that answers.
+async function browsePlaces() {
   const entries = new Map();
+  const add = (real, name) => { if (!entries.has(real)) entries.set(real, { name, path: real, isDir: true }); };
+  if (BROWSE_ALL_DRIVES) for (const root of await browseDrives()) add(root, driveRootLabel(root));
   for (const root of BROWSE_ROOTS) {
     const realRoot = realBrowsePath(root);
     let stat;
     try { stat = realRoot ? fs.statSync(realRoot) : null; } catch { stat = null; }
     if (!realRoot || !stat?.isDirectory()) continue;
-    const label = realRoot.replace(/^\/+/, "").replaceAll(path.sep, " / ") || realRoot;
-    entries.set(realRoot, { name: label, path: realRoot, isDir: true });
+    const label = process.platform === "win32" ? driveRootLabel(realRoot)
+      : realRoot.replace(/^\/+/, "").replaceAll(path.sep, " / ") || realRoot;
+    add(realRoot, label);
   }
   return [...entries.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// `real` is already canonical (realpath). A root that ends with a separator,
+// such as "C:\" or "/", contains every path below it.
+function isRealBrowseAllowed(real) {
+  if (!real) return false;
+  if (BROWSE_ALL_DRIVES && onAnyDrive(real)) return true;
+  return BROWSE_ROOTS.some((root) => isWithin(real, realBrowsePath(root)));
+}
+
 function isBrowseAllowed(dir) {
   if (!BROWSE_ROOTS.length) return true;
-  const real = realBrowsePath(dir);
-  if (!real) return false;
-  return BROWSE_ROOTS.some((root) => {
-    const realRoot = realBrowsePath(root);
-    return !!realRoot && (real === realRoot || real.startsWith(realRoot + path.sep));
-  });
+  return isRealBrowseAllowed(realBrowsePath(dir));
 }
 
 function defaultBrowseDirectory() {
@@ -7596,9 +7617,34 @@ const server = http.createServer(async (req, res) => {
       // existing entry.
       if (p === "/api/browse/folder" && req.method === "POST") {
         const body = await readJSON(req, 8192);
+        // macOS may still be asking whether this folder may be opened; making
+        // a folder in it now would hold the Host until someone answers.
+        if (typeof body?.parent === "string" && browseFolders.isPending(body.parent)) {
+          sendJSON(res, 503, { error: "folder_waiting", code: "folder_waiting", platform: process.platform });
+          return;
+        }
         const result = createProjectFolder({ parent: body?.parent, name: body?.name, isAllowed: isBrowseAllowed });
         if (result.kind === "created") sendJSON(res, 201, { path: result.path });
-        else sendJSON(res, result.status, { error: result.code });
+        else sendJSON(res, result.status, {
+          error: result.code, code: result.code,
+          // The Add project dialog explains a refusal by the system: macOS
+          // privacy protection (EPERM) or Windows Controlled folder access.
+          ...(result.code === "not_writable" ? { reason: result.reason, platform: process.platform, runtime: process.execPath } : {}),
+        });
+        return;
+      }
+      // Opens Privacy & Security → Full Disk Access on this Mac and shows the
+      // Node.js that runs the Host in Finder, ready to drag into the list.
+      if (p === "/api/host/privacy-settings" && req.method === "POST") {
+        if (process.platform !== "darwin") { sendJSON(res, 404, { error: "not available on this Host", code: "not_supported" }); return; }
+        try {
+          await new Promise((resolve, reject) => execFile("/usr/bin/open", [FULL_DISK_ACCESS_SETTINGS], { timeout: 10_000 }, error => (error ? reject(error) : resolve())));
+        } catch {
+          sendJSON(res, 500, { error: "Could not open System Settings", code: "open_failed" });
+          return;
+        }
+        execFile("/usr/bin/open", ["-R", process.execPath], { timeout: 10_000 }, () => {});
+        sendJSON(res, 200, { opened: true, runtime: process.execPath });
         return;
       }
       if (p === "/api/browse" && req.method === "GET") {
@@ -7607,42 +7653,57 @@ const server = http.createServer(async (req, res) => {
         // only paths stay equivalent so a first render never sends a relative value.
         const requestedPath = url.searchParams.get("path");
         let dir = typeof requestedPath === "string" ? requestedPath.trim() : "";
+        // On Windows "/" lists the places: the allowed roots and, with "*:\",
+        // each drive. It is the parent of every drive and network share.
+        if (process.platform === "win32" && (dir === "/" || dir === "\\")) {
+          sendJSON(res, 200, { path: "/", parent: "/", entries: await browsePlaces(), selectable: false, platform: process.platform });
+          return;
+        }
         if (!dir) {
           dir = defaultBrowseDirectory();
           if (!dir) { sendJSON(res, 403, { error: "no allowed browse root is available" }); return; }
         }
         else if (dir === "~" || dir.startsWith("~/") || dir.startsWith("~\\")) dir = path.join(APP_HOME, dir.slice(1));
         if (!path.isAbsolute(dir)) { sendJSON(res, 400, { error: "absolute path required" }); return; }
-        try { dir = fs.realpathSync.native(dir); } catch (e) {
-          sendJSON(res, 400, { error: e.message });
+        try { dir = await realBrowsePathAsync(dir); } catch (e) {
+          const failure = folderReadFailure(e);
+          sendJSON(res, failure.status, failure.body);
           return;
         }
         const filesystemRoot = path.parse(dir).root;
-        const isRootPicker = BROWSE_ROOTS.length > 0 && dir === filesystemRoot;
-        const selectable = isBrowseAllowed(dir);
+        const selectable = !BROWSE_ROOTS.length || isRealBrowseAllowed(dir);
+        // A filesystem root that is itself allowed ("C:\" with "*:\") lists its
+        // own folders; otherwise it only bridges to the allowed places.
+        const isRootPicker = BROWSE_ROOTS.length > 0 && dir === filesystemRoot && !selectable;
         if (!selectable && !isRootPicker) { sendJSON(res, 403, { error: "path is outside browse roots" }); return; }
         let entries;
         if (isRootPicker) {
           // The filesystem root is a narrow bridge: expose only configured
           // browse roots, so users can reach /Volumes without exposing every
           // directory on the machine.
-          entries = browseRootEntries();
+          entries = await browsePlaces();
         } else {
           try {
-            entries = fs.readdirSync(dir, { withFileTypes: true });
+            // Never read synchronously: a folder macOS is asking about would
+            // stop every conversation on the Host until the dialog is answered.
+            entries = await browseFolders.read(dir);
           } catch (e) {
-            sendJSON(res, 400, { error: e.message });
+            const failure = folderReadFailure(e);
+            sendJSON(res, failure.status, failure.body);
             return;
           }
+          // Windows keeps its own folders at the top of a drive ($Recycle.Bin,
+          // System Volume Information); Explorer hides them, and so does this.
+          const systemFolder = process.platform === "win32" ? /^(?:\$|System Volume Information$)/i : null;
           entries = entries
-            .filter((ent) => !ent.name.startsWith(".") && ent.isDirectory())
+            .filter((ent) => !ent.name.startsWith(".") && ent.isDirectory() && !systemFolder?.test(ent.name))
             .map((ent) => ({ name: ent.name, path: path.join(dir, ent.name), isDir: true }));
         }
         entries.sort((a, b) => a.name.localeCompare(b.name));
         const parent = dir === filesystemRoot
-          ? dir
+          ? (process.platform === "win32" ? "/" : dir)
           : (isConfiguredBrowseRoot(dir) ? filesystemRoot : path.dirname(dir));
-        sendJSON(res, 200, { path: dir, parent, entries, selectable });
+        sendJSON(res, 200, { path: dir, parent, entries, selectable, platform: process.platform });
         return;
       }
 

@@ -76,6 +76,11 @@ requires Node.js 22.19 or newer:
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/seehow624/stepsemble/master/install-linux.sh)"
 ```
 
+The Linux installer also turns on systemd linger for your user, once, so
+Stepsemble keeps running after you log out and stays reachable from a phone.
+Pass `--no-linger` to leave it off; if you turn it off later with
+`loginctl disable-linger`, it stays off.
+
 Windows uses a per-user Scheduled Task (no administrator prompt) and requires
 Node.js 22.19 or newer plus the built-in `tar.exe`:
 
@@ -88,6 +93,10 @@ The scripts keep the same token location (`~/.config/stepsemble/token`, or
 `$HOME\.config\stepsemble\token` on Windows) and bind the server to loopback.
 Put Tailscale Serve or another authenticated HTTPS gateway in front of it for
 remote access.
+
+If Windows Controlled folder access is on, the installer shows how to allow
+Node.js. Until it is allowed, agents cannot change files in Documents, Desktop
+and other protected folders.
 
 Stepsemble binds to `127.0.0.1:3140` by default. The first launch opens a short
 setup guide for sign-in, devices, providers, projects, and remote access.
@@ -353,8 +362,17 @@ Useful server environment variables are `STEPSEMBLE_PORT`, `STEPSEMBLE_HOST`,
 `STEPSEMBLE_TOKEN_FILE`, `PI_HOME`, `PI_BIN`, and
 `STEPSEMBLE_BROWSE_ROOTS`. A custom `STEPSEMBLE_TOKEN_FILE` must be a local file
 with mode `600`; it replaces the default token path (the installer also carries
-this setting into the generated services). Folder browsing defaults to the user home; add `/Volumes`
-to `STEPSEMBLE_BROWSE_ROOTS` when external drives should be available. See the generic templates in [`deploy/`](deploy/)
+this setting into the generated services).
+
+Add project can browse the home folder and `/Volumes` on macOS; the home
+folder, `/media`, `/mnt` and `/run/media/<user>` on Linux; and every drive on
+Windows (`*:\` in `STEPSEMBLE_BROWSE_ROOTS`). A manually started server browses only
+the home folder. Setting `STEPSEMBLE_BROWSE_ROOTS` replaces these defaults. On
+macOS, Documents, Desktop, Downloads, iCloud Drive and external drives also need
+macOS permission for the Node.js that runs Stepsemble; when a folder is refused,
+Add project shows that Node.js and opens Full Disk Access on that Mac.
+
+See the generic templates in [`deploy/`](deploy/)
 for advanced launchd setups.
 
 ## Development

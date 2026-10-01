@@ -96,6 +96,16 @@ function Test-RegularFile([string]$Path) {
   $item = Get-Item -LiteralPath $Path -Force
   return (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0)
 }
+# Controlled folder access (Windows ransomware protection) stops programs it
+# does not trust from changing Documents, Desktop and other protected folders.
+# Reading still works, so agents fail only when they write there. Allowing a
+# program needs an administrator, so the installer says how instead.
+function Show-ControlledFolderAccessNote([string]$NodePath) {
+  try { $state = (Get-MpPreference -ErrorAction Stop).EnableControlledFolderAccess } catch { return }
+  if ($state -ne 1) { return }
+  Write-Output "Controlled folder access is on. Agents cannot change files in Documents, Desktop or other protected folders until Node.js is allowed:"
+  Write-Output "  Windows Security > Virus & threat protection > Ransomware protection > Allow an app through Controlled folder access > Add an allowed app: $NodePath"
+}
 function Copy-LegacyPrivateState {
   New-Item -ItemType Directory -Force -Path $configDir | Out-Null
   $privateFiles = @("token", "tokens.json", "onboarding.json", "device-trust.json", "updater.json", "update-state.json", "push.json", "push-subscriptions.json", "provider-cookies.json", "agent-tasks.json")
@@ -316,6 +326,7 @@ try {
   Write-Output "Stepsemble $latest is installed."
   Write-Output "Token: $tokenFile"
   Write-Output "Service: Get-ScheduledTask -TaskName '$taskName'"
+  Show-ControlledFolderAccessNote $node
 } finally {
   if (Test-Path $temporary) { Remove-Item -Recurse -Force $temporary }
 }

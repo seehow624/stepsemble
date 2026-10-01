@@ -25,11 +25,16 @@ function imageMime(buffer) {
 }
 
 function contained(root, filename) {
-  return filename === root || filename.startsWith(root + path.sep);
+  if (filename === root) return true;
+  // A root such as "C:\" or "/" already ends with a separator.
+  return filename.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
 }
 
 function createCodexImagePreviewRegistry({
   roots = [],
+  // Optional (realPath) => boolean. When given it decides instead of roots,
+  // so an image follows the same rule as folder browsing.
+  isAllowed = null,
   ttlMs = DEFAULT_TTL_MS,
   maxEntries = DEFAULT_MAX_ENTRIES,
   maxBytes = DEFAULT_MAX_BYTES,
@@ -61,7 +66,7 @@ function createCodexImagePreviewRegistry({
       || /[\u0000-\u001f\u007f]/.test(filename)) return null;
     let real;
     try { real = fs.realpathSync.native(filename); } catch { return null; }
-    if (!configuredRoots.some(root => contained(root, real))) return null;
+    if (typeof isAllowed === "function" ? !isAllowed(real) : !configuredRoots.some(root => contained(root, real))) return null;
     let fd;
     try {
       fd = fs.openSync(real, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));

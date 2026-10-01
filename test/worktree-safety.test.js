@@ -6,6 +6,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const crypto = require("node:crypto");
 const { execFile } = require("node:child_process");
+const { isWithin, onAnyDrive } = require("../server/browse-roots");
 
 function normalizeSource(source) {
   return source.replace(/\r\n?/g, "\n");
@@ -34,9 +35,10 @@ function fixture(execute = execFile, options = {}) {
   assert.ok(end >= 0, "runWorktreeGit end marker");
   const appHome = options.appHome || path.resolve("synthetic-home");
   const context = vm.createContext({ execFile: execute, path, crypto,
-    APP_HOME: appHome, BROWSE_ROOTS: options.browseRoots || [appHome], projectDirectory: cwd => cwd,
+    APP_HOME: appHome, BROWSE_ROOTS: options.browseRoots || [appHome], BROWSE_ALL_DRIVES: false, isWithin, onAnyDrive,
+    projectDirectory: cwd => cwd,
     settingFromEnv: () => "git", fs: options.fs || fs });
-  for (const name of ["realBrowsePath", "isBrowseAllowed", "containedMissingPath"]) {
+  for (const name of ["realBrowsePath", "isRealBrowseAllowed", "isBrowseAllowed", "containedMissingPath"]) {
     vm.runInContext(functionSource(source, name), context);
   }
   vm.runInContext(source.slice(start, end), context);

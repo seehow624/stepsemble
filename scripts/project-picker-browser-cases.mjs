@@ -79,6 +79,39 @@ export async function runProjectPickerBrowserCases(browser) {
         await page.getByRole('button', { name: 'Child 000', exact: true }).click();
         await page.locator('.workspace-folder-empty', { hasText: 'No folders here' }).waitFor();
         assert.equal(await list.evaluate(e => e.scrollTop), 0);
+        stage = 'refused folder';
+        // A folder the Host refuses says why and what to do on that Host. The
+        // Host's answers are stood in for here; the Host side has its own tests.
+        const refusedPath = f.home + '/Folder 002', slowPath = f.home + '/Folder 003';
+        const refused = url => url.pathname === '/api/browse' && url.searchParams.get('path') === refusedPath;
+        const slow = url => url.pathname === '/api/browse' && url.searchParams.get('path') === slowPath;
+        const json = (status, body) => route => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+        const refuse = json(403, { error: 'EPERM: operation not permitted, scandir', code: 'folder_privacy', platform: 'darwin',
+          runtime: '/Users/someone/.local/share/stepsemble-runtime/node-v22.22.3-darwin-arm64/bin/node' });
+        const wait = json(503, { error: 'The folder did not answer in time', code: 'folder_waiting', platform: 'linux' });
+        let privacyRequests = 0;
+        const openSettings = route => { privacyRequests++; return json(200, { opened: true })(route); };
+        await page.route(refused, refuse);
+        await page.route(slow, wait);
+        await page.route('**/api/host/privacy-settings', openSettings);
+        const pathInput = page.locator('#workspace-folder-path'), problem = page.locator('.workspace-folder-problem');
+        await pathInput.fill(refusedPath); await pathInput.press('Enter');
+        await problem.getByText('macOS is not letting Stepsemble use this folder.', { exact: false }).waitFor();
+        assert.equal(await problem.locator('.workspace-folder-runtime').textContent(), '/Users/someone/.local/share/stepsemble-runtime/node-v22.22.3-darwin-arm64/bin/node');
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'a long Node.js path does not widen the page');
+        await problem.getByRole('button', { name: /^Open Full Disk Access on / }).click();
+        await page.locator('#workspace-toast').getByText('System Settings is open on', { exact: false }).waitFor();
+        assert.equal(privacyRequests, 1);
+        await page.unroute(refused, refuse);
+        await problem.getByRole('button', { name: 'Try again', exact: true }).click();
+        await page.locator('.workspace-folder-empty', { hasText: 'No folders here' }).waitFor();
+        assert.ok((await pathInput.inputValue()).endsWith('/Folder 002'), 'Try again opens the folder once the Host can read it');
+        await pathInput.fill(slowPath); await pathInput.press('Enter');
+        await problem.getByText('This folder did not respond in time', { exact: false }).waitFor();
+        assert.equal(await problem.getByRole('button', { name: /Full Disk Access/ }).count(), 0, 'only a Mac offers its privacy settings');
+        assert.equal(await problem.getByRole('button', { name: 'Try again', exact: true }).count(), 1);
+        await page.unroute(slow, wait);
+        await page.unroute('**/api/host/privacy-settings', openSettings);
         stage = 'typed path';
         await page.locator('#workspace-folder-path').fill(f.home + '/Folder 001');
         await page.locator('#workspace-folder-path').press('Enter');
@@ -94,7 +127,7 @@ export async function runProjectPickerBrowserCases(browser) {
         assert.equal(await rows(), 0, 'the dialog closed');
         assert.deepEqual(errors, []);
         console.log(JSON.stringify({ case: 'Workspace add project', viewport, folders: 200, nestedWheel: true,
-          keyboard: true, filter: true, resetAndEmpty: true, backForward: true, typedPath: true, initialWorkerPreservesDialog: true, pageErrors: 0, result: 'passed' }));
+          keyboard: true, filter: true, resetAndEmpty: true, refusedFolder: true, backForward: true, typedPath: true, initialWorkerPreservesDialog: true, pageErrors: 0, result: 'passed' }));
       } catch (error) {
         const geometry = await page.evaluate(() => Object.fromEntries(['.workspace-folder-list', '#workspace-dialog'].map(selector => {
           const e = document.querySelector(selector);

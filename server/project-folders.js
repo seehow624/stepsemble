@@ -36,7 +36,10 @@ function createProjectFolder({ parent, name, isAllowed }) {
   try { fs.mkdirSync(target, { mode: 0o755 }); }
   catch (error) {
     if (error?.code === "EEXIST") return { kind: "reject", status: 409, code: "exists" };
-    if (error?.code === "EACCES" || error?.code === "EPERM" || error?.code === "EROFS") return { kind: "reject", status: 403, code: "not_writable" };
+    // The reason tells the dialog whether the system refused (EPERM: macOS
+    // privacy protection, Windows Controlled folder access) or the folder is
+    // simply not writable.
+    if (error?.code === "EACCES" || error?.code === "EPERM" || error?.code === "EROFS") return { kind: "reject", status: 403, code: "not_writable", reason: error.code };
     return { kind: "reject", status: 500, code: "create_failed" };
   }
   let real = target;

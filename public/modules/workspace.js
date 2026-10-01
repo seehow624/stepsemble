@@ -130,7 +130,7 @@
     const prefix = target === self ? "" : `/r/${encodeURIComponent(target)}`;
     const res = await fetch(prefix + path, { credentials: "same-origin", cache: "no-store", ...(body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
     if (res.status === 401) throw new Error(t("expired"));
-    const data = await res.json(); if (!res.ok) throw Object.assign(new Error(data.error || t("loadFailed")), { status: res.status, ...(typeof data.code === "string" ? { code: data.code } : {}) }); return data;
+    const data = await res.json(); if (!res.ok) throw Object.assign(new Error(data.error || t("loadFailed")), { status: res.status, ...(typeof data.code === "string" ? { code: data.code } : {}), detail: data }); return data;
   }
   const hostName = value => machines.find(m => m.id === value)?.name || value;
   const refOf = entry => ({ host, key: entry.key, title: plainTitle(entry.record.name) || entry.record.agentId || "Session",
@@ -760,7 +760,42 @@
     const folderError = error => error?.status === 409 ? t("folderExists")
       : error?.message === "name_invalid" ? t("folderNameInvalid")
       : error?.status === 404 && error?.message === "not found" ? t("folderOldHost")
+      : error?.code === "folder_waiting" ? t(error.detail?.platform === "darwin" ? "folderWaitingMac" : "folderWaiting", { host: hostName(target) })
+      // The system refused rather than the folder: macOS privacy protection,
+      // or Windows Controlled folder access.
+      : error?.code === "not_writable" && error.detail?.platform === "darwin" && error.detail?.reason === "EPERM" ? t("folderPrivacy", { host: hostName(target) })
+      : error?.code === "not_writable" && error.detail?.platform === "win32" ? t("folderWindowsProtected", { runtime: error.detail.runtime || "node.exe" })
       : error?.status === 403 ? t("folderNotAllowed") : t("folderCreateFailed");
+    // A folder the Host could not read says why, and what to do on that Host:
+    // allow its Node.js on a Mac, answer a dialog there, or try again later.
+    function folderProblem(error, retry) {
+      const box = node("div", "", "workspace-folder-problem"), detail = error?.detail || {}, where = hostName(target);
+      const message = error?.code === "folder_privacy" ? t("folderPrivacy", { host: where })
+        : error?.code === "folder_waiting" ? t(detail.platform === "darwin" ? "folderWaitingMac" : "folderWaiting", { host: where })
+        : error?.code === "folder_permission" ? t("folderPermission")
+        : error?.message || t("loadFailed");
+      // Guidance reads as text; only an error the dialog cannot explain is red.
+      const known = ["folder_privacy", "folder_waiting", "folder_permission"].includes(error?.code);
+      box.append(node("p", message, known ? "workspace-folder-empty workspace-folder-guide" : "workspace-folder-empty workspace-folder-error"));
+      if (!known) return box;
+      const actions = node("div", "", "workspace-folder-problem-actions");
+      if (error.code === "folder_privacy") {
+        const openSettings = button(t("openPrivacySettings", { host: where }), async () => {
+          openSettings.disabled = true;
+          try { await api("/api/host/privacy-settings", {}, target); toast(t("privacySettingsOpened", { host: where })); }
+          catch (failure) { toast(failure.code === "open_failed" ? t("privacySettingsFailed", { host: where }) : failure.message); }
+          finally { openSettings.disabled = false; }
+        }, t("openPrivacySettings", { host: where }), "btn ghost workspace-folder-privacy");
+        actions.append(openSettings);
+      }
+      actions.append(button(t("tryAgain"), retry, t("tryAgain"), "btn ghost workspace-folder-retry"));
+      box.append(actions);
+      // The actions come first; the Node.js path is the detail below them.
+      if (error.code === "folder_privacy" && typeof detail.runtime === "string" && detail.runtime) {
+        box.append(node("p", t("folderRuntime", { host: where }), "workspace-folder-runtime-label"), node("code", detail.runtime, "workspace-folder-runtime"));
+      }
+      return box;
+    }
     function closeNewFolder() { creating?.remove(); creating = null; renderEntries(); newFolder.focus(); }
     function openNewFolder() {
       if (!current || current.selectable === false) return;
@@ -823,7 +858,7 @@
       } catch (error) {
         if (epoch !== dialogEpoch || request !== sequence) return;
         updateNavigation();
-        list.replaceChildren(node("p", error.message, "workspace-folder-empty workspace-folder-error"));
+        list.replaceChildren(folderProblem(error, () => void navigate(path, historyTarget)));
       }
     }
     void navigate();

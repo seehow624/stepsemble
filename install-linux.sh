@@ -19,10 +19,12 @@ readonly SERVICE_DIR="$HOME/.config/systemd/user"
 readonly SERVICE_NAME="stepsemble.service"
 readonly UPDATER_SERVICE_NAME="stepsemble-updater.service"
 readonly UPDATER_TIMER_NAME="stepsemble-updater.timer"
+readonly LINGER_CHOICE_FILE="$CONFIG_DIR/linger"
 
 REQUESTED_VERSION="${STEPSEMBLE_VERSION:-${PI_HARBOR_VERSION:-${PI_WEB_VERSION:-}}}"
 YES=0
 INSTALL_UPDATES=1
+KEEP_RUNNING=1
 SOURCE_DIR="${STEPSEMBLE_SOURCE_DIR:-${PI_HARBOR_SOURCE_DIR:-${PI_WEB_SOURCE_DIR:-}}}"
 
 say() { printf '%s\n' "$*"; }
@@ -36,6 +38,7 @@ Usage: ./install-linux.sh [options]
   --yes             Accept recommended choices
   --version TAG     Install an exact release tag, for example v2.13.0
   --no-updates      Do not install the hourly systemd update timer
+  --no-linger       Stop Stepsemble when you log out (no systemd linger)
   --source DIR      Install from a local checkout (development)
   --help            Show this help
 EOF
@@ -46,6 +49,7 @@ while (($#)); do
     --yes|-y) YES=1 ;;
     --version) (($# >= 2)) || die "--version needs a tag"; REQUESTED_VERSION="$2"; shift ;;
     --no-updates) INSTALL_UPDATES=0 ;;
+    --no-linger) KEEP_RUNNING=0 ;;
     --source) (($# >= 2)) || die "--source needs a directory"; SOURCE_DIR="$2"; shift ;;
     --help|-h) usage; exit 0 ;;
     *) die "unknown option: $1" ;;
@@ -316,6 +320,50 @@ archive_legacy_installation() {
   done
 }
 
+write_linger_choice() {
+  [[ ! -L "$LINGER_CHOICE_FILE" ]] || return 0
+  printf '%s\n' "$1" > "$LINGER_CHOICE_FILE" 2>/dev/null || true
+}
+
+# A user service stops when its user logs out, and a phone or another computer
+# can no longer reach Stepsemble. systemd "linger" keeps it running. It is
+# turned on once; --no-linger is remembered, and a linger turned off later by
+# hand stays off. Never fails the installation.
+keep_running_after_logout() {
+  local user_name state="" choice=""
+  user_name="$(id -un)"
+  if [[ -f "$LINGER_CHOICE_FILE" && ! -L "$LINGER_CHOICE_FILE" ]]; then
+    choice="$(head -n 1 "$LINGER_CHOICE_FILE" 2>/dev/null || true)"
+  fi
+  if ! command -v loginctl >/dev/null 2>&1; then
+    note "Stepsemble stops when you log out (loginctl is not available)."
+    return 0
+  fi
+  state="$(loginctl show-user "$user_name" --property=Linger --value 2>/dev/null || true)"
+  if (( ! KEEP_RUNNING )); then
+    write_linger_choice off
+    # Undo only a linger this installer turned on.
+    if [[ "$choice" == "on" && "$state" == "yes" ]] && loginctl disable-linger "$user_name" >/dev/null 2>&1; then state="no"; fi
+    if [[ "$state" == "yes" ]]; then
+      note "systemd linger stays on for $user_name, so Stepsemble keeps running after you log out. To change that: loginctl disable-linger $user_name"
+    else
+      note "Stepsemble stops when you log out (--no-linger)."
+    fi
+    return 0
+  fi
+  [[ "$state" != "yes" ]] || return 0
+  if [[ -n "$choice" ]]; then
+    note "Stepsemble stops when you log out. To keep it running: loginctl enable-linger $user_name"
+    return 0
+  fi
+  if loginctl enable-linger "$user_name" >/dev/null 2>&1; then
+    write_linger_choice on
+    note "Stepsemble keeps running after you log out (systemd linger is on)."
+  else
+    note "Stepsemble stops when you log out. To keep it running: sudo loginctl enable-linger $user_name"
+  fi
+}
+
 work_dir="$(mktemp -d /tmp/stepsemble-linux.XXXXXX)"
 rollback_armed=0
 release_activated=0
@@ -452,6 +500,7 @@ if (( systemd_ready )); then
   rollback_armed=0
   archive_legacy_installation
   systemctl --user daemon-reload >/dev/null 2>&1 || true
+  keep_running_after_logout
 else
   rollback_armed=0
   note "A systemd user session was not available; start Stepsemble with: $node_bin $INSTALL_DIR/server.js"

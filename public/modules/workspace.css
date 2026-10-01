@@ -525,6 +525,14 @@ dialog header .btn { min-width: 34px; min-height: 34px; padding: 0; border: 0; c
 .workspace-folder-chevron { width: 16px; height: 16px; flex: 0 0 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; color: var(--pine-soft); }
 #workspace-dialog-body .workspace-folder-empty { padding: 18px 14px; color: var(--pine-soft); font-size: .76rem; }
 #workspace-dialog-body .workspace-folder-error { color: var(--err); }
+/* A folder the Host could not read: why, the Node.js to allow, what to do. */
+#workspace-dialog-body .workspace-folder-problem .workspace-folder-empty { padding-bottom: 8px; line-height: 1.5; }
+#workspace-dialog-body .workspace-folder-guide { color: var(--ink); }
+#workspace-dialog-body .workspace-folder-runtime-label { margin: 0; padding: 0 14px 5px; color: var(--pine-soft); font-size: .7rem; }
+#workspace-dialog-body .workspace-folder-runtime { display: block; margin: 0 14px 14px; padding: 6px 9px; border-radius: 8px; background: var(--bubble-user); font-size: .7rem; line-height: 1.4; overflow-wrap: anywhere; user-select: all; }
+.workspace-folder-problem-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 14px 14px; }
+#workspace-dialog-body .workspace-folder-problem-actions .btn { min-height: 34px; padding: 0 12px; justify-content: center; background: var(--milk); font-size: .74rem; }
+#workspace-dialog-body .workspace-folder-problem-actions .btn:disabled { opacity: .45; cursor: default; }
 .workspace-folder-footer { display: flex; align-items: center; gap: 18px; margin-top: 16px; padding-top: 16px; border-top: .5px solid var(--line); }
 .workspace-folder-footer small { min-width: 0; flex: 1; font-size: .69rem; line-height: 1.4; }
 #workspace-dialog-body .workspace-folder-add { flex: 0 0 auto; min-height: 42px; padding: 0 17px; font-size: .77rem; text-align: center; }

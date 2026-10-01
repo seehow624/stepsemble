@@ -223,3 +223,94 @@ test("blank browse fails clearly when no configured root exists", async (t) => {
   assert.equal(response.status, 403);
   assert.match((await response.json()).error, /no allowed browse root is available/);
 });
+
+
+test("a folder the Host may not read or write says why, and the Host keeps answering", { skip: process.platform === "win32" || process.getuid?.() === 0 }, async (t) => {
+  const temp = await fs.promises.mkdtemp(path.join(os.tmpdir(), "stepsemble-refused-browse-"));
+  const home = path.join(temp, "home"), locked = path.join(home, "Locked"), readOnly = path.join(home, "ReadOnly");
+  await fs.promises.mkdir(locked, { recursive: true });
+  await fs.promises.mkdir(readOnly);
+  const host = await authenticatedBrowseHost(t, home, [home], temp);
+  await fs.promises.chmod(locked, 0o000);
+  await fs.promises.chmod(readOnly, 0o555);
+  try {
+    const refused = await host.browse(`?path=${encodeURIComponent(locked)}`);
+    assert.equal(refused.status, 403);
+    const body = await refused.json();
+    assert.equal(body.code, "folder_permission", "an ordinary permission, not a privacy setting");
+    assert.equal(body.platform, process.platform);
+    assert.equal(Object.prototype.hasOwnProperty.call(body, "runtime"), false);
+
+    const listing = await host.browse("");
+    assert.equal(listing.status, 200, "the Host still answers after a refused folder");
+    const listed = await listing.json();
+    assert.equal(listed.platform, process.platform);
+    assert.ok(listed.entries.some(entry => entry.name === "Locked"));
+
+    const made = await host.post("/api/browse/folder", { parent: await fs.promises.realpath(readOnly), name: "new" });
+    assert.equal(made.status, 403);
+    const madeBody = await made.json();
+    assert.equal(madeBody.error, "not_writable");
+    assert.equal(madeBody.code, "not_writable");
+    assert.equal(madeBody.reason, "EACCES");
+    assert.equal(madeBody.platform, process.platform);
+    assert.equal(madeBody.runtime, process.execPath);
+  } finally {
+    await fs.promises.chmod(locked, 0o755).catch(() => {});
+    await fs.promises.chmod(readOnly, 0o755).catch(() => {});
+  }
+});
+
+test("an allowed filesystem root lists its own folders", { skip: process.platform === "win32" }, async (t) => {
+  const temp = await fs.promises.mkdtemp(path.join(os.tmpdir(), "stepsemble-root-browse-"));
+  const home = path.join(temp, "home");
+  await fs.promises.mkdir(home);
+  const host = await authenticatedBrowseHost(t, home, [home, "/"], temp);
+  const response = await host.browse("?path=%2F");
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.selectable, true);
+  assert.equal(body.parent, "/");
+  const top = (await fs.promises.realpath(temp)).split(path.sep).filter(Boolean)[0];
+  assert.ok(body.entries.some(entry => entry.name === top), "the real top-level folders, not the list of roots");
+});
+
+test("on Windows every drive can be browsed, with the drives listed above them", { skip: process.platform !== "win32" }, async (t) => {
+  const temp = await fs.promises.mkdtemp(path.join(os.tmpdir(), "stepsemble-drives-"));
+  const home = path.join(temp, "home"), outside = path.join(temp, "outside");
+  await fs.promises.mkdir(home);
+  await fs.promises.mkdir(path.join(outside, "project"), { recursive: true });
+  const host = await authenticatedBrowseHost(t, home, [home, "*:\\"], temp);
+  const realHome = fs.realpathSync.native(home), realOutside = fs.realpathSync.native(outside);
+  const drive = path.parse(realOutside).root;
+
+  const opened = await host.browse(`?path=${encodeURIComponent(outside)}`);
+  assert.equal(opened.status, 200);
+  const openedBody = await opened.json();
+  assert.equal(openedBody.path, realOutside);
+  assert.equal(openedBody.selectable, true, "a folder outside HOME can be chosen");
+  assert.equal(openedBody.platform, "win32");
+  assert.ok(openedBody.entries.some(entry => entry.name === "project"));
+
+  const root = await host.browse(`?path=${encodeURIComponent(drive)}`);
+  assert.equal(root.status, 200);
+  const rootBody = await root.json();
+  assert.equal(rootBody.selectable, true, "the drive itself can be chosen");
+  assert.equal(rootBody.parent, "/", "a drive's parent is the list of places");
+  assert.ok(rootBody.entries.length > 0, "the drive lists its own folders");
+
+  for (const query of ["?path=%2F", "?path=%5C"]) {
+    const places = await host.browse(query);
+    assert.equal(places.status, 200);
+    const placesBody = await places.json();
+    assert.equal(placesBody.path, "/");
+    assert.equal(placesBody.selectable, false);
+    assert.ok(placesBody.entries.some(entry => entry.path.toUpperCase() === drive.toUpperCase() && entry.name === drive.slice(0, 2).toUpperCase()), JSON.stringify(placesBody.entries));
+    assert.ok(placesBody.entries.some(entry => entry.path === realHome), JSON.stringify(placesBody.entries));
+  }
+
+  const created = await host.post("/api/browse/folder", { parent: realOutside, name: "made-on-a-drive" });
+  assert.equal(created.status, 201);
+  const project = await host.post("/api/workspace/project", { cwd: realOutside });
+  assert.ok(project.status < 400, `a folder on a drive can be added: ${project.status}`);
+});
