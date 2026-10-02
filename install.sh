@@ -473,14 +473,14 @@ activate_release() {
   INSTALL_ACTIVATED=1
 }
 
-# Signs this release's app for this Mac and installs it in ~/Applications.
-# Without it (no app in the release, or signing failed) the Host starts
-# directly with Node.js, as before. The SSH launcher is left as it is.
+# Signs this release's app for this Mac and installs it in ~/Applications: it
+# is the Workspace window and, unless the SSH launcher starts the Host, the
+# Host's launcher. Without it (no app in the release, or signing failed) the
+# Host starts directly with Node.js, as before.
 prepare_macos_app() {
   local helper="$INSTALL_DIR/deploy/stepsemble-macos-app.sh" source_app="$INSTALL_DIR/macos/Stepsemble.app"
-  (( ! USE_SSH_LAUNCHER )) || return 0
   if [[ ! -f "$helper" || ! -d "$source_app" ]]; then
-    note "This release has no Stepsemble app; the Host starts directly with Node.js"
+    (( USE_SSH_LAUNCHER )) || note "This release has no Stepsemble app; the Host starts directly with Node.js"
     return 0
   fi
   # A rollback restores the previous release, so keep the helper that knows
@@ -490,9 +490,10 @@ prepare_macos_app() {
   say "Signing Stepsemble.app for this Mac…"
   if MACOS_APP_PATH="$(/bin/zsh "$MACOS_APP_HELPER" install "$source_app")"; then
     MACOS_APP_INSTALLED=1
-    USE_MACOS_APP=1
+    # The SSH launcher keeps starting the Host; the app is only its window.
+    (( USE_SSH_LAUNCHER )) || USE_MACOS_APP=1
   else
-    note "Could not set up Stepsemble.app; the Host starts directly with Node.js"
+    note "Could not set up Stepsemble.app"
   fi
 }
 
@@ -666,7 +667,7 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 
 say ""
-say "Stepsemble 3.8.26 installer"
+say "Stepsemble 3.8.27 installer"
 say "────────────────────────"
 
 NODE_BIN="$(find_node || true)"
@@ -735,14 +736,15 @@ else
 fi
 note "For another device, retrieve the token securely from this computer; never share it in chat, screenshots, repositories, or logs."
 note "Remove later: $BIN_DIR/uninstall.sh"
-if (( USE_MACOS_APP )); then
-  note "Stepsemble.app ($MACOS_APP_PATH) starts the Host, so macOS asks about folder access for Stepsemble."
+if (( MACOS_APP_INSTALLED )); then
+  note "Open Stepsemble.app ($MACOS_APP_PATH) to use Stepsemble on this Mac; it signs in by itself."
+  (( ! USE_MACOS_APP )) || note "It also starts the Host, so macOS asks about folder access for Stepsemble."
   # Only on this user's own screen: an installer run over SSH must not open
   # a window for someone else.
   if [[ "$(/usr/bin/stat -f %Su /dev/console 2>/dev/null)" == "$USER" ]] && /usr/bin/open "$MACOS_APP_PATH" >/dev/null 2>&1; then
-    note "In the Stepsemble window, choose Allow access and answer macOS for each place."
-  else
-    note "Open Stepsemble.app on this Mac and choose Allow access so projects in Documents, Desktop and other drives can open."
+    (( ! USE_MACOS_APP )) || note "In its Folder Access window, choose Allow access and answer macOS for each place."
+  elif (( USE_MACOS_APP )); then
+    note "On this Mac, open Stepsemble.app and choose Allow access so projects in Documents, Desktop and other drives can open."
   fi
 fi
 if command -v tailscale >/dev/null 2>&1 || [[ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]]; then

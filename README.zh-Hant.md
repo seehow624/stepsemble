@@ -29,10 +29,12 @@ Stepsemble 會讀取 Claude Code 與 Codex 已存在這台電腦上的對話記�
 launchd 服務與自動更新。若沒有 Pi Agent，會先詢問是否透過 Pi 官方安裝程式加入；
 選擇略過也能正常使用其他已安裝的 agent connector。
 
-安裝程式會用這台 Mac 自己產生的憑證簽章 Stepsemble.app，放進 `~/Applications`，
-由它啟動 Stepsemble。macOS 因此只會針對 Stepsemble 詢問一次能否使用文件、桌面、
-下載項目、iCloud 雲碟和其他磁碟，之後 Stepsemble 或 Node.js 更新都不必重新允許。
-安裝完成時會打開 Stepsemble 視窗：按「允許取用」，再逐一回應 macOS 的詢問。
+安裝程式會用這台 Mac 自己產生的憑證簽章 Stepsemble.app，放進 `~/Applications`。
+在這台 Mac 上打開它就是 Workspace，會自動登入，也有 Mac 的選單、視窗和快捷鍵；
+手機和其他電腦照樣用瀏覽器。App 也負責啟動 Stepsemble，所以 macOS 只會針對
+Stepsemble 詢問一次能否使用文件、桌面、下載項目、iCloud 雲碟和其他磁碟，之後
+Stepsemble 或 Node.js 更新都不必重新允許。安裝完成時會打開 App 和「資料夾取用
+權限」視窗：按「允許取用」，再逐一回應 macOS 的詢問。
 
 Linux 可改用 `install-linux.sh`，會建立使用者層級的 systemd 服務與每小時更新計時器：
 
@@ -57,11 +59,13 @@ Linux 安裝程式會為你的帳號開啟一次 systemd linger，登出後 Step
 「Add project」可以瀏覽的位置：macOS 是家目錄與 `/Volumes`；Linux 另外包含 `/media`、
 `/mnt` 與 `/run/media/<使用者>`；Windows 是所有磁碟機。設定 `STEPSEMBLE_BROWSE_ROOTS`
 會取代這些預設值。macOS 上的文件、桌面、下載項目、iCloud 雲碟與外接磁碟，需要 macOS
-允許 Stepsemble 使用；資料夾被擋下時，「Add project」會在那台 Mac 上打開 Stepsemble
-視窗，以前拒絕過的位置可以在同一個視窗打開「完整磁碟取用權限」。3.8.26 以前安裝的
-主機更新後，會在沒有 Agent 工作時的第一次更新檢查改由 App 啟動。透過 SSH 啟動
-（`stepsemble-mini-start.sh`）或沒有 App 的主機，仍需要允許執行 Stepsemble 的
-Node.js；這時「Add project」會顯示那個 Node.js，並可打開「完整磁碟取用權限」。
+允許 Stepsemble 使用；資料夾被擋下時，「Add project」會在那台 Mac 上打開「資料夾
+取用權限」視窗（也在 Stepsemble 選單裡），以前拒絕過的位置可以在同一個視窗打開
+「完整磁碟取用權限」。3.8.26 以前安裝的主機更新後，會在沒有 Agent 工作時的第一次
+更新檢查改由 App 啟動。透過 SSH 啟動（`stepsemble-mini-start.sh`）的主機維持原本
+的啟動方式，App 只當它的視窗；這種主機或沒有 App 的主機，仍需要允許執行
+Stepsemble 的 Node.js，這時「Add project」會顯示那個 Node.js，並可打開「完整磁碟
+取用權限」。
 
 ## 從舊版本升級
 

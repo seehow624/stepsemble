@@ -56,9 +56,11 @@ The installer:
 - downloads the latest GitHub Release and verifies its SHA-256 checksum;
 - creates a local Web token at `~/.config/stepsemble/token`, a launchd service, and an hourly stable-release updater;
 - signs Stepsemble.app for this Mac and installs it in `~/Applications`. The app
-  starts the Host, so macOS asks once whether Stepsemble may use Documents,
-  Desktop, Downloads, iCloud Drive and other drives, and keeps the answer
-  through Stepsemble and Node.js updates;
+  is the Workspace on this Mac: open it and it signs in by itself, with the
+  usual Mac menus, windows and shortcuts. It also starts the Host, so macOS
+  asks once whether Stepsemble may use Documents, Desktop, Downloads, iCloud
+  Drive and other drives, and keeps the answer through Stepsemble and Node.js
+  updates. Phones and other computers keep using the browser;
 - migrates earlier installations without changing native agent
   sessions, project files, provider credentials, approvals, or the existing
   Web token.
@@ -380,14 +382,15 @@ macOS, Documents, Desktop, Downloads, iCloud Drive and external drives also need
 macOS permission for Stepsemble. The installer signs Stepsemble.app with a
 certificate made on that Mac and kept in `~/Library/Application Support/Stepsemble`,
 and starts the Host through the app, so macOS asks about Stepsemble rather than
-about one Node.js. The app opens when the installer finishes: choose Allow
-access, then answer macOS for each place. When a folder is refused later, Add
-project opens the app on that Mac; its Full Disk Access button covers a place
-turned down before. An installation from before 3.8.26 moves to the app at the
-first update check after it updates, once no agent is working. A Host started
-over SSH (`stepsemble-mini-start.sh`), or one without the app, still needs
-permission for the Node.js that runs it: Add project shows that Node.js and
-opens Full Disk Access.
+about one Node.js. The app opens when the installer finishes, with its Folder
+Access window: choose Allow access, then answer macOS for each place. When a
+folder is refused later, Add project opens that window on that Mac (it is also
+in the Stepsemble menu); its Full Disk Access button covers a place turned down
+before. An installation from before 3.8.26 moves to the app at the first update
+check after it updates, once no agent is working. A Host started over SSH
+(`stepsemble-mini-start.sh`) keeps that launcher and gets the app as its
+window; it, or a Host without the app, still needs permission for the Node.js
+that runs it: Add project shows that Node.js and opens Full Disk Access.
 
 See the generic templates in [`deploy/`](deploy/)
 for advanced launchd setups.

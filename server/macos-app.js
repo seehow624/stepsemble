@@ -17,10 +17,11 @@ function takeMacosApp(env = process.env, { platform = process.platform, statSync
   return { bundle, version: typeof version === "string" ? version.slice(0, 40) : "" };
 }
 
-// The arguments for /usr/bin/open: the app's window, asking macOS about each
-// place right away.
+// The arguments for /usr/bin/open: this app's Folder Access window, asking
+// macOS about each place right away, whether or not the app is already open
+// (arguments after --args would not reach an app that is running).
 function macosAppOpenArguments(app) {
-  return [app.bundle, "--args", "--request-access"];
+  return ["-a", app.bundle, "stepsemble://folder-access"];
 }
 
 module.exports = { takeMacosApp, macosAppOpenArguments };

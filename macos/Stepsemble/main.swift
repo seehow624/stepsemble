@@ -1,12 +1,14 @@
 // Stepsemble for macOS.
 //
-// The web workspace stays the interface. This app gives the Host a stable
-// macOS identity: launchd runs it with --serve, and it runs the Node.js Host
-// as its child, so macOS attributes file access (Documents, Desktop, external
-// drives) to Stepsemble, whichever Node.js is installed or updated. Opened
-// normally, it shows a small window that asks macOS for that access.
+// Opened, the app is the Workspace: the same pages a browser shows, signed in
+// to the Host on this Mac. It also gives the Host a stable macOS identity:
+// launchd runs it with --serve, and it runs the Node.js Host as its child, so
+// macOS attributes file access (Documents, Desktop, external drives) to
+// Stepsemble, whichever Node.js is installed or updated. Its Folder Access
+// window asks macOS for that access.
 import AppKit
 import Foundation
+import WebKit
 
 let appVersion = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "development"
 let fullDiskAccessSettings = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!
@@ -35,6 +37,34 @@ enum Text {
             "deniedHelp": "To allow a place you turned down, open Full Disk Access and turn on Stepsemble, or allow it under Privacy & Security → Files and Folders.",
             "fullDiskOpened": "Stepsemble is selected in Finder. Drag it into the Full Disk Access list and turn it on.",
             "closeNote": "You can close this window; Stepsemble keeps running.",
+            "about": "About Stepsemble",
+            "folderAccess": "Folder Access…",
+            "hide": "Hide Stepsemble",
+            "hideOthers": "Hide Others",
+            "showAll": "Show All",
+            "file": "File",
+            "newWindow": "New Window",
+            "closeWindow": "Close Window",
+            "edit": "Edit",
+            "undo": "Undo",
+            "redo": "Redo",
+            "cut": "Cut",
+            "copy": "Copy",
+            "paste": "Paste",
+            "selectAll": "Select All",
+            "view": "View",
+            "reload": "Reload",
+            "actualSize": "Actual Size",
+            "zoomIn": "Zoom In",
+            "zoomOut": "Zoom Out",
+            "window": "Window",
+            "minimize": "Minimize",
+            "zoom": "Zoom",
+            "bringAllToFront": "Bring All to Front",
+            "waitingHost": "It starts by itself when you log in to this Mac. This window connects as soon as it answers.",
+            "retry": "Try Again",
+            "ok": "OK",
+            "cancel": "Cancel",
         ],
         "zh-Hant": [
             "quit": "結束 Stepsemble",
@@ -56,6 +86,34 @@ enum Text {
             "deniedHelp": "要重新允許曾經拒絕的位置，請打開「完整磁碟取用權限」並開啟 Stepsemble，或到「隱私權與安全性 → 檔案與檔案夾」允許。",
             "fullDiskOpened": "Finder 已選好 Stepsemble。把它拖進「完整磁碟取用權限」清單並打開開關。",
             "closeNote": "可以關閉這個視窗，Stepsemble 會繼續運行。",
+            "about": "關於 Stepsemble",
+            "folderAccess": "資料夾取用權限…",
+            "hide": "隱藏 Stepsemble",
+            "hideOthers": "隱藏其他",
+            "showAll": "顯示全部",
+            "file": "檔案",
+            "newWindow": "新增視窗",
+            "closeWindow": "關閉視窗",
+            "edit": "編輯",
+            "undo": "還原",
+            "redo": "重做",
+            "cut": "剪下",
+            "copy": "拷貝",
+            "paste": "貼上",
+            "selectAll": "全選",
+            "view": "顯示方式",
+            "reload": "重新載入",
+            "actualSize": "實際大小",
+            "zoomIn": "放大",
+            "zoomOut": "縮小",
+            "window": "視窗",
+            "minimize": "縮到最小",
+            "zoom": "縮放",
+            "bringAllToFront": "將此程式所有視窗移至最前",
+            "waitingHost": "登入這台 Mac 時它會自動啟動。一有回應，這個視窗就會連上。",
+            "retry": "再試一次",
+            "ok": "好",
+            "cancel": "取消",
         ],
         "zh-Hans": [
             "quit": "退出 Stepsemble",
@@ -77,6 +135,34 @@ enum Text {
             "deniedHelp": "要重新允许曾被拒绝的位置，请打开“完全磁盘访问权限”并开启 Stepsemble，或在“隐私与安全性 → 文件和文件夹”中允许。",
             "fullDiskOpened": "访达已选中 Stepsemble。把它拖到“完全磁盘访问权限”列表并打开开关。",
             "closeNote": "可以关闭这个窗口，Stepsemble 会继续运行。",
+            "about": "关于 Stepsemble",
+            "folderAccess": "文件夹访问权限…",
+            "hide": "隐藏 Stepsemble",
+            "hideOthers": "隐藏其他",
+            "showAll": "全部显示",
+            "file": "文件",
+            "newWindow": "新建窗口",
+            "closeWindow": "关闭窗口",
+            "edit": "编辑",
+            "undo": "撤销",
+            "redo": "重做",
+            "cut": "剪切",
+            "copy": "拷贝",
+            "paste": "粘贴",
+            "selectAll": "全选",
+            "view": "显示",
+            "reload": "重新载入",
+            "actualSize": "实际大小",
+            "zoomIn": "放大",
+            "zoomOut": "缩小",
+            "window": "窗口",
+            "minimize": "最小化",
+            "zoom": "缩放",
+            "bringAllToFront": "前置全部窗口",
+            "waitingHost": "登录这台 Mac 时它会自动启动。一有响应，这个窗口就会连接。",
+            "retry": "再试一次",
+            "ok": "好",
+            "cancel": "取消",
         ],
         "ja": [
             "quit": "Stepsemble を終了",
@@ -98,6 +184,34 @@ enum Text {
             "deniedHelp": "拒否した場所を許可するには、フルディスクアクセスを開いて Stepsemble をオンにするか、「プライバシーとセキュリティ → ファイルとフォルダ」で許可してください。",
             "fullDiskOpened": "Finder で Stepsemble を選択しました。フルディスクアクセスの一覧にドラッグしてオンにしてください。",
             "closeNote": "このウインドウは閉じてかまいません。Stepsemble は動作し続けます。",
+            "about": "Stepsemble について",
+            "folderAccess": "フォルダへのアクセス…",
+            "hide": "Stepsemble を隠す",
+            "hideOthers": "ほかを隠す",
+            "showAll": "すべてを表示",
+            "file": "ファイル",
+            "newWindow": "新規ウインドウ",
+            "closeWindow": "ウインドウを閉じる",
+            "edit": "編集",
+            "undo": "取り消す",
+            "redo": "やり直す",
+            "cut": "カット",
+            "copy": "コピー",
+            "paste": "ペースト",
+            "selectAll": "すべてを選択",
+            "view": "表示",
+            "reload": "再読み込み",
+            "actualSize": "実際のサイズ",
+            "zoomIn": "拡大",
+            "zoomOut": "縮小",
+            "window": "ウインドウ",
+            "minimize": "しまう",
+            "zoom": "拡大/縮小",
+            "bringAllToFront": "すべてを手前に移動",
+            "waitingHost": "この Mac にログインすると自動的に起動します。応答があり次第、このウインドウが接続します。",
+            "retry": "再試行",
+            "ok": "OK",
+            "cancel": "キャンセル",
         ],
         "ko": [
             "quit": "Stepsemble 종료",
@@ -119,6 +233,34 @@ enum Text {
             "deniedHelp": "거부했던 위치를 허용하려면 전체 디스크 접근 권한을 열어 Stepsemble을 켜거나 '개인정보 보호 및 보안 → 파일 및 폴더'에서 허용하세요.",
             "fullDiskOpened": "Finder에서 Stepsemble이 선택되었습니다. 전체 디스크 접근 권한 목록으로 끌어다 놓고 켜세요.",
             "closeNote": "이 창을 닫아도 Stepsemble은 계속 실행됩니다.",
+            "about": "Stepsemble에 관하여",
+            "folderAccess": "폴더 접근…",
+            "hide": "Stepsemble 가리기",
+            "hideOthers": "기타 가리기",
+            "showAll": "모두 보기",
+            "file": "파일",
+            "newWindow": "새로운 윈도우",
+            "closeWindow": "윈도우 닫기",
+            "edit": "편집",
+            "undo": "실행 취소",
+            "redo": "실행 복귀",
+            "cut": "오려두기",
+            "copy": "복사하기",
+            "paste": "붙여넣기",
+            "selectAll": "전체 선택",
+            "view": "보기",
+            "reload": "새로 고침",
+            "actualSize": "실제 크기",
+            "zoomIn": "확대",
+            "zoomOut": "축소",
+            "window": "윈도우",
+            "minimize": "최소화",
+            "zoom": "확대/축소",
+            "bringAllToFront": "모두 앞으로 가져오기",
+            "waitingHost": "이 Mac에 로그인하면 자동으로 시작됩니다. 응답하는 즉시 이 윈도우가 연결됩니다.",
+            "retry": "다시 시도",
+            "ok": "확인",
+            "cancel": "취소",
         ],
         "tr": [
             "quit": "Stepsemble'dan çık",
@@ -140,6 +282,34 @@ enum Text {
             "deniedHelp": "Reddettiğiniz bir konuma izin vermek için Tam Disk Erişimi'ni açıp Stepsemble'ı etkinleştirin ya da Gizlilik ve Güvenlik → Dosyalar ve Klasörler bölümünden izin verin.",
             "fullDiskOpened": "Stepsemble Finder'da seçildi. Onu Tam Disk Erişimi listesine sürükleyip açın.",
             "closeNote": "Bu pencereyi kapatabilirsiniz; Stepsemble çalışmaya devam eder.",
+            "about": "Stepsemble Hakkında",
+            "folderAccess": "Klasör Erişimi…",
+            "hide": "Stepsemble'ı Gizle",
+            "hideOthers": "Diğerlerini Gizle",
+            "showAll": "Tümünü Göster",
+            "file": "Dosya",
+            "newWindow": "Yeni Pencere",
+            "closeWindow": "Pencereyi Kapat",
+            "edit": "Düzen",
+            "undo": "Geri Al",
+            "redo": "Yinele",
+            "cut": "Kes",
+            "copy": "Kopyala",
+            "paste": "Yapıştır",
+            "selectAll": "Tümünü Seç",
+            "view": "Görüntü",
+            "reload": "Yeniden Yükle",
+            "actualSize": "Gerçek Boyut",
+            "zoomIn": "Yakınlaştır",
+            "zoomOut": "Uzaklaştır",
+            "window": "Pencere",
+            "minimize": "Küçült",
+            "zoom": "Büyüt",
+            "bringAllToFront": "Tümünü Öne Getir",
+            "waitingHost": "Bu Mac'te oturum açtığınızda kendiliğinden başlar. Yanıt verir vermez bu pencere bağlanır.",
+            "retry": "Yeniden Dene",
+            "ok": "Tamam",
+            "cancel": "Vazgeç",
         ],
         "fr": [
             "quit": "Quitter Stepsemble",
@@ -161,6 +331,34 @@ enum Text {
             "deniedHelp": "Pour autoriser un emplacement refusé, ouvrez Accès complet au disque et activez Stepsemble, ou autorisez-le dans Confidentialité et sécurité → Fichiers et dossiers.",
             "fullDiskOpened": "Stepsemble est sélectionné dans le Finder. Faites-le glisser dans la liste Accès complet au disque et activez-le.",
             "closeNote": "Vous pouvez fermer cette fenêtre ; Stepsemble continue de fonctionner.",
+            "about": "À propos de Stepsemble",
+            "folderAccess": "Accès aux dossiers…",
+            "hide": "Masquer Stepsemble",
+            "hideOthers": "Masquer les autres",
+            "showAll": "Tout afficher",
+            "file": "Fichier",
+            "newWindow": "Nouvelle fenêtre",
+            "closeWindow": "Fermer la fenêtre",
+            "edit": "Édition",
+            "undo": "Annuler",
+            "redo": "Rétablir",
+            "cut": "Couper",
+            "copy": "Copier",
+            "paste": "Coller",
+            "selectAll": "Tout sélectionner",
+            "view": "Présentation",
+            "reload": "Recharger",
+            "actualSize": "Taille réelle",
+            "zoomIn": "Zoom avant",
+            "zoomOut": "Zoom arrière",
+            "window": "Fenêtre",
+            "minimize": "Placer dans le Dock",
+            "zoom": "Zoom",
+            "bringAllToFront": "Tout ramener au premier plan",
+            "waitingHost": "Il démarre tout seul quand vous ouvrez une session sur ce Mac. Cette fenêtre s’y connecte dès qu’il répond.",
+            "retry": "Réessayer",
+            "ok": "OK",
+            "cancel": "Annuler",
         ],
         "de": [
             "quit": "Stepsemble beenden",
@@ -182,6 +380,34 @@ enum Text {
             "deniedHelp": "Um einen abgelehnten Ort zu erlauben, Festplattenvollzugriff öffnen und Stepsemble einschalten oder ihn unter Datenschutz & Sicherheit → Dateien und Ordner erlauben.",
             "fullDiskOpened": "Stepsemble ist im Finder ausgewählt. Es in die Liste „Festplattenvollzugriff“ ziehen und einschalten.",
             "closeNote": "Dieses Fenster kann geschlossen werden; Stepsemble läuft weiter.",
+            "about": "Über Stepsemble",
+            "folderAccess": "Ordnerzugriff …",
+            "hide": "Stepsemble ausblenden",
+            "hideOthers": "Andere ausblenden",
+            "showAll": "Alle einblenden",
+            "file": "Ablage",
+            "newWindow": "Neues Fenster",
+            "closeWindow": "Fenster schließen",
+            "edit": "Bearbeiten",
+            "undo": "Widerrufen",
+            "redo": "Wiederholen",
+            "cut": "Ausschneiden",
+            "copy": "Kopieren",
+            "paste": "Einsetzen",
+            "selectAll": "Alles auswählen",
+            "view": "Darstellung",
+            "reload": "Neu laden",
+            "actualSize": "Originalgröße",
+            "zoomIn": "Vergrößern",
+            "zoomOut": "Verkleinern",
+            "window": "Fenster",
+            "minimize": "Im Dock ablegen",
+            "zoom": "Zoomen",
+            "bringAllToFront": "Alle nach vorne bringen",
+            "waitingHost": "Es startet von selbst bei der Anmeldung an diesem Mac. Dieses Fenster verbindet sich, sobald es antwortet.",
+            "retry": "Erneut versuchen",
+            "ok": "OK",
+            "cancel": "Abbrechen",
         ],
         "es": [
             "quit": "Salir de Stepsemble",
@@ -203,6 +429,34 @@ enum Text {
             "deniedHelp": "Para permitir un lugar que rechazaste, abre Acceso total al disco y activa Stepsemble, o permítelo en Privacidad y seguridad → Archivos y carpetas.",
             "fullDiskOpened": "Stepsemble está seleccionado en el Finder. Arrástralo a la lista de Acceso total al disco y actívalo.",
             "closeNote": "Puedes cerrar esta ventana; Stepsemble sigue en ejecución.",
+            "about": "Acerca de Stepsemble",
+            "folderAccess": "Acceso a carpetas…",
+            "hide": "Ocultar Stepsemble",
+            "hideOthers": "Ocultar otros",
+            "showAll": "Mostrar todo",
+            "file": "Archivo",
+            "newWindow": "Nueva ventana",
+            "closeWindow": "Cerrar ventana",
+            "edit": "Edición",
+            "undo": "Deshacer",
+            "redo": "Rehacer",
+            "cut": "Cortar",
+            "copy": "Copiar",
+            "paste": "Pegar",
+            "selectAll": "Seleccionar todo",
+            "view": "Visualización",
+            "reload": "Volver a cargar",
+            "actualSize": "Tamaño real",
+            "zoomIn": "Ampliar",
+            "zoomOut": "Reducir",
+            "window": "Ventana",
+            "minimize": "Minimizar",
+            "zoom": "Zoom",
+            "bringAllToFront": "Traer todo al frente",
+            "waitingHost": "Se inicia solo al iniciar sesión en este Mac. Esta ventana se conecta en cuanto responda.",
+            "retry": "Reintentar",
+            "ok": "Aceptar",
+            "cancel": "Cancelar",
         ],
         "pt-BR": [
             "quit": "Encerrar o Stepsemble",
@@ -224,6 +478,34 @@ enum Text {
             "deniedHelp": "Para permitir um local que você recusou, abra Acesso Total ao Disco e ative o Stepsemble, ou permita-o em Privacidade e Segurança → Arquivos e Pastas.",
             "fullDiskOpened": "O Stepsemble está selecionado no Finder. Arraste-o para a lista de Acesso Total ao Disco e ative-o.",
             "closeNote": "Você pode fechar esta janela; o Stepsemble continua em execução.",
+            "about": "Sobre o Stepsemble",
+            "folderAccess": "Acesso a Pastas…",
+            "hide": "Ocultar Stepsemble",
+            "hideOthers": "Ocultar Outros",
+            "showAll": "Mostrar Tudo",
+            "file": "Arquivo",
+            "newWindow": "Nova Janela",
+            "closeWindow": "Fechar Janela",
+            "edit": "Editar",
+            "undo": "Desfazer",
+            "redo": "Refazer",
+            "cut": "Recortar",
+            "copy": "Copiar",
+            "paste": "Colar",
+            "selectAll": "Selecionar Tudo",
+            "view": "Visualizar",
+            "reload": "Recarregar",
+            "actualSize": "Tamanho Real",
+            "zoomIn": "Aumentar Zoom",
+            "zoomOut": "Diminuir Zoom",
+            "window": "Janela",
+            "minimize": "Minimizar",
+            "zoom": "Zoom",
+            "bringAllToFront": "Trazer Tudo para a Frente",
+            "waitingHost": "Ele inicia sozinho quando você inicia sessão neste Mac. Esta janela se conecta assim que ele responder.",
+            "retry": "Tentar Novamente",
+            "ok": "OK",
+            "cancel": "Cancelar",
         ],
         "it": [
             "quit": "Esci da Stepsemble",
@@ -245,6 +527,34 @@ enum Text {
             "deniedHelp": "Per consentire una posizione rifiutata, apri Accesso completo al disco e attiva Stepsemble, oppure consentila in Privacy e sicurezza → File e cartelle.",
             "fullDiskOpened": "Stepsemble è selezionato nel Finder. Trascinalo nell’elenco Accesso completo al disco e attivalo.",
             "closeNote": "Puoi chiudere questa finestra; Stepsemble continua a funzionare.",
+            "about": "Informazioni su Stepsemble",
+            "folderAccess": "Accesso alle cartelle…",
+            "hide": "Nascondi Stepsemble",
+            "hideOthers": "Nascondi altre",
+            "showAll": "Mostra tutte",
+            "file": "Archivio",
+            "newWindow": "Nuova finestra",
+            "closeWindow": "Chiudi finestra",
+            "edit": "Composizione",
+            "undo": "Annulla",
+            "redo": "Ripristina",
+            "cut": "Taglia",
+            "copy": "Copia",
+            "paste": "Incolla",
+            "selectAll": "Seleziona tutto",
+            "view": "Vista",
+            "reload": "Ricarica",
+            "actualSize": "Dimensioni reali",
+            "zoomIn": "Ingrandisci",
+            "zoomOut": "Riduci",
+            "window": "Finestra",
+            "minimize": "Contrai",
+            "zoom": "Zoom",
+            "bringAllToFront": "Porta tutto in primo piano",
+            "waitingHost": "Si avvia da solo quando accedi a questo Mac. Questa finestra si collega appena risponde.",
+            "retry": "Riprova",
+            "ok": "OK",
+            "cancel": "Annulla",
         ],
     ]
 
@@ -320,7 +630,7 @@ func serve(_ command: [String]) -> Never {
     dispatchMain()
 }
 
-// MARK: - Folder access window
+// MARK: - Places macOS protects
 
 enum Access {
     case notAsked, asking, allowed, denied, unavailable
@@ -391,19 +701,111 @@ func readAccess(_ url: URL) -> Access {
         return .unavailable
     }
 }
+// MARK: - The Host on this Mac
 
-func hostPort() -> Int {
-    let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/device.json")
-    if let data = try? Data(contentsOf: file),
-       let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-       let port = json["port"] as? Int, (1024...65535).contains(port) {
-        return port
+/// What the LaunchAgent that starts the Host says: whether it starts the Host
+/// through this app, and the port and token file it gives it.
+struct LaunchAgent {
+    var startsThroughApp = false
+    var port: Int?
+    var tokenFile: String?
+
+    static func read() -> LaunchAgent {
+        let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/com.stepsemble.server.plist")
+        guard let data = try? Data(contentsOf: file),
+              let plist = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any] else { return LaunchAgent() }
+        let arguments = plist["ProgramArguments"] as? [String] ?? []
+        let environment = plist["EnvironmentVariables"] as? [String: String] ?? [:]
+        return LaunchAgent(
+            startsThroughApp: arguments.count > 1 && arguments[0].hasSuffix("/Stepsemble.app/Contents/MacOS/Stepsemble") && arguments[1] == "--serve",
+            port: environment["STEPSEMBLE_PORT"].flatMap { Int($0) },
+            tokenFile: environment["STEPSEMBLE_TOKEN_FILE"])
     }
-    return 3140
 }
 
-final class AccessWindow: NSObject, NSApplicationDelegate {
-    private let askOnOpen: Bool
+/// Ports the Host may answer on, the likeliest first.
+func hostPorts() -> [Int] {
+    var ports: [Int] = []
+    let usable: (Int?) -> Int? = { port in port.flatMap { (1024...65535).contains($0) ? $0 : nil } }
+    let device = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/device.json")
+    if let data = try? Data(contentsOf: device),
+       let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+       let port = usable(json["port"] as? Int) {
+        ports.append(port)
+    }
+    if let port = usable(LaunchAgent.read().port), !ports.contains(port) { ports.append(port) }
+    if !ports.contains(3140) { ports.append(3140) }
+    return ports
+}
+
+func hostURL(_ port: Int, _ path: String = "/") -> URL {
+    URL(string: "http://127.0.0.1:\(port)\(path)")!
+}
+
+/// The first port the Host answers on, with its version; nil when none does.
+func findHost(_ ports: [Int] = hostPorts(), completion: @escaping (Int?, String?) -> Void) {
+    guard let port = ports.first else { completion(nil, nil); return }
+    var request = URLRequest(url: hostURL(port, "/api/health"))
+    request.timeoutInterval = 3
+    URLSession.shared.dataTask(with: request) { data, _, _ in
+        let json = data.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+        if (json?["ok"] as? Bool) == true, let version = json?["appVersion"] as? String {
+            completion(port, version.hasPrefix("v") ? String(version.dropFirst()) : version)
+        } else {
+            findHost(Array(ports.dropFirst()), completion: completion)
+        }
+    }.resume()
+}
+
+/// Signs the app's pages in with this Mac's Web token, as the sign-in page
+/// would; the token stays out of the pages. The Host marks its cookie Secure
+/// for HTTPS gateways, so the app keeps a copy without that flag, which WebKit
+/// sends to the Host on this Mac.
+func signIn(port: Int, into store: WKHTTPCookieStore, completion: @escaping () -> Void) {
+    let path = LaunchAgent.read().tokenFile ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/stepsemble/token").path
+    guard let token = (try? String(contentsOfFile: path, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty,
+          let body = try? JSONSerialization.data(withJSONObject: ["token": token]) else { completion(); return }
+    var request = URLRequest(url: hostURL(port, "/api/login"))
+    request.httpMethod = "POST"
+    request.httpBody = body
+    request.timeoutInterval = 5
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue("http://127.0.0.1:\(port)", forHTTPHeaderField: "Origin")
+    let session = URLSession(configuration: .ephemeral)
+    session.dataTask(with: request) { _, response, _ in
+        var cookies: [HTTPCookie] = []
+        if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+            var headers: [String: String] = [:]
+            for (key, value) in http.allHeaderFields { if let key = key as? String, let value = value as? String { headers[key] = value } }
+            // Foundation drops Secure cookies read for an http address, so they
+            // are read for the same host over https.
+            for cookie in HTTPCookie.cookies(withResponseHeaderFields: headers, for: URL(string: "https://127.0.0.1/")!)
+            where !cookie.value.isEmpty && (cookie.expiresDate ?? .distantFuture) > Date() {
+                var properties = cookie.properties ?? [:]
+                properties.removeValue(forKey: .secure)
+                if let local = HTTPCookie(properties: properties) { cookies.append(local) }
+            }
+        }
+        session.finishTasksAndInvalidate()
+        DispatchQueue.main.async {
+            let group = DispatchGroup()
+            for cookie in cookies {
+                group.enter()
+                store.setCookie(cookie) { group.leave() }
+            }
+            group.notify(queue: .main, execute: completion)
+        }
+    }.resume()
+}
+
+func escapeHTML(_ text: String) -> String {
+    text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
+}
+
+// MARK: - Folder access window
+
+final class AccessPanel: NSObject {
+    private let showWorkspace: () -> Void
     private var window: NSWindow?
     private let hostLine = NSTextField(labelWithString: "")
     private let help = NSTextField(wrappingLabelWithString: "")
@@ -411,26 +813,16 @@ final class AccessWindow: NSObject, NSApplicationDelegate {
     private var allowButton: NSButton?
     private var asking = false
 
-    init(askOnOpen: Bool) {
-        self.askOnOpen = askOnOpen
+    init(showWorkspace: @escaping () -> Void) {
+        self.showWorkspace = showWorkspace
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        buildMenu()
-        buildWindow()
+    func show(ask: Bool) {
+        if window == nil { buildWindow() }
+        window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         refreshHost()
-        if askOnOpen { requestAccess() }
-    }
-
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-
-    private func buildMenu() {
-        let main = NSMenu(), appItem = NSMenuItem(), appMenu = NSMenu()
-        appMenu.addItem(withTitle: Text.t("quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        appItem.submenu = appMenu
-        main.addItem(appItem)
-        NSApp.mainMenu = main
+        if ask { requestAccess() }
     }
 
     private func label(_ text: String, size: CGFloat = 13, weight: NSFont.Weight = .regular, secondary: Bool = false) -> NSTextField {
@@ -474,9 +866,9 @@ final class AccessWindow: NSObject, NSApplicationDelegate {
         allowButton = allow
         let fullDisk = NSButton(title: Text.t("fullDisk"), target: self, action: #selector(openFullDiskAccess))
         fullDisk.bezelStyle = .rounded
-        let openWeb = NSButton(title: Text.t("openWeb"), target: self, action: #selector(openWorkspace))
-        openWeb.bezelStyle = .rounded
-        let buttons = NSStackView(views: [allow, fullDisk, openWeb])
+        let openWorkspace = NSButton(title: Text.t("openWeb"), target: self, action: #selector(openWorkspace))
+        openWorkspace.bezelStyle = .rounded
+        let buttons = NSStackView(views: [allow, fullDisk, openWorkspace])
         buttons.spacing = 8
 
         help.font = .systemFont(ofSize: 12)
@@ -494,7 +886,7 @@ final class AccessWindow: NSObject, NSApplicationDelegate {
         }
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 488, height: 420), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = "Stepsemble"
+        window.title = Text.t("folderAccess").replacingOccurrences(of: "…", with: "").trimmingCharacters(in: .whitespaces)
         window.isReleasedWhenClosed = false
         let container = NSView()
         container.addSubview(content)
@@ -507,22 +899,15 @@ final class AccessWindow: NSObject, NSApplicationDelegate {
         ])
         window.contentView = container
         window.center()
-        window.makeKeyAndOrderFront(nil)
         self.window = window
     }
 
     private func refreshHost() {
-        hostLine.stringValue = ""
-        guard let url = URL(string: "http://127.0.0.1:\(hostPort())/api/health") else { return }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 3
-        URLSession.shared.dataTask(with: request) { data, _, _ in
-            let json = data.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
-            let version = (json?["appVersion"] as? String).map { $0.hasPrefix("v") ? String($0.dropFirst()) : $0 }
+        findHost { _, version in
             DispatchQueue.main.async {
                 self.hostLine.stringValue = version.map { Text.t("running", ["version": $0]) } ?? Text.t("notRunning")
             }
-        }.resume()
+        }
     }
 
     /// One place at a time: macOS shows one question at a time anyway.
@@ -561,7 +946,405 @@ final class AccessWindow: NSObject, NSApplicationDelegate {
     }
 
     @objc func openWorkspace() {
-        if let url = URL(string: "http://127.0.0.1:\(hostPort())/") { NSWorkspace.shared.open(url) }
+        showWorkspace()
+    }
+}
+
+// MARK: - Workspace window
+
+/// One window of the Workspace, the same pages the browser shows, signed in
+/// to the Host on this Mac.
+final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
+    let window: NSWindow
+    let webView: WKWebView
+    /// Opened by a page (window.open); WebKit loads it.
+    let isPopup: Bool
+    private weak var controller: AppController?
+    private var port: Int?
+    private var path: String
+    private var retryTimer: Timer?
+    private var titleObservation: NSKeyValueObservation?
+
+    init(controller: AppController, configuration: WKWebViewConfiguration, path: String, size: NSSize?, isPopup: Bool) {
+        self.controller = controller
+        self.path = path
+        self.isPopup = isPopup
+        webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.allowsBackForwardNavigationGestures = false
+        window = NSWindow(contentRect: NSRect(origin: .zero, size: size ?? NSSize(width: 1280, height: 820)),
+                          styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        super.init()
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
+        window.title = "Stepsemble"
+        window.minSize = NSSize(width: 480, height: 400)
+        window.isReleasedWhenClosed = false
+        window.contentView = webView
+        window.delegate = self
+        titleObservation = webView.observe(\.title) { [weak self] webView, _ in
+            let title = webView.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            self?.window.title = title.isEmpty ? "Stepsemble" : title
+        }
+    }
+
+    func show(cascadeFrom other: NSWindow?) {
+        if let other = other {
+            window.setFrameTopLeftPoint(other.cascadeTopLeft(from: NSPoint(x: other.frame.minX, y: other.frame.maxY)))
+        } else if !window.setFrameUsingName("StepsembleWorkspace") {
+            window.center()
+        }
+        if other == nil { window.setFrameAutosaveName("StepsembleWorkspace") }
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    // Finds the Host, signs in, and opens the page; waits while the Host is not running.
+    func connect() {
+        retryTimer?.invalidate()
+        retryTimer = nil
+        findHost { port, _ in
+            DispatchQueue.main.async {
+                guard let port = port else { self.showWaiting(); return }
+                self.port = port
+                signIn(port: port, into: self.webView.configuration.websiteDataStore.httpCookieStore) {
+                    self.webView.load(URLRequest(url: hostURL(port, self.path)))
+                }
+            }
+        }
+    }
+
+    private func showWaiting() {
+        let page = """
+        <!doctype html><meta charset="utf-8"><meta name="color-scheme" content="light dark">
+        <style>body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;font:13px -apple-system,system-ui;background:Canvas;color:CanvasText}
+        main{max-width:440px;padding:24px;text-align:center}h1{font-size:17px;font-weight:600;margin:0 0 8px}p{opacity:.7;line-height:1.45}button{font:inherit;padding:5px 16px}</style>
+        <main><h1>\(escapeHTML(Text.t("notRunning")))</h1><p>\(escapeHTML(Text.t("waitingHost")))</p>
+        <button onclick="webkit.messageHandlers.stepsemble.postMessage('retry')">\(escapeHTML(Text.t("retry")))</button></main>
+        """
+        webView.loadHTMLString(page, baseURL: nil)
+        retryTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            findHost { port, _ in
+                guard port != nil else { return }
+                DispatchQueue.main.async { if self?.retryTimer != nil { self?.connect() } }
+            }
+        }
+    }
+
+    private func isHost(_ url: URL) -> Bool {
+        guard let port = port else { return false }
+        return url.scheme == "http" && (url.host == "127.0.0.1" || url.host == "localhost") && url.port == port
+    }
+
+    private func openOutside(_ url: URL) {
+        if ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") { NSWorkspace.shared.open(url) }
+    }
+
+    // MARK: Menu actions (reached through the responder chain)
+
+    @objc func reloadPage(_ sender: Any?) {
+        guard let port = port, webView.url.map(isHost) == true else { connect(); return }
+        signIn(port: port, into: webView.configuration.websiteDataStore.httpCookieStore) { self.webView.reload() }
+    }
+
+    private static let zoomSteps: [CGFloat] = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
+    @objc func actualSize(_ sender: Any?) { webView.pageZoom = 1 }
+    @objc func zoomIn(_ sender: Any?) { webView.pageZoom = Self.zoomSteps.first { $0 > webView.pageZoom + 0.01 } ?? webView.pageZoom }
+    @objc func zoomOut(_ sender: Any?) { webView.pageZoom = Self.zoomSteps.last { $0 < webView.pageZoom - 0.01 } ?? webView.pageZoom }
+
+    // MARK: Window
+
+    func windowWillClose(_ notification: Notification) {
+        retryTimer?.invalidate()
+        retryTimer = nil
+        titleObservation = nil
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        // Released after AppKit has finished closing the window.
+        DispatchQueue.main.async { [weak controller, self] in
+            self.window.delegate = nil
+            controller?.closed(self)
+        }
+    }
+
+    // MARK: Navigation
+
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if #available(macOS 11.3, *), action.shouldPerformDownload { decisionHandler(.download); return }
+        guard let url = action.request.url else { decisionHandler(.cancel); return }
+        // A file dropped outside a drop zone would replace the Workspace.
+        if url.isFileURL { decisionHandler(.cancel); return }
+        let scheme = url.scheme?.lowercased() ?? ""
+        let otherSite = port != nil && !isHost(url) && ["http", "https", "mailto"].contains(scheme)
+        // Another site opens in the default browser rather than replacing the
+        // Workspace or one of its panes: a link in any frame, or any page the
+        // main frame or a new window would load.
+        if otherSite && (action.navigationType == .linkActivated || action.targetFrame?.isMainFrame != false) {
+            openOutside(url)
+            decisionHandler(.cancel)
+            return
+        }
+        decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        if #available(macOS 11.3, *), !response.canShowMIMEType { decisionHandler(.download); return }
+        decisionHandler(.allow)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        if isPopup { webView.reload() } else { connect() }
+    }
+
+    // MARK: Pages asking for windows, dialogs and files
+
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        guard let url = action.request.url, let controller = controller else { return nil }
+        if isHost(url) {
+            let size = NSSize(width: windowFeatures.width?.doubleValue ?? 1100, height: windowFeatures.height?.doubleValue ?? 820)
+            return controller.openPopup(configuration: configuration, size: size, port: port, from: window).webView
+        }
+        openOutside(url)
+        return nil
+    }
+
+    func setPort(_ port: Int?) { self.port = port }
+
+    func webViewDidClose(_ webView: WKWebView) {
+        window.close()
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: Text.t("ok"))
+        alert.beginSheetModal(for: window) { _ in completionHandler() }
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: Text.t("ok"))
+        alert.addButton(withTitle: Text.t("cancel"))
+        alert.beginSheetModal(for: window) { response in completionHandler(response == .alertFirstButtonReturn) }
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = prompt
+        let field = NSTextField(string: defaultText ?? "")
+        field.frame = NSRect(x: 0, y: 0, width: 280, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: Text.t("ok"))
+        alert.addButton(withTitle: Text.t("cancel"))
+        alert.window.initialFirstResponder = field
+        alert.beginSheetModal(for: window) { response in completionHandler(response == .alertFirstButtonReturn ? field.stringValue : nil) }
+    }
+
+    func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = parameters.allowsDirectories
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        panel.beginSheetModal(for: window) { response in completionHandler(response == .OK ? panel.urls : nil) }
+    }
+}
+
+// MARK: Downloads
+
+/// Downloads go to Downloads, without replacing a file already there.
+func downloadDestination(_ suggested: String) -> URL? {
+    guard let folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else { return nil }
+    let name = (suggested as NSString).lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+    let base = name.isEmpty || name.hasPrefix(".") ? "Download" + name : name
+    let stem = (base as NSString).deletingPathExtension, ext = (base as NSString).pathExtension
+    var candidate = folder.appendingPathComponent(base)
+    var number = 2
+    while FileManager.default.fileExists(atPath: candidate.path) {
+        candidate = folder.appendingPathComponent(ext.isEmpty ? "\(stem) \(number)" : "\(stem) \(number).\(ext)")
+        number += 1
+    }
+    return candidate
+}
+
+@available(macOS 11.3, *)
+extension WorkspaceWindow: WKDownloadDelegate {
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
+        completionHandler(downloadDestination(suggestedFilename))
+    }
+}
+
+// MARK: - App
+
+/// Receives the pages' messages without the content controller keeping the
+/// app controller alive.
+final class MessageRelay: NSObject, WKScriptMessageHandler {
+    weak var controller: AppController?
+    init(_ controller: AppController) { self.controller = controller }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        controller?.received(message)
+    }
+}
+
+final class AppController: NSObject, NSApplicationDelegate {
+    private var askForAccess: Bool
+    private var launched = false
+    private var windows: [WorkspaceWindow] = []
+    private let processPool = WKProcessPool()
+    private lazy var relay = MessageRelay(self)
+    private lazy var access = AccessPanel(showWorkspace: { [weak self] in self?.showWorkspace() })
+    /// Folder access matters only when this app starts the Host.
+    private let startsHost = LaunchAgent.read().startsThroughApp
+
+    init(askForAccess: Bool) {
+        self.askForAccess = askForAccess
+    }
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(openURL(_:reply:)),
+                                                     forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        buildMenu()
+        newWindow(path: "/")
+        NSApp.activate(ignoringOtherApps: true)
+        launched = true
+        // The first time, the app asks for the places macOS protects.
+        let shownKey = "folderAccessShown"
+        if startsHost && (askForAccess || !UserDefaults.standard.bool(forKey: shownKey)) {
+            UserDefaults.standard.set(true, forKey: shownKey)
+            access.show(ask: askForAccess)
+        }
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { showWorkspace() }
+        return true
+    }
+
+    /// stepsemble://folder-access, sent by the Host when a folder is refused.
+    @objc func openURL(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
+        guard let text = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+              let url = URL(string: text), url.scheme == "stepsemble", url.host == "folder-access" else { return }
+        if launched { access.show(ask: true) } else { askForAccess = true }
+    }
+
+    private func configuration() -> WKWebViewConfiguration {
+        let configuration = WKWebViewConfiguration()
+        configuration.processPool = processPool
+        configuration.websiteDataStore = .default()
+        configuration.applicationNameForUserAgent = "Stepsemble/\(appVersion)"
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
+        configuration.userContentController.add(relay, name: "stepsemble")
+        return configuration
+    }
+
+    func newWindow(path: String) {
+        let previous = windows.last?.window
+        let workspace = WorkspaceWindow(controller: self, configuration: configuration(), path: path, size: nil, isPopup: false)
+        windows.append(workspace)
+        workspace.show(cascadeFrom: previous)
+        workspace.connect()
+    }
+
+    func openPopup(configuration: WKWebViewConfiguration, size: NSSize, port: Int?, from opener: NSWindow) -> WorkspaceWindow {
+        let popup = WorkspaceWindow(controller: self, configuration: configuration, path: "/", size: size, isPopup: true)
+        popup.setPort(port)
+        windows.append(popup)
+        popup.show(cascadeFrom: opener)
+        return popup
+    }
+
+    func closed(_ workspace: WorkspaceWindow) {
+        windows.removeAll { $0 === workspace }
+    }
+
+    func showWorkspace() {
+        if let workspace = windows.first(where: { !$0.isPopup }) ?? windows.first {
+            workspace.window.makeKeyAndOrderFront(nil)
+        } else {
+            newWindow(path: "/")
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func received(_ message: WKScriptMessage) {
+        guard message.body as? String == "retry" else { return }
+        windows.first { $0.webView === message.webView }?.connect()
+    }
+
+    @objc func newWorkspaceWindow(_ sender: Any?) {
+        // Its own layout, as the Workspace's own "new window" opens.
+        newWindow(path: "/workspace.html?window=\(UUID().uuidString.lowercased())")
+    }
+
+    @objc func showFolderAccess(_ sender: Any?) {
+        access.show(ask: false)
+    }
+
+    private func buildMenu() {
+        func item(_ title: String, _ action: Selector?, _ key: String = "", _ modifiers: NSEvent.ModifierFlags = .command, target: AnyObject? = nil) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = modifiers
+            item.target = target
+            return item
+        }
+        func menu(_ title: String, _ items: [NSMenuItem]) -> NSMenuItem {
+            let holder = NSMenuItem()
+            let menu = NSMenu(title: title)
+            items.forEach(menu.addItem)
+            holder.submenu = menu
+            return holder
+        }
+        let main = NSMenu()
+        var appItems = [item(Text.t("about"), #selector(NSApplication.orderFrontStandardAboutPanel(_:)), target: NSApp), .separator()]
+        if startsHost { appItems += [item(Text.t("folderAccess"), #selector(showFolderAccess(_:)), target: self), .separator()] }
+        appItems += [
+            item(Text.t("hide"), #selector(NSApplication.hide(_:)), "h", target: NSApp),
+            item(Text.t("hideOthers"), #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option], target: NSApp),
+            item(Text.t("showAll"), #selector(NSApplication.unhideAllApplications(_:)), target: NSApp),
+            .separator(),
+            item(Text.t("quit"), #selector(NSApplication.terminate(_:)), "q", target: NSApp),
+        ]
+        main.addItem(menu("Stepsemble", appItems))
+        main.addItem(menu(Text.t("file"), [
+            item(Text.t("newWindow"), #selector(newWorkspaceWindow(_:)), "n", target: self),
+            item(Text.t("closeWindow"), #selector(NSWindow.performClose(_:)), "w"),
+        ]))
+        main.addItem(menu(Text.t("edit"), [
+            item(Text.t("undo"), Selector(("undo:")), "z"),
+            item(Text.t("redo"), Selector(("redo:")), "z", [.command, .shift]),
+            .separator(),
+            item(Text.t("cut"), #selector(NSText.cut(_:)), "x"),
+            item(Text.t("copy"), #selector(NSText.copy(_:)), "c"),
+            item(Text.t("paste"), #selector(NSText.paste(_:)), "v"),
+            item(Text.t("selectAll"), #selector(NSText.selectAll(_:)), "a"),
+        ]))
+        main.addItem(menu(Text.t("view"), [
+            item(Text.t("reload"), #selector(WorkspaceWindow.reloadPage(_:)), "r"),
+            .separator(),
+            item(Text.t("actualSize"), #selector(WorkspaceWindow.actualSize(_:)), "0"),
+            item(Text.t("zoomIn"), #selector(WorkspaceWindow.zoomIn(_:)), "="),
+            item(Text.t("zoomOut"), #selector(WorkspaceWindow.zoomOut(_:)), "-"),
+        ]))
+        let windowMenu = menu(Text.t("window"), [
+            item(Text.t("minimize"), #selector(NSWindow.performMiniaturize(_:)), "m"),
+            item(Text.t("zoom"), #selector(NSWindow.performZoom(_:))),
+            .separator(),
+            item(Text.t("bringAllToFront"), #selector(NSApplication.arrangeInFront(_:)), target: NSApp),
+        ])
+        main.addItem(windowMenu)
+        NSApp.mainMenu = main
+        NSApp.windowsMenu = windowMenu.submenu
     }
 }
 
@@ -574,7 +1357,7 @@ if arguments.first == "--version" {
     exit(0)
 }
 let app = NSApplication.shared
-let controller = AccessWindow(askOnOpen: arguments.contains("--request-access"))
+let controller = AppController(askForAccess: arguments.contains("--request-access"))
 app.delegate = controller
 app.setActivationPolicy(.regular)
 app.run()

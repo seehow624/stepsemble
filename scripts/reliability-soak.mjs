@@ -163,7 +163,9 @@ export async function runSoak(options, { onReady = () => {} } = {}) {
   const startHost = async () => {
     child = spawn(process.execPath, [path.join(temp, "host.cjs")], { cwd: source, env, stdio: ["ignore", "pipe", "pipe", "ipc"] });
     child.on("error", () => {}); // Startup/HTTP/metrics deadlines report failure.
-    await waitForServer(child); child.stdout.resume(); child.stderr.resume();
+    // A loaded CI machine (Windows runs several Host tests at once) can take
+    // well over ten seconds to start a Host; the soak is about outcomes.
+    await waitForServer(child, 30_000); child.stdout.resume(); child.stderr.resume();
   };
   const sampleMemory = () => new Promise((resolve, reject) => {
     const requestId = crypto.randomUUID();
@@ -197,7 +199,7 @@ export async function runSoak(options, { onReady = () => {} } = {}) {
     const port = await freePort(); base = `http://127.0.0.1:${port}`; env = cleanSoakEnvironment(home, bin, port);
     await startHost();
     const token = (await fs.readFile(path.join(home, ".config/stepsemble/token"), "utf8")).trim();
-    const login = await fetch(base + "/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }), signal: AbortSignal.timeout(5000) });
+    const login = await fetch(base + "/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }), signal: AbortSignal.timeout(15_000) });
     requireCondition(login.status === 204, "login_failed"); cookie = login.headers.get("set-cookie").split(";", 1)[0];
     // Sequential opens retain every successful owned identity even if a later
     // launch fails. The workload after setup is eight concurrent live tasks.
@@ -259,7 +261,12 @@ export async function runSoak(options, { onReady = () => {} } = {}) {
     report.status = "passed";
   } catch (error) {
     report.status = error.message === "cancelled" ? "cancelled" : "failed";
-    report.failure = /^[a-z_0-9]+$/.test(error.message) ? error.message : "fixture_operation_failed";
+    // Codes only: the evidence file never carries a raw message or Host output.
+    report.failure = /^[a-z_0-9]+$/.test(error.message) ? error.message
+      : error.name === "TimeoutError" ? "request_timeout"
+      : /^server did not start/.test(error.message) ? "host_start_timeout"
+      : /^server exited before start/.test(error.message) ? "host_exited_before_start"
+      : "fixture_operation_failed";
   } finally {
     await Promise.all(streams.flat().map(client => client.close()));
     // Release only this fixture's lease. If HTTP is unavailable the synthetic

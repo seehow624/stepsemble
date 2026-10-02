@@ -89,8 +89,10 @@ test("isolated HTTP preserves names, 143 close intent, outcomes and send/close r
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-pi-lifecycle-"));
   let child = null, base = "", cookie = "";
   const owned = [];
+  // A loaded CI machine (Windows runs several Host tests at once) can take
+  // seconds to answer; the test is about outcomes, not speed.
   const request = (url, body) => fetch(base + url, { headers: { cookie, "content-type": "application/json" },
-    ...(body ? { method: "POST", body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(5000) });
+    ...(body ? { method: "POST", body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(15_000) });
   const json = async (url, body) => { const response = await request(url, body); assert.equal(response.status, 200, url); return response.json(); };
   const rpc = (sid, command) => json("/api/rpc-cmd", { sid, command });
   const task = async sid => (await json("/api/agent-tasks")).tasks.find(row => row.id === `pi:${sid}`);

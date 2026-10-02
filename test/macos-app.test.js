@@ -21,7 +21,7 @@ test("the Host takes the app location once and does not pass it on", () => {
   const env = { STEPSEMBLE_APP_BUNDLE: bundle, STEPSEMBLE_APP_VERSION: "3.8.26", OTHER: "kept" };
   assert.deepEqual(takeMacosApp(env, { platform: "darwin" }), { bundle, version: "3.8.26" });
   assert.deepEqual(env, { OTHER: "kept" }, "agents the Host starts never see it");
-  assert.deepEqual(macosAppOpenArguments({ bundle }), [bundle, "--args", "--request-access"]);
+  assert.deepEqual(macosAppOpenArguments({ bundle }), ["-a", bundle, "stepsemble://folder-access"]);
   for (const [value, platform] of [[bundle, "linux"], ["Stepsemble.app", "darwin"], [path.dirname(bundle), "darwin"], [bundle + "/missing.app", "darwin"]]) {
     const other = { STEPSEMBLE_APP_BUNDLE: value };
     assert.equal(takeMacosApp(other, { platform }), null, `${platform} ${value}`);
@@ -160,13 +160,21 @@ test("a move that leaves the Host unhealthy is undone and not tried again for th
   assert.equal(next.plist, "mode=app", "the next release tries again");
 });
 
-test("the move waits for agent work, and the SSH launcher is never moved", { skip: !onMac && "macOS only" }, () => {
+test("the move waits for agent work; the SSH launcher keeps the Host and gets the app as a window", { skip: !onMac && "macOS only" }, () => {
   const busy = runUpdaterApp("settle_macos_app v3.8.26", { active: true });
   assert.equal(busy.plist, "mode=node");
   assert.match(busy.log, /waits until the current agent work finishes/);
   assert.deepEqual(busy.calls, ["helper:launch-mode"]);
-  const ssh = runUpdaterApp("settle_macos_app v3.8.26", { mode: "other" });
-  assert.deepEqual(ssh.calls, ["helper:launch-mode"]);
+  // The app is installed as a window, with no restart and the launcher unchanged.
+  const ssh = runUpdaterApp("settle_macos_app v3.8.26", { mode: "other", active: true });
+  assert.equal(ssh.plist, "mode=other");
+  assert.deepEqual(ssh.calls, ["helper:launch-mode", "helper:check", "helper:install"]);
+  const sshCurrent = runUpdaterApp("settle_macos_app v3.8.26", { mode: "other", check: 0 });
+  assert.deepEqual(sshCurrent.calls, ["helper:launch-mode", "helper:check"]);
+  const sshUpdate = runUpdaterApp("prepare_macos_app v3.8.27 move; restart_service", { mode: "other" });
+  assert.equal(sshUpdate.plist, "mode=other");
+  assert.ok(sshUpdate.calls.includes("helper:install") && sshUpdate.calls.includes("launchctl:kickstart"));
+  assert.ok(!sshUpdate.calls.includes("helper:use-app") && !sshUpdate.calls.includes("launchctl:bootout"), "the SSH launcher is never moved");
   const failedSigning = runUpdaterApp("settle_macos_app v3.8.26", { install: 1 });
   assert.equal(failedSigning.plist, "mode=node", "without a signed app the Host keeps starting with Node.js");
   assert.ok(!failedSigning.calls.some(call => call.startsWith("launchctl:")));

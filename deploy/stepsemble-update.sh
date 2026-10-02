@@ -365,11 +365,12 @@ wait_for_release_health() {
 }
 
 # On macOS the Host runs through Stepsemble.app, so the folder access someone
-# grants Stepsemble survives updates (deploy/stepsemble-macos-app.sh). Each
-# release brings the app and that helper. A Host still started directly with
-# Node.js moves to the app when no agent work is running; the SSH launcher is
-# left as it is. None of this can stop an update: without the app, the Host
-# keeps starting the way it did.
+# grants Stepsemble survives updates (deploy/stepsemble-macos-app.sh); the app
+# is also the Workspace window. Each release brings the app and that helper. A
+# Host still started directly with Node.js moves to the app when no agent work
+# is running; the SSH launcher keeps starting the Host, and its Mac gets the
+# app only as a window. None of this can stop an update: without the app, the
+# Host keeps starting the way it did.
 app_helper=""
 app_plist_backup=""
 app_changed=0
@@ -405,7 +406,7 @@ prepare_macos_app() {
   case "$mode" in
     app) /bin/zsh "$app_helper" check "$version" && return 0 ;;
     node) [[ "$allow_move" == "move" ]] && ! macos_app_failed_for "$version" || return 0 ;;
-    *) return 0 ;;
+    *) /bin/zsh "$app_helper" check "$version" && return 0 ;;
   esac
   app_plist_backup="$work_dir/server.plist"
   /bin/cp -p "$SERVER_PLIST" "$app_plist_backup"
@@ -480,7 +481,13 @@ settle_macos_app() {
   case "$mode" in
     node) ! macos_app_failed_for "$version" || return 0 ;;
     app) /bin/zsh "$app_helper" check "$version" && return 0 ;;
-    *) return 0 ;;
+    *)
+      # Another launcher (the SSH one) starts the Host: the app is only its
+      # window, so it is brought up to date without a restart.
+      /bin/zsh "$app_helper" check "$version" \
+        || /bin/zsh "$app_helper" install "$INSTALL_DIR/macos/Stepsemble.app" >/dev/null \
+        || log "could not sign Stepsemble.app for this Mac"
+      return 0 ;;
   esac
   # A Host that is down (its app is gone) has no work to wait for.
   if release_health_ok "$version" && active_rpc_running; then

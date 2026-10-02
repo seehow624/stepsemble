@@ -31,6 +31,24 @@
   <string>public.app-category.developer-tools</string>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <!-- stepsemble://folder-access: the Host asks the app to show Folder Access. -->
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>com.stepsemble.app</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>stepsemble</string>
+      </array>
+    </dict>
+  </array>
+  <!-- The Workspace is the Host on this Mac, over http on 127.0.0.1. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
   <key>NSDocumentsFolderUsageDescription</key>
   <string>Stepsemble opens projects in your Documents folder so you and your agents can work in them.</string>
   <key>NSDesktopFolderUsageDescription</key>
