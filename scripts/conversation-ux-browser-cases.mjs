@@ -140,6 +140,41 @@ export async function runConversationUxBrowserCases(browser) {
             users: document.querySelectorAll("#messages .msg.user").length, replies: document.querySelectorAll("#messages .msg.assistant").length }));
           throw new Error(error.message + " " + JSON.stringify(seen));
         });
+      // Reading back while the reply streams: the list stays where the person
+      // scrolled, also when a frame that keeps the reply in view is already
+      // waiting. Frames are held so that moment is certain; before 3.8.25 the
+      // waiting frame pulled the list back to the end.
+      stage = "Pi: reading back while a follow waits";
+      await ui.evaluate(() => {
+        const held = [], request = window.requestAnimationFrame, cancel = window.cancelAnimationFrame;
+        window.__frames = { held, request, cancel };
+        window.requestAnimationFrame = callback => 1e6 + held.push(callback) - 1;
+        window.cancelAnimationFrame = id => { if (id >= 1e6) held[id - 1e6] = null; else cancel(id); };
+      });
+      // A frame asked for before the hold runs first; then a piece of the
+      // reply asks to be followed, as each one does (its rendering waits for a
+      // frame too, so it is asked for here directly).
+      await ui.waitForFunction(() => scrollFrame === null, null, { polling: 50, timeout: 10000 });
+      assert.equal(await ui.evaluate(() => { scrollBottom(true); return scrollFrame >= 1e6; }), true, "a follow frame is waiting");
+      // The page's own scroll handler was added first, so it has run when this
+      // listener hears the scroll.
+      await ui.evaluate(mobile => new Promise(resolve => {
+        const list = document.querySelector("#messages");
+        list.addEventListener("scroll", () => resolve(), { once: true });
+        list.dispatchEvent(mobile ? new Event("touchmove") : new WheelEvent("wheel", { deltaY: -700 }));
+        list.scrollTop = Math.max(0, list.scrollTop - 700);
+      }), viewport.mobile);
+      const readBack = await ui.evaluate(() => {
+        const { held, request, cancel } = window.__frames;
+        window.requestAnimationFrame = request; window.cancelAnimationFrame = cancel;
+        for (const callback of held.splice(0)) callback?.(performance.now());
+        const list = document.querySelector("#messages");
+        return { pinned: autoScrollPinned, distance: Math.round(list.scrollHeight - list.scrollTop - list.clientHeight) };
+      });
+      assert.equal(readBack.pinned, false, "reading back ends following " + JSON.stringify(readBack));
+      assert(readBack.distance >= 180, "the list stays where it was scrolled " + JSON.stringify(readBack));
+      out.readBack = readBack.distance >= 180;
+      stage = "Pi: jump to latest while working";
       const scrollUp = async () => { for (let index = 0; index < 8; index += 1) { await ui.evaluate(() => { const list = document.querySelector("#messages"); list.scrollTop = 0; list.dispatchEvent(new Event("scroll")); }); await ui.waitForTimeout(60); } };
       const jump = () => ui.evaluate(() => {
         const button = document.querySelector("#scroll-bottom-btn"), composer = document.querySelector(".composer-inner") || document.querySelector(".composer");

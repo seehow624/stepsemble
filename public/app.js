@@ -7898,6 +7898,14 @@ function syncSessionStats(expectedSid = rpc?.sid) {
 }
 el.messages.addEventListener("scroll", () => {
   const distance = messageDistanceFromBottom();
+  // Moving up right after the person's own wheel, touch, key or scroll-bar
+  // drag is reading back. It ends following even when a frame that keeps the
+  // reply in view is already waiting; that frame would pull the list back
+  // down. Other movement under a waiting frame (the reply growing, the list
+  // being replaced) keeps following, as before.
+  const top = el.messages.scrollTop;
+  const readingBack = top < lastMessagesScrollTop - 1 && Date.now() < userScrollIntentUntil;
+  lastMessagesScrollTop = top;
   // A tap on the jump control keeps following the reply while it scrolls,
   // even as the reply grows under it.
   if (Date.now() < jumpToLatestUntil) {
@@ -7906,13 +7914,18 @@ el.messages.addEventListener("scroll", () => {
     return;
   }
   if (distance < 80) autoScrollPinned = true;
-  else if (!scrollFrame) autoScrollPinned = false;
+  else if (!scrollFrame || readingBack) {
+    autoScrollPinned = false;
+    if (scrollFrame) { cancelAnimationFrame(scrollFrame); scrollFrame = null; }
+  }
   updateScrollBottomButton();
 }, { passive: true });
 let jumpToLatestUntil = 0;
-// The user's own scrolling ends a jump at once.
-for (const type of ["wheel", "touchstart", "pointerdown", "keydown"]) {
-  el.messages.addEventListener(type, () => { jumpToLatestUntil = 0; }, { passive: true });
+let lastMessagesScrollTop = 0, userScrollIntentUntil = 0;
+// The user's own scrolling ends a jump at once, and for a moment marks the
+// list's movement as theirs.
+for (const type of ["wheel", "touchstart", "touchmove", "pointerdown", "keydown"]) {
+  el.messages.addEventListener(type, () => { jumpToLatestUntil = 0; userScrollIntentUntil = Date.now() + 800; }, { passive: true });
 }
 el.scrollBottomBtn?.addEventListener("click", () => {
   autoScrollPinned = true;
