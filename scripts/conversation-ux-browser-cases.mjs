@@ -153,8 +153,10 @@ export async function runConversationUxBrowserCases(browser) {
       });
       // A frame asked for before the hold runs first; then a piece of the
       // reply asks to be followed, as each one does (its rendering waits for a
-      // frame too, so it is asked for here directly).
-      await ui.waitForFunction(() => scrollFrame === null, null, { polling: 50, timeout: 10000 });
+      // frame too, so it is asked for here directly). A piece that arrives
+      // after the hold has already asked, and its frame is held: that is the
+      // waiting follow this case needs, not one to wait out.
+      await ui.waitForFunction(() => scrollFrame === null || scrollFrame >= 1e6, null, { polling: 50, timeout: 10000 });
       assert.equal(await ui.evaluate(() => { scrollBottom(true); return scrollFrame >= 1e6; }), true, "a follow frame is waiting");
       // The page's own scroll handler was added first, so it has run when this
       // listener hears the scroll.
