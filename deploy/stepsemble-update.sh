@@ -35,6 +35,12 @@ case "$INSTALL_DIR" in
   "$HOME/.local/share/pi-web") DEFAULT_SERVICE_LABEL="com.jerome.pi-web" ;;
 esac
 readonly SERVICE_LABEL="${STEPSEMBLE_SERVICE_LABEL:-${PI_HARBOR_SERVICE_LABEL:-${PI_WEB_SERVICE_LABEL:-$DEFAULT_SERVICE_LABEL}}}"
+readonly SERVER_PLIST="${STEPSEMBLE_SERVER_PLIST:-$HOME/Library/LaunchAgents/$SERVICE_LABEL.plist}"
+# Remembers a release whose move to Stepsemble.app failed, so it is not retried every hour.
+readonly MACOS_APP_STATE_FILE="$CONFIG_DIR/macos-app.json"
+# Present only while launchd reloads the Host; a later run loads it again if
+# this one stopped in between.
+readonly SERVER_RELOAD_MARKER="$CONFIG_DIR/server-reload.pending"
 readonly FORCE_UPDATE="${STEPSEMBLE_UPDATE_FORCE:-${PI_HARBOR_UPDATE_FORCE:-${PI_WEB_UPDATE_FORCE:-0}}}"
 # Set only when the user confirms "Update now" in the app. Scheduled and
 # deferred runs never install past running agent work.
@@ -358,6 +364,143 @@ wait_for_release_health() {
   return 1
 }
 
+# On macOS the Host runs through Stepsemble.app, so the folder access someone
+# grants Stepsemble survives updates (deploy/stepsemble-macos-app.sh). Each
+# release brings the app and that helper. A Host still started directly with
+# Node.js moves to the app when no agent work is running; the SSH launcher is
+# left as it is. None of this can stop an update: without the app, the Host
+# keeps starting the way it did.
+app_helper=""
+app_plist_backup=""
+app_changed=0
+app_plist_changed=0
+
+macos_app_ready() {
+  [[ "$(/usr/bin/uname -s)" == "Darwin" && "$SERVICE_LABEL" == "com.stepsemble.server" && -f "$SERVER_PLIST" ]] || return 1
+  [[ -f "$INSTALL_DIR/deploy/stepsemble-macos-app.sh" && -d "$INSTALL_DIR/macos/Stepsemble.app" ]] || return 1
+  # A rollback replaces the release, so undoing needs a copy of the helper.
+  app_helper="$work_dir/stepsemble-macos-app.sh"
+  /bin/cp "$INSTALL_DIR/deploy/stepsemble-macos-app.sh" "$app_helper"
+}
+
+app_launch_mode() { /bin/zsh "$app_helper" launch-mode "$SERVER_PLIST" 2>/dev/null || print other; }
+
+macos_app_failed_for() { [[ "$(json_value "$MACOS_APP_STATE_FILE" failedVersion)" == "${1#v}" ]]; }
+
+record_macos_app_failure() {
+  MACOS_APP_FAILED_VERSION="${1#v}" "$NODE_BIN" - "$MACOS_APP_STATE_FILE" <<'NODE' || true
+const fs = require("node:fs");
+fs.writeFileSync(process.argv[2], `${JSON.stringify({ failedVersion: process.env.MACOS_APP_FAILED_VERSION, failedAt: new Date().toISOString() })}\n`, { mode: 0o600 });
+NODE
+}
+
+# Installs the release's app for this Mac. With "move", a Host started
+# directly with Node.js is switched to the app as well.
+prepare_macos_app() {
+  local version="$1" allow_move="${2:-}" mode
+  app_changed=0
+  app_plist_changed=0
+  macos_app_ready || return 0
+  mode="$(app_launch_mode)"
+  case "$mode" in
+    app) /bin/zsh "$app_helper" check "$version" && return 0 ;;
+    node) [[ "$allow_move" == "move" ]] && ! macos_app_failed_for "$version" || return 0 ;;
+    *) return 0 ;;
+  esac
+  app_plist_backup="$work_dir/server.plist"
+  /bin/cp -p "$SERVER_PLIST" "$app_plist_backup"
+  if ! /bin/zsh "$app_helper" install "$INSTALL_DIR/macos/Stepsemble.app" >/dev/null; then
+    log "could not sign Stepsemble.app for this Mac; the Host keeps its current launcher"
+    # A Host whose app is gone could not start again at all.
+    if [[ "$mode" == "app" ]] && ! /bin/zsh "$app_helper" check && /bin/zsh "$app_helper" use-node "$SERVER_PLIST"; then
+      app_plist_changed=1
+    fi
+    return 0
+  fi
+  app_changed=1
+  [[ "$mode" == "node" ]] || return 0
+  if /bin/zsh "$app_helper" use-app "$SERVER_PLIST"; then
+    app_plist_changed=1
+  else
+    /bin/cp -p "$app_plist_backup" "$SERVER_PLIST"
+    /bin/zsh "$app_helper" restore >/dev/null 2>&1 || true
+    app_changed=0
+    log "could not move the Host to Stepsemble.app; it keeps starting with Node.js"
+  fi
+}
+
+undo_macos_app() {
+  if (( app_plist_changed )) && [[ -f "$app_plist_backup" ]]; then
+    /bin/cp -p "$app_plist_backup" "$SERVER_PLIST"
+  fi
+  if (( app_changed )); then
+    /bin/zsh "$app_helper" restore >/dev/null 2>&1 || log "could not put the previous Stepsemble.app back"
+  fi
+}
+
+# launchd reads a changed LaunchAgent only when it loads the job again.
+restart_service() {
+  local domain="gui/$(id -u)" attempt
+  if (( ! app_plist_changed )); then
+    "$LAUNCHCTL_BIN" kickstart -k "$domain/$SERVICE_LABEL" >/dev/null 2>&1 || log "release installed; launchd restart was not available"
+    return 0
+  fi
+  : > "$SERVER_RELOAD_MARKER"
+  "$LAUNCHCTL_BIN" bootout "$domain/$SERVICE_LABEL" >/dev/null 2>&1 || true
+  for attempt in {1..60}; do
+    "$LAUNCHCTL_BIN" print "$domain/$SERVICE_LABEL" >/dev/null 2>&1 || break
+    /bin/sleep 1
+  done
+  for attempt in {1..10}; do
+    "$LAUNCHCTL_BIN" bootstrap "$domain" "$SERVER_PLIST" >/dev/null 2>&1 && break
+    /bin/sleep 1
+  done
+  if "$LAUNCHCTL_BIN" print "$domain/$SERVICE_LABEL" >/dev/null 2>&1; then
+    /bin/rm -f -- "$SERVER_RELOAD_MARKER"
+  else
+    log "launchd did not load the Host again"
+  fi
+}
+
+# A previous run stopped between unloading and loading the Host.
+reload_interrupted_service() {
+  [[ -f "$SERVER_RELOAD_MARKER" ]] || return 0
+  if [[ -f "$SERVER_PLIST" ]] && ! "$LAUNCHCTL_BIN" print "gui/$(id -u)/$SERVICE_LABEL" >/dev/null 2>&1; then
+    "$LAUNCHCTL_BIN" bootstrap "gui/$(id -u)" "$SERVER_PLIST" >/dev/null 2>&1 || log "launchd did not load the Host"
+  fi
+  /bin/rm -f -- "$SERVER_RELOAD_MARKER"
+}
+
+# An up-to-date Host that still starts with Node.js, or whose app is missing or
+# from another release, gets the current app.
+settle_macos_app() {
+  local version="$1" mode
+  macos_app_ready || return 0
+  mode="$(app_launch_mode)"
+  case "$mode" in
+    node) ! macos_app_failed_for "$version" || return 0 ;;
+    app) /bin/zsh "$app_helper" check "$version" && return 0 ;;
+    *) return 0 ;;
+  esac
+  # A Host that is down (its app is gone) has no work to wait for.
+  if release_health_ok "$version" && active_rpc_running; then
+    log "Stepsemble.app setup waits until the current agent work finishes"
+    return 0
+  fi
+  prepare_macos_app "$version" move
+  (( app_changed || app_plist_changed )) || return 0
+  restart_service
+  if wait_for_release_health "$version"; then
+    (( ! app_plist_changed )) || log "the Host now starts through Stepsemble.app"
+    return 0
+  fi
+  log "the Host did not become healthy through Stepsemble.app; going back"
+  undo_macos_app
+  restart_service
+  (( ! app_plist_changed )) || record_macos_app_failure "$version"
+  wait_for_release_health "$version" || log "the Host is not healthy yet"
+}
+
 enabled="$(json_value "$CONFIG_FILE" enabled)"
 repository="$(json_value "$CONFIG_FILE" repository)"
 ref="$(json_value "$CONFIG_FILE" ref)"
@@ -402,6 +545,7 @@ cleanup_all() {
 trap cleanup_all EXIT
 
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/stepsemble-update.XXXXXX")"
+reload_interrupted_service
 metadata="$work_dir/release.json"
 if ! fetch_release_metadata "$metadata"; then
   write_state "Could not read the latest GitHub release" "$now" "" "$installed_version" "" "error" ""
@@ -418,6 +562,7 @@ fi
 
 if ! release_is_newer "$installed_version" "$latest_version"; then
   write_state "" "$now" "$installed_version" "$installed_version" "" "up_to_date" ""
+  settle_macos_app "$installed_version"
   exit 0
 fi
 
@@ -471,17 +616,26 @@ if ! mv "$stage_dir" "$INSTALL_DIR"; then
   [[ ! -e "$backup_dir" ]] || mv "$backup_dir" "$INSTALL_DIR"
   die "could not activate the release"
 fi
+# Moving a Host to the app waits for a run without agent work; "Update now"
+# may be interrupting some.
+if [[ "$INTERRUPT_UPDATE" == "1" ]]; then
+  prepare_macos_app "$latest_version"
+else
+  prepare_macos_app "$latest_version" move
+fi
 
 updated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 write_state "" "$now" "$latest_version" "$latest_version" "$updated_at" "updated" ""
-"$LAUNCHCTL_BIN" kickstart -k "gui/$(id -u)/$SERVICE_LABEL" >/dev/null 2>&1 || log "release installed; launchd restart was not available"
+restart_service
 write_state "" "$now" "$latest_version" "$latest_version" "$updated_at" "health_check" ""
 if ! wait_for_release_health "$latest_version"; then
   log "the new release did not pass its health check; rolling back"
   write_state "The new release did not become healthy and was rolled back" "$now" "$latest_version" "$installed_version" "$updated_at" "rollback" "health_check_failed"
   if [[ -e "$INSTALL_DIR" ]]; then rm -rf -- "$INSTALL_DIR"; fi
   if [[ -e "$backup_dir" ]]; then mv "$backup_dir" "$INSTALL_DIR"; else die "rollback was requested but the previous release is missing"; fi
-  "$LAUNCHCTL_BIN" kickstart -k "gui/$(id -u)/$SERVICE_LABEL" >/dev/null 2>&1 || true
+  undo_macos_app
+  restart_service
+  (( ! app_plist_changed )) || record_macos_app_failure "$latest_version"
   wait_for_release_health "$installed_version" || log "rollback installed but the previous release is not healthy yet"
   die "release health check failed; previous release restored"
 fi

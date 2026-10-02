@@ -55,6 +55,10 @@ The installer:
 - installs a private Node.js runtime only when Node 22.19 or newer is missing;
 - downloads the latest GitHub Release and verifies its SHA-256 checksum;
 - creates a local Web token at `~/.config/stepsemble/token`, a launchd service, and an hourly stable-release updater;
+- signs Stepsemble.app for this Mac and installs it in `~/Applications`. The app
+  starts the Host, so macOS asks once whether Stepsemble may use Documents,
+  Desktop, Downloads, iCloud Drive and other drives, and keeps the answer
+  through Stepsemble and Node.js updates;
 - migrates earlier installations without changing native agent
   sessions, project files, provider credentials, approvals, or the existing
   Web token.
@@ -345,7 +349,9 @@ from other apps** has a switch to show them.
 
 The uninstaller asks whether to remove only Stepsemble or Stepsemble and the Pi
 executable. It moves Stepsemble files to the Trash. Pi sessions, provider
-credentials, and project folders are preserved in both choices.
+credentials, and project folders are preserved in both choices. Stepsemble.app
+and its signing certificate go to the Trash too, and the folder permissions macOS
+kept for the app are cleared.
 
 ## Local paths
 
@@ -353,6 +359,8 @@ credentials, and project folders are preserved in both choices.
 | --- | --- |
 | `~/.local/share/stepsemble` | Application release |
 | `~/.local/share/stepsemble-bin` | Updater and uninstaller |
+| `~/Applications/Stepsemble.app` | Starts the Host on macOS; signed on this Mac |
+| `~/Library/Application Support/Stepsemble` | This Mac's signing certificate for the app, and the app the last update replaced |
 | `~/.config/stepsemble` | Web token, hash-only access tokens, device-trust grants, and update preferences |
 | `~/.config/stepsemble/tokens.json` | Additional access-token hashes; mode `600` |
 | `~/.local/state/stepsemble` | Local service logs and migration state |
@@ -369,8 +377,17 @@ folder, `/media`, `/mnt` and `/run/media/<user>` on Linux; and every drive on
 Windows (`*:\` in `STEPSEMBLE_BROWSE_ROOTS`). A manually started server browses only
 the home folder. Setting `STEPSEMBLE_BROWSE_ROOTS` replaces these defaults. On
 macOS, Documents, Desktop, Downloads, iCloud Drive and external drives also need
-macOS permission for the Node.js that runs Stepsemble; when a folder is refused,
-Add project shows that Node.js and opens Full Disk Access on that Mac.
+macOS permission for Stepsemble. The installer signs Stepsemble.app with a
+certificate made on that Mac and kept in `~/Library/Application Support/Stepsemble`,
+and starts the Host through the app, so macOS asks about Stepsemble rather than
+about one Node.js. The app opens when the installer finishes: choose Allow
+access, then answer macOS for each place. When a folder is refused later, Add
+project opens the app on that Mac; its Full Disk Access button covers a place
+turned down before. An installation from before 3.8.26 moves to the app at the
+first update check after it updates, once no agent is working. A Host started
+over SSH (`stepsemble-mini-start.sh`), or one without the app, still needs
+permission for the Node.js that runs it: Add project shows that Node.js and
+opens Full Disk Access.
 
 See the generic templates in [`deploy/`](deploy/)
 for advanced launchd setups.

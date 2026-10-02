@@ -24,7 +24,28 @@ jobs:
           package-manager-cache: false
       - name: Validate macOS shell scripts
         if: runner.os == 'macOS'
-        run: zsh -n install.sh uninstall.sh deploy/*.sh
+        run: zsh -n install.sh uninstall.sh deploy/*.sh macos/*.sh
+      - name: Build, sign, and start the macOS app
+        if: runner.os == 'macOS'
+        run: |
+          app_dir="$RUNNER_TEMP/macos-app"
+          macos/build-app.sh "$app_dir/Stepsemble.app"
+          lipo "$app_dir/Stepsemble.app/Contents/MacOS/Stepsemble" -verify_arch arm64 x86_64
+          export STEPSEMBLE_APP_PATH="$RUNNER_TEMP/signed/Applications/Stepsemble.app"
+          export STEPSEMBLE_APP_SUPPORT_DIR="$RUNNER_TEMP/signed/Support/Stepsemble"
+          keychains="$(security list-keychains -d user)"
+          zsh deploy/stepsemble-macos-app.sh install "$app_dir/Stepsemble.app"
+          test "$(security list-keychains -d user)" = "$keychains"
+          zsh deploy/stepsemble-macos-app.sh check "$(node -p 'require("./package.json").version')"
+          codesign -d -r- "$STEPSEMBLE_APP_PATH" 2>&1 | grep 'identifier "com.stepsemble.app" and certificate leaf' > /dev/null
+          sed -e "s|__USER__|$USER|g" -e "s|__NODE__|$(command -v node)|g" -e 's|__PIBIN__||g' -e 's|__PORT__|3140|g' \
+            -e 's|__TOKEN_FILE__|/tmp/token|g' deploy/com.stepsemble.server.plist > "$RUNNER_TEMP/server.plist"
+          zsh deploy/stepsemble-macos-app.sh use-app "$RUNNER_TEMP/server.plist"
+          test "$(zsh deploy/stepsemble-macos-app.sh launch-mode "$RUNNER_TEMP/server.plist")" = app
+          zsh deploy/stepsemble-macos-app.sh use-node "$RUNNER_TEMP/server.plist"
+          test "$(zsh deploy/stepsemble-macos-app.sh launch-mode "$RUNNER_TEMP/server.plist")" = node
+          "$STEPSEMBLE_APP_PATH/Contents/MacOS/Stepsemble" --serve "$(command -v node)" \
+            -e 'process.exit(process.env.STEPSEMBLE_APP_BUNDLE === process.env.STEPSEMBLE_APP_PATH ? 7 : 1)' || test $? -eq 7
       - name: Validate Linux installer
         if: runner.os == 'Linux'
         run: bash -n install-linux.sh

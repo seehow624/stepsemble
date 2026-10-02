@@ -22,6 +22,11 @@ Cline、Kilo 和 Hermes 在本机存在可执行文件时使用官方 ACP；不�
 安装程序会检查 Pi Agent 与 Node.js、下载并验证最新稳定 Release、创建
 launchd 服务和自动更新。如果没有 Pi Agent，会先询问是否使用 Pi 官方安装程序。
 
+安装程序会用这台 Mac 自己生成的证书为 Stepsemble.app 签名，放进 `~/Applications`，
+由它启动 Stepsemble。macOS 因此只会针对 Stepsemble 询问一次能否使用文稿、桌面、
+下载、iCloud 云盘和其他磁盘，之后 Stepsemble 或 Node.js 更新都不需要重新允许。
+安装完成时会打开 Stepsemble 窗口：点按“允许访问”，再逐一回应 macOS 的询问。
+
 Linux 可改用 `install-linux.sh`，会创建用户级 systemd 服务和每小时更新计时器：
 
 ```bash
@@ -44,9 +49,12 @@ Linux 安装程序会为你的账户开启一次 systemd linger，注销后 Step
 
 “Add project”可以浏览的位置：macOS 是主目录和 `/Volumes`；Linux 另外包括 `/media`、
 `/mnt` 和 `/run/media/<用户>`；Windows 是所有驱动器。设置 `STEPSEMBLE_BROWSE_ROOTS`
-会替换这些默认值。macOS 上的文稿、桌面、下载、iCloud 云盘和外置磁盘，还需要 macOS
-允许运行 Stepsemble 的 Node.js；文件夹被拒绝时，“Add project”会显示这个 Node.js，
-并可以在那台 Mac 上打开“完全磁盘访问权限”。
+会替换这些默认值。macOS 上的文稿、桌面、下载、iCloud 云盘和外置磁盘，需要 macOS
+允许 Stepsemble 使用；文件夹被拒绝时，“Add project”会在那台 Mac 上打开 Stepsemble
+窗口，以前拒绝过的位置可以在同一个窗口打开“完全磁盘访问权限”。3.8.26 以前安装的
+主机更新后，会在没有 Agent 工作时的第一次更新检查改由 App 启动。通过 SSH 启动
+（`stepsemble-mini-start.sh`）或没有 App 的主机，仍需要允许运行 Stepsemble 的
+Node.js；这时“Add project”会显示这个 Node.js，并可以打开“完全磁盘访问权限”。
 
 安装完成后，在运行 Stepsemble 的电脑上打开终端并运行：
 
@@ -114,6 +122,7 @@ credential、gateway 或 session store。可用 `STEPSEMBLE_CLINE_ACP=0`、
 ```
 
 可以选择只删除 Stepsemble，或连同 Pi Agent 可执行文件一起删除；会话、凭证和项目文件夹都会保留。
+Stepsemble.app 和它的签名证书也会移到废纸篓，macOS 为它保留的文件夹权限会一并清除。
 
 ## 开发与测试
 

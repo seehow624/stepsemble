@@ -38,6 +38,9 @@ const { createProjectFolder } = require("./server/project-folders");
 const {
   parseBrowseRoots, isWithin, onAnyDrive, driveRootLabel, createDriveProbe, createFolderReader, folderReadFailure,
 } = require("./server/browse-roots");
+const { takeMacosApp, macosAppOpenArguments } = require("./server/macos-app");
+// Set when Stepsemble.app started this Host; null otherwise.
+const MACOS_APP = takeMacosApp();
 const { createAgentModeRoutes, codexTurnPermissions, modeOption } = require("./server/agent-mode-routes");
 const { applyNativeLaunchConfig, isInstalledRuntime } = require("./server/native-launch-config");
 const { createCodexNativePool } = require("./server/codex-native-pool");
@@ -111,7 +114,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.25";
+const APP_VERSION = "3.8.26";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -7629,14 +7632,26 @@ const server = http.createServer(async (req, res) => {
           error: result.code, code: result.code,
           // The Add project dialog explains a refusal by the system: macOS
           // privacy protection (EPERM) or Windows Controlled folder access.
-          ...(result.code === "not_writable" ? { reason: result.reason, platform: process.platform, runtime: process.execPath } : {}),
+          ...(result.code === "not_writable" ? { reason: result.reason, platform: process.platform, runtime: process.execPath, ...(MACOS_APP ? { app: true } : {}) } : {}),
         });
         return;
       }
-      // Opens Privacy & Security → Full Disk Access on this Mac and shows the
-      // Node.js that runs the Host in Finder, ready to drag into the list.
+      // When Stepsemble.app starts the Host, opens its window on this Mac,
+      // which asks macOS about each place. Otherwise opens Privacy & Security
+      // → Full Disk Access and shows the Node.js that runs the Host in Finder,
+      // ready to drag into the list.
       if (p === "/api/host/privacy-settings" && req.method === "POST") {
         if (process.platform !== "darwin") { sendJSON(res, 404, { error: "not available on this Host", code: "not_supported" }); return; }
+        if (MACOS_APP) {
+          try {
+            await new Promise((resolve, reject) => execFile("/usr/bin/open", macosAppOpenArguments(MACOS_APP), { timeout: 10_000 }, error => (error ? reject(error) : resolve())));
+          } catch {
+            sendJSON(res, 500, { error: "Could not open Stepsemble", code: "open_failed" });
+            return;
+          }
+          sendJSON(res, 200, { opened: true, app: true });
+          return;
+        }
         try {
           await new Promise((resolve, reject) => execFile("/usr/bin/open", [FULL_DISK_ACCESS_SETTINGS], { timeout: 10_000 }, error => (error ? reject(error) : resolve())));
         } catch {
@@ -7666,7 +7681,7 @@ const server = http.createServer(async (req, res) => {
         else if (dir === "~" || dir.startsWith("~/") || dir.startsWith("~\\")) dir = path.join(APP_HOME, dir.slice(1));
         if (!path.isAbsolute(dir)) { sendJSON(res, 400, { error: "absolute path required" }); return; }
         try { dir = await realBrowsePathAsync(dir); } catch (e) {
-          const failure = folderReadFailure(e);
+          const failure = folderReadFailure(e, { app: !!MACOS_APP });
           sendJSON(res, failure.status, failure.body);
           return;
         }
@@ -7688,7 +7703,7 @@ const server = http.createServer(async (req, res) => {
             // stop every conversation on the Host until the dialog is answered.
             entries = await browseFolders.read(dir);
           } catch (e) {
-            const failure = folderReadFailure(e);
+            const failure = folderReadFailure(e, { app: !!MACOS_APP });
             sendJSON(res, failure.status, failure.body);
             return;
           }

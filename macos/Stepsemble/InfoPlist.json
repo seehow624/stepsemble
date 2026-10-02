@@ -1,0 +1,102 @@
+{
+  "zh-Hant": {
+    "NSDocumentsFolderUsageDescription": "Stepsemble 會開啟「文件」裡的專案，讓你和 Agent 在裡面工作。",
+    "NSDesktopFolderUsageDescription": "Stepsemble 會開啟「桌面」上的專案，讓你和 Agent 在裡面工作。",
+    "NSDownloadsFolderUsageDescription": "Stepsemble 會開啟「下載項目」裡的專案，讓你和 Agent 在裡面工作。",
+    "NSRemovableVolumesUsageDescription": "Stepsemble 會開啟外接磁碟上的專案，讓你和 Agent 在裡面工作。",
+    "NSNetworkVolumesUsageDescription": "Stepsemble 會開啟網路磁碟上的專案，讓你和 Agent 在裡面工作。",
+    "NSFileProviderDomainUsageDescription": "Stepsemble 會開啟 iCloud 雲碟等雲端資料夾裡的專案，讓你和 Agent 在裡面工作。",
+    "NSAppleEventsUsageDescription": "你在 Stepsemble 交給 Agent 的工作，可能需要控制其他 App 才能完成。",
+    "NSLocalNetworkUsageDescription": "Stepsemble 會連到這個網路上其他執行 Stepsemble 的電腦。"
+  },
+  "zh-Hans": {
+    "NSDocumentsFolderUsageDescription": "Stepsemble 会打开“文稿”中的项目，让你和 Agent 在其中工作。",
+    "NSDesktopFolderUsageDescription": "Stepsemble 会打开“桌面”上的项目，让你和 Agent 在其中工作。",
+    "NSDownloadsFolderUsageDescription": "Stepsemble 会打开“下载”中的项目，让你和 Agent 在其中工作。",
+    "NSRemovableVolumesUsageDescription": "Stepsemble 会打开外置磁盘上的项目，让你和 Agent 在其中工作。",
+    "NSNetworkVolumesUsageDescription": "Stepsemble 会打开网络磁盘上的项目，让你和 Agent 在其中工作。",
+    "NSFileProviderDomainUsageDescription": "Stepsemble 会打开 iCloud 云盘等云端文件夹中的项目，让你和 Agent 在其中工作。",
+    "NSAppleEventsUsageDescription": "你在 Stepsemble 中交给 Agent 的任务，可能需要控制其他 App 才能完成。",
+    "NSLocalNetworkUsageDescription": "Stepsemble 会连接这个网络上其他运行 Stepsemble 的电脑。"
+  },
+  "ja": {
+    "NSDocumentsFolderUsageDescription": "Stepsemble は「書類」フォルダのプロジェクトを開き、あなたとエージェントがそこで作業できるようにします。",
+    "NSDesktopFolderUsageDescription": "Stepsemble はデスクトップのプロジェクトを開き、あなたとエージェントがそこで作業できるようにします。",
+    "NSDownloadsFolderUsageDescription": "Stepsemble は「ダウンロード」フォルダのプロジェクトを開き、あなたとエージェントがそこで作業できるようにします。",
+    "NSRemovableVolumesUsageDescription": "Stepsemble は外部ドライブのプロジェクトを開き、あなたとエージェントがそこで作業できるようにします。",
+    "NSNetworkVolumesUsageDescription": "Stepsemble はネットワークドライブのプロジェクトを開き、あなたとエージェントがそこで作業できるようにします。",
+    "NSFileProviderDomainUsageDescription": "Stepsemble は iCloud Drive などのクラウドフォルダのプロジェクトを開き、あなたとエージェントがそこで作業できるようにします。",
+    "NSAppleEventsUsageDescription": "Stepsemble で依頼した作業のために、エージェントがほかのアプリを操作することがあります。",
+    "NSLocalNetworkUsageDescription": "Stepsemble は、このネットワーク上で Stepsemble を実行しているほかのコンピュータに接続します。"
+  },
+  "ko": {
+    "NSDocumentsFolderUsageDescription": "Stepsemble은 문서 폴더의 프로젝트를 열어 사용자와 에이전트가 그 안에서 작업할 수 있게 합니다.",
+    "NSDesktopFolderUsageDescription": "Stepsemble은 데스크탑의 프로젝트를 열어 사용자와 에이전트가 그 안에서 작업할 수 있게 합니다.",
+    "NSDownloadsFolderUsageDescription": "Stepsemble은 다운로드 폴더의 프로젝트를 열어 사용자와 에이전트가 그 안에서 작업할 수 있게 합니다.",
+    "NSRemovableVolumesUsageDescription": "Stepsemble은 외장 드라이브의 프로젝트를 열어 사용자와 에이전트가 그 안에서 작업할 수 있게 합니다.",
+    "NSNetworkVolumesUsageDescription": "Stepsemble은 네트워크 드라이브의 프로젝트를 열어 사용자와 에이전트가 그 안에서 작업할 수 있게 합니다.",
+    "NSFileProviderDomainUsageDescription": "Stepsemble은 iCloud Drive 등 클라우드 폴더의 프로젝트를 열어 사용자와 에이전트가 그 안에서 작업할 수 있게 합니다.",
+    "NSAppleEventsUsageDescription": "Stepsemble에서 맡긴 작업을 위해 에이전트가 다른 앱을 제어할 수 있습니다.",
+    "NSLocalNetworkUsageDescription": "Stepsemble은 이 네트워크에서 Stepsemble을 실행 중인 다른 컴퓨터에 연결합니다."
+  },
+  "tr": {
+    "NSDocumentsFolderUsageDescription": "Stepsemble, sizin ve ajanlarınızın çalışabilmesi için Belgeler klasörünüzdeki projeleri açar.",
+    "NSDesktopFolderUsageDescription": "Stepsemble, sizin ve ajanlarınızın çalışabilmesi için Masaüstünüzdeki projeleri açar.",
+    "NSDownloadsFolderUsageDescription": "Stepsemble, sizin ve ajanlarınızın çalışabilmesi için İndirilenler klasörünüzdeki projeleri açar.",
+    "NSRemovableVolumesUsageDescription": "Stepsemble, sizin ve ajanlarınızın çalışabilmesi için harici disklerdeki projeleri açar.",
+    "NSNetworkVolumesUsageDescription": "Stepsemble, sizin ve ajanlarınızın çalışabilmesi için ağ disklerindeki projeleri açar.",
+    "NSFileProviderDomainUsageDescription": "Stepsemble, sizin ve ajanlarınızın çalışabilmesi için iCloud Drive ve diğer bulut klasörlerindeki projeleri açar.",
+    "NSAppleEventsUsageDescription": "Stepsemble'da verdiğiniz bir iş için ajanlar başka uygulamaları denetlemek isteyebilir.",
+    "NSLocalNetworkUsageDescription": "Stepsemble, bu ağda Stepsemble çalıştıran diğer bilgisayarlarınıza bağlanır."
+  },
+  "fr": {
+    "NSDocumentsFolderUsageDescription": "Stepsemble ouvre les projets de votre dossier Documents pour que vous et vos agents puissiez y travailler.",
+    "NSDesktopFolderUsageDescription": "Stepsemble ouvre les projets de votre Bureau pour que vous et vos agents puissiez y travailler.",
+    "NSDownloadsFolderUsageDescription": "Stepsemble ouvre les projets de votre dossier Téléchargements pour que vous et vos agents puissiez y travailler.",
+    "NSRemovableVolumesUsageDescription": "Stepsemble ouvre les projets des disques externes pour que vous et vos agents puissiez y travailler.",
+    "NSNetworkVolumesUsageDescription": "Stepsemble ouvre les projets des disques réseau pour que vous et vos agents puissiez y travailler.",
+    "NSFileProviderDomainUsageDescription": "Stepsemble ouvre les projets d’iCloud Drive et d’autres dossiers cloud pour que vous et vos agents puissiez y travailler.",
+    "NSAppleEventsUsageDescription": "Les agents que vous lancez dans Stepsemble peuvent demander à contrôler d’autres apps pour une tâche que vous leur avez confiée.",
+    "NSLocalNetworkUsageDescription": "Stepsemble se connecte à vos autres ordinateurs qui exécutent Stepsemble sur ce réseau."
+  },
+  "de": {
+    "NSDocumentsFolderUsageDescription": "Stepsemble öffnet Projekte im Ordner „Dokumente“, um darin mit Agents zu arbeiten.",
+    "NSDesktopFolderUsageDescription": "Stepsemble öffnet Projekte auf dem Schreibtisch, um darin mit Agents zu arbeiten.",
+    "NSDownloadsFolderUsageDescription": "Stepsemble öffnet Projekte im Ordner „Downloads“, um darin mit Agents zu arbeiten.",
+    "NSRemovableVolumesUsageDescription": "Stepsemble öffnet Projekte auf externen Laufwerken, um darin mit Agents zu arbeiten.",
+    "NSNetworkVolumesUsageDescription": "Stepsemble öffnet Projekte auf Netzwerklaufwerken, um darin mit Agents zu arbeiten.",
+    "NSFileProviderDomainUsageDescription": "Stepsemble öffnet Projekte in iCloud Drive und anderen Cloud-Ordnern, um darin mit Agents zu arbeiten.",
+    "NSAppleEventsUsageDescription": "In Stepsemble gestartete Agents können für eine übertragene Aufgabe andere Apps steuern wollen.",
+    "NSLocalNetworkUsageDescription": "Stepsemble verbindet sich mit anderen Computern in diesem Netzwerk, auf denen Stepsemble läuft."
+  },
+  "es": {
+    "NSDocumentsFolderUsageDescription": "Stepsemble abre los proyectos de tu carpeta Documentos para que puedas trabajar en ellos con tus agentes.",
+    "NSDesktopFolderUsageDescription": "Stepsemble abre los proyectos de tu Escritorio para que puedas trabajar en ellos con tus agentes.",
+    "NSDownloadsFolderUsageDescription": "Stepsemble abre los proyectos de tu carpeta Descargas para que puedas trabajar en ellos con tus agentes.",
+    "NSRemovableVolumesUsageDescription": "Stepsemble abre los proyectos de discos externos para que puedas trabajar en ellos con tus agentes.",
+    "NSNetworkVolumesUsageDescription": "Stepsemble abre los proyectos de discos de red para que puedas trabajar en ellos con tus agentes.",
+    "NSFileProviderDomainUsageDescription": "Stepsemble abre los proyectos de iCloud Drive y otras carpetas en la nube para que puedas trabajar en ellos con tus agentes.",
+    "NSAppleEventsUsageDescription": "Los agentes que ejecutas en Stepsemble pueden pedir controlar otras apps para una tarea que les diste.",
+    "NSLocalNetworkUsageDescription": "Stepsemble se conecta a tus otros equipos que ejecutan Stepsemble en esta red."
+  },
+  "pt-BR": {
+    "NSDocumentsFolderUsageDescription": "O Stepsemble abre os projetos da sua pasta Documentos para que você trabalhe neles com seus agentes.",
+    "NSDesktopFolderUsageDescription": "O Stepsemble abre os projetos da sua Mesa para que você trabalhe neles com seus agentes.",
+    "NSDownloadsFolderUsageDescription": "O Stepsemble abre os projetos da sua pasta Downloads para que você trabalhe neles com seus agentes.",
+    "NSRemovableVolumesUsageDescription": "O Stepsemble abre os projetos de discos externos para que você trabalhe neles com seus agentes.",
+    "NSNetworkVolumesUsageDescription": "O Stepsemble abre os projetos de discos de rede para que você trabalhe neles com seus agentes.",
+    "NSFileProviderDomainUsageDescription": "O Stepsemble abre os projetos do iCloud Drive e de outras pastas na nuvem para que você trabalhe neles com seus agentes.",
+    "NSAppleEventsUsageDescription": "Os agentes que você executa no Stepsemble podem pedir para controlar outros apps em uma tarefa que você deu a eles.",
+    "NSLocalNetworkUsageDescription": "O Stepsemble se conecta aos seus outros computadores que executam o Stepsemble nesta rede."
+  },
+  "it": {
+    "NSDocumentsFolderUsageDescription": "Stepsemble apre i progetti nella cartella Documenti per permettere a te e ai tuoi agenti di lavorarci.",
+    "NSDesktopFolderUsageDescription": "Stepsemble apre i progetti sulla Scrivania per permettere a te e ai tuoi agenti di lavorarci.",
+    "NSDownloadsFolderUsageDescription": "Stepsemble apre i progetti nella cartella Download per permettere a te e ai tuoi agenti di lavorarci.",
+    "NSRemovableVolumesUsageDescription": "Stepsemble apre i progetti sui dischi esterni per permettere a te e ai tuoi agenti di lavorarci.",
+    "NSNetworkVolumesUsageDescription": "Stepsemble apre i progetti sui dischi di rete per permettere a te e ai tuoi agenti di lavorarci.",
+    "NSFileProviderDomainUsageDescription": "Stepsemble apre i progetti in iCloud Drive e in altre cartelle cloud per permettere a te e ai tuoi agenti di lavorarci.",
+    "NSAppleEventsUsageDescription": "Gli agenti avviati in Stepsemble possono chiedere di controllare altre app per un’attività che hai affidato loro.",
+    "NSLocalNetworkUsageDescription": "Stepsemble si collega agli altri tuoi computer che eseguono Stepsemble su questa rete."
+  }
+}

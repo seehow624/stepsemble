@@ -102,7 +102,20 @@ export async function runProjectPickerBrowserCases(browser) {
         await problem.getByRole('button', { name: /^Open Full Disk Access on / }).click();
         await page.locator('#workspace-toast').getByText('System Settings is open on', { exact: false }).waitFor();
         assert.equal(privacyRequests, 1);
-        await page.unroute(refused, refuse);
+        // A Host that Stepsemble.app started sends people to the app's window.
+        const refuseApp = json(403, { error: 'EPERM: operation not permitted, scandir', code: 'folder_privacy', platform: 'darwin',
+          runtime: '/opt/node/bin/node', app: true });
+        const openApp = route => { privacyRequests++; return json(200, { opened: true, app: true })(route); };
+        await page.unroute(refused, refuse); await page.route(refused, refuseApp);
+        await page.unroute('**/api/host/privacy-settings', openSettings); await page.route('**/api/host/privacy-settings', openApp);
+        await problem.getByRole('button', { name: 'Try again', exact: true }).click();
+        await problem.getByText('open Stepsemble, choose Allow access', { exact: false }).waitFor();
+        assert.equal(await problem.locator('.workspace-folder-runtime').count(), 0, 'the app, not Node.js, is what to allow');
+        await problem.getByRole('button', { name: /^Open Stepsemble on / }).click();
+        await page.locator('#workspace-toast').getByText('Stepsemble is open on', { exact: false }).waitFor();
+        assert.equal(privacyRequests, 2);
+        await page.unroute(refused, refuseApp);
+        await page.unroute('**/api/host/privacy-settings', openApp); await page.route('**/api/host/privacy-settings', openSettings);
         await problem.getByRole('button', { name: 'Try again', exact: true }).click();
         await page.locator('.workspace-folder-empty', { hasText: 'No folders here' }).waitFor();
         assert.ok((await pathInput.inputValue()).endsWith('/Folder 002'), 'Try again opens the folder once the Host can read it');

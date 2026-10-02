@@ -763,14 +763,17 @@
       : error?.code === "folder_waiting" ? t(error.detail?.platform === "darwin" ? "folderWaitingMac" : "folderWaiting", { host: hostName(target) })
       // The system refused rather than the folder: macOS privacy protection,
       // or Windows Controlled folder access.
-      : error?.code === "not_writable" && error.detail?.platform === "darwin" && error.detail?.reason === "EPERM" ? t("folderPrivacy", { host: hostName(target) })
+      : error?.code === "not_writable" && error.detail?.platform === "darwin" && error.detail?.reason === "EPERM" ? t(error.detail?.app === true ? "folderPrivacyApp" : "folderPrivacy", { host: hostName(target) })
       : error?.code === "not_writable" && error.detail?.platform === "win32" ? t("folderWindowsProtected", { runtime: error.detail.runtime || "node.exe" })
       : error?.status === 403 ? t("folderNotAllowed") : t("folderCreateFailed");
     // A folder the Host could not read says why, and what to do on that Host:
-    // allow its Node.js on a Mac, answer a dialog there, or try again later.
+    // allow Stepsemble (or, without the app, its Node.js) on a Mac, answer a
+    // dialog there, or try again later.
     function folderProblem(error, retry) {
       const box = node("div", "", "workspace-folder-problem"), detail = error?.detail || {}, where = hostName(target);
-      const message = error?.code === "folder_privacy" ? t("folderPrivacy", { host: where })
+      // Stepsemble.app started that Host: its window asks macOS for access.
+      const viaApp = detail.app === true;
+      const message = error?.code === "folder_privacy" ? t(viaApp ? "folderPrivacyApp" : "folderPrivacy", { host: where })
         : error?.code === "folder_waiting" ? t(detail.platform === "darwin" ? "folderWaitingMac" : "folderWaiting", { host: where })
         : error?.code === "folder_permission" ? t("folderPermission")
         : error?.message || t("loadFailed");
@@ -780,18 +783,23 @@
       if (!known) return box;
       const actions = node("div", "", "workspace-folder-problem-actions");
       if (error.code === "folder_privacy") {
-        const openSettings = button(t("openPrivacySettings", { host: where }), async () => {
+        const label = t(viaApp ? "openStepsembleApp" : "openPrivacySettings", { host: where });
+        const openSettings = button(label, async () => {
           openSettings.disabled = true;
-          try { await api("/api/host/privacy-settings", {}, target); toast(t("privacySettingsOpened", { host: where })); }
-          catch (failure) { toast(failure.code === "open_failed" ? t("privacySettingsFailed", { host: where }) : failure.message); }
+          try {
+            const opened = await api("/api/host/privacy-settings", {}, target);
+            toast(t(opened?.app === true ? "stepsembleAppOpened" : "privacySettingsOpened", { host: where }));
+          }
+          catch (failure) { toast(failure.code === "open_failed" ? t(viaApp ? "stepsembleAppFailed" : "privacySettingsFailed", { host: where }) : failure.message); }
           finally { openSettings.disabled = false; }
-        }, t("openPrivacySettings", { host: where }), "btn ghost workspace-folder-privacy");
+        }, label, "btn ghost workspace-folder-privacy");
         actions.append(openSettings);
       }
       actions.append(button(t("tryAgain"), retry, t("tryAgain"), "btn ghost workspace-folder-retry"));
       box.append(actions);
-      // The actions come first; the Node.js path is the detail below them.
-      if (error.code === "folder_privacy" && typeof detail.runtime === "string" && detail.runtime) {
+      // The actions come first; the Node.js path is the detail below them,
+      // shown only when that Node.js is what macOS asks about.
+      if (error.code === "folder_privacy" && !viaApp && typeof detail.runtime === "string" && detail.runtime) {
         box.append(node("p", t("folderRuntime", { host: where }), "workspace-folder-runtime-label"), node("code", detail.runtime, "workspace-folder-runtime"));
       }
       return box;

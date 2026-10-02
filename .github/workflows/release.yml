@@ -32,11 +32,31 @@ jobs:
           npm run check:protocol
           npm run check:protocol:conformance
           npm test
+      - name: Build the macOS app
+        id: app
+        run: |
+          app_dir="$RUNNER_TEMP/macos-app"
+          macos/build-app.sh "$app_dir/Stepsemble.app"
+          executable="$app_dir/Stepsemble.app/Contents/MacOS/Stepsemble"
+          lipo "$executable" -verify_arch arm64 x86_64
+          test "$("$executable" --version)" = "$(node -p 'require("./package.json").version')"
+          echo "dir=$app_dir" >> "$GITHUB_OUTPUT"
       - name: Build verified source archive
         id: archive
+        env:
+          APP_DIR: ${{ steps.app.outputs.dir }}
         run: |
           archive="stepsemble-${GITHUB_REF_NAME}.tar.gz"
-          git archive --format=tar --prefix="stepsemble-${GITHUB_REF_NAME}/" "$GITHUB_REF_NAME" | gzip -9 > "$archive"
+          release_tar="$RUNNER_TEMP/release.tar"
+          git archive --format=tar --prefix="stepsemble-${GITHUB_REF_NAME}/" "$GITHUB_REF_NAME" > "$release_tar"
+          # The macOS app is the one built part of the archive; each Mac signs
+          # its own copy when it installs it.
+          COPYFILE_DISABLE=1 tar -rf "$release_tar" --no-mac-metadata --uid 0 --gid 0 --uname root --gname root \
+            -s ",^Stepsemble.app,stepsemble-${GITHUB_REF_NAME}/macos/Stepsemble.app," -C "$APP_DIR" Stepsemble.app
+          gzip -9 < "$release_tar" > "$archive"
+          tar -tzf "$archive" | grep -x "stepsemble-${GITHUB_REF_NAME}/macos/Stepsemble.app/Contents/MacOS/Stepsemble" > /dev/null
+          STEPSEMBLE_INSTALL_PREFLIGHT_ARCHIVE="$archive" zsh install.sh
+          STEPSEMBLE_UPDATE_PREFLIGHT_ARCHIVE="$archive" zsh deploy/stepsemble-update.sh
           shasum -a 256 "$archive" > "$archive.sha256"
           # v2 updaters search for the former asset name first. Publish an
           # identical, independently checksummed alias throughout v3 so an

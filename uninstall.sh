@@ -13,6 +13,10 @@ readonly RUNTIME_DIR="${STEPSEMBLE_RUNTIME_DIR:-$HOME/.local/share/stepsemble-ru
 readonly LAUNCH_DIR="$HOME/Library/LaunchAgents"
 readonly SERVER_PLIST="$LAUNCH_DIR/com.stepsemble.server.plist"
 readonly UPDATER_PLIST="$LAUNCH_DIR/com.stepsemble.updater.plist"
+# Stepsemble.app and the certificate this Mac signed it with
+# (deploy/stepsemble-macos-app.sh).
+readonly MACOS_APP_PATH="$HOME/Applications/Stepsemble.app"
+readonly MACOS_APP_SUPPORT_DIR="$HOME/Library/Application Support/Stepsemble"
 
 YES=0
 REMOVE_PI=""
@@ -74,17 +78,18 @@ stop_plist() {
 
 safe_stepsemble_path() {
   case "$1" in
-    "$HOME/.local/share/stepsemble"|"$HOME/.local/share/stepsemble-bin"|"$HOME/.config/stepsemble"|"$HOME/.local/state/stepsemble"|"$HOME/.local/share/stepsemble-runtime") return 0 ;;
+    "$HOME/.local/share/stepsemble"|"$HOME/.local/share/stepsemble-bin"|"$HOME/.config/stepsemble"|"$HOME/.local/state/stepsemble"|"$HOME/.local/share/stepsemble-runtime"|"$MACOS_APP_PATH"|"$MACOS_APP_SUPPORT_DIR") return 0 ;;
     *) return 1 ;;
   esac
 }
 
+# The name in the Trash folder defaults to the last path component.
 trash_path() {
-  local target_path="$1" trash_root="$2"
+  local target_path="$1" trash_root="$2" trash_name="${3:-${1:t}}"
   [[ -e "$target_path" || -L "$target_path" ]] || return 0
   safe_stepsemble_path "$target_path" || die "refusing unexpected path: $target_path"
   mkdir -p "$trash_root"
-  mv "$target_path" "$trash_root/${target_path:t}"
+  mv "$target_path" "$trash_root/$trash_name"
 }
 
 remove_managed_pi() {
@@ -138,6 +143,14 @@ trash_path "$INSTALL_DIR" "$trash_root"
 trash_path "$BIN_DIR" "$trash_root"
 trash_path "$CONFIG_DIR" "$trash_root"
 trash_path "$STATE_DIR" "$trash_root"
+if [[ -e "$MACOS_APP_PATH" ]]; then
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$MACOS_APP_PATH" >/dev/null 2>&1 || true
+fi
+trash_path "$MACOS_APP_PATH" "$trash_root"
+# Folders are case-insensitive by default: keep this apart from "stepsemble".
+trash_path "$MACOS_APP_SUPPORT_DIR" "$trash_root" "Stepsemble app signing"
+# The folder permissions macOS kept for Stepsemble.app.
+/usr/bin/tccutil reset All com.stepsemble.app >/dev/null 2>&1 || true
 
 if (( REMOVE_PI )); then
   if ! remove_managed_pi && ! remove_npm_pi; then

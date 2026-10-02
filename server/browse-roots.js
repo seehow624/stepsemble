@@ -130,13 +130,14 @@ function createFolderReader({ readdir = folder => fs.promises.readdir(folder, { 
 
 // What the browser is told when a folder cannot be read. On macOS, EPERM is
 // the privacy protection (Files and Folders, Full Disk Access); EACCES is an
-// ordinary permission. The Node.js path lets the person allow that program.
-function folderReadFailure(error, { platform = process.platform, runtime = process.execPath } = {}) {
+// ordinary permission. The Node.js path lets the person allow that program;
+// "app" says Stepsemble.app started the Host, so the app is what to allow.
+function folderReadFailure(error, { platform = process.platform, runtime = process.execPath, app = false } = {}) {
   if (error?.code === "folder_waiting") {
     return { status: 503, body: { error: error.message, code: "folder_waiting", platform } };
   }
   if (error?.code === "EPERM" && platform === "darwin") {
-    return { status: 403, body: { error: error.message, code: "folder_privacy", platform, runtime } };
+    return { status: 403, body: { error: error.message, code: "folder_privacy", platform, runtime, ...(app ? { app: true } : {}) } };
   }
   if (error?.code === "EPERM" || error?.code === "EACCES") {
     return { status: 403, body: { error: error.message, code: "folder_permission", platform } };

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- macos/build-app.sh replaces __VERSION__ with the package version. The
+     usage descriptions are what macOS shows when it asks for access; their
+     translations are in InfoPlist.json. -->
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.stepsemble.app</string>
+  <key>CFBundleName</key>
+  <string>Stepsemble</string>
+  <key>CFBundleDisplayName</key>
+  <string>Stepsemble</string>
+  <key>CFBundleExecutable</key>
+  <string>Stepsemble</string>
+  <key>CFBundleIconFile</key>
+  <string>Stepsemble</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleShortVersionString</key>
+  <string>__VERSION__</string>
+  <key>CFBundleVersion</key>
+  <string>__VERSION__</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>11.0</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.developer-tools</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>Stepsemble opens projects in your Documents folder so you and your agents can work in them.</string>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>Stepsemble opens projects on your Desktop so you and your agents can work in them.</string>
+  <key>NSDownloadsFolderUsageDescription</key>
+  <string>Stepsemble opens projects in your Downloads folder so you and your agents can work in them.</string>
+  <key>NSRemovableVolumesUsageDescription</key>
+  <string>Stepsemble opens projects on external drives so you and your agents can work in them.</string>
+  <key>NSNetworkVolumesUsageDescription</key>
+  <string>Stepsemble opens projects on network drives so you and your agents can work in them.</string>
+  <key>NSFileProviderDomainUsageDescription</key>
+  <string>Stepsemble opens projects in iCloud Drive and other cloud folders so you and your agents can work in them.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Agents you run in Stepsemble may ask to control other apps for a task you gave them.</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Stepsemble connects to your other computers running Stepsemble on this network.</string>
+</dict>
+</plist>
