@@ -218,9 +218,9 @@
     if (fromTab) { pendingTransfers.set(payload.transfer, { ref: payload.ref, drag: true }); setTimeout(() => pendingTransfers.delete(payload.transfer), 30000); }
     event.dataTransfer.setData("application/x-stepsemble-session", JSON.stringify(payload));
     event.dataTransfer.effectAllowed = fromTab ? "move" : "copyMove";
-    document.body.classList.add("workspace-dragging"); channel?.postMessage({ type: "drag", active: true });
+    document.body.classList.add("workspace-dragging"); channel?.postMessage({ type: "drag", active: true }); reportDragRegions();
   }
-  function dragEnd() { renderSidebar(); document.body.classList.remove("workspace-dragging"); channel?.postMessage({ type: "drag", active: false }); }
+  function dragEnd() { renderSidebar(); document.body.classList.remove("workspace-dragging"); channel?.postMessage({ type: "drag", active: false }); reportDragRegions(); }
   function newWindow(ref) {
     const target = crypto.randomUUID(), token = crypto.randomUUID();
     if (ref) {
@@ -253,8 +253,50 @@
       const r = slot.getBoundingClientRect();
       Object.assign(item.frame.style, { left: `${r.left - bounds.left}px`, top: `${r.top - bounds.top}px`, width: `${r.width}px`, height: `${r.height}px` });
     }
+    reportDragRegions();
   }
   const resize = new ResizeObserver(layoutFrames); resize.observe($("workspace-stage"));
+  // The Mac app's window has no title bar. The app moves the window from the
+  // empty parts of the Workspace's top edge, which the page names here, as a
+  // browser's empty tab strip does; anywhere else this sends nothing.
+  let dragRegionsSent = "[]", dragRegionsFrame = 0;
+  function reportDragRegions() {
+    const app = window.webkit?.messageHandlers?.stepsemble;
+    if (!app || dragRegionsFrame) return;
+    dragRegionsFrame = requestAnimationFrame(() => {
+      dragRegionsFrame = 0;
+      // While a session is dragged, the whole page takes the drop.
+      const moving = document.documentElement.dataset.macWindow === "chromeless" && !document.body.classList.contains("workspace-dragging");
+      const rects = moving ? dragRegions() : [];
+      const sent = JSON.stringify(rects);
+      if (sent !== dragRegionsSent) { dragRegionsSent = sent; app.postMessage({ type: "drag-regions", rects }); }
+    });
+  }
+  function dragRegions() {
+    const rects = [], add = (left, top, right, bottom) => { if (right - left >= 2 && bottom - top >= 2) rects.push([left, top, right - left, bottom - top].map(Math.round)); };
+    const box = element => element.getBoundingClientRect();
+    if (settingsLayer) { add(0, 0, innerWidth, parseFloat(getComputedStyle(settingsLayer).paddingTop) || 0); return rects; }
+    const sidebar = $("workspace-sidebar"), name = sidebar.querySelector(".workspace-identity");
+    if (sidebar.getClientRects().length && name) add(box(sidebar).left, 0, box(name).right, box(name.parentElement).bottom);
+    if ($("workspace-stage").getClientRects().length) {
+      const stage = box($("workspace-stage")), top = box($("workspace-tree")).top;
+      add(stage.left, 0, stage.right, top);
+      // The top row's strips: under the window's buttons, and after the tabs.
+      for (const strip of document.querySelectorAll(".workspace-tabs")) {
+        const bar = box(strip), list = strip.querySelector(".workspace-tablist");
+        if (!bar.width || bar.top > top + 2) continue;
+        if (strip.firstElementChild && strip.firstElementChild !== list) add(bar.left, bar.top, box(strip.firstElementChild).left, bar.bottom);
+        if (list) { const r = box(list), last = list.lastElementChild; add(Math.max(r.left, last ? box(last).right : r.left), r.top, r.right, r.bottom); }
+      }
+    }
+    const open = document.querySelector("dialog[open]");
+    if (!open) return rects;
+    const d = box(open);
+    return rects.filter(([x, y, w, h]) => x >= d.right || x + w <= d.left || y >= d.bottom || y + h <= d.top);
+  }
+  new ResizeObserver(reportDragRegions).observe($("workspace-sidebar"));
+  new MutationObserver(reportDragRegions).observe($("workspace-dialog"), { attributes: true, attributeFilter: ["open"] });
+  addEventListener("stepsemble-mac-window", () => requestAnimationFrame(layoutFrames));
   function render() {
     closePaneMenu();
     slots.clear(); $("workspace-tree").replaceChildren();
@@ -1002,7 +1044,7 @@
   }
   if (channel) channel.onmessage = ({ data }) => {
     try {
-      if (data.type === "drag") document.body.classList.toggle("workspace-dragging", data.active === true);
+      if (data.type === "drag") { document.body.classList.toggle("workspace-dragging", data.active === true); reportDragRegions(); }
       if (data.type === "moved" && data.source === windowId) {
         const pending = pendingTransfers.get(data.transfer);
         if (pending?.drag && L.identity(pending.ref) === L.identity(L.reference(data.ref))) { pendingTransfers.delete(data.transfer); commit(L.remove(tree, pending.ref)); }
@@ -1057,6 +1099,7 @@
     settingsCovered = [...document.body.children].filter(child => !child.inert);
     for (const child of settingsCovered) child.inert = true;
     document.body.append(settingsLayer);
+    reportDragRegions();
     frame.addEventListener("load", () => { try { frame.contentWindow.focus(); } catch {} }, { once: true });
   }
   function closeSettings() {

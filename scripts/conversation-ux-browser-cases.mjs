@@ -366,6 +366,75 @@ export async function runConversationUxBrowserCases(browser) {
       assert.equal(await ui.evaluate(() => window.__paneKept === true), true, "the conversation pane was not reloaded");
       out.settings = "same window";
 
+      stage = "The Mac app's window keeps every control clear of its buttons and of the strip that moves it";
+      {
+        // What the app tells the page (WindowChrome in main.swift), in CSS pixels.
+        const chrome = { "titlebar-height": 52, "controls-start": 20, "controls-end": 78, "controls-center": 26, "controls-bottom": 33 };
+        await page.evaluate(chrome => {
+          window.__dragRegions = null;
+          window.webkit = { messageHandlers: { stepsemble: { postMessage: message => { if (message?.type === "drag-regions") window.__dragRegions = message.rects; } } } };
+          const root = document.documentElement;
+          root.dataset.macWindow = "chromeless";
+          for (const [name, value] of Object.entries(chrome)) root.style.setProperty("--mac-" + name, value + "px");
+          dispatchEvent(new Event("stepsemble-mac-window"));
+        }, chrome);
+        const problem = () => page.evaluate(chrome => {
+          const rects = window.__dragRegions;
+          if (!rects?.length) return "nothing moves the window";
+          const buttons = { left: chrome["controls-start"], right: chrome["controls-end"], top: 2 * chrome["controls-center"] - chrome["controls-bottom"], bottom: chrome["controls-bottom"] };
+          const regions = rects.map(([x, y, w, h]) => ({ left: x, top: y, right: x + w, bottom: y + h }));
+          // Regions are whole pixels, so one may reach half a pixel into a neighbour.
+          const overlaps = (a, b) => a.left + 1 < b.right && b.left + 1 < a.right && a.top + 1 < b.bottom && b.top + 1 < a.bottom;
+          for (const element of document.querySelectorAll("button, select, input, iframe, [role=tab], .workspace-divider")) {
+            const box = element.getBoundingClientRect();
+            if (box.width < 2 || box.height < 2) continue;
+            const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+            if (!hit || (hit !== element && !element.contains(hit))) continue;
+            const name = element.id || element.getAttribute("aria-label") || element.className || element.tagName;
+            if (overlaps(box, buttons)) return name + " is under the window's buttons";
+            if (regions.some(region => overlaps(box, region))) return name + " is in the strip that moves the window";
+          }
+          return "";
+        }, chrome);
+        const clear = async state => {
+          let found = "";
+          for (let attempt = 0; attempt < 30; attempt++) {
+            found = await problem();
+            if (!found) return;
+            await page.waitForTimeout(100);
+          }
+          throw new Error(state + ": " + found);
+        };
+        await clear("with the list");
+        if (viewport.mobile) {
+          await page.locator(".workspace-session").first().click();
+          await page.waitForFunction(() => document.body.classList.contains("sidebar-hidden"));
+          await clear("with a conversation open");
+          await page.evaluate(() => history.back());
+          await page.waitForFunction(() => !document.body.classList.contains("sidebar-hidden"));
+        } else {
+          const toggle = page.locator(".workspace-strip-button[data-edge=start]");
+          await toggle.click();
+          await page.waitForFunction(() => document.body.classList.contains("sidebar-hidden"));
+          await clear("with the list hidden");
+          await toggle.click();
+          await page.waitForFunction(() => !document.body.classList.contains("sidebar-hidden"));
+        }
+        await page.locator("#workspace-settings").click();
+        await page.waitForSelector(".workspace-settings-layer iframe");
+        await clear("with Settings open");
+        await (await (await page.$(".workspace-settings-layer iframe")).contentFrame()).locator("#btn-settings-back").click();
+        await page.waitForFunction(() => !document.querySelector(".workspace-settings-layer"), null, { timeout: 5000 });
+        await page.evaluate(chrome => {
+          const root = document.documentElement;
+          delete root.dataset.macWindow;
+          for (const name of Object.keys(chrome)) root.style.removeProperty("--mac-" + name);
+          delete window.webkit;
+          dispatchEvent(new Event("stepsemble-mac-window"));
+        }, chrome);
+        out.macWindow = "controls clear";
+      }
+
       stage = "A provider switched off in Settings leaves every model menu";
       settings = await settingsLayer();
       await settings.evaluate(() => showModelSettings({ agent: "pi" }));

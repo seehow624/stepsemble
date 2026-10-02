@@ -727,10 +727,12 @@ struct LaunchAgent {
 func hostPorts() -> [Int] {
     var ports: [Int] = []
     let usable: (Int?) -> Int? = { port in port.flatMap { (1024...65535).contains($0) ? $0 : nil } }
+    // Started with the Host's own STEPSEMBLE_PORT, the app opens that Host.
+    if let port = usable(ProcessInfo.processInfo.environment["STEPSEMBLE_PORT"].flatMap { Int($0) }) { ports.append(port) }
     let device = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/device.json")
     if let data = try? Data(contentsOf: device),
        let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-       let port = usable(json["port"] as? Int) {
+       let port = usable(json["port"] as? Int), !ports.contains(port) {
         ports.append(port)
     }
     if let port = usable(LaunchAgent.read().port), !ports.contains(port) { ports.append(port) }
@@ -762,7 +764,8 @@ func findHost(_ ports: [Int] = hostPorts(), completion: @escaping (Int?, String?
 /// for HTTPS gateways, so the app keeps a copy without that flag, which WebKit
 /// sends to the Host on this Mac.
 func signIn(port: Int, into store: WKHTTPCookieStore, completion: @escaping () -> Void) {
-    let path = LaunchAgent.read().tokenFile ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/stepsemble/token").path
+    let path = ProcessInfo.processInfo.environment["STEPSEMBLE_TOKEN_FILE"] ?? LaunchAgent.read().tokenFile
+        ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/stepsemble/token").path
     guard let token = (try? String(contentsOfFile: path, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty,
           let body = try? JSONSerialization.data(withJSONObject: ["token": token]) else { completion(); return }
     var request = URLRequest(url: hostURL(port, "/api/login"))
@@ -952,6 +955,66 @@ final class AccessPanel: NSObject {
 
 // MARK: - Workspace window
 
+/// The Workspace draws the window's top edge itself, as a browser's tab strip
+/// does: the title bar is transparent and untitled, the window's buttons sit
+/// over the page, and the page lays itself out around them. A script tells
+/// the page where they are; the page names the empty parts of its top edge,
+/// and the app moves the window from those.
+enum WindowChrome {
+    static func script(_ geometry: [String: Any]) -> WKUserScript {
+        let json = (try? JSONSerialization.data(withJSONObject: geometry)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        let source = """
+        (() => {
+          const root = document.documentElement;
+          const apply = chrome => {
+            root.dataset.macWindow = chrome.mode;
+            for (const name of ["titlebar-height", "controls-start", "controls-end", "controls-center", "controls-bottom"])
+              root.style.setProperty("--mac-" + name, (Number(chrome[name]) || 0) + "px");
+            dispatchEvent(new Event("stepsemble-mac-window"));
+          };
+          Object.defineProperty(window, "stepsembleMacWindow", { value: apply });
+          apply(\(json));
+        })();
+        """
+        return WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+    }
+}
+
+/// What double-clicking a title bar does, as chosen in System Settings.
+func titleBarDoubleClicked(_ window: NSWindow) {
+    let defaults = UserDefaults.standard
+    switch defaults.string(forKey: "AppleActionOnDoubleClick") {
+    case "Minimize"?: window.performMiniaturize(nil)
+    case "None"?: break
+    case nil where defaults.bool(forKey: "AppleMiniaturizeOnDoubleClick"): window.performMiniaturize(nil)
+    default: window.performZoom(nil)
+    }
+}
+
+/// Lies over the page and takes the mouse only on the parts of the page's top
+/// edge the page names as empty, where it moves the window as a title bar does.
+final class WindowDragArea: NSView {
+    /// In the page's CSS pixels, from its top-left corner.
+    var regions: [CGRect] = []
+    weak var webView: WKWebView?
+
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !regions.isEmpty, let superview = superview else { return nil }
+        let local = convert(point, from: superview), zoom = webView?.pageZoom ?? 1
+        let inside = regions.contains { CGRect(x: $0.minX * zoom, y: $0.minY * zoom, width: $0.width * zoom, height: $0.height * zoom).contains(local) }
+        return inside ? self : nil
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window = window else { return }
+        if event.clickCount == 2 { titleBarDoubleClicked(window) } else { window.performDrag(with: event) }
+    }
+}
+
 /// One window of the Workspace, the same pages the browser shows, signed in
 /// to the Host on this Mac.
 final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
@@ -964,6 +1027,10 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
     private var path: String
     private var retryTimer: Timer?
     private var titleObservation: NSKeyValueObservation?
+    private let dragArea = WindowDragArea()
+    /// The page draws the window's top edge (see WindowChrome).
+    private var chromeless = false
+    private var fullScreen = false
 
     init(controller: AppController, configuration: WKWebViewConfiguration, path: String, size: NSSize?, isPopup: Bool) {
         self.controller = controller
@@ -979,12 +1046,87 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
         window.title = "Stepsemble"
         window.minSize = NSSize(width: 480, height: 400)
         window.isReleasedWhenClosed = false
-        window.contentView = webView
+        // The Workspace has its own tabs; a macOS tab bar would cover them.
+        window.tabbingMode = .disallowed
+        let content = NSView(frame: NSRect(origin: .zero, size: window.contentRect(forFrameRect: window.frame).size))
+        for view in [webView, dragArea] as [NSView] {
+            view.frame = content.bounds
+            view.autoresizingMask = [.width, .height]
+            content.addSubview(view)
+        }
+        dragArea.webView = webView
+        window.contentView = content
+        window.initialFirstResponder = webView
         window.delegate = self
+        setChromeless(true)
+        // A window a page opens shares its opener's scripts.
+        if configuration.userContentController.userScripts.isEmpty {
+            configuration.userContentController.addUserScript(WindowChrome.script(chromeGeometry()))
+        }
         titleObservation = webView.observe(\.title) { [weak self] webView, _ in
             let title = webView.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             self?.window.title = title.isEmpty ? "Stepsemble" : title
         }
+    }
+
+    // MARK: Title bar
+
+    /// The Workspace, and the page shown while waiting for the Host, draw the
+    /// window's top edge; other pages keep the title bar.
+    private func drawsOwnTop(_ url: URL?) -> Bool {
+        guard let url = url else { return true }
+        return url.scheme == "about" || (isHost(url) && url.path == "/workspace.html")
+    }
+
+    private func setChromeless(_ on: Bool) {
+        guard on != chromeless else { return }
+        chromeless = on
+        // Adding or removing the toolbar would otherwise resize the window.
+        let frame = window.frame
+        if on {
+            window.styleMask.insert(.fullSizeContentView)
+            // An empty toolbar gives the title bar a browser's height, with
+            // the window's buttons centred in it.
+            window.toolbar = NSToolbar(identifier: "StepsembleWorkspace")
+            window.toolbarStyle = .unified
+        } else {
+            window.styleMask.remove(.fullSizeContentView)
+            window.toolbar = nil
+        }
+        window.titlebarAppearsTransparent = on
+        window.titleVisibility = on ? .hidden : .visible
+        window.titlebarSeparatorStyle = on ? .none : .automatic
+        window.setFrame(frame, display: true)
+        dragArea.regions = []
+    }
+
+    /// Where the window's buttons sit, in the page's CSS pixels.
+    private func chromeGeometry() -> [String: Any] {
+        guard chromeless else { return ["mode": "titled"] }
+        guard !fullScreen, let close = window.standardWindowButton(.closeButton),
+              let zoom = window.standardWindowButton(.zoomButton) else { return ["mode": "fullscreen"] }
+        let scale = max(webView.pageZoom, 0.1), height = window.frame.height
+        let closeFrame = close.convert(close.bounds, to: nil), zoomFrame = zoom.convert(zoom.bounds, to: nil)
+        return [
+            "mode": "chromeless",
+            "titlebar-height": (height - window.contentLayoutRect.maxY) / scale,
+            "controls-start": closeFrame.minX / scale,
+            "controls-end": zoomFrame.maxX / scale,
+            "controls-center": (height - closeFrame.midY) / scale,
+            "controls-bottom": (height - closeFrame.minY) / scale,
+        ]
+    }
+
+    private func sendChrome() {
+        guard let data = try? JSONSerialization.data(withJSONObject: chromeGeometry()),
+              let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("window.stepsembleMacWindow && window.stepsembleMacWindow(\(json))", completionHandler: nil)
+    }
+
+    /// From the page: the empty parts of its top edge, in CSS pixels.
+    func setDragRegions(_ rects: [[Double]]) {
+        guard chromeless, !fullScreen else { dragArea.regions = []; return }
+        dragArea.regions = rects.prefix(32).compactMap { $0.count == 4 ? CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
     }
 
     func show(cascadeFrom other: NSWindow?) {
@@ -995,6 +1137,7 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
         }
         if other == nil { window.setFrameAutosaveName("StepsembleWorkspace") }
         window.makeKeyAndOrderFront(nil)
+        sendChrome()
     }
 
     // Finds the Host, signs in, and opens the page; waits while the Host is not running.
@@ -1046,11 +1189,36 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
     }
 
     private static let zoomSteps: [CGFloat] = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
-    @objc func actualSize(_ sender: Any?) { webView.pageZoom = 1 }
-    @objc func zoomIn(_ sender: Any?) { webView.pageZoom = Self.zoomSteps.first { $0 > webView.pageZoom + 0.01 } ?? webView.pageZoom }
-    @objc func zoomOut(_ sender: Any?) { webView.pageZoom = Self.zoomSteps.last { $0 < webView.pageZoom - 0.01 } ?? webView.pageZoom }
+    @objc func actualSize(_ sender: Any?) { setZoom(1) }
+    @objc func zoomIn(_ sender: Any?) { setZoom(Self.zoomSteps.first { $0 > webView.pageZoom + 0.01 } ?? webView.pageZoom) }
+    @objc func zoomOut(_ sender: Any?) { setZoom(Self.zoomSteps.last { $0 < webView.pageZoom - 0.01 } ?? webView.pageZoom) }
+    private func setZoom(_ zoom: CGFloat) {
+        webView.pageZoom = zoom
+        sendChrome()
+    }
 
     // MARK: Window
+
+    // In full screen the window's buttons are hidden; the page uses its own top.
+    func windowWillEnterFullScreen(_ notification: Notification) {
+        fullScreen = true
+        dragArea.regions = []
+        sendChrome()
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        fullScreen = false
+        sendChrome()
+    }
+
+    func windowDidFailToEnterFullScreen(_ window: NSWindow) {
+        fullScreen = false
+        sendChrome()
+    }
+
+    func window(_ window: NSWindow, willUseFullScreenPresentationOptions proposedOptions: NSApplication.PresentationOptions = []) -> NSApplication.PresentationOptions {
+        proposedOptions.union(.autoHideToolbar)
+    }
 
     func windowWillClose(_ notification: Notification) {
         retryTimer?.invalidate()
@@ -1088,6 +1256,21 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
     func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
         if #available(macOS 11.3, *), !response.canShowMIMEType { decisionHandler(.download); return }
         decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        // A page that draws the top names its own empty parts once laid out.
+        setChromeless(drawsOwnTop(webView.url))
+        sendChrome()
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        sendChrome()
+        // The waiting page moves the window from its top, as a title bar would.
+        if chromeless, webView.url?.scheme == "about" {
+            let height = (chromeGeometry()["titlebar-height"] as? CGFloat) ?? 0
+            dragArea.regions = [CGRect(x: 0, y: 0, width: 100_000, height: height)]
+        }
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -1213,7 +1396,7 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
-        newWindow(path: "/")
+        newWindow(path: "/workspace.html")
         NSApp.activate(ignoringOtherApps: true)
         launched = true
         // The first time, the app asks for the places macOS protects.
@@ -1272,14 +1455,17 @@ final class AppController: NSObject, NSApplicationDelegate {
         if let workspace = windows.first(where: { !$0.isPopup }) ?? windows.first {
             workspace.window.makeKeyAndOrderFront(nil)
         } else {
-            newWindow(path: "/")
+            newWindow(path: "/workspace.html")
         }
         NSApp.activate(ignoringOtherApps: true)
     }
 
     func received(_ message: WKScriptMessage) {
-        guard message.body as? String == "retry" else { return }
-        windows.first { $0.webView === message.webView }?.connect()
+        guard let workspace = windows.first(where: { $0.webView === message.webView }) else { return }
+        if message.body as? String == "retry" { workspace.connect(); return }
+        if message.frameInfo.isMainFrame, let body = message.body as? [String: Any], body["type"] as? String == "drag-regions" {
+            workspace.setDragRegions(body["rects"] as? [[Double]] ?? [])
+        }
     }
 
     @objc func newWorkspaceWindow(_ sender: Any?) {

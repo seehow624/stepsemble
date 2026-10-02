@@ -554,6 +554,23 @@ dialog header .btn { min-width: 34px; min-height: 34px; padding: 0; border: 0; c
 .workspace-mobile-nav { display: none; }
 body.sidebar-hidden #workspace-sidebar { display: none; }
 
+/* The Mac app's window has no title bar, as a browser's has none: the
+   window's buttons sit in the Workspace's top-left corner beside its name,
+   and the panes' tab strips line up with them. The app says where the
+   buttons are, and moves the window from the empty parts of this top edge
+   (see reportDragRegions in workspace.js). */
+html[data-mac-window=chromeless] #workspace-sidebar { padding-top: max(0px, calc(var(--mac-controls-center) - 22px)); }
+html[data-mac-window=chromeless] .workspace-brand-row { padding-left: max(6px, calc(var(--mac-controls-end) + 14px - 12px)); }
+/* The panes keep an even, narrower margin, as close to the edges as the strip
+   is to the top. */
+html[data-mac-window=chromeless] #workspace-tree { inset: max(2px, calc(var(--mac-controls-center) - 19px)) 8px 8px; }
+/* With the list hidden, the buttons sit at the start of the top-left strip:
+   its first control follows them by 8px, less the pane's own margin. */
+html[data-mac-window=chromeless] body.sidebar-hidden .workspace-strip-button[data-edge=start] { margin-left: var(--mac-controls-end); }
+html[data-mac-window=chromeless] body.sidebar-hidden .workspace-branch .workspace-strip-button[data-edge=start] { margin-left: calc(var(--mac-controls-end) - 5px); }
+/* Settings start just below the buttons. */
+html[data-mac-window=chromeless] .workspace-settings-layer { padding-top: calc(var(--mac-controls-bottom) + 8px); }
+
 body.compact .workspace-session { min-height: 44px; padding-top: 5px; padding-bottom: 5px; }
 body.compact .workspace-session strong { font-size: .78rem; }
 
@@ -582,4 +599,6 @@ body.compact .workspace-session strong { font-size: .78rem; }
   /* On a phone the title gets its own line; the two actions share the next. */
   .workspace-history-row div { flex: 1 1 100%; }
   #workspace-dialog-body .workspace-history-row .btn { flex: 1 1 0; justify-content: center; text-align: center; }
+  /* A pane fills the window without its strip; it starts below the buttons. */
+  html[data-mac-window=chromeless] #workspace-tree { inset: var(--mac-titlebar-height) 0 0; }
 }

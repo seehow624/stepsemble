@@ -24,7 +24,8 @@ launchd 服务和自动更新。如果没有 Pi Agent，会先询问是否使用
 
 安装程序会用这台 Mac 自己生成的证书为 Stepsemble.app 签名，放进 `~/Applications`。
 在这台 Mac 上打开它就是 Workspace，会自动登录，也有 Mac 的菜单、窗口和快捷键；
-手机和其他电脑照样用浏览器。App 也负责启动 Stepsemble，所以 macOS 只会针对
+窗口和浏览器一样没有标题栏，标签栏就在最上方、红黄绿按钮旁边，拖动标签栏的空白处
+就能移动窗口。手机和其他电脑照样用浏览器。App 也负责启动 Stepsemble，所以 macOS 只会针对
 Stepsemble 询问一次能否使用文稿、桌面、下载、iCloud 云盘和其他磁盘，之后
 Stepsemble 或 Node.js 更新都不需要重新允许。安装完成时会打开 App 和“文件夹访问
 权限”窗口：点按“允许访问”，再逐一回应 macOS 的询问。
