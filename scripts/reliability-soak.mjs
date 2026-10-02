@@ -176,6 +176,8 @@ export async function runSoak(options, { onReady = () => {} } = {}) {
     });
   });
   try {
+    // The step the soak is in, kept with a failure so CI says where it broke.
+    report.stage = "source_copy";
     report.sourceSha256 = await freezeSource(source);
     report.runnerSha256 = digest(await fs.readFile(fileURLToPath(import.meta.url)));
     report.peerSha256 = digest(await fs.readFile(path.join(root, "test-support/soak-peer.cjs")));
@@ -186,6 +188,7 @@ export async function runSoak(options, { onReady = () => {} } = {}) {
       report.sourceWorktreeDirty = !!execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: root, encoding: "utf8", timeout: 3000 }).trim();
     } catch { report.sourceCommit = null; report.sourceWorktreeDirty = null; }
     if (options.durationMs >= 3600_000) requireCondition(report.sourceWorktreeDirty === false && report.sourceCommit, "long_soak_requires_clean_commit");
+    report.stage = "fixture_files";
     for (const directory of [bin, workspace]) await fs.mkdir(directory, { recursive: true, mode: 0o700 });
     await fs.writeFile(lease, "synthetic fixture lease\n", { mode: 0o600 });
     if (process.platform === "win32") {
@@ -197,12 +200,15 @@ export async function runSoak(options, { onReady = () => {} } = {}) {
     }
     await fs.writeFile(path.join(temp, "host.cjs"), `process.on("message", value => { if (value?.type === "soak_memory") process.send({ requestId: value.requestId, rss: process.memoryUsage().rss }); });\nrequire(${JSON.stringify(path.join(source, "server.js"))});\n`, { mode: 0o600 });
     const port = await freePort(); base = `http://127.0.0.1:${port}`; env = cleanSoakEnvironment(home, bin, port);
+    report.stage = "host_start";
     await startHost();
+    report.stage = "login";
     const token = (await fs.readFile(path.join(home, ".config/stepsemble/token"), "utf8")).trim();
     const login = await fetch(base + "/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }), signal: AbortSignal.timeout(15_000) });
     requireCondition(login.status === 204, "login_failed"); cookie = login.headers.get("set-cookie").split(";", 1)[0];
     // Sequential opens retain every successful owned identity even if a later
     // launch fails. The workload after setup is eight concurrent live tasks.
+    report.stage = "task_open";
     for (let index = 0; index < options.tasks; index++) {
       const opened = await api("/api/agent/open", { agentId: "claude-code", cwd: workspace, name: `Synthetic soak ${index + 1}` });
       requireCondition(opened.taskId, "task_open_failed"); tasks.push(opened.taskId);
@@ -215,7 +221,7 @@ export async function runSoak(options, { onReady = () => {} } = {}) {
         identities.set(opened.taskId, { pid: task.pid, startedAt: task.startedAt, boot }); return true;
       }, "peer_start_timeout");
     }
-    report.status = "running"; await update(); onReady({ directory: temp, report: filename, pid: process.pid });
+    report.status = "running"; report.stage = "cycles"; await update(); onReady({ directory: temp, report: filename, pid: process.pid });
     let lastCycleAt = Date.now(), observedStart = performance.now();
     while (performance.now() - observedStart < options.durationMs || report.cycles < 2) {
       if (stopping) throw new Error("cancelled");
@@ -246,12 +252,14 @@ export async function runSoak(options, { onReady = () => {} } = {}) {
       report.lastSamples.push({ cycle: report.cycles, hostEpoch: report.gracefulRestarts + report.crashRestarts, elapsedMs: Math.round(performance.now() - observedStart), cycleMs: Math.round(performance.now() - cycleStart), rssBytes: rss });
       report.lastSamples = report.lastSamples.slice(-512);
       if (report.cycles % options.restartEvery === 0) {
+        report.stage = "host_restart";
         await Promise.all(streams.flat().map(client => client.close()));
         const crash = (report.gracefulRestarts + report.crashRestarts) % 2 === 1;
         await killOwnedHost(child, crash ? "SIGKILL" : "SIGTERM");
         if (crash) report.crashRestarts++; else report.gracefulRestarts++;
         await startHost();
         await Promise.all(tasks.flatMap((id, index) => streams[index].map(client => client.open(base, cookie, id))));
+        report.stage = "cycles";
       }
       report.continuousObservedMs = Math.round(performance.now() - observedStart); await update();
       const remaining = options.durationMs - (performance.now() - observedStart);
@@ -259,14 +267,21 @@ export async function runSoak(options, { onReady = () => {} } = {}) {
     }
     report.continuousObservedMs = Math.round(performance.now() - observedStart);
     report.status = "passed";
+    delete report.stage;
   } catch (error) {
     report.status = error.message === "cancelled" ? "cancelled" : "failed";
     // Codes only: the evidence file never carries a raw message or Host output.
-    report.failure = /^[a-z_0-9]+$/.test(error.message) ? error.message
+    const message = String(error?.message || ""), code = String(error?.code || ""), cause = String(error?.cause?.code || "");
+    report.failure = /^[a-z_0-9]+$/.test(message) ? message
+      : /^http_\d{3}\b/.test(message) ? message.slice(0, 8)
       : error.name === "TimeoutError" ? "request_timeout"
-      : /^server did not start/.test(error.message) ? "host_start_timeout"
-      : /^server exited before start/.test(error.message) ? "host_exited_before_start"
+      : /^server did not start/.test(message) ? "host_start_timeout"
+      : /^server exited before start/.test(message) ? "host_exited_before_start"
+      : /^[A-Z][A-Z0-9_]+$/.test(code) ? "error_" + code.toLowerCase()
+      : /^[A-Z][A-Z0-9_]+$/.test(cause) ? "request_" + cause.toLowerCase()
       : "fixture_operation_failed";
+    report.failureStage = report.stage;
+    delete report.stage;
   } finally {
     await Promise.all(streams.flat().map(client => client.close()));
     // Release only this fixture's lease. If HTTP is unavailable the synthetic

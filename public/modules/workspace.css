@@ -32,7 +32,8 @@ small { color: var(--pine-soft); }
   align-items: center;
   gap: 6px;
   min-height: 44px;
-  padding: 0 6px;
+  /* The logo lines up with the Host card's icon, the buttons with its edge. */
+  padding: 0 0 0 11px;
 }
 .workspace-identity { display: flex; align-items: center; gap: 9px; min-width: 0; flex: 1; }
 /* Size only. The artwork, its tile and the forced-colour mask come from the
@@ -52,36 +53,72 @@ small { color: var(--pine-soft); }
 @media (prefers-reduced-motion: reduce) { #workspace-refresh[data-busy=true] svg { animation: none; opacity: .45; } }
 .workspace-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 
-.workspace-host-block { display: grid; gap: 6px; padding: 0 2px; }
-.workspace-section-label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 4px;
-  color: var(--pine-soft);
-  font-size: .64rem;
-  font-weight: 750;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+/* The Host is the list's subject: one card names it, shows whether it
+   answers, and switches it. The select fills the card, so a click or the
+   keyboard opens the system's own menu. */
+.workspace-host-card {
+  position: relative;
+  display: block;
+  min-width: 0;
+  height: 58px;
+  border: .5px solid var(--line);
+  border-radius: 15px;
+  background: var(--milk);
+  transition: background .15s ease;
 }
-.workspace-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); opacity: .9; }
-.workspace-status-dot[data-state=online] { background: var(--ok); }
-.workspace-status-dot[data-state=offline] { background: var(--err); }
-.host-label { display: block; min-width: 0; }
-.host-label select {
+.workspace-host-card:hover { background: var(--bubble-user); }
+.workspace-host-card:focus-within { outline: 2px solid var(--accent); outline-offset: -1px; }
+#workspace-host {
   width: 100%;
   max-width: none;
-  min-height: 42px;
-  padding: 0 34px 0 12px;
-  border-radius: 12px;
-  background: var(--milk);
+  height: 100%;
+  padding: 0 40px 17px 60px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
   color: var(--ink);
-  font-size: .8rem;
+  font-size: .86rem;
+  font-weight: 680;
+  letter-spacing: -.01em;
+  text-overflow: ellipsis;
+  cursor: pointer;
 }
+#workspace-host:focus { outline: 0; }
+.workspace-host-icon {
+  position: absolute;
+  left: 11px;
+  top: 11px;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+  pointer-events: none;
+}
+.workspace-host-icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.workspace-status-dot { position: absolute; right: -3px; bottom: -3px; width: 12px; height: 12px; border: 2.5px solid var(--milk); border-radius: 50%; background: var(--warn); }
+.workspace-status-dot[data-state=online] { background: var(--ok); }
+.workspace-status-dot[data-state=offline] { background: var(--err); }
+.workspace-host-state {
+  position: absolute;
+  left: 60px;
+  right: 40px;
+  bottom: 11px;
+  overflow: hidden;
+  color: var(--pine-soft);
+  font-size: .69rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.workspace-host-chevron { position: absolute; right: 13px; top: 50%; width: 15px; height: 15px; margin-top: -7.5px; fill: none; stroke: var(--pine-soft); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 
 .workspace-search-row { display: flex; align-items: stretch; gap: 8px; min-width: 0; }
 .workspace-search-row .workspace-search-wrap { min-width: 0; flex: 1 1 auto; }
-.workspace-search-action {
+.workspace-row-action {
   display: grid;
   place-items: center;
   flex: 0 0 43px;
@@ -93,8 +130,8 @@ small { color: var(--pine-soft); }
   background: var(--milk);
   color: var(--ink);
 }
-.workspace-search-action:hover, .workspace-search-action:focus-visible { background: var(--bubble-user); outline: 0; }
-.workspace-search-action svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.workspace-row-action:hover, .workspace-row-action:focus-visible { background: var(--bubble-user); outline: 0; }
+.workspace-row-action svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 .workspace-search-wrap {
   min-height: 43px;
@@ -561,6 +598,14 @@ body.sidebar-hidden #workspace-sidebar { display: none; }
    (see reportDragRegions in workspace.js). */
 html[data-mac-window=chromeless] #workspace-sidebar { padding-top: max(0px, calc(var(--mac-controls-center) - 22px)); }
 html[data-mac-window=chromeless] .workspace-brand-row { padding-left: max(6px, calc(var(--mac-controls-end) + 14px - 12px)); }
+/* That row is the window's own, as in Mail or Notes: its buttons on the left,
+   Refresh and Settings as small toolbar buttons on the right, ending where
+   the Host card ends. The Dock and the menu bar already name the app. */
+html[data-mac-window=chromeless] .workspace-brand-row { gap: 2px; }
+html[data-mac-window=chromeless] .workspace-identity > * { visibility: hidden; }
+html[data-mac-window=chromeless] .workspace-brand-row .workspace-icon-btn { width: 30px; min-width: 30px; height: 30px; min-height: 30px; border-color: transparent; border-radius: 8px; color: var(--pine-soft); }
+html[data-mac-window=chromeless] .workspace-brand-row .workspace-icon-btn:hover { color: var(--ink); }
+html[data-mac-window=chromeless] .workspace-brand-row .workspace-icon-btn svg { width: 17px; height: 17px; }
 /* The panes keep an even, narrower margin, as close to the edges as the strip
    is to the top. */
 html[data-mac-window=chromeless] #workspace-tree { inset: max(2px, calc(var(--mac-controls-center) - 19px)) 8px 8px; }
