@@ -1129,6 +1129,12 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
         dragArea.regions = rects.prefix(32).compactMap { $0.count == 4 ? CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
     }
 
+    /// From the page: the theme chosen in Stepsemble, so the window, its
+    /// buttons and dialogs match it. "auto" follows macOS.
+    func setAppearance(_ theme: String) {
+        window.appearance = theme == "dark" ? NSAppearance(named: .darkAqua) : theme == "light" ? NSAppearance(named: .aqua) : nil
+    }
+
     func show(cascadeFrom other: NSWindow?) {
         if let other = other {
             window.setFrameTopLeftPoint(other.cascadeTopLeft(from: NSPoint(x: other.frame.minX, y: other.frame.maxY)))
@@ -1465,6 +1471,9 @@ final class AppController: NSObject, NSApplicationDelegate {
         if message.body as? String == "retry" { workspace.connect(); return }
         if message.frameInfo.isMainFrame, let body = message.body as? [String: Any], body["type"] as? String == "drag-regions" {
             workspace.setDragRegions(body["rects"] as? [[Double]] ?? [])
+        }
+        if message.frameInfo.isMainFrame, let body = message.body as? [String: Any], body["type"] as? String == "appearance" {
+            workspace.setAppearance(body["theme"] as? String ?? "auto")
         }
     }
 
