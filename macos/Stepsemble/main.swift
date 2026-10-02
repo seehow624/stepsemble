@@ -1028,6 +1028,8 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
     private var retryTimer: Timer?
     private var titleObservation: NSKeyValueObservation?
     private let dragArea = WindowDragArea()
+    /// macOS's sidebar material, seen where the page is transparent.
+    private let backdrop = NSVisualEffectView()
     /// The page draws the window's top edge (see WindowChrome).
     private var chromeless = false
     private var fullScreen = false
@@ -1049,11 +1051,20 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
         // The Workspace has its own tabs; a macOS tab bar would cover them.
         window.tabbingMode = .disallowed
         let content = NSView(frame: NSRect(origin: .zero, size: window.contentRect(forFrameRect: window.frame).size))
-        for view in [webView, dragArea] as [NSView] {
+        backdrop.material = .sidebar
+        backdrop.blendingMode = .behindWindow
+        backdrop.state = .followsWindowActiveState
+        for view in [backdrop, webView, dragArea] as [NSView] {
             view.frame = content.bounds
             view.autoresizingMask = [.width, .height]
             content.addSubview(view)
         }
+        // The Workspace leaves its list transparent over the material; other
+        // pages paint their own background.
+        if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) || webView.responds(to: NSSelectorFromString("setDrawsBackground:")) {
+            webView.setValue(false, forKey: "drawsBackground")
+        }
+        if #available(macOS 12.0, *) { webView.underPageBackgroundColor = .clear }
         dragArea.webView = webView
         window.contentView = content
         window.initialFirstResponder = webView
@@ -1129,6 +1140,12 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
         dragArea.regions = rects.prefix(32).compactMap { $0.count == 4 ? CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
     }
 
+    /// From the page: the theme chosen in Stepsemble, so the window, its
+    /// buttons, dialogs and the sidebar material match it. "auto" follows macOS.
+    func setAppearance(_ theme: String) {
+        window.appearance = theme == "dark" ? NSAppearance(named: .darkAqua) : theme == "light" ? NSAppearance(named: .aqua) : nil
+    }
+
     func show(cascadeFrom other: NSWindow?) {
         if let other = other {
             window.setFrameTopLeftPoint(other.cascadeTopLeft(from: NSPoint(x: other.frame.minX, y: other.frame.maxY)))
@@ -1158,7 +1175,7 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
     private func showWaiting() {
         let page = """
         <!doctype html><meta charset="utf-8"><meta name="color-scheme" content="light dark">
-        <style>body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;font:13px -apple-system,system-ui;background:Canvas;color:CanvasText}
+        <style>body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;font:13px -apple-system,system-ui;background:transparent;color:CanvasText}
         main{max-width:440px;padding:24px;text-align:center}h1{font-size:17px;font-weight:600;margin:0 0 8px}p{opacity:.7;line-height:1.45}button{font:inherit;padding:5px 16px}</style>
         <main><h1>\(escapeHTML(Text.t("notRunning")))</h1><p>\(escapeHTML(Text.t("waitingHost")))</p>
         <button onclick="webkit.messageHandlers.stepsemble.postMessage('retry')">\(escapeHTML(Text.t("retry")))</button></main>
@@ -1465,6 +1482,9 @@ final class AppController: NSObject, NSApplicationDelegate {
         if message.body as? String == "retry" { workspace.connect(); return }
         if message.frameInfo.isMainFrame, let body = message.body as? [String: Any], body["type"] as? String == "drag-regions" {
             workspace.setDragRegions(body["rects"] as? [[Double]] ?? [])
+        }
+        if message.frameInfo.isMainFrame, let body = message.body as? [String: Any], body["type"] as? String == "appearance" {
+            workspace.setAppearance(body["theme"] as? String ?? "auto")
         }
     }
 

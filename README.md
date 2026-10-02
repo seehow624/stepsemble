@@ -59,7 +59,7 @@ The installer:
   is the Workspace on this Mac: open it and it signs in by itself, with the
   usual Mac menus, windows and shortcuts. Like a browser, its window has no
   title bar: the tab strips reach the top, beside the window's buttons, and
-  their empty space moves the window. It also starts the Host, so macOS
+  their empty space moves the window; the list is a translucent Mac sidebar. It also starts the Host, so macOS
   asks once whether Stepsemble may use Documents, Desktop, Downloads, iCloud
   Drive and other drives, and keeps the answer through Stepsemble and Node.js
   updates. Phones and other computers keep using the browser;

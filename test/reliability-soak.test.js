@@ -32,7 +32,7 @@ test("real isolated eight-task soak survives graceful and killed HTTP Hosts, the
   const { runSoak } = await import("../scripts/reliability-soak.mjs");
   const result = await runSoak({ durationMs: 3000, intervalMs: 100, restartEvery: 1, tasks: 8 });
   try {
-    assert.equal(result.report.status, "passed", `${result.report.failure || result.report.cleanupFailure || "failed"}; evidence: ${result.filename}`);
+    assert.equal(result.report.status, "passed", `${result.report.failure || result.report.cleanupFailure || "failed"}${result.report.failureStage ? " at " + result.report.failureStage : ""}; evidence: ${result.filename}`);
     assert.equal(result.report.cleanupConfirmed, true);
     assert.ok(result.report.continuousObservedMs >= 3000);
     assert.ok(result.report.gracefulRestarts >= 1 && result.report.crashRestarts >= 1);

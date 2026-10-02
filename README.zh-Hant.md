@@ -32,7 +32,7 @@ launchd 服務與自動更新。若沒有 Pi Agent，會先詢問是否透過 Pi
 安裝程式會用這台 Mac 自己產生的憑證簽章 Stepsemble.app，放進 `~/Applications`。
 在這台 Mac 上打開它就是 Workspace，會自動登入，也有 Mac 的選單、視窗和快捷鍵；
 視窗和瀏覽器一樣沒有標題列，分頁列就在最上方、紅黃綠按鈕旁邊，拖動分頁列的空白處
-就能移動視窗。手機和其他電腦照樣用瀏覽器。App 也負責啟動 Stepsemble，所以 macOS 只會針對
+就能移動視窗；側欄是 Mac 的半透明毛玻璃。手機和其他電腦照樣用瀏覽器。App 也負責啟動 Stepsemble，所以 macOS 只會針對
 Stepsemble 詢問一次能否使用文件、桌面、下載項目、iCloud 雲碟和其他磁碟，之後
 Stepsemble 或 Node.js 更新都不必重新允許。安裝完成時會打開 App 和「資料夾取用
 權限」視窗：按「允許取用」，再逐一回應 macOS 的詢問。

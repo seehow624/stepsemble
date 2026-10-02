@@ -28,6 +28,16 @@
     document.title = `Stepsemble · ${t("workspace")}`;
     for (const element of document.querySelectorAll("[data-workspace-i18n]")) element.textContent = t(element.dataset.workspaceI18n);
     for (const attr of ["aria-label", "title", "placeholder"]) for (const element of document.querySelectorAll(`[data-workspace-${attr}]`)) element.setAttribute(attr, t(element.getAttribute(`data-workspace-${attr}`)));
+    renderHostState();
+    // The Mac app matches its window, buttons and sidebar material to the
+    // chosen theme; "auto" follows macOS.
+    window.webkit?.messageHandlers?.stepsemble?.postMessage({ type: "appearance", theme: prefs.theme });
+  }
+  // The Host card's second line: whether the Host answers, in words.
+  function renderHostState() {
+    const state = $("workspace-host-state");
+    if (!state) return;
+    state.textContent = state.dataset.state === "online" ? t("connected") : state.dataset.state === "offline" ? t("hostUnavailable") : t("connecting");
   }
   // A bucket that only repeats the provider's name ("codex" under Codex) is
   // left out of the label.
@@ -451,11 +461,15 @@
     if (!snapshot.projects.length && !snapshot.entries.length) box.append(node("p", t("empty")));
   }
   let connectionNotice = "";
-  // The HOST dot carries the connection state. Its reason is spoken and shown
-  // on hover, and a new failure is raised once instead of on every poll.
+  // The Host card carries the connection state: its dot and second line. The
+  // reason is spoken and shown on hover, and a new failure is raised once
+  // instead of on every poll.
   function setConnection(online, message) {
     const dot = document.querySelector(".workspace-status-dot");
-    if (dot) { dot.dataset.state = online ? "online" : "offline"; dot.parentElement.title = message; }
+    if (dot) dot.dataset.state = online ? "online" : "offline";
+    $("workspace-host").title = message;
+    $("workspace-host-state").dataset.state = online ? "online" : "offline";
+    renderHostState();
     const status = $("workspace-connection");
     if (status.textContent !== message) status.textContent = message;
     if (!online && message !== connectionNotice) toast(message);
