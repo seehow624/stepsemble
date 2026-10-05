@@ -12,6 +12,7 @@ var StepsembleAgentIdentity;
         cline: Object.freeze({ id: "cline", label: "Cline" }),
         kilo: Object.freeze({ id: "kilo", label: "Kilo Code" }),
         hermes: Object.freeze({ id: "hermes", label: "Hermes Agent" }),
+        omp: Object.freeze({ id: "omp", label: "Oh My Pi" }),
         // Presentation only: this does not install or enable a ChatGPT connector.
         gpt: Object.freeze({ id: "gpt", label: "GPT" }),
         chatgpt: Object.freeze({ id: "chatgpt", label: "ChatGPT" }),

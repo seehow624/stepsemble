@@ -411,6 +411,32 @@ test("Hermes reads its version and gets the time its update check needs", async 
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test("Oh My Pi's own update check tells a newer release from an up to date one", async () => {
+  assert.equal(parseVersion("omp/18.6.1"), "18.6.1");
+  assert.equal(parseVersion("error: /tmp/18.6.1"), null);
+  const registry = JSON.parse(fs.readFileSync(path.join(__dirname, "../protocol/harness-updates.json"), "utf8"));
+  const omp = registry.harnesses.find(item => item.id === "omp");
+  assert.deepEqual([omp.executableEnv, omp.check.args, omp.update.args], ["STEPSEMBLE_OMP_BIN", ["update", "--check"], ["update"]]);
+  for (const [stdout, status] of [
+    ["Current version: 18.6.1\n✔ Already up to date", "up-to-date"],
+    ["Current version: 18.6.1\nNew version available: 18.7.0", "available"],
+  ]) {
+    const { root, file } = tempState();
+    const service = createHarnessUpdateService({
+      registry: { ...registry, harnesses: [omp] },
+      stateFile: file, env: { PATH: "/fake", HOME: root },
+      resolve: name => name === "omp" ? "/fake/omp" : null,
+      runner: async (command, args) => args[0] === "--version"
+        ? { code: 0, stdout: "omp/18.6.1", stderr: "" }
+        : { code: 0, stdout, stderr: "" },
+      busy: () => false,
+    });
+    const row = (await service.check({ id: "omp" })).harnesses[0];
+    assert.deepEqual([row.currentVersion, row.status], ["18.6.1", status]);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("unsupported vendor check flags stay neutral instead of becoming update failures", async () => {
   const { root, file } = tempState();
   const service = createHarnessUpdateService({

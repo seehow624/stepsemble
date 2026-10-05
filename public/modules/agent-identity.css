@@ -31,6 +31,7 @@
 .agent-logo[data-agent-id="cline"] { --agent-mark: url("/agent-logos/v1/cline.svg"); color: #9b8cff; }
 .agent-logo[data-agent-id="kilo"] { --agent-mark: url("/agent-logos/v1/kilo.svg"); color: #f09a55; }
 .agent-logo[data-agent-id="hermes"] { --agent-mark: url("/agent-logos/v1/hermes.svg"); color: #62b6cb; }
+.agent-logo[data-agent-id="omp"] { --agent-mark: url("/agent-logos/v1/omp.svg"); color: #e07ab0; }
 .agent-logo[data-agent-id="gpt"], .agent-logo[data-agent-id="chatgpt"] { --agent-mark: url("/agent-logos/v1/openai.svg"); }
 .agent-logo[data-agent-id="agent"] { --agent-mark: url("/agent-logos/v1/agent.svg"); }
 .agent-task-row, .agent-task-center-row { grid-template-columns: 28px minmax(0, 1fr) auto; }

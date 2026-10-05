@@ -12,7 +12,7 @@
 | OpenCode server | 原生 file parts | 原生模型清單、送出時選擇 | 最新回覆用量及模型容量 |
 | Claude structured | Anthropic image blocks | initialize 模型清單、set_model 原生 ACK | 最新 assistant 輸入與 cache tokens；容量由原生 modelUsage 提供 |
 | Codex app-server | 原生 image data URL | model/list 清單、下一個 turn 的 model/effort | thread/tokenUsage/updated 的 last 與 modelContextWindow |
-| Cline / Kilo / Hermes ACP | ACP image blocks | 僅 agent 有提供 model config option 時 | 僅 agent 有回報用量與容量時 |
+| Cline / Kilo / Oh My Pi / Hermes ACP | ACP image blocks | 僅 agent 有提供 model config option 時 | 僅 agent 有回報用量與容量時 |
 | 純終端／唯讀歷史 | 不提供發送圖片 | 不提供即時模型控制 | 不推算原生 context |
 
 未知用量或容量保留未知，不以累積計費 token 冒充當前上下文。模型清單依電腦上官方 harness 的設定與帳號回傳，不寫入全域帳號／provider 設定。Codex 的舊分頁若指向另一個已開啟的原生 thread，送出／停止會拒絕並要求重新開啟正確對話。
@@ -41,6 +41,7 @@
 | Google Antigravity | 官方 [`agy` headless CLI](https://antigravity.google/docs/cli/headless/)：`--input-format stream-json`、`--output-format stream-json`、`--conversation`；輸出 `init`／`step_update`／`result` NDJSON | 明確 opt-in 的 `antigravity-cli-stream-json-v1` structured session；Agent Hub 可開啟、重送、停止、顯示 conversation ID，bounded parser 會鎖定單一 conversation | 需 `STEPSEMBLE_ANTIGRAVITY_STRUCTURED=1` 且本機有 `agy`。公開 headless stream 沒有可安全推斷的 approval response envelope，因此只觀察明確標記的 approval，回覆固定 fail-closed；未啟用時回落 `canonical_bounded` CLI。 |
 | Cline | 官方 CLI 提供 `--acp` Agent Client Protocol 模式、session/prompt/update、permission request，以及 `--json` headless 模式 | **已完成 ACP native adapter**；若本機有 `cline`，Stepsemble 以 `cline --acp` 啟動標準 ACP，保留 upstream session ID、stream update、cancel 與 option-bound approval；Host restart 後以 bounded index 提供 resume 入口 | Stepsemble 不讀 Cline 私有資料庫；完整 transcript 仍由 upstream `session/load` 提供。可用 `STEPSEMBLE_CLINE_ACP=0` 回退 bounded CLI。3.6.0 起 ACP 回 -32000（需要驗證）時不再退回 bounded CLI，改回 409 `cline_auth_required`，由新增對話提供 `cline auth`；Kilo、Hermes 相同。 |
 | Kilo Code | 官方 CLI 提供 `kilo run`、JSON 格式、session resume，以及 ACP server | **已完成 ACP native adapter**；若本機有 `kilo`，Stepsemble 以 `kilo acp` 啟動標準 ACP，支援 session/new/load、prompt/update、cancel 與 option-bound approval；Host restart 後以 bounded index 提供 resume 入口 | 不讀 Kilo 私有 credential/store；跨 restart 不掃描 SQLite，仍由 upstream `session/load` 決定 transcript。可用 `STEPSEMBLE_KILO_ACP=0` 回退 bounded CLI。 |
+| Oh My Pi | 官方 `omp acp` ACP v1 stdio server：session/new/load/list/fork/resume/close、prompt/update、cancel、permission request；登入用 `omp login` | **已完成 ACP native adapter**；若本機有 `omp`（Bun 裝在 `~/.bun/bin`），Stepsemble 以 `omp acp` 啟動標準 ACP；Host restart 後以 bounded index 提供 resume 入口 | omp 未登入時 `session/new` 仍會成功但沒有 model 選項，prompt 才回 `-32603 Internal error`（`data.details` 為 "No model selected … Use /login"）。Stepsemble 因此把「新對話沒有 model 選項」視為需要登入，關閉該空對話並回 409 `omp_auth_required`，由新增對話提供 `omp login`。可用 `STEPSEMBLE_OMP_ACP=0` 回退 bounded CLI。 |
 | Hermes Agent | 官方 Hermes ACP stdio server、session/prompt streaming、permission request、cancel，以及 sessions CLI | **已完成 ACP native adapter**；若本機有 `hermes`，Stepsemble 以 `hermes acp` 使用標準 ACP，Personal Agents 分組與 coding task 分離；Host restart 後以 bounded index 提供 resume 入口 | 不掃描 Hermes gateway、Telegram 或私有 session store；完整 transcript 仍由 upstream `session/load` 決定。可用 `STEPSEMBLE_HERMES_ACP=0` 回退 bounded CLI。 |
 
 ## OpenCode native adapter 使用方式
@@ -99,17 +100,18 @@ Agent Hub 的 Claude task 會以 public `claude -p --output-format stream-json -
 
 在 host mode 下，`POST /api/claude/structured/permission` 只接受目前 `can_use_tool` request 的 ID，並送出官方 control response；Allow 會帶回 request 的原始 `input`，Deny 會帶回使用者拒絕訊息。未知、重複或 legacy permission frame 一律 fail-closed。若明確配置 `--permission-prompt-tool` MCP tool，Stepsemble 會停用 host response，改由 MCP tool 擁有決策。
 
-### Cline、Kilo Code、Hermes（ACP）
+### Cline、Kilo Code、Oh My Pi、Hermes（ACP）
 
-這三個 connector 都使用標準 ACP JSON-RPC over stdio；Stepsemble 不把單次 JSON output 或私有 SQLite／gateway 檔案當成歷史 authority。執行檔存在時預設啟用，若要回退安全 bounded CLI，可設定：
+這四個 connector 都使用標準 ACP JSON-RPC over stdio；Stepsemble 不把單次 JSON output 或私有 SQLite／gateway 檔案當成歷史 authority。執行檔存在時預設啟用，若要回退安全 bounded CLI，可設定：
 
 ```sh
 export STEPSEMBLE_CLINE_ACP=0
 export STEPSEMBLE_KILO_ACP=0
+export STEPSEMBLE_OMP_ACP=0
 export STEPSEMBLE_HERMES_ACP=0
 ```
 
-ACP adapter 只接受 upstream 回傳的 session ID，並驗證 `session/update` 的 session scope。`session/request_permission` 的回覆只接受當次 request 提供的 `optionId`；不自動選擇、不使用 yolo、不複製訂閱／OAuth。瀏覽器使用的路由為 `/api/{cline|kilo|hermes}/acp/{sessions,session,events,pending,prompt,cancel,permission}`；restart index 只存 resume 所需的非秘密 metadata。
+ACP adapter 只接受 upstream 回傳的 session ID，並驗證 `session/update` 的 session scope。`session/request_permission` 的回覆只接受當次 request 提供的 `optionId`；不自動選擇、不使用 yolo、不複製訂閱／OAuth。瀏覽器使用的路由為 `/api/{cline|kilo|omp|hermes}/acp/{sessions,session,events,pending,prompt,cancel,permission}`；restart index 只存 resume 所需的非秘密 metadata。
 
 ### Codex
 

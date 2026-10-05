@@ -41,6 +41,9 @@ test("every agent's commands are fixed argument lists with no shell or browser-s
   assert.equal(commandArgs(findChoice("hermes", "logout"), "a b"), null);
   assert.equal(findChoice("codex", "login", "shell"), null);
   assert.equal(findChoice("cline", "logout"), null, "an agent without a sign-out command offers none");
+  assert.deepEqual(commandArgs(findChoice("omp", "login")), ["login"], "Oh My Pi asks for its provider in its own sign-in");
+  assert.equal(findChoice("omp", "login").interactive, true);
+  assert.deepEqual(commandArgs(findChoice("omp", "status")), ["usage"]);
 });
 
 test("a sign-in runs in a terminal, relays its link and code, and hides a pasted secret", unix, async () => {

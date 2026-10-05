@@ -53,6 +53,11 @@ const scenarios = [
     journalAvailable: true,
     nativeAdapter: { configured: true, ready: false, state: "configured" },
   }, { followUp: "ready", model: "unavailable", images: "unavailable", approval: "unavailable" }],
+  ["omp-configured-acp", "omp", {
+    installed: true,
+    journalAvailable: true,
+    nativeAdapter: { configured: true, ready: false, state: "configured" },
+  }, { followUp: "ready", model: "limited", reasoning: "unknown", approval: "ready", recovery: "limited" }],
   ["missing", "hermes", { installed: false }, { session: "unavailable", followUp: "unavailable", history: "unavailable" }],
 ];
 

@@ -1,7 +1,7 @@
 "use strict";
 
 // Shared Agent Client Protocol (ACP) v1 bridge for agents that expose an ACP
-// server over stdio (currently Kilo Code and Hermes). The bridge deliberately
+// server over stdio (Cline, Kilo Code, Hermes and Oh My Pi). The bridge deliberately
 // keeps its authority at the wire boundary: it does not read an agent's
 // private database, credential store, or TUI history files. Session IDs,
 // updates, and permission request IDs are accepted only after the ACP peer
@@ -13,6 +13,7 @@ const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { createLineDecoder } = require("./stream-safety");
 const { acpImageBlocks } = require("./prompt-attachments");
+const { withCommandDirectory } = require("./command-environment");
 
 const ACP_VERSION = "acp-v1";
 const MAX_FRAME_BYTES = 2 * 1024 * 1024;
@@ -223,6 +224,10 @@ function createAgentClientProtocolAdapter({
   onUpdate = null,
   onPermission = null,
   registryFile = null,
+  // An agent that opens a conversation without a single model (Oh My Pi
+  // before its sign-in) cannot answer it. With this set, that new
+  // conversation counts as the agent's sign-in being needed.
+  requiresModel = false,
 } = {}) {
   if (typeof command !== "string" || !path.isAbsolute(command)) throw new TypeError("acp_command_absolute_required");
   if (!Array.isArray(args) || !args.every(value => typeof value === "string")) throw new TypeError("acp_args_invalid");
@@ -326,10 +331,13 @@ function createAgentClientProtocolAdapter({
       // The agent's own reason, such as "You need to sign in to use this
       // model", is shown to the person instead of a bare "not sent".
       if (Object.hasOwn(frame, "error")) {
-        const message = safeText(frame.error?.message, 500);
-        row.resolve({ ...reject(frame.error?.code === -32000
-          || /\bauthenticat(?:e|ion) (?:is )?required|call authenticate\b/i.test(String(frame.error?.message || "")) ? "acp_auth_required" : "acp_request_rejected"),
-          ...(message ? { error: message } : {}) });
+        // A bare JSON-RPC "Internal error" may carry the agent's reason in its
+        // data: Oh My Pi says "No model selected … Use /login" there.
+        const raw = String(frame.error?.message || ""), details = typeof frame.error?.data?.details === "string" ? frame.error.data.details : "";
+        const message = safeText(details && /^internal error$/i.test(raw.trim()) ? details.replace(/\s*\n\s*/g, " ").trim() : raw, 500);
+        const authRequired = frame.error?.code === -32000 || /\bauthenticat(?:e|ion) (?:is )?required|call authenticate\b/i.test(raw)
+          || /\bno model selected\b|\buse \/login\b/i.test(details);
+        row.resolve({ ...reject(authRequired ? "acp_auth_required" : "acp_request_rejected"), ...(message ? { error: message } : {}) });
       }
       else row.resolve({ kind: "result", value: bounded(frame.result) });
       return;
@@ -342,7 +350,7 @@ function createAgentClientProtocolAdapter({
   function start() {
     if (child || closed) return status();
     try {
-      child = spawnImpl(command, args.slice(), { cwd, env: { ...env }, shell: false, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      child = spawnImpl(command, args.slice(), { cwd, env: withCommandDirectory(env, command), shell: false, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     } catch (cause) { fail(cause); return status(); }
     decoder = createLineDecoder({ maxBytes: MAX_FRAME_BYTES, onError: () => fail("acp_frame_invalid"), onLine: line => {
       try { handleFrame(JSON.parse(line)); } catch { fail("acp_frame_invalid"); }
@@ -385,6 +393,14 @@ function createAgentClientProtocolAdapter({
     const answered = result.value?.sessionId;
     const id = String(sessionId && (answered === undefined || answered === null) ? sessionId : answered ?? "");
     if (!safeId(id) || sessionId && id !== sessionId) { restore(); return reject("acp_session_invalid"); }
+    // ACP v1 exposes model selection through session config options rather
+    // than a dedicated model API. Record whatever the agent advertised so the
+    // browser can offer the same choices the vendor's own client would.
+    const configOptions = plain(result.value) ? configOptionsFromSession(result.value) : [];
+    if (requiresModel && !sessionId && !configOptions.some(option => option.category === "model")) {
+      if (agentCapabilities?.sessionCapabilities?.close) void request("session/close", { sessionId: id });
+      return reject("acp_auth_required");
+    }
     const prior = knownSessions.get(id);
     const sessionName = safeText(name, 120) || prior?.name || null;
     const metadata = { id, cwd: directory, name: sessionName, lastActivityAt: Date.now() };
@@ -393,10 +409,6 @@ function createAgentClientProtocolAdapter({
     writeSessionRegistry(registryFile, knownSessions);
     sessions.set(id, { ...metadata, events: sessionId ? sessions.get(id)?.events || [] : [], status: "idle", promptInFlight: false, loaded: true });
     while (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
-    // ACP v1 exposes model selection through session config options rather
-    // than a dedicated model API. Record whatever the agent advertised so the
-    // browser can offer the same choices the vendor's own client would.
-    const configOptions = plain(result.value) ? configOptionsFromSession(result.value) : [];
     sessions.get(id).configOptions = configOptions;
     return { kind: sessionId ? "loaded" : "created", sessionId: id, cwd: directory, configOptions };
   }

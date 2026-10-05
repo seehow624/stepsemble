@@ -4,8 +4,8 @@
 
 Stepsemble 是一个开源、自托管、移动优先的本地 coding agent 工作区。Pi Agent
 使用原生会话路径；同一界面也能启动主机上已安装的 Claude Code、Codex CLI、Grok
-Build、OpenCode、Google Antigravity（`agy`）、Cline、Kilo Code 和 Hermes。
-Cline、Kilo 和 Hermes 在本机存在可执行文件时使用官方 ACP；不兼容时安全回退有界通用 connector。
+Build、OpenCode、Google Antigravity（`agy`）、Cline、Kilo Code、Oh My Pi（`omp`）和 Hermes。
+Cline、Kilo、Oh My Pi 和 Hermes 在本机存在可执行文件时使用官方 ACP；不兼容时安全回退有界通用 connector。
 
 ## 隐私与安全
 
@@ -102,7 +102,7 @@ type %USERPROFILE%\.config\stepsemble\token
 ## Workspace 里的 Agent
 
 Workspace 的**新建会话**会列出本机 Pi Agent，以及已安装的 Claude Code、Codex
-CLI、Grok Build、OpenCode、Google Antigravity（`agy`）、Cline、Kilo Code 和 Hermes。
+CLI、Grok Build、OpenCode、Google Antigravity（`agy`）、Cline、Kilo Code、Oh My Pi 和 Hermes。
 在**新建会话**中可以选择 Agent，并可勾选隔离 Git worktree；Agent 还没登录时，同一个窗口会先提供它自己的登录，登录完成后建立会话。CLI 的 stdout/stderr 会流式显示在对话中；macOS/Linux 使用内置
 `server/pty-bridge.py` 提供交互式终端，Windows 或没有 Python 的主机则使用安全 pipe。
 计时器会在离开页面或关闭浏览器后继续；在 Workspace 侧边列表重新打开即可回放有限长度的输出。
@@ -111,10 +111,13 @@ CLI、Grok Build、OpenCode、Google Antigravity（`agy`）、Cline、Kilo Code 
 重启 Stepsemble 网页服务后会重新接管监督器，任务计时和输出继续；如果主机或监督器本身被终止，
 任务会如实标记为已中断。Workspace 侧边列表显示每个会话的状态，每个窗格都有停止按钮，**其他 App 的历史**可以搜索主机上的所有会话，也能打开只读的历史阅读器。
 
-Grok Build 只要装了 `grok` 就使用 ACP（`STEPSEMBLE_GROK_ACP=0` 可改回终端方式）。Cline、Kilo 和 Hermes 使用
+Grok Build 只要装了 `grok` 就使用 ACP（`STEPSEMBLE_GROK_ACP=0` 可改回终端方式）。Cline、Kilo、Oh My Pi 和 Hermes 使用
 标准 ACP 的 session/update、cancel 与 permission options；Stepsemble 不读取私有
 credential、gateway 或 session store。可用 `STEPSEMBLE_CLINE_ACP=0`、
-`STEPSEMBLE_KILO_ACP=0`、`STEPSEMBLE_HERMES_ACP=0` 分别回退 CLI。
+`STEPSEMBLE_KILO_ACP=0`、`STEPSEMBLE_OMP_ACP=0`、`STEPSEMBLE_HERMES_ACP=0` 分别回退 CLI。
+Oh My Pi 用 Bun 安装（`bun install -g @oh-my-pi/pi-coding-agent`，需要 Bun 1.3.14 以上），
+`omp` 会在 `~/.bun/bin`，Stepsemble 会到那里找。
+`omp` 还没登录模型供应商时，新建 Oh My Pi 会话会先提供 `omp login`。
 
 ## 自动更新
 

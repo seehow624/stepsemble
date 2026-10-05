@@ -1,7 +1,7 @@
-/* stepsemble v3.8.29 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.30 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.29";
+const CLIENT_APP_VERSION = "3.8.30";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -2685,7 +2685,7 @@ async function openAgentTaskFromHub(task) {
   if (task.nativeHistoryReadonly === true) return openNativeHistoryTask(task);
   if (task.nativeCodex === true || task.nativeThreadId && task.agentId === "codex") return openCodexNativeTask(task);
   if (task.nativeGrokAcp === true || task.nativeSessionId && task.agentId === "grok-build") return openGrokAcpTask(task);
-  if (task.nativeAcp === true || task.nativeSessionId && ["cline", "kilo", "hermes"].includes(task.agentId)) return openAgentClientProtocolTask(task);
+  if (task.nativeAcp === true || task.nativeSessionId && ["cline", "kilo", "hermes", "omp"].includes(task.agentId)) return openAgentClientProtocolTask(task);
   if (task.nativeClaudeStructured === true || task.nativeSessionId && task.agentId === "claude-code") return openClaudeStructuredTask(task);
   if (task.nativeAntigravityStructured === true || task.nativeSessionId && task.agentId === "antigravity") return openAntigravityStructuredTask(task);
   if (task.nativeOpenCode === true || task.nativeSessionId) return openOpenCodeNativeTask(task);
@@ -6942,7 +6942,7 @@ async function refreshAgentClientProtocolSnapshot(connection, { initial = false 
 async function openAgentClientProtocolTask(task, generationOverride = null) {
   if (!task) return;
   const agentId = String(task.acpAgentId || task.agentId || "");
-  if (!agentId || !["cline", "kilo", "hermes"].includes(agentId)) return;
+  if (!agentId || !["cline", "kilo", "hermes", "omp"].includes(agentId)) return;
   const nativeSessionId = String(task.nativeSessionId || task.id || task.taskId || "").replace(new RegExp(`^${agentId}:`), "");
   if (!nativeSessionId) return;
   const cwd = task.cwd || ""; const name = task.name || agentConnectorLabel(agentId);
@@ -11460,7 +11460,7 @@ function acpThoughtOption(configOptions) {
   const options = Array.isArray(configOptions) ? configOptions : [];
   return options.find((option) => option?.category === "thought_level" && option.options?.length) || null;
 }
-// Kilo, Cline and Hermes share one ACP route and Grok has its own; both read
+// Kilo, Cline, Hermes and Oh My Pi share one ACP route and Grok has its own; both read
 // and change the same session config options.
 function acpConfigPath(connection) {
   if (connection?.nativeGrokAcp) return "/api/grok/acp/config";
@@ -12347,7 +12347,7 @@ function agentTerminalHostName(base = apiBase) {
 function agentTerminalLabel(agentId) {
   // Settings opened on its own page has no connector catalog loaded yet.
   const names = { pi: "Pi Agent", codex: "Codex", "claude-code": "Claude Code", opencode: "OpenCode", kilo: "Kilo Code",
-    hermes: "Hermes", "grok-build": "Grok Build", cline: "Cline", antigravity: "Antigravity" };
+    hermes: "Hermes", omp: "Oh My Pi", "grok-build": "Grok Build", cline: "Cline", antigravity: "Antigravity" };
   const label = agentConnectorLabel(agentId);
   return label && label !== agentId ? label : names[agentId] || label;
 }
@@ -16077,7 +16077,7 @@ let openCodeDialogEdit = null;
 // says how to sign in and shows the models it offers and its own settings:
 // Pi's visible models and custom providers, OpenCode's providers and local
 // server, and the OpenCodex routing for Codex and Claude Code.
-function modelSettingsAgentIds() { return ["pi", "codex", "claude-code", "opencode", "kilo", "hermes", "grok-build", "cline", "antigravity"]; }
+function modelSettingsAgentIds() { return ["pi", "codex", "claude-code", "opencode", "kilo", "hermes", "omp", "grok-build", "cline", "antigravity"]; }
 function isRoutedModelAgent(agent) { return agent === "codex" || agent === "claude-code"; }
 function currentModelSettingsAgent() { return modelSettingsAgent; }
 function modelAgentText(key, vars = {}) { return tKey("modelAgents." + key, vars); }

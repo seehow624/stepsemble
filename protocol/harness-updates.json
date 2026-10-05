@@ -46,6 +46,15 @@
       "update": { "kind": "command", "args": ["update", "--yes", "--backup"] }
     },
     {
+      "id": "omp",
+      "label": "Oh My Pi",
+      "commands": ["omp"],
+      "executableEnv": "STEPSEMBLE_OMP_BIN",
+      "check": { "kind": "command", "args": ["update", "--check"], "timeoutMs": 55000 },
+      "update": { "kind": "command", "args": ["update"] },
+      "note": "Oh My Pi's own updater: \"omp update --check\" reports a newer release without installing it, and \"omp update\" installs it the way omp was installed (Bun or its standalone binary)."
+    },
+    {
       "id": "gemini-cli",
       "label": "Gemini CLI",
       "commands": ["gemini"],

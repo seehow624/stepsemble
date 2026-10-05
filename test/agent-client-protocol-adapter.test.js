@@ -261,6 +261,57 @@ test("an ACP message is kept with the conversation's updates, and a refusal keep
   assert.equal(refused.error, "Internal error: You need to sign in to use this model.");
 });
 
+// Oh My Pi 18.6 before its sign-in: session/new answers with mode and thinking
+// options but no model, and a prompt fails as a bare "Internal error" whose
+// data says why.
+function modelLessChild() {
+  const child = new EventEmitter();
+  child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+  child.kill = () => child.emit("close", 0, null);
+  child.closed = [];
+  child.stdin.on("data", chunk => {
+    for (const line of chunk.toString().split(/\n/).filter(Boolean)) {
+      const frame = JSON.parse(line);
+      const reply = value => child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: frame.id, ...value }) + "\n");
+      if (frame.method === "initialize") reply({ result: { agentCapabilities: { loadSession: true, sessionCapabilities: { close: {} } } } });
+      else if (frame.method === "session/new") reply({ result: { sessionId: "omp-1", configOptions: [
+        { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: "default", options: [{ value: "default", name: "Default" }, { value: "plan", name: "Plan" }] },
+        { id: "thinking", name: "Thinking", category: "thought_level", type: "select", currentValue: "auto", options: [{ value: "off", name: "Off" }, { value: "auto", name: "Auto" }] },
+      ] } });
+      else if (frame.method === "session/load") reply({ result: {} });
+      else if (frame.method === "session/close") { child.closed.push(frame.params.sessionId); reply({ result: {} }); }
+      else if (frame.method === "session/prompt") reply({ error: { code: -32603, message: "Internal error",
+        data: { details: "No model selected.\n\nUse /login, set an API key environment variable, or create /x/.omp/agent/agent.db\n\nThen use /model to select a model." } } });
+    }
+  });
+  return child;
+}
+
+test("an ACP agent that needs a model counts a new conversation without one as signed out", async t => {
+  const child = modelLessChild();
+  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/omp", args: ["acp"], cwd: "/tmp", spawnImpl: () => child, requiresModel: true });
+  t.after(() => adapter.close());
+  const created = await adapter.createSession({ directory: "/tmp" });
+  assert.equal(created.kind, "reject");
+  assert.equal(created.code, "acp_auth_required");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(child.closed, ["omp-1"], "the unusable conversation is closed again");
+  assert.equal(adapter.sessions().some(row => row.id === "omp-1"), false);
+  // A conversation that already exists is opened again either way.
+  assert.equal((await adapter.createSession({ directory: "/tmp", sessionId: "omp-1" })).kind, "loaded");
+});
+
+test("an ACP Internal error shows the agent's reason from its data", async t => {
+  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/omp", args: ["acp"], cwd: "/tmp", spawnImpl: () => modelLessChild() });
+  t.after(() => adapter.close());
+  assert.equal((await adapter.createSession({ directory: "/tmp" })).kind, "created", "without requiresModel the conversation opens");
+  const refused = await adapter.prompt("omp-1", "hello");
+  assert.equal(refused.kind, "reject");
+  assert.equal(refused.code, "acp_auth_required");
+  assert.match(refused.error, /^No model selected\. Use \/login, /);
+  assert.doesNotMatch(refused.error, /\n/);
+});
+
 test("loading an ACP conversation keeps the agent's replay and takes the id asked for", async t => {
   const child = new EventEmitter();
   child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();

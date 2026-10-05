@@ -10,6 +10,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const { execFile } = require("node:child_process");
+const { withCommandDirectory } = require("./command-environment");
 
 const MAX_STATE_ENTRIES = 32;
 const MAX_OUTPUT = 2_000;
@@ -141,7 +142,7 @@ function commandPath(name, env = process.env) {
   // Match the connector search order: user-owned locations first, so a service
   // started with a bare PATH resolves the same executable the user's shell
   // does rather than a stale system-wide copy.
-  const extra = [path.join(home, ".local", "bin"), path.join(home, ".hermes", "node", "bin")];
+  const extra = [path.join(home, ".local", "bin"), path.join(home, ".hermes", "node", "bin"), path.join(home, ".bun", "bin")];
   extra.push(...(process.platform === "darwin"
     ? ["/opt/homebrew/bin", "/usr/local/bin"]
     : ["/usr/local/bin", "/usr/bin"]));
@@ -252,7 +253,8 @@ function npmPrefixOwning(executable, packageName) {
 
 function execFilePromise(file, args, options = {}) {
   return new Promise((resolve, reject) => {
-    execFile(file, args, { shell: false, ...options }, (error, stdout, stderr) => {
+    const env = options.env ? withCommandDirectory(options.env, file) : options.env;
+    execFile(file, args, { shell: false, ...options, ...(env ? { env } : {}) }, (error, stdout, stderr) => {
       const result = { code: error ? (Number.isInteger(error.code) ? error.code : null) : 0,
         stdout: String(stdout || ""), stderr: String(stderr || ""), error: error || null };
       if (error && !Number.isInteger(error.code) && error.killed) result.code = "timeout";
@@ -265,10 +267,11 @@ function parseVersion(output) {
   // Version output is untrusted command output.  Never return an arbitrary
   // error string (or the first number in a stack trace) as a version.  Keep
   // the accepted token strict enough for semver comparisons while allowing
-  // the usual `codex-cli 0.154.0`, `Version: 0.154.0`, and bare forms, and
-  // a name of up to three words (`Hermes Agent v0.21.5 (2026.9.24)`).
+  // the usual `codex-cli 0.154.0`, `Version: 0.154.0`, and bare forms, a
+  // name of up to three words (`Hermes Agent v0.21.5 (2026.9.24)`), and a
+  // name joined by a slash (`omp/18.6.1`).
   const semver = "(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?";
-  const pattern = new RegExp(`^(?:version\\s*[:=]\\s*|(?:[A-Za-z0-9@._+/-]+\\s+){1,3})?v?(${semver})(?=\\s|$)`, "i");
+  const pattern = new RegExp(`^(?:version\\s*[:=]\\s*|[A-Za-z][A-Za-z0-9._-]{0,63}/|(?:[A-Za-z0-9@._+/-]+\\s+){1,3})?v?(${semver})(?=\\s|$)`, "i");
   for (const line of String(output || "").split(/\r?\n/)) {
     const match = cleanOutput(line).match(pattern);
     if (match) return match[1];

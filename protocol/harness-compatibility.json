@@ -43,6 +43,14 @@
       "probe": "version-only"
     },
     {
+      "id": "omp",
+      "label": "Oh My Pi",
+      "kind": "structured-cli",
+      "executableEnv": "STEPSEMBLE_OMP_BIN",
+      "commands": ["omp"],
+      "probe": "version-only"
+    },
+    {
       "id": "gemini-cli",
       "label": "Gemini CLI",
       "kind": "structured-cli",

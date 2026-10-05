@@ -114,7 +114,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.29";
+const APP_VERSION = "3.8.30";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2072,7 +2072,7 @@ const piResources = createPiResourcesService({ home: APP_HOME });
 let claudeLaunchReservations = 0;
 let nativeWorkRequests = 0;
 let claudeDesktopUpgrade = null;
-const NATIVE_WORK_ROUTE = /^\/api\/(?:open|send|cmd|rpc-cmd|rpc-ui|agent\/(?:open|send|approval)|codex\/mutation\/(?:turn|resume|approval)|opencode\/(?:session|message|model|permission)|(?:grok|cline|kilo|hermes)\/acp\/(?:session|prompt|permission)|(?:claude|antigravity)\/structured\/(?:prompt|model|effort|permission))$/;
+const NATIVE_WORK_ROUTE = /^\/api\/(?:open|send|cmd|rpc-cmd|rpc-ui|agent\/(?:open|send|approval)|codex\/mutation\/(?:turn|resume|approval)|opencode\/(?:session|message|model|permission)|(?:grok|cline|kilo|hermes|omp)\/acp\/(?:session|prompt|permission)|(?:claude|antigravity)\/structured\/(?:prompt|model|effort|permission))$/;
 const hasClaudeTasks = () => claudeLaunchReservations > 0 || agentTasks.list().some(task => task.agentId === "claude-code" && ["starting", "running", "reconnecting", "waiting"].includes(task.status));
 const desktopClaude = process.platform === "darwin" && (process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY
   || fs.existsSync(path.join(CONFIG_DIR, "claude-desktop", "config.json")))
@@ -2138,7 +2138,7 @@ const grokDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "grok-buil
 const grokCommand = String(process.env.STEPSEMBLE_GROK_BIN || "").trim()
   ? resolveCommand({ ...grokDefinition, commands: [String(process.env.STEPSEMBLE_GROK_BIN).trim()] }, { env: process.env, includeKnownPaths: false })
   : resolveCommand(grokDefinition, { env: process.env });
-// Cline, Kilo Code, and Hermes all publish an ACP stdio server. Enable the bridge
+// Cline, Kilo Code, Hermes and Oh My Pi all publish an ACP stdio server. Enable the bridge
 // automatically when the executable is installed; an explicit 0/false still
 // gives operators a safe rollback to the bounded CLI connector. No ACP
 // process is spawned during boot.
@@ -2153,18 +2153,25 @@ const grokAcp = grokAcpEnabled && grokCommand ? createGrokAcpAdapter({ command: 
 const kiloDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "kilo");
 const hermesDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "hermes");
 const clineDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "cline");
+const ompDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "omp");
 const kiloCommand = resolveCommand(kiloDefinition, { env: process.env });
 const hermesCommand = resolveCommand(hermesDefinition, { env: process.env });
 const clineCommand = resolveCommand(clineDefinition, { env: process.env });
+const ompCommand = resolveCommand(ompDefinition, { env: process.env });
 const kiloAcpEnabled = acpFlag("STEPSEMBLE_KILO_ACP", !!kiloCommand);
 const hermesAcpEnabled = acpFlag("STEPSEMBLE_HERMES_ACP", !!hermesCommand);
 const clineAcpEnabled = acpFlag("STEPSEMBLE_CLINE_ACP", !!clineCommand);
+const ompAcpEnabled = acpFlag("STEPSEMBLE_OMP_ACP", !!ompCommand);
 const clineAcp = clineAcpEnabled && clineCommand ? createAgentClientProtocolAdapter({ command: clineCommand, args: ["--acp"], cwd: APP_HOME, env: process.env, label: "Cline", clientVersion: APP_VERSION,
   registryFile: path.join(CONFIG_DIR, "acp-cline-sessions.json") }) : null;
 const kiloAcp = kiloAcpEnabled && kiloCommand ? createAgentClientProtocolAdapter({ command: kiloCommand, args: ["acp"], cwd: APP_HOME, env: process.env, label: "Kilo Code", clientVersion: APP_VERSION,
   registryFile: path.join(CONFIG_DIR, "acp-kilo-sessions.json") }) : null;
 const hermesAcp = hermesAcpEnabled && hermesCommand ? createAgentClientProtocolAdapter({ command: hermesCommand, args: ["acp"], cwd: APP_HOME, env: process.env, label: "Hermes Agent", clientVersion: APP_VERSION,
   registryFile: path.join(CONFIG_DIR, "acp-hermes-sessions.json") }) : null;
+// Oh My Pi opens a conversation even before it is signed in, with no model to
+// answer it; the bridge counts that as its sign-in being needed.
+const ompAcp = ompAcpEnabled && ompCommand ? createAgentClientProtocolAdapter({ command: ompCommand, args: ["acp"], cwd: APP_HOME, env: process.env, label: "Oh My Pi", clientVersion: APP_VERSION,
+  registryFile: path.join(CONFIG_DIR, "acp-omp-sessions.json"), requiresModel: true }) : null;
 // Models that Claude Code and the ACP agents offered in their last conversation,
 // for Settings → Models & providers.
 const agentModelCache = createAgentModelCache({ file: path.join(CONFIG_DIR, "agent-models.json") });
@@ -2185,7 +2192,7 @@ function choiceForSession(agentId, sessionId) {
   return Object.keys(choice).length ? choice : null;
 }
 function acpAdapterForAgent(agentId) {
-  return agentId === "cline" ? clineAcp : agentId === "kilo" ? kiloAcp : agentId === "hermes" ? hermesAcp : null;
+  return agentId === "cline" ? clineAcp : agentId === "kilo" ? kiloAcp : agentId === "hermes" ? hermesAcp : agentId === "omp" ? ompAcp : null;
 }
 
 // The model a Claude conversation last answered with, read from the end of
@@ -2429,7 +2436,7 @@ const agentTasks = createAgentTaskService({
     : agentId === "codex" ? codexNative.status() : agentId === "grok-build" ? grokAcp?.status() || null
       : agentId === "claude-code" ? claudeStructuredStatus()
         : agentId === "antigravity" ? antigravityStructuredStatus()
-          : ["cline", "kilo", "hermes"].includes(agentId) ? acpAdapterForAgent(agentId)?.status() || { state: "disabled", configured: false, ready: false, lastError: "acp_executable_unavailable" } : null,
+          : ["cline", "kilo", "hermes", "omp"].includes(agentId) ? acpAdapterForAgent(agentId)?.status() || { state: "disabled", configured: false, ready: false, lastError: "acp_executable_unavailable" } : null,
   hostId: selfMachineId(),
 });
 // Harness upgrades are a separate, explicit control plane.  The service only
@@ -3096,7 +3103,7 @@ function activeAgentTasksForUpdate() {
     const native = [];
     for (const [id, session] of claudeStructuredSessions) native.push(publicClaudeStructuredTask(id, session));
     for (const [id, session] of antigravityStructuredSessions) native.push(publicAntigravityStructuredTask(id, session));
-    for (const [agentId, adapter] of [["grok-build", grokAcp], ["cline", clineAcp], ["kilo", kiloAcp], ["hermes", hermesAcp]]) {
+    for (const [agentId, adapter] of [["grok-build", grokAcp], ["cline", clineAcp], ["kilo", kiloAcp], ["hermes", hermesAcp], ["omp", ompAcp]]) {
       if (!adapter) continue;
       if (adapter.pendingPermissions().length) tasks.push({ id: `${agentId}:approval`, status: "waiting" });
       for (const session of adapter.sessions()) native.push(agentId === "grok-build" ? publicGrokAcpTask(session) : publicAgentClientProtocolTask(agentId, session));
@@ -3213,7 +3220,7 @@ function publicGrokAcpTask(session) {
 }
 
 function publicAgentClientProtocolTask(agentId, session) {
-  if (!session?.id || !["cline", "kilo", "hermes"].includes(agentId)) return null;
+  if (!session?.id || !["cline", "kilo", "hermes", "omp"].includes(agentId)) return null;
   const cwd = projectDirectory(session.cwd) || (session.cwd === APP_HOME ? APP_HOME : null);
   if (!cwd) return null;
   const running = session.status === "running";
@@ -3228,7 +3235,7 @@ function publicAgentClientProtocolTask(agentId, session) {
     nativeSessionId: session.id,
     needsLoad: session.loaded === false,
     persisted: session.persisted === true,
-    name: session.name || `${agentId === "cline" ? "Cline" : agentId === "kilo" ? "Kilo Code" : "Hermes Agent"} ${session.id.slice(0, 8)}`,
+    name: session.name || `${agentId === "cline" ? "Cline" : agentId === "kilo" ? "Kilo Code" : agentId === "omp" ? "Oh My Pi" : "Hermes Agent"} ${session.id.slice(0, 8)}`,
     cwd,
     // An idle ACP session is a stored conversation, not queued work. Calling
     // it "waiting" made it claim to be a pending task and, because the update
@@ -3406,7 +3413,7 @@ async function listAgentTasksWithOpenCode() {
       // Optional ACP failure must not hide other task sources.
     }
   }
-  for (const [agentId, adapter] of [["cline", clineAcp], ["kilo", kiloAcp], ["hermes", hermesAcp]]) {
+  for (const [agentId, adapter] of [["cline", clineAcp], ["kilo", kiloAcp], ["hermes", hermesAcp], ["omp", ompAcp]]) {
     if (!adapter?.status().configured) continue;
     try { tasks.push(...adapter.sessions().map(session => publicAgentClientProtocolTask(agentId, session)).filter(Boolean)); }
     catch { /* optional ACP failure must not hide other task sources */ }
@@ -5635,7 +5642,7 @@ const server = http.createServer(async (req, res) => {
       // Standard ACP endpoints for Kilo Code and Hermes. They intentionally
       // mirror the Grok adapter's browser contract while sharing the protocol
       // implementation and preserving the agent-owned session identity.
-      const acpMatch = p.match(/^\/api\/(cline|kilo|hermes)\/acp(?:\/(sessions|session|events|pending|prompt|cancel|permission|config))?$/);
+      const acpMatch = p.match(/^\/api\/(cline|kilo|hermes|omp)\/acp(?:\/(sessions|session|events|pending|prompt|cancel|permission|config))?$/);
       if (acpMatch) {
         const agentId = acpMatch[1];
         const action = acpMatch[2] || "root";
@@ -6018,7 +6025,7 @@ const server = http.createServer(async (req, res) => {
         // started is loaded from Grok before the pane shows it.
         if (record.agentId === "grok-build" && record.nativeGrokAcp && record.nativeSessionId && grokAcp
           && !grokAcp.sessions().some(row => row.id === record.nativeSessionId)) record.needsLoad = true;
-        // So do Kilo, Cline and Hermes: after a restart, for example an
+        // So do Kilo, Cline, Hermes and Oh My Pi: after a restart, for example an
         // update, their conversation is loaded again before it takes a message.
         const acpAdapter = record.nativeAcp && record.nativeSessionId ? acpAdapterForAgent(record.agentId) : null;
         if (acpAdapter && !acpAdapter.sessions().some(row => row.id === record.nativeSessionId && row.loaded !== false)) record.needsLoad = true;
@@ -6149,7 +6156,7 @@ const server = http.createServer(async (req, res) => {
           sendJSON(res, 200, { task, adapter: grokAcp.status() });
           return;
         }
-        if (/^(cline|kilo|hermes):/.test(taskId)) {
+        if (/^(cline|kilo|hermes|omp):/.test(taskId)) {
           const agentId = taskId.split(":", 1)[0];
           const adapter = acpAdapterForAgent(agentId);
           const sessionId = taskId.slice(agentId.length + 1);
@@ -7205,9 +7212,9 @@ const server = http.createServer(async (req, res) => {
               if (!codexNative.status().mutationReady || !fork.threadId) throw forkFailure("codex_fork_unavailable", "Codex cannot branch this conversation here");
               const forked = await codexNative.forkThread({ threadId: fork.threadId, lastTurnId: fork.turnId || null });
               body.resumeSessionId = forked.threadId;
-            } else if (["cline", "kilo", "hermes"].includes(agentId) && acpAdapterForAgent(agentId)) {
+            } else if (["cline", "kilo", "hermes", "omp"].includes(agentId) && acpAdapterForAgent(agentId)) {
               const adapter = acpAdapterForAgent(agentId);
-              const forked = await adapter.forkSession(fork.sessionId, { directory: nativeAgentDirectory(cwd, agentId === "cline" ? "Cline ACP" : agentId === "kilo" ? "Kilo Code ACP" : "Hermes ACP"), name: body?.name || null });
+              const forked = await adapter.forkSession(fork.sessionId, { directory: nativeAgentDirectory(cwd, agentId === "cline" ? "Cline ACP" : agentId === "kilo" ? "Kilo Code ACP" : agentId === "omp" ? "Oh My Pi ACP" : "Hermes ACP"), name: body?.name || null });
               if (forked.kind === "reject") throw forkFailure(forked.code, forked.code === "acp_fork_unsupported" ? "This agent cannot branch a conversation" : forked.error || "The agent could not branch this conversation");
               body.resumeSessionId = forked.sessionId;
             } else if (agentId === "opencode" && openCodeNative.status().ready) {
@@ -7275,10 +7282,10 @@ const server = http.createServer(async (req, res) => {
             await applyAcpChoice("grok-build", grokAcp, session.sessionId);
             if (requesterGone) return;
             sendWorkspaceResult(res, 201, { ...publicGrokAcpTask({ id: session.sessionId, cwd: session.cwd, name: session.name, status: "idle", eventCount: 0 }), kind: "grok-acp", agentId: "grok-build" });
-          } else if (["cline", "kilo", "hermes"].includes(agentId) && acpAdapterForAgent(agentId) && !worktree) {
+          } else if (["cline", "kilo", "hermes", "omp"].includes(agentId) && acpAdapterForAgent(agentId) && !worktree) {
             const adapter = acpAdapterForAgent(agentId);
             const session = await adapter.createSession({
-              directory: nativeAgentDirectory(cwd, agentId === "cline" ? "Cline ACP" : agentId === "kilo" ? "Kilo Code ACP" : "Hermes ACP"),
+              directory: nativeAgentDirectory(cwd, agentId === "cline" ? "Cline ACP" : agentId === "kilo" ? "Kilo Code ACP" : agentId === "omp" ? "Oh My Pi ACP" : "Hermes ACP"),
               sessionId: typeof body?.resumeSessionId === "string" && body.resumeSessionId.trim() ? body.resumeSessionId.trim() : null,
               name: body?.name || null,
             });
@@ -7452,7 +7459,7 @@ const server = http.createServer(async (req, res) => {
             const message = await grokAcp.prompt(taskId.slice("grok-build:".length), body?.message, { images: body?.images });
             if (message.kind === "reject") { const error = new Error(message.code); error.statusCode = 409; throw error; }
             sendJSON(res, 200, { sent: true, taskId, message });
-          } else if (/^(cline|kilo|hermes):/.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {
+          } else if (/^(cline|kilo|hermes|omp):/.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {
             const agentId = taskId.split(":", 1)[0];
             const message = await acpAdapterForAgent(agentId).prompt(taskId.slice(agentId.length + 1), body?.message, { images: body?.images });
             if (message.kind === "reject") { const error = new Error(message.code); error.statusCode = 409; throw error; }
@@ -7505,7 +7512,7 @@ const server = http.createServer(async (req, res) => {
           catch { ok = false; }
         } else if (taskId.startsWith("grok-build:") && grokAcp) {
           try { ok = (await grokAcp.cancel(taskId.slice("grok-build:".length))).kind === "cancelled"; } catch { ok = false; }
-        } else if (/^(kilo|hermes):/.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {
+        } else if (/^(kilo|hermes|omp):/.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {
           try { const agentId = taskId.split(":", 1)[0]; ok = (await acpAdapterForAgent(agentId).cancel(taskId.slice(agentId.length + 1))).kind === "cancelled"; } catch { ok = false; }
         } else if (taskId.startsWith("claude-code:") && resolveClaudeStructuredSession(taskId)) {
           try { const resolved = resolveClaudeStructuredSession(taskId); const result = await resolved.session.interrupt(); ok = result.kind === "sent"; } catch { ok = false; }
@@ -7514,7 +7521,7 @@ const server = http.createServer(async (req, res) => {
         } else {
           ok = await agentTasks.stop(taskId);
         }
-        const exists = taskId.startsWith("opencode:") || taskId.startsWith("grok-build:") || /^(cline|kilo|hermes):/.test(taskId) || resolveClaudeStructuredSession(taskId) || taskId.startsWith("antigravity:") || (!taskId.startsWith("pi:") && agentTasks.get(taskId));
+        const exists = taskId.startsWith("opencode:") || taskId.startsWith("grok-build:") || /^(cline|kilo|hermes|omp):/.test(taskId) || resolveClaudeStructuredSession(taskId) || taskId.startsWith("antigravity:") || (!taskId.startsWith("pi:") && agentTasks.get(taskId));
         sendJSON(res, ok ? 200 : exists ? 409 : 404, ok ? { stopped: true } : { error: exists ? "Agent stop could not be confirmed; reconnect and retry" : "no such agent task" });
         return;
       }
@@ -7527,14 +7534,14 @@ const server = http.createServer(async (req, res) => {
           try { ok = (await openCodeNative.abort(taskId.slice("opencode:".length), { directory: openCodeDirectory(body?.cwd || body?.directory || null) })).aborted === true; } catch { ok = false; }
         } else if (taskId.startsWith("grok-build:") && grokAcp) {
           try { ok = (await grokAcp.cancel(taskId.slice("grok-build:".length))).kind === "cancelled"; } catch { ok = false; }
-        } else if (/^(cline|kilo|hermes):/.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {
+        } else if (/^(cline|kilo|hermes|omp):/.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {
           try { const agentId = taskId.split(":", 1)[0]; ok = (await acpAdapterForAgent(agentId).cancel(taskId.slice(agentId.length + 1))).kind === "cancelled"; } catch { ok = false; }
         } else if (taskId.startsWith("claude-code:") && resolveClaudeStructuredSession(taskId)) {
           try { const resolved = resolveClaudeStructuredSession(taskId); const result = await resolved.session.close(); ok = result.cleanupConfirmed === true; if (ok) claudeStructuredSessions.delete(resolved.id); } catch { ok = false; }
         } else if (taskId.startsWith("antigravity:") && antigravityStructuredSessions.has(taskId.slice("antigravity:".length))) {
           try { ok = (await antigravityStructuredSessions.get(taskId.slice("antigravity:".length)).close()).cleanupConfirmed === true; antigravityStructuredSessions.delete(taskId.slice("antigravity:".length)); } catch { ok = false; }
         } else ok = await agentTasks.stop(taskId);
-        const exists = taskId.startsWith("opencode:") || taskId.startsWith("grok-build:") || /^(cline|kilo|hermes):/.test(taskId) || resolveClaudeStructuredSession(taskId) || taskId.startsWith("antigravity:") || agentTasks.get(taskId);
+        const exists = taskId.startsWith("opencode:") || taskId.startsWith("grok-build:") || /^(cline|kilo|hermes|omp):/.test(taskId) || resolveClaudeStructuredSession(taskId) || taskId.startsWith("antigravity:") || agentTasks.get(taskId);
         sendJSON(res, ok ? 200 : exists ? 409 : 404, ok ? { closed: true } : { error: exists ? "Agent stop could not be confirmed; reconnect and retry" : "no such agent task" });
         return;
       }
@@ -7845,10 +7852,11 @@ function shutdown(signal) {
     clineAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
     kiloAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
     hermesAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
+    ompAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
     claudeStructuredCleanup,
     antigravityStructuredCleanup,
     openCodeManaged.close(),
-  ]).then(([historyResult, nativeHistoryResult, codexResult, grokResult, clineResult, kiloResult, hermesResult, claudeResults, antigravityResults, openCodeResult]) => ({
+  ]).then(([historyResult, nativeHistoryResult, codexResult, grokResult, clineResult, kiloResult, hermesResult, ompResult, claudeResults, antigravityResults, openCodeResult]) => ({
     ...(historyResult || {}),
     cleanupConfirmed: historyResult?.cleanupConfirmed === true && nativeHistoryResult?.cleanupConfirmed !== false
       && codexResult?.cleanupConfirmed !== false
@@ -7856,6 +7864,7 @@ function shutdown(signal) {
       && clineResult?.cleanupConfirmed !== false
       && kiloResult?.cleanupConfirmed !== false
       && hermesResult?.cleanupConfirmed !== false
+      && ompResult?.cleanupConfirmed !== false
       && openCodeResult?.cleanupConfirmed !== false
       && (!Array.isArray(claudeResults) || claudeResults.every(result => result?.cleanupConfirmed !== false))
       && (!Array.isArray(antigravityResults) || antigravityResults.every(result => result?.cleanupConfirmed !== false)),

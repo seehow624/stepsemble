@@ -10,7 +10,7 @@ const { CLAUDE_PERMISSION_MODES } = require("./claude-code-structured-adapter");
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const AGENT = /^[a-z0-9][a-z0-9-]{0,47}$/;
 const MODE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const ACP_AGENTS = new Set(["cline", "kilo", "hermes", "grok-build"]);
+const ACP_AGENTS = new Set(["cline", "kilo", "hermes", "omp", "grok-build"]);
 
 // Codex's own presets: Read Only, Default and Full Access in its CLI.
 const CODEX_PERMISSION_PRESETS = Object.freeze({

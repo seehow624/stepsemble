@@ -4,10 +4,10 @@
 
 Stepsemble 是開源、自架、手機優先的本機 coding agent 工作區。Pi Agent
 目前使用原生 session 路徑；同一個介面也可啟動主機上已安裝的 Claude Code、Codex
-CLI、Grok Build、OpenCode、Google Antigravity（`agy`）、Cline、Kilo Code 與 Hermes。
-Cline、Kilo 與 Hermes 若本機執行檔存在，會使用官方 ACP；不相容時安全回退有界通用 connector。
+CLI、Grok Build、OpenCode、Google Antigravity（`agy`）、Cline、Kilo Code、Oh My Pi（`omp`）與 Hermes。
+Cline、Kilo、Oh My Pi 與 Hermes 若本機執行檔存在，會使用官方 ACP；不相容時安全回退有界通用 connector。
 
-設定頁也提供受保護的 Harness 更新中心，可檢查與明確升級本機的 Codex CLI、Claude Code、OpenCode、Pi Agent 與 Hermes Agent。所有命令都來自白名單，執行中的 session／Agent task 會阻擋升級，不會被強制中斷。詳細策略請看 [docs/harness-updates.md](docs/harness-updates.md)。
+設定頁也提供受保護的 Harness 更新中心，可檢查與明確升級本機的 Codex CLI、Claude Code、OpenCode、Pi Agent、Oh My Pi 與 Hermes Agent。所有命令都來自白名單，執行中的 session／Agent task 會阻擋升級，不會被強制中斷。詳細策略請看 [docs/harness-updates.md](docs/harness-updates.md)。
 
 ## 隱私與安全
 
@@ -110,17 +110,20 @@ cat ~/.config/stepsemble/token
 ## Workspace 裡的 Agent
 
 Workspace 的**新增對話**會列出本機 Pi Agent，以及已安裝的 Claude Code、Codex
-CLI、Grok Build、OpenCode、Google Antigravity（`agy`）、Cline、Kilo Code 與 Hermes。
+CLI、Grok Build、OpenCode、Google Antigravity（`agy`）、Cline、Kilo Code、Oh My Pi 與 Hermes。
 選好 Agent 後可以勾選隔離 Git worktree。Agent 還沒登入時，同一個視窗會先提供它自己的登入，
 登入完成就建立對話。CLI 的 stdout／stderr 會串流到對話；macOS/Linux 會透過內附的
 `server/pty-bridge.py` 提供真正的互動式終端，Windows 或沒有 Python 的主機則安全地使用 pipe。計時器會在你瀏覽其他頁面時繼續，
 關閉瀏覽器後工作仍會留在 Workspace；重新點選即可回放有限長度的輸出記錄。未安裝的
 連接器不會列出，必須先在該主機安裝對應 CLI。
 
-Workspace 側邊列表會顯示每個對話的狀態，**其他 App 的歷史**可以搜尋主機上的所有對話，也能開啟唯讀的歷史閱讀器。Grok Build 只要裝了 `grok` 就使用 ACP（`STEPSEMBLE_GROK_ACP=0` 可改回終端機方式）。Cline、Kilo、Hermes 會使用
+Workspace 側邊列表會顯示每個對話的狀態，**其他 App 的歷史**可以搜尋主機上的所有對話，也能開啟唯讀的歷史閱讀器。Grok Build 只要裝了 `grok` 就使用 ACP（`STEPSEMBLE_GROK_ACP=0` 可改回終端機方式）。Cline、Kilo、Oh My Pi、Hermes 會使用
 標準 ACP 的 session/update、cancel 與 permission options；Stepsemble 不讀取私有
 credential、gateway 或 session store。可用 `STEPSEMBLE_CLINE_ACP=0`、
-`STEPSEMBLE_KILO_ACP=0`、`STEPSEMBLE_HERMES_ACP=0` 個別回退 CLI。
+`STEPSEMBLE_KILO_ACP=0`、`STEPSEMBLE_OMP_ACP=0`、`STEPSEMBLE_HERMES_ACP=0` 個別回退 CLI。
+Oh My Pi 用 Bun 安裝（`bun install -g @oh-my-pi/pi-coding-agent`，需要 Bun 1.3.14 以上），
+`omp` 會在 `~/.bun/bin`，Stepsemble 會到那裡找。
+`omp` 還沒登入模型供應商時，新增 Oh My Pi 對話會先提供 `omp login`。
 
 Stepsemble 只在同一個本機使用者環境中啟動這些 CLI，不會複製、匯出、改寫或上傳
 Claude Code、Codex 等官方登入與訂閱憑證，也不會靜默把官方訂閱切成 API key 或

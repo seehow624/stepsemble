@@ -12,6 +12,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { StringDecoder } = require("node:string_decoder");
+const { withCommandDirectory } = require("./command-environment");
 
 const AUTH_TERMINAL_VERSION = 1;
 const ACTIONS = Object.freeze(["status", "login", "logout"]);
@@ -91,6 +92,13 @@ const AGENT_AUTH_COMMANDS = Object.freeze({
   cline: Object.freeze({
     status: null,
     login: Object.freeze([Object.freeze({ id: "default", args: ["auth"], interactive: true })]),
+    logout: null,
+  }),
+  // Oh My Pi signs in through "omp login", which asks which provider to use.
+  // "omp usage" lists the accounts it is signed in to.
+  omp: Object.freeze({
+    status: Object.freeze({ args: ["usage"] }),
+    login: Object.freeze([Object.freeze({ id: "default", args: ["login"], interactive: true })]),
     logout: null,
   }),
   // The Antigravity CLI signs in and out inside its own interactive screen
@@ -183,7 +191,7 @@ function createTerminalProcess({ command, args, cwd, env = process.env, ptyRunti
   usePty = true, spawnImpl = spawn, platform = process.platform, windowsLaunch = null, killDelayMs = KILL_DELAY_MS }) {
   if (typeof command !== "string" || !path.isAbsolute(command)) throw problem("agent_not_installed", 404);
   const python = usePty ? resolvePythonForPty(ptyRuntime) : null;
-  const childEnv = { ...env, TERM: "xterm-256color", COLUMNS: String(cols), LINES: String(rows),
+  const childEnv = { ...withCommandDirectory(env, command), TERM: "xterm-256color", COLUMNS: String(cols), LINES: String(rows),
     STEPSEMBLE_PTY_COLS: String(cols), STEPSEMBLE_PTY_ROWS: String(rows) };
   let file = command, argv = args.slice(), verbatim = false;
   if (python) { file = python; argv = [PTY_BRIDGE_FILE, command, ...args]; }

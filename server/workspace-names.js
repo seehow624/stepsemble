@@ -37,7 +37,7 @@ function workspaceAutoName(value) {
 
 // The names agents give a session nobody named: the agent's name, alone or
 // followed by part of the session's id, and OpenCode's "New session - …".
-const AGENT_LABELS = ["Pi", "Claude Code", "Codex", "OpenCode", "Grok", "Grok Build", "Kilo Code", "Cline", "Hermes Agent", "Antigravity", "Google Antigravity"];
+const AGENT_LABELS = ["Pi", "Claude Code", "Codex", "OpenCode", "Grok", "Grok Build", "Kilo Code", "Cline", "Hermes Agent", "Oh My Pi", "Antigravity", "Google Antigravity"];
 function workspacePlaceholderName(name) {
   const value = String(name || "").replace(/\s+/g, " ").trim();
   if (!value || /^New session - /.test(value)) return true;

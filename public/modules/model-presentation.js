@@ -27,7 +27,7 @@
   const AGENT_PROVIDERS = Object.freeze({ "claude-code": "Anthropic", codex: "OpenAI", "grok-build": "xAI", kilo: "Kilo Gateway" });
   // Agent ids some lists use in place of a provider; never shown as one.
   // OpenCode's own provider is also called "opencode", so its list keeps it.
-  const AGENT_IDS = new Set(["claude-code", "codex", "grok-build", "kilo", "cline", "hermes", "antigravity"]);
+  const AGENT_IDS = new Set(["claude-code", "codex", "grok-build", "kilo", "cline", "hermes", "omp", "antigravity"]);
   // Bracketed words that describe a model rather than name it.
   const TAG = /^(?:new|free|\$+|beta|alpha|preview|deprecated|legacy|experimental|retir(?:es|ing)\b.*|\d+%\s*off)$/i;
 

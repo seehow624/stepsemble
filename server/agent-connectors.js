@@ -122,6 +122,16 @@ const CONNECTOR_DEFINITIONS = Object.freeze([
     capabilities: Object.freeze(["terminal", "streaming", "worktree", "acp", "sessions", "approvals", "model_selection"]),
   }),
   Object.freeze({
+    id: "omp",
+    label: "Oh My Pi",
+    kind: "cli",
+    category: "coding",
+    maturity: "structured",
+    commands: Object.freeze(["omp"]),
+    description: "Oh My Pi (omp) through its official Agent Client Protocol (ACP) server.",
+    capabilities: Object.freeze(["terminal", "streaming", "worktree", "acp", "sessions", "approvals", "model_selection"]),
+  }),
+  Object.freeze({
     id: "hermes",
     label: "Hermes Agent",
     kind: "cli",
