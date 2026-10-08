@@ -435,4 +435,4 @@ function createOpenCodexGatewayService({
   };
 }
 
-module.exports = { createOpenCodexGatewayService, OpenCodexGatewayError };
+module.exports = { createOpenCodexGatewayService, OpenCodexGatewayError, findOpencodexBinary };

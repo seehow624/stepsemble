@@ -458,6 +458,27 @@ test("already localized Traditional Chinese chrome is idempotent", () => {
   assert.equal(i18n.translate("更多專案操作"), "More project actions");
 });
 
+test("a failed run's title is read as one phrase in every locale", () => {
+  const i18n = loadLocaleLayer();
+  // The activity receipt's short 失敗 ("Failed") once cut 工作失敗 in two, and
+  // an English page titled a failed run "workFailed".
+  i18n.setLocale("en");
+  assert.equal(i18n.translate("工作失敗"), "Work failed");
+  assert.equal(i18n.translate("工作已中止"), "Work stopped");
+  assert.equal(i18n.translate("Pi 工作程序已中斷"), "Pi work process stopped");
+  assert.equal(i18n.translate("失敗"), "Failed");
+  const expected = { "zh-Hans": "工作失败", ja: "作業に失敗しました", ko: "작업 실패", de: "Arbeit fehlgeschlagen", "zh-Hant": "工作失敗" };
+  for (const [locale, title] of Object.entries(expected)) {
+    i18n.setLocale(locale);
+    assert.equal(i18n.translate("工作失敗"), title, locale);
+  }
+  // A title already shown in one language goes to the next without breaking.
+  i18n.setLocale("en");
+  assert.equal(i18n.translate("作業に失敗しました"), "Work failed");
+  i18n.setLocale("ja");
+  assert.equal(i18n.translate("Arbeit fehlgeschlagen"), "作業に失敗しました");
+});
+
 test("locale switches preserve exact terminal output and conversation titles", () => {
   const protectedSelectors = [".agent-terminal-output", ".agent-terminal-input", ".agent-structured-output", "#chat-title", "#chat-sub"];
   const nodes = protectedSelectors.map(selector => ({ nodeType: 3, nodeValue: "設定 開啟 中文內容", parentElement: {
