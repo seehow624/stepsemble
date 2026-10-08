@@ -294,6 +294,15 @@ export async function runConversationUxBrowserCases(browser) {
       await ui.waitForFunction(connected, null, { timeout: 20000 });
       await pendingTurn(page, ui, context, "**/api/hermes/acp/prompt", "held back for ACP", "held back for ACP", out, "acp");
       await ui.waitForFunction(() => document.querySelectorAll("#messages .msg.assistant").length > 0);
+      // This agent does not count its tokens, so its speed is estimated; a
+      // reply with nothing to fold still gets a plain line for it.
+      stage = "ACP agent: output speed";
+      await ui.waitForFunction(() => /^≈ .+ tok\/s · .+ tok\/min$/.test([...document.querySelectorAll("#messages .wl-head .wl-rate")].pop()?.textContent || ""), null, { timeout: 10000 });
+      out.acpRate = await ui.evaluate(() => {
+        const head = [...document.querySelectorAll("#messages .wl-head")].pop();
+        return { text: head.querySelector(".wl-rate").textContent, plain: head.dataset.static === "true" && !head.hasAttribute("aria-expanded") && head.tabIndex === -1 };
+      });
+      assert.equal(out.acpRate.plain, true, "a reply with nothing to fold keeps a plain line: " + JSON.stringify(out.acpRate));
 
       stage = "Tabs: one width, the agent's logo, no title row";
       if (viewport.mobile) {

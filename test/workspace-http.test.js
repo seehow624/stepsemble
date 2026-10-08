@@ -130,6 +130,15 @@ test("workspace HTTP isolates membership, history, project registration and pane
   assert.equal((await request("/api/model-visibility", { hide: ["synthetic::*"] }, "https://elsewhere.example")).status, 403);
   assert.deepEqual((await (await request("/api/model-visibility")).json()).hidden, ["synthetic::baseline"]);
 
+  // Each finished run's speed is kept on the Host for every device.
+  assert.deepEqual(await (await request("/api/turn-rates?entry=entry-1")).json(), { entry: "entry-1", rates: [] });
+  const speed = { entry: "entry-1", startedAt: 1_000_000, endedAt: 1_050_000, tokens: 1200, estimated: false, totalMs: 50_000, modelMs: 20_000 };
+  assert.equal((await request("/api/turn-rates", speed)).status, 200);
+  assert.deepEqual((await (await request("/api/turn-rates?entry=entry-1")).json()).rates.map(row => row.tokens), [1200]);
+  assert.equal((await request("/api/turn-rates", { ...speed, modelMs: 60_000 })).status, 400);
+  assert.equal((await request("/api/turn-rates?entry=..%2Fx")).status, 400);
+  assert.equal((await request("/api/turn-rates", speed, "https://elsewhere.example")).status, 403);
+
   // A phone pays for every uncompressed byte of the client bundle, so the
   // assets are served compressed, kept for the release's own URL, and never
   // answered across encodings with one shared validator.

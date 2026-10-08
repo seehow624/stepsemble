@@ -228,6 +228,14 @@ API limits come from: each agent's own sign-in, Pi's sign-ins and keys,
 OpenCodex, or CodexBar's CLI. Turn sources on or off, and pick one for a service
 that several sources can read.
 
+When OpenCodex has connected Pi, the Host compares the models OpenCodex serves
+with the OpenCodex models in Pi's `models.json` every five minutes and whenever a
+model menu opens. If they differ, it runs OpenCodex's own
+`opencodex integration client enable --client pi`, which rewrites only that block
+(OpenCodex keeps a snapshot first), so a model OpenCodex adds reaches Pi's menu
+without waiting for OpenCodex to restart. Stepsemble does not edit the block or
+read OpenCodex's credentials.
+
 **Settings → Notifications** turns on push alerts for the device you are using.
 An alert arrives when an agent finishes, fails or is stopped while that
 conversation is not open on any screen. **Settings → About** shows the

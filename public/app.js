@@ -1,7 +1,7 @@
-/* stepsemble v3.8.31 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.32 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.31";
+const CLIENT_APP_VERSION = "3.8.32";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -4592,6 +4592,8 @@ function resetGenericReplayNotice() {
 async function connectRpc(opts, generation = viewGeneration, openedResult = null, openedBase = apiBase, signal = null) {
   const baseAtStart = openedResult === null ? apiBase : openedBase;
   resetGenericReplayNotice();
+  // A new connection does not finish the previous one's run.
+  if (rpc) rpc.outputMeter = null;
   setStreaming(false);
   try {
     const r = openedResult === null ? await post("/api/open", opts, signal ? { signal } : {}) : openedResult;
@@ -8902,6 +8904,162 @@ function workTurnDuration(turn) {
   return start && end && end >= start ? end - start : null;
 }
 
+// ---- Output speed ----
+// While a run works, the right of "Working for …" shows how fast the model is
+// writing now, estimated from the text as it appears. When the run ends it
+// shows tok/s over the time the model worked (time spent running tools or
+// waiting for the person is left out) and tok/min over the whole run. Agents
+// that report their output tokens (Pi, and ACP agents that answer with usage)
+// are counted exactly; the others are estimated and marked "≈". The Host
+// keeps each run's numbers, so every device shows them.
+const OutputRate = window.StepsembleOutputRate;
+const OUTPUT_EXCLUDE = ".tool-card, .message-usage, .run-error, .agent-approval-card, .agent-terminal-status, .wl-own, .msg-actions, .image-gallery, button, img, svg";
+let turnRateCache = { key: "", rates: [] };
+function outputMeterable(connection) {
+  return !!connection && !connection.nativeHistoryReadonly && (!connection.generic || !!(connection.nativeAcp || connection.nativeGrokAcp
+    || connection.nativeClaudeStructured || connection.nativeCodexMutation || connection.nativeOpenCode || connection.nativeAntigravityStructured));
+}
+function lastUserMessage() {
+  return [...(el.messages?.children || [])].filter(node => node.classList.contains("msg") && node.classList.contains("user")).pop() || null;
+}
+function currentWorkTurn() {
+  const turns = workTurns();
+  return turns[turns.length - 1] || null;
+}
+// The model's own words in a turn: replies and thinking, without tool output,
+// usage lines, notices or controls.
+function turnOutputTokens(turn) {
+  let total = 0;
+  for (const node of turn?.nodes || []) {
+    if (!node.classList?.contains("msg") || !node.classList.contains("assistant")) continue;
+    const bubble = directMessageBubble(node);
+    if (!bubble) continue;
+    const walker = document.createTreeWalker(bubble, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode: item => item.nodeType === Node.TEXT_NODE ? NodeFilter.FILTER_ACCEPT
+        : item.matches(OUTPUT_EXCLUDE) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP,
+    });
+    let text = "";
+    for (let item = walker.nextNode(); item; item = walker.nextNode()) text += item.data;
+    total += OutputRate.estimateTokens(text);
+  }
+  return total;
+}
+// Running a tool or waiting for the person is not the model's time.
+function outputMeterBusy(connection, turn) {
+  if (!connection.generic) return (connection.executingTools?.size || 0) > 0 || nativeDialogs.count(apiBase, connection.sid) > 0;
+  return !!turn?.nodes.some(node => node.querySelector?.(".tool-card.running, .agent-approval-card button:not(:disabled)"));
+}
+function startOutputMeter(connection, complete) {
+  if (!outputMeterable(connection)) { if (connection) connection.outputMeter = null; return; }
+  connection.outputMeter = OutputRate.createMeter({ startedAt: Number(connection.runStartedAt) || Date.now(), complete });
+  connection.outputMeterTokens = turnOutputTokens(currentWorkTurn());
+  connection.outputMeterExtra = 0;
+  connection.outputMeterSampledAt = 0;
+  connection.executingTools = new Set();
+}
+function sampleOutputMeter(connection = rpc, force = false) {
+  const meter = connection?.outputMeter;
+  if (!meter || meter.endedAt !== null || connection !== rpc) return;
+  const now = Date.now();
+  if (!force && now - (connection.outputMeterSampledAt || 0) < 200) return;
+  connection.outputMeterSampledAt = now;
+  const turn = currentWorkTurn();
+  const tokens = turnOutputTokens(turn);
+  // Re-rendered text can be shorter than what streamed; only growth counts.
+  const grown = Math.max(0, tokens - (connection.outputMeterTokens ?? tokens));
+  connection.outputMeterTokens = tokens;
+  OutputRate.sample(meter, now, { busy: outputMeterBusy(connection, turn), tokens: grown + (connection.outputMeterExtra || 0) });
+  connection.outputMeterExtra = 0;
+}
+function turnRateRow(meter, summary) {
+  return { startedAt: meter.startedAt, endedAt: meter.endedAt, tokens: summary.tokens, estimated: summary.estimated,
+    totalMs: summary.totalMs, modelMs: summary.modelMs };
+}
+function finishOutputMeter(connection) {
+  const meter = connection?.outputMeter;
+  if (!meter || meter.endedAt !== null) return;
+  sampleOutputMeter(connection, true);
+  OutputRate.finish(meter, Number(connection.runEndedAt) || Date.now());
+  connection.outputMeter = null;
+  if (!meter.complete) return;
+  const user = lastUserMessage();
+  const userAt = Number(user?.dataset.wlStart) || Number(user?.dataset.ts) || 0;
+  // The run belongs to the message above it only when that message started it.
+  const owner = user && userAt && Math.abs(userAt - meter.startedAt) <= 15000 ? user : null;
+  const baseline = connection.outputMeterTokens;
+  const settle = () => {
+    if (connection.generic && owner?.isConnected && rpc === connection) {
+      const turn = workTurns().find(item => item.user === owner);
+      if (turn && Number.isFinite(baseline)) OutputRate.late(meter, turnOutputTokens(turn) - baseline);
+    }
+    const summary = OutputRate.summary(meter);
+    if (!summary || !(summary.tokens > 0)) return;
+    const row = turnRateRow(meter, summary);
+    if (owner?.isConnected) owner.dataset.wlRate = JSON.stringify(row);
+    rememberTurnRate(row);
+    if (WORKSPACE_ENTRY_KEY) void post("/api/turn-rates", { entry: WORKSPACE_ENTRY_KEY, ...row }).catch(() => {});
+    scheduleWorkLog();
+  };
+  // An agent this page polls can show the end of its answer a moment later.
+  if (connection.generic) setTimeout(settle, 2500); else settle();
+}
+function turnRateKey() { return WORKSPACE_ENTRY_KEY ? apiBase + "|" + WORKSPACE_ENTRY_KEY : ""; }
+function ensureTurnRates() {
+  const key = turnRateKey();
+  if (!key || turnRateCache.key === key) return;
+  turnRateCache = { key, rates: [] };
+  api("/api/turn-rates?entry=" + encodeURIComponent(WORKSPACE_ENTRY_KEY)).then(data => {
+    if (turnRateCache.key !== key || !Array.isArray(data?.rates)) return;
+    turnRateCache.rates = data.rates.concat(turnRateCache.rates);
+    if (data.rates.length) scheduleWorkLog();
+  }).catch(() => {});
+}
+function rememberTurnRate(row) {
+  const key = turnRateKey();
+  if (!key) return;
+  if (turnRateCache.key !== key) turnRateCache = { key, rates: [] };
+  turnRateCache.rates = turnRateCache.rates.filter(item => Math.abs(Number(item.startedAt) - row.startedAt) > 2000).concat(row);
+}
+function turnRateFor(turn) {
+  const user = turn?.user;
+  if (!user) return null;
+  if (user.dataset.wlRate) {
+    try { return OutputRate.storedSummary(JSON.parse(user.dataset.wlRate)); } catch {}
+  }
+  ensureTurnRates();
+  const at = Number(user.dataset.wlStart) || Number(user.dataset.ts) || 0;
+  if (!at) return null;
+  let best = null;
+  for (const row of turnRateCache.rates) {
+    const gap = Math.abs(Number(row?.startedAt) - at);
+    if (gap <= 15000 && (!best || gap < best.gap)) best = { gap, row };
+  }
+  return best ? OutputRate.storedSummary(best.row) : null;
+}
+function rateLocale() { return document.documentElement.lang || undefined; }
+function liveRateDisplay() {
+  const rate = OutputRate.liveRate(rpc?.outputMeter, Date.now());
+  if (rate === null) return null;
+  return { text: "≈ " + OutputRate.formatRate(rate, rateLocale()) + " tok/s", title: tKey("work.rate.live") };
+}
+function summaryRateDisplay(summary) {
+  if (!summary) return null;
+  const locale = rateLocale(), parts = [];
+  if (summary.perSecond !== null) parts.push(OutputRate.formatRate(summary.perSecond, locale) + " tok/s");
+  if (summary.perMinute !== null) parts.push(Math.round(summary.perMinute).toLocaleString(locale) + " tok/min");
+  if (!parts.length) return null;
+  const detail = tKey("work.rate.detail", { tokens: summary.tokens.toLocaleString(locale),
+    model: workDurationText(summary.modelMs), total: workDurationText(summary.totalMs) });
+  return { text: (summary.estimated ? "≈ " : "") + parts.join(" · "), title: summary.estimated ? detail + " " + tKey("work.rate.estimated") : detail };
+}
+function setWorkHeadRate(head, display) {
+  const node = head?.querySelector(".wl-rate");
+  if (!node) return;
+  const text = display?.text || "", title = display?.title || "";
+  if (node.textContent !== text) node.textContent = text;
+  if (node.title !== title) node.title = title;
+}
+
 function workTurns() {
   const turns = [];
   let turn = null;
@@ -9026,9 +9184,11 @@ function makeWorkHead() {
   head.dataset.i18nIgnore = "";
   const label = document.createElement("span");
   label.className = "wl-head-label";
-  head.append(label, workChevron());
+  const rate = document.createElement("span");
+  rate.className = "wl-rate";
+  head.append(label, workChevron(), rate);
   head.addEventListener("click", () => {
-    if (head.dataset.running === "true") return;
+    if (head.dataset.running === "true" || head.dataset.static === "true") return;
     const state = workLogState.turns.get(head.dataset.key);
     if (!state) return;
     state.expanded = !state.expanded;
@@ -9222,7 +9382,10 @@ function layoutWorkTurn(turn, key, { running = false, startedAt = null } = {}) {
   }
   const final = finalIndex >= 0 ? blocks[finalIndex] : null;
   const foldable = blocks.some((block, index) => index !== finalIndex && ["work", "divider", "text"].includes(block.kind));
-  const showHead = shells.length > 0 && (running || foldable);
+  // A finished reply with nothing to fold still gets the line when there is
+  // a speed to show.
+  const rateDisplay = running ? null : summaryRateDisplay(turnRateFor(turn));
+  const showHead = shells.length > 0 && (running || foldable || !!rateDisplay);
   const collapsed = !running && foldable && state.expanded !== true;
 
   if (showHead) {
@@ -9236,11 +9399,15 @@ function layoutWorkTurn(turn, key, { running = false, startedAt = null } = {}) {
     head.dataset.startedAt = started ? String(started) : "";
     head.classList.toggle("wl-running", running);
     head.classList.toggle("wl-collapsed", collapsed);
-    if (running) { head.removeAttribute("aria-expanded"); head.tabIndex = -1; }
+    const fixed = !running && !foldable;
+    head.dataset.static = String(fixed);
+    head.classList.toggle("wl-static", fixed);
+    if (running || fixed) { head.removeAttribute("aria-expanded"); head.tabIndex = -1; }
     else { head.setAttribute("aria-expanded", String(!collapsed)); head.tabIndex = 0; }
     const label = head.querySelector(".wl-head-label");
     const text = workHeadText(running, duration);
     if (label.textContent !== text) label.textContent = text;
+    setWorkHeadRate(head, running ? liveRateDisplay() : rateDisplay);
   }
 
   const lastSegment = segments[segments.length - 1] || null;
@@ -9379,6 +9546,7 @@ function syncWorkPlaceholder(turn, run) {
   const label = head.querySelector(".wl-head-label");
   const text = workHeadText(true, started ? Math.max(0, Date.now() - started) : null);
   if (label.textContent !== text) label.textContent = text;
+  setWorkHeadRate(head, liveRateDisplay());
   const pulse = holder.querySelector(".wl-pulse");
   const thinking = tKey("work.thinking");
   if (pulse.textContent !== thinking) pulse.textContent = thinking;
@@ -9410,15 +9578,19 @@ function scheduleWorkLog(scope = null) {
     if (next.all || (next.from && !next.from.isConnected)) layoutWorkLog();
     else if (next.from) layoutWorkLog({ from: next.from });
     else if (next.tail) layoutWorkLog({ tail: true });
+    sampleOutputMeter(rpc);
   });
 }
 function updateWorkLogClock() {
   if (workLogState.placeholder?.isConnected && !workLogRunState().running) scheduleWorkLog("tail");
+  sampleOutputMeter(rpc);
+  const live = liveRateDisplay();
   for (const head of el.messages?.querySelectorAll?.(".wl-head.wl-running") || []) {
     const startedAt = Number(head.dataset.startedAt) || 0;
     const label = head.querySelector(".wl-head-label");
     const text = workHeadText(true, startedAt ? Math.max(0, Date.now() - startedAt) : null);
     if (label && label.textContent !== text) label.textContent = text;
+    setWorkHeadRate(head, live);
   }
 }
 function relabelWorkLog() {
@@ -9736,6 +9908,8 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       if (rpc && !(rpc.streaming && rpc.runStartedAt)) {
         rpc.runStartedAt = Date.now();
         rpc.runEndedAt = null;
+        // A run that starts while this page watches is measured from its start.
+        if (!rpc.streaming) rpc.outputMeterFresh = true;
       }
       setStreaming(true);
       setActivityLabel("thinking");
@@ -9758,6 +9932,7 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       // those events; only interactive extension UI should pause it.
       if (!["setStatus", "setWidget", "setTitle"].includes(ev.method)) setActivityLabel("waiting");
       showExtensionUi(ev, eventSid);
+      sampleOutputMeter(rpc, true);
       break;
     case "extension_ui_closed":
       nativeDialogs.remove(apiBase, eventSid, ev.id);
@@ -9765,6 +9940,7 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
         dismissNativeDialog(extensionUiRequest);
       }
       renderNextNativeDialog();
+      sampleOutputMeter(rpc, true);
       break;
     case "auto_retry_start":
       setStreaming(true);
@@ -9842,6 +10018,10 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
           if (activity) activity.body.appendChild(pendingAssistant.thinkEl);
         }
         pendingAssistant.thinkEl.querySelector(".thinking-block").textContent += ae.delta;
+      } else if (ae.type === "toolcall_delta") {
+        // A tool call's arguments are the model's output too, though they are
+        // drawn only when the call is complete.
+        if (rpc?.outputMeter && typeof ae.delta === "string") rpc.outputMeterExtra = (rpc.outputMeterExtra || 0) + OutputRate.estimateTokens(ae.delta);
       } else if (ae.type === "toolcall_end" && ae.toolCall) {
         setActivityLabel("working");
         appendLiveToolCard(ae.toolCall.id, ae.toolCall.name, ae.toolCall.arguments);
@@ -9885,6 +10065,7 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
         if (full.usage) {
           attachMessageUsage(wrap, full.usage, lastWorkActivity(bubble));
           addSessionUsage(full.usage);
+          if (rpc?.outputMeter) OutputRate.report(rpc.outputMeter, full.usage.output);
         }
         wrap.appendChild(msgActionsRow("assistant", () => full.text, { ts: Number(m.timestamp) || Date.now(), fork: piReplyFork({ timestamp: Number(m.timestamp) }) }));
         mergeAdjacentWorkMessages();
@@ -9933,6 +10114,8 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       setActivityLabel("working");
       const card = appendLiveToolCard(ev.toolCallId, ev.toolName, ev.args);
       setToolCardState(card, { running: true });
+      rpc?.executingTools?.add(String(ev.toolCallId || ev.toolName || "tool"));
+      sampleOutputMeter(rpc, true);
       scrollBottom();
       break;
     }
@@ -9951,6 +10134,8 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
         setToolCardState(card, { running: false, isError: !!ev.isError, text: txt });
       }
       if (ev.toolCallId) liveToolCards.delete(ev.toolCallId);
+      rpc?.executingTools?.delete(String(ev.toolCallId || ev.toolName || "tool"));
+      sampleOutputMeter(rpc, true);
       if (liveActivity) {
         updateActivityGroup(liveActivity, {
           running: liveToolCards.size > 0,
@@ -10236,10 +10421,15 @@ function setStreaming(on) {
   // The run a sent message started is timed from the send, and it ends that
   // message's wait.
   const pending = rpc?.pendingTurn;
+  let freshRun = false;
   if (on && pending && !pending.sawRun) {
     pending.sawRun = true;
-    if (!wasStreaming) rpc.runStartedAt = pending.at;
+    if (!wasStreaming) { rpc.runStartedAt = pending.at; freshRun = true; }
   } else if (!on && wasStreaming && pending?.sawRun) rpc.pendingTurn = null;
+  // A run this page sent, or saw begin, is measured from its start; a run
+  // already under way when the page opened shows only its live speed.
+  if (on && !wasStreaming && rpc) startOutputMeter(rpc, freshRun || rpc.outputMeterFresh === true);
+  if (rpc) rpc.outputMeterFresh = false;
   const generic = !!rpc?.generic;
   setTaskProgressRunState(!!on);
   if (on) {
@@ -10254,7 +10444,7 @@ function setStreaming(on) {
   }
   // A sent message whose run has not started yet keeps its clock running.
   if (!on && !pendingTurnWaiting(rpc)) stopRunTimer();
-  if (!on && wasStreaming) stampWorkTurnEnd();
+  if (!on && wasStreaming) { stampWorkTurnEnd(); finishOutputMeter(rpc); }
   scheduleWorkLog("tail");
   el.thinkingStatus?.classList.toggle("hidden", !on);
   el.thinkingStatus?.classList.toggle("running", !!on && rpc?.activityLabel !== "waiting");
@@ -10659,6 +10849,11 @@ async function sendCurrent() {
               })
           : await post("/api/agent/send", { taskId: sendSid, message: text }))
       : await post("/api/send", { sid: sendSid, message: text, images }); // /skill:xxx 等直接透傳，pi 原生處理
+    // An ACP agent answers the prompt with the tokens it wrote, when it counts them.
+    if (acpTurn?.outputMeter) {
+      const usage = result?.result?.usage || result?.usage;
+      OutputRate.report(acpTurn.outputMeter, usage?.outputTokens ?? usage?.output_tokens);
+    }
     removeDraftForKey(sendDraftKey);
     if (pendingTurn) {
       pendingTurn.settled = true;

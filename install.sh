@@ -667,7 +667,7 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 
 say ""
-say "Stepsemble 3.8.31 installer"
+say "Stepsemble 3.8.32 installer"
 say "────────────────────────"
 
 NODE_BIN="$(find_node || true)"

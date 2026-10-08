@@ -97,6 +97,8 @@ type %USERPROFILE%\.config\stepsemble\token
 
 **Settings → Agents & models → Models & providers** 会列出主机上安装的每个 Agent。每个 Agent 的页面会说明怎么登录、列出它提供的模型，以及它自己的设置：Pi 的模型显示、自定义 Provider 与最近 7 天用量、OpenCode 的服务商与本机服务器，还有主机装有 OpenCodex 时，Codex 与 Claude Code 的 OpenCodex 转发。同一区的 **Quota sources** 用来选择订阅与 API 额度从哪里读取：各 Agent 自己的登录、Pi 的登录与 key、OpenCodex，或 CodexBar 的 CLI。每个来源都能开关；同一个服务有多个来源时，也能指定要用哪一个。
 
+OpenCodex 连接了 Pi 时，主机每 5 分钟、以及每次打开模型菜单时，会比对 OpenCodex 提供的模型和 Pi `models.json` 里 OpenCodex 那一段。两边不一样，就运行 OpenCodex 自己的 `opencodex integration client enable --client pi`，只重写那一段（OpenCodex 会先保存快照）。所以 OpenCodex 新加的模型不必等它重启，就会出现在 Pi 的菜单。Stepsemble 不会自己改那一段，也不读取 OpenCodex 的凭证。
+
 **Settings → Notifications** 为当前这台设备开启推送。Agent 完成、失败或被停止，而该对话没有在任何屏幕上打开时，就会收到通知。**Settings → About** 显示 Stepsemble 版本；各 Agent 的版本在 **Settings → Updates**。临时文件夹里的 Sub Agent 会话默认隐藏，可在“其他应用的历史”中打开显示。
 
 ## Workspace 里的 Agent

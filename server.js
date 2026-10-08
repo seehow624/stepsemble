@@ -47,7 +47,8 @@ const { createCodexNativePool } = require("./server/codex-native-pool");
 const { createCodexImagePreviewRegistry } = require("./server/codex-image-preview");
 const { createOpenCodeManagedService } = require("./server/opencode-managed-service");
 const { createOpenCodeConfigService } = require("./server/opencode-config-service");
-const { createOpenCodexGatewayService } = require("./server/opencodex-gateway-service");
+const { createOpenCodexGatewayService, findOpencodexBinary } = require("./server/opencodex-gateway-service");
+const { createOpenCodexPiSync } = require("./server/opencodex-pi-sync");
 const { claudeSessionEnvOverrides } = require("./server/claude-session-routing");
 const { createLineDecoder, activePathIds } = require("./server/stream-safety");
 const { createSessionDiscovery, mapLimit, readBoundedText, withDeadline: sessionReadDeadline } = require("./server/session-discovery");
@@ -81,6 +82,7 @@ const { createNativeHistoryCatalog } = require("./server/native-history-catalog"
 const { createCodexPersistedObserver } = require("./server/codex-persisted-observer");
 const { createHarnessUpdateService, loadHarnessUpdateRegistry } = require("./server/harness-update-service");
 const { createModelVisibilityStore } = require("./server/model-visibility-store");
+const { createTurnRateStore } = require("./server/turn-rate-store");
 const { createCodexReleaseCheck } = require("./server/codex-release-check");
 const { createCodexAutoUpgrade } = require("./server/codex-auto-upgrade");
 const { claudeForkPoint: claudeForkPointAt, claudeConfigDir } = require("./server/claude-fork-point");
@@ -114,7 +116,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.31";
+const APP_VERSION = "3.8.32";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -175,6 +177,7 @@ const HARNESS_UPDATE_STATE_FILE = settingFromEnv("HARNESS_UPDATE_STATE")
 // The models and providers hidden from the model menu, the same on every
 // device that uses this Host.
 const modelVisibility = createModelVisibilityStore({ file: path.join(APP_HOME, ".config", "stepsemble", "model-visibility.json") });
+const turnRates = createTurnRateStore({ file: path.join(APP_HOME, ".config", "stepsemble", "turn-rates.json") });
 const CONFIGURED_UPDATE_REPOSITORY = settingFromEnv("UPDATE_REPO") || "seehow624/stepsemble";
 const DEFAULT_UPDATE_REPOSITORY = CONFIGURED_UPDATE_REPOSITORY === "seehow624/pi-harbor"
   ? "seehow624/stepsemble" : CONFIGURED_UPDATE_REPOSITORY;
@@ -4150,7 +4153,21 @@ async function refreshRemoteModelCatalogs(options = {}) {
 
 function maybeRefreshRemoteModelCatalogs() {
   void refreshRemoteModelCatalogs();
+  void openCodexPiSync.check();
 }
+
+// A model OpenCodex starts serving reaches Pi's model menu without waiting for
+// OpenCodex's next restart or sync: OpenCodex is asked to write its own block
+// in models.json again, and the menu is read afresh.
+const openCodexPiSync = createOpenCodexPiSync({
+  readModelConfig,
+  resolveCommand: () => findOpencodexBinary(process.env),
+  env: process.env,
+  cwd: APP_HOME,
+  onRefreshed() { modelCatalogCache = { at: 0, models: [] }; },
+});
+let openCodexPiCheckedAt = 0;
+setTimeout(() => void openCodexPiSync.check(), 30 * 1000).unref();
 
 // Periodic revalidation also covers users who never open provider settings.
 // unref keeps this housekeeping timer from holding the process open on exit.
@@ -6704,6 +6721,9 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (p === "/api/models" && req.method === "GET") {
+        // Opening the model menu also looks for models OpenCodex started
+        // serving; a refresh shows up the next time the menu reads the list.
+        if (Date.now() - openCodexPiCheckedAt > 30 * 1000) { openCodexPiCheckedAt = Date.now(); void openCodexPiSync.check(); }
         getAvailableModels(url.searchParams.get("sid") || null)
           .then((models) => sendJSON(res, 200, { models, catalog: remoteCatalogSync.status() }))
           .catch((e) => sendJSON(res, e.statusCode || (e.message.includes("timeout") ? 504 : 409), { error: e.message }));
@@ -6712,6 +6732,23 @@ const server = http.createServer(async (req, res) => {
 
       if (p === "/api/model-visibility" && req.method === "GET") {
         sendJSON(res, 200, modelVisibility.read());
+        return;
+      }
+
+      // How fast the model wrote in each finished run of a Workspace entry.
+      if (p === "/api/turn-rates" && req.method === "GET") {
+        try { sendJSON(res, 200, turnRates.read(String(url.searchParams.get("entry") || ""))); }
+        catch (e) { sendJSON(res, e.statusCode || 500, { error: e.statusCode ? e.message : "Could not read run speeds" }); }
+        return;
+      }
+
+      if (p === "/api/turn-rates" && req.method === "POST") {
+        try {
+          const body = await readJSON(req, 16 * 1024);
+          sendJSON(res, 200, turnRates.record(String(body?.entry || ""), body));
+        } catch (e) {
+          sendJSON(res, e.statusCode || 500, { error: e.statusCode ? e.message : "Could not save the run speed" });
+        }
         return;
       }
 

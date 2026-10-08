@@ -288,6 +288,8 @@ Generic connector 的「可啟動、可串流、server restart 可重新 attach�
 | `POST /api/model-providers` | Web | B/P | upsert/delete validated provider | atomic write `models.json` | Static security/UI |
 | `GET /api/model-visibility` | Web | B/P | 無 | 模型選單隱藏的 `<provider>::<model>`／`<provider>::*`，存於 `~/.config/stepsemble/model-visibility.json`（0600）；`saved:false` 表示尚未寫過，各瀏覽器首次把自己的舊清單搬上來 | Unit + HTTP + synthetic browser |
 | `POST /api/model-visibility` | Web | B/P | `{hide, show}` 各 ≤5000 個合法 key；需 Origin | 原子寫入並回傳整份清單；不改任何 agent 設定或登入 | Unit + HTTP + synthetic browser |
+| `GET /api/turn-rates?entry=` | Web | B/P | Workspace entry key | 該對話每次完成的工作的輸出速度列（startedAt、endedAt、tokens、estimated、totalMs、modelMs），存於 `~/.config/stepsemble/turn-rates.json`（0600）；不含對話文字 | Unit + HTTP + synthetic browser |
+| `POST /api/turn-rates` | Web | B/P | `{entry, startedAt, endedAt, tokens, estimated, totalMs, modelMs}`；modelMs ≤ totalMs；需 Origin | 從頭看著那次工作的頁面量完後存一列；同一次工作（開始時間差 2 秒內）只留一列；每個 entry 最多 500 列、最多 2000 個 entry | Unit + HTTP + synthetic browser |
 | `GET /api/model-config/export?secrets` | Web | B/P | `secrets=1` 明確 opt-in | portable provider config；預設移除 apiKey/oauth | Static source inspection only |
 | `POST /api/model-config/import` | Web | B/P | providers object | 全量驗證後 atomic merge/write | Static source inspection only |
 | `GET /api/push/config` | Web | B/P | 無 | VAPID public key | Static UI only |

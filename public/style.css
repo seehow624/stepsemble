@@ -1,4 +1,4 @@
-/* stepsemble v3.8.31 — Ink & Ivory / English-first localization */
+/* stepsemble v3.8.32 — Ink & Ivory / English-first localization */
 
 :root {
   /* The status bar inset. A Workspace pane sets it to 0: the Workspace keeps
@@ -5432,6 +5432,21 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
 #view-chat .wl-head:not(.wl-running):hover,
 #view-chat .wl-head:focus-visible { color: var(--ink); outline: none; }
 #view-chat .wl-head-label { font-variant-numeric: tabular-nums; }
+/* The model's speed: right now while it works, then tok/s and tok/min. */
+#view-chat .wl-rate {
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--pine-soft);
+  font-size: .78rem;
+  font-weight: 450;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: .85;
+}
+#view-chat .wl-rate:empty { display: none; }
+#view-chat .wl-head.wl-static { cursor: default; }
+#view-chat .wl-head.wl-static .wl-chev { display: none; }
+#view-chat .wl-head.wl-static:hover { color: var(--pine-soft); }
 #view-chat .wl-chev {
   display: inline-grid;
   place-items: center;
