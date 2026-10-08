@@ -77,6 +77,34 @@ test("stored rates belong to the nearest user turn after a conversation reload",
   assert.equal(f.run("turnRateFor(workTurns()[1], { before: 10000 })"), null);
 });
 
+test("a reopened page prefers Host summaries and never writes a local estimate over them", async () => {
+  const f = fixture();
+  const user = f.user(10000);
+  const row = { startedAt: 10000, endedAt: 18000, tokens: 400, totalMs: 8000, modelMs: 4000, estimated: false, source: "host", runId: "turn" };
+  user.dataset.wlRate = JSON.stringify({ ...row, tokens: 9999 });
+  f.context.api = async () => ({ rates: [row], hostTracked: true, active: null });
+  f.run("ensureTurnRates()");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.run("turnRateFor(workTurns()[0]).tokens"), 400);
+  assert.equal(user.dataset.wlRate, undefined);
+  f.context.meter = OutputRate.createMeter({ startedAt: 10000 });
+  OutputRate.reportTotal(f.context.meter, 9999); OutputRate.finish(f.context.meter, 18000);
+  f.run("keepTurnRate(rpc, meter, true)");
+  assert.equal(f.saved.length, 0);
+});
+
+test("a page that joined mid-run fetches its final Host count even without a local meter", async () => {
+  const f = fixture();
+  f.user(10000);
+  const row = { startedAt: 10000, endedAt: 20000, tokens: 250, totalMs: 10000, modelMs: 5000, estimated: false };
+  f.run('turnRateCache = { key: turnRateKey(), rates: [], hostTracked: true, checkedAt: Date.now() }');
+  f.context.rpc = { outputMeter: null };
+  f.context.api = async () => ({ rates: [row], hostTracked: true, active: null });
+  f.run("finishOutputMeter(rpc)");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.run("turnRateFor(workTurns()[0]).tokens"), 250);
+});
+
 test("OpenCode counts only new replies and includes reasoning without counting a poll twice", () => {
   const f = fixture();
   const meter = OutputRate.createMeter({ startedAt: 10000 });

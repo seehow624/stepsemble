@@ -8913,6 +8913,9 @@ function workLogRunState() {
   // run starts, the start time on record is the previous run's. A message
   // sent while the agent was already working joins the run in progress.
   if (running && pending) startedAt = pending.whileRunning && pending.sawRun && startedAt ? Math.min(startedAt, pending.at) : pending.at;
+  const measured = turnRateCache.key === turnRateKey() && turnRateCache.hostTracked ? turnRateCache.active : null;
+  if (running && measured && Date.now() - measured.observedAt < 5000
+    && (!pending || pending.whileRunning || measured.startedAt >= pending.at - 2000)) startedAt = measured.startedAt;
   return { running, startedAt };
 }
 function beginPendingTurn(connection) {
@@ -9024,6 +9027,8 @@ function outputMeterBusy(connection, turn) {
   return !!turn?.nodes.some(node => node.querySelector?.(".tool-card.running, .agent-approval-card button:not(:disabled)"));
 }
 function startOutputMeter(connection, complete) {
+  ensureTurnRates(true);
+  if (turnRateCache.key === turnRateKey() && turnRateCache.hostTracked) { if (connection) connection.outputMeter = null; return; }
   if (!outputMeterable(connection)) { if (connection) connection.outputMeter = null; return; }
   // Codex shows a reply once it is written, so while it works its speed is
   // the average so far, from the tokens it reports.
@@ -9038,6 +9043,7 @@ function startOutputMeter(connection, complete) {
   connection.executingTools = new Set();
 }
 function sampleOutputMeter(connection = rpc, force = false) {
+  if (turnRateCache.key === turnRateKey() && turnRateCache.hostTracked) return;
   const meter = connection?.outputMeter;
   if (!meter || meter.endedAt !== null || connection !== rpc) return;
   const now = Date.now();
@@ -9056,6 +9062,11 @@ function turnRateRow(meter, summary) {
     totalMs: summary.totalMs, modelMs: summary.modelMs };
 }
 function finishOutputMeter(connection) {
+  if (turnRateCache.key === turnRateKey() && turnRateCache.hostTracked) {
+    if (connection) connection.outputMeter = null;
+    ensureTurnRates(true);
+    return;
+  }
   const meter = connection?.outputMeter;
   if (!meter || meter.endedAt !== null) return;
   sampleOutputMeter(connection, true);
@@ -9094,6 +9105,7 @@ function finishOutputMeter(connection) {
 // The run's numbers go under the message that started it, and to the Host
 // once they are final.
 function keepTurnRate(connection, meter, final) {
+  if (turnRateCache.key === turnRateKey() && turnRateCache.hostTracked) { ensureTurnRates(true); return; }
   const summary = OutputRate.summary(meter);
   if (summary?.tokens > 0) {
     const row = turnRateRow(meter, summary);
@@ -9140,15 +9152,31 @@ function noteOpenCodeOutput(connection, snapshot) {
   OutputRate.reportTotal(connection.outputMeter, total);
 }
 function turnRateKey() { return WORKSPACE_ENTRY_KEY ? apiBase + "|" + WORKSPACE_ENTRY_KEY : ""; }
-function ensureTurnRates() {
+function ensureTurnRates(force = false) {
   const key = turnRateKey();
-  if (!key || turnRateCache.key === key) return;
-  turnRateCache = { key, rates: [] };
+  if (!key) return;
+  if (turnRateCache.key !== key) turnRateCache = { key, rates: [] };
+  const cache = turnRateCache;
+  if (cache.loading) { if (force) cache.refreshAgain = true; return; }
+  if (!force && Date.now() - (cache.checkedAt || 0) < 1000) return;
+  cache.loading = true;
+  cache.checkedAt = Date.now();
   api("/api/turn-rates?entry=" + encodeURIComponent(WORKSPACE_ENTRY_KEY)).then(data => {
-    if (turnRateCache.key !== key || !Array.isArray(data?.rates)) return;
-    turnRateCache.rates = data.rates.concat(turnRateCache.rates);
-    if (data.rates.length) scheduleWorkLog();
-  }).catch(() => {});
+    if (turnRateCache !== cache || !Array.isArray(data?.rates)) return;
+    const changed = JSON.stringify(cache.rates) !== JSON.stringify(data.rates)
+      || cache.active?.startedAt !== data.active?.startedAt;
+    cache.hostTracked = data.hostTracked === true;
+    cache.active = data.active || null;
+    if (cache.hostTracked) {
+      cache.rates = data.rates;
+      // Drop any provisional browser summaries when the Host takes over.
+      for (const node of el.messages?.children || []) if (node.dataset?.wlRate) delete node.dataset.wlRate;
+    } else if (changed) cache.rates = data.rates.concat(cache.rates.filter(row => !data.rates.some(saved => Math.abs(saved.startedAt - row.startedAt) <= 2000)));
+    if (changed) scheduleWorkLog();
+  }).catch(() => {}).finally(() => {
+    cache.loading = false;
+    if (cache.refreshAgain && turnRateCache === cache) { cache.refreshAgain = false; ensureTurnRates(true); }
+  });
 }
 function rememberTurnRate(row) {
   const key = turnRateKey();
@@ -9161,10 +9189,10 @@ function rememberTurnRate(row) {
 function turnRateFor(turn, around = null) {
   const user = turn?.user;
   if (!user) return null;
-  if (user.dataset.wlRate) {
+  ensureTurnRates();
+  if (user.dataset.wlRate && !turnRateCache.hostTracked) {
     try { return OutputRate.storedSummary(JSON.parse(user.dataset.wlRate)); } catch {}
   }
-  ensureTurnRates();
   const at = userTurnStart(user);
   if (!at) return null;
   let best = null;
@@ -9184,6 +9212,13 @@ function turnSettling(turn) {
 }
 function rateLocale() { return document.documentElement.lang || undefined; }
 function liveRateDisplay() {
+  ensureTurnRates();
+  if (turnRateCache.key === turnRateKey() && turnRateCache.hostTracked) {
+    const active = turnRateCache.active;
+    if (!active || Date.now() - active.observedAt > 5000 || !(active.liveRate >= 0) || active.liveRate === null) return null;
+    return { text: (active.estimated ? "≈ " : "") + OutputRate.formatRate(active.liveRate, rateLocale()) + " tok/s",
+      title: tKey(active.liveAverage ? "work.rate.soFar" : "work.rate.live") };
+  }
   const meter = rpc?.outputMeter;
   const rate = OutputRate.liveRate(meter, Date.now());
   if (rate === null) return null;

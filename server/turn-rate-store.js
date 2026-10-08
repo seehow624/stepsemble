@@ -1,10 +1,9 @@
 "use strict";
 
 // How fast the model wrote in each finished run, kept on the Host so every
-// device that opens the conversation shows the same numbers. A page that
-// watched a run from its start measures it and saves one row here; nothing in
-// a row is conversation text. Rows are grouped by the Workspace entry the
-// conversation belongs to.
+// device that opens the conversation shows the same numbers. Native agents
+// are measured by the Host; older clients can still save their own estimates
+// for other agents. Nothing in a row is conversation text.
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -38,11 +37,18 @@ function cleanRow(body) {
 
 function createTurnRateStore({ file, now = Date.now } = {}) {
   if (typeof file !== "string" || !path.isAbsolute(file)) throw new TypeError("turn_rate_file_required");
+  let cached = null;
   function load() {
     try {
+      const stat = fs.statSync(file);
+      if (cached && cached.mtime === stat.mtimeMs && cached.size === stat.size) return cached.data;
       const value = JSON.parse(fs.readFileSync(file, "utf8"));
-      if (value?.version === 1 && value.entries && typeof value.entries === "object" && !Array.isArray(value.entries)) return value;
-    } catch {}
+      if (value?.version === 1 && value.entries && typeof value.entries === "object" && !Array.isArray(value.entries)) {
+        cached = { data: value, mtime: stat.mtimeMs, size: stat.size };
+        return value;
+      }
+      throw new Error("turn_rate_store_invalid");
+    } catch (error) { if (error.code !== "ENOENT") throw error; }
     return { version: 1, entries: {} };
   }
   function save(data) {
@@ -51,6 +57,8 @@ function createTurnRateStore({ file, now = Date.now } = {}) {
     try {
       fs.writeFileSync(temporary, JSON.stringify(data) + "\n", { mode: 0o600 });
       fs.renameSync(temporary, file);
+      const stat = fs.statSync(file);
+      cached = { data, mtime: stat.mtimeMs, size: stat.size };
     } catch (error) {
       try { fs.rmSync(temporary, { force: true }); } catch {}
       throw error;
@@ -61,13 +69,22 @@ function createTurnRateStore({ file, now = Date.now } = {}) {
     const rows = load().entries[entry]?.rows;
     return { entry, rates: Array.isArray(rows) ? rows : [] };
   }
-  function record(entry, body) {
+  function record(entry, body, { host = false } = {}) {
     if (typeof entry !== "string" || !ENTRY.test(entry)) throw invalid("Invalid entry");
     const row = cleanRow(body);
-    const data = load();
+    if (host && typeof body.runId === "string" && body.runId.length <= 256) {
+      row.source = "host";
+      row.runId = body.runId;
+    }
+    const loaded = load();
+    const data = { ...loaded, entries: { ...loaded.entries } };
     const current = data.entries[entry] && Array.isArray(data.entries[entry].rows) ? data.entries[entry].rows : [];
     // One run has one row: a second page that watched the same run replaces it.
-    const rows = current.filter(item => Math.abs(Number(item.startedAt) - row.startedAt) > 2000);
+    const overlaps = item => Math.abs(Number(item.startedAt) - row.startedAt) <= 2000;
+    const authoritative = !host && current.find(item => item.source === "host" && overlaps(item));
+    if (authoritative) return { entry, rate: authoritative };
+    const rows = current.filter(item => item.source === "host" && row.source === "host"
+      ? item.runId !== row.runId : !overlaps(item));
     rows.push(row);
     rows.sort((a, b) => a.startedAt - b.startedAt);
     data.entries[entry] = { updatedAt: now(), rows: rows.slice(-MAX_ROWS_PER_ENTRY) };
@@ -79,7 +96,7 @@ function createTurnRateStore({ file, now = Date.now } = {}) {
     save(data);
     return { entry, rate: row };
   }
-  return Object.freeze({ read, record });
+  return Object.freeze({ read, record, recordHost: (entry, body) => record(entry, body, { host: true }) });
 }
 
 module.exports = { createTurnRateStore };

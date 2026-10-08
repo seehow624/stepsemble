@@ -92,7 +92,7 @@ export async function runConversationUxBrowserCases(browser) {
       child = spawn(process.execPath, [path.join(root, "server.js")], { cwd: root, stdio: ["ignore", "pipe", "pipe"],
         env: { ...cleanEnvironment(home), HOME: home, PATH: bin + path.delimiter + path.dirname(process.execPath) + path.delimiter + "/usr/bin:/bin",
           PI_HOME: home, PI_BIN: path.join(bin, "pi"), STEPSEMBLE_PORT: String(port), STEPSEMBLE_HOST: "127.0.0.1", STEPSEMBLE_ORPHAN_EXIT: "0",
-          STEPSEMBLE_CLAUDE_STRUCTURED: "1", FIXTURE_CLAUDE_STREAM: "1" } });
+          STEPSEMBLE_CLAUDE_STRUCTURED: "1", FIXTURE_CLAUDE_STREAM: "1", FIXTURE_ACP_PROMPT_DELAY_MS: "1000" } });
       await waitForServer(child); child.stdout.resume(); child.stderr.resume();
       context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height }, isMobile: viewport.mobile, hasTouch: viewport.mobile,
         serviceWorkers: "block", locale: "en-US" });
@@ -310,6 +310,8 @@ export async function runConversationUxBrowserCases(browser) {
       await ui.waitForFunction(() => document.querySelectorAll("#messages .msg.assistant").length > 0);
       // This agent does not count its tokens, so its speed is estimated; a
       // reply with nothing to fold still gets a plain line for it.
+      // It works for one second in the fixture: the request's artificial
+      // network delay above is not part of the Host's model time.
       stage = "ACP agent: output speed";
       await ui.waitForFunction(() => /^≈ .+ tok\/s · .+ tok\/min$/.test([...document.querySelectorAll("#messages .wl-head .wl-rate")].pop()?.textContent || ""), null, { timeout: 10000 });
       out.acpRate = await ui.evaluate(() => {

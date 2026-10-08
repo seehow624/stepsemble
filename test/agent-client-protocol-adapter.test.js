@@ -52,7 +52,8 @@ test("ACP update normalization is bounded and session-correlated", () => {
 test("ACP adapter initializes, creates, prompts, and cancels through standard methods", async t => {
   const child = childFixture();
   const updates = [];
-  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/kilo", args: ["acp"], cwd: "/tmp", spawnImpl: () => child, onUpdate: update => updates.push(update) });
+  const rates = [];
+  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/kilo", args: ["acp"], cwd: "/tmp", spawnImpl: () => child, onUpdate: update => updates.push(update), onRateEvent: event => rates.push(event) });
   t.after(() => adapter.close());
   const session = await adapter.createSession({ directory: "/tmp" });
   assert.equal(session.kind, "created");
@@ -61,6 +62,9 @@ test("ACP adapter initializes, creates, prompts, and cancels through standard me
   assert.equal(adapter.sessionWorking(session.sessionId), true, "working while the prompt is answered");
   const prompted = await pending;
   assert.equal(prompted.kind, "prompted");
+  assert.equal(rates[0].type, "rate.turn.started");
+  assert(rates.some(event => event.type === "session.update" && event.update.sessionUpdate === "agent_message_chunk"));
+  assert.equal(rates.find(event => event.type === "rate.turn.ended").result.stopReason, "end_turn");
   assert.equal(adapter.sessionWorking(session.sessionId), false);
   assert.equal(adapter.sessions().find(row => row.id === session.sessionId).status, "idle", "a finished turn leaves the session idle");
   assert.equal(updates[0].update.content.text, "hello");

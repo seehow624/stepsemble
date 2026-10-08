@@ -491,6 +491,7 @@ function createClaudeStructuredSession({
   requestTimeoutMs = 120000,
   forceKillAfterMs = FORCE_KILL_AFTER_MS,
   onEvent = null,
+  onRateEvent = null,
   onPermission = null,
   initialPermissionMode = null,
   initialModel = null,
@@ -517,13 +518,18 @@ function createClaudeStructuredSession({
   // is when the process started, that is when the conversation was opened,
   // which can be hours before the message being answered.
   let turnStartedAt = null, turnEndedAt = null;
+  const rateEvent = event => { try { onRateEvent?.(event); } catch {} };
   const beginTurn = () => {
-    if (state === "waiting" || turnStartedAt === null) { turnStartedAt = Date.now(); turnEndedAt = null; }
+    if (state === "waiting" || turnStartedAt === null) {
+      turnStartedAt = Date.now(); turnEndedAt = null;
+      rateEvent({ type: "rate.turn.started", at: turnStartedAt });
+    }
     state = "running";
   };
-  const endTurn = () => {
+  const endTurn = (notify = true) => {
     if (turnStartedAt !== null && turnEndedAt === null) turnEndedAt = Date.now();
     state = "waiting";
+    if (notify) rateEvent({ type: "rate.turn.ended" });
   };
   let exitCode = null;
   let exitSignal = null;
@@ -681,6 +687,7 @@ function createClaudeStructuredSession({
   function endProcess() {
     if (childExited || endingProcess) return;
     endingProcess = true;
+    rateEvent({ type: "rate.turn.ended" });
     try { child.stdin?.end?.(); } catch {}
     try { child.kill?.(); } catch {}
     const forceTimer = setTimeout(() => {
@@ -886,7 +893,7 @@ function createClaudeStructuredSession({
       if (event.type === "system" && event.permissionMode !== undefined) permissionMode = permissionModeId(event.permissionMode) || permissionMode;
       // init names the running model in full, such as "claude-opus-5-5[1m]".
       if (event.type === "system" && event.subtype === "init" && modelId(event.model)) selectedModel = modelId(event.model);
-      if (event.type === "result") endTurn();
+      if (event.type === "result") endTurn(false);
       else if (["assistant", "stream_event", "tool_use", "progress", "permission_request"].includes(event.type)) beginTurn();
       if (event.type === "assistant") captureAssistantUsage(event);
       else if (event.type === "stream_event") {
@@ -947,6 +954,7 @@ function createClaudeStructuredSession({
         }
       }
       try { onEvent?.(clone(event)); } catch {}
+      rateEvent(event);
     },
     onError(code) {
       processError ||= controlError(code, code);
@@ -960,6 +968,7 @@ function createClaudeStructuredSession({
   child.on?.("error", error => { processError ||= error instanceof Error ? error : new Error("claude_process_error"); endProcess(); });
   child.stdin?.on?.("error", () => { processError ||= Object.assign(new Error("claude_input_unavailable"), { code: "claude_input_unavailable" }); endProcess(); });
   child.on?.("close", (code, signal) => {
+    rateEvent({ type: "rate.turn.ended" });
     childExited = true;
     exitCode = Number.isInteger(code) ? code : null;
     exitSignal = typeof signal === "string" ? signal : null;
@@ -1036,7 +1045,10 @@ function createClaudeStructuredSession({
     beginTurn();
     lastActivityAt = Date.now();
     return enqueueFrame(frame)
-      .then(result => result.kind === "reject" ? result : ({ ...result, kind: "sent", nativeSessionId: parser.status().sessionId || (fork ? fork.sessionId : sessionId) }));
+      .then(result => {
+        if (result.kind === "reject") { rateEvent({ type: "rate.turn.ended" }); return result; }
+        return { ...result, kind: "sent", nativeSessionId: parser.status().sessionId || (fork ? fork.sessionId : sessionId) };
+      });
   }
   async function models() {
     await initializeNative();
@@ -1135,7 +1147,11 @@ function createClaudeStructuredSession({
     pending.respondedAt = Date.now();
     const payload = { type: "control_response", response: { subtype: "success", request_id: id, response } };
     lastActivityAt = Date.now();
-    return enqueueJson(payload).then(result => result.kind === "reject" ? result : ({ kind: "written", requestId: id, decision }));
+    return enqueueJson(payload).then(result => {
+      if (result.kind === "reject") return result;
+      rateEvent({ type: "rate.permission.resolved", requestId: id });
+      return { kind: "written", requestId: id, decision };
+    });
   }
   function interrupt() {
     const failure = ensureOpen(); if (failure) return Promise.resolve(failure);

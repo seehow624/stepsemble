@@ -636,6 +636,7 @@ function createCodexAppServerTransport({
     if (failure || closed) return;
     failure = new Error(code);
     failure.code = code;
+    report({ type: "transport.failed", threadId, turnId });
     for (const row of pending.values()) { clearTimeout(row.timer); row.reject(failure); }
     pending.clear();
     approvals.clear();
@@ -810,7 +811,7 @@ function createCodexAppServerTransport({
       if (["contextCompaction", "context_compaction", "context-compacted", "context_compacted"].includes(itemType)) {
         report({ type: "context.compaction", threadId: tid, turnId: trn, itemId: item });
       }
-      report({ type: method === "item/started" ? "item.started" : "item.completed", threadId: tid, turnId: trn, itemId: item }); return;
+      report({ type: method === "item/started" ? "item.started" : "item.completed", threadId: tid, turnId: trn, itemId: item, itemType }); return;
     }
     if (method === "serverRequest/resolved") {
       const requestId = idValue(params?.requestId), tid = nativeId(params?.threadId), row = requestId === null ? null : approvals.get(key(requestId));

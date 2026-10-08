@@ -131,7 +131,7 @@ test("workspace HTTP isolates membership, history, project registration and pane
   assert.deepEqual((await (await request("/api/model-visibility")).json()).hidden, ["synthetic::baseline"]);
 
   // Each finished run's speed is kept on the Host for every device.
-  assert.deepEqual(await (await request("/api/turn-rates?entry=entry-1")).json(), { entry: "entry-1", rates: [] });
+  assert.deepEqual(await (await request("/api/turn-rates?entry=entry-1")).json(), { entry: "entry-1", rates: [], hostTracked: false, active: null });
   const speed = { entry: "entry-1", startedAt: 1_000_000, endedAt: 1_050_000, tokens: 1200, estimated: false, totalMs: 50_000, modelMs: 20_000 };
   assert.equal((await request("/api/turn-rates", speed)).status, 200);
   assert.deepEqual((await (await request("/api/turn-rates?entry=entry-1")).json()).rates.map(row => row.tokens), [1200]);

@@ -71,8 +71,10 @@ function createGrokAcpAdapter({
   // person stops it or the process exits. This only guards a lost reply.
   promptTimeoutMs = 6 * 60 * 60 * 1000,
   onUpdate = null,
+  onRateEvent = null,
   onPermission = null,
 } = {}) {
+  const rateEvent = event => { try { onRateEvent?.(event); } catch {} };
   if (typeof command !== "string" || !path.isAbsolute(command)) throw new TypeError("grok_command_absolute_required");
   if (typeof cwd !== "string" || !path.isAbsolute(cwd)) throw new TypeError("grok_cwd_absolute_required");
   if (onUpdate !== null && typeof onUpdate !== "function" || onPermission !== null && typeof onPermission !== "function") throw new TypeError("grok_callback_required");
@@ -121,6 +123,7 @@ function createGrokAcpAdapter({
       fail("grok_acp_permission_invalid"); return;
     }
     permissions.set(String(id), { id, method: frame.method, params: value, createdAt: Date.now() });
+    rateEvent({ type: "rate.permission", sessionId: value.sessionId, requestId: id });
     while (permissions.size > 32) permissions.delete(permissions.keys().next().value);
     try { onPermission?.(clone(permissions.get(String(id)))); } catch {}
   }
@@ -143,6 +146,7 @@ function createGrokAcpAdapter({
         }
       }
       try { onUpdate?.(clone(row)); } catch {}
+      rateEvent(row);
       return;
     }
     if (typeof frame.method === "string" && Object.hasOwn(frame, "id") && PERMISSION_METHODS.has(frame.method)) { handlePermission(frame); return; }
@@ -248,6 +252,7 @@ function createGrokAcpAdapter({
     const current = sessions.get(id);
     if (!current || current.promptInFlight) return reject("grok_prompt_in_flight");
     current.promptInFlight = true; current.status = "running";
+    rateEvent({ type: "rate.turn.started", sessionId: id });
     try {
       // The person's message is kept with the conversation's updates, so a
       // reloaded page shows it above the answer, as Grok's own replay of a
@@ -262,10 +267,12 @@ function createGrokAcpAdapter({
       const content = value ? [{ type: "text", text: value }, ...blocks] : blocks;
       const result = await request("session/prompt", { sessionId: id, prompt: content }, { maxBytes: MAX_PROMPT_FRAME_BYTES, timeoutMs: promptTimeoutMs });
       current.status = result.kind === "result" ? "idle" : "error";
+      rateEvent({ type: "rate.turn.ended", sessionId: id, result: result.value });
       return result.kind === "result" ? { kind: "prompted", sessionId: id, result: result.value } : result;
     } finally {
       current.promptInFlight = false;
       current.pendingEcho = null;
+      rateEvent({ type: "rate.turn.ended", sessionId: id });
     }
   }
   async function loadSession(sessionId, directory = cwd, { name = null } = {}) {
@@ -341,7 +348,9 @@ function createGrokAcpAdapter({
     } else return reject("grok_permission_option_invalid");
     const written = write({ jsonrpc: "2.0", id: row.id, result: response });
     if (written.kind === "reject") return written;
-    permissions.delete(id); return { kind: "written", requestId: row.id };
+    permissions.delete(id);
+    rateEvent({ type: "rate.permission", sessionId: row.params.sessionId, requestId: row.id, resolved: true });
+    return { kind: "written", requestId: row.id };
   }
   async function close() {
     if (closePromise) return closePromise;

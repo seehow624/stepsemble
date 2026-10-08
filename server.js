@@ -178,6 +178,9 @@ const HARNESS_UPDATE_STATE_FILE = settingFromEnv("HARNESS_UPDATE_STATE")
 // device that uses this Host.
 const modelVisibility = createModelVisibilityStore({ file: path.join(APP_HOME, ".config", "stepsemble", "model-visibility.json") });
 const turnRates = createTurnRateStore({ file: path.join(APP_HOME, ".config", "stepsemble", "turn-rates.json") });
+const hostRates = require("./server/host-output-rates").createHostOutputRates({ store: turnRates,
+  entries: () => workspaceRegistry.list().entries,
+  onError: () => console.warn("[stepsemble] Could not save the Host's run speed") });
 const CONFIGURED_UPDATE_REPOSITORY = settingFromEnv("UPDATE_REPO") || "seehow624/stepsemble";
 const DEFAULT_UPDATE_REPOSITORY = CONFIGURED_UPDATE_REPOSITORY === "seehow624/pi-harbor"
   ? "seehow624/stepsemble" : CONFIGURED_UPDATE_REPOSITORY;
@@ -2132,7 +2135,7 @@ const codexNative = createCodexNativePool({ adapterOptions: {
   env: process.env,
   cwd: APP_HOME,
   journalFile: path.join(CONFIG_DIR, "codex-native-mutations.json"),
-}, journalRoot: path.join(CONFIG_DIR, "codex-native-threads") });
+}, journalRoot: path.join(CONFIG_DIR, "codex-native-threads"), onEvent: event => hostRates.codex(event) });
 if (codexNative.status().configured) void codexNative.refresh();
 // Grok ACP is likewise opt-in. The process is not spawned until a session is
 // opened; without the flag the existing bounded CLI connector remains the
@@ -2152,7 +2155,8 @@ function acpFlag(name, fallback) {
 // Grok Build's ACP server (grok agent stdio) is used whenever grok is
 // installed, like the other ACP agents; STEPSEMBLE_GROK_ACP=0 turns it off.
 const grokAcpEnabled = acpFlag("STEPSEMBLE_GROK_ACP", !!grokCommand);
-const grokAcp = grokAcpEnabled && grokCommand ? createGrokAcpAdapter({ command: grokCommand, cwd: APP_HOME, env: process.env }) : null;
+const grokAcp = grokAcpEnabled && grokCommand ? createGrokAcpAdapter({ command: grokCommand, cwd: APP_HOME, env: process.env,
+  onRateEvent: event => hostRates.acp("grok-build", event) }) : null;
 const kiloDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "kilo");
 const hermesDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "hermes");
 const clineDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "cline");
@@ -2166,15 +2170,15 @@ const hermesAcpEnabled = acpFlag("STEPSEMBLE_HERMES_ACP", !!hermesCommand);
 const clineAcpEnabled = acpFlag("STEPSEMBLE_CLINE_ACP", !!clineCommand);
 const ompAcpEnabled = acpFlag("STEPSEMBLE_OMP_ACP", !!ompCommand);
 const clineAcp = clineAcpEnabled && clineCommand ? createAgentClientProtocolAdapter({ command: clineCommand, args: ["--acp"], cwd: APP_HOME, env: process.env, label: "Cline", clientVersion: APP_VERSION,
-  registryFile: path.join(CONFIG_DIR, "acp-cline-sessions.json") }) : null;
+  registryFile: path.join(CONFIG_DIR, "acp-cline-sessions.json"), onRateEvent: event => hostRates.acp("cline", event) }) : null;
 const kiloAcp = kiloAcpEnabled && kiloCommand ? createAgentClientProtocolAdapter({ command: kiloCommand, args: ["acp"], cwd: APP_HOME, env: process.env, label: "Kilo Code", clientVersion: APP_VERSION,
-  registryFile: path.join(CONFIG_DIR, "acp-kilo-sessions.json") }) : null;
+  registryFile: path.join(CONFIG_DIR, "acp-kilo-sessions.json"), onRateEvent: event => hostRates.acp("kilo", event) }) : null;
 const hermesAcp = hermesAcpEnabled && hermesCommand ? createAgentClientProtocolAdapter({ command: hermesCommand, args: ["acp"], cwd: APP_HOME, env: process.env, label: "Hermes Agent", clientVersion: APP_VERSION,
-  registryFile: path.join(CONFIG_DIR, "acp-hermes-sessions.json") }) : null;
+  registryFile: path.join(CONFIG_DIR, "acp-hermes-sessions.json"), onRateEvent: event => hostRates.acp("hermes", event) }) : null;
 // Oh My Pi opens a conversation even before it is signed in, with no model to
 // answer it; the bridge counts that as its sign-in being needed.
 const ompAcp = ompAcpEnabled && ompCommand ? createAgentClientProtocolAdapter({ command: ompCommand, args: ["acp"], cwd: APP_HOME, env: process.env, label: "Oh My Pi", clientVersion: APP_VERSION,
-  registryFile: path.join(CONFIG_DIR, "acp-omp-sessions.json"), requiresModel: true }) : null;
+  registryFile: path.join(CONFIG_DIR, "acp-omp-sessions.json"), requiresModel: true, onRateEvent: event => hostRates.acp("omp", event) }) : null;
 // Models that Claude Code and the ACP agents offered in their last conversation,
 // for Settings → Models & providers.
 const agentModelCache = createAgentModelCache({ file: path.join(CONFIG_DIR, "agent-models.json") });
@@ -3006,6 +3010,7 @@ function broadcast(sid, event) {
     }
   }
   trackStreaming(sid, event);
+  hostRates.pi(sid, event);
   s.meta.lastActivityAt = Date.now();
   const data = JSON.stringify(event);
   const packet = { seq: ++s.eventSeq, event, bytes: Buffer.byteLength(data) };
@@ -5544,7 +5549,7 @@ const server = http.createServer(async (req, res) => {
           const body = await readJSON(req, PROMPT_ROUTE_BYTES);
           // The agent (Build, Plan…) chosen for this session, unless the request names one.
           const agent = body?.agent || agentModes.get("opencode", String(body?.sessionId || "")) || null;
-          sendJSON(res, 200, { message: await openCodeNative.sendMessage(body?.sessionId, body?.text, { model: body?.model, agent, noReply: body?.noReply === true, images: body?.images, directory: openCodeDirectory(body?.cwd || body?.directory || null) }) });
+          sendJSON(res, 200, { message: await hostRates.sendOpenCode(openCodeNative, body?.sessionId, body?.text, { model: body?.model, agent, noReply: body?.noReply === true, images: body?.images, directory: openCodeDirectory(body?.cwd || body?.directory || null) }) });
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_message_failed" }); }
         return;
       }
@@ -6737,7 +6742,7 @@ const server = http.createServer(async (req, res) => {
 
       // How fast the model wrote in each finished run of a Workspace entry.
       if (p === "/api/turn-rates" && req.method === "GET") {
-        try { sendJSON(res, 200, turnRates.read(String(url.searchParams.get("entry") || ""))); }
+        try { sendJSON(res, 200, hostRates.read(String(url.searchParams.get("entry") || ""))); }
         catch (e) { sendJSON(res, e.statusCode || 500, { error: e.statusCode ? e.message : "Could not read run speeds" }); }
         return;
       }
@@ -6745,6 +6750,10 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/turn-rates" && req.method === "POST") {
         try {
           const body = await readJSON(req, 16 * 1024);
+          // A cached older page can still POST its local estimate. The Host
+          // owns these agents now; client timing must not replace its count.
+          const entry = workspaceRegistry.get(String(body?.entry || ""));
+          if (hostRates.manages(entry?.record)) { sendJSON(res, 200, { entry: body.entry, hostTracked: true }); return; }
           sendJSON(res, 200, turnRates.record(String(body?.entry || ""), body));
         } catch (e) {
           sendJSON(res, e.statusCode || 500, { error: e.statusCode ? e.message : "Could not save the run speed" });
@@ -7427,6 +7436,7 @@ const server = http.createServer(async (req, res) => {
               ? claudeTranscriptModel(resumeSessionId, sessionCwd) : null;
             let launchedClaude = null;
             const session = await launchClaudeStructuredSession({ desktopClient: desktopClaude,
+              onRateEvent: event => hostRates.claude(localId, event),
               command: claudeStructuredCommand, cwd: sessionCwd, env: { ...process.env, ...claudeOverrides },
               // The desktop helper asks its own Claude CLI the same question.
               allowBypass: desktopClaude ? false : await claudeSupportsBypass(claudeStructuredCommand, { env: { ...process.env, ...claudeOverrides } }),

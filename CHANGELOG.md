@@ -2,6 +2,7 @@
 
 ## 3.8.33
 
+- The Host now measures Pi, Claude Code, Codex, OpenCode and ACP runs in the background. Closing every page or opening a conversation halfway through no longer loses its final speed. Reopened pages use the same counts and run clock; old cached pages cannot overwrite Host measurements, and rapid consecutive turns keep separate records.
 - Codex, Claude Code and OpenCode use the output tokens reported by the agent when showing a finished run's speed. Codex shows its average so far when a count is available; agents with streamed text continue to show an estimated live pace. Tool execution and approval waits are excluded from tok/s, while tok/min covers the whole run.
 - Grok's speed uses its whole-turn usage rather than its last call's context. Kilo reports only the last call, so its turn speed remains marked as an estimate. ACP reasoning tokens are included when the agent counts them separately.
 - Each speed stays with the message that started its run, including when another message follows immediately. The work line stays visible while the final count arrives, and its duration agrees with the speed summary. Codex uses its own completed turn times so polling delay does not lower its rate.

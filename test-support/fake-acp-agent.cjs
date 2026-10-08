@@ -31,8 +31,12 @@ rl.on("line", line => {
     out({ jsonrpc: "2.0", method: "session/update", params: { sessionId: params.sessionId, update: { sessionUpdate: "current_mode_update", currentModeId: params.modeId } } });
   } else if (frame.method === "session/prompt") {
     const text = (params.prompt || []).filter(part => part?.type === "text").map(part => part.text).join("");
-    out({ jsonrpc: "2.0", method: "session/update", params: { sessionId: params.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "mode " + current.get(params.sessionId) + ": " + text } } } });
-    reply({ stopReason: "end_turn" });
+    const answer = () => {
+      out({ jsonrpc: "2.0", method: "session/update", params: { sessionId: params.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "mode " + current.get(params.sessionId) + ": " + text } } } });
+      reply({ stopReason: "end_turn" });
+    };
+    const delay = Math.min(5000, Math.max(0, Number(process.env.FIXTURE_ACP_PROMPT_DELAY_MS) || 0));
+    if (delay) setTimeout(answer, delay); else answer();
   } else if (Object.hasOwn(frame, "id")) {
     out({ jsonrpc: "2.0", id: frame.id, error: { code: -32601, message: "Method not found" } });
   }

@@ -36,7 +36,8 @@ test("Grok ACP update normalization is bounded and session-correlated", () => {
 test("Grok ACP performs initialize/authenticate/session/prompt through JSON-RPC", async t => {
   const child = childFixture();
   const updates = [];
-  const adapter = createGrokAcpAdapter({ command: "/usr/local/bin/grok", cwd: "/tmp", env: { XAI_API_KEY: "fixture" }, spawnImpl: () => child, onUpdate: update => updates.push(update) });
+  const rates = [];
+  const adapter = createGrokAcpAdapter({ command: "/usr/local/bin/grok", cwd: "/tmp", env: { XAI_API_KEY: "fixture" }, spawnImpl: () => child, onUpdate: update => updates.push(update), onRateEvent: event => rates.push(event) });
   t.after(() => adapter.close());
   const session = await adapter.createSession({ directory: "/tmp" });
   assert.equal(session.kind, "created");
@@ -45,6 +46,9 @@ test("Grok ACP performs initialize/authenticate/session/prompt through JSON-RPC"
   assert.equal(adapter.sessionWorking(session.sessionId), true, "working while Grok answers");
   const prompted = await pending;
   assert.equal(prompted.kind, "prompted");
+  assert.equal(rates[0].type, "rate.turn.started");
+  assert(rates.some(event => event.type === "session.update"));
+  assert.equal(rates.find(event => event.type === "rate.turn.ended").result.stopReason, "end_turn");
   assert.equal(adapter.sessionWorking(session.sessionId), false);
   assert.equal(updates[0].update.content.text, "hello");
   assert.equal(adapter.sessionEvents(session.sessionId)[0].type, "session.update");
