@@ -25,9 +25,11 @@
 
   // complete: the meter saw the run from its start. A page that joins a run
   // already under way shows the live speed but keeps no summary.
-  function createMeter({ startedAt, complete = true } = {}) {
+  // liveAverage: the agent shows its words only once a reply is written, so
+  // while it works the speed shown is its average so far.
+  function createMeter({ startedAt, complete = true, liveAverage = false } = {}) {
     const start = finite(startedAt) ?? 0;
-    return { startedAt: start, complete: !!complete, lastAt: start, busy: false, busyMs: 0,
+    return { startedAt: start, complete: !!complete, liveAverage: !!liveAverage, lastAt: start, busy: false, busyMs: 0,
       estimated: 0, reported: 0, recent: [], lastOutputAt: 0, endedAt: null };
   }
 
@@ -63,9 +65,21 @@
     return meter;
   }
 
+  // The agent's own count of all the run's output so far. A count that comes
+  // a moment after the run ended still counts; the run's times stay.
+  function reportTotal(meter, tokens) {
+    const count = finite(tokens);
+    if (meter && count > meter.reported) meter.reported = count;
+    return meter;
+  }
+
   function liveRate(meter, at) {
     if (!meter || meter.endedAt !== null || meter.busy) return null;
     const time = finite(at) ?? meter.lastAt;
+    if (meter.liveAverage) {
+      const value = summary(meter, time);
+      return value && value.modelMs >= MIN_SPAN_MS ? value.perSecond : null;
+    }
     if (!meter.lastOutputAt || time - meter.lastOutputAt > LIVE_FRESH_MS) return null;
     const rows = meter.recent.filter(row => row.at >= meter.lastOutputAt - LIVE_WINDOW_MS);
     if (!rows.length) return null;
@@ -105,6 +119,17 @@
     return meter;
   }
 
+  // An ended run's own start and end as the agent reports them, when this
+  // page saw them only on its next look. The time spent busy stays.
+  function retime(meter, startedAt, endedAt) {
+    const start = finite(startedAt), end = finite(endedAt);
+    if (!meter || meter.endedAt === null || !(start > 0) || end === null || end < start) return meter;
+    meter.startedAt = start;
+    meter.endedAt = end;
+    meter.busyMs = Math.min(meter.busyMs, end - start);
+    return meter;
+  }
+
   // A stored summary as the Host keeps it.
   function storedSummary(row) {
     if (!row || typeof row !== "object") return null;
@@ -123,8 +148,8 @@
     catch { return number.toFixed(digits); }
   }
 
-  const api = Object.freeze({ estimateTokens, createMeter, sample, report, liveRate, summary, finish, late, storedSummary, formatRate,
-    LIVE_WINDOW_MS, LIVE_FRESH_MS });
+  const api = Object.freeze({ estimateTokens, createMeter, sample, report, reportTotal, liveRate, summary, finish, late, retime,
+    storedSummary, formatRate, LIVE_WINDOW_MS, LIVE_FRESH_MS });
   if (typeof module === "object" && module.exports) module.exports = api;
   else global.StepsembleOutputRate = api;
 })(typeof window !== "undefined" ? window : globalThis);

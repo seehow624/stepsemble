@@ -67,6 +67,31 @@ test("the live speed covers the last few seconds of output and disappears when t
   assert.equal(rate.liveRate(meter, 9000), null);
 });
 
+test("an agent's running count replaces the estimate, even a moment after the run ends", () => {
+  const meter = rate.createMeter({ startedAt: 0 });
+  rate.sample(meter, 4000, { tokens: 100 });
+  rate.reportTotal(meter, 300);
+  rate.reportTotal(meter, 250);   // an older count never lowers it
+  rate.finish(meter, 6000);
+  rate.reportTotal(meter, 420);   // Codex's last count can arrive after the end
+  const done = rate.summary(meter);
+  assert.deepEqual([done.tokens, done.estimated, done.totalMs], [420, false, 6000]);
+  assert.equal(done.perSecond, 70);
+});
+
+test("an agent that shows whole replies shows its average so far while it works", () => {
+  const meter = rate.createMeter({ startedAt: 0, liveAverage: true });
+  rate.sample(meter, 500, { tokens: 0 });
+  assert.equal(rate.liveRate(meter, 500), null, "nothing before any output");
+  rate.reportTotal(meter, 200);
+  rate.sample(meter, 4000, { tokens: 0 });
+  assert.equal(rate.liveRate(meter, 4000), 50);
+  rate.sample(meter, 4000, { busy: true });
+  assert.equal(rate.liveRate(meter, 9000), null, "no speed while a tool runs");
+  rate.sample(meter, 9000, { busy: false });
+  assert.equal(rate.liveRate(meter, 9000), 50, "the tool's time is left out");
+});
+
 test("a stored row becomes the same summary, and a bad one none", () => {
   const stored = rate.storedSummary({ tokens: 1200, estimated: false, totalMs: 50_000, modelMs: 20_000 });
   assert.equal(stored.perSecond, 60);
@@ -75,6 +100,23 @@ test("a stored row becomes the same summary, and a bad one none", () => {
   assert.equal(rate.storedSummary(null), null);
   assert.equal(rate.formatRate(7.25, "en"), "7.3");
   assert.equal(rate.formatRate(48.6, "en"), "49");
+});
+
+test("native completion times remove polling delay while preserving time spent in tools", () => {
+  const meter = rate.createMeter({ startedAt: 1000 });
+  rate.sample(meter, 3000, { busy: true });
+  rate.sample(meter, 6000, { busy: false });
+  rate.reportTotal(meter, 600);
+  rate.retime(meter, 2000, 9000);
+  assert.equal(meter.startedAt, 1000, "a live run cannot be retimed");
+  rate.finish(meter, 11000);
+  rate.retime(meter, 2000, 9000);
+  assert.deepEqual(rate.summary(meter), { tokens: 600, estimated: false, totalMs: 7000, modelMs: 4000,
+    perSecond: 150, perMinute: 600 / (7000 / 60000) });
+  rate.retime(meter, 2000, 1000);
+  assert.equal(rate.summary(meter).totalMs, 7000, "invalid native timestamps are ignored");
+  rate.retime(meter, 2000, 4000);
+  assert.equal(rate.summary(meter).modelMs, 0, "busy time cannot exceed the corrected duration");
 });
 
 test("the Host keeps one row per run, bounded and owner-only", () => {

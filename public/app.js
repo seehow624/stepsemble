@@ -1,7 +1,7 @@
-/* stepsemble v3.8.32 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.33 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.32";
+const CLIENT_APP_VERSION = "3.8.33";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -1201,6 +1201,37 @@ function paneOpenErrorText(error) {
   if (message === "workspace_host_missing") return tKey("workspace.hostMissing");
   return message || tKey("workspace.sessionUnavailable");
 }
+// A conversation that could not open says why, with the agent's sign-in when
+// that is what is missing. A Workspace pane has no list to go back to, so the
+// pane says it, with a way to try again.
+function failChatOpen(error, agentId = "") {
+  const specific = agentOpenFailureText(error, { agentId });
+  const text = specific && specific !== String(error?.message || "") ? specific
+    : tKey("runtime.openChatFailed", { detail: String(error?.message || "unknown error").slice(0, 300) });
+  const needsSignIn = !!agentId && (agentSignInError(error) || /sign_in_required/.test(String(error?.message || "")));
+  const signIn = needsSignIn ? () => void openAgentTerminal({ agentId, action: "login" }) : null;
+  showList();
+  if (!WORKSPACE_PANE) {
+    toast(text, true, signIn ? { label: tKey("agentTerminal.signInAction"), run: signIn } : null);
+    return;
+  }
+  el.viewChat.classList.add("chat-open-failed");
+  el.chatEmpty.textContent = "";
+  const note = document.createElement("p");
+  note.className = "chat-empty-note";
+  note.textContent = text;
+  el.chatEmpty.appendChild(note);
+  const action = (label, run, kind) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btn " + kind + " chat-empty-action";
+    button.textContent = label;
+    button.addEventListener("click", run);
+    el.chatEmpty.appendChild(button);
+  };
+  if (signIn) action(tKey("agentTerminal.signInAction"), signIn, "primary");
+  action(tKey("workspace.openRetry"), () => location.reload(), signIn ? "ghost" : "primary");
+}
 
 async function enterApp() {
   if (enterAppRequest) return enterAppRequest;
@@ -1606,6 +1637,7 @@ el.btnBack.addEventListener("click", goBackToList);
 
 function showChatEmpty() {
   setChatAgent(null);
+  el.viewChat.classList.remove("chat-open-failed");
   el.viewChat.classList.add("chat-is-empty");
   el.chatTitle.textContent = "Stepsemble";
   el.chatSub.textContent = "";
@@ -1618,6 +1650,7 @@ function showChatEmpty() {
   }
 }
 function hideChatEmpty() {
+  el.viewChat.classList.remove("chat-open-failed");
   el.viewChat.classList.remove("chat-is-empty");
   if (el.chatEmpty && el.chatEmpty.parentElement) el.chatEmpty.remove();
 }
@@ -5381,6 +5414,7 @@ async function refreshOpenCodeNativeSnapshot(connection, { initial = false } = {
   if (!connection || rpc !== connection || !connection.nativeOpenCode) return;
   if (connection.nativeRefreshInFlight) return;
   connection.nativeRefreshInFlight = true;
+  const askedAt = Date.now();
   try {
     // Imported OpenCode history may point at a directory that is no longer
     // one of Stepsemble's allowed project folders (for example `/`, a
@@ -5391,7 +5425,9 @@ async function refreshOpenCodeNativeSnapshot(connection, { initial = false } = {
     const directory = connection.nativeOpenCodeReadOnly ? "" : connection.cwd;
     const snapshot = await post("/api/opencode/reconcile", { sessionId: connection.nativeSessionId, cwd: directory, limit: 200 });
     if (rpc !== connection) return;
+    if ((connection.openCodeSentAt || 0) > askedAt) return;
     connection.openCodeContextSnapshot = snapshot;
+    noteOpenCodeOutput(connection, snapshot);
     const latest = openCodeContext.selectLatestAssistantMessage(snapshot?.messages || []);
     const observedModel = normalizeOpenCodeModel(snapshot?.session?.model)
       || normalizeOpenCodeModel(latest?.info?.model || latest?.info || latest);
@@ -6153,9 +6189,8 @@ async function openCodexNativeTask(task, generationOverride = null) {
     }
   } catch (error) {
     if (rpc === connection && generation === viewGeneration) {
-      toast(tKey("runtime.openChatFailed", { detail: error.message }), true);
       closeChat(true);
-      showList();
+      failChatOpen(error, "codex");
     }
   }
 }
@@ -6268,9 +6303,8 @@ async function openOpenCodeNativeTask(task, generationOverride = null) {
       }
     }
     if (rpc === connection && generation === viewGeneration) {
-      toast(tKey("runtime.openChatFailed", { detail: error.message }), true);
       closeChat(true);
-      showList();
+      failChatOpen(error, "opencode");
     }
   }
 }
@@ -6475,11 +6509,12 @@ async function refreshGrokAcpSnapshot(connection, { initial = false } = {}) {
     if (!!connection.streaming !== working) setStreaming(working);
     if (!working) attachAcpReplyActions(connection, { live: !initial });
     syncGenericInputState();
-  } catch {
+  } catch (error) {
     if (rpc !== connection) return;
     connection.nativeLoading = false;
     connection.connectionLost = true;
     syncGenericInputState();
+    if (initial) throw error;
   } finally {
     connection.nativeRefreshInFlight = false;
   }
@@ -6524,7 +6559,7 @@ async function openGrokAcpTask(task, generationOverride = null) {
     syncGenericInputState();
     void syncAcpConfig(connection);
   } catch (error) {
-    if (rpc === connection && generation === viewGeneration) { toast(tKey("runtime.openChatFailed", { detail: error.message }), true); closeChat(true); showList(); }
+    if (rpc === connection && generation === viewGeneration) { closeChat(true); failChatOpen(error, "grok-build"); }
   }
 }
 
@@ -6568,6 +6603,13 @@ function renderClaudeStructuredEvents(connection, events, { replace = false } = 
       ? claudeStructuredRendering?.messageIdentity?.(event) : null;
     if (identity) { connection.claudeSkipMessage = !!shownInHistory?.has(identity); connection.claudeCurrentMessageId = identity; }
     const skip = connection.claudeSkipMessage === true;
+    // Claude says how many tokens a message wrote as it ends, though not
+    // always for the turn's last one, and the turn's total with its result.
+    // A subagent's messages are its tool's time, not the turn's.
+    if (!skip && !event?.parent_tool_use_id) {
+      if (event?.type === "stream_event" && event.event?.type === "message_delta") OutputRate.report(connection.outputMeter, event.event.usage?.output_tokens);
+      else if (event?.type === "result") OutputRate.reportTotal(connection.outputMeter, event.usage?.output_tokens);
+    }
     for (const [activityIndex, activity] of agentTranscriptPresentation.claudeEvent(event).entries()) {
       if (activity.kind !== "tool") continue;
       const toolId = String(activity.tool?.id || "");
@@ -6721,6 +6763,7 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false } =
   if (!connection || rpc !== connection || !connection.nativeClaudeStructured) return;
   if (connection.nativeRefreshInFlight) return;
   connection.nativeRefreshInFlight = true;
+  const askedAt = Date.now();
   try {
     // After the first read, only the events not drawn yet (a Host from before
     // this sends them all, and the page reads on the same way).
@@ -6734,6 +6777,9 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false } =
     renderClaudeStructuredEvents(connection, snapshot?.events, { replace: initial });
     renderClaudeStructuredPermissions(connection, pending?.permissions);
     connection.nativeLoading = false; connection.connectionLost = false;
+    // A look begun before Claude took a message can still find it waiting;
+    // the next look has the turn.
+    if ((connection.claudeSentAt || 0) > askedAt) { syncGenericInputState(); return; }
     // The structured stream is polled rather than kept as a browser-owned
     // SSE connection. Reconcile the authoritative adapter status on every
     // poll so a resumed/native session cannot look idle forever, and so the
@@ -6770,9 +6816,10 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false } =
     });
     void syncNativeContext(connection);
     syncGenericInputState();
-  } catch {
+  } catch (error) {
     if (rpc !== connection) return;
     connection.nativeLoading = false; connection.connectionLost = true; syncGenericInputState();
+    if (initial) throw error;
   } finally {
     connection.nativeRefreshInFlight = false;
   }
@@ -6814,7 +6861,7 @@ async function openClaudeStructuredTask(task, generationOverride = null) {
       if (result) return openGenericTask(result);
       throw new Error("Claude resume returned no task");
     } catch (error) {
-      if (generation === viewGeneration) { toast(tKey("runtime.openChatFailed", { detail: error.message }), true); showList(); }
+      if (generation === viewGeneration) failChatOpen(error, "claude-code");
     }
     return;
   }
@@ -6855,7 +6902,7 @@ async function openClaudeStructuredTask(task, generationOverride = null) {
     if (rpc !== connection || generation !== viewGeneration) return;
     claudeStructuredPollTimer = setInterval(() => void refreshClaudeStructuredSnapshot(connection), 2000); syncGenericInputState();
   } catch (error) {
-    if (rpc === connection && generation === viewGeneration) { toast(tKey("runtime.openChatFailed", { detail: error.message }), true); closeChat(true); showList(); }
+    if (rpc === connection && generation === viewGeneration) { closeChat(true); failChatOpen(error, "claude-code"); }
   }
 }
 
@@ -6933,9 +6980,10 @@ async function refreshAgentClientProtocolSnapshot(connection, { initial = false 
       acpAgentId: connection.acpAgentId, nativeSessionId: connection.nativeSessionId, status: connection.taskStatus,
       nativeStatus: snapshot?.adapter || {} });
     syncGenericInputState();
-  } catch {
+  } catch (error) {
     if (rpc !== connection) return;
     connection.nativeLoading = false; connection.connectionLost = true; syncGenericInputState();
+    if (initial) throw error;
   } finally {
     connection.nativeRefreshInFlight = false;
   }
@@ -6959,7 +7007,7 @@ async function openAgentClientProtocolTask(task, generationOverride = null) {
       if (result) return openGenericTask(result);
       throw new Error("ACP resume returned no task");
     } catch (error) {
-      if (generation === viewGeneration) { toast(tKey("runtime.openChatFailed", { detail: error.message }), true); showList(); }
+      if (generation === viewGeneration) failChatOpen(error, agentId);
     }
     return;
   }
@@ -6986,7 +7034,7 @@ async function openAgentClientProtocolTask(task, generationOverride = null) {
     acpPollTimer = setInterval(() => void refreshAgentClientProtocolSnapshot(connection), 2000); syncGenericInputState();
     void syncAcpConfig(connection);
   } catch (error) {
-    if (rpc === connection && generation === viewGeneration) { toast(tKey("runtime.openChatFailed", { detail: error.message }), true); closeChat(true); showList(); }
+    if (rpc === connection && generation === viewGeneration) { closeChat(true); failChatOpen(error, agentId); }
   }
 }
 
@@ -7052,9 +7100,10 @@ async function refreshAntigravityStructuredSnapshot(connection, { initial = fals
     applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: "antigravity", status: connection.taskStatus,
       nativeAntigravityStructured: true, nativeStatus: status });
     syncGenericInputState();
-  } catch {
+  } catch (error) {
     if (rpc !== connection) return;
     connection.nativeLoading = false; connection.connectionLost = true; syncGenericInputState();
+    if (initial) throw error;
   } finally {
     connection.nativeRefreshInFlight = false;
   }
@@ -7087,7 +7136,7 @@ async function openAntigravityStructuredTask(task, generationOverride = null) {
     if (rpc !== connection || generation !== viewGeneration) return;
     antigravityStructuredPollTimer = setInterval(() => void refreshAntigravityStructuredSnapshot(connection), 2000); syncGenericInputState();
   } catch (error) {
-    if (rpc === connection && generation === viewGeneration) { toast(tKey("runtime.openChatFailed", { detail: error.message }), true); closeChat(true); showList(); }
+    if (rpc === connection && generation === viewGeneration) { closeChat(true); failChatOpen(error, "antigravity"); }
   }
 }
 
@@ -7722,6 +7771,9 @@ function syncNativeContext(connection = rpc) {
   };
   const promise = api(path, { signal: request.controller.signal })
     .then((response) => {
+      // Codex's count of the running turn's output is current even when a
+      // newer read of the gauge is already on its way.
+      if (nativeContextRequestIsCurrent(request) && connection.nativeCodex && connection.outputMeter) codexTurnOutput(connection, connection.outputMeter, response);
       if (!nativeContextRequestIsCurrent(request) || request.needsRefresh) return null;
       return applyNativeContextStats(response, connection);
     })
@@ -8868,7 +8920,9 @@ function beginPendingTurn(connection) {
   // The header's run timer counts from the send too; what it showed before
   // comes back if the message is not sent.
   const pending = { at: Date.now(), sawRun: false, settled: false, whileRunning: !!connection.streaming,
-    previousRun: { startedAt: connection.runStartedAt ?? null, endedAt: connection.runEndedAt ?? null } };
+    previousRun: { startedAt: connection.runStartedAt ?? null, endedAt: connection.runEndedAt ?? null },
+    // OpenCode's replies so far; the run this message starts is the ones after.
+    openCodeReplies: connection.nativeOpenCode ? openCodeReplyIds(connection.openCodeContextSnapshot) : null };
   connection.pendingTurn = pending;
   if (rpc === connection) startRunTimer(pending.at);
   return pending;
@@ -8909,18 +8963,38 @@ function workTurnDuration(turn) {
 // writing now, estimated from the text as it appears. When the run ends it
 // shows tok/s over the time the model worked (time spent running tools or
 // waiting for the person is left out) and tok/min over the whole run. Agents
-// that report their output tokens (Pi, and ACP agents that answer with usage)
-// are counted exactly; the others are estimated and marked "≈". The Host
-// keeps each run's numbers, so every device shows them.
+// that report their output tokens (Pi, Claude Code, Codex, OpenCode, and ACP
+// agents that answer with usage) are counted exactly; the others are
+// estimated and marked "≈". The Host keeps each run's numbers, so every
+// device shows them.
 const OutputRate = window.StepsembleOutputRate;
 const OUTPUT_EXCLUDE = ".tool-card, .message-usage, .run-error, .agent-approval-card, .agent-terminal-status, .wl-own, .msg-actions, .image-gallery, button, img, svg";
+// A run belongs to the message whose start is closest to its own.
+const RATE_MATCH_MS = 15000;
 let turnRateCache = { key: "", rates: [] };
+// Runs that ended a moment ago and whose numbers may still change: an agent
+// this page polls shows the end of its answer a moment later. The line under
+// their message stays meanwhile.
+const settlingRates = new Set();
 function outputMeterable(connection) {
   return !!connection && !connection.nativeHistoryReadonly && (!connection.generic || !!(connection.nativeAcp || connection.nativeGrokAcp
     || connection.nativeClaudeStructured || connection.nativeCodexMutation || connection.nativeOpenCode || connection.nativeAntigravityStructured));
 }
-function lastUserMessage() {
-  return [...(el.messages?.children || [])].filter(node => node.classList.contains("msg") && node.classList.contains("user")).pop() || null;
+function userTurnStart(user) { return Number(user?.dataset.wlStart) || Number(user?.dataset.ts) || 0; }
+// The message that started the run begun at this time.
+function rateOwner(startedAt) {
+  const nodes = el.messages?.children || [];
+  let best = null;
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const node = nodes[index];
+    if (!node.classList.contains("msg") || !node.classList.contains("user")) continue;
+    const at = userTurnStart(node);
+    if (!at) continue;
+    const gap = Math.abs(at - startedAt);
+    if (gap <= RATE_MATCH_MS && (!best || gap < best.gap)) best = { gap, node };
+    if (at < startedAt - RATE_MATCH_MS) break;
+  }
+  return best?.node || null;
 }
 function currentWorkTurn() {
   const turns = workTurns();
@@ -8951,10 +9025,16 @@ function outputMeterBusy(connection, turn) {
 }
 function startOutputMeter(connection, complete) {
   if (!outputMeterable(connection)) { if (connection) connection.outputMeter = null; return; }
-  connection.outputMeter = OutputRate.createMeter({ startedAt: Number(connection.runStartedAt) || Date.now(), complete });
+  // Codex shows a reply once it is written, so while it works its speed is
+  // the average so far, from the tokens it reports.
+  connection.outputMeter = OutputRate.createMeter({ startedAt: Number(connection.runStartedAt) || Date.now(), complete,
+    liveAverage: !!connection.nativeCodex });
   connection.outputMeterTokens = turnOutputTokens(currentWorkTurn());
   connection.outputMeterExtra = 0;
   connection.outputMeterSampledAt = 0;
+  connection.outputMeterTurnId = null;
+  connection.outputMeterReplies = connection.nativeOpenCode
+    ? connection.pendingTurn?.openCodeReplies || openCodeReplyIds(connection.openCodeContextSnapshot) : null;
   connection.executingTools = new Set();
 }
 function sampleOutputMeter(connection = rpc, force = false) {
@@ -8980,28 +9060,84 @@ function finishOutputMeter(connection) {
   if (!meter || meter.endedAt !== null) return;
   sampleOutputMeter(connection, true);
   OutputRate.finish(meter, Number(connection.runEndedAt) || Date.now());
+  const turnId = connection.outputMeterTurnId;
+  // Use the completed turn already read from Codex before storing even the
+  // provisional row. A later run must never supply this run's identity.
+  if (connection.nativeCodex && turnId) {
+    const record = connection.nativeTranscriptState?.turns?.find(item => String(item?.id || "") === turnId);
+    if (record) OutputRate.retime(meter, normalizedTimestampMs(record.startedAt), normalizedTimestampMs(record.completedAt));
+  }
   connection.outputMeter = null;
   if (!meter.complete) return;
-  const user = lastUserMessage();
-  const userAt = Number(user?.dataset.wlStart) || Number(user?.dataset.ts) || 0;
-  // The run belongs to the message above it only when that message started it.
-  const owner = user && userAt && Math.abs(userAt - meter.startedAt) <= 15000 ? user : null;
+  if (!connection.generic) { keepTurnRate(connection, meter, true); return; }
+  // An agent this page polls can show the end of its answer, and Codex its
+  // count, a moment later. The numbers so far show meanwhile.
   const baseline = connection.outputMeterTokens;
-  const settle = () => {
-    if (connection.generic && owner?.isConnected && rpc === connection) {
-      const turn = workTurns().find(item => item.user === owner);
-      if (turn && Number.isFinite(baseline)) OutputRate.late(meter, turnOutputTokens(turn) - baseline);
-    }
-    const summary = OutputRate.summary(meter);
-    if (!summary || !(summary.tokens > 0)) return;
+  const settleKey = meter.startedAt;
+  settlingRates.add(settleKey);
+  keepTurnRate(connection, meter, false);
+  setTimeout(async () => {
+    try {
+      // The count may arrive after the completed transcript.
+      if (connection.nativeCodex && turnId && rpc === connection && connection.nativeThreadId) {
+        const report = await api("/api/codex/context?threadId=" + encodeURIComponent(connection.nativeThreadId));
+        codexTurnOutput(connection, meter, report, turnId);
+      }
+      const owner = rpc === connection && Number.isFinite(baseline) ? rateOwner(meter.startedAt) : null;
+      const turn = owner && workTurns().find(item => item.user === owner);
+      if (turn) OutputRate.late(meter, turnOutputTokens(turn) - baseline);
+    } catch {}
+    settlingRates.delete(settleKey);
+    keepTurnRate(connection, meter, true);
+  }, 2500);
+}
+// The run's numbers go under the message that started it, and to the Host
+// once they are final.
+function keepTurnRate(connection, meter, final) {
+  const summary = OutputRate.summary(meter);
+  if (summary?.tokens > 0) {
     const row = turnRateRow(meter, summary);
-    if (owner?.isConnected) owner.dataset.wlRate = JSON.stringify(row);
-    rememberTurnRate(row);
-    if (WORKSPACE_ENTRY_KEY) void post("/api/turn-rates", { entry: WORKSPACE_ENTRY_KEY, ...row }).catch(() => {});
-    scheduleWorkLog();
-  };
-  // An agent this page polls can show the end of its answer a moment later.
-  if (connection.generic) setTimeout(settle, 2500); else settle();
+    if (rpc === connection) {
+      const owner = rateOwner(meter.startedAt);
+      if (owner) owner.dataset.wlRate = JSON.stringify(row);
+      rememberTurnRate(row);
+    }
+    if (final && WORKSPACE_ENTRY_KEY) void post("/api/turn-rates", { entry: WORKSPACE_ENTRY_KEY, ...row }).catch(() => {});
+  }
+  if (rpc === connection) scheduleWorkLog();
+}
+// Codex counts each turn's output; the Host passes on the count for the turn
+// it saw last. It is the run's when that turn is the one the run started.
+function codexTurnOutput(connection, meter, report, turnId = connection.outputMeterTurnId) {
+  const turn = report?.turnOutput;
+  if (!meter || !turn || typeof turn.turnId !== "string") return;
+  const active = meter.endedAt === null
+    ? connection.nativeTranscriptState?.turns?.find(item => item?.status === "inProgress")?.id : null;
+  const id = turnId || active;
+  if (!id || turn.turnId !== String(id)) return;
+  if (meter === connection.outputMeter) connection.outputMeterTurnId = String(id);
+  OutputRate.reportTotal(meter, turn.outputTokens);
+}
+function openCodeReplyIds(snapshot) {
+  const ids = new Set();
+  for (const message of Array.isArray(snapshot?.messages) ? snapshot.messages : []) {
+    const info = message?.info || message || {};
+    if (info.role === "assistant" && info.id) ids.add(String(info.id));
+  }
+  return ids;
+}
+// OpenCode counts the tokens of each reply; a run's are those of the replies
+// written since it began.
+function noteOpenCodeOutput(connection, snapshot) {
+  const known = connection.outputMeterReplies;
+  if (!connection.outputMeter || !known) return;
+  let total = 0;
+  for (const message of Array.isArray(snapshot?.messages) ? snapshot.messages : []) {
+    const info = message?.info || message || {};
+    if (info.role !== "assistant" || !info.id || known.has(String(info.id))) continue;
+    total += (Number(info.tokens?.output) || 0) + (Number(info.tokens?.reasoning) || 0);
+  }
+  OutputRate.reportTotal(connection.outputMeter, total);
 }
 function turnRateKey() { return WORKSPACE_ENTRY_KEY ? apiBase + "|" + WORKSPACE_ENTRY_KEY : ""; }
 function ensureTurnRates() {
@@ -9020,27 +9156,40 @@ function rememberTurnRate(row) {
   if (turnRateCache.key !== key) turnRateCache = { key, rates: [] };
   turnRateCache.rates = turnRateCache.rates.filter(item => Math.abs(Number(item.startedAt) - row.startedAt) > 2000).concat(row);
 }
-function turnRateFor(turn) {
+// around: the start of the messages before and after this one, either of
+// which a run may belong to instead.
+function turnRateFor(turn, around = null) {
   const user = turn?.user;
   if (!user) return null;
   if (user.dataset.wlRate) {
     try { return OutputRate.storedSummary(JSON.parse(user.dataset.wlRate)); } catch {}
   }
   ensureTurnRates();
-  const at = Number(user.dataset.wlStart) || Number(user.dataset.ts) || 0;
+  const at = userTurnStart(user);
   if (!at) return null;
   let best = null;
   for (const row of turnRateCache.rates) {
-    const gap = Math.abs(Number(row?.startedAt) - at);
-    if (gap <= 15000 && (!best || gap < best.gap)) best = { gap, row };
+    const startedAt = Number(row?.startedAt);
+    const gap = Math.abs(startedAt - at);
+    if (!(gap <= RATE_MATCH_MS) || best && gap >= best.gap) continue;
+    if ([around?.before, around?.after].some(other => other && Math.abs(other - startedAt) < gap)) continue;
+    best = { gap, row };
   }
   return best ? OutputRate.storedSummary(best.row) : null;
 }
+function turnSettling(turn) {
+  if (!settlingRates.size || !turn?.user) return false;
+  for (const startedAt of settlingRates) if (rateOwner(startedAt) === turn.user) return true;
+  return false;
+}
 function rateLocale() { return document.documentElement.lang || undefined; }
 function liveRateDisplay() {
-  const rate = OutputRate.liveRate(rpc?.outputMeter, Date.now());
+  const meter = rpc?.outputMeter;
+  const rate = OutputRate.liveRate(meter, Date.now());
   if (rate === null) return null;
-  return { text: "≈ " + OutputRate.formatRate(rate, rateLocale()) + " tok/s", title: tKey("work.rate.live") };
+  const formatted = OutputRate.formatRate(rate, rateLocale()) + " tok/s";
+  if (!meter.liveAverage) return { text: "≈ " + formatted, title: tKey("work.rate.live") };
+  return { text: (meter.reported > 0 ? "" : "≈ ") + formatted, title: tKey("work.rate.soFar") };
 }
 function summaryRateDisplay(summary) {
   if (!summary) return null;
@@ -9358,7 +9507,7 @@ function workSetHidden(block, hide) {
   wrapper.appendChild(block.node);
 }
 
-function layoutWorkTurn(turn, key, { running = false, startedAt = null } = {}) {
+function layoutWorkTurn(turn, key, { running = false, startedAt = null, around = null } = {}) {
   let state = workLogState.turns.get(key);
   if (!state) { state = { expanded: false, filesExpanded: false }; workLogState.turns.set(key, state); }
   const shells = turn.nodes.filter(node => node.classList.contains("msg") && directMessageBubble(node));
@@ -9383,9 +9532,10 @@ function layoutWorkTurn(turn, key, { running = false, startedAt = null } = {}) {
   const final = finalIndex >= 0 ? blocks[finalIndex] : null;
   const foldable = blocks.some((block, index) => index !== finalIndex && ["work", "divider", "text"].includes(block.kind));
   // A finished reply with nothing to fold still gets the line when there is
-  // a speed to show.
-  const rateDisplay = running ? null : summaryRateDisplay(turnRateFor(turn));
-  const showHead = shells.length > 0 && (running || foldable || !!rateDisplay);
+  // a speed to show, or one on its way.
+  const rateSummary = running ? null : turnRateFor(turn, around);
+  const rateDisplay = summaryRateDisplay(rateSummary);
+  const showHead = shells.length > 0 && (running || foldable || !!rateDisplay || !running && turnSettling(turn));
   const collapsed = !running && foldable && state.expanded !== true;
 
   if (showHead) {
@@ -9393,7 +9543,7 @@ function layoutWorkTurn(turn, key, { running = false, startedAt = null } = {}) {
     const bubble = directMessageBubble(shells[0]);
     if (bubble.firstChild !== head) bubble.insertBefore(head, bubble.firstChild);
     const started = running ? (startedAt || Number(turn.user?.dataset.wlStart) || Number(turn.user?.dataset.ts) || 0) : 0;
-    const duration = running ? (started ? Math.max(0, Date.now() - started) : null) : workTurnDuration(turn);
+    const duration = running ? (started ? Math.max(0, Date.now() - started) : null) : rateSummary?.totalMs ?? workTurnDuration(turn);
     head.dataset.key = key;
     head.dataset.running = String(running);
     head.dataset.startedAt = started ? String(started) : "";
@@ -9513,13 +9663,15 @@ function layoutWorkLog({ from = null, tail = false, keepScroll = false } = {}) {
   }
   const run = workLogRunState();
   const seen = new Map();
+  const starts = turns.map(turn => userTurnStart(turn.user));
   turns.forEach((turn, index) => {
     const key = workTurnKey(turn, index, seen);
     const last = index === turns.length - 1;
     const start = turn.user || turn.nodes[0];
     const include = (!from && !tail) || (tail && last) || (!!from && (turn.user === from || turn.nodes.includes(from)
       || !!start && !!(from.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING)));
-    if (include) layoutWorkTurn(turn, key, { running: run.running && last, startedAt: run.startedAt });
+    if (include) layoutWorkTurn(turn, key, { running: run.running && last, startedAt: run.startedAt,
+      around: { before: starts[index - 1] || 0, after: starts[index + 1] || 0 } });
   });
   syncWorkPlaceholder(lastTurn, run);
   syncWorkLogClock();
@@ -10874,7 +11026,22 @@ async function sendCurrent() {
     if (rpc?.nativeCodexMutation && rpc.sid === sendSid && ["started", "requested"].includes(result?.kind)) {
       rpc.taskStatus = "running";
       setStreaming(true);
+      if (result?.turnId && rpc.outputMeter) rpc.outputMeterTurnId = String(result.turnId);
       if (!codexNativePollTimer) codexNativePollTimer = setInterval(() => void refreshCodexNativeSnapshot(rpc), 2500);
+    }
+    // Claude's turn begins as it takes the message, so the run is timed and
+    // measured from here, even a reply quicker than the next look.
+    if (rpc?.nativeClaudeStructured && rpc.sid === sendSid && result?.kind === "sent") {
+      rpc.claudeSentAt = Date.now();
+      rpc.taskStatus = "running";
+      setStreaming(true);
+    }
+    // Even a reply that finishes between two polls has a meter. A snapshot
+    // requested before the accepted send must not finish this new run.
+    if (rpc?.nativeOpenCode && rpc.sid === sendSid && result?.message) {
+      rpc.openCodeSentAt = Date.now();
+      rpc.taskStatus = "running";
+      setStreaming(true);
     }
     if (result?.queued && rpc?.sid === sendSid) {
       el.queueNote.dataset.persistent = "queue";

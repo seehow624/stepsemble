@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.8.33
+
+- Codex, Claude Code and OpenCode use the output tokens reported by the agent when showing a finished run's speed. Codex shows its average so far when a count is available; agents with streamed text continue to show an estimated live pace. Tool execution and approval waits are excluded from tok/s, while tok/min covers the whole run.
+- Each speed stays with the message that started its run, including when another message follows immediately. The work line stays visible while the final count arrives, and its duration agrees with the speed summary. Codex uses its own completed turn times so polling delay does not lower its rate.
+- A Workspace conversation that cannot open now explains the error and offers a retry. When sign-in is required, it offers the agent's sign-in instead of remaining on the loading screen.
+- Checked on an isolated Host with the real Claude Code and Codex executables against local model fixtures, including tool execution and consecutive turns; covered by output-rate, adapter and conversation tests, protocol checks and rolling browser compatibility.
+
 ## 3.8.32
 
 - A model OpenCodex starts serving now reaches Pi's model menu on its own. OpenCodex keeps a block in Pi's `models.json` that lists its models, and rewrites it when it starts, when its settings change and on `ocx sync`, but not on its hourly catalog refresh, so a model it picked up in between stayed out of Pi's menu. When OpenCodex has connected Pi, the Host now compares the models OpenCodex serves on loopback with that block every five minutes and when a model menu opens. If they differ, it runs OpenCodex's own `opencodex integration client enable --client pi`, which rewrites only that block, keeps a snapshot first and refuses a block edited by hand, and the menu is read afresh. A refresh that leaves the lists different is not repeated for the same OpenCodex list; one that fails is tried again after an hour. Stepsemble does not edit the block and does not read OpenCodex's credentials.

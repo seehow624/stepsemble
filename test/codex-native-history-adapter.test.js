@@ -251,11 +251,21 @@ test("Codex composer adapter forwards images and overrides, isolates usage by th
   assert.deepEqual(await adapter.contextUsage("thread-a"), {
     model: "gpt-5-codex", contextWindow: 1000, contextTokens: 20, contextPercent: 2,
     usage: last, source: "live", observedAt: "2033-05-18T03:33:20.000Z", stale: false,
+    turnOutput: { turnId: "turn-a", outputTokens: 6 },
   });
   assert.deepEqual(await adapter.contextUsage("thread-b"), {
     model: "gpt-5-mini", contextWindow: null, contextTokens: null, contextPercent: null, usage: null,
     source: "unknown", observedAt: null, stale: true,
   });
+  // A turn's output is Codex's running total less the total before the turn,
+  // across every call the turn makes.
+  const usageEvent = (turnId, lastOutput, totalOutput) => options.onEvent({ type: "thread.tokenUsage.updated", threadId: "thread-a", turnId,
+    tokenUsage: { last: { ...last, outputTokens: lastOutput }, total: { ...total, outputTokens: totalOutput }, modelContextWindow: 1000 } });
+  usageEvent("turn-a", 40, 46);
+  assert.deepEqual((await adapter.contextUsage("thread-a")).turnOutput, { turnId: "turn-a", outputTokens: 46 });
+  usageEvent("turn-b", 30, 76);
+  usageEvent("turn-b", 20, 96);
+  assert.deepEqual((await adapter.contextUsage("thread-a")).turnOutput, { turnId: "turn-b", outputTokens: 50 });
 
   const image = "data:image/png;base64,iVBORw0KGgo=";
   const sent = await adapter.startTurn([{ type: "text", text: "look" }, { type: "image", url: image }], { model: "gpt-5-codex", effort: "high" }, "thread-a");

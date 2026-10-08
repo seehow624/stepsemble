@@ -508,6 +508,9 @@ function createCodexNativeHistoryAdapter({
   const usageCache = new Map();
   const usageObservationCache = new Map();
   const usageInvalidated = new Set();
+  // The output tokens of each thread's latest turn, as Codex counts them:
+  // its running total now, less the total it had before the turn began.
+  const turnOutputCache = new Map();
   const contextSnapshotRows = new Map();
   const contextSnapshotLoaded = new Set();
   const contextSnapshotPending = new Map();
@@ -800,6 +803,7 @@ function createCodexNativeHistoryAdapter({
       invalidateUsage(threadId);
     }
     if (event?.type === "thread.tokenUsage.updated" && threadId) {
+      noteTurnOutput(threadId, event);
       const snapshot = nativeUsageSnapshot(event);
       if (snapshot) {
         const observedAt = Number(clock());
@@ -831,6 +835,23 @@ function createCodexNativeHistoryAdapter({
     if (typeof onEvent === "function") {
       try { onEvent(event); } catch { /* transport report owns failure semantics */ }
     }
+  }
+
+  function noteTurnOutput(threadId, event) {
+    const total = event.tokenUsage?.total?.outputTokens, last = event.tokenUsage?.last?.outputTokens;
+    if (!validThreadId(event.turnId) || !Number.isSafeInteger(total) || total < 0) return;
+    const prior = turnOutputCache.get(threadId);
+    let row;
+    if (prior?.turnId === event.turnId) row = { ...prior, total: Math.max(prior.total, total) };
+    else {
+      // A turn's first count includes its first call, so without an earlier
+      // turn on record the total before it is the total less that call.
+      const before = prior && prior.total <= total ? prior.total
+        : Math.max(0, total - (Number.isSafeInteger(last) && last >= 0 ? last : total));
+      row = { turnId: event.turnId, before, total };
+    }
+    turnOutputCache.set(threadId, row);
+    if (turnOutputCache.size > MAX_CONTEXT_SNAPSHOTS) turnOutputCache.delete(turnOutputCache.keys().next().value);
   }
 
   function retireBrokenTransport(error) {
@@ -1101,7 +1122,10 @@ function createCodexNativeHistoryAdapter({
       metadata = null;
     }
     if (!snapshot) metadata = null;
-    return contextUsageDto(threadId, cached?.model || null, snapshot, metadata || { source: "unknown" });
+    const dto = contextUsageDto(threadId, cached?.model || null, snapshot, metadata || { source: "unknown" });
+    // The latest turn's output, which the Workspace shows as its speed.
+    const turn = turnOutputCache.get(threadId);
+    return turn ? { ...dto, turnOutput: { turnId: turn.turnId, outputTokens: turn.total - turn.before } } : dto;
   }
 
   async function listTasks() {

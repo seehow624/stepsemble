@@ -289,6 +289,20 @@ export async function runConversationUxBrowserCases(browser) {
       assert.equal(table.pageFits, true, "the page itself never scrolls sideways");
       out.table = table.wider ? "scrolls" : "fits";
 
+      stage = "Claude sign-in failure offers an explanation and retry in its pane";
+      const denied = "**/api/claude/structured/events?*";
+      await context.route(denied, route => route.fulfill({ status: 409, contentType: "application/json",
+        body: JSON.stringify({ error: "desktop_sign_in_required", code: "desktop_sign_in_required" }) }));
+      await ui.goto(ui.url());
+      await ui.locator(".chat-empty-note").waitFor({ state: "visible", timeout: 20000 });
+      assert.match(await ui.locator(".chat-empty-note").innerText(), /sign(?:ed)? in/i);
+      await ui.getByRole("button", { name: "Sign in", exact: true }).waitFor({ state: "visible" });
+      await context.unroute(denied);
+      await ui.getByRole("button", { name: "Try again", exact: true }).click();
+      await ui.waitForFunction(connected, null, { timeout: 20000 });
+      assert.equal(await ui.locator(".chat-empty-note").count(), 0);
+      out.openFailure = "sign-in and retry";
+
       stage = "ACP agent: working at once";
       ui = await newWorkspaceSession(page, { agentId: "hermes", name: "UX ACP" });
       await ui.waitForFunction(connected, null, { timeout: 20000 });
