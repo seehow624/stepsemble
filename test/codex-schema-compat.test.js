@@ -126,3 +126,30 @@ test("the same values written another way still fit, shape by shape", () => {
   assert.deepEqual(check(readName([string])).breaking, []);
   assert.equal(check(readName([string, { type: "object" }])).compatible, false);
 });
+
+test("a union written with anyOf instead of oneOf is the same union", () => {
+  // Codex 0.161.0: CodexErrorInfo became anyOf, with an open member for error
+  // kinds still to come. The documents before it wrote it with oneOf.
+  const isOpen = member => JSON.stringify(member) === JSON.stringify({ type: ["string", "object"] });
+  const before = copy();
+  for (const file of ["ServerNotification.json", "v2/ThreadReadResponse.json"]) {
+    const info = before[file].definitions.CodexErrorInfo;
+    assert.ok(info.anyOf.some(isOpen), file);
+    info.oneOf = info.anyOf.filter(member => !isOpen(member));
+    delete info.anyOf;
+  }
+  assert.deepEqual(compareCodexContracts(before, copy()).breaking, []);
+  // A member that went missing on the way is still a change.
+  const lost = copy();
+  lost["ServerNotification.json"].definitions.CodexErrorInfo.anyOf.shift();
+  assert.deepEqual(reasons(compareCodexContracts(before, lost)), ["union member removed"]);
+  // What Stepsemble sends: anyOf accepts everything oneOf did, not the other way.
+  assert.deepEqual(check(documents => {
+    const decision = documents["CommandExecutionRequestApprovalResponse.json"].definitions.CommandExecutionApprovalDecision;
+    decision.anyOf = decision.oneOf; delete decision.oneOf;
+  }).breaking, []);
+  assert.deepEqual(reasons(check(documents => {
+    const cursor = documents["v2/ThreadItemsListParams.json"].properties.cursor;
+    cursor.oneOf = cursor.anyOf; delete cursor.anyOf;
+  })), ["values restricted"]);
+});

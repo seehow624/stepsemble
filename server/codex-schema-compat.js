@@ -41,7 +41,8 @@ const MAX_PROBLEMS = 40;
 // Raised whenever the comparison changes, so a verdict it made before is
 // made again (server/codex-release-check.js keeps verdicts per release).
 // 2: the same values written another way are compared shape by shape.
-const COMPARISON_VERSION = 2;
+// 3: a union written with oneOf and with anyOf is the same union.
+const COMPARISON_VERSION = 3;
 
 // Documents Stepsemble writes are checked so that what it sends stays valid;
 // the others so that what it reads keeps its shape.
@@ -77,6 +78,14 @@ function typeSet(value) {
 function refName(ref) {
   const match = /^#\/(?:definitions|\$defs)\/(.+)$/.exec(String(ref || ""));
   return match ? match[1] : null;
+}
+
+// The members of a union and the keyword that lists them, when a schema has
+// exactly one of oneOf and anyOf.
+function unionOf(schema) {
+  const one = Array.isArray(schema?.oneOf), any = Array.isArray(schema?.anyOf);
+  if (one === any) return null;
+  return one ? { key: "oneOf", members: schema.oneOf } : { key: "anyOf", members: schema.anyOf };
 }
 
 // A stable name for a member of a oneOf/anyOf union, so a union that gained a
@@ -254,8 +263,20 @@ function createComparison(baseDocument, candidateDocument) {
       compareDefinition(name, mode, path, candidateName);
     }
     const keys = new Set([...Object.keys(base), ...Object.keys(candidate)]);
+    // oneOf and anyOf both list a union's members. anyOf accepts every value
+    // oneOf does (Codex 0.161.0 rewrote CodexErrorInfo that way, with a
+    // member for error kinds still to come), so the members are compared as
+    // usual. Only the other way can refuse a value Stepsemble sends: one
+    // that fits two members.
+    const baseUnion = unionOf(base), candidateUnion = unionOf(candidate);
+    const rewritten = baseUnion && candidateUnion && baseUnion.key !== candidateUnion.key;
+    if (rewritten) {
+      if (baseUnion.key === "anyOf" && mode === "send") note(path + ".oneOf", "values restricted");
+      compareVariants(baseUnion.members, candidateUnion.members, path + "." + candidateUnion.key, mode);
+    }
     for (const key of keys) {
       if (IGNORED_KEYS.has(key) || key === "$ref" || key === "definitions" || key === "$defs") continue;
+      if (rewritten && (key === "oneOf" || key === "anyOf")) continue;
       const inBase = Object.hasOwn(base, key), inCandidate = Object.hasOwn(candidate, key);
       if (inBase && inCandidate && settled(base[key], candidate[key])) continue;
       if (key === "properties") { compareProperties(base, candidate, path, mode); continue; }

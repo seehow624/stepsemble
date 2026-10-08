@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.8.31
+
+- Codex 0.161.0 is supported. Its only change that touches Stepsemble's release check is how the schema lists Codex's error kinds: with `anyOf` instead of `oneOf`, and with a member for error kinds still to come. Stepsemble does not read the error kind. The check had refused the release, because it only lined up two unions written with the same keyword. It now takes them as the same union and compares their members as before; written the other way round, a union Stepsemble sends to Codex is still refused, since it may then accept fewer values. Codex 0.161.0 also gives the goal methods an optional origin, which Stepsemble does not use. A Mac with Codex's automatic upgrade on installs 0.161.0 once it runs this Stepsemble; a release refused by an earlier version of the check is checked again.
+- Checked against the official 0.161.0: the four live checks (sending, several conversations at once, approval, branching) passed with a local model. Run on the published contracts of every stable Codex from 0.151.0 to 0.161.0, each against the one before, the check still refuses only 0.156.0, for the same reason as before, and accepts the other 21. A test covers the rewritten union in both directions and a member lost on the way.
+
 ## 3.8.30
 
 - Oh My Pi (omp) is a new agent in the Workspace. When `omp` is installed on a Host (`bun install -g @oh-my-pi/pi-coding-agent` puts it in `~/.bun/bin`), New session lists Oh My Pi and talks to it through its own ACP server, `omp acp`, as it does with Cline, Kilo Code and Hermes: streamed replies, stopping a reply, its approval questions, its Default and Plan modes, its thinking setting, and the models it offers once it is signed in. Its conversations open again after the Host restarts, and branching a conversation uses omp's own fork. It has a mark of its own, a π with a spark, in the list and on tabs.

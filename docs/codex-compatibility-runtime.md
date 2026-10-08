@@ -31,6 +31,7 @@ capabilities during `initialize`. Stepsemble uses both signals.
 | Codex `0.157.0` | native | native | reviewed native mutation |
 | Codex `0.158.0` | native | native | reviewed native mutation |
 | Codex `0.159.0` | native | native | reviewed native mutation |
+| Codex `0.161.0` | native | native | reviewed native mutation |
 | Future version with a reviewed fingerprint (`schema-identical`) | native | native | native mutation |
 | Future version that only adds to the latest reviewed contract (`additive`) | native | native | native mutation |
 | Any other schema, or a pre-release | bounded fallback | bounded fallback | disabled |
@@ -70,8 +71,10 @@ and changing a type are each refused (`test/codex-schema-compat.test.js`).
 The same values written another way (a list of types as a union, or a union
 moved behind a reference, as 0.159.0 did) are compared shape by shape: each
 shape Stepsemble sends must still be accepted, and each shape it reads must be
-one it knew. A verdict kept per release is made again when the comparison
-changes (`COMPARISON_VERSION`).
+one it knew. A union written with `anyOf` instead of `oneOf`, as 0.161.0 did,
+is the same union; written the other way it may refuse a value Stepsemble
+sends. A verdict kept per release is made again when the comparison changes
+(`COMPARISON_VERSION`).
 
 `protocol/native/codex/contract-baseline.json.gz` holds the documents of the
 latest reviewed release. It is checked against that profile's hashes when it
@@ -242,6 +245,37 @@ What changed, file by file:
   read `Turn.error`.
 - MCP resource discovery gains an optional `serverName`; Stepsemble does not
   call it. The other files differ only in descriptions.
+
+### 0.161.0 review record
+
+Reviewed with `scripts/review-codex-release.mjs` against the `0.159.0`
+baseline, from the official npm artifact
+(`@openai/codex@0.161.0-darwin-arm64`, archive SHA-256
+`21c99b848b25ed91b92afadabe3751cc33878d2684f3e2d01cc1782e6d0abc7a`). 23 of the
+33 contract files are identical; the others are `ClientRequest.json`,
+`ServerNotification.json`, `v2/ThreadListResponse.json`,
+`v2/ThreadReadResponse.json`, `v2/ThreadTurnsListResponse.json`,
+`v2/ThreadResumeResponse.json`, `v2/ThreadStartResponse.json`,
+`v2/ModelListResponse.json`, `v2/ThreadForkResponse.json`,
+`v2/TurnStartResponse.json`. None of the changes removes or alters anything
+Stepsemble sends or reads. The composer, parallel-pool, approval and branch
+oracles passed against that artifact with a local model. `0.161.0-schema.json`
+records the baseline.
+
+What changed, file by file:
+
+- `CodexErrorInfo` lists its members with `anyOf` instead of `oneOf`, and
+  gains a member that is any string or object, for error kinds still to come.
+  The comparison first refused it in the six files that carry it ("union
+  replaced"): it only lined up two unions written with the same keyword. It
+  now takes a union written with `oneOf` and with `anyOf` as the same union
+  and compares the members as usual, since `anyOf` accepts every value
+  `oneOf` does; the other way round stays a change for what Stepsemble sends
+  (`COMPARISON_VERSION` 3; `test/codex-schema-compat.test.js`). Stepsemble
+  does not read `codexErrorInfo`.
+- `thread/goal/set` and `thread/goal/clear` take an optional `origin`;
+  Stepsemble does not call them. `ModelListResponse.json` differs only in
+  descriptions.
 
 ## Automatic Codex upgrades
 

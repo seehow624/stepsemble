@@ -87,12 +87,12 @@ test("a release that cannot be checked stays unknown and is tried again later", 
   let now = Date.parse("2026-09-28T10:00:00Z");
   const offline = github({ offline: true });
   const check = createCodexReleaseCheck({ fetchImpl: offline.fetchImpl, clock: () => now });
-  assert.deepEqual([(await check.check("0.161.0")).state, (await check.check("0.161.0")).reason], ["unknown", "network"]);
+  assert.deepEqual([(await check.check("0.165.0")).state, (await check.check("0.165.0")).reason], ["unknown", "network"]);
   const asked = offline.requests.length;
-  await check.check("0.161.0");
+  await check.check("0.165.0");
   assert.equal(offline.requests.length, asked, "not asked again at once");
   now += 11 * 60 * 1000;
-  await check.check("0.161.0");
+  await check.check("0.165.0");
   assert.ok(offline.requests.length > asked, "asked again after a while");
   const missing = github({ missing: ["0.162.0"] });
   assert.equal((await createCodexReleaseCheck({ fetchImpl: missing.fetchImpl }).check("0.162.0")).reason, "schema_unpublished");
