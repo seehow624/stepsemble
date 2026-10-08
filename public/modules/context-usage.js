@@ -239,6 +239,20 @@
     return { available: true, scope, tokens, contextUsage: context(contextTokens, size), contextCapacity: size };
   }
 
+  // A rate needs the whole prompt's output, not the last call's context.
+  // Grok keeps the turn sum under _meta.usage; Kilo's usage is only its
+  // last call, so without an explicit turn sum its rate remains estimated.
+  function acpTurnOutput(reply, { agentId = "" } = {}) {
+    const result = isRecord(reply?.result) ? reply.result : isRecord(reply) ? reply : {};
+    const sum = isRecord(result._meta?.usage) ? result._meta.usage : null;
+    if (!sum && (agentId === "kilo" || agentId === "grok-build")) return null;
+    const raw = sum || (isRecord(result.usage) ? result.usage : isRecord(reply?.usage) ? reply.usage : null);
+    if (!raw) return null;
+    const usage = { ...raw, inputTokens: raw.inputTokens ?? raw.input_tokens,
+      outputTokens: raw.outputTokens ?? raw.output_tokens };
+    return acpUsageStats({ usage })?.tokens.output ?? null;
+  }
+
   function formatTokenCount(value) {
     const number = finiteNonNegative(value);
     if (number === null) return "—";
@@ -366,6 +380,7 @@
     mergeContextCapacity,
     computeCacheHitRate,
     acpUsageStats,
+    acpTurnOutput,
     formatTokenCount,
     formatPercent,
     createUsageTotals,

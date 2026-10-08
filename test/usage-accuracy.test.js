@@ -133,3 +133,17 @@ test("OpenCode's output includes the thinking it counts apart", () => {
   assert.equal(stats.contextUsage.tokens, 27283);
   assert.equal(stats.scope, "call");
 });
+
+test("ACP speed uses a whole-turn count rather than the last call's context", () => {
+  const grok = { result: { _meta: { outputTokens: 215, inputTokens: 22271, totalTokens: 22486,
+    usage: { inputTokens: 43635, outputTokens: 282, totalTokens: 43917, modelCalls: 2 } } } };
+  assert.equal(context.acpTurnOutput(grok, { agentId: "grok-build" }), 282);
+  assert.equal(context.acpTurnOutput({ result: { _meta: { outputTokens: 215 } } }, { agentId: "grok-build" }), null);
+  const kilo = { result: { usage: { inputTokens: 17914, outputTokens: 13, totalTokens: 19990, thoughtTokens: 15, cachedReadTokens: 2048 } } };
+  assert.equal(context.acpTurnOutput(kilo, { agentId: "kilo" }), null, "a final-call count cannot replace the turn estimate");
+  const hermes = { result: { usage: { inputTokens: 38270, outputTokens: 1369, thoughtTokens: 1126, totalTokens: 39639 } } };
+  assert.equal(context.acpTurnOutput(hermes, { agentId: "hermes" }), 1369, "reasoning already in output is not counted twice");
+  assert.equal(context.acpTurnOutput({ usage: { inputTokens: 100, outputTokens: 10, thoughtTokens: 20, totalTokens: 130 } }, { agentId: "omp" }), 30);
+  assert.equal(context.acpTurnOutput({ usage: { output_tokens: 30 } }), 30);
+  assert.equal(context.acpTurnOutput({ result: { stopReason: "end_turn" } }), null);
+});

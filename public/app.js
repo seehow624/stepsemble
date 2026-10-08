@@ -11003,8 +11003,8 @@ async function sendCurrent() {
       : await post("/api/send", { sid: sendSid, message: text, images }); // /skill:xxx 等直接透傳，pi 原生處理
     // An ACP agent answers the prompt with the tokens it wrote, when it counts them.
     if (acpTurn?.outputMeter) {
-      const usage = result?.result?.usage || result?.usage;
-      OutputRate.report(acpTurn.outputMeter, usage?.outputTokens ?? usage?.output_tokens);
+      const tokens = contextUtils.acpTurnOutput(result, { agentId: acpTurn.acpAgentId || acpTurn.agentId });
+      OutputRate.reportTotal(acpTurn.outputMeter, tokens);
     }
     removeDraftForKey(sendDraftKey);
     if (pendingTurn) {
