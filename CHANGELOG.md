@@ -2,6 +2,8 @@
 
 ## 3.8.34
 
+- OMP sign-in and model settings now offer **Use OpenCodex**. The selected Host runs OpenCodex’s managed integration command, checks gateway/model-list availability and confirms the resulting configuration. Phone users can reuse providers already configured in that Host’s OpenCodex without opening a localhost sign-in callback. Direct provider sign-in remains available. Configuration conflicts, different OMP profiles, unavailable gateways and uncertain results are reported without forcing an overwrite; existing conversations continue unchanged.
+
 - Goals and Schedules are available from the Workspace sidebar. A Goal shows its objective, elapsed work time, current activity, output count and latest result, with pause, resume, stop and a link to its conversation. A conversation also has a Goal button and a compact progress banner.
 - The Host continues a Goal in the same native conversation until the agent reports completion or a blocker, or a time, turn or output budget is reached. Pi, Claude Code, Codex, OpenCode, OMP, Cline, Kilo, Hermes and Grok Build use their normal native execution and approval paths. Closing the browser does not cancel the work. A Host restart marks uncertain work interrupted and requires a deliberate resume.
 - Schedules can run once, daily, weekly or at an interval, with a time zone for daily and weekly jobs. Each occurrence opens its own conversation. The UI supports editing, pausing, running now and reading previous results. Missed occurrences coalesce into one run; an already-running occurrence is not duplicated.

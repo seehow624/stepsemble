@@ -5920,7 +5920,7 @@ const server = http.createServer(async (req, res) => {
 
       if (p === "/api/gateway/status" && req.method === "GET") {
         try {
-          sendJSON(res, 200, await openCodexGateway.status());
+          sendJSON(res, 200, await openCodexGateway.status({ agentId: url.searchParams.get("agentId") }));
         } catch (error) {
           sendJSON(res, error.statusCode || 503, { error: error.code || "gateway_status_failed" });
         }
@@ -5935,6 +5935,14 @@ const server = http.createServer(async (req, res) => {
           if (action === "codex_restore_native") result = await openCodexGateway.restoreNative();
           else if (action === "codex_restore_gateway") result = await openCodexGateway.restoreGateway();
           else if (action === "claude_session_routing") result = await openCodexGateway.setClaudeSessionRouting(body.enabled === true);
+          else if (action === "omp_integration") {
+            if (auth.mode === "browser" && !req.headers.origin) { sendJSON(res, 403, { error: "origin_required", code: "origin_required" }); return; }
+            if (Object.keys(body).some(key => !["action", "enabled"].includes(key)) || typeof body.enabled !== "boolean") {
+              sendJSON(res, 400, { error: "invalid_request", code: "invalid_request" }); return;
+            }
+            if (!ompAcp) { sendJSON(res, 409, { error: "omp_unavailable", code: "omp_unavailable" }); return; }
+            result = await openCodexGateway.setOmpIntegration(body.enabled);
+          }
           else { sendJSON(res, 400, { error: "unknown gateway action" }); return; }
           sendJSON(res, 200, result);
         } catch (error) {

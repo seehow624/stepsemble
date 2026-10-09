@@ -12917,6 +12917,10 @@ async function prepareAgentTerminal(term) {
     return;
   }
   const choices = Array.isArray(entry[term.action]) ? entry[term.action] : [];
+  if (term.agentId === "omp" && term.action === "login") {
+    await prepareOmpConnection(term, choices);
+    return;
+  }
   if (!choices.length) {
     agentTerminalLine(term, agentTerminalText("unsupported." + term.action, { agent: label }), "warn");
     finishAgentTerminal(term, "failed");
@@ -12943,6 +12947,44 @@ async function prepareAgentTerminal(term) {
     await startAgentTerminalRun(term, { choice: choices[0].id });
     return;
   }
+  renderAgentTerminal();
+}
+
+// Both the settings page and /login use the selected Host's gateway. The
+// phone never opens a localhost URL or receives provider credentials.
+async function prepareOmpConnection(term, choices) {
+  const current = () => agentTerminal === term && term.hostBase === apiBase;
+  let gateway = null;
+  try { gateway = await api("/api/gateway/status?agentId=omp"); } catch {}
+  if (!current()) return;
+  const state = gateway?.omp;
+  term.phase = "choose";
+  term.notes = [{ tone: "info", text: gatewayText("omp.intro") }];
+  term.controls = [];
+  if (gateway?.installed && state) {
+    const blocked = state.busy || !state.supported || !gateway.reachable || !gateway.gatewayModels?.length || ["conflict", "unsafe"].includes(state.state);
+    if (blocked) term.notes.push({ tone: "warn", text: ompGatewayDetail(gateway) });
+    else term.controls.push({ type: "button", primary: true, label: gatewayText("omp.use"),
+      description: gatewayText("omp.sameHost"), onClick: async () => {
+        if (!current() || term.phase !== "choose") return;
+        term.phase = "running"; term.controls = []; term.notes = [{ text: gatewayText("omp.busy") }];
+        newAgentTerminalScreen(term); renderAgentTerminal();
+        try {
+          await post("/api/gateway/action", { action: "omp_integration", enabled: true });
+          if (!current()) return;
+          term.notes = [{ text: gatewayText("omp.done") }];
+          finishAgentTerminal(term, "completed");
+        } catch (error) {
+          if (!current()) return;
+          agentTerminalLine(term, gatewayActionError(error), "error");
+          await prepareOmpConnection(term, choices);
+        }
+      } });
+  } else term.notes.push({ tone: "info", text: gatewayText("omp.install") });
+  if (choices[0]) term.controls.push({ type: "button", label: gatewayText("omp.direct"),
+    description: gatewayText("omp.directHint"), onClick: () => {
+      if (current() && term.phase === "choose") void startAgentTerminalRun(term, { choice: choices[0].id });
+    } });
   renderAgentTerminal();
 }
 
@@ -16476,7 +16518,7 @@ let openCodeDialogEdit = null;
 // Pi's visible models and custom providers, OpenCode's providers and local
 // server, and the OpenCodex routing for Codex and Claude Code.
 function modelSettingsAgentIds() { return ["pi", "codex", "claude-code", "opencode", "kilo", "hermes", "omp", "grok-build", "cline", "antigravity"]; }
-function isRoutedModelAgent(agent) { return agent === "codex" || agent === "claude-code"; }
+function isRoutedModelAgent(agent) { return agent === "codex" || agent === "claude-code" || agent === "omp"; }
 function currentModelSettingsAgent() { return modelSettingsAgent; }
 function modelAgentText(key, vars = {}) { return tKey("modelAgents." + key, vars); }
 
@@ -16918,7 +16960,7 @@ el.opencodeProviderCancel?.addEventListener("click", closeOpenCodeProviderDialog
 el.opencodeProviderCancelBottom?.addEventListener("click", closeOpenCodeProviderDialog);
 
 // ===========================================================================
-// Codex & Claude gateway panel (OpenCodex integration)
+// Codex, Claude & OMP gateway panel (OpenCodex integration)
 // ===========================================================================
 
 let codexGatewayData = null;
@@ -16927,6 +16969,7 @@ let codexGatewayBase = null;
 let codexGatewayLoading = false;
 let codexGatewayRequest = null;
 let codexGatewayRequestBase = null;
+let codexGatewayRequestAgent = null;
 
 function gatewayText(key, vars = {}) { return tKey("gateway." + key, vars); }
 
@@ -16934,26 +16977,28 @@ function gatewayText(key, vars = {}) { return tKey("gateway." + key, vars); }
 // A host from before that field keeps showing them.
 function codexGatewayVisible() {
   return isRoutedModelAgent(modelSettingsAgent) && codexGatewayBase === apiBase
-    && !!codexGatewayData && codexGatewayData.installed !== false;
+    && !!codexGatewayData && (modelSettingsAgent === "omp" || codexGatewayData.installed !== false);
 }
 
 async function loadCodexGateway(force = false) {
   if (!el.codexGatewayList) return;
-  if (codexGatewayLoading && !force && codexGatewayRequestBase === apiBase) return;
+  if (codexGatewayLoading && !force && codexGatewayRequestBase === apiBase && codexGatewayRequestAgent === modelSettingsAgent) return;
   if (codexGatewayRequest) codexGatewayRequest.abort();
   const generation = viewGeneration;
   const baseAtStart = apiBase;
+  const agentAtStart = modelSettingsAgent;
   codexGatewayLoading = true;
   const request = new AbortController();
   codexGatewayRequest = request;
   codexGatewayRequestBase = baseAtStart;
+  codexGatewayRequestAgent = agentAtStart;
   if (el.codexGatewayStatus) {
     el.codexGatewayStatus.textContent = gatewayText("checking");
     el.codexGatewayStatus.classList.remove("hidden");
   }
   try {
-    const result = await api("/api/gateway/status", { signal: request.signal });
-    if (request.signal.aborted || generation !== viewGeneration || baseAtStart !== apiBase) return;
+    const result = await api("/api/gateway/status" + (modelSettingsAgent === "omp" ? "?agentId=omp" : ""), { signal: request.signal });
+    if (request.signal.aborted || generation !== viewGeneration || baseAtStart !== apiBase || agentAtStart !== modelSettingsAgent) return;
     codexGatewayData = result;
     codexGatewayBase = baseAtStart;
     el.codexGatewayStatus?.classList.add("hidden");
@@ -16961,7 +17006,7 @@ async function loadCodexGateway(force = false) {
   } catch (e) {
     if (e.name === "AbortError") return;
     // Only an answer about the host on screen may change what it shows.
-    if (generation === viewGeneration && baseAtStart === apiBase) {
+    if (generation === viewGeneration && baseAtStart === apiBase && agentAtStart === modelSettingsAgent) {
       el.codexGatewayList.replaceChildren();
       if (el.codexGatewayStatus) el.codexGatewayStatus.textContent = gatewayText("unavailable", { detail: e.message || "unknown error" });
     }
@@ -16970,6 +17015,7 @@ async function loadCodexGateway(force = false) {
       codexGatewayLoading = false;
       codexGatewayRequest = null;
       codexGatewayRequestBase = null;
+      codexGatewayRequestAgent = null;
     }
   }
 }
@@ -17008,6 +17054,11 @@ function codexGatewayNote(value) {
 
 function gatewayActionError(error) {
   const code = String(error?.code || "");
+  if (code.startsWith("omp_gateway_") || code === "opencodex_action_timeout") {
+    const key = { omp_gateway_conflict: "conflict", omp_gateway_offline: "offline", omp_gateway_no_models: "noModels",
+      omp_gateway_busy: "busy", omp_gateway_unconfirmed: "unconfirmed", omp_gateway_profile_mismatch: "profileMismatch" }[code] || "unavailable";
+    return gatewayText("omp." + key);
+  }
   if (code === "opencodex_missing") return gatewayText("error.missing");
   if (code === "claude_routing_disabled_in_gateway") return gatewayText("error.claudeOff");
   return gatewayText("error.failed", { detail: error?.message || code || "unknown error" });
@@ -17022,20 +17073,34 @@ function codexGatewayAction(label, question, body) {
   button.type = "button";
   button.className = "btn ghost provider-row-action";
   button.textContent = label;
+  const base = apiBase, agent = modelSettingsAgent;
   button.addEventListener("click", async () => {
-    if (!window.confirm(question)) return;
+    if (base !== apiBase || agent !== modelSettingsAgent || button.disabled) return;
+    if (question && !window.confirm(question)) return;
     button.disabled = true;
     try {
       await post("/api/gateway/action", body);
+      if (base !== apiBase || agent !== modelSettingsAgent) return;
       await loadCodexGateway(true);
+      if (base === apiBase && agent === modelSettingsAgent && body.action === "omp_integration" && body.enabled) toast(gatewayText("omp.done"));
     } catch (error) {
-      toast(gatewayActionError(error), true);
+      if (base === apiBase && agent === modelSettingsAgent) toast(gatewayActionError(error), true);
     } finally {
       button.disabled = false;
     }
   });
   actions.appendChild(button);
   return actions;
+}
+
+function ompGatewayDetail(data) {
+  const state = data?.omp;
+  const key = data?.installed === false ? "install" : ["conflict", "unsafe"].includes(state?.state) ? "conflict"
+    : state?.error === "omp_gateway_profile_mismatch" ? "profileMismatch"
+    : state?.busy ? "busy" : !data?.reachable ? "offline"
+      : !state?.supported ? "unavailable" : !data.gatewayModels?.length ? "noModels"
+        : state.state === "current" ? "connected" : state.state === "stale" ? "stale" : "intro";
+  return gatewayText("omp." + key);
 }
 
 function renderCodexGateway() {
@@ -17045,6 +17110,33 @@ function renderCodexGateway() {
   el.codexGatewayList.replaceChildren();
   if (!visible) return;
   const data = codexGatewayData;
+
+  if (modelSettingsAgent === "omp") {
+    const state = data.omp;
+    const card = codexGatewayCard("OpenCodex", ompGatewayDetail(data));
+    card.appendChild(codexGatewayNote(gatewayText("omp.sameHost")));
+    const allowed = state?.supported && !state.busy && !["conflict", "unsafe"].includes(state.state);
+    if (allowed && data.reachable && data.gatewayModels?.length) card.appendChild(codexGatewayAction(
+      gatewayText(state.state === "current" ? "omp.refresh" : "omp.use"), null, { action: "omp_integration", enabled: true }));
+    if (allowed && ["current", "stale"].includes(state.state)) card.appendChild(codexGatewayAction(
+      gatewayText("omp.disconnect"), gatewayText("omp.confirmDisconnect"), { action: "omp_integration", enabled: false }));
+    const refresh = document.createElement("button");
+    refresh.type = "button"; refresh.className = "btn ghost provider-row-action";
+    refresh.textContent = gatewayText("omp.check");
+    refresh.addEventListener("click", () => void loadCodexGateway(true));
+    card.appendChild(refresh);
+    card.appendChild(codexGatewayNote(gatewayText("omp.checkHint")));
+    const direct = document.createElement("button");
+    direct.type = "button"; direct.className = "btn ghost provider-row-action";
+    direct.textContent = gatewayText("omp.options");
+    const base = apiBase;
+    direct.addEventListener("click", () => {
+      if (base === apiBase && modelSettingsAgent === "omp") void openAgentTerminal({ agentId: "omp", action: "login" });
+    });
+    card.appendChild(direct);
+    el.codexGatewayList.appendChild(card);
+    return;
+  }
 
   const providers = (data.providerIds || []).join(", ");
   const overview = codexGatewayCard("OpenCodex",
