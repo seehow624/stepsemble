@@ -12,7 +12,7 @@ Stepsemble 的「設定 → 更新 → Coding agents」是 coding agent 本身�
 - 更新結果只保存版本、狀態、時間與錯誤 code，不保存 stdout/stderr；狀態檔位於 `~/.config/stepsemble/harness-updates.json`，權限為 `0600`。
 - Codex 的來源辨識只接受可證明由同一個 package-owned 路徑提供的 executable：Homebrew 會比對 named `brew list` 的 package paths、npm 會比對全域 package root 與 `package.json`，standalone 會比對 `CODEX_HOME/packages/standalone`。同名但來源不明的 shim／wrapper 會保持 unknown 並拒絕寫入。
 - 升級後的 `--version` 讀取失敗會回報 verification failure；沒有強制驗證的策略也會在升級後讀一次版本（讀不到不算失敗）。若官方 updater 正常結束但版本未變：已知有較新的發佈版本時維持 `available` 並標記 `lastUpdateUnchanged`，否則才是 `up-to-date`／`unchanged`，不會冒充已安裝新版本。
-- 設定頁只把「有新版本」的項目列入「Upgrade all」，並逐一呼叫 `apply`，每次完成後重新檢查該項；`apply-all` 也接受 `ids` 限定範圍。host-managed 項目只顯示「由主機管理」，未安裝的項目收成一行，不提供升級按鈕。
+- 設定頁只把「有新版本」的項目列入「Upgrade all」，並逐一呼叫 `apply`，每次完成後重新檢查該項；`apply-all` 也接受 `ids` 限定範圍。host-managed 項目只顯示「由主機管理」，不提供升級按鈕。面板只列出這台裝置已安裝的 agent；一個都沒裝時，才用一行列出支援但未安裝的名稱。
 - 打開「更新」頁時，若上次檢查超過 12 小時，會自動在背景檢查一次版本。
 
 ## 檢查策略
@@ -27,7 +27,7 @@ Stepsemble 的「設定 → 更新 → Coding agents」是 coding agent 本身�
 | Gemini CLI | 版本觀察 | 手動 | 套件管理器依安裝方式而異，尚未有單一安全通道 |
 | Cline / Kilo Code | 依安裝來源：Homebrew、npm 全域，或自己的 npm 資料夾（`npm install --prefix <資料夾>`，如 `/Volumes/devkit/Tools/agent-clis/kilo`）時比對 npm 發佈版本（`cline`、`@kilocode/cli`） | 保留來源：`brew upgrade`、`npm install --global`，或 `npm install --prefix <資料夾> <package>@latest` | 它們自己的 updater（`cline update`、`kilo upgrade`）可能裝到別處，留下正在用的那份沒更新，所以不用；來源不明拒絕更新；升級後重新讀取版本 |
 | Grok Build | `grok update --check --json`（只檢查、JSON 回答） | `grok update` | 穩定版通道；Stepsemble 以 `--no-auto-update` 啟動 Grok，所以在這裡或 Grok 自己更新；升級後重新讀取版本 |
-| Antigravity | 手動 | 手動 | 由它自己的發行版更新 |
+| Antigravity | 讀 `agy --version` | 手動：在終端機執行 `agy update` | `agy update` 沒有只檢查的選項，所以只顯示版本、不自動檢查新版 |
 
 ## API
 

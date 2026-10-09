@@ -842,3 +842,29 @@ test("Codex behind an OpenCodex wrapper is updated through the launcher the wrap
   await assert.rejects(() => service().update({ id: "codex", confirm: true }), error => error.code === "source_unknown");
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test("Antigravity is found through agy and shows its version without an update check", async () => {
+  const { root, file } = tempState();
+  const calls = [];
+  let installed = true;
+  const registry = JSON.parse(fs.readFileSync(path.join(__dirname, "../protocol/harness-updates.json"), "utf8"));
+  const service = createHarnessUpdateService({
+    registry: { ...registry, harnesses: registry.harnesses.filter(item => item.id === "antigravity") },
+    stateFile: file, env: { PATH: "/fake", HOME: root },
+    resolve: name => installed && name === "agy" ? "/fake/agy" : null,
+    runner: async (command, args) => {
+      calls.push(args.join(" "));
+      return args[0] === "--version" ? { code: 0, stdout: "1.2.14\n", stderr: "" } : { code: 1, stdout: "", stderr: "" };
+    },
+    busy: () => false,
+  });
+  let row = (await service.check({ id: "antigravity" })).harnesses[0];
+  assert.deepEqual([row.installed, row.currentVersion, row.status, row.updateMode], [true, "1.2.14", "unknown", "manual"]);
+  // `agy update` has no check-only form, so nothing but the version is run.
+  assert.deepEqual(calls, ["--version"]);
+  await assert.rejects(() => service.update({ id: "antigravity", confirm: true }), error => error.code === "manual_update");
+  installed = false;
+  row = (await service.check({ id: "antigravity" })).harnesses[0];
+  assert.deepEqual([row.installed, row.status], [false, "not-installed"]);
+  fs.rmSync(root, { recursive: true, force: true });
+});

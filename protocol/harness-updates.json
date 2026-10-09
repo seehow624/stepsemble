@@ -94,10 +94,10 @@
     {
       "id": "antigravity",
       "label": "Google Antigravity",
-      "commands": [],
+      "commands": ["agy"],
       "executableEnv": "STEPSEMBLE_ANTIGRAVITY_BIN",
-      "check": { "kind": "manual" },
-      "update": { "kind": "manual", "reason": "Antigravity is updated by its host distribution" }
+      "check": { "kind": "version-only" },
+      "update": { "kind": "manual", "reason": "Update it with agy update in a terminal" }
     }
   ]
 }

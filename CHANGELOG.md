@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.8.36
+
+- The Coding agents panel in Updates now lists only the agents installed on the selected device. Supported agents that are not installed are no longer collected into a "Not installed" line under the list; they are named only when no agent is installed, so the panel is never empty. An agent removed from a device leaves its panel at the next check.
+- Google Antigravity is now found through its `agy` command, as the Workspace already does, and the panel shows its installed version. The update registry named no command for it, so it was always reported as not installed. `agy update` has no check-only form, so Stepsemble reads only the version and leaves updating to `agy update` in a terminal; Stepsemble does not run it.
+- The harness update tests cover Antigravity's version, its not-installed state and the refusal to update it from the panel. An isolated Host given this Mac mini's last agent check lists Codex, Claude Code, Pi, Hermes and Antigravity 1.2.14 with no "Not installed" line; the full test suite and rolling browser compatibility pass.
+
 ## 3.8.35
 
 - A completed Chinese, Japanese or Korean composition no longer swallows the next Enter. The composer previously blocked Enter for 180 milliseconds after composition ended, including when a candidate was accepted with Space, a number key or a click. It now checks the input method's active state and the key event itself, including WebKit's legacy IME indicator. Confirming a candidate still belongs to the input method; a separate Enter sends immediately. Shift+Enter and touch-keyboard newlines remain unchanged.

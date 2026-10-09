@@ -1,7 +1,7 @@
-/* stepsemble v3.8.35 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.36 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.35";
+const CLIENT_APP_VERSION = "3.8.36";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -15105,7 +15105,9 @@ function renderHarnessUpdates(data) {
     }
     el.harnessUpdateList.appendChild(row);
   }
-  if (el.harnessUpdateMissing && missing.length) {
+  // Only the agents installed on this device are listed. The supported ones
+  // are named only when none is installed, so the panel is never empty.
+  if (el.harnessUpdateMissing && missing.length && !shown.length) {
     el.harnessUpdateMissing.textContent = updateText("Not installed: {names}", { names: missing.map((item) => item.label || item.id).join(", ") });
     el.harnessUpdateMissing.classList.remove("hidden");
   }
