@@ -116,7 +116,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.33";
+const APP_VERSION = "3.8.34";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -178,6 +178,7 @@ const HARNESS_UPDATE_STATE_FILE = settingFromEnv("HARNESS_UPDATE_STATE")
 // device that uses this Host.
 const modelVisibility = createModelVisibilityStore({ file: path.join(APP_HOME, ".config", "stepsemble", "model-visibility.json") });
 const turnRates = createTurnRateStore({ file: path.join(APP_HOME, ".config", "stepsemble", "turn-rates.json") });
+const workflowEvents = require("./server/workflow-events").createWorkflowEvents();
 const hostRates = require("./server/host-output-rates").createHostOutputRates({ store: turnRates,
   entries: () => workspaceRegistry.list().entries,
   onError: () => console.warn("[stepsemble] Could not save the Host's run speed") });
@@ -2135,7 +2136,7 @@ const codexNative = createCodexNativePool({ adapterOptions: {
   env: process.env,
   cwd: APP_HOME,
   journalFile: path.join(CONFIG_DIR, "codex-native-mutations.json"),
-}, journalRoot: path.join(CONFIG_DIR, "codex-native-threads"), onEvent: event => hostRates.codex(event) });
+}, journalRoot: path.join(CONFIG_DIR, "codex-native-threads"), onEvent: event => { hostRates.codex(event); workflowEvents.emit("codex", event.threadId || event.request?.threadId, event); } });
 if (codexNative.status().configured) void codexNative.refresh();
 // Grok ACP is likewise opt-in. The process is not spawned until a session is
 // opened; without the flag the existing bounded CLI connector remains the
@@ -2156,7 +2157,7 @@ function acpFlag(name, fallback) {
 // installed, like the other ACP agents; STEPSEMBLE_GROK_ACP=0 turns it off.
 const grokAcpEnabled = acpFlag("STEPSEMBLE_GROK_ACP", !!grokCommand);
 const grokAcp = grokAcpEnabled && grokCommand ? createGrokAcpAdapter({ command: grokCommand, cwd: APP_HOME, env: process.env,
-  onRateEvent: event => hostRates.acp("grok-build", event) }) : null;
+  onRateEvent: event => { hostRates.acp("grok-build", event); workflowEvents.emit("grok-build", event.sessionId, event); } }) : null;
 const kiloDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "kilo");
 const hermesDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "hermes");
 const clineDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "cline");
@@ -2170,15 +2171,15 @@ const hermesAcpEnabled = acpFlag("STEPSEMBLE_HERMES_ACP", !!hermesCommand);
 const clineAcpEnabled = acpFlag("STEPSEMBLE_CLINE_ACP", !!clineCommand);
 const ompAcpEnabled = acpFlag("STEPSEMBLE_OMP_ACP", !!ompCommand);
 const clineAcp = clineAcpEnabled && clineCommand ? createAgentClientProtocolAdapter({ command: clineCommand, args: ["--acp"], cwd: APP_HOME, env: process.env, label: "Cline", clientVersion: APP_VERSION,
-  registryFile: path.join(CONFIG_DIR, "acp-cline-sessions.json"), onRateEvent: event => hostRates.acp("cline", event) }) : null;
+  registryFile: path.join(CONFIG_DIR, "acp-cline-sessions.json"), onRateEvent: event => { hostRates.acp("cline", event); workflowEvents.emit("cline", event.sessionId, event); } }) : null;
 const kiloAcp = kiloAcpEnabled && kiloCommand ? createAgentClientProtocolAdapter({ command: kiloCommand, args: ["acp"], cwd: APP_HOME, env: process.env, label: "Kilo Code", clientVersion: APP_VERSION,
-  registryFile: path.join(CONFIG_DIR, "acp-kilo-sessions.json"), onRateEvent: event => hostRates.acp("kilo", event) }) : null;
+  registryFile: path.join(CONFIG_DIR, "acp-kilo-sessions.json"), onRateEvent: event => { hostRates.acp("kilo", event); workflowEvents.emit("kilo", event.sessionId, event); } }) : null;
 const hermesAcp = hermesAcpEnabled && hermesCommand ? createAgentClientProtocolAdapter({ command: hermesCommand, args: ["acp"], cwd: APP_HOME, env: process.env, label: "Hermes Agent", clientVersion: APP_VERSION,
-  registryFile: path.join(CONFIG_DIR, "acp-hermes-sessions.json"), onRateEvent: event => hostRates.acp("hermes", event) }) : null;
+  registryFile: path.join(CONFIG_DIR, "acp-hermes-sessions.json"), onRateEvent: event => { hostRates.acp("hermes", event); workflowEvents.emit("hermes", event.sessionId, event); } }) : null;
 // Oh My Pi opens a conversation even before it is signed in, with no model to
 // answer it; the bridge counts that as its sign-in being needed.
 const ompAcp = ompAcpEnabled && ompCommand ? createAgentClientProtocolAdapter({ command: ompCommand, args: ["acp"], cwd: APP_HOME, env: process.env, label: "Oh My Pi", clientVersion: APP_VERSION,
-  registryFile: path.join(CONFIG_DIR, "acp-omp-sessions.json"), requiresModel: true, onRateEvent: event => hostRates.acp("omp", event) }) : null;
+  registryFile: path.join(CONFIG_DIR, "acp-omp-sessions.json"), requiresModel: true, onRateEvent: event => { hostRates.acp("omp", event); workflowEvents.emit("omp", event.sessionId, event); } }) : null;
 // Models that Claude Code and the ACP agents offered in their last conversation,
 // for Settings → Models & providers.
 const agentModelCache = createAgentModelCache({ file: path.join(CONFIG_DIR, "agent-models.json") });
@@ -3011,6 +3012,7 @@ function broadcast(sid, event) {
   }
   trackStreaming(sid, event);
   hostRates.pi(sid, event);
+  workflowEvents.emit("pi", sid, event);
   s.meta.lastActivityAt = Date.now();
   const data = JSON.stringify(event);
   const packet = { seq: ++s.eventSeq, event, bytes: Buffer.byteLength(data) };
@@ -4808,13 +4810,25 @@ function compressedAsset(abs, stat, data) {
 // dependency-free module so route handlers can stay focused on agent behavior.
 const {
   sseFrame, trySseWrite, send, sendJSON, getCookie, isAuthed,
-  getBearerToken, authenticate, readBody, readJSON,
+  getBearerToken, authenticate, readBody, readJSON: readJSONRaw,
 } = createHttpUtils({
   secureCookie: SECURE_COOKIE,
   browserCookieNames: [BROWSER_COOKIE, ...LEGACY_BROWSER_COOKIES],
   isTokenValid: (candidate) => isAuthorizedTokenHash(candidate),
   isPeerCredentialValid: (candidate) => deviceTrust.authenticatePeerCredential(candidate),
 });
+
+async function readJSON(req, maxBytes) {
+  const body = await readJSONRaw(req, maxBytes);
+  const route = String(req.url || "").split("?")[0];
+  const mutatingPiCommand = ["/api/rpc-cmd", "/api/cmd"].includes(route) && !/^get_/.test(String(body?.command?.type || body?.type || "")) && !["abort"].includes(body?.command?.type || body?.type);
+  if (mutatingPiCommand || /^\/api\/(send|agent\/send|opencode\/message|codex\/mutation\/turn|claude\/structured\/prompt|(grok|cline|kilo|hermes|omp)\/acp\/prompt)$/.test(route)) {
+    const ids = [body?.sid, body?.taskId, body?.threadId, body?.sessionId].filter(Boolean);
+    const entry = workspaceRegistry.list().entries.find(row => [row.record.sid, row.record.id, row.record.taskId, row.record.nativeThreadId, row.record.nativeSessionId].some(id => id && ids.includes(id)));
+    if (entry && workflows.locked(entry.key)) throw Object.assign(new Error("Pause the Goal before sending another message"), { statusCode: 409 });
+  }
+  return body;
+}
 
 // Opt-in startup-only operator configuration. Nothing is discovered or enabled
 // from a browser path, forwarded Host header, credential, or default HOME scan.
@@ -4844,6 +4858,430 @@ const historyHost = (() => {
     return disabledHistoryHost();
   }
 })();
+
+// Shared launch path for browser sessions and Host-owned Goals/schedules.
+async function openAgentTask(body, { signal } = {}) {
+  workspaceRegistry.list();
+  await ensureOpenCodeNativeProbe();
+  await ensureCodexNativeProbe();
+  const workspaceResult = (value) => {
+    {
+      try {
+        if (value.nativeClaudeStructured && value.nativeSessionId) {
+          const current = resolveClaudeStructuredSession(value.nativeSessionId);
+          if (current) Object.assign(value, publicClaudeStructuredTask(current.id, current.session));
+        }
+        if (value.agentId === "pi") {
+          const session = rpcSessions.get(value.sid);
+          value.name = body.name || session?.meta.name || "Pi";
+          const sessionFile = session?.state.sessionFile || body.file;
+          if (typeof sessionFile === "string") {
+            const relative = path.isAbsolute(sessionFile) ? path.relative(SESSIONS_DIR, sessionFile) : sessionFile;
+            if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) value.file = relative;
+          }
+        }
+        // A branch is a new conversation, with the name the page gives it.
+        const origin = body.fork ? "created" : body.file || body.resumeSessionId || body.threadId ? "added" : "created";
+        // A new session without a typed name is named after its first
+        // message (POST /api/workspace/rename with auto).
+        if (origin === "created") value.named = !!workspaceSessionName(body.name);
+        value.workspaceEntry = workspaceRegistry.remember(value, origin);
+      }
+      catch { value.workspaceError = "Could not save workspace membership; the agent was started. Do not retry the launch."; }
+    }
+    return value;
+  };
+  let reservedClaude = false, releaseResume = null;
+  const controller = { signal };
+  const gone = () => signal?.aborted === true;
+  try {
+    const agentId = String(body?.agentId || "pi").trim().toLowerCase();
+    if (agentId === "claude-code" && typeof body.resumeSessionId === "string" && body.resumeSessionId) {
+      const key = body.resumeSessionId, previous = claudeResumeGates.get(key);
+      let done; const gate = new Promise(resolve => { done = resolve; });
+      claudeResumeGates.set(key, gate);
+      releaseResume = () => { done(); if (claudeResumeGates.get(key) === gate) claudeResumeGates.delete(key); };
+      if (previous) await previous;
+      if (gone()) return;
+    }
+    if (agentId === "claude-code" && claudeDesktopUpgrade.isRunning()) {
+      throw Object.assign(new Error("desktop_upgrade_in_progress"), { statusCode: 409 });
+    }
+    if (agentId === "claude-code" && claudeAuth.isBusy()) {
+      throw Object.assign(new Error("Claude official sign-in is active; wait for it to finish"), { statusCode: 409, code: "claude_login_active" });
+    }
+    if (agentId === "claude-code") { claudeLaunchReservations++; reservedClaude = true; }
+    let cwd = typeof body?.cwd === "string" ? body.cwd : "";
+    let worktree = null;
+    if (body?.worktree === true) {
+      worktree = await createPermanentWorktree(cwd, controller.signal);
+      cwd = worktree.path;
+    }
+    if (gone()) return;
+    // A branch: the agent makes the new conversation, which then opens
+    // like one it already had. Claude's is made as it starts, below.
+    let claudeFork = null;
+    if (body?.fork !== undefined) {
+      const fork = forkRequest(body.fork);
+      if (!fork || worktree) throw forkFailure("fork_invalid", "This conversation cannot be branched", 400);
+      body.fork = fork;
+      if (agentId === "pi") {
+        const source = piRelativeSessionFile(fork.file) || await piSessionFileOf(fork.sid);
+        if (!source) throw forkFailure("pi_fork_unsaved", "Pi has not saved this conversation yet");
+        body.file = await branchPiSession(source, { entryId: fork.entryId || null, timestamp: fork.timestamp ?? null });
+      } else if (agentId === "codex") {
+        if (!codexNative.status().mutationReady || !fork.threadId) throw forkFailure("codex_fork_unavailable", "Codex cannot branch this conversation here");
+        const forked = await codexNative.forkThread({ threadId: fork.threadId, lastTurnId: fork.turnId || null });
+        body.resumeSessionId = forked.threadId;
+      } else if (["cline", "kilo", "hermes", "omp"].includes(agentId) && acpAdapterForAgent(agentId)) {
+        const adapter = acpAdapterForAgent(agentId);
+        const forked = await adapter.forkSession(fork.sessionId, { directory: nativeAgentDirectory(cwd, agentId === "cline" ? "Cline ACP" : agentId === "kilo" ? "Kilo Code ACP" : agentId === "omp" ? "Oh My Pi ACP" : "Hermes ACP"), name: body?.name || null });
+        if (forked.kind === "reject") throw forkFailure(forked.code, forked.code === "acp_fork_unsupported" ? "This agent cannot branch a conversation" : forked.error || "The agent could not branch this conversation");
+        body.resumeSessionId = forked.sessionId;
+      } else if (agentId === "opencode" && openCodeNative.status().ready) {
+        let session = await openCodeNative.forkSession(fork.sessionId, { messageID: fork.messageId || null, directory: openCodeDirectory(cwd) });
+        if (typeof body.name === "string" && body.name.trim()) {
+          session = await openCodeNative.renameSession(session.id, body.name, { directory: openCodeDirectory(cwd) }).catch(() => null) || { ...session, title: body.name.trim() };
+        }
+        if (gone()) return;
+        const status = (await openCodeNative.sessionStatus())[session.id] || { type: "idle" };
+        return workspaceResult({ ...publicOpenCodeNativeTask(session, status), kind: "opencode-native", agentId: "opencode" });
+      } else if (agentId === "claude-code" && claudeStructuredEnabled && claudeStructuredCommand) {
+        if (desktopClaude && !(await desktopClaude.forkSupported().catch(() => false))) {
+          throw forkFailure("claude_helper_update_required", "Stepsemble's Claude Code helper is updating; try branching again in a moment");
+        }
+        const at = claudeForkPoint(fork.sessionId, fork.messageId, nativeAgentDirectory(cwd, "Claude Code"));
+        if (!at) throw forkFailure("claude_fork_point_missing", "Claude Code does not have this reply in its record yet");
+        claudeFork = { from: fork.sessionId, at, sessionId: crypto.randomUUID() };
+      } else {
+        throw forkFailure("fork_unsupported", "This agent cannot branch a conversation");
+      }
+      if (gone()) return;
+    }
+    if (agentId === "pi") {
+      const result = await openRpc({ file: body?.file, cwd, name: body?.name });
+      // A branch carries the name of the conversation it comes from;
+      // Pi keeps the branch's own, as the list shows it.
+      if (body.fork && typeof body.name === "string" && body.name.trim() && !result.reused) {
+        rpcWrite(result.sid, { type: "set_session_name", name: body.name.trim().slice(0, 120) });
+      }
+      if (gone()) {
+        if (!result.reused) await closeIdleRpc(result.sid, "view_closed");
+        return;
+      }
+      return workspaceResult({ ...result, kind: "pi", agentId: "pi",
+        worktree: worktree ? { ...worktree, path: result.cwd } : null });
+    } else if (agentId === "opencode" && openCodeNative.status().ready && !worktree) {
+      // When the explicit OpenCode server probe is healthy, prefer its
+      // native session API. Without that opt-in the existing PTY path
+      // below remains unchanged and keeps working for plain `opencode`.
+      try {
+        const session = await openCodeNative.createSession({ title: body?.name || "", directory: openCodeDirectory(cwd) });
+        if (gone()) return;
+        const status = (await openCodeNative.sessionStatus())[session.id] || { type: "idle" };
+        return workspaceResult({ ...publicOpenCodeNativeTask(session, status), kind: "opencode-native", agentId: "opencode",
+          worktree: worktree ? { ...worktree, path: session.directory || cwd } : null });
+      } catch (error) {
+        // OpenCode's server can be healthy while a particular project
+        // directory is rejected by its project database (currently this
+        // is commonly returned as HTTP 500 for external volumes). A
+        // native session was not admitted in that case, so fall back to
+        // the supervised CLI instead of turning a connector click into
+        // a dead end. Never retry an uncertain network outcome: the
+        // request may already have created a native session.
+        const recoverable = new Set(["upstream_http_400", "upstream_http_404", "upstream_http_409", "upstream_http_500"]);
+        if (!recoverable.has(String(error?.code || "")) || gone()) throw error;
+        if (body.workflow) throw new Error("Native background execution is unavailable for this agent");
+        const fallback = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
+        if (gone()) return;
+        return workspaceResult({ ...fallback, kind: "cli", agentId,
+          nativeFallback: "opencode-native", nativeFallbackReason: "project_session_unavailable" });
+      }
+    } else if (agentId === "grok-build" && grokAcp && !worktree) {
+      const session = body.resumeSessionId
+        ? await grokAcp.loadSession(body.resumeSessionId, nativeAgentDirectory(cwd, "Grok ACP"), { name: body?.name || null })
+        : await grokAcp.createSession({ directory: nativeAgentDirectory(cwd, "Grok ACP"), name: body?.name || null });
+      if (session.kind === "reject") { const error = new Error(session.code); error.statusCode = 409; throw error; }
+      await applyAcpChoice("grok-build", grokAcp, session.sessionId);
+      if (gone()) return;
+      return workspaceResult({ ...publicGrokAcpTask({ id: session.sessionId, cwd: session.cwd, name: session.name, status: "idle", eventCount: 0 }), kind: "grok-acp", agentId: "grok-build" });
+    } else if (["cline", "kilo", "hermes", "omp"].includes(agentId) && acpAdapterForAgent(agentId) && !worktree) {
+      const adapter = acpAdapterForAgent(agentId);
+      const session = await adapter.createSession({
+        directory: nativeAgentDirectory(cwd, agentId === "cline" ? "Cline ACP" : agentId === "kilo" ? "Kilo Code ACP" : agentId === "omp" ? "Oh My Pi ACP" : "Hermes ACP"),
+        sessionId: typeof body?.resumeSessionId === "string" && body.resumeSessionId.trim() ? body.resumeSessionId.trim() : null,
+        name: body?.name || null,
+      });
+      if (session.kind === "reject") {
+        // An agent that is not signed in yet gets its sign-in offered;
+        // its terminal program would stop at the same sign-in.
+        if (session.code === "acp_auth_required") throw Object.assign(new Error(`${agentId}_auth_required`), { statusCode: 409, code: `${agentId}_auth_required` });
+        // Opening a conversation again never starts a different one in
+        // its place: the person sees why it could not be loaded.
+        if (typeof body?.resumeSessionId === "string" && body.resumeSessionId.trim()) {
+          throw Object.assign(new Error(session.error || "This conversation could not be opened again"), { statusCode: 409, code: session.code });
+        }
+        // ACP is an upgrade path, never a single point of failure. A
+        // missing capability or protocol mismatch returns to the
+        // supervised bounded connector for the same allow-listed agent.
+        if (body.workflow) throw new Error("Native background execution is unavailable for this agent");
+        const fallback = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
+        return workspaceResult({ ...fallback, kind: "cli", agentId, nativeFallback: "acp", nativeFallbackReason: session.code });
+        return;
+      }
+      if (session.kind === "loaded") await restoreAcpMode(agentId, adapter, session.sessionId);
+      await applyAcpChoice(agentId, adapter, session.sessionId, { loaded: session.kind === "loaded" });
+      if (gone()) return;
+      return workspaceResult({ ...publicAgentClientProtocolTask(agentId, { id: session.sessionId, cwd: session.cwd, status: "idle", eventCount: 0, name: body?.name || null }), kind: "acp", agentId });
+    } else if (agentId === "codex" && codexNative.status().mutationReady && !worktree) {
+      const nativeCwd = nativeAgentDirectory(cwd, "Codex");
+      // Opening a project with an existing native thread must resume
+      // that exact thread; silently starting another Codex thread is a
+      // common source of duplicated sessions and mismatched names.
+      const resumeThreadId = typeof body?.resumeSessionId === "string" && body.resumeSessionId.trim()
+        ? body.resumeSessionId.trim() : typeof body?.threadId === "string" && body.threadId.trim() ? body.threadId.trim() : "";
+      // A new thread starts with the model and level chosen last; Codex
+      // keeps each thread's own afterwards.
+      const codexChoice = resumeThreadId ? null : agentChoices.last("codex");
+      const started = resumeThreadId
+        ? await codexNative.resumeThread({ threadId: resumeThreadId, ...(body?.excludeTurns === true ? { excludeTurns: true } : {}) })
+        : await codexNative.startThread({ cwd: nativeCwd,
+          ...(codexChoice?.model ? { model: codexChoice.model } : {}),
+          ...(codexChoice?.effort ? { config: { model_reasoning_effort: codexChoice.effort } } : {}) });
+      if (started?.kind === "reject") { const error = new Error(started.code); error.statusCode = 409; throw error; }
+      let thread = started?.response?.thread || (started?.threadId ? (await codexNative.readThread(started.threadId, { includeTurns: false })).thread : null);
+      // A name typed for a new conversation becomes the Codex thread's own
+      // name, so Codex's apps show it too. The conversation opens even if
+      // naming fails; it then keeps Codex's default title.
+      const requestedName = resumeThreadId && !body.fork ? "" : codexThreadName(body?.name);
+      if (thread && requestedName && started?.threadId) {
+        const named = await codexNative.setThreadName(started.threadId, requestedName).catch(() => null);
+        if (named?.kind === "named") thread = { ...thread, name: named.name };
+      }
+      const task = thread ? codexTaskFromThread(thread) : null;
+      if (!task || !started.threadId) { const error = new Error("codex_native_thread_invalid"); error.statusCode = 502; throw error; }
+      if (gone()) return;
+      return workspaceResult({ ...task, mutation: "native_api", nativeCodex: true, kind: "codex-native", agentId: "codex" });
+    } else if (agentId === "claude-code" && claudeStructuredEnabled && claudeStructuredCommand && !worktree) {
+      const localId = crypto.randomUUID();
+      const sessionCwd = nativeAgentDirectory(cwd, "Claude Code");
+      const sessionName = body?.name || null;
+      // A branch starts from the conversation it comes from, as a new one.
+      let resumeSessionId = claudeFork ? claudeFork.from : body?.resumeSessionId || null;
+      // Resuming a conversation that is already attached must return the
+      // existing session. Launching a second process for the same native
+      // conversation duplicates it in the task list and lets concurrent
+      // processes answer the same prompt, which looks like a hang.
+      if (resumeSessionId && !claudeFork) {
+        const attached = [...claudeStructuredSessions].find(([, session]) => {
+          // A caller may resume by the native conversation id or by the
+          // local key, which is what a task exposes before Claude has
+          // reported its own id. Match either.
+          try { return session.status()?.nativeSessionId === resumeSessionId; } catch { return false; }
+        });
+        const reused = attached || (claudeStructuredSessions.has(resumeSessionId)
+          ? [resumeSessionId, claudeStructuredSessions.get(resumeSessionId)] : null);
+        // A Claude that stopped, for example because its process ended,
+        // takes no more messages; the conversation goes on in a new
+        // process that resumes it.
+        const reusedStatus = reused ? reused[1].status() : null;
+        if (reused && !reusedStatus.closed && reusedStatus.state !== "failed") {
+          return workspaceResult({ ...publicClaudeStructuredTask(reused[0], reused[1]), kind: "claude-structured", agentId: "claude-code" });
+          return;
+        }
+        if (reused) {
+          const ended = await reused[1].close().catch(() => ({ cleanupConfirmed: false }));
+          if (!ended.cleanupConfirmed) throw Object.assign(new Error("Claude Code is still stopping; try again in a moment"), { statusCode: 409, code: "claude_session_ending" });
+          claudeStructuredSessions.delete(reused[0]);
+          // A caller may name the conversation by the local key; Claude
+          // resumes it by its own id.
+          if (reusedStatus.nativeSessionId && reusedStatus.nativeSessionId !== reused[0]) resumeSessionId = reusedStatus.nativeSessionId;
+        }
+      }
+      const claudeOverrides = claudeSessionEnvOverrides(APP_HOME);
+      // Mirror the ocx claude launcher: refresh the gateway model cache
+      // before the launch so the in-session model picker lists every
+      // routed model, not a stale cache.
+      if (claudeOverrides.ANTHROPIC_BASE_URL) {
+        try { await openCodexGateway.refreshClaudeGatewayCache(); } catch {}
+      }
+      // A new conversation starts with the model and level chosen last; one
+      // opened again keeps its own.
+      const claudeChoice = choiceForSession("claude-code", resumeSessionId);
+      // A conversation from before choices were kept has none of its own;
+      // it keeps the model it last answered with.
+      const transcriptModel = resumeSessionId && !agentChoices.session("claude-code", resumeSessionId)?.model
+        ? claudeTranscriptModel(resumeSessionId, sessionCwd) : null;
+      let launchedClaude = null;
+      const session = await launchClaudeStructuredSession({ desktopClient: desktopClaude,
+        onRateEvent: event => { hostRates.claude(localId, event); workflowEvents.emit("claude-code", localId, event); },
+        command: claudeStructuredCommand, cwd: sessionCwd, env: { ...process.env, ...claudeOverrides },
+        // The desktop helper asks its own Claude CLI the same question.
+        allowBypass: desktopClaude ? false : await claudeSupportsBypass(claudeStructuredCommand, { env: { ...process.env, ...claudeOverrides } }),
+        initialPermissionMode: resumeSessionId ? agentModes.get("claude-code", resumeSessionId) : null,
+        initialModel: transcriptModel || claudeChoice?.model || null, initialEffort: claudeChoice?.effort || null,
+        name: sessionName, permissionPromptTool: claudePermissionPromptTool, sessionId: resumeSessionId,
+        fork: claudeFork ? { at: claudeFork.at, sessionId: claudeFork.sessionId } : null,
+        onEvent: event => { try { if (event?.sessionId) {
+          rememberClaudeStructuredSession(event.sessionId, { cwd: sessionCwd, name: sessionName });
+          const owned = workspaceRegistry.list().entries.find(row => row.record.id === `claude-code:${localId}`);
+          if (owned && owned.record.nativeSessionId !== event.sessionId) workspaceRegistry.update(owned.key, { nativeSessionId: event.sessionId, persisted: true });
+          // Claude names a new conversation with its first message; from
+          // then on the conversation keeps the model and level it runs with.
+          if (launchedClaude && !agentChoices.session("claude-code", event.sessionId)) {
+            const status = launchedClaude.status();
+            agentChoices.record("claude-code", event.sessionId, { model: status.model, effort: status.effort }, { agent: false });
+          }
+        } } catch {} } }).catch(error => { throw claudeFolderFailure(error); });
+      launchedClaude = session;
+      // The branch is known by its own id from the start; the conversation
+      // it comes from keeps its name.
+      if (claudeFork) rememberClaudeStructuredSession(claudeFork.sessionId, { cwd: sessionCwd, name: sessionName, fork: { from: claudeFork.from, at: claudeFork.at } });
+      else if (resumeSessionId) rememberClaudeStructuredSession(resumeSessionId, { cwd: sessionCwd, name: sessionName });
+      claudeStructuredSessions.set(localId, session);
+      if (gone()) {
+        const result = await session.close();
+        if (result.cleanupConfirmed) claudeStructuredSessions.delete(localId);
+        return;
+      }
+      return workspaceResult({ ...publicClaudeStructuredTask(localId, session), kind: "claude-structured", agentId: "claude-code" });
+    } else if (agentId === "antigravity" && await antigravityNeedsSignIn()) {
+      // New session offers Antigravity's own sign-in in its place.
+      throw Object.assign(new Error("Google Antigravity is not signed in"), { statusCode: 409, code: "antigravity_auth_required" });
+    } else if (agentId === "antigravity" && antigravityStructuredEnabled && antigravityCommand && !worktree) {
+      const localId = crypto.randomUUID();
+      const session = createAntigravityStructuredSession({ command: antigravityCommand, cwd: nativeAgentDirectory(cwd, "Google Antigravity"), env: process.env,
+        name: body?.name || null,
+        conversationId: body?.conversationId || body?.resumeSessionId || null });
+      antigravityStructuredSessions.set(localId, session);
+      if (gone()) { void session.close(); antigravityStructuredSessions.delete(localId); return; }
+      return workspaceResult({ ...publicAntigravityStructuredTask(localId, session), kind: "antigravity-structured", agentId: "antigravity" });
+    } else {
+      if (body.workflow) throw new Error("Native background execution is unavailable for this agent");
+      const result = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
+      return workspaceResult({ ...result, kind: "cli", agentId });
+    }
+  } finally {
+    if (reservedClaude) claudeLaunchReservations--;
+    releaseResume?.();
+  }
+}
+
+// Goals use the same native launch and permission paths as an ordinary chat.
+function workflowIdentity(record) {
+  return { agent: record.agentId, id: record.agentId === "pi" ? record.sid
+    : record.agentId === "claude-code" ? String(record.id || record.taskId).replace(/^claude-code:/, "")
+      : record.nativeThreadId || record.nativeSessionId };
+}
+function workflowNative(record) {
+  return !!record && (!record.readOnly || record.nativeCodex && record.mutation === "native_api") && !record.nativeHistoryReadonly && (record.agentId === "pi" || record.nativeClaudeStructured
+    || record.nativeCodex && record.mutation === "native_api" || record.nativeAcp || record.nativeGrokAcp || record.nativeOpenCode);
+}
+async function workflowBusy(record) {
+  const { agent, id } = workflowIdentity(record);
+  if (agent === "pi") return rpcHasWork(rpcSessions.get(id) || { state: {} });
+  if (agent === "claude-code") { const session = resolveClaudeStructuredSession(id)?.session; return session ? !!publicClaudeStructuredTask(id, session).isRunning : false; }
+  if (agent === "codex") return !!codexNative.nativeState(id)?.turnId || !!(await codexPersistedObserver.observe(id).catch(() => null))?.working;
+  if (agent === "opencode") return (await openCodeNative.sessionStatus({ directory: record.cwd }))[id]?.type === "busy";
+  const adapter = agent === "grok-build" ? grokAcp : acpAdapterForAgent(agent);
+  return adapter?.sessions().find(row => row.id === id)?.status === "running";
+}
+const workflows = require("./server/workflows").createWorkflows({
+  file: path.join(CONFIG_DIR, "workflows.json"),
+  onError: error => console.warn("[stepsemble] Background tasks:", error.message),
+  bridge: {
+    reserve(active) { nativeWorkRequests += active ? 1 : -1; },
+    tokens(run) {
+      if (!run.record || !run.turnStartedAt) return 0;
+      const { agent, id } = workflowIdentity(run.record), meter = hostRates.get(agent, id)?.meter;
+      return meter && meter.startedAt >= run.turnStartedAt - 100 ? Math.max(meter.reported || 0, meter.estimated || 0) : 0;
+    },
+    async open(run, signal) {
+      if (shutdownState || harnessUpdateService.isRunning()) throw new Error("Host is updating or shutting down; try again later");
+      nativeAgentDirectory(run.cwd, run.agentId);
+      const existing = run.entry ? workspaceRegistry.get(run.entry) : null;
+      if (run.entry && !existing) throw new Error("The Goal's conversation was removed");
+      if (existing) {
+        if (!workflowNative(existing.record)) throw new Error("This conversation does not support Goals");
+        if (await workflowBusy(existing.record)) throw new Error("This conversation is busy; wait for it to finish");
+        const r = existing.record, { agent, id } = workflowIdentity(r);
+        if (agent === "pi" && rpcSessions.has(id) && !rpcSessions.get(id).exited
+          || agent === "claude-code" && resolveClaudeStructuredSession(id) && !resolveClaudeStructuredSession(id).session.status().closed
+          || agent === "opencode"
+          || (agent === "grok-build" ? grokAcp : acpAdapterForAgent(agent))?.sessions().some(row => row.id === id && row.loaded !== false)) return { entry: existing.key, record: r };
+      }
+      const r = existing?.record;
+      if (r?.agentId === "pi" && !r.file) throw new Error("Pi has no saved conversation to resume");
+      const task = await openAgentTask({ agentId: run.agentId, cwd: run.cwd, name: run.title, workflow: true,
+        ...(r ? r.agentId === "pi" ? { file: r.file } : { resumeSessionId: r.nativeThreadId || r.nativeSessionId } : {}) }, { signal });
+      if (!task) throw new Error("Task launch was cancelled");
+      if (!task.workspaceEntry) throw new Error(task.workspaceError || "Could not save the task's conversation");
+      if (!workflowNative(task)) throw new Error("Native background execution is unavailable for this agent");
+      return { entry: task.workspaceEntry.key, record: task.workspaceEntry.record };
+    },
+    async turn(run, prompt, signal, activity) {
+      const r = run.record, { agent, id } = workflowIdentity(r);
+      if (signal.aborted) return { error: "Task paused" };
+      if (await workflowBusy(r)) throw new Error("Conversation is busy; Goal continuation was stopped");
+      if (signal.aborted) return { error: "Task paused" };
+      const observed = workflowEvents.observe(agent, id, activity), at = Date.now();
+      const check = value => { if (!value || value.kind === "reject") throw new Error(value?.error || value?.code || "Agent rejected the prompt"); return value; };
+      const send = async () => {
+        if (agent === "pi") { if (!rpcWrite(id, { type: "prompt", message: prompt })) throw new Error("Pi is unavailable"); }
+        else if (agent === "claude-code") check(await resolveClaudeStructuredSession(id).session.send(prompt));
+        else if (agent === "codex") {
+          await ensureCodexNativeProbe();
+          if (!codexNative.nativeState(id).threadId) check(await codexNative.resumeThread({ threadId: id }));
+          if (signal.aborted) { observed.finish("Task paused"); return; }
+          check(await codexNative.startTurn([{ type: "text", text: prompt }], { cwd: r.cwd, ...codexTurnPermissions(agentModes.get("codex", id)) }, id));
+        } else if (agent === "opencode") {
+          const baseline = await openCodeNative.messages(id, { directory: r.cwd });
+          const known = new Set(baseline.messages.map(row => (row.info || row).id));
+          if (signal.aborted) { observed.finish("Task paused"); return; }
+          const choice = choiceForSession("opencode", id)?.model, slash = choice?.indexOf("/") ?? -1;
+          const model = slash > 0 ? { providerID: choice.slice(0,slash), modelID: choice.slice(slash+1) } : null;
+          await hostRates.sendOpenCode(openCodeNative, id, prompt, { directory: r.cwd, model, agent: agentModes.get("opencode", id) || undefined });
+          while (!observed.ended) {
+            const [page, statuses, permissions] = await Promise.all([openCodeNative.messages(id, { directory: r.cwd }), openCodeNative.sessionStatus({ directory: r.cwd }), openCodeNative.permissions({ sessionId: id, directory: r.cwd })]);
+            const replies = page.messages.filter(row => (row.info || row).role === "assistant" && !known.has((row.info || row).id));
+            observed.text = replies.flatMap(row => (row.parts || []).filter(p => p.type === "text").map(p => p.text || "")).join("\n").slice(-32000);
+            const busy = replies.flatMap(row => row.parts || []).find(p => p.type === "tool" && ["pending", "running"].includes(p.state?.status));
+            activity({ text: permissions.permissions?.length ? "approval" : busy?.tool || "thinking", waiting: !!permissions.permissions?.length });
+            if (replies.length && statuses[id]?.type !== "busy" && replies.every(row => (row.info || row).time?.completed)) {
+              observed.finish(replies.find(row => (row.info || row).error) ? "OpenCode response failed" : null); break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        } else {
+          const adapter = agent === "grok-build" ? grokAcp : acpAdapterForAgent(agent);
+          check(await adapter.prompt(id, prompt)); observed.finish();
+        }
+      };
+      void send().catch(error => observed.finish(error.message));
+      const result = await observed.promise;
+      const rates = hostRates.read(run.entry).rates || [];
+      result.outputTokens = rates.filter(row => row.startedAt >= at - 100).reduce((sum, row) => sum + row.tokens, 0);
+      return result;
+    },
+    async stop(run) {
+      if (!run.record) return;
+      const r = run.record, { agent, id } = workflowIdentity(r);
+      let result;
+      if (agent === "pi") { if (!rpcWrite(id, { type: "abort" })) throw new Error("Pi is unavailable"); }
+      else if (agent === "claude-code") result = await resolveClaudeStructuredSession(id)?.session.interrupt();
+      else if (agent === "codex") result = await codexNative.interruptTurn(id);
+      else if (agent === "opencode") result = await openCodeNative.abort(id, { directory: r.cwd });
+      else result = await (agent === "grok-build" ? grokAcp : acpAdapterForAgent(agent))?.cancel(id);
+      if (result?.kind === "reject") throw new Error(result.code);
+      // Keep the conversation reserved until the native session is idle.
+      for (let attempt = 0; attempt < 60; attempt++) {
+        if (!await workflowBusy(r)) { workflowEvents.finish(agent, id, "Task paused or stopped"); return; }
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      throw new Error("The agent is still working; check its conversation");
+    },
+  },
+});
 
 const handleNativeComposerRoute = createNativeComposerRoutes({
   codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession,
@@ -5269,6 +5707,25 @@ const server = http.createServer(async (req, res) => {
         let released = false;
         const release = () => { if (!released) { released = true; nativeWorkRequests--; } };
         res.once("finish", release); res.once("close", release);
+      }
+
+      if (p === "/api/workflows" && req.method === "GET") {
+        sendJSON(res, 200, workflows.list(url.searchParams.get("entry") || null)); return;
+      }
+      if (p === "/api/workflows" && req.method === "POST") {
+        const body = await readJSON(req, 64 * 1024);
+        try {
+          if (!body.action || body.action === "edit") {
+            if (body.entry) {
+              const entry = workspaceRegistry.get(String(body.entry));
+              if (!entry || !workflowNative(entry.record)) throw Object.assign(new Error("This conversation does not support Goals"), { statusCode: 400 });
+              body.agentId = entry.record.agentId; body.cwd = entry.record.cwd;
+            }
+            nativeAgentDirectory(body.cwd, body.agentId);
+          }
+          sendJSON(res, 200, body.action ? await workflows.action(body) : workflows.create(body));
+        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.message }); }
+        return;
       }
 
       if (p === "/api/protocol/handshake" && req.method === "POST") {
@@ -7179,319 +7636,15 @@ const server = http.createServer(async (req, res) => {
       // with /api/open; this route adds the connector id and optional isolated
       // worktree for native Pi and external CLI agents.
       if (p === "/api/agent/open" && req.method === "POST") {
-        const body = await readJSON(req, 64 * 1024);
-        workspaceRegistry.list();
-        await ensureOpenCodeNativeProbe();
-        await ensureCodexNativeProbe();
-        const sendWorkspaceResult = (response, status, value) => {
-          if (status < 300) {
-            try {
-              if (value.nativeClaudeStructured && value.nativeSessionId) {
-                const current = resolveClaudeStructuredSession(value.nativeSessionId);
-                if (current) Object.assign(value, publicClaudeStructuredTask(current.id, current.session));
-              }
-              if (value.agentId === "pi") {
-                const session = rpcSessions.get(value.sid);
-                value.name = body.name || session?.meta.name || "Pi";
-                const sessionFile = session?.state.sessionFile || body.file;
-                if (typeof sessionFile === "string") {
-                  const relative = path.isAbsolute(sessionFile) ? path.relative(SESSIONS_DIR, sessionFile) : sessionFile;
-                  if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) value.file = relative;
-                }
-              }
-              // A branch is a new conversation, with the name the page gives it.
-              const origin = body.fork ? "created" : body.file || body.resumeSessionId || body.threadId ? "added" : "created";
-              // A new session without a typed name is named after its first
-              // message (POST /api/workspace/rename with auto).
-              if (origin === "created") value.named = !!workspaceSessionName(body.name);
-              value.workspaceEntry = workspaceRegistry.remember(value, origin);
-            }
-            catch { value.workspaceError = "Could not save workspace membership; the agent was started. Do not retry the launch."; }
-          }
-          sendJSON(response, status, value);
-        };
-        let reservedClaude = false, releaseResume = null;
-        const controller = new AbortController();
-        let requesterGone = false;
-        const onResponseClose = () => {
-          if (res.writableEnded) return;
-          requesterGone = true;
-          controller.abort();
-        };
-        res.once("close", onResponseClose);
+        const body = await readJSON(req, 64 * 1024), controller = new AbortController();
+        const onClose = () => { if (!res.writableEnded) controller.abort(); };
+        res.once("close", onClose);
         try {
-          const agentId = String(body?.agentId || "pi").trim().toLowerCase();
-          if (agentId === "claude-code" && typeof body.resumeSessionId === "string" && body.resumeSessionId) {
-            const key = body.resumeSessionId, previous = claudeResumeGates.get(key);
-            let done; const gate = new Promise(resolve => { done = resolve; });
-            claudeResumeGates.set(key, gate);
-            releaseResume = () => { done(); if (claudeResumeGates.get(key) === gate) claudeResumeGates.delete(key); };
-            if (previous) await previous;
-            if (requesterGone) return;
-          }
-          if (agentId === "claude-code" && claudeDesktopUpgrade.isRunning()) {
-            sendJSON(res, 409, { error: "desktop_upgrade_in_progress" }); return;
-          }
-          if (agentId === "claude-code" && claudeAuth.isBusy()) {
-            sendJSON(res, 409, { error: "Claude official sign-in is active; wait for it to finish", code: "claude_login_active" }); return;
-          }
-          if (agentId === "claude-code") { claudeLaunchReservations++; reservedClaude = true; }
-          let cwd = typeof body?.cwd === "string" ? body.cwd : "";
-          let worktree = null;
-          if (body?.worktree === true) {
-            worktree = await createPermanentWorktree(cwd, controller.signal);
-            cwd = worktree.path;
-          }
-          if (requesterGone) return;
-          // A branch: the agent makes the new conversation, which then opens
-          // like one it already had. Claude's is made as it starts, below.
-          let claudeFork = null;
-          if (body?.fork !== undefined) {
-            const fork = forkRequest(body.fork);
-            if (!fork || worktree) throw forkFailure("fork_invalid", "This conversation cannot be branched", 400);
-            body.fork = fork;
-            if (agentId === "pi") {
-              const source = piRelativeSessionFile(fork.file) || await piSessionFileOf(fork.sid);
-              if (!source) throw forkFailure("pi_fork_unsaved", "Pi has not saved this conversation yet");
-              body.file = await branchPiSession(source, { entryId: fork.entryId || null, timestamp: fork.timestamp ?? null });
-            } else if (agentId === "codex") {
-              if (!codexNative.status().mutationReady || !fork.threadId) throw forkFailure("codex_fork_unavailable", "Codex cannot branch this conversation here");
-              const forked = await codexNative.forkThread({ threadId: fork.threadId, lastTurnId: fork.turnId || null });
-              body.resumeSessionId = forked.threadId;
-            } else if (["cline", "kilo", "hermes", "omp"].includes(agentId) && acpAdapterForAgent(agentId)) {
-              const adapter = acpAdapterForAgent(agentId);
-              const forked = await adapter.forkSession(fork.sessionId, { directory: nativeAgentDirectory(cwd, agentId === "cline" ? "Cline ACP" : agentId === "kilo" ? "Kilo Code ACP" : agentId === "omp" ? "Oh My Pi ACP" : "Hermes ACP"), name: body?.name || null });
-              if (forked.kind === "reject") throw forkFailure(forked.code, forked.code === "acp_fork_unsupported" ? "This agent cannot branch a conversation" : forked.error || "The agent could not branch this conversation");
-              body.resumeSessionId = forked.sessionId;
-            } else if (agentId === "opencode" && openCodeNative.status().ready) {
-              let session = await openCodeNative.forkSession(fork.sessionId, { messageID: fork.messageId || null, directory: openCodeDirectory(cwd) });
-              if (typeof body.name === "string" && body.name.trim()) {
-                session = await openCodeNative.renameSession(session.id, body.name, { directory: openCodeDirectory(cwd) }).catch(() => null) || { ...session, title: body.name.trim() };
-              }
-              if (requesterGone) return;
-              const status = (await openCodeNative.sessionStatus())[session.id] || { type: "idle" };
-              sendWorkspaceResult(res, 201, { ...publicOpenCodeNativeTask(session, status), kind: "opencode-native", agentId: "opencode" });
-              return;
-            } else if (agentId === "claude-code" && claudeStructuredEnabled && claudeStructuredCommand) {
-              if (desktopClaude && !(await desktopClaude.forkSupported().catch(() => false))) {
-                throw forkFailure("claude_helper_update_required", "Stepsemble's Claude Code helper is updating; try branching again in a moment");
-              }
-              const at = claudeForkPoint(fork.sessionId, fork.messageId, nativeAgentDirectory(cwd, "Claude Code"));
-              if (!at) throw forkFailure("claude_fork_point_missing", "Claude Code does not have this reply in its record yet");
-              claudeFork = { from: fork.sessionId, at, sessionId: crypto.randomUUID() };
-            } else {
-              throw forkFailure("fork_unsupported", "This agent cannot branch a conversation");
-            }
-            if (requesterGone) return;
-          }
-          if (agentId === "pi") {
-            const result = await openRpc({ file: body?.file, cwd, name: body?.name });
-            // A branch carries the name of the conversation it comes from;
-            // Pi keeps the branch's own, as the list shows it.
-            if (body.fork && typeof body.name === "string" && body.name.trim() && !result.reused) {
-              rpcWrite(result.sid, { type: "set_session_name", name: body.name.trim().slice(0, 120) });
-            }
-            if (requesterGone) {
-              if (!result.reused) await closeIdleRpc(result.sid, "view_closed");
-              return;
-            }
-            sendWorkspaceResult(res, 200, { ...result, kind: "pi", agentId: "pi",
-              worktree: worktree ? { ...worktree, path: result.cwd } : null });
-          } else if (agentId === "opencode" && openCodeNative.status().ready && !worktree) {
-            // When the explicit OpenCode server probe is healthy, prefer its
-            // native session API. Without that opt-in the existing PTY path
-            // below remains unchanged and keeps working for plain `opencode`.
-            try {
-              const session = await openCodeNative.createSession({ title: body?.name || "", directory: openCodeDirectory(cwd) });
-              if (requesterGone) return;
-              const status = (await openCodeNative.sessionStatus())[session.id] || { type: "idle" };
-              sendWorkspaceResult(res, 201, { ...publicOpenCodeNativeTask(session, status), kind: "opencode-native", agentId: "opencode",
-                worktree: worktree ? { ...worktree, path: session.directory || cwd } : null });
-            } catch (error) {
-              // OpenCode's server can be healthy while a particular project
-              // directory is rejected by its project database (currently this
-              // is commonly returned as HTTP 500 for external volumes). A
-              // native session was not admitted in that case, so fall back to
-              // the supervised CLI instead of turning a connector click into
-              // a dead end. Never retry an uncertain network outcome: the
-              // request may already have created a native session.
-              const recoverable = new Set(["upstream_http_400", "upstream_http_404", "upstream_http_409", "upstream_http_500"]);
-              if (!recoverable.has(String(error?.code || "")) || requesterGone) throw error;
-              const fallback = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
-              if (requesterGone) return;
-              sendWorkspaceResult(res, 201, { ...fallback, kind: "cli", agentId,
-                nativeFallback: "opencode-native", nativeFallbackReason: "project_session_unavailable" });
-            }
-          } else if (agentId === "grok-build" && grokAcp && !worktree) {
-            const session = await grokAcp.createSession({ directory: nativeAgentDirectory(cwd, "Grok ACP"), name: body?.name || null });
-            if (session.kind === "reject") { const error = new Error(session.code); error.statusCode = 409; throw error; }
-            await applyAcpChoice("grok-build", grokAcp, session.sessionId);
-            if (requesterGone) return;
-            sendWorkspaceResult(res, 201, { ...publicGrokAcpTask({ id: session.sessionId, cwd: session.cwd, name: session.name, status: "idle", eventCount: 0 }), kind: "grok-acp", agentId: "grok-build" });
-          } else if (["cline", "kilo", "hermes", "omp"].includes(agentId) && acpAdapterForAgent(agentId) && !worktree) {
-            const adapter = acpAdapterForAgent(agentId);
-            const session = await adapter.createSession({
-              directory: nativeAgentDirectory(cwd, agentId === "cline" ? "Cline ACP" : agentId === "kilo" ? "Kilo Code ACP" : agentId === "omp" ? "Oh My Pi ACP" : "Hermes ACP"),
-              sessionId: typeof body?.resumeSessionId === "string" && body.resumeSessionId.trim() ? body.resumeSessionId.trim() : null,
-              name: body?.name || null,
-            });
-            if (session.kind === "reject") {
-              // An agent that is not signed in yet gets its sign-in offered;
-              // its terminal program would stop at the same sign-in.
-              if (session.code === "acp_auth_required") throw Object.assign(new Error(`${agentId}_auth_required`), { statusCode: 409, code: `${agentId}_auth_required` });
-              // Opening a conversation again never starts a different one in
-              // its place: the person sees why it could not be loaded.
-              if (typeof body?.resumeSessionId === "string" && body.resumeSessionId.trim()) {
-                throw Object.assign(new Error(session.error || "This conversation could not be opened again"), { statusCode: 409, code: session.code });
-              }
-              // ACP is an upgrade path, never a single point of failure. A
-              // missing capability or protocol mismatch returns to the
-              // supervised bounded connector for the same allow-listed agent.
-              const fallback = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
-              sendWorkspaceResult(res, 201, { ...fallback, kind: "cli", agentId, nativeFallback: "acp", nativeFallbackReason: session.code });
-              return;
-            }
-            if (session.kind === "loaded") await restoreAcpMode(agentId, adapter, session.sessionId);
-            await applyAcpChoice(agentId, adapter, session.sessionId, { loaded: session.kind === "loaded" });
-            if (requesterGone) return;
-            sendWorkspaceResult(res, 201, { ...publicAgentClientProtocolTask(agentId, { id: session.sessionId, cwd: session.cwd, status: "idle", eventCount: 0, name: body?.name || null }), kind: "acp", agentId });
-          } else if (agentId === "codex" && codexNative.status().mutationReady && !worktree) {
-            const nativeCwd = nativeAgentDirectory(cwd, "Codex");
-            // Opening a project with an existing native thread must resume
-            // that exact thread; silently starting another Codex thread is a
-            // common source of duplicated sessions and mismatched names.
-            const resumeThreadId = typeof body?.resumeSessionId === "string" && body.resumeSessionId.trim()
-              ? body.resumeSessionId.trim() : typeof body?.threadId === "string" && body.threadId.trim() ? body.threadId.trim() : "";
-            // A new thread starts with the model and level chosen last; Codex
-            // keeps each thread's own afterwards.
-            const codexChoice = resumeThreadId ? null : agentChoices.last("codex");
-            const started = resumeThreadId
-              ? await codexNative.resumeThread({ threadId: resumeThreadId, ...(body?.excludeTurns === true ? { excludeTurns: true } : {}) })
-              : await codexNative.startThread({ cwd: nativeCwd,
-                ...(codexChoice?.model ? { model: codexChoice.model } : {}),
-                ...(codexChoice?.effort ? { config: { model_reasoning_effort: codexChoice.effort } } : {}) });
-            if (started?.kind === "reject") { const error = new Error(started.code); error.statusCode = 409; throw error; }
-            let thread = started?.response?.thread || (started?.threadId ? (await codexNative.readThread(started.threadId, { includeTurns: false })).thread : null);
-            // A name typed for a new conversation becomes the Codex thread's own
-            // name, so Codex's apps show it too. The conversation opens even if
-            // naming fails; it then keeps Codex's default title.
-            const requestedName = resumeThreadId && !body.fork ? "" : codexThreadName(body?.name);
-            if (thread && requestedName && started?.threadId) {
-              const named = await codexNative.setThreadName(started.threadId, requestedName).catch(() => null);
-              if (named?.kind === "named") thread = { ...thread, name: named.name };
-            }
-            const task = thread ? codexTaskFromThread(thread) : null;
-            if (!task || !started.threadId) { const error = new Error("codex_native_thread_invalid"); error.statusCode = 502; throw error; }
-            if (requesterGone) return;
-            sendWorkspaceResult(res, 201, { ...task, mutation: "native_api", nativeCodex: true, kind: "codex-native", agentId: "codex" });
-          } else if (agentId === "claude-code" && claudeStructuredEnabled && claudeStructuredCommand && !worktree) {
-            const localId = crypto.randomUUID();
-            const sessionCwd = nativeAgentDirectory(cwd, "Claude Code");
-            const sessionName = body?.name || null;
-            // A branch starts from the conversation it comes from, as a new one.
-            let resumeSessionId = claudeFork ? claudeFork.from : body?.resumeSessionId || null;
-            // Resuming a conversation that is already attached must return the
-            // existing session. Launching a second process for the same native
-            // conversation duplicates it in the task list and lets concurrent
-            // processes answer the same prompt, which looks like a hang.
-            if (resumeSessionId && !claudeFork) {
-              const attached = [...claudeStructuredSessions].find(([, session]) => {
-                // A caller may resume by the native conversation id or by the
-                // local key, which is what a task exposes before Claude has
-                // reported its own id. Match either.
-                try { return session.status()?.nativeSessionId === resumeSessionId; } catch { return false; }
-              });
-              const reused = attached || (claudeStructuredSessions.has(resumeSessionId)
-                ? [resumeSessionId, claudeStructuredSessions.get(resumeSessionId)] : null);
-              // A Claude that stopped, for example because its process ended,
-              // takes no more messages; the conversation goes on in a new
-              // process that resumes it.
-              const reusedStatus = reused ? reused[1].status() : null;
-              if (reused && !reusedStatus.closed && reusedStatus.state !== "failed") {
-                sendWorkspaceResult(res, 201, { ...publicClaudeStructuredTask(reused[0], reused[1]), kind: "claude-structured", agentId: "claude-code" });
-                return;
-              }
-              if (reused) {
-                const ended = await reused[1].close().catch(() => ({ cleanupConfirmed: false }));
-                if (!ended.cleanupConfirmed) throw Object.assign(new Error("Claude Code is still stopping; try again in a moment"), { statusCode: 409, code: "claude_session_ending" });
-                claudeStructuredSessions.delete(reused[0]);
-                // A caller may name the conversation by the local key; Claude
-                // resumes it by its own id.
-                if (reusedStatus.nativeSessionId && reusedStatus.nativeSessionId !== reused[0]) resumeSessionId = reusedStatus.nativeSessionId;
-              }
-            }
-            const claudeOverrides = claudeSessionEnvOverrides(APP_HOME);
-            // Mirror the ocx claude launcher: refresh the gateway model cache
-            // before the launch so the in-session model picker lists every
-            // routed model, not a stale cache.
-            if (claudeOverrides.ANTHROPIC_BASE_URL) {
-              try { await openCodexGateway.refreshClaudeGatewayCache(); } catch {}
-            }
-            // A new conversation starts with the model and level chosen last; one
-            // opened again keeps its own.
-            const claudeChoice = choiceForSession("claude-code", resumeSessionId);
-            // A conversation from before choices were kept has none of its own;
-            // it keeps the model it last answered with.
-            const transcriptModel = resumeSessionId && !agentChoices.session("claude-code", resumeSessionId)?.model
-              ? claudeTranscriptModel(resumeSessionId, sessionCwd) : null;
-            let launchedClaude = null;
-            const session = await launchClaudeStructuredSession({ desktopClient: desktopClaude,
-              onRateEvent: event => hostRates.claude(localId, event),
-              command: claudeStructuredCommand, cwd: sessionCwd, env: { ...process.env, ...claudeOverrides },
-              // The desktop helper asks its own Claude CLI the same question.
-              allowBypass: desktopClaude ? false : await claudeSupportsBypass(claudeStructuredCommand, { env: { ...process.env, ...claudeOverrides } }),
-              initialPermissionMode: resumeSessionId ? agentModes.get("claude-code", resumeSessionId) : null,
-              initialModel: transcriptModel || claudeChoice?.model || null, initialEffort: claudeChoice?.effort || null,
-              name: sessionName, permissionPromptTool: claudePermissionPromptTool, sessionId: resumeSessionId,
-              fork: claudeFork ? { at: claudeFork.at, sessionId: claudeFork.sessionId } : null,
-              onEvent: event => { try { if (event?.sessionId) {
-                rememberClaudeStructuredSession(event.sessionId, { cwd: sessionCwd, name: sessionName });
-                const owned = workspaceRegistry.list().entries.find(row => row.record.id === `claude-code:${localId}`);
-                if (owned && owned.record.nativeSessionId !== event.sessionId) workspaceRegistry.update(owned.key, { nativeSessionId: event.sessionId, persisted: true });
-                // Claude names a new conversation with its first message; from
-                // then on the conversation keeps the model and level it runs with.
-                if (launchedClaude && !agentChoices.session("claude-code", event.sessionId)) {
-                  const status = launchedClaude.status();
-                  agentChoices.record("claude-code", event.sessionId, { model: status.model, effort: status.effort }, { agent: false });
-                }
-              } } catch {} } }).catch(error => { throw claudeFolderFailure(error); });
-            launchedClaude = session;
-            // The branch is known by its own id from the start; the conversation
-            // it comes from keeps its name.
-            if (claudeFork) rememberClaudeStructuredSession(claudeFork.sessionId, { cwd: sessionCwd, name: sessionName, fork: { from: claudeFork.from, at: claudeFork.at } });
-            else if (resumeSessionId) rememberClaudeStructuredSession(resumeSessionId, { cwd: sessionCwd, name: sessionName });
-            claudeStructuredSessions.set(localId, session);
-            if (requesterGone) {
-              const result = await session.close();
-              if (result.cleanupConfirmed) claudeStructuredSessions.delete(localId);
-              return;
-            }
-            sendWorkspaceResult(res, 201, { ...publicClaudeStructuredTask(localId, session), kind: "claude-structured", agentId: "claude-code" });
-          } else if (agentId === "antigravity" && await antigravityNeedsSignIn()) {
-            // New session offers Antigravity's own sign-in in its place.
-            throw Object.assign(new Error("Google Antigravity is not signed in"), { statusCode: 409, code: "antigravity_auth_required" });
-          } else if (agentId === "antigravity" && antigravityStructuredEnabled && antigravityCommand && !worktree) {
-            const localId = crypto.randomUUID();
-            const session = createAntigravityStructuredSession({ command: antigravityCommand, cwd: nativeAgentDirectory(cwd, "Google Antigravity"), env: process.env,
-              name: body?.name || null,
-              conversationId: body?.conversationId || body?.resumeSessionId || null });
-            antigravityStructuredSessions.set(localId, session);
-            if (requesterGone) { void session.close(); antigravityStructuredSessions.delete(localId); return; }
-            sendWorkspaceResult(res, 201, { ...publicAntigravityStructuredTask(localId, session), kind: "antigravity-structured", agentId: "antigravity" });
-          } else {
-            const result = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
-            sendWorkspaceResult(res, 201, { ...result, kind: "cli", agentId });
-          }
+          const task = await openAgentTask(body, { signal: controller.signal });
+          if (task && !controller.signal.aborted) sendJSON(res, task.agentId === "pi" ? 200 : 201, task);
         } catch (error) {
-          if (!requesterGone) sendJSON(res, error.statusCode || 409, {
-            error: error.message || "Could not start agent task",
-            ...(error?.code ? { code: String(error.code) } : {}),
-          });
-        } finally {
-          res.off("close", onResponseClose);
-          if (reservedClaude) claudeLaunchReservations--;
-          releaseResume?.();
-        }
+          if (!controller.signal.aborted) sendJSON(res, error.statusCode || 409, { error: error.message || "Could not start agent task", ...(error.code ? { code: String(error.code) } : {}) });
+        } finally { res.off("close", onClose); }
         return;
       }
 
@@ -7916,6 +8069,7 @@ function shutdown(signal) {
       && (!Array.isArray(claudeResults) || claudeResults.every(result => result?.cleanupConfirmed !== false))
       && (!Array.isArray(antigravityResults) || antigravityResults.every(result => result?.cleanupConfirmed !== false)),
   }));
+  workflows.close();
   shutdownState = {
     signal,
     deadline: Date.now() + SHUTDOWN_GRACE_MS,

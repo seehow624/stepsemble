@@ -304,6 +304,7 @@
     const d = box(open);
     return rects.filter(([x, y, w, h]) => x >= d.right || x + w <= d.left || y >= d.bottom || y + h <= d.top);
   }
+  addEventListener("stepsemble-workflow-panel", reportDragRegions);
   new ResizeObserver(reportDragRegions).observe($("workspace-sidebar"));
   new MutationObserver(reportDragRegions).observe($("workspace-dialog"), { attributes: true, attributeFilter: ["open"] });
   addEventListener("stepsemble-mac-window", () => requestAnimationFrame(layoutFrames));
@@ -1077,6 +1078,9 @@
     const item = [...frames.values()].find(item => item.frame.contentWindow === event.source);
     if (!item) return;
     if (event.data?.type === "workspace-focus") { const p = L.leaves(tree).find(p => p.tabs.some(r => L.identity(r) === L.identity(item.ref))); if (p) { focused = p.id; for (const pane of document.querySelectorAll(".workspace-pane")) pane.dataset.focused = String(pane.dataset.pane === focused); } }
+    if (event.data?.type === "workspace-goal" || event.data?.type === "workspace-goals") {
+      void workflowUI.open("goals", item.ref.host, event.data.type === "workspace-goal" ? item.ref.key : null, String(event.data.objective || "").slice(0,16000)).catch(error => toast(error.message));
+    }
     if (event.data?.type === "workspace-title") setRefTitle(item.ref, event.data.title);
     if (event.data?.type === "workspace-show-list" && mobile()) {
       if (window.history.state?.stepsembleWorkspaceView === "session") window.history.back();
@@ -1091,6 +1095,15 @@
       void refresh();
     }
   });
+  const workflowUI = window.StepsembleWorkflows.create({ api,
+    async context(target = host) { target ||= host; const data = await api("/api/workspace", undefined, target); return {target, hostName:hostName(target), projects:data.projects, entries:data.entries}; },
+    openConversation(key, title, target) { open({host:target,key,title}); void refresh(); },
+    onChanged() { void refresh(); for (const item of frames.values()) item.frame.contentWindow?.postMessage({type:"workspace-workflows-changed"},location.origin); },
+  });
+  $("workspace-goals").textContent = "◎ " + window.StepsembleWorkflows.label("goals");
+  $("workspace-schedules").textContent = "◷ " + window.StepsembleWorkflows.label("schedules");
+  $("workspace-goals").onclick = () => workflowUI.open("goals").catch(error => toast(error.message));
+  $("workspace-schedules").onclick = () => workflowUI.open("schedules").catch(error => toast(error.message));
   function showMobileList() {
     if (!mobile()) return;
     document.body.classList.remove("sidebar-hidden");

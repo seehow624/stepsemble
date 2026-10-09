@@ -385,7 +385,7 @@ function normalizeTurnInput(value) {
     if (!plain(item) || typeof item.type !== "string") return null;
     if (item.type === "text") {
       if (typeof item.text !== "string" || item.text.length > MAX_TURN_TEXT_BYTES
-        || /[\u0000-\u001f\u007f]/.test(item.text)) return null;
+        || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(item.text)) return null;
       const next = { type: "text", text: item.text };
       if (Object.hasOwn(item, "text_elements")) {
         if (!Array.isArray(item.text_elements) || item.text_elements.length > 256 || bounded(item.text_elements, 64 * 1024) === null) return null;
@@ -811,7 +811,7 @@ function createCodexAppServerTransport({
       if (["contextCompaction", "context_compaction", "context-compacted", "context_compacted"].includes(itemType)) {
         report({ type: "context.compaction", threadId: tid, turnId: trn, itemId: item });
       }
-      report({ type: method === "item/started" ? "item.started" : "item.completed", threadId: tid, turnId: trn, itemId: item, itemType }); return;
+      report({ type: method === "item/started" ? "item.started" : "item.completed", threadId: tid, turnId: trn, itemId: item, itemType, ...(itemType === "agentMessage" && typeof params.item.text === "string" ? { text: params.item.text.slice(-32000) } : {}) }); return;
     }
     if (method === "serverRequest/resolved") {
       const requestId = idValue(params?.requestId), tid = nativeId(params?.threadId), row = requestId === null ? null : approvals.get(key(requestId));

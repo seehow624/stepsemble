@@ -1,7 +1,7 @@
-/* stepsemble v3.8.33 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.34 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.33";
+const CLIENT_APP_VERSION = "3.8.34";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -12529,6 +12529,7 @@ function enhanceCodeBlocks(root) {
 }
 
 function renderMarkdown(text) {
+  text = window.StepsembleWorkflowText?.display(text) ?? text;
   if (!HAS_MD) {
     const d = document.createElement("div");
     d.className = "md-body";
@@ -13775,7 +13776,7 @@ function msgActionsRow(role, getText, { ts = undefined, fork = null } = {}) {
   const copy = replyActionButton("i-msg-copy", "reply.copy");
   copy.addEventListener("click", async () => {
     try {
-      await copyText(getText() || "");
+      await copyText(window.StepsembleWorkflowText?.display(getText() || "") ?? (getText() || ""));
       copy.classList.add("done"); copy.querySelector("use")?.setAttribute("href", "#i-check"); labelReplyAction(copy, "reply.copied");
       clearTimeout(copy.__restore);
       copy.__restore = setTimeout(() => {
@@ -18320,3 +18321,5 @@ if (WORKSPACE_PANE) {
     if (event.data?.type === "workspace-renamed") applyWorkspaceName(event.data.title);
   });
 }
+
+window.StepsembleWorkflows?.mountConversation({ api, post });

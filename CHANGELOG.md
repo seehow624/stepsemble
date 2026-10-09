@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.8.34
+
+- Goals and Schedules are available from the Workspace sidebar. A Goal shows its objective, elapsed work time, current activity, output count and latest result, with pause, resume, stop and a link to its conversation. A conversation also has a Goal button and a compact progress banner.
+- The Host continues a Goal in the same native conversation until the agent reports completion or a blocker, or a time, turn or output budget is reached. Pi, Claude Code, Codex, OpenCode, OMP, Cline, Kilo, Hermes and Grok Build use their normal native execution and approval paths. Closing the browser does not cancel the work. A Host restart marks uncertain work interrupted and requires a deliberate resume.
+- Schedules can run once, daily, weekly or at an interval, with a time zone for daily and weekly jobs. Each occurrence opens its own conversation. The UI supports editing, pausing, running now and reading previous results. Missed occurrences coalesce into one run; an already-running occurrence is not duplicated.
+- Codex now accepts ordinary newline and tab characters in a prompt, including multiline Goal instructions, while still rejecting terminal control characters.
+- Verification covers persisted state, restart, cancellation, limits, DST, authenticated Host routes and background execution through synthetic native peers. An optional smoke check uses the installed official Claude Code and Codex binaries against local model fixtures.
+
 ## 3.8.33
 
 - The Host now measures Pi, Claude Code, Codex, OpenCode and ACP runs in the background. Closing every page or opening a conversation halfway through no longer loses its final speed. Reopened pages use the same counts and run clock; old cached pages cannot overwrite Host measurements, and rapid consecutive turns keep separate records.
