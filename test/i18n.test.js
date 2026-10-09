@@ -499,3 +499,18 @@ test("locale switches preserve exact terminal output and conversation titles", (
   context.window.stepsembleI18n.setLocale("en");
   assert.equal(chrome.nodeValue, "Settings");
 });
+
+test("a file a reply names on the Host has its messages in every supported locale", () => {
+  const i18n = loadLocaleLayer();
+  const keys = ["Can't open this file on {device}", "Folder on {device}: {path}"];
+  const values = { device: "Mac mini", path: "/Users/me/Projects" };
+  for (const locale of i18n.locales.map((item) => item.id).filter((id) => id !== "en")) {
+    i18n.setLocale(locale);
+    for (const key of keys) {
+      const text = i18n.t(key, values);
+      assert.notEqual(text, key.replace(/\{(\w+)\}/g, (_, name) => values[name]), locale + ": " + key);
+      assert.match(text, /Mac mini/);
+    }
+    assert.match(i18n.t(keys[1], values), /\/Users\/me\/Projects/);
+  }
+});

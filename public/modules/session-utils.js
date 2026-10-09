@@ -468,6 +468,23 @@
     return rest ? { form: "hm", h: hours, m: rest } : { form: "h", h: hours };
   }
 
+  // A reply may name a file on the computer the agent runs on by its absolute
+  // path, as Codex does: "/Users/me/app.py:12", "~/notes.md", a path with
+  // spaces written in angle brackets (which arrives percent-encoded) or a
+  // file:// address. A browser would read it as an address on this site. This
+  // returns the path on the Host, or "" for a web address or a relative link.
+  function localFileReference(value) {
+    let raw = String(value ?? "").trim();
+    if (!raw || raw.length > 4096) return "";
+    if (/^file:\/\//i.test(raw)) raw = raw.replace(/^file:\/\/(?:localhost)?/i, "");
+    else if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return "";
+    if (raw.startsWith("//")) return "";
+    let decoded = raw;
+    try { decoded = decodeURIComponent(raw); } catch { decoded = raw; }
+    if (/[\u0000-\u001f\u007f]/.test(decoded)) return "";
+    return decoded.startsWith("/") || /^~(?:\/|$)/.test(decoded) ? decoded : "";
+  }
+
   global.stepsembleSessionUtils = Object.freeze({
     stripMd, fmtTime, fmtTokens, projectFolderName,
     DRAFT_ENTRY_LIMIT, DRAFT_TEXT_LIMIT, draftScopeKey, normalizeDraftEntries, updateDraftEntries, draftTextForKey,
@@ -475,6 +492,7 @@
     stripAnsi, parseTaskProgressLines, extractTaskPlan,
     runElapsedText, compactRelativeTime, normalizeTimestampMs,
     lineDiffStats, unifiedDiffStats, applyPatchStats, toolEditChanges, isEditToolName, workCategory, workDurationParts,
+    localFileReference,
   });
   global.piHarborSessionUtils = global.stepsembleSessionUtils;
 })(window);

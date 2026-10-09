@@ -1752,6 +1752,36 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
   white-space: nowrap;
 }
 body.image-lightbox-open { overflow: hidden; }
+/* A text file named in a reply opens in the same viewer as plain text. */
+.image-lightbox-text {
+  box-sizing: border-box;
+  width: min(94vw, 1100px);
+  max-height: calc(100dvh - 112px - var(--safe-top) - env(safe-area-inset-bottom));
+  margin: 0;
+  padding: 14px 16px;
+  overflow: auto;
+  border: 0.5px solid var(--line);
+  border-radius: 12px;
+  color: var(--ink);
+  background: var(--milk);
+  font: 12.5px/1.55 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+  box-shadow: 0 16px 60px rgba(0, 0, 0, .4);
+}
+.image-lightbox.text-mode .image-lightbox-caption { white-space: normal; overflow-wrap: anywhere; }
+/* A file on the Host named in a reply: no web address, opened through the Host. */
+.md-body .host-file-link { cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.md-body .host-file-image {
+  display: block;
+  max-width: 100%;
+  max-height: 420px;
+  margin: 6px 0;
+  border-radius: 10px;
+  cursor: zoom-in;
+}
 .group-header {
   list-style: none;
   display: flex; align-items: center; justify-content: space-between;

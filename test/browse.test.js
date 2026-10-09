@@ -86,6 +86,7 @@ async function authenticatedBrowseHost(t, home, browseRoots, cleanupRoot = null)
   assert.equal(login.status, 204);
   const cookie = (login.headers.get("set-cookie") || "").split(";", 1)[0];
   return {
+    base,
     browse: query => fetch(`${base}/api/browse${query}`, { headers: { cookie } }),
     get: pathname => fetch(`${base}${pathname}`, { headers: { cookie } }),
     post: (pathname, body) => fetch(`${base}${pathname}`, {
@@ -313,4 +314,65 @@ test("on Windows every drive can be browsed, with the drives listed above them",
   assert.equal(created.status, 201);
   const project = await host.post("/api/workspace/project", { cwd: realOutside });
   assert.ok(project.status < 400, `a folder on a drive can be added: ${project.status}`);
+});
+
+test("a file a reply names on the Host opens only inside the browse roots and never as a page", async (t) => {
+  const temp = await fs.promises.mkdtemp(path.join(os.tmpdir(), "stepsemble-host-files-"));
+  const home = path.join(temp, "home");
+  const outside = path.join(temp, "outside");
+  const project = path.join(home, "Projects");
+  await fs.promises.mkdir(project, { recursive: true });
+  await fs.promises.mkdir(outside, { recursive: true });
+  await fs.promises.writeFile(path.join(project, "notes.html"), "<script>alert(1)</script>\n第二行\n");
+  await fs.promises.writeFile(path.join(project, "shot.png"),
+    Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32)]));
+  await fs.promises.writeFile(path.join(project, "data.bin"), Buffer.from([0, 1, 2, 3, 255]));
+  await fs.promises.writeFile(path.join(outside, "secret.txt"), "secret");
+  const host = await authenticatedBrowseHost(t, home, [home], temp);
+  const open = async value => host.post("/api/host-files/open", { path: value });
+
+  // Text, with the line a reply points at, is plain text that cannot run.
+  let response = await open(path.join(project, "notes.html") + ":2");
+  assert.equal(response.status, 200);
+  const notes = await response.json();
+  assert.deepEqual([notes.kind, notes.name, notes.path], ["text", "notes.html", await fs.promises.realpath(path.join(project, "notes.html"))]);
+  response = await host.get(notes.url);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "text/plain; charset=utf-8");
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  assert.match(response.headers.get("content-security-policy"), /^sandbox/);
+  assert.equal(await response.text(), "<script>alert(1)</script>\n第二行\n");
+
+  // A picture uses the image previews; other files download.
+  response = await open("~/Projects/shot.png");
+  const picture = await response.json();
+  assert.equal(picture.kind, "image");
+  assert.match(picture.url, /^\/api\/codex\/image\?token=/);
+  response = await host.get(picture.url);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "image/png");
+  response = await open(path.join(project, "data.bin"));
+  const binary = await response.json();
+  assert.equal(binary.kind, "file");
+  response = await host.get(binary.url);
+  assert.equal(response.headers.get("content-type"), "application/octet-stream");
+  assert.match(response.headers.get("content-disposition"), /^attachment;/);
+  assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [0, 1, 2, 3, 255]);
+  assert.equal((await (await open(project)).json()).kind, "folder");
+
+  // Outside the roots, missing, relative or empty: nothing is described.
+  for (const value of [path.join(outside, "secret.txt"), path.join(project, "..", "..", "outside", "secret.txt"),
+    path.join(project, "missing.txt"), "Projects/shot.png", ""]) {
+    assert.equal((await open(value)).status, 404, value);
+  }
+  if (process.platform !== "win32") {
+    await fs.promises.symlink(path.join(outside, "secret.txt"), path.join(project, "escape.txt"));
+    assert.equal((await open(path.join(project, "escape.txt"))).status, 404);
+  }
+  // Without signing in, neither the description nor the file is available.
+  const anonymous = await fetch(`${host.base}/api/host-files/open`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: path.join(project, "notes.html") }),
+  });
+  assert.equal(anonymous.status, 401);
+  assert.equal((await fetch(host.base + notes.url)).status, 401);
 });

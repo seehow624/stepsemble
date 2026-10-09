@@ -372,3 +372,19 @@ test("HTTP utility module centralizes framing, cookies, and JSON body limits", a
   assert.deepEqual(JSON.parse(response.body), { ok: true });
   assert.equal(response.headers["X-Content-Type-Options"], "nosniff");
 });
+
+test("a reply link that names a file on the Host is told apart from a web address", () => {
+  const { value: utils } = loadBrowserModule("session-utils.js");
+  const host = utils.localFileReference;
+  assert.equal(host("/Users/me/app.py:12"), "/Users/me/app.py:12");
+  assert.equal(host("/Users/me/My%20Report.md"), "/Users/me/My Report.md");
+  assert.equal(host("/Volumes/devkit/%E6%96%87%E4%BB%B6.md"), "/Volumes/devkit/文件.md");
+  assert.equal(host("~/notes.md"), "~/notes.md");
+  assert.equal(host("file:///tmp/a.txt"), "/tmp/a.txt");
+  // An escape that does not decode is kept as written.
+  assert.equal(host("/tmp/100%.txt"), "/tmp/100%.txt");
+  for (const value of ["https://example.com/a", "//cdn.example.com/x.js", "mailto:a@b.c", "javascript:alert(1)",
+    "#section", "docs/a.md", "", null, "/a%0Ab"]) {
+    assert.equal(host(value), "", String(value));
+  }
+});

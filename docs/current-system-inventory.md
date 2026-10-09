@@ -242,6 +242,8 @@ Generic connector 的「可啟動、可串流、server restart 可重新 attach�
 | `GET /api/project-changes?cwd` | Web | B/P | allowed project dir | read-only Git overview；≤500 changed files | Live service unit |
 | `GET /api/project-diff?cwd&path` | Web | B/P | scoped path | staged/worktree/untracked diff | Live service unit |
 | `GET /api/browse?path` | Web | B/P | absolute real path within browse roots | visible directory entries only；dot dirs hidden | Live integration |
+| `POST /api/host-files/open` | Web | B/P | JSON ≤16 KiB；absolute or `~/` path，可帶 `:line`／`#L`；real path within browse roots | 回覆中的本機路徑：image 交給 Codex image preview；text／file 給 10 分鐘 opaque handle；folder 只回路徑 | Unit + live integration |
+| `GET /api/host-file?token` | Web | B/P | opaque handle | 檔案未變才串流；text 為 `text/plain` inline，其餘 attachment；`CSP: sandbox` + nosniff | Unit + live integration |
 | `GET /api/agents` | Web | B/P | 無 | allow-listed connector catalog/capabilities/install state | Unit + static integration |
 | `GET /api/agent-tasks` | Web | B/P | 無 | Pi live tasks + generic tasks | Static UI；generic service unit |
 | `GET /api/agent-task?taskId` | Web | B/P | task ID | generic task detail + 64 KiB output tail | Generic service unit |

@@ -1142,6 +1142,23 @@
   };
   for (const [id, table] of Object.entries(CODEX_ACTIVITY_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
 
+  // A reply that names a file on the Host: the file is missing or outside the
+  // folders Stepsemble may open, or it is a folder.
+  const HOST_FILE_TRANSLATIONS = {
+    en: { "Can't open this file on {device}": "Can't open this file on {device}", "Folder on {device}: {path}": "Folder on {device}: {path}" },
+    "zh-Hant": { "Can't open this file on {device}": "無法在 {device} 上開啟這個檔案", "Folder on {device}: {path}": "{device} 上的資料夾：{path}" },
+    "zh-Hans": { "Can't open this file on {device}": "无法在 {device} 上打开这个文件", "Folder on {device}: {path}": "{device} 上的文件夹：{path}" },
+    ja: { "Can't open this file on {device}": "{device} でこのファイルを開けません", "Folder on {device}: {path}": "{device} のフォルダ：{path}" },
+    ko: { "Can't open this file on {device}": "{device}에서 이 파일을 열 수 없습니다", "Folder on {device}: {path}": "{device}의 폴더: {path}" },
+    tr: { "Can't open this file on {device}": "Bu dosya {device} üzerinde açılamıyor", "Folder on {device}: {path}": "{device} üzerindeki klasör: {path}" },
+    fr: { "Can't open this file on {device}": "Impossible d’ouvrir ce fichier sur {device}", "Folder on {device}: {path}": "Dossier sur {device} : {path}" },
+    de: { "Can't open this file on {device}": "Diese Datei lässt sich auf {device} nicht öffnen", "Folder on {device}: {path}": "Ordner auf {device}: {path}" },
+    es: { "Can't open this file on {device}": "No se puede abrir este archivo en {device}", "Folder on {device}: {path}": "Carpeta en {device}: {path}" },
+    "pt-BR": { "Can't open this file on {device}": "Não é possível abrir este arquivo em {device}", "Folder on {device}: {path}": "Pasta em {device}: {path}" },
+    it: { "Can't open this file on {device}": "Impossibile aprire questo file su {device}", "Folder on {device}: {path}": "Cartella su {device}: {path}" },
+  };
+  for (const [id, table] of Object.entries(HOST_FILE_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
+
   // Update center copy is kept as a complete per-locale table because it is
   // rendered dynamically for every configured device. This prevents a status
   // row, timestamp label, or partial-success summary from falling back to

@@ -220,7 +220,7 @@ const el = {
   extensionUiSubmit: $("extension-ui-submit"),
   extensionUiStatus: $("extension-ui-status"),
   imageLightbox: $("image-lightbox"), imageLightboxImg: $("image-lightbox-img"),
-  imageLightboxCaption: $("image-lightbox-caption"), imageLightboxClose: $("image-lightbox-close"),
+  imageLightboxCaption: $("image-lightbox-caption"), imageLightboxClose: $("image-lightbox-close"), imageLightboxText: $("image-lightbox-text"),
   onboarding: $("onboarding"), onboardingClose: $("onboarding-close"), onboardingEyebrow: $("onboarding-eyebrow"), onboardingTitle: $("onboarding-title"), onboardingBody: $("onboarding-body"), onboardingPoints: $("onboarding-points"), onboardingProgress: document.querySelectorAll("#onboarding .onboarding-progress span"), onboardingPreferences: $("onboarding-preferences"), onboardingLanguage: $("onboarding-language"), onboardingLanguageLabel: $("onboarding-language-label"), onboardingAppearance: $("onboarding-appearance"), onboardingAppearanceLabel: $("onboarding-appearance-label"), onboardingBack: $("onboarding-back"), onboardingSkip: $("onboarding-skip"), onboardingNext: $("onboarding-next"),
   toastWrap: $("toast-wrap"),
   agentTerminal: $("agent-terminal"), agentTerminalHost: $("agent-terminal-host"), agentTerminalTitle: $("agent-terminal-title"),
@@ -8036,8 +8036,15 @@ function normalizeImageAttachment(image) {
 function closeImageLightbox() {
   if (!el.imageLightbox) return;
   el.imageLightbox.classList.add("hidden");
+  el.imageLightbox.classList.remove("text-mode");
   document.body.classList.remove("image-lightbox-open");
   if (el.imageLightboxImg) el.imageLightboxImg.removeAttribute("src");
+  el.imageLightboxImg?.classList.remove("hidden");
+  if (el.imageLightboxText) {
+    el.imageLightboxText.textContent = "";
+    el.imageLightboxText.classList.add("hidden");
+  }
+  if (el.imageLightboxCaption) delete el.imageLightboxCaption.dataset.i18nIgnore;
   const trigger = imageLightboxTrigger;
   imageLightboxTrigger = null;
   if (trigger && typeof trigger.focus === "function") trigger.focus({ preventScroll: true });
@@ -8165,6 +8172,176 @@ el.imageLightboxClose?.addEventListener("click", closeImageLightbox);
 el.imageLightbox?.addEventListener("click", (event) => {
   if (event.target === el.imageLightbox || event.target === el.imageLightbox.querySelector(".image-lightbox-stage")) closeImageLightbox();
 });
+
+// Agents name a file on the Host by its absolute path, as Codex does
+// ("/Users/me/app.py:12"). A browser reads that as an address on this site and
+// shows "not found", so such links and pictures go through the Host instead:
+// a picture opens in the viewer, text is shown as plain text and anything else
+// downloads, only within the folders the Host may browse.
+const HOST_FILE_CACHE_MS = 5 * 60 * 1000;
+const HOST_FILE_IMAGES_PER_REPLY = 12;
+const hostFileDescriptions = new Map();
+
+function hostFileText(key, vars = {}) {
+  return window.stepsembleI18n?.t?.(key, vars) || key.replace(/\{(\w+)\}/g, (_, name) => String(vars[name] ?? ""));
+}
+
+// A reply is drawn again with every streamed piece, so a picture asks the Host
+// once; a click always asks again, since the Host's handle may have expired.
+function describeHostFile(filePath, { fresh = false } = {}) {
+  const key = apiBase + "\n" + filePath;
+  const cached = hostFileDescriptions.get(key);
+  if (!fresh && cached && Date.now() - cached.at < HOST_FILE_CACHE_MS) return cached.request;
+  const request = post("/api/host-files/open", { path: filePath })
+    .then((file) => (file && typeof file === "object" && typeof file.kind === "string" ? file : null), () => null);
+  hostFileDescriptions.delete(key);
+  hostFileDescriptions.set(key, { at: Date.now(), request });
+  while (hostFileDescriptions.size > 200) hostFileDescriptions.delete(hostFileDescriptions.keys().next().value);
+  return request;
+}
+
+function hostFileUrl(file) {
+  const value = String(file?.url || "");
+  return /^\/api\/host-file\?token=[A-Za-z0-9_%=-]{24,160}$/.test(value) ? apiBase + value : "";
+}
+
+function markHostFileLink(link, filePath) {
+  link.removeAttribute("href");
+  link.removeAttribute("target");
+  link.removeAttribute("rel");
+  link.dataset.hostPath = filePath;
+  link.classList.add("host-file-link");
+  link.setAttribute("role", "link");
+  link.tabIndex = 0;
+  link.title = filePath;
+}
+
+function hostFileLink(filePath, label) {
+  const link = document.createElement("a");
+  link.textContent = label || filePath.split("/").filter(Boolean).at(-1) || filePath;
+  markHostFileLink(link, filePath);
+  return link;
+}
+
+function linkHostFiles(root) {
+  const refer = window.stepsembleSessionUtils?.localFileReference;
+  if (typeof refer !== "function") return;
+  for (const link of root.querySelectorAll("a[href]")) {
+    const filePath = refer(link.getAttribute("href"));
+    if (filePath) markHostFileLink(link, filePath);
+  }
+  let pictures = 0;
+  for (const img of root.querySelectorAll("img[src]")) {
+    const filePath = refer(img.getAttribute("src"));
+    if (!filePath) continue;
+    img.removeAttribute("src");
+    if (++pictures > HOST_FILE_IMAGES_PER_REPLY) { img.replaceWith(hostFileLink(filePath, img.alt)); continue; }
+    img.dataset.hostPath = filePath;
+    img.classList.add("host-file-image");
+    img.title = filePath;
+    img.loading = "lazy";
+    img.decoding = "async";
+    const base = apiBase;
+    describeHostFile(filePath).then((file) => {
+      const src = file?.kind === "image" && base === apiBase ? codexImagePreviewSrc(file) : "";
+      if (!src) { img.replaceWith(hostFileLink(filePath, img.alt)); return; }
+      img.setAttribute("role", "button");
+      img.tabIndex = 0;
+      if (!img.alt) img.alt = String(file.name || "");
+      img.addEventListener("error", () => img.replaceWith(hostFileLink(filePath, img.alt)), { once: true });
+      img.src = src;
+    });
+  }
+}
+
+// A file's name and contents are shown as written; the page's translation
+// layer must not replace words in them.
+function keepHostFileCaption() {
+  if (el.imageLightboxCaption) el.imageLightboxCaption.dataset.i18nIgnore = "true";
+}
+
+function openHostTextViewer(text, caption, trigger) {
+  if (!el.imageLightbox || !el.imageLightboxText) return;
+  imageLightboxTrigger = trigger;
+  keepHostFileCaption();
+  el.imageLightboxImg?.classList.add("hidden");
+  el.imageLightboxText.textContent = text;
+  el.imageLightboxText.classList.remove("hidden");
+  el.imageLightbox.classList.add("text-mode");
+  if (el.imageLightboxCaption) el.imageLightboxCaption.textContent = caption;
+  el.imageLightbox.classList.remove("hidden");
+  document.body.classList.add("image-lightbox-open");
+  el.imageLightboxText.scrollTop = 0;
+  el.imageLightboxClose?.focus({ preventScroll: true });
+}
+
+async function openHostFile(target) {
+  const filePath = target?.dataset?.hostPath || "";
+  if (!filePath) return;
+  if (target.tagName === "IMG" && target.currentSrc) {
+    keepHostFileCaption();
+    openCodexImageLightbox(target.currentSrc, target.alt || filePath, target);
+    return;
+  }
+  if (target.dataset.hostOpening === "1") return;
+  target.dataset.hostOpening = "1";
+  const base = apiBase;
+  const device = updateDeviceName(currentMachine());
+  const unavailable = () => toast(hostFileText("Can't open this file on {device}", { device }), true);
+  try {
+    const file = await describeHostFile(filePath, { fresh: true });
+    if (base !== apiBase) return;
+    if (!file) { unavailable(); return; }
+    if (file.kind === "folder") {
+      toast(hostFileText("Folder on {device}: {path}", { device, path: file.path || filePath }));
+      return;
+    }
+    if (file.kind === "image") {
+      const src = codexImagePreviewSrc(file);
+      if (!src) { unavailable(); return; }
+      keepHostFileCaption();
+      openCodexImageLightbox(src, file.name || filePath, target);
+      return;
+    }
+    const url = hostFileUrl(file);
+    if (!url) { unavailable(); return; }
+    if (file.kind === "text") {
+      const response = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+      if (base !== apiBase) return;
+      if (!response.ok) { unavailable(); return; }
+      openHostTextViewer(await response.text(), file.path || filePath, target);
+      return;
+    }
+    const download = document.createElement("a");
+    download.href = url;
+    download.download = String(file.name || "");
+    download.hidden = true;
+    document.body.appendChild(download);
+    download.click();
+    download.remove();
+  } catch {
+    unavailable();
+  } finally {
+    delete target.dataset.hostOpening;
+  }
+}
+
+document.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target.closest(".md-body [data-host-path]") : null;
+  if (!target) return;
+  event.preventDefault();
+  openHostFile(target);
+});
+// Called by the page's one keydown dispatcher: Enter or Space on a focused
+// file opens it, like a link.
+function openFocusedHostFile(event) {
+  if (event.key !== "Enter" && event.key !== " ") return false;
+  const target = event.target instanceof Element ? event.target.closest(".md-body [data-host-path]") : null;
+  if (!target || target !== event.target) return false;
+  event.preventDefault();
+  openHostFile(target);
+  return true;
+}
 
 function makeThinking(text) {
   const box = document.createElement("div");
@@ -12543,6 +12720,7 @@ function renderMarkdown(text) {
   d.innerHTML = clean;
   // 外链新窗口打开
   for (const a of d.querySelectorAll("a[href]")) { a.target = "_blank"; a.rel = "noopener"; }
+  linkHostFiles(d);
   // mermaid 块 → 占位容器，异步渲染
   for (const code of d.querySelectorAll("pre > code.language-mermaid")) {
     const src = code.textContent;
@@ -18214,6 +18392,7 @@ function closeTopmostLayer() {
 }
 
 document.addEventListener("keydown", (event) => {
+  if (openFocusedHostFile(event)) return;
   // Single-key shortcuts, Gmail-style: they only fire from the list view with
   // no text field, palette, guide, or dialog in front.
   if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.isComposing) {

@@ -52,8 +52,8 @@ function createHttpUtils({
     return writeBounded(res, payload);
   }
 
-  function send(res, status, body, headers = {}) {
-    const securityHeaders = {
+  function responseHeaders(headers = {}) {
+    return {
       "X-Content-Type-Options": "nosniff",
       "X-Frame-Options": "DENY",
       "Referrer-Policy": "no-referrer",
@@ -65,12 +65,24 @@ function createHttpUtils({
       "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
       ...headers,
     };
+  }
+
+  function send(res, status, body, headers = {}) {
+    const securityHeaders = responseHeaders(headers);
     if (typeof body === "string" || Buffer.isBuffer(body)) {
       if (!securityHeaders["Content-Type"]) securityHeaders["Content-Type"] = "text/plain; charset=utf-8";
       securityHeaders["Content-Length"] = Buffer.byteLength(body);
     }
     res.writeHead(status, securityHeaders);
     res.end(body);
+  }
+
+  // A file is piped rather than read into memory, with the same headers.
+  function sendStream(res, status, stream, headers = {}) {
+    res.writeHead(status, responseHeaders(headers));
+    stream.once("error", () => res.destroy());
+    res.once("close", () => stream.destroy());
+    stream.pipe(res);
   }
 
   function sendJSON(res, status, obj) {
@@ -170,7 +182,7 @@ function createHttpUtils({
     }
   }
 
-  return Object.freeze({ sseFrame, trySseWrite, send, sendJSON, getCookie, isAuthed, getBearerToken, authenticate, readBody, readJSON });
+  return Object.freeze({ sseFrame, trySseWrite, send, sendStream, sendJSON, getCookie, isAuthed, getBearerToken, authenticate, readBody, readJSON });
 }
 
 module.exports = { createHttpUtils };

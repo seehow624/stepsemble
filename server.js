@@ -45,6 +45,7 @@ const { createAgentModeRoutes, codexTurnPermissions, modeOption } = require("./s
 const { applyNativeLaunchConfig, isInstalledRuntime } = require("./server/native-launch-config");
 const { createCodexNativePool } = require("./server/codex-native-pool");
 const { createCodexImagePreviewRegistry } = require("./server/codex-image-preview");
+const { createHostFileLinks } = require("./server/host-file-links");
 const { createOpenCodeManagedService } = require("./server/opencode-managed-service");
 const { createOpenCodeConfigService } = require("./server/opencode-config-service");
 const { createOpenCodexGatewayService, findOpencodexBinary } = require("./server/opencodex-gateway-service");
@@ -269,6 +270,8 @@ const BROWSE_ROOTS = BROWSE_ROOTS_FROM_ENV.length ? BROWSE_ROOTS_FROM_ENV : [APP
 const browseDrives = createDriveProbe();
 const browseFolders = createFolderReader();
 const codexImagePreviews = createCodexImagePreviewRegistry({ roots: BROWSE_ROOTS, isAllowed: real => isRealBrowseAllowed(real) });
+// Files an agent names by absolute path follow the same folders as browsing.
+const hostFileLinks = createHostFileLinks({ isAllowed: real => isRealBrowseAllowed(real), home: APP_HOME, imagePreviews: codexImagePreviews });
 const FULL_DISK_ACCESS_SETTINGS = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles";
 
 function exposeCodexImagePreviews(result) {
@@ -4809,7 +4812,7 @@ function compressedAsset(abs, stat, data) {
 // Keep HTTP framing, security headers, cookies, and body parsing in one
 // dependency-free module so route handlers can stay focused on agent behavior.
 const {
-  sseFrame, trySseWrite, send, sendJSON, getCookie, isAuthed,
+  sseFrame, trySseWrite, send, sendStream, sendJSON, getCookie, isAuthed,
   getBearerToken, authenticate, readBody, readJSON: readJSONRaw,
 } = createHttpUtils({
   secureCookie: SECURE_COOKIE,
@@ -6422,6 +6425,22 @@ const server = http.createServer(async (req, res) => {
           "Cache-Control": "private, no-store",
           "Content-Disposition": "inline",
         });
+        return;
+      }
+
+      // A file a reply names by its path on this Host: a picture opens in the
+      // viewer, text as plain text, anything else downloads.
+      if (p === "/api/host-files/open" && req.method === "POST") {
+        const body = await readJSON(req, 16 * 1024);
+        const file = await hostFileLinks.describe(typeof body?.path === "string" ? body.path : "");
+        if (!file) { sendJSON(res, 404, { error: "file_unavailable" }); return; }
+        sendJSON(res, 200, file);
+        return;
+      }
+      if (p === "/api/host-file" && req.method === "GET") {
+        const file = await hostFileLinks.open(url.searchParams.get("token") || "");
+        if (file.status !== 200) { send(res, file.status, ""); return; }
+        sendStream(res, 200, file.stream, file.headers);
         return;
       }
 
