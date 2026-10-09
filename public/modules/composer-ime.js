@@ -7,45 +7,30 @@
 })(typeof window !== "undefined" ? window : null, () => {
   "use strict";
 
-  function createGuard({ now = () => globalThis.performance?.now?.() ?? Date.now(), graceMs = 180 } = {}) {
+  function createGuard() {
     let active = false;
-    let commitUntil = 0;
-    let composingEnterSeen = false;
 
     function compositionStart() {
       active = true;
-      commitUntil = 0;
-      composingEnterSeen = false;
     }
 
     function compositionEnd() {
       active = false;
-      // Chrome dispatches the committing keydown before compositionend, while
-      // Safari can dispatch it after. Arm the short latch only when no Enter
-      // was already observed during this composition.
-      commitUntil = composingEnterSeen ? 0 : Number(now()) + Math.max(0, Number(graceMs) || 0);
-      composingEnterSeen = false;
     }
 
     function blur() {
       active = false;
-      commitUntil = 0;
-      composingEnterSeen = false;
     }
 
-    // Safari/macOS can dispatch compositionend before the keydown belonging
-    // to the same Enter. `isComposing` is then already false. Consume exactly
-    // that one Enter inside a short latch; the next Enter can submit normally.
+    // Older WebKit can send the committing keydown after compositionend,
+    // with isComposing false but keyCode 229 (WebKit bug 165004). Inspect the
+    // key itself rather than blocking the next Enter for a time window: the
+    // composition may have ended via Space, a candidate click or dictation.
+    // https://bugs.webkit.org/show_bug.cgi?id=165004
     function classifyEnter(event) {
       if (!event || event.key !== "Enter") return { ime: false, preventDefault: false };
       if (active || event.isComposing === true || event.keyCode === 229 || event.which === 229) {
-        if (active || event.isComposing === true) composingEnterSeen = true;
-        commitUntil = 0;
         return { ime: true, preventDefault: false };
-      }
-      if (Number(now()) <= commitUntil && commitUntil > 0) {
-        commitUntil = 0;
-        return { ime: true, preventDefault: true };
       }
       return { ime: false, preventDefault: false };
     }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.8.35
+
+- A completed Chinese, Japanese or Korean composition no longer swallows the next Enter. The composer previously blocked Enter for 180 milliseconds after composition ended, including when a candidate was accepted with Space, a number key or a click. It now checks the input method's active state and the key event itself, including WebKit's legacy IME indicator. Confirming a candidate still belongs to the input method; a separate Enter sends immediately. Shift+Enter and touch-keyboard newlines remain unchanged.
+- Regression tests exercise both composition event orders and the actual composer listener, checking that the first independent Enter sends the complete text exactly once.
+
 ## 3.8.34
 
 - OMP sign-in and model settings now offer **Use OpenCodex**. The selected Host runs OpenCodex’s managed integration command, checks gateway/model-list availability and confirms the resulting configuration. Phone users can reuse providers already configured in that Host’s OpenCodex without opening a localhost sign-in callback. Direct provider sign-in remains available. Configuration conflicts, different OMP profiles, unavailable gateways and uncertain results are reported without forcing an overwrite; existing conversations continue unchanged.
