@@ -117,7 +117,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.37";
+const APP_VERSION = "3.8.38";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2515,8 +2515,7 @@ const codexAutoUpgrade = harnessUpdateService ? createCodexAutoUpgrade({
 }) : null;
 // The other agents Stepsemble can upgrade get the same switch: an hourly check
 // installs their newest release while no agent is working, as the Upgrade
-// button does. Hermes is left to be upgraded by hand, and agents updated only
-// by their own app (Gemini CLI, Antigravity) have nothing to switch on.
+// button does. Hermes is left to be upgraded by hand.
 const AUTO_UPGRADE_EXCLUDED = new Set(["codex", "hermes"]);
 const harnessAutoUpgrades = new Map(codexAutoUpgrade ? [["codex", codexAutoUpgrade]] : []);
 if (harnessUpdateService) {

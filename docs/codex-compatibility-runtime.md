@@ -316,7 +316,7 @@ their CI pins.
 ## Upgrade monitor
 
 The first watcher is now shipped as `npm run watch:harness`. It observes the
-installed versions of Codex, Claude Code, OpenCode, Pi, Hermes and Gemini CLI,
+installed versions of Codex, Claude Code, OpenCode, Pi, Hermes and Oh My Pi,
 and keeps extension/hosted harnesses such as Cline, Kilo, Grok Build and
 Antigravity visible as explicit `manual` entries. The report is written to
 `~/.config/stepsemble/harness-compatibility.json` with owner-only permissions.

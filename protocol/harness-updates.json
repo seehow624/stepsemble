@@ -55,14 +55,6 @@
       "note": "Oh My Pi's own updater: \"omp update --check\" reports a newer release without installing it, and \"omp update\" installs it the way omp was installed (Bun or its standalone binary)."
     },
     {
-      "id": "gemini-cli",
-      "label": "Gemini CLI",
-      "commands": ["gemini"],
-      "executableEnv": "STEPSEMBLE_GEMINI_BIN",
-      "check": { "kind": "version-only" },
-      "update": { "kind": "manual", "reason": "Gemini CLI update channel varies by package manager" }
-    },
-    {
       "id": "cline",
       "label": "Cline",
       "commands": ["cline"],

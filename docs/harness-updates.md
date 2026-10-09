@@ -24,7 +24,6 @@ Stepsemble 的「設定 → 更新 → Coding agents」是 coding agent 本身�
 | OpenCode | Homebrew `brew outdated --json=v2 opencode`（讀 `current_version`、接受 tap 全名如 `anomalyco/tap/opencode`、有新版時 exit 1 仍是正常回答）；非 Homebrew 安裝時比對 npm `opencode-ai` 的發佈版本 | Homebrew `brew upgrade opencode` 或 `opencode upgrade` | 不會在檢查階段呼叫會改動安裝的 `upgrade` |
 | Pi Agent | `npm outdated --global --json @earendil-works/pi-coding-agent` | `npm install --global @earendil-works/pi-coding-agent@latest` | 只更新明確的 Pi package |
 | Hermes Agent | `hermes update --check`（會 git fetch，時間上限 55 秒） | `hermes update --yes --backup` | Hermes 自己的備份旗標會保留 rollback 資料；版本從「Hermes Agent v0.21.5」這種多字名稱讀出 |
-| Gemini CLI | 版本觀察 | 手動 | 套件管理器依安裝方式而異，尚未有單一安全通道 |
 | Cline / Kilo Code | 依安裝來源：Homebrew、npm 全域，或自己的 npm 資料夾（`npm install --prefix <資料夾>`，如 `/Volumes/devkit/Tools/agent-clis/kilo`）時比對 npm 發佈版本（`cline`、`@kilocode/cli`） | 保留來源：`brew upgrade`、`npm install --global`，或 `npm install --prefix <資料夾> <package>@latest` | 它們自己的 updater（`cline update`、`kilo upgrade`）可能裝到別處，留下正在用的那份沒更新，所以不用；來源不明拒絕更新；升級後重新讀取版本 |
 | Grok Build | `grok update --check --json`（只檢查、JSON 回答） | `grok update` | 穩定版通道；Stepsemble 以 `--no-auto-update` 啟動 Grok，所以在這裡或 Grok 自己更新；升級後重新讀取版本 |
 | Antigravity | 讀 Antigravity 更新服務的首頁（`https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/`，內容像「Stable Version: 1.3.2. Rolled out to 100%」）；只有推送到 100% 才算有新版 | `agy update`，並在前後讀 `agy --version` 確認版本有變 | `agy update` 沒有只檢查的選項，會直接安裝，所以檢查只讀那個頁面、不執行它。它約 5 秒完成、不需要回答問題；舊程式留成 `agy.<數字>.old`，下次執行 agy 時自己清掉。2026-10-09 在暫存複本實測 1.2.14 → 1.3.2 |
@@ -47,7 +46,9 @@ Stepsemble 的「設定 → 更新 → Coding agents」是 coding agent 本身�
 
 - **Codex**：只升級到 Stepsemble 支援的版本（見 `docs/codex-compatibility-runtime.md` 的「Automatic Codex upgrades」），設定存在 `~/.config/stepsemble/codex-auto-upgrade.json`。
 - **Claude Code、OpenCode、Pi、Oh My Pi、Cline、Kilo、Grok Build、Antigravity**：沒有「是否支援」的檢查，直接升級到最新版，和按 Upgrade 一樣；設定存在 `~/.config/stepsemble/<id>-auto-upgrade.json`。
-- **Hermes** 刻意不提供自動升級，仍需手動按 Upgrade。**Gemini CLI** 只能用它自己的安裝方式手動更新，所以也沒有開關。
+- **Hermes** 刻意不提供自動升級，仍需手動按 Upgrade。
+
+Gemini CLI 不在清單裡：2026-06-18 起它不再接受個人 Google 帳號，Google 把這些使用者轉到 Antigravity CLI（`agy`），所以 Stepsemble 只支援 Antigravity。
 
 `GET /api/harness-updates/status` 的 `autoUpgrade` 會列出每個開關的狀態（`enabled`、最近一次結果 `last`、`checksSupport` 表示是否先檢查 Stepsemble 支援）。
 

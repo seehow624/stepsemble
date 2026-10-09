@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.8.38
+
+- Gemini CLI is no longer listed. Since 2026-06-18 it no longer takes personal Google accounts (free, Google AI Pro and Ultra), and Google moved those users to the Antigravity CLI, which Stepsemble supports. The Updates page and the harness watcher (`npm run watch:harness`) no longer look for a `gemini` command. Gemini models reached through Pi or OpenCodex, a Gemini API key, and Gemini quota readings are unchanged.
+- Checked on a test Host in Chromium at 1280 and 390 pixels: the Updates page lists Codex, Claude Code, OpenCode, Pi, Hermes, Oh My Pi, Cline, Kilo, Grok Build and Antigravity, and no Gemini CLI. The Host test of the automatic-upgrade switches now also requires that Gemini CLI is not listed and that a switch for it is refused.
+
 ## 3.8.37
 
 - Every coding agent Stepsemble can upgrade now has the "Upgrade automatically" switch Codex has on the Updates page: Claude Code, OpenCode, Pi, Oh My Pi, Cline, Kilo, Grok Build and Google Antigravity. With it on, the Host checks about once an hour and installs the agent's newest release while no agent is working, the same way Upgrade does; with an agent working it tries again ten minutes later, and a release whose install fails three times is left alone until the switch is turned on again. Each switch is per Host and off until turned on. Codex still waits for a release Stepsemble supports; the others have no such check, so they get the newest release, as Upgrade gives it. Hermes has no switch and is upgraded by hand. Gemini CLI is updated only its own way, so it has none either. After the Host starts, Codex is checked at two minutes and the other agents a minute apart from three minutes on, so they do not all start at once.

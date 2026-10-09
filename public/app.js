@@ -1,7 +1,7 @@
-/* stepsemble v3.8.37 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.38 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.37";
+const CLIENT_APP_VERSION = "3.8.38";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark

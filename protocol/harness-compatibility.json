@@ -51,14 +51,6 @@
       "probe": "version-only"
     },
     {
-      "id": "gemini-cli",
-      "label": "Gemini CLI",
-      "kind": "structured-cli",
-      "executableEnv": "STEPSEMBLE_GEMINI_BIN",
-      "commands": ["gemini"],
-      "probe": "version-only"
-    },
-    {
       "id": "cline",
       "label": "Cline",
       "kind": "editor-extension",
