@@ -1,9 +1,13 @@
 "use strict";
 
-// Keeps Codex current on this Host without anyone pressing Upgrade. About once
-// an hour it checks for a newer Codex and installs it only when Stepsemble
-// supports that release and no agent is working. The switch is per Host and
-// off until someone turns it on.
+// Keeps an agent current on this Host without anyone pressing Upgrade. About
+// once an hour it checks for a newer release and installs it while no agent is
+// working. The switch is per Host and per agent, and off until someone turns
+// it on.
+//
+// Codex is installed only in a release Stepsemble supports (requireSupported).
+// The other agents have no such check: they get the newest release, as the
+// Upgrade button gives it, unless a check says Stepsemble does not support it.
 //
 // Codex also updates itself when it is run by hand; the check then simply
 // finds nothing newer. An update Stepsemble does not support yet waits: a
@@ -70,7 +74,7 @@ function writeSettings(file, value) {
 
 function createCodexAutoUpgrade({ service, settingsFile, id = "codex", setTimer = setTimeout, clearTimer = clearTimeout,
   clock = () => Date.now(), log = () => {}, stopped = () => false, notify = () => {},
-  intervalMs = CHECK_INTERVAL_MS, busyRetryMs = BUSY_RETRY_MS, waitAlertMs = WAIT_ALERT_MS } = {}) {
+  intervalMs = CHECK_INTERVAL_MS, busyRetryMs = BUSY_RETRY_MS, waitAlertMs = WAIT_ALERT_MS, requireSupported = true } = {}) {
   let settings = settingsFile ? readSettings(settingsFile) : {};
   let timer = null, running = null, closed = false;
   const iso = () => new Date(clock()).toISOString();
@@ -82,7 +86,8 @@ function createCodexAutoUpgrade({ service, settingsFile, id = "codex", setTimer 
 
   function status() {
     return { enabled: settings.enabled === true, checkedAt: settings.checkedAt || null, last: settings.last || null,
-      waiting: settings.waiting ? { ...settings.waiting } : null, intervalMinutes: Math.round(intervalMs / 60000) };
+      waiting: settings.waiting ? { ...settings.waiting } : null, intervalMinutes: Math.round(intervalMs / 60000),
+      checksSupport: requireSupported !== false };
   }
   function schedule(delayMs) {
     if (closed || !service) return;
@@ -126,7 +131,7 @@ function createCodexAutoUpgrade({ service, settingsFile, id = "codex", setTimer 
       return { outcome: "current", version: cleanVersion(entry.currentVersion), next: intervalMs };
     }
     const target = cleanVersion(entry.latestVersion);
-    const support = entry.compatibility?.state || "unknown";
+    const support = entry.compatibility?.state || (requireSupported === false ? "supported" : "unknown");
     if (support !== "supported") {
       // Said once per release, not on every hourly check.
       if (settings.last?.outcome !== "waiting" || settings.last.version !== target) {
@@ -182,4 +187,5 @@ function createCodexAutoUpgrade({ service, settingsFile, id = "codex", setTimer 
     stop: () => { closed = true; clearTimer(timer); timer = null; } });
 }
 
-module.exports = { createCodexAutoUpgrade, CHECK_INTERVAL_MS, BUSY_RETRY_MS, MAX_FAILURES_PER_RELEASE, WAIT_ALERT_MS };
+module.exports = { createCodexAutoUpgrade, createHarnessAutoUpgrade: createCodexAutoUpgrade,
+  CHECK_INTERVAL_MS, BUSY_RETRY_MS, MAX_FAILURES_PER_RELEASE, WAIT_ALERT_MS };

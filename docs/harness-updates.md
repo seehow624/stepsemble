@@ -27,7 +27,7 @@ Stepsemble 的「設定 → 更新 → Coding agents」是 coding agent 本身�
 | Gemini CLI | 版本觀察 | 手動 | 套件管理器依安裝方式而異，尚未有單一安全通道 |
 | Cline / Kilo Code | 依安裝來源：Homebrew、npm 全域，或自己的 npm 資料夾（`npm install --prefix <資料夾>`，如 `/Volumes/devkit/Tools/agent-clis/kilo`）時比對 npm 發佈版本（`cline`、`@kilocode/cli`） | 保留來源：`brew upgrade`、`npm install --global`，或 `npm install --prefix <資料夾> <package>@latest` | 它們自己的 updater（`cline update`、`kilo upgrade`）可能裝到別處，留下正在用的那份沒更新，所以不用；來源不明拒絕更新；升級後重新讀取版本 |
 | Grok Build | `grok update --check --json`（只檢查、JSON 回答） | `grok update` | 穩定版通道；Stepsemble 以 `--no-auto-update` 啟動 Grok，所以在這裡或 Grok 自己更新；升級後重新讀取版本 |
-| Antigravity | 讀 `agy --version` | 手動：在終端機執行 `agy update` | `agy update` 沒有只檢查的選項，所以只顯示版本、不自動檢查新版 |
+| Antigravity | 讀 Antigravity 更新服務的首頁（`https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/`，內容像「Stable Version: 1.3.2. Rolled out to 100%」）；只有推送到 100% 才算有新版 | `agy update`，並在前後讀 `agy --version` 確認版本有變 | `agy update` 沒有只檢查的選項，會直接安裝，所以檢查只讀那個頁面、不執行它。它約 5 秒完成、不需要回答問題；舊程式留成 `agy.<數字>.old`，下次執行 agy 時自己清掉。2026-10-09 在暫存複本實測 1.2.14 → 1.3.2 |
 
 ## API
 
@@ -37,8 +37,19 @@ Stepsemble 的「設定 → 更新 → Coding agents」是 coding agent 本身�
 - `POST /api/harness-updates/check`（可帶 `{ "id": "codex" }`，省略時檢查全部）
 - `POST /api/harness-updates/apply`（必須帶 `{ "id": "...", "confirm": true }`）
 - `POST /api/harness-updates/apply-all`（必須帶 `{ "confirm": true }`；可加 `"ids": ["claude-code"]` 限定範圍）
+- `POST /api/harness-updates/auto`（帶 `{ "id": "...", "enabled": true | false }`，開關某個 agent 的自動升級）
 
-這些 API 不會自動替使用者升級，也不會把未知的新版本直接提升成可寫入／可 approval 的 native protocol 能力。Codex 的 native 能力仍由獨立的 App Server schema preflight 決定。
+除了下面的「自動升級」開關，這些 API 不會自動替使用者升級，也不會把未知的新版本直接提升成可寫入／可 approval 的 native protocol 能力。Codex 的 native 能力仍由獨立的 App Server schema preflight 決定。
+
+## 自動升級
+
+更新頁上每個可升級的 agent 都有「自動升級」開關，各台主機分開設定，預設關閉。打開後，主機大約每小時檢查一次有沒有新版；有新版而且沒有 agent 在工作時，就用和 Upgrade 按鈕相同的方式升級，有 agent 在工作就 10 分鐘後再試。同一個版本裝失敗三次就不再試，直到開關重新打開。主機啟動後，Codex 在 2 分鐘時先檢查，其他 agent 從第 3 分鐘起每隔一分鐘依序檢查，避免同時開始。
+
+- **Codex**：只升級到 Stepsemble 支援的版本（見 `docs/codex-compatibility-runtime.md` 的「Automatic Codex upgrades」），設定存在 `~/.config/stepsemble/codex-auto-upgrade.json`。
+- **Claude Code、OpenCode、Pi、Oh My Pi、Cline、Kilo、Grok Build、Antigravity**：沒有「是否支援」的檢查，直接升級到最新版，和按 Upgrade 一樣；設定存在 `~/.config/stepsemble/<id>-auto-upgrade.json`。
+- **Hermes** 刻意不提供自動升級，仍需手動按 Upgrade。**Gemini CLI** 只能用它自己的安裝方式手動更新，所以也沒有開關。
+
+`GET /api/harness-updates/status` 的 `autoUpgrade` 會列出每個開關的狀態（`enabled`、最近一次結果 `last`、`checksSupport` 表示是否先檢查 Stepsemble 支援）。
 
 ## 背景相容性監測
 

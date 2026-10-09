@@ -57,8 +57,17 @@ function validateRegistry(registry) {
       }
       if (strategy.kind === "command" && !Array.isArray(strategy.args)) throw new Error(`Missing command arguments for ${entry.id}`);
       if (strategy.kind === "command-json" && !Array.isArray(strategy.args)) throw new Error(`Missing command arguments for ${entry.id}`);
-      if (!["manual", "version-only", "official-check", "command", "command-json", "npm-outdated", "npm-global", "registry-version", "brew-or-official", "brew-or-command", SOURCE_AWARE_STRATEGY].includes(strategy.kind)) {
+      if (!["manual", "version-only", "official-check", "command", "command-json", "npm-outdated", "npm-global", "registry-version", "brew-or-official", "brew-or-command", "web-version", SOURCE_AWARE_STRATEGY].includes(strategy.kind)) {
         throw new Error(`Unsupported update strategy for ${entry.id}`);
+      }
+      if (strategy.kind === "web-version") {
+        // A fixed https page the vendor publishes its release on, and the
+        // pattern whose first group is that version.
+        let pattern = null;
+        try { pattern = typeof strategy.pattern === "string" && strategy.pattern.length <= 200 ? new RegExp(strategy.pattern) : null; } catch {}
+        if (typeof strategy.url !== "string" || strategy.url.length > 300 || !/^https:\/\/[^\s]+$/.test(strategy.url) || !pattern) {
+          throw new Error(`Invalid release page for ${entry.id}`);
+        }
       }
       if (strategy.timeoutMs !== undefined && (!Number.isInteger(strategy.timeoutMs) || strategy.timeoutMs < 1000 || strategy.timeoutMs > 120_000)) {
         throw new Error(`Invalid check time limit for ${entry.id}`);
@@ -318,6 +327,14 @@ function brewOutdated(result, packageName) {
   return { state: "unknown", latestVersion: null, error: resultError(result, "brew_check_failed") };
 }
 
+// Reads the page a vendor publishes its newest release on (a "web-version"
+// check). Bounded in time and size; no credentials are sent.
+async function fetchReleaseText(url, { timeout = CHECK_TIMEOUT_MS } = {}) {
+  const response = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(timeout) });
+  if (!response.ok) throw Object.assign(new Error("Release page unavailable"), { code: "release_page_unavailable" });
+  return (await response.text()).slice(0, 64 * 1024);
+}
+
 function createHarnessUpdateService({
   registry,
   registryFile,
@@ -333,6 +350,7 @@ function createHarnessUpdateService({
   // is reported as supported.
   releaseChecks = {},
   resolve = commandPath,
+  fetchText = fetchReleaseText,
   home = String(env.HOME || os.homedir()),
 } = {}) {
   const loadedRegistry = validateRegistry(registry || readJson(registryFile));
@@ -672,6 +690,27 @@ function createHarnessUpdateService({
         observed.error = observed.status === "unknown" ? resultError(checked, "official_check_unavailable") : null;
         return observed;
       }
+    }
+    // An updater that installs at once and has no check of its own, whose
+    // vendor publishes the release it installs on a page (agy update and
+    // Antigravity's updater page). The page is read; the install is not run.
+    if (check.kind === "web-version") {
+      let latest = null;
+      try {
+        const match = new RegExp(check.pattern).exec(String(await fetchText(check.url, { timeout: checkTimeout(check) })));
+        latest = match ? parseVersion(match[1] || "") : null;
+      } catch {}
+      if (!latest) {
+        observed.status = "unknown";
+        observed.updateAvailable = "unknown";
+        observed.error = "release_page_unreadable";
+        return observed;
+      }
+      observed.latestVersion = latest;
+      observed.updateAvailable = isNewer(latest, observed.currentVersion);
+      observed.status = observed.updateAvailable ? "available" : "up-to-date";
+      observed.error = null;
+      return observed;
     }
     // An updater that can check without installing and answers in JSON, as
     // `grok update --check --json` does: { currentVersion, latestVersion,

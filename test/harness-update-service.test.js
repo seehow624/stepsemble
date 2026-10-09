@@ -843,15 +843,17 @@ test("Codex behind an OpenCodex wrapper is updated through the launcher the wrap
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test("Antigravity is found through agy and shows its version without an update check", async () => {
+test("Antigravity is found through agy, and its newest release is read from its updater's page", async () => {
   const { root, file } = tempState();
-  const calls = [];
+  const calls = [], pages = [];
   let installed = true;
   const registry = JSON.parse(fs.readFileSync(path.join(__dirname, "../protocol/harness-updates.json"), "utf8"));
   const service = createHarnessUpdateService({
     registry: { ...registry, harnesses: registry.harnesses.filter(item => item.id === "antigravity") },
     stateFile: file, env: { PATH: "/fake", HOME: root },
     resolve: name => installed && name === "agy" ? "/fake/agy" : null,
+    // What Antigravity's updater page said on 2026-10-09.
+    fetchText: async url => { pages.push(url); return "Antigravity CLI auto updater is running! Stable Version: 1.3.2. Rolled out to 100%"; },
     runner: async (command, args) => {
       calls.push(args.join(" "));
       return args[0] === "--version" ? { code: 0, stdout: "1.2.14\n", stderr: "" } : { code: 1, stdout: "", stderr: "" };
@@ -859,12 +861,49 @@ test("Antigravity is found through agy and shows its version without an update c
     busy: () => false,
   });
   let row = (await service.check({ id: "antigravity" })).harnesses[0];
-  assert.deepEqual([row.installed, row.currentVersion, row.status, row.updateMode], [true, "1.2.14", "unknown", "manual"]);
+  assert.deepEqual([row.installed, row.currentVersion, row.latestVersion, row.status, row.updateMode], [true, "1.2.14", "1.3.2", "available", "command"]);
+  assert.deepEqual(pages, ["https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/"]);
   // `agy update` has no check-only form, so nothing but the version is run.
   assert.deepEqual(calls, ["--version"]);
-  await assert.rejects(() => service.update({ id: "antigravity", confirm: true }), error => error.code === "manual_update");
   installed = false;
   row = (await service.check({ id: "antigravity" })).harnesses[0];
   assert.deepEqual([row.installed, row.status], [false, "not-installed"]);
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("web-version reads the release a vendor's page names, and the updater runs only on Upgrade", async () => {
+  const { root, file } = tempState();
+  const calls = [], pages = [];
+  let installed = "1.2.14", page = "Antigravity CLI auto updater is running! Stable Version: 1.3.2. Rolled out to 100%";
+  const definition = { id: "antigravity", label: "Google Antigravity", commands: ["agy"],
+    check: { kind: "web-version", url: "https://updater.example/", pattern: "Stable Version:\\s*v?([0-9]+\\.[0-9]+\\.[0-9]+)\\.?\\s+Rolled out to 100%" },
+    update: { kind: "command", args: ["update"], verify: true } };
+  const service = createHarnessUpdateService({
+    registry: { registryVersion: 1, harnesses: [definition] }, stateFile: file, env: { PATH: "/fake", HOME: root },
+    resolve: name => name === "agy" ? "/fake/agy" : null,
+    fetchText: async url => { pages.push(url); return page; },
+    runner: async (command, args) => {
+      calls.push([command, ...args]);
+      if (args[0] === "--version") return { code: 0, stdout: installed + "\n", stderr: "" };
+      if (args[0] === "update") { installed = "1.3.2"; return { code: 0, stdout: "Update successful! Please restart agy.", stderr: "" }; }
+      return { code: 1, stdout: "", stderr: "unexpected" };
+    },
+    busy: () => false,
+  });
+  let entry = (await service.check({ id: "antigravity" })).harnesses[0];
+  assert.deepEqual([entry.status, entry.currentVersion, entry.latestVersion, entry.updateAvailable], ["available", "1.2.14", "1.3.2", true]);
+  assert.deepEqual(pages, ["https://updater.example/"]);
+  assert.deepEqual(calls, [["/fake/agy", "--version"]], "checking never runs the updater");
+  const result = await service.update({ id: "antigravity", confirm: true });
+  assert.deepEqual([result.updated.versionBefore, result.updated.versionAfter, result.updated.verification], ["1.2.14", "1.3.2", "verified"]);
+  assert.deepEqual(calls.filter(call => call[1] === "update"), [["/fake/agy", "update"]]);
+  // A release still rolling out, or a page that changed, is not an update.
+  page = "Stable Version: 1.3.3. Rolled out to 25%";
+  entry = (await service.check({ id: "antigravity" })).harnesses[0];
+  assert.deepEqual([entry.status, entry.updateAvailable, entry.error], ["unknown", "unknown", "release_page_unreadable"]);
+  fs.rmSync(root, { recursive: true, force: true });
+  // Only a fixed https page with a valid pattern is accepted.
+  for (const check of [{ kind: "web-version", url: "http://updater.example/", pattern: "(1)" }, { kind: "web-version", url: "https://updater.example/", pattern: "(" }, { kind: "web-version", url: "https://updater.example/" }]) {
+    assert.throws(() => createHarnessUpdateService({ registry: { registryVersion: 1, harnesses: [{ ...definition, check }] } }), /Invalid release page/);
+  }
 });

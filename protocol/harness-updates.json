@@ -96,8 +96,9 @@
       "label": "Google Antigravity",
       "commands": ["agy"],
       "executableEnv": "STEPSEMBLE_ANTIGRAVITY_BIN",
-      "check": { "kind": "version-only" },
-      "update": { "kind": "manual", "reason": "Update it with agy update in a terminal" }
+      "check": { "kind": "web-version", "url": "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/",
+        "pattern": "Stable Version:\\s*v?([0-9]+\\.[0-9]+\\.[0-9]+)\\.?\\s+Rolled out to 100%" },
+      "update": { "kind": "command", "args": ["update"], "verify": true }
     }
   ]
 }

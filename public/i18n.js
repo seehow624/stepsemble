@@ -1848,6 +1848,22 @@
   };
   for (const key of CODEX_AUTO_KEYS) TRANSLATIONS.en[key] = key;
   for (const [id, list] of Object.entries(CODEX_AUTO_TRANSLATIONS)) CODEX_AUTO_KEYS.forEach((key, index) => { TRANSLATIONS[id][key] = list[index]; });
+  // The same switch on the other agents, which take the newest release.
+  const HARNESS_AUTO_NEWEST = "Checked about once an hour. Upgrades to the newest release while no agent is working.";
+  const HARNESS_AUTO_NEWEST_TRANSLATIONS = {
+    "zh-Hant": "大約每小時檢查一次。有新版就升級到最新版，只在沒有 agent 工作時進行。",
+    "zh-Hans": "大约每小时检查一次。有新版就升级到最新版，只在没有 agent 工作时进行。",
+    "ja": "約 1 時間ごとに確認します。エージェントが作業していないときに最新のリリースへアップグレードします。",
+    "ko": "약 1시간마다 확인합니다. 에이전트가 작업 중이 아닐 때 최신 릴리스로 업그레이드합니다.",
+    "tr": "Yaklaşık saatte bir kontrol edilir. Hiçbir ajan çalışmıyorken en yeni sürüme yükseltir.",
+    "fr": "Vérifié environ une fois par heure. Met à niveau vers la dernière version quand aucun agent ne travaille.",
+    "de": "Etwa einmal pro Stunde geprüft. Aktualisiert auf die neueste Version, wenn kein Agent arbeitet.",
+    "es": "Se comprueba aproximadamente cada hora. Actualiza a la versión más reciente cuando ningún agente está trabajando.",
+    "pt-BR": "Verificado cerca de uma vez por hora. Atualiza para a versão mais recente quando nenhum agente está trabalhando.",
+    "it": "Controllato circa una volta all’ora. Aggiorna all’ultima versione quando nessun agent sta lavorando.",
+  };
+  TRANSLATIONS.en[HARNESS_AUTO_NEWEST] = HARNESS_AUTO_NEWEST;
+  for (const [id, text] of Object.entries(HARNESS_AUTO_NEWEST_TRANSLATIONS)) if (TRANSLATIONS[id]) TRANSLATIONS[id][HARNESS_AUTO_NEWEST] = text;
 
   // Settings sections, check-only Stepsemble updates and coding-agent rows.
   // Keyed by the English source like the other chrome tables.

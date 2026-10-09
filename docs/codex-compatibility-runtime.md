@@ -292,6 +292,10 @@ installs it. A release whose install fails three times is left alone until the
 switch is turned on again. Codex's own updater may install a release first;
 the runtime check then decides, as for any installed Codex.
 
+The other agents Stepsemble can upgrade, except Hermes, have the same switch;
+they take the newest release, as the Upgrade button does
+(`docs/harness-updates.md`).
+
 ## Reviewing a new Codex release
 
 `npm run -s watch:codex` says whether the newest Codex on npm needs anything:

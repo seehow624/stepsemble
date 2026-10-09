@@ -164,3 +164,30 @@ test("turning the switch off cancels the next check, and runs never overlap", as
   auto.setEnabled(false);
   assert.equal(clock.pending.size, 0);
 });
+
+test("another agent takes its newest release with no support check, unless a check refuses it", async () => {
+  const { createHarnessAutoUpgrade } = require("../server/codex-auto-upgrade");
+  const clock = timers();
+  let entry = { id: "claude-code", installed: true, currentVersion: "2.1.283", latestVersion: "2.1.295", updateAvailable: true };
+  const calls = [];
+  const svc = {
+    async check({ id }) { assert.equal(id, "claude-code"); return { harnesses: [entry] }; },
+    async update(args) { calls.push(args); entry = { ...entry, currentVersion: "2.1.295", updateAvailable: false };
+      return { updated: { versionBefore: "2.1.283", versionAfter: "2.1.295" } }; },
+  };
+  const auto = createHarnessAutoUpgrade({ service: svc, id: "claude-code", requireSupported: false, settingsFile: settingsFile(),
+    setTimer: clock.setTimer, clearTimer: clock.clearTimer });
+  assert.equal(auto.status().enabled, false);
+  assert.equal(auto.status().checksSupport, false);
+  auto.setEnabled(true);
+  assert.deepEqual(await auto.run(), { outcome: "updated", version: "2.1.295" });
+  assert.deepEqual(calls, [{ id: "claude-code", confirm: true }]);
+  assert.equal(auto.status().last.from, "2.1.283");
+  // A release a check does say Stepsemble cannot run still waits.
+  entry = { ...entry, latestVersion: "2.1.296", updateAvailable: true, compatibility: { state: "unsupported", version: "2.1.296" } };
+  assert.equal((await auto.run()).outcome, "waiting");
+  assert.equal(calls.length, 1);
+  // Codex keeps its support check.
+  const codex = createHarnessAutoUpgrade({ service: svc, settingsFile: settingsFile() });
+  assert.equal(codex.status().checksSupport, true);
+});

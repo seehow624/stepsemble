@@ -85,7 +85,7 @@ const { createHarnessUpdateService, loadHarnessUpdateRegistry } = require("./ser
 const { createModelVisibilityStore } = require("./server/model-visibility-store");
 const { createTurnRateStore } = require("./server/turn-rate-store");
 const { createCodexReleaseCheck } = require("./server/codex-release-check");
-const { createCodexAutoUpgrade } = require("./server/codex-auto-upgrade");
+const { createCodexAutoUpgrade, createHarnessAutoUpgrade } = require("./server/codex-auto-upgrade");
 const { claudeForkPoint: claudeForkPointAt, claudeConfigDir } = require("./server/claude-fork-point");
 const { loadHistoryConfig, createHistoryHost, disabledHistoryHost } = require("./server/history-host");
 const {
@@ -117,7 +117,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.36";
+const APP_VERSION = "3.8.37";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2455,12 +2455,14 @@ const agentTasks = createAgentTaskService({
 // string from the browser.  A running Pi RPC stream or connector task blocks
 // mutation so an update cannot silently interrupt a session/account.
 let harnessUpdateService;
+let harnessUpdateRegistry = null;
 try {
   // Codex is updated only to a release this Stepsemble supports; the verdict
   // for each release is kept beside the update state.
   const codexReleases = createCodexReleaseCheck({ cacheFile: path.join(path.dirname(HARNESS_UPDATE_STATE_FILE), "codex-release-checks.json") });
+  harnessUpdateRegistry = loadHarnessUpdateRegistry(HARNESS_UPDATE_REGISTRY_FILE);
   harnessUpdateService = createHarnessUpdateService({
-    registry: loadHarnessUpdateRegistry(HARNESS_UPDATE_REGISTRY_FILE),
+    registry: harnessUpdateRegistry,
     stateFile: HARNESS_UPDATE_STATE_FILE,
     env: { ...process.env, HOME: APP_HOME, USERPROFILE: APP_HOME },
     home: APP_HOME,
@@ -2511,8 +2513,26 @@ const codexAutoUpgrade = harnessUpdateService ? createCodexAutoUpgrade({
     : event === "waiting" ? `[stepsemble] Codex ${detail} waits for a Stepsemble that supports it`
       : `[stepsemble] automatic Codex upgrade: ${event} (${detail || ""})`),
 }) : null;
+// The other agents Stepsemble can upgrade get the same switch: an hourly check
+// installs their newest release while no agent is working, as the Upgrade
+// button does. Hermes is left to be upgraded by hand, and agents updated only
+// by their own app (Gemini CLI, Antigravity) have nothing to switch on.
+const AUTO_UPGRADE_EXCLUDED = new Set(["codex", "hermes"]);
+const harnessAutoUpgrades = new Map(codexAutoUpgrade ? [["codex", codexAutoUpgrade]] : []);
+if (harnessUpdateService) {
+  for (const entry of harnessUpdateRegistry?.harnesses || []) {
+    if (AUTO_UPGRADE_EXCLUDED.has(entry.id) || entry.update?.kind === "manual") continue;
+    harnessAutoUpgrades.set(entry.id, createHarnessAutoUpgrade({
+      service: harnessUpdateService, id: entry.id, requireSupported: false,
+      settingsFile: path.join(path.dirname(HARNESS_UPDATE_STATE_FILE), `${entry.id}-auto-upgrade.json`),
+      stopped: () => !!shutdownState,
+      log: (event, detail) => console.log(event === "updated" ? `[stepsemble] ${entry.label} upgraded automatically to ${detail}`
+        : `[stepsemble] automatic ${entry.label} upgrade: ${event} (${detail || ""})`),
+    }));
+  }
+}
 function harnessStatusWithAuto(data) {
-  return { ...data, autoUpgrade: codexAutoUpgrade ? { codex: codexAutoUpgrade.status() } : {} };
+  return { ...data, autoUpgrade: Object.fromEntries([...harnessAutoUpgrades].map(([id, auto]) => [id, auto.status()])) };
 }
 const claudeAuth = desktopClaude || createClaudeAuthService({ home: APP_HOME, env: process.env, hasActiveTasks: hasClaudeTasks });
 // The conversation terminal (/login, /logout, /status). Each agent's own
@@ -7080,16 +7100,17 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      // The per-Host switch for upgrading Codex automatically.
+      // The per-Host switch for upgrading an agent automatically.
       if (p === "/api/harness-updates/auto" && req.method === "POST") {
-        if (!harnessUpdateService || !codexAutoUpgrade) {
+        if (!harnessUpdateService || !harnessAutoUpgrades.size) {
           sendJSON(res, 503, { error: "Harness update service unavailable" });
           return;
         }
         try {
           const body = await readJSON(req, 1024);
-          if (body?.id !== "codex" || typeof body?.enabled !== "boolean") { sendJSON(res, 400, { error: "invalid_request", code: "invalid_request" }); return; }
-          codexAutoUpgrade.setEnabled(body.enabled);
+          const auto = typeof body?.id === "string" ? harnessAutoUpgrades.get(body.id) : null;
+          if (!auto || typeof body?.enabled !== "boolean") { sendJSON(res, 400, { error: "invalid_request", code: "invalid_request" }); return; }
+          auto.setEnabled(body.enabled);
           sendJSON(res, 200, harnessStatusWithAuto(harnessUpdateService.status()));
         } catch (e) {
           sendJSON(res, e.statusCode || 500, { error: e.message || "Could not save the setting", code: e.code || null });
@@ -8195,6 +8216,10 @@ server.listen(PORT, HOST, () => {
   claudeHelperAutoUpdate?.schedule(60 * 1000);
   // A restart after a Stepsemble update may bring support for a newer Codex.
   codexAutoUpgrade?.schedule(2 * 60 * 1000);
+  // The other agents a minute apart after that, so their checks and upgrades
+  // do not all start at once.
+  [...harnessAutoUpgrades.entries()].filter(([id]) => id !== "codex")
+    .forEach(([, auto], index) => auto.schedule((3 + index) * 60 * 1000));
   if (HOST !== "127.0.0.1" && HOST !== "::1" && !SECURE_COOKIE) {
     console.warn("[stepsemble] warning: listening beyond loopback without Secure cookies; prefer Tailscale Serve/HTTPS or set STEPSEMBLE_HOST=127.0.0.1");
   }

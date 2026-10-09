@@ -1,7 +1,7 @@
-/* stepsemble v3.8.36 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.37 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.36";
+const CLIENT_APP_VERSION = "3.8.37";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -15252,7 +15252,7 @@ function renderHarnessUpdates(data) {
     if (kind === "manual" && item.note) notes.push(item.note);
     // An unproven source refuses the update, so show which file was selected.
     if (item.executablePath && item.source === "unknown") notes.push(updateText("Selected executable: {path}", { path: item.executablePath }));
-    const auto = item.id === "codex" && item.installed === true && data.autoUpgrade?.codex ? data.autoUpgrade.codex : null;
+    const auto = item.installed === true && data.autoUpgrade?.[item.id] ? data.autoUpgrade[item.id] : null;
     const autoNote = auto ? harnessAutoNote(item, auto) : "";
     if (autoNote) notes.push(autoNote);
     for (const text of notes) {
@@ -15291,8 +15291,9 @@ function renderHarnessUpdates(data) {
   }
 }
 
-// Codex upgrades itself on this device when the switch is on: about once an
-// hour, to a release Stepsemble supports, while no agent is working.
+// An agent upgrades itself on this device when its switch is on: about once
+// an hour, while no agent is working. Codex waits for a release Stepsemble
+// supports; the others take the newest release, as Upgrade does.
 function harnessAutoToggle(item, auto, device) {
   const label = document.createElement("label");
   label.className = "harness-update-auto";
@@ -15301,7 +15302,9 @@ function harnessAutoToggle(item, auto, device) {
   const title = document.createElement("span");
   title.textContent = updateText("Upgrade automatically");
   const hint = document.createElement("small");
-  hint.textContent = updateText("Checked about once an hour. Upgrades only to a release Stepsemble supports, while no agent is working.");
+  hint.textContent = auto.checksSupport === false
+    ? updateText("Checked about once an hour. Upgrades to the newest release while no agent is working.")
+    : updateText("Checked about once an hour. Upgrades only to a release Stepsemble supports, while no agent is working.");
   copy.append(title, hint);
   const toggle = document.createElement("span");
   toggle.className = "toggle";
